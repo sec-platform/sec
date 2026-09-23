@@ -1,6 +1,6 @@
 import { test } from 'bun:test';
 import assert from 'node:assert/strict';
-import { indexOwnerIntentInputs } from '../../src/brownfield/source-program-model/owner-intent-index.ts';
+import { indexOwnerIntentInputs } from '../../src/adapters/repository/source-program-model/owner-intent-index.ts';
 
 function fact(overrides: Partial<{
   path: string; surface: string; capability: string; observationClass: string; transport: string;

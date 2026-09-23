@@ -9,7 +9,8 @@ from pathlib import Path, PurePosixPath
 import argparse, hashlib, json, re, sys
 sys.dont_write_bytecode = True
 import collections, html
-from source_inventory import EXCLUDED_FROM_SOURCE_HASH, load, local_path, source_files
+from source_inventory import (EXCLUDED_FROM_SOURCE_HASH, load, local_path, source_files,
+    capture_source_manifest, requirement_projection, MANIFEST_PATH, REQUIREMENTS_PATH)
 
 def plain_heading(text: str) -> str:
     # Only presentation markup is removed; no Unicode normalization/case-fold
@@ -70,53 +71,71 @@ def digest(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 def canonical(value: object) -> bytes:
     return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(',', ':')).encode('utf-8')
+def checked_identity_registry(value, source_paths):
+    if (not isinstance(value, dict) or set(value) != {'schema', 'scope', 'documents'}
+            or value['schema'] != 'sec.documentation-identity/1'
+            or not isinstance(value['scope'], str) or not value['scope']
+            or not isinstance(value['documents'], list) or not value['documents']):
+        raise ValueError('invalid documentation identity registry')
+    ids, paths = set(), set()
+    for item in value['documents']:
+        if not isinstance(item, dict) or set(item) != {'document_id', 'path'}:
+            raise ValueError('document identity fields must be exact')
+        identity, name = item['document_id'], item['path']
+        if (not isinstance(identity, str) or not re.fullmatch(
+                r'urn:uuid:[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}', identity)
+                or not isinstance(name, str) or not name.endswith('.md') or name not in source_paths):
+            raise ValueError('document identity must bind a source Markdown member')
+        logical = name.upper().lower()
+        if identity in ids or logical in paths:
+            raise ValueError('duplicate document identity/path')
+        ids.add(identity); paths.add(logical)
+    return value['documents']
+
+
+def checked_regressions(value, source_paths):
+    if (not isinstance(value, dict) or set(value) != {'scope', 'checks'}
+            or not isinstance(value['scope'], str) or not value['scope']
+            or not isinstance(value['checks'], list)):
+        raise ValueError('invalid finite regression contract')
+    ids = set()
+    for item in value['checks']:
+        if not isinstance(item, dict) or set(item) != {'id', 'path', 'mode', 'text'}:
+            raise ValueError('regression fields must be exact')
+        if any(not isinstance(item[k], str) or not item[k] for k in item):
+            raise ValueError('regression fields must be nonempty strings')
+        if item['mode'] not in {'must_contain', 'must_not_contain'}:
+            raise ValueError('unsupported regression mode')
+        if item['id'] in ids or item['path'] not in source_paths:
+            raise ValueError('duplicate regression identity or non-source target')
+        ids.add(item['id'])
+    return value['checks']
+
+
 def verify(root: Path) -> dict:
     root = root.resolve()
     errors = []
     def local(name: str) -> Path:
         return local_path(root, name)
-    manifest = load(local('.documentation/source-manifest.json'))
-    baseline = load(local('.documentation/baseline.json'))
+    manifest = capture_source_manifest(root)
+    stored_manifest = local(MANIFEST_PATH)
+    if stored_manifest.is_file() and canonical(load(stored_manifest)) != canonical(manifest):
+        errors.append('source projection is stale or has an unsupported identity domain; run docs:refresh')
     entries = manifest['members']
-    if [x['path'] for x in entries] != sorted(x['path'] for x in entries):
-        errors.append('manifest order differs from the declared canonical order')
-    names = set()
-    for x in entries:
-        name = x['path']
-        if name in names or name in EXCLUDED:
-            errors.append('duplicate or excluded manifest member: ' + name)
-        names.add(name)
-        p = local(name)
-        if not p.is_file(): errors.append('missing: ' + name)
-        elif p.stat().st_size != x['bytes'] or digest(p.read_bytes()) != x['sha256']:
-            errors.append('changed: ' + name)
     files = source_files(root)
-    actual = {p.relative_to(root).as_posix() for p in files}
-    if names - actual: errors.append('manifest members outside source roots: ' + repr(sorted(names - actual)))
-    if actual - names - EXCLUDED: errors.append('extra files: ' + repr(sorted(actual - names - EXCLUDED)))
-    current = digest(canonical(entries))
-    if current != manifest['source_set_sha256'] or current != baseline['source_set_sha256']:
-        errors.append('baseline or source manifest is stale')
-    if set(baseline['excluded_from_source_hash']) != EXCLUDED:
-        errors.append('unexpected excluded source domain')
-    docs = load(local('.documentation/documents.json'))['documents']
+    current = manifest['source_set_sha256']
+    source_paths = {x['path'] for x in entries}
+    docs = checked_identity_registry(load(local('.documentation/documents.json')), source_paths)
     ids = [x['document_id'] for x in docs]; paths = [x['path'] for x in docs]
     if len(set(ids)) != len(ids) or len(set(paths)) != len(paths): errors.append('duplicate document identity or path')
     for x in docs:
         if not local(x['path']).is_file(): errors.append('document missing: ' + x['path'])
-    requirements = load(local('.documentation/requirements.json'))['items']
-    if {x['id'] for x in requirements} != {f'REQ{i:03d}' for i in range(1, 52)} or len(requirements) != 51:
-        errors.append('requirement identity set changed')
-    for x in requirements:
-        text = local(x['path']).read_text(encoding='utf-8')
-        matches = list(re.finditer(r'^### (REQ\d{3})[^\n]*', text, re.M))
-        positions = [i for i, m in enumerate(matches) if m[1] == x['id']]
-        if len(positions) != 1:
-            errors.append('ambiguous requirement: ' + x['id']); continue
-        i = positions[0]
-        body = text[matches[i].start():matches[i+1].start() if i+1 < len(matches) else len(text)].strip()
-        if digest(body.encode('utf-8')) != x['body_sha256']: errors.append('stale requirement reference: ' + x['id'])
-    for x in load(local('.documentation/known-regressions.json'))['checks']:
+    projection = requirement_projection(root)
+    stored_requirements = local(REQUIREMENTS_PATH)
+    if stored_requirements.is_file() and canonical(load(stored_requirements)) != canonical(projection):
+        errors.append('requirement projection is stale; run docs:refresh')
+    requirements = projection['items']
+    for x in checked_regressions(load(local('.documentation/known-regressions.json')), source_paths):
         exists = x['text'] in local(x['path']).read_text(encoding='utf-8')
         if (x['mode'] == 'must_contain' and not exists) or (x['mode'] == 'must_not_contain' and exists):
             errors.append('known route regression: ' + x['id'])
@@ -170,6 +189,7 @@ def verify(root: Path) -> dict:
                   'concrete_deliverables_with_author_semantics_and_target_contract': d['deliverables']['count']}
     except (OSError, ValueError) as exc:
         errors.append('design joins: ' + str(exc))
+    if manifest != capture_source_manifest(root): errors.append('source changed during verification')
     if errors: raise ValueError('\n'.join(errors))
     return {**design, 'source_set_sha256':current,'verified_source_members':len(entries),'document_ids':len(docs),'requirements':len(requirements),
             'current_markdown_files':len(anchors),'example_material_projects':material_projects,

@@ -1,7 +1,10 @@
 import { describe, expect, test } from 'bun:test';
 
-import { parseVerificationProviderCapabilityLedger } from '../../src/verification/provider/capability-ledger.ts';
-import { assertProviderCapabilityUsableV1, assertProviderRetryGuard, classifyProviderDiagnosticTextV1, createVerificationProviderAvailabilityEpoch, createVerificationProviderCapability, resolveProviderAvailability } from '../../src/verification/provider/contract/capability.ts';
+import {
+  parseVerificationProviderCapabilityLedger,
+  VERIFICATION_PROVIDER_LEDGER_MAX_INPUT_BYTES
+} from '../../src/adapters/verification/platform/provider/capability-ledger.ts';
+import { assertProviderCapabilityUsableV1, assertProviderRetryGuard, classifyProviderDiagnosticTextV1, createVerificationProviderAvailabilityEpoch, createVerificationProviderCapability, resolveProviderAvailability } from '../../src/adapters/verification/platform/provider/contract/capability.ts';
 
 const OBSERVED_AT = '2026-08-11T00:00:00.000Z';
 const EXPIRES_AT = '2026-08-12T00:00:00.000Z';
@@ -201,4 +204,21 @@ describe('verification provider capability contract', () => {
       availability: 'unknown', reasonCode: 'provider-receipt-unverified', receiptRef: null, observedAt: OBSERVED_AT
     })).toThrow('must use provider github-api');
   });
+});
+
+
+test('verification provider capability ledger rejects oversized input and YAML aliases', () => {
+  expect(() => parseVerificationProviderCapabilityLedger(
+    'x'.repeat(VERIFICATION_PROVIDER_LEDGER_MAX_INPUT_BYTES + 1)
+  )).toThrow('UTF-8 input byte limit');
+
+  const aliased = [
+    'schema: sec-external-capability-ledger-v4',
+    'shared: &shared',
+    '  value: 1',
+    'verification: *shared',
+    ''
+  ].join('\n');
+  expect(() => parseVerificationProviderCapabilityLedger(aliased))
+    .toThrow();
 });

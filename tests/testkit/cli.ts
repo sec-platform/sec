@@ -2,12 +2,12 @@ import { expect } from 'bun:test';
 import { Command } from 'commander';
 import { AsyncLocalStorage } from 'node:async_hooks';
 
-import { buildErrorProtocol } from '../../src/compiler/error-protocol.ts';
-import type { CompilerErrorDetails } from '../../src/compiler/errors.ts';
+import { buildErrorProtocol } from '../../src/application/error-protocol.ts';
 import {
   registerCommands,
   type CliCommandDomainLoaders
-} from '../../src/interface/cli/register-commands.ts';
+} from '../../src/bootstrap/cli/register-commands.ts';
+import type { CompilerErrorDetails } from '../../src/compiler/errors.ts';
 
 function normalizeCliStderr(stderr: string): string {
   return stderr

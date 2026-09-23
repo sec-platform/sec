@@ -9,7 +9,7 @@ import {
   stageWindowsAppContainerProbeAssetSet,
   WindowsAppContainerProbeAssetError,
   windowsAppContainerProbeAssetRelativePath
-} from '../../src/runtime-state/physical/runtime/windows-appcontainer/probe-assets.ts';
+} from '../../src/adapters/runtime-state/physical/runtime/windows-appcontainer/probe-assets.ts';
 
 test('Windows AppContainer stages one immutable, physically read-back probe asset set', async () => {
   const root = await mkdtemp(path.join(tmpdir(), 'sec-appcontainer-probe-assets-'));

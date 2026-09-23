@@ -9,7 +9,7 @@ import {
   resolveRepairMainHealthLane,
   type MainHealthLedgerInput,
   type MainHealthSemanticInput
-} from '../../src/control/main-health/contract.ts';
+} from '../../src/adapters/self-hosting/control/main-health/contract.ts';
 
 const SHA_A = '1'.repeat(40);
 const SHA_B = '2'.repeat(40);

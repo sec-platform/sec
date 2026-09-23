@@ -1,9 +1,9 @@
-import type { VerificationActionKeyDigest, VerificationActionPlan } from '../../src/verification/action/contract/action.ts';
-import { CI_VERIFICATION_HOSTED_EXECUTION_ENVIRONMENT, type CiVerificationNormalizedOperation } from '../../src/verification/action/contract/ci.ts';
-import type { VerificationActionProviderOrigin } from '../../src/verification/action/contract/provider.ts';
-import { CodexDevelopmentFinalizeVerificationActionTerminalArtifact, CodexDevelopmentVerificationActionCandidateBytesDigest, CodexDevelopmentVerificationDigest, type CodexDevelopmentVerificationActionTerminalArtifact } from '../../src/verification/ci/contract/evidence.ts';
-import { CI_VERIFICATION_ACTION_SANDBOX_RECEIPT_SCHEMA, CodexDevelopmentCreateHostedSutExecutionAuthorization, CodexDevelopmentFinalizeHostedActionRawResult, CodexDevelopmentReduceHostedSutObservation, type CodexDevelopmentHostedSutSandboxReceipt } from '../../src/verification/ci/contract/hosted-sut-observation.ts';
-import { CI_VERIFICATION_HOSTED_SANDBOX_POLICY, CI_VERIFICATION_HOSTED_SANDBOX_POLICY_DIGEST } from '../../src/verification/ci/contract/revision.ts';
+import type { VerificationActionKeyDigest, VerificationActionPlan } from '../../src/adapters/verification/platform/action/contract/action.ts';
+import { CI_VERIFICATION_HOSTED_EXECUTION_ENVIRONMENT, type CiVerificationNormalizedOperation } from '../../src/adapters/verification/platform/action/contract/ci.ts';
+import type { VerificationActionProviderOrigin } from '../../src/adapters/verification/platform/action/contract/provider.ts';
+import { CodexDevelopmentFinalizeVerificationActionTerminalArtifact, CodexDevelopmentVerificationActionCandidateBytesDigest, CodexDevelopmentVerificationDigest, type CodexDevelopmentVerificationActionTerminalArtifact } from '../../src/adapters/verification/platform/ci/contract/evidence.ts';
+import { CI_VERIFICATION_ACTION_SANDBOX_RECEIPT_SCHEMA, CodexDevelopmentCreateHostedSutExecutionAuthorization, CodexDevelopmentFinalizeHostedActionRawResult, CodexDevelopmentReduceHostedSutObservation, type CodexDevelopmentHostedSutSandboxReceipt } from '../../src/adapters/verification/platform/ci/contract/hosted-sut-observation.ts';
+import { CI_VERIFICATION_HOSTED_SANDBOX_POLICY, CI_VERIFICATION_HOSTED_SANDBOX_POLICY_DIGEST } from '../../src/adapters/verification/platform/ci/contract/revision.ts';
 
 function verificationFixtureDigest(value: unknown): VerificationActionKeyDigest {
   return CodexDevelopmentVerificationDigest(value) as VerificationActionKeyDigest;

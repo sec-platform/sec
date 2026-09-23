@@ -1,13 +1,13 @@
 import { test } from 'bun:test';
 import assert from 'node:assert/strict';
-import { runtimeDependencyOperationOptions as coordinate } from '../../src/toolchain/dependencies/runtime/operation-context.ts';
+import { runtimeDependencyOperationOptions as coordinate } from '../../src/adapters/toolchain/dependencies/runtime/operation-context.ts';
 import {
   runtimeDependencyOperationControls as bind,
   captureRuntimeDependencyControlInput as capture,
   runtimeDependencyOperationContext as context,
   runtimeDependencyOperationRemainingMs as remaining,
   waitForRuntimeDependencyOperation as wait
-} from '../../src/toolchain/dependencies/runtime/operation-controls.ts';
+} from '../../src/adapters/toolchain/dependencies/runtime/operation-controls.ts';
 
 class Clock {
   #now = 0;

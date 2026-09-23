@@ -1,4 +1,4 @@
-import type { SemanticGeneratorTask } from '../../src/semantic/generation/contract/types.ts';
+import type { SemanticGeneratorTask } from '../../src/semantics/generation/types.ts';
 
 export function ticketSemanticGeneratorTask(): SemanticGeneratorTask {
   return {

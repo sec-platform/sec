@@ -1,6 +1,6 @@
 import { expect, test } from 'bun:test';
 
-import { CI_ARTIFACT_FILES } from '../../src/verification/ci-artifacts/contract/manifest.ts';
+import { CI_ARTIFACT_FILES } from '../../src/assurance/verification/ci-artifacts/contract/manifest.ts';
 import {
   buildReviewSummaryInTempWorkspace
 } from '../helpers/review-fixtures.ts';

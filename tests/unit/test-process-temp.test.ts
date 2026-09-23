@@ -16,7 +16,8 @@ import {
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
-import type { FastTestBatchExecutionAdmission } from '../../src/development/runner/test-execution-policy.ts';
+import { inspectNoFollowDirectoryChain } from '../../src/adapters/runtime-state/physical/runtime/physical-no-follow.ts';
+import type { FastTestBatchExecutionAdmission } from '../../src/adapters/self-hosting/development/runner/test-execution-policy.ts';
 import {
   consumeTestProcessTempAssignmentV1,
   createTestInvocationRuntimeRoots,
@@ -24,8 +25,7 @@ import {
   prepareTestInvocationRuntime,
   testInvocationRuntimeIsolationModeForPlatform,
   TestProcessTempLifecycleError
-} from '../../src/development/runner/test-process-temp.ts';
-import { inspectNoFollowDirectoryChain } from '../../src/runtime-state/physical/runtime/physical-no-follow.ts';
+} from '../../src/adapters/self-hosting/development/runner/test-process-temp.ts';
 
 function generation(prefix: string): string {
   return mkdtempSync(path.join(tmpdir(), prefix));
@@ -393,6 +393,15 @@ test('successor supervisor reclaims a timed-out child generation only after exac
   const abandonedStateRoot = abandoned.stateRoot;
   const abandonedCacheRoot = abandoned.cacheRoot;
   writeFileSync(path.join(lostHandle.tempRoot, 'timeout-residue.txt'), 'residue');
+  if (process.platform === 'linux') {
+    for (const ownerRoot of [abandonedStateRoot, abandonedCacheRoot, lostHandle.tempRoot]) {
+      const sealed = path.join(ownerRoot, 'readonly-package');
+      mkdirSync(sealed);
+      writeFileSync(path.join(sealed, 'lib.d.ts'), 'dead-owner residue');
+      chmodSync(path.join(sealed, 'lib.d.ts'), 0o444);
+      chmodSync(sealed, 0o555);
+    }
+  }
   const successor = await createTestInvocationRuntimeRoots({
     repositoryRoot,
     hostTempRoot: successorTempRoot,
@@ -671,3 +680,41 @@ test('successor preserves a live owner and rejects generation ABA as typed unkno
   expect(existsSync(displaced)).toBe(true);
   rmSync(root, { recursive: true, force: true });
 });
+
+test.skipIf(process.platform !== 'linux')(
+  'owned runtime cleanup retires read-only descendants without changing a linked foreign tree', async () => {
+    const root = generation('sec-runtime-readonly-retirement-');
+    const repositoryRoot = path.join(root, 'repository');
+    const hostTempRoot = path.join(root, 'host-temp');
+    const external = path.join(root, 'external');
+    for (const directory of [repositoryRoot, hostTempRoot, external]) mkdirSync(directory);
+    writeFileSync(path.join(external, 'keep.txt'), 'foreign bytes');
+    const before = lstatSync(external).mode;
+    const runtime = await createTestInvocationRuntimeRoots({
+      repositoryRoot, hostTempRoot,
+      environment: { SEC_STATE_HOME: path.join(root, 'state'), SEC_CACHE_HOME: path.join(root, 'cache') }
+    });
+    const child = runtime.prepareProcessTemp({});
+    try {
+      for (const ownerRoot of [runtime.stateRoot, runtime.cacheRoot, child.tempRoot]) {
+        const sealed = path.join(ownerRoot, 'readonly-package');
+        mkdirSync(sealed);
+        writeFileSync(path.join(sealed, 'lib.d.ts'), 'sealed bytes');
+        symlinkSync(external, path.join(sealed, 'foreign'));
+        chmodSync(path.join(sealed, 'lib.d.ts'), 0o444);
+        chmodSync(sealed, 0o555);
+      }
+      await child.cleanup();
+      await runtime.cleanup();
+      await runtime.cleanup();
+      expect(existsSync(child.processRoot)).toBe(false);
+      expect(existsSync(runtime.stateRoot)).toBe(false);
+      expect(existsSync(runtime.cacheRoot)).toBe(false);
+      expect(readFileSync(path.join(external, 'keep.txt'), 'utf8')).toBe('foreign bytes');
+      expect(lstatSync(external).mode).toBe(before);
+    } finally {
+      await runtime.cleanup();
+      rmSync(root, { recursive: true, force: true });
+    }
+  }
+);

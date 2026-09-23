@@ -3,21 +3,13 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 
+import { compileSecRepositoryModuleMembershipSnapshot } from '../../src/adapters/repository/architecture/contract.ts';
 import {
   compileVirtualWorkspaceSourceSnapshot,
   compileWorkspaceTypeScriptProjectFactIdentity,
   compileWorkspaceTypeScriptProjectInput,
   projectWorkspaceTypeScriptProjectFactIdentity
-} from '../../src/brownfield/source-program-model/workspace-source-snapshot.ts';
-import {
-  compileTypecheckActionInput,
-  compileTypecheckSemanticOperation,
-  requireTypecheckSubordinateTerminal,
-  resolveTypecheckBuildInfoPath,
-  runTypecheckWithDependencyAuthority,
-  runTypecheckWithProjectGenerationEvidence,
-  runTypecheckWithProvider
-} from '../../src/development/runner/typecheck-runner.ts';
+} from '../../src/adapters/repository/source-program-model/workspace-source-snapshot.ts';
 import {
   inspectNoFollowDirectoryChain,
   materializeRetainedNoFollowProvenDirectoryGeneration,
@@ -27,16 +19,32 @@ import {
   type RetainedNoFollowChildProcessDirectory,
   type RetainedNoFollowProvenDirectoryGeneration,
   type RetainedNoFollowSealedDirectoryGeneration
-} from '../../src/runtime-state/physical/runtime/physical-no-follow.ts';
+} from '../../src/adapters/runtime-state/physical/runtime/physical-no-follow.ts';
 import {
   assertProcessResourceSessionReceipt,
   openProcessResourceSession
-} from '../../src/runtime-state/physical/runtime/process-resource-session.ts';
-import { sealExistingWindowsReadOnlyTreeAuthority } from '../../src/runtime-state/physical/runtime/windows-host-filesystem-authority.ts';
-import { createBoundedProcessDiagnosticObjectReceipt } from '../../src/runtime-state/workspace-state/bounded-process-diagnostic-contract.ts';
-import { currentSecRuntimePlatform, resolveSecRuntimeCacheRoot, secRuntimeStateEnvironment } from '../../src/runtime-state/workspace-state/layout.ts';
-import { rawSha256, sha256 } from '../../src/system-architecture/foundation/runtime/canonical.ts';
-import { issueSecOperationRequirementBindingContext } from '../../src/system-architecture/operation/requirement-binding-context.ts';
+} from '../../src/adapters/runtime-state/physical/runtime/process-resource-session.ts';
+import { sealExistingWindowsReadOnlyTreeAuthority } from '../../src/adapters/runtime-state/physical/runtime/windows-host-filesystem-authority.ts';
+import { createBoundedProcessDiagnosticObjectReceipt } from '../../src/adapters/runtime-state/workspace-state/bounded-process-diagnostic-contract.ts';
+import { currentSecRuntimePlatform, resolveSecRuntimeCacheRoot, secRuntimeStateEnvironment } from '../../src/adapters/runtime-state/workspace-state/layout.ts';
+import {
+  compileTypecheckActionInput,
+  compileTypecheckSemanticOperation,
+  requireTypecheckSubordinateTerminal,
+  resolveTypecheckBuildInfoPath,
+  runTypecheckWithDependencyAuthority,
+  runTypecheckWithProjectGenerationEvidence,
+  runTypecheckWithProvider
+} from '../../src/adapters/self-hosting/development/runner/typecheck-runner.ts';
+import { TYPESCRIPT_NATIVE_CHECKER_EXECUTION_POLICY, assertTypeScriptNativeChecker, canonicalTypeScriptDiagnosticArguments, executeTypeScriptNativeChecker, issueTypeScriptCheckerProcessExecutionAdmission, requireSelectedTypeScriptNativeChecker, selectInstalledTypeScriptNativeChecker, typeScriptCheckerArguments, type InstalledTypeScriptNativeChecker, type TypeScriptCheckerProcessExecutionAdmission } from '../../src/adapters/toolchain/typescript/checker.ts';
+import {
+  createVerificationActionKey,
+  issueProcessVerificationActionTerminalSettlement,
+  issueVerificationActionOwnerTerminalReceipt,
+  projectVerificationActionTerminal
+} from '../../src/adapters/verification/platform/action/contract/action.ts';
+import { rawSha256, sha256 } from '../../src/contracts/canonical.ts';
+import { issueSecOperationRequirementBindingContext } from '../../src/execution/operation/requirement-binding-context.ts';
 import {
   bindSecSemanticOperation,
   compileSecCapabilityBinding,
@@ -46,15 +54,7 @@ import {
   issueSecNormalOwnerTerminalJoinReceipt,
   issueSecProviderSettlementReceipt,
   issueSecSemanticOperationAttemptContext
-} from '../../src/system-architecture/operation/semantic.ts';
-import { compileSecRepositoryModuleMembershipSnapshot } from '../../src/system-architecture/repository-modules/contract.ts';
-import { TYPESCRIPT_NATIVE_CHECKER_EXECUTION_POLICY, assertTypeScriptNativeChecker, canonicalTypeScriptDiagnosticArguments, executeTypeScriptNativeChecker, issueTypeScriptCheckerProcessExecutionAdmission, requireSelectedTypeScriptNativeChecker, selectInstalledTypeScriptNativeChecker, typeScriptCheckerArguments, type InstalledTypeScriptNativeChecker, type TypeScriptCheckerProcessExecutionAdmission } from '../../src/toolchain/typescript/checker.ts';
-import {
-  createVerificationActionKey,
-  issueProcessVerificationActionTerminalSettlement,
-  issueVerificationActionOwnerTerminalReceipt,
-  projectVerificationActionTerminal
-} from '../../src/verification/action/contract/action.ts';
+} from '../../src/execution/operation/semantic.ts';
 
 const DEPENDENCY_TRANSITION_DIGEST = `sha256:${'a'.repeat(64)}` as const;
 const DEPENDENCY_GENERATION_DIGEST = `sha256:${'7'.repeat(64)}` as const;

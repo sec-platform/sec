@@ -18,16 +18,19 @@ import {
   preparationFilePath,
   prepareBranchCloseout,
   rehydratePreparedBranchCloseoutRecoveryArtifact
-} from '../../src/control/branch-lifecycle/branch-closeout.ts';
+} from '../../src/adapters/self-hosting/control/branch-lifecycle/branch-closeout.ts';
 import {
   createBranchLifecycleGitChildEnvironment,
   createBranchLifecycleGitHubCredentialArgs
-} from '../../src/control/branch-lifecycle/branch-lifecycle-command.ts';
-import { collectBranchLifecycleInventory } from '../../src/control/branch-lifecycle/branch-lifecycle-inventory.ts';
+} from '../../src/adapters/self-hosting/control/branch-lifecycle/branch-lifecycle-command.ts';
+import {
+  collectBranchLifecycleCloseoutTargetInventory,
+  collectBranchLifecycleInventory
+} from '../../src/adapters/self-hosting/control/branch-lifecycle/branch-lifecycle-inventory.ts';
 import {
   issueActiveWorkPackageOwnerObservation,
   type ActiveWorkPackageOwnerObservation
-} from '../../src/control/task/contract/active-work-observation.ts';
+} from '../../src/adapters/self-hosting/control/task/contract/active-work-observation.ts';
 
 test('canonical Git child environment removes ambient steering and preserves host integration', () => {
   const environment = createBranchLifecycleGitChildEnvironment({
@@ -142,6 +145,21 @@ function activeWorkObservation(
   });
 }
 
+function noActiveWorkObservation(
+  fixture: ReturnType<typeof repositoryFixture>
+): ActiveWorkPackageOwnerObservation {
+  return issueActiveWorkPackageOwnerObservation({
+    repository: 'sec-platform/sec',
+    defaultBranch: 'main',
+    defaultSha: fixture.mainSha,
+    observedAt: new Date().toISOString(),
+    state: 'none',
+    branch: null,
+    manifest: null,
+    reason: 'no active Work Package'
+  });
+}
+
 function installGitHubObservationShim(
   fixture: ReturnType<typeof repositoryFixture>,
   pullRequests: readonly Readonly<Record<string, unknown>>[] = []
@@ -157,6 +175,10 @@ if (args[0] === 'pr' && args[1] === 'list') {
 }
 if (args[0] === 'api' && args[1] === '/repos/sec-platform/sec') {
   process.stdout.write('true');
+  process.exit(0);
+}
+if (args[0] === 'repo' && args[1] === 'view') {
+  process.stdout.write(args.includes('defaultBranchRef') ? 'main' : 'sec-platform/sec');
   process.exit(0);
 }
 process.stderr.write('unsupported test gh observation: ' + args.join(' '));
@@ -185,6 +207,53 @@ process.exit(1);
     else process.env.PATH = priorPath;
   };
 }
+
+test('target-scoped closeout inventory binds authenticated exact PR and fresh target refs', () => {
+  const fixture = repositoryFixture();
+  const restorePath = installGitHubObservationShim(fixture);
+  try {
+    const observation = noActiveWorkObservation(fixture);
+    const preparedInventory = collectBranchLifecycleInventory({
+      repositoryRoot: fixture.repository,
+      repositoryFullName: 'sec-platform/sec',
+      defaultBranch: 'main',
+      activeWorkPackageObservation: observation
+    });
+    const exactPullRequest = {
+      number: 42,
+      headBranch: fixture.branch,
+      headSha: fixture.headSha,
+      baseBranch: 'main',
+      baseSha: fixture.mainSha,
+      state: 'closed' as const,
+      isDraft: false,
+      isCrossRepository: false,
+      url: 'https://github.com/sec-platform/sec/pull/42'
+    };
+    const input = {
+      repositoryRoot: fixture.repository,
+      repositoryFullName: 'sec-platform/sec',
+      activeWorkPackageObservation: observation,
+      targetBranch: fixture.branch,
+      pullRequestNumber: 42,
+      exactPullRequest,
+      preparedInventory
+    };
+    const scoped = collectBranchLifecycleCloseoutTargetInventory(input);
+    expect(scoped.pullRequests.map(({ number }) => number)).toEqual([42]);
+    expect(scoped.remoteBranches.find(({ branch }) => branch === fixture.branch)?.sha)
+      .toBe(fixture.headSha);
+    expect(scoped.worktrees.every(({ dirtyCount, untrackedCount }) =>
+      dirtyCount === null && untrackedCount === null)).toBeTrue();
+    expect(() => collectBranchLifecycleCloseoutTargetInventory({
+      ...input,
+      exactPullRequest: { ...exactPullRequest, headBranch: 'other/branch' }
+    })).toThrow('authenticated exact PR observation differs from the closeout target');
+  } finally {
+    restorePath();
+    rmSync(fixture.root, { recursive: true, force: true });
+  }
+}, 180_000);
 
 test('V6 branch preparation is recovery-only and leaves exact local/remote refs intact', () => {
   const fixture = repositoryFixture();

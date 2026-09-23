@@ -1,9 +1,9 @@
-import type { FactDelta, FactDeltaEndpointContext } from '../../semantic/engineering-ir/contract/delta-types.ts';
-import type { SemanticEntity } from '../../semantic/engineering-ir/contract/entity-types.ts';
-import type { SemanticFact } from '../../semantic/engineering-ir/contract/fact-types.ts';
-import { IMPACT_CONTRACT_VERSION, IMPACT_PROPAGATION_RULE_REVISION, IMPACT_SCOPE, type ImpactBasis, type ImpactOccurrence, type ImpactPathStep, type ImpactPropagationInput, type ImpactSeed, type ImpactUncertainty, type SemanticImpactPropagation, type VerificationReason, type VerificationRecommendation } from '../../semantic/impact/contract/types.ts';
-import { canonicalJson, compareCodeUnits, deepFreeze, sha256, uniqueSorted } from '../../system-architecture/foundation/runtime/canonical.ts';
-import { fail } from '../errors.ts';
+import { canonicalJson, compareCodeUnits, deepFreeze, sha256, uniqueSorted } from '../../contracts/canonical.ts';
+import { fail } from '../../contracts/failure.ts';
+import type { FactDelta, FactDeltaEndpointContext } from '../../semantics/engineering-ir/delta-types.ts';
+import type { SemanticEntity } from '../../semantics/engineering-ir/entity-types.ts';
+import type { SemanticFact } from '../../semantics/engineering-ir/fact-types.ts';
+import { IMPACT_CONTRACT_VERSION, IMPACT_PROPAGATION_RULE_REVISION, IMPACT_SCOPE, type ImpactBasis, type ImpactOccurrence, type ImpactPathStep, type ImpactPropagationInput, type ImpactSeed, type ImpactUncertainty, type SemanticImpactPropagation, type VerificationReason, type VerificationRecommendation } from '../../semantics/impact/types.ts';
 import { buildFactDelta } from '../ir/build-fact-delta.ts';
 import {
   indexValidatedEngineeringIR,
@@ -733,8 +733,13 @@ function verificationReason(source: ImpactSource, factId?: string): Verification
   };
 }
 
+interface RecommendationDraft {
+  readonly target: VerificationRecommendation;
+  readonly reasonsByKey: Map<string, VerificationReason>;
+}
+
 function addRecommendation(
-  recommendations: Map<string, VerificationRecommendation>,
+  recommendations: Map<string, RecommendationDraft>,
   target: { kind: 'acceptance'; acceptanceEntityId: string } | { kind: 'selector'; selector: string },
   reason: VerificationReason
 ): void {
@@ -742,26 +747,21 @@ function addRecommendation(
     ? { kind: target.kind, acceptanceEntityId: target.acceptanceEntityId, reasons: [reason] } as const
     : { kind: target.kind, selector: target.selector, reasons: [reason] } as const;
   const key = `${target.kind}\u0000${verificationTarget(value)}`;
-  const existing = recommendations.get(key);
-  if (!existing) {
-    recommendations.set(key, value);
-    return;
+  let draft = recommendations.get(key);
+  if (draft === undefined) {
+    draft = { target: value, reasonsByKey: new Map() };
+    recommendations.set(key, draft);
   }
-  const reasonsByKey = new Map<string, VerificationReason>();
-  for (const candidate of [...existing.reasons, reason]) {
-    const reasonKey = JSON.stringify([
-      candidate.basis,
-      SOURCE_LEVEL_RANK[candidate.sourceLevel],
-      candidate.sourceEntityId,
-      candidate.factId ?? '',
-      candidate.sourceSeedIds
-    ]);
-    reasonsByKey.set(reasonKey, candidate);
-  }
-  recommendations.set(key, {
-    ...existing,
-    reasons: [...reasonsByKey.values()].sort(compareVerificationReasons)
-  } as VerificationRecommendation);
+  // Accumulate once per target. Rebuilding and sorting all earlier reasons on
+  // every incoming mapping makes a shared verification target quadratic.
+  const reasonKey = JSON.stringify([
+    reason.basis,
+    SOURCE_LEVEL_RANK[reason.sourceLevel],
+    reason.sourceEntityId,
+    reason.factId ?? '',
+    reason.sourceSeedIds
+  ]);
+  draft.reasonsByKey.set(reasonKey, reason);
 }
 
 function selectorFromFact(fact: SemanticFact): string {
@@ -785,7 +785,7 @@ function collectVerification(
   indexes: Readonly<Record<ImpactBasis, EngineeringIRIndex>>,
   uncertainties: Map<string, UncertaintyDraft>
 ): VerificationRecommendation[] {
-  const recommendations = new Map<string, VerificationRecommendation>();
+  const recommendations = new Map<string, RecommendationDraft>();
   for (const source of sources) {
     const index = indexes[source.basis];
     const entity = index.entityById.get(source.entityId);
@@ -899,9 +899,9 @@ function collectVerification(
     }
   }
   return [...recommendations.values()]
-    .map((recommendation) => ({
-      ...recommendation,
-      reasons: [...recommendation.reasons].sort(compareVerificationReasons)
+    .map(({ target, reasonsByKey }) => ({
+      ...target,
+      reasons: [...reasonsByKey.values()].sort(compareVerificationReasons)
     } as VerificationRecommendation))
     .sort(compareRecommendations);
 }

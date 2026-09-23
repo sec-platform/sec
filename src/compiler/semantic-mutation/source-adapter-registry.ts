@@ -1,15 +1,13 @@
-import type { LoadedSemanticContract } from '../../semantic/contracts/contract/types.ts';
-import type { FactDeltaEndpointContext } from '../../semantic/engineering-ir/contract/delta-types.ts';
-import type { FactProvenance } from '../../semantic/engineering-ir/contract/fact-types.ts';
-import { SEMANTIC_CONTRACT_YAML_ADAPTER_ID, SEMANTIC_CONTRACT_YAML_ADAPTER_REVISION, type NormalizedSemanticMutationRequest, type SemanticMutationAuthorizationContext, type SemanticMutationDiagnostic, type SemanticMutationLoadedSourceCandidate, type SemanticMutationOperation, type SemanticMutationSourceKind } from '../../semantic/mutation/contract/types.ts';
-import {
-  AUTHORING_SEMANTIC_CONTRACT_INDEX_PATH,
-  semanticContractSourceRevision
-} from '../parse/load-authoring-semantic-contracts.ts';
+import type { LoadedSemanticContract } from '../../semantics/definitions/types.ts';
+import type { FactDeltaEndpointContext } from '../../semantics/engineering-ir/delta-types.ts';
+import type { FactProvenance } from '../../semantics/engineering-ir/fact-types.ts';
+import { SEMANTIC_CONTRACT_YAML_ADAPTER_ID, SEMANTIC_CONTRACT_YAML_ADAPTER_REVISION, type NormalizedSemanticMutationRequest, type SemanticMutationAuthorizationContext, type SemanticMutationDiagnostic, type SemanticMutationLoadedSourceCandidate, type SemanticMutationOperation, type SemanticMutationSourceKind } from '../../semantics/mutation/types.ts';
+import { semanticContractSourceRevision } from "../../semantics/provenance/source-candidate.ts";
+import { AUTHORING_SEMANTIC_CONTRACT_INDEX_PATH } from "../../workspace/contract/authoring-index.ts";
 import { cloneAndDeepFreeze, exactOwnKeys, isPlainObject, mutationDiagnostic, sha256 } from './canonical.ts';
 import { validateSemanticMutationOperations } from './operation-registry.ts';
 
-export interface SemanticMutationResolvedSource {
+interface SemanticMutationResolvedSource {
   readonly sourceKind: 'workspace-authoring';
   readonly ownerId: string;
   readonly writable: true;
@@ -32,7 +30,7 @@ type SemanticMutationSourceRejection = Extract<
 >;
 
 /** @internal Shared Compiler authority seam; not part of the public facade. */
-export interface SemanticMutationResolvedSourceAuthority {
+interface SemanticMutationResolvedSourceAuthority {
   readonly sourceKind: 'workspace-authoring';
   readonly ownerId: string;
   readonly writablePathPrefix: string;

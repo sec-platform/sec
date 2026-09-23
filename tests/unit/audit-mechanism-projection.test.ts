@@ -10,9 +10,11 @@ import {
   parseSourceProgramAuditOperationInput,
   parseSourceProgramAuditOperationResult,
   type CompileSourceProgramAuditOperationInput
-} from '../../src/brownfield/repository-audit/source-program-audit-operation.ts';
-import type { SourceProgramModel } from '../../src/brownfield/source-program-model/contract.ts';
-import { rawSha256, sha256 } from '../../src/system-architecture/foundation/runtime/canonical.ts';
+} from '../../src/adapters/repository/repository-audit/source-program-audit-operation.ts';
+import type { SourceProgramModel } from '../../src/adapters/repository/source-program-model/contract.ts';
+import { compileSourceProgramFindingDelta } from '../../src/adapters/repository/source-program-model/reconciliation-findings.ts';
+import { captureRepositoryAnalysisPolicy } from '../../src/adapters/repository/source-program-model/repository-analysis-policy.ts';
+import { rawSha256, sha256 } from '../../src/contracts/canonical.ts';
 
 const digest = (value: unknown): `sha256:${string}` => sha256(value) as `sha256:${string}`;
 
@@ -44,6 +46,23 @@ function input(full = false): CompileSourceProgramAuditOperationInput {
   const sourceFileIdentities = source.files.map(({ path, contentDigest }) => ({ path, contentDigest }));
   const before = { sourceRevision: digest('before'), modelDigest: digest('before-model'), compilationReceiptDigest: digest('before-receipt') };
   const after = { sourceRevision, modelDigest, compilationReceiptDigest: receiptDigest };
+  type FindingSnapshot = Parameters<typeof compileSourceProgramFindingDelta>[0];
+  const findingSnapshot = (revision: string, digestValue: string): FindingSnapshot => ({
+    analysisPolicy: captureRepositoryAnalysisPolicy([]),
+    sourceRevision: revision,
+    moduleMembershipDigest: digest('membership'),
+    workspaceSnapshot: { files: sourceFileIdentities },
+    projectGeneration: {
+      compilerRevision: digest('compiler'), providerRevision: digest('provider'),
+      compilerConfigDigest: digest('config'), dependencyGenerationDigest: digest('dependency'),
+      environmentDigest: digest('environment'), projectConfigDigest: null
+    },
+    model: { ...source, sourceRevision: revision, modelDigest: digestValue }
+  }) as unknown as FindingSnapshot;
+  const findingDelta = compileSourceProgramFindingDelta(
+    findingSnapshot(before.sourceRevision, before.modelDigest),
+    findingSnapshot(sourceRevision, modelDigest)
+  );
   const cost = { productionUnits: 0, testUnits: 0, owners: 0, unresolvedObservations: 0, unobservedTestRisk: 0 };
   return {
     sourceProgram: compileSourceProgramAuditSourceProgramProjection(source, sourceFileIdentities, false),
@@ -57,7 +76,7 @@ function input(full = false): CompileSourceProgramAuditOperationInput {
       declarations: [], edges: [], strongComponents: [], unknowns: [], topologyDigest: digest('topology') },
     cache: 'miss', invalidatedTypeScriptPaths: [],
     implementationDominance: { sourceRevision, sourceProgramModelDigest: modelDigest, units: [], findings: [], compilationDigest: digest('dominance') },
-    reconciliation: { status: 'resolved', before, after, changes: [], frontiers: [], providerEvidence: [], unresolvedReasons: [], projectionDigest: digest('reconciliation') },
+    reconciliation: { status: 'resolved', before, after, changes: [], findingDelta, frontiers: [], providerEvidence: [], unresolvedReasons: [], projectionDigest: digest('reconciliation') },
     architectureEvolution: { status: 'no-change', direction: 'neutral',
       before: { ...before, architectureDigest: digest('before-architecture') },
       after: { ...after, architectureDigest: digest('architecture') },
@@ -121,9 +140,9 @@ for (const full of [false, true]) {
 test('mechanism diagnostics cannot suppress existing audit blockers', () => {
   const base = input();
   const result = compileSourceProgramAuditOperationInput({ ...base,
-    implementationDominance: { ...base.implementationDominance, findings: [{ disposition: 'owner-decision-required' }] }
+    reconciliation: { ...base.reconciliation, findingDelta: undefined }
   });
-  assert.deepEqual(result.blockingReasons, ['implementation-dominance']);
+  assert.deepEqual(result.blockingReasons, ['finding-reconciliation-unavailable']);
   assert.equal(compileSourceProgramAuditOperation(result).exitCode, 1);
 });
 

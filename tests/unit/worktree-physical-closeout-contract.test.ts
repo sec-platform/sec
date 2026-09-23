@@ -17,8 +17,8 @@ import {
   parseWorktreePorcelainZ,
   parseWorktreeStatusPorcelainZ,
   type WorktreePhysicalEntry
-} from '../../src/runtime-state/worktree-closeout-contract.ts';
-import { sha256 } from '../../src/system-architecture/foundation/runtime/canonical.ts';
+} from '../../src/adapters/runtime-state/worktree-closeout-contract.ts';
+import { sha256 } from '../../src/contracts/canonical.ts';
 
 const HEAD = '1'.repeat(40);
 const TREE = '2'.repeat(40);
