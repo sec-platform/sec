@@ -1,0 +1,13 @@
+{
+  "importGraph": "runtime",
+  "externalEntrypoints": [],
+  "capabilityProviders": [
+    {
+      "capability": "content-hash-computation",
+      "operations": [
+        "createAwasmBlake3WasmSimdProvider"
+      ]
+    }
+  ],
+  "preDependencyBootstrap": false
+}

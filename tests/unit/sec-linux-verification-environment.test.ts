@@ -7,7 +7,7 @@ import {
   SEC_LINUX_VERIFICATION_TRUSTED_BUN_EXECUTABLE_DIGEST,
   SEC_LINUX_VERIFICATION_TRUSTED_BUN_EXECUTABLE_PATH,
   SEC_LINUX_VERIFICATION_TRUSTED_RUNTIME_DOCKERFILE_PATH
-} from '../../src/external-capabilities/linux-verification/contract.ts';
+} from '../../src/adapters/providers/linux-verification/contract.ts';
 
 describe('SEC Linux verification environment authority', () => {
   test('governs distinct stable identities and dynamic provenance policy once', () => {

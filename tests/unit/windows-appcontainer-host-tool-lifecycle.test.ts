@@ -8,8 +8,8 @@ import { PassThrough } from 'node:stream';
 
 import { expect, test } from 'bun:test';
 
-import { createObservedNativeLifecycleFailureForTests, observedCommandNativeLifecycleDiagnosticForTests, registerObservedWindowsJobControllerForTests, runObservedCommand, type ObservedCommandDependencies, type ObservedCommandOutcome } from '../../src/runtime-state/physical/runtime/observed-process.ts';
-import { decodeWindowsJobActiveProcessCount, windowsNaturalExitSettlementDisposition, windowsPipeFailureDisposition, windowsWaitDisposition } from '../../src/runtime-state/physical/runtime/windows-process-codec.ts';
+import { createObservedNativeLifecycleFailureForTests, observedCommandNativeLifecycleDiagnosticForTests, registerObservedWindowsJobControllerForTests, runObservedCommand, type ObservedCommandDependencies, type ObservedCommandOutcome } from '../../src/adapters/runtime-state/physical/runtime/observed-process.ts';
+import { decodeWindowsJobActiveProcessCount, windowsNaturalExitSettlementDisposition, windowsPipeFailureDisposition, windowsWaitDisposition } from '../../src/adapters/runtime-state/physical/runtime/windows-process-codec.ts';
 import {
   arbitrateWindowsAppContainerNativeExecutionDeadlinesForTests,
   bindWindowsAppContainerObservedNativeHelperSettlement,
@@ -30,7 +30,7 @@ import {
   windowsAppContainerExecutionCleanupChainForTests,
   WindowsAppContainerExecutionError,
   windowsAppContainerObservedNativeHelperSettlementForTests
-} from '../../src/runtime-state/physical/test/windows-appcontainer.ts';
+} from '../../src/adapters/runtime-state/physical/test/windows-appcontainer.ts';
 
 interface FakeChild extends EventEmitter {
   readonly stdin: null;

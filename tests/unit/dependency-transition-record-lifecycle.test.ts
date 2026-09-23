@@ -3,14 +3,14 @@ import assert from 'node:assert/strict';
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { dependencyTransitionRecordBytes, parseDependencyTransitionRecord } from '../../src/toolchain/dependencies/runtime/dependency-transition/codec.ts';
+import { dependencyTransitionRecordBytes, parseDependencyTransitionRecord } from '../../src/adapters/toolchain/dependencies/runtime/dependency-transition/codec.ts';
 import {
   advanceDependencyTransition, beginDependencyTransition, markDependencyTransitionFailure,
   readDependencyTransition, readDependencyTransitionLedger, transitionFailure
-} from '../../src/toolchain/dependencies/runtime/dependency-transition/operation.ts';
-import { dependencyTransitionNamespacePaths } from '../../src/toolchain/dependencies/runtime/dependency-transition/store.ts';
-import { runtimeDependencyOperationControls } from '../../src/toolchain/dependencies/runtime/operation-controls.ts';
-import { runtimeDependencySourceGeneration } from '../../src/toolchain/dependencies/runtime/source-generation.ts';
+} from '../../src/adapters/toolchain/dependencies/runtime/dependency-transition/operation.ts';
+import { dependencyTransitionNamespacePaths } from '../../src/adapters/toolchain/dependencies/runtime/dependency-transition/store.ts';
+import { runtimeDependencyOperationControls } from '../../src/adapters/toolchain/dependencies/runtime/operation-controls.ts';
+import { runtimeDependencySourceGeneration } from '../../src/adapters/toolchain/dependencies/runtime/source-generation.ts';
 
 // Repository execution uses actual source compilation and retained state owners.
 // Local replay explicitly replaces physical/namespace/migration/rollover/digest

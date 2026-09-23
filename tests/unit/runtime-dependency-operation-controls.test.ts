@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import {
   runtimeDependencyOperationEffectFence,
   runtimeDependencyOperationOptions
-} from '../../src/toolchain/dependencies/runtime/operation-context.ts';
+} from '../../src/adapters/toolchain/dependencies/runtime/operation-context.ts';
 import {
   MAX_DEPENDENCY_OPERATION_TIMEOUT_MS,
   runtimeDependencyOperationContext,
@@ -12,11 +12,11 @@ import {
   runtimeDependencyOperationRemainingMs,
   waitForRuntimeDependencyOperation,
   type RuntimeDependencyOperationControlInput
-} from '../../src/toolchain/dependencies/runtime/operation-controls.ts';
+} from '../../src/adapters/toolchain/dependencies/runtime/operation-controls.ts';
 import {
   measureRuntimeDependencyOperationPhase,
   readRuntimeDependencyOperationTelemetry
-} from '../../src/toolchain/dependencies/runtime/operation-telemetry.ts';
+} from '../../src/adapters/toolchain/dependencies/runtime/operation-telemetry.ts';
 
 const unownedFields = ['beforeCommit', 'installMode', 'sharedDepsRoot', 'rematerialize',
   'now', 'sleep', 'skipSharedDepsWarmup', 'testCompilerPublishHook',

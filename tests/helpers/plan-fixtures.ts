@@ -1,10 +1,10 @@
+import { officialRegistryRelativePath, privateRegistryRelativePath } from "../../src/adapters/workspace-context.ts";
+import { loadAllManifests } from '../../src/adapters/workspace/sources/load-manifest.ts';
 import type {
   ManifestEntry,
   PlanFile
 } from '../../src/compiler/contract.ts';
 import { SUPPORTED_STACK } from '../../src/compiler/contract.ts';
-import { loadAllManifests } from '../../src/compiler/parse/load-manifest.ts';
-import { officialRegistryRelativePath, privateRegistryRelativePath } from '../../src/workspace/runtime/paths.ts';
 
 export function buildSingleTenantPlanApp(options: Partial<PlanFile['app']> = {}): PlanFile['app'] {
   return {

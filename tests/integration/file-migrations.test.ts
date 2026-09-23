@@ -2,9 +2,9 @@ import { expect, test } from 'bun:test';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 
-import { upgradeWorkspace } from '../../src/change-management/upgrade/orchestration.ts';
-import { writeJson } from '../../src/workspace/files.ts';
-import { getWorkspacePaths } from '../../src/workspace/runtime/paths.ts';
+import { writeJson } from "../../src/adapters/filesystem/files.ts";
+import { getWorkspacePaths } from "../../src/adapters/workspace-context.ts";
+import { upgradeWorkspace } from '../../src/bootstrap/upgrade/orchestration.ts';
 import { applyMigrationEntries } from '../helpers/apply-migration-entries.ts';
 import { withBlockUpgradeDryRunFixture } from '../helpers/block-upgrade-fixtures.ts';
 import { withTempWorkspace } from '../testkit/workspace.ts';

@@ -1,8 +1,8 @@
-import type { SemanticEntity } from '../semantic/engineering-ir/contract/entity-types.ts';
-import type { SemanticFact, SemanticValue } from '../semantic/engineering-ir/contract/fact-types.ts';
-import type { ValidatedEngineeringIRSnapshot } from '../semantic/engineering-ir/contract/validated-types.ts';
-import type { SemanticGeneratorDeclaration, SemanticGeneratorPlan, SemanticGeneratorPlanTask, StateTransitionMapGeneratorPlanTask, StateTransitionPlanEntry } from '../semantic/generation/contract/types.ts';
-import { canonicalEquals, compareCodeUnits, deepFreeze, uniqueSorted } from '../system-architecture/foundation/runtime/canonical.ts';
+import { canonicalEquals, compareCodeUnits, deepFreeze, uniqueSorted } from '../contracts/canonical.ts';
+import type { SemanticEntity } from '../semantics/engineering-ir/entity-types.ts';
+import type { SemanticFact, SemanticValue } from '../semantics/engineering-ir/fact-types.ts';
+import type { ValidatedEngineeringIRSnapshot } from '../semantics/engineering-ir/validated-types.ts';
+import type { SemanticGeneratorDeclaration, SemanticGeneratorPlan, SemanticGeneratorPlanTask, StateTransitionMapGeneratorPlanTask, StateTransitionPlanEntry } from '../semantics/generation/types.ts';
 import { CompilerError } from './errors.ts';
 import type {
   EngineeringIRIndex

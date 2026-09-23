@@ -7,11 +7,11 @@ import path from 'node:path';
 import {
   createDockerEndpointIdentity,
   type DockerEndpointIdentity
-} from '../../src/external-capabilities/docker/contract/daemon.ts';
-import { SEC_LINUX_VERIFICATION_ENVIRONMENT_AUTHORITY } from '../../src/external-capabilities/linux-verification/contract.ts';
-import { acquirePhysicalMutationLease } from '../../src/runtime-state/physical/runtime/mutation-lease.ts';
-import { inspectNoFollowDirectoryChain } from '../../src/runtime-state/physical/runtime/physical-no-follow.ts';
-import { CI_VERIFICATION_HOSTED_SANDBOX_POLICY } from '../../src/verification/ci/contract/revision.ts';
+} from '../../src/adapters/providers/docker/contract/daemon.ts';
+import { SEC_LINUX_VERIFICATION_ENVIRONMENT_AUTHORITY } from '../../src/adapters/providers/linux-verification/contract.ts';
+import { acquirePhysicalMutationLease } from '../../src/adapters/runtime-state/physical/runtime/mutation-lease.ts';
+import { inspectNoFollowDirectoryChain } from '../../src/adapters/runtime-state/physical/runtime/physical-no-follow.ts';
+import { CI_VERIFICATION_HOSTED_SANDBOX_POLICY } from '../../src/adapters/verification/platform/ci/contract/revision.ts';
 import {
   assertExactLocalGitHubActionsRunnerProfileContainers,
   assertExactLocalGitHubActionsRunnerProfileInventory,
@@ -38,7 +38,7 @@ import {
   type GitHubEndpointIdentity,
   type LocalGitHubActionsRunnerInstance,
   type LocalGitHubActionsRunnerRole
-} from '../../src/verification/ci/runtime/local-github-actions-runner.ts';
+} from '../../src/adapters/verification/platform/ci/runtime/local-github-actions-runner.ts';
 
 const repository = 'sec-platform/sec';
 const providerName = 'sec-main-health-1';

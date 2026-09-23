@@ -2,12 +2,12 @@ import { expect, test } from 'bun:test';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 
+import { readJson } from "../../src/adapters/filesystem/files.ts";
+import { resolveWorkspaceArtifactPath } from "../../src/adapters/workspace-context.ts";
+import type { AcceptanceCoverageReport } from '../../src/assurance/acceptance/coverage.ts';
+import { CI_ARTIFACT_FILES } from '../../src/assurance/verification/ci-artifacts/contract/manifest.ts';
+import { verifyWorkspace } from '../../src/bootstrap/engineering/cli.ts';
 import type { LockFile } from '../../src/compiler/contract.ts';
-import { verifyWorkspace } from '../../src/compiler/orchestration/cli.ts';
-import type { AcceptanceCoverageReport } from '../../src/semantic/acceptance/contract/types.ts';
-import { CI_ARTIFACT_FILES } from '../../src/verification/ci-artifacts/contract/manifest.ts';
-import { readJson } from '../../src/workspace/files.ts';
-import { resolveWorkspaceArtifactPath } from '../../src/workspace/runtime/paths.ts';
 import { prepareComposedWorkspace } from '../testkit/workspace.ts';
 
 test('expanded official block set composes and verifies as one project', async () => {

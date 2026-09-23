@@ -5,7 +5,7 @@ import path from 'node:path';
 
 import {
   publishImportTransformTransaction
-} from '../../src/development/runner/import-transform-transaction.ts';
+} from '../../src/adapters/self-hosting/development/runner/import-transform-transaction.ts';
 
 async function withWorkspace(run: (root: string) => Promise<void>): Promise<void> {
   const root = await mkdtemp(path.join(tmpdir(), 'sec-import-transaction-'));
@@ -92,7 +92,7 @@ test('a legacy journal is read-only evidence and blocks a new transaction until 
     await Promise.all([writeFile(path.join(root, 'a.ts'), 'a1\n'), writeFile(path.join(root, 'b.ts'), 'b0\n')]);
     const expected = Buffer.from('a0\n');
     const replacement = Buffer.from('a1\n');
-    const { digest } = await import('../../src/system-architecture/foundation/runtime/canonical.ts');
+    const { digest } = await import('../../src/contracts/canonical.ts');
     const stem = digest('a.ts');
     await chmod(path.join(root, 'a.ts'), 0o644);
     const targetMode = (await stat(path.join(root, 'a.ts'))).mode & 0o777;
@@ -134,7 +134,7 @@ test('a terminal legacy journal settles once into a digest-bound compact receipt
     const target = path.join(root, 'a.ts');
     const expected = Buffer.from('a0\n');
     const replacement = Buffer.from('a1\n');
-    const { digest } = await import('../../src/system-architecture/foundation/runtime/canonical.ts');
+    const { digest } = await import('../../src/contracts/canonical.ts');
     const stem = digest('a.ts');
     await mkdir(transactionRoot, { recursive: true });
     await Promise.all([
@@ -194,7 +194,7 @@ test('only an exact binding-owned candidate residue is removed during recovery',
       const candidate = `${target}.imports-transform-${transactionId}.replacement.candidate`;
       const expected = Buffer.from('a0\n');
       const replacement = Buffer.from('a1\n');
-      const { digest } = await import('../../src/system-architecture/foundation/runtime/canonical.ts');
+      const { digest } = await import('../../src/contracts/canonical.ts');
       const stem = digest('a.ts');
       await mkdir(transactionRoot, { recursive: true });
       await Promise.all([

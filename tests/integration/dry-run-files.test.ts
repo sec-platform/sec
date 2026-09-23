@@ -1,7 +1,7 @@
 import { expect, test } from 'bun:test';
 import path from 'node:path';
 
-import { writeJson } from '../../src/workspace/files.ts';
+import { writeJson } from "../../src/adapters/filesystem/files.ts";
 import { runPlannedBlockUpgradeDryRun } from './upgrade-dry-run-fixtures.ts';
 
 test('upgrade dry-run records delete file migration impacts', async () => {

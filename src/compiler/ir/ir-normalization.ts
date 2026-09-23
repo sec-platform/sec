@@ -1,6 +1,6 @@
-import type { SemanticAttribute, SemanticAttributeValue } from '../../semantic/engineering-ir/contract/entity-types.ts';
-import type { EvidenceReference, FactProvenance, SemanticFactObject, SemanticValue } from '../../semantic/engineering-ir/contract/fact-types.ts';
-import { compareCodeUnits, uniqueSorted, uniqueSortedByKey } from '../../system-architecture/foundation/runtime/canonical.ts';
+import { compareCodeUnits, uniqueSorted, uniqueSortedByKey } from '../../contracts/canonical.ts';
+import type { SemanticAttribute, SemanticAttributeValue } from '../../semantics/engineering-ir/entity-types.ts';
+import type { EvidenceReference, FactProvenance, SemanticFactObject, SemanticValue } from '../../semantics/engineering-ir/fact-types.ts';
 
 export { uniqueSorted };
 
@@ -9,7 +9,7 @@ interface ManifestProvenanceInput {
   manifestPath?: string;
 }
 
-export function normalizeSemanticValue(value: SemanticValue): SemanticValue {
+function normalizeSemanticValue(value: SemanticValue): SemanticValue {
   if (Array.isArray(value)) return value.map(normalizeSemanticValue);
   if (value !== null && typeof value === 'object') {
     return Object.fromEntries(
