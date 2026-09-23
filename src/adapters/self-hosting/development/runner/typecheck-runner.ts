@@ -5,6 +5,7 @@ import type {
 } from '../../../../assurance/verification/result/contract/result.ts';
 import { sha256 } from '../../../../contracts/canonical.ts';
 import { isPathInside } from "../../../../contracts/relative-path.ts";
+import { observeExecutionProgressPhase } from '../../../../execution/execution-progress.ts';
 import {
   issueSecOperationRequirementBindingContext
 } from '../../../../execution/operation/requirement-binding-context.ts';
@@ -1801,15 +1802,21 @@ async function executeTypecheckWithRetainedProvider(
       }),
       signal: operation.signal
     }, async (session) => {
-      const snapshot = await acquireWorkingTreeWorkspaceSourceSnapshot({ session });
+      const snapshot = await observeExecutionProgressPhase(
+        'typecheck', 'workspace-source-snapshot',
+        () => acquireWorkingTreeWorkspaceSourceSnapshot({ session })
+      );
       operation.assertActive('Source Program snapshot readback');
-      const projectFactIdentity = compileWorkspaceTypeScriptProjectFactIdentity(
-        snapshot,
-        projectConfigPath,
-        {
-          dependencyGenerationDigest:
-            dependencies.executionGenerationAuthority.generationDigest
-        }
+      const projectFactIdentity = await observeExecutionProgressPhase(
+        'typecheck', 'project-fact-identity',
+        () => compileWorkspaceTypeScriptProjectFactIdentity(
+          snapshot,
+          projectConfigPath,
+          {
+            dependencyGenerationDigest:
+              dependencies.executionGenerationAuthority.generationDigest
+          }
+        )
       );
       operation.assertActive('Source Program fact identity settlement');
       const projectGeneration = Object.freeze({

@@ -1,4 +1,5 @@
 import { rawSha256, sha256, uniqueSorted } from '../../../../../contracts/canonical.ts';
+import { observeExecutionProgressPhase } from '../../../../../execution/execution-progress.ts';
 import type { GitReadSession } from '../../../../providers/git-read/runtime/session.ts';
 import type { SourceProgramCompilationOperation } from '../../../../repository/source-program-model/compilation-operation.ts';
 import { compileRepositorySourceProgramWithCache } from '../../../../repository/source-program-model/repository-compilation-cache-session.ts';
@@ -194,26 +195,35 @@ export async function issueAffectedTestImpactSource(input: Readonly<{
   if (selectionBinding === undefined || selectionBinding.session !== session
       || selectionBinding.baseRef !== input.baseRef) return null;
   const transition = selectionBinding.transition;
-  const workspaceSnapshot = await acquireWorkingTreeWorkspaceSourceSnapshot({ session });
+  const workspaceSnapshot = await observeExecutionProgressPhase(
+    'affected-selection', 'workspace-source-snapshot',
+    () => acquireWorkingTreeWorkspaceSourceSnapshot({ session })
+  );
   if (workspaceSnapshot.subject.provenance.kind !== 'working-tree-observation'
       || workspaceSnapshot.subject.provenance.providerIdentityDigest !== sha256(session.providerIdentity)
       || workspaceSnapshot.subject.provenance.repositoryRootIdentityDigest !== sha256(session.workingDirectoryIdentity)
       || transition?.removedPathBlobs.some(({ path }) => workspaceSnapshot.file(path) !== null)
       || !session.verifyExecutable() || session.verifyWorkingDirectory?.() !== true) return null;
-  const projectInput = compileWorkspaceTypeScriptProjectInput(
-    workspaceSnapshot,
-    tsconfigRelativePath,
-    dependencyGeneration === undefined ? undefined : {
-      dependencyGeneration: dependencyGeneration.physicalGeneration,
-      dependencyGenerationDigest: dependencyGeneration.generationDigest
-    }
+  const projectInput = await observeExecutionProgressPhase(
+    'affected-selection', 'project-input',
+    () => compileWorkspaceTypeScriptProjectInput(
+      workspaceSnapshot,
+      tsconfigRelativePath,
+      dependencyGeneration === undefined ? undefined : {
+        dependencyGeneration: dependencyGeneration.physicalGeneration,
+        dependencyGenerationDigest: dependencyGeneration.generationDigest
+      }
+    )
   );
-  const compilation = compileRepositorySourceProgramWithCache({
-    workspaceSnapshot,
-    operation: input.compilationOperation,
-    projectInput,
-    repositoryRoot: input.repositoryRoot
-  });
+  const compilation = await observeExecutionProgressPhase(
+    'affected-selection', 'source-program.total',
+    () => compileRepositorySourceProgramWithCache({
+      workspaceSnapshot,
+      operation: input.compilationOperation,
+      projectInput,
+      repositoryRoot: input.repositoryRoot
+    })
+  );
   const projection = issueTestImpactProjection({
     workspaceSnapshot,
     projectGeneration: compilation.projectGeneration,

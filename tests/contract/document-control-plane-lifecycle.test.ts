@@ -500,7 +500,7 @@ interface FreezeFixture {
 function currentStateSource(remoteName = 'origin'): string {
   return `schema: sec-current-state-live-v1
 resolver:
-  command: bun src/adapters/self-hosting/control/documentation/document-control-plane.ts status --json
+  command: bun src/control/documentation/document-control-plane.ts status --json
   repository: sec-platform/sec
   remote: ${remoteName}
   defaultBranch: main
@@ -1016,7 +1016,7 @@ matchingDefaultBlob: none
   expect(() => CodexDevelopmentParseCurrentStateSpec(`
 schema: sec-current-state-live-v1
 resolver:
-  command: bun src/adapters/self-hosting/control/documentation/document-control-plane.ts status --json
+  command: bun src/control/documentation/document-control-plane.ts status --json
   repository: sec-platform/sec
   remote: origin
   defaultBranch: main
@@ -1028,7 +1028,7 @@ stableFacts: {}
   const validSpec = CodexDevelopmentParseCurrentStateSpec(`
 schema: sec-current-state-live-v1
 resolver:
-  command: bun src/adapters/self-hosting/control/documentation/document-control-plane.ts status --json
+  command: bun src/control/documentation/document-control-plane.ts status --json
   repository: sec-platform/sec
   remote: origin
   defaultBranch: main
@@ -1041,7 +1041,7 @@ stableFacts: {}
   const requiredWorkSelectionSpec = CodexDevelopmentParseCurrentStateSpec(`
 schema: sec-current-state-live-v1
 resolver:
-  command: bun src/adapters/self-hosting/control/documentation/document-control-plane.ts status --json
+  command: bun src/control/documentation/document-control-plane.ts status --json
   repository: sec-platform/sec
   remote: origin
   defaultBranch: main
@@ -1073,7 +1073,7 @@ stableFacts:
       `
 schema: sec-current-state-live-v1
 resolver:
-  command: bun src/adapters/self-hosting/control/documentation/document-control-plane.ts status --json
+  command: bun src/control/documentation/document-control-plane.ts status --json
   repository: sec-platform/sec
   remote: origin
   defaultBranch: main
@@ -5138,7 +5138,7 @@ test('repository controls use the shared live resolver and preserve one bounded 
   const activePackageId = path.basename(pointer.manifest, '.md');
 
   expect(currentState.resolver).toEqual({
-    command: 'bun src/adapters/self-hosting/control/documentation/document-control-plane.ts status --json',
+    command: 'bun src/control/documentation/document-control-plane.ts status --json',
     repository: 'sec-platform/sec',
     remote: 'origin',
     defaultBranch: 'main',

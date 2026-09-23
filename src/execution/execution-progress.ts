@@ -44,3 +44,20 @@ export function reportExecutionProgress(input: Readonly<{
   });
   process.stderr.write(`[sec-progress] ${JSON.stringify(record)}\n`);
 }
+
+/** One bounded phase emits its terminal timing even when the underlying owner throws. */
+export async function observeExecutionProgressPhase<T>(
+  command: string,
+  phase: string,
+  run: () => T | Promise<T>
+): Promise<T> {
+  reportExecutionProgress({ command, phase, state: 'start' });
+  try {
+    const result = await run();
+    reportExecutionProgress({ command, phase, state: 'complete' });
+    return result;
+  } catch (error) {
+    reportExecutionProgress({ command, phase, state: 'failed' });
+    throw error;
+  }
+}

@@ -1,6 +1,6 @@
 {
   "schema": "sec.documentation-source-manifest/2",
-  "source_set_sha256": "ff6cf64b63bca52bc02b4c811665e1d8003a9d9d3640947b61bba247c38f3c63",
+  "source_set_sha256": "acb42ca174b7c626bba7dc4893a5ea058b40b15aaa84b25544467aed8387c9ab",
   "members": [
     {
       "path": ".documentation/README.md",
@@ -579,8 +579,8 @@
     },
     {
       "path": "docs/开发/AI协作/规则装载与任务恢复.md",
-      "bytes": 27110,
-      "sha256": "4bdae953561fa7427a38ba62373c19c0c1a94b34e0345ce6de3d9ddd9f2a46af"
+      "bytes": 29472,
+      "sha256": "a1aa33f90da3e2a94711569ff94fb7525d85412bbe2551cce23afbb10148b8af"
     },
     {
       "path": "docs/开发/AI协作/需求与作者上下文.md",
@@ -1861,6 +1861,11 @@
       "path": "tools/html-requirements.txt",
       "bytes": 108,
       "sha256": "3130d1d1617e4e39acf6761b73f0bb3d3cd0eee11852c51f19c65d6238c216f8"
+    },
+    {
+      "path": "tools/native-typecheck.ts",
+      "bytes": 2299,
+      "sha256": "01c7e709692bda537fd6cfd026f7da6f369590c8fba9ef0c96a312a8cf8017ac"
     },
     {
       "path": "tools/source_inventory.py",

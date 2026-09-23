@@ -35,7 +35,8 @@
     "sec:runtime-canary": "\"$npm_execpath\" src/adapters/self-hosting/control/composition/trusted-runtime-closeout.ts --runtime-canary",
     "build": "\"$npm_execpath\" ./src/bootstrap/release/build.ts",
     "release:build": "\"$npm_execpath\" ./src/bootstrap/release/build-release-set.ts",
-    "typecheck": "\"$npm_execpath\" ./src/adapters/self-hosting/development/runner/cli.ts typecheck",
+    "typecheck": "\"$npm_execpath\" ./tools/native-typecheck.ts",
+    "typecheck:verified": "\"$npm_execpath\" ./src/adapters/self-hosting/development/runner/cli.ts typecheck",
     "reference:refresh": "\"$npm_execpath\" ./src/bootstrap/reference/compile-workspace.ts",
     "reference:check": "\"$npm_execpath\" run sec -- reference check",
     "demo:quickstart": "\"$npm_execpath\" ./src/bootstrap/reference/demo.ts quickstart",
@@ -70,7 +71,7 @@
     "check": "\"$npm_execpath\" run check:fast",
     "check:affected": "\"$npm_execpath\" ./src/adapters/self-hosting/development/runner/cli.ts check:affected",
     "check:fast": "\"$npm_execpath\" ./src/adapters/self-hosting/development/runner/cli.ts check:fast",
-    "check:full": "\"$npm_execpath\" run imports:check --all && \"$npm_execpath\" run audit:static && \"$npm_execpath\" run unused && \"$npm_execpath\" run jscpd && \"$npm_execpath\" run typecheck && \"$npm_execpath\" run docs:doctor && \"$npm_execpath\" run test:full"
+    "check:full": "\"$npm_execpath\" run imports:check --all && \"$npm_execpath\" run audit:static && \"$npm_execpath\" run unused && \"$npm_execpath\" run jscpd && \"$npm_execpath\" run typecheck:verified && \"$npm_execpath\" run docs:doctor && \"$npm_execpath\" run test:full"
   },
   "dependencies": {
     "@awasm/noble": "0.1.4",

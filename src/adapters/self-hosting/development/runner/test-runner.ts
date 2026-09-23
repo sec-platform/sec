@@ -6,6 +6,7 @@ import { deepFreeze, rawSha256, uniqueSorted } from '../../../../contracts/canon
 import { uniqueSortedLines } from '../../../../contracts/collections.ts';
 import { posixPath } from '../../../../contracts/relative-path.ts';
 import { isSecRepositoryTestModulePath, normalizeSecRepositoryTestModulePath } from '../../../../contracts/repository-test-path.ts';
+import { observeExecutionProgressPhase } from '../../../../execution/execution-progress.ts';
 import type { SecBoundSemanticOperation } from '../../../../execution/operation/semantic.ts';
 import { settleResourcesAsync as settlePhysicalResourcesAsync } from '../../../../execution/resource-settlement.ts';
 import { createAuthorityGitReadSession, type GitReadSession, type GitReadSessionCommand } from '../../../providers/git-read/runtime/session.ts';
@@ -1462,9 +1463,10 @@ export async function resolveAffectedTestExecution(options: Readonly<{
   verifyAtResolution?: boolean;
 }>): Promise<ResolvedAffectedTestExecution | null> {
   const ownedDependencyResolution = options.dependencyGeneration === undefined
-    ? await observeOperationDependencyReadGeneration({
+    ? await observeExecutionProgressPhase('affected-selection', 'dependency-generation',
+      () => observeOperationDependencyReadGeneration({
         deadlineAtUnixMs: options.operation.plan.attempt.deadlineAtUnixMs
-      })
+      }))
     : null;
   if (ownedDependencyResolution?.status === 'unavailable') {
     console.error(`Affected ProjectInput dependency generation is unavailable: ${ownedDependencyResolution.reason}`);
@@ -1499,10 +1501,11 @@ export async function resolveAffectedTestExecution(options: Readonly<{
       const rawBaseRef = affectedTestsBaseRef();
       const baseRef = boundedAffectedBaseRef(rawBaseRef);
       if (rawBaseRef !== undefined && baseRef === null) return null;
-      const selection = await issueAffectedGitSelectionSource({
-        session: gitSession,
-        baseRef
-      });
+      const selection = await observeExecutionProgressPhase('affected-selection', 'git-selection',
+        () => issueAffectedGitSelectionSource({
+          session: gitSession,
+          baseRef
+        }));
       if (selection !== null && selection.files.length === 0) {
         changed = {
           files: [],
