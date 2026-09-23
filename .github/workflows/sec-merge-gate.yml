@@ -257,7 +257,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: >-
-          bun scripts/codex/verification-session.ts prepare-integration-hosted
+          bun src/adapters/verification/platform/ci/runtime/verification-session.ts prepare-integration-hosted
           --repository "${{ github.repository }}"
           --output "${SEC_INTEGRATION_DURABLE_DIRECTORY}/integration-projection.json"
           --json
@@ -306,7 +306,7 @@ jobs:
             echo 'SEC_GITHUB_RULESET_AUDITOR_TOKEN is required to prove bypass actors and main ruleset semantics.' >&2
             exit 1
           fi
-          bun scripts/codex/main-authority-ruleset-github.ts observe \
+          bun src/adapters/self-hosting/control/main-health/main-authority-ruleset-github.ts observe \
             --repository "${{ github.repository }}" \
             --branch "${{ github.event.repository.default_branch }}" \
             --output "$RULESET_FILE"
@@ -526,7 +526,7 @@ jobs:
             echo 'SEC_GITHUB_RULESET_AUDITOR_TOKEN is required at the effect boundary.' >&2
             exit 1
           fi
-          bun scripts/codex/main-authority-ruleset-github.ts observe \
+          bun src/adapters/self-hosting/control/main-health/main-authority-ruleset-github.ts observe \
             --repository "${{ github.repository }}" \
             --branch "${{ github.event.repository.default_branch }}" \
             --output "$RULESET_FILE"
@@ -593,7 +593,7 @@ jobs:
           MAIN_HEALTH_PRODUCER_TIMEOUT_MINUTES: *sec_main_health_producer_timeout_minutes
           MAIN_HEALTH_JOIN_POLL_INTERVAL_SECONDS: *sec_main_health_join_poll_interval_seconds
         run: >-
-          bun scripts/codex/verification-session.ts integrate-hosted
+          bun src/adapters/verification/platform/ci/runtime/verification-session.ts integrate-hosted
           --repository "${{ github.repository }}"
           --output "${SEC_INTEGRATION_DURABLE_DIRECTORY}/integration-projection.json"
           --json
@@ -603,7 +603,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: >-
-          bun scripts/codex/verification-session.ts closeout-mutate-hosted
+          bun src/adapters/verification/platform/ci/runtime/verification-session.ts closeout-mutate-hosted
           --repository "${{ github.repository }}"
           --output "${SEC_INTEGRATION_DURABLE_DIRECTORY}/integration-projection.json"
           --json
@@ -613,7 +613,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: >-
-          bun scripts/codex/verification-session.ts closeout-publish-hosted
+          bun src/adapters/verification/platform/ci/runtime/verification-session.ts closeout-publish-hosted
           --repository "${{ github.repository }}"
           --output "${{ github.workspace }}/.tmp/codex/closeout-publication-projection.json"
           --json

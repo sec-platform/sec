@@ -11,14 +11,14 @@ import {
   sealExistingWindowsReadOnlyTreeAuthority,
   sealWindowsReadOnlyTreeGeneration,
   WindowsHostDirectoryAuthorityError
-} from '../../src/runtime-state/physical/runtime/windows-host-filesystem-authority.ts';
+} from '../../src/adapters/runtime-state/physical/runtime/windows-host-filesystem-authority.ts';
 import {
   observeWindowsAclSessionLifecycleForTests,
   proveWindowsHostDirectoryAuthorityForTests
-} from '../../src/runtime-state/physical/test/windows-host-filesystem.ts';
+} from '../../src/adapters/runtime-state/physical/test/windows-host-filesystem.ts';
 import {
   acquireSecRuntimeStatePhysicalAuthority
-} from '../../src/runtime-state/workspace-state/physical-authority.ts';
+} from '../../src/adapters/runtime-state/workspace-state/physical-authority.ts';
 
 
 function windowsRuntimeAuthorityInput(root: string): Readonly<{
@@ -353,6 +353,30 @@ test.skipIf(process.platform !== 'win32')(
         failure: 'session-closed'
       });
     } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  }
+);
+
+test.skipIf(process.platform !== 'win32')(
+  'Windows native host authority converges concurrent hardening on one physical root',
+  async () => {
+    const root = await mkdtemp(path.join(tmpdir(), 'sec-windows-native-concurrent-'));
+    const authorityRoot = path.join(root, 'state');
+    await mkdir(authorityRoot);
+    const authorities: Array<Awaited<ReturnType<
+      typeof hardenExistingWindowsHostDirectoryAuthority
+    >>> = [];
+    try {
+      authorities.push(...await Promise.all(Array.from({ length: 8 }, async () =>
+        hardenExistingWindowsHostDirectoryAuthority(authorityRoot, { knownNew: true })
+      )));
+      await Promise.all(authorities.map(async (authority) => authority.assertCurrent()));
+      expect(new Set(authorities.map((authority) => authority.rootPath))).toEqual(
+        new Set([path.resolve(authorityRoot)])
+      );
+    } finally {
+      await Promise.allSettled(authorities.map(async (authority) => authority.release()));
       await rm(root, { recursive: true, force: true });
     }
   }

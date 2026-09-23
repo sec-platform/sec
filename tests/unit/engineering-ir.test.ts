@@ -189,3 +189,35 @@ test('indexEngineeringIR exposes entity and relation indexes without copying fac
   expect(firstFact).toBeDefined();
   expect(index.factById.get(firstFact!.id)).toBe(firstFact);
 });
+
+test('observed flow sorting preserves duplicate observations, provenance and captured input order', () => {
+  const input = fixture();
+  const observations = Array.from({ length: 24 }, (_, index) => ({
+    sourceCapability: 'ticket/read',
+    target: `src/result-${index % 4}.ts`,
+    providerId: `observer-${index % 3}`,
+    sourcePath: `src/input-${index}.ts`,
+    sourceRevision: `revision-${index}`
+  }));
+  input.observedFlows = [...observations, ...observations.slice(0, 4)];
+  const original = JSON.stringify(input);
+  const ir = buildEngineeringIR(input);
+  const reverse = buildEngineeringIR({ ...input, observedFlows: [...input.observedFlows].reverse() });
+  expect(JSON.stringify(reverse)).toBe(JSON.stringify(ir));
+  expect(JSON.stringify(input)).toBe(original);
+  const flows = ir.facts.filter((fact) => fact.predicate === 'FLOWS_TO');
+  expect(flows).toHaveLength(4);
+  expect(flows.flatMap((fact) => fact.assertions)).toHaveLength(24);
+  expect(flows.flatMap((fact) => fact.assertions).every((assertion) => assertion.authority === 'observed')).toBe(true);
+});
+
+test('a singleton observation does not introduce serialization of unrelated properties', () => {
+  const flow = {
+    providerId: 'observer', sourceCapability: 'ticket/read', sourcePath: 'src/input.ts',
+    sourceRevision: 'revision', target: 'src/output.ts'
+  };
+  // Native Array.sort does not invoke its comparator for a singleton. The
+  // compiler consumes the declared fields; sorting must not widen that read.
+  expect(buildEngineeringIR({ ...fixture(), observedFlows: [{ ...flow, ...{ unrelated: 1n } }] }))
+    .toEqual(buildEngineeringIR({ ...fixture(), observedFlows: [flow] }));
+});

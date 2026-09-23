@@ -5,31 +5,31 @@ import { afterEach, beforeAll, expect, test } from 'bun:test';
 import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 
-import { compileSecOperationDemandGraph } from '../../src/control/operation/demand.ts';
+import { compileSecOperationDemandGraph } from '../../src/adapters/self-hosting/control/operation/demand.ts';
 import {
   affectedTestPlanExitCode,
   compileAffectedTestSelectionSemanticOperation
-} from '../../src/development/runner/affected-plan-contract.ts';
-import { runLocalAffectedCheck } from '../../src/development/runner/check-runner.ts';
+} from '../../src/adapters/self-hosting/development/runner/affected-plan-contract.ts';
+import { runLocalAffectedCheck } from '../../src/adapters/self-hosting/development/runner/check-runner.ts';
 import {
   handoffDevRunnerToFreshProcess,
   runCheckAffectedCommand
-} from '../../src/development/runner/cli.ts';
+} from '../../src/adapters/self-hosting/development/runner/cli.ts';
 import {
   assertMaterializedOperationDependencyBootstrapResult,
   createDependencyFreshProcessHandoff,
   DEV_RUNNER_FRESH_PROCESS_TRANSITION_ENV,
   ensureOperationDependencies,
   reuseOperationDependencies
-} from '../../src/development/runner/dependency-bootstrap.ts';
-import { DEFAULT_TEST_TIMEOUT_MS } from '../../src/development/runner/test-execution-policy.ts';
+} from '../../src/adapters/self-hosting/development/runner/dependency-bootstrap.ts';
+import { DEFAULT_TEST_TIMEOUT_MS } from '../../src/adapters/self-hosting/development/runner/test-execution-policy.ts';
 import {
   observeCompilerDependencyExecutionGenerationAuthority,
   observeCompilerDependencyMaterializationInput,
   projectCompilerDepsReadyState,
   type CompilerDepsReadyState
-} from '../../src/toolchain/dependencies/runtime.ts';
-import { compilerRoot } from '../../src/workspace/runtime/paths.ts';
+} from '../../src/adapters/toolchain/dependencies/runtime.ts';
+import { compilerRoot } from "../../src/adapters/workspace-context.ts";
 
 const CROSS_PROCESS_BOOTSTRAP_ROOT = process.env.SEC_DEPENDENCY_BOOTSTRAP_ROOT;
 const CROSS_PROCESS_ATTEMPT_LOG = process.env.SEC_DEPENDENCY_BOOTSTRAP_ATTEMPT_LOG;

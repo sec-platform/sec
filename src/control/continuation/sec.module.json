@@ -1,6 +1,0 @@
-{
-  "importGraph": "runtime",
-  "externalEntrypoints": [
-    "src/control/continuation/local-continuation.ts"
-  ]
-}

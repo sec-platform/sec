@@ -2,22 +2,22 @@ import { expect, test } from 'bun:test';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 
-import { upgradeWorkspace } from '../../src/change-management/upgrade/orchestration.ts';
-import { runUpgradeWorkspaceWithLease } from '../../src/change-management/upgrade/upgrade-workspace.ts';
+import { writeJson } from "../../src/adapters/filesystem/files.ts";
+import { createWorkspaceWriteLeaseManager } from '../../src/adapters/filesystem/write-lease.ts';
 import {
   inspectNoFollowDirectoryChain,
   inspectNoFollowDirectoryLeaf,
   PhysicalNoFollowError,
   retireNoFollowDirectoryTree,
   scanNoFollowDirectoryTreeInventory
-} from '../../src/runtime-state/physical/runtime/physical-no-follow.ts';
-import { settlePhysicalResourcesAsync } from '../../src/runtime-state/physical/runtime/resource-settlement.ts';
-import { readOptionalProvenanceFile } from '../../src/semantic/provenance/authority.ts';
-import { CI_ARTIFACT_FILES } from '../../src/verification/ci-artifacts/contract/manifest.ts';
-import { writeJson } from '../../src/workspace/files.ts';
-import { createWorkspaceWriteLeaseManager } from '../../src/workspace/lease.ts';
-import { getWorkspacePaths, resolveWorkspaceArtifactPath } from '../../src/workspace/runtime/paths.ts';
-import { calculateCanonicalProjectFileHash } from '../../src/workspace/runtime/project-file-hash.ts';
+} from '../../src/adapters/runtime-state/physical/runtime/physical-no-follow.ts';
+import { getWorkspacePaths, resolveWorkspaceArtifactPath } from "../../src/adapters/workspace-context.ts";
+import { calculateCanonicalProjectFileHash } from '../../src/adapters/workspace/project-file-hash.ts';
+import { readOptionalProvenanceFile } from '../../src/adapters/workspace/provenance-reader.ts';
+import { CI_ARTIFACT_FILES } from '../../src/assurance/verification/ci-artifacts/contract/manifest.ts';
+import { upgradeWorkspace } from '../../src/bootstrap/upgrade/orchestration.ts';
+import { runUpgradeWorkspaceWithLease } from '../../src/bootstrap/upgrade/upgrade-workspace.ts';
+import { settleResourcesAsync as settlePhysicalResourcesAsync } from '../../src/execution/resource-settlement.ts';
 import { prepareBlockUpgradeDryRunFixture, writeBlockUpgradeFixture } from '../helpers/block-upgrade-fixtures.ts';
 import { withTempWorkspace } from '../testkit/workspace.ts';
 import { expectUpgradeDryRunFailure, expectUpgradeDryRunFailureWithDiagnostics } from './upgrade-diagnostics-fixtures.ts';

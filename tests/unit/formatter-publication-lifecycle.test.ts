@@ -10,7 +10,7 @@ const formatter = {
   resolveConfig: (async () => ({})) as Resolve
 };
 mock.module('prettier', () => ({ default: formatter }));
-const { formatOutputFiles } = await import('../../src/compiler/compose/format-output-files.ts');
+const { formatOutputFiles } = await import('../../src/adapters/compilation/compose/format-output-files.ts');
 async function fixture(format: Format, run: (root: string) => Promise<void>, resolve?: Resolve) {
   const root = mkdtempSync(path.join(tmpdir(), 'sec-formatter-lifecycle-')); mkdirSync(path.join(root, 'src'));
   const beforeFormat = formatter.format;

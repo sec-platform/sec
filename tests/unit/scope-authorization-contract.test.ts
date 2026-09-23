@@ -1,6 +1,6 @@
 import { expect, test } from 'bun:test';
 
-import { assertScopeAuthorizationCurrent, createScopeAuthorization, parseScopeAuthorization, type ScopeAuthorizationInput, type ScopeAuthorizationLiveCandidate } from '../../src/control/scope/authorization.ts';
+import { assertScopeAuthorizationCurrent, createScopeAuthorization, parseScopeAuthorization, type ScopeAuthorizationInput, type ScopeAuthorizationLiveCandidate } from '../../src/adapters/self-hosting/control/scope/authorization.ts';
 
 const SHA = '1'.repeat(40); const TREE = '2'.repeat(40); const D = `sha256:${'a'.repeat(64)}` as const;
 const SHA_B = '3'.repeat(40); const TREE_B = '4'.repeat(40); const D_B = `sha256:${'b'.repeat(64)}` as const;

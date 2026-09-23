@@ -1,29 +1,31 @@
 import { expect, test } from 'bun:test';
 import { Buffer } from 'node:buffer';
-import { readFile, rm, writeFile } from 'node:fs/promises';
+import { readFile, rm, symlink, writeFile } from 'node:fs/promises';
+import path from 'node:path';
 
-import { buildProvenanceSummary } from '../../src/compiler/emit/write-review-summary.ts';
+import { buildProvenanceSummary } from '../../src/adapters/compilation/emit/write-review-summary.ts';
+import { readPipelineJournal } from '../../src/adapters/compilation/pipeline/journal.ts';
+import { readJson } from "../../src/adapters/filesystem/files.ts";
+import { acquireWorkspaceWriteLease } from '../../src/adapters/filesystem/write-lease.ts';
+import { resolveWorkspaceArtifactPath } from "../../src/adapters/workspace-context.ts";
+import { CI_ARTIFACT_FILES } from '../../src/assurance/verification/ci-artifacts/contract/manifest.ts';
+import type { ReviewSummary } from '../../src/assurance/verification/review/contract/types.ts';
 import {
   addBlock,
   compileWorkspace,
   initWorkspace
-} from '../../src/compiler/orchestration/cli.ts';
+} from '../../src/bootstrap/engineering/cli.ts';
 import {
   assertPipelineCompletionProofInvariant,
   buildPipelineCompletionProof,
   createPipelineCompletionProof,
   type PipelineCompletionProofEvidence,
   type PipelineCompletionProofStageEvidence
-} from '../../src/compiler/orchestration/pipeline-orchestrator.ts';
-import { readPipelineJournal } from '../../src/compiler/pipeline/journal.ts';
-import { getPipelineStageDefinition } from '../../src/compiler/pipeline/pass-registry.ts';
-import { PIPELINE_STAGE_IDS } from '../../src/compiler/pipeline/types.ts';
-import type { ProvenanceArtifact, ProvenanceFile } from '../../src/semantic/provenance/contract/types.ts';
-import { CI_ARTIFACT_FILES } from '../../src/verification/ci-artifacts/contract/manifest.ts';
-import type { ReviewSummary } from '../../src/verification/review/contract/types.ts';
-import { formatJsonFile, readJson } from '../../src/workspace/files.ts';
-import { acquireWorkspaceWriteLease } from '../../src/workspace/lease.ts';
-import { resolveWorkspaceArtifactPath } from '../../src/workspace/runtime/paths.ts';
+} from '../../src/bootstrap/engineering/pipeline-orchestrator.ts';
+import { getPipelineStageDefinition } from '../../src/compiler/pipeline/stage-definitions.ts';
+import { PIPELINE_STAGE_IDS } from '../../src/compiler/pipeline/stages.ts';
+import { formatJsonFile } from "../../src/contracts/json-text.ts";
+import type { ProvenanceArtifact, ProvenanceFile } from '../../src/semantics/provenance/types.ts';
 import { withTempWorkspace } from '../testkit/workspace.ts';
 
 const staleRevision = `sha256:${'0'.repeat(64)}`;
@@ -192,6 +194,21 @@ test('full Pipeline completion proof binds the exact registry closure and deriva
         await expect(buildPipelineCompletionProof(workspaceRoot, stageEvidence)).rejects.toThrow();
       } finally {
         await writeFile(artifact.path, originalBytes);
+      }
+    }
+
+    if (process.platform !== 'win32') {
+      const originalBytes = await readFile(paths.policyReportPath);
+      const aliasTarget = path.join(workspaceRoot, 'same-policy-report.json');
+      await writeFile(aliasTarget, originalBytes);
+      await rm(paths.policyReportPath);
+      await symlink(aliasTarget, paths.policyReportPath, 'file');
+      try {
+        await expect(buildPipelineCompletionProof(workspaceRoot, stageEvidence)).rejects.toThrow();
+      } finally {
+        await rm(paths.policyReportPath, { force: true });
+        await writeFile(paths.policyReportPath, originalBytes);
+        await rm(aliasTarget, { force: true });
       }
     }
 

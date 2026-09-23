@@ -7,7 +7,7 @@ import {
   CodexDevelopmentParseWorkPackageLocator,
   CodexDevelopmentParseWorkPackageManifest,
   CodexDevelopmentWorkPackageManifestDigest
-} from '../../src/control/task/contract/work-package.ts';
+} from '../../src/adapters/self-hosting/control/task/contract/work-package.ts';
 
 const BASE = '1'.repeat(40);
 

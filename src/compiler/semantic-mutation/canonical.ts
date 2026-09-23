@@ -1,5 +1,5 @@
-import type { SemanticFactSelector, SemanticMutationDiagnostic, SemanticMutationDiagnosticOrigin, SemanticMutationDiagnosticStage, VerificationRequirement } from '../../semantic/mutation/contract/types.ts';
-import { canonicalEquals, canonicalJson, cloneAndDeepFreeze, compareCodeUnits, isPlainObject, rawSha256, sortedKeys } from '../../system-architecture/foundation/runtime/canonical.ts';
+import { canonicalEquals, canonicalJson, cloneAndDeepFreeze, compareCodeUnits, isPlainObject, rawSha256, sortedKeys } from '../../contracts/canonical.ts';
+import type { SemanticFactSelector, SemanticMutationDiagnostic, SemanticMutationDiagnosticOrigin, SemanticMutationDiagnosticStage, VerificationRequirement } from '../../semantics/mutation/types.ts';
 import { CompilerError } from '../errors.ts';
 
 const STAGE_ORDER: readonly SemanticMutationDiagnosticStage[] = [
@@ -27,7 +27,7 @@ const ORIGIN_ORDER: readonly SemanticMutationDiagnosticOrigin[] = [
   'verification'
 ];
 
-export const SHA256_PATTERN = /^sha256:[0-9a-f]{64}$/u;
+const SHA256_PATTERN = /^sha256:[0-9a-f]{64}$/u;
 
 export class SemanticMutationContractError extends CompilerError {
   readonly diagnostic: SemanticMutationDiagnostic;
@@ -56,6 +56,10 @@ export {
  * revision domains. Object insertion order is part of those identities.
  * A different serialization requires a new declared protocol/format revision.
  */
+export function semanticMutationByteDigest(bytes: Uint8Array): string {
+  return rawSha256(bytes);
+}
+
 export function sha256(value: unknown): string {
   const serialized = JSON.stringify(value);
   if (serialized === undefined) {
@@ -115,7 +119,7 @@ function diagnosticDetailsJson(value: SemanticMutationDiagnostic): string {
   return JSON.stringify(value.details === undefined ? null : canonicalJson(value.details));
 }
 
-export function compareDiagnostics(
+function compareDiagnostics(
   left: SemanticMutationDiagnostic,
   right: SemanticMutationDiagnostic
 ): number {

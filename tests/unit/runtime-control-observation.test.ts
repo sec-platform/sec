@@ -1,6 +1,6 @@
 import { test } from 'bun:test';
 import assert from 'node:assert/strict';
-import { runtimeDependencyOperationContext, runtimeDependencyOperationControls, runtimeDependencyOperationRemainingMs } from '../../src/toolchain/dependencies/runtime/operation-controls.ts';
+import { runtimeDependencyOperationContext, runtimeDependencyOperationControls, runtimeDependencyOperationRemainingMs } from '../../src/adapters/toolchain/dependencies/runtime/operation-controls.ts';
 
 for (const configured of [undefined, 20, 1000, 600000]) {
   test(`wall deadline describes the admitted budget, not a longer caller ceiling: ${configured}`, () => {

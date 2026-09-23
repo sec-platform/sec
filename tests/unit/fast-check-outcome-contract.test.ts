@@ -1,6 +1,6 @@
 import { test } from 'bun:test';
 import assert from 'node:assert/strict';
-import { executeFastCheckStages, type FastCheckStages } from '../../src/development/runner/fast-check-stages.ts';
+import { executeFastCheckStages, type FastCheckStages } from '../../src/adapters/self-hosting/development/runner/fast-check-stages.ts';
 
 function fixture(overrides: Partial<FastCheckStages> = {}) {
   const events: string[] = [];

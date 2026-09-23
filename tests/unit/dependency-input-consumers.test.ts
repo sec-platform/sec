@@ -1,13 +1,13 @@
 import { test } from 'bun:test';
 import assert from 'node:assert/strict';
-import { captureRuntimeDependencyInstallRequest as capture } from '../../src/toolchain/dependencies/contract/install-request.ts';
-import { bindCompilerInstallInvocation } from '../../src/toolchain/dependencies/runtime/install-invocation.ts';
-import { consumeRuntimeDependencyTestMaterialization, issueRuntimeDependencyTestMaterialization } from '../../src/toolchain/dependencies/runtime/materialization-fixture-capability.ts';
+import { captureRuntimeDependencyInstallRequest as capture } from '../../src/adapters/toolchain/dependencies/contract/install-request.ts';
+import { bindCompilerInstallInvocation } from '../../src/adapters/toolchain/dependencies/runtime/install-invocation.ts';
+import { consumeRuntimeDependencyTestMaterialization, issueRuntimeDependencyTestMaterialization } from '../../src/adapters/toolchain/dependencies/runtime/materialization-fixture-capability.ts';
 import {
   runtimeDependencyOperationOptions as bind, runtimeDependencyEffectFenceOptions as effect,
   runtimeDependencyOperationEffectFence as fence
-} from '../../src/toolchain/dependencies/runtime/operation-context.ts';
-import { runtimeDependencyOperationContext as context, runtimeDependencyOperationRemainingMs as remaining } from '../../src/toolchain/dependencies/runtime/operation-controls.ts';
+} from '../../src/adapters/toolchain/dependencies/runtime/operation-context.ts';
+import { runtimeDependencyOperationContext as context, runtimeDependencyOperationRemainingMs as remaining } from '../../src/adapters/toolchain/dependencies/runtime/operation-controls.ts';
 
 const controls=()=>({lockTimeoutMs:1000,monotonicNowMs:()=>0});
 

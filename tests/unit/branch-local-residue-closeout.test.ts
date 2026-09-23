@@ -22,17 +22,17 @@ import {
   createBranchCloseoutOperationReceipt,
   createBranchCloseoutPreparation,
   createBranchCloseoutReceipt
-} from '../../src/control/branch-lifecycle/branch-closeout-contract.ts';
-import { BRANCH_CLOSEOUT_PREPARED_ENVELOPE_SCHEMA } from '../../src/control/branch-lifecycle/branch-closeout.ts';
-import { branchLifecycleDigest } from '../../src/control/branch-lifecycle/branch-lifecycle-audit.ts';
-import type { BranchCloseoutReceiptObservation, BranchLifecycleInventory } from '../../src/control/branch-lifecycle/branch-lifecycle-types.ts';
+} from '../../src/adapters/self-hosting/control/branch-lifecycle/branch-closeout-contract.ts';
+import { BRANCH_CLOSEOUT_PREPARED_ENVELOPE_SCHEMA } from '../../src/adapters/self-hosting/control/branch-lifecycle/branch-closeout.ts';
+import { branchLifecycleDigest } from '../../src/adapters/self-hosting/control/branch-lifecycle/branch-lifecycle-audit.ts';
+import type { BranchCloseoutReceiptObservation, BranchLifecycleInventory } from '../../src/adapters/self-hosting/control/branch-lifecycle/branch-lifecycle-types.ts';
 import {
   executeMergedLocalBranchResidueCloseout,
   parseMergedPullRequestHeads,
   parseRepositoryProviderObservation,
   planMergedLocalBranchResidueCloseout
-} from '../../src/control/branch-lifecycle/branch-local-residue-closeout.ts';
-import { acquireBranchRecoveryStore } from '../../src/control/branch-lifecycle/branch-recovery.ts';
+} from '../../src/adapters/self-hosting/control/branch-lifecycle/branch-local-residue-closeout.ts';
+import { acquireBranchRecoveryStore } from '../../src/adapters/self-hosting/control/branch-lifecycle/branch-recovery.ts';
 
 const MAIN = '1'.repeat(40);
 const HEAD = '2'.repeat(40);
