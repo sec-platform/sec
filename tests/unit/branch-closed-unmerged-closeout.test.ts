@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
@@ -36,6 +37,9 @@ const BRANCH = 'codex/closed-unmerged-fixture';
 const REPOSITORY = 'sec-platform/sec';
 const PR_NUMBER = 570;
 let repositoryRoot = '';
+let recoveryRoot = '';
+let bundlePath = '';
+let bundleDigest = '';
 let supersededEvidence: ClosedSupersededDispositionEvidence;
 
 function git(root: string, args: readonly string[]): string {
@@ -64,6 +68,12 @@ beforeAll(async () => {
   git(repositoryRoot, ['commit', '--quiet', '-am', 'current main replacement']);
   MAIN_SHA = git(repositoryRoot, ['rev-parse', 'HEAD']);
   MAIN_TREE = git(repositoryRoot, ['rev-parse', 'HEAD^{tree}']);
+  recoveryRoot = `${repositoryRoot}-recovery`;
+  mkdirSync(recoveryRoot);
+  bundlePath = path.join(recoveryRoot, 'fixture.bundle');
+  git(repositoryRoot, ['bundle', 'create', bundlePath, '--all']);
+  bundleDigest = createHash('sha256').update(readFileSync(bundlePath)).digest('hex');
+  writeFileSync(`${bundlePath}.sha256`, `${bundleDigest}  ${path.basename(bundlePath)}\n`, 'utf8');
   const supersession = await observeTestClosedSupersessionEvidence({
     repositoryRoot,
     repository: REPOSITORY,
@@ -96,10 +106,11 @@ beforeAll(async () => {
 
 afterAll(() => {
   if (repositoryRoot !== '') rmSync(repositoryRoot, { recursive: true, force: true });
+  if (recoveryRoot !== '') rmSync(recoveryRoot, { recursive: true, force: true });
 });
 
 function inventory(): BranchLifecycleInventory {
-  const root = path.resolve('branch-closeout-fixture');
+  const root = repositoryRoot;
   return {
     schema: 'sec-branch-lifecycle-inventory-v1',
     observedAt: '2026-09-01T00:00:00.000Z',
@@ -185,8 +196,8 @@ function prepared(before: BranchLifecycleInventory): PreparedBranchCloseoutEnvel
     pullRequestStateAtPreparation: pullRequest.state,
     recovery: {
       kind: 'bundle',
-      path: path.resolve('branch-closeout-recovery', 'fixture.bundle'),
-      sha256: `sha256:${'6'.repeat(64)}`,
+      path: bundlePath,
+      sha256: `sha256:${bundleDigest}`,
       verified: true,
       verifyOutput: 'verified exact fixture recovery'
     },
@@ -349,8 +360,8 @@ function operation(inputEvidence: ClosedSupersededDispositionEvidence = supersed
     prepared: prepared(inventory()),
     evidence: inputEvidence
   });
+  if (result.status === 'blocked') throw new Error(result.blockers.join(' | '));
   expect(result.status).toBe('ready');
-  if (result.status !== 'ready') throw new Error(result.blockers.join(' | '));
   return result.operation;
 }
 
@@ -394,6 +405,32 @@ describe('closed-unmerged branch lifecycle operation', () => {
       expect(result.receipt.branch).toBe(BRANCH);
       expect(result.receipt.pullRequest).toBe(PR_NUMBER);
       expect(result.receipt.disposition).toBe('closed-superseded');
+    }
+  });
+
+  test('damaged bundle bytes or sidecar block before effect-start and remote CAS', async () => {
+    const originalBundle = readFileSync(bundlePath);
+    const originalSidecar = readFileSync(`${bundlePath}.sha256`);
+    try {
+      for (const target of [bundlePath, `${bundlePath}.sha256`]) {
+        const closeout = operation();
+        const harness = providerHarness(inventory());
+        writeFileSync(target, 'damaged recovery\n');
+        const result = await executeClosedUnmergedCloseoutOperation({
+          operation: closeout, provider: harness.provider
+        });
+        expect(result.status).toBe('blocked');
+        expect(result.status === 'blocked' ? result.stage : '').toBe('effect-start-precondition');
+        expect(result.status === 'blocked' ? result.reasons.join(' | ') : '')
+          .toMatch(/recovery bundle digest mismatch|recovery checksum sidecar does not match/u);
+        expect(harness.effectStart(closeout.operationId)).toBeUndefined();
+        expect(harness.counters).toEqual({ deleteRemoteRef: 0, deleteLocalRef: 0, pruneRemote: 0 });
+        writeFileSync(bundlePath, originalBundle);
+        writeFileSync(`${bundlePath}.sha256`, originalSidecar);
+      }
+    } finally {
+      writeFileSync(bundlePath, originalBundle);
+      writeFileSync(`${bundlePath}.sha256`, originalSidecar);
     }
   });
 

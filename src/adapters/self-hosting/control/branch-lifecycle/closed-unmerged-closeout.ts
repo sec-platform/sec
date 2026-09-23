@@ -389,11 +389,13 @@ function exactCurrentBlockers(input: {
           || evidence.recoveryDigest !== recovery.sha256) {
         throw new Error('Native disposition does not bind the exact main-absorption recovery.');
       }
-      const live = verifyRecoveryAuthorityLive({ inventory, recovery,
-        ...(recovery.basis === 'reviewed-supersession'
-          ? { reviewEvidence: reviewedEvidenceByDisposition.get(evidence) }
-          : {}) });
-      if (live.status !== 'success') throw new Error(live.detail);
+    } else {
+      const review = reviewedEvidenceByDisposition.get(evidence);
+      if (!('supersessionReviewDigest' in evidence) || review === undefined
+          || evidence.supersessionReviewDigest !== review.receiptDigest
+          || evidence.supersessionReference !== review.reference) {
+        throw new Error('Bundle recovery requires its exact owner-issued reviewed disposition.');
+      }
     }
   } catch (error) {
     blockers.push(error instanceof Error ? error.message : String(error));
@@ -658,7 +660,14 @@ async function observeExactInventory(
   if (observation.status !== 'observed') return preserve(operation, stage, observation.detail);
   const blockers = exactCurrentBlockers({ prepared: operation.prepared,
     evidence: operation.evidence, inventory: observation.value, allowedPrStates });
-  return blockers.length > 0 ? blocked(operation, stage, blockers) : observation.value;
+  if (blockers.length > 0) return blocked(operation, stage, blockers);
+  const recovery = operation.prepared.preparation.recovery;
+  const live = verifyRecoveryAuthorityLive({ inventory: observation.value, recovery,
+    ...(recovery.kind === 'main-absorption' && recovery.basis === 'reviewed-supersession'
+      ? { reviewEvidence: reviewedEvidenceByDisposition.get(operation.evidence) }
+      : {}) });
+  return live.status === 'success'
+    ? observation.value : blocked(operation, stage, [live.detail]);
 }
 
 function currentAuthorization(
