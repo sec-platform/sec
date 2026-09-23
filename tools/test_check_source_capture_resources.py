@@ -76,10 +76,14 @@ class CaptureResources(unittest.TestCase):
         self.assertIs(result.exception.primary, primary)
         self.assertIs(result.exception.settlement, cleanup)
 
-    def test_enumeration_does_not_materialize_iterdir_lists(self):
-        with patch.object(Path, 'iterdir', side_effect=AssertionError('unbounded directory read')):
-            names = {p.relative_to(self.root).as_posix() for p in source_files(self.root)}
-        self.assertEqual(names, {'.documentation/baseline.json', 'docs/main.md'})
+    def test_empty_directory_depth_consumes_traversal_budget(self):
+        current = self.root / 'docs'
+        for _ in range(10):
+            current = current / 'empty'
+            current.mkdir()
+        with patch('source_inventory.MAX_MEMBERS', 8):
+            with self.assertRaisesRegex(ValueError, 'traversal budget exceeded'):
+                source_files(self.root)
 
     def test_fanout_is_bounded_while_streaming_and_closes(self):
         class Directory:
@@ -124,9 +128,42 @@ class CaptureResources(unittest.TestCase):
 
     def test_root_budget_precedes_source_root_expansion(self):
         self.declare([f'absent-{i}' for i in range(9)])
-        with patch('source_inventory.MAX_MEMBERS', 8):
+        native_lstat = Path.lstat
+        expanded = []
+        def observe(path, *args, **kwargs):
+            if path.name.startswith('absent-'):
+                expanded.append(path)
+            return native_lstat(path, *args, **kwargs)
+        with patch('source_inventory.MAX_MEMBERS', 8), patch.object(Path, 'lstat', observe):
             with self.assertRaisesRegex(ValueError, 'source root budget exceeded'):
                 source_files(self.root)
+        self.assertEqual(expanded, [], 'Rejected roots must not reach filesystem observation')
+
+    def test_all_boundary_lists_are_admitted_before_any_declared_path_is_observed(self):
+        from source_inventory import baseline
+        for key in ('audited_namespaces', 'non_documentation_roots', 'excluded_from_source_hash'):
+            with self.subTest(key=key):
+                value = declaration(['absent-source'])
+                value[key] = [f'absent-{i}' for i in range(9)]
+                (self.root / '.documentation/baseline.json').write_text(
+                    json.dumps(value), encoding='utf-8')
+                native_lstat = Path.lstat
+                expanded = []
+                def observe(path, *args, **kwargs):
+                    if path.name.startswith('absent-'):
+                        expanded.append(path)
+                    return native_lstat(path, *args, **kwargs)
+                with patch('source_inventory.MAX_MEMBERS', 8), patch.object(Path, 'lstat', observe):
+                    with self.assertRaisesRegex(ValueError, 'budget exceeded'):
+                        baseline(self.root)
+                self.assertEqual(expanded, [], 'No declaration can be expanded before admission')
+
+    def test_root_count_limit_is_inclusive(self):
+        from source_inventory import baseline
+        roots = [f'absent-{i}' for i in range(8)]
+        self.declare(roots)
+        with patch('source_inventory.MAX_MEMBERS', 8):
+            self.assertEqual(baseline(self.root)['source_roots'], roots)
 
     def test_projection_write_and_close_failures_keep_both_causes_and_remove_temp(self):
         primary = OSError('projection write failed')

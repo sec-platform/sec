@@ -169,16 +169,22 @@ def baseline(root: Path) -> dict:
         raise ValueError('unsupported baseline schema; migrate the boundary, not the digest')
     if value['source_manifest'] != 'source-manifest.json':
         raise ValueError('unsupported source_manifest location')
-    for key in ('source_roots', 'audited_namespaces', 'non_documentation_roots',
-                'excluded_from_source_hash'):
+    path_keys = ('source_roots', 'audited_namespaces', 'non_documentation_roots',
+                 'excluded_from_source_hash')
+    # Admit every list before retaining normalized sets or observing any
+    # declared path. An oversized later list must not expand earlier roots.
+    for key in path_keys:
         items = value[key]
-        if (not isinstance(items, list) or any(not isinstance(x, str) for x in items)
+        if not isinstance(items, list):
+            raise ValueError(f'{key} must contain unique relative paths')
+        if len(items) > MAX_MEMBERS:
+            label = 'source root' if key == 'source_roots' else key
+            raise ValueError(f'documentation {label} budget exceeded')
+    for key in path_keys:
+        items = value[key]
+        if (any(not isinstance(x, str) for x in items)
                 or len({x.upper().lower() for x in items}) != len(items)):
             raise ValueError(f'{key} must contain unique relative paths')
-        for name in items:
-            # Non-source cache/projection payloads need not exist or be trusted to inspect source.
-            if name not in EXCLUDED_FROM_SOURCE_HASH:
-                local_path(root, name)
     if not value['source_roots'] or not value['audited_namespaces']:
         raise ValueError('source_roots and audited_namespaces must be nonempty')
     if set(value['excluded_from_source_hash']) != EXCLUDED_FROM_SOURCE_HASH:
@@ -189,6 +195,11 @@ def baseline(root: Path) -> dict:
             raise ValueError(f'invalid baseline {key}')
     if not value['entry'].startswith('../'):
         raise ValueError('baseline entry must be root-relative through ../')
+    for key in path_keys:
+        for name in value[key]:
+            # Source-only callers never inspect excluded projection/cache payloads.
+            if name not in EXCLUDED_FROM_SOURCE_HASH:
+                local_path(root, name)
     local_path(root, value['entry'][3:])
     return value
 
@@ -198,8 +209,6 @@ def source_files(root: Path) -> tuple[Path, ...]:
     root = _root(root)
     declaration = baseline(root)
     names = declaration['source_roots']
-    if len(names) > MAX_MEMBERS:
-        raise ValueError('documentation source root budget exceeded')
     roots = [local_path(root, name) for name in names]
     # Component ordering keeps a parent next to its first descendant even when
     # another root shares only a textual prefix, e.g. docs-other versus docs/x.
