@@ -1,15 +1,15 @@
 import { test } from 'bun:test';
 import assert from 'node:assert/strict';
-import { SecError } from '../../src/system-architecture/foundation/contract/failure.ts';
-import { captureRuntimeDependencyLifecycle as capture, type RuntimeDependencyGeneratedStateLifecycle } from '../../src/toolchain/dependencies/runtime/lifecycle-capabilities.ts';
+import { captureRuntimeDependencyLifecycle as capture, type RuntimeDependencyGeneratedStateLifecycle } from '../../src/adapters/toolchain/dependencies/runtime/lifecycle-capabilities.ts';
 import {
   bindAndRetireCompilerDependencyPreimage,
   bindExistingCompilerDependencyGeneration, bindExistingSharedDependencyRoot,
   birthAndBindCompilerDependencyGeneration,
   ensureCompilerDependencyPreimageRetiredForRecovery,
   settleRetiredCompilerDependencyGeneration
-} from '../../src/toolchain/dependencies/runtime/lifecycle-registration.ts';
-import { runtimeDependencyOperationOptions } from '../../src/toolchain/dependencies/runtime/operation-context.ts';
+} from '../../src/adapters/toolchain/dependencies/runtime/lifecycle-registration.ts';
+import { runtimeDependencyOperationOptions } from '../../src/adapters/toolchain/dependencies/runtime/operation-context.ts';
+import { SecError } from '../../src/contracts/failure.ts';
 
 const physical = Object.freeze({ device: 'dev', inode: 'inode', objectId: 'object' });
 const digest = `sha256:${'2'.repeat(64)}` as const;

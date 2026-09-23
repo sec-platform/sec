@@ -8,11 +8,11 @@ import {
   MAX_FAST_TEST_GLOBAL_RESOURCE_BUDGET,
   resolveFastTestConcurrencyBudget,
   resolveManagedFastTestConcurrency
-} from '../../src/development/runner/fast-test-policy.ts';
+} from '../../src/adapters/self-hosting/development/runner/fast-test-policy.ts';
 import {
   applyDefaultFastTestConcurrency,
   explicitFastTestMaxConcurrency
-} from '../../src/development/runner/test-concurrency-policy.ts';
+} from '../../src/adapters/self-hosting/development/runner/test-concurrency-policy.ts';
 
 test('one pure capped budget resolves CPU counts 1..256 and MAX_SAFE_INTEGER', () => {
   const cpuCounts = [

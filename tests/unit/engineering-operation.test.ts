@@ -4,14 +4,14 @@ import fs from 'node:fs/promises';
 import {
   applyEngineeringOperations,
   type EngineeringOperation
-} from '../../src/compiler/operations/engineering-operation.ts';
-import { initWorkspace } from '../../src/compiler/orchestration/workspace-orchestrator.ts';
+} from '../../src/adapters/compilation/operations/engineering-operation.ts';
 import {
   assertWorkspaceWriteLease,
   withWorkspaceWriteLease
-} from '../../src/workspace/lease.ts';
-import { getWorkspacePaths } from '../../src/workspace/runtime/paths.ts';
-import { readYaml } from '../../src/workspace/yaml.ts';
+} from '../../src/adapters/filesystem/write-lease.ts';
+import { getWorkspacePaths } from "../../src/adapters/workspace-context.ts";
+import { readYaml } from '../../src/adapters/workspace/yaml.ts';
+import { initWorkspace } from '../../src/bootstrap/engineering/workspace-orchestrator.ts';
 import { withTempWorkspace } from '../testkit/workspace.ts';
 
 async function applyWithLease(workspaceRoot: string, operations: readonly EngineeringOperation[]) {

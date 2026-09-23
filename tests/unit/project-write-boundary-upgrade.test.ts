@@ -3,6 +3,23 @@ import path from 'node:path';
 
 import { expect, test } from 'bun:test';
 
+import { readReviewGovernanceReports } from '../../src/adapters/compilation/emit/read-review-governance-reports.ts';
+import { writeJson, writeText } from "../../src/adapters/filesystem/files.ts";
+import {
+  createWorkspaceWriteCommitFence,
+  withWorkspaceWriteLease
+} from '../../src/adapters/filesystem/write-lease.ts';
+import { getWorkspacePaths, resolveWorkspaceArtifactPath } from "../../src/adapters/workspace-context.ts";
+import { writeProjectBaseline } from '../../src/adapters/workspace/project-baseline.ts';
+import {
+  projectProjectWriteAuthorization,
+  ProjectWriteAuthorizationError,
+  withProjectWriteAuthorization,
+  type ProjectWriteAuthorization
+} from '../../src/adapters/workspace/project-write-authorization.ts';
+import { checkProjectWriteBoundary } from '../../src/adapters/workspace/project-write-boundary.ts';
+import { CI_ARTIFACT_FILES } from '../../src/assurance/verification/ci-artifacts/contract/manifest.ts';
+import { sha256 } from '../../src/contracts/canonical.ts';
 import {
   createUpgradePlan,
   parseUpgradeDiagnosticsJson,
@@ -13,24 +30,7 @@ import {
   upgradeDiagnosticsDigest,
   upgradePlanDigest,
   type UpgradePlan
-} from '../../src/change-management/upgrade/contract/upgrade-artifact.ts';
-import { readReviewGovernanceReports } from '../../src/compiler/emit/read-review-governance-reports.ts';
-import { sha256 } from '../../src/system-architecture/foundation/runtime/canonical.ts';
-import { CI_ARTIFACT_FILES } from '../../src/verification/ci-artifacts/contract/manifest.ts';
-import { checkProjectWriteBoundary } from '../../src/workspace/application/project-write-boundary.ts';
-import { writeJson, writeText } from '../../src/workspace/files.ts';
-import {
-  createWorkspaceWriteCommitFence,
-  withWorkspaceWriteLease
-} from '../../src/workspace/lease.ts';
-import { getWorkspacePaths, resolveWorkspaceArtifactPath } from '../../src/workspace/runtime/paths.ts';
-import { writeProjectBaseline } from '../../src/workspace/runtime/project-baseline.ts';
-import {
-  projectProjectWriteAuthorization,
-  ProjectWriteAuthorizationError,
-  withProjectWriteAuthorization,
-  type ProjectWriteAuthorization
-} from '../../src/workspace/runtime/project-write-authorization.ts';
+} from '../../src/semantics/upgrade/upgrade-artifact.ts';
 import { withTempWorkspace } from '../testkit/workspace.ts';
 
 function baselinePathInput(paths: string[]) {

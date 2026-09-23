@@ -1,6 +1,6 @@
-import type { FactDeltaEndpointContext } from '../../semantic/engineering-ir/contract/delta-types.ts';
-import type { SemanticEntityId } from '../../semantic/engineering-ir/contract/entity-types.ts';
-import type { NormalizedSemanticMutationRequest, SemanticMutationAuthorizationContext, SemanticMutationCondition, SemanticMutationDiagnostic, SemanticMutationLoadedSourceCandidate, SemanticMutationOperation, VerificationRequirement } from '../../semantic/mutation/contract/types.ts';
+import type { FactDeltaEndpointContext } from '../../semantics/engineering-ir/delta-types.ts';
+import type { SemanticEntityId } from '../../semantics/engineering-ir/entity-types.ts';
+import type { NormalizedSemanticMutationRequest, SemanticMutationAuthorizationContext, SemanticMutationCondition, SemanticMutationDiagnostic, SemanticMutationLoadedSourceCandidate, SemanticMutationOperation, VerificationRequirement } from '../../semantics/mutation/types.ts';
 import {
   cloneAndDeepFreeze,
   compareCodeUnits,

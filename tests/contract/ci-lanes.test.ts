@@ -2,16 +2,16 @@ import { afterAll, expect, test } from 'bun:test';
 import {
   currentActiveDocumentationPaths,
   currentDocumentationVerificationBaseline
-} from '../../src/control/documentation/active.ts';
+} from '../../src/adapters/self-hosting/control/documentation/active.ts';
 
-import { buildCiContract } from '../../src/verification/ci/contract/core.ts';
-import { bindDocumentationVerificationGateInput, buildCiFullGatePlan, buildCiQuickGatePlan, CodexDevelopmentBuildVerificationPlan as buildVerificationPlanWithProvider, CodexDevelopmentCanonicalChangedFiles, type CodexDevelopmentVerificationPlanProfile } from '../../src/verification/ci/contract/plan.ts';
+import { buildCiContract } from '../../src/adapters/verification/platform/ci/contract/core.ts';
+import { bindDocumentationVerificationGateInput, buildCiFullGatePlan, buildCiQuickGatePlan, CodexDevelopmentBuildVerificationPlan as buildVerificationPlanWithProvider, CodexDevelopmentCanonicalChangedFiles, type CodexDevelopmentVerificationPlanProfile } from '../../src/adapters/verification/platform/ci/contract/plan.ts';
 import {
   CodexDevelopmentChangedFilesFromRecords,
   CodexDevelopmentCreateNotRunGate
-} from '../../src/verification/ci/runtime/ci-orchestration-core.ts';
-import { compileTestBudgetProjection, getSlowTestSuitesSync as getSnapshotSlowTestSuites, slowTestSuiteIds, slowTestPrRiskBaselineSuiteIds as snapshotBaselineSuiteIds } from '../../src/verification/test-impact/contract/budget.ts';
-import { parseGitChangedFileOutput } from '../../src/verification/test-impact/runtime/transition.ts';
+} from '../../src/adapters/verification/platform/ci/runtime/ci-orchestration-core.ts';
+import { compileTestBudgetProjection, getSlowTestSuitesSync as getSnapshotSlowTestSuites, slowTestSuiteIds, slowTestPrRiskBaselineSuiteIds as snapshotBaselineSuiteIds } from '../../src/adapters/verification/platform/test-impact/contract/budget.ts';
+import { parseGitChangedFileOutput } from '../../src/adapters/verification/platform/test-impact/runtime/transition.ts';
 import { acquireExactRepositoryTestImpactProviderFixture } from '../helpers/test-impact-provider.ts';
 import {
   expectFullLaneCoversCorrectnessBackstop,
@@ -64,14 +64,14 @@ test('CI verification plans execute canonical affected Quick and ordered Full wo
 
 test('CI translates owner-issued selection into executable plan gates', () => {
   const pipeline = CodexDevelopmentBuildVerificationPlan('quick', [
-    'src/compiler/compose/generate-runtime-library.ts'
+    'src/adapters/compilation/compose/generate-runtime-library.ts'
   ]);
   expect(pipeline.selectionResolved).toBe(true);
   expect(pipeline.selectionReasons).toEqual(['ownership-impact']);
-  expect(pipeline.affectedOwners).toContain('compiler');
+  expect(pipeline.affectedOwners).toContain('adapters.compilation');
 
   const runtime = CodexDevelopmentBuildVerificationPlan('quick', [
-    'src/compiler/verify/run-runtime-verification.ts'
+    'src/adapters/verification/run-runtime-verification.ts'
   ]);
   expect(runtime.selectionResolved).toBe(true);
   expect(runtime.selectionReasons).toEqual(['ownership-impact']);
@@ -102,7 +102,7 @@ test('Quick docs gate follows the canonical documentation lifecycle owner', () =
   for (const file of currentActiveDocumentationPaths()) {
     const plan = CodexDevelopmentBuildVerificationPlan('quick', [file]);
     expect(plan.selectionResolved).toBe(true);
-    expect(plan.affectedOwners).toContain('control.documentation');
+    expect(plan.affectedOwners).toContain('adapters.self-hosting.control.documentation');
     expect(plan.affectedOwners).not.toContain('bounded-slow-risk');
     expect(plan.gates.map(({ id }) => id)).toContain('docs-doctor');
   }
@@ -111,7 +111,7 @@ test('Quick docs gate follows the canonical documentation lifecycle owner', () =
     'docs/unregistered.manifest.yaml'
   ]);
   expect(unknownDocsYaml.selectionResolved).toBe(false);
-  expect(unknownDocsYaml.affectedOwners).not.toContain('control.documentation');
+  expect(unknownDocsYaml.affectedOwners).not.toContain('adapters.self-hosting.control.documentation');
   expect(unknownDocsYaml.gates.map(({ id }) => id)).toContain('docs-doctor');
   expect(unknownDocsYaml.gates.filter(({ id }) => id.startsWith('slow-suite-')))
     .toHaveLength(slowTestPrRiskBaselineSuiteIds().length);
@@ -168,7 +168,7 @@ test('Ticket semantic Contract reaches CI through the owner-issued plan boundary
     selectionResolved: true
   });
   expect(selection.affectedOwners).toContain('compiler');
-  expect(selection.affectedOwners).toContain('product.semantic-model');
+  expect(selection.affectedOwners).toContain('semantics.definitions');
   expect(selection.affectedOwners).not.toContain('bounded-slow-risk');
 });
 

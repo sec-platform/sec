@@ -4,7 +4,7 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 
-import { runSettlement } from '../../src/development/tooling/workspace/worktree-settlement.ts';
+import { runSettlement } from '../../src/adapters/self-hosting/development/tooling/workspace/worktree-settlement.ts';
 
 function git(cwd: string, args: string[]): void {
   const result = spawnSync('git', args, { cwd, encoding: 'utf8', windowsHide: true });

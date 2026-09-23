@@ -1,6 +1,0 @@
-{
-  "importGraph": "runtime",
-  "externalEntrypoints": [
-    "src/verification/provider/capability-ledger-validation.ts"
-  ]
-}

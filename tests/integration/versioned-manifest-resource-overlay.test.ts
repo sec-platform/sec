@@ -2,9 +2,9 @@ import { expect, test } from 'bun:test';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 
-import { loadManifestById } from '../../src/compiler/parse/load-manifest.ts';
-import { readManifestResourceFileUtf8 } from '../../src/compiler/parse/read-manifest-resource.ts';
-import { getWorkspacePaths } from '../../src/workspace/runtime/paths.ts';
+import { getWorkspacePaths } from "../../src/adapters/workspace-context.ts";
+import { loadManifestById } from '../../src/adapters/workspace/sources/load-manifest.ts';
+import { readManifestResourceFileUtf8 } from '../../src/adapters/workspace/sources/read-manifest-resource.ts';
 import { writeBlockUpgradeFixture } from '../helpers/block-upgrade-fixtures.ts';
 import { buildPrivatePlanRegistrySource } from '../helpers/plan-fixtures.ts';
 import { withTempWorkspace } from '../testkit/workspace.ts';

@@ -3,13 +3,13 @@ import assert from 'node:assert/strict';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+import { parseYamlDocument, parseYamlValue, YamlInputLimitError, YamlSyntaxError } from '../../src/adapters/formats/yaml.ts';
+import { getWorkspacePaths } from "../../src/adapters/workspace-context.ts";
+import { loadManifestById, MANIFEST_YAML_MAX_INPUT_BYTES } from '../../src/adapters/workspace/sources/load-manifest.ts';
+import { loadOverrideManifest, OVERRIDE_YAML_MAX_INPUT_BYTES } from '../../src/adapters/workspace/sources/load-override-manifest.ts';
+import { loadPlan, PLAN_YAML_MAX_INPUT_BYTES } from '../../src/adapters/workspace/sources/load-plan.ts';
+import { manifestCache } from '../../src/adapters/workspace/sources/manifest-cache.ts';
 import { SUPPORTED_STACK } from '../../src/compiler/contract.ts';
-import { loadManifestById, MANIFEST_YAML_MAX_INPUT_BYTES } from '../../src/compiler/parse/load-manifest.ts';
-import { loadOverrideManifest, OVERRIDE_YAML_MAX_INPUT_BYTES } from '../../src/compiler/parse/load-override-manifest.ts';
-import { loadPlan, PLAN_YAML_MAX_INPUT_BYTES } from '../../src/compiler/parse/load-plan.ts';
-import { manifestCache } from '../../src/compiler/parse/manifest-cache.ts';
-import { parseYamlDocument, parseYamlValue, YamlInputLimitError, YamlSyntaxError } from '../../src/system-architecture/foundation/runtime/yaml.ts';
-import { getWorkspacePaths } from '../../src/workspace/runtime/paths.ts';
 
 // These tests deliberately retain the real yaml/Zod and retained readers. They
 // must not be marked passed by substituting JSON.parse or a structural stub.

@@ -6,7 +6,7 @@ import {
   repositoryAuditShouldFail as shouldFail,
   repositoryModuleTopologyShouldFail as topologyFails,
   type RepositoryAuditSeverity
-} from '../../src/brownfield/repository-audit/cli-contract.ts';
+} from '../../src/adapters/repository/repository-audit/cli-contract.ts';
 
 // Independent command vectors. These checks use the native argument parser and
 // pure decisions, not a mock Git/worker/scan result promoted into authority.

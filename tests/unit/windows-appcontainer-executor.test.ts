@@ -11,14 +11,14 @@ import {
   proveWindowsAppContainerNativeHelperEntryForTests,
   readWindowsAppContainerNativeHelperCapability,
   WindowsAppContainerNativeHelperMaterializationError
-} from '../../src/runtime-state/physical/runtime/windows-appcontainer/native-helper-materialization.ts';
+} from '../../src/adapters/runtime-state/physical/runtime/windows-appcontainer/native-helper-materialization.ts';
 import {
   acquireWindowsAppContainerProbeConformanceServersForTests,
   buildWindowsAppContainerProbeEnvironmentForTests,
   observeWindowsAppContainerProbeReportForTests,
   redactWindowsAppContainerProbeCapabilityForTests,
   windowsAppContainerProbeReportIsIsolatedForTests
-} from '../../src/runtime-state/physical/runtime/windows-appcontainer/probe-conformance.ts';
+} from '../../src/adapters/runtime-state/physical/runtime/windows-appcontainer/probe-conformance.ts';
 import {
   encodeWindowsAppContainerNativeDerivedSid,
   encodeWindowsAppContainerNativeFailure,
@@ -33,7 +33,7 @@ import {
   WindowsAppContainerCapabilityUnavailableError,
   WindowsAppContainerExecutionError,
   windowsAppContainerNativeHelperObservationForTests
-} from '../../src/runtime-state/physical/test/windows-appcontainer.ts';
+} from '../../src/adapters/runtime-state/physical/test/windows-appcontainer.ts';
 
 async function exists(filePath: string): Promise<boolean> {
   try {

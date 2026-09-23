@@ -1,10 +1,10 @@
 import { expect, test } from 'bun:test';
 import { createHash } from 'node:crypto';
 
-import { encodeVerificationActionData } from '../../src/verification/action/contract/action.ts';
-import { assertCiVerificationActionPlanClosureEqual, assertCiVerificationActionProviderEnvelopeMember, buildCiVerificationActionPlanClosure, ciVerificationActionParentDispatchPlanArtifactName, ciVerificationActionParentDispatchPlanPayloadDigest, ciVerificationGateStep, ciVerificationNormalizedOperationArgv, createCiVerificationActionParentDispatchPlan, createCiVerificationActionProposal, createCiVerificationActionProviderEnvelope, parseCiVerificationActionParentDispatchPlan, parseCiVerificationActionPlanClosure, parseCiVerificationActionProviderEnvelope, resolveCiVerificationDevRunnerTarget, type CiVerificationActionCandidate } from '../../src/verification/action/contract/ci.ts';
-import { buildCiFullGatePlan, buildCiQuickGatePlan } from '../../src/verification/ci/contract/plan.ts';
-import { createVerificationSession, createVerificationSessionProposalDigest } from '../../src/verification/session/contract/session.ts';
+import { encodeVerificationActionData } from '../../src/adapters/verification/platform/action/contract/action.ts';
+import { assertCiVerificationActionPlanClosureEqual, assertCiVerificationActionProviderEnvelopeMember, buildCiVerificationActionPlanClosure, ciVerificationActionParentDispatchPlanArtifactName, ciVerificationActionParentDispatchPlanPayloadDigest, ciVerificationGateStep, ciVerificationNormalizedOperationArgv, createCiVerificationActionParentDispatchPlan, createCiVerificationActionProposal, createCiVerificationActionProviderEnvelope, parseCiVerificationActionParentDispatchPlan, parseCiVerificationActionPlanClosure, parseCiVerificationActionProviderEnvelope, resolveCiVerificationDevRunnerTarget, type CiVerificationActionCandidate } from '../../src/adapters/verification/platform/action/contract/ci.ts';
+import { buildCiFullGatePlan, buildCiQuickGatePlan } from '../../src/adapters/verification/platform/ci/contract/plan.ts';
+import { createVerificationSession, createVerificationSessionProposalDigest } from '../../src/adapters/verification/platform/session/contract/session.ts';
 
 const digest = (value: string): `sha256:${string}` => `sha256:${value.repeat(64).slice(0, 64)}`;
 const candidate: CiVerificationActionCandidate = {
@@ -111,7 +111,7 @@ test('direct Bun tests have one bounded normalized target and reject generic sub
 
   const rejectedArgv = [
     ['bun', 'test'],
-    ['bun', 'test', 'src/verification/ci/verification.ts'],
+    ['bun', 'test', 'src/adapters/verification/platform/ci/verification.ts'],
     ['bun', 'test', '../tests/unit/example.test.ts'],
     ['bun', 'test', '/tests/unit/example.test.ts'],
     ['bun', 'test', 'tests/../scripts/example.test.ts'],
