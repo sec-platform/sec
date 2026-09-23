@@ -1,7 +1,7 @@
 import { test } from 'bun:test';
 import assert from 'node:assert/strict';
 import { devNull } from 'node:os';
-import { canonicalGitChildEnvironment, gitEnvironmentValue } from '../../src/external-capabilities/git/environment.ts';
+import { canonicalGitChildEnvironment, gitEnvironmentValue } from '../../src/adapters/providers/git/environment.ts';
 
 // Independent forbidden-input vectors, not derived from the production sets.
 const configInputs = ['GIT_CONFIG', 'GIT_CONFIG_COUNT', 'GIT_CONFIG_PARAMETERS',

@@ -9,14 +9,16 @@ import { expect, test } from 'bun:test';
 import {
   auditRepository,
   extractHeuristicBehaviorCandidates,
+  projectWorkflowEntrypointFindings,
+  projectWorkTrackingContractFindings,
   repositoryAuditShouldFail,
   repositoryAuditSupersessionShouldBlock
-} from '../../src/brownfield/repository-audit/cli.ts';
+} from '../../src/adapters/repository/repository-audit/cli.ts';
 import {
   SEC_AGENT_SKILL_IDS,
   SEC_REPOSITORY_HEURISTIC_BEHAVIOR_IDS,
   SEC_REPOSITORY_HEURISTIC_ROUTES
-} from '../../src/control/agent/skill.ts';
+} from '../../src/adapters/self-hosting/control/agent/skill.ts';
 
 function git(repositoryRoot: string, args: readonly string[]): string {
   const result = spawnSync('git', [...args], {
@@ -42,6 +44,89 @@ test('repository enforcement blocks only unresolved supersession evidence', () =
   expect(repositoryAuditSupersessionShouldBlock({ status: 'equivalent' })).toBe(false);
   expect(repositoryAuditSupersessionShouldBlock({ status: 'superseded' })).toBe(false);
   expect(repositoryAuditSupersessionShouldBlock({ status: 'owner-decision-required' })).toBe(true);
+});
+
+
+test('work tracking contract separates problem inventory from executable progress', () => {
+  const contractPath = 'config/repository/work-tracking-contract.json';
+  const frontier = 'docs/状态/前沿与登记规则.md';
+  const mainline = 'docs/演进/实施/主线前沿与准入.md';
+  const problemFiles = [
+    'docs/状态/作者与接口.md',
+    'docs/状态/信息约束与验证.md',
+    'docs/状态/执行与恢复.md',
+    'docs/状态/编译与目标.md',
+    'docs/状态/语义与领域.md'
+  ];
+  const tracked = [contractPath, frontier, mainline, 'config/repository/active-work-package.md', ...problemFiles];
+  const valid = {
+    schema: 'sec-work-tracking-contract-v1',
+    authorities: {
+      rootGoals: frontier + '#目标到问题的总览',
+      problemRegistry: frontier + '#已知问题主登记',
+      implementationMainline: mainline + '#实现交付按同一主链闭合不再先建设一套库生态',
+      activeWorkPackage: 'config/repository/active-work-package.md'
+    },
+    identities: {
+      G: { pattern: '^G\\\\d{2}$', meaning: 'root-goal', task: false, githubIssue: false, progressUnit: false },
+      U: { pattern: '^U\\\\d{3}$', meaning: 'stable-problem-theme', task: false, githubIssue: false, progressUnit: false, allocation: 'monotonic-never-reuse' }
+    },
+    execution: {
+      mainlineUnit: 'implementation-delivery', coordinationUnit: 'work-group', actionUnit: 'work-package',
+      evidenceUnit: 'revision-bound-evidence', branchRole: 'transport-or-candidate-not-work-identity',
+      commitRole: 'durable-change-evidence-not-progress-unit'
+    },
+    progress: {
+      unit: 'activated-deliverable-obligation-closure',
+      mustReport: ['currentMainlineDelivery','activeWorkGroupOrWorkPackage','closedObligations','openObligations','evidence','blockers'],
+      mustNotUseAsProgress: ['G-count','U-count','branch-count','commit-count']
+    },
+    newProblemAdmission: ['concrete-counterexample','rule-contradiction','missing-callable-interface','explicit-independent-user-obligation','independent-mechanism-not-covered-by-existing-U'],
+    duplicatePolicy: 'merge-source-into-existing-U-when-obligation-is-not-independent',
+    githubIssueMapping: 'optional-explicit-mirror-only'
+  };
+  const sources = new Map<string, string | null>([
+    [contractPath, JSON.stringify(valid)],
+    [frontier, '<a id="g01"></a>**G01 Root**\\n'],
+    [mainline, '# mainline\\n'],
+    ['config/repository/active-work-package.md', 'manifest: fixture\\n'],
+    [problemFiles[0]!, '<a id="u001"></a>\\n'],
+    [problemFiles[1]!, '<a id="u002"></a>\\n'],
+    [problemFiles[2]!, '<a id="u003"></a>\\n'],
+    [problemFiles[3]!, '<a id="u004"></a>\\n'],
+    [problemFiles[4]!, '<a id="u005"></a>\\n']
+  ]);
+  expect(projectWorkTrackingContractFindings(tracked, sources)).toEqual([]);
+
+  const invalid = structuredClone(valid);
+  invalid.identities.U.progressUnit = true;
+  expect(projectWorkTrackingContractFindings(tracked, new Map(sources).set(contractPath, JSON.stringify(invalid))))
+    .toContainEqual(expect.objectContaining({ code: 'work-tracking-contract-semantics-invalid', severity: 'high' }));
+
+  expect(projectWorkTrackingContractFindings(tracked, new Map(sources).set(problemFiles[4]!, '<a id="u001"></a>\\n')))
+    .toContainEqual(expect.objectContaining({ code: 'work-tracking-problem-id-duplicate', severity: 'high' }));
+});
+
+test('repository audit rejects retired workflow entrypoints before CI execution', () => {
+  const workflow = '.github/workflows/compiler-pr-validation.yml';
+  const current = 'src/adapters/verification/platform/ci/verification.ts';
+  const tracked = [workflow, current];
+  expect(projectWorkflowEntrypointFindings(tracked, new Map([
+    [workflow, `steps:\n  - run: bun ${current} ensure-hosted-action-provider\n`],
+    [current, 'export {};\n']
+  ]))).toEqual([]);
+
+  expect(projectWorkflowEntrypointFindings(tracked, new Map([
+    [workflow, 'steps:\n  - run: bun scripts/ci-verification.ts ensure-hosted-action-provider\n'],
+    [current, 'export {};\n']
+  ]))).toEqual([
+    expect.objectContaining({
+      code: 'workflow-entrypoint-missing',
+      line: 2,
+      path: workflow,
+      severity: 'high'
+    })
+  ]);
 });
 
 test('heuristic candidate extraction ignores historical authority but exposes hidden Agent rules', () => {

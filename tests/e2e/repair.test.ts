@@ -1,10 +1,10 @@
 import { expect, test } from 'bun:test';
 import { lstat } from 'node:fs/promises';
 
-import type { RepairPlan } from '../../src/semantic/repair/contract/types.ts';
-import { CI_ARTIFACT_FILES } from '../../src/verification/ci-artifacts/contract/manifest.ts';
-import { readJson } from '../../src/workspace/files.ts';
-import { resolveWorkspaceArtifactPath } from '../../src/workspace/runtime/paths.ts';
+import { readJson } from "../../src/adapters/filesystem/files.ts";
+import { resolveWorkspaceArtifactPath } from "../../src/adapters/workspace-context.ts";
+import { CI_ARTIFACT_FILES } from '../../src/assurance/verification/ci-artifacts/contract/manifest.ts';
+import type { RepairPlan } from '../../src/semantics/repair/types.ts';
 import {
   writeFailedFastUnitVerification,
   writePassingVerificationState

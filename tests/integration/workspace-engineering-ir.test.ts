@@ -2,17 +2,17 @@ import { expect, test } from 'bun:test';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 
+import { pathExists, writeJson } from "../../src/adapters/filesystem/files.ts";
+import { runPolicyGate } from '../../src/adapters/verification/run-policy-gate.ts';
+import { getWorkspacePaths, resolveWorkspaceArtifactPath } from "../../src/adapters/workspace-context.ts";
+import { writeYaml } from '../../src/adapters/workspace/yaml.ts';
+import { CI_ARTIFACT_FILES } from '../../src/assurance/verification/ci-artifacts/contract/manifest.ts';
 import {
   addBlock,
   buildWorkspaceEngineeringIR,
   initWorkspace,
   resolveWorkspace
-} from '../../src/compiler/orchestration/cli.ts';
-import { runPolicyGate } from '../../src/compiler/verify/run-policy-gate.ts';
-import { CI_ARTIFACT_FILES } from '../../src/verification/ci-artifacts/contract/manifest.ts';
-import { pathExists, writeJson } from '../../src/workspace/files.ts';
-import { getWorkspacePaths, resolveWorkspaceArtifactPath } from '../../src/workspace/runtime/paths.ts';
-import { writeYaml } from '../../src/workspace/yaml.ts';
+} from '../../src/bootstrap/engineering/cli.ts';
 import { withTempWorkspace } from '../testkit/workspace.ts';
 
 test('workspace builds one deterministic canonical Engineering IR independent of derived artifacts', async () => {

@@ -7,8 +7,8 @@ import {
   runtimeDependencyOperationContext as context,
   runtimeDependencyOperationEffectFence as fence,
   runtimeDependencyOperationRemainingMs as remaining
-} from '../../src/toolchain/dependencies/runtime/operation-context.ts';
-import { captureRuntimeDependencyControlInput, runtimeDependencyOperationControls } from '../../src/toolchain/dependencies/runtime/operation-controls.ts';
+} from '../../src/adapters/toolchain/dependencies/runtime/operation-context.ts';
+import { captureRuntimeDependencyControlInput, runtimeDependencyOperationControls } from '../../src/adapters/toolchain/dependencies/runtime/operation-controls.ts';
 
 const controls = () => ({ lockTimeoutMs: 1000, monotonicNowMs: () => 0 });
 

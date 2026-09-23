@@ -1,12 +1,11 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 
-import type { LockFile } from '../../src/compiler/contract.ts';
-import type { PolicyReport } from '../../src/compiler/policies/contract/types.ts';
-import type { AcceptanceCoverageReport } from '../../src/semantic/acceptance/contract/types.ts';
-import { sha256 } from '../../src/system-architecture/foundation/runtime/canonical.ts';
-import { CI_ARTIFACT_FILES } from '../../src/verification/ci-artifacts/contract/manifest.ts';
-import type { VerificationReport } from '../../src/verification/contract/types.ts';
+import { readJson, writeJson } from "../../src/adapters/filesystem/files.ts";
+import { resolveWorkspaceArtifactPath } from "../../src/adapters/workspace-context.ts";
+import type { AcceptanceCoverageReport } from '../../src/assurance/acceptance/coverage.ts';
+import { CI_ARTIFACT_FILES } from '../../src/assurance/verification/ci-artifacts/contract/manifest.ts';
+import type { VerificationReport } from '../../src/assurance/verification/contract/types.ts';
 import {
   buildExpectedProductVerificationClaimSummary,
   buildProductVerificationObservationBindings,
@@ -14,9 +13,10 @@ import {
   type ProductVerificationGateObservation,
   type ProductVerificationObservations,
   type ProductVerificationRuntimeMode
-} from '../../src/verification/profile/contract/product.ts';
-import { readJson, writeJson } from '../../src/workspace/files.ts';
-import { resolveWorkspaceArtifactPath } from '../../src/workspace/runtime/paths.ts';
+} from '../../src/assurance/verification/profile/contract/product.ts';
+import type { LockFile } from '../../src/compiler/contract.ts';
+import { sha256 } from '../../src/contracts/canonical.ts';
+import type { PolicyReport } from '../../src/semantics/policies/types.ts';
 
 export function emptyVerificationLogs(): VerificationReport['logs'] {
   return { stdout: '', stderr: '' };

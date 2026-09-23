@@ -6,7 +6,7 @@ import {
   createVerificationSessionOperationId,
   readVerificationSessionJournal,
   type VerificationSessionJournalFileSystem
-} from '../../src/verification/ci/runtime/verification-session-journal.ts';
+} from '../../src/adapters/verification/platform/ci/runtime/verification-session-journal.ts';
 
 const SESSION = `sha256:${'a'.repeat(64)}` as const;
 const INPUT = `sha256:${'b'.repeat(64)}` as const;

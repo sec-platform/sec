@@ -1,6 +1,6 @@
 import { expect, test } from 'bun:test';
 
-import { CI_ARTIFACT_FILES, CI_EXPLAIN_GRAPH_ARTIFACTS } from '../../src/verification/ci-artifacts/contract/manifest.ts';
+import { CI_ARTIFACT_FILES, CI_EXPLAIN_GRAPH_ARTIFACTS } from '../../src/assurance/verification/ci-artifacts/contract/manifest.ts';
 import {
   expectCliJson,
   expectCliSuccess,

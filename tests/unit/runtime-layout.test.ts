@@ -9,12 +9,13 @@ import {
   compilerCliEntrypoint,
   compilerRuntimeLayout,
   PACKAGE_SOURCE_LAUNCHER_SCRIPT,
+  packageArtifactLauncherScript,
   parseCompilerPackageEntrypointBinding,
   resolveCompilerCliEntrypoint,
   resolveCompilerRuntimeLayout,
   resolveCompilerRuntimeResources,
   SOURCE_RUNTIME_MODULE_RELATIVE_PATH
-} from '../../src/toolchain/runtime.ts';
+} from '../../src/adapters/toolchain/runtime.ts';
 
 const FIXTURE_ENTRYPOINT = Object.freeze({
   artifact: 'output/cli.js',
@@ -22,13 +23,15 @@ const FIXTURE_ENTRYPOINT = Object.freeze({
   source: 'source/cli.ts'
 });
 
-async function createPackageFixture(): Promise<string> {
+async function createPackageFixture(form: 'bundle' | 'source' = 'source'): Promise<string> {
   const packageRoot = await mkdtemp(path.join(tmpdir(), 'sec-runtime-layout-'));
   await writeFile(path.join(packageRoot, 'package.json'), `${JSON.stringify({
-    source: `./${FIXTURE_ENTRYPOINT.source}`,
+    ...(form === 'source' ? { source: `./${FIXTURE_ENTRYPOINT.source}` } : {}),
     bin: { [FIXTURE_ENTRYPOINT.command]: `./${FIXTURE_ENTRYPOINT.artifact}` },
     scripts: {
-      [FIXTURE_ENTRYPOINT.command]: PACKAGE_SOURCE_LAUNCHER_SCRIPT
+      [FIXTURE_ENTRYPOINT.command]: form === 'source'
+        ? PACKAGE_SOURCE_LAUNCHER_SCRIPT
+        : packageArtifactLauncherScript(FIXTURE_ENTRYPOINT.artifact)
     }
   })}\n`, 'utf8');
   return packageRoot;
@@ -76,7 +79,7 @@ describe('compiler runtime layout', () => {
   });
 
   test('bundle mode derives its executable and asset root from the same package manifest', async () => {
-    const packageRoot = await createPackageFixture();
+    const packageRoot = await createPackageFixture('bundle');
     try {
       const modulePath = path.join(packageRoot, ...FIXTURE_ENTRYPOINT.artifact.split('/'));
       await mkdir(path.dirname(modulePath), { recursive: true });
@@ -94,7 +97,7 @@ describe('compiler runtime layout', () => {
         packageRoot,
         repositorySourceRoot: null,
         runtimeAssetRoot,
-        sourceEntrypointRelativePath: FIXTURE_ENTRYPOINT.source
+        sourceEntrypointRelativePath: null
       });
       expect(resolveCompilerCliEntrypoint(layout)).toBe(modulePath);
       expect(Object.isFrozen(resolveCompilerRuntimeResources(layout))).toBe(true);
@@ -108,12 +111,16 @@ describe('compiler runtime layout', () => {
       source: './source/cli.ts',
       bin: { fixture: './output/cli.js' },
       scripts: { fixture: 'bun ./other.ts' }
-    })).toThrow('must use the exact Bun package-source launcher');
+    })).toThrow('must use the exact launcher for its package form');
     expect(() => parseCompilerPackageEntrypointBinding({
       source: './source/cli.ts',
       bin: { fixture: './output/cli.js' },
       scripts: { fixture: '"$npm_execpath" ./source/cli.ts' }
-    })).toThrow('must use the exact Bun package-source launcher');
+    })).toThrow('must use the exact launcher for its package form');
+    expect(parseCompilerPackageEntrypointBinding({
+      bin: { fixture: './output/cli.js' },
+      scripts: { fixture: packageArtifactLauncherScript('output/cli.js') }
+    })).toEqual({ artifact: 'output/cli.js', command: 'fixture', source: null });
     expect(() => parseCompilerPackageEntrypointBinding({
       source: '../other/cli.ts',
       bin: { fixture: './output/cli.js' },

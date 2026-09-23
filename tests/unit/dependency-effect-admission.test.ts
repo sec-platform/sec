@@ -1,7 +1,7 @@
 import { test } from 'bun:test';
 import assert from 'node:assert/strict';
-import { runtimeDependencyOperationEffectFence } from '../../src/toolchain/dependencies/runtime/operation-context.ts';
-import { runtimeDependencyOperationControls } from '../../src/toolchain/dependencies/runtime/operation-controls.ts';
+import { runtimeDependencyOperationEffectFence } from '../../src/adapters/toolchain/dependencies/runtime/operation-context.ts';
+import { runtimeDependencyOperationControls } from '../../src/adapters/toolchain/dependencies/runtime/operation-controls.ts';
 
 test('effect callback is fixed before a budget clock can replace it', async () => {
   let armed = false, calls = 0;

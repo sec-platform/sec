@@ -8,11 +8,11 @@ import ts from 'typescript';
 import {
   importServiceRootFileNames,
   organizeImportsInSource
-} from '../../src/development/import-normalization/kernel.ts';
+} from '../../src/adapters/self-hosting/development/import-normalization/kernel.ts';
 import {
   compileImportOperationPlan,
   resolveCandidateImportBase
-} from '../../src/development/runner/import-organizer.ts';
+} from '../../src/adapters/self-hosting/development/runner/import-organizer.ts';
 
 function organizeFixtureImports(source: string, roots: 'full' | 'focused' = 'full'): string {
   const fixtureRoot = path.resolve(import.meta.dir, 'import-organizer-newline-fixture');

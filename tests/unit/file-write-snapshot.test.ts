@@ -3,7 +3,8 @@ import assert from 'node:assert/strict';
 import { existsSync, linkSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { ensureDir, formatJsonFile, prepareOrdinaryFileWrite, removeDir, writeBuffer, writeJson, writeText } from '../../src/workspace/runtime/files.ts';
+import { ensureDir, prepareOrdinaryFileWrite, removeDir, writeBuffer, writeJson, writeText } from "../../src/adapters/filesystem/files.ts";
+import { formatJsonFile } from "../../src/contracts/json-text.ts";
 
 async function fixture(run: (root: string) => Promise<void>) {
   const root = mkdtempSync(path.join(tmpdir(), 'sec-write-snapshot-'));

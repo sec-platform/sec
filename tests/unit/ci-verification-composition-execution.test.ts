@@ -5,9 +5,9 @@ import path from 'node:path';
 
 import { expect, test } from 'bun:test';
 
-import { buildCiVerificationActionPlanClosure, ciVerificationNormalizedOperationArgv, type CiVerificationActionCandidate, type CiVerificationProducerGate } from '../../src/verification/action/contract/ci.ts';
-import { CodexDevelopmentRunGateProcess, type CodexDevelopmentGateProcessSettlement } from '../../src/verification/ci/runtime/ci-orchestration-core.ts';
-import { CodexDevelopmentExecuteCiActionClosure } from '../../src/verification/ci/verification.ts';
+import { buildCiVerificationActionPlanClosure, ciVerificationNormalizedOperationArgv, type CiVerificationActionCandidate, type CiVerificationProducerGate } from '../../src/adapters/verification/platform/action/contract/ci.ts';
+import { CodexDevelopmentRunGateProcess, type CodexDevelopmentGateProcessSettlement } from '../../src/adapters/verification/platform/ci/runtime/ci-orchestration-core.ts';
+import { CodexDevelopmentExecuteCiActionClosure } from '../../src/adapters/verification/platform/ci/verification.ts';
 
 const digest = (value: string): `sha256:${string}` => (
   `sha256:${createHash('sha256').update(value).digest('hex')}`

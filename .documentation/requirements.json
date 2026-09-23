@@ -5,307 +5,307 @@
     {
       "id": "REQ001",
       "path": "docs/产品/产品要求与工作约束.md",
-      "fragment": "req001语言中立",
+      "fragment": "req001",
       "body_sha256": "d5625e84d647748e8686b0cc4e75d35e267d400567d66f6a1e473ed8aa8d13dc"
     },
     {
       "id": "REQ002",
       "path": "docs/产品/产品要求与工作约束.md",
-      "fragment": "req002先行目标不改变产品",
-      "body_sha256": "7ffe7deae048481bd7e2ee7863c7212b6f21ae1aa105f689840272d25ca6f6cb"
+      "fragment": "req002",
+      "body_sha256": "9477ce2eebd947145a38f76ff9a2e130f7f9866742bdd84c881d333a64caf547"
     },
     {
       "id": "REQ003",
       "path": "docs/产品/产品要求与工作约束.md",
-      "fragment": "req003小工具与业务同样在范围内",
+      "fragment": "req003",
       "body_sha256": "a38308206bef4e91926a320b57f31d37a498673cf9714d4fbbe32dc28486ba30"
     },
     {
       "id": "REQ004",
       "path": "docs/产品/产品要求与工作约束.md",
-      "fragment": "req004成品架构先于迁移",
+      "fragment": "req004",
       "body_sha256": "d5a3e8546a6b52ba2d0f31a5eda3dcd067cb02699565f45e1369794325fa4013"
     },
     {
       "id": "REQ005",
       "path": "docs/产品/产品要求与工作约束.md",
-      "fragment": "req005暂缓不撤销",
+      "fragment": "req005",
       "body_sha256": "d133603e4f4364ed9cc28a0560c127c36b467a2591d854a9f4b20226fd847020"
     },
     {
       "id": "REQ006",
       "path": "docs/产品/产品要求与工作约束.md",
-      "fragment": "req006ai首期",
+      "fragment": "req006",
       "body_sha256": "9d7df379965984ebcca0a57778b7e2ec02cc9c199980149d79e6fb49e93ce7a4"
     },
     {
       "id": "REQ007",
       "path": "docs/产品/产品要求与工作约束.md",
-      "fragment": "req007自用与自举",
+      "fragment": "req007",
       "body_sha256": "f6dc7ad5d481cc75e957070ccdb361c3d1896c984e3566c4951733a7e966e4d4"
     },
     {
       "id": "REQ008",
       "path": "docs/产品/产品要求与工作约束.md",
-      "fragment": "req008全工程资产",
+      "fragment": "req008",
       "body_sha256": "3b76b6b18182e85d0e13db0cca65380cb5a859a884148443249d919c0acc7393"
     },
     {
       "id": "REQ009",
       "path": "docs/产品/产品要求与工作约束.md",
-      "fragment": "req009短程序独立使用",
+      "fragment": "req009",
       "body_sha256": "bbaeae3076d2031af54153111c22139ac51499026e74720278d4cfefb27302eb"
     },
     {
       "id": "REQ010",
       "path": "docs/产品/产品要求与工作约束.md",
-      "fragment": "req010准确意图不重复抄写",
+      "fragment": "req010",
       "body_sha256": "1db6377cccec47538c97ba5cd793cf6fadf533877513848faaf6d8474f84f2c3"
     },
     {
       "id": "REQ011",
       "path": "docs/产品/产品要求与工作约束.md",
-      "fragment": "req011开放定义",
+      "fragment": "req011",
       "body_sha256": "7d5d09c919e23dd3e84b76aa3ad8b0fd9b50730166e3e88cef128f85c8e2c146"
     },
     {
       "id": "REQ012",
       "path": "docs/产品/产品要求与工作约束.md",
-      "fragment": "req012自由与高层简洁",
+      "fragment": "req012",
       "body_sha256": "0eb8e7869222721735aab3a2b9b0e8f0abf9596ad7fd86ffb8649dadcf874a79"
     },
     {
       "id": "REQ013",
       "path": "docs/产品/产品要求与工作约束.md",
-      "fragment": "req013正常封装自己的源码",
+      "fragment": "req013",
       "body_sha256": "0975f65c1ccfa850c6c6e2262796a7d45d3440088f9dbc941913fdd5482bc362"
     },
     {
       "id": "REQ014",
       "path": "docs/产品/产品要求与工作约束.md",
-      "fragment": "req014最小必要控制",
+      "fragment": "req014",
       "body_sha256": "9e997b74bf6de3997d1bfe01e4e802eb8613b1c2402f5ccb841b204b617c41aa"
     },
     {
       "id": "REQ015",
       "path": "docs/产品/产品要求与工作约束.md",
-      "fragment": "req015自动选合格实现",
+      "fragment": "req015",
       "body_sha256": "6099ea6a3fd59daae9fd61fe551b6ea1f9f8a6aeb88b58f4639b88e444409177"
     },
     {
       "id": "REQ016",
       "path": "docs/产品/产品要求与工作约束.md",
-      "fragment": "req016管脚与多表示",
+      "fragment": "req016",
       "body_sha256": "91459006712fc7f86e57c3f2484d3d1c22b36b9ccd3144b70e05ca4f31dbd89b"
     },
     {
       "id": "REQ017",
       "path": "docs/产品/产品要求与工作约束.md",
-      "fragment": "req017作者形式由设计者负责选择",
+      "fragment": "req017",
       "body_sha256": "0d2bacac681d702aa5aa4067a75e2f17f1540acae80597ecea57696daef2fae8"
     },
     {
       "id": "REQ018",
       "path": "docs/产品/产品要求与工作约束.md",
-      "fragment": "req018不强迫原生补洞",
+      "fragment": "req018",
       "body_sha256": "47a6e3dc602c387f9cd7ac1b69fd1d8a459e72ac668d55a0207be1641e239ba3"
     },
     {
       "id": "REQ019",
       "path": "docs/产品/产品要求与工作约束.md",
-      "fragment": "req019作者总负担与交互负担分别降低",
+      "fragment": "req019",
       "body_sha256": "d88e652146a4e6340a4622224efc58b847a5efeb99be2bec81f0148348f249e0"
     },
     {
       "id": "REQ020",
       "path": "docs/产品/产品要求与工作约束.md",
-      "fragment": "req020任务视图不是第二份源码",
+      "fragment": "req020",
       "body_sha256": "3fc1c4833e69525ce11a51dd79c0a3f8b5e07f388466d9c91bbcdc9ea0f6959f"
     },
     {
       "id": "REQ021",
       "path": "docs/产品/产品要求与工作约束.md",
-      "fragment": "req021数据和实施算法明确",
-      "body_sha256": "9a0b6f3f5d8c92eb30fad77efd47ca840832265acf673bedde39aba093fb3210"
+      "fragment": "req021",
+      "body_sha256": "1c0ee598412975fb549498e3c4f91bbe661e428315b3fbe4663cd86545b0142e"
     },
     {
       "id": "REQ022",
       "path": "docs/产品/产品要求与工作约束.md",
-      "fragment": "req022编译链有真实方案",
+      "fragment": "req022",
       "body_sha256": "812363c27df852e27510e776b39e8a13c6de47bb45e2f887492181e6f469d73c"
     },
     {
       "id": "REQ023",
       "path": "docs/产品/产品要求与工作约束.md",
-      "fragment": "req023生成行为与结构分别保持",
+      "fragment": "req023",
       "body_sha256": "48f90cef7a79068f7a7806396ff75c1ce996ecdcde05fa44b2300b843215176a"
     },
     {
       "id": "REQ024",
       "path": "docs/产品/产品要求与工作约束.md",
-      "fragment": "req024减少架构返工",
+      "fragment": "req024",
       "body_sha256": "990764cb971c423f4f209e6b89385990907bb0c0fbc87549847ec2662a244c42"
     },
     {
       "id": "REQ025",
       "path": "docs/产品/产品要求与工作约束.md",
-      "fragment": "req025成熟成果实际复用",
+      "fragment": "req025",
       "body_sha256": "7c4bc0e172a5508527a28a2c9127c05dc831fbf88da17d86dc7964fe16080b58"
     },
     {
       "id": "REQ026",
       "path": "docs/产品/产品要求与工作约束.md",
-      "fragment": "req026设计推导与运行证据分工",
+      "fragment": "req026",
       "body_sha256": "140086ceab3cffdac4d134735cc508c2f5586496f4f208619b8c2a30976897d6"
     },
     {
       "id": "REQ027",
       "path": "docs/产品/产品要求与工作约束.md",
-      "fragment": "req027不需要的设施真正不生成",
+      "fragment": "req027",
       "body_sha256": "29d8565fb47beb9c855d09895de6fcda13619000ea1a6123e45c619438650b8d"
     },
     {
       "id": "REQ028",
       "path": "docs/产品/产品要求与工作约束.md",
-      "fragment": "req028外部合同与内部实现分离",
+      "fragment": "req028",
       "body_sha256": "e935bc2f51a52c8553a18c350b8b62dad3975d7cad08c8e459d7f88824eef540"
     },
     {
       "id": "REQ029",
       "path": "docs/产品/产品要求与工作约束.md",
-      "fragment": "req029开发到运行再修改的完整过程",
+      "fragment": "req029",
       "body_sha256": "e5de9efca424450c7177415f8a25ec99c23b7c993dba42ec05371c6205104370"
     },
     {
       "id": "REQ030",
       "path": "docs/产品/产品要求与工作约束.md",
-      "fragment": "req030语义扩展与调度分层",
+      "fragment": "req030",
       "body_sha256": "b14b0c6588678bd9625084f006f2f1ec397720380acbb1dfd203839359f96488"
     },
     {
       "id": "REQ031",
       "path": "docs/产品/产品要求与工作约束.md",
-      "fragment": "req031只设计的权限边界",
+      "fragment": "req031",
       "body_sha256": "2beb2292c2c33da95cb905913e27139ad6cfa4162dd88be74456dee039652f81"
     },
     {
       "id": "REQ032",
       "path": "docs/产品/产品要求与工作约束.md",
-      "fragment": "req032成果回到同一套规范",
+      "fragment": "req032",
       "body_sha256": "df6629fe686544d34016a944a261b2714d64f1f231debbf5f247e86c5cc32a25"
     },
     {
       "id": "REQ033",
       "path": "docs/产品/产品要求与工作约束.md",
-      "fragment": "req033主动发现而不是等用户补名词",
+      "fragment": "req033",
       "body_sha256": "b1b88a311bfe99413ba0303f55eb69acfe555da28c6badea71dee84edafe94fb"
     },
     {
       "id": "REQ034",
       "path": "docs/产品/产品要求与工作约束.md",
-      "fragment": "req034目标到全部必要义务",
+      "fragment": "req034",
       "body_sha256": "ae9da2766728d497b5b33611524f1aa256961075be36399a56642427506f5d20"
     },
     {
       "id": "REQ035",
       "path": "docs/产品/产品要求与工作约束.md",
-      "fragment": "req035根假设受攻击后重算",
+      "fragment": "req035",
       "body_sha256": "7f9ffb44d639ab5ffdbc94939fbdf0fa4759d30fc023125b616766d06e6ad610"
     },
     {
       "id": "REQ036",
       "path": "docs/产品/产品要求与工作约束.md",
-      "fragment": "req036现在作出可实施决定",
-      "body_sha256": "219738e48250c518cec4d88094cbcc82f7805d6d98f37fc002bc1ef2f7afb62b"
+      "fragment": "req036",
+      "body_sha256": "b527c2854d6112f514d331e8d6cef7a3ac8f48efb5d02c6ddd71882c2e677d17"
     },
     {
       "id": "REQ037",
       "path": "docs/产品/产品要求与工作约束.md",
-      "fragment": "req037不能迎合批评改产品",
+      "fragment": "req037",
       "body_sha256": "4c349c63a788e03fbcaf78399829d6fc4baede1ccb1dbfa94d777b2a4c54f740"
     },
     {
       "id": "REQ038",
       "path": "docs/产品/产品要求与工作约束.md",
-      "fragment": "req038所有已知不足持续存在",
+      "fragment": "req038",
       "body_sha256": "8b19750e29fca66bc8af918272bccb2377839e5d07e9882d491d47b04d0638e7"
     },
     {
       "id": "REQ039",
       "path": "docs/产品/产品要求与工作约束.md",
-      "fragment": "req039状态随成果更新",
+      "fragment": "req039",
       "body_sha256": "f5c20b49a8b6dbd6d5a73bf4a8bc49fd297cae04bc1cb9c79c6d8bc7b87fdd02"
     },
     {
       "id": "REQ040",
       "path": "docs/产品/产品要求与工作约束.md",
-      "fragment": "req040基础能力系统研究",
+      "fragment": "req040",
       "body_sha256": "411d330a78732501e668f3aed39d3b8bd2b7ebc036f2c44e16372c9eba82c4ec"
     },
     {
       "id": "REQ041",
       "path": "docs/产品/产品要求与工作约束.md",
-      "fragment": "req041安全边界之外要有正常成功路径",
+      "fragment": "req041",
       "body_sha256": "9418c13bbb1dc7076e894cca00de1c075a15bae665b29292b06229956e336328"
     },
     {
       "id": "REQ042",
       "path": "docs/产品/产品要求与工作约束.md",
-      "fragment": "req042不能把全局优越性作无依据承诺",
+      "fragment": "req042",
       "body_sha256": "f61ee9ff2b2e95f2001d0de9ccaae28f1cf61f6c299b803a5025a02e3e22f3fd"
     },
     {
       "id": "REQ043",
       "path": "docs/产品/产品要求与工作约束.md",
-      "fragment": "req043详细说明可以长",
+      "fragment": "req043",
       "body_sha256": "84e0a960733626aabdba9f56d7b94fa3cdcc26efb0d7411a5e9dcbe3f9481387"
     },
     {
       "id": "REQ044",
       "path": "docs/产品/产品要求与工作约束.md",
-      "fragment": "req044有效信息不能因整理丢失",
+      "fragment": "req044",
       "body_sha256": "22d03b6510f1f8139873a0b615cea68edead4f9518239d5a65a4d76a170e7ef7"
     },
     {
       "id": "REQ045",
       "path": "docs/产品/产品要求与工作约束.md",
-      "fragment": "req045每次修改同时清理",
-      "body_sha256": "a2063b846f679636b280639c7ee3c64f38848d486f9ce4471b71fd41693bd97b"
+      "fragment": "req045",
+      "body_sha256": "c832327fd1c5bd3ace2a7ba5c3ac8513dc9f443b4e9f1f969423b70f82007e1f"
     },
     {
       "id": "REQ046",
       "path": "docs/产品/产品要求与工作约束.md",
-      "fragment": "req046当前工程文档不是修改日记",
-      "body_sha256": "e8c99d6a2e9ea302dbd920352e9556420939bb9517ed48c6a83e0eac59941dde"
+      "fragment": "req046",
+      "body_sha256": "970b1f1c70f98cc2fb246f796b80f3f47754dd663c9f9d965a7620859bfad076"
     },
     {
       "id": "REQ047",
       "path": "docs/产品/产品要求与工作约束.md",
-      "fragment": "req047知识按命题及工程用途组织",
+      "fragment": "req047",
       "body_sha256": "cf199638e20148de3be8b7606e6adbd468b203377348e781c589acc017d40594"
     },
     {
       "id": "REQ048",
       "path": "docs/产品/产品要求与工作约束.md",
-      "fragment": "req048条件复用而非无理由重搜",
+      "fragment": "req048",
       "body_sha256": "7d09d62fb35d95c7cae92e8343d03e6519b4ce711d8cd45a89255812ccae8e61"
     },
     {
       "id": "REQ049",
       "path": "docs/产品/产品要求与工作约束.md",
-      "fragment": "req049唯一归属和必要导航",
+      "fragment": "req049",
       "body_sha256": "f012db5214f84260bbcdc2421f0d317755209ebb169983efa4af33b04d401379"
     },
     {
       "id": "REQ050",
       "path": "docs/产品/产品要求与工作约束.md",
-      "fragment": "req050要求到机制的可查映射",
+      "fragment": "req050",
       "body_sha256": "dc674aba8d3e94a8c7af5577b6c7abb78f778e47a29f94285fe610a71c9c6827"
     },
     {
       "id": "REQ051",
       "path": "docs/产品/产品要求与工作约束.md",
-      "fragment": "req051写入装载执行和核验分开",
+      "fragment": "req051",
       "body_sha256": "3262236624a588eb973464eac61c09dbee0eb6983ae58faa3638eec1f1a0afa5"
     }
   ]

@@ -1,7 +1,7 @@
-import type { SemanticEntity, SemanticEntityKind } from '../../semantic/engineering-ir/contract/entity-types.ts';
-import type { SemanticFact, SemanticPredicate } from '../../semantic/engineering-ir/contract/fact-types.ts';
-import type { EngineeringIR } from '../../semantic/engineering-ir/contract/root-types.ts';
-import type { ValidatedEngineeringIRSnapshot } from '../../semantic/engineering-ir/contract/validated-types.ts';
+import type { SemanticEntity, SemanticEntityKind } from '../../semantics/engineering-ir/entity-types.ts';
+import type { SemanticFact, SemanticPredicate } from '../../semantics/engineering-ir/fact-types.ts';
+import type { EngineeringIR } from '../../semantics/engineering-ir/root-types.ts';
+import type { ValidatedEngineeringIRSnapshot } from '../../semantics/engineering-ir/validated-types.ts';
 
 export interface EngineeringIRIndex {
   entityById: ReadonlyMap<string, SemanticEntity>;

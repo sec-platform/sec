@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 
-import { canonicalizeIsoInstantInputV1 } from '../../src/system-architecture/foundation/contract/iso-instant.ts';
+import { canonicalizeIsoInstantInputV1 } from '../../src/contracts/iso-instant.ts';
 
 describe('ISO instant presentation input', () => {
   test('preserves canonical ECMAScript instants', () => {

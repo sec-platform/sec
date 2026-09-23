@@ -6,7 +6,7 @@ import {
   parseIntegrationAuthorization,
   type IntegrationAuthorizationInput,
   type IntegrationAuthorizationLiveState
-} from '../../src/control/integration/authorization.ts';
+} from '../../src/adapters/self-hosting/control/integration/authorization.ts';
 
 const SHA_A = '1'.repeat(40);
 const SHA_B = '2'.repeat(40);

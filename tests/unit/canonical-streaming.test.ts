@@ -1,7 +1,7 @@
 import { test } from 'bun:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { canonicalEquals, canonicalJson, sha256 } from '../../src/system-architecture/foundation/runtime/canonical.ts';
+import { canonicalEquals, canonicalJson, sha256 } from '../../src/contracts/canonical.ts';
 
 const reference = (value: unknown) => `sha256:${createHash('sha256').update(JSON.stringify(canonicalJson(value))).digest('hex')}`;
 
