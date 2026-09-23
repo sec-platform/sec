@@ -1,0 +1,7 @@
+{
+  "importGraph": "runtime",
+  "externalEntrypoints": [
+    "src/bootstrap/reference/compile-workspace.ts",
+    "src/bootstrap/reference/demo.ts"
+  ]
+}

@@ -1,10 +1,19 @@
 {
-  "schema": "sec.documentation-baseline/1",
-  "source_set_sha256": "d505af06e8a30adde93705bdc7a85e58580479be62d5931ac47738db9e0c9b5f",
+  "schema": "sec.documentation-baseline/2",
   "source_root": "..",
   "source_roots": [
     "AGENTS.md",
     "README.md",
+    "README.zh-CN.md",
+    "ARCHITECTURE.md",
+    "PROJECT_STATUS.md",
+    "CONTRIBUTING.md",
+    "AUTHORS.md",
+    "CITATION.cff",
+    "LICENSE",
+    "LICENSES",
+    "NOTICE",
+    "REUSE.toml",
     ".documentation",
     "alternatives",
     "docs/README.md",
@@ -32,8 +41,9 @@
   ],
   "non_documentation_roots": [],
   "excluded_from_source_hash": [
-    ".documentation/baseline.json",
-    ".documentation/source-manifest.json"
+    ".documentation/source-manifest.json",
+    ".documentation/requirements.json",
+    ".documentation/figures.json"
   ],
   "entry": "../README.md",
   "delivery_number": "086",

@@ -4,8 +4,8 @@ import fs from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import YAML from 'yaml';
-import { YamlInputLimitError, YamlSyntaxError } from '../../src/system-architecture/foundation/runtime/yaml.ts';
-import { readYaml, WORKSPACE_YAML_MAX_INPUT_BYTES, writeYaml } from '../../src/workspace/yaml.ts';
+import { YamlInputLimitError, YamlSyntaxError } from '../../src/adapters/formats/yaml.ts';
+import { readYaml, WORKSPACE_YAML_MAX_INPUT_BYTES, writeYaml } from '../../src/adapters/workspace/yaml.ts';
 
 // Real YAML and ordinary filesystem semantics are required. No JSON-parser,
 // serializer or physical-write substitutes may establish these results.
@@ -87,3 +87,14 @@ test('serializer and fence failures preserve their causes and never produce a su
 test('missing input is still an IO error rather than an empty YAML value', () => using(async (_root, file) => {
   await assert.rejects(readYaml(file), e => (e as { code?: string }).code === 'ENOENT');
 }));
+
+
+test.skipIf(process.platform === 'win32')(
+  'linked input cannot redirect the retained YAML read',
+  () => using(async (root, file) => {
+    const outside = path.join(root, 'outside.yaml');
+    await fs.writeFile(outside, 'escaped: true\n');
+    await fs.symlink(outside, file, 'file');
+    await assert.rejects(readYaml(file));
+  })
+);

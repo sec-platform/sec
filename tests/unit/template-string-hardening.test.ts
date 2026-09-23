@@ -1,7 +1,7 @@
 import { test } from 'bun:test';
 import assert from 'node:assert/strict';
-import { renderTemplateString } from '../../src/compiler/compose/render-template-string.ts';
 import { CompilerError } from '../../src/compiler/errors.ts';
+import { renderTemplateString } from '../../src/compiler/templates/render-template-string.ts';
 
 const MAX_OUTPUT_BYTES = 4 * 1024 * 1024;
 const code = (expected: string) => (error: unknown): boolean =>

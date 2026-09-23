@@ -3,9 +3,11 @@ import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 
-import { readGitHubToken } from '../../src/external-capabilities/github-api/credential.ts';
+import { readGitHubToken } from '../../src/adapters/providers/github-api/credential.ts';
 
-if (import.meta.main && path.basename(process.execPath).toLowerCase() === 'gh.exe') {
+const GH_EXECUTABLE_NAME = process.platform === 'win32' ? 'gh.exe' : 'gh';
+
+if (import.meta.main && path.basename(process.execPath).toLowerCase() === GH_EXECUTABLE_NAME) {
   const forbidden = [
     'PATH', 'GH_HOST', 'GH_TOKEN', 'GITHUB_TOKEN', 'GH_CONFIG_DIR', 'HOME', 'XDG_CONFIG_HOME'
   ];
@@ -26,7 +28,7 @@ afterEach(async () => {
 async function fixture(): Promise<string> {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sec-github-credential-'));
   roots.push(root);
-  const executable = path.join(root, 'gh.exe');
+  const executable = path.join(root, GH_EXECUTABLE_NAME);
   const build = Bun.spawn([
     process.execPath, 'build', '--compile', import.meta.filename, '--outfile', executable
   ], { cwd: root, stdout: 'pipe', stderr: 'pipe' });

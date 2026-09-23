@@ -3,44 +3,43 @@ import path from 'node:path';
 
 import { expect, test } from 'bun:test';
 
-import { loadWorkspaceEngineeringIRBuildInput } from '../../src/compiler/ir/load-workspace-engineering-ir-input.ts';
-import { buildValidatedEngineeringIR } from '../../src/compiler/ir/validate-engineering-ir.ts';
-import {
-  applySemanticMutation,
-  querySemanticMutationRequest,
-  recoverSemanticMutationWorkspace
-} from '../../src/compiler/orchestration/cli.ts';
-import { projectArchitectureView } from '../../src/compiler/projection/project-architecture-view.ts';
-import { projectScenarioView } from '../../src/compiler/projection/project-scenario-view.ts';
-import { projectStateView } from '../../src/compiler/projection/project-state-view.ts';
-import { sha256 } from '../../src/compiler/semantic-mutation/canonical.ts';
+import { readJson } from "../../src/adapters/filesystem/files.ts";
 import {
   appendSemanticMutationRecoveryRecord,
-  assertSemanticMutationRecoveryRecordInvariant,
   loadSemanticMutationRecoveryRecords,
-  projectSemanticMutationRequestRecordView,
   pruneSemanticMutationTerminalRecords,
   querySemanticMutationRequestRecord,
-  semanticMutationRecoveryRecordRevision
-} from '../../src/compiler/semantic-mutation/mutation-recovery-record.ts';
+} from '../../src/adapters/mutation/mutation-recovery-record.ts';
 import {
-  assertSemanticMutationRejectedTerminalRecordInvariant,
   readRejectedSemanticMutationTerminal,
   reserveSemanticMutationTerminalSequence,
   writeRejectedSemanticMutationTerminal,
   type SemanticMutationTerminalIoObservation,
   type SemanticMutationTerminalWriteTestHooks
-} from '../../src/compiler/semantic-mutation/mutation-terminal-record.ts';
+} from '../../src/adapters/mutation/mutation-terminal-record.ts';
 import {
   assertSemanticMutationTransactionRoot,
-  semanticMutationRequestIdentityDigest,
   semanticMutationTransactionRoot
-} from '../../src/compiler/semantic-mutation/transaction-identity.ts';
-import { SEMANTIC_MUTATION_TERMINAL_RETENTION, type SemanticMutationRecoveryRecord } from '../../src/semantic/mutation/contract/transaction.ts';
-import { CI_ARTIFACT_FILES } from '../../src/verification/ci-artifacts/contract/manifest.ts';
-import type { VerificationReport } from '../../src/verification/contract/types.ts';
-import { readJson } from '../../src/workspace/files.ts';
-import { resolveWorkspaceArtifactPath } from '../../src/workspace/runtime/paths.ts';
+} from '../../src/adapters/mutation/transaction-identity.ts';
+import { resolveWorkspaceArtifactPath } from "../../src/adapters/workspace-context.ts";
+import { loadWorkspaceEngineeringIRBuildInput } from '../../src/adapters/workspace/engineering-input.ts';
+import { projectSemanticMutationRequestRecordView } from '../../src/application/semantic-mutation-query.ts';
+import { CI_ARTIFACT_FILES } from '../../src/assurance/verification/ci-artifacts/contract/manifest.ts';
+import type { VerificationReport } from '../../src/assurance/verification/contract/types.ts';
+import {
+  applySemanticMutation,
+  querySemanticMutationRequest,
+  recoverSemanticMutationWorkspace
+} from '../../src/bootstrap/engineering/cli.ts';
+import { buildValidatedEngineeringIR } from '../../src/compiler/ir/validate-engineering-ir.ts';
+import { projectArchitectureView } from '../../src/compiler/projection/project-architecture-view.ts';
+import { projectScenarioView } from '../../src/compiler/projection/project-scenario-view.ts';
+import { projectStateView } from '../../src/compiler/projection/project-state-view.ts';
+import { sha256 } from '../../src/compiler/semantic-mutation/canonical.ts';
+import { semanticMutationRequestIdentityDigest } from '../../src/compiler/semantic-mutation/identity.ts';
+import { assertSemanticMutationRecoveryRecordInvariant, semanticMutationRecoveryRecordRevision } from '../../src/compiler/semantic-mutation/recovery-record.ts';
+import { assertSemanticMutationRejectedTerminalRecordInvariant } from '../../src/compiler/semantic-mutation/rejected-terminal.ts';
+import { SEMANTIC_MUTATION_TERMINAL_RETENTION, type SemanticMutationRecoveryRecord } from '../../src/semantics/mutation/transaction.ts';
 import {
   acceptedResult,
   digest,
@@ -1116,3 +1115,30 @@ test('ticket semantic core closes the verified pipeline and three canonical proj
   expect(state.subject).toBe('state:ticket:ticket-status');
   expect(state.edges.filter((edge) => edge.relation === 'TRANSITIONS_TO')).toHaveLength(3);
 }, 120_000);
+
+
+test.skipIf(process.platform === 'win32')(
+  'SM-3 rejected terminal reader rejects a substituted symlink leaf',
+  async () => {
+    await withTempWorkspace(async (workspaceRoot) => {
+      const draft = recoveryDraft('request:rejected-terminal-leaf-substitution');
+      const result = rejectedResult(draft);
+      if (result.status !== 'rejected') throw new Error('Expected rejected result');
+      const transactionRoot = semanticMutationTransactionRoot(workspaceRoot, draft.requestIdentityDigest);
+      await writeRejectedSemanticMutationTerminal(
+        transactionRoot,
+        draft.requestIdentityDigest,
+        result.requestRevision,
+        result.planRevision,
+        result,
+        allowCommit
+      );
+      const terminal = path.join(transactionRoot, 'terminal-rejected.json');
+      const displaced = path.join(transactionRoot, 'terminal-rejected.displaced.json');
+      await rename(terminal, displaced);
+      await symlink(displaced, terminal, 'file');
+      await expect(readRejectedSemanticMutationTerminal(transactionRoot))
+        .rejects.toThrow('ordinary non-reparse leaf');
+    }, 'engineering-compiler-sm3-rejected-terminal-leaf-substitution-');
+  }
+);

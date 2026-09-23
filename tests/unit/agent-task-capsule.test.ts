@@ -9,7 +9,7 @@ import {
   type SecDigest,
   type SecTaskCapsuleInputV1,
   type SecTaskCapsulePlanningContext
-} from '../../src/control/agent/task-capsule.ts';
+} from '../../src/adapters/self-hosting/control/agent/task-capsule.ts';
 
 const digest = (character: string): SecDigest => `sha256:${character.repeat(64)}`;
 
@@ -40,14 +40,14 @@ function planningContext(): SecTaskCapsulePlanningContext {
       }
     ],
     scopeProposal: {
-      readPaths: ['docs/', 'src/control/agent/'],
-      writePaths: ['src/control/agent/'],
+      readPaths: ['docs/', 'src/adapters/self-hosting/control/agent/'],
+      writePaths: ['src/adapters/self-hosting/control/agent/'],
       forbiddenPaths: ['.agents/skills/', '.github/workflows/'],
       authorizedResources: [],
       authorizedGates: [],
       changedPaths: [
-        'src/control/agent/task-capsule-host.ts',
-        'src/control/agent/task-capsule.ts'
+        'src/adapters/self-hosting/control/agent/task-capsule-host.ts',
+        'src/adapters/self-hosting/control/agent/task-capsule.ts'
       ]
     },
     verificationObligations: [{
@@ -123,7 +123,7 @@ test('Task Capsule scope rejects write-forbidden overlap and changed-path escape
       scopeProposal: {
         ...source.scopeProposal,
         writePaths: ['docs/'],
-        changedPaths: ['src/control/agent/task-capsule.ts']
+        changedPaths: ['src/adapters/self-hosting/control/agent/task-capsule.ts']
       }
     }
   }))).toThrow(/outside every proposed write path/u);

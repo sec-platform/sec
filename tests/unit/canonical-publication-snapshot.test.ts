@@ -11,7 +11,7 @@ import {
   publishExistingParentCanonicalWorkspaceFile,
   publishExpectedCanonicalWorkspaceFile,
   type CanonicalWorkspaceFilePublicationInput
-} from '../../src/workspace/runtime/file-publication.ts';
+} from '../../src/adapters/filesystem/file-publication.ts';
 
 async function fixture(run: (root: string, target: string) => Promise<void>) {
   const root = mkdtempSync(path.join(tmpdir(), 'sec-publication-snapshot-'));

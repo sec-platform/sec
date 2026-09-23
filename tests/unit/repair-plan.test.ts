@@ -2,23 +2,21 @@ import { expect, test } from 'bun:test';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 
+import { readReviewGovernanceReports } from '../../src/adapters/compilation/emit/read-review-governance-reports.ts';
+import { readJson, writeJson } from "../../src/adapters/filesystem/files.ts";
+import { writeRepairPlan } from '../../src/adapters/verification/repair/write-repair-plan.ts';
+import { resolveWorkspaceArtifactPath } from "../../src/adapters/workspace-context.ts";
+import { buildRepairPlan } from '../../src/application/repair-plan.ts';
+import { CI_ARTIFACT_FILES } from '../../src/assurance/verification/ci-artifacts/contract/manifest.ts';
 import {
   LOCK_FILE_FORMAT_VERSION,
   type LockFile
 } from '../../src/compiler/contract.ts';
-import { readReviewGovernanceReports } from '../../src/compiler/emit/read-review-governance-reports.ts';
-import {
-  buildRepairPlan,
-  writeRepairPlan
-} from '../../src/compiler/repair/build-repair-plan.ts';
 import {
   parseRepairPlanJson,
   REPAIR_PLAN_FORMAT_VERSION,
   type RepairPlan
-} from '../../src/semantic/repair/contract/types.ts';
-import { CI_ARTIFACT_FILES } from '../../src/verification/ci-artifacts/contract/manifest.ts';
-import { readJson, writeJson } from '../../src/workspace/files.ts';
-import { resolveWorkspaceArtifactPath } from '../../src/workspace/runtime/paths.ts';
+} from '../../src/semantics/repair/types.ts';
 import { buildPassingReviewReport } from '../helpers/review-fixtures.ts';
 import { withTempWorkspace } from '../testkit/workspace.ts';
 

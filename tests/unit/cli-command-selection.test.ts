@@ -2,8 +2,8 @@ import { test } from 'bun:test';
 import { Command } from 'commander';
 import assert from 'node:assert/strict';
 
-import { runWithOptionalSpinner } from '../../src/interface/cli/command-progress.ts';
-import { registerWorkspaceCommands } from '../../src/interface/cli/register-workspace-commands.ts';
+import { runWithOptionalSpinner } from '../../src/bootstrap/cli/command-progress.ts';
+import { registerWorkspaceCommands } from '../../src/bootstrap/cli/register-workspace-commands.ts';
 
 for (const args of [['upgrade'], ['upgrade', 'a-block']]) {
   test(`${args.join(' ')} rejects missing arguments before loading upgrade readers`, async () => {

@@ -1,11 +1,12 @@
 import { expect, test } from 'bun:test';
 
-import type { DependencyEnvironmentCommandDomain } from '../../src/interface/cli/register-commands.ts';
 import type {
   DependencyCleanOptions,
   DependencyEnvironmentStatus
-} from '../../src/toolchain/dependencies/environment.ts';
-import * as dependencyEnvironmentDomain from '../../src/toolchain/dependencies/environment.ts';
+} from '../../src/adapters/toolchain/dependencies/environment.ts';
+import * as dependencyEnvironmentDomain from '../../src/adapters/toolchain/dependencies/environment.ts';
+import type { DependencyEnvironmentCommandDomain } from '../../src/bootstrap/cli/register-commands.ts';
+import { formatDependencyEnvironmentStatus } from '../../src/entry/cli/dependency-environment.ts';
 import {
   runCliInProcess as runCli,
   type CliResult,
@@ -61,8 +62,6 @@ test('dependency maintenance CLI routes through one explicit command domain with
         calls.push({ method: 'clean', options, workspaceRoot: observedRoot });
         return [`${observedRoot}/node_modules`, `${observedRoot}/.runtime-deps.stamp.json`];
       },
-      formatDependencyEnvironmentStatus: (value: DependencyEnvironmentStatus) => `${value.mode}\n`,
-      formatDoctorReport: () => 'ok\n',
       getDependencyEnvironmentStatus: async (root?: string) => {
         calls.push({ method: 'status', workspaceRoot: root ?? process.cwd() });
         return status;
@@ -88,7 +87,7 @@ test('dependency maintenance CLI routes through one explicit command domain with
 
     const text = await runCli(workspaceRoot, ['deps', 'status'], cli);
     expect(text).toMatchObject({ code: 0, stderr: '' });
-    expect(text.stdout.trim()).toBe(status.mode);
+    expect(text.stdout.trimEnd()).toBe(formatDependencyEnvironmentStatus(status).trimEnd());
 
     const json = await runCli(workspaceRoot, ['deps', 'status', '--json'], cli);
     expect(json.code).toBe(0);

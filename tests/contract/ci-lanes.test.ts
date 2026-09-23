@@ -2,16 +2,16 @@ import { afterAll, expect, test } from 'bun:test';
 import {
   currentActiveDocumentationPaths,
   currentDocumentationVerificationBaseline
-} from '../../src/control/documentation/active.ts';
+} from '../../src/adapters/self-hosting/control/documentation/active.ts';
 
-import { buildCiContract } from '../../src/verification/ci/contract/core.ts';
-import { bindDocumentationVerificationGateInput, buildCiFullGatePlan, buildCiQuickGatePlan, CodexDevelopmentBuildVerificationPlan as buildVerificationPlanWithProvider, CodexDevelopmentCanonicalChangedFiles, type CodexDevelopmentVerificationPlanProfile } from '../../src/verification/ci/contract/plan.ts';
+import { buildCiContract } from '../../src/adapters/verification/platform/ci/contract/core.ts';
+import { bindDocumentationVerificationGateInput, buildCiFullGatePlan, buildCiQuickGatePlan, CodexDevelopmentBuildVerificationPlan as buildVerificationPlanWithProvider, CodexDevelopmentCanonicalChangedFiles, type CodexDevelopmentVerificationPlanProfile } from '../../src/adapters/verification/platform/ci/contract/plan.ts';
 import {
   CodexDevelopmentChangedFilesFromRecords,
   CodexDevelopmentCreateNotRunGate
-} from '../../src/verification/ci/runtime/ci-orchestration-core.ts';
-import { compileTestBudgetProjection, getSlowTestSuitesSync as getSnapshotSlowTestSuites, slowTestSuiteIds, slowTestPrRiskBaselineSuiteIds as snapshotBaselineSuiteIds } from '../../src/verification/test-impact/contract/budget.ts';
-import { parseGitChangedFileOutput } from '../../src/verification/test-impact/runtime/transition.ts';
+} from '../../src/adapters/verification/platform/ci/runtime/ci-orchestration-core.ts';
+import { compileTestBudgetProjection, getSlowTestSuitesSync as getSnapshotSlowTestSuites, slowTestSuiteIds, slowTestPrRiskBaselineSuiteIds as snapshotBaselineSuiteIds } from '../../src/adapters/verification/platform/test-impact/contract/budget.ts';
+import { parseGitChangedFileOutput } from '../../src/adapters/verification/platform/test-impact/runtime/transition.ts';
 import { acquireExactRepositoryTestImpactProviderFixture } from '../helpers/test-impact-provider.ts';
 import {
   expectFullLaneCoversCorrectnessBackstop,
@@ -19,19 +19,26 @@ import {
   expectPrFastLaneBoundary
 } from '../testkit/contracts.ts';
 
-const testImpactFixture = await acquireExactRepositoryTestImpactProviderFixture();
-const testImpactProvider = bindDocumentationVerificationGateInput(
-  testImpactFixture.provider,
-  currentDocumentationVerificationBaseline()
-);
-afterAll(() => testImpactFixture.dispose());
-const testBudgetProjection = compileTestBudgetProjection(testImpactProvider.testInventory);
-const CodexDevelopmentBuildVerificationPlan = (
+let testImpactFixture: Awaited<ReturnType<typeof acquireExactRepositoryTestImpactProviderFixture>> | null = null;
+let testImpactProviderPromise: Promise<ReturnType<typeof bindDocumentationVerificationGateInput>> | null = null;
+const testImpactProvider = () => {
+  testImpactProviderPromise ??= (async () => {
+    testImpactFixture = await acquireExactRepositoryTestImpactProviderFixture();
+    return bindDocumentationVerificationGateInput(
+      testImpactFixture.provider,
+      currentDocumentationVerificationBaseline()
+    );
+  })();
+  return testImpactProviderPromise;
+};
+afterAll(() => testImpactFixture?.dispose());
+const testBudgetProjection = async () => compileTestBudgetProjection((await testImpactProvider()).testInventory);
+const CodexDevelopmentBuildVerificationPlan = async (
   profile: CodexDevelopmentVerificationPlanProfile,
   files: readonly string[] | null
-) => buildVerificationPlanWithProvider(profile, files, testImpactProvider);
-const slowTestPrRiskBaselineSuiteIds = () => snapshotBaselineSuiteIds(testBudgetProjection);
-const getSlowTestSuitesSync = () => getSnapshotSlowTestSuites(testBudgetProjection);
+) => buildVerificationPlanWithProvider(profile, files, await testImpactProvider());
+const slowTestPrRiskBaselineSuiteIds = async () => snapshotBaselineSuiteIds(await testBudgetProjection());
+const getSlowTestSuitesSync = async () => getSnapshotSlowTestSuites(await testBudgetProjection());
 
 test('CI contract keeps PR lanes bounded and full logical lane complete', () => {
   const contract = buildCiContract();
@@ -45,12 +52,12 @@ test('CI verification plans execute canonical affected Quick and ordered Full wo
     includeImports: false,
     includeDocs: false
   })).toEqual([
-    { id: 'typecheck', phase: 'quick', args: ['run', 'typecheck'] },
+    { id: 'typecheck', phase: 'quick', args: ['run', 'typecheck:verified'] },
     { id: 'affected-tests', phase: 'quick', args: ['run', 'test:affected'] }
   ]);
 
   const full = buildCiFullGatePlan();
-  expect(full.find((step) => step.id === 'affected-tests')).toMatchObject({ phase: 'quick' });
+  expect(full.find((step) => step.id === 'affected-tests')).toBeUndefined();
   expect(full.filter((step) => step.id.startsWith('slow-suite-'))).toHaveLength(slowTestSuiteIds().length);
   expect(full.filter((step) => step.phase === 'workspace').map((step) => step.id)).toEqual([
     'resolve',
@@ -62,21 +69,21 @@ test('CI verification plans execute canonical affected Quick and ordered Full wo
   ]);
 });
 
-test('CI translates owner-issued selection into executable plan gates', () => {
-  const pipeline = CodexDevelopmentBuildVerificationPlan('quick', [
-    'src/compiler/compose/generate-runtime-library.ts'
+test('CI translates owner-issued selection into executable plan gates', async () => {
+  const pipeline = await CodexDevelopmentBuildVerificationPlan('quick', [
+    'src/adapters/compilation/compose/generate-runtime-library.ts'
   ]);
   expect(pipeline.selectionResolved).toBe(true);
   expect(pipeline.selectionReasons).toEqual(['ownership-impact']);
-  expect(pipeline.affectedOwners).toContain('compiler');
+  expect(pipeline.affectedOwners).toContain('adapters.compilation');
 
-  const runtime = CodexDevelopmentBuildVerificationPlan('quick', [
-    'src/compiler/verify/run-runtime-verification.ts'
+  const runtime = await CodexDevelopmentBuildVerificationPlan('quick', [
+    'src/adapters/verification/run-runtime-verification.ts'
   ]);
   expect(runtime.selectionResolved).toBe(true);
   expect(runtime.selectionReasons).toEqual(['ownership-impact']);
 
-  const directSlow = CodexDevelopmentBuildVerificationPlan('quick', [
+  const directSlow = await CodexDevelopmentBuildVerificationPlan('quick', [
     'tests/e2e/dry-run-plan.test.ts'
   ]);
   expect(directSlow).toMatchObject({
@@ -85,10 +92,10 @@ test('CI translates owner-issued selection into executable plan gates', () => {
     affectedSlowTests: ['tests/e2e/dry-run-plan.test.ts']
   });
   expect(directSlow.gates.map(({ id }) => id)).toContain('slow-suite-e2e-dry-run-plan');
-});
+}, 180_000);
 
-test('Quick plan resolves the canonical active documentation corpus', () => {
-  const plan = CodexDevelopmentBuildVerificationPlan('quick', [...currentActiveDocumentationPaths()]);
+test('Quick plan resolves the canonical active documentation corpus', async () => {
+  const plan = await CodexDevelopmentBuildVerificationPlan('quick', [...currentActiveDocumentationPaths()]);
 
   expect(plan.selectionResolved).toBe(true);
   expect(plan.gates.map((gate) => gate.id).filter((id) => !id.startsWith('slow-suite-'))).toEqual([
@@ -98,25 +105,25 @@ test('Quick plan resolves the canonical active documentation corpus', () => {
   ]);
 });
 
-test('Quick docs gate follows the canonical documentation lifecycle owner', () => {
+test('Quick docs gate follows the canonical documentation lifecycle owner', async () => {
   for (const file of currentActiveDocumentationPaths()) {
-    const plan = CodexDevelopmentBuildVerificationPlan('quick', [file]);
+    const plan = await CodexDevelopmentBuildVerificationPlan('quick', [file]);
     expect(plan.selectionResolved).toBe(true);
-    expect(plan.affectedOwners).toContain('control.documentation');
+    expect(plan.affectedOwners).toContain('adapters.self-hosting.control.documentation');
     expect(plan.affectedOwners).not.toContain('bounded-slow-risk');
     expect(plan.gates.map(({ id }) => id)).toContain('docs-doctor');
   }
 
-  const unknownDocsYaml = CodexDevelopmentBuildVerificationPlan('quick', [
+  const unknownDocsYaml = await CodexDevelopmentBuildVerificationPlan('quick', [
     'docs/unregistered.manifest.yaml'
   ]);
   expect(unknownDocsYaml.selectionResolved).toBe(false);
-  expect(unknownDocsYaml.affectedOwners).not.toContain('control.documentation');
+  expect(unknownDocsYaml.affectedOwners).not.toContain('adapters.self-hosting.control.documentation');
   expect(unknownDocsYaml.gates.map(({ id }) => id)).toContain('docs-doctor');
   expect(unknownDocsYaml.gates.filter(({ id }) => id.startsWith('slow-suite-')))
-    .toHaveLength(slowTestPrRiskBaselineSuiteIds().length);
+    .toHaveLength((await slowTestPrRiskBaselineSuiteIds()).length);
 
-  const documentationExample = CodexDevelopmentBuildVerificationPlan('quick', [
+  const documentationExample = await CodexDevelopmentBuildVerificationPlan('quick', [
     'examples/documentation-example.ts'
   ]);
   expect(documentationExample.gates.map(({ id }) => id)).toContain('docs-doctor');
@@ -150,17 +157,17 @@ test('changed-file canonicalization shares the repository path contract', () => 
   }
 });
 
-test('Git raw path identity reaches canonical validation without separator laundering', () => {
+test('Git raw path identity reaches canonical validation without separator laundering', async () => {
   const raw = new TextEncoder().encode('M\0docs\\work\\current-state.yaml\0');
   const changedFiles = parseGitChangedFileOutput(raw);
   expect(changedFiles).toEqual(['docs\\work\\current-state.yaml']);
-  expect(() => CodexDevelopmentBuildVerificationPlan('quick', changedFiles)).toThrow(
+  await expect(CodexDevelopmentBuildVerificationPlan('quick', changedFiles)).rejects.toThrow(
     'not canonical repository-relative POSIX'
   );
 });
 
-test('Ticket semantic Contract reaches CI through the owner-issued plan boundary', () => {
-  const selection = CodexDevelopmentBuildVerificationPlan('quick', [
+test('Ticket semantic Contract reaches CI through the owner-issued plan boundary', async () => {
+  const selection = await CodexDevelopmentBuildVerificationPlan('quick', [
     'catalog/registry/official/ticket.basic/contracts/ticket.yaml'
   ]);
   expect(selection).toMatchObject({
@@ -168,12 +175,12 @@ test('Ticket semantic Contract reaches CI through the owner-issued plan boundary
     selectionResolved: true
   });
   expect(selection.affectedOwners).toContain('compiler');
-  expect(selection.affectedOwners).toContain('product.semantic-model');
+  expect(selection.affectedOwners).toContain('semantics.definitions');
   expect(selection.affectedOwners).not.toContain('bounded-slow-risk');
 });
 
-test('slow suite budget distinguishes state safety from runtime resource pressure', () => {
-  const suites = getSlowTestSuitesSync();
+test('slow suite budget distinguishes state safety from runtime resource pressure', async () => {
+  const suites = await getSlowTestSuitesSync();
   const runtimeHeavy = suites.filter((suite) => suite.resourceClass === 'runtime-heavy');
   expect(runtimeHeavy.length).toBeGreaterThan(0);
   expect(runtimeHeavy.every((suite) => suite.files.length > 0)).toBe(true);

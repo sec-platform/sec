@@ -1,6 +1,6 @@
 import { test } from 'bun:test';
 import assert from 'node:assert/strict';
-import { pairSourceProgramDeclarations as pair } from '../../src/brownfield/source-program-model/reconciliation-declarations.ts';
+import { pairSourceProgramDeclarations as pair } from '../../src/adapters/repository/source-program-model/reconciliation-declarations.ts';
 
 type Declaration = Parameters<typeof pair>[0][number];
 function declaration(id: string, path: string, name = 'work', digest = id, start = 0): Declaration {

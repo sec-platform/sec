@@ -4,10 +4,10 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { jsonOpts } from '../../src/interface/cli/command-options.ts';
-import { commandValue } from '../../src/interface/cli/command-value.ts';
-import { inspectionValue } from '../../src/interface/cli/inspection-query.ts';
-import { registerWorkspaceAction } from '../../src/interface/cli/workspace-action.ts';
+import { jsonOpts } from '../../src/entry/cli/command-options.ts';
+import { commandValue } from '../../src/entry/cli/command-value.ts';
+import { inspectionValue } from '../../src/entry/cli/inspection-query.ts';
+import { registerWorkspaceAction } from '../../src/entry/cli/workspace-action.ts';
 
 function program() { return new Command().name('sec').exitOverride().configureOutput({ writeOut() {}, writeErr() {} }); }
 async function capture(run: () => Promise<unknown>) {
@@ -33,7 +33,7 @@ test('JSON suppresses text formatting and progress setup while preserving the pr
   const root = program();
   registerWorkspaceAction(root.command('sample'), {
     decode: () => ({ request: 1, output: jsonOpts({ json: true, compact: true }) }),
-    progress: 'Working', execute: async () => ({ domain: 1 }),
+    progress: { text: 'Working', run: async (_text, _output, execute) => execute() }, execute: async () => ({ domain: 1 }),
     view: (value) => commandValue({ projected: value.domain }, () => assert.fail('JSON formatted text'))
   });
   assert.deepEqual(await capture(() => root.parseAsync(['sample'], { from: 'user' })), [['{"projected":1}']]);

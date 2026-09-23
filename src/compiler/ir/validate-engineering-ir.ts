@@ -1,9 +1,10 @@
-import { SEMANTIC_ENTITY_KINDS, type SemanticEntity } from '../../semantic/engineering-ir/contract/entity-types.ts';
-import { FACT_PROVENANCE_KINDS, SEMANTIC_AUTHORITIES, SEMANTIC_PREDICATES, type SemanticFact } from '../../semantic/engineering-ir/contract/fact-types.ts';
-import { ENGINEERING_IR_FORMAT_VERSION, type EngineeringIR } from '../../semantic/engineering-ir/contract/root-types.ts';
-import { type ValidatedEngineeringIRSnapshot } from '../../semantic/engineering-ir/contract/validated-types.ts';
-import { cloneAndDeepFreeze, compareCodeUnits } from '../../system-architecture/foundation/runtime/canonical.ts';
-import { fail } from '../errors.ts';
+import { cloneAndDeepFreeze, compareCodeUnits } from '../../contracts/canonical.ts';
+import { fail } from '../../contracts/failure.ts';
+import { SEMANTIC_ENTITY_KINDS, type SemanticEntity } from '../../semantics/engineering-ir/entity-types.ts';
+import { FACT_PROVENANCE_KINDS, SEMANTIC_AUTHORITIES, SEMANTIC_PREDICATES, type SemanticFact } from '../../semantics/engineering-ir/fact-types.ts';
+import { assertEngineeringIRPredicateSignatures } from '../../semantics/engineering-ir/predicate-signatures.ts';
+import { ENGINEERING_IR_FORMAT_VERSION, type EngineeringIR } from '../../semantics/engineering-ir/root-types.ts';
+import { type ValidatedEngineeringIRSnapshot } from '../../semantics/engineering-ir/validated-types.ts';
 import {
   buildEngineeringIR,
   type BuildEngineeringIRInput
@@ -22,7 +23,6 @@ import {
   normalizeProvenance
 } from './ir-normalization.ts';
 import { digest, inputRevisionPayload, semanticRevisionPayload } from './ir-revision.ts';
-import { assertEngineeringIRPredicateSignatures } from './predicate-signatures.ts';
 import { deriveScenarioDefinitions } from './scenario-facts.ts';
 
 const semanticEntityKinds = new Set<string>(SEMANTIC_ENTITY_KINDS);

@@ -1,8 +1,8 @@
-import type { SemanticAttributeValue } from '../../semantic/engineering-ir/contract/entity-types.ts';
-import type { SemanticAuthority, SemanticFact, SemanticPredicate, SemanticValue } from '../../semantic/engineering-ir/contract/fact-types.ts';
-import type { ValidatedEngineeringIRSnapshot } from '../../semantic/engineering-ir/contract/validated-types.ts';
-import { INSPECTOR_SECTION_IDS, type AuthorityOverlayStatus, type InspectorItem, type InspectorSection, type ViewBadge, type ViewEdge, type ViewNode, type ViewOverlay, type ViewReference } from '../../semantic/projection/contract/types.ts';
-import { compareCodeUnits, uniqueSorted } from '../../system-architecture/foundation/runtime/canonical.ts';
+import { compareCodeUnits, uniqueSorted } from '../../contracts/canonical.ts';
+import type { SemanticAttributeValue } from '../../semantics/engineering-ir/entity-types.ts';
+import type { SemanticAuthority, SemanticFact, SemanticPredicate, SemanticValue } from '../../semantics/engineering-ir/fact-types.ts';
+import type { ValidatedEngineeringIRSnapshot } from '../../semantics/engineering-ir/validated-types.ts';
+import { INSPECTOR_SECTION_IDS, type AuthorityOverlayStatus, type InspectorItem, type InspectorSection, type ViewBadge, type ViewEdge, type ViewNode, type ViewOverlay, type ViewReference } from '../../semantics/projection/types.ts';
 import { CompilerError } from '../errors.ts';
 import { indexValidatedEngineeringIR, type EngineeringIRIndex } from '../ir/index-engineering-ir.ts';
 
@@ -77,7 +77,7 @@ export function referencesForFacts(facts: readonly SemanticFact[]): ViewReferenc
   ]));
 }
 
-export function entityAttribute(
+function entityAttribute(
   index: EngineeringIRIndex,
   entityId: string,
   key: string
