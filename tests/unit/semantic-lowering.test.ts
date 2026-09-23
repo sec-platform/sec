@@ -1,6 +1,6 @@
 import { expect, test } from 'bun:test';
 
-import { renderStateTransitionMapSource } from '../../src/compiler/semantic-lowering.ts';
+import { renderStateTransitionMapSource } from '../../src/adapters/targets/typescript/semantic-lowering.ts';
 import { assertStateTransitionFunctions } from '../../src/compiler/state-transition-plan.ts';
 import { ticketSemanticGeneratorTask } from '../testkit/semantic.ts';
 

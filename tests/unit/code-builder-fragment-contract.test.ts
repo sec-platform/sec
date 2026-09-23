@@ -2,7 +2,7 @@ import { test } from 'bun:test';
 import assert from 'node:assert/strict';
 import { runInNewContext } from 'node:vm';
 import ts from 'typescript';
-import { CodeBuilder } from '../../src/compiler/codegen/code-builder.ts';
+import { CodeBuilder } from '../../src/adapters/targets/typescript/code-builder.ts';
 
 function statements(builder: CodeBuilder) {
   return ts.createSourceFile('generated.ts', builder.getText(), ts.ScriptTarget.Latest, true).statements;

@@ -25,12 +25,15 @@
 CLI、Agent、IDE、脚本与未来 UI 都只消费同一领域结果；传输和展示不能建立第二事实源、第二决策器或第二权限根。接口层的基本约束是：
 
 ```text
-InterfaceResult = Project(CanonicalResult, audience, detailLevel)
-Authority(InterfaceResult) <= Authority(CanonicalResult)
-Meaning(machine) = Meaning(human) = Meaning(canonical)
+InterfaceResult = Project(CanonicalResult, visibility, purpose, detailLevel)
+DisclosedClaims(InterfaceResult) ⊆ SupportedClaims(CanonicalResult, visibility)
+RequiredFacts(purpose, visibility) ⊆ DisclosedFacts(InterfaceResult)
+AdmissibleEffects ⊆ AuthorizedEffects(CurrentGrant, OperationScope) ∩ SupportedEffects(ProviderCapability)
 ```
 
-投影可以隐藏无关细节，但不能改写 terminal、unknown、blocker、作用身份、必要 Evidence、权限上限或完整结果的身份。人类摘要不是把 machine JSON 改成另一个业务状态机；机器结果也不能从显示文本、stderr 或退出码反推领域事实。
+投影是有损表示，不能要求摘要与完整结果包含相同信息。当前采用的是**断言不放大、任务必要信息不遗漏、共同可见字段含义一致**：在相同主体、用途和可见范围内，machine/human对同一字段的解释一致；删去细节不能将partial变为complete、unknown变为false、存在阻塞变为无阻塞。不同用途或可见范围不要求内容相等，也不能通过隐藏对象的计数、身份或摘要泄露其存在。完整结果自身也只是有来源和范围的断言，不因为称为canonical就自动为真。
+
+上述作用集合只表达必要上界，不替代前像、预算、围栏和其他真实准入条件。显示结果只携带权限相关事实或受保护引用，不签发新的Grant。实际执行和披露仍由原权限拥有者准入；内容签名、结果身份、终态标签和客户端类型都不扩大权限。人类摘要不是另一个业务状态机；机器消费者不能从显示文本、stderr或退出码反推领域事实。RequiredFacts是当前任务所需且允许披露的语义集合，不是新增作者必填字段；不能披露必要细节时，按泄露政策返回安全的受阻/不足结论，不伪造可继续的成功，也不泄露隐藏对象；正文太长时允许准确摘要加获准可读取的结果引用，但不能把会阻止下一动作的未知或阻塞藏到引用后面。
 
 ### 什么时候才发布稳定 schema
 
@@ -46,6 +49,16 @@ Meaning(machine) = Meaning(human) = Meaning(canonical)
 
 ### 传输状态不等于业务状态
 
-机器通道至少区分 `completed | blocked | unresolved | failed | residue | cancelled` 这类传输可依赖终态：`completed` 仍要求请求规定的结果已按其 owner 读回；`residue` 表示已有或可能已有作用而终态尚未闭合，只能沿恢复合同继续。HTTP 2xx、进程 0、连接关闭、stdout 文本或 PR 响应都不能单独提升为完成。
+接口必须保留三个独立问题，不能使用一个全局status枚举同时作答。下表是既有合同的责任分解，不另发布一套wire字段或强制每次返回三张表。
 
-machine stdout 只承载命名结果或声明的 record stream；日志和进度进入独立诊断通道。人类输出可以压缩、分组和解释，但同一 canonical result 的 digest/状态/unknown/blocker 数量不能因 compact/full 或分页而改变。大结果、流、游标、断线和重连继续由[客户端与并行会话](客户端与并行会话.md)拥有；秘密、源内容和 Provider 原始输出仍按任务披露边界处理。
+| 问题 | 真实拥有者与判据 | 不能由它推出的结论 |
+|---|---|---|
+| 本次调用和交付怎样结束 | entry/transport按协商协议解释响应、分片、截止、断线与接收完整性 | 响应已完整送达不证明业务成功；连接关闭不证明目标已停止 |
+| 对准确主体取得什么结果 | application协调，compiler/assurance等领域owner给出结果、覆盖、诊断与当前资格 | `blocked/unresolved/failed/cancelled`是该操作合同下的业务结论，不是通用传输终态；结果形成不证明每个客户端已收到 |
+| 已发生或可能发生的作用怎样结算 | execution及真实Provider按原operationRef维护提交、回读、恢复与残留 | 调用取消或业务失败不意味着无副作用；`residue`不能被“请求结束”清除 |
+
+正常成功路径允许一次同步响应同时携带完整结果与所需结算事实，不强制新增查询或数据库。长期作用可以先返回接受及operationRef，再按原操作查询；accepted不冒充completed。纯查询取得请求的完整结果即可，没有外部作用时不制造空结算记录。部分结果可以独立有用，只有本任务所求覆盖和完成条件成立时才报告整体完成。HTTP 2xx、进程0、JSON-RPC响应、连接关闭或PR响应均只按各自合同解释。
+
+machine stdout只承载命名结果或声明的record stream；日志和进度进入独立诊断通道。原完整结果身份、某可见投影的内容身份及本次传输字节身份分别绑定，不能要求JSON、文本摘要和分片封装具有相同digest。同一主体及可见范围的compact/full不得改变公共字段的状态、必要unknown和blocker含义；分页计数要标明当前页还是已确认完整范围。跨可见范围不承诺总计相同，不向客户端暴露无权读取的完整结果摘要。
+
+大结果、流的完成屏障、游标、断线和重连由[客户端与并行会话](客户端与并行会话.md#远程事件与重连)拥有。保留原协商协议；旧客户端不能表达必要的partial/unknown/结算区别时拒绝该能力或返回明确不支持，不能静默映射为成功。秘密、源内容和Provider原始输出仍按当前披露边界处理。

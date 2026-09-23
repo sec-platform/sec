@@ -1,9 +1,11 @@
 import { expect, test } from 'bun:test';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import path from 'node:path';
 
-import { inspectNoFollowDirectoryChain, PhysicalNoFollowError, retainNoFollowDirectoryForChildProcess, retainNoFollowOrdinaryFile } from '../../src/runtime-state/physical/runtime/physical-no-follow.ts';
-import { issueRetainedCommandBoundary, RETAINED_EXECUTABLE_CHILD_DESCRIPTOR, RETAINED_WORKING_DIRECTORY_CHILD_DESCRIPTOR, RetainedCommandTransportError, runCommand, runCommandBytes, runRetainedCommand, runRetainedCommandBytes } from '../../src/runtime-state/physical/runtime/process.ts';
-import { compilerRoot } from '../../src/workspace/runtime/paths.ts';
+import { inspectNoFollowDirectoryChain, PhysicalNoFollowError, retainNoFollowDirectoryForChildProcess, retainNoFollowOrdinaryFile } from '../../src/adapters/runtime-state/physical/runtime/physical-no-follow.ts';
+import { issueRetainedCommandBoundary, RETAINED_EXECUTABLE_CHILD_DESCRIPTOR, RETAINED_WORKING_DIRECTORY_CHILD_DESCRIPTOR, RetainedCommandTransportError, runCommand, runCommandBytes, runRetainedCommand, runRetainedCommandBytes } from '../../src/adapters/runtime-state/physical/runtime/process.ts';
+import { compilerRoot } from "../../src/adapters/workspace-context.ts";
 
 const splitUtf8Script = [
   "const chunks = [Buffer.from('docs/'), Buffer.from([0xe4]), Buffer.from([0xb8]), Buffer.from([0xad]), Buffer.from('.md\\0')];",
@@ -141,6 +143,69 @@ const RETAINED_TEST_COMMAND_BUDGET = Object.freeze({
   maxStdoutBytes: 1024 * 1024,
   timeoutMs: 5_000
 });
+
+test.skipIf(process.platform !== 'linux')(
+  'retained command preserves owner-advertised auxiliary descriptor slots',
+  async () => {
+    const root = mkdtempSync(path.join(tmpdir(), 'sec-retained-aux-slots-'));
+    const executablePath = path.resolve(process.execPath);
+    const executable = retainNoFollowOrdinaryFile(
+      inspectNoFollowDirectoryChain(path.dirname(executablePath), 'aux-slot executable parent'),
+      path.basename(executablePath),
+      undefined,
+      'aux-slot executable',
+      RETAINED_EXECUTABLE_CHILD_DESCRIPTOR,
+      'executable'
+    );
+    const workingDirectory = retainNoFollowDirectoryForChildProcess(
+      inspectNoFollowDirectoryChain(compilerRoot, 'aux-slot cwd'),
+      RETAINED_WORKING_DIRECTORY_CHILD_DESCRIPTOR,
+      'aux-slot cwd'
+    );
+    const firstPath = path.join(root, 'first');
+    const secondPath = path.join(root, 'second');
+    mkdirSync(firstPath);
+    mkdirSync(secondPath);
+    writeFileSync(path.join(firstPath, 'value.txt'), 'first\n');
+    writeFileSync(path.join(secondPath, 'value.txt'), 'second\n');
+    const first = retainNoFollowDirectoryForChildProcess(
+      inspectNoFollowDirectoryChain(firstPath, 'aux-slot first'),
+      15,
+      'aux-slot first'
+    );
+    const second = retainNoFollowDirectoryForChildProcess(
+      inspectNoFollowDirectoryChain(secondPath, 'aux-slot second'),
+      16,
+      'aux-slot second'
+    );
+    try {
+      const boundary = issueRetainedCommandBoundary({
+        executable,
+        workingDirectory,
+        auxiliaryInputs: [
+          { capability: first, kind: 'directory' },
+          { capability: second, kind: 'directory' }
+        ]
+      });
+      const result = await runRetainedCommand(boundary, [
+        '--no-env-file',
+        '--eval',
+        [
+          'const fs = require("node:fs");',
+          'process.stdout.write(fs.readFileSync("/proc/self/fd/15/value.txt", "utf8"));',
+          'process.stdout.write(fs.readFileSync("/proc/self/fd/16/value.txt", "utf8"));'
+        ].join('\n')
+      ], RETAINED_TEST_COMMAND_BUDGET);
+      expect(result).toEqual({ code: 0, stdout: 'first\nsecond\n', stderr: '' });
+    } finally {
+      second.dispose();
+      first.dispose();
+      workingDirectory.dispose();
+      executable.dispose();
+      rmSync(root, { recursive: true, force: true });
+    }
+  }
+);
 
 test.skipIf(process.platform !== 'win32' && process.platform !== 'linux')(
   'retained byte transport executes and revalidates one immutable executable image',

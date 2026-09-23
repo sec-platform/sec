@@ -1,14 +1,14 @@
 import { expect, test } from 'bun:test';
 
-import { sha256 as canonicalSha256 } from '../../src/system-architecture/foundation/runtime/canonical.ts';
-import type { VerificationActionKeyDigest } from '../../src/verification/action/contract/action.ts';
-import { buildCiVerificationActionPlanClosure, ciVerificationGateStep, type CiVerificationActionCandidate } from '../../src/verification/action/contract/ci.ts';
-import { CI_VERIFICATION_HOSTED_PROVIDER_REVISION } from '../../src/verification/action/contract/environment.ts';
-import type { VerificationActionProviderOrigin } from '../../src/verification/action/contract/provider.ts';
-import { CI_VERIFICATION_ACTION_SANDBOX_RECEIPT_SCHEMA, CI_VERIFICATION_HOSTED_SUT_OUTPUT_BYTE_LIMIT, CodexDevelopmentCreateHostedSutExecutionAuthorization, CodexDevelopmentFinalizeHostedActionRawResult, CodexDevelopmentReduceHostedSutObservation, type CodexDevelopmentHostedActionRawResult, type CodexDevelopmentHostedSutSandboxReceipt } from '../../src/verification/ci/contract/hosted-sut-observation.ts';
-import { buildCiQuickGatePlan } from '../../src/verification/ci/contract/plan.ts';
-import { CI_VERIFICATION_HOSTED_SANDBOX_POLICY, CI_VERIFICATION_HOSTED_SANDBOX_POLICY_DIGEST } from '../../src/verification/ci/contract/revision.ts';
-import { CI_VERIFICATION_CONTRACT_REVISION } from '../../src/verification/contract/revision.ts';
+import type { VerificationActionKeyDigest } from '../../src/adapters/verification/platform/action/contract/action.ts';
+import { buildCiVerificationActionPlanClosure, ciVerificationGateStep, type CiVerificationActionCandidate } from '../../src/adapters/verification/platform/action/contract/ci.ts';
+import { CI_VERIFICATION_HOSTED_PROVIDER_REVISION } from '../../src/adapters/verification/platform/action/contract/environment.ts';
+import type { VerificationActionProviderOrigin } from '../../src/adapters/verification/platform/action/contract/provider.ts';
+import { CI_VERIFICATION_ACTION_SANDBOX_RECEIPT_SCHEMA, CI_VERIFICATION_HOSTED_SUT_OUTPUT_BYTE_LIMIT, CodexDevelopmentCreateHostedSutExecutionAuthorization, CodexDevelopmentFinalizeHostedActionRawResult, CodexDevelopmentReduceHostedSutObservation, type CodexDevelopmentHostedActionRawResult, type CodexDevelopmentHostedSutSandboxReceipt } from '../../src/adapters/verification/platform/ci/contract/hosted-sut-observation.ts';
+import { buildCiQuickGatePlan } from '../../src/adapters/verification/platform/ci/contract/plan.ts';
+import { CI_VERIFICATION_HOSTED_SANDBOX_POLICY, CI_VERIFICATION_HOSTED_SANDBOX_POLICY_DIGEST } from '../../src/adapters/verification/platform/ci/contract/revision.ts';
+import { CI_VERIFICATION_CONTRACT_REVISION } from '../../src/assurance/verification/contract/revision.ts';
+import { sha256 as canonicalSha256 } from '../../src/contracts/canonical.ts';
 
 const digest = (value: string): VerificationActionKeyDigest =>
   `sha256:${value.repeat(64).slice(0, 64)}` as VerificationActionKeyDigest;

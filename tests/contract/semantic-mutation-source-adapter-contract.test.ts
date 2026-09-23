@@ -1,12 +1,13 @@
 import { expect, test } from 'bun:test';
 
+import { planSemanticMutationSourceEdit, type SemanticMutationSourceEditPlanningInput } from '../../src/adapters/mutation/plan-source-edit.ts';
 import type { LockFile } from '../../src/compiler/contract.ts';
 import { sha256 } from '../../src/compiler/semantic-mutation/canonical.ts';
-import { assertSemanticMutationRollbackManifestInvariant, assertSemanticMutationSourceEditArtifactsInvariant, assertSemanticMutationSourceEditPlanInvariant, planSemanticMutationSourceEdit, type SemanticMutationSourceEditPlanningInput } from '../../src/compiler/semantic-mutation/plan-source-edit.ts';
+import { assertSemanticMutationRollbackManifestInvariant, assertSemanticMutationSourceEditArtifactsInvariant, assertSemanticMutationSourceEditPlanInvariant } from '../../src/compiler/semantic-mutation/source-edit-artifact.ts';
 import { buildTrustedLocalSemanticMutationAuthorization, type TrustedLocalSemanticMutationAuthorizationInput, type TrustedLocalSemanticMutationPolicyDraft } from '../../src/compiler/semantic-mutation/trusted-authorization-ingress.ts';
-import type { EngineeringIR } from '../../src/semantic/engineering-ir/contract/root-types.ts';
-import { SEMANTIC_CONTRACT_YAML_ADAPTER_ID, SEMANTIC_CONTRACT_YAML_ADAPTER_REVISION, SEMANTIC_MUTATION_OPERATION_REGISTRY_REVISION, SEMANTIC_MUTATION_ROLLBACK_MANIFEST_REVISION, SEMANTIC_MUTATION_SOURCE_ADAPTER_REGISTRY_REVISION, SEMANTIC_MUTATION_SOURCE_EDIT_PLAN_REVISION, SEMANTIC_MUTATION_SOURCE_PATH_EVIDENCE_REVISION, type SemanticMutationAuthorizationContext, type SemanticMutationLoadedSourceCandidate, type SemanticMutationRequest, type SemanticMutationRollbackManifest, type SemanticMutationSourceEditPlan } from '../../src/semantic/mutation/contract/types.ts';
-import type { SemanticViewSet } from '../../src/semantic/projection/contract/types.ts';
+import type { EngineeringIR } from '../../src/semantics/engineering-ir/root-types.ts';
+import { SEMANTIC_CONTRACT_YAML_ADAPTER_ID, SEMANTIC_CONTRACT_YAML_ADAPTER_REVISION, SEMANTIC_MUTATION_OPERATION_REGISTRY_REVISION, SEMANTIC_MUTATION_ROLLBACK_MANIFEST_REVISION, SEMANTIC_MUTATION_SOURCE_ADAPTER_REGISTRY_REVISION, SEMANTIC_MUTATION_SOURCE_EDIT_PLAN_REVISION, SEMANTIC_MUTATION_SOURCE_PATH_EVIDENCE_REVISION, type SemanticMutationAuthorizationContext, type SemanticMutationLoadedSourceCandidate, type SemanticMutationRequest, type SemanticMutationRollbackManifest, type SemanticMutationSourceEditPlan } from '../../src/semantics/mutation/types.ts';
+import type { SemanticViewSet } from '../../src/semantics/projection/types.ts';
 
 function vectors(): {
   readonly manifest: SemanticMutationRollbackManifest;

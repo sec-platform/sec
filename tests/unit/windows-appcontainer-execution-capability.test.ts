@@ -4,14 +4,14 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 
 import {
+  acquireWorkspaceWriteLease,
+  issueWindowsAppContainerExecutionCapability
+} from '../../src/adapters/filesystem/write-lease.ts';
+import {
   assertWindowsAppContainerExecutionCapability,
   issueWindowsAppContainerExecutionCapability as issuePhysicalWindowsAppContainerExecutionCapability,
   WindowsAppContainerExecutionCapabilityError
-} from '../../src/runtime-state/physical/contract/windows-appcontainer-execution-capability.ts';
-import {
-  acquireWorkspaceWriteLease,
-  issueWindowsAppContainerExecutionCapability
-} from '../../src/workspace/lease.ts';
+} from '../../src/adapters/runtime-state/physical/contract/windows-appcontainer-execution-capability.ts';
 
 function operationDeadline(timeoutMs: number): Readonly<{
   deadlineAtUnixMs: number;

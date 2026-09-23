@@ -5,11 +5,11 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { runInNewContext } from 'node:vm';
 import ts from 'typescript';
-import type { PipelineSemanticContext } from '../../src/compiler/pipeline/types.ts';
-import { lowerSemanticTasks, renderStateTransitionMapSource } from '../../src/compiler/semantic-lowering.ts';
+import { lowerSemanticTasks, renderStateTransitionMapSource } from '../../src/adapters/targets/typescript/semantic-lowering.ts';
+import type { PipelineSemanticContext } from '../../src/compiler/pipeline/semantic-context.ts';
 import { assertUniqueSemanticOutputPaths } from '../../src/compiler/semantic-output-paths.ts';
 import { assertStateTransitionFunctions } from '../../src/compiler/state-transition-plan.ts';
-import type { StateTransitionMapGeneratorPlanTask } from '../../src/semantic/generation/contract/types.ts';
+import type { StateTransitionMapGeneratorPlanTask } from '../../src/semantics/generation/types.ts';
 
 function task(id = 'one', values = ['open', 'closed']): StateTransitionMapGeneratorPlanTask {
   return {

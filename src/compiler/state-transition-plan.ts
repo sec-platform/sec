@@ -1,4 +1,4 @@
-import type { SemanticGeneratorPlanTask } from '../semantic/generation/contract/types.ts';
+import type { SemanticGeneratorPlanTask } from '../semantics/generation/types.ts';
 import { CompilerError } from './errors.ts';
 
 /** A total deterministic transition function has unique declared values,

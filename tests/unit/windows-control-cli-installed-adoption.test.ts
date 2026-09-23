@@ -9,11 +9,11 @@ import {
   SEC_WINDOWS_CONTROL_CLI_ENVIRONMENT_AUTHORITY,
   getSecWindowsControlCliExecutableBindingV1,
   parseSecWindowsControlCliEnvironmentAuthority
-} from '../../src/external-capabilities/windows-control-cli/contract/environment.ts';
+} from '../../src/adapters/providers/windows-control-cli/contract/environment.ts';
 import {
   WindowsControlCliInstalledAdoptionError,
   adoptInstalledWindowsControlCli
-} from '../../src/external-capabilities/windows-control-cli/runtime/installed-adoption.ts';
+} from '../../src/adapters/providers/windows-control-cli/runtime/installed-adoption.ts';
 
 function installedRoot(command: 'git' | 'gh'): string {
   const locator = Bun.which(command);

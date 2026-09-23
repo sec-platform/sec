@@ -6,19 +6,19 @@ import { expect, test } from 'bun:test';
 import {
   atomicPublishSemanticMutationSource,
   atomicRestoreSemanticMutationSource,
+  createSourceReplacementTestActorForTests,
   readSemanticMutationTransactionArtifacts,
   writeSemanticMutationTransactionArtifacts
-} from '../../src/compiler/semantic-mutation/atomic-source-publish.ts';
-import { SemanticMutationContractError, sha256 } from '../../src/compiler/semantic-mutation/canonical.ts';
-import { assertSemanticMutationRollbackManifestInvariant } from '../../src/compiler/semantic-mutation/plan-source-edit.ts';
-import { semanticMutationByteDigest } from '../../src/compiler/semantic-mutation/semantic-contract-yaml-adapter.ts';
-import { readSemanticMutationSource } from '../../src/compiler/semantic-mutation/source-path-boundary.ts';
-import { semanticMutationTransactionRoot } from '../../src/compiler/semantic-mutation/transaction-identity.ts';
+} from '../../src/adapters/mutation/atomic-source-publish.ts';
+import { readSemanticMutationSource } from '../../src/adapters/mutation/source-path-boundary.ts';
+import { semanticMutationTransactionRoot } from '../../src/adapters/mutation/transaction-identity.ts';
 import {
   applySemanticMutationWindowsFileAttributes,
   readSemanticMutationWindowsFileAttributes
-} from '../../src/compiler/semantic-mutation/windows-file-attributes.ts';
-import { SEMANTIC_CONTRACT_YAML_ADAPTER_ID, SEMANTIC_CONTRACT_YAML_ADAPTER_REVISION, SEMANTIC_MUTATION_OPERATION_REGISTRY_REVISION, SEMANTIC_MUTATION_ROLLBACK_MANIFEST_REVISION, SEMANTIC_MUTATION_SOURCE_ADAPTER_REGISTRY_REVISION, SEMANTIC_MUTATION_SOURCE_EDIT_PLAN_REVISION, SEMANTIC_MUTATION_SOURCE_PATH_EVIDENCE_REVISION, type SemanticMutationRollbackManifest, type SemanticMutationSourceEditPlan, type SemanticMutationWindowsFileAttributes } from '../../src/semantic/mutation/contract/types.ts';
+} from '../../src/adapters/mutation/windows-file-attributes.ts';
+import { semanticMutationByteDigest, SemanticMutationContractError, sha256 } from '../../src/compiler/semantic-mutation/canonical.ts';
+import { assertSemanticMutationRollbackManifestInvariant } from '../../src/compiler/semantic-mutation/source-edit-artifact.ts';
+import { SEMANTIC_CONTRACT_YAML_ADAPTER_ID, SEMANTIC_CONTRACT_YAML_ADAPTER_REVISION, SEMANTIC_MUTATION_OPERATION_REGISTRY_REVISION, SEMANTIC_MUTATION_ROLLBACK_MANIFEST_REVISION, SEMANTIC_MUTATION_SOURCE_ADAPTER_REGISTRY_REVISION, SEMANTIC_MUTATION_SOURCE_EDIT_PLAN_REVISION, SEMANTIC_MUTATION_SOURCE_PATH_EVIDENCE_REVISION, type SemanticMutationRollbackManifest, type SemanticMutationSourceEditPlan, type SemanticMutationWindowsFileAttributes } from '../../src/semantics/mutation/types.ts';
 import { withTempWorkspace } from '../testkit/workspace.ts';
 
 const ALL_WINDOWS_ATTRIBUTES: SemanticMutationWindowsFileAttributes = Object.freeze({
@@ -226,11 +226,11 @@ test('atomic publish failure diagnostics keep native failure metadata inside det
         plan,
         manifest,
         allowCommit,
-        {
-          rename: async () => {
+        createSourceReplacementTestActorForTests({
+          beforeReplace: async () => {
             throw Object.assign(new Error('native path intentionally redacted'), { code: 'EACCES' });
           }
-        }
+        })
       );
     } catch (error) {
       failure = error;

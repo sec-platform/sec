@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {
   assertRuntimeDependencyOperationActive, runtimeDependencyOperationContext,
   runtimeDependencyOperationControls
-} from '../../src/toolchain/dependencies/runtime/operation-controls.ts';
+} from '../../src/adapters/toolchain/dependencies/runtime/operation-controls.ts';
 
 const context = (clock = () => 0, signal?: AbortSignal) => runtimeDependencyOperationContext(
   runtimeDependencyOperationControls({ lockTimeoutMs: 100, monotonicNowMs: clock, signal }));

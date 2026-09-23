@@ -8,13 +8,13 @@ import {
   acquirePhysicalMutationLease,
   PHYSICAL_MUTATION_LEASE_SCHEMA,
   type PhysicalMutationLeaseOwner
-} from '../../src/runtime-state/physical/runtime/mutation-lease.ts';
+} from '../../src/adapters/runtime-state/physical/runtime/mutation-lease.ts';
 import {
   inspectNoFollowDirectoryChain,
   inspectNoFollowOrdinaryFileEntry,
   recoverDurableCanonicalFileReplacement,
   replaceDurableCanonicalFile
-} from '../../src/runtime-state/physical/runtime/physical-no-follow.ts';
+} from '../../src/adapters/runtime-state/physical/runtime/physical-no-follow.ts';
 
 function fixture(): Readonly<{
   root: string;
@@ -210,9 +210,9 @@ test('real successor process death preserves the original OCI candidate recovery
   writeFileSync(scriptPath, `
     import { mkdirSync, writeFileSync, existsSync } from 'node:fs';
     import path from 'node:path';
-    import { acquirePhysicalMutationLease } from ${JSON.stringify(moduleUrl('../../src/runtime-state/physical/runtime/mutation-lease.ts'))};
-    import { inspectNoFollowDirectoryChain } from ${JSON.stringify(moduleUrl('../../src/runtime-state/physical/runtime/physical-no-follow.ts'))};
-    import { createLocalGitHubActionsRunnerOciCandidateBinding, reconcileReclaimedLocalGitHubActionsRunnerOciCandidate } from ${JSON.stringify(moduleUrl('../../src/verification/ci/runtime/local-github-actions-runner.ts'))};
+    import { acquirePhysicalMutationLease } from ${JSON.stringify(moduleUrl('../../src/adapters/runtime-state/physical/runtime/mutation-lease.ts'))};
+    import { inspectNoFollowDirectoryChain } from ${JSON.stringify(moduleUrl('../../src/adapters/runtime-state/physical/runtime/physical-no-follow.ts'))};
+    import { createLocalGitHubActionsRunnerOciCandidateBinding, reconcileReclaimedLocalGitHubActionsRunnerOciCandidate } from ${JSON.stringify(moduleUrl('../../src/adapters/verification/platform/ci/runtime/local-github-actions-runner.ts'))};
     const directory = inspectNoFollowDirectoryChain(${JSON.stringify(generation)}, 'native crash recovery fixture').target;
     const lease = acquirePhysicalMutationLease(directory, 'materialization-lease.json');
     if (lease === null) throw new Error('Reaped predecessor was not reclaimable');
@@ -276,7 +276,7 @@ test.skipIf(process.platform !== 'win32')('physical CAS recovers after native ch
       const finalPath = path.join(parent.path, 'owner.json');
       writeFileSync(finalPath, 'old\n');
       const scriptPath = path.join(root, 'cas-child.ts');
-      const physicalUrl = pathToFileURL(path.resolve(import.meta.dir, '../../src/runtime-state/physical/runtime/physical-no-follow.ts')).href;
+      const physicalUrl = pathToFileURL(path.resolve(import.meta.dir, '../../src/adapters/runtime-state/physical/runtime/physical-no-follow.ts')).href;
       writeFileSync(scriptPath, `
         import { inspectNoFollowDirectoryChain, inspectNoFollowOrdinaryFileEntry, replaceDurableCanonicalFile, createWindowsDurableCanonicalFileReplacementInterruptionActorForTests } from ${JSON.stringify(physicalUrl)};
         const parent = inspectNoFollowDirectoryChain(${JSON.stringify(parent.path)}, 'CAS child parent').target;

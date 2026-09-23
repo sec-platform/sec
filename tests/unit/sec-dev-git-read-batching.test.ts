@@ -4,7 +4,7 @@ import {
   chunkBlobEntries,
   chunkByCount,
   type GitTreeBlobEntry
-} from '../../src/development/tooling/git/git-read.ts';
+} from '../../src/adapters/self-hosting/development/tooling/git/git-read.ts';
 
 function blob(path: string, byteSize: number, seed: string): GitTreeBlobEntry {
   return Object.freeze({

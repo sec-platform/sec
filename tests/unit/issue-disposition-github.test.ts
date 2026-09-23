@@ -1,9 +1,9 @@
 import { expect, test } from 'bun:test';
-import { parseGitHubPullRequestClosingFactsPage } from '../../src/control/issues/disposition.ts';
+import { parseGitHubPullRequestClosingFactsPage } from '../../src/adapters/self-hosting/control/issues/disposition.ts';
 import {
   parseGitHubIssueObservation,
   parseGitHubLatestClosedEvent
-} from '../../src/control/issues/issue-disposition-github.ts';
+} from '../../src/adapters/self-hosting/control/issues/issue-disposition-github.ts';
 
 const REPOSITORY = 'sec-platform/sec';
 

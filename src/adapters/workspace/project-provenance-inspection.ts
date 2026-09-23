@@ -1,0 +1,39 @@
+import { resolvePathInside } from "../../contracts/relative-path.ts";
+import type { ProvenanceArtifact } from '../../semantics/provenance/types.ts';
+import { calculateCanonicalProjectFileHash } from './project-file-hash.ts';
+
+export type ProvenanceArtifactInspection = {
+  artifact: ProvenanceArtifact;
+  artifactPath: string;
+  exists: boolean;
+  currentHash: string | undefined;
+};
+
+/**
+ * Retained project hashing is currently synchronous. Keep this inspection
+ * synchronous as well instead of routing synchronous reads through p-limit /
+ * Promise.all, which cannot create physical I/O concurrency and only adds task
+ * allocation and scheduling overhead.
+ */
+export function inspectProvenanceArtifacts(
+  projectRoot: string,
+  artifacts: readonly ProvenanceArtifact[]
+): ProvenanceArtifactInspection[] {
+  return artifacts.map((artifact) => {
+    const artifactPath = artifact.path;
+    const absolutePath = resolvePathInside(projectRoot, artifactPath);
+    if (!absolutePath) {
+      return { artifact, artifactPath, exists: false, currentHash: undefined };
+    }
+    const observedHash = calculateCanonicalProjectFileHash(absolutePath);
+    if (observedHash === undefined) {
+      return { artifact, artifactPath, exists: false, currentHash: undefined };
+    }
+    return {
+      artifact,
+      artifactPath,
+      exists: true,
+      currentHash: artifact.hash ? observedHash : undefined
+    };
+  });
+}

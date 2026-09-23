@@ -1,16 +1,16 @@
 import { expect, test } from 'bun:test';
 import { spawnSync } from 'node:child_process';
-import { cpSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { cpSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import process from 'node:process';
 
-import { createLocalContinuationCheckpoint } from '../../src/control/continuation/checkpoint.ts';
-import { encodeVerificationActionData } from '../../src/verification/action/contract/action.ts';
+import { createLocalContinuationCheckpoint, LOCAL_CONTINUATION_CHECKPOINT_MAX_BYTES } from '../../src/adapters/self-hosting/control/continuation/checkpoint.ts';
+import { encodeVerificationActionData } from '../../src/adapters/verification/platform/action/contract/action.ts';
 
 const LOCAL_CONTINUATION_PROGRAM_PATH = path.resolve(
   import.meta.dir,
-  '../../src/control/continuation/local-continuation.ts'
+  '../../src/adapters/self-hosting/control/continuation/local-continuation.ts'
 );
 
 function run(cwd: string, command: string, args: readonly string[], env: NodeJS.ProcessEnv = process.env) {
@@ -101,6 +101,20 @@ tests:
       manifestPath
     });
     writeFileSync(handoffPath, `${encodeVerificationActionData(checkpoint)}\n`, 'utf8');
+
+    if (process.platform !== 'win32') {
+      const aliasPath = path.join(fixtureRoot, 'handoff-link.json');
+      symlinkSync(handoffPath, aliasPath, 'file');
+      expect(invoke(repositoryRoot, env, '--handoff', aliasPath).status).not.toBe(0);
+      rmSync(aliasPath, { force: true });
+    }
+    const oversizedHandoffPath = path.join(fixtureRoot, 'handoff-oversized.json');
+    writeFileSync(
+      oversizedHandoffPath,
+      ' '.repeat(LOCAL_CONTINUATION_CHECKPOINT_MAX_BYTES + 1),
+      'utf8'
+    );
+    expect(invoke(repositoryRoot, env, '--handoff', oversizedHandoffPath).status).not.toBe(0);
 
     const imported = invoke(repositoryRoot, env, '--handoff', handoffPath);
     expect(imported.status).toBe(0);

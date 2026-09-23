@@ -1,6 +1,6 @@
 import { expect, test } from 'bun:test';
 
-import { createVerificationProviderAvailabilityEpoch, createVerificationProviderCapability, resolveProviderAvailability } from '../../src/verification/provider/contract/capability.ts';
+import { createVerificationProviderAvailabilityEpoch, createVerificationProviderCapability, resolveProviderAvailability } from '../../src/adapters/verification/platform/provider/contract/capability.ts';
 
 const OBSERVED_AT = '2026-08-19T00:00:00.000Z';
 const EXPIRES_AT = '2026-08-20T00:00:00.000Z';

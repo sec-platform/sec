@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
-import { configureBranchLifecycleClone } from '../../src/control/branch-lifecycle/branch-lifecycle-config.ts';
+import { configureBranchLifecycleClone } from '../../src/adapters/self-hosting/control/branch-lifecycle/branch-lifecycle-config.ts';
 
 const roots: string[] = [];
 

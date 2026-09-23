@@ -9,7 +9,7 @@ import {
   type UpgradeExecutionTerminal,
   type UpgradePlan,
   type UpgradePlanInput
-} from '../../src/change-management/upgrade/contract/upgrade-artifact.ts';
+} from '../../src/semantics/upgrade/upgrade-artifact.ts';
 
 export function buildUpgradeDiagnostics(options: Partial<UpgradeDiagnostics> = {}): UpgradeDiagnostics {
   return validateUpgradeDiagnostics({
