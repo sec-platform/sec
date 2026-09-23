@@ -81,7 +81,30 @@ jobs:
           SEC_EXPECTED_HEAD_SHA: ${{ steps.verification.outputs.sha }}
           SEC_CHANGED_BASE: ${{ steps.verification.outputs.base }}
           SEC_AFFECTED_TESTS_BASE: ${{ steps.verification.outputs.base }}
-        run: bun scripts/ci-verification.ts --profile full --expected-head "$SEC_EXPECTED_HEAD_SHA"
+        run: bun src/adapters/verification/platform/ci/verification.ts --profile full --expected-head "$SEC_EXPECTED_HEAD_SHA"
+
+      - name: Build and bind exact-head release set
+        shell: bash
+        env:
+          SEC_EXPECTED_HEAD_SHA: ${{ steps.verification.outputs.sha }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$SEC_EXPECTED_HEAD_SHA"
+          expected_tree="$(git rev-parse HEAD^{tree})"
+          bun run release:build
+          test "$(git rev-parse HEAD)" = "$SEC_EXPECTED_HEAD_SHA"
+          jq -e --arg commit "$SEC_EXPECTED_HEAD_SHA" --arg tree "$expected_tree" \
+            '.schema == "sec-release-set-manifest-v1" and .sourceCommit == $commit and .sourceTree == $tree' \
+            build/release-set/release-set-manifest.json > /dev/null
+
+      - name: Upload exact-head runtime and documentation release set
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: sec-release-set-${{ steps.verification.outputs.sha }}-run-${{ github.run_id }}-attempt-${{ github.run_attempt }}
+          path: build/release-set/
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 90
 
       - name: Upload compact full verification evidence
         id: evidence

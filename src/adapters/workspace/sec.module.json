@@ -1,0 +1,25 @@
+{
+  "importGraph": "runtime",
+  "externalEntrypoints": [],
+  "capabilityProviders": [
+    {
+      "capability": "workspace.project-write-authorization",
+      "operations": [
+        "currentProjectWriteAuthorization",
+        "projectProjectWriteAuthorization",
+        "withProjectWriteAuthorization"
+      ]
+    }
+  ],
+  "causalRelations": [
+    {
+      "subject": "semantic.repair-plan",
+      "relation": "reads-back",
+      "symbol": {
+        "path": "src/adapters/workspace/required-artifact-read.ts",
+        "name": "readRequiredRepairPlan"
+      },
+      "operation": null
+    }
+  ]
+}

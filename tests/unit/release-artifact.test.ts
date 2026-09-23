@@ -5,23 +5,23 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 
 import {
-  RELEASE_BUN_ENTRYPOINT_SHEBANG,
-  releaseBunEntrypointBytes
-} from '../../src/release/release-artifact.ts';
-import { materializeExactReleaseGitTree } from '../../src/release/release-git-tree-source.ts';
+  disposeExactReleaseGitTree,
+  materializeExactReleaseGitTree
+} from '../../src/adapters/release/release-git-tree-source.ts';
 import {
+  RELEASE_BUN_ENTRYPOINT_SHEBANG,
   assertReleaseBunRuntimeRequirement,
   buildFrozenReleaseBundle,
   disposeFrozenReleaseSource,
   prepareFrozenReleaseSource,
   type ReleaseBuilderIdentity
-} from '../../src/release/release-source-materialization.ts';
-import { PACKAGE_SOURCE_LAUNCHER_SCRIPT } from '../../src/toolchain/runtime.ts';
+} from '../../src/adapters/release/release-source-materialization.ts';
+import { PACKAGE_SOURCE_LAUNCHER_SCRIPT } from '../../src/adapters/toolchain/runtime.ts';
 
 const FIXTURE_ENTRYPOINT = Object.freeze({
   artifact: 'dist/index.js',
   command: 'fixture',
-  source: 'src/interface/cli/index.ts'
+  source: 'src/entry/cli/cli.ts'
 });
 
 function currentBuilder(overrides: Partial<ReleaseBuilderIdentity> = {}): ReleaseBuilderIdentity {
@@ -156,6 +156,9 @@ test('release builder identity mismatch blocks before an artifact process can pu
   const sourceRoot = await mkdtemp(path.join(tmpdir(), 'sec-release-builder-unavailable-'));
   const artifactRoot = path.join(sourceRoot, 'artifact-must-not-exist');
   try {
+    const entrypoint = path.join(sourceRoot, ...FIXTURE_ENTRYPOINT.source.split('/'));
+    await fs.mkdir(path.dirname(entrypoint), { recursive: true });
+    await fs.writeFile(entrypoint, 'console.log("fixture");\n');
     await expect(buildFrozenReleaseBundle(Object.freeze({
       schema: 'sec-frozen-release-source-v1' as const,
       root: sourceRoot,
@@ -174,14 +177,32 @@ test('release builder identity mismatch blocks before an artifact process can pu
   }
 });
 
-test('release entrypoint normalization permits only the Bun interpreter directive', () => {
-  const source = Buffer.from('console.log("fixture");\n', 'utf8');
-  const normalized = releaseBunEntrypointBytes(source);
-  expect(normalized.toString('utf8')).toBe(`${RELEASE_BUN_ENTRYPOINT_SHEBANG}${source}`);
-  expect(releaseBunEntrypointBytes(normalized)).toEqual(normalized);
-  expect(() => releaseBunEntrypointBytes(
-    Buffer.from('#!/usr/bin/env node\nconsole.log("fixture");\n', 'utf8')
-  )).toThrow('non-Bun interpreter directive');
+
+test('Bun-target release bundle rejects a non-Bun source interpreter directive before build', async () => {
+  const repositoryRoot = await mkdtemp(path.join(tmpdir(), 'sec-release-bad-shebang-'));
+  const artifactRoot = await mkdtemp(path.join(tmpdir(), 'sec-release-bad-shebang-artifact-'));
+  try {
+    await initMinimalBunRepository(repositoryRoot);
+    await fs.writeFile(
+      path.join(repositoryRoot, 'src', 'entry', 'cli', 'cli.ts'),
+      '#!/usr/bin/env node\nconsole.log("fixture");\n',
+      'utf8'
+    );
+    git(repositoryRoot, ['add', '--all']);
+    git(repositoryRoot, ['commit', '--quiet', '-m', 'non-bun-shebang']);
+    const frozen = await prepareFrozenReleaseSource(repositoryRoot);
+    try {
+      await expect(buildFrozenReleaseBundle(frozen, artifactRoot))
+        .rejects.toThrow('non-Bun interpreter directive');
+    } finally {
+      await disposeFrozenReleaseSource(frozen);
+    }
+  } finally {
+    await Promise.all([
+      rm(repositoryRoot, { recursive: true, force: true }),
+      rm(artifactRoot, { recursive: true, force: true })
+    ]);
+  }
 });
 
 test('Bun-target release bundle launches under the retained Bun generation', async () => {
@@ -193,12 +214,12 @@ test('Bun-target release bundle launches under the retained Bun generation', asy
     try {
       await buildFrozenReleaseBundle(frozen, artifactRoot);
       const entrypoint = path.join(artifactRoot, 'index.js');
-      const entrypointBytes = releaseBunEntrypointBytes(await fs.readFile(entrypoint));
-      await fs.writeFile(entrypoint, entrypointBytes);
-      await fs.chmod(entrypoint, 0o755);
-
+      const entrypointBytes = await fs.readFile(entrypoint);
       expect(entrypointBytes.toString('utf8').startsWith(RELEASE_BUN_ENTRYPOINT_SHEBANG))
         .toBe(true);
+      if (process.platform !== 'win32') {
+        expect((await fs.stat(entrypoint)).mode & 0o111).not.toBe(0);
+      }
       const launched = Bun.spawnSync({
         cmd: [process.execPath, entrypoint],
         cwd: artifactRoot,
@@ -249,7 +270,7 @@ test('exact Git source ignores archive export-ignore/export-subst semantics and 
       await expect(fs.readFile(path.join(materialized.root, 'tracked.txt'), 'utf8'))
         .resolves.toBe('literal $Format:%H$ bytes\n');
     } finally {
-      await rm(materialized.stageRoot, { recursive: true, force: true });
+      await disposeExactReleaseGitTree(materialized);
     }
   } finally {
     await rm(repositoryRoot, { recursive: true, force: true });
@@ -276,7 +297,7 @@ test('exact Git source disables replacement-object views', async () => {
       await expect(fs.readFile(path.join(materialized.root, 'tracked.txt'), 'utf8'))
         .resolves.toBe('original-committed-bytes\n');
     } finally {
-      await rm(materialized.stageRoot, { recursive: true, force: true });
+      await disposeExactReleaseGitTree(materialized);
     }
   } finally {
     await rm(repositoryRoot, { recursive: true, force: true });
@@ -338,7 +359,7 @@ test('exact Git source preserves binary blobs behind NUL-delimited path records'
       await expect(fs.readFile(path.join(materialized.root, binaryPath)))
         .resolves.toEqual(expected);
     } finally {
-      await rm(materialized.stageRoot, { recursive: true, force: true });
+      await disposeExactReleaseGitTree(materialized);
     }
   } finally {
     await rm(repositoryRoot, { recursive: true, force: true });

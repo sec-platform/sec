@@ -2,12 +2,12 @@ import { expect, test } from 'bun:test';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 
-import { TENANT_CONTEXT_MUST_FLOW_TO_QUERY_RULE, policySemanticRule } from '../../src/compiler/policies/contract/rules.ts';
 import {
   runPolicyGate
-} from '../../src/compiler/verify/run-policy-gate.ts';
-import { getWorkspacePaths } from '../../src/workspace/runtime/paths.ts';
-import { writeYaml } from '../../src/workspace/yaml.ts';
+} from '../../src/adapters/verification/run-policy-gate.ts';
+import { getWorkspacePaths } from "../../src/adapters/workspace-context.ts";
+import { writeYaml } from '../../src/adapters/workspace/yaml.ts';
+import { TENANT_CONTEXT_MUST_FLOW_TO_QUERY_RULE, policySemanticRule } from '../../src/semantics/policies/rules.ts';
 import { createWorkspace, prepareComposedWorkspace } from '../testkit/workspace.ts';
 
 const TENANT_FLOW_RULE = TENANT_CONTEXT_MUST_FLOW_TO_QUERY_RULE;

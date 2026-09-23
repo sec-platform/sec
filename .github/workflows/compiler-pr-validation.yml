@@ -466,7 +466,7 @@ jobs:
           SEC_ACTIVATION_HEAD_REF: ${{ needs.validate-agent-operation-activation-request.outputs.head-ref }}
         run: |
           set -euo pipefail
-          RESULT=$(bun scripts/codex/agent-operation-activation.ts produce-hosted \
+          RESULT=$(bun src/adapters/self-hosting/control/agent/agent-operation-activation.ts produce-hosted \
             --runtime-root . \
             --candidate-root ../candidate \
             --request "$RUNNER_TEMP/agent-operation-activation-request.json" \
@@ -507,7 +507,7 @@ jobs:
           ARTIFACT_DIGEST: sha256:${{ steps.activation-upload.outputs.artifact-digest }}
         run: |
           set -euo pipefail
-          bun scripts/codex/agent-operation-activation.ts publish-hosted \
+          bun src/adapters/self-hosting/control/agent/agent-operation-activation.ts publish-hosted \
             --runtime-root . \
             --request "$RUNNER_TEMP/agent-operation-activation-request.json" \
             --payload "$RUNNER_TEMP/agent-operation-activation.json" \
@@ -576,7 +576,7 @@ jobs:
           REVIEW_MAX_ATTEMPTS=$((REVIEW_WINDOW_SECONDS / REVIEW_POLL_INTERVAL_SECONDS + 1))
           for attempt in $(seq 1 "$REVIEW_MAX_ATTEMPTS"); do
             rm -f .tmp/codex/trusted-facts.json
-            bun scripts/codex/verification-session.ts observe-hosted \
+            bun src/adapters/verification/platform/ci/runtime/verification-session.ts observe-hosted \
               --request .tmp/codex/hosted-request.json \
               --output .tmp/codex/trusted-facts.json \
               --json > .tmp/codex/observe-response.json
@@ -600,7 +600,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: >-
-          bun scripts/codex/verification-session.ts prepare-hosted
+          bun src/adapters/verification/platform/ci/runtime/verification-session.ts prepare-hosted
           --request .tmp/codex/hosted-request.json
           --facts .tmp/codex/trusted-facts.json
           --output .tmp/codex/hosted-envelope.json
@@ -612,7 +612,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          bun scripts/ci-verification.ts ensure-hosted-action-provider \
+          bun src/adapters/verification/platform/ci/verification.ts ensure-hosted-action-provider \
             --intent prepare-parent-plan \
             --request .tmp/codex/hosted-request.json \
             --envelope .tmp/codex/hosted-envelope.json \
@@ -638,7 +638,7 @@ jobs:
           PARENT_ARTIFACT_ID: ${{ steps.parent-plan-upload.outputs.artifact-id }}
           PARENT_ARCHIVE_DIGEST: ${{ steps.parent-plan-upload.outputs.artifact-digest }}
         run: >-
-          bun scripts/ci-verification.ts ensure-hosted-action-provider
+          bun src/adapters/verification/platform/ci/verification.ts ensure-hosted-action-provider
           --intent verify-parent-plan
           --request .tmp/codex/hosted-request.json
           --envelope .tmp/codex/hosted-envelope.json
@@ -673,7 +673,7 @@ jobs:
             ACTION_CHAIN_TIMEOUT_SECONDS / ACTION_COORDINATION_POLL_INTERVAL_SECONDS + 1
           ))
           for attempt in $(seq 1 "$ACTION_COORDINATION_MAX_ATTEMPTS"); do
-            bun scripts/ci-verification.ts ensure-hosted-action-provider \
+            bun src/adapters/verification/platform/ci/verification.ts ensure-hosted-action-provider \
               --intent coordinate-session \
               --request .tmp/codex/hosted-request.json \
               --envelope .tmp/codex/hosted-envelope.json \
@@ -708,17 +708,17 @@ jobs:
           PARENT_ARCHIVE_DIGEST: ${{ steps.parent-plan-upload.outputs.artifact-digest }}
         run: |
           set -euo pipefail
-          bun scripts/codex/verification-session.ts observe-hosted \
+          bun src/adapters/verification/platform/ci/runtime/verification-session.ts observe-hosted \
             --request .tmp/codex/hosted-request.json \
             --output .tmp/codex/trusted-facts.json \
             --json > .tmp/codex/final-observe-response.json
           bun -e 'const value=JSON.parse(await Bun.file(".tmp/codex/final-observe-response.json").text()); if(value.status!=="observed") throw new Error("Review drifted before Evidence composition")'
-          bun scripts/codex/verification-session.ts prepare-hosted \
+          bun src/adapters/verification/platform/ci/runtime/verification-session.ts prepare-hosted \
             --request .tmp/codex/hosted-request.json \
             --facts .tmp/codex/trusted-facts.json \
             --output .tmp/codex/hosted-envelope.json \
             --json
-          bun scripts/ci-verification.ts ensure-hosted-action-provider \
+          bun src/adapters/verification/platform/ci/verification.ts ensure-hosted-action-provider \
             --intent observe-session \
             --request .tmp/codex/hosted-request.json \
             --envelope .tmp/codex/hosted-envelope.json \
@@ -733,7 +733,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: >-
-          bun scripts/ci-verification.ts compose-hosted-evidence
+          bun src/adapters/verification/platform/ci/verification.ts compose-hosted-evidence
           --envelope .tmp/codex/hosted-envelope.json
           --artifact-index .tmp/codex/hosted-action-index.json
           --output .tmp/codex/ci-verification-evidence.json
@@ -743,7 +743,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: >-
-          bun scripts/codex/verification-session.ts finalize-hosted
+          bun src/adapters/verification/platform/ci/runtime/verification-session.ts finalize-hosted
           --envelope .tmp/codex/hosted-envelope.json
           --evidence .tmp/codex/ci-verification-evidence.json
           --output .tmp/codex/verification-session-artifact.json
@@ -819,7 +819,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          bun scripts/codex/verification-session.ts observe-hosted \
+          bun src/adapters/verification/platform/ci/runtime/verification-session.ts observe-hosted \
             --request .tmp/codex/hosted-request.json \
             --output .tmp/codex/trusted-facts.json \
             --json > .tmp/codex/observe-response.json
@@ -831,17 +831,17 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          bun scripts/codex/verification-session.ts prepare-hosted \
+          bun src/adapters/verification/platform/ci/runtime/verification-session.ts prepare-hosted \
             --request .tmp/codex/hosted-request.json \
             --facts .tmp/codex/trusted-facts.json \
             --output .tmp/codex/hosted-envelope.json \
             --json
-          bun scripts/ci-verification.ts resolve-hosted-action \
+          bun src/adapters/verification/platform/ci/verification.ts resolve-hosted-action \
             --provider-envelope .tmp/codex/verification-action-provider-envelope.json \
             --envelope .tmp/codex/hosted-envelope.json \
             --output .tmp/codex/hosted-action-resolution.json \
             --json > .tmp/codex/resolve-response.json
-          bun scripts/ci-verification.ts ensure-hosted-action-provider \
+          bun src/adapters/verification/platform/ci/verification.ts ensure-hosted-action-provider \
             --intent observe-action \
             --provider-envelope .tmp/codex/verification-action-provider-envelope.json \
             --envelope .tmp/codex/hosted-envelope.json \
@@ -913,7 +913,7 @@ jobs:
       - name: Prove hostile SUT sandbox on the capability-bearing role
         run: |
           set -euo pipefail
-          bun scripts/ci-verification.ts self-test-hosted-action-sandbox \
+          bun src/adapters/verification/platform/ci/verification.ts self-test-hosted-action-sandbox \
             --resolution .tmp/codex/hosted-action-resolution.json \
             --json > .tmp/codex/hosted-sut-capability.json
 
@@ -998,7 +998,7 @@ jobs:
         run: |
           set -euo pipefail
           bun -e '
-            import { CI_VERIFICATION_HOSTED_SANDBOX_POLICY_DIGEST_V1 } from "./src/verification/ci/contract/revision.ts";
+            import { CI_VERIFICATION_HOSTED_SANDBOX_POLICY_DIGEST_V1 } from "./src/adapters/verification/platform/ci/contract/revision.ts";
             const capability = JSON.parse(await Bun.file(".tmp/codex/sut-capability/hosted-sut-capability.json").text());
             const resolution = JSON.parse(await Bun.file(".tmp/codex/hosted-action-resolution.json").text());
             const keys = Object.keys(capability).sort();
@@ -1037,7 +1037,7 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p "${RUNNER_TEMP}/sec-action-prepared"
-          bun scripts/ci-verification.ts prepare-hosted-action-inputs \
+          bun src/adapters/verification/platform/ci/verification.ts prepare-hosted-action-inputs \
             --resolution .tmp/codex/hosted-action-resolution.json \
             --base-root . \
             --candidate-root .tmp/codex/candidate \
@@ -1052,7 +1052,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: >-
-          bun scripts/ci-verification.ts ensure-hosted-action-provider
+          bun src/adapters/verification/platform/ci/verification.ts ensure-hosted-action-provider
           --intent prepare-start-marker
           --provider-envelope .tmp/codex/verification-action-provider-envelope.json
           --envelope .tmp/codex/hosted-envelope.json
@@ -1077,7 +1077,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          bun scripts/ci-verification.ts ensure-hosted-action-provider \
+          bun src/adapters/verification/platform/ci/verification.ts ensure-hosted-action-provider \
             --intent claim-start \
             --provider-envelope .tmp/codex/verification-action-provider-envelope.json \
             --envelope .tmp/codex/hosted-envelope.json \
@@ -1170,7 +1170,7 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p .tmp/codex/raw
-          bun scripts/ci-verification.ts execute-hosted-action-sut \
+          bun src/adapters/verification/platform/ci/verification.ts execute-hosted-action-sut \
             --resolution .tmp/codex/hosted-action-resolution.json \
             --ticket .tmp/codex/prepared/verification-action-execution-ticket.json \
             --prepared-candidate-archive .tmp/codex/prepared/prepared-candidate.tar \
@@ -1261,7 +1261,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: >-
-          bun scripts/ci-verification.ts assemble-hosted-action-terminal
+          bun src/adapters/verification/platform/ci/verification.ts assemble-hosted-action-terminal
           --provider-envelope .tmp/codex/verification-action-provider-envelope.json
           --envelope .tmp/codex/hosted-envelope.json
           --resolution .tmp/codex/hosted-action-resolution.json
@@ -1285,7 +1285,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: >-
-          bun scripts/ci-verification.ts ensure-hosted-action-provider
+          bun src/adapters/verification/platform/ci/verification.ts ensure-hosted-action-provider
           --intent prepare-terminal-anchor
           --provider-envelope .tmp/codex/verification-action-provider-envelope.json
           --envelope .tmp/codex/hosted-envelope.json
@@ -1306,7 +1306,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: >-
-          bun scripts/ci-verification.ts ensure-hosted-action-provider
+          bun src/adapters/verification/platform/ci/verification.ts ensure-hosted-action-provider
           --intent anchor-terminal
           --provider-envelope .tmp/codex/verification-action-provider-envelope.json
           --envelope .tmp/codex/hosted-envelope.json

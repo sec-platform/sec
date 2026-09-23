@@ -3,8 +3,8 @@ import assert from 'node:assert/strict';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { runBunInstall } from '../../src/toolchain/dependencies/runtime/compiler-install-process.ts';
-import { issueRuntimeDependencyTestMaterialization } from '../../src/toolchain/dependencies/runtime/materialization-fixture-capability.ts';
+import { runBunInstall } from '../../src/adapters/toolchain/dependencies/runtime/compiler-install-process.ts';
+import { issueRuntimeDependencyTestMaterialization } from '../../src/adapters/toolchain/dependencies/runtime/materialization-fixture-capability.ts';
 
 const success = { code: 0, stderr: '', stdout: 'fixture' };
 async function fixture(run: (root: string) => Promise<void>) {

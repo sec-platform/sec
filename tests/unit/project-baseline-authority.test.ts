@@ -2,12 +2,12 @@ import { expect, test } from 'bun:test';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 
-import { PhysicalNoFollowError } from '../../src/runtime-state/physical/runtime/physical-no-follow.ts';
-import { ProjectIntegrityError } from '../../src/workspace/contract/project-integrity.ts';
+import { PhysicalNoFollowError } from '../../src/adapters/runtime-state/physical/runtime/physical-no-follow.ts';
 import {
   getProjectBaselinePath,
   readProjectBaseline
-} from '../../src/workspace/runtime/project-baseline.ts';
+} from '../../src/adapters/workspace/project-baseline.ts';
+import { ProjectIntegrityError } from '../../src/workspace/contract/project-integrity.ts';
 import { withTempWorkspace } from '../testkit/workspace.ts';
 
 async function writeRawBaseline(workspaceRoot: string, value: unknown): Promise<void> {

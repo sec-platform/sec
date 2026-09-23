@@ -5,13 +5,19 @@ import path from 'node:path';
 
 import { expect, test } from 'bun:test';
 
+import { createHostGitReadSessionForTests } from '../../src/adapters/providers/git-read/runtime/session.ts';
 import {
   issueDevelopmentCommitAdmission,
   type DevelopmentCommitAdmission,
   type DevelopmentCommitRequest
-} from '../../src/development/commit-admission/operation.ts';
-import { runDevelopmentCommit } from '../../src/development/commit/operation.ts';
-import { IMPORT_NORMALIZATION_OPERATION } from '../../src/development/import-normalization/contract.ts';
+} from '../../src/adapters/self-hosting/development/commit-admission/operation.ts';
+import {
+  acknowledgeDevelopmentCommitResult,
+  readDevelopmentCommitOutcome,
+  runDevelopmentCommit,
+  settleDevelopmentCommitJournalsForRef
+} from '../../src/adapters/self-hosting/development/commit/operation.ts';
+import { IMPORT_NORMALIZATION_OPERATION } from '../../src/adapters/self-hosting/development/import-normalization/contract.ts';
 
 function git(root: string, args: readonly string[]): string {
   const result = spawnSync('git', [...args], {
@@ -31,7 +37,14 @@ async function fixture(): Promise<Readonly<{
   git(root, ['init', '--quiet']);
   git(root, ['config', 'user.name', 'SEC Tests']);
   git(root, ['config', 'user.email', 'tests@example.com']);
-  const moduleRoot = path.join(root, 'src', 'development', 'import-normalization');
+  const moduleRoot = path.join(
+    root,
+    'src',
+    'adapters',
+    'self-hosting',
+    'development',
+    'import-normalization'
+  );
   await mkdir(moduleRoot, { recursive: true });
   await Promise.all([
     writeFile(path.join(root, 'tsconfig.json'), '{"compilerOptions":{"noEmit":true}}\n'),
@@ -42,7 +55,7 @@ async function fixture(): Promise<Readonly<{
     ),
     writeFile(path.join(moduleRoot, 'sec.module.json'), `${JSON.stringify({
       importGraph: 'runtime',
-      externalEntrypoints: ['src/development/import-normalization/runtime.ts'],
+      externalEntrypoints: ['src/adapters/self-hosting/development/import-normalization/runtime.ts'],
       capabilityProviders: [{
         capability: IMPORT_NORMALIZATION_OPERATION.capability,
         operations: [IMPORT_NORMALIZATION_OPERATION.operation]
@@ -99,10 +112,61 @@ test('development.commit consumes one exact staged admission before publishing i
   }
 }, 20_000);
 
+test('development.commit retires only the exact owner-issued applied journal after delivery', async () => {
+  const { root } = await fixture();
+  try {
+    const prepared = await issueDevelopmentCommitAdmission({ repositoryRoot: root, message: 'apply staged candidate\n' });
+    const result = await runDevelopmentCommit(prepared.request, prepared.admission);
+    const source = await readFile(result.journalPath, 'utf8');
+    expect(source).toContain('"terminal":"applied"');
+    expect(() => acknowledgeDevelopmentCommitResult({ ...result })).toThrow('owner-issued result');
+    expect(await readFile(result.journalPath, 'utf8')).toBe(source);
+    if (process.platform === 'linux') {
+      expect(() => acknowledgeDevelopmentCommitResult(result))
+        .toThrow('needs a native namespace exclusion on Linux');
+      expect(await readFile(result.journalPath, 'utf8')).toBe(source);
+      return;
+    }
+    acknowledgeDevelopmentCommitResult(result);
+    await expect(lstat(result.journalPath)).rejects.toMatchObject({ code: 'ENOENT' });
+    expect(() => acknowledgeDevelopmentCommitResult(result)).toThrow('owner-issued result');
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+}, 20_000);
+
+test('development.commit classifies every exact-ref journal before retiring any', async () => {
+  const { root } = await fixture();
+  try {
+    const prepared = await issueDevelopmentCommitAdmission({ repositoryRoot: root, message: 'apply staged candidate\n' });
+    const result = await runDevelopmentCommit(prepared.request, prepared.admission);
+    const source = await readFile(result.journalPath, 'utf8');
+    const unknown = { ...JSON.parse(source) as Record<string, unknown>,
+      attempt: `sha256:${'a'.repeat(64)}`, target: 'b'.repeat(40), object: null, terminal: 'unknown' };
+    const unknownPath = path.join(path.dirname(result.journalPath), `${'a'.repeat(64)}.json`);
+    await writeFile(unknownPath, `${JSON.stringify(unknown)}\n`);
+    await expect(settleDevelopmentCommitJournalsForRef({ repositoryRoot: root, ref: result.ref }))
+      .rejects.toThrow('requires applied readback');
+    expect(await readFile(result.journalPath, 'utf8')).toBe(source);
+    await rm(unknownPath);
+    if (process.platform === 'linux') {
+      await expect(settleDevelopmentCommitJournalsForRef({ repositoryRoot: root, ref: result.ref }))
+        .rejects.toThrow('needs a native namespace exclusion on Linux');
+      expect(await readFile(result.journalPath, 'utf8')).toBe(source);
+      return;
+    }
+    expect(await settleDevelopmentCommitJournalsForRef({ repositoryRoot: root, ref: result.ref }))
+      .toEqual({ ref: result.ref, observed: 1, retired: 1 });
+    await expect(lstat(result.journalPath)).rejects.toMatchObject({ code: 'ENOENT' });
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+}, 30_000);
+
 test('development.commit reports failed staged normalization without publishing the candidate', async () => {
   const { root, request } = await fixture();
   try {
-    const kernelPath = 'src/development/import-normalization/kernel.ts';
+    const kernelPath = 'src/adapters/self-hosting/development/import-normalization/kernel.ts';
     await writeFile(path.join(root, kernelPath),
       "import path from 'node:path';\nimport fs from 'node:fs';\nexport function normalize(): void { void fs; void path; }\n");
     git(root, ['add', '--', kernelPath]);
@@ -140,6 +204,54 @@ test('development.commit rejects missing admission before repository Effect', as
       tree: git(root, ['write-tree']),
       objects: git(root, ['count-objects', '-v'])
     }).toEqual(before);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('development.commit keeps a failed reflog observation unknown instead of authorizing another effect', async () => {
+  const { root } = await fixture();
+  try {
+    const preimage = git(root, ['rev-parse', 'HEAD']);
+    git(root, ['commit', '--quiet', '-m', 'detached target object']);
+    const target = git(root, ['rev-parse', 'HEAD']);
+    const tree = git(root, ['rev-parse', 'HEAD^{tree}']);
+    const ref = git(root, ['symbolic-ref', 'HEAD']);
+    git(root, ['reset', '--soft', preimage]);
+    const commonDirectory = path.resolve(root, git(root, ['rev-parse', '--git-common-dir']));
+    const hostSession = createHostGitReadSessionForTests({ cwd: root });
+    const session = Object.freeze({
+      ...hostSession,
+      run: (args: readonly string[]) => args[0] === 'rev-list' && args[1] === '--walk-reflogs'
+        ? Promise.resolve(Object.freeze({
+          kind: 'unresolved-git-read-session' as const,
+          reason: 'command-error' as const,
+          detail: 'independent reflog observation failure'
+        }))
+        : hostSession.run(args)
+    });
+    try {
+      const journal: Parameters<typeof readDevelopmentCommitOutcome>[0]['journal'] = Object.freeze({
+        schema: 'sec-development-commit-journal-v1',
+        operation: `sha256:${'1'.repeat(64)}`,
+        attempt: `sha256:${'2'.repeat(64)}`,
+        ref,
+        preimage,
+        target,
+        object: target,
+        tree,
+        terminal: null
+      });
+      const readback = await readDevelopmentCommitOutcome({
+        session,
+        commonDirectory,
+        journal,
+        normal: null
+      });
+      expect(readback.disposition).toBe('unknown');
+    } finally {
+      await hostSession.close?.();
+    }
   } finally {
     await rm(root, { recursive: true, force: true });
   }

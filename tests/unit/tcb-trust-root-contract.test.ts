@@ -6,8 +6,8 @@ import { expect, test } from 'bun:test';
 import {
   compileTcbClosureIdentity,
   TCB_TRUST_ROOT
-} from '../../src/verification/trust/compiler.ts';
-import { createSecTrustedBootstrapTrustRoot, matchSecTrustedBootstrapPath, parseSecTrustedBootstrapRegistry, SEC_TCB_CLOSURE_RUNTIME_PATH, SEC_TRUSTED_BOOTSTRAP_DISPATCHER_OWNER, SEC_TRUSTED_BOOTSTRAP_REGISTRY, SEC_TRUSTED_BOOTSTRAP_REGISTRY_PATH, type SecTrustedBootstrapRegistry } from '../../src/verification/trust/contract/root.ts';
+} from '../../src/adapters/verification/platform/trust/compiler.ts';
+import { createSecTrustedBootstrapTrustRoot, matchSecTrustedBootstrapPath, parseSecTrustedBootstrapRegistry, SEC_TCB_CLOSURE_RUNTIME_PATH, SEC_TRUSTED_BOOTSTRAP_DISPATCHER_OWNER, SEC_TRUSTED_BOOTSTRAP_REGISTRY, SEC_TRUSTED_BOOTSTRAP_REGISTRY_PATH, type SecTrustedBootstrapRegistry } from '../../src/adapters/verification/platform/trust/contract/root.ts';
 
 const TCB_CLOSURE_LOCK = compileTcbClosureIdentity();
 
@@ -16,7 +16,7 @@ function canonicalSource(value: SecTrustedBootstrapRegistry | Record<string, unk
 }
 
 function registrySource(): string {
-  return readFileSync(path.resolve(import.meta.dir, '../../src/verification/trust/contract/ci-trust-root-registry.json'), 'utf8');
+  return readFileSync(path.resolve(import.meta.dir, '../../src/adapters/verification/platform/trust/contract/ci-trust-root-registry.json'), 'utf8');
 }
 
 function mutate(patch: Partial<Record<keyof SecTrustedBootstrapRegistry, unknown>>): string {
@@ -32,7 +32,7 @@ test('canonical trust-root registry is structurally strict and separates static 
   expect(parsed.reviewedSutEdges).toEqual([]);
   expect(parsed.reviewedBoundaryEdges).toEqual([]);
   expect(parsed.reviewedExternalImports).toContain(
-    'src/brownfield/source-program-model/test-impact-projection.ts -> zod'
+    'src/adapters/repository/source-program-model/test-impact-projection.ts -> zod'
   );
 
   const causalRuntimePath = TCB_TRUST_ROOT.causalRuntimePaths[0]!;
@@ -82,13 +82,13 @@ test('trust-root registry rejects structural ambiguity, path aliases and self-de
     mutate({ staticExactPaths: [...base.staticExactPaths.slice(0, -1), 'docs/'].sort() }),
     mutate({ staticDirectoryPaths: [...base.staticDirectoryPaths.slice(0, -1), 'tests/testkit'].sort() }),
     mutate({ staticDirectoryPaths: [...base.staticDirectoryPaths, 'scripts/codex/'].sort() }),
-    mutate({ staticDirectoryPaths: [...base.staticDirectoryPaths, 'src/verification/'].sort() }),
+    mutate({ staticDirectoryPaths: [...base.staticDirectoryPaths, 'src/adapters/verification/platform/'].sort() }),
     mutate({ staticPrefixes: ['.env', '.env.'] }),
     mutate({ staticPrefixes: ['../'] }),
     mutate({ staticExactPaths: base.staticExactPaths.filter((entry) => entry !== '.bun-version') }),
     mutate({
       staticExactPaths: base.staticExactPaths.filter(
-        (entry) => entry !== 'src/control/branch-lifecycle/branch-lifecycle.ts'
+        (entry) => entry !== 'src/adapters/self-hosting/control/branch-lifecycle/branch-lifecycle.ts'
       )
     }),
     mutate({
@@ -98,31 +98,31 @@ test('trust-root registry rejects structural ambiguity, path aliases and self-de
       staticExactPaths: base.staticExactPaths.filter((entry) => entry !== SEC_TRUSTED_BOOTSTRAP_REGISTRY_PATH)
     }),
     mutate({
-      reviewedBoundaryEdges: ['src/verification/ci/runtime/verification-session.ts -> platform/shared/ci-contract.ts']
+      reviewedBoundaryEdges: ['src/adapters/verification/platform/ci/runtime/verification-session.ts -> platform/shared/ci-contract.ts']
     }),
     mutate({
-      reviewedBoundaryEdges: ['src/verification/ci/runtime/verification-session.ts -> src/control/main-health/contract.ts']
+      reviewedBoundaryEdges: ['src/adapters/verification/platform/ci/runtime/verification-session.ts -> src/adapters/self-hosting/control/main-health/contract.ts']
     }),
     mutate({
       reviewedExternalImports: [
         ...base.reviewedExternalImports,
-        'src/brownfield/source-program-model/test-impact-projection.ts -> zod'
+        'src/adapters/repository/source-program-model/test-impact-projection.ts -> zod'
       ].sort()
     }),
     mutate({ reviewedExternalImports: ['* -> zod'] }),
     mutate({
       reviewedExternalImports: [
-        'src/brownfield/source-program-model/test-impact-projection.ts -> zod/*'
+        'src/adapters/repository/source-program-model/test-impact-projection.ts -> zod/*'
       ]
     }),
     mutate({
       reviewedExternalImports: [
-        'src/brownfield/source-program-model/test-impact-projection.ts -> ../zod'
+        'src/adapters/repository/source-program-model/test-impact-projection.ts -> ../zod'
       ]
     }),
     mutate({
       reviewedExternalImports: [
-        'src/brownfield/source-program-model/test-impact-projection.ts -> zod as parser'
+        'src/adapters/repository/source-program-model/test-impact-projection.ts -> zod as parser'
       ]
     })
   ];
@@ -157,11 +157,11 @@ test('policy and derived causal closure are both validated when composing the tr
 
 test('trust-root matcher rejects non-canonical caller paths instead of laundering aliases', () => {
   for (const repositoryPath of [
-    '../src/control/integration/merge-gate.ts',
-    '/src/control/integration/merge-gate.ts',
+    '../src/adapters/self-hosting/control/integration/merge-gate.ts',
+    '/src/adapters/self-hosting/control/integration/merge-gate.ts',
     'scripts\\codex\\merge-gate.ts',
     'scripts//codex/merge-gate.ts',
-    'C:/src/control/integration/merge-gate.ts'
+    'C:/src/adapters/self-hosting/control/integration/merge-gate.ts'
   ]) {
     expect(() => matchSecTrustedBootstrapPath(repositoryPath, TCB_TRUST_ROOT)).toThrow();
   }

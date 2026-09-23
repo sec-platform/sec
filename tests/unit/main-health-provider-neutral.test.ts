@@ -1,18 +1,18 @@
 import { expect, test } from 'bun:test';
 
+import type { GitHubCheckObservation } from '../../src/adapters/providers/github-api/contract.ts';
 import {
   createObservedMainHealthInputWithPolicy,
   createRegisteredHostedMainHealthInputs,
   createTrustedRuntimeMainHealthCheckProviderPolicyV1,
   GITHUB_ACTIONS_MAIN_HEALTH_CHECK_PROVIDER_POLICY
-} from '../../src/control/main-health/main-health-observation.ts';
-import { CI_MAIN_HEALTH_POLICY, createCiMainHealthRequestOperationId } from '../../src/control/main-health/provider-policy.ts';
-import type { GitHubCheckObservation } from '../../src/external-capabilities/github-api/contract.ts';
+} from '../../src/adapters/self-hosting/control/main-health/main-health-observation.ts';
+import { CI_MAIN_HEALTH_POLICY, createCiMainHealthRequestOperationId } from '../../src/adapters/self-hosting/control/main-health/provider-policy.ts';
 
 const MAIN = '1'.repeat(40);
 const MAIN_TREE = '2'.repeat(40);
 const APP = Object.freeze({ id: 900001, nodeId: 'A_sec_integrator', slug: 'sec-integrator' });
-const RUNTIME_REF = `src/control/integration/merge-gate.ts@${MAIN}`;
+const RUNTIME_REF = `src/adapters/self-hosting/control/integration/merge-gate.ts@${MAIN}`;
 
 const policy = createTrustedRuntimeMainHealthCheckProviderPolicyV1({
   policyRevision: 'sec-main-health-trusted-runtime-v1',

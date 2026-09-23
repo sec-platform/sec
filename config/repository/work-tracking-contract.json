@@ -1,0 +1,60 @@
+{
+  "schema": "sec-work-tracking-contract-v1",
+  "authorities": {
+    "rootGoals": "docs/状态/前沿与登记规则.md#目标到问题的总览",
+    "problemRegistry": "docs/状态/前沿与登记规则.md#已知问题主登记",
+    "implementationMainline": "docs/演进/实施/主线前沿与准入.md#实现交付按同一主链闭合不再先建设一套库生态",
+    "activeWorkPackage": "config/repository/active-work-package.md"
+  },
+  "identities": {
+    "G": {
+      "pattern": "^G\\d{2}$",
+      "meaning": "root-goal",
+      "task": false,
+      "githubIssue": false,
+      "progressUnit": false
+    },
+    "U": {
+      "pattern": "^U\\d{3}$",
+      "meaning": "stable-problem-theme",
+      "task": false,
+      "githubIssue": false,
+      "progressUnit": false,
+      "allocation": "monotonic-never-reuse"
+    }
+  },
+  "execution": {
+    "mainlineUnit": "implementation-delivery",
+    "coordinationUnit": "work-group",
+    "actionUnit": "work-package",
+    "evidenceUnit": "revision-bound-evidence",
+    "branchRole": "transport-or-candidate-not-work-identity",
+    "commitRole": "durable-change-evidence-not-progress-unit"
+  },
+  "progress": {
+    "unit": "activated-deliverable-obligation-closure",
+    "mustReport": [
+      "currentMainlineDelivery",
+      "activeWorkGroupOrWorkPackage",
+      "closedObligations",
+      "openObligations",
+      "evidence",
+      "blockers"
+    ],
+    "mustNotUseAsProgress": [
+      "G-count",
+      "U-count",
+      "branch-count",
+      "commit-count"
+    ]
+  },
+  "newProblemAdmission": [
+    "concrete-counterexample",
+    "rule-contradiction",
+    "missing-callable-interface",
+    "explicit-independent-user-obligation",
+    "independent-mechanism-not-covered-by-existing-U"
+  ],
+  "duplicatePolicy": "merge-source-into-existing-U-when-obligation-is-not-independent",
+  "githubIssueMapping": "optional-explicit-mirror-only"
+}

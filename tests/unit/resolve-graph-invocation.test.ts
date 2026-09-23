@@ -3,8 +3,8 @@ import assert from 'node:assert/strict';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+import { resolveGraph } from '../../src/adapters/workspace/resolve-graph.ts';
 import type { PlanFile } from '../../src/compiler/contract/plan-manifest.ts';
-import { resolveGraph } from '../../src/compiler/resolve/resolve-graph.ts';
 
 // Native runs use the real retained YAML loader and registry sources. Local
 // replay substitutes the declared loader/path imports, not resolveGraph or
@@ -12,11 +12,11 @@ import { resolveGraph } from '../../src/compiler/resolve/resolve-graph.ts';
 function fixture() {
   const root = mkdtempSync(path.join(tmpdir(), 'sec-resolver-graph-'));
   mkdirSync(path.join(root, 'registry'));
-  const plan: PlanFile = { app: { id: 'app', name: 'original', mode: 'single-tenant', stack: 'test', packageManager: 'npm' },
+  const plan: PlanFile = { app: { id: 'app', name: 'original', mode: 'single-tenant', stack: 'typescript-library', packageManager: 'npm' },
     registry: { sources: [{ id: 'local', kind: 'private', location: 'workspace', path: 'registry' }] },
     blocks: [], acceptance: [] };
   const manifest = (id: string, requires: string[] = [], provides: string[] = [id], version = '1.0.0', to = `src/${id.replaceAll('/', '-')}.ts`) => {
-    const source = { id, version, kind: 'capability', stackProfiles: ['test'], requires, provides, conflicts: [],
+    const source = { id, version, kind: 'capability', stackProfiles: ['typescript-library'], requires, provides, conflicts: [],
       installs: [{ kind: 'copy', from: 'source.ts', to }], pins: { inputs: [], outputs: [] }, acceptance: [], contracts: [], generators: [] };
     const folder = path.join(root, 'registry', id.replaceAll('/', '.')); mkdirSync(folder, { recursive: true });
     writeFileSync(path.join(folder, 'block.manifest.yaml'), JSON.stringify(source)); writeFileSync(path.join(folder, 'source.ts'), 'export {};');

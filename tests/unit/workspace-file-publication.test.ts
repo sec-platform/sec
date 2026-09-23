@@ -3,12 +3,9 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 
-import { applyOverrides } from '../../src/compiler/compose/apply-overrides.ts';
-import {
-  publishExclusiveCanonicalWorkspaceFile,
-  publishExpectedCanonicalWorkspaceFile
-} from '../../src/workspace/files.ts';
-import { getWorkspacePaths } from '../../src/workspace/runtime/paths.ts';
+import { applyOverrides } from '../../src/adapters/compilation/compose/apply-overrides.ts';
+import { publishExclusiveCanonicalWorkspaceFile, publishExpectedCanonicalWorkspaceFile } from "../../src/adapters/filesystem/file-publication.ts";
+import { getWorkspacePaths } from "../../src/adapters/workspace-context.ts";
 
 test('exclusive workspace publication is idempotent for exact bytes and rejects conflicting bytes', async () => {
   const workspaceRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'sec-workspace-publish-'));

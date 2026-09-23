@@ -6,7 +6,7 @@ import {
   createBranchCloseoutPreparation,
   createBranchCloseoutReceipt,
   parseBranchCloseoutOperationReceipt
-} from '../../src/control/branch-lifecycle/branch-closeout-contract.ts';
+} from '../../src/adapters/self-hosting/control/branch-lifecycle/branch-closeout-contract.ts';
 import {
   BRANCH_CLOSEOUT_MUTATION_PHASE_STEP_NAME,
   createBranchCloseoutEffectStartPublication,
@@ -20,15 +20,15 @@ import {
   renderBranchCloseoutEffectStartPublicationComment,
   renderBranchCloseoutOperationPublicationComment,
   renderPublishedBranchCloseoutReceiptComment
-} from '../../src/control/branch-lifecycle/branch-closeout-receipt.ts';
-import { branchLifecycleDigest } from '../../src/control/branch-lifecycle/branch-lifecycle-audit.ts';
+} from '../../src/adapters/self-hosting/control/branch-lifecycle/branch-closeout-receipt.ts';
+import { branchLifecycleDigest } from '../../src/adapters/self-hosting/control/branch-lifecycle/branch-lifecycle-audit.ts';
 import {
   BRANCH_CLOSEOUT_PUBLISHED_RECEIPT_SCHEMA,
   type BranchCloseoutReceiptObservation,
   type BranchLifecycleInventory,
   type BranchPublishedCloseoutReceipt
-} from '../../src/control/branch-lifecycle/branch-lifecycle-types.ts';
-import { CI_GITHUB_ACTIONS_IDENTITY_POLICY } from '../../src/verification/action/contract/provider.ts';
+} from '../../src/adapters/self-hosting/control/branch-lifecycle/branch-lifecycle-types.ts';
+import { CI_GITHUB_ACTIONS_IDENTITY_POLICY } from '../../src/adapters/verification/platform/action/contract/provider.ts';
 
 const MAIN_SHA = '1111111111111111111111111111111111111111';
 const HEAD_SHA = '2222222222222222222222222222222222222222';
@@ -332,9 +332,9 @@ test('hosted publisher requires the exact non-null Actions bot and App tuple', (
 });
 
 test('public modules expose no permit, publisher, finalizer, or runner injection authority', async () => {
-  const receiptModule = await import('../../src/control/branch-lifecycle/branch-closeout-receipt.ts');
-  const closeoutModule = await import('../../src/control/branch-lifecycle/branch-closeout.ts');
-  const barrel = await import('../../src/control/branch-lifecycle/branch-lifecycle.ts');
+  const receiptModule = await import('../../src/adapters/self-hosting/control/branch-lifecycle/branch-closeout-receipt.ts');
+  const closeoutModule = await import('../../src/adapters/self-hosting/control/branch-lifecycle/branch-closeout.ts');
+  const barrel = await import('../../src/adapters/self-hosting/control/branch-lifecycle/branch-lifecycle.ts');
   for (const name of [
     'publishAndReadBackBranchCloseoutEffectStartV1',
     'publishAndReadBackIntegratedBranchCloseoutReceipt',
@@ -354,8 +354,8 @@ test('public modules expose no permit, publisher, finalizer, or runner injection
 });
 
 test('public branch lifecycle modules cannot mint or invoke arbitrary subprocess effects', async () => {
-  const command = await import('../../src/control/branch-lifecycle/branch-lifecycle-command.ts');
-  const barrel = await import('../../src/control/branch-lifecycle/branch-lifecycle.ts');
+  const command = await import('../../src/adapters/self-hosting/control/branch-lifecycle/branch-lifecycle-command.ts');
+  const barrel = await import('../../src/adapters/self-hosting/control/branch-lifecycle/branch-lifecycle.ts');
   for (const symbol of [
     'BranchLifecycleContext',
     'createBranchLifecycleContext',
