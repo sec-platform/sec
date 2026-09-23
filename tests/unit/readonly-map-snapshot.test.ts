@@ -1,6 +1,6 @@
 import { test } from 'bun:test';
 import assert from 'node:assert/strict';
-import { readonlyMapSnapshot } from '../../src/system-architecture/foundation/runtime/collections.ts';
+import { readonlyMapSnapshot } from '../../src/contracts/collections.ts';
 
 test('snapshot preserves insertion order and SameValueZero lookup without sharing membership', () => {
   const key = {}, value = { value: 1 };

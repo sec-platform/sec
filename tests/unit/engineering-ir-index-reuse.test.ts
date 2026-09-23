@@ -2,7 +2,7 @@ import { test } from 'bun:test';
 import assert from 'node:assert/strict';
 import { indexEngineeringIR, indexValidatedEngineeringIR } from '../../src/compiler/ir/index-engineering-ir.ts';
 import { projectArchitectureView } from '../../src/compiler/projection/project-architecture-view.ts';
-import type { SemanticEntity } from '../../src/semantic/engineering-ir/contract/entity-types.ts';
+import type { SemanticEntity } from '../../src/semantics/engineering-ir/entity-types.ts';
 import { addFact, emptyIR, entity, projectionSnapshot, viewIR } from '../fixtures/semantic-view-data.ts';
 
 test('immutable IR generations share one read index across snapshot wrappers', () => {

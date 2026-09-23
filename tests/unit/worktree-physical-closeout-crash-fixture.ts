@@ -2,7 +2,7 @@
 
 import { existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
-import { executeWorktreePhysicalCloseout, type ExecuteWorktreePhysicalCloseoutInput } from '../../src/control/branch-lifecycle/worktree-physical-closeout.ts';
+import { executeWorktreePhysicalCloseout, type ExecuteWorktreePhysicalCloseoutInput } from '../../src/adapters/self-hosting/control/branch-lifecycle/worktree-physical-closeout.ts';
 
 const encoded = process.argv[2];
 if (encoded === undefined) throw new Error('closeout crash fixture requires one JSON argument');

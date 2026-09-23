@@ -5,7 +5,7 @@ import { existsSync, mkdtempSync, rmSync } from 'node:fs';
 import { devNull, tmpdir } from 'node:os';
 import path from 'node:path';
 
-import { canonicalGitChildEnvironment as environment, gitEnvironmentValue } from '../../src/external-capabilities/git/environment.ts';
+import { canonicalGitChildEnvironment as environment, gitEnvironmentValue } from '../../src/adapters/providers/git/environment.ts';
 
 function keysNamed(env: Readonly<Record<string, string>>, name: string): string[] {
   return Object.keys(env).filter((key) => key.toUpperCase() === name.toUpperCase());

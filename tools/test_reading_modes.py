@@ -6,12 +6,13 @@ from pathlib import Path
 from unittest.mock import patch
 sys.dont_write_bytecode=True
 import build_html as b
+from test_check_documentation_identity import declaration
 import check_design as d
 
 class Modes(unittest.TestCase):
  def setUp(self):
   self.tmp=tempfile.TemporaryDirectory();self.home=Path(self.tmp.name);self.root=self.home/'SEC';(self.root/'docs').mkdir(parents=True);(self.root/'.documentation').mkdir();self.out=self.home/'out.html'
-  (self.root/'.documentation/baseline.json').write_text(json.dumps({'source_roots':['README.md','docs','.documentation'],'audited_namespaces':['docs'],'non_documentation_roots':[]}),encoding='utf-8')
+  (self.root/'.documentation/baseline.json').write_text(json.dumps({**declaration(['README.md','docs','.documentation']), 'entry':'../README.md'}),encoding='utf-8')
   (self.root/'README.md').write_text('# Fixture\n[Doc](docs/page.md)\n');self.source='flowchart LR\n A-->B\n';(self.root/'docs/page.md').write_text('# Diagram\n```mermaid\n'+self.source+'```\n')
   self.svg=b'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 50"><text x="4" y="24">A B</text></svg>'
  def tearDown(self):self.tmp.cleanup()
@@ -39,6 +40,34 @@ class Modes(unittest.TestCase):
  def test_external_svg(self):self.cache(b'<svg xmlns="http://www.w3.org/2000/svg"><style>@import "https://x.invalid";</style></svg>');self.bad()
  def test_decompression_limit(self):self.cache(b'x'*10_000_001);self.bad()
  def test_duplicate_keys(self):(self.root/'.documentation/figures.json').write_text('{"schema":1,"schema":2}');self.bad()
+ def test_cache_root_requires_object(self):
+  for value in (None, [], 'cache', 7, False):
+   with self.subTest(value=value):
+    (self.root/'.documentation/figures.json').write_text(json.dumps(value));self.bad()
+ def test_cache_entry_requires_object(self):
+  for value in ([], 'entry', 7, False):
+   with self.subTest(value=value):
+    cache=self.cache();cache['entries'][b.sha(self.source.encode())]=value
+    (self.root/'.documentation/figures.json').write_text(json.dumps(cache));self.bad()
+ def test_repeated_diagrams_keep_occurrence_identity_and_source(self):
+  self.cache()
+  (self.root/'docs/second.md').write_text('# Second\n\n## Repeated\n\n## Repeated\n\n'+('\x60\x60\x60mermaid\n'+self.source+'\x60\x60\x60\n')*3)
+  result=self.run_();self.assertEqual((result['diagrams'],result['rendered']),(4,4))
+  audit=b.AuditHTML();audit.feed(self.out.read_text())
+  self.assertEqual(len(audit.ids),len(set(audit.ids)))
+  self.assertEqual(len([identity for identity in audit.ids if identity.startswith('fig-')]),4)
+ def test_public_attribution_sources_are_readable_and_embedded_exactly(self):
+  self.cache()
+  baseline=self.root/'.documentation/baseline.json';declaration=json.loads(baseline.read_text())
+  names=('README.zh-CN.md','LICENSE','NOTICE','CITATION.cff')
+  declaration['source_roots'].extend(names);baseline.write_text(json.dumps(declaration))
+  (self.root/'README.md').write_text('# Fixture\n'+''.join(f'[{name}]({name})\n\n'for name in names))
+  for name in names:(self.root/name).write_text('# Localized\n'if name.endswith('.md')else 'fixture attribution & exact bytes\n')
+  result=self.run_();output=self.out.read_text();self.assertEqual(result['rendered'],1)
+  self.assertIn('fixture attribution &amp; exact bytes',output)
+  for name in names:
+   self.assertIn('data-source-path="'+name+'"',output)
+   self.assertIn(base64.b64encode((self.root/name).read_bytes()).decode(),output)
  def test_no_diagrams_does_not_need_cache(self):
   (self.root/'docs/page.md').write_text('# Empty\n');r=self.run_();self.assertEqual(r['rendered'],0)
  def test_browser_page_without_engine(self):
@@ -48,6 +77,15 @@ class Modes(unittest.TestCase):
  def test_browser_missing_selected_engine(self):self.bad('--diagrams','browser','--mermaid-js',str(self.home/'no.js'))
  def test_browser_no_source_script_execution(self):
   (self.root/'docs/page.md').write_text('# Diagram\n<script>alert(1)</script>\n');self.run_('--diagrams','browser');s=self.out.read_text();self.assertIn('&lt;script&gt;',s)
+ def test_cache_change_changes_reading_input_not_source_identity(self):
+  self.cache();first=self.run_()
+  self.cache(b'<svg xmlns="http://www.w3.org/2000/svg"><text>A B changed presentation</text></svg>')
+  second=self.run_('--replace')
+  self.assertEqual(first['source_set_sha256'],second['source_set_sha256'])
+  self.assertNotEqual(first['input_set_sha256'],second['input_set_sha256'])
+ def test_source_mode_does_not_read_broken_cache(self):
+  (self.root/'.documentation/figures.json').write_bytes(b'\xffinvalid cache')
+  self.assertEqual(self.run_('--diagrams','source')['rendered'],0)
  def test_cache_mode_reproducible(self):self.cache();self.run_();x=self.out.read_bytes();self.run_('--replace');self.assertEqual(x,self.out.read_bytes())
  def test_diagram_callback_rejected_before_cache(self):
   (self.root/'docs/page.md').write_text('# Diagram\n```mermaid\nflowchart LR\n click A callback\n```\n');self.bad('--diagrams','browser')

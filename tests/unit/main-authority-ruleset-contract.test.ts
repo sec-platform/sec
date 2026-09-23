@@ -3,8 +3,8 @@ import { expect, test } from 'bun:test';
 import {
   INTEGRATION_AUTHORIZATION_STATUS_CONTEXT,
   createMainAuthorityRulesetReceipt
-} from '../../src/control/main-health/authority-ruleset.ts';
-import { CI_GITHUB_ACTIONS_IDENTITY_POLICY } from '../../src/verification/action/contract/provider.ts';
+} from '../../src/adapters/self-hosting/control/main-health/authority-ruleset.ts';
+import { CI_GITHUB_ACTIONS_IDENTITY_POLICY } from '../../src/adapters/verification/platform/action/contract/provider.ts';
 
 const AUTHORITY_RULESET_ID = 42;
 const PRINCIPAL_RULESET_ID = 43;

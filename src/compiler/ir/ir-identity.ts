@@ -1,8 +1,8 @@
-import type { LoadedSemanticContract } from '../../semantic/contracts/contract/types.ts';
-import type { SemanticAttribute, SemanticEntity, SemanticEntityKind, SemanticPrimitive } from '../../semantic/engineering-ir/contract/entity-types.ts';
-import type { SemanticFact, SemanticFactObject } from '../../semantic/engineering-ir/contract/fact-types.ts';
-import type { ScenarioDefinition } from '../../semantic/engineering-ir/contract/scenario-types.ts';
-import { canonicalJson, digest, normalizedArtifactTarget } from '../../system-architecture/foundation/runtime/canonical.ts';
+import { canonicalJson, digest, normalizedArtifactTarget } from '../../contracts/canonical.ts';
+import type { LoadedSemanticContract } from '../../semantics/definitions/types.ts';
+import type { SemanticAttribute, SemanticEntity, SemanticEntityKind, SemanticPrimitive } from '../../semantics/engineering-ir/entity-types.ts';
+import type { SemanticFact, SemanticFactObject } from '../../semantics/engineering-ir/fact-types.ts';
+import type { ScenarioDefinition } from '../../semantics/engineering-ir/scenario-types.ts';
 import { CompilerError } from '../errors.ts';
 import { normalizeAttributes, normalizeFactObject } from './ir-normalization.ts';
 

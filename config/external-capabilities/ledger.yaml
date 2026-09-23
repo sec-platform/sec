@@ -157,7 +157,7 @@ providers:
     activeRoutingProfile: sec-linux-verification-v1
     surfaces:
       cli:
-        - src/verification/ci/runtime/local-github-actions-runner.ts
+        - src/adapters/verification/platform/ci/runtime/local-github-actions-runner.ts
       standingMcp: []
     forbiddenAuthority:
       - AgentOperationsAuthority

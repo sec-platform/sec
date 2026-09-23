@@ -5,9 +5,9 @@ import path from 'node:path';
 import { expect, test } from 'bun:test';
 import { stringify as stringifyYaml } from 'yaml';
 
-import { SEC_LINUX_VERIFICATION_ENVIRONMENT_AUTHORITY } from '../../src/external-capabilities/linux-verification/contract.ts';
-import { SEC_WINDOWS_CONTROL_CLI_ENVIRONMENT_SPEC_PATH, SEC_WINDOWS_CONTROL_CLI_PROFILE_ID, SEC_WINDOWS_CONTROL_CLI_ROOT_CLOSURE_REASON, SEC_WINDOWS_CONTROL_CLI_SESSION_SURFACE } from '../../src/external-capabilities/windows-control-cli/contract/environment.ts';
-import { scanMachineLedgers, type CapabilityLedgerIssue } from '../../src/verification/provider/capability-ledger-validation.ts';
+import { SEC_LINUX_VERIFICATION_ENVIRONMENT_AUTHORITY } from '../../src/adapters/providers/linux-verification/contract.ts';
+import { SEC_WINDOWS_CONTROL_CLI_ENVIRONMENT_SPEC_PATH, SEC_WINDOWS_CONTROL_CLI_PROFILE_ID, SEC_WINDOWS_CONTROL_CLI_ROOT_CLOSURE_REASON, SEC_WINDOWS_CONTROL_CLI_SESSION_SURFACE } from '../../src/adapters/providers/windows-control-cli/contract/environment.ts';
+import { scanMachineLedgers, type CapabilityLedgerIssue } from '../../src/adapters/verification/platform/provider/capability-ledger-validation.ts';
 
 const REPOSITORY_ROOT = path.resolve(import.meta.dir, '../..');
 const WINDOWS_CONTROL_CLI_SPEC_RELATIVE_PATH = SEC_WINDOWS_CONTROL_CLI_ENVIRONMENT_SPEC_PATH;
@@ -300,7 +300,7 @@ test('docs doctor reads the supplied EnvironmentSpec with no-follow and rejects 
       async () => {
         await rm(specPath, { force: true });
       },
-      'EnvironmentSpec src/external-capabilities/windows-control-cli/profile/sec-windows-control-cli-v1.json is missing.'
+      'EnvironmentSpec src/adapters/providers/windows-control-cli/profile/sec-windows-control-cli-v1.json is missing.'
     );
 
     await expectSpecError(
@@ -308,7 +308,7 @@ test('docs doctor reads the supplied EnvironmentSpec with no-follow and rejects 
         await rm(specPath, { force: true });
         await mkdir(specPath);
       },
-      'EnvironmentSpec src/external-capabilities/windows-control-cli/profile/sec-windows-control-cli-v1.json '
+      'EnvironmentSpec src/adapters/providers/windows-control-cli/profile/sec-windows-control-cli-v1.json '
         + 'is not an ordinary file.'
     );
 
@@ -325,7 +325,7 @@ test('docs doctor reads the supplied EnvironmentSpec with no-follow and rejects 
     const duplicateIssues = machineErrors(await scan(root));
     expect(duplicateIssues).toHaveLength(1);
     expect(duplicateIssues[0]?.message).toContain(
-      'EnvironmentSpec src/external-capabilities/windows-control-cli/profile/sec-windows-control-cli-v1.json '
+      'EnvironmentSpec src/adapters/providers/windows-control-cli/profile/sec-windows-control-cli-v1.json '
         + 'has duplicate or invalid object keys:'
     );
 
@@ -733,7 +733,7 @@ test('external runner release authority binds exact primary-source archive and b
       },
       activeRoutingProfile: 'sec-linux-verification-v1',
       surfaces: {
-        cli: ['src/verification/ci/runtime/local-github-actions-runner.ts'],
+        cli: ['src/adapters/verification/platform/ci/runtime/local-github-actions-runner.ts'],
         standingMcp: []
       },
       forbiddenAuthority: [...FORBIDDEN_AUTHORITY]
