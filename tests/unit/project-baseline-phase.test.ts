@@ -3,15 +3,15 @@ import path from 'node:path';
 
 import { expect, test } from 'bun:test';
 
-import type { ProvenanceFile } from '../../src/semantic/provenance/contract/types.ts';
-import { CI_ARTIFACT_FILES } from '../../src/verification/ci-artifacts/contract/manifest.ts';
+import { ensureDir, writeJson, writeText } from "../../src/adapters/filesystem/files.ts";
+import { getWorkspacePaths, resolveWorkspaceArtifactPath } from "../../src/adapters/workspace-context.ts";
+import { writeProjectBaseline } from '../../src/adapters/workspace/project-baseline.ts';
 import {
   checkProjectBeforeCompile,
   checkProjectBeforeVerify
-} from '../../src/workspace/application/project-integrity.ts';
-import { ensureDir, writeJson, writeText } from '../../src/workspace/files.ts';
-import { getWorkspacePaths, resolveWorkspaceArtifactPath } from '../../src/workspace/runtime/paths.ts';
-import { writeProjectBaseline } from '../../src/workspace/runtime/project-baseline.ts';
+} from '../../src/adapters/workspace/project-integrity.ts';
+import { CI_ARTIFACT_FILES } from '../../src/assurance/verification/ci-artifacts/contract/manifest.ts';
+import type { ProvenanceFile } from '../../src/semantics/provenance/types.ts';
 import { withTempWorkspace } from '../testkit/workspace.ts';
 
 function digest(content: string): string {

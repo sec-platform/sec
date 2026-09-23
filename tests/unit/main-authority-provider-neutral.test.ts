@@ -3,11 +3,11 @@ import { expect, test } from 'bun:test';
 import {
   INTEGRATION_AUTHORIZATION_STATUS_CONTEXT,
   createMainAuthorityRulesetReceipt
-} from '../../src/control/main-health/authority-ruleset.ts';
+} from '../../src/adapters/self-hosting/control/main-health/authority-ruleset.ts';
 import {
   observeMainAuthorityRuleset,
   type MainAuthorityRulesetGitHubTransport
-} from '../../src/control/main-health/main-authority-ruleset-github.ts';
+} from '../../src/adapters/self-hosting/control/main-health/main-authority-ruleset-github.ts';
 
 const AUTHORITY_RULESET_ID = 142;
 const PRINCIPAL_RULESET_ID = 143;

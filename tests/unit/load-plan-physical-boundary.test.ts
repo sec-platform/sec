@@ -2,9 +2,9 @@ import { expect, test } from 'bun:test';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 
-import { loadWorkspacePlan } from '../../src/compiler/parse/load-plan.ts';
-import { PhysicalNoFollowError } from '../../src/runtime-state/physical/runtime/physical-no-follow.ts';
-import { resolveWorkspacePlanPath } from '../../src/workspace/runtime/paths.ts';
+import { PhysicalNoFollowError } from '../../src/adapters/runtime-state/physical/runtime/physical-no-follow.ts';
+import { resolveWorkspacePlanPath } from "../../src/adapters/workspace-context.ts";
+import { loadWorkspacePlan } from '../../src/adapters/workspace/sources/load-plan.ts';
 import { withTempWorkspace } from '../testkit/workspace.ts';
 
 function planYaml(name: string): string {

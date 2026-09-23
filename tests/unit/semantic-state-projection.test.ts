@@ -5,9 +5,9 @@ import { addFact } from '../../src/compiler/ir/ir-fact-store.ts';
 import { digest, semanticRevisionPayload } from '../../src/compiler/ir/ir-revision.ts';
 import { validateEngineeringIR } from '../../src/compiler/ir/validate-engineering-ir.ts';
 import { projectStateView } from '../../src/compiler/projection/project-state-view.ts';
-import type { LoadedSemanticContract, SemanticContractOperation } from '../../src/semantic/contracts/contract/types.ts';
-import type { SemanticFact } from '../../src/semantic/engineering-ir/contract/fact-types.ts';
-import type { EngineeringIR } from '../../src/semantic/engineering-ir/contract/root-types.ts';
+import type { LoadedSemanticContract, SemanticContractOperation } from '../../src/semantics/definitions/types.ts';
+import type { SemanticFact } from '../../src/semantics/engineering-ir/fact-types.ts';
+import type { EngineeringIR } from '../../src/semantics/engineering-ir/root-types.ts';
 
 function input(): BuildEngineeringIRInput {
   return {

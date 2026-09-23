@@ -2,7 +2,7 @@ import { test } from 'bun:test';
 import assert from 'node:assert/strict';
 import { inspect } from 'node:util';
 import { getErrorCode as compilerCode, CompilerError, inspectFailureValue as compilerInspect } from '../../src/compiler/errors.ts';
-import { failureMessage, getErrorCode, inspectFailureValue } from '../../src/system-architecture/foundation/runtime/failure-inspection.ts';
+import { failureMessage, getErrorCode, inspectFailureValue } from '../../src/contracts/failure-inspection.ts';
 
 test('compiler consumers retain the exact shared inspection functions', () => {
   assert.equal(compilerCode, getErrorCode);

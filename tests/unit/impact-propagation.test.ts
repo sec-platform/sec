@@ -10,10 +10,10 @@ import {
   IMPACT_PROPAGATION_RULES,
   type ImpactPropagationRule
 } from '../../src/compiler/semantic-impact/propagation-rules.ts';
-import type { FactDeltaEndpointContext } from '../../src/semantic/engineering-ir/contract/delta-types.ts';
-import type { SemanticEntity, SemanticEntityKind } from '../../src/semantic/engineering-ir/contract/entity-types.ts';
-import type { SemanticAuthority, SemanticFact, SemanticPredicate } from '../../src/semantic/engineering-ir/contract/fact-types.ts';
-import type { ValidatedEngineeringIRSnapshot } from '../../src/semantic/engineering-ir/contract/validated-types.ts';
+import type { FactDeltaEndpointContext } from '../../src/semantics/engineering-ir/delta-types.ts';
+import type { SemanticEntity, SemanticEntityKind } from '../../src/semantics/engineering-ir/entity-types.ts';
+import type { SemanticAuthority, SemanticFact, SemanticPredicate } from '../../src/semantics/engineering-ir/fact-types.ts';
+import type { ValidatedEngineeringIRSnapshot } from '../../src/semantics/engineering-ir/validated-types.ts';
 
 const APP_ID = 'app:impact';
 const GRAPH_ID = 'graph:impact';
@@ -508,4 +508,36 @@ test('diagnostic precedence separates endpoint, Fact Delta, and canonical payloa
     }),
     'IMPACT-002'
   );
+});
+
+test('shared verification targets retain every ordered reason without cross-kind collisions', () => {
+  const artifacts = Array.from({ length: 32 }, (_, index) =>
+    entity(`artifact:${String(index).padStart(3, '0')}`, 'artifact'));
+  const targetId = 'acceptance:shared';
+  const entities = [entity(targetId, 'acceptance'), ...artifacts];
+  const mappings = artifacts.flatMap((source) => [
+    fact(`fact:${source.id}:acceptance`, source.id, 'VERIFIED_BY', targetId),
+    fact(`fact:${source.id}:selector`, source.id, 'VERIFIED_BY', { selector: targetId })
+  ]);
+  const before = snapshot('fan-in-from', entities, mappings);
+  const changed = entities.map((value) => value.kind === 'artifact' ? { ...value, label: `changed:${value.id}` } : value);
+  const after = snapshot('fan-in-to', changed, mappings);
+  const inputBytes = JSON.stringify({ before, after });
+  const result = propagate(before, after);
+  expect(result.verification.map((value) => value.kind)).toEqual(['acceptance', 'selector']);
+  for (const recommendation of result.verification) {
+    expect(recommendation.reasons).toHaveLength(artifacts.length * 2);
+    expect(recommendation.reasons.map((reason) => [reason.basis, reason.sourceEntityId])).toEqual(
+      ['from', 'to'].flatMap((basis) => artifacts.map((source) => [basis, source.id]))
+    );
+    expect(new Set(recommendation.reasons.map((reason) => JSON.stringify(reason))).size)
+      .toBe(artifacts.length * 2);
+    expect(recommendation.reasons.every((reason) => reason.sourceSeedIds.length === 1)).toBe(true);
+  }
+  expect(JSON.stringify(propagate(
+    snapshot('fan-in-from', [...entities].reverse(), [...mappings].reverse()),
+    snapshot('fan-in-to', [...changed].reverse(), [...mappings].reverse())
+  ))).toBe(JSON.stringify(result));
+  expect(JSON.stringify({ before, after })).toBe(inputBytes);
+  expectDeepFrozen(result);
 });

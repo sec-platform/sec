@@ -5,15 +5,18 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import ts from 'typescript';
 
-import { assertWorkspaceTypeScriptProjectGenerationEvidence } from '../../src/brownfield/source-program-model/workspace-source-snapshot.ts';
-import { AFFECTED_SELECTION_OPERATION_DURATION_MS, compileAffectedTestSelectionSemanticOperation } from '../../src/development/runner/affected-plan-contract.ts';
+import type { GitReadSession } from '../../src/adapters/providers/git-read/runtime/session.ts';
+import { assertWorkspaceTypeScriptProjectGenerationEvidence } from '../../src/adapters/repository/source-program-model/workspace-source-snapshot.ts';
+import { inspectNoFollowDirectoryChain } from '../../src/adapters/runtime-state/physical/runtime/physical-no-follow.ts';
+import type { PreparedWindowsRepositoryChangeObserver } from '../../src/adapters/runtime-state/physical/runtime/windows-repository-change-observer.ts';
+import { AFFECTED_SELECTION_OPERATION_DURATION_MS, compileAffectedTestSelectionSemanticOperation } from '../../src/adapters/self-hosting/development/runner/affected-plan-contract.ts';
 import type {
   DevCommandObservation,
   ObserveDevCommandOptions
-} from '../../src/development/runner/command-runner.ts';
-import { DEV_COMMAND_MAX_DURATION_MS } from '../../src/development/runner/contract.ts';
-import type { OperationDependencyBootstrapResult } from '../../src/development/runner/dependency-bootstrap.ts';
-import * as actualEnvManager from '../../src/development/runner/env-manager.ts';
+} from '../../src/adapters/self-hosting/development/runner/command-runner.ts';
+import { DEV_COMMAND_MAX_DURATION_MS } from '../../src/adapters/self-hosting/development/runner/contract.ts';
+import type { OperationDependencyBootstrapResult } from '../../src/adapters/self-hosting/development/runner/dependency-bootstrap.ts';
+import * as actualEnvManager from '../../src/adapters/self-hosting/development/runner/env-manager.ts';
 import {
   assertFastTestProcessPolicyInventory,
   assertUniqueFastTestProcessIsolationDefinitions,
@@ -25,8 +28,8 @@ import {
   FAST_TEST_PROCESS_RESOURCE_CLASS_ORDER,
   isDefaultFastTestFile,
   planFastTestProcesses
-} from '../../src/development/runner/fast-test-policy.ts';
-import { applyDefaultFastTestConcurrency } from '../../src/development/runner/test-concurrency-policy.ts';
+} from '../../src/adapters/self-hosting/development/runner/fast-test-policy.ts';
+import { applyDefaultFastTestConcurrency } from '../../src/adapters/self-hosting/development/runner/test-concurrency-policy.ts';
 import {
   admitFastTestBatchExecutionPolicy,
   assertIssuedFastTestBatchExecutionAdmission,
@@ -37,30 +40,27 @@ import {
   TEST_SUPERVISOR_SETTLEMENT_MARGIN_MS,
   type FastTestBatchExecutionAdmission,
   type TestSuiteExecutionAdmission
-} from '../../src/development/runner/test-execution-policy.ts';
-import type { GitReadSession } from '../../src/external-capabilities/git-read/runtime/session.ts';
-import { inspectNoFollowDirectoryChain } from '../../src/runtime-state/physical/runtime/physical-no-follow.ts';
-import type { PreparedWindowsRepositoryChangeObserver } from '../../src/runtime-state/physical/runtime/windows-repository-change-observer.ts';
-import { isSecRepositoryTestModulePath, normalizeSecRepositoryTestModulePath } from '../../src/system-architecture/repository-modules/test-module-path.ts';
-import { compileTestBudgetProjection, FAST_TEST_PROCESS_POLICY_TEST_FILE, TEST_ARCHITECTURE_POLICY_TEST_FILE } from '../../src/verification/test-impact/contract/budget.ts';
-import { compilerRoot } from '../../src/workspace/runtime/paths.ts';
+} from '../../src/adapters/self-hosting/development/runner/test-execution-policy.ts';
+import { compileTestBudgetProjection, FAST_TEST_PROCESS_POLICY_TEST_FILE, TEST_ARCHITECTURE_POLICY_TEST_FILE } from '../../src/adapters/verification/platform/test-impact/contract/budget.ts';
+import { compilerRoot } from "../../src/adapters/workspace-context.ts";
+import { isSecRepositoryTestModulePath, normalizeSecRepositoryTestModulePath } from '../../src/contracts/repository-test-path.ts';
 import { createExactGitTreeTestRunnerFixture } from '../helpers/test-impact-provider.ts';
 
-const actualCommandRunner = await import('../../src/development/runner/command-runner.ts');
-const actualPhysicalProcess = await import('../../src/runtime-state/physical/runtime/process.ts');
+const actualCommandRunner = await import('../../src/adapters/self-hosting/development/runner/command-runner.ts');
+const actualPhysicalProcess = await import('../../src/adapters/runtime-state/physical/runtime/process.ts');
 const testImpactFixture = await createExactGitTreeTestRunnerFixture();
 afterAll(() => testImpactFixture.dispose());
-const actualWorkspaceSnapshots = await import('../../src/brownfield/source-program-model/workspace-source-snapshot.ts');
+const actualWorkspaceSnapshots = await import('../../src/adapters/repository/source-program-model/workspace-source-snapshot.ts');
 const testBudgetSnapshotOverrides: Array<typeof testImpactFixture.workspaceSnapshot | Error> = [];
-mock.module('../../src/brownfield/source-program-model/workspace-source-snapshot.ts', () => ({
+mock.module('../../src/adapters/repository/source-program-model/workspace-source-snapshot.ts', () => ({
   ...actualWorkspaceSnapshots,
   acquireWorkingTreeWorkspaceSourceSnapshot: async () => {
-    const snapshot = testBudgetSnapshotOverrides.shift() ?? testImpactFixture.workspaceSnapshot;
+    const snapshot = testBudgetSnapshotOverrides.shift() ?? testImpactFixture.workingTreeSnapshot;
     if (snapshot instanceof Error) throw snapshot;
     return snapshot;
   }
 }));
-const dependencyRuntime = await import('../../src/toolchain/dependencies/runtime.ts');
+const dependencyRuntime = await import('../../src/adapters/toolchain/dependencies/runtime.ts');
 const compilerDependencyAuthority = await dependencyRuntime.observeCompilerDependencyExecutionGenerationAuthority({
   deadlineAtUnixMs: Date.now() + 10_000
 });
@@ -70,7 +70,7 @@ if (compilerDependencyAuthority === null) {
 const compilerDependencyFixture = dependencyRuntime.projectCompilerDepsReadyState(
   compilerDependencyAuthority
 );
-const actualDependencyBootstrap = await import('../../src/development/runner/dependency-bootstrap.ts');
+const actualDependencyBootstrap = await import('../../src/adapters/self-hosting/development/runner/dependency-bootstrap.ts');
 
 const {
   bindTestWorkspaceSupervisorLeaseIssuerProjectionV1,
@@ -139,7 +139,7 @@ let previousChangedBase: string | undefined;
 let previousConsoleLog: typeof console.log;
 let previousConsoleError: typeof console.error;
 
-mock.module('../../src/workspace/files.ts', () => ({
+mock.module('../../src/adapters/filesystem/files.ts', () => ({
   pathExists: async (targetPath: string) => {
     try {
       await fs.access(targetPath);
@@ -197,7 +197,7 @@ const processCommand = (
   return { code: 1, stdout: stdout(''), stderr: `Unexpected command: ${command} ${args.join(' ')}` };
 };
 
-mock.module('../../src/runtime-state/physical/runtime/process.ts', () => ({
+mock.module('../../src/adapters/runtime-state/physical/runtime/process.ts', () => ({
   ...actualPhysicalProcess,
   runCommand: async (command: string, args: string[], options?: ObservedCommandOptions) =>
     processCommand(command, args, 'text', options),
@@ -212,10 +212,10 @@ mock.module('../../src/runtime-state/physical/runtime/process.ts', () => ({
 // injected separately as a test-origin TestImpact capability, so this session
 // can never be promoted into a production Source Snapshot.
 const actualGitReadEnvironment = await import(
-  '../../src/external-capabilities/git-read/test/session.ts'
+  '../../src/adapters/providers/git-read/test/session.ts'
 );
 const createTestGitReadSession = actualGitReadEnvironment.createHostGitReadSessionForTests;
-mock.module('../../src/external-capabilities/git-read/runtime/session.ts', () => ({
+mock.module('../../src/adapters/providers/git-read/runtime/session.ts', () => ({
   ...actualGitReadEnvironment,
   createAuthorityGitReadSession: (
     input: Parameters<typeof actualGitReadEnvironment.createAuthorityGitReadSession>[0]
@@ -233,10 +233,10 @@ mock.module('../../src/external-capabilities/git-read/runtime/session.ts', () =>
 }));
 
 const actualCheckAffectedSource = await import(
-  '../../src/development/runner/check-affected-source.ts'
+  '../../src/adapters/self-hosting/development/runner/check-affected-source.ts'
 );
 const testImpactObservationOverrides: Array<typeof testImpactFixture.affectedObservation> = [];
-mock.module('../../src/development/runner/check-affected-source.ts', () => ({
+mock.module('../../src/adapters/self-hosting/development/runner/check-affected-source.ts', () => ({
   ...actualCheckAffectedSource,
   // Source authority was already issued from the real fixture Git object.
   // The GitRead session exercised below remains transport/fence-only and its
@@ -246,7 +246,7 @@ mock.module('../../src/development/runner/check-affected-source.ts', () => ({
   )
 }));
 
-mock.module('../../src/development/runner/env-manager.ts', () => ({
+mock.module('../../src/adapters/self-hosting/development/runner/env-manager.ts', () => ({
   consumeTestWorkspaceSupervisorChallenge: async () =>
     Object.freeze({ schema: 'sec-test-workspace-run-child-authority-v1' as const }),
   consumeTestWorkspaceSupervisorChallengeV1: async () =>
@@ -341,14 +341,14 @@ const mockedCreateTestInvocationRuntimeRoots = async () => {
     });
   };
 
-mock.module('../../src/development/runner/test-process-temp.ts', () => ({
+mock.module('../../src/adapters/self-hosting/development/runner/test-process-temp.ts', () => ({
   testInvocationRuntimeIsolationModeForPlatform: mockedTestInvocationRuntimeIsolationMode,
   testInvocationRuntimeIsolationModeForPlatformV1: mockedTestInvocationRuntimeIsolationMode,
   createTestInvocationRuntimeRoots: mockedCreateTestInvocationRuntimeRoots,
   createTestInvocationRuntimeRootsV1: mockedCreateTestInvocationRuntimeRoots
 }));
 
-mock.module('../../src/development/runner/command-runner.ts', () => ({
+mock.module('../../src/adapters/self-hosting/development/runner/command-runner.ts', () => ({
   ...actualCommandRunner,
   runDevCommand: async (
     command: string,
@@ -396,7 +396,7 @@ mock.module('../../src/development/runner/command-runner.ts', () => ({
   }
 }));
 
-mock.module('../../src/development/runner/dependency-bootstrap.ts', () => ({
+mock.module('../../src/adapters/self-hosting/development/runner/dependency-bootstrap.ts', () => ({
   ...actualDependencyBootstrap,
   ensureOperationDependencies: async () => {
     fastDependencyBootstrapCalls += 1;
@@ -409,7 +409,7 @@ mock.module('../../src/development/runner/dependency-bootstrap.ts', () => ({
 // These unit cases verify suite selection and command dispatch. The physical
 // zero-write fence has its own integration coverage; preserve the real issued
 // suite admission here while delegating only to the already-mocked command.
-mock.module('../../src/development/runner/repository-mutation-fence.ts', () => ({
+mock.module('../../src/adapters/self-hosting/development/runner/repository-mutation-fence.ts', () => ({
   runRepositoryZeroWriteOperation: async (
     _commandId: string,
     operation: (
@@ -446,7 +446,7 @@ mock.module('../../src/development/runner/repository-mutation-fence.ts', () => (
   }
 }));
 
-const testRunnerModule = await import('../../src/development/runner/test-runner.ts');
+const testRunnerModule = await import('../../src/adapters/self-hosting/development/runner/test-runner.ts');
 const {
   resolveAffectedTestExecution: resolveAffectedTestExecutionWithIssuer,
   runAffectedTests: runAffectedTestsWithIssuer,
@@ -463,7 +463,7 @@ const runAffectedTests = (args: string[] = []) => runAffectedTestsWithIssuer(
   async () => testImpactFixture.affectedObservation,
   args
 );
-const testBudgetDomain = await import('../../src/verification/test-impact/contract/budget.ts');
+const testBudgetDomain = await import('../../src/adapters/verification/platform/test-impact/contract/budget.ts');
 const testBudgetProjection = testBudgetDomain.compileTestBudgetProjection(
   testImpactFixture.provider.testInventory
 );
@@ -782,7 +782,9 @@ test('complete fast process-global hazards have unique typed isolation and singl
   for (const [file, hazards] of detectedHazards) {
     expect(hazards.length).toBeGreaterThan(0);
     const entries = FAST_TEST_PROCESS_ISOLATION_REGISTRY.filter((entry) => entry.file === file);
-    expect(entries).toHaveLength(1);
+    if (entries.length !== 1) {
+      throw new Error(`Process-global test hazard has ${entries.length} isolation owners: ${file}`);
+    }
     expect(entries[0]!.processLimit)
       .toBe(DEFAULT_FAST_TEST_RESOURCE_CLASS_LIMITS[entries[0]!.resourceClass]);
   }
@@ -1882,8 +1884,8 @@ test.serial('a nested managed process cannot self-sign a new sibling beneath a l
       TEST_WORKSPACE_NAMESPACE_ENV,
       TEST_WORKSPACE_RUN_CHILD_ASSIGNMENT_ENV,
       TEST_WORKSPACE_RUN_CHILD_ENV
-    } from './src/development/runner/env-manager.ts';
-    import { inspectNoFollowDirectoryChain } from './src/runtime-state/physical/runtime/physical-no-follow.ts';
+    } from './src/adapters/self-hosting/development/runner/env-manager.ts';
+    import { inspectNoFollowDirectoryChain } from './src/adapters/runtime-state/physical/runtime/physical-no-follow.ts';
     const parentNamespace = process.env[TEST_WORKSPACE_NAMESPACE_ENV];
     if (!parentNamespace) process.exit(7);
     const fakeRepositoryRoot = process.env.SEC_TEST_FAKE_GATE_REPOSITORY_ROOT;
@@ -1952,7 +1954,7 @@ test.serial('a nested managed process cannot self-sign a new sibling beneath a l
       namespaceInode: namespaceIdentity.inode
     });
     const victim = Bun.spawn([process.execPath, '-e', \`
-      import { runFastTests } from './src/development/runner/test-runner.ts';
+      import { runFastTests } from './src/adapters/self-hosting/development/runner/test-runner.ts';
       try {
         await runFastTests(['tests/unit/path-containment.test.ts']);
         process.exit(9);
@@ -2334,7 +2336,7 @@ test.serial('resolved affected plan executes only after its final Git revalidati
   expect(Object.isFrozen(execution!.plan)).toBe(true);
   expect(Object.isFrozen(execution!.plan.selectedFastTests)).toBe(true);
   expect(() => assertWorkspaceTypeScriptProjectGenerationEvidence(
-    execution!.projectGenerationEvidence
+    execution!.projectGenerationEvidence!
   )).not.toThrow();
   expect(JSON.stringify(execution!.plan)).not.toContain('projectGenerationEvidence');
   // Resolution performs one bounded observation fence; run() performs the

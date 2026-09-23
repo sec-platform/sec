@@ -1,7 +1,7 @@
-import type { SemanticEntity } from '../../semantic/engineering-ir/contract/entity-types.ts';
-import type { FactAssertion, SemanticFact } from '../../semantic/engineering-ir/contract/fact-types.ts';
-import type { ValidatedEngineeringIRSnapshot } from '../../semantic/engineering-ir/contract/validated-types.ts';
-import type { SemanticFactSelector, SemanticMutationCondition, SemanticMutationDiagnostic, SemanticMutationDiagnosticStage } from '../../semantic/mutation/contract/types.ts';
+import type { SemanticEntity } from '../../semantics/engineering-ir/entity-types.ts';
+import type { FactAssertion, SemanticFact } from '../../semantics/engineering-ir/fact-types.ts';
+import type { ValidatedEngineeringIRSnapshot } from '../../semantics/engineering-ir/validated-types.ts';
+import type { SemanticFactSelector, SemanticMutationCondition, SemanticMutationDiagnostic, SemanticMutationDiagnosticStage } from '../../semantics/mutation/types.ts';
 import { canonicalEquals, factSelectorKey, mutationDiagnostic, sha256 } from './canonical.ts';
 
 function selectorMatches(fact: SemanticFact, selector: SemanticFactSelector): boolean {

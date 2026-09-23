@@ -1,13 +1,13 @@
 import { expect, test } from 'bun:test';
 
+import type { AcceptanceCoverageReport } from '../../src/assurance/acceptance/coverage.ts';
+import type { VerificationReport } from '../../src/assurance/verification/contract/types.ts';
+import type { ReviewSummary } from '../../src/assurance/verification/review/contract/types.ts';
+import { buildProjectOverview } from '../../src/bootstrap/cli/project-overview.ts';
 import type { LockFile } from '../../src/compiler/contract.ts';
-import type { PolicyReport } from '../../src/compiler/policies/contract/types.ts';
-import { buildProjectOverview } from '../../src/interface/cli/project-overview.ts';
-import type { AcceptanceCoverageReport } from '../../src/semantic/acceptance/contract/types.ts';
-import type { ExplainGraph } from '../../src/semantic/projection/contract/explain.ts';
-import type { ProvenanceFile } from '../../src/semantic/provenance/contract/types.ts';
-import type { VerificationReport } from '../../src/verification/contract/types.ts';
-import type { ReviewSummary } from '../../src/verification/review/contract/types.ts';
+import type { PolicyReport } from '../../src/semantics/policies/types.ts';
+import type { ExplainGraph } from '../../src/semantics/projection/explain.ts';
+import type { ProvenanceFile } from '../../src/semantics/provenance/types.ts';
 
 function buildOverview(statuses: {
   verification: string;

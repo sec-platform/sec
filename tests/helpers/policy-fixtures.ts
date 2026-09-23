@@ -1,4 +1,4 @@
-import type { PolicyReport } from '../../src/compiler/policies/contract/types.ts';
+import type { PolicyReport } from '../../src/semantics/policies/types.ts';
 
 export function emptyPolicyScopeReport(): PolicyReport['project'] {
   return {

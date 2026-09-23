@@ -1,11 +1,11 @@
 import { expect, test } from "bun:test";
 
-import { CompilerError } from "../../src/compiler/errors.ts";
+import { CompilerError } from '../../src/compiler/errors.ts';
 import { buildEngineeringIR, type BuildEngineeringIRInput } from '../../src/compiler/ir/build-engineering-ir.ts';
 import { deriveScenarioDefinition } from "../../src/compiler/ir/scenario-facts.ts";
 import { buildValidatedEngineeringIR, validateEngineeringIR } from '../../src/compiler/ir/validate-engineering-ir.ts';
 import { projectScenarioView } from '../../src/compiler/projection/project-scenario-view.ts';
-import type { LoadedSemanticContract } from '../../src/semantic/contracts/contract/types.ts';
+import type { LoadedSemanticContract } from '../../src/semantics/definitions/types.ts';
 
 function baseInput(): BuildEngineeringIRInput {
   return {
@@ -282,4 +282,42 @@ test("invalid Scenario step references and retry schemas fail deterministically"
       buildEngineeringIR({ ...baseInput(), semanticContracts: [invalidRetry] }),
     "IR-SCENARIO-002",
   );
+});
+
+test('Scenario indexes preserve unordered input, duplicate occurrences and all owned Facts', () => {
+  const ir = buildEngineeringIR({ ...baseInput(), semanticContracts: [contract()] });
+  const scenarioId = 'scenario:flow:run-flow';
+  const precedes = ir.facts.find((fact) => fact.predicate === 'PRECEDES')!;
+  const facts = [...ir.facts, precedes];
+  const expected = deriveScenarioDefinition(ir.entities, facts, scenarioId)!;
+  expect(expected.steps.find((step) => step.id.endsWith('#step:finish'))!.afterStepIds)
+    .toEqual([`${scenarioId}#step:start`, `${scenarioId}#step:start`]);
+  expect(expected.factIds.filter((id) => id === precedes.id)).toHaveLength(2);
+  expect(deriveScenarioDefinition([...ir.entities].reverse(), facts.reverse(), scenarioId)).toEqual(expected);
+  expect(ir.facts).toHaveLength(facts.length - 1);
+});
+
+test('Scenario boundary checks keep the first input error, not the first indexed step', () => {
+  const ir = buildEngineeringIR({ ...baseInput(), semanticContracts: [contract()] });
+  const scenarioId = 'scenario:flow:run-flow';
+  const precedes = ir.facts.find((fact) => fact.predicate === 'PRECEDES')!;
+  const first = { ...precedes, id: 'incoming-first', subject: 'outside',
+    object: { kind: 'entity' as const, entityId: `${scenarioId}#step:start` } };
+  const second = { ...precedes, id: 'outgoing-second', subject: `${scenarioId}#step:finish`,
+    object: { kind: 'entity' as const, entityId: 'outside' } };
+  for (const additions of [[first, second], [second, first], [first, second, first]]) {
+    expect(() => deriveScenarioDefinition(ir.entities, [...ir.facts, ...additions], scenarioId))
+      .toThrow(`Scenario relation Fact "${additions[0]!.id}" crosses the contained step boundary`);
+  }
+});
+
+test('Scenario indexes still reject value relations and multiple contained error handlers', () => {
+  const ir = buildEngineeringIR({ ...baseInput(), semanticContracts: [contract()] });
+  const scenarioId = 'scenario:flow:run-flow';
+  const precedes = ir.facts.find((fact) => fact.predicate === 'PRECEDES')!;
+  const invalid = { ...precedes, object: { kind: 'value' as const, value: null } };
+  expectCompilerError(() => deriveScenarioDefinition(ir.entities, [...ir.facts, invalid], scenarioId), 'IR-SCENARIO-004');
+  const handles = ir.facts.find((fact) => fact.predicate === 'HANDLES')!;
+  const duplicate = { ...handles, id: 'second-handler', subject: `${scenarioId}#step:start` };
+  expectCompilerError(() => deriveScenarioDefinition(ir.entities, [...ir.facts, duplicate], scenarioId), 'IR-SCENARIO-006');
 });

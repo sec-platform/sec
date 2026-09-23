@@ -7,8 +7,8 @@ import {
   SEC_AGENT_SKILL_IDS,
   SEC_AGENT_SKILL_METADATA,
   type SecSkillApplicabilityEnvelope
-} from '../../src/control/agent/skill.ts';
-import { SEC_TASK_CAPSULE_REVISION } from '../../src/control/agent/task-capsule.ts';
+} from '../../src/adapters/self-hosting/control/agent/skill.ts';
+import { SEC_TASK_CAPSULE_REVISION } from '../../src/adapters/self-hosting/control/agent/task-capsule.ts';
 
 const TRUSTED_REVISION = '7543d37ad733432cbc2ddddd205c98f574e882c4';
 

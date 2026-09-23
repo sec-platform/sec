@@ -1,6 +1,6 @@
 import { expect, test } from 'bun:test';
 
-import { createSecWorkspaceLocatorKey, resolveSecRuntimeRoots, resolveSecRuntimeStateLayout } from '../../src/runtime-state/workspace-state/layout.ts';
+import { createSecWorkspaceLocatorKey, resolveSecRuntimeRoots, resolveSecRuntimeStateLayout } from '../../src/adapters/runtime-state/workspace-state/layout.ts';
 
 const WORKSPACE_IDENTITY = Object.freeze({
   device: 'device-1',

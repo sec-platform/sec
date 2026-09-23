@@ -1,5 +1,5 @@
-import type { FactDeltaEndpointContext } from '../../semantic/engineering-ir/contract/delta-types.ts';
-import { SEMANTIC_MUTATION_CONTRACT_VERSION, SEMANTIC_MUTATION_EXPECTATION_REVISION, SEMANTIC_MUTATION_OPERATION_REGISTRY_REVISION, SEMANTIC_MUTATION_VERIFICATION_POLICY_REVISION, type SemanticMutationBase, type SemanticMutationDiagnostic, type SemanticMutationInput, type SemanticMutationPlan, type SemanticMutationRisk, type SemanticMutationSourceChange, type SemanticMutationVerificationPlanningContext, type VerificationRequirement } from '../../semantic/mutation/contract/types.ts';
+import type { FactDeltaEndpointContext } from '../../semantics/engineering-ir/delta-types.ts';
+import { SEMANTIC_MUTATION_CONTRACT_VERSION, SEMANTIC_MUTATION_EXPECTATION_REVISION, SEMANTIC_MUTATION_OPERATION_REGISTRY_REVISION, SEMANTIC_MUTATION_VERIFICATION_POLICY_REVISION, type SemanticMutationBase, type SemanticMutationDiagnostic, type SemanticMutationInput, type SemanticMutationPlan, type SemanticMutationRisk, type SemanticMutationSourceChange, type SemanticMutationVerificationPlanningContext, type VerificationRequirement } from '../../semantics/mutation/types.ts';
 import { buildFactDelta } from '../ir/build-fact-delta.ts';
 import { buildImpactPropagation } from '../semantic-impact/build-impact-propagation.ts';
 import {

@@ -2,15 +2,15 @@ import { expect, test } from 'bun:test';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 
+import { writeJson } from "../../src/adapters/filesystem/files.ts";
+import { getWorkspacePaths, resolveWorkspaceArtifactPath } from "../../src/adapters/workspace-context.ts";
+import { writeYaml } from '../../src/adapters/workspace/yaml.ts';
+import { CI_ARTIFACT_FILES } from '../../src/assurance/verification/ci-artifacts/contract/manifest.ts';
+import { upgradeWorkspace } from '../../src/bootstrap/upgrade/orchestration.ts';
 import {
   parseUpgradeExecutionTerminalJson,
   parseUpgradePlanJson
-} from '../../src/change-management/upgrade/contract/upgrade-artifact.ts';
-import { upgradeWorkspace } from '../../src/change-management/upgrade/orchestration.ts';
-import { CI_ARTIFACT_FILES } from '../../src/verification/ci-artifacts/contract/manifest.ts';
-import { writeJson } from '../../src/workspace/files.ts';
-import { getWorkspacePaths, resolveWorkspaceArtifactPath } from '../../src/workspace/runtime/paths.ts';
-import { writeYaml } from '../../src/workspace/yaml.ts';
+} from '../../src/semantics/upgrade/upgrade-artifact.ts';
 import { writeBlockUpgradeFixture } from '../helpers/block-upgrade-fixtures.ts';
 import {
   expectCliSuccess,
