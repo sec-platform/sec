@@ -5,6 +5,7 @@ import path from 'node:path';
 
 import { sha256 } from '../../../../contracts/canonical.ts';
 import { assertWorkspaceWriteLease, type WorkspaceWriteLeaseToken } from '../../../filesystem/write-lease.ts';
+import { inspectNoFollowDirectoryChain } from '../../../runtime-state/physical/runtime/physical-no-follow.ts';
 
 const LOCAL_MAIN_CLOSEOUT_BINDING_SCHEMA = 'sec-local-main-closeout-binding-v3' as const;
 
@@ -111,6 +112,21 @@ export type LocalMainGitRunner = (
   repoRoot: string,
   args: readonly string[]
 ) => LocalMainGitResult;
+
+function coordinatedCommonDir(repoRoot: string, git: LocalMainGitRunner): Readonly<{
+  path: string;
+  device: string;
+  inode: string;
+}> {
+  const result = git(repoRoot, ['rev-parse', '--path-format=absolute', '--git-common-dir']);
+  const value = result.stdout.trim();
+  if (result.status !== 0 || !path.isAbsolute(value) || value.includes('\0')
+      || value.includes('\n') || value.includes('\r')) {
+    throw new Error('Native Git common-dir observation is unavailable or noncanonical.');
+  }
+  const physical = inspectNoFollowDirectoryChain(value, 'Local main Git common-dir').target;
+  return Object.freeze({ path: physical.path, device: physical.device, inode: physical.inode });
+}
 
 function exactSha(value: unknown, label: string): string {
   if (typeof value !== 'string' || !/^[0-9a-f]{40}$/u.test(value)) throw new Error(`${label} must be an exact SHA.`);
@@ -318,11 +334,27 @@ export async function executeLocalMainCloseout(
   repoRoot: string,
   sourceBinding: LocalMainCloseoutBinding,
   git: LocalMainGitRunner,
-  workspaceWriteLease: WorkspaceWriteLeaseToken
+  workspaceWriteLease: WorkspaceWriteLeaseToken,
+  commonWriteLease: WorkspaceWriteLeaseToken
 ): Promise<LocalMainCloseoutStatus> {
   let binding: LocalMainCloseoutBinding;
   try { binding = assertBinding(sourceBinding); } catch (error) {
     return blocked(null, 'binding-invalid', error instanceof Error ? error.message : String(error));
+  }
+  let commonDir: ReturnType<typeof coordinatedCommonDir>;
+  try { commonDir = coordinatedCommonDir(repoRoot, git); } catch (error) {
+    return blocked(binding, 'binding-invalid', error instanceof Error ? error.message : String(error));
+  }
+  const assertCoordinatedLeases = async (): Promise<boolean> => {
+    await assertWorkspaceWriteLease(commonDir.path, commonWriteLease);
+    await assertWorkspaceWriteLease(repoRoot, workspaceWriteLease);
+    const current = coordinatedCommonDir(repoRoot, git);
+    return current.path === commonDir.path
+      && current.device === commonDir.device
+      && current.inode === commonDir.inode;
+  };
+  if (!(await assertCoordinatedLeases())) {
+    return blocked(binding, 'binding-invalid', 'Git common-dir physical identity drifted before local-main closeout.');
   }
   const preflight = inspectLocalMutationPreconditions(repoRoot, binding, git);
   if (preflight !== null) return preflight;
@@ -331,14 +363,18 @@ export async function executeLocalMainCloseout(
   if (advertised.status !== 0 || advertisedSha !== binding.expectedRemoteMainSha) {
     return blocked(binding, 'binding-invalid', 'live remote main differs from the authorized exact merged commit.');
   }
-  await assertWorkspaceWriteLease(repoRoot, workspaceWriteLease);
+  if (!(await assertCoordinatedLeases())) {
+    return blocked(binding, 'binding-invalid', 'Git common-dir physical identity drifted before fetch.');
+  }
   const fetch = git(repoRoot, ['fetch', '--no-tags', 'origin',
     '+refs/heads/main:refs/remotes/origin/main']);
   if (fetch.status !== 0) return blocked(binding, 'unresolved', `exact remote fetch failed: ${fetch.stderr.trim()}`);
   const inspected = inspectLocalMainCloseout(repoRoot, binding, git);
   if (inspected.status === 'LOCAL_MAIN_READY') return inspected;
   if (inspected.status !== 'LOCAL_MAIN_FF_ELIGIBLE') return inspected;
-  await assertWorkspaceWriteLease(repoRoot, workspaceWriteLease);
+  if (!(await assertCoordinatedLeases())) {
+    return blocked(binding, 'binding-invalid', 'Git common-dir physical identity drifted before local-main publication.');
+  }
   const commitFence = inspectLocalMutationPreconditions(repoRoot, binding, git);
   if (commitFence !== null) return commitFence;
   const remoteFence = git(repoRoot, ['ls-remote', '--exit-code', 'origin', 'refs/heads/main']);
@@ -365,9 +401,15 @@ export async function executeLocalMainCloseout(
     return blocked(binding, 'dirty', 'an ignored untracked path collides with the exact incoming tracked write set.',
       inspected.localHeadSha, inspected.localTreeSha, inspected.remoteMainSha, inspected.remoteMainTreeSha);
   }
+  if (!(await assertCoordinatedLeases())) {
+    return blocked(binding, 'binding-invalid', 'Git common-dir physical identity drifted at ff-only effect boundary.');
+  }
   const merge = git(repoRoot, ['-c', 'core.hooksPath=/dev/null', 'merge', '--ff-only', binding.expectedRemoteMainSha]);
   if (merge.status !== 0) return blocked(binding, 'unresolved', `ff-only merge failed: ${merge.stderr.trim()}`,
     inspected.localHeadSha, inspected.localTreeSha, inspected.remoteMainSha, inspected.remoteMainTreeSha);
+  if (!(await assertCoordinatedLeases())) {
+    return blocked(binding, 'unresolved', 'Git common-dir physical identity drifted after ff-only.');
+  }
   const readback = inspectLocalMainCloseout(repoRoot, binding, git);
   if (readback.status !== 'LOCAL_MAIN_READY' || readback.localHeadSha !== binding.expectedRemoteMainSha
     || readback.localTreeSha !== binding.expectedRemoteMainTreeSha) {

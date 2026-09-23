@@ -225,7 +225,7 @@ interface ProviderHarness {
 
 function providerHarness(
   initial: BranchLifecycleInventory,
-  localRefDeleteAtomicity: 'supported' | 'unavailable' = 'supported'
+  localRefDeleteCoordination: 'coordinated' | 'unavailable' = 'coordinated'
 ): ProviderHarness {
   let current = structuredClone(initial);
   let remoteDeleteResult: ClosedUnmergedProviderMutation | null = null;
@@ -239,7 +239,7 @@ function providerHarness(
   const adapter: ClosedUnmergedCloseoutEffectAdapter = {
     providerIdentity: 'fixture-github-and-git-provider',
     repository: REPOSITORY,
-    localRefDeleteAtomicity,
+    localRefDeleteCoordination,
     async observeInventory() {
       if (inventoryUnavailable !== null) {
         return { status: 'unavailable', detail: inventoryUnavailable };
@@ -395,6 +395,29 @@ describe('closed-unmerged branch lifecycle operation', () => {
       expect(result.receipt.pullRequest).toBe(PR_NUMBER);
       expect(result.receipt.disposition).toBe('closed-superseded');
     }
+  });
+
+  test('divergent local branch stays protected while remote closes and later terminal settles', async () => {
+    const before = inventory();
+    const independentLocalSha = 'a'.repeat(40);
+    before.localBranches.push({ branch: BRANCH, sha: independentLocalSha });
+    const compiled = compileClosedUnmergedCloseoutOperation({ prepared: prepared(before),
+      evidence: supersededEvidence });
+    expect(compiled.status).toBe('ready');
+    if (compiled.status !== 'ready') throw new Error(compiled.blockers.join(' | '));
+    const harness = providerHarness(before);
+    const first = await executeClosedUnmergedCloseoutOperation({ operation: compiled.operation,
+      provider: harness.provider });
+    expect(first.status).toBe('preserved');
+    expect(harness.counters).toEqual({ deleteRemoteRef: 1, deleteLocalRef: 0, pruneRemote: 1 });
+    expect(harness.terminal(compiled.operation.operationId)?.receipt.closeoutStatus)
+      .toBe('protected-pending');
+    harness.mutate((current) => { current.localBranches = current.localBranches
+      .filter(({ branch }) => branch !== BRANCH); });
+    const resumed = await executeClosedUnmergedCloseoutOperation({ operation: compiled.operation,
+      provider: harness.provider });
+    expect(resumed.status).toBe('completed');
+    expect(harness.counters).toEqual({ deleteRemoteRef: 1, deleteLocalRef: 0, pruneRemote: 1 });
   });
 
   test('structurally plausible supersession evidence is rejected without owner issuance', () => {

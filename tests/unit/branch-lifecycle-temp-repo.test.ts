@@ -17,6 +17,7 @@ import path from 'node:path';
 import {
   preparationFilePath,
   prepareBranchCloseout,
+  prepareClosedUnmergedPullRequestCloseout,
   rehydratePreparedBranchCloseoutRecoveryArtifact
 } from '../../src/adapters/self-hosting/control/branch-lifecycle/branch-closeout.ts';
 import {
@@ -27,6 +28,18 @@ import {
   collectBranchLifecycleCloseoutTargetInventory,
   collectBranchLifecycleInventory
 } from '../../src/adapters/self-hosting/control/branch-lifecycle/branch-lifecycle-inventory.ts';
+import {
+  BRANCH_LIFECYCLE_INVENTORY_SCHEMA,
+  type BranchLifecycleInventory
+} from '../../src/adapters/self-hosting/control/branch-lifecycle/branch-lifecycle-types.ts';
+import {
+  createMainAbsorptionRecovery,
+  verifyRecoveryAuthorityLive
+} from '../../src/adapters/self-hosting/control/branch-lifecycle/branch-recovery.ts';
+import {
+  compileClosedUnmergedCloseoutOperation,
+  createClosedNativeAbsorptionDispositionEvidence
+} from '../../src/adapters/self-hosting/control/branch-lifecycle/closed-unmerged-closeout.ts';
 import {
   issueActiveWorkPackageOwnerObservation,
   type ActiveWorkPackageOwnerObservation
@@ -127,6 +140,111 @@ function repositoryFixture(): Readonly<{
   git(repository, ['push', '-u', 'origin', branch]);
   return Object.freeze({ root, remote, repository, branch, headSha, mainSha });
 }
+
+function absorptionFixture(): Readonly<{
+  root: string;
+  repository: string;
+  sourceSha: string;
+  mainSha: string;
+  inventory: BranchLifecycleInventory;
+}> {
+  const root = mkdtempSync(path.join(tmpdir(), 'sec-main-absorption-'));
+  const repository = path.join(root, 'repository');
+  mkdirSync(repository);
+  git(repository, ['init', '-b', 'main']);
+  git(repository, ['config', 'user.name', 'SEC Test']);
+  git(repository, ['config', 'user.email', 'sec-test@example.invalid']);
+  writeFileSync(path.join(repository, 'source.txt'), 'source\n');
+  git(repository, ['add', 'source.txt']);
+  git(repository, ['commit', '-m', 'source']);
+  const sourceSha = git(repository, ['rev-parse', 'HEAD']);
+  git(repository, ['branch', 'candidate']);
+  writeFileSync(path.join(repository, 'absorbed.txt'), 'absorbed\n');
+  git(repository, ['add', 'absorbed.txt']);
+  git(repository, ['commit', '-m', 'main absorbs source']);
+  const mainSha = git(repository, ['rev-parse', 'HEAD']);
+  const inventory = {
+    schema: BRANCH_LIFECYCLE_INVENTORY_SCHEMA,
+    observedAt: new Date().toISOString(),
+    repository: {
+      root: repository,
+      commonDir: path.join(repository, '.git'),
+      fullName: 'sec-platform/sec',
+      remote: 'origin',
+      remoteUrl: 'https://github.com/sec-platform/sec.git',
+      defaultBranch: 'main'
+    },
+    main: { localSha: mainSha, remoteSha: null },
+    localBranches: [],
+    remoteBranches: [],
+    worktrees: [],
+    pullRequests: [],
+    activeWorkPackage: { state: 'none', branch: null, manifest: null, reason: null },
+    repositorySetting: { observation: 'unknown', deleteBranchOnMerge: null, reason: 'fixture' },
+    pruneConfiguration: { observation: 'unknown', fetchPrune: null, remotePrune: null,
+      fetchPruneTags: null, reason: 'fixture' },
+    unknowns: []
+  } satisfies BranchLifecycleInventory;
+  return { root, repository, sourceSha, mainSha, inventory };
+}
+
+test('main absorption proof revalidates native ancestry and rejects changed proof bytes', () => {
+  const fixture = absorptionFixture();
+  const recoveryRoot = path.join(fixture.root, 'recovery');
+  try {
+    const { recovery } = createMainAbsorptionRecovery({
+      inventory: fixture.inventory,
+      branch: 'candidate',
+      expectedSha: fixture.sourceSha,
+      mainSha: fixture.mainSha,
+      basis: 'native-ancestor',
+      recoveryRoot
+    });
+    expect(recovery.kind).toBe('main-absorption');
+    expect(verifyRecoveryAuthorityLive({ inventory: fixture.inventory, recovery }).status).toBe('success');
+    const initialProof = statSync(recovery.path);
+    const retried = createMainAbsorptionRecovery({
+      inventory: fixture.inventory,
+      branch: 'candidate',
+      expectedSha: fixture.sourceSha,
+      mainSha: fixture.mainSha,
+      basis: 'native-ancestor',
+      recoveryRoot
+    }).recovery;
+    expect(retried.path).toBe(recovery.path);
+    expect(statSync(retried.path).ino).toBe(initialProof.ino);
+    writeFileSync(recovery.path, 'forged proof\n');
+    expect(verifyRecoveryAuthorityLive({ inventory: fixture.inventory, recovery }).status).toBe('failed');
+  } finally {
+    rmSync(fixture.root, { recursive: true, force: true });
+  }
+});
+
+test('main absorption rejects unrelated source without authenticated review before proof publication', () => {
+  const fixture = absorptionFixture();
+  const recoveryRoot = path.join(fixture.root, 'recovery');
+  try {
+    expect(() => createMainAbsorptionRecovery({
+      inventory: fixture.inventory,
+      branch: 'candidate',
+      expectedSha: fixture.mainSha,
+      mainSha: fixture.sourceSha,
+      basis: 'native-ancestor',
+      recoveryRoot
+    })).toThrow('Source commit is not an ancestor');
+    expect(() => createMainAbsorptionRecovery({
+      inventory: fixture.inventory,
+      branch: 'candidate',
+      expectedSha: fixture.sourceSha,
+      mainSha: fixture.mainSha,
+      basis: 'reviewed-supersession',
+      recoveryRoot
+    })).toThrow('review');
+    expect(existsSync(recoveryRoot)).toBe(false);
+  } finally {
+    rmSync(fixture.root, { recursive: true, force: true });
+  }
+});
 
 function activeWorkObservation(
   fixture: ReturnType<typeof repositoryFixture>
@@ -276,6 +394,60 @@ test('V6 branch preparation is recovery-only and leaves exact local/remote refs 
       .toBe(fixture.headSha);
     expect(git(fixture.repository, ['ls-remote', '--heads', 'origin', `refs/heads/${fixture.branch}`]))
       .toContain(fixture.headSha);
+  } finally {
+    restorePath();
+    rmSync(fixture.root, { recursive: true, force: true });
+  }
+}, 180_000);
+
+test('closed PR native main absorption preserves a divergent local ref before remote CAS', () => {
+  const fixture = repositoryFixture();
+  const restorePath = installGitHubObservationShim(fixture);
+  try {
+    git(fixture.repository, ['switch', 'main']);
+    git(fixture.repository, ['merge', '--ff-only', fixture.branch]);
+    git(fixture.repository, ['push', 'origin', 'main']);
+    const absorbedMainSha = git(fixture.repository, ['rev-parse', 'HEAD']);
+    git(fixture.repository, ['switch', fixture.branch]);
+    writeFileSync(path.join(fixture.repository, 'local-only.txt'), 'local-only\n');
+    git(fixture.repository, ['add', 'local-only.txt']);
+    git(fixture.repository, ['commit', '-m', 'independent local continuation']);
+    const divergentLocalSha = git(fixture.repository, ['rev-parse', 'HEAD']);
+    git(fixture.repository, ['switch', 'main']);
+    const exactPullRequest = {
+      number: 42, headBranch: fixture.branch, headSha: fixture.headSha,
+      baseBranch: 'main', baseSha: fixture.mainSha, state: 'closed' as const,
+      isDraft: false, isCrossRepository: false,
+      url: 'https://github.com/sec-platform/sec/pull/42'
+    };
+    const prepared = prepareClosedUnmergedPullRequestCloseout({
+      repositoryRoot: fixture.repository, repositoryFullName: 'sec-platform/sec',
+      activeWorkPackageObservation: issueActiveWorkPackageOwnerObservation({
+        repository: 'sec-platform/sec', defaultBranch: 'main', defaultSha: absorbedMainSha,
+        observedAt: new Date().toISOString(), state: 'none', branch: null,
+        manifest: null, reason: 'no active Work Package'
+      }), recoveryRoot: path.join(fixture.root, 'recovery')
+    }, { number: 42, refState: 'present', headBranch: fixture.branch,
+      headSha: fixture.headSha, baseBranch: 'main', baseSha: fixture.mainSha,
+      exactPullRequest });
+    expect(prepared.preparation.expectedLocalSha).toBe(divergentLocalSha);
+    expect(prepared.preparation.recovery.kind).toBe('main-absorption');
+    if (prepared.preparation.recovery.kind !== 'main-absorption') throw new Error('expected absorption');
+    expect(prepared.preparation.recovery.basis).toBe('native-ancestor');
+    const evidence = createClosedNativeAbsorptionDispositionEvidence({
+      prepared, repository: 'sec-platform/sec', pullRequestNumber: 42,
+      branch: fixture.branch, headSha: fixture.headSha,
+      headTreeSha: prepared.preparation.recovery.sourceTreeSha,
+      baseBranch: 'main', baseSha: fixture.mainSha,
+      currentMainSha: absorbedMainSha,
+      currentMainTreeSha: prepared.preparation.recovery.mainTreeSha,
+      durableGoal: { kind: 'evidence', reference: `main-absorption:${prepared.preparation.recovery.sha256}` }
+    });
+    const compiled = compileClosedUnmergedCloseoutOperation({ prepared, evidence });
+    expect(compiled.status).toBe('ready');
+    if (compiled.status !== 'ready') throw new Error(compiled.blockers.join(' | '));
+    expect(compiled.operation.authorization.localAction).toBe('protect-local');
+    expect(git(fixture.repository, ['rev-parse', `refs/heads/${fixture.branch}`])).toBe(divergentLocalSha);
   } finally {
     restorePath();
     rmSync(fixture.root, { recursive: true, force: true });

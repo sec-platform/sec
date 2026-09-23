@@ -12,6 +12,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 
 import { digest, rawSha256, sha256 } from '../../../../contracts/canonical.ts';
+import { enableExecutionProgress, observeExecutionProgressPhase, reportExecutionProgress } from '../../../../execution/execution-progress.ts';
 import { withWorkspaceWriteLease } from '../../../filesystem/write-lease.ts';
 import { GitReadAuthorityError, withAuthorityGitReadSession } from '../../../providers/git-read/authority.ts';
 import {
@@ -358,6 +359,31 @@ function documentControlCliFailure(
 
 const ExternalCommandTimeoutMs = 30_000;
 const ExternalCommandMaxBufferBytes = 8 * 1024 * 1024;
+// One freeze holds one Git-read operation from admission through terminal
+// verification and recovery retirement. These are maxima for the normal
+// three-file control projection: entry (9), historical committed replan (21),
+// staged snapshot (16), immutable baseline (4), branch/default-target (2),
+// index paths (2), scratch build (11), and pre-journal fence (2).
+const FreezePreparationRootCommands = 9 + 21 + 16 + 4 + 2 + 2 + 11 + 2;
+// After PRE is journaled: index paths/materialization (13), published index
+// snapshot (12), retired-manifest fence (2), terminal verification (12), and
+// two semantic index checks during recovery retirement (12).
+const FreezeContinuationRootCommands = 13 + 12 + 2 + 12 + 12;
+// Scratch build and object materialization each issue three hash-object stdin
+// commands and one update-index stdin command on the admitted Windows route.
+const FreezePreparationStdinWorkers = process.platform === 'win32' ? 4 : 0;
+const FreezeContinuationStdinWorkers = process.platform === 'win32' ? 4 : 0;
+// A child without a retained Job controller can need both graceful and forced
+// native termination helpers. This is a settlement reserve, not a retry budget.
+const FreezeNativeSettlementReserve = 2;
+const FreezeContinuationNativeResources = FreezeContinuationRootCommands
+  + FreezeContinuationStdinWorkers + FreezeNativeSettlementReserve;
+const FreezeNativeResourceBudget = FreezePreparationRootCommands
+  + FreezePreparationStdinWorkers + FreezeContinuationNativeResources;
+const FreezeGitReadBudget = Object.freeze({
+  ...GIT_READ_OPERATION_BUDGET,
+  maxProcesses: FreezeNativeResourceBudget
+});
 const CurrentStatePath = 'config/repository/current-state.yaml';
 const ActivePointerPath = 'config/repository/active-work-package.md';
 const RollingPlanPath = 'config/repository/rolling-plan.md';
@@ -537,6 +563,20 @@ export interface CodexDevelopmentFreezeResult {
   readonly manifestDigest: `sha256:${string}`;
   readonly indexPublished: true;
   readonly worktreeProjected: true;
+}
+
+/** The prior operation is settled; a composing owner must open a new session for the requested freeze. */
+export class CodexDevelopmentPriorFreezeOperationRetiredError extends Error {
+  readonly code = 'DOCUMENT-CONTROL-PRIOR-FREEZE-RETIRED' as const;
+  readonly priorOperationId: `sha256:${string}`;
+  readonly repositoryRoot: string;
+  readonly nextOperationStarted = false as const;
+
+  constructor(priorOperationId: `sha256:${string}`, repositoryRoot: string) {
+    super('Prior terminal freeze was verified and retired; the requested new freeze has not started.');
+    this.priorOperationId = priorOperationId;
+    this.repositoryRoot = repositoryRoot;
+  }
 }
 
 interface FreezeJournalFile {
@@ -1779,7 +1819,9 @@ async function captureControlIndexSnapshot(
       const candidateManifestBlob = await readBlob(`:${pointer.manifest}`);
       const targetManifestBlob = options.targetManifestPath === undefined
         ? undefined
-        : await readBlob(`:${options.targetManifestPath}`);
+        : options.targetManifestPath === pointer.manifest
+          ? candidateManifestBlob
+          : await readBlob(`:${options.targetManifestPath}`);
       const roadmapBlob = await readBlob(':config/repository/work-selection.md');
       const indexPaths = Object.freeze(parseNulList(requireCommandOutput(
         await runScratch(['ls-files', '--cached', '-z']),
@@ -4708,6 +4750,36 @@ async function assertFreezeRetiredManifestAbsent(input: Readonly<{
   if (remaining !== null) throw new Error(`${input.label} remains in the worktree.`);
 }
 
+function assertFreezeContinuationNativeCapacity(phase: string): void {
+  if (documentControlHostCliTestScope.getStore() === documentControlHostCliTestIssuer) return;
+  const capacity = documentControlGitReadScope.getStore()?.observeNativeResourceCapacity();
+  if (capacity === undefined || capacity === null) {
+    throw new Error(`Document control freeze ${phase} has no live native Git resource observation.`);
+  }
+  reportExecutionProgress({
+    command: 'document-control-freeze',
+    phase: 'native-capacity',
+    state: 'running',
+    detail: {
+      operationPhase: phase,
+      used: capacity.admitted,
+      root: capacity.root,
+      stdinWorker: capacity.stdinWorker,
+      helper: capacity.helper,
+      required: FreezeContinuationNativeResources,
+      remaining: capacity.remaining
+    }
+  });
+  if (capacity.remaining < FreezeContinuationNativeResources) {
+    throw new Error(
+      `Document control freeze native budget is insufficient before ${phase}: `
+      + `used=${capacity.admitted}, root=${capacity.root}, stdinWorker=${capacity.stdinWorker}, `
+      + `helper=${capacity.helper}, required=${FreezeContinuationNativeResources}, `
+      + `remaining=${capacity.remaining}.`
+    );
+  }
+}
+
 async function advanceFreezeJournal(input: {
   repositoryRoot: string;
   journal: FreezeJournal;
@@ -4715,25 +4787,26 @@ async function advanceFreezeJournal(input: {
   faultAfter?: CodexDevelopmentFreezeFault;
   durability: FreezeDurabilityOptions;
 }): Promise<CodexDevelopmentFreezeResult> {
+  assertFreezeContinuationNativeCapacity(`journal-${input.journal.phase}`);
   let journal = input.journal;
   let journalBytes = input.journalBytes;
   const indexPaths = await resolveIndexPaths(input.repositoryRoot, true);
   const indexPre = fromBase64(journal.index.pre, 'Freeze journal index PRE');
   const indexNext = fromBase64(journal.index.next, 'Freeze journal index NEXT');
   if (journal.preIndexTreeSha === journal.candidateTreeSha) {
-    await assertIndexSemanticIdentity({
+    await observeExecutionProgressPhase('document-control-freeze', 'index-noop-readback', () => assertIndexSemanticIdentity({
       repositoryRoot: input.repositoryRoot,
       indexPaths,
       expectedTreeSha: journal.candidateTreeSha,
       label: 'Freeze Git index semantic NOOP'
-    });
+    }));
   } else {
-    await materializeFreezeCandidateObjects({
+    await observeExecutionProgressPhase('document-control-freeze', 'materialize-candidate-objects', () => materializeFreezeCandidateObjects({
       repositoryRoot: input.repositoryRoot,
       gitDirectory: indexPaths.gitDirectory,
       journal
-    });
-    await publishIndexCas({
+    }));
+    await observeExecutionProgressPhase('document-control-freeze', 'publish-index', () => publishIndexCas({
       ...indexPaths,
       pre: indexPre,
       next: indexNext,
@@ -4742,7 +4815,7 @@ async function advanceFreezeJournal(input: {
       faultAfterPreQuarantine: () => maybeFault(input.faultAfter, 'after-index-pre-quarantine'),
       faultAfterNextInstall: () => maybeFault(input.faultAfter, 'after-index-next-install'),
       durability: input.durability
-    });
+    }));
   }
   maybeFault(input.faultAfter, 'after-index-publish');
   if (journal.phase === 'prepared') {
@@ -4817,18 +4890,18 @@ async function advanceFreezeJournal(input: {
     );
   }
 
-  const readback = await captureControlIndexSnapshot(input.repositoryRoot);
+  const readback = await observeExecutionProgressPhase('document-control-freeze', 'published-index-readback', () => captureControlIndexSnapshot(input.repositoryRoot, {
+    targetManifestPath: journal.manifestPath
+  }));
   if (readback.treeSha !== journal.candidateTreeSha) {
     throw new Error('Candidate index tree drifted before freeze terminal readback.');
   }
   const pointerBytes = fromBase64(journal.files.pointer.next, 'Freeze pointer NEXT');
   const rollingBytes = fromBase64(journal.files.rollingPlan.next, 'Freeze rolling-plan NEXT');
-  if (!(await requireGitBlob(input.repositoryRoot, `${readback.treeSha}:${journal.manifestPath}`, 'Frozen manifest'))
-      .equals(manifestNext)
-      || !(await requireGitBlob(input.repositoryRoot, `${readback.treeSha}:${ActivePointerPath}`, 'Frozen pointer'))
-        .equals(pointerBytes)
-      || !(await requireGitBlob(input.repositoryRoot, `${readback.treeSha}:${RollingPlanPath}`, 'Frozen rolling plan'))
-        .equals(rollingBytes)) {
+  if (readback.targetManifestBlob === undefined
+      || !readback.targetManifestBlob.equals(manifestNext)
+      || !readback.pointerBytes.equals(pointerBytes)
+      || !readback.rollingPlanBytes.equals(rollingBytes)) {
     throw new Error('Candidate tree control bytes do not match the freeze NEXT images.');
   }
   const retiredManifestPath = await freezeRetiredManifestPath(input.repositoryRoot, journal);
@@ -4864,18 +4937,19 @@ async function advanceFreezeJournal(input: {
   maybeFault(input.faultAfter, 'after-terminal');
   const terminalSnapshot = await readFreezeJournalSnapshot(input.repositoryRoot);
   if (terminalSnapshot === null) throw new Error('Terminal freeze journal disappeared before retirement.');
-  await verifyTerminalFreezeJournal({
+  await observeExecutionProgressPhase('document-control-freeze', 'terminal-verification', () => verifyTerminalFreezeJournal({
     repositoryRoot: input.repositoryRoot,
     snapshot: terminalSnapshot,
     manifestPath: journal.manifestPath,
     manifestDigest: journal.manifestDigest,
-    reviewedOn: journal.reviewedOn
-  });
-  await retireTerminalFreezeTransaction({
+    reviewedOn: journal.reviewedOn,
+    retiredManifestPath
+  }));
+  await observeExecutionProgressPhase('document-control-freeze', 'journal-retirement', () => retireTerminalFreezeTransaction({
     repositoryRoot: input.repositoryRoot,
     snapshot: terminalSnapshot,
     durability: input.durability
-  });
+  }));
   return journal.result;
 }
 
@@ -4885,6 +4959,7 @@ async function verifyTerminalFreezeJournal(input: {
   manifestPath: string;
   manifestDigest: `sha256:${string}`;
   reviewedOn: string;
+  retiredManifestPath?: string | null;
 }): Promise<CodexDevelopmentFreezeResult> {
   const journal = input.snapshot.journal;
   if (!input.snapshot.canonicalPresent || journal.phase !== 'terminal'
@@ -4937,7 +5012,9 @@ async function verifyTerminalFreezeJournal(input: {
   await requireTerminalTreeBlob(journal.manifestPath, manifestNext, 'Terminal freeze manifest');
   await requireTerminalTreeBlob(ActivePointerPath, pointerNext, 'Terminal freeze active pointer');
   await requireTerminalTreeBlob(RollingPlanPath, rollingNext, 'Terminal freeze rolling plan');
-  const retiredManifestPath = await freezeRetiredManifestPath(input.repositoryRoot, journal);
+  const retiredManifestPath = input.retiredManifestPath === undefined
+    ? await freezeRetiredManifestPath(input.repositoryRoot, journal)
+    : input.retiredManifestPath;
   if (retiredManifestPath !== null) {
     await assertFreezeRetiredManifestAbsent({
       repositoryRoot: input.repositoryRoot,
@@ -5337,6 +5414,7 @@ async function freezeDocumentControlPlaneWithSession(
           && existingJournal.reviewedOn === input.reviewedOn) {
         return previousResult;
       }
+      throw new CodexDevelopmentPriorFreezeOperationRetiredError(previousResult.operationId, repositoryRoot);
     }
 
     const headSha = shaValue(
@@ -5400,11 +5478,11 @@ async function freezeDocumentControlPlaneWithSession(
       ...(workSelectionProjectionMode === 'required-v1' ? ['config/repository/work-selection.md'] : [])
     ])]);
     const targetSet = new Set<string>(targets);
-    const snapshot = await captureControlIndexSnapshot(repositoryRoot, {
+    const snapshot = await observeExecutionProgressPhase('document-control-freeze', 'candidate-index-snapshot', () => captureControlIndexSnapshot(repositoryRoot, {
       targetManifestPath: input.manifestPath,
       stagedBaseSha: headSha,
       requiredStageZeroPaths: targets
-    });
+    }));
     if (!snapshot.stateBytes.equals(headStateBytes)) {
       throw new Error('Document control freeze rejects staged current-state authority bytes.');
     }
@@ -5414,11 +5492,10 @@ async function freezeDocumentControlPlaneWithSession(
     if (rolling.activePackageId !== path.posix.basename(pointer.manifest, '.md')) {
       throw new Error('The immutable index pointer and rolling plan select different Work Packages.');
     }
-    const immutablePointerSource = decodeUtf8(await requireGitBlob(
-      repositoryRoot,
-      `${headSha}:${ActivePointerPath}`,
-      'Immutable candidate active pointer'
-    ), 'Immutable candidate active pointer');
+    // HEAD is content-addressed; the earlier immutable read remains the same
+    // observation across the index-only snapshot, so do not spawn a duplicate
+    // Git child while preserving the independent staged-pointer comparison.
+    const immutablePointerSource = headPointerSource;
     const immutableRollingPlanSource = decodeUtf8(await requireGitBlob(
       repositoryRoot,
       `${headSha}:${RollingPlanPath}`,
@@ -5929,7 +6006,7 @@ async function freezeDocumentControlPlaneWithSession(
       return operation.result;
     }
     await input.beforeInitialJournalFence?.();
-    await assertInitialFreezeObservationFence({
+    await observeExecutionProgressPhase('document-control-freeze', 'pre-journal-fence', () => assertInitialFreezeObservationFence({
       repositoryRoot,
       defaultRef: spec.resolver.defaultRef,
       headSha,
@@ -5946,14 +6023,15 @@ async function freezeDocumentControlPlaneWithSession(
       absentWorktreePaths: projection.retiredManifestPath === null
         ? []
         : [projection.retiredManifestPath]
-    });
-    const journalBytes = await writeFreezeJournal(
+    }));
+    assertFreezeContinuationNativeCapacity('journal-prepare');
+    const journalBytes = await observeExecutionProgressPhase('document-control-freeze', 'journal-preparation', () => writeFreezeJournal(
       repositoryRoot,
       existingJournalSnapshot?.bytes ?? null,
       operation.journal,
       durability,
       input.faultAfter
-    );
+    ));
     maybeFault(input.faultAfter, 'after-journal-prepare');
     return advanceFreezeJournal({
       repositoryRoot,
@@ -5975,20 +6053,22 @@ async function freezeDocumentControlPlaneWithSession(
 export async function freezeDocumentControlPlane(
   input: FreezeDocumentControlPlaneInput
 ): Promise<CodexDevelopmentFreezeResult> {
-  if (documentControlHostCliTestScope.getStore() === documentControlHostCliTestIssuer
-      || documentControlGitReadScope.getStore() !== undefined) {
+  if (documentControlGitReadScope.getStore() !== undefined) {
     return freezeDocumentControlPlaneWithSession(input);
+  }
+  if (documentControlHostCliTestScope.getStore() === documentControlHostCliTestIssuer) {
+    return afterPriorTerminalFreezeRetirement(() => freezeDocumentControlPlaneWithSession(input));
   }
   const deadlineAtUnixMs = Date.now() + ExternalCommandTimeoutMs;
   try {
-    return await withAuthorityGitReadSession({
+    return await afterPriorTerminalFreezeRetirement(() => withAuthorityGitReadSession({
       cwd: path.resolve(input.cwd),
-      budget: GIT_READ_OPERATION_BUDGET,
+      budget: FreezeGitReadBudget,
       deadlineAtUnixMs
     }, (session) => documentControlGitReadScope.run(
       session,
       () => freezeDocumentControlPlaneWithSession(input)
-    ));
+    )));
   } catch (error) {
     if (error instanceof CodexDevelopmentDocumentControlCliAdmissionError) throw error;
     if (error instanceof GitReadAuthorityError) {
@@ -6001,6 +6081,28 @@ export async function freezeDocumentControlPlane(
       );
     }
     throw error;
+  }
+}
+
+async function afterPriorTerminalFreezeRetirement<T>(
+  run: () => Promise<T>
+): Promise<T> {
+  try {
+    return await run();
+  } catch (error) {
+    if (!(error instanceof CodexDevelopmentPriorFreezeOperationRetiredError)) throw error;
+    const remainingJournal = await readFreezeJournalSnapshot(error.repositoryRoot);
+    if (remainingJournal !== null) {
+      throw new Error(`Prior freeze ${error.priorOperationId} reported retirement but a journal remains.`);
+    }
+    reportExecutionProgress({
+      command: 'document-control-freeze',
+      phase: 'prior-operation-retired',
+      state: 'complete',
+      detail: { priorOperationId: error.priorOperationId, nextOperationStarted: false }
+    });
+    // A distinct requested operation starts only after the prior session has settled.
+    return run();
   }
 }
 
@@ -6725,7 +6827,7 @@ export async function runDocumentControlPlaneCli(): Promise<void> {
     if (argv.filter((argument) => argument === '--json').length > 1
         || argv.filter((argument) => argument === '--full').length > 1
         || argv.filter((argument) => argument === '--workspace').length > 1) throw new Error(usage);
-    const resolved = await resolveLiveControlPlane(workspace);
+    const resolved = await observeExecutionProgressPhase('document-control-status', 'resolve-live-control-plane', () => resolveLiveControlPlane(workspace));
     const output = argv.includes('--full')
       ? resolved
       : projectDocumentControlPlaneStatusCli(resolved);
@@ -6773,7 +6875,7 @@ export async function runDocumentControlPlaneCli(): Promise<void> {
       freezeDeadlineAtUnixMs - Date.now()
     );
     let executionDefaultBranch: string | undefined;
-    await withAuthorityGitReadSession({
+    await observeExecutionProgressPhase('document-control-freeze', 'trusted-main-preflight', () => withAuthorityGitReadSession({
       cwd: executionRoot,
       budget: Object.freeze({
         ...GIT_READ_OPERATION_BUDGET,
@@ -6815,13 +6917,13 @@ export async function runDocumentControlPlaneCli(): Promise<void> {
           + 'use --workspace to target the isolated candidate.'
         );
       }
-    }));
+    })));
 
     const requestedWorkspace = realpathSync(path.resolve(workspace));
-    const result = await withAuthorityGitReadSession({
+    const result = await afterPriorTerminalFreezeRetirement(() => observeExecutionProgressPhase('document-control-freeze', 'candidate-authority-and-journal', () => withAuthorityGitReadSession({
       cwd: requestedWorkspace,
       budget: Object.freeze({
-        ...GIT_READ_OPERATION_BUDGET,
+        ...FreezeGitReadBudget,
         deadlineMs: remainingFreezeBudget()
       }),
       deadlineAtUnixMs: freezeDeadlineAtUnixMs
@@ -6851,7 +6953,7 @@ export async function runDocumentControlPlaneCli(): Promise<void> {
         reviewedOn,
         proposalOnly: argv.includes('--proposal-only')
       });
-    }));
+    }))));
     process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
     return;
   }
@@ -6859,5 +6961,6 @@ export async function runDocumentControlPlaneCli(): Promise<void> {
 }
 
 if (import.meta.main) {
-  await runDocumentControlPlaneCli();
+  enableExecutionProgress();
+  await observeExecutionProgressPhase(`document-control-${process.argv[2] ?? 'unknown'}`, 'command', runDocumentControlPlaneCli);
 }

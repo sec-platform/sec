@@ -231,6 +231,14 @@ export type GitReadSession = Readonly<{
   readonly startedAt: number;
   readonly deadlineAt: number;
   readonly processCount: number;
+  /** Conservative live native capacity; never an Effect grant or terminal receipt field. */
+  observeNativeResourceCapacity(): Readonly<{
+    remaining: number;
+    admitted: number;
+    root: number;
+    stdinWorker: number;
+    helper: number;
+  }> | null;
   readonly stdoutBytes: number;
   readonly stderrBytes: number;
   readonly argumentBytes?: number;
@@ -299,8 +307,10 @@ export type GitScratchIndexTreeResolution =
   | Readonly<{ readonly status: 'unavailable'; readonly reason: GitScratchIndexTreeFailureReason }>;
 
 type GitScratchExecutionOwner = Readonly<{
-  /** Conservative current capacity, not a reservation or a new grant. */
-  remainingProcesses(): number;
+  /** Conservative root-command capacity, not a reservation or a new grant. */
+  remainingRootProcesses(): number;
+  /** Native capacity also charges Windows stdin workers and termination helpers. */
+  remainingNativeResources(): number;
   run(
     args: readonly string[],
     environment: Readonly<Record<string, string>>,
@@ -628,6 +638,7 @@ function createHostGitReadSession(input: GitReadHostSessionInput): GitReadSessio
     'processes'
   );
   const processCountAtStart = processResourceSession?.processCount ?? 0;
+  const nativeCapacityAtStart = processResourceSession?.observeNativeResourceCapacity().remaining ?? 0;
   const processInputBytesAtStart = processResourceSession?.inputBytes ?? 0;
   const processOutputBytesAtStart = processResourceSession?.outputBytes ?? 0;
   const deadlineAt = Math.min(requestedDeadlineAt,
@@ -930,6 +941,19 @@ function createHostGitReadSession(input: GitReadHostSessionInput): GitReadSessio
       return Math.max(0, (processResourceSession?.processCount ?? processCountAtStart)
         - processCountAtStart);
     },
+    observeNativeResourceCapacity() {
+      if (failure !== null || closed || closing || processResourceSession === null) return null;
+      const physical = processResourceSession.observeNativeResourceCapacity();
+      const spentSinceStart = nativeCapacityAtStart - physical.remaining;
+      const available = Math.min(budget.maxProcesses - spentSinceStart, physical.remaining);
+      return Object.freeze({
+        remaining: Number.isSafeInteger(available) ? Math.max(0, available) : 0,
+        admitted: physical.admitted,
+        root: physical.root,
+        stdinWorker: physical.stdinWorker,
+        helper: physical.helper
+      });
+    },
     get stdoutBytes() { return stdoutBytes; },
     get stderrBytes() { return stderrBytes; },
     get argumentBytes() { return argumentBytes; },
@@ -1067,6 +1091,7 @@ function createHostGitReadSession(input: GitReadHostSessionInput): GitReadSessio
       stdinBytes += commandInput?.byteLength ?? 0;
       activeProcesses += 1;
       const settleRun = registerActiveRun();
+      const commandStartedAt = performance.now();
       let admittedStdoutLimit = 0;
       let admittedStderrLimit = 0;
       try {
@@ -1165,7 +1190,9 @@ function createHostGitReadSession(input: GitReadHostSessionInput): GitReadSessio
             return fail('deadline-exhausted', 'Git command exhausted the operation deadline.');
           }
         }
-        return fail('command-error', failureMessage(error));
+        return fail('command-error',
+          `phase=git-command:${args[0] ?? '<empty>'} elapsedMs=${Math.max(0, performance.now() - commandStartedAt)} `
+          + failureMessage(error));
       } finally {
         activeProcesses -= 1;
         settleRun();
@@ -1269,7 +1296,7 @@ function createHostGitReadSession(input: GitReadHostSessionInput): GitReadSessio
   } else if (input.origin === 'test') {
     TEST_GIT_READ_SESSIONS.add(issuedSession);
   }
-  const remainingProcessCapacity = (): number => {
+  const remainingRootProcessCapacity = (): number => {
     if (failure !== null || closed || closing || processResourceSession === null || processCountBudget === null) return 0;
     // A local session may borrow a narrower/already-used parent ledger. Its
     // own delta counter alone cannot prove the complete batch is affordable.
@@ -1278,7 +1305,8 @@ function createHostGitReadSession(input: GitReadHostSessionInput): GitReadSessio
     return Number.isSafeInteger(available) ? Math.max(0, available) : 0;
   };
   GIT_SCRATCH_EXECUTION_OWNERS.set(issuedSession, Object.freeze({
-    remainingProcesses: remainingProcessCapacity,
+    remainingRootProcesses: remainingRootProcessCapacity,
+    remainingNativeResources: () => issuedSession.observeNativeResourceCapacity()?.remaining ?? 0,
     async run(
       args: readonly string[],
       environment: Readonly<Record<string, string>>,
@@ -1685,10 +1713,18 @@ export async function createAuthorityGitScratchIndexTreeSession(input: Readonly<
       // once; every result then reads write-tree. Refuse a known impossible
       // request before even the first object write. This is an admission
       // check, not a reservation across other borrowers of the parent budget.
-      const requiredProcesses = input.additions.length
+      const requiredRootProcesses = input.additions.length
         + (input.additions.length > 0 || input.removals.length > 0 ? 1 : 0) + 1;
-      const remainingProcesses = executionOwner.remainingProcesses();
-      if (!Number.isSafeInteger(remainingProcesses) || requiredProcesses > remainingProcesses) {
+      const inputCommandCount = input.additions.length
+        + (input.additions.length > 0 || input.removals.length > 0 ? 1 : 0);
+      const requiredNativeResources = requiredRootProcesses
+        + (process.platform === 'win32' ? inputCommandCount : 0);
+      const remainingRootProcesses = executionOwner.remainingRootProcesses();
+      const remainingNativeResources = executionOwner.remainingNativeResources();
+      if (!Number.isSafeInteger(remainingRootProcesses)
+          || !Number.isSafeInteger(remainingNativeResources)
+          || requiredRootProcesses > remainingRootProcesses
+          || requiredNativeResources > remainingNativeResources) {
         return unavailable('session-failed', 'Git scratch delta exceeds the remaining process budget.');
       }
       // Mode-zero records delete exactly from the index, even when the

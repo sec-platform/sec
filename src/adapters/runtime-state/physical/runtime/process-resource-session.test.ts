@@ -206,6 +206,9 @@ test('process sessions reject structural operation and session clones', async ()
     maximumProcesses: 2
   } as const;
   expect(() => assertProcessResourceSession(session, expectedBinding)).not.toThrow();
+  expect(session.observeNativeResourceCapacity()).toMatchObject({
+    maximum: 2, admitted: 0, remaining: 2, root: 0, stdinWorker: 0, helper: 0
+  });
   const clone = Object.freeze({ ...session });
   expect(() => assertProcessResourceSession(clone, expectedBinding))
     .toThrow(/owner-issued live session/u);
@@ -218,11 +221,13 @@ test('process sessions reject structural operation and session clones', async ()
     providerIdentityDigest: digest('foreign-provider')
   })).toThrow(/binding differs/u);
   expect(() => clone.close()).toThrow(/owner-issued session/u);
+  expect(() => clone.observeNativeResourceCapacity()).toThrow(/owner-issued session/u);
   await expect(clone.run({} as RetainedCommandBoundary, [], {
     maxStderrBytes: 0,
     maxStdoutBytes: 0
   })).rejects.toThrow(/owner-issued session/u);
   session.close();
+  expect(() => session.observeNativeResourceCapacity()).toThrow(/closed/u);
   expect(() => assertProcessResourceSession(session, expectedBinding))
     .toThrow(/current live session/u);
 });
@@ -276,6 +281,9 @@ test('process sessions require one process Effect and complete bound resource ce
       ordinal: 1,
       result: { code: 0, stdout: new Uint8Array([0, 1, 255]), stderr: '' }
     });
+    expect(session.observeNativeResourceCapacity()).toMatchObject({
+      remaining: 1, root: 1, stdinWorker: process.platform === 'win32' ? 1 : 0
+    });
 
     await expect(session.run(retained.boundary, ['--version'], {
       input: new Uint8Array([1]),
@@ -300,6 +308,7 @@ test('process sessions require one process Effect and complete bound resource ce
     expect(second.ordinal).toBe(2);
     expect(Buffer.from(second.result.stdout).toString('utf8')).toBe('ok');
     expect(session.processCount).toBe(2);
+    expect(session.observeNativeResourceCapacity()).toMatchObject({ remaining: 0, root: 2 });
     expect(session.inputBytes).toBe(3);
     expect(session.outputBytes).toBe(5);
 

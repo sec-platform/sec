@@ -1,5 +1,5 @@
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
@@ -14,6 +14,7 @@ import {
   issueSecSemanticOperationAttemptContext,
   type SecOperationDigest
 } from '../../../execution/operation/semantic.ts';
+import { withWorkspaceWriteLease } from '../../filesystem/write-lease.ts';
 import { openProcessResourceSession } from '../../runtime-state/physical/runtime/process-resource-session.ts';
 import {
   closeGitPhysicalProvider,
@@ -21,10 +22,14 @@ import {
   type GitPhysicalProviderCapability
 } from './physical-provider.ts';
 import {
+  assertGitLocalRefDeleteBatchReceipt,
   assertGitRefDeleteReceipt,
   deleteExactGitRef,
+  deleteExactLocalGitRefs,
   GitLocalRefDeleteAtomicityUnavailableError,
-  GitRefDeleteOutcomeUnknownError
+  GitRefDeleteOutcomeUnknownError,
+  MAXIMUM_LOCAL_REF_DELETE_INPUT_BYTES,
+  measureExactLocalGitRefDeleteBatchInputBytes
 } from './ref-effect.ts';
 
 const CONTRACT = sha256({ test: 'git-ref-effect' }) as SecOperationDigest;
@@ -56,9 +61,9 @@ function testOperation() {
     attempt: issueSecSemanticOperationAttemptContext({ authorityGrantDigest: CONTRACT }),
     aggregateBudgets: [
       { resource: 'duration-ms', maximum: 10_000 },
-      { resource: 'input-bytes', maximum: 0 },
+      { resource: 'input-bytes', maximum: 4096 },
       { resource: 'output-bytes', maximum: 1024 * 1024 },
-      { resource: 'processes', maximum: 3 }
+      { resource: 'processes', maximum: 7 }
     ],
     requirements: [{
       id: REQUIREMENT,
@@ -174,6 +179,76 @@ test('GitRefEffect refuses local deletion before consuming its Effect capability
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
+});
+
+test('GitRefEffect deletes an exact local batch under one live common-directory lease', async () => {
+  const root = fixture();
+  try {
+    const sha = git(root, ['rev-parse', 'HEAD']);
+    git(root, ['branch', 'topic-a']);
+    git(root, ['branch', 'topic-b']);
+    const opened = openProvider(root);
+    try {
+      const receipt = await withWorkspaceWriteLease(path.join(root, '.git'), undefined, (coordinatedLease) => (
+        deleteExactLocalGitRefs({ provider: opened.provider, coordinatedLease, entries: [
+          { ref: 'refs/heads/topic-a', expectedOldSha: sha },
+          { ref: 'refs/heads/topic-b', expectedOldSha: sha }
+        ] })
+      ));
+      assertGitLocalRefDeleteBatchReceipt(receipt);
+      expect(receipt.entries.map((entry) => entry.ref)).toEqual(['refs/heads/topic-a', 'refs/heads/topic-b']);
+      expect(spawnSync('git', ['show-ref', '--verify', '--quiet', 'refs/heads/topic-a'], { cwd: root }).status).toBe(1);
+      expect(spawnSync('git', ['show-ref', '--verify', '--quiet', 'refs/heads/topic-b'], { cwd: root }).status).toBe(1);
+    } finally { closeProvider(opened); }
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test('GitRefEffect batch budget measures the exact validated native stdin', () => {
+  const descriptor = JSON.parse(readFileSync(new URL('./sec.module.json', import.meta.url), 'utf8')) as {
+    operationObligations: readonly { operation: { operation: string }; resources: {
+      aggregateBudgets: readonly { resource: string; maximum: number }[]
+    } }[]
+  };
+  const declaredMaximum = descriptor.operationObligations
+    .find((item) => item.operation.operation === 'deleteExactLocalGitRefs')?.resources.aggregateBudgets
+    .find((budget) => budget.resource === 'input-bytes')?.maximum;
+  expect(declaredMaximum).toBe(MAXIMUM_LOCAL_REF_DELETE_INPUT_BYTES);
+  const sha = 'a'.repeat(40);
+  const entries = Array.from({ length: 80 }, (_, index) => ({
+    ref: `refs/heads/topic-${String(index).padStart(3, '0')}`,
+    expectedOldSha: sha
+  })).reverse();
+  const expected = Buffer.byteLength([
+    'start',
+    ...[...entries].reverse().map((entry) => `delete ${entry.ref} ${entry.expectedOldSha}`),
+    'prepare', 'commit', ''
+  ].join('\n'));
+  expect(expected).toBeGreaterThan(4096);
+  expect(measureExactLocalGitRefDeleteBatchInputBytes(entries)).toBe(expected);
+  expect(() => measureExactLocalGitRefDeleteBatchInputBytes([...entries, entries[0]!])).toThrow('distinct refs');
+  expect(() => measureExactLocalGitRefDeleteBatchInputBytes([
+    { ref: 'refs/heads/topic\ninjected', expectedOldSha: sha }
+  ])).toThrow();
+});
+
+test('GitRefEffect blocks checked-out local refs and ref drift before the native delete', async () => {
+  const root = fixture();
+  try {
+    const sha = git(root, ['rev-parse', 'HEAD']);
+    git(root, ['branch', 'topic']);
+    for (const entry of [
+      { ref: 'refs/heads/current', expectedOldSha: sha },
+      { ref: 'refs/heads/topic', expectedOldSha: '0'.repeat(40) }
+    ]) {
+      const opened = openProvider(root);
+      try {
+        await expect(withWorkspaceWriteLease(path.join(root, '.git'), undefined, (coordinatedLease) => (
+          deleteExactLocalGitRefs({ provider: opened.provider, coordinatedLease, entries: [entry] })
+        ))).rejects.toThrow();
+        expect(git(root, ['rev-parse', entry.ref])).toBe(sha);
+      } finally { closeProvider(opened); }
+    }
+  } finally { rmSync(root, { recursive: true, force: true }); }
 });
 
 test('GitRefEffect rejects wrong-preimage, symbolic, and foreign targets', async () => {

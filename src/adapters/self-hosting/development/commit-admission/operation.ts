@@ -42,7 +42,9 @@ import {
 
 const OPERATION = 'development.commit';
 const REQUIREMENT = 'repository.commit';
-const DEVELOPMENT_COMMIT_EXECUTION_PROCESS_COUNT = 12;
+// Provider admission, exact-candidate reads, common-directory read, object/CAS,
+// five readback commands, and the Windows commit-tree stdin worker.
+export const DEVELOPMENT_COMMIT_EXECUTION_PROCESS_COUNT = 13;
 const ADMISSION_DEADLINE_MS = 30_000;
 
 const effectGrantAuthority = createSecOperationEffectGrantAuthority({

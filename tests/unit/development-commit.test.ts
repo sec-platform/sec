@@ -14,6 +14,7 @@ import {
 import {
   acknowledgeDevelopmentCommitResult,
   readDevelopmentCommitOutcome,
+  recoverDevelopmentCommit,
   runDevelopmentCommit,
   settleDevelopmentCommitJournalsForRef
 } from '../../src/adapters/self-hosting/development/commit/operation.ts';
@@ -105,6 +106,9 @@ test('development.commit consumes one exact staged admission before publishing i
     expect(result.preimage).toBe(preimage);
     expect(git(root, ['rev-parse', 'HEAD'])).toBe(result.target);
     expect(git(root, ['status', '--porcelain'])).toBe('');
+    const recovered = await recoverDevelopmentCommit({ repositoryRoot: root, journalPath: result.journalPath });
+    expect(recovered.result.disposition).toBe('applied');
+    expect(recovered.result.target).toBe(result.target);
     await expect(runDevelopmentCommit(request, prepared.admission))
       .rejects.toThrow('already been consumed');
   } finally {

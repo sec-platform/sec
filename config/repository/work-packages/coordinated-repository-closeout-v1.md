@@ -14,6 +14,9 @@ tasks:
       - src/adapters/providers/git-read/
       - src/adapters/self-hosting/
       - src/adapters/filesystem/
+      - src/adapters/runtime-state/physical/runtime/process-resource-session.ts
+      - src/adapters/runtime-state/physical/runtime/process-resource-session.test.ts
+      - src/adapters/verification/platform/ci/runtime/verification-session.ts
       - tests/
       - docs/开发/AI协作/规则装载与任务恢复.md
       - .documentation/
@@ -24,6 +27,7 @@ forbiddenPaths:
   - LICENSES/
   - README.md
 acceptance:
+  - Git scratch mutation admission counts native root and Windows stdin-worker resource costs before effects and preserves bounded process budgets
   - ordinary authorized repository maintenance has a real successful local-ref deletion path without claiming isolation from noncooperating same-privilege writers
   - exact content reconciliation and active worktree protection remain prerequisites to destructive closeout
   - one physical Git ref owner performs all production local-ref deletion with old-OID CAS and independent ref and worktree readback

@@ -21,6 +21,7 @@ const PHYSICAL_RUNTIME_AUTHORITY_TEST_TIMEOUT_MS = 30_000;
 const VERIFICATION_ACTION_TEST_PROCESS_ISSUER =
   issueVerificationActionTestProcessIssuerForTests();
 
+import { DOCUMENTATION_BASELINE_PATH, parseDocumentationVerificationBaseline } from '../../src/adapters/self-hosting/control/documentation/active.ts';
 import { createIntegrationAuthorization } from '../../src/adapters/self-hosting/control/integration/authorization.ts';
 import {
   createMainHealthLedger,
@@ -32,6 +33,7 @@ import { createScopeAuthorization, type ScopeAuthorization } from '../../src/ada
 import { encodeVerificationActionData } from '../../src/adapters/verification/platform/action/contract/action.ts';
 import { ciVerificationActionParentDispatchPlanPayloadDigest, createCiVerificationActionParentDispatchPlan, createCiVerificationActionProposal, createCiVerificationActionProviderEnvelope, createCiVerificationLocalExecutionEnvironment } from '../../src/adapters/verification/platform/action/contract/ci.ts';
 import { CodexDevelopmentCreateVerificationEvidenceProducer, CodexDevelopmentFinalizeVerificationEvidenceV4, CodexDevelopmentFinalizeVerificationSessionArtifact } from '../../src/adapters/verification/platform/ci/contract/evidence.ts';
+import { bindDocumentationVerificationGateInput } from '../../src/adapters/verification/platform/ci/contract/plan.ts';
 import { createReviewSnapshotDigest, createReviewStabilityReceipt, renderIndependentReviewTrailer, REVIEW_OBSERVER_READ_ONLY_CAPABILITY_RECEIPT, SEC_REVIEW_STABILITY_POLICY } from '../../src/adapters/verification/platform/review/contract/stability.ts';
 import { CodexDevelopmentCreateTestImpactTransitionObservation, CodexDevelopmentTestImpactTransitionDigest, type CodexDevelopmentTestImpactTransitionObservation } from '../../src/adapters/verification/platform/test-impact/runtime/transition.ts';
 import { CodexDevelopmentBuildVerificationGateResult } from '../../src/assurance/verification/result/contract/result.ts';
@@ -173,8 +175,24 @@ const BOT = 'BOT_kgDOC98s_g';
 const PAGE = `sha256:${'a'.repeat(64)}` as const;
 const JOIN_SESSION = `sha256:${'6'.repeat(64)}` as const;
 const JOIN_ACTION = `sha256:${'7'.repeat(64)}` as const;
-const testImpactFixture = await acquireExactRepositoryTestImpactProviderFixture();
-const TEST_IMPACT_SOURCE_PROVIDER = testImpactFixture.provider;
+let testImpactFixture: Awaited<ReturnType<typeof acquireExactRepositoryTestImpactProviderFixture>> | undefined;
+let testImpactSourceProviderPromise: Promise<ReturnType<typeof bindDocumentationVerificationGateInput>> | undefined;
+function testImpactSourceProvider(): Promise<ReturnType<typeof bindDocumentationVerificationGateInput>> {
+  return testImpactSourceProviderPromise ??= (async () => {
+    const fixture = await acquireExactRepositoryTestImpactProviderFixture();
+    testImpactFixture = fixture;
+    const exactDocumentationBaseline = spawnSync('git', [
+      'show', `${fixture.fixtureCommitSha}:${DOCUMENTATION_BASELINE_PATH}`
+    ], { cwd: fixture.repositoryRoot, encoding: 'utf8', windowsHide: true });
+    if (exactDocumentationBaseline.status !== 0) {
+      throw new Error(`Exact TestImpact fixture documentation baseline is unavailable: ${exactDocumentationBaseline.stderr}`);
+    }
+    return bindDocumentationVerificationGateInput(
+      fixture.provider,
+      parseDocumentationVerificationBaseline(exactDocumentationBaseline.stdout)
+    );
+  })();
+}
 
 function changedTransition(
   changedPaths: readonly string[],
@@ -957,7 +975,7 @@ function createPureHostedEnvelopeFixture(input: {
   return Object.freeze({ ...withoutDigest, envelopeDigest });
 }
 
-function reducerFixture(options: {
+async function reducerFixture(options: {
   now?: string;
   mergeAt?: string;
   authorizationExpiresAt?: string;
@@ -968,6 +986,7 @@ function reducerFixture(options: {
   baseToMerge?: GitHubComparisonObservation;
   mergeToDefault?: GitHubComparisonObservation;
 } = {}) {
+  const TEST_IMPACT_SOURCE_PROVIDER = await testImpactSourceProvider();
   const mergeAt = options.mergeAt ?? MERGE_AT;
   const repositoryRoot = mkdtempSync(path.join(tmpdir(), 'sec-verification-session-'));
   const journalFs = createEphemeralVerificationSessionJournalFs(
@@ -983,20 +1002,22 @@ function reducerFixture(options: {
   if (barrier.status !== 'clear') throw new Error('fixture Review must be clear');
   const changedPaths = ['src/adapters/verification/platform/ci/runtime/verification-session.ts'];
   const testImpactTransition = changedTransition(changedPaths);
+  const sessionMainHealthCheck = mainHealthCheck({ id: 100, workflowRunId: '100',
+    detailsUrl: 'https://github.example/actions/runs/100' });
   const local = prepareTrustedMainVerificationSession({ repository: 'sec-platform/sec',
     candidate: transport.candidate(), manifestPath: V6_MANIFEST_PATH, manifestDigest: V6_MANIFEST_DIGEST,
     changedPaths, testImpactTransition, testImpactSourceProvider: TEST_IMPACT_SOURCE_PROVIDER,
     profile: 'quick', integrationPrincipalNodeId: 'INTEGRATOR',
     producerPrincipalNodeId: 'INTEGRATOR', sourceRunId: '100',
     sourceRef: `refs/heads/main@${BASE}`, observedAt: VERIFIED_AT,
-    reviewBarrier: barrier, mainHealthChecks: [mainHealthCheck()],
+    reviewBarrier: barrier, mainHealthChecks: [sessionMainHealthCheck],
     dependencyBlobs: actionDependencyBlobs() });
   const facts = reconstructVerificationSessionHostedFacts({ request: local.request,
     repository: 'sec-platform/sec', candidate: transport.candidate(), changedPaths, testImpactTransition,
     testImpactSourceProvider: TEST_IMPACT_SOURCE_PROVIDER,
     integrationPrincipalNodeId: 'INTEGRATOR', producerPrincipalNodeId: 'INTEGRATOR',
     sourceRunId: '100', sourceRef: `.github/workflows/compiler-pr-validation.yml@${BASE}`,
-    observedAt: VERIFIED_AT, reviewBarrier: barrier, mainHealthChecks: [mainHealthCheck()],
+    observedAt: VERIFIED_AT, reviewBarrier: barrier, mainHealthChecks: [sessionMainHealthCheck],
     dependencyBlobs: actionDependencyBlobs() });
   const envelope = createPureHostedEnvelopeFixture({ request: local.request, facts });
   const producer = CodexDevelopmentCreateVerificationEvidenceProducer({
@@ -1061,10 +1082,12 @@ function reducerFixture(options: {
     candidateAuthorNodeId: 'AUTHOR', integrationPrincipalNodeId: 'INTEGRATOR',
     expiresAt: '2026-08-09T14:20:00.000Z', operationId: PAGE });
   const mergeWorkflowRef = `.github/workflows/sec-merge-gate.yml@${BASE}`;
+  const freshMainHealthSourceRef = `github-check-runs:sec-platform/sec@${BASE}`;
   const freshMainHealth = createMainHealthLedger(createObservedMainHealthInput({
     repository: 'sec-platform/sec', mainSha: BASE, mainTreeSha: BASE, trustRevision: BASE,
     observedAt: mergeAt, expiresAt: '2026-08-09T14:20:00.000Z', sourceRunId: '200',
-    sourceRef: mergeWorkflowRef, checks: [mainHealthCheck()]
+    sourceRef: freshMainHealthSourceRef, checks: [mainHealthCheck({ id: 200, workflowRunId: '200',
+      detailsUrl: 'https://github.example/actions/runs/200' })]
   }));
   const platform = github.observePlatformEnforcement('sec-platform/sec');
   if (platform.status === 'unknown') throw new Error('fixture platform observation must be known');
@@ -1176,7 +1199,7 @@ function reducerFixture(options: {
     dispose: () => rmSync(repositoryRoot, { recursive: true, force: true }) };
 }
 
-function runReducer(fixture: ReturnType<typeof reducerFixture>) {
+function runReducer(fixture: Awaited<ReturnType<typeof reducerFixture>>) {
   return resumeVerificationSession({ repositoryRoot: fixture.repositoryRoot,
     session: fixture.artifact.session, scopeAuthorization: fixture.artifact.scopeAuthorization,
     changedPaths: fixture.changedPaths, testImpactTransition: fixture.testImpactTransition,
@@ -1184,7 +1207,7 @@ function runReducer(fixture: ReturnType<typeof reducerFixture>) {
     github: fixture.github, external: fixture.external, journalFs: fixture.journalFs });
 }
 
-function durablePublication(fixture: ReturnType<typeof reducerFixture>): Readonly<{
+function durablePublication(fixture: Awaited<ReturnType<typeof reducerFixture>>): Readonly<{
   commentId: number;
   publication: IntegrationAuthorizationOperationPublication;
 }> {
@@ -1209,7 +1232,7 @@ function durablePublication(fixture: ReturnType<typeof reducerFixture>): Readonl
 }
 
 function substituteAuthorizationLiveIdentity(
-  fixture: ReturnType<typeof reducerFixture>,
+  fixture: Awaited<ReturnType<typeof reducerFixture>>,
   identity: { repository?: string; prNumber?: number }
 ): CodexDevelopmentMergeGateResult {
   const previous = fixture.result.authorization;
@@ -2134,7 +2157,8 @@ test('IssueDisposition post-main readback consumes the canonical exact MainHealt
   }
 });
 
-test('trusted-main proposal and hosted sole issuer reconstruct the same stable Session revision', () => {
+test('trusted-main proposal and hosted sole issuer reconstruct the same stable Session revision', async () => {
+  const TEST_IMPACT_SOURCE_PROVIDER = await testImpactSourceProvider();
   const transport = new FakeTransport();
   transport.issueComments = [[botIssueComment()]];
   const barrier = observe(transport);
@@ -2186,7 +2210,8 @@ test('trusted-main proposal and hosted sole issuer reconstruct the same stable S
     .toThrow(/package\.json drifted from the trusted base/i);
 });
 
-test('VerificationSession binds the exact deletion transition through Scope, Action, Session, and hosted reconstruction', () => {
+test('VerificationSession binds the exact deletion transition through Scope, Action, Session, and hosted reconstruction', async () => {
+  const TEST_IMPACT_SOURCE_PROVIDER = await testImpactSourceProvider();
   const baseSha = '9ed0291a0b51b4f3f6769ab317c4cc1a2753cb4b';
   const headSha = 'b'.repeat(40);
   const retiredPath = 'src/adapters/verification/platform/ci/runtime/verification-session-github.ts';
@@ -2306,7 +2331,8 @@ test('VerificationSession binds the exact deletion transition through Scope, Act
   })).toThrow(/exact candidate selection input/i);
 });
 
-test('same paths with a different Git transition change the complete VerificationSession identity chain', () => {
+test('same paths with a different Git transition change the complete VerificationSession identity chain', async () => {
+  const TEST_IMPACT_SOURCE_PROVIDER = await testImpactSourceProvider();
   const transport = new FakeTransport();
   transport.issueComments = [[botIssueComment()]];
   const barrier = observe(transport);
@@ -2338,6 +2364,7 @@ test('same paths with a different Git transition change the complete Verificatio
 });
 
 test('Session local quick DAG keeps durable journals in external Runtime State and executes exact detached candidate', async () => {
+  const TEST_IMPACT_SOURCE_PROVIDER = await testImpactSourceProvider();
   const authorityRoot = mkdtempSync(path.join(tmpdir(), 'sec-session-authority-'));
   const runtimeRoot = mkdtempSync(path.join(tmpdir(), 'sec-session-runtime-'));
   const runtimeStateRoot = path.join(runtimeRoot, 'state');
@@ -2613,8 +2640,8 @@ test('expired hosted authority permits only independently revalidated Action Evi
   }
 });
 
-test('actual reducer recovers a crash after remote merge without a second merge or publication', () => {
-  const fixture = reducerFixture();
+test('actual reducer recovers a crash after remote merge without a second merge or publication', async () => {
+  const fixture = await reducerFixture();
   try {
     expect(runReducer(fixture)).toMatchObject({ status: 'READY_TO_INTEGRATE',
       operationId: fixture.result.authorization.consumptionOperationId });
@@ -2632,8 +2659,8 @@ test('actual reducer recovers a crash after remote merge without a second merge 
   }
 });
 
-test('durable comment and merge markers reconstruct terminal status without an Actions artifact', () => {
-  const fixture = reducerFixture();
+test('durable comment and merge markers reconstruct terminal status without an Actions artifact', async () => {
+  const fixture = await reducerFixture();
   try {
     const publication = durablePublication(fixture);
     const exactOpen = classifyDurableVerificationSessionProjection({
@@ -2679,9 +2706,9 @@ test('durable remote projection blocks closed PR and OPEN candidate identity dri
   }
 });
 
-test('MERGED recovery permits advanced main only when the marker commit remains reachable', () => {
+test('MERGED recovery permits advanced main only when the marker commit remains reachable', async () => {
   const advancedMain = '8'.repeat(40);
-  const reachable = reducerFixture({ remoteDefaultSha: advancedMain,
+  const reachable = await reducerFixture({ remoteDefaultSha: advancedMain,
     mergeToDefault: { status: 'ahead', behindBy: 0 } });
   try {
     reachable.transport.adoptMerged(reachable.markers, reachable.result.reviewReceipt,
@@ -2695,7 +2722,7 @@ test('MERGED recovery permits advanced main only when the marker commit remains 
     { status: 'diverged', behindBy: 1 },
     { status: 'behind', behindBy: 1 }
   ] satisfies GitHubComparisonObservation[]) {
-    const blocked = reducerFixture({ remoteDefaultSha: advancedMain, mergeToDefault: comparison });
+    const blocked = await reducerFixture({ remoteDefaultSha: advancedMain, mergeToDefault: comparison });
     try {
       blocked.transport.adoptMerged(blocked.markers, blocked.result.reviewReceipt,
         blocked.artifact.session.sessionRevision);
@@ -2704,7 +2731,7 @@ test('MERGED recovery permits advanced main only when the marker commit remains 
       blocked.dispose();
     }
   }
-  const invalidBase = reducerFixture({ baseToMerge: { status: 'diverged', behindBy: 1 } });
+  const invalidBase = await reducerFixture({ baseToMerge: { status: 'diverged', behindBy: 1 } });
   try {
     invalidBase.transport.adoptMerged(invalidBase.markers, invalidBase.result.reviewReceipt,
       invalidBase.artifact.session.sessionRevision);
@@ -2714,9 +2741,9 @@ test('MERGED recovery permits advanced main only when the marker commit remains 
   }
 });
 
-test('MERGED reachability permits detached old-base only with synchronized post-merge default', () => {
+test('MERGED reachability permits detached old-base only with synchronized post-merge default', async () => {
   const advancedMain = '8'.repeat(40);
-  const fixture = reducerFixture({ remoteDefaultSha: advancedMain,
+  const fixture = await reducerFixture({ remoteDefaultSha: advancedMain,
     mergeToDefault: { status: 'ahead', behindBy: 0 } });
   try {
     fixture.transport.adoptMerged(fixture.markers, fixture.result.reviewReceipt,
@@ -2743,12 +2770,12 @@ test('MERGED reachability permits detached old-base only with synchronized post-
   }
 });
 
-test('actual reducer rejects OPEN base/head drift before any merge claim or effect', () => {
+test('actual reducer rejects OPEN base/head drift before any merge claim or effect', async () => {
   for (const [field, value] of [
     ['baseSha', 'f'.repeat(40)],
     ['headSha', 'e'.repeat(40)]
   ] as const) {
-    const fixture = reducerFixture();
+    const fixture = await reducerFixture();
     try {
       fixture.transport.observation = { ...fixture.transport.observation, [field]: value };
       expect(() => runReducer(fixture)).toThrow(/live .* drifted/i);
@@ -2758,11 +2785,12 @@ test('actual reducer rejects OPEN base/head drift before any merge claim or effe
   }
 });
 
-test('actual reducer rejects expired or already-consumed authorization before merge', () => {
-  for (const fixture of [
-    reducerFixture({ authorizationExpiresAt: '2026-08-09T14:06:00.000Z', now: '2026-08-09T14:07:00.000Z' }),
-    reducerFixture({ consumed: true })
+test('actual reducer rejects expired or already-consumed authorization before merge', async () => {
+  for (const options of [
+    { authorizationExpiresAt: '2026-08-09T14:06:00.000Z', now: '2026-08-09T14:07:00.000Z' },
+    { consumed: true }
   ]) {
+    const fixture = await reducerFixture(options);
     try {
       expect(() => runReducer(fixture)).toThrow(/expired|already consumed/i);
     } finally {
@@ -2771,12 +2799,12 @@ test('actual reducer rejects expired or already-consumed authorization before me
   }
 });
 
-test('actual reducer binds IntegrationAuthorization to trusted live repository and PR', () => {
+test('actual reducer binds IntegrationAuthorization to trusted live repository and PR', async () => {
   for (const identity of [
     { repository: 'attacker/fork' },
     { prNumber: 99 }
   ]) {
-    const fixture = reducerFixture();
+    const fixture = await reducerFixture();
     try {
       fixture.setAuthorizationResult(substituteAuthorizationLiveIdentity(fixture, identity));
       expect(() => runReducer(fixture)).toThrow(/repository|prNumber/i);
@@ -2786,12 +2814,12 @@ test('actual reducer binds IntegrationAuthorization to trusted live repository a
   }
 });
 
-test('actual reducer rejects downloaded merge-result digest or provenance substitution', () => {
+test('actual reducer rejects downloaded merge-result digest or provenance substitution', async () => {
   for (const mutate of [
     (value: Record<string, any>) => { value.resultDigest = `sha256:${'f'.repeat(64)}`; },
     (value: Record<string, any>) => { value.provenance.sourceRunId = 'forged-run'; }
   ]) {
-    const fixture = reducerFixture();
+    const fixture = await reducerFixture();
     try {
       const value = JSON.parse(encodeVerificationActionData(fixture.result)) as Record<string, any>;
       mutate(value);
@@ -2803,8 +2831,8 @@ test('actual reducer rejects downloaded merge-result digest or provenance substi
   }
 });
 
-test('actual reducer blocks merged-tree mismatch and blocked/residue closeout terminals', () => {
-  const mismatch = reducerFixture();
+test('actual reducer blocks merged-tree mismatch and blocked/residue closeout terminals', async () => {
+  const mismatch = await reducerFixture();
   try {
     mismatch.transport.mergedTreeSha = 'd'.repeat(40);
     expect(runReducer(mismatch)).toMatchObject({ status: 'READY_TO_INTEGRATE' });
@@ -2815,7 +2843,7 @@ test('actual reducer blocks merged-tree mismatch and blocked/residue closeout te
     mismatch.dispose();
   }
   for (const terminal of ['blocked', 'residue'] as const) {
-    const fixture = reducerFixture({ closeout: terminal });
+    const fixture = await reducerFixture({ closeout: terminal });
     try {
       expect(runReducer(fixture)).toMatchObject({ status: 'READY_TO_INTEGRATE' });
       fixture.transport.adoptMerged(fixture.markers, fixture.result.reviewReceipt,
@@ -2827,8 +2855,8 @@ test('actual reducer blocks merged-tree mismatch and blocked/residue closeout te
   }
 });
 
-test('reducer emits one stable integration intent and never executes a physical merge', () => {
-  const fixture = reducerFixture();
+test('reducer emits one stable integration intent and never executes a physical merge', async () => {
+  const fixture = await reducerFixture();
   try {
     const first = runReducer(fixture);
     const replay = runReducer(fixture);
@@ -3107,6 +3135,8 @@ const branchRef = 'refs/heads/' + state.branch;
 if (args[0] === 'init' && args[1] === '--bare' && args[2] === '.') out('');
 if (args[0] === 'rev-parse' && args[1] === '--show-toplevel') out(state.repositoryRoot);
 if (args[0] === 'rev-parse' && args[1] === '--git-common-dir') out(state.commonDir);
+if (args[0] === 'rev-parse' && args[1] === '--path-format=absolute'
+  && args[2] === '--git-common-dir') out(state.commonDir + '\\n');
 if (args[0] === 'rev-parse' && args[1] === 'HEAD') {
   state.headReadValues = [...(state.headReadValues || []), state.baseSha];
   save(state);
@@ -3129,6 +3159,13 @@ if (args[0] === '-C' && args.includes('status')) out('');
 if (args[0] === 'remote' && args[1] === 'get-url') out('https://github.com/' + state.repository + '.git');
 if (args[0] === 'symbolic-ref') out('origin/main');
 if (args[0] === 'for-each-ref') {
+  if (JSON.stringify(args) === JSON.stringify([
+    'for-each-ref', '--format=%(refname)%00%(symref)%00%(objectname)%00', 'refs/heads/'
+  ])) {
+    let value = 'refs/heads/main\\0\\0' + state.baseSha + '\\0\\n';
+    if (state.localPresent) value += branchRef + '\\0\\0' + state.headSha + '\\0\\n';
+    out(value);
+  }
   let value = 'main\\0' + state.baseSha + '\\0\\n';
   if (state.localPresent) value += state.branch + '\\0' + state.headSha + '\\0\\n';
   out(value);
@@ -3208,13 +3245,14 @@ if (args[0] === 'cat-file' && args[1] === '-e') {
   if (String(args[2]).includes('src/adapters/self-hosting/control/branch-lifecycle/branch-closeout-receipt.ts')) fail('missing enforcement marker');
   out('');
 }
-if (args[0] === 'update-ref' && args[1] === '-d') {
-  if (args[2] === branchRef) {
-    state.localPresent = false;
-    state.localDeleteCount += 1;
-    save(state);
-  }
-  out('');
+if (JSON.stringify(args) === JSON.stringify(['update-ref', '--no-deref', '--stdin'])) {
+  const transcript = readFileSync(0, 'utf8');
+  const expected = ['start', 'delete ' + branchRef + ' ' + state.headSha, 'prepare', 'commit', ''].join('\\n');
+  if (transcript !== expected || state.localPresent !== true) fail('non-canonical local ref CAS transaction');
+  state.localPresent = false;
+  state.localDeleteCount += 1;
+  save(state);
+  out('start: ok\\nprepare: ok\\ncommit: ok\\n');
 }
 if (args[0] === '-c'
   && args[1] === 'http.extraHeader='
@@ -3518,7 +3556,7 @@ function createCloseoutCliScenario(input: {
   recoveryHarnessRoot: string;
   shimRoot: string;
   name: string;
-  fixture: ReturnType<typeof reducerFixture>;
+  fixture: Awaited<ReturnType<typeof reducerFixture>>;
   seed?: 'none' | 'null-app' | 'wrong-app' | 'duplicate' | 'old';
   tamper?: 'original' | 'artifact' | 'stable-digest';
   postDisposition?: 'success' | 'lost';
@@ -4137,7 +4175,7 @@ beforeAll(() => {
 });
 
 afterAll(() => {
-  testImpactFixture.dispose();
+  testImpactFixture?.dispose();
   if (sharedCloseoutCliShimSuiteRoot !== '') {
     rmSync(sharedCloseoutCliShimSuiteRoot, { recursive: true, force: true });
   }
@@ -4146,15 +4184,15 @@ afterAll(() => {
   }
 });
 
-function withCloseoutCliPartition<T>(run: (input: Readonly<{
+async function withCloseoutCliPartition<T>(run: (input: Readonly<{
   harnessRoot: string;
   recoveryHarnessRoot: string;
   shimRoot: string;
-  fixture: ReturnType<typeof reducerFixture>;
-}>) => T): T {
+  fixture: Awaited<ReturnType<typeof reducerFixture>>;
+}>) => T): Promise<T> {
   const harnessRoot = mkdtempSync(path.join(tmpdir(), 'sec-verification-session-v6-cli-'));
   const recoveryHarnessRoot = mkdtempSync(path.join(tmpdir(), 'sec-verification-session-v6-recovery-'));
-  const fixture = reducerFixture();
+  const fixture = await reducerFixture();
   try {
     return run({ harnessRoot, recoveryHarnessRoot, shimRoot: sharedCloseoutCliShimRoot, fixture });
   } finally {
@@ -4168,11 +4206,11 @@ async function withCloseoutCliPartitionSettled<T>(run: (input: Readonly<{
   harnessRoot: string;
   recoveryHarnessRoot: string;
   shimRoot: string;
-  fixture: ReturnType<typeof reducerFixture>;
+  fixture: Awaited<ReturnType<typeof reducerFixture>>;
 }>) => Promise<T>): Promise<T> {
   const harnessRoot = mkdtempSync(path.join(tmpdir(), 'sec-verification-session-v6-cli-'));
   const recoveryHarnessRoot = mkdtempSync(path.join(tmpdir(), 'sec-verification-session-v6-recovery-'));
-  const fixture = reducerFixture();
+  const fixture = await reducerFixture();
   try {
     return await run({ harnessRoot, recoveryHarnessRoot, shimRoot: sharedCloseoutCliShimRoot,
       fixture });
@@ -4227,8 +4265,8 @@ test('prepared cleanup route invokes the local sequence once for the exact targe
   })).rejects.toThrow('same-host-worktree-closeout-required');
 });
 
-closeoutCliE2eTest('trusted remote default ref synchronization closes ordinary merge and merged recovery safely', () => {
-  withCloseoutCliPartition(({ harnessRoot, recoveryHarnessRoot, shimRoot, fixture }) => {
+closeoutCliE2eTest('trusted remote default ref synchronization closes ordinary merge and merged recovery safely', async () => {
+  await withCloseoutCliPartition(({ harnessRoot, recoveryHarnessRoot, shimRoot, fixture }) => {
     const runRecovery = (name: string, configure?: (state: CloseoutCliHarnessState) => void) => {
       const scenario = createCloseoutCliScenario({ harnessRoot, recoveryHarnessRoot, shimRoot,
         name, fixture });
@@ -4290,8 +4328,8 @@ closeoutCliE2eTest('trusted remote default ref synchronization closes ordinary m
   });
 }, 180_000);
 
-closeoutCliE2eTest('public Session closeout CLI partition A exact delete, publish, and reuse', () => {
-  withCloseoutCliPartition(({ harnessRoot, recoveryHarnessRoot, shimRoot, fixture }) => {
+closeoutCliE2eTest('public Session closeout CLI partition A exact delete, publish, and reuse', async () => {
+  await withCloseoutCliPartition(({ harnessRoot, recoveryHarnessRoot, shimRoot, fixture }) => {
     const exact = createCloseoutCliScenario({ harnessRoot, recoveryHarnessRoot, shimRoot,
       name: 'exact', fixture });
     expect(encodeVerificationActionData(exact.providerPrepared))
@@ -4420,8 +4458,8 @@ closeoutCliE2eTest('public Session closeout CLI partition B crash recovery perfo
   });
 }, 120_000);
 
-closeoutCliE2eTest('public Session closeout CLI partition C rejects invalid existing markers without delete', () => {
-  withCloseoutCliPartition(({ harnessRoot, recoveryHarnessRoot, shimRoot, fixture }) => {
+closeoutCliE2eTest('public Session closeout CLI partition C rejects invalid existing markers without delete', async () => {
+  await withCloseoutCliPartition(({ harnessRoot, recoveryHarnessRoot, shimRoot, fixture }) => {
     for (const seed of ['null-app', 'wrong-app', 'duplicate', 'old'] as const) {
       const blocked = createCloseoutCliScenario({ harnessRoot, recoveryHarnessRoot, shimRoot,
         name: seed, fixture, seed });
@@ -4434,8 +4472,8 @@ closeoutCliE2eTest('public Session closeout CLI partition C rejects invalid exis
   });
 }, 180_000);
 
-closeoutCliE2eTest('public Session closeout CLI partition D rejects authority tamper without delete', () => {
-  withCloseoutCliPartition(({ harnessRoot, recoveryHarnessRoot, shimRoot, fixture }) => {
+closeoutCliE2eTest('public Session closeout CLI partition D rejects authority tamper without delete', async () => {
+  await withCloseoutCliPartition(({ harnessRoot, recoveryHarnessRoot, shimRoot, fixture }) => {
     for (const tamper of ['original', 'artifact', 'stable-digest'] as const) {
       const blocked = createCloseoutCliScenario({ harnessRoot, recoveryHarnessRoot, shimRoot,
         name: `tampered-${tamper}`, fixture, tamper });
@@ -4448,8 +4486,8 @@ closeoutCliE2eTest('public Session closeout CLI partition D rejects authority ta
   });
 }, 180_000);
 
-closeoutCliE2eTest('public Session closeout CLI partition E lost marker POST and replay perform zero delete', () => {
-  withCloseoutCliPartition(({ harnessRoot, recoveryHarnessRoot, shimRoot, fixture }) => {
+closeoutCliE2eTest('public Session closeout CLI partition E lost marker POST and replay perform zero delete', async () => {
+  await withCloseoutCliPartition(({ harnessRoot, recoveryHarnessRoot, shimRoot, fixture }) => {
     const lost = createCloseoutCliScenario({ harnessRoot, recoveryHarnessRoot, shimRoot,
       name: 'lost', fixture, postDisposition: 'lost' });
     const uncertain = runCloseoutCliProcess(shimRoot, lost, 'closeout-mutate-hosted');
@@ -4465,9 +4503,9 @@ closeoutCliE2eTest('public Session closeout CLI partition E lost marker POST and
   });
 }, 120_000);
 
-closeoutCliE2eTest('V9 integration reruns retain producing attempts and authorize fresh integration after pre-gate expiry', () => {
+closeoutCliE2eTest('V9 integration reruns retain producing attempts and authorize fresh integration after pre-gate expiry', async () => {
   const stalePreGateAt = '2026-08-09T14:07:00.000Z';
-  const stalePreGate = reducerFixture({ mergeAt: stalePreGateAt });
+  const stalePreGate = await reducerFixture({ mergeAt: stalePreGateAt });
   try {
     expect(classifyVerificationSessionArtifactReuse(stalePreGate.artifact, stalePreGateAt))
       .toMatchObject({ status: 'fresh-authority-required', actionEvidenceCandidate: true });
@@ -4485,7 +4523,7 @@ closeoutCliE2eTest('V9 integration reruns retain producing attempts and authoriz
     stalePreGate.dispose();
   }
 
-  withCloseoutCliPartition(({ harnessRoot, recoveryHarnessRoot, shimRoot, fixture }) => {
+  await withCloseoutCliPartition(({ harnessRoot, recoveryHarnessRoot, shimRoot, fixture }) => {
     const samePrincipal = createCloseoutCliScenario({ harnessRoot, recoveryHarnessRoot, shimRoot,
       name: 'rerun-same-principal', fixture, currentRunAttempt: 2,
       includeStableArtifact: true });

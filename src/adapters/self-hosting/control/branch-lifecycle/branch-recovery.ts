@@ -32,6 +32,10 @@ import {
   type BranchLifecycleInventory,
   type BranchRecoveryAuthority
 } from './branch-lifecycle-contract.ts';
+import {
+  assertClosedSupersessionEvidence,
+  type ClosedSupersessionEvidence
+} from './closed-supersession-review.ts';
 
 const COMMAND_TIMEOUT_MS = 60_000;
 const COMMAND_MAX_BUFFER = 32 * 1024 * 1024;
@@ -553,13 +557,218 @@ export function createRecoveryBundle(input: {
   }
 }
 
+type MainAbsorptionRecovery = Extract<BranchRecoveryAuthority, { kind: 'main-absorption' }>;
+
+function exactCommitTree(repositoryRoot: string, sha: string, label: string): string {
+  assertGitSha(sha, `${label} SHA`);
+  const commit = requireRecoveryGitText(repositoryRoot, [
+    'rev-parse', '--verify', '--end-of-options', `${sha}^{commit}`
+  ], `${label} commit`);
+  if (commit !== sha) throw new Error(`${label} commit identity differs.`);
+  const tree = requireRecoveryGitText(repositoryRoot, [
+    'rev-parse', '--verify', '--end-of-options', `${sha}^{tree}`
+  ], `${label} tree`);
+  assertGitSha(tree, `${label} tree SHA`);
+  return tree;
+}
+
+function isNativeAncestor(repositoryRoot: string, sourceSha: string, mainSha: string): boolean {
+  const result = runRecoveryGit(repositoryRoot, [
+    'merge-base', '--is-ancestor', sourceSha, mainSha
+  ]);
+  if (result.status === 0) return true;
+  if (result.status === 1) return false;
+  throw new Error(`Main absorption ancestry observation failed: ${decodeBranchLifecycleChildError(result)}`);
+}
+
+function assertLiveMainContains(
+  inventory: BranchLifecycleInventory,
+  mainSha: string
+): void {
+  const root = inventory.repository.root;
+  const branch = inventory.repository.defaultBranch;
+  const candidates = [
+    { expected: inventory.main.localSha, ref: `refs/heads/${branch}` },
+    { expected: inventory.main.remoteSha, ref: `refs/remotes/${inventory.repository.remote}/${branch}` }
+  ];
+  const observed = candidates.filter(({ expected }) => expected !== null).map(({ expected, ref }) => {
+    const actual = requireRecoveryGitText(root, ['rev-parse', '--verify', ref], `Current main ${ref}`);
+    if (actual !== expected) throw new Error(`Current main ref changed after inventory: ${ref}`);
+    return actual;
+  });
+  if (!observed.some((current) => isNativeAncestor(root, mainSha, current))) {
+    throw new Error('Absorbing main commit is not retained by a current main ref.');
+  }
+}
+
+function assertReviewedAbsorption(
+  inventory: BranchLifecycleInventory,
+  recovery: MainAbsorptionRecovery,
+  evidence: ClosedSupersessionEvidence | undefined
+): void {
+  if (evidence === undefined) throw new Error('Reviewed main absorption requires live authenticated review evidence.');
+  assertClosedSupersessionEvidence(evidence);
+  const review = evidence.review;
+  if (review.repository !== inventory.repository.fullName
+      || review.headSha !== recovery.sourceSha
+      || review.headTreeSha !== recovery.sourceTreeSha
+      || review.currentMainSha !== recovery.mainSha
+      || review.currentMainTreeSha !== recovery.mainTreeSha
+      || evidence.reference !== recovery.reviewReference
+      || evidence.receiptDigest !== recovery.reviewReceiptDigest) {
+    throw new Error('Authenticated supersession review differs from exact main absorption.');
+  }
+}
+
+function assertMainAbsorptionLive(
+  inventory: BranchLifecycleInventory,
+  recovery: MainAbsorptionRecovery,
+  reviewEvidence?: ClosedSupersessionEvidence
+): string {
+  assertDurableRecoveryAuthority(recovery, inventory);
+  const root = inventory.repository.root;
+  if (exactCommitTree(root, recovery.sourceSha, 'Absorbed source') !== recovery.sourceTreeSha
+      || exactCommitTree(root, recovery.mainSha, 'Absorbing main') !== recovery.mainTreeSha) {
+    throw new Error('Main absorption exact Git tree changed.');
+  }
+  assertLiveMainContains(inventory, recovery.mainSha);
+  if (recovery.basis === 'native-ancestor') {
+    if (!isNativeAncestor(root, recovery.sourceSha, recovery.mainSha)) {
+      throw new Error('Source commit is not an ancestor of absorbing main.');
+    }
+  } else if (recovery.basis === 'identical-tree') {
+    if (recovery.sourceTreeSha !== recovery.mainTreeSha) {
+      throw new Error('Source and absorbing main trees differ.');
+    }
+  } else {
+    assertReviewedAbsorption(inventory, recovery, reviewEvidence);
+  }
+  return `${recovery.basis}; source ${recovery.sourceSha}/${recovery.sourceTreeSha}; main ${recovery.mainSha}/${recovery.mainTreeSha}`;
+}
+
+function mainAbsorptionProof(recovery: MainAbsorptionRecovery): Buffer {
+  return Buffer.from(`${JSON.stringify({
+    schema: 'sec-branch-main-absorption-proof-v1',
+    sourceSha: recovery.sourceSha,
+    sourceTreeSha: recovery.sourceTreeSha,
+    mainSha: recovery.mainSha,
+    mainTreeSha: recovery.mainTreeSha,
+    basis: recovery.basis,
+    ...(recovery.reviewReference === undefined ? {} : { reviewReference: recovery.reviewReference }),
+    ...(recovery.reviewReceiptDigest === undefined ? {} : { reviewReceiptDigest: recovery.reviewReceiptDigest })
+  })}\n`, 'utf8');
+}
+
+export function createMainAbsorptionRecovery(input: {
+  inventory: BranchLifecycleInventory;
+  branch: string;
+  expectedSha: string;
+  mainSha: string;
+  basis: MainAbsorptionRecovery['basis'];
+  recoveryRoot?: string;
+  reviewEvidence?: ClosedSupersessionEvidence;
+}): { recovery: BranchRecoveryAuthority; attempts: BranchCloseoutAttempt[] } {
+  const { inventory, branch, expectedSha, mainSha, basis } = input;
+  assertGitBranchName(branch);
+  assertGitSha(expectedSha, 'absorbed source SHA');
+  assertGitSha(mainSha, 'absorbing main SHA');
+  if (basis !== 'native-ancestor' && basis !== 'identical-tree'
+      && basis !== 'reviewed-supersession') throw new Error('Main absorption basis is invalid.');
+  const sourceTreeSha = exactCommitTree(inventory.repository.root, expectedSha, 'Absorbed source');
+  const mainTreeSha = exactCommitTree(inventory.repository.root, mainSha, 'Absorbing main');
+  const store = acquireBranchRecoveryStore({
+    repositoryRoot: inventory.repository.root,
+    commonDir: inventory.repository.commonDir,
+    worktreeRoots: inventory.worktrees.map(({ path: worktreePath }) => worktreePath),
+    recoveryRoot: input.recoveryRoot
+  });
+  let name: string | null = null;
+  let createdProof = false;
+  try {
+  const review = basis === 'reviewed-supersession' ? input.reviewEvidence : undefined;
+  const draft: MainAbsorptionRecovery = {
+    kind: 'main-absorption',
+    path: path.join(store.root.path, 'sec-branch-closeout-pending.main-absorption.json'),
+    sha256: `sha256:${'0'.repeat(64)}`,
+    verified: true,
+    verifyOutput: basis,
+    sourceSha: expectedSha,
+    sourceTreeSha,
+    mainSha,
+    mainTreeSha,
+    basis,
+    ...(review === undefined ? {} : {
+      reviewReference: review.reference,
+      reviewReceiptDigest: review.receiptDigest
+    })
+  };
+  const verifyOutput = assertMainAbsorptionLive(inventory, draft, review);
+  const verified: MainAbsorptionRecovery = { ...draft, verifyOutput };
+  const bytes = mainAbsorptionProof(verified);
+  const digest = createHash('sha256').update(bytes).digest('hex');
+  const identity = createHash('sha256').update(JSON.stringify({ branch, digest })).digest('hex');
+  name = `sec-branch-closeout-${sanitizeFileSegment(branch)}-${identity}.main-absorption.json`;
+  const recovery: MainAbsorptionRecovery = {
+    ...verified,
+    path: path.join(store.root.path, name),
+    sha256: `sha256:${digest}`
+  };
+  const existing = store.read(name);
+  if (existing !== null) {
+    if (!Buffer.from(existing).equals(bytes)) {
+      throw new Error('Existing main absorption proof differs from exact retry identity.');
+    }
+    const retained = store.inspectFile(name);
+    if (retained === null || retained.kind !== 'file') {
+      throw new Error('Existing main absorption proof physical identity is absent.');
+    }
+  } else {
+    const published = store.publishExclusive({
+      name,
+      bytes,
+      validate: (actual) => {
+        if (!Buffer.from(actual).equals(bytes)) throw new Error('Main absorption proof publication changed.');
+      }
+    });
+    if (published.path !== recovery.path) throw new Error('Main absorption proof path changed.');
+    createdProof = true;
+  }
+  const attempt = verifyRecoveryAuthorityLive({ inventory, recovery, reviewEvidence: review });
+  if (attempt.status !== 'success') throw new Error(attempt.detail);
+  return {
+    recovery,
+    attempts: [
+      { operation: 'recovery-create', status: 'success', detail: recovery.path },
+      attempt
+    ]
+  };
+  } catch (error) {
+    const proof = createdProof && name !== null ? store.inspectFile(name) : null;
+    if (proof !== null && name !== null) store.removeExact(name, proof);
+    if (store.createdByAcquisition) store.retireIfEmpty();
+    throw error;
+  }
+}
+
 export function verifyRecoveryAuthorityLive(input: {
   inventory: BranchLifecycleInventory;
   recovery: BranchRecoveryAuthority;
+  reviewEvidence?: ClosedSupersessionEvidence;
 }): BranchCloseoutAttempt {
   const { inventory, recovery } = input;
   try {
     assertDurableRecoveryAuthority(recovery, inventory);
+    if (recovery.kind === 'main-absorption') {
+      const parent = inspectNoFollowDirectoryChain(path.dirname(recovery.path), 'Main absorption recovery root').target;
+      const bytes = readNoFollowOrdinaryFile(parent, path.basename(recovery.path));
+      if (bytes === null) throw new Error('Main absorption proof is absent.');
+      const digest = `sha256:${createHash('sha256').update(bytes).digest('hex')}`;
+      if (digest !== recovery.sha256 || !Buffer.from(bytes).equals(mainAbsorptionProof(recovery))) {
+        throw new Error('Main absorption proof digest or exact content changed.');
+      }
+      const output = assertMainAbsorptionLive(inventory, recovery, input.reviewEvidence);
+      return { operation: 'recovery-verify', status: 'success', detail: `live main absorption ${recovery.sha256}; ${output}` };
+    }
     const bytes = readFileSync(recovery.path);
     const digest = createHash('sha256').update(bytes).digest('hex');
     if (`sha256:${digest}` !== recovery.sha256) {

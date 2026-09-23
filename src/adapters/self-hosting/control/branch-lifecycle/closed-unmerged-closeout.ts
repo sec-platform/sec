@@ -24,6 +24,7 @@ import {
   type BranchPublishedCloseoutReceipt,
   type BranchPullRequestObservation
 } from './branch-lifecycle-types.ts';
+import { verifyRecoveryAuthorityLive } from './branch-recovery.ts';
 import {
   assertClosedSupersessionEvidence,
   type ClosedSupersessionEvidence
@@ -64,7 +65,16 @@ export interface ClosedSupersededDispositionEvidence
   readonly supersessionReference: string;
 }
 
-export type ClosedUnmergedCloseoutEvidence = ClosedSupersededDispositionEvidence;
+export interface ClosedNativeAbsorptionDispositionEvidence
+  extends ClosedUnmergedCloseoutEvidenceBase {
+  readonly disposition: 'closed-superseded';
+  readonly retentionBasis: 'native-ancestor' | 'identical-tree';
+  readonly recoveryDigest: `sha256:${string}`;
+}
+
+export type ClosedUnmergedCloseoutEvidence =
+  | ClosedSupersededDispositionEvidence
+  | ClosedNativeAbsorptionDispositionEvidence;
 
 export interface ClosedUnmergedCloseoutOperation {
   readonly schema: typeof CLOSED_UNMERGED_CLOSEOUT_OPERATION_SCHEMA;
@@ -111,7 +121,7 @@ export type ClosedUnmergedProviderMutation = Readonly<{
 export interface ClosedUnmergedCloseoutEffectAdapter {
   readonly providerIdentity: string;
   readonly repository: string;
-  readonly localRefDeleteAtomicity: 'supported' | 'unavailable';
+  readonly localRefDeleteCoordination: 'coordinated' | 'unavailable';
   observeInventory(): Promise<ClosedUnmergedProviderObservation<BranchLifecycleInventory>>;
   observeEffectStart(
     operationId: `sha256:${string}`
@@ -166,6 +176,7 @@ export type ClosedUnmergedCloseoutExecutionResult =
     }>;
 
 const issuedEvidence = new WeakSet<object>();
+const reviewedEvidenceByDisposition = new WeakMap<object, ClosedSupersessionEvidence>();
 const issuedOperations = new WeakSet<object>();
 const issuedCompletedSettlements = new WeakMap<object, Readonly<{
   operation: ClosedUnmergedCloseoutOperation;
@@ -200,6 +211,8 @@ function evidencePayload(input: Omit<
 > & {
   readonly supersessionReviewDigest?: `sha256:${string}`;
   readonly supersessionReference?: string;
+  readonly retentionBasis?: 'native-ancestor' | 'identical-tree';
+  readonly recoveryDigest?: `sha256:${string}`;
 }): Record<string, unknown> {
   return {
     schema: CLOSED_UNMERGED_CLOSEOUT_EVIDENCE_SCHEMA,
@@ -278,6 +291,31 @@ export function createClosedSupersededDispositionEvidence(input: Omit<
     evidenceDigest: branchLifecycleDigest(payload)
   }) as ClosedSupersededDispositionEvidence;
   issuedEvidence.add(evidence);
+  reviewedEvidenceByDisposition.set(evidence, supersession);
+  return evidence;
+}
+
+export function createClosedNativeAbsorptionDispositionEvidence(input: Omit<
+  ClosedNativeAbsorptionDispositionEvidence,
+  'schema' | 'disposition' | 'evidenceDigest' | 'retentionBasis' | 'recoveryDigest'
+> & Readonly<{ prepared: PreparedBranchCloseoutEnvelope }>): ClosedNativeAbsorptionDispositionEvidence {
+  const { prepared, ...base } = input;
+  validateEvidenceInput(base);
+  assertPreparedBranchCloseoutEnvelope(prepared);
+  const recovery = prepared.preparation.recovery;
+  if (recovery.kind !== 'main-absorption'
+      || (recovery.basis !== 'native-ancestor' && recovery.basis !== 'identical-tree')
+      || recovery.sourceSha !== base.headSha || recovery.sourceTreeSha !== base.headTreeSha
+      || recovery.mainSha !== base.currentMainSha || recovery.mainTreeSha !== base.currentMainTreeSha
+      || prepared.preparation.branch !== base.branch
+      || prepared.preparation.expectedRemoteSha !== base.headSha) {
+    throw new Error('Closed-native disposition does not bind the exact issued main-absorption recovery.');
+  }
+  const payload = evidencePayload({ ...base, disposition: 'closed-superseded',
+    retentionBasis: recovery.basis, recoveryDigest: recovery.sha256 });
+  const evidence = Object.freeze({ ...payload,
+    evidenceDigest: branchLifecycleDigest(payload) }) as ClosedNativeAbsorptionDispositionEvidence;
+  issuedEvidence.add(evidence);
   return evidence;
 }
 
@@ -338,6 +376,25 @@ function exactCurrentBlockers(input: {
   }
   try {
     assertDurableRecoveryAuthority(preparation.recovery, inventory);
+    if (preparation.recovery.kind === 'main-absorption') {
+      const recovery = preparation.recovery;
+      if (recovery.basis === 'reviewed-supersession') {
+        if (!('supersessionReviewDigest' in evidence)
+            || evidence.supersessionReviewDigest !== recovery.reviewReceiptDigest
+            || evidence.supersessionReference !== recovery.reviewReference) {
+          throw new Error('Reviewed disposition does not bind the exact main-absorption recovery.');
+        }
+      } else if (!('retentionBasis' in evidence)
+          || evidence.retentionBasis !== recovery.basis
+          || evidence.recoveryDigest !== recovery.sha256) {
+        throw new Error('Native disposition does not bind the exact main-absorption recovery.');
+      }
+      const live = verifyRecoveryAuthorityLive({ inventory, recovery,
+        ...(recovery.basis === 'reviewed-supersession'
+          ? { reviewEvidence: reviewedEvidenceByDisposition.get(evidence) }
+          : {}) });
+      if (live.status !== 'success') throw new Error(live.detail);
+    }
   } catch (error) {
     blockers.push(error instanceof Error ? error.message : String(error));
   }
@@ -474,7 +531,7 @@ export function issueClosedUnmergedCloseoutEffectProvider(
   if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,99}\/[A-Za-z0-9][A-Za-z0-9._-]{0,99}$/u.test(adapter.repository)) {
     throw new Error('Closed-unmerged provider repository is invalid.');
   }
-  if (adapter.localRefDeleteAtomicity !== 'supported' && adapter.localRefDeleteAtomicity !== 'unavailable') {
+  if (adapter.localRefDeleteCoordination !== 'coordinated' && adapter.localRefDeleteCoordination !== 'unavailable') {
     throw new Error('Closed-unmerged provider local-ref delete atomicity is invalid.');
   }
   const provider = Object.freeze({
@@ -617,7 +674,7 @@ function localRefDeleteCapabilityBlocker(
   adapter: ClosedUnmergedCloseoutEffectAdapter,
   authorization: BranchCloseoutAuthorization
 ): string | null {
-  return authorization.localAction === 'delete-exact' && adapter.localRefDeleteAtomicity !== 'supported'
+  return authorization.localAction === 'delete-exact' && adapter.localRefDeleteCoordination !== 'coordinated'
     ? 'Git local ref exact delete is unavailable before further branch effects'
     : null;
 }
@@ -884,6 +941,9 @@ export async function executeClosedUnmergedCloseoutOperation(input: {
     attempts.push({ operation: 'local-delete', status: 'success', detail: deletion.detail });
   } else if (authorization.localAction === 'already-absent') {
     attempts.push({ operation: 'local-delete', status: 'skipped', detail: 'exact local branch is already absent' });
+  } else if (authorization.localAction === 'protect-local') {
+    attempts.push({ operation: 'local-delete', status: 'skipped',
+      detail: 'divergent or worktree-bound local branch remains protected for independent closeout' });
   } else {
     return blocked(operation, 'local-delete-authorization', [
       ...authorization.blockers,
@@ -897,7 +957,8 @@ export async function executeClosedUnmergedCloseoutOperation(input: {
   if (finalInventory.remoteBranches.some(({ branch }) => branch === operation.evidence.branch)) {
     return preserve(operation, 'readback', 'remote branch remains after exact CAS deletion');
   }
-  if (finalInventory.localBranches.some(({ branch }) => branch === operation.evidence.branch)) {
+  if (authorization.localAction !== 'protect-local'
+      && finalInventory.localBranches.some(({ branch }) => branch === operation.evidence.branch)) {
     return preserve(operation, 'readback', 'local branch remains after exact CAS deletion');
   }
   const terminalAuthorization = currentAuthorization(operation, finalInventory);
@@ -905,7 +966,9 @@ export async function executeClosedUnmergedCloseoutOperation(input: {
     return blocked(operation, 'terminal-publication-authorization', terminalAuthorization.blockers);
   }
   attempts.push({ operation: 'readback', status: 'success',
-    detail: 'exact PR closed and remote/local branches absent' });
+    detail: authorization.localAction === 'protect-local'
+      ? 'exact PR closed and remote branch absent; divergent local branch remains protected'
+      : 'exact PR closed and remote/local branches absent' });
   const receipt = createBranchCloseoutReceipt({ generatedAt: new Date().toISOString(),
     preparation: operation.prepared.preparation, request: closeoutRequest(operation.evidence),
     authorization, attempts, before: operation.prepared.before, after: finalInventory });

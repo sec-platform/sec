@@ -7,6 +7,8 @@ import {
 } from 'node:fs';
 import path from 'node:path';
 
+import { assertClosedSupersessionEvidence, type ClosedSupersessionEvidence } from './closed-supersession-review.ts';
+
 import {
   createBranchLifecycleGitChildEnvironment,
   decodeBranchLifecycleChildStdout
@@ -29,6 +31,7 @@ import {
   type BranchLifecycleInventoryScope
 } from './branch-lifecycle-inventory.ts';
 import {
+  createMainAbsorptionRecovery,
   createRecoveryBundle,
   ensureRecoveryRoot,
   verifyRecoveryAuthorityLive,
@@ -117,6 +120,8 @@ export interface PrepareClosedUnmergedPullRequestCloseoutInput {
   baseSha: string;
   /** Fresh provider observation retained even after the branch ref is absent. */
   exactPullRequest: BranchPullRequestObservation;
+  /** Required only when exact native main absorption cannot prove retention. */
+  reviewEvidence?: ClosedSupersessionEvidence;
 }
 
 type BranchCloseoutPreparationAdmission =
@@ -126,7 +131,30 @@ type BranchCloseoutPreparationAdmission =
       expectedBaseBranch: string;
       expectedBaseSha: string;
       exactPullRequest: BranchPullRequestObservation;
+      reviewEvidence?: ClosedSupersessionEvidence;
     };
+
+function closedMainAbsorptionBasis(
+  repositoryRoot: string,
+  sourceSha: string,
+  mainSha: string
+): 'native-ancestor' | 'identical-tree' | null {
+  const ancestry = runCloseoutGit(repositoryRoot, ['merge-base', '--is-ancestor', sourceSha, mainSha]);
+  if (ancestry.status === 0) return 'native-ancestor';
+  if (ancestry.status !== 1) {
+    throw new Error('Closed-unmerged native main ancestry observation is unavailable.');
+  }
+  const sourceTree = runCloseoutGit(repositoryRoot, ['rev-parse', '--verify', `${sourceSha}^{tree}`]);
+  const mainTree = runCloseoutGit(repositoryRoot, ['rev-parse', '--verify', `${mainSha}^{tree}`]);
+  if (sourceTree.status !== 0 || mainTree.status !== 0) {
+    throw new Error('Closed-unmerged exact native tree observation is unavailable.');
+  }
+  const sourceTreeSha = decodeBranchLifecycleChildStdout(sourceTree);
+  const mainTreeSha = decodeBranchLifecycleChildStdout(mainTree);
+  assertGitSha(sourceTreeSha, 'closed-unmerged source tree');
+  assertGitSha(mainTreeSha, 'closed-unmerged main tree');
+  return sourceTreeSha === mainTreeSha ? 'identical-tree' : null;
+}
 
 function createPreparedEnvelope(input: Omit<
   PreparedBranchCloseoutEnvelope,
@@ -506,19 +534,37 @@ function prepareBranchCloseoutInternal(
     if (remote === undefined) throw new Error(`Remote branch ${input.branch} is absent.`);
     expectedHeadSha = remote.sha;
   }
-  if (local !== undefined && local.sha !== expectedHeadSha) {
-    throw new Error(
-      `Local branch SHA mismatch: expected ${expectedHeadSha}, observed ${local.sha}.`
-    );
-  }
+  // The remote ref and local branch are distinct Git objects. Preserve the
+  // observed local preimage independently; authorization will protect it when
+  // it differs from the recovered remote head.
   const localSha = local?.sha ?? null;
   const expectedPrHeadSha = refState === 'absent'
     ? (input.expectedPrHeadSha ?? pullRequest?.headSha ?? null)
     : null;
 
-  const { recovery, attempts } = refState === 'absent'
-    ? prepareAbsentRefRecovery(scope, before, input.branch, expectedHeadSha, pullRequestNumber)
-    : createRecoveryBundle({
+  const mainSha = before.main.remoteSha;
+  if (admission.kind === 'closed-unmerged' && mainSha === null) {
+    throw new Error('Closed-unmerged main absorption requires one exact remote main SHA.');
+  }
+  const retentionBasis = admission.kind === 'closed-unmerged'
+      && admission.reviewEvidence === undefined
+    ? closedMainAbsorptionBasis(before.repository.root, expectedHeadSha, mainSha!)
+    : null;
+  if (admission.kind === 'closed-unmerged' && retentionBasis === null
+      && admission.reviewEvidence === undefined) {
+    throw new Error('Closed-unmerged distinct-tree head requires one exact adopted supersession review.');
+  }
+  if (admission.kind === 'closed-unmerged' && admission.reviewEvidence !== undefined) {
+    assertClosedSupersessionEvidence(admission.reviewEvidence);
+  }
+  const { recovery, attempts } = admission.kind === 'closed-unmerged'
+    ? createMainAbsorptionRecovery({ inventory: before, branch: input.branch,
+        expectedSha: expectedHeadSha, mainSha: mainSha!,
+        basis: retentionBasis ?? 'reviewed-supersession', recoveryRoot: scope.recoveryRoot,
+        ...(retentionBasis === null ? { reviewEvidence: admission.reviewEvidence } : {}) })
+    : refState === 'absent'
+      ? prepareAbsentRefRecovery(scope, before, input.branch, expectedHeadSha, pullRequestNumber)
+      : createRecoveryBundle({
         inventory: before,
         branch: input.branch,
         expectedSha: expectedHeadSha,
@@ -583,7 +629,8 @@ export function prepareClosedUnmergedPullRequestCloseout(
     kind: 'closed-unmerged',
     expectedBaseBranch: input.baseBranch,
     expectedBaseSha: input.baseSha,
-    exactPullRequest: input.exactPullRequest
+    exactPullRequest: input.exactPullRequest,
+    ...(input.reviewEvidence === undefined ? {} : { reviewEvidence: input.reviewEvidence })
   });
 }
 

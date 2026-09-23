@@ -3,10 +3,10 @@ import path from 'node:path';
 import { sha256 } from '../../../../contracts/canonical.ts';
 import { issueSecOperationRequirementBindingContext } from '../../../../execution/operation/requirement-binding-context.ts';
 import { bindSecSemanticOperation, compileSecCapabilityBinding, compileSecSemanticOperationPlan, issueSecSemanticOperationAttemptContext, type SecOperationDigest } from '../../../../execution/operation/semantic.ts';
-import { assertWorkspaceWriteLease, withWorkspaceWriteLease } from '../../../filesystem/write-lease.ts';
+import { assertWorkspaceWriteLease, withWorkspaceWriteLease, type WorkspaceWriteLeaseToken } from '../../../filesystem/write-lease.ts';
 import { withAuthorityGitReadSession } from '../../../providers/git-read/authority.ts';
 import { assertGitPhysicalProviderReceipt, closeGitPhysicalProvider, openGitPhysicalProvider } from '../../../providers/git/physical-provider.ts';
-import { deleteExactGitRef, GIT_LOCAL_REF_DELETE_ATOMICITY } from '../../../providers/git/ref-effect.ts';
+import { deleteExactGitRef, deleteExactLocalGitRefs } from '../../../providers/git/ref-effect.ts';
 import {
   executeGitHubApiOperation,
   GITHUB_API_REQUEST_TIMEOUT_MS,
@@ -379,15 +379,15 @@ async function publishMarked<T extends { operationId: string }>(input: Readonly<
   }
 }
 
-function compileLocalRefDeleteOperation(operationId: SecOperationDigest) {
+function compileLocalRefDeleteOperation(operationId: SecOperationDigest, local: boolean) {
   const deadlineAtUnixMs = Date.now() + LOCAL_EFFECT_DURATION_MS;
   const plan = compileSecSemanticOperationPlan({
     operation: 'control.branch-lifecycle.closed-unmerged-ref-delete', intentDigest: operationId,
     decisionDigest: LOCAL_EFFECT_CONTRACT, deadlineAtUnixMs,
     attempt: issueSecSemanticOperationAttemptContext({ authorityGrantDigest: operationId }),
     aggregateBudgets: [
-      { resource: 'duration-ms', maximum: LOCAL_EFFECT_DURATION_MS }, { resource: 'input-bytes', maximum: 1 },
-      { resource: 'output-bytes', maximum: 1024 * 1024 }, { resource: 'processes', maximum: 4 }
+      { resource: 'duration-ms', maximum: LOCAL_EFFECT_DURATION_MS }, { resource: 'input-bytes', maximum: local ? 4096 : 0 },
+      { resource: 'output-bytes', maximum: 1024 * 1024 }, { resource: 'processes', maximum: local ? 7 : 4 }
     ],
     requirements: [{ id: LOCAL_EFFECT_REQUIREMENT, contractDigest: LOCAL_EFFECT_CONTRACT,
       effectKinds: ['filesystem', 'process', 'provider'],
@@ -403,8 +403,10 @@ async function deleteLocalGitRef(input: Readonly<{
   operationId: SecOperationDigest;
   ref: string;
   expectedOldSha: string;
+  coordinatedLease?: WorkspaceWriteLeaseToken;
 }>): Promise<'deleted' | 'already-absent'> {
-  const operation = compileLocalRefDeleteOperation(input.operationId);
+  const local = input.ref.startsWith('refs/heads/');
+  const operation = compileLocalRefDeleteOperation(input.operationId, local);
   const processSession = openProcessResourceSession({ operation,
     requirementBindingContext: issueSecOperationRequirementBindingContext({ operation,
       requirementId: LOCAL_EFFECT_REQUIREMENT, resourceCeilings: operation.plan.execution.aggregateBudgets }) });
@@ -418,7 +420,17 @@ async function deleteLocalGitRef(input: Readonly<{
         environmentSource: process.env, maximumExecutableBytes: 128 * 1024 * 1024 });
       if (resolution.status !== 'ready') throw new Error(`Git physical provider unavailable: ${resolution.reason}`);
       let effectError: unknown;
-      try { disposition = (await deleteExactGitRef({ provider: resolution.capability, ref: input.ref, expectedOldSha: input.expectedOldSha })).disposition; }
+      try {
+        if (local) {
+          if (input.coordinatedLease === undefined) throw new Error('Local ref deletion lacks a coordinated common-directory lease.');
+          await deleteExactLocalGitRefs({ provider: resolution.capability, coordinatedLease: input.coordinatedLease,
+            entries: [{ ref: input.ref, expectedOldSha: input.expectedOldSha }] });
+          disposition = 'deleted';
+        } else {
+          disposition = (await deleteExactGitRef({ provider: resolution.capability, ref: input.ref,
+            expectedOldSha: input.expectedOldSha })).disposition;
+        }
+      }
       catch (error) { effectError = error; }
       try { assertGitPhysicalProviderReceipt(closeGitPhysicalProvider(resolution.capability), resolution.capability); }
       catch (error) { effectError ??= error; }
@@ -462,6 +474,7 @@ function createProductionClosedUnmergedCloseoutAdapter(input: Readonly<{
   withSession: BoundGitHubSession;
   assertWorkflowCurrent(): void;
   assertWriteLease(): Promise<void>;
+  coordinatedLease: WorkspaceWriteLeaseToken;
 }>): ClosedUnmergedCloseoutEffectAdapter {
   const repositoryRoot = canonicalRoot(input.repositoryRoot);
   const binding = input.binding;
@@ -488,7 +501,7 @@ function createProductionClosedUnmergedCloseoutAdapter(input: Readonly<{
   };
   return Object.freeze<ClosedUnmergedCloseoutEffectAdapter>({
     providerIdentity, repository: input.repository, observeInventory,
-    localRefDeleteAtomicity: GIT_LOCAL_REF_DELETE_ATOMICITY,
+    localRefDeleteCoordination: 'coordinated',
     observeEffectStart: (operationId) => observeMarked<ClosedUnmergedCloseoutEffectStartReceipt>({ withSession: input.withSession,
       pullRequestNumber: input.pullRequestNumber, operationId,
       marker: START_MARKER, principalNodeId: binding.principal.nodeId }),
@@ -523,7 +536,8 @@ function createProductionClosedUnmergedCloseoutAdapter(input: Readonly<{
         input.assertWorkflowCurrent();
         await input.assertWriteLease();
         const disposition = await deleteLocalGitRef({ repositoryRoot, operationId: request.operationId,
-          ref: `refs/heads/${request.branch}`, expectedOldSha: request.expectedOldSha });
+          ref: `refs/heads/${request.branch}`, expectedOldSha: request.expectedOldSha,
+          coordinatedLease: input.coordinatedLease });
         return Object.freeze({ status: disposition === 'deleted' ? 'applied' : 'already-applied', detail: `local topic ref ${disposition}` });
       } catch (error) { return Object.freeze({ status: 'ambiguous', detail: error instanceof Error ? error.message : String(error) }); }
     },
@@ -542,9 +556,16 @@ export async function executeProductionClosedUnmergedCloseout(input: Readonly<{
   compileOperation(context: ProductionClosedUnmergedCompileContext): Promise<ClosedUnmergedCloseoutOperation>;
 }>): Promise<ClosedUnmergedCloseoutExecutionResult> {
   const repositoryRoot = canonicalRoot(input.repositoryRoot);
-  return withWorkspaceWriteLease(repositoryRoot, undefined, async (lease) => {
-    const workflow = createWorkflowSessions({ repositoryRoot, repository: input.repository });
-    const operation = await input.compileOperation(workflow.context);
+  const workflow = createWorkflowSessions({ repositoryRoot, repository: input.repository });
+  const operation = await input.compileOperation(workflow.context);
+  const commonDir = canonicalRoot(operation.prepared.preparation.repository.commonDir);
+  return withWorkspaceWriteLease(commonDir, undefined, (coordinatedLease) => (
+    withWorkspaceWriteLease(repositoryRoot, undefined, async (lease) => {
+    const assertBothLeases = async () => {
+      await assertWorkspaceWriteLease(commonDir, coordinatedLease);
+      await assertWorkspaceWriteLease(repositoryRoot, lease);
+    };
+    await assertBothLeases();
     if (operation.prepared.preparation.pullRequestStateAtPreparation !== 'closed') {
       throw new Error('Production closed-unmerged closeout requires an already-closed PR preparation.');
     }
@@ -555,11 +576,12 @@ export async function executeProductionClosedUnmergedCloseout(input: Readonly<{
         preparedInventory: operation.prepared.before,
         binding: workflow.binding(), withSession: workflow.withSession,
         assertWorkflowCurrent: workflow.assertCurrent,
-        assertWriteLease: () => assertWorkspaceWriteLease(repositoryRoot, lease)
+        assertWriteLease: assertBothLeases,
+        coordinatedLease
       })) });
     if (completed.status !== 'completed') return completed;
     workflow.assertCurrent();
-    await assertWorkspaceWriteLease(repositoryRoot, lease);
+    await assertBothLeases();
     await assertRemoteTrackingRefAbsent({ repositoryRoot,
       remote: operation.prepared.preparation.repository.remote,
       branch: operation.evidence.branch });
@@ -582,5 +604,20 @@ export async function executeProductionClosedUnmergedCloseout(input: Readonly<{
         ]) });
     }
     return completed;
+    })
+  ));
+}
+
+/** Re-observe one exact adopted review through the existing bounded GitHub owner. */
+export async function observeProductionClosedSupersessionEvidence(input: Readonly<{
+  repositoryRoot: string;
+  repository: string;
+  pullRequestNumber: number;
+  commentId: number;
+}>): Promise<ClosedSupersessionEvidence> {
+  const workflow = createWorkflowSessions({ repositoryRoot: canonicalRoot(input.repositoryRoot),
+    repository: input.repository });
+  return workflow.context.observeSupersessionEvidence({
+    pullRequestNumber: input.pullRequestNumber, commentId: input.commentId
   });
 }

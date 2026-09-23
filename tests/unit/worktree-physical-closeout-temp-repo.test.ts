@@ -1095,6 +1095,71 @@ test('detached scratch closeout is branch-token-ineligible and reaches physical/
   } finally { rmSync(value.root, { recursive: true, force: true }); }
 }, 60_000);
 
+test('detached scratch derives its correlation without a caller marker when only main retains its commit', async () => {
+  const value = fixture();
+  const scratch = path.join(value.root, 'markerless-detached-scratch');
+  try {
+    git(value.repository, ['worktree', 'remove', value.target]);
+    git(value.repository, ['branch', '-D', value.branch]);
+    git(value.repository, ['worktree', 'add', '--detach', scratch, value.headSha]);
+    const input = {
+      repositoryRoot: value.repository, targetPath: scratch,
+      expectedHeadSha: value.headSha, expectedTreeSha: value.treeSha
+    };
+    const authorization = await prepareDetachedScratchWorktreePhysicalCloseout(input);
+    expect(authorization.target.recoveryAuthorityDigest).toMatch(/^sha256:[0-9a-f]{64}$/u);
+    const receipt = await executeDetachedScratchWorktreePhysicalCloseout({
+      ...input, authorizationPath: authorization.authorizationPath
+    });
+    expect(receipt.terminal).toBe('completed');
+    expect(existsSync(scratch)).toBe(false);
+  } finally { rmSync(value.root, { recursive: true, force: true }); }
+}, 60_000);
+
+test('detached scratch rejects an unreferenced commit before publishing closeout authorization', async () => {
+  const value = fixture();
+  const scratch = path.join(value.root, 'unreferenced-detached-scratch');
+  try {
+    git(value.repository, ['worktree', 'add', '--detach', scratch, value.headSha]);
+    writeFileSync(path.join(scratch, 'scratch.txt'), 'unreferenced\n', 'utf8');
+    git(scratch, ['add', 'scratch.txt']);
+    git(scratch, ['commit', '-m', 'unreferenced scratch']);
+    const scratchHead = git(scratch, ['rev-parse', 'HEAD']);
+    const scratchTree = git(scratch, ['rev-parse', 'HEAD^{tree}']);
+    await expect(prepareDetachedScratchWorktreePhysicalCloseout({
+      repositoryRoot: value.repository, targetPath: scratch,
+      expectedHeadSha: scratchHead, expectedTreeSha: scratchTree
+    })).rejects.toThrow('no retained local branch recovery source');
+    expect(existsSync(scratch)).toBe(true);
+    expect(gitPath(git(value.repository, ['worktree', 'list', '--porcelain']))).toContain(gitPath(scratch));
+  } finally { rmSync(value.root, { recursive: true, force: true }); }
+}, 60_000);
+
+test('detached scratch rechecks retained branch reachability before unregister', async () => {
+  const value = fixture();
+  const scratch = path.join(value.root, 'drifting-detached-scratch');
+  try {
+    git(value.repository, ['worktree', 'add', '--detach', scratch, value.headSha]);
+    writeFileSync(path.join(scratch, 'scratch.txt'), 'later-unreferenced\n', 'utf8');
+    git(scratch, ['add', 'scratch.txt']);
+    git(scratch, ['commit', '-m', 'later unreferenced scratch']);
+    const scratchHead = git(scratch, ['rev-parse', 'HEAD']);
+    const scratchTree = git(scratch, ['rev-parse', 'HEAD^{tree}']);
+    git(value.repository, ['branch', 'retain-scratch', scratchHead]);
+    const input = {
+      repositoryRoot: value.repository, targetPath: scratch,
+      expectedHeadSha: scratchHead, expectedTreeSha: scratchTree
+    };
+    const authorization = await prepareDetachedScratchWorktreePhysicalCloseout(input);
+    git(value.repository, ['branch', '-D', 'retain-scratch']);
+    await expect(executeDetachedScratchWorktreePhysicalCloseout({
+      ...input, authorizationPath: authorization.authorizationPath
+    })).rejects.toThrow('no retained local branch recovery source');
+    expect(existsSync(scratch)).toBe(true);
+    expect(gitPath(git(value.repository, ['worktree', 'list', '--porcelain']))).toContain(gitPath(scratch));
+  } finally { rmSync(value.root, { recursive: true, force: true }); }
+}, 60_000);
+
 test('an unregistered physical orphan cannot be adopted or removed', async () => {
   const value = fixture();
   try {

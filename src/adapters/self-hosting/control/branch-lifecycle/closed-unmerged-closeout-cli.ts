@@ -11,6 +11,7 @@ import {
 import { executeProductionClosedUnmergedCloseout } from './closed-unmerged-closeout-production.ts';
 import {
   compileClosedUnmergedCloseoutOperation,
+  createClosedNativeAbsorptionDispositionEvidence,
   createClosedSupersededDispositionEvidence
 } from './closed-unmerged-closeout.ts';
 
@@ -18,7 +19,7 @@ interface Arguments {
   readonly repository: string;
   readonly pullRequestNumber: number;
   readonly disposition: 'closed-superseded';
-  readonly reviewCommentId: number;
+  readonly reviewCommentId: number | null;
   readonly preparationPath: string | null;
 }
 
@@ -37,7 +38,7 @@ export function parseClosedUnmergedCloseoutArguments(argv: readonly string[]): A
     const key = argv[index];
     const value = argv[index + 1];
     if (key === undefined || value === undefined || !key.startsWith('--') || values.has(key)) {
-      throw new Error('usage: closed-unmerged-closeout --repository owner/name --pr N --disposition closed-superseded --review-comment ID [--preparation PATH]');
+      throw new Error('usage: closed-unmerged-closeout --repository owner/name --pr N --disposition closed-superseded [--review-comment ID] [--preparation PATH]');
     }
     values.set(key, value);
   }
@@ -61,7 +62,8 @@ export function parseClosedUnmergedCloseoutArguments(argv: readonly string[]): A
     repository,
     pullRequestNumber: positiveInteger(values.get('--pr'), '--pr'),
     disposition,
-    reviewCommentId: positiveInteger(values.get('--review-comment'), '--review-comment'),
+    reviewCommentId: values.has('--review-comment')
+      ? positiveInteger(values.get('--review-comment'), '--review-comment') : null,
     preparationPath: preparation === undefined ? null : path.resolve(preparation)
   });
 }
@@ -76,10 +78,6 @@ export async function runClosedUnmergedCloseoutCli(argv: readonly string[]): Pro
       repository: input.repository,
       compileOperation: async (context) => {
         const pull = await context.observePullRequest(input.pullRequestNumber);
-        const supersession = await context.observeSupersessionEvidence({
-          pullRequestNumber: input.pullRequestNumber,
-          commentId: input.reviewCommentId
-        });
         if (pull.state !== 'closed' || pull.headSha === null || pull.baseSha == null) {
           throw new Error('closed-superseded production closeout requires one exact closed PR with complete head/base identity');
         }
@@ -87,42 +85,60 @@ export async function runClosedUnmergedCloseoutCli(argv: readonly string[]): Pro
         if (headRef.state === 'present' && headRef.sha !== pull.headSha) {
           throw new Error('current remote head ref differs from the exact closed PR head');
         }
-        const evidence = createClosedSupersededDispositionEvidence({
-          repository: input.repository,
-          pullRequestNumber: pull.number,
-          branch: pull.headBranch,
-          headSha: pull.headSha,
-          headTreeSha: supersession.review.headTreeSha,
-          baseBranch: pull.baseBranch,
-          baseSha: pull.baseSha,
-          currentMainSha: supersession.review.currentMainSha,
-          currentMainTreeSha: supersession.review.currentMainTreeSha,
-          durableGoal: { kind: 'evidence', reference: supersession.reference },
-          supersession
-        });
-        const completedPreparation = input.preparationPath === null
-          ? await context.observeCompletedPreparation(pull.number, evidence.evidenceDigest)
-          : null;
-        const prepared = input.preparationPath === null
-          ? completedPreparation ?? prepareClosedUnmergedPullRequestCloseout({
-              repositoryRoot,
-              repositoryFullName: input.repository,
-              activeWorkPackageObservation: await observeActiveWorkPackage(repositoryRoot)
-            }, {
-              number: pull.number,
-              refState: headRef.state,
-              headBranch: pull.headBranch,
-              headSha: pull.headSha,
-              baseBranch: pull.baseBranch,
-              baseSha: pull.baseSha,
-              exactPullRequest: pull
-            })
-          : loadPreparedBranchCloseoutEnvelope(input.preparationPath);
+        const scope = { repositoryRoot, repositoryFullName: input.repository,
+          activeWorkPackageObservation: await observeActiveWorkPackage(repositoryRoot) };
+        const request = { number: pull.number, refState: headRef.state,
+          headBranch: pull.headBranch, headSha: pull.headSha,
+          baseBranch: pull.baseBranch, baseSha: pull.baseSha, exactPullRequest: pull } as const;
+        let prepared = input.preparationPath === null
+          ? null : loadPreparedBranchCloseoutEnvelope(input.preparationPath);
+        if (prepared === null && input.reviewCommentId === null) {
+          try { prepared = prepareClosedUnmergedPullRequestCloseout(scope, request); }
+          catch (error) {
+            if (!(error instanceof Error) || error.message
+                !== 'Closed-unmerged distinct-tree head requires one exact adopted supersession review.') throw error;
+          }
+        }
+        let evidence;
+        if (input.reviewCommentId === null
+            && prepared?.preparation.recovery.kind === 'main-absorption'
+            && prepared.preparation.recovery.basis !== 'reviewed-supersession') {
+          const recovery = prepared.preparation.recovery;
+          evidence = createClosedNativeAbsorptionDispositionEvidence({
+            prepared, repository: input.repository, pullRequestNumber: pull.number,
+            branch: pull.headBranch, headSha: pull.headSha,
+            headTreeSha: recovery.sourceTreeSha, baseBranch: pull.baseBranch,
+            baseSha: pull.baseSha, currentMainSha: recovery.mainSha,
+            currentMainTreeSha: recovery.mainTreeSha,
+            durableGoal: { kind: 'evidence', reference: `main-absorption:${recovery.sha256}` }
+          });
+        } else {
+          if (input.reviewCommentId === null) {
+            throw new Error('Closed-unmerged distinct-tree retirement requires --review-comment ID.');
+          }
+          const supersession = await context.observeSupersessionEvidence({
+            pullRequestNumber: input.pullRequestNumber, commentId: input.reviewCommentId
+          });
+          evidence = createClosedSupersededDispositionEvidence({
+            repository: input.repository, pullRequestNumber: pull.number,
+            branch: pull.headBranch, headSha: pull.headSha,
+            headTreeSha: supersession.review.headTreeSha,
+            baseBranch: pull.baseBranch, baseSha: pull.baseSha,
+            currentMainSha: supersession.review.currentMainSha,
+            currentMainTreeSha: supersession.review.currentMainTreeSha,
+            durableGoal: { kind: 'evidence', reference: supersession.reference }, supersession
+          });
+          if (prepared === null) {
+            prepared = await context.observeCompletedPreparation(pull.number, evidence.evidenceDigest)
+              ?? prepareClosedUnmergedPullRequestCloseout(scope, { ...request, reviewEvidence: supersession });
+          }
+        }
+        if (prepared === null) throw new Error('Closed-unmerged preparation was not issued.');
         capturedPreparationPath = preparationFilePath(prepared.preparation);
         if (prepared.before.repository.fullName !== input.repository
             || prepared.before.repository.defaultBranch !== pull.baseBranch
-            || prepared.before.main.remoteSha !== supersession.review.currentMainSha) {
-          throw new Error('prepared repository/main identity differs from the adopted supersession review');
+            || prepared.before.main.remoteSha !== evidence.currentMainSha) {
+          throw new Error('prepared repository/main identity differs from the exact retention evidence');
         }
         const compiled = compileClosedUnmergedCloseoutOperation({ prepared, evidence });
         if (compiled.status !== 'ready') {

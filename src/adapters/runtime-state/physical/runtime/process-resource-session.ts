@@ -73,6 +73,15 @@ export interface ProcessResourceSession {
   /** Aborts on caller cancellation, the fixed deadline, or session close. */
   readonly signal: AbortSignal;
   readonly processCount: number;
+  /** Live physical ledger readback; no authority or reservation is issued. */
+  observeNativeResourceCapacity(this: ProcessResourceSession): Readonly<{
+    maximum: number;
+    admitted: number;
+    remaining: number;
+    root: number;
+    stdinWorker: number;
+    helper: number;
+  }>;
   /** Terminal child settlements observed by this session. */
   readonly settledProcessCount: number;
   /** Successful immutable command result records issued by this session. */
@@ -370,6 +379,19 @@ export function openProcessResourceSession(input: Readonly<{
     deadlineAtMonotonicMs,
     signal: sessionController.signal,
     get processCount() { return processCount; },
+    observeNativeResourceCapacity() {
+      assertIssuedReceiver(this, 'native resource capacity');
+      assertLive();
+      const usage = nativeResourceLedger.snapshot();
+      return Object.freeze({
+        maximum: maximumProcesses,
+        admitted: usage.admittedResourceCount,
+        remaining: Math.max(0, maximumProcesses - usage.admittedResourceCount),
+        root: usage.rootProcessCount,
+        stdinWorker: usage.stdinWorkerCount,
+        helper: usage.helperProcessCount
+      });
+    },
     get settledProcessCount() { return settledProcessCount; },
     get successfulProcessRecordCount() { return successfulProcessRecordCount; },
     get inputBytes() { return inputBytes; },
@@ -441,9 +463,14 @@ export function openProcessResourceSession(input: Readonly<{
       const requiredNativeResources = 1 + (
         process.platform === 'win32' && options.input !== undefined ? 1 : 0
       );
-      if (nativeResourceLedger.snapshot().admittedResourceCount + requiredNativeResources
-          > maximumProcesses) {
-        throw new Error('Process resource session process budget is exhausted.');
+      const nativeUsage = nativeResourceLedger.snapshot();
+      if (nativeUsage.admittedResourceCount + requiredNativeResources > maximumProcesses) {
+        throw new Error(
+          'Process resource session process budget is exhausted: '
+          + `native=${nativeUsage.admittedResourceCount}/${maximumProcesses}, `
+          + `root=${nativeUsage.rootProcessCount}, stdinWorker=${nativeUsage.stdinWorkerCount}, `
+          + `helper=${nativeUsage.helperProcessCount}, next=${requiredNativeResources}.`
+        );
       }
       const ordinal = processCount + 1;
       const admittedOutputBytes = options.maxStdoutBytes + options.maxStderrBytes;

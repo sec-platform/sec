@@ -5044,6 +5044,32 @@ test('after-terminal fault preserves the terminal result and idempotent recovery
   }
 }, 30_000);
 
+test('retired prior terminal operation opens one new freeze operation for a distinct request', async () => {
+  const fixture = await createFreezeFixture();
+  try {
+    await expect(freezeDocumentControlPlane({
+      cwd: fixture.repositoryRoot,
+      manifestPath: FREEZE_TARGET_PATH,
+      reviewedOn: '2026-08-09',
+      faultAfter: 'after-terminal'
+    })).rejects.toThrow('after-terminal');
+    const priorJournal = JSON.parse(await readFile(
+      path.join(fixture.repositoryRoot, JOURNAL_TRANSACTION_RELATIVE, 'journal.json'),
+      'utf8'
+    )) as { result: CodexDevelopmentFreezeResult };
+    const next = await freezeDocumentControlPlane({
+      cwd: fixture.repositoryRoot,
+      manifestPath: FREEZE_TARGET_PATH,
+      reviewedOn: '2026-08-10'
+    });
+    expect(next.operationId).not.toBe(priorJournal.result.operationId);
+    expect(next.worktreeProjected).toBe(true);
+    await expectFreezeTransactionRetired(fixture.repositoryRoot);
+  } finally {
+    await fixture.dispose();
+  }
+}, 30_000);
+
 test('a complete terminal transaction recovers after the whole worktree moves', async () => {
   const fixture = await createFreezeFixture();
   const movedRoot = path.join(fixture.parent, 'repository-moved');

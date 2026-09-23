@@ -76,7 +76,8 @@
     {
       "capability": "git.ref-effect",
       "operations": [
-        "deleteExactGitRef"
+        "deleteExactGitRef",
+        "deleteExactLocalGitRefs"
       ],
       "effectKinds": [
         "filesystem",
@@ -87,6 +88,13 @@
           "operation": "deleteExactGitRef",
           "role": "terminal-issuer",
           "semanticOperation": "external-capabilities.git.ref-delete",
+          "requirementId": null,
+          "recovery": null
+        },
+        {
+          "operation": "deleteExactLocalGitRefs",
+          "role": "terminal-issuer",
+          "semanticOperation": "external-capabilities.git.local-ref-delete-batch",
           "requirementId": null,
           "recovery": null
         }
@@ -352,6 +360,61 @@
           {
             "resource": "processes",
             "maximum": 4
+          }
+        ]
+      },
+      "futureSupport": {
+        "condition": "semantic-superset-required"
+      }
+    },
+    {
+      "operation": {
+        "kind": "capability",
+        "capability": "git.ref-effect",
+        "operation": "deleteExactLocalGitRefs"
+      },
+      "consumerSupport": {
+        "consumers": [
+          "control.branch-lifecycle",
+          "verification.ci"
+        ]
+      },
+      "effect": {
+        "kinds": [
+          "filesystem",
+          "process"
+        ],
+        "failureKinds": [
+          "filesystem.write-failed",
+          "process.cancelled",
+          "process.deadline-exhausted",
+          "process.output-budget-exhausted",
+          "process.settlement-unproven",
+          "process.unavailable"
+        ],
+        "recovery": "owner-intervention"
+      },
+      "evolution": {
+        "migration": "not-required",
+        "retirement": "replacement-obligations-satisfied"
+      },
+      "resources": {
+        "aggregateBudgets": [
+          {
+            "resource": "duration-ms",
+            "maximum": 120000
+          },
+          {
+            "resource": "input-bytes",
+            "maximum": 1048576
+          },
+          {
+            "resource": "output-bytes",
+            "maximum": 1048576
+          },
+          {
+            "resource": "processes",
+            "maximum": 7
           }
         ]
       },

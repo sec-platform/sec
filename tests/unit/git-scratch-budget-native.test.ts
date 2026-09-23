@@ -12,7 +12,10 @@ import { settleWorkspaceCallback } from '../testkit/workspace-cleanup.ts';
 // must not pass through a replacement issuer, fake process counter or raw
 // command substituted for the actual public scratch operation. Ordinary Git
 // is used only to establish an independent temporary repository fixture.
-for (const scenario of ['empty', 'populated', 'narrow-parent'] as const) {
+const scenarios = process.platform === 'win32'
+  ? ['empty', 'populated', 'narrow-parent', 'stdin-worker'] as const
+  : ['empty', 'populated', 'narrow-parent'] as const;
+for (const scenario of scenarios) {
   const populated = scenario !== 'empty';
   test(`an unaffordable ${scenario} scratch batch performs no partial effect`, () =>
     inGitProtocolRepository(async (root, git) => {
@@ -27,7 +30,8 @@ for (const scenario of ['empty', 'populated', 'narrow-parent'] as const) {
         const binding = scenario === 'narrow-parent'
           ? { operation: issueGitReadAuthorityOperation({ cwd: root, budget: { maxProcesses: 2 } }) } : {};
         await withAuthorityGitReadSession({ cwd: root, ...binding,
-          budget: { maxProcesses: scenario === 'narrow-parent' ? 32 : populated ? 2 : 1 } }, async session => {
+          budget: { maxProcesses: scenario === 'narrow-parent' ? 32
+            : scenario === 'stdin-worker' ? 4 : populated ? 2 : 1 } }, async session => {
           const resolution = await createAuthorityGitScratchIndexTreeSession({ gitReadSession: session, scratchRoot });
           assert.equal(resolution.status, 'ready', 'the real scratch provider must have admitted the fixture');
           if (resolution.status !== 'ready') throw new Error('Native scratch admission is required');

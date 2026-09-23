@@ -33,6 +33,9 @@ import path from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 
 import { CompilerError } from '../../../../../compiler/errors.ts';
+import { sha256 } from '../../../../../contracts/canonical.ts';
+import { issueSecOperationRequirementBindingContext } from '../../../../../execution/operation/requirement-binding-context.ts';
+import { bindSecSemanticOperation, compileSecCapabilityBinding, compileSecSemanticOperationPlan, issueSecSemanticOperationAttemptContext, type SecOperationDigest } from '../../../../../execution/operation/semantic.ts';
 import { assertWorkspaceWriteLease, withWorkspaceWriteLease, type WorkspaceWriteLeaseToken } from '../../../../filesystem/write-lease.ts';
 import {
   compileIssueDisposition,
@@ -46,7 +49,10 @@ import {
 
 import { withAuthorityGitReadSession } from '../../../../providers/git-read/authority.ts';
 import { GIT_READ_EXACT_TREE_OPERATION_BUDGET } from '../../../../providers/git-read/runtime/session.ts';
+import { assertGitPhysicalProviderReceipt, closeGitPhysicalProvider, openGitPhysicalProvider } from '../../../../providers/git/physical-provider.ts';
+import { assertGitLocalRefDeleteBatchReceipt, deleteExactLocalGitRefs } from '../../../../providers/git/ref-effect.ts';
 import type { GitHubWorkflowJobObservation, GitHubWorkflowRunObservation } from '../../../../providers/github-api/contract.ts';
+import { assertProcessResourceSessionReceipt, openProcessResourceSession } from '../../../../runtime-state/physical/runtime/process-resource-session.ts';
 import { createRuntimeStateJournalFileSystem } from '../../../../runtime-state/workspace-state/journal-filesystem.ts';
 import { resolveSecWorkspaceRuntimeRoots } from '../../../../runtime-state/workspace-state/paths.ts';
 import { acquireSecRuntimeJournalAuthority } from '../../../../runtime-state/workspace-state/physical-authority.ts';
@@ -146,7 +152,7 @@ import {
   observeUnexpectedGitHubIssueClosures
 } from '../../../../self-hosting/control/issues/issue-disposition-github.ts';
 import { createMainHealthLedger } from '../../../../self-hosting/control/main-health/contract.ts';
-import { createObservedMainHealthInput } from '../../../../self-hosting/control/main-health/main-health-observation.ts';
+import { createRegisteredHostedMainHealthInputs } from '../../../../self-hosting/control/main-health/main-health-observation.ts';
 import {
   createCiMainHealthRequestOperationId
 } from '../../../../self-hosting/control/main-health/provider-policy.ts';
@@ -229,6 +235,9 @@ import {
 } from './verification-session-runtime.ts';
 
 const SESSION_COMMAND_TIMEOUT_MS = 60_000;
+const HOSTED_LOCAL_REF_REQUIREMENT = 'verification-session.hosted-closeout.local-ref-delete';
+const HOSTED_LOCAL_REF_CONTRACT = sha256({ owner: 'verification.ci', operation: 'hosted-closeout-local-ref-delete', effect: 'exact-native-git-ref-cas' }) as SecOperationDigest;
+const HOSTED_LOCAL_REF_PROVIDER = sha256({ provider: 'external-capabilities.git.physical-provider', operation: HOSTED_LOCAL_REF_REQUIREMENT }) as SecOperationDigest;
 const SESSION_COMMAND_MAX_BUFFER = 32 * 1024 * 1024;
 
 interface VerificationSessionScope {
@@ -497,44 +506,50 @@ function inspectTrustedRuntime(input: {
     workingTreeClean, runtimeEntrypointBlobMatched, boundaryTargetsMatched });
 }
 
-function synchronizeTrustedRemoteDefaultRef(input: {
+async function synchronizeTrustedRemoteDefaultRef(input: {
   ctx: VerificationSessionScope;
   defaultBranch?: string;
   remote?: string;
-}): Readonly<{ defaultSha: string; headSha: string }> {
-  const identity = trustedRemoteDefaultIdentity(input.defaultBranch, input.remote);
-  const readLive = (label: string): string => {
-    return readTrustedRemoteDefaultRef({ ctx: input.ctx, identity, label });
-  };
+}): Promise<Readonly<{ defaultSha: string; headSha: string }>> {
+  const commonDir = commonGitDirectory(input.ctx, input.ctx.repositoryRoot);
+  return withWorkspaceWriteLease(commonDir, undefined, async (coordinatedLease) => {
+    await assertWorkspaceWriteLease(commonDir, coordinatedLease);
+    const identity = trustedRemoteDefaultIdentity(input.defaultBranch, input.remote);
+    const readLive = (label: string): string => {
+      return readTrustedRemoteDefaultRef({ ctx: input.ctx, identity, label });
+    };
 
-  const headBefore = requireVerificationSessionCommandText(
-    input.ctx, 'git', ['rev-parse', 'HEAD'], 'pre-synchronization HEAD readback'
-  );
-  const liveBefore = readLive('pre-synchronization live default readback');
-  const fetched = runVerificationSessionCommand(input.ctx, 'git', [
-    ...createBranchLifecycleGitHubCredentialArgs(),
-    'fetch', '--no-tags', '--no-recurse-submodules', identity.remote,
-    `+${identity.remoteRef}:${identity.localRef}`
-  ]);
-  if (fetched.status !== 0) {
-    throw new Error(
-      `Trusted remote default ref-only fetch failed: ${decodeBranchLifecycleChildError(fetched)}`
+    const headBefore = requireVerificationSessionCommandText(
+      input.ctx, 'git', ['rev-parse', 'HEAD'], 'pre-synchronization HEAD readback'
     );
-  }
-  const localAfter = requireVerificationSessionCommandText(
-    input.ctx, 'git', ['rev-parse', identity.localRef], 'post-synchronization local default readback'
-  );
-  const liveAfter = readLive('post-synchronization live default readback');
-  const headAfter = requireVerificationSessionCommandText(
-    input.ctx, 'git', ['rev-parse', 'HEAD'], 'post-synchronization HEAD readback'
-  );
-  if (headAfter !== headBefore) {
-    throw new Error('Trusted remote default ref-only fetch changed HEAD.');
-  }
-  if (liveBefore !== liveAfter || localAfter !== liveAfter) {
-    throw new Error('Trusted remote default changed during synchronized ref-only fetch.');
-  }
-  return Object.freeze({ defaultSha: liveAfter, headSha: headAfter });
+    const liveBefore = readLive('pre-synchronization live default readback');
+    await assertWorkspaceWriteLease(commonDir, coordinatedLease);
+    const fetched = runVerificationSessionCommand(input.ctx, 'git', [
+      ...createBranchLifecycleGitHubCredentialArgs(),
+      'fetch', '--no-tags', '--no-recurse-submodules', identity.remote,
+      `+${identity.remoteRef}:${identity.localRef}`
+    ]);
+    if (fetched.status !== 0) {
+      throw new Error(
+        `Trusted remote default ref-only fetch failed: ${decodeBranchLifecycleChildError(fetched)}`
+      );
+    }
+    const localAfter = requireVerificationSessionCommandText(
+      input.ctx, 'git', ['rev-parse', identity.localRef], 'post-synchronization local default readback'
+    );
+    const liveAfter = readLive('post-synchronization live default readback');
+    const headAfter = requireVerificationSessionCommandText(
+      input.ctx, 'git', ['rev-parse', 'HEAD'], 'post-synchronization HEAD readback'
+    );
+    if (headAfter !== headBefore) {
+      throw new Error('Trusted remote default ref-only fetch changed HEAD.');
+    }
+    if (liveBefore !== liveAfter || localAfter !== liveAfter) {
+      throw new Error('Trusted remote default changed during synchronized ref-only fetch.');
+    }
+    await assertWorkspaceWriteLease(commonDir, coordinatedLease);
+    return Object.freeze({ defaultSha: liveAfter, headSha: headAfter });
+  });
 }
 
 export function observeVerificationSessionActionDependencyBlobs(input: {
@@ -969,7 +984,11 @@ async function executePreparedLocalQuickDag(input: {
   result: LocalVerificationActionDagResult;
   worktreeDisposition: 'created-and-removed' | 'reused-and-removed' | 'retained-blocked' | 'retained-physical-closeout-blocked';
 }>> {
-  const lease = acquireLocalCandidateWorktree(input);
+  const commonDir = commonGitDirectory(input.ctx, input.authorityRoot);
+  const lease = await withWorkspaceWriteLease(commonDir, undefined, async (coordinatedLease) => {
+    await assertWorkspaceWriteLease(commonDir, coordinatedLease);
+    return acquireLocalCandidateWorktree(input);
+  });
   const result = await executeLocalVerificationActionDag({
     authorityRoot: lease.owner.authorityRoot,
     candidateRoot: lease.owner.candidateRoot,
@@ -2464,23 +2483,66 @@ function deleteHostedRemoteRefCas(
   );
 }
 
-function deleteHostedLocalRefCas(
-  ctx: VerificationSessionScope,
+async function deleteHostedLocalRefCas(
   preparation: BranchCloseoutPreparation,
-  attempts: BranchCloseoutAttempt[]
-): BranchCloseoutAttempt {
+  attempts: BranchCloseoutAttempt[],
+  coordinatedLease: WorkspaceWriteLeaseToken,
+  closeoutOperationId: SecOperationDigest
+): Promise<BranchCloseoutAttempt> {
   const expected = preparation.expectedLocalSha ?? preparation.expectedHeadSha;
-  const result = runVerificationSessionCommand(ctx, 'git', [
-    'update-ref', '-d', `refs/heads/${preparation.branch}`, expected
-  ], preparation.repository.root);
-  return closeoutAttempt(
-    attempts,
-    'local-delete',
-    result.status === 0 ? 'success' : 'failed',
-    result.status === 0
+  const durationMs = 120_000;
+  const plan = compileSecSemanticOperationPlan({
+    operation: 'verification-session.hosted-closeout-local-ref-delete',
+    intentDigest: closeoutOperationId,
+    decisionDigest: HOSTED_LOCAL_REF_CONTRACT,
+    deadlineAtUnixMs: Date.now() + durationMs,
+    attempt: issueSecSemanticOperationAttemptContext({ authorityGrantDigest: closeoutOperationId }),
+    aggregateBudgets: [
+      { resource: 'duration-ms', maximum: durationMs },
+      { resource: 'input-bytes', maximum: 4096 },
+      { resource: 'output-bytes', maximum: 1024 * 1024 },
+      { resource: 'processes', maximum: 7 }
+    ],
+    requirements: [{ id: HOSTED_LOCAL_REF_REQUIREMENT, contractDigest: HOSTED_LOCAL_REF_CONTRACT,
+      effectKinds: ['filesystem', 'process', 'provider'],
+      failureKinds: ['filesystem.identity-drift', 'filesystem.write-failed', 'process.cancelled',
+        'process.deadline-exhausted', 'process.output-budget-exhausted', 'process.settlement-unproven', 'process.unavailable'] }]
+  });
+  const operation = bindSecSemanticOperation(plan, [compileSecCapabilityBinding({
+    requirementId: HOSTED_LOCAL_REF_REQUIREMENT, contractDigest: HOSTED_LOCAL_REF_CONTRACT,
+    providerIdentityDigest: HOSTED_LOCAL_REF_PROVIDER
+  })]);
+  const processSession = openProcessResourceSession({ operation,
+    requirementBindingContext: issueSecOperationRequirementBindingContext({ operation,
+      requirementId: HOSTED_LOCAL_REF_REQUIREMENT, resourceCeilings: operation.plan.execution.aggregateBudgets }) });
+  let primaryError: unknown;
+  try {
+    await withAuthorityGitReadSession({ cwd: preparation.repository.root,
+      budget: GIT_READ_DEFAULT_OPERATION_BUDGET }, async (session) => {
+      const executablePath = session.gitExecutableIdentity?.realPath;
+      if (executablePath === undefined) throw new Error('Git read owner did not retain an executable identity.');
+      const resolution = openGitPhysicalProvider({ cwd: preparation.repository.root, executablePath,
+        operation, processSession, environmentSource: process.env, maximumExecutableBytes: 128 * 1024 * 1024 });
+      if (resolution.status !== 'ready') throw new Error(`Git physical provider unavailable: ${resolution.reason}`);
+      let effectError: unknown;
+      try {
+        const receipt = await deleteExactLocalGitRefs({ provider: resolution.capability, coordinatedLease,
+          entries: [{ ref: `refs/heads/${preparation.branch}`, expectedOldSha: expected }] });
+        assertGitLocalRefDeleteBatchReceipt(receipt);
+      } catch (error) { effectError = error; }
+      try { assertGitPhysicalProviderReceipt(closeGitPhysicalProvider(resolution.capability), resolution.capability); }
+      catch (error) { effectError ??= error; }
+      if (effectError !== undefined) throw effectError;
+    });
+  } catch (error) { primaryError = error; }
+  try {
+    assertProcessResourceSessionReceipt(processSession.close(), { operationIdentityDigest: operation.plan.identity.identityDigest,
+      boundAttemptDigest: operation.boundAttemptDigest, requirementId: HOSTED_LOCAL_REF_REQUIREMENT });
+  } catch (error) { primaryError ??= error; }
+  return closeoutAttempt(attempts, 'local-delete', primaryError === undefined ? 'success' : 'failed',
+    primaryError === undefined
       ? `deleted refs/heads/${preparation.branch} at expected ${expected}`
-      : decodeBranchLifecycleChildError(result)
-  );
+      : primaryError instanceof Error ? primaryError.message : String(primaryError));
 }
 
 function pruneHostedRemote(
@@ -2511,6 +2573,7 @@ async function authorizeHostedCloseoutEffectUnderLease(input: Readonly<{
   prepared: PreparedBranchCloseoutEnvelope;
   binding: ReturnType<typeof createBranchCloseoutOperationBinding>;
   lease: WorkspaceWriteLeaseToken;
+  coordinatedLease: WorkspaceWriteLeaseToken;
   worktreeCleanupTokens: readonly WorktreePhysicalCloseoutConsumptionToken[];
   foreignWorktreeObservationDigests: readonly `sha256:${string}`[];
 }>): Promise<Readonly<{
@@ -2518,6 +2581,7 @@ async function authorizeHostedCloseoutEffectUnderLease(input: Readonly<{
   authorization: ReturnType<typeof authorizeBranchCloseout>;
 }>> {
   const preparation = input.prepared.preparation;
+  await assertWorkspaceWriteLease(preparation.repository.commonDir, input.coordinatedLease);
   await assertWorkspaceWriteLease(preparation.repository.root, input.lease);
   const observedCurrent = collectBranchLifecycleInventory(input.ctx);
   const recoveryReadback = verifyRecoveryAuthorityLive({
@@ -2551,6 +2615,7 @@ async function authorizeHostedCloseoutEffectUnderLease(input: Readonly<{
     foreignWorktreeObservationDigests: input.foreignWorktreeObservationDigests
   });
   await assertWorkspaceWriteLease(preparation.repository.root, input.lease);
+  await assertWorkspaceWriteLease(preparation.repository.commonDir, input.coordinatedLease);
   return Object.freeze({ current, authorization });
 }
 
@@ -2685,6 +2750,7 @@ async function finalizeHostedBranchCloseout(input: Readonly<{
   writerId: string;
   now: () => string;
   lease: WorkspaceWriteLeaseToken;
+  coordinatedLease: WorkspaceWriteLeaseToken;
   worktreeCleanupTokens: readonly WorktreePhysicalCloseoutConsumptionToken[];
   foreignWorktreeObservationDigests: readonly `sha256:${string}`[];
 }>): Promise<BranchCloseoutOperationReceipt> {
@@ -2700,6 +2766,7 @@ async function finalizeHostedBranchCloseout(input: Readonly<{
     prepared: input.prepared,
     binding: input.binding,
     lease: input.lease,
+    coordinatedLease: input.coordinatedLease,
     worktreeCleanupTokens: input.worktreeCleanupTokens,
     foreignWorktreeObservationDigests: input.foreignWorktreeObservationDigests
   });
@@ -2847,6 +2914,7 @@ async function finalizeHostedBranchCloseout(input: Readonly<{
     prepared: input.prepared,
     binding: input.binding,
     lease: input.lease,
+    coordinatedLease: input.coordinatedLease,
     worktreeCleanupTokens: input.worktreeCleanupTokens,
     foreignWorktreeObservationDigests: input.foreignWorktreeObservationDigests
   });
@@ -2868,7 +2936,9 @@ async function finalizeHostedBranchCloseout(input: Readonly<{
     } else if (localGuard.authorization.blockers.length === 0
       && localGuard.authorization.localAction === 'delete-exact') {
       await assertWorkspaceWriteLease(preparation.repository.root, input.lease);
-      const localAttempt = deleteHostedLocalRefCas(input.ctx, preparation, attempts);
+      await assertWorkspaceWriteLease(preparation.repository.commonDir, input.coordinatedLease);
+      const localAttempt = await deleteHostedLocalRefCas(preparation, attempts,
+        input.coordinatedLease, input.binding.closeoutOperationId as SecOperationDigest);
       updateJournal({ local: closeoutEffect(localAttempt) });
     } else {
       closeoutAttempt(
@@ -2889,6 +2959,7 @@ async function finalizeHostedBranchCloseout(input: Readonly<{
     prepared: input.prepared,
     binding: input.binding,
     lease: input.lease,
+    coordinatedLease: input.coordinatedLease,
     worktreeCleanupTokens: input.worktreeCleanupTokens,
     foreignWorktreeObservationDigests: input.foreignWorktreeObservationDigests
   });
@@ -2984,9 +3055,16 @@ async function finalizeSameInvocationCloseout(input: Readonly<{
     closeoutOperationId: input.binding.closeoutOperationId
   });
   if (existing !== null) return;
-  await withWorkspaceWriteLease(input.ctx.repositoryRoot, undefined, async (lease) => {
+  const commonDir = commonGitDirectory(input.ctx, input.ctx.repositoryRoot);
+  if (comparableFileSystemPath(commonDir)
+      !== comparableFileSystemPath(input.prepared.preparation.repository.commonDir)) {
+    throw new Error('Hosted closeout Git common directory changed before effect-start.');
+  }
+  await withWorkspaceWriteLease(commonDir, undefined, (coordinatedLease) => (
+    withWorkspaceWriteLease(input.ctx.repositoryRoot, undefined, async (lease) => {
+    await assertWorkspaceWriteLease(commonDir, coordinatedLease);
     const guard = await authorizeHostedCloseoutEffectUnderLease({ ctx: input.ctx,
-      prepared: input.prepared, binding: input.binding, lease,
+      prepared: input.prepared, binding: input.binding, lease, coordinatedLease,
       worktreeCleanupTokens: input.worktreeCleanupTokens,
       foreignWorktreeObservationDigests: [] });
     if (guard.authorization.blockers.length !== 0 || guard.authorization.remoteAction !== 'delete-cas') {
@@ -3008,9 +3086,10 @@ async function finalizeSameInvocationCloseout(input: Readonly<{
     }
     await finalizeHostedBranchCloseout({ ctx: input.ctx, prepared: input.prepared,
       binding: input.binding, markerDisposition: 'published', writerId: input.binding.closeoutOperationId,
-      now: input.now, lease, worktreeCleanupTokens: input.worktreeCleanupTokens,
+      now: input.now, lease, coordinatedLease, worktreeCleanupTokens: input.worktreeCleanupTokens,
       foreignWorktreeObservationDigests: [] });
-  });
+    })
+  ));
 }
 
 function publishHostedCloseoutTerminal(input: Readonly<{
@@ -3548,11 +3627,17 @@ function evaluateFreshHostedIntegration(input: {
   }
   const issuedAt = barrier.observedAt;
   const workflowRef = `.github/workflows/sec-merge-gate.yml@${artifact.session.baseSha}`;
-  const freshMainHealth = createMainHealthLedger(createObservedMainHealthInput({
+  const freshMainHealthInputs = createRegisteredHostedMainHealthInputs({
     repository, mainSha: candidate.baseSha, mainTreeSha: candidate.baseTreeSha,
     trustRevision: artifact.session.trustRevision, observedAt: issuedAt,
-    expiresAt: addSeconds(issuedAt, 300), sourceRunId: provenance.runId,
-    sourceRef: workflowRef, checks: github.observeChecks(repository, candidate.baseSha) }));
+    expiresAt: addSeconds(issuedAt, 300),
+    sourceRef: `github-check-runs:${repository}@${candidate.baseSha}`,
+    checks: github.observeChecks(repository, candidate.baseSha)
+  });
+  if (freshMainHealthInputs.length !== 1) {
+    throw new Error('Hosted integration requires one exact registered MainHealth producer.');
+  }
+  const freshMainHealth = createMainHealthLedger(freshMainHealthInputs[0]!);
   const consumptionOperationId = createVerificationSessionMergeOperationId({
     sessionRevision: artifact.session.sessionRevision, headSha: artifact.session.headSha,
     actionPlanDigest: artifact.evidence.actionPlan.actionPlanDigest });
@@ -4167,13 +4252,11 @@ export async function verificationSessionCli(argv: string[]): Promise<string> {
       liveCommentId: selected.commentId,
       liveCandidate
     });
-    const result = await withWorkspaceWriteLease(protectedRoot, undefined, async (lease) => (
-      executeLocalMainCloseout(
-        protectedRoot,
-        binding,
-        gitRunner,
-        lease
-      )
+    const commonDir = commonGitDirectory(ctx, protectedRoot);
+    const result = await withWorkspaceWriteLease(commonDir, undefined, (coordinatedLease) => (
+      withWorkspaceWriteLease(protectedRoot, undefined, (lease) => (
+        executeLocalMainCloseout(protectedRoot, binding, gitRunner, lease, coordinatedLease)
+      ))
     ));
     const receipt = Object.freeze({
       schema: 'sec-local-main-closeout-receipt-v3', binding, result, observedAt: now()
@@ -4775,7 +4858,7 @@ export async function verificationSessionCli(argv: string[]): Promise<string> {
     let candidate = github.observeCandidate(repository, artifact.session.prNumber);
     let boundPostMergeMainSha: string | null = null;
     if (candidate.state === 'MERGED') {
-      const synchronized = synchronizeTrustedRemoteDefaultRef({ ctx });
+      const synchronized = await synchronizeTrustedRemoteDefaultRef({ ctx });
       boundPostMergeMainSha = assertBoundPostMergeMain({ ctx, repository,
         session: artifact.session, candidate, lane: 'merged-recovery',
         liveMainSha: synchronized.defaultSha, environment });
@@ -5072,7 +5155,7 @@ export async function verificationSessionCli(argv: string[]): Promise<string> {
       if (issueReconciliation.status !== 'no-op') {
         stopCloseoutForIssueReconciliation(merged);
       }
-      const synchronized = synchronizeTrustedRemoteDefaultRef({ ctx });
+      const synchronized = await synchronizeTrustedRemoteDefaultRef({ ctx });
       if (route.lane !== 'open-first-effect' || originalHostPrepared === null) {
         throw new Error('external-maintainer-disposition-required: merged recovery has no same-process original-host closeout authority.');
       }
@@ -5192,10 +5275,14 @@ export async function verificationSessionCli(argv: string[]): Promise<string> {
       runId: closeout.recovery.metadata.runId,
       runAttempt: closeout.recovery.metadata.runAttempt
     });
-    const { effectStart, terminal } = await withWorkspaceWriteLease(
-      ctx.repositoryRoot,
-      undefined,
-      async (lease) => {
+    const commonDir = commonGitDirectory(ctx, ctx.repositoryRoot);
+    if (comparableFileSystemPath(commonDir)
+        !== comparableFileSystemPath(closeout.recovery.prepared.preparation.repository.commonDir)) {
+      throw new Error('Hosted closeout Git common directory changed before effect-start.');
+    }
+    const { effectStart, terminal } = await withWorkspaceWriteLease(commonDir, undefined, (coordinatedLease) => (
+      withWorkspaceWriteLease(ctx.repositoryRoot, undefined, async (lease) => {
+    await assertWorkspaceWriteLease(commonDir, coordinatedLease);
     let effectStart: HostedCloseoutEffectStartReadback;
     const observedStart = observeBranchCloseoutEffectStartPublication(ctx.repositoryRoot, { repository,
       pullRequestNumber: session.prNumber, closeoutOperationId: closeout.binding.closeoutOperationId });
@@ -5233,6 +5320,7 @@ export async function verificationSessionCli(argv: string[]): Promise<string> {
         prepared: closeout.recovery.prepared,
         binding: closeout.binding,
         lease,
+        coordinatedLease,
         worktreeCleanupTokens,
         foreignWorktreeObservationDigests
       });
@@ -5271,12 +5359,13 @@ export async function verificationSessionCli(argv: string[]): Promise<string> {
       markerDisposition: effectStart.disposition,
       now,
       lease,
+      coordinatedLease,
       worktreeCleanupTokens,
       foreignWorktreeObservationDigests
     });
     return Object.freeze({ effectStart, terminal });
-      }
-    );
+      })
+    ));
     if (encodeVerificationActionData(terminal.binding)
       !== encodeVerificationActionData(closeout.binding)) {
       throw new Error('Hosted closeout terminal receipt binding differs from the exact merged operation.');

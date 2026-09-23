@@ -7,17 +7,24 @@ last-reviewed: 2026-09-23
 
 # SEC 滚动近期计划
 
-本文件由唯一rolling projection compiler生成，是未获activation authority的proposal-only候选投影。authority固定为none；projection digest只保护规范化表示，不能产生WorkDecision、Effect、merge或完成权限。
+本文件由唯一rolling projection compiler生成。普通选择与非普通transition使用同一机器拓扑和同一全文renderer；digest只证明规范化内容完整性，effectful owner仍必须在发布前重验其WorkDecision、committed-candidate或MainHealth authority。禁止单独修改标题、prose、JSON字段或digest。
 
 ```json
 {
   "active": {
-    "manifestDigest": "sha256:1c36f1ae38441621a0f6aa96b25e43fc5a14a3278679b369f33085a0fe3ac020",
+    "manifestDigest": "sha256:f1b56fcd2db542328d3d04a791fe28277fe30b294b7864dc559221037fc9f537",
     "manifestPath": "config/repository/work-packages/coordinated-repository-closeout-v1.md",
     "packageId": "coordinated-repository-closeout-v1",
     "tracking": "none"
   },
-  "authority": "none",
+  "authority": {
+    "kind": "committed-candidate-replan",
+    "sourceHead": "1ad865b297ed77dc9bceaace46e825116c57a32b",
+    "sourceManifestDigest": "sha256:1c36f1ae38441621a0f6aa96b25e43fc5a14a3278679b369f33085a0fe3ac020",
+    "sourcePointerRevision": "sha256:c08c02adb3e8159a5b294cccf9cc600d655b0bbeb707f2ccef56e7aa0a09ea7e",
+    "sourceRollingRevision": "sha256:c0047f9bcceb666c28bb3070a54bd34b8c3c56733f35d2624979348526721d40",
+    "sourceTree": "29c565caa8a1149dbe8e13fd31b21f3a56eafb80"
+  },
   "candidates": [
     "development-critical-path-spine-v1",
     "operation-read-plan-authority-canary-v1",
@@ -27,8 +34,8 @@ last-reviewed: 2026-09-23
   ],
   "exactMain": "8c6dc289e3fe17b358e6a9c335fbbe092b8ce1ce",
   "exactMainTree": "52b96737f3f3983347738fe4fec11a89e76dc92c",
-  "projectionDigest": "sha256:e3dc10e4082adc961d61277111d494c4c29fb07f7a1d21cb8c48f8b12bcd5116",
-  "schema": "sec-work-rolling-proposal-projection-v1"
+  "projectionDigest": "sha256:8760c3df3fe8bb75e13895be8d5ab4aef1d9de7b57567d5b502ce092955ebc86",
+  "schema": "sec-work-rolling-transition-projection-v1"
 }
 ```
 
@@ -36,29 +43,29 @@ last-reviewed: 2026-09-23
 
 ### coordinated-repository-closeout-v1
 
-Proposal-only target manifest `config/repository/work-packages/coordinated-repository-closeout-v1.md` at `sha256:1c36f1ae38441621a0f6aa96b25e43fc5a14a3278679b369f33085a0fe3ac020`, based on exact main `8c6dc289e3fe17b358e6a9c335fbbe092b8ce1ce` and tree `52b96737f3f3983347738fe4fec11a89e76dc92c`.
+Existing active package replan bound to exact source head `1ad865b297ed77dc9bceaace46e825116c57a32b`, source tree `29c565caa8a1149dbe8e13fd31b21f3a56eafb80`, manifest `sha256:f1b56fcd2db542328d3d04a791fe28277fe30b294b7864dc559221037fc9f537`, and authority `sha256:51f2b903199df97d949bb07e06198a6b549c7a8527dd6d78e8a3053b37028d27`.
 
 ## 候选 Work Package
 
 ### 1. development-critical-path-spine-v1
 
-Retained ordered candidate identity from the published baseline; no selection authority is implied.
+Retained ordered candidate from transition authority `sha256:51f2b903199df97d949bb07e06198a6b549c7a8527dd6d78e8a3053b37028d27`.
 
 ### 2. operation-read-plan-authority-canary-v1
 
-Retained ordered candidate identity from the published baseline; no selection authority is implied.
+Retained ordered candidate from transition authority `sha256:51f2b903199df97d949bb07e06198a6b549c7a8527dd6d78e8a3053b37028d27`.
 
 ### 3. sec-static-convergence-v1
 
-Retained ordered candidate identity from the published baseline; no selection authority is implied.
+Retained ordered candidate from transition authority `sha256:51f2b903199df97d949bb07e06198a6b549c7a8527dd6d78e8a3053b37028d27`.
 
 ### 4. candidate-control-transaction-v1
 
-Retained ordered candidate identity from the published baseline; no selection authority is implied.
+Retained ordered candidate from transition authority `sha256:51f2b903199df97d949bb07e06198a6b549c7a8527dd6d78e8a3053b37028d27`.
 
 ### 5. typescript-7-checker-acceleration-v1
 
-Retained ordered candidate identity from the published baseline; no selection authority is implied.
+Retained ordered candidate from transition authority `sha256:51f2b903199df97d949bb07e06198a6b549c7a8527dd6d78e8a3053b37028d27`.
 
 ## 重新规划硬触发器
 
