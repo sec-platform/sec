@@ -57,7 +57,8 @@ import {
   withGitHubApiIssueCommentWriteSession,
   withGitHubApiMergeWriteSession,
   withGitHubApiReadSession,
-  withGitHubApiRepositoryDispatchWriteSession
+  withGitHubApiRepositoryDispatchWriteSession,
+  type GitHubApiOperation
 } from '../../../../providers/github-api/operation-session.ts';
 import type { GitHubWorkflowJobObservation, GitHubWorkflowRunObservation } from '../../../../providers/github-api/contract.ts';
 import { assertProcessResourceSessionReceipt, openProcessResourceSession } from '../../../../runtime-state/physical/runtime/process-resource-session.ts';
@@ -319,7 +320,7 @@ export async function observeVerificationSessionChangedSelection(input: {
 
 function runVerificationSessionCommand(
   ctx: VerificationSessionScope,
-  command: 'bun' | 'gh' | 'git',
+  command: 'bun' | 'git',
   args: readonly string[],
   cwd = ctx.repositoryRoot,
   stdin?: string | Uint8Array
@@ -355,7 +356,7 @@ function runVerificationSessionCommand(
 
 function requireVerificationSessionCommandText(
   ctx: VerificationSessionScope,
-  command: 'bun' | 'gh' | 'git',
+  command: 'bun' | 'git',
   args: readonly string[],
   label: string,
   cwd = ctx.repositoryRoot
@@ -369,7 +370,7 @@ function requireVerificationSessionCommandText(
 
 function requireCommand(
   ctx: VerificationSessionScope,
-  command: 'git' | 'gh',
+  command: 'git',
   args: readonly string[],
   label: string
 ): string {
@@ -1845,15 +1846,17 @@ async function observeDurableVerificationSessionProjection(input: {
     }) });
 }
 
-function apiRecord(ctx: VerificationSessionScope, endpoint: string, label: string): Record<string, any> {
-  const source = requireVerificationSessionCommandText(
-    ctx,
-    'gh',
-    ['api', endpoint],
-    label,
-    ctx.repositoryRoot
-  );
-  const value: unknown = JSON.parse(source);
+async function apiRecord(
+  ctx: VerificationSessionScope,
+  repository: string,
+  operation: GitHubApiOperation,
+  label: string
+): Promise<Record<string, any>> {
+  const value = await withGitHubApiReadSession({
+    repositoryRoot: ctx.repositoryRoot,
+    repository,
+    operation: async (capability) => await executeGitHubApiOperation(capability, operation)
+  });
   if (value === null || typeof value !== 'object' || Array.isArray(value)) {
     throw new Error(`${label} must return one object.`);
   }
@@ -1977,7 +1980,7 @@ function requiredEnvironmentGitSha(
   return value;
 }
 
-function assertBoundPostMergeMain(input: Readonly<{
+async function assertBoundPostMergeMain(input: Readonly<{
   ctx: VerificationSessionScope;
   repository: string;
   session: VerificationSession;
@@ -1985,7 +1988,7 @@ function assertBoundPostMergeMain(input: Readonly<{
   lane: 'open-first-effect' | 'merged-recovery';
   liveMainSha: string;
   environment: Readonly<Record<string, string | undefined>>;
-}>): string {
+}>): Promise<string> {
   const preMergeMainSha = requiredEnvironmentGitSha(input.environment, 'PRE_MERGE_MAIN_SHA');
   const plannedCurrentMainSha = requiredEnvironmentGitSha(input.environment, 'PLANNED_CURRENT_MAIN_SHA');
   if (preMergeMainSha !== input.session.baseSha || input.candidate.mergeCommitSha === null
@@ -1998,7 +2001,7 @@ function assertBoundPostMergeMain(input: Readonly<{
       || input.liveMainSha === preMergeMainSha) {
       throw new Error('First-effect integration did not advance main exactly once from the planned base.');
     }
-    const commit = apiRecord(input.ctx, `/repos/${input.repository}/git/commits/${mergeCommitSha}`,
+    const commit = await apiRecord(input.ctx, input.repository, { kind: 'git-commit', sha: mergeCommitSha },
       'first-effect merge commit ancestry readback');
     const parents = Array.isArray(commit.parents) ? commit.parents : [];
     if (commit.sha !== mergeCommitSha || commit.tree?.sha !== input.candidate.mergeCommitTreeSha
@@ -2009,8 +2012,8 @@ function assertBoundPostMergeMain(input: Readonly<{
     if (input.liveMainSha !== plannedCurrentMainSha) {
       throw new Error('Main advanced after the merged-recovery lane was planned.');
     }
-    const relation = apiRecord(input.ctx,
-      `/repos/${input.repository}/compare/${mergeCommitSha}...${input.liveMainSha}`,
+    const relation = await apiRecord(input.ctx, input.repository,
+      { kind: 'compare', baseSha: mergeCommitSha, headSha: input.liveMainSha },
       'merged-recovery main ancestry readback');
     if ((relation.status !== 'identical' && relation.status !== 'ahead')
       || relation.base_commit?.sha !== mergeCommitSha
@@ -2022,7 +2025,7 @@ function assertBoundPostMergeMain(input: Readonly<{
   return input.liveMainSha;
 }
 
-function assertHostedIntegrationIdentity(input: {
+async function assertHostedIntegrationIdentity(input: {
   ctx: VerificationSessionScope;
   github: VerificationSessionGitHubClient;
   repository: string;
@@ -2032,10 +2035,10 @@ function assertHostedIntegrationIdentity(input: {
   phase: HostedIntegrationPhase;
   environment: Readonly<Record<string, string | undefined>>;
   repositoryRoot: string;
-}): Readonly<{
+}): Promise<Readonly<{
   provenance: HostedWorkflowCommentProvenance;
   phase: HostedIntegrationPhaseOwnership;
-}> {
+}>> {
   const { ctx, github, repository, event, session, candidate, phase: requestedPhase,
     environment, repositoryRoot } = input;
   const baseSha = session.baseSha;
@@ -2067,7 +2070,8 @@ function assertHostedIntegrationIdentity(input: {
   if (workflowRef !== expectedWorkflowRef || environment.GITHUB_WORKFLOW_SHA !== workflowSha) {
     throw new Error('integrate-hosted is not running from the canonical merge workflow.');
   }
-  const repositoryFact = apiRecord(ctx, `/repos/${repository}`, 'integrate-hosted repository readback');
+  const repositoryFact = await apiRecord(ctx, repository, { kind: 'repository' },
+    'integrate-hosted repository readback');
   const repositoryId = String(repositoryFact.id ?? '');
   if (!/^[1-9][0-9]*$/u.test(repositoryId) || repositoryFact.full_name !== repository
     || repositoryFact.default_branch !== 'main'
@@ -2076,7 +2080,7 @@ function assertHostedIntegrationIdentity(input: {
     || event.repository?.full_name !== repository) {
     throw new Error('integrate-hosted repository id/default identity mismatch.');
   }
-  const currentRun = apiRecord(ctx, `/repos/${repository}/actions/runs/${runId}`,
+  const currentRun = await apiRecord(ctx, repository, { kind: 'workflow-run', runId },
     'integrate-hosted current run readback');
   const wakeup = hostedMergeWakeupLocator(event);
   if (String(currentRun.id ?? '') !== runId || currentRun.run_attempt !== runAttempt
@@ -2088,8 +2092,8 @@ function assertHostedIntegrationIdentity(input: {
   }
   const sourceRunId = wakeup.sourceRunId;
   const sourceRunAttempt = wakeup.sourceRunAttempt;
-  const sourceRun = apiRecord(ctx,
-    `/repos/${repository}/actions/runs/${sourceRunId}/attempts/${sourceRunAttempt}`,
+  const sourceRun = await apiRecord(ctx, repository,
+    { kind: 'workflow-run-attempt', runId: sourceRunId, runAttempt: sourceRunAttempt },
     'integrate-hosted source run readback');
   if (!/^[1-9][0-9]*$/u.test(sourceRunId) || !Number.isSafeInteger(sourceRunAttempt)
     || sourceRunAttempt < 1 || String(sourceRun.id ?? '') !== sourceRunId
@@ -2222,7 +2226,7 @@ async function loadMergedHostedCloseoutContext(input: {
 }): Promise<Readonly<{
   hosted: ReturnType<typeof loadHostedArtifactForMergeWorkflow>;
   candidate: GitHubCandidateObservation;
-  identity: ReturnType<typeof assertHostedIntegrationIdentity>;
+  identity: Awaited<ReturnType<typeof assertHostedIntegrationIdentity>>;
   selected: Readonly<{ commentId: number; publication: IntegrationAuthorizationOperationPublication }>;
   recovery: ReturnType<typeof loadProviderBranchCloseoutRecoveryArtifact>;
   binding: ReturnType<typeof createBranchCloseoutOperationBinding>;
@@ -2238,7 +2242,7 @@ async function loadMergedHostedCloseoutContext(input: {
     || candidate.mergeCommitTreeSha !== artifact.session.headTreeSha) {
     throw new Error('Hosted closeout requires exact marker-bound merged tree parity.');
   }
-  const identity = assertHostedIntegrationIdentity({ ctx: input.ctx, github: input.github,
+  const identity = await assertHostedIntegrationIdentity({ ctx: input.ctx, github: input.github,
     repository: input.repository, event: input.event, session: artifact.session, candidate,
     phase: input.phase, environment: input.environment, repositoryRoot: input.repositoryRoot });
   const publications = await observeIntegrationAuthorizationOperationPublications(input.ctx.repositoryRoot, {
@@ -2378,8 +2382,8 @@ async function joinExactPostMergeMainHealth(input: Readonly<{
   }
   const requestOperationId = createCiMainHealthRequestOperationId(input.mainSha);
   const expectedTitle = `SEC main health ${input.mainSha} operation ${requestOperationId}`;
-  const workflow = apiRecord(input.ctx,
-    `/repos/${input.repository}/actions/workflows/compiler-pr-validation.yml`,
+  const workflow = await apiRecord(input.ctx, input.repository,
+    { kind: 'workflow', path: '.github/workflows/compiler-pr-validation.yml' },
     'canonical MainHealth workflow readback');
   const workflowId = Number(workflow.id);
   if (!Number.isSafeInteger(workflowId) || workflowId < 1
@@ -2430,7 +2434,7 @@ async function joinExactPostMergeMainHealth(input: Readonly<{
     await delay(pollMilliseconds);
   }
   if (joined === null) throw new Error('Timed out joining the exact post-merge MainHealth run.');
-  const run = apiRecord(input.ctx, `/repos/${input.repository}/actions/runs/${joined.id}`,
+  const run = await apiRecord(input.ctx, input.repository, { kind: 'workflow-run', runId: joined.id },
     'joined MainHealth workflow readback');
   if (String(run.id) !== joined.id || Number(run.workflow_id) !== workflowId
     || !matchesCiCompilerWorkflowRunIdentity({
@@ -3559,7 +3563,7 @@ export function assertHostedCompilerInternalProvenance(input: {
   return Object.freeze({ parentPlan, parentActorNodeId: parentPlan.parentActor.nodeId });
 }
 
-function assertHostedCompilerIdentity(input: {
+async function assertHostedCompilerIdentity(input: {
   ctx: VerificationSessionScope;
   github: VerificationSessionGitHubClient;
   repository: string;
@@ -3567,7 +3571,7 @@ function assertHostedCompilerIdentity(input: {
   request: ReturnType<typeof parseVerificationSessionHostedRequest>;
   environment: Readonly<Record<string, string | undefined>>;
   repositoryRoot: string;
-}): { actorNodeId: string; runId: string; runAttempt: number } {
+}): Promise<{ actorNodeId: string; runId: string; runAttempt: number }> {
   const { ctx, github, repository, event, request, environment, repositoryRoot } = input;
   const runId = environment.GITHUB_RUN_ID ?? '';
   const runAttempt = positiveEnvironmentInteger('GITHUB_RUN_ATTEMPT', environment);
@@ -3583,14 +3587,15 @@ function assertHostedCompilerIdentity(input: {
   }
   const dispatch = assertHostedCompilerDispatchPayload({ action: event.action,
     clientPayload: event.client_payload, request });
-  const repo = apiRecord(ctx, `/repos/${repository}`, 'observe-hosted repository readback');
+  const repo = await apiRecord(ctx, repository, { kind: 'repository' },
+    'observe-hosted repository readback');
   const repositoryId = String(repo.id ?? '');
   if (repo.full_name !== repository || repo.default_branch !== 'main'
     || environment.GITHUB_REPOSITORY_ID !== repositoryId
     || String(event.repository?.id ?? '') !== repositoryId) {
     throw new Error('observe-hosted repository id/default identity mismatch.');
   }
-  const run = apiRecord(ctx, `/repos/${repository}/actions/runs/${runId}`,
+  const run = await apiRecord(ctx, repository, { kind: 'workflow-run', runId },
     'observe-hosted current run readback');
   const expectedRunDisplayTitle = dispatch.kind === 'external-session'
     ? `verify session PR #${request.prNumber} session ${request.expectedSessionRevision}`
@@ -3641,16 +3646,17 @@ function assertHostedCompilerIdentity(input: {
     throw new Error('observe-hosted internal parent artifact is not JSON.', { cause: error });
   }
   const parentPlan = parseCiVerificationActionParentDispatchPlan(parentPlanValue);
-  const parentRun = apiRecord(ctx, `/repos/${repository}/actions/runs/${envelope.parentRunId}`,
+  const parentRun = await apiRecord(ctx, repository,
+    { kind: 'workflow-run', runId: envelope.parentRunId },
     'observe-hosted internal parent run readback');
   const checkSuiteId = Number(run.check_suite_id);
   if (!Number.isSafeInteger(checkSuiteId) || checkSuiteId < 1) {
     throw new Error('observe-hosted internal child run lacks one provider check-suite id.');
   }
-  const currentCheckSuite = apiRecord(ctx, `/repos/${repository}/check-suites/${checkSuiteId}`,
+  const currentCheckSuite = await apiRecord(ctx, repository, { kind: 'check-suite', checkSuiteId },
     'observe-hosted internal child check-suite readback');
-  const currentWorkflow = apiRecord(ctx,
-    `/repos/${repository}/actions/workflows/compiler-pr-validation.yml`,
+  const currentWorkflow = await apiRecord(ctx, repository,
+    { kind: 'workflow', path: '.github/workflows/compiler-pr-validation.yml' },
     'observe-hosted internal child workflow readback');
   const parentPrincipal = github.observePrincipal(repository, parentPlan.parentActor.login);
   const internal = assertHostedCompilerInternalProvenance({ repository, repositoryId, request,
@@ -4606,7 +4612,7 @@ export async function verificationSessionCli(argv: string[]): Promise<string> {
     const request = parseVerificationSessionHostedRequest(readFileSync(path.resolve(required(args, '--request')), 'utf8'));
     const github = githubAdapter();
     const eventPayload = event();
-    const compilerIdentity = assertHostedCompilerIdentity({ ctx, github, repository,
+    const compilerIdentity = await assertHostedCompilerIdentity({ ctx, github, repository,
       event: eventPayload, request, environment, repositoryRoot });
     const candidate = github.observeCandidate(repository, request.prNumber);
     const candidateChecks: readonly [unknown, unknown, string][] = [
@@ -4841,7 +4847,7 @@ export async function verificationSessionCli(argv: string[]): Promise<string> {
       writeDurable(outputPath, projection);
       return JSON.stringify({ ...projection, output: path.resolve(outputPath) }, null, 2);
     }
-    const identity = assertHostedIntegrationIdentity({ ctx, github, repository, event: eventPayload,
+    const identity = await assertHostedIntegrationIdentity({ ctx, github, repository, event: eventPayload,
       session: artifact.session, candidate, phase: 'recoveryPreparation', environment, repositoryRoot });
     const publications = await observeIntegrationAuthorizationOperationPublications(ctx.repositoryRoot, { repository,
       pullRequestNumber: artifact.session.prNumber, sessionRevision: artifact.session.sessionRevision });
@@ -4909,11 +4915,11 @@ export async function verificationSessionCli(argv: string[]): Promise<string> {
     let boundPostMergeMainSha: string | null = null;
     if (candidate.state === 'MERGED') {
       const synchronized = await synchronizeTrustedRemoteDefaultRef({ ctx });
-      boundPostMergeMainSha = assertBoundPostMergeMain({ ctx, repository,
+      boundPostMergeMainSha = await assertBoundPostMergeMain({ ctx, repository,
         session: artifact.session, candidate, lane: 'merged-recovery',
         liveMainSha: synchronized.defaultSha, environment });
     }
-    const hostedIdentity = assertHostedIntegrationIdentity({ ctx, github, repository,
+    const hostedIdentity = await assertHostedIntegrationIdentity({ ctx, github, repository,
       event: eventPayload, session: artifact.session, candidate, phase: 'closeoutMutation',
       environment, repositoryRoot });
     const hostedProvenance = hostedIdentity.provenance;
@@ -5228,7 +5234,7 @@ export async function verificationSessionCli(argv: string[]): Promise<string> {
       if (route.lane !== 'open-first-effect' || originalHostPrepared === null) {
         throw new Error('external-maintainer-disposition-required: merged recovery has no same-process original-host closeout authority.');
       }
-      boundPostMergeMainSha = assertBoundPostMergeMain({ ctx, repository,
+      boundPostMergeMainSha = await assertBoundPostMergeMain({ ctx, repository,
         session: artifact.session, candidate: merged, lane: 'open-first-effect',
         liveMainSha: synchronized.defaultSha, environment });
       await joinExactPostMergeMainHealth({ ctx, github, repository,
