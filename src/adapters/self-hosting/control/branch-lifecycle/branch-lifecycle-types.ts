@@ -188,7 +188,7 @@ export interface BranchLifecycleAuditReport {
   findings: BranchLifecycleAuditFinding[];
 }
 
-export interface BranchBundleRecoveryAuthority {
+interface BranchBundleRecoveryAuthority {
   kind: 'bundle';
   path: string;
   sha256: `sha256:${string}`;
@@ -196,7 +196,7 @@ export interface BranchBundleRecoveryAuthority {
   verifyOutput: string;
 }
 
-export interface BranchMainAbsorptionRecoveryAuthority {
+interface BranchMainAbsorptionRecoveryAuthority {
   kind: 'main-absorption';
   path: string;
   sha256: `sha256:${string}`;

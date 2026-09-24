@@ -55,7 +55,7 @@ export class GitLocalRefDeleteAtomicityUnavailableError extends Error {
   }
 }
 
-export class GitLocalRefDeleteBlockedError extends Error {
+class GitLocalRefDeleteBlockedError extends Error {
   constructor(message: string) {
     super(message);
     this.name = 'GitLocalRefDeleteBlockedError';
