@@ -31,7 +31,7 @@ interface ClosedSupersessionReviewBase {
   readonly unknowns: readonly never[];
 }
 
-interface ClosedSupersessionReviewV1 extends ClosedSupersessionReviewBase {
+interface LegacyClosedSupersessionReview extends ClosedSupersessionReviewBase {
   readonly paths: readonly Readonly<{
     path: string;
     disposition: 'retained' | 'superseded';
@@ -39,13 +39,13 @@ interface ClosedSupersessionReviewV1 extends ClosedSupersessionReviewBase {
   }>[];
 }
 
-interface ClosedSupersessionReviewV2 extends ClosedSupersessionReviewBase {
+interface CurrentClosedSupersessionReview extends ClosedSupersessionReviewBase {
   readonly version: 2;
   readonly pathSet: Readonly<{ count: number; digest: `sha256:${string}` }>;
   readonly assessment: string;
 }
 
-type ClosedSupersessionReview = ClosedSupersessionReviewV1 | ClosedSupersessionReviewV2;
+type ClosedSupersessionReview = LegacyClosedSupersessionReview | CurrentClosedSupersessionReview;
 
 /** Pure encoding helper; only the observer's complete native Git census issues evidence. */
 export function summarizeClosedSupersessionPaths(paths: readonly string[]): Readonly<{
@@ -129,7 +129,7 @@ function parseClosedSupersessionReview(source: string): ClosedSupersessionReview
       pathSet: Object.freeze({ count: pathSet.count, digest: pathSet.digest }),
       assessment: boundedText(value.assessment, 8192),
       unknowns: Object.freeze([])
-    }) as ClosedSupersessionReviewV2;
+    }) as CurrentClosedSupersessionReview;
   }
   if (!Array.isArray(value.paths) || value.paths.length > 1_000) {
     throw new Error('Legacy supersession review paths are incomplete or over bound.');
