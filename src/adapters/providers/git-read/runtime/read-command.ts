@@ -68,6 +68,7 @@ const GIT_READ_ONLY_COMMANDS = new Set([
   'rev-list',
   'rev-parse',
   'show',
+  'show-ref',
   'status',
   'symbolic-ref',
   'var',
@@ -246,6 +247,14 @@ export function gitReadCommandIsObservation(args: readonly string[]): boolean {
   }
   if (command === 'show') {
     return commandArgs.length === 1 && !commandArgs[0]!.startsWith('-');
+  }
+  if (command === 'show-ref') {
+    return commandArgs.length === 3
+      && commandArgs[0] === '--verify'
+      && commandArgs[1] === '--quiet'
+      && /^refs\/heads\/[A-Za-z0-9][A-Za-z0-9._\/-]*$/u.test(commandArgs[2]!)
+      && !commandArgs[2]!.includes('..')
+      && !commandArgs[2]!.includes('//');
   }
   if (command === 'merge-base') {
     return (commandArgs.length === 2 && commandArgs.every((argument) => !argument.startsWith('-')))

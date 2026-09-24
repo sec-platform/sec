@@ -15,6 +15,7 @@ const accepted = [
   ['--version'], ['status', '--porcelain=v1', '-z', '--untracked-files=all', '--ignored=no'],
   ['-c', 'core.fsmonitor=false', 'status', '--short'], ['branch', '--show-current'],
   ['cat-file', '--batch'], ['cat-file', '-t', 'HEAD'], ['show', 'HEAD:package.json'],
+  ['show-ref', '--verify', '--quiet', 'refs/heads/topic/nested'],
   ['rev-parse', '--verify', 'HEAD^{commit}'], ['rev-parse', '--path-format=absolute', '--git-common-dir'],
   ['worktree', 'list', '--porcelain', '-z'], ['remote', 'get-url', '--all', 'origin'],
   ['config', '--get', 'core.hooksPath'], ['symbolic-ref', '--short', 'HEAD'],
@@ -34,6 +35,8 @@ const forbidden = [
   ['-c', 'core.hooksPath=/other', 'status'], ['diff', '--ext-diff'], ['show', '--textconv'],
   ['ls-remote', '--upload-pack=other', 'origin', 'refs/heads/main'],
   ['cat-file', '--filters', 'HEAD:source'], ['grep', '--recurse-submodules', 'x'],
+  ['show-ref', '--verify', '--quiet', 'refs/tags/release'],
+  ['show-ref', '--verify', 'refs/heads/topic'],
   ['for-each-ref', '--contains=HEAD', '--format=%(refname)', 'refs/heads/'],
   ['for-each-ref', '--merged=main', '--format=%(refname)', 'refs/heads/'],
   ['commit', '-m', 'unrequested']
