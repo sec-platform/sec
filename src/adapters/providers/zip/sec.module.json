@@ -65,7 +65,7 @@
           },
           {
             "resource": "output-bytes",
-            "maximum": 10551296
+            "maximum": 10682368
           },
           {
             "resource": "processes",
