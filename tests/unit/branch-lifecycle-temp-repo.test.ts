@@ -48,7 +48,7 @@ import {
 } from '../../src/adapters/self-hosting/control/task/contract/active-work-observation.ts';
 
 test('canonical Git child environment removes ambient steering and preserves host integration', () => {
-  const environment = createBranchLifecycleGitChildEnvironment({
+  const source = {
     Path: 'trusted-path',
     PATH: 'duplicate-path',
     HOME: 'trusted-home',
@@ -69,10 +69,17 @@ test('canonical Git child environment removes ambient steering and preserves hos
     git_no_replace_objects: '0',
     GIT_OPTIONAL_LOCKS: '1',
     GIT_TERMINAL_PROMPT: '1'
-  });
-  expect(Object.keys(environment).filter((name) => name.toUpperCase() === 'PATH'))
-    .toHaveLength(1);
+  };
+  if (process.platform === 'win32') {
+    expect(() => createBranchLifecycleGitChildEnvironment(source))
+      .toThrow('conflicting case variants');
+    return;
+  }
+  const environment = createBranchLifecycleGitChildEnvironment(source);
+  expect(Object.keys(environment).filter((name) => name.toUpperCase() === 'PATH').sort())
+    .toEqual(['PATH', 'Path']);
   expect(environment.Path).toBe('trusted-path');
+  expect(environment.PATH).toBe('duplicate-path');
   expect(environment.HOME).toBe('trusted-home');
   expect(environment.USERPROFILE).toBe('trusted-profile');
   expect(environment.SSH_AUTH_SOCK).toBe('trusted-agent');
@@ -80,7 +87,7 @@ test('canonical Git child environment removes ambient steering and preserves hos
   expect(environment.GIT_TERMINAL_PROMPT).toBe('0');
   expect(environment.GIT_OPTIONAL_LOCKS).toBe('0');
   expect(environment.GIT_NO_REPLACE_OBJECTS).toBe('1');
-  expect(environment.GIT_CONFIG_GLOBAL).toBe(process.platform === 'win32' ? 'NUL' : devNull);
+  expect(environment.GIT_CONFIG_GLOBAL).toBe(devNull);
   expect(Object.keys(environment).filter((name) => name.toUpperCase() === 'GIT_NO_REPLACE_OBJECTS'))
     .toEqual(['GIT_NO_REPLACE_OBJECTS']);
   for (const name of Object.keys(environment)) {
@@ -357,7 +364,9 @@ process.exit(1);
     }
   } else {
     const shellShim = path.join(shimRoot, 'gh');
-    writeFileSync(shellShim, `#!/usr/bin/env sh\nexec bun "$(dirname "$0")/gh-shim.ts" "$@"\n`, 'utf8');
+    const quotedBun = `'${process.execPath.replaceAll("'", "'\\''")}'`;
+    writeFileSync(shellShim,
+      `#!/usr/bin/env sh\nexec ${quotedBun} "$(dirname "$0")/gh-shim.ts" "$@"\n`, 'utf8');
     chmodSync(shellShim, 0o755);
   }
   const priorPath = process.env.PATH;
