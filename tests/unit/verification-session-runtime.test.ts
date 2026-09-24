@@ -3518,12 +3518,12 @@ function closeoutHarnessActionsComment(
   };
 }
 
-function withCloseoutHarnessCommands<T>(
+async function withCloseoutHarnessCommands<T>(
   shimRoot: string,
   statePath: string,
   recoveryRoot: string,
-  run: () => T
-): T {
+  run: () => T | Promise<T>
+): Promise<Awaited<T>> {
   const previous = {
     path: process.env.PATH,
     state: process.env.SEC_CLOSEOUT_TEST_STATE,
@@ -3533,7 +3533,7 @@ function withCloseoutHarnessCommands<T>(
   process.env.SEC_CLOSEOUT_TEST_STATE = statePath;
   process.env.SEC_BRANCH_RECOVERY_ROOT = recoveryRoot;
   try {
-    return run();
+    return await run();
   } finally {
     if (previous.path === undefined) delete process.env.PATH;
     else process.env.PATH = previous.path;
@@ -3551,7 +3551,7 @@ function closeoutTcbModuleBlobs(): Readonly<Record<string, string>> {
   return closeoutTcbClosureIdentity.moduleBlobs;
 }
 
-function createCloseoutCliScenario(input: {
+async function createCloseoutCliScenario(input: {
   harnessRoot: string;
   recoveryHarnessRoot: string;
   shimRoot: string;
@@ -3680,7 +3680,7 @@ process.stdout.write(JSON.stringify(state.activeWorkPackageSelected
       workspace: { branch: state.branch } }
   : { activeWorkPackage: { state: 'none', manifest: null }, workspace: { branch: null } }));
 `, 'utf8');
-  const prepared = withCloseoutHarnessCommands(input.shimRoot, statePath, providerRecoveryRoot, () => (
+  const prepared = await withCloseoutHarnessCommands(input.shimRoot, statePath, providerRecoveryRoot, () => (
     prepareBranchCloseout({ repositoryRoot: root }, {
       branch: 'feat/example', expectedHeadSha: HEAD, pullRequestNumber: 42
     })
@@ -3692,7 +3692,7 @@ process.stdout.write(JSON.stringify(state.activeWorkPackageSelected
   state.liveDefaultSha = state.mergeCommitSha;
   state.localDefaultSha = state.mergeCommitSha;
   writeCloseoutCliHarnessState(statePath, state);
-  const rehydratedPrepared = withCloseoutHarnessCommands(input.shimRoot, statePath, recoveryRoot,
+  const rehydratedPrepared = await withCloseoutHarnessCommands(input.shimRoot, statePath, recoveryRoot,
     () => rehydratePreparedBranchCloseoutRecoveryArtifact({
       scope: { repositoryRoot: root },
       remote: prepared,
@@ -3857,7 +3857,7 @@ process.stdout.write(JSON.stringify(state.activeWorkPackageSelected
 
 function runCloseoutCliProcess(
   shimRoot: string,
-  scenario: ReturnType<typeof createCloseoutCliScenario>,
+  scenario: Awaited<ReturnType<typeof createCloseoutCliScenario>>,
   command: 'integrate-hosted' | 'closeout-mutate-hosted' | 'closeout-publish-hosted'
 ) {
   const state = readCloseoutCliHarnessState(scenario.statePath);
@@ -3886,7 +3886,7 @@ function runCloseoutCliProcess(
 
 function startCloseoutCliProcess(
   shimRoot: string,
-  scenario: ReturnType<typeof createCloseoutCliScenario>,
+  scenario: Awaited<ReturnType<typeof createCloseoutCliScenario>>,
   command: 'closeout-mutate-hosted' | 'closeout-publish-hosted'
 ) {
   const state = readCloseoutCliHarnessState(scenario.statePath);
@@ -4050,7 +4050,7 @@ function isProcessAlive(pid: number): boolean {
 
 function closeoutCliProcessEnvironment(
   shimRoot: string,
-  scenario: ReturnType<typeof createCloseoutCliScenario>
+  scenario: Awaited<ReturnType<typeof createCloseoutCliScenario>>
 ): NodeJS.ProcessEnv {
   const state = readCloseoutCliHarnessState(scenario.statePath);
   const environment: NodeJS.ProcessEnv = {
@@ -4110,7 +4110,7 @@ function resolveCloseoutCliGh(environment: NodeJS.ProcessEnv) {
 
 function assertCloseoutCliProviderShim(
   shimRoot: string,
-  scenario: ReturnType<typeof createCloseoutCliScenario>
+  scenario: Awaited<ReturnType<typeof createCloseoutCliScenario>>
 ): void {
   const executable = path.join(shimRoot, process.platform === 'win32' ? 'gh.exe' : 'gh');
   if (!existsSync(executable)) throw new Error(`Closeout CLI gh shim is absent: ${executable}`);
@@ -4189,12 +4189,12 @@ async function withCloseoutCliPartition<T>(run: (input: Readonly<{
   recoveryHarnessRoot: string;
   shimRoot: string;
   fixture: Awaited<ReturnType<typeof reducerFixture>>;
-}>) => T): Promise<T> {
+}>) => T | Promise<T>): Promise<Awaited<T>> {
   const harnessRoot = mkdtempSync(path.join(tmpdir(), 'sec-verification-session-v6-cli-'));
   const recoveryHarnessRoot = mkdtempSync(path.join(tmpdir(), 'sec-verification-session-v6-recovery-'));
   const fixture = await reducerFixture();
   try {
-    return run({ harnessRoot, recoveryHarnessRoot, shimRoot: sharedCloseoutCliShimRoot, fixture });
+    return await run({ harnessRoot, recoveryHarnessRoot, shimRoot: sharedCloseoutCliShimRoot, fixture });
   } finally {
     fixture.dispose();
     rmSync(harnessRoot, { recursive: true, force: true });
@@ -4266,9 +4266,9 @@ test('prepared cleanup route invokes the local sequence once for the exact targe
 });
 
 closeoutCliE2eTest('trusted remote default ref synchronization closes ordinary merge and merged recovery safely', async () => {
-  await withCloseoutCliPartition(({ harnessRoot, recoveryHarnessRoot, shimRoot, fixture }) => {
-    const runRecovery = (name: string, configure?: (state: CloseoutCliHarnessState) => void) => {
-      const scenario = createCloseoutCliScenario({ harnessRoot, recoveryHarnessRoot, shimRoot,
+  await withCloseoutCliPartition(async ({ harnessRoot, recoveryHarnessRoot, shimRoot, fixture }) => {
+    const runRecovery = async (name: string, configure?: (state: CloseoutCliHarnessState) => void) => {
+      const scenario = await createCloseoutCliScenario({ harnessRoot, recoveryHarnessRoot, shimRoot,
         name, fixture });
       const state = readCloseoutCliHarnessState(scenario.statePath);
       state.currentPhase = 'closeoutMutation';
@@ -4281,7 +4281,7 @@ closeoutCliE2eTest('trusted remote default ref synchronization closes ordinary m
       return { scenario, result: runCloseoutCliProcess(shimRoot, scenario, 'integrate-hosted') };
     };
 
-    const exact = runRecovery('ref-sync-exact');
+    const exact = await runRecovery('ref-sync-exact');
     assertCloseoutCliProcessSucceeded('integrate-hosted merged recovery ref synchronization',
       exact.result);
     expect(JSON.parse(readFileSync(exact.result.output, 'utf8'))).toMatchObject({
@@ -4298,7 +4298,7 @@ closeoutCliE2eTest('trusted remote default ref synchronization closes ordinary m
     expect(new Set(readCloseoutCliHarnessState(exact.scenario.statePath).headReadValues))
       .toEqual(new Set([BASE]));
 
-    const failed = runRecovery('ref-sync-fetch-failure', (state) => {
+    const failed = await runRecovery('ref-sync-fetch-failure', (state) => {
       state.refOnlyFetchFailure = true;
     });
     expect(failed.result.result.status).not.toBe(0);
@@ -4310,7 +4310,7 @@ closeoutCliE2eTest('trusted remote default ref synchronization closes ordinary m
       remoteDeleteCount: 0
     });
 
-    const raced = runRecovery('ref-sync-race', (state) => {
+    const raced = await runRecovery('ref-sync-race', (state) => {
       state.raceAfterRefOnlyFetch = true;
     });
     expect(raced.result.result.status).not.toBe(0);
@@ -4329,8 +4329,8 @@ closeoutCliE2eTest('trusted remote default ref synchronization closes ordinary m
 }, 180_000);
 
 closeoutCliE2eTest('public Session closeout CLI partition A exact delete, publish, and reuse', async () => {
-  await withCloseoutCliPartition(({ harnessRoot, recoveryHarnessRoot, shimRoot, fixture }) => {
-    const exact = createCloseoutCliScenario({ harnessRoot, recoveryHarnessRoot, shimRoot,
+  await withCloseoutCliPartition(async ({ harnessRoot, recoveryHarnessRoot, shimRoot, fixture }) => {
+    const exact = await createCloseoutCliScenario({ harnessRoot, recoveryHarnessRoot, shimRoot,
       name: 'exact', fixture });
     expect(encodeVerificationActionData(exact.providerPrepared))
       .not.toBe(encodeVerificationActionData(exact.rehydratedPrepared));
@@ -4383,7 +4383,7 @@ closeoutCliE2eTest('public Session closeout CLI partition A exact delete, publis
 closeoutCliE2eTest('public Session closeout CLI partition B crash recovery performs zero second delete', async () => {
   await withCloseoutCliPartitionSettled(async ({ harnessRoot, recoveryHarnessRoot, shimRoot,
     fixture }) => {
-    const crash = createCloseoutCliScenario({ harnessRoot, recoveryHarnessRoot, shimRoot,
+    const crash = await createCloseoutCliScenario({ harnessRoot, recoveryHarnessRoot, shimRoot,
       name: 'crash', fixture, crashAfterDelete: true });
     const crashed = startCloseoutCliProcess(shimRoot, crash, 'closeout-mutate-hosted');
     let killCount = 0;
@@ -4459,9 +4459,9 @@ closeoutCliE2eTest('public Session closeout CLI partition B crash recovery perfo
 }, 120_000);
 
 closeoutCliE2eTest('public Session closeout CLI partition C rejects invalid existing markers without delete', async () => {
-  await withCloseoutCliPartition(({ harnessRoot, recoveryHarnessRoot, shimRoot, fixture }) => {
+  await withCloseoutCliPartition(async ({ harnessRoot, recoveryHarnessRoot, shimRoot, fixture }) => {
     for (const seed of ['null-app', 'wrong-app', 'duplicate', 'old'] as const) {
-      const blocked = createCloseoutCliScenario({ harnessRoot, recoveryHarnessRoot, shimRoot,
+      const blocked = await createCloseoutCliScenario({ harnessRoot, recoveryHarnessRoot, shimRoot,
         name: seed, fixture, seed });
       const result = runCloseoutCliProcess(shimRoot, blocked, 'closeout-mutate-hosted');
       expect(result.result.status).not.toBe(0);
@@ -4473,9 +4473,9 @@ closeoutCliE2eTest('public Session closeout CLI partition C rejects invalid exis
 }, 180_000);
 
 closeoutCliE2eTest('public Session closeout CLI partition D rejects authority tamper without delete', async () => {
-  await withCloseoutCliPartition(({ harnessRoot, recoveryHarnessRoot, shimRoot, fixture }) => {
+  await withCloseoutCliPartition(async ({ harnessRoot, recoveryHarnessRoot, shimRoot, fixture }) => {
     for (const tamper of ['original', 'artifact', 'stable-digest'] as const) {
-      const blocked = createCloseoutCliScenario({ harnessRoot, recoveryHarnessRoot, shimRoot,
+      const blocked = await createCloseoutCliScenario({ harnessRoot, recoveryHarnessRoot, shimRoot,
         name: `tampered-${tamper}`, fixture, tamper });
       const result = runCloseoutCliProcess(shimRoot, blocked, 'closeout-mutate-hosted');
       expect(result.result.status).not.toBe(0);
@@ -4487,8 +4487,8 @@ closeoutCliE2eTest('public Session closeout CLI partition D rejects authority ta
 }, 180_000);
 
 closeoutCliE2eTest('public Session closeout CLI partition E lost marker POST and replay perform zero delete', async () => {
-  await withCloseoutCliPartition(({ harnessRoot, recoveryHarnessRoot, shimRoot, fixture }) => {
-    const lost = createCloseoutCliScenario({ harnessRoot, recoveryHarnessRoot, shimRoot,
+  await withCloseoutCliPartition(async ({ harnessRoot, recoveryHarnessRoot, shimRoot, fixture }) => {
+    const lost = await createCloseoutCliScenario({ harnessRoot, recoveryHarnessRoot, shimRoot,
       name: 'lost', fixture, postDisposition: 'lost' });
     const uncertain = runCloseoutCliProcess(shimRoot, lost, 'closeout-mutate-hosted');
     expect(uncertain.result.status).not.toBe(0);
@@ -4523,8 +4523,8 @@ closeoutCliE2eTest('V9 integration reruns retain producing attempts and authoriz
     stalePreGate.dispose();
   }
 
-  await withCloseoutCliPartition(({ harnessRoot, recoveryHarnessRoot, shimRoot, fixture }) => {
-    const samePrincipal = createCloseoutCliScenario({ harnessRoot, recoveryHarnessRoot, shimRoot,
+  await withCloseoutCliPartition(async ({ harnessRoot, recoveryHarnessRoot, shimRoot, fixture }) => {
+    const samePrincipal = await createCloseoutCliScenario({ harnessRoot, recoveryHarnessRoot, shimRoot,
       name: 'rerun-same-principal', fixture, currentRunAttempt: 2,
       includeStableArtifact: true });
     const sameResult = runCloseoutCliProcess(shimRoot, samePrincipal, 'closeout-mutate-hosted');
@@ -4538,7 +4538,7 @@ closeoutCliE2eTest('V9 integration reruns retain producing attempts and authoriz
       ] }
     });
 
-    const delegatedMaintainer = createCloseoutCliScenario({ harnessRoot, recoveryHarnessRoot,
+    const delegatedMaintainer = await createCloseoutCliScenario({ harnessRoot, recoveryHarnessRoot,
       shimRoot, name: 'rerun-delegated-maintainer', fixture, currentRunAttempt: 2,
       triggeringPrincipal: { login: 'release-manager', nodeId: 'RELEASE_MANAGER',
         permission: 'maintain' } });
@@ -4550,7 +4550,7 @@ closeoutCliE2eTest('V9 integration reruns retain producing attempts and authoriz
       principalUserLookups: ['integrator', 'release-manager']
     });
 
-    const writeOnly = createCloseoutCliScenario({ harnessRoot, recoveryHarnessRoot, shimRoot,
+    const writeOnly = await createCloseoutCliScenario({ harnessRoot, recoveryHarnessRoot, shimRoot,
       name: 'rerun-write-only', fixture, currentRunAttempt: 2,
       triggeringPrincipal: { login: 'write-only', nodeId: 'WRITE_ONLY', permission: 'write' } });
     const blocked = runCloseoutCliProcess(shimRoot, writeOnly, 'closeout-mutate-hosted');
@@ -4562,7 +4562,7 @@ closeoutCliE2eTest('V9 integration reruns retain producing attempts and authoriz
       principalUserLookups: ['integrator', 'write-only']
     });
 
-    const historicalAttemptMismatch = createCloseoutCliScenario({ harnessRoot,
+    const historicalAttemptMismatch = await createCloseoutCliScenario({ harnessRoot,
       recoveryHarnessRoot, shimRoot, name: 'rerun-historical-attempt-mismatch', fixture,
       currentRunAttempt: 2, historicalAttemptMismatch: true });
     const mismatched = runCloseoutCliProcess(shimRoot, historicalAttemptMismatch,

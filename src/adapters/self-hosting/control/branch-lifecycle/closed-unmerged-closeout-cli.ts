@@ -124,7 +124,7 @@ export async function runClosedUnmergedCloseoutCli(argv: readonly string[]): Pro
             });
             if (evidence !== null) {
               prepared = await context.observeCompletedPreparation(pull.number, evidence.evidenceDigest)
-                ?? prepareClosedUnmergedPullRequestCloseout(scope, request);
+                ?? await prepareClosedUnmergedPullRequestCloseout(scope, request);
             }
           }
           if (evidence == null) {
@@ -145,7 +145,7 @@ export async function runClosedUnmergedCloseoutCli(argv: readonly string[]): Pro
           });
           if (prepared === null) {
             prepared = await context.observeCompletedPreparation(pull.number, evidence.evidenceDigest)
-              ?? prepareClosedUnmergedPullRequestCloseout(scope, { ...request, reviewEvidence: supersession });
+              ?? await prepareClosedUnmergedPullRequestCloseout(scope, { ...request, reviewEvidence: supersession });
           }
         }
         if (prepared === null) throw new Error('Closed-unmerged preparation was not issued.');

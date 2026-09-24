@@ -4887,7 +4887,7 @@ export async function verificationSessionCli(argv: string[]): Promise<string> {
       hostedIntegrationPreflightResultPath(ctx.repositoryRoot),
       preflight.result
     );
-    const prepared = prepareMergedPullRequestCloseout(ctx, { number: artifact.session.prNumber,
+    const prepared = await prepareMergedPullRequestCloseout(ctx, { number: artifact.session.prNumber,
       headBranch: candidate.headBranch, headSha: artifact.session.headSha });
     const recovery = materializeBranchCloseoutRecoveryArtifact({ outputPath, repository,
       session: artifact.session, prepared, runId: identity.provenance.runId,

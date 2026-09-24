@@ -264,7 +264,7 @@ async function main(): Promise<void> {
 
   if (args.command === 'prepare') {
     if (!args.branch) throw new Error(`--branch is required.\n${USAGE}`);
-    const prepared = prepareBranchCloseout(scope, {
+    const prepared = await prepareBranchCloseout(scope, {
       branch: args.branch,
       refState: args.refState,
       expectedHeadSha: args.expectedHeadSha ?? undefined,

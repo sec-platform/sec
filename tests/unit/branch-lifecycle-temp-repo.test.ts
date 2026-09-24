@@ -424,7 +424,7 @@ test('target-scoped closeout inventory binds authenticated exact PR and fresh ta
   }
 }, 180_000);
 
-test('V6 branch preparation is recovery-only and leaves exact local/remote refs intact', () => {
+test('V6 branch preparation is recovery-only and leaves exact local/remote refs intact', async () => {
   const fixture = repositoryFixture();
   const restorePath = installGitHubObservationShim(fixture);
   try {
@@ -435,7 +435,7 @@ test('V6 branch preparation is recovery-only and leaves exact local/remote refs 
       activeWorkPackageObservation: activeWorkObservation(fixture),
       recoveryRoot: path.join(fixture.root, 'recovery')
     };
-    const prepared = prepareBranchCloseout(scope, {
+    const prepared = await prepareBranchCloseout(scope, {
       branch: fixture.branch,
       expectedHeadSha: fixture.headSha
     });
@@ -451,7 +451,7 @@ test('V6 branch preparation is recovery-only and leaves exact local/remote refs 
   }
 }, 180_000);
 
-test('closed PR native main absorption preserves a divergent local ref before remote CAS', () => {
+test('closed PR native main absorption preserves a divergent local ref before remote CAS', async () => {
   const fixture = repositoryFixture();
   const restorePath = installGitHubObservationShim(fixture);
   try {
@@ -471,7 +471,7 @@ test('closed PR native main absorption preserves a divergent local ref before re
       isDraft: false, isCrossRepository: false,
       url: 'https://github.com/sec-platform/sec/pull/42'
     };
-    const prepared = prepareClosedUnmergedPullRequestCloseout({
+    const prepared = await prepareClosedUnmergedPullRequestCloseout({
       repositoryRoot: fixture.repository, repositoryFullName: 'sec-platform/sec',
       activeWorkPackageObservation: issueActiveWorkPackageOwnerObservation({
         repository: 'sec-platform/sec', defaultBranch: 'main', defaultSha: absorbedMainSha,
@@ -505,7 +505,7 @@ test('closed PR native main absorption preserves a divergent local ref before re
   }
 }, 180_000);
 
-test('remote-absent preparation recovers the exact local branch without mutating either ref', () => {
+test('remote-absent preparation recovers the exact local branch without mutating either ref', async () => {
   const fixture = repositoryFixture();
   git(fixture.repository, ['push', 'origin', '--delete', fixture.branch]);
   const restorePath = installGitHubObservationShim(fixture, [{
@@ -520,7 +520,7 @@ test('remote-absent preparation recovers the exact local branch without mutating
     url: 'https://github.com/sec-platform/sec/pull/42'
   }]);
   try {
-    const prepared = prepareBranchCloseout({
+    const prepared = await prepareBranchCloseout({
       repositoryRoot: fixture.repository,
       repositoryFullName: 'sec-platform/sec',
       defaultBranch: 'main',
@@ -644,7 +644,7 @@ test('typed inventory boundary ignores ambient repository and index steering wit
   }
 });
 
-test('missing documentation-owner observation is typed unresolved and blocks before recovery effect', () => {
+test('missing documentation-owner observation is typed unresolved and blocks before recovery effect', async () => {
   const fixture = repositoryFixture();
   const restorePath = installGitHubObservationShim(fixture);
   const recoveryRoot = path.join(fixture.root, 'recovery');
@@ -668,7 +668,7 @@ test('missing documentation-owner observation is typed unresolved and blocks bef
       defaultBranch: 'main',
       activeWorkPackageObservation: { ...issued } as ActiveWorkPackageOwnerObservation
     })).toThrow('active-work-owner-observation-not-issued');
-    expect(() => prepareBranchCloseout({
+    await expect(prepareBranchCloseout({
       repositoryRoot: fixture.repository,
       repositoryFullName: 'sec-platform/sec',
       defaultBranch: 'main',
@@ -676,10 +676,10 @@ test('missing documentation-owner observation is typed unresolved and blocks bef
     }, {
       branch: fixture.branch,
       expectedHeadSha: fixture.headSha
-    })).toThrow('active-work-owner-observation-unavailable');
+    })).rejects.toThrow('active-work-owner-observation-unavailable');
     expect(existsSync(recoveryRoot)).toBe(false);
 
-    const authorized = prepareBranchCloseout({
+    const authorized = await prepareBranchCloseout({
       repositoryRoot: fixture.repository,
       repositoryFullName: 'sec-platform/sec',
       defaultBranch: 'main',
