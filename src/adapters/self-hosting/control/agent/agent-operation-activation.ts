@@ -1,6 +1,5 @@
 #!/usr/bin/env bun
 
-import { spawnSync } from 'node:child_process';
 import {
   readFileSync,
   realpathSync,
@@ -9,6 +8,7 @@ import {
 import path from 'node:path';
 
 import { canonicalJson, compareCodeUnits, rawSha256, sha256 } from '../../../../contracts/canonical.ts';
+import { withAuthorityGitReadSession } from '../../../providers/git-read/authority.ts';
 import {
   executeGitHubApiOperation,
   executeObservedGitHubApiOperation,
@@ -19,6 +19,7 @@ import {
   type GitHubApiOperation
 } from '../../../providers/github-api/operation-session.ts';
 import { readZipTextFile } from '../../../providers/zip/runtime.ts';
+import { GIT_READ_OPERATION_BUDGET } from '../../development/tooling/git/git-read.ts';
 import { parseGitChangedRecordsOutput, type GitChangedRecord } from '../../../verification/platform/test-impact/runtime/transition.ts';
 import {
   hostedPublisherMatches,
@@ -93,7 +94,6 @@ const CONTROL_PATHS = Object.freeze({
   rollingPlan: 'config/repository/rolling-plan.md'
 });
 const COMMAND_TIMEOUT_MS = 60_000;
-const COMMAND_MAX_BUFFER = 32 * 1024 * 1024;
 
 export const SEC_AGENT_OPERATION_ACTIVATION_REASON_CODES = Object.freeze([
   'activation-receipt-absent',
@@ -155,77 +155,61 @@ async function guardedAsync<T>(
   }
 }
 
-function controlCliCommandId(executable: string): 'git' | 'gh' | null {
-  const leaf = executable.replaceAll('\\', '/').split('/').at(-1)?.toLowerCase() ?? '';
-  if (leaf === 'git' || leaf === 'git.exe') return 'git';
-  if (leaf === 'gh' || leaf === 'gh.exe') return 'gh';
-  return null;
-}
-
-/**
- * The activation owner has not yet bound its synchronous Git reads and hosted
- * publication effect to opaque semantic operations. A physical executable
- * adoption receipt cannot fill that missing authority, so Windows remains
- * fail-closed before any child starts.
- * Hosted GitHub effects and archive reads use their dedicated providers;
- * only the still-unmigrated synchronous Git observation path reaches this
- * compatibility fence.
- */
-function assertWindowsControlCliCommandAdmission(
-  executable: string,
-  args: readonly string[],
-  cwd: string
-): void {
-  if (process.platform !== 'win32') return;
-  const commandId = controlCliCommandId(executable);
-  if (commandId === null) return;
-
-  return unavailable('activation-provider-unavailable', JSON.stringify({
-    commandId,
-    status: 'unavailable',
-    reason: 'semantic-session-unavailable',
-    cwdDigest: sha256(path.resolve(cwd)),
-    argumentCount: args.length
-  }));
-}
-
-function command(
+async function command(
   executable: string,
   args: readonly string[],
   cwd: string,
   input?: Uint8Array
-): CommandResult {
-  assertWindowsControlCliCommandAdmission(executable, args, cwd);
-  const result = spawnSync(executable, [...args], {
-    cwd,
-    input,
-    windowsHide: true,
-    timeout: COMMAND_TIMEOUT_MS,
-    maxBuffer: COMMAND_MAX_BUFFER,
-    env: {
-      ...process.env,
-      GH_PROMPT_DISABLED: '1',
-      GIT_OPTIONAL_LOCKS: '0',
-      GIT_TERMINAL_PROMPT: '0'
-    }
-  });
-  const stderr = Buffer.isBuffer(result.stderr) ? result.stderr : Buffer.from(result.stderr ?? '');
-  const processError = result.error === undefined ? Buffer.alloc(0) : Buffer.from(result.error.message, 'utf8');
-  return Object.freeze({
-    status: result.status ?? -1,
-    stdout: Buffer.isBuffer(result.stdout) ? result.stdout : Buffer.from(result.stdout ?? ''),
-    stderr: Buffer.concat([stderr, processError])
-  });
+): Promise<CommandResult> {
+  if (executable !== 'git') {
+    return Object.freeze({
+      status: -1,
+      stdout: Buffer.alloc(0),
+      stderr: Buffer.from('activation Git-read transport only admits git', 'utf8')
+    });
+  }
+  try {
+    return await withAuthorityGitReadSession({
+      cwd: path.resolve(cwd),
+      budget: GIT_READ_OPERATION_BUDGET,
+      deadlineAtUnixMs: Date.now() + COMMAND_TIMEOUT_MS,
+      environment: {
+        ...process.env,
+        GIT_OPTIONAL_LOCKS: '0',
+        GIT_TERMINAL_PROMPT: '0'
+      }
+    }, async (session) => {
+      const observed = await session.run(args, input === undefined ? undefined : { input: Buffer.from(input) });
+      if (observed.kind !== 'completed') {
+        return Object.freeze({
+          status: -1,
+          stdout: Buffer.alloc(0),
+          stderr: Buffer.from(observed.detail, 'utf8')
+        });
+      }
+      return Object.freeze({
+        status: observed.result.code,
+        stdout: Buffer.from(observed.result.stdout),
+        stderr: Buffer.from(observed.result.stderr, 'utf8')
+      });
+    });
+  } catch (error) {
+    return Object.freeze({
+      status: -1,
+      stdout: Buffer.alloc(0),
+      stderr: Buffer.from(error instanceof Error ? error.message : String(error), 'utf8')
+    });
+  }
 }
 
-function requireCommand(
+async function requireCommand(
   executable: string,
   args: readonly string[],
   cwd: string,
   reasonCode: SecAgentOperationActivationReasonCode,
   input?: Uint8Array
-): Buffer {
-  const result = command(executable, args, cwd, input);
+): Promise<Buffer> {
+  const result = await command(executable, args, cwd, input);
   if (result.status !== 0) unavailable(reasonCode, Buffer.concat([result.stdout, result.stderr]));
   return result.stdout;
 }
@@ -238,14 +222,14 @@ function decodeUtf8(value: Uint8Array, reasonCode: SecAgentOperationActivationRe
   }
 }
 
-function textCommand(
+async function textCommand(
   executable: string,
   args: readonly string[],
   cwd: string,
   reasonCode: SecAgentOperationActivationReasonCode,
   input?: Uint8Array
-): string {
-  return decodeUtf8(requireCommand(executable, args, cwd, reasonCode, input), reasonCode).trim();
+): Promise<string> {
+  return decodeUtf8(await requireCommand(executable, args, cwd, reasonCode, input), reasonCode).trim();
 }
 
 function parseJson(source: string, reasonCode: SecAgentOperationActivationReasonCode): unknown {
@@ -286,85 +270,85 @@ function samePhysicalPath(left: string, right: string): boolean {
   return process.platform === 'win32' ? left.toLowerCase() === right.toLowerCase() : left === right;
 }
 
-function repositoryRoot(value: string): string {
+async function repositoryRoot(value: string): Promise<string> {
   const root = physicalPath(value);
-  const observed = physicalPath(textCommand(
+  const observed = physicalPath(await textCommand(
     'git', ['rev-parse', '--show-toplevel'], root, 'activation-stale'
   ));
   if (!samePhysicalPath(root, observed)) unavailable('activation-stale', observed);
   return root;
 }
 
-function commonGitDirectory(root: string): string {
-  const observed = textCommand('git', ['rev-parse', '--git-common-dir'], root, 'activation-stale');
+async function commonGitDirectory(root: string): Promise<string> {
+  const observed = await textCommand('git', ['rev-parse', '--git-common-dir'], root, 'activation-stale');
   return physicalPath(path.isAbsolute(observed) ? observed : path.resolve(root, observed));
 }
 
-function assertSameRepository(runtimeRoot: string, candidateRoot: string): void {
-  if (!samePhysicalPath(commonGitDirectory(runtimeRoot), commonGitDirectory(candidateRoot))) {
+async function assertSameRepository(runtimeRoot: string, candidateRoot: string): Promise<void> {
+  if (!samePhysicalPath(await commonGitDirectory(runtimeRoot), await commonGitDirectory(candidateRoot))) {
     unavailable('activation-stale', 'candidate-repository-mismatch');
   }
 }
 
-function gitHead(root: string): string {
-  return gitSha(textCommand('git', ['rev-parse', 'HEAD'], root, 'activation-stale'), 'activation-stale');
+async function gitHead(root: string): Promise<string> {
+  return gitSha(await textCommand('git', ['rev-parse', 'HEAD'], root, 'activation-stale'), 'activation-stale');
 }
 
-function gitTree(root: string, revision: string): string {
+async function gitTree(root: string, revision: string): Promise<string> {
   return gitSha(
-    textCommand('git', ['rev-parse', `${revision}^{tree}`], root, 'activation-stale'),
+    await textCommand('git', ['rev-parse', `${revision}^{tree}`], root, 'activation-stale'),
     'activation-stale'
   );
 }
 
-function gitBranch(root: string): string {
-  const branch = textCommand('git', ['symbolic-ref', '--quiet', '--short', 'HEAD'], root, 'activation-stale');
+async function gitBranch(root: string): Promise<string> {
+  const branch = await textCommand('git', ['symbolic-ref', '--quiet', '--short', 'HEAD'], root, 'activation-stale');
   if (!branch.startsWith('codex/')) unavailable('activation-stale', branch);
   return branch;
 }
 
-function readGitBlob(root: string, expression: string): Readonly<{ oid: string; bytes: Buffer }> {
+async function readGitBlob(root: string, expression: string): Promise<Readonly<{ oid: string; bytes: Buffer }>> {
   const oid = gitSha(
-    textCommand('git', ['rev-parse', '--verify', expression], root, 'activation-stale'),
+    await textCommand('git', ['rev-parse', '--verify', expression], root, 'activation-stale'),
     'activation-stale'
   );
-  if (textCommand('git', ['cat-file', '-t', oid], root, 'activation-stale') !== 'blob') {
+  if (await textCommand('git', ['cat-file', '-t', oid], root, 'activation-stale') !== 'blob') {
     unavailable('activation-stale', expression);
   }
   return Object.freeze({
     oid,
-    bytes: requireCommand('git', ['cat-file', 'blob', oid], root, 'activation-stale')
+    bytes: await requireCommand('git', ['cat-file', 'blob', oid], root, 'activation-stale')
   });
 }
 
-function gitObjectExists(root: string, expression: string): boolean {
-  const result = command('git', ['rev-parse', '--verify', '--quiet', expression], root);
+async function gitObjectExists(root: string, expression: string): Promise<boolean> {
+  const result = await command('git', ['rev-parse', '--verify', '--quiet', expression], root);
   if (result.status === 0) return true;
   if (result.status === 1) return false;
   unavailable('activation-stale', result.stderr);
 }
 
-function isGitAncestor(root: string, ancestor: string, descendant: string): boolean {
-  const result = command('git', ['merge-base', '--is-ancestor', ancestor, descendant], root);
+async function isGitAncestor(root: string, ancestor: string, descendant: string): Promise<boolean> {
+  const result = await command('git', ['merge-base', '--is-ancestor', ancestor, descendant], root);
   if (result.status === 0) return true;
   if (result.status === 1) return false;
   unavailable('activation-stale', result.stderr);
 }
 
-function assertCleanExactRoot(root: string, head: string): void {
-  if (gitHead(root) !== head) unavailable('activation-stale', 'head-drift');
-  const status = requireCommand(
+async function assertCleanExactRoot(root: string, head: string): Promise<void> {
+  if (await gitHead(root) !== head) unavailable('activation-stale', 'head-drift');
+  const status = await requireCommand(
     'git', ['status', '--porcelain=v2', '-z', '--untracked-files=all'], root, 'activation-stale'
   );
   if (status.length !== 0) unavailable('activation-stale', status);
 }
 
-function changedRecordsBetween(
+async function changedRecordsBetween(
   root: string,
   baseRevision: string,
   targetRevision: string
-): GitChangedRecord[] {
-  return parseGitChangedRecordsOutput(requireCommand('git', [
+): Promise<GitChangedRecord[]> {
+  return parseGitChangedRecordsOutput(await requireCommand('git', [
     '-c', 'core.quotepath=false', 'diff', '--name-status', '-z', '--find-renames',
     '--find-copies', '--diff-filter=ACDMRTUXB', baseRevision, targetRevision, '--'
   ], root, 'activation-scope-conflict'));
@@ -384,8 +368,8 @@ function canonicalBytes(value: unknown): Buffer {
   return Buffer.from(`${JSON.stringify(canonicalJson(value), null, 2)}\n`, 'utf8');
 }
 
-function listWorkPackagePaths(root: string, revision: string): readonly string[] {
-  const bytes = requireCommand('git', [
+async function listWorkPackagePaths(root: string, revision: string): Promise<readonly string[]> {
+  const bytes = await requireCommand('git', [
     '-c', 'core.quotepath=false', 'ls-tree', '-r', '--name-only', '-z', revision,
     '--', 'config/repository/work-packages'
   ], root, 'activation-scope-conflict');
@@ -402,38 +386,38 @@ function listWorkPackagePaths(root: string, revision: string): readonly string[]
   return Object.freeze(paths);
 }
 
-function preparationWorkPackageDeletions(
+async function preparationWorkPackageDeletions(
   candidateRoot: string,
   trustedBase: string,
   proposalRevision: string,
   manifestPath: string,
   manifestBytes: Uint8Array,
   tracking: string
-): readonly string[] {
-  const defaultPackagePaths = listWorkPackagePaths(candidateRoot, trustedBase);
-  const candidatePackagePaths = listWorkPackagePaths(candidateRoot, proposalRevision);
-  const candidateEntries = candidatePackagePaths.map((packagePath) => ({
+): Promise<readonly string[]> {
+  const defaultPackagePaths = await listWorkPackagePaths(candidateRoot, trustedBase);
+  const candidatePackagePaths = await listWorkPackagePaths(candidateRoot, proposalRevision);
+  const candidateEntries = await Promise.all(candidatePackagePaths.map(async (packagePath) => ({
     path: packagePath,
     candidateBytes: packagePath === manifestPath
       ? manifestBytes
-      : readGitBlob(candidateRoot, `${proposalRevision}:${packagePath}`).bytes,
-    defaultBytes: gitObjectExists(candidateRoot, `${trustedBase}:${packagePath}`)
-      ? readGitBlob(candidateRoot, `${trustedBase}:${packagePath}`).bytes
+      : (await readGitBlob(candidateRoot, `${proposalRevision}:${packagePath}`)).bytes,
+    defaultBytes: await gitObjectExists(candidateRoot, `${trustedBase}:${packagePath}`)
+      ? (await readGitBlob(candidateRoot, `${trustedBase}:${packagePath}`)).bytes
       : null
-  }));
+  })));
+  const roadmapSource = tracking === 'none' && candidatePackagePaths.length > 1
+    ? decodeUtf8(
+        (await readGitBlob(candidateRoot,
+          `${proposalRevision}:config/repository/work-selection.md`)).bytes,
+        'activation-scope-conflict'
+      )
+    : null;
   return guarded('activation-scope-conflict', () =>
     assertAgentOperationActivationWorkPackageCensus({
       selectedManifestPath: manifestPath,
       candidateEntries,
       defaultPackagePaths,
-      ...(tracking === 'none' && candidatePackagePaths.length > 1
-        ? {
-            roadmapSource: decodeUtf8(
-              readGitBlob(candidateRoot, `${proposalRevision}:config/repository/work-selection.md`).bytes,
-              'activation-scope-conflict'
-            )
-          }
-        : {})
+      ...(roadmapSource === null ? {} : { roadmapSource })
     }));
 }
 
@@ -446,21 +430,21 @@ export interface SecOperationAuthorityOwnerObservation {
   readonly projection: null;
 }
 
-function observeOperationAuthorityOwners(
+async function observeOperationAuthorityOwners(
   candidateRoot: string,
   trustedRevision: string,
   targetCandidate: string,
   manifest: WorkPackageManifest,
   paths: readonly string[]
-): readonly SecOperationAuthorityOwnerObservation[] {
+): Promise<readonly SecOperationAuthorityOwnerObservation[]> {
   if (manifest.schema !== 'codex-development-work-package-v1'
       || manifest.authorityRefs === undefined) {
     unavailable('activation-scope-conflict', 'work-package-authority-refs-missing');
   }
   let records: readonly DocumentationIdentityRecord[];
-  let identityBlob: ReturnType<typeof readGitBlob>;
+  let identityBlob: Awaited<ReturnType<typeof readGitBlob>>;
   try {
-    identityBlob = readGitBlob(
+    identityBlob = await readGitBlob(
       candidateRoot,
       `${trustedRevision}:${DOCUMENTATION_IDENTITY_PATH}`
     );
@@ -492,18 +476,9 @@ function observeOperationAuthorityOwners(
     if (error instanceof SecAgentOperationActivationUnavailableError) throw error;
     unavailable('activation-scope-conflict', error instanceof Error ? error.message : String(error));
   }
-  return Object.freeze([Object.freeze({
-    id: 'documentation-identity-registry',
-    ref: DOCUMENTATION_IDENTITY_PATH,
-    owner: 'documentation-identity',
-    revision: identityBlob.oid,
-    contentDigest: rawSha256(identityBlob.bytes),
-    projection: null
-  }), ...records.map((entry) => {
-    const revision = paths.includes(entry.path)
-      ? targetCandidate
-      : trustedRevision;
-    const blob = readGitBlob(candidateRoot, `${revision}:${entry.path}`);
+  const ownerRecords = await Promise.all(records.map(async (entry) => {
+    const revision = paths.includes(entry.path) ? targetCandidate : trustedRevision;
+    const blob = await readGitBlob(candidateRoot, `${revision}:${entry.path}`);
     return Object.freeze({
       id: entry.documentId,
       ref: entry.path,
@@ -512,24 +487,32 @@ function observeOperationAuthorityOwners(
       contentDigest: rawSha256(blob.bytes),
       projection: null
     });
-  })]);
+  }));
+  return Object.freeze([Object.freeze({
+    id: 'documentation-identity-registry',
+    ref: DOCUMENTATION_IDENTITY_PATH,
+    owner: 'documentation-identity',
+    revision: identityBlob.oid,
+    contentDigest: rawSha256(identityBlob.bytes),
+    projection: null
+  }), ...ownerRecords]);
 }
 
 async function requireResolvedWorkDecision(root: string): Promise<SecWorkDecisionReceipt> {
   try {
-    const candidateHead = gitHead(root);
+    const candidateHead = await gitHead(root);
     const candidateState = CodexDevelopmentParseCurrentStateSpec(decodeUtf8(
-      readGitBlob(root, `${candidateHead}:${CONTROL_PATHS.currentState}`).bytes,
+      (await readGitBlob(root, `${candidateHead}:${CONTROL_PATHS.currentState}`)).bytes,
       'activation-stale'
     ));
     const exactMain = gitSha(
-      textCommand('git', ['rev-parse', '--verify', candidateState.resolver.defaultRef], root,
+      await textCommand('git', ['rev-parse', '--verify', candidateState.resolver.defaultRef], root,
         'activation-stale'),
       'activation-stale'
     );
-    const exactMainTree = gitTree(root, exactMain);
+    const exactMainTree = await gitTree(root, exactMain);
     const trustedState = CodexDevelopmentParseCurrentStateSpec(decodeUtf8(
-      readGitBlob(root, `${exactMain}:${CONTROL_PATHS.currentState}`).bytes,
+      (await readGitBlob(root, `${exactMain}:${CONTROL_PATHS.currentState}`)).bytes,
       'activation-stale'
     ));
     if (trustedState.resolver.repository !== candidateState.resolver.repository
@@ -641,26 +624,26 @@ function workPackageForbiddenPaths(
   return Object.freeze([...manifest.forbiddenPaths].sort(compareCodeUnits));
 }
 
-function assertManifestTestBlobsExist(
+async function assertManifestTestBlobsExist(
   candidateRoot: string,
   revision: string,
   manifest: WorkPackageManifest
-): void {
-  const bytes = requireCommand('git', [
+): Promise<void> {
+  const bytes = await requireCommand('git', [
     '--literal-pathspecs', '-c', 'core.quotepath=false',
     'ls-tree', '-r', '-z', '--full-tree', revision, '--', ...manifest.tests
   ], candidateRoot, 'activation-stale');
   guarded('activation-stale', () => assertAgentOperationActivationTestCensus(manifest.tests, bytes));
 }
 
-function readCandidateControl(
+async function readCandidateControl(
   candidateRoot: string,
   revision: string,
   receipt: SecWorkDecisionReceipt
-): CandidateControlSnapshot {
-  const stateBytes = readGitBlob(candidateRoot, `${revision}:${CONTROL_PATHS.currentState}`).bytes;
-  const pointerBytes = readGitBlob(candidateRoot, `${revision}:${CONTROL_PATHS.pointer}`).bytes;
-  const rollingBytes = readGitBlob(candidateRoot, `${revision}:${CONTROL_PATHS.rollingPlan}`).bytes;
+): Promise<CandidateControlSnapshot> {
+  const stateBytes = (await readGitBlob(candidateRoot, `${revision}:${CONTROL_PATHS.currentState}`)).bytes;
+  const pointerBytes = (await readGitBlob(candidateRoot, `${revision}:${CONTROL_PATHS.pointer}`)).bytes;
+  const rollingBytes = (await readGitBlob(candidateRoot, `${revision}:${CONTROL_PATHS.rollingPlan}`)).bytes;
   const state = CodexDevelopmentParseCurrentStateSpec(decodeUtf8(stateBytes, 'activation-stale'));
   const pointer = CodexDevelopmentParseActivePointer(decodeUtf8(pointerBytes, 'activation-stale'));
   const rolling = CodexDevelopmentParseRollingPlan(decodeUtf8(rollingBytes, 'activation-stale'));
@@ -669,16 +652,16 @@ function readCandidateControl(
       || state.resolver.defaultRef !== `refs/remotes/${state.resolver.remote}/${state.resolver.defaultBranch}`) {
     unavailable('activation-stale', 'candidate-current-state-identity-drift');
   }
-  const manifestBlob = readGitBlob(candidateRoot, `${revision}:${pointer.manifest}`);
+  const manifestBlob = await readGitBlob(candidateRoot, `${revision}:${pointer.manifest}`);
   const manifestBytes = manifestBlob.bytes;
   const manifest = ParseCurrentWorkPackageManifest(
     decodeUtf8(manifestBytes, 'activation-stale'), pointer.manifest
   );
-  assertManifestTestBlobsExist(candidateRoot, revision, manifest);
+  await assertManifestTestBlobsExist(candidateRoot, revision, manifest);
   const manifestDigest = WorkPackageManifestDigest(manifestBytes) as `sha256:${string}`;
   if (pointer.manifestDigest !== manifestDigest || rolling.activePackageId !== manifest.id
       || manifest.base !== receipt.exactMain
-      || gitObjectExists(candidateRoot, `${receipt.exactMain}:${pointer.manifest}`)) {
+      || await gitObjectExists(candidateRoot, `${receipt.exactMain}:${pointer.manifest}`)) {
     unavailable('activation-stale', 'candidate-control-binding-invalid');
   }
   return Object.freeze({
@@ -711,12 +694,12 @@ function assertPreparationSelection(
   }
 }
 
-function exactPullRequestEntry(
+async function exactPullRequestEntry(
   receipt: SecWorkDecisionReceipt,
   request: SecAgentOperationActivationRequest,
   headRef: string,
   candidateRoot: string
-): Readonly<{
+): Promise<Readonly<{
   number: number;
   baseSha: string;
   headSha: string;
@@ -724,7 +707,7 @@ function exactPullRequestEntry(
   headRef: string;
   manifestPath: string;
   manifestDigest: `sha256:${string}`;
-}> {
+}>> {
   const entries = receipt.registry.entries.filter((entry) => entry.source === 'open-pr'
     && entry.prNumber === request.pullRequestNumber
     && entry.baseSha === request.expectedBaseSha
@@ -732,7 +715,7 @@ function exactPullRequestEntry(
     && entry.manifestPath === request.manifestPath
     && entry.manifestDigest === request.manifestDigest);
   if (entries.length !== 1 || entries[0]!.headTreeSha === null
-      || gitTree(candidateRoot, request.expectedHeadSha) !== entries[0]!.headTreeSha) {
+      || await gitTree(candidateRoot, request.expectedHeadSha) !== entries[0]!.headTreeSha) {
     unavailable('activation-stale', 'exact-open-pr-registry-entry-missing');
   }
   if (!headRef.startsWith('codex/')) unavailable('activation-stale', headRef);
@@ -747,23 +730,23 @@ function exactPullRequestEntry(
   });
 }
 
-function assertRequestBindings(
+async function assertRequestBindings(
   request: SecAgentOperationActivationRequest,
   provider: SecAgentOperationActivationProvider,
   receipt: SecWorkDecisionReceipt,
   candidateRoot: string
-): void {
+): Promise<void> {
   if (provider.workflowSha !== receipt.exactMain || request.expectedBaseSha !== receipt.exactMain
-      || gitHead(candidateRoot) !== request.expectedHeadSha
-      || gitTree(candidateRoot, request.expectedHeadSha) === receipt.exactMainTree) {
+      || await gitHead(candidateRoot) !== request.expectedHeadSha
+      || await gitTree(candidateRoot, request.expectedHeadSha) === receipt.exactMainTree) {
     unavailable('activation-stale', 'request-base-head-provider-binding-drift');
   }
-  if (!isGitAncestor(candidateRoot, request.expectedBaseSha, request.expectedHeadSha)) {
+  if (!await isGitAncestor(candidateRoot, request.expectedBaseSha, request.expectedHeadSha)) {
     unavailable('activation-stale', 'request-base-is-not-an-ancestor');
   }
 }
 
-function assertPreparationProposal(
+async function assertPreparationProposal(
   records: readonly GitChangedRecord[],
   manifest: WorkPackageManifest,
   manifestPath: string,
@@ -771,8 +754,8 @@ function assertPreparationProposal(
   trustedBase: string,
   proposalRevision: string,
   candidateRoot: string
-): void {
-  const deletedPackagePaths = preparationWorkPackageDeletions(
+): Promise<void> {
+  const deletedPackagePaths = await preparationWorkPackageDeletions(
     candidateRoot,
     trustedBase,
     proposalRevision,
@@ -796,13 +779,13 @@ function assertPreparationProposal(
   CodexDevelopmentAssertWorkPackageChangedRecords(manifest, records);
 }
 
-function assertPreparationStillAuthorizesFinal(
+async function assertPreparationStillAuthorizesFinal(
   candidateRoot: string,
   decision: SecWorkDecisionReceipt,
   preparation: SecAgentOperationActivationPreparation,
   finalControl: CandidateControlSnapshot,
   binding: ReturnType<typeof workBinding>
-): void {
+): Promise<void> {
   if (preparation.repository !== decision.repository
       || preparation.trustedBaseSha !== decision.exactMain
       || preparation.trustedBaseTreeSha !== decision.exactMainTree
@@ -816,19 +799,19 @@ function assertPreparationStillAuthorizesFinal(
       || binding.currentSpecRevision !== preparation.currentSpecRevision) {
     unavailable('activation-stale', 'PRE-current-operation-binding-drift');
   }
-  const proposalTree = gitTree(candidateRoot, preparation.proposal.headSha);
-  const proposalRecords = changedRecordsBetween(
+  const proposalTree = await gitTree(candidateRoot, preparation.proposal.headSha);
+  const proposalRecords = await changedRecordsBetween(
     candidateRoot,
     decision.exactMain,
     preparation.proposal.headSha
   );
-  const proposalControl = readCandidateControl(
+  const proposalControl = await readCandidateControl(
     candidateRoot,
     preparation.proposal.headSha,
     decision
   );
   assertPreparationSelection(proposalControl, decision);
-  assertPreparationProposal(
+  await assertPreparationProposal(
     proposalRecords,
     proposalControl.manifest,
     proposalControl.manifestPath,
@@ -1216,34 +1199,34 @@ async function produceHosted(input: Readonly<{
   requestOperationId: `sha256:${string}`;
   artifactName: string;
 }>> {
-  const runtimeRoot = repositoryRoot(input.runtimeRoot);
-  const candidateRoot = repositoryRoot(input.candidateRoot);
+  const runtimeRoot = await repositoryRoot(input.runtimeRoot);
+  const candidateRoot = await repositoryRoot(input.candidateRoot);
   const requestBytes = readFileSync(path.resolve(input.requestPath));
   const request = parseSecAgentOperationActivationRequest(
     parseJson(decodeUtf8(requestBytes, 'activation-issuer-unavailable'), 'activation-issuer-unavailable')
   );
   const provider = providerFromEnvironment();
-  assertCleanExactRoot(runtimeRoot, provider.workflowSha);
-  assertCleanExactRoot(candidateRoot, request.expectedHeadSha);
+  await assertCleanExactRoot(runtimeRoot, provider.workflowSha);
+  await assertCleanExactRoot(candidateRoot, request.expectedHeadSha);
   const decision = await requireResolvedWorkDecision(runtimeRoot);
-  assertRequestBindings(request, provider, decision, candidateRoot);
-  const control = readCandidateControl(candidateRoot, request.expectedHeadSha, decision);
+  await assertRequestBindings(request, provider, decision, candidateRoot);
+  const control = await readCandidateControl(candidateRoot, request.expectedHeadSha, decision);
   if (request.manifestPath !== control.manifestPath || request.manifestDigest !== control.manifestDigest) {
     unavailable('activation-stale', 'request-manifest-binding-drift');
   }
   const binding = workBinding(decision, control.manifest, request.phase);
   const hostedHeadRef = process.env.SEC_ACTIVATION_HEAD_REF;
   if (hostedHeadRef === undefined) unavailable('activation-issuer-unavailable', 'SEC_ACTIVATION_HEAD_REF');
-  const pullRequest = exactPullRequestEntry(decision, request, hostedHeadRef, candidateRoot);
-  const records = changedRecordsBetween(candidateRoot, request.expectedBaseSha, request.expectedHeadSha);
+  const pullRequest = await exactPullRequestEntry(decision, request, hostedHeadRef, candidateRoot);
+  const records = await changedRecordsBetween(candidateRoot, request.expectedBaseSha, request.expectedHeadSha);
   const paths = changedPaths(records);
   CodexDevelopmentAssertWorkPackageChangedRecords(control.manifest, records);
-  observeOperationAuthorityOwners(
+  await observeOperationAuthorityOwners(
     candidateRoot, decision.exactMain, request.expectedHeadSha, control.manifest, paths
   );
   if (request.phase === 'prepare') {
     assertPreparationSelection(control, decision);
-    assertPreparationProposal(records, control.manifest, control.manifestPath,
+    await assertPreparationProposal(records, control.manifest, control.manifestPath,
       control.manifestBytes, request.expectedBaseSha, request.expectedHeadSha, candidateRoot);
     const preparation = createSecAgentOperationActivationPreparation({
       request,
@@ -1290,7 +1273,7 @@ async function produceHosted(input: Readonly<{
     unavailable('activation-stale', 'caller-selected-PRE-is-not-unique-maximal-ancestor');
   }
   const preparation = maximalPreparation.preparation;
-  if (!isGitAncestor(candidateRoot, preparation.proposal.headSha, request.expectedHeadSha)
+  if (!await isGitAncestor(candidateRoot, preparation.proposal.headSha, request.expectedHeadSha)
       || preparation.request.pullRequestNumber !== request.pullRequestNumber
       || preparation.trustedBaseSha !== decision.exactMain
       || preparation.proposal.headRef !== pullRequest.headRef
@@ -1298,7 +1281,7 @@ async function produceHosted(input: Readonly<{
       || preparation.proposal.manifestDigest !== control.manifestDigest) {
     unavailable('activation-stale', 'PRE-FINAL-stable-binding-drift');
   }
-  assertPreparationStillAuthorizesFinal(candidateRoot, decision, preparation, control, binding);
+  await assertPreparationStillAuthorizesFinal(candidateRoot, decision, preparation, control, binding);
   const finalReceipt = createSecAgentOperationActivationReceipt({
     request,
     preparation,
@@ -1330,13 +1313,13 @@ async function publishHosted(input: Readonly<{
   commentId: number;
   publication: SecAgentOperationActivationPublication;
 }>> {
-  const runtimeRoot = repositoryRoot(input.runtimeRoot);
+  const runtimeRoot = await repositoryRoot(input.runtimeRoot);
   const requestBytes = readFileSync(path.resolve(input.requestPath));
   const request = parseSecAgentOperationActivationRequest(
     parseJson(decodeUtf8(requestBytes, 'activation-issuer-unavailable'), 'activation-issuer-unavailable')
   );
   const provider = providerFromEnvironment();
-  assertCleanExactRoot(runtimeRoot, provider.workflowSha);
+  await assertCleanExactRoot(runtimeRoot, provider.workflowSha);
   const bytes = readFileSync(path.resolve(input.payloadPath));
   const payload = request.phase === 'prepare'
     ? parseSecAgentOperationActivationPreparation(
@@ -1361,7 +1344,7 @@ async function publishHosted(input: Readonly<{
     provider
   });
   const repository = CodexDevelopmentParseCurrentStateSpec(decodeUtf8(
-    readGitBlob(runtimeRoot, `${provider.workflowSha}:${CONTROL_PATHS.currentState}`).bytes,
+    (await readGitBlob(runtimeRoot, `${provider.workflowSha}:${CONTROL_PATHS.currentState}`)).bytes,
     'activation-stale'
   )).resolver.repository;
   await assertArtifactMetadata(runtimeRoot, repository, publication);
@@ -1432,18 +1415,18 @@ async function resolveSecAgentOperationActivationUnchecked(
   runtimeRootInput: string,
   candidateRootInput: string
 ): Promise<SecResolvedAgentOperationActivation> {
-  const runtimeRoot = repositoryRoot(runtimeRootInput);
-  const candidateRoot = repositoryRoot(candidateRootInput);
-  assertSameRepository(runtimeRoot, candidateRoot);
-  assertCleanExactRoot(candidateRoot, gitHead(candidateRoot));
+  const runtimeRoot = await repositoryRoot(runtimeRootInput);
+  const candidateRoot = await repositoryRoot(candidateRootInput);
+  await assertSameRepository(runtimeRoot, candidateRoot);
+  await assertCleanExactRoot(candidateRoot, await gitHead(candidateRoot));
   const decision = await requireResolvedWorkDecision(runtimeRoot);
-  assertCleanExactRoot(runtimeRoot, decision.exactMain);
-  const targetCandidate = gitHead(candidateRoot);
-  const branch = gitBranch(candidateRoot);
+  await assertCleanExactRoot(runtimeRoot, decision.exactMain);
+  const targetCandidate = await gitHead(candidateRoot);
+  const branch = await gitBranch(candidateRoot);
   const entries = decision.registry.entries.filter((entry) => entry.source === 'open-pr'
     && entry.headSha === targetCandidate && entry.baseSha === decision.exactMain
     && entry.prNumber !== null && entry.headTreeSha !== null);
-  if (entries.length !== 1 || entries[0]!.headTreeSha !== gitTree(candidateRoot, targetCandidate)) {
+  if (entries.length !== 1 || entries[0]!.headTreeSha !== await gitTree(candidateRoot, targetCandidate)) {
     unavailable('activation-receipt-absent', 'exact-open-pr-missing');
   }
   const entry = entries[0]!;
@@ -1481,16 +1464,16 @@ async function resolveSecAgentOperationActivationUnchecked(
       unavailable('activation-provider-readback-conflict', 'preparation-artifact-schema-drift');
     }
     const preparation = preparationPayload;
-    const control = readCandidateControl(candidateRoot, targetCandidate, decision);
+    const control = await readCandidateControl(candidateRoot, targetCandidate, decision);
     const binding = workBinding(decision, control.manifest, 'prepare');
-    const pullRequest = exactPullRequestEntry(decision, preparation.request, branch, candidateRoot);
-    const records = changedRecordsBetween(candidateRoot, decision.exactMain, targetCandidate);
+    const pullRequest = await exactPullRequestEntry(decision, preparation.request, branch, candidateRoot);
+    const records = await changedRecordsBetween(candidateRoot, decision.exactMain, targetCandidate);
     const paths = changedPaths(records);
     CodexDevelopmentAssertWorkPackageChangedRecords(control.manifest, records);
     assertPreparationSelection(control, decision);
-    assertPreparationProposal(records, control.manifest, control.manifestPath,
+    await assertPreparationProposal(records, control.manifest, control.manifestPath,
       control.manifestBytes, decision.exactMain, targetCandidate, candidateRoot);
-    const authorityOwners = observeOperationAuthorityOwners(
+    const authorityOwners = await observeOperationAuthorityOwners(
       candidateRoot, decision.exactMain, targetCandidate, control.manifest, paths
     );
     const expected = createSecAgentOperationActivationPreparation({
@@ -1557,19 +1540,19 @@ async function resolveSecAgentOperationActivationUnchecked(
   if (!canonicalEqual(maximalPreparation.preparation, receipt.preparation)) {
     unavailable('activation-provider-readback-conflict', 'PRE-FINAL-payload-drift');
   }
-  const control = readCandidateControl(candidateRoot, targetCandidate, decision);
+  const control = await readCandidateControl(candidateRoot, targetCandidate, decision);
   const binding = workBinding(decision, control.manifest, 'finalize');
-  const pullRequest = exactPullRequestEntry(decision, receipt.request, branch, candidateRoot);
-  const records = changedRecordsBetween(candidateRoot, decision.exactMain, targetCandidate);
+  const pullRequest = await exactPullRequestEntry(decision, receipt.request, branch, candidateRoot);
+  const records = await changedRecordsBetween(candidateRoot, decision.exactMain, targetCandidate);
   const paths = changedPaths(records);
   CodexDevelopmentAssertWorkPackageChangedRecords(control.manifest, records);
-  const authorityOwners = observeOperationAuthorityOwners(
+  const authorityOwners = await observeOperationAuthorityOwners(
     candidateRoot, decision.exactMain, targetCandidate, control.manifest, paths
   );
   if (branch !== pullRequest.headRef) {
     unavailable('activation-stale', 'consumer-whole-value-rederivation-drift');
   }
-  assertPreparationStillAuthorizesFinal(
+  await assertPreparationStillAuthorizesFinal(
     candidateRoot,
     decision,
     receipt.preparation,
@@ -1654,24 +1637,36 @@ async function resolveMaximalPreparation(
 }>> {
   const publications = await allPublications(runtimeRoot, repository, pullRequestNumber);
   assertNoDuplicatePublicationIdentities(publications);
-  const candidates = publications.filter(({ publication }) => {
+  const candidates: typeof publications[number][] = [];
+  for (const entry of publications) {
+    const publication = entry.publication;
     const request = publication.request;
     if (request.phase !== 'prepare' || request.pullRequestNumber !== pullRequestNumber
         || request.expectedBaseSha !== exactBase || request.expectedHeadSha === targetCandidate
         || request.manifestPath !== manifestPath || request.manifestDigest !== manifestDigest) {
-      return false;
+      continue;
     }
-    return isGitAncestor(candidateRoot, request.expectedHeadSha, targetCandidate);
-  });
+    if (await isGitAncestor(candidateRoot, request.expectedHeadSha, targetCandidate)) {
+      candidates.push(entry);
+    }
+  }
   if (candidates.length === 0) unavailable('activation-receipt-absent', targetCandidate);
-  const maximal = candidates.filter((candidate) => !candidates.some((other) => (
-    other !== candidate
-    && isGitAncestor(
-      candidateRoot,
-      candidate.publication.request.expectedHeadSha,
-      other.publication.request.expectedHeadSha
-    )
-  )));
+  const maximal: typeof candidates = [];
+  for (const candidate of candidates) {
+    let shadowed = false;
+    for (const other of candidates) {
+      if (other === candidate) continue;
+      if (await isGitAncestor(
+        candidateRoot,
+        candidate.publication.request.expectedHeadSha,
+        other.publication.request.expectedHeadSha
+      )) {
+        shadowed = true;
+        break;
+      }
+    }
+    if (!shadowed) maximal.push(candidate);
+  }
   if (maximal.length !== 1) unavailable('activation-provider-readback-conflict', targetCandidate);
   const selected = maximal[0]!;
   await assertProviderLive(runtimeRoot, repository, selected.publication.provider);
@@ -1731,24 +1726,25 @@ async function main(): Promise<void> {
       'phase', 'candidate-root',
       ...(options.json === true ? ['json'] : [])
     ]);
-    const runtimeRoot = repositoryRoot(path.resolve(import.meta.dir, '../..'));
-    const candidateRoot = repositoryRoot(requiredOption(options, 'candidate-root'));
-    assertSameRepository(runtimeRoot, candidateRoot);
-    assertCleanExactRoot(candidateRoot, gitHead(candidateRoot));
-    gitBranch(candidateRoot);
+    const runtimeRoot = await repositoryRoot(path.resolve(import.meta.dir, '../..'));
+    const candidateRoot = await repositoryRoot(requiredOption(options, 'candidate-root'));
+    await assertSameRepository(runtimeRoot, candidateRoot);
+    const candidateHead = await gitHead(candidateRoot);
+    await assertCleanExactRoot(candidateRoot, candidateHead);
+    await gitBranch(candidateRoot);
     const phase = requiredOption(options, 'phase');
     if (phase !== 'prepare' && phase !== 'finalize') unavailable('activation-issuer-unavailable', phase);
     const decision = await requireResolvedWorkDecision(runtimeRoot);
-    assertCleanExactRoot(runtimeRoot, decision.exactMain);
-    const targetCandidate = gitHead(candidateRoot);
+    await assertCleanExactRoot(runtimeRoot, decision.exactMain);
+    const targetCandidate = candidateHead;
     const entries = decision.registry.entries.filter((entry) => entry.source === 'open-pr'
       && entry.headSha === targetCandidate && entry.baseSha === decision.exactMain
       && entry.prNumber !== null && entry.headTreeSha !== null);
-    if (entries.length !== 1 || entries[0]!.headTreeSha !== gitTree(candidateRoot, targetCandidate)) {
+    if (entries.length !== 1 || entries[0]!.headTreeSha !== await gitTree(candidateRoot, targetCandidate)) {
       unavailable('activation-stale', 'exact-open-pr-missing');
     }
     const entry = entries[0]!;
-    const control = readCandidateControl(candidateRoot, targetCandidate, decision);
+    const control = await readCandidateControl(candidateRoot, targetCandidate, decision);
     if (entry.manifestPath !== control.manifestPath || entry.manifestDigest !== control.manifestDigest) {
       unavailable('activation-stale', 'registry-manifest-drift');
     }
@@ -1784,17 +1780,18 @@ async function main(): Promise<void> {
     assertExactOptionKeys(options, [
       'candidate-root', 'request-id', ...(options.json === true ? ['json'] : [])
     ]);
-    const runtimeRoot = repositoryRoot(path.resolve(import.meta.dir, '../..'));
-    const candidateRoot = repositoryRoot(requiredOption(options, 'candidate-root'));
-    assertSameRepository(runtimeRoot, candidateRoot);
-    assertCleanExactRoot(candidateRoot, gitHead(candidateRoot));
+    const runtimeRoot = await repositoryRoot(path.resolve(import.meta.dir, '../..'));
+    const candidateRoot = await repositoryRoot(requiredOption(options, 'candidate-root'));
+    await assertSameRepository(runtimeRoot, candidateRoot);
+    const candidateHead = await gitHead(candidateRoot);
+    await assertCleanExactRoot(candidateRoot, candidateHead);
     const decision = await requireResolvedWorkDecision(runtimeRoot);
-    assertCleanExactRoot(runtimeRoot, decision.exactMain);
-    const targetCandidate = gitHead(candidateRoot);
+    await assertCleanExactRoot(runtimeRoot, decision.exactMain);
+    const targetCandidate = candidateHead;
     const entries = decision.registry.entries.filter((entry) => entry.source === 'open-pr'
       && entry.headSha === targetCandidate && entry.baseSha === decision.exactMain
       && entry.prNumber !== null && entry.headTreeSha !== null);
-    if (entries.length !== 1 || entries[0]!.headTreeSha !== gitTree(candidateRoot, targetCandidate)) {
+    if (entries.length !== 1 || entries[0]!.headTreeSha !== await gitTree(candidateRoot, targetCandidate)) {
       unavailable('activation-stale', 'exact-open-pr-missing');
     }
     const requestId = requiredOption(options, 'request-id');
