@@ -10,7 +10,7 @@ import {
   assertWorkspaceSourceSnapshot,
   type WorkspaceSourceSnapshot
 } from '../../../../repository/source-program-model/workspace-source-snapshot.ts';
-import { platformCommand } from '../../sec-command.ts';
+import { platformCommand } from '../../command.ts';
 
 export type TestBudgetLane = {
   id: 'fast' | 'runtime' | 'all';

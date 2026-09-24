@@ -152,7 +152,7 @@ export function registerInspectionCommands(program: Command): void {
         const { CI_ARTIFACT_FILES } =
           await import('../../assurance/verification/ci-artifacts/contract/manifest.ts');
         const { platformCommand } =
-          await import('../../adapters/verification/platform/sec-command.ts');
+          await import('../../adapters/verification/platform/command.ts');
         return projectOverviewInspectionView(report, {
           explainCommand: platformCommand('explain'),
           verifyCompactCommand: platformCommand('verify', '--json', '--compact'),

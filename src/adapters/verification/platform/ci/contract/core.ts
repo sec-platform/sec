@@ -4,7 +4,7 @@ import { CI_ARTIFACT_KINDS } from '../../../../../assurance/verification/ci-arti
 import { CI_VERIFICATION_CONTRACT_REVISION } from '../../../../../assurance/verification/contract/revision.ts';
 import { uniqueSorted } from '../../../../../contracts/canonical.ts';
 import { CI_MAIN_HEALTH_POLICY, CI_MAIN_HEALTH_POLICY_DIGEST } from '../../../../self-hosting/control/main-health/provider-policy.ts';
-import { platformCommand } from '../../sec-command.ts';
+import { platformCommand } from '../../command.ts';
 import { slowTestSuiteIds } from '../../test-impact/contract/budget.ts';
 import {
   CI_VERIFICATION_EXECUTION_MODEL
