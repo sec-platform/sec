@@ -553,7 +553,7 @@ test('closed PR native main absorption preserves a divergent local ref before re
       isDraft: false, isCrossRepository: false,
       url: 'https://github.com/sec-platform/sec/pull/42'
     };
-    const prepared = await prepareClosedUnmergedPullRequestCloseout({
+    const prepared = await withGitHubObservationSession(fixture, [], async () => await prepareClosedUnmergedPullRequestCloseout({
       repositoryRoot: fixture.repository, repositoryFullName: 'sec-platform/sec',
       activeWorkPackageObservation: issueActiveWorkPackageOwnerObservation({
         repository: 'sec-platform/sec', defaultBranch: 'main', defaultSha: absorbedMainSha,
@@ -562,7 +562,7 @@ test('closed PR native main absorption preserves a divergent local ref before re
       }), recoveryRoot: path.join(fixture.root, 'recovery')
     }, { number: 42, refState: 'present', headBranch: fixture.branch,
       headSha: fixture.headSha, baseBranch: 'main', baseSha: fixture.mainSha,
-      exactPullRequest });
+      exactPullRequest }));
     expect(prepared.preparation.expectedLocalSha).toBe(divergentLocalSha);
     expect(prepared.preparation.recovery.kind).toBe('main-absorption');
     if (prepared.preparation.recovery.kind !== 'main-absorption') throw new Error('expected absorption');
@@ -777,7 +777,7 @@ test('missing documentation-owner observation is typed unresolved and blocks bef
       expectedHeadSha: fixture.headSha
     }));
     const rehydrationRoot = path.join(fixture.root, 'blocked-rehydration');
-    await expect(rehydratePreparedBranchCloseoutRecoveryArtifact({
+    await expect(withGitHubObservationSession(fixture, [], async () => await rehydratePreparedBranchCloseoutRecoveryArtifact({
       scope: {
         repositoryRoot: fixture.repository,
         repositoryFullName: 'sec-platform/sec',
@@ -786,7 +786,7 @@ test('missing documentation-owner observation is typed unresolved and blocks bef
       },
       remote: authorized,
       recoveryBundleBytes: readFileSync(authorized.preparation.recovery.path)
-    })).rejects.toThrow('active-work-owner-observation-unavailable');
+    }))).rejects.toThrow('active-work-owner-observation-unavailable');
     expect(existsSync(rehydrationRoot)).toBe(false);
   } finally {
     restorePath();
