@@ -10,8 +10,7 @@
         "runObservedCommand",
         "openProcessResourceSession",
         "runRetainedCommand",
-        "runRetainedCommandBytes",
-        "resolveExecutableLocator"
+        "runRetainedCommandBytes"
       ],
       "effectKinds": [
         "process"
@@ -21,14 +20,30 @@
         "runCommandBytes",
         "runObservedCommand",
         "runRetainedCommand",
-        "runRetainedCommandBytes",
-        "resolveExecutableLocator"
+        "runRetainedCommandBytes"
       ],
       "operationRoles": [
         {
           "operation": "openProcessResourceSession",
           "role": "domain-owner",
           "semanticOperation": "runtime-state.process-resource-session",
+          "requirementId": null,
+          "recovery": null
+        }
+      ]
+    },
+    {
+      "capability": "process.executable-locator",
+      "operations": [
+        "resolveExecutableLocator"
+      ],
+      "effectKinds": [],
+      "ownerInternalOperations": [],
+      "operationRoles": [
+        {
+          "operation": "resolveExecutableLocator",
+          "role": "domain-owner",
+          "semanticOperation": "runtime-state.physical.executable-locator",
           "requirementId": null,
           "recovery": null
         }
@@ -346,6 +361,39 @@
           {
             "resource": "duration-ms",
             "maximum": 30000
+          }
+        ]
+      },
+      "futureSupport": {
+        "condition": "semantic-superset-required"
+      }
+    },
+    {
+      "operation": {
+        "kind": "capability",
+        "capability": "process.executable-locator",
+        "operation": "resolveExecutableLocator"
+      },
+      "consumerSupport": {
+        "consumers": [
+          "external-capabilities.git-read",
+          "external-capabilities.github-api"
+        ]
+      },
+      "effect": {
+        "kinds": [],
+        "failureKinds": [],
+        "recovery": "not-applicable"
+      },
+      "evolution": {
+        "migration": "not-required",
+        "retirement": "replacement-obligations-satisfied"
+      },
+      "resources": {
+        "aggregateBudgets": [
+          {
+            "resource": "records",
+            "maximum": 1
           }
         ]
       },
