@@ -7,8 +7,8 @@ import type {
   VerificationReport
 } from '../contract/types.ts';
 import {
-  CodexDevelopmentSnapshotVerificationData,
-  CodexDevelopmentVerificationDataEqual
+  snapshotVerificationData,
+  verificationDataEqual
 } from '../result/contract/result.ts';
 import {
   assertCanonicalVerificationArtifactSet,
@@ -31,7 +31,7 @@ export interface VerificationArtifactPublicationArtifacts {
 export function snapshotVerificationPublicationArtifacts(
   input: VerificationArtifactPublicationArtifacts
 ): VerificationArtifactPublicationArtifacts {
-  const snapshot = CodexDevelopmentSnapshotVerificationData(
+  const snapshot = snapshotVerificationData(
     input,
     'Verification artifact publication input'
   ) as unknown as VerificationArtifactPublicationArtifacts;
@@ -54,12 +54,12 @@ export function snapshotVerificationPublicationArtifacts(
   const fastPolicyReport = validatePolicyReport(
     snapshot.verificationReport.fast.policyReport
   );
-  if (!CodexDevelopmentVerificationDataEqual(
+  if (!verificationDataEqual(
         snapshot.verificationReport.runtime,
         snapshot.runtimeReport
       ) ||
-      !CodexDevelopmentVerificationDataEqual(fastPolicyReport, policyReport) ||
-      !CodexDevelopmentVerificationDataEqual(snapshot.verificationReport.policy, {
+      !verificationDataEqual(fastPolicyReport, policyReport) ||
+      !verificationDataEqual(snapshot.verificationReport.policy, {
         status: policyReport.status,
         violations: policyReport.violations
       }) ||

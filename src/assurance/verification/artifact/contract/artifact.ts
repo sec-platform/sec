@@ -6,7 +6,7 @@ import { acceptanceIdsProvenByVerificationReports } from '../../acceptance/contr
 import { validateAcceptanceCoverageReport } from '../../acceptance/validation.ts';
 import type { FastVerificationLaneReport, RuntimeVerificationLaneReport, VerificationClaimSummary, VerificationReport, VerificationStatus } from '../../contract/types.ts';
 import { buildBlockedProductVerificationClaimSummary, buildExpectedProductVerificationClaimSummary, buildProductVerificationObservationBindings, inferProductVerificationRuntimeMode, PRODUCT_FAST_GATE_ID, PRODUCT_POLICY_GATE_ID, PRODUCT_RUNTIME_GATE_ID, type ProductVerificationObservations } from '../../profile/contract/product.ts';
-import { AssertVerificationGateResult, CodexDevelopmentSnapshotVerificationData, CodexDevelopmentVerificationDataEqual, type VerificationGateResult } from '../../result/contract/result.ts';
+import { AssertVerificationGateResult, snapshotVerificationData, verificationDataEqual, type VerificationGateResult } from '../../result/contract/result.ts';
 
 export interface VerificationArtifactSet {
   readonly verificationReport: unknown;
@@ -82,7 +82,7 @@ function exactFastVerificationReport(value: unknown): value is FastVerificationL
     return false;
   }
   const policyReport = validatedPolicyReport(value.policyReport);
-  return policyReport !== null && CodexDevelopmentVerificationDataEqual(value.policy, {
+  return policyReport !== null && verificationDataEqual(value.policy, {
     status: policyReport.status,
     violations: structuredClone(policyReport.violations)
   });
@@ -178,7 +178,7 @@ function exactVerificationClaimSummary(
           acceptanceCoverage,
           observations
         );
-    return CodexDevelopmentVerificationDataEqual(value, expected);
+    return verificationDataEqual(value, expected);
   } catch {
     return false;
   }
@@ -227,13 +227,13 @@ function exactVerificationReport(
     stdout: [report.fast.logs.stdout, report.runtime.logs.stdout].filter(Boolean).join('\n'),
     stderr: [report.fast.logs.stderr, report.runtime.logs.stderr].filter(Boolean).join('\n')
   };
-  return CodexDevelopmentVerificationDataEqual(report.build, report.fast.build) &&
-    CodexDevelopmentVerificationDataEqual(report.unit, report.fast.unit) &&
-    CodexDevelopmentVerificationDataEqual(report.acceptance, report.fast.acceptance) &&
-    CodexDevelopmentVerificationDataEqual(report.policy, report.fast.policy) &&
-    CodexDevelopmentVerificationDataEqual(report.logs, expectedLogs) &&
+  return verificationDataEqual(report.build, report.fast.build) &&
+    verificationDataEqual(report.unit, report.fast.unit) &&
+    verificationDataEqual(report.acceptance, report.fast.acceptance) &&
+    verificationDataEqual(report.policy, report.fast.policy) &&
+    verificationDataEqual(report.logs, expectedLogs) &&
     report.summary.status === expectedSummaryStatus &&
-    CodexDevelopmentVerificationDataEqual(report.summary.failedLanes, failedLanes);
+    verificationDataEqual(report.summary.failedLanes, failedLanes);
 }
 
 function exactCurrentCanonicalVerificationReport(
@@ -256,7 +256,7 @@ function exactAcceptanceCoverage(
   ])].sort();
   const expectedAccepted = acceptanceIdsProvenByVerificationReports(fast, runtime, declaredAcceptance);
   const accepted = new Set(report.acceptancePassed);
-  return CodexDevelopmentVerificationDataEqual(
+  return verificationDataEqual(
     structuredClone(report.acceptancePassed),
     expectedAccepted
   ) &&
@@ -268,7 +268,7 @@ export function isCanonicalVerificationArtifactSet(
 ): input is CanonicalVerificationArtifactSet {
   let candidate: VerificationArtifactSet;
   try {
-    const snapshot = CodexDevelopmentSnapshotVerificationData(input, 'verification artifact set');
+    const snapshot = snapshotVerificationData(input, 'verification artifact set');
     if (!snapshot || typeof snapshot !== 'object' || Array.isArray(snapshot)) return false;
     candidate = snapshot as unknown as VerificationArtifactSet;
   } catch {
@@ -290,12 +290,12 @@ export function isCanonicalVerificationArtifactSet(
 
   const reportPolicy = validatedPolicyReport(candidate.verificationReport.fast.policyReport);
   return reportPolicy !== null &&
-    CodexDevelopmentVerificationDataEqual(candidate.verificationReport.runtime, candidate.runtimeReport) &&
-    CodexDevelopmentVerificationDataEqual(
+    verificationDataEqual(candidate.verificationReport.runtime, candidate.runtimeReport) &&
+    verificationDataEqual(
       structuredClone(reportPolicy),
       structuredClone(policyReport)
     ) &&
-    CodexDevelopmentVerificationDataEqual(candidate.verificationReport.policy, {
+    verificationDataEqual(candidate.verificationReport.policy, {
       status: policyReport.status,
       violations: structuredClone(policyReport.violations)
     }) &&

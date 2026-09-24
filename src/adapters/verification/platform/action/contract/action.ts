@@ -12,7 +12,7 @@ import path from 'node:path';
 import { types as nodeTypes } from 'node:util';
 
 import type { VerificationReasonCode, VerificationResultStatus } from '../../../../../assurance/verification/result/contract/result.ts';
-import { CodexDevelopmentAssertVerificationStatusReason } from '../../../../../assurance/verification/result/contract/result.ts';
+import { assertVerificationStatusReason } from '../../../../../assurance/verification/result/contract/result.ts';
 import { sha256 } from '../../../../../contracts/canonical.ts';
 import {
   assertDomainReadbackReceipt,
@@ -436,7 +436,7 @@ function assertCanonicalStatusReason(
   reasonCode: unknown
 ): asserts status is VerificationResultStatus {
   try {
-    CodexDevelopmentAssertVerificationStatusReason(
+    assertVerificationStatusReason(
       status,
       reasonCode,
       'VerificationAction terminal'

@@ -1,7 +1,7 @@
 import { isCanonicalVerificationArtifactSet } from '../artifact/contract/artifact.ts';
 import type { VerificationReport } from '../contract/types.ts';
 import {
-  CodexDevelopmentSnapshotVerificationData,
+  snapshotVerificationData,
   type VerificationResultStatus
 } from '../result/contract/result.ts';
 
@@ -116,19 +116,19 @@ export function classifySemanticMutationIsolatedVerificationArtifactSet(
   try {
     candidate = {
       childExitCode: input.childExitCode,
-      verificationReport: CodexDevelopmentSnapshotVerificationData(
+      verificationReport: snapshotVerificationData(
         input.verificationReport,
         'verification report'
       ),
-      runtimeReport: CodexDevelopmentSnapshotVerificationData(
+      runtimeReport: snapshotVerificationData(
         input.runtimeReport,
         'runtime report'
       ),
-      policyReport: CodexDevelopmentSnapshotVerificationData(
+      policyReport: snapshotVerificationData(
         input.policyReport,
         'policy report'
       ),
-      acceptanceCoverage: CodexDevelopmentSnapshotVerificationData(
+      acceptanceCoverage: snapshotVerificationData(
         input.acceptanceCoverage,
         'acceptance coverage'
       ),

@@ -3,7 +3,7 @@ import type { PolicyReport } from '../../../../semantics/policies/types.ts';
 import type { AcceptanceCoverageReport } from '../../../acceptance/coverage.ts';
 import { validatePolicyReport } from "../../../policies/report.ts";
 import type { FastVerificationLaneReport, RuntimeVerificationLaneReport, VerificationClaimSummary, VerificationLane, VerificationStatus, VerificationStepReport } from '../../contract/types.ts';
-import { CodexDevelopmentAggregateVerificationClaims, BuildVerificationGateResult, CodexDevelopmentVerificationEnvironmentIdentity, mapProductVerificationStatus, type ProductVerificationMappingContext, type VerificationApplicability, type VerificationClaimDefinition, type VerificationGateEnvironment, type VerificationGateExecution, type VerificationGateResult, type VerificationReasonCode, type VerificationResultStatus } from '../../result/contract/result.ts';
+import { aggregateVerificationClaims, BuildVerificationGateResult, verificationEnvironmentIdentity, mapProductVerificationStatus, type ProductVerificationMappingContext, type VerificationApplicability, type VerificationClaimDefinition, type VerificationGateEnvironment, type VerificationGateExecution, type VerificationGateResult, type VerificationReasonCode, type VerificationResultStatus } from '../../result/contract/result.ts';
 
 const PRODUCT_VERIFICATION_PROFILE_REVISION = 'product-verification-v1' as const;
 const PRODUCT_VERIFICATION_OWNER = 'product-verify-project' as const;
@@ -357,7 +357,7 @@ function productVerificationClaimDefinitions(
   lane: VerificationLane,
   includePolicyClaim = true
 ): VerificationClaimDefinition[] {
-  const owningEnvironments = [CodexDevelopmentVerificationEnvironmentIdentity(
+  const owningEnvironments = [verificationEnvironmentIdentity(
     process.platform,
     process.arch
   )];
@@ -411,7 +411,7 @@ export function buildExpectedProductVerificationClaimSummary(
   const includePolicyClaim = canonicalPolicy === null || canonicalPolicy.status !== 'skipped';
   return {
     gates,
-    overall: CodexDevelopmentAggregateVerificationClaims({
+    overall: aggregateVerificationClaims({
       claims: productVerificationClaimDefinitions(lane, includePolicyClaim),
       gateResults: gates
     })
@@ -453,7 +453,7 @@ export function buildBlockedProductVerificationClaimSummary(
   ];
   return {
     gates,
-    overall: CodexDevelopmentAggregateVerificationClaims({
+    overall: aggregateVerificationClaims({
       claims: productVerificationClaimDefinitions(lane, true),
       gateResults: gates
     })
