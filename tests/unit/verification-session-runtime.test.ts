@@ -32,7 +32,7 @@ import {
 import { createScopeAuthorization, type ScopeAuthorization } from '../../src/adapters/self-hosting/control/scope/authorization.ts';
 import { encodeVerificationActionData } from '../../src/adapters/verification/platform/action/contract/action.ts';
 import { ciVerificationActionParentDispatchPlanPayloadDigest, createCiVerificationActionParentDispatchPlan, createCiVerificationActionProposal, createCiVerificationActionProviderEnvelope, createCiVerificationLocalExecutionEnvironment } from '../../src/adapters/verification/platform/action/contract/ci.ts';
-import { CreateVerificationEvidenceProducer, FinalizeVerificationEvidenceV4, FinalizeVerificationSessionArtifact } from '../../src/adapters/verification/platform/ci/contract/evidence.ts';
+import { createVerificationEvidenceProducer, finalizeVerificationEvidence, finalizeVerificationSessionArtifact } from '../../src/adapters/verification/platform/ci/contract/evidence.ts';
 import { bindDocumentationVerificationGateInput } from '../../src/adapters/verification/platform/ci/contract/plan.ts';
 import { createReviewSnapshotDigest, createReviewStabilityReceipt, renderIndependentReviewTrailer, REVIEW_OBSERVER_READ_ONLY_CAPABILITY_RECEIPT, SEC_REVIEW_STABILITY_POLICY } from '../../src/adapters/verification/platform/review/contract/stability.ts';
 import { CreateTestImpactTransitionObservation, CodexDevelopmentTestImpactTransitionDigest, type TestImpactTransitionObservation } from '../../src/adapters/verification/platform/test-impact/runtime/transition.ts';
@@ -1020,7 +1020,7 @@ async function reducerFixture(options: {
     observedAt: VERIFIED_AT, reviewBarrier: barrier, mainHealthChecks: [sessionMainHealthCheck],
     dependencyBlobs: actionDependencyBlobs() });
   const envelope = createPureHostedEnvelopeFixture({ request: local.request, facts });
-  const producer = CreateVerificationEvidenceProducer({
+  const producer = createVerificationEvidenceProducer({
     sourceTransport: 'github-actions', workflowPath: '.github/workflows/compiler-pr-validation.yml',
     workflowRef: `.github/workflows/compiler-pr-validation.yml@${BASE}`, workflowSha: BASE,
     runId: '100', runAttempt: 1, actorNodeId: 'INTEGRATOR'
@@ -1044,7 +1044,7 @@ async function reducerFixture(options: {
     }),
     cleanup: { status: 'not-required' as const, evidenceRefs: [] as string[], diagnostic: null }
   }));
-  const evidence = FinalizeVerificationEvidenceV4({
+  const evidence = finalizeVerificationEvidence({
     contractRevision: 'ci-verification-v19', sessionRevision: envelope.session.sessionRevision,
     sessionProposalDigest: envelope.session.sessionProposalDigest,
     scopeAuthorizationRevision: envelope.scopeAuthorization.authorizationRevision,
@@ -1058,7 +1058,7 @@ async function reducerFixture(options: {
     finishedAt: '2026-08-09T14:03:00.000Z', gates, evidenceRefs: [],
     invalidationRules: ['Session, Action, Review, MainHealth, or trust changes']
   });
-  const artifact = FinalizeVerificationSessionArtifact({
+  const artifact = finalizeVerificationSessionArtifact({
     scopeAuthorization: envelope.scopeAuthorization, session: envelope.session,
     preGateReview: envelope.preGateReview, mainHealth: envelope.mainHealth, evidence, producer
   });

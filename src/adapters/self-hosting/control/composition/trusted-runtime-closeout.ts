@@ -17,7 +17,7 @@ import { publishExclusiveDurableCanonicalFile, readNoFollowOrdinaryFile, type Ph
 import { resolveSecRuntimeStateForRepository } from '../../../runtime-state/workspace-state/paths.ts';
 import { acquireSecRuntimeStatePhysicalAuthority, type SecRuntimeStatePhysicalAuthority } from '../../../runtime-state/workspace-state/physical-authority.ts';
 import { encodeVerificationActionData } from '../../../verification/platform/action/contract/action.ts';
-import { ParseVerificationSessionArtifact, type VerificationSessionArtifact } from '../../../verification/platform/ci/contract/evidence.ts';
+import { parseVerificationSessionArtifact, type VerificationSessionArtifact } from '../../../verification/platform/ci/contract/evidence.ts';
 import {
   createVerificationSessionGitHubClient,
   type GitHubCandidateObservation,
@@ -219,7 +219,7 @@ function createActionBundle(input: Readonly<{
   artifact: VerificationSessionArtifact;
   containerReceipt: TrustedRuntimeContainerReceipt;
 }>): TrustedRuntimeActionBundle {
-  const artifact = ParseVerificationSessionArtifact(
+  const artifact = parseVerificationSessionArtifact(
     encodeVerificationActionData(input.artifact)
   );
   const receipt = parseTrustedRuntimeContainerReceipt(input.containerReceipt);
@@ -252,7 +252,7 @@ function parseActionBundle(source: Uint8Array): TrustedRuntimeActionBundle {
     fail('Action bundle shape is invalid');
   }
   const rebuilt = createActionBundle({
-    artifact: ParseVerificationSessionArtifact(
+    artifact: parseVerificationSessionArtifact(
       encodeVerificationActionData(value.artifact)
     ),
     containerReceipt: parseTrustedRuntimeContainerReceipt(value.containerReceipt)
@@ -730,7 +730,7 @@ async function closeoutOpenCandidateWithTrustedRuntime(args: Readonly<{
       parent: stateDirectory,
       name: `artifact-${artifact.artifactDigest.slice(7)}.json`,
       value: artifact,
-      parse: (bytes) => ParseVerificationSessionArtifact(
+      parse: (bytes) => parseVerificationSessionArtifact(
         Buffer.from(bytes).toString('utf8')
       )
     });

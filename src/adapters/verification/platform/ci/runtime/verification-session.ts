@@ -191,8 +191,8 @@ import { VERIFICATION_SESSION_RUNTIME_ENTRYPOINT_PATH, parseVerificationSession,
 import type { TestImpactTransitionObservation } from '../../test-impact/runtime/transition.ts';
 import { SEC_TRUSTED_BOOTSTRAP_REGISTRY } from '../../trust/contract/root.ts';
 import {
-  CreateVerificationEvidenceProducer,
-  ParseVerificationSessionArtifact
+  createVerificationEvidenceProducer,
+  parseVerificationSessionArtifact
 } from '../contract/evidence.ts';
 import {
   CI_VERIFICATION_SESSION_DISPATCH_TYPE
@@ -1260,7 +1260,7 @@ function hostedSessionArtifactName(input: {
 }
 
 function assertHostedArtifactMatchesRequest(
-  artifact: ReturnType<typeof ParseVerificationSessionArtifact>,
+  artifact: ReturnType<typeof parseVerificationSessionArtifact>,
   request: ReturnType<typeof parseVerificationSessionHostedRequest>,
   repository: string
 ): void {
@@ -1290,7 +1290,7 @@ function loadHostedSessionTransport(input: {
   metadata: GitHubActionsArtifactObservation;
   request?: ReturnType<typeof parseVerificationSessionHostedRequest>;
 }): Readonly<{
-  artifact: ReturnType<typeof ParseVerificationSessionArtifact>;
+  artifact: ReturnType<typeof parseVerificationSessionArtifact>;
   artifactText: string;
   metadata: GitHubActionsArtifactObservation;
   observation: ReturnType<typeof createHostedArtifactObservation>;
@@ -1308,7 +1308,7 @@ function loadHostedSessionTransport(input: {
   }
   const artifactText = github.downloadArtifactText(repository, metadata,
     'verification-session-artifact.json');
-  const artifact = ParseVerificationSessionArtifact(artifactText);
+  const artifact = parseVerificationSessionArtifact(artifactText);
   const expectedName = hostedSessionArtifactName({ prNumber: artifact.session.prNumber,
     sessionRevision: artifact.session.sessionRevision, runId: metadata.runId,
     runAttempt: metadata.runAttempt });
@@ -1333,7 +1333,7 @@ function selectTrustedHostedSessionArtifact(input: {
   request?: ReturnType<typeof parseVerificationSessionHostedRequest>;
   requireSingleTransport?: boolean;
 }): Readonly<{
-  artifact: ReturnType<typeof ParseVerificationSessionArtifact>;
+  artifact: ReturnType<typeof parseVerificationSessionArtifact>;
   origin: ReturnType<typeof createHostedArtifactObservation>;
   transport: ReturnType<typeof createHostedArtifactObservation>;
   originMetadata: GitHubActionsArtifactObservation;
@@ -4556,7 +4556,7 @@ export async function verificationSessionCli(argv: string[]): Promise<string> {
     }, null, 2);
   }
   if (command === 'freeze') {
-    const artifact = ParseVerificationSessionArtifact(
+    const artifact = parseVerificationSessionArtifact(
       readFileSync(path.resolve(required(args, '--artifact')), 'utf8')
     );
     writeDurable(required(args, '--session-output'), artifact.session);
@@ -4722,7 +4722,7 @@ export async function verificationSessionCli(argv: string[]): Promise<string> {
     return JSON.stringify({ status: 'prepared', envelopeDigest: envelope.envelopeDigest, output: path.resolve(required(args, '--output')) }, null, 2);
   }
   if (command === 'artifact-status') {
-    const artifact = ParseVerificationSessionArtifact(
+    const artifact = parseVerificationSessionArtifact(
       readFileSync(path.resolve(required(args, '--artifact')), 'utf8')
     );
     return JSON.stringify(classifyVerificationSessionArtifactReuse(artifact, now()), null, 2);
@@ -4738,7 +4738,7 @@ export async function verificationSessionCli(argv: string[]): Promise<string> {
       ? finalizeVerificationSessionHostedArtifact({ envelope,
           evidence: readJson<Parameters<typeof finalizeVerificationSessionHostedArtifact>[0]['evidence']>(evidencePath) })
       : (() => {
-          const previousArtifact = ParseVerificationSessionArtifact(
+          const previousArtifact = parseVerificationSessionArtifact(
             readFileSync(path.resolve(previousArtifactPath!), 'utf8')
           );
           const eventPayload = event();
@@ -4749,7 +4749,7 @@ export async function verificationSessionCli(argv: string[]): Promise<string> {
           }
           const runId = environment.GITHUB_RUN_ID ?? '';
           if (!/^[1-9][0-9]*$/u.test(runId)) throw new Error('GITHUB_RUN_ID is required for trusted artifact refresh.');
-          const producer = CreateVerificationEvidenceProducer({
+          const producer = createVerificationEvidenceProducer({
             sourceTransport: 'github-actions', workflowPath: '.github/workflows/compiler-pr-validation.yml',
             workflowRef: `.github/workflows/compiler-pr-validation.yml@${envelope.session.baseSha}`,
             workflowSha: envelope.session.baseSha, runId,

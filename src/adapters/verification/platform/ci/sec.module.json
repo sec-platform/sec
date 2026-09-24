@@ -8,8 +8,8 @@
       "capability": "ci-verification-contract",
       "operations": [
         "BuildVerificationPlan",
-        "FinalizeVerificationEvidenceV4",
-        "ParseVerificationSessionArtifact",
+        "finalizeVerificationEvidence",
+        "parseVerificationSessionArtifact",
         "buildCiContract",
         "buildCiFullGatePlan",
         "buildCiQuickGatePlan"

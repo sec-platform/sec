@@ -19,7 +19,7 @@ import { createMainHealthLedger } from '../../src/adapters/self-hosting/control/
 import { createScopeAuthorization } from '../../src/adapters/self-hosting/control/scope/authorization.ts';
 import { encodeVerificationActionData } from '../../src/adapters/verification/platform/action/contract/action.ts';
 import { buildCiVerificationActionPlanClosure, type CiVerificationActionCandidate } from '../../src/adapters/verification/platform/action/contract/ci.ts';
-import { AssertVerificationSessionArtifactCurrent, CreateVerificationEvidenceProducer, FinalizeVerificationEvidenceV4, FinalizeVerificationSessionArtifact, RefreshVerificationSessionArtifact } from '../../src/adapters/verification/platform/ci/contract/evidence.ts';
+import { assertVerificationSessionArtifactCurrent, createVerificationEvidenceProducer, finalizeVerificationEvidence, finalizeVerificationSessionArtifact, refreshVerificationSessionArtifact } from '../../src/adapters/verification/platform/ci/contract/evidence.ts';
 import { REVIEW_OBSERVER_READ_ONLY_CAPABILITY_RECEIPT, SEC_REVIEW_STABILITY_POLICY, createReviewSnapshotDigest, createReviewStabilityReceipt, renderIndependentReviewTrailer } from '../../src/adapters/verification/platform/review/contract/stability.ts';
 import { createVerificationSession } from '../../src/adapters/verification/platform/session/contract/session.ts';
 import { BuildVerificationGateResult } from '../../src/assurance/verification/result/contract/result.ts';
@@ -217,7 +217,7 @@ function fixture(resultStatus: 'passed' | 'failed' = 'passed'): MergeGateInput {
     }
   });
   const workflowRef = `.github/workflows/compiler-pr-validation.yml@${BASE}`;
-  const producer = CreateVerificationEvidenceProducer({
+  const producer = createVerificationEvidenceProducer({
     sourceTransport: 'github-actions',
     workflowPath: '.github/workflows/compiler-pr-validation.yml',
     workflowRef,
@@ -274,7 +274,7 @@ function fixture(resultStatus: 'passed' | 'failed' = 'passed'): MergeGateInput {
     }),
     cleanup: { status: 'not-required' as const, evidenceRefs: [], diagnostic: null }
   };
-  const evidence = FinalizeVerificationEvidenceV4({
+  const evidence = finalizeVerificationEvidence({
     contractRevision: 'ci-verification-v19',
     sessionRevision: session.sessionRevision,
     sessionProposalDigest: PROPOSAL,
@@ -300,7 +300,7 @@ function fixture(resultStatus: 'passed' | 'failed' = 'passed'): MergeGateInput {
     evidenceRefs: [],
     invalidationRules: ['session/action/review/main/trust changes']
   });
-  const artifact = FinalizeVerificationSessionArtifact({
+  const artifact = finalizeVerificationSessionArtifact({
     scopeAuthorization,
     session,
     preGateReview,
@@ -452,7 +452,7 @@ function refreshArtifact(base: MergeGateInput) {
     reviewedAt: refreshedAt,
     expiresAt
   });
-  const producer = CreateVerificationEvidenceProducer({
+  const producer = createVerificationEvidenceProducer({
     sourceTransport: 'github-actions',
     workflowPath: '.github/workflows/compiler-pr-validation.yml',
     workflowRef: `.github/workflows/compiler-pr-validation.yml@${BASE}`,
@@ -461,7 +461,7 @@ function refreshArtifact(base: MergeGateInput) {
     runAttempt: 1,
     actorNodeId: 'USER_integrator'
   });
-  return RefreshVerificationSessionArtifact({
+  return refreshVerificationSessionArtifact({
     previousArtifact: base.artifact,
     scopeAuthorization,
     session,
@@ -579,13 +579,13 @@ test('fresh MainHealth provenance rejects workflow references, wrong revisions a
   }
 });
 
-test('expired authority receipts re-finalize fresh V4 Evidence while reusing exact Action Results', () => {
+test('expired authority receipts re-finalize fresh Evidence while reusing exact Action Results', () => {
   const base = fixture();
-  expect(() => AssertVerificationSessionArtifactCurrent(
+  expect(() => assertVerificationSessionArtifactCurrent(
     base.artifact,
     '2026-08-09T00:30:00.000Z'
   )).not.toThrow();
-  expect(() => AssertVerificationSessionArtifactCurrent(
+  expect(() => assertVerificationSessionArtifactCurrent(
     base.artifact,
     '2026-08-09T02:00:00.000Z'
   )).toThrow('expired');
@@ -601,7 +601,7 @@ test('expired authority receipts re-finalize fresh V4 Evidence while reusing exa
   expect(refreshed.evidence.evidenceRefs)
     .toContain(`verification-session-artifact:${base.artifact.artifactDigest}`);
   expect(refreshed.artifactDigest).not.toBe(base.artifact.artifactDigest);
-  expect(() => AssertVerificationSessionArtifactCurrent(
+  expect(() => assertVerificationSessionArtifactCurrent(
     refreshed,
     '2026-08-09T02:00:00.000Z'
   )).not.toThrow();
@@ -609,7 +609,7 @@ test('expired authority receipts re-finalize fresh V4 Evidence while reusing exa
   const refreshedFailure = refreshArtifact(fixture('failed'));
   expect(refreshedFailure.evidence.status).toBe('failed');
   expect(refreshedFailure.evidence.gates[0]!.result.status).toBe('failed');
-  expect(() => RefreshVerificationSessionArtifact({
+  expect(() => refreshVerificationSessionArtifact({
     previousArtifact: base.artifact,
     scopeAuthorization: base.artifact.scopeAuthorization,
     session: base.artifact.session,
@@ -642,7 +642,7 @@ test('candidate workflow, forged artifact provenance, review drift, and incomple
   for (const value of cases) expect(() => EvaluateMergeGate(value)).toThrow();
 });
 
-test('V4 Action closure mismatch and non-PASS terminal facts cannot authorize integration', () => {
+test('Action closure mismatch and non-PASS terminal facts cannot authorize integration', () => {
   const base = fixture();
   const driftedPlan = buildCiVerificationActionPlanClosure({
     candidate: {

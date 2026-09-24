@@ -63,12 +63,12 @@ import { createVerificationSession, createVerificationSessionProposalDigest, cre
 import type { TestImpactSourceProvider } from '../../test-impact/runtime/impact.ts';
 import { AssertTestImpactTransitionSelection, type TestImpactTransitionObservation } from '../../test-impact/runtime/transition.ts';
 import {
-  AssertVerificationSessionArtifact,
-  AssertVerificationSessionArtifactCurrent,
-  FinalizeVerificationSessionArtifact,
-  RefreshVerificationSessionArtifact,
+  assertVerificationSessionArtifact,
+  assertVerificationSessionArtifactCurrent,
+  finalizeVerificationSessionArtifact,
+  refreshVerificationSessionArtifact,
   type VerificationEvidenceProducer,
-  type VerificationEvidenceV4,
+  type VerificationEvidence,
   type VerificationSessionArtifact
 } from '../contract/evidence.ts';
 import {
@@ -522,7 +522,7 @@ export function classifyVerificationSessionArtifactReuse(
   const actionEvidenceCandidate = artifact.evidence.status === 'passed'
     || artifact.evidence.status === 'failed';
   try {
-    AssertVerificationSessionArtifactCurrent(artifact, now);
+    assertVerificationSessionArtifactCurrent(artifact, now);
     return Object.freeze({ status: 'whole-artifact-current', actionEvidenceCandidate,
       reason: 'canonical hosted authority is current' });
   } catch (error) {
@@ -1272,7 +1272,7 @@ export function prepareVerificationSessionHosted(input: {
 
 export function finalizeVerificationSessionHostedArtifact(input: {
   envelope: VerificationSessionHostedEnvelope;
-  evidence: VerificationEvidenceV4;
+  evidence: VerificationEvidence;
 }): VerificationSessionArtifact {
   const envelope = input.envelope;
   const { envelopeDigest, ...withoutDigest } = envelope;
@@ -1282,7 +1282,7 @@ export function finalizeVerificationSessionHostedArtifact(input: {
   if (input.evidence.actionPlan.actionPlanDigest !== envelope.actionPlanClosure.actionPlanDigest) {
     throw new Error('finalize-hosted Evidence Action plan differs from prepared envelope.');
   }
-  return FinalizeVerificationSessionArtifact({
+  return finalizeVerificationSessionArtifact({
     scopeAuthorization: envelope.scopeAuthorization,
     session: envelope.session,
     preGateReview: envelope.preGateReview,
@@ -1303,7 +1303,7 @@ export function refreshVerificationSessionHostedArtifact(input: {
     || hash(withoutDigest) !== envelopeDigest) {
     throw new Error('prepare-hosted refresh envelope digest mismatch.');
   }
-  return RefreshVerificationSessionArtifact({
+  return refreshVerificationSessionArtifact({
     previousArtifact: input.previousArtifact,
     scopeAuthorization: input.envelope.scopeAuthorization,
     session: input.envelope.session,
@@ -1319,7 +1319,7 @@ function assertArtifactProvenance(
   provenance: TrustedArtifactProvenance,
   session: VerificationSession
 ): void {
-  AssertVerificationSessionArtifact(artifact);
+  assertVerificationSessionArtifact(artifact);
   const producer = artifact.producer;
   const checks: readonly [unknown, unknown, string][] = [
     [provenance.canonicalByteDigest, hash(artifact), 'canonical artifact bytes'],
@@ -1363,7 +1363,7 @@ export function prepareVerificationSessionMergeInput(input: {
   expiresAt: string;
 }): MergeGateInput {
   if (input.platform.status === 'unknown') throw new Error('Unknown platform enforcement blocks merge input.');
-  AssertVerificationSessionArtifact(input.artifact);
+  assertVerificationSessionArtifact(input.artifact);
   const provenance = createMergeGateProvenance(input.provenance);
   return CreateMergeGateInput({
     provenance,
@@ -1400,7 +1400,7 @@ export function prepareVerificationSessionTrustedRuntimeMergeInput(input: {
   if (input.platform.status === 'unknown') {
     throw new Error('Unknown platform enforcement blocks trusted runtime merge input.');
   }
-  AssertVerificationSessionArtifact(input.artifact);
+  assertVerificationSessionArtifact(input.artifact);
   const provenance = createTrustedRuntimeMergeGateProvenance(input.provenance);
   return CreateTrustedRuntimeMergeGateInput({
     provenance,

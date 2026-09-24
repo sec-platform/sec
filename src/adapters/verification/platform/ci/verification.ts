@@ -94,22 +94,22 @@ import type { TestImpactSourceProvider } from '../test-impact/runtime/impact.ts'
 import type { GitChangedRecord, TestImpactTransitionObservation } from '../test-impact/runtime/transition.ts';
 import { AssertTestImpactTransitionSelection } from '../test-impact/runtime/transition.ts';
 import {
-  aggregateV4Status,
-  AssertVerificationActionTerminalArtifact,
-  CreateVerificationEvidenceProducer,
-  FinalizeVerificationActionTerminalArtifact,
-  FinalizeVerificationEvidenceV4,
-  ParseVerificationActionTerminalArtifact,
-  PrepareVerificationEvidenceTarget,
-  VerificationActionCandidateBytesDigest,
-  VerificationDigest,
-  WriteVerificationActionTerminalArtifactV2Atomic,
-  WriteVerificationEvidenceV4Atomic,
+  aggregateVerificationStatus,
+  assertVerificationActionTerminalArtifact,
+  createVerificationEvidenceProducer,
+  finalizeVerificationActionTerminalArtifact,
+  finalizeVerificationEvidence,
+  parseVerificationActionTerminalArtifact,
+  prepareVerificationEvidenceTarget,
+  verificationActionCandidateBytesDigest,
+  verificationDigest,
+  writeVerificationActionTerminalArtifactAtomic,
+  writeVerificationEvidenceAtomic,
   type VerificationActionArtifactInput,
   type VerificationActionArtifactProducer,
   type VerificationActionTerminalArtifact,
-  type VerificationEvidenceV4,
-  type VerificationGateEvidenceV4
+  type VerificationEvidence,
+  type VerificationGateEvidence
 } from './contract/evidence.ts';
 import {
   CI_VERIFICATION_ACTION_PHYSICAL_COMMAND_SCHEMA,
@@ -311,7 +311,7 @@ export type HostedActionProviderIndex = Readonly<{
 }>;
 
 function ciActionDigest(value: unknown): VerificationActionKeyDigest {
-  return VerificationDigest(value) as VerificationActionKeyDigest;
+  return verificationDigest(value) as VerificationActionKeyDigest;
 }
 
 function exactObject(value: unknown, keys: readonly string[], label: string): Record<string, unknown> {
@@ -350,7 +350,7 @@ export function ReadHostedActionArtifactIndex(input: Readonly<{
     const providerObservation = terminal.providerObservation as VerificationActionProviderTerminalObservation;
     const artifact = terminal.artifact === null
       ? null
-      : ParseVerificationActionTerminalArtifact(
+      : parseVerificationActionTerminalArtifact(
         encodeVerificationActionData(terminal.artifact)
       );
     if (providerObservation === null || typeof providerObservation !== 'object' ||
@@ -471,7 +471,7 @@ export function ResolveHostedAction(input: Readonly<{
     manifestPath: session.manifestPath,
     manifestDigest: session.manifestDigest,
     inputClosureDigest: ciActionDigest(actionPlan.action.inputClosure),
-    candidateBytesDigest: VerificationActionCandidateBytesDigest({
+    candidateBytesDigest: verificationActionCandidateBytesDigest({
       baseSha: session.baseSha,
       baseTreeSha: session.baseTreeSha,
       headSha: session.headSha,
@@ -525,7 +525,7 @@ export function ParseHostedActionResolution(
   const artifactInput = value.artifactInput as VerificationActionArtifactInput;
   if (artifactInput === null || typeof artifactInput !== 'object' ||
       artifactInput.inputClosureDigest !== ciActionDigest(actionPlan.action.inputClosure) ||
-      artifactInput.candidateBytesDigest !== VerificationActionCandidateBytesDigest({
+      artifactInput.candidateBytesDigest !== verificationActionCandidateBytesDigest({
         ...artifactInput,
         action: actionPlan.action
       })) {
@@ -689,7 +689,7 @@ function hostedActionProviderIndexFromSnapshot(
   const terminalObservations = snapshot.terminalObservations.map((observation) => {
     const artifact = observation.payload === null
       ? null
-      : ParseVerificationActionTerminalArtifact(
+      : parseVerificationActionTerminalArtifact(
         encodeVerificationActionData(observation.payload)
       );
     return Object.freeze({
@@ -3490,7 +3490,7 @@ export function AssembleHostedActionTerminal(input: Readonly<{
     observation: rawResult,
     expectedRawResultDigest: input.expectedRawResultDigest
   });
-  return FinalizeVerificationActionTerminalArtifact({
+  return finalizeVerificationActionTerminalArtifact({
     actionPlan: resolution.actionPlan,
     normalizedOperation,
     result: terminal.result,
@@ -3585,7 +3585,7 @@ export function CoordinateHostedActions(input: Readonly<{
     if (terminalsByKey.has(actionKey)) throw new Error('Hosted ActionKey has multiple terminal origins.');
     if (observation.artifact !== null) {
       const member = membersByKey.get(actionKey)!;
-      AssertVerificationActionTerminalArtifact(observation.artifact, {
+      assertVerificationActionTerminalArtifact(observation.artifact, {
         actionPlan: member,
         executionEnvironmentRevision: CI_VERIFICATION_HOSTED_PROVIDER_REVISION
       });
@@ -3728,11 +3728,11 @@ export function ComposeHostedEvidence(input: Readonly<{
   startObservations: readonly HostedActionStartObservation[];
   terminalAnchorObservations: readonly HostedActionTerminalAnchorObservation[];
   providerStatusReadbacks: readonly VerificationActionProviderStatusReadback[];
-  producer: ReturnType<typeof CreateVerificationEvidenceProducer>;
+  producer: ReturnType<typeof createVerificationEvidenceProducer>;
   now?: () => Date;
 }>): Readonly<{
   coordination: HostedActionCoordination;
-  evidence: VerificationEvidenceV4 | null;
+  evidence: VerificationEvidence | null;
 }> {
   const envelope = parseHostedEnvelope(input.envelope);
   const coordination = CoordinateHostedActions({
@@ -3805,8 +3805,8 @@ export function ComposeHostedEvidence(input: Readonly<{
   const observedAt = (input.now ?? (() => new Date()))().toISOString();
   const startedAt = [...timestamps, observedAt].sort()[0]!;
   const finishedAt = [...timestamps, observedAt].sort().at(-1)!;
-  const status = aggregateV4Status(gates);
-  const evidence = FinalizeVerificationEvidenceV4({
+  const status = aggregateVerificationStatus(gates);
+  const evidence = finalizeVerificationEvidence({
     contractRevision: CI_VERIFICATION_CONTRACT_REVISION,
     sessionRevision: envelope.session.sessionRevision,
     sessionProposalDigest: envelope.session.sessionProposalDigest,
@@ -3858,7 +3858,7 @@ export type CiVerificationTestOptions = {
       requirementId: string;
     }>
   ) => Promise<GateProcessSettlement>;
-  writeEvidence?: (filePath: string, evidence: VerificationEvidenceV4) => void;
+  writeEvidence?: (filePath: string, evidence: VerificationEvidence) => void;
   actionRunner?: VerificationActionRunner;
   readDurableActionResult?: (actionKey: VerificationActionKeyDigest) => Readonly<{
     result: VerificationGateResult;
@@ -3878,7 +3878,7 @@ export type CiVerificationTestOptions = {
 
 export interface CiActionExecution {
   readonly actionPlan: CiVerificationActionPlanClosure;
-  readonly gates: readonly VerificationGateEvidenceV4[];
+  readonly gates: readonly VerificationGateEvidence[];
   readonly failed: boolean;
 }
 
@@ -3898,16 +3898,16 @@ function bindCiActionEffect(
   operation: CiVerificationActionPlanClosure['normalizedOperations'][number],
   deadlineAtUnixMs: number
 ): BoundSemanticOperation {
-  const processContractDigest = VerificationDigest({
+  const processContractDigest = verificationDigest({
     schema: 'sec-ci-action-effect-contract-v1',
     actionKey: plan.action.actionKey,
     operation
   }) as OperationDigest;
-  const diagnosticContractDigest = VerificationDigest({
+  const diagnosticContractDigest = verificationDigest({
     schema: 'sec-ci-action-combined-diagnostic-contract-v1',
     actionKey: plan.action.actionKey
   }) as OperationDigest;
-  const authorityGrantDigest = VerificationDigest({
+  const authorityGrantDigest = verificationDigest({
     processContractDigest,
     diagnosticContractDigest
   }) as OperationDigest;
@@ -3939,7 +3939,7 @@ function bindCiActionEffect(
     compileCapabilityBinding({
       requirementId: CI_ACTION_PROCESS_REQUIREMENT_ID,
       contractDigest: processContractDigest,
-      providerIdentityDigest: VerificationDigest({
+      providerIdentityDigest: verificationDigest({
         schema: 'sec-ci-action-provider-binding-v1',
         environment: plan.action.environment,
         declaredEnvironment: plan.action.operation.declaredEnvironment
@@ -3948,7 +3948,7 @@ function bindCiActionEffect(
     compileCapabilityBinding({
       requirementId: CI_ACTION_DIAGNOSTIC_REQUIREMENT_ID,
       contractDigest: diagnosticContractDigest,
-      providerIdentityDigest: VerificationDigest(
+      providerIdentityDigest: verificationDigest(
         'runtime-state.process-diagnostics'
       ) as OperationDigest
     })
@@ -3981,7 +3981,7 @@ async function issueCiActionEffectSettlement(input: Readonly<{
   const processSettlement = issueProviderSettlementReceipt(operation, {
     requirementId: CI_ACTION_PROCESS_REQUIREMENT_ID,
     physicalDisposition: 'settled',
-    providerSettlementReferenceDigest: VerificationDigest({
+    providerSettlementReferenceDigest: verificationDigest({
       schema: 'sec-ci-action-provider-settlement-reference-v1',
       actionKey: plan.action.actionKey,
       gateId,
@@ -4003,7 +4003,7 @@ async function issueCiActionEffectSettlement(input: Readonly<{
   const diagnosticSettlement = issueProviderSettlementReceipt(operation, {
     requirementId: CI_ACTION_DIAGNOSTIC_REQUIREMENT_ID,
     physicalDisposition: 'settled',
-    providerSettlementReferenceDigest: VerificationDigest(
+    providerSettlementReferenceDigest: verificationDigest(
       diagnosticObjects.map(({ receipt, readback }) => ({
         objectDigest: receipt.objectDigest,
         readbackDigest: readback.readbackDigest
@@ -4014,13 +4014,13 @@ async function issueCiActionEffectSettlement(input: Readonly<{
     operation,
     [processSettlement, diagnosticSettlement]
   );
-  const failureTailDigest = VerificationDigest(result.failureTail);
+  const failureTailDigest = verificationDigest(result.failureTail);
   const readback = issueNormalDomainReadbackReceipt(operation, providerSettlementSet, {
-    readbackContractDigest: VerificationDigest({
+    readbackContractDigest: verificationDigest({
       schema: 'sec-ci-action-domain-readback-contract-v1',
       resultSchemaRevision: plan.action.resultSchemaRevision
     }) as OperationDigest,
-    readbackReferenceDigest: VerificationDigest({
+    readbackReferenceDigest: verificationDigest({
       schema: 'sec-ci-action-domain-readback-reference-v1',
       actionKey: plan.action.actionKey,
       gateId,
@@ -4028,7 +4028,7 @@ async function issueCiActionEffectSettlement(input: Readonly<{
       rawOutputDigest: result.rawOutputDigest,
       failureTailDigest
     }) as OperationDigest,
-    currentPhysicalEpochDigest: VerificationDigest({
+    currentPhysicalEpochDigest: verificationDigest({
       schema: 'sec-ci-action-physical-epoch-v1',
       actionKey: plan.action.actionKey,
       gateId,
@@ -4041,11 +4041,11 @@ async function issueCiActionEffectSettlement(input: Readonly<{
     providerSettlementSet,
     readback,
     {
-      ownerTerminalContractDigest: VerificationDigest({
+      ownerTerminalContractDigest: verificationDigest({
         schema: 'sec-verification-action-terminal-contract-v1',
         resultSchemaRevision: plan.action.resultSchemaRevision
       }) as OperationDigest,
-      ownerTerminalReferenceDigest: VerificationDigest({
+      ownerTerminalReferenceDigest: verificationDigest({
         schema: 'sec-ci-action-owner-terminal-reference-v1',
         actionKey: plan.action.actionKey,
         gateId,
@@ -4095,7 +4095,7 @@ export async function ExecuteCiActionClosure(options: {
     throw new Error('CI Action executor gate/plan cardinality mismatch.');
   }
   const runner = options.actionRunner ?? createVerificationActionRunner();
-  const evidence: VerificationGateEvidenceV4[] = [];
+  const evidence: VerificationGateEvidence[] = [];
   let failed = false;
   for (let index = 0; index < actionPlan.actions.length; index += 1) {
     const plan = actionPlan.actions[index]!;
@@ -4430,7 +4430,7 @@ async function runCodexDevelopmentCiVerification(
   let steps: CiVerificationGateStep[] = [];
   let actionPlan: CiVerificationActionPlanClosure | null = null;
   let actionCandidate: CiVerificationActionCandidate | null = null;
-  let actionGates: readonly VerificationGateEvidenceV4[] = [];
+  let actionGates: readonly VerificationGateEvidence[] = [];
   let formalBinding: ReturnType<typeof formalVerificationBinding> = null;
   let failure: { stage: string; tail: string } | null = null;
   let exitCode = 0;
@@ -4444,7 +4444,7 @@ async function runCodexDevelopmentCiVerification(
   let parsedProfile: ReturnType<typeof parseProfile> | null = null;
 
   try {
-    PrepareVerificationEvidenceTarget(evidencePath);
+    prepareVerificationEvidenceTarget(evidencePath);
   } catch (error) {
     initializationFailure = error instanceof Error ? error.stack ?? error.message : String(error);
   }
@@ -4682,7 +4682,7 @@ async function runCodexDevelopmentCiVerification(
         : gitRevision(`${prBaseSha}^{tree}`));
     if (baseTreeSha === null) throw new Error('CI Action producer cannot resolve the exact base tree.');
     const localDigest = (value: unknown): `sha256:${string}` => (
-      VerificationDigest(value) as `sha256:${string}`
+      verificationDigest(value) as `sha256:${string}`
     );
     const executionEnvironment = formalBinding !== null
       ? formalBinding.executionEnvironment
@@ -4854,9 +4854,9 @@ async function runCodexDevelopmentCiVerification(
             : finalGates.some((gate) => gate.result.status === 'not-run') ? 'not-run' as const
               : 'passed' as const;
       const localBindingDigest = (value: unknown): `sha256:${string}` => (
-        VerificationDigest(value) as `sha256:${string}`
+        verificationDigest(value) as `sha256:${string}`
       );
-      const evidence = FinalizeVerificationEvidenceV4({
+      const evidence = finalizeVerificationEvidence({
         contractRevision: CI_VERIFICATION_CONTRACT_REVISION,
         sessionRevision: formalBinding?.sessionRevision ?? CI_VERIFICATION_SESSION_CONTRACT_REVISION,
         sessionProposalDigest: formalBinding?.sessionProposalDigest ?? localBindingDigest({
@@ -4878,7 +4878,7 @@ async function runCodexDevelopmentCiVerification(
         headTreeSha: actionCandidate.headTreeSha,
         manifestPath: actionCandidate.manifestPath,
         manifestDigest: actionCandidate.manifestDigest,
-        producer: CreateVerificationEvidenceProducer({
+        producer: createVerificationEvidenceProducer({
           sourceTransport: formalBinding?.mode === 'github-actions' ? 'github-actions' : 'local-dev-runner',
           workflowPath: formalBinding?.mode === 'github-actions'
             ? '.github/workflows/compiler-pr-validation.yml'
@@ -4915,7 +4915,7 @@ async function runCodexDevelopmentCiVerification(
         ]
       });
       if (writeEvidence) writeEvidence(evidencePath, evidence);
-      else WriteVerificationEvidenceV4Atomic(evidencePath, evidence);
+      else writeVerificationEvidenceAtomic(evidencePath, evidence);
       console.log(`SEC verification evidence: ${evidencePath}`);
       console.log(`SEC_VERIFICATION_SUMMARY ${JSON.stringify(evidence)}`);
     } catch (error) {
@@ -5830,7 +5830,7 @@ export async function CiVerificationHostedActionCli(
       expectedRawResultDigest: args.get('--expected-raw-result-digest')! as VerificationActionKeyDigest,
       producer
     });
-    WriteVerificationActionTerminalArtifactV2Atomic(args.get('--output')!, artifact);
+    writeVerificationActionTerminalArtifactAtomic(args.get('--output')!, artifact);
     return JSON.stringify({
       status: artifact.result.status,
       actionKey: artifact.actionPlan.action.actionKey,
@@ -5849,7 +5849,7 @@ export async function CiVerificationHostedActionCli(
     const index = ReadHostedActionArtifactIndex({
       source: readFileSync(path.resolve(args.get('--artifact-index')!), 'utf8')
     });
-    const producer = CreateVerificationEvidenceProducer({
+    const producer = createVerificationEvidenceProducer({
       sourceTransport: 'github-actions',
       workflowPath: '.github/workflows/compiler-pr-validation.yml',
       workflowRef: `.github/workflows/compiler-pr-validation.yml@${envelope.session.baseSha}`,
@@ -5867,7 +5867,7 @@ export async function CiVerificationHostedActionCli(
       producer
     });
     if (composed.evidence !== null) {
-      WriteVerificationEvidenceV4Atomic(args.get('--output')!, composed.evidence);
+      writeVerificationEvidenceAtomic(args.get('--output')!, composed.evidence);
     }
     return JSON.stringify({
       ...composed.coordination,

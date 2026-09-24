@@ -21,7 +21,7 @@ import { encodeVerificationActionData, type VerificationActionKeyDigest } from '
 import { buildCiVerificationActionPlan, buildCiVerificationActionPlanClosure, CI_VERIFICATION_HOSTED_EXECUTION_ENVIRONMENT, ciVerificationGateStep, type CiVerificationActionCandidate, type CiVerificationActionPlanClosure, type CiVerificationProducerGate } from '../../src/adapters/verification/platform/action/contract/ci.ts';
 import { CI_VERIFICATION_ACTION_DEPENDENCY_INPUT_PATHS } from '../../src/adapters/verification/platform/action/contract/environment.ts';
 import { createVerificationActionProviderStartMarker, createVerificationActionProviderTerminalAnchor, finalizeVerificationActionProviderStatusReadback, VERIFICATION_ACTION_PROVIDER_POLICY, verificationActionProviderRunTargetUrl, verificationActionProviderStartArtifactName, verificationActionProviderStartDescription, verificationActionProviderStatusContext, verificationActionProviderTerminalAnchorName, verificationActionProviderTerminalArtifactName, verificationActionProviderTerminalDescription, type VerificationActionProviderOrigin, type VerificationActionProviderStartObservation, type VerificationActionProviderStatusObservation, type VerificationActionProviderStatusReadback, type VerificationActionProviderTerminalAnchorObservation } from '../../src/adapters/verification/platform/action/contract/provider.ts';
-import { AssertVerificationActionTerminalArtifact, AssertVerificationEvidenceV4, CreateVerificationEvidenceProducer, VerificationActionCandidateBytesDigest, VerificationDigest, type VerificationEvidenceV4 } from '../../src/adapters/verification/platform/ci/contract/evidence.ts';
+import { assertVerificationActionTerminalArtifact, assertVerificationEvidence, createVerificationEvidenceProducer, verificationActionCandidateBytesDigest, verificationDigest, type VerificationEvidence } from '../../src/adapters/verification/platform/ci/contract/evidence.ts';
 import { CreateHostedSutExecutionAuthorization, FinalizeHostedActionRawResult, HostedSutCandidateEnvironment, type HostedSutExecutionAuthorization } from '../../src/adapters/verification/platform/ci/contract/hosted-sut-observation.ts';
 import { buildCiQuickGatePlan } from '../../src/adapters/verification/platform/ci/contract/plan.ts';
 import { CI_VERIFICATION_HOSTED_SANDBOX_POLICY, CI_VERIFICATION_HOSTED_SANDBOX_POLICY_DIGEST, CI_VERIFICATION_SESSION_DISPATCH_TYPE } from '../../src/adapters/verification/platform/ci/contract/revision.ts';
@@ -104,7 +104,7 @@ function sandboxObservation(
   const stderrDigest = bytesDigest('');
   return Object.freeze({
     code,
-    rawOutputDigest: VerificationDigest({
+    rawOutputDigest: verificationDigest({
       stdoutDigest, stderrDigest, failureTail, truncated: options.truncated ?? false
     }),
     failureTail,
@@ -184,7 +184,7 @@ function sandboxReceipt(
   });
   return Object.freeze({
     ...withoutDigest,
-    receiptDigest: VerificationDigest(withoutDigest) as VerificationActionKeyDigest
+    receiptDigest: verificationDigest(withoutDigest) as VerificationActionKeyDigest
   });
 }
 
@@ -353,8 +353,8 @@ function hostedMemberResolution(
     headTreeSha: TREE,
     manifestPath: MANIFEST_PATH,
     manifestDigest: hostedCandidate().manifestDigest,
-    inputClosureDigest: VerificationDigest(actionPlan.action.inputClosure),
-    candidateBytesDigest: VerificationActionCandidateBytesDigest({
+    inputClosureDigest: verificationDigest(actionPlan.action.inputClosure),
+    candidateBytesDigest: verificationActionCandidateBytesDigest({
       baseSha: BASE,
       baseTreeSha: BASE_TREE,
       headSha: HEAD,
@@ -375,7 +375,7 @@ function hostedMemberResolution(
   });
   return Object.freeze({
     ...withoutDigest,
-    resolutionDigest: VerificationDigest(withoutDigest) as VerificationActionKeyDigest
+    resolutionDigest: verificationDigest(withoutDigest) as VerificationActionKeyDigest
   });
 }
 
@@ -416,7 +416,7 @@ function hostedTicket(
   });
   return Object.freeze({
     ...withoutDigest,
-    ticketDigest: VerificationDigest(withoutDigest) as VerificationActionKeyDigest
+    ticketDigest: verificationDigest(withoutDigest) as VerificationActionKeyDigest
   });
 }
 
@@ -502,7 +502,7 @@ function hostedDagClosure(
   });
   return Object.freeze({
     ...withoutDigest,
-    actionPlanDigest: VerificationDigest(withoutDigest) as VerificationActionKeyDigest
+    actionPlanDigest: verificationDigest(withoutDigest) as VerificationActionKeyDigest
   });
 }
 
@@ -557,11 +557,11 @@ function hostedEnvelopeFixture(
   });
   return Object.freeze({
     ...withoutDigest,
-    envelopeDigest: VerificationDigest(withoutDigest)
+    envelopeDigest: verificationDigest(withoutDigest)
   }) as unknown as HostedEnvelopeFixture;
 }
 
-const hostedEvidenceProducer = CreateVerificationEvidenceProducer({
+const hostedEvidenceProducer = createVerificationEvidenceProducer({
   sourceTransport: 'github-actions',
   workflowPath: '.github/workflows/compiler-pr-validation.yml',
   workflowRef: `.github/workflows/compiler-pr-validation.yml@${BASE}`,
@@ -731,7 +731,7 @@ function hostedProviderInputs(
 test('CI runner executes an ordinary gate through Action and publishes only V4', async () => {
   const root = mkdtempSync(path.join(tmpdir(), 'sec-ci-action-'));
   try {
-    let evidence: VerificationEvidenceV4 | null = null;
+    let evidence: VerificationEvidence | null = null;
     const calls: string[] = [];
     const code = await CiVerificationMainForTests({
       ...baseOptions(root),
@@ -743,9 +743,9 @@ test('CI runner executes an ordinary gate through Action and publishes only V4',
     });
     expect(code).toBe(0);
     expect(calls.length).toBeGreaterThan(0);
-    const captured = evidence as VerificationEvidenceV4 | null;
+    const captured = evidence as VerificationEvidence | null;
     expect(captured?.gates.every((gate) => gate.action.actionKey === gate.result.inputDigest)).toBe(true);
-    expect(() => AssertVerificationEvidenceV4(captured, {
+    expect(() => assertVerificationEvidence(captured, {
       actionPlan: captured!.actionPlan
     }, new Date('2026-08-09T00:01:00.000Z'))).not.toThrow();
   } finally {
@@ -850,17 +850,17 @@ test('Action journal reuse is not Evidence without an independent durable result
 test('durable known failure reuse remains failed and never executes or promotes to PASS', async () => {
   const root = mkdtempSync(path.join(tmpdir(), 'sec-ci-known-failure-'));
   try {
-    let first: VerificationEvidenceV4 | null = null;
+    let first: VerificationEvidence | null = null;
     expect(await CiVerificationMainForTests({
       ...baseOptions(root),
       runGate: executeSentinelGate(root, 1, 'known failure'),
       writeEvidence: (_file, value) => { first = value; }
     })).toBe(1);
-    const terminal = first as unknown as VerificationEvidenceV4;
+    const terminal = first as unknown as VerificationEvidence;
     expect(terminal.status).toBe('failed');
     const byActionKey = new Map(terminal.gates.map((gate) => [gate.action.actionKey, gate.result]));
     let physical = 0;
-    let reused: VerificationEvidenceV4 | null = null;
+    let reused: VerificationEvidence | null = null;
     expect(await CiVerificationMainForTests({
       ...baseOptions(root),
       runGate: async (gate, execution) => {
@@ -874,7 +874,7 @@ test('durable known failure reuse remains failed and never executes or promotes 
       writeEvidence: (_file, value) => { reused = value; }
     })).toBe(1);
     expect(physical).toBe(0);
-    const second = reused as unknown as VerificationEvidenceV4;
+    const second = reused as unknown as VerificationEvidence;
     expect(second.status).toBe('failed');
     expect(second.gates[0]!.result).toMatchObject({ status: 'failed', disposition: 'reused' });
   } finally {
@@ -1766,7 +1766,7 @@ test('canonical terminal artifact derives four physical Result states while raw 
     expect(artifact.result.status).toBe(status);
     if (status === 'passed') passedArtifact = artifact;
     expect(artifact.producer).toEqual(hostedProducer);
-    expect(() => AssertVerificationActionTerminalArtifact(artifact, {
+    expect(() => assertVerificationActionTerminalArtifact(artifact, {
       actionPlan: resolution.actionPlan,
       executionEnvironmentRevision:
         CI_VERIFICATION_HOSTED_EXECUTION_ENVIRONMENT.executionEnvironmentRevision
@@ -1778,8 +1778,8 @@ test('canonical terminal artifact derives four physical Result states while raw 
   const { artifactDigest: ignoredArtifactDigest, ...withoutArtifactDigest } = contradictory;
   void ignoredArtifactDigest;
   (contradictory as { artifactDigest: VerificationActionKeyDigest }).artifactDigest =
-    VerificationDigest(withoutArtifactDigest) as VerificationActionKeyDigest;
-  expect(() => AssertVerificationActionTerminalArtifact(contradictory, {
+    verificationDigest(withoutArtifactDigest) as VerificationActionKeyDigest;
+  expect(() => assertVerificationActionTerminalArtifact(contradictory, {
     actionPlan: resolution.actionPlan
   })).toThrow(/execution proof does not replay/u);
 });
@@ -1809,7 +1809,7 @@ test('hosted coordinator and composer preserve four physical terminals while coo
     expect(composed.evidence?.gates[0]?.cleanup.status).toBe(
       status === 'unsupported' ? 'not-required' : status === 'invalidated' ? 'failed' : 'passed'
     );
-    expect(() => AssertVerificationEvidenceV4(composed.evidence, {
+    expect(() => assertVerificationEvidence(composed.evidence, {
       actionPlan: closure
     })).not.toThrow();
     const terminalStatus = provider.providerStatusReadbacks[0]!.statuses[1]!;
@@ -1834,7 +1834,7 @@ test('hosted coordinator and composer preserve four physical terminals while coo
     status: 'failed',
     gates: [{ result: { status: 'invalidated' }, cleanup: { status: 'failed' } }]
   });
-  expect(() => AssertVerificationEvidenceV4(cleanupFailed.evidence, {
+  expect(() => assertVerificationEvidence(cleanupFailed.evidence, {
     actionPlan: closure
   })).not.toThrow();
 });
@@ -1943,7 +1943,7 @@ test('hosted composition rejects an authenticated dependent PASS when its prereq
   });
   const omittedPrerequisiteClosure = Object.freeze({
     ...withoutDigest,
-    actionPlanDigest: VerificationDigest(withoutDigest) as VerificationActionKeyDigest
+    actionPlanDigest: verificationDigest(withoutDigest) as VerificationActionKeyDigest
   });
   const omittedPrerequisiteEnvelope = hostedEnvelopeFixture(omittedPrerequisiteClosure);
   const provider = Object.freeze({
@@ -1981,7 +1981,7 @@ test('one immutable Action terminal is reusable across different Session closure
     expectedRawResultDigest: rawResult.rawResultDigest,
     producer: hostedProducer
   });
-  expect(() => AssertVerificationActionTerminalArtifact(artifact, {
+  expect(() => assertVerificationActionTerminalArtifact(artifact, {
     actionPlan: right.actionPlan,
     executionEnvironmentRevision:
       CI_VERIFICATION_HOSTED_EXECUTION_ENVIRONMENT.executionEnvironmentRevision

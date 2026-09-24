@@ -4,7 +4,7 @@ import { readFileSync, writeFileSync } from 'node:fs';
 import { CI_VERIFICATION_WORKFLOW_PATH } from '../../../../assurance/verification/contract/revision.ts';
 import { encodeVerificationActionData } from '../../../verification/platform/action/contract/action.ts';
 import { parseCiVerificationActionPlanClosure, type CiVerificationActionPlanClosure } from '../../../verification/platform/action/contract/ci.ts';
-import { AssertVerificationEvidenceV4, AssertVerificationSessionArtifact, type VerificationSessionArtifact } from '../../../verification/platform/ci/contract/evidence.ts';
+import { assertVerificationEvidence, assertVerificationSessionArtifact, type VerificationSessionArtifact } from '../../../verification/platform/ci/contract/evidence.ts';
 import { CI_VERIFICATION_SESSION_ARTIFACT_PREFIX } from '../../../verification/platform/ci/contract/revision.ts';
 import { assertReviewStabilityReceiptCurrent, parseReviewStabilityReceipt, renderIndependentReviewTrailer, REVIEW_OBSERVER_PRODUCER_IDENTITY, type ReviewStabilityReceipt } from '../../../verification/platform/review/contract/stability.ts';
 import type { VerificationSession } from '../../../verification/platform/session/contract/session.ts';
@@ -533,7 +533,7 @@ export function CreateMergeGateInput(
   });
   assertCandidate(candidate);
   const provenance = assertProvenance(input.provenance, candidate.currentBaseSha);
-  AssertVerificationSessionArtifact(input.artifact);
+  assertVerificationSessionArtifact(input.artifact);
   const hostedArtifactOrigin = CreateHostedArtifactObservation(input.hostedArtifactOrigin);
   const hostedArtifactTransport = CreateHostedArtifactObservation(input.hostedArtifactTransport);
   assertHostedArtifactClosure(
@@ -582,7 +582,7 @@ export function CreateTrustedRuntimeMergeGateInput(
   });
   assertCandidate(candidate);
   const provenance = assertTrustedRuntimeProvenance(input.provenance, candidate.currentBaseSha);
-  AssertVerificationSessionArtifact(input.artifact);
+  assertVerificationSessionArtifact(input.artifact);
   const artifactObservation = createTrustedRuntimeArtifactObservation(input.artifactObservation);
   assertTrustedRuntimeArtifactClosure(input.artifact, artifactObservation, provenance, candidate.currentBaseSha);
   const expectedActionPlan = parseCiVerificationActionPlanClosure(
@@ -661,7 +661,7 @@ function evaluateMergeGateCore(input: MergeGateCoreInput): MergeGateCoreResult {
   const environmentDigest = digest(input.environmentDigest, 'environmentDigest');
   const platformObservation = canonicalPlatformObservation(input.platformObservation);
   const rulesetDigest = platformObservation.rulesetDigest;
-  AssertVerificationSessionArtifact(input.artifact);
+  assertVerificationSessionArtifact(input.artifact);
   const session: VerificationSession = input.artifact.session;
   const scopeAuthorization: ScopeAuthorization = input.artifact.scopeAuthorization;
   const evidence = input.artifact.evidence;
@@ -724,7 +724,7 @@ function evaluateMergeGateCore(input: MergeGateCoreInput): MergeGateCoreResult {
         !== `github-check-runs:${candidate.repository}@${candidate.currentBaseSha}`) {
     fail('fresh MainHealth producer provenance is not bound to the trusted authorization runtime.');
   }
-  AssertVerificationEvidenceV4(evidence, {
+  assertVerificationEvidence(evidence, {
     sessionRevision: session.sessionRevision,
     sessionProposalDigest: scopeAuthorization.sessionProposalDigest,
     scopeAuthorizationRevision: scopeAuthorization.authorizationRevision,

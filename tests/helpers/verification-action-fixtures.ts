@@ -1,12 +1,12 @@
 import type { VerificationActionKeyDigest, VerificationActionPlan } from '../../src/adapters/verification/platform/action/contract/action.ts';
 import { CI_VERIFICATION_HOSTED_EXECUTION_ENVIRONMENT, type CiVerificationNormalizedOperation } from '../../src/adapters/verification/platform/action/contract/ci.ts';
 import type { VerificationActionProviderOrigin } from '../../src/adapters/verification/platform/action/contract/provider.ts';
-import { FinalizeVerificationActionTerminalArtifact, VerificationActionCandidateBytesDigest, VerificationDigest, type VerificationActionTerminalArtifact } from '../../src/adapters/verification/platform/ci/contract/evidence.ts';
+import { finalizeVerificationActionTerminalArtifact, verificationActionCandidateBytesDigest, verificationDigest, type VerificationActionTerminalArtifact } from '../../src/adapters/verification/platform/ci/contract/evidence.ts';
 import { CI_VERIFICATION_ACTION_SANDBOX_RECEIPT_SCHEMA, CreateHostedSutExecutionAuthorization, FinalizeHostedActionRawResult, ReduceHostedSutObservation, type HostedSutSandboxReceipt } from '../../src/adapters/verification/platform/ci/contract/hosted-sut-observation.ts';
 import { CI_VERIFICATION_HOSTED_SANDBOX_POLICY, CI_VERIFICATION_HOSTED_SANDBOX_POLICY_DIGEST } from '../../src/adapters/verification/platform/ci/contract/revision.ts';
 
 function verificationFixtureDigest(value: unknown): VerificationActionKeyDigest {
-  return VerificationDigest(value) as VerificationActionKeyDigest;
+  return verificationDigest(value) as VerificationActionKeyDigest;
 }
 
 export function buildUnsupportedVerificationActionTerminalArtifactV2(input: Readonly<{
@@ -27,8 +27,8 @@ export function buildUnsupportedVerificationActionTerminalArtifactV2(input: Read
     headTreeSha: input.headTreeSha,
     manifestPath: input.manifestPath,
     manifestDigest: input.manifestDigest,
-    inputClosureDigest: VerificationDigest(input.actionPlan.action.inputClosure),
-    candidateBytesDigest: VerificationActionCandidateBytesDigest({
+    inputClosureDigest: verificationDigest(input.actionPlan.action.inputClosure),
+    candidateBytesDigest: verificationActionCandidateBytesDigest({
       baseSha: input.baseSha,
       baseTreeSha: input.baseTreeSha,
       headSha: input.headSha,
@@ -147,7 +147,7 @@ export function buildUnsupportedVerificationActionTerminalArtifactV2(input: Read
     observation,
     expectedRawResultDigest: observation.rawResultDigest
   });
-  return FinalizeVerificationActionTerminalArtifact({
+  return finalizeVerificationActionTerminalArtifact({
     actionPlan: input.actionPlan,
     normalizedOperation: input.normalizedOperation,
     result: terminal.result,

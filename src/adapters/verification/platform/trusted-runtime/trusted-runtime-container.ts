@@ -63,7 +63,7 @@ import { compilerRuntimeLayout } from '../../../toolchain/runtime/layout.ts';
 import { TYPECHECK_PROVIDER_CANARY_ENTRYPOINT_PATH } from '../../../toolchain/typescript/canary.ts';
 import { encodeVerificationActionData } from '../action/contract/action.ts';
 import { createCiVerificationLocalExecutionEnvironment, type CiVerificationExecutionEnvironment } from '../action/contract/ci.ts';
-import { type VerificationEvidenceV4 } from '../ci/contract/evidence.ts';
+import { type VerificationEvidence } from '../ci/contract/evidence.ts';
 import {
   createBuildxRawJsonProgressAdmission,
   ensureLocalGitHubActionsRunnerToolchainMaterialization,
@@ -1636,7 +1636,7 @@ export async function executeTrustedRuntimeContainerVerification(input: Readonly
   actorNodeId: string;
   requiredBlobs: readonly Readonly<{ path: string; digest: Digest }>[];
 }>): Promise<Readonly<{
-  evidence: VerificationEvidenceV4;
+  evidence: VerificationEvidence;
   canonicalEvidenceBytes: string;
   receipt: TrustedRuntimeContainerReceipt;
 }>> {
@@ -1687,7 +1687,7 @@ export async function executeTrustedRuntimeContainerVerification(input: Readonly
       arguments: [`${containerName}:${TRUSTED_RUNTIME_OUTPUT}/verification-evidence.json`, outputPath]
     });
     const canonicalEvidenceBytes = readFileSync(outputPath, 'utf8');
-    const parsed = JSON.parse(canonicalEvidenceBytes) as VerificationEvidenceV4;
+    const parsed = JSON.parse(canonicalEvidenceBytes) as VerificationEvidence;
     if (canonicalEvidenceBytes !== `${encodeVerificationActionData(parsed)}\n`) {
       fail('verification Evidence durable bytes are not canonical');
     }

@@ -35,7 +35,7 @@ import { CI_GITHUB_ACTIONS_IDENTITY_POLICY, CI_VERIFICATION_ACTION_ARTIFACT_SCHE
 import { assertReviewStabilityReceiptCurrent, parseReviewStabilityReceipt, REVIEW_OBSERVER_PRODUCER_IDENTITY, type ReviewStabilityReceipt } from '../../review/contract/stability.ts';
 import { parseVerificationSession, type VerificationSession } from '../../session/contract/session.ts';
 
-export function VerificationDigest(value: unknown): string {
+export function verificationDigest(value: unknown): string {
   return canonicalSha256(value);
 }
 
@@ -81,14 +81,14 @@ function assertIsoDate(value: unknown, label: string): asserts value is string {
   if (new Date(value).toISOString() !== value) throw new Error(`${label} must be a canonical ISO timestamp.`);
 }
 
-export function PrepareVerificationEvidenceTarget(filePath: string): string {
+export function prepareVerificationEvidenceTarget(filePath: string): string {
   const absolutePath = path.resolve(filePath);
   mkdirSync(path.dirname(absolutePath), { recursive: true });
   rmSync(absolutePath, { force: true });
   return absolutePath;
 }
 
-const VerificationEvidenceSchemaV4 =
+const VerificationEvidenceSchema =
   'codex-development-verification-evidence-v4' as const;
 
 type VerificationCleanup = Readonly<{
@@ -97,7 +97,7 @@ type VerificationCleanup = Readonly<{
   diagnostic: string | null;
 }>;
 
-export type VerificationGateEvidenceV4 = Readonly<{
+export type VerificationGateEvidence = Readonly<{
   action: VerificationActionKey;
   result: VerificationGateResult;
   cleanup: VerificationCleanup;
@@ -114,8 +114,8 @@ export type VerificationEvidenceProducer = Readonly<{
   sourceDigest: string;
 }>;
 
-export type VerificationEvidenceV4 = Readonly<{
-  schema: typeof VerificationEvidenceSchemaV4;
+export type VerificationEvidence = Readonly<{
+  schema: typeof VerificationEvidenceSchema;
   contractRevision: typeof CI_VERIFICATION_CONTRACT_REVISION;
   sessionRevision: string;
   sessionProposalDigest: string;
@@ -137,18 +137,18 @@ export type VerificationEvidenceV4 = Readonly<{
   status: VerificationResultStatus;
   startedAt: string;
   finishedAt: string;
-  gates: readonly VerificationGateEvidenceV4[];
+  gates: readonly VerificationGateEvidence[];
   evidenceRefs: readonly string[];
   invalidationRules: readonly string[];
   evidenceDigest: string;
 }>;
 
-type VerificationEvidenceDraftV4 = Omit<
-  VerificationEvidenceV4,
+type VerificationEvidenceDraft = Omit<
+  VerificationEvidence,
   'schema' | 'evidenceDigest'
 >;
 
-const V4_STATUS_PRIORITY: Readonly<Record<VerificationResultStatus, number>> = Object.freeze({
+const VERIFICATION_STATUS_PRIORITY: Readonly<Record<VerificationResultStatus, number>> = Object.freeze({
   passed: 0,
   'not-run': 1,
   unsupported: 2,
@@ -156,56 +156,56 @@ const V4_STATUS_PRIORITY: Readonly<Record<VerificationResultStatus, number>> = O
   failed: 4
 });
 
-export function CreateVerificationEvidenceProducer(input: Omit<
+export function createVerificationEvidenceProducer(input: Omit<
   VerificationEvidenceProducer,
   'sourceDigest'
 >): VerificationEvidenceProducer {
   if (input.sourceTransport !== 'github-actions' && input.sourceTransport !== 'local-dev-runner') {
-    throw new Error('Verification V4 producer transport is invalid.');
+    throw new Error('Verification evidence producer transport is invalid.');
   }
   for (const [key, value] of Object.entries({
     workflowPath: input.workflowPath, workflowRef: input.workflowRef, workflowSha: input.workflowSha,
     runId: input.runId, actorNodeId: input.actorNodeId
-  })) assertString(value, `Verification V4 producer ${key}`);
-  if (!/^[0-9a-f]{40}$/u.test(input.workflowSha)) throw new Error('Verification V4 producer workflowSha is invalid.');
-  if (!Number.isSafeInteger(input.runAttempt) || input.runAttempt < 1) throw new Error('Verification V4 producer runAttempt is invalid.');
+  })) assertString(value, `Verification evidence producer ${key}`);
+  if (!/^[0-9a-f]{40}$/u.test(input.workflowSha)) throw new Error('Verification evidence producer workflowSha is invalid.');
+  if (!Number.isSafeInteger(input.runAttempt) || input.runAttempt < 1) throw new Error('Verification evidence producer runAttempt is invalid.');
   if (input.sourceTransport === 'github-actions' && (
     input.workflowPath !== '.github/workflows/compiler-pr-validation.yml' ||
     input.workflowRef !== `${input.workflowPath}@${input.workflowSha}`
-  )) throw new Error('Verification V4 GitHub producer does not bind the canonical trusted workflow ref.');
+  )) throw new Error('Verification GitHub evidence producer does not bind the canonical trusted workflow ref.');
   const withoutDigest = Object.freeze({ ...input });
-  return Object.freeze({ ...withoutDigest, sourceDigest: VerificationDigest(withoutDigest) });
+  return Object.freeze({ ...withoutDigest, sourceDigest: verificationDigest(withoutDigest) });
 }
 
-export function aggregateV4Status(
-  gates: readonly VerificationGateEvidenceV4[]
+export function aggregateVerificationStatus(
+  gates: readonly VerificationGateEvidence[]
 ): VerificationResultStatus {
   if (gates.some((gate) => gate.cleanup.status === 'failed')) return 'failed';
   return gates.reduce<VerificationResultStatus>((current, gate) => (
-    V4_STATUS_PRIORITY[gate.result.status] > V4_STATUS_PRIORITY[current]
+    VERIFICATION_STATUS_PRIORITY[gate.result.status] > VERIFICATION_STATUS_PRIORITY[current]
       ? gate.result.status
       : current
   ), 'passed');
 }
 
-export function FinalizeVerificationEvidenceV4(
-  draft: VerificationEvidenceDraftV4
-): VerificationEvidenceV4 {
+export function finalizeVerificationEvidence(
+  draft: VerificationEvidenceDraft
+): VerificationEvidence {
   const withoutDigest = {
-    schema: VerificationEvidenceSchemaV4,
+    schema: VerificationEvidenceSchema,
     ...draft
   };
   const evidence = Object.freeze({
     ...withoutDigest,
-    evidenceDigest: VerificationDigest(withoutDigest)
+    evidenceDigest: verificationDigest(withoutDigest)
   });
-  AssertVerificationEvidenceV4(evidence, {
+  assertVerificationEvidence(evidence, {
     actionPlan: draft.actionPlan
   }, new Date(draft.startedAt));
   return evidence;
 }
 
-function assertV4Cleanup(value: unknown, label: string): asserts value is VerificationCleanup {
+function assertVerificationCleanup(value: unknown, label: string): asserts value is VerificationCleanup {
   assertObject(value, label);
   assertExactKeys(value, ['status', 'evidenceRefs', 'diagnostic'], label);
   if (value.status !== 'passed' && value.status !== 'failed' && value.status !== 'not-required') {
@@ -218,65 +218,65 @@ function assertV4Cleanup(value: unknown, label: string): asserts value is Verifi
   }
 }
 
-export function AssertVerificationEvidenceV4(
+export function assertVerificationEvidence(
   value: unknown,
   expected: Partial<Pick<
-    VerificationEvidenceV4,
+    VerificationEvidence,
     'contractRevision' | 'sessionRevision' | 'sessionProposalDigest' | 'scopeAuthorizationRevision' | 'scopeAuthorizationDigest'
     | 'reviewReceiptDigest' | 'mainHealthRevision' | 'mainHealthDigest' | 'trustRevision' | 'profile'
     | 'baseSha' | 'baseTreeSha' | 'headSha' | 'headTreeSha' | 'manifestPath' | 'manifestDigest'
   >> & { readonly actionPlan?: CiVerificationActionPlanClosure } = {},
   now = new Date()
-): asserts value is VerificationEvidenceV4 {
-  assertObject(value, 'Verification V4 evidence');
-  if (value.schema !== VerificationEvidenceSchemaV4) {
-    throw new Error('Verification V4 evidence schema mismatch; V2/V3 are legacy readers and cannot be promoted.');
+): asserts value is VerificationEvidence {
+  assertObject(value, 'Verification evidence');
+  if (value.schema !== VerificationEvidenceSchema) {
+    throw new Error('Verification evidence schema mismatch; legacy evidence schemas cannot be promoted.');
   }
   assertExactKeys(value, [
     'schema', 'contractRevision', 'sessionRevision', 'sessionProposalDigest', 'scopeAuthorizationRevision', 'scopeAuthorizationDigest',
     'reviewReceiptDigest', 'mainHealthRevision', 'mainHealthDigest', 'trustRevision', 'profile', 'baseSha', 'baseTreeSha',
     'headSha', 'headTreeSha', 'manifestPath', 'manifestDigest', 'producer', 'actionPlan', 'status', 'startedAt',
     'finishedAt', 'gates', 'evidenceRefs', 'invalidationRules', 'evidenceDigest'
-  ], 'Verification V4 evidence');
+  ], 'Verification evidence');
   if (value.contractRevision !== CI_VERIFICATION_CONTRACT_REVISION) {
-    throw new Error('Verification V4 evidence CI revision mismatch.');
+    throw new Error('Verification evidence CI revision mismatch.');
   }
-  for (const key of ['sessionRevision', 'manifestPath'] as const) assertString(value[key], `Verification V4 evidence ${key}`);
+  for (const key of ['sessionRevision', 'manifestPath'] as const) assertString(value[key], `Verification evidence ${key}`);
   for (const key of [
     'sessionProposalDigest', 'scopeAuthorizationRevision', 'scopeAuthorizationDigest', 'reviewReceiptDigest',
     'mainHealthRevision', 'mainHealthDigest', 'manifestDigest',
     'evidenceDigest'
-  ] as const) assertDigest(value[key], `Verification V4 evidence ${key}`);
+  ] as const) assertDigest(value[key], `Verification evidence ${key}`);
   for (const key of ['baseSha', 'baseTreeSha', 'headSha', 'headTreeSha', 'trustRevision'] as const) {
     if (typeof value[key] !== 'string' || !/^[0-9a-f]{40}$/u.test(value[key])) {
-      throw new Error(`Verification V4 evidence ${key} must be a lowercase Git SHA.`);
+      throw new Error(`Verification evidence ${key} must be a lowercase Git SHA.`);
     }
   }
-  if (value.profile !== 'quick' && value.profile !== 'full') throw new Error('Verification V4 evidence profile is invalid.');
-  assertObject(value.producer, 'Verification V4 evidence producer');
+  if (value.profile !== 'quick' && value.profile !== 'full') throw new Error('Verification evidence profile is invalid.');
+  assertObject(value.producer, 'Verification evidence producer');
   const producer = value.producer;
   assertExactKeys(producer, [
     'sourceTransport', 'workflowPath', 'workflowRef', 'workflowSha', 'runId', 'runAttempt', 'actorNodeId', 'sourceDigest'
-  ], 'Verification V4 evidence producer');
+  ], 'Verification evidence producer');
   const { sourceDigest: observedSourceDigest, ...producerInput } =
     producer as unknown as VerificationEvidenceProducer;
-  const rebuiltProducer = CreateVerificationEvidenceProducer(producerInput);
-  if (rebuiltProducer.sourceDigest !== observedSourceDigest) throw new Error('Verification V4 producer digest mismatch.');
+  const rebuiltProducer = createVerificationEvidenceProducer(producerInput);
+  if (rebuiltProducer.sourceDigest !== observedSourceDigest) throw new Error('Verification evidence producer digest mismatch.');
   if (!['passed', 'failed', 'not-run', 'unsupported', 'invalidated'].includes(String(value.status))) {
-    throw new Error('Verification V4 evidence status is invalid.');
+    throw new Error('Verification evidence status is invalid.');
   }
-  assertIsoDate(value.startedAt, 'Verification V4 evidence startedAt');
-  assertIsoDate(value.finishedAt, 'Verification V4 evidence finishedAt');
-  if (value.finishedAt < value.startedAt) throw new Error('Verification V4 evidence timestamps are inverted.');
+  assertIsoDate(value.startedAt, 'Verification evidence startedAt');
+  assertIsoDate(value.finishedAt, 'Verification evidence finishedAt');
+  if (value.finishedAt < value.startedAt) throw new Error('Verification evidence timestamps are inverted.');
   const actionPlan = parseCiVerificationActionPlanClosure(encodeVerificationActionData(value.actionPlan));
-  if (!Array.isArray(value.gates)) throw new Error('Verification V4 evidence gates must be an array.');
+  if (!Array.isArray(value.gates)) throw new Error('Verification evidence gates must be an array.');
   const gates = value.gates.map((entry, index) => {
-    const label = `Verification V4 evidence gates[${index}]`;
+    const label = `Verification evidence gates[${index}]`;
     assertObject(entry, label);
     assertExactKeys(entry, ['action', 'result', 'cleanup'], label);
     const action = parseVerificationActionKey(encodeVerificationActionData(entry.action));
     AssertVerificationGateResult(entry.result);
-    assertV4Cleanup(entry.cleanup, `${label}.cleanup`);
+    assertVerificationCleanup(entry.cleanup, `${label}.cleanup`);
     const result = entry.result as VerificationGateResult;
     if (result.gateId !== action.operation.identity || result.inputDigest !== action.actionKey ||
         result.subjectRevision !== value.headSha) {
@@ -290,34 +290,34 @@ export function AssertVerificationEvidenceV4(
   if (gates.length !== actionPlan.actions.length || gates.some((gate, index) => (
     gate.action.actionKey !== actionPlan.actions[index]?.action.actionKey ||
     encodeVerificationActionData(gate.action) !== encodeVerificationActionData(actionPlan.actions[index]?.action)
-  ))) throw new Error('Verification V4 evidence gate order/action closure mismatch.');
-  if (value.status !== aggregateV4Status(gates)) {
-    throw new Error('Verification V4 evidence aggregate status is inconsistent with five-state gates/cleanup.');
+  ))) throw new Error('Verification evidence gate order/action closure mismatch.');
+  if (value.status !== aggregateVerificationStatus(gates)) {
+    throw new Error('Verification evidence aggregate status is inconsistent with five-state gates/cleanup.');
   }
-  assertStringArray(value.evidenceRefs, 'Verification V4 evidence evidenceRefs');
-  assertStringArray(value.invalidationRules, 'Verification V4 evidence invalidationRules');
-  if ((value.invalidationRules as string[]).length === 0) throw new Error('Verification V4 evidence requires invalidation rules.');
+  assertStringArray(value.evidenceRefs, 'Verification evidence evidenceRefs');
+  assertStringArray(value.invalidationRules, 'Verification evidence invalidationRules');
+  if ((value.invalidationRules as string[]).length === 0) throw new Error('Verification evidence requires invalidation rules.');
   const { actionPlan: expectedActionPlan, ...expectedFields } = expected;
   for (const [key, expectedValue] of Object.entries(expectedFields)) {
-    if (value[key] !== expectedValue) throw new Error(`Verification V4 evidence ${key} mismatch.`);
+    if (value[key] !== expectedValue) throw new Error(`Verification evidence ${key} mismatch.`);
   }
   if (expectedActionPlan !== undefined) {
     assertCiVerificationActionPlanClosureEqual(actionPlan, expectedActionPlan);
   }
   const { evidenceDigest, ...withoutDigest } = value;
-  if (evidenceDigest !== VerificationDigest(withoutDigest)) {
-    throw new Error('Verification V4 evidence digest mismatch.');
+  if (evidenceDigest !== verificationDigest(withoutDigest)) {
+    throw new Error('Verification evidence digest mismatch.');
   }
   if (new Date(value.finishedAt).getTime() > now.getTime() + 5 * 60_000) {
-    throw new Error('Verification V4 evidence timestamp is in the future.');
+    throw new Error('Verification evidence timestamp is in the future.');
   }
 }
 
-export function WriteVerificationEvidenceV4Atomic(
+export function writeVerificationEvidenceAtomic(
   filePath: string,
-  evidence: VerificationEvidenceV4
+  evidence: VerificationEvidence
 ): void {
-  AssertVerificationEvidenceV4(evidence, { actionPlan: evidence.actionPlan }, new Date(evidence.finishedAt));
+  assertVerificationEvidence(evidence, { actionPlan: evidence.actionPlan }, new Date(evidence.finishedAt));
   const absolutePath = path.resolve(filePath);
   mkdirSync(path.dirname(absolutePath), { recursive: true });
   rmSync(absolutePath, { force: true });
@@ -332,8 +332,8 @@ export function WriteVerificationEvidenceV4Atomic(
     descriptor = null;
     renameSync(temporaryPath, absolutePath);
     const readback = readFileSync(absolutePath, 'utf8');
-    if (readback !== serialized) throw new Error('Verification V4 evidence readback bytes mismatch.');
-    AssertVerificationEvidenceV4(JSON.parse(readback), { actionPlan: evidence.actionPlan }, new Date(evidence.finishedAt));
+    if (readback !== serialized) throw new Error('Verification evidence readback bytes mismatch.');
+    assertVerificationEvidence(JSON.parse(readback), { actionPlan: evidence.actionPlan }, new Date(evidence.finishedAt));
   } catch (error) {
     rmSync(absolutePath, { force: true });
     throw error;
@@ -369,7 +369,7 @@ export type VerificationActionTerminalArtifact = Readonly<{
   artifactDigest: string;
 }>;
 
-export function VerificationActionCandidateBytesDigest(input: Readonly<{
+export function verificationActionCandidateBytesDigest(input: Readonly<{
   baseSha: string;
   baseTreeSha: string;
   headSha: string;
@@ -378,7 +378,7 @@ export function VerificationActionCandidateBytesDigest(input: Readonly<{
   manifestDigest: string;
   action: VerificationActionKey;
 }>): string {
-  return VerificationDigest({
+  return verificationDigest({
     baseSha: input.baseSha,
     baseTreeSha: input.baseTreeSha,
     headSha: input.headSha,
@@ -389,7 +389,7 @@ export function VerificationActionCandidateBytesDigest(input: Readonly<{
   });
 }
 
-export function FinalizeVerificationActionTerminalArtifact(input: Omit<
+export function finalizeVerificationActionTerminalArtifact(input: Omit<
   VerificationActionTerminalArtifact,
   'schema' | 'artifactDigest'
 >): VerificationActionTerminalArtifact {
@@ -399,27 +399,27 @@ export function FinalizeVerificationActionTerminalArtifact(input: Omit<
   });
   const artifact = Object.freeze({
     ...withoutDigest,
-    artifactDigest: VerificationDigest(withoutDigest)
+    artifactDigest: verificationDigest(withoutDigest)
   });
-  AssertVerificationActionTerminalArtifact(artifact);
+  assertVerificationActionTerminalArtifact(artifact);
   return artifact;
 }
 
-export function AssertVerificationActionTerminalArtifact(
+export function assertVerificationActionTerminalArtifact(
   value: unknown,
   expected: Readonly<{
     actionPlan?: VerificationActionPlan;
     executionEnvironmentRevision?: string;
   }> = {}
 ): asserts value is VerificationActionTerminalArtifact {
-  assertObject(value, 'VerificationAction terminal artifact V2');
+  assertObject(value, 'VerificationAction terminal artifact');
   if (value.schema !== CI_VERIFICATION_ACTION_ARTIFACT_SCHEMA) {
-    throw new Error('VerificationAction terminal artifact V2 schema mismatch.');
+    throw new Error('VerificationAction terminal artifact schema mismatch.');
   }
   assertExactKeys(value, [
     'schema', 'actionPlan', 'normalizedOperation', 'result', 'cleanup', 'executionEnvironment',
     'input', 'producer', 'executionProof', 'artifactDigest'
-  ], 'VerificationAction terminal artifact V2');
+  ], 'VerificationAction terminal artifact');
   const plan = parseVerificationActionPlan(encodeVerificationActionData(value.actionPlan));
   const normalizedOperation = parseCiVerificationNormalizedOperation(value.normalizedOperation);
   if (normalizedOperation.gateId !== plan.action.operation.identity ||
@@ -429,7 +429,7 @@ export function AssertVerificationActionTerminalArtifact(
     throw new Error('VerificationAction artifact normalized operation does not bind its Action member.');
   }
   AssertVerificationGateResult(value.result);
-  assertV4Cleanup(value.cleanup, 'VerificationAction artifact cleanup');
+  assertVerificationCleanup(value.cleanup, 'VerificationAction artifact cleanup');
   const result = value.result as VerificationGateResult;
   if (result.gateId !== plan.action.operation.identity ||
       result.inputDigest !== plan.action.actionKey ||
@@ -451,7 +451,7 @@ export function AssertVerificationActionTerminalArtifact(
   const environmentBinding = plan.action.operation.declaredEnvironment.find(
     (binding) => binding.name === 'SEC_EXECUTION_ENVIRONMENT_REVISION'
   );
-  if (environmentBinding?.digest !== VerificationDigest(
+  if (environmentBinding?.digest !== verificationDigest(
     CI_VERIFICATION_HOSTED_EXECUTION_ENVIRONMENT.executionEnvironmentRevision
   )) {
     throw new Error('VerificationAction artifact declared environment revision is missing or forged.');
@@ -471,14 +471,14 @@ export function AssertVerificationActionTerminalArtifact(
   assertDigest(artifactInput.manifestDigest, 'VerificationAction artifact manifest digest');
   assertDigest(artifactInput.inputClosureDigest, 'VerificationAction artifact input closure digest');
   assertDigest(artifactInput.candidateBytesDigest, 'VerificationAction artifact candidate bytes digest');
-  if (artifactInput.inputClosureDigest !== VerificationDigest(plan.action.inputClosure)) {
+  if (artifactInput.inputClosureDigest !== verificationDigest(plan.action.inputClosure)) {
     throw new Error('VerificationAction artifact input closure digest mismatch.');
   }
   const manifestInput = plan.action.inputClosure.find((entry) => entry.path === artifactInput.manifestPath);
   if (manifestInput?.digest !== artifactInput.manifestDigest) {
     throw new Error('VerificationAction artifact manifest is outside the canonical Action input closure.');
   }
-  if (artifactInput.candidateBytesDigest !== VerificationActionCandidateBytesDigest({
+  if (artifactInput.candidateBytesDigest !== verificationActionCandidateBytesDigest({
     ...artifactInput,
     action: plan.action
   })) throw new Error('VerificationAction artifact candidate bytes digest mismatch.');
@@ -536,24 +536,24 @@ export function AssertVerificationActionTerminalArtifact(
   }
   assertDigest(value.artifactDigest, 'VerificationAction artifact digest');
   const { artifactDigest, ...withoutDigest } = value;
-  if (artifactDigest !== VerificationDigest(withoutDigest)) {
+  if (artifactDigest !== verificationDigest(withoutDigest)) {
     throw new Error('VerificationAction artifact digest mismatch.');
   }
 }
 
-export function ParseVerificationActionTerminalArtifact(
+export function parseVerificationActionTerminalArtifact(
   source: string
 ): VerificationActionTerminalArtifact {
   const value = JSON.parse(source) as unknown;
-  AssertVerificationActionTerminalArtifact(value);
+  assertVerificationActionTerminalArtifact(value);
   return value;
 }
 
-export function WriteVerificationActionTerminalArtifactV2Atomic(
+export function writeVerificationActionTerminalArtifactAtomic(
   filePath: string,
   artifact: VerificationActionTerminalArtifact
 ): void {
-  AssertVerificationActionTerminalArtifact(artifact);
+  assertVerificationActionTerminalArtifact(artifact);
   if (path.basename(filePath) !== VERIFICATION_ACTION_PROVIDER_TERMINAL_ARTIFACT_FILE) {
     throw new Error(
       `VerificationAction artifact file must be ${VERIFICATION_ACTION_PROVIDER_TERMINAL_ARTIFACT_FILE}.`
@@ -593,12 +593,12 @@ export type VerificationSessionArtifact = Readonly<{
   session: VerificationSession;
   preGateReview: ReviewStabilityReceipt;
   mainHealth: MainHealthLedger;
-  evidence: VerificationEvidenceV4;
+  evidence: VerificationEvidence;
   producer: VerificationEvidenceProducer;
   artifactDigest: string;
 }>;
 
-export function FinalizeVerificationSessionArtifact(input: Omit<
+export function finalizeVerificationSessionArtifact(input: Omit<
   VerificationSessionArtifact,
   'schema' | 'artifactDigest'
 >): VerificationSessionArtifact {
@@ -608,27 +608,27 @@ export function FinalizeVerificationSessionArtifact(input: Omit<
   });
   const artifact = Object.freeze({
     ...withoutDigest,
-    artifactDigest: VerificationDigest(withoutDigest)
+    artifactDigest: verificationDigest(withoutDigest)
   });
-  AssertVerificationSessionArtifact(artifact);
+  assertVerificationSessionArtifact(artifact);
   return artifact;
 }
 
-export function AssertVerificationSessionArtifact(
+export function assertVerificationSessionArtifact(
   value: unknown
 ): asserts value is VerificationSessionArtifact {
-  assertObject(value, 'VerificationSession artifact V2');
+  assertObject(value, 'VerificationSession artifact');
   if (value.schema !== VerificationSessionArtifactSchema) {
-    throw new Error('VerificationSession artifact V2 schema mismatch.');
+    throw new Error('VerificationSession artifact schema mismatch.');
   }
   assertExactKeys(value, [
     'schema', 'scopeAuthorization', 'session', 'preGateReview', 'mainHealth', 'evidence', 'producer', 'artifactDigest'
-  ], 'VerificationSession artifact V2');
+  ], 'VerificationSession artifact');
   const scope = parseScopeAuthorization(encodeVerificationActionData(value.scopeAuthorization));
   const session = parseVerificationSession(encodeVerificationActionData(value.session));
   const review = parseReviewStabilityReceipt(encodeVerificationActionData(value.preGateReview));
   const mainHealth = parseMainHealthLedger(encodeVerificationActionData(value.mainHealth));
-  AssertVerificationEvidenceV4(value.evidence, {
+  assertVerificationEvidence(value.evidence, {
     sessionRevision: session.sessionRevision,
     sessionProposalDigest: scope.sessionProposalDigest,
     scopeAuthorizationRevision: scope.authorizationRevision,
@@ -644,8 +644,8 @@ export function AssertVerificationSessionArtifact(
     headTreeSha: session.headTreeSha,
     manifestPath: session.manifestPath,
     manifestDigest: session.manifestDigest
-  }, new Date((value.evidence as VerificationEvidenceV4).finishedAt));
-  const evidenceProducer = (value.evidence as VerificationEvidenceV4).producer;
+  }, new Date((value.evidence as VerificationEvidence).finishedAt));
+  const evidenceProducer = (value.evidence as VerificationEvidence).producer;
   const reviewSourceDigestIsCurrent = review.producer.sourceTransport === 'github-graphql'
     ? review.producer.sourceDigest === review.snapshot.snapshotDigest
     : review.producer.sourceTransport === 'github-rest'
@@ -663,7 +663,7 @@ export function AssertVerificationSessionArtifact(
   if (session.sessionProposalDigest !== scope.sessionProposalDigest ||
       session.scopeAuthorizationRevision !== scope.authorizationRevision ||
       session.scopeAuthorizationReceiptDigest !== scope.authorizationDigest ||
-      session.actionPlanClosureDigest !== (value.evidence as VerificationEvidenceV4).actionPlan.actionPlanDigest ||
+      session.actionPlanClosureDigest !== (value.evidence as VerificationEvidence).actionPlan.actionPlanDigest ||
       session.mainHealthRef.healthRevision !== mainHealth.healthRevision ||
       session.mainHealthRef.ledgerReceiptDigest !== mainHealth.ledgerDigest ||
       session.mainHealthRef.mainSha !== mainHealth.mainSha || session.mainHealthRef.mainTreeSha !== mainHealth.mainTreeSha) {
@@ -671,23 +671,23 @@ export function AssertVerificationSessionArtifact(
   }
   const { sourceDigest: observedProducerDigest, ...producerInput } =
     value.producer as VerificationEvidenceProducer;
-  const producer = CreateVerificationEvidenceProducer(producerInput);
+  const producer = createVerificationEvidenceProducer(producerInput);
   if (producer.sourceDigest !== observedProducerDigest ||
       !canonicalEquals(producer, evidenceProducer)) {
     throw new Error('VerificationSession artifact producer provenance mismatch.');
   }
   assertDigest(value.artifactDigest, 'VerificationSession artifact digest');
   const { artifactDigest, ...withoutDigest } = value;
-  if (artifactDigest !== VerificationDigest(withoutDigest)) {
+  if (artifactDigest !== verificationDigest(withoutDigest)) {
     throw new Error('VerificationSession artifact digest mismatch.');
   }
 }
 
-export function AssertVerificationSessionArtifactCurrent(
+export function assertVerificationSessionArtifactCurrent(
   artifact: VerificationSessionArtifact,
   now: string
 ): void {
-  AssertVerificationSessionArtifact(artifact);
+  assertVerificationSessionArtifact(artifact);
   const scope = artifact.scopeAuthorization;
   const session = artifact.session;
   const review = artifact.preGateReview;
@@ -748,15 +748,15 @@ export type RefreshVerificationSessionArtifactInput = Readonly<{
  * the trusted finalizer provenance, and the enclosing Evidence/artifact
  * digests change. A known failure therefore remains a failure.
  */
-export function RefreshVerificationSessionArtifact(
+export function refreshVerificationSessionArtifact(
   input: RefreshVerificationSessionArtifactInput
 ): VerificationSessionArtifact {
-  AssertVerificationSessionArtifact(input.previousArtifact);
+  assertVerificationSessionArtifact(input.previousArtifact);
   const scope = parseScopeAuthorization(encodeVerificationActionData(input.scopeAuthorization));
   const session = parseVerificationSession(encodeVerificationActionData(input.session));
   const review = parseReviewStabilityReceipt(encodeVerificationActionData(input.preGateReview));
   const mainHealth = parseMainHealthLedger(encodeVerificationActionData(input.mainHealth));
-  const producer = CreateVerificationEvidenceProducer((() => {
+  const producer = createVerificationEvidenceProducer((() => {
     const { sourceDigest: _sourceDigest, ...producerInput } = input.producer;
     return producerInput;
   })());
@@ -791,7 +791,7 @@ export function RefreshVerificationSessionArtifact(
       mainHealth.ledgerDigest === previous.mainHealth.ledgerDigest) {
     throw new Error('VerificationSession refresh requires at least one newly observed authority receipt.');
   }
-  const refreshedEvidence = FinalizeVerificationEvidenceV4({
+  const refreshedEvidence = finalizeVerificationEvidence({
     contractRevision: previous.evidence.contractRevision,
     sessionRevision: session.sessionRevision,
     sessionProposalDigest: session.sessionProposalDigest,
@@ -822,7 +822,7 @@ export function RefreshVerificationSessionArtifact(
     ]),
     invalidationRules: previous.evidence.invalidationRules
   });
-  const refreshed = FinalizeVerificationSessionArtifact({
+  const refreshed = finalizeVerificationSessionArtifact({
     scopeAuthorization: scope,
     session,
     preGateReview: review,
@@ -830,14 +830,14 @@ export function RefreshVerificationSessionArtifact(
     evidence: refreshedEvidence,
     producer
   });
-  AssertVerificationSessionArtifactCurrent(refreshed, input.refreshedAt);
+  assertVerificationSessionArtifactCurrent(refreshed, input.refreshedAt);
   return refreshed;
 }
 
-export function ParseVerificationSessionArtifact(
+export function parseVerificationSessionArtifact(
   source: string
 ): VerificationSessionArtifact {
   const parsed = JSON.parse(source) as unknown;
-  AssertVerificationSessionArtifact(parsed);
+  assertVerificationSessionArtifact(parsed);
   return parsed;
 }

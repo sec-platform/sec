@@ -1,7 +1,7 @@
 import { expect, test } from 'bun:test';
 
 import { buildCiVerificationActionPlanClosure, ciVerificationGateStep, type CiVerificationActionCandidate } from '../../src/adapters/verification/platform/action/contract/ci.ts';
-import { AssertVerificationEvidenceV4, CreateVerificationEvidenceProducer, FinalizeVerificationEvidenceV4, type VerificationGateEvidenceV4 } from '../../src/adapters/verification/platform/ci/contract/evidence.ts';
+import { assertVerificationEvidence, createVerificationEvidenceProducer, finalizeVerificationEvidence, type VerificationGateEvidence } from '../../src/adapters/verification/platform/ci/contract/evidence.ts';
 import { buildCiQuickGatePlan } from '../../src/adapters/verification/platform/ci/contract/plan.ts';
 import { CI_VERIFICATION_CONTRACT_REVISION } from '../../src/assurance/verification/contract/revision.ts';
 import { BuildVerificationGateResult } from '../../src/assurance/verification/result/contract/result.ts';
@@ -27,7 +27,7 @@ const plan = buildCiVerificationActionPlanClosure({
 });
 
 function gateEvidence(index: number, status: 'passed' | 'failed' | 'not-run' | 'unsupported' | 'invalidated' = 'passed'):
-VerificationGateEvidenceV4 {
+VerificationGateEvidence {
   const action = plan.actions[index]!.action;
   const executed = status === 'passed' || status === 'failed';
   const reason = status === 'passed' ? 'executed-success'
@@ -69,7 +69,7 @@ VerificationGateEvidenceV4 {
 }
 
 function evidence(gates = plan.actions.map((_, index) => gateEvidence(index))) {
-  return FinalizeVerificationEvidenceV4({
+  return finalizeVerificationEvidence({
     contractRevision: CI_VERIFICATION_CONTRACT_REVISION,
     sessionRevision: 'verification-session-v2', sessionProposalDigest: digest('f'),
     scopeAuthorizationRevision: candidate.scopeAuthorizationRevision, scopeAuthorizationDigest: digest('b'), reviewReceiptDigest: digest('1'),
@@ -77,7 +77,7 @@ function evidence(gates = plan.actions.map((_, index) => gateEvidence(index))) {
     baseSha: candidate.baseSha, baseTreeSha: candidate.baseTreeSha, headSha: candidate.headSha,
     headTreeSha: candidate.headTreeSha, manifestPath: candidate.manifestPath,
     manifestDigest: candidate.manifestDigest,
-    producer: CreateVerificationEvidenceProducer({
+    producer: createVerificationEvidenceProducer({
       sourceTransport: 'github-actions', workflowPath: '.github/workflows/compiler-pr-validation.yml',
       workflowRef: `.github/workflows/compiler-pr-validation.yml@${'5'.repeat(40)}`,
       workflowSha: '5'.repeat(40), runId: '123', runAttempt: 1, actorNodeId: 'MDQ6VXNlcjE='
@@ -92,22 +92,22 @@ function evidence(gates = plan.actions.map((_, index) => gateEvidence(index))) {
   });
 }
 
-test('Evidence V4 binds complete ordered Action snapshots and canonical five-state results', () => {
+test('Evidence binds complete ordered Action snapshots and canonical five-state results', () => {
   for (const status of ['passed', 'failed', 'not-run', 'unsupported', 'invalidated'] as const) {
     const gates = plan.actions.map((_, index) => gateEvidence(index, index === 0 ? status : 'passed'));
     const value = evidence(gates);
     expect(value.status).toBe(status);
-    expect(() => AssertVerificationEvidenceV4(value, { actionPlan: plan }, new Date('2026-08-09T00:01:00.000Z')))
+    expect(() => assertVerificationEvidence(value, { actionPlan: plan }, new Date('2026-08-09T00:01:00.000Z')))
       .not.toThrow();
   }
 });
 
-test('non-current evidence and forged Action plan/key cannot be promoted to V4 PASS', () => {
-  expect(() => AssertVerificationEvidenceV4({ schema: 'codex-development-verification-evidence-v3' }))
+test('non-current evidence and forged Action plan/key cannot be promoted to current PASS', () => {
+  expect(() => assertVerificationEvidence({ schema: 'codex-development-verification-evidence-v3' }))
     .toThrow('cannot be promoted');
   const forged = structuredClone(evidence()) as ReturnType<typeof evidence>;
   (forged.gates[0]!.action as { actionKey: string }).actionKey = digest('9');
-  expect(() => AssertVerificationEvidenceV4(forged, { actionPlan: plan })).toThrow();
+  expect(() => assertVerificationEvidence(forged, { actionPlan: plan })).toThrow();
 });
 
 test('reuse preserves known failure and never promotes non-pass to PASS', () => {
@@ -119,12 +119,12 @@ test('reuse preserves known failure and never promotes non-pass to PASS', () => 
   const knownFailure = evidence([reusedFailure, gateEvidence(1)]);
   expect(knownFailure.status).toBe('failed');
   expect(knownFailure.gates[0]!.result).toMatchObject({ status: 'failed', disposition: 'reused' });
-  expect(() => AssertVerificationEvidenceV4(
+  expect(() => assertVerificationEvidence(
     knownFailure,
     { actionPlan: plan },
     new Date('2026-08-09T02:00:00.000Z')
   )).not.toThrow();
   const invalidated = evidence([gateEvidence(0, 'invalidated'), gateEvidence(1)]);
   const promoted = { ...invalidated, status: 'passed' as const };
-  expect(() => AssertVerificationEvidenceV4(promoted, { actionPlan: plan })).toThrow();
+  expect(() => assertVerificationEvidence(promoted, { actionPlan: plan })).toThrow();
 });
