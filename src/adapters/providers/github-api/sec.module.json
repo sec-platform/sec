@@ -136,6 +136,29 @@
       "evolution": {
         "migration": "one-shot-owner-migration",
         "retirement": "replacement-obligations-satisfied"
+      },
+      "resources": {
+        "aggregateBudgets": [
+          {
+            "resource": "duration-ms",
+            "maximum": 30000
+          },
+          {
+            "resource": "input-bytes",
+            "maximum": 4194304
+          },
+          {
+            "resource": "output-bytes",
+            "maximum": 33566720
+          },
+          {
+            "resource": "processes",
+            "maximum": 1
+          }
+        ]
+      },
+      "futureSupport": {
+        "condition": "semantic-superset-required"
       }
     },
     {
