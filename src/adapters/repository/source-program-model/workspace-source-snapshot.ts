@@ -783,6 +783,18 @@ export function compileWorkspaceTypeScriptProjectInput(
     if (lexicalPath !== null) return lexicalPath;
     return dependencyFinalRoot === null ? null : pathInside(dependencyFinalRoot, fileName);
   };
+  const externalHostPathForRead = (fileName: string): string | null => {
+    const virtualDependencyPath = dependencyFileForAbsolute(fileName);
+    if (virtualDependencyPath !== null) return virtualDependencyPath;
+    if (dependencyPathForHostSource(fileName) !== null) return fileName;
+    return pathInside(defaultLibraryRoot, fileName) === null ? null : fileName;
+  };
+  const externalHostDirectoryForRead = (directoryName: string): string | null => {
+    const dependencyDirectory = dependencyFileForAbsolute(directoryName);
+    if (dependencyDirectory !== null) return dependencyDirectory;
+    if (dependencyPathForHostSource(directoryName) !== null) return directoryName;
+    return pathInside(defaultLibraryRoot, directoryName) === null ? null : directoryName;
+  };
   const parseHost: ts.ParseConfigHost = {
     useCaseSensitiveFileNames: true,
     fileExists: (fileName) => snapshotFileForAbsolute(fileName) !== null,
@@ -814,9 +826,9 @@ export function compileWorkspaceTypeScriptProjectInput(
   const host: ts.CompilerHost = {
     ...baseHost,
     directoryExists: (directoryName) => {
-      const dependencyDirectory = dependencyFileForAbsolute(directoryName);
-      if (dependencyDirectory !== null) {
-        return baseHost.directoryExists?.(dependencyDirectory) ?? false;
+      const externalDirectory = externalHostDirectoryForRead(directoryName);
+      if (externalDirectory !== null) {
+        return baseHost.directoryExists?.(externalDirectory) ?? false;
       }
       const repositoryPath = pathInside(virtualRoot, directoryName);
       if (repositoryPath !== null) {
@@ -824,12 +836,12 @@ export function compileWorkspaceTypeScriptProjectInput(
           repositoryPath === '' || sourcePath.startsWith(`${repositoryPath}/`)
         ));
       }
-      return baseHost.directoryExists?.(directoryName) ?? false;
+      return false;
     },
     fileExists: (fileName) => {
       if (snapshotFileForAbsolute(fileName) !== null) return true;
-      const dependencyFile = dependencyFileForAbsolute(fileName);
-      return baseHost.fileExists(dependencyFile ?? fileName);
+      const externalFile = externalHostPathForRead(fileName);
+      return externalFile === null ? false : baseHost.fileExists(externalFile);
     },
     getCurrentDirectory: () => virtualRoot,
     getSourceFile: (fileName, languageVersion, onError, shouldCreateNewSourceFile) => {
@@ -843,17 +855,18 @@ export function compileWorkspaceTypeScriptProjectInput(
           typeScriptScriptKind(source.path)
         );
       }
-      const dependencyFile = dependencyFileForAbsolute(fileName);
+      const dependencyPath = dependencyPathForHostSource(fileName);
+      const externalFile = externalHostPathForRead(fileName);
+      if (externalFile === null) return undefined;
       const externalSource = baseHost.getSourceFile(
-        dependencyFile ?? fileName,
+        externalFile,
         languageVersion,
         onError,
         shouldCreateNewSourceFile
       );
-      if (externalSource === undefined || externalSource.fileName === fileName) {
+      if (externalSource === undefined || dependencyPath === null) {
         return externalSource;
       }
-      const dependencyPath = dependencyPathForHostSource(dependencyFile ?? fileName);
       const resolvedExternalPath = dependencyPathForHostSource(externalSource.fileName);
       if (dependencyPath !== null && resolvedExternalPath !== dependencyPath) {
         throw new Error(
@@ -863,7 +876,7 @@ export function compileWorkspaceTypeScriptProjectInput(
       if (dependencyPath !== null) {
         rememberDependencyHostResolution(
           dependencyPath,
-          dependencyFile,
+          externalFile,
           externalSource.fileName
         );
       }
@@ -897,19 +910,31 @@ export function compileWorkspaceTypeScriptProjectInput(
           depth
         );
       }
-      return baseHost.readDirectory?.(rootDir, extensions, excludes, includes, depth) ?? [];
+      const externalDirectory = externalHostDirectoryForRead(rootDir);
+      return externalDirectory === null
+        ? []
+        : (baseHost.readDirectory?.(
+            externalDirectory,
+            extensions,
+            excludes,
+            includes,
+            depth
+          ) ?? []);
     },
     readFile: (fileName) => {
       const source = snapshotFileForAbsolute(fileName)?.source;
       if (source !== undefined) return source;
-      return baseHost.readFile(dependencyFileForAbsolute(fileName) ?? fileName);
+      const externalFile = externalHostPathForRead(fileName);
+      return externalFile === null ? undefined : baseHost.readFile(externalFile);
     },
     realpath: (fileName) => {
       const dependencyFile = dependencyFileForAbsolute(fileName);
       if (dependencyFile !== null) return fileName;
-      return pathInside(virtualRoot, fileName) === null
-        ? (baseHost.realpath?.(fileName) ?? fileName)
-        : fileName;
+      if (pathInside(virtualRoot, fileName) !== null
+          || dependencyPathForHostSource(fileName) !== null) return fileName;
+      return pathInside(defaultLibraryRoot, fileName) === null
+        ? fileName
+        : (baseHost.realpath?.(fileName) ?? fileName);
     }
   };
   const program = ts.createProgram({

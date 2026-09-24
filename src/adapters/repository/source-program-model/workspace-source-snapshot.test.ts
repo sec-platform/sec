@@ -387,7 +387,7 @@ test('ProjectInput rejects source escape before any materialization authority is
   });
 });
 
-test('ProjectInput rejects package declarations without one retained dependency generation', async () => {
+test('ProjectInput cannot observe host package declarations without one retained dependency generation', async () => {
   const { repositoryRoot } = await createRepository();
   await writeFile(
     path.join(repositoryRoot, 'src', 'example', 'value.ts'),
@@ -398,8 +398,13 @@ test('ProjectInput rejects package declarations without one retained dependency 
     budget: Object.freeze({ ...GIT_READ_OPERATION_BUDGET, maxProcesses: 4 })
   }, async (session) => {
     const snapshot = await acquireWorkingTreeWorkspaceSourceSnapshot({ session });
-    expect(() => compileWorkspaceTypeScriptProjectInput(snapshot, 'tsconfig.json'))
-      .toThrow('loaded a foreign source');
+    const projectInput = compileWorkspaceTypeScriptProjectInput(snapshot, 'tsconfig.json');
+    expect(projectInput.dependencyGenerationDigest).toBeNull();
+    expect(projectInput.externalSourceFacts.some(({ kind }) => kind === 'dependency-generation'))
+      .toBe(false);
+    expect(projectInput.externalSourceFacts.some(({ path: sourcePath }) => (
+      sourcePath.includes('commander')
+    ))).toBe(false);
   });
 });
 
