@@ -39,14 +39,20 @@ import { modelRelativePath } from '../../workspace/contract/types.ts';
 import { listFilesRecursive } from '../filesystem/discovery.ts';
 import { pathExists } from "../filesystem/files.ts";
 import { createWorkspaceWriteCommitFence, isCanonicalWorkspaceWriteCommitFence, type WorkspaceWriteLeaseToken } from '../filesystem/write-lease.ts';
-import { runObservedCommand, type ObservedCommandOutcome } from '../runtime-state/physical/runtime/observed-process.ts';
+import type { ObservedCommandOutcome } from '../runtime-state/physical/runtime/observed-process.ts';
 import {
   inspectNoFollowDirectoryChain,
   PhysicalNoFollowError,
   retainNoFollowFileTransaction,
   retainNoFollowOrdinaryFile
 } from '../runtime-state/physical/runtime/physical-no-follow.ts';
-import { buildIsolatedProcessEnvironment, ensureIsolatedProcessDirectories, ISOLATED_VERIFICATION_ENV_KEY, runCommand, type CommandResult } from '../runtime-state/physical/runtime/process.ts';
+import {
+  buildIsolatedProcessEnvironment,
+  ensureIsolatedProcessDirectories,
+  ISOLATED_VERIFICATION_ENV_KEY,
+  type CommandResult,
+  type RunCommandOptions
+} from '../runtime-state/physical/runtime/process.ts';
 import { ensureSharedDepsReady } from '../toolchain/dependencies/runtime.ts';
 import {
   compilerRuntimeLayout,
@@ -101,6 +107,7 @@ import {
 import {
   issueStagedVerificationProofSource
 } from './staged-verification-proof.ts';
+import { runSemanticMutationIsolatedProcess } from './semantic-mutation-isolated-process.ts';
 
 ;
 ;
@@ -732,11 +739,15 @@ async function removeIsolatedOwnedFileIfPresent(
 const SEMANTIC_MUTATION_ISOLATED_OUTPUT_LIMIT_BYTES = 64 * 1024;
 export const SEMANTIC_MUTATION_ISOLATED_VERIFICATION_TIMEOUT_MS = 1_200_000;
 
+type SemanticMutationIsolatedTestCommandRunner = (
+  command: string,
+  args: string[],
+  options: RunCommandOptions
+) => Promise<CommandResult>;
+
 export function createSemanticMutationIsolatedVerificationSupervisor(options: {
   /** Internal test seam for deterministic command outcomes. */
-  readonly commandRunner?: typeof runCommand;
-  /** Internal test seam for bounded production lifecycle outcomes. */
-  readonly observedCommandRunner?: typeof runObservedCommand;
+  readonly commandRunner?: SemanticMutationIsolatedTestCommandRunner;
   readonly pollIntervalMs?: number;
   readonly timeoutMs?: number;
 } = {}): SemanticMutationIsolatedVerificationSupervisor {
@@ -751,32 +762,19 @@ export function createSemanticMutationIsolatedVerificationSupervisor(options: {
     path.join(request.stagingWorkspaceRoot, ...request.runnerRelativePath.split('/'))
   ];
   if (options.commandRunner === undefined) {
-    const observedCommandRunner = options.observedCommandRunner ?? runObservedCommand;
     return async (request) => {
-      let observedOutputBytes = 0;
-      const progressChunks: Buffer[] = [];
-      let outcome: ObservedCommandOutcome;
-      outcome = await observedCommandRunner(process.execPath, runnerArguments(request), {
-        beforeSpawn: request.commitFence,
+      const observed = await runSemanticMutationIsolatedProcess({
+        command: process.execPath,
+        args: runnerArguments(request),
         cwd: semanticMutationIsolatedHostSpawnCwd(request.stagingWorkspaceRoot),
-        env: request.env,
-        envMode: 'replace',
-        fenceIntervalMs: options.pollIntervalMs ?? 50,
-        maxObservedOutputBytes: SEMANTIC_MUTATION_ISOLATED_OUTPUT_LIMIT_BYTES,
-        onChunk: (_stream, byteLength) => {
-          if (byteLength > SEMANTIC_MUTATION_ISOLATED_OUTPUT_LIMIT_BYTES - observedOutputBytes) {
-            throw new Error('Semantic Mutation isolated child exceeded its output budget');
-          }
-          observedOutputBytes += byteLength;
-        },
-        onOutput: (stream, chunk) => {
-          if (stream === 'stdout') progressChunks.push(Buffer.from(chunk));
-        },
+        environment: request.env,
         timeoutMs,
-        whileRunning: request.commitFence
+        outputLimitBytes: SEMANTIC_MUTATION_ISOLATED_OUTPUT_LIMIT_BYTES,
+        commitFence: request.commitFence
       });
       await request.commitFence();
-      const progressBytes = Buffer.concat(progressChunks);
+      const outcome = observed.outcome;
+      const progressBytes = Buffer.from(observed.stdout);
       if (outcome.status !== 'exited' || outcome.exitCode === null ||
         !outcome.termination.childCloseObserved || !outcome.termination.streamsDrained ||
         !outcome.termination.treeClosed || outcome.stdout.observerTruncated ||
@@ -786,7 +784,7 @@ export function createSemanticMutationIsolatedVerificationSupervisor(options: {
         throw new SemanticMutationIsolatedChildLifecycleError(outcome);
       }
       return {
-        code: outcome.exitCode,
+        code: observed.code,
         stdout: '',
         stderr: '',
         progress: parseSemanticMutationIsolatedProgressTransportBytes(progressBytes)
