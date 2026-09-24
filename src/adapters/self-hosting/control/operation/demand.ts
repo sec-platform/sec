@@ -3,7 +3,7 @@ import { canonicalEquals, compareCodeUnits, deepFreeze, sha256 } from '../../../
 const SEC_OPERATION_DEMAND_GRAPH_SCHEMA =
   'sec-operation-demand-graph-v1' as const;
 
-const SEC_OPERATION_KINDS = [
+const OPERATION_KINDS = [
   'check-affected',
   'check-fast',
   'dependency-setup',
@@ -20,9 +20,9 @@ const SEC_OPERATION_KINDS = [
   'work-selection-observe'
 ] as const;
 
-export type SecOperationKind = (typeof SEC_OPERATION_KINDS)[number];
+export type OperationKind = (typeof OPERATION_KINDS)[number];
 
-export type SecOperationDemandInput = Readonly<
+export type OperationDemandInput = Readonly<
   | {
     operation: 'work-selection-observe';
     terminalWorkIds: readonly string[];
@@ -33,7 +33,7 @@ export type SecOperationDemandInput = Readonly<
     hookPolicy: 'always' | 'if-installed' | 'never';
   }
   | {
-    operation: Exclude<SecOperationKind, 'dependency-setup' | 'work-selection-observe'>;
+    operation: Exclude<OperationKind, 'dependency-setup' | 'work-selection-observe'>;
     terminalWorkIds: readonly [];
   }
 >;
@@ -54,30 +54,30 @@ const SEC_OPERATION_VERIFICATION_OBLIGATIONS = [
   'test-process-isolation'
 ] as const;
 
-type SecOperationCapabilityDemand =
+type OperationCapabilityDemand =
   (typeof SEC_OPERATION_CAPABILITY_DEMANDS)[number];
-type SecOperationTransitionDemand =
+type OperationTransitionDemand =
   (typeof SEC_OPERATION_TRANSITION_DEMANDS)[number];
-type SecOperationVerificationObligation =
+type OperationVerificationObligation =
   (typeof SEC_OPERATION_VERIFICATION_OBLIGATIONS)[number];
 
-export interface SecOperationDemandGraph {
+export interface OperationDemandGraph {
   readonly schema: typeof SEC_OPERATION_DEMAND_GRAPH_SCHEMA;
-  readonly input: SecOperationDemandInput;
-  readonly capabilityDemands: readonly SecOperationCapabilityDemand[];
-  readonly transitionDemands: readonly SecOperationTransitionDemand[];
-  readonly verificationObligations: readonly SecOperationVerificationObligation[];
+  readonly input: OperationDemandInput;
+  readonly capabilityDemands: readonly OperationCapabilityDemand[];
+  readonly transitionDemands: readonly OperationTransitionDemand[];
+  readonly verificationObligations: readonly OperationVerificationObligation[];
   readonly graphDigest: `sha256:${string}`;
 }
 
-const TEST_OPERATIONS_REQUIRING_PROCESS_ISOLATION = new Set<SecOperationKind>([
+const TEST_OPERATIONS_REQUIRING_PROCESS_ISOLATION = new Set<OperationKind>([
   'test-direct-ambiguous',
   'test-direct-fast',
   'test-fast',
   'test-full'
 ]);
 
-function canonicalTerminalWorkIds(input: SecOperationDemandInput): readonly string[] {
+function canonicalTerminalWorkIds(input: OperationDemandInput): readonly string[] {
   if (input.operation !== 'work-selection-observe') {
     if (input.terminalWorkIds.length !== 0) {
       throw new Error('Operation Demand Graph V1: test operations cannot carry terminal work facts.');
@@ -98,10 +98,10 @@ function canonicalTerminalWorkIds(input: SecOperationDemandInput): readonly stri
  * Consumers recompile this graph before Effects; ambient packages, caches,
  * entrypoints and environment variables therefore cannot add demand.
  */
-export function compileSecOperationDemandGraph(
-  input: SecOperationDemandInput
-): SecOperationDemandGraph {
-  if (!SEC_OPERATION_KINDS.includes(input.operation)) {
+export function compileOperationDemandGraph(
+  input: OperationDemandInput
+): OperationDemandGraph {
+  if (!OPERATION_KINDS.includes(input.operation)) {
     throw new Error('Operation Demand Graph V1: operation is not canonical.');
   }
   const terminalWorkIds = canonicalTerminalWorkIds(input);
@@ -117,7 +117,7 @@ export function compileSecOperationDemandGraph(
       operation: input.operation,
       terminalWorkIds,
       ...(hookPolicy === null ? {} : { hookPolicy })
-    } as SecOperationDemandInput,
+    } as OperationDemandInput,
     capabilityDemands: Object.freeze([
       ...(compilerDemanded ? ['compiler-dependency-tree' as const] : []),
       ...(hookPolicy !== null && hookPolicy !== 'never' ? ['managed-git-hooks' as const] : [])
@@ -140,8 +140,8 @@ export function compileSecOperationDemandGraph(
   });
 }
 
-export function assertSecOperationDemandGraph(graph: SecOperationDemandGraph): void {
-  const compiled = compileSecOperationDemandGraph(graph.input);
+export function assertOperationDemandGraph(graph: OperationDemandGraph): void {
+  const compiled = compileOperationDemandGraph(graph.input);
   if (!canonicalEquals(graph, compiled)) {
     throw new Error('Operation Demand Graph V1: graph differs from the canonical compiler output.');
   }

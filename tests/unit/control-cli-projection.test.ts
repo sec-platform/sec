@@ -22,7 +22,7 @@ import { compileVirtualWorkspaceSourceSnapshot } from '../../src/adapters/reposi
 import {
   projectDocumentControlPlaneStatusCli
 } from '../../src/adapters/self-hosting/control/documentation/document-control-plane.ts';
-import { compileSecOperationDemandGraph } from '../../src/adapters/self-hosting/control/operation/demand.ts';
+import { compileOperationDemandGraph } from '../../src/adapters/self-hosting/control/operation/demand.ts';
 import type { SecWorkSelectionLiveResult } from '../../src/adapters/self-hosting/control/work-selection/live-contract.ts';
 import { projectSecWorkSelectionCli } from '../../src/adapters/self-hosting/control/work-selection/runtime.ts';
 import { shouldReportDevRunnerSuccess } from '../../src/adapters/self-hosting/development/runner/cli.ts';
@@ -215,7 +215,7 @@ describe('bounded control-plane CLI projections', () => {
   test('work selection keeps authority identity and the actionable decision only', () => {
     const result = {
       status: 'resolved', resultDigest: 'sha256:result',
-      demandGraph: compileSecOperationDemandGraph({
+      demandGraph: compileOperationDemandGraph({
         operation: 'work-selection-observe',
         terminalWorkIds: []
       }),

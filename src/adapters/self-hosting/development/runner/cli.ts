@@ -2,7 +2,7 @@ import path from 'node:path';
 
 import type { BoundSemanticOperation } from '../../../../execution/operation/semantic.ts';
 import type { ProcessResourceSession } from '../../../runtime-state/physical/runtime/process-resource-session.ts';
-import { compileSecOperationDemandGraph } from '../../control/operation/demand.ts';
+import { compileOperationDemandGraph } from '../../control/operation/demand.ts';
 import { WORKSPACE_TRANSITION_DEADLINE_ENV } from '../workspace-transition/contract.ts';
 import { requireCommandExitCode } from './command-outcome.ts';
 import { DEV_RUNNER_ENTRYPOINT_PATH } from './contract.ts';
@@ -57,7 +57,7 @@ export async function handoffDevRunnerToFreshProcess(
   });
 }
 
-type CheckAffectedDemand = ReturnType<typeof compileSecOperationDemandGraph>;
+type CheckAffectedDemand = ReturnType<typeof compileOperationDemandGraph>;
 
 export interface CheckAffectedCommandOperations {
   readonly runPlan: () => Promise<number>;
@@ -103,7 +103,7 @@ export async function runCheckAffectedCommand(
   if ([ensureDependencies, handoff, runExecution].some(action => typeof action !== 'function')) {
     throw new TypeError('Affected execution requires its dependency, handoff and execution callbacks');
   }
-  const demand = compileSecOperationDemandGraph({
+  const demand = compileOperationDemandGraph({
     operation: 'check-affected',
     terminalWorkIds: []
   });
@@ -147,7 +147,7 @@ export async function runCheckAffectedCommand(
  */
 export async function runTypecheckCommand(args: readonly string[]): Promise<number> {
   const selectedArgs = [...args];
-  const demand = compileSecOperationDemandGraph({
+  const demand = compileOperationDemandGraph({
     operation: 'typecheck',
     terminalWorkIds: []
   });
@@ -342,7 +342,7 @@ async function main(): Promise<void> {
 
   if (target === 'check:fast') {
     if (args.length > 0) usage();
-    const demand = compileSecOperationDemandGraph({ operation: 'check-fast', terminalWorkIds: [] });
+    const demand = compileOperationDemandGraph({ operation: 'check-fast', terminalWorkIds: [] });
     const dependencies = await ensureOperationDependencies(demand);
     const handoffExitCode = await handoffDevRunnerToFreshProcess(dependencies);
     if (handoffExitCode !== null) {
@@ -408,7 +408,7 @@ async function main(): Promise<void> {
   }
 
   if (target === 'deps:ensure') {
-    const dependencies = await ensureOperationDependencies(compileSecOperationDemandGraph({
+    const dependencies = await ensureOperationDependencies(compileOperationDemandGraph({
       operation: 'dependency-setup',
       terminalWorkIds: [],
       hookPolicy: process.env.SEC_GIT_HOOK_ACTIVE === '1' ? 'never' : 'always'
@@ -427,7 +427,7 @@ async function main(): Promise<void> {
     if (target === 'imports:freeze' && args.length !== 0) usage();
     const selectedImport = target === 'imports:freeze'
       ? undefined : parseImportOperationArgs(args, { allowStaged: true });
-    const dependencies = await ensureOperationDependencies(compileSecOperationDemandGraph({
+    const dependencies = await ensureOperationDependencies(compileOperationDemandGraph({
       operation: target === 'imports:check'
         ? 'imports-check'
         : target === 'imports:apply'

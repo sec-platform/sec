@@ -44,8 +44,8 @@ import { selectSlowTestRiskClosure } from '../../../verification/platform/test-i
 import { compilerRoot } from "../../../workspace-context.ts";
 import { currentActiveDocumentationPaths } from '../../control/documentation/active.ts';
 import {
-  compileSecOperationDemandGraph,
-  type SecOperationKind
+  compileOperationDemandGraph,
+  type OperationKind
 } from '../../control/operation/demand.ts';
 import { GIT_READ_OPERATION_BUDGET } from '../tooling/git/git-read.ts';
 import {
@@ -823,11 +823,11 @@ type OperationDependencyContext = {
 };
 
 async function withOperationDependencies<T>(
-  operation: Exclude<SecOperationKind, 'dependency-setup' | 'work-selection-observe'>,
+  operation: Exclude<OperationKind, 'dependency-setup' | 'work-selection-observe'>,
   callback: (context: OperationDependencyContext) => Promise<T>,
   prepared?: OperationDependencyBootstrapResult
 ): Promise<T> {
-  const demandGraph = compileSecOperationDemandGraph({
+  const demandGraph = compileOperationDemandGraph({
     operation,
     terminalWorkIds: []
   });
@@ -2034,7 +2034,7 @@ export async function prepareSlowTestSuiteExecutions(
     files.push(file);
     filesBySuite.set(selectedOwner[0]!, files);
   }
-  const dependencies = await ensureOperationDependencies(compileSecOperationDemandGraph({
+  const dependencies = await ensureOperationDependencies(compileOperationDemandGraph({
     operation: 'test-slow',
     terminalWorkIds: []
   }));

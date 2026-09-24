@@ -9,8 +9,8 @@ import type {
   VerificationActionTerminalSettlement
 } from '../../../verification/platform/action/contract/action.ts';
 import {
-  assertSecOperationDemandGraph,
-  type SecOperationDemandGraph
+  assertOperationDemandGraph,
+  type OperationDemandGraph
 } from '../../control/operation/demand.ts';
 
 type CompilerDependencyExecutionGenerationAuthority = Readonly<{
@@ -51,7 +51,7 @@ export interface MaterializedOperationDependencyBootstrapResult
 
 const materializedOperationDemands = new WeakMap<
   OperationDependencyBootstrapResult,
-  SecOperationDemandGraph
+  OperationDemandGraph
 >();
 
 interface CompilerDependencyBootstrapOptions {
@@ -201,7 +201,7 @@ export function createDependencyFreshProcessHandoff(
 }
 
 function publishOperationDependencyResult(
-  demandGraph: SecOperationDemandGraph,
+  demandGraph: OperationDemandGraph,
   result: MaterializedOperationDependencyBootstrapResult
 ): MaterializedOperationDependencyBootstrapResult {
   const published = Object.freeze(result);
@@ -211,9 +211,9 @@ function publishOperationDependencyResult(
 
 export function reuseOperationDependencies(
   result: OperationDependencyBootstrapResult,
-  demandGraph: SecOperationDemandGraph
+  demandGraph: OperationDemandGraph
 ): MaterializedOperationDependencyBootstrapResult {
-  assertSecOperationDemandGraph(demandGraph);
+  assertOperationDemandGraph(demandGraph);
   assertMaterializedOperationDependencyBootstrapResult(result);
   const materializedDemand = materializedOperationDemands.get(result);
   if (materializedDemand === undefined) throw new Error('Unreachable dependency provenance state.');
@@ -476,10 +476,10 @@ async function materializeCompilerDependenciesSingleFlight(
  * name, installed package, cache presence or environment state.
  */
 export async function ensureOperationDependencies(
-  demandGraph: SecOperationDemandGraph,
+  demandGraph: OperationDemandGraph,
   options: OperationDependencyBootstrapOptions = {}
 ): Promise<MaterializedOperationDependencyBootstrapResult> {
-  assertSecOperationDemandGraph(demandGraph);
+  assertOperationDemandGraph(demandGraph);
   if (!demandGraph.capabilityDemands.includes('compiler-dependency-tree')) {
     throw new Error('Dependency bootstrap requires an operation demand for compiler-dependency-tree.');
   }
