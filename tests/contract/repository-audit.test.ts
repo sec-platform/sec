@@ -328,6 +328,13 @@ test.serial('repository audit reads one immutable HEAD tree and fails closed on 
       manifest,
       'utf8'
     );
+    for (const inactive of ['inactive-a.md', 'inactive-b.md']) {
+      await writeFile(
+        path.join(repositoryRoot, 'config', 'repository', 'work-packages', inactive),
+        `---\nschema: codex-development-work-package-v1\nid: ${inactive.slice(0, -3)}\n---\n`,
+        'utf8'
+      );
+    }
     await writeFile(
       path.join(repositoryRoot, 'config', 'repository', 'active-work-package.md'),
       [

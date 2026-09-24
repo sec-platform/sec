@@ -2480,19 +2480,20 @@ async function auditControlPlane(
 
   const liveManifests = tracked.filter((file) => /^config\/repository\/work-packages\/[^/]+\.md$/u.test(file));
   try {
-    const entries = await Promise.all(liveManifests.map(async (packagePath) => {
+    const entries = [];
+    for (const packagePath of liveManifests) {
       const candidateBytes = bytesByPath.get(packagePath);
       if (candidateBytes === undefined) {
         throw new Error(`candidate Git bytes are unavailable for ${packagePath}`);
       }
-      return {
+      entries.push({
         path: packagePath,
         candidateBytes,
         defaultBytes: packagePath === manifestPath
           ? null
           : await runGitBytes(session, ['show', `${defaultRef}:${packagePath}`], { allowFailure: true })
-      };
-    }));
+      });
+    }
     const roadmapSource = textByPath.get('config/repository/work-selection.md');
     const census = CodexDevelopmentClassifyWorkPackageCensus({
       selectedManifestPath: manifestPath,
