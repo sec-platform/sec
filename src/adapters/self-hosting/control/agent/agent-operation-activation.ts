@@ -970,7 +970,7 @@ async function assertProviderLive(
     unavailable('activation-provider-readback-conflict', permissionObservation.bytes);
   }
   const jobs: Record<string, unknown>[] = [];
-  let lastBytes: Buffer = Buffer.alloc(0);
+  let lastBytes: Uint8Array = new Uint8Array(0);
   for (let page = 1; page <= 100; page += 1) {
     const observed = await apiRecord(root, repository, {
       kind: 'workflow-jobs', runId: provider.runId, runAttempt: provider.runAttempt, page
