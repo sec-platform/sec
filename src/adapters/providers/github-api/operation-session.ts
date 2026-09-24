@@ -15,7 +15,7 @@ export {
   executeGitHubApiOperation,
   executeObservedGitHubApiOperation,
   readGitHubApiBytes,
-  inspectGitHubApiCapability, withGitHubApiBranchCloseoutWriteSession, withGitHubApiMergeWriteSession, withGitHubApiReadOperationBudget,
+  inspectGitHubApiCapability, withGitHubApiBranchCloseoutWriteSession, withGitHubApiIssueCommentWriteSession, withGitHubApiMergeWriteSession, withGitHubApiReadOperationBudget,
   withGitHubApiReadSession,
   withGitHubApiRepositoryDispatchWriteSession,
   withGitHubApiRunnerAdminSession,

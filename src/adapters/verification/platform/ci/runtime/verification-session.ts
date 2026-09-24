@@ -51,6 +51,12 @@ import { withAuthorityGitReadSession } from '../../../../providers/git-read/auth
 import { GIT_READ_EXACT_TREE_OPERATION_BUDGET } from '../../../../providers/git-read/runtime/session.ts';
 import { assertGitPhysicalProviderReceipt, closeGitPhysicalProvider, openGitPhysicalProvider } from '../../../../providers/git/physical-provider.ts';
 import { assertGitLocalRefDeleteBatchReceipt, deleteExactLocalGitRefs } from '../../../../providers/git/ref-effect.ts';
+import {
+  executeGitHubApiOperation,
+  withGitHubApiBranchCloseoutWriteSession,
+  withGitHubApiIssueCommentWriteSession,
+  withGitHubApiReadSession
+} from '../../../../providers/github-api/operation-session.ts';
 import type { GitHubWorkflowJobObservation, GitHubWorkflowRunObservation } from '../../../../providers/github-api/contract.ts';
 import { assertProcessResourceSessionReceipt, openProcessResourceSession } from '../../../../runtime-state/physical/runtime/process-resource-session.ts';
 import { createRuntimeStateJournalFileSystem } from '../../../../runtime-state/workspace-state/journal-filesystem.ts';
@@ -1852,6 +1858,39 @@ function apiRecord(ctx: VerificationSessionScope, endpoint: string, label: strin
   return value as Record<string, any>;
 }
 
+async function createGitHubIssueComment(input: Readonly<{
+  ctx: VerificationSessionScope;
+  repository: string;
+  issueNumber: number;
+  body: string;
+  authority: 'branch-closeout' | 'verification-session';
+}>): Promise<unknown> {
+  const run = input.authority === 'branch-closeout'
+    ? withGitHubApiBranchCloseoutWriteSession
+    : withGitHubApiIssueCommentWriteSession;
+  return await run({
+    repositoryRoot: input.ctx.repositoryRoot,
+    repository: input.repository,
+    operation: async (capability) => await executeGitHubApiOperation(capability, {
+      kind: 'create-issue-comment', issueNumber: input.issueNumber, body: input.body
+    })
+  });
+}
+
+async function readGitHubIssueComment(input: Readonly<{
+  ctx: VerificationSessionScope;
+  repository: string;
+  commentId: number;
+}>): Promise<unknown> {
+  return await withGitHubApiReadSession({
+    repositoryRoot: input.ctx.repositoryRoot,
+    repository: input.repository,
+    operation: async (capability) => await executeGitHubApiOperation(capability, {
+      kind: 'issue-comment', commentId: input.commentId
+    })
+  });
+}
+
 function requiredEnvironmentGitSha(
   environment: Readonly<Record<string, string | undefined>>,
   name: string
@@ -2361,27 +2400,22 @@ async function publishHostedCloseoutEffectStart(
     return Object.freeze({ disposition: 'existing', ...existing });
   }
 
-  const endpoint = `/repos/${publication.binding.repository}`
-    + `/issues/${publication.binding.pullRequestNumber}/comments`;
   const body = renderBranchCloseoutEffectStartPublicationComment(publication);
   assertUnavailableProviderCircuitBreakerNotAuthority({
     ctx,
     capability: 'github-writer',
     now: new Date().toISOString()
   });
-  const posted = runVerificationSessionCommand(ctx, 'gh', [
-    'api', '-X', 'POST', endpoint, '-f', `body=${body}`
-  ]);
-  if (posted.status !== 0) {
-    throw new Error(
-      `AMBIGUOUS_SIDE_EFFECT: closeout effect-start POST outcome is unknown: ${decodeBranchLifecycleChildError(posted)}`
-    );
-  }
-
   let created;
   try {
     created = issueCommentRecord(
-      JSON.parse(decodeBranchLifecycleChildStdout(posted)),
+      await createGitHubIssueComment({
+        ctx,
+        repository: publication.binding.repository,
+        issueNumber: publication.binding.pullRequestNumber,
+        body,
+        authority: 'branch-closeout'
+      }),
       'created hosted closeout effect-start comment'
     );
     if (created.body !== body || !hostedPublisherMatches(created)) {
@@ -2395,22 +2429,17 @@ async function publishHostedCloseoutEffectStart(
     );
   } catch (error) {
     throw new Error(
-      `AMBIGUOUS_SIDE_EFFECT: closeout effect-start POST response is not authoritative: ${error instanceof Error ? error.message : String(error)}`
+      `AMBIGUOUS_SIDE_EFFECT: closeout effect-start POST outcome/readback is not authoritative: ${error instanceof Error ? error.message : String(error)}`
     );
   }
 
-  const exact = runVerificationSessionCommand(ctx, 'gh', [
-    'api',
-    `/repos/${publication.binding.repository}/issues/comments/${created.id}`
-  ]);
-  if (exact.status !== 0) {
-    throw new Error(
-      `AMBIGUOUS_SIDE_EFFECT: closeout effect-start exact readback failed: ${decodeBranchLifecycleChildError(exact)}`
-    );
-  }
   try {
     const comment = issueCommentRecord(
-      JSON.parse(decodeBranchLifecycleChildStdout(exact)),
+      await readGitHubIssueComment({
+        ctx,
+        repository: publication.binding.repository,
+        commentId: created.id
+      }),
       'hosted closeout effect-start exact readback'
     );
     const parsed = parseBranchCloseoutEffectStartPublicationComment(comment.body);
@@ -3136,7 +3165,6 @@ async function publishHostedCloseoutTerminal(input: Readonly<{
     );
   }
 
-  const endpoint = `/repos/${repository}/issues/${pullRequestNumber}/comments`;
   const body = renderBranchCloseoutOperationPublicationComment(publication);
   const recover = async (reason: string): Promise<Readonly<{
     disposition: 'recovered';
@@ -3159,18 +3187,16 @@ async function publishHostedCloseoutTerminal(input: Readonly<{
     capability: 'github-writer',
     now: new Date().toISOString()
   });
-  const posted = runVerificationSessionCommand(input.ctx, 'gh', [
-    'api', '-X', 'POST', endpoint, '-f', `body=${body}`
-  ]);
-  if (posted.status !== 0) {
-    return recover(
-      `closeout terminal POST outcome is unknown: ${decodeBranchLifecycleChildError(posted)}`
-    );
-  }
   let created;
   try {
     created = issueCommentRecord(
-      JSON.parse(decodeBranchLifecycleChildStdout(posted)),
+      await createGitHubIssueComment({
+        ctx: input.ctx,
+        repository,
+        issueNumber: pullRequestNumber,
+        body,
+        authority: 'branch-closeout'
+      }),
       'created closeout terminal comment'
     );
     const parsed = parseBranchCloseoutOperationPublicationComment(created.body);
@@ -3186,20 +3212,12 @@ async function publishHostedCloseoutTerminal(input: Readonly<{
     );
   } catch (error) {
     return recover(
-      `closeout terminal POST response is not authoritative: ${error instanceof Error ? error.message : String(error)}`
-    );
-  }
-  const exact = runVerificationSessionCommand(input.ctx, 'gh', [
-    'api', `/repos/${repository}/issues/comments/${created.id}`
-  ]);
-  if (exact.status !== 0) {
-    return recover(
-      `closeout terminal exact readback failed: ${decodeBranchLifecycleChildError(exact)}`
+      `closeout terminal POST outcome/readback is not authoritative: ${error instanceof Error ? error.message : String(error)}`
     );
   }
   try {
     const comment = issueCommentRecord(
-      JSON.parse(decodeBranchLifecycleChildStdout(exact)),
+      await readGitHubIssueComment({ ctx: input.ctx, repository, commentId: created.id }),
       'closeout terminal exact readback'
     );
     const parsed = parseBranchCloseoutOperationPublicationComment(comment.body);
@@ -3676,16 +3694,8 @@ async function readBackHostedIntegrationAuthorizationComment(
   publication: IntegrationAuthorizationOperationPublication,
   commentId: number
 ): Promise<IntegrationAuthorizationOperationPublication> {
-  const result = runVerificationSessionCommand(ctx, 'gh', [
-    'api', `/repos/${publication.repository}/issues/comments/${commentId}`
-  ]);
-  if (result.status !== 0) {
-    throw new Error(
-      `integration authorization comment readback failed: ${decodeBranchLifecycleChildError(result)}`
-    );
-  }
   const comment = issueCommentRecord(
-    JSON.parse(decodeBranchLifecycleChildStdout(result)),
+    await readGitHubIssueComment({ ctx, repository: publication.repository, commentId }),
     'integration authorization comment readback'
   );
   if (comment.id !== commentId || !hostedPublisherMatches(comment)) {
@@ -3755,24 +3765,21 @@ async function publishHostedIntegrationAuthorizationOperation(
     }
   }
 
-  const endpoint = `/repos/${publication.repository}/issues/${publication.pullRequestNumber}/comments`;
   const body = renderIntegrationAuthorizationOperationPublicationComment(publication);
   assertUnavailableProviderCircuitBreakerNotAuthority({
     ctx,
     capability: 'github-writer',
     now: new Date().toISOString()
   });
-  const posted = runVerificationSessionCommand(ctx, 'gh', [
-    'api', '-X', 'POST', endpoint, '-f', `body=${body}`
-  ]);
-  if (posted.status !== 0) {
-    return Object.freeze({ publication: null, commentId: null, status: 'failed',
-      createdByThisInvocation: false,
-      detail: `authorization publication failed without retry: ${decodeBranchLifecycleChildError(posted)}` });
-  }
   try {
     const created = issueCommentRecord(
-      JSON.parse(decodeBranchLifecycleChildStdout(posted)),
+      await createGitHubIssueComment({
+        ctx,
+        repository: publication.repository,
+        issueNumber: publication.pullRequestNumber,
+        body,
+        authority: 'verification-session'
+      }),
       'created authorization comment'
     );
     if (created.body !== body || !hostedPublisherMatches(created)) {
@@ -3799,7 +3806,7 @@ async function publishHostedIntegrationAuthorizationOperation(
   }
 }
 
-function ensureHostedReviewLocator(
+async function ensureHostedReviewLocator(
   ctx: VerificationSessionScope,
   github: VerificationSessionGitHubClient,
   input: Readonly<{
@@ -3813,11 +3820,11 @@ function ensureHostedReviewLocator(
     sourceRunAttempt: number;
     workflowRef: string;
   }>
-): Readonly<{
+): Promise<Readonly<{
   status: 'published' | 'reused';
   commentId: string;
   publicationDigest: `sha256:${string}`;
-}> {
+}>> {
   const observed = github.observeHostedReviewLocator(input);
   if (observed.status === 'reused') {
     if (observed.commentId === null) {
@@ -3834,22 +3841,15 @@ function ensureHostedReviewLocator(
     capability: 'github-writer',
     now: new Date().toISOString()
   });
-  const posted = runVerificationSessionCommand(ctx, 'gh', [
-    'api',
-    '-X',
-    'POST',
-    `/repos/${input.repository}/issues/${input.prNumber}/comments`,
-    '-f',
-    `body=${observed.body}`
-  ]);
-  if (posted.status !== 0) {
-    throw new Error(
-      `AMBIGUOUS_SIDE_EFFECT: hosted Review locator POST outcome is unknown: ${decodeBranchLifecycleChildError(posted)}`
-    );
-  }
   let commentId: string;
   try {
-    const response: unknown = JSON.parse(decodeBranchLifecycleChildStdout(posted));
+    const response = await createGitHubIssueComment({
+      ctx,
+      repository: input.repository,
+      issueNumber: input.prNumber,
+      body: observed.body,
+      authority: 'verification-session'
+    });
     if (!response || typeof response !== 'object' || Array.isArray(response)
       || !Number.isSafeInteger((response as Record<string, unknown>).id)
       || Number((response as Record<string, unknown>).id) <= 0) {
@@ -3858,18 +3858,10 @@ function ensureHostedReviewLocator(
     commentId = String((response as Record<string, unknown>).id);
   } catch (error) {
     throw new Error(
-      `AMBIGUOUS_SIDE_EFFECT: hosted Review locator POST response is invalid: ${error instanceof Error ? error.message : String(error)}`
+      `AMBIGUOUS_SIDE_EFFECT: hosted Review locator POST outcome/response is invalid: ${error instanceof Error ? error.message : String(error)}`
     );
   }
-  const exact = runVerificationSessionCommand(ctx, 'gh', [
-    'api',
-    `/repos/${input.repository}/issues/comments/${commentId}`
-  ]);
-  if (exact.status !== 0) {
-    throw new Error(
-      `AMBIGUOUS_SIDE_EFFECT: hosted Review locator exact readback failed: ${decodeBranchLifecycleChildError(exact)}`
-    );
-  }
+  await readGitHubIssueComment({ ctx, repository: input.repository, commentId: Number(commentId) });
   const complete = github.observeHostedReviewLocator(input);
   if (complete.status !== 'reused' || complete.commentId !== commentId
     || complete.publicationDigest !== observed.publicationDigest) {
@@ -3884,7 +3876,7 @@ function ensureHostedReviewLocator(
   });
 }
 
-function ensureMaintainerReviewWakeup(
+async function ensureMaintainerReviewWakeup(
   ctx: VerificationSessionScope,
   github: VerificationSessionGitHubClient,
   input: Readonly<{
@@ -3898,11 +3890,11 @@ function ensureMaintainerReviewWakeup(
     publisherLogin: string;
     publisherNodeId: string;
   }>
-): Readonly<{
+): Promise<Readonly<{
   status: 'published' | 'reused';
   commentId: string;
   wakeupDigest: `sha256:${string}`;
-}> {
+}>> {
   const observed = github.observeMaintainerReviewWakeup(input);
   if (observed.status === 'reused') {
     if (observed.commentId === null) throw new Error('Maintainer Review wake-up reuse has no comment identity.');
@@ -3919,22 +3911,15 @@ function ensureMaintainerReviewWakeup(
     capability: 'github-writer',
     now: new Date().toISOString()
   });
-  const posted = runVerificationSessionCommand(ctx, 'gh', [
-    'api',
-    '-X',
-    'POST',
-    `/repos/${input.repository}/issues/${input.prNumber}/comments`,
-    '-f',
-    `body=${observed.body}`
-  ]);
-  if (posted.status !== 0) {
-    throw new Error(
-      `AMBIGUOUS_SIDE_EFFECT: maintainer Review wake-up POST outcome is unknown: ${decodeBranchLifecycleChildError(posted)}`
-    );
-  }
   let commentId: string;
   try {
-    const response: unknown = JSON.parse(decodeBranchLifecycleChildStdout(posted));
+    const response = await createGitHubIssueComment({
+      ctx,
+      repository: input.repository,
+      issueNumber: input.prNumber,
+      body: observed.body,
+      authority: 'verification-session'
+    });
     if (!response || typeof response !== 'object' || Array.isArray(response)
       || !Number.isSafeInteger((response as Record<string, unknown>).id)
       || Number((response as Record<string, unknown>).id) <= 0) {
@@ -3943,18 +3928,10 @@ function ensureMaintainerReviewWakeup(
     commentId = String((response as Record<string, unknown>).id);
   } catch (error) {
     throw new Error(
-      `AMBIGUOUS_SIDE_EFFECT: maintainer Review wake-up POST response is invalid: ${error instanceof Error ? error.message : String(error)}`
+      `AMBIGUOUS_SIDE_EFFECT: maintainer Review wake-up POST outcome/response is invalid: ${error instanceof Error ? error.message : String(error)}`
     );
   }
-  const exact = runVerificationSessionCommand(ctx, 'gh', [
-    'api',
-    `/repos/${input.repository}/issues/comments/${commentId}`
-  ]);
-  if (exact.status !== 0) {
-    throw new Error(
-      `AMBIGUOUS_SIDE_EFFECT: maintainer Review wake-up exact readback failed: ${decodeBranchLifecycleChildError(exact)}`
-    );
-  }
+  await readGitHubIssueComment({ ctx, repository: input.repository, commentId: Number(commentId) });
   const complete = github.observeMaintainerReviewWakeup(input);
   if (complete.status !== 'reused' || complete.commentId !== commentId
     || complete.wakeupDigest !== observed.wakeupDigest) {
@@ -4429,7 +4406,7 @@ export async function verificationSessionCli(argv: string[]): Promise<string> {
       localVerificationStatus: localVerification?.result.status ?? null,
       hostedArtifactPresent: hosted !== null
     })
-      ? ensureMaintainerReviewWakeup(ctx, github, {
+      ? await ensureMaintainerReviewWakeup(ctx, github, {
           repository,
           prNumber,
           sessionRevision: prepared.sessionRevision,
@@ -4599,7 +4576,7 @@ export async function verificationSessionCli(argv: string[]): Promise<string> {
       });
       // The hosted writer publishes only a non-triggering locator. It is an
       // audit projection, not a Codex activation or Review authority.
-      const reviewLocator = ensureHostedReviewLocator(ctx, github, { repository,
+      const reviewLocator = await ensureHostedReviewLocator(ctx, github, { repository,
         prNumber: request.prNumber, sessionRevision: request.expectedSessionRevision,
         operationId, headSha: request.expectedHeadSha, headTreeSha: request.expectedHeadTreeSha,
         sourceRunId: compilerIdentity.runId, sourceRunAttempt: compilerIdentity.runAttempt,

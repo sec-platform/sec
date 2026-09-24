@@ -17,6 +17,7 @@ import { GitHubCredentialUnavailableError, readGitHubToken } from '../credential
 export type GitHubApiEffect =
   | 'read'
   | 'status-write'
+  | 'issue-comment-write'
   | 'repository-dispatch-write'
   | 'merge-write'
   | 'runner-admin'
@@ -274,6 +275,16 @@ function compileOperation(
       'GitHub API branch-closeout-write authority permits only fixed closeout observations and effects'
     );
   }
+  if (effect === 'issue-comment-write'
+      && kind !== 'current-user'
+      && kind !== 'collaborator-permission'
+      && kind !== 'issue-comments'
+      && kind !== 'issue-comment'
+      && kind !== 'create-issue-comment') {
+    throw new GitHubApiProviderError(
+      'GitHub API issue-comment-write authority permits only fixed comment observations and effects'
+    );
+  }
   if (effect === 'repository-dispatch-write'
       && kind !== 'current-user'
       && kind !== 'collaborator-permission'
@@ -342,9 +353,9 @@ function compileOperation(
       }));
     }
     case 'create-issue-comment':
-      if (effect !== 'branch-closeout-write') {
+      if (effect !== 'branch-closeout-write' && effect !== 'issue-comment-write') {
         throw new GitHubApiProviderError(
-          'GitHub API closeout receipt publication requires branch-closeout-write authority'
+          'GitHub API issue comment publication requires issue-comment-write or branch-closeout-write authority'
         );
       }
       return read(
@@ -528,6 +539,7 @@ export function assertGitHubApiCapability(
   if (value.repository !== repositoryName || !effectSatisfied
       || (requiredEffect === 'runner-admin' && value.principal.permission !== 'admin')
       || ((requiredEffect === 'status-write'
+          || requiredEffect === 'issue-comment-write'
           || requiredEffect === 'repository-dispatch-write'
           || requiredEffect === 'merge-write'
           || requiredEffect === 'branch-closeout-write')
@@ -562,6 +574,7 @@ function issueCapability(input: Readonly<{
     throw new GitHubApiProviderError('GitHub API runner-admin capability requires admin permission');
   }
   if ((input.effect === 'status-write'
+      || input.effect === 'issue-comment-write'
       || input.effect === 'repository-dispatch-write'
       || input.effect === 'merge-write'
       || input.effect === 'branch-closeout-write')
@@ -1277,6 +1290,14 @@ export async function withGitHubApiStatusWriteSession<T>(input: Readonly<{
   operation: (capability: GitHubApiCapability) => Promise<T>;
 }>): Promise<T> {
   return await withProductionSession({ ...input, effect: 'status-write' });
+}
+
+export async function withGitHubApiIssueCommentWriteSession<T>(input: Readonly<{
+  repositoryRoot: string;
+  repository: string;
+  operation: (capability: GitHubApiCapability) => Promise<T>;
+}>): Promise<T> {
+  return await withProductionSession({ ...input, effect: 'issue-comment-write' });
 }
 
 export async function withGitHubApiRepositoryDispatchWriteSession<T>(input: Readonly<{
