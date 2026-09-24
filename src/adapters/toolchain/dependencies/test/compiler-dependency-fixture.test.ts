@@ -19,7 +19,7 @@ import {
   retainCompilerDependencyExecutionGeneration,
   retainCompilerDependencyReadGeneration,
   type RetainedCompilerDependencyExecutionGeneration
-} from '../runtime/project-runtime.ts';
+} from '../runtime.ts';
 import {
   issueCompilerDependencyFixtureOperation,
   rematerializeCompilerDependencyFixtureOperation,

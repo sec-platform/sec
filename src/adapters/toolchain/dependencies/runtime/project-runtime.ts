@@ -6058,7 +6058,7 @@ export async function withProjectDependencyBridge<T>(
   const bridgePath = path.join(consumerRoot, 'node_modules');
   const compilerDependencyRoot = path.resolve(compilerRoot);
   await assertNoLegacyCompilerBridgeRecovery(compilerDependencyRoot, bridgePath, operationOptions);
-  const authority = await observeCompilerDependencyExecutionGenerationAuthority(
+  const authority = await observeCompilerDependencyExecutionGenerationAuthorityInternal(
     operationOptions,
     compilerDependencyRoot
   );
@@ -11707,7 +11707,7 @@ async function observeCompilerDependencyReadyFromPublishedProof(
  * Null means no compatible current execution authority: the locator can be
  * absent or bound to other canonical inputs. Unknown or corrupt state throws.
  */
-export async function observeCompilerDependencyExecutionGenerationAuthority(
+export async function observeCompilerDependencyExecutionGenerationAuthorityInternal(
   options: RuntimeDependencyInstallOptions = {},
   compilerDependencyRoot = compilerRoot
 ): Promise<CompilerDependencyExecutionGenerationAuthority | null> {

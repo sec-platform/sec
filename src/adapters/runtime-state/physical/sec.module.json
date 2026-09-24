@@ -58,8 +58,7 @@
         "openRetainedWindowsRuntimeStateDirectory",
         "observeRetainedRuntimeEndpointResidue",
         "retainCommandAuxiliaryOrdinaryFiles",
-        "retainMutableSealedPhysicalExecutionProtectedRoot",
-        "settlePhysicalResourcesAsync"
+        "retainMutableSealedPhysicalExecutionProtectedRoot"
       ],
       "effectKinds": [
         "filesystem"
@@ -116,13 +115,6 @@
           "semanticOperation": "runtime-state.physical.mutable-sealed-root-retention",
           "requirementId": null,
           "recovery": null
-        },
-        {
-          "operation": "settlePhysicalResourcesAsync",
-          "role": "domain-owner",
-          "semanticOperation": "runtime-state.physical.resource-settlement",
-          "requirementId": null,
-          "recovery": null
         }
       ]
     }
@@ -153,59 +145,6 @@
           {
             "resource": "records",
             "maximum": 1
-          }
-        ]
-      },
-      "futureSupport": {
-        "condition": "semantic-superset-required"
-      }
-    },
-    {
-      "operation": {
-        "kind": "capability",
-        "capability": "runtime-state.physical",
-        "operation": "settlePhysicalResourcesAsync"
-      },
-      "consumerSupport": {
-        "consumers": [
-          "brownfield.repository-audit"
-        ]
-      },
-      "effect": {
-        "kinds": [
-          "filesystem",
-          "process"
-        ],
-        "failureKinds": [
-          "physical-resource-settlement-failed"
-        ],
-        "recovery": "owner-intervention"
-      },
-      "evolution": {
-        "migration": "not-required",
-        "retirement": "replacement-obligations-satisfied"
-      },
-      "resources": {
-        "aggregateBudgets": [
-          {
-            "resource": "duration-ms",
-            "maximum": 180000
-          },
-          {
-            "resource": "input-bytes",
-            "maximum": 0
-          },
-          {
-            "resource": "output-bytes",
-            "maximum": 1
-          },
-          {
-            "resource": "processes",
-            "maximum": 8
-          },
-          {
-            "resource": "records",
-            "maximum": 8
           }
         ]
       },

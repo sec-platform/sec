@@ -38,7 +38,7 @@ export async function observeCompilerDependencyExecutionGenerationAuthority(
   compilerDependencyRoot?: string
 ): Promise<runtime.CompilerDependencyExecutionGenerationAuthority | null> {
   compilerDependencyRoot = compilerDependencyRoot === undefined ? undefined : path.resolve(compilerDependencyRoot);
-  return runtime.observeCompilerDependencyExecutionGenerationAuthority(
+  return runtime.observeCompilerDependencyExecutionGenerationAuthorityInternal(
     captureRuntimeDependencyInstallRequest(options),
     compilerDependencyRoot
   );
