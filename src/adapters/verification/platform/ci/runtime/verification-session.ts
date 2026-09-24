@@ -55,7 +55,8 @@ import {
   executeGitHubApiOperation,
   withGitHubApiBranchCloseoutWriteSession,
   withGitHubApiIssueCommentWriteSession,
-  withGitHubApiReadSession
+  withGitHubApiReadSession,
+  withGitHubApiRepositoryDispatchWriteSession
 } from '../../../../providers/github-api/operation-session.ts';
 import type { GitHubWorkflowJobObservation, GitHubWorkflowRunObservation } from '../../../../providers/github-api/contract.ts';
 import { assertProcessResourceSessionReceipt, openProcessResourceSession } from '../../../../runtime-state/physical/runtime/process-resource-session.ts';
@@ -2321,14 +2322,15 @@ async function joinExactPostMergeMainHealth(input: Readonly<{
   let matches = matchingRuns();
   if (matches.length > 1) throw new Error('MainHealth operation already has multiple exact workflow runs.');
   if (matches.length === 0) {
-    const body = encodeVerificationActionData({ event_type: 'sec-produce-main-health-v1',
-      client_payload: { payload: { mainSha: input.mainSha, requestOperationId } } });
-    const dispatched = runVerificationSessionCommand(input.ctx, 'gh', [
-      'api', '--method', 'POST', `/repos/${input.repository}/dispatches`, '--input', '-'
-    ], input.ctx.repositoryRoot, body);
-    if (dispatched.status !== 0) {
-      throw new Error(`Canonical MainHealth dispatch failed: ${decodeBranchLifecycleChildError(dispatched)}`);
-    }
+    await withGitHubApiRepositoryDispatchWriteSession({
+      repositoryRoot: input.ctx.repositoryRoot,
+      repository: input.repository,
+      operation: async (capability) => await executeGitHubApiOperation(capability, {
+        kind: 'repository-dispatch',
+        eventType: 'sec-produce-main-health-v1',
+        clientPayload: { payload: { mainSha: input.mainSha, requestOperationId } }
+      })
+    });
   }
   const queueAllowance = positiveEnvironmentInteger('MAIN_HEALTH_RUNNER_QUEUE_ALLOWANCE_MINUTES', input.environment);
   const producerTimeout = positiveEnvironmentInteger('MAIN_HEALTH_PRODUCER_TIMEOUT_MINUTES', input.environment);
