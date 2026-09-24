@@ -87,6 +87,7 @@ type GitHubApiRequestSession = {
 export type GitHubApiOperation =
   | Readonly<{ kind: 'current-user' }>
   | Readonly<{ kind: 'repository' }>
+  | Readonly<{ kind: 'repository-content'; path: string; ref: string }>
   | Readonly<{ kind: 'pull'; pullRequestNumber: number }>
   | Readonly<{ kind: 'branch'; branch: string }>
   | Readonly<{ kind: 'collaborator-permission'; login: string }>
@@ -301,6 +302,15 @@ function compileOperation(
   switch (kind) {
     case 'current-user': return read('/user');
     case 'repository': return read(`/repos/${repo}`);
+    case 'repository-content': {
+      const rawPath = boundedText(operation.path, 'repository content path', 1024);
+      if (rawPath.startsWith('/') || rawPath.endsWith('/') || rawPath.includes('\\')
+          || rawPath.split('/').some((segment) => segment.length === 0 || segment === '.' || segment === '..')) {
+        throw new GitHubApiProviderError('GitHub API repository content path is invalid');
+      }
+      const encodedPath = rawPath.split('/').map((segment) => encodeURIComponent(segment)).join('/');
+      return read(`/repos/${repo}/contents/${encodedPath}?ref=${encodeURIComponent(sha(operation.ref))}`);
+    }
     case 'pull': return read(`/repos/${repo}/pulls/${positiveInteger(operation.pullRequestNumber, 'pull request number')}`);
     case 'branch': return read(`/repos/${repo}/branches/${encodeURIComponent(boundedText(operation.branch, 'branch', 255))}`);
     case 'collaborator-permission':
@@ -1287,6 +1297,13 @@ export async function withGitHubApiReadSession<T>(input: Readonly<{
   repository: string;
   operation: (capability: GitHubApiCapability) => Promise<T>;
 }>): Promise<T> {
+  const current = requestSession.getStore();
+  if (current?.capability !== undefined
+      && current.repository === input.repository
+      && current.effect === 'read') {
+    remaining(current);
+    return await input.operation(current.capability);
+  }
   return await withProductionSession({ ...input, effect: 'read' });
 }
 

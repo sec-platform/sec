@@ -205,6 +205,12 @@ export function gitReadCommandIsObservation(args: readonly string[]): boolean {
     }
     if (commandArgs.length === 4
         && commandArgs[0] === '--local'
+        && commandArgs[1] === '--bool'
+        && commandArgs[2] === '--get') {
+      return !commandArgs[3]!.startsWith('-') && !/[\0\r\n]/u.test(commandArgs[3]!);
+    }
+    if (commandArgs.length === 4
+        && commandArgs[0] === '--local'
         && commandArgs[1] === '--null'
         && commandArgs[2] === '--get-regexp') {
       return commandArgs[3] === '^(extensions\\.worktreeconfig|core\\.hookspath)$';

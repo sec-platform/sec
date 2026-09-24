@@ -15,6 +15,11 @@ import { devNull, tmpdir } from 'node:os';
 import path from 'node:path';
 
 import {
+  issueGitHubApiTestCapability,
+  withGitHubApiTestSession,
+  type GitHubApiTransport
+} from '../../src/adapters/providers/github-api/test/operation-session.ts';
+import {
   preparationFilePath,
   prepareBranchCloseout,
   prepareClosedUnmergedPullRequestCloseout,
@@ -327,6 +332,83 @@ function noActiveWorkObservation(
   });
 }
 
+
+function withGitHubObservationSession<T>(
+  fixture: ReturnType<typeof repositoryFixture>,
+  pullRequests: readonly Readonly<Record<string, unknown>>[],
+  operation: () => Promise<T>
+): Promise<T> {
+  const normalizedPulls = pullRequests.map((value) => {
+    if (typeof value.headRefName !== 'string') return value;
+    const merged = value.state === 'MERGED';
+    return {
+      number: value.number,
+      head: {
+        ref: value.headRefName,
+        sha: value.headRefOid,
+        repo: { full_name: 'sec-platform/sec' }
+      },
+      base: {
+        ref: value.baseRefName,
+        sha: value.baseRefOid
+      },
+      state: merged ? 'closed' : 'open',
+      merged_at: merged ? new Date(0).toISOString() : null,
+      draft: value.isDraft === true,
+      html_url: value.url ?? `https://github.com/sec-platform/sec/pull/${String(value.number)}`
+    };
+  });
+  const transport: GitHubApiTransport = async (target) => {
+    const url = String(target);
+    if (url.includes('/git/matching-refs/heads/')) {
+      const observed = spawnSync('git', [
+        '--git-dir', fixture.remote, 'for-each-ref', '--format=%(objectname)%09%(refname)', 'refs/heads'
+      ], {
+        encoding: 'utf8',
+        windowsHide: true,
+        env: createBranchLifecycleGitChildEnvironment(process.env)
+      });
+      if (observed.status !== 0) {
+        throw new Error(`cannot observe test remote refs: ${observed.stderr || observed.stdout}`);
+      }
+      const refs = String(observed.stdout ?? '').trim().split(/\r?\n/u).filter(Boolean).map((line) => {
+        const [sha, ref] = line.split(/\s+/u);
+        return { ref, object: { sha } };
+      });
+      return Response.json(refs);
+    }
+    if (url === 'https://api.github.com/repos/sec-platform/sec') {
+      return Response.json({ default_branch: 'main', delete_branch_on_merge: true });
+    }
+    if (url.includes('/pulls?state=open')) {
+      return Response.json(normalizedPulls.filter((value) => value.state === 'open'));
+    }
+    if (url.includes('/pulls?state=closed')) {
+      return Response.json(normalizedPulls.filter((value) => value.state === 'closed'));
+    }
+    if (url.includes('/issues/') && url.includes('/comments?')) return Response.json([]);
+    if (url.includes('/collaborators/') && url.endsWith('/permission')) {
+      return Response.json({ permission: 'maintain' });
+    }
+    if (url.includes('/contents/')) return new Response('Not Found', { status: 404 });
+    throw new Error(`Unexpected GitHub inventory test request: ${url}`);
+  };
+  const capability = issueGitHubApiTestCapability({
+    repository: 'sec-platform/sec',
+    token: 'test-token-branch-lifecycle-inventory',
+    principal: {
+      transport: 'github-rest-token',
+      login: 'integrator',
+      nodeId: 'MDQ6VXNlcjE=',
+      userId: 900001,
+      permission: 'maintain'
+    },
+    effect: 'read',
+    transport
+  });
+  return withGitHubApiTestSession({ capability, operation });
+}
+
 function installGitHubObservationShim(
   fixture: ReturnType<typeof repositoryFixture>,
   pullRequests: readonly Readonly<Record<string, unknown>>[] = []
@@ -377,17 +459,17 @@ process.exit(1);
   };
 }
 
-test('target-scoped closeout inventory binds authenticated exact PR and fresh target refs', () => {
+test('target-scoped closeout inventory binds authenticated exact PR and fresh target refs', async () => {
   const fixture = repositoryFixture();
   const restorePath = installGitHubObservationShim(fixture);
   try {
     const observation = noActiveWorkObservation(fixture);
-    const preparedInventory = collectBranchLifecycleInventory({
+    const preparedInventory = await withGitHubObservationSession(fixture, [], async () => await collectBranchLifecycleInventory({
       repositoryRoot: fixture.repository,
       repositoryFullName: 'sec-platform/sec',
       defaultBranch: 'main',
       activeWorkPackageObservation: observation
-    });
+    }));
     const exactPullRequest = {
       number: 42,
       headBranch: fixture.branch,
@@ -408,16 +490,16 @@ test('target-scoped closeout inventory binds authenticated exact PR and fresh ta
       exactPullRequest,
       preparedInventory
     };
-    const scoped = collectBranchLifecycleCloseoutTargetInventory(input);
+    const scoped = await withGitHubObservationSession(fixture, [], async () => await collectBranchLifecycleCloseoutTargetInventory(input));
     expect(scoped.pullRequests.map(({ number }) => number)).toEqual([42]);
     expect(scoped.remoteBranches.find(({ branch }) => branch === fixture.branch)?.sha)
       .toBe(fixture.headSha);
     expect(scoped.worktrees.every(({ dirtyCount, untrackedCount }) =>
       dirtyCount === null && untrackedCount === null)).toBeTrue();
-    expect(() => collectBranchLifecycleCloseoutTargetInventory({
+    await expect(withGitHubObservationSession(fixture, [], async () => await collectBranchLifecycleCloseoutTargetInventory({
       ...input,
       exactPullRequest: { ...exactPullRequest, headBranch: 'other/branch' }
-    })).toThrow('authenticated exact PR observation differs from the closeout target');
+    }))).rejects.toThrow('authenticated exact PR observation differs from the closeout target');
   } finally {
     restorePath();
     rmSync(fixture.root, { recursive: true, force: true });
@@ -435,10 +517,10 @@ test('V6 branch preparation is recovery-only and leaves exact local/remote refs 
       activeWorkPackageObservation: activeWorkObservation(fixture),
       recoveryRoot: path.join(fixture.root, 'recovery')
     };
-    const prepared = await prepareBranchCloseout(scope, {
+    const prepared = await withGitHubObservationSession(fixture, [], async () => await prepareBranchCloseout(scope, {
       branch: fixture.branch,
       expectedHeadSha: fixture.headSha
-    });
+    }));
     expect(prepared.preparation.expectedHeadSha).toBe(fixture.headSha);
     expect(existsSync(preparationFilePath(prepared.preparation))).toBe(true);
     expect(git(fixture.repository, ['rev-parse', `refs/heads/${fixture.branch}`]))
@@ -520,7 +602,12 @@ test('remote-absent preparation recovers the exact local branch without mutating
     url: 'https://github.com/sec-platform/sec/pull/42'
   }]);
   try {
-    const prepared = await prepareBranchCloseout({
+    const prepared = await withGitHubObservationSession(fixture, [{
+      number: 42, headRefName: fixture.branch, headRefOid: fixture.headSha,
+      baseRefName: 'main', baseRefOid: fixture.mainSha, state: 'MERGED',
+      isDraft: false, isCrossRepository: false,
+      url: 'https://github.com/sec-platform/sec/pull/42'
+    }], async () => await prepareBranchCloseout({
       repositoryRoot: fixture.repository,
       repositoryFullName: 'sec-platform/sec',
       defaultBranch: 'main',
@@ -532,7 +619,7 @@ test('remote-absent preparation recovers the exact local branch without mutating
       expectedHeadSha: fixture.headSha,
       pullRequestNumber: 42,
       expectedPrHeadSha: fixture.headSha
-    });
+    }));
     expect(prepared.preparation.expectedLocalSha).toBe(fixture.headSha);
     expect(prepared.preparation.recovery).not.toBeNull();
     const recovery = prepared.preparation.recovery;
@@ -571,7 +658,7 @@ test('canonical GitHub credential prefix masks checkout HTTP authorization befor
   }
 });
 
-test('typed inventory boundary ignores ambient repository and index steering without refreshing target index', () => {
+test('typed inventory boundary ignores ambient repository and index steering without refreshing target index', async () => {
   const fixture = repositoryFixture();
   const restorePath = installGitHubObservationShim(fixture);
   const decoy = path.join(fixture.root, 'decoy');
@@ -615,12 +702,12 @@ test('typed inventory boundary ignores ambient repository and index steering wit
     process.env[name] = value;
   }
   try {
-    const inventory = collectBranchLifecycleInventory({
+    const inventory = await withGitHubObservationSession(fixture, [], async () => await collectBranchLifecycleInventory({
       repositoryRoot: fixture.repository,
       repositoryFullName: 'sec-platform/sec',
       defaultBranch: 'main',
       activeWorkPackageObservation: activeWorkObservation(fixture)
-    });
+    }));
     expect(inventory.localBranches.find(({ branch }) => branch === fixture.branch)?.sha)
       .toBe(fixture.headSha);
     expect(inventory.remoteBranches.find(({ branch }) => branch === fixture.branch)?.sha)
@@ -649,11 +736,11 @@ test('missing documentation-owner observation is typed unresolved and blocks bef
   const restorePath = installGitHubObservationShim(fixture);
   const recoveryRoot = path.join(fixture.root, 'recovery');
   try {
-    const inventory = collectBranchLifecycleInventory({
+    const inventory = await withGitHubObservationSession(fixture, [], async () => await collectBranchLifecycleInventory({
       repositoryRoot: fixture.repository,
       repositoryFullName: 'sec-platform/sec',
       defaultBranch: 'main'
-    });
+    }));
     expect(inventory.activeWorkPackage).toEqual({
       state: 'unresolved',
       branch: null,
@@ -662,13 +749,13 @@ test('missing documentation-owner observation is typed unresolved and blocks bef
     });
     expect(inventory.unknowns).toContain('active-work-owner-observation-unavailable');
     const issued = activeWorkObservation(fixture);
-    expect(() => collectBranchLifecycleInventory({
+    await expect(withGitHubObservationSession(fixture, [], async () => await collectBranchLifecycleInventory({
       repositoryRoot: fixture.repository,
       repositoryFullName: 'sec-platform/sec',
       defaultBranch: 'main',
       activeWorkPackageObservation: { ...issued } as ActiveWorkPackageOwnerObservation
-    })).toThrow('active-work-owner-observation-not-issued');
-    await expect(prepareBranchCloseout({
+    }))).rejects.toThrow('active-work-owner-observation-not-issued');
+    await expect(withGitHubObservationSession(fixture, [], async () => await prepareBranchCloseout({
       repositoryRoot: fixture.repository,
       repositoryFullName: 'sec-platform/sec',
       defaultBranch: 'main',
@@ -676,10 +763,10 @@ test('missing documentation-owner observation is typed unresolved and blocks bef
     }, {
       branch: fixture.branch,
       expectedHeadSha: fixture.headSha
-    })).rejects.toThrow('active-work-owner-observation-unavailable');
+    }))).rejects.toThrow('active-work-owner-observation-unavailable');
     expect(existsSync(recoveryRoot)).toBe(false);
 
-    const authorized = await prepareBranchCloseout({
+    const authorized = await withGitHubObservationSession(fixture, [], async () => await prepareBranchCloseout({
       repositoryRoot: fixture.repository,
       repositoryFullName: 'sec-platform/sec',
       defaultBranch: 'main',
@@ -688,7 +775,7 @@ test('missing documentation-owner observation is typed unresolved and blocks bef
     }, {
       branch: fixture.branch,
       expectedHeadSha: fixture.headSha
-    });
+    }));
     const rehydrationRoot = path.join(fixture.root, 'blocked-rehydration');
     await expect(rehydratePreparedBranchCloseoutRecoveryArtifact({
       scope: {

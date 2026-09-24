@@ -2701,7 +2701,7 @@ async function authorizeHostedCloseoutEffectUnderLease(input: Readonly<{
   const preparation = input.prepared.preparation;
   await assertWorkspaceWriteLease(preparation.repository.commonDir, input.coordinatedLease);
   await assertWorkspaceWriteLease(preparation.repository.root, input.lease);
-  const observedCurrent = collectBranchLifecycleInventory(input.ctx);
+  const observedCurrent = await collectBranchLifecycleInventory(input.ctx);
   const recoveryReadback = await verifyRecoveryAuthorityLive({
     inventory: observedCurrent,
     recovery: preparation.recovery
@@ -2763,11 +2763,11 @@ export async function routePreparedWorktreeCleanupAttempt<T>(input: Readonly<{
  * match the provider-authenticated artifact selected for the authorization.
  * The local file is a host observation, never a replacement authority.
  */
-function loadOriginalHostPreparedCloseout(input: Readonly<{
+async function loadOriginalHostPreparedCloseout(input: Readonly<{
   ctx: VerificationSessionScope;
   outputPath: string;
   providerRecovery: LoadedProviderBranchCloseoutRecovery;
-}>): PreparedBranchCloseoutEnvelope {
+}>): Promise<PreparedBranchCloseoutEnvelope> {
   const artifactPath = path.join(path.dirname(path.resolve(input.outputPath)),
     BRANCH_CLOSEOUT_RECOVERY_ARTIFACT_FILE_NAME);
   if (!existsSync(artifactPath)) {
@@ -2786,7 +2786,7 @@ function loadOriginalHostPreparedCloseout(input: Readonly<{
     || prepared.foreignWorktreeObservations.length !== 0) {
     throw new Error('external-maintainer-disposition-required: original local preparation is not exact.');
   }
-  const live = collectBranchLifecycleInventory(input.ctx);
+  const live = await collectBranchLifecycleInventory(input.ctx);
   if (live.repository.root !== prepared.preparation.repository.root
     || live.repository.commonDir !== prepared.preparation.repository.commonDir) {
     throw new Error('external-maintainer-disposition-required: original host repository binding drifted.');
@@ -3098,7 +3098,7 @@ async function finalizeHostedBranchCloseout(input: Readonly<{
   }
 
   await assertWorkspaceWriteLease(preparation.repository.root, input.lease);
-  const after = collectBranchLifecycleInventory(input.ctx);
+  const after = await collectBranchLifecycleInventory(input.ctx);
   await assertWorkspaceWriteLease(preparation.repository.root, input.lease);
   closeoutAttempt(
     attempts,
@@ -4994,7 +4994,7 @@ export async function verificationSessionCli(argv: string[]): Promise<string> {
         session: artifact.session, runId: hostedProvenance.runId,
         runAttempt: hostedProvenance.runAttempt });
       selectedRecovery = recovery;
-      originalHostPrepared = loadOriginalHostPreparedCloseout({ ctx,
+      originalHostPrepared = await loadOriginalHostPreparedCloseout({ ctx,
         outputPath: required(args, '--output'), providerRecovery: recovery });
       const publication = createIntegrationAuthorizationOperationPublication({
         result: frozenPreflight, closeoutPreparation: recovery.remotePrepared,

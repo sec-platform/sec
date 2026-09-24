@@ -205,7 +205,7 @@ async function main(): Promise<void> {
   };
 
   if (args.command === 'audit') {
-    const inventory = collectBranchLifecycleInventory(scope);
+    const inventory = await collectBranchLifecycleInventory(scope);
     const report = auditBranchLifecycle(inventory);
     if (args.json) {
       process.stdout.write(`${JSON.stringify(

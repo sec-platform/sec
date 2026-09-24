@@ -488,7 +488,7 @@ function createProductionClosedUnmergedCloseoutAdapter(input: Readonly<{
           observeProductionClosedUnmergedPullRequest({ capability, pullRequestNumber: input.pullRequestNumber })
         ) })
       ]);
-      return Object.freeze({ status: 'observed', value: collectBranchLifecycleCloseoutTargetInventory({
+      return Object.freeze({ status: 'observed', value: await collectBranchLifecycleCloseoutTargetInventory({
         repositoryRoot,
         repositoryFullName: input.repository,
         activeWorkPackageObservation,

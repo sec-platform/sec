@@ -294,7 +294,7 @@ export async function rehydratePreparedBranchCloseoutRecoveryArtifact(input: {
   if (`sha256:${digest}` !== input.remote.preparation.recovery.sha256) {
     throw new Error('Provider recovery bundle digest differs from the authorized preparation.');
   }
-  const inventory = collectBranchLifecycleInventory(input.scope);
+  const inventory = await collectBranchLifecycleInventory(input.scope);
   assertBranchCloseoutInventoryResolved(inventory);
   const recoveryRoot = ensureRecoveryRoot(inventory, input.scope.recoveryRoot);
   const bundlePath = path.join(recoveryRoot, `sec-branch-closeout-restored-${digest}.bundle`);
@@ -413,7 +413,7 @@ async function prepareBranchCloseoutInternal(
     throw new Error('pullRequestNumber must be a positive safe integer.');
   }
 
-  let before = collectBranchLifecycleInventory(scope);
+  let before = await collectBranchLifecycleInventory(scope);
   if (admission.kind === 'closed-unmerged') {
     const exact = admission.exactPullRequest;
     if (exact.isCrossRepository
