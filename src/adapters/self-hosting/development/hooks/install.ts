@@ -7,7 +7,7 @@ import path from 'node:path';
 import { canonicalJson, sha256 } from '../../../../contracts/canonical.ts';
 import type { BoundSemanticOperation } from '../../../../execution/operation/semantic.ts';
 import { withAuthorityGitReadSession } from '../../../providers/git-read/authority.ts';
-import { isolatedGitReadEnvironment, isProductionGitReadSession, type GitReadProviderResolutionFailure, type GitReadSession, type GitReadSessionResolution } from '../../../providers/git-read/runtime/session.ts';
+import { GIT_READ_DEFAULT_OPERATION_BUDGET, isolatedGitReadEnvironment, isProductionGitReadSession, type GitReadProviderResolutionFailure, type GitReadSession, type GitReadSessionResolution } from '../../../providers/git-read/runtime/session.ts';
 import {
   assertGitConfigEffectReceipt,
   closeGitConfigTargetCapability,
@@ -206,6 +206,32 @@ class GitInvocationBudget {
       throw new GitHookTransitionConflict('Canonical Git provider executable identity is unavailable');
     }
     return path.resolve(session.gitExecutableIdentity.realPath);
+  }
+
+  borrowedReadSessionFor(repoRoot: string): GitReadSession | null {
+    const session = this.bindGitExecutable();
+    return canonicalPath(session.cwd) === canonicalPath(path.resolve(repoRoot)) ? session : null;
+  }
+
+  nestedReadBudget(label: string) {
+    const remaining = this.deadlineAt - Date.now();
+    this.assertWithin(label + ' nested session budget');
+    return Object.freeze({
+      ...GIT_READ_DEFAULT_OPERATION_BUDGET,
+      deadlineMs: Math.min(GIT_READ_DEFAULT_OPERATION_BUDGET.deadlineMs, remaining),
+      maxProcesses: 1,
+      maxStdoutBytes: Math.min(this.maxCommandStdoutBytes, GIT_READ_DEFAULT_OPERATION_BUDGET.maxStdoutBytes),
+      maxStderrBytes: Math.min(this.maxCommandStderrBytes, GIT_READ_DEFAULT_OPERATION_BUDGET.maxStderrBytes),
+      maxRecords: Math.min(this.maxRecords, GIT_READ_DEFAULT_OPERATION_BUDGET.maxRecords),
+      maxCommandStdoutBytes: Math.min(
+        this.maxCommandStdoutBytes,
+        GIT_READ_DEFAULT_OPERATION_BUDGET.maxCommandStdoutBytes
+      ),
+      maxCommandStderrBytes: Math.min(
+        this.maxCommandStderrBytes,
+        GIT_READ_DEFAULT_OPERATION_BUDGET.maxCommandStderrBytes
+      )
+    });
   }
 
   beforeSpawn(kind: GitSpawnKind): void {
@@ -836,6 +862,51 @@ function gitText(
   return stdout.trim();
 }
 
+async function gitReadText(
+  repoRoot: string,
+  args: readonly string[],
+  options: { readonly allowMissing?: boolean } = {}
+): Promise<string | null> {
+  const root = path.resolve(repoRoot);
+  const budget = currentGitInvocationBudget();
+  const operationLabel = 'Git read';
+  budget.assertGitExecutableCurrent(operationLabel, { verifyExecutable: false });
+  budget.beforeProcess(operationLabel);
+  budget.beforeSpawn('git-read');
+  const run = async (session: GitReadSession) => {
+    const command = await session.run(args);
+    if (command.kind !== 'completed') {
+      throw new GitHookTransitionConflict(
+        'Git read provider rejected git ' + (args[0] ?? 'command') + ': ' + command.detail
+      );
+    }
+    const stdout = Buffer.from(command.result.stdout).toString('utf8');
+    const stderr = command.result.stderr;
+    budget.afterProcess(stdout, stderr, operationLabel);
+    const missingStatus = command.result.code === 1
+      || command.result.code === 2
+      || command.result.code === 5
+      || command.result.code === 128;
+    if (options.allowMissing && missingStatus && stdout.trim().length === 0) return null;
+    if (command.result.code !== 0) {
+      const detail = stderr.trim();
+      throw new Error('git ' + (args[0] ?? 'command') + ' failed'
+        + (detail.length > 0 ? ': ' + detail : ''));
+    }
+    return stdout.trim();
+  };
+  const borrowed = budget.borrowedReadSessionFor(root);
+  const result = borrowed === null
+    ? await withAuthorityGitReadSession({
+      cwd: root,
+      source: budget.environment,
+      budget: budget.nestedReadBudget(operationLabel)
+    }, run)
+    : await run(borrowed);
+  budget.assertGitExecutableCurrent(operationLabel + ' completion', { verifyExecutable: false });
+  return result;
+}
+
 function managedCommonRoot(commonGitDir: string): string {
   return path.join(commonGitDir, MANAGED_COMMON_DIRECTORY);
 }
@@ -904,10 +975,10 @@ async function managedHookSnapshots(
     ))
   ) return null;
   const sourceByName = new Map(sourceEntries.map((entry) => [entry.relativePath, entry]));
-  const trackedRecords = gitText(
+  const trackedRecords = (await gitReadText(
     repoRoot,
     ['ls-files', '--stage', '-z', '--', ...MANAGED_HOOKS]
-  )?.split('\0').filter((record) => record.length > 0) ?? [];
+  ))?.split('\0').filter((record) => record.length > 0) ?? [];
   const trackedByPath = new Map<string, string>();
   for (const record of trackedRecords) {
     const match = /^(100755) ([0-9a-f]{40}|[0-9a-f]{64}) 0\t(.+)$/u.exec(record);
@@ -921,11 +992,11 @@ async function managedHookSnapshots(
   if (trackedByPath.size !== MANAGED_HOOKS.length) return null;
   const headByPath = new Map<string, string>();
   if (options.requireHeadTree === true) {
-    const headRecords = gitText(
+    const headRecords = (await gitReadText(
       repoRoot,
       ['ls-tree', '-z', '--full-tree', 'HEAD', '--', ...MANAGED_HOOKS],
       { allowMissing: true }
-    )?.split('\0').filter((record) => record.length > 0) ?? [];
+    ))?.split('\0').filter((record) => record.length > 0) ?? [];
     for (const record of headRecords) {
       const match = /^(100755) blob ([0-9a-f]{40}|[0-9a-f]{64})\t(.+)$/u.exec(record);
       if (
