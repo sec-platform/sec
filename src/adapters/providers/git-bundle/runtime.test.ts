@@ -7,6 +7,7 @@ import {
   assertGitCandidateBundleReceipt,
   closeGitCandidateBundle,
   createGitCandidateBundle,
+  inspectGitBundleBytes,
   type GitCandidateBundle
 } from './runtime.ts';
 
@@ -60,6 +61,36 @@ afterEach(() => {
 });
 
 describe('Git candidate bundle effect', () => {
+  test('inspects caller-supplied bundle bytes through the bounded Git provider', async () => {
+    const repository = repositoryFixture();
+    const outputRoot = temporaryRoot('inspect-source');
+    const bundle = await createGitCandidateBundle({
+      sourceRoot: repository.root,
+      temporaryRoot: outputRoot,
+      baseSha: repository.baseSha,
+      headSha: repository.headSha
+    });
+    try {
+      const bytes = readFileSync(bundle.bundlePath);
+      const inspection = await inspectGitBundleBytes({ repositoryRoot: repository.root, bytes });
+      expect(inspection.bundleDigest).toBe(bundle.bundleDigest);
+      expect(inspection.heads).toEqual([
+        { objectId: repository.baseSha, reference: 'refs/sec/base' },
+        { objectId: repository.headSha, reference: 'refs/sec/head' }
+      ]);
+    } finally {
+      assertGitCandidateBundleReceipt(closeGitCandidateBundle(bundle), bundle);
+    }
+  });
+
+  test('rejects malformed bundle bytes without accepting synthetic heads', async () => {
+    const repository = repositoryFixture();
+    await expect(inspectGitBundleBytes({
+      repositoryRoot: repository.root,
+      bytes: new TextEncoder().encode('not-a-git-bundle\n')
+    })).rejects.toThrow();
+  });
+
   test('publishes one verified retained bundle for the exact base and head', async () => {
     const repository = repositoryFixture();
     const outputRoot = temporaryRoot('output');

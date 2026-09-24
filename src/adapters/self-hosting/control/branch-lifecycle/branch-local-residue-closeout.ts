@@ -6,13 +6,13 @@ import path from 'node:path';
 import { issueOperationRequirementBindingContext } from '../../../../execution/operation/requirement-binding-context.ts';
 import { bindSecSemanticOperation, compileCapabilityBinding, compileSemanticOperationPlan, issueSemanticOperationAttemptContext, type OperationDigest } from '../../../../execution/operation/semantic.ts';
 import { assertWorkspaceWriteLease, withWorkspaceWriteLease, type WorkspaceWriteLeaseToken } from '../../../filesystem/write-lease.ts';
+import { inspectGitBundleBytes } from '../../../providers/git-bundle/runtime.ts';
 import { withAuthorityGitReadSession } from '../../../providers/git-read/authority.ts';
 import { executeGitHubApiOperation, withGitHubApiReadSession } from '../../../providers/github-api/operation-session.ts';
 import { assertGitPhysicalProviderReceipt, closeGitPhysicalProvider, openGitPhysicalProvider } from '../../../providers/git/physical-provider.ts';
 import { assertGitLocalRefDeleteBatchReceipt, deleteExactLocalGitRefs, MAXIMUM_LOCAL_REF_DELETE_INPUT_BYTES, MAXIMUM_LOCAL_REF_DELETE_OUTPUT_BYTES, measureExactLocalGitRefDeleteBatchInputBytes, measureExactLocalGitRefDeleteBatchOutputBytes } from '../../../providers/git/ref-effect.ts';
 import { inspectNoFollowDirectoryChain, type PhysicalDirectoryChain } from '../../../runtime-state/physical/runtime/physical-no-follow.ts';
 import { assertProcessResourceSessionReceipt, openProcessResourceSession } from '../../../runtime-state/physical/runtime/process-resource-session.ts';
-import { runCommandBytes } from '../../../runtime-state/physical/runtime/process.ts';
 import { GIT_READ_OPERATION_BUDGET, parseNulUtf8 } from '../../development/tooling/git/git-read.ts';
 import {
   parseBranchCloseoutOperationJournal,
@@ -48,7 +48,6 @@ const RECEIPT_SCHEMA = 'sec-local-branch-residue-closeout-receipt-v1' as const;
 const RETAINED_AUTHORIZATION_SCHEMA = 'sec-local-branch-residue-closeout-authorization-v2' as const;
 const RETAINED_RECEIPT_SCHEMA = 'sec-local-branch-residue-closeout-receipt-v2' as const;
 const COMMAND_TIMEOUT_MS = 60_000;
-const COMMAND_MAX_BUFFER = 32 * 1024 * 1024;
 const MERGED_PULL_REQUEST_LIMIT = 1_000;
 const REF_EFFECT_REQUIREMENT = 'branch-lifecycle.merged-local.ref-delete';
 const REF_EFFECT_CONTRACT = branchLifecycleDigest({ owner: 'control.branch-lifecycle', operation: 'merged-local-ref-delete', effect: 'exact-batch-native-git-ref-cas' }) as OperationDigest;
@@ -254,29 +253,31 @@ async function defaultRunner(
   if (args.some((argument) => argument.includes('\0'))) {
     throw new Error('Local branch residue closeout argument contains NUL.');
   }
-  const result = await runCommandBytes(command, [...args], {
+  if (command !== 'git') {
+    throw new Error('Production local branch residue transport only admits Git observations.');
+  }
+  return withAuthorityGitReadSession({
     cwd,
-    timeoutMs: COMMAND_TIMEOUT_MS,
-    maxStdoutBytes: COMMAND_MAX_BUFFER,
-    maxStderrBytes: COMMAND_MAX_BUFFER,
-    ...(input === undefined ? {} : {
-      input: Buffer.from(input, 'utf8'),
-      maxStdinBytes: Buffer.byteLength(input, 'utf8')
-    }),
-    envMode: 'replace',
-    env: {
-      ...(environment ?? (command === 'git'
-        ? createBranchLifecycleGitChildEnvironment(process.env)
-        : process.env)),
-      GH_PROMPT_DISABLED: '1',
-      GIT_TERMINAL_PROMPT: '0'
+    budget: GIT_READ_OPERATION_BUDGET,
+    environment: environment ?? createBranchLifecycleGitChildEnvironment(process.env),
+    deadlineAtUnixMs: Date.now() + COMMAND_TIMEOUT_MS
+  }, async (session) => {
+    const observed = await session.run(args, input === undefined
+      ? undefined
+      : { input: Buffer.from(input, 'utf8') });
+    if (observed.kind !== 'completed') {
+      return Object.freeze({
+        status: null,
+        stdout: Buffer.alloc(0),
+        stderr: Buffer.from(observed.detail, 'utf8')
+      });
     }
+    return Object.freeze({
+      status: observed.result.code,
+      stdout: Buffer.from(observed.result.stdout),
+      stderr: Buffer.from(observed.result.stderr, 'utf8')
+    });
   });
-  return {
-    status: result.code,
-    stdout: Buffer.from(result.stdout),
-    stderr: Buffer.from(result.stderr, 'utf8')
-  };
 }
 
 async function requireText(
@@ -577,6 +578,13 @@ async function verifyBundleBytes(
   bytes: Uint8Array,
   label: string
 ): Promise<void> {
+  if (run === defaultRunner) {
+    const inspection = await inspectGitBundleBytes({ repositoryRoot, bytes });
+    if (!inspection.heads.some((head) => head.objectId === entry.headSha)) {
+      throw new Error(`${label} does not contain ${entry.branch}@${entry.headSha}.`);
+    }
+    return;
+  }
   const temporaryRoot = mkdtempSync(path.join(tmpdir(), 'sec-local-branch-residue-verify-'));
   const temporaryBundle = path.join(temporaryRoot, 'recovery.bundle');
   try {
