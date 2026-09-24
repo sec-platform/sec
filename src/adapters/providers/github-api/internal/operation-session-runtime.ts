@@ -6,7 +6,12 @@ import { isNativeAborted, linkNativeAbortSignals } from '../../../../contracts/n
 import { ResourceCompositeSettlementError } from '../../../../execution/resource-settlement.ts';
 import { withOwnedByteStreamReader } from '../../../../execution/stream-reader.ts';
 
-import { GITHUB_API_BASE_URL, GITHUB_HOST } from '../contract.ts';
+import {
+  GITHUB_API_BASE_URL,
+  GITHUB_HOST,
+  GITHUB_ISSUE_TERMINAL_EVENTS_QUERY,
+  GITHUB_PULL_REQUEST_CLOSING_QUERY
+} from '../contract.ts';
 import { GitHubCredentialUnavailableError, readGitHubToken } from '../credential.ts';
 
 export type GitHubApiEffect =
@@ -100,6 +105,12 @@ export type GitHubApiOperation =
   | Readonly<{ kind: 'issue'; issueNumber: number }>
   | Readonly<{ kind: 'issue-comments'; issueNumber: number; page: number }>
   | Readonly<{ kind: 'issue-comment'; commentId: number }>
+  | Readonly<{
+      kind: 'issue-closing-pull-references';
+      pullRequestNumber: number;
+      cursor: string | null;
+    }>
+  | Readonly<{ kind: 'issue-terminal-events'; issueNumber: number }>
   | Readonly<{ kind: 'create-issue-comment'; issueNumber: number; body: string }>
   | Readonly<{ kind: 'open-pulls'; baseBranch: string }>
   | Readonly<{ kind: 'matching-head-refs'; page: number }>
@@ -284,6 +295,29 @@ function compileOperation(
       return read(`/repos/${repo}/issues/${positiveInteger(operation.issueNumber, 'issue number')}/comments?per_page=100&page=${page(operation.page)}`);
     case 'issue-comment':
       return read(`/repos/${repo}/issues/comments/${positiveInteger(operation.commentId, 'issue comment id')}`);
+    case 'issue-closing-pull-references': {
+      const parts = repositoryParts(repo);
+      return read('/graphql', Object.freeze({
+        query: GITHUB_PULL_REQUEST_CLOSING_QUERY,
+        variables: Object.freeze({
+          ...parts,
+          number: positiveInteger(operation.pullRequestNumber, 'pull request number'),
+          cursor: operation.cursor === null
+            ? null
+            : boundedText(operation.cursor, 'GraphQL cursor', 1024)
+        })
+      }));
+    }
+    case 'issue-terminal-events': {
+      const parts = repositoryParts(repo);
+      return read('/graphql', Object.freeze({
+        query: GITHUB_ISSUE_TERMINAL_EVENTS_QUERY,
+        variables: Object.freeze({
+          ...parts,
+          number: positiveInteger(operation.issueNumber, 'issue number')
+        })
+      }));
+    }
     case 'create-issue-comment':
       if (effect !== 'branch-closeout-write') {
         throw new GitHubApiProviderError(
@@ -580,6 +614,27 @@ async function executeWithToken<T>(
   operation: GitHubApiOperation,
   exactRepositoryNodeId?: string
 ): Promise<T> {
+  return (await executeWithTokenObserved<T>(
+    session,
+    token,
+    transport,
+    operation,
+    exactRepositoryNodeId
+  )).value;
+}
+
+type ObservedGitHubApiOperation<T> = Readonly<{
+  value: T;
+  source: string | null;
+}>;
+
+async function executeWithTokenObserved<T>(
+  session: GitHubApiRequestSession,
+  token: string,
+  transport: GitHubApiTransport,
+  operation: GitHubApiOperation,
+  exactRepositoryNodeId?: string
+): Promise<ObservedGitHubApiOperation<T>> {
   const compiled = compileOperation(
     session.repository,
     session.effect,
@@ -604,7 +659,7 @@ async function executeWithToken<T>(
   };
   // This promise owns the real transport and response, not just observation of
   // them. A deadline may reject its observer but must not debit inFlight early.
-  const request = (async (): Promise<T> => {
+  const request = (async (): Promise<ObservedGitHubApiOperation<T>> => {
     try {
       const response = await transport(canonicalTarget(compiled.path), {
         method: compiled.method,
@@ -622,7 +677,9 @@ async function executeWithToken<T>(
       if (response.body === null) {
         remaining(session);
         if (response.status === 204 && response.ok && compiled.method === 'DELETE'
-            && compiled.kind === 'delete-repository-runner') return null as T;
+            && compiled.kind === 'delete-repository-runner') {
+          return Object.freeze({ value: null as T, source: null });
+        }
         if (response.status === 204) throw new GitHubApiProviderError(
           `GitHub API ${compiled.kind} returned an invalid 204 response`, response.status
         );
@@ -653,7 +710,9 @@ async function executeWithToken<T>(
           if (!response.ok) throw new GitHubApiProviderError(
             `GitHub API ${compiled.kind} failed with HTTP ${response.status}: ${source.slice(-2048)}`, response.status
           );
-          try { return JSON.parse(source) as T; }
+          try {
+            return Object.freeze({ value: JSON.parse(source) as T, source });
+          }
           catch (error) { throw new GitHubApiProviderError(
             `GitHub API ${compiled.kind} returned invalid JSON: ${error instanceof Error ? error.message : String(error)}`, response.status
           ); }
@@ -761,6 +820,44 @@ export async function executeGitHubApiOperation(
     );
   }
   return mutation;
+}
+
+/**
+ * Execute one admitted JSON operation while preserving the exact bounded
+ * UTF-8 response text for evidence consumers. Credentials, transport and
+ * resource settlement remain owned by the same active GitHub API session.
+ */
+export async function executeObservedGitHubApiOperation(
+  capability: GitHubApiCapability,
+  operation: GitHubApiOperation
+): Promise<Readonly<{ value: unknown; source: string }>> {
+  const value = binding(capability);
+  const session = requestSession.getStore();
+  if (session === undefined || session.capability !== capability
+      || session.repository !== value.repository || session.effect !== value.effect
+      || session.origin !== value.origin) {
+    throw new GitHubApiProviderError(
+      'GitHub API observed request requires the active exact operation session'
+    );
+  }
+  if (operation.kind === 'delete-ref-cas'
+      || operation.kind === 'delete-repository-runner') {
+    throw new GitHubApiProviderError(
+      'GitHub API observed request is only available for JSON response operations'
+    );
+  }
+  const capturedOperation = Object.create(operation) as GitHubApiOperation;
+  Object.defineProperty(capturedOperation, 'kind', { value: operation.kind });
+  const observed = await executeWithTokenObserved<unknown>(
+    session,
+    value.token,
+    value.transport,
+    capturedOperation
+  );
+  if (observed.source === null) {
+    throw new GitHubApiProviderError('GitHub API observed request returned no JSON source');
+  }
+  return Object.freeze({ value: observed.value, source: observed.source });
 }
 
 export function currentGitHubApiCapability(

@@ -1495,18 +1495,20 @@ function issueDispositionCommitMarkerState(message: string): 'complete' | 'absen
  * effect.  This remains read-only: a non-no-op result is deliberately a
  * maintainer boundary, never an optimistic closeout permit.
  */
-export function observePostMergeIssueReconciliation(input: Readonly<{
+export async function observePostMergeIssueReconciliation(input: Readonly<{
+  repositoryRoot: string;
   repository: string;
   prNumber: number;
   candidate: GitHubCandidateObservation;
-}>): Readonly<Record<string, unknown>> {
+}>): Promise<Readonly<Record<string, unknown>>> {
   const { candidate } = input;
   if (candidate.state !== 'MERGED' || candidate.mergeCommitSha === null
     || candidate.mergeCommitMessage === null
     || issueDispositionCommitMarkerState(candidate.mergeCommitMessage) === 'absent') {
     return Object.freeze({ status: 'no-disposition-markers', results: Object.freeze([]) });
   }
-  const results = observeUnexpectedGitHubIssueClosures({ repository: input.repository,
+  const results = await observeUnexpectedGitHubIssueClosures({ repositoryRoot: input.repositoryRoot,
+    repository: input.repository,
     prNumber: input.prNumber, mergeCommitSha: candidate.mergeCommitSha });
   const nonNoOp = results.filter(({ status }) => status !== 'no-op');
   return Object.freeze({
@@ -2142,12 +2144,13 @@ type HostedTrackingIssueDispositionObservation =
   | Readonly<{ status: 'no-tracking-issue'; planDigest: `sha256:${string}` }>
   | Readonly<{ status: 'progressed'; receipt: IssueDisposition }>;
 
-function observeHostedTrackingIssueDisposition(input: Readonly<{
+async function observeHostedTrackingIssueDisposition(input: Readonly<{
   github: VerificationSessionGitHubClient;
+  repositoryRoot: string;
   repository: string;
   closeout: Awaited<ReturnType<typeof loadMergedHostedCloseoutContext>>;
   observedAt: string;
-}>): HostedTrackingIssueDispositionObservation {
+}>): Promise<HostedTrackingIssueDispositionObservation> {
   const { closeout, github, repository } = input;
   const artifact = closeout.hosted.artifact;
   const session = artifact.session;
@@ -2195,7 +2198,7 @@ function observeHostedTrackingIssueDisposition(input: Readonly<{
   if (trackingIssueNumber === null) {
     return Object.freeze({ status: 'no-tracking-issue', planDigest: plan.planDigest });
   }
-  const issue = observeGitHubIssue(repository, trackingIssueNumber);
+  const issue = await observeGitHubIssue(input.repositoryRoot, repository, trackingIssueNumber);
   const acceptanceIds = manifest.acceptance.map((text, index) =>
     createIssueAcceptanceId({ manifestDigest: session.manifestDigest, index, text }));
   const reviewReceipt = closeout.selected.publication.result.reviewReceipt;
@@ -5079,7 +5082,7 @@ export async function verificationSessionCli(argv: string[]): Promise<string> {
       throw new Error('external-maintainer-action-required: unexpected GitHub Issue closure blocks MainHealth and branch closeout.');
     };
     if (candidate.state === 'MERGED') {
-      issueReconciliation = observePostMergeIssueReconciliation({ repository,
+      issueReconciliation = await observePostMergeIssueReconciliation({ repositoryRoot, repository,
         prNumber: artifact.session.prNumber, candidate });
       if (issueReconciliation.status === 'manual-action-required' || issueReconciliation.status === 'blocked') {
         stopCloseoutForIssueReconciliation(candidate);
@@ -5169,7 +5172,7 @@ export async function verificationSessionCli(argv: string[]): Promise<string> {
         throw new Error('AMBIGUOUS_SIDE_EFFECT: synchronous hosted merge attempt requires recovery; '
           + `provider=${providerReason}; exact-readback=${readbackReason}`);
       }
-      issueReconciliation = observePostMergeIssueReconciliation({ repository,
+      issueReconciliation = await observePostMergeIssueReconciliation({ repositoryRoot, repository,
         prNumber: artifact.session.prNumber, candidate: merged });
       if (issueReconciliation.status !== 'no-op') {
         stopCloseoutForIssueReconciliation(merged);
@@ -5210,7 +5213,7 @@ export async function verificationSessionCli(argv: string[]): Promise<string> {
     }
     const mergedProjectionCandidate = github.observeCandidate(repository, artifact.session.prNumber);
     if (issueReconciliation.status === 'not-observed') {
-      issueReconciliation = observePostMergeIssueReconciliation({ repository,
+      issueReconciliation = await observePostMergeIssueReconciliation({ repositoryRoot, repository,
         prNumber: artifact.session.prNumber, candidate: mergedProjectionCandidate });
       if (issueReconciliation.status === 'manual-action-required' || issueReconciliation.status === 'blocked') {
         stopCloseoutForIssueReconciliation(mergedProjectionCandidate);
@@ -5250,8 +5253,8 @@ export async function verificationSessionCli(argv: string[]): Promise<string> {
     let worktreeCleanupTokens: readonly WorktreePhysicalCloseoutConsumptionToken[] = [];
     const foreignWorktreeObservationDigests = closeout.recovery.prepared.foreignWorktreeObservations
       .map(({ observationDigest }) => observationDigest);
-    const issueDisposition = observeHostedTrackingIssueDisposition({
-      github, repository, closeout, observedAt: now()
+    const issueDisposition = await observeHostedTrackingIssueDisposition({
+      github, repositoryRoot, repository, closeout, observedAt: now()
     });
     const existing = await observeBranchCloseoutOperationPublication(ctx.repositoryRoot, { repository,
       pullRequestNumber: session.prNumber, closeoutOperationId: closeout.binding.closeoutOperationId });

@@ -6,13 +6,18 @@ import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
-import type { GitHubCheckObservation, GitHubWorkflowJobObservation, GitHubWorkflowJobStepObservation, GitHubWorkflowRunObservation } from '../../../../providers/github-api/contract.ts';
+import {
+  GITHUB_PULL_REQUEST_CLOSING_QUERY,
+  type GitHubCheckObservation,
+  type GitHubWorkflowJobObservation,
+  type GitHubWorkflowJobStepObservation,
+  type GitHubWorkflowRunObservation
+} from '../../../../providers/github-api/contract.ts';
 import {
   decodeBranchLifecycleChildError,
   decodeBranchLifecycleChildStdout
 } from '../../../../self-hosting/control/branch-lifecycle/branch-lifecycle-command.ts';
 import {
-  GITHUB_PULL_REQUEST_CLOSING_QUERY,
   parseGitHubPullRequestClosingFactsPage,
   type GitHubIssueReference,
   type GitHubPullRequestClosingFacts

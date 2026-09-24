@@ -13,6 +13,7 @@ export {
   assertGitHubApiReadOperationBudgetCurrent,
   currentGitHubApiCapability,
   executeGitHubApiOperation,
+  executeObservedGitHubApiOperation,
   inspectGitHubApiCapability, withGitHubApiBranchCloseoutWriteSession, withGitHubApiMergeWriteSession, withGitHubApiReadOperationBudget,
   withGitHubApiReadSession,
   withGitHubApiRunnerAdminSession,

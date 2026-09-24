@@ -439,7 +439,8 @@ async function finalizeMergedTrustedRuntime(input: Readonly<{
     expectedTitle: title,
     providerMergeCommitSha: input.providerMergeCommitSha
   });
-  const issueReconciliation = observePostMergeIssueReconciliation({
+  const issueReconciliation = await observePostMergeIssueReconciliation({
+    repositoryRoot: input.repositoryRoot,
     repository: input.repository,
     prNumber: input.prNumber,
     candidate

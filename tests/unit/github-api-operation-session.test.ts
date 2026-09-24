@@ -2,6 +2,7 @@ import { expect, test } from 'bun:test';
 
 import {
   executeGitHubApiOperation,
+  executeObservedGitHubApiOperation,
   inspectGitHubApiCapability,
   type GitHubApiCapability,
   type GitHubApiPrincipal
@@ -80,6 +81,56 @@ test('owner-issued operation compiles one fixed api.github.com request and keeps
   });
   expect(observations[0]!.init?.signal).toBeInstanceOf(AbortSignal);
   expect(settlement.operationSignal?.aborted).toBe(true);
+});
+
+test('observed operation preserves the exact bounded JSON response text without a second transport', async () => {
+  const raw = '{"full_name":"sec-platform/sec","default_branch":"main"} \n';
+  let transportCalls = 0;
+  const api = capability({
+    effect: 'read',
+    transport: async () => {
+      transportCalls += 1;
+      return new Response(raw, { status: 200, headers: { 'Content-Type': 'application/json' } });
+    }
+  });
+  const observed = await withGitHubApiTestSession({
+    capability: api,
+    operation: async () => await executeObservedGitHubApiOperation(api, { kind: 'repository' })
+  });
+  expect(observed.source).toBe(raw);
+  expect(observed.value).toMatchObject({ full_name: 'sec-platform/sec', default_branch: 'main' });
+  expect(transportCalls).toBe(1);
+});
+
+test('IssueDisposition GraphQL reads compile only the fixed provider-owned queries', async () => {
+  const requests: Array<Readonly<{ path: string; body: unknown }>> = [];
+  const api = capability({
+    effect: 'read',
+    transport: async (target, init) => {
+      requests.push(Object.freeze({
+        path: new URL(String(target)).pathname,
+        body: init?.body === undefined ? null : JSON.parse(String(init.body))
+      }));
+      return Response.json({ data: { repository: {} } });
+    }
+  });
+  await withGitHubApiTestSession({
+    capability: api,
+    operation: async () => {
+      await executeGitHubApiOperation(api, {
+        kind: 'issue-closing-pull-references', pullRequestNumber: 628, cursor: 'cursor-1'
+      });
+      await executeGitHubApiOperation(api, { kind: 'issue-terminal-events', issueNumber: 352 });
+    }
+  });
+  expect(requests).toHaveLength(2);
+  expect(requests.map(({ path }) => path)).toEqual(['/graphql', '/graphql']);
+  expect(requests[0]!.body).toMatchObject({
+    variables: { owner: 'sec-platform', name: 'sec', number: 628, cursor: 'cursor-1' }
+  });
+  expect(requests[1]!.body).toMatchObject({
+    variables: { owner: 'sec-platform', name: 'sec', number: 352 }
+  });
 });
 
 test('credential enrollment binds the live numeric principal and repository permission', async () => {
