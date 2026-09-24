@@ -204,18 +204,22 @@ def baseline(root: Path) -> dict:
     return value
 
 
+def _source_root_index(roots):
+    """Admit component-disjoint roots using their native pathlib comparison rules."""
+    root_set = set(roots)
+    ancestors = {parent for source in roots for parent in source.parents}
+    if len(root_set) != len(roots) or not root_set.isdisjoint(ancestors):
+        raise ValueError('documentation source roots overlap')
+    return root_set, ancestors
+
+
 def source_files(root: Path) -> tuple[Path, ...]:
     """All authoritative inputs, including the boundary itself; never cached output."""
     root = _root(root)
     declaration = baseline(root)
     names = declaration['source_roots']
     roots = [local_path(root, name) for name in names]
-    # Component ordering keeps a parent next to its first descendant even when
-    # another root shares only a textual prefix, e.g. docs-other versus docs/x.
-    ordered_roots = sorted(roots, key=lambda entry: entry.parts)
-    for first, second in zip(ordered_roots, ordered_roots[1:]):
-        if first == second or first in second.parents:
-            raise ValueError('documentation source roots overlap')
+    root_set, source_ancestors = _source_root_index(roots)
     files = []
     pending = list(roots)
     collisions = {}
@@ -252,8 +256,7 @@ def source_files(root: Path) -> tuple[Path, ...]:
     # Index declared boundaries once. Membership follows pathlib's component
     # and platform case rules; textual prefixes do not establish ancestry.
     # Queries now visit a path's parents, not every unrelated declared root.
-    namespace_set, exemption_set, root_set = set(namespaces), set(exemptions), set(roots)
-    source_ancestors = {parent for source in roots for parent in source.parents}
+    namespace_set, exemption_set = set(namespaces), set(exemptions)
     for exemption in exemptions:
         if not any(parent in namespace_set for parent in exemption.parents):
             raise ValueError('non-documentation root must be inside an audited namespace')

@@ -1,11 +1,12 @@
 """Standard-library boundary checks for the canonical documentation gate."""
-from pathlib import Path
+from pathlib import Path, PurePosixPath, PureWindowsPath
 import hashlib
 import json
 import tempfile
 import unittest
 from test_check_documentation_identity import declaration
 from source_inventory import (
+    _source_root_index,
     load,
     local_path,
     refresh_source_manifest,
@@ -50,6 +51,37 @@ class SourceBoundary(unittest.TestCase):
                 self.declare(roots)
                 with self.assertRaises(ValueError):
                     source_files(self.root)
+
+    def test_root_overlap_respects_both_path_flavors_without_sort_adjacency(self):
+        # Validate the actual pure admission algorithm, not a filename or helper
+        # presence. Native filesystem capture is covered separately. relative_to
+        # gives this oracle the path flavor's independent component semantics.
+        choices = ('docs', 'Docs', 'docs/child', 'Docs/child', 'docs-other',
+                   'docs-other/child', 'src', 'SRC/file')
+        for flavor, base in ((PurePosixPath, '/repo'), (PureWindowsPath, 'C:/repo')):
+            for left in choices:
+                for right in choices:
+                    roots = [flavor(base, left), flavor(base, right)]
+                    overlap = False
+                    for child, parent in ((roots[0], roots[1]), (roots[1], roots[0])):
+                        try:
+                            child.relative_to(parent)
+                        except ValueError:
+                            pass
+                        else:
+                            overlap = True
+                    with self.subTest(flavor=flavor.__name__, left=left, right=right):
+                        if overlap:
+                            with self.assertRaisesRegex(ValueError, 'source roots overlap'):
+                                _source_root_index(roots)
+                        else:
+                            admitted, ancestors = _source_root_index(roots)
+                            self.assertEqual(admitted, set(roots))
+                            for source in roots:
+                                parent = source.parent
+                                while parent != source:
+                                    self.assertIn(parent, ancestors)
+                                    source, parent = parent, parent.parent
 
     def test_unsafe_root_and_member_names_reject(self):
         for name in ('../outside', '/absolute', 'docs//bad', 'C:/outside', 'docs\\bad', ''):
