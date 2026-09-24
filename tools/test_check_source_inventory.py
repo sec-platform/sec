@@ -82,6 +82,61 @@ class SourceBoundary(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'inside an audited namespace'):
             self.names()
 
+    def test_component_boundary_matrix_preserves_members_and_rejection_causes(self):
+        # This oracle uses explicit component prefixes and authored file names,
+        # not the production traversal, pathlib parent sets, or a prior capture.
+        (self.root / 'docs/kept').mkdir()
+        (self.root / 'docs/规则.md').rename(self.root / 'docs/kept/source.md')
+        (self.root / 'docs/cache/nested').mkdir(parents=True)
+        (self.root / 'docs/cache/nested/output.bin').write_bytes(b'projection')
+        (self.root / 'docs-other').mkdir()
+        (self.root / 'docs-other/source.md').write_bytes(b'independent source')
+        authored = {'.documentation/baseline.json', 'docs/kept/source.md',
+                    'docs/cache/nested/output.bin', 'docs-other/source.md'}
+
+        def covers(parent, child, strict=False):
+            a, b = parent.split('/'), child.split('/')
+            return b[:len(a)] == a and (not strict or len(b) > len(a))
+
+        sources = ('docs', 'docs/kept', 'docs/kept/source.md', 'docs/cache/nested')
+        namespaces = (('docs',), ('docs', 'docs/cache'),
+                      ('docs/kept', 'docs/cache'), ('docs', 'docs-other'))
+        exemptions = ((), ('docs/cache',), ('docs/cache/nested',),
+                      ('docs/cache/nested/output.bin',), ('docs',), ('docs/kept',),
+                      ('docs/kept/source.md',), ('docs-other',), ('docs/cach',),
+                      ('docs/missing',), ('docs/cache', 'docs/cache/nested'),
+                      ('docs/cache', 'docs/missing'))
+        for source in sources:
+            roots = ['.documentation', source, 'docs-other/source.md']
+            expected_members = {name for name in authored
+                                if any(covers(parent, name) for parent in roots)}
+            for audited in namespaces:
+                for exempted in exemptions:
+                    problem = None
+                    for exempt in exempted:
+                        if not any(covers(ns, exempt, strict=True) for ns in audited):
+                            problem = 'non-documentation root must be inside an audited namespace'
+                            break
+                        if any(covers(src, exempt) or covers(exempt, src) for src in roots):
+                            problem = 'non-documentation root overlaps a documentation source root'
+                            break
+                    if problem is None and any(
+                        any(covers(ns, name) for ns in audited)
+                        and not any(covers(exempt, name) for exempt in exempted)
+                        and name not in expected_members for name in authored
+                    ):
+                        problem = 'unexpected file in documentation namespace'
+                    value = {**declaration(roots), 'audited_namespaces': list(audited),
+                             'non_documentation_roots': list(exempted)}
+                    (self.root / '.documentation/baseline.json').write_text(
+                        json.dumps(value), encoding='utf-8')
+                    with self.subTest(source=source, audited=audited, exempted=exempted):
+                        if problem is None:
+                            self.assertEqual(self.names(), expected_members)
+                        else:
+                            with self.assertRaisesRegex(ValueError, problem):
+                                self.names()
+
     def test_symlink_to_external_content_rejects(self):
         outside = self.root / 'outside.txt'
         outside.write_text('private')

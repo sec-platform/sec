@@ -249,11 +249,16 @@ def source_files(root: Path) -> tuple[Path, ...]:
             raise ValueError('documentation member budget exceeded')
     namespaces = [local_path(root, name) for name in declaration['audited_namespaces']]
     exemptions = [local_path(root, name) for name in declaration['non_documentation_roots']]
+    # Index declared boundaries once. Membership follows pathlib's component
+    # and platform case rules; textual prefixes do not establish ancestry.
+    # Queries now visit a path's parents, not every unrelated declared root.
+    namespace_set, exemption_set, root_set = set(namespaces), set(exemptions), set(roots)
+    source_ancestors = {parent for source in roots for parent in source.parents}
     for exemption in exemptions:
-        if not any(namespace in exemption.parents for namespace in namespaces):
+        if not any(parent in namespace_set for parent in exemption.parents):
             raise ValueError('non-documentation root must be inside an audited namespace')
-        if any(exemption == source or exemption in source.parents or source in exemption.parents
-               for source in roots):
+        if (exemption in root_set or exemption in source_ancestors
+                or any(parent in root_set for parent in exemption.parents)):
             raise ValueError('non-documentation root overlaps a documentation source root')
     members = set(files)
     if root / BASELINE_PATH not in members:
@@ -267,7 +272,7 @@ def source_files(root: Path) -> tuple[Path, ...]:
         name = entry.relative_to(root).as_posix()
         if name in EXCLUDED_FROM_SOURCE_HASH:
             continue
-        if any(entry == exemption or exemption in entry.parents for exemption in exemptions):
+        if entry in exemption_set or any(parent in exemption_set for parent in entry.parents):
             continue
         entry = local_path(root, name)
         metadata = entry.lstat()  # Missing audited namespaces fail instead of silently disappearing.
