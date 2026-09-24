@@ -75,6 +75,7 @@ export interface ObservedByteCommandResult {
 export interface RunCommandOptions {
   admitProgress?: (chunk: Buffer, stream: 'stdout' | 'stderr') => boolean;
   beforeSpawn?: CommitFence;
+  whileRunning?: CommitFence;
   cwd: string;
   env?: NodeJS.ProcessEnv;
   envMode?: 'inherit' | 'replace';
@@ -842,7 +843,11 @@ async function runRetainedCommandCaptureV1(
       terminationGraceMs: options.terminationGraceMs,
       timeoutMs: options.timeoutMs,
       independentProvider: options.independentProvider,
-      whileRunning: async () => assertBoundary()
+      whileRunning: async () => {
+        assertBoundary();
+        await options.whileRunning?.();
+        assertBoundary();
+      }
     });
   } finally {
     if (stallTimer !== undefined) clearTimeout(stallTimer);
