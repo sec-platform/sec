@@ -20,9 +20,10 @@ const SMALL_STDOUT_BYTES = 4 * 1024;
 const STDERR_BYTES = 64 * 1024;
 const OUTPUT_ADMISSION_BYTES = PROCESS_COUNT * (STDERR_BYTES + SMALL_STDOUT_BYTES);
 const LOCAL_PROCESS_COUNT = process.platform === 'win32' ? 7 : 6;
-const LOCAL_REF_STDOUT_BYTES = 128 * 1024;
+const LOCAL_REF_MINIMUM_STDOUT_BYTES = 128 * 1024;
+const LOCAL_REF_MAXIMUM_STDOUT_BYTES = 1024 * 1024;
 const LOCAL_WORKTREE_STDOUT_BYTES = 128 * 1024;
-const LOCAL_OUTPUT_ADMISSION_BYTES = 6 * STDERR_BYTES + 2 * LOCAL_REF_STDOUT_BYTES
+const LOCAL_FIXED_OUTPUT_ADMISSION_BYTES = 6 * STDERR_BYTES
   + 2 * LOCAL_WORKTREE_STDOUT_BYTES + 2 * SMALL_STDOUT_BYTES;
 
 export type GitRefDeleteReceipt = Readonly<{
@@ -117,19 +118,78 @@ function strictText(source: Uint8Array, label: string): string {
   }
 }
 
+function encodeExactLocalRefObservationPatterns(refs: readonly string[]): Uint8Array {
+  if (refs.length === 0 || new Set(refs).size !== refs.length) {
+    throw new Error('Git local ref observation requires a nonempty set of distinct refs.');
+  }
+  for (const ref of refs) {
+    if (refKind(ref) !== 'local') {
+      throw new Error('Git local ref observation requires exact local branch refs.');
+    }
+  }
+  return new TextEncoder().encode(`${refs.join('\n')}\n`);
+}
+
+function localRefObservationStdoutBytes(refs: readonly string[]): number {
+  const encoder = new TextEncoder();
+  const requestedRecordBytes = refs.reduce((total, ref) => (
+    total + encoder.encode(ref).byteLength
+    // NUL + symbolic marker + NUL + widest object id + NUL + LF.
+    + 1 + 1 + 1 + 64 + 1 + 1
+  ), 0);
+  // One extra match lets the parser detect Git's prefix-pattern expansion. The
+  // historical 128 KiB ceiling is retained as the bounded guard for that
+  // unrequested record, while requested records may use the operation's full
+  // 1 MiB observation ceiling.
+  return Math.min(LOCAL_REF_MAXIMUM_STDOUT_BYTES,
+    Math.max(LOCAL_REF_MINIMUM_STDOUT_BYTES, requestedRecordBytes + LOCAL_REF_MINIMUM_STDOUT_BYTES));
+}
+
+function localOutputAdmissionBytes(refs: readonly string[]): number {
+  return LOCAL_FIXED_OUTPUT_ADMISSION_BYTES + 2 * localRefObservationStdoutBytes(refs);
+}
+
 async function observeLocalRefSet(
   provider: GitPhysicalProviderCapability,
   refs: readonly string[]
 ) {
+  const patterns = encodeExactLocalRefObservationPatterns(refs);
+  const stdoutBytes = localRefObservationStdoutBytes(refs);
   const command = await runGitPhysicalCommandInternal(provider,
-    ['for-each-ref', '--format=%(refname)%00%(symref)%00%(objectname)%00', 'refs/heads/'],
-    commandOptions(provider, LOCAL_REF_STDOUT_BYTES));
+    ['for-each-ref', '--stdin', `--count=${refs.length + 1}`,
+      '--format=%(refname)%00%(if)%(symref)%(then)1%(else)0%(end)%00%(objectname)%00'], {
+      ...commandOptions(provider, stdoutBytes), input: patterns, maxStdinBytes: patterns.byteLength
+    });
   if (command.result.code !== 0 || command.result.stderr.length !== 0) {
     throw new Error(`Git local ref inventory is unavailable: ${childError(command.result.stderr)}`);
   }
+  const targetSet = new Set(refs);
+  const observations = new Map(refs.map((ref) => [ref, null as RefObservation] as const));
+  const text = strictText(command.result.stdout, 'Git local ref observation');
+  if (text.length > 0) {
+    if (!text.endsWith('\n')) throw new Error('Git local ref observation is not LF-terminated.');
+    for (const record of text.slice(0, -1).split('\n')) {
+      const fields = record.split('\0');
+      if (fields.length !== 4 || fields[3] !== '') {
+        throw new Error('Git local ref observation violates its exact machine framing.');
+      }
+      const [ref, symbolicMarker, sha] = fields as [string, string, string, string];
+      if (!targetSet.has(ref)) {
+        throw new Error(`Git local ref observation expanded beyond its exact request set: ${ref}.`);
+      }
+      if ((symbolicMarker !== '0' && symbolicMarker !== '1') || !OBJECT_ID.test(sha)) {
+        throw new Error('Git local ref observation contains a noncanonical ref state.');
+      }
+      if (observations.get(ref) !== null) {
+        throw new Error('Git local ref observation contains a duplicate exact target.');
+      }
+      observations.set(ref, Object.freeze({ sha,
+        symbolicTarget: symbolicMarker === '1' ? '<symbolic>' : null }));
+    }
+  }
   return Object.freeze({
     ordinal: command.ordinal,
-    observations: new Map(refs.map((ref) => [ref, parseExactRefObservation(command.result.stdout, ref)] as const))
+    observations
   });
 }
 
@@ -356,14 +416,26 @@ function encodeExactLocalGitRefDeleteBatchTranscript(
   ].join('\n')) };
 }
 
-/** Product ceiling for one atomic local-ref transaction, declared by this capability in sec.module.json. */
+/** Product ceiling for aggregate native stdin used by one atomic local-ref operation. */
 export const MAXIMUM_LOCAL_REF_DELETE_INPUT_BYTES = 1024 * 1024;
+/** Product ceiling for aggregate native stdout/stderr admitted by the same operation. */
+export const MAXIMUM_LOCAL_REF_DELETE_OUTPUT_BYTES = 3 * 1024 * 1024;
 
-/** Exact native stdin budget for the same validated transcript used by the Effect owner. */
+/** Exact aggregate native stdin budget for observations plus the validated update transcript. */
 export function measureExactLocalGitRefDeleteBatchInputBytes(
   entries: readonly Readonly<{ ref: string; expectedOldSha: string }>[]
 ): number {
-  return encodeExactLocalGitRefDeleteBatchTranscript(entries).transcript.byteLength;
+  const { entries: sorted, transcript } = encodeExactLocalGitRefDeleteBatchTranscript(entries);
+  const patterns = encodeExactLocalRefObservationPatterns(sorted.map((entry) => entry.ref));
+  return transcript.byteLength + 2 * patterns.byteLength;
+}
+
+/** Exact aggregate native output admission required for the validated request set. */
+export function measureExactLocalGitRefDeleteBatchOutputBytes(
+  entries: readonly Readonly<{ ref: string; expectedOldSha: string }>[]
+): number {
+  const { entries: sorted } = encodeExactLocalGitRefDeleteBatchTranscript(entries);
+  return localOutputAdmissionBytes(sorted.map((entry) => entry.ref));
 }
 
 export async function deleteExactLocalGitRefs(input: Readonly<{
@@ -378,22 +450,27 @@ export async function deleteExactLocalGitRefs(input: Readonly<{
     throw new GitLocalRefDeleteAtomicityUnavailableError();
   }
   const { entries, transcript } = encodeExactLocalGitRefDeleteBatchTranscript(input.entries);
-  if (transcript.byteLength > MAXIMUM_LOCAL_REF_DELETE_INPUT_BYTES) {
+  const refs = entries.map((entry) => entry.ref);
+  const inputBytes = measureExactLocalGitRefDeleteBatchInputBytes(entries);
+  const outputBytes = measureExactLocalGitRefDeleteBatchOutputBytes(entries);
+  if (inputBytes > MAXIMUM_LOCAL_REF_DELETE_INPUT_BYTES) {
     throw new Error('Git local ref batch delete exceeds the bounded product input budget.');
+  }
+  if (outputBytes > MAXIMUM_LOCAL_REF_DELETE_OUTPUT_BYTES) {
+    throw new Error('Git local ref batch delete exceeds the bounded product output budget.');
   }
   if (ATTEMPTED_GIT_REF_DELETE_PROVIDERS.has(input.provider)) {
     throw new Error('Git ref delete provider capability has already attempted its one Effect.');
   }
   assertGitPhysicalResourceAdmissionInternal(input.provider, {
     processes: LOCAL_PROCESS_COUNT,
-    inputBytes: transcript.byteLength,
-    outputBytes: LOCAL_OUTPUT_ADMISSION_BYTES
+    inputBytes,
+    outputBytes
   });
   ATTEMPTED_GIT_REF_DELETE_PROVIDERS.add(input.provider);
 
   const commonDir = await observedGitCommonDir(input.provider);
   await assertWorkspaceWriteLease(commonDir, input.coordinatedLease);
-  const refs = entries.map((entry) => entry.ref);
   const beforeWorktrees = await observeWorktreeBindings(input.provider);
   const beforeRefs = await observeLocalRefSet(input.provider, refs);
   for (const entry of entries) {

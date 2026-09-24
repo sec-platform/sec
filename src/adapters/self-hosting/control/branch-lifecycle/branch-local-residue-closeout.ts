@@ -8,7 +8,7 @@ import { bindSecSemanticOperation, compileSecCapabilityBinding, compileSecSemant
 import { assertWorkspaceWriteLease, withWorkspaceWriteLease, type WorkspaceWriteLeaseToken } from '../../../filesystem/write-lease.ts';
 import { withAuthorityGitReadSession } from '../../../providers/git-read/authority.ts';
 import { assertGitPhysicalProviderReceipt, closeGitPhysicalProvider, openGitPhysicalProvider } from '../../../providers/git/physical-provider.ts';
-import { assertGitLocalRefDeleteBatchReceipt, deleteExactLocalGitRefs, MAXIMUM_LOCAL_REF_DELETE_INPUT_BYTES, measureExactLocalGitRefDeleteBatchInputBytes } from '../../../providers/git/ref-effect.ts';
+import { assertGitLocalRefDeleteBatchReceipt, deleteExactLocalGitRefs, MAXIMUM_LOCAL_REF_DELETE_INPUT_BYTES, MAXIMUM_LOCAL_REF_DELETE_OUTPUT_BYTES, measureExactLocalGitRefDeleteBatchInputBytes, measureExactLocalGitRefDeleteBatchOutputBytes } from '../../../providers/git/ref-effect.ts';
 import { inspectNoFollowDirectoryChain, type PhysicalDirectoryChain } from '../../../runtime-state/physical/runtime/physical-no-follow.ts';
 import { assertProcessResourceSessionReceipt, openProcessResourceSession } from '../../../runtime-state/physical/runtime/process-resource-session.ts';
 import { runCommandBytes } from '../../../runtime-state/physical/runtime/process.ts';
@@ -1614,9 +1614,13 @@ async function deleteExactTransaction(
   const refEntries = entries.map(({ branch, headSha }) => ({
     ref: `refs/heads/${branch}`, expectedOldSha: headSha
   }));
-  const transcriptBytes = measureExactLocalGitRefDeleteBatchInputBytes(refEntries);
-  if (transcriptBytes > MAXIMUM_LOCAL_REF_DELETE_INPUT_BYTES) {
+  const inputBytes = measureExactLocalGitRefDeleteBatchInputBytes(refEntries);
+  const outputBytes = measureExactLocalGitRefDeleteBatchOutputBytes(refEntries);
+  if (inputBytes > MAXIMUM_LOCAL_REF_DELETE_INPUT_BYTES) {
     throw new Error('Atomic local ref delete exceeds the bounded product input budget.');
+  }
+  if (outputBytes > MAXIMUM_LOCAL_REF_DELETE_OUTPUT_BYTES) {
+    throw new Error('Atomic local ref delete exceeds the bounded product output budget.');
   }
   const plan = compileSecSemanticOperationPlan({
     operation: 'control.branch-lifecycle.merged-local-ref-delete',
@@ -1626,8 +1630,8 @@ async function deleteExactTransaction(
     attempt: issueSecSemanticOperationAttemptContext({ authorityGrantDigest: operationId as SecOperationDigest }),
     aggregateBudgets: [
       { resource: 'duration-ms', maximum: durationMs },
-      { resource: 'input-bytes', maximum: transcriptBytes },
-      { resource: 'output-bytes', maximum: 1024 * 1024 },
+      { resource: 'input-bytes', maximum: inputBytes },
+      { resource: 'output-bytes', maximum: outputBytes },
       { resource: 'processes', maximum: 7 }
     ],
     requirements: [{ id: REF_EFFECT_REQUIREMENT, contractDigest: REF_EFFECT_CONTRACT,
@@ -2286,8 +2290,16 @@ export async function executeMergedLocalBranchResidueCloseout(input: Readonly<{
       ref: `refs/heads/${branch}`, expectedOldSha: headSha
     }))
   );
+  const plannedOutputBytes = measureExactLocalGitRefDeleteBatchOutputBytes(
+    plan.eligible.map(({ branch, headSha }) => ({
+      ref: `refs/heads/${branch}`, expectedOldSha: headSha
+    }))
+  );
   if (plannedInputBytes > MAXIMUM_LOCAL_REF_DELETE_INPUT_BYTES) {
     throw new Error('Retained local ref operation exceeds the bounded product input budget before authorization.');
+  }
+  if (plannedOutputBytes > MAXIMUM_LOCAL_REF_DELETE_OUTPUT_BYTES) {
+    throw new Error('Retained local ref operation exceeds the bounded product output budget before authorization.');
   }
   const material = Object.freeze({
     schema: RETAINED_AUTHORIZATION_SCHEMA,
