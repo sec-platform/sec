@@ -2633,10 +2633,11 @@ async function auditRepositoryWithSession(
     })
   });
   reportExecutionProgress({ command: 'audit:repository', phase: 'source-program-compilation', state: 'start' });
-  const sourceProgramCompilation = compileRepositorySourceProgramCompilation({
+  const sourceProgramCompilation = compileRepositorySourceProgramWithCache({
     workspaceSnapshot,
     repositoryRoot,
-    operation: compilationOperation
+    operation: compilationOperation,
+    cacheAccess: 'read-write'
   });
   const moduleGraph = sourceProgramCompilation.workspaceSnapshot.moduleGraph;
   const sourceProgram = sourceProgramCompilation.model;
