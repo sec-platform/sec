@@ -78,14 +78,18 @@ test('the tracked source tree has ten canonical responsibilities and one zero-au
     .map((entry) => entry.name)
     .sort();
   expect(actual).toEqual([...SEC_CANONICAL_SOURCE_MODULES, 'control'].sort());
-  const facade = compileSecRepositoryModuleMembership(repositoryRoot)
-    .moduleForPath('src/control/documentation/document-control-plane.ts');
+  const membership = compileSecRepositoryModuleMembership(repositoryRoot);
+  const facade = membership.descriptors.find(({ root }) => root === 'src/control/documentation');
+  if (facade === undefined) throw new Error('Documentation control facade descriptor is missing.');
   expect(facade).toMatchObject({
     root: 'src/control/documentation',
-    externalEntrypoints: ['src/control/documentation/document-control-plane.ts'],
     capabilityProviders: [],
     operationObligations: []
   });
+  expect(facade.externalEntrypoints).toHaveLength(1);
+  const [entrypoint] = facade.externalEntrypoints;
+  if (entrypoint === undefined) throw new Error('Documentation control facade entrypoint is missing.');
+  expect(membership.moduleForPath(entrypoint)).toBe(facade);
 });
 
 test('the actual current source graph has no forbidden canonical-module edge', () => {

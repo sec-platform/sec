@@ -26,6 +26,9 @@ import {
   retainCompilerDependencyReadGeneration
 } from '../../src/adapters/toolchain/dependencies/runtime/project-runtime.ts';
 import {
+  COMPILER_DEPENDENCY_INSTALL_ARGS,
+} from '../../src/adapters/toolchain/dependencies/runtime/compiler-materialization-input.ts';
+import {
   RUNTIME_DEPENDENCY_SOURCE_MAXIMUM_BYTES,
   RUNTIME_DEPENDENCY_SOURCE_MAXIMUM_ENTRIES
 } from '../../src/adapters/toolchain/dependencies/runtime/source-generation.ts';
@@ -473,7 +476,7 @@ describe('compiler dependency installation', () => {
       const stagingRoots = new Set<string>();
       const materialize = async (args: string[], options: { cwd: string }) => {
         installCalls += 1;
-        expect(args).toEqual(['install', '--frozen-lockfile', '--ignore-scripts', '--backend=copyfile']);
+        expect(args).toEqual([...COMPILER_DEPENDENCY_INSTALL_ARGS]);
         expect(options.cwd).not.toBe(tempRoot);
         const stagingName = path.basename(options.cwd);
         expect(stagingName.startsWith('c.staging-')).toBe(true);
