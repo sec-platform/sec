@@ -95,6 +95,7 @@ import {
 } from '../architecture/placement.ts';
 import {
   createSourceProgramCompilationOperation,
+  SOURCE_PROGRAM_COMPILATION_MAX_DURATION_MS,
   SourceProgramCompilationInterruptedError,
   type SourceProgramCompilationOperation
 } from '../source-program-model/compilation-operation.ts';
@@ -2551,6 +2552,7 @@ async function auditRepositoryWithSession(
   const defaultRef = isExactSha ? `${defaultRefInput}^{commit}` : defaultRefInput;
   const findings: RepositoryAuditFinding[] = [];
   const unknowns: string[] = [];
+  reportExecutionProgress({ command: 'audit:repository', phase: 'exact-tree-capture', state: 'start' });
   const head = await runGitText(session, ['rev-parse', '--verify', 'HEAD^{commit}']);
   const tree = await runGitText(session, ['rev-parse', '--verify', 'HEAD^{tree}']);
   if (head === null || tree === null) {
@@ -2571,19 +2573,38 @@ async function auditRepositoryWithSession(
     contentCoverage: initialContentCoverage,
     textByPath: initialTextByPath
   } = await revisionTextCandidates(session, entries, workspaceSnapshot.files);
+  reportExecutionProgress({
+    command: 'audit:repository',
+    phase: 'exact-tree-capture',
+    state: 'complete',
+    detail: { trackedPaths: tracked.length }
+  });
   const textByPath = new Map(initialTextByPath);
   const moduleMembership = workspaceSnapshot.moduleMembership;
   if (moduleMembership.descriptors.length === 0) {
     unknowns.push('source program module ownership is unavailable: exact snapshot has no sec.module.json descriptors');
   }
+  reportExecutionProgress({ command: 'audit:repository', phase: 'project-input', state: 'start' });
   const projectInput = compileWorkspaceTypeScriptProjectInput(
     workspaceSnapshot,
     tsconfigRelativePath
   );
+  reportExecutionProgress({ command: 'audit:repository', phase: 'project-input', state: 'complete' });
+  const compilationOperation = createSourceProgramCompilationOperation({
+    deadlineAtUnixMs: Date.now() + SOURCE_PROGRAM_COMPILATION_MAX_DURATION_MS,
+    observePhase: (event) => reportExecutionProgress({
+      command: 'audit:repository',
+      phase: `source-program.${event.phase}`,
+      state: event.state,
+      elapsedMs: event.elapsedMs
+    })
+  });
+  reportExecutionProgress({ command: 'audit:repository', phase: 'source-program-compilation', state: 'start' });
   const sourceProgramCompilation = compileRepositorySourceProgramCompilation({
     workspaceSnapshot,
     projectInput,
-    repositoryRoot
+    repositoryRoot,
+    operation: compilationOperation
   });
   const moduleGraph = sourceProgramCompilation.workspaceSnapshot.moduleGraph;
   const sourceProgram = sourceProgramCompilation.model;
@@ -2613,6 +2634,7 @@ async function auditRepositoryWithSession(
     sourceProgram,
     workspaceSnapshot.files
   );
+  reportExecutionProgress({ command: 'audit:repository', phase: 'source-program-compilation', state: 'complete' });
   if (repositoryModuleArchitectureShouldBlock(architecture)) {
     pushFinding(findings, {
       code: 'repository-module-architecture-boundary-invalid',
@@ -2650,6 +2672,7 @@ async function auditRepositoryWithSession(
     [file.path, file.surface] as const
   )));
 
+  reportExecutionProgress({ command: 'audit:repository', phase: 'repository-surface-census', state: 'start' });
   for (const repositoryPath of tracked) {
     const compiledSurface = sourceProgramSurfaceByPath.get(repositoryPath);
     const surface = compiledSurface === 'test'
@@ -2722,7 +2745,9 @@ async function auditRepositoryWithSession(
   }
 
   findings.push(...projectWorkflowEntrypointFindings(tracked, textByPath));
+  reportExecutionProgress({ command: 'audit:repository', phase: 'repository-surface-census', state: 'complete' });
 
+  reportExecutionProgress({ command: 'audit:repository', phase: 'control-plane-census', state: 'start' });
   await auditControlPlane(
     session,
     tracked,
@@ -2733,9 +2758,12 @@ async function auditRepositoryWithSession(
     findings,
     unknowns
   );
+  reportExecutionProgress({ command: 'audit:repository', phase: 'control-plane-census', state: 'complete' });
+  reportExecutionProgress({ command: 'audit:repository', phase: 'final-readback', state: 'start' });
   const finalHead = await runGitText(session, ['rev-parse', '--verify', 'HEAD^{commit}']);
   const finalTree = await runGitText(session, ['rev-parse', '--verify', 'HEAD^{tree}']);
   const finalWorktree = await repositoryWorktreeState(session);
+  reportExecutionProgress({ command: 'audit:repository', phase: 'final-readback', state: 'complete' });
   if (finalHead !== head || finalTree !== tree) {
     unknowns.push(
       `HEAD changed during repository audit: start=${head}/${tree} `

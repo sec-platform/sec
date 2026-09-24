@@ -134,6 +134,15 @@ test('TypeScript semantic reference lookup skips names outside the canonical dec
         'export const result = defaultAlias + renamed + namespaceAlias.target',
         '  + shorthand.local + shadow(1) + quoted + computed + Math.max(1, 2);'
       ].join('\n')
+    },
+    {
+      path: 'src/bootstrap/reference-unrelated.ts',
+      source: [
+        'export function unrelated(value: number): number {',
+        '  const target = value + 1;',
+        `  return ${Array.from({ length: 128 }, () => 'target').join(' + ')};`,
+        '}'
+      ].join('\n')
     }
   ];
   const files = sources.map(({ path, source }) => Object.freeze({
@@ -170,7 +179,8 @@ test('TypeScript semantic reference lookup skips names outside the canonical dec
   expect(after.semanticSymbolLookupOperations - before.semanticSymbolLookupOperations).toBeGreaterThan(0);
   expect(
     after.semanticSymbolLookupSkippedIdentifiers - before.semanticSymbolLookupSkippedIdentifiers
-  ).toBeGreaterThan(0);
+  ).toBeGreaterThan(128);
+  expect(after.semanticSymbolLookupOperations - before.semanticSymbolLookupOperations).toBeLessThan(64);
 });
 
 test('TypeScript rename observations expire with their exact compiler generation', () => {

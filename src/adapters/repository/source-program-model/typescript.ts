@@ -2675,16 +2675,20 @@ function compileTypeScriptSourceProgramModelInternal(
   sourceProgramCompilationCheckpoint(input.operation, 'file-semantics', 'complete');
 
   sourceProgramCompilationCheckpoint(input.operation, 'declaration-index', 'start');
-  // A semantic reference can resolve only to an addressable declaration or
-  // through an import/re-export alias. Keep one conservative name superset so
-  // unrelated identifiers never force TypeChecker flow analysis merely to
-  // prove that their symbols cannot map into declarationByNode.
-  const semanticDeclarationCandidateNames = new Set<string>();
+  // A semantic reference can resolve only to an addressable declaration in
+  // the same source file or through an explicit import/re-export alias. Keep
+  // the candidate names scoped to their source file: a common top-level name
+  // such as `input` in one module must not force TypeChecker symbol analysis
+  // for every unrelated local `input` in the repository.
+  const semanticDeclarationCandidateNamesBySourcePath = new Map<string, Set<string>>();
+  const globalScriptDeclarationCandidateNames = new Set<string>();
   for (const sourceFile of sourceFiles) {
     sourceProgramCompilationCheckpoint(input.operation, 'declaration-index');
     const sourcePath = semanticProgram.repositoryPath(sourceFile);
     const sourceSurface = sourceProgramSurfaceForPath(sourcePath);
     if (sourceSurface !== 'production' && sourceSurface !== 'test') continue;
+    const semanticDeclarationCandidateNames = new Set<string>();
+    semanticDeclarationCandidateNamesBySourcePath.set(sourcePath, semanticDeclarationCandidateNames);
     let visitedDeclarationNodes = 0;
     const visit = (node: ts.Node): void => {
       if ((visitedDeclarationNodes++ & 1023) === 0) {
@@ -2750,6 +2754,7 @@ function compileTypeScriptSourceProgramModelInternal(
           span
         });
         semanticDeclarationCandidateNames.add(name);
+        if (!ts.isExternalModule(sourceFile)) globalScriptDeclarationCandidateNames.add(name);
         declarations.push(declaration);
         declarationByNode.set(node, declaration);
         declarationNodeByObservationId.set(declaration.observationId, node);
@@ -2787,6 +2792,7 @@ function compileTypeScriptSourceProgramModelInternal(
           span
         });
         semanticDeclarationCandidateNames.add(name);
+        if (!ts.isExternalModule(sourceFile)) globalScriptDeclarationCandidateNames.add(name);
         declarations.push(declaration);
         declarationByNode.set(element, declaration);
         declarationNodeByObservationId.set(declaration.observationId, element);
@@ -2795,17 +2801,47 @@ function compileTypeScriptSourceProgramModelInternal(
   }
   sourceProgramCompilationCheckpoint(input.operation, 'declaration-index', 'complete');
 
+  const declarationByPathAndName = new Map<
+    string,
+    Map<string, SourceProgramDeclaration | null>
+  >();
+  for (const declaration of declarations) {
+    let declarationsByName = declarationByPathAndName.get(declaration.path);
+    if (declarationsByName === undefined) {
+      declarationsByName = new Map();
+      declarationByPathAndName.set(declaration.path, declarationsByName);
+    }
+    if (!declarationsByName.has(declaration.name)) {
+      declarationsByName.set(declaration.name, declaration);
+    } else if (declarationsByName.get(declaration.name)?.observationId !== declaration.observationId) {
+      // Match the TypeChecker path: merged/overloaded symbols whose indexed
+      // declarations are not unique are not assigned one arbitrary target.
+      declarationsByName.set(declaration.name, null);
+    }
+  }
+  const directDeclarationAt = (
+    sourcePath: string | null,
+    name: string
+  ): SourceProgramDeclaration | null => sourcePath === null
+    ? null
+    : declarationByPathAndName.get(sourcePath)?.get(name) ?? null;
+
   const declarationBySymbol = new Map<ts.Symbol, SourceProgramDeclaration | null>();
   const declarationBySemanticNode = new WeakMap<ts.Node, SourceProgramDeclaration | null>();
-  const semanticDeclarationAt = (node: ts.Node): SourceProgramDeclaration | null => {
+  const semanticDeclarationAt = (
+    node: ts.Node,
+    forceLookup = false
+  ): SourceProgramDeclaration | null => {
     const nodeCached = declarationBySemanticNode.get(node);
     if (nodeCached !== undefined || declarationBySemanticNode.has(node)) return nodeCached ?? null;
-    const propertyAccessName = ts.isIdentifier(node)
-      && ts.isPropertyAccessExpression(node.parent)
-      && node.parent.name === node;
-    if (ts.isIdentifier(node)
-        && !propertyAccessName
-        && !semanticDeclarationCandidateNames.has(node.text)) {
+    const nodeSourceFile = node.getSourceFile();
+    const localCandidate = ts.isIdentifier(node)
+      && (semanticDeclarationCandidateNamesBySourcePath
+        .get(semanticProgram.repositoryPath(nodeSourceFile))?.has(node.text) ?? false);
+    const globalScriptCandidate = ts.isIdentifier(node)
+      && !ts.isExternalModule(nodeSourceFile)
+      && globalScriptDeclarationCandidateNames.has(node.text);
+    if (ts.isIdentifier(node) && !forceLookup && !localCandidate && !globalScriptCandidate) {
       typeScriptSourceProgramPerformance.semanticSymbolLookupSkippedIdentifiers += 1;
       declarationBySemanticNode.set(node, null);
       return null;
@@ -3087,12 +3123,13 @@ function compileTypeScriptSourceProgramModelInternal(
         && ts.isIdentifier(node.name)) {
         const binding = importedBindings.get(node.expression.text);
         if (binding?.targetName === '*') {
+          const directTarget = directDeclarationAt(binding.targetPath, node.name.text);
           pushReference(
             sourceFile,
             node.name,
             node.name.text,
             referenceKind(node.name),
-            semanticDeclarationAt(node.name),
+            directTarget ?? semanticDeclarationAt(node.name, true),
             binding.targetPath
           );
         }
