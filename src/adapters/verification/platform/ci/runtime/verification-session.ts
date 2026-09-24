@@ -55,6 +55,7 @@ import {
   executeGitHubApiOperation,
   withGitHubApiBranchCloseoutWriteSession,
   withGitHubApiIssueCommentWriteSession,
+  withGitHubApiMergeWriteSession,
   withGitHubApiReadSession,
   withGitHubApiRepositoryDispatchWriteSession
 } from '../../../../providers/github-api/operation-session.ts';
@@ -4011,7 +4012,7 @@ export function parseHostedSynchronousSquashMergeResponse(
   return Object.freeze({ merged: true, sha: record.sha, message: record.message });
 }
 
-function executeHostedSquashMerge(input: {
+async function executeHostedSquashMerge(input: {
   ctx: VerificationSessionScope;
   repository: string;
   prNumber: number;
@@ -4020,7 +4021,7 @@ function executeHostedSquashMerge(input: {
   publication: IntegrationAuthorizationOperationPublication;
   commentId: number;
   issueDispositionPlan: IssueDispositionPlan;
-}): HostedSynchronousSquashMergeResponse {
+}): Promise<HostedSynchronousSquashMergeResponse> {
   const authorization = input.publication.result.authorization;
   const authorizationMarkers = integrationAuthorizationMergeMarkers({
     sessionRevision: input.sessionRevision,
@@ -4046,23 +4047,18 @@ function executeHostedSquashMerge(input: {
   ).length > 0) {
     throw new Error('Canonical merge renderer produced a forbidden GitHub closing-keyword pattern.');
   }
-  const request = JSON.stringify({
-    sha: input.headSha,
-    merge_method: 'squash',
-    commit_title: commitTitle,
-    commit_message: markers.join('\n')
+  const result = await withGitHubApiMergeWriteSession({
+    repositoryRoot: input.ctx.repositoryRoot,
+    repository: input.repository,
+    operation: async (capability) => await executeGitHubApiOperation(capability, {
+      kind: 'merge-pull',
+      pullRequestNumber: input.prNumber,
+      headSha: input.headSha,
+      title: commitTitle,
+      message: markers.join('\n')
+    })
   });
-  const result = runVerificationSessionCommand(input.ctx, 'gh', [
-    'api', '--method', 'PUT',
-    `/repos/${input.repository}/pulls/${input.prNumber}/merge`,
-    '--input', '-'
-  ], input.ctx.repositoryRoot, request);
-  if (result.status !== 0) {
-    throw new Error(
-      `hosted synchronous exact-head squash merge failed: ${decodeBranchLifecycleChildError(result)}`
-    );
-  }
-  return parseHostedSynchronousSquashMergeResponse(decodeBranchLifecycleChildStdout(result));
+  return parseHostedSynchronousSquashMergeResponse(JSON.stringify(result));
 }
 
 const USAGE = `Usage:
@@ -5119,7 +5115,7 @@ export async function verificationSessionCli(argv: string[]): Promise<string> {
           capability: 'github-writer',
           now: now()
         });
-        providerResponse = executeHostedSquashMerge({ ctx, repository, prNumber: artifact.session.prNumber,
+        providerResponse = await executeHostedSquashMerge({ ctx, repository, prNumber: artifact.session.prNumber,
           headSha: artifact.session.headSha, sessionRevision: artifact.session.sessionRevision,
           publication: selected.publication, commentId: selected.commentId, issueDispositionPlan });
       } catch (error) {
