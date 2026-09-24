@@ -11,6 +11,7 @@ import {
   withGitHubApiTestSession,
   type GitHubApiTransport
 } from '../../src/adapters/providers/github-api/test/operation-session.ts';
+import { isolatedGitReadEnvironment } from '../../src/adapters/providers/git-read/runtime/session.ts';
 import {
   CodexDevelopmentActivateMainHealthRepairRollingPlan,
   CodexDevelopmentAssertControlPlaneBinding,
@@ -151,6 +152,35 @@ const documentControlRoutingTestActor = createDocumentControlRoutingTestActorFor
     operation
   }),
   mainHealthEnvironment: fixtureMainHealthEnvironment,
+  hostCliProvider: (command, args, cwd, options) => {
+    const input = options.input === undefined
+      ? undefined
+      : typeof options.input === 'string'
+        ? Buffer.from(options.input, 'utf8')
+        : Buffer.from(options.input);
+    const result = spawnSync(command, [...args], {
+      cwd,
+      encoding: 'buffer',
+      input,
+      timeout: 30_000,
+      maxBuffer: 8 * 1024 * 1024,
+      windowsHide: true,
+      env: command === 'git'
+        ? isolatedGitReadEnvironment(options.environment ?? {}, process.env)
+        : {
+            ...process.env,
+            ...options.environment,
+            GH_PROMPT_DISABLED: '1',
+            GIT_TERMINAL_PROMPT: '0',
+            GIT_OPTIONAL_LOCKS: '0'
+          }
+    });
+    return {
+      code: result.status ?? 1,
+      stdout: new Uint8Array(Buffer.from(result.stdout ?? '')),
+      stderr: Buffer.from(result.stderr ?? result.error?.message ?? '').toString('utf8')
+    };
+  },
   workSelectionProvider: (command, args, cwd, environment) => {
     if (command === 'gh') {
       const query = args.find((argument) => argument.startsWith('query=')) ?? '';

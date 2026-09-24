@@ -43,7 +43,6 @@ import {
   type RetainedNoFollowFileObservation,
   type RetainedNoFollowFileTransaction
 } from '../../../runtime-state/physical/runtime/physical-no-follow.ts';
-import { runCommandBytes, type ByteCommandResult } from '../../../runtime-state/physical/runtime/process.ts';
 import { GIT_READ_OPERATION_BUDGET } from '../../development/tooling/git/git-read.ts';
 import {
   assertMainHealthPublicationAuthorityStable,
@@ -207,6 +206,12 @@ type CommandOptions = {
   readonly environment?: Readonly<Record<string, string>>;
 };
 
+type DocumentControlByteCommandResult = Readonly<{
+  code: number;
+  stdout: Uint8Array;
+  stderr: string;
+}>;
+
 /**
  * Git observations consume the canonical production GitRead session. Git
  * object/index writes and GitHub calls remain separate semantic capabilities;
@@ -266,6 +271,12 @@ export interface DocumentControlRoutingTestActor {
   ) => Promise<T>;
   readonly workSelectionProvider: SecWorkSelectionProvider;
   readonly mainHealthEnvironment: (repositoryRoot: string) => NodeJS.ProcessEnv;
+  readonly hostCliProvider: (
+    command: 'git' | 'gh',
+    args: readonly string[],
+    cwd: string,
+    options: CommandOptions
+  ) => Promise<DocumentControlByteCommandResult> | DocumentControlByteCommandResult;
 }
 const documentControlRoutingTestActors = new WeakSet<object>();
 const documentControlRoutingTestScope = new AsyncLocalStorage<DocumentControlRoutingTestActor>();
@@ -358,7 +369,6 @@ function documentControlCliFailure(
 }
 
 const ExternalCommandTimeoutMs = 30_000;
-const ExternalCommandMaxBufferBytes = 8 * 1024 * 1024;
 // One freeze holds one Git-read operation from admission through terminal
 // verification and recovery retirement. These are maxima for the normal
 // three-file control projection: entry (9), historical committed replan (21),
@@ -1373,40 +1383,19 @@ async function runDocumentControlTestCliBytes(
   args: readonly string[],
   cwd: string,
   options: CommandOptions
-): Promise<ByteCommandResult> {
-  const inputBytes = options.input === undefined
-    ? undefined
-    : typeof options.input === 'string'
-      ? Buffer.from(options.input, 'utf8')
-      : Buffer.from(options.input);
-  const result = await runCommandBytes(command, [...args], {
-    cwd,
-    ...(inputBytes === undefined ? {} : {
-      input: inputBytes,
-      maxStdinBytes: inputBytes.byteLength
-    }),
-    timeoutMs: ExternalCommandTimeoutMs,
-    maxStdoutBytes: ExternalCommandMaxBufferBytes,
-    maxStderrBytes: ExternalCommandMaxBufferBytes,
-    envMode: 'replace',
-    env: command === 'git'
-      ? isolatedGitReadEnvironment(options.environment ?? {}, process.env)
-      : {
-          ...process.env,
-          ...options.environment,
-          GH_PROMPT_DISABLED: '1',
-          GIT_TERMINAL_PROMPT: '0',
-          GIT_OPTIONAL_LOCKS: '0'
-        }
-  });
-  return result;
+): Promise<DocumentControlByteCommandResult> {
+  const actor = documentControlRoutingTestScope.getStore();
+  if (actor === undefined || !documentControlRoutingTestActors.has(actor)) {
+    throw new Error('Document-control host CLI test transport requires one owner-issued routing actor.');
+  }
+  return await actor.hostCliProvider(command, args, cwd, options);
 }
 
 async function runDocumentControlGitReadBytes(
   args: readonly string[],
   cwd: string,
   options: CommandOptions = {}
-): Promise<ByteCommandResult> {
+): Promise<DocumentControlByteCommandResult> {
   if (documentControlHostCliTestScope.getStore() === documentControlHostCliTestIssuer) {
     return runDocumentControlTestCliBytes('git', args, cwd, options);
   }
