@@ -1893,6 +1893,81 @@ async function readGitHubIssueComment(input: Readonly<{
   });
 }
 
+function normalizeGitHubOpenPullPage(source: unknown, label: string): readonly Readonly<{
+  number: number;
+  headRefName: string;
+  headRefOid: string;
+  baseRefName: string;
+  baseRefOid: string;
+  body: string;
+}>[] {
+  if (!Array.isArray(source)) throw new Error(`${label} must be one array.`);
+  return Object.freeze(source.map((value, index) => {
+    if (value === null || typeof value !== 'object' || Array.isArray(value)) {
+      throw new Error(`${label}[${index}] must be one object.`);
+    }
+    const record = value as Record<string, unknown>;
+    const head = record.head;
+    const base = record.base;
+    if (head === null || typeof head !== 'object' || Array.isArray(head)
+      || base === null || typeof base !== 'object' || Array.isArray(base)) {
+      throw new Error(`${label}[${index}] head/base identity is invalid.`);
+    }
+    const headRecord = head as Record<string, unknown>;
+    const baseRecord = base as Record<string, unknown>;
+    const body = record.body === null ? '' : record.body;
+    return Object.freeze({
+      number: record.number as number,
+      headRefName: headRecord.ref as string,
+      headRefOid: headRecord.sha as string,
+      baseRefName: baseRecord.ref as string,
+      baseRefOid: baseRecord.sha as string,
+      body: body as string
+    });
+  }));
+}
+
+async function observeOpenPullRequestInventory(
+  ctx: VerificationSessionScope,
+  repository: string
+): Promise<ReturnType<typeof parseOpenPullRequestList>> {
+  const pageSize = 100;
+  const maxPages = 100;
+  return await withGitHubApiReadSession({
+    repositoryRoot: ctx.repositoryRoot,
+    repository,
+    operation: async (capability) => {
+      const pages: Array<readonly ReturnType<typeof normalizeGitHubOpenPullPage>[number][]> = [];
+      for (let pageNumber = 1; pageNumber <= maxPages; pageNumber += 1) {
+        const raw = await executeGitHubApiOperation(capability, { kind: 'open-pulls-page', page: pageNumber });
+        const page = normalizeGitHubOpenPullPage(raw, `open pull request page ${pageNumber}`);
+        pages.push(page);
+        if (page.length < pageSize) break;
+        if (pageNumber === maxPages) throw new Error('Open PR inventory exceeds its bounded page ceiling.');
+      }
+      const flattened = pages.flat();
+      const numbers = flattened.map(({ number }) => number);
+      if (new Set(numbers).size !== numbers.length) {
+        throw new Error('Open PR inventory contains duplicate pull request identities.');
+      }
+      const firstAgain = normalizeGitHubOpenPullPage(
+        await executeGitHubApiOperation(capability, { kind: 'open-pulls-page', page: 1 }),
+        'open pull request leading-boundary readback'
+      );
+      const lastPageNumber = pages.length;
+      const lastAgain = lastPageNumber === 1 ? firstAgain : normalizeGitHubOpenPullPage(
+        await executeGitHubApiOperation(capability, { kind: 'open-pulls-page', page: lastPageNumber }),
+        'open pull request trailing-boundary readback'
+      );
+      if (JSON.stringify(firstAgain) !== JSON.stringify(pages[0])
+        || JSON.stringify(lastAgain) !== JSON.stringify(pages[lastPageNumber - 1])) {
+        throw new Error('Open PR inventory changed during bounded pagination.');
+      }
+      return parseOpenPullRequestList(JSON.stringify(flattened));
+    }
+  });
+}
+
 function requiredEnvironmentGitSha(
   environment: Readonly<Record<string, string | undefined>>,
   name: string
@@ -4244,10 +4319,7 @@ export async function verificationSessionCli(argv: string[]): Promise<string> {
   if (command === 'project') {
     const defaultRef = required(args, '--default-ref');
     const openPullRequests = args.get('--open-prs') === 'true'
-      ? parseOpenPullRequestList(requireVerificationSessionCommandText(ctx, 'gh', [
-          'pr', 'list', '--repo', repository, '--state', 'open', '--json',
-          'number,headRefName,headRefOid,baseRefName,baseRefOid,body'
-        ], 'open pull request inventory', ctx.repositoryRoot))
+      ? await observeOpenPullRequestInventory(ctx, repository)
       : undefined;
     let registryRecords = 0;
     return projectWorkPackageRegistry({ observedAt: now(), repository,

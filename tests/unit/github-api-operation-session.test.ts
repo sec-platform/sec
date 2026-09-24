@@ -57,6 +57,7 @@ test('verification provider fixed reads compile without exposing arbitrary REST 
       await executeGitHubApiOperation(api, { kind: 'artifacts', page: 4 });
       await executeGitHubApiOperation(api, { kind: 'check-suite', checkSuiteId: 55 });
       await executeGitHubApiOperation(api, { kind: 'artifact', artifactId: 66 });
+      await executeGitHubApiOperation(api, { kind: 'open-pulls-page', page: 3 });
     }
   });
   expect(urls).toEqual([
@@ -64,7 +65,8 @@ test('verification provider fixed reads compile without exposing arbitrary REST 
     'https://api.github.com/repos/sec-platform/sec/actions/runs/12/attempts/3/jobs?per_page=100&page=2',
     'https://api.github.com/repos/sec-platform/sec/actions/artifacts?per_page=100&page=4',
     'https://api.github.com/repos/sec-platform/sec/check-suites/55',
-    'https://api.github.com/repos/sec-platform/sec/actions/artifacts/66'
+    'https://api.github.com/repos/sec-platform/sec/actions/artifacts/66',
+    'https://api.github.com/repos/sec-platform/sec/pulls?state=open&per_page=100&page=3'
   ]);
 });
 
