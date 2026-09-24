@@ -1,5 +1,4 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
-import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { chmod, lstat } from 'node:fs/promises';
 import path from 'node:path';
@@ -22,6 +21,7 @@ import {
 } from '../../../providers/git/physical-provider.ts';
 import { acquirePhysicalMutationLease, type PhysicalMutationLeaseHandle, type PhysicalMutationLeaseOwner } from '../../../runtime-state/physical/runtime/mutation-lease.ts';
 import { createExclusiveNoFollowDirectory, deleteRetainedNoFollowEntry, inspectExactNoFollowDirectoryPresence, inspectNoFollowDirectoryChain, inspectNoFollowOrdinaryFileEntry, PhysicalNoFollowError, publishExclusiveDurableCanonicalFile, replaceDurableCanonicalFile, scanNoFollowDirectoryTree, scanNoFollowDirectoryTreeMetadata, type PhysicalDirectoryChain, type PhysicalDirectoryIdentity } from '../../../runtime-state/physical/runtime/physical-no-follow.ts';
+import { runCommand } from '../../../runtime-state/physical/runtime/process.ts';
 import type { ProcessResourceSession } from '../../../runtime-state/physical/runtime/process-resource-session.ts';
 
 const MANAGED_HOOKS_PATH = '.githooks';
@@ -807,59 +807,53 @@ function isExecutable(metadata: Awaited<ReturnType<typeof lstat>>): boolean {
     && (process.platform === 'win32' || (Number(metadata.mode) & 0o111) !== 0);
 }
 
-function gitText(
+async function gitText(
   repoRoot: string,
   args: readonly string[],
   options: {
     readonly allowMissing?: boolean;
     readonly operation?: 'read' | 'config-effect';
   } = {}
-): string | null {
+): Promise<string | null> {
+  if (options.operation !== 'config-effect') {
+    return await gitReadText(repoRoot, args, { allowMissing: options.allowMissing });
+  }
   const root = path.resolve(repoRoot);
   const budget = currentGitInvocationBudget();
-  const isEffect = options.operation === 'config-effect';
-  const operationLabel = isEffect ? 'Git config effect' : 'Git read';
-  const executableFence = isEffect ? {} : { verifyExecutable: false };
-  budget.assertGitExecutableCurrent(operationLabel, executableFence);
+  const operationLabel = 'Git config effect';
+  budget.assertGitExecutableCurrent(operationLabel);
   const remainingMs = budget.beforeProcess(operationLabel);
-  budget.assertGitExecutableCurrent(operationLabel + ' pre-effect', executableFence);
-  budget.beforeSpawn(isEffect ? 'git-config' : 'git-read');
-  const result = spawnSync(budget.hostGitExecutionTarget(), ['-C', root, ...args], {
-    cwd: root,
-    encoding: 'utf8',
-    env: budget.environment,
-    windowsHide: true,
-    timeout: remainingMs,
-    maxBuffer: Math.max(budget.maxCommandStdoutBytes, budget.maxCommandStderrBytes)
-  });
-  const stdout = result.stdout ?? '';
-  const stderr = result.stderr ?? '';
-  if (result.error !== undefined) {
-    const code = (result.error as NodeJS.ErrnoException).code;
-    if (code === 'ETIMEDOUT' || result.signal !== null) {
-      throw new GitHookTransitionConflict(
-        'Git command exceeded the installer invocation deadline: git ' + (args[0] ?? 'command')
-      );
-    }
-    if (code === 'ERR_CHILD_PROCESS_STDIO_MAXBUFFER') {
-      throw new GitHookTransitionConflict(
-        'Git command exceeded the installer command output budget: git ' + (args[0] ?? 'command')
-      );
-    }
+  budget.assertGitExecutableCurrent(operationLabel + ' pre-effect');
+  budget.beforeSpawn('git-config');
+  let result;
+  try {
+    result = await runCommand(
+      budget.hostGitExecutionTarget(),
+      ['-C', root, ...args],
+      {
+        cwd: root,
+        env: budget.environment,
+        envMode: 'replace',
+        maxStdoutBytes: budget.maxCommandStdoutBytes,
+        maxStderrBytes: budget.maxCommandStderrBytes,
+        timeoutMs: remainingMs
+      }
+    );
+  } catch (error) {
+    throw new GitHookTransitionConflict(
+      'Git config effect transport failed: ' + (error instanceof Error ? error.message : String(error))
+    );
   }
-  budget.afterProcess(stdout, stderr, operationLabel);
-  budget.assertGitExecutableCurrent(operationLabel + ' post-effect', executableFence);
-  const missingStatus = result.status === 1
-    || result.status === 2
-    || result.status === 5
-    || result.status === 128;
-  if (options.allowMissing && missingStatus && stdout.trim().length === 0) return null;
-  if (result.error || result.status !== 0) {
-    const detail = stderr.trim();
+  budget.afterProcess(result.stdout, result.stderr, operationLabel);
+  budget.assertGitExecutableCurrent(operationLabel + ' post-effect');
+  const missingStatus = result.code === 1 || result.code === 2 || result.code === 5 || result.code === 128;
+  if (options.allowMissing && missingStatus && result.stdout.trim().length === 0) return null;
+  if (result.code !== 0) {
+    const detail = result.stderr.trim();
     throw new Error('git ' + (args[0] ?? 'command') + ' failed'
       + (detail.length > 0 ? ': ' + detail : ''));
   }
-  return stdout.trim();
+  return result.stdout.trim();
 }
 
 async function gitReadText(
@@ -1108,34 +1102,34 @@ async function createSourceContext(
   });
 }
 
-function assertBootstrapAuthorityCurrent(
+async function assertBootstrapAuthorityCurrent(
   context: SourceContext,
   label: string
-): void {
+): Promise<void> {
   if (context.bootstrapAuthority === null) return;
   const expected = context.bootstrapAuthority;
   try {
-    const branch = gitText(
+    const branch = await gitText(
       context.repoRoot,
       ['symbolic-ref', '--quiet', '--short', 'HEAD'],
       { allowMissing: true }
     );
-    const localHeadSha = gitText(
+    const localHeadSha = await gitText(
       context.repoRoot,
       ['rev-parse', '--verify', 'HEAD^{commit}'],
       { allowMissing: true }
     );
-    const originUrl = gitText(
+    const originUrl = await gitText(
       context.repoRoot,
       ['remote', 'get-url', 'origin'],
       { allowMissing: true }
     );
-    const originHeadRef = originUrl === null ? null : gitText(
+    const originHeadRef = originUrl === null ? null : await gitText(
       context.repoRoot,
       ['symbolic-ref', '--quiet', 'refs/remotes/origin/HEAD'],
       { allowMissing: true }
     );
-    const originHeadSha = originUrl === null ? null : gitText(
+    const originHeadSha = originUrl === null ? null : await gitText(
       context.repoRoot,
       ['rev-parse', '--verify', 'refs/remotes/origin/HEAD^{commit}'],
       { allowMissing: true }
@@ -1162,7 +1156,7 @@ async function assertSourceCurrent(context: SourceContext, label: string): Promi
   if (!sameChain(root, context.rootChain) || !sameChain(common, context.commonChain)) {
     throw new GitHookTransitionConflict(label + ' physical ancestor chain changed');
   }
-  assertBootstrapAuthorityCurrent(context, label);
+  await assertBootstrapAuthorityCurrent(context, label);
   const snapshots = await managedHookSnapshots(context.repoRoot, {
     requireHeadTree: context.requireHeadTree
   });
@@ -1732,7 +1726,7 @@ async function capturePriorGenerationForCleanup(
   ) {
     throw new GitHookTransitionConflict(label + ' marker/config generation lineage is not exact');
   }
-  const configuredObservation = readHookConfigObservation(
+  const configuredObservation = await readHookConfigObservation(
     options.repoRoot,
     options.commonGitDir,
     options.worktreeGitDir,
@@ -1822,7 +1816,7 @@ async function capturePriorGenerationForCleanup(
     assertRetainedDirectoryChainCurrent(currentCommonRoot, label + ' common generation namespace readback');
     return null;
   }
-  const finalConfiguredObservation = readHookConfigObservation(
+  const finalConfiguredObservation = await readHookConfigObservation(
     options.repoRoot,
     options.commonGitDir,
     options.worktreeGitDir,
@@ -2360,12 +2354,12 @@ function assertConfigPhysicalBoundary(
   });
 }
 
-function configStateFromGit(
+async function configStateFromGit(
   repoRoot: string,
   worktreeConfigPath: string,
   boundary: ConfigPhysicalBoundary
-): HookConfigState {
-  const localRaw = gitText(
+): Promise<HookConfigState> {
+  const localRaw = await gitText(
     repoRoot,
     [
       'config',
@@ -2405,7 +2399,7 @@ function configStateFromGit(
       }
     }
   }
-  const worktreeRaw = gitText(
+  const worktreeRaw = await gitText(
     repoRoot,
     ['config', '--file', worktreeConfigPath, '--null', '--get', 'core.hooksPath'],
     { allowMissing: true }
@@ -2422,12 +2416,12 @@ function configStateFromGit(
   return Object.freeze({ worktreeConfig, commonHooksPath, worktreeHooksPath });
 }
 
-function readHookConfigObservation(
+async function readHookConfigObservation(
   repoRoot: string,
   commonGitDir: string,
   worktreeGitDir: string,
   worktreeConfigPath: string
-): ConfigObservation {
+): Promise<ConfigObservation> {
   const boundary = assertConfigPhysicalBoundary(
     repoRoot,
     commonGitDir,
@@ -2435,7 +2429,7 @@ function readHookConfigObservation(
     worktreeConfigPath
   );
   return Object.freeze({
-    state: configStateFromGit(repoRoot, worktreeConfigPath, boundary),
+    state: await configStateFromGit(repoRoot, worktreeConfigPath, boundary),
     boundary
   });
 }
@@ -3173,14 +3167,14 @@ function cleanupOwnedConfigStage(
   }
 }
 
-function assertConfigStageValue(
+async function assertConfigStageValue(
   repoRoot: string,
   stagePath: string,
   configKey: string,
   expectedValue: string,
   label: string
-): void {
-  const raw = gitText(
+): Promise<void> {
+  const raw = await gitText(
     repoRoot,
     ['config', '--file', stagePath, '--null', '--get', configKey],
     { allowMissing: true }
@@ -3210,7 +3204,7 @@ async function writeGitConfigFileValue(
       closeGitConfigTargetCapability(target);
     }
   }
-  gitText(repoRoot, [
+  await gitText(repoRoot, [
     'config',
     '--file',
     configFilePath,
@@ -3468,7 +3462,7 @@ async function writeGitConfigValueCas(input: {
     // Git config actors fail to acquire this same lock instead of racing a
     // read-then-write check.  Re-read both semantic and physical preimages
     // only after that lock has been published.
-    const locked = readHookConfigObservation(
+    const locked = await readHookConfigObservation(
       input.repoRoot,
       input.commonGitDir,
       input.worktreeGitDir,
@@ -3535,14 +3529,14 @@ async function writeGitConfigValueCas(input: {
     if (stagedEntry === null || stagedEntry.bytes === null) {
       throw new GitHookTransitionConflict('Git config staged postimage disappeared');
     }
-    assertConfigStageValue(
+    await assertConfigStageValue(
       input.repoRoot,
       stagePath,
       input.step.configKey,
       input.step.value,
       'Git config staged postimage'
     );
-    const beforePublish = readHookConfigObservation(
+    const beforePublish = await readHookConfigObservation(
       input.repoRoot,
       input.commonGitDir,
       input.worktreeGitDir,
@@ -3567,7 +3561,7 @@ async function writeGitConfigValueCas(input: {
         }
       }
     });
-    const after = readHookConfigObservation(
+    const after = await readHookConfigObservation(
       input.repoRoot,
       input.commonGitDir,
       input.worktreeGitDir,
@@ -4412,7 +4406,7 @@ async function applyConfigTransition(input: {
   readonly testOnlyCrashAfterConfigStep?: number;
   readonly testOnlyConfigActorBeforeEffect?: (stepIndex: number, repoRoot: string) => void;
   readonly testOnlyConfigActorAfterStep?: (stepIndex: number, repoRoot: string) => void;
-  readonly beforeConfigEffect?: () => void;
+  readonly beforeConfigEffect?: () => void | Promise<void>;
   readonly configEffectProvider?: GitPhysicalProviderCapability;
 }): Promise<ConfigObservation> {
   const { transition } = input;
@@ -4443,7 +4437,7 @@ async function applyConfigTransition(input: {
     throw new GitHookTransitionConflict('Git config transition durable steps are not a contiguous prefix');
   }
   let previousReceipt = prefixLength === 0 ? null : durableReceipts[prefixLength - 1]!;
-  let prefixObservation = readHookConfigObservation(
+  let prefixObservation = await readHookConfigObservation(
     input.repoRoot,
     input.commonGitDir,
     input.worktreeGitDir,
@@ -4488,7 +4482,7 @@ async function applyConfigTransition(input: {
       durableReceipts[prefixLength] = recoveredReceipt;
       prefixLength += 1;
       previousReceipt = recoveredReceipt;
-      prefixObservation = readHookConfigObservation(
+      prefixObservation = await readHookConfigObservation(
         input.repoRoot,
         input.commonGitDir,
         input.worktreeGitDir,
@@ -4507,7 +4501,7 @@ async function applyConfigTransition(input: {
   for (let stepIndex = prefixLength; stepIndex < transition.intent.steps.length; stepIndex += 1) {
     const step = transition.intent.steps[stepIndex]!;
     assertConfigTransitionPhysicalCurrent(transition, input.commonRoot);
-    const observed = readHookConfigObservation(
+    const observed = await readHookConfigObservation(
       input.repoRoot,
       input.commonGitDir,
       input.worktreeGitDir,
@@ -4527,8 +4521,8 @@ async function applyConfigTransition(input: {
       throw new GitHookTransitionConflict('Git hook configuration changed before step ' + step.index);
     }
     let after = observed;
-    input.beforeConfigEffect?.();
-    const beforeLock = readHookConfigObservation(
+    await input.beforeConfigEffect?.();
+    const beforeLock = await readHookConfigObservation(
       input.repoRoot,
       input.commonGitDir,
       input.worktreeGitDir,
@@ -4581,7 +4575,7 @@ async function applyConfigTransition(input: {
     previousReceipt = nextReceipt;
   }
   assertConfigTransitionPhysicalCurrent(transition, input.commonRoot);
-  const terminal = readHookConfigObservation(
+  const terminal = await readHookConfigObservation(
     input.repoRoot,
     input.commonGitDir,
     input.worktreeGitDir,
@@ -4808,7 +4802,7 @@ function assertKnownConfigTransitionNamespaces(
   }
 }
 
-function settlePriorCompletedConfigTransitions(input: {
+async function settlePriorCompletedConfigTransitions(input: {
   readonly commonRoot: PhysicalDirectoryChain;
   readonly currentTransitionName: string;
   readonly repoRoot: string;
@@ -4817,7 +4811,7 @@ function settlePriorCompletedConfigTransitions(input: {
   readonly worktreeConfigPath: string;
   readonly markerRoot: PhysicalDirectoryChain;
   readonly bootstrapMarkerRoot: PhysicalDirectoryChain;
-}): void {
+}): Promise<void> {
   for (const namespace of inspectConfigTransitionNamespaces(input.commonRoot)) {
     if (namespace.name === input.currentTransitionName) continue;
     const intentBytes = transitionFileBytes(namespace.chain, CONFIG_TRANSITION_INTENT_FILE);
@@ -4862,7 +4856,7 @@ function settlePriorCompletedConfigTransitions(input: {
         'Prior Git config transition is incomplete and must be resumed before a new operation: ' + namespace.name
       );
     }
-    settleCompletedConfigTransition({
+    await settleCompletedConfigTransition({
       commonRoot: input.commonRoot,
       transitionName: namespace.name,
       operationDigest: intent.operationDigest,
@@ -4876,7 +4870,7 @@ function settlePriorCompletedConfigTransitions(input: {
   }
 }
 
-function settleCompletedConfigTransition(input: {
+async function settleCompletedConfigTransition(input: {
   readonly commonRoot: PhysicalDirectoryChain;
   readonly transitionName: string;
   readonly operationDigest: string;
@@ -4888,7 +4882,7 @@ function settleCompletedConfigTransition(input: {
   readonly bootstrapMarkerRoot: PhysicalDirectoryChain;
   readonly expectedGeneration?: string;
   readonly expectedBootstrap?: string;
-}): boolean {
+}): Promise<boolean> {
   const transitionPath = path.join(input.commonRoot.target.path, input.transitionName);
   const presence = inspectExactNoFollowDirectoryPresence(
     transitionPath,
@@ -4977,7 +4971,7 @@ function settleCompletedConfigTransition(input: {
     input.commonRoot,
     'Git config completed transition bootstrap generation'
   );
-  const terminal = readHookConfigObservation(
+  const terminal = await readHookConfigObservation(
     input.repoRoot,
     input.commonGitDir,
     input.worktreeGitDir,
@@ -4994,23 +4988,23 @@ function settleCompletedConfigTransition(input: {
   return true;
 }
 
-function readPrimaryBootstrapAuthority(
+async function readPrimaryBootstrapAuthority(
   primaryRepoRoot: string,
   testOnlyNoRemoteFixture: boolean
-): PrimaryBootstrapAuthority | null {
-  const branch = gitText(
+): Promise<PrimaryBootstrapAuthority | null> {
+  const branch = await gitText(
       primaryRepoRoot,
       ['symbolic-ref', '--quiet', '--short', 'HEAD'],
       { allowMissing: true }
     );
     if (branch !== 'main') return null;
-    const localHeadSha = gitText(
+    const localHeadSha = await gitText(
       primaryRepoRoot,
       ['rev-parse', '--verify', 'HEAD^{commit}'],
       { allowMissing: true }
     );
     if (localHeadSha === null || !/^[0-9a-f]{40}$|^[0-9a-f]{64}$/u.test(localHeadSha)) return null;
-    const originUrl = gitText(
+    const originUrl = await gitText(
       primaryRepoRoot,
       ['remote', 'get-url', 'origin'],
       { allowMissing: true }
@@ -5026,19 +5020,19 @@ function readPrimaryBootstrapAuthority(
         originHeadSha: null
       });
     }
-    const originHeadRef = gitText(
+    const originHeadRef = await gitText(
       primaryRepoRoot,
       ['symbolic-ref', '--quiet', 'refs/remotes/origin/HEAD'],
       { allowMissing: true }
     );
     if (originHeadRef !== 'refs/remotes/origin/main') return null;
-    const originHeadSha = gitText(
+    const originHeadSha = await gitText(
       primaryRepoRoot,
       ['rev-parse', '--verify', 'refs/remotes/origin/HEAD^{commit}'],
       { allowMissing: true }
     );
     const localDescendsCanonicalHead = originHeadSha !== null
-      && gitText(
+      && await gitText(
         primaryRepoRoot,
         ['merge-base', '--is-ancestor', originHeadSha, localHeadSha],
         { allowMissing: true }
@@ -5350,11 +5344,11 @@ async function installGitHooksInternalWithBudget(options: {
   const lifecycle = options.lifecycle === true;
   const repoRoot = path.resolve(options.repoRoot);
   const repoRootChain = inspectNoFollowDirectoryChain(repoRoot, 'Git repository root');
-  const commonGitDirText = gitText(
+  const commonGitDirText = await gitText(
     repoRoot,
     ['rev-parse', '--path-format=absolute', '--git-common-dir']
   );
-  const worktreeGitDirText = gitText(
+  const worktreeGitDirText = await gitText(
     repoRoot,
     ['rev-parse', '--path-format=absolute', '--absolute-git-dir']
   );
@@ -5365,7 +5359,7 @@ async function installGitHooksInternalWithBudget(options: {
   const worktreeGitDir = path.resolve(worktreeGitDirText);
   const commonChain = inspectNoFollowDirectoryChain(commonGitDir, 'Repository-common Git directory');
   const worktreeChain = inspectNoFollowDirectoryChain(worktreeGitDir, 'Worktree Git directory');
-  const worktreeConfigPathText = gitText(
+  const worktreeConfigPathText = await gitText(
     repoRoot,
     ['rev-parse', '--path-format=absolute', '--git-path', 'config.worktree']
   );
@@ -5378,18 +5372,18 @@ async function installGitHooksInternalWithBudget(options: {
   }
   const primaryRepoRoot = path.dirname(commonGitDir);
   const primaryChain = inspectNoFollowDirectoryChain(primaryRepoRoot, 'Primary worktree root');
-  const primaryTopLevel = gitText(primaryRepoRoot, ['rev-parse', '--show-toplevel']);
+  const primaryTopLevel = await gitText(primaryRepoRoot, ['rev-parse', '--show-toplevel']);
   if (primaryTopLevel === null || canonicalPath(primaryTopLevel) !== canonicalPath(primaryRepoRoot)) {
     throw new GitHookTransitionConflict('Primary worktree bootstrap identity is unavailable');
   }
-  const primaryCommonText = gitText(
+  const primaryCommonText = await gitText(
     primaryRepoRoot,
     ['rev-parse', '--path-format=absolute', '--git-common-dir']
   );
   if (primaryCommonText === null || canonicalPath(primaryCommonText) !== canonicalPath(commonGitDir)) {
     throw new GitHookTransitionConflict('Primary worktree common Git directory identity differs');
   }
-  const initialConfigObservation = readHookConfigObservation(
+  const initialConfigObservation = await readHookConfigObservation(
     repoRoot,
     commonGitDir,
     worktreeGitDir,
@@ -5488,7 +5482,7 @@ async function installGitHooksInternalWithBudget(options: {
   });
   const sourceDigest = fastSourceContext.digest;
   const bootstrapDigest = fastBootstrapContext.digest;
-  const primaryBranch = gitText(
+  const primaryBranch = await gitText(
     primaryRepoRoot,
     ['symbolic-ref', '--quiet', '--short', 'HEAD'],
     { allowMissing: true }
@@ -5564,7 +5558,7 @@ async function installGitHooksInternalWithBudget(options: {
           );
         }
         try {
-          settlePriorCompletedConfigTransitions({
+          await settlePriorCompletedConfigTransitions({
             commonRoot: existingCommonRoot,
             currentTransitionName: transitionName,
             repoRoot,
@@ -5575,7 +5569,7 @@ async function installGitHooksInternalWithBudget(options: {
             bootstrapMarkerRoot: bootstrapMarkerRootExisting
           });
           if (pendingTransition.state === 'present') {
-            settleCompletedConfigTransition({
+            await settleCompletedConfigTransition({
               commonRoot: existingCommonRoot,
               transitionName,
               operationDigest,
@@ -5630,7 +5624,7 @@ async function installGitHooksInternalWithBudget(options: {
     const realHook = firstRealHook(path.join(commonGitDir, 'hooks'));
     if (realHook !== null) return conflictResult(realHook, lifecycle);
   }
-  const primaryBootstrapAuthority = readPrimaryBootstrapAuthority(
+  const primaryBootstrapAuthority = await readPrimaryBootstrapAuthority(
     primaryRepoRoot,
     options.testOnlyNoRemoteFixture === true
   );
@@ -5793,7 +5787,7 @@ async function installGitHooksInternalWithBudget(options: {
       isPrimaryWorktree ? 1 : 2,
       'Managed generation namespace before publication'
     );
-    const preEffectObservation = readHookConfigObservation(
+    const preEffectObservation = await readHookConfigObservation(
       repoRoot,
       commonGitDir,
       worktreeGitDir,
@@ -5954,9 +5948,9 @@ async function installGitHooksInternalWithBudget(options: {
       testOnlyCrashAfterConfigStep: options.testOnlyCrashAfterConfigStep,
       testOnlyConfigActorBeforeEffect: options.testOnlyConfigActorBeforeEffect,
       testOnlyConfigActorAfterStep: options.testOnlyConfigActorAfterStep,
-      beforeConfigEffect: () => {
+      beforeConfigEffect: async () => {
         options.testOnlyBootstrapAuthorityActorBeforeConfigEffect?.(repoRoot);
-        assertBootstrapAuthorityCurrent(
+        await assertBootstrapAuthorityCurrent(
           bootstrapContext,
           'Managed hook configuration effect fence'
         );
@@ -5982,7 +5976,7 @@ async function installGitHooksInternalWithBudget(options: {
     }
     await assertSourceCurrent(sourceContext, 'Managed hook marker effect fence');
     if (!isPrimaryWorktree) await assertSourceCurrent(bootstrapContext, 'Managed bootstrap marker effect fence');
-    assertBootstrapAuthorityCurrent(bootstrapContext, 'Managed hook marker effect fence');
+    await assertBootstrapAuthorityCurrent(bootstrapContext, 'Managed hook marker effect fence');
     writeMarkerFile(markerRoot, markerRecord);
     if (!isPrimaryWorktree) {
       writeMarkerFile(bootstrapMarkerRoot, bootstrapMarkerRecord);
@@ -6005,12 +5999,12 @@ async function installGitHooksInternalWithBudget(options: {
     }
     await assertSourceCurrent(sourceContext, 'Managed hook marker final readback');
     if (!isPrimaryWorktree) await assertSourceCurrent(bootstrapContext, 'Managed bootstrap marker final readback');
-    const finalConfig = readHookConfigObservation(
+    const finalConfig = (await readHookConfigObservation(
       repoRoot,
       commonGitDir,
       worktreeGitDir,
       worktreeConfigPath
-    ).state;
+    )).state;
     if (!sameHookConfigState(finalConfig, postimage)) {
       throw new GitHookTransitionConflict('Git hook configuration changed after marker publication');
     }
@@ -6039,12 +6033,12 @@ async function installGitHooksInternalWithBudget(options: {
       ],
       options.testOnlyBeforeGenerationCleanup
     );
-    const afterCleanupConfig = readHookConfigObservation(
+    const afterCleanupConfig = (await readHookConfigObservation(
       repoRoot,
       commonGitDir,
       worktreeGitDir,
       worktreeConfigPath
-    ).state;
+    )).state;
     if (!sameHookConfigState(afterCleanupConfig, postimage)) {
       throw new GitHookTransitionConflict('Git hook configuration changed during managed cleanup');
     }
@@ -6329,7 +6323,7 @@ async function installGitHooksMainWithBudget(options: {
     const cwd = path.resolve(options.cwd ?? process.cwd());
     let repoRoot: string | null;
     try {
-      repoRoot = gitText(cwd, ['rev-parse', '--show-toplevel']);
+      repoRoot = await gitText(cwd, ['rev-parse', '--show-toplevel']);
     } catch (error) {
       // Lifecycle mode may skip a genuinely Gitless checkout, but it must
       // never turn an authority-provider admission failure into a successful

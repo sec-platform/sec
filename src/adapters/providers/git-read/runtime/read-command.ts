@@ -199,9 +199,27 @@ export function gitReadCommandIsObservation(args: readonly string[]): boolean {
       && commandArgs[5] === 'eol';
   }
   if (command === 'config') {
-    return commandArgs.length === 2
-      && commandArgs[0] === '--get'
-      && !commandArgs[1]!.startsWith('-');
+    if (commandArgs.length === 2) {
+      return commandArgs[0] === '--get'
+        && !commandArgs[1]!.startsWith('-');
+    }
+    if (commandArgs.length === 4
+        && commandArgs[0] === '--local'
+        && commandArgs[1] === '--null'
+        && commandArgs[2] === '--get-regexp') {
+      return commandArgs[3] === '^(extensions\\.worktreeconfig|core\\.hookspath)$';
+    }
+    if (commandArgs.length === 5
+        && commandArgs[0] === '--file'
+        && commandArgs[2] === '--null'
+        && commandArgs[3] === '--get'
+        && commandArgs[4] === 'core.hooksPath') {
+      const configPath = commandArgs[1]!;
+      return configPath.length > 0
+        && !configPath.startsWith('-')
+        && !/[\0\r\n]/u.test(configPath);
+    }
+    return false;
   }
   if (command === 'remote') {
     return commandArgs.length >= 2
