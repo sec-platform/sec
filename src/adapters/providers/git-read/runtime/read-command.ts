@@ -213,7 +213,8 @@ export function gitReadCommandIsObservation(args: readonly string[]): boolean {
         && commandArgs[0] === '--file'
         && commandArgs[2] === '--null'
         && commandArgs[3] === '--get'
-        && commandArgs[4] === 'core.hooksPath') {
+        && (commandArgs[4] === 'core.hooksPath'
+          || commandArgs[4] === 'extensions.worktreeConfig')) {
       const configPath = commandArgs[1]!;
       return configPath.length > 0
         && !configPath.startsWith('-')
