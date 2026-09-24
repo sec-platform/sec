@@ -1353,20 +1353,17 @@ function compileRepositorySourceProgramModelInternal(
     for (const obligation of descriptor.operationObligations) {
       const operation = obligation.operation;
       if (operation.kind !== 'capability' || obligation.effect.kinds.length === 0) continue;
-      const exactDomainOwner = roleBindings.find(({ descriptor: owner, provider, binding }) => (
+      const exactOperationRoles = roleBindings.filter(({ descriptor: owner, provider, binding }) => (
         owner.moduleId === descriptor.moduleId
         && provider.capability === operation.capability
         && binding.operation === operation.operation
-        && binding.role === 'domain-owner'
-        && binding.requirementId === null
+      ));
+      const exactDomainOwner = exactOperationRoles.find(({ binding }) => (
+        binding.role === 'domain-owner' && binding.requirementId === null
       ));
       if (exactDomainOwner !== undefined) continue;
-      const exactTerminalIssuers = roleBindings.filter(({ descriptor: owner, provider, binding }) => (
-        owner.moduleId === descriptor.moduleId
-        && provider.capability === operation.capability
-        && binding.operation === operation.operation
-        && binding.role === 'terminal-issuer'
-        && binding.requirementId === null
+      const exactTerminalIssuers = exactOperationRoles.filter(({ binding }) => (
+        binding.role === 'terminal-issuer' && binding.requirementId === null
       ));
       const terminalDomainOwners = exactTerminalIssuers.length === 1
         ? roleBindings.filter(({ descriptor: owner, provider, binding }) => (
@@ -1378,13 +1375,26 @@ function compileRepositorySourceProgramModelInternal(
           ))
         : [];
       if (terminalDomainOwners.length === 1) continue;
+      const exactIssuer = exactOperationRoles.length === 1
+          && (exactOperationRoles[0]!.binding.role === 'grant-issuer'
+            || exactOperationRoles[0]!.binding.role === 'readback-issuer')
+        ? exactOperationRoles[0]
+        : undefined;
+      const semanticDomainOwners = exactIssuer === undefined ? [] : roleBindings.filter(({ binding }) => (
+        binding.role === 'domain-owner'
+        && binding.semanticOperation === exactIssuer.binding.semanticOperation
+        && binding.requirementId === null
+      ));
+      if (exactIssuer !== undefined && semanticDomainOwners.length === 1) continue;
       candidates.push(Object.freeze({
         code: 'operation-critical-role-unresolved',
         subject: `${operation.capability}:${operation.operation}`,
         paths: Object.freeze([`${descriptor.root}/sec.module.json`]),
         reason: exactTerminalIssuers.length === 1
           ? 'effectful terminal operation has no unique domain owner in the same module, capability, and semantic operation'
-          : 'effectful public semantic operation has no exact domain-owner role bound to its declared requirement provider operation',
+          : exactIssuer !== undefined
+            ? `effectful ${exactIssuer.binding.role} operation has no unique domain owner for semantic operation ${exactIssuer.binding.semanticOperation}`
+            : 'effectful public semantic operation has no exact issuer role or domain owner bound to its declared provider operation',
         observationClass: 'unknown'
       }));
     }

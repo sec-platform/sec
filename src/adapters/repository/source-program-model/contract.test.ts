@@ -2794,6 +2794,99 @@ test('source program keeps an effectful public operation without an exact domain
   }));
 });
 
+test('source program resolves effectful issuer operations through one semantic domain owner', () => {
+  const obligation = (capability: string, operation: string) => ({
+    operation: { kind: 'capability', capability, operation },
+    consumerSupport: { consumers: [] },
+    effect: {
+      kinds: ['process'],
+      failureKinds: ['example.failed'],
+      recovery: 'owner-intervention'
+    },
+    evolution: {
+      migration: 'not-required',
+      retirement: 'replacement-obligations-satisfied'
+    },
+    resources: {
+      aggregateBudgets: [
+        { resource: 'duration-ms', maximum: 1_000 },
+        { resource: 'input-bytes', maximum: 0 },
+        { resource: 'output-bytes', maximum: 1 },
+        { resource: 'processes', maximum: 1 }
+      ]
+    },
+    futureSupport: { condition: 'semantic-superset-required' }
+  });
+  const compile = (duplicateDomainOwner: boolean) => compileIssuerRoleFixture({
+    sources: {
+      'src/domain/operation.ts': 'export function execute(): void {}\n',
+      ...(duplicateDomainOwner
+        ? { 'src/domain-copy/operation.ts': 'export function executeCopy(): void {}\n' }
+        : {}),
+      'src/grant/issuer.ts': 'export function issueGrant(): void {}\n',
+      'src/readback/issuer.ts': 'export function readback(): void {}\n'
+    },
+    operationObligations: {
+      'src/grant': [obligation('semantic.grant', 'issueGrant')],
+      'src/readback': [obligation('semantic.readback', 'readback')]
+    },
+    descriptors: {
+      'src/domain': [{
+        capability: 'domain.operation',
+        operations: ['execute'],
+        operationRoles: [{
+          operation: 'execute', role: 'domain-owner', semanticOperation: 'example.operation',
+          requirementId: null, recovery: null
+        }]
+      }],
+      ...(duplicateDomainOwner ? {
+        'src/domain-copy': [{
+          capability: 'domain.copy',
+          operations: ['executeCopy'],
+          operationRoles: [{
+            operation: 'executeCopy', role: 'domain-owner', semanticOperation: 'example.operation',
+            requirementId: null, recovery: null
+          }]
+        }]
+      } : {}),
+      'src/grant': [{
+        capability: 'semantic.grant', operations: ['issueGrant'], effectKinds: ['process'],
+        operationRoles: [{
+          operation: 'issueGrant', role: 'grant-issuer', semanticOperation: 'example.operation',
+          requirementId: null, recovery: null
+        }]
+      }],
+      'src/readback': [{
+        capability: 'semantic.readback', operations: ['readback'], effectKinds: ['process'],
+        operationRoles: [{
+          operation: 'readback', role: 'readback-issuer', semanticOperation: 'example.operation',
+          requirementId: 'example.provider', recovery: null
+        }]
+      }]
+    }
+  });
+
+  const accepted = compile(false);
+  expect(accepted.candidates).not.toContainEqual(expect.objectContaining({
+    code: 'operation-critical-role-unresolved',
+    subject: 'semantic.grant:issueGrant'
+  }));
+  expect(accepted.candidates).not.toContainEqual(expect.objectContaining({
+    code: 'operation-critical-role-unresolved',
+    subject: 'semantic.readback:readback'
+  }));
+
+  const ambiguous = compile(true);
+  expect(ambiguous.candidates).toContainEqual(expect.objectContaining({
+    code: 'operation-critical-role-unresolved',
+    subject: 'semantic.grant:issueGrant'
+  }));
+  expect(ambiguous.candidates).toContainEqual(expect.objectContaining({
+    code: 'operation-critical-role-unresolved',
+    subject: 'semantic.readback:readback'
+  }));
+});
+
 test('source program accepts a terminal issuer only through its unique same-capability semantic domain owner', () => {
   const operationObligation = (capability: string, operation: string) => ({
     operation: { kind: 'capability', capability, operation },

@@ -23,6 +23,15 @@
         "runRetainedCommand",
         "runRetainedCommandBytes",
         "resolveExecutableLocator"
+      ],
+      "operationRoles": [
+        {
+          "operation": "openProcessResourceSession",
+          "role": "domain-owner",
+          "semanticOperation": "runtime-state.process-resource-session",
+          "requirementId": null,
+          "recovery": null
+        }
       ]
     },
     {
@@ -58,7 +67,64 @@
       "ownerInternalOperations": [
         "openRetainedRuntimeStateDirectoryAtOwnerIssuedRoot"
       ],
-      "operationRoles": []
+      "operationRoles": [
+        {
+          "operation": "censusRetainedRuntimeGenerations",
+          "role": "domain-owner",
+          "semanticOperation": "runtime-state.physical.runtime-generation-census",
+          "requirementId": null,
+          "recovery": null
+        },
+        {
+          "operation": "materializeRetainedSealedPhysicalExecutionTreeGeneration",
+          "role": "domain-owner",
+          "semanticOperation": "runtime-state.physical.sealed-execution-tree-generation",
+          "requirementId": null,
+          "recovery": null
+        },
+        {
+          "operation": "materializeRetainedTypeScriptExecutionGeneration",
+          "role": "domain-owner",
+          "semanticOperation": "runtime-state.physical.typescript-execution-generation",
+          "requirementId": null,
+          "recovery": null
+        },
+        {
+          "operation": "openRetainedWindowsRuntimeStateDirectory",
+          "role": "domain-owner",
+          "semanticOperation": "runtime-state.physical.windows-runtime-state-directory",
+          "requirementId": null,
+          "recovery": null
+        },
+        {
+          "operation": "observeRetainedRuntimeEndpointResidue",
+          "role": "domain-owner",
+          "semanticOperation": "runtime-state.physical.endpoint-residue-observation",
+          "requirementId": null,
+          "recovery": null
+        },
+        {
+          "operation": "retainCommandAuxiliaryOrdinaryFiles",
+          "role": "domain-owner",
+          "semanticOperation": "runtime-state.physical.command-auxiliary-files",
+          "requirementId": null,
+          "recovery": null
+        },
+        {
+          "operation": "retainMutableSealedPhysicalExecutionProtectedRoot",
+          "role": "domain-owner",
+          "semanticOperation": "runtime-state.physical.mutable-sealed-root-retention",
+          "requirementId": null,
+          "recovery": null
+        },
+        {
+          "operation": "settlePhysicalResourcesAsync",
+          "role": "domain-owner",
+          "semanticOperation": "runtime-state.physical.resource-settlement",
+          "requirementId": null,
+          "recovery": null
+        }
+      ]
     }
   ],
   "operationObligations": [

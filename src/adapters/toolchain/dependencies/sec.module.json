@@ -15,6 +15,13 @@
       ],
       "operationRoles": [
         {
+          "operation": "observeCompilerDependencyExecutionGenerationAuthority",
+          "role": "domain-owner",
+          "semanticOperation": "toolchain.compiler-dependency.execution-generation-observation",
+          "requirementId": null,
+          "recovery": null
+        },
+        {
           "operation": "retainCompilerDependencyReadGeneration",
           "role": "domain-owner",
           "semanticOperation": "toolchain.compiler-dependency.read-generation",

@@ -17,6 +17,36 @@
         "selectInstalledTypeScriptNativeChecker",
         "typeScriptExecutionGenerationDigest",
         "typeScriptCheckerArguments"
+      ],
+      "operationRoles": [
+        {
+          "operation": "selectInstalledTypeScriptNativeChecker",
+          "role": "domain-owner",
+          "semanticOperation": "toolchain.typescript.native-checker-selection",
+          "requirementId": null,
+          "recovery": null
+        },
+        {
+          "operation": "executeTypeScriptNativeChecker",
+          "role": "domain-owner",
+          "semanticOperation": "toolchain.typescript.native-checker-execution",
+          "requirementId": null,
+          "recovery": null
+        },
+        {
+          "operation": "materializeTypeScriptExecutionGeneration",
+          "role": "domain-owner",
+          "semanticOperation": "toolchain.typescript.execution-generation",
+          "requirementId": null,
+          "recovery": null
+        },
+        {
+          "operation": "prepareTypeScriptIncrementalState",
+          "role": "domain-owner",
+          "semanticOperation": "toolchain.typescript.incremental-state",
+          "requirementId": null,
+          "recovery": null
+        }
       ]
     }
   ],

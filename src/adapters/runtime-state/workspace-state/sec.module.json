@@ -17,6 +17,15 @@
       ],
       "effectKinds": [
         "filesystem"
+      ],
+      "operationRoles": [
+        {
+          "operation": "openContentAddressedWorkspaceCacheSession",
+          "role": "domain-owner",
+          "semanticOperation": "runtime-state.workspace-cache.session",
+          "requirementId": null,
+          "recovery": null
+        }
       ]
     },
     {
@@ -26,6 +35,15 @@
       ],
       "effectKinds": [
         "filesystem"
+      ],
+      "operationRoles": [
+        {
+          "operation": "createBoundedProcessDiagnosticObjectStore",
+          "role": "domain-owner",
+          "semanticOperation": "runtime-state.process-diagnostics.object-store",
+          "requirementId": null,
+          "recovery": null
+        }
       ]
     },
     {
@@ -35,6 +53,15 @@
       ],
       "effectKinds": [
         "filesystem"
+      ],
+      "operationRoles": [
+        {
+          "operation": "withSecUserExternalProviderCoordinationLease",
+          "role": "domain-owner",
+          "semanticOperation": "runtime-state.external-provider-coordination.lease",
+          "requirementId": null,
+          "recovery": null
+        }
       ]
     },
     {
@@ -44,6 +71,15 @@
       ],
       "effectKinds": [
         "filesystem"
+      ],
+      "operationRoles": [
+        {
+          "operation": "createDurableExecutionWriter",
+          "role": "domain-owner",
+          "semanticOperation": "runtime-state.durable-local-effect.writer",
+          "requirementId": null,
+          "recovery": null
+        }
       ]
     }
   ],
