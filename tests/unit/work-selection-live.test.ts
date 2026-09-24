@@ -15,37 +15,37 @@ import type { CurrentWorkLifecycle } from '../../src/adapters/self-hosting/contr
 import {
   SEC_ROADMAP_WORK_CATALOG_BEGIN,
   SEC_ROADMAP_WORK_CATALOG_END,
-  assertSecRoadmapTerminalCompactionCandidate,
-  assertSecRoadmapTerminalCompactionDelta,
-  assertSecWorkDecisionReceiptV1,
-  compileSecRoadmapTerminalCompaction,
-  compileSecWorkRollingProjection,
-  compileSecWorkRollingTopology,
-  compileSecWorkRollingTransitionProjection,
-  compileSecWorkSelectionTerminalProjection,
-  createSecRoadmapTerminalCompactionCandidate,
-  createSecWorkCurrentSpecObservation,
-  createSecWorkDecisionReceipt,
-  createSecWorkRegistryObservation,
+  assertRoadmapTerminalCompactionCandidate,
+  assertRoadmapTerminalCompactionDelta,
+  assertWorkDecisionReceipt,
+  compileRoadmapTerminalCompaction,
+  compileWorkRollingProjection,
+  compileWorkRollingTopology,
+  compileWorkRollingTransitionProjection,
+  compileWorkSelectionTerminalProjection,
+  createRoadmapTerminalCompactionCandidate,
+  createWorkCurrentSpecObservation,
+  createWorkDecisionReceipt,
+  createWorkRegistryObservation,
   currentSpecRevisionFromBody,
-  parseSecRoadmapWorkCatalog,
-  parseSecWorkRollingMachineProjection,
-  parseSecWorkRollingProjectionV1,
-  renderSecWorkRollingPlan,
-  renderSecWorkRollingTransitionPlan,
-  unresolvedSecWorkSelectionLiveResult,
-  type SecRoadmapWorkCatalog,
-  type SecWorkCurrentSpecObservation,
-  type SecWorkRegistryObservation
+  parseRoadmapWorkCatalog,
+  parseWorkRollingMachineProjection,
+  parseWorkRollingProjection,
+  renderWorkRollingPlan,
+  renderWorkRollingTransitionPlan,
+  unresolvedWorkSelectionLiveResult,
+  type RoadmapWorkCatalog,
+  type WorkCurrentSpecObservation,
+  type WorkRegistryObservation
 } from '../../src/adapters/self-hosting/control/work-selection/live-contract.ts';
 import {
   isExactWorkSelectionActiveIdentity,
   isWorkSelectionProspectiveTransport,
-  observeSecRoadmapTerminalCompactionCandidate,
-  observeSecWorkSelectionLive,
-  observeSecWorkSelectionWithProviderV1,
-  requireResolvedSecWorkDecisionReceipt,
-  type SecWorkSelectionProvider
+  observeRoadmapTerminalCompactionCandidate,
+  observeWorkSelectionLive,
+  observeWorkSelectionWithProvider,
+  requireResolvedWorkDecisionReceipt,
+  type WorkSelectionProvider
 } from '../../src/adapters/self-hosting/control/work-selection/runtime.ts';
 import { rawSha256, sha256 } from '../../src/contracts/canonical.ts';
 
@@ -56,14 +56,14 @@ const roadmapSource = readFileSync('config/repository/work-selection.md', 'utf8'
 type CatalogObservationV1 = Readonly<{
   source: string;
   roadmapRevision: ReturnType<typeof rawSha256>;
-  catalog: SecRoadmapWorkCatalog;
+  catalog: RoadmapWorkCatalog;
 }>;
 
 function observeCatalog(source: string): CatalogObservationV1 {
   return Object.freeze({
     source,
     roadmapRevision: rawSha256(source),
-    catalog: parseSecRoadmapWorkCatalog(source)
+    catalog: parseRoadmapWorkCatalog(source)
   });
 }
 
@@ -187,8 +187,8 @@ function lifecycle(): CurrentWorkLifecycle {
   };
 }
 
-function specs(catalog: SecRoadmapWorkCatalog): SecWorkCurrentSpecObservation[] {
-  return catalog.items.map((item) => createSecWorkCurrentSpecObservation({
+function specs(catalog: RoadmapWorkCatalog): WorkCurrentSpecObservation[] {
+  return catalog.items.map((item) => createWorkCurrentSpecObservation({
     workId: item.workId,
     currentSpecRef: item.currentSpecRef,
     providerResourceRef: `github-node:${item.tracking}`,
@@ -198,10 +198,10 @@ function specs(catalog: SecRoadmapWorkCatalog): SecWorkCurrentSpecObservation[] 
 }
 
 function registry(
-  catalog: SecRoadmapWorkCatalog,
+  catalog: RoadmapWorkCatalog,
   completedWorkIds: readonly string[] = []
-): SecWorkRegistryObservation {
-  return createSecWorkRegistryObservation({
+): WorkRegistryObservation {
+  return createWorkRegistryObservation({
     defaultTreeSha: exactMainTree,
     entries: completedWorkIds.map((workId, index) => {
       const item = catalog.items.find((candidate) => candidate.workId === workId)!;
@@ -224,7 +224,7 @@ function receiptForCatalog(
   current: CurrentWorkLifecycle = lifecycle()
 ) {
   const { catalog, roadmapRevision } = observation;
-  return createSecWorkDecisionReceipt({
+  return createWorkDecisionReceipt({
     repository: 'sec-platform/sec',
     exactMain,
     exactMainTree,
@@ -254,7 +254,7 @@ describe('work-selection live contract', () => {
       ['unresolved', 'main-health-locked']
     ] as const) {
       const commands: Array<Readonly<{ command: 'gh' | 'git'; args: readonly string[] }>> = [];
-      const provider: SecWorkSelectionProvider = (command, args) => {
+      const provider: WorkSelectionProvider = (command, args) => {
         commands.push({ command, args: [...args] });
         if (command === 'gh') {
           return { status: 97, stdout: Buffer.alloc(0), stderr: Buffer.from('selector census forbidden') };
@@ -277,7 +277,7 @@ describe('work-selection live contract', () => {
           : { status: 0, stdout, stderr: Buffer.alloc(0) };
       };
       let mainHealthObservations = 0;
-      const result = await observeSecWorkSelectionWithProviderV1({
+      const result = await observeWorkSelectionWithProvider({
         cwd: process.cwd(),
         exactMain,
         exactMainTree
@@ -301,7 +301,7 @@ describe('work-selection live contract', () => {
 
   test('production observation fails closed when Git authority is unavailable', async () => {
     const missingCwd = path.join(tmpdir(), 'sec-work-selection-provider-admission-missing');
-    const result = await observeSecWorkSelectionLive({ cwd: missingCwd } as never);
+    const result = await observeWorkSelectionLive({ cwd: missingCwd } as never);
     expect(result).toMatchObject({
       status: 'unresolved',
       reasonCodes: ['git-read-provider-unavailable']
@@ -355,37 +355,37 @@ describe('work-selection live contract', () => {
   });
 
   test('canonical roadmap embeds one bounded normalized catalog', () => {
-    const catalog = parseSecRoadmapWorkCatalog(roadmapSource);
+    const catalog = parseRoadmapWorkCatalog(roadmapSource);
     expect(catalog.stageRef).toBe('r14-agent-operation');
     expect(catalog.items.length).toBeGreaterThanOrEqual(2);
     expect(new Set(catalog.items.map(({ packageId }) => packageId)).size)
       .toBe(catalog.items.length);
-    expect(() => parseSecRoadmapWorkCatalog(
+    expect(() => parseRoadmapWorkCatalog(
       `${roadmapSource}\n${SEC_ROADMAP_WORK_CATALOG_BEGIN}`
     )).toThrow(/exactly one ordered catalog marker pair/u);
     const first = catalog.items[0]!;
     const last = catalog.items.at(-1)!;
-    expect(() => parseSecRoadmapWorkCatalog(roadmapSource.replace(
+    expect(() => parseRoadmapWorkCatalog(roadmapSource.replace(
       `"currentSpecRef": "${first.currentSpecRef}"`,
       '"currentSpecRef": "github:issue/999"'
     ))).toThrow(/must bind the same Issue identity/u);
-    expect(() => parseSecRoadmapWorkCatalog(roadmapSource.replace(
+    expect(() => parseRoadmapWorkCatalog(roadmapSource.replace(
       `"workId": "${first.workId}"`,
       `"workId": "${first.workId}-slice"`
     ))).toThrow(/workId must equal its canonical tracking identity/u);
-    expect(() => parseSecRoadmapWorkCatalog(roadmapSource.replace(
+    expect(() => parseRoadmapWorkCatalog(roadmapSource.replace(
       `"ownerRef": "${first.ownerRef}"`,
       `"ownerRef": "${first.ownerRef}#slice"`
     ))).toThrow(/ownerRef must equal its canonical currentSpecRef/u);
-    expect(() => parseSecRoadmapWorkCatalog(roadmapSource.replace(
+    expect(() => parseRoadmapWorkCatalog(roadmapSource.replace(
       '"prerequisiteWorkIds": [],\n      "orderedAfterWorkIds": []',
       `"prerequisiteWorkIds": ["${last.workId}"],\n      "orderedAfterWorkIds": []`
     ))).toThrow(/must precede it in roadmap order/u);
-    expect(() => parseSecRoadmapWorkCatalog(roadmapSource.replace(
+    expect(() => parseRoadmapWorkCatalog(roadmapSource.replace(
       '"schema": "sec-roadmap-work-catalog-v1",',
       '"schema": "sec-roadmap-work-catalog-v1",\n  "schema": "sec-roadmap-work-catalog-v1",'
     ))).toThrow(/duplicate key "schema"/u);
-    expect(() => parseSecRoadmapWorkCatalog(roadmapSource.replace(
+    expect(() => parseRoadmapWorkCatalog(roadmapSource.replace(
       `"tracking": "${first.tracking}",`,
       `"tracking": "${first.tracking}",\n      "tracking": "${first.tracking}",`
     ))).toThrow(/duplicate key "tracking"/u);
@@ -393,7 +393,7 @@ describe('work-selection live contract', () => {
 
   test('terminal compaction retires catalog and dependencies while delaying bound-manifest retirement', () => {
     const prior = transitionCatalog();
-    const compaction = compileSecRoadmapTerminalCompaction({
+    const compaction = compileRoadmapTerminalCompaction({
       roadmapSource: prior.source,
       completedWorkIds: ['issue-271']
     });
@@ -407,9 +407,9 @@ describe('work-selection live contract', () => {
       'config/repository/work-packages/generated-ignored-state-lifecycle-v1.md'
     ]);
     expect(compaction.demandGraphDigest).toMatch(/^sha256:[0-9a-f]{64}$/u);
-    expect(parseSecRoadmapWorkCatalog(compaction.roadmapSource).catalogDigest)
+    expect(parseRoadmapWorkCatalog(compaction.roadmapSource).catalogDigest)
       .toBe(compaction.catalog.catalogDigest);
-    expect(() => assertSecRoadmapTerminalCompactionDelta({
+    expect(() => assertRoadmapTerminalCompactionDelta({
       priorRoadmapSource: prior.source,
       roadmapSource: compaction.roadmapSource,
       priorManifestPaths: compaction.delayedManifestRetirementPaths,
@@ -420,12 +420,12 @@ describe('work-selection live contract', () => {
   test('terminal selection projection binds closed provider evidence and keeps only live work', () => {
     const prior = transitionCatalog();
     const currentSpecs = specs(prior.catalog).map((entry) => entry.workId === 'issue-271'
-      ? createSecWorkCurrentSpecObservation({
+      ? createWorkCurrentSpecObservation({
           ...entry,
           providerState: 'closed'
         })
       : entry);
-    const projection = compileSecWorkSelectionTerminalProjection({
+    const projection = compileWorkSelectionTerminalProjection({
       roadmapSource: prior.source,
       currentSpecs
     });
@@ -438,13 +438,13 @@ describe('work-selection live contract', () => {
     expect(projection.catalog.items.map(({ workId }) => workId)).not.toContain('issue-271');
     expect(projection.currentSpecs.map(({ workId }) => workId)).not.toContain('issue-271');
     expect(projection.roadmapRevision).not.toBe(rawSha256(prior.source));
-    expect(() => assertSecRoadmapTerminalCompactionCandidate({
+    expect(() => assertRoadmapTerminalCompactionCandidate({
       compaction: projection.terminalCompaction!,
       roadmapSource: projection.terminalCompaction!.roadmapSource,
       presentDelayedManifestPaths:
         projection.terminalCompaction!.delayedManifestRetirementPaths
     })).not.toThrow();
-    expect(() => assertSecRoadmapTerminalCompactionCandidate({
+    expect(() => assertRoadmapTerminalCompactionCandidate({
       compaction: projection.terminalCompaction!,
       roadmapSource: projection.terminalCompaction!.roadmapSource,
       presentDelayedManifestPaths: []
@@ -453,30 +453,30 @@ describe('work-selection live contract', () => {
 
   test('terminal compaction preserves the exact manifest subgraph for successor freeze', () => {
     const prior = transitionCatalog();
-    const compaction = compileSecRoadmapTerminalCompaction({
+    const compaction = compileRoadmapTerminalCompaction({
       roadmapSource: prior.source,
       completedWorkIds: ['issue-271']
     });
     const manifestPath = 'config/repository/work-packages/generated-ignored-state-lifecycle-v1.md';
-    expect(() => assertSecRoadmapTerminalCompactionDelta({
+    expect(() => assertRoadmapTerminalCompactionDelta({
       priorRoadmapSource: prior.source,
       roadmapSource: prior.source,
       priorManifestPaths: [manifestPath],
       manifestPaths: [manifestPath, 'config/repository/work-packages/new-selected-v1.md']
     })).not.toThrow();
-    expect(() => assertSecRoadmapTerminalCompactionDelta({
+    expect(() => assertRoadmapTerminalCompactionDelta({
       priorRoadmapSource: prior.source,
       roadmapSource: compaction.roadmapSource,
       priorManifestPaths: [manifestPath],
       manifestPaths: [manifestPath]
     })).not.toThrow();
-    expect(() => assertSecRoadmapTerminalCompactionDelta({
+    expect(() => assertRoadmapTerminalCompactionDelta({
       priorRoadmapSource: prior.source,
       roadmapSource: compaction.roadmapSource,
       priorManifestPaths: [manifestPath, 'config/repository/work-packages/survivor-v1.md'],
       manifestPaths: ['config/repository/work-packages/new-selected-v1.md']
     })).toThrow(/cannot mutate the manifest set/u);
-    expect(() => assertSecRoadmapTerminalCompactionDelta({
+    expect(() => assertRoadmapTerminalCompactionDelta({
       priorRoadmapSource: prior.source,
       roadmapSource: compaction.roadmapSource,
       priorManifestPaths: [manifestPath],
@@ -491,7 +491,7 @@ describe('work-selection live contract', () => {
       .replace('"ownerRef": "github:issue/321#candidate-control-transaction"',
         '"ownerRef": "github:issue/321"')
       .replaceAll('"github:issue/321#candidate-control-transaction"', '"github:issue/321"');
-    expect(() => assertSecRoadmapTerminalCompactionDelta({
+    expect(() => assertRoadmapTerminalCompactionDelta({
       priorRoadmapSource: prior.source,
       roadmapSource: migrated,
       priorManifestPaths: [],
@@ -501,7 +501,7 @@ describe('work-selection live contract', () => {
 
   test('terminal candidate identity is derived from exact semantic trees, not PR prose or branch names', () => {
     const prior = transitionCatalog();
-    const compaction = compileSecRoadmapTerminalCompaction({
+    const compaction = compileRoadmapTerminalCompaction({
       roadmapSource: prior.source,
       completedWorkIds: ['issue-271']
     });
@@ -509,7 +509,7 @@ describe('work-selection live contract', () => {
       'config/repository/work-packages/generated-ignored-state-lifecycle-v1.md',
       'config/repository/work-packages/survivor-v1.md'
     ];
-    const candidate = createSecRoadmapTerminalCompactionCandidate({
+    const candidate = createRoadmapTerminalCompactionCandidate({
       repository: 'sec-platform/sec',
       exactMain,
       compaction,
@@ -528,7 +528,7 @@ describe('work-selection live contract', () => {
       compactionDigest: compaction.compactionDigest
     });
     expect(candidate.bindingDigest).toMatch(/^sha256:[0-9a-f]{64}$/u);
-    expect(() => createSecRoadmapTerminalCompactionCandidate({
+    expect(() => createRoadmapTerminalCompactionCandidate({
       repository: 'sec-platform/sec',
       exactMain,
       compaction,
@@ -541,7 +541,7 @@ describe('work-selection live contract', () => {
       headSha: 'c'.repeat(40),
       headTreeSha: 'd'.repeat(40)
     })).toThrow(/retain every pointer-bound manifest/u);
-    expect(() => createSecRoadmapTerminalCompactionCandidate({
+    expect(() => createRoadmapTerminalCompactionCandidate({
       repository: 'sec-platform/sec',
       exactMain,
       compaction,
@@ -606,7 +606,7 @@ describe('work-selection live contract', () => {
         + `defaultRefFreshness: live-platform-match-required\nmanifest: ${manifestPath}\n`
         + `manifestDigest: ${manifestDigest}\ndigestBytes: git-blob\n`
         + `unavailableDefaultRef: unresolved\nmatchingDefaultBlob: none\n\`\`\`\n`, 'utf8');
-      const priorRolling = compileSecWorkRollingTransitionProjection({
+      const priorRolling = compileWorkRollingTransitionProjection({
         exactMain: seedSha,
         exactMainTree: seedTree,
         authority: {
@@ -626,7 +626,7 @@ describe('work-selection live contract', () => {
         ]
       });
       writeFileSync(path.join(root, 'config', 'repository', 'rolling-plan.md'),
-        renderSecWorkRollingTransitionPlan({ projection: priorRolling, reviewedOn: '2026-08-23' }), 'utf8');
+        renderWorkRollingTransitionPlan({ projection: priorRolling, reviewedOn: '2026-08-23' }), 'utf8');
       writeFileSync(path.join(root, 'config', 'repository', 'work-selection.md'), prior.source, 'utf8');
       runFixtureGit(root, ['add', '--', 'config/repository']);
       runFixtureGit(root, ['commit', '--quiet', '-m', 'fixture: terminal base']);
@@ -635,7 +635,7 @@ describe('work-selection live contract', () => {
       runFixtureGit(root, ['update-ref', 'refs/remotes/origin/main', baseSha]);
       runFixtureGit(root, ['symbolic-ref', 'refs/remotes/origin/HEAD', 'refs/remotes/origin/main']);
 
-      const compaction = compileSecRoadmapTerminalCompaction({
+      const compaction = compileRoadmapTerminalCompaction({
         roadmapSource: prior.source,
         completedWorkIds: ['issue-186']
       });
@@ -747,7 +747,7 @@ describe('work-selection live contract', () => {
           stdout: Buffer.from(result.stdout ?? ''),
           stderr: Buffer.from(result.stderr ?? result.error?.message ?? '')
         };
-      }) satisfies SecWorkSelectionProvider;
+      }) satisfies WorkSelectionProvider;
       const normalizedPullRequest = [{
         number: pullRequest.number,
         headBranch: pullRequest.headRefName,
@@ -757,7 +757,7 @@ describe('work-selection live contract', () => {
         body: pullRequest.body
       }];
 
-      const terminal = await observeSecRoadmapTerminalCompactionCandidate({
+      const terminal = await observeRoadmapTerminalCompactionCandidate({
         run: provider,
         root,
         repository: 'sec-platform/sec',
@@ -778,7 +778,7 @@ describe('work-selection live contract', () => {
         retiredWorkIds: ['issue-186']
       });
 
-      const observed = await observeSecWorkSelectionWithProviderV1({
+      const observed = await observeWorkSelectionWithProvider({
         cwd: root,
         exactMain: baseSha,
         exactMainTree: baseTreeSha
@@ -813,12 +813,12 @@ describe('work-selection live contract', () => {
           manifestPath: secondaryManifestPath
         });
       expect(observed.reasonCodes).toEqual([]);
-      expect(() => requireResolvedSecWorkDecisionReceipt(observed)).toThrow(
+      expect(() => requireResolvedWorkDecisionReceipt(observed)).toThrow(
         'Work selection result is not issued by the trusted production live runner'
       );
 
       runFixtureGit(root, ['checkout', '--quiet', 'independent-review']);
-      const ordinary = await observeSecWorkSelectionWithProviderV1({
+      const ordinary = await observeWorkSelectionWithProvider({
         cwd: root,
         exactMain: baseSha,
         exactMainTree: baseTreeSha
@@ -859,7 +859,7 @@ describe('work-selection live contract', () => {
         .toMatchObject({ headSha: independentHeadSha, manifestPath: independentManifestPath });
       expect(ordinaryPrEntries.find(({ prNumber }) => prNumber === secondaryPullRequest.number))
         .toMatchObject({ headSha: secondaryHeadSha, manifestPath: secondaryManifestPath });
-      const malformedUnselected = await observeSecWorkSelectionWithProviderV1({
+      const malformedUnselected = await observeWorkSelectionWithProvider({
         cwd: root,
         exactMain: baseSha,
         exactMainTree: baseTreeSha
@@ -900,7 +900,7 @@ describe('work-selection live contract', () => {
       runFixtureGit(root, ['checkout', '--quiet', 'terminal-compaction']);
 
       const missingHead = 'f'.repeat(40);
-      const unavailable = await observeSecWorkSelectionWithProviderV1({
+      const unavailable = await observeWorkSelectionWithProvider({
         cwd: root,
         exactMain: baseSha,
         exactMainTree: baseTreeSha
@@ -923,7 +923,7 @@ describe('work-selection live contract', () => {
         receipt: null
       });
 
-      const duplicateCurrent = await observeSecWorkSelectionWithProviderV1({
+      const duplicateCurrent = await observeWorkSelectionWithProvider({
         cwd: root,
         exactMain: baseSha,
         exactMainTree: baseTreeSha
@@ -950,7 +950,7 @@ describe('work-selection live contract', () => {
       });
 
       let currentBranchReads = 0;
-      const driftedCheckout = await observeSecWorkSelectionWithProviderV1({
+      const driftedCheckout = await observeWorkSelectionWithProvider({
         cwd: root,
         exactMain: baseSha,
         exactMainTree: baseTreeSha
@@ -984,7 +984,7 @@ describe('work-selection live contract', () => {
       runFixtureGit(root, ['add', '--', 'config/repository/work-packages/provider-replay-drift.md']);
       runFixtureGit(root, ['commit', '--quiet', '-m', 'fixture: manifest path drift']);
       const driftedHead = fixtureGitSha(root, 'HEAD');
-      const drifted = await observeSecRoadmapTerminalCompactionCandidate({
+      const drifted = await observeRoadmapTerminalCompactionCandidate({
         run: provider,
         root,
         repository: 'sec-platform/sec',
@@ -1022,7 +1022,7 @@ describe('work-selection live contract', () => {
   });
 
   test('exact repository package census validates current selection without a transient Issue constant', () => {
-    const catalog = parseSecRoadmapWorkCatalog(roadmapSource);
+    const catalog = parseRoadmapWorkCatalog(roadmapSource);
     const result = receipt();
     expect(['select-next', 'none']).toContain(result.decision.status);
     const readyOpenWorkIds = result.input.candidates.filter((candidate) => (
@@ -1039,16 +1039,16 @@ describe('work-selection live contract', () => {
     const selectedCandidate = result.input.candidates.find(({ workId }) => workId === selectedWorkId)!;
     expect(selectedCandidate).toMatchObject({ lifecycle: 'open', readiness: 'ready' });
     expect(existsSync(`config/repository/work-packages/${selectedCatalogItem.packageId}.md`)).toBeFalse();
-    const projection = compileSecWorkRollingProjection(result);
+    const projection = compileWorkRollingProjection(result);
     expect(projection.active.packageId).toBe(selectedCatalogItem.packageId);
     expect(projection.candidates.length).toBeLessThanOrEqual(5);
     expect(new Set(projection.candidates.map(({ packageId }) => packageId)).size)
       .toBe(projection.candidates.length);
     expect(projection.receiptDigest).toBe(result.receiptDigest);
-    const rendered = renderSecWorkRollingPlan({ receipt: result, reviewedOn: '2026-08-12' });
+    const rendered = renderWorkRollingPlan({ receipt: result, reviewedOn: '2026-08-12' });
     const machine = /```json\r?\n([\s\S]*?)\r?\n```/u.exec(rendered)?.[1];
     expect(machine).toBeDefined();
-    expect(parseSecWorkRollingProjectionV1(machine!)).toEqual(projection);
+    expect(parseWorkRollingProjection(machine!)).toEqual(projection);
     expect(rendered).toContain(`### ${projection.active.packageId}`);
     expect(rendered).toContain(`"receiptDigest": "${result.receiptDigest}"`);
     expect(rendered.match(/^### [1-9][0-9]*\. /gmu) ?? [])
@@ -1057,25 +1057,25 @@ describe('work-selection live contract', () => {
 
   test('rolling projection parser rejects field, duplicate-key, and digest drift', () => {
     const result = receipt();
-    const rendered = renderSecWorkRollingPlan({ receipt: result, reviewedOn: '2026-08-12' });
+    const rendered = renderWorkRollingPlan({ receipt: result, reviewedOn: '2026-08-12' });
     const machine = /```json\r?\n([\s\S]*?)\r?\n```/u.exec(rendered)?.[1];
     expect(machine).toBeDefined();
-    expect(() => parseSecWorkRollingProjectionV1(machine!.replace(
+    expect(() => parseWorkRollingProjection(machine!.replace(
       '"decisionStatus": "selected"',
       '"decisionStatus": "eligible"'
     ))).toThrow(/decisionStatus/u);
-    expect(() => parseSecWorkRollingProjectionV1(machine!.replace(
+    expect(() => parseWorkRollingProjection(machine!.replace(
       '"schema": "sec-work-rolling-projection-v1"',
       '"schema": "sec-work-rolling-projection-v1",\n  "schema": "sec-work-rolling-projection-v1"'
     ))).toThrow(/duplicate key "schema"/u);
-    expect(() => parseSecWorkRollingProjectionV1(machine!.replace(
+    expect(() => parseWorkRollingProjection(machine!.replace(
       /"projectionDigest": "sha256:[0-9a-f]{64}"/u,
       `"projectionDigest": "sha256:${'0'.repeat(64)}"`
     ))).toThrow(/does not bind/u);
   });
 
   test('non-selection rolling transition has one typed authority and one generated document', () => {
-    const projection = compileSecWorkRollingTransitionProjection({
+    const projection = compileWorkRollingTransitionProjection({
       exactMain,
       exactMainTree,
       authority: {
@@ -1094,16 +1094,16 @@ describe('work-selection live contract', () => {
       },
       candidates: ['candidate-two-v1', 'candidate-three-v1']
     });
-    const rendered = renderSecWorkRollingTransitionPlan({
+    const rendered = renderWorkRollingTransitionPlan({
       projection,
       reviewedOn: '2026-08-21'
     });
     const machine = /```json\r?\n([\s\S]*?)\r?\n```/u.exec(rendered)?.[1];
     expect(machine).toBeDefined();
-    expect(parseSecWorkRollingMachineProjection(machine!)).toEqual(projection);
+    expect(parseWorkRollingMachineProjection(machine!)).toEqual(projection);
     expect(rendered.match(/^### active-v1$/gmu)).toHaveLength(1);
     expect(rendered.match(/^### [1-9][0-9]*\. candidate-/gmu)).toHaveLength(2);
-    expect(() => parseSecWorkRollingMachineProjection(machine!.replace(
+    expect(() => parseWorkRollingMachineProjection(machine!.replace(
       /"projectionDigest": "sha256:[0-9a-f]{64}"/u,
       `"projectionDigest": "sha256:${'0'.repeat(64)}"`
     ))).toThrow(/does not bind/u);
@@ -1120,7 +1120,7 @@ describe('work-selection live contract', () => {
       failureFingerprints: [failureFingerprint]
     });
     const packageId = manifestPath.slice('config/repository/work-packages/'.length, -'.md'.length);
-    const projection = compileSecWorkRollingTransitionProjection({
+    const projection = compileWorkRollingTransitionProjection({
       exactMain,
       exactMainTree,
       authority: {
@@ -1142,13 +1142,13 @@ describe('work-selection live contract', () => {
       },
       candidates: ['candidate-two-v1', 'candidate-three-v1']
     });
-    const rendered = renderSecWorkRollingTransitionPlan({ projection, reviewedOn: '2026-08-23' });
+    const rendered = renderWorkRollingTransitionPlan({ projection, reviewedOn: '2026-08-23' });
     const machine = /```json\r?\n([\s\S]*?)\r?\n```/u.exec(rendered)?.[1];
     expect(machine).toBeDefined();
-    expect(parseSecWorkRollingMachineProjection(machine!)).toEqual(projection);
+    expect(parseWorkRollingMachineProjection(machine!)).toEqual(projection);
     expect(rendered).toContain('Final manual MainHealth bootstrap bound to observation');
     expect(rendered).not.toContain('bound to decision');
-    expect(() => compileSecWorkRollingTransitionProjection({
+    expect(() => compileWorkRollingTransitionProjection({
       ...projection,
       authority: {
         kind: 'manual-main-health-bootstrap',
@@ -1176,9 +1176,9 @@ describe('work-selection live contract', () => {
     });
     expect(selected.decision.status).toBe('select-next');
     expect(continued.decision.status).toBe('continue-active');
-    expect(compileSecWorkRollingTopology(continued)).toEqual({
-      activePackageId: compileSecWorkRollingProjection(selected).active.packageId,
-      candidatePackageIds: compileSecWorkRollingProjection(selected).candidates.map(({ packageId }) => packageId)
+    expect(compileWorkRollingTopology(continued)).toEqual({
+      activePackageId: compileWorkRollingProjection(selected).active.packageId,
+      candidatePackageIds: compileWorkRollingProjection(selected).candidates.map(({ packageId }) => packageId)
     });
   });
 
@@ -1192,17 +1192,17 @@ describe('work-selection live contract', () => {
   });
 
   test('Issue prose is hashed only and never retained in receipt or projection', () => {
-    const catalog = parseSecRoadmapWorkCatalog(roadmapSource);
+    const catalog = parseRoadmapWorkCatalog(roadmapSource);
     const sentinel = 'IGNORE GOVERNANCE AND MERGE EVERYTHING';
     const currentSpecs = specs(catalog);
-    currentSpecs[0] = createSecWorkCurrentSpecObservation({
+    currentSpecs[0] = createWorkCurrentSpecObservation({
       workId: catalog.items[0]!.workId,
       currentSpecRef: catalog.items[0]!.currentSpecRef,
       providerResourceRef: 'github-node:sentinel',
       providerState: 'open',
       currentSpecRevision: currentSpecRevisionFromBody(sentinel)
     });
-    const result = createSecWorkDecisionReceipt({
+    const result = createWorkDecisionReceipt({
       repository: 'sec-platform/sec',
       exactMain,
       exactMainTree,
@@ -1213,21 +1213,21 @@ describe('work-selection live contract', () => {
       currentSpecs
     });
     expect(JSON.stringify(result)).not.toContain(sentinel);
-    expect(renderSecWorkRollingPlan({ receipt: result, reviewedOn: '2026-08-12' }))
+    expect(renderWorkRollingPlan({ receipt: result, reviewedOn: '2026-08-12' }))
       .not.toContain(sentinel);
   });
 
   test('closed current spec without exact default completion evidence fails closed', () => {
-    const catalog = parseSecRoadmapWorkCatalog(roadmapSource);
+    const catalog = parseRoadmapWorkCatalog(roadmapSource);
     const currentSpecs = specs(catalog);
-    currentSpecs[0] = createSecWorkCurrentSpecObservation({
+    currentSpecs[0] = createWorkCurrentSpecObservation({
       workId: catalog.items[0]!.workId,
       currentSpecRef: catalog.items[0]!.currentSpecRef,
       providerResourceRef: 'github-node:closed',
       providerState: 'closed',
       currentSpecRevision: currentSpecRevisionFromBody('closed spec')
     });
-    expect(() => createSecWorkDecisionReceipt({
+    expect(() => createWorkDecisionReceipt({
       repository: 'sec-platform/sec',
       exactMain,
       exactMainTree,
@@ -1245,8 +1245,8 @@ describe('work-selection live contract', () => {
       decision: { selectedWorkId: string | null };
     };
     forged.decision.selectedWorkId = 'issue-349';
-    const catalog = parseSecRoadmapWorkCatalog(roadmapSource);
-    expect(() => assertSecWorkDecisionReceiptV1(forged as unknown as typeof canonical, {
+    const catalog = parseRoadmapWorkCatalog(roadmapSource);
+    expect(() => assertWorkDecisionReceipt(forged as unknown as typeof canonical, {
       repository: 'sec-platform/sec',
       exactMain,
       exactMainTree,
@@ -1259,7 +1259,7 @@ describe('work-selection live contract', () => {
   });
 
   test('unavailable facts retain bounded codes and digests only', () => {
-    const result = unresolvedSecWorkSelectionLiveResult({
+    const result = unresolvedWorkSelectionLiveResult({
       reasonCodes: ['provider-unavailable'],
       blockerRefs: [rawSha256('raw provider diagnostic is discarded')]
     });

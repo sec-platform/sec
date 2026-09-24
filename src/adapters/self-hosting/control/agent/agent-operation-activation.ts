@@ -51,11 +51,11 @@ import {
   type WorkPackageManifest
 } from '../task/contract/work-package.ts';
 import {
-  compileSecWorkRollingTopology,
-  type SecRoadmapWorkCatalogItem,
-  type SecWorkDecisionReceipt
+  compileWorkRollingTopology,
+  type RoadmapWorkCatalogItem,
+  type WorkDecisionReceipt
 } from '../work-selection/live-contract.ts';
-import { observeSecWorkSelectionLive } from '../work-selection/runtime.ts';
+import { observeWorkSelectionLive } from '../work-selection/runtime.ts';
 import {
   assertAgentOperationActivationTestCensus,
   assertAgentOperationActivationWorkPackageCensus,
@@ -498,7 +498,7 @@ async function observeOperationAuthorityOwners(
   }), ...ownerRecords]);
 }
 
-async function requireResolvedWorkDecision(root: string): Promise<SecWorkDecisionReceipt> {
+async function requireResolvedWorkDecision(root: string): Promise<WorkDecisionReceipt> {
   try {
     const candidateHead = await gitHead(root);
     const candidateState = CodexDevelopmentParseCurrentStateSpec(decodeUtf8(
@@ -544,7 +544,7 @@ async function requireResolvedWorkDecision(root: string): Promise<SecWorkDecisio
             stableDigest: second.stableDigest
           }));
         }
-        const result = await observeSecWorkSelectionLive({
+        const result = await observeWorkSelectionLive({
           cwd: root,
           exactMain,
           exactMainTree,
@@ -566,10 +566,10 @@ async function requireResolvedWorkDecision(root: string): Promise<SecWorkDecisio
 }
 
 function workBinding(
-  receipt: SecWorkDecisionReceipt,
+  receipt: WorkDecisionReceipt,
   manifest: WorkPackageManifest,
   phase: 'prepare' | 'finalize'
-): Readonly<{ item: SecRoadmapWorkCatalogItem; currentSpecRevision: `sha256:${string}` }> {
+): Readonly<{ item: RoadmapWorkCatalogItem; currentSpecRevision: `sha256:${string}` }> {
   const item = receipt.catalog.items.find(({ packageId }) => packageId === manifest.id);
   if (item === undefined || item.tracking !== manifest.tracking) {
     unavailable('activation-stale', 'work-package-catalog-binding-invalid');
@@ -639,7 +639,7 @@ async function assertManifestTestBlobsExist(
 async function readCandidateControl(
   candidateRoot: string,
   revision: string,
-  receipt: SecWorkDecisionReceipt
+  receipt: WorkDecisionReceipt
 ): Promise<CandidateControlSnapshot> {
   const stateBytes = (await readGitBlob(candidateRoot, `${revision}:${CONTROL_PATHS.currentState}`)).bytes;
   const pointerBytes = (await readGitBlob(candidateRoot, `${revision}:${CONTROL_PATHS.pointer}`)).bytes;
@@ -684,9 +684,9 @@ async function readCandidateControl(
 
 function assertPreparationSelection(
   control: CandidateControlSnapshot,
-  decision: SecWorkDecisionReceipt
+  decision: WorkDecisionReceipt
 ): void {
-  const topology = guarded('activation-scope-conflict', () => compileSecWorkRollingTopology(decision));
+  const topology = guarded('activation-scope-conflict', () => compileWorkRollingTopology(decision));
   if (topology.activePackageId !== control.manifest.id
       || control.rollingTopology.activePackageId !== topology.activePackageId
       || !canonicalEqual(control.rollingTopology.candidatePackageIds, topology.candidatePackageIds)) {
@@ -695,7 +695,7 @@ function assertPreparationSelection(
 }
 
 async function exactPullRequestEntry(
-  receipt: SecWorkDecisionReceipt,
+  receipt: WorkDecisionReceipt,
   request: SecAgentOperationActivationRequest,
   headRef: string,
   candidateRoot: string
@@ -733,7 +733,7 @@ async function exactPullRequestEntry(
 async function assertRequestBindings(
   request: SecAgentOperationActivationRequest,
   provider: SecAgentOperationActivationProvider,
-  receipt: SecWorkDecisionReceipt,
+  receipt: WorkDecisionReceipt,
   candidateRoot: string
 ): Promise<void> {
   if (provider.workflowSha !== receipt.exactMain || request.expectedBaseSha !== receipt.exactMain
@@ -781,7 +781,7 @@ async function assertPreparationProposal(
 
 async function assertPreparationStillAuthorizesFinal(
   candidateRoot: string,
-  decision: SecWorkDecisionReceipt,
+  decision: WorkDecisionReceipt,
   preparation: SecAgentOperationActivationPreparation,
   finalControl: CandidateControlSnapshot,
   binding: ReturnType<typeof workBinding>

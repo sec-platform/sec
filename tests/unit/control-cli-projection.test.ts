@@ -23,8 +23,8 @@ import {
   projectDocumentControlPlaneStatusCli
 } from '../../src/adapters/self-hosting/control/documentation/document-control-plane.ts';
 import { compileOperationDemandGraph } from '../../src/adapters/self-hosting/control/operation/demand.ts';
-import type { SecWorkSelectionLiveResult } from '../../src/adapters/self-hosting/control/work-selection/live-contract.ts';
-import { projectSecWorkSelectionCli } from '../../src/adapters/self-hosting/control/work-selection/runtime.ts';
+import type { WorkSelectionLiveResult } from '../../src/adapters/self-hosting/control/work-selection/live-contract.ts';
+import { projectWorkSelectionCli } from '../../src/adapters/self-hosting/control/work-selection/runtime.ts';
 import { shouldReportDevRunnerSuccess } from '../../src/adapters/self-hosting/development/runner/cli.ts';
 import { rawSha256 } from '../../src/contracts/canonical.ts';
 
@@ -231,8 +231,8 @@ describe('bounded control-plane CLI projections', () => {
           blockedCandidateRefs: ['issue-999'], requiredPreconditions: [{}, {}]
         }
       }
-    } as unknown as SecWorkSelectionLiveResult;
-    const projected = projectSecWorkSelectionCli(result);
+    } as unknown as WorkSelectionLiveResult;
+    const projected = projectWorkSelectionCli(result);
     expect(projected).toMatchObject({
       status: 'resolved', exactMain: 'a'.repeat(40),
       decision: { selectedWorkId: 'issue-346', requiredPreconditions: 2 }

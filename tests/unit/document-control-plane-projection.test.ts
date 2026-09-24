@@ -16,8 +16,8 @@ import {
 } from '../../src/adapters/self-hosting/control/documentation/document-control-plane-contract.ts';
 import { WorkPackageManifestDigest } from '../../src/adapters/self-hosting/control/task/contract/work-package.ts';
 import {
-  compileSecWorkRollingTransitionProjection,
-  renderSecWorkRollingTransitionPlan
+  compileWorkRollingTransitionProjection,
+  renderWorkRollingTransitionPlan
 } from '../../src/adapters/self-hosting/control/work-selection/live-contract.ts';
 import { rawSha256 } from '../../src/contracts/canonical.ts';
 
@@ -210,7 +210,7 @@ test('MainHealth topology is compiled and rendered atomically instead of slicing
 });
 
 test('a digest-bound topology cannot be promoted by Markdown surgery', () => {
-  const projection = compileSecWorkRollingTransitionProjection({
+  const projection = compileWorkRollingTransitionProjection({
     exactMain,
     exactMainTree,
     authority: {
@@ -229,7 +229,7 @@ test('a digest-bound topology cannot be promoted by Markdown surgery', () => {
     },
     candidates
   });
-  const source = renderSecWorkRollingTransitionPlan({ projection, reviewedOn: '2026-08-21' });
+  const source = renderWorkRollingTransitionPlan({ projection, reviewedOn: '2026-08-21' });
   expect(() => CodexDevelopmentPromoteRollingPlan({
     source,
     packageId: candidates[0]
@@ -293,8 +293,8 @@ stableFacts:
     sourcePointerRevision: rawSha256('source-pointer'),
     sourceRollingRevision: rawSha256('source-rolling')
   };
-  const immutable = renderSecWorkRollingTransitionPlan({
-    projection: compileSecWorkRollingTransitionProjection({
+  const immutable = renderWorkRollingTransitionPlan({
+    projection: compileWorkRollingTransitionProjection({
       exactMain,
       exactMainTree,
       authority,
@@ -308,8 +308,8 @@ stableFacts:
     }),
     reviewedOn: '2026-08-21'
   });
-  const successor = renderSecWorkRollingTransitionPlan({
-    projection: compileSecWorkRollingTransitionProjection({
+  const successor = renderWorkRollingTransitionPlan({
+    projection: compileWorkRollingTransitionProjection({
       exactMain,
       exactMainTree,
       authority,
@@ -332,8 +332,8 @@ stableFacts:
     manifestBytes: targetManifest
   })).not.toThrow();
 
-  const reordered = renderSecWorkRollingTransitionPlan({
-    projection: compileSecWorkRollingTransitionProjection({
+  const reordered = renderWorkRollingTransitionPlan({
+    projection: compileWorkRollingTransitionProjection({
       exactMain,
       exactMainTree,
       authority,

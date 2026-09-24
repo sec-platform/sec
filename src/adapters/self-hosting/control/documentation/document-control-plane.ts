@@ -61,13 +61,13 @@ import {
   WorkPackageManifestDigest
 } from '../task/contract/work-package.ts';
 import {
-  assertSecRoadmapTerminalCompactionCandidate,
-  projectSecWorkRollingExactManifestBinding
+  assertRoadmapTerminalCompactionCandidate,
+  projectWorkRollingExactManifestBinding
 } from '../work-selection/live-contract.ts';
 import {
-  observeSecWorkSelectionLive,
-  observeSecWorkSelectionWithProviderV1,
-  type SecWorkSelectionProvider
+  observeWorkSelectionLive,
+  observeWorkSelectionWithProvider,
+  type WorkSelectionProvider
 } from '../work-selection/runtime.ts';
 import {
   CodexDevelopmentAssertControlPlaneBinding,
@@ -128,7 +128,7 @@ export async function observeDocumentControlWorkRouting(input: Readonly<{
   exactMainTreeSha: string;
 }>): Promise<Readonly<{
   repairDecision: Awaited<ReturnType<typeof observeCanonicalMainHealthForPublication>>['repairDecision'];
-  selection: Awaited<ReturnType<typeof observeSecWorkSelectionLive>> | null;
+  selection: Awaited<ReturnType<typeof observeWorkSelectionLive>> | null;
 }>> {
   const testActor = documentControlRoutingTestScope.getStore();
   if (testActor !== undefined) {
@@ -153,7 +153,7 @@ export async function observeDocumentControlWorkRouting(input: Readonly<{
         throw new Error('document-control test MainHealth snapshot drifted between T1 and T2');
       }
       const selection = second.repairDecision.routingState === 'ordinary-only'
-        ? await observeSecWorkSelectionWithProviderV1({
+        ? await observeWorkSelectionWithProvider({
             cwd: input.repositoryRoot,
             exactMain: input.exactMainSha,
             exactMainTree: input.exactMainTreeSha
@@ -183,7 +183,7 @@ export async function observeDocumentControlWorkRouting(input: Readonly<{
       }
       const repairDecision = second.repairDecision;
       const selection = repairDecision.routingState === 'ordinary-only'
-          ? await observeSecWorkSelectionLive({
+          ? await observeWorkSelectionLive({
             cwd: input.repositoryRoot,
             exactMain: input.exactMainSha,
             exactMainTree: input.exactMainTreeSha,
@@ -269,7 +269,7 @@ export interface DocumentControlRoutingTestActor {
     capability: GitHubApiCapability,
     operation: () => Promise<T>
   ) => Promise<T>;
-  readonly workSelectionProvider: SecWorkSelectionProvider;
+  readonly workSelectionProvider: WorkSelectionProvider;
   readonly mainHealthEnvironment: (repositoryRoot: string) => NodeJS.ProcessEnv;
   readonly hostCliProvider: (
     command: 'git' | 'gh',
@@ -5706,7 +5706,7 @@ async function freezeDocumentControlPlaneWithSession(
         const decision = selection.receipt.decision;
         if (selection.terminalCompaction !== null) {
           const candidateRoadmap = snapshot.roadmapBlob;
-          assertSecRoadmapTerminalCompactionCandidate({
+          assertRoadmapTerminalCompactionCandidate({
             compaction: selection.terminalCompaction,
             roadmapSource: candidateRoadmap === undefined
               ? ''
@@ -6540,7 +6540,7 @@ async function resolveLiveControlPlaneWithGitReadSession(
   const rollingMachine = CodexDevelopmentParseRollingMachineProjection(snapshot.rollingPlanSource);
   const rollingManifestBinding = rollingMachine === null
     ? null
-    : projectSecWorkRollingExactManifestBinding(rollingMachine);
+    : projectWorkRollingExactManifestBinding(rollingMachine);
   CodexDevelopmentAssertControlPlaneBinding({ spec, pointer });
   if (rollingPlan.activePackageId !== path.posix.basename(pointer.manifest, '.md')) {
     throw new Error('Immutable index pointer and rolling plan select different Work Packages.');

@@ -8,19 +8,19 @@ import {
   type WorkPackageManifest
 } from '../task/contract/work-package.ts';
 import {
-  compileSecWorkRollingProjection,
-  compileSecWorkRollingProposalProjection,
-  compileSecWorkRollingTransitionProjection,
-  parseSecRoadmapWorkCatalog,
-  parseSecWorkRollingMachineProjection,
-  projectSecWorkRollingExactManifestBinding,
-  renderSecWorkRollingPlan,
-  renderSecWorkRollingProposalPlan,
-  renderSecWorkRollingTransitionPlan,
+  compileWorkRollingProjection,
+  compileWorkRollingProposalProjection,
+  compileWorkRollingTransitionProjection,
+  parseRoadmapWorkCatalog,
+  parseWorkRollingMachineProjection,
+  projectWorkRollingExactManifestBinding,
+  renderWorkRollingPlan,
+  renderWorkRollingProposalPlan,
+  renderWorkRollingTransitionPlan,
   rollingTopologyFromMachineProjection,
-  type SecWorkDecisionReceipt,
-  type SecWorkRollingMachineProjection,
-  type SecWorkRollingTransitionAuthority
+  type WorkDecisionReceipt,
+  type WorkRollingMachineProjection,
+  type WorkRollingTransitionAuthority
 } from '../work-selection/live-contract.ts';
 
 const CodexDevelopmentCurrentStateSchema = 'sec-current-state-live-v1' as const;
@@ -171,7 +171,7 @@ export interface CodexDevelopmentRollingPlan {
 }
 
 export interface CodexDevelopmentWorkSelectionProjection {
-  readonly receipt: SecWorkDecisionReceipt;
+  readonly receipt: WorkDecisionReceipt;
 }
 
 export interface CodexDevelopmentMainHealthRepairProjection {
@@ -671,13 +671,13 @@ export function CodexDevelopmentParseRollingPlan(
 
 export function CodexDevelopmentParseRollingMachineProjection(
   source: string
-): SecWorkRollingMachineProjection | null {
+): WorkRollingMachineProjection | null {
   const machineBlocks = [...source.matchAll(/```json\r?\n([\s\S]*?)\r?\n```/gu)];
   if (machineBlocks.length > 1) {
     throw new Error('Rolling plan must contain at most one machine projection.');
   }
   return machineBlocks.length === 1
-    ? parseSecWorkRollingMachineProjection(machineBlocks[0]![1]!)
+    ? parseWorkRollingMachineProjection(machineBlocks[0]![1]!)
     : null;
 }
 
@@ -688,7 +688,7 @@ export function CodexDevelopmentParseRollingMachineProjection(
  * not reinterpret projection fields or invent an additional staleness rule.
  */
 export function CodexDevelopmentRequiresCommittedCandidateProjectionRefresh(input: Readonly<{
-  projection: SecWorkRollingMachineProjection | null;
+  projection: WorkRollingMachineProjection | null;
   exactMain: string;
   exactMainTree: string;
   active: Readonly<{
@@ -718,7 +718,7 @@ export function CodexDevelopmentRequiresCommittedCandidateProjectionRefresh(inpu
 }
 
 export function CodexDevelopmentAssertRollingMachineBaseBinding(input: Readonly<{
-  projection: SecWorkRollingMachineProjection;
+  projection: WorkRollingMachineProjection;
   exactMain: string;
   exactMainTree: string;
 }>): void {
@@ -729,7 +729,7 @@ export function CodexDevelopmentAssertRollingMachineBaseBinding(input: Readonly<
   if (input.projection.exactMain !== input.exactMain) {
     throw new Error('Rolling machine projection does not bind the exact live default revision.');
   }
-  const exactBinding = projectSecWorkRollingExactManifestBinding(input.projection);
+  const exactBinding = projectWorkRollingExactManifestBinding(input.projection);
   if (exactBinding !== null && exactBinding.exactMainTree !== input.exactMainTree) {
     throw new Error('Rolling machine projection does not bind the exact live default tree.');
   }
@@ -804,7 +804,7 @@ export function CodexDevelopmentClassifyWorkPackageCensus(input: Readonly<{
   if (input.roadmapSource === undefined) {
     throw new Error('Untracked recovery Work Package census requires the canonical roadmap.');
   }
-  const catalogByPath = new Map(parseSecRoadmapWorkCatalog(input.roadmapSource).items.map((item) => [
+  const catalogByPath = new Map(parseRoadmapWorkCatalog(input.roadmapSource).items.map((item) => [
     `config/repository/work-packages/${item.packageId}.md`,
     item
   ]));
@@ -938,7 +938,7 @@ export function CodexDevelopmentPromoteRollingPlan(input: {
 }
 
 export type CodexDevelopmentCommittedCandidateReplanAuthority = Extract<
-  SecWorkRollingTransitionAuthority,
+  WorkRollingTransitionAuthority,
   { readonly kind: 'committed-candidate-replan' }
 >;
 
@@ -981,7 +981,7 @@ export function CodexDevelopmentRenderCommittedCandidateReplanRollingPlan(
       || input.authority.sourceRollingRevision !== rawSha256(input.currentRollingPlanSource)) {
     throw new Error('Committed candidate replan authority does not bind the immutable source bytes.');
   }
-  const projection = compileSecWorkRollingTransitionProjection({
+  const projection = compileWorkRollingTransitionProjection({
     exactMain: input.exactMain,
     exactMainTree: input.exactMainTree,
     authority: input.authority,
@@ -993,7 +993,7 @@ export function CodexDevelopmentRenderCommittedCandidateReplanRollingPlan(
     },
     candidates: topology.candidatePackageIds
   });
-  return renderSecWorkRollingTransitionPlan({
+  return renderWorkRollingTransitionPlan({
     projection,
     reviewedOn: input.reviewedOn
   });
@@ -1057,7 +1057,7 @@ export function CodexDevelopmentActivateMainHealthRepairRollingPlan(input: {
   if (retained.length < 2 || new Set(retained).size !== retained.length) {
     throw new Error('MainHealth repair rolling projection cannot preserve a bounded unique topology.');
   }
-  const projection = compileSecWorkRollingTransitionProjection({
+  const projection = compileWorkRollingTransitionProjection({
     exactMain: input.mainSha,
     exactMainTree: input.mainTreeSha,
     authority: {
@@ -1076,7 +1076,7 @@ export function CodexDevelopmentActivateMainHealthRepairRollingPlan(input: {
     },
     candidates: retained
   });
-  const rendered = renderSecWorkRollingTransitionPlan({
+  const rendered = renderWorkRollingTransitionPlan({
     projection,
     reviewedOn: input.reviewedOn
   });
@@ -1181,7 +1181,7 @@ export function CodexDevelopmentAssertPriorFreezeProjection(input: {
         || priorMachine.active.manifestDigest !== manifestDigest
         || JSON.stringify(priorMachine.candidates)
           !== JSON.stringify(immutableTopologyForProposal.candidatePackageIds)
-        || input.rollingPlanSource !== renderSecWorkRollingProposalPlan({
+        || input.rollingPlanSource !== renderWorkRollingProposalPlan({
           projection: priorMachine,
           reviewedOn
         })) {
@@ -1357,8 +1357,8 @@ export function CodexDevelopmentCreateFreezeProjection(input: {
       throw new Error('Proposal-only freeze forbids caller-authored rolling-plan bytes.');
     }
     const topology = CodexDevelopmentParseRollingPlan(input.currentRollingPlanSource);
-    rollingPlanSource = renderSecWorkRollingProposalPlan({
-      projection: compileSecWorkRollingProposalProjection({
+    rollingPlanSource = renderWorkRollingProposalPlan({
+      projection: compileWorkRollingProposalProjection({
         exactMain: input.baseSha,
         exactMainTree: input.baseTreeSha,
         active: {
@@ -1411,7 +1411,7 @@ export function CodexDevelopmentCreateFreezeProjection(input: {
     }
   } else if (input.workSelectionProjection !== undefined) {
     const receipt = input.workSelectionProjection.receipt;
-    const selection = compileSecWorkRollingProjection(receipt);
+    const selection = compileWorkRollingProjection(receipt);
     if (input.baseTreeSha === undefined
         || selection.exactMain !== input.baseSha
         || input.workSelectionProjection.receipt.exactMainTree !== input.baseTreeSha) {
@@ -1421,7 +1421,7 @@ export function CodexDevelopmentCreateFreezeProjection(input: {
         || selection.active.tracking !== manifest.tracking) {
       throw new Error('WorkDecision selection must equal the target manifest package and tracking identity.');
     }
-    const selectedRollingPlanSource = renderSecWorkRollingPlan({
+    const selectedRollingPlanSource = renderWorkRollingPlan({
       receipt,
       reviewedOn: input.reviewedOn
     });

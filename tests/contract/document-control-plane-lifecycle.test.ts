@@ -62,13 +62,13 @@ import { WorkPackageManifestDigest } from '../../src/adapters/self-hosting/contr
 import {
   SEC_ROADMAP_WORK_CATALOG_BEGIN,
   SEC_ROADMAP_WORK_CATALOG_END,
-  compileSecRoadmapTerminalCompaction,
-  createSecWorkCurrentSpecObservation,
-  createSecWorkDecisionReceipt,
-  createSecWorkRegistryObservation,
+  compileRoadmapTerminalCompaction,
+  createWorkCurrentSpecObservation,
+  createWorkDecisionReceipt,
+  createWorkRegistryObservation,
   currentSpecRevisionFromBody,
-  parseSecRoadmapWorkCatalog,
-  renderSecWorkRollingPlan
+  parseRoadmapWorkCatalog,
+  renderWorkRollingPlan
 } from '../../src/adapters/self-hosting/control/work-selection/live-contract.ts';
 import { digest, rawSha256 } from '../../src/contracts/canonical.ts';
 import {
@@ -719,14 +719,14 @@ function workSelectionReceiptFixture(input: {
   activeCurrentPackage?: boolean;
 }) {
   const catalogSource = workSelectionCatalogSourceFixture(input);
-  const catalog = parseSecRoadmapWorkCatalog(catalogSource);
-  return createSecWorkDecisionReceipt({
+  const catalog = parseRoadmapWorkCatalog(catalogSource);
+  return createWorkDecisionReceipt({
     repository: 'sec-platform/sec',
     exactMain: input.exactMain,
     exactMainTree: input.exactMainTree,
     roadmapRevision: rawSha256(catalogSource),
     catalog,
-    registry: createSecWorkRegistryObservation({
+    registry: createWorkRegistryObservation({
       defaultTreeSha: input.exactMainTree,
       entries: []
     }),
@@ -742,7 +742,7 @@ function workSelectionReceiptFixture(input: {
       controlState: 'consistent',
       controlRef: 'fixture:control'
     },
-    currentSpecs: catalog.items.map((catalogItem) => createSecWorkCurrentSpecObservation({
+    currentSpecs: catalog.items.map((catalogItem) => createWorkCurrentSpecObservation({
       workId: catalogItem.workId,
       currentSpecRef: catalogItem.currentSpecRef,
       providerResourceRef: `github-node:${catalogItem.tracking}`,
@@ -818,7 +818,7 @@ async function createFreezeFixtureSeedV1(): Promise<FreezeFixtureSeedV1> {
   const projectionBaseTree = runGit(repositoryRoot, ['rev-parse', `${projectionBaseSha}^{tree}`]);
   await writeFile(
     path.join(repositoryRoot, 'config/repository/rolling-plan.md'),
-    renderSecWorkRollingPlan({
+    renderWorkRollingPlan({
       receipt: workSelectionReceiptFixture({
         exactMain: projectionBaseSha,
         exactMainTree: projectionBaseTree,
@@ -830,7 +830,7 @@ async function createFreezeFixtureSeedV1(): Promise<FreezeFixtureSeedV1> {
   );
   runGit(repositoryRoot, ['add', 'config/repository/rolling-plan.md']);
   runGit(repositoryRoot, ['commit', '--quiet', '-m', 'publish rolling projection']);
-  const terminalCompaction = compileSecRoadmapTerminalCompaction({
+  const terminalCompaction = compileRoadmapTerminalCompaction({
     roadmapSource: workSelectionCatalogSourceFixture({ activeCurrentPackage: true }),
     completedWorkIds: ['issue-310']
   });
@@ -1311,7 +1311,7 @@ test('freeze projection replaces topology only with an exact WorkDecision bindin
     );
     const receipt = workSelectionReceiptFixture({ exactMain: fixture.baseSha, exactMainTree });
     const selection = { receipt };
-    const selectedRollingPlanSource = renderSecWorkRollingPlan({
+    const selectedRollingPlanSource = renderWorkRollingPlan({
       receipt,
       reviewedOn: '2026-08-12'
     });
