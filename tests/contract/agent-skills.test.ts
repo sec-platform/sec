@@ -7,11 +7,11 @@ import { parse as parseYaml } from 'yaml';
 
 import { projectRepositorySourceGovernance } from '../../src/adapters/repository/repository-audit/cli.ts';
 import {
-  classifySecRepositorySurface,
-  isSecRepositoryHeuristicSurface,
-  resolveSecMarkdownSkillCoverage,
-  resolveSecRepositoryHeuristicRoute,
-  resolveSecRepositoryHeuristicSkills,
+  classifyRepositorySurface,
+  isRepositoryHeuristicSurface,
+  resolveMarkdownSkillCoverage,
+  resolveRepositoryHeuristicRoute,
+  resolveRepositoryHeuristicSkills,
   SEC_AGENT_SKILL_IDS,
   SEC_REPOSITORY_HEURISTIC_BEHAVIOR_IDS
 } from '../../src/adapters/self-hosting/control/agent/skill.ts';
@@ -90,11 +90,11 @@ test('every exact Skill source passes the production blocking governance project
 
 test('heuristic registry maps each irreducible behavior to exactly one Skill', () => {
   const routes = SEC_REPOSITORY_HEURISTIC_BEHAVIOR_IDS.map(
-    resolveSecRepositoryHeuristicRoute
+    resolveRepositoryHeuristicRoute
   );
   expect(new Set(routes.map((route) => route.owner))).toEqual(new Set(SEC_AGENT_SKILL_IDS));
   expect(SEC_REPOSITORY_HEURISTIC_BEHAVIOR_IDS).toHaveLength(SEC_AGENT_SKILL_IDS.length);
-  expect(resolveSecRepositoryHeuristicRoute('task-delegation')).toEqual({
+  expect(resolveRepositoryHeuristicRoute('task-delegation')).toEqual({
     kind: 'skill',
     owner: 'sec-task-delegation',
     authorityRef: '.agents/skills/sec-task-delegation/SKILL.md'
@@ -113,14 +113,14 @@ test('all tracked Markdown is explicitly classified and current document identit
   const active = new Set(activeDocumentationPaths(registry));
 
   for (const file of tracked.filter((candidate) => candidate.endsWith('.md'))) {
-    const coverage = resolveSecMarkdownSkillCoverage(file);
+    const coverage = resolveMarkdownSkillCoverage(file);
     if (!coverage) throw new Error(`Tracked Markdown is unclassified: ${file}`);
     if (active.has(file)) expect(coverage.kind).toBeDefined();
   }
   for (const { path: file } of registry.documents) {
-    expect(resolveSecMarkdownSkillCoverage(file)).not.toBeNull();
+    expect(resolveMarkdownSkillCoverage(file)).not.toBeNull();
     if (/^(?:examples|alternatives)\//u.test(file)) {
-      expect(resolveSecMarkdownSkillCoverage(file)?.kind).toBe('repository-content');
+      expect(resolveMarkdownSkillCoverage(file)?.kind).toBe('repository-content');
     }
   }
 
@@ -128,7 +128,7 @@ test('all tracked Markdown is explicitly classified and current document identit
     'docs/00-文档索引与一致性规则.md',
     'docs/architecture/unowned.md',
     'docs/new-unregistered-authority.md'
-  ]) expect(resolveSecMarkdownSkillCoverage(unknown)).toEqual({
+  ]) expect(resolveMarkdownSkillCoverage(unknown)).toEqual({
     kind: 'repository-content',
     skills: []
   });
@@ -140,9 +140,9 @@ test('archived YAML remains non-Markdown repository content', () => {
     'docs/archive/authority-v5/governance/nexus-absorption-ledger.yaml',
     'docs/archive/authority-v5/work/current-state.yaml'
   ]) {
-    expect(resolveSecMarkdownSkillCoverage(archivedYaml)).toBeNull();
-    expect(isSecRepositoryHeuristicSurface(archivedYaml)).toBeFalse();
-    expect(classifySecRepositorySurface(archivedYaml)).toEqual({
+    expect(resolveMarkdownSkillCoverage(archivedYaml)).toBeNull();
+    expect(isRepositoryHeuristicSurface(archivedYaml)).toBeFalse();
+    expect(classifyRepositorySurface(archivedYaml)).toEqual({
       kind: 'repository-content',
       skills: []
     });
@@ -150,38 +150,38 @@ test('archived YAML remains non-Markdown repository content', () => {
 });
 
 test('GitHub collaboration Markdown remains non-authoritative repository content', () => {
-  expect(resolveSecMarkdownSkillCoverage('.github/PULL_REQUEST_TEMPLATE.md')).toEqual({
+  expect(resolveMarkdownSkillCoverage('.github/PULL_REQUEST_TEMPLATE.md')).toEqual({
     kind: 'repository-content',
     skills: []
   });
-  expect(resolveSecMarkdownSkillCoverage('ARCHITECTURE.md')).toEqual({
+  expect(resolveMarkdownSkillCoverage('ARCHITECTURE.md')).toEqual({
     kind: 'repository-content',
     skills: []
   });
-  expect(resolveSecMarkdownSkillCoverage('LICENSES/README.md')).toEqual({
+  expect(resolveMarkdownSkillCoverage('LICENSES/README.md')).toEqual({
     kind: 'repository-content',
     skills: []
   });
-  expect(resolveSecMarkdownSkillCoverage('README.zh-CN.md')).toEqual({
+  expect(resolveMarkdownSkillCoverage('README.zh-CN.md')).toEqual({
     kind: 'navigation',
     skills: []
   });
 });
 
 test('repository surface classification follows canonical source and test identities', () => {
-  expect(classifySecRepositorySurface('src/compiler/compile.ts')).toEqual({
+  expect(classifyRepositorySurface('src/compiler/compile.ts')).toEqual({
     kind: 'product-implementation',
     skills: []
   });
   for (const testPath of [
     'src/adapters/repository/architecture/dependency-policy.test.ts',
     'src/adapters/self-hosting/control/agent/example.test.ts'
-  ]) expect(classifySecRepositorySurface(testPath)).toEqual({
+  ]) expect(classifyRepositorySurface(testPath)).toEqual({
     kind: 'verification-test',
     skills: []
   });
   for (const retiredPath of ['platform/compiler/compile.ts', 'source/code/app.ts']) {
-    expect(classifySecRepositorySurface(retiredPath)).toEqual({
+    expect(classifyRepositorySurface(retiredPath)).toEqual({
       kind: 'repository-content',
       skills: []
     });
@@ -190,13 +190,13 @@ test('repository surface classification follows canonical source and test identi
 
 test('registered heuristic runtime surfaces resolve at least one Skill', () => {
   const files = trackedRepositoryFiles();
-  for (const file of files.filter(isSecRepositoryHeuristicSurface)) {
-    const skills = resolveSecRepositoryHeuristicSkills(file);
+  for (const file of files.filter(isRepositoryHeuristicSurface)) {
+    const skills = resolveRepositoryHeuristicSkills(file);
     if (skills.length === 0) throw new Error(`Heuristic surface has no Skill owner: ${file}`);
   }
-  for (const file of files) expect(classifySecRepositorySurface(file)).toBeDefined();
+  for (const file of files) expect(classifyRepositorySurface(file)).toBeDefined();
 
-  const agentsCoverage = resolveSecMarkdownSkillCoverage('AGENTS.md');
+  const agentsCoverage = resolveMarkdownSkillCoverage('AGENTS.md');
   expect(agentsCoverage).toEqual({
     kind: 'agent-projection',
     skills: [
@@ -205,17 +205,17 @@ test('registered heuristic runtime surfaces resolve at least one Skill', () => {
       'sec-task-delegation'
     ]
   });
-  expect(resolveSecRepositoryHeuristicSkills('AGENTS.md')).toEqual(agentsCoverage!.skills);
-  expect(resolveSecRepositoryHeuristicSkills('.documentation/documents.json')).toEqual([
+  expect(resolveRepositoryHeuristicSkills('AGENTS.md')).toEqual(agentsCoverage!.skills);
+  expect(resolveRepositoryHeuristicSkills('.documentation/documents.json')).toEqual([
     'sec-heuristic-governance',
     'sec-repository-audit'
   ]);
-  expect(resolveSecRepositoryHeuristicSkills(
+  expect(resolveRepositoryHeuristicSkills(
     'config/external-capabilities/ledger.yaml'
   )).toEqual(['sec-external-capability-governance', 'sec-heuristic-governance']);
-  expect(resolveSecRepositoryHeuristicSkills('src/adapters/verification/platform/ci/runtime/ci-orchestration-core.ts')).toEqual([
+  expect(resolveRepositoryHeuristicSkills('src/adapters/verification/platform/ci/runtime/ci-orchestration-core.ts')).toEqual([
   ]);
-  expect(resolveSecRepositoryHeuristicSkills('package.json')).toEqual([
+  expect(resolveRepositoryHeuristicSkills('package.json')).toEqual([
   ]);
 });
 

@@ -10,13 +10,13 @@ import {
   type SecOperationReadPlanInput
 } from '../../src/adapters/self-hosting/control/agent/read-plan.ts';
 import {
-  evaluateSecSkillApplicability,
-  isSecSkillQuarantinePath,
+  evaluateSkillApplicability,
+  isSkillQuarantinePath,
   SEC_SKILL_QUARANTINE_EXACT_PATHS,
   type AgentRole,
-  type SecAgentSkillId,
+  type AgentSkillId,
   type TaskOperationKind,
-  type SecSkillApplicabilityDecision
+  type SkillApplicabilityDecision
 } from '../../src/adapters/self-hosting/control/agent/skill.ts';
 import {
   compileTaskCapsule,
@@ -72,7 +72,7 @@ function changedPaths(base: string, head: string): string[] {
 function planInput(overrides: {
   role?: AgentRole;
   operationKind?: TaskOperationKind;
-  candidates?: readonly SecAgentSkillId[];
+  candidates?: readonly AgentSkillId[];
   authorizedResources?: readonly string[];
   authorizedGates?: readonly string[];
   writePaths?: readonly string[];
@@ -140,12 +140,12 @@ function planInput(overrides: {
   };
 }
 
-function evaluatePlan(input: SecOperationReadPlanInput): SecSkillApplicabilityDecision {
+function evaluatePlan(input: SecOperationReadPlanInput): SkillApplicabilityDecision {
   const plan = compileSecOperationReadPlan(input);
   const envelope = projectSecSkillEnvelopeFromOperationReadPlan(plan);
   const trustedSkillRevisions: Record<string, string> = {};
   const candidateSkillRevisions: Record<string, string> = {};
-  for (const repositoryPath of (envelope.changedPaths ?? []).filter(isSecSkillQuarantinePath)) {
+  for (const repositoryPath of (envelope.changedPaths ?? []).filter(isSkillQuarantinePath)) {
     const trusted = gitOutputOrNull(['rev-parse', '--verify', `${envelope.trustedRevision}:${repositoryPath}`]);
     const candidate = gitOutputOrNull(['rev-parse', '--verify', `${envelope.targetCandidate}:${repositoryPath}`]);
     if (trusted !== null && /^[0-9a-f]{40,64}$/u.test(trusted)) {
@@ -155,7 +155,7 @@ function evaluatePlan(input: SecOperationReadPlanInput): SecSkillApplicabilityDe
       candidateSkillRevisions[repositoryPath] = candidate;
     }
   }
-  const decision = evaluateSecSkillApplicability({
+  const decision = evaluateSkillApplicability({
     ...envelope,
     trustedSkillRevisions,
     candidateSkillRevisions

@@ -29,7 +29,7 @@ export const SEC_AGENT_SKILL_IDS = [
   'sec-worker-development'
 ] as const;
 
-export type SecAgentSkillId = (typeof SEC_AGENT_SKILL_IDS)[number];
+export type AgentSkillId = (typeof SEC_AGENT_SKILL_IDS)[number];
 
 export const SEC_REPOSITORY_HEURISTIC_BEHAVIOR_IDS = [
   'architecture-evolution',
@@ -43,18 +43,18 @@ export const SEC_REPOSITORY_HEURISTIC_BEHAVIOR_IDS = [
   'worker-development'
 ] as const;
 
-export type SecRepositoryHeuristicBehaviorId =
+export type RepositoryHeuristicBehaviorId =
   (typeof SEC_REPOSITORY_HEURISTIC_BEHAVIOR_IDS)[number];
 
-export interface SecRepositorySkillBehaviorRoute {
+export interface RepositorySkillBehaviorRoute {
   readonly kind: 'skill';
-  readonly owner: SecAgentSkillId;
-  readonly authorityRef: `.agents/skills/${SecAgentSkillId}/SKILL.md`;
+  readonly owner: AgentSkillId;
+  readonly authorityRef: `.agents/skills/${AgentSkillId}/SKILL.md`;
 }
 
-const skillRoute = <SkillId extends SecAgentSkillId>(
+const skillRoute = <SkillId extends AgentSkillId>(
   owner: SkillId
-): SecRepositorySkillBehaviorRoute => Object.freeze({
+): RepositorySkillBehaviorRoute => Object.freeze({
   kind: 'skill',
   owner,
   authorityRef: `.agents/skills/${owner}/SKILL.md` as const
@@ -75,9 +75,9 @@ export const SEC_REPOSITORY_HEURISTIC_ROUTES = Object.freeze({
   'task-delegation': skillRoute('sec-task-delegation'),
   'test-design': skillRoute('sec-test-design'),
   'worker-development': skillRoute('sec-worker-development')
-} satisfies Record<SecRepositoryHeuristicBehaviorId, SecRepositorySkillBehaviorRoute>);
+} satisfies Record<RepositoryHeuristicBehaviorId, RepositorySkillBehaviorRoute>);
 
-type SecMarkdownSurfaceKind =
+type MarkdownSurfaceKind =
   | 'skill-definition'
   | 'agent-projection'
   | 'active-authority'
@@ -90,30 +90,30 @@ type SecMarkdownSurfaceKind =
   | 'verification-fixture'
   | 'repository-content';
 
-export type SecMarkdownSkillCoverage = {
-  kind: SecMarkdownSurfaceKind;
-  skills: SecAgentSkillId[];
+export type MarkdownSkillCoverage = {
+  kind: MarkdownSurfaceKind;
+  skills: AgentSkillId[];
 };
 
-function skills(...ids: SecAgentSkillId[]): SecAgentSkillId[] {
+function skills(...ids: AgentSkillId[]): AgentSkillId[] {
   return [...new Set(ids)].sort();
 }
 
-function skillIdFromPath(path: string): SecAgentSkillId | null {
+function skillIdFromPath(path: string): AgentSkillId | null {
   const match = /^\.agents\/skills\/([a-z0-9]+(?:-[a-z0-9]+)*)\/SKILL\.md$/u.exec(path);
   if (!match) return null;
-  return SEC_AGENT_SKILL_IDS.includes(match[1] as SecAgentSkillId)
-    ? match[1] as SecAgentSkillId
+  return SEC_AGENT_SKILL_IDS.includes(match[1] as AgentSkillId)
+    ? match[1] as AgentSkillId
     : null;
 }
 
-export function resolveSecRepositoryHeuristicRoute(
-  behavior: SecRepositoryHeuristicBehaviorId
-): SecRepositorySkillBehaviorRoute {
+export function resolveRepositoryHeuristicRoute(
+  behavior: RepositoryHeuristicBehaviorId
+): RepositorySkillBehaviorRoute {
   return SEC_REPOSITORY_HEURISTIC_ROUTES[behavior];
 }
 
-export function resolveSecMarkdownSkillCoverage(path: string): SecMarkdownSkillCoverage | null {
+export function resolveMarkdownSkillCoverage(path: string): MarkdownSkillCoverage | null {
   if (!path.endsWith('.md')) return null;
 
   const skillId = skillIdFromPath(path);
@@ -248,7 +248,7 @@ export function resolveSecMarkdownSkillCoverage(path: string): SecMarkdownSkillC
   return { kind: 'repository-content', skills: [] };
 }
 
-export type SecRepositorySurfaceKind =
+export type RepositorySurfaceKind =
   | 'markdown'
   | 'heuristic-runtime'
   | 'product-implementation'
@@ -256,12 +256,12 @@ export type SecRepositorySurfaceKind =
   | 'configuration'
   | 'repository-content';
 
-export type SecRepositorySurface = {
-  kind: SecRepositorySurfaceKind;
-  skills: SecAgentSkillId[];
+export type RepositorySurface = {
+  kind: RepositorySurfaceKind;
+  skills: AgentSkillId[];
 };
 
-export function resolveSecRepositoryHeuristicSkills(path: string): SecAgentSkillId[] {
+export function resolveRepositoryHeuristicSkills(path: string): AgentSkillId[] {
   const skillId = skillIdFromPath(path);
   if (skillId) return [skillId];
   if (path === 'AGENTS.md') {
@@ -289,15 +289,15 @@ export function resolveSecRepositoryHeuristicSkills(path: string): SecAgentSkill
   return [];
 }
 
-export function isSecRepositoryHeuristicSurface(path: string): boolean {
-  return resolveSecRepositoryHeuristicSkills(path).length > 0;
+export function isRepositoryHeuristicSurface(path: string): boolean {
+  return resolveRepositoryHeuristicSkills(path).length > 0;
 }
 
-export function classifySecRepositorySurface(path: string): SecRepositorySurface {
-  const markdown = resolveSecMarkdownSkillCoverage(path);
+export function classifyRepositorySurface(path: string): RepositorySurface {
+  const markdown = resolveMarkdownSkillCoverage(path);
   if (markdown) return { kind: 'markdown', skills: markdown.skills };
   if (isSecRepositoryTestModulePath(path)) return { kind: 'verification-test', skills: [] };
-  const heuristicSkills = resolveSecRepositoryHeuristicSkills(path);
+  const heuristicSkills = resolveRepositoryHeuristicSkills(path);
   if (heuristicSkills.length > 0) return { kind: 'heuristic-runtime', skills: heuristicSkills };
   if (/^src\//u.test(path)) return { kind: 'product-implementation', skills: [] };
   if (/^(?:package\.json|bun\.lock|bunfig\.toml|tsconfig\.json|\.bun-version|\.gitignore|\.gitattributes)$/u.test(path)) {
@@ -310,7 +310,7 @@ export function classifySecRepositorySurface(path: string): SecRepositorySurface
  * Skill Applicability Decision.
  *
  * Runtime Skill selection is zero-or-one, trusted and operation-scoped. Path
- * coverage (`resolveSecMarkdownSkillCoverage` / `resolveSecRepositoryHeuristicSkills`)
+ * coverage (`resolveMarkdownSkillCoverage` / `resolveRepositoryHeuristicSkills`)
  * is only a candidate hint and is never a runtime selector. The pure evaluator
  * below consumes an operation envelope plus trusted registry metadata and never
  * reads SKILL.md prose bytes, so candidate guidance can never expand machine
@@ -326,15 +326,15 @@ const SEC_SKILL_APPLICABILITY_STATUSES = [
   'unresolved'
 ] as const;
 
-type SecSkillApplicabilityStatus = (typeof SEC_SKILL_APPLICABILITY_STATUSES)[number];
+type SkillApplicabilityStatus = (typeof SEC_SKILL_APPLICABILITY_STATUSES)[number];
 
 const SEC_SKILL_APPLICABILITY_SCHEMA = 'sec-skill-applicability-decision-v2' as const;
 
-type SecSkillApplicabilityExclusionReason =
+type SkillApplicabilityExclusionReason =
   | 'role-mismatch'
   | 'operation-kind-mismatch';
 
-export function isSecAgentSkillId(value: unknown): value is SecAgentSkillId {
+export function isAgentSkillId(value: unknown): value is AgentSkillId {
   return typeof value === 'string' && (SEC_AGENT_SKILL_IDS as readonly string[]).includes(value);
 }
 
@@ -342,8 +342,8 @@ export function isSecAgentSkillId(value: unknown): value is SecAgentSkillId {
  * Minimal machine metadata extracted from the real Skill registry. Prose
  * triggers remain agent guidance; only this table drives the machine decision.
  */
-export interface SecAgentSkillMetadata {
-  readonly id: SecAgentSkillId;
+export interface AgentSkillMetadata {
+  readonly id: AgentSkillId;
   readonly roles: readonly AgentRole[];
   readonly operationKinds: readonly TaskOperationKind[];
 }
@@ -394,7 +394,7 @@ export const SEC_AGENT_SKILL_METADATA = {
     roles: ['worker'],
     operationKinds: ['implement']
   }
-} as const satisfies Record<SecAgentSkillId, SecAgentSkillMetadata>;
+} as const satisfies Record<AgentSkillId, AgentSkillMetadata>;
 
 /**
  * Candidate-quarantine surfaces: when a candidate changes these paths, the
@@ -413,26 +413,26 @@ const SEC_SKILL_QUARANTINE_PATH_PREFIXES = [
   'scripts/codex/'
 ] as const;
 
-export function isSecSkillQuarantinePath(path: string): boolean {
+export function isSkillQuarantinePath(path: string): boolean {
   return SEC_SKILL_QUARANTINE_EXACT_PATHS.includes(
     path as (typeof SEC_SKILL_QUARANTINE_EXACT_PATHS)[number]
   ) || SEC_SKILL_QUARANTINE_PATH_PREFIXES.some((prefix) => path.startsWith(prefix));
 }
 
-interface SecSkillApplicabilityTriggerEvidence {
-  readonly skillId: SecAgentSkillId;
+interface SkillApplicabilityTriggerEvidence {
+  readonly skillId: AgentSkillId;
   readonly role: boolean;
   readonly operationKind: boolean;
 }
 
-interface SecSkillApplicabilityExclusionResult {
-  readonly skillId: SecAgentSkillId;
-  readonly reason: SecSkillApplicabilityExclusionReason;
+interface SkillApplicabilityExclusionResult {
+  readonly skillId: AgentSkillId;
+  readonly reason: SkillApplicabilityExclusionReason;
 }
 
-export interface SecSkillApplicabilityDecision {
+export interface SkillApplicabilityDecision {
   readonly schema: typeof SEC_SKILL_APPLICABILITY_SCHEMA;
-  readonly status: SecSkillApplicabilityStatus;
+  readonly status: SkillApplicabilityStatus;
   readonly role: AgentRole | null;
   readonly operationKind: TaskOperationKind | null;
   readonly goalDigest: string;
@@ -442,18 +442,18 @@ export interface SecSkillApplicabilityDecision {
   readonly taskCapsuleRef: string | null;
   readonly taskCapsuleDigest: string | null;
   readonly taskCapsuleRevision: string | null;
-  readonly candidateSkillIds: readonly SecAgentSkillId[];
-  readonly selectedSkillId: SecAgentSkillId | null;
+  readonly candidateSkillIds: readonly AgentSkillId[];
+  readonly selectedSkillId: AgentSkillId | null;
   readonly trustedSkillRevision: string | null;
   readonly candidateSkillRevision: string | null;
   readonly quarantinePaths: readonly string[];
-  readonly triggerEvidence: readonly SecSkillApplicabilityTriggerEvidence[];
-  readonly exclusionResults: readonly SecSkillApplicabilityExclusionResult[];
+  readonly triggerEvidence: readonly SkillApplicabilityTriggerEvidence[];
+  readonly exclusionResults: readonly SkillApplicabilityExclusionResult[];
   readonly reasonCodes: readonly string[];
   readonly invalidationConditions: readonly string[];
 }
 
-export interface SecSkillApplicabilityEnvelope {
+export interface SkillApplicabilityEnvelope {
   readonly role: unknown;
   readonly operationKind: unknown;
   readonly goalDigest: string;
@@ -467,12 +467,12 @@ export interface SecSkillApplicabilityEnvelope {
   readonly changedPaths?: readonly string[];
   readonly trustedSkillRevisions?: Readonly<Record<string, string>>;
   readonly candidateSkillRevisions?: Readonly<Record<string, string>>;
-  readonly priorDecision?: SecSkillApplicabilityDecision;
+  readonly priorDecision?: SkillApplicabilityDecision;
 }
 
 function computeInvalidationConditions(
-  prior: SecSkillApplicabilityDecision,
-  input: SecSkillApplicabilityEnvelope
+  prior: SkillApplicabilityDecision,
+  input: SkillApplicabilityEnvelope
 ): string[] {
   const conditions: string[] = [];
   if (prior.goalDigest !== input.goalDigest) conditions.push('goal-digest');
@@ -493,7 +493,7 @@ function computeInvalidationConditions(
   if (prior.trustedRevision !== input.trustedRevision) conditions.push('trusted-revision');
   if (prior.candidateSkillIds.length > 0) {
     const priorSet = new Set(prior.candidateSkillIds);
-    const current = [...new Set((input.candidates ?? [...SEC_AGENT_SKILL_IDS]).filter(isSecAgentSkillId))];
+    const current = [...new Set((input.candidates ?? [...SEC_AGENT_SKILL_IDS]).filter(isAgentSkillId))];
     if (current.length !== priorSet.size || current.some((skillId) => !priorSet.has(skillId))) {
       conditions.push('candidate-set');
     }
@@ -502,9 +502,9 @@ function computeInvalidationConditions(
 }
 
 function buildUnresolvedDecision(
-  input: SecSkillApplicabilityEnvelope,
+  input: SkillApplicabilityEnvelope,
   reasonCode: string
-): SecSkillApplicabilityDecision {
+): SkillApplicabilityDecision {
   return {
     schema: SEC_SKILL_APPLICABILITY_SCHEMA,
     status: 'unresolved',
@@ -533,9 +533,9 @@ function buildUnresolvedDecision(
  * Pure zero-or-one applicability decision (Issue #275). Reads only machine
  * metadata and the operation envelope; never reads Skill prose bytes.
  */
-export function evaluateSecSkillApplicability(
-  input: SecSkillApplicabilityEnvelope
-): SecSkillApplicabilityDecision {
+export function evaluateSkillApplicability(
+  input: SkillApplicabilityEnvelope
+): SkillApplicabilityDecision {
   const role = input.role;
   const operationKind = input.operationKind;
   if (!isAgentRole(role)) return buildUnresolvedDecision(input, 'unresolved-invalid-role');
@@ -569,7 +569,7 @@ export function evaluateSecSkillApplicability(
         taskCapsuleRef: input.taskCapsuleRef ?? null,
         taskCapsuleDigest: input.taskCapsuleDigest ?? null,
         taskCapsuleRevision: input.taskCapsuleRevision ?? null,
-        candidateSkillIds: [...new Set((input.candidates ?? [...SEC_AGENT_SKILL_IDS]).filter(isSecAgentSkillId))],
+        candidateSkillIds: [...new Set((input.candidates ?? [...SEC_AGENT_SKILL_IDS]).filter(isAgentSkillId))],
         selectedSkillId: null,
         trustedSkillRevision: null,
         candidateSkillRevision: null,
@@ -583,16 +583,16 @@ export function evaluateSecSkillApplicability(
   }
 
   const changedPaths = [...new Set(input.changedPaths ?? [])];
-  const quarantinePaths = changedPaths.filter(isSecSkillQuarantinePath).sort();
+  const quarantinePaths = changedPaths.filter(isSkillQuarantinePath).sort();
   const quarantineActive = quarantinePaths.length > 0;
 
   const requested = [...(input.candidates ?? [...SEC_AGENT_SKILL_IDS])];
-  const candidateSkillIds = [...new Set(requested.filter(isSecAgentSkillId))];
-  const unknownCandidateCount = [...new Set(requested)].filter((candidate) => !isSecAgentSkillId(candidate)).length;
+  const candidateSkillIds = [...new Set(requested.filter(isAgentSkillId))];
+  const unknownCandidateCount = [...new Set(requested)].filter((candidate) => !isAgentSkillId(candidate)).length;
 
-  const triggerEvidence: SecSkillApplicabilityTriggerEvidence[] = [];
-  const exclusionResults: SecSkillApplicabilityExclusionResult[] = [];
-  const survivors: SecAgentSkillId[] = [];
+  const triggerEvidence: SkillApplicabilityTriggerEvidence[] = [];
+  const exclusionResults: SkillApplicabilityExclusionResult[] = [];
+  const survivors: AgentSkillId[] = [];
 
   for (const skillId of candidateSkillIds) {
     const skillMetadata = SEC_AGENT_SKILL_METADATA[skillId];
@@ -615,8 +615,8 @@ export function evaluateSecSkillApplicability(
   if (quarantineActive) reasonCodes.push('candidate-quarantine', 'quarantine-binds-trusted-revision');
   if (unknownCandidateCount > 0) reasonCodes.push('unknown-candidate-ignored');
 
-  let status: SecSkillApplicabilityStatus;
-  let selectedSkillId: SecAgentSkillId | null = null;
+  let status: SkillApplicabilityStatus;
+  let selectedSkillId: AgentSkillId | null = null;
   if (survivors.length === 0) {
     if (operationKind === 'no-change') {
       status = 'not-applicable';

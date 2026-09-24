@@ -1,9 +1,9 @@
 import { canonicalJson, compareCodeUnits, deepFreeze, sha256 } from '../../../../contracts/canonical.ts';
 import { IsCanonicalRepositoryPath } from '../../../../contracts/repository-path.ts';
 import {
-  isSecAgentSkillId,
-  type SecAgentSkillId,
-  type SecSkillApplicabilityEnvelope
+  isAgentSkillId,
+  type AgentSkillId,
+  type SkillApplicabilityEnvelope
 } from './skill.ts';
 import {
   parseTaskCapsule,
@@ -385,15 +385,15 @@ export function parseSecOperationReadPlan(value: unknown): SecOperationReadPlan 
 /** Skill metadata projection; the caller must replace changed paths with exact Git observation. */
 export function projectSecSkillEnvelopeFromOperationReadPlan(
   plan: SecOperationReadPlan
-): SecSkillApplicabilityEnvelope {
+): SkillApplicabilityEnvelope {
   const verified = parseSecOperationReadPlan(plan);
   const planningContext = verified.taskCapsule.planningContext;
   const candidates = planningContext.skillCandidateIds.map((candidate) => {
-    if (!isSecAgentSkillId(candidate)) {
+    if (!isAgentSkillId(candidate)) {
       fail(`Task Capsule Skill candidate is not in the trusted Skill registry: ${candidate}.`);
     }
     return candidate;
-  }) as SecAgentSkillId[];
+  }) as AgentSkillId[];
   return deepFreeze({
     role: planningContext.role,
     operationKind: planningContext.operationKind,

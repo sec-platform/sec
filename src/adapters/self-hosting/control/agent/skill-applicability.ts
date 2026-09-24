@@ -18,8 +18,8 @@ import {
   type SecOperationReadPlan
 } from './read-plan.ts';
 import {
-  evaluateSecSkillApplicability,
-  isSecSkillQuarantinePath
+  evaluateSkillApplicability,
+  isSkillQuarantinePath
 } from './skill.ts';
 import {
   TaskCapsuleProjectionUnavailableError,
@@ -139,7 +139,7 @@ async function main(): Promise<void> {
     fail('Read Plan was not fully produced by the exact trusted-resolver worker/implement projection.');
   }
   const envelope = projectSecSkillEnvelopeFromOperationReadPlan(plan);
-  const quarantined = observation.changedPaths.filter(isSecSkillQuarantinePath);
+  const quarantined = observation.changedPaths.filter(isSkillQuarantinePath);
   const { trustedSkillRevisions, candidateSkillRevisions } = await withAuthorityGitReadSession(
     { cwd: observation.candidateRoot, budget: GIT_READ_DEFAULT_OPERATION_BUDGET },
     async (session) => {
@@ -165,7 +165,7 @@ async function main(): Promise<void> {
       });
     }
   );
-  const decision = evaluateSecSkillApplicability({
+  const decision = evaluateSkillApplicability({
     ...envelope,
     changedPaths: observation.changedPaths,
     trustedSkillRevisions,

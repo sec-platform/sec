@@ -59,14 +59,14 @@ import {
 } from '../../runtime-state/physical/runtime/sealed-execution-tree-generation.ts';
 import { currentSecRuntimePlatform, resolveSecRuntimeCacheRoot, secRuntimeStateEnvironment } from '../../runtime-state/workspace-state/layout.ts';
 import {
-  classifySecRepositorySurface,
-  resolveSecMarkdownSkillCoverage,
-  resolveSecRepositoryHeuristicSkills,
+  classifyRepositorySurface,
+  resolveMarkdownSkillCoverage,
+  resolveRepositoryHeuristicSkills,
   SEC_AGENT_SKILL_IDS,
   SEC_REPOSITORY_HEURISTIC_BEHAVIOR_IDS,
   SEC_REPOSITORY_HEURISTIC_ROUTES,
-  type SecAgentSkillId,
-  type SecRepositorySurfaceKind
+  type AgentSkillId,
+  type RepositorySurfaceKind
 } from '../../self-hosting/control/agent/skill.ts';
 import {
   CodexDevelopmentClassifyWorkPackageCensus,
@@ -454,7 +454,7 @@ export interface RepositoryAuditFinding {
   message: string;
   path?: string;
   severity: RepositoryAuditSeverity;
-  skills?: readonly SecAgentSkillId[];
+  skills?: readonly AgentSkillId[];
 }
 
 type RepositoryModuleArchitectureWithPlacement = RepositoryModuleArchitectureProjection & Readonly<{
@@ -509,7 +509,7 @@ export interface RepositoryAuditReport {
     trackedPaths: number;
     unknowns: number;
   }>;
-  surfaces: Readonly<Record<SecRepositorySurfaceKind, number>>;
+  surfaces: Readonly<Record<RepositorySurfaceKind, number>>;
   unknowns: readonly string[];
 }
 
@@ -738,7 +738,7 @@ function compactRecordSet<T>(records: readonly T[]): Readonly<{
 export interface BehaviorCandidate {
   line: number;
   path: string;
-  skills: readonly SecAgentSkillId[];
+  skills: readonly AgentSkillId[];
   text: string;
 }
 
@@ -1920,9 +1920,9 @@ async function prepareWorkingTreeSourceProgramAudit(
   });
 }
 
-function behaviorSkills(repositoryPath: string): SecAgentSkillId[] {
-  const markdown = resolveSecMarkdownSkillCoverage(repositoryPath);
-  return markdown?.skills ?? resolveSecRepositoryHeuristicSkills(repositoryPath);
+function behaviorSkills(repositoryPath: string): AgentSkillId[] {
+  const markdown = resolveMarkdownSkillCoverage(repositoryPath);
+  return markdown?.skills ?? resolveRepositoryHeuristicSkills(repositoryPath);
 }
 
 function lineStarts(source: string): number[] {
@@ -2082,7 +2082,7 @@ export function extractHeuristicBehaviorCandidates(
       && !isJavaScriptOrTypeScriptTestPath(repositoryPath)
     )
   ) return [];
-  const markdown = resolveSecMarkdownSkillCoverage(repositoryPath);
+  const markdown = resolveMarkdownSkillCoverage(repositoryPath);
   if (markdown && (
     markdown.kind === 'historical'
     || markdown.kind === 'evidence'
@@ -2096,7 +2096,7 @@ export function extractHeuristicBehaviorCandidates(
   const skills = behaviorSkills(repositoryPath);
   const pathImpliesAgentBehavior = markdown?.kind === 'skill-definition'
     || markdown?.kind === 'agent-projection'
-    || (markdown === null && resolveSecRepositoryHeuristicSkills(repositoryPath).length > 0);
+    || (markdown === null && resolveRepositoryHeuristicSkills(repositoryPath).length > 0);
   const contextMarker = skills.length > 0
     ? AGENT_CONTEXT_MARKER
     : STRONG_AGENT_CONTEXT_MARKER;
@@ -2723,7 +2723,7 @@ async function auditRepositoryWithSession(
   if (defaultHead === null) {
     unknowns.push(`default ref unavailable: ${defaultRefInput}`);
   }
-  const surfaceCounts: Record<SecRepositorySurfaceKind, number> = {
+  const surfaceCounts: Record<RepositorySurfaceKind, number> = {
     configuration: 0,
     'heuristic-runtime': 0,
     markdown: 0,
@@ -2745,14 +2745,14 @@ async function auditRepositoryWithSession(
       ? { kind: 'verification-test' as const, skills: [] }
       : compiledSurface === 'production'
         ? { kind: 'product-implementation' as const, skills: [] }
-        : classifySecRepositorySurface(repositoryPath);
+        : classifyRepositorySurface(repositoryPath);
     surfaceCounts[surface.kind] += 1;
     if (repositoryPath.endsWith('.md')) markdown += 1;
 
     const source = textByPath.get(repositoryPath) ?? null;
     if (source === null) continue;
 
-    const markdownCoverage = resolveSecMarkdownSkillCoverage(repositoryPath);
+    const markdownCoverage = resolveMarkdownSkillCoverage(repositoryPath);
     if (markdownCoverage?.kind === 'active-authority'
       || markdownCoverage?.kind === 'agent-projection') {
       activeMarkdown += 1;
