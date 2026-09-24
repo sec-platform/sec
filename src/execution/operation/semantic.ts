@@ -7,18 +7,20 @@ import {
 import { SEC_SEMANTIC_OPERATION_ID_PATTERN } from './identity.ts';
 
 import {
-  OPERATION_BUDGET_RESOURCES,
-  OPERATION_EFFECT_KINDS,
-  type OperationBudgetResource,
+  canonicalOperationBudget,
+  canonicalOperationEffectKinds,
+  canonicalUniqueOperationStrings,
+  type OperationBudget,
   type OperationEffectKind
 } from './contract.ts';
 
 export {
+  isCanonicalOperationBudgetMaximum,
   OPERATION_BUDGET_RESOURCES,
   OPERATION_EFFECT_KINDS,
   PROCESS_OPERATION_BUDGET_RESOURCES
 } from './contract.ts';
-export type { OperationBudgetResource, OperationEffectKind } from './contract.ts';
+export type { OperationBudget, OperationBudgetResource, OperationEffectKind } from './contract.ts';
 
 export type OperationDigest = `sha256:${string}`;
 
@@ -27,12 +29,6 @@ export type OperationRequirement = Readonly<{
   readonly contractDigest: OperationDigest;
   readonly effectKinds: readonly OperationEffectKind[];
   readonly failureKinds: readonly string[];
-}>;
-
-export type OperationBudget = Readonly<{
-  readonly resource: OperationBudgetResource;
-  /** Static aggregate ceiling. Runtime consumption belongs to the physical resource ledger. */
-  readonly maximum: number;
 }>;
 
 type SemanticOperationIdentity = Readonly<{
@@ -245,46 +241,14 @@ function requireId(value: string, label: string): string {
   return value;
 }
 
-function canonicalUniqueStrings(values: readonly string[], label: string): readonly string[] {
-  const canonical = [...values].sort(compareCodeUnits);
-  if (canonical.some((value) => value.length === 0 || value.trim() !== value)
-      || new Set(canonical).size !== canonical.length) {
-    throw new Error(`${label} must contain unique non-empty canonical values.`);
-  }
-  return Object.freeze(canonical);
-}
-
-export function isCanonicalOperationBudgetMaximum(
-  resource: OperationBudgetResource,
-  maximum: number
-): boolean {
-  return OPERATION_BUDGET_RESOURCES.includes(resource)
-    && Number.isSafeInteger(maximum)
-    && (maximum > 0 || (resource === 'input-bytes' && maximum === 0));
-}
-
-function canonicalOperationBudget(budget: OperationBudget): OperationBudget {
-  const keys = Object.keys(budget).sort(compareCodeUnits);
-  if (keys.length !== 2 || keys[0] !== 'maximum' || keys[1] !== 'resource'
-      || !isCanonicalOperationBudgetMaximum(budget.resource, budget.maximum)) {
-    throw new Error('Semantic operation aggregate budget is not canonical.');
-  }
-  return Object.freeze({ resource: budget.resource, maximum: budget.maximum });
-}
-
 function canonicalRequirement(
   requirement: OperationRequirement
 ): OperationRequirement {
   const id = requireId(requirement.id, 'Operation requirement id');
-  const effectKinds = canonicalUniqueStrings(
+  const effectKinds = canonicalOperationEffectKinds(
     requirement.effectKinds,
     `Operation requirement ${id} effect kinds`
   );
-  if (effectKinds.some((kind) => !OPERATION_EFFECT_KINDS.includes(
-    kind as OperationEffectKind
-  ))) {
-    throw new Error(`Operation requirement ${id} contains an unsupported Effect kind.`);
-  }
   return deepFreeze({
     id,
     contractDigest: requireDigest(
@@ -292,7 +256,7 @@ function canonicalRequirement(
       `Operation requirement ${id} contract digest`
     ),
     effectKinds: effectKinds as readonly OperationEffectKind[],
-    failureKinds: canonicalUniqueStrings(
+    failureKinds: canonicalUniqueOperationStrings(
       requirement.failureKinds,
       `Operation requirement ${id} failure kinds`
     )
