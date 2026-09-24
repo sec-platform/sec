@@ -482,10 +482,28 @@
   "causalRelations": [
     {
       "subject": "runtime-state.git-worktree-list-observation",
+      "relation": "declares",
+      "symbol": {
+        "path": "src/adapters/runtime-state/physical/contract/git-worktree-observation.ts",
+        "name": "WorktreePorcelainRecord"
+      },
+      "operation": null
+    },
+    {
+      "subject": "runtime-state.git-worktree-list-observation",
       "relation": "parses",
       "symbol": {
         "path": "src/adapters/runtime-state/physical/contract/git-worktree-observation.ts",
         "name": "parseWorktreePorcelainZ"
+      },
+      "operation": null
+    },
+    {
+      "subject": "runtime-state.git-working-state-observation",
+      "relation": "declares",
+      "symbol": {
+        "path": "src/adapters/runtime-state/physical/contract/git-worktree-observation.ts",
+        "name": "WorktreeStatusPorcelainRecord"
       },
       "operation": null
     },

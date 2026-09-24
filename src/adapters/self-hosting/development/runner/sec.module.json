@@ -97,6 +97,15 @@
   "causalRelations": [
     {
       "subject": "verification.affected-check-plan",
+      "relation": "declares",
+      "symbol": {
+        "path": "src/adapters/self-hosting/development/runner/affected-plan-contract.ts",
+        "name": "LocalAffectedCheckPlan"
+      },
+      "operation": null
+    },
+    {
+      "subject": "verification.affected-check-plan",
       "relation": "produces",
       "symbol": {
         "path": "src/adapters/self-hosting/development/runner/affected-plan-contract.ts",
@@ -110,6 +119,15 @@
       "symbol": {
         "path": "src/adapters/self-hosting/development/runner/affected-plan-contract.ts",
         "name": "compileAffectedTestSelectionSemanticOperation"
+      },
+      "operation": null
+    },
+    {
+      "subject": "verification.affected-test-plan-result",
+      "relation": "declares",
+      "symbol": {
+        "path": "src/adapters/self-hosting/development/runner/affected-plan-contract.ts",
+        "name": "AffectedTestPlan"
       },
       "operation": null
     },

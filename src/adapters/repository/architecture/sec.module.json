@@ -13,6 +13,15 @@
   "causalRelations": [
     {
       "subject": "system-architecture.repository-module-placement",
+      "relation": "declares",
+      "symbol": {
+        "path": "src/adapters/repository/architecture/placement.ts",
+        "name": "SecRepositoryModulePlacementAdmission"
+      },
+      "operation": null
+    },
+    {
+      "subject": "system-architecture.repository-module-placement",
       "relation": "projects",
       "symbol": {
         "path": "src/adapters/repository/architecture/placement.ts",

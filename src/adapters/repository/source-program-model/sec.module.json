@@ -36,6 +36,15 @@
   "causalRelations": [
     {
       "subject": "brownfield.source-program-model.operation-producer-closure",
+      "relation": "declares",
+      "symbol": {
+        "path": "src/adapters/repository/source-program-model/contract.ts",
+        "name": "SourceProgramOperationProducerClosure"
+      },
+      "operation": null
+    },
+    {
+      "subject": "brownfield.source-program-model.operation-producer-closure",
       "relation": "produces",
       "symbol": {
         "path": "src/adapters/repository/source-program-model/producer-closure.ts",
