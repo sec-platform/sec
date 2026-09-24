@@ -40,6 +40,11 @@ import {
   type AuthorityGitReadOperation
 } from '../../../providers/git-read/authority.ts';
 import {
+  executeGitHubApiOperation,
+  withGitHubApiReadSession,
+  type GitHubApiCapability
+} from '../../../providers/github-api/internal/operation-session-runtime.ts';
+import {
   GIT_READ_EXACT_TREE_OPERATION_BUDGET,
   type GitBlobBytes
 } from '../../../providers/git-read/runtime/session.ts';
@@ -4870,22 +4875,6 @@ function positiveEnvironmentInteger(name: string): number {
   return parsed;
 }
 
-function hostedActionGhReadJson(args: readonly string[], label: string): unknown {
-  const result = spawnSync('gh', ['api', '-H', 'Accept: application/vnd.github+json', ...args], {
-    encoding: 'utf8',
-    maxBuffer: 128 * 1024 * 1024,
-    windowsHide: true
-  });
-  if (result.error !== undefined || result.status !== 0 || typeof result.stdout !== 'string') {
-    throw new Error(`${label} readback failed: ${String(result.error ?? result.stderr).slice(0, 512)}`);
-  }
-  try {
-    return JSON.parse(result.stdout) as unknown;
-  } catch (error) {
-    throw new Error(`${label} readback is not JSON: ${String(error).slice(0, 512)}`);
-  }
-}
-
 function hostedActionRecord(value: unknown, label: string): Record<string, unknown> {
   if (value === null || typeof value !== 'object' || Array.isArray(value)) {
     throw new Error(`${label} must be one object.`);
@@ -4906,7 +4895,9 @@ function hostedActionCanonicalFile<T>(
   return value;
 }
 
-function hostedActionParentActor(repository: string): CiVerificationActionParentActor {
+async function hostedActionParentActor(
+  capability: GitHubApiCapability
+): Promise<CiVerificationActionParentActor> {
   const event = hostedActionRecord(
     JSON.parse(readFileSync(process.env.GITHUB_EVENT_PATH ?? '', 'utf8')) as unknown,
     'parent Session event'
@@ -4920,9 +4911,9 @@ function hostedActionParentActor(repository: string): CiVerificationActionParent
       sender.type !== 'User' || process.env.GITHUB_ACTOR !== login || process.env.GITHUB_TRIGGERING_ACTOR !== login) {
     throw new Error('parent Session event sender is not one exact human principal.');
   }
-  const permissionReadback = hostedActionRecord(hostedActionGhReadJson([
-    `/repos/${repository}/collaborators/${login}/permission`
-  ], 'parent actor permission'), 'parent actor permission');
+  const permissionReadback = hostedActionRecord(await executeGitHubApiOperation(capability, {
+    kind: 'collaborator-permission', login
+  }), 'parent actor permission');
   const user = hostedActionRecord(permissionReadback.user, 'parent actor permission user');
   const permission = permissionReadback.permission;
   if ((permission !== 'maintain' && permission !== 'admin') || user.login !== login || user.id !== id ||
@@ -4938,12 +4929,16 @@ function hostedActionParentActor(repository: string): CiVerificationActionParent
   });
 }
 
-function hostedActionParentJobId(repository: string, runId: string, runAttempt: number): string {
+async function hostedActionParentJobId(
+  capability: GitHubApiCapability,
+  runId: string,
+  runAttempt: number
+): Promise<string> {
   const jobs: Record<string, unknown>[] = [];
   for (let page = 1; page <= 1000; page += 1) {
-    const response = hostedActionRecord(hostedActionGhReadJson([
-      `/repos/${repository}/actions/runs/${runId}/attempts/${runAttempt}/jobs?per_page=100&page=${page}`
-    ], `parent job page ${page}`), `parent job page ${page}`);
+    const response = hostedActionRecord(await executeGitHubApiOperation(capability, {
+      kind: 'workflow-jobs', runId, runAttempt, page
+    }), `parent job page ${page}`);
     if (!Array.isArray(response.jobs) || response.jobs.length > 100) {
       throw new Error(`parent job page ${page} is incomplete.`);
     }
@@ -4976,10 +4971,11 @@ export function AssertHostedActionParentEvent(
   }
 }
 
-function createHostedActionParentPlan(input: Readonly<{
+async function createHostedActionParentPlan(input: Readonly<{
+  repositoryRoot: string;
   sessionRequest: VerificationSessionHostedRequest;
   envelope: VerificationSessionHostedEnvelope;
-}>): CiVerificationActionParentDispatchPlan {
+}>): Promise<CiVerificationActionParentDispatchPlan> {
   const repositoryIdentity = hostedActionRepositoryIdentity();
   const runId = process.env.GITHUB_RUN_ID ?? '';
   const runAttempt = positiveEnvironmentInteger('GITHUB_RUN_ATTEMPT');
@@ -5007,15 +5003,23 @@ function createHostedActionParentPlan(input: Readonly<{
       envelope: input.envelope
     });
   }
+  const provider = await withGitHubApiReadSession({
+    repositoryRoot: input.repositoryRoot,
+    repository: repositoryIdentity.repository,
+    operation: async (capability) => Object.freeze({
+      parentJobId: await hostedActionParentJobId(capability, runId, runAttempt),
+      parentActor: await hostedActionParentActor(capability)
+    })
+  });
   return createCiVerificationActionParentDispatchPlan({
     repositoryId: String(repositoryIdentity.repositoryId),
     repository: repositoryIdentity.repository,
     parentRunId: runId,
     parentRunAttempt: runAttempt,
-    parentJobId: hostedActionParentJobId(repositoryIdentity.repository, runId, runAttempt),
+    parentJobId: provider.parentJobId,
     parentWorkflowRef: workflowRef,
     parentWorkflowSha: workflowSha,
-    parentActor: hostedActionParentActor(repositoryIdentity.repository),
+    parentActor: provider.parentActor,
     proposals
   });
 }
@@ -5233,7 +5237,9 @@ export async function CiVerificationHostedActionCli(
       const envelope = parseHostedEnvelope(
         JSON.parse(readFileSync(path.resolve(args.get('--envelope')!), 'utf8')) as unknown
       );
-      const parentPlan = createHostedActionParentPlan({ sessionRequest, envelope });
+      const parentPlan = await createHostedActionParentPlan({
+        repositoryRoot: exactRepositoryRoot, sessionRequest, envelope
+      });
       writeHostedActionJson(args.get('--output')!, parentPlan);
       return JSON.stringify({
         status: 'prepared',
