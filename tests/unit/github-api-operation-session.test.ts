@@ -58,6 +58,8 @@ test('verification provider fixed reads compile without exposing arbitrary REST 
       await executeGitHubApiOperation(api, { kind: 'check-suite', checkSuiteId: 55 });
       await executeGitHubApiOperation(api, { kind: 'artifact', artifactId: 66 });
       await executeGitHubApiOperation(api, { kind: 'open-pulls-page', page: 3 });
+      await executeGitHubApiOperation(api, { kind: 'git-commit', sha: SHA });
+      await executeGitHubApiOperation(api, { kind: 'compare', baseSha: SHA, headSha: '2'.repeat(40) });
     }
   });
   expect(urls).toEqual([
@@ -66,7 +68,9 @@ test('verification provider fixed reads compile without exposing arbitrary REST 
     'https://api.github.com/repos/sec-platform/sec/actions/artifacts?per_page=100&page=4',
     'https://api.github.com/repos/sec-platform/sec/check-suites/55',
     'https://api.github.com/repos/sec-platform/sec/actions/artifacts/66',
-    'https://api.github.com/repos/sec-platform/sec/pulls?state=open&per_page=100&page=3'
+    'https://api.github.com/repos/sec-platform/sec/pulls?state=open&per_page=100&page=3',
+    `https://api.github.com/repos/sec-platform/sec/git/commits/${SHA}`,
+    `https://api.github.com/repos/sec-platform/sec/compare/${SHA}...${'2'.repeat(40)}`
   ]);
 });
 

@@ -90,6 +90,8 @@ export type GitHubApiOperation =
   | Readonly<{ kind: 'pull'; pullRequestNumber: number }>
   | Readonly<{ kind: 'branch'; branch: string }>
   | Readonly<{ kind: 'collaborator-permission'; login: string }>
+  | Readonly<{ kind: 'git-commit'; sha: string }>
+  | Readonly<{ kind: 'compare'; baseSha: string; headSha: string }>
   | Readonly<{ kind: 'commit-statuses'; sha: string; page: number }>
   | Readonly<{
       kind: 'create-commit-status';
@@ -303,6 +305,8 @@ function compileOperation(
     case 'branch': return read(`/repos/${repo}/branches/${encodeURIComponent(boundedText(operation.branch, 'branch', 255))}`);
     case 'collaborator-permission':
       return read(`/repos/${repo}/collaborators/${encodeURIComponent(boundedText(operation.login, 'login', 64))}/permission`);
+    case 'git-commit': return read(`/repos/${repo}/git/commits/${sha(operation.sha)}`);
+    case 'compare': return read(`/repos/${repo}/compare/${sha(operation.baseSha)}...${sha(operation.headSha)}`);
     case 'commit-statuses':
       return read(`/repos/${repo}/commits/${sha(operation.sha)}/statuses?per_page=100&page=${page(operation.page)}`);
     case 'create-commit-status': {
