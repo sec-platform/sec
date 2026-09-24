@@ -14,7 +14,8 @@ import {
 } from '../../../runtime-state/physical/runtime/physical-no-follow.ts';
 import {
   RETAINED_EXECUTABLE_CHILD_DESCRIPTOR,
-  RETAINED_WORKING_DIRECTORY_CHILD_DESCRIPTOR
+  RETAINED_WORKING_DIRECTORY_CHILD_DESCRIPTOR,
+  resolveExecutableLocator
 } from '../../../runtime-state/physical/runtime/process.ts';
 import {
   getSecWindowsControlCliExecutableBindingV1,
@@ -155,8 +156,8 @@ function candidateRoots(
     if (root !== null) candidates.set(pathKey(root), root);
   };
   const pathValue = environmentValue(environment, 'PATH') ?? '';
-  const selectedHint = Bun.which(binding.executableName, {
-    PATH: pathValue,
+  const selectedHint = resolveExecutableLocator(binding.executableName, {
+    pathValue,
     cwd: workingDirectory
   });
   if (selectedHint !== null) {
