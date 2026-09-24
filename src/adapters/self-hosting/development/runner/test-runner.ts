@@ -7,7 +7,7 @@ import { uniqueSortedLines } from '../../../../contracts/collections.ts';
 import { posixPath } from '../../../../contracts/relative-path.ts';
 import { isSecRepositoryTestModulePath, normalizeSecRepositoryTestModulePath } from '../../../../contracts/repository-test-path.ts';
 import { observeExecutionProgressPhase } from '../../../../execution/execution-progress.ts';
-import type { SecBoundSemanticOperation } from '../../../../execution/operation/semantic.ts';
+import type { BoundSemanticOperation } from '../../../../execution/operation/semantic.ts';
 import { settleResourcesAsync as settlePhysicalResourcesAsync } from '../../../../execution/resource-settlement.ts';
 import { createAuthorityGitReadSession, type GitReadSession, type GitReadSessionCommand } from '../../../providers/git-read/runtime/session.ts';
 import {
@@ -362,7 +362,7 @@ async function observeGitSelectionState(
 }
 
 type AffectedGitRevalidationLedger = {
-  readonly operation: SecBoundSemanticOperation;
+  readonly operation: BoundSemanticOperation;
   readonly processSession?: ProcessResourceSession;
   /** Absolute parent wall deadline shared by every revalidation session. */
   readonly deadlineAt: number;
@@ -1459,7 +1459,7 @@ async function runAffectedTestPlan(
 
 export async function resolveAffectedTestExecution(options: Readonly<{
   dependencyGeneration?: RetainedCompilerDependencyReadGeneration;
-  operation: SecBoundSemanticOperation;
+  operation: BoundSemanticOperation;
   /** Borrowed process ledger owned by the surrounding repository fence. */
   processSession?: ProcessResourceSession;
   issueTestImpactProjection: AffectedTestImpactProjectionIssuer;
@@ -1717,7 +1717,7 @@ export async function runAffectedTests(
   issueTestImpactProjection: AffectedTestImpactProjectionIssuer,
   args: string[] = [],
   options: Readonly<{
-    operation?: SecBoundSemanticOperation;
+    operation?: BoundSemanticOperation;
     processSession?: ProcessResourceSession;
   }> = {}
 ): Promise<number> {

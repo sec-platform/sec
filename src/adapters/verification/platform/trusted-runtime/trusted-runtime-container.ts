@@ -10,16 +10,16 @@ import path from 'node:path';
 import { CI_VERIFICATION_WORKFLOW_PATH } from '../../../../assurance/verification/contract/revision.ts';
 import {
   bindSecSemanticOperation,
-  compileSecCapabilityBinding,
-  compileSecProviderSettlementSet,
-  compileSecSemanticOperationPlan,
-  issueSecNormalDomainReadbackReceipt,
+  compileCapabilityBinding,
+  compileProviderSettlementSet,
+  compileSemanticOperationPlan,
+  issueNormalDomainReadbackReceipt,
   issueSecNormalOwnerTerminalJoinReceipt,
-  issueSecSemanticOperationAttemptContext,
-  type SecBoundSemanticOperation,
-  type SecOperationDigest,
-  type SecOwnerTerminalJoinReceipt,
-  type SecProviderSettlementReceipt
+  issueSemanticOperationAttemptContext,
+  type BoundSemanticOperation,
+  type OperationDigest,
+  type OwnerTerminalJoinReceipt,
+  type ProviderSettlementReceipt
 } from '../../../../execution/operation/semantic.ts';
 import { settleResourcesAsync as settlePhysicalResourcesAsync } from '../../../../execution/resource-settlement.ts';
 import type {
@@ -249,15 +249,15 @@ function bindTrustedRuntimeContainerEngineOperation(input: Readonly<{
   headSha: string;
   operationKey: string;
   setupMode: 'full' | 'lifecycle-canary' | 'dependency-canary';
-  providerIdentityDigest: SecOperationDigest;
+  providerIdentityDigest: OperationDigest;
   deadlineAtUnixMs?: number;
-}>): SecBoundSemanticOperation {
+}>): BoundSemanticOperation {
   const contractDigest = digestValue(Object.freeze({
     schema: 'sec-trusted-runtime-container-engine-contract-v1',
     environment: ENVIRONMENT.provider.requirement,
     imageId: TRUSTED_RUNTIME_CONTAINER_IMAGE_ID
-  })) as SecOperationDigest;
-  const plan = compileSecSemanticOperationPlan({
+  })) as OperationDigest;
+  const plan = compileSemanticOperationPlan({
     operation: 'verification.trusted-runtime-container',
     intentDigest: digestValue(Object.freeze({
       repositoryRoot: input.repositoryRoot,
@@ -266,11 +266,11 @@ function bindTrustedRuntimeContainerEngineOperation(input: Readonly<{
       headSha: input.headSha,
       operationKey: input.operationKey,
       setupMode: input.setupMode
-    })) as SecOperationDigest,
+    })) as OperationDigest,
     decisionDigest: digestValue(Object.freeze({
       contractDigest,
       budget: TRUSTED_RUNTIME_CONTAINER_OPERATION_BUDGET
-    })) as SecOperationDigest,
+    })) as OperationDigest,
     deadlineAtUnixMs: input.deadlineAtUnixMs
       ?? Date.now() + TRUSTED_RUNTIME_CONTAINER_OPERATION_BUDGET.durationMs,
     aggregateBudgets: [
@@ -291,11 +291,11 @@ function bindTrustedRuntimeContainerEngineOperation(input: Readonly<{
         'container-engine.runtime-endpoint-residue'
       ]
     }],
-    attempt: issueSecSemanticOperationAttemptContext({
+    attempt: issueSemanticOperationAttemptContext({
       authorityGrantDigest: contractDigest
     })
   });
-  return bindSecSemanticOperation(plan, [compileSecCapabilityBinding({
+  return bindSecSemanticOperation(plan, [compileCapabilityBinding({
     requirementId: 'external.container-engine-process',
     contractDigest,
     providerIdentityDigest: input.providerIdentityDigest
@@ -303,32 +303,32 @@ function bindTrustedRuntimeContainerEngineOperation(input: Readonly<{
 }
 
 function issueTrustedRuntimeContainerEngineTerminalJoinWithSettlements(input: Readonly<{
-  operation: SecBoundSemanticOperation;
-  primaryProviderSettlement: SecProviderSettlementReceipt;
-  providerSettlements: readonly SecProviderSettlementReceipt[];
+  operation: BoundSemanticOperation;
+  primaryProviderSettlement: ProviderSettlementReceipt;
+  providerSettlements: readonly ProviderSettlementReceipt[];
   endpointReadback: DockerEndpointIdentity;
-  ownerTerminalContractDigest: SecOperationDigest;
-  ownerTerminalReferenceDigest: SecOperationDigest;
+  ownerTerminalContractDigest: OperationDigest;
+  ownerTerminalReferenceDigest: OperationDigest;
 }>) {
-  const providerSettlementSet = compileSecProviderSettlementSet(
+  const providerSettlementSet = compileProviderSettlementSet(
     input.operation,
     input.providerSettlements
   );
-  const readback = issueSecNormalDomainReadbackReceipt(input.operation, providerSettlementSet, {
+  const readback = issueNormalDomainReadbackReceipt(input.operation, providerSettlementSet, {
     readbackContractDigest: digestValue(Object.freeze({
       schema: 'sec-container-engine-endpoint-readback-contract-v1',
       contextName: input.endpointReadback.contextName,
       endpointHost: input.endpointReadback.endpointHost
-    })) as SecOperationDigest,
+    })) as OperationDigest,
     readbackReferenceDigest: digestValue(Object.freeze({
       schema: 'sec-container-engine-endpoint-readback-v1',
       endpoint: input.endpointReadback
-    })) as SecOperationDigest,
+    })) as OperationDigest,
     currentPhysicalEpochDigest: digestValue(Object.freeze({
       schema: 'sec-container-engine-physical-epoch-v1',
       endpointHost: input.endpointReadback.endpointHost,
       daemonId: input.endpointReadback.daemonId
-    })) as SecOperationDigest,
+    })) as OperationDigest,
     disposition: input.primaryProviderSettlement.physicalDisposition === 'settled'
       ? 'applied'
       : input.primaryProviderSettlement.physicalDisposition === 'not-started'
@@ -348,12 +348,12 @@ function issueTrustedRuntimeContainerEngineTerminalJoinWithSettlements(input: Re
 }
 
 export function issueTrustedRuntimeContainerEngineOwnerTerminalJoin(input: Readonly<{
-  operation: SecBoundSemanticOperation;
-  providerSettlement: SecProviderSettlementReceipt;
+  operation: BoundSemanticOperation;
+  providerSettlement: ProviderSettlementReceipt;
   endpointReadback: DockerEndpointIdentity;
-  ownerTerminalContractDigest: SecOperationDigest;
-  ownerTerminalReferenceDigest: SecOperationDigest;
-}>): SecOwnerTerminalJoinReceipt {
+  ownerTerminalContractDigest: OperationDigest;
+  ownerTerminalReferenceDigest: OperationDigest;
+}>): OwnerTerminalJoinReceipt {
   return issueTrustedRuntimeContainerEngineTerminalJoinWithSettlements({
     ...input,
     primaryProviderSettlement: input.providerSettlement,
@@ -363,10 +363,10 @@ export function issueTrustedRuntimeContainerEngineOwnerTerminalJoin(input: Reado
 
 async function settleTrustedRuntimeContainerEngineOperation(input: Readonly<{
   session: ContainerEngineSession;
-  operation: SecBoundSemanticOperation;
+  operation: BoundSemanticOperation;
   scope: ContainerEngineOperationScope;
   ownerTerminalReference: Readonly<Record<string, unknown>>;
-}>): Promise<SecOwnerTerminalJoinReceipt> {
+}>): Promise<OwnerTerminalJoinReceipt> {
   const providerSettlement = input.scope.settle();
   const endpointReadback = await input.session.observeEndpoint();
   return issueTrustedRuntimeContainerEngineOwnerTerminalJoin({
@@ -376,11 +376,11 @@ async function settleTrustedRuntimeContainerEngineOperation(input: Readonly<{
     ownerTerminalContractDigest: digestValue(Object.freeze({
       schema: 'sec-trusted-runtime-container-engine-owner-terminal-contract-v1',
       operation: input.operation.plan.identity.operation
-    })) as SecOperationDigest,
+    })) as OperationDigest,
     ownerTerminalReferenceDigest: digestValue(Object.freeze({
       schema: 'sec-trusted-runtime-container-engine-owner-terminal-reference-v1',
       ...input.ownerTerminalReference
-    })) as SecOperationDigest
+    })) as OperationDigest
   });
 }
 

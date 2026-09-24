@@ -2,7 +2,7 @@ import path from 'node:path';
 import { sha256 } from '../../../../contracts/canonical.ts';
 import { isDigest } from '../../../../contracts/digest.ts';
 import { isObjectId, parseObjectId, type ObjectFormat, type ObjectId } from '../../../../contracts/git-object-id.ts';
-import type { SecOperationDigest } from '../../../../execution/operation/semantic.ts';
+import type { OperationDigest } from '../../../../execution/operation/semantic.ts';
 
 export type GitCommitIdentity = Readonly<{
   readonly name: string;
@@ -27,7 +27,7 @@ export type GitDevelopmentCommitContract = GitCommitTreeInput & Readonly<{
   readonly target: string;
   readonly signing: 'disabled';
   readonly hooks: 'disabled';
-  readonly preflightReceiptDigest: SecOperationDigest;
+  readonly preflightReceiptDigest: OperationDigest;
 }>;
 
 export type GitDevelopmentCommitEffectResult = Readonly<
@@ -117,10 +117,10 @@ export function captureGitDevelopmentCommitContract(input: GitDevelopmentCommitC
     signing, hooks, preflightReceiptDigest });
 }
 
-export function compileGitDevelopmentCommitContractDigest(input: GitDevelopmentCommitContract): SecOperationDigest {
+export function compileGitDevelopmentCommitContractDigest(input: GitDevelopmentCommitContract): OperationDigest {
   const captured = captureGitDevelopmentCommitContract(input);
   if (captured === null) throw new Error('Git development commit contract is not canonical.');
-  return sha256({ schema: 'sec-development-commit-git-contract-v1', ...captured }) as SecOperationDigest;
+  return sha256({ schema: 'sec-development-commit-git-contract-v1', ...captured }) as OperationDigest;
 }
 
 /** Encode one already-admitted identity for Git's environment date parser.

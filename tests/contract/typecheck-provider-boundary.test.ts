@@ -44,16 +44,16 @@ import {
   projectVerificationActionTerminal
 } from '../../src/adapters/verification/platform/action/contract/action.ts';
 import { rawSha256, sha256 } from '../../src/contracts/canonical.ts';
-import { issueSecOperationRequirementBindingContext } from '../../src/execution/operation/requirement-binding-context.ts';
+import { issueOperationRequirementBindingContext } from '../../src/execution/operation/requirement-binding-context.ts';
 import {
   bindSecSemanticOperation,
-  compileSecCapabilityBinding,
-  compileSecProviderSettlementSet,
-  compileSecSemanticOperationPlan,
-  issueSecNormalDomainReadbackReceipt,
+  compileCapabilityBinding,
+  compileProviderSettlementSet,
+  compileSemanticOperationPlan,
+  issueNormalDomainReadbackReceipt,
   issueSecNormalOwnerTerminalJoinReceipt,
-  issueSecProviderSettlementReceipt,
-  issueSecSemanticOperationAttemptContext
+  issueProviderSettlementReceipt,
+  issueSemanticOperationAttemptContext
 } from '../../src/execution/operation/semantic.ts';
 
 const DEPENDENCY_TRANSITION_DIGEST = `sha256:${'a'.repeat(64)}` as const;
@@ -93,7 +93,7 @@ function testActionForOperation(
 function issuePassedVerificationTerminalFixture() {
   const effectContractDigest = testDigest('typecheck-terminal-fixture-effect');
   const operation = bindSecSemanticOperation(
-    compileSecSemanticOperationPlan({
+    compileSemanticOperationPlan({
       operation: 'verification.typecheck-terminal-fixture',
       intentDigest: testDigest('typecheck-terminal-fixture-intent'),
       decisionDigest: testDigest('typecheck-terminal-fixture-decision'),
@@ -105,23 +105,23 @@ function issuePassedVerificationTerminalFixture() {
         effectKinds: ['process'],
         failureKinds: ['process.failed']
       }],
-      attempt: issueSecSemanticOperationAttemptContext({
+      attempt: issueSemanticOperationAttemptContext({
         authorityGrantDigest: testDigest('typecheck-terminal-fixture-grant')
       })
     }),
-    [compileSecCapabilityBinding({
+    [compileCapabilityBinding({
       requirementId: 'typescript.project-check',
       contractDigest: effectContractDigest,
       providerIdentityDigest: testDigest('typecheck-terminal-fixture-provider')
     })]
   );
-  const settlement = issueSecProviderSettlementReceipt(operation, {
+  const settlement = issueProviderSettlementReceipt(operation, {
     requirementId: 'typescript.project-check',
     physicalDisposition: 'settled',
     providerSettlementReferenceDigest: testDigest('typecheck-terminal-fixture-settlement')
   });
-  const settlements = compileSecProviderSettlementSet(operation, [settlement]);
-  const readback = issueSecNormalDomainReadbackReceipt(operation, settlements, {
+  const settlements = compileProviderSettlementSet(operation, [settlement]);
+  const readback = issueNormalDomainReadbackReceipt(operation, settlements, {
     readbackContractDigest: testDigest('typecheck-terminal-fixture-readback-contract'),
     readbackReferenceDigest: testDigest('typecheck-terminal-fixture-readback'),
     currentPhysicalEpochDigest: testDigest('typecheck-terminal-fixture-epoch'),
@@ -255,7 +255,7 @@ async function withCheckerExecutionBoundary<T>(
   });
   const processSession = openProcessResourceSession({
     operation,
-    requirementBindingContext: issueSecOperationRequirementBindingContext({
+    requirementBindingContext: issueOperationRequirementBindingContext({
       operation,
       requirementId: 'typescript.project-check',
       resourceCeilings: [
@@ -625,12 +625,12 @@ test('typecheck Action identity is route-neutral and excludes attempt time for o
       projectInput: { ...projectInput } as typeof projectInput
     })).toThrow('was not issued');
     const baseSemanticOperation = semanticAt(1_900_000_000_000);
-    const changedBudgetPlan = compileSecSemanticOperationPlan({
+    const changedBudgetPlan = compileSemanticOperationPlan({
       operation: baseSemanticOperation.plan.identity.operation,
       intentDigest: baseSemanticOperation.plan.identity.intentDigest,
       decisionDigest: baseSemanticOperation.plan.identity.decisionDigest,
       deadlineAtUnixMs: 1_900_000_000_000,
-      attempt: issueSecSemanticOperationAttemptContext({
+      attempt: issueSemanticOperationAttemptContext({
         authorityGrantDigest: baseSemanticOperation.plan.attempt.authorityGrantDigest
       }),
       aggregateBudgets: baseSemanticOperation.plan.execution.aggregateBudgets.map((budget) => (
@@ -745,23 +745,23 @@ test('typecheck consumes Source Program input and joins checker plus retained di
     });
     expect(new Set(operation.plan.execution.requirements.flatMap(({ effectKinds }) => effectKinds)))
       .toEqual(new Set(['filesystem', 'process']));
-    const checker = issueSecProviderSettlementReceipt(operation, {
+    const checker = issueProviderSettlementReceipt(operation, {
       requirementId: 'typescript.project-check',
       physicalDisposition: 'unknown',
       providerSettlementReferenceDigest: testDigest('checker-handle-lost')
     });
-    expect(() => compileSecProviderSettlementSet(operation, [])).toThrow(
+    expect(() => compileProviderSettlementSet(operation, [])).toThrow(
       'exactly one receipt per requirement'
     );
-    expect(() => compileSecProviderSettlementSet(operation, [checker])).toThrow(
+    expect(() => compileProviderSettlementSet(operation, [checker])).toThrow(
       'exactly one receipt per requirement'
     );
-    const diagnostic = issueSecProviderSettlementReceipt(operation, {
+    const diagnostic = issueProviderSettlementReceipt(operation, {
       requirementId: 'verification.action-diagnostics',
       physicalDisposition: 'settled',
       providerSettlementReferenceDigest: testDigest('diagnostic-object-settled')
     });
-    const settlementSet = compileSecProviderSettlementSet(operation, [checker, diagnostic]);
+    const settlementSet = compileProviderSettlementSet(operation, [checker, diagnostic]);
     expect(settlementSet.settlements.map(({ requirementId, physicalDisposition }) => ({
       requirementId,
       physicalDisposition
@@ -769,7 +769,7 @@ test('typecheck consumes Source Program input and joins checker plus retained di
       { requirementId: 'typescript.project-check', physicalDisposition: 'unknown' },
       { requirementId: 'verification.action-diagnostics', physicalDisposition: 'settled' }
     ]));
-    const readback = issueSecNormalDomainReadbackReceipt(operation, settlementSet, {
+    const readback = issueNormalDomainReadbackReceipt(operation, settlementSet, {
       readbackContractDigest: testDigest('typecheck-readback-contract'),
       readbackReferenceDigest: testDigest('typecheck-input-invalidated'),
       currentPhysicalEpochDigest: testDigest('typecheck-current-physical-epoch'),

@@ -1,27 +1,27 @@
 import { expect, test } from 'bun:test';
 import { sha256 } from '../../contracts/canonical.ts';
 import {
-  createSecOperationEffectGrantAuthority,
-  SecOperationEffectGrantError,
-  type SecIssuedOperationEffectGrant
+  createOperationEffectGrantAuthority,
+  OperationEffectGrantError,
+  type IssuedOperationEffectGrant
 } from './effect-grant.ts';
 import {
-  compileSecSemanticOperationIntent,
-  compileSecSemanticOperationPlan,
-  issueSecSemanticOperationAttemptContext,
-  type SecOperationDigest,
-  type SecSemanticOperationIntent,
-  type SecSemanticOperationPlan
+  compileSemanticOperationIntent,
+  compileSemanticOperationPlan,
+  issueSemanticOperationAttemptContext,
+  type OperationDigest,
+  type SemanticOperationIntent,
+  type SemanticOperationPlan
 } from './semantic.ts';
 
-const digest = (value: string): SecOperationDigest => sha256(value) as SecOperationDigest;
+const digest = (value: string): OperationDigest => sha256(value) as OperationDigest;
 
 function intent(input: Readonly<{
   readonly operation?: string;
   readonly intent?: string;
   readonly decision?: string;
-}> = {}): SecSemanticOperationIntent {
-  return compileSecSemanticOperationIntent({
+}> = {}): SemanticOperationIntent {
+  return compileSemanticOperationIntent({
     operation: input.operation ?? 'development.commit',
     intentDigest: digest(input.intent ?? 'staged-candidate'),
     decisionDigest: digest(input.decision ?? 'candidate-admitted'),
@@ -39,38 +39,38 @@ function intent(input: Readonly<{
 }
 
 function plan(
-  operation: SecSemanticOperationIntent,
-  issued: SecIssuedOperationEffectGrant,
+  operation: SemanticOperationIntent,
+  issued: IssuedOperationEffectGrant,
   input: Readonly<{
-    readonly authorityGrantDigest?: SecOperationDigest;
+    readonly authorityGrantDigest?: OperationDigest;
     readonly deadlineAtUnixMs?: number;
   }> = {}
-): SecSemanticOperationPlan {
-  return compileSecSemanticOperationPlan({
+): SemanticOperationPlan {
+  return compileSemanticOperationPlan({
     operation: operation.identity.operation,
     intentDigest: operation.identity.intentDigest,
     decisionDigest: operation.identity.decisionDigest,
     aggregateBudgets: operation.execution.aggregateBudgets,
     requirements: operation.execution.requirements,
     deadlineAtUnixMs: input.deadlineAtUnixMs ?? issued.deadlineAtUnixMs,
-    attempt: issueSecSemanticOperationAttemptContext({
+    attempt: issueSemanticOperationAttemptContext({
       authorityGrantDigest: input.authorityGrantDigest ?? issued.authorityGrantDigest
     })
   });
 }
 
-function expectReason(action: () => unknown, reason: SecOperationEffectGrantError['reason']): void {
+function expectReason(action: () => unknown, reason: OperationEffectGrantError['reason']): void {
   try {
     action();
     throw new Error('expected Effect grant rejection');
   } catch (error) {
-    expect(error).toBeInstanceOf(SecOperationEffectGrantError);
-    expect((error as SecOperationEffectGrantError).reason).toBe(reason);
+    expect(error).toBeInstanceOf(OperationEffectGrantError);
+    expect((error as OperationEffectGrantError).reason).toBe(reason);
   }
 }
 
 test('owner-issued Effect grant binds one exact semantic attempt and is consumed once', () => {
-  const authority = createSecOperationEffectGrantAuthority({
+  const authority = createOperationEffectGrantAuthority({
     semanticOperation: 'development.commit',
     issuerIdentityDigest: digest('candidate-admission-owner')
   });
@@ -105,11 +105,11 @@ test('owner-issued Effect grant binds one exact semantic attempt and is consumed
 });
 
 test('grant serialization, cloning and another authority cannot reproduce Effect authority', () => {
-  const authority = createSecOperationEffectGrantAuthority({
+  const authority = createOperationEffectGrantAuthority({
     semanticOperation: 'development.commit',
     issuerIdentityDigest: digest('candidate-admission-owner')
   });
-  const foreignAuthority = createSecOperationEffectGrantAuthority({
+  const foreignAuthority = createOperationEffectGrantAuthority({
     semanticOperation: 'development.commit',
     issuerIdentityDigest: digest('candidate-admission-owner')
   });
@@ -140,7 +140,7 @@ test('grant serialization, cloning and another authority cannot reproduce Effect
 
 test('consumer rejects operation, intent, decision, epoch, deadline and attempt drift', () => {
   const make = () => {
-    const authority = createSecOperationEffectGrantAuthority({
+    const authority = createOperationEffectGrantAuthority({
       semanticOperation: 'development.commit',
       issuerIdentityDigest: digest('candidate-admission-owner')
     });
@@ -193,7 +193,7 @@ test('consumer rejects operation, intent, decision, epoch, deadline and attempt 
   }), 'deadline-mismatch');
 
   const execution = make();
-  const changedExecution = compileSecSemanticOperationIntent({
+  const changedExecution = compileSemanticOperationIntent({
     operation: execution.semanticIntent.identity.operation,
     intentDigest: execution.semanticIntent.identity.intentDigest,
     decisionDigest: execution.semanticIntent.identity.decisionDigest,
@@ -220,7 +220,7 @@ test('consumer rejects operation, intent, decision, epoch, deadline and attempt 
 });
 
 test('expired grants are rejected before issue or consumption', async () => {
-  const authority = createSecOperationEffectGrantAuthority({
+  const authority = createOperationEffectGrantAuthority({
     semanticOperation: 'development.commit',
     issuerIdentityDigest: digest('candidate-admission-owner')
   });

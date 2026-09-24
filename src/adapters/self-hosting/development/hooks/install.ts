@@ -5,7 +5,7 @@ import { chmod, lstat } from 'node:fs/promises';
 import path from 'node:path';
 
 import { canonicalJson, sha256 } from '../../../../contracts/canonical.ts';
-import type { SecBoundSemanticOperation } from '../../../../execution/operation/semantic.ts';
+import type { BoundSemanticOperation } from '../../../../execution/operation/semantic.ts';
 import { withAuthorityGitReadSession } from '../../../providers/git-read/authority.ts';
 import { isolatedGitReadEnvironment, isProductionGitReadSession, type GitReadProviderResolutionFailure, type GitReadSession, type GitReadSessionResolution } from '../../../providers/git-read/runtime/session.ts';
 import {
@@ -6083,7 +6083,7 @@ export async function installGitHooksWithSession(options: {
   readonly repoRoot: string;
   readonly lifecycle?: boolean;
   readonly session: GitReadSession;
-  readonly operation: SecBoundSemanticOperation;
+  readonly operation: BoundSemanticOperation;
   readonly processSession: ProcessResourceSession;
 }): Promise<GitHookInstallationResult> {
   if (!isProductionGitReadSession(options.session)) {

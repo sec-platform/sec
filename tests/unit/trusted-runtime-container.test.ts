@@ -34,11 +34,11 @@ import {
 import { sha256 } from '../../src/contracts/canonical.ts';
 import {
   bindSecSemanticOperation,
-  compileSecCapabilityBinding,
-  compileSecSemanticOperationPlan,
-  issueSecProviderSettlementReceipt,
-  issueSecSemanticOperationAttemptContext,
-  type SecOperationDigest
+  compileCapabilityBinding,
+  compileSemanticOperationPlan,
+  issueProviderSettlementReceipt,
+  issueSemanticOperationAttemptContext,
+  type OperationDigest
 } from '../../src/execution/operation/semantic.ts';
 
 const dockerEndpoint = Object.freeze({
@@ -72,12 +72,12 @@ function imageInspect(overrides: Record<string, unknown> = {}): string {
 
 describe('provider-neutral trusted runtime container', () => {
   test('joins only one provider-issued exact requirement settlement with independent endpoint readback', () => {
-    const contractDigest = sha256({ contract: 'container-engine-test' }) as SecOperationDigest;
-    const providerIdentityDigest = sha256({ provider: 'container-engine-test' }) as SecOperationDigest;
-    const plan = compileSecSemanticOperationPlan({
+    const contractDigest = sha256({ contract: 'container-engine-test' }) as OperationDigest;
+    const providerIdentityDigest = sha256({ provider: 'container-engine-test' }) as OperationDigest;
+    const plan = compileSemanticOperationPlan({
       operation: 'verification.trusted-runtime-container-test',
-      intentDigest: sha256({ intent: 'container-engine-test' }) as SecOperationDigest,
-      decisionDigest: sha256({ decision: 'container-engine-test' }) as SecOperationDigest,
+      intentDigest: sha256({ intent: 'container-engine-test' }) as OperationDigest,
+      decisionDigest: sha256({ decision: 'container-engine-test' }) as OperationDigest,
       deadlineAtUnixMs: Date.now() + 60_000,
       aggregateBudgets: [
         { resource: 'duration-ms', maximum: 60_000 },
@@ -90,26 +90,26 @@ describe('provider-neutral trusted runtime container', () => {
         effectKinds: ['process'],
         failureKinds: ['process.failed']
       }],
-      attempt: issueSecSemanticOperationAttemptContext({
+      attempt: issueSemanticOperationAttemptContext({
         authorityGrantDigest: contractDigest
       })
     });
-    const operation = bindSecSemanticOperation(plan, [compileSecCapabilityBinding({
+    const operation = bindSecSemanticOperation(plan, [compileCapabilityBinding({
       requirementId: 'external.container-engine-process',
       contractDigest,
       providerIdentityDigest
     })]);
-    const providerSettlement = issueSecProviderSettlementReceipt(operation, {
+    const providerSettlement = issueProviderSettlementReceipt(operation, {
       requirementId: 'external.container-engine-process',
       physicalDisposition: 'settled',
-      providerSettlementReferenceDigest: sha256({ command: 'settled' }) as SecOperationDigest
+      providerSettlementReferenceDigest: sha256({ command: 'settled' }) as OperationDigest
     });
     const join = issueTrustedRuntimeContainerEngineOwnerTerminalJoin({
       operation,
       providerSettlement,
       endpointReadback: parseDockerEndpointIdentity(dockerEndpoint),
-      ownerTerminalContractDigest: sha256({ owner: 'contract' }) as SecOperationDigest,
-      ownerTerminalReferenceDigest: sha256({ owner: 'reference' }) as SecOperationDigest
+      ownerTerminalContractDigest: sha256({ owner: 'contract' }) as OperationDigest,
+      ownerTerminalReferenceDigest: sha256({ owner: 'reference' }) as OperationDigest
     });
     expect(join.providerSettlementSetDigest).not.toBeNull();
     expect(join.readbackReceiptDigest).toMatch(/^sha256:[0-9a-f]{64}$/u);
@@ -117,8 +117,8 @@ describe('provider-neutral trusted runtime container', () => {
       operation,
       providerSettlement: { ...providerSettlement },
       endpointReadback: parseDockerEndpointIdentity(dockerEndpoint),
-      ownerTerminalContractDigest: sha256({ owner: 'contract' }) as SecOperationDigest,
-      ownerTerminalReferenceDigest: sha256({ owner: 'reference' }) as SecOperationDigest
+      ownerTerminalContractDigest: sha256({ owner: 'contract' }) as OperationDigest,
+      ownerTerminalReferenceDigest: sha256({ owner: 'reference' }) as OperationDigest
     });
     expect(correlationOnlyClone.joinReceiptDigest).toBe(join.joinReceiptDigest);
   });

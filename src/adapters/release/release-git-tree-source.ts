@@ -10,11 +10,11 @@ import {
 import { sha256 } from '../../contracts/canonical.ts';
 import {
   bindSecSemanticOperation,
-  compileSecCapabilityBinding,
-  compileSecSemanticOperationPlan,
-  issueSecSemanticOperationAttemptContext,
-  type SecBoundSemanticOperation,
-  type SecOperationDigest
+  compileCapabilityBinding,
+  compileSemanticOperationPlan,
+  issueSemanticOperationAttemptContext,
+  type BoundSemanticOperation,
+  type OperationDigest
 } from '../../execution/operation/semantic.ts';
 import {
   createNoFollowOrdinaryDirectoryChain,
@@ -57,7 +57,7 @@ export interface ReleaseGitTreeMaterializationOptions {
 }
 
 type ReleaseGitTreeOperationEnvelope = Readonly<{
-  operation: SecBoundSemanticOperation;
+  operation: BoundSemanticOperation;
   budget: GitReadSessionBudget;
   deadlineAtUnixMs: number;
   deadlineAtMonotonicMs: number;
@@ -130,17 +130,17 @@ function compileReleaseGitTreeOperation(
     resultSchema: EXACT_RELEASE_GIT_TREE_SCHEMA,
     source: 'exact-commit-tree-and-blob-bytes',
     lifecycle: 'exclusive-stage-materialization-readback-and-failure-cleanup'
-  }) as SecOperationDigest;
-  const plan = compileSecSemanticOperationPlan({
+  }) as OperationDigest;
+  const plan = compileSemanticOperationPlan({
     operation: RELEASE_GIT_TREE_OPERATION,
     intentDigest: sha256({
       repositoryRoot,
       sourceSelector: 'HEAD',
       stageParent
-    }) as SecOperationDigest,
+    }) as OperationDigest,
     decisionDigest: contractDigest,
     deadlineAtUnixMs,
-    attempt: issueSecSemanticOperationAttemptContext({
+    attempt: issueSemanticOperationAttemptContext({
       authorityGrantDigest: contractDigest
     }),
     aggregateBudgets: [
@@ -171,7 +171,7 @@ function compileReleaseGitTreeOperation(
     }]
   });
   return Object.freeze({
-    operation: bindSecSemanticOperation(plan, [compileSecCapabilityBinding({
+    operation: bindSecSemanticOperation(plan, [compileCapabilityBinding({
       requirementId: RELEASE_GIT_TREE_REQUIREMENT,
       contractDigest,
       providerIdentityDigest: contractDigest

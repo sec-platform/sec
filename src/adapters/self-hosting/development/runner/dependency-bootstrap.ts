@@ -242,13 +242,13 @@ async function issueDependencyBootstrapTerminal(
 ): Promise<VerificationActionTerminalSettlement> {
   const [{
     bindSecSemanticOperation,
-    compileSecCapabilityBinding,
-    compileSecProviderSettlementSet,
-    compileSecSemanticOperationPlan,
-    issueSecNormalDomainReadbackReceipt,
+    compileCapabilityBinding,
+    compileProviderSettlementSet,
+    compileSemanticOperationPlan,
+    issueNormalDomainReadbackReceipt,
     issueSecNormalOwnerTerminalJoinReceipt,
-    issueSecProviderSettlementReceipt,
-    issueSecSemanticOperationAttemptContext
+    issueProviderSettlementReceipt,
+    issueSemanticOperationAttemptContext
   }, {
     issueNonProcessVerificationActionTerminalSettlement,
     issueVerificationActionOwnerTerminalReceipt
@@ -263,7 +263,7 @@ async function issueDependencyBootstrapTerminal(
     materializationInputDigest: projection.projectionDigest,
     transitionDigest: ready.transitionDigest
   });
-  const operationPlan = compileSecSemanticOperationPlan({
+  const operationPlan = compileSemanticOperationPlan({
     operation: 'development.compiler-dependency-materialization',
     intentDigest: action.actionKey,
     decisionDigest: contractDigest,
@@ -287,20 +287,20 @@ async function issueDependencyBootstrapTerminal(
         'provider.unverified'
       ]
     }],
-    attempt: issueSecSemanticOperationAttemptContext({ authorityGrantDigest: contractDigest })
+    attempt: issueSemanticOperationAttemptContext({ authorityGrantDigest: contractDigest })
   });
-  const operation = bindSecSemanticOperation(operationPlan, [compileSecCapabilityBinding({
+  const operation = bindSecSemanticOperation(operationPlan, [compileCapabilityBinding({
     requirementId: DEPENDENCY_BOOTSTRAP_REQUIREMENT,
     contractDigest,
     providerIdentityDigest: contractDigest
   })]);
-  const provider = issueSecProviderSettlementReceipt(operation, {
+  const provider = issueProviderSettlementReceipt(operation, {
     requirementId: DEPENDENCY_BOOTSTRAP_REQUIREMENT,
     physicalDisposition: 'settled',
     providerSettlementReferenceDigest: readyDigest
   });
-  const providerSet = compileSecProviderSettlementSet(operation, [provider]);
-  const readback = issueSecNormalDomainReadbackReceipt(operation, providerSet, {
+  const providerSet = compileProviderSettlementSet(operation, [provider]);
+  const readback = issueNormalDomainReadbackReceipt(operation, providerSet, {
     readbackContractDigest: contractDigest,
     readbackReferenceDigest: readyDigest,
     currentPhysicalEpochDigest: ready.transitionDigest,

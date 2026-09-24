@@ -21,7 +21,7 @@ import path from 'node:path';
 
 import {
   assertSecSemanticOperationProjection,
-  type SecBoundSemanticOperation
+  type BoundSemanticOperation
 } from '../../../../execution/operation/semantic.ts';
 
 import {
@@ -8820,13 +8820,13 @@ export interface WindowsLegacySealedDirectoryRelocationCapability {
 const windowsLegacyRelocationCapabilities = new WeakMap<
   object,
   Readonly<{
-    operation: SecBoundSemanticOperation;
+    operation: BoundSemanticOperation;
     proof: WindowsLegacySealedDirectoryRelocationProof;
   }>
 >();
 
 function assertWindowsLegacyRelocationOperation(
-  operation: SecBoundSemanticOperation,
+  operation: BoundSemanticOperation,
   expectedIdentityDigest?: `sha256:${string}`
 ): void {
   assertSecSemanticOperationProjection(operation);
@@ -9129,7 +9129,7 @@ export function prepareWindowsLegacySealedDirectoryRelocation(input: Readonly<{
   directory: PhysicalDirectoryIdentity;
   destinationParent: PhysicalDirectoryIdentity;
   destinationName: string;
-  operation: SecBoundSemanticOperation;
+  operation: BoundSemanticOperation;
 }>): WindowsLegacySealedDirectoryRelocationCapability {
   if (process.platform !== 'win32') {
     throw physicalError('PHYSICAL_NO_FOLLOW_CAPABILITY_UNAVAILABLE', 'Windows legacy relocation is unavailable on this platform.');
@@ -9205,7 +9205,7 @@ export function prepareWindowsLegacySealedDirectoryRelocation(input: Readonly<{
 }
 
 export function openWindowsLegacySealedDirectoryRelocation(input: Readonly<{
-  operation: SecBoundSemanticOperation;
+  operation: BoundSemanticOperation;
   recoveryProofText: string;
 }>): WindowsLegacySealedDirectoryRelocationCapability {
   assertWindowsLegacyRelocationOperation(input.operation);

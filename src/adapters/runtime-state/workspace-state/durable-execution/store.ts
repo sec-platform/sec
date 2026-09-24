@@ -1,19 +1,19 @@
 import path from 'node:path';
 
 import {
-  assertSecDomainReadbackReceipt,
-  assertSecOwnerTerminalJoinReceipt,
-  assertSecProviderSettlementReceipt,
-  assertSecRecoveredRetryAdmission,
-  assertSecRecoveredRetryAdmissionForSuccessor,
+  assertDomainReadbackReceipt,
+  assertOwnerTerminalJoinReceipt,
+  assertProviderSettlementReceipt,
+  assertRecoveredRetryAdmission,
+  assertRecoveredRetryAdmissionForSuccessor,
   assertSecSemanticOperationProjection,
-  consumeSecRecoveredRetryAdmission,
-  type SecBoundSemanticOperation,
-  type SecDomainReadbackReceipt,
-  type SecOwnerTerminalJoinReceipt,
-  type SecProviderSettlementReceipt,
-  type SecRecoveredPredecessorAttemptReference,
-  type SecRecoveredRetryAdmission
+  consumeRecoveredRetryAdmission,
+  type BoundSemanticOperation,
+  type DomainReadbackReceipt,
+  type OwnerTerminalJoinReceipt,
+  type ProviderSettlementReceipt,
+  type RecoveredPredecessorAttemptReference,
+  type RecoveredRetryAdmission
 } from '../../../../execution/operation/semantic.ts';
 import {
   RuntimeStateJournalReadError,
@@ -75,7 +75,7 @@ const LIMIT_CEILINGS = Object.freeze({
  * domain callers from copying or recomputing OperationKey/run lineage fields.
  */
 export function durableExecutionJournalIdentity(
-  operation: SecBoundSemanticOperation
+  operation: BoundSemanticOperation
 ): SecDurableExecutionJournalIdentity {
   assertSecSemanticOperationProjection(operation);
   return Object.freeze({
@@ -90,7 +90,7 @@ export function durableExecutionJournalIdentity(
  */
 export function durableExecutionPredecessorAttemptReference(
   observation: SecDurableExecutionJournalObservation
-): SecRecoveredPredecessorAttemptReference {
+): RecoveredPredecessorAttemptReference {
   const attempt = observation.activeAttempt;
   if (attempt === null) {
     throw new SecDurableExecutionStoreError(
@@ -126,7 +126,7 @@ export function createDurableExecutionWriter(input: Readonly<{
   const core = createStoreCore(input);
   return Object.freeze({
     read: core.read,
-    createIntent(operation: SecBoundSemanticOperation) {
+    createIntent(operation: BoundSemanticOperation) {
       return core.createIntent({
         ...durableExecutionJournalIdentity(operation),
         intentReferenceDigest: operation.plan.identity.intentDigest,
@@ -135,7 +135,7 @@ export function createDurableExecutionWriter(input: Readonly<{
       });
     },
     appendInitialAttemptStart(
-      operation: SecBoundSemanticOperation,
+      operation: BoundSemanticOperation,
       workerIdentityDigest: SecDurableExecutionDigest
     ) {
       return core.appendAttemptStart(
@@ -143,10 +143,10 @@ export function createDurableExecutionWriter(input: Readonly<{
       );
     },
     appendRecoveredRetryAttemptStart(
-      recoveryOperation: SecBoundSemanticOperation,
-      successorOperation: SecBoundSemanticOperation,
+      recoveryOperation: BoundSemanticOperation,
+      successorOperation: BoundSemanticOperation,
       workerIdentityDigest: SecDurableExecutionDigest,
-      retryAdmission: SecRecoveredRetryAdmission,
+      retryAdmission: RecoveredRetryAdmission,
       currentPhysicalEpochDigest: SecDurableExecutionDigest
     ) {
       const start = recoveredRetryAttemptStartInput(
@@ -159,7 +159,7 @@ export function createDurableExecutionWriter(input: Readonly<{
         retryAdmissionResolutionInput(recoveryOperation, retryAdmission),
         start
       );
-      consumeSecRecoveredRetryAdmission(
+      consumeRecoveredRetryAdmission(
         retryAdmission,
         successorOperation,
         currentPhysicalEpochDigest
@@ -167,22 +167,22 @@ export function createDurableExecutionWriter(input: Readonly<{
       return observation;
     },
     appendProviderSettlement(
-      operation: SecBoundSemanticOperation,
-      receipt: SecProviderSettlementReceipt
+      operation: BoundSemanticOperation,
+      receipt: ProviderSettlementReceipt
     ) {
       return core.appendProviderSettlementReference(
         providerSettlementReferenceInput(operation, receipt)
       );
     },
     appendLostHandle(
-      operation: SecBoundSemanticOperation,
-      receipt: SecProviderSettlementReceipt
+      operation: BoundSemanticOperation,
+      receipt: ProviderSettlementReceipt
     ) {
       return core.appendLostHandleReference(lostHandleReferenceInput(operation, receipt));
     },
     appendDomainReadback(
-      operation: SecBoundSemanticOperation,
-      receipt: SecDomainReadbackReceipt
+      operation: BoundSemanticOperation,
+      receipt: DomainReadbackReceipt
     ) {
       if (receipt.recoveryMode === 'recovered') {
         const current = core.read(durableExecutionJournalIdentity(operation));
@@ -200,10 +200,10 @@ export function createDurableExecutionWriter(input: Readonly<{
       return core.appendDomainReadbackReference(domainReadbackReferenceInput(operation, receipt));
     },
     appendOwnerTerminalResolution(
-      operation: SecBoundSemanticOperation,
-      receipt: SecOwnerTerminalJoinReceipt
+      operation: BoundSemanticOperation,
+      receipt: OwnerTerminalJoinReceipt
     ) {
-      assertSecOwnerTerminalJoinReceipt(receipt);
+      assertOwnerTerminalJoinReceipt(receipt);
       const current = core.read(durableExecutionJournalIdentity(operation));
       if (current?.activeAttempt === null || current?.activeAttempt === undefined) {
         throw new SecDurableExecutionStoreError(
@@ -221,7 +221,7 @@ export function createDurableExecutionWriter(input: Readonly<{
 
 function assertRecoveredPredecessorCoordinates(
   observation: SecDurableExecutionJournalObservation | null,
-  expected: SecRecoveredPredecessorAttemptReference,
+  expected: RecoveredPredecessorAttemptReference,
   comparePredecessorAuthority = true
 ): void {
   if (observation === null) {
@@ -268,7 +268,7 @@ type AppendAttemptStartInput = SecDurableExecutionJournalIdentity & Readonly<{
  * check runs before any journal mutation.
  */
 function projectAttemptStartInput(
-  operation: SecBoundSemanticOperation,
+  operation: BoundSemanticOperation,
   workerIdentityDigest: SecDurableExecutionDigest,
   retryAdmissionReferenceDigest: SecDurableExecutionDigest | null
 ): AppendAttemptStartInput {
@@ -297,20 +297,20 @@ function projectAttemptStartInput(
 }
 
 function initialAttemptStartInput(
-  operation: SecBoundSemanticOperation,
+  operation: BoundSemanticOperation,
   workerIdentityDigest: SecDurableExecutionDigest
 ): AppendAttemptStartInput {
   return projectAttemptStartInput(operation, workerIdentityDigest, null);
 }
 
 function recoveredRetryAttemptStartInput(
-  operation: SecBoundSemanticOperation,
+  operation: BoundSemanticOperation,
   workerIdentityDigest: SecDurableExecutionDigest,
-  retryAdmission: SecRecoveredRetryAdmission,
+  retryAdmission: RecoveredRetryAdmission,
   currentPhysicalEpochDigest: SecDurableExecutionDigest
 ): AppendAttemptStartInput {
-  assertSecRecoveredRetryAdmission(retryAdmission);
-  assertSecRecoveredRetryAdmissionForSuccessor(
+  assertRecoveredRetryAdmission(retryAdmission);
+  assertRecoveredRetryAdmissionForSuccessor(
     retryAdmission,
     operation,
     currentPhysicalEpochDigest
@@ -344,12 +344,12 @@ type AppendAttemptResolutionInput = SecDurableExecutionJournalIdentity & Readonl
 }>;
 
 function ownerTerminalResolutionInput(
-  operation: SecBoundSemanticOperation,
-  receipt: SecOwnerTerminalJoinReceipt,
+  operation: BoundSemanticOperation,
+  receipt: OwnerTerminalJoinReceipt,
   activeAttemptNonceDigest: SecDurableExecutionDigest
 ): AppendAttemptResolutionInput {
   const identity = durableExecutionJournalIdentity(operation);
-  assertSecOwnerTerminalJoinReceipt(receipt);
+  assertOwnerTerminalJoinReceipt(receipt);
   if (receipt.operationIdentityDigest !== identity.operationKeyDigest
       || receipt.executionPlanDigest !== operation.plan.execution.executionPlanDigest
       || receipt.bindingSetIdentityDigest !== operation.bindingSetIdentityDigest
@@ -369,11 +369,11 @@ function ownerTerminalResolutionInput(
 }
 
 function providerSettlementReferenceInput(
-  operation: SecBoundSemanticOperation,
-  receipt: SecProviderSettlementReceipt
+  operation: BoundSemanticOperation,
+  receipt: ProviderSettlementReceipt
 ): AppendProviderSettlementInput {
   const identity = durableExecutionJournalIdentity(operation);
-  assertSecProviderSettlementReceipt(receipt);
+  assertProviderSettlementReceipt(receipt);
   if (receipt.operationIdentityDigest !== identity.operationKeyDigest
       || receipt.executionPlanDigest !== operation.plan.execution.executionPlanDigest
       || receipt.boundAttemptDigest !== operation.boundAttemptDigest) {
@@ -392,11 +392,11 @@ function providerSettlementReferenceInput(
 }
 
 function domainReadbackReferenceInput(
-  operation: SecBoundSemanticOperation,
-  receipt: SecDomainReadbackReceipt
+  operation: BoundSemanticOperation,
+  receipt: DomainReadbackReceipt
 ): AppendDomainReadbackInput {
   const identity = durableExecutionJournalIdentity(operation);
-  assertSecDomainReadbackReceipt(receipt);
+  assertDomainReadbackReceipt(receipt);
   if (receipt.operationIdentityDigest !== identity.operationKeyDigest
       || receipt.executionPlanDigest !== operation.plan.execution.executionPlanDigest
       || receipt.bindingSetIdentityDigest !== operation.bindingSetIdentityDigest
@@ -417,8 +417,8 @@ function domainReadbackReferenceInput(
 }
 
 function lostHandleReferenceInput(
-  operation: SecBoundSemanticOperation,
-  receipt: SecProviderSettlementReceipt
+  operation: BoundSemanticOperation,
+  receipt: ProviderSettlementReceipt
 ): AppendLostHandleInput {
   const settlement = providerSettlementReferenceInput(operation, receipt);
   if (receipt.physicalDisposition !== 'unknown') {
@@ -435,11 +435,11 @@ function lostHandleReferenceInput(
 }
 
 function retryAdmissionResolutionInput(
-  operation: SecBoundSemanticOperation,
-  admission: SecRecoveredRetryAdmission
+  operation: BoundSemanticOperation,
+  admission: RecoveredRetryAdmission
 ): AppendAttemptResolutionInput {
   const identity = durableExecutionJournalIdentity(operation);
-  assertSecRecoveredRetryAdmission(admission);
+  assertRecoveredRetryAdmission(admission);
   if (admission.operationIdentityDigest !== identity.operationKeyDigest
       || admission.previousExecutionPlanDigest !== operation.plan.execution.executionPlanDigest
       || admission.previousBindingSetIdentityDigest !== operation.bindingSetIdentityDigest
@@ -466,33 +466,33 @@ export interface SecDurableExecutionStore {
 }
 
 export interface SecDurableExecutionWriter extends SecDurableExecutionStore {
-  createIntent(operation: SecBoundSemanticOperation): SecDurableExecutionJournalObservation;
+  createIntent(operation: BoundSemanticOperation): SecDurableExecutionJournalObservation;
   appendInitialAttemptStart(
-    operation: SecBoundSemanticOperation,
+    operation: BoundSemanticOperation,
     workerIdentityDigest: SecDurableExecutionDigest
   ): SecDurableExecutionJournalObservation;
   appendRecoveredRetryAttemptStart(
-    recoveryOperation: SecBoundSemanticOperation,
-    successorOperation: SecBoundSemanticOperation,
+    recoveryOperation: BoundSemanticOperation,
+    successorOperation: BoundSemanticOperation,
     workerIdentityDigest: SecDurableExecutionDigest,
-    retryAdmission: SecRecoveredRetryAdmission,
+    retryAdmission: RecoveredRetryAdmission,
     currentPhysicalEpochDigest: SecDurableExecutionDigest
   ): SecDurableExecutionJournalObservation;
   appendProviderSettlement(
-    operation: SecBoundSemanticOperation,
-    receipt: SecProviderSettlementReceipt
+    operation: BoundSemanticOperation,
+    receipt: ProviderSettlementReceipt
   ): SecDurableExecutionJournalObservation;
   appendLostHandle(
-    operation: SecBoundSemanticOperation,
-    receipt: SecProviderSettlementReceipt
+    operation: BoundSemanticOperation,
+    receipt: ProviderSettlementReceipt
   ): SecDurableExecutionJournalObservation;
   appendDomainReadback(
-    operation: SecBoundSemanticOperation,
-    receipt: SecDomainReadbackReceipt
+    operation: BoundSemanticOperation,
+    receipt: DomainReadbackReceipt
   ): SecDurableExecutionJournalObservation;
   appendOwnerTerminalResolution(
-    operation: SecBoundSemanticOperation,
-    receipt: SecOwnerTerminalJoinReceipt
+    operation: BoundSemanticOperation,
+    receipt: OwnerTerminalJoinReceipt
   ): SecDurableExecutionJournalObservation;
 }
 

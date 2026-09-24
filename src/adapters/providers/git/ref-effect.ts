@@ -2,7 +2,7 @@ import path from 'node:path';
 
 import { sha256 } from '../../../contracts/canonical.ts';
 import { assertGitBranchName } from '../../../contracts/git-reference.ts';
-import type { SecOperationDigest } from '../../../execution/operation/semantic.ts';
+import type { OperationDigest } from '../../../execution/operation/semantic.ts';
 import { assertWorkspaceWriteLease, type WorkspaceWriteLeaseToken } from '../../filesystem/write-lease.ts';
 import { parseWorktreePorcelainZ } from '../../runtime-state/physical/contract/git-worktree-observation.ts';
 import {
@@ -28,16 +28,16 @@ const LOCAL_FIXED_OUTPUT_ADMISSION_BYTES = 6 * STDERR_BYTES
 
 export type GitRefDeleteReceipt = Readonly<{
   readonly schema: 'sec-git-ref-delete-receipt';
-  readonly providerIdentityDigest: SecOperationDigest;
-  readonly operationIdentityDigest: SecOperationDigest;
-  readonly boundAttemptDigest: SecOperationDigest;
+  readonly providerIdentityDigest: OperationDigest;
+  readonly operationIdentityDigest: OperationDigest;
+  readonly boundAttemptDigest: OperationDigest;
   readonly requirementId: string;
   readonly disposition: 'deleted' | 'already-absent';
   readonly ref: string;
   readonly expectedOldSha: string;
   readonly updateOrdinal: number | null;
   readonly readbackOrdinal: number;
-  readonly receiptDigest: SecOperationDigest;
+  readonly receiptDigest: OperationDigest;
 }>;
 
 export class GitRefDeleteOutcomeUnknownError extends Error {
@@ -64,9 +64,9 @@ class GitLocalRefDeleteBlockedError extends Error {
 
 export type GitLocalRefDeleteBatchReceipt = Readonly<{
   readonly schema: 'sec-git-local-ref-delete-batch-receipt';
-  readonly providerIdentityDigest: SecOperationDigest;
-  readonly operationIdentityDigest: SecOperationDigest;
-  readonly boundAttemptDigest: SecOperationDigest;
+  readonly providerIdentityDigest: OperationDigest;
+  readonly operationIdentityDigest: OperationDigest;
+  readonly boundAttemptDigest: OperationDigest;
   readonly requirementId: string;
   readonly commonDirIdentityDigest: string;
   readonly leaseGeneration: number;
@@ -74,7 +74,7 @@ export type GitLocalRefDeleteBatchReceipt = Readonly<{
   readonly updateOrdinal: number;
   readonly refReadbackOrdinal: number;
   readonly worktreeReadbackOrdinal: number;
-  readonly receiptDigest: SecOperationDigest;
+  readonly receiptDigest: OperationDigest;
 }>;
 
 const ATTEMPTED_GIT_REF_DELETE_PROVIDERS = new WeakSet<object>();
@@ -290,7 +290,7 @@ function issueReceipt(input: Readonly<{
     receiptDigest: sha256({
       domain: 'external-capabilities.git.ref-delete-receipt',
       receipt: withoutDigest
-    }) as SecOperationDigest
+    }) as OperationDigest
   });
   ISSUED_GIT_REF_DELETE_RECEIPTS.add(receipt);
   return receipt;
@@ -526,7 +526,7 @@ export async function deleteExactLocalGitRefs(input: Readonly<{
   });
   const receipt = Object.freeze({
     ...withoutDigest,
-    receiptDigest: sha256({ domain: 'external-capabilities.git.local-ref-delete-batch-receipt', receipt: withoutDigest }) as SecOperationDigest
+    receiptDigest: sha256({ domain: 'external-capabilities.git.local-ref-delete-batch-receipt', receipt: withoutDigest }) as OperationDigest
   });
   ISSUED_GIT_LOCAL_REF_DELETE_BATCH_RECEIPTS.add(receipt);
   return receipt;

@@ -1,4 +1,4 @@
-import type { SecBoundSemanticOperation } from '../../../../execution/operation/semantic.ts';
+import type { BoundSemanticOperation } from '../../../../execution/operation/semantic.ts';
 import type { ProcessResourceSession } from '../../../runtime-state/physical/runtime/process-resource-session.ts';
 import { isAffectedSelectionFailClosed } from '../../../verification/platform/test-impact/affected.ts';
 import {
@@ -14,7 +14,7 @@ import {
 } from './test-runner.ts';
 
 interface LocalAffectedCheckExecutionOptions {
-  readonly operation: SecBoundSemanticOperation;
+  readonly operation: BoundSemanticOperation;
   /** Borrowed by the repository fence; no selector may open a second ledger. */
   readonly processSession?: ProcessResourceSession;
   readonly prepareCompilerDependencies?: () => Promise<MaterializedOperationDependencyBootstrapResult>;

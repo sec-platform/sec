@@ -2,13 +2,13 @@ import { sha256 } from '../../../../contracts/canonical.ts';
 import { observeExecutionProgressPhase } from '../../../../execution/execution-progress.ts';
 import {
   bindSecSemanticOperation,
-  compileSecCapabilityBinding,
-  compileSecProviderSettlementSet,
-  compileSecSemanticOperationPlan,
-  issueSecNormalDomainReadbackReceipt,
+  compileCapabilityBinding,
+  compileProviderSettlementSet,
+  compileSemanticOperationPlan,
+  issueNormalDomainReadbackReceipt,
   issueSecNormalOwnerTerminalJoinReceipt,
-  issueSecProviderSettlementReceipt,
-  issueSecSemanticOperationAttemptContext
+  issueProviderSettlementReceipt,
+  issueSemanticOperationAttemptContext
 } from '../../../../execution/operation/semantic.ts';
 import {
   withAuthorityGitReadSession,
@@ -170,7 +170,7 @@ async function settleNormalizationObservation(
     executionSubjectDigest: subject.subjectDigest,
     readbackSubjectDigest
   }) as CandidateNormalizationDigest;
-  const plan = compileSecSemanticOperationPlan({
+  const plan = compileSemanticOperationPlan({
     operation: 'development.import-normalization',
     intentDigest: action.actionKey,
     decisionDigest: subject.subjectDigest,
@@ -186,23 +186,23 @@ async function settleNormalizationObservation(
       effectKinds: ['filesystem', 'process'],
       failureKinds: ['candidate-normalization-noncanonical']
     }],
-    attempt: issueSecSemanticOperationAttemptContext({
+    attempt: issueSemanticOperationAttemptContext({
       authorityGrantDigest: subject.subjectDigest
     })
   });
-  const bound = bindSecSemanticOperation(plan, [compileSecCapabilityBinding({
+  const bound = bindSecSemanticOperation(plan, [compileCapabilityBinding({
     requirementId: 'candidate-normalization-observation',
     contractDigest: subject.normalizationContractDigest,
     providerIdentityDigest: subject.producerClosureDigest
   })]);
-  const provider = issueSecProviderSettlementReceipt(bound, {
+  const provider = issueProviderSettlementReceipt(bound, {
     requirementId: 'candidate-normalization-observation',
     physicalDisposition: 'settled',
     providerSettlementReferenceDigest: observationDigest
   });
-  const providerSet = compileSecProviderSettlementSet(bound, [provider]);
+  const providerSet = compileProviderSettlementSet(bound, [provider]);
   const passed = status === 'canonical';
-  const readback = issueSecNormalDomainReadbackReceipt(bound, providerSet, {
+  const readback = issueNormalDomainReadbackReceipt(bound, providerSet, {
     readbackContractDigest: subject.resultContractDigest,
     readbackReferenceDigest: observationDigest,
     currentPhysicalEpochDigest: readbackSubjectDigest,

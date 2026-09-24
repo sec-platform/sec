@@ -3,8 +3,8 @@ import { mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
-import { issueSecOperationRequirementBindingContext } from '../../../../execution/operation/requirement-binding-context.ts';
-import { bindSecSemanticOperation, compileSecCapabilityBinding, compileSecSemanticOperationPlan, issueSecSemanticOperationAttemptContext, type SecOperationDigest } from '../../../../execution/operation/semantic.ts';
+import { issueOperationRequirementBindingContext } from '../../../../execution/operation/requirement-binding-context.ts';
+import { bindSecSemanticOperation, compileCapabilityBinding, compileSemanticOperationPlan, issueSemanticOperationAttemptContext, type OperationDigest } from '../../../../execution/operation/semantic.ts';
 import { assertWorkspaceWriteLease, withWorkspaceWriteLease, type WorkspaceWriteLeaseToken } from '../../../filesystem/write-lease.ts';
 import { withAuthorityGitReadSession } from '../../../providers/git-read/authority.ts';
 import { assertGitPhysicalProviderReceipt, closeGitPhysicalProvider, openGitPhysicalProvider } from '../../../providers/git/physical-provider.ts';
@@ -50,8 +50,8 @@ const COMMAND_TIMEOUT_MS = 60_000;
 const COMMAND_MAX_BUFFER = 32 * 1024 * 1024;
 const MERGED_PULL_REQUEST_LIMIT = 1_000;
 const REF_EFFECT_REQUIREMENT = 'branch-lifecycle.merged-local.ref-delete';
-const REF_EFFECT_CONTRACT = branchLifecycleDigest({ owner: 'control.branch-lifecycle', operation: 'merged-local-ref-delete', effect: 'exact-batch-native-git-ref-cas' }) as SecOperationDigest;
-const REF_EFFECT_PROVIDER = branchLifecycleDigest({ provider: 'external-capabilities.git.physical-provider', operation: REF_EFFECT_REQUIREMENT }) as SecOperationDigest;
+const REF_EFFECT_CONTRACT = branchLifecycleDigest({ owner: 'control.branch-lifecycle', operation: 'merged-local-ref-delete', effect: 'exact-batch-native-git-ref-cas' }) as OperationDigest;
+const REF_EFFECT_PROVIDER = branchLifecycleDigest({ provider: 'external-capabilities.git.physical-provider', operation: REF_EFFECT_REQUIREMENT }) as OperationDigest;
 
 type Digest = `sha256:${string}`;
 
@@ -1622,12 +1622,12 @@ async function deleteExactTransaction(
   if (outputBytes > MAXIMUM_LOCAL_REF_DELETE_OUTPUT_BYTES) {
     throw new Error('Atomic local ref delete exceeds the bounded product output budget.');
   }
-  const plan = compileSecSemanticOperationPlan({
+  const plan = compileSemanticOperationPlan({
     operation: 'control.branch-lifecycle.merged-local-ref-delete',
-    intentDigest: operationId as SecOperationDigest,
+    intentDigest: operationId as OperationDigest,
     decisionDigest: REF_EFFECT_CONTRACT,
     deadlineAtUnixMs: Date.now() + durationMs,
-    attempt: issueSecSemanticOperationAttemptContext({ authorityGrantDigest: operationId as SecOperationDigest }),
+    attempt: issueSemanticOperationAttemptContext({ authorityGrantDigest: operationId as OperationDigest }),
     aggregateBudgets: [
       { resource: 'duration-ms', maximum: durationMs },
       { resource: 'input-bytes', maximum: inputBytes },
@@ -1639,12 +1639,12 @@ async function deleteExactTransaction(
       failureKinds: ['filesystem.identity-drift', 'filesystem.write-failed', 'process.cancelled',
         'process.deadline-exhausted', 'process.output-budget-exhausted', 'process.settlement-unproven', 'process.unavailable'] }]
   });
-  const operation = bindSecSemanticOperation(plan, [compileSecCapabilityBinding({
+  const operation = bindSecSemanticOperation(plan, [compileCapabilityBinding({
     requirementId: REF_EFFECT_REQUIREMENT, contractDigest: REF_EFFECT_CONTRACT,
     providerIdentityDigest: REF_EFFECT_PROVIDER
   })]);
   const processSession = openProcessResourceSession({ operation,
-    requirementBindingContext: issueSecOperationRequirementBindingContext({ operation,
+    requirementBindingContext: issueOperationRequirementBindingContext({ operation,
       requirementId: REF_EFFECT_REQUIREMENT, resourceCeilings: operation.plan.execution.aggregateBudgets }) });
   let primaryError: unknown;
   try {

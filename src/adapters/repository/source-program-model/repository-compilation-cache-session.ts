@@ -1,10 +1,10 @@
 import { sha256 } from '../../../contracts/canonical.ts';
 import {
   bindSecSemanticOperation,
-  compileSecCapabilityBinding,
-  compileSecSemanticOperationPlan,
-  issueSecSemanticOperationAttemptContext,
-  type SecOperationDigest
+  compileCapabilityBinding,
+  compileSemanticOperationPlan,
+  issueSemanticOperationAttemptContext,
+  type OperationDigest
 } from '../../../execution/operation/semantic.ts';
 import { settleResources as settlePhysicalResources } from '../../../execution/resource-settlement.ts';
 import {
@@ -76,18 +76,18 @@ function openRepositoryCompilationCacheSession(input: Readonly<{
     operation: 'brownfield.source-program-model.repository-compilation-cache',
     physicalProvider: 'runtime-state.content-addressed-workspace-cache',
     authority: 'non-authoritative-acceleration-only'
-  }) as SecOperationDigest;
-  const plan = compileSecSemanticOperationPlan({
+  }) as OperationDigest;
+  const plan = compileSemanticOperationPlan({
     operation: 'brownfield.source-program-model.repository-compilation-cache',
     intentDigest: sha256({
       repository,
       sourceRevision: input.workspaceSnapshot.sourceRevision,
       sourceByteLength,
       sourceFileCount
-    }) as SecOperationDigest,
+    }) as OperationDigest,
     decisionDigest: contractDigest,
     deadlineAtUnixMs,
-    attempt: issueSecSemanticOperationAttemptContext({ authorityGrantDigest: contractDigest }),
+    attempt: issueSemanticOperationAttemptContext({ authorityGrantDigest: contractDigest }),
     aggregateBudgets: [
       { resource: 'duration-ms', maximum: durationMs },
       { resource: 'input-bytes', maximum: cacheByteBudget },
@@ -107,13 +107,13 @@ function openRepositoryCompilationCacheSession(input: Readonly<{
       ]
     }]
   });
-  const operation = bindSecSemanticOperation(plan, [compileSecCapabilityBinding({
+  const operation = bindSecSemanticOperation(plan, [compileCapabilityBinding({
     requirementId: REPOSITORY_COMPILATION_CACHE_REQUIREMENT,
     contractDigest,
     providerIdentityDigest: sha256({
       provider: 'runtime-state.content-addressed-workspace-cache',
       repository
-    }) as SecOperationDigest
+    }) as OperationDigest
   })]);
   return openContentAddressedWorkspaceCacheSession({
     operation,

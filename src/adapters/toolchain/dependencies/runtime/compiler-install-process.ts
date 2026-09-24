@@ -3,13 +3,13 @@ import { bindCompilerInstallInvocation, type CompilerInstallInvocationInput } fr
 
 import { type CommitFence } from "../../../../contracts/commit-fence.ts";
 import { SecError } from '../../../../contracts/failure.ts';
-import { issueSecOperationRequirementBindingContext } from '../../../../execution/operation/requirement-binding-context.ts';
+import { issueOperationRequirementBindingContext } from '../../../../execution/operation/requirement-binding-context.ts';
 import {
   bindSecSemanticOperation,
-  compileSecCapabilityBinding,
-  compileSecSemanticOperationPlan,
-  issueSecSemanticOperationAttemptContext,
-  type SecBoundSemanticOperation
+  compileCapabilityBinding,
+  compileSemanticOperationPlan,
+  issueSemanticOperationAttemptContext,
+  type BoundSemanticOperation
 } from '../../../../execution/operation/semantic.ts';
 import { writeText } from "../../../filesystem/files.ts";
 import { generatedStateDigest } from '../../../runtime-state/generated-state/contract.ts';
@@ -109,7 +109,7 @@ function compilerDependencyInstallProcessOperation(input: Readonly<{
   executable: RuntimeExecutableIdentity;
   options: BoundRuntimeDependencyOperationControls;
   workingDirectory: string;
-}>): SecBoundSemanticOperation {
+}>): BoundSemanticOperation {
   const context = runtimeDependencyOperationContext(input.options);
   const remainingDurationMs = Math.max(1, Math.floor(runtimeDependencyOperationRemainingMs(
     input.options,
@@ -129,7 +129,7 @@ function compilerDependencyInstallProcessOperation(input: Readonly<{
     executableSha256: input.executable.sha256,
     workingDirectory: input.workingDirectory
   }));
-  const plan = compileSecSemanticOperationPlan({
+  const plan = compileSemanticOperationPlan({
     operation: 'compiler-dependency.install',
     intentDigest,
     decisionDigest: contractDigest,
@@ -137,7 +137,7 @@ function compilerDependencyInstallProcessOperation(input: Readonly<{
       context.deadlineAtUnixMs,
       Date.now() + remainingDurationMs
     ),
-    attempt: issueSecSemanticOperationAttemptContext({
+    attempt: issueSemanticOperationAttemptContext({
       authorityGrantDigest: contractDigest,
       runIdDigest: generatedStateDigest(Object.freeze({ operationId: context.operationId }))
     }),
@@ -156,7 +156,7 @@ function compilerDependencyInstallProcessOperation(input: Readonly<{
       ])
     })])
   });
-  return bindSecSemanticOperation(plan, [compileSecCapabilityBinding({
+  return bindSecSemanticOperation(plan, [compileCapabilityBinding({
     requirementId: COMPILER_DEPENDENCY_INSTALL_PROCESS_REQUIREMENT,
     contractDigest,
     providerIdentityDigest: generatedStateDigest(Object.freeze({
@@ -290,7 +290,7 @@ export async function runBunInstall(
         });
         const processSession = resources.processSession(openProcessResourceSession({
           operation: processOperation,
-          requirementBindingContext: issueSecOperationRequirementBindingContext({
+          requirementBindingContext: issueOperationRequirementBindingContext({
             operation: processOperation,
             requirementId: COMPILER_DEPENDENCY_INSTALL_PROCESS_REQUIREMENT,
             resourceCeilings: compilerInstallResourceCeilings(Math.max(1, Math.floor(

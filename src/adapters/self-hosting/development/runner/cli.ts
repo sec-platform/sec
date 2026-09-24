@@ -1,6 +1,6 @@
 import path from 'node:path';
 
-import type { SecBoundSemanticOperation } from '../../../../execution/operation/semantic.ts';
+import type { BoundSemanticOperation } from '../../../../execution/operation/semantic.ts';
 import type { ProcessResourceSession } from '../../../runtime-state/physical/runtime/process-resource-session.ts';
 import { compileSecOperationDemandGraph } from '../../control/operation/demand.ts';
 import { WORKSPACE_TRANSITION_DEADLINE_ENV } from '../workspace-transition/contract.ts';
@@ -188,7 +188,7 @@ async function runRepositoryZeroWriteCommand(
     processSession?: ProcessResourceSession,
     executionContext?: RepositoryMutationFenceExecutionContext
   ) => Promise<number>,
-  semanticOperation: SecBoundSemanticOperation,
+  semanticOperation: BoundSemanticOperation,
   fenceOptions: Omit<RepositoryMutationFenceOptions, 'operation'> = {}
 ): Promise<number> {
   if (semanticOperation === undefined) {

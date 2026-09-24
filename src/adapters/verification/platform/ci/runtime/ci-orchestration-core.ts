@@ -2,8 +2,8 @@ import { createHash } from 'node:crypto';
 import path from 'node:path';
 
 import { uniqueSorted } from '../../../../../contracts/canonical.ts';
-import { issueSecOperationRequirementBindingContext } from '../../../../../execution/operation/requirement-binding-context.ts';
-import type { SecBoundSemanticOperation } from '../../../../../execution/operation/semantic.ts';
+import { issueOperationRequirementBindingContext } from '../../../../../execution/operation/requirement-binding-context.ts';
+import type { BoundSemanticOperation } from '../../../../../execution/operation/semantic.ts';
 import { GitReadAuthorityError } from '../../../../providers/git-read/authority.ts';
 import { CodexDevelopmentReadExactGitBlobBytesBatchFromSession } from '../../../../providers/git-read/exact-blob.ts';
 import {
@@ -357,7 +357,7 @@ export async function CodexDevelopmentRunGateProcess(
   repositoryRoot: string,
   step: CodexDevelopmentGateProcessStep,
   execution: Readonly<{
-    operation: SecBoundSemanticOperation;
+    operation: BoundSemanticOperation;
     requirementId: string;
   }>
 ): Promise<CodexDevelopmentGateProcessSettlement> {
@@ -374,7 +374,7 @@ export async function CodexDevelopmentRunGateProcess(
   );
   const session = openProcessResourceSession({
     operation: execution.operation,
-    requirementBindingContext: issueSecOperationRequirementBindingContext({
+    requirementBindingContext: issueOperationRequirementBindingContext({
       operation: execution.operation,
       requirementId: execution.requirementId,
       resourceCeilings: processBudgets

@@ -7,21 +7,21 @@ import { sha256 } from '../../../../contracts/canonical.ts';
 import { isPathInside } from "../../../../contracts/relative-path.ts";
 import { observeExecutionProgressPhase } from '../../../../execution/execution-progress.ts';
 import {
-  issueSecOperationRequirementBindingContext
+  issueOperationRequirementBindingContext
 } from '../../../../execution/operation/requirement-binding-context.ts';
 import {
   bindSecSemanticOperation,
-  compileSecCapabilityBinding,
-  compileSecProviderSettlementSet,
-  compileSecSemanticOperationPlan,
-  issueSecNormalDomainReadbackReceipt,
+  compileCapabilityBinding,
+  compileProviderSettlementSet,
+  compileSemanticOperationPlan,
+  issueNormalDomainReadbackReceipt,
   issueSecNormalOwnerTerminalJoinReceipt,
-  issueSecProviderSettlementReceipt,
-  issueSecSemanticOperationAttemptContext,
-  projectSecCapabilityDiagnostic,
-  type SecBoundSemanticOperation,
-  type SecDomainReadbackDisposition,
-  type SecOperationDigest
+  issueProviderSettlementReceipt,
+  issueSemanticOperationAttemptContext,
+  projectCapabilityDiagnostic,
+  type BoundSemanticOperation,
+  type DomainReadbackDisposition,
+  type OperationDigest
 } from '../../../../execution/operation/semantic.ts';
 import { withAuthorityGitReadSession } from '../../../providers/git-read/authority.ts';
 import {
@@ -115,7 +115,7 @@ const typecheckActionRunner = new VerificationActionRunner();
 
 function assertTypecheckProcessResourceReceipt(
   receipt: ProcessResourceSessionReceipt,
-  operation: SecBoundSemanticOperation,
+  operation: BoundSemanticOperation,
   execution: Awaited<ReturnType<typeof executeTypeScriptNativeChecker>> | undefined
 ): void {
   assertProcessResourceSessionReceipt(receipt, {
@@ -157,7 +157,7 @@ type TypecheckTerminalProcessEvidence =
   }>;
 
 type PendingTypecheckTerminalCore = Readonly<{
-  readbackDisposition: SecDomainReadbackDisposition;
+  readbackDisposition: DomainReadbackDisposition;
   status: VerificationResultStatus;
   reasonCode: VerificationReasonCode;
   executionObservation: unknown;
@@ -549,25 +549,25 @@ function canonicalPathIdentity(value: string): string {
 }
 
 async function issueTypecheckOperationSettlement(
-  operation: SecBoundSemanticOperation,
+  operation: BoundSemanticOperation,
   input: Readonly<{
     action: VerificationActionKey;
     actionKey: VerificationActionKeyDigest;
     executionObservation: unknown;
     readback: unknown;
-    readbackDisposition: SecDomainReadbackDisposition;
+    readbackDisposition: DomainReadbackDisposition;
     status: VerificationResultStatus;
     reasonCode: VerificationReasonCode;
   }> & TypecheckTerminalProcessEvidence
 ): Promise<VerificationActionTerminalSettlement> {
-  const checker = issueSecProviderSettlementReceipt(operation, {
+  const checker = issueProviderSettlementReceipt(operation, {
     requirementId: TYPECHECK_REQUIREMENT.projectCheck,
     physicalDisposition: input.checkerDisposition,
     providerSettlementReferenceDigest: actionDigest({
       actionKey: input.actionKey,
       requirement: TYPECHECK_REQUIREMENT.projectCheck,
       executionObservation: input.executionObservation
-    }) as SecOperationDigest
+    }) as OperationDigest
   });
   const diagnosticObjects = input.processOutput === null
     ? Object.freeze([])
@@ -581,7 +581,7 @@ async function issueTypecheckOperationSettlement(
           { stream: 'stderr', bytes: new TextEncoder().encode(input.processOutput.stderr) }
         ]
       });
-  const providerSettlements = [checker, issueSecProviderSettlementReceipt(operation, {
+  const providerSettlements = [checker, issueProviderSettlementReceipt(operation, {
     requirementId: 'verification.action-diagnostics',
     physicalDisposition: diagnosticObjects.length === 0 ? 'not-started' : 'settled',
     providerSettlementReferenceDigest: actionDigest(
@@ -591,23 +591,23 @@ async function issueTypecheckOperationSettlement(
             objectDigest: receipt.objectDigest,
             readbackDigest: readback.readbackDigest
           }))
-    ) as SecOperationDigest
+    ) as OperationDigest
   })];
-  const providerSettlementSet = compileSecProviderSettlementSet(operation, providerSettlements);
-  const readback = issueSecNormalDomainReadbackReceipt(operation, providerSettlementSet, {
+  const providerSettlementSet = compileProviderSettlementSet(operation, providerSettlements);
+  const readback = issueNormalDomainReadbackReceipt(operation, providerSettlementSet, {
     readbackContractDigest: actionDigest({
       contract: 'typescript-project-check-readback',
       requirements: Object.values(TYPECHECK_REQUIREMENT)
-    }) as SecOperationDigest,
+    }) as OperationDigest,
     readbackReferenceDigest: actionDigest({
       actionKey: input.actionKey,
       readback: input.readback
-    }) as SecOperationDigest,
+    }) as OperationDigest,
     currentPhysicalEpochDigest: actionDigest({
       actionKey: input.actionKey,
       operationAttempt: operation.boundAttemptDigest,
       readback: input.readback
-    }) as SecOperationDigest,
+    }) as OperationDigest,
     disposition: input.readbackDisposition
   });
   const ownerTerminalJoin = issueSecNormalOwnerTerminalJoinReceipt(
@@ -617,12 +617,12 @@ async function issueTypecheckOperationSettlement(
     {
       ownerTerminalContractDigest: actionDigest({
         contract: 'verification-action.typescript-project-check-terminal'
-      }) as SecOperationDigest,
+      }) as OperationDigest,
       ownerTerminalReferenceDigest: actionDigest({
         actionKey: input.actionKey,
         executionObservation: input.executionObservation,
         readbackReceiptDigest: readback.readbackReceiptDigest
-      }) as SecOperationDigest
+      }) as OperationDigest
     }
   );
   const actionTerminalReceipt = issueVerificationActionOwnerTerminalReceipt({
@@ -734,7 +734,7 @@ function compileTypecheckActionInputFromIdentity(input: Readonly<{
   provider: TypecheckActionProviderIdentity;
   project: TypecheckProjectActionIdentity;
   diagnosticArguments: readonly string[];
-  semanticOperation: SecBoundSemanticOperation;
+  semanticOperation: BoundSemanticOperation;
 }>): VerificationActionKeyInput {
   const dependencyAdmissionDigest = requireActionDigest(
     input.dependencies.identityDigest,
@@ -816,7 +816,7 @@ export function compileTypecheckActionInput(input: Readonly<{
   dependencyGenerationDigest: `sha256:${string}`;
   projectInput: WorkspaceTypeScriptProjectInput;
   diagnosticArguments: readonly string[];
-  semanticOperation: SecBoundSemanticOperation;
+  semanticOperation: BoundSemanticOperation;
 }>): VerificationActionKeyInput {
   return compileTypecheckActionInputFromIdentity({
     dependencies: input.dependencies,
@@ -832,7 +832,7 @@ export function compileTypecheckSemanticOperation(input: Readonly<{
   diagnosticArguments: readonly string[];
   checker: InstalledTypeScriptNativeChecker;
   deadlineAtUnixMs: number;
-}>): SecBoundSemanticOperation {
+}>): BoundSemanticOperation {
   assertTypeScriptNativeChecker(input.checker);
   const provider = input.checker.provider;
   if (input.projectConfigPath !== provider.projectConfig) {
@@ -851,7 +851,7 @@ function compileTypecheckSemanticOperationWithProviderIdentity(input: Readonly<{
   diagnosticArguments: readonly string[];
   providerIdentityDigest: VerificationActionKeyDigest;
   deadlineAtUnixMs: number;
-}>): SecBoundSemanticOperation {
+}>): BoundSemanticOperation {
   const checkerContractDigest = actionDigest({
     operation: 'verification.typecheck',
     projectConfig: 'tsconfig.json',
@@ -865,24 +865,24 @@ function compileTypecheckSemanticOperationWithProviderIdentity(input: Readonly<{
     generationSetupPolicy: TYPECHECK_MATERIALIZATION_POLICY,
     checkerExecutionPolicy: TYPESCRIPT_NATIVE_CHECKER_EXECUTION_POLICY,
     windowsReadOnlyTreeAdmissionPolicy: WINDOWS_READ_ONLY_TREE_ADMISSION_POLICY
-  }) as SecOperationDigest;
+  }) as OperationDigest;
   const diagnosticContractDigest = actionDigest({
     operation: 'verification.typecheck-process-diagnostics',
     streams: ['stderr', 'stdout']
-  }) as SecOperationDigest;
+  }) as OperationDigest;
   const decisionDigest = actionDigest({
     checkerContractDigest,
     diagnosticContractDigest
-  }) as SecOperationDigest;
-  const plan = compileSecSemanticOperationPlan({
+  }) as OperationDigest;
+  const plan = compileSemanticOperationPlan({
     operation: 'verification.typecheck',
     intentDigest: actionDigest({
       projectConfigPath: input.projectConfigPath,
       diagnosticProjection: input.diagnosticArguments
-    }) as SecOperationDigest,
+    }) as OperationDigest,
     decisionDigest,
     deadlineAtUnixMs: input.deadlineAtUnixMs,
-    attempt: issueSecSemanticOperationAttemptContext({
+    attempt: issueSemanticOperationAttemptContext({
       authorityGrantDigest: decisionDigest
     }),
     aggregateBudgets: [
@@ -932,15 +932,15 @@ function compileTypecheckSemanticOperationWithProviderIdentity(input: Readonly<{
     ]
   });
   return bindSecSemanticOperation(plan, [
-    compileSecCapabilityBinding({
+    compileCapabilityBinding({
       requirementId: TYPECHECK_REQUIREMENT.projectCheck,
       contractDigest: checkerContractDigest,
-      providerIdentityDigest: input.providerIdentityDigest as SecOperationDigest
+      providerIdentityDigest: input.providerIdentityDigest as OperationDigest
     }),
-    compileSecCapabilityBinding({
+    compileCapabilityBinding({
       requirementId: 'verification.action-diagnostics',
       contractDigest: diagnosticContractDigest,
-      providerIdentityDigest: actionDigest('runtime-state.process-diagnostics') as SecOperationDigest
+      providerIdentityDigest: actionDigest('runtime-state.process-diagnostics') as OperationDigest
     })
   ]);
 }
@@ -1156,7 +1156,7 @@ async function executeObservedTypecheckWithProvider(
       );
       const settlement = async (
         processEvidence: TypecheckTerminalProcessEvidence,
-        readbackDisposition: SecDomainReadbackDisposition,
+        readbackDisposition: DomainReadbackDisposition,
         status: VerificationResultStatus,
         reasonCode: VerificationReasonCode,
         executionObservation: unknown,
@@ -1181,7 +1181,7 @@ async function executeObservedTypecheckWithProvider(
       let readbackStage: TypecheckSubordinateStage = Object.freeze({ status: 'not-applied' });
       const finalSettlement = async (
         processEvidence: TypecheckTerminalProcessEvidence,
-        readbackDisposition: SecDomainReadbackDisposition,
+        readbackDisposition: DomainReadbackDisposition,
         status: VerificationResultStatus,
         reasonCode: VerificationReasonCode,
         executionObservation: unknown,
@@ -1372,7 +1372,7 @@ async function executeObservedTypecheckWithProvider(
       const executeAndObserve = async (): Promise<PendingTypecheckTerminal> => {
         const processSession = openProcessResourceSession({
           operation: semanticOperation,
-          requirementBindingContext: issueSecOperationRequirementBindingContext({
+          requirementBindingContext: issueOperationRequirementBindingContext({
             operation: semanticOperation,
             requirementId: TYPECHECK_REQUIREMENT.projectCheck,
             resourceCeilings: [
@@ -1487,7 +1487,7 @@ async function executeObservedTypecheckWithProvider(
           if (checkerBinding === undefined) {
             throw new Error('Typecheck semantic operation lost its checker capability binding.');
           }
-          const diagnostic = projectSecCapabilityDiagnostic({
+          const diagnostic = projectCapabilityDiagnostic({
             bindingDigest: checkerBinding.bindingDigest,
             code: 'typescript.provider-unverified',
             failureKind: `provider.${execution.reason}`,

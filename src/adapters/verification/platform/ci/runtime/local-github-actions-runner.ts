@@ -5,15 +5,15 @@ import path from 'node:path';
 import { sha256 } from '../../../../../contracts/canonical.ts';
 import {
   bindSecSemanticOperation,
-  compileSecCapabilityBinding,
-  compileSecProviderSettlementSet,
-  compileSecSemanticOperationPlan,
-  issueSecNormalDomainReadbackReceipt,
+  compileCapabilityBinding,
+  compileProviderSettlementSet,
+  compileSemanticOperationPlan,
+  issueNormalDomainReadbackReceipt,
   issueSecNormalOwnerTerminalJoinReceipt,
-  issueSecSemanticOperationAttemptContext,
-  type SecBoundSemanticOperation,
-  type SecOperationDigest,
-  type SecOwnerTerminalJoinReceipt
+  issueSemanticOperationAttemptContext,
+  type BoundSemanticOperation,
+  type OperationDigest,
+  type OwnerTerminalJoinReceipt
 } from '../../../../../execution/operation/semantic.ts';
 import {
   ResourceCompositeSettlementError,
@@ -157,26 +157,26 @@ type LocalContainerEngineOperationInput = Readonly<{
 }>;
 
 function bindLocalContainerEngineOperation(input: LocalContainerEngineOperationInput & Readonly<{
-  providerIdentityDigest: SecOperationDigest;
+  providerIdentityDigest: OperationDigest;
   deadlineAtUnixMs?: number;
-}>): SecBoundSemanticOperation {
+}>): BoundSemanticOperation {
   const cwd = path.resolve(input.cwd);
   const contractDigest = sha256(Object.freeze({
     schema: 'sec-local-github-actions-container-engine-contract-v1',
     environment: ENVIRONMENT.provider.requirement,
     expectedImageId: LOCAL_GITHUB_ACTIONS_RUNNER_EXPECTED_IMAGE_ID
-  })) as SecOperationDigest;
-  const plan = compileSecSemanticOperationPlan({
+  })) as OperationDigest;
+  const plan = compileSemanticOperationPlan({
     operation: `verification.local-github-actions-${input.intent}`,
     intentDigest: sha256(Object.freeze({
       cwd,
       intent: input.intent,
       subject: input.subject
-    })) as SecOperationDigest,
+    })) as OperationDigest,
     decisionDigest: sha256(Object.freeze({
       contractDigest,
       budget: LOCAL_CONTAINER_ENGINE_OPERATION_BUDGET
-    })) as SecOperationDigest,
+    })) as OperationDigest,
     deadlineAtUnixMs: input.deadlineAtUnixMs
       ?? Date.now() + LOCAL_CONTAINER_ENGINE_OPERATION_BUDGET.durationMs,
     aggregateBudgets: [
@@ -197,11 +197,11 @@ function bindLocalContainerEngineOperation(input: LocalContainerEngineOperationI
         'container-engine.runtime-endpoint-residue'
       ]
     }],
-    attempt: issueSecSemanticOperationAttemptContext({
+    attempt: issueSemanticOperationAttemptContext({
       authorityGrantDigest: contractDigest
     })
   });
-  const operation = bindSecSemanticOperation(plan, [compileSecCapabilityBinding({
+  const operation = bindSecSemanticOperation(plan, [compileCapabilityBinding({
     requirementId: 'external.container-engine-process',
     contractDigest,
     providerIdentityDigest: input.providerIdentityDigest
@@ -211,9 +211,9 @@ function bindLocalContainerEngineOperation(input: LocalContainerEngineOperationI
 
 interface LocalContainerEngineOperationSession {
   readonly session: ContainerEngineSession;
-  readonly operation: SecBoundSemanticOperation;
+  readonly operation: BoundSemanticOperation;
   readonly scope: ContainerEngineOperationScope;
-  settle(): Promise<SecOwnerTerminalJoinReceipt>;
+  settle(): Promise<OwnerTerminalJoinReceipt>;
   close(): Promise<void>;
 }
 
@@ -246,35 +246,35 @@ async function openLocalContainerEngineSession(
     operation,
     requirementId: 'external.container-engine-process'
   });
-  let joinReceipt: SecOwnerTerminalJoinReceipt | null = null;
+  let joinReceipt: OwnerTerminalJoinReceipt | null = null;
   let closeFailure: Readonly<{ error: unknown }> | undefined;
   return Object.freeze({
     session,
     operation,
     scope,
-    async settle(): Promise<SecOwnerTerminalJoinReceipt> {
+    async settle(): Promise<OwnerTerminalJoinReceipt> {
       if (joinReceipt !== null) return joinReceipt;
       const providerSettlement = scope.settle();
       const endpointReadback = await session.observeEndpoint();
-      const providerSettlementSet = compileSecProviderSettlementSet(
+      const providerSettlementSet = compileProviderSettlementSet(
         operation,
         [providerSettlement]
       );
-      const readback = issueSecNormalDomainReadbackReceipt(operation, providerSettlementSet, {
+      const readback = issueNormalDomainReadbackReceipt(operation, providerSettlementSet, {
         readbackContractDigest: sha256(Object.freeze({
           schema: 'sec-local-github-actions-container-engine-readback-contract-v1',
           intent: input.intent,
           endpointHost: endpointReadback.endpointHost
-        })) as SecOperationDigest,
+        })) as OperationDigest,
         readbackReferenceDigest: sha256(Object.freeze({
           schema: 'sec-local-github-actions-container-engine-readback-v1',
           endpoint: endpointReadback
-        })) as SecOperationDigest,
+        })) as OperationDigest,
         currentPhysicalEpochDigest: sha256(Object.freeze({
           schema: 'sec-local-github-actions-container-engine-physical-epoch-v1',
           endpointHost: endpointReadback.endpointHost,
           daemonId: endpointReadback.daemonId
-        })) as SecOperationDigest,
+        })) as OperationDigest,
         disposition: providerSettlement.physicalDisposition === 'settled'
           ? 'applied'
           : providerSettlement.physicalDisposition === 'not-started'
@@ -289,14 +289,14 @@ async function openLocalContainerEngineSession(
           ownerTerminalContractDigest: sha256(Object.freeze({
             schema: 'sec-local-github-actions-container-engine-owner-terminal-contract-v1',
             intent: input.intent
-          })) as SecOperationDigest,
+          })) as OperationDigest,
           ownerTerminalReferenceDigest: sha256(Object.freeze({
             schema: 'sec-local-github-actions-container-engine-owner-terminal-reference-v1',
             intent: input.intent,
             subject: input.subject,
             endpoint: endpointReadback,
             physicalDisposition: providerSettlement.physicalDisposition
-          })) as SecOperationDigest
+          })) as OperationDigest
         }
       );
       return joinReceipt;

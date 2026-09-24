@@ -6,10 +6,10 @@ import path from 'node:path';
 import { sha256 } from '../../../contracts/canonical.ts';
 import {
   bindSecSemanticOperation,
-  compileSecCapabilityBinding,
-  compileSecSemanticOperationPlan,
-  issueSecSemanticOperationAttemptContext,
-  type SecOperationDigest
+  compileCapabilityBinding,
+  compileSemanticOperationPlan,
+  issueSemanticOperationAttemptContext,
+  type OperationDigest
 } from '../../../execution/operation/semantic.ts';
 import {
   createBoundedProcessDiagnosticObjectReceipt,
@@ -49,13 +49,13 @@ function fixture() {
 
 function operation(label: string, includeRecords = false, maximumInputBytes = 4_096) {
   const requirementId = 'runtime-state.process-diagnostic.fixture';
-  const contractDigest = sha256({ requirementId }) as SecOperationDigest;
-  const plan = compileSecSemanticOperationPlan({
+  const contractDigest = sha256({ requirementId }) as OperationDigest;
+  const plan = compileSemanticOperationPlan({
     operation: `runtime-state.process-diagnostic.${label}`,
-    intentDigest: sha256({ label }) as SecOperationDigest,
+    intentDigest: sha256({ label }) as OperationDigest,
     decisionDigest: contractDigest,
     deadlineAtUnixMs: Date.now() + 30_000,
-    attempt: issueSecSemanticOperationAttemptContext({ authorityGrantDigest: contractDigest }),
+    attempt: issueSemanticOperationAttemptContext({ authorityGrantDigest: contractDigest }),
     aggregateBudgets: [
       { resource: 'duration-ms', maximum: 30_000 },
       { resource: 'input-bytes', maximum: maximumInputBytes },
@@ -75,10 +75,10 @@ function operation(label: string, includeRecords = false, maximumInputBytes = 4_
   });
   return {
     requirementId,
-    operation: bindSecSemanticOperation(plan, [compileSecCapabilityBinding({
+    operation: bindSecSemanticOperation(plan, [compileCapabilityBinding({
       requirementId,
       contractDigest,
-      providerIdentityDigest: sha256('runtime-state-process-diagnostic-fixture') as SecOperationDigest
+      providerIdentityDigest: sha256('runtime-state-process-diagnostic-fixture') as OperationDigest
     })])
   };
 }
@@ -86,8 +86,8 @@ function operation(label: string, includeRecords = false, maximumInputBytes = 4_
 test.serial('bounded process diagnostics survive lost handles through owner-issued receipt readback', async () => {
   const value = fixture();
   const publication = operation('publish');
-  const subjectDigest = sha256('action-key') as SecOperationDigest;
-  const settlementDigest = sha256('process-settlement') as SecOperationDigest;
+  const subjectDigest = sha256('action-key') as OperationDigest;
+  const settlementDigest = sha256('process-settlement') as OperationDigest;
   const firstAuthority = await acquireSecRuntimeJournalAuthority(value);
   const roots = resolveSecWorkspaceRuntimeRoots(value);
   writeFileSync(
@@ -160,8 +160,8 @@ test.serial('diagnostic payload mutation and incomplete object residue remain ty
   const store = createBoundedProcessDiagnosticObjectStore({ ...value, authority });
   const [published] = await store.publish({
     ...publication,
-    subjectDigest: sha256('mutation-action-key') as SecOperationDigest,
-    settlementDigest: sha256('mutation-process-settlement') as SecOperationDigest,
+    subjectDigest: sha256('mutation-action-key') as OperationDigest,
+    settlementDigest: sha256('mutation-process-settlement') as OperationDigest,
     streams: [{ stream: 'stderr', bytes: new TextEncoder().encode('original') }]
   });
   const receipt = published!.receipt;
@@ -203,8 +203,8 @@ test.serial('same-path diagnostic root replacement fails the mutation-safe autho
   try {
     await store.publish({
       ...operation('root-replacement'),
-      subjectDigest: sha256('replacement-action-key') as SecOperationDigest,
-      settlementDigest: sha256('replacement-settlement') as SecOperationDigest,
+      subjectDigest: sha256('replacement-action-key') as OperationDigest,
+      settlementDigest: sha256('replacement-settlement') as OperationDigest,
       streams: [{ stream: 'stderr', bytes: new TextEncoder().encode('blocked') }]
     });
     throw new Error('Expected root replacement to be rejected');
@@ -242,8 +242,8 @@ test.serial('object-local partial publication is retained or expired without blo
     operationIdentityDigest: gcOperation.operation.plan.identity.identityDigest,
     executionPlanDigest: gcOperation.operation.plan.execution.executionPlanDigest,
     boundAttemptDigest: gcOperation.operation.boundAttemptDigest,
-    subjectDigest: sha256('partial-action') as SecOperationDigest,
-    settlementDigest: sha256('partial-settlement') as SecOperationDigest,
+    subjectDigest: sha256('partial-action') as OperationDigest,
+    settlementDigest: sha256('partial-settlement') as OperationDigest,
     stream: 'stderr',
     bytes: new TextEncoder().encode('never-published'),
     retainedUntilUnixMs: Date.now() - 1
@@ -297,8 +297,8 @@ test.serial('GC stops before the next payload when the remaining input-byte budg
     const store = createBoundedProcessDiagnosticObjectStore({ ...value, authority });
     const published = await store.publish({
       ...operation('budget-sentinel-publish'),
-      subjectDigest: sha256('budget-sentinel-action') as SecOperationDigest,
-      settlementDigest: sha256('budget-sentinel-settlement') as SecOperationDigest,
+      subjectDigest: sha256('budget-sentinel-action') as OperationDigest,
+      settlementDigest: sha256('budget-sentinel-settlement') as OperationDigest,
       streams: [
         { stream: 'stderr', bytes: new TextEncoder().encode('a') },
         { stream: 'stdout', bytes: new TextEncoder().encode('b') }

@@ -11,10 +11,10 @@ import { formatJsonFile } from "../../../../contracts/json-text.ts";
 import { isPathInside } from "../../../../contracts/relative-path.ts";
 import {
   bindSecSemanticOperation,
-  compileSecCapabilityBinding,
-  compileSecSemanticOperationPlan,
-  issueSecSemanticOperationAttemptContext,
-  type SecBoundSemanticOperation
+  compileCapabilityBinding,
+  compileSemanticOperationPlan,
+  issueSemanticOperationAttemptContext,
+  type BoundSemanticOperation
 } from '../../../../execution/operation/semantic.ts';
 import { isFileNotFoundError, readJson } from "../../../filesystem/files.ts";
 import { generatedStateDigest, generatedStateDomainProviderMaterialDigest, type GeneratedStateCleanupProfile, type GeneratedStateInventory, type GeneratedStatePhysicalIdentity, type GeneratedStateRegistration } from '../../../runtime-state/generated-state/contract.ts';
@@ -8952,7 +8952,7 @@ function assertCompilerDependencyLegacyRelocationIntentBytes(bytes: Uint8Array):
 function compilerDependencyLegacyRelocationOperation(
   transition: DependencyTransitionJournal,
   options: RuntimeDependencyOperationOptions
-): SecBoundSemanticOperation {
+): BoundSemanticOperation {
   const context = runtimeDependencyOperationContext(options);
   const contractDigest = generatedStateDigest(Object.freeze({
     schema: 'sec-compiler-dependency-legacy-relocation-contract-v1',
@@ -8960,7 +8960,7 @@ function compilerDependencyLegacyRelocationOperation(
     preimage: transition.preimage,
     targetGenerationDigest: transition.sourceGeneration.epoch
   }));
-  const attempt = issueSecSemanticOperationAttemptContext({
+  const attempt = issueSemanticOperationAttemptContext({
     authorityGrantDigest: transition.recordDigest,
     runIdDigest: generatedStateDigest(Object.freeze({ operationId: context.operationId })),
     resumeEpochDigest: transition.previousRecordDigest
@@ -8973,7 +8973,7 @@ function compilerDependencyLegacyRelocationOperation(
       'descriptor-drift', 'identity-drift', 'deadline-exhausted', 'relocation-failed'
     ])
   });
-  const plan = compileSecSemanticOperationPlan({
+  const plan = compileSemanticOperationPlan({
     operation: 'compiler-dependency.legacy-relocation',
     intentDigest: transition.operationKey,
     // Recovery attempts change the journal tip, but never the stable physical
@@ -8993,7 +8993,7 @@ function compilerDependencyLegacyRelocationOperation(
     requirements: Object.freeze([requirement]),
     attempt
   });
-  const binding = compileSecCapabilityBinding({
+  const binding = compileCapabilityBinding({
     requirementId: requirement.id,
     contractDigest,
     providerIdentityDigest: generatedStateDigest(Object.freeze({

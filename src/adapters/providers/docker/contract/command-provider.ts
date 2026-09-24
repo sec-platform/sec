@@ -1,4 +1,4 @@
-import type { SecOperationDigest } from '../../../../execution/operation/semantic.ts';
+import type { OperationDigest } from '../../../../execution/operation/semantic.ts';
 
 /**
  * Opaque ownership transfer for one already-retained Docker executable/cwd
@@ -7,7 +7,7 @@ import type { SecOperationDigest } from '../../../../execution/operation/semanti
  */
 export interface DockerCommandProviderCapability {
   readonly executable: string;
-  readonly providerIdentityDigest: SecOperationDigest;
+  readonly providerIdentityDigest: OperationDigest;
   readonly workingDirectory: string;
 }
 

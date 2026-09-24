@@ -20,14 +20,14 @@ import ts from 'typescript';
 import { canonicalJson, compareCodeUnits, rawSha256, sha256 } from '../../../contracts/canonical.ts';
 import { isSecRepositoryTestModulePath } from '../../../contracts/repository-test-path.ts';
 import { enableExecutionProgress, reportExecutionProgress } from '../../../execution/execution-progress.ts';
-import { issueSecOperationRequirementBindingContext } from '../../../execution/operation/requirement-binding-context.ts';
+import { issueOperationRequirementBindingContext } from '../../../execution/operation/requirement-binding-context.ts';
 import {
   bindSecSemanticOperation,
-  compileSecCapabilityBinding,
-  compileSecSemanticOperationPlan,
-  issueSecSemanticOperationAttemptContext,
-  type SecBoundSemanticOperation,
-  type SecOperationDigest
+  compileCapabilityBinding,
+  compileSemanticOperationPlan,
+  issueSemanticOperationAttemptContext,
+  type BoundSemanticOperation,
+  type OperationDigest
 } from '../../../execution/operation/semantic.ts';
 import { ResourceCompositeSettlementError as PhysicalResourceCompositeSettlementError, settleResourcesAsync as settlePhysicalResourcesAsync } from '../../../execution/resource-settlement.ts';
 import { withAuthorityGitReadSession } from '../../providers/git-read/authority.ts';
@@ -3055,7 +3055,7 @@ function compileSourceProgramAuditWorkerOperation(input: Readonly<{
   payloadDigest: `sha256:${string}`;
   sealedGenerationDigest: `sha256:${string}`;
   deadlineAtUnixMs: number;
-}>): SecBoundSemanticOperation {
+}>): BoundSemanticOperation {
   const durationMs = input.deadlineAtUnixMs - Date.now();
   if (!Number.isSafeInteger(durationMs) || durationMs < 1
       || durationMs > SOURCE_PROGRAM_AUDIT_DEADLINE_MS) {
@@ -3067,8 +3067,8 @@ function compileSourceProgramAuditWorkerOperation(input: Readonly<{
     cwd: 'one-sealed-source-program-generation',
     childEffects: 'none-pure-operation',
     output: 'one-candidate-stream'
-  }) as SecOperationDigest;
-  const plan = compileSecSemanticOperationPlan({
+  }) as OperationDigest;
+  const plan = compileSemanticOperationPlan({
     operation: SOURCE_PROGRAM_AUDIT_OPERATION,
     intentDigest: sha256({
       bunDigest: input.bunDigest,
@@ -3077,10 +3077,10 @@ function compileSourceProgramAuditWorkerOperation(input: Readonly<{
       implementationDigest: input.implementationDigest,
       payloadDigest: input.payloadDigest,
       sealedGenerationDigest: input.sealedGenerationDigest
-    }) as SecOperationDigest,
+    }) as OperationDigest,
     decisionDigest: contractDigest,
     deadlineAtUnixMs: input.deadlineAtUnixMs,
-    attempt: issueSecSemanticOperationAttemptContext({
+    attempt: issueSemanticOperationAttemptContext({
       authorityGrantDigest: contractDigest
     }),
     aggregateBudgets: [
@@ -3103,7 +3103,7 @@ function compileSourceProgramAuditWorkerOperation(input: Readonly<{
       ]
     }]
   });
-  return bindSecSemanticOperation(plan, [compileSecCapabilityBinding({
+  return bindSecSemanticOperation(plan, [compileCapabilityBinding({
     requirementId: SOURCE_PROGRAM_AUDIT_REQUIREMENT,
     contractDigest,
     providerIdentityDigest: sha256({
@@ -3111,7 +3111,7 @@ function compileSourceProgramAuditWorkerOperation(input: Readonly<{
       bunDigest: input.bunDigest,
       implementationDigest: input.implementationDigest,
       sealedGenerationDigest: input.sealedGenerationDigest
-    }) as SecOperationDigest
+    }) as OperationDigest
   })]);
 }
 
@@ -3273,7 +3273,7 @@ async function executeAdmittedWorkingTreeSourceProgramAudit(
   let session: ProcessResourceSession | null = null;
   let resources: ProcessResourceSessionReceipt | null = null;
   let run: ProcessResourceRunResult | null = null;
-  let operation: SecBoundSemanticOperation | null = null;
+  let operation: BoundSemanticOperation | null = null;
   let boundary: RetainedCommandBoundary | null = null;
   let request: RepositoryAuditWorkerRequest | null = null;
   let requestBytes: Uint8Array | null = null;
@@ -3364,7 +3364,7 @@ async function executeAdmittedWorkingTreeSourceProgramAudit(
     }
     session = openProcessResourceSession({
       operation,
-      requirementBindingContext: issueSecOperationRequirementBindingContext({
+      requirementBindingContext: issueOperationRequirementBindingContext({
         operation,
         requirementId: SOURCE_PROGRAM_AUDIT_REQUIREMENT,
         resourceCeilings: [

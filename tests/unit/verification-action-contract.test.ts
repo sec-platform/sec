@@ -9,13 +9,13 @@ import { VERIFICATION_GATE_RESULT_SCHEMA } from '../../src/assurance/verificatio
 import { sha256 } from '../../src/contracts/canonical.ts';
 import {
   bindSecSemanticOperation,
-  compileSecCapabilityBinding,
-  compileSecProviderSettlementSet,
-  compileSecSemanticOperationPlan,
-  issueSecNormalDomainReadbackReceipt,
+  compileCapabilityBinding,
+  compileProviderSettlementSet,
+  compileSemanticOperationPlan,
+  issueNormalDomainReadbackReceipt,
   issueSecNormalOwnerTerminalJoinReceipt,
-  issueSecProviderSettlementReceipt,
-  issueSecSemanticOperationAttemptContext
+  issueProviderSettlementReceipt,
+  issueSemanticOperationAttemptContext
 } from '../../src/execution/operation/semantic.ts';
 
 const DIGEST_A = `sha256:${'a'.repeat(64)}` as const;
@@ -53,7 +53,7 @@ function settlement(
   status: 'passed' | 'failed',
   deadlineAtUnixMs = 1_900_000_000_000
 ) {
-  const plan = compileSecSemanticOperationPlan({
+  const plan = compileSemanticOperationPlan({
     operation: 'verification.action-test',
     intentDigest: DIGEST_A,
     decisionDigest: DIGEST_B,
@@ -65,22 +65,22 @@ function settlement(
       effectKinds: ['process'],
       failureKinds: ['process.failed']
     }],
-    attempt: issueSecSemanticOperationAttemptContext({
+    attempt: issueSemanticOperationAttemptContext({
       authorityGrantDigest: DIGEST_C
     })
   });
-  const bound = bindSecSemanticOperation(plan, [compileSecCapabilityBinding({
+  const bound = bindSecSemanticOperation(plan, [compileCapabilityBinding({
     requirementId: 'verification.test-effect',
     contractDigest: DIGEST_C,
     providerIdentityDigest: DIGEST_B
   })]);
-  const provider = issueSecProviderSettlementReceipt(bound, {
+  const provider = issueProviderSettlementReceipt(bound, {
     requirementId: 'verification.test-effect',
     physicalDisposition: 'settled',
     providerSettlementReferenceDigest: status === 'passed' ? DIGEST_A : DIGEST_B
   });
-  const providerSet = compileSecProviderSettlementSet(bound, [provider]);
-  const readback = issueSecNormalDomainReadbackReceipt(bound, providerSet, {
+  const providerSet = compileProviderSettlementSet(bound, [provider]);
+  const readback = issueNormalDomainReadbackReceipt(bound, providerSet, {
     readbackContractDigest: DIGEST_A,
     readbackReferenceDigest: DIGEST_B,
     currentPhysicalEpochDigest: DIGEST_C,

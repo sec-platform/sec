@@ -6,8 +6,8 @@ import { parseExactJson } from '../../../contracts/exact-json.ts';
 import { SecError } from '../../../contracts/failure.ts';
 import {
   assertSecSemanticOperationProjection,
-  type SecBoundSemanticOperation,
-  type SecOperationDigest
+  type BoundSemanticOperation,
+  type OperationDigest
 } from '../../../execution/operation/semantic.ts';
 import {
   PhysicalNoFollowError,
@@ -93,20 +93,20 @@ interface ContentAddressedWorkspaceCacheNamespace {
 }
 
 type ContentAddressedWorkspaceCacheSessionReceipt = Readonly<{
-  operationIdentityDigest: SecOperationDigest;
-  boundAttemptDigest: SecOperationDigest;
+  operationIdentityDigest: OperationDigest;
+  boundAttemptDigest: OperationDigest;
   deadlineAtUnixMs: number;
   records: number;
   readBytes: number;
   writeBytes: number;
   writes: number;
   failedOperations: number;
-  receiptDigest: SecOperationDigest;
+  receiptDigest: OperationDigest;
 }>;
 
 export interface ContentAddressedWorkspaceCacheSession {
-  readonly operationIdentityDigest: SecOperationDigest;
-  readonly boundAttemptDigest: SecOperationDigest;
+  readonly operationIdentityDigest: OperationDigest;
+  readonly boundAttemptDigest: OperationDigest;
   readonly deadlineAtUnixMs: number;
   readonly deadlineAtMonotonicMs: number;
   readonly signal: AbortSignal;
@@ -455,7 +455,7 @@ function createContentAddressedWorkspaceCacheNamespace(input: Readonly<{
 }
 
 function operationBudget(
-  operation: SecBoundSemanticOperation,
+  operation: BoundSemanticOperation,
   resource: 'duration-ms' | 'input-bytes' | 'output-bytes' | 'records',
   ceiling: number
 ): number {
@@ -473,7 +473,7 @@ function operationBudget(
  * pass paths or create independent deadlines and ledgers.
  */
 export function openContentAddressedWorkspaceCacheSession(input: Readonly<{
-  operation: SecBoundSemanticOperation;
+  operation: BoundSemanticOperation;
   requirementId: string;
   repository: PhysicalDirectoryIdentity;
   signal?: AbortSignal;
@@ -611,7 +611,7 @@ export function openContentAddressedWorkspaceCacheSession(input: Readonly<{
       });
       receipt = Object.freeze({
         ...unsigned,
-        receiptDigest: sha256(unsigned) as SecOperationDigest
+        receiptDigest: sha256(unsigned) as OperationDigest
       });
       controller.abort(new Error('Content-addressed cache session closed'));
       return receipt;

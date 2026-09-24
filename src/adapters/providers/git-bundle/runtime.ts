@@ -1,14 +1,14 @@
 import path from 'node:path';
 
 import { sha256 } from '../../../contracts/canonical.ts';
-import { issueSecOperationRequirementBindingContext } from '../../../execution/operation/requirement-binding-context.ts';
+import { issueOperationRequirementBindingContext } from '../../../execution/operation/requirement-binding-context.ts';
 import {
   bindSecSemanticOperation,
-  compileSecCapabilityBinding,
-  compileSecSemanticOperationPlan,
-  issueSecSemanticOperationAttemptContext,
-  type SecBoundSemanticOperation,
-  type SecOperationDigest
+  compileCapabilityBinding,
+  compileSemanticOperationPlan,
+  issueSemanticOperationAttemptContext,
+  type BoundSemanticOperation,
+  type OperationDigest
 } from '../../../execution/operation/semantic.ts';
 import { settleResources as settlePhysicalResources, settleResourcesAsync as settlePhysicalResourcesAsync, type ResourceSettlementFailure as PhysicalResourceSettlementFailure } from '../../../execution/resource-settlement.ts';
 import {
@@ -52,11 +52,11 @@ const CANDIDATE_BUNDLE_CONTRACT = sha256({
   source: 'git-read-exact-repository-identity-v1',
   effect: 'fixed-local-fetch-and-bundle-v1',
   output: 'retained-ordinary-file-v1'
-}) as SecOperationDigest;
+}) as OperationDigest;
 const CANDIDATE_BUNDLE_PROCESS_PROVIDER = sha256({
   provider: 'runtime-state.physical.process-resource-session',
   consumer: CANDIDATE_BUNDLE_OPERATION
-}) as SecOperationDigest;
+}) as OperationDigest;
 const CANDIDATE_BUNDLE_DURATION_MS = 120_000;
 const CANDIDATE_BUNDLE_MAXIMUM_PROCESSES = 32;
 const CANDIDATE_BUNDLE_MAXIMUM_INPUT_BYTES = 64 * 1024;
@@ -91,19 +91,19 @@ export type GitCandidateBundle = Readonly<{
   readonly baseSha: string;
   readonly headSha: string;
   readonly objectFormat: 'sha1' | 'sha256';
-  readonly materializationIdentityDigest: SecOperationDigest;
+  readonly materializationIdentityDigest: OperationDigest;
 }>;
 
 export type GitCandidateBundleReceipt = Readonly<{
   readonly schema: 'sec-git-candidate-bundle-receipt-v1';
-  readonly materializationIdentityDigest: SecOperationDigest;
+  readonly materializationIdentityDigest: OperationDigest;
   readonly bundlePath: string;
   readonly bundleSize: number;
   readonly bundleDigest: `sha256:${string}`;
   readonly baseSha: string;
   readonly headSha: string;
   readonly terminal: 'released';
-  readonly receiptDigest: SecOperationDigest;
+  readonly receiptDigest: OperationDigest;
 }>;
 
 type GitCandidateBundleState = {
@@ -122,8 +122,8 @@ function compileCandidateBundleOperation(input: Readonly<{
   baseSha: string;
   headSha: string;
   deadlineAtUnixMs: number;
-}>): SecBoundSemanticOperation {
-  const plan = compileSecSemanticOperationPlan({
+}>): BoundSemanticOperation {
+  const plan = compileSemanticOperationPlan({
     operation: CANDIDATE_BUNDLE_OPERATION,
     intentDigest: sha256({
       sourceRoot: input.sourceRoot,
@@ -132,10 +132,10 @@ function compileCandidateBundleOperation(input: Readonly<{
       headSha: input.headSha,
       bareName: CANDIDATE_BUNDLE_BARE_NAME,
       bundleName: CANDIDATE_BUNDLE_FILE_NAME
-    }) as SecOperationDigest,
+    }) as OperationDigest,
     decisionDigest: CANDIDATE_BUNDLE_CONTRACT,
     deadlineAtUnixMs: input.deadlineAtUnixMs,
-    attempt: issueSecSemanticOperationAttemptContext({
+    attempt: issueSemanticOperationAttemptContext({
       authorityGrantDigest: CANDIDATE_BUNDLE_CONTRACT
     }),
     aggregateBudgets: [
@@ -163,7 +163,7 @@ function compileCandidateBundleOperation(input: Readonly<{
       ]
     }]
   });
-  return bindSecSemanticOperation(plan, [compileSecCapabilityBinding({
+  return bindSecSemanticOperation(plan, [compileCapabilityBinding({
     requirementId: CANDIDATE_BUNDLE_REQUIREMENT,
     contractDigest: CANDIDATE_BUNDLE_CONTRACT,
     providerIdentityDigest: CANDIDATE_BUNDLE_PROCESS_PROVIDER
@@ -249,13 +249,13 @@ async function materializeCandidateBundle(input: Readonly<{
   temporaryRoot: string;
   baseSha: string;
   headSha: string;
-  operation: SecBoundSemanticOperation;
+  operation: BoundSemanticOperation;
   processSession: ReturnType<typeof openProcessResourceSession>;
   temporaryRootIdentity: PhysicalDirectoryChain;
 }>): Promise<Readonly<{
   retainedBundle: RetainedNoFollowOrdinaryFile;
   objectFormat: 'sha1' | 'sha256';
-  sourceIdentityDigest: SecOperationDigest;
+  sourceIdentityDigest: OperationDigest;
   publicationDigest: string;
   providerReceipt: GitPhysicalProviderReceipt;
 }>> {
@@ -482,7 +482,7 @@ async function materializeCandidateBundle(input: Readonly<{
           sourceRoot: sourceChain.target,
           gitDirectory: gitDirectoryChain.target,
           commonDirectory: commonDirectoryChain.target
-        }) as SecOperationDigest,
+        }) as OperationDigest,
         publicationDigest,
         providerReceipt
       });
@@ -533,7 +533,7 @@ export async function createGitCandidateBundle(input: Readonly<{
   });
   const processSession = openProcessResourceSession({
     operation,
-    requirementBindingContext: issueSecOperationRequirementBindingContext({
+    requirementBindingContext: issueOperationRequirementBindingContext({
       operation,
       requirementId: CANDIDATE_BUNDLE_REQUIREMENT,
       resourceCeilings: operation.plan.execution.aggregateBudgets
@@ -616,7 +616,7 @@ export async function createGitCandidateBundle(input: Readonly<{
       materializationIdentityDigest: sha256({
         domain: 'external-capabilities.git-bundle.materialization',
         materialization: withoutIdentity
-      }) as SecOperationDigest
+      }) as OperationDigest
     });
     GIT_CANDIDATE_BUNDLE_STATES.set(bundle, {
       retainedBundle: materialized.retainedBundle,
@@ -684,7 +684,7 @@ export function closeGitCandidateBundle(bundle: GitCandidateBundle): GitCandidat
     receiptDigest: sha256({
       domain: 'external-capabilities.git-bundle.receipt',
       receipt: withoutDigest
-    }) as SecOperationDigest
+    }) as OperationDigest
   });
   ISSUED_GIT_CANDIDATE_BUNDLE_RECEIPTS.add(state.receipt);
   return state.receipt;

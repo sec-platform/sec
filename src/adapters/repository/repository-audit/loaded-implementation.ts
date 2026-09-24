@@ -4,8 +4,8 @@ import {
 } from '../../../contracts/canonical.ts';
 import {
   assertSecSemanticOperationProjection,
-  type SecBoundSemanticOperation,
-  type SecOperationDigest
+  type BoundSemanticOperation,
+  type OperationDigest
 } from '../../../execution/operation/semantic.ts';
 import {
   assertProcessResourceRunResult,
@@ -46,13 +46,13 @@ export type RepositoryAuditLoadedImplementationObservation = Readonly<{
   kind: 'repository-audit-loaded-implementation-observation';
   entrypointAddress: SourceProgramEntrypointAddress;
   implementationDigest: Digest;
-  operationIdentityDigest: SecOperationDigest;
-  boundAttemptDigest: SecOperationDigest;
+  operationIdentityDigest: OperationDigest;
+  boundAttemptDigest: OperationDigest;
   observationDigest: Digest;
 }>;
 
 type ObservationRecord = Readonly<{
-  operation: SecBoundSemanticOperation;
+  operation: BoundSemanticOperation;
   producerClosure: SourceProgramOperationProducerClosure;
   generation: RetainedSealedPhysicalExecutionTreeGeneration;
   generationRetirement: SealedPhysicalExecutionTreeRetirementReceipt;
@@ -119,7 +119,7 @@ export function deriveRepositoryAuditImplementationDigest(
 }
 
 export type JoinRepositoryAuditLoadedImplementationObservationInput = Readonly<{
-  operation: SecBoundSemanticOperation;
+  operation: BoundSemanticOperation;
   producerClosure: SourceProgramOperationProducerClosure;
   generation: RetainedSealedPhysicalExecutionTreeGeneration;
   generationRetirement: SealedPhysicalExecutionTreeRetirementReceipt;

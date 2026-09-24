@@ -5,13 +5,13 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { canonicalJson, rawSha256, sha256 } from '../../../contracts/canonical.ts';
-import { issueSecOperationRequirementBindingContext } from '../../../execution/operation/requirement-binding-context.ts';
+import { issueOperationRequirementBindingContext } from '../../../execution/operation/requirement-binding-context.ts';
 import {
   bindSecSemanticOperation,
-  compileSecCapabilityBinding,
-  compileSecSemanticOperationPlan,
-  issueSecSemanticOperationAttemptContext,
-  type SecOperationDigest
+  compileCapabilityBinding,
+  compileSemanticOperationPlan,
+  issueSemanticOperationAttemptContext,
+  type OperationDigest
 } from '../../../execution/operation/semantic.ts';
 import { withAuthorityGitReadSession } from '../../providers/git-read/authority.ts';
 import {
@@ -91,13 +91,13 @@ async function runGenerationChild(
     label: 'cache worker'
   }]);
   const requirementId = 'brownfield.repository-compilation-cache.test-process';
-  const contractDigest = sha256({ requirementId }) as SecOperationDigest;
-  const operation = bindSecSemanticOperation(compileSecSemanticOperationPlan({
+  const contractDigest = sha256({ requirementId }) as OperationDigest;
+  const operation = bindSecSemanticOperation(compileSemanticOperationPlan({
     operation: 'brownfield.repository-compilation-cache.test-process',
-    intentDigest: sha256({ payloadPath, mode, workerDigest: worker.digest().byteDigest }) as SecOperationDigest,
+    intentDigest: sha256({ payloadPath, mode, workerDigest: worker.digest().byteDigest }) as OperationDigest,
     decisionDigest: contractDigest,
     deadlineAtUnixMs: Date.now() + 30_000,
-    attempt: issueSecSemanticOperationAttemptContext({ authorityGrantDigest: contractDigest }),
+    attempt: issueSemanticOperationAttemptContext({ authorityGrantDigest: contractDigest }),
     aggregateBudgets: [
       { resource: 'duration-ms', maximum: 30_000 },
       { resource: 'input-bytes', maximum: 0 },
@@ -110,14 +110,14 @@ async function runGenerationChild(
       effectKinds: ['process'],
       failureKinds: ['process.failed']
     }]
-  }), [compileSecCapabilityBinding({
+  }), [compileCapabilityBinding({
     requirementId,
     contractDigest,
-    providerIdentityDigest: sha256({ executable: executable.digest(), worker: worker.digest() }) as SecOperationDigest
+    providerIdentityDigest: sha256({ executable: executable.digest(), worker: worker.digest() }) as OperationDigest
   })]);
   const session = openProcessResourceSession({
     operation,
-    requirementBindingContext: issueSecOperationRequirementBindingContext({
+    requirementBindingContext: issueOperationRequirementBindingContext({
       operation,
       requirementId,
       resourceCeilings: [
@@ -278,13 +278,13 @@ function fixture(
 
 function cacheSession(repositoryRoot: string): ContentAddressedWorkspaceCacheSession {
   const requirementId = 'brownfield.repository-compilation-cache.fixture';
-  const contractDigest = sha256({ requirementId }) as SecOperationDigest;
-  const operation = bindSecSemanticOperation(compileSecSemanticOperationPlan({
+  const contractDigest = sha256({ requirementId }) as OperationDigest;
+  const operation = bindSecSemanticOperation(compileSemanticOperationPlan({
     operation: 'brownfield.repository-compilation-cache.fixture',
-    intentDigest: sha256({ repositoryRoot }) as SecOperationDigest,
+    intentDigest: sha256({ repositoryRoot }) as OperationDigest,
     decisionDigest: contractDigest,
     deadlineAtUnixMs: Date.now() + 30_000,
-    attempt: issueSecSemanticOperationAttemptContext({ authorityGrantDigest: contractDigest }),
+    attempt: issueSemanticOperationAttemptContext({ authorityGrantDigest: contractDigest }),
     aggregateBudgets: [
       { resource: 'duration-ms', maximum: 30_000 },
       { resource: 'input-bytes', maximum: 1024 * 1024 * 1024 },
@@ -297,10 +297,10 @@ function cacheSession(repositoryRoot: string): ContentAddressedWorkspaceCacheSes
       effectKinds: ['filesystem'],
       failureKinds: ['cache.cancelled', 'cache.deadline-exhausted', 'cache.physical-replacement']
     }]
-  }), [compileSecCapabilityBinding({
+  }), [compileCapabilityBinding({
     requirementId,
     contractDigest,
-    providerIdentityDigest: sha256('repository-compilation-cache-test-provider') as SecOperationDigest
+    providerIdentityDigest: sha256('repository-compilation-cache-test-provider') as OperationDigest
   })]);
   const session = openContentAddressedWorkspaceCacheSession({
     operation,

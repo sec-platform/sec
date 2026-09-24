@@ -17,18 +17,18 @@ export type { GitCommitIdentity, GitDevelopmentCommitContract, GitDevelopmentCom
 ;
 
 import { rawSha256, sha256 } from '../../../../contracts/canonical.ts';
-import { issueSecOperationRequirementBindingContext } from '../../../../execution/operation/requirement-binding-context.ts';
+import { issueOperationRequirementBindingContext } from '../../../../execution/operation/requirement-binding-context.ts';
 import {
   bindSecSemanticOperation,
-  compileSecCapabilityBinding,
-  compileSecSemanticOperationPlan,
-  issueSecProviderSettlementReceipt,
-  issueSecSemanticOperationAttemptContext,
-  type SecBoundSemanticOperation,
-  type SecOperationDigest,
-  type SecProviderSettlementReceipt,
-  type SecSemanticOperationAttemptContext,
-  type SecSemanticOperationIntent
+  compileCapabilityBinding,
+  compileSemanticOperationPlan,
+  issueProviderSettlementReceipt,
+  issueSemanticOperationAttemptContext,
+  type BoundSemanticOperation,
+  type OperationDigest,
+  type ProviderSettlementReceipt,
+  type SemanticOperationAttemptContext,
+  type SemanticOperationIntent
 } from '../../../../execution/operation/semantic.ts';
 import { PhysicalNoFollowError, inspectNoFollowDirectoryChain, inspectNoFollowOrdinaryFileEntry, retainNoFollowDirectoryForChildProcess, retainNoFollowOrdinaryFile, type PhysicalDirectoryChain, type RetainedNoFollowChildProcessDirectory, type RetainedNoFollowOrdinaryFile } from '../../../runtime-state/physical/runtime/physical-no-follow.ts';
 import { assertProcessResourceSessionReceipt, openProcessResourceSession, type ProcessResourceSession } from '../../../runtime-state/physical/runtime/process-resource-session.ts';
@@ -155,16 +155,16 @@ type GitReadSessionRunOptions = Readonly<{
 }>;
 
 export type GitReadSessionReceipt = Readonly<{
-  readonly operationIdentityDigest: SecOperationDigest | null;
-  readonly boundAttemptDigest: SecOperationDigest | null;
+  readonly operationIdentityDigest: OperationDigest | null;
+  readonly boundAttemptDigest: OperationDigest | null;
   readonly requirementId: string | null;
-  readonly providerIdentityDigest: SecOperationDigest | null;
+  readonly providerIdentityDigest: OperationDigest | null;
   readonly processSessionOwnership: 'owned' | 'borrowed';
   readonly processCount: number;
   readonly inputBytes: number;
   readonly outputBytes: number;
   readonly failureDetailDigest: `sha256:${string}` | null;
-  readonly receiptDigest: SecOperationDigest;
+  readonly receiptDigest: OperationDigest;
 }>;
 
 const ISSUED_GIT_READ_SESSION_RECEIPTS = new WeakSet<object>();
@@ -172,8 +172,8 @@ const ISSUED_GIT_READ_SESSION_RECEIPTS = new WeakSet<object>();
 export function assertGitReadSessionReceipt(
   receipt: GitReadSessionReceipt,
   expected?: Readonly<{
-    operationIdentityDigest: SecOperationDigest;
-    boundAttemptDigest: SecOperationDigest;
+    operationIdentityDigest: OperationDigest;
+    boundAttemptDigest: OperationDigest;
     requirementId: string;
   }>
 ): void {
@@ -322,8 +322,8 @@ type GitScratchExecutionOwner = Readonly<{
 const GIT_SCRATCH_EXECUTION_OWNERS = new WeakMap<object, GitScratchExecutionOwner>();
 
 type GitDevelopmentCommitExecutionOwner = Readonly<{
-  readonly operation: SecBoundSemanticOperation;
-  readonly providerIdentityDigest: SecOperationDigest;
+  readonly operation: BoundSemanticOperation;
+  readonly providerIdentityDigest: OperationDigest;
   run(
     args: readonly string[],
     environment: Readonly<Record<string, string>>,
@@ -339,7 +339,7 @@ function authorizedDevelopmentCommitOwner(
 ): GitDevelopmentCommitExecutionOwner | null {
   const owner = GIT_DEVELOPMENT_COMMIT_EXECUTION_OWNERS.get(session);
   if (owner === undefined || !isProductionGitReadSession(session)) return null;
-  let contractDigest: SecOperationDigest;
+  let contractDigest: OperationDigest;
   try {
     contractDigest = compileGitDevelopmentCommitContractDigest(contract);
   } catch {
@@ -494,7 +494,7 @@ type GitReadHostSessionInput =
   | (GitReadHostSessionCommonInput & Readonly<{
       origin: 'production';
       /** The process Effect and its aggregate budgets must be bound before provider admission. */
-      operation: SecBoundSemanticOperation;
+      operation: BoundSemanticOperation;
       /** Optional caller-owned parent process ledger; Git borrows but never closes it. */
       processSession?: ProcessResourceSession;
     }>)
@@ -508,15 +508,15 @@ const TEST_GIT_READ_PROCESS_CONTRACT = sha256({
   operation: 'external-capabilities.git-read.test-host-observe',
   provider: 'test-host-local-git',
   effect: 'process'
-}) as SecOperationDigest;
+}) as OperationDigest;
 const TEST_GIT_READ_PROCESS_PROVIDER = sha256({
   provider: 'external-capabilities.git-read.test-host-process'
-}) as SecOperationDigest;
+}) as OperationDigest;
 
 function issueTestGitReadProcessOperation(
   input: GitReadHostSessionCommonInput,
   budget: GitReadSessionBudget
-): SecBoundSemanticOperation {
+): BoundSemanticOperation {
   const startedAt = Date.now();
   const deadlineAtUnixMs = Math.min(
     input.deadlineAtUnixMs ?? startedAt + budget.deadlineMs,
@@ -526,12 +526,12 @@ function issueTestGitReadProcessOperation(
   if (!Number.isSafeInteger(durationMs) || durationMs < 1) {
     throw new Error('Test Git read process operation deadline is exhausted.');
   }
-  const plan = compileSecSemanticOperationPlan({
+  const plan = compileSemanticOperationPlan({
     operation: 'external-capabilities.git-read.test-host-observe',
-    intentDigest: sha256({ cwd: input.cwd, budget }) as SecOperationDigest,
+    intentDigest: sha256({ cwd: input.cwd, budget }) as OperationDigest,
     decisionDigest: TEST_GIT_READ_PROCESS_CONTRACT,
     deadlineAtUnixMs,
-    attempt: issueSecSemanticOperationAttemptContext({
+    attempt: issueSemanticOperationAttemptContext({
       authorityGrantDigest: TEST_GIT_READ_PROCESS_CONTRACT
     }),
     aggregateBudgets: [
@@ -557,7 +557,7 @@ function issueTestGitReadProcessOperation(
       ]
     }]
   });
-  return bindSecSemanticOperation(plan, [compileSecCapabilityBinding({
+  return bindSecSemanticOperation(plan, [compileCapabilityBinding({
     requirementId: TEST_GIT_READ_PROCESS_REQUIREMENT,
     contractDigest: TEST_GIT_READ_PROCESS_CONTRACT,
     providerIdentityDigest: TEST_GIT_READ_PROCESS_PROVIDER
@@ -565,7 +565,7 @@ function issueTestGitReadProcessOperation(
 }
 
 function semanticOperationBudget(
-  operation: SecBoundSemanticOperation | undefined,
+  operation: BoundSemanticOperation | undefined,
   resource: 'input-bytes' | 'output-bytes' | 'processes'
 ): number | null {
   return operation?.plan.execution.aggregateBudgets
@@ -580,7 +580,7 @@ function createHostGitReadSession(input: GitReadHostSessionInput): GitReadSessio
   const requestedDeadlineAt = boundedGitReadDeadlineAt(startedAt, budget, input.deadlineAtUnixMs);
   const env = Object.freeze(isolatedGitReadEnvironment(input.environment ?? {}, input.source));
   let processResourceSession: ProcessResourceSession | null = null;
-  let processOperation: SecBoundSemanticOperation | null = null;
+  let processOperation: BoundSemanticOperation | null = null;
   let processRequirementId: string | null = null;
   let ownsProcessResourceSession = true;
   let operationAdmissionFailure: string | null = null;
@@ -608,7 +608,7 @@ function createHostGitReadSession(input: GitReadHostSessionInput): GitReadSessio
     } else {
       processResourceSession = openProcessResourceSession({
         operation: processOperation,
-        requirementBindingContext: issueSecOperationRequirementBindingContext({
+        requirementBindingContext: issueOperationRequirementBindingContext({
           operation: processOperation,
           requirementId: processRequirementId,
           resourceCeilings: processOperation.plan.execution.aggregateBudgets.filter(({ resource }) => (
@@ -1257,7 +1257,7 @@ function createHostGitReadSession(input: GitReadHostSessionInput): GitReadSessio
         const finalOutputBytes = processResourceSession?.outputBytes ?? processOutputBytesAtStart;
         const providerIdentityDigest = issuedSession.providerIdentity === null
           ? null
-          : sha256(issuedSession.providerIdentity) as SecOperationDigest;
+          : sha256(issuedSession.providerIdentity) as OperationDigest;
         const withoutDigest = Object.freeze({
           operationIdentityDigest: processOperation?.plan.identity.identityDigest ?? null,
           boundAttemptDigest: processOperation?.boundAttemptDigest ?? null,
@@ -1276,7 +1276,7 @@ function createHostGitReadSession(input: GitReadHostSessionInput): GitReadSessio
           receiptDigest: sha256({
             domain: 'external-capabilities.git-read.session-receipt',
             receipt: withoutDigest
-          }) as SecOperationDigest
+          }) as OperationDigest
         });
         ISSUED_GIT_READ_SESSION_RECEIPTS.add(closeReceipt);
         if (ownsProcessResourceSession) processResourceSession = null;
@@ -1333,7 +1333,7 @@ function createHostGitReadSession(input: GitReadHostSessionInput): GitReadSessio
     const scratchOwner = GIT_SCRATCH_EXECUTION_OWNERS.get(issuedSession)!;
     GIT_DEVELOPMENT_COMMIT_EXECUTION_OWNERS.set(issuedSession, Object.freeze({
       operation: input.operation,
-      providerIdentityDigest: sha256(issuedSession.providerIdentity) as SecOperationDigest,
+      providerIdentityDigest: sha256(issuedSession.providerIdentity) as OperationDigest,
       run(args, environment, commandInput) {
         if (gitPhysicalProvider === null) {
           throw new Error('Git retained executable/cwd provider is unavailable for development commit.');
@@ -1429,7 +1429,7 @@ export function createAuthorityGitReadSession(input: Readonly<{
   cwd: string;
   environment?: Readonly<Record<string, string | undefined>>;
   /** Owner-issued operation that binds the process Effect and aggregate resources. */
-  operation: SecBoundSemanticOperation;
+  operation: BoundSemanticOperation;
   /**
    * Caller-owned parent process ledger. The Git provider verifies the exact
    * operation/attempt/requirement binding and borrows it without closing it.
@@ -1947,12 +1947,12 @@ export async function materializeAuthorityDevelopmentCommitObject(input: Readonl
 
 /** Git owns its provider binding and settlement, but never the grant or attempt lineage. */
 export function bindGitDevelopmentCommitOperation(input: Readonly<{
-  intent: SecSemanticOperationIntent;
-  attempt: SecSemanticOperationAttemptContext;
-  providerIdentityDigest: SecOperationDigest;
+  intent: SemanticOperationIntent;
+  attempt: SemanticOperationAttemptContext;
+  providerIdentityDigest: OperationDigest;
   deadlineAtUnixMs: number;
-}>): SecBoundSemanticOperation {
-  const plan = compileSecSemanticOperationPlan({
+}>): BoundSemanticOperation {
+  const plan = compileSemanticOperationPlan({
     operation: input.intent.identity.operation,
     intentDigest: input.intent.identity.intentDigest,
     decisionDigest: input.intent.identity.decisionDigest,
@@ -1962,7 +1962,7 @@ export function bindGitDevelopmentCommitOperation(input: Readonly<{
     attempt: input.attempt
   });
   return bindSecSemanticOperation(plan, plan.execution.requirements.map((requirement) =>
-    compileSecCapabilityBinding({
+    compileCapabilityBinding({
       requirementId: requirement.id,
       contractDigest: requirement.contractDigest,
       providerIdentityDigest: input.providerIdentityDigest
@@ -1970,13 +1970,13 @@ export function bindGitDevelopmentCommitOperation(input: Readonly<{
 }
 
 export function settleGitDevelopmentCommitOperation(
-  operation: SecBoundSemanticOperation,
+  operation: BoundSemanticOperation,
   result: GitDevelopmentCommitEffectResult
-): SecProviderSettlementReceipt {
-  return issueSecProviderSettlementReceipt(operation, {
+): ProviderSettlementReceipt {
+  return issueProviderSettlementReceipt(operation, {
     requirementId: 'repository.commit',
     physicalDisposition: result.status === 'completed' ? 'settled' : 'unknown',
-    providerSettlementReferenceDigest: sha256(result) as SecOperationDigest
+    providerSettlementReferenceDigest: sha256(result) as OperationDigest
   });
 }
 

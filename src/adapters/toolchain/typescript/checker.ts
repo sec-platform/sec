@@ -5,7 +5,7 @@ import { rawSha256, sha256 } from '../../../contracts/canonical.ts';
 import { parseExactJson } from '../../../contracts/exact-json.ts';
 import {
   assertSecSemanticOperationProjection,
-  type SecBoundSemanticOperation
+  type BoundSemanticOperation
 } from '../../../execution/operation/semantic.ts';
 import {
   assertRetainedNoFollowCapability,
@@ -124,7 +124,7 @@ export type TypeScriptCheckerProcessExecutionAdmission = Readonly<{
 
 type TypeScriptCheckerProcessExecutionAdmissionState = Readonly<{
   checker: InstalledTypeScriptNativeChecker;
-  operation: SecBoundSemanticOperation;
+  operation: BoundSemanticOperation;
   processSession: ProcessResourceSession;
 }>;
 
@@ -581,7 +581,7 @@ function assertTypeScriptCheckerProcessExecutionBinding(
  */
 export function issueTypeScriptCheckerProcessExecutionAdmission(input: Readonly<{
   checker: InstalledTypeScriptNativeChecker;
-  operation: SecBoundSemanticOperation;
+  operation: BoundSemanticOperation;
   processSession: ProcessResourceSession;
 }>): TypeScriptCheckerProcessExecutionAdmission {
   assertTypeScriptNativeChecker(input.checker);

@@ -1,12 +1,12 @@
 import { createHash } from 'node:crypto';
 import path from 'node:path';
 
-import { issueSecOperationRequirementBindingContext } from '../../../../execution/operation/requirement-binding-context.ts';
+import { issueOperationRequirementBindingContext } from '../../../../execution/operation/requirement-binding-context.ts';
 import {
   bindSecSemanticOperation,
-  compileSecCapabilityBinding,
-  compileSecSemanticOperationPlan,
-  issueSecSemanticOperationAttemptContext
+  compileCapabilityBinding,
+  compileSemanticOperationPlan,
+  issueSemanticOperationAttemptContext
 } from '../../../../execution/operation/semantic.ts';
 import type { GitHubApiCapability } from '../../../providers/github-api/operation-session.ts';
 import { inspectExactNoFollowDirectoryPresence } from '../../../runtime-state/physical/runtime/physical-no-follow.ts';
@@ -58,12 +58,12 @@ function compileCommitJournalRetirementOperation(
   const deadlineAtUnixMs = Date.now()
     + CLOSED_ABSENT_DEVELOPMENT_COMMIT_JOURNAL_RETIREMENT_RESOURCE_CEILINGS
       .find(({ resource }) => resource === 'duration-ms')!.maximum;
-  const plan = compileSecSemanticOperationPlan({
+  const plan = compileSemanticOperationPlan({
     operation: 'control.branch-lifecycle.closed-unmerged-commit-journal-retirement',
     intentDigest: operation.operationId,
     decisionDigest: CLOSED_ABSENT_DEVELOPMENT_COMMIT_JOURNAL_RETIREMENT_CONTRACT_DIGEST,
     deadlineAtUnixMs,
-    attempt: issueSecSemanticOperationAttemptContext({
+    attempt: issueSemanticOperationAttemptContext({
       authorityGrantDigest: completed.receipt.publicationDigest
     }),
     aggregateBudgets: CLOSED_ABSENT_DEVELOPMENT_COMMIT_JOURNAL_RETIREMENT_RESOURCE_CEILINGS,
@@ -77,7 +77,7 @@ function compileCommitJournalRetirementOperation(
       ])
     })]
   });
-  return bindSecSemanticOperation(plan, [compileSecCapabilityBinding({
+  return bindSecSemanticOperation(plan, [compileCapabilityBinding({
     requirementId: CLOSED_ABSENT_DEVELOPMENT_COMMIT_JOURNAL_RETIREMENT_REQUIREMENT_ID,
     contractDigest: CLOSED_ABSENT_DEVELOPMENT_COMMIT_JOURNAL_RETIREMENT_CONTRACT_DIGEST,
     providerIdentityDigest:
@@ -100,7 +100,7 @@ async function retireCommitJournalConsumers(input: Readonly<{
     ref: `refs/heads/${input.operation.evidence.branch}`,
     capability: input.capability,
     pullRequestNumber: input.operation.evidence.pullRequestNumber,
-    requirementBindingContext: issueSecOperationRequirementBindingContext({
+    requirementBindingContext: issueOperationRequirementBindingContext({
       operation: semanticOperation,
       requirementId: CLOSED_ABSENT_DEVELOPMENT_COMMIT_JOURNAL_RETIREMENT_REQUIREMENT_ID,
       resourceCeilings:

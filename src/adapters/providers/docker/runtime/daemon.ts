@@ -1,4 +1,4 @@
-import type { SecBoundSemanticOperation } from '../../../../execution/operation/semantic.ts';
+import type { BoundSemanticOperation } from '../../../../execution/operation/semantic.ts';
 import {
   ExternalProviderCoordinationLeaseError,
   withSecUserExternalProviderCoordinationLease
@@ -9,7 +9,7 @@ import { dockerDesktopCoordinationInput } from './launcher-lock.ts';
 export async function withDockerDesktopLauncherLock<T>(
   input: Readonly<{
     endpointHost: string;
-    operation: SecBoundSemanticOperation;
+    operation: BoundSemanticOperation;
     repositoryRoot: string;
     requirementId: string;
   }>,

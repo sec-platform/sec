@@ -4,14 +4,14 @@ import {
   sha256
 } from '../../../../contracts/canonical.ts';
 import {
-  consumeSecOperationRequirementBindingContext,
-  type SecOperationRequirementBindingContext,
-  type SecOperationRequirementBindingProjection
+  consumeOperationRequirementBindingContext,
+  type OperationRequirementBindingContext,
+  type OperationRequirementBindingProjection
 } from '../../../../execution/operation/requirement-binding-context.ts';
 import {
   assertSecSemanticOperationProjection,
-  type SecBoundSemanticOperation,
-  type SecOperationDigest
+  type BoundSemanticOperation,
+  type OperationDigest
 } from '../../../../execution/operation/semantic.ts';
 import { assertIndependentProviderProcessCapabilityForSession } from './independent-provider-process.ts';
 import {
@@ -39,12 +39,12 @@ export type ProcessResourceRunResult = Readonly<{
 }>;
 
 export type ProcessResourceSessionReceipt = Readonly<{
-  operationIdentityDigest: SecOperationDigest;
-  boundAttemptDigest: SecOperationDigest;
+  operationIdentityDigest: OperationDigest;
+  boundAttemptDigest: OperationDigest;
   requirementId: string;
-  providerBindingDigest: SecOperationDigest;
-  resourceCeilingIdentityDigest: SecOperationDigest;
-  requirementBindingContextDigest: SecOperationDigest;
+  providerBindingDigest: OperationDigest;
+  resourceCeilingIdentityDigest: OperationDigest;
+  requirementBindingContextDigest: OperationDigest;
   processCount: number;
   settledProcessCount: number;
   successfulProcessRecordCount: number;
@@ -59,14 +59,14 @@ export type ProcessResourceSessionReceipt = Readonly<{
   inputBytes: number;
   outputBytes: number;
   deadlineAtUnixMs: number;
-  receiptDigest: SecOperationDigest;
+  receiptDigest: OperationDigest;
 }>;
 
 export interface ProcessResourceSession {
-  readonly operationIdentityDigest: SecOperationDigest;
-  readonly boundAttemptDigest: SecOperationDigest;
+  readonly operationIdentityDigest: OperationDigest;
+  readonly boundAttemptDigest: OperationDigest;
   readonly requirementId: string;
-  readonly resourceCeilingIdentityDigest: SecOperationDigest;
+  readonly resourceCeilingIdentityDigest: OperationDigest;
   readonly deadlineAtUnixMs: number;
   /** The monotonic counterpart of deadlineAtUnixMs, fixed at admission. */
   readonly deadlineAtMonotonicMs: number;
@@ -109,10 +109,10 @@ export interface ProcessResourceSession {
 const ISSUED_PROCESS_RESOURCE_SESSIONS = new WeakSet<object>();
 type ProcessResourceSessionBindingState = {
   semanticOperation: string;
-  operationIdentityDigest: SecOperationDigest;
-  boundAttemptDigest: SecOperationDigest;
+  operationIdentityDigest: OperationDigest;
+  boundAttemptDigest: OperationDigest;
   requirementId: string;
-  providerIdentityDigest: SecOperationDigest;
+  providerIdentityDigest: OperationDigest;
   maximumDurationMs: number;
   maximumInputBytes: number;
   maximumOutputBytes: number;
@@ -128,23 +128,23 @@ type ProcessResourceRunResultBinding = Readonly<{
   session: ProcessResourceSession;
   commandResult: ByteCommandResult;
   boundary: RetainedCommandBoundary;
-  operationIdentityDigest: SecOperationDigest;
-  boundAttemptDigest: SecOperationDigest;
+  operationIdentityDigest: OperationDigest;
+  boundAttemptDigest: OperationDigest;
   requirementId: string;
   ordinal: number;
   argvBytes: number;
-  argvDigest: SecOperationDigest;
+  argvDigest: OperationDigest;
   hasStdin: boolean;
   stdinBytes: number;
-  stdinDigest: SecOperationDigest | null;
+  stdinDigest: OperationDigest | null;
   environmentMode: 'inherit' | 'replace';
   environmentEntryCount: number;
-  environmentDigest: SecOperationDigest;
+  environmentDigest: OperationDigest;
   exitCode: number;
   stdoutBytes: number;
-  stdoutDigest: SecOperationDigest;
+  stdoutDigest: OperationDigest;
   stderrBytes: number;
-  stderrDigest: SecOperationDigest;
+  stderrDigest: OperationDigest;
 }>;
 const PROCESS_RESOURCE_RUN_RESULT_BINDINGS = new WeakMap<
   object,
@@ -191,7 +191,7 @@ function executionTiming(
 }
 
 function ceiling(
-  projection: SecOperationRequirementBindingProjection,
+  projection: OperationRequirementBindingProjection,
   resource: 'duration-ms' | 'input-bytes' | 'output-bytes' | 'processes'
 ): number | null {
   return projection.resourceCeilings
@@ -211,7 +211,7 @@ function byteLength(value: Uint8Array | undefined): number {
 
 function argvIdentity(args: readonly string[]): Readonly<{
   bytes: number;
-  digest: SecOperationDigest;
+  digest: OperationDigest;
 }> {
   const bytes = Buffer.from(JSON.stringify([...args]), 'utf8');
   return Object.freeze({
@@ -227,7 +227,7 @@ function environmentIdentity(input: Readonly<{
   mode: 'inherit' | 'replace';
   entries: Readonly<NodeJS.ProcessEnv>;
   entryCount: number;
-  digest: SecOperationDigest;
+  digest: OperationDigest;
 }> {
   const mode = input.envMode ?? 'inherit';
   const entries = Object.freeze(Object.fromEntries(
@@ -242,19 +242,19 @@ function environmentIdentity(input: Readonly<{
       domain: 'sec.process-resource-session.environment',
       mode,
       entries
-    }) as SecOperationDigest
+    }) as OperationDigest
   });
 }
 
 export function openProcessResourceSession(input: Readonly<{
-  operation: SecBoundSemanticOperation;
-  requirementBindingContext: SecOperationRequirementBindingContext;
+  operation: BoundSemanticOperation;
+  requirementBindingContext: OperationRequirementBindingContext;
   signal?: AbortSignal;
 }>): ProcessResourceSession {
   // This session only meters a caller's already-retained command capability.
   // The semantic operation is correlation/budget input, never Effect grant.
   assertSecSemanticOperationProjection(input.operation);
-  const bindingProjection = consumeSecOperationRequirementBindingContext(
+  const bindingProjection = consumeOperationRequirementBindingContext(
     input.requirementBindingContext
   );
   if (bindingProjection.operationIdentityDigest
@@ -574,7 +574,7 @@ export function openProcessResourceSession(input: Readonly<{
         receiptDigest: sha256({
           domain: 'sec.process-resource-session.receipt',
           receipt: withoutDigest
-        }) as SecOperationDigest
+        }) as OperationDigest
       });
       ISSUED_PROCESS_RESOURCE_SESSION_RECEIPTS.add(receipt);
       PROCESS_RESOURCE_SESSION_RECEIPT_BINDINGS.set(receipt, session);
@@ -616,9 +616,9 @@ export function assertProcessResourceSession(
   expected: Readonly<{
     semanticOperation: string;
     requirementId: string;
-    operationIdentityDigest?: SecOperationDigest;
-    boundAttemptDigest?: SecOperationDigest;
-    providerIdentityDigest?: SecOperationDigest;
+    operationIdentityDigest?: OperationDigest;
+    boundAttemptDigest?: OperationDigest;
+    providerIdentityDigest?: OperationDigest;
     maximumDurationMs: number;
     maximumInputBytes: number;
     maximumOutputBytes: number;
@@ -660,8 +660,8 @@ export function assertProcessResourceSession(
 export function assertProcessResourceSessionReceipt(
   receipt: ProcessResourceSessionReceipt,
   expected?: Readonly<{
-    readonly operationIdentityDigest: SecOperationDigest;
-    readonly boundAttemptDigest: SecOperationDigest;
+    readonly operationIdentityDigest: OperationDigest;
+    readonly boundAttemptDigest: OperationDigest;
     readonly requirementId: string;
   }>
 ): void {
@@ -698,8 +698,8 @@ export function assertProcessResourceRunResult(
   runResult: ProcessResourceRunResult,
   receipt: ProcessResourceSessionReceipt,
   expected: Readonly<{
-    readonly operationIdentityDigest: SecOperationDigest;
-    readonly boundAttemptDigest: SecOperationDigest;
+    readonly operationIdentityDigest: OperationDigest;
+    readonly boundAttemptDigest: OperationDigest;
     readonly requirementId: string;
     readonly boundary: RetainedCommandBoundary;
     readonly args: readonly string[];

@@ -6,14 +6,14 @@ import path from 'node:path';
 import { sha256 } from '../../../../contracts/canonical.ts';
 import {
   bindSecSemanticOperation,
-  compileSecCapabilityBinding,
-  compileSecSemanticOperationPlan,
-  issueSecProviderSettlementReceipt,
-  issueSecRecoveredDomainReadbackReceipt,
+  compileCapabilityBinding,
+  compileSemanticOperationPlan,
+  issueProviderSettlementReceipt,
+  issueRecoveredDomainReadbackReceipt,
   issueSecRecoveredOwnerTerminalJoinReceipt,
-  issueSecRecoveredRetryAdmission,
-  issueSecSemanticOperationAttemptContext,
-  type SecBoundSemanticOperation
+  issueRecoveredRetryAdmission,
+  issueSemanticOperationAttemptContext,
+  type BoundSemanticOperation
 } from '../../../../execution/operation/semantic.ts';
 import { inspectNoFollowDirectoryChain } from '../../physical/runtime/physical-no-follow.ts';
 import { createRuntimeStateJournalFileSystem } from '../journal-filesystem.ts';
@@ -37,9 +37,9 @@ function boundOperation(
     resumeEpochDigest?: SecDurableExecutionDigest | null;
     deadlineAtUnixMs?: number;
   }> = {}
-): SecBoundSemanticOperation {
+): BoundSemanticOperation {
   const contractDigest = sha256('durable execution contract') as SecDurableExecutionDigest;
-  const plan = compileSecSemanticOperationPlan({
+  const plan = compileSemanticOperationPlan({
     operation: 'runtime.durable-execution-test',
     intentDigest: digest('50'),
     decisionDigest: digest('51'),
@@ -49,20 +49,20 @@ function boundOperation(
       id: 'runtime.journal', contractDigest,
       effectKinds: ['persistent-state'], failureKinds: ['runtime.journal-failed']
     }],
-    attempt: issueSecSemanticOperationAttemptContext({
+    attempt: issueSemanticOperationAttemptContext({
       authorityGrantDigest: input.authorityGrantDigest ?? digest('52'),
       runIdDigest: sha256(run) as SecDurableExecutionDigest,
       resumeEpochDigest: input.resumeEpochDigest === undefined ? digest('53') : input.resumeEpochDigest
     })
   });
-  return bindSecSemanticOperation(plan, [compileSecCapabilityBinding({
+  return bindSecSemanticOperation(plan, [compileCapabilityBinding({
     requirementId: plan.execution.requirements[0]!.id,
     contractDigest,
     providerIdentityDigest: digest('54')
   })]);
 }
 
-function recoveryOperation(run: string): SecBoundSemanticOperation {
+function recoveryOperation(run: string): BoundSemanticOperation {
   return boundOperation(run, {
     authorityGrantDigest: digest('152'),
     resumeEpochDigest: digest('153')
@@ -151,7 +151,7 @@ test('journal lineage derives from a foundation-compiled operation and rejects a
     expect(() => value.store.appendInitialAttemptStart({
       ...operation,
       plan: { ...operation.plan }
-    } as SecBoundSemanticOperation, digest('58'))).toThrow('foundation-compiled operation plan');
+    } as BoundSemanticOperation, digest('58'))).toThrow('foundation-compiled operation plan');
   } finally {
     rmSync(value.root, { recursive: true, force: true });
   }
@@ -160,7 +160,7 @@ test('journal lineage derives from a foundation-compiled operation and rejects a
 test('provider and domain observations require their exact issuer receipts', () => {
   const value = fixture();
   const operation = boundOperation('issuer-bound observations');
-  const providerReceipt = issueSecProviderSettlementReceipt(operation, {
+  const providerReceipt = issueProviderSettlementReceipt(operation, {
     requirementId: 'runtime.journal',
     physicalDisposition: 'settled',
     providerSettlementReferenceDigest: digest('87')
@@ -179,7 +179,7 @@ test('provider and domain observations require their exact issuer receipts', () 
     })).toThrow('projection digest is invalid');
 
     const recovery = recoveryOperation('issuer-bound observation recovery');
-    const readback = issueSecRecoveredDomainReadbackReceipt(recovery, {
+    const readback = issueRecoveredDomainReadbackReceipt(recovery, {
       predecessor: durableExecutionPredecessorAttemptReference(started),
       durableObservationDigest: digest('88'),
       readbackContractDigest: digest('89'),
@@ -205,7 +205,7 @@ test('owner terminal resolution references only an exact owner-issued join recei
     value.store.createIntent(operation);
     const started = value.store.appendInitialAttemptStart(operation, digest('92'));
     const recovery = recoveryOperation('owner terminal recovery');
-    const recoveredReadback = issueSecRecoveredDomainReadbackReceipt(recovery, {
+    const recoveredReadback = issueRecoveredDomainReadbackReceipt(recovery, {
       predecessor: durableExecutionPredecessorAttemptReference(started),
       durableObservationDigest: digest('81'),
       readbackContractDigest: digest('82'),
@@ -266,13 +266,13 @@ test('lost handle requires recovered readback and consumed owner admission befor
   try {
     value.store.createIntent(first);
     const started = value.store.appendInitialAttemptStart(first, digest('59'));
-    const providerReceipt = issueSecProviderSettlementReceipt(first, {
+    const providerReceipt = issueProviderSettlementReceipt(first, {
       requirementId: 'runtime.journal',
       physicalDisposition: 'unknown',
       providerSettlementReferenceDigest: digest('62')
     });
     value.store.appendLostHandle(first, providerReceipt);
-    const recoveredReadback = issueSecRecoveredDomainReadbackReceipt(recovery, {
+    const recoveredReadback = issueRecoveredDomainReadbackReceipt(recovery, {
       predecessor: durableExecutionPredecessorAttemptReference(started),
       durableObservationDigest: digest('63'),
       readbackContractDigest: digest('64'),
@@ -281,7 +281,7 @@ test('lost handle requires recovered readback and consumed owner admission befor
       disposition: 'not-applied'
     });
     value.store.appendDomainReadback(recovery, recoveredReadback);
-    const retryAdmission = issueSecRecoveredRetryAdmission(recovery, recoveredReadback);
+    const retryAdmission = issueRecoveredRetryAdmission(recovery, recoveredReadback);
     const successor = boundOperation('retry run', {
       authorityGrantDigest: recovery.plan.attempt.authorityGrantDigest,
       resumeEpochDigest: recovery.plan.attempt.resumeEpochDigest
@@ -316,7 +316,7 @@ test('a restarted writer recovers from durable predecessor coordinates without r
   try {
     value.store.createIntent(first);
     value.store.appendInitialAttemptStart(first, digest('160'));
-    const lost = issueSecProviderSettlementReceipt(first, {
+    const lost = issueProviderSettlementReceipt(first, {
       requirementId: 'runtime.journal',
       physicalDisposition: 'unknown',
       providerSettlementReferenceDigest: digest('161')
@@ -332,7 +332,7 @@ test('a restarted writer recovers from durable predecessor coordinates without r
     expect(durableObservation?.state).toBe('lost-handle');
     const predecessor = durableExecutionPredecessorAttemptReference(durableObservation!);
     const recovery = recoveryOperation('process-after-crash');
-    const readback = issueSecRecoveredDomainReadbackReceipt(recovery, {
+    const readback = issueRecoveredDomainReadbackReceipt(recovery, {
       predecessor,
       durableObservationDigest: durableObservation!.journalDigest,
       readbackContractDigest: digest('162'),
@@ -369,7 +369,7 @@ test('attempt boundary plus one is rejected before CAS and preserves exact journ
   try {
     value.store.createIntent(first);
     const started = value.store.appendInitialAttemptStart(first, digest('70'));
-    const recoveredReadback = issueSecRecoveredDomainReadbackReceipt(recovery, {
+    const recoveredReadback = issueRecoveredDomainReadbackReceipt(recovery, {
       predecessor: durableExecutionPredecessorAttemptReference(started),
       durableObservationDigest: digest('72'),
       readbackContractDigest: digest('73'),
@@ -378,7 +378,7 @@ test('attempt boundary plus one is rejected before CAS and preserves exact journ
       disposition: 'not-applied'
     });
     value.store.appendDomainReadback(recovery, recoveredReadback);
-    const retryAdmission = issueSecRecoveredRetryAdmission(recovery, recoveredReadback);
+    const retryAdmission = issueRecoveredRetryAdmission(recovery, recoveredReadback);
     const before = readFileSync(filePath);
     expect(() => value.store.appendRecoveredRetryAttemptStart(
       recovery,

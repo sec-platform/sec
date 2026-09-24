@@ -34,8 +34,8 @@ import { setTimeout as delay } from 'node:timers/promises';
 
 import { CompilerError } from '../../../../../compiler/errors.ts';
 import { sha256 } from '../../../../../contracts/canonical.ts';
-import { issueSecOperationRequirementBindingContext } from '../../../../../execution/operation/requirement-binding-context.ts';
-import { bindSecSemanticOperation, compileSecCapabilityBinding, compileSecSemanticOperationPlan, issueSecSemanticOperationAttemptContext, type SecOperationDigest } from '../../../../../execution/operation/semantic.ts';
+import { issueOperationRequirementBindingContext } from '../../../../../execution/operation/requirement-binding-context.ts';
+import { bindSecSemanticOperation, compileCapabilityBinding, compileSemanticOperationPlan, issueSemanticOperationAttemptContext, type OperationDigest } from '../../../../../execution/operation/semantic.ts';
 import { assertWorkspaceWriteLease, withWorkspaceWriteLease, type WorkspaceWriteLeaseToken } from '../../../../filesystem/write-lease.ts';
 import {
   compileIssueDisposition,
@@ -236,8 +236,8 @@ import {
 
 const SESSION_COMMAND_TIMEOUT_MS = 60_000;
 const HOSTED_LOCAL_REF_REQUIREMENT = 'verification-session.hosted-closeout.local-ref-delete';
-const HOSTED_LOCAL_REF_CONTRACT = sha256({ owner: 'verification.ci', operation: 'hosted-closeout-local-ref-delete', effect: 'exact-native-git-ref-cas' }) as SecOperationDigest;
-const HOSTED_LOCAL_REF_PROVIDER = sha256({ provider: 'external-capabilities.git.physical-provider', operation: HOSTED_LOCAL_REF_REQUIREMENT }) as SecOperationDigest;
+const HOSTED_LOCAL_REF_CONTRACT = sha256({ owner: 'verification.ci', operation: 'hosted-closeout-local-ref-delete', effect: 'exact-native-git-ref-cas' }) as OperationDigest;
+const HOSTED_LOCAL_REF_PROVIDER = sha256({ provider: 'external-capabilities.git.physical-provider', operation: HOSTED_LOCAL_REF_REQUIREMENT }) as OperationDigest;
 const SESSION_COMMAND_MAX_BUFFER = 32 * 1024 * 1024;
 
 interface VerificationSessionScope {
@@ -2490,16 +2490,16 @@ async function deleteHostedLocalRefCas(
   preparation: BranchCloseoutPreparation,
   attempts: BranchCloseoutAttempt[],
   coordinatedLease: WorkspaceWriteLeaseToken,
-  closeoutOperationId: SecOperationDigest
+  closeoutOperationId: OperationDigest
 ): Promise<BranchCloseoutAttempt> {
   const expected = preparation.expectedLocalSha ?? preparation.expectedHeadSha;
   const durationMs = 120_000;
-  const plan = compileSecSemanticOperationPlan({
+  const plan = compileSemanticOperationPlan({
     operation: 'verification-session.hosted-closeout-local-ref-delete',
     intentDigest: closeoutOperationId,
     decisionDigest: HOSTED_LOCAL_REF_CONTRACT,
     deadlineAtUnixMs: Date.now() + durationMs,
-    attempt: issueSecSemanticOperationAttemptContext({ authorityGrantDigest: closeoutOperationId }),
+    attempt: issueSemanticOperationAttemptContext({ authorityGrantDigest: closeoutOperationId }),
     aggregateBudgets: [
       { resource: 'duration-ms', maximum: durationMs },
       { resource: 'input-bytes', maximum: 4096 },
@@ -2511,12 +2511,12 @@ async function deleteHostedLocalRefCas(
       failureKinds: ['filesystem.identity-drift', 'filesystem.write-failed', 'process.cancelled',
         'process.deadline-exhausted', 'process.output-budget-exhausted', 'process.settlement-unproven', 'process.unavailable'] }]
   });
-  const operation = bindSecSemanticOperation(plan, [compileSecCapabilityBinding({
+  const operation = bindSecSemanticOperation(plan, [compileCapabilityBinding({
     requirementId: HOSTED_LOCAL_REF_REQUIREMENT, contractDigest: HOSTED_LOCAL_REF_CONTRACT,
     providerIdentityDigest: HOSTED_LOCAL_REF_PROVIDER
   })]);
   const processSession = openProcessResourceSession({ operation,
-    requirementBindingContext: issueSecOperationRequirementBindingContext({ operation,
+    requirementBindingContext: issueOperationRequirementBindingContext({ operation,
       requirementId: HOSTED_LOCAL_REF_REQUIREMENT, resourceCeilings: operation.plan.execution.aggregateBudgets }) });
   let primaryError: unknown;
   try {
@@ -2941,7 +2941,7 @@ async function finalizeHostedBranchCloseout(input: Readonly<{
       await assertWorkspaceWriteLease(preparation.repository.root, input.lease);
       await assertWorkspaceWriteLease(preparation.repository.commonDir, input.coordinatedLease);
       const localAttempt = await deleteHostedLocalRefCas(preparation, attempts,
-        input.coordinatedLease, input.binding.closeoutOperationId as SecOperationDigest);
+        input.coordinatedLease, input.binding.closeoutOperationId as OperationDigest);
       updateJournal({ local: closeoutEffect(localAttempt) });
     } else {
       closeoutAttempt(

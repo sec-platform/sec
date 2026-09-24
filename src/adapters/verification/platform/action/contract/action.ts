@@ -15,14 +15,14 @@ import type { VerificationReasonCode, VerificationResultStatus } from '../../../
 import { CodexDevelopmentAssertVerificationStatusReason } from '../../../../../assurance/verification/result/contract/result.ts';
 import { sha256 } from '../../../../../contracts/canonical.ts';
 import {
-  assertSecDomainReadbackReceipt,
-  assertSecOwnerTerminalJoinReceipt,
-  assertSecProviderSettlementSet,
+  assertDomainReadbackReceipt,
+  assertOwnerTerminalJoinReceipt,
+  assertProviderSettlementSet,
   assertSecSemanticOperationProjection,
-  type SecBoundSemanticOperation,
-  type SecDomainReadbackReceipt,
-  type SecOwnerTerminalJoinReceipt,
-  type SecProviderSettlementSet
+  type BoundSemanticOperation,
+  type DomainReadbackReceipt,
+  type OwnerTerminalJoinReceipt,
+  type ProviderSettlementSet
 } from '../../../../../execution/operation/semantic.ts';
 import {
   parseBoundedProcessDiagnosticObjectReceipt,
@@ -790,16 +790,16 @@ function canonicalDiagnosticObject(
  */
 export function issueVerificationActionOwnerTerminalReceipt(input: Readonly<{
   action: VerificationActionKey;
-  operation: SecBoundSemanticOperation;
-  providerSettlementSet: SecProviderSettlementSet;
-  readback: SecDomainReadbackReceipt;
-  ownerTerminalProjection: SecOwnerTerminalJoinReceipt;
+  operation: BoundSemanticOperation;
+  providerSettlementSet: ProviderSettlementSet;
+  readback: DomainReadbackReceipt;
+  ownerTerminalProjection: OwnerTerminalJoinReceipt;
 }>): VerificationActionOwnerTerminalReceipt {
   const action = parseVerificationActionKey(encodeCanonical(input.action));
   assertSecSemanticOperationProjection(input.operation);
-  assertSecProviderSettlementSet(input.providerSettlementSet);
-  assertSecDomainReadbackReceipt(input.readback);
-  assertSecOwnerTerminalJoinReceipt(input.ownerTerminalProjection);
+  assertProviderSettlementSet(input.providerSettlementSet);
+  assertDomainReadbackReceipt(input.readback);
+  assertOwnerTerminalJoinReceipt(input.ownerTerminalProjection);
   const operation = input.operation;
   const operationBindsAction = operation.plan.identity.intentDigest === action.actionKey
     || action.operation.semanticDigest === operation.plan.identity.identityDigest;

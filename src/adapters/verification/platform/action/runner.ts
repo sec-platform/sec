@@ -11,20 +11,20 @@ import { createHash, randomUUID } from 'node:crypto';
 import { realpathSync } from 'node:fs';
 import { watch as watchFileSystem } from 'node:fs/promises';
 import path from 'node:path';
-import { issueSecOperationRequirementBindingContext } from '../../../../execution/operation/requirement-binding-context.ts';
+import { issueOperationRequirementBindingContext } from '../../../../execution/operation/requirement-binding-context.ts';
 import {
-  assertSecProviderSettlementReceipt,
+  assertProviderSettlementReceipt,
   bindSecSemanticOperation,
-  compileSecCapabilityBinding,
-  compileSecProviderSettlementSet,
-  compileSecSemanticOperationPlan,
-  issueSecNormalDomainReadbackReceipt,
+  compileCapabilityBinding,
+  compileProviderSettlementSet,
+  compileSemanticOperationPlan,
+  issueNormalDomainReadbackReceipt,
   issueSecNormalOwnerTerminalJoinReceipt,
-  issueSecProviderSettlementReceipt,
-  issueSecSemanticOperationAttemptContext,
-  type SecBoundSemanticOperation,
-  type SecOperationDigest,
-  type SecProviderSettlementReceipt
+  issueProviderSettlementReceipt,
+  issueSemanticOperationAttemptContext,
+  type BoundSemanticOperation,
+  type OperationDigest,
+  type ProviderSettlementReceipt
 } from '../../../../execution/operation/semantic.ts';
 import { ResourceCompositeSettlementError, withAcquiredResource } from '../../../../execution/resource-settlement.ts';
 import {
@@ -340,19 +340,19 @@ function bindLocalDagOperation(input: Readonly<{
   normalizedOperation: CiVerificationNormalizedOperation;
   executionEnvironment: CiVerificationExecutionEnvironment;
   deadlineAtUnixMs: number;
-}>): SecBoundSemanticOperation {
+}>): BoundSemanticOperation {
   const processContractDigest = localDagDigest({
     contract: 'verification.local-action-execution',
     normalizedOperationDigest: input.normalizedOperation.semanticDigest
-  }) as SecOperationDigest;
+  }) as OperationDigest;
   const diagnosticContractDigest = localDagDigest({
     contract: 'verification.local-action-process-diagnostics',
     normalizedOperationDigest: input.normalizedOperation.semanticDigest
-  }) as SecOperationDigest;
+  }) as OperationDigest;
   const decisionDigest = localDagDigest({ processContractDigest, diagnosticContractDigest });
-  const operationPlan = compileSecSemanticOperationPlan({
+  const operationPlan = compileSemanticOperationPlan({
     operation: 'verification.local-action',
-    intentDigest: input.action.actionKey as SecOperationDigest,
+    intentDigest: input.action.actionKey as OperationDigest,
     decisionDigest,
     deadlineAtUnixMs: input.deadlineAtUnixMs,
     aggregateBudgets: [
@@ -393,25 +393,25 @@ function bindLocalDagOperation(input: Readonly<{
         'diagnostic.resource-exhausted'
       ]
     }],
-    attempt: issueSecSemanticOperationAttemptContext({
+    attempt: issueSemanticOperationAttemptContext({
       authorityGrantDigest: decisionDigest
     })
   });
   const bound = bindSecSemanticOperation(operationPlan, [
-    compileSecCapabilityBinding({
+    compileCapabilityBinding({
       requirementId: 'verification.local-provider',
       contractDigest: processContractDigest,
       providerIdentityDigest: localDagDigest({
         executionEnvironmentRevision: input.executionEnvironment.executionEnvironmentRevision,
         toolchainRevision: input.executionEnvironment.toolchainRevision
-      }) as SecOperationDigest
+      }) as OperationDigest
     }),
-    compileSecCapabilityBinding({
+    compileCapabilityBinding({
       requirementId: 'verification.action-diagnostics',
       contractDigest: diagnosticContractDigest,
       providerIdentityDigest: localDagDigest(
         'runtime-state.process-diagnostics'
-      ) as SecOperationDigest
+      ) as OperationDigest
     })
   ]);
   return bound;
@@ -921,8 +921,8 @@ export class VerificationActionRunner {
   async publishBoundProcessDiagnostics(input: Readonly<{
     repositoryRoot: string;
     action: VerificationActionKey;
-    operation: SecBoundSemanticOperation;
-    processSettlement: SecProviderSettlementReceipt;
+    operation: BoundSemanticOperation;
+    processSettlement: ProviderSettlementReceipt;
     streams: readonly Readonly<{
       stream: BoundedProcessDiagnosticStream;
       bytes: Uint8Array;
@@ -931,7 +931,7 @@ export class VerificationActionRunner {
   }>): Promise<readonly BoundedProcessDiagnosticPublishedObject[]> {
     return this.#withAdmittedOperation(async () => {
       const action = canonicalAction(input.action);
-      assertSecProviderSettlementReceipt(input.processSettlement);
+      assertProviderSettlementReceipt(input.processSettlement);
       const operationBindsAction = input.operation.plan.identity.intentDigest === action.actionKey
         || action.operation.semanticDigest === input.operation.plan.identity.identityDigest;
       if (!operationBindsAction
@@ -948,7 +948,7 @@ export class VerificationActionRunner {
       return this.#diagnosticStore(input.repositoryRoot).publish({
         operation: input.operation,
         requirementId: 'verification.action-diagnostics',
-        subjectDigest: action.actionKey as SecOperationDigest,
+        subjectDigest: action.actionKey as OperationDigest,
         settlementDigest: input.processSettlement.providerReceiptDigest,
         streams: input.streams,
         signal: input.signal
@@ -1543,7 +1543,7 @@ export async function executeLocalVerificationActionDag(
       executor: async () => {
         const session = openProcessResourceSession({
           operation: boundOperation,
-          requirementBindingContext: issueSecOperationRequirementBindingContext({
+          requirementBindingContext: issueOperationRequirementBindingContext({
             operation: boundOperation,
             requirementId: 'verification.local-provider',
             resourceCeilings: [
@@ -1609,7 +1609,7 @@ export async function executeLocalVerificationActionDag(
             || processReceipt.operationIdentityDigest !== boundOperation.plan.identity.identityDigest) {
           throw new Error('local VerificationAction process receipt does not settle the exact attempt.');
         }
-        const providerSettlement = issueSecProviderSettlementReceipt(boundOperation, {
+        const providerSettlement = issueProviderSettlementReceipt(boundOperation, {
           requirementId: 'verification.local-provider',
           physicalDisposition: 'settled',
           providerSettlementReferenceDigest: localDagDigest({
@@ -1631,7 +1631,7 @@ export async function executeLocalVerificationActionDag(
           ],
           signal: input.signal
         });
-        const diagnosticSettlement = issueSecProviderSettlementReceipt(boundOperation, {
+        const diagnosticSettlement = issueProviderSettlementReceipt(boundOperation, {
           requirementId: 'verification.action-diagnostics',
           physicalDisposition: 'settled',
           providerSettlementReferenceDigest: localDagDigest(
@@ -1641,7 +1641,7 @@ export async function executeLocalVerificationActionDag(
             }))
           )
         });
-        const providerSettlementSet = compileSecProviderSettlementSet(
+        const providerSettlementSet = compileProviderSettlementSet(
           boundOperation,
           [providerSettlement, diagnosticSettlement]
         );
@@ -1655,7 +1655,7 @@ export async function executeLocalVerificationActionDag(
             'local VerificationAction candidate readback drifted after process settlement.'
           );
         }
-        const readback = issueSecNormalDomainReadbackReceipt(
+        const readback = issueNormalDomainReadbackReceipt(
           boundOperation,
           providerSettlementSet,
           {

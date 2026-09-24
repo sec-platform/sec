@@ -4,7 +4,7 @@ import ts from 'typescript';
 
 import { compareCodeUnits, rawSha256, sha256 } from '../../../contracts/canonical.ts';
 import { isSecRepositoryTestModulePath } from '../../../contracts/repository-test-path.ts';
-import { isCanonicalSecOperationBudgetMaximum } from '../../../execution/operation/semantic.ts';
+import { isCanonicalOperationBudgetMaximum } from '../../../execution/operation/semantic.ts';
 import type {
   SecRepositoryModuleArchitectureProjection,
   SecRepositoryModuleMembership
@@ -446,7 +446,7 @@ function resourceBudgetIsExact(value: unknown): value is SourceProgramOperationR
   return hasExactKeys(value, SOURCE_PROGRAM_SUPERSESSION_EVIDENCE_SCHEMA.resourceBudgetKeys)
     && resource !== null
     && typeof value.maximum === 'number'
-    && isCanonicalSecOperationBudgetMaximum(resource, value.maximum);
+    && isCanonicalOperationBudgetMaximum(resource, value.maximum);
 }
 
 function operationObligationEvidenceIsExact(
