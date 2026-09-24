@@ -2,16 +2,23 @@
 
 import { spawnSync } from 'node:child_process';
 import {
-  mkdtempSync,
   readFileSync,
   realpathSync,
-  rmSync,
   writeFileSync
 } from 'node:fs';
-import { tmpdir } from 'node:os';
 import path from 'node:path';
 
 import { canonicalJson, compareCodeUnits, rawSha256, sha256 } from '../../../../contracts/canonical.ts';
+import {
+  executeGitHubApiOperation,
+  executeObservedGitHubApiOperation,
+  readGitHubApiBytes,
+  withGitHubApiIssueCommentWriteSession,
+  withGitHubApiReadSession,
+  withGitHubApiRepositoryDispatchWriteSession,
+  type GitHubApiOperation
+} from '../../../providers/github-api/operation-session.ts';
+import { readZipTextFile } from '../../../providers/zip/runtime.ts';
 import { parseGitChangedRecordsOutput, type GitChangedRecord } from '../../../verification/platform/test-impact/runtime/transition.ts';
 import {
   hostedPublisherMatches,
@@ -160,8 +167,9 @@ function controlCliCommandId(executable: string): 'git' | 'gh' | null {
  * publication effect to opaque semantic operations. A physical executable
  * adoption receipt cannot fill that missing authority, so Windows remains
  * fail-closed before any child starts.
- * Archive tools (tar/unzip) and non-Windows commands deliberately remain on
- * their separate provider routes.
+ * Hosted GitHub effects and archive reads use their dedicated providers;
+ * only the still-unmigrated synchronous Git observation path reaches this
+ * compatibility fence.
  */
 function assertWindowsControlCliCommandAdmission(
   executable: string,
@@ -838,38 +846,63 @@ function assertPreparationStillAuthorizesFinal(
   }
 }
 
-function listActivationComments(root: string, endpoint: string): readonly IssueCommentRecord[] {
-  const bytes = requireCommand('gh', [
-    'api', '--paginate', '--slurp', `${endpoint}?per_page=100`
-  ], root, 'activation-provider-unavailable');
+async function githubObservation(
+  root: string,
+  repository: string,
+  operation: GitHubApiOperation
+): Promise<Readonly<{ value: unknown; bytes: Buffer }>> {
   try {
-    const pages = parseJson(decodeUtf8(bytes, 'activation-provider-readback-conflict'),
-      'activation-provider-readback-conflict');
-    if (!Array.isArray(pages) || !pages.every(Array.isArray)) {
-      unavailable('activation-provider-readback-conflict', bytes);
-    }
-    return Object.freeze(pages.flat().map((value, index) => issueCommentRecord(
-      value, `Agent operation activation comment ${index}`
-    )));
-  } catch {
-    unavailable('activation-provider-readback-conflict', bytes);
+    const observed = await withGitHubApiReadSession({
+      repositoryRoot: path.resolve(root),
+      repository,
+      operation: async (capability) => await executeObservedGitHubApiOperation(capability, operation)
+    });
+    return Object.freeze({
+      value: observed.value,
+      bytes: Buffer.from(observed.source, 'utf8')
+    });
+  } catch (error) {
+    unavailable('activation-provider-unavailable', error instanceof Error ? error.message : String(error));
   }
 }
 
-function apiRecord(
+async function listActivationComments(
   root: string,
-  endpoint: string
-): Readonly<{ value: Record<string, unknown>; bytes: Buffer }> {
-  const bytes = requireCommand('gh', ['api', endpoint], root, 'activation-provider-unavailable');
+  repository: string,
+  issueNumber: number
+): Promise<readonly IssueCommentRecord[]> {
+  const records: IssueCommentRecord[] = [];
+  for (let page = 1; page <= 100; page += 1) {
+    const observed = await githubObservation(root, repository, {
+      kind: 'issue-comments', issueNumber, page
+    });
+    if (!Array.isArray(observed.value)) {
+      unavailable('activation-provider-readback-conflict', observed.bytes);
+    }
+    const values = observed.value as unknown[];
+    for (const [index, value] of values.entries()) {
+      records.push(issueCommentRecord(value,
+        `Agent operation activation comment ${(page - 1) * 100 + index}`));
+    }
+    if (values.length < 100) return Object.freeze(records);
+  }
+  unavailable('activation-provider-readback-conflict', 'comment-pagination-exceeded');
+}
+
+async function apiRecord(
+  root: string,
+  repository: string,
+  operation: GitHubApiOperation
+): Promise<Readonly<{ value: Record<string, unknown>; bytes: Buffer }>> {
+  const observed = await githubObservation(root, repository, operation);
   try {
     return Object.freeze({
-      value: record(parseJson(decodeUtf8(bytes, 'activation-provider-readback-conflict'),
-        'activation-provider-readback-conflict'), 'activation-provider-readback-conflict'),
-      bytes
+      value: record(observed.value, 'activation-provider-readback-conflict'),
+      bytes: observed.bytes
     });
   } catch (error) {
     if (error instanceof SecAgentOperationActivationUnavailableError) {
-      unavailable('activation-provider-readback-conflict', bytes);
+      unavailable('activation-provider-readback-conflict', observed.bytes);
     }
     throw error;
   }
@@ -898,19 +931,20 @@ function providerFromEnvironment(): SecAgentOperationActivationProvider {
   });
 }
 
-function assertProviderLive(
+async function assertProviderLive(
   root: string,
   repository: string,
   provider: SecAgentOperationActivationProvider
-): void {
-  const repoObservation = apiRecord(root, `/repos/${repository}`);
+): Promise<void> {
+  const repoObservation = await apiRecord(root, repository, { kind: 'repository' });
   const repo = repoObservation.value;
   if (String(repo.id ?? '') !== provider.repositoryId || repo.full_name !== repository
       || repo.default_branch !== 'main') {
     unavailable('activation-provider-readback-conflict', repoObservation.bytes);
   }
-  const runObservation = apiRecord(root,
-    `/repos/${repository}/actions/runs/${provider.runId}/attempts/${provider.runAttempt}`);
+  const runObservation = await apiRecord(root, repository, {
+    kind: 'workflow-run-attempt', runId: provider.runId, runAttempt: provider.runAttempt
+  });
   const run = runObservation.value;
   let actor: Record<string, unknown>;
   let runRepository: Record<string, unknown>;
@@ -927,43 +961,33 @@ function assertProviderLive(
       || actor.node_id !== provider.actorNodeId || String(runRepository.id ?? '') !== provider.repositoryId) {
     unavailable('activation-provider-readback-conflict', runObservation.bytes);
   }
-  const permissionObservation = apiRecord(root,
-    `/repos/${repository}/collaborators/${provider.actorLogin}/permission`);
+  const permissionObservation = await apiRecord(root, repository, {
+    kind: 'collaborator-permission', login: provider.actorLogin
+  });
   const permission = permissionObservation.value;
   const role = String(permission.permission ?? '').toLowerCase();
   if (role !== provider.actorPermission || (role !== 'admin' && role !== 'maintain')) {
     unavailable('activation-provider-readback-conflict', permissionObservation.bytes);
   }
-  const jobsBytes = requireCommand('gh', [
-    'api', '--paginate', '--slurp',
-    `/repos/${repository}/actions/runs/${provider.runId}/attempts/${provider.runAttempt}/jobs?per_page=100`
-  ], root, 'activation-provider-unavailable');
-  let jobsValue: unknown;
-  try {
-    jobsValue = parseJson(decodeUtf8(jobsBytes, 'activation-provider-readback-conflict'),
-      'activation-provider-readback-conflict');
-  } catch (error) {
-    if (error instanceof SecAgentOperationActivationUnavailableError) {
-      unavailable('activation-provider-readback-conflict', jobsBytes);
-    }
-    throw error;
-  }
-  let jobs: Record<string, unknown>[];
-  try {
-    if (!Array.isArray(jobsValue)) unavailable('activation-provider-readback-conflict', jobsBytes);
-    jobs = jobsValue.flatMap((page) => {
-      const pageRecord = record(page, 'activation-provider-readback-conflict');
-      return Array.isArray(pageRecord.jobs) ? pageRecord.jobs : [];
-    }).map((job) => record(job, 'activation-provider-readback-conflict'));
-  } catch {
-    unavailable('activation-provider-readback-conflict', jobsBytes);
+  const jobs: Record<string, unknown>[] = [];
+  let lastBytes: Buffer = Buffer.alloc(0);
+  for (let page = 1; page <= 100; page += 1) {
+    const observed = await apiRecord(root, repository, {
+      kind: 'workflow-jobs', runId: provider.runId, runAttempt: provider.runAttempt, page
+    });
+    lastBytes = observed.bytes;
+    const values = observed.value.jobs;
+    if (!Array.isArray(values)) unavailable('activation-provider-readback-conflict', observed.bytes);
+    jobs.push(...values.map((job) => record(job, 'activation-provider-readback-conflict')));
+    if (values.length < 100) break;
+    if (page === 100) unavailable('activation-provider-readback-conflict', 'jobs-pagination-exceeded');
   }
   const matching = jobs.filter((job) => job.name === provider.jobName
     && String(job.run_id ?? '') === provider.runId
     && job.run_attempt === provider.runAttempt);
-  if (matching.length !== 1) unavailable('activation-provider-readback-conflict', jobsBytes);
+  if (matching.length !== 1) unavailable('activation-provider-readback-conflict', lastBytes);
   const steps = matching[0]!.steps;
-  if (!Array.isArray(steps)) unavailable('activation-provider-readback-conflict', jobsBytes);
+  if (!Array.isArray(steps)) unavailable('activation-provider-readback-conflict', lastBytes);
   let upload: Record<string, unknown> | undefined;
   let publish: Record<string, unknown> | undefined;
   try {
@@ -971,21 +995,21 @@ function assertProviderLive(
     upload = normalizedSteps.find((step) => step.name === provider.uploadStepName);
     publish = normalizedSteps.find((step) => step.name === provider.publicationStepName);
   } catch {
-    unavailable('activation-provider-readback-conflict', jobsBytes);
+    unavailable('activation-provider-readback-conflict', lastBytes);
   }
-  if (upload?.status !== 'completed' || upload.conclusion !== 'success'
-      || publish === undefined) {
-    unavailable('activation-provider-readback-conflict', jobsBytes);
+  if (upload?.status !== 'completed' || upload.conclusion !== 'success' || publish === undefined) {
+    unavailable('activation-provider-readback-conflict', lastBytes);
   }
 }
 
-function assertArtifactMetadata(
+async function assertArtifactMetadata(
   root: string,
   repository: string,
   publication: SecAgentOperationActivationPublication
-): void {
-  const metadataObservation = apiRecord(root,
-    `/repos/${repository}/actions/artifacts/${publication.artifactId}`);
+): Promise<void> {
+  const metadataObservation = await apiRecord(root, repository, {
+    kind: 'artifact', artifactId: Number(publication.artifactId)
+  });
   const metadata = metadataObservation.value;
   let workflowRun: Record<string, unknown>;
   try {
@@ -1004,65 +1028,51 @@ function assertArtifactMetadata(
   }
 }
 
-function downloadArtifactPayload(
+async function downloadArtifactPayload(
   root: string,
   repository: string,
   publication: SecAgentOperationActivationPublication
-): Readonly<{ bytes: Buffer; payload: unknown }> {
-  assertArtifactMetadata(root, repository, publication);
-  const temporaryRoot = mkdtempSync(path.join(tmpdir(), 'sec-agent-operation-activation-'));
+): Promise<Readonly<{ bytes: Buffer; payload: unknown }>> {
+  await assertArtifactMetadata(root, repository, publication);
+  let archiveBytes: Uint8Array;
   try {
-    const archiveBytes = requireCommand('gh', [
-      'api', '-H', 'Accept: application/vnd.github+json',
-      `/repos/${repository}/actions/artifacts/${publication.artifactId}/zip`
-    ], root, 'activation-provider-unavailable');
-    if (rawSha256(archiveBytes) !== publication.artifactDigest) {
-      unavailable('activation-provider-readback-conflict', archiveBytes);
-    }
-    const archivePath = path.join(temporaryRoot, 'artifact.zip');
-    writeFileSync(archivePath, archiveBytes, { flag: 'wx' });
-    const archiveTool = process.platform === 'win32' ? 'tar' : 'unzip';
-    const listArgs = process.platform === 'win32'
-      ? ['-tf', archivePath]
-      : ['-Z1', archivePath];
-    const list = requireCommand(
-      archiveTool, listArgs, temporaryRoot, 'activation-provider-readback-conflict'
-    );
-    const entries = decodeUtf8(list, 'activation-provider-readback-conflict')
-      .split(/\r?\n/u).filter(Boolean);
-    if (entries.length !== 1 || entries[0] !== publication.artifactFileName) {
-      unavailable('activation-provider-readback-conflict', list);
-    }
-    const readArgs = process.platform === 'win32'
-      ? ['-xOf', archivePath, publication.artifactFileName]
-      : ['-p', archivePath, publication.artifactFileName];
-    const bytes = requireCommand(
-      archiveTool, readArgs, temporaryRoot, 'activation-provider-readback-conflict'
-    );
-    let payload: unknown;
-    try {
-      payload = parseJson(decodeUtf8(bytes, 'activation-provider-readback-conflict'),
-        'activation-provider-readback-conflict');
-    } catch {
-      unavailable('activation-provider-readback-conflict', bytes);
-    }
-    return Object.freeze({ bytes, payload });
+    archiveBytes = await withGitHubApiReadSession({
+      repositoryRoot: path.resolve(root),
+      repository,
+      operation: async (capability) => await readGitHubApiBytes(capability, {
+        kind: 'artifact-archive', artifactId: Number(publication.artifactId)
+      })
+    });
   } catch (error) {
-    if (error instanceof SecAgentOperationActivationUnavailableError) throw error;
-    unavailable('activation-provider-readback-conflict', error instanceof Error ? error.message : String(error));
-  } finally {
-    rmSync(temporaryRoot, { recursive: true, force: true });
+    unavailable('activation-provider-unavailable', error instanceof Error ? error.message : String(error));
   }
+  if (rawSha256(archiveBytes) !== publication.artifactDigest) {
+    unavailable('activation-provider-readback-conflict', archiveBytes);
+  }
+  let source: string;
+  try {
+    source = await readZipTextFile({
+      archiveBytes, expectedFileName: publication.artifactFileName
+    });
+  } catch (error) {
+    unavailable('activation-provider-readback-conflict', error instanceof Error ? error.message : String(error));
+  }
+  const bytes = Buffer.from(source, 'utf8');
+  let payload: unknown;
+  try {
+    payload = parseJson(source, 'activation-provider-readback-conflict');
+  } catch {
+    unavailable('activation-provider-readback-conflict', bytes);
+  }
+  return Object.freeze({ bytes, payload });
 }
 
-function allPublications(
+async function allPublications(
   root: string,
   repository: string,
   pullRequestNumber: number
-): readonly Readonly<{ publication: SecAgentOperationActivationPublication; commentId: number }>[] {
-  const inventory = listActivationComments(
-    root, `/repos/${repository}/issues/${pullRequestNumber}/comments`
-  );
+): Promise<readonly Readonly<{ publication: SecAgentOperationActivationPublication; commentId: number }>[] > {
+  const inventory = await listActivationComments(root, repository, pullRequestNumber);
   const result: Array<{ publication: SecAgentOperationActivationPublication; commentId: number }> = [];
   for (const comment of inventory) {
     if (!comment.body.includes(SEC_AGENT_OPERATION_ACTIVATION_COMMENT_MARKER)) continue;
@@ -1093,12 +1103,12 @@ function assertNoDuplicatePublicationIdentities(
   }
 }
 
-function validateArtifactPayload(
+async function validateArtifactPayload(
   root: string,
   repository: string,
   publication: SecAgentOperationActivationPublication
-): SecAgentOperationActivationPreparation | SecAgentOperationActivationReceipt {
-  const downloaded = downloadArtifactPayload(root, repository, publication);
+): Promise<SecAgentOperationActivationPreparation | SecAgentOperationActivationReceipt> {
+  const downloaded = await downloadArtifactPayload(root, repository, publication);
   let payload: SecAgentOperationActivationPreparation | SecAgentOperationActivationReceipt;
   try {
     payload = publication.request.phase === 'prepare'
@@ -1154,18 +1164,18 @@ function rebindPayloadProvider(
   return createSecAgentOperationActivationReceipt({ ...input, provider });
 }
 
-function materializeOrReuseHostedPayload(
+async function materializeOrReuseHostedPayload(
   runtimeRoot: string,
   repository: string,
   request: SecAgentOperationActivationRequest,
   outputPath: string,
   value: SecAgentOperationActivationPreparation | SecAgentOperationActivationReceipt
-): Readonly<{
+): Promise<Readonly<{
   disposition: 'created' | 'existing';
   commentId: number | null;
   payloadDigest: `sha256:${string}`;
-}> {
-  const publications = allPublications(runtimeRoot, repository, request.pullRequestNumber);
+}>> {
+  const publications = await allPublications(runtimeRoot, repository, request.pullRequestNumber);
   assertNoDuplicatePublicationIdentities(publications);
   const matching = publications.filter(({ publication }) => (
     publication.request.requestOperationId === request.requestOperationId
@@ -1173,8 +1183,8 @@ function materializeOrReuseHostedPayload(
   if (matching.length > 1) unavailable('activation-provider-readback-conflict', request.requestOperationId);
   if (matching.length === 1) {
     const existing = matching[0]!;
-    assertProviderLive(runtimeRoot, repository, existing.publication.provider);
-    const payload = validateArtifactPayload(runtimeRoot, repository, existing.publication);
+    await assertProviderLive(runtimeRoot, repository, existing.publication.provider);
+    const payload = await validateArtifactPayload(runtimeRoot, repository, existing.publication);
     const expected = rebindPayloadProvider(value, existing.publication.provider);
     if (!canonicalEqual(payload, expected)) {
       unavailable('activation-provider-readback-conflict', request.requestOperationId);
@@ -1255,7 +1265,7 @@ async function produceHosted(input: Readonly<{
       workDecisionDecisionDigest: decision.decision.decisionDigest,
       provider
     });
-    const publication = materializeOrReuseHostedPayload(
+    const publication = await materializeOrReuseHostedPayload(
       runtimeRoot, decision.repository, request, input.outputPath, preparation
     );
     return Object.freeze({
@@ -1266,7 +1276,7 @@ async function produceHosted(input: Readonly<{
     });
   }
   if (request.preparationCommentId === null) unavailable('activation-stale', 'preparation-comment-id-missing');
-  const maximalPreparation = resolveMaximalPreparation(
+  const maximalPreparation = await resolveMaximalPreparation(
     runtimeRoot,
     candidateRoot,
     decision.repository,
@@ -1299,7 +1309,7 @@ async function produceHosted(input: Readonly<{
     workDecisionDecisionDigest: decision.decision.decisionDigest,
     provider
   });
-  const publication = materializeOrReuseHostedPayload(
+  const publication = await materializeOrReuseHostedPayload(
     runtimeRoot, decision.repository, request, input.outputPath, finalReceipt
   );
   return Object.freeze({
@@ -1310,16 +1320,16 @@ async function produceHosted(input: Readonly<{
   });
 }
 
-function publishHosted(input: Readonly<{
+async function publishHosted(input: Readonly<{
   runtimeRoot: string;
   requestPath: string;
   payloadPath: string;
   artifactId: string;
   artifactDigest: `sha256:${string}`;
-}>): Readonly<{
+}>): Promise<Readonly<{
   commentId: number;
   publication: SecAgentOperationActivationPublication;
-}> {
+}>> {
   const runtimeRoot = repositoryRoot(input.runtimeRoot);
   const requestBytes = readFileSync(path.resolve(input.requestPath));
   const request = parseSecAgentOperationActivationRequest(
@@ -1354,33 +1364,34 @@ function publishHosted(input: Readonly<{
     readGitBlob(runtimeRoot, `${provider.workflowSha}:${CONTROL_PATHS.currentState}`).bytes,
     'activation-stale'
   )).resolver.repository;
-  assertArtifactMetadata(runtimeRoot, repository, publication);
+  await assertArtifactMetadata(runtimeRoot, repository, publication);
   const body = renderSecAgentOperationActivationPublicationComment(publication);
-  const response = command('gh', [
-    'api', '--method', 'POST', `/repos/${repository}/issues/${request.pullRequestNumber}/comments`,
-    '--input', '-'
-  ], runtimeRoot, canonicalBytes({ body }));
-  if (response.status !== 0) unavailable('activation-provider-unavailable', response.stderr);
+  let createdValue: unknown;
+  try {
+    createdValue = await withGitHubApiIssueCommentWriteSession({
+      repositoryRoot: runtimeRoot,
+      repository,
+      operation: async (capability) => await executeGitHubApiOperation(capability, {
+        kind: 'create-issue-comment', issueNumber: request.pullRequestNumber, body
+      })
+    });
+  } catch (error) {
+    unavailable('activation-provider-unavailable', error instanceof Error ? error.message : String(error));
+  }
   let created: IssueCommentRecord;
   try {
-    created = issueCommentRecord(
-      parseJson(decodeUtf8(response.stdout, 'activation-provider-readback-conflict'),
-        'activation-provider-readback-conflict'),
-      'Published Agent operation activation comment'
-    );
+    created = issueCommentRecord(createdValue, 'Published Agent operation activation comment');
   } catch {
-    unavailable('activation-provider-readback-conflict', response.stdout);
+    unavailable('activation-provider-readback-conflict', JSON.stringify(createdValue));
   }
   if (created.body !== body || !hostedPublisherMatches(created)) {
-    unavailable('activation-provider-readback-conflict', response.stdout);
+    unavailable('activation-provider-readback-conflict', JSON.stringify(createdValue));
   }
-  const inventory = listActivationComments(
-    runtimeRoot, `/repos/${repository}/issues/${request.pullRequestNumber}/comments`
-  );
+  const inventory = await listActivationComments(runtimeRoot, repository, request.pullRequestNumber);
   const matches = inventory.filter((comment) => comment.id === created.id
     && comment.body === body && hostedPublisherMatches(comment));
   if (matches.length !== 1) {
-    unavailable('activation-provider-readback-conflict', response.stdout);
+    unavailable('activation-provider-readback-conflict', JSON.stringify(createdValue));
   }
   return Object.freeze({
     commentId: created.id,
@@ -1443,7 +1454,7 @@ async function resolveSecAgentOperationActivationUnchecked(
     manifestPath: entry.manifestPath,
     manifestDigest: entry.manifestDigest
   });
-  const publications = allPublications(runtimeRoot, decision.repository, entry.prNumber!);
+  const publications = await allPublications(runtimeRoot, decision.repository, entry.prNumber!);
   assertNoDuplicatePublicationIdentities(publications);
   const finals = publications.filter(({ publication }) => publication.request.phase === 'finalize'
     && publication.request.pullRequestNumber === requestBinding.pullRequestNumber
@@ -1462,8 +1473,8 @@ async function resolveSecAgentOperationActivationUnchecked(
     if (preparations.length === 0) unavailable('activation-receipt-absent', targetCandidate);
     if (preparations.length !== 1) unavailable('activation-provider-readback-conflict', targetCandidate);
     const preparationPublication = preparations[0]!;
-    assertProviderLive(runtimeRoot, decision.repository, preparationPublication.publication.provider);
-    const preparationPayload = validateArtifactPayload(
+    await assertProviderLive(runtimeRoot, decision.repository, preparationPublication.publication.provider);
+    const preparationPayload = await validateArtifactPayload(
       runtimeRoot, decision.repository, preparationPublication.publication
     );
     if (preparationPayload.schema !== 'sec-agent-operation-activation-preparation-v2') {
@@ -1523,14 +1534,14 @@ async function resolveSecAgentOperationActivationUnchecked(
     });
   }
   const final = finals[0]!;
-  assertProviderLive(runtimeRoot, decision.repository, final.publication.provider);
-  const receiptPayload = validateArtifactPayload(runtimeRoot, decision.repository, final.publication);
+  await assertProviderLive(runtimeRoot, decision.repository, final.publication.provider);
+  const receiptPayload = await validateArtifactPayload(runtimeRoot, decision.repository, final.publication);
   if (receiptPayload.schema !== 'sec-agent-operation-activation-receipt-v2') {
     unavailable('activation-provider-readback-conflict', 'final-artifact-schema-drift');
   }
   const receipt = receiptPayload;
   if (receipt.request.preparationCommentId === null) unavailable('activation-provider-readback-conflict');
-  const maximalPreparation = resolveMaximalPreparation(
+  const maximalPreparation = await resolveMaximalPreparation(
     runtimeRoot,
     candidateRoot,
     decision.repository,
@@ -1606,19 +1617,29 @@ export async function resolveSecAgentOperationActivation(
   ));
 }
 
-function dispatchRequest(
+async function dispatchRequest(
   runtimeRoot: string,
   repository: string,
   request: SecAgentOperationActivationRequest
-): void {
-  const payload = canonicalBytes({ event_type: SEC_AGENT_OPERATION_ACTIVATION_EVENT, client_payload: { payload: request } });
-  requireCommand('gh', [
-    'api', '--method', 'POST', `/repos/${repository}/dispatches`,
-    '--input', '-'
-  ], runtimeRoot, 'activation-provider-unavailable', payload);
+): Promise<void> {
+  try {
+    await withGitHubApiRepositoryDispatchWriteSession({
+      repositoryRoot: runtimeRoot,
+      repository,
+      operation: async (capability) => {
+        await executeGitHubApiOperation(capability, {
+          kind: 'repository-dispatch',
+          eventType: SEC_AGENT_OPERATION_ACTIVATION_EVENT,
+          clientPayload: Object.freeze({ payload: request })
+        });
+      }
+    });
+  } catch (error) {
+    unavailable('activation-provider-unavailable', error instanceof Error ? error.message : String(error));
+  }
 }
 
-function resolveMaximalPreparation(
+async function resolveMaximalPreparation(
   runtimeRoot: string,
   candidateRoot: string,
   repository: string,
@@ -1627,11 +1648,11 @@ function resolveMaximalPreparation(
   targetCandidate: string,
   manifestPath: string,
   manifestDigest: `sha256:${string}`
-): Readonly<{
+): Promise<Readonly<{
   commentId: number;
   preparation: SecAgentOperationActivationPreparation;
-}> {
-  const publications = allPublications(runtimeRoot, repository, pullRequestNumber);
+}>> {
+  const publications = await allPublications(runtimeRoot, repository, pullRequestNumber);
   assertNoDuplicatePublicationIdentities(publications);
   const candidates = publications.filter(({ publication }) => {
     const request = publication.request;
@@ -1653,8 +1674,8 @@ function resolveMaximalPreparation(
   )));
   if (maximal.length !== 1) unavailable('activation-provider-readback-conflict', targetCandidate);
   const selected = maximal[0]!;
-  assertProviderLive(runtimeRoot, repository, selected.publication.provider);
-  const payload = validateArtifactPayload(runtimeRoot, repository, selected.publication);
+  await assertProviderLive(runtimeRoot, repository, selected.publication.provider);
+  const payload = await validateArtifactPayload(runtimeRoot, repository, selected.publication);
   if (payload.schema !== 'sec-agent-operation-activation-preparation-v2') {
     unavailable('activation-provider-readback-conflict', 'preparation-artifact-schema-drift');
   }
@@ -1740,7 +1761,7 @@ async function main(): Promise<void> {
       manifestDigest: control.manifestDigest,
       preparationCommentId: phase === 'prepare'
         ? null
-        : resolveMaximalPreparation(
+        : (await resolveMaximalPreparation(
             runtimeRoot,
             candidateRoot,
             decision.repository,
@@ -1749,9 +1770,9 @@ async function main(): Promise<void> {
             targetCandidate,
             control.manifestPath,
             control.manifestDigest
-          ).commentId
+          )).commentId
     });
-    dispatchRequest(runtimeRoot, decision.repository, request);
+    await dispatchRequest(runtimeRoot, decision.repository, request);
     process.stdout.write(`${JSON.stringify({
       status: 'dispatched',
       event: SEC_AGENT_OPERATION_ACTIVATION_EVENT,
@@ -1780,13 +1801,13 @@ async function main(): Promise<void> {
     if (!/^sha256:[0-9a-f]{64}$/u.test(requestId)) {
       unavailable('activation-issuer-unavailable', requestId);
     }
-    const matches = allPublications(runtimeRoot, decision.repository, entries[0]!.prNumber!)
+    const matches = (await allPublications(runtimeRoot, decision.repository, entries[0]!.prNumber!))
       .filter(({ publication }) => publication.request.requestOperationId === requestId);
     if (matches.length === 0) unavailable('activation-receipt-absent', requestId);
     if (matches.length !== 1) unavailable('activation-provider-readback-conflict', requestId);
     const match = matches[0]!;
-    assertProviderLive(runtimeRoot, decision.repository, match.publication.provider);
-    validateArtifactPayload(runtimeRoot, decision.repository, match.publication);
+    await assertProviderLive(runtimeRoot, decision.repository, match.publication.provider);
+    await validateArtifactPayload(runtimeRoot, decision.repository, match.publication);
     process.stdout.write(`${JSON.stringify({
       status: 'observed',
       commentId: match.commentId,
@@ -1812,7 +1833,7 @@ async function main(): Promise<void> {
     assertExactOptionKeys(options, [
       'runtime-root', 'request', 'payload', 'artifact-id', 'artifact-digest', 'json'
     ]);
-    const result = publishHosted({
+    const result = await publishHosted({
       runtimeRoot: requiredOption(options, 'runtime-root'),
       requestPath: requiredOption(options, 'request'),
       payloadPath: requiredOption(options, 'payload'),
