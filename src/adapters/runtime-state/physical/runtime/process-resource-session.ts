@@ -19,10 +19,11 @@ import {
   type ObservedNativeProcessResourceLedgerSnapshot
 } from './observed-process.ts';
 import {
-  runRetainedCommandBytes,
+  runRetainedCommandObservedBytes,
   type ByteCommandResult,
   type RunRetainedCommandOptions
 } from './process.ts';
+import type { ObservedCommandOutcome } from './observed-process.ts';
 import type { RetainedCommandBoundary } from './retained-command-boundary.ts';
 
 export type ProcessResourceRunOptions = Omit<
@@ -36,6 +37,7 @@ export type ProcessResourceRunOptions = Omit<
 export type ProcessResourceRunResult = Readonly<{
   ordinal: number;
   result: ByteCommandResult;
+  outcome: ObservedCommandOutcome;
 }>;
 
 export type ProcessResourceSessionReceipt = Readonly<{
@@ -479,7 +481,7 @@ export function openProcessResourceSession(input: Readonly<{
       inputBytes += commandInputBytes;
       outputBytes += admittedOutputBytes;
       try {
-        const result = await runRetainedCommandBytes(boundary, [...args], {
+        const observed = await runRetainedCommandObservedBytes(boundary, [...args], {
           ...options,
           env: invocationEnvironment.entries,
           envMode: invocationEnvironment.mode,
@@ -490,9 +492,9 @@ export function openProcessResourceSession(input: Readonly<{
           timeoutMs
         }, nativeResourceLedger);
         const immutableResult: ByteCommandResult = Object.freeze({
-          code: result.code,
-          stdout: new Uint8Array(result.stdout),
-          stderr: result.stderr
+          code: observed.result.code,
+          stdout: new Uint8Array(observed.result.stdout),
+          stderr: observed.result.stderr
         });
         const observedOutputBytes = immutableResult.stdout.byteLength
           + Buffer.byteLength(immutableResult.stderr, 'utf8');
@@ -509,7 +511,8 @@ export function openProcessResourceSession(input: Readonly<{
         successfulProcessRecordCount += 1;
         const runResult: ProcessResourceRunResult = Object.freeze({
           ordinal,
-          result: immutableResult
+          result: immutableResult,
+          outcome: observed.outcome
         });
         PROCESS_RESOURCE_RUN_RESULT_BINDINGS.set(runResult, Object.freeze({
           session,

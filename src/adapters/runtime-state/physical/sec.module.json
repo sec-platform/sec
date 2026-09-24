@@ -10,7 +10,8 @@
         "runObservedCommand",
         "openProcessResourceSession",
         "runRetainedCommand",
-        "runRetainedCommandBytes"
+        "runRetainedCommandBytes",
+        "runRetainedCommandObservedBytes"
       ],
       "effectKinds": [
         "process"
@@ -20,7 +21,8 @@
         "runCommandBytes",
         "runObservedCommand",
         "runRetainedCommand",
-        "runRetainedCommandBytes"
+        "runRetainedCommandBytes",
+        "runRetainedCommandObservedBytes"
       ],
       "operationRoles": [
         {

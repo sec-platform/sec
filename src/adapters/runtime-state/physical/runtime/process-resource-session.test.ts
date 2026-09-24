@@ -277,9 +277,15 @@ test('process sessions require one process Effect and complete bound resource ce
       maxStderrBytes: 0,
       maxStdoutBytes: 5
     });
-    expect(first).toEqual({
+    expect(first).toMatchObject({
       ordinal: 1,
       result: { code: 0, stdout: new Uint8Array([0, 1, 255]), stderr: '' }
+    });
+    expect(first.outcome.status).toBe('exited');
+    expect(first.outcome.termination).toMatchObject({
+      childCloseObserved: true,
+      streamsDrained: true,
+      treeClosed: true
     });
     expect(session.observeNativeResourceCapacity()).toMatchObject({
       remaining: 1, root: 1, stdinWorker: process.platform === 'win32' ? 1 : 0
