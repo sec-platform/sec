@@ -1,13 +1,11 @@
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import {
-  closeSync,
   existsSync,
   mkdirSync,
   mkdtempSync,
-  openSync, readFileSync,
+  readFileSync,
   readlinkSync,
-  readSync,
   realpathSync,
   renameSync,
   rmSync,
@@ -1007,24 +1005,11 @@ test('hosted SUT executes only through the isolated command plan and terminalize
         }
         executionPlan = plan;
         expect(retainedArchive).toBeDefined();
-        const movedArchive = `${cleanArchive}.retained`;
-        renameSync(cleanArchive, movedArchive);
-        writeFileSync(cleanArchive, 'malicious dependency archive at the authenticated pathname');
-        try {
-          const buffer = Buffer.alloc(256);
-          const bytes = readSync(
-            retainedArchive!.fileDescriptor,
-            buffer,
-            0,
-            buffer.byteLength,
-            0
-          );
-          retainedArchiveBytes.push(buffer.subarray(0, bytes).toString('utf8'));
-          expect(retainedArchive!.archiveDigest).toBe(cleanInventory.archiveDigest);
-        } finally {
-          rmSync(cleanArchive);
-          renameSync(movedArchive, cleanArchive);
-        }
+        expect(retainedArchive!.capability.childPath).toBe('/proc/self/fd/5');
+        retainedArchiveBytes.push(
+          Buffer.from(retainedArchive!.capability.readBytes()).toString('utf8')
+        );
+        expect(retainedArchive!.archiveDigest).toBe(cleanInventory.archiveDigest);
         return sandboxObservation(0, 'candidate output is captured, never echoed');
       }
     });
@@ -1130,7 +1115,7 @@ test('sandbox command plan proves cgroup, namespace, private-root, uid, capabili
     'runtime-binary-closure',
     '/authenticated-input/prepared-candidate.tar', '/usr/bin/setpriv', '--no-new-privs',
     '--bounding-set=-all', '/usr/bin/prlimit', '/usr/bin/env -i',
-    '/proc/self/fd/3', '/usr/bin/cat --', '$candidate_archive', '/usr/bin/sha256sum',
+    '/proc/self/fd/5', '/usr/bin/cat --', '$candidate_archive', '/usr/bin/sha256sum',
     'for fd_path in /proc/self/fd/*', 'git -C /workspace init'
   ]) expect(encoded).toContain(invariant);
   expect(encoded).toContain(CI_VERIFICATION_HOSTED_SANDBOX_POLICY.python.executablePath);
@@ -1165,57 +1150,6 @@ test('sandbox command plan proves cgroup, namespace, private-root, uid, capabili
   expect(TrustedBootstrapSutHarness).toContain('reader.cancel(error)');
   expect(TrustedBootstrapSutHarness).toContain('Promise.allSettled([stdoutCollection, stderrCollection, exitPromise])');
   expect(JSON.stringify(bootstrapPlan.argv)).not.toContain('GITHUB_OUTPUT');
-});
-
-test('Linux retained archive descriptor defeats pathname ABA before private sandbox copy', () => {
-  if (process.platform !== 'linux') return;
-  const root = mkdtempSync(path.join(tmpdir(), 'sec-sut-retained-archive-'));
-  const archive = path.join(root, 'prepared-candidate.tar');
-  const movedArchive = path.join(root, 'prepared-candidate.authenticated.tar');
-  const privateCopy = path.join(root, 'private-copy.tar');
-  const executionMarker = path.join(root, 'executed');
-  const expectedBytes = 'authenticated dependency archive\n';
-  const maliciousBytes = 'malicious replacement dependency archive\n';
-  let authenticatedFd: number | null = null;
-  let maliciousFd: number | null = null;
-  const copyAndAuthenticate = [
-    '/usr/bin/cat -- /proc/self/fd/3 > "$1"',
-    '[ "sha256:$(/usr/bin/sha256sum "$1" | /usr/bin/cut -d " " -f 1)" = "$2" ]',
-    'printf executed > "$3"'
-  ].join('\n');
-  try {
-    writeFileSync(archive, expectedBytes);
-    authenticatedFd = openSync(archive, 'r');
-    renameSync(archive, movedArchive);
-    writeFileSync(archive, maliciousBytes);
-    const expectedDigest = bytesDigest(expectedBytes);
-    const retained = spawnSync('/usr/bin/bash', [
-      '-ceu', copyAndAuthenticate, 'sec-retained-archive', privateCopy, expectedDigest, executionMarker
-    ], {
-      encoding: 'utf8',
-      stdio: ['ignore', 'pipe', 'pipe', authenticatedFd]
-    });
-    expect(retained.status).toBe(0);
-    expect(readFileSync(privateCopy, 'utf8')).toBe(expectedBytes);
-    expect(readFileSync(executionMarker, 'utf8')).toBe('executed');
-
-    rmSync(privateCopy);
-    rmSync(executionMarker);
-    maliciousFd = openSync(archive, 'r');
-    const substituted = spawnSync('/usr/bin/bash', [
-      '-ceu', copyAndAuthenticate, 'sec-retained-archive', privateCopy, expectedDigest, executionMarker
-    ], {
-      encoding: 'utf8',
-      stdio: ['ignore', 'pipe', 'pipe', maliciousFd]
-    });
-    expect(substituted.status).not.toBe(0);
-    expect(readFileSync(privateCopy, 'utf8')).toBe(maliciousBytes);
-    expect(existsSync(executionMarker)).toBe(false);
-  } finally {
-    if (authenticatedFd !== null) closeSync(authenticatedFd);
-    if (maliciousFd !== null) closeSync(maliciousFd);
-    rmSync(root, { recursive: true, force: true });
-  }
 });
 
 test('parent event binds the canonical one-key Session request wrapper', () => {

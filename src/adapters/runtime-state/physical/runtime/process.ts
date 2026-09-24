@@ -91,7 +91,7 @@ export interface RunCommandOptions {
   independentProvider?: IndependentProviderProcessCapability;
 }
 
-const RETAINED_COMMAND_AUXILIARY_DESCRIPTOR_BASE = 5;
+export const RETAINED_COMMAND_AUXILIARY_DESCRIPTOR_BASE = 5;
 const RETAINED_COMMAND_AUXILIARY_INPUT_LIMIT = 8;
 
 export type RetainedCommandAuxiliaryOrdinaryFileRequest = Readonly<{

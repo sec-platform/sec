@@ -1,10 +1,9 @@
-import { spawn, spawnSync } from 'node:child_process';
+import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import {
   closeSync,
   existsSync,
-  constants as fsConstants,
-  fstatSync, lstatSync,
+  lstatSync,
   mkdirSync,
   openSync,
   readdirSync,
@@ -20,6 +19,7 @@ import {
   observeExecutionProgressPhase,
   reportExecutionProgress
 } from '../../../../execution/execution-progress.ts';
+import { issueOperationRequirementBindingContext } from '../../../../execution/operation/requirement-binding-context.ts';
 import {
   bindSecSemanticOperation,
   compileCapabilityBinding,
@@ -32,6 +32,7 @@ import {
   type BoundSemanticOperation,
   type OperationDigest
 } from '../../../../execution/operation/semantic.ts';
+import { settleResources as settlePhysicalResources } from '../../../../execution/resource-settlement.ts';
 
 import { CI_VERIFICATION_CONTRACT_REVISION, CI_VERIFICATION_WORKFLOW_PATH } from '../../../../assurance/verification/contract/revision.ts';
 import { BuildVerificationGateResult, type VerificationGateResult } from '../../../../assurance/verification/result/contract/result.ts';
@@ -49,8 +50,28 @@ import {
   type GitBlobBytes
 } from '../../../providers/git-read/runtime/session.ts';
 import type { PhysicalWorkspaceSourceSnapshot } from '../../../repository/source-program-model/workspace-source-snapshot.ts';
-import { assertSameNoFollowDirectoryIdentity, inspectNoFollowDirectoryChain, scanNoFollowDirectoryTreeInventory, type NoFollowDirectoryTreeInventoryEntry, type PhysicalDirectoryIdentity } from '../../../runtime-state/physical/runtime/physical-no-follow.ts';
-import { assertProcessResourceSessionReceipt } from '../../../runtime-state/physical/runtime/process-resource-session.ts';
+import {
+  assertSameNoFollowDirectoryIdentity,
+  inspectNoFollowDirectoryChain,
+  retainNoFollowDirectoryForChildProcess,
+  retainNoFollowOrdinaryFile,
+  scanNoFollowDirectoryTreeInventory,
+  type NoFollowDirectoryTreeInventoryEntry,
+  type PhysicalDirectoryIdentity,
+  type RetainedNoFollowOrdinaryFile
+} from '../../../runtime-state/physical/runtime/physical-no-follow.ts';
+import {
+  assertProcessResourceSessionReceipt,
+  openProcessResourceSession
+} from '../../../runtime-state/physical/runtime/process-resource-session.ts';
+import {
+  issueRetainedCommandBoundary,
+  retainCommandAuxiliaryOrdinaryFiles,
+  RETAINED_COMMAND_AUXILIARY_DESCRIPTOR_BASE,
+  RETAINED_EXECUTABLE_CHILD_DESCRIPTOR,
+  RETAINED_WORKING_DIRECTORY_CHILD_DESCRIPTOR,
+  RetainedCommandTransportError
+} from '../../../runtime-state/physical/runtime/process.ts';
 import {
   ParseCurrentWorkPackageManifest,
   WorkPackageManifestDigest, type WorkPackageManifest
@@ -190,7 +211,7 @@ const CI_VERIFICATION_ACTION_SANDBOX_CAPABILITY_MARKER =
   '__SEC_HOSTED_SANDBOX_CAPABILITY_V1__';
 const CI_VERIFICATION_ACTION_SANDBOX_RESIDUE_MARKER =
   '__SEC_HOSTED_SANDBOX_RESIDUE_EMPTY_V1__';
-const HOSTED_SUT_RETAINED_ARCHIVE_CHILD_FD = 3;
+const HOSTED_SUT_RETAINED_ARCHIVE_CHILD_FD = RETAINED_COMMAND_AUXILIARY_DESCRIPTOR_BASE;
 const HOSTED_SUT_RETAINED_ARCHIVE_CHILD_PATH =
   `/proc/self/fd/${HOSTED_SUT_RETAINED_ARCHIVE_CHILD_FD}` as const;
 
@@ -789,49 +810,26 @@ function hostedActionFileDigest(filePath: string): VerificationActionKeyDigest {
 }
 
 type RetainedHostedSutArchive = Readonly<{
-  fileDescriptor: number;
+  capability: RetainedNoFollowOrdinaryFile;
   archiveDigest: VerificationActionKeyDigest;
   identityDigest: VerificationActionKeyDigest;
 }>;
 
-function retainedHostedSutArchiveObservation(fileDescriptor: number): Readonly<{
+function retainedHostedSutArchiveObservation(capability: RetainedNoFollowOrdinaryFile): Readonly<{
   archiveDigest: VerificationActionKeyDigest;
   identityDigest: VerificationActionKeyDigest;
 }> {
-  const before = fstatSync(fileDescriptor, { bigint: true });
-  if (!before.isFile() || before.size < 0n || before.size > BigInt(Number.MAX_SAFE_INTEGER)) {
-    throw new Error('Hosted SUT retained archive is not one bounded ordinary file.');
-  }
-  const hash = createHash('sha256');
-  const buffer = Buffer.allocUnsafe(1024 * 1024);
-  let offset = 0;
-  while (offset < Number(before.size)) {
-    const bytes = readSync(
-      fileDescriptor,
-      buffer,
-      0,
-      Math.min(buffer.byteLength, Number(before.size) - offset),
-      offset
-    );
-    if (bytes === 0) throw new Error('Hosted SUT retained archive ended before its retained size.');
-    hash.update(buffer.subarray(0, bytes));
-    offset += bytes;
-  }
-  const after = fstatSync(fileDescriptor, { bigint: true });
-  const identity = (value: typeof before) => Object.freeze({
-    device: value.dev.toString(),
-    inode: value.ino.toString(),
-    mode: value.mode.toString(),
-    size: value.size.toString()
-  });
-  const beforeIdentity = identity(before);
-  const afterIdentity = identity(after);
-  if (encodeVerificationActionData(beforeIdentity) !== encodeVerificationActionData(afterIdentity)) {
-    throw new Error('Hosted SUT retained archive changed while its bytes were observed.');
-  }
+  capability.assertCurrent();
+  const digest = capability.digest();
+  capability.assertCurrent();
   return Object.freeze({
-    archiveDigest: `sha256:${hash.digest('hex')}`,
-    identityDigest: ciActionDigest(beforeIdentity)
+    archiveDigest: digest.byteDigest as VerificationActionKeyDigest,
+    identityDigest: ciActionDigest(Object.freeze({
+      device: capability.physical.device,
+      inode: capability.physical.inode,
+      size: capability.size,
+      linkCount: capability.linkCount
+    }))
   });
 }
 
@@ -839,16 +837,26 @@ function retainHostedSutArchive(
   filePath: string,
   expectedDigest: VerificationActionKeyDigest
 ): RetainedHostedSutArchive {
-  const noFollow = process.platform === 'linux' ? fsConstants.O_NOFOLLOW : 0;
-  const fileDescriptor = openSync(path.resolve(filePath), fsConstants.O_RDONLY | noFollow);
+  const absolutePath = path.resolve(filePath);
+  const [capability] = retainCommandAuxiliaryOrdinaryFiles([{
+    expectedParent: inspectNoFollowDirectoryChain(
+      path.dirname(absolutePath),
+      'Hosted SUT retained archive parent'
+    ),
+    name: path.basename(absolutePath),
+    label: 'Hosted SUT retained archive'
+  }]);
   try {
-    const observed = retainedHostedSutArchiveObservation(fileDescriptor);
+    const observed = retainedHostedSutArchiveObservation(capability);
     if (observed.archiveDigest !== expectedDigest) {
       throw new Error('Hosted SUT retained archive differs from its authenticated digest.');
     }
-    return Object.freeze({ fileDescriptor, ...observed });
+    if (capability.childPath !== HOSTED_SUT_RETAINED_ARCHIVE_CHILD_PATH) {
+      throw new Error('Hosted SUT retained archive did not receive the canonical auxiliary child descriptor.');
+    }
+    return Object.freeze({ capability, ...observed });
   } catch (error) {
-    closeSync(fileDescriptor);
+    capability.dispose();
     throw error;
   }
 }
@@ -856,7 +864,7 @@ function retainHostedSutArchive(
 function assertRetainedHostedSutArchive(
   retained: RetainedHostedSutArchive
 ): VerificationActionKeyDigest {
-  const observed = retainedHostedSutArchiveObservation(retained.fileDescriptor);
+  const observed = retainedHostedSutArchiveObservation(retained.capability);
   if (observed.archiveDigest !== retained.archiveDigest ||
       observed.identityDigest !== retained.identityDigest) {
     throw new Error('Hosted SUT retained archive changed after authentication.');
@@ -2107,7 +2115,7 @@ const HOSTED_SUT_NAMESPACE_SCRIPT = [
   `mount -t tmpfs -o nodev,nosuid,mode=0755,size=${CI_VERIFICATION_HOSTED_SANDBOX_POLICY.limits.workspaceBytes} tmpfs "$root"`,
   'mkdir -p "$root/tool/bin" "$root/authenticated-input" "$root/workspace" "$root/tmp" "$root/home/sut" "$root/dev" "$root/proc" "$root/etc"',
   ...HOSTED_SUT_RUNTIME_TOOL_CLOSURE,
-  '[ "$candidate_archive" = "/proc/self/fd/3" ]',
+  `[ "$candidate_archive" = "/proc/self/fd/${HOSTED_SUT_RETAINED_ARCHIVE_CHILD_FD}" ]`,
   '/usr/bin/cat -- "$candidate_archive" > "$root/authenticated-input/prepared-candidate.tar"',
   '[ "sha256:$(/usr/bin/sha256sum "$root/authenticated-input/prepared-candidate.tar" | /usr/bin/cut -d " " -f 1)" = "$expected_archive_digest" ]',
   '/usr/bin/chmod 0400 "$root/authenticated-input/prepared-candidate.tar"',
@@ -2580,7 +2588,59 @@ function hostedSutTeardownCommandPlan(input: Readonly<{
   });
 }
 
-function defaultHostedSutSandboxProcess(
+const HOSTED_SUT_PROCESS_REQUIREMENT_ID = 'verification.hosted-sut.process';
+const HOSTED_SUT_PROCESS_BUDGET = Object.freeze({
+  maximumDurationMs: CI_VERIFICATION_HOSTED_SANDBOX_POLICY.limits.wallSeconds * 1_000,
+  maximumInputBytes: 0,
+  maximumOutputBytes: CI_VERIFICATION_HOSTED_SUT_OUTPUT_BYTE_LIMIT * 2,
+  maximumProcesses: 1
+});
+
+function bindHostedSutProcessOperation(
+  plan: HostedSutSandboxCommandPlan,
+  providerIdentityDigest: OperationDigest
+): BoundSemanticOperation {
+  const contractDigest = ciActionDigest(Object.freeze({
+    schema: 'sec-hosted-sut-process-contract-v1',
+    policyDigest: CI_VERIFICATION_HOSTED_SANDBOX_POLICY_DIGEST,
+    maximumDurationMs: HOSTED_SUT_PROCESS_BUDGET.maximumDurationMs,
+    maximumOutputBytes: HOSTED_SUT_PROCESS_BUDGET.maximumOutputBytes,
+    maximumProcesses: HOSTED_SUT_PROCESS_BUDGET.maximumProcesses
+  })) as OperationDigest;
+  const operationPlan = compileSemanticOperationPlan({
+    operation: 'verification.hosted-sut.process',
+    intentDigest: plan.planDigest as OperationDigest,
+    decisionDigest: ciActionDigest(Object.freeze({
+      schema: 'sec-hosted-sut-process-decision-v1',
+      phase: plan.phase,
+      command: plan.command,
+      planDigest: plan.planDigest
+    })) as OperationDigest,
+    deadlineAtUnixMs: Date.now() + HOSTED_SUT_PROCESS_BUDGET.maximumDurationMs,
+    aggregateBudgets: [
+      { resource: 'duration-ms', maximum: HOSTED_SUT_PROCESS_BUDGET.maximumDurationMs },
+      { resource: 'input-bytes', maximum: HOSTED_SUT_PROCESS_BUDGET.maximumInputBytes },
+      { resource: 'output-bytes', maximum: HOSTED_SUT_PROCESS_BUDGET.maximumOutputBytes },
+      { resource: 'processes', maximum: HOSTED_SUT_PROCESS_BUDGET.maximumProcesses }
+    ],
+    requirements: [{
+      id: HOSTED_SUT_PROCESS_REQUIREMENT_ID,
+      contractDigest,
+      effectKinds: ['process'],
+      failureKinds: ['process.failed', 'process.settlement-failed']
+    }],
+    attempt: issueSemanticOperationAttemptContext({
+      authorityGrantDigest: (plan.executionAuthorizationDigest ?? plan.planDigest) as OperationDigest
+    })
+  });
+  return bindSecSemanticOperation(operationPlan, [compileCapabilityBinding({
+    requirementId: HOSTED_SUT_PROCESS_REQUIREMENT_ID,
+    contractDigest,
+    providerIdentityDigest
+  })]);
+}
+
+async function defaultHostedSutSandboxProcess(
   plan: HostedSutSandboxCommandPlan,
   retainedArchive?: RetainedHostedSutArchive
 ): Promise<HostedSutSandboxProcessObservation> {
@@ -2590,88 +2650,150 @@ function defaultHostedSutSandboxProcess(
   }
   if (retainedArchive !== undefined) {
     assertRetainedHostedSutArchive(retainedArchive);
-    if (plan.argv.filter((entry) => entry === HOSTED_SUT_RETAINED_ARCHIVE_CHILD_PATH).length !== 1 ||
+    if (retainedArchive.capability.childPath !== HOSTED_SUT_RETAINED_ARCHIVE_CHILD_PATH ||
+        plan.argv.filter((entry) => entry === HOSTED_SUT_RETAINED_ARCHIVE_CHILD_PATH).length !== 1 ||
         plan.argv.filter((entry) => entry === retainedArchive.archiveDigest).length !== 1) {
       throw new Error('Hosted SUT process plan differs from its retained archive binding.');
     }
   }
-  const outputByteLimit = CI_VERIFICATION_HOSTED_SUT_OUTPUT_BYTE_LIMIT;
-  const tailByteLimit = 64 * 1024;
-  return new Promise((resolve) => {
-    const child = spawn(plan.command, plan.argv, {
-      cwd: process.cwd(),
-      env: { PATH: '/usr/bin:/bin', LANG: 'C.UTF-8' },
-      stdio: retainedArchive === undefined
-        ? ['ignore', 'pipe', 'pipe']
-        : ['ignore', 'pipe', 'pipe', retainedArchive.fileDescriptor],
-      windowsHide: true
-    });
-    const streams = {
-      stdout: { hash: createHash('sha256'), bytes: 0, hashed: 0, tail: Buffer.alloc(0) },
-      stderr: { hash: createHash('sha256'), bytes: 0, hashed: 0, tail: Buffer.alloc(0) }
-    };
-    let outputTruncated = false;
-    let wallTimedOut = false;
-    let commandStarted = false;
-    let settled = false;
-    let wallTimer: ReturnType<typeof setTimeout> | null = null;
-    const observe = (kind: 'stdout' | 'stderr', chunk: Buffer): void => {
-      const stream = streams[kind];
-      stream.bytes += chunk.byteLength;
-      const remaining = Math.max(0, outputByteLimit - stream.hashed);
-      if (remaining > 0) {
-        const retained = chunk.subarray(0, remaining);
-        stream.hash.update(retained);
-        stream.hashed += retained.byteLength;
-      }
-      const tail = Buffer.concat([stream.tail, chunk]);
-      stream.tail = tail.subarray(Math.max(0, tail.byteLength - tailByteLimit));
-      if (stream.bytes > outputByteLimit && !outputTruncated) {
-        outputTruncated = true;
-        child.kill('SIGKILL');
-      }
-    };
-    child.stdout?.on('data', (chunk: Buffer) => observe('stdout', chunk));
-    child.stderr?.on('data', (chunk: Buffer) => observe('stderr', chunk));
-    const finish = (code: number): void => {
-      if (settled) return;
-      settled = true;
-      if (wallTimer !== null) clearTimeout(wallTimer);
-      const stdoutDigest = `sha256:${streams.stdout.hash.digest('hex')}` as VerificationActionKeyDigest;
-      const stderrDigest = `sha256:${streams.stderr.hash.digest('hex')}` as VerificationActionKeyDigest;
-      const failureTail = wallTimedOut
-        ? 'Hosted SUT exceeded the trusted wall-clock bound and the unshare process was terminated.'
-        : outputTruncated
-        ? 'Hosted SUT stdout/stderr exceeded the trusted capture bound and the whole unit was terminated.'
-        : [streams.stdout.tail.toString('utf8'), streams.stderr.tail.toString('utf8')]
-            .filter((entry) => entry.length > 0).join('\n').trim();
-      const outputProjection = Object.freeze({
-        stdoutDigest, stderrDigest,
-        stdoutBytesObserved: streams.stdout.bytes,
-        stderrBytesObserved: streams.stderr.bytes,
-        outputTruncated,
-        commandStarted
-      });
-      resolve(Object.freeze({
-        code: wallTimedOut ? 124 : outputTruncated ? 125 : code,
-        rawOutputDigest: ciActionDigest({ ...outputProjection, wallTimedOut }),
-        failureTail,
-        ...outputProjection
-      }));
-    };
-    child.on('spawn', () => { commandStarted = true; });
-    child.on('error', (error) => {
-      observe('stderr', Buffer.from(error instanceof Error ? error.message : String(error)));
-      finish(1);
-    });
-    child.on('close', (code) => finish(code ?? 1));
-    wallTimer = setTimeout(() => {
-      if (settled) return;
-      wallTimedOut = true;
-      child.kill('SIGKILL');
-    }, CI_VERIFICATION_HOSTED_SANDBOX_POLICY.limits.wallSeconds * 1_000);
-    wallTimer.unref();
+
+  const executablePath = path.resolve(plan.command);
+  const executableParent = inspectNoFollowDirectoryChain(
+    path.dirname(executablePath),
+    'Hosted SUT process executable parent'
+  );
+  const workingDirectoryChain = inspectNoFollowDirectoryChain(
+    path.resolve(process.cwd()),
+    'Hosted SUT process working directory'
+  );
+  const executable = retainNoFollowOrdinaryFile(
+    executableParent,
+    path.basename(executablePath),
+    undefined,
+    'Hosted SUT process executable',
+    RETAINED_EXECUTABLE_CHILD_DESCRIPTOR,
+    'executable'
+  );
+  const workingDirectory = retainNoFollowDirectoryForChildProcess(
+    workingDirectoryChain,
+    RETAINED_WORKING_DIRECTORY_CHILD_DESCRIPTOR,
+    'Hosted SUT process working directory'
+  );
+  const providerIdentityDigest = ciActionDigest(Object.freeze({
+    schema: 'sec-hosted-sut-process-provider-v1',
+    executable: Object.freeze({
+      path: executable.path,
+      physical: executable.physical,
+      digest: executable.digest().byteDigest
+    }),
+    workingDirectory: workingDirectoryChain.target,
+    auxiliaryArchive: retainedArchive === undefined ? null : Object.freeze({
+      physical: retainedArchive.capability.physical,
+      archiveDigest: retainedArchive.archiveDigest,
+      childPath: retainedArchive.capability.childPath
+    })
+  })) as OperationDigest;
+  const operation = bindHostedSutProcessOperation(plan, providerIdentityDigest);
+  const session = openProcessResourceSession({
+    operation,
+    requirementBindingContext: issueOperationRequirementBindingContext({
+      operation,
+      requirementId: HOSTED_SUT_PROCESS_REQUIREMENT_ID,
+      resourceCeilings: operation.plan.execution.aggregateBudgets
+    })
   });
+  const boundary = issueRetainedCommandBoundary({
+    executable,
+    workingDirectory,
+    ...(retainedArchive === undefined ? {} : {
+      auxiliaryInputs: [{
+        capability: retainedArchive.capability,
+        kind: 'ordinary-file' as const
+      }]
+    })
+  });
+
+  let observation: HostedSutSandboxProcessObservation | undefined;
+  let primaryFailure: Readonly<{ error: unknown }> | undefined;
+  try {
+    const executed = await session.run(boundary, plan.argv, {
+      env: { PATH: '/usr/bin:/bin', LANG: 'C.UTF-8' },
+      envMode: 'replace',
+      maxStdoutBytes: CI_VERIFICATION_HOSTED_SUT_OUTPUT_BYTE_LIMIT,
+      maxStderrBytes: CI_VERIFICATION_HOSTED_SUT_OUTPUT_BYTE_LIMIT
+    });
+    const stdout = Buffer.from(executed.result.stdout);
+    const stderr = Buffer.from(executed.result.stderr, 'utf8');
+    const tailByteLimit = 64 * 1024;
+    const stdoutDigest = `sha256:${createHash('sha256').update(stdout).digest('hex')}` as VerificationActionKeyDigest;
+    const stderrDigest = `sha256:${createHash('sha256').update(stderr).digest('hex')}` as VerificationActionKeyDigest;
+    const outputProjection = Object.freeze({
+      stdoutDigest,
+      stderrDigest,
+      stdoutBytesObserved: stdout.byteLength,
+      stderrBytesObserved: stderr.byteLength,
+      outputTruncated: false,
+      commandStarted: true
+    });
+    observation = Object.freeze({
+      code: executed.result.code,
+      rawOutputDigest: ciActionDigest({ ...outputProjection, wallTimedOut: false }),
+      failureTail: [
+        stdout.subarray(Math.max(0, stdout.byteLength - tailByteLimit)).toString('utf8'),
+        stderr.subarray(Math.max(0, stderr.byteLength - tailByteLimit)).toString('utf8')
+      ].filter((entry) => entry.length > 0).join('\n').trim(),
+      ...outputProjection
+    });
+  } catch (error) {
+    if (error instanceof RetainedCommandTransportError) {
+      const outputTruncated = error.outcome.stdout.observerTruncated ||
+        error.outcome.stderr.observerTruncated || /(?:stdout|stderr) exceeded/u.test(error.message);
+      const stdoutDigest = error.outcome.stdout.digest as VerificationActionKeyDigest;
+      const stderrDigest = error.outcome.stderr.digest as VerificationActionKeyDigest;
+      const outputProjection = Object.freeze({
+        stdoutDigest,
+        stderrDigest,
+        stdoutBytesObserved: error.outcome.stdout.bytes,
+        stderrBytesObserved: error.outcome.stderr.bytes,
+        outputTruncated,
+        commandStarted: error.outcome.started
+      });
+      observation = Object.freeze({
+        code: error.outcome.status === 'timed-out' ? 124
+          : outputTruncated ? 125 : error.outcome.exitCode ?? 1,
+        rawOutputDigest: ciActionDigest(Object.freeze({
+          ...outputProjection,
+          transportStatus: error.outcome.status
+        })),
+        failureTail: hostedSutDiagnostic(error.message, 'Hosted SUT process transport failed.'),
+        ...outputProjection
+      });
+    } else {
+      primaryFailure = Object.freeze({ error });
+    }
+  }
+
+  settlePhysicalResources({
+    ...(primaryFailure === undefined ? {} : {
+      primary: { label: 'Hosted SUT process execution', error: primaryFailure.error }
+    }),
+    cleanup: [
+      {
+        label: 'Hosted SUT process session',
+        settle: () => assertProcessResourceSessionReceipt(session.close(), {
+          operationIdentityDigest: operation.plan.identity.identityDigest,
+          boundAttemptDigest: operation.boundAttemptDigest,
+          requirementId: HOSTED_SUT_PROCESS_REQUIREMENT_ID
+        })
+      },
+      { label: 'Hosted SUT working directory', settle: () => workingDirectory.dispose() },
+      { label: 'Hosted SUT executable', settle: () => executable.dispose() }
+    ]
+  });
+  if (observation === undefined) {
+    throw new Error('Hosted SUT process settled without one physical observation.');
+  }
+  return observation;
 }
 
 function syntheticHostedSutSandboxProcessObservation(
@@ -2797,7 +2919,7 @@ export async function ExecuteTrustedBootstrapSut(input: Readonly<{
             retainedArchiveStable =
               assertRetainedHostedSutArchive(retainedArchive) === prepared.archiveDigest;
           } finally {
-            closeSync(retainedArchive.fileDescriptor);
+            retainedArchive.capability.dispose();
             retainedArchive = null;
           }
         }
@@ -2870,7 +2992,7 @@ export async function ExecuteTrustedBootstrapSut(input: Readonly<{
     }
     return Object.freeze({ status, bootstrapDigest, receiptDigest });
   } finally {
-    if (retainedArchive !== null) closeSync(retainedArchive.fileDescriptor);
+    if (retainedArchive !== null) retainedArchive.capability.dispose();
     if (prepared !== null && existsSync(prepared.preparedCandidateArchive)) {
       rmSync(prepared.preparedCandidateArchive, { force: true });
     }
@@ -3305,7 +3427,7 @@ export async function ExecuteHostedActionSut(input: Readonly<{
     finishedAt: finishedAt.toISOString()
   });
   } finally {
-    closeSync(retainedArchive.fileDescriptor);
+    retainedArchive.capability.dispose();
   }
 }
 
