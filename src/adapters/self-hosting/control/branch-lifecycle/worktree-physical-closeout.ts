@@ -4,10 +4,10 @@ import path from 'node:path';
 
 import { canonicalJson, sha256 } from '../../../../contracts/canonical.ts';
 import { withAcquiredResource } from '../../../../execution/resource-settlement.ts';
+import { withAuthorityGitReadSession } from '../../../providers/git-read/authority.ts';
 import { acquireWorkspaceWriteLease, assertWorkspaceWriteLease, assertWorkspaceWriteLeaseRetirement, assertWorkspaceWriteLeaseRetirementProof, completeWorkspaceWriteLeaseRetirement, recoverWorkspaceWriteLeaseRetirement, resumeWorkspaceWriteLeaseRetirement, withWorkspaceWriteLease, type WorkspaceWriteLeaseRetirementReceipt, type WorkspaceWriteLeaseToken } from '../../../filesystem/write-lease.ts';
 import { assertGeneratedStateWorktreeRetirementEffectStart, isGeneratedStateWorktreeRetirementBlocked, settleGeneratedStateForWorktreeRetirement } from '../../../runtime-state/generated-state/lifecycle.ts';
 import { createNoFollowDirectoryChain, deleteRetainedNoFollowEntry, inspectExactNoFollowDirectoryPresence, inspectNoFollowDirectoryChain, publishExclusiveDurableCanonicalFile, readNoFollowOrdinaryFile, relocateRetainedNoFollowDirectory, relocateRetainedNoFollowDirectoryAcrossParents, replaceDurableCanonicalFile, retireNoFollowDirectoryTree, scanNoFollowDirectoryDirectMetadata, scanNoFollowDirectoryTree, scanNoFollowDirectoryTreeInventory, scanNoFollowDirectoryTreeMetadata, type PhysicalDirectoryIdentity } from '../../../runtime-state/physical/runtime/physical-no-follow.ts';
-import { runCommandBytes } from '../../../runtime-state/physical/runtime/process.ts';
 import {
   WORKTREE_PHYSICAL_CLOSEOUT_AUTHORIZATION_SCHEMA,
   assertStableWorktreePhysicalWorkingState,
@@ -31,9 +31,9 @@ import {
   type WorktreePorcelainRecord
 } from '../../../runtime-state/worktree-closeout-contract.ts';
 import { compilerDependencyLocatorWorktreeRetirementProvider } from '../../../toolchain/dependencies/runtime.ts';
+import { GIT_READ_OPERATION_BUDGET } from '../../development/tooling/git/git-read.ts';
 import { createBranchLifecycleGitChildEnvironment } from './branch-lifecycle-command.ts';
 
-const MAX_BUFFER = 64 * 1024 * 1024;
 const MAX_CLEANUP_ATTEMPTS = 4;
 const BACKOFF_MILLISECONDS = [0, 15, 40, 100] as const;
 
@@ -164,19 +164,27 @@ export interface PreparedWorktreePhysicalCloseout {
   readonly token: WorktreePhysicalCloseoutConsumptionToken;
 }
 
-async function runRepositoryGit(repositoryRoot: string, args: readonly string[]): Promise<CommandResult> {
-  const result = await runCommandBytes('git', ['-C', repositoryRoot, ...args], {
-    cwd: repositoryRoot,
-    env: createBranchLifecycleGitChildEnvironment(process.env),
-    envMode: 'replace',
-    maxStderrBytes: MAX_BUFFER,
-    maxStdoutBytes: MAX_BUFFER
+async function runRepositoryGit(
+  repositoryRoot: string,
+  args: readonly string[]
+): Promise<CommandResult> {
+  const nestedCwd = args[0] === '-C' && typeof args[1] === 'string'
+    ? path.resolve(repositoryRoot, args[1])
+    : repositoryRoot;
+  const commandArgs = nestedCwd === repositoryRoot ? args : args.slice(2);
+  return withAuthorityGitReadSession({
+    cwd: nestedCwd,
+    budget: GIT_READ_OPERATION_BUDGET,
+    environment: createBranchLifecycleGitChildEnvironment(process.env)
+  }, async (session) => {
+    const command = await session.run(commandArgs);
+    if (command.kind !== 'completed') throw new Error(command.detail);
+    return Object.freeze({
+      status: command.result.code,
+      stdout: Buffer.from(command.result.stdout),
+      stderr: Buffer.from(command.result.stderr, 'utf8')
+    });
   });
-  return {
-    status: result.code,
-    stdout: Buffer.from(result.stdout),
-    stderr: Buffer.from(result.stderr, 'utf8')
-  };
 }
 
 async function requireRepositoryGit(repositoryRoot: string, args: readonly string[], label: string): Promise<Buffer> {
