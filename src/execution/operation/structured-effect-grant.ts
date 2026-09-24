@@ -7,15 +7,15 @@ import {
   type StructuredIdentityRuntime
 } from '../../contracts/structured-identity.ts';
 import {
-  assertOperationFoundationV2,
-  type OperationFoundationV2,
+  assertOperationFoundation,
+  type OperationFoundation,
   type OperationIdentityReference,
-  type SemanticOperationIntentV2,
-  type SemanticOperationPlanV2
-} from './foundation-v2.ts';
+  type SemanticOperationIntent,
+  type SemanticOperationPlan
+} from './identity-foundation.ts';
 import { SEC_SEMANTIC_OPERATION_ID_PATTERN } from './identity.ts';
 
-export type OperationEffectGrantFailureReasonV2 =
+export type OperationEffectGrantFailureReason =
   | 'already-consumed'
   | 'deadline-mismatch'
   | 'epoch-mismatch'
@@ -26,60 +26,60 @@ export type OperationEffectGrantFailureReasonV2 =
   | 'invalid-authority'
   | 'operation-mismatch';
 
-export class OperationEffectGrantErrorV2 extends Error {
-  readonly code = 'SEC-OPERATION-EFFECT-GRANT-V2';
+export class OperationEffectGrantError extends Error {
+  readonly code = 'SEC-OPERATION-EFFECT-GRANT';
 
-  constructor(readonly reason: OperationEffectGrantFailureReasonV2, message: string) {
+  constructor(readonly reason: OperationEffectGrantFailureReason, message: string) {
     super(message);
-    this.name = 'OperationEffectGrantErrorV2';
+    this.name = 'OperationEffectGrantError';
   }
 }
 
-declare const OPERATION_EFFECT_GRANT_V2: unique symbol;
-export type OperationEffectGrantV2 = Readonly<{
-  readonly [OPERATION_EFFECT_GRANT_V2]: true;
+declare const OPERATION_EFFECT_GRANT_BRAND: unique symbol;
+export type OperationEffectGrant = Readonly<{
+  readonly [OPERATION_EFFECT_GRANT_BRAND]: true;
 }>;
 
-export type IssuedOperationEffectGrantV2 = Readonly<{
-  readonly grant: OperationEffectGrantV2;
+export type IssuedOperationEffectGrant = Readonly<{
+  readonly grant: OperationEffectGrant;
   readonly authorityGrant: OperationIdentityReference;
-  readonly operationIdentity: SemanticOperationIntentV2['identity'];
-  readonly executionIdentity: SemanticOperationIntentV2['execution']['identity'];
+  readonly operationIdentity: SemanticOperationIntent['identity'];
+  readonly executionIdentity: SemanticOperationIntent['execution']['identity'];
   readonly currentEpoch: OperationIdentityReference;
   readonly deadlineAtUnixMs: number;
 }>;
 
-export type ConsumedOperationEffectGrantBindingV2 = Readonly<{
+export type ConsumedOperationEffectGrantBinding = Readonly<{
   readonly authorityGrant: OperationIdentityReference;
-  readonly operationIdentity: SemanticOperationPlanV2['identity'];
-  readonly executionIdentity: SemanticOperationPlanV2['execution']['identity'];
-  readonly attemptIdentity: SemanticOperationPlanV2['attempt']['identity'];
+  readonly operationIdentity: SemanticOperationPlan['identity'];
+  readonly executionIdentity: SemanticOperationPlan['execution']['identity'];
+  readonly attemptIdentity: SemanticOperationPlan['attempt']['identity'];
   readonly currentEpoch: OperationIdentityReference;
   readonly deadlineAtUnixMs: number;
-  readonly identity: Identity<'operation', 'effect-grant-attempt-binding/v2'>;
+  readonly identity: Identity<'operation', 'effect-grant-attempt-binding'>;
 }>;
 
-export type OperationEffectGrantAuthorityV2 = Readonly<{
+export type OperationEffectGrantAuthority = Readonly<{
   readonly issuer: Readonly<{
     issue(input: Readonly<{
-      operation: SemanticOperationIntentV2;
+      operation: SemanticOperationIntent;
       currentEpoch: OperationIdentityReference;
       deadlineAtUnixMs: number;
-    }>): IssuedOperationEffectGrantV2;
+    }>): IssuedOperationEffectGrant;
   }>;
   readonly consumer: Readonly<{
     consume(input: Readonly<{
-      grant: OperationEffectGrantV2;
-      operation: SemanticOperationPlanV2;
+      grant: OperationEffectGrant;
+      operation: SemanticOperationPlan;
       currentEpoch: OperationIdentityReference;
-    }>): ConsumedOperationEffectGrantBindingV2;
+    }>): ConsumedOperationEffectGrantBinding;
   }>;
 }>;
 
 type GrantRecord = {
   readonly semanticOperation: string;
-  readonly operationIdentity: SemanticOperationIntentV2['identity'];
-  readonly executionIdentity: SemanticOperationIntentV2['execution']['identity'];
+  readonly operationIdentity: SemanticOperationIntent['identity'];
+  readonly executionIdentity: SemanticOperationIntent['execution']['identity'];
   readonly currentEpoch: OperationIdentityReference;
   readonly deadlineAtUnixMs: number;
   readonly deadlineAtMonotonicMs: number;
@@ -87,8 +87,8 @@ type GrantRecord = {
   consumed: boolean;
 };
 
-function fail(reason: OperationEffectGrantFailureReasonV2, message: string): never {
-  throw new OperationEffectGrantErrorV2(reason, message);
+function fail(reason: OperationEffectGrantFailureReason, message: string): never {
+  throw new OperationEffectGrantError(reason, message);
 }
 
 function sameReference(left: OperationIdentityReference, right: OperationIdentityReference): boolean {
@@ -100,33 +100,33 @@ function sameIdentity(left: Identity<string, string>, right: Identity<string, st
     && left.schema === right.schema && left.digest === right.digest;
 }
 
-export function createOperationEffectGrantAuthorityV2(input: Readonly<{
-  foundation: OperationFoundationV2;
+export function createOperationEffectGrantAuthority(input: Readonly<{
+  foundation: OperationFoundation;
   identities: StructuredIdentityRuntime;
   semanticOperation: string;
   issuer: OperationIdentityReference;
-}>): OperationEffectGrantAuthorityV2 {
-  assertOperationFoundationV2(input.foundation);
+}>): OperationEffectGrantAuthority {
+  assertOperationFoundation(input.foundation);
   assertStructuredIdentityRuntime(input.identities);
   if (!SEC_SEMANTIC_OPERATION_ID_PATTERN.test(input.semanticOperation)) {
-    fail('invalid-authority', 'Effect grant v2 semantic operation must be canonical.');
+    fail('invalid-authority', 'Effect grant semantic operation must be canonical.');
   }
   const issuerIdentity = input.foundation.createReference(input.issuer);
   const grants = new WeakMap<object, GrantRecord>();
 
-  const issuer: OperationEffectGrantAuthorityV2['issuer'] = Object.freeze({
+  const issuer: OperationEffectGrantAuthority['issuer'] = Object.freeze({
     issue(issueInput) {
       input.foundation.assertIntent(issueInput.operation);
       if (issueInput.operation.operation !== input.semanticOperation) {
-        fail('operation-mismatch', 'Effect grant v2 issuer does not own this semantic operation.');
+        fail('operation-mismatch', 'Effect grant issuer does not own this semantic operation.');
       }
       const currentEpoch = input.foundation.createReference(issueInput.currentEpoch);
       const now = Date.now();
       if (!Number.isSafeInteger(issueInput.deadlineAtUnixMs) || issueInput.deadlineAtUnixMs <= now) {
-        fail('expired', 'Effect grant v2 deadline must be a future absolute safe integer.');
+        fail('expired', 'Effect grant deadline must be a future absolute safe integer.');
       }
       const nonce = `grantnonce256:${randomBytes(32).toString('hex')}`;
-      const grantIdentity = input.identities.structuredIdentity('operation', 'effect-grant/v2', {
+      const grantIdentity = input.identities.structuredIdentity('operation', 'effect-grant', {
         issuer: issuerIdentity,
         semanticOperation: input.semanticOperation,
         operationIdentity: issueInput.operation.identity,
@@ -140,7 +140,7 @@ export function createOperationEffectGrantAuthorityV2(input: Readonly<{
         schema: grantIdentity.schema,
         digest: grantIdentity.digest
       });
-      const grant = Object.freeze({}) as OperationEffectGrantV2;
+      const grant = Object.freeze({}) as OperationEffectGrant;
       grants.set(grant, {
         semanticOperation: input.semanticOperation,
         operationIdentity: issueInput.operation.identity,
@@ -162,35 +162,35 @@ export function createOperationEffectGrantAuthorityV2(input: Readonly<{
     }
   });
 
-  const consumer: OperationEffectGrantAuthorityV2['consumer'] = Object.freeze({
+  const consumer: OperationEffectGrantAuthority['consumer'] = Object.freeze({
     consume(consumeInput) {
       const record = grants.get(consumeInput.grant);
-      if (record === undefined) fail('foreign-grant', 'Effect grant v2 was not issued by this authority.');
-      if (record.consumed) fail('already-consumed', 'Effect grant v2 has already been consumed.');
+      if (record === undefined) fail('foreign-grant', 'Effect grant was not issued by this authority.');
+      if (record.consumed) fail('already-consumed', 'Effect grant has already been consumed.');
       input.foundation.assertPlan(consumeInput.operation);
       const currentEpoch = input.foundation.createReference(consumeInput.currentEpoch);
       const plan = consumeInput.operation;
       if (plan.operation !== record.semanticOperation
           || !sameIdentity(plan.identity, record.operationIdentity)) {
-        fail('operation-mismatch', 'Effect grant v2 does not bind this semantic operation.');
+        fail('operation-mismatch', 'Effect grant does not bind this semantic operation.');
       }
       if (!sameIdentity(plan.execution.identity, record.executionIdentity)) {
-        fail('execution-plan-mismatch', 'Effect grant v2 execution plan has drifted.');
+        fail('execution-plan-mismatch', 'Effect grant execution plan has drifted.');
       }
       if (!sameReference(currentEpoch, record.currentEpoch)) {
-        fail('epoch-mismatch', 'Effect grant v2 current epoch has drifted.');
+        fail('epoch-mismatch', 'Effect grant current epoch has drifted.');
       }
       if (plan.attempt.deadlineAtUnixMs !== record.deadlineAtUnixMs) {
-        fail('deadline-mismatch', 'Effect grant v2 deadline does not bind the operation attempt.');
+        fail('deadline-mismatch', 'Effect grant deadline does not bind the operation attempt.');
       }
       if (Date.now() >= record.deadlineAtUnixMs || performance.now() >= record.deadlineAtMonotonicMs) {
-        fail('expired', 'Effect grant v2 expired before consumption.');
+        fail('expired', 'Effect grant expired before consumption.');
       }
       if (!sameReference(plan.attempt.authorityGrant, record.authorityGrant)) {
-        fail('grant-attempt-mismatch', 'Effect grant v2 does not bind the operation attempt authority.');
+        fail('grant-attempt-mismatch', 'Effect grant does not bind the operation attempt authority.');
       }
       record.consumed = true;
-      const identity = input.identities.structuredIdentity('operation', 'effect-grant-attempt-binding/v2', {
+      const identity = input.identities.structuredIdentity('operation', 'effect-grant-attempt-binding', {
         authorityGrant: record.authorityGrant,
         operationIdentity: record.operationIdentity,
         executionIdentity: record.executionIdentity,

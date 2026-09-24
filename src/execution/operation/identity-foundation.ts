@@ -23,236 +23,236 @@ export type OperationIdentityReference = Readonly<{
   readonly digest: Digest;
 }>;
 
-export type OperationAttemptNonceV2 = `nonce256:${string}`;
+export type OperationAttemptNonce = `nonce256:${string}`;
 
-export type OperationRequirementV2 = Readonly<{
+export type OperationRequirement = Readonly<{
   readonly id: string;
   readonly contract: OperationIdentityReference;
   readonly effectKinds: readonly OperationEffectKind[];
   readonly failureKinds: readonly string[];
 }>;
 
-type OperationIntentIdentityV2 = Identity<'operation', 'intent/v2'>;
-type OperationExecutionIdentityV2 = Identity<'operation', 'execution-plan/v2'>;
-type OperationAttemptIdentityV2 = Identity<'operation', 'attempt/v2'>;
-type CapabilityBindingIdentityV2 = Identity<'operation', 'capability-binding/v2'>;
-type BindingSetIdentityV2 = Identity<'operation', 'binding-set/v2'>;
-type BoundAttemptIdentityV2 = Identity<'operation', 'bound-attempt/v2'>;
-type ProviderSettlementIdentityV2 = Identity<'operation', 'provider-settlement/v2'>;
-type ProviderSettlementSetIdentityV2 = Identity<'operation', 'provider-settlement-set/v2'>;
-type DomainReadbackIdentityV2 = Identity<'operation', 'domain-readback/v2'>;
-type OwnerTerminalJoinIdentityV2 = Identity<'operation', 'owner-terminal-join/v2'>;
-type RecoveredRetryAdmissionIdentityV2 = Identity<'operation', 'recovered-retry-admission/v2'>;
+type OperationIntentIdentity = Identity<'operation', 'intent'>;
+type OperationExecutionIdentity = Identity<'operation', 'execution-plan'>;
+type OperationAttemptIdentity = Identity<'operation', 'attempt'>;
+type CapabilityBindingIdentity = Identity<'operation', 'capability-binding'>;
+type BindingSetIdentity = Identity<'operation', 'binding-set'>;
+type BoundAttemptIdentity = Identity<'operation', 'bound-attempt'>;
+type ProviderSettlementIdentity = Identity<'operation', 'provider-settlement'>;
+type ProviderSettlementSetIdentity = Identity<'operation', 'provider-settlement-set'>;
+type DomainReadbackIdentity = Identity<'operation', 'domain-readback'>;
+type OwnerTerminalJoinIdentity = Identity<'operation', 'owner-terminal-join'>;
+type RecoveredRetryAdmissionIdentity = Identity<'operation', 'recovered-retry-admission'>;
 
-export type ProviderPhysicalDispositionV2 = 'not-started' | 'settled' | 'unknown';
-export type DomainReadbackDispositionV2 = 'applied' | 'not-applied' | 'unknown';
+export type ProviderPhysicalDisposition = 'not-started' | 'settled' | 'unknown';
+export type DomainReadbackDisposition = 'applied' | 'not-applied' | 'unknown';
 
-export type ProviderSettlementReceiptV2 = Readonly<{
+export type ProviderSettlementReceipt = Readonly<{
   readonly requirementId: string;
   readonly contract: OperationIdentityReference;
-  readonly bindingIdentity: CapabilityBindingIdentityV2;
-  readonly operationIdentity: OperationIntentIdentityV2;
-  readonly executionIdentity: OperationExecutionIdentityV2;
-  readonly boundAttemptIdentity: BoundAttemptIdentityV2;
-  readonly physicalDisposition: ProviderPhysicalDispositionV2;
+  readonly bindingIdentity: CapabilityBindingIdentity;
+  readonly operationIdentity: OperationIntentIdentity;
+  readonly executionIdentity: OperationExecutionIdentity;
+  readonly boundAttemptIdentity: BoundAttemptIdentity;
+  readonly physicalDisposition: ProviderPhysicalDisposition;
   readonly providerSettlementReference: OperationIdentityReference;
-  readonly identity: ProviderSettlementIdentityV2;
+  readonly identity: ProviderSettlementIdentity;
 }>;
 
-export type ProviderSettlementSetV2 = Readonly<{
-  readonly operationIdentity: OperationIntentIdentityV2;
-  readonly executionIdentity: OperationExecutionIdentityV2;
-  readonly bindingSetIdentity: BindingSetIdentityV2;
-  readonly boundAttemptIdentity: BoundAttemptIdentityV2;
-  readonly settlements: readonly ProviderSettlementReceiptV2[];
-  readonly identity: ProviderSettlementSetIdentityV2;
+export type ProviderSettlementSet = Readonly<{
+  readonly operationIdentity: OperationIntentIdentity;
+  readonly executionIdentity: OperationExecutionIdentity;
+  readonly bindingSetIdentity: BindingSetIdentity;
+  readonly boundAttemptIdentity: BoundAttemptIdentity;
+  readonly settlements: readonly ProviderSettlementReceipt[];
+  readonly identity: ProviderSettlementSetIdentity;
 }>;
 
-export type RecoveredPredecessorAttemptReferenceV2 = Readonly<{
-  readonly operationIdentity: OperationIntentIdentityV2;
-  readonly executionIdentity: OperationExecutionIdentityV2;
-  readonly bindingSetIdentity: BindingSetIdentityV2;
-  readonly boundAttemptIdentity: BoundAttemptIdentityV2;
-  readonly nonce: OperationAttemptNonceV2;
+export type RecoveredPredecessorAttemptReference = Readonly<{
+  readonly operationIdentity: OperationIntentIdentity;
+  readonly executionIdentity: OperationExecutionIdentity;
+  readonly bindingSetIdentity: BindingSetIdentity;
+  readonly boundAttemptIdentity: BoundAttemptIdentity;
+  readonly nonce: OperationAttemptNonce;
   readonly authorityGrant: OperationIdentityReference;
   readonly resumeEpoch: OperationIdentityReference | null;
   readonly deadlineAtUnixMs: number;
 }>;
 
-type DomainReadbackReceiptBaseV2 = Readonly<{
-  readonly operationIdentity: OperationIntentIdentityV2;
-  readonly executionIdentity: OperationExecutionIdentityV2;
-  readonly bindingSetIdentity: BindingSetIdentityV2;
-  readonly boundAttemptIdentity: BoundAttemptIdentityV2;
+type DomainReadbackReceiptBase = Readonly<{
+  readonly operationIdentity: OperationIntentIdentity;
+  readonly executionIdentity: OperationExecutionIdentity;
+  readonly bindingSetIdentity: BindingSetIdentity;
+  readonly boundAttemptIdentity: BoundAttemptIdentity;
   readonly readbackContract: OperationIdentityReference;
   readonly readbackReference: OperationIdentityReference;
   readonly currentPhysicalEpoch: OperationIdentityReference;
-  readonly disposition: DomainReadbackDispositionV2;
-  readonly identity: DomainReadbackIdentityV2;
+  readonly disposition: DomainReadbackDisposition;
+  readonly identity: DomainReadbackIdentity;
 }>;
 
-export type NormalDomainReadbackReceiptV2 = DomainReadbackReceiptBaseV2 & Readonly<{
+export type NormalDomainReadbackReceipt = DomainReadbackReceiptBase & Readonly<{
   readonly recoveryMode: 'normal';
-  readonly providerSettlementSetIdentity: ProviderSettlementSetIdentityV2;
+  readonly providerSettlementSetIdentity: ProviderSettlementSetIdentity;
   readonly durableObservation: null;
   readonly predecessor: null;
 }>;
 
-export type RecoveredDomainReadbackReceiptV2 = DomainReadbackReceiptBaseV2 & Readonly<{
+export type RecoveredDomainReadbackReceipt = DomainReadbackReceiptBase & Readonly<{
   readonly recoveryMode: 'recovered';
   readonly providerSettlementSetIdentity: null;
   readonly durableObservation: OperationIdentityReference;
-  readonly predecessor: RecoveredPredecessorAttemptReferenceV2;
+  readonly predecessor: RecoveredPredecessorAttemptReference;
 }>;
 
-export type DomainReadbackReceiptV2 =
-  | NormalDomainReadbackReceiptV2
-  | RecoveredDomainReadbackReceiptV2;
+export type DomainReadbackReceipt =
+  | NormalDomainReadbackReceipt
+  | RecoveredDomainReadbackReceipt;
 
-export type OwnerTerminalJoinReceiptV2 = Readonly<{
+export type OwnerTerminalJoinReceipt = Readonly<{
   readonly recoveryMode: 'normal' | 'recovered';
-  readonly operationIdentity: OperationIntentIdentityV2;
-  readonly executionIdentity: OperationExecutionIdentityV2;
-  readonly bindingSetIdentity: BindingSetIdentityV2;
-  readonly boundAttemptIdentity: BoundAttemptIdentityV2;
-  readonly providerSettlementSetIdentity: ProviderSettlementSetIdentityV2 | null;
-  readonly readbackIdentity: DomainReadbackIdentityV2;
+  readonly operationIdentity: OperationIntentIdentity;
+  readonly executionIdentity: OperationExecutionIdentity;
+  readonly bindingSetIdentity: BindingSetIdentity;
+  readonly boundAttemptIdentity: BoundAttemptIdentity;
+  readonly providerSettlementSetIdentity: ProviderSettlementSetIdentity | null;
+  readonly readbackIdentity: DomainReadbackIdentity;
   readonly ownerTerminalContract: OperationIdentityReference;
   readonly ownerTerminalReference: OperationIdentityReference;
-  readonly identity: OwnerTerminalJoinIdentityV2;
+  readonly identity: OwnerTerminalJoinIdentity;
 }>;
 
-export type RecoveredRetryAdmissionV2 = Readonly<{
-  readonly operationIdentity: OperationIntentIdentityV2;
-  readonly previousExecutionIdentity: OperationExecutionIdentityV2;
-  readonly previousBindingSetIdentity: BindingSetIdentityV2;
-  readonly previousBoundAttemptIdentity: BoundAttemptIdentityV2;
-  readonly previousNonce: OperationAttemptNonceV2;
+export type RecoveredRetryAdmission = Readonly<{
+  readonly operationIdentity: OperationIntentIdentity;
+  readonly previousExecutionIdentity: OperationExecutionIdentity;
+  readonly previousBindingSetIdentity: BindingSetIdentity;
+  readonly previousBoundAttemptIdentity: BoundAttemptIdentity;
+  readonly previousNonce: OperationAttemptNonce;
   readonly previousDeadlineAtUnixMs: number;
-  readonly recoveryBoundAttemptIdentity: BoundAttemptIdentityV2;
+  readonly recoveryBoundAttemptIdentity: BoundAttemptIdentity;
   readonly recoveryAuthorityGrant: OperationIdentityReference;
   readonly recoveryResumeEpoch: OperationIdentityReference;
-  readonly recoveredReadbackIdentity: DomainReadbackIdentityV2;
+  readonly recoveredReadbackIdentity: DomainReadbackIdentity;
   readonly currentPhysicalEpoch: OperationIdentityReference;
-  readonly identity: RecoveredRetryAdmissionIdentityV2;
+  readonly identity: RecoveredRetryAdmissionIdentity;
 }>;
 
-export type SemanticOperationIntentV2 = Readonly<{
+export type SemanticOperationIntent = Readonly<{
   readonly operation: string;
   readonly intent: OperationIdentityReference;
   readonly decision: OperationIdentityReference;
-  readonly identity: OperationIntentIdentityV2;
+  readonly identity: OperationIntentIdentity;
   readonly execution: Readonly<{
-    readonly operationIdentity: OperationIntentIdentityV2;
+    readonly operationIdentity: OperationIntentIdentity;
     readonly aggregateBudgets: readonly OperationBudget[];
-    readonly requirements: readonly OperationRequirementV2[];
-    readonly identity: OperationExecutionIdentityV2;
+    readonly requirements: readonly OperationRequirement[];
+    readonly identity: OperationExecutionIdentity;
   }>;
 }>;
 
-export type SemanticOperationAttemptContextV2 = Readonly<{
+export type SemanticOperationAttemptContext = Readonly<{
   readonly authorityGrant: OperationIdentityReference;
   readonly run: OperationIdentityReference | null;
   readonly resumeEpoch: OperationIdentityReference | null;
-  readonly nonce: OperationAttemptNonceV2;
+  readonly nonce: OperationAttemptNonce;
 }>;
 
-export type SemanticOperationPlanV2 = SemanticOperationIntentV2 & Readonly<{
+export type SemanticOperationPlan = SemanticOperationIntent & Readonly<{
   readonly attempt: Readonly<{
-    readonly operationIdentity: OperationIntentIdentityV2;
-    readonly executionIdentity: OperationExecutionIdentityV2;
+    readonly operationIdentity: OperationIntentIdentity;
+    readonly executionIdentity: OperationExecutionIdentity;
     readonly authorityGrant: OperationIdentityReference;
     readonly run: OperationIdentityReference | null;
     readonly resumeEpoch: OperationIdentityReference | null;
-    readonly nonce: OperationAttemptNonceV2;
+    readonly nonce: OperationAttemptNonce;
     readonly deadlineAtUnixMs: number;
-    readonly identity: OperationAttemptIdentityV2;
+    readonly identity: OperationAttemptIdentity;
   }>;
 }>;
 
-export type CapabilityBindingV2 = Readonly<{
+export type CapabilityBinding = Readonly<{
   readonly requirementId: string;
   readonly contract: OperationIdentityReference;
   readonly provider: OperationIdentityReference;
-  readonly identity: CapabilityBindingIdentityV2;
+  readonly identity: CapabilityBindingIdentity;
 }>;
 
-export type BoundSemanticOperationV2 = Readonly<{
-  readonly plan: SemanticOperationPlanV2;
-  readonly bindings: readonly CapabilityBindingV2[];
-  readonly bindingSetIdentity: BindingSetIdentityV2;
-  readonly boundAttemptIdentity: BoundAttemptIdentityV2;
+export type BoundSemanticOperation = Readonly<{
+  readonly plan: SemanticOperationPlan;
+  readonly bindings: readonly CapabilityBinding[];
+  readonly bindingSetIdentity: BindingSetIdentity;
+  readonly boundAttemptIdentity: BoundAttemptIdentity;
 }>;
 
-export type OperationFoundationV2 = Readonly<{
+export type OperationFoundation = Readonly<{
   createReference(input: OperationIdentityReference): OperationIdentityReference;
-  assertIntent(value: unknown): asserts value is SemanticOperationIntentV2;
-  assertPlan(value: unknown): asserts value is SemanticOperationPlanV2;
+  assertIntent(value: unknown): asserts value is SemanticOperationIntent;
+  assertPlan(value: unknown): asserts value is SemanticOperationPlan;
   issueAttemptContext(input: Readonly<{
     authorityGrant: OperationIdentityReference;
     run?: OperationIdentityReference | null;
     resumeEpoch?: OperationIdentityReference | null;
-  }>): SemanticOperationAttemptContextV2;
+  }>): SemanticOperationAttemptContext;
   compileIntent(input: Readonly<{
     operation: string;
     intent: OperationIdentityReference;
     decision: OperationIdentityReference;
     aggregateBudgets: readonly OperationBudget[];
-    requirements: readonly OperationRequirementV2[];
-  }>): SemanticOperationIntentV2;
+    requirements: readonly OperationRequirement[];
+  }>): SemanticOperationIntent;
   compilePlan(input: Readonly<{
     operation: string;
     intent: OperationIdentityReference;
     decision: OperationIdentityReference;
     deadlineAtUnixMs: number;
     aggregateBudgets: readonly OperationBudget[];
-    requirements: readonly OperationRequirementV2[];
-    attempt: SemanticOperationAttemptContextV2;
-  }>): SemanticOperationPlanV2;
+    requirements: readonly OperationRequirement[];
+    attempt: SemanticOperationAttemptContext;
+  }>): SemanticOperationPlan;
   compileBinding(input: Readonly<{
     requirementId: string;
     contract: OperationIdentityReference;
     provider: OperationIdentityReference;
-  }>): CapabilityBindingV2;
-  bind(plan: SemanticOperationPlanV2, bindings: readonly CapabilityBindingV2[]): BoundSemanticOperationV2;
-  issueProviderSettlement(operation: BoundSemanticOperationV2, input: Readonly<{
+  }>): CapabilityBinding;
+  bind(plan: SemanticOperationPlan, bindings: readonly CapabilityBinding[]): BoundSemanticOperation;
+  issueProviderSettlement(operation: BoundSemanticOperation, input: Readonly<{
     requirementId: string;
-    physicalDisposition: ProviderPhysicalDispositionV2;
+    physicalDisposition: ProviderPhysicalDisposition;
     providerSettlementReference: OperationIdentityReference;
-  }>): ProviderSettlementReceiptV2;
+  }>): ProviderSettlementReceipt;
   compileProviderSettlementSet(
-    operation: BoundSemanticOperationV2,
-    settlements: readonly ProviderSettlementReceiptV2[]
-  ): ProviderSettlementSetV2;
-  issueNormalReadback(operation: BoundSemanticOperationV2, settlementSet: ProviderSettlementSetV2, input: Readonly<{
+    operation: BoundSemanticOperation,
+    settlements: readonly ProviderSettlementReceipt[]
+  ): ProviderSettlementSet;
+  issueNormalReadback(operation: BoundSemanticOperation, settlementSet: ProviderSettlementSet, input: Readonly<{
     readbackContract: OperationIdentityReference;
     readbackReference: OperationIdentityReference;
     currentPhysicalEpoch: OperationIdentityReference;
-    disposition: DomainReadbackDispositionV2;
-  }>): NormalDomainReadbackReceiptV2;
-  issueRecoveredReadback(operation: BoundSemanticOperationV2, input: Readonly<{
-    predecessor: RecoveredPredecessorAttemptReferenceV2;
+    disposition: DomainReadbackDisposition;
+  }>): NormalDomainReadbackReceipt;
+  issueRecoveredReadback(operation: BoundSemanticOperation, input: Readonly<{
+    predecessor: RecoveredPredecessorAttemptReference;
     durableObservation: OperationIdentityReference;
     readbackContract: OperationIdentityReference;
     readbackReference: OperationIdentityReference;
     currentPhysicalEpoch: OperationIdentityReference;
-    disposition: DomainReadbackDispositionV2;
-  }>): RecoveredDomainReadbackReceiptV2;
-  issueNormalTerminalJoin(operation: BoundSemanticOperationV2, settlementSet: ProviderSettlementSetV2, readback: NormalDomainReadbackReceiptV2, input: Readonly<{
+    disposition: DomainReadbackDisposition;
+  }>): RecoveredDomainReadbackReceipt;
+  issueNormalTerminalJoin(operation: BoundSemanticOperation, settlementSet: ProviderSettlementSet, readback: NormalDomainReadbackReceipt, input: Readonly<{
     ownerTerminalContract: OperationIdentityReference;
     ownerTerminalReference: OperationIdentityReference;
-  }>): OwnerTerminalJoinReceiptV2;
-  issueRecoveredTerminalJoin(operation: BoundSemanticOperationV2, readback: RecoveredDomainReadbackReceiptV2, input: Readonly<{
+  }>): OwnerTerminalJoinReceipt;
+  issueRecoveredTerminalJoin(operation: BoundSemanticOperation, readback: RecoveredDomainReadbackReceipt, input: Readonly<{
     ownerTerminalContract: OperationIdentityReference;
     ownerTerminalReference: OperationIdentityReference;
-  }>): OwnerTerminalJoinReceiptV2;
+  }>): OwnerTerminalJoinReceipt;
   issueRecoveredRetryAdmission(
-    operation: BoundSemanticOperationV2,
-    readback: RecoveredDomainReadbackReceiptV2
-  ): RecoveredRetryAdmissionV2;
+    operation: BoundSemanticOperation,
+    readback: RecoveredDomainReadbackReceipt
+  ): RecoveredRetryAdmission;
   consumeRecoveredRetryAdmission(
-    admission: RecoveredRetryAdmissionV2,
-    successor: BoundSemanticOperationV2,
+    admission: RecoveredRetryAdmission,
+    successor: BoundSemanticOperation,
     currentPhysicalEpoch: OperationIdentityReference
   ): void;
 }>;
@@ -322,25 +322,25 @@ function sameIdentity(
     && left.digest === right.digest;
 }
 
-function canonicalPhysicalDisposition(value: ProviderPhysicalDispositionV2): ProviderPhysicalDispositionV2 {
+function canonicalPhysicalDisposition(value: ProviderPhysicalDisposition): ProviderPhysicalDisposition {
   if (value !== 'not-started' && value !== 'settled' && value !== 'unknown') {
     throw new Error('Provider physical disposition is not canonical.');
   }
   return value;
 }
 
-function canonicalReadbackDisposition(value: DomainReadbackDispositionV2): DomainReadbackDispositionV2 {
+function canonicalReadbackDisposition(value: DomainReadbackDisposition): DomainReadbackDisposition {
   if (value !== 'applied' && value !== 'not-applied' && value !== 'unknown') {
     throw new Error('Domain readback disposition is not canonical.');
   }
   return value;
 }
 
-function issueNonce(): OperationAttemptNonceV2 {
+function issueNonce(): OperationAttemptNonce {
   return `nonce256:${randomBytes(32).toString('hex')}`;
 }
 
-function canonicalRequirement(requirement: OperationRequirementV2): OperationRequirementV2 {
+function canonicalRequirement(requirement: OperationRequirement): OperationRequirement {
   const id = requireOperationId(requirement.id, 'Operation requirement id');
   return deepFreeze({
     id,
@@ -356,9 +356,9 @@ function canonicalRequirement(requirement: OperationRequirementV2): OperationReq
   });
 }
 
-export function createOperationFoundationV2(
+export function createOperationFoundation(
   identities: StructuredIdentityRuntime
-): OperationFoundationV2 {
+): OperationFoundation {
   assertStructuredIdentityRuntime(identities);
   const issuedIntents = new WeakSet<object>();
   const issuedAttempts = new WeakSet<object>();
@@ -376,7 +376,7 @@ export function createOperationFoundationV2(
     parseOperationIdentityReference(input)
   );
 
-  const issueAttemptContext: OperationFoundationV2['issueAttemptContext'] = (input) => {
+  const issueAttemptContext: OperationFoundation['issueAttemptContext'] = (input) => {
     const context = deepFreeze({
       authorityGrant: createReference(input.authorityGrant),
       run: input.run === undefined || input.run === null ? null : createReference(input.run),
@@ -389,7 +389,7 @@ export function createOperationFoundationV2(
     return context;
   };
 
-  const compileIntent: OperationFoundationV2['compileIntent'] = (input) => {
+  const compileIntent: OperationFoundation['compileIntent'] = (input) => {
     const operation = requireOperationId(input.operation, 'Semantic operation');
     const aggregateBudgets = [...input.aggregateBudgets]
       .sort((left, right) => compareCodeUnits(left.resource, right.resource))
@@ -405,14 +405,14 @@ export function createOperationFoundationV2(
     }
     const intent = createReference(input.intent);
     const decision = createReference(input.decision);
-    const identity = identities.structuredIdentity('operation', 'intent/v2', {
+    const identity = identities.structuredIdentity('operation', 'intent', {
       operation,
       intent,
       decision
     });
     const frozenRequirements = Object.freeze(requirements);
     const frozenBudgets = Object.freeze(aggregateBudgets);
-    const executionIdentity = identities.structuredIdentity('operation', 'execution-plan/v2', {
+    const executionIdentity = identities.structuredIdentity('operation', 'execution-plan', {
       operationIdentity: identity,
       aggregateBudgets: frozenBudgets,
       requirements: frozenRequirements
@@ -433,27 +433,27 @@ export function createOperationFoundationV2(
     return compiled;
   };
 
-  const assertIntent: OperationFoundationV2['assertIntent'] = (value) => {
+  const assertIntent: OperationFoundation['assertIntent'] = (value) => {
     if (value === null || typeof value !== 'object' || !issuedIntents.has(value)) {
-      throw new Error('Semantic operation v2 intent is not foundation-issued.');
+      throw new Error('Semantic operation intent is not foundation-issued.');
     }
   };
 
-  const assertPlan: OperationFoundationV2['assertPlan'] = (value) => {
+  const assertPlan: OperationFoundation['assertPlan'] = (value) => {
     if (value === null || typeof value !== 'object' || !issuedPlans.has(value)) {
-      throw new Error('Semantic operation v2 plan is not foundation-issued.');
+      throw new Error('Semantic operation plan is not foundation-issued.');
     }
   };
 
-  const compilePlan: OperationFoundationV2['compilePlan'] = (input) => {
+  const compilePlan: OperationFoundation['compilePlan'] = (input) => {
     if (!issuedAttempts.has(input.attempt)) {
-      throw new Error('Semantic operation v2 attempt context is not foundation-issued.');
+      throw new Error('Semantic operation attempt context is not foundation-issued.');
     }
     if (!Number.isSafeInteger(input.deadlineAtUnixMs) || input.deadlineAtUnixMs < 1) {
       throw new Error('Semantic operation deadline must be an absolute safe integer.');
     }
     const intent = compileIntent(input);
-    const attemptIdentity = identities.structuredIdentity('operation', 'attempt/v2', {
+    const attemptIdentity = identities.structuredIdentity('operation', 'attempt', {
       operationIdentity: intent.identity,
       executionIdentity: intent.execution.identity,
       authorityGrant: input.attempt.authorityGrant,
@@ -479,11 +479,11 @@ export function createOperationFoundationV2(
     return plan;
   };
 
-  const compileBinding: OperationFoundationV2['compileBinding'] = (input) => {
+  const compileBinding: OperationFoundation['compileBinding'] = (input) => {
     const requirementId = requireOperationId(input.requirementId, 'Capability binding requirement id');
     const contract = createReference(input.contract);
     const provider = createReference(input.provider);
-    const identity = identities.structuredIdentity('operation', 'capability-binding/v2', {
+    const identity = identities.structuredIdentity('operation', 'capability-binding', {
       requirementId,
       contract,
       provider
@@ -493,32 +493,32 @@ export function createOperationFoundationV2(
     return binding;
   };
 
-  const bind: OperationFoundationV2['bind'] = (plan, suppliedBindings) => {
+  const bind: OperationFoundation['bind'] = (plan, suppliedBindings) => {
     if (!issuedPlans.has(plan)) {
-      throw new Error('Semantic operation v2 plan is not foundation-issued.');
+      throw new Error('Semantic operation plan is not foundation-issued.');
     }
     const bindings = [...suppliedBindings].sort((left, right) => (
       compareCodeUnits(left.requirementId, right.requirementId)
     ));
     if (bindings.length !== plan.execution.requirements.length
         || new Set(bindings.map(({ requirementId }) => requirementId)).size !== bindings.length) {
-      throw new Error('Semantic operation v2 bindings require exactly one binding per requirement.');
+      throw new Error('Semantic operation bindings require exactly one binding per requirement.');
     }
     for (const [index, requirement] of plan.execution.requirements.entries()) {
       const binding = bindings[index];
       if (binding === undefined || !issuedBindings.has(binding)
           || binding.requirementId !== requirement.id
           || !sameReference(binding.contract, requirement.contract)) {
-        throw new Error(`Semantic operation v2 binding for ${requirement.id} is invalid.`);
+        throw new Error(`Semantic operation binding for ${requirement.id} is invalid.`);
       }
     }
     const frozenBindings = Object.freeze(bindings);
-    const bindingSetIdentity = identities.structuredIdentity('operation', 'binding-set/v2', {
+    const bindingSetIdentity = identities.structuredIdentity('operation', 'binding-set', {
       operationIdentity: plan.identity,
       executionIdentity: plan.execution.identity,
       bindings: frozenBindings.map(({ identity }) => identity)
     });
-    const boundAttemptIdentity = identities.structuredIdentity('operation', 'bound-attempt/v2', {
+    const boundAttemptIdentity = identities.structuredIdentity('operation', 'bound-attempt', {
       attemptIdentity: plan.attempt.identity,
       bindingSetIdentity
     });
@@ -527,13 +527,13 @@ export function createOperationFoundationV2(
     return bound;
   };
 
-  const requireBound = (operation: BoundSemanticOperationV2): void => {
+  const requireBound = (operation: BoundSemanticOperation): void => {
     if (!issuedBoundOperations.has(operation)) {
-      throw new Error('Semantic operation v2 bound attempt is not foundation-issued.');
+      throw new Error('Semantic operation bound attempt is not foundation-issued.');
     }
   };
 
-  const issueProviderSettlement: OperationFoundationV2['issueProviderSettlement'] = (operation, input) => {
+  const issueProviderSettlement: OperationFoundation['issueProviderSettlement'] = (operation, input) => {
     requireBound(operation);
     const requirementId = requireOperationId(input.requirementId, 'Provider settlement requirement id');
     const requirement = operation.plan.execution.requirements.find(({ id }) => id === requirementId);
@@ -544,7 +544,7 @@ export function createOperationFoundationV2(
     }
     const providerSettlementReference = createReference(input.providerSettlementReference);
     const physicalDisposition = canonicalPhysicalDisposition(input.physicalDisposition);
-    const identity = identities.structuredIdentity('operation', 'provider-settlement/v2', {
+    const identity = identities.structuredIdentity('operation', 'provider-settlement', {
       requirementId,
       contract: requirement.contract,
       bindingIdentity: binding.identity,
@@ -564,7 +564,7 @@ export function createOperationFoundationV2(
     return settlement;
   };
 
-  const compileProviderSettlementSet: OperationFoundationV2['compileProviderSettlementSet'] = (
+  const compileProviderSettlementSet: OperationFoundation['compileProviderSettlementSet'] = (
     operation, suppliedSettlements
   ) => {
     requireBound(operation);
@@ -572,7 +572,7 @@ export function createOperationFoundationV2(
       compareCodeUnits(left.requirementId, right.requirementId));
     if (settlements.length !== operation.plan.execution.requirements.length
         || new Set(settlements.map(({ requirementId }) => requirementId)).size !== settlements.length) {
-      throw new Error('Provider settlement set v2 requires exactly one receipt per requirement.');
+      throw new Error('Provider settlement set requires exactly one receipt per requirement.');
     }
     for (const [index, requirement] of operation.plan.execution.requirements.entries()) {
       const settlement = settlements[index];
@@ -584,11 +584,11 @@ export function createOperationFoundationV2(
           || !sameIdentity(settlement.operationIdentity, operation.plan.identity)
           || !sameIdentity(settlement.executionIdentity, operation.plan.execution.identity)
           || !sameIdentity(settlement.boundAttemptIdentity, operation.boundAttemptIdentity)) {
-        throw new Error(`Provider settlement v2 for ${requirement.id} does not bind the exact attempt.`);
+        throw new Error(`Provider settlement for ${requirement.id} does not bind the exact attempt.`);
       }
     }
     const frozenSettlements = Object.freeze(settlements);
-    const identity = identities.structuredIdentity('operation', 'provider-settlement-set/v2', {
+    const identity = identities.structuredIdentity('operation', 'provider-settlement-set', {
       operationIdentity: operation.plan.identity,
       executionIdentity: operation.plan.execution.identity,
       bindingSetIdentity: operation.bindingSetIdentity,
@@ -604,11 +604,11 @@ export function createOperationFoundationV2(
     return set;
   };
 
-  const readbackBase = (operation: BoundSemanticOperationV2, input: {
+  const readbackBase = (operation: BoundSemanticOperation, input: {
     readbackContract: OperationIdentityReference;
     readbackReference: OperationIdentityReference;
     currentPhysicalEpoch: OperationIdentityReference;
-    disposition: DomainReadbackDispositionV2;
+    disposition: DomainReadbackDisposition;
   }) => ({
     operationIdentity: operation.plan.identity,
     executionIdentity: operation.plan.execution.identity,
@@ -620,23 +620,23 @@ export function createOperationFoundationV2(
     disposition: canonicalReadbackDisposition(input.disposition)
   });
 
-  const issueNormalReadback: OperationFoundationV2['issueNormalReadback'] = (operation, settlementSet, input) => {
+  const issueNormalReadback: OperationFoundation['issueNormalReadback'] = (operation, settlementSet, input) => {
     requireBound(operation);
     if (!issuedSettlementSets.has(settlementSet)
         || !sameIdentity(settlementSet.operationIdentity, operation.plan.identity)
         || !sameIdentity(settlementSet.executionIdentity, operation.plan.execution.identity)
         || !sameIdentity(settlementSet.bindingSetIdentity, operation.bindingSetIdentity)
         || !sameIdentity(settlementSet.boundAttemptIdentity, operation.boundAttemptIdentity)) {
-      throw new Error('Normal domain readback v2 does not bind the exact provider settlement set.');
+      throw new Error('Normal domain readback does not bind the exact provider settlement set.');
     }
     const base = readbackBase(operation, input);
     const payload = deepFreeze({ recoveryMode: 'normal' as const, ...base,
       providerSettlementSetIdentity: settlementSet.identity, durableObservation: null, predecessor: null });
-    const identity = identities.structuredIdentity('operation', 'domain-readback/v2', payload);
+    const identity = identities.structuredIdentity('operation', 'domain-readback', payload);
     return deepFreeze({ ...payload, identity });
   };
 
-  const issueRecoveredReadback: OperationFoundationV2['issueRecoveredReadback'] = (operation, input) => {
+  const issueRecoveredReadback: OperationFoundation['issueRecoveredReadback'] = (operation, input) => {
     requireBound(operation);
     const predecessor = input.predecessor;
     if (!sameIdentity(predecessor.operationIdentity, operation.plan.identity)
@@ -644,9 +644,9 @@ export function createOperationFoundationV2(
         || !sameIdentity(predecessor.bindingSetIdentity, operation.bindingSetIdentity)
         || sameIdentity(predecessor.boundAttemptIdentity, operation.boundAttemptIdentity)
         || operation.plan.attempt.resumeEpoch === null
-        || !isOperationAttemptNonceV2(predecessor.nonce)
+        || !isOperationAttemptNonce(predecessor.nonce)
         || !Number.isSafeInteger(predecessor.deadlineAtUnixMs) || predecessor.deadlineAtUnixMs < 1) {
-      throw new Error('Recovered domain readback v2 does not bind one predecessor and recovery authority.');
+      throw new Error('Recovered domain readback does not bind one predecessor and recovery authority.');
     }
     const canonicalPredecessor = deepFreeze({
       operationIdentity: predecessor.operationIdentity, executionIdentity: predecessor.executionIdentity,
@@ -659,26 +659,26 @@ export function createOperationFoundationV2(
     const payload = deepFreeze({ recoveryMode: 'recovered' as const, ...base,
       providerSettlementSetIdentity: null, durableObservation: createReference(input.durableObservation),
       predecessor: canonicalPredecessor });
-    const identity = identities.structuredIdentity('operation', 'domain-readback/v2', payload);
+    const identity = identities.structuredIdentity('operation', 'domain-readback', payload);
     const readback = deepFreeze({ ...payload, identity });
     issuedRecoveredReadbacks.add(readback);
     return readback;
   };
 
-  const requireReadbackFor = (operation: BoundSemanticOperationV2, readback: DomainReadbackReceiptV2): void => {
+  const requireReadbackFor = (operation: BoundSemanticOperation, readback: DomainReadbackReceipt): void => {
     requireBound(operation);
     if (!sameIdentity(readback.operationIdentity, operation.plan.identity)
         || !sameIdentity(readback.executionIdentity, operation.plan.execution.identity)
         || !sameIdentity(readback.bindingSetIdentity, operation.bindingSetIdentity)
         || !sameIdentity(readback.boundAttemptIdentity, operation.boundAttemptIdentity)) {
-      throw new Error('Domain readback v2 does not bind the exact operation attempt.');
+      throw new Error('Domain readback does not bind the exact operation attempt.');
     }
   };
 
-  const terminalJoin = (operation: BoundSemanticOperationV2, readback: DomainReadbackReceiptV2, input: {
+  const terminalJoin = (operation: BoundSemanticOperation, readback: DomainReadbackReceipt, input: {
     ownerTerminalContract: OperationIdentityReference;
     ownerTerminalReference: OperationIdentityReference;
-  }): OwnerTerminalJoinReceiptV2 => {
+  }): OwnerTerminalJoinReceipt => {
     const payload = deepFreeze({
       recoveryMode: readback.recoveryMode, operationIdentity: operation.plan.identity,
       executionIdentity: operation.plan.execution.identity, bindingSetIdentity: operation.bindingSetIdentity,
@@ -687,33 +687,33 @@ export function createOperationFoundationV2(
       ownerTerminalContract: createReference(input.ownerTerminalContract),
       ownerTerminalReference: createReference(input.ownerTerminalReference)
     });
-    const identity = identities.structuredIdentity('operation', 'owner-terminal-join/v2', payload);
+    const identity = identities.structuredIdentity('operation', 'owner-terminal-join', payload);
     return deepFreeze({ ...payload, identity });
   };
 
-  const issueNormalTerminalJoin: OperationFoundationV2['issueNormalTerminalJoin'] = (operation, settlementSet, readback, input) => {
+  const issueNormalTerminalJoin: OperationFoundation['issueNormalTerminalJoin'] = (operation, settlementSet, readback, input) => {
     requireReadbackFor(operation, readback);
     if (!issuedSettlementSets.has(settlementSet)
         || !sameIdentity(readback.providerSettlementSetIdentity, settlementSet.identity)) {
-      throw new Error('Normal owner terminal join v2 requires its exact provider settlement set.');
+      throw new Error('Normal owner terminal join requires its exact provider settlement set.');
     }
     return terminalJoin(operation, readback, input);
   };
 
-  const issueRecoveredTerminalJoin: OperationFoundationV2['issueRecoveredTerminalJoin'] = (operation, readback, input) => {
+  const issueRecoveredTerminalJoin: OperationFoundation['issueRecoveredTerminalJoin'] = (operation, readback, input) => {
     requireReadbackFor(operation, readback);
     if (!issuedRecoveredReadbacks.has(readback) || consumedRecoveredReadbacks.has(readback)) {
-      throw new Error('Recovered owner terminal join v2 requires one unconsumed recovered readback.');
+      throw new Error('Recovered owner terminal join requires one unconsumed recovered readback.');
     }
     consumedRecoveredReadbacks.add(readback);
     return terminalJoin(operation, readback, input);
   };
 
-  const issueRecoveredRetryAdmission: OperationFoundationV2['issueRecoveredRetryAdmission'] = (operation, readback) => {
+  const issueRecoveredRetryAdmission: OperationFoundation['issueRecoveredRetryAdmission'] = (operation, readback) => {
     requireReadbackFor(operation, readback);
     if (!issuedRecoveredReadbacks.has(readback) || consumedRecoveredReadbacks.has(readback)
         || readback.disposition !== 'not-applied' || operation.plan.attempt.resumeEpoch === null) {
-      throw new Error('Recovered retry admission v2 requires a conclusive unconsumed not-applied readback.');
+      throw new Error('Recovered retry admission requires a conclusive unconsumed not-applied readback.');
     }
     const payload = deepFreeze({
       operationIdentity: readback.operationIdentity,
@@ -728,22 +728,22 @@ export function createOperationFoundationV2(
       recoveredReadbackIdentity: readback.identity,
       currentPhysicalEpoch: readback.currentPhysicalEpoch
     });
-    const identity = identities.structuredIdentity('operation', 'recovered-retry-admission/v2', payload);
+    const identity = identities.structuredIdentity('operation', 'recovered-retry-admission', payload);
     const admission = deepFreeze({ ...payload, identity });
     consumedRecoveredReadbacks.add(readback);
     issuedRetryAdmissions.add(admission);
     return admission;
   };
 
-  const consumeRecoveredRetryAdmission: OperationFoundationV2['consumeRecoveredRetryAdmission'] = (
+  const consumeRecoveredRetryAdmission: OperationFoundation['consumeRecoveredRetryAdmission'] = (
     admission, successor, currentPhysicalEpoch
   ) => {
     requireBound(successor);
     if (!issuedRetryAdmissions.has(admission)) {
-      throw new Error('Recovered retry admission v2 is not foundation-issued.');
+      throw new Error('Recovered retry admission is not foundation-issued.');
     }
     if (consumedRetryAdmissions.has(admission)) {
-      throw new Error('Recovered retry admission v2 was already consumed.');
+      throw new Error('Recovered retry admission was already consumed.');
     }
     if (!sameIdentity(successor.plan.identity, admission.operationIdentity)
         || !sameIdentity(successor.plan.execution.identity, admission.previousExecutionIdentity)
@@ -756,7 +756,7 @@ export function createOperationFoundationV2(
         || !sameReference(createReference(currentPhysicalEpoch), admission.currentPhysicalEpoch)
         || successor.plan.attempt.deadlineAtUnixMs > admission.previousDeadlineAtUnixMs
         || successor.plan.attempt.deadlineAtUnixMs <= Date.now()) {
-      throw new Error('Recovered retry admission v2 does not authorize this successor attempt.');
+      throw new Error('Recovered retry admission does not authorize this successor attempt.');
     }
     consumedRetryAdmissions.add(admission);
   };
@@ -783,12 +783,12 @@ export function createOperationFoundationV2(
   return foundation;
 }
 
-export function assertOperationFoundationV2(value: unknown): asserts value is OperationFoundationV2 {
+export function assertOperationFoundation(value: unknown): asserts value is OperationFoundation {
   if (value === null || typeof value !== 'object' || !ISSUED_FOUNDATIONS.has(value)) {
-    throw new TypeError('Operation foundation v2 must be owner-issued.');
+    throw new TypeError('Operation foundation must be owner-issued.');
   }
 }
 
-export function isOperationAttemptNonceV2(value: unknown): value is OperationAttemptNonceV2 {
+export function isOperationAttemptNonce(value: unknown): value is OperationAttemptNonce {
   return typeof value === 'string' && NONCE_PATTERN.test(value);
 }
