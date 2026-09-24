@@ -886,3 +886,25 @@ test('request grammar rejects coercible identifiers and unsupported status state
   expect(coerced).toBe(0);
   expect(requests).toBe(0);
 });
+
+test('merged pull inventory uses one bounded fixed REST page and rejects invalid pages before transport', async () => {
+  const urls: string[] = [];
+  const api = capability({
+    effect: 'read',
+    transport: async (target) => {
+      urls.push(String(target));
+      return Response.json([]);
+    }
+  });
+  await withGitHubApiTestSession({
+    capability: api,
+    operation: async () => await executeGitHubApiOperation(api, { kind: 'merged-pulls', page: 1 })
+  });
+  expect(urls).toEqual([
+    'https://api.github.com/repos/sec-platform/sec/pulls?state=closed&sort=updated&direction=desc&per_page=100&page=1'
+  ]);
+  await expect(withGitHubApiTestSession({
+    capability: api,
+    operation: async () => await executeGitHubApiOperation(api, { kind: 'merged-pulls', page: 0 })
+  })).rejects.toThrow(/page/u);
+});
