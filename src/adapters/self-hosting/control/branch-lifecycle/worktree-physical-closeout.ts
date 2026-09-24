@@ -168,10 +168,9 @@ async function runRepositoryGit(
   repositoryRoot: string,
   args: readonly string[]
 ): Promise<CommandResult> {
-  const nestedCwd = args[0] === '-C' && typeof args[1] === 'string'
-    ? path.resolve(repositoryRoot, args[1])
-    : repositoryRoot;
-  const commandArgs = nestedCwd === repositoryRoot ? args : args.slice(2);
+  const hasNestedCwd = args[0] === '-C' && typeof args[1] === 'string';
+  const nestedCwd = hasNestedCwd ? path.resolve(repositoryRoot, args[1]!) : repositoryRoot;
+  const commandArgs = hasNestedCwd ? args.slice(2) : args;
   return withAuthorityGitReadSession({
     cwd: nestedCwd,
     budget: GIT_READ_OPERATION_BUDGET,

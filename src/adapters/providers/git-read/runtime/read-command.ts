@@ -254,9 +254,14 @@ export function gitReadCommandIsObservation(args: readonly string[]): boolean {
         && commandArgs.slice(1).every((argument) => !argument.startsWith('-')));
   }
   if (command === 'for-each-ref') {
-    return commandArgs.length === 2
-      && commandArgs[0]!.startsWith('--format=')
-      && !commandArgs[1]!.startsWith('-');
+    const contains = commandArgs[0]?.startsWith('--contains=') === true
+      ? commandArgs[0]!.slice('--contains='.length)
+      : null;
+    const offset = contains === null ? 0 : 1;
+    if (contains !== null && !/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/u.test(contains)) return false;
+    return commandArgs.length === offset + 2
+      && commandArgs[offset]!.startsWith('--format=')
+      && !commandArgs[offset + 1]!.startsWith('-');
   }
   if (command === 'diff' || command === 'diff-files' || command === 'diff-index') {
     const allowed = DIFF_FLAGS;

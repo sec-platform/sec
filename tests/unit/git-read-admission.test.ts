@@ -23,7 +23,9 @@ const accepted = [
   ['ls-files', '-z', '--stage'], ['ls-tree', '-r', '-z', '--full-tree', 'HEAD'],
   ['rev-list', '--first-parent', '--ancestry-path', '--reverse', 'main..HEAD'],
   ['merge-base', '--is-ancestor', 'main', 'HEAD'], ['var', 'GIT_AUTHOR_IDENT'],
-  ['for-each-ref', '--format=%(refname)', 'refs/heads/'], ['ls-remote', '--exit-code', 'origin', 'refs/heads/main']
+  ['for-each-ref', '--format=%(refname)', 'refs/heads/'],
+  ['for-each-ref', '--contains=0123456789abcdef0123456789abcdef01234567', '--format=%(refname)', 'refs/heads/'],
+  ['ls-remote', '--exit-code', 'origin', 'refs/heads/main']
 ];
 const forbidden = [
   [], ['reset', '--hard'], ['checkout', 'main'], ['clean', '-fd'], ['branch', '-D', 'main'],
@@ -31,7 +33,10 @@ const forbidden = [
   ['remote', 'add', 'other', '/other'], ['symbolic-ref', 'HEAD', 'refs/heads/other'],
   ['-c', 'core.hooksPath=/other', 'status'], ['diff', '--ext-diff'], ['show', '--textconv'],
   ['ls-remote', '--upload-pack=other', 'origin', 'refs/heads/main'],
-  ['cat-file', '--filters', 'HEAD:source'], ['grep', '--recurse-submodules', 'x'], ['commit', '-m', 'unrequested']
+  ['cat-file', '--filters', 'HEAD:source'], ['grep', '--recurse-submodules', 'x'],
+  ['for-each-ref', '--contains=HEAD', '--format=%(refname)', 'refs/heads/'],
+  ['for-each-ref', '--merged=main', '--format=%(refname)', 'refs/heads/'],
+  ['commit', '-m', 'unrequested']
 ];
 
 test('normal budgets preserve existing defaults, exact-tree duration and selected overrides', () => {
