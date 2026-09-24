@@ -12,7 +12,8 @@ import { executeProductionClosedUnmergedCloseout } from './closed-unmerged-close
 import {
   compileClosedUnmergedCloseoutOperation,
   createClosedNativeAbsorptionDispositionEvidence,
-  createClosedSupersededDispositionEvidence
+  createClosedSupersededDispositionEvidence,
+  tryCreateClosedNativeAbsorptionDispositionEvidence
 } from './closed-unmerged-closeout.ts';
 
 interface Arguments {
@@ -92,30 +93,44 @@ export async function runClosedUnmergedCloseoutCli(argv: readonly string[]): Pro
           baseBranch: pull.baseBranch, baseSha: pull.baseSha, exactPullRequest: pull } as const;
         let prepared = input.preparationPath === null
           ? null : loadPreparedBranchCloseoutEnvelope(input.preparationPath);
-        if (prepared === null && input.reviewCommentId === null) {
-          try { prepared = prepareClosedUnmergedPullRequestCloseout(scope, request); }
-          catch (error) {
-            if (!(error instanceof Error) || error.message
-                !== 'Closed-unmerged distinct-tree head requires one exact adopted supersession review.') throw error;
-          }
-        }
         let evidence;
-        if (input.reviewCommentId === null
-            && prepared?.preparation.recovery.kind === 'main-absorption'
-            && prepared.preparation.recovery.basis !== 'reviewed-supersession') {
-          const recovery = prepared.preparation.recovery;
-          evidence = createClosedNativeAbsorptionDispositionEvidence({
-            prepared, repository: input.repository, pullRequestNumber: pull.number,
-            branch: pull.headBranch, headSha: pull.headSha,
-            headTreeSha: recovery.sourceTreeSha, baseBranch: pull.baseBranch,
-            baseSha: pull.baseSha, currentMainSha: recovery.mainSha,
-            currentMainTreeSha: recovery.mainTreeSha,
-            durableGoal: { kind: 'evidence', reference: `main-absorption:${recovery.sha256}` }
-          });
-        } else {
-          if (input.reviewCommentId === null) {
+        if (input.reviewCommentId === null) {
+          if (prepared !== null
+              && prepared.preparation.recovery.kind === 'main-absorption'
+              && prepared.preparation.recovery.basis !== 'reviewed-supersession') {
+            const recovery = prepared.preparation.recovery;
+            evidence = createClosedNativeAbsorptionDispositionEvidence({
+              prepared, repository: input.repository, pullRequestNumber: pull.number,
+              branch: pull.headBranch, headSha: pull.headSha,
+              headTreeSha: recovery.sourceTreeSha, baseBranch: pull.baseBranch,
+              baseSha: pull.baseSha, currentMainSha: recovery.mainSha,
+              currentMainTreeSha: recovery.mainTreeSha,
+              durableGoal: { kind: 'evidence', reference: `main-absorption:${recovery.sha256}` }
+            });
+          } else if (prepared === null) {
+            const mainRef = await context.observeHeadRef(pull.baseBranch);
+            if (mainRef.state !== 'present') {
+              throw new Error('Closed-unmerged native retention requires the exact current base ref.');
+            }
+            evidence = tryCreateClosedNativeAbsorptionDispositionEvidence({
+              repositoryRoot,
+              repository: input.repository,
+              pullRequestNumber: pull.number,
+              branch: pull.headBranch,
+              headSha: pull.headSha,
+              baseBranch: pull.baseBranch,
+              baseSha: pull.baseSha,
+              currentMainSha: mainRef.sha
+            });
+            if (evidence !== null) {
+              prepared = await context.observeCompletedPreparation(pull.number, evidence.evidenceDigest)
+                ?? prepareClosedUnmergedPullRequestCloseout(scope, request);
+            }
+          }
+          if (evidence == null) {
             throw new Error('Closed-unmerged distinct-tree retirement requires --review-comment ID.');
           }
+        } else {
           const supersession = await context.observeSupersessionEvidence({
             pullRequestNumber: input.pullRequestNumber, commentId: input.reviewCommentId
           });

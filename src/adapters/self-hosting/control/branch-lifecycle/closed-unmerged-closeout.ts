@@ -29,6 +29,7 @@ import {
   assertClosedSupersessionEvidence,
   type ClosedSupersessionEvidence
 } from './closed-supersession-review.ts';
+import { observeNativeMainAbsorption } from './branch-recovery.ts';
 
 const CLOSED_UNMERGED_CLOSEOUT_EVIDENCE_SCHEMA =
   'sec-closed-unmerged-closeout-evidence-v1' as const;
@@ -315,6 +316,57 @@ export function createClosedNativeAbsorptionDispositionEvidence(input: Omit<
     retentionBasis: recovery.basis, recoveryDigest: recovery.sha256 });
   const evidence = Object.freeze({ ...payload,
     evidenceDigest: branchLifecycleDigest(payload) }) as ClosedNativeAbsorptionDispositionEvidence;
+  issuedEvidence.add(evidence);
+  return evidence;
+}
+
+/**
+ * Observe deterministic native main absorption and issue its exact disposition
+ * before any recovery or preparation artifact is written. This is the retry
+ * lookup lane for already-completed operations.
+ */
+export function tryCreateClosedNativeAbsorptionDispositionEvidence(input: Readonly<{
+  repositoryRoot: string;
+  repository: string;
+  pullRequestNumber: number;
+  branch: string;
+  headSha: string;
+  baseBranch: string;
+  baseSha: string;
+  currentMainSha: string;
+}>): ClosedNativeAbsorptionDispositionEvidence | null {
+  const observed = observeNativeMainAbsorption({
+    repositoryRoot: input.repositoryRoot,
+    sourceSha: input.headSha,
+    mainSha: input.currentMainSha
+  });
+  if (observed === null) return null;
+  const base = {
+    repository: input.repository,
+    pullRequestNumber: input.pullRequestNumber,
+    branch: input.branch,
+    headSha: input.headSha,
+    headTreeSha: observed.sourceTreeSha,
+    baseBranch: input.baseBranch,
+    baseSha: input.baseSha,
+    currentMainSha: input.currentMainSha,
+    currentMainTreeSha: observed.mainTreeSha,
+    durableGoal: {
+      kind: 'evidence' as const,
+      reference: `main-absorption:${observed.recoveryDigest}`
+    }
+  };
+  validateEvidenceInput(base);
+  const payload = evidencePayload({
+    ...base,
+    disposition: 'closed-superseded',
+    retentionBasis: observed.basis,
+    recoveryDigest: observed.recoveryDigest
+  });
+  const evidence = Object.freeze({
+    ...payload,
+    evidenceDigest: branchLifecycleDigest(payload)
+  }) as ClosedNativeAbsorptionDispositionEvidence;
   issuedEvidence.add(evidence);
   return evidence;
 }

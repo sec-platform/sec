@@ -34,11 +34,13 @@ import {
 } from '../../src/adapters/self-hosting/control/branch-lifecycle/branch-lifecycle-types.ts';
 import {
   createMainAbsorptionRecovery,
+  observeNativeMainAbsorption,
   verifyRecoveryAuthorityLive
 } from '../../src/adapters/self-hosting/control/branch-lifecycle/branch-recovery.ts';
 import {
   compileClosedUnmergedCloseoutOperation,
-  createClosedNativeAbsorptionDispositionEvidence
+  createClosedNativeAbsorptionDispositionEvidence,
+  tryCreateClosedNativeAbsorptionDispositionEvidence
 } from '../../src/adapters/self-hosting/control/branch-lifecycle/closed-unmerged-closeout.ts';
 import {
   issueActiveWorkPackageOwnerObservation,
@@ -215,6 +217,46 @@ test('main absorption proof revalidates native ancestry and rejects changed proo
     expect(statSync(retried.path).ino).toBe(initialProof.ino);
     writeFileSync(recovery.path, 'forged proof\n');
     expect(verifyRecoveryAuthorityLive({ inventory: fixture.inventory, recovery }).status).toBe('failed');
+  } finally {
+    rmSync(fixture.root, { recursive: true, force: true });
+  }
+});
+
+test('native absorption evidence is deterministic before any recovery or preparation publication', () => {
+  const fixture = absorptionFixture();
+  const recoveryRoot = path.join(fixture.root, 'recovery');
+  try {
+    const observed = observeNativeMainAbsorption({
+      repositoryRoot: fixture.repository,
+      sourceSha: fixture.sourceSha,
+      mainSha: fixture.mainSha
+    });
+    expect(observed).not.toBeNull();
+    if (observed === null) throw new Error('native absorption fixture was not observed');
+    const evidence = tryCreateClosedNativeAbsorptionDispositionEvidence({
+      repositoryRoot: fixture.repository,
+      repository: 'sec-platform/sec',
+      pullRequestNumber: 42,
+      branch: 'candidate',
+      headSha: fixture.sourceSha,
+      baseBranch: 'main',
+      baseSha: fixture.sourceSha,
+      currentMainSha: fixture.mainSha
+    });
+    expect(evidence).not.toBeNull();
+    expect(evidence?.recoveryDigest).toBe(observed.recoveryDigest);
+    expect(existsSync(recoveryRoot)).toBeFalse();
+
+    const durable = createMainAbsorptionRecovery({
+      inventory: fixture.inventory,
+      branch: 'candidate',
+      expectedSha: fixture.sourceSha,
+      mainSha: fixture.mainSha,
+      basis: observed.basis,
+      recoveryRoot
+    }).recovery;
+    expect(durable.kind).toBe('main-absorption');
+    expect(durable.sha256).toBe(observed.recoveryDigest);
   } finally {
     rmSync(fixture.root, { recursive: true, force: true });
   }

@@ -559,6 +559,15 @@ export function createRecoveryBundle(input: {
 
 type MainAbsorptionRecovery = Extract<BranchRecoveryAuthority, { kind: 'main-absorption' }>;
 
+export interface NativeMainAbsorptionObservation {
+  readonly sourceSha: string;
+  readonly sourceTreeSha: string;
+  readonly mainSha: string;
+  readonly mainTreeSha: string;
+  readonly basis: 'native-ancestor' | 'identical-tree';
+  readonly recoveryDigest: `sha256:${string}`;
+}
+
 function exactCommitTree(repositoryRoot: string, sha: string, label: string): string {
   assertGitSha(sha, `${label} SHA`);
   const commit = requireRecoveryGitText(repositoryRoot, [
@@ -579,6 +588,58 @@ function isNativeAncestor(repositoryRoot: string, sourceSha: string, mainSha: st
   if (result.status === 0) return true;
   if (result.status === 1) return false;
   throw new Error(`Main absorption ancestry observation failed: ${decodeBranchLifecycleChildError(result)}`);
+}
+
+function mainAbsorptionProofBytes(input: Readonly<{
+  sourceSha: string;
+  sourceTreeSha: string;
+  mainSha: string;
+  mainTreeSha: string;
+  basis: MainAbsorptionRecovery['basis'];
+  reviewReference?: string;
+  reviewReceiptDigest?: `sha256:${string}`;
+}>): Buffer {
+  return Buffer.from(`${JSON.stringify({
+    schema: 'sec-branch-main-absorption-proof-v1',
+    sourceSha: input.sourceSha,
+    sourceTreeSha: input.sourceTreeSha,
+    mainSha: input.mainSha,
+    mainTreeSha: input.mainTreeSha,
+    basis: input.basis,
+    ...(input.reviewReference === undefined ? {} : { reviewReference: input.reviewReference }),
+    ...(input.reviewReceiptDigest === undefined ? {} : { reviewReceiptDigest: input.reviewReceiptDigest })
+  })}\n`, 'utf8');
+}
+
+/** Pure native retention observation used before any recovery/preparation bytes are published. */
+export function observeNativeMainAbsorption(input: Readonly<{
+  repositoryRoot: string;
+  sourceSha: string;
+  mainSha: string;
+}>): NativeMainAbsorptionObservation | null {
+  const sourceTreeSha = exactCommitTree(input.repositoryRoot, input.sourceSha, 'Absorbed source');
+  const mainTreeSha = exactCommitTree(input.repositoryRoot, input.mainSha, 'Absorbing main');
+  const basis = isNativeAncestor(input.repositoryRoot, input.sourceSha, input.mainSha)
+    ? 'native-ancestor' as const
+    : sourceTreeSha === mainTreeSha
+      ? 'identical-tree' as const
+      : null;
+  if (basis === null) return null;
+  const proof = mainAbsorptionProofBytes({
+    sourceSha: input.sourceSha,
+    sourceTreeSha,
+    mainSha: input.mainSha,
+    mainTreeSha,
+    basis
+  });
+  return Object.freeze({
+    sourceSha: input.sourceSha,
+    sourceTreeSha,
+    mainSha: input.mainSha,
+    mainTreeSha,
+    basis,
+    recoveryDigest: `sha256:${createHash('sha256').update(proof).digest('hex')}`
+  });
 }
 
 function assertLiveMainContains(
@@ -647,16 +708,7 @@ function assertMainAbsorptionLive(
 }
 
 function mainAbsorptionProof(recovery: MainAbsorptionRecovery): Buffer {
-  return Buffer.from(`${JSON.stringify({
-    schema: 'sec-branch-main-absorption-proof-v1',
-    sourceSha: recovery.sourceSha,
-    sourceTreeSha: recovery.sourceTreeSha,
-    mainSha: recovery.mainSha,
-    mainTreeSha: recovery.mainTreeSha,
-    basis: recovery.basis,
-    ...(recovery.reviewReference === undefined ? {} : { reviewReference: recovery.reviewReference }),
-    ...(recovery.reviewReceiptDigest === undefined ? {} : { reviewReceiptDigest: recovery.reviewReceiptDigest })
-  })}\n`, 'utf8');
+  return mainAbsorptionProofBytes(recovery);
 }
 
 export function createMainAbsorptionRecovery(input: {
