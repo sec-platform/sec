@@ -6,35 +6,21 @@ import {
 } from '../../contracts/canonical.ts';
 import { SEC_SEMANTIC_OPERATION_ID_PATTERN } from './identity.ts';
 
+import {
+  OPERATION_BUDGET_RESOURCES,
+  OPERATION_EFFECT_KINDS,
+  type OperationBudgetResource,
+  type OperationEffectKind
+} from './contract.ts';
+
+export {
+  OPERATION_BUDGET_RESOURCES,
+  OPERATION_EFFECT_KINDS,
+  PROCESS_OPERATION_BUDGET_RESOURCES
+} from './contract.ts';
+export type { OperationBudgetResource, OperationEffectKind } from './contract.ts';
+
 export type OperationDigest = `sha256:${string}`;
-
-const SEC_OPERATION_EFFECT_KINDS = [
-  'filesystem',
-  'network',
-  'persistent-state',
-  'process',
-  'provider'
-] as const;
-
-export type OperationEffectKind = (typeof SEC_OPERATION_EFFECT_KINDS)[number];
-
-export const SEC_OPERATION_BUDGET_RESOURCES = [
-  'duration-ms',
-  'input-bytes',
-  'output-bytes',
-  'processes',
-  'records'
-] as const;
-
-export type OperationBudgetResource =
-  (typeof SEC_OPERATION_BUDGET_RESOURCES)[number];
-
-export const SEC_PROCESS_OPERATION_BUDGET_RESOURCES = Object.freeze([
-  'duration-ms',
-  'input-bytes',
-  'output-bytes',
-  'processes'
-] as const satisfies readonly OperationBudgetResource[]);
 
 export type OperationRequirement = Readonly<{
   readonly id: string;
@@ -272,7 +258,7 @@ export function isCanonicalOperationBudgetMaximum(
   resource: OperationBudgetResource,
   maximum: number
 ): boolean {
-  return SEC_OPERATION_BUDGET_RESOURCES.includes(resource)
+  return OPERATION_BUDGET_RESOURCES.includes(resource)
     && Number.isSafeInteger(maximum)
     && (maximum > 0 || (resource === 'input-bytes' && maximum === 0));
 }
@@ -294,7 +280,7 @@ function canonicalRequirement(
     requirement.effectKinds,
     `Operation requirement ${id} effect kinds`
   );
-  if (effectKinds.some((kind) => !SEC_OPERATION_EFFECT_KINDS.includes(
+  if (effectKinds.some((kind) => !OPERATION_EFFECT_KINDS.includes(
     kind as OperationEffectKind
   ))) {
     throw new Error(`Operation requirement ${id} contains an unsupported Effect kind.`);

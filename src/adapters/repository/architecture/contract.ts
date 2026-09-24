@@ -8,8 +8,8 @@ import { isSecRepositoryTestModulePath } from '../../../contracts/repository-tes
 import { SEC_SEMANTIC_OPERATION_ID_PATTERN } from '../../../execution/operation/identity.ts';
 import {
   isCanonicalOperationBudgetMaximum,
-  SEC_OPERATION_BUDGET_RESOURCES,
-  SEC_PROCESS_OPERATION_BUDGET_RESOURCES,
+  OPERATION_BUDGET_RESOURCES,
+  PROCESS_OPERATION_BUDGET_RESOURCES,
   type OperationBudgetResource
 } from '../../../execution/operation/semantic.ts';
 
@@ -917,7 +917,7 @@ function descriptorOperationObligations(
       const resource = descriptorEnum(
         budgetRecord.resource,
         `${field}.resources.aggregateBudgets[${budgetIndex}].resource`,
-        SEC_OPERATION_BUDGET_RESOURCES
+        OPERATION_BUDGET_RESOURCES
       );
       if (!isCanonicalOperationBudgetMaximum(resource, budgetRecord.maximum as number)) {
         descriptorError(
@@ -931,7 +931,7 @@ function descriptorOperationObligations(
       descriptorError(`${field}.resources.aggregateBudgets`, 'resource entries must be unique');
     }
     if (effectKinds.includes('process')) {
-      const missingProcessResources = SEC_PROCESS_OPERATION_BUDGET_RESOURCES.filter(
+      const missingProcessResources = PROCESS_OPERATION_BUDGET_RESOURCES.filter(
         (resource) => !aggregateBudgets.some((budget) => budget.resource === resource)
       );
       if (missingProcessResources.length > 0) {
