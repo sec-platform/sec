@@ -105,6 +105,7 @@ export type GitHubApiOperation =
   | Readonly<{ kind: 'matching-head-refs'; page: number }>
   | Readonly<{ kind: 'git-ref'; branch: string }>
   | Readonly<{ kind: 'workflow-run'; runId: string }>
+  | Readonly<{ kind: 'workflow-run-attempt'; runId: string; runAttempt: number }>
   | Readonly<{ kind: 'check-runs'; sha: string; page: number }>
   | Readonly<{ kind: 'repository-runners'; page: number }>
   | Readonly<{ kind: 'create-runner-registration-token' }>
@@ -302,6 +303,14 @@ function compileOperation(
         throw new GitHubApiProviderError('GitHub API workflow run id is invalid');
       }
       return read(`/repos/${repo}/actions/runs/${runId}`);
+    }
+    case 'workflow-run-attempt': {
+      const runId = operation.runId;
+      const runAttempt = operation.runAttempt;
+      if (typeof runId !== 'string' || !/^[1-9][0-9]*$/u.test(runId)) {
+        throw new GitHubApiProviderError('GitHub API workflow run id is invalid');
+      }
+      return read(`/repos/${repo}/actions/runs/${runId}/attempts/${positiveInteger(runAttempt, 'workflow run attempt')}`);
     }
     case 'check-runs': return read(`/repos/${repo}/commits/${sha(operation.sha)}/check-runs?per_page=100&page=${page(operation.page)}`);
     case 'repository-runners':

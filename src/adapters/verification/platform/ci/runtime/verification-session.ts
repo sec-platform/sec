@@ -1793,7 +1793,7 @@ export function classifyDurableVerificationSessionProjection(input: {
     closeoutCommentId: input.closeout?.commentId ?? null, closeoutStatus });
 }
 
-function observeDurableVerificationSessionProjection(input: {
+async function observeDurableVerificationSessionProjection(input: {
   ctx: VerificationSessionScope;
   github: VerificationSessionGitHubClient;
   repository: string;
@@ -1803,7 +1803,7 @@ function observeDurableVerificationSessionProjection(input: {
     commentId: number;
     publication: IntegrationAuthorizationOperationPublication;
   }>[];
-}): Readonly<Record<string, unknown>> | null {
+}){
   if (input.candidate.state === 'MERGED') {
     assertTrustedMergedRequestRuntimeReachability({
       proof: inspectTrustedRuntime({ repositoryRoot: input.ctx.repositoryRoot }),
@@ -1822,7 +1822,7 @@ function observeDurableVerificationSessionProjection(input: {
   if (typeof closeoutOperationId !== 'string' || !/^sha256:[0-9a-f]{64}$/u.test(closeoutOperationId)) {
     throw new Error('Durable merged projection did not produce one closeout operation identity.');
   }
-  const closeout = observeBranchCloseoutOperationPublication(input.ctx.repositoryRoot, {
+  const closeout = await observeBranchCloseoutOperationPublication(input.ctx.repositoryRoot, {
     repository: input.repository,
     pullRequestNumber: input.request.prNumber,
     closeoutOperationId: closeoutOperationId as `sha256:${string}`
@@ -2093,7 +2093,7 @@ function loadMarkerBoundMergedAuthorizationRecovery(input: {
   return Object.freeze({ selected, recovery });
 }
 
-function loadMergedHostedCloseoutContext(input: {
+async function loadMergedHostedCloseoutContext(input: {
   ctx: VerificationSessionScope;
   github: VerificationSessionGitHubClient;
   repository: string;
@@ -2101,14 +2101,14 @@ function loadMergedHostedCloseoutContext(input: {
   environment: Readonly<Record<string, string | undefined>>;
   repositoryRoot: string;
   phase: 'closeoutMutation' | 'closeoutPublication';
-}): Readonly<{
+}): Promise<Readonly<{
   hosted: ReturnType<typeof loadHostedArtifactForMergeWorkflow>;
   candidate: GitHubCandidateObservation;
   identity: ReturnType<typeof assertHostedIntegrationIdentity>;
   selected: Readonly<{ commentId: number; publication: IntegrationAuthorizationOperationPublication }>;
   recovery: ReturnType<typeof loadProviderBranchCloseoutRecoveryArtifact>;
   binding: ReturnType<typeof createBranchCloseoutOperationBinding>;
-}> {
+}>> {
   const hosted = loadHostedArtifactForMergeWorkflow(input.github, input.repository, input.event);
   const artifact = hosted.artifact;
   if (artifact.session.repository !== input.repository) {
@@ -2123,7 +2123,7 @@ function loadMergedHostedCloseoutContext(input: {
   const identity = assertHostedIntegrationIdentity({ ctx: input.ctx, github: input.github,
     repository: input.repository, event: input.event, session: artifact.session, candidate,
     phase: input.phase, environment: input.environment, repositoryRoot: input.repositoryRoot });
-  const publications = observeIntegrationAuthorizationOperationPublications(input.ctx.repositoryRoot, {
+  const publications = await observeIntegrationAuthorizationOperationPublications(input.ctx.repositoryRoot, {
     repository: input.repository, pullRequestNumber: artifact.session.prNumber,
     sessionRevision: artifact.session.sessionRevision });
   const merged = loadMarkerBoundMergedAuthorizationRecovery({ ctx: input.ctx,
@@ -2145,7 +2145,7 @@ type HostedTrackingIssueDispositionObservation =
 function observeHostedTrackingIssueDisposition(input: Readonly<{
   github: VerificationSessionGitHubClient;
   repository: string;
-  closeout: ReturnType<typeof loadMergedHostedCloseoutContext>;
+  closeout: Awaited<ReturnType<typeof loadMergedHostedCloseoutContext>>;
   observedAt: string;
 }>): HostedTrackingIssueDispositionObservation {
   const { closeout, github, repository } = input;
@@ -2339,11 +2339,11 @@ type HostedCloseoutEffectStartReadback = Readonly<{
   commentId: number;
 }>;
 
-function publishHostedCloseoutEffectStart(
+async function publishHostedCloseoutEffectStart(
   ctx: VerificationSessionScope,
   publication: BranchCloseoutEffectStartPublication
-): HostedCloseoutEffectStartReadback {
-  const existing = observeBranchCloseoutEffectStartPublication(ctx.repositoryRoot, {
+): Promise<HostedCloseoutEffectStartReadback> {
+  const existing = await observeBranchCloseoutEffectStartPublication(ctx.repositoryRoot, {
     repository: publication.binding.repository,
     pullRequestNumber: publication.binding.pullRequestNumber,
     closeoutOperationId: publication.closeoutOperationId
@@ -2384,7 +2384,7 @@ function publishHostedCloseoutEffectStart(
     if (created.body !== body || !hostedPublisherMatches(created)) {
       throw new Error('created effect-start bytes or App identity differ');
     }
-    assertHostedCommentProvenanceLive(
+    await assertHostedCommentProvenanceLive(
       ctx.repositoryRoot,
       publication.binding.repository,
       created,
@@ -2416,7 +2416,7 @@ function publishHostedCloseoutEffectStart(
       || comment.body !== body) {
       throw new Error('effect-start exact readback differs from the canonical publication');
     }
-    assertHostedCommentProvenanceLive(
+    await assertHostedCommentProvenanceLive(
       ctx.repositoryRoot,
       publication.binding.repository,
       comment,
@@ -2428,7 +2428,7 @@ function publishHostedCloseoutEffectStart(
     );
   }
 
-  const complete = observeBranchCloseoutEffectStartPublication(ctx.repositoryRoot, {
+  const complete = await observeBranchCloseoutEffectStartPublication(ctx.repositoryRoot, {
     repository: publication.binding.repository,
     pullRequestNumber: publication.binding.pullRequestNumber,
     closeoutOperationId: publication.closeoutOperationId
@@ -3050,7 +3050,7 @@ async function finalizeSameInvocationCloseout(input: Readonly<{
     runId: input.recovery.metadata.runId,
     runAttempt: input.recovery.metadata.runAttempt
   });
-  const existing = observeBranchCloseoutOperationPublication(input.ctx.repositoryRoot, {
+  const existing = await observeBranchCloseoutOperationPublication(input.ctx.repositoryRoot, {
     repository: input.repository, pullRequestNumber: input.pullRequestNumber,
     closeoutOperationId: input.binding.closeoutOperationId
   });
@@ -3080,7 +3080,7 @@ async function finalizeSameInvocationCloseout(input: Readonly<{
         stepNumber: input.phase.stepNumber, workflowSha: input.provenance.workflowSha },
       provenance: input.provenance });
     await assertWorkspaceWriteLease(input.ctx.repositoryRoot, lease);
-    const published = publishHostedCloseoutEffectStart(input.ctx, effectStart);
+    const published = await publishHostedCloseoutEffectStart(input.ctx, effectStart);
     if (published.disposition !== 'published') {
       throw new Error('AMBIGUOUS_SIDE_EFFECT: hosted closeout effect start was not newly App-authenticated.');
     }
@@ -3092,16 +3092,16 @@ async function finalizeSameInvocationCloseout(input: Readonly<{
   ));
 }
 
-function publishHostedCloseoutTerminal(input: Readonly<{
+async function publishHostedCloseoutTerminal(input: Readonly<{
   ctx: VerificationSessionScope;
   operationReceipt: BranchCloseoutOperationReceipt;
   provenance: HostedWorkflowCommentProvenance;
   effectStart: HostedCloseoutEffectStartReadback;
-}>): Readonly<{
+}>): Promise<Readonly<{
   disposition: 'published' | 'reused' | 'recovered';
   publication: BranchCloseoutOperationPublication;
   commentId: number;
-}> {
+}>> {
   const publication = createBranchCloseoutOperationPublication(
     input.operationReceipt,
     input.provenance,
@@ -3109,7 +3109,7 @@ function publishHostedCloseoutTerminal(input: Readonly<{
   );
   const repository = publication.binding.repository;
   const pullRequestNumber = publication.binding.pullRequestNumber;
-  const existing = observeBranchCloseoutOperationPublication(input.ctx.repositoryRoot, {
+  const existing = await observeBranchCloseoutOperationPublication(input.ctx.repositoryRoot, {
     repository,
     pullRequestNumber,
     closeoutOperationId: publication.closeoutOperationId
@@ -3120,7 +3120,7 @@ function publishHostedCloseoutTerminal(input: Readonly<{
     }
     return Object.freeze({ disposition: 'reused', ...existing });
   }
-  const start = observeBranchCloseoutEffectStartPublication(input.ctx.repositoryRoot, {
+  const start = await observeBranchCloseoutEffectStartPublication(input.ctx.repositoryRoot, {
     repository,
     pullRequestNumber,
     closeoutOperationId: publication.closeoutOperationId
@@ -3135,12 +3135,12 @@ function publishHostedCloseoutTerminal(input: Readonly<{
 
   const endpoint = `/repos/${repository}/issues/${pullRequestNumber}/comments`;
   const body = renderBranchCloseoutOperationPublicationComment(publication);
-  const recover = (reason: string): Readonly<{
+  const recover = async (reason: string): Promise<Readonly<{
     disposition: 'recovered';
     publication: BranchCloseoutOperationPublication;
     commentId: number;
-  }> => {
-    const observed = observeBranchCloseoutOperationPublication(input.ctx.repositoryRoot, {
+  }>> => {
+    const observed = await observeBranchCloseoutOperationPublication(input.ctx.repositoryRoot, {
       repository,
       pullRequestNumber,
       closeoutOperationId: publication.closeoutOperationId
@@ -3175,7 +3175,7 @@ function publishHostedCloseoutTerminal(input: Readonly<{
       || parsed === null || parsed.publicationDigest !== publication.publicationDigest) {
       throw new Error('created terminal bytes or App identity differ');
     }
-    assertHostedCommentProvenanceLive(
+    await assertHostedCommentProvenanceLive(
       input.ctx.repositoryRoot,
       repository,
       created,
@@ -3204,7 +3204,7 @@ function publishHostedCloseoutTerminal(input: Readonly<{
       || parsed === null || parsed.publicationDigest !== publication.publicationDigest) {
       throw new Error('terminal exact readback differs from canonical bytes');
     }
-    assertHostedCommentProvenanceLive(
+    await assertHostedCommentProvenanceLive(
       input.ctx.repositoryRoot,
       repository,
       comment,
@@ -3215,7 +3215,7 @@ function publishHostedCloseoutTerminal(input: Readonly<{
       `closeout terminal exact readback is not authoritative: ${error instanceof Error ? error.message : String(error)}`
     );
   }
-  const complete = observeBranchCloseoutOperationPublication(input.ctx.repositoryRoot, {
+  const complete = await observeBranchCloseoutOperationPublication(input.ctx.repositoryRoot, {
     repository,
     pullRequestNumber,
     closeoutOperationId: publication.closeoutOperationId
@@ -3668,11 +3668,11 @@ type HostedIntegrationAuthorizationPublicationResult = Readonly<{
   detail: string;
 }>;
 
-function readBackHostedIntegrationAuthorizationComment(
+async function readBackHostedIntegrationAuthorizationComment(
   ctx: VerificationSessionScope,
   publication: IntegrationAuthorizationOperationPublication,
   commentId: number
-): IntegrationAuthorizationOperationPublication {
+): Promise<IntegrationAuthorizationOperationPublication> {
   const result = runVerificationSessionCommand(ctx, 'gh', [
     'api', `/repos/${publication.repository}/issues/comments/${commentId}`
   ]);
@@ -3693,7 +3693,7 @@ function readBackHostedIntegrationAuthorizationComment(
     || parsed.publicationDigest !== publication.publicationDigest) {
     throw new Error('Integration authorization comment readback canonical bytes differ.');
   }
-  assertHostedCommentProvenanceLive(
+  await assertHostedCommentProvenanceLive(
     ctx.repositoryRoot,
     publication.repository,
     comment,
@@ -3702,17 +3702,17 @@ function readBackHostedIntegrationAuthorizationComment(
   return parsed;
 }
 
-function publishHostedIntegrationAuthorizationOperation(
+async function publishHostedIntegrationAuthorizationOperation(
   ctx: VerificationSessionScope,
   publicationInput: IntegrationAuthorizationOperationPublication
-): HostedIntegrationAuthorizationPublicationResult {
+): Promise<HostedIntegrationAuthorizationPublicationResult> {
   const publication = parseIntegrationAuthorizationOperationPublication(publicationInput);
   let inventory: readonly Readonly<{
     commentId: number;
     publication: IntegrationAuthorizationOperationPublication;
   }>[];
   try {
-    inventory = observeIntegrationAuthorizationOperationPublications(ctx.repositoryRoot, {
+    inventory = await observeIntegrationAuthorizationOperationPublications(ctx.repositoryRoot, {
       repository: publication.repository,
       pullRequestNumber: publication.pullRequestNumber,
       sessionRevision: publication.sessionRevision
@@ -3737,7 +3737,7 @@ function publishHostedIntegrationAuthorizationOperation(
         detail: 'Authorization publication id exists with different canonical bytes.' });
     }
     try {
-      const readback = readBackHostedIntegrationAuthorizationComment(
+      const readback = await readBackHostedIntegrationAuthorizationComment(
         ctx,
         publication,
         same[0]!.commentId
@@ -3775,12 +3775,12 @@ function publishHostedIntegrationAuthorizationOperation(
     if (created.body !== body || !hostedPublisherMatches(created)) {
       throw new Error('created authorization comment bytes/app differ');
     }
-    const readback = readBackHostedIntegrationAuthorizationComment(ctx, publication, created.id);
-    const complete = observeIntegrationAuthorizationOperationPublications(ctx.repositoryRoot, {
+    const readback = await readBackHostedIntegrationAuthorizationComment(ctx, publication, created.id);
+    const complete = (await observeIntegrationAuthorizationOperationPublications(ctx.repositoryRoot, {
       repository: publication.repository,
       pullRequestNumber: publication.pullRequestNumber,
       sessionRevision: publication.sessionRevision
-    }).filter(({ publication: observed }) => (
+    })).filter(({ publication: observed }) => (
       observed.authorizationPublicationId === publication.authorizationPublicationId
     ));
     if (complete.length !== 1 || complete[0]!.commentId !== created.id) {
@@ -4176,7 +4176,7 @@ export async function verificationSessionCli(argv: string[]): Promise<string> {
     if (!/^sha256:[0-9a-f]{64}$/u.test(sessionRevision)) {
       throw new Error('merged commit Verification-Session marker is not an exact digest.');
     }
-    const publications = observeIntegrationAuthorizationOperationPublications(repositoryRoot, {
+    const publications = await observeIntegrationAuthorizationOperationPublications(repositoryRoot, {
       repository,
       pullRequestNumber: prNumber,
       sessionRevision: sessionRevision as `sha256:${string}`
@@ -4525,9 +4525,9 @@ export async function verificationSessionCli(argv: string[]): Promise<string> {
     );
     const github = githubAdapter();
     const candidate = github.observeCandidate(repository, request.prNumber);
-    const publications = observeIntegrationAuthorizationOperationPublications(ctx.repositoryRoot, { repository,
+    const publications = await observeIntegrationAuthorizationOperationPublications(ctx.repositoryRoot, { repository,
       pullRequestNumber: request.prNumber, sessionRevision: request.expectedSessionRevision });
-    const durable = observeDurableVerificationSessionProjection({ ctx, github, repository, request,
+    const durable = await observeDurableVerificationSessionProjection({ ctx, github, repository, request,
       candidate, publications });
     if (durable !== null) return JSON.stringify(durable, null, 2);
     const hosted = selectTrustedHostedSessionArtifact({ github, repository,
@@ -4713,11 +4713,11 @@ export async function verificationSessionCli(argv: string[]): Promise<string> {
     );
     const github = githubAdapter();
     const candidate = github.observeCandidate(repository, request.prNumber);
-    const authorizationPublications = observeIntegrationAuthorizationOperationPublications(ctx.repositoryRoot, {
+    const authorizationPublications = await observeIntegrationAuthorizationOperationPublications(ctx.repositoryRoot, {
       repository, pullRequestNumber: request.prNumber,
       sessionRevision: request.expectedSessionRevision
     });
-    const durable = observeDurableVerificationSessionProjection({ ctx, github, repository, request,
+    const durable = await observeDurableVerificationSessionProjection({ ctx, github, repository, request,
       candidate, publications: authorizationPublications });
     if (durable !== null) return JSON.stringify(durable, null, 2);
     const allArtifacts = github.observeActionsArtifacts(repository);
@@ -4793,7 +4793,7 @@ export async function verificationSessionCli(argv: string[]): Promise<string> {
     }
     const identity = assertHostedIntegrationIdentity({ ctx, github, repository, event: eventPayload,
       session: artifact.session, candidate, phase: 'recoveryPreparation', environment, repositoryRoot });
-    const publications = observeIntegrationAuthorizationOperationPublications(ctx.repositoryRoot, { repository,
+    const publications = await observeIntegrationAuthorizationOperationPublications(ctx.repositoryRoot, { repository,
       pullRequestNumber: artifact.session.prNumber, sessionRevision: artifact.session.sessionRevision });
     const route = routeHostedIntegration({ repository, session: artifact.session, candidate,
       priorEffectStarted: identity.phase.priorEffectStarted,
@@ -4871,7 +4871,7 @@ export async function verificationSessionCli(argv: string[]): Promise<string> {
     const expectedConsumptionOperationId = createVerificationSessionMergeOperationId({
       sessionRevision: artifact.session.sessionRevision, headSha: artifact.session.headSha,
       actionPlanDigest: artifact.evidence.actionPlan.actionPlanDigest });
-    const remoteAttempts = observeIntegrationAuthorizationOperationPublications(ctx.repositoryRoot, { repository,
+    const remoteAttempts = await observeIntegrationAuthorizationOperationPublications(ctx.repositoryRoot, { repository,
       pullRequestNumber: artifact.session.prNumber, sessionRevision: artifact.session.sessionRevision });
     const route = routeHostedIntegration({ repository, session: artifact.session, candidate,
       priorEffectStarted: hostedIdentity.phase.priorEffectStarted,
@@ -4944,7 +4944,7 @@ export async function verificationSessionCli(argv: string[]): Promise<string> {
           artifactDigest: recovery.artifact.artifactDigest,
           runId: recovery.metadata.runId, runAttempt: recovery.metadata.runAttempt },
         provenance: hostedProvenance });
-      const published = publishHostedIntegrationAuthorizationOperation(ctx, publication);
+      const published = await publishHostedIntegrationAuthorizationOperation(ctx, publication);
       if (published.status !== 'published' || !published.createdByThisInvocation
         || published.publication === null || published.commentId === null) {
         throw new Error(`AMBIGUOUS_SIDE_EFFECT: Integration authorization start publication was not newly and exactly created: ${published.detail}`);
@@ -4966,6 +4966,23 @@ export async function verificationSessionCli(argv: string[]): Promise<string> {
       artifactText: hosted.originText, observation: hosted.originMetadata,
       actorPermission: hosted.originMetadata.actorPermission });
     const localPrepared = selectedRecovery.prepared;
+    const frozenCloseoutObservation = candidate.state === 'MERGED'
+      && candidate.mergeCommitSha !== null && candidate.mergeCommitTreeSha !== null
+      ? await (async () => {
+          const binding = createBranchCloseoutOperationBinding({
+            integrationAuthorization: authorizationResult.authorization,
+            preparation: localPrepared.preparation,
+            newMainSha: candidate.mergeCommitSha!,
+            newMainTreeSha: candidate.mergeCommitTreeSha!,
+            candidateTreeSha: artifact.session.headTreeSha
+          });
+          const observed = await observeBranchCloseoutOperationPublication(ctx.repositoryRoot, {
+            repository, pullRequestNumber: artifact.session.prNumber,
+            closeoutOperationId: binding.closeoutOperationId
+          });
+          return Object.freeze({ binding, observed });
+        })()
+      : null;
     const changedPaths = route.lane === 'merged-recovery'
       ? artifact.scopeAuthorization.authorizedPaths
       : github.observeChangedPaths({ repository, prNumber: artifact.session.prNumber,
@@ -5019,10 +5036,12 @@ export async function verificationSessionCli(argv: string[]): Promise<string> {
           newMainTreeSha: merged.mergeCommitTreeSha, candidateTreeSha: session.headTreeSha }) };
       },
       observeCloseout: (binding: ReturnType<typeof createBranchCloseoutOperationBinding>) => {
-        const observed = observeBranchCloseoutOperationPublication(ctx.repositoryRoot, { repository,
-          pullRequestNumber: artifact.session.prNumber, closeoutOperationId: binding.closeoutOperationId });
+        const observed = frozenCloseoutObservation !== null
+          && frozenCloseoutObservation.binding.closeoutOperationId === binding.closeoutOperationId
+          ? frozenCloseoutObservation.observed
+          : null;
         if (observed === null) return { status: 'waiting' as const,
-          reason: 'terminal remote closeout publication is unavailable' };
+          reason: 'terminal remote closeout publication is unavailable in the frozen observation' };
         const status = observed.publication.receipt.closeoutStatus;
         if (status === 'blocked' || status === 'residue') return { status: 'blocked' as const,
           reason: `branch closeout terminal ${status}` };
@@ -5220,7 +5239,7 @@ export async function verificationSessionCli(argv: string[]): Promise<string> {
   if (command === 'closeout-mutate-hosted') {
     const github = githubAdapter();
     const eventPayload = event();
-    const closeout = loadMergedHostedCloseoutContext({ ctx, github, repository,
+    const closeout = await loadMergedHostedCloseoutContext({ ctx, github, repository,
       event: eventPayload, environment, repositoryRoot, phase: 'closeoutMutation' });
     const session = closeout.hosted.artifact.session;
     // A fresh process cannot rehydrate an opaque physical token.  The
@@ -5234,7 +5253,7 @@ export async function verificationSessionCli(argv: string[]): Promise<string> {
     const issueDisposition = observeHostedTrackingIssueDisposition({
       github, repository, closeout, observedAt: now()
     });
-    const existing = observeBranchCloseoutOperationPublication(ctx.repositoryRoot, { repository,
+    const existing = await observeBranchCloseoutOperationPublication(ctx.repositoryRoot, { repository,
       pullRequestNumber: session.prNumber, closeoutOperationId: closeout.binding.closeoutOperationId });
     if (existing !== null) {
       const terminalStatus = existing.publication.receipt.closeoutStatus;
@@ -5284,7 +5303,7 @@ export async function verificationSessionCli(argv: string[]): Promise<string> {
       withWorkspaceWriteLease(ctx.repositoryRoot, undefined, async (lease) => {
     await assertWorkspaceWriteLease(commonDir, coordinatedLease);
     let effectStart: HostedCloseoutEffectStartReadback;
-    const observedStart = observeBranchCloseoutEffectStartPublication(ctx.repositoryRoot, { repository,
+    const observedStart = await observeBranchCloseoutEffectStartPublication(ctx.repositoryRoot, { repository,
       pullRequestNumber: session.prNumber, closeoutOperationId: closeout.binding.closeoutOperationId });
     if (observedStart !== null) {
       assertBranchCloseoutEffectStartMatches({ publication: observedStart.publication,
@@ -5341,7 +5360,7 @@ export async function verificationSessionCli(argv: string[]): Promise<string> {
         provenance: closeout.identity.provenance
       });
       await assertWorkspaceWriteLease(ctx.repositoryRoot, lease);
-      const publishedStart = publishHostedCloseoutEffectStart(ctx, publication);
+      const publishedStart = await publishHostedCloseoutEffectStart(ctx, publication);
       if (publishedStart.disposition !== 'published') {
         throw new Error(
           'AMBIGUOUS_SIDE_EFFECT: hosted closeout effect start was not newly App-authenticated.'
@@ -5393,10 +5412,10 @@ export async function verificationSessionCli(argv: string[]): Promise<string> {
   if (command === 'closeout-publish-hosted') {
     const github = githubAdapter();
     const eventPayload = event();
-    const closeout = loadMergedHostedCloseoutContext({ ctx, github, repository,
+    const closeout = await loadMergedHostedCloseoutContext({ ctx, github, repository,
       event: eventPayload, environment, repositoryRoot, phase: 'closeoutPublication' });
     const session = closeout.hosted.artifact.session;
-    const existing = observeBranchCloseoutOperationPublication(ctx.repositoryRoot, { repository,
+    const existing = await observeBranchCloseoutOperationPublication(ctx.repositoryRoot, { repository,
       pullRequestNumber: session.prNumber, closeoutOperationId: closeout.binding.closeoutOperationId });
     if (existing !== null) {
       const terminalStatus = existing.publication.receipt.closeoutStatus;
@@ -5420,7 +5439,7 @@ export async function verificationSessionCli(argv: string[]): Promise<string> {
     if (closeout.identity.phase.priorAttemptStarted) {
       throw new Error('AMBIGUOUS_SIDE_EFFECT: a prior closeout publication phase started without an exact terminal comment.');
     }
-    const effectStart = observeBranchCloseoutEffectStartPublication(ctx.repositoryRoot, { repository,
+    const effectStart = await observeBranchCloseoutEffectStartPublication(ctx.repositoryRoot, { repository,
       pullRequestNumber: session.prNumber, closeoutOperationId: closeout.binding.closeoutOperationId });
     if (effectStart === null) {
       throw new Error('Hosted closeout publication requires one exact App-authenticated effect start marker.');
@@ -5452,7 +5471,7 @@ export async function verificationSessionCli(argv: string[]): Promise<string> {
     if (terminal.receipt.status === 'blocked' || terminal.receipt.status === 'residue') {
       throw new Error(`Hosted closeout terminal is ${terminal.receipt.status}; publication is forbidden.`);
     }
-    const publication = publishHostedCloseoutTerminal({
+    const publication = await publishHostedCloseoutTerminal({
       ctx,
       operationReceipt: terminal,
       provenance: closeout.identity.provenance,

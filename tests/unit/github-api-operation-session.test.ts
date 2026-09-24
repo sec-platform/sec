@@ -755,6 +755,24 @@ test('a validated workflow locator is not re-read while compiling its request ro
   expect(targets).toEqual(['https://api.github.com/repos/sec-platform/sec/actions/runs/123']);
 });
 
+test('workflow attempt locator captures run identity and attempt exactly once', async () => {
+  const reads = { runId: 0, runAttempt: 0 };
+  const operation = Object.defineProperties({ kind: 'workflow-run-attempt' as const }, {
+    runId: { get() { reads.runId++; return reads.runId === 1 ? '123' : '../../different-resource'; } },
+    runAttempt: { get() { reads.runAttempt++; return reads.runAttempt === 1 ? 4 : 999; } }
+  }) as Parameters<typeof executeGitHubApiOperation>[1];
+  const targets: string[] = [];
+  const api = capability({ effect: 'read', transport: async target => {
+    targets.push(String(target));
+    return Response.json({ id: 123, run_attempt: 4 });
+  } });
+  await withGitHubApiTestSession({ capability: api,
+    operation: () => executeGitHubApiOperation(api, operation)
+  });
+  expect(reads).toEqual({ runId: 1, runAttempt: 1 });
+  expect(targets).toEqual(['https://api.github.com/repos/sec-platform/sec/actions/runs/123/attempts/4']);
+});
+
 test('caller mutation cannot revoke or reinterpret an already admitted DELETE response', async () => {
   const operation = { kind: 'delete-repository-runner', runnerId: 42 };
   const api = capability({ effect: 'runner-admin', principal: { ...PRINCIPAL, permission: 'admin' },
@@ -800,6 +818,8 @@ test('request grammar rejects coercible identifiers and unsupported status state
   const api = capability({ effect: 'status-write', transport: async () => { requests++; return Response.json({}); } });
   const requestsToReject: unknown[] = [
     { kind: 'workflow-run', runId: text }, { kind: 'workflow-run', runId: 123 },
+    { kind: 'workflow-run-attempt', runId: '123', runAttempt: text },
+    { kind: 'workflow-run-attempt', runId: '123', runAttempt: 0 },
     { kind: 'commit-statuses', sha: { toString() { coerced++; return 'a'.repeat(40); } }, page: 1 },
     { kind: 'branch', branch: new String('main') }, { kind: 'unsupported' },
     { kind: 'create-commit-status', sha: 'a'.repeat(40), status: {
