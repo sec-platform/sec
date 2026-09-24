@@ -1,4 +1,3 @@
-import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
@@ -14,8 +13,13 @@ import {
   CI_VERIFICATION_SESSION_DISPATCH_TYPE
 } from '../contract/revision.ts';
 import {
+  executeGitHubApiOperation,
+  executeObservedGitHubApiOperation,
   readGitHubApiBytes,
-  withGitHubApiReadSession
+  withGitHubApiReadSession,
+  withGitHubApiRepositoryDispatchWriteSession,
+  withGitHubApiStatusWriteSession,
+  type GitHubApiOperation
 } from '../../../../providers/github-api/operation-session.ts';
 import { readZipTextFile } from '../../../../providers/zip/runtime.ts';
 
@@ -151,61 +155,67 @@ function createVerificationActionRepositoryDispatchClientPayload(
   return Object.freeze({ payload: parseCiVerificationActionProviderEnvelope(envelope) });
 }
 
-function dispatchVerificationActionRepositoryWakeup(input: Readonly<{
-  repository: string;
-  eventType: typeof CI_VERIFICATION_ACTION_DISPATCH_TYPE;
-  clientPayload: VerificationActionRepositoryDispatchClientPayload;
-}>): void {
-  const body = `${encodeVerificationActionData({
-    event_type: input.eventType,
-    client_payload: createVerificationActionRepositoryDispatchClientPayload(
-      input.clientPayload.payload
-    )
-  })}\n`;
-  const result = spawnSync('gh', [
-    'api', '--method', 'POST',
-    '-H', 'Accept: application/vnd.github+json',
-    `/repos/${repository(input.repository)}/dispatches`,
-    '--input', '-'
-  ], {
-    input: body,
-    encoding: 'utf8',
-    maxBuffer: 1024 * 1024,
-    windowsHide: true
-  });
-  if (result.error !== undefined || result.status !== 0) {
-    fail(`repository dispatch outcome is unknown: ${boundedError(result.error ?? result.stderr)}`);
-  }
-}
-
-class GhCliVerificationActionTransport implements VerificationActionGitHubProviderTransport {
+class GitHubApiVerificationActionTransport implements VerificationActionGitHubProviderTransport {
   readonly #repositoryRoot: string;
 
   constructor(repositoryRoot: string) {
     this.#repositoryRoot = path.resolve(repositoryRoot);
   }
+
+  async #read(repositoryName: string, operation: GitHubApiOperation): Promise<unknown> {
+    return await withGitHubApiReadSession({
+      repositoryRoot: this.#repositoryRoot,
+      repository: repository(repositoryName),
+      operation: async (api) => await executeGitHubApiOperation(api, operation)
+    });
+  }
+
+  async #readObserved(repositoryName: string, operation: GitHubApiOperation): Promise<Readonly<{
+    value: unknown;
+    rawResponseDigest: VerificationActionKeyDigest;
+  }>> {
+    const observed = await withGitHubApiReadSession({
+      repositoryRoot: this.#repositoryRoot,
+      repository: repository(repositoryName),
+      operation: async (api) => await executeObservedGitHubApiOperation(api, operation)
+    });
+    return Object.freeze({
+      value: observed.value,
+      rawResponseDigest: bytesDigest(Buffer.from(observed.source, 'utf8'))
+    });
+  }
+
   async createRepositoryDispatch(input: Readonly<{
     repository: string;
     eventType: typeof CI_VERIFICATION_ACTION_DISPATCH_TYPE;
     clientPayload: VerificationActionRepositoryDispatchClientPayload;
   }>): Promise<void> {
-    dispatchVerificationActionRepositoryWakeup(input);
+    await withGitHubApiRepositoryDispatchWriteSession({
+      repositoryRoot: this.#repositoryRoot,
+      repository: repository(input.repository),
+      operation: async (api) => {
+        await executeGitHubApiOperation(api, {
+          kind: 'repository-dispatch',
+          eventType: input.eventType,
+          clientPayload: createVerificationActionRepositoryDispatchClientPayload(input.clientPayload.payload)
+        });
+      }
+    });
   }
 
   async getRepository(input: Readonly<{ repository: string }>): Promise<unknown> {
-    return ghJson(['api', '-H', 'Accept: application/vnd.github+json',
-      `/repos/${repository(input.repository)}`]);
+    return await this.#read(input.repository, { kind: 'repository' });
   }
 
   async getWorkflow(input: Readonly<{ repository: string }>): Promise<unknown> {
-    return ghJson(['api', '-H', 'Accept: application/vnd.github+json',
-      `/repos/${repository(input.repository)}/actions/workflows/compiler-pr-validation.yml`]);
+    return await this.#read(input.repository, {
+      kind: 'workflow', path: '.github/workflows/compiler-pr-validation.yml'
+    });
   }
 
   async getPrincipalPermission(input: Readonly<{ repository: string; login: string }>): Promise<unknown> {
     if (!/^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})$/u.test(input.login)) fail('principal login is invalid.');
-    return ghJson(['api', '-H', 'Accept: application/vnd.github+json',
-      `/repos/${repository(input.repository)}/collaborators/${input.login}/permission`]);
+    return await this.#read(input.repository, { kind: 'collaborator-permission', login: input.login });
   }
 
   async listWorkflowJobsPage(input: Readonly<{
@@ -216,11 +226,10 @@ class GhCliVerificationActionTransport implements VerificationActionGitHubProvid
   }>): Promise<GitHubProviderPage> {
     if (!Number.isSafeInteger(input.runAttempt) || input.runAttempt < 1 ||
         !Number.isSafeInteger(input.page) || input.page < 1) fail('workflow job page request is invalid.');
-    const response = record(ghJson([
-      'api', '-H', 'Accept: application/vnd.github+json',
-      `/repos/${repository(input.repository)}/actions/runs/${positiveId(input.runId, 'run id')}` +
-        `/attempts/${input.runAttempt}/jobs?per_page=100&page=${input.page}`
-    ]), 'workflow job page');
+    const response = record(await this.#read(input.repository, {
+      kind: 'workflow-jobs', runId: positiveId(input.runId, 'run id'),
+      runAttempt: input.runAttempt, page: input.page
+    }), 'workflow job page');
     if (!Array.isArray(response.jobs)) fail('workflow job page jobs are invalid.');
     return Object.freeze({ records: response.jobs, hasNextPage: response.jobs.length === 100 });
   }
@@ -233,10 +242,7 @@ class GhCliVerificationActionTransport implements VerificationActionGitHubProvid
     if (!Number.isSafeInteger(input.page) || input.page < 1) {
       fail('artifact inventory page request is invalid.');
     }
-    const raw = ghJsonWithRawDigest([
-      'api', '-H', 'Accept: application/vnd.github+json',
-      `/repos/${repository(input.repository)}/actions/artifacts?per_page=100&page=${input.page}`
-    ]);
+    const raw = await this.#readObserved(input.repository, { kind: 'artifacts', page: input.page });
     const response = record(raw.value, 'artifact inventory page');
     if (!Array.isArray(response.artifacts) || !Number.isSafeInteger(response.total_count) ||
         Number(response.total_count) < 0) {
@@ -255,11 +261,9 @@ class GhCliVerificationActionTransport implements VerificationActionGitHubProvid
     perPage: 100;
     page: number;
   }>): Promise<GitHubExactCommitStatusPage> {
-    const response = ghJsonWithRawDigest([
-      'api',
-      '-H', 'Accept: application/vnd.github+json',
-      `/repos/${repository(input.repository)}/commits/${sha(input.sha)}/statuses?per_page=100&page=${input.page}`
-    ]);
+    const response = await this.#readObserved(input.repository, {
+      kind: 'commit-statuses', sha: sha(input.sha), page: input.page
+    });
     const records = response.value;
     if (!Array.isArray(records)) fail('commit status page response is not an array.');
     return Object.freeze({ records, hasNextPage: records.length === input.perPage,
@@ -274,20 +278,21 @@ class GhCliVerificationActionTransport implements VerificationActionGitHubProvid
     description: string;
     targetUrl: string;
   }>): Promise<unknown> {
-    return ghJson([
-      'api', '--method', 'POST',
-      '-H', 'Accept: application/vnd.github+json',
-      `/repos/${repository(input.repository)}/statuses/${sha(input.sha)}`,
-      '-f', `state=${input.state}`,
-      '-f', `context=${input.context}`,
-      '-f', `description=${input.description}`,
-      '-f', `target_url=${input.targetUrl}`
-    ]);
+    return await withGitHubApiStatusWriteSession({
+      repositoryRoot: this.#repositoryRoot,
+      repository: repository(input.repository),
+      operation: async (api) => await executeGitHubApiOperation(api, {
+        kind: 'create-commit-status', sha: sha(input.sha),
+        status: {
+          state: input.state,
+          context: input.context, description: input.description, targetUrl: input.targetUrl
+        }
+      })
+    });
   }
 
   async getWorkflowRun(input: Readonly<{ repository: string; runId: string }>): Promise<unknown> {
-    return ghJson(['api', '-H', 'Accept: application/vnd.github+json',
-      `/repos/${repository(input.repository)}/actions/runs/${positiveId(input.runId, 'run id')}`]);
+    return await this.#read(input.repository, { kind: 'workflow-run', runId: positiveId(input.runId, 'run id') });
   }
 
   async getWorkflowRunAttempt(input: Readonly<{
@@ -298,20 +303,20 @@ class GhCliVerificationActionTransport implements VerificationActionGitHubProvid
     if (!Number.isSafeInteger(input.runAttempt) || input.runAttempt < 1) {
       fail('workflow run attempt is invalid.');
     }
-    return ghJson(['api', '-H', 'Accept: application/vnd.github+json',
-      `/repos/${repository(input.repository)}/actions/runs/${positiveId(input.runId, 'run id')}` +
-        `/attempts/${input.runAttempt}`]);
+    return await this.#read(input.repository, {
+      kind: 'workflow-run-attempt', runId: positiveId(input.runId, 'run id'), runAttempt: input.runAttempt
+    });
   }
 
   async getCheckSuite(input: Readonly<{ repository: string; checkSuiteId: number }>): Promise<unknown> {
     if (!Number.isSafeInteger(input.checkSuiteId) || input.checkSuiteId < 1) fail('check suite id is invalid.');
-    return ghJson(['api', '-H', 'Accept: application/vnd.github+json',
-      `/repos/${repository(input.repository)}/check-suites/${input.checkSuiteId}`]);
+    return await this.#read(input.repository, { kind: 'check-suite', checkSuiteId: input.checkSuiteId });
   }
 
   async getArtifact(input: Readonly<{ repository: string; artifactId: string }>): Promise<unknown> {
-    return ghJson(['api', '-H', 'Accept: application/vnd.github+json',
-      `/repos/${repository(input.repository)}/actions/artifacts/${positiveId(input.artifactId, 'artifact id')}`]);
+    return await this.#read(input.repository, {
+      kind: 'artifact', artifactId: Number(positiveId(input.artifactId, 'artifact id'))
+    });
   }
 
   async downloadArtifact(input: Readonly<{
@@ -339,42 +344,6 @@ class GhCliVerificationActionTransport implements VerificationActionGitHubProvid
 function positiveId(value: string, label: string): string {
   if (!/^[1-9][0-9]*$/u.test(value)) fail(`${label} is invalid.`);
   return value;
-}
-
-function runProcessText(command: string, args: readonly string[]): string {
-  const result = spawnSync(command, [...args], {
-    encoding: 'utf8',
-    maxBuffer: 128 * 1024 * 1024,
-    windowsHide: true
-  });
-  if (result.error !== undefined || result.status !== 0 || typeof result.stdout !== 'string') {
-    fail(`${command} failed: ${boundedError(result.error ?? result.stderr)}`);
-  }
-  return result.stdout;
-}
-
-function ghJson(args: readonly string[]): unknown {
-  const source = runProcessText('gh', args);
-  try {
-    return JSON.parse(source) as unknown;
-  } catch (error) {
-    fail(`gh returned invalid JSON: ${boundedError(error)}`);
-  }
-}
-
-function ghJsonWithRawDigest(args: readonly string[]): Readonly<{
-  value: unknown;
-  rawResponseDigest: VerificationActionKeyDigest;
-}> {
-  const source = runProcessText('gh', args);
-  try {
-    return Object.freeze({
-      value: JSON.parse(source) as unknown,
-      rawResponseDigest: bytesDigest(Buffer.from(source, 'utf8'))
-    });
-  } catch (error) {
-    fail(`gh returned invalid JSON: ${boundedError(error)}`);
-  }
 }
 
 function fail(message: string): never {
@@ -1519,7 +1488,7 @@ export async function ensureVerificationActionGitHubProviderTransaction(input: R
   authority: VerificationActionGitHubProviderAuthority;
   intent: VerificationActionGitHubProviderIntent;
 }>): Promise<VerificationActionGitHubProviderTransactionResult> {
-  const transport = new GhCliVerificationActionTransport(input.repositoryRoot);
+  const transport = new GitHubApiVerificationActionTransport(input.repositoryRoot);
   const authenticated = await authenticateVerificationActionAuthority(
     transport,
     input.authority,

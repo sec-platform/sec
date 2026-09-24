@@ -27,7 +27,7 @@ const PRINCIPAL: GitHubApiPrincipal = Object.freeze({
 });
 
 function capability(input: Readonly<{
-  effect: 'read' | 'status-write' | 'merge-write' | 'runner-admin' | 'branch-closeout-write';
+  effect: 'read' | 'status-write' | 'repository-dispatch-write' | 'merge-write' | 'runner-admin' | 'branch-closeout-write';
   transport: GitHubApiTransport;
   principal?: GitHubApiPrincipal;
 }>): GitHubApiCapability {
@@ -39,6 +39,71 @@ function capability(input: Readonly<{
     transport: input.transport
   });
 }
+
+test('verification provider fixed reads compile without exposing arbitrary REST paths', async () => {
+  const urls: string[] = [];
+  const api = capability({
+    effect: 'read',
+    transport: async (target) => {
+      urls.push(String(target));
+      return Response.json({});
+    }
+  });
+  await withGitHubApiTestSession({
+    capability: api,
+    operation: async () => {
+      await executeGitHubApiOperation(api, { kind: 'workflow', path: '.github/workflows/compiler-pr-validation.yml' });
+      await executeGitHubApiOperation(api, { kind: 'workflow-jobs', runId: '12', runAttempt: 3, page: 2 });
+      await executeGitHubApiOperation(api, { kind: 'artifacts', page: 4 });
+      await executeGitHubApiOperation(api, { kind: 'check-suite', checkSuiteId: 55 });
+      await executeGitHubApiOperation(api, { kind: 'artifact', artifactId: 66 });
+    }
+  });
+  expect(urls).toEqual([
+    'https://api.github.com/repos/sec-platform/sec/actions/workflows/.github/workflows/compiler-pr-validation.yml',
+    'https://api.github.com/repos/sec-platform/sec/actions/runs/12/attempts/3/jobs?per_page=100&page=2',
+    'https://api.github.com/repos/sec-platform/sec/actions/artifacts?per_page=100&page=4',
+    'https://api.github.com/repos/sec-platform/sec/check-suites/55',
+    'https://api.github.com/repos/sec-platform/sec/actions/artifacts/66'
+  ]);
+});
+
+test('repository dispatch uses its own write authority and accepts canonical 204 settlement', async () => {
+  let observedBody: unknown = null;
+  const api = capability({
+    effect: 'repository-dispatch-write',
+    transport: async (_target, init) => {
+      observedBody = JSON.parse(String(init?.body));
+      return new Response(null, { status: 204 });
+    }
+  });
+  expect(await withGitHubApiTestSession({
+    capability: api,
+    operation: () => executeGitHubApiOperation(api, {
+      kind: 'repository-dispatch', eventType: 'sec-test', clientPayload: { value: 1 }
+    })
+  })).toBeNull();
+  expect(observedBody).toEqual({ event_type: 'sec-test', client_payload: { value: 1 } });
+});
+
+test('status-write preserves pending as a first-class GitHub status state', async () => {
+  let observedBody: unknown = null;
+  const api = capability({
+    effect: 'status-write',
+    transport: async (_target, init) => {
+      observedBody = JSON.parse(String(init?.body));
+      return Response.json({ ok: true });
+    }
+  });
+  await withGitHubApiTestSession({
+    capability: api,
+    operation: () => executeGitHubApiOperation(api, {
+      kind: 'create-commit-status', sha: SHA,
+      status: { state: 'pending', context: 'sec/test', description: 'pending', targetUrl: 'https://example.test/run' }
+    })
+  });
+  expect(observedBody).toMatchObject({ state: 'pending' });
+});
 
 test('production surface excludes test issuers and the repository graph rejects their import', async () => {
   const production = await import('../../src/adapters/providers/github-api/operation-session.ts');

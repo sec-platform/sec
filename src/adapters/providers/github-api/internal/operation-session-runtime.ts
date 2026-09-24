@@ -17,6 +17,7 @@ import { GitHubCredentialUnavailableError, readGitHubToken } from '../credential
 export type GitHubApiEffect =
   | 'read'
   | 'status-write'
+  | 'repository-dispatch-write'
   | 'merge-write'
   | 'runner-admin'
   | 'branch-closeout-write';
@@ -93,7 +94,7 @@ export type GitHubApiOperation =
       kind: 'create-commit-status';
       sha: string;
       status: Readonly<{
-        state: 'success';
+        state: 'error' | 'failure' | 'pending' | 'success';
         context: string;
         description: string;
         targetUrl: string;
@@ -118,7 +119,12 @@ export type GitHubApiOperation =
   | Readonly<{ kind: 'git-ref'; branch: string }>
   | Readonly<{ kind: 'workflow-run'; runId: string }>
   | Readonly<{ kind: 'workflow-run-attempt'; runId: string; runAttempt: number }>
+  | Readonly<{ kind: 'workflow'; path: '.github/workflows/compiler-pr-validation.yml' }>
+  | Readonly<{ kind: 'workflow-jobs'; runId: string; runAttempt: number; page: number }>
+  | Readonly<{ kind: 'artifacts'; page: number }>
+  | Readonly<{ kind: 'check-suite'; checkSuiteId: number }>
   | Readonly<{ kind: 'artifact'; artifactId: number }>
+  | Readonly<{ kind: 'repository-dispatch'; eventType: string; clientPayload: unknown }>
   | Readonly<{ kind: 'check-runs'; sha: string; page: number }>
   | Readonly<{ kind: 'repository-runners'; page: number }>
   | Readonly<{ kind: 'create-runner-registration-token' }>
@@ -268,6 +274,14 @@ function compileOperation(
       'GitHub API branch-closeout-write authority permits only fixed closeout observations and effects'
     );
   }
+  if (effect === 'repository-dispatch-write'
+      && kind !== 'current-user'
+      && kind !== 'collaborator-permission'
+      && kind !== 'repository-dispatch') {
+    throw new GitHubApiProviderError(
+      'GitHub API repository-dispatch-write authority permits only fixed dispatch enrollment and effect'
+    );
+  }
   const read = (path: string, body?: unknown): CompiledGitHubApiRequest =>
     Object.freeze({ kind, method: body === undefined ? 'GET' as const : 'POST' as const, path, body });
   switch (kind) {
@@ -284,9 +298,11 @@ function compileOperation(
         throw new GitHubApiProviderError('GitHub API status publication requires status-write authority');
       }
       const status = operation.status;
-      if (status.state !== 'success') throw new GitHubApiProviderError('GitHub API status publication requires the admitted success state');
+      if (!['error', 'failure', 'pending', 'success'].includes(status.state)) {
+        throw new GitHubApiProviderError('GitHub API status publication state is invalid');
+      }
       return read(`/repos/${repo}/statuses/${sha(operation.sha)}`, Object.freeze({
-        state: 'success',
+        state: status.state,
         context: boundedText(status.context, 'status context', 100),
         description: boundedText(status.description, 'status description', 140),
         target_url: boundedText(status.targetUrl, 'status target URL', 512)
@@ -354,8 +370,32 @@ function compileOperation(
       }
       return read(`/repos/${repo}/actions/runs/${runId}/attempts/${positiveInteger(runAttempt, 'workflow run attempt')}`);
     }
+    case 'workflow':
+      return read(`/repos/${repo}/actions/workflows/${operation.path}`);
+    case 'workflow-jobs': {
+      const runId = operation.runId;
+      if (!/^[1-9][0-9]*$/u.test(runId)) throw new GitHubApiProviderError('GitHub API workflow run id is invalid');
+      return read(`/repos/${repo}/actions/runs/${runId}/attempts/${positiveInteger(operation.runAttempt, 'workflow run attempt')}/jobs?per_page=100&page=${page(operation.page)}`);
+    }
+    case 'artifacts':
+      return read(`/repos/${repo}/actions/artifacts?per_page=100&page=${page(operation.page)}`);
+    case 'check-suite':
+      return read(`/repos/${repo}/check-suites/${positiveInteger(operation.checkSuiteId, 'check suite id')}`);
     case 'artifact':
       return read(`/repos/${repo}/actions/artifacts/${positiveInteger(operation.artifactId, 'artifact id')}`);
+    case 'repository-dispatch':
+      if (effect !== 'repository-dispatch-write') {
+        throw new GitHubApiProviderError('GitHub API repository dispatch requires repository-dispatch-write authority');
+      }
+      return Object.freeze({
+        kind,
+        method: 'POST',
+        path: `/repos/${repo}/dispatches`,
+        body: Object.freeze({
+          event_type: boundedText(operation.eventType, 'repository dispatch event type', 100),
+          client_payload: operation.clientPayload
+        })
+      });
     case 'check-runs': return read(`/repos/${repo}/commits/${sha(operation.sha)}/check-runs?per_page=100&page=${page(operation.page)}`);
     case 'repository-runners':
       return read(`/repos/${repo}/actions/runners?per_page=100&page=${page(operation.page)}`);
@@ -488,6 +528,7 @@ export function assertGitHubApiCapability(
   if (value.repository !== repositoryName || !effectSatisfied
       || (requiredEffect === 'runner-admin' && value.principal.permission !== 'admin')
       || ((requiredEffect === 'status-write'
+          || requiredEffect === 'repository-dispatch-write'
           || requiredEffect === 'merge-write'
           || requiredEffect === 'branch-closeout-write')
         && value.principal.permission !== 'admin'
@@ -521,6 +562,7 @@ function issueCapability(input: Readonly<{
     throw new GitHubApiProviderError('GitHub API runner-admin capability requires admin permission');
   }
   if ((input.effect === 'status-write'
+      || input.effect === 'repository-dispatch-write'
       || input.effect === 'merge-write'
       || input.effect === 'branch-closeout-write')
       && input.principal.permission !== 'admin' && input.principal.permission !== 'maintain') {
@@ -803,6 +845,10 @@ async function executeWithTokenObserved<T>(
       });
       if (response.body === null) {
         remaining(session);
+        if (response.status === 204 && response.ok && compiled.method === 'POST'
+            && compiled.kind === 'repository-dispatch') {
+          return Object.freeze({ value: null as T, source: null });
+        }
         if (response.status === 204 && response.ok && compiled.method === 'DELETE'
             && compiled.kind === 'delete-repository-runner') {
           return Object.freeze({ value: null as T, source: null });
@@ -1231,6 +1277,14 @@ export async function withGitHubApiStatusWriteSession<T>(input: Readonly<{
   operation: (capability: GitHubApiCapability) => Promise<T>;
 }>): Promise<T> {
   return await withProductionSession({ ...input, effect: 'status-write' });
+}
+
+export async function withGitHubApiRepositoryDispatchWriteSession<T>(input: Readonly<{
+  repositoryRoot: string;
+  repository: string;
+  operation: (capability: GitHubApiCapability) => Promise<T>;
+}>): Promise<T> {
+  return await withProductionSession({ ...input, effect: 'repository-dispatch-write' });
 }
 
 export async function withGitHubApiMergeWriteSession<T>(input: Readonly<{

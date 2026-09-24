@@ -17,6 +17,7 @@ export {
   readGitHubApiBytes,
   inspectGitHubApiCapability, withGitHubApiBranchCloseoutWriteSession, withGitHubApiMergeWriteSession, withGitHubApiReadOperationBudget,
   withGitHubApiReadSession,
+  withGitHubApiRepositoryDispatchWriteSession,
   withGitHubApiRunnerAdminSession,
   withGitHubApiStatusWriteSession,
   type GitHubApiCapability,
