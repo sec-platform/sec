@@ -187,7 +187,6 @@ const REPOSITORY_TEST_PATH = /^tests\//iu;
 const TEST_FIXTURE_EXTENSION = /\.(?:json|md|markdown|txt)$/iu;
 const TEST_FIXTURE_DIRECTORY = /(?:^|\/)(?:__)?(?:fixtures?|snapshots?)(?:__)?(?:\/|$)/iu;
 const MALFORMED_REPOSITORY_REFERENCE = /(?:\t(?:ests|platform|scripts|docs)\/|\\(?:tests|platform|scripts|docs)\/)/u;
-const DYNAMIC_IDENTITY = /(?:\b[0-9a-f]{40}\b|\bPR\s*#\d+\b|\b(?:run|job)\s*#?\d{8,}\b)/iu;
 
 function reviewedProcessDispatcherCachePath(repositoryRoot: string): string {
   const platform = currentSecRuntimePlatform();
@@ -1857,12 +1856,6 @@ async function prepareWorkingTreeSourceProgramAudit(
   });
 }
 
-function markdownStatus(source: string): string | null {
-  const frontmatter = /^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/u.exec(source)?.[1];
-  if (!frontmatter) return null;
-  return /^status:\s*([^\s#]+)\s*$/mu.exec(frontmatter)?.[1] ?? null;
-}
-
 function behaviorSkills(repositoryPath: string): SecAgentSkillId[] {
   const markdown = resolveSecMarkdownSkillCoverage(repositoryPath);
   return markdown?.skills ?? resolveSecRepositoryHeuristicSkills(repositoryPath);
@@ -2612,7 +2605,7 @@ async function auditRepositoryWithSession(
   const sourceProgram = sourceProgramCompilation.model;
   reportExecutionProgress({ command: 'audit:repository', phase: 'test-syntax-filter', state: 'start' });
   const contentCoverage = Object.freeze(initialContentCoverage.map((coverage) => {
-    if (coverage.status !== 'scanned' || !isJavaScriptOrTypeScriptTestPath(coverage.path)) {
+    if (coverage.status !== 'scanned' || !isSecRepositoryTestModulePath(coverage.path)) {
       return coverage;
     }
     const syntax = observeSourceProgramTypeScriptSyntax(
@@ -2698,32 +2691,11 @@ async function auditRepositoryWithSession(
     if (markdownCoverage?.kind === 'active-authority'
       || markdownCoverage?.kind === 'agent-projection') {
       activeMarkdown += 1;
-      const status = markdownStatus(source);
-      if (repositoryPath.startsWith('docs/') && status === null) {
-        pushFinding(findings, {
-          code: 'active-markdown-status-missing',
-          message: 'active documentation has no frontmatter status',
-          path: repositoryPath,
-          severity: 'high'
-        });
-      }
     }
 
     const sourceGovernance = projectRepositorySourceGovernance(repositoryPath, source);
     candidates.push(...sourceGovernance.candidates);
     findings.push(...sourceGovernance.blockingFindings);
-
-    for (const [index, rawLine] of source.split(/\r?\n/u).entries()) {
-      if (markdownCoverage?.kind === 'active-authority' && DYNAMIC_IDENTITY.test(rawLine)) {
-        pushFinding(findings, {
-          code: 'dynamic-identity-in-stable-authority',
-          line: index + 1,
-          message: `dynamic revision/PR/run identity appears in stable authority: ${rawLine.trim()}`,
-          path: repositoryPath,
-          severity: 'medium'
-        });
-      }
-    }
 
     if (repositoryPath === 'scripts/discover-all.ts'
       && (source.includes("const PLATFORM_ROOT = join(ROOT, 'platform');")

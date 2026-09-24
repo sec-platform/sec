@@ -312,6 +312,10 @@ test.serial('repository audit reads one immutable HEAD tree and fails closed on 
     await mkdir(path.join(repositoryRoot, 'templates'), { recursive: true });
     await mkdir(path.join(repositoryRoot, 'tests', 'contract'), { recursive: true });
     await mkdir(path.join(repositoryRoot, 'tests', 'fixtures'), { recursive: true });
+    await mkdir(
+      path.join(repositoryRoot, 'catalog', 'registry', 'official', 'fixture', 'files', 'tests', 'unit'),
+      { recursive: true }
+    );
     await mkdir(path.join(repositoryRoot, 'assets'), { recursive: true });
     await writeFile(path.join(repositoryRoot, 'AGENTS.md'), 'Agent must use the canonical owner.\n', 'utf8');
     await writeFile(
@@ -392,6 +396,14 @@ test.serial('repository audit reads one immutable HEAD tree and fails closed on 
     await writeFile(
       path.join(repositoryRoot, 'tests', 'contract', 'unresolved.test.ts'),
       "const unresolved = 'unterminated;\n",
+      'utf8'
+    );
+    await writeFile(
+      path.join(
+        repositoryRoot,
+        'catalog', 'registry', 'official', 'fixture', 'files', 'tests', 'unit', 'consumer.test.ts'
+      ),
+      "const catalogFixture = 'target-project test payload';\n",
       'utf8'
     );
     for (const [name, source] of [
@@ -503,6 +515,9 @@ test.serial('repository audit reads one immutable HEAD tree and fails closed on 
       status: 'unknown',
       reason: expect.stringContaining('test-syntax-unresolved:')
     });
+    expect(report.contentCoverage.find(({ path: repositoryPath }) =>
+      repositoryPath === 'catalog/registry/official/fixture/files/tests/unit/consumer.test.ts'
+    )).toMatchObject({ status: 'scanned' });
     for (const repositoryPath of [
       'tests/fixtures/policy.json',
       'tests/fixtures/policy.md',
