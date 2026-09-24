@@ -210,7 +210,7 @@ export function createVerificationProviderAvailabilityEpoch(input: {
   return Object.freeze({ ...withoutDigest, epochDigest: hash(withoutDigest) });
 }
 
-export function assertProviderCapabilityUsableV1(input: {
+export function assertProviderCapabilityUsable(input: {
   epoch: VerificationProviderAvailabilityEpoch;
   capability: VerificationProviderCapabilityId;
   expectedRole: VerificationProviderRole;
@@ -289,7 +289,7 @@ export function assertProviderRetryGuard(input: {
  * reasonCode and a content digest may be retained; the raw bytes never become
  * engineering truth.
  */
-export function classifyProviderDiagnosticTextV1(
+export function classifyProviderDiagnosticText(
   raw: string
 ): { reasonCode: string; receiptRef: `sha256:${string}` } {
   const bounded = raw.length > 4096 ? raw.slice(0, 4096) : raw;
