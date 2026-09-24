@@ -381,8 +381,37 @@ const spawnSync = mock((
   options?: Readonly<{ input?: string }>
 ) => fakeGh.spawn(command, args, options));
 mock.module('node:child_process', () => ({ spawnSync }));
+mock.module('../../src/adapters/providers/github-api/operation-session.ts', () => ({
+  withGitHubApiReadSession: async <T>(input: Readonly<{
+    operation: (capability: Readonly<Record<string, never>>) => Promise<T>;
+  }>) => await input.operation(Object.freeze({})),
+  readGitHubApiBytes: async (_capability: unknown, input: Readonly<{
+    kind: 'artifact-archive';
+    artifactId: number;
+  }>) => {
+    const artifact = fakeGh.artifacts.find((entry) => entry.id === input.artifactId);
+    if (artifact === undefined) throw new Error('artifact not found');
+    fakeGh.lastDownloadedArtifactId = artifact.id;
+    fakeGh.downloadedArtifactIds.push(artifact.id);
+    return new Uint8Array(Buffer.from(`zip-${artifact.id}`));
+  }
+}));
+mock.module('../../src/adapters/providers/zip/runtime.ts', () => ({
+  readZipTextFile: async (input: Readonly<{
+    expectedFileName: string;
+  }>) => {
+    const artifact = fakeGh.artifacts.find((entry) => entry.id === fakeGh.lastDownloadedArtifactId);
+    if (artifact === undefined) throw new Error('no artifact fixture');
+    if (artifact.fileName !== input.expectedFileName) {
+      throw new Error('archive inventory is not the exact single expected member');
+    }
+    return artifact.source;
+  }
+}));
 const provider = await import('../../src/adapters/verification/platform/ci/runtime/verification-action-github-provider.ts');
-const ensureTransaction = provider.ensureVerificationActionGitHubProviderTransaction;
+const ensureTransaction = (
+  input: Omit<Parameters<typeof provider.ensureVerificationActionGitHubProviderTransaction>[0], 'repositoryRoot'>
+) => provider.ensureVerificationActionGitHubProviderTransaction({ repositoryRoot: EVENT_ROOT, ...input });
 
 function trustedEnvironment(eventEnvelope: CiVerificationActionProviderEnvelope = envelope): void {
   Object.assign(process.env, {

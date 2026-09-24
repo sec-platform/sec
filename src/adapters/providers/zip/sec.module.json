@@ -1,0 +1,26 @@
+{
+  "importGraph": "runtime",
+  "externalEntrypoints": [],
+  "capabilityProviders": [
+    {
+      "capability": "zip-text-read",
+      "operations": [
+        "readZipTextFile"
+      ],
+      "effectKinds": [
+        "filesystem",
+        "process"
+      ],
+      "operationRoles": [
+        {
+          "operation": "readZipTextFile",
+          "role": "domain-owner",
+          "semanticOperation": "external-capabilities.zip-text-read",
+          "requirementId": null,
+          "recovery": null
+        }
+      ]
+    }
+  ],
+  "preDependencyBootstrap": false
+}

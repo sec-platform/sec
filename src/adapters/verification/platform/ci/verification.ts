@@ -5099,6 +5099,7 @@ function hostedActionChildAuthority(input: Readonly<{
 }
 
 async function observeHostedActionAuthority(input: Readonly<{
+  repositoryRoot: string;
   providerEnvelope: CiVerificationActionProviderEnvelope;
   envelope: VerificationSessionHostedEnvelope;
   role: 'parent' | 'child';
@@ -5107,6 +5108,7 @@ async function observeHostedActionAuthority(input: Readonly<{
   decision: VerificationActionProviderDecision;
 }>> {
   const result = await ensureVerificationActionGitHubProviderTransaction({
+    repositoryRoot: input.repositoryRoot,
     authority: {
       envelope: input.providerEnvelope,
       actionPlanClosure: input.envelope.actionPlanClosure
@@ -5132,6 +5134,7 @@ async function observeHostedActionAuthority(input: Readonly<{
 }
 
 async function coordinateHostedSessionProvider(input: Readonly<{
+  repositoryRoot: string;
   authority: ReturnType<typeof hostedActionParentAuthority>;
   allowDispatch: boolean;
 }>): Promise<Readonly<{
@@ -5146,6 +5149,7 @@ async function coordinateHostedSessionProvider(input: Readonly<{
   const envelopesByKey = new Map<VerificationActionKeyDigest, CiVerificationActionProviderEnvelope>();
   for (const providerEnvelope of input.authority.providerEnvelopes) {
     const observed = await observeHostedActionAuthority({
+      repositoryRoot: input.repositoryRoot,
       providerEnvelope,
       envelope: input.authority.envelope,
       role: 'parent'
@@ -5178,6 +5182,7 @@ async function coordinateHostedSessionProvider(input: Readonly<{
         throw new Error('coordinator selected an Action outside the authenticated parent plan.');
       }
       const result = await ensureVerificationActionGitHubProviderTransaction({
+        repositoryRoot: input.repositoryRoot,
         authority: {
           envelope: providerEnvelope,
           actionPlanClosure: input.authority.envelope.actionPlanClosure
@@ -5193,7 +5198,11 @@ async function coordinateHostedSessionProvider(input: Readonly<{
   return Object.freeze({ artifactIndex, coordination, dispatched });
 }
 
-export async function CiVerificationHostedActionCli(argv: string[]): Promise<string> {
+export async function CiVerificationHostedActionCli(
+  argv: string[],
+  repositoryRoot = process.cwd()
+): Promise<string> {
+  const exactRepositoryRoot = path.resolve(repositoryRoot);
   const command = argv[0];
   if (command === 'execute-trusted-bootstrap-sut') {
     const args = hostedActionCliArgs(argv, [
@@ -5257,6 +5266,7 @@ export async function CiVerificationHostedActionCli(argv: string[]): Promise<str
         const first = authority.providerEnvelopes[0];
         if (first === undefined) throw new Error('parent dispatch plan has no Action proposal.');
         const observed = await observeHostedActionAuthority({
+          repositoryRoot: exactRepositoryRoot,
           providerEnvelope: first,
           envelope: authority.envelope,
           role: 'parent'
@@ -5269,6 +5279,7 @@ export async function CiVerificationHostedActionCli(argv: string[]): Promise<str
         });
       }
       const coordinated = await coordinateHostedSessionProvider({
+        repositoryRoot: exactRepositoryRoot,
         authority,
         allowDispatch: intent === 'coordinate-session'
       });
@@ -5291,6 +5302,7 @@ export async function CiVerificationHostedActionCli(argv: string[]): Promise<str
         resolutionPath: args.get('--resolution')!
       });
       const observed = await observeHostedActionAuthority({
+        repositoryRoot: exactRepositoryRoot,
         providerEnvelope: authority.providerEnvelope,
         envelope: authority.envelope,
         role: 'child'
@@ -5331,6 +5343,7 @@ export async function CiVerificationHostedActionCli(argv: string[]): Promise<str
         }`);
       }
       const observed = await observeHostedActionAuthority({
+        repositoryRoot: exactRepositoryRoot,
         providerEnvelope: authority.providerEnvelope,
         envelope: authority.envelope,
         role: 'child'
@@ -5371,6 +5384,7 @@ export async function CiVerificationHostedActionCli(argv: string[]): Promise<str
         resolutionPath: args.get('--resolution')!
       });
       const before = await ensureVerificationActionGitHubProviderTransaction({
+        repositoryRoot: exactRepositoryRoot,
         authority: { envelope: authority.providerEnvelope, actionPlanClosure: authority.envelope.actionPlanClosure },
         intent: { kind: 'coordinate' }
       });
@@ -5381,6 +5395,7 @@ export async function CiVerificationHostedActionCli(argv: string[]): Promise<str
       }
       const marker = parseVerificationActionStartMarkerV2(markerObservation.payload);
       const claimed = await ensureVerificationActionGitHubProviderTransaction({
+        repositoryRoot: exactRepositoryRoot,
         authority: { envelope: authority.providerEnvelope, actionPlanClosure: authority.envelope.actionPlanClosure },
         intent: { kind: 'claim-start', marker }
       });
@@ -5437,6 +5452,7 @@ export async function CiVerificationHostedActionCli(argv: string[]): Promise<str
         resolutionPath: args.get('--resolution')!
       });
       const observed = await observeHostedActionAuthority({
+        repositoryRoot: exactRepositoryRoot,
         providerEnvelope: authority.providerEnvelope,
         envelope: authority.envelope,
         role: 'child'
@@ -5493,6 +5509,7 @@ export async function CiVerificationHostedActionCli(argv: string[]): Promise<str
         resolutionPath: args.get('--resolution')!
       });
       const before = await ensureVerificationActionGitHubProviderTransaction({
+        repositoryRoot: exactRepositoryRoot,
         authority: { envelope: authority.providerEnvelope, actionPlanClosure: authority.envelope.actionPlanClosure },
         intent: { kind: 'coordinate' }
       });
@@ -5502,6 +5519,7 @@ export async function CiVerificationHostedActionCli(argv: string[]): Promise<str
         throw new Error('anchor-terminal requires one exact uploaded terminal anchor.');
       }
       const result = await ensureVerificationActionGitHubProviderTransaction({
+        repositoryRoot: exactRepositoryRoot,
         authority: { envelope: authority.providerEnvelope, actionPlanClosure: authority.envelope.actionPlanClosure },
         intent: { kind: 'anchor-terminal', anchor: anchorObservation.payload }
       });
@@ -5647,6 +5665,7 @@ export async function CiVerificationHostedActionCli(argv: string[]): Promise<str
       readFileSync(path.resolve(args.get('--raw-result')!), 'utf8')
     );
     const observed = await ensureVerificationActionGitHubProviderTransaction({
+      repositoryRoot: exactRepositoryRoot,
       authority: { envelope: authority.providerEnvelope, actionPlanClosure: authority.envelope.actionPlanClosure },
       intent: { kind: 'coordinate' }
     });
