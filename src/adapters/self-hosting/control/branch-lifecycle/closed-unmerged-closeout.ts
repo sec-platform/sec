@@ -325,7 +325,7 @@ export function createClosedNativeAbsorptionDispositionEvidence(input: Omit<
  * before any recovery or preparation artifact is written. This is the retry
  * lookup lane for already-completed operations.
  */
-export function tryCreateClosedNativeAbsorptionDispositionEvidence(input: Readonly<{
+export async function tryCreateClosedNativeAbsorptionDispositionEvidence(input: Readonly<{
   repositoryRoot: string;
   repository: string;
   pullRequestNumber: number;
@@ -334,8 +334,8 @@ export function tryCreateClosedNativeAbsorptionDispositionEvidence(input: Readon
   baseBranch: string;
   baseSha: string;
   currentMainSha: string;
-}>): ClosedNativeAbsorptionDispositionEvidence | null {
-  const observed = observeNativeMainAbsorption({
+}>): Promise<ClosedNativeAbsorptionDispositionEvidence | null> {
+  const observed = await observeNativeMainAbsorption({
     repositoryRoot: input.repositoryRoot,
     sourceSha: input.headSha,
     mainSha: input.currentMainSha
@@ -714,7 +714,7 @@ async function observeExactInventory(
     evidence: operation.evidence, inventory: observation.value, allowedPrStates });
   if (blockers.length > 0) return blocked(operation, stage, blockers);
   const recovery = operation.prepared.preparation.recovery;
-  const live = verifyRecoveryAuthorityLive({ inventory: observation.value, recovery,
+  const live = await verifyRecoveryAuthorityLive({ inventory: observation.value, recovery,
     ...(recovery.kind === 'main-absorption' && recovery.basis === 'reviewed-supersession'
       ? { reviewEvidence: reviewedEvidenceByDisposition.get(operation.evidence) }
       : {}) });

@@ -283,11 +283,11 @@ export function rehydratePreparedBranchCloseoutEnvelope(input: {
  * Actions artifact on a fresh hosted runner. The stable preparation identity
  * remains byte-identical; only host-local paths/inventory are reconstructed.
  */
-export function rehydratePreparedBranchCloseoutRecoveryArtifact(input: {
+export async function rehydratePreparedBranchCloseoutRecoveryArtifact(input: {
   scope: BranchCloseoutScope;
   remote: PreparedBranchCloseoutEnvelope;
   recoveryBundleBytes: Uint8Array;
-}): PreparedBranchCloseoutEnvelope {
+}): Promise<PreparedBranchCloseoutEnvelope> {
   assertPreparedBranchCloseoutEnvelope(input.remote);
   const bytes = Buffer.from(input.recoveryBundleBytes);
   const digest = createHash('sha256').update(bytes).digest('hex');
@@ -319,7 +319,7 @@ export function rehydratePreparedBranchCloseoutRecoveryArtifact(input: {
     path: bundlePath,
     sha256: `sha256:${digest}` as const
   };
-  const recoveryReadback = verifyRecoveryAuthorityLive({ inventory, recovery });
+  const recoveryReadback = await verifyRecoveryAuthorityLive({ inventory, recovery });
   if (recoveryReadback.status !== 'success') {
     throw new Error(`Restored provider recovery bundle failed live verification: ${recoveryReadback.detail}`);
   }
@@ -555,13 +555,13 @@ async function prepareBranchCloseoutInternal(
     assertClosedSupersessionEvidence(admission.reviewEvidence);
   }
   const { recovery, attempts } = admission.kind === 'closed-unmerged'
-    ? createMainAbsorptionRecovery({ inventory: before, branch: input.branch,
+    ? await createMainAbsorptionRecovery({ inventory: before, branch: input.branch,
         expectedSha: expectedHeadSha, mainSha: mainSha!,
         basis: retentionBasis ?? 'reviewed-supersession', recoveryRoot: scope.recoveryRoot,
         ...(retentionBasis === null ? { reviewEvidence: admission.reviewEvidence } : {}) })
     : refState === 'absent'
       ? await prepareAbsentRefRecovery(scope, before, input.branch, expectedHeadSha, pullRequestNumber)
-      : createRecoveryBundle({
+      : await createRecoveryBundle({
         inventory: before,
         branch: input.branch,
         expectedSha: expectedHeadSha,
@@ -645,7 +645,7 @@ async function prepareAbsentRefRecovery(
       status: 'success',
       detail: `${existing.path} (reused verified recovery bundle)`
     }];
-    const live = verifyRecoveryAuthorityLive({ inventory, recovery: existing });
+    const live = await verifyRecoveryAuthorityLive({ inventory, recovery: existing });
     attempts.push(live);
     if (live.status !== 'success') {
       throw new Error(`Reused recovery bundle failed live revalidation: ${live.detail}`);

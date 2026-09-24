@@ -112,7 +112,7 @@ export async function runClosedUnmergedCloseoutCli(argv: readonly string[]): Pro
             if (mainRef.state !== 'present') {
               throw new Error('Closed-unmerged native retention requires the exact current base ref.');
             }
-            evidence = tryCreateClosedNativeAbsorptionDispositionEvidence({
+            evidence = await tryCreateClosedNativeAbsorptionDispositionEvidence({
               repositoryRoot,
               repository: input.repository,
               pullRequestNumber: pull.number,

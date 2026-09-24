@@ -1154,19 +1154,19 @@ function materializeBranchCloseoutRecoveryArtifact(input: {
   return Object.freeze({ artifact, artifactName, artifactFilePath });
 }
 
-function loadProviderBranchCloseoutRecoveryArtifact(input: {
+async function loadProviderBranchCloseoutRecoveryArtifact(input: {
   ctx: VerificationSessionScope;
   github: VerificationSessionGitHubClient;
   repository: string;
   session: VerificationSession;
   runId: string;
   runAttempt: number;
-}): Readonly<{
+}): Promise<Readonly<{
   artifact: BranchCloseoutRecoveryArtifact;
   metadata: GitHubActionsArtifactObservation;
   remotePrepared: ReturnType<typeof parsePreparedBranchCloseoutEnvelope>;
   prepared: ReturnType<typeof parsePreparedBranchCloseoutEnvelope>;
-}> {
+}>> {
   const expectedName = branchCloseoutRecoveryArtifactName({ prNumber: input.session.prNumber,
     sessionRevision: input.session.sessionRevision, runId: input.runId, runAttempt: input.runAttempt });
   const matches = input.github.observeActionsArtifactsForRun(input.repository, input.runId)
@@ -1202,10 +1202,14 @@ function loadProviderBranchCloseoutRecoveryArtifact(input: {
     || remotePrepared.preparation.recovery.sha256 !== artifact.recoveryBundleDigest) {
     throw new Error('Closeout recovery artifact preparation/bundle closure mismatch.');
   }
-  const prepared = rehydratePreparedBranchCloseoutRecoveryArtifact({ scope: input.ctx,
+  const prepared = await rehydratePreparedBranchCloseoutRecoveryArtifact({ scope: input.ctx,
     remote: remotePrepared, recoveryBundleBytes: Buffer.from(artifact.recoveryBundleBase64, 'base64') });
   return Object.freeze({ artifact, metadata, remotePrepared, prepared });
 }
+
+type LoadedProviderBranchCloseoutRecovery = Awaited<
+  ReturnType<typeof loadProviderBranchCloseoutRecoveryArtifact>
+>;
 
 function addSeconds(instant: string, seconds: number): string {
   return new Date(new Date(instant).getTime() + seconds * 1000).toISOString();
@@ -2175,7 +2179,7 @@ function assertAuthorizationPublicationMatchesSession(input: {
   }
 }
 
-function loadMarkerBoundMergedAuthorizationRecovery(input: {
+async function loadMarkerBoundMergedAuthorizationRecovery(input: {
   ctx: VerificationSessionScope;
   github: VerificationSessionGitHubClient;
   repository: string;
@@ -2185,15 +2189,15 @@ function loadMarkerBoundMergedAuthorizationRecovery(input: {
     commentId: number;
     publication: IntegrationAuthorizationOperationPublication;
   }>[];
-}): Readonly<{
+}): Promise<Readonly<{
   selected: Readonly<{ commentId: number; publication: IntegrationAuthorizationOperationPublication }>;
-  recovery: ReturnType<typeof loadProviderBranchCloseoutRecoveryArtifact>;
-}> {
+  recovery: LoadedProviderBranchCloseoutRecovery;
+}>> {
   const selected = selectMergedAuthorizationPublication({ candidate: input.candidate,
     sessionRevision: input.session.sessionRevision, publications: input.publications });
   assertAuthorizationPublicationMatchesSession({ publication: selected.publication,
     repository: input.repository, session: input.session });
-  const recovery = loadProviderBranchCloseoutRecoveryArtifact({ ctx: input.ctx,
+  const recovery = await loadProviderBranchCloseoutRecoveryArtifact({ ctx: input.ctx,
     github: input.github, repository: input.repository, session: input.session,
     runId: selected.publication.recoveryArtifact.runId,
     runAttempt: selected.publication.recoveryArtifact.runAttempt });
@@ -2228,7 +2232,7 @@ async function loadMergedHostedCloseoutContext(input: {
   candidate: GitHubCandidateObservation;
   identity: Awaited<ReturnType<typeof assertHostedIntegrationIdentity>>;
   selected: Readonly<{ commentId: number; publication: IntegrationAuthorizationOperationPublication }>;
-  recovery: ReturnType<typeof loadProviderBranchCloseoutRecoveryArtifact>;
+  recovery: LoadedProviderBranchCloseoutRecovery;
   binding: ReturnType<typeof createBranchCloseoutOperationBinding>;
 }>> {
   const hosted = loadHostedArtifactForMergeWorkflow(input.github, input.repository, input.event);
@@ -2248,7 +2252,7 @@ async function loadMergedHostedCloseoutContext(input: {
   const publications = await observeIntegrationAuthorizationOperationPublications(input.ctx.repositoryRoot, {
     repository: input.repository, pullRequestNumber: artifact.session.prNumber,
     sessionRevision: artifact.session.sessionRevision });
-  const merged = loadMarkerBoundMergedAuthorizationRecovery({ ctx: input.ctx,
+  const merged = await loadMarkerBoundMergedAuthorizationRecovery({ ctx: input.ctx,
     github: input.github, repository: input.repository, session: artifact.session,
     candidate, publications });
   const { selected, recovery } = merged;
@@ -2698,7 +2702,7 @@ async function authorizeHostedCloseoutEffectUnderLease(input: Readonly<{
   await assertWorkspaceWriteLease(preparation.repository.commonDir, input.coordinatedLease);
   await assertWorkspaceWriteLease(preparation.repository.root, input.lease);
   const observedCurrent = collectBranchLifecycleInventory(input.ctx);
-  const recoveryReadback = verifyRecoveryAuthorityLive({
+  const recoveryReadback = await verifyRecoveryAuthorityLive({
     inventory: observedCurrent,
     recovery: preparation.recovery
   });
@@ -2762,7 +2766,7 @@ export async function routePreparedWorktreeCleanupAttempt<T>(input: Readonly<{
 function loadOriginalHostPreparedCloseout(input: Readonly<{
   ctx: VerificationSessionScope;
   outputPath: string;
-  providerRecovery: ReturnType<typeof loadProviderBranchCloseoutRecoveryArtifact>;
+  providerRecovery: LoadedProviderBranchCloseoutRecovery;
 }>): PreparedBranchCloseoutEnvelope {
   const artifactPath = path.join(path.dirname(path.resolve(input.outputPath)),
     BRANCH_CLOSEOUT_RECOVERY_ARTIFACT_FILE_NAME);
@@ -3142,7 +3146,7 @@ async function finalizeSameInvocationCloseout(input: Readonly<{
   binding: ReturnType<typeof createBranchCloseoutOperationBinding>;
   authorizationPublication: IntegrationAuthorizationOperationPublication;
   authorizationCommentId: number;
-  recovery: ReturnType<typeof loadProviderBranchCloseoutRecoveryArtifact>;
+  recovery: LoadedProviderBranchCloseoutRecovery;
   provenance: HostedWorkflowCommentProvenance;
   phase: HostedIntegrationPhaseOwnership;
   worktreeCleanupTokens: readonly WorktreePhysicalCloseoutConsumptionToken[];
@@ -4862,7 +4866,7 @@ export async function verificationSessionCli(argv: string[]): Promise<string> {
       return JSON.stringify({ ...projection, output: path.resolve(outputPath) }, null, 2);
     }
     if (route.lane === 'merged-recovery') {
-      const original = loadMarkerBoundMergedAuthorizationRecovery({ ctx, github, repository,
+      const original = await loadMarkerBoundMergedAuthorizationRecovery({ ctx, github, repository,
         session: artifact.session, candidate, publications });
       const projection = Object.freeze({ ...route, effects,
         authorizationPublicationId: original.selected.publication.authorizationPublicationId,
@@ -4939,13 +4943,13 @@ export async function verificationSessionCli(argv: string[]): Promise<string> {
 
     let selected: Readonly<{ commentId: number;
       publication: IntegrationAuthorizationOperationPublication }>;
-    let selectedRecovery: ReturnType<typeof loadProviderBranchCloseoutRecoveryArtifact>;
+    let selectedRecovery: LoadedProviderBranchCloseoutRecovery;
     let originalHostPrepared: PreparedBranchCloseoutEnvelope | null = null;
     let ownsUnambiguousMergeStart = false;
     let issueDispositionPlan: IssueDispositionPlan | null = null;
 
     if (route.lane === 'merged-recovery') {
-      const original = loadMarkerBoundMergedAuthorizationRecovery({ ctx, github, repository,
+      const original = await loadMarkerBoundMergedAuthorizationRecovery({ ctx, github, repository,
         session: artifact.session, candidate, publications: remoteAttempts });
       selected = original.selected;
       selectedRecovery = original.recovery;
@@ -4986,7 +4990,7 @@ export async function verificationSessionCli(argv: string[]): Promise<string> {
       if (frozenPreflight.authorization.consumptionOperationId !== expectedConsumptionOperationId) {
         throw new Error('Frozen merge-gate preflight changed the stable consumption operation identity.');
       }
-      const recovery = loadProviderBranchCloseoutRecoveryArtifact({ ctx, github, repository,
+      const recovery = await loadProviderBranchCloseoutRecoveryArtifact({ ctx, github, repository,
         session: artifact.session, runId: hostedProvenance.runId,
         runAttempt: hostedProvenance.runAttempt });
       selectedRecovery = recovery;

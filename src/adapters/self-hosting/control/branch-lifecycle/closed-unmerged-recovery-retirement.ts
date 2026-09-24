@@ -201,7 +201,7 @@ export async function retireClosedUnmergedRecoveryFamily(input: Readonly<{
     }
   }
   if (bundleRecovery && proof !== null && checksum !== null) {
-    const verification = verifyRecoveryAuthorityLive({
+    const verification = await verifyRecoveryAuthorityLive({
       inventory: input.operation.prepared.before,
       recovery: preparation.recovery
     });

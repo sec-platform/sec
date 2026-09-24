@@ -197,11 +197,11 @@ function absorptionFixture(): Readonly<{
   return { root, repository, sourceSha, mainSha, inventory };
 }
 
-test('main absorption proof revalidates native ancestry and rejects changed proof bytes', () => {
+test('main absorption proof revalidates native ancestry and rejects changed proof bytes', async () => {
   const fixture = absorptionFixture();
   const recoveryRoot = path.join(fixture.root, 'recovery');
   try {
-    const { recovery } = createMainAbsorptionRecovery({
+    const { recovery } = await createMainAbsorptionRecovery({
       inventory: fixture.inventory,
       branch: 'candidate',
       expectedSha: fixture.sourceSha,
@@ -210,37 +210,37 @@ test('main absorption proof revalidates native ancestry and rejects changed proo
       recoveryRoot
     });
     expect(recovery.kind).toBe('main-absorption');
-    expect(verifyRecoveryAuthorityLive({ inventory: fixture.inventory, recovery }).status).toBe('success');
+    expect((await verifyRecoveryAuthorityLive({ inventory: fixture.inventory, recovery })).status).toBe('success');
     const initialProof = statSync(recovery.path);
-    const retried = createMainAbsorptionRecovery({
+    const retried = (await createMainAbsorptionRecovery({
       inventory: fixture.inventory,
       branch: 'candidate',
       expectedSha: fixture.sourceSha,
       mainSha: fixture.mainSha,
       basis: 'native-ancestor',
       recoveryRoot
-    }).recovery;
+    })).recovery;
     expect(retried.path).toBe(recovery.path);
     expect(statSync(retried.path).ino).toBe(initialProof.ino);
     writeFileSync(recovery.path, 'forged proof\n');
-    expect(verifyRecoveryAuthorityLive({ inventory: fixture.inventory, recovery }).status).toBe('failed');
+    expect((await verifyRecoveryAuthorityLive({ inventory: fixture.inventory, recovery })).status).toBe('failed');
   } finally {
     rmSync(fixture.root, { recursive: true, force: true });
   }
 });
 
-test('native absorption evidence is deterministic before any recovery or preparation publication', () => {
+test('native absorption evidence is deterministic before any recovery or preparation publication', async () => {
   const fixture = absorptionFixture();
   const recoveryRoot = path.join(fixture.root, 'recovery');
   try {
-    const observed = observeNativeMainAbsorption({
+    const observed = await observeNativeMainAbsorption({
       repositoryRoot: fixture.repository,
       sourceSha: fixture.sourceSha,
       mainSha: fixture.mainSha
     });
     expect(observed).not.toBeNull();
     if (observed === null) throw new Error('native absorption fixture was not observed');
-    const evidence = tryCreateClosedNativeAbsorptionDispositionEvidence({
+    const evidence = await tryCreateClosedNativeAbsorptionDispositionEvidence({
       repositoryRoot: fixture.repository,
       repository: 'sec-platform/sec',
       pullRequestNumber: 42,
@@ -254,14 +254,14 @@ test('native absorption evidence is deterministic before any recovery or prepara
     expect(evidence?.recoveryDigest).toBe(observed.recoveryDigest);
     expect(existsSync(recoveryRoot)).toBeFalse();
 
-    const durable = createMainAbsorptionRecovery({
+    const durable = (await createMainAbsorptionRecovery({
       inventory: fixture.inventory,
       branch: 'candidate',
       expectedSha: fixture.sourceSha,
       mainSha: fixture.mainSha,
       basis: observed.basis,
       recoveryRoot
-    }).recovery;
+    })).recovery;
     expect(durable.kind).toBe('main-absorption');
     expect(durable.sha256).toBe(observed.recoveryDigest);
   } finally {
@@ -269,26 +269,26 @@ test('native absorption evidence is deterministic before any recovery or prepara
   }
 });
 
-test('main absorption rejects unrelated source without authenticated review before proof publication', () => {
+test('main absorption rejects unrelated source without authenticated review before proof publication', async () => {
   const fixture = absorptionFixture();
   const recoveryRoot = path.join(fixture.root, 'recovery');
   try {
-    expect(() => createMainAbsorptionRecovery({
+    await expect(createMainAbsorptionRecovery({
       inventory: fixture.inventory,
       branch: 'candidate',
       expectedSha: fixture.mainSha,
       mainSha: fixture.sourceSha,
       basis: 'native-ancestor',
       recoveryRoot
-    })).toThrow('Source commit is not an ancestor');
-    expect(() => createMainAbsorptionRecovery({
+    })).rejects.toThrow('Source commit is not an ancestor');
+    await expect(createMainAbsorptionRecovery({
       inventory: fixture.inventory,
       branch: 'candidate',
       expectedSha: fixture.sourceSha,
       mainSha: fixture.mainSha,
       basis: 'reviewed-supersession',
       recoveryRoot
-    })).toThrow('review');
+    })).rejects.toThrow('review');
     expect(existsSync(recoveryRoot)).toBe(false);
   } finally {
     rmSync(fixture.root, { recursive: true, force: true });
@@ -690,7 +690,7 @@ test('missing documentation-owner observation is typed unresolved and blocks bef
       expectedHeadSha: fixture.headSha
     });
     const rehydrationRoot = path.join(fixture.root, 'blocked-rehydration');
-    expect(() => rehydratePreparedBranchCloseoutRecoveryArtifact({
+    await expect(rehydratePreparedBranchCloseoutRecoveryArtifact({
       scope: {
         repositoryRoot: fixture.repository,
         repositoryFullName: 'sec-platform/sec',
@@ -699,7 +699,7 @@ test('missing documentation-owner observation is typed unresolved and blocks bef
       },
       remote: authorized,
       recoveryBundleBytes: readFileSync(authorized.preparation.recovery.path)
-    })).toThrow('active-work-owner-observation-unavailable');
+    })).rejects.toThrow('active-work-owner-observation-unavailable');
     expect(existsSync(rehydrationRoot)).toBe(false);
   } finally {
     restorePath();
