@@ -7,6 +7,7 @@ import { issueOperationRequirementBindingContext } from '../../../../execution/o
 import { bindSecSemanticOperation, compileCapabilityBinding, compileSemanticOperationPlan, issueSemanticOperationAttemptContext, type OperationDigest } from '../../../../execution/operation/semantic.ts';
 import { assertWorkspaceWriteLease, withWorkspaceWriteLease, type WorkspaceWriteLeaseToken } from '../../../filesystem/write-lease.ts';
 import { withAuthorityGitReadSession } from '../../../providers/git-read/authority.ts';
+import { executeGitHubApiOperation, withGitHubApiReadSession } from '../../../providers/github-api/operation-session.ts';
 import { assertGitPhysicalProviderReceipt, closeGitPhysicalProvider, openGitPhysicalProvider } from '../../../providers/git/physical-provider.ts';
 import { assertGitLocalRefDeleteBatchReceipt, deleteExactLocalGitRefs, MAXIMUM_LOCAL_REF_DELETE_INPUT_BYTES, MAXIMUM_LOCAL_REF_DELETE_OUTPUT_BYTES, measureExactLocalGitRefDeleteBatchInputBytes, measureExactLocalGitRefDeleteBatchOutputBytes } from '../../../providers/git/ref-effect.ts';
 import { inspectNoFollowDirectoryChain, type PhysicalDirectoryChain } from '../../../runtime-state/physical/runtime/physical-no-follow.ts';
@@ -348,6 +349,113 @@ function parseWorktreeRoots(source: string): readonly string[] {
   return Object.freeze([...new Set(roots)].sort((left, right) => left.localeCompare(right)));
 }
 
+function parseGitHubRepositoryProviderObservation(
+  value: unknown,
+  expectedRepository: string
+): RepositoryProviderObservation {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) {
+    throw new Error('GitHub repository provider observation must be an object.');
+  }
+  const record = value as Record<string, unknown>;
+  const result = Object.freeze({
+    repository: String(record.full_name),
+    defaultBranch: String(record.default_branch)
+  });
+  if (result.repository !== expectedRepository) {
+    throw new Error(`Repository provider identity differs: expected ${expectedRepository}, observed ${result.repository}.`);
+  }
+  assertGitBranchName(result.defaultBranch, 'provider default branch');
+  return result;
+}
+
+async function observeProductionRepositoryProvider(
+  repositoryRoot: string,
+  repository: string
+): Promise<RepositoryProviderObservation> {
+  return await withGitHubApiReadSession({
+    repositoryRoot,
+    repository,
+    operation: async (capability) => parseGitHubRepositoryProviderObservation(
+      await executeGitHubApiOperation(capability, { kind: 'repository' }), repository
+    )
+  });
+}
+
+function parseGitHubMergedPullRequestPage(
+  value: unknown,
+  expectedRepository: string
+): readonly MergedPullRequestHead[] {
+  if (!Array.isArray(value)) throw new Error('GitHub merged pull request page must be an array.');
+  if (value.length > 100) throw new Error('GitHub merged pull request page exceeds its 100-item bound.');
+  const result: MergedPullRequestHead[] = [];
+  for (let index = 0; index < value.length; index += 1) {
+    const candidate = value[index];
+    if (candidate === null || typeof candidate !== 'object' || Array.isArray(candidate)) {
+      throw new Error(`GitHub merged pull request ${index} must be an object.`);
+    }
+    const record = candidate as Record<string, unknown>;
+    if (record.merged_at === null) continue;
+    const head = record.head;
+    const base = record.base;
+    if (head === null || typeof head !== 'object' || Array.isArray(head)
+        || base === null || typeof base !== 'object' || Array.isArray(base)) {
+      throw new Error(`GitHub merged pull request ${index} has invalid head/base identity.`);
+    }
+    const headRecord = head as Record<string, unknown>;
+    const baseRecord = base as Record<string, unknown>;
+    const baseRepo = baseRecord.repo;
+    if (baseRepo === null || typeof baseRepo !== 'object' || Array.isArray(baseRepo)
+        || (baseRepo as Record<string, unknown>).full_name !== expectedRepository) {
+      throw new Error(`GitHub merged pull request ${index} base repository differs from ${expectedRepository}.`);
+    }
+    const entry: MergedPullRequestHead = {
+      number: Number(record.number),
+      headBranch: String(headRecord.ref),
+      headSha: String(headRecord.sha),
+      baseBranch: String(baseRecord.ref),
+      mergeCommitSha: String(record.merge_commit_sha),
+      state: 'MERGED',
+      url: String(record.html_url)
+    };
+    if (!Number.isSafeInteger(entry.number) || entry.number < 1) {
+      throw new Error(`GitHub merged pull request ${index} identity is invalid.`);
+    }
+    assertGitBranchName(entry.headBranch, `merged pull request ${entry.number} head`);
+    assertGitBranchName(entry.baseBranch, `merged pull request ${entry.number} base`);
+    assertGitSha(entry.headSha, `merged pull request ${entry.number} head SHA`);
+    assertGitSha(entry.mergeCommitSha, `merged pull request ${entry.number} merge SHA`);
+    const expectedUrl = `https://github.com/${expectedRepository}/pull/${entry.number}`;
+    if (entry.url !== expectedUrl) {
+      throw new Error(`Merged pull request ${entry.number} URL differs from ${expectedUrl}.`);
+    }
+    result.push(Object.freeze(entry));
+  }
+  return Object.freeze(result);
+}
+
+async function observeProductionMergedPullRequests(
+  repositoryRoot: string,
+  repository: string
+): Promise<readonly MergedPullRequestHead[]> {
+  return await withGitHubApiReadSession({
+    repositoryRoot,
+    repository,
+    operation: async (capability) => {
+      const merged: MergedPullRequestHead[] = [];
+      for (let page = 1; page <= MERGED_PULL_REQUEST_LIMIT / 100; page += 1) {
+        const value = await executeGitHubApiOperation(capability, { kind: 'merged-pulls', page });
+        const entries = parseGitHubMergedPullRequestPage(value, repository);
+        merged.push(...entries);
+        if (!Array.isArray(value) || value.length < 100) break;
+      }
+      if (merged.length >= MERGED_PULL_REQUEST_LIMIT) {
+        throw new Error(`Merged pull request observation reached its bounded ${MERGED_PULL_REQUEST_LIMIT}-item limit.`);
+      }
+      return Object.freeze(merged.sort((left, right) => left.number - right.number));
+    }
+  });
+}
+
 export function parseRepositoryProviderObservation(
   source: string,
   expectedRepository: string
@@ -551,11 +659,13 @@ async function observe(
     ], repositoryRoot, 'remote branch observation', undefined, remoteObservation.environment)),
     worktreeBranches: parseWorktreeBranches(worktrees),
     worktreeRoots: parseWorktreeRoots(worktrees),
-    mergedPullRequests: parseMergedPullRequestHeads(await requireText(run, 'gh', [
-      'pr', 'list', '--repo', repository, '--state', 'merged', '--limit',
-      String(MERGED_PULL_REQUEST_LIMIT), '--json',
-      'number,headRefName,headRefOid,baseRefName,state,mergeCommit,url'
-    ], repositoryRoot, 'merged pull request observation'), repository)
+    mergedPullRequests: run === defaultRunner
+      ? await observeProductionMergedPullRequests(repositoryRoot, repository)
+      : parseMergedPullRequestHeads(await requireText(run, 'gh', [
+        'pr', 'list', '--repo', repository, '--state', 'merged', '--limit',
+        String(MERGED_PULL_REQUEST_LIMIT), '--json',
+        'number,headRefName,headRefOid,baseRefName,state,mergeCommit,url'
+      ], repositoryRoot, 'merged pull request observation'), repository)
   });
 }
 
@@ -1424,6 +1534,9 @@ async function observeRepositoryProvider(
   repositoryRoot: string,
   repository: string
 ): Promise<RepositoryProviderObservation> {
+  if (run === defaultRunner) {
+    return await observeProductionRepositoryProvider(repositoryRoot, repository);
+  }
   return parseRepositoryProviderObservation(await requireText(run, 'gh', [
     'repo', 'view', repository, '--json', 'nameWithOwner,defaultBranchRef'
   ], repositoryRoot, 'repository provider observation'), repository);
