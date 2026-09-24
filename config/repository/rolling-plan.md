@@ -13,8 +13,8 @@ last-reviewed: 2026-09-23
 {
   "active": {
     "manifestDigest": "sha256:f1b56fcd2db542328d3d04a791fe28277fe30b294b7864dc559221037fc9f537",
-    "manifestPath": "config/repository/work-packages/coordinated-repository-closeout.md",
-    "packageId": "coordinated-repository-closeout",
+    "manifestPath": "config/repository/work-packages/coordinated-repository-closeout-v1.md",
+    "packageId": "coordinated-repository-closeout-v1",
     "tracking": "none"
   },
   "authority": {
@@ -41,7 +41,7 @@ last-reviewed: 2026-09-23
 
 ## 当前唯一 Work Package
 
-### coordinated-repository-closeout
+### coordinated-repository-closeout-v1
 
 Existing active package replan bound to exact source head `1ad865b297ed77dc9bceaace46e825116c57a32b`, source tree `29c565caa8a1149dbe8e13fd31b21f3a56eafb80`, manifest `sha256:f1b56fcd2db542328d3d04a791fe28277fe30b294b7864dc559221037fc9f537`, and authority `sha256:51f2b903199df97d949bb07e06198a6b549c7a8527dd6d78e8a3053b37028d27`.
 

@@ -1,6 +1,6 @@
 ---
 schema: codex-development-work-package-v1
-id: coordinated-repository-closeout
+id: coordinated-repository-closeout-v1
 tracking: none
 base: 8c6dc289e3fe17b358e6a9c335fbbe092b8ce1ce
 manifestState: frozen
