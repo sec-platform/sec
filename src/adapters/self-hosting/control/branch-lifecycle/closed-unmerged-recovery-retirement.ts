@@ -12,10 +12,10 @@ import type { GitHubApiCapability } from '../../../providers/github-api/operatio
 import { inspectExactNoFollowDirectoryPresence } from '../../../runtime-state/physical/runtime/physical-no-follow.ts';
 import {
   acknowledgeClosedAbsentDevelopmentCommitJournalRetirement,
-  CLOSED_ABSENT_DEVELOPMENT_COMMIT_JOURNAL_RETIREMENT_CONTRACT_DIGEST,
-  CLOSED_ABSENT_DEVELOPMENT_COMMIT_JOURNAL_RETIREMENT_PROVIDER_IDENTITY_DIGEST,
-  CLOSED_ABSENT_DEVELOPMENT_COMMIT_JOURNAL_RETIREMENT_REQUIREMENT_ID,
-  CLOSED_ABSENT_DEVELOPMENT_COMMIT_JOURNAL_RETIREMENT_RESOURCE_CEILINGS,
+  JOURNAL_RETIREMENT_CONTRACT_DIGEST,
+  JOURNAL_RETIREMENT_PROVIDER_DIGEST,
+  JOURNAL_RETIREMENT_REQUIREMENT_ID,
+  JOURNAL_RETIREMENT_RESOURCE_CEILINGS,
   prepareClosedAbsentDevelopmentCommitJournalRetirement
 } from '../../development/commit/operation.ts';
 import {
@@ -56,20 +56,20 @@ function compileCommitJournalRetirementOperation(
   completed: Extract<ClosedUnmergedCloseoutExecutionResult, { status: 'completed' }>
 ) {
   const deadlineAtUnixMs = Date.now()
-    + CLOSED_ABSENT_DEVELOPMENT_COMMIT_JOURNAL_RETIREMENT_RESOURCE_CEILINGS
+    + JOURNAL_RETIREMENT_RESOURCE_CEILINGS
       .find(({ resource }) => resource === 'duration-ms')!.maximum;
   const plan = compileSemanticOperationPlan({
     operation: 'control.branch-lifecycle.closed-unmerged-commit-journal-retirement',
     intentDigest: operation.operationId,
-    decisionDigest: CLOSED_ABSENT_DEVELOPMENT_COMMIT_JOURNAL_RETIREMENT_CONTRACT_DIGEST,
+    decisionDigest: JOURNAL_RETIREMENT_CONTRACT_DIGEST,
     deadlineAtUnixMs,
     attempt: issueSemanticOperationAttemptContext({
       authorityGrantDigest: completed.receipt.publicationDigest
     }),
-    aggregateBudgets: CLOSED_ABSENT_DEVELOPMENT_COMMIT_JOURNAL_RETIREMENT_RESOURCE_CEILINGS,
+    aggregateBudgets: JOURNAL_RETIREMENT_RESOURCE_CEILINGS,
     requirements: [Object.freeze({
-      id: CLOSED_ABSENT_DEVELOPMENT_COMMIT_JOURNAL_RETIREMENT_REQUIREMENT_ID,
-      contractDigest: CLOSED_ABSENT_DEVELOPMENT_COMMIT_JOURNAL_RETIREMENT_CONTRACT_DIGEST,
+      id: JOURNAL_RETIREMENT_REQUIREMENT_ID,
+      contractDigest: JOURNAL_RETIREMENT_CONTRACT_DIGEST,
       effectKinds: Object.freeze(['filesystem', 'process', 'provider'] as const),
       failureKinds: Object.freeze([
         'development.commit.readback-invalid',
@@ -78,10 +78,10 @@ function compileCommitJournalRetirementOperation(
     })]
   });
   return bindSecSemanticOperation(plan, [compileCapabilityBinding({
-    requirementId: CLOSED_ABSENT_DEVELOPMENT_COMMIT_JOURNAL_RETIREMENT_REQUIREMENT_ID,
-    contractDigest: CLOSED_ABSENT_DEVELOPMENT_COMMIT_JOURNAL_RETIREMENT_CONTRACT_DIGEST,
+    requirementId: JOURNAL_RETIREMENT_REQUIREMENT_ID,
+    contractDigest: JOURNAL_RETIREMENT_CONTRACT_DIGEST,
     providerIdentityDigest:
-      CLOSED_ABSENT_DEVELOPMENT_COMMIT_JOURNAL_RETIREMENT_PROVIDER_IDENTITY_DIGEST
+      JOURNAL_RETIREMENT_PROVIDER_DIGEST
   })]);
 }
 
@@ -102,9 +102,9 @@ async function retireCommitJournalConsumers(input: Readonly<{
     pullRequestNumber: input.operation.evidence.pullRequestNumber,
     requirementBindingContext: issueOperationRequirementBindingContext({
       operation: semanticOperation,
-      requirementId: CLOSED_ABSENT_DEVELOPMENT_COMMIT_JOURNAL_RETIREMENT_REQUIREMENT_ID,
+      requirementId: JOURNAL_RETIREMENT_REQUIREMENT_ID,
       resourceCeilings:
-        CLOSED_ABSENT_DEVELOPMENT_COMMIT_JOURNAL_RETIREMENT_RESOURCE_CEILINGS
+        JOURNAL_RETIREMENT_RESOURCE_CEILINGS
     })
   });
   const settlement = await acknowledgeClosedAbsentDevelopmentCommitJournalRetirement(plan);

@@ -58,9 +58,9 @@ const OBJECT_ID = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/u;
 const REF = /^refs\/heads\/[A-Za-z0-9][A-Za-z0-9._\/-]*$/u;
 const JOURNAL_NAME = /^[0-9a-f]{64}(?:\.retry)?\.json$/u;
 
-export const CLOSED_ABSENT_DEVELOPMENT_COMMIT_JOURNAL_RETIREMENT_REQUIREMENT_ID =
+export const JOURNAL_RETIREMENT_REQUIREMENT_ID =
   'repository.closed-absent-development-commit-journal-retirement' as const;
-export const CLOSED_ABSENT_DEVELOPMENT_COMMIT_JOURNAL_RETIREMENT_CONTRACT_DIGEST = sha256({
+export const JOURNAL_RETIREMENT_CONTRACT_DIGEST = sha256({
   domain: 'development.commit.closed-absent-journal-retirement',
   effectKinds: ['filesystem', 'process', 'provider'],
   invariants: [
@@ -70,18 +70,18 @@ export const CLOSED_ABSENT_DEVELOPMENT_COMMIT_JOURNAL_RETIREMENT_CONTRACT_DIGEST
     'owner-issued-plan-and-acknowledgement'
   ]
 }) as OperationDigest;
-export const CLOSED_ABSENT_DEVELOPMENT_COMMIT_JOURNAL_RETIREMENT_PROVIDER_IDENTITY_DIGEST = sha256({
+export const JOURNAL_RETIREMENT_PROVIDER_DIGEST = sha256({
   domain: 'development.commit.closed-absent-journal-retirement-provider',
   provider: 'development.commit'
 }) as OperationDigest;
-export const CLOSED_ABSENT_DEVELOPMENT_COMMIT_JOURNAL_RETIREMENT_RESOURCE_CEILINGS = Object.freeze([
+export const JOURNAL_RETIREMENT_RESOURCE_CEILINGS = Object.freeze([
   Object.freeze({ resource: 'duration-ms' as const, maximum: 30_000 }),
   Object.freeze({ resource: 'input-bytes' as const, maximum: 65_536 }),
   Object.freeze({ resource: 'output-bytes' as const, maximum: 67_108_864 }),
   Object.freeze({ resource: 'processes' as const, maximum: 64 }),
   Object.freeze({ resource: 'records' as const, maximum: 256 })
 ]) satisfies readonly OperationResourceCeiling[];
-export const CLOSED_ABSENT_DEVELOPMENT_COMMIT_JOURNAL_RETIREMENT_REQUEST_CEILING = 8;
+export const JOURNAL_RETIREMENT_REQUEST_CEILING = 8;
 
 type DevelopmentCommitDisposition = 'applied' | 'not-applied' | 'unknown';
 
@@ -580,9 +580,9 @@ export async function settleDevelopmentCommitJournalsForRef(input: Readonly<{
   });
 }
 
-declare const CLOSED_ABSENT_DEVELOPMENT_COMMIT_JOURNAL_RETIREMENT_PLAN: unique symbol;
+declare const JOURNAL_RETIREMENT_PLAN: unique symbol;
 export type DevelopmentCommitJournalRetirementPlan = Readonly<{
-  readonly [CLOSED_ABSENT_DEVELOPMENT_COMMIT_JOURNAL_RETIREMENT_PLAN]: true;
+  readonly [JOURNAL_RETIREMENT_PLAN]: true;
 }>;
 
 type PullObservation = Readonly<{ branch: string; headSha: string }>;
@@ -603,11 +603,11 @@ const ISSUED_CLOSED_ABSENT_RETIREMENT_PLANS = new WeakMap<object, ClosedAbsentRe
 
 function assertClosedAbsentRetirementBinding(context: OperationRequirementBindingContext): void {
   const projection = consumeOperationRequirementBindingContext(context);
-  if (projection.requirementId !== CLOSED_ABSENT_DEVELOPMENT_COMMIT_JOURNAL_RETIREMENT_REQUIREMENT_ID
-      || projection.requirementContractDigest !== CLOSED_ABSENT_DEVELOPMENT_COMMIT_JOURNAL_RETIREMENT_CONTRACT_DIGEST
-      || projection.providerIdentityDigest !== CLOSED_ABSENT_DEVELOPMENT_COMMIT_JOURNAL_RETIREMENT_PROVIDER_IDENTITY_DIGEST
+  if (projection.requirementId !== JOURNAL_RETIREMENT_REQUIREMENT_ID
+      || projection.requirementContractDigest !== JOURNAL_RETIREMENT_CONTRACT_DIGEST
+      || projection.providerIdentityDigest !== JOURNAL_RETIREMENT_PROVIDER_DIGEST
       || JSON.stringify(projection.resourceCeilings)
-        !== JSON.stringify(CLOSED_ABSENT_DEVELOPMENT_COMMIT_JOURNAL_RETIREMENT_RESOURCE_CEILINGS)) {
+        !== JSON.stringify(JOURNAL_RETIREMENT_RESOURCE_CEILINGS)) {
     throw new Error('Closed-absent commit journal retirement physical binding differs.');
   }
 }

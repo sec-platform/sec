@@ -17,7 +17,7 @@ import {
 } from '../../../providers/github-api/operation-session.ts';
 import { assertProcessResourceSessionReceipt, openProcessResourceSession } from '../../../runtime-state/physical/runtime/process-resource-session.ts';
 import {
-  CLOSED_ABSENT_DEVELOPMENT_COMMIT_JOURNAL_RETIREMENT_REQUEST_CEILING,
+  JOURNAL_RETIREMENT_REQUEST_CEILING,
   settleDevelopmentCommitJournalsForRef
 } from '../../development/commit/operation.ts';
 import { GIT_READ_OPERATION_BUDGET } from '../../development/tooling/git/git-read.ts';
@@ -67,7 +67,7 @@ const ENROLLED_REVIEW_REQUESTS = 4;
 const ENROLLED_PUBLICATION_READBACK_REQUESTS = 4;
 const ENROLLED_REMOTE_CAS_REQUESTS = 4;
 const ENROLLED_RETIREMENT_REQUESTS = 2
-  + CLOSED_ABSENT_DEVELOPMENT_COMMIT_JOURNAL_RETIREMENT_REQUEST_CEILING;
+  + JOURNAL_RETIREMENT_REQUEST_CEILING;
 const WORKFLOW_SESSION_LIMIT = COMPILE_FIXED_SESSION_COUNT
   + COMPLETED_PREPARATION_OBSERVATION_COUNT * COMMENT_PAGE_SESSION_COUNT
   + EXECUTION_INVENTORY_COUNT
