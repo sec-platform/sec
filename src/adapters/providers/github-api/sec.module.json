@@ -26,6 +26,7 @@
       "operations": [
         "executeGitHubApiOperation",
         "executeObservedGitHubApiOperation",
+        "readGitHubApiBytes",
         "issueGitHubApiCapabilityForTestSupport",
         "withGitHubApiEnrollmentSessionForTestSupport",
         "withGitHubApiReadOperationBudgetForTestSupport",
@@ -43,6 +44,7 @@
       "ownerInternalOperations": [
         "executeGitHubApiOperation",
         "executeObservedGitHubApiOperation",
+        "readGitHubApiBytes",
         "issueGitHubApiCapabilityForTestSupport",
         "withGitHubApiEnrollmentSessionForTestSupport",
         "withGitHubApiReadOperationBudgetForTestSupport",

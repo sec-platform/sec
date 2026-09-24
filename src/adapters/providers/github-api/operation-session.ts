@@ -14,11 +14,13 @@ export {
   currentGitHubApiCapability,
   executeGitHubApiOperation,
   executeObservedGitHubApiOperation,
+  readGitHubApiBytes,
   inspectGitHubApiCapability, withGitHubApiBranchCloseoutWriteSession, withGitHubApiMergeWriteSession, withGitHubApiReadOperationBudget,
   withGitHubApiReadSession,
   withGitHubApiRunnerAdminSession,
   withGitHubApiStatusWriteSession,
   type GitHubApiCapability,
+  type GitHubApiByteOperation,
   type GitHubApiEffect,
   type GitHubApiOperation,
   type GitHubApiPrincipal

@@ -118,6 +118,7 @@ export type GitHubApiOperation =
   | Readonly<{ kind: 'git-ref'; branch: string }>
   | Readonly<{ kind: 'workflow-run'; runId: string }>
   | Readonly<{ kind: 'workflow-run-attempt'; runId: string; runAttempt: number }>
+  | Readonly<{ kind: 'artifact'; artifactId: number }>
   | Readonly<{ kind: 'check-runs'; sha: string; page: number }>
   | Readonly<{ kind: 'repository-runners'; page: number }>
   | Readonly<{ kind: 'create-runner-registration-token' }>
@@ -136,6 +137,11 @@ export type GitHubApiOperation =
       message: string;
     }>
   | Readonly<{ kind: 'delete-ref-cas'; branch: string; expectedOldSha: string }>;
+
+export type GitHubApiByteOperation = Readonly<{
+  kind: 'artifact-archive';
+  artifactId: number;
+}>;
 
 type CompiledGitHubApiRequest = Readonly<{
   kind: GitHubApiOperation['kind'];
@@ -348,6 +354,8 @@ function compileOperation(
       }
       return read(`/repos/${repo}/actions/runs/${runId}/attempts/${positiveInteger(runAttempt, 'workflow run attempt')}`);
     }
+    case 'artifact':
+      return read(`/repos/${repo}/actions/artifacts/${positiveInteger(operation.artifactId, 'artifact id')}`);
     case 'check-runs': return read(`/repos/${repo}/commits/${sha(operation.sha)}/check-runs?per_page=100&page=${page(operation.page)}`);
     case 'repository-runners':
       return read(`/repos/${repo}/actions/runners?per_page=100&page=${page(operation.page)}`);
@@ -428,6 +436,21 @@ function compileOperation(
       }));
   }
   throw new GitHubApiProviderError('GitHub API operation kind is unsupported');
+}
+
+function compileByteOperation(
+  repositoryName: string,
+  effect: GitHubApiEffect,
+  operation: GitHubApiByteOperation
+): Readonly<{ kind: GitHubApiByteOperation['kind']; path: string }> {
+  if (effect !== 'read') {
+    throw new GitHubApiProviderError('GitHub API artifact download requires read authority');
+  }
+  const repo = repository(repositoryName);
+  return Object.freeze({
+    kind: operation.kind,
+    path: `/repos/${repo}/actions/artifacts/${positiveInteger(operation.artifactId, 'artifact id')}/zip`
+  });
 }
 
 function binding(capability: GitHubApiCapability): GitHubApiCapabilityBinding {
@@ -623,6 +646,108 @@ async function executeWithToken<T>(
     operation,
     exactRepositoryNodeId
   )).value;
+}
+
+async function readBoundedResponseBytes(
+  session: GitHubApiRequestSession,
+  response: Response,
+  label: string
+): Promise<Uint8Array> {
+  if (response.body === null || typeof response.body.getReader !== 'function') {
+    throw new GitHubApiProviderError(`${label} does not expose a bounded streaming body`, response.status);
+  }
+  return await withOwnedByteStreamReader(response.body, async read => {
+    const chunks: Uint8Array[] = [];
+    let total = 0;
+    for (;;) {
+      const chunk = await read();
+      if (!chunk.done) {
+        recordResponseBytes(session, chunk.value.byteLength);
+        total += chunk.value.byteLength;
+      }
+      remaining(session);
+      if (chunk.done) break;
+      chunks.push(chunk.value);
+    }
+    const output = new Uint8Array(total);
+    let offset = 0;
+    for (const chunk of chunks) {
+      output.set(chunk, offset);
+      offset += chunk.byteLength;
+    }
+    return output;
+  }, session.abortController.signal);
+}
+
+function artifactRedirectTarget(value: string): URL {
+  let target: URL;
+  try { target = new URL(value); }
+  catch { throw new GitHubApiProviderError('GitHub API artifact redirect URL is invalid'); }
+  if (target.protocol !== 'https:' || target.username !== '' || target.password !== '' || target.hash !== '') {
+    throw new GitHubApiProviderError('GitHub API artifact redirect must be credential-free HTTPS');
+  }
+  return target;
+}
+
+async function executeByteWithToken(
+  session: GitHubApiRequestSession,
+  token: string,
+  transport: GitHubApiTransport,
+  operation: GitHubApiByteOperation
+): Promise<Uint8Array> {
+  const compiled = compileByteOperation(session.repository, session.effect, operation);
+  reserve(session, 0);
+  const transportSignal = linkNativeAbortSignals(session.abortController.signal);
+  session.inFlight += 1;
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+  const request = (async (): Promise<Uint8Array> => {
+    try {
+      let response = await transport(canonicalTarget(compiled.path), {
+        method: 'GET',
+        redirect: 'manual',
+        headers: {
+          Accept: 'application/vnd.github+json',
+          Authorization: `Bearer ${token}`,
+          'X-GitHub-Api-Version': '2022-11-28',
+          'User-Agent': 'sec-github-api-operation-session-v1'
+        },
+        signal: transportSignal
+      });
+      if (response.status >= 300 && response.status < 400) {
+        if (response.body !== null) await readBoundedResponseBytes(session, response, 'GitHub API artifact redirect response');
+        const location = response.headers.get('location');
+        if (location === null) throw new GitHubApiProviderError('GitHub API artifact redirect lacks Location', response.status);
+        reserve(session, 0);
+        response = await transport(artifactRedirectTarget(location), {
+          method: 'GET',
+          redirect: 'error',
+          headers: { 'User-Agent': 'sec-github-api-operation-session-v1' },
+          signal: transportSignal
+        });
+      }
+      remaining(session);
+      const bytes = await readBoundedResponseBytes(session, response, 'GitHub API artifact response');
+      if (!response.ok) {
+        const detail = new TextDecoder('utf-8', { fatal: false }).decode(bytes.slice(-2048));
+        throw new GitHubApiProviderError(
+          `GitHub API ${compiled.kind} failed with HTTP ${response.status}: ${detail}`,
+          response.status
+        );
+      }
+      return bytes;
+    } finally {
+      session.inFlight -= 1;
+      if (session.phase === 'closing' && session.inFlight === 0) session.phase = 'settled';
+    }
+  })();
+  const deadline = new Promise<never>((_, reject) => {
+    timeout = setTimeout(() => {
+      if (!isNativeAborted(session.abortController.signal)) session.abortController.abort();
+      reject(new GitHubApiProviderError('GitHub API operation deadline exceeded'));
+    }, remaining(session));
+  });
+  try { return await Promise.race([request, deadline]); }
+  finally { clearTimeout(timeout); }
 }
 
 type ObservedGitHubApiOperation<T> = Readonly<{
@@ -822,6 +947,23 @@ export async function executeGitHubApiOperation(
     );
   }
   return mutation;
+}
+
+export async function readGitHubApiBytes(
+  capability: GitHubApiCapability,
+  operation: GitHubApiByteOperation
+): Promise<Uint8Array> {
+  const value = binding(capability);
+  const session = requestSession.getStore();
+  if (session === undefined || session.capability !== capability
+      || session.repository !== value.repository || session.effect !== value.effect
+      || session.origin !== value.origin) {
+    throw new GitHubApiProviderError('GitHub API byte read requires the active exact operation session');
+  }
+  return await executeByteWithToken(session, value.token, value.transport, Object.freeze({
+    kind: operation.kind,
+    artifactId: positiveInteger(operation.artifactId, 'artifact id')
+  }));
 }
 
 /**

@@ -4,6 +4,7 @@ import {
   executeGitHubApiOperation,
   executeObservedGitHubApiOperation,
   inspectGitHubApiCapability,
+  readGitHubApiBytes,
   type GitHubApiCapability,
   type GitHubApiPrincipal
 } from '../../src/adapters/providers/github-api/operation-session.ts';
@@ -100,6 +101,56 @@ test('observed operation preserves the exact bounded JSON response text without 
   expect(observed.source).toBe(raw);
   expect(observed.value).toMatchObject({ full_name: 'sec-platform/sec', default_branch: 'main' });
   expect(transportCalls).toBe(1);
+});
+
+test('artifact bytes stay inside read authority and cross-origin redirect drops credentials', async () => {
+  const observations: Array<Readonly<{ url: string; authorization: string | null }>> = [];
+  const payload = new Uint8Array([0x50, 0x4b, 0x03, 0x04, 1, 2, 3]);
+  const api = capability({
+    effect: 'read',
+    transport: async (target, init) => {
+      const headers = new Headers(init?.headers);
+      observations.push(Object.freeze({ url: String(target), authorization: headers.get('authorization') }));
+      if (observations.length === 1) {
+        return new Response(null, {
+          status: 302,
+          headers: { location: 'https://objects.githubusercontent.test/artifact.zip?sig=opaque' }
+        });
+      }
+      return new Response(payload, { status: 200 });
+    }
+  });
+  const bytes = await withGitHubApiTestSession({
+    capability: api,
+    operation: async () => await readGitHubApiBytes(api, { kind: 'artifact-archive', artifactId: 123 })
+  });
+  expect([...bytes]).toEqual([...payload]);
+  expect(observations).toEqual([
+    {
+      url: 'https://api.github.com/repos/sec-platform/sec/actions/artifacts/123/zip',
+      authorization: `Bearer ${TOKEN}`
+    },
+    {
+      url: 'https://objects.githubusercontent.test/artifact.zip?sig=opaque',
+      authorization: null
+    }
+  ]);
+});
+
+test('artifact redirect rejects non-HTTPS targets before a second request', async () => {
+  let calls = 0;
+  const api = capability({
+    effect: 'read',
+    transport: async () => {
+      calls += 1;
+      return new Response(null, { status: 302, headers: { location: 'http://example.test/artifact.zip' } });
+    }
+  });
+  await expect(withGitHubApiTestSession({
+    capability: api,
+    operation: async () => await readGitHubApiBytes(api, { kind: 'artifact-archive', artifactId: 123 })
+  })).rejects.toThrow('credential-free HTTPS');
+  expect(calls).toBe(1);
 });
 
 test('IssueDisposition GraphQL reads compile only the fixed provider-owned queries', async () => {
