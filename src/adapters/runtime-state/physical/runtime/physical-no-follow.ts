@@ -299,7 +299,15 @@ export interface RetainedNoFollowChildProcessFile {
   /** Hard-link count observed through the same retained ordinary-file handle. */
   readonly linkCount: number;
   assertCurrent(): void;
+  /** Proves the retained open file description still names the admitted file, independent of its lexical path. */
+  assertHandleCurrent(): void;
   digest(): Readonly<{
+    size: number;
+    contentDigest: `sha256:${string}`;
+    byteDigest: `sha256:${string}`;
+  }>;
+  /** Digests the retained open file description without requiring the lexical path to remain bound to it. */
+  handleDigest(): Readonly<{
     size: number;
     contentDigest: `sha256:${string}`;
     byteDigest: `sha256:${string}`;
@@ -335,9 +343,17 @@ export interface RetainedNoFollowOrdinaryFile {
   readonly childPath: string;
   readonly stdioSourceDescriptor: number | null;
   assertCurrent(): void;
-  /** Reads the complete bounded byte sequence through this same retained handle. */
+  /** Proves only this retained open handle; it deliberately does not re-admit the lexical path. */
+  assertHandleCurrent(): void;
+  /** Reads the complete bounded byte sequence through this same retained handle and current lexical binding. */
   readBytes(): Uint8Array;
   digest(): Readonly<{
+    size: number;
+    contentDigest: `sha256:${string}`;
+    byteDigest: `sha256:${string}`;
+  }>;
+  /** Digests this retained handle even when the lexical path has subsequently been replaced. */
+  handleDigest(): Readonly<{
     size: number;
     contentDigest: `sha256:${string}`;
     byteDigest: `sha256:${string}`;
@@ -4401,8 +4417,7 @@ function retainNoFollowFile(
           );
         }
       }
-      const assertCurrent = (): void => {
-        generation?.assertCurrent();
+      const assertHandleState = (requireOriginalCtime: boolean): void => {
         if (disposed || descriptor === null) {
           throw physicalError('PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED', `${label} capability is disposed.`);
         }
@@ -4414,9 +4429,18 @@ function retainNoFollowFile(
             current.mode !== initialMode || current.size !== initialSize ||
             current.nlink !== initialLinkCount ||
             current.gid !== initialOwnerGroupId || current.uid !== initialOwnerUserId ||
-            current.mtimeNs !== initialMtimeNs || current.ctimeNs !== initialCtimeNs) {
+            current.mtimeNs !== initialMtimeNs ||
+            (requireOriginalCtime && current.ctimeNs !== initialCtimeNs)) {
           throw physicalError('PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED', `${label} retained identity or metadata changed.`);
         }
+        if (executableImage !== null) {
+          linuxAssertSealedExecutableImage(executableImage, label);
+        }
+      };
+      const assertHandleCurrent = (): void => assertHandleState(false);
+      const assertCurrent = (): void => {
+        generation?.assertCurrent();
+        assertHandleState(true);
         const lexicalParent = inspectNoFollowDirectoryChain(parent.path, `${label} lexical parent`).target;
         if (!sameIdentity(parent, lexicalParent)) {
           throw physicalError('PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED', `${label} lexical parent identity changed.`);
@@ -4435,9 +4459,6 @@ function retainNoFollowFile(
           closeSync(lexicalLeaf);
         }
         retainedParent.assertCurrent();
-        if (executableImage !== null) {
-          linuxAssertSealedExecutableImage(executableImage, label);
-        }
       };
       assertCurrent();
       const contentDescriptor = executableImage?.fd ?? descriptor;
@@ -4454,6 +4475,7 @@ function retainNoFollowFile(
         childPath: `/proc/self/fd/${childDescriptor}`,
         stdioSourceDescriptor: contentDescriptor,
         assertCurrent,
+        assertHandleCurrent,
         readBytes: () => {
           assertCurrent();
           const before = fstatSync(contentDescriptor, { bigint: true });
@@ -4496,6 +4518,13 @@ function retainNoFollowFile(
           const result = executableImage?.digest
             ?? digestRetainedOrdinaryFileFd(descriptor!, physical, label);
           assertCurrent();
+          return result;
+        },
+        handleDigest: () => {
+          assertHandleCurrent();
+          const result = executableImage?.digest
+            ?? digestRetainedOrdinaryFileFd(descriptor!, physical, label);
+          assertHandleCurrent();
           return result;
         },
         dispose: () => {
@@ -4564,7 +4593,7 @@ function retainNoFollowFile(
       if (initial.size < 0n || initial.size > BigInt(Number.MAX_SAFE_INTEGER)) {
         throw physicalError('PHYSICAL_NO_FOLLOW_UNSAFE_PATH', `${label} size is outside the safe observation domain.`);
       }
-      const assertCurrent = (): void => {
+      const assertHandleCurrent = (): void => {
         if (disposed || handle === null) {
           throw physicalError('PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED', `${label} capability is disposed.`);
         }
@@ -4575,6 +4604,9 @@ function retainNoFollowFile(
             current.linkCount !== initial.linkCount) {
           throw physicalError('PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED', `${label} retained identity or metadata changed.`);
         }
+      };
+      const assertCurrent = (): void => {
+        assertHandleCurrent();
         const lexicalLeaf = windowsOpenRelativeLeaf(
           retainedParent.target.handle,
           retainedParent.target.identity,
@@ -4630,6 +4662,7 @@ function retainNoFollowFile(
         childPath: absolutePath,
         stdioSourceDescriptor: null,
         assertCurrent,
+        assertHandleCurrent,
         readBytes: () => {
           assertCurrent();
           windowsRewindRetainedFile(handle!, label);
@@ -4649,6 +4682,14 @@ function retainNoFollowFile(
           windowsRewindRetainedFile(handle!, label);
           const result = digestWindowsRetainedFile(handle!, absolutePath, physical, label);
           assertCurrent();
+          return result;
+        },
+        handleDigest: () => {
+          assertHandleCurrent();
+          if (retainedExecutableDigest !== null) return retainedExecutableDigest;
+          windowsRewindRetainedFile(handle!, label);
+          const result = digestWindowsRetainedFile(handle!, absolutePath, physical, label);
+          assertHandleCurrent();
           return result;
         },
         dispose: () => {

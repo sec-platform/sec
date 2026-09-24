@@ -580,8 +580,11 @@ test('retained child-process file reads the observed inode after leaf replacemen
       expect(child.status).toBe(0);
       expect(child.stdout).toBe('authorized-index\n');
       if (process.platform === 'linux') {
-        // A retained descriptor can still read the old inode. That fact does
-        // not renew the current lexical/source binding after replacement.
+        // The retained descriptor remains a valid child-process input even
+        // after the lexical path is replaced.  That handle-only fact must not
+        // renew the stronger current-path binding.
+        expect(capability.handleDigest().byteDigest).toBe(expectedDigest);
+        capability.assertHandleCurrent();
         expectPhysicalCode(() => capability.digest(), 'PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED');
         expectPhysicalCode(() => capability.assertCurrent(), 'PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED');
       } else {

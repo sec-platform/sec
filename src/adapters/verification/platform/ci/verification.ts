@@ -819,9 +819,9 @@ function retainedHostedSutArchiveObservation(capability: RetainedNoFollowOrdinar
   archiveDigest: VerificationActionKeyDigest;
   identityDigest: VerificationActionKeyDigest;
 }> {
-  capability.assertCurrent();
-  const digest = capability.digest();
-  capability.assertCurrent();
+  capability.assertHandleCurrent();
+  const digest = capability.handleDigest();
+  capability.assertHandleCurrent();
   return Object.freeze({
     archiveDigest: digest.byteDigest as VerificationActionKeyDigest,
     identityDigest: ciActionDigest(Object.freeze({
