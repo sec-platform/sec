@@ -143,7 +143,7 @@ export function testWorkspaceGateSnapshotBinding(
   });
 }
 
-export function createTestWorkspaceSupervisorLeaseV1(input: {
+export function createTestWorkspaceSupervisorLease(input: {
   readonly namespace: string;
   readonly runId: string;
   readonly repositoryRoot: string;
@@ -172,7 +172,7 @@ export function createTestWorkspaceSupervisorLeaseV1(input: {
   return Object.freeze({ ...draft, leaseDigest: rawSha256(JSON.stringify(draft)) });
 }
 
-export function testWorkspaceSupervisorLeasePathV1(namespace: string): string {
+export function testWorkspaceSupervisorLeasePath(namespace: string): string {
   const normalized = resolveTestWorkspaceNamespace({ [TEST_WORKSPACE_NAMESPACE_ENV]: namespace });
   if (normalized === undefined) throw new Error('Test workspace supervisor namespace is unavailable');
   return path.join(compilerRoot, '.tmp', 'test-workspaces', '.gate-supervisor-leases', `${normalized}.lock`);
@@ -238,14 +238,14 @@ function bindTestWorkspaceSupervisorLeaseProjection(
   });
 }
 
-export function bindTestWorkspaceSupervisorLeaseV1(
+export function bindTestWorkspaceSupervisorLease(
   leasePath: string,
   namespace: string
 ): TestWorkspaceSupervisorLeaseBinding {
   return bindTestWorkspaceSupervisorLeaseProjection(leasePath, namespace, compilerRoot);
 }
 
-export function bindTestWorkspaceSupervisorLeaseIssuerProjectionV1(
+export function bindTestWorkspaceSupervisorLeaseIssuerProjection(
   leasePath: string,
   namespace: string,
   executionSnapshotRoot: string
@@ -317,7 +317,7 @@ export function deriveAssignedTestWorkspaceRunChild(input: {
   })).slice('sha256:'.length)}`;
 }
 
-export function createTestWorkspaceRunChildAssignmentV1(input: {
+export function createTestWorkspaceRunChildAssignment(input: {
   readonly parentNamespace: string;
   readonly issuerProcessId: number;
   readonly device: string;
@@ -468,7 +468,7 @@ function respondToSupervisorChallenge(
   });
 }
 
-export async function acquireTestWorkspaceSupervisorChallengeServerV1(input: {
+export async function acquireTestWorkspaceSupervisorChallengeServer(input: {
   readonly executionSnapshotRoot: string;
   readonly supervisorLeaseDigest: `sha256:${string}`;
 }): Promise<TestWorkspaceSupervisorChallengeServer> {

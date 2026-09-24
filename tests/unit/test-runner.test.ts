@@ -102,9 +102,9 @@ const compilerDependencyFixture = dependencyRuntime.projectCompilerDepsReadyStat
 const actualDependencyBootstrap = await import('../../src/adapters/self-hosting/development/runner/dependency-bootstrap.ts');
 
 const {
-  bindTestWorkspaceSupervisorLeaseIssuerProjectionV1,
-  createTestWorkspaceRunChildAssignmentV1,
-  createTestWorkspaceSupervisorLeaseV1,
+  bindTestWorkspaceSupervisorLeaseIssuerProjection,
+  createTestWorkspaceRunChildAssignment,
+  createTestWorkspaceSupervisorLease,
   deriveTestWorkspaceRunNamespace: deriveTestWorkspaceRunNamespaceV1,
   getTestWorkspaceTemplateRoot,
   getTestWorkspaceTempRoot,
@@ -280,7 +280,7 @@ mock.module('../../src/adapters/self-hosting/development/runner/env-manager.ts',
     Object.freeze({ schema: 'sec-test-workspace-run-child-authority-v1' as const }),
   consumeTestWorkspaceSupervisorChallengeV1: async () =>
     Object.freeze({ schema: 'sec-test-workspace-run-child-authority-v1' as const }),
-  createTestWorkspaceRunChildAssignmentV1,
+  createTestWorkspaceRunChildAssignment,
   deriveTestWorkspaceRunNamespaceV1,
   deriveTestWorkspaceRunNamespace: deriveTestWorkspaceRunNamespaceV1,
   getTestWorkspaceTemplateRoot,
@@ -1820,7 +1820,7 @@ test.serial('fast tests consume one Gate-assigned physical child and scrub the o
     'gate-execution-snapshots',
     parentNamespace
   );
-  const supervisorLease = createTestWorkspaceSupervisorLeaseV1({
+  const supervisorLease = createTestWorkspaceSupervisorLease({
     namespace: parentNamespace,
     runId: 'test-runner-gate-assigned',
     repositoryRoot: fakeRepositoryRoot,
@@ -1837,12 +1837,12 @@ test.serial('fast tests consume one Gate-assigned physical child and scrub the o
   );
   await fs.mkdir(path.dirname(supervisorLeasePath), { recursive: true });
   await fs.writeFile(supervisorLeasePath, JSON.stringify(supervisorLease), { encoding: 'utf8', flag: 'wx' });
-  const supervisorBinding = bindTestWorkspaceSupervisorLeaseIssuerProjectionV1(
+  const supervisorBinding = bindTestWorkspaceSupervisorLeaseIssuerProjection(
     supervisorLeasePath,
     parentNamespace,
     supervisorLease.executionSnapshotRoot
   );
-  const draft = createTestWorkspaceRunChildAssignmentV1({
+  const draft = createTestWorkspaceRunChildAssignment({
     parentNamespace,
     issuerProcessId: process.ppid,
     device: 'draft-device',
@@ -1864,7 +1864,7 @@ test.serial('fast tests consume one Gate-assigned physical child and scrub the o
   await fs.mkdir(runChildRoot, { recursive: true });
   const namespaceIdentity = inspectNoFollowDirectoryChain(parentRoot).target;
   const identity = inspectNoFollowDirectoryChain(runChildRoot).target;
-  const assignment = createTestWorkspaceRunChildAssignmentV1({
+  const assignment = createTestWorkspaceRunChildAssignment({
     parentNamespace,
     issuerProcessId: process.ppid,
     device: identity.device,
@@ -1909,9 +1909,9 @@ test.serial('a nested managed process cannot self-sign a new sibling beneath a l
     import { mkdirSync, writeFileSync } from 'node:fs';
     import path from 'node:path';
     import {
-      bindTestWorkspaceSupervisorLeaseIssuerProjectionV1,
-      createTestWorkspaceRunChildAssignmentV1,
-      createTestWorkspaceSupervisorLeaseV1,
+      bindTestWorkspaceSupervisorLeaseIssuerProjection,
+      createTestWorkspaceRunChildAssignment,
+      createTestWorkspaceSupervisorLease,
       getTestWorkspaceTempRoot,
       TEST_WORKSPACE_NAMESPACE_ENV,
       TEST_WORKSPACE_RUN_CHILD_ASSIGNMENT_ENV,
@@ -1928,7 +1928,7 @@ test.serial('a nested managed process cannot self-sign a new sibling beneath a l
       'gate-execution-snapshots',
       parentNamespace
     );
-    const supervisorLease = createTestWorkspaceSupervisorLeaseV1({
+    const supervisorLease = createTestWorkspaceSupervisorLease({
       namespace: parentNamespace,
       runId: 'nested-self-issued',
       repositoryRoot: fakeRepositoryRoot,
@@ -1945,12 +1945,12 @@ test.serial('a nested managed process cannot self-sign a new sibling beneath a l
     );
     mkdirSync(path.dirname(supervisorLeasePath), { recursive: true });
     writeFileSync(supervisorLeasePath, JSON.stringify(supervisorLease), { flag: 'wx' });
-    const supervisorBinding = bindTestWorkspaceSupervisorLeaseIssuerProjectionV1(
+    const supervisorBinding = bindTestWorkspaceSupervisorLeaseIssuerProjection(
       supervisorLeasePath,
       parentNamespace,
       executionSnapshotRoot
     );
-    const draft = createTestWorkspaceRunChildAssignmentV1({
+    const draft = createTestWorkspaceRunChildAssignment({
       parentNamespace,
       issuerProcessId: process.pid,
       device: 'pending-device',
@@ -1972,7 +1972,7 @@ test.serial('a nested managed process cannot self-sign a new sibling beneath a l
     writeFileSync(sibling + '/foreign-owner.txt', 'preserve');
     const namespaceIdentity = inspectNoFollowDirectoryChain(path.dirname(sibling)).target;
     const identity = inspectNoFollowDirectoryChain(sibling).target;
-    const forged = createTestWorkspaceRunChildAssignmentV1({
+    const forged = createTestWorkspaceRunChildAssignment({
       parentNamespace,
       issuerProcessId: process.pid,
       device: identity.device,
