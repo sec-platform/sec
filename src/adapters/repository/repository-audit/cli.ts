@@ -2584,12 +2584,15 @@ async function auditRepositoryWithSession(
   if (moduleMembership.descriptors.length === 0) {
     unknowns.push('source program module ownership is unavailable: exact snapshot has no sec.module.json descriptors');
   }
-  reportExecutionProgress({ command: 'audit:repository', phase: 'project-input', state: 'start' });
-  const projectInput = compileWorkspaceTypeScriptProjectInput(
-    workspaceSnapshot,
-    tsconfigRelativePath
-  );
-  reportExecutionProgress({ command: 'audit:repository', phase: 'project-input', state: 'complete' });
+  /*
+   * This mode audits the complete immutable repository tree rather than one
+   * executable TypeScript project. The Source Program compilation below owns
+   * that exact-tree semantic census directly. Constructing a ProjectInput here
+   * would build a second TypeScript Program only to derive project/cache
+   * identity that this repository-wide audit does not consume. Project-bound
+   * paths (typecheck, worktree source-program and supersession evidence) keep
+   * their explicit ProjectInput + dependency-generation contract.
+   */
   const compilationOperation = createSourceProgramCompilationOperation({
     deadlineAtUnixMs: Date.now() + SOURCE_PROGRAM_COMPILATION_MAX_DURATION_MS,
     observePhase: (event) => reportExecutionProgress({
@@ -2602,12 +2605,12 @@ async function auditRepositoryWithSession(
   reportExecutionProgress({ command: 'audit:repository', phase: 'source-program-compilation', state: 'start' });
   const sourceProgramCompilation = compileRepositorySourceProgramCompilation({
     workspaceSnapshot,
-    projectInput,
     repositoryRoot,
     operation: compilationOperation
   });
   const moduleGraph = sourceProgramCompilation.workspaceSnapshot.moduleGraph;
   const sourceProgram = sourceProgramCompilation.model;
+  reportExecutionProgress({ command: 'audit:repository', phase: 'test-syntax-filter', state: 'start' });
   const contentCoverage = Object.freeze(initialContentCoverage.map((coverage) => {
     if (coverage.status !== 'scanned' || !isJavaScriptOrTypeScriptTestPath(coverage.path)) {
       return coverage;
@@ -2627,13 +2630,18 @@ async function auditRepositoryWithSession(
       reason
     );
   }));
+  reportExecutionProgress({ command: 'audit:repository', phase: 'test-syntax-filter', state: 'complete' });
+  reportExecutionProgress({ command: 'audit:repository', phase: 'declaration-topology', state: 'start' });
   const declarationTopology = compileSourceProgramDeclarationTopology(sourceProgramCompilation);
+  reportExecutionProgress({ command: 'audit:repository', phase: 'declaration-topology', state: 'complete' });
+  reportExecutionProgress({ command: 'audit:repository', phase: 'module-architecture', state: 'start' });
   const architecture = compileRepositoryModuleArchitectureAdmission(
     moduleGraph,
     workspaceSnapshot.moduleMembership,
     sourceProgram,
     workspaceSnapshot.files
   );
+  reportExecutionProgress({ command: 'audit:repository', phase: 'module-architecture', state: 'complete' });
   reportExecutionProgress({ command: 'audit:repository', phase: 'source-program-compilation', state: 'complete' });
   if (repositoryModuleArchitectureShouldBlock(architecture)) {
     pushFinding(findings, {
