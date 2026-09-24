@@ -27,7 +27,7 @@ const PRINCIPAL: GitHubApiPrincipal = Object.freeze({
 });
 
 function capability(input: Readonly<{
-  effect: 'read' | 'status-write' | 'repository-dispatch-write' | 'merge-write' | 'runner-admin' | 'branch-closeout-write';
+  effect: 'read' | 'status-write' | 'issue-comment-write' | 'repository-dispatch-write' | 'merge-write' | 'runner-admin' | 'branch-closeout-write';
   transport: GitHubApiTransport;
   principal?: GitHubApiPrincipal;
 }>): GitHubApiCapability {
@@ -84,6 +84,25 @@ test('repository dispatch uses its own write authority and accepts canonical 204
     })
   })).toBeNull();
   expect(observedBody).toEqual({ event_type: 'sec-test', client_payload: { value: 1 } });
+});
+
+test('issue comment publication uses a dedicated bounded write authority', async () => {
+  const observed: Array<{ target: string; method: string; body: unknown }> = [];
+  const api = capability({
+    effect: 'issue-comment-write',
+    transport: async (target, init) => {
+      observed.push({ target: String(target), method: init?.method ?? 'GET',
+        body: init?.body === undefined ? null : JSON.parse(String(init.body)) });
+      return Response.json({ id: 91, body: 'receipt' });
+    }
+  });
+  expect(await withGitHubApiTestSession({ capability: api, operation: () => executeGitHubApiOperation(
+    api, { kind: 'create-issue-comment', issueNumber: 17, body: 'receipt' }
+  ) })).toEqual({ id: 91, body: 'receipt' });
+  expect(observed).toEqual([{
+    target: 'https://api.github.com/repos/sec-platform/sec/issues/17/comments',
+    method: 'POST', body: { body: 'receipt' }
+  }]);
 });
 
 test('status-write preserves pending as a first-class GitHub status state', async () => {
