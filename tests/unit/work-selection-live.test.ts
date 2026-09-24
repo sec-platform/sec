@@ -11,7 +11,7 @@ function independentRawSha256(value: string): `sha256:${string}` {
 }
 
 import { createMainHealthRepairWorkPackagePath } from '../../src/adapters/self-hosting/control/main-health/contract.ts';
-import type { SecCurrentWorkLifecycle } from '../../src/adapters/self-hosting/control/work-selection/contract.ts';
+import type { CurrentWorkLifecycle } from '../../src/adapters/self-hosting/control/work-selection/contract.ts';
 import {
   SEC_ROADMAP_WORK_CATALOG_BEGIN,
   SEC_ROADMAP_WORK_CATALOG_END,
@@ -172,7 +172,7 @@ function transitionCatalog(): CatalogObservationV1 {
   );
 }
 
-function lifecycle(): SecCurrentWorkLifecycle {
+function lifecycle(): CurrentWorkLifecycle {
   return {
     activeWorkId: null,
     activeRef: null,
@@ -221,7 +221,7 @@ function registry(
 function receiptForCatalog(
   observation: CatalogObservationV1,
   completedWorkIds: readonly string[] = [],
-  current: SecCurrentWorkLifecycle = lifecycle()
+  current: CurrentWorkLifecycle = lifecycle()
 ) {
   const { catalog, roadmapRevision } = observation;
   return createSecWorkDecisionReceipt({

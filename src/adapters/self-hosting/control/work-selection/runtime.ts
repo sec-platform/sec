@@ -36,8 +36,8 @@ import {
 } from '../main-health/work-selection-main-health.ts';
 import { WorkPackageManifestDigest } from '../task/contract/work-package.ts';
 import type {
-  SecCurrentWorkLifecycle,
-  SecWorkDigest
+  CurrentWorkLifecycle,
+  WorkDigest
 } from './contract.ts';
 import {
   compileSecWorkSelectionTerminalProjection,
@@ -142,7 +142,7 @@ export type ObserveSecWorkSelectionProductionInput = Readonly<
 
 class LiveObservationFailure extends Error {
   readonly reasonCode: string;
-  readonly blockerRef: SecWorkDigest;
+  readonly blockerRef: WorkDigest;
 
   constructor(reasonCode: string, blockerBytes: Uint8Array | string) {
     super(reasonCode);
@@ -527,7 +527,7 @@ async function exactManifestPaths(
 export type SecRoadmapTerminalCompactionCandidateObservation = Readonly<
   | { status: 'not-applicable'; candidate: null }
   | { status: 'resolved'; candidate: SecRoadmapTerminalCompactionCandidate }
-  | { status: 'unresolved'; candidate: null; reasonCode: string; blockerRef: SecWorkDigest }
+  | { status: 'unresolved'; candidate: null; reasonCode: string; blockerRef: WorkDigest }
 >;
 
 /**
@@ -788,8 +788,8 @@ function observeCanonicalControl(input: {
   manifestPath: string;
   manifestBytes: Buffer;
 }): Readonly<{
-  state: SecCurrentWorkLifecycle['controlState'];
-  ref: SecWorkDigest;
+  state: CurrentWorkLifecycle['controlState'];
+  ref: WorkDigest;
 }> {
   const pointer = CodexDevelopmentParseActivePointer(input.pointerSource);
   CodexDevelopmentAssertControlPlaneBinding({ spec: input.spec, pointer });
@@ -807,7 +807,7 @@ function observeCanonicalControl(input: {
     id: packageId,
     tracking: rollingMachine?.active.tracking ?? null,
     digest: manifestDigest
-  } }) as SecWorkDigest;
+  } }) as WorkDigest;
   return Object.freeze({
     state: pointer.manifest === input.manifestPath
         && pointer.manifestDigest === manifestDigest
@@ -828,7 +828,7 @@ function currentLifecycle(input: {
   mainHealth: WorkSelectionMainHealthProjection;
   control: ReturnType<typeof observeCanonicalControl>;
   terminalCandidate: SecRoadmapTerminalCompactionCandidate | null;
-}): SecCurrentWorkLifecycle {
+}): CurrentWorkLifecycle {
   if (input.terminalCandidate !== null) {
     const pullRequest = input.openPullRequests.find(
       ({ number }) => number === input.terminalCandidate!.prNumber
@@ -886,7 +886,7 @@ function currentLifecycle(input: {
         baseSha: pullRequest.baseSha
       })),
       openEntries
-    }) as SecWorkDigest;
+    }) as WorkDigest;
     if (entry !== undefined && item !== undefined) {
       const pullRequest = input.selectedPullRequest;
       const exactActiveIdentity = isExactWorkSelectionActiveIdentity({
@@ -932,7 +932,7 @@ function currentLifecycle(input: {
         number, headBranch, headSha, baseBranch, baseSha
       })),
       openEntries
-    }) as SecWorkDigest;
+    }) as WorkDigest;
     return {
       activeWorkId: 'unmapped-open-pr',
       activeRef,
@@ -1342,7 +1342,7 @@ export type SecWorkSelectionCliProjection = Readonly<
       verificationObligations: readonly string[];
     }>;
     terminalCompaction: null | Readonly<{
-      compactionDigest: SecWorkDigest;
+      compactionDigest: WorkDigest;
       delayedManifestRetirementPaths: readonly string[];
       retiredWorkIds: readonly string[];
     }>;

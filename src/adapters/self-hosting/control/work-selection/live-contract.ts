@@ -7,19 +7,19 @@ import {
 import {
   SEC_WORK_PRIORITY_CLASSES,
   SEC_WORK_SELECTION_POLICY_REVISION,
-  assertSecWorkDecision,
-  compileSecWorkDecision,
-  computeSecWorkCandidateSetRevision,
-  evaluateSecWorkCandidate,
-  parseSecWorkSelectionInput,
-  type SecCurrentWorkLifecycle,
-  type SecWorkCandidate,
-  type SecWorkCandidateDecisionStatus,
-  type SecWorkDecision,
-  type SecWorkDependencyFact,
-  type SecWorkDigest,
-  type SecWorkPriorityClass,
-  type SecWorkSelectionInput
+  assertWorkDecision,
+  compileWorkDecision,
+  computeWorkCandidateSetRevision,
+  evaluateWorkCandidate,
+  parseWorkSelectionInput,
+  type CurrentWorkLifecycle,
+  type WorkCandidate,
+  type WorkCandidateDecisionStatus,
+  type WorkDecision,
+  type WorkDependencyFact,
+  type WorkDigest,
+  type WorkPriorityClass,
+  type WorkSelectionInput
 } from './contract.ts';
 
 const SEC_ROADMAP_WORK_CATALOG_SCHEMA =
@@ -49,17 +49,17 @@ export interface SecRoadmapWorkCatalogItem {
   readonly tracking: string;
   readonly currentSpecRef: string;
   readonly ownerRef: string;
-  readonly kind: SecWorkCandidate['kind'];
+  readonly kind: WorkCandidate['kind'];
   readonly disposition: SecRoadmapCatalogDisposition;
-  readonly priorityClass: SecWorkPriorityClass;
+  readonly priorityClass: WorkPriorityClass;
   readonly priorityEvidenceRefs: readonly string[];
   readonly prerequisiteWorkIds: readonly string[];
   readonly orderedAfterWorkIds: readonly string[];
   readonly reproductionOrEvidenceFreshness:
-    SecWorkCandidate['reproductionOrEvidenceFreshness'];
-  readonly rootCauseState: SecWorkCandidate['rootCauseState'];
+    WorkCandidate['reproductionOrEvidenceFreshness'];
+  readonly rootCauseState: WorkCandidate['rootCauseState'];
   readonly rootCauseRef: string;
-  readonly scopeClosure: SecWorkCandidate['scopeClosure'];
+  readonly scopeClosure: WorkCandidate['scopeClosure'];
   readonly exitCriteriaRef: string;
   readonly nearTermConsumerRef: string | null;
   readonly humanDecisionRef: string | null;
@@ -69,7 +69,7 @@ export interface SecRoadmapWorkCatalog {
   readonly schema: typeof SEC_ROADMAP_WORK_CATALOG_SCHEMA;
   readonly stageRef: string;
   readonly items: readonly SecRoadmapWorkCatalogItem[];
-  readonly catalogDigest: SecWorkDigest;
+  readonly catalogDigest: WorkDigest;
 }
 
 export interface SecRoadmapTerminalCompaction {
@@ -84,7 +84,7 @@ export interface SecRoadmapTerminalCompaction {
   readonly catalog: SecRoadmapWorkCatalog;
   readonly roadmapSource: string;
   readonly demandGraphDigest: `sha256:${string}`;
-  readonly compactionDigest: SecWorkDigest;
+  readonly compactionDigest: WorkDigest;
 }
 
 export interface SecRoadmapTerminalCompactionCandidate {
@@ -94,16 +94,16 @@ export interface SecRoadmapTerminalCompactionCandidate {
   readonly baseSha: string;
   readonly headSha: string;
   readonly headTreeSha: string;
-  readonly compactionDigest: SecWorkDigest;
+  readonly compactionDigest: WorkDigest;
   readonly retiredWorkIds: readonly string[];
-  readonly bindingDigest: SecWorkDigest;
+  readonly bindingDigest: WorkDigest;
 }
 
 export interface SecWorkSelectionTerminalProjection {
   readonly demandGraph: OperationDemandGraph;
   readonly catalog: SecRoadmapWorkCatalog;
   readonly currentSpecs: readonly SecWorkCurrentSpecObservation[];
-  readonly roadmapRevision: SecWorkDigest;
+  readonly roadmapRevision: WorkDigest;
   readonly terminalCompaction: SecRoadmapTerminalCompaction | null;
 }
 
@@ -112,13 +112,13 @@ export interface SecWorkCurrentSpecObservation {
   readonly currentSpecRef: string;
   readonly providerResourceRef: string;
   readonly providerState: 'open' | 'closed';
-  readonly currentSpecRevision: SecWorkDigest;
-  readonly observationDigest: SecWorkDigest;
+  readonly currentSpecRevision: WorkDigest;
+  readonly observationDigest: WorkDigest;
 }
 
 interface SecWorkRegistryEntryObservation {
   readonly manifestPath: string;
-  readonly manifestDigest: SecWorkDigest;
+  readonly manifestDigest: WorkDigest;
   readonly source: 'default' | 'open-pr';
   readonly prNumber: number | null;
   readonly baseSha: string | null;
@@ -129,7 +129,7 @@ interface SecWorkRegistryEntryObservation {
 export interface SecWorkRegistryObservation {
   readonly defaultTreeSha: string;
   readonly entries: readonly SecWorkRegistryEntryObservation[];
-  readonly registryDigest: SecWorkDigest;
+  readonly registryDigest: WorkDigest;
 }
 
 export interface SecWorkDecisionReceipt {
@@ -139,14 +139,14 @@ export interface SecWorkDecisionReceipt {
   readonly exactMain: string;
   readonly exactMainTree: string;
   readonly roadmapPath: 'config/repository/work-selection.md';
-  readonly roadmapRevision: SecWorkDigest;
+  readonly roadmapRevision: WorkDigest;
   readonly catalog: SecRoadmapWorkCatalog;
   readonly registry: SecWorkRegistryObservation;
-  readonly lifecycleDigest: SecWorkDigest;
+  readonly lifecycleDigest: WorkDigest;
   readonly currentSpecs: readonly SecWorkCurrentSpecObservation[];
-  readonly input: SecWorkSelectionInput;
-  readonly decision: SecWorkDecision;
-  readonly receiptDigest: SecWorkDigest;
+  readonly input: WorkSelectionInput;
+  readonly decision: WorkDecision;
+  readonly receiptDigest: WorkDigest;
 }
 
 interface SecWorkRollingProjectionItem {
@@ -154,20 +154,20 @@ interface SecWorkRollingProjectionItem {
   readonly workId: string;
   readonly tracking: string;
   readonly currentSpecRef: string;
-  readonly currentSpecRevision: SecWorkDigest;
-  readonly decisionStatus: SecWorkCandidateDecisionStatus | 'selected';
+  readonly currentSpecRevision: WorkDigest;
+  readonly decisionStatus: WorkCandidateDecisionStatus | 'selected';
 }
 
 export interface SecWorkRollingProjection {
   readonly schema: typeof SEC_WORK_ROLLING_PROJECTION_SCHEMA;
   readonly exactMain: string;
-  readonly roadmapRevision: SecWorkDigest;
-  readonly catalogDigest: SecWorkDigest;
-  readonly receiptDigest: SecWorkDigest;
-  readonly decisionDigest: SecWorkDigest;
+  readonly roadmapRevision: WorkDigest;
+  readonly catalogDigest: WorkDigest;
+  readonly receiptDigest: WorkDigest;
+  readonly decisionDigest: WorkDigest;
   readonly active: SecWorkRollingProjectionItem;
   readonly candidates: readonly SecWorkRollingProjectionItem[];
-  readonly projectionDigest: SecWorkDigest;
+  readonly projectionDigest: WorkDigest;
 }
 
 export type SecWorkRollingTransitionAuthority = Readonly<
@@ -175,16 +175,16 @@ export type SecWorkRollingTransitionAuthority = Readonly<
     kind: 'committed-candidate-replan';
     sourceHead: string;
     sourceTree: string;
-    sourceManifestDigest: SecWorkDigest;
-    sourcePointerRevision: SecWorkDigest;
-    sourceRollingRevision: SecWorkDigest;
+    sourceManifestDigest: WorkDigest;
+    sourcePointerRevision: WorkDigest;
+    sourceRollingRevision: WorkDigest;
   }
   | {
     kind: 'main-health-repair';
-    decisionDigest: SecWorkDigest;
-    healthRevision: SecWorkDigest;
-    ledgerDigest: SecWorkDigest;
-    failureFingerprints: readonly SecWorkDigest[];
+    decisionDigest: WorkDigest;
+    healthRevision: WorkDigest;
+    ledgerDigest: WorkDigest;
+    failureFingerprints: readonly WorkDigest[];
     publishedActivePackageId: string | null;
   }
   | {
@@ -199,9 +199,9 @@ export type SecWorkRollingTransitionAuthority = Readonly<
     repository: string;
     defaultBranch: string;
     owner: string;
-    healthRevision: SecWorkDigest;
-    bootstrapObservationDigest: SecWorkDigest;
-    failureFingerprints: readonly SecWorkDigest[];
+    healthRevision: WorkDigest;
+    bootstrapObservationDigest: WorkDigest;
+    failureFingerprints: readonly WorkDigest[];
     publishedActivePackageId: string;
     retirementPolicy: 'exact-new-main-readback';
   }
@@ -211,7 +211,7 @@ export interface SecWorkRollingTransitionActive {
   readonly packageId: string;
   readonly tracking: string;
   readonly manifestPath: string;
-  readonly manifestDigest: SecWorkDigest;
+  readonly manifestDigest: WorkDigest;
 }
 
 /**
@@ -230,7 +230,7 @@ export interface SecWorkRollingTransitionProjection {
   readonly authority: SecWorkRollingTransitionAuthority;
   readonly active: SecWorkRollingTransitionActive;
   readonly candidates: readonly string[];
-  readonly projectionDigest: SecWorkDigest;
+  readonly projectionDigest: WorkDigest;
 }
 
 /** Authority-free authoring projection. Its digest protects representation
@@ -242,7 +242,7 @@ export interface SecWorkRollingProposalProjection {
   readonly authority: 'none';
   readonly active: SecWorkRollingTransitionActive & Readonly<{ tracking: 'none' }>;
   readonly candidates: readonly string[];
-  readonly projectionDigest: SecWorkDigest;
+  readonly projectionDigest: WorkDigest;
 }
 
 export type SecWorkRollingMachineProjection =
@@ -286,7 +286,7 @@ export type SecWorkSelectionLiveResult = Readonly<
     receipt: SecWorkDecisionReceipt;
     demandGraph: OperationDemandGraph;
     terminalCompaction: SecRoadmapTerminalCompaction | null;
-    resultDigest: SecWorkDigest;
+    resultDigest: WorkDigest;
   }
   | {
     schema: typeof SEC_WORK_SELECTION_LIVE_RESULT_SCHEMA;
@@ -296,7 +296,7 @@ export type SecWorkSelectionLiveResult = Readonly<
     receipt: null;
     demandGraph: null;
     terminalCompaction: null;
-    resultDigest: SecWorkDigest;
+    resultDigest: WorkDigest;
   }
 >;
 
@@ -384,11 +384,11 @@ function packageId(value: unknown, label: string): string {
   return parsed;
 }
 
-function digest(value: unknown, label: string): SecWorkDigest {
+function digest(value: unknown, label: string): WorkDigest {
   if (typeof value !== 'string' || !/^sha256:[0-9a-f]{64}$/u.test(value)) {
     fail(`${label} must be one SHA-256 digest.`);
   }
-  return value as SecWorkDigest;
+  return value as WorkDigest;
 }
 
 function gitSha(value: unknown, label: string): string {
@@ -543,7 +543,7 @@ function normalizeCatalog(value: unknown): SecRoadmapWorkCatalog {
   });
   return deepFreeze({
     ...withoutDigest,
-    catalogDigest: sha256(withoutDigest) as SecWorkDigest
+    catalogDigest: sha256(withoutDigest) as WorkDigest
   });
 }
 
@@ -787,7 +787,7 @@ export function compileSecRoadmapTerminalCompaction(input: {
   });
   return deepFreeze({
     ...withoutDigest,
-    compactionDigest: sha256(withoutDigest) as SecWorkDigest
+    compactionDigest: sha256(withoutDigest) as WorkDigest
   });
 }
 
@@ -835,7 +835,7 @@ export function compileSecWorkSelectionTerminalProjection(input: {
       roadmapSourceRevision: rawSha256(input.roadmapSource),
       terminalCompactionDigest: terminalCompaction.compactionDigest,
       terminalSpecObservations: terminalSpecs
-    }) as SecWorkDigest,
+    }) as WorkDigest,
     terminalCompaction
   });
 }
@@ -942,7 +942,7 @@ export function createSecRoadmapTerminalCompactionCandidate(input: {
   });
   return deepFreeze({
     ...withoutDigest,
-    bindingDigest: sha256(withoutDigest) as SecWorkDigest
+    bindingDigest: sha256(withoutDigest) as WorkDigest
   });
 }
 
@@ -1322,7 +1322,7 @@ export function createSecWorkCurrentSpecObservation(input: Omit<
   };
   return deepFreeze({
     ...withoutDigest,
-    observationDigest: sha256(withoutDigest) as SecWorkDigest
+    observationDigest: sha256(withoutDigest) as WorkDigest
   });
 }
 
@@ -1388,7 +1388,7 @@ export function createSecWorkRegistryObservation(input: Omit<
     registryDigest: sha256({
       defaultTreeSha: input.defaultTreeSha,
       entries: ordered
-    }) as SecWorkDigest
+    }) as WorkDigest
   });
 }
 
@@ -1396,7 +1396,7 @@ function dependencyFacts(
   workIds: readonly string[],
   itemsByWorkId: ReadonlyMap<string, SecRoadmapWorkCatalogItem>,
   completedManifests: ReadonlySet<string>
-): SecWorkDependencyFact[] {
+): WorkDependencyFact[] {
   return workIds.map((workId) => {
     const dependency = itemsByWorkId.get(workId);
     if (dependency === undefined) fail(`dependency ${workId} disappeared after catalog validation.`);
@@ -1409,8 +1409,8 @@ function dependencyFacts(
 }
 
 function blockedReadySuccessorCount(
-  candidate: SecWorkCandidate,
-  candidates: readonly SecWorkCandidate[],
+  candidate: WorkCandidate,
+  candidates: readonly WorkCandidate[],
   itemsByWorkId: ReadonlyMap<string, SecRoadmapWorkCatalogItem>
 ): number {
   const item = itemsByWorkId.get(candidate.workId);
@@ -1437,7 +1437,7 @@ function blockedReadySuccessorCount(
       orderedAfterFacts,
       blockedReadySuccessorCount: 0
     });
-    return evaluateSecWorkCandidate(hypothetical).decision.status === 'eligible';
+    return evaluateWorkCandidate(hypothetical).decision.status === 'eligible';
   }).length;
 }
 
@@ -1446,18 +1446,18 @@ function candidateFromLiveFacts(input: {
   catalog: SecRoadmapWorkCatalog;
   currentSpec: SecWorkCurrentSpecObservation;
   registry: SecWorkRegistryObservation;
-  current: SecCurrentWorkLifecycle;
-  lifecycleDigest: SecWorkDigest;
+  current: CurrentWorkLifecycle;
+  lifecycleDigest: WorkDigest;
   itemsByWorkId: ReadonlyMap<string, SecRoadmapWorkCatalogItem>;
   completedManifests: ReadonlySet<string>;
-}): SecWorkCandidate {
+}): WorkCandidate {
   const completionManifest = `config/repository/work-packages/${input.item.packageId}.md`;
   const alreadyInMain = input.completedManifests.has(completionManifest);
   if (!alreadyInMain && input.item.disposition === 'active'
       && input.currentSpec.providerState !== 'open') {
     fail(`${input.item.workId} current spec is closed without default-branch completion evidence.`);
   }
-  const lifecycle: SecWorkCandidate['lifecycle'] = alreadyInMain
+  const lifecycle: WorkCandidate['lifecycle'] = alreadyInMain
     ? 'already-in-main'
     : input.item.disposition === 'superseded'
       ? 'superseded'
@@ -1528,10 +1528,10 @@ function receiptWithoutDigest(input: {
   repository: string;
   exactMain: string;
   exactMainTree: string;
-  roadmapRevision: SecWorkDigest;
+  roadmapRevision: WorkDigest;
   catalog: SecRoadmapWorkCatalog;
   registry: SecWorkRegistryObservation;
-  current: SecCurrentWorkLifecycle;
+  current: CurrentWorkLifecycle;
   currentSpecs: readonly SecWorkCurrentSpecObservation[];
 }): Omit<SecWorkDecisionReceipt, 'receiptDigest'> {
   const exactMain = gitSha(input.exactMain, 'receipt.exactMain');
@@ -1562,7 +1562,7 @@ function receiptWithoutDigest(input: {
       fail(`current spec observation for ${item.workId} does not bind the catalog ref.`);
     }
   }
-  const lifecycleDigest = sha256(input.current) as SecWorkDigest;
+  const lifecycleDigest = sha256(input.current) as WorkDigest;
   const itemsByWorkId = new Map(catalog.items.map((item) => [item.workId, item]));
   const completedManifests = new Set(registry.entries
     .filter(({ source }) => source === 'default')
@@ -1581,18 +1581,18 @@ function receiptWithoutDigest(input: {
     ...candidate,
     blockedReadySuccessorCount: blockedReadySuccessorCount(candidate, baseCandidates, itemsByWorkId)
   }));
-  const selectionInput = parseSecWorkSelectionInput({
+  const selectionInput = parseWorkSelectionInput({
     schema: 'sec-work-selection-input-v1',
     identity: {
       exactMain,
       roadmapRevision: digest(input.roadmapRevision, 'receipt.roadmapRevision'),
-      candidateSetRevision: computeSecWorkCandidateSetRevision(candidates),
+      candidateSetRevision: computeWorkCandidateSetRevision(candidates),
       selectionPolicyRevision: SEC_WORK_SELECTION_POLICY_REVISION
     },
     current: input.current,
     candidates
   });
-  const decision = compileSecWorkDecision(selectionInput);
+  const decision = compileWorkDecision(selectionInput);
   return deepFreeze({
     schema: SEC_WORK_DECISION_RECEIPT_SCHEMA,
     issuer: SEC_WORK_SELECTION_LIVE_ISSUER,
@@ -1616,7 +1616,7 @@ export function createSecWorkDecisionReceipt(input: Parameters<
   const withoutDigest = receiptWithoutDigest(input);
   return deepFreeze({
     ...withoutDigest,
-    receiptDigest: sha256(withoutDigest) as SecWorkDigest
+    receiptDigest: sha256(withoutDigest) as WorkDigest
   });
 }
 
@@ -1668,7 +1668,7 @@ function assertRollingDecisionReceipt(receipt: SecWorkDecisionReceipt): void {
       || receipt.receiptDigest !== sha256(receiptMaterial)) {
     fail('rolling topology requires one internally valid decision receipt.');
   }
-  assertSecWorkDecision(receipt.decision, receipt.input);
+  assertWorkDecision(receipt.decision, receipt.input);
 }
 
 function rollingTopologyFromValidatedReceipt(
@@ -1736,7 +1736,7 @@ export function compileSecWorkRollingProjection(
   };
   return deepFreeze({
     ...withoutDigest,
-    projectionDigest: sha256(withoutDigest) as SecWorkDigest
+    projectionDigest: sha256(withoutDigest) as WorkDigest
   });
 }
 
@@ -1877,8 +1877,8 @@ export function renderSecWorkRollingProposalPlan(input: Readonly<{
   });
 }
 
-function liveResultDigest(value: unknown): SecWorkDigest {
-  return sha256(value) as SecWorkDigest;
+function liveResultDigest(value: unknown): WorkDigest {
+  return sha256(value) as WorkDigest;
 }
 
 export function resolvedSecWorkSelectionLiveResult(
@@ -1921,6 +1921,6 @@ export function unresolvedSecWorkSelectionLiveResult(input: {
   return deepFreeze({ ...withoutDigest, resultDigest: liveResultDigest(withoutDigest) });
 }
 
-export function currentSpecRevisionFromBody(body: string): SecWorkDigest {
+export function currentSpecRevisionFromBody(body: string): WorkDigest {
   return rawSha256(body);
 }
