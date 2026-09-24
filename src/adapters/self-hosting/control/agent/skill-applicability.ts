@@ -22,7 +22,7 @@ import {
   isSecSkillQuarantinePath
 } from './skill.ts';
 import {
-  SecTaskCapsuleProjectionUnavailableError,
+  TaskCapsuleProjectionUnavailableError,
   taskCapsuleProjectionBlocked
 } from './task-capsule-host.ts';
 
@@ -179,7 +179,7 @@ if (import.meta.main) {
     await main();
   }
   catch (error) {
-    if (error instanceof SecTaskCapsuleProjectionUnavailableError) {
+    if (error instanceof TaskCapsuleProjectionUnavailableError) {
       console.error(JSON.stringify(taskCapsuleProjectionBlocked(error)));
     }
     else {

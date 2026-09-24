@@ -6,9 +6,9 @@ import {
   type SecSkillApplicabilityEnvelope
 } from './skill.ts';
 import {
-  parseSecTaskCapsule,
+  parseTaskCapsule,
   type SecDigest,
-  type SecTaskCapsule
+  type TaskCapsule
 } from './task-capsule.ts';
 
 export const SEC_OPERATION_READ_PLAN_INPUT_SCHEMA = 'sec-operation-read-plan-input-v2' as const;
@@ -60,7 +60,7 @@ interface SecOperationInvalidationInput {
 
 export interface SecOperationReadPlanInput {
   readonly schema: typeof SEC_OPERATION_READ_PLAN_INPUT_SCHEMA;
-  readonly taskCapsule: SecTaskCapsule;
+  readonly taskCapsule: TaskCapsule;
   readonly requiredRefs: readonly SecOperationReadReference[];
   readonly conditionalRefs: readonly SecConditionalReadReference[];
   readonly forbiddenSources: readonly string[];
@@ -218,7 +218,7 @@ function scopeCoversRepositoryPath(scope: string, repositoryPath: string): boole
 function compileFromRecord(input: Record<string, unknown>): SecOperationReadPlan {
   exactKeys(input, INPUT_KEYS, 'input');
   if (input.schema !== SEC_OPERATION_READ_PLAN_INPUT_SCHEMA) fail('input schema is unsupported.');
-  const taskCapsule = parseSecTaskCapsule(input.taskCapsule);
+  const taskCapsule = parseTaskCapsule(input.taskCapsule);
   const planningContext = taskCapsule.planningContext;
   const requiredRefs = parseReadRefs(input.requiredRefs, false);
   const conditionalRefs = parseReadRefs(input.conditionalRefs, true);
@@ -364,7 +364,7 @@ export function parseSecOperationReadPlan(value: unknown): SecOperationReadPlan 
   }
   const input: SecOperationReadPlanInput = {
     schema: SEC_OPERATION_READ_PLAN_INPUT_SCHEMA,
-    taskCapsule: plan.taskCapsule as SecTaskCapsule,
+    taskCapsule: plan.taskCapsule as TaskCapsule,
     requiredRefs: plan.requiredRefs as readonly SecOperationReadReference[],
     conditionalRefs: plan.conditionalRefs as readonly SecConditionalReadReference[],
     forbiddenSources: plan.forbiddenSources as readonly string[],

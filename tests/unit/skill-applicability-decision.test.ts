@@ -2,13 +2,13 @@ import { expect, test } from 'bun:test';
 
 import {
   evaluateSecSkillApplicability,
-  isSecAgentRole,
-  isSecOperationKind,
+  isAgentRole,
+  isTaskOperationKind,
   SEC_AGENT_SKILL_IDS,
   SEC_AGENT_SKILL_METADATA,
   type SecSkillApplicabilityEnvelope
 } from '../../src/adapters/self-hosting/control/agent/skill.ts';
-import { SEC_TASK_CAPSULE_REVISION } from '../../src/adapters/self-hosting/control/agent/task-capsule.ts';
+import { TASK_CAPSULE_REVISION } from '../../src/adapters/self-hosting/control/agent/task-capsule.ts';
 
 const TRUSTED_REVISION = '7543d37ad733432cbc2ddddd205c98f574e882c4';
 
@@ -28,9 +28,9 @@ test('metadata table covers every registered Skill exactly once with valid vocab
     const metadata = SEC_AGENT_SKILL_METADATA[skillId];
     expect(metadata.id).toBe(skillId);
     expect(metadata.roles.length).toBeGreaterThan(0);
-    for (const role of metadata.roles) expect(isSecAgentRole(role)).toBe(true);
+    for (const role of metadata.roles) expect(isAgentRole(role)).toBe(true);
     expect(metadata.operationKinds.length).toBeGreaterThan(0);
-    for (const kind of metadata.operationKinds) expect(isSecOperationKind(kind)).toBe(true);
+    for (const kind of metadata.operationKinds) expect(isTaskOperationKind(kind)).toBe(true);
     expect(Object.keys(metadata).sort()).toEqual(['id', 'operationKinds', 'roles']);
   }
 });
@@ -94,7 +94,7 @@ test('goal, role, operation, capsule binding or trusted-revision change invalida
     candidates: ['sec-worker-development'],
     taskCapsuleRef: 'capsule-1',
     taskCapsuleDigest: `sha256:${'a'.repeat(64)}`,
-    taskCapsuleRevision: SEC_TASK_CAPSULE_REVISION
+    taskCapsuleRevision: TASK_CAPSULE_REVISION
   }));
   expect(prior.status).toBe('applicable');
   const stale = evaluateSecSkillApplicability(envelope({
@@ -122,7 +122,7 @@ test('goal, role, operation, capsule binding or trusted-revision change invalida
     candidates: ['sec-worker-development'],
     taskCapsuleRef: 'capsule-1',
     taskCapsuleDigest: `sha256:${'b'.repeat(64)}`,
-    taskCapsuleRevision: SEC_TASK_CAPSULE_REVISION,
+    taskCapsuleRevision: TASK_CAPSULE_REVISION,
     priorDecision: prior
   }));
   expect(capsuleStale.status).toBe('stale');
@@ -197,7 +197,7 @@ test('decision binds the operation and trusted guidance identity', () => {
     workPackageProposalRef: 'config/repository/work-packages/skill-applicability-gate-v1.md',
     taskCapsuleRef: 'capsule-1',
     taskCapsuleDigest: `sha256:${'a'.repeat(64)}`,
-    taskCapsuleRevision: SEC_TASK_CAPSULE_REVISION
+    taskCapsuleRevision: TASK_CAPSULE_REVISION
   }));
   expect(decision.goalDigest).toBe('test-goal');
   expect(decision.trustedRevision).toBe(TRUSTED_REVISION);
@@ -207,7 +207,7 @@ test('decision binds the operation and trusted guidance identity', () => {
   );
   expect(decision.taskCapsuleRef).toBe('capsule-1');
   expect(decision.taskCapsuleDigest).toBe(`sha256:${'a'.repeat(64)}`);
-  expect(decision.taskCapsuleRevision).toBe(SEC_TASK_CAPSULE_REVISION);
+  expect(decision.taskCapsuleRevision).toBe(TASK_CAPSULE_REVISION);
   expect(decision.candidateSkillIds).toEqual(['sec-worker-development']);
 });
 

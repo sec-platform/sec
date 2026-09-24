@@ -13,24 +13,24 @@ import {
   evaluateSecSkillApplicability,
   isSecSkillQuarantinePath,
   SEC_SKILL_QUARANTINE_EXACT_PATHS,
-  type SecAgentRole,
+  type AgentRole,
   type SecAgentSkillId,
-  type SecOperationKind,
+  type TaskOperationKind,
   type SecSkillApplicabilityDecision
 } from '../../src/adapters/self-hosting/control/agent/skill.ts';
 import {
-  compileSecTaskCapsule,
-  SEC_TASK_CAPSULE_INPUT_SCHEMA,
+  compileTaskCapsule,
+  TASK_CAPSULE_INPUT_SCHEMA,
   type SecDigest,
-  type SecTaskCapsulePlanningContext
+  type TaskCapsulePlanningContext
 } from '../../src/adapters/self-hosting/control/agent/task-capsule.ts';
 
 const REPOSITORY_ROOT = path.resolve(import.meta.dir, '../..');
 const digest = (character: string): SecDigest => `sha256:${character.repeat(64)}`;
 
-function capsule(planningContext: SecTaskCapsulePlanningContext): SecOperationReadPlanInput['taskCapsule'] {
-  return compileSecTaskCapsule({
-    schema: SEC_TASK_CAPSULE_INPUT_SCHEMA,
+function capsule(planningContext: TaskCapsulePlanningContext): SecOperationReadPlanInput['taskCapsule'] {
+  return compileTaskCapsule({
+    schema: TASK_CAPSULE_INPUT_SCHEMA,
     ref: 'urn:sec:task-capsule:skill-applicability-contract',
     planningContext
   });
@@ -70,8 +70,8 @@ function changedPaths(base: string, head: string): string[] {
 }
 
 function planInput(overrides: {
-  role?: SecAgentRole;
-  operationKind?: SecOperationKind;
+  role?: AgentRole;
+  operationKind?: TaskOperationKind;
   candidates?: readonly SecAgentSkillId[];
   authorizedResources?: readonly string[];
   authorizedGates?: readonly string[];

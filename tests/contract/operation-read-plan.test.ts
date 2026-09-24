@@ -11,19 +11,19 @@ import {
   type SecOperationReadPlanInput
 } from '../../src/adapters/self-hosting/control/agent/read-plan.ts';
 import {
-  compileSecTaskCapsule,
-  SEC_TASK_CAPSULE_COMPILE_REQUEST_SCHEMA,
-  SEC_TASK_CAPSULE_INPUT_SCHEMA,
+  compileTaskCapsule,
+  TASK_CAPSULE_COMPILE_REQUEST_SCHEMA,
+  TASK_CAPSULE_INPUT_SCHEMA,
   type SecDigest,
-  type SecTaskCapsulePlanningContext
+  type TaskCapsulePlanningContext
 } from '../../src/adapters/self-hosting/control/agent/task-capsule.ts';
 
 const REPOSITORY_ROOT = path.resolve(import.meta.dir, '../..');
 const digest = (character: string): SecDigest => `sha256:${character.repeat(64)}`;
 
-function capsule(planningContext: SecTaskCapsulePlanningContext): SecOperationReadPlanInput['taskCapsule'] {
-  return compileSecTaskCapsule({
-    schema: SEC_TASK_CAPSULE_INPUT_SCHEMA,
+function capsule(planningContext: TaskCapsulePlanningContext): SecOperationReadPlanInput['taskCapsule'] {
+  return compileTaskCapsule({
+    schema: TASK_CAPSULE_INPUT_SCHEMA,
     ref: 'urn:sec:task-capsule:issue-346-contract',
     planningContext
   });
@@ -146,7 +146,7 @@ test('Task Capsule verify is content-only and compile rejects caller authority b
   const rejected = run('src/adapters/self-hosting/control/agent/task-capsule-host.ts', [
     'compile',
     '--input',
-    JSON.stringify({ schema: SEC_TASK_CAPSULE_COMPILE_REQUEST_SCHEMA, authority: {} }),
+    JSON.stringify({ schema: TASK_CAPSULE_COMPILE_REQUEST_SCHEMA, authority: {} }),
     '--candidate-root',
     REPOSITORY_ROOT
   ]);
@@ -156,7 +156,7 @@ test('Task Capsule verify is content-only and compile rejects caller authority b
   const blocked = run('src/adapters/self-hosting/control/agent/task-capsule-host.ts', [
     'compile',
     '--input',
-    JSON.stringify({ schema: SEC_TASK_CAPSULE_COMPILE_REQUEST_SCHEMA }),
+    JSON.stringify({ schema: TASK_CAPSULE_COMPILE_REQUEST_SCHEMA }),
     '--candidate-root',
     REPOSITORY_ROOT
   ]);

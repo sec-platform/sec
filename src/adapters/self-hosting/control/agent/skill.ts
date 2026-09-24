@@ -2,19 +2,19 @@ import { isSecRepositoryTestModulePath } from '../../../../contracts/repository-
 import { REPOSITORY_AUDIT_ENTRYPOINT_PATH } from '../../../repository/source-program-model/contract.ts';
 import { activeDocumentationRecord } from '../documentation/active.ts';
 import {
-  isSecAgentRole,
-  isSecOperationKind,
-  type SecAgentRole,
-  type SecOperationKind
+  isAgentRole,
+  isTaskOperationKind,
+  type AgentRole,
+  type TaskOperationKind
 } from './task-capsule.ts';
 
 export {
-  isSecAgentRole,
-  isSecOperationKind,
+  isAgentRole,
+  isTaskOperationKind,
 
 
-  type SecAgentRole,
-  type SecOperationKind
+  type AgentRole,
+  type TaskOperationKind
 } from './task-capsule.ts';
 
 export const SEC_AGENT_SKILL_IDS = [
@@ -344,8 +344,8 @@ export function isSecAgentSkillId(value: unknown): value is SecAgentSkillId {
  */
 export interface SecAgentSkillMetadata {
   readonly id: SecAgentSkillId;
-  readonly roles: readonly SecAgentRole[];
-  readonly operationKinds: readonly SecOperationKind[];
+  readonly roles: readonly AgentRole[];
+  readonly operationKinds: readonly TaskOperationKind[];
 }
 
 export const SEC_AGENT_SKILL_METADATA = {
@@ -433,8 +433,8 @@ interface SecSkillApplicabilityExclusionResult {
 export interface SecSkillApplicabilityDecision {
   readonly schema: typeof SEC_SKILL_APPLICABILITY_SCHEMA;
   readonly status: SecSkillApplicabilityStatus;
-  readonly role: SecAgentRole | null;
-  readonly operationKind: SecOperationKind | null;
+  readonly role: AgentRole | null;
+  readonly operationKind: TaskOperationKind | null;
   readonly goalDigest: string;
   readonly trustedRevision: string;
   readonly targetCandidate: string;
@@ -538,8 +538,8 @@ export function evaluateSecSkillApplicability(
 ): SecSkillApplicabilityDecision {
   const role = input.role;
   const operationKind = input.operationKind;
-  if (!isSecAgentRole(role)) return buildUnresolvedDecision(input, 'unresolved-invalid-role');
-  if (!isSecOperationKind(operationKind)) {
+  if (!isAgentRole(role)) return buildUnresolvedDecision(input, 'unresolved-invalid-role');
+  if (!isTaskOperationKind(operationKind)) {
     return buildUnresolvedDecision(input, 'unresolved-invalid-operation-kind');
   }
   if (
@@ -596,9 +596,9 @@ export function evaluateSecSkillApplicability(
 
   for (const skillId of candidateSkillIds) {
     const skillMetadata = SEC_AGENT_SKILL_METADATA[skillId];
-    const roleHit = (skillMetadata.roles as readonly SecAgentRole[]).includes(role);
+    const roleHit = (skillMetadata.roles as readonly AgentRole[]).includes(role);
     const kindHit = (
-      skillMetadata.operationKinds as readonly SecOperationKind[]
+      skillMetadata.operationKinds as readonly TaskOperationKind[]
     ).includes(operationKind);
     triggerEvidence.push({ skillId, role: roleHit, operationKind: kindHit });
     if (!roleHit || !kindHit) {

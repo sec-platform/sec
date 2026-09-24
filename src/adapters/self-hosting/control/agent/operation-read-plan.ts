@@ -14,10 +14,10 @@ import {
 } from './read-plan.ts';
 import {
   resolveTrustedWorkerTaskCapsule,
-  SecTaskCapsuleProjectionUnavailableError,
+  TaskCapsuleProjectionUnavailableError,
   taskCapsuleProjectionBlocked
 } from './task-capsule-host.ts';
-import type { SecTaskCapsule } from './task-capsule.ts';
+import type { TaskCapsule } from './task-capsule.ts';
 
 function fail(message: string): never {
   throw new Error(`operation-read-plan: ${message}`);
@@ -36,7 +36,7 @@ export type SecCompiledReadClosure = Omit<
 >;
 
 export interface SecProspectiveWorkerOperationObservation {
-  readonly taskCapsule: SecTaskCapsule;
+  readonly taskCapsule: TaskCapsule;
   readonly readClosure: SecCompiledReadClosure;
   readonly runtimeRoot: string;
   readonly candidateRoot: string;
@@ -215,7 +215,7 @@ if (import.meta.main) {
     await main();
   }
   catch (error) {
-    if (error instanceof SecTaskCapsuleProjectionUnavailableError) {
+    if (error instanceof TaskCapsuleProjectionUnavailableError) {
       console.error(JSON.stringify(taskCapsuleProjectionBlocked(error)));
     }
     else {
