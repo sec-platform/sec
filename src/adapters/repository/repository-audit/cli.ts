@@ -14,6 +14,7 @@ import {
   type WorkingTreeSourceProgramAuditOptions
 } from './cli-contract.ts';
 export { repositoryAuditShouldFail } from './cli-contract.ts';
+import { encodeRepositoryAuditFullReport } from './full-report-transport.ts';
 
 import ts from 'typescript';
 
@@ -2937,7 +2938,7 @@ async function runRepositoryAuditInput(
   const report = await auditRepository(undefined, { defaultRef });
   if (repositoryAuditShouldFail(report, { diagnostic, failOn })) process.exitCode = 1;
   const encoded = full || outputPath !== null
-    ? `${JSON.stringify(report, null, 2)}\n`
+    ? `${JSON.stringify(encodeRepositoryAuditFullReport(report), null, 2)}\n`
     : null;
   if (outputPath !== null) {
     await mkdir(path.dirname(outputPath), { recursive: true });
