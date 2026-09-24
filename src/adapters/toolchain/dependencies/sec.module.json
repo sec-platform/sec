@@ -50,7 +50,7 @@
       "operationRoles": [
         {
           "operation": "disposeCompilerDependencyEnvironment",
-          "role": "terminal-issuer",
+          "role": "domain-owner",
           "semanticOperation": "toolchain.compiler-dependency.environment-retirement",
           "requirementId": null,
           "recovery": null

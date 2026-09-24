@@ -66,7 +66,7 @@
       "operationRoles": [
         {
           "operation": "replaceAllGitConfigValue",
-          "role": "terminal-issuer",
+          "role": "domain-owner",
           "semanticOperation": "external-capabilities.git.config-replace-all",
           "requirementId": null,
           "recovery": null
@@ -86,14 +86,14 @@
       "operationRoles": [
         {
           "operation": "deleteExactGitRef",
-          "role": "terminal-issuer",
+          "role": "domain-owner",
           "semanticOperation": "external-capabilities.git.ref-delete",
           "requirementId": null,
           "recovery": null
         },
         {
           "operation": "deleteExactLocalGitRefs",
-          "role": "terminal-issuer",
+          "role": "domain-owner",
           "semanticOperation": "external-capabilities.git.local-ref-delete-batch",
           "requirementId": null,
           "recovery": null
