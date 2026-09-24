@@ -541,6 +541,15 @@ export interface RepositoryAuditCliProjection {
   readonly unknownsDigest: `sha256:${string}`;
 }
 
+export interface RepositoryAuditFindingsCliProjection {
+  readonly reportDigest: `sha256:${string}`;
+  readonly revision: RepositoryAuditReport['revision'];
+  readonly summary: RepositoryAuditReport['summary'];
+  readonly findingCodes: readonly string[];
+  readonly findings: RepositoryAuditReport['findings'];
+  readonly unknowns: RepositoryAuditReport['unknowns'];
+}
+
 export class RepositoryAuditCliProjectionContractError extends Error {
   readonly code = 'repository-audit-cli-projection-source-invalid' as const;
 
@@ -647,6 +656,23 @@ export function projectRepositoryAuditCli(
     summary: report.summary,
     findingCodes: Object.freeze([...new Set(report.findings.map(({ code }) => code))].sort()),
     unknownsDigest: rawSha256(JSON.stringify(report.unknowns))
+  });
+}
+
+/** Exact finding ledger without the multi-hundred-megabyte Source Program body.
+ * This is a presentation of the canonical report, bound by the same report digest;
+ * it never becomes a second audit producer or authority. */
+export function projectRepositoryAuditFindingsCli(
+  report: RepositoryAuditReport
+): RepositoryAuditFindingsCliProjection {
+  const compact = projectRepositoryAuditCli(report);
+  return Object.freeze({
+    reportDigest: compact.reportDigest,
+    revision: report.revision,
+    summary: report.summary,
+    findingCodes: compact.findingCodes,
+    findings: report.findings,
+    unknowns: report.unknowns
   });
 }
 
@@ -2879,7 +2905,7 @@ async function runRepositoryAuditInput(
   input: RepositoryAuditCliOptions,
   execution: Readonly<{ deadlineAtUnixMs?: number }> = {}
 ): Promise<void> {
-  const { diagnostic, full, outputPath, query, failOn } = input;
+  const { diagnostic, full, findings, outputPath, query, failOn } = input;
   if (input.mode === 'module-topology') {
     const result = await compileWorkingTreeModuleTopology(DEFAULT_REPOSITORY_ROOT);
     if (repositoryModuleTopologyShouldFail(result, input.enforce)) process.exitCode = 1;
@@ -2937,12 +2963,15 @@ async function runRepositoryAuditInput(
 
   const report = await auditRepository(undefined, { defaultRef });
   if (repositoryAuditShouldFail(report, { diagnostic, failOn })) process.exitCode = 1;
-  const encoded = full || outputPath !== null
+  const findingsEncoded = findings
+    ? `${JSON.stringify(projectRepositoryAuditFindingsCli(report), null, 2)}\n`
+    : null;
+  const fullEncoded = full || outputPath !== null && !findings
     ? `${JSON.stringify(encodeRepositoryAuditFullReport(report), null, 2)}\n`
     : null;
   if (outputPath !== null) {
     await mkdir(path.dirname(outputPath), { recursive: true });
-    await writeFile(outputPath, encoded!, 'utf8');
+    await writeFile(outputPath, findingsEncoded ?? fullEncoded!, 'utf8');
   }
   process.stdout.write(query !== null
     ? `${JSON.stringify({
@@ -2950,9 +2979,11 @@ async function runRepositoryAuditInput(
         sourceRevision: report.sourceProgram.sourceRevision,
         result: querySourceProgramModel(report.sourceProgram, query)
       }, null, 2)}\n`
-    : full
-      ? encoded!
-      : `${JSON.stringify(projectRepositoryAuditCli(report), null, 2)}\n`);
+    : findings
+      ? findingsEncoded!
+      : full
+        ? fullEncoded!
+        : `${JSON.stringify(projectRepositoryAuditCli(report), null, 2)}\n`);
 }
 
 export type RepositoryAuditWorkerDiagnosticReason =

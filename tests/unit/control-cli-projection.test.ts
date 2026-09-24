@@ -9,6 +9,7 @@ import {
 import { compileRepositoryModulePlacementAdmission } from '../../src/adapters/repository/architecture/placement.ts';
 import {
   projectRepositoryAuditCli,
+  projectRepositoryAuditFindingsCli,
   projectRepositoryModuleArchitectureAudit,
   RepositoryAuditCliProjectionContractError,
   repositoryModuleArchitectureShouldBlock,
@@ -189,6 +190,15 @@ describe('bounded control-plane CLI projections', () => {
     expect(projected).not.toHaveProperty('behaviorCandidates');
     expect(projected).not.toHaveProperty('contentCoverage');
     expect(JSON.stringify(projected).length).toBeLessThan(1_500);
+
+    const findings = projectRepositoryAuditFindingsCli(report);
+    expect(findings.reportDigest).toBe(projected.reportDigest);
+    expect(findings.revision).toBe(report.revision);
+    expect(findings.findings).toBe(report.findings);
+    expect(findings.unknowns).toBe(report.unknowns);
+    expect(findings.findingCodes).toEqual(['one-root-class']);
+    expect(findings).not.toHaveProperty('sourceProgram');
+    expect(findings).not.toHaveProperty('behaviorCandidates');
 
     const { declarationTopology: _declarationTopology, ...staleReport } = report;
     expect(() => projectRepositoryAuditCli(

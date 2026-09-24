@@ -13,6 +13,7 @@ import {
 test('repository defaults preserve high-severity enforcement and no output effect', () => {
   assert.deepEqual(parse([]), {
     mode: 'repository', diagnostic: false, enforce: false, full: false,
+    findings: false,
     blockingDetails: false, blockingDetailsDomain: 'priority', blockingDetailsPage: 0, includeCandidates: false,
     failOn: 'high', defaultRef: undefined,
     outputPath: null, query: null, reductionMode: 'none', supersessionBaseline: 'HEAD'
@@ -67,7 +68,18 @@ test('duplicate value options reject both separate and equals forms', () => {
 
 test('repeated idempotent boolean switches retain their previous meaning', () => {
   assert.equal(parse(['--full', '--full']).full, true);
+  assert.equal(parse(['--findings', '--findings']).findings, true);
   assert.equal(parse(['--enforce', '--enforce'], 'source-program').enforce, true);
+});
+
+test('findings selects the bounded exact-report ledger without colliding with full or query projections', () => {
+  assert.equal(parse(['--findings']).findings, true);
+  assert.equal(parse(['--findings', '--output=findings.json']).outputPath, path.resolve('findings.json'));
+  assert.throws(() => parse(['--findings', '--full']), /cannot be combined/);
+  assert.throws(() => parse(['--findings', '--query=symbol']), /cannot be combined/);
+  for (const mode of ['--worktree-module-topology', '--worktree-source-program']) {
+    assert.throws(() => parse([mode, '--findings']), /only supported/);
+  }
 });
 
 test('an equals-form query value spelling a switch stays data and does not choose a mode or policy', () => {

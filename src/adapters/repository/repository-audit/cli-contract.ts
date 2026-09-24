@@ -16,6 +16,7 @@ export const DEFAULT_REPOSITORY_AUDIT_REF = 'refs/remotes/origin/main';
 const CLI_OPTIONS = {
   json: { type: 'boolean' },
   full: { type: 'boolean' },
+  findings: { type: 'boolean' },
   diagnostic: { type: 'boolean' },
   enforce: { type: 'boolean' },
   'worktree-module-topology': { type: 'boolean' },
@@ -39,6 +40,7 @@ export type RepositoryAuditCliOptions = Readonly<{
   diagnostic: boolean;
   enforce: boolean;
   full: boolean;
+  findings: boolean;
   includeCandidates: boolean;
   blockingDetails: boolean;
   blockingDetailsPage: number;
@@ -137,7 +139,7 @@ export function parseRepositoryAuditCliOptions(
       throw new Error(`--${incompatible} is only supported by ${expected} audit`);
     }
   };
-  onlyIn('repository', ['diagnostic', 'fail-on', 'default-ref']);
+  onlyIn('repository', ['diagnostic', 'fail-on', 'default-ref', 'findings']);
   onlyIn('source-program', ['blocking-details', 'blocking-details-domain', 'blocking-details-page', 'candidates', 'aggregate-import-reductions',
     'graph-cuts', 'version-reductions', 'supersession-baseline']);
   if (mode === 'module-topology' && supplied.has('query')) {
@@ -155,6 +157,12 @@ export function parseRepositoryAuditCliOptions(
   if (values['blocking-details'] && values.full) {
     throw new Error('--blocking-details cannot be combined with --full');
   }
+  if (values.findings && values.full) {
+    throw new Error('--findings cannot be combined with --full');
+  }
+  if (values.findings && values.query !== undefined) {
+    throw new Error('--findings cannot be combined with --query');
+  }
   const supersessionBaseline = values['supersession-baseline'] ?? 'HEAD';
   if (supersessionBaseline.startsWith('-')) throw new Error('--supersession-baseline requires one Git revision');
   if (values['default-ref']?.startsWith('-')) throw new Error('--default-ref requires one Git revision');
@@ -166,6 +174,7 @@ export function parseRepositoryAuditCliOptions(
     blockingDetailsPage: requireBlockingDetailsPage(values['blocking-details-page']),
     enforce: values.enforce ?? false,
     full: values.full ?? false,
+    findings: values.findings ?? false,
     includeCandidates: values.candidates ?? false,
     failOn,
     defaultRef: values['default-ref'],
