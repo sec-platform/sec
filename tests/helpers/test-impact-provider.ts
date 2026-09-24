@@ -13,7 +13,6 @@ import {
 } from '../../src/adapters/repository/source-program-model/repository-compilation.ts';
 import { issueTestImpactProjection } from '../../src/adapters/repository/source-program-model/test-impact-projection.ts';
 import {
-  acquireExactGitTreeWorkspaceSourceSnapshot,
   acquireWorkingTreeWorkspaceSourceSnapshot,
   compileWorkspaceTypeScriptProjectInput,
   issueWorkspaceTypeScriptProjectGenerationEvidence
@@ -45,6 +44,7 @@ import {
 } from '../../src/adapters/verification/platform/test-impact/runtime/transition.ts';
 import { tsconfigRelativePath } from "../../src/adapters/workspace-context.ts";
 import { isSecRepositoryTestModulePath } from '../../src/contracts/repository-test-path.ts';
+import { acquireExactGitTreeWorkspaceSourceSnapshotForTests } from './git-read-authority.ts';
 
 const GIT_OBJECT_ID = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/u;
 const FIXTURE_ROOT_PREFIX = 'sec-test-impact-exact-tree-';
@@ -64,7 +64,7 @@ export type ExactRepositoryTestImpactProviderFixture = ExactGitFixtureBase & Rea
 }>;
 
 export type ExactGitTreeTestRunnerFixture = ExactGitFixtureBase & Readonly<{
-  workspaceSnapshot: ReturnType<typeof acquireExactGitTreeWorkspaceSourceSnapshot>;
+  workspaceSnapshot: Awaited<ReturnType<typeof acquireExactGitTreeWorkspaceSourceSnapshotForTests>>;
   workingTreeSnapshot: Awaited<ReturnType<typeof acquireWorkingTreeWorkspaceSourceSnapshot>>;
   indexStageOutput: Uint8Array;
   deletedTrackedOutput: Uint8Array;
@@ -361,10 +361,10 @@ export async function createExactGitTreeTestRunnerFixture(
       '--no-pager', '-c', 'core.fsmonitor=false', '-c', 'core.untrackedCache=false',
       'ls-files', '--deleted', '-z'
     ]);
-    const exactSnapshot = acquireExactGitTreeWorkspaceSourceSnapshot({
+    const exactSnapshot = await acquireExactGitTreeWorkspaceSourceSnapshotForTests(
       repositoryRoot,
-      commitSha: fixtureCommitSha
-    });
+      fixtureCommitSha
+    );
     const exactCompilation = compileRepositorySourceProgramCompilation({
       workspaceSnapshot: exactSnapshot,
       repositoryRoot
@@ -485,10 +485,10 @@ async function createExactRepositoryTestImpactProviderFixture(
     );
     git(repositoryRoot, ['update-ref', 'refs/heads/main', fixtureCommitSha]);
     observeFixturePhase(options, deadlineAtUnixMs, 'exact-snapshot');
-    const workspaceSnapshot = acquireExactGitTreeWorkspaceSourceSnapshot({
+    const workspaceSnapshot = await acquireExactGitTreeWorkspaceSourceSnapshotForTests(
       repositoryRoot,
-      commitSha: fixtureCommitSha
-    });
+      fixtureCommitSha
+    );
     const documentationIdentity = workspaceSnapshot.file(DOCUMENTATION_IDENTITY_PATH);
     if (documentationIdentity === null) {
       throw new Error('Exact repository TestImpact fixture lacks its documentation identity source.');

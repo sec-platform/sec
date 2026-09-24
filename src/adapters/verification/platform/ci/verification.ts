@@ -40,9 +40,6 @@ import {
   type AuthorityGitReadOperation
 } from '../../../providers/git-read/authority.ts';
 import {
-  type CodexDevelopmentExactGitBlobReadOptions
-} from '../../../providers/git-read/exact-blob.ts';
-import {
   GIT_READ_EXACT_TREE_OPERATION_BUDGET,
   type GitBlobBytes
 } from '../../../providers/git-read/runtime/session.ts';
@@ -3740,7 +3737,12 @@ export type CodexDevelopmentCiVerificationTestOptions = {
     result: VerificationGateResult;
     evidenceRefs: readonly string[];
   }> | null;
-  readExactGitBlob?: (options: CodexDevelopmentExactGitBlobReadOptions) => GitBlobBytes;
+  readExactGitBlob?: (options: Readonly<{
+    repositoryRoot: string;
+    commitSha: string;
+    maxBytes?: number;
+    repositoryPath: string;
+  }>) => GitBlobBytes;
   /** Owner-issued test seam; production CLI always acquires the exact candidate projection. */
   testImpactSourceProvider?: CodexDevelopmentTestImpactSourceProvider;
   /** Test-only pure plan seam; never exposed by the production CLI entry. */

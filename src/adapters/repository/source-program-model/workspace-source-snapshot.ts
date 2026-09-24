@@ -11,9 +11,7 @@ import {
 import { throwIfNativeAborted } from '../../../contracts/native-abort.ts';
 import { mapTaskGroup } from '../../../execution/task-group.ts';
 import {
-  CodexDevelopmentListExactGitTreeEntries,
   CodexDevelopmentListExactGitTreeEntriesFromSession,
-  CodexDevelopmentReadExactGitTextBlobsBatch,
   CodexDevelopmentReadExactGitTextBlobsBatchFromSession,
   type CodexDevelopmentExactGitTextBlob,
   type CodexDevelopmentExactGitTreeEntry
@@ -147,11 +145,6 @@ export interface StagedWorkspaceSourceSelection {
   readonly selectedPaths: readonly string[];
   readonly selectionDigest: `sha256:${string}`;
 }
-
-export type AcquireExactGitTreeWorkspaceSourceSnapshotInput = Readonly<{
-  commitSha: string;
-  repositoryRoot: string;
-}>;
 
 export type AcquireExactGitTreeWorkspaceSourceSnapshotFromSessionInput = Readonly<{
   commitSha: string;
@@ -2023,28 +2016,6 @@ function issueExactGitTreeWorkspaceSourceSnapshot(input: Readonly<{
     moduleMembership,
     sourceByteLength: totalBytes
   }) as PhysicalWorkspaceSourceSnapshot;
-}
-
-export function acquireExactGitTreeWorkspaceSourceSnapshot(
-  input: AcquireExactGitTreeWorkspaceSourceSnapshotInput
-): PhysicalWorkspaceSourceSnapshot {
-  const treeEntries = CodexDevelopmentListExactGitTreeEntries({
-    repositoryRoot: input.repositoryRoot,
-    commitSha: input.commitSha
-  });
-  const sourceEntries = treeEntries.filter(({ repositoryPath, mode, type }) => (
-    isSourceProgramInputPath(repositoryPath)
-      && (mode === '100644' || mode === '100755')
-      && type === 'blob'
-  ));
-  return issueExactGitTreeWorkspaceSourceSnapshot({
-    commitSha: input.commitSha,
-    treeEntries,
-    sourceBlobs: CodexDevelopmentReadExactGitTextBlobsBatch({
-      repositoryRoot: input.repositoryRoot,
-      entries: sourceEntries
-    })
-  });
 }
 
 export async function acquireExactGitTreeWorkspaceSourceSnapshotFromSession(
