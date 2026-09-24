@@ -15,7 +15,7 @@ export const SEC_OPERATION_READ_PLAN_INPUT_SCHEMA = 'sec-operation-read-plan-inp
 export const SEC_OPERATION_READ_CLOSURE_REQUEST_SCHEMA = 'sec-operation-read-closure-request-v2' as const;
 const SEC_OPERATION_READ_PLAN_SCHEMA = 'sec-operation-read-plan-v2' as const;
 const SEC_OPERATION_READ_PLAN_REVISION = 'operation-read-plan-compiler-v2' as const;
-const SEC_MAINTAINER_MUTATION_POLICY = 'current-physical-state-authoritative-v1' as const;
+const MAINTAINER_MUTATION_POLICY = 'current-physical-state-authoritative-v1' as const;
 const SEC_PROTECTED_ROOT_POLICY = 'outside-candidate-write-authority-v1' as const;
 export const SEC_OPERATION_MANDATORY_FORBIDDEN_SOURCES = Object.freeze([
   'assistant-memory',
@@ -74,14 +74,14 @@ export interface SecOperationReadPlan extends Omit<SecOperationReadPlanInput, 's
   readonly schema: typeof SEC_OPERATION_READ_PLAN_SCHEMA;
   readonly compilerRevision: typeof SEC_OPERATION_READ_PLAN_REVISION;
   readonly preApplicabilitySkillBodiesRead: 0;
-  readonly maintainerMutationPolicy: typeof SEC_MAINTAINER_MUTATION_POLICY;
+  readonly maintainerMutationPolicy: typeof MAINTAINER_MUTATION_POLICY;
   readonly protectedRootPolicy: typeof SEC_PROTECTED_ROOT_POLICY;
   readonly readPlanDigest: SecDigest;
 }
 
-export type SecMaintainerMutationDecision = Readonly<{
+export type MaintainerMutationDecision = Readonly<{
   schema: 'sec-maintainer-mutation-decision-v1';
-  policy: typeof SEC_MAINTAINER_MUTATION_POLICY;
+  policy: typeof MAINTAINER_MUTATION_POLICY;
   status:
     | 'unchanged'
     | 'accept-current'
@@ -337,7 +337,7 @@ function compileFromRecord(input: Record<string, unknown>): SecOperationReadPlan
     unresolvedFrontier,
     readReceipts,
     invalidationInputs,
-    maintainerMutationPolicy: SEC_MAINTAINER_MUTATION_POLICY,
+    maintainerMutationPolicy: MAINTAINER_MUTATION_POLICY,
     protectedRootPolicy: SEC_PROTECTED_ROOT_POLICY
   };
   return deepFreeze({
@@ -358,7 +358,7 @@ export function parseSecOperationReadPlan(value: unknown): SecOperationReadPlan 
   if (plan.schema !== SEC_OPERATION_READ_PLAN_SCHEMA
       || plan.compilerRevision !== SEC_OPERATION_READ_PLAN_REVISION
       || plan.preApplicabilitySkillBodiesRead !== 0
-      || plan.maintainerMutationPolicy !== SEC_MAINTAINER_MUTATION_POLICY
+      || plan.maintainerMutationPolicy !== MAINTAINER_MUTATION_POLICY
       || plan.protectedRootPolicy !== SEC_PROTECTED_ROOT_POLICY) {
     fail('plan schema, revision, or fixed policy binding is unsupported.');
   }
@@ -414,9 +414,9 @@ export function projectSecSkillEnvelopeFromOperationReadPlan(
  * a separate trusted recovery/CAS executor must verify principal, provenance,
  * resource, preimage/current revision and expiry before any write.
  */
-export function resolveSecMaintainerMutationV1(
+export function resolveMaintainerMutation(
   value: unknown
-): SecMaintainerMutationDecision {
+): MaintainerMutationDecision {
   const input = record(value, 'maintainerMutation');
   exactKeys(input, [
     'resourceKind', 'snapshotRevision', 'currentRevision', 'conflictsWithOperation',
@@ -445,7 +445,7 @@ export function resolveSecMaintainerMutationV1(
   const snapshotRevision = text(input.snapshotRevision, 'snapshotRevision');
   const base = {
     schema: 'sec-maintainer-mutation-decision-v1' as const,
-    policy: SEC_MAINTAINER_MUTATION_POLICY,
+    policy: MAINTAINER_MUTATION_POLICY,
     authoritativeRevision
   };
   if (snapshotRevision === authoritativeRevision) {

@@ -4,7 +4,7 @@ import {
   compileSecOperationReadPlan,
   parseSecOperationReadPlan,
   projectSecSkillEnvelopeFromOperationReadPlan,
-  resolveSecMaintainerMutationV1,
+  resolveMaintainerMutation,
   SEC_OPERATION_READ_PLAN_INPUT_SCHEMA,
   type SecOperationReadPlanInput
 } from '../../src/adapters/self-hosting/control/agent/read-plan.ts';
@@ -273,7 +273,7 @@ test('Task Capsule digest binds all planning content and scope proposal rejects 
 });
 
 test('maintainer mutation accepts current state or returns typed conflict without resurrection', () => {
-  expect(resolveSecMaintainerMutationV1({
+  expect(resolveMaintainerMutation({
     resourceKind: 'external-worktree',
     snapshotRevision: 'old',
     currentRevision: 'maintainer-new',
@@ -286,7 +286,7 @@ test('maintainer mutation accepts current state or returns typed conflict withou
     oldObservationStale: true,
     effectDisposition: 'no-effect'
   });
-  expect(resolveSecMaintainerMutationV1({
+  expect(resolveMaintainerMutation({
     resourceKind: 'external-worktree',
     snapshotRevision: 'old',
     currentRevision: 'maintainer-new',
@@ -297,7 +297,7 @@ test('maintainer mutation accepts current state or returns typed conflict withou
 });
 
 test('protected root rejects operation-owned CAS while explicit restore remains separate', () => {
-  const blocked = resolveSecMaintainerMutationV1({
+  const blocked = resolveMaintainerMutation({
     resourceKind: 'protected-interactive-root',
     snapshotRevision: 'old',
     currentRevision: 'current',
@@ -310,7 +310,7 @@ test('protected root rejects operation-owned CAS while explicit restore remains 
     effectDisposition: 'separate-verified-executor-required',
     reasonCode: 'protected-root-outside-candidate-authority'
   });
-  expect(resolveSecMaintainerMutationV1({
+  expect(resolveMaintainerMutation({
     resourceKind: 'protected-interactive-root',
     snapshotRevision: 'old',
     currentRevision: 'current',
