@@ -1768,6 +1768,27 @@ async function assertRetentionLive(input: Readonly<{
   }
 }
 
+async function assertCompletedRetentionSettlement(input: Readonly<{
+  run: CommandRunner;
+  repositoryRoot: string;
+  authorization: RetainedLocalBranchAuthorization;
+  observation: LocalBranchResidueObservation;
+}>): Promise<void> {
+  const currentMainSha = remoteMainSha(input.observation);
+  if (authorizedLocalState(input.authorization, input.observation) !== 'absent'
+      || !await gitAncestor(input.run, input.repositoryRoot,
+        input.authorization.remoteMainSha, currentMainSha)) {
+    throw new Error(
+      `Completed retained local refs reappeared or main lost absorption: ${input.authorization.operationId}`
+    );
+  }
+  for (const entry of input.authorization.entries) {
+    if (!await gitAncestor(input.run, input.repositoryRoot, entry.mainSha, currentMainSha)) {
+      throw new Error(`Retained main anchor disappeared: ${entry.branch}.`);
+    }
+  }
+}
+
 async function planRetainedEntries(input: Readonly<{
   run: CommandRunner;
   repositoryRoot: string;
@@ -2119,17 +2140,8 @@ export async function executeMergedLocalBranchResidueCloseout(input: Readonly<{
     assertAuthorizationIdentity({ authorization: completed.authorization, repository,
       repositoryRoot, commonDir, remote, remoteUrl, provider, store });
     const current = await observe(run, repositoryRoot, repository, provider.defaultBranch);
-    if (authorizedLocalState(completed.authorization, current) !== 'absent'
-        || !await gitAncestor(run, repositoryRoot,
-          completed.authorization.remoteMainSha, remoteMainSha(current))) {
-      throw new Error(`Completed retained local refs reappeared or main lost absorption: ${completed.authorization.operationId}`);
-    }
-    for (const entry of completed.authorization.entries) {
-      if (!await gitAncestor(run, repositoryRoot, entry.mainSha, remoteMainSha(current))) {
-        throw new Error(`Retained main anchor disappeared: ${entry.branch}.`);
-      }
-      await assertRetentionLive({ run, repositoryRoot, repository, entry });
-    }
+    await assertCompletedRetentionSettlement({ run, repositoryRoot,
+      authorization: completed.authorization, observation: current });
     removeOwnedRecoveryFile(store, completed.names.receipt, retiredRetained);
     removeOwnedRecoveryFile(store, completed.names.authorization, retiredRetained);
     retiredRetainedBranches.push(...completed.authorization.entries.map(({ branch }) => branch));
@@ -2236,17 +2248,9 @@ export async function executeMergedLocalBranchResidueCloseout(input: Readonly<{
       .find(({ authorization: candidate }) => candidate.operationId === authorization.operationId);
     if (completed === undefined) throw new Error('Retained local receipt disappeared.');
     const after = await observe(run, repositoryRoot, repository, authorization.defaultBranch);
-    if (authorizedLocalState(authorization, after) !== 'absent'
-        || !await gitAncestor(run, repositoryRoot, authorization.remoteMainSha, remoteMainSha(after))) {
-      throw new Error('Retained local settlement lost ref absence or main absorption.');
-    }
+    await assertCompletedRetentionSettlement({ run, repositoryRoot,
+      authorization: completed.authorization, observation: after });
     const files: string[] = [];
-    for (const entry of authorization.entries) {
-      if (!await gitAncestor(run, repositoryRoot, entry.mainSha, remoteMainSha(after))) {
-        throw new Error(`Retained main anchor disappeared after settlement: ${entry.branch}.`);
-      }
-      await assertRetentionLive({ run, repositoryRoot, repository, entry });
-    }
     removeOwnedRecoveryFile(store, names.receipt, files);
     removeOwnedRecoveryFile(store, names.authorization, files);
     const recoveryRootRetired = retireRecoveryRoot && store.retireIfEmpty();

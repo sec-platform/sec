@@ -207,6 +207,66 @@ function materializeLegacyPending(fixture: ReturnType<typeof createEffectFixture
   } });
 }
 
+function materializeCompletedReviewedRetention(fixture: ReturnType<typeof createEffectFixture>): void {
+  git(fixture.repositoryRoot, ['branch', '-D', 'fix/example']);
+  const commonDir = path.join(fixture.repositoryRoot, '.git');
+  const store = acquireBranchRecoveryStore({ repositoryRoot: fixture.repositoryRoot,
+    commonDir, worktreeRoots: [fixture.repositoryRoot], recoveryRoot: fixture.recoveryRoot });
+  const physical = (directory: string) => {
+    const chain = inspectNoFollowDirectoryChain(directory, 'reviewed retention fixture directory');
+    return { path: chain.target.path, finalPath: chain.target.finalPath,
+      device: chain.target.device, inode: chain.target.inode, objectId: chain.target.objectId,
+      ancestorChainDigest: branchLifecycleDigest(chain.ancestors) };
+  };
+  const sourceTreeSha = git(fixture.repositoryRoot, ['rev-parse', `${fixture.headSha}^{tree}`]);
+  const mainTreeSha = git(fixture.repositoryRoot, ['rev-parse', `${fixture.mainSha}^{tree}`]);
+  const entries = [{
+    branch: 'fix/example', headSha: fixture.headSha, sourceTreeSha,
+    mainSha: fixture.mainSha, mainTreeSha, basis: 'reviewed-supersession',
+    review: {
+      pullRequestNumber: 99,
+      commentId: 123,
+      reference: 'https://github.com/sec-platform/sec/pull/99#issuecomment-123',
+      receiptDigest: branchLifecycleDigest({ fixture: 'review-receipt' }),
+      headSha: fixture.headSha,
+      headTreeSha: sourceTreeSha,
+      pathSet: { count: 1, digest: branchLifecycleDigest({ fixture: 'review-path-set' }) }
+    }
+  }] as const;
+  const material = {
+    schema: 'sec-local-branch-residue-closeout-authorization-v2',
+    repository: 'sec-platform/sec', repositoryRoot: fixture.repositoryRoot,
+    commonDir, remote: 'origin', remoteUrl: 'https://github.com/sec-platform/sec.git',
+    repositoryPhysical: physical(fixture.repositoryRoot), commonDirPhysical: physical(commonDir),
+    recoveryRootPhysical: physical(fixture.recoveryRoot), remoteMainSha: fixture.mainSha,
+    defaultBranch: 'main', entries
+  } as const;
+  const operationId = branchLifecycleDigest(material);
+  const unsigned = { ...material, operationId, authorizedAt: '2026-08-22T00:00:00.000Z' } as const;
+  const authorization = { ...unsigned, authorizationDigest: branchLifecycleDigest(unsigned) } as const;
+  const receiptMaterial = {
+    schema: 'sec-local-branch-residue-closeout-receipt-v2',
+    operationId,
+    authorizationDigest: authorization.authorizationDigest,
+    repository: authorization.repository,
+    remoteMainSha: authorization.remoteMainSha,
+    entries: authorization.entries,
+    effect: 'delete-exact-transaction',
+    completedAt: '2026-08-22T00:01:00.000Z'
+  } as const;
+  const receipt = { ...receiptMaterial, receiptDigest: branchLifecycleDigest(receiptMaterial) } as const;
+  const suffix = operationId.slice('sha256:'.length);
+  for (const [name, value] of [
+    [`sec-local-branch-residue-${suffix}.authorization.json`, authorization],
+    [`sec-local-branch-residue-${suffix}.receipt.json`, receipt]
+  ] as const) {
+    const bytes = Buffer.from(`${JSON.stringify(value, null, 2)}\n`);
+    store.publishExclusive({ name, bytes, validate: (candidate) => {
+      if (!Buffer.from(candidate).equals(bytes)) throw new Error(`Reviewed retention fixture changed: ${name}`);
+    } });
+  }
+}
+
 function completedDuplicateOperationReceipt(input: Readonly<{
   repositoryRoot: string;
   headSha: string;
@@ -512,6 +572,24 @@ for (const boundary of ['afterAuthorization', 'afterDelete', 'afterReadback', 'a
     }
   }, 30_000);
 }
+
+test('completed reviewed retention retires from its durable receipt without re-fetching the review', async () => {
+  const fixture = createEffectFixture('completed-reviewed-retirement');
+  try {
+    materializeCompletedReviewedRetention(fixture);
+    const result = await executeMergedLocalBranchResidueCloseout({
+      repositoryRoot: fixture.repositoryRoot,
+      recoveryRoot: fixture.recoveryRoot,
+      run: fixture.run,
+      now: () => new Date('2026-08-22T00:02:00.000Z')
+    });
+    expect(result.settled).toContain('fix/example');
+    expect(readdirSync(fixture.recoveryRoot)
+      .filter((name) => name.includes('sec-local-branch-residue-'))).toEqual([]);
+  } finally {
+    fixture.dispose();
+  }
+}, 30_000);
 
 test('terminal settlement removes the duplicate branch-closeout bundle family', async () => {
   const fixture = createEffectFixture('duplicate-bundle-retirement');
