@@ -1,6 +1,6 @@
 import { test } from 'bun:test';
 import assert from 'node:assert/strict';
-import { compileSecRepositoryModuleMembershipSnapshot } from '../../src/adapters/repository/architecture/contract.ts';
+import { compileRepositoryModuleMembershipSnapshot } from '../../src/adapters/repository/architecture/contract.ts';
 import {
   compileSourceProgramFindingDelta as compare,
   summarizeSourceProgramFindingDelta as summarize,
@@ -18,7 +18,7 @@ function snapshot(hasFinding = false, dispatchers: string[] = [], includeFile = 
   const source = 'export function run() { return 1; }\n';
   const files = includeFile ? [{ path: 'src/example/a.ts', source, contentDigest: rawSha256(source) }] : [];
   const descriptorPath = 'src/example/sec.module.json';
-  const moduleMembership = compileSecRepositoryModuleMembershipSnapshot({
+  const moduleMembership = compileRepositoryModuleMembershipSnapshot({
     repositoryFiles: [...files.map(({ path }) => path), descriptorPath],
     descriptorSources: [{ descriptorPath, source: JSON.stringify({
       importGraph: 'runtime', externalEntrypoints: [], capabilityProviders: [], preDependencyBootstrap: false

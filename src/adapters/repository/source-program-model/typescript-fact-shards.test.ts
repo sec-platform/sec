@@ -1,7 +1,7 @@
 import { expect, test } from 'bun:test';
 
 import { canonicalJson, rawSha256, sha256 } from '../../../contracts/canonical.ts';
-import { compileSecRepositoryModuleMembershipSnapshot } from '../architecture/contract.ts';
+import { compileRepositoryModuleMembershipSnapshot } from '../architecture/contract.ts';
 import { compileRepositorySourceProgramModelFromWorkspaceSnapshot } from './repository.ts';
 import {
   compileTypeScriptSourceProgramFactShard,
@@ -195,7 +195,7 @@ test('self-consistent forged return hints cannot replace current exact Program p
       operation: null
     }]
   });
-  const causalMembership = compileSecRepositoryModuleMembershipSnapshot({
+  const causalMembership = compileRepositoryModuleMembershipSnapshot({
     repositoryFiles: [...Object.keys(sources), descriptorPath],
     descriptorSources: [{ descriptorPath, source: descriptorSource }]
   });

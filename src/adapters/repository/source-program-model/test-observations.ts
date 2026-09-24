@@ -4,8 +4,8 @@ import ts from 'typescript';
 
 import { compareCodeUnits, rawSha256, sha256 } from '../../../contracts/canonical.ts';
 import {
-  type SecRepositoryModuleGraph,
-  type SecRepositoryModuleMembership
+  type RepositoryModuleGraph,
+  type RepositoryModuleMembership
 } from '../architecture/contract.ts';
 import {
   resolveSourceProgramCompilationOperation,
@@ -27,7 +27,7 @@ import {
 } from './contract.ts';
 import { resolveSecRepositoryModuleImportCandidates } from './module-graph.ts';
 import {
-  compileSecRepositoryModuleGraph,
+  compileRepositoryModuleGraph,
   isCompiledTypeScriptSourceProgramModel,
   sourceProgramTypeScriptIdentifierInitializer,
   sourceProgramTypeScriptIdentifierIsAmbientGlobal,
@@ -42,7 +42,7 @@ export interface CompileSourceProgramTestObservationsInput {
   readonly productionModel: SourceProgramModel;
   /** Exact production and test bytes for the candidate revision. */
   readonly files: readonly SourceProgramFileInput[];
-  readonly moduleMembership: SecRepositoryModuleMembership;
+  readonly moduleMembership: RepositoryModuleMembership;
   readonly repositoryRoot?: string;
   /** Reuse the enclosing compilation operation; this module never issues one. */
   readonly operation?: SourceProgramCompilationOperation;
@@ -201,7 +201,7 @@ function graphTarget(
 }
 
 function graphTargetIndex(
-  graph: SecRepositoryModuleGraph,
+  graph: RepositoryModuleGraph,
   operation: SourceProgramCompilationOperation
 ): ReadonlyMap<string, string | null> {
   const targets = new Map<string, string | null>();
@@ -288,7 +288,7 @@ function resolvedDeclaration(
 
 function operationRoleProvenance(
   declaration: SourceProgramDeclaration,
-  moduleMembership: SecRepositoryModuleMembership
+  moduleMembership: RepositoryModuleMembership
 ): readonly SourceProgramOperationRoleProvenance[] {
   const module = moduleMembership.moduleForPath(declaration.path);
   if (module === null) return Object.freeze([]);
@@ -378,7 +378,7 @@ function compilerRegistrationKind(
   node: ts.CallExpression,
   callReferencesByPath: ReadonlyMap<string, readonly SourceProgramReference[]>,
   declarationsByObservation: ReadonlyMap<string, SourceProgramDeclaration>,
-  moduleMembership: SecRepositoryModuleMembership
+  moduleMembership: RepositoryModuleMembership
 ): string | null {
   const direct = testRegistrationKind(node.expression);
   if (direct !== null) return direct;
@@ -398,7 +398,7 @@ function compilerRegistrationProvenance(
   node: ts.CallExpression,
   callReferencesByPath: ReadonlyMap<string, readonly SourceProgramReference[]>,
   declarationsByObservation: ReadonlyMap<string, SourceProgramDeclaration>,
-  moduleMembership: SecRepositoryModuleMembership
+  moduleMembership: RepositoryModuleMembership
 ): readonly SourceProgramOperationRoleProvenance[] {
   if (testRegistrationKind(node.expression) !== null) return Object.freeze([]);
   const call = callReferenceForExpression(
@@ -1302,7 +1302,7 @@ function compileSourceProgramTestObservationsInternal(
   }
   const productionFiles = new Map([...compiledFiles].filter(([, file]) => file.surface === 'production'));
   const sourceByPath = new Map(files.map((file) => [file.path, file.source] as const));
-  const graph = input.repositoryCompilation?.moduleGraph ?? compileSecRepositoryModuleGraph({
+  const graph = input.repositoryCompilation?.moduleGraph ?? compileRepositoryModuleGraph({
     files: files.map(({ path }) => path),
     readSource: (repositoryPath) => sourceByPath.get(repositoryPath) ?? null
   });

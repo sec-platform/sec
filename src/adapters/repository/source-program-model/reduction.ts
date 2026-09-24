@@ -6,8 +6,8 @@ import { compareCodeUnits, rawSha256, sha256 } from '../../../contracts/canonica
 import { isSecRepositoryTestModulePath } from '../../../contracts/repository-test-path.ts';
 import { isCanonicalOperationBudgetMaximum } from '../../../execution/operation/semantic.ts';
 import type {
-  SecRepositoryModuleArchitectureProjection,
-  SecRepositoryModuleMembership
+  RepositoryModuleArchitectureProjection,
+  RepositoryModuleMembership
 } from '../architecture/contract.ts';
 import {
   resolveSourceProgramCompilationOperation,
@@ -149,7 +149,7 @@ export interface SourceProgramGraphCutReductionPlan {
 
 export interface SourceProgramReductionCompilerContext {
   readonly typeScriptModel: SourceProgramModel;
-  readonly moduleMembership: SecRepositoryModuleMembership;
+  readonly moduleMembership: RepositoryModuleMembership;
   readonly reviewedProcessDispatchers: readonly string[];
   readonly operation?: SourceProgramCompilationOperation;
 }
@@ -176,7 +176,7 @@ export interface SourceProgramAggregateImportReductionPlan {
 
 export interface SourceProgramArchitectureSnapshot {
   readonly sourceRevision: string;
-  readonly architecture: SecRepositoryModuleArchitectureProjection;
+  readonly architecture: RepositoryModuleArchitectureProjection;
 }
 
 export type SourceProgramReductionAdmissionFailureCode =

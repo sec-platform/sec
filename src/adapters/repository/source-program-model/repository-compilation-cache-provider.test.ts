@@ -30,7 +30,7 @@ import {
   openContentAddressedWorkspaceCacheSession,
   type ContentAddressedWorkspaceCacheSession
 } from '../../runtime-state/workspace-state/content-addressed-workspace-cache.ts';
-import { compileSecRepositoryModuleMembershipSnapshot } from '../architecture/contract.ts';
+import { compileRepositoryModuleMembershipSnapshot } from '../architecture/contract.ts';
 import {
   createSourceProgramCompilationOperation,
   SourceProgramCompilationInterruptedError
@@ -242,7 +242,7 @@ function fixture(
     }),
     ...additionalFiles
   ]);
-  const moduleMembership = compileSecRepositoryModuleMembershipSnapshot({
+  const moduleMembership = compileRepositoryModuleMembershipSnapshot({
     repositoryFiles: [...files.map((file) => file.path), descriptorPath],
     descriptorSources: [{
       descriptorPath,
@@ -337,7 +337,7 @@ function causalFixture() {
       contentDigest: rawSha256(projectConfigSource)
     })
   ]);
-  const moduleMembership = compileSecRepositoryModuleMembershipSnapshot({
+  const moduleMembership = compileRepositoryModuleMembershipSnapshot({
     repositoryFiles: [...files.map((file) => file.path), descriptorPath],
     descriptorSources: [{
       descriptorPath,

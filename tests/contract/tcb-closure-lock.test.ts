@@ -10,7 +10,7 @@ import {
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
-import { compileSecRepositoryModuleMembershipSnapshot } from '../../src/adapters/repository/architecture/contract.ts';
+import { compileRepositoryModuleMembershipSnapshot } from '../../src/adapters/repository/architecture/contract.ts';
 import { compileRepositorySourceProgramModel } from '../../src/adapters/repository/source-program-model/repository.ts';
 import {
   TCB_REVIEWED_NETWORK_DISPATCHERS,
@@ -383,7 +383,7 @@ test('reviewed dispatcher census remains non-authorizing source observation', ()
   const sourceRevision = rawSha256(JSON.stringify(
     files.map(({ contentDigest, path: repositoryPath }) => ({ path: repositoryPath, contentDigest }))
   ));
-  const moduleMembership = compileSecRepositoryModuleMembershipSnapshot({
+  const moduleMembership = compileRepositoryModuleMembershipSnapshot({
     repositoryFiles: files.map(({ path: repositoryPath }) => repositoryPath),
     descriptorSources: [{
       descriptorPath: 'src/example/sec.module.json',

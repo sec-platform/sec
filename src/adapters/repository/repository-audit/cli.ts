@@ -83,15 +83,15 @@ import {
 } from '../../verification/platform/trust/contract/root.ts';
 import { tsconfigRelativePath } from "../../workspace-context.ts";
 import {
-  compileSecRepositoryModuleArchitectureProjection, compileSecRepositoryModuleTopologyProjection,
-  type SecRepositoryModuleArchitectureProjection,
-  type SecRepositoryModuleGraph,
-  type SecRepositoryModuleMembership,
-  type SecRepositoryModuleTopologyProjection
+  compileRepositoryModuleArchitectureProjection, compileRepositoryModuleTopologyProjection,
+  type RepositoryModuleArchitectureProjection,
+  type RepositoryModuleGraph,
+  type RepositoryModuleMembership,
+  type RepositoryModuleTopologyProjection
 } from '../architecture/contract.ts';
 import {
-  compileSecRepositoryModulePlacementAdmission,
-  type SecRepositoryModulePlacementAdmission
+  compileRepositoryModulePlacementAdmission,
+  type RepositoryModulePlacementAdmission
 } from '../architecture/placement.ts';
 import {
   createSourceProgramCompilationOperation,
@@ -456,9 +456,9 @@ export interface RepositoryAuditFinding {
   skills?: readonly SecAgentSkillId[];
 }
 
-type RepositoryModuleArchitectureWithPlacement = SecRepositoryModuleArchitectureProjection & Readonly<{
+type RepositoryModuleArchitectureWithPlacement = RepositoryModuleArchitectureProjection & Readonly<{
   /** Same-graph admission evidence compiled from this exact source snapshot. */
-  readonly responsibilityAdmission: SecRepositoryModulePlacementAdmission;
+  readonly responsibilityAdmission: RepositoryModulePlacementAdmission;
 }>;
 
 export interface RepositoryAuditReport {
@@ -650,10 +650,10 @@ export function projectRepositoryAuditCli(
 }
 
 export type RepositoryModuleArchitectureAudit = Readonly<{
-  readonly feedbackProjections: SecRepositoryModuleArchitectureProjection['feedbackCuts'];
-  readonly reciprocalPairs: SecRepositoryModuleArchitectureProjection['reciprocalPairs'];
-  readonly strongComponents: SecRepositoryModuleArchitectureProjection['strongComponents'];
-  readonly violations: SecRepositoryModuleArchitectureProjection['violations'];
+  readonly feedbackProjections: RepositoryModuleArchitectureProjection['feedbackCuts'];
+  readonly reciprocalPairs: RepositoryModuleArchitectureProjection['reciprocalPairs'];
+  readonly strongComponents: RepositoryModuleArchitectureProjection['strongComponents'];
+  readonly violations: RepositoryModuleArchitectureProjection['violations'];
 }>;
 
 export function projectRepositoryModuleArchitectureCli(
@@ -685,7 +685,7 @@ export function projectRepositoryModuleArchitectureCli(
  * diagnostic cycle evidence, not a minimum or automatically applicable cut.
  */
 export function projectRepositoryModuleArchitectureAudit(
-  architecture: SecRepositoryModuleArchitectureProjection
+  architecture: RepositoryModuleArchitectureProjection
 ): RepositoryModuleArchitectureAudit {
   return Object.freeze({
     feedbackProjections: architecture.feedbackCuts,
@@ -696,7 +696,7 @@ export function projectRepositoryModuleArchitectureAudit(
 }
 
 export function repositoryModuleArchitectureShouldBlock(
-  architecture: Pick<SecRepositoryModuleArchitectureProjection, 'violations'>
+  architecture: Pick<RepositoryModuleArchitectureProjection, 'violations'>
 ): boolean {
   return architecture.violations.length > 0;
 }
@@ -1143,7 +1143,7 @@ async function compileRevisionSupersessionEvidence(
 ): Promise<Readonly<{
   compilation: ReturnType<typeof compileRepositorySourceProgramCompilation>;
   evidence: SourceProgramSupersessionEvidence;
-  membership: SecRepositoryModuleMembership;
+  membership: RepositoryModuleMembership;
   sourceFiles: readonly WorkspaceSourceFile[];
 }>> {
   const files = workspaceSnapshot.files;
@@ -1216,7 +1216,7 @@ type WorkingTreeModuleTopology = Readonly<{
   files: number;
   references: number;
   unresolvedFiles: readonly string[];
-  topology: SecRepositoryModuleTopologyProjection;
+  topology: RepositoryModuleTopologyProjection;
 }>;
 
 async function compileWorkingTreeModuleTopology(
@@ -1238,7 +1238,7 @@ async function compileWorkingTreeModuleTopology(
         files: graph.files.length,
         references: graph.references.length,
         unresolvedFiles: graph.unresolvedFiles,
-        topology: compileSecRepositoryModuleTopologyProjection(
+        topology: compileRepositoryModuleTopologyProjection(
           graph,
           workspaceSnapshot.moduleMembership
         )
@@ -1248,8 +1248,8 @@ async function compileWorkingTreeModuleTopology(
 }
 
 function compileRepositoryModuleArchitectureAdmission(
-  graph: SecRepositoryModuleGraph,
-  membership: SecRepositoryModuleMembership,
+  graph: RepositoryModuleGraph,
+  membership: RepositoryModuleMembership,
   model: SourceProgramModel,
   sourceFiles: readonly WorkspaceSourceFile[]
 ): RepositoryModuleArchitectureWithPlacement {
@@ -1263,12 +1263,12 @@ function compileRepositoryModuleArchitectureAdmission(
       sourceLines: sourceLinesByPath.get(file.path)
     })))
   });
-  const architecture = compileSecRepositoryModuleArchitectureProjection(
+  const architecture = compileRepositoryModuleArchitectureProjection(
     graph,
     membership,
     facts
   );
-  const responsibilityAdmission = compileSecRepositoryModulePlacementAdmission({
+  const responsibilityAdmission = compileRepositoryModulePlacementAdmission({
     graph,
     membership,
     facts
@@ -1315,13 +1315,13 @@ async function compileWorkingTreeSourceProgram(
   baselineTestEvidence: readonly SourceProgramTestBaselineEvidence[];
   baselineSourceFiles: readonly WorkspaceSourceFile[];
   baselineSourceProgramCompilation: ReturnType<typeof compileRepositorySourceProgramCompilation>;
-  baselineModuleMembership: SecRepositoryModuleMembership;
+  baselineModuleMembership: RepositoryModuleMembership;
   baselineSupersessionEvidence: SourceProgramSupersessionEvidence;
   baselineSupersessionEvidenceCacheCandidate: SourceProgramSupersessionEvidence | null;
   baselineSharesCurrentSourceRevision: boolean;
   currentSupersessionIdentity: SourceProgramSupersessionEvidenceIdentity;
   currentIntentEvidence: readonly SourceProgramOwnerIntentEvidence[];
-  moduleMembership: SecRepositoryModuleMembership;
+  moduleMembership: RepositoryModuleMembership;
   reviewedProcessDispatchers: readonly string[];
   sourceFiles: readonly WorkspaceSourceFile[];
   workspaceSnapshot: PhysicalWorkspaceSourceSnapshot;
@@ -1404,13 +1404,13 @@ async function compileWorkingTreeSourceProgramWithSession(
   baselineTestEvidence: readonly SourceProgramTestBaselineEvidence[];
   baselineSourceFiles: readonly WorkspaceSourceFile[];
   baselineSourceProgramCompilation: ReturnType<typeof compileRepositorySourceProgramCompilation>;
-  baselineModuleMembership: SecRepositoryModuleMembership;
+  baselineModuleMembership: RepositoryModuleMembership;
   baselineSupersessionEvidence: SourceProgramSupersessionEvidence;
   baselineSupersessionEvidenceCacheCandidate: SourceProgramSupersessionEvidence | null;
   baselineSharesCurrentSourceRevision: boolean;
   currentSupersessionIdentity: SourceProgramSupersessionEvidenceIdentity;
   currentIntentEvidence: readonly SourceProgramOwnerIntentEvidence[];
-  moduleMembership: SecRepositoryModuleMembership;
+  moduleMembership: RepositoryModuleMembership;
   reviewedProcessDispatchers: readonly string[];
   sourceFiles: readonly WorkspaceSourceFile[];
   workspaceSnapshot: PhysicalWorkspaceSourceSnapshot;

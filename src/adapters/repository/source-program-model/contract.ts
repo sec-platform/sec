@@ -1,11 +1,11 @@
 import { isSecRepositoryTestModulePath } from '../../../contracts/repository-test-path.ts';
 import type { SemanticResponsibilityTargetKind } from '../../../semantics/definitions/types.ts';
 import type {
-  SecModuleCausalRelation,
-  SecModuleOperationObligation,
-  SecModuleOperationRole,
-  SecRepositoryModuleGraph,
-  SecRepositoryModuleMembership
+  ModuleCausalRelation,
+  ModuleOperationObligation,
+  ModuleOperationRole,
+  RepositoryModuleGraph,
+  RepositoryModuleMembership
 } from '../architecture/contract.ts';
 
 export const REPOSITORY_AUDIT_ENTRYPOINT_PATH = 'src/adapters/repository/repository-audit/cli.ts' as const;
@@ -85,13 +85,13 @@ export type SourceProgramCompilationMatchInput = Readonly<{
   sourceRevision?: string;
   productionModel?: SourceProgramModel;
   files: readonly SourceProgramFileInput[];
-  moduleMembership: SecRepositoryModuleMembership;
+  moduleMembership: RepositoryModuleMembership;
 }>;
 
 export interface SourceProgramCompilation {
   readonly identityDigest: `sha256:${string}`;
   readonly moduleGraphDigest: `sha256:${string}`;
-  readonly moduleGraph: SecRepositoryModuleGraph;
+  readonly moduleGraph: RepositoryModuleGraph;
   file(repositoryPath: string): SourceProgramFileInput | null;
   assertMatches(input: SourceProgramCompilationMatchInput): void;
 }
@@ -379,7 +379,7 @@ export interface SourceProgramOperationRoleProvenance {
   readonly moduleId: string;
   readonly capability: string;
   readonly operation: string;
-  readonly role: SecModuleOperationRole;
+  readonly role: ModuleOperationRole;
   readonly semanticOperation: string;
   readonly requirementId: string | null;
 }
@@ -445,7 +445,7 @@ export const SOURCE_PROGRAM_BLOCKING_CANDIDATE_CODES = Object.freeze([
 
 export interface SourceProgramCausalRelationEvidence {
   readonly owner: string;
-  readonly intent: SecModuleCausalRelation;
+  readonly intent: ModuleCausalRelation;
   readonly declaration: Readonly<{
     readonly observationId: string | null;
     readonly declarationDigest: string | null;
@@ -565,7 +565,7 @@ export interface SourceProgramOwnerIntentEvidence {
 }
 
 export interface SourceProgramOperationObligationEvidence {
-  readonly obligation: SecModuleOperationObligation;
+  readonly obligation: ModuleOperationObligation;
   readonly observation: Readonly<{
     readonly status: 'unknown' | 'verified';
     readonly reason: 'consumer-closure-unresolved' | 'effect-closure-unresolved' | 'identity-unresolved' | 'verified';

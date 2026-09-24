@@ -5,7 +5,7 @@ import { compareCodeUnits, sha256 } from '../../../contracts/canonical.ts';
 import { SEMANTIC_RESPONSIBILITY_TARGET_KINDS, type SemanticResponsibilityTargetKind } from '../../../semantics/definitions/types.ts';
 import type { SemanticEntity } from '../../../semantics/engineering-ir/entity-types.ts';
 import type { ValidatedEngineeringIRSnapshot } from '../../../semantics/engineering-ir/validated-types.ts';
-import type { SecRepositoryModuleMembership } from '../architecture/contract.ts';
+import type { RepositoryModuleMembership } from '../architecture/contract.ts';
 import {
   resolveSourceProgramCompilationOperation,
   sourceProgramCompilationCheckpoint,
@@ -47,7 +47,7 @@ import {
   type SourceProgramTestObservations
 } from './test-observations.ts';
 import {
-  compileSecRepositoryModuleGraph,
+  compileRepositoryModuleGraph,
   compileTypeScriptSourceProgramModel,
   compileTypeScriptSourceProgramModelFromWorkspaceSnapshot,
   isCompiledTypeScriptSourceProgramModel,
@@ -60,7 +60,7 @@ import type { WorkspaceSourceSnapshot } from './workspace-source-snapshot.ts';
 export interface CompileRepositorySourceProgramModelInput {
   readonly sourceRevision: string;
   readonly files: readonly SourceProgramFileInput[];
-  readonly moduleMembership: SecRepositoryModuleMembership;
+  readonly moduleMembership: RepositoryModuleMembership;
   readonly unknowns?: readonly SourceProgramUnknown[];
   /** Exact process dispatcher inventory observed by the current TCB compiler; never Effect authority. */
   readonly reviewedProcessDispatchers?: readonly string[];
@@ -183,7 +183,7 @@ export function compileSourceProgramResponsibilityEvidence(
  */
 export function compileSourceProgramOwnerIntentEvidence(
   model: SourceProgramModel,
-  membership: SecRepositoryModuleMembership,
+  membership: RepositoryModuleMembership,
   requestedOperation?: SourceProgramCompilationOperation
 ): readonly SourceProgramOwnerIntentEvidence[] {
   const operation = resolveSourceProgramCompilationOperation(requestedOperation);
@@ -414,7 +414,7 @@ function executableSourceLiteralPaths(
 
 function compileSourceProgramCausalRelationEvidence(
   model: SourceProgramModel,
-  membership: SecRepositoryModuleMembership
+  membership: RepositoryModuleMembership
 ): readonly SourceProgramCausalRelationEvidence[] {
   const evidence = membership.descriptors.flatMap((descriptor) => (
     descriptor.causalRelations.map((intent) => {
@@ -1073,7 +1073,7 @@ function compileRepositorySourceProgramModelInternal(
     || compareCodeUnits(left.detail, right.detail)
   );
   const sourceByPath = new Map(input.files.map((file) => [file.path, file.source] as const));
-  const importGraph = input.repositoryCompilation?.moduleGraph ?? compileSecRepositoryModuleGraph({
+  const importGraph = input.repositoryCompilation?.moduleGraph ?? compileRepositoryModuleGraph({
     files: Object.freeze([...sourceByPath.keys()].sort(compareCodeUnits)),
     readSource: (repositoryPath) => sourceByPath.get(repositoryPath) ?? null,
     readImports: (repositoryPath, source) => sourceProgramModuleImports(repositoryPath, source)

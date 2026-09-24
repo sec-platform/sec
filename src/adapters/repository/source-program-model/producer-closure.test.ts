@@ -1,7 +1,7 @@
 import { expect, test } from 'bun:test';
 
 import { rawSha256, sha256 } from '../../../contracts/canonical.ts';
-import { compileSecRepositoryModuleMembershipSnapshot } from '../architecture/contract.ts';
+import { compileRepositoryModuleMembershipSnapshot } from '../architecture/contract.ts';
 import {
   compileSourceProgramOperationProducerClosure,
   requireSourceProgramOperationProducerClosure
@@ -35,7 +35,7 @@ function fixture(
     source,
     contentDigest: rawSha256(source)
   }));
-  const membership = compileSecRepositoryModuleMembershipSnapshot({
+  const membership = compileRepositoryModuleMembershipSnapshot({
     repositoryFiles: files.map(({ path }) => path),
     descriptorSources: [{
       descriptorPath: 'src/normalize/sec.module.json',

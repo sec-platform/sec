@@ -2,25 +2,25 @@ import { expect, test } from 'bun:test';
 import { readdirSync, readFileSync } from 'node:fs';
 import nodePath from 'node:path';
 
-import { compileSecRepositoryModuleGraph } from '../source-program-model/typescript.ts';
+import { compileRepositoryModuleGraph } from '../source-program-model/typescript.ts';
 import {
   collectSecCanonicalSourceBoundaryViolations,
-  collectSecRepositoryModuleBoundaryViolations,
-  compileSecRepositoryModuleMembership,
-  compileSecRepositoryModuleTopologyProjection,
-  parseSecModuleDescriptor,
+  collectRepositoryModuleBoundaryViolations,
+  compileRepositoryModuleMembership,
+  compileRepositoryModuleTopologyProjection,
+  parseModuleDescriptor,
   SEC_CANONICAL_SOURCE_MODULES,
   SEC_CANONICAL_STATIC_DEPENDENCIES,
   type SecCanonicalSourceModule,
-  type SecRepositoryModuleMembership
+  type RepositoryModuleMembership
 } from './contract.ts';
 
-const descriptor = parseSecModuleDescriptor({
+const descriptor = parseModuleDescriptor({
   importGraph: 'runtime',
   externalEntrypoints: []
 }, 'src/policy-observation/sec.module.json');
 
-const membership: SecRepositoryModuleMembership = {
+const membership: RepositoryModuleMembership = {
   descriptors: [descriptor],
   graphRoots: ['src'],
   moduleRoots: [descriptor.root],
@@ -33,7 +33,7 @@ function importSpecifier(from: string, to: string): string {
 }
 
 function violationsForEdge([from, to]: readonly [from: string, to: string]) {
-  const graph = compileSecRepositoryModuleGraph({
+  const graph = compileRepositoryModuleGraph({
     files: [from, to],
     readSource: (path) => path === from
       ? `import ${JSON.stringify(importSpecifier(from, to))};`
@@ -78,7 +78,7 @@ test('the tracked source tree has ten canonical responsibilities and one zero-au
     .map((entry) => entry.name)
     .sort();
   expect(actual).toEqual([...SEC_CANONICAL_SOURCE_MODULES, 'control'].sort());
-  const membership = compileSecRepositoryModuleMembership(repositoryRoot);
+  const membership = compileRepositoryModuleMembership(repositoryRoot);
   const facade = membership.descriptors.find(({ root }) => root === 'src/control/documentation');
   if (facade === undefined) throw new Error('Documentation control facade descriptor is missing.');
   expect(facade).toMatchObject({
@@ -109,13 +109,13 @@ test('the actual current source graph has no forbidden canonical-module edge', (
     }
   }
   files.sort();
-  const graph = compileSecRepositoryModuleGraph({
+  const graph = compileRepositoryModuleGraph({
     files,
     readSource: (repositoryPath) => readFileSync(nodePath.join(repositoryRoot, repositoryPath), 'utf8')
   });
   const violations = collectSecCanonicalSourceBoundaryViolations(
     graph,
-    compileSecRepositoryModuleMembership(repositoryRoot)
+    compileRepositoryModuleMembership(repositoryRoot)
   );
   expect(violations.filter(({ code }) =>
     code === 'canonical-module-dependency' || code === 'noncanonical-source-root' || code === 'core-no-host-io'
@@ -123,23 +123,23 @@ test('the actual current source graph has no forbidden canonical-module edge', (
 });
 
 test('canonical repository graph still rejects unresolved local imports and circular source relations', () => {
-  const unresolved = compileSecRepositoryModuleGraph({
+  const unresolved = compileRepositoryModuleGraph({
     files: ['src/compiler/feature/source.ts'],
     readSource: () => "import './missing.ts';"
   });
-  expect(collectSecRepositoryModuleBoundaryViolations(unresolved, membership))
+  expect(collectRepositoryModuleBoundaryViolations(unresolved, membership))
     .toContainEqual(expect.objectContaining({
       code: 'no-unresolved-production-dependencies',
       from: 'src/compiler/feature/source.ts'
     }));
 
-  const circular = compileSecRepositoryModuleGraph({
+  const circular = compileRepositoryModuleGraph({
     files: ['src/compiler/feature/a.ts', 'src/compiler/feature/b.ts'],
     readSource: (path) => path.endsWith('/a.ts')
       ? "import './b.ts';"
       : "import './a.ts';"
   });
-  expect(collectSecRepositoryModuleBoundaryViolations(circular, membership))
+  expect(collectRepositoryModuleBoundaryViolations(circular, membership))
     .toContainEqual(expect.objectContaining({ code: 'repository-module-internal-cycle' }));
 });
 
@@ -148,7 +148,7 @@ test('pure computation roots reject direct host IO imports, including type-only 
     for (const specifier of ['node:fs', 'fs', 'node:fs/promises', 'node:child_process', 'node:net', 'node:worker_threads', 'bun:ffi']) {
       for (const prefix of ['import', 'import type']) {
         const source = `src/${domain}/example.ts`;
-        const graph = compileSecRepositoryModuleGraph({
+        const graph = compileRepositoryModuleGraph({
           files: [source],
           readSource: () => `${prefix} { HostHandle } from ${JSON.stringify(specifier)};`
         });
@@ -158,7 +158,7 @@ test('pure computation roots reject direct host IO imports, including type-only 
     }
   }
   const source = 'src/contracts/canonical.ts';
-  const graph = compileSecRepositoryModuleGraph({
+  const graph = compileRepositoryModuleGraph({
     files: [source], readSource: () => "import { createHash } from 'node:crypto';"
   });
   expect(collectSecCanonicalSourceBoundaryViolations(graph))
@@ -166,7 +166,7 @@ test('pure computation roots reject direct host IO imports, including type-only 
 });
 
 test('fine-grained descriptor cycles stay diagnostic inside one canonical package', () => {
-  const makeDescriptor = (root: string) => parseSecModuleDescriptor({
+  const makeDescriptor = (root: string) => parseModuleDescriptor({
     importGraph: 'runtime',
     externalEntrypoints: []
   }, `${root}/sec.module.json`);
@@ -178,13 +178,13 @@ test('fine-grained descriptor cycles stay diagnostic inside one canonical packag
     moduleRoots: [first.root, second.root],
     moduleForPath: (file: string) => file.startsWith('src/adapters/first/') ? first : second
   };
-  const graph = compileSecRepositoryModuleGraph({
+  const graph = compileRepositoryModuleGraph({
     files: ['src/adapters/first/index.ts', 'src/adapters/second/index.ts'],
     readSource: (file) => file.includes('/first/')
       ? "import '../second/index.ts'; export const first = true;"
       : "import '../first/index.ts'; export const second = true;"
   });
-  const topology = compileSecRepositoryModuleTopologyProjection(graph, membership);
+  const topology = compileRepositoryModuleTopologyProjection(graph, membership);
 
   expect(topology.strongComponents).toHaveLength(1);
   expect(topology.violations.some(({ code }) => code === 'module-dependency-cycle')).toBe(false);

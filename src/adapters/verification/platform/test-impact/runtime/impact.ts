@@ -3,7 +3,7 @@ import { SecError } from '../../../../../contracts/failure.ts';
 import { isSecRepositoryTestModulePath } from '../../../../../contracts/repository-test-path.ts';
 import {
   normalizeSecRepositoryPath,
-  type SecRepositoryModuleGraph
+  type RepositoryModuleGraph as ArchitectureModuleGraph
 } from '../../../../repository/architecture/contract.ts';
 import {
   assertIssuedTestImpactProjection,
@@ -39,7 +39,7 @@ export type CodexDevelopmentTestImpactSourceProvider = Readonly<{
   testInventory: IssuedTestInventoryProjection;
   activeDocumentationPaths: readonly string[];
 }>;
-export type RepositoryModuleGraph = SecRepositoryModuleGraph;
+export type RepositoryModuleGraph = ArchitectureModuleGraph;
 
 type ReverseImportMap = Readonly<{
   map: ReadonlyMap<string, readonly string[]>;

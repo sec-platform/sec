@@ -1,7 +1,7 @@
 import { expect, test } from 'bun:test';
 
 import { rawSha256, sha256 } from '../../../contracts/canonical.ts';
-import { compileSecRepositoryModuleMembershipSnapshot } from '../architecture/contract.ts';
+import { compileRepositoryModuleMembershipSnapshot } from '../architecture/contract.ts';
 import { createSourceProgramCompilationOperation } from './compilation-operation.ts';
 import {
   compileSourceProgramTestObservations,
@@ -34,7 +34,7 @@ function compileFixture(
   const exactFiles = Object.entries(exactSources)
     .sort(([left], [right]) => left.localeCompare(right, 'en-US'))
     .map(([path, source]) => Object.freeze({ path, source, contentDigest: rawSha256(source) }));
-  const membership = compileSecRepositoryModuleMembershipSnapshot({
+  const membership = compileRepositoryModuleMembershipSnapshot({
     repositoryFiles: [...exactFiles.map(({ path }) => path), descriptorPath],
     descriptorSources: [{ descriptorPath, source: descriptorSource }]
   });
@@ -452,7 +452,7 @@ test('compiler provenance binds registrar wrappers, reachable Effects, terminals
       preDependencyBootstrap: false
     })
   }];
-  const membership = compileSecRepositoryModuleMembershipSnapshot({
+  const membership = compileRepositoryModuleMembershipSnapshot({
     repositoryFiles: [...files.map(({ path }) => path), ...descriptors.map(({ descriptorPath }) => descriptorPath)],
     descriptorSources: descriptors
   });

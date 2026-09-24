@@ -25,7 +25,7 @@ import {
   type GitScratchIndexTreeSession
 } from '../../../providers/git-read/runtime/session.ts';
 import type { GitHubApiCapability } from '../../../providers/github-api/operation-session.ts';
-import { compileSecRepositoryModuleMembership } from '../../../repository/architecture/contract.ts';
+import { compileRepositoryModuleMembership } from '../../../repository/architecture/contract.ts';
 import {
   createNoFollowDirectoryCreateTestActorForTests,
   createNoFollowOrdinaryDirectoryChain,
@@ -6891,7 +6891,7 @@ export async function runDocumentControlPlaneCli(): Promise<void> {
         'Document-control execution default'
       ), 'Document-control execution default');
       const executionSurfacePaths = [
-        ...compileSecRepositoryModuleMembership(executionRoot).moduleRoots,
+        ...compileRepositoryModuleMembership(executionRoot).moduleRoots,
         'package.json',
         'bun.lock'
       ];

@@ -24,17 +24,17 @@ const SEC_MODULE_IMPORT_GRAPHS = Object.freeze([
   'content'
 ] as const);
 
-export type SecModuleDescriptor = Readonly<{
+export type ModuleDescriptor = Readonly<{
   readonly moduleId: string;
   readonly root: string;
   readonly importGraph: typeof SEC_MODULE_IMPORT_GRAPHS[number];
   readonly externalEntrypoints: readonly string[];
   /** Low-level capabilities and public operations for which this module is the sole transport owner. */
-  readonly capabilityProviders: readonly SecModuleCapabilityProvider[];
+  readonly capabilityProviders: readonly ModuleCapabilityProvider[];
   /** Required only for operations that may be removed or replaced. */
-  readonly operationObligations: readonly SecModuleOperationObligation[];
+  readonly operationObligations: readonly ModuleOperationObligation[];
   /** Owner-issued semantic relations; Source Program binds every entry to an exact declaration. */
-  readonly causalRelations: readonly SecModuleCausalRelation[];
+  readonly causalRelations: readonly ModuleCausalRelation[];
   /** Every external entrypoint must load before repository dependencies exist. */
   readonly preDependencyBootstrap: boolean;
 }>;
@@ -56,12 +56,12 @@ const SEC_MODULE_CAUSAL_RELATIONS = Object.freeze([
   'retires'
 ] as const);
 
-export type SecModuleCausalRelationKind =
+export type ModuleCausalRelationKind =
   (typeof SEC_MODULE_CAUSAL_RELATIONS)[number];
 
-export type SecModuleCausalRelation = Readonly<{
+export type ModuleCausalRelation = Readonly<{
   readonly subject: string;
-  readonly relation: SecModuleCausalRelationKind;
+  readonly relation: ModuleCausalRelationKind;
   readonly symbol: Readonly<{
     readonly path: string;
     readonly name: string;
@@ -72,11 +72,11 @@ export type SecModuleCausalRelation = Readonly<{
   }> | null;
 }>;
 
-type SecModuleCapabilityProvider = Readonly<{
+type ModuleCapabilityProvider = Readonly<{
   readonly capability: string;
   readonly operations: readonly string[];
   /** Capability effects intrinsic to every operation exposed by this provider. */
-  readonly effectKinds: readonly SecModuleEffectKind[];
+  readonly effectKinds: readonly ModuleEffectKind[];
   /**
    * Operations that are implementation primitives of the owning module. They
    * remain observable for source-graph accounting, but another module cannot
@@ -84,7 +84,7 @@ type SecModuleCapabilityProvider = Readonly<{
    */
   readonly ownerInternalOperations: readonly string[];
   /** Semantic authority roles bound to exact exported provider operations. */
-  readonly operationRoles: readonly SecModuleOperationRoleBinding[];
+  readonly operationRoles: readonly ModuleOperationRoleBinding[];
 }>;
 
 const SEC_MODULE_OPERATION_ROLES = Object.freeze([
@@ -100,12 +100,12 @@ const SEC_MODULE_OPERATION_ROLES = Object.freeze([
   'terminal-issuer'
 ] as const);
 
-export type SecModuleOperationRole =
+export type ModuleOperationRole =
   (typeof SEC_MODULE_OPERATION_ROLES)[number];
 
-export type SecModuleOperationRoleBinding = Readonly<{
+export type ModuleOperationRoleBinding = Readonly<{
   readonly operation: string;
-  readonly role: SecModuleOperationRole;
+  readonly role: ModuleOperationRole;
   /** Canonical semantic operation whose authority relation this issuer participates in. */
   readonly semanticOperation: string;
   /** Exact bound requirement for roles that act on one capability provider. */
@@ -118,7 +118,7 @@ export type SecModuleOperationRoleBinding = Readonly<{
   }> | null;
 }>;
 
-type SecModuleEffectKind =
+type ModuleEffectKind =
   | 'dynamic-code'
   | 'filesystem'
   | 'network'
@@ -126,15 +126,15 @@ type SecModuleEffectKind =
   | 'process'
   | 'provider';
 
-type SecModuleOperationIdentity =
+type ModuleOperationIdentity =
   | Readonly<{ readonly kind: 'capability'; readonly capability: string; readonly operation: string }>
   | Readonly<{ readonly kind: 'public-entrypoint'; readonly path: string }>;
 
-export type SecModuleOperationObligation = Readonly<{
-  readonly operation: SecModuleOperationIdentity;
+export type ModuleOperationObligation = Readonly<{
+  readonly operation: ModuleOperationIdentity;
   readonly consumerSupport: Readonly<{ readonly consumers: readonly string[] }>;
   readonly effect: Readonly<{
-    readonly kinds: readonly SecModuleEffectKind[];
+    readonly kinds: readonly ModuleEffectKind[];
     readonly failureKinds: readonly string[];
     readonly recovery: 'idempotent-retry' | 'not-applicable' | 'owner-intervention' | 'resume' | 'rollback';
   }>;
@@ -159,36 +159,36 @@ export type SecModuleOperationObligation = Readonly<{
  * Program owns observation and assembly; this package owns only the shape it
  * can evaluate, so architecture never imports the Brownfield compiler.
  */
-export type SecModuleImportKind = 'static' | 'dynamic' | 'require';
+export type ModuleImportKind = 'static' | 'dynamic' | 'require';
 
-export type SecRepositoryModuleGraphImport = Readonly<{
-  readonly kind: SecModuleImportKind;
+export type RepositoryModuleGraphImport = Readonly<{
+  readonly kind: ModuleImportKind;
   readonly specifier: string;
   readonly typeOnly: boolean;
 }>;
 
-export type SecRepositoryModuleGraphImportObservation =
-  SecRepositoryModuleGraphImport & Readonly<{ readonly from: string }>;
+export type RepositoryModuleGraphImportObservation =
+  RepositoryModuleGraphImport & Readonly<{ readonly from: string }>;
 
-export type SecRepositoryModuleGraphReference = Readonly<{
+export type RepositoryModuleGraphReference = Readonly<{
   readonly from: string;
-  readonly kind: SecModuleImportKind;
+  readonly kind: ModuleImportKind;
   readonly specifier: string;
   readonly typeOnly: boolean;
   readonly candidateTargets: readonly string[];
   readonly resolvedTarget: string | null;
 }>;
 
-export type SecRepositoryModuleGraph = Readonly<{
+export type RepositoryModuleGraph = Readonly<{
   readonly files: readonly string[];
-  readonly references: readonly SecRepositoryModuleGraphReference[];
+  readonly references: readonly RepositoryModuleGraphReference[];
   readonly unresolvedFiles: readonly string[];
   readonly directConsumers: (modulePath: string) => readonly string[];
   readonly directDependencies: (modulePath: string) => readonly string[];
   readonly directRuntimeDependencies: (modulePath: string) => readonly string[];
 }>;
 
-type SecRepositoryModuleBoundaryViolationCode =
+type RepositoryModuleBoundaryViolationCode =
   | 'canonical-module-dependency'
   | 'noncanonical-source-root'
   | 'authority-mint-export-unclassified'
@@ -221,8 +221,8 @@ type SecRepositoryModuleBoundaryViolationCode =
   | 'semantic-mutation-no-upward-layer-deps'
   | 'unowned-production-source';
 
-export type SecRepositoryModuleBoundaryViolation = Readonly<{
-  readonly code: SecRepositoryModuleBoundaryViolationCode;
+export type RepositoryModuleBoundaryViolation = Readonly<{
+  readonly code: RepositoryModuleBoundaryViolationCode;
   readonly from: string;
   readonly to: string;
   readonly detail: string;
@@ -234,7 +234,7 @@ export type SecRepositoryModuleBoundaryViolation = Readonly<{
  * paths or parse package commands: the Source Program compiler supplies the
  * observed surface and entrypoint closure from its exact snapshot.
  */
-export type SecRepositoryModuleSourceProgramFacts = Readonly<{
+export type RepositoryModuleSourceProgramFacts = Readonly<{
   readonly sourceRevision?: string;
   readonly semanticRevision?: string;
   readonly files: readonly Readonly<{
@@ -315,7 +315,7 @@ export type SecRepositoryModuleSourceProgramFacts = Readonly<{
   }>[];
 }>;
 
-export type SecRepositoryNodeResponsibility =
+export type RepositoryNodeResponsibility =
   | 'contract'
   | 'computation'
   | 'capability'
@@ -323,47 +323,47 @@ export type SecRepositoryNodeResponsibility =
   | 'workflow'
   | 'interface';
 
-type SecRepositoryNodeResponsibilityReason =
+type RepositoryNodeResponsibilityReason =
   | 'semantic-responsibility-binding'
   | 'responsibility-evidence-conflict'
   | 'responsibility-evidence-unresolved';
 
-type SecRepositoryNodeResponsibilityProjection = Readonly<{
+type RepositoryNodeResponsibilityProjection = Readonly<{
   readonly path: string;
   readonly moduleId: string;
-  readonly responsibility: SecRepositoryNodeResponsibility | 'unknown';
+  readonly responsibility: RepositoryNodeResponsibility | 'unknown';
   readonly evidenceDigest: `sha256:${string}`;
-  readonly reason: SecRepositoryNodeResponsibilityReason;
+  readonly reason: RepositoryNodeResponsibilityReason;
 }>;
 
-export type SecRepositoryModuleEdgeWitness = Readonly<{
+export type RepositoryModuleEdgeWitness = Readonly<{
   readonly fromPath: string;
   readonly toPath: string;
-  readonly kind: SecModuleImportKind;
+  readonly kind: ModuleImportKind;
   readonly specifier: string;
 }>;
 
-export type SecRepositoryModuleOwnerEdge = Readonly<{
+export type RepositoryModuleOwnerEdge = Readonly<{
   readonly fromOwner: string;
   readonly toOwner: string;
-  readonly witnesses: readonly SecRepositoryModuleEdgeWitness[];
+  readonly witnesses: readonly RepositoryModuleEdgeWitness[];
 }>;
 
-export type SecRepositoryModuleStrongComponent = Readonly<{
+export type RepositoryModuleStrongComponent = Readonly<{
   readonly ownerIds: readonly string[];
-  readonly edges: readonly SecRepositoryModuleOwnerEdge[];
+  readonly edges: readonly RepositoryModuleOwnerEdge[];
 }>;
 
-export type SecRepositoryModuleFileStrongComponent = Readonly<{
+export type RepositoryModuleFileStrongComponent = Readonly<{
   readonly ownerId: string;
   readonly paths: readonly string[];
-  readonly edges: readonly SecRepositoryModuleEdgeWitness[];
+  readonly edges: readonly RepositoryModuleEdgeWitness[];
 }>;
 
-export type SecRepositoryModuleReciprocalPair = Readonly<{
+export type RepositoryModuleReciprocalPair = Readonly<{
   readonly ownerIds: readonly [string, string];
-  readonly forward: SecRepositoryModuleOwnerEdge;
-  readonly reverse: SecRepositoryModuleOwnerEdge;
+  readonly forward: RepositoryModuleOwnerEdge;
+  readonly reverse: RepositoryModuleOwnerEdge;
 }>;
 
 /**
@@ -373,45 +373,45 @@ export type SecRepositoryModuleReciprocalPair = Readonly<{
  * the full Source Program. The semantic architecture projection below extends
  * this result; it does not maintain a second graph.
  */
-export type SecRepositoryModuleTopologyProjection = Readonly<{
-  readonly ownerEdges: readonly SecRepositoryModuleOwnerEdge[];
-  readonly strongComponents: readonly SecRepositoryModuleStrongComponent[];
-  readonly fileStrongComponents: readonly SecRepositoryModuleFileStrongComponent[];
-  readonly reciprocalPairs: readonly SecRepositoryModuleReciprocalPair[];
-  readonly feedbackCuts: readonly SecRepositoryModuleOwnerEdge[];
-  readonly violations: readonly SecRepositoryModuleBoundaryViolation[];
+export type RepositoryModuleTopologyProjection = Readonly<{
+  readonly ownerEdges: readonly RepositoryModuleOwnerEdge[];
+  readonly strongComponents: readonly RepositoryModuleStrongComponent[];
+  readonly fileStrongComponents: readonly RepositoryModuleFileStrongComponent[];
+  readonly reciprocalPairs: readonly RepositoryModuleReciprocalPair[];
+  readonly feedbackCuts: readonly RepositoryModuleOwnerEdge[];
+  readonly violations: readonly RepositoryModuleBoundaryViolation[];
 }>;
 
-export type SecRepositoryModuleArchitectureProjection = Readonly<{
-  readonly ownerEdges: readonly SecRepositoryModuleOwnerEdge[];
-  readonly strongComponents: readonly SecRepositoryModuleStrongComponent[];
+export type RepositoryModuleArchitectureProjection = Readonly<{
+  readonly ownerEdges: readonly RepositoryModuleOwnerEdge[];
+  readonly strongComponents: readonly RepositoryModuleStrongComponent[];
   /** Same-owner file cycles derived from the exact canonical import graph. */
-  readonly fileStrongComponents: readonly SecRepositoryModuleFileStrongComponent[];
-  readonly reciprocalPairs: readonly SecRepositoryModuleReciprocalPair[];
+  readonly fileStrongComponents: readonly RepositoryModuleFileStrongComponent[];
+  readonly reciprocalPairs: readonly RepositoryModuleReciprocalPair[];
   /** Removing these exact owner edges makes the projected owner graph acyclic. */
-  readonly feedbackCuts: readonly SecRepositoryModuleOwnerEdge[];
+  readonly feedbackCuts: readonly RepositoryModuleOwnerEdge[];
   readonly aggregateFacadePaths: readonly string[];
   readonly unresolvedAggregateSurfacePaths: readonly string[];
   /** The only responsibility authority: one decision per production node. */
-  readonly nodeResponsibilities: readonly SecRepositoryNodeResponsibilityProjection[];
-  readonly violations: readonly SecRepositoryModuleBoundaryViolation[];
+  readonly nodeResponsibilities: readonly RepositoryNodeResponsibilityProjection[];
+  readonly violations: readonly RepositoryModuleBoundaryViolation[];
 }>;
 
-export type SecRepositoryModuleMembership = Readonly<{
-  readonly descriptors: readonly SecModuleDescriptor[];
+export type RepositoryModuleMembership = Readonly<{
+  readonly descriptors: readonly ModuleDescriptor[];
   readonly graphRoots: readonly string[];
   readonly moduleRoots: readonly string[];
-  readonly moduleForPath: (path: string) => SecModuleDescriptor | null;
+  readonly moduleForPath: (path: string) => ModuleDescriptor | null;
 }>;
 
-type SecRepositoryModuleDescriptorSource = Readonly<{
+type RepositoryModuleDescriptorSource = Readonly<{
   readonly descriptorPath: string;
   readonly source: string;
 }>;
 
-export type SecRepositoryModuleMembershipSnapshot = Readonly<{
+export type RepositoryModuleMembershipSnapshot = Readonly<{
   readonly repositoryFiles: readonly string[];
-  readonly descriptorSources: readonly SecRepositoryModuleDescriptorSource[];
+  readonly descriptorSources: readonly RepositoryModuleDescriptorSource[];
 }>;
 
 const SEC_MODULE_DESCRIPTOR_KEYS = Object.freeze([
@@ -465,7 +465,7 @@ function descriptorRecord(input: unknown): Record<string, unknown> {
 function descriptorCausalRelations(
   value: unknown,
   root: string
-): readonly SecModuleCausalRelation[] {
+): readonly ModuleCausalRelation[] {
   if (!Array.isArray(value) || value.length > 128) {
     return descriptorError('causalRelations', 'expected at most 128 entries');
   }
@@ -574,7 +574,7 @@ function descriptorStringArray(
   return Object.freeze(items);
 }
 
-function descriptorCapabilityProviders(value: unknown): readonly SecModuleCapabilityProvider[] {
+function descriptorCapabilityProviders(value: unknown): readonly ModuleCapabilityProvider[] {
   if (!Array.isArray(value) || value.length > 32) {
     return descriptorError('capabilityProviders', 'expected at most 32 entries');
   }
@@ -773,9 +773,9 @@ function descriptorExactRecord(
 
 function descriptorOperationObligations(
   value: unknown,
-  capabilityProviders: readonly SecModuleCapabilityProvider[],
+  capabilityProviders: readonly ModuleCapabilityProvider[],
   externalEntrypoints: readonly string[]
-): readonly SecModuleOperationObligation[] {
+): readonly ModuleOperationObligation[] {
   if (!Array.isArray(value) || value.length > 64) {
     return descriptorError('operationObligations', 'expected at most 64 entries');
   }
@@ -795,7 +795,7 @@ function descriptorOperationObligations(
       `${field}.operation.kind`,
       ['capability', 'public-entrypoint'] as const
     );
-    const operation: SecModuleOperationIdentity = operationKind === 'capability'
+    const operation: ModuleOperationIdentity = operationKind === 'capability'
       ? Object.freeze({
           kind: operationKind,
           capability: descriptorString(
@@ -994,10 +994,10 @@ function descriptorOperationObligations(
   return Object.freeze(obligations);
 }
 
-export function parseSecModuleDescriptor(
+export function parseModuleDescriptor(
   input: unknown,
   descriptorPath: string
-): SecModuleDescriptor {
+): ModuleDescriptor {
   const record = descriptorRecord(input);
   const normalizedDescriptorPath = normalizeSecRepositoryPath(descriptorPath);
   if (isRetiredRepositoryRootPath(normalizedDescriptorPath)) {
@@ -1044,11 +1044,11 @@ export function parseSecModuleDescriptor(
   });
 }
 
-export function parseSecModuleDescriptorJson(
+export function parseModuleDescriptorJson(
   source: string,
   descriptorPath: string
-): SecModuleDescriptor {
-  return parseSecModuleDescriptor(
+): ModuleDescriptor {
+  return parseModuleDescriptor(
     parseExactJson(source, `Repository module descriptor ${descriptorPath}`),
     descriptorPath
   );
@@ -1120,7 +1120,7 @@ function isCanonicalSecRepositoryModulePath(value: string): boolean {
 }
 
 /** Canonical consumer-side address policy shared by graph producers. */
-export function assertSecRepositoryModuleGraphPath(value: string): string {
+export function assertRepositoryModuleGraphPath(value: string): string {
   const normalized = normalizeSecRepositoryPath(value);
   if (isRetiredRepositoryRootPath(normalized)) {
     throw new Error(`repository module graph path uses a retired repository root: ${value}`);
@@ -1140,10 +1140,10 @@ function repositoryModuleOwnerEdgeKey(fromOwner: string, toOwner: string): strin
 }
 
 function compileRepositoryModuleOwnerEdges(
-  graph: SecRepositoryModuleGraph,
-  membership: SecRepositoryModuleMembership
-): readonly SecRepositoryModuleOwnerEdge[] {
-  const witnessesByEdge = new Map<string, SecRepositoryModuleEdgeWitness[]>();
+  graph: RepositoryModuleGraph,
+  membership: RepositoryModuleMembership
+): readonly RepositoryModuleOwnerEdge[] {
+  const witnessesByEdge = new Map<string, RepositoryModuleEdgeWitness[]>();
   for (const reference of graph.references) {
     if (reference.resolvedTarget === null || isTestOnlyRepositoryModulePath(reference.from)) continue;
     const sourceOwner = membership.moduleForPath(reference.from);
@@ -1161,7 +1161,7 @@ function compileRepositoryModuleOwnerEdges(
   }
   return Object.freeze([...witnessesByEdge.entries()].map(([key, witnesses]) => {
     const separator = key.indexOf('\0');
-    const uniqueWitnesses = new Map<string, SecRepositoryModuleEdgeWitness>();
+    const uniqueWitnesses = new Map<string, RepositoryModuleEdgeWitness>();
     for (const witness of witnesses) {
       uniqueWitnesses.set(
         `${witness.fromPath}\0${witness.toPath}\0${witness.kind}\0${witness.specifier}`,
@@ -1199,8 +1199,8 @@ function compileRepositoryStrongComponentIds(
 
 function compileRepositoryModuleStrongComponents(
   ownerIds: readonly string[],
-  ownerEdges: readonly SecRepositoryModuleOwnerEdge[]
-): readonly SecRepositoryModuleStrongComponent[] {
+  ownerEdges: readonly RepositoryModuleOwnerEdge[]
+): readonly RepositoryModuleStrongComponent[] {
   return Object.freeze(compileRepositoryStrongComponentIds(
     ownerIds,
     ownerEdges.map(({ fromOwner: from, toOwner: to }) => ({ from, to }))
@@ -1216,10 +1216,10 @@ function compileRepositoryModuleStrongComponents(
 }
 
 function compileRepositoryModuleFileStrongComponents(
-  graph: SecRepositoryModuleGraph,
-  membership: SecRepositoryModuleMembership
-): readonly SecRepositoryModuleFileStrongComponent[] {
-  const edgesByOwner = new Map<string, SecRepositoryModuleEdgeWitness[]>();
+  graph: RepositoryModuleGraph,
+  membership: RepositoryModuleMembership
+): readonly RepositoryModuleFileStrongComponent[] {
+  const edgesByOwner = new Map<string, RepositoryModuleEdgeWitness[]>();
   for (const reference of graph.references) {
     if (reference.resolvedTarget === null
         || /\.d\.[cm]?ts$/u.test(reference.from)
@@ -1237,11 +1237,11 @@ function compileRepositoryModuleFileStrongComponents(
     }));
     edgesByOwner.set(sourceOwner.moduleId, edges);
   }
-  const components: SecRepositoryModuleFileStrongComponent[] = [];
+  const components: RepositoryModuleFileStrongComponent[] = [];
   for (const [ownerId, rawEdges] of [...edgesByOwner].sort(([left], [right]) => (
     repositoryModuleTextOrder(left, right)
   ))) {
-    const uniqueEdges = new Map<string, SecRepositoryModuleEdgeWitness>();
+    const uniqueEdges = new Map<string, RepositoryModuleEdgeWitness>();
     for (const edge of rawEdges) {
       uniqueEdges.set(
         `${edge.fromPath}\0${edge.toPath}\0${edge.kind}\0${edge.specifier}`,
@@ -1273,13 +1273,13 @@ function compileRepositoryModuleFileStrongComponents(
 }
 
 function compileRepositoryModuleReciprocalPairs(
-  ownerEdges: readonly SecRepositoryModuleOwnerEdge[]
-): readonly SecRepositoryModuleReciprocalPair[] {
+  ownerEdges: readonly RepositoryModuleOwnerEdge[]
+): readonly RepositoryModuleReciprocalPair[] {
   const byKey = new Map(ownerEdges.map((edge) => [
     repositoryModuleOwnerEdgeKey(edge.fromOwner, edge.toOwner),
     edge
   ] as const));
-  const pairs: SecRepositoryModuleReciprocalPair[] = [];
+  const pairs: RepositoryModuleReciprocalPair[] = [];
   for (const forward of ownerEdges) {
     if (repositoryModuleTextOrder(forward.fromOwner, forward.toOwner) >= 0) continue;
     const reverse = byKey.get(repositoryModuleOwnerEdgeKey(forward.toOwner, forward.fromOwner));
@@ -1301,16 +1301,16 @@ function compileRepositoryModuleReciprocalPairs(
  */
 function compileRepositoryModuleFeedbackCuts(
   ownerIds: readonly string[],
-  ownerEdges: readonly SecRepositoryModuleOwnerEdge[]
-): readonly SecRepositoryModuleOwnerEdge[] {
+  ownerEdges: readonly RepositoryModuleOwnerEdge[]
+): readonly RepositoryModuleOwnerEdge[] {
   const remaining = new Map(ownerEdges.map((edge) => [
     repositoryModuleOwnerEdgeKey(edge.fromOwner, edge.toOwner),
     edge
   ] as const));
-  const cuts: SecRepositoryModuleOwnerEdge[] = [];
-  const findBackEdge = (): SecRepositoryModuleOwnerEdge | null => {
+  const cuts: RepositoryModuleOwnerEdge[] = [];
+  const findBackEdge = (): RepositoryModuleOwnerEdge | null => {
     const state = new Map<string, 'active' | 'complete'>();
-    const visit = (ownerId: string): SecRepositoryModuleOwnerEdge | null => {
+    const visit = (ownerId: string): RepositoryModuleOwnerEdge | null => {
       state.set(ownerId, 'active');
       const outgoing = [...remaining.values()]
         .filter((edge) => edge.fromOwner === ownerId)
@@ -1347,10 +1347,10 @@ function compileRepositoryModuleFeedbackCuts(
  * by full architecture admission. This is the edit-loop projection: it keeps
  * exact witnesses and never guesses semantic roles or aggregate facades.
  */
-export function compileSecRepositoryModuleTopologyProjection(
-  graph: SecRepositoryModuleGraph,
-  membership: SecRepositoryModuleMembership
-): SecRepositoryModuleTopologyProjection {
+export function compileRepositoryModuleTopologyProjection(
+  graph: RepositoryModuleGraph,
+  membership: RepositoryModuleMembership
+): RepositoryModuleTopologyProjection {
   const ownerEdges = compileRepositoryModuleOwnerEdges(graph, membership);
   const ownerIds = membership.descriptors.map(({ moduleId }) => moduleId);
   return Object.freeze({
@@ -1359,7 +1359,7 @@ export function compileSecRepositoryModuleTopologyProjection(
     fileStrongComponents: compileRepositoryModuleFileStrongComponents(graph, membership),
     reciprocalPairs: compileRepositoryModuleReciprocalPairs(ownerEdges),
     feedbackCuts: compileRepositoryModuleFeedbackCuts(ownerIds, ownerEdges),
-    violations: collectSecRepositoryModuleBoundaryViolations(graph, membership)
+    violations: collectRepositoryModuleBoundaryViolations(graph, membership)
   });
 }
 
@@ -1418,15 +1418,15 @@ function canonicalSourceModule(value: RepositorySourceAddress): SecCanonicalSour
 }
 
 function collectRepositoryImportPolicyViolations(
-  reference: SecRepositoryModuleGraphReference,
-  membership?: SecRepositoryModuleMembership
-): readonly SecRepositoryModuleBoundaryViolation[] {
+  reference: RepositoryModuleGraphReference,
+  membership?: RepositoryModuleMembership
+): readonly RepositoryModuleBoundaryViolation[] {
   if (isTestOnlyRepositoryModulePath(reference.from)) return Object.freeze([]);
   const source = repositorySourceAddress(reference.from);
   if (source === null) return Object.freeze([]);
   const target = reference.resolvedTarget === null ? null : repositorySourceAddress(reference.resolvedTarget);
-  const violations: SecRepositoryModuleBoundaryViolation[] = [];
-  const add = (code: SecRepositoryModuleBoundaryViolationCode, to = target?.path ?? reference.specifier): void => {
+  const violations: RepositoryModuleBoundaryViolation[] = [];
+  const add = (code: RepositoryModuleBoundaryViolationCode, to = target?.path ?? reference.specifier): void => {
     violations.push(Object.freeze({
       code,
       from: source.path,
@@ -1472,12 +1472,12 @@ function collectRepositoryImportPolicyViolations(
 }
 
 export function collectSecCanonicalSourceBoundaryViolations(
-  graph: SecRepositoryModuleGraph,
-  membership?: SecRepositoryModuleMembership
-): readonly SecRepositoryModuleBoundaryViolation[] {
+  graph: RepositoryModuleGraph,
+  membership?: RepositoryModuleMembership
+): readonly RepositoryModuleBoundaryViolation[] {
   const violations = graph.references.flatMap((reference) =>
     collectRepositoryImportPolicyViolations(reference, membership));
-  const unique = new Map<string, SecRepositoryModuleBoundaryViolation>();
+  const unique = new Map<string, RepositoryModuleBoundaryViolation>();
   for (const violation of violations) {
     unique.set(`${violation.code}\0${violation.from}\0${violation.to}\0${violation.detail}`, violation);
   }
@@ -1487,7 +1487,7 @@ export function collectSecCanonicalSourceBoundaryViolations(
 }
 
 function membershipDeclaresSec086CanonicalPackages(
-  membership: SecRepositoryModuleMembership
+  membership: RepositoryModuleMembership
 ): boolean {
   const roots = new Set(membership.descriptors.map(({ root }) => root));
   return SEC_CANONICAL_SOURCE_MODULES.every((moduleId) => roots.has(`src/${moduleId}`));
@@ -1501,11 +1501,11 @@ function membershipDeclaresSec086CanonicalPackages(
  * does not infer visibility from directory names: declaration visibility is a
  * TypeScript symbol fact compiled by the Source Program Model.
  */
-export function collectSecRepositoryModuleBoundaryViolations(
-  graph: SecRepositoryModuleGraph,
-  membership: SecRepositoryModuleMembership
-): readonly SecRepositoryModuleBoundaryViolation[] {
-  const violations: SecRepositoryModuleBoundaryViolation[] = [];
+export function collectRepositoryModuleBoundaryViolations(
+  graph: RepositoryModuleGraph,
+  membership: RepositoryModuleMembership
+): readonly RepositoryModuleBoundaryViolation[] {
+  const violations: RepositoryModuleBoundaryViolation[] = [];
   for (const unresolvedFile of graph.unresolvedFiles) {
     if (repositorySourceAddress(unresolvedFile) === null || /\.d\.[cm]?ts$/u.test(unresolvedFile)) {
       continue;
@@ -1593,7 +1593,7 @@ export function collectSecRepositoryModuleBoundaryViolations(
       }
     }
   }
-  const unique = new Map<string, SecRepositoryModuleBoundaryViolation>();
+  const unique = new Map<string, RepositoryModuleBoundaryViolation>();
   for (const violation of violations) {
     unique.set(
       `${violation.code}\0${violation.from}\0${violation.to}\0${violation.detail}`,
@@ -1608,8 +1608,8 @@ export function collectSecRepositoryModuleBoundaryViolations(
 type RepositoryModuleAggregateSurface = 'aggregate' | 'implementation' | 'unknown';
 
 function repositoryResponsibilityForSemanticTargetKind(
-  kind: NonNullable<SecRepositoryModuleSourceProgramFacts['responsibilityEvidence']>[number]['target']['kind']
-): Extract<SecRepositoryNodeResponsibility, 'contract' | 'capability' | 'operation' | 'workflow'> {
+  kind: NonNullable<RepositoryModuleSourceProgramFacts['responsibilityEvidence']>[number]['target']['kind']
+): Extract<RepositoryNodeResponsibility, 'contract' | 'capability' | 'operation' | 'workflow'> {
   switch (kind) {
     case 'entity': return 'contract';
     case 'effect': return 'capability';
@@ -1620,7 +1620,7 @@ function repositoryResponsibilityForSemanticTargetKind(
 
 function classifyRepositoryModuleAggregateSurface(
   repositoryPath: string,
-  facts: SecRepositoryModuleSourceProgramFacts
+  facts: RepositoryModuleSourceProgramFacts
 ): RepositoryModuleAggregateSurface {
   const fileFacts = facts.files.filter(({ path }) => (
     normalizeSecRepositoryPath(path) === repositoryPath
@@ -1634,10 +1634,10 @@ function classifyRepositoryModuleAggregateSurface(
 }
 
 function compileRepositoryNodeResponsibilities(
-  _graph: SecRepositoryModuleGraph,
-  membership: SecRepositoryModuleMembership,
-  facts: SecRepositoryModuleSourceProgramFacts
-): readonly SecRepositoryNodeResponsibilityProjection[] {
+  _graph: RepositoryModuleGraph,
+  membership: RepositoryModuleMembership,
+  facts: RepositoryModuleSourceProgramFacts
+): readonly RepositoryNodeResponsibilityProjection[] {
   const digest = (value: unknown): `sha256:${string}` => (
     `sha256:${createHash('sha256').update(JSON.stringify(value)).digest('hex')}`
   );
@@ -1674,7 +1674,7 @@ function compileRepositoryNodeResponsibilities(
     path: normalizeSecRepositoryPath(declaration.path)
   }));
   type ResponsibilityEvidence = NonNullable<
-    SecRepositoryModuleSourceProgramFacts['responsibilityEvidence']
+    RepositoryModuleSourceProgramFacts['responsibilityEvidence']
   >[number];
   const evidenceByPath = new Map<string, ResponsibilityEvidence[]>();
   for (const evidence of facts.responsibilityEvidence ?? []) {
@@ -1687,8 +1687,8 @@ function compileRepositoryNodeResponsibilities(
     .map(({ semanticRevision }) => semanticRevision));
 
   type MutableDecision = {
-    responsibility: SecRepositoryNodeResponsibility | 'unknown';
-    reason: SecRepositoryNodeResponsibilityReason;
+    responsibility: RepositoryNodeResponsibility | 'unknown';
+    reason: RepositoryNodeResponsibilityReason;
   };
   const decisions = new Map<string, MutableDecision>();
   for (const file of productionFiles) {
@@ -1754,8 +1754,8 @@ function compileRepositoryNodeResponsibilities(
 }
 
 export function isSecRepositoryNodeDependencyAllowed(
-  from: SecRepositoryNodeResponsibility,
-  to: SecRepositoryNodeResponsibility
+  from: RepositoryNodeResponsibility,
+  to: RepositoryNodeResponsibility
 ): boolean {
   if (from === 'contract') return to === 'contract';
   if (from === 'computation') return to === 'contract' || to === 'computation';
@@ -1776,9 +1776,9 @@ export function isSecRepositoryNodeDependencyAllowed(
 }
 
 function compileRepositoryModuleAuthorityRoleViolations(
-  membership: SecRepositoryModuleMembership,
-  facts: SecRepositoryModuleSourceProgramFacts
-): readonly SecRepositoryModuleBoundaryViolation[] {
+  membership: RepositoryModuleMembership,
+  facts: RepositoryModuleSourceProgramFacts
+): readonly RepositoryModuleBoundaryViolation[] {
   const incompatibleRolePairs = new Set([
     'attempt-issuer\u0000grant-issuer',
     'binding-issuer\u0000grant-issuer',
@@ -1787,7 +1787,7 @@ function compileRepositoryModuleAuthorityRoleViolations(
     'provider-settlement-issuer\u0000readback-issuer',
     'readback-issuer\u0000recovery-issuer'
   ]);
-  const violations: SecRepositoryModuleBoundaryViolation[] = [];
+  const violations: RepositoryModuleBoundaryViolation[] = [];
   for (const descriptor of membership.descriptors) {
     const roleBindings = descriptor.capabilityProviders.flatMap((provider) => (
       provider.operationRoles.map((binding) => ({ provider, binding }))
@@ -1848,12 +1848,12 @@ function compileRepositoryModuleAuthorityRoleViolations(
  * it retains the graph's exact references and never reparses source, guesses
  * roles from paths, or turns missing semantic facts into an allow decision.
  */
-export function compileSecRepositoryModuleArchitectureProjection(
-  graph: SecRepositoryModuleGraph,
-  membership: SecRepositoryModuleMembership,
-  facts: SecRepositoryModuleSourceProgramFacts
-): SecRepositoryModuleArchitectureProjection {
-  const topology = compileSecRepositoryModuleTopologyProjection(graph, membership);
+export function compileRepositoryModuleArchitectureProjection(
+  graph: RepositoryModuleGraph,
+  membership: RepositoryModuleMembership,
+  facts: RepositoryModuleSourceProgramFacts
+): RepositoryModuleArchitectureProjection {
+  const topology = compileRepositoryModuleTopologyProjection(graph, membership);
   const { ownerEdges, strongComponents, fileStrongComponents, reciprocalPairs, feedbackCuts } = topology;
   const importedCrossModulePaths = new Set<string>();
   for (const edge of ownerEdges) {
@@ -1872,7 +1872,7 @@ export function compileSecRepositoryModuleArchitectureProjection(
   const responsibilityByPath = new Map(nodeResponsibilities.map((node) => (
     [node.path, node] as const
   )));
-  const violations: SecRepositoryModuleBoundaryViolation[] = [
+  const violations: RepositoryModuleBoundaryViolation[] = [
     ...topology.violations,
     ...compileRepositoryModuleAuthorityRoleViolations(membership, facts)
   ];
@@ -1911,7 +1911,7 @@ export function compileSecRepositoryModuleArchitectureProjection(
       }));
     }
   }
-  const uniqueViolations = new Map<string, SecRepositoryModuleBoundaryViolation>();
+  const uniqueViolations = new Map<string, RepositoryModuleBoundaryViolation>();
   for (const violation of violations) {
     uniqueViolations.set(
       `${violation.code}\0${violation.from}\0${violation.to}\0${violation.detail}`,
@@ -1937,11 +1937,11 @@ export function compileSecRepositoryModuleArchitectureProjection(
 }
 
 export function assertSecRepositoryModuleArchitectureBoundaries(
-  graph: SecRepositoryModuleGraph,
-  membership: SecRepositoryModuleMembership,
-  facts: SecRepositoryModuleSourceProgramFacts
+  graph: RepositoryModuleGraph,
+  membership: RepositoryModuleMembership,
+  facts: RepositoryModuleSourceProgramFacts
 ): void {
-  const projection = compileSecRepositoryModuleArchitectureProjection(graph, membership, facts);
+  const projection = compileRepositoryModuleArchitectureProjection(graph, membership, facts);
   if (projection.violations.length === 0) return;
   throw new Error([
     `repository module architecture boundary violations (${projection.violations.length})`,
@@ -1957,10 +1957,10 @@ export function assertSecRepositoryModuleArchitectureBoundaries(
  * classified and resolved.
  */
 export function collectSecRepositoryModuleSourceProgramViolations(
-  facts: SecRepositoryModuleSourceProgramFacts,
-  membership: SecRepositoryModuleMembership
-): readonly SecRepositoryModuleBoundaryViolation[] {
-  const violations: SecRepositoryModuleBoundaryViolation[] = [];
+  facts: RepositoryModuleSourceProgramFacts,
+  membership: RepositoryModuleMembership
+): readonly RepositoryModuleBoundaryViolation[] {
+  const violations: RepositoryModuleBoundaryViolation[] = [];
   const descriptorsById = new Map(membership.descriptors.map((descriptor) => (
     [descriptor.moduleId, descriptor] as const
   )));
@@ -2046,7 +2046,7 @@ export function collectSecRepositoryModuleSourceProgramViolations(
     }
   }
 
-  const unique = new Map<string, SecRepositoryModuleBoundaryViolation>();
+  const unique = new Map<string, RepositoryModuleBoundaryViolation>();
   for (const violation of violations) {
     unique.set(
       `${violation.code}\0${violation.from}\0${violation.to}\0${violation.detail}`,
@@ -2059,8 +2059,8 @@ export function collectSecRepositoryModuleSourceProgramViolations(
 }
 
 export function assertSecRepositoryModuleSourceProgramBoundaries(
-  facts: SecRepositoryModuleSourceProgramFacts,
-  membership: SecRepositoryModuleMembership
+  facts: RepositoryModuleSourceProgramFacts,
+  membership: RepositoryModuleMembership
 ): void {
   const violations = collectSecRepositoryModuleSourceProgramViolations(facts, membership);
   if (violations.length === 0) return;
@@ -2072,10 +2072,10 @@ export function assertSecRepositoryModuleSourceProgramBoundaries(
 }
 
 export function assertSecRepositoryModuleImportBoundaries(
-  graph: SecRepositoryModuleGraph,
-  membership: SecRepositoryModuleMembership
+  graph: RepositoryModuleGraph,
+  membership: RepositoryModuleMembership
 ): void {
-  const violations = collectSecRepositoryModuleBoundaryViolations(graph, membership);
+  const violations = collectRepositoryModuleBoundaryViolations(graph, membership);
   if (violations.length === 0) return;
   throw new Error([
     `repository module boundary violations (${violations.length})`,
@@ -2085,13 +2085,13 @@ export function assertSecRepositoryModuleImportBoundaries(
 }
 
 function descriptorExternalEntrypointPaths(
-  descriptor: SecModuleDescriptor
+  descriptor: ModuleDescriptor
 ): readonly string[] {
   return Object.freeze(descriptor.externalEntrypoints.map(normalizeRepositoryPath));
 }
 
 function descriptorGraphRoots(
-  descriptors: readonly SecModuleDescriptor[]
+  descriptors: readonly ModuleDescriptor[]
 ): readonly string[] {
   const candidates = [...new Set(descriptors.flatMap((descriptor) => [
     descriptor.root,
@@ -2142,14 +2142,14 @@ function discoverDescriptorPathsSync(
  * cache the returned membership projection, but may not rediscover descriptor
  * roots or duplicate the path matcher.
  */
-function discoverSecModuleDescriptors(
+function discoverModuleDescriptors(
   repositoryRoot: string
-): readonly SecModuleDescriptor[] {
+): readonly ModuleDescriptor[] {
   const absoluteRepositoryRoot = nodePath.resolve(repositoryRoot);
   const descriptorPaths = discoverDescriptorPathsSync(absoluteRepositoryRoot);
   return Object.freeze(descriptorPaths.map((descriptorPath) => {
     const descriptorFile = nodePath.join(absoluteRepositoryRoot, ...descriptorPath.split('/'));
-    return parseSecModuleDescriptorJson(readFileSync(descriptorFile, 'utf8'), descriptorPath);
+    return parseModuleDescriptorJson(readFileSync(descriptorFile, 'utf8'), descriptorPath);
   }).sort((left, right) => left.root.localeCompare(right.root, 'en-US')));
 }
 
@@ -2158,19 +2158,19 @@ function discoverSecModuleDescriptors(
  * selector. Import edges are compiled separately from the selector's exact
  * source snapshot; descriptors never rediscover or certify repository files.
  */
-function compileSecRepositoryModuleMembershipFromDescriptors(
-  descriptors: readonly SecModuleDescriptor[],
+function compileRepositoryModuleMembershipFromDescriptors(
+  descriptors: readonly ModuleDescriptor[],
   observation: Readonly<{
-    directExecutableSources: (descriptor: SecModuleDescriptor) => readonly string[];
+    directExecutableSources: (descriptor: ModuleDescriptor) => readonly string[];
     entrypointExists: (entrypoint: string) => boolean;
-    rootExists: (descriptor: SecModuleDescriptor) => boolean;
+    rootExists: (descriptor: ModuleDescriptor) => boolean;
   }>
-): SecRepositoryModuleMembership {
+): RepositoryModuleMembership {
   const moduleIds = new Set<string>();
   const rootKeys = new Set<string>();
   const bySpecificity = [...descriptors].sort((left, right) => right.root.length - left.root.length);
-  const entrypointOwners = new Map<string, SecModuleDescriptor>();
-  const capabilityOwners = new Map<string, SecModuleDescriptor>();
+  const entrypointOwners = new Map<string, ModuleDescriptor>();
+  const capabilityOwners = new Map<string, ModuleDescriptor>();
   for (const descriptor of descriptors) {
     if (isRetiredRepositoryRootPath(descriptor.root)) {
       throw new Error(
@@ -2233,8 +2233,8 @@ function compileSecRepositoryModuleMembershipFromDescriptors(
     descriptor,
     normalizedRoot: descriptor.root.toLocaleLowerCase('en-US')
   }));
-  const moduleForPathCache = new Map<string, SecModuleDescriptor | null>();
-  const moduleForPath = (inputPath: string): SecModuleDescriptor | null => {
+  const moduleForPathCache = new Map<string, ModuleDescriptor | null>();
+  const moduleForPath = (inputPath: string): ModuleDescriptor | null => {
     const normalized = normalizeSecRepositoryPath(inputPath);
     const normalizedKey = normalized.toLocaleLowerCase('en-US');
     const cached = moduleForPathCache.get(normalizedKey);
@@ -2260,9 +2260,9 @@ function compileSecRepositoryModuleMembershipFromDescriptors(
  * repository paths, and the resulting ownership projection therefore share a
  * single revision instead of consulting the caller's mutable filesystem.
  */
-export function compileSecRepositoryModuleMembershipSnapshot(
-  snapshot: SecRepositoryModuleMembershipSnapshot
-): SecRepositoryModuleMembership {
+export function compileRepositoryModuleMembershipSnapshot(
+  snapshot: RepositoryModuleMembershipSnapshot
+): RepositoryModuleMembership {
   const repositoryFiles = Object.freeze(snapshot.repositoryFiles.map((repositoryFile) => {
     const normalized = normalizeSecRepositoryPath(repositoryFile);
     if (isRetiredRepositoryRootPath(normalized)) {
@@ -2310,12 +2310,12 @@ export function compileSecRepositoryModuleMembershipSnapshot(
   const descriptors = Object.freeze(expectedDescriptorPaths.map((descriptorPath) => {
     const source = descriptorSourceByPath.get(descriptorPath)!;
     try {
-      return parseSecModuleDescriptorJson(source, descriptorPath);
+      return parseModuleDescriptorJson(source, descriptorPath);
     } catch (error) {
       throw new Error(`repository snapshot descriptor is invalid: ${descriptorPath}`, { cause: error });
     }
   }));
-  return compileSecRepositoryModuleMembershipFromDescriptors(descriptors, {
+  return compileRepositoryModuleMembershipFromDescriptors(descriptors, {
     rootExists: (descriptor) => repositoryFileSet.has(`${descriptor.root}/sec.module.json`),
     entrypointExists: (entrypoint) => repositoryFileSet.has(entrypoint),
     directExecutableSources: (descriptor) => repositoryFiles
@@ -2327,12 +2327,12 @@ export function compileSecRepositoryModuleMembershipSnapshot(
   });
 }
 
-export function compileSecRepositoryModuleMembership(
+export function compileRepositoryModuleMembership(
   repositoryRoot: string
-): SecRepositoryModuleMembership {
+): RepositoryModuleMembership {
   const absoluteRepositoryRoot = nodePath.resolve(repositoryRoot);
-  const descriptors = discoverSecModuleDescriptors(absoluteRepositoryRoot);
-  return compileSecRepositoryModuleMembershipFromDescriptors(descriptors, {
+  const descriptors = discoverModuleDescriptors(absoluteRepositoryRoot);
+  return compileRepositoryModuleMembershipFromDescriptors(descriptors, {
     rootExists: (descriptor) => statSync(absolutePathWithinRepository(
       absoluteRepositoryRoot,
       descriptor.root

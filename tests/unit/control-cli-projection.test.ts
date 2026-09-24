@@ -1,12 +1,12 @@
 import { describe, expect, test } from 'bun:test';
 
 import {
-  compileSecRepositoryModuleMembershipSnapshot,
-  compileSecRepositoryModuleTopologyProjection,
-  parseSecModuleDescriptor,
-  type SecRepositoryModuleMembership
+  compileRepositoryModuleMembershipSnapshot,
+  compileRepositoryModuleTopologyProjection,
+  parseModuleDescriptor,
+  type RepositoryModuleMembership
 } from '../../src/adapters/repository/architecture/contract.ts';
-import { compileSecRepositoryModulePlacementAdmission } from '../../src/adapters/repository/architecture/placement.ts';
+import { compileRepositoryModulePlacementAdmission } from '../../src/adapters/repository/architecture/placement.ts';
 import {
   projectRepositoryAuditCli,
   projectRepositoryModuleArchitectureAudit,
@@ -16,7 +16,7 @@ import {
 } from '../../src/adapters/repository/repository-audit/cli.ts';
 import { compileSourceProgramDeclarationTopology } from '../../src/adapters/repository/source-program-model/declaration-topology.ts';
 import { compileVirtualRepositorySourceProgramCompilation } from '../../src/adapters/repository/source-program-model/repository-compilation.ts';
-import { compileSecRepositoryModuleGraph } from '../../src/adapters/repository/source-program-model/typescript.ts';
+import { compileRepositoryModuleGraph } from '../../src/adapters/repository/source-program-model/typescript.ts';
 import { compileVirtualWorkspaceSourceSnapshot } from '../../src/adapters/repository/source-program-model/workspace-source-snapshot.ts';
 import {
   projectDocumentControlPlaneStatusCli
@@ -32,7 +32,7 @@ function declarationTopologyFixture() {
   const sourcePath = 'src/projection-owner/runtime.ts';
   const source = 'export const projection = true;';
   const sourceRevision = rawSha256(source);
-  const moduleMembership = compileSecRepositoryModuleMembershipSnapshot({
+  const moduleMembership = compileRepositoryModuleMembershipSnapshot({
     repositoryFiles: [descriptorPath, sourcePath],
     descriptorSources: [{
       descriptorPath,
@@ -64,16 +64,16 @@ function declarationTopologyFixture() {
 }
 
 function architectureProjectionFixture(topology: 'acyclic' | 'cyclic') {
-  const contract = parseSecModuleDescriptor(
+  const contract = parseModuleDescriptor(
     { importGraph: 'runtime', externalEntrypoints: [] },
     'src/contract-owner/sec.module.json'
   );
-  const runtime = parseSecModuleDescriptor(
+  const runtime = parseModuleDescriptor(
     { importGraph: 'runtime', externalEntrypoints: [] },
     'src/runtime-owner/sec.module.json'
   );
   const descriptors = Object.freeze([contract, runtime]);
-  const membership: SecRepositoryModuleMembership = Object.freeze({
+  const membership: RepositoryModuleMembership = Object.freeze({
     descriptors,
     graphRoots: Object.freeze(descriptors.map(({ root }) => root)),
     moduleRoots: Object.freeze(descriptors.map(({ root }) => root)),
@@ -95,12 +95,12 @@ function architectureProjectionFixture(topology: 'acyclic' | 'cyclic') {
         : 'export const runtime = true;'
     ]
   ]);
-  const graph = compileSecRepositoryModuleGraph({
+  const graph = compileRepositoryModuleGraph({
     files: [...sources.keys()],
     readSource: (sourcePath) => sources.get(sourcePath) ?? null
   });
-  const structural = compileSecRepositoryModuleTopologyProjection(graph, membership);
-  const responsibilityAdmission = compileSecRepositoryModulePlacementAdmission({
+  const structural = compileRepositoryModuleTopologyProjection(graph, membership);
+  const responsibilityAdmission = compileRepositoryModulePlacementAdmission({
     graph,
     membership,
     facts: Object.freeze({

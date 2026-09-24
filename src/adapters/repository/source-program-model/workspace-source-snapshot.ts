@@ -21,11 +21,11 @@ import {
   type GitReadSession
 } from '../../providers/git-read/runtime/session.ts';
 import type { RetainedNoFollowProvenDirectoryGeneration } from '../../runtime-state/physical/runtime/physical-no-follow.ts';
-import type { SecRepositoryModuleGraph } from '../architecture/contract.ts';
+import type { RepositoryModuleGraph } from '../architecture/contract.ts';
 import {
-  compileSecRepositoryModuleMembershipSnapshot,
+  compileRepositoryModuleMembershipSnapshot,
   normalizeSecRepositoryPath,
-  type SecRepositoryModuleMembership
+  type RepositoryModuleMembership
 } from '../architecture/contract.ts';
 import {
   isSourceProgramInputPath,
@@ -34,7 +34,7 @@ import {
   type SourceProgramFileInput
 } from './contract.ts';
 import { sourceProgramModuleImports } from './embedded-programs.ts';
-import { compileSecRepositoryModuleGraph } from './typescript.ts';
+import { compileRepositoryModuleGraph } from './typescript.ts';
 
 const DIGEST = /^sha256:[0-9a-f]{64}$/u;
 const SOURCE_SNAPSHOT_MAX_FILE_BYTES = 2 * 1024 * 1024;
@@ -101,14 +101,14 @@ export type WorkspaceSourceFile = SourceProgramFileInput & Readonly<{
 type IssueWorkspaceSourceSnapshotInput = Readonly<{
   subject: WorkspaceSourceSnapshotSubject;
   files: readonly WorkspaceSourceFile[];
-  moduleMembership: SecRepositoryModuleMembership;
+  moduleMembership: RepositoryModuleMembership;
   sourceByteLength: number | null;
 }>;
 
 export type CompileVirtualWorkspaceSourceSnapshotInput = Readonly<{
   subject: Extract<WorkspaceSourceSnapshotSubject, { kind: 'virtual-mutation' }>;
   files: readonly (SourceProgramFileInput & Readonly<{ mode?: WorkspaceSourceFileMode }>)[];
-  moduleMembership: SecRepositoryModuleMembership;
+  moduleMembership: RepositoryModuleMembership;
 }>;
 
 type IssuePhysicalWorkspaceSourceSnapshotInput = Omit<
@@ -166,7 +166,7 @@ export interface WorkspaceSourceSnapshot extends SourceProgramCompilation {
   readonly files: readonly WorkspaceSourceFile[];
   /** Physical provider observation reused by resource admission; never semantic identity. */
   readonly sourceByteLength: number | null;
-  readonly moduleMembership: SecRepositoryModuleMembership;
+  readonly moduleMembership: RepositoryModuleMembership;
   readonly snapshotDigest: `sha256:${string}`;
   readonly moduleMembershipDigest: `sha256:${string}`;
   readonly moduleGraphCompilationCount: 1;
@@ -1216,7 +1216,7 @@ export function compileWorkspaceSourceRevision(
 
 function membershipDigest(
   files: readonly SourceProgramFileInput[],
-  membership: SecRepositoryModuleMembership
+  membership: RepositoryModuleMembership
 ): `sha256:${string}` {
   return sha256({
     graphRoots: [...membership.graphRoots].sort(compareCodeUnits),
@@ -1225,7 +1225,7 @@ function membershipDigest(
   }) as `sha256:${string}`;
 }
 
-function graphDigest(graph: SecRepositoryModuleGraph): `sha256:${string}` {
+function graphDigest(graph: RepositoryModuleGraph): `sha256:${string}` {
   return sha256({
     files: graph.files,
     references: graph.references,
@@ -1233,7 +1233,7 @@ function graphDigest(graph: SecRepositoryModuleGraph): `sha256:${string}` {
   }) as `sha256:${string}`;
 }
 
-function emptyModuleMembership(): SecRepositoryModuleMembership {
+function emptyModuleMembership(): RepositoryModuleMembership {
   return Object.freeze({
     descriptors: Object.freeze([]),
     graphRoots: Object.freeze([]),
@@ -1256,14 +1256,14 @@ function issueWorkspaceSourceSnapshot(
   const sourceByPath = new Map(files.map((file) => [file.path, file] as const));
   const subjectDigest = sha256(subject) as `sha256:${string}`;
   let semanticProjection: Readonly<{
-    moduleGraph: SecRepositoryModuleGraph;
+    moduleGraph: RepositoryModuleGraph;
     moduleGraphDigest: `sha256:${string}`;
     snapshotDigest: `sha256:${string}`;
     identityDigest: `sha256:${string}`;
   }> | null = null;
   const requireSemanticProjection = () => {
     if (semanticProjection !== null) return semanticProjection;
-    const moduleGraph = compileSecRepositoryModuleGraph({
+    const moduleGraph = compileRepositoryModuleGraph({
       files: files.filter(({ path }) => isSourceProgramInputPath(path)).map(({ path }) => path),
       readSource: (repositoryPath) => sourceByPath.get(repositoryPath)?.source ?? null,
       readImports: (repositoryPath, source) => sourceProgramModuleImports(repositoryPath, source)
@@ -1737,7 +1737,7 @@ export async function acquireWorkingTreeWorkspaceSourceSnapshot(
     .map(({ path: descriptorPath, source }) => ({ descriptorPath, source }));
   const moduleMembership = descriptorSources.length === 0
     ? emptyModuleMembership()
-    : compileSecRepositoryModuleMembershipSnapshot({
+    : compileRepositoryModuleMembershipSnapshot({
         repositoryFiles: files.map(({ path: repositoryPath }) => repositoryPath),
         descriptorSources
       });
@@ -1810,7 +1810,7 @@ export async function acquireStagedIndexWorkspaceSourceSnapshot(
     .map(({ path: descriptorPath, source }) => ({ descriptorPath, source }));
   const moduleMembership = descriptorSources.length === 0
     ? emptyModuleMembership()
-    : compileSecRepositoryModuleMembershipSnapshot({
+    : compileRepositoryModuleMembershipSnapshot({
         repositoryFiles: before.entries.map(({ path: repositoryPath }) => repositoryPath),
         descriptorSources
       });
@@ -1987,7 +1987,7 @@ function issueExactGitTreeWorkspaceSourceSnapshot(input: Readonly<{
   }
   const moduleMembership = descriptorSources.length === 0
     ? emptyModuleMembership()
-    : compileSecRepositoryModuleMembershipSnapshot({
+    : compileRepositoryModuleMembershipSnapshot({
         repositoryFiles: sourceEntries.map(({ repositoryPath }) => repositoryPath),
         descriptorSources
       });

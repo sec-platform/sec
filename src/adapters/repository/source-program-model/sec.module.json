@@ -10,7 +10,7 @@
         "acquireExactGitTreeWorkspaceSourceSnapshot",
         "acquireWorkingTreeWorkspaceSourceSnapshot",
         "compileRepositorySourceProgramModel",
-        "compileSecRepositoryModuleGraph",
+        "compileRepositoryModuleGraph",
         "createRepositoryCompilationCacheProvider",
         "compileVirtualWorkspaceSourceSnapshot",
         "compileWorkspaceTypeScriptProjectInput",

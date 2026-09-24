@@ -13,7 +13,7 @@ import {
   withGitHubApiTestSession,
   type GitHubApiTransport
 } from '../../src/adapters/providers/github-api/test/operation-session.ts';
-import { compileSecRepositoryModuleGraph } from '../../src/adapters/repository/source-program-model/typescript.ts';
+import { compileRepositoryModuleGraph } from '../../src/adapters/repository/source-program-model/typescript.ts';
 
 const TOKEN = 'test-token-0123456789';
 const SHA = '1'.repeat(40);
@@ -43,7 +43,7 @@ test('production surface excludes test issuers and the repository graph rejects 
   const production = await import('../../src/adapters/providers/github-api/operation-session.ts');
   expect(Object.keys(production).sort()).not.toContain('issueGitHubApiTestCapability');
   expect(Object.keys(production).sort()).not.toContain('withGitHubApiTestSession');
-  expect(() => compileSecRepositoryModuleGraph({
+  expect(() => compileRepositoryModuleGraph({
     files: [
       'src/adapters/providers/github-api/production-consumer.ts',
       'src/adapters/providers/github-api/test/operation-session.ts'

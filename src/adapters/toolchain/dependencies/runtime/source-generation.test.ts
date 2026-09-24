@@ -5,8 +5,8 @@ import path from 'node:path';
 
 import { rawSha256, sha256 } from '../../../../contracts/canonical.ts';
 import {
-  compileSecRepositoryModuleMembershipSnapshot,
-  parseSecModuleDescriptor
+  compileRepositoryModuleMembershipSnapshot,
+  parseModuleDescriptor
 } from '../../../repository/architecture/contract.ts';
 import { compileRepositorySourceProgramModel } from '../../../repository/source-program-model/repository.ts';
 import { PhysicalNoFollowError } from '../../../runtime-state/physical/runtime/physical-no-follow.ts';
@@ -27,7 +27,7 @@ import {
 test('dependency generation and environment owners remain bound to their readback operations', async () => {
   const descriptorPath = 'src/adapters/toolchain/dependencies/sec.module.json';
   const descriptorSource = await fs.readFile(descriptorPath, 'utf8');
-  const descriptor = parseSecModuleDescriptor(JSON.parse(descriptorSource), descriptorPath);
+  const descriptor = parseModuleDescriptor(JSON.parse(descriptorSource), descriptorPath);
   const roles = descriptor.capabilityProviders.flatMap(({ capability, operationRoles }) => (
     operationRoles.map((binding) => Object.freeze({ capability, ...binding }))
   ));
@@ -56,7 +56,7 @@ test('dependency generation and environment owners remain bound to their readbac
   const operations = descriptor.capabilityProviders.flatMap(({ operations }) => operations);
   const source = operations.map((operation) => `export function ${operation}(): void {}`).join('\n');
   const files = [Object.freeze({ path: sourcePath, source, contentDigest: rawSha256(source) })];
-  const moduleMembership = compileSecRepositoryModuleMembershipSnapshot({
+  const moduleMembership = compileRepositoryModuleMembershipSnapshot({
     repositoryFiles: [descriptorPath, 'src/adapters/toolchain/dependencies/runtime.ts', sourcePath],
     descriptorSources: [{ descriptorPath, source: descriptorSource }]
   });

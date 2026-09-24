@@ -5,11 +5,11 @@ import ts from 'typescript';
 import { compareCodeUnits, rawSha256, sha256 } from '../../../contracts/canonical.ts';
 import {
   normalizeSecRepositoryPath,
-  type SecModuleImportKind,
-  type SecRepositoryModuleGraph,
-  type SecRepositoryModuleGraphImport,
-  type SecRepositoryModuleGraphImportObservation,
-  type SecRepositoryModuleMembership
+  type ModuleImportKind,
+  type RepositoryModuleGraph,
+  type RepositoryModuleGraphImport,
+  type RepositoryModuleGraphImportObservation,
+  type RepositoryModuleMembership
 } from '../architecture/contract.ts';
 import {
   resolveSourceProgramCompilationOperation,
@@ -38,7 +38,7 @@ import type {
 } from './contract.ts';
 import { sourceProgramSurfaceForPath } from './contract.ts';
 import {
-  assembleSecRepositoryModuleGraph,
+  assembleRepositoryModuleGraph,
   resolveSecRepositoryModuleImportCandidates
 } from './module-graph.ts';
 import {
@@ -50,7 +50,7 @@ import {
 export interface CompileTypeScriptSourceProgramModelInput {
   readonly sourceRevision: string;
   readonly files: readonly SourceProgramFileInput[];
-  readonly moduleMembership: SecRepositoryModuleMembership;
+  readonly moduleMembership: RepositoryModuleMembership;
   readonly operation?: SourceProgramCompilationOperation;
 }
 
@@ -745,18 +745,18 @@ export type CompileTypeScriptRepositoryModuleGraphInput = Readonly<{
   readonly readImports?: (
     moduleFile: string,
     source: string
-  ) => readonly SecRepositoryModuleGraphImport[];
+  ) => readonly RepositoryModuleGraphImport[];
   readonly unresolvedFiles?: readonly string[];
   readonly operation?: SourceProgramCompilationOperation;
 }>;
 
 function typeScriptModuleImportFacts(
   exact: ExactTypeScriptProgram
-): readonly SecRepositoryModuleGraphImportObservation[] {
-  const observations: SecRepositoryModuleGraphImportObservation[] = [];
+): readonly RepositoryModuleGraphImportObservation[] {
+  const observations: RepositoryModuleGraphImportObservation[] = [];
   const add = (
     from: string,
-    kind: SecModuleImportKind,
+    kind: ModuleImportKind,
     specifier: string,
     typeOnly = false
   ): void => {
@@ -807,7 +807,7 @@ function typeScriptModuleImportFacts(
     };
     visit(sourceFile);
   }
-  const unique = new Map<string, SecRepositoryModuleGraphImportObservation>();
+  const unique = new Map<string, RepositoryModuleGraphImportObservation>();
   for (const observation of observations) {
     const key = `${observation.from}\0${observation.kind}\0${observation.specifier}`;
     const existing = unique.get(key);
@@ -827,9 +827,9 @@ function typeScriptModuleImportFacts(
  * the process Language Service and feeds typed observations to the pure graph
  * assembler; downstream consumers never parse source bytes themselves.
  */
-export function compileSecRepositoryModuleGraph(
+export function compileRepositoryModuleGraph(
   input: CompileTypeScriptRepositoryModuleGraphInput
-): SecRepositoryModuleGraph {
+): RepositoryModuleGraph {
   const operation = resolveSourceProgramCompilationOperation(input.operation);
   const files = Object.freeze([...new Set(input.files.map(normalizeSecRepositoryPath))]
     .sort(compareCodeUnits));
@@ -853,7 +853,7 @@ export function compileSecRepositoryModuleGraph(
       rawFileDigest: sourceProgramFileSnapshotDigest(file, contentDigest)
     }));
   }
-  const imports: SecRepositoryModuleGraphImportObservation[] = [];
+  const imports: RepositoryModuleGraphImportObservation[] = [];
   if (typeScriptFiles.size > 0) {
     imports.push(...typeScriptModuleImportFacts(
       compileExactTypeScriptProgram(typeScriptFiles, identities, operation)
@@ -871,7 +871,7 @@ export function compileSecRepositoryModuleGraph(
       }
     }
   }
-  return assembleSecRepositoryModuleGraph({
+  return assembleRepositoryModuleGraph({
     files,
     imports: Object.freeze(imports),
     unresolvedFiles: Object.freeze([...unresolvedFiles])
@@ -1974,7 +1974,7 @@ function canonicalTypeScriptModel(input: Readonly<{
     string,
     TypeScriptSourceProgramFactShard['semanticDependencyScope']
   >;
-  moduleMembership: SecRepositoryModuleMembership;
+  moduleMembership: RepositoryModuleMembership;
   files: readonly SourceProgramFile[];
   declarations: readonly SourceProgramDeclaration[];
   references: readonly SourceProgramReference[];
@@ -2466,7 +2466,7 @@ function compileTypeScriptSourceProgramModelIncrementalInternal(
   }
   const currentSources = new Map(currentFiles.map(({ path: repositoryPathValue, source }) =>
     [repositoryPathValue, source] as const));
-  const graph = input.repositoryCompilation?.moduleGraph ?? compileSecRepositoryModuleGraph({
+  const graph = input.repositoryCompilation?.moduleGraph ?? compileRepositoryModuleGraph({
     files: currentPaths,
     readSource: (repositoryPathValue) => currentSources.get(repositoryPathValue) ?? null
   });

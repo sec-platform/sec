@@ -3,7 +3,7 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 
-import { compileSecRepositoryModuleMembershipSnapshot } from '../../src/adapters/repository/architecture/contract.ts';
+import { compileRepositoryModuleMembershipSnapshot } from '../../src/adapters/repository/architecture/contract.ts';
 import {
   compileVirtualWorkspaceSourceSnapshot,
   compileWorkspaceTypeScriptProjectFactIdentity,
@@ -316,7 +316,7 @@ function workspaceSnapshotFixture(
     Object.freeze({ path: 'src/example/checked.ts', source: programSource, contentDigest: rawSha256(programSource) }),
     Object.freeze({ path: 'docs/projection.md', source: unrelatedSource, contentDigest: rawSha256(unrelatedSource) })
   ]);
-  const moduleMembership = compileSecRepositoryModuleMembershipSnapshot({
+  const moduleMembership = compileRepositoryModuleMembershipSnapshot({
     repositoryFiles: [...files.map(({ path: repositoryPath }) => repositoryPath), descriptorPath],
     descriptorSources: [{
       descriptorPath,

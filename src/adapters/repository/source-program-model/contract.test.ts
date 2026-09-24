@@ -4,8 +4,8 @@ import type { BuildEngineeringIRInput } from '../../../compiler/ir/build-enginee
 import { buildValidatedEngineeringIR } from '../../../compiler/ir/validate-engineering-ir.ts';
 import { rawSha256, sha256 } from '../../../contracts/canonical.ts';
 import {
-  compileSecRepositoryModuleArchitectureProjection,
-  compileSecRepositoryModuleMembershipSnapshot
+  compileRepositoryModuleArchitectureProjection,
+  compileRepositoryModuleMembershipSnapshot
 } from '../architecture/contract.ts';
 import { createSourceProgramCompilationOperation } from './compilation-operation.ts';
 import { isSourceProgramInputPath, sourceProgramSurfaceForPath } from './contract.ts';
@@ -38,7 +38,7 @@ import {
   reconcileSourceProgramTestValueWithSupersession
 } from './test-value.ts';
 import {
-  compileSecRepositoryModuleGraph,
+  compileRepositoryModuleGraph,
   compileTypeScriptSourceProgramModel,
   compileTypeScriptSourceProgramModelIncremental,
   observeSourceProgramDurableWorkerInput,
@@ -314,7 +314,7 @@ test('unbound Source Program facts remain unknown responsibility evidence', () =
     descriptorPath: `${root}/sec.module.json`,
     source: JSON.stringify(descriptor)
   }));
-  const membership = compileSecRepositoryModuleMembershipSnapshot({
+  const membership = compileRepositoryModuleMembershipSnapshot({
     repositoryFiles: [...sources.keys(), ...descriptorSources.map(({ descriptorPath }) => descriptorPath)],
     descriptorSources
   });
@@ -329,11 +329,11 @@ test('unbound Source Program facts remain unknown responsibility evidence', () =
     files,
     moduleMembership: membership
   });
-  const graph = compileSecRepositoryModuleGraph({
+  const graph = compileRepositoryModuleGraph({
     files: files.map(({ path }) => path),
     readSource: (path) => sources.get(path) ?? null
   });
-  const projection = compileSecRepositoryModuleArchitectureProjection(graph, membership, model);
+  const projection = compileRepositoryModuleArchitectureProjection(graph, membership, model);
 
   expect(model.files).toContainEqual(expect.objectContaining({
     path: 'src/public-contract/facade.ts',
@@ -369,7 +369,7 @@ test('Source Program binds validated semantic intent to one exact exported decla
   const sourcePath = 'src/example/run.ts';
   const source = 'export function run(): string { return \'ok\'; }\n';
   const descriptorPath = 'src/example/sec.module.json';
-  const membership = compileSecRepositoryModuleMembershipSnapshot({
+  const membership = compileRepositoryModuleMembershipSnapshot({
     repositoryFiles: [sourcePath, descriptorPath],
     descriptorSources: [{
       descriptorPath,
@@ -441,11 +441,11 @@ test('Source Program binds validated semantic intent to one exact exported decla
       reason: 'validated'
     })
   ]);
-  const graph = compileSecRepositoryModuleGraph({
+  const graph = compileRepositoryModuleGraph({
     files: [sourcePath],
     readSource: () => source
   });
-  const projection = compileSecRepositoryModuleArchitectureProjection(graph, membership, {
+  const projection = compileRepositoryModuleArchitectureProjection(graph, membership, {
     ...model,
     semanticRevision: snapshot.ir.semanticRevision,
     responsibilityEvidence
@@ -625,7 +625,7 @@ test('source program model finds capability producers, consumers, literals, and 
     'src/example/sec.module.json',
     ...sources.keys()
   ];
-  const moduleMembership = compileSecRepositoryModuleMembershipSnapshot({
+  const moduleMembership = compileRepositoryModuleMembershipSnapshot({
     repositoryFiles,
     descriptorSources: [{
       descriptorPath: 'src/example/sec.module.json',
@@ -959,7 +959,7 @@ test('source program blocks owner-internal process primitives at repository prov
       source: "import { nativePrimitive } from '../physical-provider/process.ts';\nnativePrimitive();\n"
     }
   ].map(({ path, source }) => ({ path, source, contentDigest: rawSha256(source) }));
-  const moduleMembership = compileSecRepositoryModuleMembershipSnapshot({
+  const moduleMembership = compileRepositoryModuleMembershipSnapshot({
     repositoryFiles: [descriptorPath, 'src/consumer/sec.module.json', ...files.map(({ path }) => path)],
     descriptorSources: [
       {
@@ -1024,7 +1024,7 @@ test('source program blocks raw process primitives imported only as a production
         + 'export interface Options { runner?: typeof nativePrimitive }\n'
     }
   ].map(({ path, source }) => ({ path, source, contentDigest: rawSha256(source) }));
-  const moduleMembership = compileSecRepositoryModuleMembershipSnapshot({
+  const moduleMembership = compileRepositoryModuleMembershipSnapshot({
     repositoryFiles: [descriptorPath, 'src/consumer/sec.module.json', ...files.map(({ path }) => path)],
     descriptorSources: [
       {
@@ -1073,7 +1073,7 @@ test('source program classifies worker-thread construction as native process tra
   const source = "import { Worker } from 'node:worker_threads';\n"
     + "export function start(): Worker { return new Worker('./worker.ts'); }\n";
   const files = [{ path: consumerPath, source, contentDigest: rawSha256(source) }];
-  const moduleMembership = compileSecRepositoryModuleMembershipSnapshot({
+  const moduleMembership = compileRepositoryModuleMembershipSnapshot({
     repositoryFiles: ['src/consumer/sec.module.json', consumerPath],
     descriptorSources: [{
       descriptorPath: 'src/consumer/sec.module.json',
@@ -1205,7 +1205,7 @@ test('reduction compiler resolves pure aggregate modules to declaration owners',
     source: JSON.stringify({ importGraph: 'runtime', externalEntrypoints: [] })
   }));
   const repositoryFiles = [...sources.keys(), ...descriptorSources.map(({ descriptorPath }) => descriptorPath)];
-  const moduleMembership = compileSecRepositoryModuleMembershipSnapshot({
+  const moduleMembership = compileRepositoryModuleMembershipSnapshot({
     repositoryFiles,
     descriptorSources
   });
@@ -1226,11 +1226,11 @@ test('reduction compiler resolves pure aggregate modules to declaration owners',
     moduleMembership,
     typescriptModel: typeScriptModel
   });
-  const moduleGraph = compileSecRepositoryModuleGraph({
+  const moduleGraph = compileRepositoryModuleGraph({
     files: [...sources.keys()],
     readSource: (repositoryPath) => sources.get(repositoryPath) ?? null
   });
-  const architecture = compileSecRepositoryModuleArchitectureProjection(
+  const architecture = compileRepositoryModuleArchitectureProjection(
     moduleGraph,
     moduleMembership,
     model
@@ -1282,7 +1282,7 @@ test('reduction compiler resolves pure aggregate modules to declaration owners',
       span: null
     }]
   });
-  const driftedArchitecture = compileSecRepositoryModuleArchitectureProjection(
+  const driftedArchitecture = compileRepositoryModuleArchitectureProjection(
     moduleGraph,
     moduleMembership,
     driftedModel
@@ -1329,7 +1329,7 @@ function compileGraphCutFixture(
       source,
       contentDigest: rawSha256(source)
     }));
-  const moduleMembership = compileSecRepositoryModuleMembershipSnapshot({
+  const moduleMembership = compileRepositoryModuleMembershipSnapshot({
     repositoryFiles: [...files.map(({ path }) => path), descriptorPath],
     descriptorSources: [{ descriptorPath, source: descriptorSource }]
   });
@@ -1673,7 +1673,7 @@ function compileSupersessionFixture(
       source,
       contentDigest: rawSha256(source)
     }));
-  const membership = compileSecRepositoryModuleMembershipSnapshot({
+  const membership = compileRepositoryModuleMembershipSnapshot({
     repositoryFiles: [...files.map(({ path }) => path), descriptorPath],
     descriptorSources: [{ descriptorPath, source: descriptorSource }]
   });
@@ -2620,7 +2620,7 @@ function compileIssuerRoleFixture(input: Readonly<{
       preDependencyBootstrap: false
     })
   }));
-  const moduleMembership = compileSecRepositoryModuleMembershipSnapshot({
+  const moduleMembership = compileRepositoryModuleMembershipSnapshot({
     repositoryFiles: [
       ...files.map(({ path }) => path),
       ...descriptorSources.map(({ descriptorPath }) => descriptorPath)
@@ -3099,7 +3099,7 @@ function compileCausalReaderFixture(
     source,
     contentDigest: rawSha256(source)
   }));
-  const moduleMembership = compileSecRepositoryModuleMembershipSnapshot({
+  const moduleMembership = compileRepositoryModuleMembershipSnapshot({
     repositoryFiles: [
       ...Object.keys(sources),
       ...descriptorSources.map(({ descriptorPath }) => descriptorPath)
