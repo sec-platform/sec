@@ -1,5 +1,5 @@
 import { canonicalJson, compareCodeUnits, deepFreeze, sha256 } from '../../../../contracts/canonical.ts';
-import { CodexDevelopmentIsCanonicalRepositoryPath } from '../../../../contracts/repository-path.ts';
+import { IsCanonicalRepositoryPath } from '../../../../contracts/repository-path.ts';
 import {
   isSecAgentSkillId,
   type SecAgentSkillId,
@@ -232,7 +232,7 @@ function compileFromRecord(input: Record<string, unknown>): SecOperationReadPlan
     fail('each source ref may occur only once per operation context.');
   }
   for (const reference of allRefs) {
-    if (CodexDevelopmentIsCanonicalRepositoryPath(reference.ref)) {
+    if (IsCanonicalRepositoryPath(reference.ref)) {
       if (!planningContext.scopeProposal.readPaths.some(
         (readPath) => scopeCoversRepositoryPath(readPath, reference.ref)
       )) {

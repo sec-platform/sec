@@ -4,7 +4,7 @@ import { CI_VERIFICATION_CONTRACT_REVISION } from '../../../../../assurance/veri
 import { isSecRepositoryTestModulePath } from '../../../../../contracts/repository-test-path.ts';
 
 const CodexDevelopmentWorkPackageSchema = 'codex-development-work-package-v1' as const;
-const CodexDevelopmentWorkPackageManifestStateFrozen = 'frozen' as const;
+const WorkPackageManifestStateFrozen = 'frozen' as const;
 
 type CodexDevelopmentCiVerificationRevision = `ci-verification-v${number}`;
 
@@ -14,12 +14,12 @@ type CodexDevelopmentWorkPackageTask = {
   ownedPaths: string[];
 };
 
-export type CodexDevelopmentWorkPackageManifest = {
+export type WorkPackageManifest = {
   schema: typeof CodexDevelopmentWorkPackageSchema;
   id: string;
   tracking: string;
   base: string;
-  manifestState: typeof CodexDevelopmentWorkPackageManifestStateFrozen;
+  manifestState: typeof WorkPackageManifestStateFrozen;
   requiredProfile: 'quick' | 'full';
   ciRevision: CodexDevelopmentCiVerificationRevision;
   authorityRefs?: string[];
@@ -308,11 +308,11 @@ function parseManifestRaw(source: string): Record<string, unknown> {
   return raw;
 }
 
-export function CodexDevelopmentWorkPackageManifestDigest(source: string | Uint8Array): string {
+export function WorkPackageManifestDigest(source: string | Uint8Array): string {
   return `sha256:${createHash('sha256').update(source).digest('hex')}`;
 }
 
-export function CodexDevelopmentParseWorkPackageLocator(body: string): string {
+export function ParseWorkPackageLocator(body: string): string {
   const locatorLines = body
     .replaceAll('\r\n', '\n')
     .split('\n')
@@ -328,7 +328,7 @@ export function CodexDevelopmentParseWorkPackageLocator(body: string): string {
 export function CodexDevelopmentDecodeWorkPackageManifest(
   source: string,
   expectedPath?: string
-): CodexDevelopmentWorkPackageManifest {
+): WorkPackageManifest {
   const raw = parseManifestRaw(source);
   assertExactKeys(
     raw,
@@ -345,7 +345,7 @@ export function CodexDevelopmentDecodeWorkPackageManifest(
   const base = stringValue(raw.base, 'Work Package manifest base');
   if (!/^[0-9a-f]{40}$/u.test(base)) throw new Error('Work Package manifest base must be a lowercase 40-character Git SHA.');
   if (raw.schema !== CodexDevelopmentWorkPackageSchema) throw new Error('Work Package manifest schema mismatch.');
-  if (raw.manifestState !== CodexDevelopmentWorkPackageManifestStateFrozen) {
+  if (raw.manifestState !== WorkPackageManifestStateFrozen) {
     throw new Error('Work Package manifest must be frozen.');
   }
   if (raw.requiredProfile !== 'quick' && raw.requiredProfile !== 'full') {
@@ -402,12 +402,12 @@ export function CodexDevelopmentDecodeWorkPackageManifest(
   const authorityRefs = raw.authorityRefs === undefined
     ? undefined
     : documentationIdArray(raw.authorityRefs, 'Work Package manifest authorityRefs');
-  const manifest: CodexDevelopmentWorkPackageManifest = {
+  const manifest: WorkPackageManifest = {
     schema: CodexDevelopmentWorkPackageSchema,
     id,
     tracking,
     base,
-    manifestState: CodexDevelopmentWorkPackageManifestStateFrozen,
+    manifestState: WorkPackageManifestStateFrozen,
     requiredProfile: raw.requiredProfile,
     ciRevision: ciRevision as CodexDevelopmentCiVerificationRevision,
     ...(authorityRefs === undefined ? {} : { authorityRefs }),
@@ -423,10 +423,10 @@ export function CodexDevelopmentDecodeWorkPackageManifest(
   return manifest;
 }
 
-export function CodexDevelopmentParseWorkPackageManifest(
+export function ParseWorkPackageManifest(
   source: string,
   expectedPath?: string
-): CodexDevelopmentWorkPackageManifest {
+): WorkPackageManifest {
   const schema = parseManifestRaw(source).schema;
   if (schema === CodexDevelopmentWorkPackageSchema) {
     return CodexDevelopmentAssertCurrentWorkPackageRevision(
@@ -437,23 +437,23 @@ export function CodexDevelopmentParseWorkPackageManifest(
 }
 
 function CodexDevelopmentAssertCurrentWorkPackageRevision(
-  manifest: CodexDevelopmentWorkPackageManifest
-): CodexDevelopmentWorkPackageManifest {
+  manifest: WorkPackageManifest
+): WorkPackageManifest {
   if (manifest.ciRevision !== CI_VERIFICATION_CONTRACT_REVISION) {
     throw new Error('Work Package manifest does not target the current CI verification revision.');
   }
   return manifest;
 }
 
-export function CodexDevelopmentParseCurrentWorkPackageManifest(
+export function ParseCurrentWorkPackageManifest(
   source: string,
   expectedPath?: string
-): CodexDevelopmentWorkPackageManifest {
-  return CodexDevelopmentParseWorkPackageManifest(source, expectedPath);
+): WorkPackageManifest {
+  return ParseWorkPackageManifest(source, expectedPath);
 }
 
-export function CodexDevelopmentAssertWorkPackageOwnership(
-  manifest: CodexDevelopmentWorkPackageManifest,
+export function AssertWorkPackageOwnership(
+  manifest: WorkPackageManifest,
   changedPaths: string[]
 ): CodexDevelopmentWorkPackageOwnershipResult {
   if (changedPaths.length === 0) throw new Error('Work Package ownership requires at least one changed path.');
@@ -478,7 +478,7 @@ export function CodexDevelopmentAssertWorkPackageOwnership(
 }
 
 export function CodexDevelopmentAssertWorkPackageChangedRecords(
-  manifest: CodexDevelopmentWorkPackageManifest,
+  manifest: WorkPackageManifest,
   records: readonly CodexDevelopmentWorkPackageChangedRecord[]
 ): CodexDevelopmentWorkPackageOwnershipResult {
   if (records.length === 0 || records.length > 3_000) throw new Error('Changed-file records must be non-empty and bounded.');
@@ -547,7 +547,7 @@ export function CodexDevelopmentAssertWorkPackageChangedRecords(
     }
   }
   const flattenedPaths = pathOccurrences.map((occurrence) => occurrence.path);
-  const ownership = CodexDevelopmentAssertWorkPackageOwnership(manifest, [...new Set(flattenedPaths)].sort());
+  const ownership = AssertWorkPackageOwnership(manifest, [...new Set(flattenedPaths)].sort());
   const ownerByPath = new Map(ownership.changedPathOwners.map((entry) => [entry.path, entry.taskId]));
   for (const record of records) {
     if (

@@ -1,6 +1,6 @@
 import { expect, test } from 'bun:test';
 
-import { CodexDevelopmentAggregateVerificationClaims, CodexDevelopmentBuildVerificationGateResult, CodexDevelopmentVerificationEnvironmentIdentity, type VerificationGateResult, type VerificationResultStatus } from '../../src/assurance/verification/result/contract/result.ts';
+import { CodexDevelopmentAggregateVerificationClaims, BuildVerificationGateResult, CodexDevelopmentVerificationEnvironmentIdentity, type VerificationGateResult, type VerificationResultStatus } from '../../src/assurance/verification/result/contract/result.ts';
 
 const CLAIM_ID = 'claim:product';
 const GATE_ID = 'gate:product';
@@ -20,7 +20,7 @@ function gate(input: {
   const failed = input.status === 'failed';
   const invalidated = input.status === 'invalidated';
   const executed = passed || failed;
-  return CodexDevelopmentBuildVerificationGateResult({
+  return BuildVerificationGateResult({
     gateId: GATE_ID,
     gateRevision: input.gateRevision ?? 'gate-v1',
     owner: 'verification-owner',

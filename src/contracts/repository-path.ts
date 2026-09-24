@@ -1,5 +1,5 @@
 /** Canonical syntax for V1 CI changed-file and active-documentation selector inputs. */
-export function CodexDevelopmentIsCanonicalRepositoryPath(
+export function IsCanonicalRepositoryPath(
   value: unknown
 ): value is string {
   if (

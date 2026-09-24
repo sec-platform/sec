@@ -1,6 +1,6 @@
 import { expect, test } from 'bun:test';
 
-import { CodexDevelopmentAggregateVerificationClaims, CodexDevelopmentAssertVerificationAggregateResultV1, CodexDevelopmentAssertVerificationGateResult, CodexDevelopmentBuildVerificationGateResult, CodexDevelopmentSnapshotVerificationData, CodexDevelopmentVerificationDataEqual, mapProductVerificationStatus, type VerificationAggregateInput, type VerificationApplicability, type VerificationDisposition, type VerificationGateEnvironment, type VerificationGateExecution, type VerificationGateResult, type VerificationReasonCode, type VerificationResultStatus } from '../../src/assurance/verification/result/contract/result.ts';
+import { CodexDevelopmentAggregateVerificationClaims, CodexDevelopmentAssertVerificationAggregateResultV1, AssertVerificationGateResult, BuildVerificationGateResult, CodexDevelopmentSnapshotVerificationData, CodexDevelopmentVerificationDataEqual, mapProductVerificationStatus, type VerificationAggregateInput, type VerificationApplicability, type VerificationDisposition, type VerificationGateEnvironment, type VerificationGateExecution, type VerificationGateResult, type VerificationReasonCode, type VerificationResultStatus } from '../../src/assurance/verification/result/contract/result.ts';
 import { VERIFICATION_GATE_RESULT_SCHEMA } from '../../src/assurance/verification/result/contract/schema.ts';
 
 const INPUT_DIGEST = `sha256:${'a'.repeat(64)}`;
@@ -110,19 +110,19 @@ function minimalValidInput() {
 test('validator rejects unknown schema', () => {
   const input = minimalValidInput();
   const bad = { schema: 'wrong-schema', ...input } as unknown as VerificationGateResult;
-  expect(() => CodexDevelopmentAssertVerificationGateResult(bad)).toThrow(/schema must be/);
+  expect(() => AssertVerificationGateResult(bad)).toThrow(/schema must be/);
 });
 
 test('validator rejects missing required field', () => {
   const input = minimalValidInput();
   const { gateId, ...withoutGateId } = input;
-  expect(() => CodexDevelopmentAssertVerificationGateResult({ schema: VERIFICATION_GATE_RESULT_SCHEMA, ...withoutGateId })).toThrow(/unknown or missing fields/);
+  expect(() => AssertVerificationGateResult({ schema: VERIFICATION_GATE_RESULT_SCHEMA, ...withoutGateId })).toThrow(/unknown or missing fields/);
 });
 
 test('validator rejects invalid digest format', () => {
   const input = minimalValidInput();
   const bad = { schema: VERIFICATION_GATE_RESULT_SCHEMA, ...input, inputDigest: 'not-a-digest' } as unknown as VerificationGateResult;
-  expect(() => CodexDevelopmentAssertVerificationGateResult(bad)).toThrow(/inputDigest must be a sha256 digest/);
+  expect(() => AssertVerificationGateResult(bad)).toThrow(/inputDigest must be a sha256 digest/);
 });
 
 test('validator rejects unsupported status with wrong reasonCode', () => {
@@ -137,7 +137,7 @@ test('validator rejects unsupported status with wrong reasonCode', () => {
     environment: null,
     execution: null
   } as unknown as VerificationGateResult;
-  expect(() => CodexDevelopmentAssertVerificationGateResult(bad)).toThrow(/unsupported status requires/);
+  expect(() => AssertVerificationGateResult(bad)).toThrow(/unsupported status requires/);
 });
 
 test('validator rejects not-applicable applicability with passed status', () => {
@@ -148,7 +148,7 @@ test('validator rejects not-applicable applicability with passed status', () => 
     applicability: 'not-applicable',
     status: 'passed'
   } as unknown as VerificationGateResult;
-  expect(() => CodexDevelopmentAssertVerificationGateResult(bad)).toThrow(/not-applicable applicability requires not-run status/);
+  expect(() => AssertVerificationGateResult(bad)).toThrow(/not-applicable applicability requires not-run status/);
 });
 
 test('validator rejects executed disposition with null environment', () => {
@@ -158,7 +158,7 @@ test('validator rejects executed disposition with null environment', () => {
     ...input,
     environment: null
   } as unknown as VerificationGateResult;
-  expect(() => CodexDevelopmentAssertVerificationGateResult(bad)).toThrow(/executed disposition requires non-null environment/);
+  expect(() => AssertVerificationGateResult(bad)).toThrow(/executed disposition requires non-null environment/);
 });
 
 test('validator rejects not-executed disposition with non-null execution', () => {
@@ -173,7 +173,7 @@ test('validator rejects not-executed disposition with non-null execution', () =>
     environment: null,
     execution: input.execution
   } as unknown as VerificationGateResult;
-  expect(() => CodexDevelopmentAssertVerificationGateResult(bad)).toThrow(/not-executed disposition must have null execution/);
+  expect(() => AssertVerificationGateResult(bad)).toThrow(/not-executed disposition must have null execution/);
 });
 
 // ---------------------------------------------------------------------------
@@ -181,13 +181,13 @@ test('validator rejects not-executed disposition with non-null execution', () =>
 // ---------------------------------------------------------------------------
 
 test('builder adds schema and validates', () => {
-  const gate = CodexDevelopmentBuildVerificationGateResult(minimalValidInput());
+  const gate = BuildVerificationGateResult(minimalValidInput());
   expect(gate.gateId).toBe('gate-1');
 });
 
 test('builder rejects invalid input', () => {
   const input = minimalValidInput();
-  expect(() => CodexDevelopmentBuildVerificationGateResult({ ...input, status: 'invalid-status' as VerificationResultStatus })).toThrow();
+  expect(() => BuildVerificationGateResult({ ...input, status: 'invalid-status' as VerificationResultStatus })).toThrow();
 });
 
 // ---------------------------------------------------------------------------
@@ -205,7 +205,7 @@ test('aggregate fails closed for empty claims instead of manufacturing passed', 
 });
 
 function canonicalAggregateFixture() {
-  const gate = CodexDevelopmentBuildVerificationGateResult(minimalValidInput());
+  const gate = BuildVerificationGateResult(minimalValidInput());
   const claims = [{
     claimId: 'claim-1',
     requiredGateIds: ['gate-1'],
@@ -883,7 +883,7 @@ test('aggregate assertion requires bidirectional claim linkage while allowing un
   )).toThrow(/does not exactly match the canonical aggregate writer output/);
 
   const { overall, claims, gates } = canonicalAggregateFixture();
-  const extraGate = CodexDevelopmentBuildVerificationGateResult({
+  const extraGate = BuildVerificationGateResult({
     ...minimalValidInput(),
     gateId: 'extra-gate',
     status: 'unsupported',
@@ -894,7 +894,7 @@ test('aggregate assertion requires bidirectional claim linkage while allowing un
     environment: null,
     execution: null
   });
-  const supportOnlyExtraGate = CodexDevelopmentBuildVerificationGateResult({
+  const supportOnlyExtraGate = BuildVerificationGateResult({
     ...minimalValidInput(),
     gateId: 'support-only-extra-gate',
     status: 'unsupported',
@@ -906,7 +906,7 @@ test('aggregate assertion requires bidirectional claim linkage while allowing un
     execution: null
   });
 
-  const offPlanSelectedClaimGate = CodexDevelopmentBuildVerificationGateResult({
+  const offPlanSelectedClaimGate = BuildVerificationGateResult({
     ...minimalValidInput(),
     gateId: 'off-plan-selected-claim-gate',
     status: 'unsupported',

@@ -7,9 +7,9 @@
     {
       "capability": "ci-verification-contract",
       "operations": [
-        "CodexDevelopmentBuildVerificationPlan",
-        "CodexDevelopmentFinalizeVerificationEvidenceV4",
-        "CodexDevelopmentParseVerificationSessionArtifact",
+        "BuildVerificationPlan",
+        "FinalizeVerificationEvidenceV4",
+        "ParseVerificationSessionArtifact",
         "buildCiContract",
         "buildCiFullGatePlan",
         "buildCiQuickGatePlan"

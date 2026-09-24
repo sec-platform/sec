@@ -9,7 +9,7 @@ import { assertCiVerificationActionProviderEnvelopeMember, CI_VERIFICATION_ACTIO
 import { CI_VERIFICATION_HOSTED_PROVIDER_REVISION } from '../../action/contract/environment.ts';
 import { CI_GITHUB_ACTIONS_IDENTITY_POLICY, finalizeVerificationActionProviderStatusReadback, matchesCiCompilerWorkflowRunIdentity, parseVerificationActionProviderStartMarker, parseVerificationActionProviderTerminalAnchor, reduceVerificationActionProviderState, VERIFICATION_ACTION_PROVIDER_START_ARTIFACT_FILE, VERIFICATION_ACTION_PROVIDER_START_ARTIFACT_PREFIX, VERIFICATION_ACTION_PROVIDER_TERMINAL_ANCHOR_FILE, VERIFICATION_ACTION_PROVIDER_TERMINAL_ANCHOR_PREFIX, VERIFICATION_ACTION_PROVIDER_TERMINAL_ARTIFACT_FILE, VERIFICATION_ACTION_PROVIDER_TERMINAL_ARTIFACT_PREFIX, verificationActionProviderRunTargetUrl, verificationActionProviderStartArtifactName, verificationActionProviderStartDescription, verificationActionProviderStatusContext, verificationActionProviderTerminalAnchorName, verificationActionProviderTerminalArtifactName, verificationActionProviderTerminalDescription, type VerificationActionProviderArtifactObservation, type VerificationActionProviderOrigin, type VerificationActionProviderStartMarker, type VerificationActionProviderStatusObservation, type VerificationActionProviderStatusReadback, type VerificationActionProviderTerminalAnchor, type VerificationActionProviderTerminalObservation } from '../../action/contract/provider.ts';
 import {
-  CodexDevelopmentParseVerificationActionTerminalArtifact
+  ParseVerificationActionTerminalArtifact
 } from '../contract/evidence.ts';
 import {
   CI_VERIFICATION_SESSION_DISPATCH_TYPE
@@ -1435,7 +1435,7 @@ async function readVerificationActionGitHubProviderSnapshot(
         artifactId: entry.artifactId,
         expectedArtifactName: terminalName,
         expectedFileName: VERIFICATION_ACTION_PROVIDER_TERMINAL_ARTIFACT_FILE,
-        parsePayload: (value) => CodexDevelopmentParseVerificationActionTerminalArtifact(
+        parsePayload: (value) => ParseVerificationActionTerminalArtifact(
           encodeVerificationActionData(value)
         ),
         producingOrigin: (payload) => payload.producer
@@ -1470,7 +1470,7 @@ function reduceVerificationActionGitHubProviderSnapshot(
       if (observation.payload === null) {
         return Object.freeze({ ...observation, payload: null });
       }
-      const artifact = CodexDevelopmentParseVerificationActionTerminalArtifact(
+      const artifact = ParseVerificationActionTerminalArtifact(
         encodeVerificationActionData(observation.payload)
       );
       return Object.freeze({

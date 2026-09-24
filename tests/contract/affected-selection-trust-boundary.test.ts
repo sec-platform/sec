@@ -12,7 +12,7 @@ import {
   type AffectedSelectionClassificationInput,
   type AffectedSelectionTrustBoundary
 } from '../../src/adapters/verification/platform/test-impact/affected.ts';
-import { CodexDevelopmentAssertVerificationGateResult } from '../../src/assurance/verification/result/contract/result.ts';
+import { AssertVerificationGateResult } from '../../src/assurance/verification/result/contract/result.ts';
 import { sha256 } from '../../src/contracts/canonical.ts';
 
 const TEST_INPUT_DIGEST = sha256({
@@ -172,7 +172,7 @@ describe('affected-selection-trust-boundary projection invariants (Issue #206)',
         defaultAffectedSelectionProjectionContext('HEAD', TEST_INPUT_DIGEST, null)
       );
       // Must not throw — verifies all cross-field invariants.
-      CodexDevelopmentAssertVerificationGateResult(result);
+      AssertVerificationGateResult(result);
     }
   });
 

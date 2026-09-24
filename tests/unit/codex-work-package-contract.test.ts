@@ -2,11 +2,11 @@ import { expect, test } from 'bun:test';
 
 import {
   CodexDevelopmentAssertWorkPackageChangedRecords,
-  CodexDevelopmentAssertWorkPackageOwnership,
+  AssertWorkPackageOwnership,
   CodexDevelopmentDecodeWorkPackageManifest,
-  CodexDevelopmentParseWorkPackageLocator,
-  CodexDevelopmentParseWorkPackageManifest,
-  CodexDevelopmentWorkPackageManifestDigest
+  ParseWorkPackageLocator,
+  ParseWorkPackageManifest,
+  WorkPackageManifestDigest
 } from '../../src/adapters/self-hosting/control/task/contract/work-package.ts';
 
 const BASE = '1'.repeat(40);
@@ -63,17 +63,17 @@ acceptance:
 }
 
 test('Work Package locator is one exact canonical PR body line', () => {
-  expect(CodexDevelopmentParseWorkPackageLocator([
+  expect(ParseWorkPackageLocator([
     'Summary',
     'Work-Package: config/repository/work-packages/b0-bootstrap-v1.md',
     'Validation'
   ].join('\n'))).toBe('config/repository/work-packages/b0-bootstrap-v1.md');
-  expect(() => CodexDevelopmentParseWorkPackageLocator('no locator')).toThrow('exactly one');
-  expect(() => CodexDevelopmentParseWorkPackageLocator([
+  expect(() => ParseWorkPackageLocator('no locator')).toThrow('exactly one');
+  expect(() => ParseWorkPackageLocator([
     'Work-Package: config/repository/work-packages/b0-bootstrap-v1.md',
     'Work-Package: config/repository/work-packages/other.md'
   ].join('\n'))).toThrow('found 2');
-  expect(() => CodexDevelopmentParseWorkPackageLocator(
+  expect(() => ParseWorkPackageLocator(
     'Work-Package: ./config/repository/work-packages/b0-bootstrap-v1.md'
   )).toThrow('must be exactly');
 });
@@ -97,8 +97,8 @@ test('frozen Work Package V1 binds strict task ownership and full manifest bytes
     );
     expect(historical.ciRevision).toBe(legacyRevision);
   }
-  expect(CodexDevelopmentWorkPackageManifestDigest(source)).toMatch(/^sha256:[0-9a-f]{64}$/u);
-  expect(CodexDevelopmentAssertWorkPackageOwnership(parsed, [
+  expect(WorkPackageManifestDigest(source)).toMatch(/^sha256:[0-9a-f]{64}$/u);
+  expect(AssertWorkPackageOwnership(parsed, [
     'platform/shared/ci-contract.ts',
     'scripts/codex/example.ts'
   ])).toEqual({
@@ -132,13 +132,13 @@ test('Work Package V1 authorityRefs are optional canonical document identities',
 });
 
 test('Work Package parser exposes one V1 authority route and rejects retired V2 bytes', () => {
-  expect(CodexDevelopmentParseWorkPackageManifest(manifest())).toEqual(
+  expect(ParseWorkPackageManifest(manifest())).toEqual(
     CodexDevelopmentDecodeWorkPackageManifest(manifest())
   );
-  expect(() => CodexDevelopmentParseWorkPackageManifest(retiredManifestV2()))
+  expect(() => ParseWorkPackageManifest(retiredManifestV2()))
     .toThrow('schema is unsupported');
   for (const historicalOrFuture of ['ci-verification-v18', 'ci-verification-v20'] as const) {
-    expect(() => CodexDevelopmentParseWorkPackageManifest(
+    expect(() => ParseWorkPackageManifest(
       manifest().replace('ci-verification-v19', historicalOrFuture)
     )).toThrow('current CI verification revision');
     expect(CodexDevelopmentDecodeWorkPackageManifest(
@@ -216,9 +216,9 @@ test('built-in Work Package YAML keeps strict mapping and lexical fail-closed se
 
 test('Work Package ownership rejects unowned and forbidden changed paths', () => {
   const parsed = CodexDevelopmentDecodeWorkPackageManifest(manifest());
-  expect(() => CodexDevelopmentAssertWorkPackageOwnership(parsed, ['README.md'])).toThrow('exactly one');
-  expect(() => CodexDevelopmentAssertWorkPackageOwnership(parsed, ['src/compiler/resolve/index.ts'])).toThrow('forbidden');
-  expect(() => CodexDevelopmentAssertWorkPackageOwnership(parsed, ['scripts\\codex\\merge-gate.ts'])).toThrow('normalized POSIX');
+  expect(() => AssertWorkPackageOwnership(parsed, ['README.md'])).toThrow('exactly one');
+  expect(() => AssertWorkPackageOwnership(parsed, ['src/compiler/resolve/index.ts'])).toThrow('forbidden');
+  expect(() => AssertWorkPackageOwnership(parsed, ['scripts\\codex\\merge-gate.ts'])).toThrow('normalized POSIX');
 });
 
 test('Work Package literal paths allow framework brackets but reject Windows and Unicode collisions', () => {

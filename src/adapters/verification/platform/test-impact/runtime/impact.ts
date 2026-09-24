@@ -26,7 +26,7 @@ import {
   readIssuedAffectedTestImpactBinding,
   type IssuedAffectedTestImpactSource
 } from './affected-source.ts';
-import type { CodexDevelopmentTestImpactTransitionObservation } from './transition.ts';
+import type { TestImpactTransitionObservation } from './transition.ts';
 
 export type TestImpactSelection = {
   fast: string[];
@@ -34,7 +34,7 @@ export type TestImpactSelection = {
   owners: string[];
 };
 
-export type CodexDevelopmentTestImpactSourceProvider = Readonly<{
+export type TestImpactSourceProvider = Readonly<{
   projection: IssuedTestImpactProjection;
   testInventory: IssuedTestInventoryProjection;
   activeDocumentationPaths: readonly string[];
@@ -52,7 +52,7 @@ type ReverseImportMap = Readonly<{
 
 let providerReverseImportMapCache = new WeakMap<object, ReverseImportMap>();
 const issuedTestImpactProviders = new WeakSet<object>();
-const providerTransitions = new WeakMap<object, CodexDevelopmentTestImpactTransitionObservation>();
+const providerTransitions = new WeakMap<object, TestImpactTransitionObservation>();
 const providerAffectedBindings = new WeakMap<object, NonNullable<ReturnType<typeof readIssuedAffectedTestImpactBinding>>>();
 type ProviderIndex = Readonly<{
   activeDocumentationPaths: ReadonlySet<string>;
@@ -68,7 +68,7 @@ function normalizeRepoPath(value: string): string {
   return normalizeSecRepositoryPath(value);
 }
 
-function assertIssuedProvider(provider: CodexDevelopmentTestImpactSourceProvider): void {
+function assertIssuedProvider(provider: TestImpactSourceProvider): void {
   if (!issuedTestImpactProviders.has(provider)) {
     throw new SecError(
       'TEST-IMPACT-001',
@@ -79,7 +79,7 @@ function assertIssuedProvider(provider: CodexDevelopmentTestImpactSourceProvider
   assertIssuedTestImpactProjection(provider.projection);
 }
 
-function providerIndex(provider: CodexDevelopmentTestImpactSourceProvider): ProviderIndex {
+function providerIndex(provider: TestImpactSourceProvider): ProviderIndex {
   assertIssuedProvider(provider);
   const cached = providerIndexCache.get(provider);
   if (cached !== undefined) return cached;
@@ -132,7 +132,7 @@ function providerIndex(provider: CodexDevelopmentTestImpactSourceProvider): Prov
 
 function classifyProviderSource(
   file: string,
-  provider: CodexDevelopmentTestImpactSourceProvider
+  provider: TestImpactSourceProvider
 ) {
   const index = providerIndex(provider);
   return classifyTestImpactSource(
@@ -144,7 +144,7 @@ function classifyProviderSource(
 
 function moduleIdForPath(
   file: string,
-  provider: CodexDevelopmentTestImpactSourceProvider
+  provider: TestImpactSourceProvider
 ): string | null {
   const repositoryPath = normalizeRepoPath(file);
   const index = providerIndex(provider);
@@ -175,7 +175,7 @@ function moduleIdForPath(
 
 function semanticModuleIdsForSource(
   file: string,
-  provider: CodexDevelopmentTestImpactSourceProvider
+  provider: TestImpactSourceProvider
 ): readonly string[] {
   const physicalOwner = moduleIdForPath(file, provider);
   return uniqueSorted([
@@ -186,7 +186,7 @@ function semanticModuleIdsForSource(
 
 export function isTestImpactModuleGraphInputFile(
   file: string,
-  provider: CodexDevelopmentTestImpactSourceProvider
+  provider: TestImpactSourceProvider
 ): boolean {
   const normalized = normalizeRepoPath(file);
   if (isSecRepositoryTestModulePath(normalized)) return false;
@@ -195,7 +195,7 @@ export function isTestImpactModuleGraphInputFile(
 
 export function isTestImpactSourceFile(
   file: string,
-  provider: CodexDevelopmentTestImpactSourceProvider
+  provider: TestImpactSourceProvider
 ): boolean {
   const normalized = normalizeRepoPath(file);
   if (isSecRepositoryTestModulePath(normalized)) return false;
@@ -216,7 +216,7 @@ export function createRepositoryTestImpactSourceProvider(
     activeDocumentationPaths: readonly string[];
     affectedSource?: IssuedAffectedTestImpactSource;
   }>
-): CodexDevelopmentTestImpactSourceProvider {
+): TestImpactSourceProvider {
   const {
     projection,
     testInventory,
@@ -287,7 +287,7 @@ function freezeAdjacency(map: Map<string, string[]>): ReadonlyMap<string, readon
   return map;
 }
 
-function buildReverseImportMap(provider: CodexDevelopmentTestImpactSourceProvider): ReverseImportMap {
+function buildReverseImportMap(provider: TestImpactSourceProvider): ReverseImportMap {
   assertIssuedProvider(provider);
   const cached = providerReverseImportMapCache.get(provider);
   if (cached !== undefined) return cached;
@@ -377,7 +377,7 @@ export type TestImpactSelectionResolution = {
 };
 
 export function resolveTestImpactSelectionTrustBoundary(
-  provider: CodexDevelopmentTestImpactSourceProvider
+  provider: TestImpactSourceProvider
 ): TestImpactSelectionResolution {
   const { unresolvedModuleFiles } = buildReverseImportMap(provider);
   return {
@@ -387,14 +387,14 @@ export function resolveTestImpactSelectionTrustBoundary(
 }
 
 export function readRepositoryModuleGraphV1(
-  provider: CodexDevelopmentTestImpactSourceProvider
+  provider: TestImpactSourceProvider
 ): RepositoryModuleGraph {
   return buildReverseImportMap(provider).graph;
 }
 
 function deriveTestsForSources(
   files: readonly string[],
-  provider: CodexDevelopmentTestImpactSourceProvider
+  provider: TestImpactSourceProvider
 ): string[] {
   const { declarationPaths, map, structuralMap } = buildReverseImportMap(provider);
   const runnableTestFiles = new Set(provider.projection.testFiles
@@ -426,7 +426,7 @@ function deriveTestsForSources(
 
 function deriveTestsForModuleIds(
   moduleIds: readonly string[],
-  provider: CodexDevelopmentTestImpactSourceProvider
+  provider: TestImpactSourceProvider
 ): readonly string[] {
   if (moduleIds.length === 0) return [];
   const wanted = new Set(moduleIds);
@@ -442,7 +442,7 @@ function deriveTestsForModuleIds(
 
 function selectionForSource(
   file: string,
-  provider: CodexDevelopmentTestImpactSourceProvider
+  provider: TestImpactSourceProvider
 ): TestImpactSelection {
   const normalizedFile = normalizeRepoPath(file);
   const semanticModuleIds = semanticModuleIdsForSource(normalizedFile, provider);
@@ -473,7 +473,7 @@ function selectionForSource(
 
 export function hasTestImpactForFile(
   file: string,
-  provider: CodexDevelopmentTestImpactSourceProvider
+  provider: TestImpactSourceProvider
 ): boolean {
   const selection = selectionForSource(file, provider);
   return selection.fast.length > 0 || selection.slow.length > 0;
@@ -481,7 +481,7 @@ export function hasTestImpactForFile(
 
 export function resolveTestImpactForFiles(
   files: readonly string[],
-  provider: CodexDevelopmentTestImpactSourceProvider
+  provider: TestImpactSourceProvider
 ): ReadonlySet<string> {
   const removedModuleOwners = providerIndex(provider).removedModuleOwners;
   return new Set(files.filter((file) => (
@@ -494,7 +494,7 @@ export function resolveTestImpactForFiles(
 
 export function resolveTestOwnership(
   files: readonly string[],
-  provider: CodexDevelopmentTestImpactSourceProvider
+  provider: TestImpactSourceProvider
 ): ResolvedTestOwnership[] {
   return files.flatMap((source) => semanticModuleIdsForSource(source, provider).map((moduleId) => ({
     source,
@@ -505,7 +505,7 @@ export function resolveTestOwnership(
 
 export function resolveTestImpactRiskPolicies(
   files: readonly string[],
-  provider: CodexDevelopmentTestImpactSourceProvider
+  provider: TestImpactSourceProvider
 ): TestImpactRiskPolicy[] {
   const index = providerIndex(provider);
   const graph = readRepositoryModuleGraphV1(provider);
@@ -533,7 +533,7 @@ export function resolveTestImpactRiskPolicies(
 
 export function selectTestsForSources(
   files: readonly string[],
-  provider: CodexDevelopmentTestImpactSourceProvider
+  provider: TestImpactSourceProvider
 ): TestImpactSelection {
   const fast = new Set<string>();
   const slow = new Set<string>();

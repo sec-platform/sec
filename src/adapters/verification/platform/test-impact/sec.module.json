@@ -6,7 +6,7 @@
       "capability": "test-impact-selection",
       "operations": [
         "CodexDevelopmentBuildAffectedTestInventory",
-        "CodexDevelopmentCreateTestImpactTransitionObservation",
+        "CreateTestImpactTransitionObservation",
         "buildTestBudgetContract",
         "createRepositoryTestImpactSourceProvider",
         "projectAffectedSelectionToVerificationGateResult",

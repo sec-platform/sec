@@ -9,8 +9,8 @@ import {
   slowTestSuiteIdsForFile,
   type TestBudgetProjection
 } from './contract/budget.ts';
-import { resolveTestImpactForFiles, resolveTestImpactRiskPolicies, type CodexDevelopmentTestImpactSourceProvider } from './runtime/impact.ts';
-import type { CodexDevelopmentTestImpactTransitionObservation } from './runtime/transition.ts';
+import { resolveTestImpactForFiles, resolveTestImpactRiskPolicies, type TestImpactSourceProvider } from './runtime/impact.ts';
+import type { TestImpactTransitionObservation } from './runtime/transition.ts';
 
 export type SlowTestRiskClosureSelection = {
   suites: string[];
@@ -34,7 +34,7 @@ function baselineSlowSuiteIds(projection: TestBudgetProjection): readonly string
 
 function slowSuiteIdsForChangedPath(
   file: string,
-  transition?: CodexDevelopmentTestImpactTransitionObservation
+  transition?: TestImpactTransitionObservation
 ): string[] {
   const direct = slowTestSuiteIdsForFile(file);
   if (direct.length > 0 || transition === undefined) return [...direct];
@@ -50,7 +50,7 @@ function slowSuiteIdsForChangedPath(
 function suitesForSlowTests(
   projection: TestBudgetProjection,
   slowTests: string[],
-  transition?: CodexDevelopmentTestImpactTransitionObservation
+  transition?: TestImpactTransitionObservation
 ): string[] {
   const suites = getSlowTestSuitesSync(projection);
   return uniqueSorted(
@@ -67,8 +67,8 @@ function suitesForSlowTests(
 
 export function selectSlowTestRiskClosure(
   files: string[] | null,
-  provider: CodexDevelopmentTestImpactSourceProvider,
-  transition?: CodexDevelopmentTestImpactTransitionObservation
+  provider: TestImpactSourceProvider,
+  transition?: TestImpactTransitionObservation
 ): SlowTestRiskClosureSelection {
   if (provider === undefined) {
     throw new Error('Slow-test risk selection requires an owner-issued snapshot projection.');

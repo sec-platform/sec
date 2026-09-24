@@ -1,6 +1,6 @@
 import { expect, test } from 'bun:test';
 
-import { CodexDevelopmentAggregateVerificationClaims, CodexDevelopmentAssertVerificationAggregateResultV1, CodexDevelopmentAssertVerificationGateResult, CodexDevelopmentBuildVerificationGateResult, mapProductVerificationStatus, type VerificationClaimDefinition, type VerificationGateEnvironment, type VerificationGateExecution, type VerificationGateResult, type VerificationResultStatus } from '../../src/assurance/verification/result/contract/result.ts';
+import { CodexDevelopmentAggregateVerificationClaims, CodexDevelopmentAssertVerificationAggregateResultV1, AssertVerificationGateResult, BuildVerificationGateResult, mapProductVerificationStatus, type VerificationClaimDefinition, type VerificationGateEnvironment, type VerificationGateExecution, type VerificationGateResult, type VerificationResultStatus } from '../../src/assurance/verification/result/contract/result.ts';
 const INPUT_DIGEST = `sha256:${'a'.repeat(64)}`;
 const SUBJECT_REVISION = 'b'.repeat(40);
 const OUTPUT_DIGEST = `sha256:${'c'.repeat(64)}`;
@@ -30,7 +30,7 @@ function execution(exitCode: number): VerificationGateExecution {
 }
 
 function passedGate(gateId: string, claims: string[], env?: VerificationGateEnvironment): VerificationGateResult {
-  return CodexDevelopmentBuildVerificationGateResult({
+  return BuildVerificationGateResult({
     gateId,
     gateRevision: 'gate-rev-1',
     owner: 'test-owner',
@@ -52,7 +52,7 @@ function passedGate(gateId: string, claims: string[], env?: VerificationGateEnvi
 }
 
 function failedGate(gateId: string, claims: string[], reasonCode: 'executed-failure' | 'timeout' | 'cleanup-failed' | 'process-settlement-failed' = 'executed-failure'): VerificationGateResult {
-  return CodexDevelopmentBuildVerificationGateResult({
+  return BuildVerificationGateResult({
     gateId,
     gateRevision: 'gate-rev-1',
     owner: 'test-owner',
@@ -74,7 +74,7 @@ function failedGate(gateId: string, claims: string[], reasonCode: 'executed-fail
 }
 
 function notRunGate(gateId: string, claims: string[], reasonCode: 'not-applicable' | 'fail-fast-prerequisite-failed' | 'current-runner-not-owning-environment' | 'not-dispatched' | 'required-artifact-missing'): VerificationGateResult {
-  return CodexDevelopmentBuildVerificationGateResult({
+  return BuildVerificationGateResult({
     gateId,
     gateRevision: 'gate-rev-1',
     owner: 'test-owner',
@@ -96,7 +96,7 @@ function notRunGate(gateId: string, claims: string[], reasonCode: 'not-applicabl
 }
 
 function unsupportedGate(gateId: string, claims: string[], reasonCode: 'capability-unsupported' | 'platform-unsupported'): VerificationGateResult {
-  return CodexDevelopmentBuildVerificationGateResult({
+  return BuildVerificationGateResult({
     gateId,
     gateRevision: 'gate-rev-1',
     owner: 'test-owner',
@@ -118,7 +118,7 @@ function unsupportedGate(gateId: string, claims: string[], reasonCode: 'capabili
 }
 
 function invalidatedGate(gateId: string, claims: string[], reasonCode: 'selection-unresolved' | 'input-invalidated' | 'evidence-stale' | 'superseded-revision' | 'cancelled'): VerificationGateResult {
-  return CodexDevelopmentBuildVerificationGateResult({
+  return BuildVerificationGateResult({
     gateId,
     gateRevision: 'gate-rev-1',
     owner: 'test-owner',
@@ -140,7 +140,7 @@ function invalidatedGate(gateId: string, claims: string[], reasonCode: 'selectio
 }
 
 function reusedPassedGate(gateId: string, claims: string[], evidenceRefs: string[]): VerificationGateResult {
-  return CodexDevelopmentBuildVerificationGateResult({
+  return BuildVerificationGateResult({
     gateId,
     gateRevision: 'gate-rev-1',
     owner: 'test-owner',
@@ -347,29 +347,29 @@ test('regression 9: not-applicable without applicability proof → invalidated',
 test('builder produces valid gate result and validator accepts it', () => {
   const gate = passedGate('test-gate', ['test-claim']);
   // Should not throw
-  CodexDevelopmentAssertVerificationGateResult(gate);
+  AssertVerificationGateResult(gate);
 });
 
 test('validator rejects proof-shaped placeholders that do not describe an execution', () => {
   const zeroInput = structuredClone(passedGate('zero-input', ['claim']));
   zeroInput.inputDigest = `sha256:${'0'.repeat(64)}`;
-  expect(() => CodexDevelopmentAssertVerificationGateResult(zeroInput))
+  expect(() => AssertVerificationGateResult(zeroInput))
     .toThrow(/all-zero proof placeholder/);
 
   const emptyInvocation = structuredClone(passedGate('empty-invocation', ['claim']));
   emptyInvocation.execution!.argv = [];
-  expect(() => CodexDevelopmentAssertVerificationGateResult(emptyInvocation))
+  expect(() => AssertVerificationGateResult(emptyInvocation))
     .toThrow(/actual invocation/);
 
   const epochExecution = structuredClone(passedGate('epoch-execution', ['claim']));
   epochExecution.execution!.startedAt = '1970-01-01T00:00:00.000Z';
-  expect(() => CodexDevelopmentAssertVerificationGateResult(epochExecution))
+  expect(() => AssertVerificationGateResult(epochExecution))
     .toThrow(/real forward execution interval/);
 });
 
 test('validator rejects passed status with not-executed disposition', () => {
   expect(() => {
-    CodexDevelopmentBuildVerificationGateResult({
+    BuildVerificationGateResult({
       gateId: 'bad-gate',
       gateRevision: 'rev-1',
       owner: 'test',
@@ -393,7 +393,7 @@ test('validator rejects passed status with not-executed disposition', () => {
 
 test('validator rejects failed status with not-executed disposition', () => {
   expect(() => {
-    CodexDevelopmentBuildVerificationGateResult({
+    BuildVerificationGateResult({
       gateId: 'bad-gate',
       gateRevision: 'rev-1',
       owner: 'test',
@@ -417,7 +417,7 @@ test('validator rejects failed status with not-executed disposition', () => {
 
 test('validator rejects reused disposition without evidenceRefs', () => {
   expect(() => {
-    CodexDevelopmentBuildVerificationGateResult({
+    BuildVerificationGateResult({
       gateId: 'bad-gate',
       gateRevision: 'rev-1',
       owner: 'test',
@@ -441,7 +441,7 @@ test('validator rejects reused disposition without evidenceRefs', () => {
 
 test('validator rejects unresolved applicability with non-invalidated status', () => {
   expect(() => {
-    CodexDevelopmentBuildVerificationGateResult({
+    BuildVerificationGateResult({
       gateId: 'bad-gate',
       gateRevision: 'rev-1',
       owner: 'test',

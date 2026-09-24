@@ -24,8 +24,8 @@ import {
 } from '../branch-lifecycle/branch-closeout.ts';
 import { branchLifecycleDigest } from '../branch-lifecycle/branch-lifecycle-audit.ts';
 import {
-  CodexDevelopmentParseMergeGateResult,
-  type CodexDevelopmentMergeGateResult
+  ParseMergeGateResult,
+  type MergeGateResult
 } from './merge-gate.ts';
 
 const INTEGRATION_AUTHORIZATION_OPERATION_PUBLICATION_SCHEMA =
@@ -42,7 +42,7 @@ export interface IntegrationAuthorizationOperationPublication {
   authorizationPublicationId: `sha256:${string}`;
   authorizationReceiptDigest: `sha256:${string}`;
   consumptionOperationId: `sha256:${string}`;
-  result: CodexDevelopmentMergeGateResult;
+  result: MergeGateResult;
   closeoutPreparation: PreparedBranchCloseoutEnvelope;
   recoveryArtifact: IntegrationCloseoutRecoveryArtifactObservation;
   provenance: HostedWorkflowCommentProvenance;
@@ -343,12 +343,12 @@ function authorizationPublicationPayload(input: Omit<
 }
 
 export function createIntegrationAuthorizationOperationPublication(input: {
-  result: CodexDevelopmentMergeGateResult;
+  result: MergeGateResult;
   closeoutPreparation: PreparedBranchCloseoutEnvelope;
   recoveryArtifact: IntegrationCloseoutRecoveryArtifactObservation;
   provenance: HostedWorkflowCommentProvenance;
 }): IntegrationAuthorizationOperationPublication {
-  const result = CodexDevelopmentParseMergeGateResult(encodeVerificationActionData(input.result));
+  const result = ParseMergeGateResult(encodeVerificationActionData(input.result));
   const closeoutPreparation = parsePreparedBranchCloseoutEnvelope(
     `${JSON.stringify(input.closeoutPreparation, null, 2)}\n`
   );
@@ -421,7 +421,7 @@ export function parseIntegrationAuthorizationOperationPublication(
     throw new Error('Integration authorization operation publication schema mismatch.');
   }
   const rebuilt = createIntegrationAuthorizationOperationPublication({
-    result: CodexDevelopmentParseMergeGateResult(encodeVerificationActionData(value.result)),
+    result: ParseMergeGateResult(encodeVerificationActionData(value.result)),
     closeoutPreparation: parsePreparedBranchCloseoutEnvelope(
       `${JSON.stringify(value.closeoutPreparation, null, 2)}\n`),
     recoveryArtifact: value.recoveryArtifact as IntegrationCloseoutRecoveryArtifactObservation,

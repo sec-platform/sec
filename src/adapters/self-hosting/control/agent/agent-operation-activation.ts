@@ -12,7 +12,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 
 import { canonicalJson, compareCodeUnits, rawSha256, sha256 } from '../../../../contracts/canonical.ts';
-import { parseGitChangedRecordsOutput, type CodexDevelopmentGitChangedRecord } from '../../../verification/platform/test-impact/runtime/transition.ts';
+import { parseGitChangedRecordsOutput, type GitChangedRecord } from '../../../verification/platform/test-impact/runtime/transition.ts';
 import {
   hostedPublisherMatches,
   issueCommentRecord,
@@ -38,9 +38,9 @@ import {
 } from '../main-health/work-selection-main-health.ts';
 import {
   CodexDevelopmentAssertWorkPackageChangedRecords,
-  CodexDevelopmentParseCurrentWorkPackageManifest,
-  CodexDevelopmentWorkPackageManifestDigest,
-  type CodexDevelopmentWorkPackageManifest
+  ParseCurrentWorkPackageManifest,
+  WorkPackageManifestDigest,
+  type WorkPackageManifest
 } from '../task/contract/work-package.ts';
 import {
   compileSecWorkRollingTopology,
@@ -355,14 +355,14 @@ function changedRecordsBetween(
   root: string,
   baseRevision: string,
   targetRevision: string
-): CodexDevelopmentGitChangedRecord[] {
+): GitChangedRecord[] {
   return parseGitChangedRecordsOutput(requireCommand('git', [
     '-c', 'core.quotepath=false', 'diff', '--name-status', '-z', '--find-renames',
     '--find-copies', '--diff-filter=ACDMRTUXB', baseRevision, targetRevision, '--'
   ], root, 'activation-scope-conflict'));
 }
 
-function changedPaths(records: readonly CodexDevelopmentGitChangedRecord[]): readonly string[] {
+function changedPaths(records: readonly GitChangedRecord[]): readonly string[] {
   return Object.freeze([...new Set(records.flatMap((entry) => (
     entry.previousPath === undefined ? [entry.path] : [entry.previousPath, entry.path]
   )))].sort(compareCodeUnits));
@@ -442,7 +442,7 @@ function observeOperationAuthorityOwners(
   candidateRoot: string,
   trustedRevision: string,
   targetCandidate: string,
-  manifest: CodexDevelopmentWorkPackageManifest,
+  manifest: WorkPackageManifest,
   paths: readonly string[]
 ): readonly SecOperationAuthorityOwnerObservation[] {
   if (manifest.schema !== 'codex-development-work-package-v1'
@@ -576,7 +576,7 @@ async function requireResolvedWorkDecision(root: string): Promise<SecWorkDecisio
 
 function workBinding(
   receipt: SecWorkDecisionReceipt,
-  manifest: CodexDevelopmentWorkPackageManifest,
+  manifest: WorkPackageManifest,
   phase: 'prepare' | 'finalize'
 ): Readonly<{ item: SecRoadmapWorkCatalogItem; currentSpecRevision: `sha256:${string}` }> {
   const item = receipt.catalog.items.find(({ packageId }) => packageId === manifest.id);
@@ -607,7 +607,7 @@ interface CandidateControlSnapshot {
   readonly manifestRevision: string;
   readonly manifestDigest: `sha256:${string}`;
   readonly manifestBytes: Uint8Array;
-  readonly manifest: CodexDevelopmentWorkPackageManifest;
+  readonly manifest: WorkPackageManifest;
   readonly rollingTopology: Readonly<{
     activePackageId: string;
     candidatePackageIds: readonly string[];
@@ -620,7 +620,7 @@ interface CandidateControlSnapshot {
 }
 
 function workPackageAuthorizedPaths(
-  manifest: CodexDevelopmentWorkPackageManifest
+  manifest: WorkPackageManifest
 ): readonly string[] {
   return Object.freeze(
     manifest.tasks.flatMap(({ ownedPaths }) => ownedPaths).sort(compareCodeUnits)
@@ -628,7 +628,7 @@ function workPackageAuthorizedPaths(
 }
 
 function workPackageForbiddenPaths(
-  manifest: CodexDevelopmentWorkPackageManifest
+  manifest: WorkPackageManifest
 ): readonly string[] {
   return Object.freeze([...manifest.forbiddenPaths].sort(compareCodeUnits));
 }
@@ -636,7 +636,7 @@ function workPackageForbiddenPaths(
 function assertManifestTestBlobsExist(
   candidateRoot: string,
   revision: string,
-  manifest: CodexDevelopmentWorkPackageManifest
+  manifest: WorkPackageManifest
 ): void {
   const bytes = requireCommand('git', [
     '--literal-pathspecs', '-c', 'core.quotepath=false',
@@ -663,11 +663,11 @@ function readCandidateControl(
   }
   const manifestBlob = readGitBlob(candidateRoot, `${revision}:${pointer.manifest}`);
   const manifestBytes = manifestBlob.bytes;
-  const manifest = CodexDevelopmentParseCurrentWorkPackageManifest(
+  const manifest = ParseCurrentWorkPackageManifest(
     decodeUtf8(manifestBytes, 'activation-stale'), pointer.manifest
   );
   assertManifestTestBlobsExist(candidateRoot, revision, manifest);
-  const manifestDigest = CodexDevelopmentWorkPackageManifestDigest(manifestBytes) as `sha256:${string}`;
+  const manifestDigest = WorkPackageManifestDigest(manifestBytes) as `sha256:${string}`;
   if (pointer.manifestDigest !== manifestDigest || rolling.activePackageId !== manifest.id
       || manifest.base !== receipt.exactMain
       || gitObjectExists(candidateRoot, `${receipt.exactMain}:${pointer.manifest}`)) {
@@ -756,8 +756,8 @@ function assertRequestBindings(
 }
 
 function assertPreparationProposal(
-  records: readonly CodexDevelopmentGitChangedRecord[],
-  manifest: CodexDevelopmentWorkPackageManifest,
+  records: readonly GitChangedRecord[],
+  manifest: WorkPackageManifest,
   manifestPath: string,
   manifestBytes: Uint8Array,
   trustedBase: string,
@@ -1389,7 +1389,7 @@ function publishHosted(input: Readonly<{
 }
 
 interface SecResolvedAgentOperationActivationCommon {
-  readonly manifest: CodexDevelopmentWorkPackageManifest;
+  readonly manifest: WorkPackageManifest;
   readonly runtimeRoot: string;
   readonly candidateRoot: string;
   readonly trustedRevision: string;

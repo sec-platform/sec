@@ -3,9 +3,9 @@ import { parse as parseYaml } from 'yaml';
 import { rawSha256, sha256 } from '../../../../contracts/canonical.ts';
 import type { MainHealthRepairDecision } from '../main-health/repair.ts';
 import {
-  CodexDevelopmentParseCurrentWorkPackageManifest,
-  CodexDevelopmentWorkPackageManifestDigest,
-  type CodexDevelopmentWorkPackageManifest
+  ParseCurrentWorkPackageManifest,
+  WorkPackageManifestDigest,
+  type WorkPackageManifest
 } from '../task/contract/work-package.ts';
 import {
   compileSecWorkRollingProjection,
@@ -413,7 +413,7 @@ export function CodexDevelopmentAssertInitiallyAbsentEntryTransition(input: Read
 
 export interface CodexDevelopmentFreezeProjection {
   readonly authoringDisposition: 'activation' | 'proposal-only';
-  readonly manifest: CodexDevelopmentWorkPackageManifest;
+  readonly manifest: WorkPackageManifest;
   readonly manifestPath: string;
   readonly manifestDigest: `sha256:${string}`;
   /** Old pointer-bound manifest retired by the same successor candidate tree. */
@@ -789,7 +789,7 @@ export function CodexDevelopmentClassifyWorkPackageCensus(input: Readonly<{
   if (selectedEntry === undefined) {
     throw new Error('Work Package census does not contain the selected manifest.');
   }
-  const selectedManifest = CodexDevelopmentParseCurrentWorkPackageManifest(
+  const selectedManifest = ParseCurrentWorkPackageManifest(
     decodeCensusManifest(selectedEntry.candidateBytes, 'Selected Work Package census manifest'),
     selectedEntry.path
   );
@@ -812,7 +812,7 @@ export function CodexDevelopmentClassifyWorkPackageCensus(input: Readonly<{
     const item = catalogByPath.get(entry.path);
     if (item === undefined || entry.defaultBytes === null
         || !rawBytesEqual(entry.candidateBytes, entry.defaultBytes)) return false;
-    const predecessor = CodexDevelopmentParseCurrentWorkPackageManifest(
+    const predecessor = ParseCurrentWorkPackageManifest(
       decodeCensusManifest(entry.candidateBytes, `Published predecessor ${entry.path}`),
       entry.path
     );
@@ -966,7 +966,7 @@ export function CodexDevelopmentRenderCommittedCandidateReplanRollingPlan(
 ): string {
   const pointer = CodexDevelopmentParseActivePointer(input.currentPointerSource);
   const topology = CodexDevelopmentParseRollingPlanHeadings(input.currentRollingPlanSource);
-  const sourceManifestDigest = CodexDevelopmentWorkPackageManifestDigest(
+  const sourceManifestDigest = WorkPackageManifestDigest(
     input.currentManifestBytes
   ) as `sha256:${string}`;
   if (input.authority.sourceHead === input.exactMain) {
@@ -1144,7 +1144,7 @@ export function CodexDevelopmentAssertPriorFreezeProjection(input: {
   const manifestPath = manifestPathValue(input.manifestPath, 'Prior projection manifest path');
   const pointer = CodexDevelopmentParseActivePointer(input.pointerSource);
   CodexDevelopmentAssertControlPlaneBinding({ spec: input.spec, pointer });
-  const manifestDigest = CodexDevelopmentWorkPackageManifestDigest(
+  const manifestDigest = WorkPackageManifestDigest(
     input.manifestBytes
   ) as `sha256:${string}`;
   if (pointer.manifest !== manifestPath || pointer.manifestDigest !== manifestDigest) {
@@ -1250,7 +1250,7 @@ export function CodexDevelopmentCreateFreezeProjection(input: {
   } catch (error) {
     throw new Error('Work Package manifest bytes must be valid UTF-8.', { cause: error });
   }
-  const manifest = CodexDevelopmentParseCurrentWorkPackageManifest(manifestSource, manifestPath);
+  const manifest = ParseCurrentWorkPackageManifest(manifestSource, manifestPath);
   if (manifest.base !== input.baseSha) {
     throw new Error('Work Package manifest base must equal the exact live default revision.');
   }
@@ -1271,14 +1271,14 @@ export function CodexDevelopmentCreateFreezeProjection(input: {
   } catch (error) {
     throw new Error('Current Work Package manifest bytes must be valid UTF-8.', { cause: error });
   }
-  const currentManifest = CodexDevelopmentParseCurrentWorkPackageManifest(
+  const currentManifest = ParseCurrentWorkPackageManifest(
     currentManifestSource,
     currentPointer.manifest
   );
   if (input.proposalOnly !== undefined) {
     if (input.proposalOnly.currentResolution.state !== 'none'
         || input.proposalOnly.currentResolution.reason !== 'matching-default-blob'
-        || CodexDevelopmentWorkPackageManifestDigest(input.proposalOnly.defaultManifestBytes)
+        || WorkPackageManifestDigest(input.proposalOnly.defaultManifestBytes)
           !== currentPointer.manifestDigest
         || !rawBytesEqual(input.proposalOnly.defaultManifestBytes, input.currentManifestBytes)) {
       throw new Error(
@@ -1298,7 +1298,7 @@ export function CodexDevelopmentCreateFreezeProjection(input: {
     }
   }
   if ((input.committedCandidateReplanProjection === undefined
-      && CodexDevelopmentWorkPackageManifestDigest(input.currentManifestBytes)
+      && WorkPackageManifestDigest(input.currentManifestBytes)
         !== currentPointer.manifestDigest)
       || currentManifest.id !== currentRollingPlan.activePackageId) {
     throw new Error('Current pointer, rolling plan, and manifest bytes do not bind one exact package identity.');
@@ -1309,7 +1309,7 @@ export function CodexDevelopmentCreateFreezeProjection(input: {
   if (manifest.id !== currentManifest.id && manifestPath === currentPointer.manifest) {
     throw new Error('A successor package must use a distinct canonical manifest path.');
   }
-  const manifestDigest = CodexDevelopmentWorkPackageManifestDigest(
+  const manifestDigest = WorkPackageManifestDigest(
     input.manifestBytes
   ) as `sha256:${string}`;
   const pointerSource = CodexDevelopmentRenderActivePointer({
@@ -1456,7 +1456,7 @@ export function CodexDevelopmentCreateFreezeProjection(input: {
     const publishedActive = repairProjection.publishedActivePackage;
     if (publishedActive.manifestPath !== currentPointer.manifest
         || publishedActive.manifestDigest !== currentPointer.manifestDigest
-        || CodexDevelopmentWorkPackageManifestDigest(publishedActive.defaultManifestBytes)
+        || WorkPackageManifestDigest(publishedActive.defaultManifestBytes)
           !== currentPointer.manifestDigest
         || !rawBytesEqual(publishedActive.defaultManifestBytes, input.currentManifestBytes)) {
       throw new Error(
@@ -1512,14 +1512,14 @@ export function CodexDevelopmentResolveActiveWorkPackage(input: {
     };
   }
   if (input.defaultManifestBlob !== null
-      && CodexDevelopmentWorkPackageManifestDigest(input.defaultManifestBlob)
+      && WorkPackageManifestDigest(input.defaultManifestBlob)
         === input.pointer.manifestDigest) {
     return { state: 'none', reason: 'matching-default-blob' };
   }
   if (input.candidateManifestBlob === undefined) {
     return { state: 'invalid', reason: 'candidate-manifest-absent' };
   }
-  if (CodexDevelopmentWorkPackageManifestDigest(input.candidateManifestBlob) !== input.pointer.manifestDigest) {
+  if (WorkPackageManifestDigest(input.candidateManifestBlob) !== input.pointer.manifestDigest) {
     return { state: 'invalid', reason: 'candidate-digest-mismatch' };
   }
   if (input.defaultManifestBlob !== null) {

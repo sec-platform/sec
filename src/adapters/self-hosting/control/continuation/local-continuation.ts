@@ -29,11 +29,11 @@ import { decodeExactUtf8 } from '../../../runtime-state/physical/runtime/retaine
 import type { SecRuntimeStateLayout } from '../../../runtime-state/workspace-state/layout.ts';
 import { resolveSecRuntimeStateForRepository } from '../../../runtime-state/workspace-state/paths.ts';
 import { encodeVerificationActionData } from '../../../verification/platform/action/contract/action.ts';
-import { gitChangedFileDiffArgs, gitUntrackedFileArgs, parseGitChangedRecordsOutput, parseGitUntrackedFileOutput, type CodexDevelopmentGitChangedRecord } from '../../../verification/platform/test-impact/runtime/transition.ts';
+import { gitChangedFileDiffArgs, gitUntrackedFileArgs, parseGitChangedRecordsOutput, parseGitUntrackedFileOutput, type GitChangedRecord } from '../../../verification/platform/test-impact/runtime/transition.ts';
 import {
   CodexDevelopmentAssertWorkPackageChangedRecords,
-  CodexDevelopmentParseCurrentWorkPackageManifest,
-  CodexDevelopmentWorkPackageManifestDigest
+  ParseCurrentWorkPackageManifest,
+  WorkPackageManifestDigest
 } from '../task/contract/work-package.ts';
 import {
   admitLocalContinuation,
@@ -134,7 +134,7 @@ async function gitSha(session: GitReadSession, ref: string, label: string): Prom
 
 async function workingTreeChangedRecords(
   session: GitReadSession
-): Promise<readonly CodexDevelopmentGitChangedRecord[]> {
+): Promise<readonly GitChangedRecord[]> {
   const tracked = parseGitChangedRecordsOutput(
     await runGit(session, gitChangedFileDiffArgs(undefined, 'HEAD'))
   );
@@ -147,7 +147,7 @@ async function changedRecordsBetween(
   session: GitReadSession,
   baseSha: string,
   headSha: string
-): Promise<readonly CodexDevelopmentGitChangedRecord[]> {
+): Promise<readonly GitChangedRecord[]> {
   return Object.freeze(parseGitChangedRecordsOutput(
     await runGit(session, gitChangedFileDiffArgs(baseSha, headSha))
   ));
@@ -161,7 +161,7 @@ async function checkpointStillControlsHead(
   session: GitReadSession,
   checkpoint: LocalContinuationCheckpoint,
   headSha: string,
-  workingTreeRecords: readonly CodexDevelopmentGitChangedRecord[]
+  workingTreeRecords: readonly GitChangedRecord[]
 ): Promise<boolean> {
   let mergeBase: string;
   try {
@@ -175,7 +175,7 @@ async function checkpointStillControlsHead(
     const manifestBytes = await runGit(session, [
       'show', `${checkpoint.headSha}:${checkpoint.manifestPath}`
     ]);
-    const manifest = CodexDevelopmentParseCurrentWorkPackageManifest(
+    const manifest = ParseCurrentWorkPackageManifest(
       utf8(manifestBytes, 'managed manifest bytes'),
       checkpoint.manifestPath
     );
@@ -218,8 +218,8 @@ async function observeLocalContinuationWithSession(
     'show', `${checkpoint.headSha}:${checkpoint.manifestPath}`
   ]);
   const manifestSource = utf8(manifestBytes, 'manifest bytes');
-  const manifest = CodexDevelopmentParseCurrentWorkPackageManifest(manifestSource, checkpoint.manifestPath);
-  const manifestDigest = CodexDevelopmentWorkPackageManifestDigest(manifestBytes) as `sha256:${string}`;
+  const manifest = ParseCurrentWorkPackageManifest(manifestSource, checkpoint.manifestPath);
+  const manifestDigest = WorkPackageManifestDigest(manifestBytes) as `sha256:${string}`;
 
   const changedRecords = await changedRecordsBetween(
     session,

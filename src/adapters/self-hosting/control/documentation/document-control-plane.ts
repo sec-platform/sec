@@ -57,8 +57,8 @@ import {
   type ActiveWorkPackageOwnerObservation
 } from '../task/contract/active-work-observation.ts';
 import {
-  CodexDevelopmentParseCurrentWorkPackageManifest,
-  CodexDevelopmentWorkPackageManifestDigest
+  ParseCurrentWorkPackageManifest,
+  WorkPackageManifestDigest
 } from '../task/contract/work-package.ts';
 import {
   assertSecRoadmapTerminalCompactionCandidate,
@@ -1333,7 +1333,7 @@ function parseFreezeJournal(source: string): FreezeJournal {
     throw new Error('Freeze journal V5 requires its revision-matched result contract.');
   }
   const manifestBytes = fromBase64(semantic.files.manifest.next, 'Freeze journal manifest next bytes');
-  if (CodexDevelopmentWorkPackageManifestDigest(manifestBytes) !== semantic.manifestDigest) {
+  if (WorkPackageManifestDigest(manifestBytes) !== semantic.manifestDigest) {
     throw new Error('Freeze journal manifest digest does not match its next bytes.');
   }
   return Object.freeze({
@@ -4406,7 +4406,7 @@ async function assertCommittedCandidateReplanAuthority(input: {
     `${input.headSha}:${input.manifestPath}`,
     'Committed candidate Work Package manifest'
   );
-  const manifest = CodexDevelopmentParseCurrentWorkPackageManifest(
+  const manifest = ParseCurrentWorkPackageManifest(
     decodeUtf8(manifestBytes, 'Committed candidate Work Package manifest'),
     input.manifestPath
   );
@@ -4507,11 +4507,11 @@ async function assertCommittedCandidateReplanAuthority(input: {
           `${publicationCommit}:${input.manifestPath}`,
           'Published rolling projection manifest'
         );
-        const publishedManifest = CodexDevelopmentParseCurrentWorkPackageManifest(
+        const publishedManifest = ParseCurrentWorkPackageManifest(
           decodeUtf8(publishedManifestBytes, 'Published rolling projection manifest'),
           input.manifestPath
         );
-        const publishedManifestDigest = CodexDevelopmentWorkPackageManifestDigest(publishedManifestBytes);
+        const publishedManifestDigest = WorkPackageManifestDigest(publishedManifestBytes);
         if (publishedPointer.manifest !== input.manifestPath
             || publishedPointer.manifestDigest !== publishedManifestDigest
             || rollingMachine.active.manifestDigest !== publishedManifestDigest
@@ -4544,7 +4544,7 @@ async function assertCommittedCandidateReplanAuthority(input: {
         `${sourceAuthority.sourceHead}:${input.manifestPath}`,
         'Historical committed-candidate source manifest'
       );
-      const sourceManifestDigest = CodexDevelopmentWorkPackageManifestDigest(sourceManifestBytes);
+      const sourceManifestDigest = WorkPackageManifestDigest(sourceManifestBytes);
       if (sourceManifestDigest !== sourceAuthority.sourceManifestDigest) {
         throw new Error('Historical committed-candidate manifest does not bind its recorded source digest.');
       }
@@ -4580,7 +4580,7 @@ async function assertCommittedCandidateReplanAuthority(input: {
     `${input.trustedDefaultSha}:${input.manifestPath}`
   );
   if (defaultManifestBlob !== undefined) {
-    const defaultManifestDigest = CodexDevelopmentWorkPackageManifestDigest(defaultManifestBlob);
+    const defaultManifestDigest = WorkPackageManifestDigest(defaultManifestBlob);
     const pointerBindsDefault = defaultManifestDigest === pointer.manifestDigest;
     const pointerBindsRolling = rollingMachine?.schema === 'sec-work-rolling-transition-projection-v1'
       && rollingMachine.active.manifestDigest === pointer.manifestDigest;
@@ -4597,7 +4597,7 @@ async function assertCommittedCandidateReplanAuthority(input: {
         `Published projection drift repair is blocked: ${binding.kind === 'blocked' ? binding.reason : 'absent'}.`
       );
     }
-    const defaultManifest = CodexDevelopmentParseCurrentWorkPackageManifest(
+    const defaultManifest = ParseCurrentWorkPackageManifest(
       decodeUtf8(defaultManifestBlob, 'Live-default drifted Work Package manifest'),
       input.manifestPath
     );
@@ -4616,7 +4616,7 @@ async function assertCommittedCandidateReplanAuthority(input: {
     kind: 'committed-candidate-replan',
     sourceHead: input.headSha,
     sourceTree,
-    sourceManifestDigest: CodexDevelopmentWorkPackageManifestDigest(
+    sourceManifestDigest: WorkPackageManifestDigest(
       manifestBytes
     ) as `sha256:${string}`,
     sourcePointerRevision: rawSha256(pointerSource),
@@ -5368,7 +5368,7 @@ async function freezeDocumentControlPlaneWithSession(
       filePath: manifestFile,
       label: 'Work Package manifest'
     });
-    const manifestDigest = CodexDevelopmentWorkPackageManifestDigest(manifestBytes) as `sha256:${string}`;
+    const manifestDigest = WorkPackageManifestDigest(manifestBytes) as `sha256:${string}`;
     const existingJournal = existingJournalSnapshot?.journal ?? null;
     if (existingJournal !== null && existingJournal.phase !== 'terminal') {
       if (existingJournal.manifestPath !== input.manifestPath
@@ -5577,7 +5577,7 @@ async function freezeDocumentControlPlaneWithSession(
       authorityProven: committedCandidateReplanAuthority !== undefined,
       historicalBaseIsLiveDefault: immutableRollingMachine?.exactMain === localDefaultSha,
       pointerBindsDefault: defaultTargetManifest !== undefined
-        && CodexDevelopmentWorkPackageManifestDigest(defaultTargetManifest) === immutablePointer.manifestDigest,
+        && WorkPackageManifestDigest(defaultTargetManifest) === immutablePointer.manifestDigest,
       pointerBindsHistoricalRolling:
         immutableRollingMachine?.schema === 'sec-work-rolling-transition-projection-v1'
         && immutableRollingMachine.active.manifestDigest === immutablePointer.manifestDigest,
@@ -5622,11 +5622,11 @@ async function freezeDocumentControlPlaneWithSession(
         ? snapshot.rollingPlanSource
         : undefined
       : decodeUtf8(rollingPlanWorktree, 'Requested rolling-plan projection');
-    const targetManifest = CodexDevelopmentParseCurrentWorkPackageManifest(
+    const targetManifest = ParseCurrentWorkPackageManifest(
       decodeUtf8(manifestBytes, 'Work Package manifest'),
       input.manifestPath
     );
-    const targetManifestDigest = CodexDevelopmentWorkPackageManifestDigest(
+    const targetManifestDigest = WorkPackageManifestDigest(
       manifestBytes
     ) as `sha256:${string}`;
     const committedCandidateProjectionRefreshRequired = workSelectionProjectionMode === 'required-v1'
@@ -5753,7 +5753,7 @@ async function freezeDocumentControlPlaneWithSession(
         && (
           committedCandidateProjectionRefreshRequired
           ||
-          CodexDevelopmentWorkPackageManifestDigest(manifestBytes)
+          WorkPackageManifestDigest(manifestBytes)
             !== immutablePointer.manifestDigest
           || (
             requestedRollingPlanSource !== undefined
@@ -6589,7 +6589,7 @@ async function resolveLiveControlPlaneWithGitReadSession(
   if (activeWorkPackage.state === 'active'
       && candidateManifestBlob !== undefined
       && rollingManifestBinding !== null) {
-    const candidateManifest = CodexDevelopmentParseCurrentWorkPackageManifest(
+    const candidateManifest = ParseCurrentWorkPackageManifest(
       decodeUtf8(candidateManifestBlob, 'Rolling transition active manifest'),
       pointer.manifest
     );

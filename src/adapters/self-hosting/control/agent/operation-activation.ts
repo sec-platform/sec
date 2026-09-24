@@ -1,5 +1,5 @@
 import { canonicalJson, compareCodeUnits, deepFreeze, sha256 } from '../../../../contracts/canonical.ts';
-import { CodexDevelopmentIsCanonicalRepositoryPath } from '../../../../contracts/repository-path.ts';
+import { IsCanonicalRepositoryPath } from '../../../../contracts/repository-path.ts';
 import { type SecDigest } from './task-capsule.ts';
 
 const SEC_AGENT_OPERATION_ACTIVATION_REQUEST_SCHEMA =
@@ -238,14 +238,14 @@ function decimalIdentity(value: unknown, label: string): string {
 
 function repositoryPath(value: unknown, label: string): string {
   const normalized = text(value, label);
-  if (!CodexDevelopmentIsCanonicalRepositoryPath(normalized)) fail(`${label} is not canonical.`);
+  if (!IsCanonicalRepositoryPath(normalized)) fail(`${label} is not canonical.`);
   return normalized;
 }
 
 function ownershipPath(value: unknown, label: string): string {
   const normalized = text(value, label);
   const candidate = normalized.endsWith('/') ? normalized.slice(0, -1) : normalized;
-  if (!CodexDevelopmentIsCanonicalRepositoryPath(candidate)) fail(`${label} is not a canonical ownership path.`);
+  if (!IsCanonicalRepositoryPath(candidate)) fail(`${label} is not a canonical ownership path.`);
   return normalized;
 }
 

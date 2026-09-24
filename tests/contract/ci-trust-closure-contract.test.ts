@@ -3,8 +3,8 @@ import { parse as parseYaml } from 'yaml';
 
 import { CI_MAIN_HEALTH_POLICY, CI_MAIN_HEALTH_POLICY_DIGEST, createCiMainHealthRequestOperationId } from '../../src/adapters/self-hosting/control/main-health/provider-policy.ts';
 import { buildCiContract, CI_MAIN_HEALTH_COMMANDS, CI_MAIN_HEALTH_JOB_NAME, CI_MAIN_HEALTH_STEP_ORDER } from '../../src/adapters/verification/platform/ci/contract/core.ts';
-import { assertCiExpectedHead, buildCiFullGatePlan, buildCiQuickGatePlan, CodexDevelopmentBuildVerificationPlan } from '../../src/adapters/verification/platform/ci/contract/plan.ts';
-import { CodexDevelopmentTrustedBootstrapSutHarness } from '../../src/adapters/verification/platform/ci/verification.ts';
+import { assertCiExpectedHead, buildCiFullGatePlan, buildCiQuickGatePlan, BuildVerificationPlan } from '../../src/adapters/verification/platform/ci/contract/plan.ts';
+import { TrustedBootstrapSutHarness } from '../../src/adapters/verification/platform/ci/verification.ts';
 import { slowTestSuiteIds } from '../../src/adapters/verification/platform/test-impact/contract/budget.ts';
 import { TCB_TRUST_ROOT } from '../../src/adapters/verification/platform/trust/compiler.ts';
 import {
@@ -99,11 +99,11 @@ test('Quick and Full plan topology remains deterministic behind the Action norma
   expect(fullGateIds.filter((id) => id.startsWith('slow-suite-')).sort()).toEqual(
     slowTestSuiteIds().map((suite) => `slow-suite-${suite}`).sort()
   );
-  expect(CodexDevelopmentBuildVerificationPlan('full', [], null).gates.map(({ id }) => id))
+  expect(BuildVerificationPlan('full', [], null).gates.map(({ id }) => id))
     .toContain('docs-doctor');
-  expect(CodexDevelopmentBuildVerificationPlan('full', null, null).gates.map(({ id }) => id))
+  expect(BuildVerificationPlan('full', null, null).gates.map(({ id }) => id))
     .toContain('docs-doctor');
-  expect(() => CodexDevelopmentBuildVerificationPlan('quick', [], null))
+  expect(() => BuildVerificationPlan('quick', [], null))
     .toThrow('owner-issued test-impact source provider');
   expect(() => assertCiExpectedHead('head-a', undefined)).toThrow('requires an exact expected head SHA');
   expect(() => assertCiExpectedHead('head-a', 'head-b')).toThrow('expected head-b, actual head-a');
@@ -116,10 +116,10 @@ test('trusted bootstrap SUT retains the verified typecheck owner', async () => {
   }).scripts;
   expect(packageScripts.typecheck).toContain('native-typecheck.ts');
   expect(packageScripts['typecheck:verified']).toContain('runner/cli.ts typecheck');
-  expect(CodexDevelopmentTrustedBootstrapSutHarness).toContain(
+  expect(TrustedBootstrapSutHarness).toContain(
     '  await execute("typecheck", ["bun", "run", "typecheck:verified"]);'
   );
-  expect(CodexDevelopmentTrustedBootstrapSutHarness).not.toContain(
+  expect(TrustedBootstrapSutHarness).not.toContain(
     '  await execute("typecheck", ["bun", "run", "typecheck"]);'
   );
 });

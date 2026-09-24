@@ -14,7 +14,7 @@ import {
   CodexDevelopmentRenderCommittedCandidateReplanRollingPlan,
   CodexDevelopmentRequiresCommittedCandidateProjectionRefresh
 } from '../../src/adapters/self-hosting/control/documentation/document-control-plane-contract.ts';
-import { CodexDevelopmentWorkPackageManifestDigest } from '../../src/adapters/self-hosting/control/task/contract/work-package.ts';
+import { WorkPackageManifestDigest } from '../../src/adapters/self-hosting/control/task/contract/work-package.ts';
 import {
   compileSecWorkRollingTransitionProjection,
   renderSecWorkRollingTransitionPlan
@@ -100,7 +100,7 @@ stableFacts:
   const currentPointerSource = CodexDevelopmentRenderActivePointer({
     spec,
     manifestPath: `config/repository/work-packages/${activePackageId}.md`,
-    manifestDigest: CodexDevelopmentWorkPackageManifestDigest(currentManifest) as `sha256:${string}`,
+    manifestDigest: WorkPackageManifestDigest(currentManifest) as `sha256:${string}`,
     reviewedOn: '2026-08-21'
   });
   const common = {
@@ -132,7 +132,7 @@ stableFacts:
       packageId: proposalPackageId,
       tracking: 'none',
       manifestPath: `config/repository/work-packages/${proposalPackageId}.md`,
-      manifestDigest: CodexDevelopmentWorkPackageManifestDigest(targetManifest)
+      manifestDigest: WorkPackageManifestDigest(targetManifest)
     },
     candidates: [...candidates]
   });
@@ -150,7 +150,7 @@ stableFacts:
     proposalOnly: { ...proposalOnly, currentResolution: {
       state: 'active',
       manifest: `config/repository/work-packages/${activePackageId}.md`,
-      manifestDigest: CodexDevelopmentWorkPackageManifestDigest(currentManifest)
+      manifestDigest: WorkPackageManifestDigest(currentManifest)
     } }
   })).toThrow('byte-exact on the live default');
   expect(() => CodexDevelopmentCreateFreezeProjection({
@@ -276,7 +276,7 @@ stableFacts:
     catalog: config/repository/work-selection.md#sec-work-selection-roadmap-catalog-v1
     projection: sec-work-selection-live-v1-required
 `);
-  const manifestDigest = CodexDevelopmentWorkPackageManifestDigest(
+  const manifestDigest = WorkPackageManifestDigest(
     targetManifest
   ) as `sha256:${string}`;
   const pointerSource = CodexDevelopmentRenderActivePointer({
@@ -467,7 +467,7 @@ tests:
     sourceManifest,
     Buffer.from('\nReplanned generation.\n', 'utf8')
   ]);
-  const sourceManifestDigest = CodexDevelopmentWorkPackageManifestDigest(
+  const sourceManifestDigest = WorkPackageManifestDigest(
     sourceManifest
   ) as `sha256:${string}`;
   const pointerSource = `---
@@ -527,14 +527,14 @@ stableFacts:
     authority,
     active: {
       packageId: activePackageId,
-      manifestDigest: CodexDevelopmentWorkPackageManifestDigest(targetManifest)
+      manifestDigest: WorkPackageManifestDigest(targetManifest)
     }
   });
   const refreshedAuthority = {
     ...authority,
     sourceHead: 'e'.repeat(40),
     sourceTree: 'f'.repeat(40),
-    sourceManifestDigest: CodexDevelopmentWorkPackageManifestDigest(
+    sourceManifestDigest: WorkPackageManifestDigest(
       targetManifest
     ) as `sha256:${string}`,
     sourcePointerRevision: rawSha256(result.pointerSource),
@@ -555,7 +555,7 @@ stableFacts:
   expect(refreshed.retiredManifestPath).toBeNull();
   expect(CodexDevelopmentParseRollingMachineProjection(refreshed.rollingPlanSource)).toMatchObject({
     authority: refreshedAuthority,
-    active: { manifestDigest: CodexDevelopmentWorkPackageManifestDigest(targetManifest) }
+    active: { manifestDigest: WorkPackageManifestDigest(targetManifest) }
   });
   const staleDerivedDigestAuthority = {
     ...refreshedAuthority,
@@ -575,7 +575,7 @@ stableFacts:
     reviewedOn: '2026-08-21'
   });
   expect(CodexDevelopmentParseActivePointer(repairedDerivedDigest.pointerSource).manifestDigest)
-    .toBe(CodexDevelopmentWorkPackageManifestDigest(targetManifest) as `sha256:${string}`);
+    .toBe(WorkPackageManifestDigest(targetManifest) as `sha256:${string}`);
   expect(CodexDevelopmentParseRollingMachineProjection(
     repairedDerivedDigest.rollingPlanSource
   )).toMatchObject({ authority: staleDerivedDigestAuthority });
@@ -591,7 +591,7 @@ stableFacts:
     packageId: activePackageId,
     tracking: 'issue-1',
     manifestPath,
-    manifestDigest: CodexDevelopmentWorkPackageManifestDigest(targetManifest) as `sha256:${string}`
+    manifestDigest: WorkPackageManifestDigest(targetManifest) as `sha256:${string}`
   };
   expect(CodexDevelopmentRequiresCommittedCandidateProjectionRefresh({
     projection: refreshedProjection,

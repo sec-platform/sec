@@ -18,7 +18,7 @@ import { assertRetainedCompilerDependencyReadGeneration, type RetainedCompilerDe
 import { tsconfigRelativePath } from "../../../../workspace-context.ts";
 import { issueTestInventoryProjection, type IssuedTestInventoryProjection } from '../contract/budget.ts';
 import {
-  CodexDevelopmentCreateTestImpactTransitionObservation,
+  CreateTestImpactTransitionObservation,
   CodexDevelopmentTestImpactTransitionDigest,
   gitChangedFileDiffArgs,
   gitIndexChangedFileDiffArgs,
@@ -29,7 +29,7 @@ import {
   parseGitChangedRecordsOutput,
   parseGitPathBlobBatchOutput,
   parseGitUntrackedFileOutput,
-  type CodexDevelopmentTestImpactTransitionObservation
+  type TestImpactTransitionObservation
 } from './transition.ts';
 
 export type AffectedGitSelectionObservation = Readonly<{
@@ -58,14 +58,14 @@ export type IssuedAffectedTestImpactSource = Readonly<{
 }>;
 
 type AffectedBindingRecord = Readonly<{
-  transition: CodexDevelopmentTestImpactTransitionObservation;
+  transition: TestImpactTransitionObservation;
   descriptorChangeRoots: readonly string[];
 }>;
 const affectedSourceBindings = new WeakMap<object, AffectedBindingRecord>();
 type AffectedGitSelectionBindingRecord = Readonly<{
   session: GitReadSession;
   baseRef: string | null;
-  transition: CodexDevelopmentTestImpactTransitionObservation | null;
+  transition: TestImpactTransitionObservation | null;
   descriptorChangeRoots: readonly string[];
 }>;
 const affectedGitSelectionBindings = new WeakMap<object, AffectedGitSelectionBindingRecord>();
@@ -146,7 +146,7 @@ export async function issueAffectedGitSelectionSource(input: Readonly<{
   }
   if (session.providerIdentity === null || session.workingDirectoryIdentity == null
       || !session.verifyExecutable() || session.verifyWorkingDirectory?.() !== true) return null;
-  const transition = baseSha === null ? null : CodexDevelopmentCreateTestImpactTransitionObservation({
+  const transition = baseSha === null ? null : CreateTestImpactTransitionObservation({
     baseSha,
     headSha,
     records: committedRecords,

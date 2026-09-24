@@ -58,7 +58,7 @@ import {
   requireActiveWorkPackageOwnerObservation,
   type ActiveWorkPackageOwnerObservation
 } from '../../src/adapters/self-hosting/control/task/contract/active-work-observation.ts';
-import { CodexDevelopmentWorkPackageManifestDigest } from '../../src/adapters/self-hosting/control/task/contract/work-package.ts';
+import { WorkPackageManifestDigest } from '../../src/adapters/self-hosting/control/task/contract/work-package.ts';
 import {
   SEC_ROADMAP_WORK_CATALOG_BEGIN,
   SEC_ROADMAP_WORK_CATALOG_END,
@@ -512,7 +512,7 @@ function pointerFor(blob: Uint8Array): CodexDevelopmentActivePointer {
     defaultBranchRef: 'refs/remotes/origin/main',
     defaultRefFreshness: 'live-platform-match-required',
     manifest: FIXTURE_MANIFEST_PATH,
-    manifestDigest: CodexDevelopmentWorkPackageManifestDigest(blob) as `sha256:${string}`,
+    manifestDigest: WorkPackageManifestDigest(blob) as `sha256:${string}`,
     digestBytes: 'git-blob',
     unavailableDefaultRef: 'unresolved',
     matchingDefaultBlob: 'none'
@@ -557,7 +557,7 @@ selectionMode: exact-manifest-not-on-default-branch-v1
 defaultBranchRef: refs/remotes/origin/main
 defaultRefFreshness: live-platform-match-required
 manifest: ${manifestPath}
-manifestDigest: ${CodexDevelopmentWorkPackageManifestDigest(manifestBytes)}
+manifestDigest: ${WorkPackageManifestDigest(manifestBytes)}
 digestBytes: git-blob
 unavailableDefaultRef: unresolved
 matchingDefaultBlob: none
@@ -1459,7 +1459,7 @@ tests:
     const directRepairInput = {
       packageId: repairId,
       manifestPath: repairPath,
-      manifestDigest: CodexDevelopmentWorkPackageManifestDigest(manifestBytes) as `sha256:${string}`,
+      manifestDigest: WorkPackageManifestDigest(manifestBytes) as `sha256:${string}`,
       mainSha: fixture.baseSha,
       mainTreeSha: exactMainTree,
       healthRevision: decision.binding!.healthRevision,
@@ -1842,7 +1842,7 @@ test('proposal-only live readback rejects pointer and manifest identity drift', 
     const pointerFile = path.join(fixture.repositoryRoot, POINTER_PATH);
     const pointerBytes = await readFile(pointerFile);
     await writeFile(pointerFile, pointerBytes.toString('utf8').replace(
-      `manifestDigest: ${CodexDevelopmentWorkPackageManifestDigest(proposalBytes)}`,
+      `manifestDigest: ${WorkPackageManifestDigest(proposalBytes)}`,
       `manifestDigest: ${rawSha256('proposal-pointer-digest-drift')}`
     ));
     runGit(fixture.repositoryRoot, ['add', POINTER_PATH]);
@@ -1948,7 +1948,7 @@ test('pre-evidence replan replaces one staged manifest generation in the same wo
       await readFile(path.join(fixture.repositoryRoot, POINTER_PATH), 'utf8')
     );
     expect<string>(pointer.manifestDigest)
-      .toBe(CodexDevelopmentWorkPackageManifestDigest(nextManifest));
+      .toBe(WorkPackageManifestDigest(nextManifest));
     expect(await readFile(path.join(fixture.repositoryRoot, POINTER_PATH), 'utf8'))
       .toContain('last-reviewed: 2026-08-10');
     expect(await readFile(path.join(fixture.repositoryRoot, 'config/repository/rolling-plan.md'), 'utf8'))
@@ -1987,7 +1987,7 @@ test('pre-evidence replan replaces one committed candidate generation pending am
       status: 'ACTIVATED_INDEX_PENDING_COMMIT',
       baseSha: fixture.baseSha,
       candidateHeadSha: null,
-      manifestDigest: CodexDevelopmentWorkPackageManifestDigest(nextManifest)
+      manifestDigest: WorkPackageManifestDigest(nextManifest)
     });
     expect(replanned.candidateTreeSha).not.toBe(first.candidateTreeSha);
     expect(readGitBlob(fixture.repositoryRoot, `:${FREEZE_TARGET_PATH}`)).toEqual(nextManifest);
@@ -2133,7 +2133,7 @@ test('committed candidate replan repairs one ancestry-proven published control p
       await readFile(path.join(fixture.repositoryRoot, POINTER_PATH), 'utf8')
     );
     expect<string>(repairedPointer.manifestDigest)
-      .toBe(CodexDevelopmentWorkPackageManifestDigest(repairedManifest));
+      .toBe(WorkPackageManifestDigest(repairedManifest));
     const repairedRolling = await readFile(
       path.join(fixture.repositoryRoot, 'config/repository/rolling-plan.md'),
       'utf8'
@@ -5206,7 +5206,7 @@ test('repository controls use the shared live resolver and preserve one bounded 
   expect(currentStateSource).not.toContain('nextReconciliationPoint');
   expect(manifestBlob).toBeDefined();
   expect(pointer.manifestDigest).toBe(
-    CodexDevelopmentWorkPackageManifestDigest(manifestBlob!) as `sha256:${string}`
+    WorkPackageManifestDigest(manifestBlob!) as `sha256:${string}`
   );
 
   const defaultManifestBlob = readGitBlob(
@@ -5220,7 +5220,7 @@ test('repository controls use the shared live resolver and preserve one bounded 
     defaultRefState: 'fresh'
   });
   if (defaultManifestBlob) {
-    if (CodexDevelopmentWorkPackageManifestDigest(defaultManifestBlob) === pointer.manifestDigest) {
+    if (WorkPackageManifestDigest(defaultManifestBlob) === pointer.manifestDigest) {
       expect(repositoryResolution).toEqual({ state: 'none', reason: 'matching-default-blob' });
     } else {
       expect(repositoryResolution).toEqual({ state: 'invalid', reason: 'manifest-path-already-on-default' });

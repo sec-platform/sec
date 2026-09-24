@@ -7,7 +7,7 @@ import {
   isTestImpactSourceFile,
   resolveTestImpactSelectionTrustBoundary,
   selectTestsForSources,
-  type CodexDevelopmentTestImpactSourceProvider
+  type TestImpactSourceProvider
 } from './runtime/impact.ts';
 
 export type CodexDevelopmentAffectedTestInventory = {
@@ -46,7 +46,7 @@ export function CodexDevelopmentAffectedInventoryInputs(
 
 export function CodexDevelopmentBuildAffectedTestInventory(
   files: readonly string[],
-  provider: CodexDevelopmentTestImpactSourceProvider
+  provider: TestImpactSourceProvider
 ): CodexDevelopmentAffectedTestInventory {
   const changedFastTests = uniqueSorted(files.filter(isFastTestFile));
   const changedSlowTests = uniqueSorted(files.filter(isSlowTestFile));
@@ -257,7 +257,7 @@ export function defaultAffectedSelectionProjectionContext(
  * has run yet. After execution, the runner constructs a fresh result with
  * the actual exit code; that path is outside this contract.
  *
- * Cross-field invariants enforced by CodexDevelopmentBuildVerificationGateResultV1:
+ * Cross-field invariants enforced by BuildVerificationGateResultV1:
  * - `applicability: unresolved` requires `status: invalidated`.
  * - `applicability: not-applicable` requires `status: not-run`.
  * - `status: invalidated` requires an INVALIDATED reasonCode (selection-unresolved).
@@ -266,9 +266,9 @@ export function defaultAffectedSelectionProjectionContext(
  *
  * Implementation note: this function constructs the result object directly
  * (with a local schema constant) rather than calling
- * CodexDevelopmentBuildVerificationGateResultV1, to avoid pulling
+ * BuildVerificationGateResultV1, to avoid pulling
  * verification-result-contract.ts into the TCB runtime import closure.
- * The result is validated by CodexDevelopmentAssertVerificationGateResultV1
+ * The result is validated by AssertVerificationGateResultV1
  * in tests/contract/affected-selection-trust-boundary.test.ts.
  */
 export function projectAffectedSelectionToVerificationGateResult(

@@ -4,7 +4,7 @@ import {
   createBoundedProcessDiagnosticObjectReceipt
 } from '../../src/adapters/runtime-state/workspace-state/bounded-process-diagnostic-contract.ts';
 import { createVerificationActionKey, createVerificationActionPlan, createVerificationActionTerminal, encodeVerificationActionData, issueNonProcessVerificationActionTerminalSettlement, issueProcessVerificationActionTerminalSettlement, issueVerificationActionOwnerTerminalReceipt, isVerificationActionRunnable, parseVerificationActionKey, projectVerificationActionTerminal, VERIFICATION_ACTION_PROCESS_RESOURCE_POLICY, verificationActionDependsOnChangedInputs, type VerificationActionKeyInput } from '../../src/adapters/verification/platform/action/contract/action.ts';
-import { CodexDevelopmentAssertVerificationGateResult } from '../../src/assurance/verification/result/contract/result.ts';
+import { AssertVerificationGateResult } from '../../src/assurance/verification/result/contract/result.ts';
 import { VERIFICATION_GATE_RESULT_SCHEMA } from '../../src/assurance/verification/result/contract/schema.ts';
 import { sha256 } from '../../src/contracts/canonical.ts';
 import {
@@ -395,11 +395,11 @@ test('canonical Result preserves known failed reuse without promotion', () => {
       toolchainRevision: 'bun@1.3.14', providerRevisions: [] },
     execution: null, evidenceRefs: ['evidence://original-failure'], invalidationRules: [], diagnostic: null
   };
-  expect(() => CodexDevelopmentAssertVerificationGateResult(reusedFailure)).not.toThrow();
-  expect(() => CodexDevelopmentAssertVerificationGateResult({ ...reusedFailure, status: 'passed',
+  expect(() => AssertVerificationGateResult(reusedFailure)).not.toThrow();
+  expect(() => AssertVerificationGateResult({ ...reusedFailure, status: 'passed',
     reasonCode: 'executed-failure' })).toThrow('passed status requires');
-  expect(() => CodexDevelopmentAssertVerificationGateResult({ ...reusedFailure,
+  expect(() => AssertVerificationGateResult({ ...reusedFailure,
     evidenceRefs: [] })).toThrow('non-empty evidenceRefs');
-  expect(() => CodexDevelopmentAssertVerificationGateResult({ ...reusedFailure,
+  expect(() => AssertVerificationGateResult({ ...reusedFailure,
     environment: null })).toThrow('non-null environment');
 });

@@ -319,7 +319,7 @@ export function parseExactGitBlobsBatch(
   return Object.freeze(decoded);
 }
 
-export async function CodexDevelopmentReadExactGitBlobBytesBatchFromSession(
+export async function ReadExactGitBlobBytesBatchFromSession(
   session: GitReadSession,
   input: Readonly<{
     entries: readonly CodexDevelopmentExactGitTreeEntry[];
@@ -360,7 +360,7 @@ export async function CodexDevelopmentReadExactGitTextBlobsBatchFromSession(
     maxTotalBytes?: number;
   }>
 ): Promise<readonly CodexDevelopmentExactGitTextBlob[]> {
-  const blobs = await CodexDevelopmentReadExactGitBlobBytesBatchFromSession(session, input);
+  const blobs = await ReadExactGitBlobBytesBatchFromSession(session, input);
   return Object.freeze(blobs.map((blob) => Object.freeze({
     blobSha: blob.blobSha,
     repositoryPath: blob.repositoryPath,

@@ -32,11 +32,11 @@ import {
 import { createScopeAuthorization, type ScopeAuthorization } from '../../src/adapters/self-hosting/control/scope/authorization.ts';
 import { encodeVerificationActionData } from '../../src/adapters/verification/platform/action/contract/action.ts';
 import { ciVerificationActionParentDispatchPlanPayloadDigest, createCiVerificationActionParentDispatchPlan, createCiVerificationActionProposal, createCiVerificationActionProviderEnvelope, createCiVerificationLocalExecutionEnvironment } from '../../src/adapters/verification/platform/action/contract/ci.ts';
-import { CodexDevelopmentCreateVerificationEvidenceProducer, CodexDevelopmentFinalizeVerificationEvidenceV4, CodexDevelopmentFinalizeVerificationSessionArtifact } from '../../src/adapters/verification/platform/ci/contract/evidence.ts';
+import { CreateVerificationEvidenceProducer, FinalizeVerificationEvidenceV4, FinalizeVerificationSessionArtifact } from '../../src/adapters/verification/platform/ci/contract/evidence.ts';
 import { bindDocumentationVerificationGateInput } from '../../src/adapters/verification/platform/ci/contract/plan.ts';
 import { createReviewSnapshotDigest, createReviewStabilityReceipt, renderIndependentReviewTrailer, REVIEW_OBSERVER_READ_ONLY_CAPABILITY_RECEIPT, SEC_REVIEW_STABILITY_POLICY } from '../../src/adapters/verification/platform/review/contract/stability.ts';
-import { CodexDevelopmentCreateTestImpactTransitionObservation, CodexDevelopmentTestImpactTransitionDigest, type CodexDevelopmentTestImpactTransitionObservation } from '../../src/adapters/verification/platform/test-impact/runtime/transition.ts';
-import { CodexDevelopmentBuildVerificationGateResult } from '../../src/assurance/verification/result/contract/result.ts';
+import { CreateTestImpactTransitionObservation, CodexDevelopmentTestImpactTransitionDigest, type TestImpactTransitionObservation } from '../../src/adapters/verification/platform/test-impact/runtime/transition.ts';
+import { BuildVerificationGateResult } from '../../src/assurance/verification/result/contract/result.ts';
 
 import type {
   GitHubCheckObservation, GitHubWorkflowJobObservation,
@@ -76,8 +76,8 @@ import {
   renderIntegrationAuthorizationOperationPublicationComment
 } from '../../src/adapters/self-hosting/control/integration/integration-authorization-publication.ts';
 import {
-  CodexDevelopmentEvaluateMergeGate,
-  type CodexDevelopmentMergeGateResult
+  EvaluateMergeGate,
+  type MergeGateResult
 } from '../../src/adapters/self-hosting/control/integration/merge-gate.ts';
 import { createObservedMainHealthInput } from '../../src/adapters/self-hosting/control/main-health/main-health-observation.ts';
 import { CI_MAIN_HEALTH_POLICY, createCiMainHealthRequestOperationId } from '../../src/adapters/self-hosting/control/main-health/provider-policy.ts';
@@ -198,8 +198,8 @@ function changedTransition(
   changedPaths: readonly string[],
   baseSha = BASE,
   headSha = HEAD
-): CodexDevelopmentTestImpactTransitionObservation {
-  return CodexDevelopmentCreateTestImpactTransitionObservation({
+): TestImpactTransitionObservation {
+  return CreateTestImpactTransitionObservation({
     baseSha,
     headSha,
     records: changedPaths.map((changedPath) => ({ status: 'changed' as const, path: changedPath })),
@@ -1020,14 +1020,14 @@ async function reducerFixture(options: {
     observedAt: VERIFIED_AT, reviewBarrier: barrier, mainHealthChecks: [sessionMainHealthCheck],
     dependencyBlobs: actionDependencyBlobs() });
   const envelope = createPureHostedEnvelopeFixture({ request: local.request, facts });
-  const producer = CodexDevelopmentCreateVerificationEvidenceProducer({
+  const producer = CreateVerificationEvidenceProducer({
     sourceTransport: 'github-actions', workflowPath: '.github/workflows/compiler-pr-validation.yml',
     workflowRef: `.github/workflows/compiler-pr-validation.yml@${BASE}`, workflowSha: BASE,
     runId: '100', runAttempt: 1, actorNodeId: 'INTEGRATOR'
   });
   const gates = envelope.actionPlanClosure.actions.map(({ action }, index) => ({
     action,
-    result: CodexDevelopmentBuildVerificationGateResult({
+    result: BuildVerificationGateResult({
       gateId: action.operation.identity, gateRevision: action.operation.revision,
       owner: 'ci-verification-maintainer', requirementKey: `gate:${action.operation.identity}`,
       subjectRevision: HEAD, inputDigest: action.actionKey, applicability: 'required',
@@ -1044,7 +1044,7 @@ async function reducerFixture(options: {
     }),
     cleanup: { status: 'not-required' as const, evidenceRefs: [] as string[], diagnostic: null }
   }));
-  const evidence = CodexDevelopmentFinalizeVerificationEvidenceV4({
+  const evidence = FinalizeVerificationEvidenceV4({
     contractRevision: 'ci-verification-v19', sessionRevision: envelope.session.sessionRevision,
     sessionProposalDigest: envelope.session.sessionProposalDigest,
     scopeAuthorizationRevision: envelope.scopeAuthorization.authorizationRevision,
@@ -1058,7 +1058,7 @@ async function reducerFixture(options: {
     finishedAt: '2026-08-09T14:03:00.000Z', gates, evidenceRefs: [],
     invalidationRules: ['Session, Action, Review, MainHealth, or trust changes']
   });
-  const artifact = CodexDevelopmentFinalizeVerificationSessionArtifact({
+  const artifact = FinalizeVerificationSessionArtifact({
     scopeAuthorization: envelope.scopeAuthorization, session: envelope.session,
     preGateReview: envelope.preGateReview, mainHealth: envelope.mainHealth, evidence, producer
   });
@@ -1107,7 +1107,7 @@ async function reducerFixture(options: {
     mainHealth: freshMainHealth, consumptionOperationId, issuedAt: mergeAt,
     expiresAt: options.authorizationExpiresAt ?? '2026-08-09T14:10:00.000Z'
   });
-  const result = CodexDevelopmentEvaluateMergeGate(mergeInput);
+  const result = EvaluateMergeGate(mergeInput);
   const authorizationPublicationId = `sha256:${createHash('sha256').update(encodeVerificationActionData({
     consumptionOperationId: result.authorization.consumptionOperationId,
     authorizationReceiptDigest: result.authorization.receiptDigest
@@ -1190,7 +1190,7 @@ async function reducerFixture(options: {
   return { repositoryRoot, journalFs, transport, github, artifact, result, external, counters, changedPaths,
     testImpactTransition, markers,
     request: local.request, preparation,
-    setAuthorizationResult: (next: CodexDevelopmentMergeGateResult | string) => {
+    setAuthorizationResult: (next: MergeGateResult | string) => {
       trustedAuthorization = typeof next === 'string'
         ? { ...trustedAuthorization, resultJson: next }
         : createTrustedIntegrationAuthorizationArtifact({
@@ -1234,7 +1234,7 @@ function durablePublication(fixture: Awaited<ReturnType<typeof reducerFixture>>)
 function substituteAuthorizationLiveIdentity(
   fixture: Awaited<ReturnType<typeof reducerFixture>>,
   identity: { repository?: string; prNumber?: number }
-): CodexDevelopmentMergeGateResult {
+): MergeGateResult {
   const previous = fixture.result.authorization;
   const { schema: _schema, authorizationId: _authorizationId, receiptDigest: _receiptDigest,
     ...authorizationInput } = previous;
@@ -2227,10 +2227,10 @@ test('VerificationSession binds the exact deletion transition through Scope, Act
       ? { mode: '100644' as const, blobSha: '3fbfa041119f70429b5f6cc4440816b50ab3a0ef' }
       : null
   );
-  const testImpactTransition = CodexDevelopmentCreateTestImpactTransitionObservation({
+  const testImpactTransition = CreateTestImpactTransitionObservation({
     baseSha, headSha, records, readPathBlob
   });
-  const reordered = CodexDevelopmentCreateTestImpactTransitionObservation({
+  const reordered = CreateTestImpactTransitionObservation({
     baseSha, headSha, records: [...records].reverse(), readPathBlob
   });
   expect(CodexDevelopmentTestImpactTransitionDigest(reordered))
@@ -2261,7 +2261,7 @@ test('VerificationSession binds the exact deletion transition through Scope, Act
     workflowRef: `${CI_MAIN_HEALTH_POLICY.producer.workflowPath}@${baseSha}`
   })];
   const manifestDigest = `sha256:${'e'.repeat(64)}` as const;
-  const unownedTransition = CodexDevelopmentCreateTestImpactTransitionObservation({
+  const unownedTransition = CreateTestImpactTransitionObservation({
     baseSha,
     headSha,
     records: [{ status: 'removed', path: unownedRetiredPath }],
@@ -2343,7 +2343,7 @@ test('same paths with a different Git transition change the complete Verificatio
     repository: candidate.repository, candidate,
     manifestPath: 'config/repository/work-packages/example.md', manifestDigest: `sha256:${'e'.repeat(64)}`,
     changedPaths,
-    testImpactTransition: CodexDevelopmentCreateTestImpactTransitionObservation({
+    testImpactTransition: CreateTestImpactTransitionObservation({
       baseSha: candidate.baseSha, headSha: candidate.headSha,
       records: [{ status, path: changedPaths[0]! }], readPathBlob: () => null
     }),

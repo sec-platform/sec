@@ -17,7 +17,7 @@ import { publishExclusiveDurableCanonicalFile, readNoFollowOrdinaryFile, type Ph
 import { resolveSecRuntimeStateForRepository } from '../../../runtime-state/workspace-state/paths.ts';
 import { acquireSecRuntimeStatePhysicalAuthority, type SecRuntimeStatePhysicalAuthority } from '../../../runtime-state/workspace-state/physical-authority.ts';
 import { encodeVerificationActionData } from '../../../verification/platform/action/contract/action.ts';
-import { CodexDevelopmentParseVerificationSessionArtifact, type CodexDevelopmentVerificationSessionArtifact } from '../../../verification/platform/ci/contract/evidence.ts';
+import { ParseVerificationSessionArtifact, type VerificationSessionArtifact } from '../../../verification/platform/ci/contract/evidence.ts';
 import {
   createVerificationSessionGitHubClient,
   type GitHubCandidateObservation,
@@ -52,7 +52,7 @@ import {
 } from '../integration/integration-authorization-status-github.ts';
 import {
   CodexDevelopmentEvaluateTrustedRuntimeMergeGate,
-  CodexDevelopmentMergeGateProducerIdentity,
+  MergeGateProducerIdentity,
   CodexDevelopmentParseTrustedRuntimeMergeGateResult
 } from '../integration/merge-gate.ts';
 import {
@@ -65,10 +65,10 @@ import {
   withMainHealthGitHubReadOperationBudget
 } from '../main-health/work-selection-main-health.ts';
 import {
-  CodexDevelopmentAssertWorkPackageOwnership,
-  CodexDevelopmentParseCurrentWorkPackageManifest,
-  CodexDevelopmentParseWorkPackageLocator,
-  CodexDevelopmentWorkPackageManifestDigest
+  AssertWorkPackageOwnership,
+  ParseCurrentWorkPackageManifest,
+  ParseWorkPackageLocator,
+  WorkPackageManifestDigest
 } from '../task/contract/work-package.ts';
 
 const TRUSTED_RUNTIME_ACTION_BUNDLE_SCHEMA =
@@ -99,7 +99,7 @@ interface TrustedRuntimeActionBundle {
   readonly schema: typeof TRUSTED_RUNTIME_ACTION_BUNDLE_SCHEMA;
   readonly sessionRevision: Digest;
   readonly actionPlanDigest: Digest;
-  readonly artifact: CodexDevelopmentVerificationSessionArtifact;
+  readonly artifact: VerificationSessionArtifact;
   readonly containerReceipt: TrustedRuntimeContainerReceipt;
   readonly bundleDigest: Digest;
 }
@@ -216,10 +216,10 @@ async function assertTrustedMergedRecoveryRuntime(
 }
 
 function createActionBundle(input: Readonly<{
-  artifact: CodexDevelopmentVerificationSessionArtifact;
+  artifact: VerificationSessionArtifact;
   containerReceipt: TrustedRuntimeContainerReceipt;
 }>): TrustedRuntimeActionBundle {
-  const artifact = CodexDevelopmentParseVerificationSessionArtifact(
+  const artifact = ParseVerificationSessionArtifact(
     encodeVerificationActionData(input.artifact)
   );
   const receipt = parseTrustedRuntimeContainerReceipt(input.containerReceipt);
@@ -252,7 +252,7 @@ function parseActionBundle(source: Uint8Array): TrustedRuntimeActionBundle {
     fail('Action bundle shape is invalid');
   }
   const rebuilt = createActionBundle({
-    artifact: CodexDevelopmentParseVerificationSessionArtifact(
+    artifact: ParseVerificationSessionArtifact(
       encodeVerificationActionData(value.artifact)
     ),
     containerReceipt: parseTrustedRuntimeContainerReceipt(value.containerReceipt)
@@ -401,11 +401,11 @@ async function finalizeMergedTrustedRuntime(input: Readonly<{
     candidate.headSha,
     artifact.session.manifestPath
   );
-  if (CodexDevelopmentWorkPackageManifestDigest(manifestSource)
+  if (WorkPackageManifestDigest(manifestSource)
       !== artifact.session.manifestDigest) {
     fail('merged candidate Work Package bytes differ from the durable Session');
   }
-  const manifest = CodexDevelopmentParseCurrentWorkPackageManifest(
+  const manifest = ParseCurrentWorkPackageManifest(
     manifestSource,
     artifact.session.manifestPath
   );
@@ -608,13 +608,13 @@ async function closeoutOpenCandidateWithTrustedRuntime(args: Readonly<{
   if (comparison.status !== 'ahead' || comparison.behindBy !== 0 || openCount !== 1) {
     fail('candidate ancestry or same-head PR identity is not exact');
   }
-  const manifestPath = CodexDevelopmentParseWorkPackageLocator(candidate.body);
+  const manifestPath = ParseWorkPackageLocator(candidate.body);
   const manifestSource = github.readBlobText(input.repository, candidate.headSha, manifestPath);
-  const manifestDigest = CodexDevelopmentWorkPackageManifestDigest(manifestSource) as Digest;
-  const manifest = CodexDevelopmentParseCurrentWorkPackageManifest(manifestSource, manifestPath);
+  const manifestDigest = WorkPackageManifestDigest(manifestSource) as Digest;
+  const manifest = ParseCurrentWorkPackageManifest(manifestSource, manifestPath);
   const changed = await observeVerificationSessionChangedSelection({ repositoryRoot,
     repository: input.repository, prNumber: input.prNumber, candidate, github });
-  CodexDevelopmentAssertWorkPackageOwnership(manifest, [...changed.changedPaths]);
+  AssertWorkPackageOwnership(manifest, [...changed.changedPaths]);
   const dependencyBlobs = observeVerificationSessionActionDependencyBlobs({ github,
     repository: input.repository, baseSha: candidate.baseSha, headSha: candidate.headSha });
   const principal = github.observeViewerPrincipal(input.repository);
@@ -626,7 +626,7 @@ async function closeoutOpenCandidateWithTrustedRuntime(args: Readonly<{
     prNumber: input.prNumber, headSha: candidate.headSha,
     excludedPrincipalNodeIds: new Set([candidate.authorNodeId, principal.nodeId]) });
   const observedAt = new Date().toISOString();
-  const runtimeRef = `${CodexDevelopmentMergeGateProducerIdentity}@${candidate.baseSha}`;
+  const runtimeRef = `${MergeGateProducerIdentity}@${candidate.baseSha}`;
   const runtimeLayout = resolveSecRuntimeStateForRepository({
     repository: input.repository,
     repositoryRoot
@@ -730,7 +730,7 @@ async function closeoutOpenCandidateWithTrustedRuntime(args: Readonly<{
       parent: stateDirectory,
       name: `artifact-${artifact.artifactDigest.slice(7)}.json`,
       value: artifact,
-      parse: (bytes) => CodexDevelopmentParseVerificationSessionArtifact(
+      parse: (bytes) => ParseVerificationSessionArtifact(
         Buffer.from(bytes).toString('utf8')
       )
     });
@@ -819,7 +819,7 @@ async function closeoutOpenCandidateWithTrustedRuntime(args: Readonly<{
       },
       artifactObservation,
       provenance: {
-        runtimePath: CodexDevelopmentMergeGateProducerIdentity,
+        runtimePath: MergeGateProducerIdentity,
         runtimeRef,
         runtimeSha: candidate.baseSha,
         executionId: actionBundle.containerReceipt.executionId,

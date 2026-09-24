@@ -36,11 +36,11 @@ import {
 } from '../../src/adapters/verification/platform/test-impact/runtime/affected-source.ts';
 import {
   createRepositoryTestImpactSourceProvider,
-  type CodexDevelopmentTestImpactSourceProvider
+  type TestImpactSourceProvider
 } from '../../src/adapters/verification/platform/test-impact/runtime/impact.ts';
 import {
-  CodexDevelopmentCreateTestImpactTransitionObservation,
-  type CodexDevelopmentTestImpactTransitionObservation
+  CreateTestImpactTransitionObservation,
+  type TestImpactTransitionObservation
 } from '../../src/adapters/verification/platform/test-impact/runtime/transition.ts';
 import { tsconfigRelativePath } from "../../src/adapters/workspace-context.ts";
 import { isSecRepositoryTestModulePath } from '../../src/contracts/repository-test-path.ts';
@@ -50,7 +50,7 @@ const GIT_OBJECT_ID = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/u;
 const FIXTURE_ROOT_PREFIX = 'sec-test-impact-exact-tree-';
 
 type ExactGitFixtureBase = Readonly<{
-  provider: CodexDevelopmentTestImpactSourceProvider;
+  provider: TestImpactSourceProvider;
   sourceCommitSha: string;
   fixtureCommitSha: string;
   repositoryRoot: string;
@@ -72,8 +72,8 @@ export type ExactGitTreeTestRunnerFixture = ExactGitFixtureBase & Readonly<{
 }>;
 
 export type RemovedDocumentationTestImpactFixture = Readonly<{
-  provider: CodexDevelopmentTestImpactSourceProvider;
-  transition: CodexDevelopmentTestImpactTransitionObservation;
+  provider: TestImpactSourceProvider;
+  transition: TestImpactTransitionObservation;
   dispose(): void;
 }>;
 
@@ -286,7 +286,7 @@ export async function createRemovedDocumentationTestImpactFixture(
       git(repositoryRoot, ['add', '--', descriptorPath]);
     }
     const records = Object.freeze([{ status: 'removed' as const, path: documentationPath }]);
-    const transition = CodexDevelopmentCreateTestImpactTransitionObservation({
+    const transition = CreateTestImpactTransitionObservation({
       baseSha,
       headSha,
       records,

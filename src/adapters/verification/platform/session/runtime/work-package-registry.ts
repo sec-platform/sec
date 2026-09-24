@@ -4,8 +4,8 @@ import {
   decodeBranchLifecycleChildError
 } from '../../../../self-hosting/control/branch-lifecycle/branch-lifecycle-command.ts';
 import {
-  CodexDevelopmentParseWorkPackageLocator,
-  CodexDevelopmentWorkPackageManifestDigest
+  ParseWorkPackageLocator,
+  WorkPackageManifestDigest
 } from '../../../../self-hosting/control/task/contract/work-package.ts';
 import {
   VERIFICATION_REGISTRY_PROJECTION_SCHEMA,
@@ -95,7 +95,7 @@ async function collectManifestDigests(
     const bytes = await readBytes(readGit, ['cat-file', 'blob', entry.blobSha], 'manifest blob');
     consumeRecords(1);
     if (bytes.byteLength > limit) throw new Error(`Manifest blob ${entry.repositoryPath} exceeds the command byte limit.`);
-    digests.set(entry.blobSha, CodexDevelopmentWorkPackageManifestDigest(bytes) as `sha256:${string}`);
+    digests.set(entry.blobSha, WorkPackageManifestDigest(bytes) as `sha256:${string}`);
     return digests;
   }
   const input = Buffer.from(`${unique.map(entry => entry.blobSha).join('\n')}\n`, 'ascii');
@@ -114,7 +114,7 @@ async function collectManifestDigests(
       if (blob.byteLength !== batch[index]!.byteLength) {
         throw new Error(`Manifest blob size readback differs for ${blob.repositoryPath}.`);
       }
-      digests.set(blob.blobSha, CodexDevelopmentWorkPackageManifestDigest(blob.bytes) as `sha256:${string}`);
+      digests.set(blob.blobSha, WorkPackageManifestDigest(blob.bytes) as `sha256:${string}`);
     }
     batch = []; batchBytes = 0;
   };
@@ -128,7 +128,7 @@ async function collectManifestDigests(
       const bytes = await readBytes(readGit, ['cat-file', 'blob', entry.blobSha], 'manifest blob');
       consumeRecords(1);
       if (bytes.byteLength !== entry.byteLength) throw new Error(`Manifest blob size readback differs for ${entry.repositoryPath}.`);
-      digests.set(entry.blobSha, CodexDevelopmentWorkPackageManifestDigest(bytes) as `sha256:${string}`);
+      digests.set(entry.blobSha, WorkPackageManifestDigest(bytes) as `sha256:${string}`);
     } else {
       batch.push(entry); batchBytes += responseBytes;
     }
@@ -160,7 +160,7 @@ export async function projectWorkPackageRegistry(input: Readonly<{
     .map(entry => ({ ...entry }));
   const openPullRequests = (input.openPullRequests ?? []).map(pullRequest => {
     const captured = { ...pullRequest };
-    return { ...captured, manifestPath: CodexDevelopmentParseWorkPackageLocator(captured.body) };
+    return { ...captured, manifestPath: ParseWorkPackageLocator(captured.body) };
   });
   const revisions = [`${defaultRef}^{tree}`, ...openPullRequests.flatMap(pr => [
     `${pr.headSha}^{tree}`, `${pr.headSha}:${pr.manifestPath}`

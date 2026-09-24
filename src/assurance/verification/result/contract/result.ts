@@ -581,7 +581,7 @@ function assertExecution(value: unknown, label: string): asserts value is Verifi
  * - evidenceRefs required for reused disposition
  * - environment required for executed disposition
  */
-export function CodexDevelopmentAssertVerificationGateResult(
+export function AssertVerificationGateResult(
   value: unknown
 ): asserts value is VerificationGateResult {
   const label = 'verification gate result';
@@ -695,7 +695,7 @@ export interface VerificationGateResultBuilderInput {
  * returning. Use this instead of constructing the object literal directly to
  * guarantee cross-field invariants.
  */
-export function CodexDevelopmentBuildVerificationGateResult(
+export function BuildVerificationGateResult(
   input: VerificationGateResultBuilderInput
 ): VerificationGateResult {
   const snapshot = CodexDevelopmentSnapshotVerificationData(
@@ -706,7 +706,7 @@ export function CodexDevelopmentBuildVerificationGateResult(
     schema: VERIFICATION_GATE_RESULT_SCHEMA,
     ...snapshot
   };
-  CodexDevelopmentAssertVerificationGateResult(result);
+  AssertVerificationGateResult(result);
   return result;
 }
 
@@ -869,7 +869,7 @@ function snapshotVerificationAggregateInput(
   const gateMap = new Map<string, VerificationGateResult>();
   const observations = new Set<string>();
   gateResults.forEach((gateResult) => {
-    CodexDevelopmentAssertVerificationGateResult(gateResult);
+    AssertVerificationGateResult(gateResult);
     const observation = observationIdentity(gateResult);
     if (observations.has(observation)) {
       throw new Error(

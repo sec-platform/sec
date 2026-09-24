@@ -143,8 +143,8 @@ import {
   type IntegrationAuthorizationOperationPublication
 } from '../../../../self-hosting/control/integration/integration-authorization-publication.ts';
 import {
-  CodexDevelopmentEvaluateMergeGate,
-  CodexDevelopmentParseMergeGateResult,
+  EvaluateMergeGate,
+  ParseMergeGateResult,
   assertCanonicalMergeMessage
 } from '../../../../self-hosting/control/integration/merge-gate.ts';
 import {
@@ -160,11 +160,11 @@ import type {
   ActiveWorkPackageOwnerObservation
 } from '../../../../self-hosting/control/task/contract/active-work-observation.ts';
 import {
-  CodexDevelopmentAssertWorkPackageOwnership,
-  CodexDevelopmentParseCurrentWorkPackageManifest,
-  CodexDevelopmentParseWorkPackageLocator,
-  CodexDevelopmentParseWorkPackageManifest,
-  CodexDevelopmentWorkPackageManifestDigest
+  AssertWorkPackageOwnership,
+  ParseCurrentWorkPackageManifest,
+  ParseWorkPackageLocator,
+  ParseWorkPackageManifest,
+  WorkPackageManifestDigest
 } from '../../../../self-hosting/control/task/contract/work-package.ts';
 import { executeVerifiedCiActionPlan } from '../../../../self-hosting/development/runner/verification-action-executor.ts';
 import { encodeVerificationActionData } from '../../action/contract/action.ts';
@@ -179,19 +179,19 @@ import { loadVerificationProviderCapabilityLedger } from '../../provider/capabil
 import { assertProviderRetryGuard, resolveProviderAvailability } from '../../provider/contract/capability.ts';
 import { renderIndependentReviewTrailer, type ReviewStabilityReceipt } from '../../review/contract/stability.ts';
 import { VERIFICATION_SESSION_RUNTIME_ENTRYPOINT_PATH, parseVerificationSession, type VerificationSession } from '../../session/contract/session.ts';
-import type { CodexDevelopmentTestImpactTransitionObservation } from '../../test-impact/runtime/transition.ts';
+import type { TestImpactTransitionObservation } from '../../test-impact/runtime/transition.ts';
 import { SEC_TRUSTED_BOOTSTRAP_REGISTRY } from '../../trust/contract/root.ts';
 import {
-  CodexDevelopmentCreateVerificationEvidenceProducer,
-  CodexDevelopmentParseVerificationSessionArtifact
+  CreateVerificationEvidenceProducer,
+  ParseVerificationSessionArtifact
 } from '../contract/evidence.ts';
 import {
   CI_VERIFICATION_SESSION_DISPATCH_TYPE
 } from '../contract/revision.ts';
 import {
-  CodexDevelopmentDefaultChangedPaths,
-  CodexDevelopmentExactGitWorkspaceSourceSnapshot,
-  CodexDevelopmentTestImpactSourceProviderFromSnapshot
+  DefaultChangedPaths,
+  ExactGitWorkspaceSourceSnapshot,
+  TestImpactSourceProviderFromSnapshot
 } from './ci-orchestration-core.ts';
 import {
   createVerificationSessionGitHubClient,
@@ -270,8 +270,8 @@ export async function observeVerificationSessionChangedSelection(input: {
   github: VerificationSessionGitHubClient;
 }): Promise<Readonly<{
   changedPaths: readonly string[];
-  testImpactSourceProvider: ReturnType<typeof CodexDevelopmentTestImpactSourceProviderFromSnapshot>;
-  testImpactTransition: CodexDevelopmentTestImpactTransitionObservation;
+  testImpactSourceProvider: ReturnType<typeof TestImpactSourceProviderFromSnapshot>;
+  testImpactTransition: TestImpactTransitionObservation;
 }>> {
   const provider = input.github.observeChangedPaths({
     repository: input.repository,
@@ -285,12 +285,12 @@ export async function observeVerificationSessionChangedSelection(input: {
     cwd: input.repositoryRoot,
     budget: GIT_READ_EXACT_TREE_OPERATION_BUDGET
   }, async (session) => Object.freeze({
-    exact: await CodexDevelopmentDefaultChangedPaths(
+    exact: await DefaultChangedPaths(
       session,
       input.candidate.baseSha,
       input.candidate.headSha
     ),
-    workspaceSnapshot: await CodexDevelopmentExactGitWorkspaceSourceSnapshot(
+    workspaceSnapshot: await ExactGitWorkspaceSourceSnapshot(
       session,
       input.candidate.headSha
     )
@@ -301,7 +301,7 @@ export async function observeVerificationSessionChangedSelection(input: {
   }
   return Object.freeze({
     changedPaths: Object.freeze([...provider.paths]),
-    testImpactSourceProvider: CodexDevelopmentTestImpactSourceProviderFromSnapshot(
+    testImpactSourceProvider: TestImpactSourceProviderFromSnapshot(
       exactObservation.workspaceSnapshot,
       input.repositoryRoot
     ),
@@ -1073,8 +1073,8 @@ function hostedIntegrationPreflightResultPath(repositoryRoot: string): string {
 }
 
 function assertHostedIntegrationPreflightStillControls(input: Readonly<{
-  frozen: ReturnType<typeof CodexDevelopmentParseMergeGateResult>;
-  fresh: ReturnType<typeof CodexDevelopmentEvaluateMergeGate>;
+  frozen: ReturnType<typeof ParseMergeGateResult>;
+  fresh: ReturnType<typeof EvaluateMergeGate>;
 }>): void {
   const stableFields = [
     'consumptionOperationId', 'repository', 'prNumber', 'sessionRevision',
@@ -1251,7 +1251,7 @@ function hostedSessionArtifactName(input: {
 }
 
 function assertHostedArtifactMatchesRequest(
-  artifact: ReturnType<typeof CodexDevelopmentParseVerificationSessionArtifact>,
+  artifact: ReturnType<typeof ParseVerificationSessionArtifact>,
   request: ReturnType<typeof parseVerificationSessionHostedRequest>,
   repository: string
 ): void {
@@ -1281,7 +1281,7 @@ function loadHostedSessionTransport(input: {
   metadata: GitHubActionsArtifactObservation;
   request?: ReturnType<typeof parseVerificationSessionHostedRequest>;
 }): Readonly<{
-  artifact: ReturnType<typeof CodexDevelopmentParseVerificationSessionArtifact>;
+  artifact: ReturnType<typeof ParseVerificationSessionArtifact>;
   artifactText: string;
   metadata: GitHubActionsArtifactObservation;
   observation: ReturnType<typeof createHostedArtifactObservation>;
@@ -1299,7 +1299,7 @@ function loadHostedSessionTransport(input: {
   }
   const artifactText = github.downloadArtifactText(repository, metadata,
     'verification-session-artifact.json');
-  const artifact = CodexDevelopmentParseVerificationSessionArtifact(artifactText);
+  const artifact = ParseVerificationSessionArtifact(artifactText);
   const expectedName = hostedSessionArtifactName({ prNumber: artifact.session.prNumber,
     sessionRevision: artifact.session.sessionRevision, runId: metadata.runId,
     runAttempt: metadata.runAttempt });
@@ -1324,7 +1324,7 @@ function selectTrustedHostedSessionArtifact(input: {
   request?: ReturnType<typeof parseVerificationSessionHostedRequest>;
   requireSingleTransport?: boolean;
 }): Readonly<{
-  artifact: ReturnType<typeof CodexDevelopmentParseVerificationSessionArtifact>;
+  artifact: ReturnType<typeof ParseVerificationSessionArtifact>;
   origin: ReturnType<typeof createHostedArtifactObservation>;
   transport: ReturnType<typeof createHostedArtifactObservation>;
   originMetadata: GitHubActionsArtifactObservation;
@@ -1447,7 +1447,7 @@ export function observeExactIssueDispositionPlan(input: Readonly<{
   candidate: GitHubCandidateObservation;
   manifestPath: string;
   manifestDigest: IssueDispositionDigest;
-  tracking: ReturnType<typeof CodexDevelopmentParseWorkPackageManifest>['tracking'];
+  tracking: ReturnType<typeof ParseWorkPackageManifest>['tracking'];
 }>): IssueDispositionPlan {
   const closingFacts = input.github.observePullRequestClosingFacts(
     input.repository,
@@ -2176,10 +2176,10 @@ async function observeHostedTrackingIssueDisposition(input: Readonly<{
     throw new Error('Merged IssueDisposition tracking marker exceeds safe integer range.');
   }
   const manifestSource = github.readBlobText(repository, session.headSha, session.manifestPath);
-  if (CodexDevelopmentWorkPackageManifestDigest(manifestSource) !== session.manifestDigest) {
+  if (WorkPackageManifestDigest(manifestSource) !== session.manifestDigest) {
     throw new Error('IssueDisposition exact merged manifest bytes differ from the Session.');
   }
-  const manifest = CodexDevelopmentParseCurrentWorkPackageManifest(manifestSource, session.manifestPath);
+  const manifest = ParseCurrentWorkPackageManifest(manifestSource, session.manifestPath);
   const plan = observeExactIssueDispositionPlan({
     github,
     repository,
@@ -3571,7 +3571,7 @@ function evaluateFreshHostedIntegration(input: {
   provenance: HostedWorkflowCommentProvenance;
   observedAt: string;
 }): Readonly<{
-  result: ReturnType<typeof CodexDevelopmentEvaluateMergeGate>;
+  result: ReturnType<typeof EvaluateMergeGate>;
   changedPaths: readonly string[];
   issueDispositionPlan: IssueDispositionPlan;
 }> {
@@ -3589,10 +3589,10 @@ function evaluateFreshHostedIntegration(input: {
     throw new Error('Hosted integration OPEN candidate identity drifted.');
   }
   const manifestSource = github.readBlobText(repository, candidate.headSha, artifact.session.manifestPath);
-  if (CodexDevelopmentWorkPackageManifestDigest(manifestSource) !== artifact.session.manifestDigest) {
+  if (WorkPackageManifestDigest(manifestSource) !== artifact.session.manifestDigest) {
     throw new Error('Hosted integration Issue disposition manifest bytes drifted.');
   }
-  const manifest = CodexDevelopmentParseCurrentWorkPackageManifest(
+  const manifest = ParseCurrentWorkPackageManifest(
     manifestSource,
     artifact.session.manifestPath
   );
@@ -3658,7 +3658,7 @@ function evaluateFreshHostedIntegration(input: {
       actorNodeId: integrationPrincipalNodeId, actorPermission: provenance.actorPermission },
     mainHealth: freshMainHealth, platform: github.observePlatformEnforcement(repository),
     consumptionOperationId, issuedAt, expiresAt: addSeconds(issuedAt, 300) });
-  return Object.freeze({ result: CodexDevelopmentEvaluateMergeGate(mergeInput),
+  return Object.freeze({ result: EvaluateMergeGate(mergeInput),
     changedPaths: Object.freeze([...changedPaths]), issueDispositionPlan });
 }
 
@@ -4299,10 +4299,10 @@ export async function verificationSessionCli(argv: string[]): Promise<string> {
     }
     const proof = inspectTrustedRuntime({ repositoryRoot });
     assertTrustedMainRuntime(proof, candidate.baseSha);
-    const manifestPath = CodexDevelopmentParseWorkPackageLocator(candidate.body);
+    const manifestPath = ParseWorkPackageLocator(candidate.body);
     const manifestSource = github.readBlobText(repository, candidate.headSha, manifestPath);
-    const manifestDigest = CodexDevelopmentWorkPackageManifestDigest(manifestSource) as `sha256:${string}`;
-    const manifest = CodexDevelopmentParseCurrentWorkPackageManifest(manifestSource);
+    const manifestDigest = WorkPackageManifestDigest(manifestSource) as `sha256:${string}`;
+    const manifest = ParseCurrentWorkPackageManifest(manifestSource);
     if (manifest.schema !== 'codex-development-work-package-v1') {
       throw new Error('prepare currently requires the canonical V1 Work Package requiredProfile field.');
     }
@@ -4314,7 +4314,7 @@ export async function verificationSessionCli(argv: string[]): Promise<string> {
       github
     });
     const changedPaths = changedSelection.changedPaths;
-    CodexDevelopmentAssertWorkPackageOwnership(manifest, [...changedPaths]);
+    AssertWorkPackageOwnership(manifest, [...changedPaths]);
     const dependencyBlobs = observeVerificationSessionActionDependencyBlobs({ github, repository,
       baseSha: candidate.baseSha, headSha: candidate.headSha });
     const principal = github.observeViewerPrincipal(repository);
@@ -4402,7 +4402,7 @@ export async function verificationSessionCli(argv: string[]): Promise<string> {
         && effectCandidate.headBranch === candidate.headBranch
         && effectCandidate.headSha === prepared.request.expectedHeadSha
         && effectCandidate.headTreeSha === prepared.request.expectedHeadTreeSha
-        && CodexDevelopmentParseWorkPackageLocator(effectCandidate.body) === prepared.request.manifestPath;
+        && ParseWorkPackageLocator(effectCandidate.body) === prepared.request.manifestPath;
       if (!unchangedCandidate) {
         throw new Error('prepare candidate drifted after local quick verification and before Review wake-up.');
       }
@@ -4503,7 +4503,7 @@ export async function verificationSessionCli(argv: string[]): Promise<string> {
     }, null, 2);
   }
   if (command === 'freeze') {
-    const artifact = CodexDevelopmentParseVerificationSessionArtifact(
+    const artifact = ParseVerificationSessionArtifact(
       readFileSync(path.resolve(required(args, '--artifact')), 'utf8')
     );
     writeDurable(required(args, '--session-output'), artifact.session);
@@ -4567,10 +4567,10 @@ export async function verificationSessionCli(argv: string[]): Promise<string> {
       [candidate.headSha, request.expectedHeadSha, 'head'], [candidate.headTreeSha, request.expectedHeadTreeSha, 'head tree']
     ];
     for (const [actual, expected, label] of candidateChecks) if (actual !== expected) throw new Error(`observe-hosted ${label} drifted.`);
-    if (CodexDevelopmentParseWorkPackageLocator(candidate.body) !== request.manifestPath) throw new Error('observe-hosted manifest locator drifted.');
+    if (ParseWorkPackageLocator(candidate.body) !== request.manifestPath) throw new Error('observe-hosted manifest locator drifted.');
     const manifestSource = github.readBlobText(repository, request.expectedHeadSha, request.manifestPath);
-    if (CodexDevelopmentWorkPackageManifestDigest(manifestSource) !== request.manifestDigest) throw new Error('observe-hosted manifest digest drifted.');
-    const manifest = CodexDevelopmentParseCurrentWorkPackageManifest(manifestSource);
+    if (WorkPackageManifestDigest(manifestSource) !== request.manifestDigest) throw new Error('observe-hosted manifest digest drifted.');
+    const manifest = ParseCurrentWorkPackageManifest(manifestSource);
     const changedSelection = await observeVerificationSessionChangedSelection({
       repositoryRoot,
       repository,
@@ -4579,7 +4579,7 @@ export async function verificationSessionCli(argv: string[]): Promise<string> {
       github
     });
     const changedPaths = changedSelection.changedPaths;
-    CodexDevelopmentAssertWorkPackageOwnership(manifest, [...changedPaths]);
+    AssertWorkPackageOwnership(manifest, [...changedPaths]);
     const dependencyBlobs = observeVerificationSessionActionDependencyBlobs({ github, repository,
       baseSha: request.expectedBaseSha, headSha: request.expectedHeadSha });
     const reviewBarrier = github.observeReviewBarrier({ repository, prNumber: request.prNumber,
@@ -4669,7 +4669,7 @@ export async function verificationSessionCli(argv: string[]): Promise<string> {
     return JSON.stringify({ status: 'prepared', envelopeDigest: envelope.envelopeDigest, output: path.resolve(required(args, '--output')) }, null, 2);
   }
   if (command === 'artifact-status') {
-    const artifact = CodexDevelopmentParseVerificationSessionArtifact(
+    const artifact = ParseVerificationSessionArtifact(
       readFileSync(path.resolve(required(args, '--artifact')), 'utf8')
     );
     return JSON.stringify(classifyVerificationSessionArtifactReuse(artifact, now()), null, 2);
@@ -4685,7 +4685,7 @@ export async function verificationSessionCli(argv: string[]): Promise<string> {
       ? finalizeVerificationSessionHostedArtifact({ envelope,
           evidence: readJson<Parameters<typeof finalizeVerificationSessionHostedArtifact>[0]['evidence']>(evidencePath) })
       : (() => {
-          const previousArtifact = CodexDevelopmentParseVerificationSessionArtifact(
+          const previousArtifact = ParseVerificationSessionArtifact(
             readFileSync(path.resolve(previousArtifactPath!), 'utf8')
           );
           const eventPayload = event();
@@ -4696,7 +4696,7 @@ export async function verificationSessionCli(argv: string[]): Promise<string> {
           }
           const runId = environment.GITHUB_RUN_ID ?? '';
           if (!/^[1-9][0-9]*$/u.test(runId)) throw new Error('GITHUB_RUN_ID is required for trusted artifact refresh.');
-          const producer = CodexDevelopmentCreateVerificationEvidenceProducer({
+          const producer = CreateVerificationEvidenceProducer({
             sourceTransport: 'github-actions', workflowPath: '.github/workflows/compiler-pr-validation.yml',
             workflowRef: `.github/workflows/compiler-pr-validation.yml@${envelope.session.baseSha}`,
             workflowSha: envelope.session.baseSha, runId,
@@ -4917,7 +4917,7 @@ export async function verificationSessionCli(argv: string[]): Promise<string> {
       const evaluation = evaluateFreshHostedIntegration({ github, repository, hosted, candidate,
         provenance: hostedProvenance, observedAt: integrationNow });
       issueDispositionPlan = evaluation.issueDispositionPlan;
-      const frozenPreflight = CodexDevelopmentParseMergeGateResult(readFileSync(
+      const frozenPreflight = ParseMergeGateResult(readFileSync(
         hostedIntegrationPreflightResultPath(ctx.repositoryRoot),
         'utf8'
       ));
@@ -5109,7 +5109,7 @@ export async function verificationSessionCli(argv: string[]): Promise<string> {
         candidate,
         manifestPath: artifact.session.manifestPath,
         manifestDigest: artifact.session.manifestDigest,
-        tracking: CodexDevelopmentParseCurrentWorkPackageManifest(
+        tracking: ParseCurrentWorkPackageManifest(
           github.readBlobText(repository, artifact.session.headSha, artifact.session.manifestPath),
           artifact.session.manifestPath
         ).tracking

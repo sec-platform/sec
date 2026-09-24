@@ -38,8 +38,8 @@ import {
   readIssuedAffectedTestImpactBinding,
   type AffectedGitSelectionObservation
 } from '../../../verification/platform/test-impact/runtime/affected-source.ts';
-import { createRepositoryTestImpactSourceProvider, formatSlowImpactNotice, type CodexDevelopmentTestImpactSourceProvider } from '../../../verification/platform/test-impact/runtime/impact.ts';
-import { CodexDevelopmentCreateTestImpactTransitionObservation, gitChangedFileDiffArgs, gitIndexChangedFileDiffArgs, gitPathBlobBatchArgs, gitUntrackedFileArgs, gitWorkingTreeStatusArgs, gitWorktreeChangedFileDiffArgs, parseGitChangedRecordsOutput, parseGitPathBlobBatchOutput, parseGitUntrackedFileOutput, type CodexDevelopmentTestImpactTransitionObservation } from '../../../verification/platform/test-impact/runtime/transition.ts';
+import { createRepositoryTestImpactSourceProvider, formatSlowImpactNotice, type TestImpactSourceProvider } from '../../../verification/platform/test-impact/runtime/impact.ts';
+import { CreateTestImpactTransitionObservation, gitChangedFileDiffArgs, gitIndexChangedFileDiffArgs, gitPathBlobBatchArgs, gitUntrackedFileArgs, gitWorkingTreeStatusArgs, gitWorktreeChangedFileDiffArgs, parseGitChangedRecordsOutput, parseGitPathBlobBatchOutput, parseGitUntrackedFileOutput, type TestImpactTransitionObservation } from '../../../verification/platform/test-impact/runtime/transition.ts';
 import { selectSlowTestRiskClosure } from '../../../verification/platform/test-impact/slow-risk-selection.ts';
 import { compilerRoot } from "../../../workspace-context.ts";
 import { currentActiveDocumentationPaths } from '../../control/documentation/active.ts';
@@ -272,7 +272,7 @@ function affectedTestsBaseRef(): string | undefined {
 
 type GitChangedFilesResult = Readonly<{
   files: string[];
-  transitionObservation?: CodexDevelopmentTestImpactTransitionObservation;
+  transitionObservation?: TestImpactTransitionObservation;
   gitObservation: GitSelectionGitObservation;
 }>;
 
@@ -618,7 +618,7 @@ async function gitChangedFiles(
       return {
         files,
         gitObservation: initialObservation,
-        transitionObservation: CodexDevelopmentCreateTestImpactTransitionObservation({
+        transitionObservation: CreateTestImpactTransitionObservation({
           baseSha,
           headSha: initialObservation.headSha,
           records: committedRecords,
@@ -631,7 +631,7 @@ async function gitChangedFiles(
       return {
         files,
         gitObservation: initialObservation,
-        transitionObservation: CodexDevelopmentCreateTestImpactTransitionObservation({
+        transitionObservation: CreateTestImpactTransitionObservation({
           baseSha,
           headSha: initialObservation.headSha,
           records: committedRecords,
@@ -1124,7 +1124,7 @@ async function runWithParentOwnedProcessTemp<TResult>(
 function affectedTestSelection(
   files: string[],
   budgetProjection: TestBudgetProjection,
-  provider: CodexDevelopmentTestImpactSourceProvider
+  provider: TestImpactSourceProvider
 ): AffectedTestSelection {
   const currentFastFiles = [...getFastTestFilesSync(budgetProjection)];
   assertFastTestProcessPolicyInventory(currentFastFiles);
@@ -1260,8 +1260,8 @@ function framedChangedPathDigest(files: readonly string[]): `sha256:${string}` {
 function affectedTestPlan(
   files: string[],
   broadFallbackEnabled: boolean,
-  provider: CodexDevelopmentTestImpactSourceProvider,
-  transition?: CodexDevelopmentTestImpactTransitionObservation,
+  provider: TestImpactSourceProvider,
+  transition?: TestImpactTransitionObservation,
   gitObservation?: GitSelectionGitObservation,
   observationFailure: 'git' | 'source' | null = null
 ): AffectedTestPlan {

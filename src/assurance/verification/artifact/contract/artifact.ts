@@ -6,7 +6,7 @@ import { acceptanceIdsProvenByVerificationReports } from '../../acceptance/contr
 import { validateAcceptanceCoverageReport } from '../../acceptance/validation.ts';
 import type { FastVerificationLaneReport, RuntimeVerificationLaneReport, VerificationClaimSummary, VerificationReport, VerificationStatus } from '../../contract/types.ts';
 import { buildBlockedProductVerificationClaimSummary, buildExpectedProductVerificationClaimSummary, buildProductVerificationObservationBindings, inferProductVerificationRuntimeMode, PRODUCT_FAST_GATE_ID, PRODUCT_POLICY_GATE_ID, PRODUCT_RUNTIME_GATE_ID, type ProductVerificationObservations } from '../../profile/contract/product.ts';
-import { CodexDevelopmentAssertVerificationGateResult, CodexDevelopmentSnapshotVerificationData, CodexDevelopmentVerificationDataEqual, type VerificationGateResult } from '../../result/contract/result.ts';
+import { AssertVerificationGateResult, CodexDevelopmentSnapshotVerificationData, CodexDevelopmentVerificationDataEqual, type VerificationGateResult } from '../../result/contract/result.ts';
 
 export interface VerificationArtifactSet {
   readonly verificationReport: unknown;
@@ -114,7 +114,7 @@ function productVerificationObservations(
   runtimeMode: ReturnType<typeof inferProductVerificationRuntimeMode>
 ): ProductVerificationObservations | null {
   try {
-    for (const gate of gates) CodexDevelopmentAssertVerificationGateResult(gate);
+    for (const gate of gates) AssertVerificationGateResult(gate);
     const byId = new Map((gates as VerificationGateResult[]).map((gate) => [gate.gateId, gate]));
     if (gates.length !== 3 || byId.size !== 3) return null;
     const fast = byId.get(PRODUCT_FAST_GATE_ID);

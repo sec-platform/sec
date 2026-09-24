@@ -34,7 +34,7 @@ import {
   type WorkSelectionMainHealthProjection,
   type WorkSelectionMainHealthSnapshot
 } from '../main-health/work-selection-main-health.ts';
-import { CodexDevelopmentWorkPackageManifestDigest } from '../task/contract/work-package.ts';
+import { WorkPackageManifestDigest } from '../task/contract/work-package.ts';
 import type {
   SecCurrentWorkLifecycle,
   SecWorkDigest
@@ -795,7 +795,7 @@ function observeCanonicalControl(input: {
   CodexDevelopmentAssertControlPlaneBinding({ spec: input.spec, pointer });
   const rolling = CodexDevelopmentParseRollingPlan(input.rollingPlanSource);
   const rollingMachine = CodexDevelopmentParseRollingMachineProjection(input.rollingPlanSource);
-  const manifestDigest = CodexDevelopmentWorkPackageManifestDigest(input.manifestBytes);
+  const manifestDigest = WorkPackageManifestDigest(input.manifestBytes);
   const packageId = path.posix.basename(input.manifestPath, '.md');
   const machineBindingMatches = rollingMachine === null
     || (rollingMachine.active.packageId === packageId

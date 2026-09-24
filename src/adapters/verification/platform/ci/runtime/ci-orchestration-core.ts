@@ -5,7 +5,7 @@ import { uniqueSorted } from '../../../../../contracts/canonical.ts';
 import { issueOperationRequirementBindingContext } from '../../../../../execution/operation/requirement-binding-context.ts';
 import type { BoundSemanticOperation } from '../../../../../execution/operation/semantic.ts';
 import { GitReadAuthorityError } from '../../../../providers/git-read/authority.ts';
-import { CodexDevelopmentReadExactGitBlobBytesBatchFromSession } from '../../../../providers/git-read/exact-blob.ts';
+import { ReadExactGitBlobBytesBatchFromSession } from '../../../../providers/git-read/exact-blob.ts';
 import {
   assertProductionGitReadSession,
   type GitBlobBytes,
@@ -43,8 +43,8 @@ import {
   type DocumentationVerificationBaseline
 } from '../../../../self-hosting/control/documentation/active.ts';
 import { issueTestInventoryProjection } from '../../test-impact/contract/budget.ts';
-import { createRepositoryTestImpactSourceProvider, type CodexDevelopmentTestImpactSourceProvider } from '../../test-impact/runtime/impact.ts';
-import { CodexDevelopmentCreateTestImpactTransitionObservation, gitChangedFileDiffArgs, gitPathBlobBatchArgs, gitWorkingTreeStatusArgs, parseGitChangedRecordsOutput, parseGitPathBlobBatchOutput, type CodexDevelopmentGitChangedRecord, type CodexDevelopmentGitPathBlobEntry, type CodexDevelopmentTestImpactTransitionObservation } from '../../test-impact/runtime/transition.ts';
+import { createRepositoryTestImpactSourceProvider, type TestImpactSourceProvider } from '../../test-impact/runtime/impact.ts';
+import { CreateTestImpactTransitionObservation, gitChangedFileDiffArgs, gitPathBlobBatchArgs, gitWorkingTreeStatusArgs, parseGitChangedRecordsOutput, parseGitPathBlobBatchOutput, type GitChangedRecord, type GitPathBlobEntry, type TestImpactTransitionObservation } from '../../test-impact/runtime/transition.ts';
 import { bindDocumentationVerificationGateInput } from '../contract/plan.ts';
 const CODEX_DEVELOPMENT_FAILURE_TAIL_CHARACTER_LIMIT = 24_000;
 export const CODEX_DEVELOPMENT_GATE_STDOUT_BYTE_LIMIT = 8 * 1024 * 1024;
@@ -55,7 +55,7 @@ const exactSnapshotDocumentationBaselines = new WeakMap<
   DocumentationVerificationBaseline
 >();
 
-export type CodexDevelopmentGateExecutionObservation = {
+export type GateExecutionObservation = {
   id: string;
   argv: string[];
   status: 'passed' | 'failed' | 'not-run';
@@ -68,36 +68,36 @@ export type CodexDevelopmentGateExecutionObservation = {
   notRunReason: string | null;
 };
 
-export type CodexDevelopmentGateProcessResult = {
+export type GateProcessResult = {
   code: number;
   rawOutputDigest: string;
   failureTail: string;
 };
 
-export type CodexDevelopmentGateProcessSettlement = Readonly<{
-  result: CodexDevelopmentGateProcessResult;
+export type GateProcessSettlement = Readonly<{
+  result: GateProcessResult;
   processResourceReceipt: ProcessResourceSessionReceipt;
 }>;
 
-export type CodexDevelopmentGateProcessStep = {
+export type GateProcessStep = {
   id: string;
   argv: string[];
   env: NodeJS.ProcessEnv;
 };
 
-export type CodexDevelopmentChangedPathSnapshot = {
-  records: CodexDevelopmentGitChangedRecord[];
+export type ChangedPathSnapshot = {
+  records: GitChangedRecord[];
   files: string[];
-  transitionObservation: CodexDevelopmentTestImpactTransitionObservation;
+  transitionObservation: TestImpactTransitionObservation;
 };
 
-class CodexDevelopmentCiGitObservationError extends Error {
+class CiGitObservationError extends Error {
   constructor(
     readonly reason: 'invalid-input' | 'command-failed' | 'invalid-output',
     message: string
   ) {
     super(message);
-    this.name = 'CodexDevelopmentCiGitObservationError';
+    this.name = 'CiGitObservationError';
   }
 }
 
@@ -119,14 +119,14 @@ async function observePathBlobs(
   session: GitReadSession,
   revision: string,
   repositoryPaths: readonly string[]
-): Promise<ReadonlyMap<string, CodexDevelopmentGitPathBlobEntry>> {
+): Promise<ReadonlyMap<string, GitPathBlobEntry>> {
   if (repositoryPaths.length === 0) return new Map();
   const command = completedGitRead(
     await session.run(gitPathBlobBatchArgs(revision, repositoryPaths)),
     'CI changed-path blob observation'
   );
   if (command.code !== 0) {
-    throw new CodexDevelopmentCiGitObservationError(
+    throw new CiGitObservationError(
       'command-failed',
       `CI changed-path blob observation failed (git exit ${command.code})`
       + `${command.stderr.trim() ? `: ${command.stderr.trim()}` : ''}`
@@ -140,7 +140,7 @@ async function observePathBlobs(
   return entries;
 }
 
-export async function CodexDevelopmentReadExactGitBlobs(
+export async function ReadExactGitBlobs(
   session: GitReadSession,
   revision: string,
   repositoryPaths: readonly string[]
@@ -154,7 +154,7 @@ export async function CodexDevelopmentReadExactGitBlobs(
     mode: entry.mode,
     type: 'blob'
   }));
-  const observed = await CodexDevelopmentReadExactGitBlobBytesBatchFromSession(session, {
+  const observed = await ReadExactGitBlobBytesBatchFromSession(session, {
     entries: orderedEntries
   });
   const blobs = new Map<string, GitBlobBytes>();
@@ -170,13 +170,13 @@ export async function CodexDevelopmentReadExactGitBlobs(
   return blobs;
 }
 
-export async function CodexDevelopmentDefaultGitRevision(
+export async function DefaultGitRevision(
   session: GitReadSession,
   ref: string
 ): Promise<string> {
   assertProductionGitReadSession(session);
   if (ref.length === 0 || ref.includes('\0')) {
-    throw new CodexDevelopmentCiGitObservationError(
+    throw new CiGitObservationError(
       'invalid-input',
       'CI Git revision requires a nonempty NUL-free ref.'
     );
@@ -186,7 +186,7 @@ export async function CodexDevelopmentDefaultGitRevision(
     'CI Git revision observation'
   );
   if (command.code !== 0) {
-    throw new CodexDevelopmentCiGitObservationError(
+    throw new CiGitObservationError(
       'command-failed',
       `CI Git revision observation failed (git exit ${command.code})`
       + `${command.stderr.trim() ? `: ${command.stderr.trim()}` : ''}`
@@ -194,7 +194,7 @@ export async function CodexDevelopmentDefaultGitRevision(
   }
   const revision = command.stdout.toString('utf8').trim();
   if (!/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/u.test(revision)) {
-    throw new CodexDevelopmentCiGitObservationError(
+    throw new CiGitObservationError(
       'invalid-output',
       'CI Git revision observation did not return one canonical object id.'
     );
@@ -202,7 +202,7 @@ export async function CodexDevelopmentDefaultGitRevision(
   return revision;
 }
 
-export async function CodexDevelopmentDefaultTrackedTreeIsClean(
+export async function DefaultTrackedTreeIsClean(
   session: GitReadSession
 ): Promise<boolean> {
   assertProductionGitReadSession(session);
@@ -211,7 +211,7 @@ export async function CodexDevelopmentDefaultTrackedTreeIsClean(
     'CI worktree status observation'
   );
   if (command.code !== 0) {
-    throw new CodexDevelopmentCiGitObservationError(
+    throw new CiGitObservationError(
       'command-failed',
       `CI worktree status observation failed (git exit ${command.code})`
       + `${command.stderr.trim() ? `: ${command.stderr.trim()}` : ''}`
@@ -228,23 +228,23 @@ export async function CodexDevelopmentDefaultTrackedTreeIsClean(
   return command.stdout.length === 0;
 }
 
-export function CodexDevelopmentChangedFilesFromRecords(
-  records: readonly CodexDevelopmentGitChangedRecord[]
+export function ChangedFilesFromRecords(
+  records: readonly GitChangedRecord[]
 ): string[] {
   return uniqueSorted(records.flatMap((record) => (
     record.previousPath === undefined ? [record.path] : [record.previousPath, record.path]
   )));
 }
 
-export async function CodexDevelopmentDefaultChangedPaths(
+export async function DefaultChangedPaths(
   session: GitReadSession,
   baseSha: string,
   headSha: string
-): Promise<CodexDevelopmentChangedPathSnapshot> {
+): Promise<ChangedPathSnapshot> {
   assertProductionGitReadSession(session);
   if (!/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/u.test(baseSha)
       || !/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/u.test(headSha)) {
-    throw new CodexDevelopmentCiGitObservationError(
+    throw new CiGitObservationError(
       'invalid-input',
       'CI changed-path observation requires canonical base and head object ids.'
     );
@@ -254,7 +254,7 @@ export async function CodexDevelopmentDefaultChangedPaths(
     'CI changed-path transition'
   );
   if (diff.code !== 0) {
-    throw new CodexDevelopmentCiGitObservationError(
+    throw new CiGitObservationError(
       'command-failed',
       `CI changed-path transition failed (git exit ${diff.code})`
       + `${diff.stderr.trim() ? `: ${diff.stderr.trim()}` : ''}`
@@ -275,8 +275,8 @@ export async function CodexDevelopmentDefaultChangedPaths(
   const headBlobs = await observePathBlobs(session, headSha, removedPaths);
   return Object.freeze({
     records,
-    files: CodexDevelopmentChangedFilesFromRecords(records),
-    transitionObservation: CodexDevelopmentCreateTestImpactTransitionObservation({
+    files: ChangedFilesFromRecords(records),
+    transitionObservation: CreateTestImpactTransitionObservation({
       baseSha,
       headSha,
       records,
@@ -291,7 +291,7 @@ export async function CodexDevelopmentDefaultChangedPaths(
  * The trusted base observes the candidate commit as immutable Git data. The
  * candidate never executes its own selector implementation or chooses files.
  */
-export async function CodexDevelopmentExactGitWorkspaceSourceSnapshot(
+export async function ExactGitWorkspaceSourceSnapshot(
   session: GitReadSession,
   candidateSha: string
 ): Promise<PhysicalWorkspaceSourceSnapshot> {
@@ -300,7 +300,7 @@ export async function CodexDevelopmentExactGitWorkspaceSourceSnapshot(
     session,
     commitSha: candidateSha
   });
-  const baselineBlob = (await CodexDevelopmentReadExactGitBlobs(
+  const baselineBlob = (await ReadExactGitBlobs(
     session,
     candidateSha,
     [DOCUMENTATION_BASELINE_PATH]
@@ -321,10 +321,10 @@ export async function CodexDevelopmentExactGitWorkspaceSourceSnapshot(
   return snapshot;
 }
 
-export function CodexDevelopmentTestImpactSourceProviderFromSnapshot(
+export function TestImpactSourceProviderFromSnapshot(
   workspaceSnapshot: PhysicalWorkspaceSourceSnapshot,
   repositoryRoot: string
-): CodexDevelopmentTestImpactSourceProvider {
+): TestImpactSourceProvider {
   const documentationVerificationBaseline = exactSnapshotDocumentationBaselines.get(workspaceSnapshot);
   if (documentationVerificationBaseline === undefined) {
     throw new Error('Exact candidate documentation verification baseline binding was not observed.');
@@ -353,14 +353,14 @@ export function CodexDevelopmentTestImpactSourceProviderFromSnapshot(
   return bindDocumentationVerificationGateInput(provider, documentationVerificationBaseline);
 }
 
-export async function CodexDevelopmentRunGateProcess(
+export async function RunGateProcess(
   repositoryRoot: string,
-  step: CodexDevelopmentGateProcessStep,
+  step: GateProcessStep,
   execution: Readonly<{
     operation: BoundSemanticOperation;
     requirementId: string;
   }>
-): Promise<CodexDevelopmentGateProcessSettlement> {
+): Promise<GateProcessSettlement> {
   if (step.argv.length < 1) throw new Error('CI gate process requires one executable identity.');
   const executablePath = path.resolve(process.execPath);
   if (step.argv[0] !== 'bun' && path.resolve(step.argv[0]!) !== executablePath) {
@@ -382,7 +382,7 @@ export async function CodexDevelopmentRunGateProcess(
   });
   let executable: RetainedNoFollowOrdinaryFile | null = null;
   let workingDirectory: RetainedNoFollowChildProcessDirectory | null = null;
-  let result: CodexDevelopmentGateProcessResult | null = null;
+  let result: GateProcessResult | null = null;
   const failures: unknown[] = [];
   try {
     executable = retainNoFollowOrdinaryFile(
@@ -436,16 +436,16 @@ export async function CodexDevelopmentRunGateProcess(
   return Object.freeze({ result, processResourceReceipt });
 }
 
-export function CodexDevelopmentFailureTail(output: string, fallback: string): string {
+export function FailureTail(output: string, fallback: string): string {
   const combined = output.trim() || fallback;
   return combined.length > CODEX_DEVELOPMENT_FAILURE_TAIL_CHARACTER_LIMIT
     ? combined.slice(-CODEX_DEVELOPMENT_FAILURE_TAIL_CHARACTER_LIMIT)
     : combined;
 }
 
-export function CodexDevelopmentCreateNotRunGate(
+export function CreateNotRunGate(
   step: Readonly<{ id: string; argv: readonly string[] }>
-): CodexDevelopmentGateExecutionObservation {
+): GateExecutionObservation {
   return {
     id: step.id,
     argv: [...step.argv],

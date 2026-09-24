@@ -12,12 +12,12 @@ import {
 } from '../../../providers/github-api/operation-session.ts';
 import { encodeVerificationActionData } from '../../../verification/platform/action/contract/action.ts';
 import {
-  CodexDevelopmentMergeGateResultSchema,
+  MergeGateResultSchema,
   CodexDevelopmentMergeGateTerminalStatusContext,
-  CodexDevelopmentParseMergeGateResult,
+  ParseMergeGateResult,
   CodexDevelopmentParseTrustedRuntimeMergeGateResult,
   CodexDevelopmentTrustedRuntimeMergeGateResultSchema,
-  type CodexDevelopmentMergeGateResult,
+  type MergeGateResult,
   type CodexDevelopmentTrustedRuntimeMergeGateResult
 } from './merge-gate.ts';
 
@@ -25,7 +25,7 @@ const INTEGRATION_AUTHORIZATION_STATUS_PUBLICATION_SCHEMA =
   'sec-integration-authorization-status-publication-v1' as const;
 
 export type IntegrationAuthorizationGateResult =
-  | CodexDevelopmentMergeGateResult
+  | MergeGateResult
   | CodexDevelopmentTrustedRuntimeMergeGateResult;
 
 export interface IntegrationAuthorizationStatusPublisherPrincipal {
@@ -198,8 +198,8 @@ export function parseIntegrationAuthorizationGateResult(source: string): Integra
     fail('merge-gate result must be an object.');
   }
   const schema = (parsed as Record<string, unknown>).schema;
-  if (schema === CodexDevelopmentMergeGateResultSchema) {
-    return CodexDevelopmentParseMergeGateResult(source);
+  if (schema === MergeGateResultSchema) {
+    return ParseMergeGateResult(source);
   }
   if (schema === CodexDevelopmentTrustedRuntimeMergeGateResultSchema) {
     return CodexDevelopmentParseTrustedRuntimeMergeGateResult(source);

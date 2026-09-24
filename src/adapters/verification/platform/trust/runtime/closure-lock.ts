@@ -32,7 +32,7 @@ import path from 'node:path';
 
 import ts from 'typescript';
 
-import { CodexDevelopmentIsCanonicalRepositoryPath } from '../../../../../contracts/repository-path.ts';
+import { IsCanonicalRepositoryPath } from '../../../../../contracts/repository-path.ts';
 import { compilerRoot } from "../../../../workspace-context.ts";
 import { createVerificationActionKey, createVerificationActionPlan, type VerificationActionPlan } from '../../action/contract/action.ts';
 import {
@@ -1321,7 +1321,7 @@ function readTcbClosureCandidateModule(
   candidateRoot: TcbClosureCandidateRootReader,
   repositoryPath: string
 ): Uint8Array | null {
-  if (!CodexDevelopmentIsCanonicalRepositoryPath(repositoryPath)) {
+  if (!IsCanonicalRepositoryPath(repositoryPath)) {
     throw new Error(`TCB candidate module path is not canonical: ${repositoryPath}.`);
   }
   assertTcbClosureCandidateRootCurrent(candidateRoot);
@@ -1805,7 +1805,7 @@ export function selectTcbClosureCandidateAction(input: Readonly<{
   }
   const changedPaths = [...new Set(input.changedPaths)].sort();
   if (changedPaths.length !== input.changedPaths.length || changedPaths.some((repositoryPath) =>
-    !CodexDevelopmentIsCanonicalRepositoryPath(repositoryPath))) {
+    !IsCanonicalRepositoryPath(repositoryPath))) {
     throw new Error('TCB candidate Action selection requires unique canonical changed paths.');
   }
   const trustRoot = createSecTrustedBootstrapTrustRoot({

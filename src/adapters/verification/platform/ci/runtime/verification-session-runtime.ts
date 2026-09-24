@@ -18,22 +18,22 @@ import {
 } from '../../../../self-hosting/control/integration/integration-authorization-publication.ts';
 import {
   assertCanonicalMergeMessage,
-  CodexDevelopmentCreateHostedArtifactObservation,
-  CodexDevelopmentCreateMergeGateInput,
-  CodexDevelopmentCreateTrustedRuntimeMergeGateInput,
-  CodexDevelopmentMergeGateProducerIdentity,
-  CodexDevelopmentParseMergeGateResult,
+  CreateHostedArtifactObservation,
+  CreateMergeGateInput,
+  CreateTrustedRuntimeMergeGateInput,
+  MergeGateProducerIdentity,
+  ParseMergeGateResult,
   createMergeGateProvenance,
   createTrustedRuntimeArtifactObservation,
   createTrustedRuntimeMergeGateProvenance,
-  type CodexDevelopmentHostedArtifactObservation,
-  type CodexDevelopmentMergeGateCandidate,
-  type CodexDevelopmentMergeGateInput,
-  type CodexDevelopmentMergeGateProvenance,
-  type CodexDevelopmentMergeGateResult,
-  type CodexDevelopmentTrustedRuntimeArtifactObservation,
-  type CodexDevelopmentTrustedRuntimeMergeGateInput,
-  type CodexDevelopmentTrustedRuntimeMergeGateProvenance
+  type HostedArtifactObservation,
+  type MergeGateCandidate,
+  type MergeGateInput,
+  type MergeGateProvenance,
+  type MergeGateResult,
+  type TrustedRuntimeArtifactObservation,
+  type TrustedRuntimeMergeGateInput,
+  type TrustedRuntimeMergeGateProvenance
 } from '../../../../self-hosting/control/integration/merge-gate.ts';
 import {
   SEC_INTEGRATION_PLATFORM_POLICY_DIGEST
@@ -60,19 +60,19 @@ import { CI_VERIFICATION_ACTION_DEPENDENCY_INPUT_PATHS } from '../../action/cont
 import { CI_GITHUB_ACTIONS_IDENTITY_POLICY } from '../../action/contract/provider.ts';
 import { assertReviewStabilityReceiptCurrent, createReviewStabilityReceipt, REVIEW_OBSERVER_PRODUCER_IDENTITY, SEC_REVIEW_STABILITY_POLICY, type ReviewStabilityReceipt } from '../../review/contract/stability.ts';
 import { createVerificationSession, createVerificationSessionProposalDigest, createVerificationSessionRevision, parseVerificationSession, type VerificationSession, type VerificationSessionInput } from '../../session/contract/session.ts';
-import type { CodexDevelopmentTestImpactSourceProvider } from '../../test-impact/runtime/impact.ts';
-import { CodexDevelopmentAssertTestImpactTransitionSelection, type CodexDevelopmentTestImpactTransitionObservation } from '../../test-impact/runtime/transition.ts';
+import type { TestImpactSourceProvider } from '../../test-impact/runtime/impact.ts';
+import { AssertTestImpactTransitionSelection, type TestImpactTransitionObservation } from '../../test-impact/runtime/transition.ts';
 import {
-  CodexDevelopmentAssertVerificationSessionArtifact,
-  CodexDevelopmentAssertVerificationSessionArtifactCurrent,
-  CodexDevelopmentFinalizeVerificationSessionArtifact,
-  CodexDevelopmentRefreshVerificationSessionArtifact,
-  type CodexDevelopmentVerificationEvidenceProducer,
-  type CodexDevelopmentVerificationEvidenceV4,
-  type CodexDevelopmentVerificationSessionArtifact
+  AssertVerificationSessionArtifact,
+  AssertVerificationSessionArtifactCurrent,
+  FinalizeVerificationSessionArtifact,
+  RefreshVerificationSessionArtifact,
+  type VerificationEvidenceProducer,
+  type VerificationEvidenceV4,
+  type VerificationSessionArtifact
 } from '../contract/evidence.ts';
 import {
-  CodexDevelopmentBuildVerificationPlan
+  BuildVerificationPlan
 } from '../contract/plan.ts';
 import {
   CI_VERIFICATION_SESSION_REQUEST_SCHEMA
@@ -217,13 +217,13 @@ function bindVerificationSessionTestImpactTransition(input: {
   baseSha: string;
   headSha: string;
   changedPaths: readonly string[];
-  transition: CodexDevelopmentTestImpactTransitionObservation;
+  transition: TestImpactTransitionObservation;
   expectedDigest?: Digest;
 }): Readonly<{
   digest: Digest;
-  observation: CodexDevelopmentTestImpactTransitionObservation;
+  observation: TestImpactTransitionObservation;
 }> {
-  const digest = CodexDevelopmentAssertTestImpactTransitionSelection({
+  const digest = AssertTestImpactTransitionSelection({
     baseSha: input.baseSha,
     headSha: input.headSha,
     changedPaths: input.changedPaths,
@@ -240,8 +240,8 @@ export function reconstructVerificationSessionHostedFacts(input: {
   repository: string;
   candidate: GitHubCandidateObservation;
   changedPaths: readonly string[];
-  testImpactTransition: CodexDevelopmentTestImpactTransitionObservation;
-  testImpactSourceProvider: CodexDevelopmentTestImpactSourceProvider;
+  testImpactTransition: TestImpactTransitionObservation;
+  testImpactSourceProvider: TestImpactSourceProvider;
   integrationPrincipalNodeId: string;
   producerPrincipalNodeId: string;
   sourceRunId: string;
@@ -291,7 +291,7 @@ export function reconstructVerificationSessionHostedFacts(input: {
     proposalDigest, authorizedPaths: input.changedPaths, profile: request.profile,
     environmentDigest, issuer: issuerSemantic
   });
-  const plan = CodexDevelopmentBuildVerificationPlan(
+  const plan = BuildVerificationPlan(
     request.profile as 'quick' | 'full',
     input.changedPaths,
     input.testImpactSourceProvider,
@@ -401,7 +401,7 @@ export interface TrustedRuntimeProof {
 }
 
 export interface TrustedArtifactProvenance {
-  observation: CodexDevelopmentHostedArtifactObservation;
+  observation: HostedArtifactObservation;
   artifactId: string;
   artifactName: string;
   canonicalByteDigest: Digest;
@@ -455,7 +455,7 @@ export function createTrustedIntegrationAuthorizationPublicationSource(input: {
 }
 
 export function createTrustedHostedArtifactProvenance(input: {
-  artifact: CodexDevelopmentVerificationSessionArtifact;
+  artifact: VerificationSessionArtifact;
   artifactText: string;
   observation: GitHubActionsArtifactObservation;
   actorPermission: TrustedArtifactProvenance['transport']['actorPermission'];
@@ -472,11 +472,11 @@ export function createTrustedHostedArtifactProvenance(input: {
 }
 
 export function createTrustedRuntimeArtifactObservationFromDurableFile(input: {
-  artifact: CodexDevelopmentVerificationSessionArtifact;
+  artifact: VerificationSessionArtifact;
   artifactText: string;
   runtimeSha: string;
   executionId: string;
-}): CodexDevelopmentTrustedRuntimeArtifactObservation {
+}): TrustedRuntimeArtifactObservation {
   const canonicalBytes = `${encodeVerificationActionData(input.artifact)}\n`;
   if (input.artifactText !== canonicalBytes) {
     throw new Error('Trusted runtime artifact bytes are not canonical or do not match the parsed artifact.');
@@ -491,7 +491,7 @@ export function createTrustedRuntimeArtifactObservationFromDurableFile(input: {
     artifactFileName: 'verification-session-artifact.json',
     artifactByteDigest: `sha256:${createHash('sha256').update(canonicalBytes).digest('hex')}`,
     artifactByteLength: Buffer.byteLength(canonicalBytes, 'utf8'),
-    runtimeRef: `${CodexDevelopmentMergeGateProducerIdentity}@${input.runtimeSha}`,
+    runtimeRef: `${MergeGateProducerIdentity}@${input.runtimeSha}`,
     runtimeSha: input.runtimeSha,
     executionId: input.executionId,
     producerSourceDigest: input.artifact.producer.sourceDigest as Digest,
@@ -512,7 +512,7 @@ export type VerificationSessionArtifactReuseDisposition = Readonly<{
  * before composing it into a fresh hosted envelope.
  */
 export function classifyVerificationSessionArtifactReuse(
-  artifact: CodexDevelopmentVerificationSessionArtifact,
+  artifact: VerificationSessionArtifact,
   now: string
 ): VerificationSessionArtifactReuseDisposition {
   const nowMs = new Date(now).getTime();
@@ -522,7 +522,7 @@ export function classifyVerificationSessionArtifactReuse(
   const actionEvidenceCandidate = artifact.evidence.status === 'passed'
     || artifact.evidence.status === 'failed';
   try {
-    CodexDevelopmentAssertVerificationSessionArtifactCurrent(artifact, now);
+    AssertVerificationSessionArtifactCurrent(artifact, now);
     return Object.freeze({ status: 'whole-artifact-current', actionEvidenceCandidate,
       reason: 'canonical hosted authority is current' });
   } catch (error) {
@@ -536,13 +536,13 @@ export function classifyVerificationSessionArtifactReuse(
 }
 
 export function createHostedArtifactObservation(input: {
-  artifact: CodexDevelopmentVerificationSessionArtifact;
+  artifact: VerificationSessionArtifact;
   artifactText: string;
   observation: GitHubActionsArtifactObservation;
-}): CodexDevelopmentHostedArtifactObservation {
+}): HostedArtifactObservation {
   const canonicalBytes = `${encodeVerificationActionData(input.artifact)}\n`;
   if (input.artifactText !== canonicalBytes) throw new Error('Downloaded hosted artifact bytes are not canonical or do not match the parsed artifact.');
-  return CodexDevelopmentCreateHostedArtifactObservation({ artifactId: input.observation.artifactId,
+  return CreateHostedArtifactObservation({ artifactId: input.observation.artifactId,
     artifactName: input.observation.artifactName, artifactFileName: 'verification-session-artifact.json',
     artifactByteDigest: `sha256:${createHash('sha256').update(canonicalBytes).digest('hex')}`,
     artifactByteLength: Buffer.byteLength(canonicalBytes, 'utf8'), artifactExpired: false,
@@ -558,7 +558,7 @@ export function createTrustedIntegrationAuthorizationArtifact(input: {
   resultJson: string;
   observation: GitHubActionsArtifactObservation;
 }): TrustedIntegrationAuthorizationArtifact {
-  const result = CodexDevelopmentParseMergeGateResult(input.resultJson);
+  const result = ParseMergeGateResult(input.resultJson);
   if (input.observation.workflowPath !== '.github/workflows/sec-merge-gate.yml'
     || input.observation.eventName !== 'workflow_run') {
     throw new Error('Integration authorization artifact is not bound to the completed-source workflow.');
@@ -580,7 +580,7 @@ export interface VerificationSessionRuntimeExternal {
     | { status: 'passed'; resultDigest: Digest }
     | { status: 'waiting' }
     | { status: 'failed'; reason: string };
-  hostedArtifact(): { artifact: CodexDevelopmentVerificationSessionArtifact; provenance: TrustedArtifactProvenance } | null;
+  hostedArtifact(): { artifact: VerificationSessionArtifact; provenance: TrustedArtifactProvenance } | null;
   saveReviewReceipt(stage: 'pre-expensive' | 'pre-merge', receipt: ReviewStabilityReceipt): void;
   integrationAuthorizationArtifact(): TrustedIntegrationAuthorizationSource | null;
   integrationAuthorizationPublication(): IntegrationAuthorizationPublicationObservation | null;
@@ -769,8 +769,8 @@ export function prepareTrustedMainVerificationSession(input: {
   manifestPath: string;
   manifestDigest: Digest;
   changedPaths: readonly string[];
-  testImpactTransition: CodexDevelopmentTestImpactTransitionObservation;
-  testImpactSourceProvider: CodexDevelopmentTestImpactSourceProvider;
+  testImpactTransition: TestImpactTransitionObservation;
+  testImpactSourceProvider: TestImpactSourceProvider;
   profile: 'quick' | 'full';
   integrationPrincipalNodeId: string;
   producerPrincipalNodeId: string;
@@ -821,7 +821,7 @@ export function prepareTrustedMainVerificationSession(input: {
     baseSha: candidate.baseSha, baseTreeSha: candidate.baseTreeSha, headSha: candidate.headSha,
     headTreeSha: candidate.headTreeSha, manifestPath: input.manifestPath, manifestDigest: input.manifestDigest,
     proposalDigest, authorizedPaths: input.changedPaths, profile: input.profile, environmentDigest, issuer: issuerSemantic });
-  const plan = CodexDevelopmentBuildVerificationPlan(
+  const plan = BuildVerificationPlan(
     input.profile,
     input.changedPaths,
     input.testImpactSourceProvider,
@@ -942,8 +942,8 @@ export function prepareLocalQuickVerificationActionPlan(input: {
   manifestPath: string;
   manifestDigest: Digest;
   changedPaths: readonly string[];
-  testImpactTransition: CodexDevelopmentTestImpactTransitionObservation;
-  testImpactSourceProvider: CodexDevelopmentTestImpactSourceProvider;
+  testImpactTransition: TestImpactTransitionObservation;
+  testImpactSourceProvider: TestImpactSourceProvider;
   expectedTestImpactTransitionDigest: Digest;
   scopeAuthorizationRevision: Digest;
   executionEnvironment: CiVerificationExecutionEnvironment;
@@ -960,7 +960,7 @@ export function prepareLocalQuickVerificationActionPlan(input: {
     transition: input.testImpactTransition,
     expectedDigest: input.expectedTestImpactTransitionDigest
   });
-  const plan = CodexDevelopmentBuildVerificationPlan(
+  const plan = BuildVerificationPlan(
     'quick',
     input.changedPaths,
     input.testImpactSourceProvider,
@@ -1272,8 +1272,8 @@ export function prepareVerificationSessionHosted(input: {
 
 export function finalizeVerificationSessionHostedArtifact(input: {
   envelope: VerificationSessionHostedEnvelope;
-  evidence: CodexDevelopmentVerificationEvidenceV4;
-}): CodexDevelopmentVerificationSessionArtifact {
+  evidence: VerificationEvidenceV4;
+}): VerificationSessionArtifact {
   const envelope = input.envelope;
   const { envelopeDigest, ...withoutDigest } = envelope;
   if (envelope.schema !== VERIFICATION_SESSION_HOSTED_ENVELOPE_SCHEMA || hash(withoutDigest) !== envelopeDigest) {
@@ -1282,7 +1282,7 @@ export function finalizeVerificationSessionHostedArtifact(input: {
   if (input.evidence.actionPlan.actionPlanDigest !== envelope.actionPlanClosure.actionPlanDigest) {
     throw new Error('finalize-hosted Evidence Action plan differs from prepared envelope.');
   }
-  return CodexDevelopmentFinalizeVerificationSessionArtifact({
+  return FinalizeVerificationSessionArtifact({
     scopeAuthorization: envelope.scopeAuthorization,
     session: envelope.session,
     preGateReview: envelope.preGateReview,
@@ -1294,16 +1294,16 @@ export function finalizeVerificationSessionHostedArtifact(input: {
 
 export function refreshVerificationSessionHostedArtifact(input: {
   envelope: VerificationSessionHostedEnvelope;
-  previousArtifact: CodexDevelopmentVerificationSessionArtifact;
-  producer: CodexDevelopmentVerificationEvidenceProducer;
+  previousArtifact: VerificationSessionArtifact;
+  producer: VerificationEvidenceProducer;
   refreshedAt: string;
-}): CodexDevelopmentVerificationSessionArtifact {
+}): VerificationSessionArtifact {
   const { envelopeDigest, ...withoutDigest } = input.envelope;
   if (input.envelope.schema !== VERIFICATION_SESSION_HOSTED_ENVELOPE_SCHEMA
     || hash(withoutDigest) !== envelopeDigest) {
     throw new Error('prepare-hosted refresh envelope digest mismatch.');
   }
-  return CodexDevelopmentRefreshVerificationSessionArtifact({
+  return RefreshVerificationSessionArtifact({
     previousArtifact: input.previousArtifact,
     scopeAuthorization: input.envelope.scopeAuthorization,
     session: input.envelope.session,
@@ -1315,11 +1315,11 @@ export function refreshVerificationSessionHostedArtifact(input: {
 }
 
 function assertArtifactProvenance(
-  artifact: CodexDevelopmentVerificationSessionArtifact,
+  artifact: VerificationSessionArtifact,
   provenance: TrustedArtifactProvenance,
   session: VerificationSession
 ): void {
-  CodexDevelopmentAssertVerificationSessionArtifact(artifact);
+  AssertVerificationSessionArtifact(artifact);
   const producer = artifact.producer;
   const checks: readonly [unknown, unknown, string][] = [
     [provenance.canonicalByteDigest, hash(artifact), 'canonical artifact bytes'],
@@ -1350,22 +1350,22 @@ function assertArtifactProvenance(
 }
 
 export function prepareVerificationSessionMergeInput(input: {
-  artifact: CodexDevelopmentVerificationSessionArtifact;
+  artifact: VerificationSessionArtifact;
   preMergeReview: ReviewStabilityReceipt;
   platform: PlatformEnforcementObservation;
-  candidate: CodexDevelopmentMergeGateCandidate;
-  hostedArtifactOrigin: CodexDevelopmentHostedArtifactObservation;
-  hostedArtifactTransport: CodexDevelopmentHostedArtifactObservation;
-  provenance: Omit<CodexDevelopmentMergeGateProvenance, 'sourceDigest'>;
+  candidate: MergeGateCandidate;
+  hostedArtifactOrigin: HostedArtifactObservation;
+  hostedArtifactTransport: HostedArtifactObservation;
+  provenance: Omit<MergeGateProvenance, 'sourceDigest'>;
   mainHealth: MainHealthLedger;
   consumptionOperationId: Digest;
   issuedAt: string;
   expiresAt: string;
-}): CodexDevelopmentMergeGateInput {
+}): MergeGateInput {
   if (input.platform.status === 'unknown') throw new Error('Unknown platform enforcement blocks merge input.');
-  CodexDevelopmentAssertVerificationSessionArtifact(input.artifact);
+  AssertVerificationSessionArtifact(input.artifact);
   const provenance = createMergeGateProvenance(input.provenance);
-  return CodexDevelopmentCreateMergeGateInput({
+  return CreateMergeGateInput({
     provenance,
     candidate: Object.freeze({ ...input.candidate, changedPaths: Object.freeze([...input.candidate.changedPaths]) }),
     artifact: input.artifact,
@@ -1386,23 +1386,23 @@ export function prepareVerificationSessionMergeInput(input: {
 }
 
 export function prepareVerificationSessionTrustedRuntimeMergeInput(input: {
-  artifact: CodexDevelopmentVerificationSessionArtifact;
+  artifact: VerificationSessionArtifact;
   preMergeReview: ReviewStabilityReceipt;
   platform: PlatformEnforcementObservation;
-  candidate: CodexDevelopmentMergeGateCandidate;
-  artifactObservation: CodexDevelopmentTrustedRuntimeArtifactObservation;
-  provenance: Omit<CodexDevelopmentTrustedRuntimeMergeGateProvenance, 'sourceDigest'>;
+  candidate: MergeGateCandidate;
+  artifactObservation: TrustedRuntimeArtifactObservation;
+  provenance: Omit<TrustedRuntimeMergeGateProvenance, 'sourceDigest'>;
   mainHealth: MainHealthLedger;
   consumptionOperationId: Digest;
   issuedAt: string;
   expiresAt: string;
-}): CodexDevelopmentTrustedRuntimeMergeGateInput {
+}): TrustedRuntimeMergeGateInput {
   if (input.platform.status === 'unknown') {
     throw new Error('Unknown platform enforcement blocks trusted runtime merge input.');
   }
-  CodexDevelopmentAssertVerificationSessionArtifact(input.artifact);
+  AssertVerificationSessionArtifact(input.artifact);
   const provenance = createTrustedRuntimeMergeGateProvenance(input.provenance);
-  return CodexDevelopmentCreateTrustedRuntimeMergeGateInput({
+  return CreateTrustedRuntimeMergeGateInput({
     provenance,
     candidate: Object.freeze({ ...input.candidate,
       changedPaths: Object.freeze([...input.candidate.changedPaths]) }),
@@ -1427,7 +1427,7 @@ export function prepareVerificationSessionTrustedRuntimeMergeInput(input: {
 
 function verifyIntegrationArtifact(input: {
   source: TrustedIntegrationAuthorizationSource;
-  result: CodexDevelopmentMergeGateResult;
+  result: MergeGateResult;
   hosted: TrustedArtifactProvenance;
   session: VerificationSession;
 }): void {
@@ -1466,7 +1466,7 @@ function verifyIntegrationArtifact(input: {
     || artifact.downloadTransport !== 'github-actions-artifact-api')
     || provenance.workflowSha !== session.trustRevision
     || provenance.workflowRef !== `.github/workflows/sec-merge-gate.yml@${session.trustRevision}`
-    || authorization.issuer.producerIdentity !== CodexDevelopmentMergeGateProducerIdentity
+    || authorization.issuer.producerIdentity !== MergeGateProducerIdentity
     || authorization.issuer.sourceTransport !== 'github-actions'
     || authorization.issuer.trustedRevision !== session.trustRevision
     || authorization.issuer.sourceRef !== `.github/workflows/sec-merge-gate.yml@${session.trustRevision}`
@@ -1485,7 +1485,7 @@ export function resumeVerificationSession(input: {
   session: VerificationSession;
   scopeAuthorization: ScopeAuthorization;
   changedPaths: readonly string[];
-  testImpactTransition?: CodexDevelopmentTestImpactTransitionObservation;
+  testImpactTransition?: TestImpactTransitionObservation;
   integrationPrincipalNodeId: string;
   github: VerificationSessionGitHubClient;
   external: VerificationSessionRuntimeExternal;
@@ -1606,7 +1606,7 @@ export function resumeVerificationSession(input: {
   if (integrationSource === null) return outcome({ status: 'WAITING_INTEGRATION_AUTHORIZATION', sessionRevision: session.sessionRevision,
     reason: 'trusted merge-gate authorization artifact is not available', receiptDigest: hosted.artifact.evidence.evidenceDigest as Digest, completedStage: journal.completedStage });
   const integrationResult = integrationSource.kind === 'actions-artifact'
-    ? CodexDevelopmentParseMergeGateResult(integrationSource.artifact.resultJson)
+    ? ParseMergeGateResult(integrationSource.artifact.resultJson)
     : integrationSource.publication.result;
   verifyIntegrationArtifact({ source: integrationSource, result: integrationResult,
     hosted: hosted.provenance, session });
