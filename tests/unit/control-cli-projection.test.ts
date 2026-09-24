@@ -156,12 +156,29 @@ describe('bounded control-plane CLI projections', () => {
         activeMarkdown: 1, behaviorCandidates: 0,
         contentCoverage: { excluded: 0, scanned: 500, unknown: 0 },
         findings: { critical: 0, high: 500, medium: 0, low: 0 },
-        markdown: 1, skills: 8, trackedPaths: 500, unknowns: 0
+        markdown: 1,
+        sourceProgram: {
+          capabilities: 0, candidates: 0, declarations: 0, dependencies: 0,
+          entrypoints: 0, entrypointClosures: 0, files: 0, literals: 0,
+          packages: 0, references: 0, unknowns: 0
+        },
+        skills: 8, trackedPaths: 500, unknowns: 0
+      },
+      sourceProgram: { modelDigest: `sha256:${'d'.repeat(64)}` },
+      sourceProgramCompilation: {
+        subjectDigest: `sha256:${'1'.repeat(64)}`,
+        snapshotDigest: `sha256:${'2'.repeat(64)}`,
+        moduleGraphDigest: `sha256:${'3'.repeat(64)}`,
+        receiptDigest: `sha256:${'4'.repeat(64)}`
       },
       findings: Array.from({ length: 500 }, (_, index) => ({
-        code: 'one-root-class', message: `instance ${index}`, severity: 'high' as const
+        code: 'one-root-class', message: `instance ${index}`, severity: 'high' as const,
+        ...(index === 0 ? { skills: undefined } : {})
       })),
       unknowns: [],
+      optimizations: [],
+      heuristicRoutes: {},
+      surfaces: {},
       behaviorCandidates: Array.from({ length: 500 }, (_, index) => ({
         line: index + 1, path: `path-${index}`, skills: [], text: 'noise'
       })),

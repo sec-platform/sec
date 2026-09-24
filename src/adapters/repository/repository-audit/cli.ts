@@ -554,6 +554,8 @@ function assertRepositoryAuditCliProjectionSource(
 ): void {
   const architecture = report?.architecture;
   const declarationTopology = report?.declarationTopology;
+  const sourceProgram = report?.sourceProgram;
+  const sourceProgramCompilation = report?.sourceProgramCompilation;
   if (architecture === null || typeof architecture !== 'object'
       || !Array.isArray(architecture.feedbackCuts)
       || !Array.isArray(architecture.reciprocalPairs)
@@ -572,16 +574,50 @@ function assertRepositoryAuditCliProjectionSource(
       || !Array.isArray(declarationTopology.unknowns)
       || report.revision === null || typeof report.revision !== 'object'
       || report.summary === null || typeof report.summary !== 'object'
+      || sourceProgram === null || typeof sourceProgram !== 'object'
+      || !/^sha256:[0-9a-f]{64}$/u.test(sourceProgram.modelDigest)
+      || sourceProgramCompilation === null || typeof sourceProgramCompilation !== 'object'
+      || Object.values(sourceProgramCompilation).some((value) => (
+        typeof value !== 'string' || !/^sha256:[0-9a-f]{64}$/u.test(value)
+      ))
+      || !Array.isArray(report.behaviorCandidates)
+      || !Array.isArray(report.contentCoverage)
       || !Array.isArray(report.findings)
       || report.findings.some((finding) => (
         finding === null || typeof finding !== 'object' || typeof finding.code !== 'string'
       ))
+      || !Array.isArray(report.optimizations)
+      || report.heuristicRoutes === null || typeof report.heuristicRoutes !== 'object'
+      || report.surfaces === null || typeof report.surfaces !== 'object'
       || !Array.isArray(report.unknowns)
       || report.unknowns.some((unknown) => typeof unknown !== 'string')) {
     throw new RepositoryAuditCliProjectionContractError(
       'Repository audit CLI projection requires one complete canonical report source.'
     );
   }
+}
+
+function repositoryAuditReportIdentity(
+  report: RepositoryAuditReport,
+  architectureEvidenceDigest: ReturnType<typeof sha256>
+) {
+  const jsonDigest = (value: unknown) => rawSha256(JSON.stringify(value));
+  return Object.freeze({
+    schema: 'sec-repository-audit-report-identity-v1' as const,
+    architectureEvidenceDigest,
+    declarationTopologyDigest: report.declarationTopology.topologyDigest,
+    behaviorCandidatesDigest: jsonDigest(report.behaviorCandidates),
+    heuristicRoutesDigest: jsonDigest(report.heuristicRoutes),
+    contentCoverageDigest: jsonDigest(report.contentCoverage),
+    findingsDigest: jsonDigest(report.findings),
+    optimizationsDigest: jsonDigest(report.optimizations),
+    sourceProgramModelDigest: report.sourceProgram.modelDigest,
+    sourceProgramCompilation: report.sourceProgramCompilation,
+    revision: report.revision,
+    summary: report.summary,
+    surfaces: report.surfaces,
+    unknownsDigest: jsonDigest(report.unknowns)
+  });
 }
 
 /**
@@ -592,8 +628,9 @@ export function projectRepositoryAuditCli(
   report: RepositoryAuditReport
 ): RepositoryAuditCliProjection {
   assertRepositoryAuditCliProjectionSource(report);
+  const architecture = projectRepositoryModuleArchitectureCli(report.architecture);
   return Object.freeze({
-    architecture: projectRepositoryModuleArchitectureCli(report.architecture),
+    architecture,
     declarationTopology: Object.freeze({
       evidenceDigest: report.declarationTopology.topologyDigest,
       declarations: report.declarationTopology.declarations.length,
@@ -604,7 +641,7 @@ export function projectRepositoryAuditCli(
       ).length,
       unknowns: report.declarationTopology.unknowns.length
     }),
-    reportDigest: rawSha256(JSON.stringify(report)),
+    reportDigest: sha256(repositoryAuditReportIdentity(report, architecture.evidenceDigest)),
     revision: report.revision,
     summary: report.summary,
     findingCodes: Object.freeze([...new Set(report.findings.map(({ code }) => code))].sort()),
@@ -2898,10 +2935,12 @@ async function runRepositoryAuditInput(
 
   const report = await auditRepository(undefined, { defaultRef });
   if (repositoryAuditShouldFail(report, { diagnostic, failOn })) process.exitCode = 1;
-  const encoded = `${JSON.stringify(report, null, 2)}\n`;
+  const encoded = full || outputPath !== null
+    ? `${JSON.stringify(report, null, 2)}\n`
+    : null;
   if (outputPath !== null) {
     await mkdir(path.dirname(outputPath), { recursive: true });
-    await writeFile(outputPath, encoded, 'utf8');
+    await writeFile(outputPath, encoded!, 'utf8');
   }
   process.stdout.write(query !== null
     ? `${JSON.stringify({
@@ -2910,7 +2949,7 @@ async function runRepositoryAuditInput(
         result: querySourceProgramModel(report.sourceProgram, query)
       }, null, 2)}\n`
     : full
-      ? encoded
+      ? encoded!
       : `${JSON.stringify(projectRepositoryAuditCli(report), null, 2)}\n`);
 }
 
