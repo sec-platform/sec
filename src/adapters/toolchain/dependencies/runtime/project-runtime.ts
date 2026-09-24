@@ -9529,16 +9529,16 @@ async function releaseCompilerDependencyConsumer(
   );
 }
 
-const COMPILER_DEPENDENCY_CONSUMER_ZERO_SCHEMA =
+const COMPILER_DEPENDENCY_CONSUMER_ZERO_SCHEMA_V1 =
   'sec-compiler-dependency-consumer-zero-v1' as const;
 const COMPILER_DEPENDENCY_CONSUMER_ZERO_SCHEMA_V2 =
   'sec-compiler-dependency-consumer-zero-v2' as const;
-const COMPILER_DEPENDENCY_CONSUMER_ZERO_KEYS = Object.freeze([
+const COMPILER_DEPENDENCY_CONSUMER_ZERO_KEYS_V1 = Object.freeze([
   'censusDigest', 'generationDigest', 'generationPath', 'generationPhysical',
   'receiptDigest', 'schema', 'terminal'
 ]);
 const COMPILER_DEPENDENCY_CONSUMER_ZERO_KEYS_V2 = Object.freeze([
-  ...COMPILER_DEPENDENCY_CONSUMER_ZERO_KEYS,
+  ...COMPILER_DEPENDENCY_CONSUMER_ZERO_KEYS_V1,
   'purpose', 'terminalRecords'
 ]);
 
@@ -9550,7 +9550,7 @@ type CompilerDependencyConsumerCompactionEntry = Readonly<{
 }>;
 
 interface CompilerDependencyConsumerZeroReceipt {
-  readonly schema: typeof COMPILER_DEPENDENCY_CONSUMER_ZERO_SCHEMA |
+  readonly schema: typeof COMPILER_DEPENDENCY_CONSUMER_ZERO_SCHEMA_V1 |
     typeof COMPILER_DEPENDENCY_CONSUMER_ZERO_SCHEMA_V2;
   readonly censusDigest: `sha256:${string}`;
   readonly generationDigest: `sha256:${string}`;
@@ -9585,7 +9585,7 @@ function parseCompilerDependencyConsumerZeroReceipt(
       cause: error instanceof Error ? error.message : String(error)
     });
   }
-  const isV1 = hasExactObjectKeys(value, COMPILER_DEPENDENCY_CONSUMER_ZERO_KEYS);
+  const isV1 = hasExactObjectKeys(value, COMPILER_DEPENDENCY_CONSUMER_ZERO_KEYS_V1);
   const isV2 = hasExactObjectKeys(value, COMPILER_DEPENDENCY_CONSUMER_ZERO_KEYS_V2);
   if (!isV1 && !isV2) {
     throw new SecError('RUNTIME-DEPS-004', 'Compiler dependency consumer-zero receipt has noncanonical keys');
@@ -9632,7 +9632,7 @@ function parseCompilerDependencyConsumerZeroReceipt(
       sameGeneratedStateIdentity(entry.released.generationPhysical, receipt.generationPhysical) &&
       (previous === null || compareCodeUnits(previous.acquiredName, entry.acquiredName) < 0);
   };
-  if ((isV1 && receipt.schema !== COMPILER_DEPENDENCY_CONSUMER_ZERO_SCHEMA) ||
+  if ((isV1 && receipt.schema !== COMPILER_DEPENDENCY_CONSUMER_ZERO_SCHEMA_V1) ||
       (isV2 && receipt.schema !== COMPILER_DEPENDENCY_CONSUMER_ZERO_SCHEMA_V2) ||
       !isSha256Digest(receipt.censusDigest) || !isSha256Digest(receipt.generationDigest) ||
       !isSha256Digest(receipt.receiptDigest) || !isCanonicalAbsolutePath(receipt.generationPath) ||
