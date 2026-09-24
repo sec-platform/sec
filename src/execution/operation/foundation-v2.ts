@@ -186,6 +186,8 @@ export type BoundSemanticOperationV2 = Readonly<{
 
 export type OperationFoundationV2 = Readonly<{
   createReference(input: OperationIdentityReference): OperationIdentityReference;
+  assertIntent(value: unknown): asserts value is SemanticOperationIntentV2;
+  assertPlan(value: unknown): asserts value is SemanticOperationPlanV2;
   issueAttemptContext(input: Readonly<{
     authorityGrant: OperationIdentityReference;
     run?: OperationIdentityReference | null;
@@ -358,6 +360,7 @@ export function createOperationFoundationV2(
   identities: StructuredIdentityRuntime
 ): OperationFoundationV2 {
   assertStructuredIdentityRuntime(identities);
+  const issuedIntents = new WeakSet<object>();
   const issuedAttempts = new WeakSet<object>();
   const issuedPlans = new WeakSet<object>();
   const issuedBindings = new WeakSet<object>();
@@ -414,7 +417,7 @@ export function createOperationFoundationV2(
       aggregateBudgets: frozenBudgets,
       requirements: frozenRequirements
     });
-    return deepFreeze({
+    const compiled = deepFreeze({
       operation,
       intent,
       decision,
@@ -426,6 +429,20 @@ export function createOperationFoundationV2(
         identity: executionIdentity
       }
     });
+    issuedIntents.add(compiled);
+    return compiled;
+  };
+
+  const assertIntent: OperationFoundationV2['assertIntent'] = (value) => {
+    if (value === null || typeof value !== 'object' || !issuedIntents.has(value)) {
+      throw new Error('Semantic operation v2 intent is not foundation-issued.');
+    }
+  };
+
+  const assertPlan: OperationFoundationV2['assertPlan'] = (value) => {
+    if (value === null || typeof value !== 'object' || !issuedPlans.has(value)) {
+      throw new Error('Semantic operation v2 plan is not foundation-issued.');
+    }
   };
 
   const compilePlan: OperationFoundationV2['compilePlan'] = (input) => {
@@ -746,6 +763,8 @@ export function createOperationFoundationV2(
 
   const foundation = Object.freeze({
     createReference,
+    assertIntent,
+    assertPlan,
     issueAttemptContext,
     compileIntent,
     compilePlan,
