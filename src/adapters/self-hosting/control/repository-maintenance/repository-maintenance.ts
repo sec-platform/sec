@@ -132,13 +132,10 @@ async function preflightRepositoryMaintenance(input: Readonly<{
   repositoryRoot: string;
   request: MaintenanceRequest;
 }>): Promise<void> {
-  const needsBranchWrite = input.request.operations.some((operation) => (
-    operation.kind === 'exact-ref-retirement' || operation.kind === 'closed-pr-retirement'
-  ));
-  const needsCommentWrite = input.request.operations.some((operation) => (
-    operation.kind === 'closed-conversation-comment-retirement'
-  ));
-  if (needsBranchWrite) await withGitHubApiBranchCloseoutWriteSession({
+  // Maintenance requests never select which permission gets checked. Every
+  // invocation proves both bounded write capabilities before the first Effect;
+  // individual owners still reacquire their own capability at the effect boundary.
+  await withGitHubApiBranchCloseoutWriteSession({
     repositoryRoot: input.repositoryRoot, repository: input.request.repository,
     operation: async (capability) => {
       const observed = inspectGitHubApiCapability(capability);
@@ -149,7 +146,7 @@ async function preflightRepositoryMaintenance(input: Readonly<{
       }
     }
   });
-  if (needsCommentWrite) await withGitHubApiIssueCommentWriteSession({
+  await withGitHubApiIssueCommentWriteSession({
     repositoryRoot: input.repositoryRoot, repository: input.request.repository,
     operation: async (capability) => {
       const observed = inspectGitHubApiCapability(capability);
@@ -190,6 +187,9 @@ export async function executeRepositoryMaintenance(input: Readonly<{
   });
   const results: unknown[] = [];
   for (const operation of input.request.operations) {
+    // The parsed discriminant selects a closed owner only. It is not a
+    // permission decision: every owner revalidates its exact effect authority.
+    // codeql[js/user-controlled-bypass]
     if (operation.kind === 'exact-ref-retirement') {
       const retired = await retireExactRemoteRefs({
         repositoryRoot: input.repositoryRoot, repository: input.request.repository,
@@ -198,12 +198,19 @@ export async function executeRepositoryMaintenance(input: Readonly<{
       results.push(Object.freeze({ kind: operation.kind, ...retired }));
       continue;
     }
+    // Same closed-union routing rule as above; closed-PR authority is
+    // independently re-observed by the branch-lifecycle owner.
+    // codeql[js/user-controlled-bypass]
     if (operation.kind === 'closed-pr-retirement') {
       const args = [
         '--repository', input.request.repository,
         '--pr', String(operation.pullRequestNumber),
         '--disposition', 'closed-superseded'
       ];
+      // Comment presence chooses the evidence source, not whether evidence is
+      // required. Null must prove native main absorption; distinct-tree
+      // retirement otherwise fails closed inside the branch-lifecycle owner.
+      // codeql[js/user-controlled-bypass]
       if (operation.reviewCommentId !== null) args.push('--review-comment', String(operation.reviewCommentId));
       const branchLogs: string[] = [];
       const code = await runClosedUnmergedCloseoutCli(args, (source) => { branchLogs.push(source); });
