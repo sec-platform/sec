@@ -26,7 +26,7 @@ import {
 const CurrentStateSchema = 'sec-current-state-live-v1' as const;
 const ActivePointerSchema = 'sec-active-work-package-pointer-v2' as const;
 const DOCUMENT_CONTROL_PLANE_ENTRYPOINT_PATH =
-  'src/control/documentation/document-control-plane.ts' as const;
+  'src/adapters/self-hosting/control/documentation/document-control-plane.ts' as const;
 const DOCUMENT_CONTROL_PLANE_STATUS_ARGUMENTS = Object.freeze([
   DOCUMENT_CONTROL_PLANE_ENTRYPOINT_PATH,
   'status',

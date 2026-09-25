@@ -86,7 +86,7 @@ test('proposal-only freeze renders one authority-free tracking:none successor', 
   const targetManifest = proposalManifest(proposalPackageId, 'none');
   const spec = ParseCurrentStateSpec(`schema: sec-current-state-live-v1
 resolver:
-  command: bun src/control/documentation/document-control-plane.ts status --json
+  command: bun src/adapters/self-hosting/control/documentation/document-control-plane.ts status --json
   repository: sec-platform/sec
   remote: origin
   defaultBranch: main
@@ -265,7 +265,7 @@ tests:
 `, 'utf8');
   const spec = ParseCurrentStateSpec(`schema: sec-current-state-live-v1
 resolver:
-  command: bun src/control/documentation/document-control-plane.ts status --json
+  command: bun src/adapters/self-hosting/control/documentation/document-control-plane.ts status --json
   repository: sec-platform/sec
   remote: origin
   defaultBranch: main
@@ -499,7 +499,7 @@ matchingDefaultBlob: none
   };
   const spec = ParseCurrentStateSpec(`schema: sec-current-state-live-v1
 resolver:
-  command: bun src/control/documentation/document-control-plane.ts status --json
+  command: bun src/adapters/self-hosting/control/documentation/document-control-plane.ts status --json
   repository: sec-platform/sec
   remote: origin
   defaultBranch: main

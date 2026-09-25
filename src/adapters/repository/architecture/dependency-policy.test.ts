@@ -72,25 +72,16 @@ test('canonical source roots and the 33 static dependency edges are the exact SE
   }
 });
 
-test('the tracked source tree has ten canonical responsibilities and one zero-authority CLI address', () => {
+test('the tracked source tree has exactly the ten canonical responsibilities', () => {
   const repositoryRoot = nodePath.resolve(import.meta.dir, '../../../..');
   const actual = readdirSync(nodePath.join(repositoryRoot, 'src'), { withFileTypes: true })
     .filter((entry) => entry.isDirectory())
     .map((entry) => entry.name)
     .sort();
-  expect(actual).toEqual([...CANONICAL_SOURCE_MODULES, 'control'].sort());
+  expect(actual).toEqual([...CANONICAL_SOURCE_MODULES].sort());
+
   const membership = compileRepositoryModuleMembership(repositoryRoot);
-  const facade = membership.descriptors.find(({ root }) => root === 'src/control/documentation');
-  if (facade === undefined) throw new Error('Documentation control facade descriptor is missing.');
-  expect(facade).toMatchObject({
-    root: 'src/control/documentation',
-    capabilityProviders: [],
-    operationObligations: []
-  });
-  expect(facade.externalEntrypoints).toHaveLength(1);
-  const [entrypoint] = facade.externalEntrypoints;
-  if (entrypoint === undefined) throw new Error('Documentation control facade entrypoint is missing.');
-  expect(membership.moduleForPath(entrypoint)).toBe(facade);
+  expect(membership.descriptors.some(({ root }) => root.startsWith('src/control'))).toBe(false);
 });
 
 test('the actual current source graph has no forbidden canonical-module edge', () => {
