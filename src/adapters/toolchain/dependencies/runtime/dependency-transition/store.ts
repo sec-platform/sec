@@ -6,7 +6,7 @@ import {
 } from '../../../../../contracts/canonical.ts';
 import { readonlyMapSnapshot } from '../../../../../contracts/collections.ts';
 import {
-  SecError
+  FailureError
 } from '../../../../../contracts/failure.ts';
 import { formatJsonFile } from "../../../../../contracts/json-text.ts";
 import {
@@ -94,11 +94,11 @@ export function writeDurableTransitionFile(
   if (immutable && existing !== null) {
     const current = readNoFollowOrdinaryFile(parent, name);
     if (current === null) {
-      throw new SecError('RUNTIME-DEPS-002', 'Immutable dependency transition record disappeared before reuse');
+      throw new FailureError('RUNTIME-DEPS-002', 'Immutable dependency transition record disappeared before reuse');
     }
     validate(current);
     if (!Buffer.from(current).equals(Buffer.from(bytes))) {
-      throw new SecError('RUNTIME-DEPS-002', 'Immutable dependency transition record collides with different canonical bytes', {
+      throw new FailureError('RUNTIME-DEPS-002', 'Immutable dependency transition record collides with different canonical bytes', {
         path: path.join(parent.path, name)
       });
     }
@@ -141,7 +141,7 @@ export async function ensureDependencyTransitionNamespace(
   const rolloversRoot = createNoFollowOrdinaryDirectoryChain(journalRoot, ['rollovers']);
   if (paths.backupRoot !== backupRoot.path || paths.journalRoot !== journalRoot.path ||
     paths.recordsRoot !== recordsRoot.path || paths.rolloversRoot !== rolloversRoot.path) {
-    throw new SecError('RUNTIME-DEPS-002', 'Dependency transition namespace path normalization changed');
+    throw new FailureError('RUNTIME-DEPS-002', 'Dependency transition namespace path normalization changed');
   }
   runtimeDependencyOperationRemainingMs(options, 'Dependency transition namespace creation readback');
   return Object.freeze({ ownerRoot: owner, backupRoot, journalRoot, recordsRoot, rolloversRoot });
@@ -169,13 +169,13 @@ export function inspectDependencyTransitionNamespace(
   if (journalRoot === null) return null;
   const recordsRoot = inspectOptionalNoFollowDirectoryChild(journalRoot, 'records', 'Dependency transition records root');
   if (recordsRoot === null) {
-    throw new SecError('RUNTIME-DEPS-004', 'Dependency transition journal is present without its records root; owner recovery is required');
+    throw new FailureError('RUNTIME-DEPS-004', 'Dependency transition journal is present without its records root; owner recovery is required');
   }
   // Older journals legitimately predate the optional rollover namespace.
   const rolloversRoot = inspectOptionalNoFollowDirectoryChild(journalRoot, 'rollovers', 'Dependency transition rollovers root');
   if (paths.backupRoot !== backupRoot.path || paths.journalRoot !== journalRoot.path ||
       paths.recordsRoot !== recordsRoot.path || (rolloversRoot !== null && paths.rolloversRoot !== rolloversRoot.path)) {
-    throw new SecError('RUNTIME-DEPS-002', 'Dependency transition namespace path normalization changed');
+    throw new FailureError('RUNTIME-DEPS-002', 'Dependency transition namespace path normalization changed');
   }
   return Object.freeze({ ownerRoot: owner, backupRoot, journalRoot, recordsRoot, rolloversRoot });
 }
@@ -186,7 +186,7 @@ export async function readNoFollowDirectNames(
   input: RuntimeDependencyOperationControlInput
 ): Promise<readonly string[]> {
   if (!Number.isSafeInteger(maximumEntries) || maximumEntries < 0) {
-    throw new SecError('RUNTIME-DEPS-004', `${label} entry capacity is invalid`);
+    throw new FailureError('RUNTIME-DEPS-004', `${label} entry capacity is invalid`);
   }
   const options = runtimeDependencyOperationControls(input);
   runtimeDependencyOperationRemainingMs(options, `${label} admission`);
@@ -196,7 +196,7 @@ export async function readNoFollowDirectNames(
   for await (const entry of await fs.opendir(before.path)) {
     runtimeDependencyOperationRemainingMs(options, `${label} enumeration`);
     if (names.length === maximumEntries) {
-      throw new SecError('RUNTIME-DEPS-004', `${label} entry capacity exceeded`, {
+      throw new FailureError('RUNTIME-DEPS-004', `${label} entry capacity exceeded`, {
         maximumEntries, observedEntries: names.length + 1
       });
     }
@@ -208,7 +208,7 @@ export async function readNoFollowDirectNames(
     generatedStatePhysicalIdentity(before),
     generatedStatePhysicalIdentity(after)
   )) {
-    throw new SecError('RUNTIME-DEPS-004', `${label} identity changed during direct read`);
+    throw new FailureError('RUNTIME-DEPS-004', `${label} identity changed during direct read`);
   }
   return Object.freeze(names.sort(compareCodeUnits));
 }
@@ -272,17 +272,17 @@ export function readDependencyTransitionRecordSet(
   for (const entry of census) {
     assertRuntimeDependencyOperationActive(operation, `${label} read deadline`);
     if (entry.kind !== 'file' || !/^record-[0-9a-f]{64}\.json$/u.test(entry.relativePath)) {
-      throw new SecError('RUNTIME-DEPS-002', `${label} contains an unknown physical entry`);
+      throw new FailureError('RUNTIME-DEPS-002', `${label} contains an unknown physical entry`);
     }
     if (entry.bytes === null) {
-      throw new SecError('RUNTIME-DEPS-002', `${label} record disappeared during census`);
+      throw new FailureError('RUNTIME-DEPS-002', `${label} record disappeared during census`);
     }
     const record = parseDependencyTransitionRecord(entry.bytes, entry.relativePath);
     if (record.ownerRoot !== ownerRoot) {
-      throw new SecError('RUNTIME-DEPS-002', `${label} record belongs to a foreign owner root`);
+      throw new FailureError('RUNTIME-DEPS-002', `${label} record belongs to a foreign owner root`);
     }
     if (records.has(record.recordDigest)) {
-      throw new SecError('RUNTIME-DEPS-002', `${label} record digest is duplicated`);
+      throw new FailureError('RUNTIME-DEPS-002', `${label} record digest is duplicated`);
     }
     records.set(record.recordDigest, record);
   }
@@ -292,7 +292,7 @@ export function readDependencyTransitionRecordSet(
     generatedStatePhysicalIdentity(before),
     generatedStatePhysicalIdentity(after)
   )) {
-    throw new SecError('RUNTIME-DEPS-002', `${label} identity changed during census`);
+    throw new FailureError('RUNTIME-DEPS-002', `${label} identity changed during census`);
   }
   if (records.size === 0) {
     const result = Object.freeze({ records: readonlyMapSnapshot(records),
@@ -309,44 +309,44 @@ export function readDependencyTransitionRecordSet(
     assertRuntimeDependencyOperationActive(operation, `${label} graph-validation deadline`);
     if (record.previousRecordDigest === null) {
       if (record.sequence !== 1) {
-        throw new SecError('RUNTIME-DEPS-002', `${label} root record sequence is not one`);
+        throw new FailureError('RUNTIME-DEPS-002', `${label} root record sequence is not one`);
       }
       roots.push(record);
       continue;
     }
     const predecessor = records.get(record.previousRecordDigest);
     if (predecessor === undefined || predecessor.sequence !== record.sequence - 1) {
-      throw new SecError('RUNTIME-DEPS-002', `${label} predecessor is missing or has an invalid sequence`);
+      throw new FailureError('RUNTIME-DEPS-002', `${label} predecessor is missing or has an invalid sequence`);
     }
     const previousChild = children.get(record.previousRecordDigest);
     if (previousChild !== undefined && previousChild !== record.recordDigest) {
-      throw new SecError('RUNTIME-DEPS-002', `${label} predecessor has a forked child chain`);
+      throw new FailureError('RUNTIME-DEPS-002', `${label} predecessor has a forked child chain`);
     }
     children.set(record.previousRecordDigest, record.recordDigest);
   }
   if (roots.length !== 1) {
-    throw new SecError('RUNTIME-DEPS-002', `${label} contains multiple immutable epochs`);
+    throw new FailureError('RUNTIME-DEPS-002', `${label} contains multiple immutable epochs`);
   }
   const visited = new Set<`sha256:${string}`>();
   let cursor: DependencyTransitionJournal | undefined = roots[0];
   while (cursor !== undefined) {
     assertRuntimeDependencyOperationActive(operation, `${label} chain-validation deadline`);
     if (visited.has(cursor.recordDigest)) {
-      throw new SecError('RUNTIME-DEPS-002', `${label} chain contains a cycle`);
+      throw new FailureError('RUNTIME-DEPS-002', `${label} chain contains a cycle`);
     }
     visited.add(cursor.recordDigest);
     const childDigest = children.get(cursor.recordDigest);
     cursor = childDigest === undefined ? undefined : records.get(childDigest);
     if (childDigest !== undefined && cursor === undefined) {
-      throw new SecError('RUNTIME-DEPS-002', `${label} child disappeared during immutable census`);
+      throw new FailureError('RUNTIME-DEPS-002', `${label} child disappeared during immutable census`);
     }
   }
   if (visited.size !== records.size) {
-    throw new SecError('RUNTIME-DEPS-002', `${label} contains a disconnected or foreign fork`);
+    throw new FailureError('RUNTIME-DEPS-002', `${label} contains a disconnected or foreign fork`);
   }
   const tips = [...records.values()].filter(({ recordDigest }) => !children.has(recordDigest));
   if (tips.length !== 1) {
-    throw new SecError('RUNTIME-DEPS-002', `${label} does not have one maximal immutable tip`);
+    throw new FailureError('RUNTIME-DEPS-002', `${label} does not have one maximal immutable tip`);
   }
   assertRuntimeDependencyOperationActive(operation, `${label} final read deadline`);
   const result = Object.freeze({ records: readonlyMapSnapshot(records),
@@ -420,7 +420,7 @@ export async function observeDependencyTransitionSlot(
     }
     if (link !== null) {
       if (link.kind !== 'link' || link.linkTarget === null) {
-        throw new SecError('RUNTIME-DEPS-004', 'Dependency transition slot is an invalid link');
+        throw new FailureError('RUNTIME-DEPS-004', 'Dependency transition slot is an invalid link');
       }
       return transitionSlotFromPhysical({
         path: absolute,

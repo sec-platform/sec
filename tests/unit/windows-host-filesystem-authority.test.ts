@@ -17,7 +17,7 @@ import {
   proveWindowsHostDirectoryAuthorityForTests
 } from '../../src/adapters/runtime-state/physical/test/windows-host-filesystem.ts';
 import {
-  acquireSecRuntimeStatePhysicalAuthority
+  acquireRuntimeStatePhysicalAuthority
 } from '../../src/adapters/runtime-state/workspace-state/physical-authority.ts';
 
 
@@ -481,13 +481,13 @@ test.skipIf(process.platform !== 'win32')(
     await mkdir(input.stateRoot);
     await mkdir(input.cacheRoot);
     const before = observeWindowsAclSessionLifecycleForTests();
-    let first: Awaited<ReturnType<typeof acquireSecRuntimeStatePhysicalAuthority>> | undefined;
-    let second: Awaited<ReturnType<typeof acquireSecRuntimeStatePhysicalAuthority>> | undefined;
-    let reopened: Awaited<ReturnType<typeof acquireSecRuntimeStatePhysicalAuthority>> | undefined;
+    let first: Awaited<ReturnType<typeof acquireRuntimeStatePhysicalAuthority>> | undefined;
+    let second: Awaited<ReturnType<typeof acquireRuntimeStatePhysicalAuthority>> | undefined;
+    let reopened: Awaited<ReturnType<typeof acquireRuntimeStatePhysicalAuthority>> | undefined;
     try {
       [first, second] = await Promise.all([
-        acquireSecRuntimeStatePhysicalAuthority(input),
-        acquireSecRuntimeStatePhysicalAuthority(input)
+        acquireRuntimeStatePhysicalAuthority(input),
+        acquireRuntimeStatePhysicalAuthority(input)
       ]);
       const shared = observeWindowsAclSessionLifecycleForTests();
       expect(shared.opened - before.opened).toBe(1);
@@ -501,7 +501,7 @@ test.skipIf(process.platform !== 'win32')(
 
       await second.release();
       expect(observeWindowsAclSessionLifecycleForTests().closed - before.closed).toBe(1);
-      reopened = await acquireSecRuntimeStatePhysicalAuthority(input);
+      reopened = await acquireRuntimeStatePhysicalAuthority(input);
       expect(observeWindowsAclSessionLifecycleForTests().opened - before.opened).toBe(2);
       await reopened.assertCurrent();
     } finally {
@@ -523,10 +523,10 @@ test.skipIf(process.platform !== 'win32')(
     await mkdir(input.repositoryRoot);
     await mkdir(input.stateRoot);
     await mkdir(input.cacheRoot);
-    let stale: Awaited<ReturnType<typeof acquireSecRuntimeStatePhysicalAuthority>> | undefined;
-    let repaired: Awaited<ReturnType<typeof acquireSecRuntimeStatePhysicalAuthority>> | undefined;
+    let stale: Awaited<ReturnType<typeof acquireRuntimeStatePhysicalAuthority>> | undefined;
+    let repaired: Awaited<ReturnType<typeof acquireRuntimeStatePhysicalAuthority>> | undefined;
     try {
-      stale = await acquireSecRuntimeStatePhysicalAuthority(input);
+      stale = await acquireRuntimeStatePhysicalAuthority(input);
       const systemRoot = process.env.SystemRoot;
       if (!systemRoot) throw new Error('Windows SystemRoot is unavailable');
       const icacls = Bun.spawnSync([
@@ -542,7 +542,7 @@ test.skipIf(process.platform !== 'win32')(
       await expect(stale.assertCurrent()).rejects.toMatchObject({ failure: 'acl-untrusted' });
       await expect(stale.assertCurrent()).rejects.toMatchObject({ failure: 'session-closed' });
 
-      repaired = await acquireSecRuntimeStatePhysicalAuthority(input);
+      repaired = await acquireRuntimeStatePhysicalAuthority(input);
       await repaired.assertCurrent();
       await expect(stale.assertCurrent()).rejects.toMatchObject({ failure: 'session-closed' });
     } finally {

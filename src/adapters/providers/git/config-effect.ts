@@ -2,7 +2,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 
 import { rawSha256, sha256 } from '../../../contracts/canonical.ts';
-import type { SecOperationDigest } from '../../../execution/operation/semantic.ts';
+import type { OperationDigest } from '../../../execution/operation/semantic.ts';
 import {
   inspectNoFollowDirectoryChain,
   inspectNoFollowOrdinaryFileEntry,
@@ -22,19 +22,19 @@ export type GitConfigTargetCapability = Readonly<{
   readonly path: string;
   readonly initialDigest: `sha256:${string}`;
   readonly initialSize: number;
-  readonly targetIdentityDigest: SecOperationDigest;
+  readonly targetIdentityDigest: OperationDigest;
 }>;
 
 export type GitConfigEffectReceipt = Readonly<{
-  readonly providerIdentityDigest: SecOperationDigest;
-  readonly targetIdentityDigest: SecOperationDigest;
+  readonly providerIdentityDigest: OperationDigest;
+  readonly targetIdentityDigest: OperationDigest;
   readonly key: string;
   readonly valueDigest: `sha256:${string}`;
   readonly beforeDigest: `sha256:${string}`;
   readonly afterDigest: `sha256:${string}`;
   readonly writeOrdinal: number;
   readonly readbackOrdinal: number;
-  readonly receiptDigest: SecOperationDigest;
+  readonly receiptDigest: OperationDigest;
 }>;
 
 type GitConfigTargetState = {
@@ -122,7 +122,7 @@ export async function issueGitConfigTargetCapability(input: Readonly<{
       targetIdentityDigest: sha256({
         domain: 'external-capabilities.git.config-target',
         target: withoutIdentity
-      }) as SecOperationDigest
+      }) as OperationDigest
     });
     GIT_CONFIG_TARGET_STATES.set(capability, {
       retained,
@@ -228,7 +228,7 @@ export async function replaceAllGitConfigValue(input: Readonly<{
       receiptDigest: sha256({
         domain: 'external-capabilities.git.config-effect-receipt',
         receipt: withoutDigest
-      }) as SecOperationDigest
+      }) as OperationDigest
     });
     ISSUED_GIT_CONFIG_EFFECT_RECEIPTS.add(receipt);
     return receipt;

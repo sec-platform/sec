@@ -5,8 +5,8 @@ import path from 'node:path';
 
 import { rawSha256, sha256 } from '../../../contracts/canonical.ts';
 import {
-  compileTypeScriptSourceProgramModel,
-  sourceProgramTypeScriptRequiredApiClosure
+  compileTypeScriptModel,
+  currentTypeScriptRequiredApiClosure
 } from '../../repository/source-program-model/typescript.ts';
 import { DEPENDENCY_CAPABILITY_SPECS } from '../dependencies/contract/dependency-capability-contract.ts';
 import { parseRuntimeDependencyPackageReference } from '../dependencies/contract/runtime-dependency-spec.ts';
@@ -34,12 +34,12 @@ function requiredApiClosure() {
     source,
     contentDigest: rawSha256(source)
   })]);
-  const model = compileTypeScriptSourceProgramModel({
+  const model = compileTypeScriptModel({
     sourceRevision: sha256(files.map(({ path, contentDigest }) => ({ path, contentDigest }))),
     files,
     moduleMembership
   });
-  const closure = sourceProgramTypeScriptRequiredApiClosure(model);
+  const closure = currentTypeScriptRequiredApiClosure(model);
   if (closure === null) throw new Error('Expected a Source Program TypeScript API closure');
   return closure;
 }

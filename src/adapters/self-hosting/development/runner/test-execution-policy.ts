@@ -1,13 +1,13 @@
 /** One default per-test deadline for every canonical test lane. */
 import { deepFreeze, sha256 } from '../../../../contracts/canonical.ts';
 import {
-  bindSecSemanticOperation,
-  compileSecSemanticOperationPlan,
-  issueSecSemanticOperationAttemptContext,
-  type SecBoundSemanticOperation,
-  type SecCapabilityBinding,
-  type SecOperationDigest,
-  type SecSemanticOperationPlan
+  bindSemanticOperation,
+  compileSemanticOperationPlan,
+  issueSemanticOperationAttemptContext,
+  type BoundSemanticOperation,
+  type CapabilityBinding,
+  type OperationDigest,
+  type SemanticOperationPlan
 } from '../../../../execution/operation/semantic.ts';
 import {
   RETAINED_WINDOWS_REPOSITORY_CHANGE_OBSERVER_CONTRACT_DIGEST,
@@ -100,7 +100,7 @@ export type FastTestBatchExecutionAdmission = Readonly<{
   logicalDeadlineAtUnixMs: number;
   revalidationDeadlineAtUnixMs: number;
   childDeadlineAtUnixMs: number;
-  operationPlan: SecSemanticOperationPlan;
+  operationPlan: SemanticOperationPlan;
 }>;
 
 const issuedTestSuiteExecutionPolicies = new WeakSet<object>();
@@ -262,12 +262,12 @@ export function admitFastTestBatchExecutionPolicy(
     throw new Error('Fast test batch execution admission deadline is invalid.');
   }
   consumedFastTestBatchExecutionPolicies.add(policy);
-  const operationPlan = compileSecSemanticOperationPlan({
+  const operationPlan = compileSemanticOperationPlan({
     operation: FAST_TEST_BATCH_EXECUTION_OPERATION,
-    intentDigest: policy.policyDigest as SecOperationDigest,
-    decisionDigest: policy.policyDigest as SecOperationDigest,
+    intentDigest: policy.policyDigest as OperationDigest,
+    decisionDigest: policy.policyDigest as OperationDigest,
     deadlineAtUnixMs: logicalDeadlineAtUnixMs,
-    attempt: issueSecSemanticOperationAttemptContext({ authorityGrantDigest: policy.policyDigest as SecOperationDigest }),
+    attempt: issueSemanticOperationAttemptContext({ authorityGrantDigest: policy.policyDigest as OperationDigest }),
     aggregateBudgets: [{ resource: 'duration-ms', maximum: policy.logicalRunTimeoutMs }],
     requirements: [{
       id: RETAINED_WINDOWS_REPOSITORY_CHANGE_OBSERVER_REQUIREMENT_ID,
@@ -290,8 +290,8 @@ export function admitFastTestBatchExecutionPolicy(
 
 export function bindFastTestBatchExecutionAdmission(
   admission: FastTestBatchExecutionAdmission,
-  providerBinding: SecCapabilityBinding
-): SecBoundSemanticOperation {
+  providerBinding: CapabilityBinding
+): BoundSemanticOperation {
   assertIssuedFastTestBatchExecutionAdmission(admission);
   if (boundFastTestBatchExecutionAdmissions.has(admission)) {
     throw new Error('Fast test batch execution admission was already bound.');
@@ -301,7 +301,7 @@ export function bindFastTestBatchExecutionAdmission(
     throw new Error('Fast test batch observer provider binding is invalid.');
   }
   boundFastTestBatchExecutionAdmissions.add(admission);
-  return bindSecSemanticOperation(admission.operationPlan, [providerBinding]);
+  return bindSemanticOperation(admission.operationPlan, [providerBinding]);
 }
 
 export function issueTestSuiteExecutionPolicy(input: Readonly<{

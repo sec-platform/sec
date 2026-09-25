@@ -1,6 +1,6 @@
 import path from 'node:path';
 import { snapshotByteView } from '../../../../contracts/byte-snapshot.ts';
-import { CodexDevelopmentIsCanonicalRepositoryPath } from '../../../../contracts/repository-path.ts';
+import { IsCanonicalRepositoryPath } from '../../../../contracts/repository-path.ts';
 
 export interface WorktreePorcelainRecord {
   readonly path: string;
@@ -197,7 +197,7 @@ export function parseWorktreeStatusPorcelainZ(
     // Only untracked/ignored directory records have a removable final slash.
     const selected = directoryEntry && allowDirectoryEntries !== false && value.endsWith('/')
       ? value.slice(0, -1) : value;
-    if (!CodexDevelopmentIsCanonicalRepositoryPath(selected)) {
+    if (!IsCanonicalRepositoryPath(selected)) {
       fail(`${label} is not one canonical repository-relative path.`);
     }
     return selected;

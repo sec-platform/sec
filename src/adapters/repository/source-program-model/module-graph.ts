@@ -2,24 +2,24 @@ import nodePath from 'node:path';
 
 import { assertCanonicalPortableLogicalPath } from '../../../contracts/logical-path.ts';
 import type {
-  SecRepositoryModuleGraph, SecRepositoryModuleGraphImportObservation,
-  SecRepositoryModuleGraphReference
+  RepositoryModuleGraph, RepositoryModuleGraphImportObservation,
+  RepositoryModuleGraphReference
 } from '../architecture/contract.ts';
 import {
-  assertSecRepositoryModuleGraphPath,
+  assertRepositoryModuleGraphPath,
   isTestOnlyRepositoryModulePath
 } from '../architecture/contract.ts';
 
 export type {
 
-  SecRepositoryModuleGraph
+  RepositoryModuleGraph
 } from '../architecture/contract.ts';
 
-export type SecRepositoryModuleGraphCompileInput = Readonly<{
+export type RepositoryModuleGraphCompileInput = Readonly<{
   /** Exact snapshot addresses. Semantic subject, owner and role are separate compiler facts. */
   readonly files: readonly string[];
   /** Compiler-issued facts from the same Source Program generation. */
-  readonly imports: readonly SecRepositoryModuleGraphImportObservation[];
+  readonly imports: readonly RepositoryModuleGraphImportObservation[];
   readonly unresolvedFiles?: readonly string[];
 }>;
 
@@ -28,7 +28,7 @@ function textOrder(left: string, right: string): number {
 }
 
 function canonicalRepositoryPath(value: string): string {
-  return assertSecRepositoryModuleGraphPath(
+  return assertRepositoryModuleGraphPath(
     assertCanonicalPortableLogicalPath(value, 'Repository program path')
   );
 }
@@ -38,7 +38,7 @@ function canonicalRepositoryPath(value: string): string {
  * Program file set chooses the target; retained candidates make deletion and
  * rename impact observable even when the target no longer exists.
  */
-export function resolveSecRepositoryModuleImportCandidates(
+export function resolveRepositoryModuleImportCandidates(
   sourcePath: string,
   specifier: string
 ): readonly string[] {
@@ -63,20 +63,20 @@ export function resolveSecRepositoryModuleImportCandidates(
 }
 
 /** Pure assembly of one module graph from compiler-issued observations. */
-export function assembleSecRepositoryModuleGraph(
-  input: SecRepositoryModuleGraphCompileInput
-): SecRepositoryModuleGraph {
+export function assembleRepositoryModuleGraph(
+  input: RepositoryModuleGraphCompileInput
+): RepositoryModuleGraph {
   const files = Object.freeze([...new Set(input.files.map(canonicalRepositoryPath))].sort(textOrder));
   const fileSet = new Set(files);
   const unresolvedFiles = new Set<string>(
     (input.unresolvedFiles ?? []).map(canonicalRepositoryPath)
   );
-  const references: SecRepositoryModuleGraphReference[] = [];
+  const references: RepositoryModuleGraphReference[] = [];
   const reverseConsumers = new Map<string, Set<string>>();
   const forwardDependencies = new Map<string, Set<string>>();
   const runtimeForwardDependencies = new Map<string, Set<string>>();
 
-  const importsByFile = new Map<string, SecRepositoryModuleGraphImportObservation[]>();
+  const importsByFile = new Map<string, RepositoryModuleGraphImportObservation[]>();
   for (const reference of input.imports) {
     const from = canonicalRepositoryPath(reference.from);
     if (!fileSet.has(from)) throw new Error(`module import is outside its exact file census: ${from}`);
@@ -86,7 +86,7 @@ export function assembleSecRepositoryModuleGraph(
   }
   for (const moduleFile of files) {
     const imports = importsByFile.get(moduleFile) ?? Object.freeze([]);
-    const uniqueImports = new Map<string, SecRepositoryModuleGraphImportObservation>();
+    const uniqueImports = new Map<string, RepositoryModuleGraphImportObservation>();
     for (const reference of imports) {
       const key = `${reference.kind}\0${reference.specifier}`;
       const previous = uniqueImports.get(key);
@@ -97,7 +97,7 @@ export function assembleSecRepositoryModuleGraph(
       }
     }
     for (const reference of uniqueImports.values()) {
-      const candidates = resolveSecRepositoryModuleImportCandidates(moduleFile, reference.specifier);
+      const candidates = resolveRepositoryModuleImportCandidates(moduleFile, reference.specifier);
       const resolvedTarget = candidates.find((candidate) => fileSet.has(candidate)) ?? null;
       if (resolvedTarget !== null
           && isTestOnlyRepositoryModulePath(resolvedTarget)

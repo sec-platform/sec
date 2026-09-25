@@ -1,10 +1,10 @@
 import { expect, test } from 'bun:test';
 
-import { compileSecRepositoryModuleGraph } from './typescript.ts';
+import { compileRepositoryModuleGraph } from './typescript.ts';
 
 function compileFixture(sources: Readonly<Record<string, string>>) {
   const paths = Object.keys(sources);
-  return compileSecRepositoryModuleGraph({
+  return compileRepositoryModuleGraph({
     files: paths,
     readSource: (repositoryPath) => sources[repositoryPath] ?? null
   });
@@ -90,7 +90,7 @@ test('runtime closure excludes type-only edges while compile impact retains them
 
 test('ordinary TypeScript import facts cannot be replaced by an embedded-language provider', () => {
   let providerCalls = 0;
-  const graph = compileSecRepositoryModuleGraph({
+  const graph = compileRepositoryModuleGraph({
     files: ['src/example/main.ts', 'src/example/value.ts'],
     readSource: (repositoryPath) => repositoryPath === 'src/example/main.ts'
       ? "export { value } from './value.ts';"

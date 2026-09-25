@@ -5,7 +5,7 @@ import { issueGitReadAuthorityOperation } from '../../src/adapters/providers/git
 import { createAuthorityGitReadSession } from '../../src/adapters/providers/git-read/runtime/session.ts';
 import { assertProcessResourceSessionReceipt, openProcessResourceSession } from '../../src/adapters/runtime-state/physical/runtime/process-resource-session.ts';
 import { DEFAULT_TEST_TIMEOUT_MS } from '../../src/adapters/self-hosting/development/runner/test-execution-policy.ts';
-import { issueSecOperationRequirementBindingContext } from '../../src/execution/operation/requirement-binding-context.ts';
+import { issueOperationRequirementBindingContext } from '../../src/execution/operation/requirement-binding-context.ts';
 import { withTempWorkspace } from '../testkit/workspace.ts';
 
 // Native execution only: these tests borrow an actual owner-issued process
@@ -13,7 +13,7 @@ import { withTempWorkspace } from '../testkit/workspace.ts';
 function parent(root: string) {
   const operation = issueGitReadAuthorityOperation({ cwd: root, budget: {} });
   const requirement = operation.plan.execution.requirements.find(value => value.effectKinds.includes('process'))!;
-  const session = openProcessResourceSession({ operation, requirementBindingContext: issueSecOperationRequirementBindingContext({
+  const session = openProcessResourceSession({ operation, requirementBindingContext: issueOperationRequirementBindingContext({
     operation, requirementId: requirement.id,
     resourceCeilings: operation.plan.execution.aggregateBudgets.filter(({ resource }) =>
       resource === 'duration-ms' || resource === 'processes' || resource === 'input-bytes' || resource === 'output-bytes')

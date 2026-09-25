@@ -1,5 +1,4 @@
-import { createHash } from 'node:crypto';
-
+import { rawSha256Hex } from '../../../../contracts/canonical.ts';
 import { encodeVerificationActionData } from '../../../verification/platform/action/contract/action.ts';
 
 const ISSUE_DISPOSITION_PLAN_SCHEMA = 'sec-issue-disposition-plan-v1' as const;
@@ -77,11 +76,11 @@ function fail(message: string): never {
 }
 
 function hash(value: unknown): IssueDispositionDigest {
-  return `sha256:${createHash('sha256').update(encodeVerificationActionData(value)).digest('hex')}`;
+  return `sha256:${rawSha256Hex(encodeVerificationActionData(value))}`;
 }
 
 function decodedSourceDigest(source: string): IssueDispositionDigest {
-  return `sha256:${createHash('sha256').update(source, 'utf8').digest('hex')}`;
+  return `sha256:${rawSha256Hex(source)}`;
 }
 
 function boundedText(value: unknown, label: string, maximum = 65_536): string {
@@ -185,8 +184,6 @@ export function parseGitHubClosingKeywordOccurrences(
   }
   return Object.freeze(occurrences);
 }
-
-export const GITHUB_PULL_REQUEST_CLOSING_QUERY = 'query($owner:String!,$name:String!,$number:Int!,$cursor:String){repository(owner:$owner,name:$name){pullRequest(number:$number){number title body state mergeCommit{oid} closingIssuesReferences(first:100,after:$cursor){totalCount nodes{number repository{nameWithOwner}} pageInfo{hasNextPage endCursor}}}}}';
 
 export function parseGitHubPullRequestClosingFactsPage(input: Readonly<{
   source: string;
@@ -314,7 +311,7 @@ function parseWorkPackageLocatorForDisposition(body: string): string {
   return match[1]!;
 }
 
-export function renderPullRequestBodyV1(input: Readonly<{
+export function renderPullRequestBody(input: Readonly<{
   summary: string;
   manifestPath: string;
   mode: IssueDispositionMode;
@@ -488,7 +485,7 @@ export function compileIssueDisposition(input: Readonly<{
   return Object.freeze({ ...receipt, receiptDigest: hash(receipt) });
 }
 
-export function parseIssueDispositionV1(source: string): IssueDisposition {
+export function parseIssueDisposition(source: string): IssueDisposition {
   const value = record(JSON.parse(source) as unknown, 'disposition');
   exactKeys(value, ['schema', 'dispositionId', 'operationId', 'planDigest', 'planMode', 'repository', 'prNumber',
     'issueNumber', 'manifestPath', 'manifestDigest', 'currentSpecRevision', 'acceptanceIds', 'newMainSha',

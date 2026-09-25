@@ -14,7 +14,7 @@ import {
   migrateDependencyTransitionJournal
 } from '../../src/adapters/toolchain/dependencies/runtime/project-runtime.ts';
 import { getWorkspacePaths } from "../../src/adapters/workspace-context.ts";
-import { SecError } from '../../src/contracts/failure.ts';
+import { FailureError } from '../../src/contracts/failure.ts';
 import { withTempWorkspace } from '../testkit/workspace.ts';
 
 async function withDependencyRetirementFixture(
@@ -112,7 +112,7 @@ test('unregistered legacy shared dependencies remain physically intact with a ty
       observed = error;
     }
 
-    expect(observed).toBeInstanceOf(SecError);
+    expect(observed).toBeInstanceOf(FailureError);
     expect(observed).toMatchObject({
       code: 'IMPORT-AUTHORITY-004',
       details: { membership: 'not-current-spec', status: 'mismatch' }

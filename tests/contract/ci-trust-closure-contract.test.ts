@@ -3,16 +3,16 @@ import { parse as parseYaml } from 'yaml';
 
 import { CI_MAIN_HEALTH_POLICY, CI_MAIN_HEALTH_POLICY_DIGEST, createCiMainHealthRequestOperationId } from '../../src/adapters/self-hosting/control/main-health/provider-policy.ts';
 import { buildCiContract, CI_MAIN_HEALTH_COMMANDS, CI_MAIN_HEALTH_JOB_NAME, CI_MAIN_HEALTH_STEP_ORDER } from '../../src/adapters/verification/platform/ci/contract/core.ts';
-import { assertCiExpectedHead, buildCiFullGatePlan, buildCiQuickGatePlan, CodexDevelopmentBuildVerificationPlan } from '../../src/adapters/verification/platform/ci/contract/plan.ts';
-import { CodexDevelopmentTrustedBootstrapSutHarness } from '../../src/adapters/verification/platform/ci/verification.ts';
+import { assertCiExpectedHead, buildCiFullGatePlan, buildCiQuickGatePlan, BuildVerificationPlan } from '../../src/adapters/verification/platform/ci/contract/plan.ts';
+import { TrustedBootstrapSutHarness } from '../../src/adapters/verification/platform/ci/verification.ts';
 import { slowTestSuiteIds } from '../../src/adapters/verification/platform/test-impact/contract/budget.ts';
 import { TCB_TRUST_ROOT } from '../../src/adapters/verification/platform/trust/compiler.ts';
 import {
-  createSecTrustedBootstrapTrustRoot,
-  matchSecTrustedBootstrapPath,
-  parseSecTrustedBootstrapRegistry,
-  SEC_TCB_CLOSURE_RUNTIME_PATH,
-  SEC_TRUSTED_BOOTSTRAP_REGISTRY_PATH
+  createTrustedBootstrapTrustRoot,
+  matchTrustedBootstrapPath,
+  parseTrustedBootstrapRegistry,
+  TCB_CLOSURE_RUNTIME_PATH,
+  TRUSTED_BOOTSTRAP_REGISTRY_PATH
 } from '../../src/adapters/verification/platform/trust/contract/root.ts';
 import {
   compileTcbClosureActionResult,
@@ -99,11 +99,11 @@ test('Quick and Full plan topology remains deterministic behind the Action norma
   expect(fullGateIds.filter((id) => id.startsWith('slow-suite-')).sort()).toEqual(
     slowTestSuiteIds().map((suite) => `slow-suite-${suite}`).sort()
   );
-  expect(CodexDevelopmentBuildVerificationPlan('full', [], null).gates.map(({ id }) => id))
+  expect(BuildVerificationPlan('full', [], null).gates.map(({ id }) => id))
     .toContain('docs-doctor');
-  expect(CodexDevelopmentBuildVerificationPlan('full', null, null).gates.map(({ id }) => id))
+  expect(BuildVerificationPlan('full', null, null).gates.map(({ id }) => id))
     .toContain('docs-doctor');
-  expect(() => CodexDevelopmentBuildVerificationPlan('quick', [], null))
+  expect(() => BuildVerificationPlan('quick', [], null))
     .toThrow('owner-issued test-impact source provider');
   expect(() => assertCiExpectedHead('head-a', undefined)).toThrow('requires an exact expected head SHA');
   expect(() => assertCiExpectedHead('head-a', 'head-b')).toThrow('expected head-b, actual head-a');
@@ -116,10 +116,10 @@ test('trusted bootstrap SUT retains the verified typecheck owner', async () => {
   }).scripts;
   expect(packageScripts.typecheck).toContain('native-typecheck.ts');
   expect(packageScripts['typecheck:verified']).toContain('runner/cli.ts typecheck');
-  expect(CodexDevelopmentTrustedBootstrapSutHarness).toContain(
+  expect(TrustedBootstrapSutHarness).toContain(
     '  await execute("typecheck", ["bun", "run", "typecheck:verified"]);'
   );
-  expect(CodexDevelopmentTrustedBootstrapSutHarness).not.toContain(
+  expect(TrustedBootstrapSutHarness).not.toContain(
     '  await execute("typecheck", ["bun", "run", "typecheck"]);'
   );
 });
@@ -162,7 +162,7 @@ test('exact-main health policy binds one stable GitHub Actions app and terminal 
 
 
 test('trusted base candidate root bootstrap checker is disjoint and candidate remains data', async () => {
-  const source = await readCompilerFile('.github/workflows/sec-trusted-bootstrap.yml');
+  const source = await readCompilerFile('.github/workflows/trusted-bootstrap.yml');
   const workflow = parseYaml(source) as Workflow;
   const checkerSource = embeddedTrustedBootstrapChecker(source);
   expect(() => new Bun.Transpiler({ loader: 'js', target: 'bun' }).transformSync(checkerSource))
@@ -174,10 +174,10 @@ test('trusted base candidate root bootstrap checker is disjoint and candidate re
     selectTcbClosureCandidateAction,
     compileTcbClosureActionResult,
     finalizeTcbClosureCandidateSnapshot,
-    parseSecTrustedBootstrapRegistry,
-    createSecTrustedBootstrapTrustRoot
+    parseTrustedBootstrapRegistry,
+    createTrustedBootstrapTrustRoot
   ].every((contract) => typeof contract === 'function')).toBe(true);
-  expect(SEC_TRUSTED_BOOTSTRAP_REGISTRY_PATH)
+  expect(TRUSTED_BOOTSTRAP_REGISTRY_PATH)
     .toBe('src/adapters/verification/platform/trust/contract/ci-trust-root-registry.json');
   expect(checkerSource).not.toMatch(/TcbClosure[A-Za-z]+V1|TrustedBootstrap[A-Za-z]+V3|terminal\.resultDigest/u);
   expect(workflow.jobs.resolve?.outputs).toMatchObject({
@@ -231,23 +231,23 @@ test('trusted base candidate root bootstrap checker is disjoint and candidate re
     SEC_BOOTSTRAP_BASE_TREE: '${{ needs.resolve.outputs.base-tree }}'
   });
   const r2ChangedPaths = [
-    '.github/workflows/sec-trusted-bootstrap.yml',
+    '.github/workflows/trusted-bootstrap.yml',
     'config/repository/work-packages/trusted-bootstrap-base-first-repair-v1.md',
     'config/repository/work-packages/verification-action-kernel-finalization-v1.md',
     'config/repository/active-work-package.md',
     'config/repository/rolling-plan.md',
-    SEC_TCB_CLOSURE_RUNTIME_PATH,
+    TCB_CLOSURE_RUNTIME_PATH,
     'tests/contract/ci-contract.test.ts',
     'tests/unit/active-documentation-contract.test.ts',
     'tests/contract/tcb-closure-lock.test.ts'
   ];
   expect(r2ChangedPaths
     .filter((repositoryPath) =>
-      matchSecTrustedBootstrapPath(repositoryPath, TCB_TRUST_ROOT) !== null
+      matchTrustedBootstrapPath(repositoryPath, TCB_TRUST_ROOT) !== null
     )
     .sort()).toEqual([
-    '.github/workflows/sec-trusted-bootstrap.yml',
-    SEC_TCB_CLOSURE_RUNTIME_PATH
+    '.github/workflows/trusted-bootstrap.yml',
+    TCB_CLOSURE_RUNTIME_PATH
   ]);
   const sutSteps = workflow.jobs['candidate-sut']?.steps ?? [];
   expect(sutSteps.some((step) => step.name === 'Checkout exact trusted base checker')).toBe(false);

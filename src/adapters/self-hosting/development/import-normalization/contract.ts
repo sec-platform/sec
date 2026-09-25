@@ -1,13 +1,13 @@
 import { deepFreeze, sha256 } from '../../../../contracts/canonical.ts';
 import {
   isSourceProgramInputPath,
-  type SourceProgramOperationProducerClosure
+  type OperationProducerClosure
 } from '../../../repository/source-program-model/contract.ts';
 import {
   assertPhysicalWorkspaceSourceSnapshot,
-  requireStagedWorkspaceSourceSelection,
+  requireStagedSourceSelection,
   type PhysicalWorkspaceSourceSnapshot,
-  type StagedWorkspaceSourceSelection
+  type StagedSourceSelection
 } from '../../../repository/source-program-model/workspace-source-snapshot.ts';
 import {
   createVerificationActionKey,
@@ -94,8 +94,8 @@ export function isCandidateNormalizationPath(value: string): boolean {
 export function compileCandidateNormalizationSubject(input: Readonly<{
   snapshot: PhysicalWorkspaceSourceSnapshot;
   baseSnapshot?: PhysicalWorkspaceSourceSnapshot;
-  stagedSelection?: StagedWorkspaceSourceSelection;
-  producerClosure: SourceProgramOperationProducerClosure;
+  stagedSelection?: StagedSourceSelection;
+  producerClosure: OperationProducerClosure;
   compilerIdentity: Readonly<{
     compilerRevision: CandidateNormalizationDigest;
     providerRevision: CandidateNormalizationDigest;
@@ -124,7 +124,7 @@ export function compileCandidateNormalizationSubject(input: Readonly<{
   }
   const stagedSelection = input.stagedSelection === undefined
     ? undefined
-    : requireStagedWorkspaceSourceSelection(input.stagedSelection, input.snapshot);
+    : requireStagedSourceSelection(input.stagedSelection, input.snapshot);
   const projectConfig = input.snapshot.file('tsconfig.json');
   if (projectConfig === null) {
     throw new Error('Candidate normalization exact snapshot has no tsconfig.json');

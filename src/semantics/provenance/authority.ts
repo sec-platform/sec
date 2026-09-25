@@ -1,5 +1,5 @@
 import { canonicalEquals, compareCodeUnits, deepFreeze } from '../../contracts/canonical.ts';
-import { isDigestHex } from '../../contracts/digest.ts';
+import { isDigest256Hex } from '../../contracts/digest.ts';
 import { isCanonicalPortableLogicalPath } from '../../contracts/logical-path.ts';
 import { PROVENANCE_FORMAT_VERSION, type ProvenanceArtifact, type ProvenanceFile } from './types.ts';
 
@@ -99,7 +99,7 @@ function validateArtifact(value: unknown, index: number): ProvenanceArtifact {
   ) {
     throw new Error(`${label}.registryLocation is invalid`);
   }
-  if (raw.hash !== undefined && !isDigestHex(raw.hash)) {
+  if (raw.hash !== undefined && !isDigest256Hex(raw.hash)) {
     throw new Error(`${label}.hash must be one lowercase raw SHA-256 digest`);
   }
 

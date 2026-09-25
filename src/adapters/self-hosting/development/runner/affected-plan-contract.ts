@@ -1,12 +1,12 @@
 import type { VerificationGateResult } from '../../../../assurance/verification/result/contract/result.ts';
 import { sha256 } from '../../../../contracts/canonical.ts';
 import {
-  bindSecSemanticOperation,
-  compileSecCapabilityBinding,
-  compileSecSemanticOperationPlan,
-  issueSecSemanticOperationAttemptContext,
-  type SecBoundSemanticOperation,
-  type SecOperationDigest
+  bindSemanticOperation,
+  compileCapabilityBinding,
+  compileSemanticOperationPlan,
+  issueSemanticOperationAttemptContext,
+  type BoundSemanticOperation,
+  type OperationDigest
 } from '../../../../execution/operation/semantic.ts';
 import type { GitReadProviderRoute } from '../../../providers/git-read/runtime/session.ts';
 import { SOURCE_PROGRAM_COMPILATION_MAX_DURATION_MS } from '../../../repository/source-program-model/compilation-operation.ts';
@@ -100,7 +100,7 @@ export interface LocalAffectedCheckPlan {
   readonly changedPaths: string[];
   readonly affectedPlan: AffectedTestPlan;
   readonly gates: LocalAffectedGateStep[];
-  readonly umbrellaCommand: 'bun run check:affected';
+  readonly umbrellaCommand: 'bun run check -- --affected';
   readonly subsumedStandaloneCommands: string[];
 }
 
@@ -112,7 +112,10 @@ const TYPECHECK_AUTHORITY_PATHS = new Set([
 ]);
 
 function gate(id: LocalAffectedGateId): LocalAffectedGateStep {
-  return { id, command: `bun run ${id}` };
+  return {
+    id,
+    command: id === 'test:affected' ? 'bun run test -- --affected' : `bun run ${id}`
+  };
 }
 
 /** Git-issued paths only; semantic selection still owns every other input. */
@@ -155,7 +158,7 @@ export function buildLocalAffectedCheckPlan(
     changedPaths,
     affectedPlan,
     gates,
-    umbrellaCommand: 'bun run check:affected',
+    umbrellaCommand: 'bun run check -- --affected',
     subsumedStandaloneCommands: gates.map(({ command }) => command)
   };
 }
@@ -164,7 +167,7 @@ export function compileAffectedTestSelectionSemanticOperation(input: Readonly<{
   readonly purpose: 'budget-projection' | 'check-affected';
   /** Optional owner deadline which may only narrow the canonical operation window. */
   readonly deadlineAtUnixMs?: number;
-}>): SecBoundSemanticOperation {
+}>): BoundSemanticOperation {
   const localDeadlineAtUnixMs = Date.now() + AFFECTED_SELECTION_OPERATION_DURATION_MS;
   const deadlineAtUnixMs = Math.min(input.deadlineAtUnixMs ?? localDeadlineAtUnixMs, localDeadlineAtUnixMs);
   if (!Number.isSafeInteger(deadlineAtUnixMs) || deadlineAtUnixMs <= Date.now()) {
@@ -174,13 +177,13 @@ export function compileAffectedTestSelectionSemanticOperation(input: Readonly<{
     operation: 'verification.affected-test-selection',
     provider: 'external-capabilities.git-read',
     projection: 'source-program-test-impact'
-  }) as SecOperationDigest;
-  const plan = compileSecSemanticOperationPlan({
+  }) as OperationDigest;
+  const plan = compileSemanticOperationPlan({
     operation: 'verification.affected-test-selection',
-    intentDigest: sha256({ purpose: input.purpose }) as SecOperationDigest,
+    intentDigest: sha256({ purpose: input.purpose }) as OperationDigest,
     decisionDigest: contractDigest,
     deadlineAtUnixMs,
-    attempt: issueSecSemanticOperationAttemptContext({ authorityGrantDigest: contractDigest }),
+    attempt: issueSemanticOperationAttemptContext({ authorityGrantDigest: contractDigest }),
     aggregateBudgets: [
       { resource: 'duration-ms', maximum: AFFECTED_SELECTION_OPERATION_DURATION_MS },
       { resource: 'input-bytes', maximum: GIT_READ_OPERATION_BUDGET.maxStdinBytes },
@@ -195,7 +198,7 @@ export function compileAffectedTestSelectionSemanticOperation(input: Readonly<{
       failureKinds: ['provider.cancelled', 'provider.deadline-exhausted', 'provider.drift', 'provider.unavailable', 'provider.unverified']
     }]
   });
-  return bindSecSemanticOperation(plan, [compileSecCapabilityBinding({
+  return bindSemanticOperation(plan, [compileCapabilityBinding({
     requirementId: 'repository.affected-selection',
     contractDigest,
     providerIdentityDigest: contractDigest
@@ -208,7 +211,7 @@ export function compileAffectedTestSelectionSemanticOperation(input: Readonly<{
  * duration from its own start time.
  */
 export function affectedSelectionSourceCompilationDeadlineAtUnixMs(
-  operation: SecBoundSemanticOperation
+  operation: BoundSemanticOperation
 ): number {
   const deadlineAtUnixMs = operation.plan.attempt.deadlineAtUnixMs
     - AFFECTED_SELECTION_FINAL_READBACK_RESERVE_MS;

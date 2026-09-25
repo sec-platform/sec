@@ -28,10 +28,14 @@ import {
   type PhysicalDirectoryChain,
   type PhysicalDirectoryIdentity
 } from '../../../runtime-state/physical/runtime/physical-no-follow.ts';
-import { resolveSecWorkspaceRuntimeRoots } from '../../../runtime-state/workspace-state/paths.ts';
+import { resolveWorkspaceRuntimeRoots } from '../../../runtime-state/workspace-state/paths.ts';
 import {
-  acquireSecRuntimeStatePhysicalAuthority,
-  type SecRuntimeStatePhysicalAuthority
+  runtimeStateTestInvocationGenerationMigrations,
+  runtimeStateWorkspaceGenerationMigrations
+} from '../../../runtime-state/workspace-state/layout-migration.ts';
+import {
+  acquireRuntimeStatePhysicalAuthority,
+  type RuntimeStatePhysicalAuthority
 } from '../../../runtime-state/workspace-state/physical-authority.ts';
 import {
   assertIssuedFastTestBatchExecutionAdmission,
@@ -623,7 +627,7 @@ function parseIdentity(value: unknown): PhysicalDirectoryIdentity | null {
 }
 
 /** Child-side adoption performs no delete Effect; cleanup stays with the direct parent supervisor. */
-export function consumeTestProcessTempAssignmentV1(input: Readonly<{
+export function consumeTestProcessTempAssignment(input: Readonly<{
   environment: NodeJS.ProcessEnv;
   pathBudget?: 'canonical-test-runtime';
 }>): TestProcessTempRoot | null {
@@ -652,7 +656,7 @@ export function consumeTestProcessTempAssignmentV1(input: Readonly<{
 }
 
 async function releaseAuthority(
-  authority: SecRuntimeStatePhysicalAuthority | null,
+  authority: RuntimeStatePhysicalAuthority | null,
   primary?: unknown,
   deadlineAtUnixMs?: number
 ): Promise<void> {
@@ -675,12 +679,12 @@ async function createRetainedTempSupervisor(input: Readonly<{
   repositoryRoot: string;
   hostTempRoot: string;
   environment: NodeJS.ProcessEnv;
-  authority: SecRuntimeStatePhysicalAuthority;
+  authority: RuntimeStatePhysicalAuthority;
   invocationKey: string;
   leaseOptions?: PhysicalMutationLeaseOptions;
   deadlineAtUnixMs?: number;
 }>): Promise<ReturnType<typeof createParentOwnedTempSupervisor>> {
-  const roots = resolveSecWorkspaceRuntimeRoots({
+  const roots = resolveWorkspaceRuntimeRoots({
     repositoryRoot: input.repositoryRoot,
     environment: input.environment
   });
@@ -1032,7 +1036,7 @@ function recoverDeadRuntimeInvocationLeases(input: Readonly<{
  * State and Runtime Cache. Runtime State owns only the workspace-scoped lease;
  * the OS temporary root remains disposable data.
  */
-export async function createTestProcessTempRootV1(input: Readonly<{
+export async function createTestProcessTempRoot(input: Readonly<{
   repositoryRoot: string;
   hostTempRoot: string;
   environment: NodeJS.ProcessEnv;
@@ -1040,7 +1044,7 @@ export async function createTestProcessTempRootV1(input: Readonly<{
 }>): Promise<TestProcessTempRoot> {
   const repositoryRoot = path.resolve(input.repositoryRoot);
   const hostTempRoot = path.resolve(input.hostTempRoot);
-  const roots = resolveSecWorkspaceRuntimeRoots({ repositoryRoot, environment: input.environment });
+  const roots = resolveWorkspaceRuntimeRoots({ repositoryRoot, environment: input.environment });
   assertLexicallyDisjoint(hostTempRoot, repositoryRoot, 'OS temp root and repository');
   assertLexicallyDisjoint(hostTempRoot, roots.stateRoot, 'OS temp root and Runtime State');
   assertLexicallyDisjoint(hostTempRoot, roots.cacheRoot, 'OS temp root and Runtime Cache');
@@ -1063,13 +1067,14 @@ export async function createTestProcessTempRootV1(input: Readonly<{
     return Object.freeze({ processRoot, tempRoot, cleanup: async (): Promise<void> => undefined });
   }
 
-  let authority: SecRuntimeStatePhysicalAuthority | null = null;
+  let authority: RuntimeStatePhysicalAuthority | null = null;
   try {
-    authority = await acquireSecRuntimeStatePhysicalAuthority({
+    authority = await acquireRuntimeStatePhysicalAuthority({
       repositoryRoot,
       stateRoot: roots.stateRoot,
       cacheRoot: roots.cacheRoot,
-      requiredDirectories: [roots.testProcessTempLeaseRoot]
+      requiredDirectories: [roots.testProcessTempLeaseRoot],
+      directoryMigrations: runtimeStateWorkspaceGenerationMigrations(roots.workspaceStateRoot)
     });
     const supervisor = await createRetainedTempSupervisor({
       repositoryRoot,
@@ -1135,11 +1140,11 @@ export async function createTestInvocationRuntimeRoots(input: Readonly<{
   };
   assertSettlementCurrent();
   const repositoryRoot = path.resolve(input.repositoryRoot);
-  const roots = resolveSecWorkspaceRuntimeRoots({ repositoryRoot, environment: input.environment });
+  const roots = resolveWorkspaceRuntimeRoots({ repositoryRoot, environment: input.environment });
   const generationNameValue = `run-${randomBytes(32).toString('hex')}`;
-  const stateParentPath = path.join(roots.stateRoot, 'test-invocation-runs', 'v1');
-  const cacheParentPath = path.join(roots.cacheRoot, 'test-invocation-runs', 'v1');
-  let authority: SecRuntimeStatePhysicalAuthority | null = null;
+  const stateParentPath = path.join(roots.stateRoot, 'test-invocation-runs', 'records');
+  const cacheParentPath = path.join(roots.cacheRoot, 'test-invocation-runs', 'records');
+  let authority: RuntimeStatePhysicalAuthority | null = null;
   let runtimeLease: PhysicalMutationLeaseHandle | null = null;
   let state: PhysicalDirectoryChain | null = null;
   let cache: PhysicalDirectoryChain | null = null;
@@ -1211,11 +1216,15 @@ export async function createTestInvocationRuntimeRoots(input: Readonly<{
       repository: repository.target,
       hostTemp: hostTemp.target
     });
-    authority = await acquireSecRuntimeStatePhysicalAuthority({
+    authority = await acquireRuntimeStatePhysicalAuthority({
       repositoryRoot,
       stateRoot: roots.stateRoot,
       cacheRoot: roots.cacheRoot,
       requiredDirectories: [stateParentPath, cacheParentPath, roots.testProcessTempLeaseRoot],
+      directoryMigrations: [
+        ...runtimeStateWorkspaceGenerationMigrations(roots.workspaceStateRoot),
+        ...runtimeStateTestInvocationGenerationMigrations(roots.stateRoot, roots.cacheRoot)
+      ],
       ...(settlementDeadlineAtUnixMs === undefined ? {} : {
         deadlineAtUnixMs: settlementDeadlineAtUnixMs
       })
@@ -1387,7 +1396,7 @@ export async function prepareTestInvocationRuntime(input: Readonly<{
         && input.environment[TEST_PROCESS_TEMP_ASSIGNMENT_ENV] === undefined) {
       assertPlannedTestProcessTempPathBudget(input.hostTempRoot);
     }
-    const assigned = consumeTestProcessTempAssignmentV1({
+    const assigned = consumeTestProcessTempAssignment({
       environment: input.environment,
       ...(enforceCanonicalPathBudget ? { pathBudget: 'canonical-test-runtime' as const } : {})
     });

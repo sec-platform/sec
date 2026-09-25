@@ -3,13 +3,13 @@ import path from 'node:path';
 import { withAcquiredResource } from '../../../../execution/resource-settlement.ts';
 
 import { sha256 } from '../../../../contracts/canonical.ts';
-import { issueSecOperationRequirementBindingContext } from '../../../../execution/operation/requirement-binding-context.ts';
+import { issueOperationRequirementBindingContext } from '../../../../execution/operation/requirement-binding-context.ts';
 import {
-  bindSecSemanticOperation,
-  compileSecCapabilityBinding,
-  compileSecSemanticOperationPlan,
-  issueSecSemanticOperationAttemptContext,
-  type SecOperationDigest
+  bindSemanticOperation,
+  compileCapabilityBinding,
+  compileSemanticOperationPlan,
+  issueSemanticOperationAttemptContext,
+  type OperationDigest
 } from '../../../../execution/operation/semantic.ts';
 import { withAuthorityGitReadSession } from '../../../providers/git-read/authority.ts';
 import type { GitReadSession, GitReadSessionCommand } from '../../../providers/git-read/runtime/session.ts';
@@ -39,11 +39,11 @@ const BRANCH_CONFIG_PROCESS_CONTRACT = sha256({
   owner: 'control.branch-lifecycle',
   operation: 'configureBranchLifecycleClone',
   processBoundary: 'one-parent-process-resource-session'
-}) as SecOperationDigest;
+}) as OperationDigest;
 const BRANCH_CONFIG_PROCESS_PROVIDER = sha256({
   owner: 'runtime-state.physical',
   provider: 'process-resource-session'
-}) as SecOperationDigest;
+}) as OperationDigest;
 const BRANCH_CONFIG_PROCESS_COUNT = 8;
 const BRANCH_CONFIG_INPUT_BYTES = 1;
 const BRANCH_CONFIG_OUTPUT_BYTES = 2 * 1024 * 1024;
@@ -77,12 +77,12 @@ function compileBranchConfigOperation(input: Readonly<{
   remote: string;
   deadlineAtUnixMs: number;
 }>) {
-  const plan = compileSecSemanticOperationPlan({
+  const plan = compileSemanticOperationPlan({
     operation: 'control.branch-lifecycle.configure-clone',
-    intentDigest: sha256({ repositoryRoot: input.repositoryRoot, remote: input.remote }) as SecOperationDigest,
+    intentDigest: sha256({ repositoryRoot: input.repositoryRoot, remote: input.remote }) as OperationDigest,
     decisionDigest: BRANCH_CONFIG_PROCESS_CONTRACT,
     deadlineAtUnixMs: input.deadlineAtUnixMs,
-    attempt: issueSecSemanticOperationAttemptContext({
+    attempt: issueSemanticOperationAttemptContext({
       authorityGrantDigest: BRANCH_CONFIG_PROCESS_CONTRACT
     }),
     aggregateBudgets: [
@@ -106,7 +106,7 @@ function compileBranchConfigOperation(input: Readonly<{
       ]
     }]
   });
-  return bindSecSemanticOperation(plan, [compileSecCapabilityBinding({
+  return bindSemanticOperation(plan, [compileCapabilityBinding({
     requirementId: BRANCH_CONFIG_PROCESS_REQUIREMENT,
     contractDigest: BRANCH_CONFIG_PROCESS_CONTRACT,
     providerIdentityDigest: BRANCH_CONFIG_PROCESS_PROVIDER
@@ -198,7 +198,7 @@ export async function configureBranchLifecycleClone(
     resourceLabel: 'process-resource-session',
     acquire: () => openProcessResourceSession({
       operation,
-      requirementBindingContext: issueSecOperationRequirementBindingContext({
+      requirementBindingContext: issueOperationRequirementBindingContext({
         operation,
         requirementId: BRANCH_CONFIG_PROCESS_REQUIREMENT,
         resourceCeilings: operation.plan.execution.aggregateBudgets

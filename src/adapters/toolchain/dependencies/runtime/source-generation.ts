@@ -1,6 +1,6 @@
 import path from 'node:path';
 
-import { SecError } from '../../../../contracts/failure.ts';
+import { FailureError } from '../../../../contracts/failure.ts';
 import {
   generatedStateDigest,
   type GeneratedStatePhysicalIdentity
@@ -101,7 +101,7 @@ export function issueRuntimeDependencySourceGenerationFromProvenDirectory(
   const ownerRoot = path.resolve(input.ownerRoot);
   const sourcePath = path.resolve(input.sourcePath);
   if (!sourcePathIsWithinOwner(ownerRoot, sourcePath)) {
-    throw new SecError('RUNTIME-DEPS-004', 'Runtime dependency proven source is outside its owner topology');
+    throw new FailureError('RUNTIME-DEPS-004', 'Runtime dependency proven source is outside its owner topology');
   }
   const owner = inspectNoFollowDirectoryChain(
     ownerRoot,
@@ -114,20 +114,20 @@ export function issueRuntimeDependencySourceGenerationFromProvenDirectory(
   const ownerRootPhysical = generatedStatePhysicalIdentity(owner.target);
   if (![...source.ancestors, source.target].some((entry) =>
     sameGeneratedStateIdentity(generatedStatePhysicalIdentity(entry), ownerRootPhysical))) {
-    throw new SecError('RUNTIME-DEPS-004', 'Runtime dependency proven source has no physical owner ancestry');
+    throw new FailureError('RUNTIME-DEPS-004', 'Runtime dependency proven source has no physical owner ancestry');
   }
   const physical = generatedStatePhysicalIdentity(source.target);
   if (!sameGeneratedStateIdentity(
     generatedStatePhysicalIdentity(input.generation.root),
     physical
   ) || path.resolve(input.generation.root.path) !== sourcePath) {
-    throw new SecError('RUNTIME-DEPS-004', 'Runtime dependency physical proof belongs to another source generation');
+    throw new FailureError('RUNTIME-DEPS-004', 'Runtime dependency physical proof belongs to another source generation');
   }
   const bindingDigest = generatedStateDigest(input.binding);
   const { treeDigest, treeEntryCount, generationDigest } = input.proofBinding;
   if (!isSha256Digest(treeDigest) || !isSha256Digest(generationDigest)
       || !Number.isSafeInteger(treeEntryCount) || treeEntryCount < 0) {
-    throw new SecError('RUNTIME-DEPS-004', 'Runtime dependency physical proof binding is invalid');
+    throw new FailureError('RUNTIME-DEPS-004', 'Runtime dependency physical proof binding is invalid');
   }
   const epoch = runtimeDependencySourceGenerationEpoch(Object.freeze({
     ownerRoot,
@@ -138,7 +138,7 @@ export function issueRuntimeDependencySourceGenerationFromProvenDirectory(
     treeEntryCount
   }));
   if (epoch !== generationDigest) {
-    throw new SecError('RUNTIME-DEPS-004', 'Runtime dependency physical proof is not bound to the canonical source epoch');
+    throw new FailureError('RUNTIME-DEPS-004', 'Runtime dependency physical proof is not bound to the canonical source epoch');
   }
   return issueRuntimeDependencySourceGeneration(Object.freeze({
     schema: 'sec-runtime-dependency-source-generation-v1' as const,
@@ -157,7 +157,7 @@ export function assertRuntimeDependencySourceGenerationIssued(
   source: RuntimeDependencySourceGeneration
 ): void {
   if (!issuedRuntimeDependencySourceGenerations.has(source)) {
-    throw new SecError(
+    throw new FailureError(
       'RUNTIME-DEPS-004',
       'Dependency transition source generation was not issued by the physical source compiler'
     );
@@ -179,7 +179,7 @@ function runtimeDependencySourceGenerationBounds(
   requested: Partial<RuntimeDependencySourceGenerationBounds> | undefined
 ): RuntimeDependencySourceGenerationBounds {
   if (requested !== undefined && (requested === null || typeof requested !== 'object')) {
-    throw new SecError('RUNTIME-DEPS-003', 'Runtime dependency source-generation bounds must be an object');
+    throw new FailureError('RUNTIME-DEPS-003', 'Runtime dependency source-generation bounds must be an object');
   }
   const { maximumBytes: requestedBytes, maximumEntries: requestedEntries } = requested ?? {};
   const maximumBytes = requestedBytes === undefined ? RUNTIME_DEPENDENCY_SOURCE_MAXIMUM_BYTES : requestedBytes;
@@ -188,7 +188,7 @@ function runtimeDependencySourceGenerationBounds(
       maximumBytes > RUNTIME_DEPENDENCY_SOURCE_MAXIMUM_BYTES ||
       !Number.isSafeInteger(maximumEntries) || maximumEntries < 1 ||
       maximumEntries > RUNTIME_DEPENDENCY_SOURCE_MAXIMUM_ENTRIES) {
-    throw new SecError(
+    throw new FailureError(
       'RUNTIME-DEPS-003',
       'Runtime dependency source-generation bounds must narrow the canonical capacity'
     );
@@ -258,7 +258,7 @@ async function runtimeDependencySourceGenerationInternal(
   const ownerRootPhysical = generatedStatePhysicalIdentity(owner.target);
   if (![...source.ancestors, source.target].some((entry) =>
     sameGeneratedStateIdentity(generatedStatePhysicalIdentity(entry), ownerRootPhysical))) {
-    throw new SecError(
+    throw new FailureError(
       'RUNTIME-DEPS-004',
       'Runtime dependency source generation has no physical owner ancestry'
     );
@@ -287,7 +287,7 @@ async function runtimeDependencySourceGenerationInternal(
     generatedStatePhysicalIdentity(currentSource),
     physical
   )) {
-    throw new SecError(
+    throw new FailureError(
       'RUNTIME-DEPS-004',
       'Runtime dependency source physical identity changed during generation inventory'
     );
@@ -333,7 +333,7 @@ export async function runtimeDependencySourceGeneration(
   const ownerRoot = path.resolve(cwd, rawOwnerRoot);
   const sourcePath = path.resolve(cwd, rawSourcePath);
   if (!sourcePathIsWithinOwner(ownerRoot, sourcePath)) {
-    throw new SecError('RUNTIME-DEPS-004', 'Runtime dependency source generation is outside its owner topology');
+    throw new FailureError('RUNTIME-DEPS-004', 'Runtime dependency source generation is outside its owner topology');
   }
   const bounds = requestedBounds === undefined
     ? canonicalRuntimeDependencySourceGenerationBounds
@@ -351,7 +351,7 @@ export async function runtimeDependencySourceGeneration(
     if (existing.deadlineAtMonotonicMs !== context.deadlineAtMonotonicMs ||
         existing.signal !== context.signal ||
         !sameRuntimeDependencySourceGenerationBounds(existing.bounds, bounds)) {
-      throw new SecError(
+      throw new FailureError(
         'RUNTIME-DEPS-003',
         'Runtime dependency source-generation in-flight observation exceeds caller bounds'
       );

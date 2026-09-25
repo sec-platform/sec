@@ -1,6 +1,6 @@
-import { createHash } from 'node:crypto';
 import path from 'node:path';
 
+import { rawSha256Hex } from '../../../../contracts/canonical.ts';
 import { assertGitBranchName } from '../../../../contracts/git-reference.ts';
 import type {
   BranchAuditSeverity,
@@ -116,9 +116,7 @@ function stableValue(value: unknown): unknown {
 }
 
 export function branchLifecycleDigest(value: unknown): `sha256:${string}` {
-  return `sha256:${createHash('sha256')
-    .update(JSON.stringify(stableValue(value)))
-    .digest('hex')}`;
+  return `sha256:${rawSha256Hex(JSON.stringify(stableValue(value)))}`;
 }
 
 function selectionDigest(value: unknown, label: string): `sha256:${string}` {
@@ -368,10 +366,36 @@ export function assertDurableRecoveryAuthority(
   recovery: BranchRecoveryAuthority,
   inventory: BranchLifecycleInventory
 ): void {
-  if (recovery.kind !== 'bundle') throw new Error('Recovery authority must be a bundle.');
-  if (!recovery.verified) throw new Error('Recovery bundle must be verified.');
+  if (recovery.kind !== 'bundle' && recovery.kind !== 'main-absorption') {
+    throw new Error('Recovery authority kind is invalid.');
+  }
+  if (!recovery.verified) throw new Error('Recovery authority must be verified.');
   if (!/^sha256:[0-9a-f]{64}$/u.test(recovery.sha256)) {
-    throw new Error('Recovery bundle digest must be SHA-256.');
+    throw new Error('Recovery authority digest must be SHA-256.');
+  }
+  if (recovery.kind === 'main-absorption') {
+    for (const [label, sha] of [
+      ['source', recovery.sourceSha], ['source tree', recovery.sourceTreeSha],
+      ['main', recovery.mainSha], ['main tree', recovery.mainTreeSha]
+    ] as const) assertGitSha(sha, `Recovery ${label}`);
+    if (recovery.basis !== 'native-ancestor' && recovery.basis !== 'identical-tree'
+        && recovery.basis !== 'reviewed-supersession') {
+      throw new Error('Main absorption basis is invalid.');
+    }
+    if (recovery.basis === 'reviewed-supersession') {
+      if (typeof recovery.reviewReference !== 'string'
+          || !/^https:\/\/github\.com\/[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+\/pull\/[1-9][0-9]*#issuecomment-[1-9][0-9]*$/u.test(recovery.reviewReference)
+          || typeof recovery.reviewReceiptDigest !== 'string'
+          || !/^sha256:[0-9a-f]{64}$/u.test(recovery.reviewReceiptDigest)) {
+        throw new Error('Reviewed main absorption requires an exact review reference and receipt digest.');
+      }
+    } else if (recovery.reviewReference !== undefined || recovery.reviewReceiptDigest !== undefined) {
+      throw new Error('Native main absorption cannot carry a review binding.');
+    }
+    if (typeof recovery.verifyOutput !== 'string' || recovery.verifyOutput.length === 0
+        || recovery.verifyOutput.length > 4096) {
+      throw new Error('Main absorption verification output is invalid.');
+    }
   }
   const recoveryPath = normalizeAbsolutePath(recovery.path);
   const forbiddenRoots = new Set<string>([
@@ -382,7 +406,7 @@ export function assertDurableRecoveryAuthority(
   for (const forbiddenRoot of forbiddenRoots) {
     if (isPathWithin(recoveryPath, forbiddenRoot)) {
       throw new Error(
-        `Recovery bundle must be outside repository/common-dir/worktree roots: ${forbiddenRoot}`
+        `Recovery authority must be outside repository/common-dir/worktree roots: ${forbiddenRoot}`
       );
     }
   }

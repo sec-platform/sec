@@ -1,6 +1,6 @@
 import { expect, test } from 'bun:test';
 
-import { CodexDevelopmentAggregateVerificationClaims, CodexDevelopmentAssertVerificationAggregateResultV1, CodexDevelopmentAssertVerificationGateResult, CodexDevelopmentBuildVerificationGateResult, CodexDevelopmentSnapshotVerificationData, CodexDevelopmentVerificationDataEqual, mapProductVerificationStatus, type VerificationAggregateInput, type VerificationApplicability, type VerificationDisposition, type VerificationGateEnvironment, type VerificationGateExecution, type VerificationGateResult, type VerificationReasonCode, type VerificationResultStatus } from '../../src/assurance/verification/result/contract/result.ts';
+import { aggregateVerificationClaims, assertVerificationAggregateResult, AssertVerificationGateResult, BuildVerificationGateResult, snapshotVerificationData, verificationDataEqual, mapProductVerificationStatus, type VerificationAggregateInput, type VerificationApplicability, type VerificationDisposition, type VerificationGateEnvironment, type VerificationGateExecution, type VerificationGateResult, type VerificationReasonCode, type VerificationResultStatus } from '../../src/assurance/verification/result/contract/result.ts';
 import { VERIFICATION_GATE_RESULT_SCHEMA } from '../../src/assurance/verification/result/contract/schema.ts';
 
 const INPUT_DIGEST = `sha256:${'a'.repeat(64)}`;
@@ -110,19 +110,19 @@ function minimalValidInput() {
 test('validator rejects unknown schema', () => {
   const input = minimalValidInput();
   const bad = { schema: 'wrong-schema', ...input } as unknown as VerificationGateResult;
-  expect(() => CodexDevelopmentAssertVerificationGateResult(bad)).toThrow(/schema must be/);
+  expect(() => AssertVerificationGateResult(bad)).toThrow(/schema must be/);
 });
 
 test('validator rejects missing required field', () => {
   const input = minimalValidInput();
   const { gateId, ...withoutGateId } = input;
-  expect(() => CodexDevelopmentAssertVerificationGateResult({ schema: VERIFICATION_GATE_RESULT_SCHEMA, ...withoutGateId })).toThrow(/unknown or missing fields/);
+  expect(() => AssertVerificationGateResult({ schema: VERIFICATION_GATE_RESULT_SCHEMA, ...withoutGateId })).toThrow(/unknown or missing fields/);
 });
 
 test('validator rejects invalid digest format', () => {
   const input = minimalValidInput();
   const bad = { schema: VERIFICATION_GATE_RESULT_SCHEMA, ...input, inputDigest: 'not-a-digest' } as unknown as VerificationGateResult;
-  expect(() => CodexDevelopmentAssertVerificationGateResult(bad)).toThrow(/inputDigest must be a sha256 digest/);
+  expect(() => AssertVerificationGateResult(bad)).toThrow(/inputDigest must be a sha256 digest/);
 });
 
 test('validator rejects unsupported status with wrong reasonCode', () => {
@@ -137,7 +137,7 @@ test('validator rejects unsupported status with wrong reasonCode', () => {
     environment: null,
     execution: null
   } as unknown as VerificationGateResult;
-  expect(() => CodexDevelopmentAssertVerificationGateResult(bad)).toThrow(/unsupported status requires/);
+  expect(() => AssertVerificationGateResult(bad)).toThrow(/unsupported status requires/);
 });
 
 test('validator rejects not-applicable applicability with passed status', () => {
@@ -148,7 +148,7 @@ test('validator rejects not-applicable applicability with passed status', () => 
     applicability: 'not-applicable',
     status: 'passed'
   } as unknown as VerificationGateResult;
-  expect(() => CodexDevelopmentAssertVerificationGateResult(bad)).toThrow(/not-applicable applicability requires not-run status/);
+  expect(() => AssertVerificationGateResult(bad)).toThrow(/not-applicable applicability requires not-run status/);
 });
 
 test('validator rejects executed disposition with null environment', () => {
@@ -158,7 +158,7 @@ test('validator rejects executed disposition with null environment', () => {
     ...input,
     environment: null
   } as unknown as VerificationGateResult;
-  expect(() => CodexDevelopmentAssertVerificationGateResult(bad)).toThrow(/executed disposition requires non-null environment/);
+  expect(() => AssertVerificationGateResult(bad)).toThrow(/executed disposition requires non-null environment/);
 });
 
 test('validator rejects not-executed disposition with non-null execution', () => {
@@ -173,7 +173,7 @@ test('validator rejects not-executed disposition with non-null execution', () =>
     environment: null,
     execution: input.execution
   } as unknown as VerificationGateResult;
-  expect(() => CodexDevelopmentAssertVerificationGateResult(bad)).toThrow(/not-executed disposition must have null execution/);
+  expect(() => AssertVerificationGateResult(bad)).toThrow(/not-executed disposition must have null execution/);
 });
 
 // ---------------------------------------------------------------------------
@@ -181,13 +181,13 @@ test('validator rejects not-executed disposition with non-null execution', () =>
 // ---------------------------------------------------------------------------
 
 test('builder adds schema and validates', () => {
-  const gate = CodexDevelopmentBuildVerificationGateResult(minimalValidInput());
+  const gate = BuildVerificationGateResult(minimalValidInput());
   expect(gate.gateId).toBe('gate-1');
 });
 
 test('builder rejects invalid input', () => {
   const input = minimalValidInput();
-  expect(() => CodexDevelopmentBuildVerificationGateResult({ ...input, status: 'invalid-status' as VerificationResultStatus })).toThrow();
+  expect(() => BuildVerificationGateResult({ ...input, status: 'invalid-status' as VerificationResultStatus })).toThrow();
 });
 
 // ---------------------------------------------------------------------------
@@ -195,7 +195,7 @@ test('builder rejects invalid input', () => {
 // ---------------------------------------------------------------------------
 
 test('aggregate fails closed for empty claims instead of manufacturing passed', () => {
-  const result = CodexDevelopmentAggregateVerificationClaims({
+  const result = aggregateVerificationClaims({
     claims: [],
     gateResults: []
   });
@@ -205,14 +205,14 @@ test('aggregate fails closed for empty claims instead of manufacturing passed', 
 });
 
 function canonicalAggregateFixture() {
-  const gate = CodexDevelopmentBuildVerificationGateResult(minimalValidInput());
+  const gate = BuildVerificationGateResult(minimalValidInput());
   const claims = [{
     claimId: 'claim-1',
     requiredGateIds: ['gate-1'],
     owningEnvironments: ['linux-x64']
   }];
   const gates = [gate];
-  const overall = CodexDevelopmentAggregateVerificationClaims({ claims, gateResults: gates });
+  const overall = aggregateVerificationClaims({ claims, gateResults: gates });
   return { overall, claims, gates };
 }
 
@@ -224,7 +224,7 @@ function aggregateInput(
 
 test('aggregate assertion accepts the current aggregate writer output', () => {
   const fixture = canonicalAggregateFixture();
-  expect(() => CodexDevelopmentAssertVerificationAggregateResultV1(
+  expect(() => assertVerificationAggregateResult(
     fixture.overall,
     aggregateInput(fixture)
   )).not.toThrow();
@@ -232,13 +232,13 @@ test('aggregate assertion accepts the current aggregate writer output', () => {
 
 test('strict verification-data boundary accepts JSON data and rejects executable or exotic views', () => {
   const jsonData = JSON.parse('{"alpha":1,"nested":["value",null,true]}') as unknown;
-  expect(CodexDevelopmentSnapshotVerificationData(jsonData)).toEqual(jsonData);
+  expect(snapshotVerificationData(jsonData)).toEqual(jsonData);
   const frozenData = Object.freeze({
     alpha: 1,
     nested: Object.freeze(['value', null, true])
   });
-  expect(CodexDevelopmentSnapshotVerificationData(frozenData)).toEqual(jsonData);
-  expect(CodexDevelopmentVerificationDataEqual(
+  expect(snapshotVerificationData(frozenData)).toEqual(jsonData);
+  expect(verificationDataEqual(
     { alpha: 1, nested: ['value', null, true] },
     { nested: ['value', null, true], alpha: 1 }
   )).toBe(true);
@@ -287,7 +287,7 @@ test('strict verification-data boundary accepts JSON data and rejects executable
     overriddenArray,
     accessorArray
   ]) {
-    expect(() => CodexDevelopmentSnapshotVerificationData(candidate)).toThrow();
+    expect(() => snapshotVerificationData(candidate)).toThrow();
   }
   expect(candidateCodeExecutions).toBe(0);
 });
@@ -330,12 +330,12 @@ test('canonical prototype toJSON guards reject without executing and restore exa
       });
       try {
         try {
-          CodexDevelopmentSnapshotVerificationData({ ordinary: 'object' });
+          snapshotVerificationData({ ordinary: 'object' });
         } catch (error) {
           objectError = error;
         }
         try {
-          CodexDevelopmentSnapshotVerificationData(['ordinary-array']);
+          snapshotVerificationData(['ordinary-array']);
         } catch (error) {
           arrayError = error;
         }
@@ -377,7 +377,7 @@ test('strict verification-data boundary rejects every Proxy before installed tra
     revokedObject,
     revokedArray
   ]) {
-    expect(() => CodexDevelopmentSnapshotVerificationData(candidate.proxy))
+    expect(() => snapshotVerificationData(candidate.proxy))
       .toThrow('Verification data must not contain Proxy values.');
     expect(candidate.trapCalls).toEqual([]);
   }
@@ -456,7 +456,7 @@ test('strict verification-data boundary rejects candidate-controlled prototypes 
   });
 
   for (const candidate of candidates) {
-    expect(() => CodexDevelopmentSnapshotVerificationData(candidate.value))
+    expect(() => snapshotVerificationData(candidate.value))
       .toThrow(`must use the canonical ${candidate.expectedPrototype} prototype.`);
     expect(candidate.trapCalls).toEqual([]);
   }
@@ -465,7 +465,7 @@ test('strict verification-data boundary rejects candidate-controlled prototypes 
 test('aggregate input is an exact ordinary container and snapshots trusted views before reduction', () => {
   const fixture = canonicalAggregateFixture();
   const validInput = aggregateInput(fixture);
-  expect(CodexDevelopmentAggregateVerificationClaims(validInput).overallStatus).toBe('passed');
+  expect(aggregateVerificationClaims(validInput).overallStatus).toBe('passed');
 
   const extraField = { ...validInput, forged: true };
   const hiddenField = { ...validInput };
@@ -495,7 +495,7 @@ test('aggregate input is an exact ordinary container and snapshots trusted views
     hiddenClaims,
     accessorClaims
   ]) {
-    expect(() => CodexDevelopmentAggregateVerificationClaims(
+    expect(() => aggregateVerificationClaims(
       candidate as unknown as VerificationAggregateInput
     )).toThrow();
   }
@@ -513,7 +513,7 @@ test('aggregate input is an exact ordinary container and snapshots trusted views
       return true;
     }
   };
-  const snapshotted = CodexDevelopmentAggregateVerificationClaims(mutableInput);
+  const snapshotted = aggregateVerificationClaims(mutableInput);
   expect(snapshotted.overallStatus).toBe('passed');
   expect(snapshotted.claimResults[0]!.contributingGateIds).toEqual(['gate-1']);
   expect(trustedCoverageExecutions).toBe(1);
@@ -585,7 +585,7 @@ test('aggregate input rejects top-level and nested Proxy views without executing
   });
 
   for (const view of views) {
-    expect(() => CodexDevelopmentAggregateVerificationClaims(view.input))
+    expect(() => aggregateVerificationClaims(view.input))
       .toThrow('Verification data must not contain Proxy values.');
     expect(view.trapCalls).toEqual([]);
   }
@@ -633,7 +633,7 @@ test('aggregate input rejects Proxy prototypes at every container depth without 
   views.push({ input: nestedArrayInput, trapCalls: nestedArrayPrototype.trapCalls });
 
   for (const view of views) {
-    expect(() => CodexDevelopmentAggregateVerificationClaims(view.input))
+    expect(() => aggregateVerificationClaims(view.input))
       .toThrow(/must use the canonical (Object|Array) prototype/);
     expect(view.trapCalls).toEqual([]);
   }
@@ -641,23 +641,23 @@ test('aggregate input rejects Proxy prototypes at every container depth without 
 
 test('trusted claims and serialized passes cannot close vacuously', () => {
   const fixture = canonicalAggregateFixture();
-  expect(() => CodexDevelopmentAggregateVerificationClaims({
+  expect(() => aggregateVerificationClaims({
     claims: [{ claimId: 'claim-1', requiredGateIds: [], owningEnvironments: ['linux'] }],
     gateResults: fixture.gates
   })).toThrow(/requiredGateIds must not be empty/);
-  expect(() => CodexDevelopmentAggregateVerificationClaims({
+  expect(() => aggregateVerificationClaims({
     claims: [{ claimId: 'claim-1', requiredGateIds: ['gate-1'], owningEnvironments: [] }],
     gateResults: fixture.gates
   })).toThrow(/owningEnvironments must not be empty/);
 
   const forgedPass = structuredClone(fixture.overall);
   forgedPass.claimResults[0]!.contributingGateIds = [];
-  expect(() => CodexDevelopmentAssertVerificationAggregateResultV1(
+  expect(() => assertVerificationAggregateResult(
     forgedPass,
     aggregateInput(fixture)
   )).toThrow(/passed status requires non-empty contributingGateIds/);
 
-  const callbackCannotCreateCoverage = CodexDevelopmentAggregateVerificationClaims({
+  const callbackCannotCreateCoverage = aggregateVerificationClaims({
     claims: [{
       claimId: 'claim-1',
       requiredGateIds: ['missing-gate'],
@@ -676,35 +676,35 @@ test('trusted claims and serialized passes cannot close vacuously', () => {
 test('aggregate assertion validates the trusted claim plan identities and exact shape', () => {
   const duplicateClaim = structuredClone(canonicalAggregateFixture());
   duplicateClaim.claims.push(structuredClone(duplicateClaim.claims[0]!));
-  expect(() => CodexDevelopmentAssertVerificationAggregateResultV1(
+  expect(() => assertVerificationAggregateResult(
     duplicateClaim.overall,
     aggregateInput(duplicateClaim)
   )).toThrow(/duplicate claimId claim-1/);
 
   const duplicateRequiredGate = structuredClone(canonicalAggregateFixture());
   duplicateRequiredGate.claims[0]!.requiredGateIds.push('gate-1');
-  expect(() => CodexDevelopmentAssertVerificationAggregateResultV1(
+  expect(() => assertVerificationAggregateResult(
     duplicateRequiredGate.overall,
     aggregateInput(duplicateRequiredGate)
   )).toThrow(/requiredGateIds must not contain duplicate identity gate-1/);
 
   const duplicateOwningEnvironment = structuredClone(canonicalAggregateFixture());
   duplicateOwningEnvironment.claims[0]!.owningEnvironments.push('linux-x64');
-  expect(() => CodexDevelopmentAssertVerificationAggregateResultV1(
+  expect(() => assertVerificationAggregateResult(
     duplicateOwningEnvironment.overall,
     aggregateInput(duplicateOwningEnvironment)
   )).toThrow(/owningEnvironments must not contain duplicate identity linux-x64/);
 
   const invalidOwningEnvironment = structuredClone(canonicalAggregateFixture());
   invalidOwningEnvironment.claims[0]!.owningEnvironments = [''];
-  expect(() => CodexDevelopmentAssertVerificationAggregateResultV1(
+  expect(() => assertVerificationAggregateResult(
     invalidOwningEnvironment.overall,
     aggregateInput(invalidOwningEnvironment)
   )).toThrow(/owningEnvironments\[0\] must be a non-empty/);
 
   const unknownPlanField = structuredClone(canonicalAggregateFixture());
   (unknownPlanField.claims[0] as unknown as Record<string, unknown>).forged = true;
-  expect(() => CodexDevelopmentAssertVerificationAggregateResultV1(
+  expect(() => assertVerificationAggregateResult(
     unknownPlanField.overall,
     aggregateInput(unknownPlanField)
   )).toThrow(/unknown or missing fields/);
@@ -713,42 +713,42 @@ test('aggregate assertion validates the trusted claim plan identities and exact 
 test('aggregate assertion rejects nested unknown fields and status-reason contradictions', () => {
   const unknownAggregateField = structuredClone(canonicalAggregateFixture());
   (unknownAggregateField.overall as unknown as Record<string, unknown>).forged = true;
-  expect(() => CodexDevelopmentAssertVerificationAggregateResultV1(
+  expect(() => assertVerificationAggregateResult(
     unknownAggregateField.overall,
     aggregateInput(unknownAggregateField)
   )).toThrow(/unknown or missing fields/);
 
   const unknownField = structuredClone(canonicalAggregateFixture());
   (unknownField.overall.claimResults[0] as unknown as Record<string, unknown>).forged = true;
-  expect(() => CodexDevelopmentAssertVerificationAggregateResultV1(
+  expect(() => assertVerificationAggregateResult(
     unknownField.overall,
     aggregateInput(unknownField)
   )).toThrow(/unknown or missing fields/);
 
   const contradictoryReason = structuredClone(canonicalAggregateFixture());
   contradictoryReason.overall.claimResults[0]!.reasonCode = 'executed-failure';
-  expect(() => CodexDevelopmentAssertVerificationAggregateResultV1(
+  expect(() => assertVerificationAggregateResult(
     contradictoryReason.overall,
     aggregateInput(contradictoryReason)
   )).toThrow(/passed status requires reasonCode executed-success/);
 
   const unknownGateField = structuredClone(canonicalAggregateFixture());
   (unknownGateField.gates[0] as unknown as Record<string, unknown>).forged = true;
-  expect(() => CodexDevelopmentAssertVerificationAggregateResultV1(
+  expect(() => assertVerificationAggregateResult(
     unknownGateField.overall,
     aggregateInput(unknownGateField)
   )).toThrow(/unknown or missing fields/);
 
   const unknownEnvironmentField = structuredClone(canonicalAggregateFixture());
   (unknownEnvironmentField.gates[0]!.environment as unknown as Record<string, unknown>).forged = true;
-  expect(() => CodexDevelopmentAssertVerificationAggregateResultV1(
+  expect(() => assertVerificationAggregateResult(
     unknownEnvironmentField.overall,
     aggregateInput(unknownEnvironmentField)
   )).toThrow(/unknown or missing fields/);
 
   const unknownExecutionField = structuredClone(canonicalAggregateFixture());
   (unknownExecutionField.gates[0]!.execution as unknown as Record<string, unknown>).forged = true;
-  expect(() => CodexDevelopmentAssertVerificationAggregateResultV1(
+  expect(() => assertVerificationAggregateResult(
     unknownExecutionField.overall,
     aggregateInput(unknownExecutionField)
   )).toThrow(/unknown or missing fields/);
@@ -757,28 +757,28 @@ test('aggregate assertion rejects nested unknown fields and status-reason contra
 test('aggregate assertion rejects invalid and duplicate claim, gate, and contributor identities', () => {
   const controlClaim = structuredClone(canonicalAggregateFixture());
   controlClaim.overall.claimResults[0]!.claimId = 'claim\u0000forged';
-  expect(() => CodexDevelopmentAssertVerificationAggregateResultV1(
+  expect(() => assertVerificationAggregateResult(
     controlClaim.overall,
     aggregateInput(controlClaim)
   )).toThrow(/control-character-free/);
 
   const duplicateClaim = structuredClone(canonicalAggregateFixture());
   duplicateClaim.overall.claimResults.push(structuredClone(duplicateClaim.overall.claimResults[0]!));
-  expect(() => CodexDevelopmentAssertVerificationAggregateResultV1(
+  expect(() => assertVerificationAggregateResult(
     duplicateClaim.overall,
     aggregateInput(duplicateClaim)
   )).toThrow(/duplicate claimId/);
 
   const duplicateGate = structuredClone(canonicalAggregateFixture());
   duplicateGate.gates.push(structuredClone(duplicateGate.gates[0]!));
-  expect(() => CodexDevelopmentAssertVerificationAggregateResultV1(
+  expect(() => assertVerificationAggregateResult(
     duplicateGate.overall,
     aggregateInput(duplicateGate)
   )).toThrow(/duplicate gate observation/);
 
   const duplicateContributor = structuredClone(canonicalAggregateFixture());
   duplicateContributor.overall.claimResults[0]!.contributingGateIds.push('gate-1');
-  expect(() => CodexDevelopmentAssertVerificationAggregateResultV1(
+  expect(() => assertVerificationAggregateResult(
     duplicateContributor.overall,
     aggregateInput(duplicateContributor)
   )).toThrow(/duplicate identity gate-1/);
@@ -829,7 +829,7 @@ test('aggregate assertion rejects empty, control, and missing identities at ever
   candidates.push(missingSupportedLinks);
 
   for (const candidate of candidates) {
-    expect(() => CodexDevelopmentAssertVerificationAggregateResultV1(
+    expect(() => assertVerificationAggregateResult(
       candidate.overall,
       aggregateInput(candidate)
     )).toThrow();
@@ -839,14 +839,14 @@ test('aggregate assertion rejects empty, control, and missing identities at ever
 test('aggregate assertion rejects unknown contributors, incomplete passed coverage, and overall contradictions', () => {
   const unknownContributor = structuredClone(canonicalAggregateFixture());
   unknownContributor.overall.claimResults[0]!.contributingGateIds = ['unknown-gate'];
-  expect(() => CodexDevelopmentAssertVerificationAggregateResultV1(
+  expect(() => assertVerificationAggregateResult(
     unknownContributor.overall,
     aggregateInput(unknownContributor)
   )).toThrow(/unknown contributing gateId/);
 
   const incompletePassed = structuredClone(canonicalAggregateFixture());
   incompletePassed.overall.claimResults[0]!.coverageComplete = false;
-  expect(() => CodexDevelopmentAssertVerificationAggregateResultV1(
+  expect(() => assertVerificationAggregateResult(
     incompletePassed.overall,
     aggregateInput(incompletePassed)
   )).toThrow(/passed status requires coverageComplete=true/);
@@ -854,7 +854,7 @@ test('aggregate assertion rejects unknown contributors, incomplete passed covera
   const contradictoryOverall = structuredClone(canonicalAggregateFixture());
   contradictoryOverall.overall.overallStatus = 'invalidated';
   contradictoryOverall.overall.overallReasonCode = 'selection-unresolved';
-  expect(() => CodexDevelopmentAssertVerificationAggregateResultV1(
+  expect(() => assertVerificationAggregateResult(
     contradictoryOverall.overall,
     aggregateInput(contradictoryOverall)
   )).toThrow(/does not exactly match the canonical aggregate writer output/);
@@ -863,27 +863,27 @@ test('aggregate assertion rejects unknown contributors, incomplete passed covera
 test('aggregate assertion requires bidirectional claim linkage while allowing unrelated extra gates', () => {
   const missingRequiredLink = structuredClone(canonicalAggregateFixture());
   missingRequiredLink.gates[0]!.requiredForClaims = [];
-  expect(() => CodexDevelopmentAssertVerificationAggregateResultV1(
+  expect(() => assertVerificationAggregateResult(
     missingRequiredLink.overall,
     aggregateInput(missingRequiredLink)
   )).toThrow(/lacks requiredForClaims linkage/);
 
   const missingSupportedLink = structuredClone(canonicalAggregateFixture());
   missingSupportedLink.gates[0]!.supportedClaims = [];
-  expect(() => CodexDevelopmentAssertVerificationAggregateResultV1(
+  expect(() => assertVerificationAggregateResult(
     missingSupportedLink.overall,
     aggregateInput(missingSupportedLink)
   )).toThrow(/lacks supportedClaims linkage/);
 
   const unknownClaim = structuredClone(canonicalAggregateFixture());
   unknownClaim.overall.claimResults[0]!.claimId = 'unknown-claim';
-  expect(() => CodexDevelopmentAssertVerificationAggregateResultV1(
+  expect(() => assertVerificationAggregateResult(
     unknownClaim.overall,
     aggregateInput(unknownClaim)
   )).toThrow(/does not exactly match the canonical aggregate writer output/);
 
   const { overall, claims, gates } = canonicalAggregateFixture();
-  const extraGate = CodexDevelopmentBuildVerificationGateResult({
+  const extraGate = BuildVerificationGateResult({
     ...minimalValidInput(),
     gateId: 'extra-gate',
     status: 'unsupported',
@@ -894,7 +894,7 @@ test('aggregate assertion requires bidirectional claim linkage while allowing un
     environment: null,
     execution: null
   });
-  const supportOnlyExtraGate = CodexDevelopmentBuildVerificationGateResult({
+  const supportOnlyExtraGate = BuildVerificationGateResult({
     ...minimalValidInput(),
     gateId: 'support-only-extra-gate',
     status: 'unsupported',
@@ -906,7 +906,7 @@ test('aggregate assertion requires bidirectional claim linkage while allowing un
     execution: null
   });
 
-  const offPlanSelectedClaimGate = CodexDevelopmentBuildVerificationGateResult({
+  const offPlanSelectedClaimGate = BuildVerificationGateResult({
     ...minimalValidInput(),
     gateId: 'off-plan-selected-claim-gate',
     status: 'unsupported',
@@ -917,12 +917,12 @@ test('aggregate assertion requires bidirectional claim linkage while allowing un
     environment: null,
     execution: null
   });
-  expect(() => CodexDevelopmentAssertVerificationAggregateResultV1(
+  expect(() => assertVerificationAggregateResult(
     overall,
     { claims, gateResults: [...gates, offPlanSelectedClaimGate] }
   )).toThrow(/absent from the trusted claim plan/);
 
-  expect(() => CodexDevelopmentAssertVerificationAggregateResultV1(
+  expect(() => assertVerificationAggregateResult(
     overall,
     { claims, gateResults: [...gates, extraGate, supportOnlyExtraGate] }
   )).not.toThrow();

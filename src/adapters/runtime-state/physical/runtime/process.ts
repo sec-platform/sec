@@ -67,9 +67,15 @@ export interface ByteCommandResult {
   stderr: string;
 }
 
+export interface ObservedByteCommandResult {
+  readonly result: ByteCommandResult;
+  readonly outcome: ObservedCommandOutcome;
+}
+
 export interface RunCommandOptions {
   admitProgress?: (chunk: Buffer, stream: 'stdout' | 'stderr') => boolean;
   beforeSpawn?: CommitFence;
+  whileRunning?: CommitFence;
   cwd: string;
   env?: NodeJS.ProcessEnv;
   envMode?: 'inherit' | 'replace';
@@ -85,7 +91,7 @@ export interface RunCommandOptions {
   independentProvider?: IndependentProviderProcessCapability;
 }
 
-const RETAINED_COMMAND_AUXILIARY_DESCRIPTOR_BASE = 5;
+export const RETAINED_COMMAND_AUXILIARY_DESCRIPTOR_BASE = 5;
 const RETAINED_COMMAND_AUXILIARY_INPUT_LIMIT = 8;
 
 export type RetainedCommandAuxiliaryOrdinaryFileRequest = Readonly<{
@@ -153,7 +159,7 @@ export class RetainedCommandTransportError extends Error {
     readonly outcome: ObservedCommandOutcome
   ) {
     super(message);
-    this.name = 'RetainedCommandTransportErrorV1';
+    this.name = 'RetainedCommandTransportError';
   }
 }
 
@@ -632,7 +638,8 @@ export function runRetainedCommand(
   /** Process-owner internal capability; semantic consumers cannot mint it. */
   nativeResourceLedger?: ObservedNativeProcessResourceLedger
 ): Promise<CommandResult> {
-  return runRetainedCommandCaptureV1(boundary, args, options, 'text', nativeResourceLedger);
+  return runRetainedCommandCapture(boundary, args, options, 'text', nativeResourceLedger)
+    .then(({ result }) => result);
 }
 
 export function runRetainedCommandBytes(
@@ -642,7 +649,19 @@ export function runRetainedCommandBytes(
   /** Process-owner internal capability; semantic consumers cannot mint it. */
   nativeResourceLedger?: ObservedNativeProcessResourceLedger
 ): Promise<ByteCommandResult> {
-  return runRetainedCommandCaptureV1(boundary, args, options, 'bytes', nativeResourceLedger);
+  return runRetainedCommandCapture(boundary, args, options, 'bytes', nativeResourceLedger)
+    .then(({ result }) => result);
+}
+
+/** Process-owner internal variant that retains the exact native lifecycle observation. */
+export function runRetainedCommandObservedBytes(
+  boundary: RetainedCommandBoundary,
+  args: string[],
+  options: RunRetainedCommandOptions,
+  /** Process-owner internal capability; semantic consumers cannot mint it. */
+  nativeResourceLedger?: ObservedNativeProcessResourceLedger
+): Promise<ObservedByteCommandResult> {
+  return runRetainedCommandCapture(boundary, args, options, 'bytes', nativeResourceLedger);
 }
 
 function retainedCommandTransportError(
@@ -661,27 +680,27 @@ function retainedCommandTransportError(
   );
 }
 
-function runRetainedCommandCaptureV1(
+function runRetainedCommandCapture(
   boundary: RetainedCommandBoundary,
   args: string[],
   options: RunRetainedCommandOptions,
   stdoutMode: 'text',
   nativeResourceLedger?: ObservedNativeProcessResourceLedger
-): Promise<CommandResult>;
-function runRetainedCommandCaptureV1(
+): Promise<Readonly<{ result: CommandResult; outcome: ObservedCommandOutcome }>>;
+function runRetainedCommandCapture(
   boundary: RetainedCommandBoundary,
   args: string[],
   options: RunRetainedCommandOptions,
   stdoutMode: 'bytes',
   nativeResourceLedger?: ObservedNativeProcessResourceLedger
-): Promise<ByteCommandResult>;
-async function runRetainedCommandCaptureV1(
+): Promise<ObservedByteCommandResult>;
+async function runRetainedCommandCapture(
   boundary: RetainedCommandBoundary,
   args: string[],
   options: RunRetainedCommandOptions,
   stdoutMode: 'bytes' | 'text',
   nativeResourceLedger?: ObservedNativeProcessResourceLedger
-): Promise<ByteCommandResult | CommandResult> {
+): Promise<ObservedByteCommandResult | Readonly<{ result: CommandResult; outcome: ObservedCommandOutcome }>> {
   if (options.maxStdinBytes !== undefined
       && (!Number.isSafeInteger(options.maxStdinBytes) || options.maxStdinBytes < 0)) {
     throw new Error('maxStdinBytes must be a non-negative safe integer');
@@ -824,7 +843,11 @@ async function runRetainedCommandCaptureV1(
       terminationGraceMs: options.terminationGraceMs,
       timeoutMs: options.timeoutMs,
       independentProvider: options.independentProvider,
-      whileRunning: async () => assertBoundary()
+      whileRunning: async () => {
+        assertBoundary();
+        await options.whileRunning?.();
+        assertBoundary();
+      }
     });
   } finally {
     if (stallTimer !== undefined) clearTimeout(stallTimer);
@@ -849,6 +872,12 @@ async function runRetainedCommandCaptureV1(
   const stdout = Buffer.concat(stdoutChunks);
   const stderr = Buffer.concat(stderrChunks).toString('utf8');
   return stdoutMode === 'bytes'
-    ? { code: outcome.exitCode ?? 1, stdout: new Uint8Array(stdout), stderr }
-    : { code: outcome.exitCode ?? 1, stdout: stdout.toString('utf8'), stderr };
+    ? Object.freeze({
+        result: Object.freeze({ code: outcome.exitCode ?? 1, stdout: new Uint8Array(stdout), stderr }),
+        outcome
+      })
+    : Object.freeze({
+        result: Object.freeze({ code: outcome.exitCode ?? 1, stdout: stdout.toString('utf8'), stderr }),
+        outcome
+      });
 }

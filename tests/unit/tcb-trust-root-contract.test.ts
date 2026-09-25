@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs';
+import { readFileSync, statSync } from 'node:fs';
 import path from 'node:path';
 
 import { expect, test } from 'bun:test';
@@ -7,11 +7,11 @@ import {
   compileTcbClosureIdentity,
   TCB_TRUST_ROOT
 } from '../../src/adapters/verification/platform/trust/compiler.ts';
-import { createSecTrustedBootstrapTrustRoot, matchSecTrustedBootstrapPath, parseSecTrustedBootstrapRegistry, SEC_TCB_CLOSURE_RUNTIME_PATH, SEC_TRUSTED_BOOTSTRAP_DISPATCHER_OWNER, SEC_TRUSTED_BOOTSTRAP_REGISTRY, SEC_TRUSTED_BOOTSTRAP_REGISTRY_PATH, type SecTrustedBootstrapRegistry } from '../../src/adapters/verification/platform/trust/contract/root.ts';
+import { createTrustedBootstrapTrustRoot, matchTrustedBootstrapPath, parseTrustedBootstrapRegistry, TCB_CLOSURE_RUNTIME_PATH, TRUSTED_BOOTSTRAP_DISPATCHER_OWNER, TRUSTED_BOOTSTRAP_REGISTRY, TRUSTED_BOOTSTRAP_REGISTRY_PATH, type TrustedBootstrapRegistry } from '../../src/adapters/verification/platform/trust/contract/root.ts';
 
 const TCB_CLOSURE_LOCK = compileTcbClosureIdentity();
 
-function canonicalSource(value: SecTrustedBootstrapRegistry | Record<string, unknown>): string {
+function canonicalSource(value: TrustedBootstrapRegistry | Record<string, unknown>): string {
   return `${JSON.stringify(value, null, 2)}\n`;
 }
 
@@ -19,13 +19,13 @@ function registrySource(): string {
   return readFileSync(path.resolve(import.meta.dir, '../../src/adapters/verification/platform/trust/contract/ci-trust-root-registry.json'), 'utf8');
 }
 
-function mutate(patch: Partial<Record<keyof SecTrustedBootstrapRegistry, unknown>>): string {
-  return canonicalSource({ ...SEC_TRUSTED_BOOTSTRAP_REGISTRY, ...patch });
+function mutate(patch: Partial<Record<keyof TrustedBootstrapRegistry, unknown>>): string {
+  return canonicalSource({ ...TRUSTED_BOOTSTRAP_REGISTRY, ...patch });
 }
 
 test('canonical trust-root registry is structurally strict and separates static privilege from causal runtime', () => {
-  const parsed = parseSecTrustedBootstrapRegistry(registrySource());
-  expect(parsed).toEqual(SEC_TRUSTED_BOOTSTRAP_REGISTRY);
+  const parsed = parseTrustedBootstrapRegistry(registrySource());
+  expect(parsed).toEqual(TRUSTED_BOOTSTRAP_REGISTRY);
   expect(registrySource()).not.toContain('causalRuntimePaths');
   expect(TCB_TRUST_ROOT.causalRuntimePaths).toEqual(TCB_CLOSURE_LOCK.modules);
   expect(TCB_TRUST_ROOT.causalRuntimePaths.some((entry) => entry.includes('sec-merge-bootstrap'))).toBe(false);
@@ -34,30 +34,33 @@ test('canonical trust-root registry is structurally strict and separates static 
   expect(parsed.reviewedExternalImports).toContain(
     'src/adapters/repository/source-program-model/test-impact-projection.ts -> zod'
   );
+  for (const directory of parsed.staticDirectoryPaths.filter((entry) => entry.startsWith('src/'))) {
+    expect(statSync(path.resolve(import.meta.dir, '../..', directory)).isDirectory()).toBe(true);
+  }
 
   const causalRuntimePath = TCB_TRUST_ROOT.causalRuntimePaths[0]!;
-  expect(matchSecTrustedBootstrapPath('scripts/codex/untrusted.ts', TCB_TRUST_ROOT)).toBeNull();
-  expect(matchSecTrustedBootstrapPath(causalRuntimePath, TCB_TRUST_ROOT)).toEqual({
+  expect(matchTrustedBootstrapPath('scripts/codex/untrusted.ts', TCB_TRUST_ROOT)).toBeNull();
+  expect(matchTrustedBootstrapPath(causalRuntimePath, TCB_TRUST_ROOT)).toEqual({
     kind: 'causal-runtime',
     rule: causalRuntimePath
   });
-  expect(matchSecTrustedBootstrapPath(SEC_TCB_CLOSURE_RUNTIME_PATH, TCB_TRUST_ROOT)).toEqual({
+  expect(matchTrustedBootstrapPath(TCB_CLOSURE_RUNTIME_PATH, TCB_TRUST_ROOT)).toEqual({
     kind: 'static-exact',
-    rule: SEC_TCB_CLOSURE_RUNTIME_PATH
+    rule: TCB_CLOSURE_RUNTIME_PATH
   });
-  expect(matchSecTrustedBootstrapPath(SEC_TRUSTED_BOOTSTRAP_DISPATCHER_OWNER, TCB_TRUST_ROOT)).toEqual({
+  expect(matchTrustedBootstrapPath(TRUSTED_BOOTSTRAP_DISPATCHER_OWNER, TCB_TRUST_ROOT)).toEqual({
     kind: 'causal-runtime',
-    rule: SEC_TRUSTED_BOOTSTRAP_DISPATCHER_OWNER
+    rule: TRUSTED_BOOTSTRAP_DISPATCHER_OWNER
   });
-  expect(matchSecTrustedBootstrapPath(SEC_TRUSTED_BOOTSTRAP_REGISTRY_PATH, TCB_TRUST_ROOT)).toEqual({
+  expect(matchTrustedBootstrapPath(TRUSTED_BOOTSTRAP_REGISTRY_PATH, TCB_TRUST_ROOT)).toEqual({
     kind: 'static-exact',
-    rule: SEC_TRUSTED_BOOTSTRAP_REGISTRY_PATH
+    rule: TRUSTED_BOOTSTRAP_REGISTRY_PATH
   });
-  expect(matchSecTrustedBootstrapPath('.github/workflows/compiler-pr-validation.yml', TCB_TRUST_ROOT)).toEqual({
+  expect(matchTrustedBootstrapPath('.github/workflows/compiler-pr-validation.yml', TCB_TRUST_ROOT)).toEqual({
     kind: 'static-directory',
     rule: '.github/workflows/'
   });
-  expect(matchSecTrustedBootstrapPath('.env.production', TCB_TRUST_ROOT)).toEqual({
+  expect(matchTrustedBootstrapPath('.env.production', TCB_TRUST_ROOT)).toEqual({
     kind: 'static-prefix',
     rule: '.env'
   });
@@ -65,7 +68,7 @@ test('canonical trust-root registry is structurally strict and separates static 
 });
 
 test('trust-root registry rejects structural ambiguity, path aliases and self-demotion', () => {
-  const base = SEC_TRUSTED_BOOTSTRAP_REGISTRY;
+  const base = TRUSTED_BOOTSTRAP_REGISTRY;
   const failures = [
     registrySource().trimEnd(),
     `${registrySource()}\n`,
@@ -92,10 +95,10 @@ test('trust-root registry rejects structural ambiguity, path aliases and self-de
       )
     }),
     mutate({
-      staticExactPaths: base.staticExactPaths.filter((entry) => entry !== SEC_TCB_CLOSURE_RUNTIME_PATH)
+      staticExactPaths: base.staticExactPaths.filter((entry) => entry !== TCB_CLOSURE_RUNTIME_PATH)
     }),
     mutate({
-      staticExactPaths: base.staticExactPaths.filter((entry) => entry !== SEC_TRUSTED_BOOTSTRAP_REGISTRY_PATH)
+      staticExactPaths: base.staticExactPaths.filter((entry) => entry !== TRUSTED_BOOTSTRAP_REGISTRY_PATH)
     }),
     mutate({
       reviewedBoundaryEdges: ['src/adapters/verification/platform/ci/runtime/verification-session.ts -> platform/shared/ci-contract.ts']
@@ -128,30 +131,30 @@ test('trust-root registry rejects structural ambiguity, path aliases and self-de
   ];
 
   for (const source of failures) {
-    expect(() => parseSecTrustedBootstrapRegistry(source)).toThrow();
+    expect(() => parseTrustedBootstrapRegistry(source)).toThrow();
   }
 });
 
 test('policy and derived causal closure are both validated when composing the trust root', () => {
-  const base = SEC_TRUSTED_BOOTSTRAP_REGISTRY;
+  const base = TRUSTED_BOOTSTRAP_REGISTRY;
   const modules = TCB_CLOSURE_LOCK.modules;
   const syntheticModule = 'scripts/codex/untrusted.ts';
   const causalFailures = [
-    modules.filter((entry) => entry !== SEC_TRUSTED_BOOTSTRAP_DISPATCHER_OWNER),
+    modules.filter((entry) => entry !== TRUSTED_BOOTSTRAP_DISPATCHER_OWNER),
     [...modules].reverse(),
     [...modules, modules[0]!].sort(),
     [...modules.slice(0, -1), 'virtual/e\u0301.ts'].sort()
   ];
   for (const causalRuntimePaths of causalFailures) {
-    expect(() => createSecTrustedBootstrapTrustRoot({ registry: base, causalRuntimePaths })).toThrow();
+    expect(() => createTrustedBootstrapTrustRoot({ registry: base, causalRuntimePaths })).toThrow();
   }
   for (const registry of [
     { ...base, staticExactPaths: [...base.staticExactPaths].reverse() },
     { ...base, runtimeEntrypoints: [...base.runtimeEntrypoints, syntheticModule].sort() },
     { ...base, reviewedSutEdges: [`${syntheticModule} -> platform/untrusted.ts`] },
-    { ...base, reviewedBoundaryEdges: [`${syntheticModule} -> ${SEC_TCB_CLOSURE_RUNTIME_PATH}`] }
+    { ...base, reviewedBoundaryEdges: [`${syntheticModule} -> ${TCB_CLOSURE_RUNTIME_PATH}`] }
   ]) {
-    expect(() => createSecTrustedBootstrapTrustRoot({ registry, causalRuntimePaths: modules })).toThrow();
+    expect(() => createTrustedBootstrapTrustRoot({ registry, causalRuntimePaths: modules })).toThrow();
   }
 });
 
@@ -163,6 +166,6 @@ test('trust-root matcher rejects non-canonical caller paths instead of launderin
     'scripts//codex/merge-gate.ts',
     'C:/src/adapters/self-hosting/control/integration/merge-gate.ts'
   ]) {
-    expect(() => matchSecTrustedBootstrapPath(repositoryPath, TCB_TRUST_ROOT)).toThrow();
+    expect(() => matchTrustedBootstrapPath(repositoryPath, TCB_TRUST_ROOT)).toThrow();
   }
 });

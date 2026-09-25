@@ -1,6 +1,6 @@
 import { CI_ARTIFACT_FILES } from '../../../../assurance/verification/ci-artifacts/contract/manifest.ts';
 import { uniqueSorted } from '../../../../contracts/canonical.ts';
-import { platformCommand } from '../sec-command.ts';
+import { platformCommand } from '../command.ts';
 
 const BENCHMARK_CATALOG_STATUS_ACTIVE = 'active' as const;
 

@@ -359,7 +359,7 @@ test.serial('Windows AppContainer canonical workspace just beyond MAX_PATH launc
   try {
     expect(stagingRoot.length).toBe(maxPath + 1);
     expect(path.relative(workspaceRoot, stagingRoot).split(path.sep).join('/')).toBe(
-      `.sec/semantic-mutation/v1/transactions/${transactionDigest}/workspace`
+      `.sec/semantic-mutation/journal/transactions/${transactionDigest}/workspace`
     );
     await mkdir(stagingRoot, { recursive: true });
     await writeFile(
@@ -456,14 +456,22 @@ test.serial('Windows AppContainer canonical workspace just beyond MAX_PATH launc
     await waitForNoWindowsProcessesReferencingPath(systemRoot, workspaceRoot);
     expect(readSecAppContainerProfiles(regPath)).toEqual(profilesBefore);
     expect(await exists(ownerPath)).toBe(false);
-    expect(await exists(`${ownerPath}.pending-v1`)).toBe(false);
+    expect(await exists(`${ownerPath}.pending`)).toBe(false);
     expect(await exists(path.join(
       transactionRoot,
-      '.semantic-mutation-appcontainer-provisional-owner-v1.json'
+      '.semantic-mutation-appcontainer-provisional-owner.json'
     ))).toBe(false);
     expect(await exists(path.join(
       transactionRoot,
-      '.semantic-mutation-appcontainer-provisional-owner-v1.json.pending-v1'
+      '.semantic-mutation-appcontainer-provisional-owner.json.pending'
+    ))).toBe(false);
+    expect(await exists(path.join(
+      transactionRoot,
+      '.semantic-mutation-appcontainer-owner-v1.json'
+    ))).toBe(false);
+    expect(await exists(path.join(
+      transactionRoot,
+      '.semantic-mutation-appcontainer-provisional-owner-v1.json'
     ))).toBe(false);
     expect(await exists(nativeResultPath)).toBe(false);
     expect(await exists(path.join(

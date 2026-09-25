@@ -12,6 +12,7 @@ import {
   preparationFilePath,
   prepareBranchCloseout
 } from './branch-closeout.ts';
+import { assertGitBranchName } from './branch-lifecycle-audit.ts';
 import { configureBranchLifecycleClone } from './branch-lifecycle-config.ts';
 import {
   auditBranchLifecycle,
@@ -84,6 +85,7 @@ interface CliArguments {
   expectedPrHeadSha: string | null;
   prNumber: number | null;
   recoveryRoot: string | null;
+  reviews: Array<{ branch: string; pullRequestNumber: number; commentId: number }>;
 }
 
 function parsePositiveInteger(value: string | undefined, label: string): number {
@@ -114,7 +116,8 @@ function parseCliArguments(argv: readonly string[]): CliArguments {
     expectedHeadSha: null,
     expectedPrHeadSha: null,
     prNumber: null,
-    recoveryRoot: null
+    recoveryRoot: null,
+    reviews: []
   };
   for (let index = 1; index < argv.length; index += 1) {
     const arg = argv[index]!;
@@ -159,6 +162,22 @@ function parseCliArguments(argv: readonly string[]): CliArguments {
       case '--recovery-root':
         result.recoveryRoot = argv[++index] ?? null;
         break;
+      case '--review': {
+        const value = argv[++index];
+        const match = value?.match(/^([^:]+):([1-9][0-9]*):([1-9][0-9]*)$/u);
+        if (match === null || match === undefined) {
+          throw new Error('--review requires exact branch:pull-request-number:comment-id.');
+        }
+        const branch = match[1]!;
+        assertGitBranchName(branch, '--review branch');
+        if (result.reviews.some((entry) => entry.branch === branch)) {
+          throw new Error(`--review branch was supplied more than once: ${branch}`);
+        }
+        result.reviews.push({ branch,
+          pullRequestNumber: parsePositiveInteger(match[2], '--review pull request'),
+          commentId: parsePositiveInteger(match[3], '--review comment') });
+        break;
+      }
       case '--help':
       case '-h':
         process.stdout.write(USAGE);
@@ -175,7 +194,7 @@ const USAGE = `Usage:
   bun src/adapters/self-hosting/control/branch-lifecycle/branch-lifecycle.ts audit [--json [--compact]]
   bun src/adapters/self-hosting/control/branch-lifecycle/branch-lifecycle.ts configure-clone [--json]
   bun src/adapters/self-hosting/control/branch-lifecycle/branch-lifecycle.ts prepare --branch <name> [--pr <n>] [--ref-state <present|absent>] [--expected-head-sha <sha>] [--pr-head-sha <sha>] [--recovery-root <absolute-path>] [--json]
-  bun src/adapters/self-hosting/control/branch-lifecycle/branch-lifecycle.ts settle-local-merged [--recovery-root <absolute-path>] [--json]
+  bun src/adapters/self-hosting/control/branch-lifecycle/branch-lifecycle.ts settle-local-merged [--review <branch>:<pr>:<comment-id>]... [--recovery-root <absolute-path>] [--json]
 `;
 
 async function main(): Promise<void> {
@@ -186,7 +205,7 @@ async function main(): Promise<void> {
   };
 
   if (args.command === 'audit') {
-    const inventory = collectBranchLifecycleInventory(scope);
+    const inventory = await collectBranchLifecycleInventory(scope);
     const report = auditBranchLifecycle(inventory);
     if (args.json) {
       process.stdout.write(`${JSON.stringify(
@@ -226,7 +245,8 @@ async function main(): Promise<void> {
   if (args.command === 'settle-local-merged') {
     const result = await executeMergedLocalBranchResidueCloseout({
       repositoryRoot: process.cwd(),
-      recoveryRoot: args.recoveryRoot ?? undefined
+      recoveryRoot: args.recoveryRoot ?? undefined,
+      reviews: args.reviews
     });
     if (args.json) process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
     else {
@@ -244,7 +264,7 @@ async function main(): Promise<void> {
 
   if (args.command === 'prepare') {
     if (!args.branch) throw new Error(`--branch is required.\n${USAGE}`);
-    const prepared = prepareBranchCloseout(scope, {
+    const prepared = await prepareBranchCloseout(scope, {
       branch: args.branch,
       refState: args.refState,
       expectedHeadSha: args.expectedHeadSha ?? undefined,

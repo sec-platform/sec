@@ -70,7 +70,7 @@ test('session journal persists a monotonic fsync/CAS hash chain outside the repo
   const readback = readVerificationSessionJournal({ ...base(), fs });
   expect(readback).toMatchObject({ completedStage: 'actions-terminal', completedStageIndex: 1 });
   expect(readback.filePath.replaceAll('\\', '/'))
-    .toContain('/state/sec/workspace/verification-sessions/v2/');
+    .toContain('/state/sec/workspace/verification-sessions/journal/');
   expect(readback.filePath).not.toContain('R:/repo/.tmp');
   expect(() => appendVerificationSessionJournalEvent({
     ...base(),

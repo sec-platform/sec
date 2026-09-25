@@ -3,11 +3,11 @@ import nodePath from 'node:path';
 import ts from 'typescript';
 
 import { compareCodeUnits, rawSha256, sha256 } from '../../../contracts/canonical.ts';
-import { isSecRepositoryTestModulePath } from '../../../contracts/repository-test-path.ts';
-import { isCanonicalSecOperationBudgetMaximum } from '../../../execution/operation/semantic.ts';
+import { isRepositoryTestModulePath } from '../../../contracts/repository-test-path.ts';
+import { isCanonicalOperationBudgetMaximum } from '../../../execution/operation/semantic.ts';
 import type {
-  SecRepositoryModuleArchitectureProjection,
-  SecRepositoryModuleMembership
+  RepositoryModuleArchitectureProjection,
+  RepositoryModuleMembership
 } from '../architecture/contract.ts';
 import {
   resolveSourceProgramCompilationOperation,
@@ -35,23 +35,23 @@ import {
   type SourceProgramRequiredUnmaterializedObligation
 } from './implementation-dominance.ts';
 import {
-  compileRepositorySourceProgramModel,
-  compileSourceProgramOwnerIntentEvidence,
-  isCompiledRepositorySourceProgramModel
+  compileRepositoryModel,
+  compileOwnerIntentEvidence,
+  isCompiledRepositoryModel
 } from './repository.ts';
 import {
   reconcileSourceProgramTestValueWithSupersession,
   type SourceProgramTestDisposition,
   type SourceProgramTestDispositionProjection,
   type SourceProgramTestRegistration,
-  type SourceProgramTestSemanticClass,
+  type TestSemanticClass,
   type SourceProgramTestValueCompilation
 } from './test-value.ts';
 import {
-  compileSourceProgramTypeScriptDiagnosticSnapshot,
-  observeSourceProgramTypeScriptRename,
-  sourceProgramTypeScriptExactFactGenerationReceipt,
-  sourceProgramTypeScriptSourceFile
+  compileTypeScriptDiagnosticSnapshot,
+  observeTypeScriptRename,
+  typeScriptExactFactGenerationReceipt,
+  typeScriptSourceFile
 } from './typescript.ts';
 import {
   compileWorkspaceSourceRevision,
@@ -149,7 +149,7 @@ export interface SourceProgramGraphCutReductionPlan {
 
 export interface SourceProgramReductionCompilerContext {
   readonly typeScriptModel: SourceProgramModel;
-  readonly moduleMembership: SecRepositoryModuleMembership;
+  readonly moduleMembership: RepositoryModuleMembership;
   readonly reviewedProcessDispatchers: readonly string[];
   readonly operation?: SourceProgramCompilationOperation;
 }
@@ -176,7 +176,7 @@ export interface SourceProgramAggregateImportReductionPlan {
 
 export interface SourceProgramArchitectureSnapshot {
   readonly sourceRevision: string;
-  readonly architecture: SecRepositoryModuleArchitectureProjection;
+  readonly architecture: RepositoryModuleArchitectureProjection;
 }
 
 export type SourceProgramReductionAdmissionFailureCode =
@@ -203,7 +203,7 @@ function exactReductionTypeScriptModel(
     contentDigest
   ] as const));
   if (typeScriptModel.sourceRevision !== repositoryModel.sourceRevision
-      || sourceProgramTypeScriptExactFactGenerationReceipt(typeScriptModel) === null
+      || typeScriptExactFactGenerationReceipt(typeScriptModel) === null
       || typeScriptModel.files.some(({ path, contentDigest }) =>
         repositoryFiles.get(path) !== contentDigest)) {
     throw new SourceProgramReductionAdmissionError(
@@ -331,7 +331,7 @@ export function compileSourceProgramSupersessionEvidenceIdentity(
 interface SourceProgramSupersessionTestUnit {
   readonly testId: string;
   readonly path: string;
-  readonly semanticClasses: readonly SourceProgramTestSemanticClass[];
+  readonly semanticClasses: readonly TestSemanticClass[];
   readonly observedProductionPaths: readonly string[];
   readonly capabilityOperations: readonly string[];
   readonly unknowns: readonly string[];
@@ -394,7 +394,7 @@ function pathSemanticUnitOccurrenceId(
 function sourceProgramModelEvidenceIsExact(model: SourceProgramModel): boolean {
   return DIGEST.test(model.modelDigest)
     && DIGEST.test(model.sourceRevision)
-    && isCompiledRepositorySourceProgramModel(model);
+    && isCompiledRepositoryModel(model);
 }
 
 function sourceProgramTestEvidenceIsExact(compilation: SourceProgramTestValueCompilation): boolean {
@@ -446,7 +446,7 @@ function resourceBudgetIsExact(value: unknown): value is SourceProgramOperationR
   return hasExactKeys(value, SOURCE_PROGRAM_SUPERSESSION_EVIDENCE_SCHEMA.resourceBudgetKeys)
     && resource !== null
     && typeof value.maximum === 'number'
-    && isCanonicalSecOperationBudgetMaximum(resource, value.maximum);
+    && isCanonicalOperationBudgetMaximum(resource, value.maximum);
 }
 
 function operationObligationEvidenceIsExact(
@@ -900,7 +900,7 @@ function testBoundary(
     'semanticClasses' | 'observedProductionPaths' | 'capabilityOperations'>,
   productionRequirementIdByPath: ReadonlyMap<string, string>
 ): Readonly<{
-  semanticClasses: readonly SourceProgramTestSemanticClass[];
+  semanticClasses: readonly TestSemanticClass[];
   observedRequirementIds: readonly string[];
   capabilityOperations: readonly string[];
 }> {
@@ -1703,7 +1703,7 @@ interface SourceProgramTestRetirementProof {
     readonly consumerCount: number;
     readonly externalContractCount: number;
   }>;
-  readonly observationClasses: readonly SourceProgramTestSemanticClass[];
+  readonly observationClasses: readonly TestSemanticClass[];
   readonly consumerEvidence: readonly string[];
   readonly unknownEvidence: readonly string[];
   readonly proofDigest: string;
@@ -1848,14 +1848,14 @@ export function compileSourceProgramTestRetirementReceipt(
   }
   const baselineTestPaths = Object.freeze(input.baselineFiles
     .map(({ path }) => path)
-    .filter(isSecRepositoryTestModulePath)
+    .filter(isRepositoryTestModulePath)
     .sort(compareCodeUnits));
   if (sha256(baselineTestPaths) !== sha256(input.currentTestCompilation.baselineTestPaths)) {
     throw new Error('Test retirement tracked baseline differs from Test Value compilation');
   }
   const currentTestPaths = new Set(input.currentFiles
     .map(({ path }) => path)
-    .filter(isSecRepositoryTestModulePath));
+    .filter(isRepositoryTestModulePath));
   const supersessionDisposition = reconcileSourceProgramTestValueWithSupersession(
     input.currentTestCompilation,
     input.supersession
@@ -2346,7 +2346,7 @@ export function compileSourceProgramAggregateImportReductionPlan(
   for (const path of sourceByPath.keys()) {
     sourceProgramCompilationCheckpoint(operation, 'reduction-plan');
     if (!/\.[cm]?[jt]sx?$/iu.test(path)) continue;
-    const sourceFile = sourceProgramTypeScriptSourceFile(typeScriptModel, path);
+    const sourceFile = typeScriptSourceFile(typeScriptModel, path);
     if (sourceFile === null) {
       throw new SourceProgramReductionAdmissionError(
         'compiler-issued-plan-required',
@@ -2573,8 +2573,8 @@ function graphCutSemanticProjection(
 }
 
 function graphCutNewDiagnosticReason(
-  baseline: ReturnType<typeof compileSourceProgramTypeScriptDiagnosticSnapshot>,
-  virtual: ReturnType<typeof compileSourceProgramTypeScriptDiagnosticSnapshot>
+  baseline: ReturnType<typeof compileTypeScriptDiagnosticSnapshot>,
+  virtual: ReturnType<typeof compileTypeScriptDiagnosticSnapshot>
 ): string | null {
   const counts = new Map<string, number>();
   for (const diagnostic of baseline.diagnostics) {
@@ -2636,7 +2636,7 @@ export function compileSourceProgramGraphCutReductionPlan(
       || code === 'dynamic-runtime-opaque'
       || code === 'computed-property-unresolved')
     .map(({ path }) => path));
-  const ownerIntents = compileSourceProgramOwnerIntentEvidence(
+  const ownerIntents = compileOwnerIntentEvidence(
     model,
     context.moduleMembership,
     operation
@@ -2654,7 +2654,7 @@ export function compileSourceProgramGraphCutReductionPlan(
     seen.add(key);
     let sourceFile = sourceFileByPath.get(item.path);
     if (sourceFile === undefined) {
-      sourceFile = sourceProgramTypeScriptSourceFile(typeScriptModel, item.path);
+      sourceFile = typeScriptSourceFile(typeScriptModel, item.path);
       sourceFileByPath.set(item.path, sourceFile);
     }
     const matchingDeclarations = model.declarations.filter((candidate) =>
@@ -2750,17 +2750,17 @@ export function compileSourceProgramGraphCutReductionPlan(
       baseSourceRevision: model.sourceRevision,
       files: virtualFiles.map(({ path, contentDigest }) => ({ path, contentDigest }))
     });
-    const baselineDiagnostics = compileSourceProgramTypeScriptDiagnosticSnapshot({
+    const baselineDiagnostics = compileTypeScriptDiagnosticSnapshot({
       sourceRevision: model.sourceRevision,
       files
     });
     sourceProgramCompilationCheckpoint(operation, 'reduction-plan');
-    const virtualDiagnostics = compileSourceProgramTypeScriptDiagnosticSnapshot({
+    const virtualDiagnostics = compileTypeScriptDiagnosticSnapshot({
       sourceRevision: virtualSourceRevision,
       files: virtualFiles
     });
     sourceProgramCompilationCheckpoint(operation, 'reduction-plan');
-    const virtualModel = compileRepositorySourceProgramModel({
+    const virtualModel = compileRepositoryModel({
       sourceRevision: virtualSourceRevision,
       files: virtualFiles,
       moduleMembership: context.moduleMembership,
@@ -2831,7 +2831,7 @@ export function compileSourceProgramVersionSuffixReductionPlan(
   const sourceFileByPath = new Map<string, ts.SourceFile>();
   for (const path of sourceByPath.keys()) {
     sourceProgramCompilationCheckpoint(operation, 'reduction-plan');
-    const sourceFile = sourceProgramTypeScriptSourceFile(typeScriptModel, path);
+    const sourceFile = typeScriptSourceFile(typeScriptModel, path);
     if (sourceFile === null) {
       throw new SourceProgramReductionAdmissionError(
         'compiler-issued-plan-required',
@@ -2862,7 +2862,7 @@ export function compileSourceProgramVersionSuffixReductionPlan(
             const position = node.name.getStart(sourceFile, false);
             const renameObservation = conflict
               ? null
-              : observeSourceProgramTypeScriptRename(typeScriptModel, filePath, position);
+              : observeTypeScriptRename(typeScriptModel, filePath, position);
             const locations = Object.freeze(renameObservation?.status === 'resolved'
               ? [...renameObservation.locations]
               : []);

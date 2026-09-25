@@ -1,6 +1,6 @@
 import { expect, test } from 'bun:test';
 
-import { CodexDevelopmentAssertTestImpactTransitionSelection, CodexDevelopmentCreateTestImpactTransitionObservation, CodexDevelopmentTestImpactTransitionDigest, decodeGitPathOutput, gitChangedFileDiffArgs, gitIndexChangedFileDiffArgs, gitPathBlobArgs, gitUntrackedFileArgs, gitWorkingTreeStatusArgs, gitWorktreeChangedFileDiffArgs, parseGitChangedFileOutput, parseGitPathBlobOutput, parseGitUntrackedFileOutput } from '../../src/adapters/verification/platform/test-impact/runtime/transition.ts';
+import { AssertTestImpactTransitionSelection, CreateTestImpactTransitionObservation, TestImpactTransitionDigest, decodeGitPathOutput, gitChangedFileDiffArgs, gitIndexChangedFileDiffArgs, gitPathBlobArgs, gitUntrackedFileArgs, gitWorkingTreeStatusArgs, gitWorktreeChangedFileDiffArgs, parseGitChangedFileOutput, parseGitPathBlobOutput, parseGitUntrackedFileOutput } from '../../src/adapters/verification/platform/test-impact/runtime/transition.ts';
 
 function utf8(value: string): Uint8Array {
   return new TextEncoder().encode(value);
@@ -122,7 +122,7 @@ test('Git deletion transition binds exact base blob and target absence', () => {
     repositoryPath
   )).toEqual({ mode: '100644', blobSha });
   expect(parseGitPathBlobOutput(new Uint8Array(), repositoryPath)).toBeNull();
-  const transition = CodexDevelopmentCreateTestImpactTransitionObservation({
+  const transition = CreateTestImpactTransitionObservation({
     baseSha,
     headSha,
     records: [{ status: 'removed', path: repositoryPath }],
@@ -135,7 +135,7 @@ test('Git deletion transition binds exact base blob and target absence', () => {
     headMode: null,
     headBlobSha: null
   }]);
-  expect(() => CodexDevelopmentCreateTestImpactTransitionObservation({
+  expect(() => CreateTestImpactTransitionObservation({
     baseSha,
     headSha,
     records: [{ status: 'removed', path: repositoryPath }],
@@ -151,7 +151,7 @@ test('transition selection binds canonical records, derived files, and exact bas
     { status: 'changed' as const, path: 'src/adapters/verification/platform/ci/verification.ts' },
     { status: 'removed' as const, path: repositoryPath }
   ];
-  const transition = CodexDevelopmentCreateTestImpactTransitionObservation({
+  const transition = CreateTestImpactTransitionObservation({
     baseSha,
     headSha,
     records: [...records].reverse(),
@@ -159,8 +159,8 @@ test('transition selection binds canonical records, derived files, and exact bas
       ? { mode: '100644', blobSha: 'c'.repeat(40) }
       : null
   });
-  const digest = CodexDevelopmentTestImpactTransitionDigest(transition);
-  expect(CodexDevelopmentAssertTestImpactTransitionSelection({
+  const digest = TestImpactTransitionDigest(transition);
+  expect(AssertTestImpactTransitionSelection({
     baseSha,
     headSha,
     changedPaths: [repositoryPath, 'src/adapters/verification/platform/ci/verification.ts'],
@@ -172,13 +172,13 @@ test('transition selection binds canonical records, derived files, and exact bas
     { baseSha, headSha: 'e'.repeat(40), changedPaths: [repositoryPath, 'src/adapters/verification/platform/ci/verification.ts'] },
     { baseSha, headSha, changedPaths: [repositoryPath] }
   ]) {
-    expect(() => CodexDevelopmentAssertTestImpactTransitionSelection({
+    expect(() => AssertTestImpactTransitionSelection({
       ...input,
       records,
       observation: transition
     })).toThrow('exact candidate selection input');
   }
-  expect(() => CodexDevelopmentAssertTestImpactTransitionSelection({
+  expect(() => AssertTestImpactTransitionSelection({
     baseSha,
     headSha,
     changedPaths: [repositoryPath, 'src/adapters/verification/platform/ci/verification.ts'],

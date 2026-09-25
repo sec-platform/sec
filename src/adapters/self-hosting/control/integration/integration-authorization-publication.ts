@@ -7,11 +7,12 @@
  */
 
 import type { GitHubWorkflowJobObservation, GitHubWorkflowJobStepObservation, GitHubWorkflowRunObservation } from '../../../providers/github-api/contract.ts';
+import { withGitHubApiReadSession } from '../../../providers/github-api/operation-session.ts';
 import { encodeVerificationActionData } from '../../../verification/platform/action/contract/action.ts';
 import { matchesCiWorkflowRunIdentity } from '../../../verification/platform/action/contract/provider.ts';
 import {
   BRANCH_CLOSEOUT_MUTATION_PHASE_STEP_NAME,
-  assertHostedCommentProvenanceLive,
+  assertHostedCommentProvenanceLiveWithCapability,
   hostedPublisherMatches,
   listIssueComments,
   parseHostedWorkflowCommentProvenance,
@@ -23,8 +24,8 @@ import {
 } from '../branch-lifecycle/branch-closeout.ts';
 import { branchLifecycleDigest } from '../branch-lifecycle/branch-lifecycle-audit.ts';
 import {
-  CodexDevelopmentParseMergeGateResult,
-  type CodexDevelopmentMergeGateResult
+  ParseMergeGateResult,
+  type MergeGateResult
 } from './merge-gate.ts';
 
 const INTEGRATION_AUTHORIZATION_OPERATION_PUBLICATION_SCHEMA =
@@ -41,7 +42,7 @@ export interface IntegrationAuthorizationOperationPublication {
   authorizationPublicationId: `sha256:${string}`;
   authorizationReceiptDigest: `sha256:${string}`;
   consumptionOperationId: `sha256:${string}`;
-  result: CodexDevelopmentMergeGateResult;
+  result: MergeGateResult;
   closeoutPreparation: PreparedBranchCloseoutEnvelope;
   recoveryArtifact: IntegrationCloseoutRecoveryArtifactObservation;
   provenance: HostedWorkflowCommentProvenance;
@@ -177,7 +178,7 @@ export function selectCanonicalIntegrationRunOwner(input: {
       eventName: run.event,
       displayTitle: run.displayTitle,
       headSha: run.headSha,
-      expectedWorkflowPath: '.github/workflows/sec-merge-gate.yml',
+      expectedWorkflowPath: '.github/workflows/merge-gate.yml',
       expectedEventName: 'workflow_run',
       expectedDisplayTitle: expectedTitle,
       expectedHeadSha: input.baseSha
@@ -342,12 +343,12 @@ function authorizationPublicationPayload(input: Omit<
 }
 
 export function createIntegrationAuthorizationOperationPublication(input: {
-  result: CodexDevelopmentMergeGateResult;
+  result: MergeGateResult;
   closeoutPreparation: PreparedBranchCloseoutEnvelope;
   recoveryArtifact: IntegrationCloseoutRecoveryArtifactObservation;
   provenance: HostedWorkflowCommentProvenance;
 }): IntegrationAuthorizationOperationPublication {
-  const result = CodexDevelopmentParseMergeGateResult(encodeVerificationActionData(input.result));
+  const result = ParseMergeGateResult(encodeVerificationActionData(input.result));
   const closeoutPreparation = parsePreparedBranchCloseoutEnvelope(
     `${JSON.stringify(input.closeoutPreparation, null, 2)}\n`
   );
@@ -420,7 +421,7 @@ export function parseIntegrationAuthorizationOperationPublication(
     throw new Error('Integration authorization operation publication schema mismatch.');
   }
   const rebuilt = createIntegrationAuthorizationOperationPublication({
-    result: CodexDevelopmentParseMergeGateResult(encodeVerificationActionData(value.result)),
+    result: ParseMergeGateResult(encodeVerificationActionData(value.result)),
     closeoutPreparation: parsePreparedBranchCloseoutEnvelope(
       `${JSON.stringify(value.closeoutPreparation, null, 2)}\n`),
     recoveryArtifact: value.recoveryArtifact as IntegrationCloseoutRecoveryArtifactObservation,
@@ -472,58 +473,63 @@ export function parseIntegrationAuthorizationOperationPublicationComment(
   return publication;
 }
 
-export function observeIntegrationAuthorizationOperationPublications(
+export async function observeIntegrationAuthorizationOperationPublications(
   repositoryRoot: string,
   input: { repository: string; pullRequestNumber: number; sessionRevision: `sha256:${string}` }
-): readonly Readonly<{ commentId: number; publication: IntegrationAuthorizationOperationPublication }>[] {
-  const endpoint = `/repos/${input.repository}/issues/${input.pullRequestNumber}/comments`;
-  const inventory = listIssueComments(repositoryRoot, endpoint);
-  if (inventory.comments === null) {
-    throw new Error(`Integration authorization comment inventory failed: ${inventory.detail}`);
-  }
-  const publications: Array<{ commentId: number; publication: IntegrationAuthorizationOperationPublication }> = [];
-  for (const comment of inventory.comments) {
-    if (!comment.body.includes(INTEGRATION_AUTHORIZATION_OPERATION_COMMENT_MARKER)) continue;
-    if (!hostedPublisherMatches(comment)) {
-      throw new Error(`Integration authorization comment ${comment.id} has the wrong app provenance.`);
+): Promise<readonly Readonly<{ commentId: number; publication: IntegrationAuthorizationOperationPublication }>[]> {
+  return await withGitHubApiReadSession({
+    repositoryRoot,
+    repository: input.repository,
+    operation: async (capability) => {
+      const inventory = await listIssueComments(capability, input.pullRequestNumber);
+      if (inventory.comments === null) {
+        throw new Error(`Integration authorization comment inventory failed: ${inventory.detail}`);
+      }
+      const publications: Array<{ commentId: number; publication: IntegrationAuthorizationOperationPublication }> = [];
+      for (const comment of inventory.comments) {
+        if (!comment.body.includes(INTEGRATION_AUTHORIZATION_OPERATION_COMMENT_MARKER)) continue;
+        if (!hostedPublisherMatches(comment)) {
+          throw new Error(`Integration authorization comment ${comment.id} has the wrong app provenance.`);
+        }
+        let publication: IntegrationAuthorizationOperationPublication;
+        try {
+          const parsed = parseIntegrationAuthorizationOperationPublicationComment(comment.body);
+          if (parsed === null) throw new Error('authorization marker did not parse');
+          publication = parsed;
+        } catch (error) {
+          throw new Error(`Integration authorization comment ${comment.id} is invalid: ${error instanceof Error ? error.message : String(error)}`);
+        }
+        await assertHostedCommentProvenanceLiveWithCapability(
+          capability,
+          input.repository,
+          comment,
+          publication.provenance
+        );
+        if (publication.repository !== input.repository
+          || publication.pullRequestNumber !== input.pullRequestNumber) {
+          throw new Error(`Integration authorization comment ${comment.id} targets a different PR.`);
+        }
+        if (publication.sessionRevision === input.sessionRevision) {
+          publications.push({ commentId: comment.id, publication });
+        }
+      }
+      const ids = new Set<number>();
+      const publicationsById = new Map<string, string>();
+      for (const entry of publications) {
+        if (ids.has(entry.commentId)) {
+          throw new Error('Integration authorization comment inventory contains a duplicate comment id.');
+        }
+        ids.add(entry.commentId);
+        const previous = publicationsById.get(entry.publication.authorizationPublicationId);
+        if (previous !== undefined) {
+          throw new Error(previous === entry.publication.publicationDigest
+            ? 'Duplicate comments exist for one authorization publication.'
+            : 'One authorization publication id has conflicting canonical bytes.');
+        }
+        publicationsById.set(entry.publication.authorizationPublicationId,
+          entry.publication.publicationDigest);
+      }
+      return Object.freeze(publications.map((entry) => Object.freeze(entry)));
     }
-    let publication: IntegrationAuthorizationOperationPublication;
-    try {
-      const parsed = parseIntegrationAuthorizationOperationPublicationComment(comment.body);
-      if (parsed === null) throw new Error('authorization marker did not parse');
-      publication = parsed;
-    } catch (error) {
-      throw new Error(`Integration authorization comment ${comment.id} is invalid: ${error instanceof Error ? error.message : String(error)}`);
-    }
-    assertHostedCommentProvenanceLive(
-      repositoryRoot,
-      input.repository,
-      comment,
-      publication.provenance
-    );
-    if (publication.repository !== input.repository
-      || publication.pullRequestNumber !== input.pullRequestNumber) {
-      throw new Error(`Integration authorization comment ${comment.id} targets a different PR.`);
-    }
-    if (publication.sessionRevision === input.sessionRevision) {
-      publications.push({ commentId: comment.id, publication });
-    }
-  }
-  const ids = new Set<number>();
-  const publicationsById = new Map<string, string>();
-  for (const entry of publications) {
-    if (ids.has(entry.commentId)) {
-      throw new Error('Integration authorization comment inventory contains a duplicate comment id.');
-    }
-    ids.add(entry.commentId);
-    const previous = publicationsById.get(entry.publication.authorizationPublicationId);
-    if (previous !== undefined) {
-      throw new Error(previous === entry.publication.publicationDigest
-        ? 'Duplicate comments exist for one authorization publication.'
-        : 'One authorization publication id has conflicting canonical bytes.');
-    }
-    publicationsById.set(entry.publication.authorizationPublicationId,
-      entry.publication.publicationDigest);
-  }
-  return Object.freeze(publications.map((entry) => Object.freeze(entry)));
+  });
 }

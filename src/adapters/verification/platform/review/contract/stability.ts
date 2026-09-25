@@ -1,5 +1,5 @@
-import { createHash } from 'node:crypto';
-import { SEC_VERIFICATION_SESSION_IMPLEMENTATION_IDENTITY } from '../../session/contract/session.ts';
+import { rawSha256Hex } from '../../../../../contracts/canonical.ts';
+import { VERIFICATION_SESSION_IMPLEMENTATION_IDENTITY } from '../../session/contract/session.ts';
 
 import { encodeVerificationActionData } from '../../action/contract/action.ts';
 
@@ -178,7 +178,7 @@ function exact(value: Record<string, unknown>, expected: readonly string[], labe
   if (actual.length !== wanted.length || actual.some((key, index) => key !== wanted[index])) fail(`${label} must contain exactly: ${wanted.join(', ')}.`);
 }
 function hash(value: unknown): ReviewStabilityDigest {
-  return `sha256:${createHash('sha256').update(encodeVerificationActionData(value)).digest('hex')}`;
+  return `sha256:${rawSha256Hex(encodeVerificationActionData(value))}`;
 }
 export function createReviewSnapshotDigest(
   snapshot: Omit<ReviewSnapshot, 'snapshotDigest'>
@@ -228,7 +228,7 @@ export function parseReviewStabilityPolicy(source: string): ReviewStabilityPolic
   return policy;
 }
 
-export const SEC_REVIEW_STABILITY_POLICY = createReviewStabilityPolicy({
+export const REVIEW_STABILITY_POLICY = createReviewStabilityPolicy({
   policyId: 'sec-independent-exact-head-review-v1',
   trustedRevision: 'sec-review-stability-trust-v1',
   trustedApps: [{
@@ -248,7 +248,7 @@ export const REVIEW_OBSERVER_READ_ONLY_CAPABILITY_RECEIPT = hash(Object.freeze({
   producerIdentity: REVIEW_OBSERVER_PRODUCER_IDENTITY,
   providerIdentity: 'github',
   candidateWriteCapability: 'read-only',
-  trustedRevision: SEC_REVIEW_STABILITY_POLICY.trustedRevision
+  trustedRevision: REVIEW_STABILITY_POLICY.trustedRevision
 }));
 
 export function createReviewStabilityReceipt(input: ReviewStabilityReceiptInput): ReviewStabilityReceipt {
@@ -298,7 +298,7 @@ export function createReviewStabilityReceipt(input: ReviewStabilityReceiptInput)
     sourceRef: text(producerValue.sourceRef, 'producer.sourceRef'),
     sourceDigest: digest(producerValue.sourceDigest, 'producer.sourceDigest') });
   if (producer.identity !== REVIEW_OBSERVER_PRODUCER_IDENTITY
-    || producer.executionIdentity === SEC_VERIFICATION_SESSION_IMPLEMENTATION_IDENTITY
+    || producer.executionIdentity === VERIFICATION_SESSION_IMPLEMENTATION_IDENTITY
     || producer.capabilityReceiptDigest !== REVIEW_OBSERVER_READ_ONLY_CAPABILITY_RECEIPT) {
     fail('producer is not bound to the canonical independent read-only observer execution.');
   }
@@ -343,7 +343,7 @@ export function assertReviewStabilityReceiptCurrent(receipt: ReviewStabilityRece
 
 /**
  * The only origin of an `Independent-*` integration trailer is a validated
- * ReviewStabilityReceiptV1. Model free text can never fabricate one
+ * ReviewStabilityReceipt. Model free text can never fabricate one
  * (Issue #347 section G; PR #345 negative regression).
  */
 export function renderIndependentReviewTrailer(receipt: ReviewStabilityReceipt): string {
@@ -352,7 +352,7 @@ export function renderIndependentReviewTrailer(receipt: ReviewStabilityReceipt):
     + `revision=${current.reviewRevision} threads=${current.snapshot.threadCount} unresolved=0`;
 }
 
-export function assertMergeTrailerLinesV1(
+export function assertMergeTrailerLines(
   lines: readonly string[],
   receipt: ReviewStabilityReceipt
 ): void {

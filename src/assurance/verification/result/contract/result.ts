@@ -363,7 +363,7 @@ function snapshotStrictVerificationData(
  * Validate and snapshot one untrusted verification-data graph without invoking
  * candidate getters, array methods, or serialization hooks.
  */
-export function CodexDevelopmentSnapshotVerificationData(
+export function snapshotVerificationData(
   value: unknown,
   label: string = 'verification data'
 ): unknown {
@@ -401,15 +401,15 @@ function verificationDataSnapshotsEqual(
 }
 
 /** Compare two values only after both cross the same strict data boundary. */
-export function CodexDevelopmentVerificationDataEqual(
+export function verificationDataEqual(
   left: unknown,
   right: unknown
 ): boolean {
-  const leftSnapshot = CodexDevelopmentSnapshotVerificationData(
+  const leftSnapshot = snapshotVerificationData(
     left,
     'left verification data'
   ) as VerificationDataSnapshot;
-  const rightSnapshot = CodexDevelopmentSnapshotVerificationData(
+  const rightSnapshot = snapshotVerificationData(
     right,
     'right verification data'
   ) as VerificationDataSnapshot;
@@ -475,7 +475,7 @@ function assertStringSet(value: unknown, allowed: ReadonlySet<string>, label: st
   }
 }
 
-export function CodexDevelopmentAssertVerificationStatusReason(
+export function assertVerificationStatusReason(
   statusValue: unknown,
   reasonCodeValue: unknown,
   label = 'Verification result'
@@ -575,17 +575,17 @@ function assertExecution(value: unknown, label: string): asserts value is Verifi
 }
 
 /**
- * Validate the cross-field invariants of a VerificationGateResultV1:
+ * Validate the cross-field invariants of a VerificationGateResult:
  * - status/disposition/reasonCode/applicability combinations
  * - execution nullness matches disposition
  * - evidenceRefs required for reused disposition
  * - environment required for executed disposition
  */
-export function CodexDevelopmentAssertVerificationGateResult(
+export function AssertVerificationGateResult(
   value: unknown
 ): asserts value is VerificationGateResult {
   const label = 'verification gate result';
-  const candidate = CodexDevelopmentSnapshotVerificationData(value, label);
+  const candidate = snapshotVerificationData(value, label);
   assertObject(candidate, label);
   assertExactKeys(candidate, GATE_RESULT_KEYS, label);
   if (candidate.schema !== VERIFICATION_GATE_RESULT_SCHEMA) {
@@ -602,7 +602,7 @@ export function CodexDevelopmentAssertVerificationGateResult(
   assertDigest(candidate.inputDigest, `${label}.inputDigest`);
   assertStringSet(candidate.applicability, new Set(APPLICABILITIES), `${label}.applicability`);
   assertStringSet(candidate.disposition, new Set(DISPOSITIONS), `${label}.disposition`);
-  const { status } = CodexDevelopmentAssertVerificationStatusReason(
+  const { status } = assertVerificationStatusReason(
     candidate.status,
     candidate.reasonCode,
     label
@@ -691,14 +691,14 @@ export interface VerificationGateResultBuilderInput {
 }
 
 /**
- * Build a VerificationGateResultV1 from typed input. Validates the result before
+ * Build a VerificationGateResult from typed input. Validates the result before
  * returning. Use this instead of constructing the object literal directly to
  * guarantee cross-field invariants.
  */
-export function CodexDevelopmentBuildVerificationGateResult(
+export function BuildVerificationGateResult(
   input: VerificationGateResultBuilderInput
 ): VerificationGateResult {
-  const snapshot = CodexDevelopmentSnapshotVerificationData(
+  const snapshot = snapshotVerificationData(
     input,
     'verification gate builder input'
   ) as VerificationGateResultBuilderInput;
@@ -706,7 +706,7 @@ export function CodexDevelopmentBuildVerificationGateResult(
     schema: VERIFICATION_GATE_RESULT_SCHEMA,
     ...snapshot
   };
-  CodexDevelopmentAssertVerificationGateResult(result);
+  AssertVerificationGateResult(result);
   return result;
 }
 
@@ -738,7 +738,7 @@ export interface VerificationAggregateInput {
  * aggregate treats the strings as opaque canonical identities and never parses
  * or reconstructs them.
  */
-export function CodexDevelopmentVerificationEnvironmentIdentity(
+export function verificationEnvironmentIdentity(
   os: string,
   arch: string
 ): string {
@@ -763,7 +763,7 @@ const STATUS_PRIORITY: Readonly<Record<VerificationResultStatus, number>> = Obje
 function environmentIdentity(gate: VerificationGateResult): string | null {
   return gate.environment === null
     ? null
-    : CodexDevelopmentVerificationEnvironmentIdentity(
+    : verificationEnvironmentIdentity(
         gate.environment.os,
         gate.environment.arch
       );
@@ -844,12 +844,12 @@ function snapshotVerificationAggregateInput(
     throw new Error(`${label}.isCoverageComplete must be a function when present.`);
   }
 
-  const claims = CodexDevelopmentSnapshotVerificationData(
+  const claims = snapshotVerificationData(
     claimsDescriptor.value,
     `${label}.claims`
   );
   if (!Array.isArray(claims)) throw new Error(`${label}.claims must be an array.`);
-  const gateResults = CodexDevelopmentSnapshotVerificationData(
+  const gateResults = snapshotVerificationData(
     gatesDescriptor.value,
     `${label}.gateResults`
   );
@@ -869,7 +869,7 @@ function snapshotVerificationAggregateInput(
   const gateMap = new Map<string, VerificationGateResult>();
   const observations = new Set<string>();
   gateResults.forEach((gateResult) => {
-    CodexDevelopmentAssertVerificationGateResult(gateResult);
+    AssertVerificationGateResult(gateResult);
     const observation = observationIdentity(gateResult);
     if (observations.has(observation)) {
       throw new Error(
@@ -1031,7 +1031,7 @@ function decideRequiredGate(
  * - Claim results are emitted in deterministic claimId order so input order
  *   cannot change the canonical projection.
  */
-export function CodexDevelopmentAggregateVerificationClaims(
+export function aggregateVerificationClaims(
   input: VerificationAggregateInput
 ): VerificationAggregateResult {
   const snapshot = snapshotVerificationAggregateInput(input);
@@ -1057,11 +1057,11 @@ export function CodexDevelopmentAggregateVerificationClaims(
   ): boolean => {
     const builtInCoverageComplete = defaultCoverageComplete(claim, observations);
     if (!customCoverageComplete) return builtInCoverageComplete;
-    const callbackClaim = CodexDevelopmentSnapshotVerificationData(
+    const callbackClaim = snapshotVerificationData(
       claim,
       'verification coverage callback claim'
     ) as VerificationClaimDefinition;
-    const callbackObservations = CodexDevelopmentSnapshotVerificationData(
+    const callbackObservations = snapshotVerificationData(
       observations,
       'verification coverage callback observations'
     ) as VerificationGateResult[];
@@ -1138,7 +1138,7 @@ function assertVerificationClaimResult(
   assertObject(value, label);
   assertExactKeys(value, CLAIM_RESULT_KEYS, label);
   assertIdentity(value.claimId, `${label}.claimId`);
-  CodexDevelopmentAssertVerificationStatusReason(value.status, value.reasonCode, label);
+  assertVerificationStatusReason(value.status, value.reasonCode, label);
   assertUniqueIdentityArray(value.contributingGateIds, `${label}.contributingGateIds`);
   if (typeof value.coverageComplete !== 'boolean') {
     throw new Error(`${label}.coverageComplete must be a boolean.`);
@@ -1174,15 +1174,15 @@ function assertVerificationClaimDefinition(
  * plan and linkage, this assertion invokes the canonical writer and requires
  * exact serialized equality with that output.
  */
-export function CodexDevelopmentAssertVerificationAggregateResultV1(
+export function assertVerificationAggregateResult(
   value: unknown,
   input: VerificationAggregateInput
 ): asserts value is VerificationAggregateResult {
   const label = 'verification aggregate result';
-  const candidate = CodexDevelopmentSnapshotVerificationData(value, label);
+  const candidate = snapshotVerificationData(value, label);
   assertObject(candidate, label);
   assertExactKeys(candidate, AGGREGATE_RESULT_KEYS, label);
-  CodexDevelopmentAssertVerificationStatusReason(
+  assertVerificationStatusReason(
     candidate.overallStatus,
     candidate.overallReasonCode,
     `${label}.overall`
@@ -1216,8 +1216,8 @@ export function CodexDevelopmentAssertVerificationAggregateResultV1(
     });
   });
 
-  const expected = CodexDevelopmentAggregateVerificationClaims(canonicalInput);
-  if (!CodexDevelopmentVerificationDataEqual(candidate, expected)) {
+  const expected = aggregateVerificationClaims(canonicalInput);
+  if (!verificationDataEqual(candidate, expected)) {
     throw new Error(`${label} does not exactly match the canonical aggregate writer output.`);
   }
 }

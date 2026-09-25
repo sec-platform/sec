@@ -3,9 +3,9 @@ import {
   sha256
 } from '../../../contracts/canonical.ts';
 import {
-  assertSecSemanticOperationProjection,
-  type SecBoundSemanticOperation,
-  type SecOperationDigest
+  assertSemanticOperationProjection,
+  type BoundSemanticOperation,
+  type OperationDigest
 } from '../../../execution/operation/semantic.ts';
 import {
   assertProcessResourceRunResult,
@@ -15,11 +15,11 @@ import {
 } from '../../runtime-state/physical/runtime/process-resource-session.ts';
 import type { RetainedCommandBoundary } from '../../runtime-state/physical/runtime/retained-command-boundary.ts';
 import {
-  assertRetainedSealedPhysicalExecutionTreeGeneration,
-  assertSealedPhysicalExecutionTreeRetirementReceipt,
-  compileSealedPhysicalExecutionTreeExactFileSetDigest,
-  type RetainedSealedPhysicalExecutionTreeGeneration,
-  type SealedPhysicalExecutionTreeRetirementReceipt
+  assertRetainedSealedExecutionTreeGeneration,
+  assertSealedExecutionTreeRetirementReceipt,
+  compileSealedExecutionTreeExactFileSetDigest,
+  type RetainedSealedExecutionTreeGeneration,
+  type SealedExecutionTreeRetirementReceipt
 } from '../../runtime-state/physical/runtime/sealed-execution-tree-generation.ts';
 import {
   assertCompilerDependencyReadGenerationRetirementReceipt,
@@ -27,10 +27,10 @@ import {
 } from '../../toolchain/dependencies/runtime.ts';
 import type {
   SourceProgramEntrypointAddress,
-  SourceProgramOperationProducerClosure
+  OperationProducerClosure
 } from '../source-program-model/contract.ts';
 import {
-  requireSourceProgramOperationProducerClosure
+  requireProducerClosure
 } from '../source-program-model/producer-closure.ts';
 import {
   encodeRepositoryAuditWorkerCandidateStream,
@@ -46,16 +46,16 @@ export type RepositoryAuditLoadedImplementationObservation = Readonly<{
   kind: 'repository-audit-loaded-implementation-observation';
   entrypointAddress: SourceProgramEntrypointAddress;
   implementationDigest: Digest;
-  operationIdentityDigest: SecOperationDigest;
-  boundAttemptDigest: SecOperationDigest;
+  operationIdentityDigest: OperationDigest;
+  boundAttemptDigest: OperationDigest;
   observationDigest: Digest;
 }>;
 
 type ObservationRecord = Readonly<{
-  operation: SecBoundSemanticOperation;
-  producerClosure: SourceProgramOperationProducerClosure;
-  generation: RetainedSealedPhysicalExecutionTreeGeneration;
-  generationRetirement: SealedPhysicalExecutionTreeRetirementReceipt;
+  operation: BoundSemanticOperation;
+  producerClosure: OperationProducerClosure;
+  generation: RetainedSealedExecutionTreeGeneration;
+  generationRetirement: SealedExecutionTreeRetirementReceipt;
   dependencyRetirement: CompilerDependencyReadGenerationRetirementReceipt;
   processRunResult: ProcessResourceRunResult;
   processReceipt: ProcessResourceSessionReceipt;
@@ -69,7 +69,7 @@ const loadedImplementationObservationRecords = new WeakMap<object, ObservationRe
 
 function samePhysicalIdentity(
   left: CompilerDependencyReadGenerationRetirementReceipt['physicalRoot'],
-  right: SealedPhysicalExecutionTreeRetirementReceipt['linkedSettlements'][number]['sourceRoot']
+  right: SealedExecutionTreeRetirementReceipt['linkedSettlements'][number]['sourceRoot']
 ): boolean {
   return left.path === right.path
     && left.device === right.device
@@ -78,14 +78,14 @@ function samePhysicalIdentity(
 }
 
 function exactSourceFileSetDigest(
-  producerClosure: SourceProgramOperationProducerClosure
+  producerClosure: OperationProducerClosure
 ): Digest {
   const files = producerClosure.implementationFiles;
   const paths = files.map(({ path }) => path);
   if (new Set(paths).size !== paths.length) {
     throw new Error('Repository Audit producer closure contains duplicate implementation paths.');
   }
-  return compileSealedPhysicalExecutionTreeExactFileSetDigest(files.map(({ path, source, contentDigest }) => {
+  return compileSealedExecutionTreeExactFileSetDigest(files.map(({ path, source, contentDigest }) => {
     if (rawSha256(source) !== contentDigest) {
       throw new Error(`Repository Audit producer closure source digest changed: ${path}`);
     }
@@ -97,12 +97,12 @@ function exactSourceFileSetDigest(
 }
 
 export function deriveRepositoryAuditImplementationDigest(
-  producerClosure: SourceProgramOperationProducerClosure,
-  generation: RetainedSealedPhysicalExecutionTreeGeneration,
+  producerClosure: OperationProducerClosure,
+  generation: RetainedSealedExecutionTreeGeneration,
   dependencyGenerationDigest: Digest
 ): Digest {
-  requireSourceProgramOperationProducerClosure(producerClosure);
-  assertRetainedSealedPhysicalExecutionTreeGeneration(generation);
+  requireProducerClosure(producerClosure);
+  assertRetainedSealedExecutionTreeGeneration(generation);
   if (!/^sha256:[0-9a-f]{64}$/u.test(dependencyGenerationDigest)) {
     throw new Error('Repository Audit dependency generation digest is not canonical.');
   }
@@ -119,10 +119,10 @@ export function deriveRepositoryAuditImplementationDigest(
 }
 
 export type JoinRepositoryAuditLoadedImplementationObservationInput = Readonly<{
-  operation: SecBoundSemanticOperation;
-  producerClosure: SourceProgramOperationProducerClosure;
-  generation: RetainedSealedPhysicalExecutionTreeGeneration;
-  generationRetirement: SealedPhysicalExecutionTreeRetirementReceipt;
+  operation: BoundSemanticOperation;
+  producerClosure: OperationProducerClosure;
+  generation: RetainedSealedExecutionTreeGeneration;
+  generationRetirement: SealedExecutionTreeRetirementReceipt;
   dependencyGenerationDigest: Digest;
   dependencyRetirement: CompilerDependencyReadGenerationRetirementReceipt;
   processRunResult: ProcessResourceRunResult;
@@ -139,10 +139,10 @@ export type JoinRepositoryAuditLoadedImplementationObservationInput = Readonly<{
 export function joinRepositoryAuditLoadedImplementationObservation(
   input: JoinRepositoryAuditLoadedImplementationObservationInput
 ): RepositoryAuditLoadedImplementationObservation {
-  assertSecSemanticOperationProjection(input.operation);
-  const producerClosure = requireSourceProgramOperationProducerClosure(input.producerClosure);
-  assertRetainedSealedPhysicalExecutionTreeGeneration(input.generation);
-  assertSealedPhysicalExecutionTreeRetirementReceipt(
+  assertSemanticOperationProjection(input.operation);
+  const producerClosure = requireProducerClosure(input.producerClosure);
+  assertRetainedSealedExecutionTreeGeneration(input.generation);
+  assertSealedExecutionTreeRetirementReceipt(
     input.generationRetirement,
     input.generation
   );

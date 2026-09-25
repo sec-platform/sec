@@ -1,7 +1,7 @@
 ---
 schema: sec-active-work-package-pointer-v2
 status: conditional
-last-reviewed: 2026-09-22
+last-reviewed: 2026-09-23
 ---
 
 # 当前唯一 Active Work Package
@@ -10,8 +10,8 @@ last-reviewed: 2026-09-22
 selectionMode: exact-manifest-not-on-default-branch-v1
 defaultBranchRef: refs/remotes/origin/main
 defaultRefFreshness: live-platform-match-required
-manifest: config/repository/work-packages/sec086-current-main-convergence-v1.md
-manifestDigest: sha256:e0f2b0c67905ca62fc270bc3ce67ee62460cdeabc2be0ab9707aac8df9b4453f
+manifest: config/repository/work-packages/coordinated-repository-closeout.md
+manifestDigest: sha256:741df9a432e425add332cabe97851cb4139c463fe17b2018bae15953ec972c4a
 digestBytes: git-blob
 unavailableDefaultRef: unresolved
 matchingDefaultBlob: none

@@ -1,0 +1,631 @@
+name: merge-gate
+run-name: "${{ format('integrate compiler session run {0} attempt {1}', github.event.workflow_run.id, github.event.workflow_run.run_attempt) }}"
+
+on:
+  workflow_run:
+    workflows:
+      - compiler-pr-validation
+    types:
+      - completed
+
+permissions:
+  actions: read
+  contents: read
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
+  SEC_INTEGRATION_DURABLE_DIRECTORY: ${{ github.workspace }}/.tmp/codex
+  SEC_INTEGRATION_PRE_MERGE_BUDGET_MINUTES: &sec_integration_pre_merge_budget_minutes 30
+  SEC_MAIN_HEALTH_RUNNER_QUEUE_ALLOWANCE_MINUTES: &sec_main_health_runner_queue_allowance_minutes 10
+  SEC_MAIN_HEALTH_PRODUCER_TIMEOUT_MINUTES: &sec_main_health_producer_timeout_minutes 30
+  SEC_MAIN_HEALTH_JOIN_POLL_INTERVAL_SECONDS: &sec_main_health_join_poll_interval_seconds 10
+  SEC_INTEGRATION_CLOSEOUT_BUDGET_MINUTES: &sec_integration_closeout_budget_minutes 15
+  SEC_INTEGRATION_TIMEOUT_MINUTES: &sec_integration_timeout_minutes 116
+
+concurrency:
+  group: sec-integration-${{ github.repository_id }}-${{ github.event.repository.default_branch }}
+  cancel-in-progress: false
+  queue: max
+
+jobs:
+  plan:
+    runs-on: [self-hosted, Linux, X64, sec-linux-verification-v1, sec-linux-verification-trusted-v1]
+    timeout-minutes: 10
+    outputs:
+      ready: ${{ steps.source.outputs.ready }}
+      base-sha: ${{ steps.source.outputs.base-sha }}
+      current-main-sha: ${{ steps.source.outputs.current-main-sha }}
+      head-sha: ${{ steps.source.outputs.head-sha }}
+      pr-number: ${{ steps.source.outputs.pr-number }}
+      session-revision: ${{ steps.source.outputs.session-revision }}
+    steps:
+      - name: Resolve trusted compiler source and current default base
+        id: source
+        uses: &github_script_action actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        env:
+          WORKFLOW_RUN_JSON: ${{ toJSON(github.event.workflow_run) }}
+          WORKFLOW_SHA: ${{ github.workflow_sha }}
+        with:
+          script: |
+            const wakeup = JSON.parse(process.env.WORKFLOW_RUN_JSON);
+            if (context.payload.action !== 'completed' ||
+                !Number.isSafeInteger(wakeup?.id) || wakeup.id < 1 ||
+                !Number.isSafeInteger(wakeup?.run_attempt) || wakeup.run_attempt < 1) {
+              throw new Error('Compiler completion wakeup is not a bounded run locator.');
+            }
+            const locator = { runId: wakeup.id, runAttempt: wakeup.run_attempt };
+            const observed = await github.rest.actions.getWorkflowRun({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              run_id: locator.runId
+            });
+            const run = observed.data;
+            if (run.id !== locator.runId || run.run_attempt !== locator.runAttempt) {
+              core.setOutput('ready', 'false');
+              core.notice('WAITING: stale or out-of-order compiler run wakeup.');
+              return;
+            }
+            if (run.status !== 'completed') {
+              throw new Error('Completed workflow_run wakeup disagrees with source run API settlement.');
+            }
+            if (run.conclusion !== 'success') {
+              core.setOutput('ready', 'false');
+              core.notice(`WAITING: compiler run completed without a passed Session (${run.conclusion ?? 'unknown'}).`);
+              return;
+            }
+            const terminalTitle = /^verify session PR #([1-9][0-9]*) session (sha256:[0-9a-f]{64})$/u.exec(
+              run.display_title ?? ''
+            );
+            if (terminalTitle === null) {
+              core.setOutput('ready', 'false');
+              core.notice('WAITING: completed compiler run is not a terminal Verification Session.');
+              return;
+            }
+            if (run.event !== 'repository_dispatch' ||
+                typeof run.actor?.login !== 'string' || typeof run.triggering_actor?.login !== 'string') {
+              throw new Error('A terminal Verification Session must be one completed repository_dispatch run.');
+            }
+            const sessionBaseSha = run.head_sha;
+            if (typeof sessionBaseSha !== 'string' || !/^[0-9a-f]{40}$/u.test(sessionBaseSha)) {
+              throw new Error('Compiler Session run has no exact trusted base SHA.');
+            }
+            const repository = await github.rest.repos.get({
+              owner: context.repo.owner,
+              repo: context.repo.repo
+            });
+            if (context.payload.repository?.id !== repository.data.id ||
+                context.payload.repository?.full_name !== repository.data.full_name) {
+              throw new Error('Merge admission repository identity differs from API readback.');
+            }
+            const sourceWorkflow = await github.rest.actions.getWorkflow({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              workflow_id: run.workflow_id
+            });
+            const actorPermission = await github.rest.repos.getCollaboratorPermissionLevel({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              username: run.actor.login
+            });
+            const triggeringPermission = await github.rest.repos.getCollaboratorPermissionLevel({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              username: run.triggering_actor.login
+            });
+            const [actorIdentity, triggeringIdentity] = await Promise.all([
+              github.rest.users.getByUsername({ username: run.actor.login }),
+              github.rest.users.getByUsername({ username: run.triggering_actor.login })
+            ]);
+            const trusted = (permission) => permission === 'maintain' || permission === 'admin';
+            if (sourceWorkflow.data.path !== '.github/workflows/compiler-pr-validation.yml' ||
+                actorIdentity.data.login !== run.actor.login || actorIdentity.data.node_id !== run.actor.node_id ||
+                triggeringIdentity.data.login !== run.triggering_actor.login ||
+                triggeringIdentity.data.node_id !== run.triggering_actor.node_id ||
+                !trusted(actorPermission.data.permission) || !trusted(triggeringPermission.data.permission)) {
+              throw new Error('Compiler workflow path or dispatch principal is not trusted.');
+            }
+            const base = await github.rest.repos.getBranch({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              branch: repository.data.default_branch
+            });
+            const currentBase = base.data.commit.sha;
+            if (process.env.WORKFLOW_SHA !== sessionBaseSha) {
+              throw new Error('Trusted merge workflow revision differs from the original Session base.');
+            }
+            const pull = await github.rest.pulls.get({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: Number(terminalTitle[1])
+            });
+            if (pull.data.state !== 'open' || pull.data.draft ||
+                pull.data.base.repo?.id !== repository.data.id || pull.data.head.repo?.id !== repository.data.id ||
+                pull.data.base.sha !== sessionBaseSha || !/^[0-9a-f]{40}$/u.test(pull.data.head.sha ?? '')) {
+              throw new Error('Terminal Session PR base/head API readback is not exact.');
+            }
+            const baseToCurrentMain = await github.rest.repos.compareCommitsWithBasehead({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              basehead: `${sessionBaseSha}...${currentBase}`
+            });
+            if ((baseToCurrentMain.data.status !== 'identical' && baseToCurrentMain.data.status !== 'ahead') ||
+                baseToCurrentMain.data.base_commit.sha !== sessionBaseSha ||
+                baseToCurrentMain.data.merge_base_commit.sha !== sessionBaseSha ||
+                baseToCurrentMain.data.behind_by !== 0) {
+              throw new Error('Original Session base is not reachable from the separately observed live main.');
+            }
+            const artifacts = await github.paginate(github.rest.actions.listWorkflowRunArtifacts, {
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              run_id: run.id,
+              per_page: 100
+            });
+            const expectedArtifactName =
+              `sec-verification-session-v2-pr-${terminalTitle[1]}-session-${terminalTitle[2].slice(7)}-run-${run.id}-attempt-${run.run_attempt}`;
+            const sessionArtifacts = artifacts.filter((artifact) => artifact.name === expectedArtifactName);
+            const sessionArtifact = sessionArtifacts[0];
+            if (sessionArtifacts.length !== 1 ||
+                sessionArtifact.expired !== false || !Number.isSafeInteger(sessionArtifact.id) ||
+                !Number.isSafeInteger(sessionArtifact.size_in_bytes) || sessionArtifact.size_in_bytes < 1 ||
+                sessionArtifact.workflow_run?.id !== run.id ||
+                !/^sha256:[0-9a-f]{64}$/u.test(sessionArtifact.digest ?? '')) {
+              throw new Error('Compiler run must expose exactly one live provenance-bound terminal Session artifact.');
+            }
+            core.setOutput('ready', 'true');
+            core.setOutput('base-sha', sessionBaseSha);
+            core.setOutput('current-main-sha', currentBase);
+            core.setOutput('head-sha', pull.data.head.sha);
+            core.setOutput('pr-number', terminalTitle[1]);
+            core.setOutput('session-revision', terminalTitle[2].slice(7));
+
+  authorize:
+    needs: plan
+    if: ${{ needs.plan.outputs.ready == 'true' }}
+    runs-on: [self-hosted, Linux, X64, sec-linux-verification-v1, sec-linux-verification-control-v1]
+    timeout-minutes: *sec_integration_timeout_minutes
+    permissions:
+      actions: read
+      checks: read
+      contents: read
+      issues: read
+      pull-requests: read
+      statuses: read
+    outputs:
+      integration-lane: ${{ steps.prepare-integration.outputs.integration-lane }}
+      head-sha: ${{ steps.candidate-before.outputs.head-sha }}
+      preflight-result-digest: ${{ steps.projection.outputs.preflight-result-digest }}
+      ruleset-digest: ${{ steps.platform-authority.outputs.ruleset-digest }}
+    steps:
+      - name: Checkout trusted current default base
+        uses: &checkout_action actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.plan.outputs.base-sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Setup trusted Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version-file: .bun-version
+
+      - name: Cache trusted authorization Bun install
+        uses: &cache_action actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.bun/install/cache
+          key: ${{ runner.os }}-bun-${{ hashFiles('bun.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-bun-
+
+      - name: Install trusted authorization dependencies from frozen lock
+        run: bun install --frozen-lockfile
+
+      - name: Create exact integration durable directory
+        run: |
+          set -euo pipefail
+          test ! -L "${SEC_INTEGRATION_DURABLE_DIRECTORY}"
+          mkdir -p -- "${SEC_INTEGRATION_DURABLE_DIRECTORY}"
+          test -d "${SEC_INTEGRATION_DURABLE_DIRECTORY}"
+          test ! -L "${SEC_INTEGRATION_DURABLE_DIRECTORY}"
+
+      - name: Observe exact candidate identity before authorization
+        id: candidate-before
+        uses: *github_script_action
+        env:
+          PR_NUMBER: ${{ needs.plan.outputs.pr-number }}
+          EXPECTED_HEAD_SHA: ${{ needs.plan.outputs.head-sha }}
+        with:
+          script: |
+            const pullNumber = Number(process.env.PR_NUMBER);
+            if (!Number.isSafeInteger(pullNumber) || pullNumber < 1) {
+              throw new Error('Authorization PR number is invalid.');
+            }
+            const pull = await github.rest.pulls.get({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: pullNumber
+            });
+            if (pull.data.base.repo?.id !== context.payload.repository?.id ||
+                pull.data.head.repo?.id !== context.payload.repository?.id ||
+                typeof pull.data.head.sha !== 'string' || !/^[0-9a-f]{40}$/u.test(pull.data.head.sha) ||
+                pull.data.head.sha !== process.env.EXPECTED_HEAD_SHA) {
+              throw new Error('Authorization candidate repository/head identity is invalid.');
+            }
+            core.setOutput('head-sha', pull.data.head.sha);
+
+      - name: Prepare exact integration recovery artifact
+        id: prepare-integration
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: >-
+          bun src/adapters/verification/platform/ci/runtime/verification-session.ts prepare-integration-hosted
+          --repository "${{ github.repository }}"
+          --output "${SEC_INTEGRATION_DURABLE_DIRECTORY}/integration-projection.json"
+          --json
+
+      - name: Validate exact hosted authorization projection
+        id: projection
+        env:
+          INTEGRATION_LANE: ${{ steps.prepare-integration.outputs.integration-lane }}
+          ROUTE_FILE: ${{ env.SEC_INTEGRATION_DURABLE_DIRECTORY }}/integration-projection.json
+        shell: bash
+        run: |
+          set -euo pipefail
+          digest="$(bun -e '
+            const route = await Bun.file(process.env.ROUTE_FILE).json();
+            const lanes = new Set(["open-first-effect", "merged-recovery", "blocked"]);
+            if (route.schema !== "sec-verification-session-hosted-integration-route-v1"
+                || route.lane !== process.env.INTEGRATION_LANE || !lanes.has(route.lane)) {
+              throw new Error("Hosted authorization lane projection is not canonical.");
+            }
+            if (route.lane === "open-first-effect") {
+              if (typeof route.preflightResultDigest !== "string"
+                  || !/^sha256:[0-9a-f]{64}$/u.test(route.preflightResultDigest)) {
+                throw new Error("Hosted authorization projection lacks exact MergeGate result digest.");
+              }
+              console.log(route.preflightResultDigest);
+            }
+          ')"
+          printf 'preflight-result-digest=%s\n' "$digest" >> "$GITHUB_OUTPUT"
+
+      - name: Reject blocked hosted integration lane
+        if: ${{ steps.prepare-integration.outputs.integration-lane == 'blocked' }}
+        run: |
+          echo 'Hosted integration is blocked; no authorization status or integration effect was attempted.' >&2
+          exit 1
+
+      - name: Prove exact main authority rulesets before terminal authorization
+        id: platform-authority
+        if: ${{ steps.prepare-integration.outputs.integration-lane == 'open-first-effect' }}
+        env:
+          GH_TOKEN: ${{ secrets.SEC_GITHUB_RULESET_AUDITOR_TOKEN }}
+          RULESET_FILE: ${{ env.SEC_INTEGRATION_DURABLE_DIRECTORY }}/main-authority-ruleset.json
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -z "${GH_TOKEN:-}" ]; then
+            echo 'SEC_GITHUB_RULESET_AUDITOR_TOKEN is required to prove bypass actors and main ruleset semantics.' >&2
+            exit 1
+          fi
+          bun src/adapters/self-hosting/control/main-health/main-authority-ruleset-github.ts observe \
+            --repository "${{ github.repository }}" \
+            --branch "${{ github.event.repository.default_branch }}" \
+            --output "$RULESET_FILE"
+          digest="$(bun -e '
+            const value = await Bun.file(process.env.RULESET_FILE).json();
+            if (value.schema !== "sec-main-authority-ruleset-receipt-v1"
+                || value.status !== "enforced"
+                || typeof value.rulesetDigest !== "string"
+                || !/^sha256:[0-9a-f]{64}$/u.test(value.rulesetDigest)) {
+              throw new Error("Main authority ruleset receipt is not canonical.");
+            }
+            console.log(value.rulesetDigest);
+          ')"
+          printf 'ruleset-digest=%s\n' "$digest" >> "$GITHUB_OUTPUT"
+
+      - name: Read back exact authorized candidate identity
+        if: ${{ steps.prepare-integration.outputs.integration-lane == 'open-first-effect' }}
+        uses: *github_script_action
+        env:
+          PR_NUMBER: ${{ needs.plan.outputs.pr-number }}
+          EXPECTED_HEAD: ${{ steps.candidate-before.outputs.head-sha }}
+          EXPECTED_BASE: ${{ needs.plan.outputs.base-sha }}
+        with:
+          script: |
+            const pullNumber = Number(process.env.PR_NUMBER);
+            const pull = await github.rest.pulls.get({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: pullNumber
+            });
+            const base = await github.rest.repos.getBranch({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              branch: context.payload.repository.default_branch
+            });
+            if (pull.data.state !== 'open' || pull.data.draft ||
+                pull.data.head.sha !== process.env.EXPECTED_HEAD ||
+                pull.data.base.sha !== process.env.EXPECTED_BASE ||
+                base.data.commit.sha !== process.env.EXPECTED_BASE) {
+              throw new Error('Candidate or main drifted after authorization preflight.');
+            }
+
+      - name: Upload exact branch closeout recovery artifact
+        id: upload-branch-closeout-recovery
+        if: ${{ steps.prepare-integration.outputs.integration-lane == 'open-first-effect' }}
+        uses: &upload_artifact_action actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: sec-branch-closeout-recovery-v1-pr-${{ needs.plan.outputs.pr-number }}-session-${{ needs.plan.outputs.session-revision }}-run-${{ github.run_id }}-attempt-${{ github.run_attempt }}
+          path: |
+            .tmp/codex/branch-closeout-recovery.json
+            .tmp/codex/integration-preflight-result-v2.json
+          include-hidden-files: true
+          if-no-files-found: error
+
+      - name: Read back exact branch closeout recovery artifact
+        if: ${{ steps.prepare-integration.outputs.integration-lane == 'open-first-effect' }}
+        env:
+          ARTIFACT_ID: ${{ steps.upload-branch-closeout-recovery.outputs.artifact-id }}
+          EXPECTED_ARTIFACT_NAME: sec-branch-closeout-recovery-v1-pr-${{ needs.plan.outputs.pr-number }}-session-${{ needs.plan.outputs.session-revision }}-run-${{ github.run_id }}-attempt-${{ github.run_attempt }}
+          EXPECTED_RUN_ATTEMPT: ${{ github.run_attempt }}
+        uses: *github_script_action
+        with:
+          script: |
+            const artifactId = Number(process.env.ARTIFACT_ID);
+            const expectedRunAttempt = Number(process.env.EXPECTED_RUN_ATTEMPT);
+            if (!Number.isSafeInteger(artifactId) || artifactId < 1 ||
+                !Number.isSafeInteger(expectedRunAttempt) || expectedRunAttempt < 1) {
+              throw new Error('Recovery artifact output identity is invalid.');
+            }
+            const artifact = await github.rest.actions.getArtifact({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              artifact_id: artifactId
+            });
+            const run = await github.rest.actions.getWorkflowRun({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              run_id: context.runId
+            });
+            if (artifact.data.id !== artifactId || artifact.data.name !== process.env.EXPECTED_ARTIFACT_NAME ||
+                artifact.data.expired !== false || !Number.isSafeInteger(artifact.data.size_in_bytes) ||
+                artifact.data.size_in_bytes < 1 || artifact.data.workflow_run?.id !== context.runId ||
+                run.data.id !== context.runId || run.data.run_attempt !== expectedRunAttempt) {
+              throw new Error('Recovery artifact exact API readback differs from this integration invocation.');
+            }
+
+  terminal-status:
+    needs: [plan, authorize]
+    if: ${{ needs.authorize.result == 'success' && needs.authorize.outputs.integration-lane == 'open-first-effect' }}
+    runs-on: [self-hosted, Linux, X64, sec-linux-verification-v1, sec-linux-verification-trusted-v1]
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      pull-requests: read
+      statuses: write
+    steps:
+      - name: Publish exact terminal integration authorization status
+        uses: *github_script_action
+        env:
+          PR_NUMBER: ${{ needs.plan.outputs.pr-number }}
+          EXPECTED_BASE: ${{ needs.plan.outputs.base-sha }}
+          EXPECTED_HEAD: ${{ needs.authorize.outputs.head-sha }}
+          PREFLIGHT_RESULT_DIGEST: ${{ needs.authorize.outputs.preflight-result-digest }}
+          RULESET_DIGEST: ${{ needs.authorize.outputs.ruleset-digest }}
+          STATUS_CONTEXT: sec/integration-authorization
+        with:
+          script: |
+            const pullNumber = Number(process.env.PR_NUMBER);
+            const digest = (value, label) => {
+              if (typeof value !== 'string' || !/^sha256:[0-9a-f]{64}$/u.test(value)) {
+                throw new Error(`${label} is invalid.`);
+              }
+              return value;
+            };
+            const preflight = digest(process.env.PREFLIGHT_RESULT_DIGEST, 'preflight result digest');
+            const ruleset = digest(process.env.RULESET_DIGEST, 'ruleset digest');
+            const [pull, base] = await Promise.all([
+              github.rest.pulls.get({ owner: context.repo.owner, repo: context.repo.repo, pull_number: pullNumber }),
+              github.rest.repos.getBranch({ owner: context.repo.owner, repo: context.repo.repo,
+                branch: context.payload.repository.default_branch })
+            ]);
+            if (pull.data.state !== 'open' || pull.data.draft ||
+                pull.data.head.sha !== process.env.EXPECTED_HEAD ||
+                pull.data.base.sha !== process.env.EXPECTED_BASE ||
+                base.data.commit.sha !== process.env.EXPECTED_BASE) {
+              throw new Error('Terminal authorization subject drifted before status publication.');
+            }
+            const targetUrl = `https://github.com/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+            const description = `gate ${preflight.slice(7, 19)} rules ${ruleset.slice(7, 19)}`;
+            await github.rest.repos.createCommitStatus({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              sha: process.env.EXPECTED_HEAD,
+              state: 'success',
+              context: process.env.STATUS_CONTEXT,
+              description,
+              target_url: targetUrl
+            });
+            const statuses = await github.paginate(github.rest.repos.listCommitStatusesForRef, {
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              ref: process.env.EXPECTED_HEAD,
+              per_page: 100
+            });
+            const exact = statuses.filter((status) =>
+              status.context === process.env.STATUS_CONTEXT && status.target_url === targetUrl);
+            const latest = exact[0];
+            if (!latest || latest.state !== 'success' || latest.description !== description ||
+                latest.creator?.login !== 'github-actions[bot]' || latest.creator?.id !== 41898282) {
+              throw new Error('Terminal authorization status exact provider readback failed.');
+            }
+
+  integrate:
+    needs: [plan, authorize, terminal-status]
+    if: >-
+      ${{ always() && needs.plan.result == 'success' && needs.authorize.result == 'success' &&
+          (needs.authorize.outputs.integration-lane == 'merged-recovery' ||
+           needs.terminal-status.result == 'success') }}
+    runs-on: [self-hosted, Linux, X64, sec-linux-verification-v1, sec-linux-verification-control-v1]
+    timeout-minutes: *sec_integration_timeout_minutes
+    permissions:
+      actions: read
+      checks: read
+      contents: write
+      issues: write
+      pull-requests: write
+      statuses: read
+    steps:
+      - name: Checkout trusted current default base
+        uses: *checkout_action
+        with:
+          ref: ${{ needs.plan.outputs.base-sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Setup trusted Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version-file: .bun-version
+
+      - name: Cache trusted integration Bun install
+        uses: *cache_action
+        with:
+          path: ~/.bun/install/cache
+          key: ${{ runner.os }}-bun-${{ hashFiles('bun.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-bun-
+
+      - name: Install trusted integration dependencies from frozen lock
+        run: bun install --frozen-lockfile
+
+      - name: Create exact integration durable directory
+        run: |
+          set -euo pipefail
+          test ! -L "${SEC_INTEGRATION_DURABLE_DIRECTORY}"
+          mkdir -p -- "${SEC_INTEGRATION_DURABLE_DIRECTORY}"
+          test -d "${SEC_INTEGRATION_DURABLE_DIRECTORY}"
+          test ! -L "${SEC_INTEGRATION_DURABLE_DIRECTORY}"
+
+      - name: Download exact integration preflight and recovery artifact
+        if: ${{ needs.authorize.outputs.integration-lane == 'open-first-effect' }}
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: sec-branch-closeout-recovery-v1-pr-${{ needs.plan.outputs.pr-number }}-session-${{ needs.plan.outputs.session-revision }}-run-${{ github.run_id }}-attempt-${{ github.run_attempt }}
+          path: .
+
+      - name: Re-prove exact main authority rulesets before integration effect
+        if: ${{ needs.authorize.outputs.integration-lane == 'open-first-effect' }}
+        env:
+          GH_TOKEN: ${{ secrets.SEC_GITHUB_RULESET_AUDITOR_TOKEN }}
+          RULESET_FILE: ${{ env.SEC_INTEGRATION_DURABLE_DIRECTORY }}/main-authority-ruleset-effect.json
+          EXPECTED_RULESET_DIGEST: ${{ needs.authorize.outputs.ruleset-digest }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -z "${GH_TOKEN:-}" ]; then
+            echo 'SEC_GITHUB_RULESET_AUDITOR_TOKEN is required at the effect boundary.' >&2
+            exit 1
+          fi
+          bun src/adapters/self-hosting/control/main-health/main-authority-ruleset-github.ts observe \
+            --repository "${{ github.repository }}" \
+            --branch "${{ github.event.repository.default_branch }}" \
+            --output "$RULESET_FILE"
+          bun -e '
+            const value = await Bun.file(process.env.RULESET_FILE).json();
+            if (value.rulesetDigest !== process.env.EXPECTED_RULESET_DIGEST) {
+              throw new Error("Main authority ruleset digest drifted after terminal authorization.");
+            }
+          '
+
+      - name: Re-read terminal authorization subject before effect
+        if: ${{ needs.authorize.outputs.integration-lane == 'open-first-effect' }}
+        uses: *github_script_action
+        env:
+          PR_NUMBER: ${{ needs.plan.outputs.pr-number }}
+          EXPECTED_BASE: ${{ needs.plan.outputs.base-sha }}
+          EXPECTED_HEAD: ${{ needs.authorize.outputs.head-sha }}
+          EXPECTED_PREFLIGHT_RESULT_DIGEST: ${{ needs.authorize.outputs.preflight-result-digest }}
+          EXPECTED_RULESET_DIGEST: ${{ needs.authorize.outputs.ruleset-digest }}
+          STATUS_CONTEXT: sec/integration-authorization
+        with:
+          script: |
+            const pullNumber = Number(process.env.PR_NUMBER);
+            const [pull, base, statuses] = await Promise.all([
+              github.rest.pulls.get({ owner: context.repo.owner, repo: context.repo.repo, pull_number: pullNumber }),
+              github.rest.repos.getBranch({ owner: context.repo.owner, repo: context.repo.repo,
+                branch: context.payload.repository.default_branch }),
+              github.paginate(github.rest.repos.listCommitStatusesForRef, {
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                ref: process.env.EXPECTED_HEAD,
+                per_page: 100
+              })
+            ]);
+            const targetUrl = `https://github.com/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+            const digest = (value, label) => {
+              if (typeof value !== 'string' || !/^sha256:[0-9a-f]{64}$/u.test(value)) {
+                throw new Error(`${label} is invalid.`);
+              }
+              return value;
+            };
+            const preflight = digest(process.env.EXPECTED_PREFLIGHT_RESULT_DIGEST, 'preflight result digest');
+            const ruleset = digest(process.env.EXPECTED_RULESET_DIGEST, 'ruleset digest');
+            const description = `gate ${preflight.slice(7, 19)} rules ${ruleset.slice(7, 19)}`;
+            const latest = statuses.find((status) =>
+              status.context === process.env.STATUS_CONTEXT && status.target_url === targetUrl);
+            if (pull.data.state !== 'open' || pull.data.draft ||
+                pull.data.head.sha !== process.env.EXPECTED_HEAD ||
+                pull.data.base.sha !== process.env.EXPECTED_BASE ||
+                base.data.commit.sha !== process.env.EXPECTED_BASE ||
+                !latest || latest.state !== 'success' || latest.description !== description ||
+                latest.creator?.login !== 'github-actions[bot]' || latest.creator?.id !== 41898282) {
+              throw new Error('Terminal authorization subject/status drifted before physical integration.');
+            }
+
+      - name: Integrate exact hosted Session and publish live readback status
+        id: integrate-hosted
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PRE_MERGE_MAIN_SHA: ${{ needs.plan.outputs.base-sha }}
+          PLANNED_CURRENT_MAIN_SHA: ${{ needs.plan.outputs.current-main-sha }}
+          EXPECTED_PREFLIGHT_RESULT_DIGEST: ${{ needs.authorize.outputs.preflight-result-digest }}
+          MAIN_HEALTH_RUNNER_QUEUE_ALLOWANCE_MINUTES: *sec_main_health_runner_queue_allowance_minutes
+          MAIN_HEALTH_PRODUCER_TIMEOUT_MINUTES: *sec_main_health_producer_timeout_minutes
+          MAIN_HEALTH_JOIN_POLL_INTERVAL_SECONDS: *sec_main_health_join_poll_interval_seconds
+        run: >-
+          bun src/adapters/verification/platform/ci/runtime/verification-session.ts integrate-hosted
+          --repository "${{ github.repository }}"
+          --output "${SEC_INTEGRATION_DURABLE_DIRECTORY}/integration-projection.json"
+          --json
+
+      - name: Close out exact integrated branch
+        id: closeout-mutate-hosted
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: >-
+          bun src/adapters/verification/platform/ci/runtime/verification-session.ts closeout-mutate-hosted
+          --repository "${{ github.repository }}"
+          --output "${SEC_INTEGRATION_DURABLE_DIRECTORY}/integration-projection.json"
+          --json
+
+      - name: Publish exact branch closeout receipt
+        id: closeout-publish-hosted
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: >-
+          bun src/adapters/verification/platform/ci/runtime/verification-session.ts closeout-publish-hosted
+          --repository "${{ github.repository }}"
+          --output "${{ github.workspace }}/.tmp/codex/closeout-publication-projection.json"
+          --json
+
+      - name: Retain exact integration and closeout publication projections
+        if: always() && !cancelled() && hashFiles('.tmp/codex/integration-projection.json') != ''
+        uses: *upload_artifact_action
+        with:
+          name: sec-closeout-projections-v1-run-${{ github.run_id }}-attempt-${{ github.run_attempt }}
+          path: |
+            .tmp/codex/integration-projection.json
+            .tmp/codex/closeout-publication-projection.json
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 30

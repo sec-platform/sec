@@ -12,13 +12,13 @@
 
 新增 U 只允许记录现有 U 无法容纳的独立义务；同一问题的新反例、来源、消费者或实现缺口回写原 U，不为“看起来还有工作”增加编号。任何进度汇报都必须给出当前主线交付、活动工作组或 Work Package、已闭合/仍开放的相交义务、绑定修订证据与阻塞；不得把 U/G/branch/commit 的数量或“还剩多少 U”当完成率、任务数或燃尽指标。
 
-完整机制变更先遵守[完整变化的一次闭合](docs/维护/规格写作与完整性.md#complete-change-closure)，再按短时工具预算实施；不以局部PASS或文件存在代签全链完成。规范写入准入也覆盖原文的真实错误与遗漏，不是“没有代码变化就不许修文档”。权威/投影/缓存与源包/制品身份消费[唯一身份域合同](docs/维护/文档身份与重组协议.md#documentation-identity-domains)；不得为生成器或旧缓存改写权威输入。
+完整机制变更先遵守[完整变化的一次闭合](docs/维护/规格写作与完整性.md#complete-change-closure)；实现命名消费[实现命名与上下文压缩](docs/维护/设计任务规则.md#实现命名与上下文压缩)，命令面消费[命令名称、长运行与可恢复执行](docs/开发/工具协议/README.md#命令名称长运行与可恢复执行)。再按短时工具预算实施；不以局部PASS或文件存在代签全链完成。规范写入准入也覆盖原文的真实错误与遗漏，不是“没有代码变化就不许修文档”。权威/投影/缓存与源包/制品身份消费[唯一身份域合同](docs/维护/文档身份与重组协议.md#documentation-identity-domains)；不得为生成器或旧缓存改写权威输入。
 
 ## 仓库实施与恢复
 
 下列入口消费[仓库开发准入与恢复](docs/开发/AI协作/规则装载与任务恢复.md#sec自身仓库开发的行为准入工作身份与恢复)的实现接合，不要求所有SEC目标工程复制本仓库控制面。
 
-1. 新任务、续跑、压缩恢复与实施前先运行`bun run dev:status -- --json`，绑定live main、exact candidate、工作区、活动Work Package及有效operation。按机器返回的continuation route继续；unresolved/invalid只阻断依赖它的动作并报告typed blocker，不能由PR、branch、聊天或测试绿色补足权限。
+1. 新任务、续跑、压缩恢复与实施前先运行`bun run work:status -- --json`，绑定live main、exact candidate、工作区、活动Work Package及有效operation。按机器返回的continuation route继续；unresolved/invalid只阻断依赖它的动作并报告typed blocker，不能由PR、branch、聊天或测试绿色补足权限。
 2. 写入前核唯一写者、前像、dirty归属及并发。保护用户和无关工作，不reset/stash/restore/格式化/清理或纳入交付。当前用户授权决定提交、推送、合并、发布、安装和删除的作用上限，scope/envelope与实际Effect admission分别约束具体执行。用户已明确授权仓库终态后，该义务持续到settlement/readback；默认分支保护拒绝直推时，自动转入同内容的最小branch→PR→Gate→merge通路，不等待重复授权。force、改保护、额外发布等扩大作用仍须另行授权。
 3. 从可观察终态做删除反事实，判断保留对象的独立价值、真实消费者、失败恢复、并发、资源、外部能力、迁移及验证成本。原生Git/compiler/provider等成熟能力按最窄稳定接口使用；展示、路径、摘要、caller字段和测试seam不创造事实或权限。
 4. 一个logical run保持一个mutable candidate。只有独立结果与owner/文件边界明确、并行有实际收益时委派；子任务权限只收窄，主线程保留授权、架构裁决、集成、验证和收口，不能让多个writer修改同一owner。

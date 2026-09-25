@@ -1,6 +1,6 @@
 import { availableParallelism } from 'node:os';
 
-import { isSecRepositoryTestModulePath, normalizeSecRepositoryTestModulePath } from '../../../../contracts/repository-test-path.ts';
+import { isRepositoryTestModulePath, normalizeRepositoryTestModulePath } from '../../../../contracts/repository-test-path.ts';
 
 export const MAX_FAST_TEST_GLOBAL_RESOURCE_BUDGET = 16;
 const MAX_FAST_TEST_PROCESS_CONCURRENCY = 8;
@@ -102,9 +102,9 @@ export const DEFAULT_FAST_TEST_RESOURCE_CLASS_LIMITS =
   DEFAULT_MANAGED_FAST_TEST_CONCURRENCY.resourceClassLimits;
 
 const DEFAULT_FAST_TEST_EXCLUSION_REGISTRY = [
-  { file: 'tests/integration/semantic-mutation-apply.test.ts', reason: 'full-semantic-mutation-transaction' },
+  { file: 'tests/integration/semantic-mutation/apply.test.ts', reason: 'full-semantic-mutation-transaction' },
   {
-    file: 'tests/integration/semantic-mutation-recovery-lifecycle.test.ts',
+    file: 'tests/integration/semantic-mutation/recovery-lifecycle.test.ts',
     reason: 'durable-recovery-lifecycle'
   },
   { file: 'tests/integration/semantic-pipeline-spine.test.ts', reason: 'full-workspace-compile' },
@@ -114,7 +114,7 @@ const DEFAULT_FAST_TEST_EXCLUSION_REGISTRY = [
   },
   { file: 'tests/integration/workspace-engineering-ir.test.ts', reason: 'full-workspace-ir-build' },
   {
-    file: 'tests/unit/semantic-mutation-isolated-child-fence.test.ts',
+    file: 'tests/unit/semantic-mutation/isolated/child-fence.test.ts',
     reason: 'production-host-and-runtime-lifecycle'
   }
 ] as const;
@@ -122,11 +122,11 @@ const DEFAULT_FAST_TEST_EXCLUSION_REGISTRY = [
 export const DEFAULT_FAST_TEST_EXCLUDED_FILES = DEFAULT_FAST_TEST_EXCLUSION_REGISTRY
   .map(({ file }) => file);
 const defaultFastTestExcludedFileSet = new Set<string>(
-  DEFAULT_FAST_TEST_EXCLUDED_FILES.map(normalizeSecRepositoryTestModulePath)
+  DEFAULT_FAST_TEST_EXCLUDED_FILES.map(normalizeRepositoryTestModulePath)
 );
 
 export function isDefaultFastTestFile(file: string): boolean {
-  return !defaultFastTestExcludedFileSet.has(normalizeSecRepositoryTestModulePath(file));
+  return !defaultFastTestExcludedFileSet.has(normalizeRepositoryTestModulePath(file));
 }
 
 const FAST_TEST_PROCESS_ISOLATION_DEFINITIONS = [
@@ -171,17 +171,17 @@ const FAST_TEST_PROCESS_ISOLATION_DEFINITIONS = [
     resourceClass: 'independent-process'
   },
   {
-    file: 'tests/integration/semantic-mutation-apply.test.ts',
+    file: 'tests/integration/semantic-mutation/apply.test.ts',
     reason: 'production-host-and-runtime-lifecycle',
     resourceClass: 'shared-host-runtime'
   },
   {
-    file: 'tests/integration/semantic-mutation-recovery-lifecycle.test.ts',
+    file: 'tests/integration/semantic-mutation/recovery-lifecycle.test.ts',
     reason: 'workspace-mutation',
     resourceClass: 'independent-process'
   },
   {
-    file: 'tests/integration/semantic-mutation-windows-rollback.test.ts',
+    file: 'tests/integration/semantic-mutation/windows-rollback.test.ts',
     reason: 'workspace-mutation',
     resourceClass: 'independent-process'
   },
@@ -246,7 +246,7 @@ const FAST_TEST_PROCESS_ISOLATION_DEFINITIONS = [
     resourceClass: 'independent-process'
   },
   {
-    file: 'tests/unit/semantic-mutation-isolated-child-fence.test.ts',
+    file: 'tests/unit/semantic-mutation/isolated/child-fence.test.ts',
     reason: 'module-global-runtime-cache-and-process-lifecycle',
     resourceClass: 'shared-host-runtime'
   },
@@ -383,8 +383,8 @@ export function assertUniqueFastTestProcessIsolationDefinitions(
   const seen = new Set<string>();
   const resourceClasses = new Set<string>(FAST_TEST_PROCESS_RESOURCE_CLASS_ORDER);
   for (const definition of definitions) {
-    const file = normalizeSecRepositoryTestModulePath(definition.file);
-    if (!isSecRepositoryTestModulePath(file)) {
+    const file = normalizeRepositoryTestModulePath(definition.file);
+    if (!isRepositoryTestModulePath(file)) {
       throw new Error(`Fast-test process isolation path is invalid: ${definition.file}`);
     }
     if (seen.has(file)) {
@@ -413,13 +413,13 @@ export function assertFastTestProcessPolicyInventory(
 ): void {
   const current = new Set<string>();
   for (const requestedFile of currentFastFiles) {
-    const file = normalizeSecRepositoryTestModulePath(requestedFile);
+    const file = normalizeRepositoryTestModulePath(requestedFile);
     if (current.has(file)) throw new Error(`Current fast-test inventory is duplicated: ${file}`);
     current.add(file);
   }
   const excluded = new Set<string>();
   for (const entry of DEFAULT_FAST_TEST_EXCLUSION_REGISTRY) {
-    const file = normalizeSecRepositoryTestModulePath(entry.file);
+    const file = normalizeRepositoryTestModulePath(entry.file);
     if (excluded.has(file)) {
       throw new Error(`Default fast-test exclusion is duplicated: ${entry.file}`);
     }
@@ -431,7 +431,7 @@ export function assertFastTestProcessPolicyInventory(
 
   assertUniqueFastTestProcessIsolationDefinitions(FAST_TEST_PROCESS_ISOLATION_DEFINITIONS);
   for (const entry of FAST_TEST_PROCESS_ISOLATION_REGISTRY) {
-    const file = normalizeSecRepositoryTestModulePath(entry.file);
+    const file = normalizeRepositoryTestModulePath(entry.file);
     if (!current.has(file)) {
       throw new Error(`Fast-test process isolation registration is stale: ${entry.file}`);
     }
@@ -442,7 +442,7 @@ export function assertFastTestProcessPolicyInventory(
 }
 
 const resourceClassByFastTestFile = new Map<string, FastTestProcessResourceClass>(
-  FAST_TEST_PROCESS_ISOLATION_REGISTRY.map(({ file, resourceClass }) => [normalizeSecRepositoryTestModulePath(file), resourceClass])
+  FAST_TEST_PROCESS_ISOLATION_REGISTRY.map(({ file, resourceClass }) => [normalizeRepositoryTestModulePath(file), resourceClass])
 );
 
 export interface FastTestFilePartition {
@@ -472,7 +472,7 @@ export function partitionFastTestFiles(files: readonly string[]): FastTestFilePa
 
   const seen = new Set<string>();
   for (const requestedFile of files) {
-    const file = normalizeSecRepositoryTestModulePath(requestedFile);
+    const file = normalizeRepositoryTestModulePath(requestedFile);
     if (seen.has(file)) throw new Error('Fast test process planning requires unique files.');
     seen.add(file);
     const resourceClass = resourceClassByFastTestFile.get(file);

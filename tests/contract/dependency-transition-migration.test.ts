@@ -12,7 +12,7 @@ import {
   inspectGeneratedState
 } from '../../src/adapters/runtime-state/generated-state/lifecycle.ts';
 import { inspectNoFollowDirectoryChain } from '../../src/adapters/runtime-state/physical/runtime/physical-no-follow.ts';
-import { resolveSecWorkspaceRuntimeRoots } from '../../src/adapters/runtime-state/workspace-state/paths.ts';
+import { resolveWorkspaceRuntimeRoots } from '../../src/adapters/runtime-state/workspace-state/paths.ts';
 import { compilerDependencyIdentity } from '../../src/adapters/toolchain/dependencies/runtime/compiler-materialization-input.ts';
 import {
   advanceDependencyTransition,
@@ -179,7 +179,7 @@ function compilerStagePath(root: string, name: string): string {
 }
 
 async function removeMigrationFixture(root: string): Promise<void> {
-  const runtimeRoots = resolveSecWorkspaceRuntimeRoots({ repositoryRoot: root });
+  const runtimeRoots = resolveWorkspaceRuntimeRoots({ repositoryRoot: root });
   await rm(runtimeRoots.workspaceStateRoot, { recursive: true, force: true });
   await rm(root, { recursive: true, force: true });
 }
@@ -259,7 +259,7 @@ function expectSameFileSet(
   }
 }
 
-const COMPILER_BINDING_FILE = '.sec-compiler-deps-binding-v5.json';
+const LEGACY_COMPILER_BINDING_FILE = '.sec-compiler-deps-binding-v5.json';
 
 function pinnedBunVersionForTest(): string {
   const match = /^(\d+)\.(\d+)\.(\d+)/u.exec(process.versions.bun ?? '');
@@ -298,7 +298,7 @@ async function prepareBridgeRecovery(input: Readonly<{
     runtimeMaterialization: null
   });
   await Promise.all([
-    writeFile(path.join(sourcePath, COMPILER_BINDING_FILE), `${JSON.stringify(binding)}\n`, 'utf8'),
+    writeFile(path.join(sourcePath, LEGACY_COMPILER_BINDING_FILE), `${JSON.stringify(binding)}\n`, 'utf8'),
     writeFile(path.join(input.root, '.bun-version'), `${pinnedBunVersion}\n`, 'utf8'),
     writeFile(path.join(input.root, 'bun.lock'), '', 'utf8'),
     writeFile(path.join(input.root, 'package.json'), `${JSON.stringify({
@@ -623,6 +623,63 @@ test('coordination cutover locator survives an invocation-owned Runtime State en
   }
 });
 
+test('coordination layout successor relocates the bound legacy root without rewriting cutover evidence', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sec-dependency-coordination-layout-'));
+  const persistentState = `${root}-persistent-state`;
+  const persistentCache = `${root}-persistent-cache`;
+  const previousStateHome = process.env.SEC_STATE_HOME;
+  const previousCacheHome = process.env.SEC_CACHE_HOME;
+  const marker = path.join(root, '.tmp', 'dependency-installs', 'compiler.lock.reclaim');
+  const locator = `${marker}.locator`;
+  try {
+    await mkdir(path.join(targetJournalRoot(root), 'records'), { recursive: true });
+    await mkdir(path.join(targetJournalRoot(root), 'rollovers'));
+    process.env.SEC_STATE_HOME = persistentState;
+    process.env.SEC_CACHE_HOME = persistentCache;
+    await migrateDependencyTransitionJournal(root, { lockTimeoutMs: 30_000 });
+
+    const runtimeRoots = resolveWorkspaceRuntimeRoots({ repositoryRoot: root });
+    const currentRoot = path.join(
+      runtimeRoots.workspaceStateRoot,
+      'compiler-dependency-coordination',
+      'journal'
+    );
+    const legacyRoot = path.join(
+      runtimeRoots.workspaceStateRoot,
+      'compiler-dependency-coordination',
+      'v1'
+    );
+    const markerBytes = await readFile(marker);
+    const locatorBytes = await readFile(locator);
+    const currentIdentity = await lstat(currentRoot);
+
+    await rename(currentRoot, legacyRoot);
+    expect(existsSync(currentRoot)).toBe(false);
+    await migrateDependencyTransitionJournal(root, { lockTimeoutMs: 30_000 });
+
+    const migratedIdentity = await lstat(currentRoot);
+    expect(existsSync(legacyRoot)).toBe(false);
+    expect(migratedIdentity.dev).toBe(currentIdentity.dev);
+    expect(migratedIdentity.ino).toBe(currentIdentity.ino);
+    expect(await readFile(marker)).toEqual(markerBytes);
+    expect(await readFile(locator)).toEqual(locatorBytes);
+    expect(existsSync(path.join(currentRoot, 'compiler.lock'))).toBe(false);
+
+    await migrateDependencyTransitionJournal(root, { lockTimeoutMs: 30_000 });
+    expect(existsSync(legacyRoot)).toBe(false);
+    expect(await readFile(marker)).toEqual(markerBytes);
+    expect(await readFile(locator)).toEqual(locatorBytes);
+  } finally {
+    if (previousStateHome === undefined) delete process.env.SEC_STATE_HOME;
+    else process.env.SEC_STATE_HOME = previousStateHome;
+    if (previousCacheHome === undefined) delete process.env.SEC_CACHE_HOME;
+    else process.env.SEC_CACHE_HOME = previousCacheHome;
+    await rm(persistentState, { recursive: true, force: true });
+    await rm(persistentCache, { recursive: true, force: true });
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 test('coordination migration preserves a foreign locator and its terminal guard', async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sec-dependency-coordination-foreign-locator-'));
   const persistentState = `${root}-persistent-state`;
@@ -653,6 +710,7 @@ test('coordination migration preserves a foreign locator and its terminal guard'
     expect(await readFile(lock)).toEqual(lockBytes);
     expect(await readFile(marker)).toEqual(markerBytes);
     expect(await readFile(locator)).toEqual(foreignLocator);
+    expect(existsSync(path.join(invocationState, 'workspaces', 'records'))).toBe(false);
     expect(existsSync(path.join(invocationState, 'workspaces', 'v1'))).toBe(false);
   } finally {
     if (previousStateHome === undefined) delete process.env.SEC_STATE_HOME;
@@ -669,7 +727,7 @@ test('coordination migration preserves a foreign locator and its terminal guard'
 
 test('coordination cutover preserves an active legacy consumer on both sides', async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sec-dependency-coordination-active-'));
-  const runtimeRoots = resolveSecWorkspaceRuntimeRoots({ repositoryRoot: root });
+  const runtimeRoots = resolveWorkspaceRuntimeRoots({ repositoryRoot: root });
   try {
     const consumers = path.join(targetJournalRoot(root), 'consumers');
     await mkdir(path.join(targetJournalRoot(root), 'records'), { recursive: true });
@@ -699,7 +757,7 @@ test('coordination cutover preserves an active legacy consumer on both sides', a
     await migrateDependencyTransitionJournal(root, { lockTimeoutMs: 30_000 });
     await migrateDependencyTransitionJournal(root, { lockTimeoutMs: 30_000 });
     expect(await readFile(path.join(consumers, name))).toEqual(bytes);
-    expect(await readFile(path.join(runtimeRoots.workspaceStateRoot, 'compiler-dependency-coordination', 'v1', 'consumers', name)))
+    expect(await readFile(path.join(runtimeRoots.workspaceStateRoot, 'compiler-dependency-coordination', 'journal', 'consumers', name)))
       .toEqual(bytes);
     expect((await lstat(generationPath)).isDirectory()).toBeTrue();
   } finally {
@@ -710,7 +768,7 @@ test('coordination cutover preserves an active legacy consumer on both sides', a
 
 test('coordination cutover rejects a released-only legacy consumer chain', async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sec-dependency-coordination-released-only-'));
-  const runtimeRoots = resolveSecWorkspaceRuntimeRoots({ repositoryRoot: root });
+  const runtimeRoots = resolveWorkspaceRuntimeRoots({ repositoryRoot: root });
   try {
     const consumers = path.join(targetJournalRoot(root), 'consumers');
     await mkdir(path.join(targetJournalRoot(root), 'records'), { recursive: true });
@@ -745,7 +803,7 @@ test('coordination cutover rejects a released-only legacy consumer chain', async
 
 test('coordination cutover rejects a same-lease pair with a foreign predecessor', async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sec-dependency-coordination-foreign-pair-'));
-  const runtimeRoots = resolveSecWorkspaceRuntimeRoots({ repositoryRoot: root });
+  const runtimeRoots = resolveWorkspaceRuntimeRoots({ repositoryRoot: root });
   const marker = path.join(root, '.tmp', 'dependency-installs', 'compiler.lock.reclaim');
   try {
     const consumers = path.join(targetJournalRoot(root), 'consumers');
@@ -803,7 +861,7 @@ test('coordination cutover rejects a same-lease pair with a foreign predecessor'
 
 test('coordination admission resumes an exact partially retired consumer compaction', async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sec-dependency-coordination-compaction-'));
-  const runtimeRoots = resolveSecWorkspaceRuntimeRoots({ repositoryRoot: root });
+  const runtimeRoots = resolveWorkspaceRuntimeRoots({ repositoryRoot: root });
   try {
     await mkdir(path.join(targetJournalRoot(root), 'records'), { recursive: true });
     await mkdir(path.join(targetJournalRoot(root), 'rollovers'));
@@ -812,7 +870,7 @@ test('coordination admission resumes an exact partially retired consumer compact
     const consumers = path.join(
       runtimeRoots.workspaceStateRoot,
       'compiler-dependency-coordination',
-      'v1',
+      'journal',
       'consumers'
     );
     const identity = inspectNoFollowDirectoryChain(root, 'consumer compaction fixture root').target;
@@ -913,7 +971,7 @@ test('coordination admission resumes an exact partially retired consumer compact
 
 test('coordination handoff cleans its old lock when the final publication fence fails', async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sec-dependency-coordination-fence-'));
-  const runtimeRoots = resolveSecWorkspaceRuntimeRoots({ repositoryRoot: root });
+  const runtimeRoots = resolveWorkspaceRuntimeRoots({ repositoryRoot: root });
   const lock = path.join(root, '.tmp', 'dependency-installs', 'compiler.lock');
   try {
     await mkdir(path.join(targetJournalRoot(root), 'records'), { recursive: true });
@@ -932,7 +990,7 @@ test('coordination handoff cleans its old lock when the final publication fence 
 
 test('coordination migration preserves an unknown marker and its old lock', async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sec-dependency-coordination-unknown-'));
-  const runtimeRoots = resolveSecWorkspaceRuntimeRoots({ repositoryRoot: root });
+  const runtimeRoots = resolveWorkspaceRuntimeRoots({ repositoryRoot: root });
   const lock = path.join(root, '.tmp', 'dependency-installs', 'compiler.lock');
   try {
     await mkdir(path.dirname(lock), { recursive: true });
