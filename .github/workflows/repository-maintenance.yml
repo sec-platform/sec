@@ -24,8 +24,6 @@ jobs:
   maintenance:
     runs-on: [self-hosted, Linux, X64, sec-linux-verification-v1, sec-linux-verification-trusted-v1]
     timeout-minutes: 45
-    env:
-      SEC_BRANCH_RECOVERY_ROOT: ${{ runner.temp }}/sec-repository-maintenance-recovery-${{ github.run_id }}-${{ github.run_attempt }}
     steps:
       - name: Bind request to current main and maintainer actor
         id: admission
@@ -71,7 +69,7 @@ jobs:
       - name: Checkout exact current main owner
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ steps.admission.outputs.main-sha }}
+          ref: ${{ github.sha }}
           fetch-depth: 0
           persist-credentials: false
 
@@ -101,6 +99,8 @@ jobs:
 
       - name: Execute canonical repository maintenance owner
         id: execute
+        env:
+          SEC_BRANCH_RECOVERY_ROOT: ${{ runner.temp }}/sec-repository-maintenance-recovery-${{ github.run_id }}-${{ github.run_attempt }}
         run: |
           set -euo pipefail
           bun src/adapters/self-hosting/control/repository-maintenance/repository-maintenance.ts execute \
@@ -115,6 +115,6 @@ jobs:
           path: |
             .tmp/repository-maintenance/request.json
             .tmp/repository-maintenance/result.json
-            ${{ env.SEC_BRANCH_RECOVERY_ROOT }}/
+            ${{ runner.temp }}/sec-repository-maintenance-recovery-${{ github.run_id }}-${{ github.run_attempt }}/
           if-no-files-found: error
           retention-days: 90
