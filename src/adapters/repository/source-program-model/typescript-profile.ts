@@ -1,4 +1,5 @@
 import ts from 'typescript';
+import { TYPESCRIPT_MODULE_LOAD_SEMANTICS } from './typescript-module-loader.ts';
 import {
   sha256
 } from '../../../contracts/canonical.ts';
@@ -60,6 +61,7 @@ export const TYPESCRIPT_SOURCE_PROGRAM_COMPILER_REVISION = sha256({
   compilerConfigDigest: TYPESCRIPT_WORKSPACE_COMPILER_CONFIG_DIGEST,
   dependencyGenerationDigest: TYPESCRIPT_WORKSPACE_DEPENDENCY_GENERATION_DIGEST,
   factShardSchemaDigest: SOURCE_PROGRAM_TYPESCRIPT_FACT_SHARD_SCHEMA_DIGEST,
+  moduleLoadSemantics: TYPESCRIPT_MODULE_LOAD_SEMANTICS,
   provider: TYPESCRIPT_SOURCE_PROGRAM_PROVIDER,
   semanticOwner: SOURCE_PROGRAM_TYPESCRIPT_COMPILER_PATH
 });

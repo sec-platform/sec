@@ -18,6 +18,7 @@ import type {
   TypeScriptSourceProgramFactShard
 } from './typescript-fact-shards.ts';
 import ts from 'typescript';
+import { createTypeScriptModuleLoadObserver } from './typescript-module-loader.ts';
 import {
   sourceProgramCompilationCheckpoint
 } from './compilation-operation.ts';
@@ -88,6 +89,7 @@ export function compileTypeScriptModelInternal(
     input.operation
   );
   const { checker, sourceFiles } = semanticProgram;
+  const observeModuleLoad = createTypeScriptModuleLoadObserver(checker);
   const sourceFileByPath = new Map(sourceFiles.map((sourceFile) => [
     semanticProgram.repositoryPath(sourceFile),
     sourceFile
@@ -776,24 +778,22 @@ export function compileTypeScriptModelInternal(
             span: capabilitySpan
           }));
         }
-        const dynamicImport = node.expression.kind === ts.SyntaxKind.ImportKeyword;
-        const requireCall = ts.isIdentifier(node.expression) && node.expression.text === 'require';
+        const moduleLoad = observeModuleLoad(node);
         const runtimeDynamic = ts.isIdentifier(node.expression)
           && (node.expression.text === 'eval' || node.expression.text === 'Function');
-        if (dynamicImport && firstArgument !== undefined && ts.isStringLiteralLike(firstArgument)) {
-          const moduleSpecifier = node.arguments[0].text;
+        if (moduleLoad.status === 'resolved') {
+          const moduleSpecifier = moduleLoad.specifier;
           const targetPath = resolveModulePath(sourcePath, moduleSpecifier);
-          pushReference(sourceFile, node.arguments[0], '*', 'import', null, targetPath);
+          pushReference(sourceFile, moduleLoad.argument, '*', 'import', null, targetPath, moduleSpecifier);
           if (moduleSpecifier.startsWith('.') && targetPath === null) {
             unknowns.push(Object.freeze({
               code: 'dynamic-module-unresolved',
               path: sourcePath,
               detail: moduleSpecifier,
-              span: spanFor(sourceFile, node.arguments[0])
+              span: spanFor(sourceFile, moduleLoad.argument)
             }));
           }
-        } else if ((dynamicImport || requireCall)
-            && (firstArgument === undefined || !ts.isStringLiteralLike(firstArgument))) {
+        } else if (moduleLoad.status === 'unresolved') {
           unknowns.push(Object.freeze({
             code: 'dynamic-module-unresolved',
             path: sourcePath,
