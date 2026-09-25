@@ -83,3 +83,41 @@ test('foreign import sources and retired namespaces retain admission failures', 
   assert.throws(() => assemble({ files, imports: [observation(false, 'src/foreign.ts')] }), /outside its exact file census/);
   assert.throws(() => assemble({ files: ['src/modules/retired.ts'], imports: [] }), /retired repository root/);
 });
+
+
+test('lexical candidate order preserves the declared resolver priority', () => {
+  assert.deepEqual(candidates('src/a.ts', './target'), [
+    'src/target.ts', 'src/target.tsx', 'src/target.mts', 'src/target.cts',
+    'src/target.js', 'src/target.jsx', 'src/target.mjs', 'src/target.cjs',
+    'src/target/index.ts', 'src/target/index.tsx',
+    'src/target/index.mts', 'src/target/index.cts'
+  ]);
+  assert.deepEqual(candidates('src/a.ts', './target.js'), [
+    'src/target.js', 'src/target.ts', 'src/target.tsx', 'src/target.mts', 'src/target.cts'
+  ]);
+  assert.deepEqual(candidates('src/a.ts', './target.ts'), ['src/target.ts']);
+});
+
+test('every candidate subset selects its first admitted target regardless of census ordering', () => {
+  const precedence = [
+    'src/target.ts', 'src/target.tsx', 'src/target.mts', 'src/target.cts',
+    'src/target.js', 'src/target.jsx', 'src/target.mjs', 'src/target.cjs',
+    'src/target/index.ts', 'src/target/index.tsx',
+    'src/target/index.mts', 'src/target/index.cts'
+  ];
+  const reference = observation(false, 'src/a.ts', './target');
+  for (let mask = 0; mask < 2 ** precedence.length; mask += 1) {
+    const admitted = precedence.filter((_, index) => (mask & (1 << index)) !== 0);
+    const expected = admitted.slice(0, 1);
+    for (const ordered of [admitted, [...admitted].reverse()]) {
+      const graph = assemble({ files: ['src/a.ts', ...ordered], imports: [reference] });
+      assert.deepEqual(graph.directDependencies('src/a.ts'), expected, `subset=${mask}`);
+      assert.deepEqual(graph.directRuntimeDependencies('src/a.ts'), expected, `subset=${mask}`);
+      assert.equal(graph.references[0]!.resolvedTarget, expected[0] ?? null);
+      assert.deepEqual(graph.unresolvedFiles, expected.length === 0 ? ['src/a.ts'] : []);
+      // All alternatives remain negative-dependency observations: adding or
+      // removing an earlier candidate must invalidate the same consumer.
+      for (const target of precedence) assert.deepEqual(graph.directConsumers(target), ['src/a.ts']);
+    }
+  }
+});

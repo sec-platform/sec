@@ -59,7 +59,10 @@ export function resolveRepositoryModuleImportCandidates(
       `${base}/index.ts`, `${base}/index.tsx`, `${base}/index.mts`, `${base}/index.cts`
     ];
   })();
-  return Object.freeze([...new Set(candidates.map(canonicalRepositoryPath))].sort(textOrder));
+  // Candidate order is semantic resolver precedence, not presentation order.
+  // Sorting here can select a lower-priority existing module and thereby bind
+  // compiler symbols and runtime impact to the wrong file.
+  return Object.freeze([...new Set(candidates.map(canonicalRepositoryPath))]);
 }
 
 /** Pure assembly of one module graph from compiler-issued observations. */
