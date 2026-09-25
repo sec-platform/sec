@@ -24,7 +24,6 @@
     ".shared-deps/",
     "node_modules/",
     "src/adapters/self-hosting/development/runner/",
-    "src/adapters/verification/platform/test-impact/rules/",
     "tests/testkit/"
   ],
   "staticPrefixes": [

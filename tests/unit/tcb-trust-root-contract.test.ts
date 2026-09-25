@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs';
+import { readFileSync, statSync } from 'node:fs';
 import path from 'node:path';
 
 import { expect, test } from 'bun:test';
@@ -34,6 +34,9 @@ test('canonical trust-root registry is structurally strict and separates static 
   expect(parsed.reviewedExternalImports).toContain(
     'src/adapters/repository/source-program-model/test-impact-projection.ts -> zod'
   );
+  for (const directory of parsed.staticDirectoryPaths.filter((entry) => entry.startsWith('src/'))) {
+    expect(statSync(path.resolve(import.meta.dir, '../..', directory)).isDirectory()).toBe(true);
+  }
 
   const causalRuntimePath = TCB_TRUST_ROOT.causalRuntimePaths[0]!;
   expect(matchTrustedBootstrapPath('scripts/codex/untrusted.ts', TCB_TRUST_ROOT)).toBeNull();
