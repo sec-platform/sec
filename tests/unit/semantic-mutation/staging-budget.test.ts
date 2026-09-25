@@ -28,7 +28,6 @@ test('staging copy owns finite aggregate limits and one frozen monotonic deadlin
   expect(options.excludeRelativePaths).toEqual([
     '.git',
     'node_modules',
-    '.shared-deps',
     '.sec/semantic-mutation',
     '.sec/workspace-write-lease'
   ]);

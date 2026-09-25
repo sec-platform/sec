@@ -4,7 +4,7 @@ import path from 'node:path';
 import { getErrorCode } from '../../../../contracts/failure-inspection.ts';
 import { FailureError } from '../../../../contracts/failure.ts';
 
-export type DependencyEnvironmentMode = 'cold' | 'warm-shared' | 'warm-project' | 'dirty' | 'stale';
+export type DependencyEnvironmentMode = 'cold' | 'warm-compiler' | 'warm-project' | 'dirty' | 'stale';
 export type DependencyEntryKind = 'missing' | 'physical' | 'link';
 export interface DependencyEntryStatus {
   path: string;
@@ -90,14 +90,13 @@ export function sameObservedDependencyDirectory(left: DependencyEntryObservation
 /** Health is a diagnostic projection. A matching stamp cannot repair a missing
  * directory or make a link to an unrelated tree into the shared projection. */
 export function classifyDependencyEnvironment(
-  stamps: Readonly<{ manifestHash: string; sharedStampHash?: string; projectStampHash?: string }>,
-  shared: DependencyEntryObservation,
+  stamps: Readonly<{ manifestHash: string; projectStampHash?: string }>,
+  compiler: DependencyEntryObservation,
   project: DependencyEntryObservation
 ): DependencyEnvironmentMode {
-  if (shared.directory === null || !stamps.sharedStampHash) return 'cold';
-  if (stamps.sharedStampHash !== stamps.manifestHash ||
-      (stamps.projectStampHash && stamps.projectStampHash !== stamps.manifestHash)) return 'stale';
-  if (!project.entry.exists) return 'warm-shared';
-  if (project.entry.kind !== 'link' || !sameObservedDependencyDirectory(project, shared)) return 'dirty';
-  return stamps.projectStampHash === stamps.manifestHash ? 'warm-project' : 'warm-shared';
+  if (compiler.directory === null) return 'cold';
+  if (stamps.projectStampHash !== undefined && stamps.projectStampHash !== stamps.manifestHash) return 'stale';
+  if (!project.entry.exists) return 'warm-compiler';
+  if (project.entry.kind !== 'link' || !sameObservedDependencyDirectory(project, compiler)) return 'dirty';
+  return stamps.projectStampHash === stamps.manifestHash ? 'warm-project' : 'warm-compiler';
 }

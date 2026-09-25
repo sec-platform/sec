@@ -123,7 +123,6 @@ function verifyWorkspaceCore(
               beforeCommit: input.beforeCommit,
               installMode: 'prebound-only',
               signal: input.signal,
-              skipSharedDepsWarmup: true
             });
             await assertIsolatedStagingTree(
               workspaceRoot,

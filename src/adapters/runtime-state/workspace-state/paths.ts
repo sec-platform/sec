@@ -4,6 +4,7 @@ import {
   resolveRuntimeRoots,
   resolveRuntimeStateLayout,
   runtimeStateEnvironment,
+  type RuntimeStateEnvironment,
   type RuntimeStateLayout
 } from './layout.ts';
 
@@ -21,7 +22,7 @@ function workspacePhysicalIdentity(repositoryRoot: string) {
 
 export function resolveWorkspaceRuntimeRoots(input: Readonly<{
   repositoryRoot: string;
-  environment?: NodeJS.ProcessEnv;
+  environment?: NodeJS.ProcessEnv | RuntimeStateEnvironment;
 }>) {
   return resolveRuntimeRoots({
     platform: currentRuntimePlatform(),
@@ -34,7 +35,7 @@ export function resolveWorkspaceRuntimeRoots(input: Readonly<{
 export function resolveRuntimeStateForRepository(input: Readonly<{
   repository: string;
   repositoryRoot: string;
-  environment?: NodeJS.ProcessEnv;
+  environment?: NodeJS.ProcessEnv | RuntimeStateEnvironment;
 }>): RuntimeStateLayout {
   return resolveRuntimeStateLayout({
     platform: currentRuntimePlatform(),

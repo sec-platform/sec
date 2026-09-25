@@ -36,7 +36,7 @@ test('effect projections cannot add another bound callback layer on repeated nes
 test('process and effect projections do not reacquire unrelated coordinator facilities',()=>{
   const input=new Proxy({...controls(),installMode:'allow' as const,
     get generatedStateLifecycle(){assert.fail('lifecycle'); throw new Error('unreachable');},get now(){assert.fail('wall clock'); throw new Error('unreachable');},
-    get sharedDepsRoot(){assert.fail('shared root'); throw new Error('unreachable');},get testCompilerRename(){assert.fail('rename'); throw new Error('unreachable');}
+    get runtimeStateEnvironment(){assert.fail('runtime state environment'); throw new Error('unreachable');},get testCompilerRename(){assert.fail('rename'); throw new Error('unreachable');}
   },{ownKeys(){assert.fail('wide enumeration');}});
   assert.equal(bindCompilerInstallInvocation(input).isolated,false);
   assert.equal(remaining(effect(input),'narrow'),1000);
@@ -69,10 +69,9 @@ test('same parent cancellation survives every projection, including a newly supp
 });
 
 test('zero false and omitted request values keep identical meanings at public and coordinator boundaries',()=>{
-  for(const request of [{},{rematerialize:false},{skipSharedDepsWarmup:false},{installMode:'allow' as const}]){
+  for(const request of [{},{rematerialize:false},{installMode:'allow' as const}]){
     const publicValue=capture(request),internal=bind({...controls(),...request});
     assert.equal(internal.rematerialize,publicValue.rematerialize);
-    assert.equal(internal.skipSharedDepsWarmup,publicValue.skipSharedDepsWarmup);
     assert.equal(internal.installMode,publicValue.installMode);
   }
   assert.throws(()=>capture({rematerialize:0 as never}));assert.throws(()=>bind({...controls(),rematerialize:0 as never}));

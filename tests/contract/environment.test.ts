@@ -29,13 +29,12 @@ function dependencyStatus(workspaceRoot: string): DependencyEnvironmentStatus {
     sizeBytes: 1
   });
   return {
-    bunCache: entry('bun-cache'),
+    bunPackageCache: entry('bun-package-cache'),
     manifestHash: 'dependency-manifest',
-    mode: 'warm-shared',
+    mode: 'warm-compiler',
     projectNodeModules: entry('project-node-modules'),
     recommendedAction: 'platform deps relink',
-    rootNodeModules: entry('root-node-modules'),
-    sharedNodeModules: entry('shared-node-modules')
+    compilerNodeModules: entry('compiler-node-modules')
   };
 }
 
@@ -95,7 +94,7 @@ test('dependency maintenance CLI routes through one explicit command domain with
       manifestHash: status.manifestHash,
       mode: status.mode,
       recommendedAction: status.recommendedAction,
-      sharedNodeModules: { kind: 'physical' }
+      compilerNodeModules: { kind: 'physical' }
     });
 
     const compact = await runCli(workspaceRoot, ['deps', 'status', '--json', '--compact'], cli);

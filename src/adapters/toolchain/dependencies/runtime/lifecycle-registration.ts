@@ -16,9 +16,6 @@ export const COMPILER_NODE_MODULES_LIFECYCLE_RULE = 'compiler-node-modules' as c
 export const COMPILER_STAGING_LIFECYCLE_OWNER = 'compiler-dependency-runtime' as const;
 export const COMPILER_STAGING_LIFECYCLE_PRODUCER = 'stage-compiler-dependency-generation' as const;
 export const COMPILER_STAGING_LIFECYCLE_RULE = 'compiler-dependency-staging' as const;
-const SHARED_DEPS_LIFECYCLE_OWNER = 'project-runtime' as const;
-const SHARED_DEPS_LIFECYCLE_PRODUCER = 'ensure-shared-deps-ready' as const;
-const SHARED_DEPS_LIFECYCLE_RULE = 'shared-dependency-cache' as const;
 
 /** Freeze the expected identity, not the provider's physical authority. This
  * is a value projection of the existing three-field contract; the lifecycle
@@ -29,21 +26,6 @@ function captureExpectedPhysical(physical: GeneratedStatePhysicalIdentity): Read
   return Object.freeze({ device, inode, objectId });
 }
 
-export function sharedDependencyLifecycleExpectation(
-  physical: GeneratedStatePhysicalIdentity
-): Readonly<{
-  owner: typeof SHARED_DEPS_LIFECYCLE_OWNER;
-  producer: typeof SHARED_DEPS_LIFECYCLE_PRODUCER;
-  ruleId: typeof SHARED_DEPS_LIFECYCLE_RULE;
-  physical: GeneratedStatePhysicalIdentity;
-}> {
-  return Object.freeze({
-    owner: SHARED_DEPS_LIFECYCLE_OWNER,
-    producer: SHARED_DEPS_LIFECYCLE_PRODUCER,
-    ruleId: SHARED_DEPS_LIFECYCLE_RULE,
-    physical: captureExpectedPhysical(physical)
-  });
-}
 
 export function compilerDependencyGenerationLifecycleExpectation(
   physical?: GeneratedStatePhysicalIdentity
@@ -159,39 +141,6 @@ export async function bindExistingCompilerDependencyGeneration(
   }
 }
 
-export async function bindExistingSharedDependencyRoot(
-  options: RuntimeDependencyLifecycleInput<'bind'>,
-  expectedPhysical: GeneratedStatePhysicalIdentity
-): Promise<void> {
-  const expected = sharedDependencyLifecycleExpectation(expectedPhysical);
-  const lifecycle = captureRuntimeDependencyLifecycle(options, ['bind']);
-  if (lifecycle === undefined) {
-    throw new FailureError(
-      'IMPORT-AUTHORITY-004',
-      'Existing shared dependency root has no producer provenance registration and is preserved'
-    );
-  }
-  const bind = lifecycle.bind;
-  if (bind === undefined) {
-    throw new FailureError(
-      'IMPORT-AUTHORITY-004',
-      'Shared dependency root adoption requires read-only producer provenance binding and is preserved'
-    );
-  }
-  try {
-    await bind(
-      '.shared-deps',
-      expected
-    );
-  } catch (error) {
-    throw new FailureError(
-      'IMPORT-AUTHORITY-004',
-      'Shared dependency root producer provenance is missing, invalid, foreign, or stale; physical root is preserved',
-      { cause: lifecycleFailureMessage(error) },
-      { cause: error }
-    );
-  }
-}
 
 function lifecycleFailureMessage(error: unknown): string {
   try {

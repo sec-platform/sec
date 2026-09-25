@@ -21,7 +21,6 @@
   ],
   "staticDirectoryPaths": [
     ".github/workflows/",
-    ".shared-deps/",
     "node_modules/",
     "src/adapters/self-hosting/development/runner/",
     "tests/testkit/"

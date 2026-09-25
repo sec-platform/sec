@@ -194,8 +194,8 @@ test('strict porcelain-z parser rejects truncation unknown duplicate and conflic
 });
 
 test('strict status porcelain-z parser preserves ignored and rename identities without presentation parsing', () => {
-  expect(parseWorktreeStatusPorcelainZ(Buffer.from('!! .shared-deps/\0R  renamed.ts\0original.ts\0?? note.txt\0', 'utf8'))).toEqual([
-    { index: '!', worktree: '!', path: '.shared-deps', originalPath: null },
+  expect(parseWorktreeStatusPorcelainZ(Buffer.from('!! .ignored-cache/\0R  renamed.ts\0original.ts\0?? note.txt\0', 'utf8'))).toEqual([
+    { index: '!', worktree: '!', path: '.ignored-cache', originalPath: null },
     { index: 'R', worktree: ' ', path: 'renamed.ts', originalPath: 'original.ts' },
     { index: '?', worktree: '?', path: 'note.txt', originalPath: null }
   ]);

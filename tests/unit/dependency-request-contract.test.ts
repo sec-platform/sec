@@ -8,17 +8,17 @@ for(const mode of RUNTIME_DEPENDENCY_INSTALL_MODES)test(`request retains support
 for(const mode of [null,false,0,'', 'offline',{},[]])test(`request rejects invalid mode ${JSON.stringify(mode)}`,()=>{
  assert.equal(isRuntimeDependencyInstallMode(mode),false);assert.throws(()=>captureRuntimeDependencyInstallRequest({installMode:mode as never}));
 });
-for(const field of ['rematerialize','skipSharedDepsWarmup'] as const)for(const v of [null,'false',0,1,{}])test(`${field} refuses nonboolean ${JSON.stringify(v)}`,()=>{
+for(const field of ['rematerialize'] as const)for(const v of [null,'false',0,1,{}])test(`${field} refuses nonboolean ${JSON.stringify(v)}`,()=>{
  assert.throws(()=>captureRuntimeDependencyInstallRequest({[field]:v} as never));
 });
 test('public input is selected without enumerating internal fields',()=>{
- const input=new Proxy({rematerialize:false,get monotonicNowMs(){assert.fail('internal clock'); throw new Error('unreachable');},get generatedStateLifecycle(){assert.fail('lifecycle'); throw new Error('unreachable');}}, {ownKeys(){assert.fail('enumeration');}});
+ const input=new Proxy({rematerialize:false,get monotonicNowMs(){assert.fail('internal clock'); throw new Error('unreachable');},get generatedStateLifecycle(){assert.fail('lifecycle'); throw new Error('unreachable');},get runtimeStateEnvironment(){assert.fail('runtime state environment'); throw new Error('unreachable');}}, {ownKeys(){assert.fail('enumeration');}});
  const r=captureRuntimeDependencyInstallRequest(input);assert.equal(r.rematerialize,false);assert.equal(Object.hasOwn(r,'monotonicNowMs'),false);assert.ok(Object.isFrozen(r));
 });
 test('each selected public getter is read once and the input remains independently mutable',()=>{
  const reads=new Map<string,number>();const input={};
- for(const [key,value]of Object.entries({beforeCommit:undefined,deadlineAtUnixMs:5000,installMode:'allow',lockTimeoutMs:100,rematerialize:false,signal:undefined,skipSharedDepsWarmup:true}))Object.defineProperty(input,key,{get(){reads.set(key,(reads.get(key)??0)+1);return value;},configurable:true});
- const r=captureRuntimeDependencyInstallRequest(input);assert.equal(reads.size,7);assert.ok([...reads.values()].every(n=>n===1));assert.equal(r.skipSharedDepsWarmup,true);assert.equal(Object.isFrozen(input),false);
+ for(const [key,value]of Object.entries({beforeCommit:undefined,deadlineAtUnixMs:5000,installMode:'allow',lockTimeoutMs:100,rematerialize:false,signal:undefined}))Object.defineProperty(input,key,{get(){reads.set(key,(reads.get(key)??0)+1);return value;},configurable:true});
+ const r=captureRuntimeDependencyInstallRequest(input);assert.equal(reads.size,6);assert.ok([...reads.values()].every(n=>n===1));assert.equal(Object.isFrozen(input),false);
 });
 test('captured class method keeps private state after method replacement',async()=>{
  class Input{#calls=0;async beforeCommit(){this.#calls++;}get calls(){return this.#calls;}}

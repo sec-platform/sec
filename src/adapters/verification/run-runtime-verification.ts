@@ -10,7 +10,7 @@ import { listFilesRecursive } from '../filesystem/discovery.ts';
 import { writeText } from "../filesystem/files.ts";
 import { buildIsolatedProcessEnvironment, ensureIsolatedProcessDirectories, type CommandResult, type RunCommandOptions } from '../runtime-state/physical/runtime/process.ts';
 import {
-  dependencyAuthorityPaths,
+  ensureDependencyMaterializationReady,
   ensureProjectDependencies,
   withProjectDependencyBridge
 } from '../toolchain/dependencies/runtime.ts';
@@ -76,17 +76,13 @@ export function revalidateIsolatedRuntimeBuildNodeModulesProof(
   return current.physicalRoot;
 }
 
-export function resolveIsolatedRuntimeDependencySources(): Readonly<IsolatedRuntimeDependencySources> {
+export async function resolveIsolatedRuntimeDependencySources(): Promise<Readonly<IsolatedRuntimeDependencySources>> {
   const compilerModulesRoot = captureIsolatedRuntimeBuildNodeModulesProof().physicalRoot;
-  const authority = dependencyAuthorityPaths();
-  const dependencyModules = (() => {
-    try {
-      const resolved = realpathSync.native(authority.dependencyModules);
-      return lstatSync(resolved).isDirectory() ? resolved : compilerModulesRoot;
-    } catch {
-      return compilerModulesRoot;
-    }
-  })();
+  const materialization = await ensureDependencyMaterializationReady({ installMode: 'offline-copy-only' });
+  const dependencyModules = realpathSync.native(materialization.nodeModulesPath);
+  if (!lstatSync(dependencyModules).isDirectory()) {
+    throw new Error('Runtime dependency materialization root is not a directory');
+  }
   return Object.freeze({ compilerModulesRoot, dependencyModules });
 }
 
@@ -203,7 +199,6 @@ export async function runRuntimeVerification(
     await withPhase('runtime-dependency-validation', () => ensureProjectDependencies(workspaceRoot, {
       beforeCommit: options.beforeCommit,
       signal: options.signal,
-      skipSharedDepsWarmup: true,
       installMode: 'prebound-only'
     }));
   }

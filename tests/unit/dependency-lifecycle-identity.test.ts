@@ -3,11 +3,10 @@ import assert from 'node:assert/strict';
 import type { RuntimeDependencyGeneratedStateLifecycle } from '../../src/adapters/toolchain/dependencies/runtime/lifecycle-capabilities.ts';
 import {
   bindAndRetireCompilerDependencyPreimage,
-  bindExistingCompilerDependencyGeneration, bindExistingSharedDependencyRoot, birthAndBindCompilerDependencyGeneration,
+  bindExistingCompilerDependencyGeneration, birthAndBindCompilerDependencyGeneration,
   compilerDependencyGenerationLifecycleExpectation, compilerDependencyStagingLifecycleExpectation,
   ensureCompilerDependencyPreimageRetiredForRecovery,
-  settleRetiredCompilerDependencyGeneration,
-  sharedDependencyLifecycleExpectation
+  settleRetiredCompilerDependencyGeneration
 } from '../../src/adapters/toolchain/dependencies/runtime/lifecycle-registration.ts';
 import { runtimeDependencyOperationControls } from '../../src/adapters/toolchain/dependencies/runtime/operation-controls.ts';
 
@@ -18,7 +17,7 @@ function control(clock = () => 0, signal?: AbortSignal) {
 }
 const exhausted = (error: unknown) => (error as { code?: string }).code === 'RUNTIME-DEPS-003';
 
-for (const expectation of [compilerDependencyGenerationLifecycleExpectation, compilerDependencyStagingLifecycleExpectation, sharedDependencyLifecycleExpectation]) {
+for (const expectation of [compilerDependencyGenerationLifecycleExpectation, compilerDependencyStagingLifecycleExpectation]) {
   test(`${expectation.name} owns its physical value rather than aliasing the caller`, () => {
     const source = physical(), expected = expectation(source);
     assert.notEqual(expected.physical, source);
@@ -30,7 +29,7 @@ for (const expectation of [compilerDependencyGenerationLifecycleExpectation, com
   });
 }
 
-for (const adopt of [bindExistingCompilerDependencyGeneration, bindExistingSharedDependencyRoot]) {
+for (const adopt of [bindExistingCompilerDependencyGeneration]) {
   test(`${adopt.name} is bound to the expected identity before method getters run`, async () => {
     const expected = physical();
     const generatedStateLifecycle: Pick<RuntimeDependencyGeneratedStateLifecycle, 'bind'> = { get bind(): NonNullable<RuntimeDependencyGeneratedStateLifecycle['bind']> {

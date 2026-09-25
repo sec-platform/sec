@@ -15,7 +15,6 @@ export interface RuntimeDependencyInstallRequest {
   lockTimeoutMs?: number;
   rematerialize?: boolean;
   signal?: AbortSignal;
-  skipSharedDepsWarmup?: boolean;
 }
 
 export function isRuntimeDependencyInstallMode(value: unknown): value is RuntimeDependencyInstallMode {
@@ -33,13 +32,13 @@ export function captureRuntimeDependencyInstallRequest(
     throw new FailureError('RUNTIME-DEPS-003', 'Runtime dependency request must be an object');
   }
   const { beforeCommit, deadlineAtUnixMs, installMode, lockTimeoutMs,
-    rematerialize, signal, skipSharedDepsWarmup } = input;
+    rematerialize, signal } = input;
   const captured = { beforeCommit, deadlineAtUnixMs, installMode, lockTimeoutMs,
-    rematerialize, signal, skipSharedDepsWarmup };
+    rematerialize, signal };
   assertCapturedRuntimeDependencyInstallRequest(captured);
   return Object.freeze({
     beforeCommit: beforeCommit === undefined ? undefined : () => Reflect.apply(beforeCommit, input, []),
-    deadlineAtUnixMs, installMode, lockTimeoutMs, rematerialize, signal, skipSharedDepsWarmup
+    deadlineAtUnixMs, installMode, lockTimeoutMs, rematerialize, signal
   });
 }
 
@@ -50,15 +49,14 @@ export function captureRuntimeDependencyInstallRequest(
 export function assertCapturedRuntimeDependencyInstallRequest(
   input: Readonly<RuntimeDependencyInstallRequest>
 ): void {
-  const { beforeCommit, installMode, rematerialize, skipSharedDepsWarmup } = input;
+  const { beforeCommit, installMode, rematerialize } = input;
   if (beforeCommit !== undefined && typeof beforeCommit !== 'function') {
     throw new FailureError('RUNTIME-DEPS-003', 'Runtime dependency commit fence must be callable');
   }
   if (installMode !== undefined && !isRuntimeDependencyInstallMode(installMode)) {
     throw new FailureError('RUNTIME-DEPS-003', 'Runtime dependency install mode is invalid');
   }
-  for (const [field, value] of [['rematerialize', rematerialize],
-    ['skipSharedDepsWarmup', skipSharedDepsWarmup]] as const) {
+  for (const [field, value] of [['rematerialize', rematerialize]] as const) {
     if (value !== undefined && typeof value !== 'boolean') {
       throw new FailureError('RUNTIME-DEPS-003', `Runtime dependency ${field} must be boolean`);
     }

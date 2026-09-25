@@ -59,7 +59,7 @@ export function currentRuntimePlatform(
 }
 
 export function runtimeStateEnvironment(
-  source: NodeJS.ProcessEnv = process.env
+  source: NodeJS.ProcessEnv | RuntimeStateEnvironment = process.env
 ): RuntimeStateEnvironment {
   const result: Record<string, string> = {};
   for (const name of [

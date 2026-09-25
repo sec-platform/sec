@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { captureRuntimeDependencyLifecycle as capture, type RuntimeDependencyGeneratedStateLifecycle } from '../../src/adapters/toolchain/dependencies/runtime/lifecycle-capabilities.ts';
 import {
   bindAndRetireCompilerDependencyPreimage,
-  bindExistingCompilerDependencyGeneration, bindExistingSharedDependencyRoot,
+  bindExistingCompilerDependencyGeneration,
   birthAndBindCompilerDependencyGeneration,
   ensureCompilerDependencyPreimageRetiredForRecovery,
   settleRetiredCompilerDependencyGeneration
@@ -20,7 +20,7 @@ function bound(lifecycle: unknown, beforeCommit = async () => {}) {
   return runtimeDependencyOperationOptions({ lockTimeoutMs: 1000, generatedStateLifecycle: lifecycle as RuntimeDependencyGeneratedStateLifecycle, beforeCommit });
 }
 
-for (const adopt of [bindExistingCompilerDependencyGeneration, bindExistingSharedDependencyRoot]) {
+for (const adopt of [bindExistingCompilerDependencyGeneration]) {
   test(`${adopt.name} captures only read-only bind and preserves a private-field receiver`, async () => {
     class Provider {
       #calls = 0;
@@ -126,7 +126,7 @@ test('absent optional lifecycle does not acquire or execute a fence', async () =
 
 for (const failure of [null, undefined, 'plain failure', new Error('owner failed')]) {
   test(`adoption retains the original ${typeof failure} cause in its typed failure`, async () => {
-    await assert.rejects(bindExistingSharedDependencyRoot({ generatedStateLifecycle: {
+    await assert.rejects(bindExistingCompilerDependencyGeneration({ generatedStateLifecycle: {
       bind: async () => { throw failure; }
     } }, physical), (error: unknown) => authority(error) && (error as Error).cause === failure);
   });

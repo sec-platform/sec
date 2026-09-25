@@ -6,14 +6,16 @@ import { isFileNotFoundError, pathExists, removeDir } from "../../../filesystem/
 import { compilerRoot, getWorkspacePaths, resolveWorkspacePlanPath } from "../../../workspace-context.ts";
 import { loadRuntimeDependencySpec } from '../contract/runtime-dependency-spec.ts';
 import { classifyDependencyEnvironment, observeDependencyEntry, type DependencyEntryStatus, type DependencyEnvironmentMode } from '../runtime/environment-observation.ts';
-import { sameHostPath } from '../runtime/host-path.ts';
-import type { RuntimeDependencyGeneratedStateLifecycle } from '../runtime/lifecycle-capabilities.ts';
 import {
-  disposeCanonicalSharedDependencies,
+  ensureCompilerDepsReady,
   ensureProjectDependencies,
-  ensureSharedDepsReady,
   readRuntimeDepsStamp,
 } from '../runtime/project-runtime.ts';
+import {
+  dependencyMaterializationLocations,
+  disposeDependencyMaterializationCollection,
+  disposeDependencyProviderCache
+} from '../runtime/materialization-location.ts';
 export type { DependencyEntryKind, DependencyEntryStatus, DependencyEnvironmentMode } from '../runtime/environment-observation.ts';
 
 export type DoctorCheckStatus = 'ok' | 'warn' | 'fail';
@@ -21,54 +23,29 @@ export type DoctorCheckStatus = 'ok' | 'warn' | 'fail';
 export interface DependencyEnvironmentStatus {
   mode: DependencyEnvironmentMode;
   manifestHash: string;
-  sharedStampHash?: string;
   projectStampHash?: string;
-  rootNodeModules: DependencyEntryStatus;
-  sharedNodeModules: DependencyEntryStatus;
+  compilerNodeModules: DependencyEntryStatus;
   projectNodeModules: DependencyEntryStatus;
-  bunCache: DependencyEntryStatus;
+  bunPackageCache: DependencyEntryStatus;
   recommendedAction: string;
 }
 
 export interface DependencyCleanOptions {
   project?: boolean;
-  shared?: boolean;
+  materializations?: boolean;
   bunCache?: boolean;
   all?: boolean;
   force?: boolean;
 }
 
-export interface DependencyEnvironmentOptions {
-  generatedStateLifecycle?: RuntimeDependencyGeneratedStateLifecycle;
-  sharedDepsRoot?: string;
-}
-
-/** Bind the location once; read-only observations never acquire lifecycle methods. */
-function environmentLocation(options: DependencyEnvironmentOptions, cwd: string): Readonly<{
-  sharedDepsRoot: string;
-}> {
-  const selected = options.sharedDepsRoot;
-  if (selected !== undefined && (typeof selected !== 'string' || selected.length === 0)) {
-    throw new FailureError('RUNTIME-DEPS-003', 'Shared dependency root must be a nonempty path');
-  }
-  return Object.freeze({ sharedDepsRoot: path.resolve(cwd, selected ?? defaultSharedDepsRoot()) });
-}
-
-function environmentExecutionOptions(options: DependencyEnvironmentOptions, cwd: string): Readonly<DependencyEnvironmentOptions> {
-  const location = environmentLocation(options, cwd);
-  const generatedStateLifecycle = options.generatedStateLifecycle;
-  return Object.freeze({ ...location, generatedStateLifecycle });
-}
-
 function captureCleanupSelection(options: DependencyCleanOptions): Readonly<DependencyCleanOptions> {
-  const { project, shared, bunCache, all, force } = options;
-  for (const [field, value] of Object.entries({ project, shared, bunCache, all, force })) {
+  const { project, materializations, bunCache, all, force } = options;
+  for (const [field, value] of Object.entries({ project, materializations, bunCache, all, force })) {
     if (value !== undefined && typeof value !== 'boolean') {
       throw new FailureError('RUNTIME-DEPS-003', `Dependency cleanup ${field} must be boolean`);
     }
   }
-  // force remains a compatibility input, never a permission to bypass an owner.
-  return Object.freeze({ project, shared, bunCache, all, force });
+  return Object.freeze({ project, materializations, bunCache, all, force });
 }
 
 export interface DoctorCheck {
@@ -84,27 +61,18 @@ export interface DoctorReport {
   dependencies: DependencyEnvironmentStatus;
 }
 
-function defaultSharedDepsRoot(): string {
-  return path.join(compilerRoot, '.shared-deps');
-}
 
-function bunCacheRoot(sharedDepsRoot: string): string {
-  return path.join(sharedDepsRoot, '.bun-cache');
-}
 
 function projectStampPath(projectRoot: string): string {
   return path.join(projectRoot, '.runtime-deps.stamp.json');
 }
 
-function sharedStampPath(sharedDepsRoot: string): string {
-  return path.join(sharedDepsRoot, 'runtime-deps.stamp.json');
-}
 
 function recommendAction(mode: DependencyEnvironmentMode): string {
   switch (mode) {
     case 'cold':
       return 'platform deps warmup';
-    case 'warm-shared':
+    case 'warm-compiler':
       return 'platform deps relink';
     case 'dirty':
       return 'platform deps relink';
@@ -155,7 +123,7 @@ function dependencyDoctorCheck(status: DependencyEnvironmentStatus): DoctorCheck
     ? {
         id: 'runtime-dependencies',
         status: 'ok',
-        message: 'Runtime dependencies are warm and project dependencies use the shared cache.'
+        message: 'Runtime dependencies are warm and project dependencies project the canonical compiler generation.'
       }
     : {
         id: 'runtime-dependencies',
@@ -200,32 +168,31 @@ async function executableCheck(id: string, executableName: string, optional: boo
 }
 
 export async function getDependencyEnvironmentStatus(
-  workspaceRoot = process.cwd(),
-  options: DependencyEnvironmentOptions = {}
+  workspaceRoot = process.cwd()
 ): Promise<DependencyEnvironmentStatus> {
   const cwd = process.cwd();
   const { workspaceRoot: targetWorkspaceRoot } = getWorkspacePaths(path.resolve(cwd, workspaceRoot));
-  const { sharedDepsRoot: sharedRoot } = environmentLocation(options, cwd);
-  const [runtimeSpec, rootNodeModules, sharedNodeModules, projectNodeModules, bunCache, sharedStamp, projectStamp] = await Promise.all([
+  const locations = dependencyMaterializationLocations(compilerRoot);
+  const [runtimeSpec, compilerNodeModules, projectNodeModules, bunPackageCache, projectStamp] = await Promise.all([
     loadRuntimeDependencySpec(),
     observeDependencyEntry(path.join(compilerRoot, 'node_modules')),
-    observeDependencyEntry(path.join(sharedRoot, 'node_modules')),
     observeDependencyEntry(path.join(targetWorkspaceRoot, 'node_modules')),
-    observeDependencyEntry(bunCacheRoot(sharedRoot)),
-    readRuntimeDepsStamp(sharedStampPath(sharedRoot)),
+    observeDependencyEntry(locations.bunPackageCacheRoot),
     readRuntimeDepsStamp(projectStampPath(targetWorkspaceRoot))
   ]);
 
   const statusWithoutMode = {
     manifestHash: runtimeSpec.manifestHash,
-    sharedStampHash: sharedStamp?.manifestHash,
     projectStampHash: projectStamp?.manifestHash,
-    rootNodeModules: rootNodeModules.entry,
-    sharedNodeModules: sharedNodeModules.entry,
+    compilerNodeModules: compilerNodeModules.entry,
     projectNodeModules: projectNodeModules.entry,
-    bunCache: bunCache.entry
+    bunPackageCache: bunPackageCache.entry
   };
-  const mode = classifyDependencyEnvironment(statusWithoutMode, sharedNodeModules, projectNodeModules);
+  const mode = classifyDependencyEnvironment(
+    { manifestHash: runtimeSpec.manifestHash, projectStampHash: projectStamp?.manifestHash },
+    compilerNodeModules,
+    projectNodeModules
+  );
 
   return {
     ...statusWithoutMode,
@@ -235,14 +202,12 @@ export async function getDependencyEnvironmentStatus(
 }
 
 export async function getDoctorReport(
-  workspaceRoot = process.cwd(),
-  options: DependencyEnvironmentOptions = {}
+  workspaceRoot = process.cwd()
 ): Promise<DoctorReport> {
   const cwd = process.cwd();
   workspaceRoot = path.resolve(cwd, workspaceRoot);
   const pathEntries = (process.env.PATH ?? '').split(path.delimiter).filter(Boolean)
     .map(entry => path.resolve(cwd, entry));
-  const location = environmentLocation(options, cwd);
   const paths = getWorkspacePaths(workspaceRoot);
   const workspacePlanExists = resolveWorkspacePlanPath(workspaceRoot).then((workspacePlanPath) =>
     pathExists(workspacePlanPath)
@@ -254,7 +219,7 @@ export async function getDoctorReport(
     rootsCheck,
     projectPackageExists
   ] = await Promise.all([
-    getDependencyEnvironmentStatus(workspaceRoot, location),
+    getDependencyEnvironmentStatus(workspaceRoot),
     workspacePlanExists,
     executableCheck('bun', 'bun', true, pathEntries),
     workspaceRootsDoctorCheck(paths),
@@ -289,62 +254,50 @@ export async function getDoctorReport(
 }
 
 export async function warmupDependencyEnvironment(
-  workspaceRoot = process.cwd(),
-  options: DependencyEnvironmentOptions = {}
+  workspaceRoot = process.cwd()
 ): Promise<DependencyEnvironmentStatus> {
-  const cwd = process.cwd();
-  workspaceRoot = path.resolve(cwd, workspaceRoot);
-  const selected = environmentExecutionOptions(options, cwd);
-  await ensureSharedDepsReady(selected);
-  return getDependencyEnvironmentStatus(workspaceRoot, selected);
+  workspaceRoot = path.resolve(process.cwd(), workspaceRoot);
+  await ensureCompilerDepsReady();
+  return getDependencyEnvironmentStatus(workspaceRoot);
 }
 
 export async function relinkProjectDependencies(
-  workspaceRoot = process.cwd(),
-  options: DependencyEnvironmentOptions = {}
+  workspaceRoot = process.cwd()
 ): Promise<DependencyEnvironmentStatus> {
-  const cwd = process.cwd();
-  workspaceRoot = path.resolve(cwd, workspaceRoot);
+  workspaceRoot = path.resolve(process.cwd(), workspaceRoot);
   const { workspaceRoot: targetWorkspaceRoot } = getWorkspacePaths(workspaceRoot);
-  const selected = environmentExecutionOptions(options, cwd);
-  await ensureProjectDependencies(targetWorkspaceRoot, { ...selected, rematerialize: true });
-  return getDependencyEnvironmentStatus(workspaceRoot, selected);
+  await ensureProjectDependencies(targetWorkspaceRoot, { rematerialize: true });
+  return getDependencyEnvironmentStatus(workspaceRoot);
 }
 
 export async function cleanDependencyEnvironment(
   workspaceRoot = process.cwd(),
-  options: DependencyCleanOptions,
-  environmentOptions: DependencyEnvironmentOptions = {}
+  options: DependencyCleanOptions
 ): Promise<string[]> {
   const cwd = process.cwd();
   const { workspaceRoot: targetWorkspaceRoot } = getWorkspacePaths(path.resolve(cwd, workspaceRoot));
   const selection = captureCleanupSelection(options);
-  if (!selection.all && !selection.project && !selection.shared && !selection.bunCache) return [];
-  const { sharedDepsRoot: sharedRoot } = environmentLocation(environmentOptions, cwd);
-  const targets = new Set<string>();
+  if (!selection.all && !selection.project && !selection.materializations && !selection.bunCache) return [];
+  const locations = dependencyMaterializationLocations(compilerRoot);
+  const removed: string[] = [];
   if (selection.all || selection.project) {
-    targets.add(path.join(targetWorkspaceRoot, 'node_modules'));
-    targets.add(projectStampPath(targetWorkspaceRoot));
+    const projectTargets = [
+      path.join(targetWorkspaceRoot, 'node_modules'),
+      projectStampPath(targetWorkspaceRoot)
+    ];
+    for (const target of projectTargets) {
+      if (await pathExists(target)) {
+        await removeDir(target);
+        removed.push(target);
+      }
+    }
   }
-  if (selection.all || selection.shared) targets.add(sharedRoot);
-  else if (selection.bunCache) targets.add(bunCacheRoot(sharedRoot));
-
-  // Complete all lexical owner/target checks before the first deletion.
-  // Previously an invalid shared root could be discovered only after the
-  // project targets had already been removed. Physical owner admission remains
-  // with disposeCanonicalSharedDependencies; this is not an atomic cleanup batch.
-  const plan = [...targets].map(target => ({ target, shared: sameHostPath(target, sharedRoot) }));
-  const hasSharedSettlement = plan.some(step => step.shared);
-  if (hasSharedSettlement && !sameHostPath(sharedRoot, defaultSharedDepsRoot())) {
-    throw new FailureError('IMPORT-AUTHORITY-004',
-      'Custom shared dependency roots cannot be retired through the public cleanup projection without owner-issued lifecycle authority');
+  if ((selection.all || selection.materializations) &&
+      disposeDependencyMaterializationCollection(compilerRoot)) {
+    removed.push(locations.collectionRoot);
   }
-  const settlementOptions = hasSharedSettlement
-    ? Object.freeze({ sharedDepsRoot: sharedRoot, generatedStateLifecycle: environmentOptions.generatedStateLifecycle })
-    : undefined;
-  for (const step of plan) {
-    if (step.shared) await disposeCanonicalSharedDependencies(settlementOptions!);
-    else await removeDir(step.target);
+  if ((selection.all || selection.bunCache) && disposeDependencyProviderCache(compilerRoot)) {
+    removed.push(locations.bunPackageCacheRoot);
   }
-  return [...targets];
+  return removed;
 }

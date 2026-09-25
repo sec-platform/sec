@@ -23,7 +23,7 @@ import {
 } from './transaction-identity.ts';
 
 const EXCLUDED_SOURCE_SUBTREES = Object.freeze([
-  '.git', 'node_modules', '.shared-deps', '.sec/semantic-mutation', '.sec/workspace-write-lease'
+  '.git', 'node_modules', '.sec/semantic-mutation', '.sec/workspace-write-lease'
 ] as const);
 const STAGING_MAXIMUM_ENTRIES = 300_000;
 const STAGING_MAXIMUM_BYTES = 1024 * 1024 * 1024;

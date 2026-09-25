@@ -1,10 +1,12 @@
-import path from 'node:path';
 import type { CommitFence } from "../../../../contracts/commit-fence.ts";
 import { FailureError } from '../../../../contracts/failure.ts';
 import { assertCapturedRuntimeDependencyInstallRequest, type RuntimeDependencyInstallRequest } from '../contract/install-request.ts';
 import type { RuntimeDependencyLifecycleInput } from './lifecycle-capabilities.ts';
 import type { RuntimeDependencyTestMaterializationCapability } from './materialization-fixture-capability.ts';
-;
+import {
+  runtimeStateEnvironment as captureRuntimeStateEnvironment,
+  type RuntimeStateEnvironment
+} from '../../../runtime-state/workspace-state/layout.ts';
 
 import {
   awaitRuntimeDependencyOperation,
@@ -36,8 +38,9 @@ export const COMPILER_DEPENDENCY_EXECUTION_RETENTION_POLICY = Object.freeze({
 /** Internal environment supplied by dependency orchestration, never public input. */
 interface RuntimeDependencyEnvironmentInput {
   now?: () => string;
-  sharedDepsRoot?: string;
   sleep?: (ms: number) => Promise<void>;
+  /** Internal Runtime Cache location input. Public install requests never carry it. */
+  runtimeStateEnvironment?: RuntimeStateEnvironment;
 }
 
 /** Test-owner facilities remain explicit and separate from production requests. */
@@ -80,7 +83,7 @@ const boundOperationMethods = new WeakSet<object>();
 const runtimeDependencyInstallOptionKeys = new Set<PropertyKey>([
   'beforeCommit', 'deadlineAtUnixMs', 'generatedStateLifecycle', 'installMode',
   'lockTimeoutMs', 'monotonicNowMs', 'now', 'pollIntervalMs', 'rematerialize',
-  'sharedDepsRoot', 'signal', 'skipSharedDepsWarmup', 'sleep',
+  'runtimeStateEnvironment', 'signal', 'sleep',
   'testCompilerBridgeValidationHook', 'testCompilerPublishHook',
   'testCompilerPublishPlatform', 'testCompilerRename', 'testInstallLockDelete',
   'testInstallLockDeletePlatform', 'testMaterialization', 'testProjectProjectionHook'
@@ -161,18 +164,16 @@ export function runtimeDependencyOperationOptions<T extends RuntimeDependencyIns
       return options as T & RuntimeDependencyOperationOptions;
     }
   }
-  const cwd = process.cwd();
   const guard = captureRuntimeDependencyBindingGuard(options);
   const controlsInput = captureRuntimeDependencyControlInput(options);
   assertNoUnownedParentBoundAccessors(options, controlsInput, guard);
   const beforeCommit = ownOption(options, 'beforeCommit');
   const installMode = ownOption(options, 'installMode');
   const rematerialize = ownOption(options, 'rematerialize');
-  const skipSharedDepsWarmup = ownOption(options, 'skipSharedDepsWarmup');
   const now = ownOption(options, 'now');
   const sleep = ownOption(options, 'sleep');
-  const sharedDepsRoot = ownOption(options, 'sharedDepsRoot');
   const generatedStateLifecycle = ownOption(options, 'generatedStateLifecycle');
+  const runtimeStateEnvironmentInput = ownOption(options, 'runtimeStateEnvironment');
   const testCompilerPublishPlatform = ownOption(options, 'testCompilerPublishPlatform');
   const testCompilerPublishHook = ownOption(options, 'testCompilerPublishHook');
   const testProjectProjectionHook = ownOption(options, 'testProjectProjectionHook');
@@ -182,14 +183,11 @@ export function runtimeDependencyOperationOptions<T extends RuntimeDependencyIns
   const testCompilerRename = ownOption(options, 'testCompilerRename');
   const testMaterialization = ownOption(options, 'testMaterialization');
   guard(options);
-  if (sharedDepsRoot !== undefined && typeof sharedDepsRoot !== 'string') {
-    throw new FailureError('RUNTIME-DEPS-003', 'Runtime dependency shared root must be a path string');
-  }
   // Reuse the request owner's boolean/mode/fence grammar. Do not maintain a
   // second coercion policy at the internal coordinator boundary.
   const request = Object.freeze({
     beforeCommit: bindOperationMethod(beforeCommit, options, 'Runtime dependency commit fence'),
-    installMode, rematerialize, skipSharedDepsWarmup
+    installMode, rematerialize
   });
   assertCapturedRuntimeDependencyInstallRequest(request);
   const methods = {
@@ -206,10 +204,18 @@ export function runtimeDependencyOperationOptions<T extends RuntimeDependencyIns
   const monotonicNowMs = controlsInput.monotonicNowMs;
   const controls = runtimeDependencyOperationControls(controlsInput);
   guard(options);
+  let runtimeStateEnvironment: RuntimeStateEnvironment | undefined;
+  if (runtimeStateEnvironmentInput !== undefined) {
+    if (runtimeStateEnvironmentInput === null || typeof runtimeStateEnvironmentInput !== 'object'
+        || Array.isArray(runtimeStateEnvironmentInput)) {
+      throw new FailureError('RUNTIME-DEPS-003', 'Runtime state environment must be one captured object');
+    }
+    runtimeStateEnvironment = captureRuntimeStateEnvironment(runtimeStateEnvironmentInput);
+  }
   const captured: RuntimeDependencyOperationOptions = Object.freeze({
     ...request, ...methods, ...controls, monotonicNowMs,
-    sharedDepsRoot: sharedDepsRoot === undefined ? undefined : path.resolve(cwd, sharedDepsRoot),
-    generatedStateLifecycle, testCompilerPublishPlatform, testInstallLockDeletePlatform, testMaterialization
+    generatedStateLifecycle, runtimeStateEnvironment,
+    testCompilerPublishPlatform, testInstallLockDeletePlatform, testMaterialization
   } satisfies Record<keyof RuntimeDependencyInstallOptions, unknown>);
   issuedOperationOptions.add(captured);
   return captured;

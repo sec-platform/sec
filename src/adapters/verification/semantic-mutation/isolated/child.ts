@@ -53,7 +53,6 @@ import {
   type CommandResult,
   type RunCommandOptions
 } from '../../../runtime-state/physical/runtime/process.ts';
-import { ensureSharedDepsReady } from '../../../toolchain/dependencies/runtime.ts';
 import {
   compilerRuntimeLayout,
   compilerRuntimeResources, loadCanonicalBunRuntimeVersion
@@ -477,9 +476,9 @@ function isolatedVerificationFailure(
   return Object.freeze({ stage });
 }
 
-function resolveCanonicalIsolatedRuntimeInputSources(
-): IsolatedRuntimeSourcePaths {
-  const dependencySources = resolveIsolatedRuntimeDependencySources();
+async function resolveCanonicalIsolatedRuntimeInputSources(
+): Promise<IsolatedRuntimeSourcePaths> {
+  const dependencySources = await resolveIsolatedRuntimeDependencySources();
   return Object.freeze({
     compilerModulesRoot: dependencySources.compilerModulesRoot,
     compilerPackage: path.join(compilerRuntimeLayout.packageRoot, 'package.json'),
@@ -492,8 +491,7 @@ function resolveCanonicalIsolatedRuntimeInputSources(
 
 async function prepareCanonicalIsolatedRuntimeInputSources(
 ): Promise<IsolatedRuntimeInputSources> {
-  await ensureSharedDepsReady();
-  return Object.freeze(resolveCanonicalIsolatedRuntimeInputSources());
+  return Object.freeze(await resolveCanonicalIsolatedRuntimeInputSources());
 }
 
 function canonicalCompilerRegistryPath(value: unknown): string {
@@ -1075,7 +1073,7 @@ function relocateIsolatedRunnerBundle(
     })
   ]);
   const trustedBuildRoots = Object.freeze([
-    resolveIsolatedRuntimeDependencySources().compilerModulesRoot,
+    captureIsolatedRuntimeBuildNodeModulesProof().physicalRoot,
     path.resolve(provenBuildNodeModulesRoot)
   ]);
   const observedRuntimeDirectories = new Set<string>();

@@ -213,26 +213,6 @@
       "retirement": "domain-receipt-required"
     },
     {
-      "id": "shared-dependency-cache",
-      "selector": { "kind": "exact", "path": ".shared-deps" },
-      "stateClass": "external-provider-cache",
-      "owner": "project-runtime",
-      "producer": "ensure-shared-deps-ready",
-      "physicalForms": [{
-        "kind": "directory",
-        "contentsPolicy": "owner-bounded-tree",
-        "settlementEffect": "generated-state-quarantine-delete-readback",
-        "worktreeRetirement": { "mode": "preserve" }
-      }],
-      "scope": "workspace",
-      "activeOwnerSignal": "birth-registration",
-      "capacityPolicyRef": "issue-316",
-      "registration": "required-at-birth",
-      "reconstruction": "producer-recompute",
-      "cleanupProfiles": ["all-rebuildable"],
-      "retirement": "domain-receipt-required"
-    },
-    {
       "id": "test-workspace-root",
       "selector": { "kind": "exact", "path": ".tmp/test-workspaces" },
       "stateClass": "active-ephemeral-workspace",

@@ -8,10 +8,9 @@ type DependencyEntryPresentationSource = Readonly<{
 export type DependencyEnvironmentPresentationSource = Readonly<{
   mode: string;
   manifestHash: string;
-  rootNodeModules: DependencyEntryPresentationSource;
-  sharedNodeModules: DependencyEntryPresentationSource;
+  compilerNodeModules: DependencyEntryPresentationSource;
   projectNodeModules: DependencyEntryPresentationSource;
-  bunCache: DependencyEntryPresentationSource;
+  bunPackageCache: DependencyEntryPresentationSource;
   recommendedAction: string;
 }>;
 
@@ -60,16 +59,15 @@ export function formatDependencyEnvironmentStatus(
     'Runtime dependency status',
     `Mode: ${status.mode}`,
     `Manifest hash: ${status.manifestHash}`,
-    `Root node_modules: ${formatEntryStatus(status.rootNodeModules)}`,
-    `Shared deps: ${formatEntryStatus(status.sharedNodeModules)}`,
+    `Compiler node_modules: ${formatEntryStatus(status.compilerNodeModules)}`,
     `Project node_modules: ${formatEntryStatus(status.projectNodeModules)}`,
-    `Bun cache: ${formatEntryStatus(status.bunCache)}`,
+    `Bun package cache: ${formatEntryStatus(status.bunPackageCache)}`,
     `Recommended action: ${status.recommendedAction}`
   ];
   if (status.projectNodeModules.target &&
       status.projectNodeModules.kind === 'link') {
     lines.splice(
-      6,
+      5,
       0,
       `Project node_modules target: ${status.projectNodeModules.target}`
     );

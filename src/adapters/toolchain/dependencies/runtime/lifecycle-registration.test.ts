@@ -8,7 +8,6 @@ import type {
 import {
   bindAndRetireCompilerDependencyPreimage,
   bindExistingCompilerDependencyGeneration,
-  bindExistingSharedDependencyRoot,
   birthAndBindCompilerDependencyGeneration
 } from './lifecycle-registration.ts';
 import {
@@ -62,7 +61,7 @@ function lifecycleOptions(input: Readonly<{
 }
 
 describe('dependency lifecycle registration owner', () => {
-  test('adopts exact compiler and shared identities before retiring a compiler preimage', async () => {
+  test('adopts the exact compiler identity before retiring a compiler preimage', async () => {
     const effects: Array<Readonly<{ operation: string; relativePath: string; expected?: unknown }>> = [];
     const retiredDigest = `sha256:${'3'.repeat(64)}` as const;
     const options = lifecycleOptions({
@@ -77,14 +76,12 @@ describe('dependency lifecycle registration owner', () => {
     });
 
     await bindExistingCompilerDependencyGeneration(options, physical);
-    await bindExistingSharedDependencyRoot(options, physical);
     expect(await bindAndRetireCompilerDependencyPreimage(options, physical, 'replacement')).toBe(
       retiredDigest
     );
 
     expect(effects.map(({ operation, relativePath }) => `${operation}:${relativePath}`)).toEqual([
       'bind:node_modules',
-      'bind:.shared-deps',
       'bind:node_modules',
       'retired:node_modules'
     ]);
@@ -92,12 +89,6 @@ describe('dependency lifecycle registration owner', () => {
       owner: 'compiler-dependency-runtime',
       producer: 'ensure-compiler-deps-ready',
       ruleId: 'compiler-node-modules',
-      physical
-    });
-    expect(effects[1]?.expected).toEqual({
-      owner: 'project-runtime',
-      producer: 'ensure-shared-deps-ready',
-      ruleId: 'shared-dependency-cache',
       physical
     });
   });
@@ -134,13 +125,5 @@ describe('dependency lifecycle registration owner', () => {
       code: 'IMPORT-AUTHORITY-004'
     } satisfies Partial<FailureError>);
 
-    await expect(bindExistingSharedDependencyRoot(lifecycleOptions({
-      bind: async () => {
-        throw new Error('foreign registration');
-      }
-    }), physical)).rejects.toMatchObject({
-      code: 'IMPORT-AUTHORITY-004',
-      details: { cause: 'foreign registration' }
-    } satisfies Partial<FailureError>);
   });
 });

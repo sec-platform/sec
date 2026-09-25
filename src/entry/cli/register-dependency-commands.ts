@@ -19,7 +19,7 @@ import { printJsonOrText } from './format-utils.ts';
 
 type DependencyCleanRequest = Readonly<{
   project?: boolean;
-  shared?: boolean;
+  materializations?: boolean;
   bunCache?: boolean;
   all?: boolean;
   force?: boolean;
@@ -177,14 +177,14 @@ export function registerDependencyCommands(
 
   deps.command('clean')
     .option('--project', 'Clean project deps')
-    .option('--shared', 'Clean shared deps')
+    .option('--materializations', 'Clean dependency materializations')
     .option('--bun-cache', 'Clean Bun cache')
     .option('--all', 'Clean all')
     .option('--force', 'Force clean')
     .action(async (rawOptions: Record<string, unknown>, command: Command) => {
       const request: DependencyCleanRequest = Object.freeze({
         project: rawOptions.project === true,
-        shared: rawOptions.shared === true,
+        materializations: rawOptions.materializations === true,
         bunCache: rawOptions.bunCache === true,
         all: rawOptions.all === true,
         force: rawOptions.force === true

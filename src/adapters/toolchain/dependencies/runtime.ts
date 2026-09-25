@@ -13,7 +13,7 @@ export type {
   DependencyAuthorityPaths, RetainedCompilerDependencyExecutionGeneration, RetainedCompilerDependencyReadGeneration, RuntimeDependencySourceGeneration,
   RuntimeDependencyTargetIdentity,
   RuntimeDepsStamp,
-  SharedDepsReadyState
+  DependencyMaterializationReadyState
 } from './runtime/project-runtime.ts';
 
 export {
@@ -22,12 +22,10 @@ export {
   projectCompilerDepsReadyState, retainCompilerDependencyExecutionGeneration, retainCompilerDependencyReadGeneration
 } from './runtime/project-runtime.ts';
 
-export { SHARED_DEPENDENCY_FORBIDDEN_AUTHORITY_FILES } from './runtime/project-runtime.ts';
-
 /**
  * Production callers may narrow one dependency operation, but cannot replace
  * its process transport, lifecycle owner, clock, sleep, filesystem effects or
- * canonical shared root. Fault injection lives under dependencies/test/**.
+ * provider-private Runtime Cache location. Fault injection lives under dependencies/test/**.
  */
 export interface RuntimeDependencyInstallOptions extends Readonly<RuntimeDependencyInstallRequest> {}
 
@@ -114,10 +112,10 @@ export async function ensureCompilerDepsReady(
   return runtime.ensureCompilerDepsReady(captureRuntimeDependencyInstallRequest(options), compilerDependencyRoot);
 }
 
-export async function ensureSharedDepsReady(
+export async function ensureDependencyMaterializationReady(
   options: RuntimeDependencyInstallOptions = {}
-): Promise<runtime.SharedDepsReadyState> {
-  return runtime.ensureSharedDepsReady(captureRuntimeDependencyInstallRequest(options));
+): Promise<runtime.DependencyMaterializationReadyState> {
+  return runtime.ensureDependencyMaterializationReady(captureRuntimeDependencyInstallRequest(options));
 }
 
 export async function ensureProjectDependencies(

@@ -22,7 +22,6 @@ build/
 .next/
 test-results/
 *.egg-info/
-.shared-deps/
 .sec/
 .tmp/
 report/

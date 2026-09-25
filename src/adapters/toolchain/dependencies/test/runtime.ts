@@ -62,10 +62,21 @@ export async function ensureCompilerDepsReady(
   );
 }
 
-export async function ensureSharedDepsReady(
+export async function ensureDependencyMaterializationReady(
   options: RuntimeDependencyTestInstallOptions = {}
-): Promise<dependencyRuntime.SharedDepsReadyState> {
-  return dependencyRuntime.ensureSharedDepsReady(testInstallOptions(options));
+): Promise<dependencyRuntime.DependencyMaterializationReadyState> {
+  return dependencyRuntime.ensureDependencyMaterializationReady(testInstallOptions(options));
+}
+
+
+export async function withProjectDependencyBridge<T>(
+  projectRoot: string,
+  callback: () => Promise<T>,
+  options: RuntimeDependencyTestInstallOptions = {}
+): Promise<T> {
+  return dependencyRuntime.withProjectDependencyBridge(
+    projectRoot, callback, testInstallOptions(options)
+  );
 }
 
 export async function ensureProjectDependencies(

@@ -77,7 +77,7 @@ for (const predecessorMode of [0o755, 0o555]) {
       if (generation) await generation.generation.retire();
       // Retirement restores predecessor modes, which may still be read-only.
       // Only the exact task-owned tree receives temporary owner permissions;
-      // the shared dependency source and any substituted root remain protected.
+      // the external dependency source and any substituted root remain protected.
       const inventory = scanNoFollowDirectoryTreeInventory(rootIdentity, {
         includePermissionMode: true,
         deadlineAtMs: performance.now() + 30_000,

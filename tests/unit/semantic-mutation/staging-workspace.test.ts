@@ -126,12 +126,12 @@ test.skipIf(process.platform !== 'linux')('staging refuses a symlink root rather
 test('staging never copies excluded Git or package-manager roots', async () => {
   const f = await fixture();
   try {
-    for (const directory of ['.git', 'node_modules', '.shared-deps']) {
+    for (const directory of ['.git', 'node_modules']) {
       mkdirSync(path.join(f.workspaceRoot, directory));
       writeFileSync(path.join(f.workspaceRoot, directory, 'excluded'), 'not a staging input');
     }
     const root = await prepare(f);
-    for (const directory of ['.git', 'node_modules', '.shared-deps']) expect(existsSync(path.join(root, directory))).toBe(false);
+    for (const directory of ['.git', 'node_modules']) expect(existsSync(path.join(root, directory))).toBe(false);
     expect(existsSync(path.join(root, '.sec', 'semantic-mutation'))).toBe(false);
   } finally { close(f); }
 });

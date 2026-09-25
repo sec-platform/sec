@@ -51,6 +51,7 @@ import {
   type RuntimeDependencyToolchainBinding
 } from '../contract/runtime-dependency-spec.ts';
 import { runBunInstall } from './compiler-install-process.ts';
+import { acquireDependencyMaterializationGenerationAuthority, acquireDependencyProviderCacheAuthority, dependencyMaterializationLocations } from './materialization-location.ts';
 import {
   assertCompilerDependencyInputsCurrent,
   COMPILER_DEPENDENCY_INSTALL_ARGS,
@@ -111,7 +112,6 @@ import { sameHostPath } from './host-path.ts';
 import {
   bindAndRetireCompilerDependencyPreimage,
   bindExistingCompilerDependencyGeneration,
-  bindExistingSharedDependencyRoot,
   birthAndBindCompilerDependencyGeneration,
   COMPILER_NODE_MODULES_LIFECYCLE_OWNER,
   COMPILER_NODE_MODULES_LIFECYCLE_PRODUCER,
@@ -121,8 +121,7 @@ import {
   COMPILER_STAGING_LIFECYCLE_RULE,
   compilerDependencyStagingLifecycleExpectation,
   ensureCompilerDependencyPreimageRetiredForRecovery,
-  settleRetiredCompilerDependencyGeneration,
-  sharedDependencyLifecycleExpectation
+  settleRetiredCompilerDependencyGeneration
 } from './lifecycle-registration.ts';
 import {
   MAX_DEPENDENCY_OPERATION_TIMEOUT_MS,
@@ -175,7 +174,7 @@ export interface RuntimeDependencyTargetIdentity {
   readonly linkTarget: string | null;
 }
 
-export interface SharedDepsReadyState {
+export interface DependencyMaterializationReadyState {
   binding: Readonly<RuntimeDependencyMaterializationBinding>;
   packageManager: 'bun';
   root: string;
@@ -423,8 +422,6 @@ export function projectCompilerDepsReadyState(
 
 export interface DependencyAuthorityPaths {
   readonly compilerModulesRoot: string;
-  readonly dependencyModules: string;
-  readonly sharedDepsRoot: string;
 }
 
 interface CompilerDependencyPackageBinding {
@@ -514,101 +511,6 @@ async function bindGeneratedStateRecoveryLifecycle(
   }) as RuntimeDependencyOperationOptions;
 }
 
-export async function disposeCanonicalSharedDependencies(
-  options: RuntimeDependencyInstallOptions = {},
-  outcome = 'maintainer-clean-requested',
-  dependencyRoot = compilerRoot
-): Promise<boolean> {
-  const operationOptions = runtimeDependencyOperationOptions(options);
-  const root = path.resolve(dependencyRoot);
-  const sharedDepsRoot = dependencyAuthorityPaths(root).sharedDepsRoot;
-  runtimeDependencyOperationRemainingMs(operationOptions, 'Shared dependency retirement admission');
-  const observedRoot = await physicalSharedDependencyDirectory(sharedDepsRoot, true);
-  if (observedRoot === null) return false;
-  const spec = loadRuntimeDependencySpec(path.join(root, 'package.json'));
-  const lifecycleOptions = await bindCanonicalGeneratedStateLifecycle(operationOptions, root);
-  const lifecycle = lifecycleOptions.generatedStateLifecycle;
-  const observeRetirement = lifecycle?.observeRetirement;
-  if (lifecycle === undefined || observeRetirement === undefined || lifecycle.bind === undefined) {
-    throw new FailureError(
-      'IMPORT-AUTHORITY-004',
-      'Shared dependency retirement requires owner-issued provenance observation and binding; physical root is preserved'
-    );
-  }
-
-  const preLeaseInventory = await sharedDependencyRetirementInventory(
-    observedRoot,
-    spec,
-    lifecycleOptions,
-    'Shared dependency retirement pre-lease inventory'
-  );
-  const expectation = sharedDependencyLifecycleExpectation(
-    generatedStatePhysicalIdentity(observedRoot)
-  );
-  const preLeaseObservation = await observeRetirement('.shared-deps', expectation);
-  const { assertGeneratedStateRetirementObservation } = await import(
-    '../../../runtime-state/generated-state/lifecycle.ts'
-  );
-  assertGeneratedStateRetirementObservation(preLeaseObservation);
-  if (preLeaseObservation.status !== 'active') {
-    throw new FailureError(
-      'IMPORT-AUTHORITY-004',
-      'Legacy shared dependency root has no exact active owner registration; physical root is preserved',
-      {
-        inventoryDigest: preLeaseInventory.treeDigest,
-        membership: preLeaseInventory.membership,
-        observationDigest: preLeaseObservation.observationDigest,
-        status: preLeaseObservation.status
-      }
-    );
-  }
-  return withCompilerDependencyTransitionLease(root, lifecycleOptions, async (leaseOptions) => {
-    const current = await physicalSharedDependencyDirectory(sharedDepsRoot, true);
-    if (current === null || !sameGeneratedStateIdentity(
-      generatedStatePhysicalIdentity(current),
-      generatedStatePhysicalIdentity(observedRoot)
-    )) {
-      throw new FailureError(
-        'IMPORT-AUTHORITY-004',
-        'Shared dependency root changed before lifecycle disposal; current state is preserved'
-      );
-    }
-    const currentInventory = await sharedDependencyRetirementInventory(
-      current,
-      spec,
-      leaseOptions,
-      'Shared dependency retirement under-lease inventory'
-    );
-    if (currentInventory.treeDigest !== preLeaseInventory.treeDigest ||
-        currentInventory.treeEntryCount !== preLeaseInventory.treeEntryCount ||
-        currentInventory.membership !== preLeaseInventory.membership) {
-      throw new FailureError(
-        'IMPORT-AUTHORITY-004',
-        'Shared dependency root changed before lifecycle disposal; current state is preserved'
-      );
-    }
-    await bindExistingSharedDependencyRoot(leaseOptions, generatedStatePhysicalIdentity(current));
-    await runtimeDependencyOperationEffectFence(leaseOptions, 'Shared dependency retirement');
-    const receipt = await lifecycle.disposed('.shared-deps', {
-      outcome,
-      profile: 'all-rebuildable'
-    });
-    const { assertGeneratedStateDisposalReceipt } = await import(
-      '../../../runtime-state/generated-state/lifecycle.ts'
-    );
-    assertGeneratedStateDisposalReceipt(receipt);
-    if (receipt.profile !== 'all-rebuildable' || receipt.terminal !== 'disposed' ||
-        !sameGeneratedStateIdentity(receipt.physical, generatedStatePhysicalIdentity(current)) ||
-        physicalSharedDependencyDirectory(sharedDepsRoot, true) !== null) {
-      throw new FailureError(
-        'IMPORT-AUTHORITY-004',
-        'Shared dependency retirement terminal receipt differs from the admitted root'
-      );
-    }
-    runtimeDependencyOperationRemainingMs(leaseOptions, 'Shared dependency retirement receipt readback');
-    return true;
-  });
-}
 
 /**
  * Retire the compiler dependency projection and every consumer-zero immutable
@@ -737,7 +639,7 @@ export async function disposeCompilerDependencyEnvironment(
   });
 }
 
-export const SHARED_DEPENDENCY_FORBIDDEN_AUTHORITY_FILES = Object.freeze([
+export const DEPENDENCY_MATERIALIZATION_FORBIDDEN_AUTHORITY_FILES = Object.freeze([
   '.npmrc',
   '.yarnrc',
   '.yarnrc.yml',
@@ -754,16 +656,9 @@ export function dependencyAuthorityPaths(
   dependencyRoot = compilerRoot
 ): Readonly<DependencyAuthorityPaths> {
   const root = path.resolve(dependencyRoot);
-  const sharedDepsRoot = path.join(root, '.shared-deps');
   return Object.freeze({
-    compilerModulesRoot: path.join(root, 'node_modules'),
-    dependencyModules: path.join(sharedDepsRoot, 'node_modules'),
-    sharedDepsRoot
+    compilerModulesRoot: path.join(root, 'node_modules')
   });
-}
-
-function defaultSharedDepsRoot(): string {
-  return dependencyAuthorityPaths().sharedDepsRoot;
 }
 
 function dependencyPackagePath(nodeModulesPath: string, packageName: string): string {
@@ -2231,9 +2126,9 @@ function compilerDependencyStageAuthority(root: string): DependencyTransitionSta
   });
 }
 
-function runtimeDependencyStageAuthority(sharedDepsRoot: string): DependencyTransitionStageAuthority {
+function runtimeDependencyStageAuthority(materializationRoot: string): DependencyTransitionStageAuthority {
   return Object.freeze({
-    parent: path.resolve(sharedDepsRoot),
+    parent: path.resolve(materializationRoot),
     prefix: '.runtime-generation-',
     allowedDirectChildren: Object.freeze(['node_modules'])
   });
@@ -2690,7 +2585,7 @@ async function runtimeDependencyTreeMatchesBinding(input: Readonly<{
 }>): Promise<boolean> {
   try {
     // The runtime binding owns its resolved package closure, not every sibling
-    // package in the compiler's shared node_modules generation. Exact closure
+    // package in the compiler dependency generation. Exact closure
     // observation already binds every root, edge, target and manifest; a
     // full-directory equality check incorrectly rejects legitimate compiler
     // providers such as an aliased native TypeScript checker.
@@ -2707,97 +2602,54 @@ async function runtimeDependencyTreeMatchesBinding(input: Readonly<{
   }
 }
 
-async function sharedDependencyAuthorityResidue(sharedDepsRoot: string): Promise<string[]> {
-  const observed = await Promise.all(SHARED_DEPENDENCY_FORBIDDEN_AUTHORITY_FILES.map(async (name) => {
+async function dependencyMaterializationAuthorityResidue(materializationRoot: string): Promise<string[]> {
+  const observed = await Promise.all(DEPENDENCY_MATERIALIZATION_FORBIDDEN_AUTHORITY_FILES.map(async (name) => {
     try {
-      await fs.lstat(path.join(sharedDepsRoot, name));
+      await fs.lstat(path.join(materializationRoot, name));
       return name;
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null;
       throw error;
     }
   }));
-  return observed.filter((name): name is (typeof SHARED_DEPENDENCY_FORBIDDEN_AUTHORITY_FILES)[number] =>
+  return observed.filter((name): name is (typeof DEPENDENCY_MATERIALIZATION_FORBIDDEN_AUTHORITY_FILES)[number] =>
     name !== null);
 }
 
-function physicalSharedDependencyDirectory(
+function physicalDependencyMaterializationDirectory(
   directoryPath: string,
   allowMissing: boolean
 ): PhysicalDirectoryIdentity | null {
   const presence = inspectExactNoFollowDirectoryPresence(
     path.resolve(directoryPath),
-    'Shared dependency authority root'
+    'Dependency materialization root'
   );
   if (presence.state === 'absent') {
     if (allowMissing) return null;
-    throw new FailureError('RUNTIME-DEPS-002', 'Shared dependency authority root is absent');
+    throw new FailureError('RUNTIME-DEPS-002', 'Dependency materialization root is absent');
   }
   return presence.directory.target;
 }
 
-async function ensurePhysicalSharedDependencyRoot(
-  sharedDepsRoot: string,
-  commitFence?: CommitFence
-): Promise<Readonly<{ identity: PhysicalDirectoryIdentity; created: boolean }>> {
-  const existing = physicalSharedDependencyDirectory(sharedDepsRoot, true);
-  if (existing !== null) return Object.freeze({ identity: existing, created: false });
-  const parentPath = path.dirname(path.resolve(sharedDepsRoot));
-  const parent = physicalSharedDependencyDirectory(parentPath, false);
-  if (parent === null) {
-    throw new FailureError('RUNTIME-DEPS-002', 'Shared dependency authority parent is unavailable');
-  }
-  await commitFence?.();
-  const currentParent = physicalSharedDependencyDirectory(parentPath, false);
-  if (currentParent === null || !sameGeneratedStateIdentity(
-    generatedStatePhysicalIdentity(currentParent),
-    generatedStatePhysicalIdentity(parent)
-  )) {
-    throw new FailureError('RUNTIME-DEPS-002', 'Shared dependency authority parent changed before creation');
-  }
-  const name = path.basename(path.resolve(sharedDepsRoot));
-  try {
-    const created = createExclusiveNoFollowDirectory(parent, name);
-    return Object.freeze({ identity: created, created: true });
-  } catch (error) {
-    // A concurrent creator is not silently adopted as producer provenance.
-    // Reopen only the exact ordinary child; lifecycle binding below still
-    // requires the issuer-created active registration and therefore blocks a
-    // foreign collision rather than treating it as our birth.
-    if (!(error instanceof PhysicalNoFollowError) || error.code !== 'PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED') {
-      throw error;
-    }
-    const currentParent = physicalSharedDependencyDirectory(parentPath, false);
-    if (currentParent === null || !sameGeneratedStateIdentity(
-      generatedStatePhysicalIdentity(currentParent),
-      generatedStatePhysicalIdentity(parent)
-    )) {
-      throw error;
-    }
-    const current = physicalSharedDependencyDirectory(sharedDepsRoot, true);
-    if (current === null) throw error;
-    return Object.freeze({ identity: current, created: false });
-  }
-}
 
-async function assertSharedDependencyRootIdentity(
+async function assertDependencyMaterializationRootIdentity(
   expected: PhysicalDirectoryIdentity
 ): Promise<void> {
-  const current = physicalSharedDependencyDirectory(expected.path, false);
+  const current = physicalDependencyMaterializationDirectory(expected.path, false);
   if (current === null || !sameGeneratedStateIdentity(
     generatedStatePhysicalIdentity(current),
     generatedStatePhysicalIdentity(expected)
   )) {
-    throw new FailureError('RUNTIME-DEPS-002', 'Shared dependency authority identity changed');
+    throw new FailureError('RUNTIME-DEPS-002', 'Dependency materialization identity changed');
   }
 }
 
-async function assertNoSharedDependencyAuthorityResidue(sharedDepsRoot: string): Promise<void> {
-  const residue = await sharedDependencyAuthorityResidue(sharedDepsRoot);
+async function assertNoDependencyMaterializationAuthorityResidue(materializationRoot: string): Promise<void> {
+  const residue = await dependencyMaterializationAuthorityResidue(materializationRoot);
   if (residue.length > 0) {
     throw new FailureError(
       'RUNTIME-DEPS-002',
-      `Shared dependency root contains competing authority files: ${residue.join(', ')}`,
+      `Dependency materialization contains competing authority files: ${residue.join(', ')}`,
       { residue }
     );
   }
@@ -2850,7 +2702,7 @@ async function copyPhysicalTrees(input: Readonly<{
 async function stageRuntimeDependencyProjection(input: Readonly<{
   binding: Readonly<RuntimeDependencyMaterializationBinding>;
   options: RuntimeDependencyOperationOptions;
-  sharedDepsRoot: string;
+  materializationRoot: string;
   sourceNodeModulesPath: string;
 }>): Promise<{
   nodeModulesPath: string;
@@ -2858,12 +2710,12 @@ async function stageRuntimeDependencyProjection(input: Readonly<{
   rootSlot: DependencyTransitionSlot;
   }> {
   await runtimeDependencyOperationEffectFence(input.options, 'Runtime dependency staging-root creation');
-  const sharedDepsRoot = inspectNoFollowDirectoryChain(
-    input.sharedDepsRoot,
-    'Runtime dependency staging parent'
+  const materializationRoot = inspectNoFollowDirectoryChain(
+    input.materializationRoot,
+    'Runtime dependency materialization staging parent'
   ).target;
   const stagingRoot = createExclusiveNoFollowRandomDirectory(
-    sharedDepsRoot,
+    materializationRoot,
     '.runtime-generation-'
   ).path;
   const nodeModulesPath = path.join(stagingRoot, 'node_modules');
@@ -2894,13 +2746,13 @@ async function stageRuntimeDependencyProjection(input: Readonly<{
   } catch (error) {
     try {
       await disposeDependencyTransitionStage(
-        input.sharedDepsRoot,
+        input.materializationRoot,
         stagingRoot,
         input.options,
         'runtime-projection-staging-failed',
         null,
         stagingRootSlot,
-        runtimeDependencyStageAuthority(input.sharedDepsRoot)
+        runtimeDependencyStageAuthority(input.materializationRoot)
       );
     } catch (disposeError) {
       throw new FailureError('RUNTIME-DEPS-004', 'Runtime dependency staging residue is preserved for recovery', {
@@ -2918,15 +2770,20 @@ async function publishRuntimeDependencyProjection(input: Readonly<{
   binding: Readonly<RuntimeDependencyMaterializationBinding>;
   commitFence: CommitFence;
   compilerRoot: string;
+  materializationRoot: string;
   options: RuntimeDependencyOperationOptions;
   sourceGeneration: Readonly<RuntimeDependencySourceGeneration>;
   stagingNodeModulesPath: string;
   stagingRoot: string;
 }>): Promise<void> {
-  const namespace = await ensureDependencyTransitionNamespace(input.compilerRoot, input.options);
+  await runtimeDependencyOperationEffectFence(input.options, 'Runtime dependency materialization publication admission');
+  const materializationRoot = inspectNoFollowDirectoryChain(
+    input.materializationRoot,
+    'Runtime dependency materialization publication root'
+  ).target;
   const backupPath = path.join(
-    namespace.backupRoot.path,
-    `runtime-${input.sourceGeneration.epoch.slice('sha256:'.length, 'sha256:'.length + 24)}`
+    materializationRoot.path,
+    `.node-modules-preimage-${input.sourceGeneration.epoch.slice('sha256:'.length, 'sha256:'.length + 24)}`
   );
   const publishOptions = runtimeDependencyOperationOptions({
     ...input.options,
@@ -2946,7 +2803,7 @@ async function publishRuntimeDependencyProjection(input: Readonly<{
   try {
     if (transition.preimage.kind !== 'absent') {
       if (transition.preimage.kind !== 'directory') {
-        throw new FailureError('RUNTIME-DEPS-004', 'Existing shared dependency target is foreign and preserved');
+        throw new FailureError('RUNTIME-DEPS-004', 'Existing dependency materialization target is foreign and preserved');
       }
       await renameCompilerDependencyDirectory(
         input.activeNodeModulesPath,
@@ -2972,7 +2829,7 @@ async function publishRuntimeDependencyProjection(input: Readonly<{
         generatedStateDigest(input.binding)
       ),
       stage: transitionAbsentSlot(input.stagingNodeModulesPath),
-      // `sourceGeneration` remains the immutable compiler/shared source. The
+      // `sourceGeneration` remains the immutable compiler source. The
       // copied active projection is represented only by `destination`; never
       // rewrite sourcePath to the destination and conflate the two identities.
       phase: 'published',
@@ -2996,7 +2853,7 @@ async function publishRuntimeDependencyProjection(input: Readonly<{
   }
   await input.commitFence();
   await disposeDependencyTransitionStage(
-    input.compilerRoot,
+    input.materializationRoot,
     input.stagingRoot,
     publishOptions,
     'runtime-projection-published',
@@ -3012,19 +2869,19 @@ async function publishRuntimeDependencyProjection(input: Readonly<{
   }, publishOptions);
 }
 
-async function sharedDependencyManifestMatches(
-  sharedPackagePath: string,
+async function dependencyMaterializationManifestMatches(
+  packagePath: string,
   manifest: unknown
 ): Promise<boolean> {
   try {
-    return await readPhysicalControlText(sharedPackagePath) === formatJsonFile(manifest);
+    return await readPhysicalControlText(packagePath) === formatJsonFile(manifest);
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === 'ENOENT') return false;
     throw error;
   }
 }
 
-async function sharedDependencyGenerationReady(input: Readonly<{
+async function dependencyMaterializationGenerationReady(input: Readonly<{
   binding?: Readonly<RuntimeDependencyMaterializationBinding>;
   compilerRoot: string;
   manifest: unknown;
@@ -3047,8 +2904,8 @@ async function sharedDependencyGenerationReady(input: Readonly<{
       root: input.compilerRoot,
       runtimeSpec: input.spec
     }),
-    sharedDependencyManifestMatches(input.packagePath, input.manifest),
-    sharedDependencyAuthorityResidue(input.root)
+    dependencyMaterializationManifestMatches(input.packagePath, input.manifest),
+    dependencyMaterializationAuthorityResidue(input.root)
   ]);
   if (!treeMatches || !manifestMatches || residue.length !== 0) return null;
   let compilerGenerationPath: string | null;
@@ -3066,7 +2923,7 @@ async function sharedDependencyGenerationReady(input: Readonly<{
       !sameHostPath(stamp.sourceGeneration.ownerRoot, compilerGenerationOwnerRoot)) {
     // A stamp may describe content, but it may not nominate its own producer
     // topology.  The compiler generation owner derives the only admissible
-    // source path for this shared projection.
+    // source path for this materialization.
     return null;
   }
   let sourceGeneration: RuntimeDependencySourceGeneration | null;
@@ -3092,19 +2949,19 @@ async function sharedDependencyGenerationReady(input: Readonly<{
   return stamp;
 }
 
-async function assertSharedDependencyMaterializationPostcondition(input: Readonly<{
+async function assertDependencyMaterializationPostcondition(input: Readonly<{
   manifest: unknown;
   packagePath: string;
   root: string;
 }>): Promise<void> {
   const [manifestMatches, residue] = await Promise.all([
-    sharedDependencyManifestMatches(input.packagePath, input.manifest),
-    sharedDependencyAuthorityResidue(input.root)
+    dependencyMaterializationManifestMatches(input.packagePath, input.manifest),
+    dependencyMaterializationAuthorityResidue(input.root)
   ]);
   if (!manifestMatches || residue.length > 0) {
     throw new FailureError(
       'RUNTIME-DEPS-002',
-      'Shared dependency install attempted to publish competing package authority',
+      'Dependency materialization attempted to publish competing package authority',
       { manifestMatches, residue }
     );
   }
@@ -4730,7 +4587,7 @@ async function migrateCompilerDependencyCoordination(
  * not an in-process "depth" cache: unrelated concurrent callers must wait for
  * the same physical lease instead of being mistaken for a re-entrant call and
  * racing lifecycle registration. Callers acquire this lease before any
- * shared/project lock so transition order is compiler-root -> projection-root
+ * projection lock so transition order is compiler-root -> projection-root
  * everywhere.
  */
 async function withCompilerDependencyTransitionLease<T>(
@@ -5448,7 +5305,8 @@ async function publishProjectDependencyProjection(
 function assertCompilerTransitionRecoveryTopology(
   transition: DependencyTransitionJournal,
   root: string,
-  nodeModulesPath: string
+  nodeModulesPath: string,
+  runtimeStateEnvironment?: RuntimeDependencyOperationOptions['runtimeStateEnvironment']
 ): void {
   const canonicalRoot = path.resolve(root);
   const canonicalDestination = path.resolve(nodeModulesPath);
@@ -5464,7 +5322,10 @@ function assertCompilerTransitionRecoveryTopology(
       : transition.kind === 'compiler-locator'
       ? compilerTransitionBackupPath(canonicalRoot, 'locator-preimage', transition.sourceGeneration)
       : transition.kind === 'runtime-projection'
-        ? compilerTransitionBackupPath(canonicalRoot, 'runtime', transition.sourceGeneration)
+        ? path.join(
+            path.dirname(transition.destination.path),
+            `.node-modules-preimage-${transition.sourceGeneration.epoch.slice('sha256:'.length, 'sha256:'.length + 24)}`
+          )
         : undefined;
   assertTransitionBackupSelector(transition, expectedBackupPath);
   if (transition.kind === 'compiler-generation') {
@@ -5518,8 +5379,12 @@ function assertCompilerTransitionRecoveryTopology(
     if (transition.stage === null || transition.stageRoot === null) {
       throw new FailureError('RUNTIME-DEPS-004', 'Runtime projection transition has no canonical staging slots');
     }
-    const sharedRoot = dependencyAuthorityPaths(canonicalRoot).sharedDepsRoot;
-    assertDirectStageRootSelector(transition.stageRoot, sharedRoot, '.runtime-generation-');
+    const locations = dependencyMaterializationLocations(canonicalRoot, runtimeStateEnvironment);
+    const materializationRoot = path.dirname(transition.destination.path);
+    if (!isPathInside(materializationRoot, locations.collectionRoot)) {
+      throw new FailureError('RUNTIME-DEPS-004', 'Runtime projection transition materialization root is outside Runtime Cache authority');
+    }
+    assertDirectStageRootSelector(transition.stageRoot, materializationRoot, '.runtime-generation-');
     if (transition.stage.path !== path.join(transition.stageRoot.path, 'node_modules')) {
       throw new FailureError('RUNTIME-DEPS-004', 'Runtime projection stage is not its exact node_modules child');
     }
@@ -6570,7 +6435,9 @@ async function stageCompilerDependencyGeneration(
       throw new FailureError('IMPORT-AUTHORITY-001', 'Compiler dependency install config changed before staging');
     }
 
-    const cacheDir = path.join(root, '.shared-deps', '.bun-cache');
+    const providerCache = acquireDependencyProviderCacheAuthority(root, options.runtimeStateEnvironment);
+    const cacheDir = providerCache.bunPackageCacheRoot;
+    providerCache.authority.assertCurrent();
     const runtimeExecutable = await currentRuntimeExecutableIdentity(true);
     if (runtimeExecutable.path !== identity.bunExecutablePath ||
       runtimeExecutable.sha256 !== identity.bunExecutableSha256) {
@@ -6588,6 +6455,7 @@ async function stageCompilerDependencyGeneration(
       runtimeExecutable,
       compilerInputFence
     );
+    providerCache.authority.assertCurrent();
     await compilerInputFence();
     const nodeModulesPath = path.join(stagingRoot, 'node_modules');
     const packages = await compilerDependencyPackageBindings(nodeModulesPath, identity);
@@ -7142,7 +7010,9 @@ async function recoverCompilerDependencyTransition(
     );
 
   try {
-    assertCompilerTransitionRecoveryTopology(initialTransition, root, nodeModulesPath);
+    assertCompilerTransitionRecoveryTopology(
+      initialTransition, root, nodeModulesPath, options.runtimeStateEnvironment
+    );
     let active = await currentActive();
     let stage = await currentStage();
     let stageRoot = await currentStageRoot();
@@ -7853,10 +7723,10 @@ async function recoverCompilerDependencyTransition(
 
     if (transition.kind === 'runtime-projection') {
       if (transition.preimage.kind !== 'absent' && transition.preimage.kind !== 'directory') {
-        return failRecovery(new FailureError('RUNTIME-DEPS-004', 'Foreign shared dependency preimage is preserved'));
+        return failRecovery(new FailureError('RUNTIME-DEPS-004', 'Foreign dependency materialization preimage is preserved'));
       }
       // A runtime projection has two independent physical identities: the
-      // immutable compiler/shared source generation and the copied active
+      // immutable compiler source generation and the copied active
       // destination.  Recovering the latter by comparing it to
       // sourceGeneration.physical would either reject a valid copy or, worse,
       // make a destination path look like source authority.  Reconstruct and
@@ -7864,7 +7734,7 @@ async function recoverCompilerDependencyTransition(
       const sourcePath = transition.sourceGeneration.sourcePath;
       if (path.resolve(sourcePath) === path.resolve(activePath) ||
           path.basename(sourcePath).toLocaleLowerCase('en-US') !== 'node_modules') {
-        return failRecovery(new FailureError('RUNTIME-DEPS-004', 'Shared dependency source topology is foreign and preserved'));
+        return failRecovery(new FailureError('RUNTIME-DEPS-004', 'Dependency materialization source topology is foreign and preserved'));
       }
       const sourceOwnerRoot = path.resolve(transition.sourceGeneration.ownerRoot);
       const sourceCompilerIdentity = await compilerDependencyIdentity(sourceOwnerRoot);
@@ -7877,7 +7747,7 @@ async function recoverCompilerDependencyTransition(
       const sourceRuntimeBinding = sourceBinding?.runtimeMaterialization ?? null;
       if (sourceRuntimeBinding === null ||
           generatedStateDigest(sourceRuntimeBinding) !== transition.sourceGeneration.bindingDigest) {
-        return failRecovery(new FailureError('RUNTIME-DEPS-004', 'Shared dependency source binding is missing or foreign and preserved'));
+        return failRecovery(new FailureError('RUNTIME-DEPS-004', 'Dependency materialization source binding is missing or foreign and preserved'));
       }
       const currentSourceGeneration = await runtimeDependencySourceGeneration({
         binding: sourceRuntimeBinding,
@@ -7889,7 +7759,7 @@ async function recoverCompilerDependencyTransition(
           !sameRuntimeDependencySourceGenerationContent(currentSourceGeneration, transition.sourceGeneration) ||
           !sameGeneratedStateIdentity(currentSourceGeneration.physical, transition.sourceGeneration.physical) ||
           !sameGeneratedStateIdentity(currentSourceGeneration.ownerRootPhysical, transition.sourceGeneration.ownerRootPhysical)) {
-        return failRecovery(new FailureError('RUNTIME-DEPS-004', 'Shared dependency source generation changed and is preserved'));
+        return failRecovery(new FailureError('RUNTIME-DEPS-004', 'Dependency materialization source generation changed and is preserved'));
       }
       if (transition.preimage.kind === 'directory' && backupPath !== null &&
         transition.phase === 'prepared' && active.kind === 'directory' &&
@@ -7914,7 +7784,7 @@ async function recoverCompilerDependencyTransition(
             (transition.destination.kind === 'directory' && transition.destination.physical !== null &&
               !sameGeneratedStateIdentity(active.physical, transition.destination.physical)) &&
             !sameGeneratedStateIdentity(active.physical, stage.physical!)) {
-            return failRecovery(new FailureError('RUNTIME-DEPS-004', 'Shared dependency transition target is occupied by an unexpected identity'));
+            return failRecovery(new FailureError('RUNTIME-DEPS-004', 'Dependency materialization transition target is occupied by an unexpected identity'));
           }
         } else {
           await renameCompilerDependencyDirectory(stagePath, activePath, options);
@@ -7927,7 +7797,7 @@ async function recoverCompilerDependencyTransition(
             ? !sameGeneratedStateIdentity(active.physical, stage.physical)
             : transition.destination.kind !== 'directory' || transition.destination.physical === null ||
               !sameGeneratedStateIdentity(active.physical, transition.destination.physical))) {
-          return failRecovery(new FailureError('RUNTIME-DEPS-004', 'Shared dependency transition active identity is invalid'));
+          return failRecovery(new FailureError('RUNTIME-DEPS-004', 'Dependency materialization transition active identity is invalid'));
         }
         transition = await advanceDependencyTransition(transition, {
           destination: active,
@@ -7960,7 +7830,7 @@ async function recoverCompilerDependencyTransition(
       if (active.kind !== 'directory' || active.physical === null ||
         transition.destination.kind !== 'directory' || transition.destination.physical === null ||
         !sameGeneratedStateIdentity(active.physical, transition.destination.physical)) {
-        return failRecovery(new FailureError('RUNTIME-DEPS-004', 'Shared dependency transition has no exact active projection'));
+        return failRecovery(new FailureError('RUNTIME-DEPS-004', 'Dependency materialization transition has no exact active projection'));
       }
       stage = await currentStage();
       stageRoot = await currentStageRoot();
@@ -8913,54 +8783,6 @@ async function deleteExactCompilerDependencyLocator(
   }
 }
 
-type SharedDependencyRetirementInventory = Readonly<{
-  membership: 'current-spec' | 'not-current-spec';
-  treeDigest: `sha256:${string}`;
-  treeEntryCount: number;
-}>;
-
-async function sharedDependencyRetirementInventory(
-  root: PhysicalDirectoryIdentity,
-  spec: RuntimeDependencySpec,
-  options: RuntimeDependencyOperationOptions,
-  label: string
-): Promise<SharedDependencyRetirementInventory> {
-  runtimeDependencyOperationRemainingMs(options, `${label} admission`);
-  const before = assertSameNoFollowDirectoryIdentity(root, `${label} root before inventory`).target;
-  const inventory = scanNoFollowDirectoryTreeInventory(before, {
-    deadlineAtMs: runtimeDependencyOperationDeadlineAt(options, label),
-    maximumBytes: RUNTIME_DEPENDENCY_SOURCE_MAXIMUM_BYTES,
-    maximumEntries: RUNTIME_DEPENDENCY_SOURCE_MAXIMUM_ENTRIES,
-    signal: runtimeDependencyOperationContext(options).signal
-  });
-  const stampPresent = inventory.some(({ relativePath }) =>
-    relativePath === 'runtime-deps.stamp.json'
-  );
-  const stamp = stampPresent
-    ? await readRuntimeDepsStamp(path.join(before.path, 'runtime-deps.stamp.json'))
-    : null;
-  if (stampPresent && stamp === null) {
-    throw new FailureError(
-      'RUNTIME-DEPS-002',
-      'Shared dependency retirement cannot classify a present noncanonical runtime dependency stamp; physical root is preserved'
-    );
-  }
-  const after = assertSameNoFollowDirectoryIdentity(root, `${label} root after inventory`).target;
-  if (!sameGeneratedStateIdentity(
-    generatedStatePhysicalIdentity(before),
-    generatedStatePhysicalIdentity(after)
-  )) {
-    throw new FailureError(
-      'IMPORT-AUTHORITY-004',
-      'Shared dependency root identity changed during bounded retirement inventory; physical root is preserved'
-    );
-  }
-  const identity = runtimeDependencyTreeIdentity(inventory);
-  return Object.freeze({
-    membership: stamp?.manifestHash === spec.manifestHash ? 'current-spec' : 'not-current-spec',
-    ...identity
-  });
-}
 
 async function recoverCompilerDependencyGenerationLifecycle(input: Readonly<{
   active: DependencyTransitionSlot;
@@ -12231,12 +12053,12 @@ async function ensureCompilerDepsReadyInternal(
       return readyState;
     }
 
-    const sharedWorktreeGeneration = await resolveLinkedWorktreeDependencyGeneration({
+    const linkedWorktreeGeneration = await resolveLinkedWorktreeDependencyGeneration({
       consumerRoot: root,
       consumerIdentity: identity,
       options: lockedOptions
     });
-    if (sharedWorktreeGeneration !== null) {
+    if (linkedWorktreeGeneration !== null) {
       let createdLocator = false;
       let createdLocatorIdentity: Readonly<{
         source: GeneratedStatePhysicalIdentity;
@@ -12244,7 +12066,7 @@ async function ensureCompilerDepsReadyInternal(
       }> | null = null;
       let lifecycleBindingAttempted = false;
       let retiredPreimage: RetiredCompilerDependencyPreimage | null = null;
-      const sourceGeneration = sharedWorktreeGeneration.sourceGeneration;
+      const sourceGeneration = linkedWorktreeGeneration.sourceGeneration;
       const locatorBackupPath = path.join(
         (await ensureDependencyTransitionNamespace(root, lockedOptions)).backupRoot.path,
         `locator-preimage-${sourceGeneration.epoch.slice('sha256:'.length, 'sha256:'.length + 24)}`
@@ -12269,7 +12091,7 @@ async function ensureCompilerDepsReadyInternal(
           stagePath: null,
           backupPath: locatorBackupPath,
           sourceGeneration,
-          bindingDigest: generatedStateDigest(sharedWorktreeGeneration.binding),
+          bindingDigest: generatedStateDigest(linkedWorktreeGeneration.binding),
           preimageBindingDigest: preimageAuthority?.authorityDigest ?? null,
           options: lockedOptions
         });
@@ -12290,7 +12112,7 @@ async function ensureCompilerDepsReadyInternal(
         }
         await createCompilerDependencyLocator(
           nodeModulesPath,
-          sharedWorktreeGeneration.nodeModulesPath,
+          linkedWorktreeGeneration.nodeModulesPath,
           sourceGeneration.physical,
           lockedOptions
         );
@@ -12312,7 +12134,7 @@ async function ensureCompilerDepsReadyInternal(
           identity,
           lockedOptions
         );
-        if (binding === null || !canonicalEquals(binding, sharedWorktreeGeneration.binding)) {
+        if (binding === null || !canonicalEquals(binding, linkedWorktreeGeneration.binding)) {
           throw new FailureError('IMPORT-AUTHORITY-004', 'Published compiler dependency locator failed exact readback');
         }
         lifecycleBindingAttempted = true;
@@ -12460,7 +12282,8 @@ function compilerDependencyReadyInFlightKey(
   // effects; joining those calls would silently drop an owner's observation.
   if (options.beforeCommit !== undefined || options.generatedStateLifecycle !== undefined ||
       options.signal !== undefined || options.monotonicNowMs !== undefined || options.now !== undefined ||
-      options.sleep !== undefined || options.testMaterialization !== undefined ||
+      options.sleep !== undefined || options.runtimeStateEnvironment !== undefined ||
+      options.testMaterialization !== undefined ||
       options.testCompilerPublishHook !== undefined || options.testCompilerBridgeValidationHook !== undefined ||
       options.testCompilerRename !== undefined) return null;
   return JSON.stringify([
@@ -12468,7 +12291,6 @@ function compilerDependencyReadyInFlightKey(
     options.installMode ?? 'allow',
     options.lockTimeoutMs ?? null,
     options.pollIntervalMs ?? null,
-    options.skipSharedDepsWarmup ?? false,
     options.testCompilerPublishPlatform ?? null
   ]);
 }
@@ -12495,304 +12317,223 @@ export async function ensureCompilerDepsReady(
   }
 }
 
-async function ensureSharedDepsReadyInternal(
+async function ensureDependencyMaterializationReadyInternal(
   options: RuntimeDependencyInstallOptions = {}
-): Promise<SharedDepsReadyState> {
+): Promise<DependencyMaterializationReadyState> {
   const operationOptions = runtimeDependencyOperationOptions(options);
   const runtimeSpec = await loadRuntimeDependencySpec();
-  const sharedDepsRoot = path.resolve(operationOptions.sharedDepsRoot ?? defaultSharedDepsRoot());
   const compilerDependencyRoot = path.resolve(compilerRoot);
-  const lifecycleOptions = sameHostPath(sharedDepsRoot, defaultSharedDepsRoot())
-    ? await bindCanonicalGeneratedStateLifecycle(operationOptions, compilerDependencyRoot)
-    : operationOptions;
-  const sharedPackagePath = path.join(sharedDepsRoot, 'package.json');
-  const sharedNodeModulesPath = path.join(sharedDepsRoot, 'node_modules');
-  const sharedStampPath = path.join(sharedDepsRoot, 'runtime-deps.stamp.json');
-  const sharedLockPath = path.join(sharedDepsRoot, 'install.lock');
-  const manifest = buildRuntimePackageManifest('shared-runtime-deps', runtimeSpec);
-
-  const canonicalSharedRoot = sameHostPath(sharedDepsRoot, defaultSharedDepsRoot());
-  const observedRoot = await physicalSharedDependencyDirectory(sharedDepsRoot, true);
-  if (observedRoot !== null) {
-    await assertNoSharedDependencyAuthorityResidue(sharedDepsRoot);
-    await assertPhysicalControlEntries([sharedPackagePath, sharedStampPath, sharedLockPath]);
-  }
-  const observedGeneration = observedRoot === null ? null : await sharedDependencyGenerationReady({
-    compilerRoot: compilerDependencyRoot,
-    manifest,
-    nodeModulesPath: sharedNodeModulesPath,
-    options: lifecycleOptions,
-    packagePath: sharedPackagePath,
-    root: sharedDepsRoot,
-    spec: runtimeSpec,
-    stampPath: sharedStampPath
-  });
-  if (observedGeneration !== null) {
-    return withCompilerDependencyTransitionLease(
-      compilerDependencyRoot,
-      lifecycleOptions,
-      async (lockedOptions) => {
-        const currentRoot = await physicalSharedDependencyDirectory(sharedDepsRoot, true);
-        if (observedRoot === null || currentRoot === null || !sameGeneratedStateIdentity(
-          generatedStatePhysicalIdentity(currentRoot),
-          generatedStatePhysicalIdentity(observedRoot)
-        )) {
-          throw new FailureError(
-            'IMPORT-AUTHORITY-004',
-            'Shared dependency root changed before lifecycle binding; current state is preserved'
-          );
-        }
-        if (canonicalSharedRoot) {
-          await bindExistingSharedDependencyRoot(
-            lockedOptions,
-            generatedStatePhysicalIdentity(currentRoot)
-          );
-        }
-        await assertNoSharedDependencyAuthorityResidue(sharedDepsRoot);
-        await assertPhysicalControlEntries([sharedPackagePath, sharedStampPath, sharedLockPath]);
-        const currentGeneration = await sharedDependencyGenerationReady({
-          compilerRoot: compilerDependencyRoot,
-          manifest,
-          nodeModulesPath: sharedNodeModulesPath,
-          options: lockedOptions,
-          packagePath: sharedPackagePath,
-          root: sharedDepsRoot,
-          spec: runtimeSpec,
-          stampPath: sharedStampPath
-        });
-        if (currentGeneration === null) {
-          throw new FailureError(
-            'RUNTIME-DEPS-004',
-            'Shared dependency generation changed before ready-state settlement'
-          );
-        }
-        return {
-          binding: currentGeneration.binding,
-          packageManager: currentGeneration.packageManager,
-          root: sharedDepsRoot,
-          nodeModulesPath: sharedNodeModulesPath,
-          manifestHash: runtimeSpec.manifestHash,
-          sourceGeneration: currentGeneration.sourceGeneration
-        };
-      }
-    );
-  }
-
+  const lifecycleOptions = await bindCanonicalGeneratedStateLifecycle(
+    operationOptions,
+    compilerDependencyRoot
+  );
   const compilerReady = await ensureCompilerDepsReady(lifecycleOptions, compilerDependencyRoot);
   const binding = compilerReady.runtimeMaterialization;
   if (binding === null || binding === undefined || binding.manifestHash !== runtimeSpec.manifestHash) {
     throw new FailureError('RUNTIME-DEPS-002', 'Compiler dependency generation has no runtime closure');
   }
 
+  const generation = acquireDependencyMaterializationGenerationAuthority(
+    compilerDependencyRoot,
+    binding.revision,
+    lifecycleOptions.runtimeStateEnvironment
+  );
+  const materializationRoot = generation.root;
+  const materializationPackagePath = path.join(materializationRoot, 'package.json');
+  const materializationNodeModulesPath = generation.nodeModulesPath;
+  const materializationStampPath = path.join(materializationRoot, 'runtime-deps.stamp.json');
+  const materializationLockPath = path.join(materializationRoot, 'install.lock');
+  const manifest = buildRuntimePackageManifest('runtime-dependency-materialization', runtimeSpec);
+  const rootIdentity = physicalDependencyMaterializationDirectory(materializationRoot, false)!;
+  const rootFence = async (): Promise<void> => {
+    await lifecycleOptions.beforeCommit?.();
+    generation.authority.assertCurrent();
+    await assertDependencyMaterializationRootIdentity(rootIdentity);
+  };
+  const authorityFence = async (): Promise<void> => {
+    await rootFence();
+    await assertNoDependencyMaterializationAuthorityResidue(materializationRoot);
+  };
+  const materializationOptions = runtimeDependencyOperationOptions({
+    ...lifecycleOptions,
+    // Runtime Cache owns this generation. Repository generated-state lifecycle
+    // never receives authority over an external cache directory.
+    generatedStateLifecycle: undefined,
+    beforeCommit: rootFence
+  });
+
+  await authorityFence();
+  await assertPhysicalControlEntries([
+    materializationPackagePath,
+    materializationStampPath,
+    materializationLockPath
+  ]);
+  const observedGeneration = await dependencyMaterializationGenerationReady({
+    binding,
+    compilerRoot: compilerDependencyRoot,
+    manifest,
+    nodeModulesPath: materializationNodeModulesPath,
+    options: materializationOptions,
+    packagePath: materializationPackagePath,
+    root: materializationRoot,
+    spec: runtimeSpec,
+    stampPath: materializationStampPath
+  });
+  if (observedGeneration !== null) {
+    return Object.freeze({
+      binding: observedGeneration.binding,
+      packageManager: observedGeneration.packageManager,
+      root: materializationRoot,
+      nodeModulesPath: materializationNodeModulesPath,
+      manifestHash: runtimeSpec.manifestHash,
+      sourceGeneration: observedGeneration.sourceGeneration
+    });
+  }
+
   return withCompilerDependencyTransitionLease(
     compilerDependencyRoot,
-    lifecycleOptions,
+    materializationOptions,
     async (leaseOptions) => {
-    const ensuredRoot = await ensurePhysicalSharedDependencyRoot(sharedDepsRoot, leaseOptions.beforeCommit);
-    const rootIdentity = ensuredRoot.identity;
-    if (canonicalSharedRoot) {
-      if (ensuredRoot.created) {
-        await leaseOptions.generatedStateLifecycle?.born(
-          '.shared-deps',
-          `shared-dependencies:${runtimeSpec.manifestHash}`
-        );
-      } else {
-        await bindExistingSharedDependencyRoot(
-          leaseOptions,
-          generatedStatePhysicalIdentity(rootIdentity)
-        );
-      }
-    }
-    const rootFence = async (): Promise<void> => {
-      await leaseOptions.beforeCommit?.();
-      await assertSharedDependencyRootIdentity(rootIdentity);
-    };
-    const authorityFence = async (): Promise<void> => {
-      await rootFence();
-      await assertNoSharedDependencyAuthorityResidue(sharedDepsRoot);
-    };
-    const lockedOptions = runtimeDependencyOperationOptions({ ...leaseOptions, beforeCommit: rootFence });
+      const lockedOptions = runtimeDependencyOperationOptions({
+        ...leaseOptions,
+        generatedStateLifecycle: undefined,
+        beforeCommit: authorityFence
+      });
+      return withInstallLock(materializationLockPath, lockedOptions, async () => {
+        await authorityFence();
+        await writeManifestIfChanged(materializationPackagePath, manifest, authorityFence);
 
-    return withInstallLock(sharedLockPath, lockedOptions, async () => {
-    await authorityFence();
-    await writeManifestIfChanged(sharedPackagePath, manifest, authorityFence);
+        const lockedGeneration = await dependencyMaterializationGenerationReady({
+          binding,
+          compilerRoot: compilerDependencyRoot,
+          manifest,
+          nodeModulesPath: materializationNodeModulesPath,
+          options: lockedOptions,
+          packagePath: materializationPackagePath,
+          root: materializationRoot,
+          spec: runtimeSpec,
+          stampPath: materializationStampPath
+        });
+        if (lockedGeneration !== null) {
+          return Object.freeze({
+            binding: lockedGeneration.binding,
+            packageManager: lockedGeneration.packageManager,
+            root: materializationRoot,
+            nodeModulesPath: materializationNodeModulesPath,
+            manifestHash: runtimeSpec.manifestHash,
+            sourceGeneration: lockedGeneration.sourceGeneration
+          });
+        }
 
-    const lockedGeneration = await sharedDependencyGenerationReady({
-      binding,
-      compilerRoot: compilerDependencyRoot,
-      manifest,
-      nodeModulesPath: sharedNodeModulesPath,
-      options: lockedOptions,
-      packagePath: sharedPackagePath,
-      root: sharedDepsRoot,
-      spec: runtimeSpec,
-      stampPath: sharedStampPath
-    });
-    if (lockedGeneration !== null) {
-      return {
-        binding: lockedGeneration.binding,
-        packageManager: lockedGeneration.packageManager,
-        root: sharedDepsRoot,
-        nodeModulesPath: sharedNodeModulesPath,
-        manifestHash: runtimeSpec.manifestHash,
-        sourceGeneration: lockedGeneration.sourceGeneration
-      };
-    }
+        const compilerSourceGeneration = compilerReady.sourceGeneration ?? await runtimeDependencySourceGeneration({
+          binding,
+          options: lockedOptions,
+          ownerRoot: compilerDependencyRoot,
+          sourcePath: compilerReady.nodeModulesPath
+        });
+        const staged = await stageRuntimeDependencyProjection({
+          binding,
+          options: lockedOptions,
+          materializationRoot,
+          sourceNodeModulesPath: compilerSourceGeneration.sourcePath
+        });
+        if (!await runtimeDependencyTreeMatchesBinding({
+          expected: binding,
+          nodeModulesPath: staged.nodeModulesPath,
+          root: compilerDependencyRoot,
+          runtimeSpec
+        })) {
+          const stagedNodeModules = await observeDependencyTransitionSlot(
+            staged.nodeModulesPath,
+            generatedStateDigest(binding)
+          );
+          await disposeDependencyTransitionStage(
+            materializationRoot,
+            staged.root,
+            lockedOptions,
+            'runtime-projection-staging-invalid',
+            stagedNodeModules,
+            staged.rootSlot,
+            runtimeDependencyStageAuthority(path.dirname(staged.root))
+          );
+          throw new FailureError('RUNTIME-DEPS-002', 'Staged runtime dependency materialization is incomplete');
+        }
+        const projectionSourceGeneration = await runtimeDependencySourceGeneration({
+          binding,
+          options: lockedOptions,
+          ownerRoot: compilerSourceGeneration.ownerRoot,
+          sourcePath: compilerSourceGeneration.sourcePath
+        });
+        await publishRuntimeDependencyProjection({
+          activeNodeModulesPath: materializationNodeModulesPath,
+          binding,
+          commitFence: authorityFence,
+          compilerRoot: compilerDependencyRoot,
+          materializationRoot,
+          options: lockedOptions,
+          sourceGeneration: projectionSourceGeneration,
+          stagingNodeModulesPath: staged.nodeModulesPath,
+          stagingRoot: staged.root
+        });
+        await assertDependencyMaterializationPostcondition({
+          manifest,
+          packagePath: materializationPackagePath,
+          root: materializationRoot
+        });
+        const sourceGeneration = await runtimeDependencySourceGeneration({
+          binding,
+          options: lockedOptions,
+          ownerRoot: compilerSourceGeneration.ownerRoot,
+          sourcePath: compilerSourceGeneration.sourcePath
+        });
+        const target = await runtimeDependencyTargetIdentity(materializationNodeModulesPath);
+        if (target === null) {
+          throw new FailureError('RUNTIME-DEPS-002', 'Dependency materialization has no physical target identity');
+        }
+        await writeRuntimeDepsStamp(materializationStampPath, {
+          binding,
+          formatVersion: 'runtime-deps-stamp-v4',
+          manifestHash: runtimeSpec.manifestHash,
+          packageManager: 'bun',
+          installedAt: (lockedOptions.now ?? (() => new Date().toISOString()))(),
+          sourceGeneration,
+          target
+        }, authorityFence);
 
-    const staged = await stageRuntimeDependencyProjection({
-      binding,
-      options: runtimeDependencyOperationOptions({ ...lockedOptions, beforeCommit: authorityFence }),
-      sharedDepsRoot,
-      // A linked worktree exposes the compiler generation through a locator.
-      // The bulk no-follow capability must receive the already-resolved
-      // physical source identity, never the alias path.
-      sourceNodeModulesPath: (compilerReady.sourceGeneration ?? {
-        ownerRoot: compilerDependencyRoot,
-        sourcePath: compilerReady.nodeModulesPath
-      }).sourcePath
-    });
-    if (!await runtimeDependencyTreeMatchesBinding({
-      expected: binding,
-      nodeModulesPath: staged.nodeModulesPath,
-      root: compilerDependencyRoot,
-      runtimeSpec
-    })) {
-      const stagedNodeModules = await observeDependencyTransitionSlot(
-        staged.nodeModulesPath,
-        generatedStateDigest(binding)
-      );
-      await disposeDependencyTransitionStage(
-        sharedDepsRoot,
-        staged.root,
-        runtimeDependencyOperationOptions({ ...lockedOptions, generatedStateLifecycle: undefined }),
-        'runtime-projection-staging-invalid',
-        stagedNodeModules,
-        staged.rootSlot,
-        runtimeDependencyStageAuthority(path.dirname(staged.root))
-      );
-      throw new FailureError('RUNTIME-DEPS-002', 'Staged runtime dependency projection is incomplete');
-    }
-    const projectionSourceGeneration = await runtimeDependencySourceGeneration({
-      binding,
-      options: lockedOptions,
-      ownerRoot: (compilerReady.sourceGeneration ?? {
-        ownerRoot: compilerDependencyRoot,
-        sourcePath: compilerReady.nodeModulesPath
-      }).ownerRoot,
-      sourcePath: (compilerReady.sourceGeneration ?? {
-        ownerRoot: compilerDependencyRoot,
-        sourcePath: compilerReady.nodeModulesPath
-      }).sourcePath
-    });
-    await publishRuntimeDependencyProjection({
-      activeNodeModulesPath: sharedNodeModulesPath,
-      binding,
-      commitFence: authorityFence,
-      compilerRoot: compilerDependencyRoot,
-      options: lockedOptions,
-      sourceGeneration: projectionSourceGeneration,
-      stagingNodeModulesPath: staged.nodeModulesPath,
-      stagingRoot: staged.root
-    });
-    await assertSharedDependencyMaterializationPostcondition({
-      manifest,
-      packagePath: sharedPackagePath,
-      root: sharedDepsRoot
-    });
-    const compilerSourceGeneration = compilerReady.sourceGeneration ?? await runtimeDependencySourceGeneration({
-      binding,
-      options: lockedOptions,
-      ownerRoot: compilerDependencyRoot,
-      sourcePath: compilerReady.nodeModulesPath
-    });
-    const sourceGeneration = await runtimeDependencySourceGeneration({
-      binding,
-      options: lockedOptions,
-      ownerRoot: compilerSourceGeneration.ownerRoot,
-      sourcePath: compilerSourceGeneration.sourcePath
-    });
-    const target = await runtimeDependencyTargetIdentity(sharedNodeModulesPath);
-    if (target === null) {
-      throw new FailureError('RUNTIME-DEPS-002', 'Shared dependency projection has no physical target identity');
-    }
-    await writeRuntimeDepsStamp(sharedStampPath, {
-      binding,
-      formatVersion: 'runtime-deps-stamp-v4',
-      manifestHash: runtimeSpec.manifestHash,
-      packageManager: 'bun',
-      installedAt: (lockedOptions.now ?? (() => new Date().toISOString()))(),
-      sourceGeneration,
-      target
-    }, authorityFence);
+        if (await dependencyMaterializationGenerationReady({
+          binding,
+          compilerRoot: compilerDependencyRoot,
+          manifest,
+          nodeModulesPath: materializationNodeModulesPath,
+          options: lockedOptions,
+          packagePath: materializationPackagePath,
+          root: materializationRoot,
+          spec: runtimeSpec,
+          stampPath: materializationStampPath
+        }) === null) {
+          throw new FailureError(
+            'RUNTIME-DEPS-002',
+            'Dependency materialization failed its exact readiness readback'
+          );
+        }
 
-    if (await sharedDependencyGenerationReady({
-      binding,
-      compilerRoot: compilerDependencyRoot,
-      manifest,
-      nodeModulesPath: sharedNodeModulesPath,
-      options: lockedOptions,
-      packagePath: sharedPackagePath,
-      root: sharedDepsRoot,
-      spec: runtimeSpec,
-      stampPath: sharedStampPath
-    }) === null) {
-      throw new FailureError(
-        'RUNTIME-DEPS-002',
-        'Shared dependency generation failed its exact readiness readback'
-      );
-    }
-
-    return {
-      binding,
-      packageManager: 'bun',
-      root: sharedDepsRoot,
-      nodeModulesPath: sharedNodeModulesPath,
-      manifestHash: runtimeSpec.manifestHash,
-      sourceGeneration
-    };
-    });
+        return Object.freeze({
+          binding,
+          packageManager: 'bun' as const,
+          root: materializationRoot,
+          nodeModulesPath: materializationNodeModulesPath,
+          manifestHash: runtimeSpec.manifestHash,
+          sourceGeneration
+        });
+      });
     }
   );
 }
 
-function sharedDependencyReadyInFlightKey(
-  options: RuntimeDependencyInstallOptions,
-  sharedDepsRoot: string
-): string | null {
-  if (options.beforeCommit !== undefined || options.generatedStateLifecycle !== undefined ||
-      options.signal !== undefined || options.now !== undefined || options.sleep !== undefined ||
-      options.testMaterialization !== undefined ||
-      options.testCompilerPublishHook !== undefined || options.testCompilerBridgeValidationHook !== undefined ||
-      options.testCompilerRename !== undefined || options.testProjectProjectionHook !== undefined) return null;
-  return JSON.stringify([
-    path.resolve(sharedDepsRoot),
-    options.installMode ?? 'allow',
-    options.lockTimeoutMs ?? null,
-    options.pollIntervalMs ?? null,
-    options.skipSharedDepsWarmup ?? false
-  ]);
-}
-
-const sharedDependencyReadyInFlight = new Map<string, Promise<SharedDepsReadyState>>();
-
-export async function ensureSharedDepsReady(
+export async function ensureDependencyMaterializationReady(
   options: RuntimeDependencyInstallOptions = {}
-): Promise<SharedDepsReadyState> {
-  options = runtimeDependencyOperationOptions(options);
-  const sharedDepsRoot = options.sharedDepsRoot ?? defaultSharedDepsRoot();
-  const key = sharedDependencyReadyInFlightKey(options, sharedDepsRoot);
-  if (key === null) return ensureSharedDepsReadyInternal(options);
-  const existing = sharedDependencyReadyInFlight.get(key);
-  if (existing !== undefined) return existing;
-  const pending = ensureSharedDepsReadyInternal(options);
-  sharedDependencyReadyInFlight.set(key, pending);
-  try {
-    return await pending;
-  } finally {
-    if (sharedDependencyReadyInFlight.get(key) === pending) {
-      sharedDependencyReadyInFlight.delete(key);
-    }
-  }
+): Promise<DependencyMaterializationReadyState> {
+  return ensureDependencyMaterializationReadyInternal(options);
 }
 
 export async function ensureProjectDependencies(
@@ -12840,57 +12581,23 @@ export async function ensureProjectDependencies(
     return;
   }
   const isolated = operationOptions.installMode === 'offline-copy-only';
-  const sharedDepsRoot = path.resolve(operationOptions.sharedDepsRoot ?? defaultSharedDepsRoot());
   const compilerDependencyRoot = path.resolve(compilerRoot);
   let sourceNodeModulesPath: string;
   let binding: Readonly<RuntimeDependencyMaterializationBinding>;
   let sourceGeneration: RuntimeDependencySourceGeneration;
 
   if (isolated) {
-    const sharedStamp = await readRuntimeDepsStamp(path.join(sharedDepsRoot, 'runtime-deps.stamp.json'));
-    sourceNodeModulesPath = path.join(sharedDepsRoot, 'node_modules');
-    if (sharedStamp === null) {
-      throw new FailureError(
-        'RUNTIME-DEPS-004',
-        'Canonical shared dependency projection is unavailable for isolated verification'
-      );
-    }
-    let observedSourceGeneration: RuntimeDependencySourceGeneration | null;
-    try {
-      observedSourceGeneration = await runtimeDependencySourceGeneration({
-        binding: sharedStamp.binding,
-        options: operationOptions,
-        ownerRoot: sharedStamp.sourceGeneration.ownerRoot,
-        sourcePath: sharedStamp.sourceGeneration.sourcePath
-      });
-    } catch (error) {
-      if (!isFileNotFoundError(error)) throw error;
-      observedSourceGeneration = null;
-    }
-    if (observedSourceGeneration === null ||
-      observedSourceGeneration.epoch !== sharedStamp.sourceGeneration.epoch ||
-      !sameRuntimeDependencySourceGenerationContent(observedSourceGeneration, sharedStamp.sourceGeneration) ||
-      !sameGeneratedStateIdentity(observedSourceGeneration.physical, sharedStamp.sourceGeneration.physical) ||
-      !await runtimeDependencyTreeMatchesBinding({
-        expected: sharedStamp.binding,
-      nodeModulesPath: sourceNodeModulesPath,
-      root: compilerDependencyRoot,
-      runtimeSpec
-      })) {
-      throw new FailureError(
-        'RUNTIME-DEPS-004',
-        'Canonical shared dependency projection is unavailable for isolated verification'
-      );
-    }
-    binding = sharedStamp.binding;
-    const actualSharedSourcePath = path.resolve(await fs.realpath(sourceNodeModulesPath));
+    const materialization = await ensureDependencyMaterializationReady(operationOptions);
+    sourceNodeModulesPath = materialization.nodeModulesPath;
+    binding = materialization.binding;
+    const actualMaterializationPath = path.resolve(await fs.realpath(sourceNodeModulesPath));
     sourceGeneration = await runtimeDependencySourceGeneration({
       binding,
       options: operationOptions,
-      ownerRoot: path.dirname(actualSharedSourcePath),
-      sourcePath: actualSharedSourcePath
+      ownerRoot: materialization.root,
+      sourcePath: actualMaterializationPath
     });
-  } else if (operationOptions.skipSharedDepsWarmup === true) {
+  } else {
     const compilerIdentity = await compilerDependencyIdentity(compilerDependencyRoot);
     sourceNodeModulesPath = dependencyAuthorityPaths(compilerDependencyRoot).compilerModulesRoot;
     const compilerReady = await observeCompilerDependencyReady(
@@ -12917,17 +12624,6 @@ export async function ensureProjectDependencies(
       sourcePath: compilerSourceGeneration.sourcePath
     });
     sourceNodeModulesPath = sourceGeneration.sourcePath;
-  } else {
-    const sharedDeps = await ensureSharedDepsReady(operationOptions);
-    sourceNodeModulesPath = sharedDeps.nodeModulesPath;
-    binding = sharedDeps.binding;
-    const actualSharedSourcePath = path.resolve(await fs.realpath(sourceNodeModulesPath));
-    sourceGeneration = await runtimeDependencySourceGeneration({
-      binding,
-      options: operationOptions,
-      ownerRoot: path.dirname(actualSharedSourcePath),
-      sourcePath: actualSharedSourcePath
-    });
   }
 
   const projectTransitionInput: ProjectProjectionTransitionInput = Object.freeze({
