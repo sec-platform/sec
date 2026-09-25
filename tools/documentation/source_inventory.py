@@ -9,8 +9,13 @@ import json
 import os
 import re
 import stat
+import sys
 import tempfile
 import unicodedata
+
+# This module is itself inside the documentation authority. Importing it must
+# not create __pycache__ inside that authority before or during a source capture.
+sys.dont_write_bytecode = True
 
 BASELINE_PATH = '.documentation/baseline.json'
 MANIFEST_PATH = '.documentation/source-manifest.json'
