@@ -453,6 +453,7 @@ export function compileTypeScriptModelInternal(
         if (initializer
           && ts.isCallExpression(initializer)
           && initializer.expression.kind === ts.SyntaxKind.ImportKeyword
+          && initializer.arguments[0] !== undefined
           && ts.isStringLiteralLike(initializer.arguments[0])) {
           const moduleSpecifier = initializer.arguments[0].text;
           const targetPath = resolveModulePath(sourcePath, moduleSpecifier);
@@ -779,7 +780,7 @@ export function compileTypeScriptModelInternal(
         const requireCall = ts.isIdentifier(node.expression) && node.expression.text === 'require';
         const runtimeDynamic = ts.isIdentifier(node.expression)
           && (node.expression.text === 'eval' || node.expression.text === 'Function');
-        if (dynamicImport && ts.isStringLiteralLike(node.arguments[0])) {
+        if (dynamicImport && firstArgument !== undefined && ts.isStringLiteralLike(firstArgument)) {
           const moduleSpecifier = node.arguments[0].text;
           const targetPath = resolveModulePath(sourcePath, moduleSpecifier);
           pushReference(sourceFile, node.arguments[0], '*', 'import', null, targetPath);
@@ -791,7 +792,8 @@ export function compileTypeScriptModelInternal(
               span: spanFor(sourceFile, node.arguments[0])
             }));
           }
-        } else if ((dynamicImport || requireCall) && !ts.isStringLiteralLike(node.arguments[0])) {
+        } else if ((dynamicImport || requireCall)
+            && (firstArgument === undefined || !ts.isStringLiteralLike(firstArgument))) {
           unknowns.push(Object.freeze({
             code: 'dynamic-module-unresolved',
             path: sourcePath,
