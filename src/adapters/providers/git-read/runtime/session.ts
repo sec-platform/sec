@@ -19,7 +19,7 @@ export type { GitCommitIdentity, GitDevelopmentCommitContract, GitDevelopmentCom
 import { rawSha256, sha256 } from '../../../../contracts/canonical.ts';
 import { issueOperationRequirementBindingContext } from '../../../../execution/operation/requirement-binding-context.ts';
 import {
-  bindSecSemanticOperation,
+  bindSemanticOperation,
   compileCapabilityBinding,
   compileSemanticOperationPlan,
   issueProviderSettlementReceipt,
@@ -557,7 +557,7 @@ function issueTestGitReadProcessOperation(
       ]
     }]
   });
-  return bindSecSemanticOperation(plan, [compileCapabilityBinding({
+  return bindSemanticOperation(plan, [compileCapabilityBinding({
     requirementId: TEST_GIT_READ_PROCESS_REQUIREMENT,
     contractDigest: TEST_GIT_READ_PROCESS_CONTRACT,
     providerIdentityDigest: TEST_GIT_READ_PROCESS_PROVIDER
@@ -1961,7 +1961,7 @@ export function bindGitDevelopmentCommitOperation(input: Readonly<{
     deadlineAtUnixMs: input.deadlineAtUnixMs,
     attempt: input.attempt
   });
-  return bindSecSemanticOperation(plan, plan.execution.requirements.map((requirement) =>
+  return bindSemanticOperation(plan, plan.execution.requirements.map((requirement) =>
     compileCapabilityBinding({
       requirementId: requirement.id,
       contractDigest: requirement.contractDigest,

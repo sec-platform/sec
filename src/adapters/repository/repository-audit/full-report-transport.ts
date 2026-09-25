@@ -2,7 +2,7 @@ const STRING_PREFIX = '~sec:utf16:v1:';
 const UTF8_PREFIX = `${STRING_PREFIX}utf8:`;
 const UTF16_PREFIX = `${STRING_PREFIX}utf16le:`;
 
-export const REPOSITORY_AUDIT_FULL_REPORT_SCHEMA = 'sec-repository-audit-full-report-v1' as const;
+export const REPOSITORY_AUDIT_FULL_REPORT_SCHEMA = 'repository-audit-full-report-v1' as const;
 export const REPOSITORY_AUDIT_FULL_REPORT_STRING_ENCODING = 'sec-utf16-reversible-v1' as const;
 
 export type RepositoryAuditFullReportEnvelope = Readonly<{

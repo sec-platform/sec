@@ -38,7 +38,7 @@ function canonicalRepositoryPath(value: string): string {
  * Program file set chooses the target; retained candidates make deletion and
  * rename impact observable even when the target no longer exists.
  */
-export function resolveSecRepositoryModuleImportCandidates(
+export function resolveRepositoryModuleImportCandidates(
   sourcePath: string,
   specifier: string
 ): readonly string[] {
@@ -97,7 +97,7 @@ export function assembleRepositoryModuleGraph(
       }
     }
     for (const reference of uniqueImports.values()) {
-      const candidates = resolveSecRepositoryModuleImportCandidates(moduleFile, reference.specifier);
+      const candidates = resolveRepositoryModuleImportCandidates(moduleFile, reference.specifier);
       const resolvedTarget = candidates.find((candidate) => fileSet.has(candidate)) ?? null;
       if (resolvedTarget !== null
           && isTestOnlyRepositoryModulePath(resolvedTarget)

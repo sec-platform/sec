@@ -1,6 +1,6 @@
-import { createHash } from 'node:crypto';
 import path from 'node:path';
 
+import { createSha256Hasher } from '../../../../../contracts/digest.ts';
 import { uniqueSorted } from '../../../../../contracts/canonical.ts';
 import { issueOperationRequirementBindingContext } from '../../../../../execution/operation/requirement-binding-context.ts';
 import type { BoundSemanticOperation } from '../../../../../execution/operation/semantic.ts';
@@ -15,7 +15,7 @@ import {
 import { compileRepositorySourceProgramCompilation } from '../../../../repository/source-program-model/repository-compilation.ts';
 import { issueTestImpactProjection } from '../../../../repository/source-program-model/test-impact-projection.ts';
 import {
-  acquireExactGitTreeWorkspaceSourceSnapshotFromSession,
+  acquireExactGitTreeSnapshot,
   type PhysicalWorkspaceSourceSnapshot
 } from '../../../../repository/source-program-model/workspace-source-snapshot.ts';
 import {
@@ -296,7 +296,7 @@ export async function ExactGitWorkspaceSourceSnapshot(
   candidateSha: string
 ): Promise<PhysicalWorkspaceSourceSnapshot> {
   assertProductionGitReadSession(session);
-  const snapshot = await acquireExactGitTreeWorkspaceSourceSnapshotFromSession({
+  const snapshot = await acquireExactGitTreeSnapshot({
     session,
     commitSha: candidateSha
   });
@@ -398,7 +398,7 @@ export async function RunGateProcess(
       RETAINED_WORKING_DIRECTORY_CHILD_DESCRIPTOR,
       'CI gate repository root'
     );
-    const hash = createHash('sha256');
+    const hash = createSha256Hasher();
     let boundedTail = '';
     const observe = (chunk: Buffer, stream: 'stdout' | 'stderr'): boolean => {
       hash.update(chunk);
@@ -419,7 +419,7 @@ export async function RunGateProcess(
       });
     result = Object.freeze({
       code: run.result.code,
-      rawOutputDigest: `sha256:${hash.digest('hex')}`,
+      rawOutputDigest: hash.finish(),
       failureTail: boundedTail.trim()
     });
   } catch (error) {

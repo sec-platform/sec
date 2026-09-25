@@ -5,7 +5,7 @@ import {
   compileSourceProgramEmbeddedWorkflowPrograms,
   sourceProgramModuleImports
 } from './embedded-programs.ts';
-import { compileRepositorySourceProgramModel } from './repository.ts';
+import { compileRepositoryModel } from './repository.ts';
 import { compileRepositoryModuleGraph } from './typescript.ts';
 
 const workflowPath = '.github/workflows/embedded-program.test.yml';
@@ -80,7 +80,7 @@ test('repository model projects embedded programs through existing entrypoint, c
     source: workflowSource,
     contentDigest: rawSha256(workflowSource)
   });
-  const model = compileRepositorySourceProgramModel({
+  const model = compileRepositoryModel({
     sourceRevision: sha256([{ path: file.path, contentDigest: file.contentDigest }]),
     files: [file],
     moduleMembership: Object.freeze({

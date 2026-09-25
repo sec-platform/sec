@@ -22,7 +22,7 @@ import {
 } from '../../src/adapters/self-hosting/development/tooling/git/git-read.ts';
 import { issueOperationRequirementBindingContext } from '../../src/execution/operation/requirement-binding-context.ts';
 import {
-  bindSecSemanticOperation,
+  bindSemanticOperation,
   compileCapabilityBinding,
   compileSemanticOperationPlan,
   issueSemanticOperationAttemptContext,
@@ -73,7 +73,7 @@ function issueTestGitReadOperation(input: Readonly<{
       failureKinds: ['provider.cancelled', 'provider.execution-failed', 'provider.unavailable']
     }]
   });
-  return bindSecSemanticOperation(plan, [compileCapabilityBinding({
+  return bindSemanticOperation(plan, [compileCapabilityBinding({
     requirementId: 'git-read.host-process',
     contractDigest: TEST_GIT_READ_CONTRACT_DIGEST,
     providerIdentityDigest: TEST_GIT_READ_PROVIDER_DIGEST

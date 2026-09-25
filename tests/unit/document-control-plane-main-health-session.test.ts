@@ -31,7 +31,7 @@ mock.module(${JSON.stringify(mainHealthHref)}, () => ({
     }
   },
   assertMainHealthPublicationAuthorityStable: () => undefined,
-  observeCanonicalMainHealthForDocumentControlTestingV2: async () => {
+  observeCanonicalMainHealthForDocumentControlTesting: async () => {
     throw new Error('Test-only observer used outside its issued actor');
   },
   observeMainHealthGitHubControlInventory: async () => Object.freeze({

@@ -12,13 +12,14 @@ import {
   projectRepositoryAuditFindingsCli,
   projectRepositoryModuleArchitectureAudit,
   RepositoryAuditCliProjectionContractError,
+  repositoryAuditFindingClass,
   repositoryModuleArchitectureShouldBlock,
   type RepositoryAuditReport
 } from '../../src/adapters/repository/repository-audit/cli.ts';
 import { compileSourceProgramDeclarationTopology } from '../../src/adapters/repository/source-program-model/declaration-topology.ts';
 import { compileVirtualRepositorySourceProgramCompilation } from '../../src/adapters/repository/source-program-model/repository-compilation.ts';
 import { compileRepositoryModuleGraph } from '../../src/adapters/repository/source-program-model/typescript.ts';
-import { compileVirtualWorkspaceSourceSnapshot } from '../../src/adapters/repository/source-program-model/workspace-source-snapshot.ts';
+import { compileVirtualSnapshot } from '../../src/adapters/repository/source-program-model/workspace-source-snapshot.ts';
 import {
   projectDocumentControlPlaneStatusCli
 } from '../../src/adapters/self-hosting/control/documentation/document-control-plane.ts';
@@ -29,7 +30,7 @@ import { shouldReportDevRunnerSuccess } from '../../src/adapters/self-hosting/de
 import { rawSha256 } from '../../src/contracts/canonical.ts';
 
 function declarationTopologyFixture() {
-  const descriptorPath = 'src/projection-owner/sec.module.json';
+  const descriptorPath = 'src/projection-owner/module.json';
   const sourcePath = 'src/projection-owner/runtime.ts';
   const source = 'export const projection = true;';
   const sourceRevision = rawSha256(source);
@@ -47,7 +48,7 @@ function declarationTopologyFixture() {
       })
     }]
   });
-  const workspaceSnapshot = compileVirtualWorkspaceSourceSnapshot({
+  const workspaceSnapshot = compileVirtualSnapshot({
     subject: {
       kind: 'virtual-mutation',
       provenance: {
@@ -67,11 +68,11 @@ function declarationTopologyFixture() {
 function architectureProjectionFixture(topology: 'acyclic' | 'cyclic') {
   const contract = parseModuleDescriptor(
     { importGraph: 'runtime', externalEntrypoints: [] },
-    'src/contract-owner/sec.module.json'
+    'src/contract-owner/module.json'
   );
   const runtime = parseModuleDescriptor(
     { importGraph: 'runtime', externalEntrypoints: [] },
-    'src/runtime-owner/sec.module.json'
+    'src/runtime-owner/module.json'
   );
   const descriptors = Object.freeze([contract, runtime]);
   const membership: RepositoryModuleMembership = Object.freeze({
@@ -157,6 +158,13 @@ describe('bounded control-plane CLI projections', () => {
         activeMarkdown: 1, behaviorCandidates: 0,
         contentCoverage: { excluded: 0, scanned: 500, unknown: 0 },
         findings: { critical: 0, high: 500, medium: 0, low: 0 },
+        findingClasses: {
+          'structural-defect': 0,
+          'reference-graph-defect': 0,
+          'evidence-insufficient': 0,
+          'behavior-counterevidence': 500,
+          'policy-rejection': 0
+        },
         markdown: 1,
         sourceProgram: {
           capabilities: 0, candidates: 0, declarations: 0, dependencies: 0,
@@ -173,7 +181,8 @@ describe('bounded control-plane CLI projections', () => {
         receiptDigest: `sha256:${'4'.repeat(64)}`
       },
       findings: Array.from({ length: 500 }, (_, index) => ({
-        code: 'one-root-class', message: `instance ${index}`, severity: 'high' as const,
+        code: 'partial-discovery-named-all', findingClass: 'behavior-counterevidence' as const,
+        message: `instance ${index}`, severity: 'high' as const,
         ...(index === 0 ? { skills: undefined } : {})
       })),
       unknowns: [],
@@ -186,7 +195,14 @@ describe('bounded control-plane CLI projections', () => {
       contentCoverage: Array.from({ length: 500 }, (_, index) => ({ path: `path-${index}` }))
     } as unknown as RepositoryAuditReport;
     const projected = projectRepositoryAuditCli(report);
-    expect(projected.findingCodes).toEqual(['one-root-class']);
+    expect(projected.findingCodes).toEqual(['partial-discovery-named-all']);
+    expect(projected.summary.findingClasses).toEqual({
+      'structural-defect': 0,
+      'reference-graph-defect': 0,
+      'evidence-insufficient': 0,
+      'behavior-counterevidence': 500,
+      'policy-rejection': 0
+    });
     expect(projected).not.toHaveProperty('behaviorCandidates');
     expect(projected).not.toHaveProperty('contentCoverage');
     expect(JSON.stringify(projected).length).toBeLessThan(1_500);
@@ -196,7 +212,7 @@ describe('bounded control-plane CLI projections', () => {
     expect(findings.revision).toBe(report.revision);
     expect(findings.findings).toBe(report.findings);
     expect(findings.unknowns).toBe(report.unknowns);
-    expect(findings.findingCodes).toEqual(['one-root-class']);
+    expect(findings.findingCodes).toEqual(['partial-discovery-named-all']);
     expect(findings).not.toHaveProperty('sourceProgram');
     expect(findings).not.toHaveProperty('behaviorCandidates');
 
@@ -210,6 +226,19 @@ describe('bounded control-plane CLI projections', () => {
       ...report,
       architecture: incompleteArchitecture
     } as unknown as RepositoryAuditReport)).toThrow(RepositoryAuditCliProjectionContractError);
+
+    expect(repositoryAuditFindingClass('control-plane-pointer-invalid'))
+      .toBe('structural-defect');
+    expect(repositoryAuditFindingClass('control-plane-digest-drift'))
+      .toBe('behavior-counterevidence');
+    expect(repositoryAuditFindingClass('source-program-causal-identity-unresolved'))
+      .toBe('evidence-insufficient');
+    expect(repositoryAuditFindingClass('source-program-direct-process-transport-outside-owner'))
+      .toBe('policy-rejection');
+    expect(repositoryAuditFindingClass('workflow-entrypoint-missing'))
+      .toBe('reference-graph-defect');
+    expect(() => repositoryAuditFindingClass('unregistered-finding-code'))
+      .toThrow('Unclassified repository audit finding code');
   });
 
   test('work selection keeps authority identity and the actionable decision only', () => {

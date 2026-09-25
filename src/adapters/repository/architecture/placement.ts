@@ -1,9 +1,9 @@
-import { createHash } from 'node:crypto';
 
+import { rawSha256Hex } from '../../../contracts/canonical.ts';
 import {
   compileRepositoryModuleTopologyProjection,
-  isSecRepositoryNodeDependencyAllowed,
-  normalizeSecRepositoryPath,
+  isRepositoryNodeDependencyAllowed,
+  normalizeRepositoryModulePath,
   type RepositoryModuleBoundaryViolation,
   type RepositoryModuleGraph,
   type RepositoryModuleMembership,
@@ -71,7 +71,7 @@ type ResponsibilityCandidate = Readonly<{
 }>;
 
 function digest(value: unknown): Sha256 {
-  return `sha256:${createHash('sha256').update(JSON.stringify(value)).digest('hex')}`;
+  return `sha256:${rawSha256Hex(JSON.stringify(value))}`;
 }
 
 function textOrder(left: string, right: string): number {
@@ -127,20 +127,20 @@ const CONTRACT_DECLARATION_KINDS = new Set([
  * descriptor intent. Paths only locate compiler facts; neither a directory nor
  * a filename can grant a responsibility.
  */
-function compileSecRepositoryDeclarationResponsibilityFrontier(
+function compileRepositoryDeclarationResponsibilityFrontier(
   membership: RepositoryModuleMembership,
   facts: PlacementFacts
 ): readonly RepositoryDeclarationResponsibilityProjection[] {
   const productionPaths = new Set(facts.files
     .filter(({ surface }) => surface === 'production')
-    .map(({ path }) => normalizeSecRepositoryPath(path)));
+    .map(({ path }) => normalizeRepositoryModulePath(path)));
   const declarations = [...(facts.declarations ?? [])]
-    .map((declaration) => ({ ...declaration, path: normalizeSecRepositoryPath(declaration.path) }))
+    .map((declaration) => ({ ...declaration, path: normalizeRepositoryModulePath(declaration.path) }))
     .filter(({ path }) => productionPaths.has(path))
     .sort((left, right) => textOrder(left.path, right.path)
       || textOrder(left.observationId ?? '', right.observationId ?? ''));
   const fileFacts = new Map(facts.files.map((file) => (
-    [normalizeSecRepositoryPath(file.path), file] as const
+    [normalizeRepositoryModulePath(file.path), file] as const
   )));
   const declarationIdentityCounts = new Map<string, number>();
   for (const declaration of declarations) {
@@ -150,7 +150,7 @@ function compileSecRepositoryDeclarationResponsibilityFrontier(
   const unknownPaths = new Set<string>();
   for (const file of facts.files) {
     if (file.semanticObservationClass === 'unknown') {
-      unknownPaths.add(normalizeSecRepositoryPath(file.path));
+      unknownPaths.add(normalizeRepositoryModulePath(file.path));
     }
   }
 
@@ -167,7 +167,7 @@ function compileSecRepositoryDeclarationResponsibilityFrontier(
       observedConsumerOwnersByTarget.set(targetObservationId, owners);
     }
     owners.add(membership.moduleForPath(
-      normalizeSecRepositoryPath(reference.path)
+      normalizeRepositoryModulePath(reference.path)
     )?.moduleId);
   }
 
@@ -205,7 +205,7 @@ function compileSecRepositoryDeclarationResponsibilityFrontier(
   for (const entrypoint of facts.entrypoints) {
     if (entrypoint.observationClass === 'unknown') continue;
     const uniqueTargetPaths = new Set((entrypoint.targetPaths ?? [])
-      .map((path) => normalizeSecRepositoryPath(path)));
+      .map((path) => normalizeRepositoryModulePath(path)));
     for (const targetPath of uniqueTargetPaths) {
       const values = entrypointsByTargetPath.get(targetPath) ?? [];
       values.push(entrypoint);
@@ -268,7 +268,7 @@ function compileSecRepositoryDeclarationResponsibilityFrontier(
     }
 
     for (const relation of owner?.causalRelations ?? []) {
-      if (normalizeSecRepositoryPath(relation.symbol.path) !== declaration.path
+      if (normalizeRepositoryModulePath(relation.symbol.path) !== declaration.path
           || relation.symbol.name !== declaration.name) continue;
       candidates.push(Object.freeze({
         responsibility: relationResponsibility(relation.relation, relation.operation),
@@ -421,7 +421,7 @@ function placementMetrics(
     graphRoots: membership.graphRoots,
     moduleRoots: membership.moduleRoots,
     moduleForPath: (path) => {
-      const normalized = normalizeSecRepositoryPath(path);
+      const normalized = normalizeRepositoryModulePath(path);
       const ownerId = reassignedOwners.get(normalized);
       return ownerId === undefined
         ? membership.moduleForPath(normalized)
@@ -430,12 +430,12 @@ function placementMetrics(
   });
   const topology = compileRepositoryModuleTopologyProjection(graph, virtualMembership);
   const pureReexports = new Set(facts.files.filter(({ semanticKind }) => semanticKind === 'pure-reexport')
-    .map(({ path }) => normalizeSecRepositoryPath(path)));
+    .map(({ path }) => normalizeRepositoryModulePath(path)));
   const aggregateFacades = new Set(topology.ownerEdges.flatMap(({ witnesses }) => (
     witnesses.flatMap(({ toPath }) => pureReexports.has(toPath) ? [toPath] : [])
   ))).size;
   const lineByPath = new Map(facts.files.map(({ path, sourceLines }) => (
-    [normalizeSecRepositoryPath(path), sourceLines] as const
+    [normalizeRepositoryModulePath(path), sourceLines] as const
   )));
   const unresolved = new Set<string>();
   let sourceLinesResolved = true;
@@ -484,7 +484,7 @@ export function compileRepositoryModulePlacementAdmission(input: Readonly<{
   readonly membership: RepositoryModuleMembership;
   readonly facts: PlacementFacts;
 }>): RepositoryModulePlacementAdmission {
-  const frontier = compileSecRepositoryDeclarationResponsibilityFrontier(
+  const frontier = compileRepositoryDeclarationResponsibilityFrontier(
     input.membership,
     input.facts
   );
@@ -513,11 +513,11 @@ export function compileRepositoryModulePlacementAdmission(input: Readonly<{
   const responsibilities = fileResponsibilities(frontier);
   for (const reference of input.graph.references) {
     if (reference.resolvedTarget === null) continue;
-    const fromPath = normalizeSecRepositoryPath(reference.from);
-    const toPath = normalizeSecRepositoryPath(reference.resolvedTarget);
+    const fromPath = normalizeRepositoryModulePath(reference.from);
+    const toPath = normalizeRepositoryModulePath(reference.resolvedTarget);
     const from = responsibilities.get(fromPath);
     const to = responsibilities.get(toPath);
-    if (from === undefined || to === undefined || isSecRepositoryNodeDependencyAllowed(from, to)) continue;
+    if (from === undefined || to === undefined || isRepositoryNodeDependencyAllowed(from, to)) continue;
     violations.push(Object.freeze({
       code: 'repository-node-responsibility-reverse-dependency',
       from: fromPath,

@@ -1,46 +1,46 @@
-import { createHash } from 'node:crypto';
 
+import { rawSha256Hex } from '../../../../../contracts/canonical.ts';
 import { CI_VERIFICATION_CONTRACT_REVISION } from '../../../../../assurance/verification/contract/revision.ts';
-import { isSecRepositoryTestModulePath } from '../../../../../contracts/repository-test-path.ts';
+import { isRepositoryTestModulePath } from '../../../../../contracts/repository-test-path.ts';
 
-const CodexDevelopmentWorkPackageSchema = 'codex-development-work-package-v1' as const;
+const WorkPackageSchema = 'codex-development-work-package-v1' as const;
 const WorkPackageManifestStateFrozen = 'frozen' as const;
 
-type CodexDevelopmentCiVerificationRevision = `ci-verification-v${number}`;
+type CiVerificationRevision = `ci-verification-v${number}`;
 
-type CodexDevelopmentWorkPackageTask = {
+type WorkPackageTask = {
   id: string;
   owner: string;
   ownedPaths: string[];
 };
 
 export type WorkPackageManifest = {
-  schema: typeof CodexDevelopmentWorkPackageSchema;
+  schema: typeof WorkPackageSchema;
   id: string;
   tracking: string;
   base: string;
   manifestState: typeof WorkPackageManifestStateFrozen;
   requiredProfile: 'quick' | 'full';
-  ciRevision: CodexDevelopmentCiVerificationRevision;
+  ciRevision: CiVerificationRevision;
   authorityRefs?: string[];
-  tasks: CodexDevelopmentWorkPackageTask[];
+  tasks: WorkPackageTask[];
   forbiddenPaths: string[];
   acceptance: string[];
   tests: string[];
 };
 
-export type CodexDevelopmentWorkPackageOwnershipResult = {
+export type WorkPackageOwnershipResult = {
   changedPathOwners: Array<{ path: string; taskId: string; owner: string }>;
 };
 
-export type CodexDevelopmentWorkPackageChangedRecord = {
+export type WorkPackageChangedRecord = {
   status: 'added' | 'changed' | 'removed' | 'renamed' | 'copied';
   path: string;
   previousPath?: string;
 };
 
-type CodexDevelopmentWorkPackageChangedPathOccurrence = {
-  status: CodexDevelopmentWorkPackageChangedRecord['status'];
+type WorkPackageChangedPathOccurrence = {
+  status: WorkPackageChangedRecord['status'];
   path: string;
   role: 'direct' | 'source' | 'destination';
 };
@@ -309,7 +309,7 @@ function parseManifestRaw(source: string): Record<string, unknown> {
 }
 
 export function WorkPackageManifestDigest(source: string | Uint8Array): string {
-  return `sha256:${createHash('sha256').update(source).digest('hex')}`;
+  return `sha256:${rawSha256Hex(source)}`;
 }
 
 export function ParseWorkPackageLocator(body: string): string {
@@ -325,7 +325,7 @@ export function ParseWorkPackageLocator(body: string): string {
   return match[1]!;
 }
 
-export function CodexDevelopmentDecodeWorkPackageManifest(
+export function DecodeWorkPackageManifest(
   source: string,
   expectedPath?: string
 ): WorkPackageManifest {
@@ -344,7 +344,7 @@ export function CodexDevelopmentDecodeWorkPackageManifest(
   }
   const base = stringValue(raw.base, 'Work Package manifest base');
   if (!/^[0-9a-f]{40}$/u.test(base)) throw new Error('Work Package manifest base must be a lowercase 40-character Git SHA.');
-  if (raw.schema !== CodexDevelopmentWorkPackageSchema) throw new Error('Work Package manifest schema mismatch.');
+  if (raw.schema !== WorkPackageSchema) throw new Error('Work Package manifest schema mismatch.');
   if (raw.manifestState !== WorkPackageManifestStateFrozen) {
     throw new Error('Work Package manifest must be frozen.');
   }
@@ -359,7 +359,7 @@ export function CodexDevelopmentDecodeWorkPackageManifest(
   if (!Array.isArray(raw.tasks) || raw.tasks.length === 0 || raw.tasks.length > 32) {
     throw new Error('Work Package manifest tasks must be a non-empty bounded array.');
   }
-  const tasks = raw.tasks.map((task, taskIndex): CodexDevelopmentWorkPackageTask => {
+  const tasks = raw.tasks.map((task, taskIndex): WorkPackageTask => {
     const label = `Work Package manifest tasks[${taskIndex}]`;
     assertPlainObject(task, label);
     assertExactKeys(task, TASK_KEYS, label);
@@ -395,7 +395,7 @@ export function CodexDevelopmentDecodeWorkPackageManifest(
   tests.forEach((testPath, index) => {
     const label = `Work Package manifest tests[${index}]`;
     assertOwnershipPath(testPath, label);
-    if (!isSecRepositoryTestModulePath(testPath)) {
+    if (!isRepositoryTestModulePath(testPath)) {
       throw new Error(`${label} must name one canonical repository test module.`);
     }
   });
@@ -403,13 +403,13 @@ export function CodexDevelopmentDecodeWorkPackageManifest(
     ? undefined
     : documentationIdArray(raw.authorityRefs, 'Work Package manifest authorityRefs');
   const manifest: WorkPackageManifest = {
-    schema: CodexDevelopmentWorkPackageSchema,
+    schema: WorkPackageSchema,
     id,
     tracking,
     base,
     manifestState: WorkPackageManifestStateFrozen,
     requiredProfile: raw.requiredProfile,
-    ciRevision: ciRevision as CodexDevelopmentCiVerificationRevision,
+    ciRevision: ciRevision as CiVerificationRevision,
     ...(authorityRefs === undefined ? {} : { authorityRefs }),
     tasks,
     forbiddenPaths,
@@ -428,15 +428,15 @@ export function ParseWorkPackageManifest(
   expectedPath?: string
 ): WorkPackageManifest {
   const schema = parseManifestRaw(source).schema;
-  if (schema === CodexDevelopmentWorkPackageSchema) {
-    return CodexDevelopmentAssertCurrentWorkPackageRevision(
-      CodexDevelopmentDecodeWorkPackageManifest(source, expectedPath)
+  if (schema === WorkPackageSchema) {
+    return AssertCurrentWorkPackageRevision(
+      DecodeWorkPackageManifest(source, expectedPath)
     );
   }
   throw new Error('Work Package manifest schema is unsupported.');
 }
 
-function CodexDevelopmentAssertCurrentWorkPackageRevision(
+function AssertCurrentWorkPackageRevision(
   manifest: WorkPackageManifest
 ): WorkPackageManifest {
   if (manifest.ciRevision !== CI_VERIFICATION_CONTRACT_REVISION) {
@@ -455,10 +455,10 @@ export function ParseCurrentWorkPackageManifest(
 export function AssertWorkPackageOwnership(
   manifest: WorkPackageManifest,
   changedPaths: string[]
-): CodexDevelopmentWorkPackageOwnershipResult {
+): WorkPackageOwnershipResult {
   if (changedPaths.length === 0) throw new Error('Work Package ownership requires at least one changed path.');
   if (new Set(changedPaths).size !== changedPaths.length) throw new Error('Changed paths must be unique.');
-  const changedPathOwners: CodexDevelopmentWorkPackageOwnershipResult['changedPathOwners'] = [];
+  const changedPathOwners: WorkPackageOwnershipResult['changedPathOwners'] = [];
   for (const changedPath of changedPaths) {
     assertOwnershipPath(changedPath, `changed path "${changedPath}"`);
     if (manifest.forbiddenPaths.some((forbiddenPath) => ownershipPathMatches(forbiddenPath, changedPath))) {
@@ -477,13 +477,13 @@ export function AssertWorkPackageOwnership(
   return { changedPathOwners };
 }
 
-export function CodexDevelopmentAssertWorkPackageChangedRecords(
+export function AssertWorkPackageChangedRecords(
   manifest: WorkPackageManifest,
-  records: readonly CodexDevelopmentWorkPackageChangedRecord[]
-): CodexDevelopmentWorkPackageOwnershipResult {
+  records: readonly WorkPackageChangedRecord[]
+): WorkPackageOwnershipResult {
   if (records.length === 0 || records.length > 3_000) throw new Error('Changed-file records must be non-empty and bounded.');
   const seenRecords = new Set<string>();
-  const pathOccurrences = records.flatMap((record, index): CodexDevelopmentWorkPackageChangedPathOccurrence[] => {
+  const pathOccurrences = records.flatMap((record, index): WorkPackageChangedPathOccurrence[] => {
     const label = `changed-file records[${index}]`;
     assertPlainObject(record, label);
     if (!['added', 'changed', 'removed', 'renamed', 'copied'].includes(record.status)) {

@@ -3,7 +3,7 @@ import { rawSha256, sha256 } from '../../../../contracts/canonical.ts';
 import { isNativeAborted, linkNativeAbortSignals } from '../../../../contracts/native-abort.ts';
 import { issueOperationRequirementBindingContext } from '../../../../execution/operation/requirement-binding-context.ts';
 import {
-  bindSecSemanticOperation,
+  bindSemanticOperation,
   compileCapabilityBinding,
   compileSemanticOperationPlan,
   issueSemanticOperationAttemptContext,
@@ -153,7 +153,7 @@ function compileWorkspaceTransitionOperation(input: Readonly<{
       ]
     }]
   });
-  return bindSecSemanticOperation(plan, [compileCapabilityBinding({
+  return bindSemanticOperation(plan, [compileCapabilityBinding({
     requirementId: WORKSPACE_TRANSITION_PROCESS_REQUIREMENT,
     contractDigest: WORKSPACE_TRANSITION_PROCESS_CONTRACT,
     providerIdentityDigest: WORKSPACE_TRANSITION_PROCESS_PROVIDER

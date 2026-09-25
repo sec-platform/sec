@@ -5,7 +5,7 @@ import { withAcquiredResource } from '../../../../execution/resource-settlement.
 import { sha256 } from '../../../../contracts/canonical.ts';
 import { issueOperationRequirementBindingContext } from '../../../../execution/operation/requirement-binding-context.ts';
 import {
-  bindSecSemanticOperation,
+  bindSemanticOperation,
   compileCapabilityBinding,
   compileSemanticOperationPlan,
   issueSemanticOperationAttemptContext,
@@ -106,7 +106,7 @@ function compileBranchConfigOperation(input: Readonly<{
       ]
     }]
   });
-  return bindSecSemanticOperation(plan, [compileCapabilityBinding({
+  return bindSemanticOperation(plan, [compileCapabilityBinding({
     requirementId: BRANCH_CONFIG_PROCESS_REQUIREMENT,
     contractDigest: BRANCH_CONFIG_PROCESS_CONTRACT,
     providerIdentityDigest: BRANCH_CONFIG_PROCESS_PROVIDER

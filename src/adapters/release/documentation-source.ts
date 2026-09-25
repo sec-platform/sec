@@ -1,7 +1,7 @@
 import { constants } from 'node:fs';
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { digest, sha256 } from '../../contracts/canonical.ts';
+import { rawSha256Hex, sha256 } from '../../contracts/canonical.ts';
 import {
   DOCUMENTATION_AUTHORED_METADATA,
   DOCUMENTATION_BASELINE,
@@ -189,7 +189,7 @@ export async function captureDocumentationSource(root: string): Promise<Document
     if (totalBytes > DOCUMENTATION_LIMITS.totalBytes) {
       throw new Error('Documentation source byte budget exceeded');
     }
-    members.push({ path: relative, bytes: bytes.byteLength, sha256: digest(bytes) });
+    members.push({ path: relative, bytes: bytes.byteLength, sha256: rawSha256Hex(bytes) });
   }
   const material = Object.freeze({
     boundary,
@@ -205,7 +205,7 @@ export async function captureDocumentationSource(root: string): Promise<Document
   }
   for (const member of contract.members) {
     const bytes = await readOrdinary(root, member.path);
-    if (bytes.byteLength !== member.bytes || digest(bytes) !== member.sha256) {
+    if (bytes.byteLength !== member.bytes || rawSha256Hex(bytes) !== member.sha256) {
       throw new Error(`Documentation source changed across capture: ${member.path}`);
     }
   }
@@ -293,7 +293,7 @@ function projectDocumentationRequirements(bytes: Uint8Array): unknown {
         fragment = title.toLowerCase().replace(/[^\p{L}\p{N}_\s-]/gu, '').replace(/\s/gu, '-');
       }
       return { id: heading.id, path: REQUIREMENT_SOURCE, fragment,
-        body_sha256: digest(strip(source.slice(heading.offset, headings[index + 1]?.offset))) };
+        body_sha256: rawSha256Hex(strip(source.slice(heading.offset, headings[index + 1]?.offset))) };
     }) };
 }
 async function deriveRequirementProjection(root: string, contract: DocumentationSourceContract): Promise<Buffer | null> {
@@ -373,7 +373,7 @@ export async function materializeDocumentationPackage(sourceRoot: string, target
 
   for (const member of contract.members) {
     const bytes = await readOrdinary(sourceRoot, member.path);
-    if (bytes.byteLength !== member.bytes || digest(bytes) !== member.sha256) throw new Error(`Source drift: ${member.path}`);
+    if (bytes.byteLength !== member.bytes || rawSha256Hex(bytes) !== member.sha256) throw new Error(`Source drift: ${member.path}`);
     await write(member.path, bytes);
   }
   for (const root of contract.boundary.sourceRoots) {

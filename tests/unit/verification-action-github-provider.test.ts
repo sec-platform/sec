@@ -8,7 +8,7 @@ import { encodeVerificationActionData, type VerificationActionKeyDigest } from '
 import { buildCiVerificationActionPlanClosure, CI_VERIFICATION_ACTION_DISPATCH_TYPE, createCiVerificationActionParentDispatchPlan, createCiVerificationActionProposal, createCiVerificationActionProviderEnvelope, type CiVerificationActionPlanClosure, type CiVerificationActionProviderEnvelope } from '../../src/adapters/verification/platform/action/contract/ci.ts';
 import { CI_GITHUB_ACTIONS_IDENTITY_POLICY, createVerificationActionProviderStartMarker, createVerificationActionProviderTerminalAnchor, VERIFICATION_ACTION_PROVIDER_START_ARTIFACT_PREFIX, VERIFICATION_ACTION_PROVIDER_TERMINAL_ANCHOR_PREFIX, VERIFICATION_ACTION_PROVIDER_TERMINAL_ARTIFACT_PREFIX, verificationActionProviderRunTargetUrl, verificationActionProviderStartArtifactName, verificationActionProviderStartDescription, verificationActionProviderStatusContext, verificationActionProviderTerminalAnchorName, verificationActionProviderTerminalArtifactName, type VerificationActionProviderOrigin } from '../../src/adapters/verification/platform/action/contract/provider.ts';
 import { CI_VERIFICATION_SESSION_DISPATCH_TYPE } from '../../src/adapters/verification/platform/ci/contract/revision.ts';
-import { buildUnsupportedVerificationActionTerminalArtifactV2 } from '../helpers/verification-action-fixtures.ts';
+import { buildUnsupportedVerificationActionTerminalArtifact } from '../helpers/verification-action-fixtures.ts';
 
 const REPOSITORY = 'openai/sec';
 const REPOSITORY_ID = 311;
@@ -977,7 +977,7 @@ describe('VerificationAction GitHub provider authenticated transaction', () => {
   });
 
   test('terminal publication binds the authenticated current run and full artifact chain', async () => {
-    const terminalArtifact = buildUnsupportedVerificationActionTerminalArtifactV2({
+    const terminalArtifact = buildUnsupportedVerificationActionTerminalArtifact({
       actionPlan: closure.actions[0]!,
       normalizedOperation: closure.normalizedOperations[0]!,
       baseSha: BASE,

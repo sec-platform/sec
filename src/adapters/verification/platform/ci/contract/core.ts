@@ -56,9 +56,9 @@ export const CI_MAIN_HEALTH_COMMANDS = [
   'bun install --frozen-lockfile',
   'bun run imports:check',
   'bun run typecheck:verified',
-  'bun run audit:static',
+  'bun run audit -- --scope source-program --enforce',
   'bun run docs:doctor',
-  'bun run test:fast'
+  'bun run test -- --scope fast'
 ] as const;
 
 function ciArtifactUploadCommand(kind: CiArtifactKind): string {
@@ -138,16 +138,16 @@ const releaseWorkflowCommands = [
 const prQuickLaneCommands = [
   'bun run imports:check',
   'bun run typecheck:verified',
-  'bun run test:affected'
+  'bun run test -- --affected'
 ];
 
-const fullSlowSuiteCommands = slowTestSuiteIds().map((suiteId) => `bun run test:slow -- --suite ${suiteId}`);
+const fullSlowSuiteCommands = slowTestSuiteIds().map((suiteId) => `bun run test -- --scope slow --suite ${suiteId}`);
 
 const fullLaneCommands = [
   'bun run imports:check',
   'bun run typecheck:verified',
   'bun run docs:doctor',
-  'bun run test:fast',
+  'bun run test -- --scope fast',
   platformCommand('test', 'budget', '--json', '--compact'),
   ...fullSlowSuiteCommands,
   platformCommand('deps', 'warmup'),
@@ -198,7 +198,7 @@ const ciSteps: Array<Omit<CiContractStep, 'producesCount'>> = [
   {
     id: 'full-fast-tests',
     phase: 'quality',
-    command: 'bun run test:fast',
+    command: 'bun run test -- --scope fast',
     purpose: 'Run the complete fast test inventory as the release correctness backstop.',
     produces: []
   },

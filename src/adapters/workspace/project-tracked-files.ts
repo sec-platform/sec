@@ -2,7 +2,7 @@ import path from 'node:path';
 
 import { sha256 } from '../../contracts/canonical.ts';
 import {
-  bindSecSemanticOperation,
+  bindSemanticOperation,
   compileCapabilityBinding,
   compileSemanticOperationPlan,
   issueSemanticOperationAttemptContext,
@@ -61,7 +61,7 @@ function compileTrackedProjectPathOperation(workspaceRoot: string): BoundSemanti
       ]
     }]
   });
-  return bindSecSemanticOperation(plan, [compileCapabilityBinding({
+  return bindSemanticOperation(plan, [compileCapabilityBinding({
     requirementId: 'workspace.tracked-project-paths',
     contractDigest,
     providerIdentityDigest: contractDigest

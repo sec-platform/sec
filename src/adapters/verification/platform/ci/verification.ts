@@ -1,5 +1,4 @@
 import { spawnSync } from 'node:child_process';
-import { createHash } from 'node:crypto';
 import {
   closeSync,
   existsSync,
@@ -13,7 +12,8 @@ import {
   rmSync, writeFileSync
 } from 'node:fs';
 import path from 'node:path';
-import { uniqueSorted } from '../../../../contracts/canonical.ts';
+import { createSha256Hasher } from '../../../../contracts/digest.ts';
+import { rawSha256Hex, uniqueSorted } from '../../../../contracts/canonical.ts';
 import {
   enableExecutionProgress,
   observeExecutionProgressPhase,
@@ -21,12 +21,12 @@ import {
 } from '../../../../execution/execution-progress.ts';
 import { issueOperationRequirementBindingContext } from '../../../../execution/operation/requirement-binding-context.ts';
 import {
-  bindSecSemanticOperation,
+  bindSemanticOperation,
   compileCapabilityBinding,
   compileProviderSettlementSet,
   compileSemanticOperationPlan,
   issueNormalDomainReadbackReceipt,
-  issueSecNormalOwnerTerminalJoinReceipt,
+  issueNormalOwnerTerminalJoinReceipt,
   issueProviderSettlementReceipt,
   issueSemanticOperationAttemptContext,
   type BoundSemanticOperation,
@@ -80,10 +80,10 @@ import { DEV_RUNNER_ENTRYPOINT_PATH } from '../../../self-hosting/development/ru
 import { encodeVerificationActionData, issueProcessVerificationActionTerminalSettlement, issueVerificationActionOwnerTerminalReceipt, isVerificationActionRunnable, parseVerificationActionPlan, type VerificationActionDependencyResolution, type VerificationActionKeyDigest, type VerificationActionPlan } from '../action/contract/action.ts';
 import { buildCiVerificationActionPlanClosure, CI_VERIFICATION_HOSTED_EXECUTION_ENVIRONMENT, ciVerificationActionParentDispatchPlanArtifactName, ciVerificationActionParentDispatchPlanPayloadDigest, ciVerificationGateStep, ciVerificationNormalizedOperationArgv, createCiVerificationActionParentDispatchPlan, createCiVerificationActionProposal, createCiVerificationActionProviderEnvelope, createCiVerificationLocalExecutionEnvironment, parseCiVerificationActionParentDispatchPlan, parseCiVerificationActionPlanClosure, parseCiVerificationActionProposal, parseCiVerificationActionProviderEnvelope, resolveCiVerificationDevRunnerTarget, type CiVerificationActionCandidate, type CiVerificationActionParentActor, type CiVerificationActionParentDispatchPlan, type CiVerificationActionPlanClosure, type CiVerificationActionProposal, type CiVerificationActionProviderEnvelope, type CiVerificationExecutionEnvironment, type CiVerificationGateStep, type CiVerificationProducerGate } from '../action/contract/ci.ts';
 import { CI_VERIFICATION_ACTION_DEPENDENCY_INPUT_PATHS, CI_VERIFICATION_HOSTED_PROVIDER_REVISION } from '../action/contract/environment.ts';
-import { CI_GITHUB_ACTIONS_IDENTITY_POLICY, createVerificationActionProviderStartMarker as createVerificationActionStartMarkerV2, createVerificationActionProviderTerminalAnchor as createVerificationActionTerminalStatusAnchorV2, parseVerificationActionProviderStatusReadback, parseVerificationActionProviderStartMarker as parseVerificationActionStartMarkerV2, parseVerificationActionProviderTerminalAnchor as parseVerificationActionTerminalStatusAnchorV2, reduceVerificationActionProviderState, verificationActionProviderStartDescription, verificationActionProviderStatusContext, verificationActionProviderTerminalAnchorName, verificationActionProviderTerminalArtifactName, verificationActionProviderStartArtifactName as verificationActionStartMarkerNameV2, type VerificationActionProviderDecision, type VerificationActionProviderOrigin, type VerificationActionProviderStartObservation, type VerificationActionProviderStatusObservation, type VerificationActionProviderStatusReadback, type VerificationActionProviderTerminalAnchorObservation, type VerificationActionProviderTerminalObservation, type VerificationActionProviderStartMarker as VerificationActionStartMarkerV2 } from '../action/contract/provider.ts';
+import { CI_GITHUB_ACTIONS_IDENTITY_POLICY, createVerificationActionProviderStartMarker as createVerificationActionStartMarker, createVerificationActionProviderTerminalAnchor as createVerificationActionTerminalStatusAnchor, parseVerificationActionProviderStatusReadback, parseVerificationActionProviderStartMarker as parseVerificationActionStartMarker, parseVerificationActionProviderTerminalAnchor as parseVerificationActionTerminalStatusAnchor, reduceVerificationActionProviderState, verificationActionProviderStartDescription, verificationActionProviderStatusContext, verificationActionProviderTerminalAnchorName, verificationActionProviderTerminalArtifactName, verificationActionProviderStartArtifactName as verificationActionStartMarkerName, type VerificationActionProviderDecision, type VerificationActionProviderOrigin, type VerificationActionProviderStartObservation, type VerificationActionProviderStatusObservation, type VerificationActionProviderStatusReadback, type VerificationActionProviderTerminalAnchorObservation, type VerificationActionProviderTerminalObservation, type VerificationActionProviderStartMarker as VerificationActionStartMarker } from '../action/contract/provider.ts';
 import {
-  writeVerificationActionStartMarkerV2Atomic,
-  writeVerificationActionTerminalStatusAnchorV2Atomic
+  writeVerificationActionStartMarkerAtomic,
+  writeVerificationActionTerminalStatusAnchorAtomic
 } from '../action/journal.ts';
 import {
   createVerificationActionRunner,
@@ -121,7 +121,7 @@ import {
   HostedSutCandidateEnvironment,
   ParseHostedSutSandboxReceipt,
   ReduceHostedSutObservation,
-  ParseHostedActionRawResult as parseHostedActionRawResultContractV2,
+  ParseHostedActionRawResult as parseHostedActionRawResultContract,
   type HostedActionRawResult,
   type HostedSutExecutionAuthorization,
   type HostedSutInventoryClosure,
@@ -362,14 +362,14 @@ export function ReadHostedActionArtifactIndex(input: Readonly<{
   const startObservations = Object.freeze(value.startObservations.map((entry) => {
     const observation = entry as VerificationActionProviderStartObservation;
     if (observation !== null && typeof observation === 'object' && observation.payload !== null) {
-      parseVerificationActionStartMarkerV2(observation.payload);
+      parseVerificationActionStartMarker(observation.payload);
     }
     return observation;
   }));
   const terminalAnchorObservations = Object.freeze(value.terminalAnchorObservations.map((entry) => {
     const observation = entry as VerificationActionProviderTerminalAnchorObservation;
     if (observation !== null && typeof observation === 'object' && observation.payload !== null) {
-      parseVerificationActionTerminalStatusAnchorV2(observation.payload);
+      parseVerificationActionTerminalStatusAnchor(observation.payload);
     }
     return observation;
   }));
@@ -551,7 +551,7 @@ export function ParseHostedActionResolution(
 
 export function CreateHostedActionExecutionTicket(input: Readonly<{
   resolution: HostedActionResolution;
-  marker: VerificationActionStartMarkerV2;
+  marker: VerificationActionStartMarker;
   startObservation: VerificationActionProviderStartObservation;
   startStatus: VerificationActionProviderStatusObservation;
   preparedCandidateArtifactName: string;
@@ -560,9 +560,9 @@ export function CreateHostedActionExecutionTicket(input: Readonly<{
   const resolution = ParseHostedActionResolution(
     encodeVerificationActionData(input.resolution)
   );
-  const marker = parseVerificationActionStartMarkerV2(input.marker);
+  const marker = parseVerificationActionStartMarker(input.marker);
   const observation = input.startObservation;
-  const expectedName = verificationActionStartMarkerNameV2(resolution.actionPlan.action.actionKey);
+  const expectedName = verificationActionStartMarkerName(resolution.actionPlan.action.actionKey);
   if (marker.actionKey !== resolution.actionPlan.action.actionKey ||
       marker.candidateSha !== resolution.artifactInput.headSha ||
       marker.executionEnvironmentRevision !== CI_VERIFICATION_HOSTED_PROVIDER_REVISION ||
@@ -675,7 +675,7 @@ export function ParseHostedActionExecutionTicket(
   const expectedPreparedArtifactName =
     `sec-verification-action-prepared-v2-${withoutDigest.actionKey.slice(7)}-run-${withoutDigest.producer.runId}` +
     `-attempt-${withoutDigest.producer.runAttempt}`;
-  if (value.startArtifactName !== verificationActionStartMarkerNameV2(withoutDigest.actionKey) ||
+  if (value.startArtifactName !== verificationActionStartMarkerName(withoutDigest.actionKey) ||
       value.preparedCandidateArtifactName !== expectedPreparedArtifactName ||
       value.ticketDigest !== ciActionDigest(withoutDigest)) {
     throw new Error('Hosted Action execution ticket V2 digest or artifact name mismatch.');
@@ -736,7 +736,7 @@ export function ReduceHostedActionProviderIndex(input: Readonly<{
     executionEnvironmentRevision: CI_VERIFICATION_HOSTED_PROVIDER_REVISION,
     statusReadback: readbacks[0]!,
     startObservations: input.index.startObservations.filter(
-      (entry) => entry.payload?.actionKey === actionKey || entry.artifactName === verificationActionStartMarkerNameV2(actionKey)
+      (entry) => entry.payload?.actionKey === actionKey || entry.artifactName === verificationActionStartMarkerName(actionKey)
     ),
     terminalObservations: input.index.terminalObservations
       .map((entry) => entry.providerObservation)
@@ -795,7 +795,7 @@ function gitCandidateBytes(repositoryRoot: string, args: readonly string[]): Buf
 
 function hostedActionFileDigest(filePath: string): VerificationActionKeyDigest {
   const descriptor = openSync(path.resolve(filePath), 'r');
-  const hash = createHash('sha256');
+  const hash = createSha256Hasher();
   const buffer = Buffer.allocUnsafe(1024 * 1024);
   try {
     for (;;) {
@@ -806,7 +806,7 @@ function hostedActionFileDigest(filePath: string): VerificationActionKeyDigest {
   } finally {
     closeSync(descriptor);
   }
-  return `sha256:${hash.digest('hex')}`;
+  return hash.finish();
 }
 
 type RetainedHostedSutArchive = Readonly<{
@@ -981,7 +981,7 @@ function hostedActionDependencyClosure(input: Readonly<{
     }
     return Object.freeze({
       path: relativePath,
-      bytesDigest: `sha256:${createHash('sha256').update(baseBytes).digest('hex')}`
+      bytesDigest: `sha256:${rawSha256Hex(baseBytes)}`
     });
   });
   return Object.freeze({
@@ -993,7 +993,7 @@ function hostedActionDependencyClosure(input: Readonly<{
   });
 }
 
-export function AssertHostedActionDependencyInputsV1(input: Readonly<{
+export function AssertHostedActionDependencyInputs(input: Readonly<{
   baseRoot: string;
   candidateRoot: string;
   baseSha: string;
@@ -1635,8 +1635,8 @@ export function RunBoundedDependencyMaterialization(
     } catch (secondError) {
       const firstDiagnostic = dependencyMaterializationFailureDiagnostic(firstError);
       const secondDiagnostic = dependencyMaterializationFailureDiagnostic(secondError);
-      const firstDigest = createHash('sha256').update(firstDiagnostic).digest('hex');
-      const secondDigest = createHash('sha256').update(secondDiagnostic).digest('hex');
+      const firstDigest = rawSha256Hex(firstDiagnostic);
+      const secondDigest = rawSha256Hex(secondDiagnostic);
       throw new Error(
         'Trusted bootstrap exact-base dependency materialization failed after one bounded ' +
         `Bun tarball-extraction recovery retry: first=sha256:${firstDigest} ` +
@@ -2141,7 +2141,7 @@ const TRUSTED_BOOTSTRAP_SUT_FOCUSED_TESTS = Object.freeze([
   'tests/unit/tcb-trust-root-contract.test.ts',
   'tests/unit/test-runner.test.ts',
   'tests/contract/ci-contract.test.ts',
-  'tests/contract/sec-merge-gate.test.ts',
+  'tests/contract/merge-gate.test.ts',
   'tests/contract/tcb-closure-lock.test.ts',
   'tests/contract/repository-audit.test.ts',
   'tests/contract/documentation-authority.test.ts',
@@ -2223,8 +2223,8 @@ export const TrustedBootstrapSutHarness = [
     'bun', 'test', '--timeout', '180000', ...TRUSTED_BOOTSTRAP_SUT_FOCUSED_TESTS
   ])});`,
   '  await execute("repository-audit", ["bun", "src/adapters/repository/repository-audit/cli.ts", "--json"]);',
-  '  await execute("affected-plan", ["bun", "run", "check:affected", "--plan"]);',
-  '  await execute("affected-tests", ["bun", "run", "test:affected"]);',
+  '  await execute("affected-plan", ["bun", "run", "check", "--", "--affected", "--plan"]);',
+  '  await execute("affected-tests", ["bun", "run", "test", "--", "--affected"]);',
   '  const worktree = await execute("worktree-readback", ["git", "status", "--porcelain=v1"]);',
   '  if (worktree.stdoutTail.length !== 0) throw new Error("tracked-worktree-not-clean");',
   '} catch (error) { status = "failed"; diagnostic = error instanceof Error ? error.message : String(error); }',
@@ -2633,7 +2633,7 @@ function bindHostedSutProcessOperation(
       authorityGrantDigest: (plan.executionAuthorizationDigest ?? plan.planDigest) as OperationDigest
     })
   });
-  return bindSecSemanticOperation(operationPlan, [compileCapabilityBinding({
+  return bindSemanticOperation(operationPlan, [compileCapabilityBinding({
     requirementId: HOSTED_SUT_PROCESS_REQUIREMENT_ID,
     contractDigest,
     providerIdentityDigest
@@ -2725,8 +2725,8 @@ async function defaultHostedSutSandboxProcess(
     const stdout = Buffer.from(executed.result.stdout);
     const stderr = Buffer.from(executed.result.stderr, 'utf8');
     const tailByteLimit = 64 * 1024;
-    const stdoutDigest = `sha256:${createHash('sha256').update(stdout).digest('hex')}` as VerificationActionKeyDigest;
-    const stderrDigest = `sha256:${createHash('sha256').update(stderr).digest('hex')}` as VerificationActionKeyDigest;
+    const stdoutDigest = `sha256:${rawSha256Hex(stdout)}` as VerificationActionKeyDigest;
+    const stderrDigest = `sha256:${rawSha256Hex(stderr)}` as VerificationActionKeyDigest;
     const outputProjection = Object.freeze({
       stdoutDigest,
       stderrDigest,
@@ -2949,7 +2949,7 @@ export async function ExecuteTrustedBootstrapSut(input: Readonly<{
       }));
     }
     const sumsSource = `${TRUSTED_BOOTSTRAP_SUT_EVIDENCE_FILES.map(([fileName]) =>
-      `${createHash('sha256').update(readFileSync(path.resolve(outputDirectory, fileName))).digest('hex')}  ${fileName}`
+      `${rawSha256Hex(readFileSync(path.resolve(outputDirectory, fileName)))}  ${fileName}`
     ).join('\n')}\n`;
     writeFileSync(path.resolve(outputDirectory, 'SHA256SUMS'), sumsSource, { encoding: 'utf8', flag: 'wx' });
     const residuePassed = teardown.commandStarted && teardown.code === 0 &&
@@ -2969,7 +2969,7 @@ export async function ExecuteTrustedBootstrapSut(input: Readonly<{
       treeSha: input.treeSha,
       parentSha: input.baseSha,
       auxiliaryStatus: status,
-      evidenceSetDigest: `sha256:${createHash('sha256').update(sumsSource).digest('hex')}`,
+      evidenceSetDigest: `sha256:${rawSha256Hex(sumsSource)}`,
       bootstrapDigest,
       sandboxPolicyDigest: CI_VERIFICATION_HOSTED_SANDBOX_POLICY_DIGEST,
       commandPlanDigest: commandPlan?.planDigest ?? null,
@@ -2978,7 +2978,7 @@ export async function ExecuteTrustedBootstrapSut(input: Readonly<{
       executionOutputDigest: execution.rawOutputDigest,
       residueReadbackDigest: teardown.rawOutputDigest
     });
-    const receiptDigest = (`sha256:${createHash('sha256').update(JSON.stringify(semantic)).digest('hex')}`) as VerificationActionKeyDigest;
+    const receiptDigest = (`sha256:${rawSha256Hex(JSON.stringify(semantic))}`) as VerificationActionKeyDigest;
     writeFileSync(
       path.resolve(outputDirectory, 'sut-receipt.json'),
       `${JSON.stringify({ ...semantic, receiptDigest }, null, 2)}\n`,
@@ -3434,7 +3434,7 @@ export async function ExecuteHostedActionSut(input: Readonly<{
 export function ParseHostedActionRawResult(
   source: string
 ): HostedActionRawResult {
-  return parseHostedActionRawResultContractV2(source);
+  return parseHostedActionRawResultContract(source);
 }
 
 export function AssembleHostedActionTerminal(input: Readonly<{
@@ -3554,7 +3554,7 @@ export function CoordinateHostedActions(input: Readonly<{
   const membersByKey = new Map(plan.actions.map((member) => [member.action.actionKey, member] as const));
   const actionKeyForName = (name: string, kind: 'start' | 'terminal' | 'anchor'): VerificationActionKeyDigest => {
     const member = plan.actions.find((entry) => {
-      if (kind === 'start') return verificationActionStartMarkerNameV2(entry.action.actionKey) === name;
+      if (kind === 'start') return verificationActionStartMarkerName(entry.action.actionKey) === name;
       if (kind === 'terminal') return verificationActionProviderTerminalArtifactName(entry.action.actionKey) === name;
       return verificationActionProviderTerminalAnchorName(entry.action.actionKey) === name;
     });
@@ -3935,7 +3935,7 @@ function bindCiActionEffect(
     }],
     attempt: issueSemanticOperationAttemptContext({ authorityGrantDigest })
   });
-  return bindSecSemanticOperation(semanticPlan, [
+  return bindSemanticOperation(semanticPlan, [
     compileCapabilityBinding({
       requirementId: CI_ACTION_PROCESS_REQUIREMENT_ID,
       contractDigest: processContractDigest,
@@ -4036,7 +4036,7 @@ async function issueCiActionEffectSettlement(input: Readonly<{
     }) as OperationDigest,
     disposition: 'applied'
   });
-  const ownerTerminalJoin = issueSecNormalOwnerTerminalJoinReceipt(
+  const ownerTerminalJoin = issueNormalOwnerTerminalJoinReceipt(
     operation,
     providerSettlementSet,
     readback,
@@ -4398,7 +4398,7 @@ function manifestBinding(
   };
 }
 
-async function runCodexDevelopmentCiVerification(
+async function runCiVerification(
   options: CiVerificationTestOptions,
   gitOperation: AuthorityGitReadOperation
 ): Promise<number> {
@@ -4705,7 +4705,7 @@ async function runCodexDevelopmentCiVerification(
           }
           return Object.freeze({
             path: dependencyPath,
-            digest: `sha256:${createHash('sha256').update(blob.bytes).digest('hex')}` as VerificationActionKeyDigest
+            digest: `sha256:${rawSha256Hex(blob.bytes)}` as VerificationActionKeyDigest
           });
         })
       : [];
@@ -4926,7 +4926,7 @@ async function runCodexDevelopmentCiVerification(
   return exitCode;
 }
 
-async function executeCodexDevelopmentCiVerification(
+async function executeCiVerification(
   options: CiVerificationTestOptions
 ): Promise<number> {
   const repositoryRoot = path.resolve(options.repositoryRoot ?? process.cwd());
@@ -4936,19 +4936,19 @@ async function executeCodexDevelopmentCiVerification(
     cwd: repositoryRoot,
     budget: GIT_READ_EXACT_TREE_OPERATION_BUDGET,
     deadlineAtUnixMs
-  }, (gitOperation) => runCodexDevelopmentCiVerification(options, gitOperation));
+  }, (gitOperation) => runCiVerification(options, gitOperation));
 }
 
 /** Production CLI entry. Provider and repository observations are never caller-injected. */
 export async function CiVerificationMain(): Promise<number> {
-  return executeCodexDevelopmentCiVerification({});
+  return executeCiVerification({});
 }
 
 /** Test-only execution harness; production modules must not import this entry. */
 export async function CiVerificationMainForTests(
   options: CiVerificationTestOptions
 ): Promise<number> {
-  return executeCodexDevelopmentCiVerification(options);
+  return executeCiVerification(options);
 }
 
 const HOSTED_ACTION_COMMANDS = new Set([
@@ -5479,17 +5479,17 @@ export async function CiVerificationHostedActionCli(
       if (observed.decision.disposition !== 'start-allowed' || !observed.decision.physicalExecutionAllowed) {
         throw new Error(`start marker cannot be prepared from ${observed.decision.disposition}.`);
       }
-      const marker = createVerificationActionStartMarkerV2({
+      const marker = createVerificationActionStartMarker({
         actionKey: authority.resolution.actionPlan.action.actionKey,
         candidateSha: authority.resolution.artifactInput.headSha,
         executionEnvironmentRevision: CI_VERIFICATION_HOSTED_PROVIDER_REVISION,
         producer: currentHostedActionProducer()
       });
-      writeVerificationActionStartMarkerV2Atomic(args.get('--output')!, marker);
+      writeVerificationActionStartMarkerAtomic(args.get('--output')!, marker);
       return JSON.stringify({
         status: 'marker-prepared',
         actionKey: marker.actionKey,
-        markerName: verificationActionStartMarkerNameV2(marker.actionKey),
+        markerName: verificationActionStartMarkerName(marker.actionKey),
         markerDigest: marker.markerDigest,
         archiveDigest: archiveInventory.archiveDigest,
         archiveInventoryDigest: archiveInventory.inventoryDigest,
@@ -5521,7 +5521,7 @@ export async function CiVerificationHostedActionCli(
           markerObservation?.expired !== false || markerObservation.payload === null) {
         throw new Error('claim-start requires one exact uploaded immutable start marker.');
       }
-      const marker = parseVerificationActionStartMarkerV2(markerObservation.payload);
+      const marker = parseVerificationActionStartMarker(markerObservation.payload);
       const claimed = await ensureVerificationActionGitHubProviderTransaction({
         repositoryRoot: exactRepositoryRoot,
         authority: { envelope: authority.providerEnvelope, actionPlanClosure: authority.envelope.actionPlanClosure },
@@ -5600,7 +5600,7 @@ export async function CiVerificationHostedActionCli(
           terminalObservation.providerObservation.archiveDigest === null || startStatus === undefined) {
         throw new Error('terminal anchor lacks exact authenticated start and terminal bytes.');
       }
-      const anchor = createVerificationActionTerminalStatusAnchorV2({
+      const anchor = createVerificationActionTerminalStatusAnchor({
         actionKey: authority.resolution.actionPlan.action.actionKey,
         candidateSha: authority.resolution.artifactInput.headSha,
         startStatusId: startStatus.id,
@@ -5616,7 +5616,7 @@ export async function CiVerificationHostedActionCli(
         terminalAssemblerOrigin: terminalObservation.artifact.producer,
         anchorPublisherOrigin: currentHostedActionProducer()
       });
-      writeVerificationActionTerminalStatusAnchorV2Atomic(args.get('--output')!, anchor);
+      writeVerificationActionTerminalStatusAnchorAtomic(args.get('--output')!, anchor);
       return JSON.stringify({
         status: 'anchor-prepared',
         actionKey: anchor.actionKey,

@@ -3,11 +3,11 @@ import { createHash } from 'node:crypto';
 import {
   consumeOperationRequirementBindingContext,
   issueOperationRequirementBindingContext,
-  SEC_OPERATION_REQUIREMENT_BINDING_ISSUER_ROLE,
+  OPERATION_REQUIREMENT_BINDING_ISSUER_ROLE,
   type OperationRequirementBindingContext
 } from './requirement-binding-context.ts';
 import {
-  bindSecSemanticOperation,
+  bindSemanticOperation,
   compileCapabilityBinding,
   compileSemanticOperationPlan,
   issueSemanticOperationAttemptContext,
@@ -47,7 +47,7 @@ function operation(
       authorityGrantDigest: digest('typecheck-effect-grant')
     })
   });
-  return bindSecSemanticOperation(plan, [compileCapabilityBinding({
+  return bindSemanticOperation(plan, [compileCapabilityBinding({
     requirementId: 'typescript.project-check',
     contractDigest: requirementContractDigest,
     providerIdentityDigest: digest(provider)
@@ -67,7 +67,7 @@ test('foundation context binds one exact attempt requirement provider and narrow
   });
   const projection = consumeOperationRequirementBindingContext(context);
 
-  expect(projection.issuerRole).toBe(SEC_OPERATION_REQUIREMENT_BINDING_ISSUER_ROLE);
+  expect(projection.issuerRole).toBe(OPERATION_REQUIREMENT_BINDING_ISSUER_ROLE);
   expect(projection.operationIdentityDigest).toBe(bound.plan.identity.identityDigest);
   expect(projection.executionPlanDigest).toBe(bound.plan.execution.executionPlanDigest);
   expect(projection.boundAttemptDigest).toBe(bound.boundAttemptDigest);

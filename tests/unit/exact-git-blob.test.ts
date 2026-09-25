@@ -12,9 +12,9 @@ import path from 'node:path';
 import { expect, test } from 'bun:test';
 
 import {
-  CodexDevelopmentListExactGitTreeEntriesFromSession,
-  CodexDevelopmentReadExactGitBlobFromSession,
-  CodexDevelopmentReadExactGitTextBlobsBatchFromSession,
+  ListExactGitTreeEntriesFromSession,
+  ReadExactGitBlobFromSession,
+  ReadExactGitTextBlobsBatchFromSession,
   parseExactGitBlobsBatch
 } from '../../src/adapters/providers/git-read/exact-blob.ts';
 import { withTestGitReadAuthority } from '../helpers/git-read-authority.ts';
@@ -60,7 +60,7 @@ test('exact Git blob reader binds raw LF bytes despite a CRLF checkout', async (
     expect(readFileSync(absolutePath, 'utf8')).toBe('line-one\r\nline-two\r\n');
 
     const result = await withTestGitReadAuthority(repositoryRoot, (session) => (
-      CodexDevelopmentReadExactGitBlobFromSession(session, { commitSha, repositoryPath })
+      ReadExactGitBlobFromSession(session, { commitSha, repositoryPath })
     ));
 
     expect(result).toMatchObject({ mode: '100644', type: 'blob' });
@@ -85,7 +85,7 @@ test('exact Git blob reader ignores replacement-object views', async () => {
     expect(git(repositoryRoot, ['cat-file', 'blob', originalBlob])).toContain('replacement-object-view');
 
     const result = await withTestGitReadAuthority(repositoryRoot, (session) => (
-      CodexDevelopmentReadExactGitBlobFromSession(session, {
+      ReadExactGitBlobFromSession(session, {
         commitSha,
         repositoryPath: 'fixture.txt'
       })
@@ -107,7 +107,7 @@ test('exact Git blob reader ignores ambient repository redirection', async () =>
     process.env.GIT_DIR = path.join(repositoryRoot, 'nonexistent-ambient.git');
 
     const result = await withTestGitReadAuthority(repositoryRoot, (session) => (
-      CodexDevelopmentReadExactGitBlobFromSession(session, {
+      ReadExactGitBlobFromSession(session, {
         commitSha,
         repositoryPath: 'fixture.txt'
       })
@@ -135,21 +135,21 @@ test('exact Git blob reader rejects invalid, missing, nonordinary, and oversized
     const commitSha = git(repositoryRoot, ['rev-parse', 'HEAD']);
 
     await withTestGitReadAuthority(repositoryRoot, async (session) => {
-      await expect(CodexDevelopmentReadExactGitBlobFromSession(session, {
+      await expect(ReadExactGitBlobFromSession(session, {
         commitSha,
         repositoryPath: '../ordinary'
       })).rejects.toThrow('canonical repository-relative path');
-      await expect(CodexDevelopmentReadExactGitBlobFromSession(session, {
+      await expect(ReadExactGitBlobFromSession(session, {
         commitSha,
         repositoryPath: 'missing'
       })).rejects.toThrow('path is missing');
       for (const repositoryPath of ['link', 'module']) {
-        await expect(CodexDevelopmentReadExactGitBlobFromSession(session, {
+        await expect(ReadExactGitBlobFromSession(session, {
           commitSha,
           repositoryPath
         })).rejects.toThrow('not an ordinary blob');
       }
-      await expect(CodexDevelopmentReadExactGitBlobFromSession(session, {
+      await expect(ReadExactGitBlobFromSession(session, {
         commitSha,
         maxBytes: 2,
         repositoryPath: 'ordinary'
@@ -178,10 +178,10 @@ test('exact Git text batch preserves path-to-blob identity and rejects malformed
     git(repositoryRoot, ['commit', '--quiet', '-m', 'batch']);
     const commitSha = git(repositoryRoot, ['rev-parse', 'HEAD']);
     const { entries, source } = await withTestGitReadAuthority(repositoryRoot, async (session) => {
-      const entries = await CodexDevelopmentListExactGitTreeEntriesFromSession(session, commitSha);
+      const entries = await ListExactGitTreeEntriesFromSession(session, commitSha);
       return {
         entries,
-        source: await CodexDevelopmentReadExactGitTextBlobsBatchFromSession(session, { entries })
+        source: await ReadExactGitTextBlobsBatchFromSession(session, { entries })
       };
     });
     expect(source.map(({ repositoryPath, source: text }) => [repositoryPath, text])).toEqual([

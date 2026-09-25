@@ -8,7 +8,7 @@ import {
   compileRepositoryModuleMembershipSnapshot,
   parseModuleDescriptor
 } from '../../../repository/architecture/contract.ts';
-import { compileRepositorySourceProgramModel } from '../../../repository/source-program-model/repository.ts';
+import { compileRepositoryModel } from '../../../repository/source-program-model/repository.ts';
 import { PhysicalNoFollowError } from '../../../runtime-state/physical/runtime/physical-no-follow.ts';
 import { isCanonicalRuntimeDependencySourceGeneration } from './dependency-transition/codec.ts';
 import {
@@ -25,7 +25,7 @@ import {
 } from './source-generation.ts';
 
 test('dependency generation and environment owners remain bound to their readback operations', async () => {
-  const descriptorPath = 'src/adapters/toolchain/dependencies/sec.module.json';
+  const descriptorPath = 'src/adapters/toolchain/dependencies/module.json';
   const descriptorSource = await fs.readFile(descriptorPath, 'utf8');
   const descriptor = parseModuleDescriptor(JSON.parse(descriptorSource), descriptorPath);
   const roles = descriptor.capabilityProviders.flatMap(({ capability, operationRoles }) => (
@@ -60,7 +60,7 @@ test('dependency generation and environment owners remain bound to their readbac
     repositoryFiles: [descriptorPath, 'src/adapters/toolchain/dependencies/runtime.ts', sourcePath],
     descriptorSources: [{ descriptorPath, source: descriptorSource }]
   });
-  const model = compileRepositorySourceProgramModel({
+  const model = compileRepositoryModel({
     sourceRevision: sha256(files.map(({ path: filePath, contentDigest }) => ({
       path: filePath,
       contentDigest

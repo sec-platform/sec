@@ -1,6 +1,7 @@
 import path from 'node:path';
 
 import type { SemanticMutationRecoveryRecord } from '../../semantics/mutation/transaction.ts';
+import { semanticMutationTransactionsRoot } from '../../workspace/contract/semantic-mutation/state-layout.ts';
 import { retainNoFollowFileTransaction } from '../runtime-state/physical/runtime/physical-no-follow.ts';
 import { retainOptionalDirectory } from '../runtime-state/physical/runtime/retained-file-read.ts';
 import {
@@ -9,6 +10,7 @@ import {
   scanSemanticMutationTransactionCensus
 } from './mutation-recovery-record.ts';
 import { readRejectedSemanticMutationTerminal } from './mutation-terminal-record.ts';
+import { inspectSemanticMutationStateLayoutStatus } from './state-layout-migration.ts';
 
 export interface SemanticMutationRecoveryAuthoritySnapshot {
   readonly unfinished: readonly {
@@ -27,10 +29,20 @@ export async function inspectSemanticMutationRecoveryAuthority(
   workspaceRoot: string
 ): Promise<SemanticMutationRecoveryAuthoritySnapshot> {
   const root = path.resolve(workspaceRoot);
-  const transactionsRoot = path.join(root, '.sec', 'semantic-mutation', 'v1', 'transactions');
+  const status = inspectSemanticMutationStateLayoutStatus(root);
+  if (status === 'ambiguous') {
+    throw new Error('Semantic Mutation recovery authority has both current and legacy state roots');
+  }
+  if (status === 'absent') {
+    return { unfinished: [], blocked: undefined };
+  }
+  const transactionsRoot = semanticMutationTransactionsRoot(
+    root,
+    status === 'legacy' ? 'legacy' : 'current'
+  );
   const transactionsParent = retainOptionalDirectory(
     transactionsRoot,
-    'Semantic Mutation recovery authority transactions root'
+    `Semantic Mutation ${status} recovery authority transactions root`
   );
   if (transactionsParent === null) {
     return { unfinished: [], blocked: undefined };

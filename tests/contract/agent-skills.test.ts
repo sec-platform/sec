@@ -12,8 +12,8 @@ import {
   resolveMarkdownSkillCoverage,
   resolveRepositoryHeuristicRoute,
   resolveRepositoryHeuristicSkills,
-  SEC_AGENT_SKILL_IDS,
-  SEC_REPOSITORY_HEURISTIC_BEHAVIOR_IDS
+  AGENT_SKILL_IDS,
+  REPOSITORY_HEURISTIC_BEHAVIOR_IDS
 } from '../../src/adapters/self-hosting/control/agent/skill.ts';
 import {
   activeDocumentationPaths,
@@ -58,11 +58,11 @@ test('SEC skill inventory conforms to one strict AgentOperation contract', async
   const tracked = trackedRepositoryFiles();
   const skillFiles = tracked.filter((file) => /^\.agents\/skills\/[^/]+\/SKILL\.md$/u.test(file));
   expect(skillFiles).toEqual(
-    SEC_AGENT_SKILL_IDS.map((skillId) => `.agents/skills/${skillId}/SKILL.md`)
+    AGENT_SKILL_IDS.map((skillId) => `.agents/skills/${skillId}/SKILL.md`)
   );
 
   const descriptions = new Set<string>();
-  for (const skillId of SEC_AGENT_SKILL_IDS) {
+  for (const skillId of AGENT_SKILL_IDS) {
     const source = await readFile(path.join(SKILLS_ROOT, skillId, 'SKILL.md'), 'utf8');
     const { body, frontmatter } = parseSkill(source);
     expect(Object.keys(frontmatter).sort()).toEqual(['description', 'name']);
@@ -77,7 +77,7 @@ test('SEC skill inventory conforms to one strict AgentOperation contract', async
 });
 
 test('every exact Skill source passes the production blocking governance projection', async () => {
-  for (const skillId of SEC_AGENT_SKILL_IDS) {
+  for (const skillId of AGENT_SKILL_IDS) {
     const repositoryPath = `.agents/skills/${skillId}/SKILL.md`;
     const source = await readFile(path.join(REPOSITORY_ROOT, repositoryPath), 'utf8');
     const projection = projectRepositorySourceGovernance(repositoryPath, source);
@@ -89,15 +89,15 @@ test('every exact Skill source passes the production blocking governance project
 });
 
 test('heuristic registry maps each irreducible behavior to exactly one Skill', () => {
-  const routes = SEC_REPOSITORY_HEURISTIC_BEHAVIOR_IDS.map(
+  const routes = REPOSITORY_HEURISTIC_BEHAVIOR_IDS.map(
     resolveRepositoryHeuristicRoute
   );
-  expect(new Set(routes.map((route) => route.owner))).toEqual(new Set(SEC_AGENT_SKILL_IDS));
-  expect(SEC_REPOSITORY_HEURISTIC_BEHAVIOR_IDS).toHaveLength(SEC_AGENT_SKILL_IDS.length);
+  expect(new Set(routes.map((route) => route.owner))).toEqual(new Set(AGENT_SKILL_IDS));
+  expect(REPOSITORY_HEURISTIC_BEHAVIOR_IDS).toHaveLength(AGENT_SKILL_IDS.length);
   expect(resolveRepositoryHeuristicRoute('task-delegation')).toEqual({
     kind: 'skill',
-    owner: 'sec-task-delegation',
-    authorityRef: '.agents/skills/sec-task-delegation/SKILL.md'
+    owner: 'task-delegation',
+    authorityRef: '.agents/skills/task-delegation/SKILL.md'
   });
   for (const route of routes) {
     expect(route.authorityRef).toBe(`.agents/skills/${route.owner}/SKILL.md`);
@@ -200,19 +200,19 @@ test('registered heuristic runtime surfaces resolve at least one Skill', () => {
   expect(agentsCoverage).toEqual({
     kind: 'agent-projection',
     skills: [
-      'sec-heuristic-governance',
-      'sec-repository-audit',
-      'sec-task-delegation'
+      'heuristic-governance',
+      'repository-audit',
+      'task-delegation'
     ]
   });
   expect(resolveRepositoryHeuristicSkills('AGENTS.md')).toEqual(agentsCoverage!.skills);
   expect(resolveRepositoryHeuristicSkills('.documentation/documents.json')).toEqual([
-    'sec-heuristic-governance',
-    'sec-repository-audit'
+    'heuristic-governance',
+    'repository-audit'
   ]);
   expect(resolveRepositoryHeuristicSkills(
     'config/external-capabilities/ledger.yaml'
-  )).toEqual(['sec-external-capability-governance', 'sec-heuristic-governance']);
+  )).toEqual(['external-capability-governance', 'heuristic-governance']);
   expect(resolveRepositoryHeuristicSkills('src/adapters/verification/platform/ci/runtime/ci-orchestration-core.ts')).toEqual([
   ]);
   expect(resolveRepositoryHeuristicSkills('package.json')).toEqual([
@@ -223,7 +223,7 @@ test('documentation and Agent trust-root kinds have focused governance ownership
   // Repository-wide selection remains owned by the canonical affected-selection
   // operation; this contract fixes only the stable source-kind ownership relation.
   const skillKind = classifyTestImpactSource(
-    '.agents/skills/sec-worker-development/SKILL.md',
+    '.agents/skills/worker-development/SKILL.md',
     isActiveDocumentationPath
   );
   expect(skillKind).toBe('agent-skill');

@@ -1,6 +1,6 @@
 import { canonicalEquals, compareCodeUnits, deepFreeze, sha256 } from '../../../../contracts/canonical.ts';
 
-const SEC_OPERATION_DEMAND_GRAPH_SCHEMA =
+const OPERATION_DEMAND_GRAPH_SCHEMA =
   'sec-operation-demand-graph-v1' as const;
 
 const OPERATION_KINDS = [
@@ -38,16 +38,16 @@ export type OperationDemandInput = Readonly<
   }
 >;
 
-const SEC_OPERATION_CAPABILITY_DEMANDS = [
+const OPERATION_CAPABILITY_DEMANDS = [
   'compiler-dependency-tree',
   'managed-git-hooks'
 ] as const;
 
-const SEC_OPERATION_TRANSITION_DEMANDS = [
+const OPERATION_TRANSITION_DEMANDS = [
   'roadmap-terminal-compaction'
 ] as const;
 
-const SEC_OPERATION_VERIFICATION_OBLIGATIONS = [
+const OPERATION_VERIFICATION_OBLIGATIONS = [
   'git-hook-lifecycle',
   'operation-demand-integrity',
   'roadmap-terminal-topology',
@@ -55,14 +55,14 @@ const SEC_OPERATION_VERIFICATION_OBLIGATIONS = [
 ] as const;
 
 type OperationCapabilityDemand =
-  (typeof SEC_OPERATION_CAPABILITY_DEMANDS)[number];
+  (typeof OPERATION_CAPABILITY_DEMANDS)[number];
 type OperationTransitionDemand =
-  (typeof SEC_OPERATION_TRANSITION_DEMANDS)[number];
+  (typeof OPERATION_TRANSITION_DEMANDS)[number];
 type OperationVerificationObligation =
-  (typeof SEC_OPERATION_VERIFICATION_OBLIGATIONS)[number];
+  (typeof OPERATION_VERIFICATION_OBLIGATIONS)[number];
 
 export interface OperationDemandGraph {
-  readonly schema: typeof SEC_OPERATION_DEMAND_GRAPH_SCHEMA;
+  readonly schema: typeof OPERATION_DEMAND_GRAPH_SCHEMA;
   readonly input: OperationDemandInput;
   readonly capabilityDemands: readonly OperationCapabilityDemand[];
   readonly transitionDemands: readonly OperationTransitionDemand[];
@@ -112,7 +112,7 @@ export function compileOperationDemandGraph(
   const compilerDemanded = input.operation !== 'work-selection-observe';
   const terminalTransitionDemanded = terminalWorkIds.length > 0;
   const withoutDigest = deepFreeze({
-    schema: SEC_OPERATION_DEMAND_GRAPH_SCHEMA,
+    schema: OPERATION_DEMAND_GRAPH_SCHEMA,
     input: {
       operation: input.operation,
       terminalWorkIds,

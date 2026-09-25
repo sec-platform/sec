@@ -5,7 +5,7 @@ import path from 'node:path';
 import { rawSha256, sha256 } from '../../../contracts/canonical.ts';
 import { issueOperationRequirementBindingContext } from '../../../execution/operation/requirement-binding-context.ts';
 import {
-  bindSecSemanticOperation,
+  bindSemanticOperation,
   compileCapabilityBinding,
   compileSemanticOperationPlan,
   issueSemanticOperationAttemptContext,
@@ -192,7 +192,7 @@ function compileCandidateBundleOperation(input: Readonly<{
       ]
     }]
   });
-  return bindSecSemanticOperation(plan, [compileCapabilityBinding({
+  return bindSemanticOperation(plan, [compileCapabilityBinding({
     requirementId: CANDIDATE_BUNDLE_REQUIREMENT,
     contractDigest: CANDIDATE_BUNDLE_CONTRACT,
     providerIdentityDigest: CANDIDATE_BUNDLE_PROCESS_PROVIDER
@@ -241,7 +241,7 @@ function compileBundleInspectionOperation(input: Readonly<{
       ]
     }]
   });
-  return bindSecSemanticOperation(plan, [compileCapabilityBinding({
+  return bindSemanticOperation(plan, [compileCapabilityBinding({
     requirementId: BUNDLE_INSPECTION_REQUIREMENT,
     contractDigest: BUNDLE_INSPECTION_CONTRACT,
     providerIdentityDigest: BUNDLE_INSPECTION_PROCESS_PROVIDER

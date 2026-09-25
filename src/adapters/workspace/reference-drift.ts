@@ -3,7 +3,7 @@ import {
   uniqueSorted
 } from '../../contracts/canonical.ts';
 import {
-  bindSecSemanticOperation,
+  bindSemanticOperation,
   compileCapabilityBinding,
   compileSemanticOperationPlan,
   issueSemanticOperationAttemptContext,
@@ -91,7 +91,7 @@ function compileReferenceDriftOperation(
       ]
     }]
   });
-  return bindSecSemanticOperation(plan, [compileCapabilityBinding({
+  return bindSemanticOperation(plan, [compileCapabilityBinding({
     requirementId: 'reference.drift-observation',
     contractDigest,
     providerIdentityDigest: contractDigest

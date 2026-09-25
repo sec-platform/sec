@@ -4,7 +4,7 @@
  *
  * An upstream handoff is admitted exactly once against local Git objects and
  * frozen Work Package ownership, then persisted as a content-addressed runtime
- * snapshot outside the repository tree. Subsequent `dev:continue` calls reuse
+ * snapshot outside the repository tree. Subsequent `work:continue` calls reuse
  * that snapshot without GitHub reads until an explicit external-authority
  * boundary invalidates the relevant facts.
  *
@@ -26,12 +26,12 @@ import {
   readNoFollowOrdinaryFile
 } from '../../../runtime-state/physical/runtime/physical-no-follow.ts';
 import { decodeExactUtf8 } from '../../../runtime-state/physical/runtime/retained-file-read.ts';
-import type { SecRuntimeStateLayout } from '../../../runtime-state/workspace-state/layout.ts';
-import { resolveSecRuntimeStateForRepository } from '../../../runtime-state/workspace-state/paths.ts';
+import type { RuntimeStateLayout } from '../../../runtime-state/workspace-state/layout.ts';
+import { resolveRuntimeStateForRepository } from '../../../runtime-state/workspace-state/paths.ts';
 import { encodeVerificationActionData } from '../../../verification/platform/action/contract/action.ts';
 import { gitChangedFileDiffArgs, gitUntrackedFileArgs, parseGitChangedRecordsOutput, parseGitUntrackedFileOutput, type GitChangedRecord } from '../../../verification/platform/test-impact/runtime/transition.ts';
 import {
-  CodexDevelopmentAssertWorkPackageChangedRecords,
+  AssertWorkPackageChangedRecords,
   ParseCurrentWorkPackageManifest,
   WorkPackageManifestDigest
 } from '../task/contract/work-package.ts';
@@ -54,7 +54,7 @@ import {
   gcContinuationObjects,
   loadActiveContinuationCheckpoint,
   persistActiveContinuationCheckpoint,
-  resolveSecRuntimeStateFromWorkspaceLocator
+  resolveRuntimeStateFromWorkspaceLocator
 } from './runtime-store.ts';
 
 export const MANAGED_DEVELOPMENT_CONTINUATION_SCHEMA =
@@ -181,9 +181,9 @@ async function checkpointStillControlsHead(
     );
     const changedRecords = await changedRecordsBetween(session, checkpoint.baseSha, headSha);
     if (changedRecords.length === 0) return false;
-    CodexDevelopmentAssertWorkPackageChangedRecords(manifest, changedRecords);
+    AssertWorkPackageChangedRecords(manifest, changedRecords);
     if (workingTreeRecords.length > 0) {
-      CodexDevelopmentAssertWorkPackageChangedRecords(manifest, workingTreeRecords);
+      AssertWorkPackageChangedRecords(manifest, workingTreeRecords);
     }
     return true;
   } catch {
@@ -229,7 +229,7 @@ async function observeLocalContinuationWithSession(
   if (changedRecords.length === 0) {
     fail('canonical candidate delta is unresolved or empty.');
   }
-  const ownership = CodexDevelopmentAssertWorkPackageChangedRecords(manifest, changedRecords);
+  const ownership = AssertWorkPackageChangedRecords(manifest, changedRecords);
 
   const observation: LocalContinuationObservation = Object.freeze({
     repositoryRoot: root,
@@ -372,7 +372,7 @@ export async function continueLocalDevelopment(input: Readonly<{
   const root = await repositoryRoot(session);
   let checkpoint: LocalContinuationCheckpoint;
   let importedAdmission: LocalContinuationAdmission | null = null;
-  let layout: SecRuntimeStateLayout;
+  let layout: RuntimeStateLayout;
 
   if (options.handoffPath !== null) {
     const source = readLocalContinuationHandoff(options.handoffPath);
@@ -382,13 +382,13 @@ export async function continueLocalDevelopment(input: Readonly<{
     });
     checkpoint = parseLocalContinuationCheckpoint(source);
     importedAdmission = admitted.admission;
-    layout = resolveSecRuntimeStateForRepository({
+    layout = resolveRuntimeStateForRepository({
       repository: checkpoint.repository,
       repositoryRoot: root
     });
     await persistActiveContinuationCheckpoint({ layout, repositoryRoot: root, checkpoint });
   } else {
-    const located = await resolveSecRuntimeStateFromWorkspaceLocator({ repositoryRoot: root });
+    const located = await resolveRuntimeStateFromWorkspaceLocator({ repositoryRoot: root });
     if (located === null) {
       fail('no managed continuation exists for this workspace; import one upstream handoff once with --handoff.');
     }

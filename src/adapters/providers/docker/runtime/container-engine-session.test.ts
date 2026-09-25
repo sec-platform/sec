@@ -2,7 +2,7 @@ import { expect, test } from 'bun:test';
 
 import { sha256 } from '../../../../contracts/canonical.ts';
 import {
-  bindSecSemanticOperation,
+  bindSemanticOperation,
   compileCapabilityBinding,
   compileSemanticOperationPlan,
   issueSemanticOperationAttemptContext,
@@ -237,7 +237,7 @@ test('a non-authority resource envelope cannot open a provider settlement scope'
     }],
     attempt: issueSemanticOperationAttemptContext({ authorityGrantDigest: contractDigest })
   });
-  const resourceEnvelope = bindSecSemanticOperation(plan, [compileCapabilityBinding({
+  const resourceEnvelope = bindSemanticOperation(plan, [compileCapabilityBinding({
     requirementId: 'external.container-engine-process',
     contractDigest,
     providerIdentityDigest: resourceEnvelopeIdentityDigest

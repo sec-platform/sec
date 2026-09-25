@@ -6,12 +6,12 @@ import {
   TASK_CAPSULE_AUTHORITY_STATUS,
   TASK_CAPSULE_INPUT_SCHEMA,
   TASK_CAPSULE_REVISION,
-  type SecDigest,
+  type TaskCapsuleDigest,
   type TaskCapsuleInput,
   type TaskCapsulePlanningContext
 } from '../../src/adapters/self-hosting/control/agent/task-capsule.ts';
 
-const digest = (character: string): SecDigest => `sha256:${character.repeat(64)}`;
+const digest = (character: string): TaskCapsuleDigest => `sha256:${character.repeat(64)}`;
 
 function planningContext(): TaskCapsulePlanningContext {
   return {
@@ -55,7 +55,7 @@ function planningContext(): TaskCapsulePlanningContext {
       revision: 'v1',
       reasonCode: 'public-contract-change'
     }],
-    skillCandidateIds: ['sec-worker-development']
+    skillCandidateIds: ['worker-development']
   };
 }
 
@@ -135,7 +135,7 @@ test('Task Capsule requires exact Git and Work Package identities plus a real ow
     planningContext: { ...source, trustedRevision: 'main' }
   }))).toThrow(/exact lowercase Git object ID/u);
   expect(() => compileTaskCapsule(input({
-    planningContext: { ...source, workPackageProjectionId: 'freeze-latest' as SecDigest }
+    planningContext: { ...source, workPackageProjectionId: 'freeze-latest' as TaskCapsuleDigest }
   }))).toThrow(/lowercase SHA-256 digest/u);
   expect(() => compileTaskCapsule(input({
     planningContext: { ...source, ownerFacts: [] }

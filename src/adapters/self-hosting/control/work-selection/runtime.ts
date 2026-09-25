@@ -15,11 +15,11 @@ import {
   createBranchLifecycleGitHubRemoteObservation
 } from '../branch-lifecycle/branch-lifecycle-command.ts';
 import {
-  CodexDevelopmentAssertControlPlaneBinding,
-  CodexDevelopmentParseActivePointer,
-  CodexDevelopmentParseCurrentStateSpec,
-  CodexDevelopmentParseRollingMachineProjection,
-  CodexDevelopmentParseRollingPlan
+  AssertControlPlaneBinding,
+  ParseActivePointer,
+  ParseCurrentStateSpec,
+  ParseRollingMachineProjection,
+  ParseRollingPlan
 } from '../documentation/document-control-plane-contract.ts';
 import { buildGitHubDefaultBranchOpenPullRequestsArgs } from '../documentation/document-control-plane-github-observation.ts';
 import {
@@ -214,7 +214,7 @@ async function resolveCanonicalDefaultProjection(input: {
   root: string;
 }): Promise<{
   stateBytes: Buffer;
-  state: ReturnType<typeof CodexDevelopmentParseCurrentStateSpec>;
+  state: ReturnType<typeof ParseCurrentStateSpec>;
 }> {
   const source = decodeUtf8(await requireCommand(input.run, 'git', [
     'for-each-ref', '--format=%(refname)%00%(symref)', 'refs/remotes/*/HEAD'
@@ -236,7 +236,7 @@ async function resolveCanonicalDefaultProjection(input: {
     `${defaultRef}:config/repository/current-state.yaml`,
     'trusted-current-state-unresolved'
   );
-  const state = CodexDevelopmentParseCurrentStateSpec(
+  const state = ParseCurrentStateSpec(
     decodeUtf8(stateBytes, 'trusted-current-state-invalid-utf8')
   );
   const projectedBranch = defaultRef.slice(`refs/remotes/${headMatch[1]!}/`.length);
@@ -782,7 +782,7 @@ async function observeCanonicalBranchLifecycle(input: {
 }
 
 function observeCanonicalControl(input: {
-  spec: ReturnType<typeof CodexDevelopmentParseCurrentStateSpec>;
+  spec: ReturnType<typeof ParseCurrentStateSpec>;
   pointerSource: string;
   rollingPlanSource: string;
   manifestPath: string;
@@ -791,10 +791,10 @@ function observeCanonicalControl(input: {
   state: CurrentWorkLifecycle['controlState'];
   ref: WorkDigest;
 }> {
-  const pointer = CodexDevelopmentParseActivePointer(input.pointerSource);
-  CodexDevelopmentAssertControlPlaneBinding({ spec: input.spec, pointer });
-  const rolling = CodexDevelopmentParseRollingPlan(input.rollingPlanSource);
-  const rollingMachine = CodexDevelopmentParseRollingMachineProjection(input.rollingPlanSource);
+  const pointer = ParseActivePointer(input.pointerSource);
+  AssertControlPlaneBinding({ spec: input.spec, pointer });
+  const rolling = ParseRollingPlan(input.rollingPlanSource);
+  const rollingMachine = ParseRollingMachineProjection(input.rollingPlanSource);
   const manifestDigest = WorkPackageManifestDigest(input.manifestBytes);
   const packageId = path.posix.basename(input.manifestPath, '.md');
   const machineBindingMatches = rollingMachine === null
@@ -986,7 +986,7 @@ async function observeWorkSelectionWithinHostedSession(
         `${rawSha256(trustedStateBytes)}:${rawSha256(defaultProjection.stateBytes)}`
       );
     }
-    const state = CodexDevelopmentParseCurrentStateSpec(
+    const state = ParseCurrentStateSpec(
       decodeUtf8(trustedStateBytes, 'trusted-current-state-invalid-utf8')
     );
     const actualTree = gitSha(decodeUtf8(await requireCommand(run, 'git', [
@@ -1109,7 +1109,7 @@ async function observeWorkSelectionWithinHostedSession(
     const pointerBytes = await readGitBlob(run, root, `${exactMain}:config/repository/active-work-package.md`,
       'active-pointer-unresolved');
     const pointerSource = decodeUtf8(pointerBytes, 'active-pointer-invalid-utf8');
-    const pointer = CodexDevelopmentParseActivePointer(pointerSource);
+    const pointer = ParseActivePointer(pointerSource);
     const rollingPlanSource = decodeUtf8(await readGitBlob(
       run,
       root,

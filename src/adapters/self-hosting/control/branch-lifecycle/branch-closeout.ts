@@ -1,4 +1,3 @@
-import { createHash } from 'node:crypto';
 import {
   existsSync,
   readFileSync,
@@ -6,6 +5,7 @@ import {
 } from 'node:fs';
 import path from 'node:path';
 
+import { rawSha256Hex } from '../../../../contracts/canonical.ts';
 import { inspectGitBundleBytes } from '../../../providers/git-bundle/runtime.ts';
 import { withAuthorityGitReadSession } from '../../../providers/git-read/authority.ts';
 import { GIT_READ_OPERATION_BUDGET } from '../../development/tooling/git/git-read.ts';
@@ -290,7 +290,7 @@ export async function rehydratePreparedBranchCloseoutRecoveryArtifact(input: {
 }): Promise<PreparedBranchCloseoutEnvelope> {
   assertPreparedBranchCloseoutEnvelope(input.remote);
   const bytes = Buffer.from(input.recoveryBundleBytes);
-  const digest = createHash('sha256').update(bytes).digest('hex');
+  const digest = rawSha256Hex(bytes);
   if (`sha256:${digest}` !== input.remote.preparation.recovery.sha256) {
     throw new Error('Provider recovery bundle digest differs from the authorized preparation.');
   }
@@ -698,7 +698,7 @@ async function findMatchingRecoveryBundle(
       const checksum = readFileSync(checksumPath, 'utf8');
       const digestMatch = /^([0-9a-f]{64})\s+\S+$/u.exec(checksum.trim());
       const bundleBytes = readFileSync(candidate);
-      const digest = createHash('sha256').update(bundleBytes).digest('hex');
+      const digest = rawSha256Hex(bundleBytes);
       if (digestMatch === null || digestMatch[1] !== digest) continue;
       const inspection = await inspectGitBundleBytes({
         repositoryRoot: inventory.repository.root,

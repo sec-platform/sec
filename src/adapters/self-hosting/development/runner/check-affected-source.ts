@@ -10,10 +10,10 @@ import {
   type IssuedTestImpactProjection
 } from '../../../repository/source-program-model/test-impact-projection.ts';
 import {
-  acquireWorkingTreeWorkspaceSourceSnapshot,
-  compileWorkspaceTypeScriptProjectInput,
-  issueWorkspaceTypeScriptProjectGenerationEvidence,
-  type WorkspaceTypeScriptProjectGenerationEvidence
+  acquireWorkingTreeSnapshot,
+  compileTypeScriptProjectInput,
+  issueTypeScriptProjectGenerationEvidence,
+  type TypeScriptProjectGenerationEvidence
 } from '../../../repository/source-program-model/workspace-source-snapshot.ts';
 import { assertRetainedCompilerDependencyReadGeneration, type RetainedCompilerDependencyReadGeneration } from '../../../toolchain/dependencies/runtime.ts';
 import { issueTestInventoryProjection, type IssuedTestInventoryProjection } from '../../../verification/platform/test-impact/contract/budget.ts';
@@ -29,20 +29,20 @@ export type AffectedTestImpactProjectionIssuer = (
 ) => Promise<Readonly<{
   projection: IssuedTestImpactProjection;
   testInventory: IssuedTestInventoryProjection;
-  projectGenerationEvidence: WorkspaceTypeScriptProjectGenerationEvidence;
+  projectGenerationEvidence: TypeScriptProjectGenerationEvidence;
   compilationDiagnostics?: RepositoryCompilationDiagnostics | null;
 }>>;
 
-/** Private signer for one check:affected logical operation. */
+/** Private signer for one affected-check logical operation. */
 export const issueCheckAffectedTestImpactProjection: AffectedTestImpactProjectionIssuer = async (
   input
 ) => {
   const dependencyGeneration = input.dependencyGeneration;
   assertRetainedCompilerDependencyReadGeneration(dependencyGeneration);
-  const workspaceSnapshot = await acquireWorkingTreeWorkspaceSourceSnapshot({
+  const workspaceSnapshot = await acquireWorkingTreeSnapshot({
     session: input.session
   });
-  const projectInput = compileWorkspaceTypeScriptProjectInput(
+  const projectInput = compileTypeScriptProjectInput(
     workspaceSnapshot,
     tsconfigRelativePath,
     {
@@ -65,7 +65,7 @@ export const issueCheckAffectedTestImpactProjection: AffectedTestImpactProjectio
       testObservations: compilation.testObservations
     }),
     testInventory: issueTestInventoryProjection({ snapshot: workspaceSnapshot }),
-    projectGenerationEvidence: issueWorkspaceTypeScriptProjectGenerationEvidence(
+    projectGenerationEvidence: issueTypeScriptProjectGenerationEvidence(
       workspaceSnapshot,
       projectInput
     ),

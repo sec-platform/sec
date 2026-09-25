@@ -165,7 +165,7 @@ describe('affected-selection-trust-boundary projection invariants (Issue #206)',
     'unresolved-git'
   ];
 
-  test('every boundary projects to a schema-valid VerificationGateResultV1', () => {
+  test('every boundary projects to a schema-valid VerificationGateResult', () => {
     for (const boundary of allBoundaries) {
       const result = projectAffectedSelectionToVerificationGateResult(
         boundary,

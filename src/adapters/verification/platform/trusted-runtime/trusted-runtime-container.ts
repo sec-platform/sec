@@ -1,4 +1,4 @@
-import { createHash, randomUUID } from 'node:crypto';
+import { randomUUID } from 'node:crypto';
 import {
   mkdtempSync,
   readFileSync,
@@ -7,14 +7,15 @@ import {
 import { hostname, tmpdir } from 'node:os';
 import path from 'node:path';
 
+import { rawSha256Hex } from '../../../../contracts/canonical.ts';
 import { CI_VERIFICATION_WORKFLOW_PATH } from '../../../../assurance/verification/contract/revision.ts';
 import {
-  bindSecSemanticOperation,
+  bindSemanticOperation,
   compileCapabilityBinding,
   compileProviderSettlementSet,
   compileSemanticOperationPlan,
   issueNormalDomainReadbackReceipt,
-  issueSecNormalOwnerTerminalJoinReceipt,
+  issueNormalOwnerTerminalJoinReceipt,
   issueSemanticOperationAttemptContext,
   type BoundSemanticOperation,
   type OperationDigest,
@@ -48,17 +49,18 @@ import {
 import { withAuthorityGitReadSession } from '../../../providers/git-read/authority.ts';
 import { isolatedGitChildEnvironment } from '../../../providers/git-read/runtime/session.ts';
 import {
-  SEC_LINUX_VERIFICATION_ENVIRONMENT_AUTHORITY,
-  SEC_LINUX_VERIFICATION_TRUSTED_BUN_EXECUTABLE_DIGEST,
-  SEC_LINUX_VERIFICATION_TRUSTED_BUN_EXECUTABLE_PATH,
-  SEC_LINUX_VERIFICATION_TRUSTED_RUNTIME_DOCKERFILE_PATH
+  LINUX_VERIFICATION_ENVIRONMENT_AUTHORITY,
+  LINUX_VERIFICATION_TRUSTED_BUN_EXECUTABLE_DIGEST,
+  LINUX_VERIFICATION_TRUSTED_BUN_EXECUTABLE_PATH,
+  LINUX_VERIFICATION_TRUSTED_RUNTIME_DOCKERFILE_PATH
 } from '../../../providers/linux-verification/contract.ts';
 import {
   parseGitObjectIdReply
 } from '../../../runtime-state/physical/contract/git-worktree-observation.ts';
 import { acquirePhysicalMutationLease } from '../../../runtime-state/physical/runtime/mutation-lease.ts';
-import { resolveSecRuntimeStateForRepository } from '../../../runtime-state/workspace-state/paths.ts';
-import { acquireSecRuntimeStatePhysicalAuthority } from '../../../runtime-state/workspace-state/physical-authority.ts';
+import { selectRuntimeStateDirectoryGeneration } from '../../../runtime-state/workspace-state/layout-migration.ts';
+import { resolveRuntimeStateForRepository } from '../../../runtime-state/workspace-state/paths.ts';
+import { acquireRuntimeStatePhysicalAuthority } from '../../../runtime-state/workspace-state/physical-authority.ts';
 import { compilerRuntimeLayout } from '../../../toolchain/runtime/layout.ts';
 import { TYPECHECK_PROVIDER_CANARY_ENTRYPOINT_PATH } from '../../../toolchain/typescript/canary.ts';
 import { encodeVerificationActionData } from '../action/contract/action.ts';
@@ -71,7 +73,7 @@ import {
 } from '../ci/runtime/local-github-actions-runner.ts';
 import type { VerificationSessionHostedEnvelope } from '../ci/runtime/verification-session-runtime.ts';
 
-const ENVIRONMENT = SEC_LINUX_VERIFICATION_ENVIRONMENT_AUTHORITY;
+const ENVIRONMENT = LINUX_VERIFICATION_ENVIRONMENT_AUTHORITY;
 const TRUSTED_RUNTIME_CONTAINER_SCHEMA = ENVIRONMENT.trustedRuntime.imageSchema;
 const TRUSTED_RUNTIME_DEPENDENCY_CACHE_SCHEMA =
   'sec-trusted-runtime-dependency-cache-v1' as const;
@@ -93,6 +95,14 @@ CiVerificationExecutionEnvironment = createCiVerificationLocalExecutionEnvironme
   bunVersion: ENVIRONMENT.trustedRuntime.bunVersion
 });
 
+function trustedRuntimeContainerLeaseRoot(repositoryStateRoot: string): string {
+  return selectRuntimeStateDirectoryGeneration({
+    label: 'trusted runtime container leases',
+    legacyPath: path.join(repositoryStateRoot, 'trusted-runtime-container-leases', 'v1'),
+    currentPath: path.join(repositoryStateRoot, 'trusted-runtime-container-leases', 'locks')
+  }).path;
+}
+
 export interface TrustedRuntimeImageBuildPlan {
   readonly args: readonly string[];
   readonly absoluteTimeoutMs: number;
@@ -103,10 +113,10 @@ function trustedRuntimeDockerfilePath(): string {
   const packageRoot = path.resolve(compilerRuntimeLayout.packageRoot);
   const dockerfile = path.resolve(
     packageRoot,
-    ...SEC_LINUX_VERIFICATION_TRUSTED_RUNTIME_DOCKERFILE_PATH.split('/')
+    ...LINUX_VERIFICATION_TRUSTED_RUNTIME_DOCKERFILE_PATH.split('/')
   );
   const relativeReadback = path.relative(packageRoot, dockerfile).split(path.sep).join('/');
-  if (relativeReadback !== SEC_LINUX_VERIFICATION_TRUSTED_RUNTIME_DOCKERFILE_PATH) {
+  if (relativeReadback !== LINUX_VERIFICATION_TRUSTED_RUNTIME_DOCKERFILE_PATH) {
     fail('trusted runtime Dockerfile projection escapes the canonical package root');
   }
   return dockerfile;
@@ -131,7 +141,7 @@ export function createTrustedRuntimeImageBuildPlan(
       '--build-arg', `SEC_BUN_ARCHIVE_URL=${ENVIRONMENT.trustedRuntime.bunArchiveUrl}`,
       '--build-arg', `SEC_BUN_ARCHIVE_DIGEST=${ENVIRONMENT.trustedRuntime.bunArchiveDigest}`,
       '--build-arg',
-      `SEC_BUN_EXECUTABLE_DIGEST=${SEC_LINUX_VERIFICATION_TRUSTED_BUN_EXECUTABLE_DIGEST}`,
+      `SEC_BUN_EXECUTABLE_DIGEST=${LINUX_VERIFICATION_TRUSTED_BUN_EXECUTABLE_DIGEST}`,
       '--build-arg', `SEC_BUN_VERSION=${ENVIRONMENT.trustedRuntime.bunVersion}`,
       '--tag', TRUSTED_RUNTIME_CONTAINER_IMAGE,
       '--file', dockerfile,
@@ -157,7 +167,7 @@ const TRUSTED_RUNTIME_TRUSTED_TREE = `${TRUSTED_RUNTIME_MUTABLE_ROOT}/trusted`;
 const TRUSTED_RUNTIME_WORKSPACE = `${TRUSTED_RUNTIME_MUTABLE_ROOT}/workspace`;
 const TRUSTED_RUNTIME_OUTPUT = `${TRUSTED_RUNTIME_MUTABLE_ROOT}/output`;
 const TRUSTED_RUNTIME_DEPENDENCY_PACKAGE_COMMAND = Object.freeze([
-  SEC_LINUX_VERIFICATION_TRUSTED_BUN_EXECUTABLE_PATH,
+  LINUX_VERIFICATION_TRUSTED_BUN_EXECUTABLE_PATH,
   'run',
   'deps:ensure'
 ] as const);
@@ -227,7 +237,7 @@ function fail(message: string): never {
 }
 
 function digestBytes(value: string | Uint8Array): Digest {
-  return `sha256:${createHash('sha256').update(value).digest('hex')}`;
+  return `sha256:${rawSha256Hex(value)}`;
 }
 
 function digestValue(value: unknown): Digest {
@@ -295,7 +305,7 @@ function bindTrustedRuntimeContainerEngineOperation(input: Readonly<{
       authorityGrantDigest: contractDigest
     })
   });
-  return bindSecSemanticOperation(plan, [compileCapabilityBinding({
+  return bindSemanticOperation(plan, [compileCapabilityBinding({
     requirementId: 'external.container-engine-process',
     contractDigest,
     providerIdentityDigest: input.providerIdentityDigest
@@ -335,7 +345,7 @@ function issueTrustedRuntimeContainerEngineTerminalJoinWithSettlements(input: Re
         ? 'not-applied'
         : 'unknown'
   });
-  const ownerTerminalProjection = issueSecNormalOwnerTerminalJoinReceipt(
+  const ownerTerminalProjection = issueNormalOwnerTerminalJoinReceipt(
     input.operation,
     providerSettlementSet,
     readback,
@@ -936,7 +946,7 @@ function imageObservation(source: string): TrustedRuntimeContainerImageObservati
     'sec.trusted-runtime.base-image-id': TRUSTED_RUNTIME_CONTAINER_BASE_IMAGE_ID,
     'sec.trusted-runtime.bun-archive-sha256': TRUSTED_RUNTIME_CONTAINER_BUN_ARCHIVE_SHA256,
     'sec.trusted-runtime.bun-executable-sha256':
-      SEC_LINUX_VERIFICATION_TRUSTED_BUN_EXECUTABLE_DIGEST,
+      LINUX_VERIFICATION_TRUSTED_BUN_EXECUTABLE_DIGEST,
     'sec.trusted-runtime.bun-version': ENVIRONMENT.trustedRuntime.bunVersion
   });
   for (const [key, value] of Object.entries(expected)) {
@@ -950,7 +960,7 @@ function imageObservation(source: string): TrustedRuntimeContainerImageObservati
   });
 }
 
-export function assertTrustedRuntimeContainerImageV1(
+export function assertTrustedRuntimeContainerImage(
   source: string
 ): TrustedRuntimeContainerImageObservation {
   return imageObservation(source);
@@ -1223,17 +1233,15 @@ async function withTrustedRuntimeWorkspace<T>(input: Readonly<{
   if (!/^[a-z0-9][a-z0-9-]{7,47}$/u.test(input.operationKey)) {
     fail('workspace operation key is invalid');
   }
-  const runtimeLayout = resolveSecRuntimeStateForRepository({
+  const runtimeLayout = resolveRuntimeStateForRepository({
     repository: repositoryIdentity,
     repositoryRoot
   });
-  const operationLeaseRoot = path.join(
-    runtimeLayout.repositoryStateRoot,
-    'trusted-runtime-container-leases',
-    'v1'
+  const operationLeaseRoot = trustedRuntimeContainerLeaseRoot(
+    runtimeLayout.repositoryStateRoot
   );
   let operationLeaseAuthority:
-    Awaited<ReturnType<typeof acquireSecRuntimeStatePhysicalAuthority>> | null = null;
+    Awaited<ReturnType<typeof acquireRuntimeStatePhysicalAuthority>> | null = null;
   let operationLease: ReturnType<typeof acquirePhysicalMutationLease> = null;
   let commandProvider: Awaited<ReturnType<typeof openWindowsDockerCommandProvider>> | null = null;
   let commandProviderTransferred = false;
@@ -1241,7 +1249,7 @@ async function withTrustedRuntimeWorkspace<T>(input: Readonly<{
   let primaryFailure: unknown;
   let hasPrimaryFailure = false;
   try {
-    operationLeaseAuthority = await acquireSecRuntimeStatePhysicalAuthority({
+    operationLeaseAuthority = await acquireRuntimeStatePhysicalAuthority({
       repositoryRoot,
       stateRoot: runtimeLayout.stateRoot,
       cacheRoot: runtimeLayout.cacheRoot,

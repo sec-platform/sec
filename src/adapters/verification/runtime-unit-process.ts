@@ -4,7 +4,7 @@ import { sha256 } from '../../contracts/canonical.ts';
 import type { CommitFence } from '../../contracts/commit-fence.ts';
 import { issueOperationRequirementBindingContext } from '../../execution/operation/requirement-binding-context.ts';
 import {
-  bindSecSemanticOperation,
+  bindSemanticOperation,
   compileCapabilityBinding,
   compileSemanticOperationPlan,
   issueSemanticOperationAttemptContext,
@@ -114,7 +114,7 @@ function compileOperation(input: Readonly<{
       }) as OperationDigest
     })
   });
-  return bindSecSemanticOperation(plan, [compileCapabilityBinding({
+  return bindSemanticOperation(plan, [compileCapabilityBinding({
     requirementId: PROCESS_REQUIREMENT,
     contractDigest: PROCESS_CONTRACT,
     providerIdentityDigest: input.providerIdentityDigest

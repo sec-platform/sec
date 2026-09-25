@@ -1,7 +1,7 @@
 /** One default per-test deadline for every canonical test lane. */
 import { deepFreeze, sha256 } from '../../../../contracts/canonical.ts';
 import {
-  bindSecSemanticOperation,
+  bindSemanticOperation,
   compileSemanticOperationPlan,
   issueSemanticOperationAttemptContext,
   type BoundSemanticOperation,
@@ -301,7 +301,7 @@ export function bindFastTestBatchExecutionAdmission(
     throw new Error('Fast test batch observer provider binding is invalid.');
   }
   boundFastTestBatchExecutionAdmissions.add(admission);
-  return bindSecSemanticOperation(admission.operationPlan, [providerBinding]);
+  return bindSemanticOperation(admission.operationPlan, [providerBinding]);
 }
 
 export function issueTestSuiteExecutionPolicy(input: Readonly<{

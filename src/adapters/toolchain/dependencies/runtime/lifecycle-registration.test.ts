@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 
-import { SecError } from '../../../../contracts/failure.ts';
+import { FailureError } from '../../../../contracts/failure.ts';
 import type {
   GeneratedStatePhysicalIdentity,
   GeneratedStateRegistration
@@ -132,7 +132,7 @@ describe('dependency lifecycle registration owner', () => {
   test('preserves a typed blocker when adoption authority is absent or rejects the identity', async () => {
     await expect(bindExistingCompilerDependencyGeneration(lifecycleOptions({}), physical)).rejects.toMatchObject({
       code: 'IMPORT-AUTHORITY-004'
-    } satisfies Partial<SecError>);
+    } satisfies Partial<FailureError>);
 
     await expect(bindExistingSharedDependencyRoot(lifecycleOptions({
       bind: async () => {
@@ -141,6 +141,6 @@ describe('dependency lifecycle registration owner', () => {
     }), physical)).rejects.toMatchObject({
       code: 'IMPORT-AUTHORITY-004',
       details: { cause: 'foreign registration' }
-    } satisfies Partial<SecError>);
+    } satisfies Partial<FailureError>);
   });
 });

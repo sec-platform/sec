@@ -117,7 +117,7 @@ function reviewSource(fixture: RepositoryFixture, override: Readonly<{
   });
 }
 
-function reviewSourceV2(fixture: RepositoryFixture, override: Readonly<{
+function reviewSource(fixture: RepositoryFixture, override: Readonly<{
   pathSet?: Readonly<{ count: number; digest: `sha256:${string}` }>;
   assessment?: string;
   unknowns?: readonly string[];
@@ -216,7 +216,7 @@ test('maintainer-adopted review binds the complete exact Git delta before issuin
 test('versioned compact review binds all 2475 native Git paths without listing them in the comment', async () => {
   const fixture = createRepositoryFixture(2473);
   try {
-    const source = reviewSourceV2(fixture);
+    const source = reviewSource(fixture);
     expect(fixture.changedPaths).toHaveLength(2475);
     expect(Buffer.byteLength(source, 'utf8')).toBeLessThan(60_000);
     const evidence = await observe({ fixture, source });
@@ -239,16 +239,16 @@ test('versioned review refuses incomplete path identity, unknowns, or absent sem
   const fixture = createRepositoryFixture();
   try {
     const actual = summarizeClosedSupersessionPaths(fixture.changedPaths);
-    await expect(observe({ fixture, source: reviewSourceV2(fixture, {
+    await expect(observe({ fixture, source: reviewSource(fixture, {
       pathSet: { ...actual, count: actual.count - 1 }
     }) })).rejects.toThrow();
-    await expect(observe({ fixture, source: reviewSourceV2(fixture, {
+    await expect(observe({ fixture, source: reviewSource(fixture, {
       pathSet: { ...actual, digest: `sha256:${'0'.repeat(64)}` }
     }) })).rejects.toThrow();
-    await expect(observe({ fixture, source: reviewSourceV2(fixture, {
+    await expect(observe({ fixture, source: reviewSource(fixture, {
       unknowns: ['one unresolved obligation']
     }) })).rejects.toThrow();
-    await expect(observe({ fixture, source: reviewSourceV2(fixture, {
+    await expect(observe({ fixture, source: reviewSource(fixture, {
       assessment: ''
     }) })).rejects.toThrow();
   } finally {

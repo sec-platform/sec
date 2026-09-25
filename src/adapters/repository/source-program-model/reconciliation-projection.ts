@@ -29,7 +29,7 @@ import {
   assertRepositorySourceProgramCompilationReceipt,
   type RepositorySourceProgramCompilationReceipt
 } from './repository-compilation.ts';
-import { compileSourceProgramOwnerIntentEvidence } from './repository.ts';
+import { compileOwnerIntentEvidence } from './repository.ts';
 
 type SourceProgramReconciliationBinding = Readonly<{
   before: RepositorySourceProgramCompilationReceipt;
@@ -654,8 +654,8 @@ function exportSurfaceRetirementBlockers(input: Readonly<{
   afterIndex: ReconciliationModelIndex;
   beforeRoles: readonly BoundRole[];
   afterRoles: readonly BoundRole[];
-  beforeOwnerIntents: ReturnType<typeof compileSourceProgramOwnerIntentEvidence>;
-  afterOwnerIntents: ReturnType<typeof compileSourceProgramOwnerIntentEvidence>;
+  beforeOwnerIntents: ReturnType<typeof compileOwnerIntentEvidence>;
+  afterOwnerIntents: ReturnType<typeof compileOwnerIntentEvidence>;
   change: SourceProgramReconciliationDeclarationChange;
 }>): readonly string[] {
   const beforeAddress = input.change.before;
@@ -752,11 +752,11 @@ export function compileSourceProgramReconciliationProjection(
   const afterRelations = bindRelations(afterModelIndex, afterMembership);
   const beforeRoles = bindRoles(beforeModelIndex, beforeMembership);
   const afterRoles = bindRoles(afterModelIndex, afterMembership);
-  const beforeOwnerIntents = compileSourceProgramOwnerIntentEvidence(
+  const beforeOwnerIntents = compileOwnerIntentEvidence(
     input.before.model,
     beforeMembership
   );
-  const afterOwnerIntents = compileSourceProgramOwnerIntentEvidence(
+  const afterOwnerIntents = compileOwnerIntentEvidence(
     input.after.model,
     afterMembership
   );

@@ -15,7 +15,7 @@ import {
   type OperationBudget,
   type OperationEffectKind
 } from './contract.ts';
-import { SEC_SEMANTIC_OPERATION_ID_PATTERN } from './identity.ts';
+import { SEMANTIC_OPERATION_ID_PATTERN } from './identity.ts';
 
 export type OperationIdentityReference = Readonly<{
   readonly domain: string;
@@ -262,7 +262,7 @@ const NONCE_PATTERN = /^nonce256:[0-9a-f]{64}$/u;
 const ISSUED_FOUNDATIONS = new WeakSet<object>();
 
 function requireOperationId(value: string, label: string): string {
-  if (!SEC_SEMANTIC_OPERATION_ID_PATTERN.test(value)) {
+  if (!SEMANTIC_OPERATION_ID_PATTERN.test(value)) {
     throw new Error(`${label} must be a canonical semantic identity.`);
   }
   return value;

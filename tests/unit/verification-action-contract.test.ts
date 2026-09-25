@@ -8,12 +8,12 @@ import { AssertVerificationGateResult } from '../../src/assurance/verification/r
 import { VERIFICATION_GATE_RESULT_SCHEMA } from '../../src/assurance/verification/result/contract/schema.ts';
 import { sha256 } from '../../src/contracts/canonical.ts';
 import {
-  bindSecSemanticOperation,
+  bindSemanticOperation,
   compileCapabilityBinding,
   compileProviderSettlementSet,
   compileSemanticOperationPlan,
   issueNormalDomainReadbackReceipt,
-  issueSecNormalOwnerTerminalJoinReceipt,
+  issueNormalOwnerTerminalJoinReceipt,
   issueProviderSettlementReceipt,
   issueSemanticOperationAttemptContext
 } from '../../src/execution/operation/semantic.ts';
@@ -69,7 +69,7 @@ function settlement(
       authorityGrantDigest: DIGEST_C
     })
   });
-  const bound = bindSecSemanticOperation(plan, [compileCapabilityBinding({
+  const bound = bindSemanticOperation(plan, [compileCapabilityBinding({
     requirementId: 'verification.test-effect',
     contractDigest: DIGEST_C,
     providerIdentityDigest: DIGEST_B
@@ -86,7 +86,7 @@ function settlement(
     currentPhysicalEpochDigest: DIGEST_C,
     disposition: 'applied'
   });
-  const join = issueSecNormalOwnerTerminalJoinReceipt(bound, providerSet, readback, {
+  const join = issueNormalOwnerTerminalJoinReceipt(bound, providerSet, readback, {
     ownerTerminalContractDigest: DIGEST_B,
     ownerTerminalReferenceDigest: status === 'passed' ? DIGEST_A : DIGEST_C
   });

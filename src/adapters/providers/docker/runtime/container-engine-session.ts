@@ -3,7 +3,7 @@ import path from 'node:path';
 import { sha256 } from '../../../../contracts/canonical.ts';
 import { issueOperationRequirementBindingContext } from '../../../../execution/operation/requirement-binding-context.ts';
 import {
-  assertSecSemanticOperationProjection,
+  assertSemanticOperationProjection,
   issueProviderSettlementReceipt,
   type BoundSemanticOperation,
   type OperationDigest,
@@ -100,7 +100,7 @@ export function assertContainerEngineOperationScopeAdmission(input: Readonly<{
   providerIdentityDigest: OperationDigest;
   sessionDeadlineAtUnixMs: number;
 }>): void {
-  assertSecSemanticOperationProjection(input.operation);
+  assertSemanticOperationProjection(input.operation);
   const requirement = input.operation.plan.execution.requirements.find(
     ({ id }) => id === input.requirementId
   );

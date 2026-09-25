@@ -8,7 +8,7 @@ import { expect, test } from 'bun:test';
 import { sha256 } from '../../../contracts/canonical.ts';
 import { issueOperationRequirementBindingContext } from '../../../execution/operation/requirement-binding-context.ts';
 import {
-  bindSecSemanticOperation,
+  bindSemanticOperation,
   compileCapabilityBinding,
   compileSemanticOperationPlan,
   issueSemanticOperationAttemptContext,
@@ -74,7 +74,7 @@ function testOperation() {
       failureKinds: ['filesystem.write-failed', 'process.unavailable']
     }]
   });
-  return bindSecSemanticOperation(plan, [compileCapabilityBinding({
+  return bindSemanticOperation(plan, [compileCapabilityBinding({
     requirementId: REQUIREMENT,
     contractDigest: CONTRACT,
     providerIdentityDigest: CONTRACT
@@ -206,7 +206,7 @@ test('GitRefEffect deletes an exact local batch under one live common-directory 
 });
 
 test('GitRefEffect batch budget measures the exact validated native stdin', () => {
-  const descriptor = JSON.parse(readFileSync(new URL('./sec.module.json', import.meta.url), 'utf8')) as {
+  const descriptor = JSON.parse(readFileSync(new URL('./module.json', import.meta.url), 'utf8')) as {
     operationObligations: readonly { operation: { operation: string }; resources: {
       aggregateBudgets: readonly { resource: string; maximum: number }[]
     } }[]

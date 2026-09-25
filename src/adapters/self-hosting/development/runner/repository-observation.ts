@@ -2,7 +2,7 @@ import { lstatSync, readlinkSync } from 'node:fs';
 import path from 'node:path';
 
 import { rawSha256, sha256, uniqueSorted } from '../../../../contracts/canonical.ts';
-import { SecError } from '../../../../contracts/failure.ts';
+import { FailureError } from '../../../../contracts/failure.ts';
 import type { BoundSemanticOperation } from '../../../../execution/operation/semantic.ts';
 import { settleResources as settlePhysicalResources, settleResourcesAsync as settlePhysicalResourcesAsync, type ResourceSettlementFailure as PhysicalResourceSettlementFailure } from '../../../../execution/resource-settlement.ts';
 import { GitReadAuthorityError, issueGitReadAuthorityOperation, withAuthorityGitReadSession } from '../../../providers/git-read/authority.ts';
@@ -50,7 +50,7 @@ export type RepositoryObservationFailureKind =
   | 'receipt-closed'
   | 'receipt-unissued';
 
-export class RepositoryObservationError extends SecError {
+export class RepositoryObservationError extends FailureError {
   readonly kind: RepositoryObservationFailureKind;
 
   constructor(kind: RepositoryObservationFailureKind, message: string, ...cause: [] | [unknown]) {

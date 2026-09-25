@@ -1,10 +1,11 @@
-import { createHash, randomBytes } from 'node:crypto';
+import { randomBytes } from 'node:crypto';
 import {
   compareCodeUnits,
   deepFreeze,
+  rawSha256Hex,
   sha256
 } from '../../contracts/canonical.ts';
-import { SEC_SEMANTIC_OPERATION_ID_PATTERN } from './identity.ts';
+import { SEMANTIC_OPERATION_ID_PATTERN } from './identity.ts';
 
 import {
   canonicalOperationBudget,
@@ -89,23 +90,23 @@ export type BoundSemanticOperation = Readonly<{
   readonly boundAttemptDigest: OperationDigest;
 }>;
 
-const SEC_PROVIDER_PHYSICAL_DISPOSITIONS = [
+const PROVIDER_PHYSICAL_DISPOSITIONS = [
   'not-started',
   'settled',
   'unknown'
 ] as const;
 
 export type ProviderPhysicalDisposition =
-  (typeof SEC_PROVIDER_PHYSICAL_DISPOSITIONS)[number];
+  (typeof PROVIDER_PHYSICAL_DISPOSITIONS)[number];
 
-const SEC_DOMAIN_READBACK_DISPOSITIONS = [
+const DOMAIN_READBACK_DISPOSITIONS = [
   'applied',
   'not-applied',
   'unknown'
 ] as const;
 
 export type DomainReadbackDisposition =
-  (typeof SEC_DOMAIN_READBACK_DISPOSITIONS)[number];
+  (typeof DOMAIN_READBACK_DISPOSITIONS)[number];
 
 /** Physical settlement for exactly one requirement of one bound attempt. */
 export type ProviderSettlementReceipt = Readonly<{
@@ -235,7 +236,7 @@ function requireDigest(value: string, label: string): OperationDigest {
 }
 
 function requireId(value: string, label: string): string {
-  if (!SEC_SEMANTIC_OPERATION_ID_PATTERN.test(value)) {
+  if (!SEMANTIC_OPERATION_ID_PATTERN.test(value)) {
     throw new Error(`${label} must be a canonical semantic identity.`);
   }
   return value;
@@ -389,7 +390,7 @@ export function compileCapabilityBinding(input: Readonly<{
   });
 }
 
-export function bindSecSemanticOperation(
+export function bindSemanticOperation(
   plan: SemanticOperationPlan,
   suppliedBindings: readonly CapabilityBinding[]
 ): BoundSemanticOperation {
@@ -442,11 +443,11 @@ export function assertSemanticOperationPlan(
  * budget projection.  Passing this check never grants an Effect: the domain
  * owner must still require its own opaque provider/physical capability.
  */
-export function assertSecSemanticOperationProjection(
+export function assertSemanticOperationProjection(
   operation: BoundSemanticOperation
 ): void {
   assertSemanticOperationPlan(operation.plan);
-  const rebound = bindSecSemanticOperation(operation.plan, operation.bindings);
+  const rebound = bindSemanticOperation(operation.plan, operation.bindings);
   if (rebound.bindingSetIdentityDigest !== operation.bindingSetIdentityDigest
       || rebound.boundAttemptDigest !== operation.boundAttemptDigest) {
     throw new Error('Semantic operation projection is not canonical.');
@@ -461,7 +462,7 @@ export function issueProviderSettlementReceipt(
     readonly providerSettlementReferenceDigest: OperationDigest;
   }>
 ): ProviderSettlementReceipt {
-  assertSecSemanticOperationProjection(operation);
+  assertSemanticOperationProjection(operation);
   const requirementId = requireId(input.requirementId, 'Provider settlement requirement id');
   const requirement = operation.plan.execution.requirements.find(
     ({ id }) => id === requirementId
@@ -473,7 +474,7 @@ export function issueProviderSettlementReceipt(
       || binding.contractDigest !== requirement.contractDigest) {
     throw new Error('Provider settlement does not bind an exact operation requirement.');
   }
-  if (!SEC_PROVIDER_PHYSICAL_DISPOSITIONS.includes(input.physicalDisposition)) {
+  if (!PROVIDER_PHYSICAL_DISPOSITIONS.includes(input.physicalDisposition)) {
     throw new Error('Provider physical disposition is not canonical.');
   }
   const withoutDigest = deepFreeze({
@@ -518,7 +519,7 @@ export function compileProviderSettlementSet(
   operation: BoundSemanticOperation,
   suppliedSettlements: readonly ProviderSettlementReceipt[]
 ): ProviderSettlementSet {
-  assertSecSemanticOperationProjection(operation);
+  assertSemanticOperationProjection(operation);
   const settlements = [...suppliedSettlements].sort((left, right) => (
     compareCodeUnits(left.requirementId, right.requirementId)
   ));
@@ -584,11 +585,11 @@ export function assertProviderSettlementSet(
 }
 
 function requireBoundReadbackOperation(operation: BoundSemanticOperation): void {
-  assertSecSemanticOperationProjection(operation);
+  assertSemanticOperationProjection(operation);
 }
 
 function canonicalReadbackDisposition(value: string): DomainReadbackDisposition {
-  if (!SEC_DOMAIN_READBACK_DISPOSITIONS.includes(value as DomainReadbackDisposition)) {
+  if (!DOMAIN_READBACK_DISPOSITIONS.includes(value as DomainReadbackDisposition)) {
     throw new Error('Domain readback disposition is not canonical.');
   }
   return value as DomainReadbackDisposition;
@@ -788,7 +789,7 @@ function issueOwnerTerminalJoinReceipt(input: Readonly<{
   return receipt;
 }
 
-export function issueSecNormalOwnerTerminalJoinReceipt(
+export function issueNormalOwnerTerminalJoinReceipt(
   operation: BoundSemanticOperation,
   providerSettlementSet: ProviderSettlementSet,
   readback: NormalDomainReadbackReceipt,
@@ -808,7 +809,7 @@ export function issueSecNormalOwnerTerminalJoinReceipt(
   return issueOwnerTerminalJoinReceipt({ operation, readback, ...input });
 }
 
-export function issueSecRecoveredOwnerTerminalJoinReceipt(
+export function issueRecoveredOwnerTerminalJoinReceipt(
   operation: BoundSemanticOperation,
   readback: RecoveredDomainReadbackReceipt,
   input: Readonly<{
@@ -848,7 +849,7 @@ export function issueRecoveredRetryAdmission(
   recoveryOperation: BoundSemanticOperation,
   readback: RecoveredDomainReadbackReceipt
 ): RecoveredRetryAdmission {
-  assertSecSemanticOperationProjection(recoveryOperation);
+  assertSemanticOperationProjection(recoveryOperation);
   assertDomainReadbackReceipt(readback);
   if (readback.recoveryMode !== 'recovered'
       || !ISSUED_RECOVERED_READBACK_RECEIPTS.has(readback)
@@ -911,7 +912,7 @@ export function assertRecoveredRetryAdmissionForSuccessor(
   currentPhysicalEpochDigest: OperationDigest
 ): void {
   assertRecoveredRetryAdmission(admission);
-  assertSecSemanticOperationProjection(successor);
+  assertSemanticOperationProjection(successor);
   if (successor.plan.identity.identityDigest !== admission.operationIdentityDigest
       || successor.plan.execution.executionPlanDigest !== admission.previousExecutionPlanDigest
       || successor.bindingSetIdentityDigest !== admission.previousBindingSetIdentityDigest
@@ -961,7 +962,7 @@ export function projectCapabilityDiagnostic(input: Readonly<{
     failureKind: requireId(input.failureKind, 'Capability diagnostic failure kind'),
     evidenceByteLength: evidence.byteLength,
     evidenceDigest: (
-      `sha256:${createHash('sha256').update(evidence).digest('hex')}`
+      `sha256:${rawSha256Hex(evidence)}`
     ) as OperationDigest
   });
 }

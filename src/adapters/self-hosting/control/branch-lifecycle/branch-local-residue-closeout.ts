@@ -1,10 +1,10 @@
-import { createHash } from 'node:crypto';
 import { mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
+import { rawSha256Hex } from '../../../../contracts/canonical.ts';
 import { issueOperationRequirementBindingContext } from '../../../../execution/operation/requirement-binding-context.ts';
-import { bindSecSemanticOperation, compileCapabilityBinding, compileSemanticOperationPlan, issueSemanticOperationAttemptContext, type OperationDigest } from '../../../../execution/operation/semantic.ts';
+import { bindSemanticOperation, compileCapabilityBinding, compileSemanticOperationPlan, issueSemanticOperationAttemptContext, type OperationDigest } from '../../../../execution/operation/semantic.ts';
 import { assertWorkspaceWriteLease, withWorkspaceWriteLease, type WorkspaceWriteLeaseToken } from '../../../filesystem/write-lease.ts';
 import { inspectGitBundleBytes } from '../../../providers/git-bundle/runtime.ts';
 import { withAuthorityGitReadSession } from '../../../providers/git-read/authority.ts';
@@ -214,7 +214,7 @@ function digest(value: unknown): Digest {
 }
 
 function sha256Bytes(bytes: Uint8Array): Digest {
-  return `sha256:${createHash('sha256').update(bytes).digest('hex')}`;
+  return `sha256:${rawSha256Hex(bytes)}`;
 }
 
 function canonicalSource(value: unknown): string {
@@ -1283,7 +1283,7 @@ function retireRecoveryBundleFamily(input: Readonly<{
     }
     return;
   }
-  if (bundle.bytes === null || `sha256:${createHash('sha256').update(bundle.bytes).digest('hex')}`
+  if (bundle.bytes === null || `sha256:${rawSha256Hex(bundle.bytes)}`
       !== input.expectedDigest) {
     throw new Error(`Recovery bundle differs before terminal retirement: ${input.bundleName}`);
   }
@@ -1310,7 +1310,7 @@ function retireSupersededBranchCloseoutBundles(input: Readonly<{
     .filter((candidate) => candidate.endsWith('.bundle'))) {
     const bundle = input.store.inspectFile(name);
     if (bundle === null || bundle.bytes === null) continue;
-    const digest = `sha256:${createHash('sha256').update(bundle.bytes).digest('hex')}` as Digest;
+    const digest = `sha256:${rawSha256Hex(bundle.bytes)}` as Digest;
     if (digest !== input.entry.recovery.digest) continue;
     const family = input.store.listOwnedFiles(`${name}.`);
     const assertPreparationBinding = (preparation: Readonly<{
@@ -1760,7 +1760,7 @@ async function deleteExactTransaction(
       failureKinds: ['filesystem.identity-drift', 'filesystem.write-failed', 'process.cancelled',
         'process.deadline-exhausted', 'process.output-budget-exhausted', 'process.settlement-unproven', 'process.unavailable'] }]
   });
-  const operation = bindSecSemanticOperation(plan, [compileCapabilityBinding({
+  const operation = bindSemanticOperation(plan, [compileCapabilityBinding({
     requirementId: REF_EFFECT_REQUIREMENT, contractDigest: REF_EFFECT_CONTRACT,
     providerIdentityDigest: REF_EFFECT_PROVIDER
   })]);

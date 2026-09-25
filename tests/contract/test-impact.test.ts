@@ -9,7 +9,7 @@ import { issueTestImpactProjection } from '../../src/adapters/repository/source-
 import { currentActiveDocumentationPaths } from '../../src/adapters/self-hosting/control/documentation/active.ts';
 import { issueTestInventoryProjection } from '../../src/adapters/verification/platform/test-impact/contract/budget.ts';
 import { classifyTestImpactSource } from '../../src/adapters/verification/platform/test-impact/contract/ownership.ts';
-import { createRepositoryTestImpactSourceProvider, isTestImpactModuleGraphInputFile, isTestImpactSourceFile, readRepositoryModuleGraphV1, resolveTestImpactSelectionTrustBoundary, resolveTestOwnership, selectTestsForSources } from '../../src/adapters/verification/platform/test-impact/runtime/impact.ts';
+import { createRepositoryTestImpactSourceProvider, isTestImpactModuleGraphInputFile, isTestImpactSourceFile, readRepositoryModuleGraph, resolveTestImpactSelectionTrustBoundary, resolveTestOwnership, selectTestsForSources } from '../../src/adapters/verification/platform/test-impact/runtime/impact.ts';
 import { acquireExactGitTreeWorkspaceSourceSnapshotForTests } from '../helpers/git-read-authority.ts';
 
 function git(root: string, args: readonly string[]): string {
@@ -29,10 +29,10 @@ async function sourceProvider(sources: Readonly<Record<string, string>>) {
     const fixtureSources = {
       ...sources,
       ...(Object.keys(sources).some((repositoryPath) => repositoryPath.startsWith('src/compiler/'))
-        ? { 'src/compiler/sec.module.json': '{"importGraph":"runtime","externalEntrypoints":[]}' }
+        ? { 'src/compiler/module.json': '{"importGraph":"runtime","externalEntrypoints":[]}' }
         : {}),
       ...(Object.keys(sources).some((repositoryPath) => repositoryPath.startsWith('src/bootstrap/change-management/upgrade/'))
-        ? { 'src/bootstrap/upgrade/sec.module.json': '{"importGraph":"runtime","externalEntrypoints":[]}' }
+        ? { 'src/bootstrap/upgrade/module.json': '{"importGraph":"runtime","externalEntrypoints":[]}' }
         : {})
     };
     for (const [repositoryPath, source] of Object.entries(fixtureSources)) {
@@ -106,7 +106,7 @@ test('repository sources route by semantic kind and module identity', async () =
     'tests/unit/compiler-fixture.test.ts': "import { fixture } from '../../src/compiler/fixture.ts'; void fixture;",
     '.codex/agents/worker.toml': 'name = "worker"\n',
     'src/adapters/self-hosting/control/agent/skill.ts': 'export const role = true;',
-    'src/adapters/self-hosting/control/agent/sec.module.json': '{"importGraph":"runtime","externalEntrypoints":[]}',
+    'src/adapters/self-hosting/control/agent/module.json': '{"importGraph":"runtime","externalEntrypoints":[]}',
     'tests/unit/agent-fixture.test.ts': "import { role } from '../../src/adapters/self-hosting/control/agent/skill.ts'; void role;"
   });
   expect(resolveTestOwnership([compilerFixturePath], provider)).toEqual([{
@@ -125,9 +125,9 @@ test('repository sources route by semantic kind and module identity', async () =
 
 test('observed git-hook entrypoints route through development hooks ownership', async () => {
   const provider = await sourceProvider({
-    '.githooks/post-merge': '#!/usr/bin/env sh\nexec bun run dev -- workspace-transition post-merge "$@"\n',
+    '.githooks/post-merge': '#!/usr/bin/env sh\nexec bun run workspace:transition -- post-merge "$@"\n',
     'src/adapters/self-hosting/development/hooks/install.ts': 'export const installHooks = true;',
-    'src/adapters/self-hosting/development/hooks/sec.module.json': JSON.stringify({
+    'src/adapters/self-hosting/development/hooks/module.json': JSON.stringify({
       importGraph: 'runtime',
       externalEntrypoints: ['src/adapters/self-hosting/development/hooks/install.ts'],
       capabilityProviders: [],
@@ -150,7 +150,7 @@ test('repository module graph is the single resolved dependency observation', as
     'src/compiler/fixture.ts': 'export const fixture = true;',
     'tests/unit/compiler-fixture.test.ts': "import { fixture } from '../../src/compiler/fixture.ts'; void fixture;"
   });
-  const graph = readRepositoryModuleGraphV1(provider);
+  const graph = readRepositoryModuleGraph(provider);
   const resolution = resolveTestImpactSelectionTrustBoundary(provider);
 
   expect(resolution).toEqual({ selectionResolved: true, unresolvedModuleFiles: [] });

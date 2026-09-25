@@ -7,19 +7,20 @@
  */
 
 import { AsyncLocalStorage } from 'node:async_hooks';
-import { createHash, randomUUID } from 'node:crypto';
+import { randomUUID } from 'node:crypto';
 import { realpathSync } from 'node:fs';
 import { watch as watchFileSystem } from 'node:fs/promises';
 import path from 'node:path';
+import { rawSha256Hex } from '../../../../contracts/canonical.ts';
 import { issueOperationRequirementBindingContext } from '../../../../execution/operation/requirement-binding-context.ts';
 import {
   assertProviderSettlementReceipt,
-  bindSecSemanticOperation,
+  bindSemanticOperation,
   compileCapabilityBinding,
   compileProviderSettlementSet,
   compileSemanticOperationPlan,
   issueNormalDomainReadbackReceipt,
-  issueSecNormalOwnerTerminalJoinReceipt,
+  issueNormalOwnerTerminalJoinReceipt,
   issueProviderSettlementReceipt,
   issueSemanticOperationAttemptContext,
   type BoundSemanticOperation,
@@ -39,10 +40,10 @@ import {
   type BoundedProcessDiagnosticStream
 } from '../../../runtime-state/workspace-state/bounded-process-diagnostic-object.ts';
 import { createRuntimeStateJournalFileSystem, type RuntimeStateJournalFileSystem } from '../../../runtime-state/workspace-state/journal-filesystem.ts';
-import { resolveSecWorkspaceRuntimeRoots } from '../../../runtime-state/workspace-state/paths.ts';
+import { resolveWorkspaceRuntimeRoots } from '../../../runtime-state/workspace-state/paths.ts';
 import {
-  acquireSecRuntimeStatePhysicalAuthority,
-  type SecRuntimeStatePhysicalAuthority
+  acquireRuntimeStatePhysicalAuthority,
+  type RuntimeStatePhysicalAuthority
 } from '../../../runtime-state/workspace-state/physical-authority.ts';
 import {
   createVerificationActionKey,
@@ -314,11 +315,11 @@ function nextOwnerToken(): string {
 }
 
 function localDagDigest(value: unknown): VerificationActionKeyDigest {
-  return `sha256:${createHash('sha256').update(encodeVerificationActionData(value)).digest('hex')}`;
+  return `sha256:${rawSha256Hex(encodeVerificationActionData(value))}`;
 }
 
 function rawDigest(value: string | Uint8Array): VerificationActionKeyDigest {
-  return `sha256:${createHash('sha256').update(value).digest('hex')}`;
+  return `sha256:${rawSha256Hex(value)}`;
 }
 
 function canonicalProcessRunResult(value: unknown): ProcessResourceRunResult {
@@ -397,7 +398,7 @@ function bindLocalDagOperation(input: Readonly<{
       authorityGrantDigest: decisionDigest
     })
   });
-  const bound = bindSecSemanticOperation(operationPlan, [
+  const bound = bindSemanticOperation(operationPlan, [
     compileCapabilityBinding({
       requirementId: 'verification.local-provider',
       contractDigest: processContractDigest,
@@ -819,7 +820,7 @@ async function ensureMachineCutoverBeforeAdmission(
 export class VerificationActionRunner {
   readonly #journalFileSystemPromises = new Map<string, Promise<RuntimeStateJournalFileSystem>>();
   readonly #journalFileSystems = new Map<string, RuntimeStateJournalFileSystem>();
-  readonly #runtimeAuthorities = new Map<string, SecRuntimeStatePhysicalAuthority>();
+  readonly #runtimeAuthorities = new Map<string, RuntimeStatePhysicalAuthority>();
   readonly #diagnosticStores = new Map<string, BoundedProcessDiagnosticObjectStore>();
   readonly #operationAdmission = new AsyncLocalStorage<true>();
   readonly #activeOperations = new Set<Promise<void>>();
@@ -854,12 +855,12 @@ export class VerificationActionRunner {
         throw new Error('VerificationAction Runtime State authority has unresolved closeout.');
       }
       pending = (async () => {
-        const roots = resolveSecWorkspaceRuntimeRoots({ repositoryRoot: physicalRoot });
+        const roots = resolveWorkspaceRuntimeRoots({ repositoryRoot: physicalRoot });
         const actionJournalRoot = path.join(
           roots.stateRoot,
           VERIFICATION_ACTION_JOURNAL_DIRECTORY
         );
-        const authority = await acquireSecRuntimeStatePhysicalAuthority({
+        const authority = await acquireRuntimeStatePhysicalAuthority({
           repositoryRoot: physicalRoot,
           stateRoot: roots.stateRoot,
           cacheRoot: roots.cacheRoot,
@@ -1672,7 +1673,7 @@ export async function executeLocalVerificationActionDag(
             disposition: 'applied'
           }
         );
-        const ownerTerminalJoin = issueSecNormalOwnerTerminalJoinReceipt(
+        const ownerTerminalJoin = issueNormalOwnerTerminalJoinReceipt(
           boundOperation,
           providerSettlementSet,
           readback,

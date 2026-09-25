@@ -5,12 +5,12 @@ import path from 'node:path';
 
 import { DOCUMENTATION_IDENTITY_PATH } from '../documentation/active.ts';
 import {
-  compileSecOperationReadPlan,
-  parseSecOperationReadPlan,
-  SEC_OPERATION_MANDATORY_FORBIDDEN_SOURCES,
-  SEC_OPERATION_READ_CLOSURE_REQUEST_SCHEMA,
-  SEC_OPERATION_READ_PLAN_INPUT_SCHEMA,
-  type SecOperationReadPlanInput
+  compileReadPlan,
+  parseReadPlan,
+  MANDATORY_FORBIDDEN_SOURCES,
+  READ_CLOSURE_REQUEST_SCHEMA,
+  READ_PLAN_INPUT_SCHEMA,
+  type ReadPlanInput
 } from './read-plan.ts';
 import {
   resolveTrustedWorkerTaskCapsule,
@@ -30,14 +30,14 @@ function object(value: unknown, label: string): Record<string, unknown> {
   return value as Record<string, unknown>;
 }
 
-export type SecCompiledReadClosure = Omit<
-  SecOperationReadPlanInput,
+export type CompiledReadClosure = Omit<
+  ReadPlanInput,
   'schema' | 'taskCapsule'
 >;
 
-export interface SecProspectiveWorkerOperationObservation {
+export interface ProspectiveWorkerOperationObservation {
   readonly taskCapsule: TaskCapsule;
-  readonly readClosure: SecCompiledReadClosure;
+  readonly readClosure: CompiledReadClosure;
   readonly runtimeRoot: string;
   readonly candidateRoot: string;
   readonly trustedRevision: string;
@@ -55,7 +55,7 @@ export interface SecProspectiveWorkerOperationObservation {
 export async function resolveProspectiveWorkerOperation(
   runtimeRootInput: string,
   candidateRootInput: string
-): Promise<SecProspectiveWorkerOperationObservation> {
+): Promise<ProspectiveWorkerOperationObservation> {
   const observation = await resolveTrustedWorkerTaskCapsule(
     runtimeRootInput,
     candidateRootInput
@@ -99,10 +99,10 @@ export async function resolveProspectiveWorkerOperation(
     reasonCode: reference.reasonCode,
     contentDigest: sources.find(({ id }) => id === reference.id)!.contentDigest
   })));
-  const readClosure: SecCompiledReadClosure = Object.freeze({
+  const readClosure: CompiledReadClosure = Object.freeze({
     requiredRefs,
     conditionalRefs: Object.freeze([]),
-    forbiddenSources: SEC_OPERATION_MANDATORY_FORBIDDEN_SOURCES,
+    forbiddenSources: MANDATORY_FORBIDDEN_SOURCES,
     maxSkillBodies: 1,
     unresolvedFrontier: Object.freeze([]),
     readReceipts,
@@ -173,16 +173,16 @@ async function main(): Promise<void> {
     if (Object.hasOwn(raw, 'taskCapsule')) {
       fail('compile input cannot provide taskCapsule authority.');
     }
-    if (raw.schema !== SEC_OPERATION_READ_CLOSURE_REQUEST_SCHEMA || Object.keys(raw).length !== 1) {
+    if (raw.schema !== READ_CLOSURE_REQUEST_SCHEMA || Object.keys(raw).length !== 1) {
       fail('compile input must be an authority-free read closure request; refs, receipts, and policy are trusted-derived.');
     }
     const observation = await resolveProspectiveWorkerOperation(
       runtimeRoot,
       options.candidateRoot
     );
-    const plan = compileSecOperationReadPlan({
+    const plan = compileReadPlan({
       ...observation.readClosure,
-      schema: SEC_OPERATION_READ_PLAN_INPUT_SCHEMA,
+      schema: READ_PLAN_INPUT_SCHEMA,
       taskCapsule: observation.taskCapsule
     });
     process.stdout.write(`${JSON.stringify(plan, null, 2)}\n`);
@@ -192,7 +192,7 @@ async function main(): Promise<void> {
     if (options.plan === undefined || options.input !== undefined || options.candidateRoot !== undefined) {
       fail('verify requires --plan <inline-json|file> only.');
     }
-    const plan = parseSecOperationReadPlan(
+    const plan = parseReadPlan(
       await readJsonArgument(options.plan, runtimeRoot, '--plan')
     );
     process.stdout.write(`${JSON.stringify({

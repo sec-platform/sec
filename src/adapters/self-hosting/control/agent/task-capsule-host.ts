@@ -6,43 +6,43 @@ import path from 'node:path';
 import { compareCodeUnits, sha256 } from '../../../../contracts/canonical.ts';
 import { DOCUMENTATION_IDENTITY_PATH } from '../documentation/active.ts';
 import {
-  resolveSecAgentOperationActivation,
-  SEC_AGENT_OPERATION_ACTIVATION_REASON_CODES,
-  SecAgentOperationActivationUnavailableError,
-  type SecAgentOperationActivationReasonCode,
-  type SecOperationAuthorityOwnerObservation
+  resolveActivation,
+  ACTIVATION_REASON_CODES,
+  ActivationUnavailableError,
+  type ActivationReasonCode,
+  type AuthorityOwnerObservation
 } from './agent-operation-activation.ts';
-import { SEC_AGENT_SKILL_IDS } from './skill.ts';
+import { AGENT_SKILL_IDS } from './skill.ts';
 import {
   compileTaskCapsule,
   parseTaskCapsule,
   TASK_CAPSULE_AUTHORITY_STATUS,
   TASK_CAPSULE_COMPILE_REQUEST_SCHEMA,
   TASK_CAPSULE_INPUT_SCHEMA,
-  type SecDigest,
+  type TaskCapsuleDigest,
   type TaskCapsule
 } from './task-capsule.ts';
 
-export const SEC_TASK_CAPSULE_PROJECTION_BLOCKED_SCHEMA =
+export const TASK_CAPSULE_PROJECTION_BLOCKED_SCHEMA =
   'sec-task-capsule-projection-blocked-v1' as const;
-export const SEC_TASK_CAPSULE_PROJECTION_BLOCKED_REASONS =
-  SEC_AGENT_OPERATION_ACTIVATION_REASON_CODES;
+export const TASK_CAPSULE_PROJECTION_BLOCKED_REASONS =
+  ACTIVATION_REASON_CODES;
 
 export interface TaskCapsuleProjectionBlocked {
-  readonly schema: typeof SEC_TASK_CAPSULE_PROJECTION_BLOCKED_SCHEMA;
+  readonly schema: typeof TASK_CAPSULE_PROJECTION_BLOCKED_SCHEMA;
   readonly status: 'blocked';
-  readonly reasonCode: SecAgentOperationActivationReasonCode;
-  readonly blockerDigest: SecDigest;
+  readonly reasonCode: ActivationReasonCode;
+  readonly blockerDigest: TaskCapsuleDigest;
   readonly authorityStatus: typeof TASK_CAPSULE_AUTHORITY_STATUS;
   readonly effectAuthority: 'none';
   readonly retryOwner: 'document-control-a0-activation-authority';
 }
 
 export class TaskCapsuleProjectionUnavailableError extends Error {
-  readonly code: SecAgentOperationActivationReasonCode;
-  readonly blockerDigest: SecDigest;
+  readonly code: ActivationReasonCode;
+  readonly blockerDigest: TaskCapsuleDigest;
 
-  constructor(code: SecAgentOperationActivationReasonCode, blockerDigest: SecDigest) {
+  constructor(code: ActivationReasonCode, blockerDigest: TaskCapsuleDigest) {
     super(
       `trusted activation authority is unavailable (${code}); candidate state cannot issue a Task Capsule projection.`
     );
@@ -56,7 +56,7 @@ export function taskCapsuleProjectionBlocked(
   error: TaskCapsuleProjectionUnavailableError
 ): TaskCapsuleProjectionBlocked {
   return Object.freeze({
-    schema: SEC_TASK_CAPSULE_PROJECTION_BLOCKED_SCHEMA,
+    schema: TASK_CAPSULE_PROJECTION_BLOCKED_SCHEMA,
     status: 'blocked',
     reasonCode: error.code,
     blockerDigest: error.blockerDigest,
@@ -66,7 +66,7 @@ export function taskCapsuleProjectionBlocked(
   });
 }
 
-export interface SecTrustedWorkerTaskCapsuleObservation {
+export interface TrustedWorkerTaskCapsuleObservation {
   readonly taskCapsule: TaskCapsule;
   readonly runtimeRoot: string;
   readonly candidateRoot: string;
@@ -75,11 +75,11 @@ export interface SecTrustedWorkerTaskCapsuleObservation {
   readonly changedPaths: readonly string[];
   readonly manifestPath: string;
   readonly manifestRevision: string;
-  readonly manifestDigest: SecDigest;
+  readonly manifestDigest: TaskCapsuleDigest;
   readonly activationPhase: 'prepare' | 'finalize';
-  readonly activationDigest: SecDigest;
-  readonly currentSpecRevision: SecDigest;
-  readonly authorityOwners: readonly SecOperationAuthorityOwnerObservation[];
+  readonly activationDigest: TaskCapsuleDigest;
+  readonly currentSpecRevision: TaskCapsuleDigest;
+  readonly authorityOwners: readonly AuthorityOwnerObservation[];
 }
 
 /**
@@ -92,12 +92,12 @@ export interface SecTrustedWorkerTaskCapsuleObservation {
 export async function resolveTrustedWorkerTaskCapsule(
   runtimeRootInput: string,
   candidateRootInput: string
-): Promise<SecTrustedWorkerTaskCapsuleObservation> {
-  let activation: Awaited<ReturnType<typeof resolveSecAgentOperationActivation>>;
+): Promise<TrustedWorkerTaskCapsuleObservation> {
+  let activation: Awaited<ReturnType<typeof resolveActivation>>;
   try {
-    activation = await resolveSecAgentOperationActivation(runtimeRootInput, candidateRootInput);
+    activation = await resolveActivation(runtimeRootInput, candidateRootInput);
   } catch (error) {
-    if (error instanceof SecAgentOperationActivationUnavailableError) {
+    if (error instanceof ActivationUnavailableError) {
       throw new TaskCapsuleProjectionUnavailableError(error.reasonCode, error.blockerDigest);
     }
     throw error;
@@ -156,7 +156,7 @@ export async function resolveTrustedWorkerTaskCapsule(
         changedPaths: activation.changedPaths
       },
       verificationObligations,
-      skillCandidateIds: SEC_AGENT_SKILL_IDS
+      skillCandidateIds: AGENT_SKILL_IDS
     }
   });
   return Object.freeze({

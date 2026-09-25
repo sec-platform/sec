@@ -6,7 +6,7 @@ import path from 'node:path';
 
 import { rawSha256 } from '../../../../contracts/canonical.ts';
 import { createNoFollowDirectoryChain, deleteRetainedNoFollowEntry, inspectExactNoFollowDirectoryPresence, inspectNoFollowDirectoryChain, inspectNoFollowDirectoryChild, inspectNoFollowOrdinaryFileEntry, scanNoFollowDirectoryTreeMetadata, type PhysicalDirectoryIdentity } from '../../../runtime-state/physical/runtime/physical-no-follow.ts';
-import { currentSecRuntimePlatform, resolveSecRuntimeCacheRoot, secRuntimeStateEnvironment } from '../../../runtime-state/workspace-state/layout.ts';
+import { currentRuntimePlatform, resolveRuntimeCacheRoot, runtimeStateEnvironment } from '../../../runtime-state/workspace-state/layout.ts';
 import { compilerRoot } from "../../../workspace-context.ts";
 export { pathEnvKey } from '../../../runtime-state/physical/runtime/process.ts';
 
@@ -729,17 +729,17 @@ export function getTestWorkspaceTempRoot(env: NodeJS.ProcessEnv = process.env): 
       ? path.join(
           tmpdir(),
           'sec-test-workspaces',
-          'v1',
+          'runs',
           rawSha256(physicalCompilerRoot).slice('sha256:'.length)
         )
     : path.join(
-        resolveSecRuntimeCacheRoot({
-          platform: currentSecRuntimePlatform(),
-          environment: secRuntimeStateEnvironment(effectiveEnvironment),
+        resolveRuntimeCacheRoot({
+          platform: currentRuntimePlatform(),
+          environment: runtimeStateEnvironment(effectiveEnvironment),
           repositoryRoot: physicalCompilerRoot
         }),
         'test-workspaces',
-        'v1',
+        'runs',
         rawSha256(process.platform === 'win32'
           ? physicalCompilerRoot.toLocaleLowerCase('en-US')
           : physicalCompilerRoot).slice('sha256:'.length)

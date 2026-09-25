@@ -13,7 +13,7 @@ import {
   parseReleaseSetManifestBytes,
   parseRuntimePackageManifestBytes
 } from '../../src/adapters/release/release-set.ts';
-import { digest, sha256 } from '../../src/contracts/canonical.ts';
+import { rawSha256Hex, sha256 } from '../../src/contracts/canonical.ts';
 
 const builder = Object.freeze({
   schema: 'sec-release-builder-identity-v1' as const,
@@ -137,7 +137,7 @@ async function writePackageFile(root: string, relative: string, content: string,
   return Object.freeze({
     path: relative,
     bytes: bytes.byteLength,
-    digest: `sha256:${digest(bytes)}` as const,
+    digest: `sha256:${rawSha256Hex(bytes)}` as const,
     executable: executable && process.platform !== 'win32'
   });
 }
@@ -210,13 +210,13 @@ test('release-set readback rejects physical tampering and undeclared top-level r
         Object.freeze({
           name: 'documentation' as const,
           manifestPath: `documentation/${DOCUMENTATION_PACKAGE_MANIFEST}`,
-          manifestDigest: `sha256:${digest(documentationBytes)}` as const,
+          manifestDigest: `sha256:${rawSha256Hex(documentationBytes)}` as const,
           fileCount: docsFiles.length
         }),
         Object.freeze({
           name: 'runtime' as const,
           manifestPath: `runtime/${RUNTIME_PACKAGE_MANIFEST}`,
-          manifestDigest: `sha256:${digest(runtimeBytes)}` as const,
+          manifestDigest: `sha256:${rawSha256Hex(runtimeBytes)}` as const,
           fileCount: runtimeFiles.length
         })
       ])

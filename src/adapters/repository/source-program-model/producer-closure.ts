@@ -7,7 +7,7 @@ import type {
   SourceProgramEntrypointAddress,
   SourceProgramModel,
   SourceProgramOperationIdentity,
-  SourceProgramOperationProducerClosure,
+  OperationProducerClosure,
   SourceProgramOperationSourceEvidence
 } from './contract.ts';
 import {
@@ -15,9 +15,9 @@ import {
   type RepositorySourceProgramCompilationReceipt
 } from './repository-compilation.ts';
 import {
-  compileTypeScriptSourceProgramModel,
-  isSourceProgramRuntimeBuiltinModuleSpecifier,
-  resolveSourceProgramTypeScriptModuleExport
+  compileTypeScriptModel,
+  isRuntimeBuiltinModuleSpecifier,
+  resolveTypeScriptModuleExport
 } from './typescript.ts';
 import {
   assertWorkspaceSourceSnapshot,
@@ -26,7 +26,7 @@ import {
 
 const issuedProducerClosures = new WeakSet<object>();
 
-export type SourceProgramOperationProducerClosureErrorCode =
+export type ProducerClosureErrorCode =
   | 'entrypoint-export-unresolved'
   | 'entrypoint-not-unique'
   | 'operation-owner-not-unique'
@@ -36,10 +36,10 @@ export type SourceProgramOperationProducerClosureErrorCode =
   | 'reachable-graph-unresolved'
   | 'reachable-loader-resource-unresolved';
 
-export class SourceProgramOperationProducerClosureError extends Error {
-  readonly code: SourceProgramOperationProducerClosureErrorCode;
+export class ProducerClosureError extends Error {
+  readonly code: ProducerClosureErrorCode;
 
-  constructor(code: SourceProgramOperationProducerClosureErrorCode, detail: string) {
+  constructor(code: ProducerClosureErrorCode, detail: string) {
     super(`Source Program operation producer closure ${code}: ${detail}`);
     this.name = 'SourceProgramOperationProducerClosureError';
     this.code = code;
@@ -50,7 +50,7 @@ function sourceEvidence(
   file: RepositorySourceProgramCompilationReceipt['workspaceSnapshot']['files'][number]
 ): SourceProgramOperationSourceEvidence {
   if (rawSha256(file.source) !== file.contentDigest) {
-    throw new SourceProgramOperationProducerClosureError(
+    throw new ProducerClosureError(
       'reachable-file-digest-mismatch',
       file.path
     );
@@ -66,7 +66,7 @@ function compileOperationProducerClosure(
   snapshot: WorkspaceSourceSnapshot,
   typeScriptModel: SourceProgramModel,
   operation: SourceProgramOperationIdentity
-): SourceProgramOperationProducerClosure {
+): OperationProducerClosure {
   const owners = snapshot.moduleMembership.descriptors.filter((descriptor) => (
     descriptor.capabilityProviders.some((provider) => (
       provider.capability === operation.capability
@@ -74,7 +74,7 @@ function compileOperationProducerClosure(
     ))
   ));
   if (owners.length !== 1) {
-    throw new SourceProgramOperationProducerClosureError(
+    throw new ProducerClosureError(
       'operation-owner-not-unique',
       `${operation.capability}:${operation.operation}`
     );
@@ -82,14 +82,14 @@ function compileOperationProducerClosure(
 
   const owner = owners[0]!;
   const fileByPath = new Map(snapshot.files.map((file) => [file.path, file]));
-  const descriptorPath = `${owner.root}/sec.module.json`;
-  const moduleExports = resolveSourceProgramTypeScriptModuleExport(
+  const descriptorPath = `${owner.root}/module.json`;
+  const moduleExports = resolveTypeScriptModuleExport(
     typeScriptModel,
     owner.externalEntrypoints,
     operation.operation
   );
   if (moduleExports === null) {
-    throw new SourceProgramOperationProducerClosureError(
+    throw new ProducerClosureError(
       'producer-export-projection-unavailable',
       `${owner.moduleId}:${operation.operation}`
     );
@@ -100,7 +100,7 @@ function compileOperationProducerClosure(
       : []
   ));
   if (unresolvedOperationExports.length > 0) {
-    throw new SourceProgramOperationProducerClosureError(
+    throw new ProducerClosureError(
       'entrypoint-export-unresolved',
       unresolvedOperationExports.join(',')
     );
@@ -110,7 +110,7 @@ function compileOperationProducerClosure(
     .map(({ entrypointPath }) => entrypointPath)
     .sort(compareCodeUnits);
   if (operationEntrypoints.length !== 1) {
-    throw new SourceProgramOperationProducerClosureError(
+    throw new ProducerClosureError(
       'entrypoint-not-unique',
       `${owner.moduleId}:${operation.operation}`
     );
@@ -123,13 +123,13 @@ function compileOperationProducerClosure(
     if (reachable.has(repositoryPath)) continue;
     const file = fileByPath.get(repositoryPath);
     if (file === undefined) {
-      throw new SourceProgramOperationProducerClosureError(
+      throw new ProducerClosureError(
         'reachable-file-absent',
         repositoryPath
       );
     }
     if (snapshot.moduleGraph.unresolvedFiles.includes(repositoryPath)) {
-      throw new SourceProgramOperationProducerClosureError(
+      throw new ProducerClosureError(
         'reachable-graph-unresolved',
         repositoryPath
       );
@@ -149,11 +149,11 @@ function compileOperationProducerClosure(
       .filter(({ from, kind, resolvedTarget }) => reachable.has(from)
         && kind !== 'static'
         && resolvedTarget === null)
-      .filter(({ specifier }) => !isSourceProgramRuntimeBuiltinModuleSpecifier(specifier))
+      .filter(({ specifier }) => !isRuntimeBuiltinModuleSpecifier(specifier))
       .map(({ from, kind, specifier }) => `${from}:${kind}:${specifier}`)
   ].sort(compareCodeUnits);
   if (unresolvedLoaders.length > 0) {
-    throw new SourceProgramOperationProducerClosureError(
+    throw new ProducerClosureError(
       'reachable-loader-resource-unresolved',
       unresolvedLoaders.join(',')
     );
@@ -165,7 +165,7 @@ function compileOperationProducerClosure(
     .map((repositoryPath) => {
       const file = fileByPath.get(repositoryPath);
       if (file === undefined) {
-        throw new SourceProgramOperationProducerClosureError(
+        throw new ProducerClosureError(
           'reachable-file-absent',
           repositoryPath
         );
@@ -175,7 +175,7 @@ function compileOperationProducerClosure(
   const descriptorFile = fileByPath.get(descriptorPath);
   const entrypointFile = fileByPath.get(operationEntrypoints[0]!);
   if (descriptorFile === undefined || entrypointFile === undefined) {
-    throw new SourceProgramOperationProducerClosureError(
+    throw new ProducerClosureError(
       'reachable-file-absent',
       descriptorFile === undefined ? descriptorPath : operationEntrypoints[0]!
     );
@@ -202,16 +202,16 @@ function compileOperationProducerClosure(
   const closure = Object.freeze({
     ...unsigned,
     closureDigest: sha256(unsigned) as `sha256:${string}`
-  }) as SourceProgramOperationProducerClosure;
+  }) as OperationProducerClosure;
   issuedProducerClosures.add(closure);
   return closure;
 }
 
 /** Compile the exact descriptor entrypoint and its reachable file graph for one operation. */
-export function compileSourceProgramOperationProducerClosure(
+export function compileProducerClosure(
   compilation: RepositorySourceProgramCompilationReceipt,
   operation: SourceProgramOperationIdentity
-): SourceProgramOperationProducerClosure {
+): OperationProducerClosure {
   assertRepositorySourceProgramCompilationReceipt(compilation);
   return compileOperationProducerClosure(
     compilation.workspaceSnapshot,
@@ -227,10 +227,10 @@ export function compileSourceProgramOperationProducerClosure(
  * compiler solely for export/re-export semantics and deliberately does not
  * assemble repository, test, or placement projections.
  */
-export function compileSourceProgramOperationProducerClosureFromWorkspaceSnapshot(
+export function compileProducerClosureFromSnapshot(
   snapshot: WorkspaceSourceSnapshot,
   operation: SourceProgramOperationIdentity
-): SourceProgramOperationProducerClosure {
+): OperationProducerClosure {
   assertWorkspaceSourceSnapshot(snapshot);
   const owners = snapshot.moduleMembership.descriptors.filter((descriptor) => (
     descriptor.capabilityProviders.some((provider) => (
@@ -239,7 +239,7 @@ export function compileSourceProgramOperationProducerClosureFromWorkspaceSnapsho
     ))
   ));
   if (owners.length !== 1) {
-    throw new SourceProgramOperationProducerClosureError(
+    throw new ProducerClosureError(
       'operation-owner-not-unique',
       `${operation.capability}:${operation.operation}`
     );
@@ -259,12 +259,12 @@ export function compileSourceProgramOperationProducerClosureFromWorkspaceSnapsho
   if (files.length !== reachable.size) {
     const available = new Set(files.map(({ path }) => path));
     const absent = [...reachable].filter((path) => !available.has(path)).sort(compareCodeUnits);
-    throw new SourceProgramOperationProducerClosureError(
+    throw new ProducerClosureError(
       'reachable-file-absent',
       absent.join(',')
     );
   }
-  const typeScriptModel = compileTypeScriptSourceProgramModel({
+  const typeScriptModel = compileTypeScriptModel({
     sourceRevision: snapshot.sourceRevision,
     files,
     moduleMembership: snapshot.moduleMembership
@@ -272,11 +272,11 @@ export function compileSourceProgramOperationProducerClosureFromWorkspaceSnapsho
   return compileOperationProducerClosure(snapshot, typeScriptModel, operation);
 }
 
-export function requireSourceProgramOperationProducerClosure(
+export function requireProducerClosure(
   value: unknown
-): SourceProgramOperationProducerClosure {
+): OperationProducerClosure {
   if (value === null || typeof value !== 'object' || !issuedProducerClosures.has(value)) {
     throw new Error('Operation producer closure is not Source Program compiler-issued');
   }
-  return value as SourceProgramOperationProducerClosure;
+  return value as OperationProducerClosure;
 }

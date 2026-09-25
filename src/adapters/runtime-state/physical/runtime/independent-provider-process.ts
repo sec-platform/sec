@@ -1,6 +1,6 @@
 import { sha256 } from '../../../../contracts/canonical.ts';
 import {
-  assertSecSemanticOperationProjection,
+  assertSemanticOperationProjection,
   type BoundSemanticOperation,
   type OperationDigest
 } from '../../../../execution/operation/semantic.ts';
@@ -38,7 +38,7 @@ export function issueIndependentProviderProcessCapability(
   }>
 ): IndependentProviderProcessCapability {
   const operation = input.operation;
-  assertSecSemanticOperationProjection(operation);
+  assertSemanticOperationProjection(operation);
   assertRetainedCommandBoundaryCurrent(input.boundary);
   const requirement = operation.plan.execution.requirements.find(({ effectKinds }) => (
     effectKinds.includes('provider') && effectKinds.includes('process')

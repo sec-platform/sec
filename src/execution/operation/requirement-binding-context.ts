@@ -4,7 +4,7 @@ import {
   sha256
 } from '../../contracts/canonical.ts';
 import {
-  assertSecSemanticOperationProjection,
+  assertSemanticOperationProjection,
   isCanonicalOperationBudgetMaximum,
   type BoundSemanticOperation,
   type OperationBudgetResource,
@@ -17,7 +17,7 @@ import {
  * retained resources and settlement.  This context only proves that one
  * physical requirement admission is bound to one exact semantic attempt.
  */
-export const SEC_OPERATION_REQUIREMENT_BINDING_ISSUER_ROLE =
+export const OPERATION_REQUIREMENT_BINDING_ISSUER_ROLE =
   'semantic-operation-foundation' as const;
 
 declare const SEC_OPERATION_REQUIREMENT_BINDING_CONTEXT: unique symbol;
@@ -32,7 +32,7 @@ export type OperationRequirementBindingContext = Readonly<{
 }>;
 
 export type OperationRequirementBindingProjection = Readonly<{
-  readonly issuerRole: typeof SEC_OPERATION_REQUIREMENT_BINDING_ISSUER_ROLE;
+  readonly issuerRole: typeof OPERATION_REQUIREMENT_BINDING_ISSUER_ROLE;
   readonly operationIdentityDigest: OperationDigest;
   readonly executionPlanDigest: OperationDigest;
   readonly boundAttemptDigest: OperationDigest;
@@ -106,7 +106,7 @@ export function issueOperationRequirementBindingContext(input: Readonly<{
   /** Optional fixed child deadline; omission preserves the operation attempt deadline. */
   readonly absoluteDeadlineAtUnixMs?: number;
 }>): OperationRequirementBindingContext {
-  assertSecSemanticOperationProjection(input.operation);
+  assertSemanticOperationProjection(input.operation);
   const requirement = input.operation.plan.execution.requirements.find(
     ({ id }) => id === input.requirementId
   );
@@ -139,7 +139,7 @@ export function issueOperationRequirementBindingContext(input: Readonly<{
     resourceCeilings
   }) as OperationDigest;
   const withoutContextDigest = deepFreeze({
-    issuerRole: SEC_OPERATION_REQUIREMENT_BINDING_ISSUER_ROLE,
+    issuerRole: OPERATION_REQUIREMENT_BINDING_ISSUER_ROLE,
     operationIdentityDigest: input.operation.plan.identity.identityDigest,
     executionPlanDigest: input.operation.plan.execution.executionPlanDigest,
     boundAttemptDigest: input.operation.boundAttemptDigest,

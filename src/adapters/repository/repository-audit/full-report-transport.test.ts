@@ -24,7 +24,7 @@ test('full report transport round-trips lone UTF-16 surrogates and reserved-pref
 
 test('full report transport rejects unknown escape forms instead of guessing', () => {
   expect(() => decodeRepositoryAuditFullReport({
-    schema: 'sec-repository-audit-full-report-v1',
+    schema: 'repository-audit-full-report-v1',
     stringEncoding: 'sec-utf16-reversible-v1',
     report: '~sec:utf16:v1:future:abc'
   })).toThrow(/unknown UTF-16 transport escape/u);

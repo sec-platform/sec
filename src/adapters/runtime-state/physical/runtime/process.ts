@@ -159,7 +159,7 @@ export class RetainedCommandTransportError extends Error {
     readonly outcome: ObservedCommandOutcome
   ) {
     super(message);
-    this.name = 'RetainedCommandTransportErrorV1';
+    this.name = 'RetainedCommandTransportError';
   }
 }
 
@@ -638,7 +638,7 @@ export function runRetainedCommand(
   /** Process-owner internal capability; semantic consumers cannot mint it. */
   nativeResourceLedger?: ObservedNativeProcessResourceLedger
 ): Promise<CommandResult> {
-  return runRetainedCommandCaptureV1(boundary, args, options, 'text', nativeResourceLedger)
+  return runRetainedCommandCapture(boundary, args, options, 'text', nativeResourceLedger)
     .then(({ result }) => result);
 }
 
@@ -649,7 +649,7 @@ export function runRetainedCommandBytes(
   /** Process-owner internal capability; semantic consumers cannot mint it. */
   nativeResourceLedger?: ObservedNativeProcessResourceLedger
 ): Promise<ByteCommandResult> {
-  return runRetainedCommandCaptureV1(boundary, args, options, 'bytes', nativeResourceLedger)
+  return runRetainedCommandCapture(boundary, args, options, 'bytes', nativeResourceLedger)
     .then(({ result }) => result);
 }
 
@@ -661,7 +661,7 @@ export function runRetainedCommandObservedBytes(
   /** Process-owner internal capability; semantic consumers cannot mint it. */
   nativeResourceLedger?: ObservedNativeProcessResourceLedger
 ): Promise<ObservedByteCommandResult> {
-  return runRetainedCommandCaptureV1(boundary, args, options, 'bytes', nativeResourceLedger);
+  return runRetainedCommandCapture(boundary, args, options, 'bytes', nativeResourceLedger);
 }
 
 function retainedCommandTransportError(
@@ -680,21 +680,21 @@ function retainedCommandTransportError(
   );
 }
 
-function runRetainedCommandCaptureV1(
+function runRetainedCommandCapture(
   boundary: RetainedCommandBoundary,
   args: string[],
   options: RunRetainedCommandOptions,
   stdoutMode: 'text',
   nativeResourceLedger?: ObservedNativeProcessResourceLedger
 ): Promise<Readonly<{ result: CommandResult; outcome: ObservedCommandOutcome }>>;
-function runRetainedCommandCaptureV1(
+function runRetainedCommandCapture(
   boundary: RetainedCommandBoundary,
   args: string[],
   options: RunRetainedCommandOptions,
   stdoutMode: 'bytes',
   nativeResourceLedger?: ObservedNativeProcessResourceLedger
 ): Promise<ObservedByteCommandResult>;
-async function runRetainedCommandCaptureV1(
+async function runRetainedCommandCapture(
   boundary: RetainedCommandBoundary,
   args: string[],
   options: RunRetainedCommandOptions,

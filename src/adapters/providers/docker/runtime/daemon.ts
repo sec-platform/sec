@@ -1,7 +1,7 @@
 import type { BoundSemanticOperation } from '../../../../execution/operation/semantic.ts';
 import {
   ExternalProviderCoordinationLeaseError,
-  withSecUserExternalProviderCoordinationLease
+  withUserExternalProviderCoordinationLease
 } from '../../../runtime-state/workspace-state/external-provider-coordination-lease.ts';
 import { DockerDaemonAvailabilityFailure } from '../contract/daemon.ts';
 import { dockerDesktopCoordinationInput } from './launcher-lock.ts';
@@ -16,7 +16,7 @@ export async function withDockerDesktopLauncherLock<T>(
   operation: () => Promise<T>
 ): Promise<T | null> {
   try {
-    return await withSecUserExternalProviderCoordinationLease({
+    return await withUserExternalProviderCoordinationLease({
       coordination: dockerDesktopCoordinationInput({
         endpointHost: input.endpointHost,
         providerOperation: input.operation,

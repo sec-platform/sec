@@ -2,7 +2,7 @@ import { expect, test } from 'bun:test';
 
 import { canonicalJson, rawSha256, sha256 } from '../../../contracts/canonical.ts';
 import { compileRepositoryModuleMembershipSnapshot } from '../architecture/contract.ts';
-import { compileRepositorySourceProgramModelFromWorkspaceSnapshot } from './repository.ts';
+import { compileRepositoryModelFromSnapshot } from './repository.ts';
 import {
   compileTypeScriptSourceProgramFactShard,
   encodeTypeScriptSourceProgramFactShard,
@@ -10,15 +10,15 @@ import {
   SOURCE_PROGRAM_TYPESCRIPT_FACT_SHARD_SCHEMA_DIGEST
 } from './typescript-fact-shards.ts';
 import {
-  adoptTypeScriptSourceProgramFactShardsFromWorkspaceSnapshot,
-  compileTypeScriptSourceProgramModel,
-  compileTypeScriptSourceProgramModelIncremental,
-  compileTypeScriptSourceProgramModelIncrementalFromWorkspaceSnapshot,
-  observeTypeScriptSourceProgramPerformanceForTests,
-  releaseTypeScriptSourceProgramWorkspace,
-  sourceProgramCurrentExactReturnProvenances
+  adoptTypeScriptFactShards,
+  compileTypeScriptModel,
+  compileTypeScriptModelIncremental,
+  compileTypeScriptModelIncrementalWithCompilation,
+  observeTypeScriptPerformanceForTests,
+  releaseTypeScriptWorkspace,
+  currentExactReturnProvenances
 } from './typescript.ts';
-import { compileVirtualWorkspaceSourceSnapshot } from './workspace-source-snapshot.ts';
+import { compileVirtualSnapshot } from './workspace-source-snapshot.ts';
 
 const moduleMembership = Object.freeze({
   descriptors: Object.freeze([]),
@@ -44,24 +44,24 @@ test('TypeScript fact shards reuse unchanged semantic facts and remain clean-com
     'src/example/consumer.ts': "import { VALUE } from './contract.ts';\nexport const RESULT = VALUE;\n",
     'src/example/leaf.ts': 'export const LEAF = 1;\n'
   });
-  const initial = compileTypeScriptSourceProgramModelIncremental(initialInput, null);
+  const initial = compileTypeScriptModelIncremental(initialInput, null);
   const changedInput = sourceInput({
     'src/example/contract.ts': 'export const VALUE = 2;\n',
     'src/example/consumer.ts': "import { VALUE } from './contract.ts';\nexport const RESULT = VALUE;\n",
     'src/example/leaf.ts': 'export const LEAF = 1;\n'
   });
-  const changed = compileTypeScriptSourceProgramModelIncremental(changedInput, initial.state);
+  const changed = compileTypeScriptModelIncremental(changedInput, initial.state);
   const initialByPath = new Map(initial.state.factShards.map((shard) => [shard.path, shard] as const));
   const changedByPath = new Map(changed.state.factShards.map((shard) => [shard.path, shard] as const));
 
   expect(changed.mode).toBe('incremental');
-  expect(changed.model).toEqual(compileTypeScriptSourceProgramModel(changedInput));
+  expect(changed.model).toEqual(compileTypeScriptModel(changedInput));
   expect(changedByPath.get('src/example/leaf.ts')).toBe(initialByPath.get('src/example/leaf.ts'));
   expect(changedByPath.get('src/example/contract.ts')).not.toBe(initialByPath.get('src/example/contract.ts'));
   expect(changed.state.factShards.every(({ schemaDigest }) =>
     schemaDigest === SOURCE_PROGRAM_TYPESCRIPT_FACT_SHARD_SCHEMA_DIGEST)).toBe(true);
   expect(changed.model.modelDigest).not.toBe(initial.model.modelDigest);
-  const nextRevision = compileTypeScriptSourceProgramModelIncremental(Object.freeze({
+  const nextRevision = compileTypeScriptModelIncremental(Object.freeze({
     ...changedInput,
     sourceRevision: sha256({ parent: changedInput.sourceRevision, unrelatedRepositoryChange: true })
   }), changed.state);
@@ -69,7 +69,7 @@ test('TypeScript fact shards reuse unchanged semantic facts and remain clean-com
   expect(nextRevision.state.factShards.every((shard, index) =>
     shard === changed.state.factShards[index])).toBe(true);
   expect(nextRevision.model.modelDigest).not.toBe(changed.model.modelDigest);
-  releaseTypeScriptSourceProgramWorkspace();
+  releaseTypeScriptWorkspace();
 });
 
 test('test-surface declaration and Effect provenance remains incremental-clean equivalent', () => {
@@ -78,14 +78,14 @@ test('test-surface declaration and Effect provenance remains incremental-clean e
     'tests/effect.test.ts': "import { effect } from '../src/example/operation.ts';\nexport const run = async () => { await effect(); };\n",
     'tests/pure.test.ts': 'export const pure = () => 1;\n'
   });
-  const initial = compileTypeScriptSourceProgramModelIncremental(initialInput, null);
+  const initial = compileTypeScriptModelIncremental(initialInput, null);
   const changedInput = sourceInput({
     'src/example/operation.ts': "import { readFile } from 'node:fs/promises';\nexport async function effect() { await readFile('a'); }\n",
     'tests/effect.test.ts': "import { effect as invoke } from '../src/example/operation.ts';\nexport const run = async () => { await invoke(); };\n",
     'tests/pure.test.ts': 'export const pure = () => 1;\n'
   });
-  const changed = compileTypeScriptSourceProgramModelIncremental(changedInput, initial.state);
-  const clean = compileTypeScriptSourceProgramModel(changedInput);
+  const changed = compileTypeScriptModelIncremental(changedInput, initial.state);
+  const clean = compileTypeScriptModel(changedInput);
   const effectCapability = changed.model.capabilities.find(({ path }) => (
     path === 'src/example/operation.ts'
   ));
@@ -100,7 +100,7 @@ test('test-surface declaration and Effect provenance remains incremental-clean e
   expect(effectCapability?.owningDeclarationObservationId).toMatch(/^sha256:[0-9a-f]{64}$/u);
   expect(changed.state.factShards.find(({ path }) => path === 'tests/pure.test.ts'))
     .toBe(initial.state.factShards.find(({ path }) => path === 'tests/pure.test.ts'));
-  releaseTypeScriptSourceProgramWorkspace();
+  releaseTypeScriptWorkspace();
 });
 
 test('return provenance remains canonical across shard serialization and incremental reassembly', () => {
@@ -117,7 +117,7 @@ test('return provenance remains canonical across shard serialization and increme
     ].join('\n'),
     'src/example/unrelated.ts': 'export const UNRELATED = 1;\n'
   });
-  const initial = compileTypeScriptSourceProgramModelIncremental(initialInput, null);
+  const initial = compileTypeScriptModelIncremental(initialInput, null);
   const readerShard = initial.state.factShards.find(({ path }) => path === 'src/example/reader.ts')!;
   const parsedReaderShard = parseTypeScriptSourceProgramFactShard(
     encodeTypeScriptSourceProgramFactShard(readerShard)
@@ -149,18 +149,18 @@ test('return provenance remains canonical across shard serialization and increme
     ].join('\n'),
     'src/example/unrelated.ts': 'export const UNRELATED = 1;\n'
   });
-  const changed = compileTypeScriptSourceProgramModelIncremental(changedInput, initial.state);
+  const changed = compileTypeScriptModelIncremental(changedInput, initial.state);
   const changedReaderShard = changed.state.factShards.find(
     ({ path }) => path === 'src/example/reader.ts'
   );
   expect(changed.mode).toBe('incremental');
-  const clean = compileTypeScriptSourceProgramModel(changedInput);
+  const clean = compileTypeScriptModel(changedInput);
   expect(changedReaderShard).not.toBe(readerShard);
   expect(changed.model.returnProvenances).toEqual(clean.returnProvenances);
-  expect(sourceProgramCurrentExactReturnProvenances(changed.model)).toEqual(
-    sourceProgramCurrentExactReturnProvenances(clean)
+  expect(currentExactReturnProvenances(changed.model)).toEqual(
+    currentExactReturnProvenances(clean)
   );
-  releaseTypeScriptSourceProgramWorkspace();
+  releaseTypeScriptWorkspace();
 });
 
 test('self-consistent forged return hints cannot replace current exact Program provenance', () => {
@@ -174,7 +174,7 @@ test('self-consistent forged return hints cannot replace current exact Program p
       'export function readValue(source: string): Value { parseValue(source); return source as unknown as Value; }'
     ].join('\n')
   };
-  const descriptorPath = 'src/example/sec.module.json';
+  const descriptorPath = 'src/example/module.json';
   const descriptorSource = JSON.stringify({
     importGraph: 'runtime',
     externalEntrypoints: [],
@@ -209,7 +209,7 @@ test('self-consistent forged return hints cannot replace current exact Program p
     files,
     moduleMembership: causalMembership
   });
-  const snapshot = compileVirtualWorkspaceSourceSnapshot({
+  const snapshot = compileVirtualSnapshot({
     subject: Object.freeze({
       kind: 'virtual-mutation' as const,
       provenance: Object.freeze({
@@ -222,7 +222,7 @@ test('self-consistent forged return hints cannot replace current exact Program p
     moduleMembership: causalMembership
   });
   const input = Object.freeze({ ...rawInput, sourceRevision: snapshot.sourceRevision });
-  const clean = compileTypeScriptSourceProgramModelIncrementalFromWorkspaceSnapshot(
+  const clean = compileTypeScriptModelIncrementalWithCompilation(
     input,
     null,
     snapshot
@@ -260,12 +260,12 @@ test('self-consistent forged return hints cannot replace current exact Program p
       })
     });
   });
-  const adopted = adoptTypeScriptSourceProgramFactShardsFromWorkspaceSnapshot(
+  const adopted = adoptTypeScriptFactShards(
     input,
     forgedShards,
     snapshot
   );
-  const exact = compileTypeScriptSourceProgramModelIncrementalFromWorkspaceSnapshot(
+  const exact = compileTypeScriptModelIncrementalWithCompilation(
     input,
     adopted,
     snapshot
@@ -273,7 +273,7 @@ test('self-consistent forged return hints cannot replace current exact Program p
   const persistedHint = exact.model.returnProvenances.find(
     ({ declarationObservationId }) => declarationObservationId === reader.observationId
   );
-  const currentExact = sourceProgramCurrentExactReturnProvenances(exact.model)?.find(
+  const currentExact = currentExactReturnProvenances(exact.model)?.find(
     ({ declarationObservationId }) => declarationObservationId === reader.observationId
   );
 
@@ -281,7 +281,7 @@ test('self-consistent forged return hints cannot replace current exact Program p
   expect(persistedHint?.normalReturns[0]?.kind).toBe('call-result');
   expect(currentExact?.normalReturns).toEqual([Object.freeze({ kind: 'opaque' })]);
   expect(currentExact).not.toEqual(persistedHint);
-  const repositoryModel = compileRepositorySourceProgramModelFromWorkspaceSnapshot({
+  const repositoryModel = compileRepositoryModelFromSnapshot({
     sourceRevision: input.sourceRevision,
     files: input.files,
     moduleMembership: causalMembership,
@@ -291,7 +291,7 @@ test('self-consistent forged return hints cannot replace current exact Program p
     code: 'causal-relation-owner-bypass',
     subject: 'example.value:parser/readback'
   }));
-  releaseTypeScriptSourceProgramWorkspace();
+  releaseTypeScriptWorkspace();
 });
 
 test('ambient declarations, global augmentations, file-set changes, and resolver graph changes force a clean compilation', () => {
@@ -299,12 +299,12 @@ test('ambient declarations, global augmentations, file-set changes, and resolver
     initialSources: Readonly<Record<string, string>>,
     changedSources: Readonly<Record<string, string>>
   ): void => {
-    const initial = compileTypeScriptSourceProgramModelIncremental(sourceInput(initialSources), null);
+    const initial = compileTypeScriptModelIncremental(sourceInput(initialSources), null);
     const changedInput = sourceInput(changedSources);
-    const changed = compileTypeScriptSourceProgramModelIncremental(changedInput, initial.state);
+    const changed = compileTypeScriptModelIncremental(changedInput, initial.state);
 
     expect(changed.mode).toBe('full');
-    expect(changed.model).toEqual(compileTypeScriptSourceProgramModel(changedInput));
+    expect(changed.model).toEqual(compileTypeScriptModel(changedInput));
   };
 
   assertFullEquivalent({
@@ -336,14 +336,14 @@ test('ambient declarations, global augmentations, file-set changes, and resolver
     'src/example/first.ts': 'export const VALUE = 1;\n',
     'src/example/second.ts': 'export const VALUE = 2;\n'
   });
-  releaseTypeScriptSourceProgramWorkspace();
+  releaseTypeScriptWorkspace();
 });
 
 test('TypeScript root digest binds raw bytes even when a caller reuses a declared content digest', () => {
   const initialInput = sourceInput({
     'src/example/value.ts': 'export const VALUE = 1;\n'
   });
-  const initial = compileTypeScriptSourceProgramModelIncremental(initialInput, null);
+  const initial = compileTypeScriptModelIncremental(initialInput, null);
   const staleDigestInput = Object.freeze({
     ...initialInput,
     sourceFileIdentities: new Map([['src/example/value.ts', Object.freeze({
@@ -356,16 +356,16 @@ test('TypeScript root digest binds raw bytes even when a caller reuses a declare
       source: 'export const VALUE = 2;\n'
     })))
   });
-  const before = observeTypeScriptSourceProgramPerformanceForTests();
-  const changed = compileTypeScriptSourceProgramModelIncremental(staleDigestInput, initial.state);
-  const after = observeTypeScriptSourceProgramPerformanceForTests();
+  const before = observeTypeScriptPerformanceForTests();
+  const changed = compileTypeScriptModelIncremental(staleDigestInput, initial.state);
+  const after = observeTypeScriptPerformanceForTests();
 
   expect(after.rawSourceHashOperations - before.rawSourceHashOperations).toBe(1);
   expect(changed.state.factShards[0]?.rawFileDigest)
     .not.toBe(initial.state.factShards[0]?.rawFileDigest);
   expect(changed.model.modelDigest).not.toBe(initial.model.modelDigest);
-  expect(changed.model).toEqual(compileTypeScriptSourceProgramModel(staleDigestInput));
-  releaseTypeScriptSourceProgramWorkspace();
+  expect(changed.model).toEqual(compileTypeScriptModel(staleDigestInput));
+  releaseTypeScriptWorkspace();
 });
 
 test('sealed fact shards remain the incremental authority after the TypeScript workspace is released', () => {
@@ -373,17 +373,17 @@ test('sealed fact shards remain the incremental authority after the TypeScript w
     'src/example/contract.ts': 'export const VALUE = 1;\n',
     'src/example/consumer.ts': "import { VALUE } from './contract.ts';\nexport const RESULT = VALUE;\n"
   });
-  const initial = compileTypeScriptSourceProgramModelIncremental(initialInput, null);
-  releaseTypeScriptSourceProgramWorkspace();
+  const initial = compileTypeScriptModelIncremental(initialInput, null);
+  releaseTypeScriptWorkspace();
   const changedInput = sourceInput({
     'src/example/contract.ts': 'export const VALUE = 2;\n',
     'src/example/consumer.ts': "import { VALUE } from './contract.ts';\nexport const RESULT = VALUE;\n"
   });
-  const changed = compileTypeScriptSourceProgramModelIncremental(changedInput, initial.state);
+  const changed = compileTypeScriptModelIncremental(changedInput, initial.state);
 
   expect(changed.mode).toBe('incremental');
-  expect(changed.model).toEqual(compileTypeScriptSourceProgramModel(changedInput));
-  releaseTypeScriptSourceProgramWorkspace();
+  expect(changed.model).toEqual(compileTypeScriptModel(changedInput));
+  releaseTypeScriptWorkspace();
 });
 
 test('non-production TypeScript files cannot poison the exact incremental identity', () => {
@@ -391,22 +391,22 @@ test('non-production TypeScript files cannot poison the exact incremental identi
     'src/example/value.ts': 'export const VALUE = 1;\n',
     'tests/example/value.test.ts': "import { expect, test } from 'bun:test';\ntest('value', () => expect(1).toBe(1));\n"
   });
-  const initial = compileTypeScriptSourceProgramModelIncremental(input, null);
-  const exact = compileTypeScriptSourceProgramModelIncremental(input, initial.state);
+  const initial = compileTypeScriptModelIncremental(input, null);
+  const exact = compileTypeScriptModelIncremental(input, initial.state);
 
   expect(exact.mode).toBe('exact');
   expect(exact.invalidatedPaths).toEqual([]);
   expect(exact.model).toBe(initial.model);
   expect(exact.state).toBe(initial.state);
   expect(exact.state.factShards[0]).toBe(initial.state.factShards[0]);
-  releaseTypeScriptSourceProgramWorkspace();
+  releaseTypeScriptWorkspace();
 });
 
 test('empty observed literals remain canonical facts without weakening structural rejection', () => {
   const input = sourceInput({
     'src/example/empty.ts': "export const EMPTY = '';\n"
   });
-  const compiled = compileTypeScriptSourceProgramModelIncremental(input, null);
+  const compiled = compileTypeScriptModelIncremental(input, null);
   const shard = compiled.state.factShards[0]!;
   const bytes = encodeTypeScriptSourceProgramFactShard(shard);
   const parsed = parseTypeScriptSourceProgramFactShard(bytes);
@@ -426,7 +426,7 @@ test('empty observed literals remain canonical facts without weakening structura
     JSON.stringify(canonicalJson(missing))
   ))).toThrow('noncanonical keys');
 
-  releaseTypeScriptSourceProgramWorkspace();
+  releaseTypeScriptWorkspace();
 });
 
 test('workspace-signed incremental performance observation remains clean-compile equivalent', () => {
@@ -450,7 +450,7 @@ test('workspace-signed incremental performance observation remains clean-compile
       ...unrelated,
       'src/performance/root.ts': rootSource(revision)
     });
-    const snapshot = compileVirtualWorkspaceSourceSnapshot({
+    const snapshot = compileVirtualSnapshot({
       subject: Object.freeze({
         kind: 'virtual-mutation' as const,
         provenance: Object.freeze({
@@ -466,21 +466,21 @@ test('workspace-signed incremental performance observation remains clean-compile
   };
 
   const initialInput = snapshotFor(1);
-  const initial = compileTypeScriptSourceProgramModelIncrementalFromWorkspaceSnapshot(
+  const initial = compileTypeScriptModelIncrementalWithCompilation(
     initialInput,
     null,
     initialInput.snapshot
   );
   const changedInput = snapshotFor(2);
-  const before = observeTypeScriptSourceProgramPerformanceForTests();
+  const before = observeTypeScriptPerformanceForTests();
   const startedAt = performance.now();
-  const changed = compileTypeScriptSourceProgramModelIncrementalFromWorkspaceSnapshot(
+  const changed = compileTypeScriptModelIncrementalWithCompilation(
     changedInput,
     initial.state,
     changedInput.snapshot
   );
   const durationMs = performance.now() - startedAt;
-  const after = observeTypeScriptSourceProgramPerformanceForTests();
+  const after = observeTypeScriptPerformanceForTests();
   const delta = Object.freeze(Object.fromEntries(Object.keys(after).map((key) => [
     key,
     after[key as keyof typeof after] - before[key as keyof typeof before]
@@ -488,12 +488,12 @@ test('workspace-signed incremental performance observation remains clean-compile
 
   console.log(`SEC_TYPESCRIPT_PERF=${JSON.stringify({ durationMs, ...delta })}`);
   expect(changed.mode).toBe('incremental');
-  expect(changed.model).toEqual(compileTypeScriptSourceProgramModel(changedInput));
+  expect(changed.model).toEqual(compileTypeScriptModel(changedInput));
   expect(delta).toMatchObject({
     dependencyReferenceVisits: 0,
     rawSourceHashBytes: 0,
     rawSourceHashOperations: 0,
     semanticScopeParseOperations: 1
   });
-  releaseTypeScriptSourceProgramWorkspace();
+  releaseTypeScriptWorkspace();
 });

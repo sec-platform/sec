@@ -1,11 +1,11 @@
 /** GitHub observation and mutation adapter for the VerificationSession operator. */
 
 import { spawnSync } from 'node:child_process';
-import { createHash } from 'node:crypto';
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
+import { rawSha256Hex } from '../../../../../contracts/canonical.ts';
 import {
   GITHUB_PULL_REQUEST_CLOSING_QUERY,
   type GitHubCheckObservation,
@@ -25,7 +25,7 @@ import {
 import { encodeVerificationActionData } from '../../action/contract/action.ts';
 import { CI_GITHUB_ACTIONS_IDENTITY_POLICY, matchesCiCompilerWorkflowRunIdentity } from '../../action/contract/provider.ts';
 import type { ReviewPrincipal, ReviewSnapshot } from '../../review/contract/stability.ts';
-import { createReviewSnapshotDigest, isCodexCleanReviewAboutBlock, isCodexCleanReviewVerdict, REVIEW_OBSERVER_READ_ONLY_CAPABILITY_RECEIPT, SEC_REVIEW_STABILITY_POLICY } from '../../review/contract/stability.ts';
+import { createReviewSnapshotDigest, isCodexCleanReviewAboutBlock, isCodexCleanReviewVerdict, REVIEW_OBSERVER_READ_ONLY_CAPABILITY_RECEIPT, REVIEW_STABILITY_POLICY } from '../../review/contract/stability.ts';
 import {
   CI_VERIFICATION_SESSION_ARTIFACT_PREFIX,
   CI_VERIFICATION_SESSION_DISPATCH_TYPE
@@ -426,7 +426,7 @@ export function isGitHubProviderSchemaUnsupportedError(
 }
 
 function hash(value: unknown): SessionDigest {
-  return `sha256:${createHash('sha256').update(encodeVerificationActionData(value)).digest('hex')}`;
+  return `sha256:${rawSha256Hex(encodeVerificationActionData(value))}`;
 }
 
 interface VerificationSessionReviewLocatorComment {
@@ -607,7 +607,7 @@ export type GitHubObservationFailureClassification =
  * cannot be reached is absence; bytes that were reached but violate the
  * provider contract are invalid Evidence and must remain fail-closed.
  */
-export function classifyGitHubObservationFailureV1(
+export function classifyGitHubObservationFailure(
   error: unknown
 ): GitHubObservationFailureClassification {
   if (error instanceof GitHubProviderResponseShapeError) {
@@ -1420,7 +1420,7 @@ class VerificationSessionGitHubAdapter {
     for (const comment of issueComments) {
       const performedApp = comment.performedViaGitHubApp;
       if (performedApp === null) continue;
-      const trustedApp = SEC_REVIEW_STABILITY_POLICY.trustedApps.find((app) => (
+      const trustedApp = REVIEW_STABILITY_POLICY.trustedApps.find((app) => (
         app.actorNodeId === comment.authorNodeId
         && performedApp.id === app.appId
         && performedApp.nodeId === app.appNodeId
@@ -1538,7 +1538,7 @@ class VerificationSessionGitHubAdapter {
       return observation;
     };
 
-    for (const trustedApp of SEC_REVIEW_STABILITY_POLICY.trustedApps) {
+    for (const trustedApp of REVIEW_STABILITY_POLICY.trustedApps) {
       const trustedReview = decisions.get(trustedApp.actorNodeId);
       if (trustedReview !== undefined && trustedReview.authorType === 'Bot'
         && trustedReview.appId === trustedApp.appId
@@ -1569,7 +1569,7 @@ class VerificationSessionGitHubAdapter {
       latestRestByApp.set(`${record.trustedApp.appId}:${record.trustedApp.actorNodeId}:` +
         `${record.trustedApp.appNodeId}:${record.trustedApp.appSlug}`, record);
     }
-    for (const trustedApp of SEC_REVIEW_STABILITY_POLICY.trustedApps) {
+    for (const trustedApp of REVIEW_STABILITY_POLICY.trustedApps) {
       const trustedComment = latestRestByApp.get(`${trustedApp.appId}:${trustedApp.actorNodeId}:` +
         `${trustedApp.appNodeId}:${trustedApp.appSlug}`);
       if (trustedComment?.clean === true) {
@@ -2306,7 +2306,7 @@ export function parseGitHubReviewPages(input: {
       fail(`reviews[${index}] GraphQL actor identity is invalid.`);
     }
     const actorApps = author.__typename === 'Bot'
-      ? SEC_REVIEW_STABILITY_POLICY.trustedApps.filter((app) => app.actorNodeId === author.id)
+      ? REVIEW_STABILITY_POLICY.trustedApps.filter((app) => app.actorNodeId === author.id)
       : [];
     let trustedApp: { id: number; nodeId: string; slug: string } | null = null;
     if (actorApps.length > 0) {

@@ -4,10 +4,10 @@ import { rawSha256, sha256 } from '../../../contracts/canonical.ts';
 import { compileRepositoryModuleMembershipSnapshot } from '../architecture/contract.ts';
 import { createSourceProgramCompilationOperation } from './compilation-operation.ts';
 import {
-  compileSourceProgramTestObservations,
-  observeSourceProgramTestContractCensus
+  compileTestObservations,
+  observeTestContractCensus
 } from './test-observations.ts';
-import { compileTypeScriptSourceProgramModel } from './typescript.ts';
+import { compileTypeScriptModel } from './typescript.ts';
 
 function compileFixture(
   testSources: Readonly<Record<string, string>>,
@@ -20,7 +20,7 @@ function compileFixture(
       ''
     ].join('\n')
   });
-  const descriptorPath = 'src/example/sec.module.json';
+  const descriptorPath = 'src/example/module.json';
   const descriptorSource = JSON.stringify({
     importGraph: 'runtime',
     externalEntrypoints: [],
@@ -42,12 +42,12 @@ function compileFixture(
     path,
     contentDigest
   })));
-  const productionModel = compileTypeScriptSourceProgramModel({
+  const productionModel = compileTypeScriptModel({
     sourceRevision,
     files: exactFiles,
     moduleMembership: membership
   });
-  return compileSourceProgramTestObservations({
+  return compileTestObservations({
     productionModel,
     files: exactFiles,
     moduleMembership: membership,
@@ -97,7 +97,7 @@ test('baseline contract census requires two exact compiler generations', () => {
     moduleForPath: () => null
   });
   const compile = (files: typeof baselineFiles | typeof candidateFiles) =>
-    compileTypeScriptSourceProgramModel({
+    compileTypeScriptModel({
       sourceRevision: sha256(files.map(({ path, contentDigest }) => ({ path, contentDigest }))),
       files,
       moduleMembership: membership
@@ -105,7 +105,7 @@ test('baseline contract census requires two exact compiler generations', () => {
   const baselineModel = compile(baselineFiles);
   const candidateModel = compile(candidateFiles);
 
-  expect(observeSourceProgramTestContractCensus(
+  expect(observeTestContractCensus(
     baselineModel,
     candidateModel,
     'tests/example.test.ts'
@@ -113,7 +113,7 @@ test('baseline contract census requires two exact compiler generations', () => {
     status: 'resolved',
     census: { producerCount: 0, consumerCount: 1, externalContractCount: 0 }
   }));
-  expect(observeSourceProgramTestContractCensus(
+  expect(observeTestContractCensus(
     { ...baselineModel },
     candidateModel,
     'tests/example.test.ts'
@@ -121,7 +121,7 @@ test('baseline contract census requires two exact compiler generations', () => {
     status: 'unresolved',
     reason: 'baseline-exact-generation-unavailable'
   }));
-  expect(observeSourceProgramTestContractCensus(
+  expect(observeTestContractCensus(
     baselineModel,
     { ...candidateModel },
     'tests/example.test.ts'
@@ -410,7 +410,7 @@ test('compiler provenance binds registrar wrappers, reachable Effects, terminals
     contentDigest: rawSha256(source)
   }));
   const descriptors = [{
-    descriptorPath: 'src/runtime/sec.module.json',
+    descriptorPath: 'src/runtime/module.json',
     source: JSON.stringify({
       importGraph: 'runtime',
       externalEntrypoints: [],
@@ -427,7 +427,7 @@ test('compiler provenance binds registrar wrappers, reachable Effects, terminals
       preDependencyBootstrap: false
     })
   }, {
-    descriptorPath: 'tests/sec.module.json',
+    descriptorPath: 'tests/module.json',
     source: JSON.stringify({
       importGraph: 'runtime',
       externalEntrypoints: [],
@@ -457,8 +457,8 @@ test('compiler provenance binds registrar wrappers, reachable Effects, terminals
     descriptorSources: descriptors
   });
   const sourceRevision = sha256(files.map(({ path, contentDigest }) => ({ path, contentDigest })));
-  const model = compileTypeScriptSourceProgramModel({ sourceRevision, files, moduleMembership: membership });
-  const projection = compileSourceProgramTestObservations({
+  const model = compileTypeScriptModel({ sourceRevision, files, moduleMembership: membership });
+  const projection = compileTestObservations({
     productionModel: model,
     files,
     moduleMembership: membership

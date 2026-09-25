@@ -1,6 +1,6 @@
 import { expect, test } from 'bun:test';
 
-import { CODEX_CLEAN_REVIEW_ABOUT_NONEMPTY_LINES, CODEX_CLEAN_REVIEW_CONGRATULATIONS, CODEX_CLEAN_REVIEW_VERDICT_PREFIX, REVIEW_OBSERVER_READ_ONLY_CAPABILITY_RECEIPT, SEC_REVIEW_STABILITY_POLICY, assertMergeTrailerLinesV1, assertReviewStabilityReceiptCurrent, createReviewSnapshotDigest, createReviewStabilityPolicy, createReviewStabilityReceipt, isCodexCleanReviewAboutBlock, isCodexCleanReviewVerdict, parseReviewStabilityPolicy, parseReviewStabilityReceipt, renderIndependentReviewTrailer, type ReviewSnapshot, type ReviewStabilityReceiptInput } from '../../src/adapters/verification/platform/review/contract/stability.ts';
+import { CODEX_CLEAN_REVIEW_ABOUT_NONEMPTY_LINES, CODEX_CLEAN_REVIEW_CONGRATULATIONS, CODEX_CLEAN_REVIEW_VERDICT_PREFIX, REVIEW_OBSERVER_READ_ONLY_CAPABILITY_RECEIPT, REVIEW_STABILITY_POLICY, assertMergeTrailerLines, assertReviewStabilityReceiptCurrent, createReviewSnapshotDigest, createReviewStabilityPolicy, createReviewStabilityReceipt, isCodexCleanReviewAboutBlock, isCodexCleanReviewVerdict, parseReviewStabilityPolicy, parseReviewStabilityReceipt, renderIndependentReviewTrailer, type ReviewSnapshot, type ReviewStabilityReceiptInput } from '../../src/adapters/verification/platform/review/contract/stability.ts';
 
 test('Codex clean Review verdict owns one stable semantic prefix and closed presentation grammar', () => {
   expect(isCodexCleanReviewVerdict(CODEX_CLEAN_REVIEW_VERDICT_PREFIX)).toBe(true);
@@ -78,7 +78,7 @@ function input(
     scopeAuthorizationReceiptDigest: D_C,
     headSha: SHA_A,
     headTreeSha: TREE_A,
-    policy: SEC_REVIEW_STABILITY_POLICY,
+    policy: REVIEW_STABILITY_POLICY,
     principal: {
       kind: 'github-app',
       ...TRUSTED_APP,
@@ -94,7 +94,7 @@ function input(
       providerIdentity: 'github',
       candidateWriteCapability: 'read-only',
       capabilityReceiptDigest: REVIEW_OBSERVER_READ_ONLY_CAPABILITY_RECEIPT,
-      trustedRevision: SEC_REVIEW_STABILITY_POLICY.trustedRevision,
+      trustedRevision: REVIEW_STABILITY_POLICY.trustedRevision,
       sourceTransport: 'github-graphql',
       sourceRunId: 'comment-1',
       sourceRef: 'pull/11',
@@ -179,12 +179,12 @@ test('Review policy digest binds every canonical App identity field', () => {
   ] as const;
   for (const [label, trustedApp] of cases) {
     const changed = createReviewStabilityPolicy({
-      policyId: SEC_REVIEW_STABILITY_POLICY.policyId,
-      trustedRevision: SEC_REVIEW_STABILITY_POLICY.trustedRevision,
+      policyId: REVIEW_STABILITY_POLICY.policyId,
+      trustedRevision: REVIEW_STABILITY_POLICY.trustedRevision,
       trustedApps: [trustedApp],
-      allowIndependentHumanApproval: SEC_REVIEW_STABILITY_POLICY.allowIndependentHumanApproval
+      allowIndependentHumanApproval: REVIEW_STABILITY_POLICY.allowIndependentHumanApproval
     });
-    expect(changed.policyDigest, label).not.toBe(SEC_REVIEW_STABILITY_POLICY.policyDigest);
+    expect(changed.policyDigest, label).not.toBe(REVIEW_STABILITY_POLICY.policyDigest);
   }
 });
 
@@ -268,7 +268,7 @@ test('Review semantic revision changes for every decision field', () => {
   const current = receipt();
   const alternatePolicy = createReviewStabilityPolicy({
     policyId: 'alternate-policy',
-    trustedRevision: SEC_REVIEW_STABILITY_POLICY.trustedRevision,
+    trustedRevision: REVIEW_STABILITY_POLICY.trustedRevision,
     trustedApps: [TRUSTED_APP],
     allowIndependentHumanApproval: true
   });
@@ -373,7 +373,7 @@ test('Review parsers reject schema drift, extra fields, and digest tampering', (
   for (const [label, candidate] of invalidReceipts) {
     expect(() => parseReviewStabilityReceipt(JSON.stringify(candidate)), label).toThrow();
   }
-  const policy = SEC_REVIEW_STABILITY_POLICY;
+  const policy = REVIEW_STABILITY_POLICY;
   for (const [label, candidate] of [
     ['extra policy field', { ...policy, extra: true }],
     ['policy schema drift', { ...policy, schema: 'unknown' }]
@@ -393,7 +393,7 @@ test('an Independent-* trailer derives only from a validated receipt', () => {
     /^Independent-Exact-Head-Review: receipt=sha256:[0-9a-f]{64} revision=sha256:[0-9a-f]{64} threads=[0-9]+ unresolved=0$/u
   );
   expect(canonical).not.toContain('P0=');
-  expect(() => assertMergeTrailerLinesV1([canonical], current)).not.toThrow();
+  expect(() => assertMergeTrailerLines([canonical], current)).not.toThrow();
 
   // PR #345 shape: the implementation-session self-review trailer with
   // free-text P0/P1/P2 counts never matches a validated receipt trailer.
@@ -402,7 +402,7 @@ test('an Independent-* trailer derives only from a validated receipt', () => {
     ['free-text review trailer', ['Independent-Exact-Head-Review: review=passed confidence=high']],
     ['unbound additional trailer', [canonical, 'Independent-Review: something-else']]
   ] as const) {
-    expect(() => assertMergeTrailerLinesV1(lines, current), label)
+    expect(() => assertMergeTrailerLines(lines, current), label)
       .toThrow('unbound Independent-* trailer');
   }
 });

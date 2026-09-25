@@ -21,8 +21,8 @@ import {
 } from './assert-isolated-staging-tree.ts';
 import {
   withSemanticMutationIsolatedPhaseTelemetry,
-  type SemanticMutationIsolatedPhase
-} from './isolation/isolated-verification-phase-telemetry.ts';
+  type IsolatedPhase
+} from './semantic-mutation/isolated/phase-telemetry.ts';
 import { RUNTIME_VERIFICATION_INVOCATION_CONTRACT } from './runtime-verification-invocation-contract.ts';
 import { runRuntimeUnitProcess } from './runtime-unit-process.ts';
 
@@ -169,7 +169,7 @@ export async function runRuntimeVerification(
     throw new Error('Isolated runtime verification requires its staging workspace root');
   }
   const withPhase = async <T>(
-    phase: SemanticMutationIsolatedPhase,
+    phase: IsolatedPhase,
     execute: () => Promise<T>
   ): Promise<T> => isolated
     ? withSemanticMutationIsolatedPhaseTelemetry(options.stagingWorkspaceRoot!, phase, execute)

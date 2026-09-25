@@ -5,7 +5,7 @@ import path from 'node:path';
 
 import { sha256 } from '../../../contracts/canonical.ts';
 import {
-  bindSecSemanticOperation,
+  bindSemanticOperation,
   compileCapabilityBinding,
   compileSemanticOperationPlan,
   issueSemanticOperationAttemptContext,
@@ -19,8 +19,8 @@ import {
   BoundedProcessDiagnosticObjectError,
   createBoundedProcessDiagnosticObjectStore
 } from './bounded-process-diagnostic-object.ts';
-import { resolveSecWorkspaceRuntimeRoots } from './paths.ts';
-import { acquireSecRuntimeJournalAuthority } from './physical-authority.ts';
+import { resolveWorkspaceRuntimeRoots } from './paths.ts';
+import { acquireRuntimeJournalAuthority } from './physical-authority.ts';
 
 const temporaryRoots: string[] = [];
 
@@ -75,7 +75,7 @@ function operation(label: string, includeRecords = false, maximumInputBytes = 4_
   });
   return {
     requirementId,
-    operation: bindSecSemanticOperation(plan, [compileCapabilityBinding({
+    operation: bindSemanticOperation(plan, [compileCapabilityBinding({
       requirementId,
       contractDigest,
       providerIdentityDigest: sha256('runtime-state-process-diagnostic-fixture') as OperationDigest
@@ -88,8 +88,8 @@ test.serial('bounded process diagnostics survive lost handles through owner-issu
   const publication = operation('publish');
   const subjectDigest = sha256('action-key') as OperationDigest;
   const settlementDigest = sha256('process-settlement') as OperationDigest;
-  const firstAuthority = await acquireSecRuntimeJournalAuthority(value);
-  const roots = resolveSecWorkspaceRuntimeRoots(value);
+  const firstAuthority = await acquireRuntimeJournalAuthority(value);
+  const roots = resolveWorkspaceRuntimeRoots(value);
   writeFileSync(
     path.join(
       roots.workspaceStateRoot,
@@ -124,7 +124,7 @@ test.serial('bounded process diagnostics survive lost handles through owner-issu
   await firstAuthority.release();
 
   const readback = operation('readback');
-  const secondAuthority = await acquireSecRuntimeJournalAuthority(value);
+  const secondAuthority = await acquireRuntimeJournalAuthority(value);
   try {
     const secondStore = createBoundedProcessDiagnosticObjectStore({
       ...value,
@@ -156,7 +156,7 @@ test.serial('bounded process diagnostics survive lost handles through owner-issu
 test.serial('diagnostic payload mutation and incomplete object residue remain typed blockers', async () => {
   const value = fixture();
   const publication = operation('mutation-publish');
-  const authority = await acquireSecRuntimeJournalAuthority(value);
+  const authority = await acquireRuntimeJournalAuthority(value);
   const store = createBoundedProcessDiagnosticObjectStore({ ...value, authority });
   const [published] = await store.publish({
     ...publication,
@@ -167,10 +167,10 @@ test.serial('diagnostic payload mutation and incomplete object residue remain ty
   const receipt = published!.receipt;
   await authority.release();
 
-  const roots = resolveSecWorkspaceRuntimeRoots(value);
+  const roots = resolveWorkspaceRuntimeRoots(value);
   const payloadName = `${receipt!.objectDigest.slice('sha256:'.length)}.bin`;
   writeFileSync(path.join(roots.processDiagnosticObjectRoot, payloadName), 'mutated!');
-  const readAuthority = await acquireSecRuntimeJournalAuthority(value);
+  const readAuthority = await acquireRuntimeJournalAuthority(value);
   try {
     const readStore = createBoundedProcessDiagnosticObjectStore({ ...value, authority: readAuthority });
     const readback = operation('mutation-readback');
@@ -195,8 +195,8 @@ test.serial('diagnostic payload mutation and incomplete object residue remain ty
 
 test.serial('same-path diagnostic root replacement fails the mutation-safe authority fence', async () => {
   const value = fixture();
-  const roots = resolveSecWorkspaceRuntimeRoots(value);
-  const authority = await acquireSecRuntimeJournalAuthority(value);
+  const roots = resolveWorkspaceRuntimeRoots(value);
+  const authority = await acquireRuntimeJournalAuthority(value);
   const store = createBoundedProcessDiagnosticObjectStore({ ...value, authority });
   renameSync(roots.processDiagnosticObjectRoot, `${roots.processDiagnosticObjectRoot}-replaced`);
   mkdirSync(roots.processDiagnosticObjectRoot);
@@ -218,8 +218,8 @@ test.serial('same-path diagnostic root replacement fails the mutation-safe autho
 
 test.serial('foreign diagnostic residue blocks bounded collection', async () => {
   const value = fixture();
-  const roots = resolveSecWorkspaceRuntimeRoots(value);
-  const authority = await acquireSecRuntimeJournalAuthority(value);
+  const roots = resolveWorkspaceRuntimeRoots(value);
+  const authority = await acquireRuntimeJournalAuthority(value);
   const store = createBoundedProcessDiagnosticObjectStore({ ...value, authority });
   writeFileSync(path.join(roots.processDiagnosticObjectRoot, 'foreign.txt'), 'foreign');
   try {
@@ -235,9 +235,9 @@ test.serial('foreign diagnostic residue blocks bounded collection', async () => 
 
 test.serial('object-local partial publication is retained or expired without blocking unrelated GC', async () => {
   const value = fixture();
-  const roots = resolveSecWorkspaceRuntimeRoots(value);
+  const roots = resolveWorkspaceRuntimeRoots(value);
   const gcOperation = operation('partial-residue-gc', true);
-  const authority = await acquireSecRuntimeJournalAuthority(value);
+  const authority = await acquireRuntimeJournalAuthority(value);
   const expired = createBoundedProcessDiagnosticObjectReceipt({
     operationIdentityDigest: gcOperation.operation.plan.identity.identityDigest,
     executionPlanDigest: gcOperation.operation.plan.execution.executionPlanDigest,
@@ -291,8 +291,8 @@ test.serial('object-local partial publication is retained or expired without blo
 
 test.serial('GC stops before the next payload when the remaining input-byte budget is exhausted', async () => {
   const value = fixture();
-  const roots = resolveSecWorkspaceRuntimeRoots(value);
-  const authority = await acquireSecRuntimeJournalAuthority(value);
+  const roots = resolveWorkspaceRuntimeRoots(value);
+  const authority = await acquireRuntimeJournalAuthority(value);
   try {
     const store = createBoundedProcessDiagnosticObjectStore({ ...value, authority });
     const published = await store.publish({

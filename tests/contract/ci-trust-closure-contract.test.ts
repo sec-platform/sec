@@ -8,11 +8,11 @@ import { TrustedBootstrapSutHarness } from '../../src/adapters/verification/plat
 import { slowTestSuiteIds } from '../../src/adapters/verification/platform/test-impact/contract/budget.ts';
 import { TCB_TRUST_ROOT } from '../../src/adapters/verification/platform/trust/compiler.ts';
 import {
-  createSecTrustedBootstrapTrustRoot,
-  matchSecTrustedBootstrapPath,
-  parseSecTrustedBootstrapRegistry,
-  SEC_TCB_CLOSURE_RUNTIME_PATH,
-  SEC_TRUSTED_BOOTSTRAP_REGISTRY_PATH
+  createTrustedBootstrapTrustRoot,
+  matchTrustedBootstrapPath,
+  parseTrustedBootstrapRegistry,
+  TCB_CLOSURE_RUNTIME_PATH,
+  TRUSTED_BOOTSTRAP_REGISTRY_PATH
 } from '../../src/adapters/verification/platform/trust/contract/root.ts';
 import {
   compileTcbClosureActionResult,
@@ -162,7 +162,7 @@ test('exact-main health policy binds one stable GitHub Actions app and terminal 
 
 
 test('trusted base candidate root bootstrap checker is disjoint and candidate remains data', async () => {
-  const source = await readCompilerFile('.github/workflows/sec-trusted-bootstrap.yml');
+  const source = await readCompilerFile('.github/workflows/trusted-bootstrap.yml');
   const workflow = parseYaml(source) as Workflow;
   const checkerSource = embeddedTrustedBootstrapChecker(source);
   expect(() => new Bun.Transpiler({ loader: 'js', target: 'bun' }).transformSync(checkerSource))
@@ -174,10 +174,10 @@ test('trusted base candidate root bootstrap checker is disjoint and candidate re
     selectTcbClosureCandidateAction,
     compileTcbClosureActionResult,
     finalizeTcbClosureCandidateSnapshot,
-    parseSecTrustedBootstrapRegistry,
-    createSecTrustedBootstrapTrustRoot
+    parseTrustedBootstrapRegistry,
+    createTrustedBootstrapTrustRoot
   ].every((contract) => typeof contract === 'function')).toBe(true);
-  expect(SEC_TRUSTED_BOOTSTRAP_REGISTRY_PATH)
+  expect(TRUSTED_BOOTSTRAP_REGISTRY_PATH)
     .toBe('src/adapters/verification/platform/trust/contract/ci-trust-root-registry.json');
   expect(checkerSource).not.toMatch(/TcbClosure[A-Za-z]+V1|TrustedBootstrap[A-Za-z]+V3|terminal\.resultDigest/u);
   expect(workflow.jobs.resolve?.outputs).toMatchObject({
@@ -231,23 +231,23 @@ test('trusted base candidate root bootstrap checker is disjoint and candidate re
     SEC_BOOTSTRAP_BASE_TREE: '${{ needs.resolve.outputs.base-tree }}'
   });
   const r2ChangedPaths = [
-    '.github/workflows/sec-trusted-bootstrap.yml',
+    '.github/workflows/trusted-bootstrap.yml',
     'config/repository/work-packages/trusted-bootstrap-base-first-repair-v1.md',
     'config/repository/work-packages/verification-action-kernel-finalization-v1.md',
     'config/repository/active-work-package.md',
     'config/repository/rolling-plan.md',
-    SEC_TCB_CLOSURE_RUNTIME_PATH,
+    TCB_CLOSURE_RUNTIME_PATH,
     'tests/contract/ci-contract.test.ts',
     'tests/unit/active-documentation-contract.test.ts',
     'tests/contract/tcb-closure-lock.test.ts'
   ];
   expect(r2ChangedPaths
     .filter((repositoryPath) =>
-      matchSecTrustedBootstrapPath(repositoryPath, TCB_TRUST_ROOT) !== null
+      matchTrustedBootstrapPath(repositoryPath, TCB_TRUST_ROOT) !== null
     )
     .sort()).toEqual([
-    '.github/workflows/sec-trusted-bootstrap.yml',
-    SEC_TCB_CLOSURE_RUNTIME_PATH
+    '.github/workflows/trusted-bootstrap.yml',
+    TCB_CLOSURE_RUNTIME_PATH
   ]);
   const sutSteps = workflow.jobs['candidate-sut']?.steps ?? [];
   expect(sutSteps.some((step) => step.name === 'Checkout exact trusted base checker')).toBe(false);

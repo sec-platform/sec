@@ -7,18 +7,17 @@
  * Execution cost/lane is plan policy, not semantic ActionKey identity.
  */
 
-import { createHash } from 'node:crypto';
 import path from 'node:path';
 import { types as nodeTypes } from 'node:util';
 
 import type { VerificationReasonCode, VerificationResultStatus } from '../../../../../assurance/verification/result/contract/result.ts';
 import { assertVerificationStatusReason } from '../../../../../assurance/verification/result/contract/result.ts';
-import { sha256 } from '../../../../../contracts/canonical.ts';
+import { rawSha256Hex, sha256 } from '../../../../../contracts/canonical.ts';
 import {
   assertDomainReadbackReceipt,
   assertOwnerTerminalJoinReceipt,
   assertProviderSettlementSet,
-  assertSecSemanticOperationProjection,
+  assertSemanticOperationProjection,
   type BoundSemanticOperation,
   type DomainReadbackReceipt,
   type OwnerTerminalJoinReceipt,
@@ -608,10 +607,10 @@ export function encodeVerificationActionData(value: unknown): string {
 }
 
 function keyDigest(input: VerificationActionKeyInput): VerificationActionKeyDigest {
-  return `sha256:${createHash('sha256').update(encodeCanonical({
+  return `sha256:${rawSha256Hex(encodeCanonical({
     schema: VERIFICATION_ACTION_KEY_SCHEMA,
     ...input
-  })).digest('hex')}`;
+  }))}`;
 }
 
 export function createVerificationActionKey(input: unknown): VerificationActionKey {
@@ -796,7 +795,7 @@ export function issueVerificationActionOwnerTerminalReceipt(input: Readonly<{
   ownerTerminalProjection: OwnerTerminalJoinReceipt;
 }>): VerificationActionOwnerTerminalReceipt {
   const action = parseVerificationActionKey(encodeCanonical(input.action));
-  assertSecSemanticOperationProjection(input.operation);
+  assertSemanticOperationProjection(input.operation);
   assertProviderSettlementSet(input.providerSettlementSet);
   assertDomainReadbackReceipt(input.readback);
   assertOwnerTerminalJoinReceipt(input.ownerTerminalProjection);

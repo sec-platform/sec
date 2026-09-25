@@ -1,5 +1,5 @@
 import { compareCodeUnits } from '../../contracts/canonical.ts';
-import { SecError as CompilerError, fail } from '../../contracts/failure.ts';
+import { FailureError as CompilerError, fail } from '../../contracts/failure.ts';
 import type { LoadedSemanticContract, SemanticContract, SemanticContractEntity, SemanticContractImport, SemanticContractResponsibilityBinding } from './types.ts';
 
 type SymbolKind =

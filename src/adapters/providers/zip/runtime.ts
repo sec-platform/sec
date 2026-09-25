@@ -5,7 +5,7 @@ import path from 'node:path';
 import { rawSha256, sha256 } from '../../../contracts/canonical.ts';
 import { issueOperationRequirementBindingContext } from '../../../execution/operation/requirement-binding-context.ts';
 import {
-  bindSecSemanticOperation,
+  bindSemanticOperation,
   compileCapabilityBinding,
   compileSemanticOperationPlan,
   issueSemanticOperationAttemptContext,
@@ -108,7 +108,7 @@ function compileZipProcessOperation(input: Readonly<{
   });
   return Object.freeze({
     aggregateBudgets,
-    operation: bindSecSemanticOperation(plan, [compileCapabilityBinding({
+    operation: bindSemanticOperation(plan, [compileCapabilityBinding({
       requirementId: ZIP_PROCESS_REQUIREMENT,
       contractDigest: ZIP_PROCESS_CONTRACT,
       providerIdentityDigest: input.providerIdentityDigest

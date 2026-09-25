@@ -34,8 +34,8 @@ import { encodeVerificationActionData } from '../../src/adapters/verification/pl
 import { ciVerificationActionParentDispatchPlanPayloadDigest, createCiVerificationActionParentDispatchPlan, createCiVerificationActionProposal, createCiVerificationActionProviderEnvelope, createCiVerificationLocalExecutionEnvironment } from '../../src/adapters/verification/platform/action/contract/ci.ts';
 import { createVerificationEvidenceProducer, finalizeVerificationEvidence, finalizeVerificationSessionArtifact } from '../../src/adapters/verification/platform/ci/contract/evidence.ts';
 import { bindDocumentationVerificationGateInput } from '../../src/adapters/verification/platform/ci/contract/plan.ts';
-import { createReviewSnapshotDigest, createReviewStabilityReceipt, renderIndependentReviewTrailer, REVIEW_OBSERVER_READ_ONLY_CAPABILITY_RECEIPT, SEC_REVIEW_STABILITY_POLICY } from '../../src/adapters/verification/platform/review/contract/stability.ts';
-import { CreateTestImpactTransitionObservation, CodexDevelopmentTestImpactTransitionDigest, type TestImpactTransitionObservation } from '../../src/adapters/verification/platform/test-impact/runtime/transition.ts';
+import { createReviewSnapshotDigest, createReviewStabilityReceipt, renderIndependentReviewTrailer, REVIEW_OBSERVER_READ_ONLY_CAPABILITY_RECEIPT, REVIEW_STABILITY_POLICY } from '../../src/adapters/verification/platform/review/contract/stability.ts';
+import { CreateTestImpactTransitionObservation, TestImpactTransitionDigest, type TestImpactTransitionObservation } from '../../src/adapters/verification/platform/test-impact/runtime/transition.ts';
 import { BuildVerificationGateResult } from '../../src/assurance/verification/result/contract/result.ts';
 
 import type {
@@ -146,7 +146,7 @@ import {
   prepareVerificationSessionMergeInput,
   reconstructVerificationSessionHostedFacts,
   resumeVerificationSession,
-  SEC_VERIFICATION_SESSION_IMPLEMENTATION_IDENTITY,
+  VERIFICATION_SESSION_IMPLEMENTATION_IDENTITY,
   VERIFICATION_SESSION_HOSTED_ENVELOPE_SCHEMA,
   type VerificationSessionHostedEnvelope,
   type VerificationSessionHostedFacts,
@@ -165,7 +165,7 @@ import {
 } from '../../src/adapters/verification/platform/ci/runtime/verification-session.ts';
 import { createVerificationSession, type VerificationSession } from '../../src/adapters/verification/platform/session/contract/session.ts';
 import { compileTcbClosureIdentity } from '../../src/adapters/verification/platform/trust/compiler.ts';
-import { SEC_TRUSTED_BOOTSTRAP_REGISTRY } from '../../src/adapters/verification/platform/trust/contract/root.ts';
+import { TRUSTED_BOOTSTRAP_REGISTRY } from '../../src/adapters/verification/platform/trust/contract/root.ts';
 import { acquireExactRepositoryTestImpactProviderFixture } from '../helpers/test-impact-provider.ts';
 import { runRetainedBunTestProcess } from '../testkit/process-resource.ts';
 
@@ -912,7 +912,7 @@ function createPureReviewFixture(input: {
     scopeAuthorizationRevision: input.scope.authorizationRevision,
     scopeAuthorizationReceiptDigest: input.scope.authorizationDigest,
     headSha: input.session.headSha, headTreeSha: input.session.headTreeSha,
-    policy: SEC_REVIEW_STABILITY_POLICY, principal: input.barrier.principal,
+    policy: REVIEW_STABILITY_POLICY, principal: input.barrier.principal,
     independence: { candidateAuthorNodeId: input.candidateAuthorNodeId,
       integrationPrincipalNodeId: input.integrationPrincipalNodeId },
     producer: {
@@ -921,7 +921,7 @@ function createPureReviewFixture(input: {
       providerIdentity: input.barrier.authority.providerIdentity,
       candidateWriteCapability: input.barrier.authority.candidateWriteCapability,
       capabilityReceiptDigest: input.barrier.authority.capabilityReceiptDigest,
-      trustedRevision: SEC_REVIEW_STABILITY_POLICY.trustedRevision,
+      trustedRevision: REVIEW_STABILITY_POLICY.trustedRevision,
       sourceTransport: input.barrier.authority.sourceTransport,
       sourceRunId: input.operationId,
       sourceRef: `github://${input.session.repository}/pull/${input.session.prNumber}@${input.session.headSha}`,
@@ -958,7 +958,7 @@ function createPureHostedEnvelopeFixture(input: {
     scopeAuthorizationReceiptDigest: scopeAuthorization.authorizationDigest,
     actionPlanClosureDigest: facts.actionPlanClosure.actionPlanDigest, profile: request.profile,
     environmentDigest: facts.environmentDigest, trustRevision: request.expectedBaseSha,
-    reviewPolicyDigest: SEC_REVIEW_STABILITY_POLICY.policyDigest,
+    reviewPolicyDigest: REVIEW_STABILITY_POLICY.policyDigest,
     evidenceRequirementDigest: facts.evidenceRequirementDigest,
     integrationPolicyDigest: facts.integrationPolicyDigest,
     mainHealthRef: { mainSha: mainHealth.mainSha, mainTreeSha: mainHealth.mainTreeSha,
@@ -1081,7 +1081,7 @@ async function reducerFixture(options: {
     session: artifact.session, scope: artifact.scopeAuthorization, barrier: preMergeBarrier,
     candidateAuthorNodeId: 'AUTHOR', integrationPrincipalNodeId: 'INTEGRATOR',
     expiresAt: '2026-08-09T14:20:00.000Z', operationId: PAGE });
-  const mergeWorkflowRef = `.github/workflows/sec-merge-gate.yml@${BASE}`;
+  const mergeWorkflowRef = `.github/workflows/merge-gate.yml@${BASE}`;
   const freshMainHealthSourceRef = `github-check-runs:sec-platform/sec@${BASE}`;
   const freshMainHealth = createMainHealthLedger(createObservedMainHealthInput({
     repository: 'sec-platform/sec', mainSha: BASE, mainTreeSha: BASE, trustRevision: BASE,
@@ -1101,7 +1101,7 @@ async function reducerFixture(options: {
       headOpenPullRequestCount: 1, currentBaseSha: BASE, currentBaseTreeSha: BASE,
       headSha: HEAD, headTreeSha: HEAD, baseIsAncestor: true, behindBy: 0,
       manifestPath: V6_MANIFEST_PATH, manifestDigest: V6_MANIFEST_DIGEST, changedPaths },
-    provenance: { workflowPath: '.github/workflows/sec-merge-gate.yml', workflowRef: mergeWorkflowRef,
+    provenance: { workflowPath: '.github/workflows/merge-gate.yml', workflowRef: mergeWorkflowRef,
       workflowSha: BASE, eventName: 'workflow_run', sourceRunId: '200', sourceRunAttempt: 1,
       actorNodeId: 'INTEGRATOR', actorPermission: 'maintain' },
     mainHealth: freshMainHealth, consumptionOperationId, issuedAt: mergeAt,
@@ -1116,7 +1116,7 @@ async function reducerFixture(options: {
     artifactId: '2000',
     artifactName: `sec-merge-gate-result-v2-pr-42-session-${artifact.session.sessionRevision.slice(7)}-run-200-attempt-1`,
     archiveDigest: PAGE,
-    workflowPath: '.github/workflows/sec-merge-gate.yml', workflowRef: mergeWorkflowRef,
+    workflowPath: '.github/workflows/merge-gate.yml', workflowRef: mergeWorkflowRef,
     workflowSha: BASE, runId: '200', runAttempt: 1, eventName: 'workflow_run',
     actorNodeId: CI_GITHUB_ACTIONS_IDENTITY_POLICY.bot.nodeId,
     actorPermission: 'none' as const, expired: false
@@ -2127,7 +2127,7 @@ test('IssueDisposition post-main readback consumes the canonical exact MainHealt
   const common = {
     repository: 'sec-platform/sec', newMainSha: BASE, newMainTreeSha: HEAD,
     observedAt: '2026-08-09T14:00:00.000Z', sourceRunId: '200',
-    sourceRef: `.github/workflows/sec-merge-gate.yml@${BASE}`
+    sourceRef: `.github/workflows/merge-gate.yml@${BASE}`
   };
   const dispatched = mainHealthCheck({ id: 8 });
   const single = compilePostMainIssueDispositionHealthReadback({ ...common, checks: [dispatched] });
@@ -2233,8 +2233,8 @@ test('VerificationSession binds the exact deletion transition through Scope, Act
   const reordered = CreateTestImpactTransitionObservation({
     baseSha, headSha, records: [...records].reverse(), readPathBlob
   });
-  expect(CodexDevelopmentTestImpactTransitionDigest(reordered))
-    .toBe(CodexDevelopmentTestImpactTransitionDigest(testImpactTransition));
+  expect(TestImpactTransitionDigest(reordered))
+    .toBe(TestImpactTransitionDigest(testImpactTransition));
 
   const transport = new FakeTransport();
   transport.issueComments = [[botIssueComment()]];
@@ -2423,7 +2423,7 @@ test('Session local quick DAG keeps durable journals in external Runtime State a
       baseSha,
       headSha
     );
-    const testImpactTransitionDigest = CodexDevelopmentTestImpactTransitionDigest(testImpactTransition);
+    const testImpactTransitionDigest = TestImpactTransitionDigest(testImpactTransition);
     const closure = prepareLocalQuickVerificationActionPlan({ candidate,
       manifestPath: 'config/repository/work-packages/verification-action-trusted-cutover-v6.md',
       manifestDigest: `sha256:${'9'.repeat(64)}`, changedPaths: ['src/adapters/verification/platform/ci/runtime/verification-session.ts'],
@@ -2450,7 +2450,7 @@ test('Session local quick DAG keeps durable journals in external Runtime State a
     expect(result.status).toBe('passed');
     expect(result.actionPlanDigest).toBe(closure.actionPlanDigest);
     expect(result.actionResults.every((entry) => entry.terminal?.status === 'passed')).toBe(true);
-    expect(existsSync(path.join(runtimeStateRoot, 'workspaces', 'v1'))).toBe(true);
+    expect(existsSync(path.join(runtimeStateRoot, 'workspaces', 'records'))).toBe(true);
     expect(existsSync(path.join(authorityRoot, '.tmp', 'codex', 'verification-actions', 'v2'))).toBe(false);
     expect(existsSync(path.join(candidateRoot, '.tmp', 'codex', 'verification-actions', 'v2'))).toBe(false);
     expect(runGit(candidateRoot, ['rev-parse', 'HEAD'])).toBe(headSha);
@@ -2504,7 +2504,7 @@ test('synchronous hosted merge rejects queued effects and requires exact physica
   const reviewReceipt = createReviewStabilityReceipt({ stage: 'pre-merge', repository: 'sec-platform/sec',
     prNumber: 42, sessionRevision: PAGE, scopeAuthorizationRevision: PAGE,
     scopeAuthorizationReceiptDigest: PAGE, headSha: HEAD, headTreeSha: HEAD,
-    policy: SEC_REVIEW_STABILITY_POLICY,
+    policy: REVIEW_STABILITY_POLICY,
     principal: { kind: 'github-app', actorNodeId: BOT, appId: 1144995,
       appNodeId: 'A_kwHOAOQ6Gs4AEXij', appSlug: 'chatgpt-codex-connector', reviewState: 'COMMENTED' },
     independence: { candidateAuthorNodeId: 'AUTHOR', integrationPrincipalNodeId: 'INTEGRATOR' },
@@ -2512,7 +2512,7 @@ test('synchronous hosted merge rejects queued effects and requires exact physica
       executionIdentity: `github-review-observer:sec-platform/sec:42:${HEAD}`,
       providerIdentity: 'github', candidateWriteCapability: 'read-only',
       capabilityReceiptDigest: REVIEW_OBSERVER_READ_ONLY_CAPABILITY_RECEIPT,
-      trustedRevision: SEC_REVIEW_STABILITY_POLICY.trustedRevision,
+      trustedRevision: REVIEW_STABILITY_POLICY.trustedRevision,
       sourceTransport: 'github-graphql', sourceRunId: 'run-1', sourceRef: 'pull/42',
       sourceDigest: reviewSnapshot.snapshotDigest }, snapshot: reviewSnapshot,
     reviewedAt: '2026-08-09T00:00:00.000Z', expiresAt: '2026-08-09T01:00:00.000Z' });
@@ -3387,7 +3387,7 @@ if (endpoint.includes('/actions/runs?head_sha=')) {
   out([{ workflow_runs: [{ id: 200,
     name: 'integrate compiler session run 100 attempt 1',
     display_title: 'integrate compiler session run 100 attempt 1',
-    path: '.github/workflows/sec-merge-gate.yml', event: 'workflow_run',
+    path: '.github/workflows/merge-gate.yml', event: 'workflow_run',
     status: 'in_progress', conclusion: null, head_sha: state.baseSha,
     run_attempt: currentRun.run_attempt, updated_at: '2026-08-09T14:05:00.000Z' }] }]);
 }
@@ -3582,7 +3582,7 @@ async function createCloseoutCliScenario(input: {
   mkdirSync(commonDir, { recursive: true });
   const statePath = path.join(root, 'provider-state.json');
   const tcbBlobs: Record<string, string> = { ...closeoutTcbModuleBlobs() };
-  for (const edge of SEC_TRUSTED_BOOTSTRAP_REGISTRY.reviewedBoundaryEdges) {
+  for (const edge of TRUSTED_BOOTSTRAP_REGISTRY.reviewedBoundaryEdges) {
     const target = edge.split(' -> ')[1];
     if (target !== undefined && tcbBlobs[target] === undefined) tcbBlobs[target] = 'd'.repeat(40);
   }
@@ -3655,14 +3655,14 @@ async function createCloseoutCliScenario(input: {
         triggering_actor: { login: 'integrator', node_id: 'INTEGRATOR' },
         repository: { id: 123 } },
       199: { id: 199, run_attempt: 1, event: 'workflow_run',
-        path: '.github/workflows/sec-merge-gate.yml', head_sha: BASE,
+        path: '.github/workflows/merge-gate.yml', head_sha: BASE,
         actor: { login: CI_GITHUB_ACTIONS_IDENTITY_POLICY.bot.login,
           id: CI_GITHUB_ACTIONS_IDENTITY_POLICY.bot.id,
           node_id: CI_GITHUB_ACTIONS_IDENTITY_POLICY.bot.nodeId,
           type: CI_GITHUB_ACTIONS_IDENTITY_POLICY.bot.type },
         triggering_actor: { login: 'integrator', node_id: 'INTEGRATOR' }, repository: { id: 123 } },
       200: { id: 200, run_attempt: currentRunAttempt, event: 'workflow_run',
-        path: '.github/workflows/sec-merge-gate.yml', head_sha: BASE,
+        path: '.github/workflows/merge-gate.yml', head_sha: BASE,
         actor: { login: CI_GITHUB_ACTIONS_IDENTITY_POLICY.bot.login,
           id: CI_GITHUB_ACTIONS_IDENTITY_POLICY.bot.id,
           node_id: CI_GITHUB_ACTIONS_IDENTITY_POLICY.bot.nodeId,
@@ -3731,8 +3731,8 @@ process.stdout.write(JSON.stringify(state.activeWorkPackageSelected
   });
   const canonicalCommentProvenance = (runId: string) => createHostedWorkflowCommentProvenance({
     repositoryId: '123',
-    workflowPath: '.github/workflows/sec-merge-gate.yml',
-    workflowRef: `.github/workflows/sec-merge-gate.yml@${BASE}`,
+    workflowPath: '.github/workflows/merge-gate.yml',
+    workflowRef: `.github/workflows/merge-gate.yml@${BASE}`,
     workflowSha: BASE,
     runId,
     runAttempt: 1,
@@ -4063,7 +4063,7 @@ function closeoutCliProcessEnvironment(
     GITHUB_SHA: BASE,
     GITHUB_REF: 'refs/heads/main',
     GITHUB_WORKFLOW_REF:
-      'sec-platform/sec/.github/workflows/sec-merge-gate.yml@refs/heads/main',
+      'sec-platform/sec/.github/workflows/merge-gate.yml@refs/heads/main',
     GITHUB_WORKFLOW_SHA: BASE,
     GITHUB_RUN_ID: '200',
     GITHUB_RUN_ATTEMPT: String(state.runs['200'].run_attempt),
@@ -4673,7 +4673,7 @@ test('GitHub GraphQL schema drift is classified as typed provider-schema-unsuppo
 });
 
 test('the implementation session cannot issue an independent Review receipt', async () => {
-  const { SEC_REVIEW_STABILITY_POLICY: SEC_REVIEW_STABILITY_POLICY_V1, createReviewStabilityReceipt: createReviewStabilityReceiptV1 } =
+  const { REVIEW_STABILITY_POLICY: loadedReviewStabilityPolicy, createReviewStabilityReceipt: loadedCreateReviewStabilityReceipt } =
     await import('../../src/adapters/verification/platform/review/contract/stability.ts');
   const sha = 'a'.repeat(40);
   const digest = (value: string) => `sha256:${value}` as const;
@@ -4708,22 +4708,22 @@ test('the implementation session cannot issue an independent Review receipt', as
     scopeAuthorizationReceiptDigest: digest('e'.repeat(64)),
     headSha: sha,
     headTreeSha: '3'.repeat(40),
-    policy: SEC_REVIEW_STABILITY_POLICY_V1,
+    policy: loadedReviewStabilityPolicy,
     principal,
     independence: { candidateAuthorNodeId: 'USER_author', integrationPrincipalNodeId: 'USER_integrator' },
     snapshot,
     reviewedAt: '2026-08-09T00:00:00.000Z',
     expiresAt: '2026-08-09T01:00:00.000Z'
   };
-  expect(() => createReviewStabilityReceiptV1({
+  expect(() => loadedCreateReviewStabilityReceipt({
       ...baseInput,
       producer: {
         identity: 'src/adapters/verification/platform/ci/runtime/verification-session-github.ts',
-        executionIdentity: SEC_VERIFICATION_SESSION_IMPLEMENTATION_IDENTITY,
+        executionIdentity: VERIFICATION_SESSION_IMPLEMENTATION_IDENTITY,
         providerIdentity: 'github',
         candidateWriteCapability: 'read-only',
         capabilityReceiptDigest: REVIEW_OBSERVER_READ_ONLY_CAPABILITY_RECEIPT,
-        trustedRevision: SEC_REVIEW_STABILITY_POLICY_V1.trustedRevision,
+        trustedRevision: loadedReviewStabilityPolicy.trustedRevision,
         sourceTransport: 'github-graphql',
         sourceRunId: 'run-1',
         sourceRef: 'pull/345',

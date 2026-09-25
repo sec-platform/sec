@@ -1,7 +1,7 @@
 import { test } from 'bun:test';
 import assert from 'node:assert/strict';
 
-import { assembleRepositoryModuleGraph as assemble, resolveSecRepositoryModuleImportCandidates as candidates } from '../../src/adapters/repository/source-program-model/module-graph.ts';
+import { assembleRepositoryModuleGraph as assemble, resolveRepositoryModuleImportCandidates as candidates } from '../../src/adapters/repository/source-program-model/module-graph.ts';
 
 const files = ['src/a.ts', 'src/b.ts', 'src/c.ts'];
 const observation = (typeOnly: boolean, from = 'src/a.ts', specifier = './b.ts') => ({ from, specifier, typeOnly, kind: 'static' as const });

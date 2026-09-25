@@ -14,13 +14,11 @@ type RepositoryAuditMode = 'repository' | 'module-topology' | 'source-program';
 export const DEFAULT_REPOSITORY_AUDIT_REF = 'refs/remotes/origin/main';
 
 const CLI_OPTIONS = {
-  json: { type: 'boolean' },
   full: { type: 'boolean' },
   findings: { type: 'boolean' },
   diagnostic: { type: 'boolean' },
   enforce: { type: 'boolean' },
-  'worktree-module-topology': { type: 'boolean' },
-  'worktree-source-program': { type: 'boolean' },
+  scope: { type: 'string' },
   candidates: { type: 'boolean' },
   'blocking-details': { type: 'boolean' },
   'blocking-details-page': { type: 'string' },
@@ -34,6 +32,17 @@ const CLI_OPTIONS = {
   'default-ref': { type: 'string' },
   'supersession-baseline': { type: 'string' }
 } as const;
+
+function requireAuditMode(
+  value: unknown,
+  defaultMode: RepositoryAuditMode
+): RepositoryAuditMode {
+  if (value === undefined) return defaultMode;
+  if (value === 'repository' || value === 'module-topology' || value === 'source-program') {
+    return value;
+  }
+  throw new TypeError(`Unsupported --scope value: ${String(value)}`);
+}
 
 export type RepositoryAuditCliOptions = Readonly<{
   mode: RepositoryAuditMode;
@@ -116,11 +125,7 @@ export function parseRepositoryAuditCliOptions(
     }
     supplied.add(token.name);
   }
-  if (values['worktree-module-topology'] && values['worktree-source-program']) {
-    throw new Error('Choose exactly one repository audit mode');
-  }
-  const mode = values['worktree-module-topology'] ? 'module-topology'
-    : values['worktree-source-program'] ? 'source-program' : defaultMode;
+  const mode = requireAuditMode(values.scope, defaultMode);
   const reductions = ([
     ['aggregate-import-reductions', 'aggregate-import'],
     ['graph-cuts', 'graph-cut'],

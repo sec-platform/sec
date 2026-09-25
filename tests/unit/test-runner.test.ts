@@ -7,8 +7,8 @@ import ts from 'typescript';
 
 import type { GitReadSession } from '../../src/adapters/providers/git-read/runtime/session.ts';
 import {
-  assertWorkspaceTypeScriptProjectGenerationEvidence,
-  compileVirtualWorkspaceSourceSnapshot,
+  assertTypeScriptProjectGenerationEvidence,
+  compileVirtualSnapshot,
   type WorkspaceSourceSnapshot
 } from '../../src/adapters/repository/source-program-model/workspace-source-snapshot.ts';
 import { inspectNoFollowDirectoryChain } from '../../src/adapters/runtime-state/physical/runtime/physical-no-follow.ts';
@@ -48,7 +48,7 @@ import {
 import { compileTestBudgetProjection, FAST_TEST_PROCESS_POLICY_TEST_FILE, TEST_ARCHITECTURE_POLICY_TEST_FILE } from '../../src/adapters/verification/platform/test-impact/contract/budget.ts';
 import { compilerRoot } from "../../src/adapters/workspace-context.ts";
 import { rawSha256 } from '../../src/contracts/canonical.ts';
-import { isSecRepositoryTestModulePath, normalizeSecRepositoryTestModulePath } from '../../src/contracts/repository-test-path.ts';
+import { isRepositoryTestModulePath, normalizeRepositoryTestModulePath } from '../../src/contracts/repository-test-path.ts';
 import { createExactGitTreeTestRunnerFixture } from '../helpers/test-impact-provider.ts';
 
 const actualCommandRunner = await import('../../src/adapters/self-hosting/development/runner/command-runner.ts');
@@ -60,7 +60,7 @@ const samePathContentDriftBefore = testImpactFixture.workingTreeSnapshot;
 if (samePathContentDriftBefore.file(samePathContentDriftPath) === null) {
   throw new Error(`Drift fixture source is absent: ${samePathContentDriftPath}`);
 }
-const samePathContentDriftSnapshot = compileVirtualWorkspaceSourceSnapshot({
+const samePathContentDriftSnapshot = compileVirtualSnapshot({
   subject: Object.freeze({
     kind: 'virtual-mutation' as const,
     provenance: Object.freeze({
@@ -83,7 +83,7 @@ const actualWorkspaceSnapshots = await import('../../src/adapters/repository/sou
 const testBudgetSnapshotOverrides: Array<WorkspaceSourceSnapshot | Error> = [];
 mock.module('../../src/adapters/repository/source-program-model/workspace-source-snapshot.ts', () => ({
   ...actualWorkspaceSnapshots,
-  acquireWorkingTreeWorkspaceSourceSnapshot: async () => {
+  acquireWorkingTreeSnapshot: async () => {
     const snapshot = testBudgetSnapshotOverrides.shift() ?? testImpactFixture.workingTreeSnapshot;
     if (snapshot instanceof Error) throw snapshot;
     return snapshot;
@@ -105,15 +105,15 @@ const {
   bindTestWorkspaceSupervisorLeaseIssuerProjection,
   createTestWorkspaceRunChildAssignment,
   createTestWorkspaceSupervisorLease,
-  deriveTestWorkspaceRunNamespace: deriveTestWorkspaceRunNamespaceV1,
+  deriveTestWorkspaceRunNamespace: actualDeriveTestWorkspaceRunNamespace,
   getTestWorkspaceTemplateRoot,
   getTestWorkspaceTempRoot,
-  parseTestWorkspaceRunChildAssignment: parseTestWorkspaceRunChildAssignmentV1,
+  parseTestWorkspaceRunChildAssignment: actualParseTestWorkspaceRunChildAssignment,
   pathEnvKey,
-  prepareTestWorkspaceRun: prepareTestWorkspaceRunV1,
+  prepareTestWorkspaceRun: actualPrepareTestWorkspaceRun,
   resolveTestWorkspaceRunChild,
   resolveTestWorkspaceNamespace,
-  settlePreparedTestWorkspaceRun: actualSettlePreparedTestWorkspaceRunV1,
+  settlePreparedTestWorkspaceRun: actualSettlePreparedTestWorkspaceRun,
   TEST_WORKSPACE_BOUND_CHILD_LOCATOR_ENV,
   TEST_WORKSPACE_NAMESPACE_ENV,
   TEST_WORKSPACE_RUN_CHILD_ASSIGNMENT_ENV,
@@ -278,21 +278,10 @@ mock.module('../../src/adapters/self-hosting/development/runner/check-affected-s
 mock.module('../../src/adapters/self-hosting/development/runner/env-manager.ts', () => ({
   consumeTestWorkspaceSupervisorChallenge: async () =>
     Object.freeze({ schema: 'sec-test-workspace-run-child-authority-v1' as const }),
-  consumeTestWorkspaceSupervisorChallengeV1: async () =>
-    Object.freeze({ schema: 'sec-test-workspace-run-child-authority-v1' as const }),
   createTestWorkspaceRunChildAssignment,
-  deriveTestWorkspaceRunNamespaceV1,
-  deriveTestWorkspaceRunNamespace: deriveTestWorkspaceRunNamespaceV1,
+  deriveTestWorkspaceRunNamespace: actualDeriveTestWorkspaceRunNamespace,
   getTestWorkspaceTemplateRoot,
   getTestWorkspaceTempRoot,
-  parseTestWorkspaceRunChildAssignmentV1: (
-    serialized: string | undefined,
-    parentNamespace: string,
-    runChild: string
-  ) => trustedCallerAssignmentFixture !== null && serialized === JSON.stringify(trustedCallerAssignmentFixture) &&
-      trustedCallerAssignmentFixture.name === runChild
-      ? trustedCallerAssignmentFixture
-      : parseTestWorkspaceRunChildAssignmentV1(serialized, parentNamespace, runChild),
   parseTestWorkspaceRunChildAssignment: (
     serialized: string | undefined,
     parentNamespace: string,
@@ -300,37 +289,23 @@ mock.module('../../src/adapters/self-hosting/development/runner/env-manager.ts',
   ) => trustedCallerAssignmentFixture !== null && serialized === JSON.stringify(trustedCallerAssignmentFixture) &&
       trustedCallerAssignmentFixture.name === runChild
     ? trustedCallerAssignmentFixture
-    : parseTestWorkspaceRunChildAssignmentV1(serialized, parentNamespace, runChild),
+    : actualParseTestWorkspaceRunChildAssignment(serialized, parentNamespace, runChild),
   pathEnvKey,
-  prepareTestWorkspaceRunV1: (
-    env: NodeJS.ProcessEnv,
-    authority: actualEnvManager.TestWorkspaceRunChildAuthority | null
-  ) => {
-    if (authority === null) return prepareTestWorkspaceRunV1(env, null);
-    const token = Object.freeze({ schema: 'prepared-test-workspace-run-v1' as const });
-    mockedAssignedCleanupTokens.add(token);
-    return token;
-  },
   prepareTestWorkspaceRun: (
     env: NodeJS.ProcessEnv,
     authority: actualEnvManager.TestWorkspaceRunChildAuthority | null
   ) => {
-    if (authority === null) return prepareTestWorkspaceRunV1(env, null);
+    if (authority === null) return actualPrepareTestWorkspaceRun(env, null);
     const token = Object.freeze({ schema: 'prepared-test-workspace-run-v1' as const });
     mockedAssignedCleanupTokens.add(token);
     return token;
   },
   resolveTestWorkspaceRunChild,
   resolveTestWorkspaceNamespace,
-  settlePreparedTestWorkspaceRunV1: (token: actualEnvManager.PreparedTestWorkspaceRun) => {
-    if (cleanupFailure) throw cleanupFailure;
-    if (mockedAssignedCleanupTokens.has(token)) return;
-    actualSettlePreparedTestWorkspaceRunV1(token);
-  },
   settlePreparedTestWorkspaceRun: (token: actualEnvManager.PreparedTestWorkspaceRun) => {
     if (cleanupFailure) throw cleanupFailure;
     if (mockedAssignedCleanupTokens.has(token)) return;
-    actualSettlePreparedTestWorkspaceRunV1(token);
+    actualSettlePreparedTestWorkspaceRun(token);
   },
   TEST_WORKSPACE_BOUND_CHILD_LOCATOR_ENV,
   TEST_WORKSPACE_NAMESPACE_ENV,
@@ -372,9 +347,7 @@ const mockedCreateTestInvocationRuntimeRoots = async () => {
 
 mock.module('../../src/adapters/self-hosting/development/runner/test-process-temp.ts', () => ({
   testInvocationRuntimeIsolationModeForPlatform: mockedTestInvocationRuntimeIsolationMode,
-  testInvocationRuntimeIsolationModeForPlatformV1: mockedTestInvocationRuntimeIsolationMode,
-  createTestInvocationRuntimeRoots: mockedCreateTestInvocationRuntimeRoots,
-  createTestInvocationRuntimeRootsV1: mockedCreateTestInvocationRuntimeRoots
+  createTestInvocationRuntimeRoots: mockedCreateTestInvocationRuntimeRoots
 }));
 
 mock.module('../../src/adapters/self-hosting/development/runner/command-runner.ts', () => ({
@@ -505,7 +478,7 @@ const slowTestSuiteFiles = (suiteId: string) => (
 );
 
 function invocationTestFiles(args: readonly string[]): string[] {
-  return args.filter(isSecRepositoryTestModulePath).map(normalizeSecRepositoryTestModulePath);
+  return args.filter(isRepositoryTestModulePath).map(normalizeRepositoryTestModulePath);
 }
 
 function fastInvocationRunRoots(environment: NodeJS.ProcessEnv): Readonly<{
@@ -829,7 +802,7 @@ test('complete fast process-global hazards have unique typed isolation and singl
 
 test('fast process policy covers default-excluded files and rejects stale or duplicate identities', () => {
   const completeFastFiles = getFastTestFilesSync();
-  const excludedFastFile = 'tests/unit/semantic-mutation-isolated-child-fence.test.ts';
+  const excludedFastFile = 'tests/unit/semantic-mutation/isolated/child-fence.test.ts';
   expect(DEFAULT_FAST_TEST_EXCLUDED_FILES).toContain(excludedFastFile);
   expect(isDefaultFastTestFile(excludedFastFile)).toBe(false);
   expect(completeFastFiles).toContain(excludedFastFile);
@@ -857,7 +830,7 @@ test('fast process resource classes uniquely derive limits and isolate productio
   }
 
   const productionHostAndRuntimeLifecycleFiles = [
-    'tests/integration/semantic-mutation-apply.test.ts',
+    'tests/integration/semantic-mutation/apply.test.ts',
     'tests/unit/windows-appcontainer-executor.test.ts',
     'tests/unit/windows-appcontainer-host-tool-lifecycle.test.ts'
   ];
@@ -871,13 +844,13 @@ test('fast process resource classes uniquely derive limits and isolate productio
     });
   }
   expect(FAST_TEST_PROCESS_ISOLATION_REGISTRY.find(
-    ({ file }) => file === 'tests/integration/semantic-mutation-recovery-lifecycle.test.ts'
+    ({ file }) => file === 'tests/integration/semantic-mutation/recovery-lifecycle.test.ts'
   )).toMatchObject({
     resourceClass: 'independent-process',
     processLimit: DEFAULT_FAST_TEST_RESOURCE_CLASS_LIMITS['independent-process']
   });
   const resourcePlan = planFastTestProcesses([
-    'tests/integration/semantic-mutation-recovery-lifecycle.test.ts',
+    'tests/integration/semantic-mutation/recovery-lifecycle.test.ts',
     ...productionHostAndRuntimeLifecycleFiles
   ]);
   expect(resourcePlan.parallelFiles).toEqual([]);
@@ -889,7 +862,7 @@ test('fast process resource classes uniquely derive limits and isolate productio
   ]);
   expect(resourcePlan.resourceQueues).toEqual({
     'independent-process': [
-      'tests/integration/semantic-mutation-recovery-lifecycle.test.ts'
+      'tests/integration/semantic-mutation/recovery-lifecycle.test.ts'
     ],
     'shared-host-runtime': productionHostAndRuntimeLifecycleFiles,
     'repository-worktree': [],
@@ -1241,7 +1214,7 @@ test.serial('copied TCB recovery is one-file isolated and emits an exact diagnos
     });
     expect(receipt.failures).toHaveLength(1);
     expect(receipt.failures[0].selectedTestFiles).toEqual([file]);
-    expect(receipt.failures[0].effectiveArgv.filter(isSecRepositoryTestModulePath)).toEqual([`./${file}`]);
+    expect(receipt.failures[0].effectiveArgv.filter(isRepositoryTestModulePath)).toEqual([`./${file}`]);
   } finally {
     console.error = originalError;
   }
@@ -1391,7 +1364,7 @@ test.serial('runFastTests preserves unresolved terminal and failed observation i
     (file) => independentCandidates.includes(file)
   );
   expect(independentFiles).toHaveLength(2);
-  const laterClassFile = 'tests/unit/semantic-mutation-isolated-child-fence.test.ts';
+  const laterClassFile = 'tests/unit/semantic-mutation/isolated/child-fence.test.ts';
   const expectedFirstBatchSize = Math.min(
     DEFAULT_FAST_TEST_RESOURCE_CLASS_LIMITS['independent-process'],
     independentFiles.length
@@ -1546,7 +1519,7 @@ test.serial('resource-class failure stops every later class', async () => {
   try {
     const code = await runFastTests([
       'tests/integration/pipeline-kernel.test.ts',
-      'tests/unit/semantic-mutation-isolated-child-fence.test.ts'
+      'tests/unit/semantic-mutation/isolated/child-fence.test.ts'
     ]);
 
     expect(code).toBe(7);
@@ -1565,7 +1538,7 @@ test.serial('deterministic resource-class owners run in class order', async () =
   const code = await runFastTests([
     'tests/integration/pipeline-kernel.test.ts',
     'tests/integration/semantic-projections.test.ts',
-    'tests/unit/semantic-mutation-isolated-child-fence.test.ts'
+    'tests/unit/semantic-mutation/isolated/child-fence.test.ts'
   ]);
 
   expect(code).toBe(0);
@@ -1588,7 +1561,7 @@ test.serial('deterministic resource-class owners run in class order', async () =
       command: 'bun',
       args: [
         'test',
-        './tests/unit/semantic-mutation-isolated-child-fence.test.ts',
+        './tests/unit/semantic-mutation/isolated/child-fence.test.ts',
         ...DEFAULT_MANAGED_INNER_ARGS,
         '--timeout',
         String(DEFAULT_TEST_TIMEOUT_MS)
@@ -2315,7 +2288,7 @@ test.serial('canonical docs-only Git selection does not construct ProjectInput o
 });
 
 test.serial('affected plan applies the same process-policy sentinel to a default-excluded fast test', async () => {
-  changedFiles = ['tests/unit/semantic-mutation-isolated-child-fence.test.ts'];
+  changedFiles = ['tests/unit/semantic-mutation/isolated/child-fence.test.ts'];
   const logs: string[] = [];
   const originalLog = console.log;
   console.log = (message?: unknown) => {
@@ -2328,11 +2301,11 @@ test.serial('affected plan applies the same process-policy sentinel to a default
 
     expect(code).toBe(0);
     expect(plan).toMatchObject({
-      changedPaths: ['tests/unit/semantic-mutation-isolated-child-fence.test.ts'],
+      changedPaths: ['tests/unit/semantic-mutation/isolated/child-fence.test.ts'],
       owners: ['dev-runner', 'verification.test-governance'],
       selectedFastTests: [
         TEST_ARCHITECTURE_POLICY_TEST_FILE,
-        'tests/unit/semantic-mutation-isolated-child-fence.test.ts',
+        'tests/unit/semantic-mutation/isolated/child-fence.test.ts',
         FAST_TEST_PROCESS_POLICY_TEST_FILE
       ],
       unresolvedPaths: [],
@@ -2384,7 +2357,7 @@ test.serial('resolved affected plan executes only after its final Git revalidati
   expect(Object.isFrozen(execution)).toBe(true);
   expect(Object.isFrozen(execution!.plan)).toBe(true);
   expect(Object.isFrozen(execution!.plan.selectedFastTests)).toBe(true);
-  expect(() => assertWorkspaceTypeScriptProjectGenerationEvidence(
+  expect(() => assertTypeScriptProjectGenerationEvidence(
     execution!.projectGenerationEvidence!
   )).not.toThrow();
   expect(JSON.stringify(execution!.plan)).not.toContain('projectGenerationEvidence');

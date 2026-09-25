@@ -21,27 +21,30 @@ test('repository defaults preserve high-severity enforcement and no output effec
 });
 
 test('the topology and Source Program command modes are selected explicitly', () => {
-  assert.equal(parse(['--worktree-module-topology', '--enforce']).mode, 'module-topology');
-  assert.equal(parse(['--worktree-source-program', '--enforce']).mode, 'source-program');
+  assert.equal(parse(['--scope', 'module-topology', '--enforce']).mode, 'module-topology');
+  assert.equal(parse(['--scope', 'source-program', '--enforce']).mode, 'source-program');
+  assert.equal(parse(['--scope', 'repository']).mode, 'repository');
   assert.equal(parse(['--enforce'], 'source-program').mode, 'source-program');
 });
 
 test('all ambiguous or misspelled enforcement switches reject instead of becoming a successful report', () => {
-  for (const args of [['--enfroce'], ['--enforce=true'], ['--enforce=false'], ['--no-enforce'], ['--unknown'], ['unexpected']]) {
+  for (const args of [['--enfroce'], ['--enforce=true'], ['--enforce=false'], ['--no-enforce'], ['--json'], ['--unknown'], ['unexpected']]) {
     assert.throws(() => parse(args));
     assert.throws(() => parse(args, 'source-program'));
   }
 });
 
-test('both mode selectors reject in either order rather than selecting the first branch', () => {
-  for (const args of [
-    ['--worktree-module-topology', '--worktree-source-program'],
-    ['--worktree-source-program', '--worktree-module-topology']
-  ]) assert.throws(() => parse(args), /exactly one repository audit mode/);
+test('audit scope is one explicit finite value', () => {
+  for (const value of ['everything', 'source', 'topology', '']) {
+    assert.throws(() => parse(['--scope', value]), /Unsupported --scope value/);
+  }
+  assert.throws(() => parse(['--scope', 'source-program', '--scope', 'repository']), /exactly once/);
+  assert.throws(() => parse(['--worktree-module-topology']), /Unknown option/);
+  assert.throws(() => parse(['--worktree-source-program']), /Unknown option/);
 });
 
 test('all string-valued switches reject missing, empty and NUL values', () => {
-  for (const name of ['output', 'query', 'fail-on', 'default-ref', 'supersession-baseline',
+  for (const name of ['scope', 'output', 'query', 'fail-on', 'default-ref', 'supersession-baseline',
     'blocking-details-domain', 'blocking-details-page']) {
     for (const value of [undefined, '', 'x\0y']) {
       const args = value === undefined ? [`--${name}`] : [`--${name}`, value];
@@ -60,6 +63,7 @@ test('a following switch is not silently swallowed as an output, query or revisi
 test('duplicate value options reject both separate and equals forms', () => {
   for (const args of [
     ['--query', 'a', '--query', 'b'], ['--query=a', '--query=b'],
+    ['--scope=repository', '--scope=source-program'],
     ['--fail-on=high', '--fail-on=none'], ['--output=a', '--output=b'],
     ['--default-ref=HEAD', '--default-ref=main']
   ]) assert.throws(() => parse(args), /exactly once/);
@@ -77,13 +81,13 @@ test('findings selects the bounded exact-report ledger without colliding with fu
   assert.equal(parse(['--findings', '--output=findings.json']).outputPath, path.resolve('findings.json'));
   assert.throws(() => parse(['--findings', '--full']), /cannot be combined/);
   assert.throws(() => parse(['--findings', '--query=symbol']), /cannot be combined/);
-  for (const mode of ['--worktree-module-topology', '--worktree-source-program']) {
-    assert.throws(() => parse([mode, '--findings']), /only supported/);
+  for (const mode of ['module-topology', 'source-program']) {
+    assert.throws(() => parse(['--scope', mode, '--findings']), /only supported/);
   }
 });
 
 test('an equals-form query value spelling a switch stays data and does not choose a mode or policy', () => {
-  for (const query of ['--enforce', '--diagnostic', '--worktree-module-topology', '--worktree-source-program']) {
+  for (const query of ['--enforce', '--diagnostic', '--scope=module-topology', '--scope=source-program']) {
     const result = parse([`--query=${query}`]);
     assert.equal(result.query, query); assert.equal(result.mode, 'repository');
     assert.equal(result.enforce, false); assert.equal(result.diagnostic, false);
@@ -96,9 +100,9 @@ test('equals syntax and separate arguments select the same valid input', () => {
 });
 
 test('an output filename spelling a selector cannot route another operation', () => {
-  const selected = parse(['--output=--worktree-source-program']);
+  const selected = parse(['--output=--scope=source-program']);
   assert.equal(selected.mode, 'repository');
-  assert.equal(selected.outputPath, path.resolve('--worktree-source-program'));
+  assert.equal(selected.outputPath, path.resolve('--scope=source-program'));
 });
 
 test('explicit enforcement cannot be combined with diagnostic softening or a none threshold', () => {
@@ -108,9 +112,9 @@ test('explicit enforcement cannot be combined with diagnostic softening or a non
 });
 
 test('non-repository modes reject ignored repository-only options', () => {
-  for (const mode of ['--worktree-module-topology', '--worktree-source-program']) {
+  for (const mode of ['module-topology', 'source-program']) {
     for (const option of ['--diagnostic', '--fail-on=high', '--default-ref=HEAD']) {
-      assert.throws(() => parse([mode, option]), /only supported/);
+      assert.throws(() => parse(['--scope', mode, option]), /only supported/);
     }
   }
 });
@@ -119,7 +123,7 @@ test('source-only reduction, detail, candidate and baseline options cannot silen
   for (const option of ['--blocking-details', '--blocking-details-domain=priority', '--blocking-details-page=0', '--candidates', '--graph-cuts', '--version-reductions',
     '--aggregate-import-reductions', '--supersession-baseline=HEAD']) {
     assert.throws(() => parse([option]), /only supported/);
-    assert.throws(() => parse(['--worktree-module-topology', option]), /only supported/);
+    assert.throws(() => parse(['--scope', 'module-topology', option]), /only supported/);
   }
 });
 
@@ -171,7 +175,7 @@ test('a source output without a reduction is refused before the producer can be 
 });
 
 test('topology queries reject rather than paying for an ignored query', () => {
-  assert.throws(() => parse(['--worktree-module-topology', '--query=symbol']), /not supported/);
+  assert.throws(() => parse(['--scope', 'module-topology', '--query=symbol']), /not supported/);
 });
 
 test('revision operands beginning with a switch are refused even in explicit equals form', () => {
@@ -187,10 +191,9 @@ test('captured options are immutable and later argv edits do not retarget output
   assert.equal(selected.query, '中文');
 });
 
-test('json is a compatible presentation switch, not an enforcement bypass', () => {
-  assert.deepEqual(parse(['--json']), parse([]));
-  assert.deepEqual(parse(['--json', '--worktree-module-topology', '--enforce']),
-    parse(['--worktree-module-topology', '--enforce']));
+test('json is not a fake presentation mode because every audit projection is JSON', () => {
+  assert.throws(() => parse(['--json']), /Unknown option/);
+  assert.throws(() => parse(['--json', '--scope', 'module-topology', '--enforce']), /Unknown option/);
 });
 
 test('all original severity thresholds select the same independent ordered findings', () => {

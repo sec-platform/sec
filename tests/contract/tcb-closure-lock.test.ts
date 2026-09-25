@@ -11,7 +11,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 
 import { compileRepositoryModuleMembershipSnapshot } from '../../src/adapters/repository/architecture/contract.ts';
-import { compileRepositorySourceProgramModel } from '../../src/adapters/repository/source-program-model/repository.ts';
+import { compileRepositoryModel } from '../../src/adapters/repository/source-program-model/repository.ts';
 import {
   TCB_REVIEWED_NETWORK_DISPATCHERS,
   TCB_REVIEWED_PROCESS_DISPATCHERS,
@@ -28,7 +28,7 @@ import {
   selectTcbClosureCandidateAction,
   verifyTcbClosureLock as verifyTcbClosureLockAgainstExactTree
 } from '../../src/adapters/verification/platform/trust/compiler.ts';
-import { SEC_TCB_CLOSURE_RUNTIME_PATH, SEC_TRUSTED_BOOTSTRAP_DISPATCHER_OWNER, SEC_TRUSTED_BOOTSTRAP_REGISTRY } from '../../src/adapters/verification/platform/trust/contract/root.ts';
+import { TCB_CLOSURE_RUNTIME_PATH, TRUSTED_BOOTSTRAP_DISPATCHER_OWNER, TRUSTED_BOOTSTRAP_REGISTRY } from '../../src/adapters/verification/platform/trust/contract/root.ts';
 import { rawSha256 } from '../../src/contracts/canonical.ts';
 
 const LIVE_TCB_CLOSURE = compileTrustedRuntimeClosure();
@@ -303,7 +303,7 @@ test('TCB closure is one exact-tree Action with a pure compiler result', () => {
     registryDigest: input.registryDigest,
     toolchainRevision: input.toolchainRevision,
     providerRevision: input.providerRevision,
-    trustedRegistry: SEC_TRUSTED_BOOTSTRAP_REGISTRY,
+    trustedRegistry: TRUSTED_BOOTSTRAP_REGISTRY,
     checkerResult: result
   };
   const unrelated = selectTcbClosureCandidateAction({
@@ -314,9 +314,9 @@ test('TCB closure is one exact-tree Action with a pure compiler result', () => {
 
   const impacted = selectTcbClosureCandidateAction({
     ...commonDemand,
-    changedPaths: [SEC_TCB_CLOSURE_RUNTIME_PATH]
+    changedPaths: [TCB_CLOSURE_RUNTIME_PATH]
   });
-  expect(impacted.impactedPaths).toEqual([SEC_TCB_CLOSURE_RUNTIME_PATH]);
+  expect(impacted.impactedPaths).toEqual([TCB_CLOSURE_RUNTIME_PATH]);
   expect(impacted.plan?.action.upstreamActionKeys).toEqual([result.actionKey]);
   expect(impacted.plan?.dependencies).toEqual([{ actionKey: result.actionKey, kind: 'upstream' }]);
   expect(() => compileTcbClosureActionResult({ plan: impacted.plan! }))
@@ -326,22 +326,22 @@ test('TCB closure is one exact-tree Action with a pure compiler result', () => {
 test('TCB closure lock binds the reviewed causal module set', () => {
   expect(TCB_CLOSURE_LOCK.moduleCount).toBe(TCB_CLOSURE_LOCK.modules.length);
   expect(new Set(TCB_CLOSURE_LOCK.modules).size).toBe(TCB_CLOSURE_LOCK.moduleCount);
-  expect(SEC_TRUSTED_BOOTSTRAP_REGISTRY.reviewedExternalImports)
+  expect(TRUSTED_BOOTSTRAP_REGISTRY.reviewedExternalImports)
     .toContain('src/adapters/self-hosting/development/runner/env-manager.ts -> node:net');
-  expect(SEC_TRUSTED_BOOTSTRAP_REGISTRY.reviewedExternalImports).toContain(
+  expect(TRUSTED_BOOTSTRAP_REGISTRY.reviewedExternalImports).toContain(
     'src/adapters/providers/linux-verification/contract.ts -> zod'
   );
-  expect(SEC_TRUSTED_BOOTSTRAP_REGISTRY.reviewedExternalImports).toContain(
+  expect(TRUSTED_BOOTSTRAP_REGISTRY.reviewedExternalImports).toContain(
     'src/adapters/repository/source-program-model/test-impact-projection.ts -> zod'
   );
-  expect(SEC_TRUSTED_BOOTSTRAP_REGISTRY.reviewedExternalImports).not.toContain('zod');
+  expect(TRUSTED_BOOTSTRAP_REGISTRY.reviewedExternalImports).not.toContain('zod');
   expect(TCB_CLOSURE_LOCK.reviewedExternalImports)
     .toContain('src/adapters/self-hosting/development/runner/env-manager.ts -> node:net');
 });
 
 test('TCB closure lock is the sole causal-runtime identity consumed by the trust-root view', () => {
   expect(TCB_TRUST_ROOT.causalRuntimePaths).toEqual(TCB_CLOSURE_LOCK.modules);
-  expect(TCB_CLOSURE_LOCK.modules).toContain(SEC_TRUSTED_BOOTSTRAP_DISPATCHER_OWNER);
+  expect(TCB_CLOSURE_LOCK.modules).toContain(TRUSTED_BOOTSTRAP_DISPATCHER_OWNER);
   expect(TCB_CLOSURE_LOCK.modules.some((entry) => entry.includes('sec-merge-bootstrap'))).toBe(false);
   expect(TCB_CLOSURE_LOCK.reviewedBoundaryEdges).toEqual([]);
 });
@@ -368,7 +368,7 @@ test('reviewed dispatcher census remains non-authorizing source observation', ()
   });
   const sources = [
     ['package.json', packageSource],
-    ['src/example/sec.module.json', descriptorSource],
+    ['src/example/module.json', descriptorSource],
     [
       'src/example/cli.ts',
       "import { spawnSync } from 'node:child_process';\n"
@@ -386,11 +386,11 @@ test('reviewed dispatcher census remains non-authorizing source observation', ()
   const moduleMembership = compileRepositoryModuleMembershipSnapshot({
     repositoryFiles: files.map(({ path: repositoryPath }) => repositoryPath),
     descriptorSources: [{
-      descriptorPath: 'src/example/sec.module.json',
+      descriptorPath: 'src/example/module.json',
       source: descriptorSource
     }]
   });
-  const model = compileRepositorySourceProgramModel({
+  const model = compileRepositoryModel({
     sourceRevision,
     files,
     moduleMembership,
@@ -576,7 +576,7 @@ test('introducing an unauthorized edge causes the lock to break', () => {
 test('TCB closure traverses the retired SUT seam without a reviewed stop edge', () => {
   const closure = trustedRuntimeClosure();
   expect([...closure.reviewedEdges]).toEqual([]);
-  expect(SEC_TRUSTED_BOOTSTRAP_REGISTRY.reviewedSutEdges).toEqual([]);
+  expect(TRUSTED_BOOTSTRAP_REGISTRY.reviewedSutEdges).toEqual([]);
 });
 
 test('adding an unauthorized boundary causes the lock to break', () => {

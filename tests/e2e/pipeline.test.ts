@@ -142,7 +142,7 @@ test('full Pipeline completion proof binds the exact registry closure and deriva
     });
     const proof = result.completionProof;
     expect(proof).toBeDefined();
-    if (!proof) throw new Error('Expected PipelineCompletionProofV1');
+    if (!proof) throw new Error('Expected PipelineCompletionProof');
 
     const evidence = await readCompletionProofEvidence(workspaceRoot, result);
     const stageEvidence = stageEvidenceFrom(evidence);

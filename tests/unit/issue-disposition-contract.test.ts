@@ -8,8 +8,8 @@ import {
   decideUnexpectedIssueReopen,
   parseGitHubClosingKeywordOccurrences,
   parseIssueDispositionPlan,
-  parseIssueDispositionV1,
-  renderPullRequestBodyV1
+  parseIssueDisposition,
+  renderPullRequestBody
 } from '../../src/adapters/self-hosting/control/issues/disposition.ts';
 import { encodeVerificationActionData } from '../../src/adapters/verification/platform/action/contract/action.ts';
 
@@ -26,7 +26,7 @@ function hash(value: unknown): `sha256:${string}` {
 }
 
 function body(mode: 'progress-only' | 'close-tracking-after-readback' = 'close-tracking-after-readback') {
-  return renderPullRequestBodyV1({
+  return renderPullRequestBody({
     summary: 'Implements the exact Issue lifecycle transaction without delegating authority to prose.',
     manifestPath: MANIFEST,
     mode
@@ -63,7 +63,7 @@ test('all GitHub closing spellings are rejected even under negation, case, colon
   ];
   for (const source of cases) {
     expect(parseGitHubClosingKeywordOccurrences(source, REPOSITORY)).toHaveLength(1);
-    expect(() => renderPullRequestBodyV1({ summary: source, manifestPath: MANIFEST,
+    expect(() => renderPullRequestBody({ summary: source, manifestPath: MANIFEST,
       mode: 'progress-only' })).toThrow('closing-keyword');
   }
   expect(parseGitHubClosingKeywordOccurrences(
@@ -102,7 +102,7 @@ test('absence of an independently sourced completion assessment can only compile
     'provider-conditional-write-unsupported',
     'trusted-completion-assessment-unavailable'
   ]);
-  expect(parseIssueDispositionV1(encodeVerificationActionData(disposition))).toEqual(disposition);
+  expect(parseIssueDisposition(encodeVerificationActionData(disposition))).toEqual(disposition);
 
   const staleState = compileIssueDisposition({ plan: plan(), currentSpecRevision: DIGEST_B,
     acceptanceIds: acceptanceIds(), newMainSha: SHA_A, newMainTreeSha: SHA_B,
@@ -127,7 +127,7 @@ test('disposition parser rejects close-mode states outside the compiler output l
   const dispositionId = hash(invalidSemantic);
   const operationId = hash({ dispositionId, effect: 'none' });
   const invalidReceipt = { ...invalidSemantic, dispositionId, operationId };
-  expect(() => parseIssueDispositionV1(encodeVerificationActionData({ ...invalidReceipt,
+  expect(() => parseIssueDisposition(encodeVerificationActionData({ ...invalidReceipt,
     receiptDigest: hash(invalidReceipt) }))).toThrow('close disposition has no tracking Issue');
 });
 

@@ -6,7 +6,7 @@ import {
   sha256
 } from '../../../contracts/canonical.ts';
 import { parseExactJson } from '../../../contracts/exact-json.ts';
-import { SecError } from '../../../contracts/failure.ts';
+import { FailureError } from '../../../contracts/failure.ts';
 import type { OperationDigest } from '../../../execution/operation/semantic.ts';
 
 const BOUNDED_PROCESS_DIAGNOSTIC_OBJECT_SCHEMA =
@@ -67,7 +67,7 @@ export type BoundedProcessDiagnosticFailureKind =
   | 'physical-replacement'
   | 'resource-exhausted';
 
-export class BoundedProcessDiagnosticObjectError extends SecError {
+export class BoundedProcessDiagnosticObjectError extends FailureError {
   readonly kind: BoundedProcessDiagnosticFailureKind;
 
   constructor(kind: BoundedProcessDiagnosticFailureKind, message: string, cause?: unknown) {

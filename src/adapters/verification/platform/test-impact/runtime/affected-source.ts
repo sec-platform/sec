@@ -9,17 +9,17 @@ import {
   type IssuedTestImpactProjection
 } from '../../../../repository/source-program-model/test-impact-projection.ts';
 import {
-  acquireWorkingTreeWorkspaceSourceSnapshot,
-  compileWorkspaceTypeScriptProjectInput,
-  issueWorkspaceTypeScriptProjectGenerationEvidence,
-  type WorkspaceTypeScriptProjectGenerationEvidence
+  acquireWorkingTreeSnapshot,
+  compileTypeScriptProjectInput,
+  issueTypeScriptProjectGenerationEvidence,
+  type TypeScriptProjectGenerationEvidence
 } from '../../../../repository/source-program-model/workspace-source-snapshot.ts';
 import { assertRetainedCompilerDependencyReadGeneration, type RetainedCompilerDependencyReadGeneration } from '../../../../toolchain/dependencies/runtime.ts';
 import { tsconfigRelativePath } from "../../../../workspace-context.ts";
 import { issueTestInventoryProjection, type IssuedTestInventoryProjection } from '../contract/budget.ts';
 import {
   CreateTestImpactTransitionObservation,
-  CodexDevelopmentTestImpactTransitionDigest,
+  TestImpactTransitionDigest,
   gitChangedFileDiffArgs,
   gitIndexChangedFileDiffArgs,
   gitPathBlobBatchArgs,
@@ -53,7 +53,7 @@ export type IssuedAffectedTestImpactSource = Readonly<{
   gitObservation: AffectedGitSelectionObservation;
   projection: IssuedTestImpactProjection;
   testInventory: IssuedTestInventoryProjection;
-  projectGenerationEvidence: WorkspaceTypeScriptProjectGenerationEvidence;
+  projectGenerationEvidence: TypeScriptProjectGenerationEvidence;
   compilationDiagnostics: ReturnType<typeof repositoryCompilationDiagnostics>;
 }>;
 
@@ -89,8 +89,8 @@ function descriptorRoots(records: readonly { path: string; previousPath?: string
   return uniqueSorted([...records.flatMap(({ path, previousPath }) => [path, previousPath]), ...untracked]
     .flatMap((candidate) => {
       if (candidate === undefined) return [];
-      if (candidate === 'sec.module.json') return [''];
-      const suffix = '/sec.module.json';
+      if (candidate === 'module.json') return [''];
+      const suffix = '/module.json';
       return candidate.endsWith(suffix) ? [candidate.slice(0, -suffix.length)] : [];
     }));
 }
@@ -197,7 +197,7 @@ export async function issueAffectedTestImpactSource(input: Readonly<{
   const transition = selectionBinding.transition;
   const workspaceSnapshot = await observeExecutionProgressPhase(
     'affected-selection', 'workspace-source-snapshot',
-    () => acquireWorkingTreeWorkspaceSourceSnapshot({ session })
+    () => acquireWorkingTreeSnapshot({ session })
   );
   if (workspaceSnapshot.subject.provenance.kind !== 'working-tree-observation'
       || workspaceSnapshot.subject.provenance.providerIdentityDigest !== sha256(session.providerIdentity)
@@ -206,7 +206,7 @@ export async function issueAffectedTestImpactSource(input: Readonly<{
       || !session.verifyExecutable() || session.verifyWorkingDirectory?.() !== true) return null;
   const projectInput = await observeExecutionProgressPhase(
     'affected-selection', 'project-input',
-    () => compileWorkspaceTypeScriptProjectInput(
+    () => compileTypeScriptProjectInput(
       workspaceSnapshot,
       tsconfigRelativePath,
       dependencyGeneration === undefined ? undefined : {
@@ -231,13 +231,13 @@ export async function issueAffectedTestImpactSource(input: Readonly<{
     typeScriptModel: compilation.typeScriptCompilation.model,
     testObservations: compilation.testObservations
   });
-  if (transition !== null) CodexDevelopmentTestImpactTransitionDigest(transition);
+  if (transition !== null) TestImpactTransitionDigest(transition);
   const source = Object.freeze({
     files: selection.files,
     gitObservation: selection.gitObservation,
     projection,
     testInventory: issueTestInventoryProjection({ snapshot: workspaceSnapshot }),
-    projectGenerationEvidence: issueWorkspaceTypeScriptProjectGenerationEvidence(workspaceSnapshot, projectInput),
+    projectGenerationEvidence: issueTypeScriptProjectGenerationEvidence(workspaceSnapshot, projectInput),
     compilationDiagnostics: repositoryCompilationDiagnostics(workspaceSnapshot)
   });
   if (transition !== null) {

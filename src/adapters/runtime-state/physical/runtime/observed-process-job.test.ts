@@ -3,7 +3,7 @@ import path from 'node:path';
 
 import { sha256 } from '../../../../contracts/canonical.ts';
 import {
-  bindSecSemanticOperation,
+  bindSemanticOperation,
   compileCapabilityBinding,
   compileSemanticOperationPlan,
   issueSemanticOperationAttemptContext,
@@ -48,7 +48,7 @@ function providerCapability(effectKinds: readonly OperationEffectKind[]) {
     }],
     attempt: issueSemanticOperationAttemptContext({ authorityGrantDigest: digest('grant') })
   });
-  const operation = bindSecSemanticOperation(plan, [compileCapabilityBinding({
+  const operation = bindSemanticOperation(plan, [compileCapabilityBinding({
     requirementId: 'test.provider-process',
     contractDigest: digest('contract'),
     providerIdentityDigest: digest('provider')

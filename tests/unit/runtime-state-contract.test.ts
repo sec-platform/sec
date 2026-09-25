@@ -1,6 +1,6 @@
 import { expect, test } from 'bun:test';
 
-import { createSecWorkspaceLocatorKey, resolveSecRuntimeRoots, resolveSecRuntimeStateLayout } from '../../src/adapters/runtime-state/workspace-state/layout.ts';
+import { createWorkspaceLocatorKey, resolveRuntimeRoots, resolveRuntimeStateLayout } from '../../src/adapters/runtime-state/workspace-state/layout.ts';
 
 const WORKSPACE_IDENTITY = Object.freeze({
   device: 'device-1',
@@ -9,7 +9,7 @@ const WORKSPACE_IDENTITY = Object.freeze({
 });
 
 test('Linux runtime state follows XDG defaults and separates repository/runtime/cache domains', () => {
-  const layout = resolveSecRuntimeStateLayout({
+  const layout = resolveRuntimeStateLayout({
     platform: 'linux',
     environment: { HOME: '/home/sec' },
     repository: 'sec-platform/sec',
@@ -18,24 +18,24 @@ test('Linux runtime state follows XDG defaults and separates repository/runtime/
   });
   expect(layout.stateRoot).toBe('/home/sec/.local/state/sec');
   expect(layout.cacheRoot).toBe('/home/sec/.cache/sec');
-  expect(layout.workspaceStateRoot).toMatch(/^\/home\/sec\/\.local\/state\/sec\/workspaces\/v1\/[0-9a-f]{64}$/u);
+  expect(layout.workspaceStateRoot).toMatch(/^\/home\/sec\/\.local\/state\/sec\/workspaces\/records\/[0-9a-f]{64}$/u);
   expect(layout.repositoryStateRoot).toMatch(/^\/home\/sec\/\.local\/state\/sec\/repositories\/[0-9a-f]{64}$/u);
-  expect(layout.continuationObjectRoot).toContain('/objects/continuation-v1');
-  expect(layout.continuationPointerPath).toContain('/workspaces/v1/');
-  expect(layout.verificationSessionJournalRoot).toContain('/verification-sessions/v2');
+  expect(layout.continuationObjectRoot).toContain('/objects/continuation');
+  expect(layout.continuationPointerPath).toContain('/workspaces/records/');
+  expect(layout.verificationSessionJournalRoot).toContain('/verification-sessions/journal');
   expect(layout.repositoryStateRoot.startsWith('/work/sec/')).toBe(false);
 });
 
 test('Windows runtime state uses LOCALAPPDATA with case-insensitive physical workspace identity', () => {
   const environment = { LOCALAPPDATA: 'C:\\Users\\Sec\\AppData\\Local' };
-  const first = resolveSecRuntimeStateLayout({
+  const first = resolveRuntimeStateLayout({
     platform: 'win32',
     environment,
     repository: 'sec-platform/sec',
     repositoryRoot: 'D:\\Project\\SEC',
     workspacePhysicalIdentity: WORKSPACE_IDENTITY
   });
-  const second = resolveSecRuntimeStateLayout({
+  const second = resolveRuntimeStateLayout({
     platform: 'win32',
     environment,
     repository: 'sec-platform/sec',
@@ -55,11 +55,11 @@ test('recreated workspace identity cannot inherit an earlier path locator or jou
     repository: 'sec-platform/sec',
     repositoryRoot: '/work/sec'
   };
-  const original = resolveSecRuntimeStateLayout({
+  const original = resolveRuntimeStateLayout({
     ...common,
     workspacePhysicalIdentity: WORKSPACE_IDENTITY
   });
-  const replacement = resolveSecRuntimeStateLayout({
+  const replacement = resolveRuntimeStateLayout({
     ...common,
     workspacePhysicalIdentity: { ...WORKSPACE_IDENTITY, inode: 'inode-2', objectId: 'object-2' }
   });
@@ -69,7 +69,7 @@ test('recreated workspace identity cannot inherit an earlier path locator or jou
 });
 
 test('explicit SEC roots are deterministic and workspace locator identity does not depend on repository name', () => {
-  const roots = resolveSecRuntimeRoots({
+  const roots = resolveRuntimeRoots({
     platform: 'linux',
     environment: { SEC_STATE_HOME: '/runtime/sec-state', SEC_CACHE_HOME: '/runtime/sec-cache' },
     repositoryRoot: '/work/sec',
@@ -78,17 +78,17 @@ test('explicit SEC roots are deterministic and workspace locator identity does n
   expect(roots.stateRoot).toBe('/runtime/sec-state');
   expect(roots.cacheRoot).toBe('/runtime/sec-cache');
   expect(roots.testProcessTempLeaseRoot).toBe(
-    `/runtime/sec-state/workspaces/v1/${roots.workspaceLocatorKey.slice(7)}/test-process-temp/v1`
+    `/runtime/sec-state/workspaces/records/${roots.workspaceLocatorKey.slice(7)}/test-process-temp/leases`
   );
-  expect(roots.workspaceLocatorKey).toBe(createSecWorkspaceLocatorKey({
+  expect(roots.workspaceLocatorKey).toBe(createWorkspaceLocatorKey({
     workspacePhysicalIdentity: WORKSPACE_IDENTITY
   }));
-  const left = resolveSecRuntimeStateLayout({
+  const left = resolveRuntimeStateLayout({
     platform: 'linux', environment: { SEC_STATE_HOME: '/runtime/sec-state', SEC_CACHE_HOME: '/runtime/sec-cache' },
     repository: 'sec-platform/sec', repositoryRoot: '/work/sec',
     workspacePhysicalIdentity: WORKSPACE_IDENTITY
   });
-  const right = resolveSecRuntimeStateLayout({
+  const right = resolveRuntimeStateLayout({
     platform: 'linux', environment: { SEC_STATE_HOME: '/runtime/sec-state', SEC_CACHE_HOME: '/runtime/sec-cache' },
     repository: 'other/repository', repositoryRoot: '/work/sec',
     workspacePhysicalIdentity: WORKSPACE_IDENTITY
@@ -99,14 +99,14 @@ test('explicit SEC roots are deterministic and workspace locator identity does n
 });
 
 test('runtime state and cache roots inside the repository are rejected', () => {
-  expect(() => resolveSecRuntimeStateLayout({
+  expect(() => resolveRuntimeStateLayout({
     platform: 'linux',
     environment: { SEC_STATE_HOME: '/work/sec/.state', SEC_CACHE_HOME: '/runtime/cache' },
     repository: 'sec-platform/sec',
     repositoryRoot: '/work/sec',
     workspacePhysicalIdentity: WORKSPACE_IDENTITY
   })).toThrow('outside the repository worktree');
-  expect(() => resolveSecRuntimeStateLayout({
+  expect(() => resolveRuntimeStateLayout({
     platform: 'linux',
     environment: { SEC_STATE_HOME: '/runtime/state', SEC_CACHE_HOME: '/work/sec/.cache' },
     repository: 'sec-platform/sec',
@@ -121,7 +121,7 @@ test('durable state and disposable cache roots must be physically disjoint', () 
     { SEC_STATE_HOME: '/runtime/sec', SEC_CACHE_HOME: '/runtime/sec/cache' },
     { SEC_STATE_HOME: '/runtime/sec/state', SEC_CACHE_HOME: '/runtime/sec' }
   ]) {
-    expect(() => resolveSecRuntimeStateLayout({
+    expect(() => resolveRuntimeStateLayout({
       platform: 'linux',
       environment,
       repository: 'sec-platform/sec',

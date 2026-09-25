@@ -5,7 +5,7 @@ import {
   GIT_READ_EXACT_TREE_OPERATION_BUDGET,
   type GitReadSession
 } from '../../src/adapters/providers/git-read/runtime/session.ts';
-import { acquireExactGitTreeWorkspaceSourceSnapshotFromSession } from '../../src/adapters/repository/source-program-model/workspace-source-snapshot.ts';
+import { acquireExactGitTreeSnapshot } from '../../src/adapters/repository/source-program-model/workspace-source-snapshot.ts';
 
 /**
  * Test helper that exercises the same production Git read authority used by
@@ -28,6 +28,6 @@ export function acquireExactGitTreeWorkspaceSourceSnapshotForTests(
   commitSha: string
 ) {
   return withTestGitReadAuthority(repositoryRoot, (session) => (
-    acquireExactGitTreeWorkspaceSourceSnapshotFromSession({ session, commitSha })
+    acquireExactGitTreeSnapshot({ session, commitSha })
   ));
 }

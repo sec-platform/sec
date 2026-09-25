@@ -8,7 +8,7 @@ import { withAuthorityGitReadSession } from '../../../../providers/git-read/auth
 import { GIT_READ_EXACT_TREE_OPERATION_BUDGET } from '../../../../providers/git-read/runtime/session.ts';
 import { compileRepositorySourceProgramCompilation } from '../../../../repository/source-program-model/repository-compilation.ts';
 import { issueTestImpactProjection } from '../../../../repository/source-program-model/test-impact-projection.ts';
-import { acquireExactGitTreeWorkspaceSourceSnapshotFromSession } from '../../../../repository/source-program-model/workspace-source-snapshot.ts';
+import { acquireExactGitTreeSnapshot } from '../../../../repository/source-program-model/workspace-source-snapshot.ts';
 import { issueTestInventoryProjection } from '../contract/budget.ts';
 import { createRepositoryTestImpactSourceProvider, selectTestsForSources } from './impact.ts';
 
@@ -66,7 +66,7 @@ test('observed local program edges continue through test helpers to runnable tes
     const workspaceSnapshot = await withAuthorityGitReadSession({
       cwd: repositoryRoot,
       budget: GIT_READ_EXACT_TREE_OPERATION_BUDGET
-    }, (session) => acquireExactGitTreeWorkspaceSourceSnapshotFromSession({ session, commitSha }));
+    }, (session) => acquireExactGitTreeSnapshot({ session, commitSha }));
     const compilation = compileRepositorySourceProgramCompilation({ workspaceSnapshot, repositoryRoot });
     const provider = createRepositoryTestImpactSourceProvider({
       projection: issueTestImpactProjection({

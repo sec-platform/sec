@@ -6,7 +6,7 @@ import {
   type OperationRequirementBindingContext
 } from '../../../../execution/operation/requirement-binding-context.ts';
 import {
-  assertSecSemanticOperationProjection,
+  assertSemanticOperationProjection,
   compileCapabilityBinding,
   type BoundSemanticOperation,
   type CapabilityBinding,
@@ -435,7 +435,7 @@ export async function armPreparedWindowsRepositoryChangeObserver(input: Readonly
 }>): Promise<WindowsRepositoryChangeObserverResolution> {
   const state = preparedObservers.get(input.prepared);
   if (state === undefined) return unavailable('invalid-input');
-  assertSecSemanticOperationProjection(input.operation);
+  assertSemanticOperationProjection(input.operation);
   const context = consumeOperationRequirementBindingContext(input.requirementBindingContext);
   const requirement = input.operation.plan.execution.requirements.find(
     ({ id }) => id === RETAINED_WINDOWS_REPOSITORY_CHANGE_OBSERVER_REQUIREMENT_ID

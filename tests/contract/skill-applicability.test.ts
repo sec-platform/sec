@@ -4,15 +4,15 @@ import path from 'node:path';
 import { expect, test } from 'bun:test';
 
 import {
-  compileSecOperationReadPlan,
-  projectSecSkillEnvelopeFromOperationReadPlan,
-  SEC_OPERATION_READ_PLAN_INPUT_SCHEMA,
-  type SecOperationReadPlanInput
+  compileReadPlan,
+  projectSkillEnvelopeFromReadPlan,
+  READ_PLAN_INPUT_SCHEMA,
+  type ReadPlanInput
 } from '../../src/adapters/self-hosting/control/agent/read-plan.ts';
 import {
   evaluateSkillApplicability,
   isSkillQuarantinePath,
-  SEC_SKILL_QUARANTINE_EXACT_PATHS,
+  SKILL_QUARANTINE_EXACT_PATHS,
   type AgentRole,
   type AgentSkillId,
   type TaskOperationKind,
@@ -21,14 +21,14 @@ import {
 import {
   compileTaskCapsule,
   TASK_CAPSULE_INPUT_SCHEMA,
-  type SecDigest,
+  type TaskCapsuleDigest,
   type TaskCapsulePlanningContext
 } from '../../src/adapters/self-hosting/control/agent/task-capsule.ts';
 
 const REPOSITORY_ROOT = path.resolve(import.meta.dir, '../..');
-const digest = (character: string): SecDigest => `sha256:${character.repeat(64)}`;
+const digest = (character: string): TaskCapsuleDigest => `sha256:${character.repeat(64)}`;
 
-function capsule(planningContext: TaskCapsulePlanningContext): SecOperationReadPlanInput['taskCapsule'] {
+function capsule(planningContext: TaskCapsulePlanningContext): ReadPlanInput['taskCapsule'] {
   return compileTaskCapsule({
     schema: TASK_CAPSULE_INPUT_SCHEMA,
     ref: 'urn:sec:task-capsule:skill-applicability-contract',
@@ -79,13 +79,13 @@ function planInput(overrides: {
   forbiddenPaths?: readonly string[];
   base?: string;
   head?: string;
-} = {}): SecOperationReadPlanInput {
+} = {}): ReadPlanInput {
   const head = overrides.head ?? gitOutput(['rev-parse', 'HEAD']);
   const base = overrides.base ?? head;
-  const candidates = overrides.candidates ?? ['sec-worker-development'];
+  const candidates = overrides.candidates ?? ['worker-development'];
   const observedChangedPaths = changedPaths(base, head);
   return {
-    schema: SEC_OPERATION_READ_PLAN_INPUT_SCHEMA,
+    schema: READ_PLAN_INPUT_SCHEMA,
     taskCapsule: capsule({
       operationId: 'skill-applicability-contract',
       role: overrides.role ?? 'worker',
@@ -140,9 +140,9 @@ function planInput(overrides: {
   };
 }
 
-function evaluatePlan(input: SecOperationReadPlanInput): SkillApplicabilityDecision {
-  const plan = compileSecOperationReadPlan(input);
-  const envelope = projectSecSkillEnvelopeFromOperationReadPlan(plan);
+function evaluatePlan(input: ReadPlanInput): SkillApplicabilityDecision {
+  const plan = compileReadPlan(input);
+  const envelope = projectSkillEnvelopeFromReadPlan(plan);
   const trustedSkillRevisions: Record<string, string> = {};
   const candidateSkillRevisions: Record<string, string> = {};
   for (const repositoryPath of (envelope.changedPaths ?? []).filter(isSkillQuarantinePath)) {
@@ -166,7 +166,7 @@ function evaluatePlan(input: SecOperationReadPlanInput): SkillApplicabilityDecis
 test('verified Read Plan selects the single trusted Skill', () => {
   const decision = evaluatePlan(planInput());
   expect(decision.status).toBe('applicable');
-  expect(decision.selectedSkillId).toBe('sec-worker-development');
+  expect(decision.selectedSkillId).toBe('worker-development');
 });
 
 test('zero candidates and zero body budget resolve none-required', () => {
@@ -179,7 +179,7 @@ test('multiple surviving metadata candidates resolve ambiguous before any body r
   const decision = evaluatePlan(planInput({
     role: 'a0',
     operationKind: 'design',
-    candidates: ['sec-architecture-evolution', 'sec-heuristic-governance'],
+    candidates: ['architecture-evolution', 'heuristic-governance'],
     writePaths: []
   }));
   expect(decision.status).toBe('ambiguous');
@@ -190,19 +190,19 @@ test('Skill selection remains orthogonal to Task Capsule write and resource auth
   const decision = evaluatePlan(planInput({
     role: 'a0',
     operationKind: 'design',
-    candidates: ['sec-architecture-evolution'],
+    candidates: ['architecture-evolution'],
     writePaths: [],
     forbiddenPaths: ['docs/'],
     authorizedResources: ['github-api'],
     authorizedGates: ['hosted-gate']
   }));
   expect(decision.status).toBe('applicable');
-  expect(decision.selectedSkillId).toBe('sec-architecture-evolution');
+  expect(decision.selectedSkillId).toBe('architecture-evolution');
   expect('scopeConflicts' in decision).toBeFalse();
 });
 
 test('candidate quarantine revisions are derived from exact Git objects', () => {
-  const repositoryPath = SEC_SKILL_QUARANTINE_EXACT_PATHS[0];
+  const repositoryPath = SKILL_QUARANTINE_EXACT_PATHS[0];
   const historicalQuarantine = {
     repositoryPath,
     head: gitOutputOrNull(['log', '-1', '--format=%H', '--', repositoryPath])

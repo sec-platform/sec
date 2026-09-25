@@ -7,32 +7,32 @@ import type {
 } from './runtime/session.ts';
 import { assertProductionGitReadSession } from './runtime/session.ts';
 
-const CodexDevelopmentExactGitBlobMaxBytes = 16 * 1024 * 1024;
+const ExactGitBlobMaxBytes = 16 * 1024 * 1024;
 
-export type CodexDevelopmentExactGitBlobReadOptions = Readonly<{
+export type ExactGitBlobReadOptions = Readonly<{
   commitSha: string;
   maxBytes?: number;
   repositoryPath: string;
 }>;
 
-type CodexDevelopmentExactGitBlobEntry =
+type ExactGitBlobEntry =
   GitBlobIdentity & Readonly<{ size: number }>;
 
-export type CodexDevelopmentExactGitTreeEntry = Readonly<{
+export type ExactGitTreeEntry = Readonly<{
   blobSha: string;
   mode: string;
   repositoryPath: string;
   type: string;
 }>;
 
-export type CodexDevelopmentExactGitTextBlob = Readonly<{
+export type ExactGitTextBlob = Readonly<{
   blobSha: string;
   repositoryPath: string;
   byteLength: number;
   source: string;
 }>;
 
-export type CodexDevelopmentExactGitBlobBytes = Readonly<{
+export type ExactGitBlobBytes = Readonly<{
   blobSha: string;
   repositoryPath: string;
   byteLength: number;
@@ -100,14 +100,14 @@ function decodeUtf8(bytes: Uint8Array, label: string): string {
   }
 }
 
-async function CodexDevelopmentReadExactGitBlobEntryFromSession(
+async function ReadExactGitBlobEntryFromSession(
   session: GitReadSession,
-  options: CodexDevelopmentExactGitBlobReadOptions
-): Promise<CodexDevelopmentExactGitBlobEntry> {
+  options: ExactGitBlobReadOptions
+): Promise<ExactGitBlobEntry> {
   assertProductionGitReadSession(session);
   assertCommitSha(options.commitSha);
   assertCanonicalRepositoryPath(options.repositoryPath);
-  const maxBytes = options.maxBytes ?? CodexDevelopmentExactGitBlobMaxBytes;
+  const maxBytes = options.maxBytes ?? ExactGitBlobMaxBytes;
   if (!Number.isSafeInteger(maxBytes) || maxBytes < 0) {
     throw new Error('Exact Git blob maxBytes must be one non-negative safe integer.');
   }
@@ -172,11 +172,11 @@ async function CodexDevelopmentReadExactGitBlobEntryFromSession(
   });
 }
 
-export async function CodexDevelopmentReadExactGitBlobFromSession(
+export async function ReadExactGitBlobFromSession(
   session: GitReadSession,
-  options: CodexDevelopmentExactGitBlobReadOptions
+  options: ExactGitBlobReadOptions
 ): Promise<GitBlobBytes> {
-  const entry = await CodexDevelopmentReadExactGitBlobEntryFromSession(session, options);
+  const entry = await ReadExactGitBlobEntryFromSession(session, options);
   const bytes = await executeSessionGit(session, ['cat-file', 'blob', entry.blobSha]);
   if (bytes.length !== entry.size) {
     throw new Error(
@@ -192,7 +192,7 @@ export async function CodexDevelopmentReadExactGitBlobFromSession(
   });
 }
 
-export function parseExactGitTreeEntries(bytes: Buffer): readonly CodexDevelopmentExactGitTreeEntry[] {
+export function parseExactGitTreeEntries(bytes: Buffer): readonly ExactGitTreeEntry[] {
   if (bytes.length === 0) return Object.freeze([]);
   if (bytes[bytes.length - 1] !== 0) {
     throw new Error('Exact Git tree output is not NUL terminated.');
@@ -227,10 +227,10 @@ export function parseExactGitTreeEntries(bytes: Buffer): readonly CodexDevelopme
   return Object.freeze(entries);
 }
 
-export async function CodexDevelopmentListExactGitTreeEntriesFromSession(
+export async function ListExactGitTreeEntriesFromSession(
   session: GitReadSession,
   commitSha: string
-): Promise<readonly CodexDevelopmentExactGitTreeEntry[]> {
+): Promise<readonly ExactGitTreeEntry[]> {
   assertCommitSha(commitSha);
   const bytes = await executeSessionGit(session, [
     'ls-tree', '-r', '-z', '--full-tree', commitSha
@@ -246,7 +246,7 @@ export async function CodexDevelopmentListExactGitTreeEntriesFromSession(
   return entries;
 }
 
-type ExactGitBlobRequest = Pick<CodexDevelopmentExactGitTreeEntry, 'blobSha' | 'repositoryPath'>;
+type ExactGitBlobRequest = Pick<ExactGitTreeEntry, 'blobSha' | 'repositoryPath'>;
 
 function parseExactGitBlobHeader(entry: ExactGitBlobRequest, bytes: Buffer): number {
   const header = decodeUtf8(bytes, 'batch header');
@@ -283,7 +283,7 @@ export function parseExactGitBlobsBatch(
   entries: readonly ExactGitBlobRequest[],
   output: Buffer,
   maxTotalBytes: number
-): readonly CodexDevelopmentExactGitBlobBytes[] {
+): readonly ExactGitBlobBytes[] {
   if (!Number.isSafeInteger(maxTotalBytes) || maxTotalBytes < 0) {
     throw new Error('Exact Git text batch maxTotalBytes must be one non-negative safe integer.');
   }
@@ -322,10 +322,10 @@ export function parseExactGitBlobsBatch(
 export async function ReadExactGitBlobBytesBatchFromSession(
   session: GitReadSession,
   input: Readonly<{
-    entries: readonly CodexDevelopmentExactGitTreeEntry[];
+    entries: readonly ExactGitTreeEntry[];
     maxTotalBytes?: number;
   }>
-): Promise<readonly CodexDevelopmentExactGitBlobBytes[]> {
+): Promise<readonly ExactGitBlobBytes[]> {
   const maxTotalBytes = input.maxTotalBytes ?? MAX_BATCH_TEXT_BYTES;
   if (!Number.isSafeInteger(maxTotalBytes) || maxTotalBytes < 0) {
     throw new Error('Exact Git text batch maxTotalBytes must be one non-negative safe integer.');
@@ -353,13 +353,13 @@ export async function ReadExactGitBlobBytesBatchFromSession(
   return blobs;
 }
 
-export async function CodexDevelopmentReadExactGitTextBlobsBatchFromSession(
+export async function ReadExactGitTextBlobsBatchFromSession(
   session: GitReadSession,
   input: Readonly<{
-    entries: readonly CodexDevelopmentExactGitTreeEntry[];
+    entries: readonly ExactGitTreeEntry[];
     maxTotalBytes?: number;
   }>
-): Promise<readonly CodexDevelopmentExactGitTextBlob[]> {
+): Promise<readonly ExactGitTextBlob[]> {
   const blobs = await ReadExactGitBlobBytesBatchFromSession(session, input);
   return Object.freeze(blobs.map((blob) => Object.freeze({
     blobSha: blob.blobSha,

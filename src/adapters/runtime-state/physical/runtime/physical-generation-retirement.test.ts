@@ -6,7 +6,7 @@ import path from 'node:path';
 
 import { sha256 } from '../../../../contracts/canonical.ts';
 import {
-  bindSecSemanticOperation,
+  bindSemanticOperation,
   compileCapabilityBinding,
   compileSemanticOperationPlan,
   issueSemanticOperationAttemptContext
@@ -44,7 +44,7 @@ function legacyRelocationOperation() {
       id: requirementId
     }]
   });
-  return bindSecSemanticOperation(plan, [compileCapabilityBinding({
+  return bindSemanticOperation(plan, [compileCapabilityBinding({
     contractDigest,
     providerIdentityDigest: digest('runtime-physical-provider'),
     requirementId

@@ -56,7 +56,7 @@ test('pipeline lifecycle binding changes select their real transitive consumers'
   const source = 'src/bootstrap/engineering/pipeline-kernel.ts';
   const consumer = 'tests/integration/pipeline-workspace-write-lease.test.ts';
   const provider = await pipelineProvider({
-    'src/bootstrap/engineering/sec.module.json':
+    'src/bootstrap/engineering/module.json':
       '{"importGraph":"runtime","externalEntrypoints":["src/bootstrap/engineering/cli.ts"]}',
     'src/bootstrap/engineering/cli.ts': "import { kernel } from './pipeline-kernel.ts'; void kernel;",
     [source]: 'export const kernel = true;',
@@ -78,7 +78,7 @@ test('upgrade changes select upgrade behavior without a central path table', asy
   const fastConsumer = 'tests/unit/upgrade-summary.test.ts';
   const slowConsumer = 'tests/e2e/upgrade.test.ts';
   const provider = await pipelineProvider({
-    'src/bootstrap/upgrade/sec.module.json': '{"importGraph":"runtime","externalEntrypoints":[]}',
+    'src/bootstrap/upgrade/module.json': '{"importGraph":"runtime","externalEntrypoints":[]}',
     [source]: 'export const upgradeWorkspace = true;',
     [fastConsumer]: "import { upgradeWorkspace } from '../../src/bootstrap/upgrade/upgrade-workspace.ts'; void upgradeWorkspace;",
     [slowConsumer]: "import { upgradeWorkspace } from '../../src/bootstrap/upgrade/upgrade-workspace.ts'; void upgradeWorkspace;"

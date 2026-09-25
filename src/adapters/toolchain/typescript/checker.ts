@@ -4,7 +4,7 @@ import path from 'node:path';
 import { rawSha256, sha256 } from '../../../contracts/canonical.ts';
 import { parseExactJson } from '../../../contracts/exact-json.ts';
 import {
-  assertSecSemanticOperationProjection,
+  assertSemanticOperationProjection,
   type BoundSemanticOperation
 } from '../../../execution/operation/semantic.ts';
 import {
@@ -544,7 +544,7 @@ function isStrictPathDescendant(root: string, candidate: string): boolean {
 function assertTypeScriptCheckerProcessExecutionBinding(
   state: TypeScriptCheckerProcessExecutionAdmissionState
 ): void {
-  assertSecSemanticOperationProjection(state.operation);
+  assertSemanticOperationProjection(state.operation);
   if (state.operation.plan.identity.operation !== TYPESCRIPT_TYPECHECK_OPERATION) {
     throw new Error('TypeScript checker process admission requires the verification.typecheck operation.');
   }

@@ -4,7 +4,7 @@ import { CompilerError } from '../../src/compiler/errors.ts';
 import { buildEngineeringIR, type BuildEngineeringIRInput } from '../../src/compiler/ir/build-engineering-ir.ts';
 import { buildFactDelta } from '../../src/compiler/ir/build-fact-delta.ts';
 import { factAssertionId } from '../../src/compiler/ir/ir-fact-store.ts';
-import { digest, semanticRevisionPayload } from '../../src/compiler/ir/ir-revision.ts';
+import { rawSha256Hex, semanticRevisionPayload } from '../../src/compiler/ir/ir-revision.ts';
 import { buildValidatedEngineeringIR, validateEngineeringIR } from '../../src/compiler/ir/validate-engineering-ir.ts';
 import type { FactDeltaEndpointContext } from '../../src/semantics/engineering-ir/delta-types.ts';
 import type { EngineeringIR } from '../../src/semantics/engineering-ir/root-types.ts';
@@ -47,7 +47,7 @@ function resign(
   ir.entities.sort((left, right) => left.id.localeCompare(right.id));
   ir.facts.sort((left, right) => left.id.localeCompare(right.id));
   for (const fact of ir.facts) fact.assertions.sort((left, right) => left.id.localeCompare(right.id));
-  const semanticRevision = `sha256:${digest(semanticRevisionPayload(
+  const semanticRevision = `sha256:${rawSha256Hex(semanticRevisionPayload(
     ir.graphId,
     ir.appId,
     ir.entities,

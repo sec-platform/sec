@@ -1,6 +1,6 @@
 import { expect, test } from 'bun:test';
 
-import { AssertTestImpactTransitionSelection, CreateTestImpactTransitionObservation, CodexDevelopmentTestImpactTransitionDigest, decodeGitPathOutput, gitChangedFileDiffArgs, gitIndexChangedFileDiffArgs, gitPathBlobArgs, gitUntrackedFileArgs, gitWorkingTreeStatusArgs, gitWorktreeChangedFileDiffArgs, parseGitChangedFileOutput, parseGitPathBlobOutput, parseGitUntrackedFileOutput } from '../../src/adapters/verification/platform/test-impact/runtime/transition.ts';
+import { AssertTestImpactTransitionSelection, CreateTestImpactTransitionObservation, TestImpactTransitionDigest, decodeGitPathOutput, gitChangedFileDiffArgs, gitIndexChangedFileDiffArgs, gitPathBlobArgs, gitUntrackedFileArgs, gitWorkingTreeStatusArgs, gitWorktreeChangedFileDiffArgs, parseGitChangedFileOutput, parseGitPathBlobOutput, parseGitUntrackedFileOutput } from '../../src/adapters/verification/platform/test-impact/runtime/transition.ts';
 
 function utf8(value: string): Uint8Array {
   return new TextEncoder().encode(value);
@@ -159,7 +159,7 @@ test('transition selection binds canonical records, derived files, and exact bas
       ? { mode: '100644', blobSha: 'c'.repeat(40) }
       : null
   });
-  const digest = CodexDevelopmentTestImpactTransitionDigest(transition);
+  const digest = TestImpactTransitionDigest(transition);
   expect(AssertTestImpactTransitionSelection({
     baseSha,
     headSha,

@@ -13,9 +13,9 @@ import {
 } from '../../src/adapters/repository/source-program-model/repository-compilation.ts';
 import { issueTestImpactProjection } from '../../src/adapters/repository/source-program-model/test-impact-projection.ts';
 import {
-  acquireWorkingTreeWorkspaceSourceSnapshot,
-  compileWorkspaceTypeScriptProjectInput,
-  issueWorkspaceTypeScriptProjectGenerationEvidence
+  acquireWorkingTreeSnapshot,
+  compileTypeScriptProjectInput,
+  issueTypeScriptProjectGenerationEvidence
 } from '../../src/adapters/repository/source-program-model/workspace-source-snapshot.ts';
 import {
   activeDocumentationPaths,
@@ -43,7 +43,7 @@ import {
   type TestImpactTransitionObservation
 } from '../../src/adapters/verification/platform/test-impact/runtime/transition.ts';
 import { tsconfigRelativePath } from "../../src/adapters/workspace-context.ts";
-import { isSecRepositoryTestModulePath } from '../../src/contracts/repository-test-path.ts';
+import { isRepositoryTestModulePath } from '../../src/contracts/repository-test-path.ts';
 import { acquireExactGitTreeWorkspaceSourceSnapshotForTests } from './git-read-authority.ts';
 
 const GIT_OBJECT_ID = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/u;
@@ -65,7 +65,7 @@ export type ExactRepositoryTestImpactProviderFixture = ExactGitFixtureBase & Rea
 
 export type ExactGitTreeTestRunnerFixture = ExactGitFixtureBase & Readonly<{
   workspaceSnapshot: Awaited<ReturnType<typeof acquireExactGitTreeWorkspaceSourceSnapshotForTests>>;
-  workingTreeSnapshot: Awaited<ReturnType<typeof acquireWorkingTreeWorkspaceSourceSnapshot>>;
+  workingTreeSnapshot: Awaited<ReturnType<typeof acquireWorkingTreeSnapshot>>;
   indexStageOutput: Uint8Array;
   deletedTrackedOutput: Uint8Array;
   affectedObservation: Awaited<ReturnType<AffectedTestImpactProjectionIssuer>>;
@@ -172,7 +172,7 @@ function exactTestPaths(repositoryRoot: string, commitSha: string): readonly str
     throw new Error('Exact TestImpact path census is not NUL terminated.');
   }
   const paths = source.length === 0 ? [] : source.slice(0, -1).split('\0');
-  const tests = paths.filter(isSecRepositoryTestModulePath);
+  const tests = paths.filter(isRepositoryTestModulePath);
   if (tests.length === 0) {
     throw new Error('Exact TestImpact source tree contains no test modules.');
   }
@@ -241,7 +241,7 @@ export async function createRemovedDocumentationTestImpactFixture(
   const repositoryRoot = path.join(fixtureRoot, 'repository');
   const dispose = guardedFixtureDisposer(fixtureRoot);
   const documentationPath = 'src/adapters/providers/docker/README.md';
-  const descriptorPath = 'src/adapters/providers/docker/sec.module.json';
+  const descriptorPath = 'src/adapters/providers/docker/module.json';
   try {
     initializeFixtureRepository(repositoryRoot);
     const sources = new Map<string, string>([
@@ -381,16 +381,16 @@ export async function createExactGitTreeTestRunnerFixture(
     });
     const previousWorkingDirectory = process.cwd();
     let affectedObservation: Awaited<ReturnType<AffectedTestImpactProjectionIssuer>>;
-    let workingTreeSnapshot: Awaited<ReturnType<typeof acquireWorkingTreeWorkspaceSourceSnapshot>> | undefined;
+    let workingTreeSnapshot: Awaited<ReturnType<typeof acquireWorkingTreeSnapshot>> | undefined;
     try {
       process.chdir(repositoryRoot);
       affectedObservation = await withAuthorityGitReadSession({
         cwd: repositoryRoot,
         budget: { deadlineMs: 120_000 }
       }, async (session) => {
-        const workspaceSnapshot = await acquireWorkingTreeWorkspaceSourceSnapshot({ session });
+        const workspaceSnapshot = await acquireWorkingTreeSnapshot({ session });
         workingTreeSnapshot = workspaceSnapshot;
-        const projectInput = compileWorkspaceTypeScriptProjectInput(
+        const projectInput = compileTypeScriptProjectInput(
           workspaceSnapshot,
           tsconfigRelativePath
         );
@@ -408,7 +408,7 @@ export async function createExactGitTreeTestRunnerFixture(
             testObservations: compilation.testObservations
           }),
           testInventory: issueTestInventoryProjection({ snapshot: workspaceSnapshot }),
-          projectGenerationEvidence: issueWorkspaceTypeScriptProjectGenerationEvidence(
+          projectGenerationEvidence: issueTypeScriptProjectGenerationEvidence(
             workspaceSnapshot,
             projectInput
           )
@@ -513,7 +513,7 @@ async function createExactRepositoryTestImpactProviderFixture(
     let compilation: ReturnType<typeof compileRepositorySourceProgramCompilation>;
     try {
       observeFixturePhase(options, deadlineAtUnixMs, 'project-input');
-      const projectInput = compileWorkspaceTypeScriptProjectInput(
+      const projectInput = compileTypeScriptProjectInput(
         workspaceSnapshot,
         tsconfigRelativePath,
         {

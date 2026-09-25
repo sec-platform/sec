@@ -3,23 +3,23 @@ import path from 'node:path';
 
 import { REPOSITORY_AUDIT_ENTRYPOINT_PATH } from '../../../../repository/source-program-model/contract.ts';
 
-const SEC_TRUSTED_BOOTSTRAP_REGISTRY_SCHEMA = 'sec-trusted-bootstrap-registry-v3' as const;
-export const SEC_TRUSTED_BOOTSTRAP_REGISTRY_PATH =
+const TRUSTED_BOOTSTRAP_REGISTRY_SCHEMA = 'sec-trusted-bootstrap-registry-v3' as const;
+export const TRUSTED_BOOTSTRAP_REGISTRY_PATH =
   'src/adapters/verification/platform/trust/contract/ci-trust-root-registry.json' as const;
-export const SEC_TCB_CLOSURE_RUNTIME_PATH =
+export const TCB_CLOSURE_RUNTIME_PATH =
   'src/adapters/verification/platform/trust/runtime/closure-lock.ts' as const;
-export const SEC_TRUSTED_BOOTSTRAP_DISPATCHER_OWNER =
+export const TRUSTED_BOOTSTRAP_DISPATCHER_OWNER =
   'src/adapters/verification/platform/trust/contract/root.ts' as const;
 
 const REQUIRED_TRUSTED_BOOTSTRAP_STATIC_EXACT_PATHS = Object.freeze([
   '.bun-version',
   'src/adapters/self-hosting/control/branch-lifecycle/branch-lifecycle.ts',
-  SEC_TRUSTED_BOOTSTRAP_REGISTRY_PATH,
-  SEC_TCB_CLOSURE_RUNTIME_PATH
+  TRUSTED_BOOTSTRAP_REGISTRY_PATH,
+  TCB_CLOSURE_RUNTIME_PATH
 ]);
 
-export type SecTrustedBootstrapRegistry = Readonly<{
-  schema: typeof SEC_TRUSTED_BOOTSTRAP_REGISTRY_SCHEMA;
+export type TrustedBootstrapRegistry = Readonly<{
+  schema: typeof TRUSTED_BOOTSTRAP_REGISTRY_SCHEMA;
   staticExactPaths: readonly string[];
   staticDirectoryPaths: readonly string[];
   staticPrefixes: readonly string[];
@@ -29,15 +29,15 @@ export type SecTrustedBootstrapRegistry = Readonly<{
   reviewedExternalImports: readonly string[];
 }>;
 
-export type SecTrustedBootstrapTrustRoot = Readonly<{
+export type TrustedBootstrapTrustRoot = Readonly<{
   schema: 'sec-trusted-bootstrap-trust-root-v3';
-  registry: SecTrustedBootstrapRegistry;
+  registry: TrustedBootstrapRegistry;
   causalRuntimePaths: readonly string[];
   paths: readonly string[];
   prefixes: readonly string[];
 }>;
 
-export type SecTrustedBootstrapPathMatch = Readonly<{
+export type TrustedBootstrapPathMatch = Readonly<{
   kind: 'static-exact' | 'static-directory' | 'static-prefix' | 'causal-runtime';
   rule: string;
 }>;
@@ -158,7 +158,7 @@ function stringArray(
   return result;
 }
 
-function assertNoStaticOverlap(registry: SecTrustedBootstrapRegistry): void {
+function assertNoStaticOverlap(registry: TrustedBootstrapRegistry): void {
   for (let index = 0; index < registry.staticPrefixes.length; index += 1) {
     const prefix = registry.staticPrefixes[index]!;
     for (const other of registry.staticPrefixes.slice(index + 1)) {
@@ -250,10 +250,10 @@ function topLevelJsonObjectKeys(source: string): string[] {
   return keys;
 }
 
-function validateSecTrustedBootstrapRegistryValue(value: unknown): SecTrustedBootstrapRegistry {
+function validateTrustedBootstrapRegistryValue(value: unknown): TrustedBootstrapRegistry {
   assertPlainObject(value, 'trusted bootstrap registry');
   assertExactKeys(value);
-  if (value.schema !== SEC_TRUSTED_BOOTSTRAP_REGISTRY_SCHEMA) {
+  if (value.schema !== TRUSTED_BOOTSTRAP_REGISTRY_SCHEMA) {
     throw new Error('Trusted bootstrap registry schema mismatch.');
   }
 
@@ -275,8 +275,8 @@ function validateSecTrustedBootstrapRegistryValue(value: unknown): SecTrustedBoo
   staticPrefixes.forEach((entry, index) => assertPrefix(entry, `staticPrefixes[${index}]`));
   runtimeEntrypoints.forEach((entry, index) => assertRepositoryPath(entry, `runtimeEntrypoints[${index}]`, false));
 
-  const registry: SecTrustedBootstrapRegistry = Object.freeze({
-    schema: SEC_TRUSTED_BOOTSTRAP_REGISTRY_SCHEMA,
+  const registry: TrustedBootstrapRegistry = Object.freeze({
+    schema: TRUSTED_BOOTSTRAP_REGISTRY_SCHEMA,
     staticExactPaths: Object.freeze(staticExactPaths),
     staticDirectoryPaths: Object.freeze(staticDirectoryPaths),
     staticPrefixes: Object.freeze(staticPrefixes),
@@ -319,7 +319,7 @@ function validateSecTrustedBootstrapRegistryValue(value: unknown): SecTrustedBoo
   return registry;
 }
 
-export function parseSecTrustedBootstrapRegistry(source: string): SecTrustedBootstrapRegistry {
+export function parseTrustedBootstrapRegistry(source: string): TrustedBootstrapRegistry {
   assertRegistrySourceEnvelope(source);
   let value: unknown;
   try {
@@ -331,23 +331,23 @@ export function parseSecTrustedBootstrapRegistry(source: string): SecTrustedBoot
   if (rawKeys.length !== REGISTRY_KEYS.length || new Set(rawKeys).size !== rawKeys.length) {
     throw new Error('Trusted bootstrap registry top-level keys must appear exactly once.');
   }
-  return validateSecTrustedBootstrapRegistryValue(value);
+  return validateTrustedBootstrapRegistryValue(value);
 }
 
-function loadSecTrustedBootstrapRegistry(): SecTrustedBootstrapRegistry {
+function loadTrustedBootstrapRegistry(): TrustedBootstrapRegistry {
   const absolutePath = path.join(import.meta.dir, 'ci-trust-root-registry.json');
-  return parseSecTrustedBootstrapRegistry(readFileSync(absolutePath, 'utf8'));
+  return parseTrustedBootstrapRegistry(readFileSync(absolutePath, 'utf8'));
 }
 
-export const SEC_TRUSTED_BOOTSTRAP_REGISTRY = loadSecTrustedBootstrapRegistry();
+export const TRUSTED_BOOTSTRAP_REGISTRY = loadTrustedBootstrapRegistry();
 
-export function createSecTrustedBootstrapTrustRoot(
+export function createTrustedBootstrapTrustRoot(
   input: Readonly<{
-    registry: SecTrustedBootstrapRegistry;
+    registry: TrustedBootstrapRegistry;
     causalRuntimePaths: readonly string[];
   }>
-): SecTrustedBootstrapTrustRoot {
-  const registry = validateSecTrustedBootstrapRegistryValue(input.registry);
+): TrustedBootstrapTrustRoot {
+  const registry = validateTrustedBootstrapRegistryValue(input.registry);
   const causalRuntimePaths = stringArray(input.causalRuntimePaths, 'causalRuntimePaths');
   causalRuntimePaths.forEach((entry, index) => assertRepositoryPath(entry, `causalRuntimePaths[${index}]`, false));
   const causal = new Set(causalRuntimePaths);
@@ -390,10 +390,10 @@ export function createSecTrustedBootstrapTrustRoot(
   });
 }
 
-export function matchSecTrustedBootstrapPath(
+export function matchTrustedBootstrapPath(
   repositoryPath: string,
-  trustRoot: SecTrustedBootstrapTrustRoot
-): SecTrustedBootstrapPathMatch | null {
+  trustRoot: TrustedBootstrapTrustRoot
+): TrustedBootstrapPathMatch | null {
   assertRepositoryPath(repositoryPath, 'repositoryPath', false);
   const registry = trustRoot.registry;
   if (registry.staticExactPaths.includes(repositoryPath)) {

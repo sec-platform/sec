@@ -36,6 +36,7 @@ test('test workspace roots honor a safe CI lane namespace', () => {
   const defaultRoot = getTestWorkspaceTempRoot(isolatedTestWorkspaceEnvironment);
 
   const relativeToRepository = path.relative(compilerRoot, defaultRoot);
+  expect(path.basename(path.dirname(defaultRoot))).toBe('runs');
   expect(path.isAbsolute(relativeToRepository) || relativeToRepository.startsWith('..')).toBe(true);
   expect(getTestWorkspaceTempRoot({
     ...isolatedTestWorkspaceEnvironment,

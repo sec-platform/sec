@@ -2,7 +2,7 @@ import path from 'node:path';
 
 import { sha256 } from '../../../../contracts/canonical.ts';
 import { issueOperationRequirementBindingContext } from '../../../../execution/operation/requirement-binding-context.ts';
-import { bindSecSemanticOperation, compileCapabilityBinding, compileSemanticOperationPlan, issueSemanticOperationAttemptContext, type OperationDigest } from '../../../../execution/operation/semantic.ts';
+import { bindSemanticOperation, compileCapabilityBinding, compileSemanticOperationPlan, issueSemanticOperationAttemptContext, type OperationDigest } from '../../../../execution/operation/semantic.ts';
 import { assertWorkspaceWriteLease, withWorkspaceWriteLease, type WorkspaceWriteLeaseToken } from '../../../filesystem/write-lease.ts';
 import { withAuthorityGitReadSession } from '../../../providers/git-read/authority.ts';
 import { assertGitPhysicalProviderReceipt, closeGitPhysicalProvider, openGitPhysicalProvider } from '../../../providers/git/physical-provider.ts';
@@ -394,7 +394,7 @@ function compileLocalRefDeleteOperation(operationId: OperationDigest, local: boo
       failureKinds: ['filesystem.identity-drift', 'filesystem.write-failed', 'process.cancelled',
         'process.deadline-exhausted', 'process.output-budget-exhausted', 'process.settlement-unproven', 'process.unavailable'] }]
   });
-  return bindSecSemanticOperation(plan, [compileCapabilityBinding({ requirementId: LOCAL_EFFECT_REQUIREMENT,
+  return bindSemanticOperation(plan, [compileCapabilityBinding({ requirementId: LOCAL_EFFECT_REQUIREMENT,
     contractDigest: LOCAL_EFFECT_CONTRACT, providerIdentityDigest: LOCAL_EFFECT_PROVIDER })]);
 }
 

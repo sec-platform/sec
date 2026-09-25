@@ -13,7 +13,7 @@ import {
   type SemanticOperationIntent,
   type SemanticOperationPlan
 } from './identity-foundation.ts';
-import { SEC_SEMANTIC_OPERATION_ID_PATTERN } from './identity.ts';
+import { SEMANTIC_OPERATION_ID_PATTERN } from './identity.ts';
 
 export type OperationEffectGrantFailureReason =
   | 'already-consumed'
@@ -108,7 +108,7 @@ export function createOperationEffectGrantAuthority(input: Readonly<{
 }>): OperationEffectGrantAuthority {
   assertOperationFoundation(input.foundation);
   assertStructuredIdentityRuntime(input.identities);
-  if (!SEC_SEMANTIC_OPERATION_ID_PATTERN.test(input.semanticOperation)) {
+  if (!SEMANTIC_OPERATION_ID_PATTERN.test(input.semanticOperation)) {
     fail('invalid-authority', 'Effect grant semantic operation must be canonical.');
   }
   const issuerIdentity = input.foundation.createReference(input.issuer);

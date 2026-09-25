@@ -1,5 +1,5 @@
 /**
- * Durable, disposable run journal for VerificationSession V2.
+ * Durable, disposable run journal for VerificationSession.
  *
  * Journal entries are operational recovery facts, never verification Evidence.
  * Durable bytes live in the canonical SEC runtime-state root, never in the
@@ -7,15 +7,15 @@
  * the operator must reconcile the external observation instead of repeating the mutation.
  */
 
-import { createHash } from 'node:crypto';
 import path from 'node:path';
+import { rawSha256Hex } from '../../../../../contracts/canonical.ts';
 
 const VERIFICATION_SESSION_JOURNAL_EVENT_SCHEMA =
   'sec-verification-session-journal-event-v1' as const;
 const VERIFICATION_SESSION_OPERATION_CLAIM_SCHEMA =
   'sec-verification-session-operation-claim-v1' as const;
 const VERIFICATION_SESSION_JOURNAL_DIRECTORY =
-  'verification-sessions/v2' as const;
+  'verification-sessions/journal' as const;
 
 const VERIFICATION_SESSION_STAGES = [
   'frozen',
@@ -78,7 +78,7 @@ export interface VerificationSessionJournalFileSystem {
 }
 
 function digest(value: unknown): `sha256:${string}` {
-  return `sha256:${createHash('sha256').update(JSON.stringify(value)).digest('hex')}`;
+  return `sha256:${rawSha256Hex(JSON.stringify(value))}`;
 }
 
 function assertDigest(value: unknown, label: string): `sha256:${string}` | null {

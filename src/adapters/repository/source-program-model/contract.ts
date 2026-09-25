@@ -1,4 +1,4 @@
-import { isSecRepositoryTestModulePath } from '../../../contracts/repository-test-path.ts';
+import { isRepositoryTestModulePath } from '../../../contracts/repository-test-path.ts';
 import type { SemanticResponsibilityTargetKind } from '../../../semantics/definitions/types.ts';
 import type {
   ModuleCausalRelation,
@@ -54,7 +54,7 @@ export function isSourceProgramInputPath(repositoryPath: string): boolean {
 export function sourceProgramSurfaceForPath(repositoryPath: string): SourceProgramSurface {
   if (SOURCE_PROGRAM_FIXTURE_PATH.test(repositoryPath)) return 'fixture';
   if (SOURCE_PROGRAM_TEST_DIRECTORY_PATH.test(repositoryPath)
-      || isSecRepositoryTestModulePath(repositoryPath)) return 'test';
+      || isRepositoryTestModulePath(repositoryPath)) return 'test';
   if (SOURCE_PROGRAM_CATALOG_RESOURCE_PATH.test(repositoryPath)) return 'resource';
   if (repositoryPath.startsWith('.github/workflows/')) return 'workflow';
   if (SOURCE_PROGRAM_RESOURCE_EXTENSION.test(repositoryPath)) return 'resource';
@@ -301,7 +301,7 @@ export type SourceProgramOperationSourceEvidence = Readonly<{
  * generation, loaded implementation bytes, or process authority. Consumers
  * select only the operation identity; all paths and bytes remain compiler-owned.
  */
-export interface SourceProgramOperationProducerClosure {
+export interface OperationProducerClosure {
   readonly [sourceProgramOperationProducerClosureBrand]: true;
   readonly authority: 'source-evidence-only';
   readonly operation: SourceProgramOperationIdentity;

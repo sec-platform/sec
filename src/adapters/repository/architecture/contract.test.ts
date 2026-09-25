@@ -3,11 +3,11 @@ import { expect, test } from 'bun:test';
 import { compilerRoot } from "../../workspace-context.ts";
 import { compileRepositoryModuleGraph } from '../source-program-model/typescript.ts';
 import {
-  assertSecRepositoryModuleArchitectureBoundaries,
-  assertSecRepositoryModuleImportBoundaries,
-  assertSecRepositoryModuleSourceProgramBoundaries,
+  assertRepositoryModuleArchitectureBoundaries,
+  assertRepositoryModuleImportBoundaries,
+  assertRepositoryModuleSourceProgramBoundaries,
   collectRepositoryModuleBoundaryViolations,
-  collectSecRepositoryModuleSourceProgramViolations,
+  collectRepositoryModuleSourceProgramViolations,
   compileRepositoryModuleArchitectureProjection,
   compileRepositoryModuleMembership,
   compileRepositoryModuleTopologyProjection,
@@ -22,7 +22,7 @@ function repositoryModuleTestDescriptor(
   return parseModuleDescriptor({
     importGraph: 'runtime',
     externalEntrypoints: []
-  }, `${root}/sec.module.json`);
+  }, `${root}/module.json`);
 }
 
 test('repository module descriptors resolve unique physical roots and external entrypoints', () => {
@@ -45,7 +45,7 @@ test('repository module descriptor parser rejects unknown fields and invalid pat
     importGraph: 'runtime',
     externalEntrypoints: []
   } as const;
-  const descriptorPath = 'src/example/sec.module.json';
+  const descriptorPath = 'src/example/module.json';
 
   expect(parseModuleDescriptor(descriptor, descriptorPath).root).toBe('src/example');
   expect(() => parseModuleDescriptor({ ...descriptor, architectureRole: 'query' }, descriptorPath))
@@ -63,7 +63,7 @@ test('repository module descriptor parser rejects unknown fields and invalid pat
     externalEntrypoints: ['src/adapters/self-hosting/development/runner/cli.ts', 'src/adapters/self-hosting/development/runner/cli.ts']
   }, descriptorPath))
     .toThrow('entries must be unique');
-  expect(() => parseModuleDescriptor(descriptor, '../sec.module.json'))
+  expect(() => parseModuleDescriptor(descriptor, '../module.json'))
     .toThrow('descriptorPath');
   expect(() => parseModuleDescriptorJson(
     '{"importGraph":"runtime","importGraph":"content","externalEntrypoints":[]}',
@@ -105,26 +105,26 @@ test('repository module operation obligations are strict and bind declared publi
     operationObligations: [obligation]
   } as const;
 
-  expect(parseModuleDescriptor(descriptor, 'src/provider/sec.module.json')
+  expect(parseModuleDescriptor(descriptor, 'src/provider/module.json')
     .operationObligations).toEqual([obligation]);
   expect(() => parseModuleDescriptor({
     ...descriptor,
     operationObligations: [{ ...obligation, resources: undefined }]
-  }, 'src/provider/sec.module.json')).toThrow('resources: expected an object');
+  }, 'src/provider/module.json')).toThrow('resources: expected an object');
   expect(() => parseModuleDescriptor({
     ...descriptor,
     operationObligations: [{
       ...obligation,
       evolution: { retirement: 'replacement-obligations-satisfied' }
     }]
-  }, 'src/provider/sec.module.json')).toThrow('expected exact keys');
+  }, 'src/provider/module.json')).toThrow('expected exact keys');
   expect(() => parseModuleDescriptor({
     ...descriptor,
     operationObligations: [{
       ...obligation,
       resources: { aggregateBudgets: [] }
     }]
-  }, 'src/provider/sec.module.json')).toThrow('expected between 1 and 16 entries');
+  }, 'src/provider/module.json')).toThrow('expected between 1 and 16 entries');
   expect(() => parseModuleDescriptor({
     ...descriptor,
     operationObligations: [{
@@ -135,7 +135,7 @@ test('repository module operation obligations are strict and bind declared publi
         )
       }
     }]
-  }, 'src/provider/sec.module.json')).toThrow(
+  }, 'src/provider/module.json')).toThrow(
     'process Effect obligation must declare exactly one input-bytes ceiling'
   );
   expect(() => parseModuleDescriptor({
@@ -148,14 +148,14 @@ test('repository module operation obligations are strict and bind declared publi
         ))
       }
     }]
-  }, 'src/provider/sec.module.json')).toThrow('expected a canonical static aggregate ceiling');
+  }, 'src/provider/module.json')).toThrow('expected a canonical static aggregate ceiling');
   expect(() => parseModuleDescriptor({
     ...descriptor,
     operationObligations: [{
       ...obligation,
       operation: { ...obligation.operation, operation: 'undeclared' }
     }]
-  }, 'src/provider/sec.module.json')).toThrow('must bind one declared capability provider operation');
+  }, 'src/provider/module.json')).toThrow('must bind one declared capability provider operation');
 });
 
 test('effectful provider exposure separates owner internals from operation-bound public capabilities', () => {
@@ -198,33 +198,33 @@ test('effectful provider exposure separates owner internals from operation-bound
     operationObligations: [obligation]
   } as const;
 
-  expect(parseModuleDescriptor(descriptor, 'src/provider/sec.module.json')
+  expect(parseModuleDescriptor(descriptor, 'src/provider/module.json')
     .capabilityProviders).toEqual([{ ...provider, operationRoles: [] }]);
   expect(() => parseModuleDescriptor({
     ...descriptor,
     operationObligations: []
-  }, 'src/provider/sec.module.json')).toThrow('requires an operation obligation');
+  }, 'src/provider/module.json')).toThrow('requires an operation obligation');
   expect(() => parseModuleDescriptor({
     ...descriptor,
     operationObligations: [{
       ...obligation,
       effect: { kinds: ['filesystem'], failureKinds: ['io-failed'], recovery: 'owner-intervention' }
     }]
-  }, 'src/provider/sec.module.json')).toThrow('omits an intrinsic provider effect');
+  }, 'src/provider/module.json')).toThrow('omits an intrinsic provider effect');
   expect(() => parseModuleDescriptor({
     ...descriptor,
     operationObligations: [{
       ...obligation,
       operation: { ...obligation.operation, operation: 'nativePrimitive' }
     }]
-  }, 'src/provider/sec.module.json')).toThrow('owner-internal operation');
+  }, 'src/provider/module.json')).toThrow('owner-internal operation');
   expect(() => parseModuleDescriptor({
     ...descriptor,
     capabilityProviders: [{
       ...provider,
       ownerInternalOperations: ['undeclaredPrimitive']
     }]
-  }, 'src/provider/sec.module.json')).toThrow('must be declared provider operations');
+  }, 'src/provider/module.json')).toThrow('must be declared provider operations');
 });
 
 test('repository module capability roles bind exact operations and recovery addresses', () => {
@@ -248,7 +248,7 @@ test('repository module capability roles bind exact operations and recovery addr
     }],
     operationObligations: []
   } as const;
-  expect(parseModuleDescriptor(descriptor, 'src/runtime-store/sec.module.json')
+  expect(parseModuleDescriptor(descriptor, 'src/runtime-store/module.json')
     .capabilityProviders[0]?.operationRoles).toEqual([{
       operation: 'append',
       role: 'durable-worker',
@@ -272,7 +272,7 @@ test('repository module capability roles bind exact operations and recovery addr
         recovery: null
       }]
     }]
-  }, 'src/runtime-store/sec.module.json')).toThrow('must be one declared provider operation');
+  }, 'src/runtime-store/module.json')).toThrow('must be one declared provider operation');
   expect(() => parseModuleDescriptor({
     ...descriptor,
     capabilityProviders: [{
@@ -289,7 +289,7 @@ test('repository module capability roles bind exact operations and recovery addr
         }
       }]
     }]
-  }, 'src/runtime-store/sec.module.json')).toThrow('only valid for a durable-worker');
+  }, 'src/runtime-store/module.json')).toThrow('only valid for a durable-worker');
   expect(() => parseModuleDescriptor({
     ...descriptor,
     capabilityProviders: [{
@@ -302,7 +302,7 @@ test('repository module capability roles bind exact operations and recovery addr
         recovery: null
       }]
     }]
-  }, 'src/runtime-store/sec.module.json')).toThrow('is required for provider-settlement-issuer');
+  }, 'src/runtime-store/module.json')).toThrow('is required for provider-settlement-issuer');
   expect(() => parseModuleDescriptor({
     ...descriptor,
     capabilityProviders: [{
@@ -319,7 +319,7 @@ test('repository module capability roles bind exact operations and recovery addr
         }
       }]
     }]
-  }, 'src/runtime-store/sec.module.json')).toThrow('must bind the durable worker semantic operation');
+  }, 'src/runtime-store/module.json')).toThrow('must bind the durable worker semantic operation');
   expect(() => parseModuleDescriptor({
     ...descriptor,
     capabilityProviders: [{
@@ -332,7 +332,7 @@ test('repository module capability roles bind exact operations and recovery addr
         recovery: null
       }]
     }]
-  }, 'src/runtime-store/sec.module.json')).toThrow('has an invalid format');
+  }, 'src/runtime-store/module.json')).toThrow('has an invalid format');
 
   expect(parseModuleDescriptor({
     importGraph: 'runtime',
@@ -349,7 +349,7 @@ test('repository module capability roles bind exact operations and recovery addr
       }]
     }],
     operationObligations: []
-  }, 'tests/sec.module.json').capabilityProviders[0]?.operationRoles[0]?.role)
+  }, 'tests/module.json').capabilityProviders[0]?.operationRoles[0]?.role)
     .toBe('registration-issuer');
 });
 
@@ -373,7 +373,7 @@ test('repository module conflicts only exact provider settlement and readback re
     }],
     operationObligations: []
   } as const;
-  expect(parseModuleDescriptor(descriptor, 'src/runtime-provider/sec.module.json')
+  expect(parseModuleDescriptor(descriptor, 'src/runtime-provider/module.json')
     .capabilityProviders[0]?.operationRoles).toHaveLength(2);
   expect(() => parseModuleDescriptor({
     ...descriptor,
@@ -384,7 +384,7 @@ test('repository module conflicts only exact provider settlement and readback re
         role('readback', 'readback-issuer', 'runtime.operation-a', 'runtime.provider-a')
       ]
     }]
-  }, 'src/runtime-provider/sec.module.json')).not.toThrow();
+  }, 'src/runtime-provider/module.json')).not.toThrow();
   expect(() => parseModuleDescriptor({
     ...descriptor,
     capabilityProviders: [{
@@ -400,7 +400,7 @@ test('repository module conflicts only exact provider settlement and readback re
         role('settle', 'provider-settlement-issuer', 'runtime.operation-a', 'runtime.provider-a')
       ]
     }]
-  }, 'src/runtime-provider/sec.module.json')).toThrow(
+  }, 'src/runtime-provider/module.json')).toThrow(
     'semantic operation requirement issuer relations must be unique across the module'
   );
 });
@@ -439,7 +439,7 @@ test('repository architecture rejects omitted authority roles and same-owner iss
         operations,
         operationRoles
       }]
-    }, 'src/authority/sec.module.json');
+    }, 'src/authority/module.json');
     const files = ['src/authority/issuer.ts'];
     const graph = compileRepositoryModuleGraph({
       files: files,
@@ -533,7 +533,7 @@ test('repository module causal relations bind semantic subjects to exact module 
     externalEntrypoints: [],
     causalRelations: [relation]
   } as const;
-  expect(parseModuleDescriptor(descriptor, 'src/semantics/repair/sec.module.json')
+  expect(parseModuleDescriptor(descriptor, 'src/semantics/repair/module.json')
     .causalRelations).toEqual([relation]);
   expect(() => parseModuleDescriptor({
     ...descriptor,
@@ -541,18 +541,18 @@ test('repository module causal relations bind semantic subjects to exact module 
       ...relation,
       symbol: { ...relation.symbol, path: 'src/bootstrap/cli/register-commands.ts' }
     }]
-  }, 'src/semantics/repair/sec.module.json')).toThrow('must remain inside the declaring module root');
+  }, 'src/semantics/repair/module.json')).toThrow('must remain inside the declaring module root');
   expect(() => parseModuleDescriptor({
     ...descriptor,
     causalRelations: [relation, relation]
-  }, 'src/semantics/repair/sec.module.json')).toThrow('relations must be unique');
+  }, 'src/semantics/repair/module.json')).toThrow('relations must be unique');
   expect(() => parseModuleDescriptor({
     ...descriptor,
     causalRelations: [{
       ...relation,
       operation: { semanticOperation: 'invalid', requirementId: null }
     }]
-  }, 'src/semantics/repair/sec.module.json')).toThrow('has an invalid format');
+  }, 'src/semantics/repair/module.json')).toThrow('has an invalid format');
 });
 
 test('repository module compiler prevents production from importing test authority', () => {
@@ -587,7 +587,7 @@ test('repository module compiler does not infer visibility from directory names'
   const consumer = repositoryModuleTestDescriptor('src/consumer');
   const provider = repositoryModuleTestDescriptor('src/provider');
 
-  expect(() => assertSecRepositoryModuleImportBoundaries(graph, {
+  expect(() => assertRepositoryModuleImportBoundaries(graph, {
     descriptors: [consumer, provider],
     graphRoots: ['src/consumer', 'src/provider'],
     moduleRoots: ['src/consumer', 'src/provider'],
@@ -714,7 +714,7 @@ test('cross-owner aggregate facades are TypeScript facts rather than index filen
         ? 'export interface Contract { readonly value: string; }'
         : 'export const effect = true;'
   });
-  expect(() => assertSecRepositoryModuleImportBoundaries(publicGraph, membership)).not.toThrow();
+  expect(() => assertRepositoryModuleImportBoundaries(publicGraph, membership)).not.toThrow();
 
   const aggregateGraph = compileRepositoryModuleGraph({
     files: files,
@@ -748,7 +748,7 @@ test('cross-owner aggregate facades are TypeScript facts rather than index filen
     sourceProgramFacts
   );
   expect(aggregateProjection.aggregateFacadePaths).toEqual(['src/provider/public.ts']);
-  expect(() => assertSecRepositoryModuleArchitectureBoundaries(
+  expect(() => assertRepositoryModuleArchitectureBoundaries(
     aggregateGraph,
     membership,
     sourceProgramFacts
@@ -777,9 +777,9 @@ test('pre-dependency entrypoints cannot import an unavailable package', () => {
     importGraph: 'runtime',
     externalEntrypoints: ['src/bootstrap/cli.ts'],
     preDependencyBootstrap: true
-  }, 'src/bootstrap/sec.module.json');
+  }, 'src/bootstrap/module.json');
   const graph = compileRepositoryModuleGraph({ files: ['src/bootstrap/cli.ts'], readSource: () => "import 'unmaterialized-package';" });
-  expect(() => assertSecRepositoryModuleImportBoundaries(graph, {
+  expect(() => assertRepositoryModuleImportBoundaries(graph, {
     descriptors: [descriptor],
     graphRoots: ['src/bootstrap'],
     moduleRoots: ['src/bootstrap'],
@@ -787,7 +787,7 @@ test('pre-dependency entrypoints cannot import an unavailable package', () => {
   })).toThrow('[pre-dependency-bootstrap-unavailable-package]');
 
   const postBootstrapGraph = compileRepositoryModuleGraph({ files: ['src/bootstrap/cli.ts'], readSource: () => "void import('materialized-after-bootstrap');" });
-  expect(() => assertSecRepositoryModuleImportBoundaries(postBootstrapGraph, {
+  expect(() => assertRepositoryModuleImportBoundaries(postBootstrapGraph, {
     descriptors: [descriptor],
     graphRoots: ['src/bootstrap'],
     moduleRoots: ['src/bootstrap'],
@@ -802,7 +802,7 @@ test('repository module admission rejects retired src/apps and src/modules roots
     expect(() => parseModuleDescriptor({
       importGraph: 'runtime',
       externalEntrypoints: []
-    }, `${retiredRoot}/sec.module.json`)).toThrow('retired repository root');
+    }, `${retiredRoot}/module.json`)).toThrow('retired repository root');
   }
 });
 
@@ -923,13 +923,13 @@ test('repository architecture derives one node responsibility and rejects revers
       importGraph: 'runtime',
       externalEntrypoints: [],
       capabilityProviders: [{ capability: 'clock', operations: ['readClock'] }]
-    }, 'src/capability/sec.module.json'),
+    }, 'src/capability/module.json'),
     repositoryModuleTestDescriptor('src/operation'),
     repositoryModuleTestDescriptor('src/workflow'),
     parseModuleDescriptor({
       importGraph: 'runtime',
       externalEntrypoints: ['src/entry/cli.ts']
-    }, 'src/entry/sec.module.json')
+    }, 'src/entry/module.json')
   ];
   const files = [
     'src/contracts/types.ts',
@@ -1052,7 +1052,7 @@ test('package role claims cannot change node responsibility authority', () => {
     importGraph: 'runtime',
     externalEntrypoints: [],
     capabilityProviders: [{ capability: 'example-provider', operations: ['run'] }]
-  }, 'src/example/sec.module.json');
+  }, 'src/example/module.json');
   const graph = compileRepositoryModuleGraph({ files: ['src/example/value.ts'], readSource: () => 'export const value = 1;' });
   const facts = {
     files: [{
@@ -1092,7 +1092,7 @@ test('source-program ownership excludes colocated tests and binds public entrypo
   const declared = parseModuleDescriptor({
     importGraph: 'runtime',
     externalEntrypoints: ['src/feature/cli.ts']
-  }, 'src/feature/sec.module.json');
+  }, 'src/feature/module.json');
   const membershipFor = (descriptor: typeof declared) => ({
     descriptors: [descriptor],
     graphRoots: [descriptor.root],
@@ -1123,7 +1123,7 @@ test('source-program ownership excludes colocated tests and binds public entrypo
     }))
   };
 
-  const violations = collectSecRepositoryModuleSourceProgramViolations(
+  const violations = collectRepositoryModuleSourceProgramViolations(
     facts,
     membershipFor(undeclared)
   );
@@ -1133,9 +1133,9 @@ test('source-program ownership excludes colocated tests and binds public entrypo
     .toHaveLength(entrypointKinds.length);
   expect(violations.some(({ from }) => from === 'src/unowned/service.test.ts')).toBe(false);
 
-  expect(() => assertSecRepositoryModuleSourceProgramBoundaries(facts, membershipFor(declared)))
+  expect(() => assertRepositoryModuleSourceProgramBoundaries(facts, membershipFor(declared)))
     .toThrow('[unowned-production-source]');
-  expect(() => assertSecRepositoryModuleSourceProgramBoundaries({
+  expect(() => assertRepositoryModuleSourceProgramBoundaries({
     ...facts,
     files: facts.files.filter(({ path }) => path !== 'src/unowned/service.ts')
   }, membershipFor(declared))).not.toThrow();
@@ -1147,7 +1147,7 @@ test('pre-dependency evaluation excludes erased type imports without exempting r
     importGraph: 'runtime',
     externalEntrypoints: ['src/bootstrap/cli.ts'],
     preDependencyBootstrap: true
-  }, 'src/bootstrap/sec.module.json');
+  }, 'src/bootstrap/module.json');
   const membership = {
     descriptors: [descriptor], graphRoots: ['src/bootstrap'],
     moduleRoots: ['src/bootstrap'], moduleForPath: () => descriptor

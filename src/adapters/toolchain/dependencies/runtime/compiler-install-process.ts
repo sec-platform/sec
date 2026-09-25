@@ -2,10 +2,10 @@ import path from 'node:path';
 import { bindCompilerInstallInvocation, type CompilerInstallInvocationInput } from './install-invocation.ts';
 
 import { type CommitFence } from "../../../../contracts/commit-fence.ts";
-import { SecError } from '../../../../contracts/failure.ts';
+import { FailureError } from '../../../../contracts/failure.ts';
 import { issueOperationRequirementBindingContext } from '../../../../execution/operation/requirement-binding-context.ts';
 import {
-  bindSecSemanticOperation,
+  bindSemanticOperation,
   compileCapabilityBinding,
   compileSemanticOperationPlan,
   issueSemanticOperationAttemptContext,
@@ -79,13 +79,13 @@ function compilerInstallResourceCeilings(durationMs: number) {
 }
 
 function captureInstallArguments(input: readonly string[]): string[] {
-  if (!Array.isArray(input)) throw new SecError('RUNTIME-DEPS-003', 'Bun arguments must be a dense string array');
+  if (!Array.isArray(input)) throw new FailureError('RUNTIME-DEPS-003', 'Bun arguments must be a dense string array');
   const length = input.length;
   const args: string[] = [];
   for (let index = 0; index < length; index += 1) {
     const slot = Object.getOwnPropertyDescriptor(input, index);
     if (!slot || !('value' in slot) || typeof slot.value !== 'string' || slot.value.includes('\0')) {
-      throw new SecError('RUNTIME-DEPS-003', 'Bun arguments must be own string data without NUL bytes');
+      throw new FailureError('RUNTIME-DEPS-003', 'Bun arguments must be own string data without NUL bytes');
     }
     args.push(slot.value);
   }
@@ -98,7 +98,7 @@ function captureExpectedExecutable(input: RuntimeExecutableIdentity): RuntimeExe
 }
 
 function requireSuccessfulInstall(result: CommandResult, workingDirectory: string): CommandResult {
-  if (result.code !== 0) throw new SecError('RUNTIME-DEPS-001',
+  if (result.code !== 0) throw new FailureError('RUNTIME-DEPS-001',
     `Failed to install runtime dependencies in ${workingDirectory}`, { bunResult: result });
   return result;
 }
@@ -156,7 +156,7 @@ function compilerDependencyInstallProcessOperation(input: Readonly<{
       ])
     })])
   });
-  return bindSecSemanticOperation(plan, [compileCapabilityBinding({
+  return bindSemanticOperation(plan, [compileCapabilityBinding({
     requirementId: COMPILER_DEPENDENCY_INSTALL_PROCESS_REQUIREMENT,
     contractDigest,
     providerIdentityDigest: generatedStateDigest(Object.freeze({
@@ -183,7 +183,7 @@ export async function runBunInstall(
   const capturedArgs = captureInstallArguments(bunArgs);
   const capturedExecutable = expectedExecutable === undefined ? undefined : captureExpectedExecutable(expectedExecutable);
   if (inputFence !== undefined && typeof inputFence !== 'function') {
-    throw new SecError('RUNTIME-DEPS-003', 'Compiler dependency input fence must be callable');
+    throw new FailureError('RUNTIME-DEPS-003', 'Compiler dependency input fence must be callable');
   }
   const { controls, isolated, materialization, beforeCommit } = bindCompilerInstallInvocation(options);
   const effectOptions = Object.freeze({ ...controls, beforeCommit });
@@ -259,7 +259,7 @@ export async function runBunInstall(
         const observed = executable.digest();
         if (!sameHostPath(executable.path, expected.path) ||
             observed.byteDigest !== `sha256:${expected.sha256}`) {
-          throw new SecError(
+          throw new FailureError(
             'IMPORT-AUTHORITY-001',
             'Bun runtime executable changed before retained compiler spawn'
           );
@@ -270,7 +270,7 @@ export async function runBunInstall(
           const current = executable.digest();
           if (current.size !== expectedExecutableSize ||
               current.byteDigest !== `sha256:${expected.sha256}`) {
-            throw new SecError(
+            throw new FailureError(
               'IMPORT-AUTHORITY-001',
               'Bun runtime executable bytes changed during retained compiler spawn'
             );

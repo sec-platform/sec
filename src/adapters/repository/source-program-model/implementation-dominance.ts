@@ -5,7 +5,7 @@ import type {
   SourceProgramOperationObligationEvidence,
   SourceProgramOwnerIntentEvidence
 } from './contract.ts';
-import { isCompiledRepositorySourceProgramModel } from './repository.ts';
+import { isCompiledRepositoryModel } from './repository.ts';
 
 type SourceProgramImplementationUnitKind =
   | 'contract-codec'
@@ -517,7 +517,7 @@ export function compileSourceProgramImplementationCandidates(input: Readonly<{
   readonly model: SourceProgramModel;
   readonly ownerIntents: readonly SourceProgramOwnerIntentEvidence[];
 }>): readonly SourceProgramImplementationCandidateObservation[] {
-  if (!isCompiledRepositorySourceProgramModel(input.model)) {
+  if (!isCompiledRepositoryModel(input.model)) {
     throw new Error('Implementation candidate discovery requires a compiler-issued Repository Source Program Model');
   }
   const index = compileSourceProgramImplementationIndex(input.model, input.ownerIntents);
@@ -807,7 +807,7 @@ export function compileSourceProgramImplementationDominance(input: Readonly<{
   readonly model: SourceProgramModel;
   readonly ownerIntents: readonly SourceProgramOwnerIntentEvidence[];
 }>): SourceProgramImplementationDominanceCompilation {
-  if (!isCompiledRepositorySourceProgramModel(input.model)) {
+  if (!isCompiledRepositoryModel(input.model)) {
     throw new Error('Implementation dominance requires a compiler-issued Repository Source Program Model');
   }
   const index = compileSourceProgramImplementationIndex(input.model, input.ownerIntents);

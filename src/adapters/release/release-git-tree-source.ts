@@ -1,15 +1,15 @@
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
-import { withAuthorityGitReadSession } from '../../adapters/providers/git-read/authority.ts';
+import { withAuthorityGitReadSession } from '../providers/git-read/authority.ts';
 import {
   type GitReadSession,
   type GitReadSessionBudget,
   type GitReadSessionCommand
-} from '../../adapters/providers/git-read/runtime/session.ts';
+} from '../providers/git-read/runtime/session.ts';
 import { sha256 } from '../../contracts/canonical.ts';
 import {
-  bindSecSemanticOperation,
+  bindSemanticOperation,
   compileCapabilityBinding,
   compileSemanticOperationPlan,
   issueSemanticOperationAttemptContext,
@@ -171,7 +171,7 @@ function compileReleaseGitTreeOperation(
     }]
   });
   return Object.freeze({
-    operation: bindSecSemanticOperation(plan, [compileCapabilityBinding({
+    operation: bindSemanticOperation(plan, [compileCapabilityBinding({
       requirementId: RELEASE_GIT_TREE_REQUIREMENT,
       contractDigest,
       providerIdentityDigest: contractDigest

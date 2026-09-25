@@ -30,32 +30,32 @@ export interface WindowsAppContainerNativeHelperCapability {
 
 type NativeHelperBundleSource = () => Promise<Uint8Array>;
 
-interface WindowsAppContainerNativeHelperEntryMetadata {
+interface NativeHelperEntryMetadata {
   readonly identity: string;
   readonly isFile: boolean;
   readonly isSymbolicLink: boolean;
   readonly linkCount: number;
 }
 
-export interface WindowsAppContainerNativeHelperEntryProbe {
-  readonly lstat: (value: string) => Promise<WindowsAppContainerNativeHelperEntryMetadata>;
+export interface NativeHelperEntryProbe {
+  readonly lstat: (value: string) => Promise<NativeHelperEntryMetadata>;
   readonly realpath: (value: string) => Promise<string>;
 }
 
-interface WindowsAppContainerNativeHelperBuildOutput {
+interface NativeHelperBuildOutput {
   readonly arrayBuffer: () => Promise<ArrayBuffer>;
 }
 
-interface WindowsAppContainerNativeHelperBuildResult {
+interface NativeHelperBuildResult {
   readonly success: boolean;
-  readonly outputs: readonly WindowsAppContainerNativeHelperBuildOutput[];
+  readonly outputs: readonly NativeHelperBuildOutput[];
 }
 
-type WindowsAppContainerNativeHelperBuilder = (
+type NativeHelperBuilder = (
   entryPath: string
-) => Promise<WindowsAppContainerNativeHelperBuildResult>;
+) => Promise<NativeHelperBuildResult>;
 
-export interface WindowsAppContainerNativeHelperBundleLoaderForTests {
+export interface NativeHelperBundleLoaderForTests {
   readonly build: () => Promise<Uint8Array>;
   readonly prepare: () => Promise<void>;
 }
@@ -63,8 +63,8 @@ export interface WindowsAppContainerNativeHelperBundleLoaderForTests {
 const NATIVE_HELPER_ENTRY_PATH = fileURLToPath(new URL('./native-helper.ts', import.meta.url));
 const capabilityBytes = new WeakMap<object, Uint8Array>();
 
-const NATIVE_HELPER_ENTRY_PROBE: WindowsAppContainerNativeHelperEntryProbe = Object.freeze({
-  async lstat(value: string): Promise<WindowsAppContainerNativeHelperEntryMetadata> {
+const NATIVE_HELPER_ENTRY_PROBE: NativeHelperEntryProbe = Object.freeze({
+  async lstat(value: string): Promise<NativeHelperEntryMetadata> {
     const metadata = await lstat(value);
     return Object.freeze({
       identity: [
@@ -84,7 +84,7 @@ const NATIVE_HELPER_ENTRY_PROBE: WindowsAppContainerNativeHelperEntryProbe = Obj
   realpath
 });
 
-const NATIVE_HELPER_BUILDER: WindowsAppContainerNativeHelperBuilder =
+const NATIVE_HELPER_BUILDER: NativeHelperBuilder =
   async (entryPath) => Bun.build({
     entrypoints: [entryPath],
     format: 'esm',
@@ -104,7 +104,7 @@ function sameNativePath(left: string, right: string): boolean {
 
 async function proveNativeHelperEntry(
   entryPath: string,
-  probe: WindowsAppContainerNativeHelperEntryProbe
+  probe: NativeHelperEntryProbe
 ): Promise<Readonly<{ identity: string; path: string }>> {
   try {
     const before = await probe.lstat(entryPath);
@@ -140,7 +140,7 @@ async function buildNativeHelperBundleSource(
   builder = NATIVE_HELPER_BUILDER
 ): Promise<Uint8Array> {
   const before = await proveNativeHelperEntry(entryPath, probe);
-  let result: WindowsAppContainerNativeHelperBuildResult;
+  let result: NativeHelperBuildResult;
   try {
     result = await builder(before.path);
     if (!result.success || result.outputs.length !== 1) {
@@ -216,9 +216,9 @@ export function readWindowsAppContainerNativeHelperCapability(
   return bytes.slice();
 }
 
-export function createWindowsAppContainerNativeHelperBundleLoaderForTests(
+export function createNativeHelperBundleLoaderForTests(
   source: NativeHelperBundleSource
-): WindowsAppContainerNativeHelperBundleLoaderForTests {
+): NativeHelperBundleLoaderForTests {
   const loader = createCapabilityLoader(source);
   return Object.freeze({
     async build(): Promise<Uint8Array> {
@@ -228,14 +228,14 @@ export function createWindowsAppContainerNativeHelperBundleLoaderForTests(
   });
 }
 
-export async function proveWindowsAppContainerNativeHelperEntryForTests(
+export async function proveNativeHelperEntryForTests(
   entryPath: string,
-  probe: WindowsAppContainerNativeHelperEntryProbe
+  probe: NativeHelperEntryProbe
 ): Promise<string> {
   return (await proveNativeHelperEntry(entryPath, probe)).path;
 }
 
-export function buildWindowsAppContainerNativeHelperBundleSourceForTests(
+export function buildNativeHelperBundleForTests(
   entryPath = NATIVE_HELPER_ENTRY_PATH,
   probe = NATIVE_HELPER_ENTRY_PROBE,
   builder = NATIVE_HELPER_BUILDER

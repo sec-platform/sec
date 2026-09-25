@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url';
 import { canonicalJson, rawSha256, sha256 } from '../../../contracts/canonical.ts';
 import { issueOperationRequirementBindingContext } from '../../../execution/operation/requirement-binding-context.ts';
 import {
-  bindSecSemanticOperation,
+  bindSemanticOperation,
   compileCapabilityBinding,
   compileSemanticOperationPlan,
   issueSemanticOperationAttemptContext,
@@ -55,13 +55,13 @@ import {
   parseTypeScriptSourceProgramFactShard
 } from './typescript-fact-shards.ts';
 import {
-  sourceProgramCurrentExactReturnProvenances,
-  sourceProgramTypeScriptCompilerIdentity
+  currentExactReturnProvenances,
+  typeScriptCompilerIdentity
 } from './typescript.ts';
 import {
-  acquireExactGitTreeWorkspaceSourceSnapshotFromSession,
-  compileVirtualWorkspaceSourceSnapshot,
-  compileWorkspaceTypeScriptProjectInput
+  acquireExactGitTreeSnapshot,
+  compileVirtualSnapshot,
+  compileTypeScriptProjectInput
 } from './workspace-source-snapshot.ts';
 
 const temporaryRoots: string[] = [];
@@ -92,7 +92,7 @@ async function runGenerationChild(
   }]);
   const requirementId = 'brownfield.repository-compilation-cache.test-process';
   const contractDigest = sha256({ requirementId }) as OperationDigest;
-  const operation = bindSecSemanticOperation(compileSemanticOperationPlan({
+  const operation = bindSemanticOperation(compileSemanticOperationPlan({
     operation: 'brownfield.repository-compilation-cache.test-process',
     intentDigest: sha256({ payloadPath, mode, workerDigest: worker.digest().byteDigest }) as OperationDigest,
     decisionDigest: contractDigest,
@@ -188,7 +188,7 @@ test('production cache composition preserves an undefined compiler failure after
       throw new Error('Cache composition fixture could not resolve HEAD');
     }
     const commitSha = new TextDecoder('utf-8', { fatal: true }).decode(head.result.stdout).trim();
-    const workspaceSnapshot = await acquireExactGitTreeWorkspaceSourceSnapshotFromSession({
+    const workspaceSnapshot = await acquireExactGitTreeSnapshot({
       commitSha,
       session: gitSession
     });
@@ -228,7 +228,7 @@ function fixture(
   const cacheRoot = path.join(root, 'cache');
   mkdirSync(repositoryRoot);
   process.env.SEC_CACHE_HOME = cacheRoot;
-  const descriptorPath = 'src/example/sec.module.json';
+  const descriptorPath = 'src/example/module.json';
   const source = `export const value = ${value};\n`;
   const secondSource = 'export const SECOND = true;\n';
   const projectConfigSource = '{"compilerOptions":{"strict":true}}\n';
@@ -264,13 +264,13 @@ function fixture(
     })
   });
   const snapshotInput = Object.freeze({ subject, sourceRevision, files, moduleMembership });
-  const workspaceSnapshot = compileVirtualWorkspaceSourceSnapshot(snapshotInput);
+  const workspaceSnapshot = compileVirtualSnapshot(snapshotInput);
   const session = cacheSession(repositoryRoot);
   const cacheProvider = createRepositoryCompilationCacheProvider({ session });
   const input = Object.freeze({
     cacheProvider,
     workspaceSnapshot,
-    projectInput: compileWorkspaceTypeScriptProjectInput(workspaceSnapshot, 'tsconfig.json'),
+    projectInput: compileTypeScriptProjectInput(workspaceSnapshot, 'tsconfig.json'),
     repositoryRoot
   });
   return { cacheProvider, cacheRoot, files, input, moduleMembership, repositoryRoot, snapshotInput };
@@ -279,7 +279,7 @@ function fixture(
 function cacheSession(repositoryRoot: string): ContentAddressedWorkspaceCacheSession {
   const requirementId = 'brownfield.repository-compilation-cache.fixture';
   const contractDigest = sha256({ requirementId }) as OperationDigest;
-  const operation = bindSecSemanticOperation(compileSemanticOperationPlan({
+  const operation = bindSemanticOperation(compileSemanticOperationPlan({
     operation: 'brownfield.repository-compilation-cache.fixture',
     intentDigest: sha256({ repositoryRoot }) as OperationDigest,
     decisionDigest: contractDigest,
@@ -318,7 +318,7 @@ function causalFixture() {
   const cacheRoot = path.join(root, 'cache');
   mkdirSync(repositoryRoot);
   process.env.SEC_CACHE_HOME = cacheRoot;
-  const descriptorPath = 'src/example/sec.module.json';
+  const descriptorPath = 'src/example/module.json';
   const parserSource = [
     'export interface Value { readonly status: string; }',
     'export function parseValue(source: string): Value { return JSON.parse(source) as Value; }'
@@ -382,11 +382,11 @@ function causalFixture() {
     files,
     moduleMembership
   });
-  const workspaceSnapshot = compileVirtualWorkspaceSourceSnapshot(snapshotInput);
+  const workspaceSnapshot = compileVirtualSnapshot(snapshotInput);
   const cacheProvider = createRepositoryCompilationCacheProvider({
     session: cacheSession(repositoryRoot)
   });
-  const projectInput = compileWorkspaceTypeScriptProjectInput(workspaceSnapshot, 'tsconfig.json');
+  const projectInput = compileTypeScriptProjectInput(workspaceSnapshot, 'tsconfig.json');
   return {
     cacheProvider,
     cacheRoot,
@@ -409,7 +409,7 @@ function compilationInput(
   const exactFiles = files.some(({ path: repositoryPath }) => repositoryPath === projectConfig.path)
     ? files
     : Object.freeze([...files, projectConfig]);
-  const workspaceSnapshot = compileVirtualWorkspaceSourceSnapshot({
+  const workspaceSnapshot = compileVirtualSnapshot({
     ...value.snapshotInput,
     files: exactFiles,
     subject: Object.freeze({
@@ -424,7 +424,7 @@ function compilationInput(
   return Object.freeze({
     ...(withCache ? { cacheProvider: value.cacheProvider } : {}),
     workspaceSnapshot,
-    projectInput: compileWorkspaceTypeScriptProjectInput(workspaceSnapshot, 'tsconfig.json'),
+    projectInput: compileTypeScriptProjectInput(workspaceSnapshot, 'tsconfig.json'),
     repositoryRoot: value.repositoryRoot
   });
 }
@@ -461,7 +461,7 @@ function storeGeneration(
   overrides: Partial<Pick<RepositoryCompilationGenerationReceipt, 'projectConfigDigest' | 'projectInputDigest'>> = {}
 ): RepositoryCompilationGenerationReceipt {
   const context = value.input.workspaceSnapshot;
-  const projectInput = compileWorkspaceTypeScriptProjectInput(context, 'tsconfig.json');
+  const projectInput = compileTypeScriptProjectInput(context, 'tsconfig.json');
   return issueRepositoryCompilationGenerationReceipt({
     projectInputDigest: overrides.projectInputDigest ?? projectInput.projectInputDigest,
     projectConfigDigest: overrides.projectConfigDigest ?? projectInput.projectConfigDigest,
@@ -470,7 +470,7 @@ function storeGeneration(
     snapshotDigest: context.snapshotDigest,
     moduleMembershipDigest: context.moduleMembershipDigest,
     moduleGraphDigest: context.moduleGraphDigest,
-    compiler: sourceProgramTypeScriptCompilerIdentity()
+    compiler: typeScriptCompilerIdentity()
   });
 }
 
@@ -594,7 +594,7 @@ test.serial('a forged cached return hint cannot suppress the current Program own
     snapshotDigest: context.snapshotDigest,
     moduleMembershipDigest: context.moduleMembershipDigest,
     moduleGraphDigest: context.moduleGraphDigest,
-    compiler: sourceProgramTypeScriptCompilerIdentity()
+    compiler: typeScriptCompilerIdentity()
   });
   const published = value.cacheProvider.openContentAddressedHint(generation).publish(forgedShards);
   expect(published.status).toBe('hit');
@@ -603,7 +603,7 @@ test.serial('a forged cached return hint cannot suppress the current Program own
   const persistedHint = restored.typeScriptCompilation.model.returnProvenances.find(
     ({ declarationObservationId }) => declarationObservationId === reader.observationId
   );
-  const currentExact = sourceProgramCurrentExactReturnProvenances(
+  const currentExact = currentExactReturnProvenances(
     restored.typeScriptCompilation.model
   )?.find(({ declarationObservationId }) => declarationObservationId === reader.observationId);
   expect(restored.typeScriptCompilation.mode).toBe('exact');
@@ -722,7 +722,7 @@ test.serial('one validated predecessor enables bounded incremental reuse and rem
       snapshotDigest: changedContext.snapshotDigest,
       moduleMembershipDigest: changedContext.moduleMembershipDigest,
       moduleGraphDigest: changedContext.moduleGraphDigest,
-      compiler: sourceProgramTypeScriptCompilerIdentity()
+      compiler: typeScriptCompilerIdentity()
     });
   const predecessor = value.cacheProvider.openContentAddressedHint(predecessorGeneration).loadPredecessor();
   expect(predecessor.status).toBe('hit');

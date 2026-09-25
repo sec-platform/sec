@@ -538,7 +538,7 @@ describe('compiler dependency installation', () => {
       const binding = await readJson<Record<string, unknown>>(path.join(
         tempRoot,
         'node_modules',
-        '.sec-compiler-deps-binding-v5.json'
+        '.sec-compiler-deps-binding.json'
       ));
       expect(binding).toMatchObject({
         bunExecutablePath: expect.any(String),
@@ -555,6 +555,11 @@ describe('compiler dependency installation', () => {
         expect.objectContaining({ phase: 'publication', count: 2, outcomes: expect.objectContaining({ completed: 2 }) }),
         expect.objectContaining({ phase: 'validation', count: 2, outcomes: expect.objectContaining({ completed: 2 }) })
       ]));
+      const currentBindingPath = path.join(tempRoot, 'node_modules', '.sec-compiler-deps-binding.json');
+      const legacyBindingPath = path.join(tempRoot, 'node_modules', '.sec-compiler-deps-binding-v5.json');
+      await fs.copyFile(currentBindingPath, legacyBindingPath);
+      await expect(ensureCompilerDepsReady(options, tempRoot))
+        .rejects.toThrow('conflicting binding filenames');
     });
   });
 
@@ -1570,7 +1575,7 @@ describe('compiler dependency installation', () => {
       const baseOptions = { ...operation, materialize };
       await ensureCompilerDepsReady(baseOptions, tempRoot);
       const entryPath = path.join(tempRoot, 'node_modules', 'typescript', 'lib', 'typescript.js');
-      const bindingPath = path.join(tempRoot, 'node_modules', '.sec-compiler-deps-binding-v5.json');
+      const bindingPath = path.join(tempRoot, 'node_modules', '.sec-compiler-deps-binding.json');
       const originalEntry = await fs.readFile(entryPath);
       const originalBinding = await fs.readFile(bindingPath);
 

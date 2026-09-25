@@ -1,6 +1,6 @@
 import { randomBytes } from 'node:crypto';
 import { deepFreeze, sha256 } from '../../contracts/canonical.ts';
-import { SEC_SEMANTIC_OPERATION_ID_PATTERN } from './identity.ts';
+import { SEMANTIC_OPERATION_ID_PATTERN } from './identity.ts';
 import {
   assertSemanticOperationPlan,
   compileSemanticOperationIntent,
@@ -20,7 +20,7 @@ export type OperationEffectGrant = Readonly<{
   readonly [SEC_OPERATION_EFFECT_GRANT_BRAND]: true;
 }>;
 
-const SEC_OPERATION_EFFECT_GRANT_FAILURE_REASONS = Object.freeze([
+const OPERATION_EFFECT_GRANT_FAILURE_REASONS = Object.freeze([
   'already-consumed',
   'deadline-mismatch',
   'decision-mismatch',
@@ -35,7 +35,7 @@ const SEC_OPERATION_EFFECT_GRANT_FAILURE_REASONS = Object.freeze([
 ] as const);
 
 export type OperationEffectGrantFailureReason =
-  (typeof SEC_OPERATION_EFFECT_GRANT_FAILURE_REASONS)[number];
+  (typeof OPERATION_EFFECT_GRANT_FAILURE_REASONS)[number];
 
 export class OperationEffectGrantError extends Error {
   readonly code = 'SEC-OPERATION-EFFECT-GRANT';
@@ -136,14 +136,14 @@ function requireCanonicalIntent(operation: SemanticOperationIntent): void {
  * Creates one process-local issuer/consumer pair for exactly one semantic
  * operation.  This factory does not itself grant an Effect: a domain module
  * must keep `issuer` behind its exported operation classified as
- * `grant-issuer` in `sec.module.json`, while the Effect owner receives only
+ * `grant-issuer` in `module.json`, while the Effect owner receives only
  * `consumer`.
  */
 export function createOperationEffectGrantAuthority(input: Readonly<{
   readonly semanticOperation: string;
   readonly issuerIdentityDigest: OperationDigest;
 }>): OperationEffectGrantAuthority {
-  if (!SEC_SEMANTIC_OPERATION_ID_PATTERN.test(input.semanticOperation)) {
+  if (!SEMANTIC_OPERATION_ID_PATTERN.test(input.semanticOperation)) {
     fail('invalid-authority', 'Effect grant semantic operation must be canonical.');
   }
   const issuerIdentityDigest = requireDigest(

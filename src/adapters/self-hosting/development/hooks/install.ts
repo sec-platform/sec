@@ -1,13 +1,14 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
-import { createHash } from 'node:crypto';
 import { chmod, lstat } from 'node:fs/promises';
 import path from 'node:path';
 
-import { canonicalJson, sha256 } from '../../../../contracts/canonical.ts';
+import { createSha256Hasher } from '../../../../contracts/digest.ts';
+import { gitBlobObjectId } from '../../../../contracts/git-object-id.ts';
+import { canonicalJson, rawSha256Hex, sha256 } from '../../../../contracts/canonical.ts';
 import { withAcquiredResource } from '../../../../execution/resource-settlement.ts';
 import { issueOperationRequirementBindingContext } from '../../../../execution/operation/requirement-binding-context.ts';
 import {
-  bindSecSemanticOperation,
+  bindSemanticOperation,
   compileCapabilityBinding,
   compileSemanticOperationPlan,
   issueSemanticOperationAttemptContext,
@@ -115,7 +116,7 @@ function compileInstallOperation(input: Readonly<{
       ]
     }]
   });
-  return bindSecSemanticOperation(plan, [compileCapabilityBinding({
+  return bindSemanticOperation(plan, [compileCapabilityBinding({
     requirementId: INSTALL_REQUIREMENT,
     contractDigest: INSTALL_CONTRACT,
     providerIdentityDigest: PROCESS_PROVIDER
@@ -777,7 +778,7 @@ function physicalFileObservationFromEntry(
     device: entry.device,
     inode: entry.inode,
     size: entry.size,
-    byteDigest: 'sha256:' + createHash('sha256').update(entry.bytes).digest('hex')
+    byteDigest: 'sha256:' + rawSha256Hex(entry.bytes)
   });
 }
 
@@ -1048,10 +1049,7 @@ async function managedHookSnapshots(
     )) return null;
     const sourceBytes = Buffer.from(sourceEntry.bytes);
     const objectHash = trackedObjectId.length === 40 ? 'sha1' : 'sha256';
-    const workingBlob = createHash(objectHash)
-      .update('blob ' + sourceBytes.byteLength + '\0')
-      .update(sourceBytes)
-      .digest('hex');
+    const workingBlob = gitBlobObjectId(objectHash, sourceBytes);
     if (workingBlob !== trackedObjectId) return null;
     if (options.requireHeadTree === true && headByPath.get(hook) !== trackedObjectId) return null;
     snapshots.push(Object.freeze({
@@ -1066,20 +1064,20 @@ async function managedHookSnapshots(
 }
 
 function sourceFingerprint(snapshots: readonly ManagedHookSnapshot[]): string {
-  const hash = createHash('sha256');
+  const hash = createSha256Hasher();
   hash.update('sec-managed-hook-source-fingerprint-v4\0');
   for (const snapshot of snapshots) {
     hash.update(snapshot.name + '\0' + snapshot.sourceBytes.byteLength + '\0');
     hash.update(snapshot.sourceBytes);
   }
-  return hash.digest('hex');
+  return hash.finish().slice('sha256:'.length);
 }
 
 function managedGenerationDigest(
   snapshots: readonly ManagedHookSnapshot[],
   binding: string
 ): string {
-  const hash = createHash('sha256');
+  const hash = createSha256Hasher();
   hash.update('sec-managed-hooks-v4-physical-binding\0');
   hash.update(binding + '\0');
   for (const snapshot of snapshots) {
@@ -1088,7 +1086,7 @@ function managedGenerationDigest(
     hash.update(snapshot.name + '\0' + snapshot.deployedBytes.byteLength + '\0');
     hash.update(snapshot.deployedBytes);
   }
-  return hash.digest('hex');
+  return hash.finish().slice('sha256:'.length);
 }
 
 function makeBinding(
@@ -1647,7 +1645,7 @@ function generationPhysicalEvidence(
       device: direct.device,
       inode: direct.inode,
       size: direct.size,
-      byteDigest: 'sha256:' + createHash('sha256').update(direct.bytes).digest('hex')
+      byteDigest: 'sha256:' + rawSha256Hex(direct.bytes)
     });
   });
   return Object.freeze({
@@ -1691,7 +1689,7 @@ function assertGenerationPhysicalEvidenceCurrent(
       || actual.device !== file.device
       || actual.inode !== file.inode
       || actual.size !== file.size
-      || 'sha256:' + createHash('sha256').update(actual.bytes).digest('hex') !== file.byteDigest
+      || 'sha256:' + rawSha256Hex(actual.bytes) !== file.byteDigest
     ) {
       throw new GitHookTransitionConflict(label + ' file identity or bytes changed: ' + file.name);
     }
@@ -1829,7 +1827,7 @@ async function capturePriorGenerationForCleanup(
       device: direct.device,
       inode: direct.inode,
       size: direct.size,
-      byteDigest: 'sha256:' + createHash('sha256').update(direct.bytes).digest('hex')
+      byteDigest: 'sha256:' + rawSha256Hex(direct.bytes)
     }));
   }
   const ready = inspection.state === 'ready';
@@ -1986,7 +1984,7 @@ function deleteGenerationByEvidence(
       || direct.device !== file.device
       || direct.inode !== file.inode
       || direct.size !== file.size
-      || 'sha256:' + createHash('sha256').update(direct.bytes).digest('hex') !== file.byteDigest
+      || 'sha256:' + rawSha256Hex(direct.bytes) !== file.byteDigest
       || entry.device !== direct.device
       || entry.inode !== direct.inode
     ) {
@@ -2099,7 +2097,7 @@ async function createAndPublishGeneration(
 }
 
 function deterministicUuid(seed: string): string {
-  const hex = createHash('sha256').update(seed).digest('hex').slice(0, 32);
+  const hex = rawSha256Hex(seed).slice(0, 32);
   return hex.slice(0, 8) + '-' + hex.slice(8, 12) + '-' + hex.slice(12, 16) + '-'
     + hex.slice(16, 20) + '-' + hex.slice(20, 32);
 }
@@ -2155,7 +2153,7 @@ function makeGenerationPlan(
     files: Object.freeze(snapshots.map((snapshot) => Object.freeze({
       name: snapshot.name,
       size: snapshot.deployedBytes.byteLength,
-      byteDigest: 'sha256:' + createHash('sha256').update(snapshot.deployedBytes).digest('hex')
+      byteDigest: 'sha256:' + rawSha256Hex(snapshot.deployedBytes)
     })))
   });
 }
@@ -2325,7 +2323,7 @@ function observeOptionalConfigFile(
       device: direct.device,
       inode: direct.inode,
       size: direct.size,
-      byteDigest: 'sha256:' + createHash('sha256').update(direct.bytes).digest('hex')
+      byteDigest: 'sha256:' + rawSha256Hex(direct.bytes)
     });
   } catch (error) {
     if (error instanceof GitHookTransitionConflict) throw error;
@@ -5070,26 +5068,30 @@ function leaseDigest(
   markerRoot: PhysicalDirectoryChain,
   bootstrapMarkerRoot: PhysicalDirectoryChain
 ): string {
-  return createHash('sha256')
-    .update('sec-managed-hook-operation-lease-v1\0')
-    .update(physicalChainKey(commonRoot))
-    .update('\0')
-    .update(source.digest)
-    .update('\0')
-    .update(bootstrap.digest)
-    .update('\0')
-    .update('bootstrap-authority\0')
-    .update(bootstrap.bootstrapAuthority === null
+  const digest = createSha256Hasher();
+  try {
+    digest.update('sec-managed-hook-operation-lease-v1\0');
+    digest.update(physicalChainKey(commonRoot));
+    digest.update('\0');
+    digest.update(source.digest);
+    digest.update('\0');
+    digest.update(bootstrap.digest);
+    digest.update('\0');
+    digest.update('bootstrap-authority\0');
+    digest.update(bootstrap.bootstrapAuthority === null
       ? 'none'
-      : bootstrapAuthorityKey(bootstrap.bootstrapAuthority))
-    .update('\0')
-    .update('require-head-tree\0')
-    .update(bootstrap.requireHeadTree ? '1' : '0')
-    .update('\0')
-    .update(physicalChainKey(markerRoot))
-    .update('\0')
-    .update(physicalChainKey(bootstrapMarkerRoot))
-    .digest('hex');
+      : bootstrapAuthorityKey(bootstrap.bootstrapAuthority));
+    digest.update('\0');
+    digest.update('require-head-tree\0');
+    digest.update(bootstrap.requireHeadTree ? '1' : '0');
+    digest.update('\0');
+    digest.update(physicalChainKey(markerRoot));
+    digest.update('\0');
+    digest.update(physicalChainKey(bootstrapMarkerRoot));
+    return digest.finish().slice('sha256:'.length);
+  } finally {
+    digest.dispose();
+  }
 }
 
 async function acquireOperationLease(
@@ -5107,10 +5109,15 @@ async function acquireOperationLease(
   // The lease serializes the whole common Git namespace, not just one source
   // digest.  A digest-specific lease would let a newer source operation run
   // beside an interrupted older operation and strand its provider lock.
-  const namespaceDigest = createHash('sha256')
-    .update('sec-managed-hook-operation-namespace-lease-v1\0')
-    .update(physicalChainKey(commonRoot))
-    .digest('hex');
+  const namespaceHasher = createSha256Hasher();
+  let namespaceDigest: string;
+  try {
+    namespaceHasher.update('sec-managed-hook-operation-namespace-lease-v1\0');
+    namespaceHasher.update(physicalChainKey(commonRoot));
+    namespaceDigest = namespaceHasher.finish().slice('sha256:'.length);
+  } finally {
+    namespaceHasher.dispose();
+  }
   const name = LEASE_FILE_PREFIX + namespaceDigest;
   try {
     const handle = acquirePhysicalMutationLease(commonRoot.target, name, {

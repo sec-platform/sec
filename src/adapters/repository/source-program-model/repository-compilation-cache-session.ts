@@ -1,6 +1,6 @@
 import { sha256 } from '../../../contracts/canonical.ts';
 import {
-  bindSecSemanticOperation,
+  bindSemanticOperation,
   compileCapabilityBinding,
   compileSemanticOperationPlan,
   issueSemanticOperationAttemptContext,
@@ -27,7 +27,7 @@ import {
 } from './repository-compilation.ts';
 import {
   assertPhysicalWorkspaceSourceSnapshot,
-  assertWorkspaceTypeScriptProjectInputMatchesSnapshot,
+  assertTypeScriptProjectMatchesSnapshot,
   type PhysicalWorkspaceSourceSnapshot
 } from './workspace-source-snapshot.ts';
 
@@ -107,7 +107,7 @@ function openRepositoryCompilationCacheSession(input: Readonly<{
       ]
     }]
   });
-  const operation = bindSecSemanticOperation(plan, [compileCapabilityBinding({
+  const operation = bindSemanticOperation(plan, [compileCapabilityBinding({
     requirementId: REPOSITORY_COMPILATION_CACHE_REQUIREMENT,
     contractDigest,
     providerIdentityDigest: sha256({
@@ -149,7 +149,7 @@ export function compileRepositorySourceProgramWithCache(
   // A foreign or forged project input is an admission failure, not a cache
   // miss. Validate it before acquiring any optional physical cache resources.
   if (projectInput !== undefined) {
-    assertWorkspaceTypeScriptProjectInputMatchesSnapshot(projectInput, workspaceSnapshot);
+    assertTypeScriptProjectMatchesSnapshot(projectInput, workspaceSnapshot);
   }
   if (cacheAccess !== 'read-only' && cacheAccess !== 'read-write') {
     throw new Error('Repository compilation cache access must be read-only or read-write.');

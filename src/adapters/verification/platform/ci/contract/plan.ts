@@ -1,6 +1,4 @@
-import { createHash } from 'node:crypto';
-
-import { uniqueSorted } from '../../../../../contracts/canonical.ts';
+import { rawSha256Hex, uniqueSorted } from '../../../../../contracts/canonical.ts';
 import { IsCanonicalRepositoryPath } from '../../../../../contracts/repository-path.ts';
 import { isSourceProgramInputPath } from '../../../../repository/source-program-model/contract.ts';
 import {
@@ -39,7 +37,7 @@ function gate(id: string, phase: CiVerificationGatePhase, ...args: string[]): Ci
 }
 
 function selectedSlowTestGateId(file: string): string {
-  return `slow-test-${createHash('sha256').update(file, 'utf8').digest('hex')}`;
+  return `slow-test-${rawSha256Hex(file)}`;
 }
 
 function selectedRiskGates(
@@ -66,8 +64,10 @@ function selectedRiskGates(
       `slow-suite-${suite}`,
       'risk',
       'run',
-      'test:slow',
+      'test',
       '--',
+      '--scope',
+      'slow',
       '--suite',
       suite
     )),
@@ -75,8 +75,10 @@ function selectedRiskGates(
       selectedSlowTestGateId(file),
       'risk',
       'run',
-      'test:slow',
+      'test',
       '--',
+      '--scope',
+      'slow',
       file
     ))
   ];
@@ -96,7 +98,7 @@ export function buildCiQuickGatePlan(options: {
     ...(options.includeImports ? [gate('imports', 'quick', 'run', 'imports:check')] : []),
     ...(options.includeDocs ? [gate('docs-doctor', 'quick', 'run', 'docs:doctor')] : []),
     gate('typecheck', 'quick', 'run', 'typecheck:verified'),
-    gate('affected-tests', 'quick', 'run', 'test:affected'),
+    gate('affected-tests', 'quick', 'run', 'test', '--', '--affected'),
     ...riskGates
   ];
 }
@@ -106,7 +108,7 @@ export function buildCiFullGatePlan(): CiVerificationGateStep[] {
     gate('imports', 'quick', 'run', 'imports:check'),
     gate('typecheck', 'quick', 'run', 'typecheck:verified'),
     gate('docs-doctor', 'quick', 'run', 'docs:doctor'),
-    gate('full-fast', 'full', 'run', 'test:fast'),
+    gate('full-fast', 'full', 'run', 'test', '--', '--scope', 'fast'),
     gate('test-budget', 'full', 'run', 'sec', '--', 'test', 'budget', '--json', '--compact'),
     ...selectedRiskGates(slowTestSuiteIds(), []),
     gate('deps-warmup', 'full', 'run', 'sec', '--', 'deps', 'warmup'),

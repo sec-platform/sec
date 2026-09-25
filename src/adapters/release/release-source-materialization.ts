@@ -7,24 +7,24 @@ import {
   inspectNoFollowOrdinaryFileEntry,
   retainNoFollowDirectoryForChildProcess,
   retainNoFollowOrdinaryFile
-} from '../../adapters/runtime-state/physical/runtime/physical-no-follow.ts';
+} from '../runtime-state/physical/runtime/physical-no-follow.ts';
 import {
   assertProcessResourceSessionReceipt,
   openProcessResourceSession,
   type ProcessResourceSession,
   type ProcessResourceSessionReceipt
-} from '../../adapters/runtime-state/physical/runtime/process-resource-session.ts';
-import { RETAINED_EXECUTABLE_CHILD_DESCRIPTOR, RETAINED_WORKING_DIRECTORY_CHILD_DESCRIPTOR, issueRetainedCommandBoundary } from '../../adapters/runtime-state/physical/runtime/process.ts';
+} from '../runtime-state/physical/runtime/process-resource-session.ts';
+import { RETAINED_EXECUTABLE_CHILD_DESCRIPTOR, RETAINED_WORKING_DIRECTORY_CHILD_DESCRIPTOR, issueRetainedCommandBoundary } from '../runtime-state/physical/runtime/process.ts';
 import {
   loadCanonicalBunRuntimeVersion,
   parseCompilerPackageEntrypointBinding,
   type CompilerPackageEntrypointBinding
-} from '../../adapters/toolchain/runtime.ts';
-import { digest, sha256 } from '../../contracts/canonical.ts';
-import { SecError } from '../../contracts/failure.ts';
+} from '../toolchain/runtime.ts';
+import { rawSha256Hex, sha256 } from '../../contracts/canonical.ts';
+import { FailureError } from '../../contracts/failure.ts';
 import { issueOperationRequirementBindingContext } from '../../execution/operation/requirement-binding-context.ts';
 import {
-  bindSecSemanticOperation,
+  bindSemanticOperation,
   compileCapabilityBinding,
   compileSemanticOperationPlan,
   issueSemanticOperationAttemptContext,
@@ -60,7 +60,7 @@ export function assertReleaseBunRuntimeRequirement(
   observedVersion: string | null = process.versions.bun ?? null
 ): void {
   if (observedVersion !== requirement.version) {
-    throw new SecError(
+    throw new FailureError(
       'RUNTIME-LAYOUT-001',
       observedVersion === null
         ? 'SEC release artifact requires the canonical Bun host runtime'
@@ -184,7 +184,7 @@ function compileReleaseBuilderOperation(input: Readonly<{
       ]
     }]
   });
-  return bindSecSemanticOperation(plan, [compileCapabilityBinding({
+  return bindSemanticOperation(plan, [compileCapabilityBinding({
     requirementId: RELEASE_BUILDER_REQUIREMENT,
     contractDigest,
     providerIdentityDigest: input.providerIdentityDigest
@@ -469,7 +469,7 @@ async function readFrozenPackageConfig(
     version: raw.version,
     entrypoint,
     dependencies: Object.freeze(Object.keys(raw.dependencies ?? {}).sort()),
-    dependencyLockDigest: `sha256:${digest(lockBytes)}` as `sha256:${string}`
+    dependencyLockDigest: `sha256:${rawSha256Hex(lockBytes)}` as `sha256:${string}`
   });
 }
 

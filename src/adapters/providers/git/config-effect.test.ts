@@ -8,7 +8,7 @@ import { expect, test } from 'bun:test';
 import { sha256 } from '../../../contracts/canonical.ts';
 import { issueOperationRequirementBindingContext } from '../../../execution/operation/requirement-binding-context.ts';
 import {
-  bindSecSemanticOperation,
+  bindSemanticOperation,
   compileCapabilityBinding,
   compileSemanticOperationPlan,
   issueSemanticOperationAttemptContext,
@@ -55,7 +55,7 @@ function testOperation(input: Readonly<{
       failureKinds: ['filesystem.identity-drift', 'process.unavailable']
     }]
   });
-  return bindSecSemanticOperation(plan, [compileCapabilityBinding({
+  return bindSemanticOperation(plan, [compileCapabilityBinding({
     requirementId: REQUIREMENT,
     contractDigest: CONTRACT,
     providerIdentityDigest: CONTRACT

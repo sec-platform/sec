@@ -6,7 +6,7 @@ import {
   assertRepositorySourceProgramCompilationReceipt,
   compileVirtualRepositorySourceProgramCompilation as compile
 } from '../../src/adapters/repository/source-program-model/repository-compilation.ts';
-import { compileVirtualWorkspaceSourceSnapshot } from '../../src/adapters/repository/source-program-model/workspace-source-snapshot.ts';
+import { compileVirtualSnapshot } from '../../src/adapters/repository/source-program-model/workspace-source-snapshot.ts';
 import { rawSha256, sha256 } from '../../src/contracts/canonical.ts';
 
 // These integration cases require the actual compiler and virtual snapshot
@@ -20,14 +20,14 @@ function snapshot(label: string) {
   };
   const files = Object.entries(sources).sort(([left], [right]) => left < right ? -1 : left > right ? 1 : 0)
     .map(([path, source]) => ({ path, source, contentDigest: rawSha256(source) }));
-  const descriptorPath = 'src/example/sec.module.json';
+  const descriptorPath = 'src/example/module.json';
   const moduleMembership = compileRepositoryModuleMembershipSnapshot({
     repositoryFiles: [...files.map(file => file.path), descriptorPath],
     descriptorSources: [{ descriptorPath, source: JSON.stringify({
       importGraph: 'runtime', externalEntrypoints: [], capabilityProviders: [], preDependencyBootstrap: false
     }) }]
   });
-  return compileVirtualWorkspaceSourceSnapshot({ files, moduleMembership,
+  return compileVirtualSnapshot({ files, moduleMembership,
     subject: { kind: 'virtual-mutation', provenance: { kind: 'source-program-virtual-mutation',
       baseSnapshotDigest: sha256('policy-fixture-base') as `sha256:${string}`,
       mutationDigest: sha256(label) as `sha256:${string}` } }

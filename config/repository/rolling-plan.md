@@ -12,9 +12,9 @@ last-reviewed: 2026-09-23
 ```json
 {
   "active": {
-    "manifestDigest": "sha256:f1b56fcd2db542328d3d04a791fe28277fe30b294b7864dc559221037fc9f537",
-    "manifestPath": "config/repository/work-packages/coordinated-repository-closeout-v1.md",
-    "packageId": "coordinated-repository-closeout-v1",
+    "manifestDigest": "sha256:741df9a432e425add332cabe97851cb4139c463fe17b2018bae15953ec972c4a",
+    "manifestPath": "config/repository/work-packages/coordinated-repository-closeout.md",
+    "packageId": "coordinated-repository-closeout",
     "tracking": "none"
   },
   "authority": {
@@ -34,16 +34,16 @@ last-reviewed: 2026-09-23
   ],
   "exactMain": "8c6dc289e3fe17b358e6a9c335fbbe092b8ce1ce",
   "exactMainTree": "52b96737f3f3983347738fe4fec11a89e76dc92c",
-  "projectionDigest": "sha256:8760c3df3fe8bb75e13895be8d5ab4aef1d9de7b57567d5b502ce092955ebc86",
+  "projectionDigest": "sha256:54f6603cc4d0cf5872ecc4380e8ad3f8f1d9e33afda38e98636d0365c9f4b2b5",
   "schema": "sec-work-rolling-transition-projection-v1"
 }
 ```
 
 ## 当前唯一 Work Package
 
-### coordinated-repository-closeout-v1
+### coordinated-repository-closeout
 
-Existing active package replan bound to exact source head `1ad865b297ed77dc9bceaace46e825116c57a32b`, source tree `29c565caa8a1149dbe8e13fd31b21f3a56eafb80`, manifest `sha256:f1b56fcd2db542328d3d04a791fe28277fe30b294b7864dc559221037fc9f537`, and authority `sha256:51f2b903199df97d949bb07e06198a6b549c7a8527dd6d78e8a3053b37028d27`.
+Existing active package replan bound to exact source head `1ad865b297ed77dc9bceaace46e825116c57a32b`, source tree `29c565caa8a1149dbe8e13fd31b21f3a56eafb80`, manifest `sha256:741df9a432e425add332cabe97851cb4139c463fe17b2018bae15953ec972c4a`, and authority `sha256:51f2b903199df97d949bb07e06198a6b549c7a8527dd6d78e8a3053b37028d27`.
 
 ## 候选 Work Package
 

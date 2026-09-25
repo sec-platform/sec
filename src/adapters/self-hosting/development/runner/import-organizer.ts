@@ -24,16 +24,16 @@ import {
   type ImportTransformTransactionTestHooks
 } from './import-transform-transaction.ts';
 
-// Inline sync parse cache. Exact config bytes are the reuse identity; metadata
-// is not correctness evidence because mtime/size can collide across rewrites.
-const tsconfigCache = new Map<string, { digest: `sha256:${string}`; value: { config?: unknown; error?: ts.Diagnostic } }>();
+// Inline sync parse cache. The exact already-read config text is the reuse
+// identity. Hashing it would add a second full pass plus collision semantics
+// without reducing I/O; this cache dies with the process and has no wire format.
+const tsconfigCache = new Map<string, { source: string; value: { config?: unknown; error?: ts.Diagnostic } }>();
 function cachedParseConfigFile(configPath: string): { config?: unknown; error?: ts.Diagnostic } {
-  const text = readFileSync(configPath, 'utf8');
-  const digest = rawSha256(text);
+  const source = readFileSync(configPath, 'utf8');
   const existing = tsconfigCache.get(configPath);
-  if (existing !== undefined && existing.digest === digest) return existing.value;
-  const value = ts.parseConfigFileTextToJson(configPath, text);
-  tsconfigCache.set(configPath, { digest, value });
+  if (existing !== undefined && existing.source === source) return existing.value;
+  const value = ts.parseConfigFileTextToJson(configPath, source);
+  tsconfigCache.set(configPath, { source, value });
   return value;
 }
 
@@ -536,10 +536,10 @@ async function materializeCandidateIndex(
       await lifecycleOwner.born(relativePath, `import-candidate-snapshot:${operationId}`);
       lifecycleReceipt = issueImportSnapshotLifecycleReceipt(lifecycleOwner, relativePath);
     } else if (sameCompilerRoot) {
-      const { generatedStateProducerHooks: generatedStateProducerHooksV1 } = await import(
+      const { generatedStateProducerHooks } = await import(
         '../../../runtime-state/generated-state/lifecycle.ts'
       );
-      lifecycleOwner = generatedStateProducerHooksV1({ repositoryRoot: projectRoot });
+      lifecycleOwner = generatedStateProducerHooks({ repositoryRoot: projectRoot });
       await lifecycleOwner.born(relativePath, `import-candidate-snapshot:${operationId}`);
       lifecycleReceipt = issueImportSnapshotLifecycleReceipt(lifecycleOwner, relativePath);
     }

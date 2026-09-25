@@ -178,7 +178,7 @@ export function selectCanonicalIntegrationRunOwner(input: {
       eventName: run.event,
       displayTitle: run.displayTitle,
       headSha: run.headSha,
-      expectedWorkflowPath: '.github/workflows/sec-merge-gate.yml',
+      expectedWorkflowPath: '.github/workflows/merge-gate.yml',
       expectedEventName: 'workflow_run',
       expectedDisplayTitle: expectedTitle,
       expectedHeadSha: input.baseSha

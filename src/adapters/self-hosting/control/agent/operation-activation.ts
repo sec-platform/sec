@@ -1,144 +1,144 @@
 import { canonicalJson, compareCodeUnits, deepFreeze, sha256 } from '../../../../contracts/canonical.ts';
 import { IsCanonicalRepositoryPath } from '../../../../contracts/repository-path.ts';
-import { type SecDigest } from './task-capsule.ts';
+import { type TaskCapsuleDigest } from './task-capsule.ts';
 
-const SEC_AGENT_OPERATION_ACTIVATION_REQUEST_SCHEMA =
+const ACTIVATION_REQUEST_SCHEMA =
   'sec-agent-operation-activation-request-v1' as const;
-const SEC_AGENT_OPERATION_ACTIVATION_PREPARATION_SCHEMA =
+const ACTIVATION_PREPARATION_SCHEMA =
   'sec-agent-operation-activation-preparation-v2' as const;
-const SEC_AGENT_OPERATION_ACTIVATION_RECEIPT_SCHEMA =
+const ACTIVATION_RECEIPT_SCHEMA =
   'sec-agent-operation-activation-receipt-v2' as const;
-const SEC_AGENT_OPERATION_ACTIVATION_PROVIDER_SCHEMA =
+const ACTIVATION_PROVIDER_SCHEMA =
   'sec-agent-operation-activation-provider-v1' as const;
-const SEC_AGENT_OPERATION_ACTIVATION_PUBLICATION_SCHEMA =
+const ACTIVATION_PUBLICATION_SCHEMA =
   'sec-agent-operation-activation-publication-v2' as const;
-export const SEC_AGENT_OPERATION_ACTIVATION_EVENT =
+export const ACTIVATION_EVENT =
   'sec-produce-agent-operation-activation-v1' as const;
-export const SEC_AGENT_OPERATION_ACTIVATION_WORKFLOW_PATH =
+export const ACTIVATION_WORKFLOW_PATH =
   '.github/workflows/compiler-pr-validation.yml' as const;
-export const SEC_AGENT_OPERATION_ACTIVATION_JOB_NAME =
+export const ACTIVATION_JOB_NAME =
   'agent-operation-activation' as const;
-export const SEC_AGENT_OPERATION_ACTIVATION_UPLOAD_STEP_NAME =
+export const ACTIVATION_UPLOAD_STEP_NAME =
   'Upload exact Agent operation activation receipt' as const;
-export const SEC_AGENT_OPERATION_ACTIVATION_STEP_NAME =
+export const ACTIVATION_STEP_NAME =
   'Publish exact Agent operation activation receipt' as const;
-export const SEC_AGENT_OPERATION_ACTIVATION_COMMENT_MARKER =
+export const ACTIVATION_COMMENT_MARKER =
   '<!-- sec-agent-operation-activation-v1 -->' as const;
-export const SEC_AGENT_OPERATION_ACTIVATION_ARTIFACT_FILE =
+export const ACTIVATION_ARTIFACT_FILE =
   'agent-operation-activation.json' as const;
 
-export interface SecAgentOperationActivationRequest {
-  readonly schema: typeof SEC_AGENT_OPERATION_ACTIVATION_REQUEST_SCHEMA;
+export interface ActivationRequest {
+  readonly schema: typeof ACTIVATION_REQUEST_SCHEMA;
   readonly phase: 'prepare' | 'finalize';
   readonly pullRequestNumber: number;
   readonly expectedBaseSha: string;
   readonly expectedHeadSha: string;
   readonly manifestPath: string;
-  readonly manifestDigest: SecDigest;
+  readonly manifestDigest: TaskCapsuleDigest;
   readonly preparationCommentId: number | null;
-  readonly requestOperationId: SecDigest;
+  readonly requestOperationId: TaskCapsuleDigest;
 }
 
-interface SecAgentOperationActivationControlDigests {
-  readonly currentState: SecDigest;
-  readonly pointer: SecDigest;
-  readonly rollingPlan: SecDigest;
+interface ActivationControlDigests {
+  readonly currentState: TaskCapsuleDigest;
+  readonly pointer: TaskCapsuleDigest;
+  readonly rollingPlan: TaskCapsuleDigest;
 }
 
-export interface SecAgentOperationActivationProvider {
-  readonly schema: typeof SEC_AGENT_OPERATION_ACTIVATION_PROVIDER_SCHEMA;
+export interface ActivationProvider {
+  readonly schema: typeof ACTIVATION_PROVIDER_SCHEMA;
   readonly repositoryId: string;
-  readonly workflowPath: typeof SEC_AGENT_OPERATION_ACTIVATION_WORKFLOW_PATH;
+  readonly workflowPath: typeof ACTIVATION_WORKFLOW_PATH;
   readonly workflowRef: string;
   readonly workflowSha: string;
   readonly runId: string;
   readonly runAttempt: number;
   readonly eventName: 'repository_dispatch';
-  readonly jobName: typeof SEC_AGENT_OPERATION_ACTIVATION_JOB_NAME;
-  readonly uploadStepName: typeof SEC_AGENT_OPERATION_ACTIVATION_UPLOAD_STEP_NAME;
-  readonly publicationStepName: typeof SEC_AGENT_OPERATION_ACTIVATION_STEP_NAME;
+  readonly jobName: typeof ACTIVATION_JOB_NAME;
+  readonly uploadStepName: typeof ACTIVATION_UPLOAD_STEP_NAME;
+  readonly publicationStepName: typeof ACTIVATION_STEP_NAME;
   readonly actorLogin: string;
   readonly actorNodeId: string;
   readonly actorPermission: 'admin' | 'maintain';
-  readonly providerDigest: SecDigest;
+  readonly providerDigest: TaskCapsuleDigest;
 }
 
-interface SecAgentOperationActivationPullRequest {
+interface ActivationPullRequest {
   readonly number: number;
   readonly baseSha: string;
   readonly headSha: string;
   readonly headTreeSha: string;
   readonly headRef: string;
   readonly manifestPath: string;
-  readonly manifestDigest: SecDigest;
+  readonly manifestDigest: TaskCapsuleDigest;
 }
 
-export interface SecAgentOperationActivationPreparation {
-  readonly schema: typeof SEC_AGENT_OPERATION_ACTIVATION_PREPARATION_SCHEMA;
-  readonly request: SecAgentOperationActivationRequest;
+export interface ActivationPreparation {
+  readonly schema: typeof ACTIVATION_PREPARATION_SCHEMA;
+  readonly request: ActivationRequest;
   readonly repository: string;
   readonly workId: string;
   readonly currentSpecRef: string;
-  readonly currentSpecRevision: SecDigest;
+  readonly currentSpecRevision: TaskCapsuleDigest;
   readonly trustedBaseSha: string;
   readonly trustedBaseTreeSha: string;
-  readonly proposal: SecAgentOperationActivationPullRequest;
-  readonly controlDigests: SecAgentOperationActivationControlDigests;
+  readonly proposal: ActivationPullRequest;
+  readonly controlDigests: ActivationControlDigests;
   readonly authorizedPaths: readonly string[];
   readonly forbiddenPaths: readonly string[];
   readonly proposalChangedPaths: readonly string[];
   readonly operationId: string;
   readonly role: 'worker';
   readonly operationKind: 'implement';
-  readonly workDecisionReceiptDigest: SecDigest;
-  readonly workDecisionDecisionDigest: SecDigest;
-  readonly provider: SecAgentOperationActivationProvider;
-  readonly preparationDigest: SecDigest;
+  readonly workDecisionReceiptDigest: TaskCapsuleDigest;
+  readonly workDecisionDecisionDigest: TaskCapsuleDigest;
+  readonly provider: ActivationProvider;
+  readonly preparationDigest: TaskCapsuleDigest;
 }
 
-export interface SecAgentOperationActivationReceipt {
-  readonly schema: typeof SEC_AGENT_OPERATION_ACTIVATION_RECEIPT_SCHEMA;
-  readonly request: SecAgentOperationActivationRequest;
-  readonly preparation: SecAgentOperationActivationPreparation;
-  readonly pullRequest: SecAgentOperationActivationPullRequest;
-  readonly controlDigests: SecAgentOperationActivationControlDigests;
+export interface ActivationReceipt {
+  readonly schema: typeof ACTIVATION_RECEIPT_SCHEMA;
+  readonly request: ActivationRequest;
+  readonly preparation: ActivationPreparation;
+  readonly pullRequest: ActivationPullRequest;
+  readonly controlDigests: ActivationControlDigests;
   readonly changedPaths: readonly string[];
-  readonly workDecisionReceiptDigest: SecDigest;
-  readonly workDecisionDecisionDigest: SecDigest;
-  readonly provider: SecAgentOperationActivationProvider;
-  readonly activationDigest: SecDigest;
+  readonly workDecisionReceiptDigest: TaskCapsuleDigest;
+  readonly workDecisionDecisionDigest: TaskCapsuleDigest;
+  readonly provider: ActivationProvider;
+  readonly activationDigest: TaskCapsuleDigest;
 }
 
-export interface SecAgentOperationActivationPublication {
-  readonly schema: typeof SEC_AGENT_OPERATION_ACTIVATION_PUBLICATION_SCHEMA;
-  readonly request: SecAgentOperationActivationRequest;
-  readonly payloadDigest: SecDigest;
+export interface ActivationPublication {
+  readonly schema: typeof ACTIVATION_PUBLICATION_SCHEMA;
+  readonly request: ActivationRequest;
+  readonly payloadDigest: TaskCapsuleDigest;
   readonly artifactId: string;
   readonly artifactName: string;
-  readonly artifactFileName: typeof SEC_AGENT_OPERATION_ACTIVATION_ARTIFACT_FILE;
-  readonly artifactDigest: SecDigest;
-  readonly provider: SecAgentOperationActivationProvider;
-  readonly publicationDigest: SecDigest;
+  readonly artifactFileName: typeof ACTIVATION_ARTIFACT_FILE;
+  readonly artifactDigest: TaskCapsuleDigest;
+  readonly provider: ActivationProvider;
+  readonly publicationDigest: TaskCapsuleDigest;
 }
 
-export type SecAgentOperationActivationRequestInput = Omit<
-  SecAgentOperationActivationRequest,
+export type ActivationRequestInput = Omit<
+  ActivationRequest,
   'schema' | 'requestOperationId'
 >;
-export type SecAgentOperationActivationProviderInput = Omit<
-  SecAgentOperationActivationProvider,
+export type ActivationProviderInput = Omit<
+  ActivationProvider,
   'schema' | 'providerDigest'
 >;
-export type SecAgentOperationActivationPreparationInput = Omit<
-  SecAgentOperationActivationPreparation,
+export type ActivationPreparationInput = Omit<
+  ActivationPreparation,
   'schema' | 'preparationDigest'
 >;
-export type SecAgentOperationActivationReceiptInput = Omit<
-  SecAgentOperationActivationReceipt,
+export type ActivationReceiptInput = Omit<
+  ActivationReceipt,
   'schema' | 'activationDigest'
 >;
-export type SecAgentOperationActivationPublicationInput = Omit<
-  SecAgentOperationActivationPublication,
+export type ActivationPublicationInput = Omit<
+  ActivationPublication,
   'schema' | 'publicationDigest'
 >;
 
@@ -213,10 +213,10 @@ function token(value: unknown, label: string): string {
   return normalized;
 }
 
-function digest(value: unknown, label: string): SecDigest {
+function digest(value: unknown, label: string): TaskCapsuleDigest {
   const normalized = text(value, label);
   if (!/^sha256:[0-9a-f]{64}$/u.test(normalized)) fail(`${label} must be one SHA-256 digest.`);
-  return normalized as SecDigest;
+  return normalized as TaskCapsuleDigest;
 }
 
 function gitSha(value: unknown, label: string): string {
@@ -291,7 +291,7 @@ function canonicalEqual(left: unknown, right: unknown): boolean {
   return JSON.stringify(canonicalJson(left)) === JSON.stringify(canonicalJson(right));
 }
 
-function parseControls(value: unknown): SecAgentOperationActivationControlDigests {
+function parseControls(value: unknown): ActivationControlDigests {
   const controls = record(value, 'controlDigests');
   exactKeys(controls, CONTROL_KEYS, 'controlDigests');
   return Object.freeze({
@@ -301,7 +301,7 @@ function parseControls(value: unknown): SecAgentOperationActivationControlDigest
   });
 }
 
-function parsePullRequest(value: unknown): SecAgentOperationActivationPullRequest {
+function parsePullRequest(value: unknown): ActivationPullRequest {
   const pullRequest = record(value, 'pullRequest');
   exactKeys(pullRequest, PULL_REQUEST_KEYS, 'pullRequest');
   return Object.freeze({
@@ -317,22 +317,22 @@ function parsePullRequest(value: unknown): SecAgentOperationActivationPullReques
 
 export function secAgentOperationActivationArtifactName(
   phase: 'prepare' | 'finalize',
-  requestOperationId: SecDigest
+  requestOperationId: TaskCapsuleDigest
 ): string {
   return `sec-agent-operation-activation-${phase}-${digest(requestOperationId, 'requestOperationId').slice(7)}`;
 }
 
-export function secAgentOperationActivationOperationId(requestOperationId: SecDigest): string {
+export function secAgentOperationActivationOperationId(requestOperationId: TaskCapsuleDigest): string {
   return `worker-implement-${digest(requestOperationId, 'requestOperationId').slice(7)}`;
 }
 
-export function createSecAgentOperationActivationRequest(
-  value: SecAgentOperationActivationRequestInput
-): SecAgentOperationActivationRequest {
+export function createActivationRequest(
+  value: ActivationRequestInput
+): ActivationRequest {
   const input = record(value, 'request input');
   exactKeys(input, REQUEST_INPUT_KEYS, 'request input');
   if (input.phase !== 'prepare' && input.phase !== 'finalize') fail('request phase is unsupported.');
-  const phase: SecAgentOperationActivationRequest['phase'] = input.phase;
+  const phase: ActivationRequest['phase'] = input.phase;
   const preparationCommentId = input.preparationCommentId === null
     ? null
     : positiveInteger(input.preparationCommentId, 'preparationCommentId');
@@ -340,7 +340,7 @@ export function createSecAgentOperationActivationRequest(
     fail('prepare requires null and finalize requires one preparationCommentId.');
   }
   const normalized = deepFreeze({
-    schema: SEC_AGENT_OPERATION_ACTIVATION_REQUEST_SCHEMA,
+    schema: ACTIVATION_REQUEST_SCHEMA,
     phase,
     pullRequestNumber: positiveInteger(input.pullRequestNumber, 'pullRequestNumber'),
     expectedBaseSha: gitSha(input.expectedBaseSha, 'expectedBaseSha'),
@@ -349,15 +349,15 @@ export function createSecAgentOperationActivationRequest(
     manifestDigest: digest(input.manifestDigest, 'manifestDigest'),
     preparationCommentId
   });
-  return deepFreeze({ ...normalized, requestOperationId: sha256(normalized) as SecDigest });
+  return deepFreeze({ ...normalized, requestOperationId: sha256(normalized) as TaskCapsuleDigest });
 }
 
-export function parseSecAgentOperationActivationRequest(value: unknown): SecAgentOperationActivationRequest {
+export function parseActivationRequest(value: unknown): ActivationRequest {
   const request = record(value, 'request');
   exactKeys(request, REQUEST_KEYS, 'request');
-  if (request.schema !== SEC_AGENT_OPERATION_ACTIVATION_REQUEST_SCHEMA) fail('request schema is unsupported.');
-  const compiled = createSecAgentOperationActivationRequest(
-    Object.fromEntries(REQUEST_INPUT_KEYS.map((key) => [key, request[key]])) as unknown as SecAgentOperationActivationRequestInput
+  if (request.schema !== ACTIVATION_REQUEST_SCHEMA) fail('request schema is unsupported.');
+  const compiled = createActivationRequest(
+    Object.fromEntries(REQUEST_INPUT_KEYS.map((key) => [key, request[key]])) as unknown as ActivationRequestInput
   );
   if (compiled.requestOperationId !== digest(request.requestOperationId, 'requestOperationId')
       || !canonicalEqual(compiled, request)) {
@@ -366,51 +366,51 @@ export function parseSecAgentOperationActivationRequest(value: unknown): SecAgen
   return compiled;
 }
 
-export function createSecAgentOperationActivationProvider(
-  value: SecAgentOperationActivationProviderInput
-): SecAgentOperationActivationProvider {
+export function createActivationProvider(
+  value: ActivationProviderInput
+): ActivationProvider {
   const input = record(value, 'provider input');
   exactKeys(input, PROVIDER_INPUT_KEYS, 'provider input');
   const workflowSha = gitSha(input.workflowSha, 'provider.workflowSha');
   if (input.actorPermission !== 'admin' && input.actorPermission !== 'maintain') {
     fail('provider workflow, event, job, steps, or actor permission is unsupported.');
   }
-  const actorPermission: SecAgentOperationActivationProvider['actorPermission'] = input.actorPermission;
-  if (input.workflowPath !== SEC_AGENT_OPERATION_ACTIVATION_WORKFLOW_PATH
-      || input.workflowRef !== `${SEC_AGENT_OPERATION_ACTIVATION_WORKFLOW_PATH}@${workflowSha}`
+  const actorPermission: ActivationProvider['actorPermission'] = input.actorPermission;
+  if (input.workflowPath !== ACTIVATION_WORKFLOW_PATH
+      || input.workflowRef !== `${ACTIVATION_WORKFLOW_PATH}@${workflowSha}`
       || input.eventName !== 'repository_dispatch'
-      || input.jobName !== SEC_AGENT_OPERATION_ACTIVATION_JOB_NAME
-      || input.uploadStepName !== SEC_AGENT_OPERATION_ACTIVATION_UPLOAD_STEP_NAME
-      || input.publicationStepName !== SEC_AGENT_OPERATION_ACTIVATION_STEP_NAME) {
+      || input.jobName !== ACTIVATION_JOB_NAME
+      || input.uploadStepName !== ACTIVATION_UPLOAD_STEP_NAME
+      || input.publicationStepName !== ACTIVATION_STEP_NAME) {
     fail('provider workflow, event, job, steps, or actor permission is unsupported.');
   }
   const actorLogin = text(input.actorLogin, 'provider.actorLogin').toLowerCase();
   if (!/^[a-z0-9](?:[a-z0-9-]{0,38})$/u.test(actorLogin)) fail('provider.actorLogin is invalid.');
   const normalized = deepFreeze({
-    schema: SEC_AGENT_OPERATION_ACTIVATION_PROVIDER_SCHEMA,
+    schema: ACTIVATION_PROVIDER_SCHEMA,
     repositoryId: decimalIdentity(input.repositoryId, 'provider.repositoryId'),
-    workflowPath: SEC_AGENT_OPERATION_ACTIVATION_WORKFLOW_PATH,
-    workflowRef: `${SEC_AGENT_OPERATION_ACTIVATION_WORKFLOW_PATH}@${workflowSha}`,
+    workflowPath: ACTIVATION_WORKFLOW_PATH,
+    workflowRef: `${ACTIVATION_WORKFLOW_PATH}@${workflowSha}`,
     workflowSha,
     runId: decimalIdentity(input.runId, 'provider.runId'),
     runAttempt: positiveInteger(input.runAttempt, 'provider.runAttempt'),
     eventName: 'repository_dispatch' as const,
-    jobName: SEC_AGENT_OPERATION_ACTIVATION_JOB_NAME,
-    uploadStepName: SEC_AGENT_OPERATION_ACTIVATION_UPLOAD_STEP_NAME,
-    publicationStepName: SEC_AGENT_OPERATION_ACTIVATION_STEP_NAME,
+    jobName: ACTIVATION_JOB_NAME,
+    uploadStepName: ACTIVATION_UPLOAD_STEP_NAME,
+    publicationStepName: ACTIVATION_STEP_NAME,
     actorLogin,
     actorNodeId: text(input.actorNodeId, 'provider.actorNodeId'),
     actorPermission
   });
-  return deepFreeze({ ...normalized, providerDigest: sha256(normalized) as SecDigest });
+  return deepFreeze({ ...normalized, providerDigest: sha256(normalized) as TaskCapsuleDigest });
 }
 
-function parseSecAgentOperationActivationProvider(value: unknown): SecAgentOperationActivationProvider {
+function parseActivationProvider(value: unknown): ActivationProvider {
   const provider = record(value, 'provider');
   exactKeys(provider, PROVIDER_KEYS, 'provider');
-  if (provider.schema !== SEC_AGENT_OPERATION_ACTIVATION_PROVIDER_SCHEMA) fail('provider schema is unsupported.');
-  const compiled = createSecAgentOperationActivationProvider(
-    Object.fromEntries(PROVIDER_INPUT_KEYS.map((key) => [key, provider[key]])) as unknown as SecAgentOperationActivationProviderInput
+  if (provider.schema !== ACTIVATION_PROVIDER_SCHEMA) fail('provider schema is unsupported.');
+  const compiled = createActivationProvider(
+    Object.fromEntries(PROVIDER_INPUT_KEYS.map((key) => [key, provider[key]])) as unknown as ActivationProviderInput
   );
   if (compiled.providerDigest !== digest(provider.providerDigest, 'providerDigest')
       || !canonicalEqual(compiled, provider)) {
@@ -419,17 +419,17 @@ function parseSecAgentOperationActivationProvider(value: unknown): SecAgentOpera
   return compiled;
 }
 
-export function createSecAgentOperationActivationPreparation(
-  value: SecAgentOperationActivationPreparationInput
-): SecAgentOperationActivationPreparation {
+export function createActivationPreparation(
+  value: ActivationPreparationInput
+): ActivationPreparation {
   const input = record(value, 'preparation input');
   exactKeys(input, PREPARATION_INPUT_KEYS, 'preparation input');
   if (input.role !== 'worker' || input.operationKind !== 'implement') fail('V1 is limited to worker/implement.');
-  const request = parseSecAgentOperationActivationRequest(input.request);
+  const request = parseActivationRequest(input.request);
   if (request.phase !== 'prepare') fail('preparation requires one PRE request.');
   const proposal = parsePullRequest(input.proposal);
   const trustedBaseSha = gitSha(input.trustedBaseSha, 'trustedBaseSha');
-  const provider = parseSecAgentOperationActivationProvider(input.provider);
+  const provider = parseActivationProvider(input.provider);
   const authorizedPaths = sortedUniqueOwnershipPaths(input.authorizedPaths, 'authorizedPaths');
   const forbiddenPaths = sortedUniqueOwnershipPaths(input.forbiddenPaths, 'forbiddenPaths', true);
   const proposalChangedPaths = sortedUniquePaths(input.proposalChangedPaths, 'proposalChangedPaths');
@@ -446,7 +446,7 @@ export function createSecAgentOperationActivationPreparation(
     fail('operationId is not derived from the PRE request.');
   }
   const normalized = deepFreeze({
-    schema: SEC_AGENT_OPERATION_ACTIVATION_PREPARATION_SCHEMA,
+    schema: ACTIVATION_PREPARATION_SCHEMA,
     request,
     repository: repository(input.repository),
     workId: token(input.workId, 'workId'),
@@ -466,17 +466,17 @@ export function createSecAgentOperationActivationPreparation(
     workDecisionDecisionDigest: digest(input.workDecisionDecisionDigest, 'workDecisionDecisionDigest'),
     provider
   });
-  return deepFreeze({ ...normalized, preparationDigest: sha256(normalized) as SecDigest });
+  return deepFreeze({ ...normalized, preparationDigest: sha256(normalized) as TaskCapsuleDigest });
 }
 
-export function parseSecAgentOperationActivationPreparation(
+export function parseActivationPreparation(
   value: unknown
-): SecAgentOperationActivationPreparation {
+): ActivationPreparation {
   const preparation = record(value, 'preparation');
   exactKeys(preparation, PREPARATION_KEYS, 'preparation');
-  if (preparation.schema !== SEC_AGENT_OPERATION_ACTIVATION_PREPARATION_SCHEMA) fail('preparation schema is unsupported.');
-  const compiled = createSecAgentOperationActivationPreparation(
-    Object.fromEntries(PREPARATION_INPUT_KEYS.map((key) => [key, preparation[key]])) as unknown as SecAgentOperationActivationPreparationInput
+  if (preparation.schema !== ACTIVATION_PREPARATION_SCHEMA) fail('preparation schema is unsupported.');
+  const compiled = createActivationPreparation(
+    Object.fromEntries(PREPARATION_INPUT_KEYS.map((key) => [key, preparation[key]])) as unknown as ActivationPreparationInput
   );
   if (compiled.preparationDigest !== digest(preparation.preparationDigest, 'preparationDigest')
       || !canonicalEqual(compiled, preparation)) {
@@ -485,17 +485,17 @@ export function parseSecAgentOperationActivationPreparation(
   return compiled;
 }
 
-export function createSecAgentOperationActivationReceipt(
-  value: SecAgentOperationActivationReceiptInput
-): SecAgentOperationActivationReceipt {
+export function createActivationReceipt(
+  value: ActivationReceiptInput
+): ActivationReceipt {
   const input = record(value, 'receipt input');
   exactKeys(input, RECEIPT_INPUT_KEYS, 'receipt input');
-  const request = parseSecAgentOperationActivationRequest(input.request);
-  const preparation = parseSecAgentOperationActivationPreparation(input.preparation);
+  const request = parseActivationRequest(input.request);
+  const preparation = parseActivationPreparation(input.preparation);
   const pullRequest = parsePullRequest(input.pullRequest);
   const controlDigests = parseControls(input.controlDigests);
   const changedPaths = sortedUniquePaths(input.changedPaths, 'changedPaths');
-  const provider = parseSecAgentOperationActivationProvider(input.provider);
+  const provider = parseActivationProvider(input.provider);
   if (request.phase !== 'finalize' || request.preparationCommentId === null
       || request.requestOperationId === preparation.request.requestOperationId
       || provider.workflowSha !== preparation.trustedBaseSha
@@ -515,7 +515,7 @@ export function createSecAgentOperationActivationReceipt(
     fail('FINAL must bind a distinct request and the exact PRE authority, PR, manifest, and scope.');
   }
   const normalized = deepFreeze({
-    schema: SEC_AGENT_OPERATION_ACTIVATION_RECEIPT_SCHEMA,
+    schema: ACTIVATION_RECEIPT_SCHEMA,
     request,
     preparation,
     pullRequest,
@@ -525,15 +525,15 @@ export function createSecAgentOperationActivationReceipt(
     workDecisionDecisionDigest: digest(input.workDecisionDecisionDigest, 'workDecisionDecisionDigest'),
     provider
   });
-  return deepFreeze({ ...normalized, activationDigest: sha256(normalized) as SecDigest });
+  return deepFreeze({ ...normalized, activationDigest: sha256(normalized) as TaskCapsuleDigest });
 }
 
-export function parseSecAgentOperationActivationReceipt(value: unknown): SecAgentOperationActivationReceipt {
+export function parseActivationReceipt(value: unknown): ActivationReceipt {
   const receipt = record(value, 'receipt');
   exactKeys(receipt, RECEIPT_KEYS, 'receipt');
-  if (receipt.schema !== SEC_AGENT_OPERATION_ACTIVATION_RECEIPT_SCHEMA) fail('receipt schema is unsupported.');
-  const compiled = createSecAgentOperationActivationReceipt(
-    Object.fromEntries(RECEIPT_INPUT_KEYS.map((key) => [key, receipt[key]])) as unknown as SecAgentOperationActivationReceiptInput
+  if (receipt.schema !== ACTIVATION_RECEIPT_SCHEMA) fail('receipt schema is unsupported.');
+  const compiled = createActivationReceipt(
+    Object.fromEntries(RECEIPT_INPUT_KEYS.map((key) => [key, receipt[key]])) as unknown as ActivationReceiptInput
   );
   if (compiled.activationDigest !== digest(receipt.activationDigest, 'activationDigest')
       || !canonicalEqual(compiled, receipt)) {
@@ -542,38 +542,38 @@ export function parseSecAgentOperationActivationReceipt(value: unknown): SecAgen
   return compiled;
 }
 
-export function createSecAgentOperationActivationPublication(
-  value: SecAgentOperationActivationPublicationInput
-): SecAgentOperationActivationPublication {
+export function createActivationPublication(
+  value: ActivationPublicationInput
+): ActivationPublication {
   const input = record(value, 'publication input');
   exactKeys(input, PUBLICATION_INPUT_KEYS, 'publication input');
-  const request = parseSecAgentOperationActivationRequest(input.request);
+  const request = parseActivationRequest(input.request);
   const artifactName = text(input.artifactName, 'artifactName');
   if (artifactName !== secAgentOperationActivationArtifactName(request.phase, request.requestOperationId)
-      || input.artifactFileName !== SEC_AGENT_OPERATION_ACTIVATION_ARTIFACT_FILE) {
+      || input.artifactFileName !== ACTIVATION_ARTIFACT_FILE) {
     fail('publication artifact name or file is not canonical.');
   }
   const normalized = deepFreeze({
-    schema: SEC_AGENT_OPERATION_ACTIVATION_PUBLICATION_SCHEMA,
+    schema: ACTIVATION_PUBLICATION_SCHEMA,
     request,
     payloadDigest: digest(input.payloadDigest, 'payloadDigest'),
     artifactId: decimalIdentity(input.artifactId, 'artifactId'),
     artifactName,
-    artifactFileName: SEC_AGENT_OPERATION_ACTIVATION_ARTIFACT_FILE,
+    artifactFileName: ACTIVATION_ARTIFACT_FILE,
     artifactDigest: digest(input.artifactDigest, 'artifactDigest'),
-    provider: parseSecAgentOperationActivationProvider(input.provider)
+    provider: parseActivationProvider(input.provider)
   });
-  return deepFreeze({ ...normalized, publicationDigest: sha256(normalized) as SecDigest });
+  return deepFreeze({ ...normalized, publicationDigest: sha256(normalized) as TaskCapsuleDigest });
 }
 
-function parseSecAgentOperationActivationPublication(
+function parseActivationPublication(
   value: unknown
-): SecAgentOperationActivationPublication {
+): ActivationPublication {
   const publication = record(value, 'publication');
   exactKeys(publication, PUBLICATION_KEYS, 'publication');
-  if (publication.schema !== SEC_AGENT_OPERATION_ACTIVATION_PUBLICATION_SCHEMA) fail('publication schema is unsupported.');
-  const compiled = createSecAgentOperationActivationPublication(
-    Object.fromEntries(PUBLICATION_INPUT_KEYS.map((key) => [key, publication[key]])) as unknown as SecAgentOperationActivationPublicationInput
+  if (publication.schema !== ACTIVATION_PUBLICATION_SCHEMA) fail('publication schema is unsupported.');
+  const compiled = createActivationPublication(
+    Object.fromEntries(PUBLICATION_INPUT_KEYS.map((key) => [key, publication[key]])) as unknown as ActivationPublicationInput
   );
   if (compiled.publicationDigest !== digest(publication.publicationDigest, 'publicationDigest')
       || !canonicalEqual(compiled, publication)) {
@@ -582,18 +582,18 @@ function parseSecAgentOperationActivationPublication(
   return compiled;
 }
 
-export function renderSecAgentOperationActivationPublicationComment(
-  value: SecAgentOperationActivationPublication
+export function renderActivationPublicationComment(
+  value: ActivationPublication
 ): string {
-  const publication = parseSecAgentOperationActivationPublication(value);
-  return `${SEC_AGENT_OPERATION_ACTIVATION_COMMENT_MARKER}\n\`\`\`json\n${JSON.stringify(canonicalJson(publication), null, 2)}\n\`\`\``;
+  const publication = parseActivationPublication(value);
+  return `${ACTIVATION_COMMENT_MARKER}\n\`\`\`json\n${JSON.stringify(canonicalJson(publication), null, 2)}\n\`\`\``;
 }
 
-export function parseSecAgentOperationActivationPublicationComment(
+export function parseActivationPublicationComment(
   source: string
-): SecAgentOperationActivationPublication | null {
-  if (!source.includes(SEC_AGENT_OPERATION_ACTIVATION_COMMENT_MARKER)) return null;
-  const prefix = `${SEC_AGENT_OPERATION_ACTIVATION_COMMENT_MARKER}\n\`\`\`json\n`;
+): ActivationPublication | null {
+  if (!source.includes(ACTIVATION_COMMENT_MARKER)) return null;
+  const prefix = `${ACTIVATION_COMMENT_MARKER}\n\`\`\`json\n`;
   const suffix = '\n```';
   if (!source.startsWith(prefix) || !source.endsWith(suffix)) fail('publication comment shape is invalid.');
   let parsed: unknown;
@@ -602,8 +602,8 @@ export function parseSecAgentOperationActivationPublicationComment(
   } catch {
     fail('publication comment JSON is invalid.');
   }
-  const publication = parseSecAgentOperationActivationPublication(parsed);
-  if (source !== renderSecAgentOperationActivationPublicationComment(publication)) {
+  const publication = parseActivationPublication(parsed);
+  if (source !== renderActivationPublicationComment(publication)) {
     fail('publication comment bytes are not canonical.');
   }
   return publication;

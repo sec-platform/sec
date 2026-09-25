@@ -243,11 +243,11 @@ test('trusted-base TestImpact reads a new candidate module graph from exact Git 
     mkdirSync(path.join(repositoryRoot, '.documentation'), { recursive: true });
     mkdirSync(path.join(repositoryRoot, 'docs'), { recursive: true });
     mkdirSync(path.join(repositoryRoot, 'tests', 'unit'), { recursive: true });
-    writeFileSync(path.join(repositoryRoot, 'src', 'candidate', 'sec.module.json'), JSON.stringify({
+    writeFileSync(path.join(repositoryRoot, 'src', 'candidate', 'module.json'), JSON.stringify({
       importGraph: 'runtime',
       externalEntrypoints: []
     }), 'utf8');
-    writeFileSync(path.join(repositoryRoot, 'tests', 'sec.module.json'), JSON.stringify({
+    writeFileSync(path.join(repositoryRoot, 'tests', 'module.json'), JSON.stringify({
       importGraph: 'runtime',
       externalEntrypoints: []
     }), 'utf8');

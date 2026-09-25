@@ -7,7 +7,7 @@ import {
   materializeDocumentationPackage,
   readDocumentationSource
 } from '../../src/adapters/release/documentation-source.ts';
-import { digest } from '../../src/contracts/canonical.ts';
+import { rawSha256Hex } from '../../src/contracts/canonical.ts';
 import {
   DOCUMENTATION_BASELINE, DOCUMENTATION_LIMITS, DOCUMENTATION_NON_SOURCE,
   DOCUMENTATION_FIGURES, DOCUMENTATION_REQUIREMENTS,
@@ -32,8 +32,8 @@ async function withSource(action: (root: string, sourceDigest: string) => Promis
     }));
     const text = Buffer.from('# Captured source\n');
     const members = [
-      { path: DOCUMENTATION_BASELINE, bytes: baseline.length, sha256: digest(baseline) },
-      { path: 'docs/main.md', bytes: text.length, sha256: digest(text) }
+      { path: DOCUMENTATION_BASELINE, bytes: baseline.length, sha256: rawSha256Hex(baseline) },
+      { path: 'docs/main.md', bytes: text.length, sha256: rawSha256Hex(text) }
     ];
     const sourceDigest = documentationSourceDigest(members);
     await fs.writeFile(path.join(root, DOCUMENTATION_BASELINE), baseline);

@@ -1,5 +1,5 @@
 import { dlopen, FFIType, ptr, read } from 'bun:ffi';
-import { createHash, randomUUID } from 'node:crypto';
+import { randomUUID } from 'node:crypto';
 import {
   closeSync,
   fchmodSync,
@@ -19,8 +19,10 @@ import {
 } from 'node:fs';
 import path from 'node:path';
 
+import { createSha256Hasher } from '../../../../contracts/digest.ts';
+import { rawSha256Hex } from '../../../../contracts/canonical.ts';
 import {
-  assertSecSemanticOperationProjection,
+  assertSemanticOperationProjection,
   type BoundSemanticOperation
 } from '../../../../execution/operation/semantic.ts';
 
@@ -2431,7 +2433,7 @@ function windowsRetainedReparseObservation(
   const data = windowsReadRetainedReparseData(handle, label);
   return Object.freeze({
     size: data.byteLength,
-    linkTarget: `windows-reparse-sha256:${createHash('sha256').update(data).digest('hex')}`
+    linkTarget: `windows-reparse-sha256:${rawSha256Hex(data)}`
   });
 }
 
@@ -2808,8 +2810,8 @@ function streamCanonicalHexContentDigest(
     throw physicalError('PHYSICAL_NO_FOLLOW_UNSAFE_PATH', `${label} size is outside the exact inventory number domain.`);
   }
   assertReadCurrent?.();
-  const hash = createHash('sha256');
-  const byteHash = createHash('sha256');
+  const hash = createSha256Hasher();
+  const byteHash = createSha256Hasher();
   // This is exactly JSON.stringify(canonicalJson({ bytes: lowerHex })).
   // Keep the framing here so streaming and historical in-memory inventory
   // generations remain byte-identical.
@@ -2837,8 +2839,8 @@ function streamCanonicalHexContentDigest(
   hash.update('"}');
   return Object.freeze({
     size: total,
-    contentDigest: `sha256:${hash.digest('hex')}`,
-    byteDigest: `sha256:${byteHash.digest('hex')}`
+    contentDigest: hash.finish(),
+    byteDigest: byteHash.finish()
   });
 }
 
@@ -3374,7 +3376,7 @@ function linuxProofUnsigned(input: Omit<LinuxProvenGenerationProof, 'proofDigest
 function linuxProofDigest(
   input: Omit<LinuxProvenGenerationProof, 'proofDigest'>
 ): `sha256:${string}` {
-  return `sha256:${createHash('sha256').update(JSON.stringify(linuxProofUnsigned(input))).digest('hex')}`;
+  return `sha256:${rawSha256Hex(JSON.stringify(linuxProofUnsigned(input)))}`;
 }
 
 function parseLinuxProvenGenerationProof(text: string): LinuxProvenGenerationProof {
@@ -7101,7 +7103,7 @@ export function flushNoFollowDirectory(parent: PhysicalDirectoryIdentity): void 
 }
 
 function bytesDigest(bytes: Uint8Array): string {
-  return `sha256:${createHash('sha256').update(bytes).digest('hex')}`;
+  return `sha256:${rawSha256Hex(bytes)}`;
 }
 
 export interface DurableCanonicalFileIdentityReceipt {
@@ -8102,38 +8104,38 @@ type DurableCanonicalFileReplacementInput = {
    */
   readonly expectedExisting?: Readonly<{ device: string; inode: string }> | null;
   /** Owner-issued interruption seam for native recovery tests only. */
-  readonly windowsInterruptionActor?: WindowsDurableCanonicalFileReplacementInterruptionActor;
+  readonly windowsInterruptionActor?: DurableReplacementInterruptionActor;
 };
 
-export type WindowsDurableCanonicalFileReplacementInterruptionPoint =
+export type DurableReplacementInterruptionPoint =
   | 'after-transaction-record'
   | 'after-preimage-quarantine'
   | 'after-candidate-publication';
 
-export interface WindowsDurableCanonicalFileReplacementInterruptionActor {
-  readonly point: WindowsDurableCanonicalFileReplacementInterruptionPoint;
+export interface DurableReplacementInterruptionActor {
+  readonly point: DurableReplacementInterruptionPoint;
 }
 
-const windowsDurableReplacementInterruptionActors = new WeakMap<
+const durableReplacementInterruptionActors = new WeakMap<
   object,
-  { point: WindowsDurableCanonicalFileReplacementInterruptionPoint; used: boolean; beforeInterrupt?: () => void }
+  { point: DurableReplacementInterruptionPoint; used: boolean; beforeInterrupt?: () => void }
 >();
 
-export function createWindowsDurableCanonicalFileReplacementInterruptionActorForTests(
-  point: WindowsDurableCanonicalFileReplacementInterruptionPoint,
+export function createDurableReplacementInterruptionActorForTests(
+  point: DurableReplacementInterruptionPoint,
   beforeInterrupt?: () => void
-): WindowsDurableCanonicalFileReplacementInterruptionActor {
+): DurableReplacementInterruptionActor {
   const actor = Object.freeze({ point });
-  windowsDurableReplacementInterruptionActors.set(actor, { point, used: false, ...(beforeInterrupt ? { beforeInterrupt } : {}) });
+  durableReplacementInterruptionActors.set(actor, { point, used: false, ...(beforeInterrupt ? { beforeInterrupt } : {}) });
   return actor;
 }
 
-function interruptWindowsDurableReplacementForTests(
-  actor: WindowsDurableCanonicalFileReplacementInterruptionActor | undefined,
-  point: WindowsDurableCanonicalFileReplacementInterruptionPoint
+function interruptDurableReplacementForTests(
+  actor: DurableReplacementInterruptionActor | undefined,
+  point: DurableReplacementInterruptionPoint
 ): void {
   if (actor === undefined) return;
-  const record = windowsDurableReplacementInterruptionActors.get(actor);
+  const record = durableReplacementInterruptionActors.get(actor);
   if (record === undefined || record.used) {
     throw physicalError('PHYSICAL_NO_FOLLOW_CAPABILITY_UNAVAILABLE', 'Durable CAS interruption actor was not issued for this point.');
   }
@@ -8143,7 +8145,7 @@ function interruptWindowsDurableReplacementForTests(
   throw physicalError('PHYSICAL_NO_FOLLOW_DURABILITY_FAILED', `Durable CAS interrupted at ${point}.`);
 }
 
-type WindowsDurableCanonicalFileReplacementRecord = Readonly<{
+type DurableReplacementRecord = Readonly<{
   schema: 'sec-windows-durable-canonical-file-replacement-v1';
   targetName: string;
   parent: Readonly<{ device: string; inode: string; objectId: string }>;
@@ -8163,11 +8165,11 @@ export type DurableCanonicalFileReplacementRecovery = Readonly<{
 }>;
 
 function windowsDurableReplacementAnchorName(name: string): string {
-  return `.sec-cas-${createHash('sha256').update(name).digest('hex').slice(0, 32)}.txn`;
+  return `.sec-cas-${rawSha256Hex(name).slice(0, 32)}.txn`;
 }
 
 function windowsDurableReplacementRecordUnsigned(
-  record: Omit<WindowsDurableCanonicalFileReplacementRecord, 'recordDigest'>
+  record: Omit<DurableReplacementRecord, 'recordDigest'>
 ): object {
   return Object.freeze({
     schema: record.schema,
@@ -8188,7 +8190,7 @@ function windowsCreateDurableReplacementRecord(
   expectedExisting: Readonly<{ device: string; inode: string }>,
   candidateDigest: string,
   candidateIdentity: Readonly<{ device: string; inode: string }>
-): WindowsDurableCanonicalFileReplacementRecord {
+): DurableReplacementRecord {
   const candidateName = windowsDurableReplacementCandidateName(parent, name, expectedExisting, candidateDigest);
   const transactionIdentity = bytesDigest(Buffer.from(JSON.stringify({
     schema: 'sec-windows-durable-canonical-file-replacement-identity-v1',
@@ -8221,13 +8223,13 @@ function windowsDurableReplacementCandidateName(
   expectedExisting: Readonly<{ device: string; inode: string }>,
   candidateDigest: string
 ): string {
-  const candidateNameKey = createHash('sha256').update(JSON.stringify({
+  const candidateNameKey = rawSha256Hex(JSON.stringify({
     schema: 'sec-windows-durable-canonical-file-replacement-candidate-v1',
     targetName: name,
     parent: { device: parent.device, inode: parent.inode, objectId: parent.objectId },
     expectedExisting,
     candidateDigest
-  })).digest('hex').slice(0, 32);
+  })).slice(0, 32);
   return `.sec-cas-${candidateNameKey}.new`;
 }
 
@@ -8235,7 +8237,7 @@ function windowsParseDurableReplacementRecord(
   bytes: Uint8Array,
   parent: PhysicalDirectoryIdentity,
   targetName: string
-): WindowsDurableCanonicalFileReplacementRecord {
+): DurableReplacementRecord {
   let value: unknown;
   try { value = JSON.parse(Buffer.from(bytes).toString('utf8')); } catch (error) {
     throw physicalError('PHYSICAL_NO_FOLLOW_DURABILITY_FAILED', 'Durable CAS transaction record JSON is invalid.', error);
@@ -8243,7 +8245,7 @@ function windowsParseDurableReplacementRecord(
   if (value === null || typeof value !== 'object' || Array.isArray(value)) {
     throw physicalError('PHYSICAL_NO_FOLLOW_DURABILITY_FAILED', 'Durable CAS transaction record shape is invalid.');
   }
-  const record = value as WindowsDurableCanonicalFileReplacementRecord;
+  const record = value as DurableReplacementRecord;
   const exactKeys = (candidate: object, keys: readonly string[]): boolean =>
     JSON.stringify(Object.keys(candidate).sort()) === JSON.stringify([...keys].sort());
   if (!exactKeys(record, [
@@ -8578,7 +8580,7 @@ function replaceDurableCanonicalFileWithExpectedIdentity(
   let candidate: bigint | null = null;
   let oldCurrent: bigint | null = null;
   let anchor: bigint | null = null;
-  let record: WindowsDurableCanonicalFileReplacementRecord | null = null;
+  let record: DurableReplacementRecord | null = null;
   try {
     // Retain and validate the expected preimage before publishing the
     // transaction record.  The handle-level rename below rechecks that this
@@ -8625,15 +8627,15 @@ function replaceDurableCanonicalFileWithExpectedIdentity(
       throw physicalError('PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED', 'Durable CAS transaction slot became occupied.');
     }
     windowsWriteRetainedFile(anchor, Buffer.from(JSON.stringify(record), 'utf8'), 'Durable CAS transaction');
-    interruptWindowsDurableReplacementForTests(input.windowsInterruptionActor, 'after-transaction-record');
+    interruptDurableReplacementForTests(input.windowsInterruptionActor, 'after-transaction-record');
     windowsRenameRetainedOrdinaryFile(
       oldCurrent, finalPath, expectedCurrent, parentHandle, record.quarantineName, false, 'Durable CAS old current'
     );
-    interruptWindowsDurableReplacementForTests(input.windowsInterruptionActor, 'after-preimage-quarantine');
+    interruptDurableReplacementForTests(input.windowsInterruptionActor, 'after-preimage-quarantine');
     windowsRenameRetainedOrdinaryFile(
       candidate, candidatePath, candidateIdentity, parentHandle, input.name, false, 'Durable CAS publication'
     );
-    interruptWindowsDurableReplacementForTests(input.windowsInterruptionActor, 'after-candidate-publication');
+    interruptDurableReplacementForTests(input.windowsInterruptionActor, 'after-candidate-publication');
     const current = windowsReadRenamedCandidate(candidate, parentHandle, parent, input.name, expected, 'Durable CAS');
     input.validate(current);
     windowsMarkRetainedLeafForDelete(oldCurrent, 'Durable CAS old current cleanup');
@@ -8870,7 +8872,7 @@ function assertWindowsLegacyRelocationOperation(
   operation: BoundSemanticOperation,
   expectedIdentityDigest?: `sha256:${string}`
 ): void {
-  assertSecSemanticOperationProjection(operation);
+  assertSemanticOperationProjection(operation);
   if (operation.plan.attempt.deadlineAtUnixMs <= Date.now() ||
       (expectedIdentityDigest !== undefined &&
         operation.plan.identity.identityDigest !== expectedIdentityDigest)) {
@@ -9029,7 +9031,7 @@ function windowsTemporaryRelocationDescriptor(predecessor: Buffer): Buffer {
 }
 
 function windowsRelocationDescriptorDigest(bytes: Buffer): `sha256:${string}` {
-  return `sha256:${createHash('sha256').update(bytes).digest('hex')}`;
+  return `sha256:${rawSha256Hex(bytes)}`;
 }
 
 /**
@@ -9157,9 +9159,9 @@ function parseWindowsLegacyRelocationProof(text: string): WindowsLegacySealedDir
         !windowsTemporaryRelocationDescriptor(predecessor).equals(temporary))) {
     throw physicalError('PHYSICAL_NO_FOLLOW_CAPABILITY_UNAVAILABLE', 'Windows legacy relocation descriptor proof differs.');
   }
-  const digest = `sha256:${createHash('sha256').update(JSON.stringify(
+  const digest = `sha256:${rawSha256Hex(JSON.stringify(
     windowsLegacyRelocationProofUnsigned(proof)
-  )).digest('hex')}`;
+  ))}`;
   if (digest !== proof.proofDigest) {
     throw physicalError('PHYSICAL_NO_FOLLOW_CAPABILITY_UNAVAILABLE', 'Windows legacy relocation proof digest differs.');
   }
@@ -9236,9 +9238,9 @@ export function prepareWindowsLegacySealedDirectoryRelocation(input: Readonly<{
   });
   const proof = Object.freeze({
     ...unsigned,
-    proofDigest: `sha256:${createHash('sha256').update(JSON.stringify(
+    proofDigest: `sha256:${rawSha256Hex(JSON.stringify(
       windowsLegacyRelocationProofUnsigned(unsigned)
-    )).digest('hex')}`
+    ))}`
   }) as WindowsLegacySealedDirectoryRelocationProof;
   const capability = Object.freeze({ recoveryProofText: JSON.stringify(proof) });
   windowsLegacyRelocationCapabilities.set(capability, Object.freeze({ operation: input.operation, proof }));

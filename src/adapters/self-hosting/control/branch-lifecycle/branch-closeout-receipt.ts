@@ -47,7 +47,7 @@ const HOSTED_WORKFLOW_COMMENT_PROVENANCE_SCHEMA =
 export interface HostedWorkflowCommentProvenance {
   schema: typeof HOSTED_WORKFLOW_COMMENT_PROVENANCE_SCHEMA;
   repositoryId: string;
-  workflowPath: '.github/workflows/sec-merge-gate.yml';
+  workflowPath: '.github/workflows/merge-gate.yml';
   workflowRef: string;
   workflowSha: string;
   runId: string;
@@ -256,7 +256,7 @@ export function createHostedWorkflowCommentProvenance(input: Omit<
     throw new Error('Hosted comment repository/run identities must be positive decimal strings.');
   }
   assertGitSha(input.workflowSha, 'hosted comment workflow SHA');
-  if (input.workflowPath !== '.github/workflows/sec-merge-gate.yml'
+  if (input.workflowPath !== '.github/workflows/merge-gate.yml'
     || input.workflowRef !== `${input.workflowPath}@${input.workflowSha}`
     || input.eventName !== 'workflow_run') {
     throw new Error('Hosted comment workflow provenance is not the canonical merge workflow exact ref.');
@@ -290,7 +290,7 @@ export function parseHostedWorkflowCommentProvenance(
   assertExactKeys(value.app, ['id', 'nodeId', 'slug'], 'Hosted workflow comment app');
   const provenance = createHostedWorkflowCommentProvenance({
     repositoryId: boundedIdentity(value.repositoryId, 'Hosted comment repositoryId'),
-    workflowPath: value.workflowPath as '.github/workflows/sec-merge-gate.yml',
+    workflowPath: value.workflowPath as '.github/workflows/merge-gate.yml',
     workflowRef: boundedIdentity(value.workflowRef, 'Hosted comment workflowRef'),
     workflowSha: boundedIdentity(value.workflowSha, 'Hosted comment workflowSha'),
     runId: boundedIdentity(value.runId, 'Hosted comment runId'),

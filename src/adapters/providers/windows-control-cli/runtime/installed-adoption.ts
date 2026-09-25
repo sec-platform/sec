@@ -18,7 +18,7 @@ import {
   resolveExecutableLocator
 } from '../../../runtime-state/physical/runtime/process.ts';
 import {
-  getSecWindowsControlCliExecutableBindingV1,
+  getWindowsControlCliExecutableBinding,
   type WindowsControlCliEnvironmentSpec,
   type WindowsControlCliExecutableBindingProjection
 } from '../contract/environment.ts';
@@ -614,7 +614,7 @@ export function adoptInstalledWindowsControlCli(
     );
     ledger.record();
     for (const id of ['git', 'gh'] as const) {
-      const binding = getSecWindowsControlCliExecutableBindingV1(input.spec, id);
+      const binding = getWindowsControlCliExecutableBinding(input.spec, id);
       if (binding === null) fail('installed-executable-capability-unproven');
       closures.push(selectExecutableClosure(
         binding,

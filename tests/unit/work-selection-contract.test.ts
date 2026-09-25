@@ -4,8 +4,8 @@ import {
   assertWorkDecision,
   compileWorkDecision,
   computeWorkCandidateSetRevision,
-  SEC_WORK_SELECTION_INPUT_SCHEMA,
-  SEC_WORK_SELECTION_POLICY_REVISION,
+  WORK_SELECTION_INPUT_SCHEMA,
+  WORK_SELECTION_POLICY_REVISION,
   type CurrentWorkLifecycle,
   type WorkCandidate,
   type WorkDigest,
@@ -53,12 +53,12 @@ function input(
   current: Partial<CurrentWorkLifecycle> = {}
 ): WorkSelectionInput {
   return {
-    schema: SEC_WORK_SELECTION_INPUT_SCHEMA,
+    schema: WORK_SELECTION_INPUT_SCHEMA,
     identity: {
       exactMain: 'a'.repeat(40),
       roadmapRevision: digest('b'),
       candidateSetRevision: computeWorkCandidateSetRevision(candidates),
-      selectionPolicyRevision: SEC_WORK_SELECTION_POLICY_REVISION
+      selectionPolicyRevision: WORK_SELECTION_POLICY_REVISION
     },
     current: {
       activeWorkId: null,

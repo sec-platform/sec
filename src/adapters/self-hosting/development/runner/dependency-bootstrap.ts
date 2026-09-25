@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { setTimeout as delay } from 'node:timers/promises';
 
-import { canonicalJson, digest } from '../../../../contracts/canonical.ts';
+import { canonicalJson, rawSha256Hex } from '../../../../contracts/canonical.ts';
 import type {
   VerificationActionKey,
   VerificationActionKeyDigest,
@@ -69,7 +69,7 @@ const DEPENDENCY_BOOTSTRAP_REQUIREMENT = 'development.compiler-dependency-materi
 const DEPENDENCY_BOOTSTRAP_JOIN_POLL_MS = 50;
 
 function actionDigest(value: unknown): `sha256:${string}` {
-  return `sha256:${digest(JSON.stringify(canonicalJson(value)))}`;
+  return `sha256:${rawSha256Hex(JSON.stringify(canonicalJson(value)))}`;
 }
 
 const DEPENDENCY_BOOTSTRAP_SEMANTIC_CONTRACT = Object.freeze({
@@ -241,12 +241,12 @@ async function issueDependencyBootstrapTerminal(
   maximumDurationMs: number
 ): Promise<VerificationActionTerminalSettlement> {
   const [{
-    bindSecSemanticOperation,
+    bindSemanticOperation,
     compileCapabilityBinding,
     compileProviderSettlementSet,
     compileSemanticOperationPlan,
     issueNormalDomainReadbackReceipt,
-    issueSecNormalOwnerTerminalJoinReceipt,
+    issueNormalOwnerTerminalJoinReceipt,
     issueProviderSettlementReceipt,
     issueSemanticOperationAttemptContext
   }, {
@@ -289,7 +289,7 @@ async function issueDependencyBootstrapTerminal(
     }],
     attempt: issueSemanticOperationAttemptContext({ authorityGrantDigest: contractDigest })
   });
-  const operation = bindSecSemanticOperation(operationPlan, [compileCapabilityBinding({
+  const operation = bindSemanticOperation(operationPlan, [compileCapabilityBinding({
     requirementId: DEPENDENCY_BOOTSTRAP_REQUIREMENT,
     contractDigest,
     providerIdentityDigest: contractDigest
@@ -306,7 +306,7 @@ async function issueDependencyBootstrapTerminal(
     currentPhysicalEpochDigest: ready.transitionDigest,
     disposition: 'applied'
   });
-  const ownerTerminal = issueSecNormalOwnerTerminalJoinReceipt(
+  const ownerTerminal = issueNormalOwnerTerminalJoinReceipt(
     operation,
     providerSet,
     readback,

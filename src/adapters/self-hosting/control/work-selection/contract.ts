@@ -1,11 +1,11 @@
 import { canonicalEquals, compareCodeUnits, deepFreeze, sha256 } from '../../../../contracts/canonical.ts';
 import type { MainHealthRoutingState } from '../main-health/contract.ts';
 
-export const SEC_WORK_SELECTION_INPUT_SCHEMA = 'sec-work-selection-input-v1' as const;
-const SEC_WORK_DECISION_SCHEMA = 'sec-work-decision-v1' as const;
-export const SEC_WORK_SELECTION_POLICY_REVISION = 'work-selection-policy-v1' as const;
+export const WORK_SELECTION_INPUT_SCHEMA = 'sec-work-selection-input-v1' as const;
+const WORK_DECISION_SCHEMA = 'sec-work-decision-v1' as const;
+export const WORK_SELECTION_POLICY_REVISION = 'work-selection-policy-v1' as const;
 
-export const SEC_WORK_PRIORITY_CLASSES = [
+export const WORK_PRIORITY_CLASSES = [
   'integrity-critical',
   'active-critical-path',
   'product-critical-path',
@@ -14,7 +14,7 @@ export const SEC_WORK_PRIORITY_CLASSES = [
   'defer'
 ] as const;
 
-export type WorkPriorityClass = (typeof SEC_WORK_PRIORITY_CLASSES)[number];
+export type WorkPriorityClass = (typeof WORK_PRIORITY_CLASSES)[number];
 type WorkDecisionStatus =
   | 'continue-active'
   | 'closeout'
@@ -34,7 +34,7 @@ interface WorkSelectionIdentity {
   readonly exactMain: string;
   readonly roadmapRevision: WorkDigest;
   readonly candidateSetRevision: WorkDigest;
-  readonly selectionPolicyRevision: typeof SEC_WORK_SELECTION_POLICY_REVISION;
+  readonly selectionPolicyRevision: typeof WORK_SELECTION_POLICY_REVISION;
 }
 
 export interface CurrentWorkLifecycle {
@@ -89,7 +89,7 @@ export interface WorkCandidate {
 }
 
 export interface WorkSelectionInput {
-  readonly schema: typeof SEC_WORK_SELECTION_INPUT_SCHEMA;
+  readonly schema: typeof WORK_SELECTION_INPUT_SCHEMA;
   readonly identity: WorkSelectionIdentity;
   readonly current: CurrentWorkLifecycle;
   readonly candidates: readonly WorkCandidate[];
@@ -120,8 +120,8 @@ interface WorkCurrentSpecBinding {
 }
 
 export interface WorkDecision {
-  readonly schema: typeof SEC_WORK_DECISION_SCHEMA;
-  readonly policyRevision: typeof SEC_WORK_SELECTION_POLICY_REVISION;
+  readonly schema: typeof WORK_DECISION_SCHEMA;
+  readonly policyRevision: typeof WORK_SELECTION_POLICY_REVISION;
   readonly inputDigest: WorkDigest;
   readonly status: WorkDecisionStatus;
   readonly selectedWorkId: string | null;
@@ -157,7 +157,7 @@ const CANDIDATE_KEYS = [
 const DEPENDENCY_KEYS = ['ref', 'status'] as const;
 
 const PRIORITY_ORDER = new Map<WorkPriorityClass, number>(
-  SEC_WORK_PRIORITY_CLASSES.map((priorityClass, index) => [priorityClass, index])
+  WORK_PRIORITY_CLASSES.map((priorityClass, index) => [priorityClass, index])
 );
 const FRESHNESS_ORDER = new Map<WorkCandidate['reproductionOrEvidenceFreshness'], number>([
   ['fresh', 0],
@@ -305,7 +305,7 @@ function parseCandidate(value: unknown, index: number): WorkCandidate {
       `${label}.lifecycle`
     ),
     lifecycleRef: reference(item.lifecycleRef, `${label}.lifecycleRef`),
-    priorityClass: enumeration(item.priorityClass, SEC_WORK_PRIORITY_CLASSES, `${label}.priorityClass`),
+    priorityClass: enumeration(item.priorityClass, WORK_PRIORITY_CLASSES, `${label}.priorityClass`),
     priorityEvidenceRefs: sortedUniqueTexts(item.priorityEvidenceRefs, `${label}.priorityEvidenceRefs`),
     readiness: enumeration(
       item.readiness,
@@ -395,13 +395,13 @@ export function computeWorkCandidateSetRevision(
 export function parseWorkSelectionInput(value: unknown): WorkSelectionInput {
   const input = record(value, 'input');
   exactKeys(input, INPUT_KEYS, 'input');
-  if (input.schema !== SEC_WORK_SELECTION_INPUT_SCHEMA) {
-    fail(`input.schema must be ${SEC_WORK_SELECTION_INPUT_SCHEMA}.`);
+  if (input.schema !== WORK_SELECTION_INPUT_SCHEMA) {
+    fail(`input.schema must be ${WORK_SELECTION_INPUT_SCHEMA}.`);
   }
   const identity = record(input.identity, 'identity');
   exactKeys(identity, IDENTITY_KEYS, 'identity');
-  if (identity.selectionPolicyRevision !== SEC_WORK_SELECTION_POLICY_REVISION) {
-    fail(`identity.selectionPolicyRevision must be ${SEC_WORK_SELECTION_POLICY_REVISION}.`);
+  if (identity.selectionPolicyRevision !== WORK_SELECTION_POLICY_REVISION) {
+    fail(`identity.selectionPolicyRevision must be ${WORK_SELECTION_POLICY_REVISION}.`);
   }
   const current = record(input.current, 'current');
   exactKeys(current, CURRENT_KEYS, 'current');
@@ -435,12 +435,12 @@ export function parseWorkSelectionInput(value: unknown): WorkSelectionInput {
     fail('identity.candidateSetRevision does not bind the normalized candidate set.');
   }
   return deepFreeze({
-    schema: SEC_WORK_SELECTION_INPUT_SCHEMA,
+    schema: WORK_SELECTION_INPUT_SCHEMA,
     identity: {
       exactMain: exactMain(identity.exactMain, 'identity.exactMain'),
       roadmapRevision: digest(identity.roadmapRevision, 'identity.roadmapRevision'),
       candidateSetRevision,
-      selectionPolicyRevision: SEC_WORK_SELECTION_POLICY_REVISION
+      selectionPolicyRevision: WORK_SELECTION_POLICY_REVISION
     },
     current: {
       activeWorkId,
@@ -718,8 +718,8 @@ function finalizeDecision(
     fail('selected candidate ref must resolve inside the bound candidate set.');
   }
   const withoutDigest = {
-    schema: SEC_WORK_DECISION_SCHEMA,
-    policyRevision: SEC_WORK_SELECTION_POLICY_REVISION,
+    schema: WORK_DECISION_SCHEMA,
+    policyRevision: WORK_SELECTION_POLICY_REVISION,
     inputDigest: sha256(input) as WorkDigest,
     selectedCurrentSpecRef: selectedCandidate?.currentSpecRef ?? null,
     selectedCurrentSpecRevision: selectedCandidate?.currentSpecRevision ?? null,

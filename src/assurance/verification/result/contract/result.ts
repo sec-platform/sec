@@ -575,7 +575,7 @@ function assertExecution(value: unknown, label: string): asserts value is Verifi
 }
 
 /**
- * Validate the cross-field invariants of a VerificationGateResultV1:
+ * Validate the cross-field invariants of a VerificationGateResult:
  * - status/disposition/reasonCode/applicability combinations
  * - execution nullness matches disposition
  * - evidenceRefs required for reused disposition
@@ -691,7 +691,7 @@ export interface VerificationGateResultBuilderInput {
 }
 
 /**
- * Build a VerificationGateResultV1 from typed input. Validates the result before
+ * Build a VerificationGateResult from typed input. Validates the result before
  * returning. Use this instead of constructing the object literal directly to
  * guarantee cross-field invariants.
  */

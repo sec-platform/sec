@@ -1,11 +1,11 @@
-import { createHash } from 'node:crypto';
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import nodePath from 'node:path';
 
+import { rawSha256Hex } from '../../../contracts/canonical.ts';
 import { compileClosedDirectedGraphStrongComponents } from '../../../contracts/directed-graph.ts';
 import { parseExactJson } from '../../../contracts/exact-json.ts';
-import { isSecRepositoryTestModulePath } from '../../../contracts/repository-test-path.ts';
-import { SEC_SEMANTIC_OPERATION_ID_PATTERN } from '../../../execution/operation/identity.ts';
+import { isRepositoryTestModulePath } from '../../../contracts/repository-test-path.ts';
+import { SEMANTIC_OPERATION_ID_PATTERN } from '../../../execution/operation/identity.ts';
 import {
   isCanonicalOperationBudgetMaximum,
   OPERATION_BUDGET_RESOURCES,
@@ -19,7 +19,7 @@ import {
  * platform/scripts/tooling roots. Descriptor coverage can become more precise
  * over time without changing the graph owner or its import resolver.
  */
-const SEC_MODULE_IMPORT_GRAPHS = Object.freeze([
+const MODULE_IMPORT_GRAPHS = Object.freeze([
   'runtime',
   'content'
 ] as const);
@@ -27,7 +27,7 @@ const SEC_MODULE_IMPORT_GRAPHS = Object.freeze([
 export type ModuleDescriptor = Readonly<{
   readonly moduleId: string;
   readonly root: string;
-  readonly importGraph: typeof SEC_MODULE_IMPORT_GRAPHS[number];
+  readonly importGraph: typeof MODULE_IMPORT_GRAPHS[number];
   readonly externalEntrypoints: readonly string[];
   /** Low-level capabilities and public operations for which this module is the sole transport owner. */
   readonly capabilityProviders: readonly ModuleCapabilityProvider[];
@@ -39,7 +39,7 @@ export type ModuleDescriptor = Readonly<{
   readonly preDependencyBootstrap: boolean;
 }>;
 
-const SEC_MODULE_CAUSAL_RELATIONS = Object.freeze([
+const MODULE_CAUSAL_RELATIONS = Object.freeze([
   'declares',
   'produces',
   'parses',
@@ -57,7 +57,7 @@ const SEC_MODULE_CAUSAL_RELATIONS = Object.freeze([
 ] as const);
 
 export type ModuleCausalRelationKind =
-  (typeof SEC_MODULE_CAUSAL_RELATIONS)[number];
+  (typeof MODULE_CAUSAL_RELATIONS)[number];
 
 export type ModuleCausalRelation = Readonly<{
   readonly subject: string;
@@ -87,7 +87,7 @@ type ModuleCapabilityProvider = Readonly<{
   readonly operationRoles: readonly ModuleOperationRoleBinding[];
 }>;
 
-const SEC_MODULE_OPERATION_ROLES = Object.freeze([
+const MODULE_OPERATION_ROLES = Object.freeze([
   'attempt-issuer',
   'binding-issuer',
   'domain-owner',
@@ -101,7 +101,7 @@ const SEC_MODULE_OPERATION_ROLES = Object.freeze([
 ] as const);
 
 export type ModuleOperationRole =
-  (typeof SEC_MODULE_OPERATION_ROLES)[number];
+  (typeof MODULE_OPERATION_ROLES)[number];
 
 export type ModuleOperationRoleBinding = Readonly<{
   readonly operation: string;
@@ -414,7 +414,7 @@ export type RepositoryModuleMembershipSnapshot = Readonly<{
   readonly descriptorSources: readonly RepositoryModuleDescriptorSource[];
 }>;
 
-const SEC_MODULE_DESCRIPTOR_KEYS = Object.freeze([
+const MODULE_DESCRIPTOR_KEYS = Object.freeze([
   'importGraph',
   'externalEntrypoints',
   'capabilityProviders',
@@ -423,21 +423,21 @@ const SEC_MODULE_DESCRIPTOR_KEYS = Object.freeze([
   'preDependencyBootstrap'
 ] as const);
 
-const SEC_MODULE_ID_PATTERN = /^[a-z][a-z0-9.-]{1,127}$/u;
-const SEC_MODULE_PATH_PATTERN = /^[A-Za-z0-9._-]+(?:\/[A-Za-z0-9._-]+)*$/u;
+const MODULE_ID_PATTERN = /^[a-z][a-z0-9.-]{1,127}$/u;
+const MODULE_PATH_PATTERN = /^[A-Za-z0-9._-]+(?:\/[A-Za-z0-9._-]+)*$/u;
 /**
  * The repository no longer has a flat `src/modules` or `src/apps` layer.
  * Keep this as an admission invariant at the graph owner so a stale path,
  * descriptor, cache snapshot, or relocation request cannot silently recreate
  * either retired namespace.
  */
-const SEC_RETIRED_REPOSITORY_ROOTS = Object.freeze([
+const RETIRED_REPOSITORY_ROOTS = Object.freeze([
   'src/apps',
   'src/modules'
 ] as const);
 
 function descriptorError(field: string, detail: string): never {
-  throw new Error(`invalid sec.module.json ${field}: ${detail}`);
+  throw new Error(`invalid module.json ${field}: ${detail}`);
 }
 
 function descriptorRecord(input: unknown): Record<string, unknown> {
@@ -445,11 +445,11 @@ function descriptorRecord(input: unknown): Record<string, unknown> {
     return descriptorError('descriptor', 'expected an object');
   }
   const record = input as Record<string, unknown>;
-  const allowed = new Set<string>(SEC_MODULE_DESCRIPTOR_KEYS);
+  const allowed = new Set<string>(MODULE_DESCRIPTOR_KEYS);
   for (const key of Object.keys(record)) {
     if (!allowed.has(key)) descriptorError(key, 'unknown field');
   }
-  for (const key of SEC_MODULE_DESCRIPTOR_KEYS.filter(
+  for (const key of MODULE_DESCRIPTOR_KEYS.filter(
     (key) => key !== 'preDependencyBootstrap'
       && key !== 'capabilityProviders'
       && key !== 'operationObligations'
@@ -477,12 +477,12 @@ function descriptorCausalRelations(
     const subject = descriptorString(
       record.subject,
       `${field}.subject`,
-      SEC_SEMANTIC_OPERATION_ID_PATTERN
+      SEMANTIC_OPERATION_ID_PATTERN
     );
     const relation = descriptorEnum(
       record.relation,
       `${field}.relation`,
-      SEC_MODULE_CAUSAL_RELATIONS
+      MODULE_CAUSAL_RELATIONS
     );
     const symbolRecord = descriptorExactRecord(
       record.symbol,
@@ -492,7 +492,7 @@ function descriptorCausalRelations(
     const symbolPath = descriptorString(
       symbolRecord.path,
       `${field}.symbol.path`,
-      SEC_MODULE_PATH_PATTERN
+      MODULE_PATH_PATTERN
     );
     if (!pathWithinRoot(symbolPath, root)) {
       descriptorError(`${field}.symbol.path`, 'must remain inside the declaring module root');
@@ -516,14 +516,14 @@ function descriptorCausalRelations(
       semanticOperation: descriptorString(
         operationRecord.semanticOperation,
         `${field}.operation.semanticOperation`,
-        SEC_SEMANTIC_OPERATION_ID_PATTERN
+        SEMANTIC_OPERATION_ID_PATTERN
       ),
       requirementId: operationRecord.requirementId === null
         ? null
         : descriptorString(
             operationRecord.requirementId,
             `${field}.operation.requirementId`,
-            SEC_SEMANTIC_OPERATION_ID_PATTERN
+            SEMANTIC_OPERATION_ID_PATTERN
           )
     });
     return Object.freeze({ subject, relation, symbol, operation });
@@ -595,7 +595,7 @@ function descriptorCapabilityProviders(value: unknown): readonly ModuleCapabilit
     const capability = descriptorString(
       record.capability,
       `capabilityProviders[${index}].capability`,
-      SEC_MODULE_ID_PATTERN
+      MODULE_ID_PATTERN
     );
     const operations = descriptorStringArray(
       record.operations,
@@ -651,19 +651,19 @@ function descriptorCapabilityProviders(value: unknown): readonly ModuleCapabilit
       const role = descriptorEnum(
         roleRecord.role,
         `${roleField}.role`,
-        SEC_MODULE_OPERATION_ROLES
+        MODULE_OPERATION_ROLES
       );
       const semanticOperation = descriptorString(
         roleRecord.semanticOperation,
         `${roleField}.semanticOperation`,
-        SEC_SEMANTIC_OPERATION_ID_PATTERN
+        SEMANTIC_OPERATION_ID_PATTERN
       );
       const requirementId = roleRecord.requirementId === null
         ? null
         : descriptorString(
             roleRecord.requirementId,
             `${roleField}.requirementId`,
-            SEC_SEMANTIC_OPERATION_ID_PATTERN
+            SEMANTIC_OPERATION_ID_PATTERN
           );
       const requirementBoundRole = role === 'binding-issuer'
         || role === 'provider-settlement-issuer'
@@ -687,7 +687,7 @@ function descriptorCapabilityProviders(value: unknown): readonly ModuleCapabilit
         capability: descriptorString(
           recoveryRecord.capability,
           `${roleField}.recovery.capability`,
-          SEC_MODULE_ID_PATTERN
+          MODULE_ID_PATTERN
         ),
         operation: descriptorString(
           recoveryRecord.operation,
@@ -697,7 +697,7 @@ function descriptorCapabilityProviders(value: unknown): readonly ModuleCapabilit
         semanticOperation: descriptorString(
           recoveryRecord.semanticOperation,
           `${roleField}.recovery.semanticOperation`,
-          SEC_SEMANTIC_OPERATION_ID_PATTERN
+          SEMANTIC_OPERATION_ID_PATTERN
         )
       });
       if (role !== 'durable-worker' && recovery !== null) {
@@ -801,7 +801,7 @@ function descriptorOperationObligations(
           capability: descriptorString(
             operationRecord.capability,
             `${field}.operation.capability`,
-            SEC_MODULE_ID_PATTERN
+            MODULE_ID_PATTERN
           ),
           operation: descriptorString(
             operationRecord.operation,
@@ -814,7 +814,7 @@ function descriptorOperationObligations(
           path: descriptorString(
             operationRecord.path,
             `${field}.operation.path`,
-            SEC_MODULE_PATH_PATTERN
+            MODULE_PATH_PATTERN
           )
         });
     if (operation.kind === 'capability') {
@@ -840,7 +840,7 @@ function descriptorOperationObligations(
       consumers: descriptorStringArray(
         consumerSupportRecord.consumers,
         `${field}.consumerSupport.consumers`,
-        SEC_MODULE_ID_PATTERN
+        MODULE_ID_PATTERN
       )
     });
     const effectRecord = descriptorExactRecord(
@@ -999,24 +999,24 @@ export function parseModuleDescriptor(
   descriptorPath: string
 ): ModuleDescriptor {
   const record = descriptorRecord(input);
-  const normalizedDescriptorPath = normalizeSecRepositoryPath(descriptorPath);
+  const normalizedDescriptorPath = normalizeRepositoryModulePath(descriptorPath);
   if (isRetiredRepositoryRootPath(normalizedDescriptorPath)) {
     descriptorError('descriptorPath', 'uses a retired repository root');
   }
-  if (!isCanonicalSecRepositoryModulePath(normalizedDescriptorPath)
-      || nodePath.posix.basename(normalizedDescriptorPath) !== 'sec.module.json') {
-    descriptorError('descriptorPath', 'must be a canonical repository sec.module.json path');
+  if (!isCanonicalRepositoryModulePath(normalizedDescriptorPath)
+      || nodePath.posix.basename(normalizedDescriptorPath) !== 'module.json') {
+    descriptorError('descriptorPath', 'must be a canonical repository module.json path');
   }
   const root = nodePath.posix.dirname(normalizedDescriptorPath);
   if (root === '.') descriptorError('descriptorPath', 'repository-root descriptors are not supported');
-  const importGraph = descriptorEnum(record.importGraph, 'importGraph', SEC_MODULE_IMPORT_GRAPHS);
+  const importGraph = descriptorEnum(record.importGraph, 'importGraph', MODULE_IMPORT_GRAPHS);
   if (!root.startsWith('src/') && root !== 'tests' && importGraph !== 'content') {
     descriptorError('descriptorPath', 'non-src module roots must be content-only');
   }
   const externalEntrypoints = descriptorStringArray(
     record.externalEntrypoints,
     'externalEntrypoints',
-    SEC_MODULE_PATH_PATTERN
+    MODULE_PATH_PATTERN
   );
   const capabilityProviders = descriptorCapabilityProviders(record.capabilityProviders ?? []);
   const operationObligations = descriptorOperationObligations(
@@ -1033,7 +1033,7 @@ export function parseModuleDescriptor(
     descriptorError('preDependencyBootstrap', 'requires at least one external entrypoint');
   }
   return Object.freeze({
-    moduleId: secRepositoryModuleIdFromRoot(root),
+    moduleId: repositoryModuleIdFromRoot(root),
     root,
     importGraph,
     externalEntrypoints,
@@ -1056,11 +1056,11 @@ export function parseModuleDescriptorJson(
 
 /**
  * A package identity is a projection of its physical capability root. It is
- * never repeated in sec.module.json, so a descriptor cannot self-assign a
+ * never repeated in module.json, so a descriptor cannot self-assign a
  * semantic owner or preserve a stale identity after relocation.
  */
-function secRepositoryModuleIdFromRoot(root: string): string {
-  const normalized = normalizeSecRepositoryPath(root);
+function repositoryModuleIdFromRoot(root: string): string {
+  const normalized = normalizeRepositoryModulePath(root);
   if (normalized === 'tests') return 'verification.tests';
   const isSource = normalized.startsWith('src/');
   const segments = (isSource ? normalized.slice('src/'.length) : normalized).split('/');
@@ -1076,24 +1076,24 @@ function pathWithinRoot(path: string, root: string): boolean {
   return normalizedPath === normalizedRoot || normalizedPath.startsWith(`${normalizedRoot}/`);
 }
 
-export function normalizeSecRepositoryPath(value: string): string {
+export function normalizeRepositoryModulePath(value: string): string {
   return value.replaceAll('\\', '/').replace(/^\.\//u, '');
 }
 
 function isRetiredRepositoryRootPath(value: string): boolean {
-  const normalized = normalizeSecRepositoryPath(value).toLocaleLowerCase('en-US');
-  return SEC_RETIRED_REPOSITORY_ROOTS.some((root) => (
+  const normalized = normalizeRepositoryModulePath(value).toLocaleLowerCase('en-US');
+  return RETIRED_REPOSITORY_ROOTS.some((root) => (
     normalized === root || normalized.startsWith(`${root}/`)
   ));
 }
 
 function normalizeRepositoryPath(value: string): string {
-  return normalizeSecRepositoryPath(value);
+  return normalizeRepositoryModulePath(value);
 }
 
 export function isTestOnlyRepositoryModulePath(value: string): boolean {
-  const normalized = normalizeSecRepositoryPath(value);
-  return isSecRepositoryTestModulePath(normalized)
+  const normalized = normalizeRepositoryModulePath(value);
+  return isRepositoryTestModulePath(normalized)
     || normalized.startsWith('tests/')
     || normalized.includes('/test/');
 }
@@ -1107,7 +1107,7 @@ function absolutePathWithinRepository(repositoryRoot: string, relativePath: stri
   return absolute;
 }
 
-function isCanonicalSecRepositoryModulePath(value: string): boolean {
+function isCanonicalRepositoryModulePath(value: string): boolean {
   return value.length > 0
     && !value.includes('\0')
     && !value.startsWith('../')
@@ -1116,16 +1116,16 @@ function isCanonicalSecRepositoryModulePath(value: string): boolean {
     && !nodePath.isAbsolute(value)
     && !/^[A-Za-z]:/u.test(value)
     && !isRetiredRepositoryRootPath(value)
-    && normalizeSecRepositoryPath(value) === value;
+    && normalizeRepositoryModulePath(value) === value;
 }
 
 /** Canonical consumer-side address policy shared by graph producers. */
 export function assertRepositoryModuleGraphPath(value: string): string {
-  const normalized = normalizeSecRepositoryPath(value);
+  const normalized = normalizeRepositoryModulePath(value);
   if (isRetiredRepositoryRootPath(normalized)) {
     throw new Error(`repository module graph path uses a retired repository root: ${value}`);
   }
-  if (!isCanonicalSecRepositoryModulePath(normalized)) {
+  if (!isCanonicalRepositoryModulePath(normalized)) {
     throw new Error(`repository module graph path is not canonical: ${value}`);
   }
   return normalized;
@@ -1369,7 +1369,7 @@ type RepositorySourceAddress = Readonly<{
   path: string;
 }>;
 
-export const SEC_CANONICAL_SOURCE_MODULES = Object.freeze([
+export const CANONICAL_SOURCE_MODULES = Object.freeze([
   'contracts',
   'workspace',
   'semantics',
@@ -1382,12 +1382,12 @@ export const SEC_CANONICAL_SOURCE_MODULES = Object.freeze([
   'bootstrap'
 ] as const);
 
-export type SecCanonicalSourceModule = (typeof SEC_CANONICAL_SOURCE_MODULES)[number];
+export type CanonicalSourceModule = (typeof CANONICAL_SOURCE_MODULES)[number];
 
-const SEC_CANONICAL_SOURCE_MODULE_SET: ReadonlySet<string> =
-  new Set(SEC_CANONICAL_SOURCE_MODULES);
+const CANONICAL_SOURCE_MODULE_SET: ReadonlySet<string> =
+  new Set(CANONICAL_SOURCE_MODULES);
 
-export const SEC_CANONICAL_STATIC_DEPENDENCIES = Object.freeze({
+export const CANONICAL_STATIC_DEPENDENCIES = Object.freeze({
   contracts: Object.freeze([]),
   workspace: Object.freeze(['contracts'] as const),
   semantics: Object.freeze(['contracts'] as const),
@@ -1398,10 +1398,10 @@ export const SEC_CANONICAL_STATIC_DEPENDENCIES = Object.freeze({
   adapters: Object.freeze(['contracts', 'workspace', 'semantics', 'compiler', 'assurance', 'execution'] as const),
   entry: Object.freeze(['contracts', 'application'] as const),
   bootstrap: Object.freeze(['contracts', 'workspace', 'semantics', 'compiler', 'assurance', 'application', 'execution', 'adapters', 'entry'] as const)
-}) satisfies Readonly<Record<SecCanonicalSourceModule, readonly SecCanonicalSourceModule[]>>;
+}) satisfies Readonly<Record<CanonicalSourceModule, readonly CanonicalSourceModule[]>>;
 
 function repositorySourceAddress(value: string): RepositorySourceAddress | null {
-  const path = normalizeSecRepositoryPath(value);
+  const path = normalizeRepositoryModulePath(value);
   const segments = path.split('/');
   if (segments[0] !== 'src' || segments.length < 2) return null;
   return Object.freeze({
@@ -1411,9 +1411,9 @@ function repositorySourceAddress(value: string): RepositorySourceAddress | null 
   });
 }
 
-function canonicalSourceModule(value: RepositorySourceAddress): SecCanonicalSourceModule | null {
-  return SEC_CANONICAL_SOURCE_MODULE_SET.has(value.domain)
-    ? value.domain as SecCanonicalSourceModule
+function canonicalSourceModule(value: RepositorySourceAddress): CanonicalSourceModule | null {
+  return CANONICAL_SOURCE_MODULE_SET.has(value.domain)
+    ? value.domain as CanonicalSourceModule
     : null;
 }
 
@@ -1464,14 +1464,14 @@ function collectRepositoryImportPolicyViolations(
     return Object.freeze(violations);
   }
   if (sourceModule === targetModule) return Object.freeze(violations);
-  const allowedDependencies = SEC_CANONICAL_STATIC_DEPENDENCIES[sourceModule] as readonly SecCanonicalSourceModule[];
+  const allowedDependencies = CANONICAL_STATIC_DEPENDENCIES[sourceModule] as readonly CanonicalSourceModule[];
   if (!allowedDependencies.includes(targetModule)) {
     add('canonical-module-dependency');
   }
   return Object.freeze(violations);
 }
 
-export function collectSecCanonicalSourceBoundaryViolations(
+export function collectCanonicalSourceBoundaryViolations(
   graph: RepositoryModuleGraph,
   membership?: RepositoryModuleMembership
 ): readonly RepositoryModuleBoundaryViolation[] {
@@ -1490,7 +1490,7 @@ function membershipDeclaresSec086CanonicalPackages(
   membership: RepositoryModuleMembership
 ): boolean {
   const roots = new Set(membership.descriptors.map(({ root }) => root));
-  return SEC_CANONICAL_SOURCE_MODULES.every((moduleId) => roots.has(`src/${moduleId}`));
+  return CANONICAL_SOURCE_MODULES.every((moduleId) => roots.has(`src/${moduleId}`));
 }
 
 /**
@@ -1518,7 +1518,7 @@ export function collectRepositoryModuleBoundaryViolations(
     }));
   }
   if (membershipDeclaresSec086CanonicalPackages(membership)) {
-    violations.push(...collectSecCanonicalSourceBoundaryViolations(graph, membership));
+    violations.push(...collectCanonicalSourceBoundaryViolations(graph, membership));
   }
   const ownerEdges = compileRepositoryModuleOwnerEdges(graph, membership);
   const moduleIds = membership.descriptors.map(({ moduleId }) => moduleId);
@@ -1538,7 +1538,7 @@ export function collectRepositoryModuleBoundaryViolations(
       return address === null ? null : canonicalSourceModule(address);
     });
     const oneCanonicalPackage = canonicalOwners.length > 0
-      && canonicalOwners.every((owner): owner is SecCanonicalSourceModule => owner !== null)
+      && canonicalOwners.every((owner): owner is CanonicalSourceModule => owner !== null)
       && new Set(canonicalOwners).size === 1;
     if (oneCanonicalPackage) continue;
     const representative = component.edges[0]!.witnesses[0]!;
@@ -1623,7 +1623,7 @@ function classifyRepositoryModuleAggregateSurface(
   facts: RepositoryModuleSourceProgramFacts
 ): RepositoryModuleAggregateSurface {
   const fileFacts = facts.files.filter(({ path }) => (
-    normalizeSecRepositoryPath(path) === repositoryPath
+    normalizeRepositoryModulePath(path) === repositoryPath
   ));
   if (fileFacts.length !== 1
       || fileFacts[0]!.semanticObservationClass === undefined
@@ -1639,7 +1639,7 @@ function compileRepositoryNodeResponsibilities(
   facts: RepositoryModuleSourceProgramFacts
 ): readonly RepositoryNodeResponsibilityProjection[] {
   const digest = (value: unknown): `sha256:${string}` => (
-    `sha256:${createHash('sha256').update(JSON.stringify(value)).digest('hex')}`
+    `sha256:${rawSha256Hex(JSON.stringify(value))}`
   );
   const normalizedProductionFacts = [...facts.files]
     .filter(({ path, surface }) => (
@@ -1647,7 +1647,7 @@ function compileRepositoryNodeResponsibilities(
       && /\.[cm]?[jt]sx?$/iu.test(path)
     ))
     .flatMap((file) => {
-      const path = normalizeSecRepositoryPath(file.path);
+      const path = normalizeRepositoryModulePath(file.path);
       const moduleId = membership.moduleForPath(path)?.moduleId ?? null;
       return moduleId === null ? [] : [{
         ...file,
@@ -1671,14 +1671,14 @@ function compileRepositoryNodeResponsibilities(
     .sort((left, right) => repositoryModuleTextOrder(left.path, right.path));
   const declarations = (facts.declarations ?? []).map((declaration) => ({
     ...declaration,
-    path: normalizeSecRepositoryPath(declaration.path)
+    path: normalizeRepositoryModulePath(declaration.path)
   }));
   type ResponsibilityEvidence = NonNullable<
     RepositoryModuleSourceProgramFacts['responsibilityEvidence']
   >[number];
   const evidenceByPath = new Map<string, ResponsibilityEvidence[]>();
   for (const evidence of facts.responsibilityEvidence ?? []) {
-    const evidencePath = normalizeSecRepositoryPath(evidence.declaration.path);
+    const evidencePath = normalizeRepositoryModulePath(evidence.declaration.path);
     const values = evidenceByPath.get(evidencePath) ?? [];
     values.push(evidence);
     evidenceByPath.set(evidencePath, values);
@@ -1753,7 +1753,7 @@ function compileRepositoryNodeResponsibilities(
   }));
 }
 
-export function isSecRepositoryNodeDependencyAllowed(
+export function isRepositoryNodeDependencyAllowed(
   from: RepositoryNodeResponsibility,
   to: RepositoryNodeResponsibility
 ): boolean {
@@ -1807,7 +1807,7 @@ function compileRepositoryModuleAuthorityRoleViolations(
       if (!conflict) continue;
       violations.push(Object.freeze({
         code: 'repository-module-role-unresolved',
-        from: `${descriptor.root}/sec.module.json`,
+        from: `${descriptor.root}/module.json`,
         to: semanticOperation,
         detail: `${descriptor.moduleId} co-owns independent semantic operation roles for ${semanticOperation}: ${roleKinds.join(', ')}`
       }));
@@ -1829,8 +1829,8 @@ function compileRepositoryModuleAuthorityRoleViolations(
         violations.push(Object.freeze({
           code: 'authority-mint-export-unclassified',
           from: declarations.length === 1
-            ? normalizeSecRepositoryPath(declarations[0]!.path)
-            : `${descriptor.root}/sec.module.json`,
+            ? normalizeRepositoryModulePath(declarations[0]!.path)
+            : `${descriptor.root}/module.json`,
           to: `${provider.capability}:${operation}`,
           detail: declarations.length === 1
             ? 'exported authority operation has no exact operation role classification'
@@ -1897,12 +1897,12 @@ export function compileRepositoryModuleArchitectureProjection(
   }
   for (const reference of graph.references) {
     if (reference.resolvedTarget === null) continue;
-    const from = responsibilityByPath.get(normalizeSecRepositoryPath(reference.from));
-    const to = responsibilityByPath.get(normalizeSecRepositoryPath(reference.resolvedTarget));
+    const from = responsibilityByPath.get(normalizeRepositoryModulePath(reference.from));
+    const to = responsibilityByPath.get(normalizeRepositoryModulePath(reference.resolvedTarget));
     if (from === undefined || to === undefined
         || from.responsibility === 'unknown'
         || to.responsibility === 'unknown') continue;
-    if (!isSecRepositoryNodeDependencyAllowed(from.responsibility, to.responsibility)) {
+    if (!isRepositoryNodeDependencyAllowed(from.responsibility, to.responsibility)) {
       violations.push(Object.freeze({
         code: 'repository-node-responsibility-reverse-dependency',
         from: from.path,
@@ -1936,7 +1936,7 @@ export function compileRepositoryModuleArchitectureProjection(
   });
 }
 
-export function assertSecRepositoryModuleArchitectureBoundaries(
+export function assertRepositoryModuleArchitectureBoundaries(
   graph: RepositoryModuleGraph,
   membership: RepositoryModuleMembership,
   facts: RepositoryModuleSourceProgramFacts
@@ -1956,7 +1956,7 @@ export function assertSecRepositoryModuleArchitectureBoundaries(
  * it only rejects facts that the exact Source Program snapshot has already
  * classified and resolved.
  */
-export function collectSecRepositoryModuleSourceProgramViolations(
+export function collectRepositoryModuleSourceProgramViolations(
   facts: RepositoryModuleSourceProgramFacts,
   membership: RepositoryModuleMembership
 ): readonly RepositoryModuleBoundaryViolation[] {
@@ -1967,13 +1967,13 @@ export function collectSecRepositoryModuleSourceProgramViolations(
 
   for (const file of facts.files) {
     if (file.surface !== 'production'
-        || !normalizeSecRepositoryPath(file.path).startsWith('src/')
+        || !normalizeRepositoryModulePath(file.path).startsWith('src/')
         || !/\.[cm]?[jt]sx?$/iu.test(file.path)
         || file.moduleId !== null) continue;
     violations.push(Object.freeze({
       code: 'unowned-production-source',
       from: file.path,
-      to: 'sec.module.json',
+      to: 'module.json',
       detail: `${file.path} is production source with no repository module owner`
     }));
   }
@@ -1991,7 +1991,7 @@ export function collectSecRepositoryModuleSourceProgramViolations(
       ...closure.targetPaths,
       ...closure.capabilityPaths,
       ...closure.reachablePaths
-    ].map(normalizeSecRepositoryPath).filter((repositoryPath) => (
+    ].map(normalizeRepositoryModulePath).filter((repositoryPath) => (
       repositoryPath.startsWith('src/')
       && /\.[cm]?[jt]sx?$/iu.test(repositoryPath)
     )))].sort((left, right) => left.localeCompare(right, 'en-US'));
@@ -2031,7 +2031,7 @@ export function collectSecRepositoryModuleSourceProgramViolations(
       }));
       continue;
     }
-    const declaredEntrypoints = new Set(owner.externalEntrypoints.map(normalizeSecRepositoryPath));
+    const declaredEntrypoints = new Set(owner.externalEntrypoints.map(normalizeRepositoryModulePath));
     const ownedHandlerPaths = repositoryHandlerPaths.filter((repositoryPath) => (
       membership.moduleForPath(repositoryPath)?.moduleId === owner.moduleId
     ));
@@ -2058,11 +2058,11 @@ export function collectSecRepositoryModuleSourceProgramViolations(
       .localeCompare(`${right.code}\0${right.from}\0${right.to}\0${right.detail}`, 'en-US')));
 }
 
-export function assertSecRepositoryModuleSourceProgramBoundaries(
+export function assertRepositoryModuleSourceProgramBoundaries(
   facts: RepositoryModuleSourceProgramFacts,
   membership: RepositoryModuleMembership
 ): void {
-  const violations = collectSecRepositoryModuleSourceProgramViolations(facts, membership);
+  const violations = collectRepositoryModuleSourceProgramViolations(facts, membership);
   if (violations.length === 0) return;
   throw new Error([
     `repository module source-program boundary violations (${violations.length})`,
@@ -2071,7 +2071,7 @@ export function assertSecRepositoryModuleSourceProgramBoundaries(
   ].join('\n'));
 }
 
-export function assertSecRepositoryModuleImportBoundaries(
+export function assertRepositoryModuleImportBoundaries(
   graph: RepositoryModuleGraph,
   membership: RepositoryModuleMembership
 ): void {
@@ -2128,7 +2128,7 @@ function discoverDescriptorPathsSync(
       const absolutePath = nodePath.join(absoluteDirectory, entry.name);
       if (entry.isDirectory()) {
         visit(absolutePath);
-      } else if (entry.isFile() && entry.name === 'sec.module.json') {
+      } else if (entry.isFile() && entry.name === 'module.json') {
         paths.push(normalizeRepositoryPath(nodePath.relative(repositoryRoot, absolutePath)));
       }
     }
@@ -2235,7 +2235,7 @@ function compileRepositoryModuleMembershipFromDescriptors(
   }));
   const moduleForPathCache = new Map<string, ModuleDescriptor | null>();
   const moduleForPath = (inputPath: string): ModuleDescriptor | null => {
-    const normalized = normalizeSecRepositoryPath(inputPath);
+    const normalized = normalizeRepositoryModulePath(inputPath);
     const normalizedKey = normalized.toLocaleLowerCase('en-US');
     const cached = moduleForPathCache.get(normalizedKey);
     if (cached !== undefined || moduleForPathCache.has(normalizedKey)) return cached ?? null;
@@ -2264,13 +2264,13 @@ export function compileRepositoryModuleMembershipSnapshot(
   snapshot: RepositoryModuleMembershipSnapshot
 ): RepositoryModuleMembership {
   const repositoryFiles = Object.freeze(snapshot.repositoryFiles.map((repositoryFile) => {
-    const normalized = normalizeSecRepositoryPath(repositoryFile);
+    const normalized = normalizeRepositoryModulePath(repositoryFile);
     if (isRetiredRepositoryRootPath(normalized)) {
       throw new Error(
         `repository snapshot path uses a retired repository root: ${repositoryFile}`
       );
     }
-    if (normalized !== repositoryFile || !isCanonicalSecRepositoryModulePath(normalized)) {
+    if (normalized !== repositoryFile || !isCanonicalRepositoryModulePath(normalized)) {
       throw new Error(`repository snapshot contains a non-canonical path: ${repositoryFile}`);
     }
     return normalized;
@@ -2280,16 +2280,16 @@ export function compileRepositoryModuleMembershipSnapshot(
   }
   const repositoryFileSet = new Set(repositoryFiles);
   const expectedDescriptorPaths = repositoryFiles.filter((repositoryFile) => (
-    nodePath.posix.basename(repositoryFile) === 'sec.module.json'
+    nodePath.posix.basename(repositoryFile) === 'module.json'
   ));
   if (expectedDescriptorPaths.length === 0) {
     throw new Error('repository snapshot module descriptor census is missing');
   }
   const descriptorSourceByPath = new Map<string, string>();
   for (const descriptorSource of snapshot.descriptorSources) {
-    const descriptorPath = normalizeSecRepositoryPath(descriptorSource.descriptorPath);
+    const descriptorPath = normalizeRepositoryModulePath(descriptorSource.descriptorPath);
     if (descriptorPath !== descriptorSource.descriptorPath
-        || nodePath.posix.basename(descriptorPath) !== 'sec.module.json'
+        || nodePath.posix.basename(descriptorPath) !== 'module.json'
         || !repositoryFileSet.has(descriptorPath)) {
       throw new Error(`repository snapshot descriptor is not one observed file: ${descriptorSource.descriptorPath}`);
     }
@@ -2316,7 +2316,7 @@ export function compileRepositoryModuleMembershipSnapshot(
     }
   }));
   return compileRepositoryModuleMembershipFromDescriptors(descriptors, {
-    rootExists: (descriptor) => repositoryFileSet.has(`${descriptor.root}/sec.module.json`),
+    rootExists: (descriptor) => repositoryFileSet.has(`${descriptor.root}/module.json`),
     entrypointExists: (entrypoint) => repositoryFileSet.has(entrypoint),
     directExecutableSources: (descriptor) => repositoryFiles
       .filter((repositoryFile) => (

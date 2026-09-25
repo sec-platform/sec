@@ -1,9 +1,9 @@
-import { createHash } from 'node:crypto';
 import path from 'node:path';
 
+import { rawSha256Hex } from '../../../../contracts/canonical.ts';
 import { issueOperationRequirementBindingContext } from '../../../../execution/operation/requirement-binding-context.ts';
 import {
-  bindSecSemanticOperation,
+  bindSemanticOperation,
   compileCapabilityBinding,
   compileSemanticOperationPlan,
   issueSemanticOperationAttemptContext
@@ -77,7 +77,7 @@ function compileCommitJournalRetirementOperation(
       ])
     })]
   });
-  return bindSecSemanticOperation(plan, [compileCapabilityBinding({
+  return bindSemanticOperation(plan, [compileCapabilityBinding({
     requirementId: JOURNAL_RETIREMENT_REQUIREMENT_ID,
     contractDigest: JOURNAL_RETIREMENT_CONTRACT_DIGEST,
     providerIdentityDigest:
@@ -177,7 +177,7 @@ export async function retireClosedUnmergedRecoveryFamily(input: Readonly<{
   }
   if (proof !== null) {
     if (proof.kind !== 'file' || proof.bytes === null || proof.linkTarget !== null
-      || `sha256:${createHash('sha256').update(proof.bytes).digest('hex')}`
+      || `sha256:${rawSha256Hex(proof.bytes)}`
         !== preparation.recovery.sha256) {
       throw new Error('Closed-unmerged recovery proof differs from its prepared digest.');
     }

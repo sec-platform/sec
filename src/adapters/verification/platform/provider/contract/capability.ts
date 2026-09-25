@@ -14,8 +14,8 @@
  * SEC runtime can satisfy it through distinct capability identities.
  */
 
-import { createHash } from 'node:crypto';
 
+import { rawSha256Hex } from '../../../../../contracts/canonical.ts';
 import { CompilerError } from '../../../../../compiler/errors.ts';
 import { encodeVerificationActionData } from '../../action/contract/action.ts';
 
@@ -107,7 +107,7 @@ function instant(value: unknown, label: string): string {
 }
 
 function hash(value: unknown): `sha256:${string}` {
-  return `sha256:${createHash('sha256').update(encodeVerificationActionData(value)).digest('hex')}`;
+  return `sha256:${rawSha256Hex(encodeVerificationActionData(value))}`;
 }
 
 function expectedRole(capability: VerificationProviderCapabilityId): VerificationProviderRole {

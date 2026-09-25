@@ -15,7 +15,6 @@ import {
 } from '../../session/runtime/work-package-registry.ts';
 
 import { spawnSync } from 'node:child_process';
-import { createHash } from 'node:crypto';
 import {
   closeSync,
   existsSync,
@@ -33,9 +32,9 @@ import path from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 
 import { CompilerError } from '../../../../../compiler/errors.ts';
-import { sha256 } from '../../../../../contracts/canonical.ts';
+import { rawSha256Hex, sha256 } from '../../../../../contracts/canonical.ts';
 import { issueOperationRequirementBindingContext } from '../../../../../execution/operation/requirement-binding-context.ts';
-import { bindSecSemanticOperation, compileCapabilityBinding, compileSemanticOperationPlan, issueSemanticOperationAttemptContext, type OperationDigest } from '../../../../../execution/operation/semantic.ts';
+import { bindSemanticOperation, compileCapabilityBinding, compileSemanticOperationPlan, issueSemanticOperationAttemptContext, type OperationDigest } from '../../../../../execution/operation/semantic.ts';
 import { assertWorkspaceWriteLease, withWorkspaceWriteLease, type WorkspaceWriteLeaseToken } from '../../../../filesystem/write-lease.ts';
 import {
   compileIssueDisposition,
@@ -63,8 +62,8 @@ import {
 import type { GitHubWorkflowJobObservation, GitHubWorkflowRunObservation } from '../../../../providers/github-api/contract.ts';
 import { assertProcessResourceSessionReceipt, openProcessResourceSession } from '../../../../runtime-state/physical/runtime/process-resource-session.ts';
 import { createRuntimeStateJournalFileSystem } from '../../../../runtime-state/workspace-state/journal-filesystem.ts';
-import { resolveSecWorkspaceRuntimeRoots } from '../../../../runtime-state/workspace-state/paths.ts';
-import { acquireSecRuntimeJournalAuthority } from '../../../../runtime-state/workspace-state/physical-authority.ts';
+import { resolveWorkspaceRuntimeRoots } from '../../../../runtime-state/workspace-state/paths.ts';
+import { acquireRuntimeJournalAuthority } from '../../../../runtime-state/workspace-state/physical-authority.ts';
 import {
   BRANCH_CLOSEOUT_RECOVERY_ARTIFACT_FILE_NAME,
   authorizeBranchCloseout,
@@ -189,7 +188,7 @@ import { assertProviderRetryGuard, resolveProviderAvailability } from '../../pro
 import { renderIndependentReviewTrailer, type ReviewStabilityReceipt } from '../../review/contract/stability.ts';
 import { VERIFICATION_SESSION_RUNTIME_ENTRYPOINT_PATH, parseVerificationSession, type VerificationSession } from '../../session/contract/session.ts';
 import type { TestImpactTransitionObservation } from '../../test-impact/runtime/transition.ts';
-import { SEC_TRUSTED_BOOTSTRAP_REGISTRY } from '../../trust/contract/root.ts';
+import { TRUSTED_BOOTSTRAP_REGISTRY } from '../../trust/contract/root.ts';
 import {
   createVerificationEvidenceProducer,
   parseVerificationSessionArtifact
@@ -496,9 +495,9 @@ function inspectTrustedRuntime(input: {
     ctx, 'git', ['rev-parse', `${currentHeadSha}:${entrypointPath}`], 'runtime entrypoint trusted blob'
   ) === requireCommand(ctx, 'git', ['hash-object', '--', entrypointPath], 'runtime entrypoint working blob');
   let boundaryTargetsMatched = true;
-  for (const edge of SEC_TRUSTED_BOOTSTRAP_REGISTRY.reviewedBoundaryEdges) {
+  for (const edge of TRUSTED_BOOTSTRAP_REGISTRY.reviewedBoundaryEdges) {
     const target = edge.split(' -> ')[1];
-    if (target === undefined || !SEC_TRUSTED_BOOTSTRAP_REGISTRY.staticExactPaths.includes(target)) {
+    if (target === undefined || !TRUSTED_BOOTSTRAP_REGISTRY.staticExactPaths.includes(target)) {
       boundaryTargetsMatched = false;
       break;
     }
@@ -645,7 +644,7 @@ type LocalCandidateWorktreeLease = Readonly<{
 }>;
 
 function verificationSessionDigest(value: unknown): `sha256:${string}` {
-  return `sha256:${createHash('sha256').update(encodeVerificationActionData(value)).digest('hex')}`;
+  return `sha256:${rawSha256Hex(encodeVerificationActionData(value))}`;
 }
 
 function comparableFileSystemPath(filePath: string): string {
@@ -1176,8 +1175,8 @@ async function loadProviderBranchCloseoutRecoveryArtifact(input: {
   }
   const metadata = matches[0]!;
   if (metadata.expired || metadata.runId !== input.runId || metadata.runAttempt !== input.runAttempt
-    || metadata.workflowPath !== '.github/workflows/sec-merge-gate.yml'
-    || metadata.workflowRef !== `.github/workflows/sec-merge-gate.yml@${input.session.baseSha}`
+    || metadata.workflowPath !== '.github/workflows/merge-gate.yml'
+    || metadata.workflowRef !== `.github/workflows/merge-gate.yml@${input.session.baseSha}`
     || metadata.workflowSha !== input.session.baseSha || metadata.eventName !== 'repository_dispatch'
     || metadata.actorNodeId !== CI_GITHUB_ACTIONS_IDENTITY_POLICY.bot.nodeId
     || metadata.actorPermission !== 'none') {
@@ -2070,7 +2069,7 @@ async function assertHostedIntegrationIdentity(input: {
     throw new Error('integrate-hosted environment is not the exact provider main revision.');
   }
   const workflowRef = environment.GITHUB_WORKFLOW_REF ?? '';
-  const expectedWorkflowRef = `${repository}/.github/workflows/sec-merge-gate.yml@refs/heads/main`;
+  const expectedWorkflowRef = `${repository}/.github/workflows/merge-gate.yml@refs/heads/main`;
   if (workflowRef !== expectedWorkflowRef || environment.GITHUB_WORKFLOW_SHA !== workflowSha) {
     throw new Error('integrate-hosted is not running from the canonical merge workflow.');
   }
@@ -2089,7 +2088,7 @@ async function assertHostedIntegrationIdentity(input: {
   const wakeup = hostedMergeWakeupLocator(event);
   if (String(currentRun.id ?? '') !== runId || currentRun.run_attempt !== runAttempt
     || currentRun.event !== wakeup.eventName
-    || currentRun.path !== '.github/workflows/sec-merge-gate.yml'
+    || currentRun.path !== '.github/workflows/merge-gate.yml'
     || currentRun.head_sha !== workflowSha
     || String(currentRun.repository?.id ?? '') !== repositoryId) {
     throw new Error('integrate-hosted current workflow run provenance mismatch.');
@@ -2142,8 +2141,8 @@ async function assertHostedIntegrationIdentity(input: {
     assertTrustedExactRevisionRuntime(proof, baseSha);
   }
   const provenance = createHostedWorkflowCommentProvenance({ repositoryId,
-    workflowPath: '.github/workflows/sec-merge-gate.yml',
-    workflowRef: `.github/workflows/sec-merge-gate.yml@${workflowSha}`, workflowSha,
+    workflowPath: '.github/workflows/merge-gate.yml',
+    workflowRef: `.github/workflows/merge-gate.yml@${workflowSha}`, workflowSha,
     runId, runAttempt, eventName: 'workflow_run', sourceRunId, sourceRunAttempt,
     actorLogin: sourceTriggeringActorLogin, actorNodeId: sourceTriggeringActorNodeId,
     actorPermission: sourceTriggeringActor.permission,
@@ -2626,7 +2625,7 @@ async function deleteHostedLocalRefCas(
       failureKinds: ['filesystem.identity-drift', 'filesystem.write-failed', 'process.cancelled',
         'process.deadline-exhausted', 'process.output-budget-exhausted', 'process.settlement-unproven', 'process.unavailable'] }]
   });
-  const operation = bindSecSemanticOperation(plan, [compileCapabilityBinding({
+  const operation = bindSemanticOperation(plan, [compileCapabilityBinding({
     requirementId: HOSTED_LOCAL_REF_REQUIREMENT, contractDigest: HOSTED_LOCAL_REF_CONTRACT,
     providerIdentityDigest: HOSTED_LOCAL_REF_PROVIDER
   })]);
@@ -3342,7 +3341,7 @@ function closeoutPublicationCompositeDigest(input: {
   if (!Number.isSafeInteger(input.commentId) || input.commentId < 1) {
     throw new Error('Closeout publication comment id must be a positive safe integer.');
   }
-  return `sha256:${createHash('sha256').update(encodeVerificationActionData(input)).digest('hex')}`;
+  return `sha256:${rawSha256Hex(encodeVerificationActionData(input))}`;
 }
 
 type HostedCompilerDispatchPayload = Readonly<{ payload: unknown }>;
@@ -3437,7 +3436,7 @@ export function assertHostedCompilerInternalProvenance(input: {
   if (input.parentPlanSource !== canonicalPlanSource
     || ciVerificationActionParentDispatchPlanPayloadDigest(parentPlan)
       !== envelope.parentDispatchPlanPayloadDigest
-    || `sha256:${createHash('sha256').update(Buffer.from(input.parentPlanSource, 'utf8')).digest('hex')}`
+    || `sha256:${rawSha256Hex(Buffer.from(input.parentPlanSource, 'utf8'))}`
       !== envelope.parentDispatchPlanPayloadDigest) {
     throw new Error('Internal Action parent dispatch plan artifact bytes/digest are not canonical.');
   }
@@ -3718,9 +3717,7 @@ function evaluateFreshHostedIntegration(input: {
     throw new Error(`Hosted integration Review barrier ${barrier.status}: ${
       barrier.status === 'provider-schema-unsupported' ? barrier.reasonCode : barrier.reason}`);
   }
-  const operationId = `sha256:${createHash('sha256').update(
-    `${artifact.session.sessionRevision}:pre-merge-review`
-  ).digest('hex')}` as const;
+  const operationId = `sha256:${rawSha256Hex(`${artifact.session.sessionRevision}:pre-merge-review`)}` as const;
   const preMergeReview = createVerificationSessionReviewReceipt({ stage: 'pre-merge',
     session: artifact.session, scope: artifact.scopeAuthorization, barrier,
     candidateAuthorNodeId: candidate.authorNodeId, integrationPrincipalNodeId,
@@ -3735,7 +3732,7 @@ function evaluateFreshHostedIntegration(input: {
     throw new Error('Hosted integration candidate ancestry or same-head PR identity is not mergeable.');
   }
   const issuedAt = barrier.observedAt;
-  const workflowRef = `.github/workflows/sec-merge-gate.yml@${artifact.session.baseSha}`;
+  const workflowRef = `.github/workflows/merge-gate.yml@${artifact.session.baseSha}`;
   const freshMainHealthInputs = createRegisteredHostedMainHealthInputs({
     repository, mainSha: candidate.baseSha, mainTreeSha: candidate.baseTreeSha,
     trustRevision: artifact.session.trustRevision, observedAt: issuedAt,
@@ -3758,7 +3755,7 @@ function evaluateFreshHostedIntegration(input: {
       headTreeSha: candidate.headTreeSha, baseIsAncestor: true, behindBy: 0,
       manifestPath: artifact.session.manifestPath, manifestDigest: artifact.session.manifestDigest,
       changedPaths },
-    provenance: { workflowPath: '.github/workflows/sec-merge-gate.yml', workflowRef,
+    provenance: { workflowPath: '.github/workflows/merge-gate.yml', workflowRef,
       workflowSha: artifact.session.baseSha, eventName: 'workflow_run',
       sourceRunId: provenance.runId, sourceRunAttempt: provenance.runAttempt,
       actorNodeId: integrationPrincipalNodeId, actorPermission: provenance.actorPermission },
@@ -4212,8 +4209,8 @@ export async function verificationSessionCli(argv: string[]): Promise<string> {
   }
   let runtimeJournalFs: VerificationSessionJournalFileSystem | null = null;
   if (new Set(['prepare', 'resume', 'status', 'status-offline', 'integrate-hosted']).has(command)) {
-    const authority = await acquireSecRuntimeJournalAuthority({ repositoryRoot, environment });
-    const roots = resolveSecWorkspaceRuntimeRoots({ repositoryRoot, environment });
+    const authority = await acquireRuntimeJournalAuthority({ repositoryRoot, environment });
+    const roots = resolveWorkspaceRuntimeRoots({ repositoryRoot, environment });
     runtimeJournalFs = createRuntimeStateJournalFileSystem(
       authority.directory(roots.workspaceStateRoot)
     );
@@ -5105,10 +5102,8 @@ export async function verificationSessionCli(argv: string[]): Promise<string> {
         const status = observed.publication.receipt.closeoutStatus;
         if (status === 'blocked' || status === 'residue') return { status: 'blocked' as const,
           reason: `branch closeout terminal ${status}` };
-        return { status, receiptDigest: `sha256:${createHash('sha256').update(
-          encodeVerificationActionData({ closeoutOperationId: binding.closeoutOperationId,
-            publicationDigest: observed.publication.publicationDigest, commentId: observed.commentId })
-        ).digest('hex')}` as const };
+        return { status, receiptDigest: `sha256:${rawSha256Hex(encodeVerificationActionData({ closeoutOperationId: binding.closeoutOperationId,
+            publicationDigest: observed.publication.publicationDigest, commentId: observed.commentId }))}` as const };
       }
     };
     const reduce = (journalFs: VerificationSessionJournalFileSystem) => resumeVerificationSession({ repositoryRoot,

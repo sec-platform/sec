@@ -14,25 +14,25 @@ import {
   compileVirtualRepositorySourceProgramCompilation,
   repositoryCompilationDiagnosticsForTests
 } from './repository-compilation.ts';
-import { compileRepositorySourceProgramModelFromWorkspaceSnapshot } from './repository.ts';
+import { compileRepositoryModelFromSnapshot } from './repository.ts';
 import {
-  compileSourceProgramTestObservationsFromWorkspaceSnapshot,
-  workspaceSourceSnapshotIdentityForTestObservations
+  compileTestObservationsFromSnapshot,
+  snapshotIdentityForTestObservations
 } from './test-observations.ts';
 import {
-  compileTypeScriptSourceProgramModelFromWorkspaceSnapshot,
-  workspaceSourceSnapshotIdentityForTypeScriptModel
+  compileTypeScriptModelWithCompilation,
+  workspaceSnapshotIdentityForTypeScriptModel
 } from './typescript.ts';
 import {
   assertWorkspaceSourceSnapshot,
-  compileVirtualWorkspaceSourceSnapshot,
-  compileWorkspaceTypeScriptProjectInput,
+  compileVirtualSnapshot,
+  compileTypeScriptProjectInput,
   type WorkspaceSourceSnapshot,
   type WorkspaceSourceSnapshotSubject
 } from './workspace-source-snapshot.ts';
 
 function fixture(value: number) {
-  const descriptorPath = 'src/example/sec.module.json';
+  const descriptorPath = 'src/example/module.json';
   const sources = Object.freeze({
     'src/example/operation.ts': `export const value = ${value};\n`,
     'tsconfig.json': `${JSON.stringify({
@@ -85,7 +85,7 @@ function virtualSnapshotSubject(identity: string): WorkspaceSourceSnapshotSubjec
 
 test('one owner-issued virtual snapshot compiles one graph for every Source Program projection', () => {
   const input = fixture(1);
-  const workspaceSnapshot = compileVirtualWorkspaceSourceSnapshot({
+  const workspaceSnapshot = compileVirtualSnapshot({
     ...input,
     subject: virtualSnapshotSubject('virtual-observation') as Extract<WorkspaceSourceSnapshotSubject, { kind: 'virtual-mutation' }>
   });
@@ -103,9 +103,9 @@ test('one owner-issued virtual snapshot compiles one graph for every Source Prog
     'tests/example.test.ts',
     'tsconfig.json'
   ]);
-  expect(workspaceSourceSnapshotIdentityForTypeScriptModel(receipt.typeScriptCompilation.model))
+  expect(workspaceSnapshotIdentityForTypeScriptModel(receipt.typeScriptCompilation.model))
     .toBe(receipt.workspaceSnapshotIdentityDigest);
-  expect(workspaceSourceSnapshotIdentityForTestObservations(receipt.testObservations))
+  expect(snapshotIdentityForTestObservations(receipt.testObservations))
     .toBe(receipt.workspaceSnapshotIdentityDigest);
   expect(receipt.model.sourceRevision).toBe(workspaceSnapshot.sourceRevision);
   expect(receipt.receiptDigest).toMatch(/^sha256:[0-9a-f]{64}$/u);
@@ -114,7 +114,7 @@ test('one owner-issued virtual snapshot compiles one graph for every Source Prog
 test('repository compilation contexts reject fact mixing and keep virtual mutation explicit', () => {
   const left = fixture(1);
   const right = fixture(1);
-  const leftContext = compileVirtualWorkspaceSourceSnapshot({
+  const leftContext = compileVirtualSnapshot({
     ...left,
     subject: virtualSnapshotSubject('left-observation') as Extract<WorkspaceSourceSnapshotSubject, { kind: 'virtual-mutation' }>
   });
@@ -126,32 +126,32 @@ test('repository compilation contexts reject fact mixing and keep virtual mutati
       mutationDigest: sha256('replace value') as `sha256:${string}`
     })
   });
-  const rightContext = compileVirtualWorkspaceSourceSnapshot({
+  const rightContext = compileVirtualSnapshot({
     ...right,
     subject: mutationSubject as Extract<WorkspaceSourceSnapshotSubject, { kind: 'virtual-mutation' }>
   });
-  const leftModel = compileTypeScriptSourceProgramModelFromWorkspaceSnapshot({
+  const leftModel = compileTypeScriptModelWithCompilation({
     ...left,
     sourceRevision: leftContext.sourceRevision
   }, leftContext);
-  const rightModel = compileTypeScriptSourceProgramModelFromWorkspaceSnapshot({
+  const rightModel = compileTypeScriptModelWithCompilation({
     ...right,
     sourceRevision: rightContext.sourceRevision
   }, rightContext);
 
   expect(rightContext.subject.kind).toBe('virtual-mutation');
-  expect(() => compileSourceProgramTestObservationsFromWorkspaceSnapshot({
+  expect(() => compileTestObservationsFromSnapshot({
     productionModel: leftModel,
     files: right.files,
     moduleMembership: right.moduleMembership
   }, rightContext)).toThrow('cannot mix a production model');
 
-  const leftObservations = compileSourceProgramTestObservationsFromWorkspaceSnapshot({
+  const leftObservations = compileTestObservationsFromSnapshot({
     productionModel: leftModel,
     files: left.files,
     moduleMembership: left.moduleMembership
   }, leftContext);
-  expect(() => compileRepositorySourceProgramModelFromWorkspaceSnapshot({
+  expect(() => compileRepositoryModelFromSnapshot({
     ...right,
     sourceRevision: rightContext.sourceRevision,
     typescriptModel: rightModel,
@@ -161,7 +161,7 @@ test('repository compilation contexts reject fact mixing and keep virtual mutati
 
 test('workspace source snapshot origin cannot be forged by structural copying', () => {
   const input = fixture(1);
-  const issued = compileVirtualWorkspaceSourceSnapshot({
+  const issued = compileVirtualSnapshot({
     ...input,
     subject: virtualSnapshotSubject('issued-context') as Extract<WorkspaceSourceSnapshotSubject, { kind: 'virtual-mutation' }>
   });
@@ -177,7 +177,7 @@ test('workspace source snapshot owns immutable repository-relative source bytes'
   const mutableFile = {
     ...input.files[0]!
   };
-  const issued = compileVirtualWorkspaceSourceSnapshot({
+  const issued = compileVirtualSnapshot({
     ...input,
     files: [mutableFile, ...input.files.slice(1)],
     subject: virtualSnapshotSubject('immutable-snapshot') as Extract<WorkspaceSourceSnapshotSubject, { kind: 'virtual-mutation' }>
@@ -196,11 +196,11 @@ test('workspace source snapshot owns immutable repository-relative source bytes'
 
 test('cache absence and open, read, or publish failure preserve the cold semantic generation', () => {
   const input = fixture(1);
-  const workspaceSnapshot = compileVirtualWorkspaceSourceSnapshot({
+  const workspaceSnapshot = compileVirtualSnapshot({
     ...input,
     subject: virtualSnapshotSubject('cache-failure-fallback') as Extract<WorkspaceSourceSnapshotSubject, { kind: 'virtual-mutation' }>
   });
-  const projectInput = compileWorkspaceTypeScriptProjectInput(
+  const projectInput = compileTypeScriptProjectInput(
     workspaceSnapshot,
     'tsconfig.json'
   );
@@ -252,11 +252,11 @@ test('cache absence and open, read, or publish failure preserve the cold semanti
 
 test('read-only cache consumption preserves reads and the semantic receipt without publication', () => {
   const input = fixture(1);
-  const workspaceSnapshot = compileVirtualWorkspaceSourceSnapshot({
+  const workspaceSnapshot = compileVirtualSnapshot({
     ...input,
     subject: virtualSnapshotSubject('read-only-cache') as Extract<WorkspaceSourceSnapshotSubject, { kind: 'virtual-mutation' }>
   });
-  const projectInput = compileWorkspaceTypeScriptProjectInput(workspaceSnapshot, 'tsconfig.json');
+  const projectInput = compileTypeScriptProjectInput(workspaceSnapshot, 'tsconfig.json');
   const calls = { exact: 0, predecessor: 0, publish: 0 };
   const provider: RepositoryCompilationCacheProvider = Object.freeze({
     openContentAddressedHint: (generation: RepositoryCompilationGenerationReceipt) => {
@@ -292,11 +292,11 @@ test('read-only cache consumption preserves reads and the semantic receipt witho
 
 test('one bounded compilation reports exact phases and rejects late cache publication', () => {
   const input = fixture(1);
-  const workspaceSnapshot = compileVirtualWorkspaceSourceSnapshot({
+  const workspaceSnapshot = compileVirtualSnapshot({
     ...input,
     subject: virtualSnapshotSubject('bounded-compilation') as Extract<WorkspaceSourceSnapshotSubject, { kind: 'virtual-mutation' }>
   });
-  const projectInput = compileWorkspaceTypeScriptProjectInput(workspaceSnapshot, 'tsconfig.json');
+  const projectInput = compileTypeScriptProjectInput(workspaceSnapshot, 'tsconfig.json');
   const operation = createSourceProgramCompilationOperation({
     deadlineAtUnixMs: Date.now() + 30_000
   });

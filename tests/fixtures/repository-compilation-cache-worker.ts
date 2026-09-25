@@ -5,7 +5,7 @@ import { inspectNoFollowDirectoryChain } from '../../src/adapters/runtime-state/
 import { openContentAddressedWorkspaceCacheSession } from '../../src/adapters/runtime-state/workspace-state/content-addressed-workspace-cache.ts';
 import { sha256 } from '../../src/contracts/canonical.ts';
 import {
-  bindSecSemanticOperation,
+  bindSemanticOperation,
   compileCapabilityBinding,
   compileSemanticOperationPlan,
   issueSemanticOperationAttemptContext,
@@ -25,7 +25,7 @@ const payload = JSON.parse(readFileSync(payloadPath, 'utf8')) as Readonly<{
 }>;
 const requirementId = 'brownfield.repository-compilation-cache.test-worker';
 const contractDigest = sha256({ requirementId }) as OperationDigest;
-const operation = bindSecSemanticOperation(compileSemanticOperationPlan({
+const operation = bindSemanticOperation(compileSemanticOperationPlan({
   operation: 'brownfield.repository-compilation-cache.test-worker',
   intentDigest: sha256({ repositoryRoot: payload.repositoryRoot, mode }) as OperationDigest,
   decisionDigest: contractDigest,

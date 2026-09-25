@@ -2,7 +2,7 @@ import path from 'node:path';
 
 import { sha256 } from '../../../contracts/canonical.ts';
 import {
-  assertSecSemanticOperationProjection,
+  assertSemanticOperationProjection,
   type BoundSemanticOperation
 } from '../../../execution/operation/semantic.ts';
 import { acquirePhysicalMutationLease } from '../physical/runtime/mutation-lease.ts';
@@ -14,7 +14,7 @@ import {
   type RetainedRuntimeStateDirectory
 } from '../physical/runtime/retained-runtime-state-directory.ts';
 import { resolveWindowsKnownFolderPath } from '../physical/runtime/windows-known-folders.ts';
-import { resolveSecWorkspaceRuntimeRoots } from './paths.ts';
+import { resolveWorkspaceRuntimeRoots } from './paths.ts';
 
 const EXTERNAL_PROVIDER_COORDINATION_CHILD_DESCRIPTOR = 60;
 const MAXIMUM_EXTERNAL_PROVIDER_COORDINATION_DURATION_MS = 300_000;
@@ -108,7 +108,7 @@ function validateInput(
   repositoryRoot: string;
 }> {
   try {
-    assertSecSemanticOperationProjection(input.operation);
+    assertSemanticOperationProjection(input.operation);
   } catch (error) {
     throw new ExternalProviderCoordinationLeaseError(
       'invalid-input',
@@ -190,7 +190,7 @@ function externalProviderCoordinationSegments(input: Readonly<{
   localAppData: string;
   repositoryRoot: string;
 }>): readonly string[] {
-  const roots = resolveSecWorkspaceRuntimeRoots({
+  const roots = resolveWorkspaceRuntimeRoots({
     environment: { LOCALAPPDATA: input.localAppData },
     repositoryRoot: input.repositoryRoot
   });
@@ -388,7 +388,7 @@ export async function withExternalProviderCoordinationLeaseAtOwnerIssuedRoot<T>(
  * The current token's Known Folder is read from the OS; ambient LOCALAPPDATA
  * and provider-owned directories never participate in SEC lease placement.
  */
-export async function withSecUserExternalProviderCoordinationLease<T>(input: Readonly<{
+export async function withUserExternalProviderCoordinationLease<T>(input: Readonly<{
   coordination: ExternalProviderCoordinationLeaseInput;
   operation: (lease: ExternalProviderCoordinationLease) => Promise<T>;
 }>): Promise<T | null> {

@@ -22,7 +22,7 @@ import {
   normalizeFactObject,
   normalizeProvenance
 } from './ir-normalization.ts';
-import { digest, inputRevisionPayload, semanticRevisionPayload } from './ir-revision.ts';
+import { rawSha256Hex, inputRevisionPayload, semanticRevisionPayload } from './ir-revision.ts';
 import { deriveScenarioDefinitions } from './scenario-facts.ts';
 
 const semanticEntityKinds = new Set<string>(SEMANTIC_ENTITY_KINDS);
@@ -82,7 +82,7 @@ function assertEntityIdentities(ir: EngineeringIR): void {
 }
 
 function expectedFactId(fact: SemanticFact): string {
-  return `fact:${digest(factIdentity(fact)).slice(0, 24)}`;
+  return `fact:${rawSha256Hex(factIdentity(fact)).slice(0, 24)}`;
 }
 
 function assertFactIdentities(ir: EngineeringIR): void {
@@ -199,7 +199,7 @@ export function validateEngineeringIR(
   assertEngineeringIRPredicateSignatures(ir.entities, ir.facts);
   assertScenarioCache(ir);
 
-  const expectedInputRevision = `sha256:${digest(inputRevisionPayload(input))}`;
+  const expectedInputRevision = `sha256:${rawSha256Hex(inputRevisionPayload(input))}`;
   if (ir.inputRevision !== expectedInputRevision) {
     fail(
       'IR-VALIDATION-003',
@@ -208,7 +208,7 @@ export function validateEngineeringIR(
     );
   }
 
-  const expectedSemanticRevision = `sha256:${digest(semanticRevisionPayload(
+  const expectedSemanticRevision = `sha256:${rawSha256Hex(semanticRevisionPayload(
     ir.graphId,
     ir.appId,
     ir.entities,

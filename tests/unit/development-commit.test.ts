@@ -54,7 +54,7 @@ async function fixture(): Promise<Readonly<{
       path.join(moduleRoot, 'runtime.ts'),
       "export { normalize as verifyCandidateImportNormalization } from './kernel.ts';\n"
     ),
-    writeFile(path.join(moduleRoot, 'sec.module.json'), `${JSON.stringify({
+    writeFile(path.join(moduleRoot, 'module.json'), `${JSON.stringify({
       importGraph: 'runtime',
       externalEntrypoints: ['src/adapters/self-hosting/development/import-normalization/runtime.ts'],
       capabilityProviders: [{

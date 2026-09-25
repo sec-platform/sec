@@ -18,7 +18,6 @@
  * creating a self-hash/module-loader cycle.
  */
 
-import { createHash } from 'node:crypto';
 import {
   closeSync,
   constants as fsConstants,
@@ -32,30 +31,32 @@ import path from 'node:path';
 
 import ts from 'typescript';
 
+import { rawSha256Hex } from '../../../../../contracts/canonical.ts';
+import { gitBlobObjectId } from '../../../../../contracts/git-object-id.ts';
 import { IsCanonicalRepositoryPath } from '../../../../../contracts/repository-path.ts';
 import { compilerRoot } from "../../../../workspace-context.ts";
 import { createVerificationActionKey, createVerificationActionPlan, type VerificationActionPlan } from '../../action/contract/action.ts';
 import {
-  SEC_TRUSTED_BOOTSTRAP_REGISTRY,
-  SEC_TRUSTED_BOOTSTRAP_REGISTRY_PATH,
-  createSecTrustedBootstrapTrustRoot,
-  matchSecTrustedBootstrapPath,
-  type SecTrustedBootstrapRegistry,
-  type SecTrustedBootstrapTrustRoot
+  TRUSTED_BOOTSTRAP_REGISTRY,
+  TRUSTED_BOOTSTRAP_REGISTRY_PATH,
+  createTrustedBootstrapTrustRoot,
+  matchTrustedBootstrapPath,
+  type TrustedBootstrapRegistry,
+  type TrustedBootstrapTrustRoot
 } from '../contract/root.ts';
 
 // ---------------------------------------------------------------------------
-// TCB closure constants (canonical source — moved from sec-merge-gate.test.ts)
+// TCB closure constants (canonical source — moved from merge-gate.test.ts)
 // ---------------------------------------------------------------------------
 
-const TCB_RUNTIME_ENTRYPOINTS = SEC_TRUSTED_BOOTSTRAP_REGISTRY.runtimeEntrypoints;
+const TCB_RUNTIME_ENTRYPOINTS = TRUSTED_BOOTSTRAP_REGISTRY.runtimeEntrypoints;
 
 const TCB_REVIEWED_SUT_EDGES = new Set(
-  SEC_TRUSTED_BOOTSTRAP_REGISTRY.reviewedSutEdges
+  TRUSTED_BOOTSTRAP_REGISTRY.reviewedSutEdges
 );
 
 const TCB_REVIEWED_BOUNDARY_EDGES = new Set(
-  SEC_TRUSTED_BOOTSTRAP_REGISTRY.reviewedBoundaryEdges
+  TRUSTED_BOOTSTRAP_REGISTRY.reviewedBoundaryEdges
 );
 
 const TCB_APPROVED_EXTERNAL_IMPORTS = new Set([
@@ -190,7 +191,7 @@ const TCB_PROCESS_SAFE_MEMBERS = new Set([
 ]);
 
 // ---------------------------------------------------------------------------
-// TCB closure logic (canonical source — moved from sec-merge-gate.test.ts)
+// TCB closure logic (canonical source — moved from merge-gate.test.ts)
 // ---------------------------------------------------------------------------
 
 export function runtimeRelativeImportsFromSource(
@@ -934,7 +935,7 @@ export function runtimeRelativeImportsFromSource(
       return false;
     }
     const reviewedExternalImport = `${repositoryPath} -> ${specifier}`;
-    if (SEC_TRUSTED_BOOTSTRAP_REGISTRY.reviewedExternalImports.includes(reviewedExternalImport)) {
+    if (TRUSTED_BOOTSTRAP_REGISTRY.reviewedExternalImports.includes(reviewedExternalImport)) {
       reviewedExternalImports.add(reviewedExternalImport);
       observedExternalImports.add(specifier);
       return false;
@@ -1421,14 +1422,11 @@ function normalizeTextBytes(bytes: Uint8Array): Uint8Array {
 }
 
 function computeGitBlobSha(bytes: Uint8Array): string {
-  return createHash('sha1')
-    .update(`blob ${bytes.byteLength}\0`)
-    .update(bytes)
-    .digest('hex');
+  return gitBlobObjectId('sha1', bytes);
 }
 
 function computeContentDigest(bytes: Uint8Array): string {
-  return `sha256:${createHash('sha256').update(bytes).digest('hex')}`;
+  return `sha256:${rawSha256Hex(bytes)}`;
 }
 
 type TcbClosureLockIdentityMaterial = Omit<TcbClosureLock, 'trustRevision' | 'closureDigest'>;
@@ -1436,7 +1434,7 @@ type TcbClosureLockIdentityMaterial = Omit<TcbClosureLock, 'trustRevision' | 'cl
 function deriveTcbClosureTrustRevision(
   material: TcbClosureLockIdentityMaterial
 ): string {
-  return `sha256:${createHash('sha256').update(JSON.stringify(material)).digest('hex')}`;
+  return `sha256:${rawSha256Hex(JSON.stringify(material))}`;
 }
 
 function computeClosureDigest(
@@ -1457,7 +1455,7 @@ function computeClosureDigest(
     moduleBlobs: lock.moduleBlobs,
     moduleContentDigests: lock.moduleContentDigests
   });
-  return `sha256:${createHash('sha256').update(canonical).digest('hex')}`;
+  return `sha256:${rawSha256Hex(canonical)}`;
 }
 
 // ---------------------------------------------------------------------------
@@ -1667,8 +1665,8 @@ export function generateTcbClosureLock(
     );
   }
   const lock = computeTcbClosureLockAtCandidateRoot(candidateRoot, closure);
-  createSecTrustedBootstrapTrustRoot({
-    registry: SEC_TRUSTED_BOOTSTRAP_REGISTRY,
+  createTrustedBootstrapTrustRoot({
+    registry: TRUSTED_BOOTSTRAP_REGISTRY,
     causalRuntimePaths: lock.modules
   });
   return lock;
@@ -1767,7 +1765,7 @@ export function createTcbClosureActionPlan(input: Readonly<{
       declaredEnvironment: []
     },
     inputClosure: [{
-      path: SEC_TRUSTED_BOOTSTRAP_REGISTRY_PATH,
+      path: TRUSTED_BOOTSTRAP_REGISTRY_PATH,
       digest: registryDigest
     }],
     environment: {
@@ -1797,7 +1795,7 @@ export function selectTcbClosureCandidateAction(input: Readonly<{
   registryDigest: `sha256:${string}`;
   toolchainRevision: string;
   providerRevision: string;
-  trustedRegistry: SecTrustedBootstrapRegistry;
+  trustedRegistry: TrustedBootstrapRegistry;
   checkerResult: TcbClosureActionResult;
 }>): TcbClosureCandidateActionDemand {
   if (input.checkerResult.resultDigest !== input.checkerResult.identity.closureDigest) {
@@ -1808,12 +1806,12 @@ export function selectTcbClosureCandidateAction(input: Readonly<{
     !IsCanonicalRepositoryPath(repositoryPath))) {
     throw new Error('TCB candidate Action selection requires unique canonical changed paths.');
   }
-  const trustRoot = createSecTrustedBootstrapTrustRoot({
+  const trustRoot = createTrustedBootstrapTrustRoot({
     registry: input.trustedRegistry,
     causalRuntimePaths: input.checkerResult.identity.modules
   });
   const impactedPaths = changedPaths.filter((repositoryPath) =>
-    matchSecTrustedBootstrapPath(repositoryPath, trustRoot) !== null
+    matchTrustedBootstrapPath(repositoryPath, trustRoot) !== null
   );
   return Object.freeze({
     impactedPaths: Object.freeze(impactedPaths),
@@ -1861,16 +1859,16 @@ export function compileTcbClosureActionResult(input: Readonly<{
 }
 
 let processTcbClosureIdentity: TcbClosureLock | null = null;
-let processTcbTrustRoot: SecTrustedBootstrapTrustRoot | null = null;
+let processTcbTrustRoot: TrustedBootstrapTrustRoot | null = null;
 
 function resolveProcessTcbClosureIdentity(): TcbClosureLock {
   processTcbClosureIdentity ??= compileTcbClosureIdentity();
   return processTcbClosureIdentity;
 }
 
-function resolveTcbTrustRoot(): SecTrustedBootstrapTrustRoot {
-  processTcbTrustRoot ??= createSecTrustedBootstrapTrustRoot({
-    registry: SEC_TRUSTED_BOOTSTRAP_REGISTRY,
+function resolveTcbTrustRoot(): TrustedBootstrapTrustRoot {
+  processTcbTrustRoot ??= createTrustedBootstrapTrustRoot({
+    registry: TRUSTED_BOOTSTRAP_REGISTRY,
     causalRuntimePaths: resolveProcessTcbClosureIdentity().modules
   });
   return processTcbTrustRoot;
@@ -1878,9 +1876,9 @@ function resolveTcbTrustRoot(): SecTrustedBootstrapTrustRoot {
 
 /**
  * Lazily derived process view. The process is bound to one exact trusted tree;
- * candidate trees use compileTcbClosureIdentityV2 with an immutable reader.
+ * candidate trees use compileTcbClosureIdentity with an immutable reader.
  */
-export const TCB_TRUST_ROOT: SecTrustedBootstrapTrustRoot = Object.freeze({
+export const TCB_TRUST_ROOT: TrustedBootstrapTrustRoot = Object.freeze({
   get schema() { return resolveTcbTrustRoot().schema; },
   get registry() { return resolveTcbTrustRoot().registry; },
   get causalRuntimePaths() { return resolveTcbTrustRoot().causalRuntimePaths; },

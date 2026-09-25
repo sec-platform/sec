@@ -7,16 +7,16 @@ import {
   assertProviderSettlementReceipt,
   assertRecoveredRetryAdmission,
   assertSemanticOperationPlan,
-  bindSecSemanticOperation,
+  bindSemanticOperation,
   compileCapabilityBinding,
   compileProviderSettlementSet,
   compileSemanticOperationPlan,
   consumeRecoveredRetryAdmission,
   issueNormalDomainReadbackReceipt,
-  issueSecNormalOwnerTerminalJoinReceipt,
+  issueNormalOwnerTerminalJoinReceipt,
   issueProviderSettlementReceipt,
   issueRecoveredDomainReadbackReceipt,
-  issueSecRecoveredOwnerTerminalJoinReceipt,
+  issueRecoveredOwnerTerminalJoinReceipt,
   issueRecoveredRetryAdmission,
   issueSemanticOperationAttemptContext,
   projectCapabilityDiagnostic,
@@ -111,7 +111,7 @@ function bindMultiPlan(
   operationPlan = multiPlan(),
   providerSuffix = 'canonical'
 ): BoundSemanticOperation {
-  return bindSecSemanticOperation(operationPlan, operationPlan.execution.requirements.map(
+  return bindSemanticOperation(operationPlan, operationPlan.execution.requirements.map(
     (requirement) => compileCapabilityBinding({
       requirementId: requirement.id,
       contractDigest: requirement.contractDigest,
@@ -134,13 +134,13 @@ function providerSettlement(
 
 test('caller-compiled attempts and provider bindings remain pure correlation projections', () => {
   const firstPlan = plan();
-  const first = bindSecSemanticOperation(firstPlan, [compileCapabilityBinding({
+  const first = bindSemanticOperation(firstPlan, [compileCapabilityBinding({
     requirementId: 'typescript.project-check',
     contractDigest: firstPlan.execution.requirements[0]!.contractDigest,
     providerIdentityDigest: digest('caller-selected-provider')
   })]);
   const secondPlan = plan();
-  const second = bindSecSemanticOperation(secondPlan, [compileCapabilityBinding({
+  const second = bindSemanticOperation(secondPlan, [compileCapabilityBinding({
     requirementId: 'typescript.project-check',
     contractDigest: secondPlan.execution.requirements[0]!.contractDigest,
     providerIdentityDigest: digest('different-caller-selected-provider')
@@ -155,7 +155,7 @@ test('caller-compiled attempts and provider bindings remain pure correlation pro
     contractDigest: firstPlan.execution.requirements[0]!.contractDigest,
     providerIdentityDigest: digest('caller-selected-provider')
   });
-  expect(() => bindSecSemanticOperation(firstPlan, [foreignRequirement]))
+  expect(() => bindSemanticOperation(firstPlan, [foreignRequirement]))
     .toThrow('not exactly bound');
 });
 
@@ -172,8 +172,8 @@ test('semantic plan remains provider-neutral while exact bindings are replaceabl
     providerIdentityDigest: digest('remote-checker')
   });
 
-  const nativeOperation = bindSecSemanticOperation(operationPlan, [native]);
-  const remoteOperation = bindSecSemanticOperation(operationPlan, [remote]);
+  const nativeOperation = bindSemanticOperation(operationPlan, [native]);
+  const remoteOperation = bindSemanticOperation(operationPlan, [remote]);
   expect(nativeOperation.plan.identity.identityDigest).toBe(remoteOperation.plan.identity.identityDigest);
   expect(nativeOperation.bindingSetIdentityDigest).not.toBe(remoteOperation.bindingSetIdentityDigest);
 });
@@ -299,9 +299,9 @@ test('binding rejects missing, duplicate and semantic-contract mismatches', () =
     contractDigest: digest('different-semantics'),
     providerIdentityDigest: digest('native-checker')
   });
-  expect(() => bindSecSemanticOperation(operationPlan, [])).toThrow(/exactly one binding/u);
-  expect(() => bindSecSemanticOperation(operationPlan, [wrong])).toThrow(/not exactly bound/u);
-  expect(() => bindSecSemanticOperation(operationPlan, [wrong, wrong])).toThrow(/exactly one binding/u);
+  expect(() => bindSemanticOperation(operationPlan, [])).toThrow(/exactly one binding/u);
+  expect(() => bindSemanticOperation(operationPlan, [wrong])).toThrow(/not exactly bound/u);
+  expect(() => bindSemanticOperation(operationPlan, [wrong, wrong])).toThrow(/exactly one binding/u);
 });
 
 test('binding rejects a structural copy that bypasses the foundation compiler', () => {
@@ -316,7 +316,7 @@ test('binding rejects a structural copy that bypasses the foundation compiler', 
   const structuralPlan = structuredClone(operationPlan);
   expect(() => assertSemanticOperationPlan(structuralPlan))
     .toThrow('requires a foundation-compiled operation plan');
-  expect(() => bindSecSemanticOperation(structuralPlan, [binding]))
+  expect(() => bindSemanticOperation(structuralPlan, [binding]))
     .toThrow('requires a foundation-compiled operation plan');
 });
 
@@ -364,7 +364,7 @@ test('provider settlement set is permutation-invariant and exact before normal r
     currentPhysicalEpochDigest: digest('repository-physical-epoch'),
     disposition: 'applied'
   });
-  const join = issueSecNormalOwnerTerminalJoinReceipt(operation, forward, readback, {
+  const join = issueNormalOwnerTerminalJoinReceipt(operation, forward, readback, {
     ownerTerminalContractDigest: digest('repository-publication-terminal-contract'),
     ownerTerminalReferenceDigest: digest('repository-publication-terminal-reference')
   });
@@ -424,7 +424,7 @@ test('recovered readback joins owner terminal without manufacturing provider set
     currentPhysicalEpochDigest: digest('repository-epoch-after-lost-handle'),
     disposition: 'applied'
   });
-  const join = issueSecRecoveredOwnerTerminalJoinReceipt(operation, recovered, {
+  const join = issueRecoveredOwnerTerminalJoinReceipt(operation, recovered, {
     ownerTerminalContractDigest: digest('repository-publication-terminal-contract'),
     ownerTerminalReferenceDigest: digest('recovered-publication-terminal-reference')
   });
@@ -438,7 +438,7 @@ test('recovered readback joins owner terminal without manufacturing provider set
   const objectWrite = providerSettlement(operation, 'git.object-write', 'object-write');
   const refUpdate = providerSettlement(operation, 'git.ref-update', 'ref-update');
   const settlementSet = compileProviderSettlementSet(operation, [objectWrite, refUpdate]);
-  expect(() => issueSecNormalOwnerTerminalJoinReceipt(
+  expect(() => issueNormalOwnerTerminalJoinReceipt(
     operation,
     settlementSet,
     recovered as never,

@@ -1,4 +1,3 @@
-import { createHash } from 'node:crypto';
 import {
   closeSync,
   fsyncSync,
@@ -15,11 +14,11 @@ import {
 } from 'node:fs';
 import path from 'node:path';
 
-import { sha256 } from '../../../../contracts/canonical.ts';
+import { rawSha256Hex, sha256 } from '../../../../contracts/canonical.ts';
 import { issueOperationRequirementBindingContext } from '../../../../execution/operation/requirement-binding-context.ts';
 import { withAcquiredResource } from '../../../../execution/resource-settlement.ts';
 import {
-  bindSecSemanticOperation,
+  bindSemanticOperation,
   compileCapabilityBinding,
   compileSemanticOperationPlan,
   issueSemanticOperationAttemptContext,
@@ -109,7 +108,7 @@ function compileRecoveryGitOperation(input: Readonly<{
       ]
     }]
   });
-  return bindSecSemanticOperation(plan, [compileCapabilityBinding({
+  return bindSemanticOperation(plan, [compileCapabilityBinding({
     requirementId: RECOVERY_GIT_REQUIREMENT,
     contractDigest: RECOVERY_GIT_CONTRACT,
     providerIdentityDigest: input.providerIdentityDigest
@@ -705,7 +704,7 @@ export async function createRecoveryBundle(input: {
         );
       }
 
-      const digest = createHash('sha256').update(readFileSync(bundlePath)).digest('hex');
+      const digest = rawSha256Hex(readFileSync(bundlePath));
       writeDurableFile(checksumPath, `${digest}  ${path.basename(bundlePath)}\n`);
       const recovery: BranchRecoveryAuthority = {
         kind: 'bundle',
@@ -815,7 +814,7 @@ export async function observeNativeMainAbsorption(input: Readonly<{
       mainSha: input.mainSha,
       mainTreeSha,
       basis,
-      recoveryDigest: `sha256:${createHash('sha256').update(proof).digest('hex')}` as const
+      recoveryDigest: `sha256:${rawSha256Hex(proof)}` as const
     });
   });
 }
@@ -947,8 +946,8 @@ export async function createMainAbsorptionRecovery(input: {
       const verifyOutput = await assertMainAbsorptionLive(run, inventory, draft, review);
       const verified: MainAbsorptionRecovery = { ...draft, verifyOutput };
       const bytes = mainAbsorptionProof(verified);
-      const digest = createHash('sha256').update(bytes).digest('hex');
-      const identity = createHash('sha256').update(JSON.stringify({ branch, digest })).digest('hex');
+      const digest = rawSha256Hex(bytes);
+      const identity = rawSha256Hex(JSON.stringify({ branch, digest }));
       name = `sec-branch-closeout-${sanitizeFileSegment(branch)}-${identity}.main-absorption.json`;
       const recovery: MainAbsorptionRecovery = {
         ...verified,
@@ -1012,7 +1011,7 @@ async function verifyRecoveryAuthorityLiveWithRunner(
       const parent = inspectNoFollowDirectoryChain(path.dirname(recovery.path), 'Main absorption recovery root').target;
       const bytes = readNoFollowOrdinaryFile(parent, path.basename(recovery.path));
       if (bytes === null) throw new Error('Main absorption proof is absent.');
-      const digest = `sha256:${createHash('sha256').update(bytes).digest('hex')}`;
+      const digest = `sha256:${rawSha256Hex(bytes)}`;
       if (digest !== recovery.sha256 || !Buffer.from(bytes).equals(mainAbsorptionProof(recovery))) {
         throw new Error('Main absorption proof digest or exact content changed.');
       }
@@ -1020,7 +1019,7 @@ async function verifyRecoveryAuthorityLiveWithRunner(
       return { operation: 'recovery-verify', status: 'success', detail: `live main absorption ${recovery.sha256}; ${output}` };
     }
     const bytes = readFileSync(recovery.path);
-    const digest = createHash('sha256').update(bytes).digest('hex');
+    const digest = rawSha256Hex(bytes);
     if (`sha256:${digest}` !== recovery.sha256) {
       throw new Error(
         `recovery bundle digest mismatch: expected ${recovery.sha256}, observed sha256:${digest}`

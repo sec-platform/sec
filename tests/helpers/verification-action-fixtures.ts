@@ -9,7 +9,7 @@ function verificationFixtureDigest(value: unknown): VerificationActionKeyDigest 
   return verificationDigest(value) as VerificationActionKeyDigest;
 }
 
-export function buildUnsupportedVerificationActionTerminalArtifactV2(input: Readonly<{
+export function buildUnsupportedVerificationActionTerminalArtifact(input: Readonly<{
   actionPlan: VerificationActionPlan;
   normalizedOperation: CiVerificationNormalizedOperation;
   baseSha: string;

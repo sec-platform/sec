@@ -5,10 +5,10 @@ import path from 'node:path';
 
 import { compileRepositoryModuleMembershipSnapshot } from '../../src/adapters/repository/architecture/contract.ts';
 import {
-  compileVirtualWorkspaceSourceSnapshot,
-  compileWorkspaceTypeScriptProjectFactIdentity,
-  compileWorkspaceTypeScriptProjectInput,
-  projectWorkspaceTypeScriptProjectFactIdentity
+  compileVirtualSnapshot,
+  compileTypeScriptProjectFactIdentity,
+  compileTypeScriptProjectInput,
+  projectTypeScriptProjectFactIdentity
 } from '../../src/adapters/repository/source-program-model/workspace-source-snapshot.ts';
 import {
   inspectNoFollowDirectoryChain,
@@ -26,7 +26,7 @@ import {
 } from '../../src/adapters/runtime-state/physical/runtime/process-resource-session.ts';
 import { sealExistingWindowsReadOnlyTreeAuthority } from '../../src/adapters/runtime-state/physical/runtime/windows-host-filesystem-authority.ts';
 import { createBoundedProcessDiagnosticObjectReceipt } from '../../src/adapters/runtime-state/workspace-state/bounded-process-diagnostic-contract.ts';
-import { currentSecRuntimePlatform, resolveSecRuntimeCacheRoot, secRuntimeStateEnvironment } from '../../src/adapters/runtime-state/workspace-state/layout.ts';
+import { currentRuntimePlatform, resolveRuntimeCacheRoot, runtimeStateEnvironment } from '../../src/adapters/runtime-state/workspace-state/layout.ts';
 import {
   compileTypecheckActionInput,
   compileTypecheckSemanticOperation,
@@ -46,12 +46,12 @@ import {
 import { rawSha256, sha256 } from '../../src/contracts/canonical.ts';
 import { issueOperationRequirementBindingContext } from '../../src/execution/operation/requirement-binding-context.ts';
 import {
-  bindSecSemanticOperation,
+  bindSemanticOperation,
   compileCapabilityBinding,
   compileProviderSettlementSet,
   compileSemanticOperationPlan,
   issueNormalDomainReadbackReceipt,
-  issueSecNormalOwnerTerminalJoinReceipt,
+  issueNormalOwnerTerminalJoinReceipt,
   issueProviderSettlementReceipt,
   issueSemanticOperationAttemptContext
 } from '../../src/execution/operation/semantic.ts';
@@ -92,7 +92,7 @@ function testActionForOperation(
 
 function issuePassedVerificationTerminalFixture() {
   const effectContractDigest = testDigest('typecheck-terminal-fixture-effect');
-  const operation = bindSecSemanticOperation(
+  const operation = bindSemanticOperation(
     compileSemanticOperationPlan({
       operation: 'verification.typecheck-terminal-fixture',
       intentDigest: testDigest('typecheck-terminal-fixture-intent'),
@@ -127,7 +127,7 @@ function issuePassedVerificationTerminalFixture() {
     currentPhysicalEpochDigest: testDigest('typecheck-terminal-fixture-epoch'),
     disposition: 'applied'
   });
-  const join = issueSecNormalOwnerTerminalJoinReceipt(operation, settlements, readback, {
+  const join = issueNormalOwnerTerminalJoinReceipt(operation, settlements, readback, {
     ownerTerminalContractDigest: testDigest('typecheck-terminal-fixture-owner-contract'),
     ownerTerminalReferenceDigest: testDigest('typecheck-terminal-fixture-owner-reference')
   });
@@ -310,7 +310,7 @@ function workspaceSnapshotFixture(
   programSource = 'export const checked = true;\n',
   unrelatedSource = 'first projection\n'
 ) {
-  const descriptorPath = 'src/example/sec.module.json';
+  const descriptorPath = 'src/example/module.json';
   const files = Object.freeze([
     Object.freeze({ path: 'tsconfig.json', source: configSource, contentDigest: rawSha256(configSource) }),
     Object.freeze({ path: 'src/example/checked.ts', source: programSource, contentDigest: rawSha256(programSource) }),
@@ -332,7 +332,7 @@ function workspaceSnapshotFixture(
     repositoryPath,
     contentDigest
   }))) as `sha256:${string}`;
-  return compileVirtualWorkspaceSourceSnapshot({
+  return compileVirtualSnapshot({
     subject: Object.freeze({
       kind: 'virtual-mutation',
       provenance: Object.freeze({
@@ -351,7 +351,7 @@ function projectInputFixture(
   programSource = 'export const checked = true;\n',
   unrelatedSource = 'first projection\n'
 ) {
-  return compileWorkspaceTypeScriptProjectInput(
+  return compileTypeScriptProjectInput(
     workspaceSnapshotFixture(configSource, programSource, unrelatedSource),
     'tsconfig.json'
   );
@@ -545,9 +545,9 @@ test('incremental cache seed is environment-scoped and changes with configuratio
       ...identity,
       cacheRoot: path.join(compilerRootPath, '.tmp')
     })).toThrow('outside the compiler tree');
-    const canonicalCacheRoot = resolveSecRuntimeCacheRoot({
-      platform: currentSecRuntimePlatform(),
-      environment: secRuntimeStateEnvironment(),
+    const canonicalCacheRoot = resolveRuntimeCacheRoot({
+      platform: currentRuntimePlatform(),
+      environment: runtimeStateEnvironment(),
       repositoryRoot: compilerRootPath
     });
     const { cacheRoot: _fixtureCacheRoot, ...canonicalIdentity } = identity;
@@ -560,10 +560,10 @@ test('incremental cache seed is environment-scoped and changes with configuratio
 
 test('typecheck cheap fact admission matches the full ProjectInput identity', () => {
   const snapshot = workspaceSnapshotFixture();
-  expect(compileWorkspaceTypeScriptProjectFactIdentity(snapshot, 'tsconfig.json', {
+  expect(compileTypeScriptProjectFactIdentity(snapshot, 'tsconfig.json', {
     dependencyGenerationDigest: null
-  })).toEqual(projectWorkspaceTypeScriptProjectFactIdentity(
-    compileWorkspaceTypeScriptProjectInput(snapshot, 'tsconfig.json')
+  })).toEqual(projectTypeScriptProjectFactIdentity(
+    compileTypeScriptProjectInput(snapshot, 'tsconfig.json')
   ));
 });
 
@@ -640,7 +640,7 @@ test('typecheck Action identity is route-neutral and excludes attempt time for o
       )),
       requirements: baseSemanticOperation.plan.execution.requirements
     });
-    const changedBudgetOperation = bindSecSemanticOperation(
+    const changedBudgetOperation = bindSemanticOperation(
       changedBudgetPlan,
       baseSemanticOperation.bindings
     );
@@ -775,7 +775,7 @@ test('typecheck consumes Source Program input and joins checker plus retained di
       currentPhysicalEpochDigest: testDigest('typecheck-current-physical-epoch'),
       disposition: 'unknown'
     });
-    const terminalJoin = issueSecNormalOwnerTerminalJoinReceipt(
+    const terminalJoin = issueNormalOwnerTerminalJoinReceipt(
       operation,
       settlementSet,
       readback,

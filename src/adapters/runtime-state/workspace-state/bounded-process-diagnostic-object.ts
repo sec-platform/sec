@@ -6,7 +6,7 @@ import {
   sha256
 } from '../../../contracts/canonical.ts';
 import {
-  assertSecSemanticOperationProjection,
+  assertSemanticOperationProjection,
   type BoundSemanticOperation,
   type OperationDigest
 } from '../../../execution/operation/semantic.ts';
@@ -35,10 +35,10 @@ import {
   type BoundedProcessDiagnosticPublishedObject,
   type BoundedProcessDiagnosticStream
 } from './bounded-process-diagnostic-contract.ts';
-import { resolveSecWorkspaceRuntimeRoots } from './paths.ts';
+import { resolveWorkspaceRuntimeRoots } from './paths.ts';
 import {
-  assertSecRuntimeStatePhysicalAuthority,
-  type SecRuntimeStatePhysicalAuthority
+  assertRuntimeStatePhysicalAuthority,
+  type RuntimeStatePhysicalAuthority
 } from './physical-authority.ts';
 
 export {
@@ -146,7 +146,7 @@ function operationControl(input: Readonly<{
   byteResource: 'input-bytes' | 'output-bytes';
   requireRecords?: boolean;
 }>): OperationControl {
-  assertSecSemanticOperationProjection(input.operation);
+  assertSemanticOperationProjection(input.operation);
   const requirement = input.operation.plan.execution.requirements
     .find(({ id }) => id === input.requirementId);
   if (requirement === undefined || !requirement.effectKinds.includes('filesystem')) {
@@ -277,12 +277,12 @@ function deleteInventoriedFile(
 }
 
 export function createBoundedProcessDiagnosticObjectStore(input: Readonly<{
-  authority: SecRuntimeStatePhysicalAuthority;
+  authority: RuntimeStatePhysicalAuthority;
   repositoryRoot: string;
   environment?: NodeJS.ProcessEnv;
 }>): BoundedProcessDiagnosticObjectStore {
-  assertSecRuntimeStatePhysicalAuthority(input.authority);
-  const roots = resolveSecWorkspaceRuntimeRoots({
+  assertRuntimeStatePhysicalAuthority(input.authority);
+  const roots = resolveWorkspaceRuntimeRoots({
     repositoryRoot: input.repositoryRoot,
     environment: input.environment
   });

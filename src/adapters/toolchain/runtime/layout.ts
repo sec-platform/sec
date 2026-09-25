@@ -3,7 +3,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { POLICY_SOURCE_PATHS } from '../../../workspace/contract/policy-source-paths.ts';
 
-import { SecError } from '../../../contracts/failure.ts';
+import { FailureError } from '../../../contracts/failure.ts';
 import { isCanonicalPortableLogicalPath } from '../../../contracts/logical-path.ts';
 
 export const SOURCE_RUNTIME_MODULE_RELATIVE_PATH = path.join(
@@ -77,7 +77,7 @@ export const COMPILER_RUNTIME_RESOURCE_POSIX_PATHS = mapCompilerRuntimeResourceP
 );
 
 function runtimeLayoutError(message: string, details: Record<string, unknown> = {}): never {
-  throw new SecError('RUNTIME-LAYOUT-001', message, details);
+  throw new FailureError('RUNTIME-LAYOUT-001', message, details);
 }
 
 function entrypointRelativePath(value: unknown, field: string): string {

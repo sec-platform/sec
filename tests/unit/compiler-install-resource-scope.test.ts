@@ -6,7 +6,7 @@ import { CompilerInstallSettlementFailure, withCompilerInstallResources } from '
 import { sha256 } from '../../src/contracts/canonical.ts';
 import { issueOperationRequirementBindingContext } from '../../src/execution/operation/requirement-binding-context.ts';
 import {
-  bindSecSemanticOperation, compileCapabilityBinding, compileSemanticOperationPlan,
+  bindSemanticOperation, compileCapabilityBinding, compileSemanticOperationPlan,
   issueSemanticOperationAttemptContext, type OperationDigest
 } from '../../src/execution/operation/semantic.ts';
 
@@ -27,7 +27,7 @@ function ownedSession(absoluteDeadlineAtUnixMs?: number) {
     attempt: issueSemanticOperationAttemptContext({ authorityGrantDigest: fixtureDigest }),
     aggregateBudgets: budgets, requirements: [{ id: 'test.install', contractDigest: fixtureDigest,
       effectKinds: ['process'], failureKinds: ['process.unavailable'] }] });
-  const operation = bindSecSemanticOperation(plan, [compileCapabilityBinding({ requirementId: 'test.install',
+  const operation = bindSemanticOperation(plan, [compileCapabilityBinding({ requirementId: 'test.install',
     contractDigest: fixtureDigest, providerIdentityDigest: fixtureDigest })]);
   const session = openProcessResourceSession({ operation, requirementBindingContext: issueOperationRequirementBindingContext({
     operation, requirementId: 'test.install', resourceCeilings: budgets,

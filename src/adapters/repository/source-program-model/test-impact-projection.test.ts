@@ -10,13 +10,13 @@ import {
   encodeTestImpactProjectionReceipt,
   parseTestImpactProjectionReceipt
 } from './test-impact-projection.ts';
-import { compileVirtualWorkspaceSourceSnapshot } from './workspace-source-snapshot.ts';
+import { compileVirtualSnapshot } from './workspace-source-snapshot.ts';
 
 const membership = compileRepositoryModuleMembership(path.resolve(import.meta.dir, '../../../..'));
 
 function fixture(sources: Readonly<Record<string, string>>) {
   const sourceRevision = rawSha256(JSON.stringify(sources));
-  const workspaceSnapshot = compileVirtualWorkspaceSourceSnapshot({
+  const workspaceSnapshot = compileVirtualSnapshot({
     subject: {
       kind: 'virtual-mutation',
       provenance: {

@@ -41,7 +41,7 @@ export function isTaskOperationKind(value: unknown): value is TaskOperationKind 
   return typeof value === 'string' && (OPERATION_KINDS as readonly string[]).includes(value);
 }
 
-export type SecDigest = `sha256:${string}`;
+export type TaskCapsuleDigest = `sha256:${string}`;
 
 interface AgentOwnerFact {
   readonly id: string;
@@ -69,12 +69,12 @@ export interface TaskCapsulePlanningContext {
   readonly operationId: string;
   readonly role: AgentRole;
   readonly operationKind: TaskOperationKind;
-  readonly goalDigest: SecDigest;
+  readonly goalDigest: TaskCapsuleDigest;
   readonly trustedRevision: string;
   readonly targetCandidate: string;
   readonly workPackageProposalRef: string;
-  readonly workPackageProposalDigest: SecDigest;
-  readonly workPackageProjectionId: SecDigest;
+  readonly workPackageProposalDigest: TaskCapsuleDigest;
+  readonly workPackageProjectionId: TaskCapsuleDigest;
   readonly scopeGrantId: null;
   readonly ownerFacts: readonly AgentOwnerFact[];
   readonly scopeProposal: AgentOperationScopeProposal;
@@ -102,7 +102,7 @@ export interface TaskCapsule {
   /** Capsule is immutable planning input; an effect executor still needs separate live permission. */
   readonly effectAuthority: 'none';
   readonly planningContext: TaskCapsulePlanningContext;
-  readonly digest: SecDigest;
+  readonly digest: TaskCapsuleDigest;
 }
 
 const INPUT_KEYS = ['schema', 'ref', 'planningContext'] as const;
@@ -156,12 +156,12 @@ function token(value: unknown, label: string): string {
   return normalized;
 }
 
-function digest(value: unknown, label: string): SecDigest {
+function digest(value: unknown, label: string): TaskCapsuleDigest {
   const normalized = text(value, label);
   if (!/^sha256:[0-9a-f]{64}$/u.test(normalized)) {
     fail(`${label} must be one lowercase SHA-256 digest.`);
   }
-  return normalized as SecDigest;
+  return normalized as TaskCapsuleDigest;
 }
 
 function gitRevision(value: unknown, label: string): string {
@@ -358,7 +358,7 @@ export function compileTaskCapsule(value: unknown): TaskCapsule {
   };
   return deepFreeze({
     ...withoutDigest,
-    digest: sha256(withoutDigest) as SecDigest
+    digest: sha256(withoutDigest) as TaskCapsuleDigest
   });
 }
 

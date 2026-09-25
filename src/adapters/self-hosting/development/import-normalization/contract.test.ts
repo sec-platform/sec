@@ -8,15 +8,15 @@ import { rawSha256 } from '../../../../contracts/canonical.ts';
 import { withAuthorityGitReadOperation, withAuthorityGitReadSession } from '../../../providers/git-read/authority.ts';
 import { GIT_READ_EXACT_TREE_OPERATION_BUDGET } from '../../../providers/git-read/runtime/session.ts';
 import {
-  compileSourceProgramOperationProducerClosure,
-  compileSourceProgramOperationProducerClosureFromWorkspaceSnapshot
+  compileProducerClosure,
+  compileProducerClosureFromSnapshot
 } from '../../../repository/source-program-model/producer-closure.ts';
 import { compileRepositorySourceProgramCompilation } from '../../../repository/source-program-model/repository-compilation.ts';
 import {
-  sourceProgramTypeScriptCompilerIdentity
+  typeScriptCompilerIdentity
 } from '../../../repository/source-program-model/typescript.ts';
 import {
-  acquireExactGitTreeWorkspaceSourceSnapshotFromSession
+  acquireExactGitTreeSnapshot
 } from '../../../repository/source-program-model/workspace-source-snapshot.ts';
 import { GIT_READ_OPERATION_BUDGET } from '../tooling/git/git-read.ts';
 import {
@@ -60,7 +60,7 @@ async function commitFixture(
       "import { normalize } from './kernel.ts';\nexport const verifyCandidateImportNormalization = normalize;\n"
     ),
     writeFile(
-      path.join(root, 'src', 'adapters', 'self-hosting', 'development', 'import-normalization', 'sec.module.json'),
+      path.join(root, 'src', 'adapters', 'self-hosting', 'development', 'import-normalization', 'module.json'),
       `${JSON.stringify({
         importGraph: 'runtime',
         externalEntrypoints: ['src/adapters/self-hosting/development/import-normalization/runtime.ts'],
@@ -80,7 +80,7 @@ async function exactSnapshot(root: string, commitSha: string) {
   return withAuthorityGitReadSession({
     cwd: root,
     budget: GIT_READ_EXACT_TREE_OPERATION_BUDGET
-  }, (session) => acquireExactGitTreeWorkspaceSourceSnapshotFromSession({ session, commitSha }));
+  }, (session) => acquireExactGitTreeSnapshot({ session, commitSha }));
 }
 
 async function subject(root: string, commitSha: string, baseCommitSha = commitSha) {
@@ -91,7 +91,7 @@ async function subject(root: string, commitSha: string, baseCommitSha = commitSh
   const sourceProgramCompilation = compileRepositorySourceProgramCompilation({
     workspaceSnapshot: snapshot
   });
-  const producerClosure = compileSourceProgramOperationProducerClosure(
+  const producerClosure = compileProducerClosure(
     sourceProgramCompilation,
     IMPORT_NORMALIZATION_OPERATION
   );
@@ -99,7 +99,7 @@ async function subject(root: string, commitSha: string, baseCommitSha = commitSh
     snapshot,
     baseSnapshot,
     producerClosure,
-    compilerIdentity: sourceProgramTypeScriptCompilerIdentity()
+    compilerIdentity: typeScriptCompilerIdentity()
   });
 }
 
@@ -115,11 +115,11 @@ test('subject compiler owns producer, exact-tree, config and toolchain identity'
       'first'
     );
     const firstSnapshot = await exactSnapshot(root, firstCommit);
-    const fullProducer = compileSourceProgramOperationProducerClosure(
+    const fullProducer = compileProducerClosure(
       compileRepositorySourceProgramCompilation({ workspaceSnapshot: firstSnapshot }),
       IMPORT_NORMALIZATION_OPERATION
     );
-    const narrowProducer = compileSourceProgramOperationProducerClosureFromWorkspaceSnapshot(
+    const narrowProducer = compileProducerClosureFromSnapshot(
       firstSnapshot,
       IMPORT_NORMALIZATION_OPERATION
     );

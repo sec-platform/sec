@@ -7,7 +7,7 @@ export type GitChangedRecord = {
   previousPath?: string;
 };
 
-type CodexDevelopmentGitPathBlobObservation = Readonly<{
+type GitPathBlobObservation = Readonly<{
   path: string;
   baseMode: '100644' | '100755';
   baseBlobSha: string;
@@ -25,7 +25,7 @@ export type TestImpactTransitionObservation = Readonly<{
   baseSha: string;
   headSha: string;
   records: readonly GitChangedRecord[];
-  removedPathBlobs: readonly CodexDevelopmentGitPathBlobObservation[];
+  removedPathBlobs: readonly GitPathBlobObservation[];
 }>;
 
 const GIT_OBJECT_SHA = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/u;
@@ -81,7 +81,7 @@ function canonicalChangedRecords(
   return Object.freeze(canonical);
 }
 
-export function CodexDevelopmentTestImpactTransitionDigest(
+export function TestImpactTransitionDigest(
   observation: TestImpactTransitionObservation
 ): `sha256:${string}` {
   if (observation === null || typeof observation !== 'object' || Array.isArray(observation)
@@ -132,7 +132,7 @@ export function AssertTestImpactTransitionSelection(input: {
   records?: readonly GitChangedRecord[];
   observation: TestImpactTransitionObservation;
 }): `sha256:${string}` {
-  const digest = CodexDevelopmentTestImpactTransitionDigest(input.observation);
+  const digest = TestImpactTransitionDigest(input.observation);
   const changedPaths = uniqueSorted(input.changedPaths);
   const transitionPaths = uniqueSorted(input.observation.records.flatMap((record) => (
     record.previousPath === undefined ? [record.path] : [record.previousPath, record.path]
@@ -262,7 +262,7 @@ export function CreateTestImpactTransitionObservation(input: {
     records,
     removedPathBlobs: Object.freeze(removedPathBlobs)
   });
-  CodexDevelopmentTestImpactTransitionDigest(observation);
+  TestImpactTransitionDigest(observation);
   return observation;
 }
 

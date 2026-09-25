@@ -34,10 +34,10 @@ import {
   type DocumentationIdentityRecord
 } from '../documentation/active.ts';
 import {
-  CodexDevelopmentAssertControlPlaneBinding,
-  CodexDevelopmentParseActivePointer,
-  CodexDevelopmentParseCurrentStateSpec,
-  CodexDevelopmentParseRollingPlan
+  AssertControlPlaneBinding,
+  ParseActivePointer,
+  ParseCurrentStateSpec,
+  ParseRollingPlan
 } from '../documentation/document-control-plane-contract.ts';
 import {
   assertMainHealthPublicationAuthorityStable,
@@ -45,7 +45,7 @@ import {
   withMainHealthGitHubReadSession
 } from '../main-health/work-selection-main-health.ts';
 import {
-  CodexDevelopmentAssertWorkPackageChangedRecords,
+  AssertWorkPackageChangedRecords,
   ParseCurrentWorkPackageManifest,
   WorkPackageManifestDigest,
   type WorkPackageManifest
@@ -62,30 +62,30 @@ import {
   isCanonicalAgentOperationActivationWorkPackagePath
 } from './agent-operation-activation-census.ts';
 import {
-  createSecAgentOperationActivationPreparation,
-  createSecAgentOperationActivationProvider,
-  createSecAgentOperationActivationPublication,
-  createSecAgentOperationActivationReceipt,
-  createSecAgentOperationActivationRequest,
-  parseSecAgentOperationActivationPreparation,
-  parseSecAgentOperationActivationPublicationComment,
-  parseSecAgentOperationActivationReceipt,
-  parseSecAgentOperationActivationRequest,
-  renderSecAgentOperationActivationPublicationComment,
-  SEC_AGENT_OPERATION_ACTIVATION_ARTIFACT_FILE,
-  SEC_AGENT_OPERATION_ACTIVATION_COMMENT_MARKER,
-  SEC_AGENT_OPERATION_ACTIVATION_EVENT,
-  SEC_AGENT_OPERATION_ACTIVATION_JOB_NAME,
-  SEC_AGENT_OPERATION_ACTIVATION_STEP_NAME,
-  SEC_AGENT_OPERATION_ACTIVATION_UPLOAD_STEP_NAME,
-  SEC_AGENT_OPERATION_ACTIVATION_WORKFLOW_PATH,
+  createActivationPreparation,
+  createActivationProvider,
+  createActivationPublication,
+  createActivationReceipt,
+  createActivationRequest,
+  parseActivationPreparation,
+  parseActivationPublicationComment,
+  parseActivationReceipt,
+  parseActivationRequest,
+  renderActivationPublicationComment,
+  ACTIVATION_ARTIFACT_FILE,
+  ACTIVATION_COMMENT_MARKER,
+  ACTIVATION_EVENT,
+  ACTIVATION_JOB_NAME,
+  ACTIVATION_STEP_NAME,
+  ACTIVATION_UPLOAD_STEP_NAME,
+  ACTIVATION_WORKFLOW_PATH,
   secAgentOperationActivationArtifactName,
   secAgentOperationActivationOperationId,
-  type SecAgentOperationActivationPreparation,
-  type SecAgentOperationActivationProvider,
-  type SecAgentOperationActivationPublication,
-  type SecAgentOperationActivationReceipt,
-  type SecAgentOperationActivationRequest
+  type ActivationPreparation,
+  type ActivationProvider,
+  type ActivationPublication,
+  type ActivationReceipt,
+  type ActivationRequest
 } from './operation-activation.ts';
 
 const CONTROL_PATHS = Object.freeze({
@@ -95,7 +95,7 @@ const CONTROL_PATHS = Object.freeze({
 });
 const COMMAND_TIMEOUT_MS = 60_000;
 
-export const SEC_AGENT_OPERATION_ACTIVATION_REASON_CODES = Object.freeze([
+export const ACTIVATION_REASON_CODES = Object.freeze([
   'activation-receipt-absent',
   'activation-stale',
   'activation-scope-conflict',
@@ -103,8 +103,8 @@ export const SEC_AGENT_OPERATION_ACTIVATION_REASON_CODES = Object.freeze([
   'activation-provider-unavailable',
   'activation-provider-readback-conflict'
 ] as const);
-export type SecAgentOperationActivationReasonCode =
-  typeof SEC_AGENT_OPERATION_ACTIVATION_REASON_CODES[number];
+export type ActivationReasonCode =
+  typeof ACTIVATION_REASON_CODES[number];
 
 type CommandResult = Readonly<{
   status: number;
@@ -112,45 +112,45 @@ type CommandResult = Readonly<{
   stderr: Buffer;
 }>;
 
-export class SecAgentOperationActivationUnavailableError extends Error {
-  readonly reasonCode: SecAgentOperationActivationReasonCode;
+export class ActivationUnavailableError extends Error {
+  readonly reasonCode: ActivationReasonCode;
   readonly blockerDigest: `sha256:${string}`;
 
-  constructor(reasonCode: SecAgentOperationActivationReasonCode, detail: string | Uint8Array = reasonCode) {
+  constructor(reasonCode: ActivationReasonCode, detail: string | Uint8Array = reasonCode) {
     super(`Agent operation activation is unavailable (${reasonCode}).`);
-    this.name = 'SecAgentOperationActivationUnavailableError';
+    this.name = 'ActivationUnavailableError';
     this.reasonCode = reasonCode;
     this.blockerDigest = rawSha256(detail);
   }
 }
 
 function unavailable(
-  reasonCode: SecAgentOperationActivationReasonCode,
+  reasonCode: ActivationReasonCode,
   detail?: string | Uint8Array
 ): never {
-  throw new SecAgentOperationActivationUnavailableError(reasonCode, detail);
+  throw new ActivationUnavailableError(reasonCode, detail);
 }
 
 function guarded<T>(
-  reasonCode: SecAgentOperationActivationReasonCode,
+  reasonCode: ActivationReasonCode,
   operation: () => T
 ): T {
   try {
     return operation();
   } catch (error) {
-    if (error instanceof SecAgentOperationActivationUnavailableError) throw error;
+    if (error instanceof ActivationUnavailableError) throw error;
     unavailable(reasonCode, error instanceof Error ? error.message : String(error));
   }
 }
 
 async function guardedAsync<T>(
-  reasonCode: SecAgentOperationActivationReasonCode,
+  reasonCode: ActivationReasonCode,
   operation: () => Promise<T>
 ): Promise<T> {
   try {
     return await operation();
   } catch (error) {
-    if (error instanceof SecAgentOperationActivationUnavailableError) throw error;
+    if (error instanceof ActivationUnavailableError) throw error;
     return unavailable(reasonCode, error instanceof Error ? error.message : String(error));
   }
 }
@@ -206,7 +206,7 @@ async function requireCommand(
   executable: string,
   args: readonly string[],
   cwd: string,
-  reasonCode: SecAgentOperationActivationReasonCode,
+  reasonCode: ActivationReasonCode,
   input?: Uint8Array
 ): Promise<Buffer> {
   const result = await command(executable, args, cwd, input);
@@ -214,7 +214,7 @@ async function requireCommand(
   return result.stdout;
 }
 
-function decodeUtf8(value: Uint8Array, reasonCode: SecAgentOperationActivationReasonCode): string {
+function decodeUtf8(value: Uint8Array, reasonCode: ActivationReasonCode): string {
   try {
     return new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(value);
   } catch {
@@ -226,13 +226,13 @@ async function textCommand(
   executable: string,
   args: readonly string[],
   cwd: string,
-  reasonCode: SecAgentOperationActivationReasonCode,
+  reasonCode: ActivationReasonCode,
   input?: Uint8Array
 ): Promise<string> {
   return decodeUtf8(await requireCommand(executable, args, cwd, reasonCode, input), reasonCode).trim();
 }
 
-function parseJson(source: string, reasonCode: SecAgentOperationActivationReasonCode): unknown {
+function parseJson(source: string, reasonCode: ActivationReasonCode): unknown {
   try {
     return JSON.parse(source) as unknown;
   } catch {
@@ -240,19 +240,19 @@ function parseJson(source: string, reasonCode: SecAgentOperationActivationReason
   }
 }
 
-function record(value: unknown, reasonCode: SecAgentOperationActivationReasonCode): Record<string, unknown> {
+function record(value: unknown, reasonCode: ActivationReasonCode): Record<string, unknown> {
   if (value === null || typeof value !== 'object' || Array.isArray(value)) {
     unavailable(reasonCode, JSON.stringify(value));
   }
   return value as Record<string, unknown>;
 }
 
-function gitSha(value: string, reasonCode: SecAgentOperationActivationReasonCode): string {
+function gitSha(value: string, reasonCode: ActivationReasonCode): string {
   if (!/^[0-9a-f]{40}$/u.test(value)) unavailable(reasonCode, value);
   return value;
 }
 
-function positiveId(value: unknown, reasonCode: SecAgentOperationActivationReasonCode): string {
+function positiveId(value: unknown, reasonCode: ActivationReasonCode): string {
   const normalized = String(value ?? '');
   if (!/^[1-9][0-9]*$/u.test(normalized)) unavailable(reasonCode, normalized);
   return normalized;
@@ -421,7 +421,7 @@ async function preparationWorkPackageDeletions(
     }));
 }
 
-export interface SecOperationAuthorityOwnerObservation {
+export interface AuthorityOwnerObservation {
   readonly id: string;
   readonly ref: string;
   readonly owner: string;
@@ -436,7 +436,7 @@ async function observeOperationAuthorityOwners(
   targetCandidate: string,
   manifest: WorkPackageManifest,
   paths: readonly string[]
-): Promise<readonly SecOperationAuthorityOwnerObservation[]> {
+): Promise<readonly AuthorityOwnerObservation[]> {
   if (manifest.schema !== 'codex-development-work-package-v1'
       || manifest.authorityRefs === undefined) {
     unavailable('activation-scope-conflict', 'work-package-authority-refs-missing');
@@ -473,7 +473,7 @@ async function observeOperationAuthorityOwners(
       ) === index)
       .sort((left, right) => compareCodeUnits(left.documentId, right.documentId)));
   } catch (error) {
-    if (error instanceof SecAgentOperationActivationUnavailableError) throw error;
+    if (error instanceof ActivationUnavailableError) throw error;
     unavailable('activation-scope-conflict', error instanceof Error ? error.message : String(error));
   }
   const ownerRecords = await Promise.all(records.map(async (entry) => {
@@ -501,7 +501,7 @@ async function observeOperationAuthorityOwners(
 async function requireResolvedWorkDecision(root: string): Promise<WorkDecisionReceipt> {
   try {
     const candidateHead = await gitHead(root);
-    const candidateState = CodexDevelopmentParseCurrentStateSpec(decodeUtf8(
+    const candidateState = ParseCurrentStateSpec(decodeUtf8(
       (await readGitBlob(root, `${candidateHead}:${CONTROL_PATHS.currentState}`)).bytes,
       'activation-stale'
     ));
@@ -511,7 +511,7 @@ async function requireResolvedWorkDecision(root: string): Promise<WorkDecisionRe
       'activation-stale'
     );
     const exactMainTree = await gitTree(root, exactMain);
-    const trustedState = CodexDevelopmentParseCurrentStateSpec(decodeUtf8(
+    const trustedState = ParseCurrentStateSpec(decodeUtf8(
       (await readGitBlob(root, `${exactMain}:${CONTROL_PATHS.currentState}`)).bytes,
       'activation-stale'
     ));
@@ -560,7 +560,7 @@ async function requireResolvedWorkDecision(root: string): Promise<WorkDecisionRe
       }
     });
   } catch (error) {
-    if (error instanceof SecAgentOperationActivationUnavailableError) throw error;
+    if (error instanceof ActivationUnavailableError) throw error;
     unavailable('activation-stale', error instanceof Error ? error.message : String(error));
   }
 }
@@ -644,10 +644,10 @@ async function readCandidateControl(
   const stateBytes = (await readGitBlob(candidateRoot, `${revision}:${CONTROL_PATHS.currentState}`)).bytes;
   const pointerBytes = (await readGitBlob(candidateRoot, `${revision}:${CONTROL_PATHS.pointer}`)).bytes;
   const rollingBytes = (await readGitBlob(candidateRoot, `${revision}:${CONTROL_PATHS.rollingPlan}`)).bytes;
-  const state = CodexDevelopmentParseCurrentStateSpec(decodeUtf8(stateBytes, 'activation-stale'));
-  const pointer = CodexDevelopmentParseActivePointer(decodeUtf8(pointerBytes, 'activation-stale'));
-  const rolling = CodexDevelopmentParseRollingPlan(decodeUtf8(rollingBytes, 'activation-stale'));
-  CodexDevelopmentAssertControlPlaneBinding({ spec: state, pointer });
+  const state = ParseCurrentStateSpec(decodeUtf8(stateBytes, 'activation-stale'));
+  const pointer = ParseActivePointer(decodeUtf8(pointerBytes, 'activation-stale'));
+  const rolling = ParseRollingPlan(decodeUtf8(rollingBytes, 'activation-stale'));
+  AssertControlPlaneBinding({ spec: state, pointer });
   if (state.resolver.repository !== receipt.repository
       || state.resolver.defaultRef !== `refs/remotes/${state.resolver.remote}/${state.resolver.defaultBranch}`) {
     unavailable('activation-stale', 'candidate-current-state-identity-drift');
@@ -696,7 +696,7 @@ function assertPreparationSelection(
 
 async function exactPullRequestEntry(
   receipt: WorkDecisionReceipt,
-  request: SecAgentOperationActivationRequest,
+  request: ActivationRequest,
   headRef: string,
   candidateRoot: string
 ): Promise<Readonly<{
@@ -731,8 +731,8 @@ async function exactPullRequestEntry(
 }
 
 async function assertRequestBindings(
-  request: SecAgentOperationActivationRequest,
-  provider: SecAgentOperationActivationProvider,
+  request: ActivationRequest,
+  provider: ActivationProvider,
   receipt: WorkDecisionReceipt,
   candidateRoot: string
 ): Promise<void> {
@@ -776,13 +776,13 @@ async function assertPreparationProposal(
       || paths.some((entry) => !allowed.has(entry))) {
     unavailable('activation-scope-conflict', JSON.stringify(paths));
   }
-  CodexDevelopmentAssertWorkPackageChangedRecords(manifest, records);
+  AssertWorkPackageChangedRecords(manifest, records);
 }
 
 async function assertPreparationStillAuthorizesFinal(
   candidateRoot: string,
   decision: WorkDecisionReceipt,
-  preparation: SecAgentOperationActivationPreparation,
+  preparation: ActivationPreparation,
   finalControl: CandidateControlSnapshot,
   binding: ReturnType<typeof workBinding>
 ): Promise<void> {
@@ -884,30 +884,30 @@ async function apiRecord(
       bytes: observed.bytes
     });
   } catch (error) {
-    if (error instanceof SecAgentOperationActivationUnavailableError) {
+    if (error instanceof ActivationUnavailableError) {
       unavailable('activation-provider-readback-conflict', observed.bytes);
     }
     throw error;
   }
 }
 
-function providerFromEnvironment(): SecAgentOperationActivationProvider {
+function providerFromEnvironment(): ActivationProvider {
   const required = (name: string): string => {
     const value = process.env[name];
     if (value === undefined || value.length === 0) unavailable('activation-issuer-unavailable', name);
     return value;
   };
-  return createSecAgentOperationActivationProvider({
+  return createActivationProvider({
     repositoryId: required('GITHUB_REPOSITORY_ID'),
-    workflowPath: SEC_AGENT_OPERATION_ACTIVATION_WORKFLOW_PATH,
-    workflowRef: `${SEC_AGENT_OPERATION_ACTIVATION_WORKFLOW_PATH}@${required('GITHUB_SHA')}`,
+    workflowPath: ACTIVATION_WORKFLOW_PATH,
+    workflowRef: `${ACTIVATION_WORKFLOW_PATH}@${required('GITHUB_SHA')}`,
     workflowSha: required('GITHUB_SHA'),
     runId: required('GITHUB_RUN_ID'),
     runAttempt: Number(required('GITHUB_RUN_ATTEMPT')),
     eventName: 'repository_dispatch',
-    jobName: SEC_AGENT_OPERATION_ACTIVATION_JOB_NAME,
-    uploadStepName: SEC_AGENT_OPERATION_ACTIVATION_UPLOAD_STEP_NAME,
-    publicationStepName: SEC_AGENT_OPERATION_ACTIVATION_STEP_NAME,
+    jobName: ACTIVATION_JOB_NAME,
+    uploadStepName: ACTIVATION_UPLOAD_STEP_NAME,
+    publicationStepName: ACTIVATION_STEP_NAME,
     actorLogin: required('SEC_ACTIVATION_ACTOR_LOGIN'),
     actorNodeId: required('SEC_ACTIVATION_ACTOR_NODE_ID'),
     actorPermission: required('SEC_ACTIVATION_ACTOR_PERMISSION') as 'admin' | 'maintain'
@@ -917,7 +917,7 @@ function providerFromEnvironment(): SecAgentOperationActivationProvider {
 async function assertProviderLive(
   root: string,
   repository: string,
-  provider: SecAgentOperationActivationProvider
+  provider: ActivationProvider
 ): Promise<void> {
   const repoObservation = await apiRecord(root, repository, { kind: 'repository' });
   const repo = repoObservation.value;
@@ -988,7 +988,7 @@ async function assertProviderLive(
 async function assertArtifactMetadata(
   root: string,
   repository: string,
-  publication: SecAgentOperationActivationPublication
+  publication: ActivationPublication
 ): Promise<void> {
   const metadataObservation = await apiRecord(root, repository, {
     kind: 'artifact', artifactId: Number(publication.artifactId)
@@ -1014,7 +1014,7 @@ async function assertArtifactMetadata(
 async function downloadArtifactPayload(
   root: string,
   repository: string,
-  publication: SecAgentOperationActivationPublication
+  publication: ActivationPublication
 ): Promise<Readonly<{ bytes: Buffer; payload: unknown }>> {
   await assertArtifactMetadata(root, repository, publication);
   let archiveBytes: Uint8Array;
@@ -1054,15 +1054,15 @@ async function allPublications(
   root: string,
   repository: string,
   pullRequestNumber: number
-): Promise<readonly Readonly<{ publication: SecAgentOperationActivationPublication; commentId: number }>[] > {
+): Promise<readonly Readonly<{ publication: ActivationPublication; commentId: number }>[] > {
   const inventory = await listActivationComments(root, repository, pullRequestNumber);
-  const result: Array<{ publication: SecAgentOperationActivationPublication; commentId: number }> = [];
+  const result: Array<{ publication: ActivationPublication; commentId: number }> = [];
   for (const comment of inventory) {
-    if (!comment.body.includes(SEC_AGENT_OPERATION_ACTIVATION_COMMENT_MARKER)) continue;
+    if (!comment.body.includes(ACTIVATION_COMMENT_MARKER)) continue;
     if (!hostedPublisherMatches(comment)) continue;
-    let publication: SecAgentOperationActivationPublication | null;
+    let publication: ActivationPublication | null;
     try {
-      publication = parseSecAgentOperationActivationPublicationComment(comment.body);
+      publication = parseActivationPublicationComment(comment.body);
     } catch {
       unavailable('activation-provider-readback-conflict', comment.body);
     }
@@ -1074,7 +1074,7 @@ async function allPublications(
 
 function assertNoDuplicatePublicationIdentities(
   publications: readonly Readonly<{
-    publication: SecAgentOperationActivationPublication;
+    publication: ActivationPublication;
     commentId: number;
   }>[]
 ): void {
@@ -1089,14 +1089,14 @@ function assertNoDuplicatePublicationIdentities(
 async function validateArtifactPayload(
   root: string,
   repository: string,
-  publication: SecAgentOperationActivationPublication
-): Promise<SecAgentOperationActivationPreparation | SecAgentOperationActivationReceipt> {
+  publication: ActivationPublication
+): Promise<ActivationPreparation | ActivationReceipt> {
   const downloaded = await downloadArtifactPayload(root, repository, publication);
-  let payload: SecAgentOperationActivationPreparation | SecAgentOperationActivationReceipt;
+  let payload: ActivationPreparation | ActivationReceipt;
   try {
     payload = publication.request.phase === 'prepare'
-      ? parseSecAgentOperationActivationPreparation(downloaded.payload)
-      : parseSecAgentOperationActivationReceipt(downloaded.payload);
+      ? parseActivationPreparation(downloaded.payload)
+      : parseActivationReceipt(downloaded.payload);
   } catch {
     unavailable('activation-provider-readback-conflict', downloaded.bytes);
   }
@@ -1114,21 +1114,21 @@ async function validateArtifactPayload(
 
 function writeHostedPayload(
   outputPath: string,
-  value: SecAgentOperationActivationPreparation | SecAgentOperationActivationReceipt
+  value: ActivationPreparation | ActivationReceipt
 ): void {
   writeFileSync(path.resolve(outputPath), canonicalBytes(value), { flag: 'wx' });
 }
 
 function payloadDigest(
-  value: SecAgentOperationActivationPreparation | SecAgentOperationActivationReceipt
+  value: ActivationPreparation | ActivationReceipt
 ): `sha256:${string}` {
   return 'preparationDigest' in value ? value.preparationDigest : value.activationDigest;
 }
 
 function rebindPayloadProvider(
-  value: SecAgentOperationActivationPreparation | SecAgentOperationActivationReceipt,
-  provider: SecAgentOperationActivationProvider
-): SecAgentOperationActivationPreparation | SecAgentOperationActivationReceipt {
+  value: ActivationPreparation | ActivationReceipt,
+  provider: ActivationProvider
+): ActivationPreparation | ActivationReceipt {
   if (value.schema === 'sec-agent-operation-activation-preparation-v2') {
     const {
       schema: _schema,
@@ -1136,7 +1136,7 @@ function rebindPayloadProvider(
       provider: _provider,
       ...input
     } = value;
-    return createSecAgentOperationActivationPreparation({ ...input, provider });
+    return createActivationPreparation({ ...input, provider });
   }
   const {
     schema: _schema,
@@ -1144,15 +1144,15 @@ function rebindPayloadProvider(
     provider: _provider,
     ...input
   } = value;
-  return createSecAgentOperationActivationReceipt({ ...input, provider });
+  return createActivationReceipt({ ...input, provider });
 }
 
 async function materializeOrReuseHostedPayload(
   runtimeRoot: string,
   repository: string,
-  request: SecAgentOperationActivationRequest,
+  request: ActivationRequest,
   outputPath: string,
-  value: SecAgentOperationActivationPreparation | SecAgentOperationActivationReceipt
+  value: ActivationPreparation | ActivationReceipt
 ): Promise<Readonly<{
   disposition: 'created' | 'existing';
   commentId: number | null;
@@ -1202,7 +1202,7 @@ async function produceHosted(input: Readonly<{
   const runtimeRoot = await repositoryRoot(input.runtimeRoot);
   const candidateRoot = await repositoryRoot(input.candidateRoot);
   const requestBytes = readFileSync(path.resolve(input.requestPath));
-  const request = parseSecAgentOperationActivationRequest(
+  const request = parseActivationRequest(
     parseJson(decodeUtf8(requestBytes, 'activation-issuer-unavailable'), 'activation-issuer-unavailable')
   );
   const provider = providerFromEnvironment();
@@ -1220,7 +1220,7 @@ async function produceHosted(input: Readonly<{
   const pullRequest = await exactPullRequestEntry(decision, request, hostedHeadRef, candidateRoot);
   const records = await changedRecordsBetween(candidateRoot, request.expectedBaseSha, request.expectedHeadSha);
   const paths = changedPaths(records);
-  CodexDevelopmentAssertWorkPackageChangedRecords(control.manifest, records);
+  AssertWorkPackageChangedRecords(control.manifest, records);
   await observeOperationAuthorityOwners(
     candidateRoot, decision.exactMain, request.expectedHeadSha, control.manifest, paths
   );
@@ -1228,7 +1228,7 @@ async function produceHosted(input: Readonly<{
     assertPreparationSelection(control, decision);
     await assertPreparationProposal(records, control.manifest, control.manifestPath,
       control.manifestBytes, request.expectedBaseSha, request.expectedHeadSha, candidateRoot);
-    const preparation = createSecAgentOperationActivationPreparation({
+    const preparation = createActivationPreparation({
       request,
       repository: decision.repository,
       workId: binding.item.workId,
@@ -1282,7 +1282,7 @@ async function produceHosted(input: Readonly<{
     unavailable('activation-stale', 'PRE-FINAL-stable-binding-drift');
   }
   await assertPreparationStillAuthorizesFinal(candidateRoot, decision, preparation, control, binding);
-  const finalReceipt = createSecAgentOperationActivationReceipt({
+  const finalReceipt = createActivationReceipt({
     request,
     preparation,
     pullRequest,
@@ -1311,22 +1311,22 @@ async function publishHosted(input: Readonly<{
   artifactDigest: `sha256:${string}`;
 }>): Promise<Readonly<{
   commentId: number;
-  publication: SecAgentOperationActivationPublication;
+  publication: ActivationPublication;
 }>> {
   const runtimeRoot = await repositoryRoot(input.runtimeRoot);
   const requestBytes = readFileSync(path.resolve(input.requestPath));
-  const request = parseSecAgentOperationActivationRequest(
+  const request = parseActivationRequest(
     parseJson(decodeUtf8(requestBytes, 'activation-issuer-unavailable'), 'activation-issuer-unavailable')
   );
   const provider = providerFromEnvironment();
   await assertCleanExactRoot(runtimeRoot, provider.workflowSha);
   const bytes = readFileSync(path.resolve(input.payloadPath));
   const payload = request.phase === 'prepare'
-    ? parseSecAgentOperationActivationPreparation(
+    ? parseActivationPreparation(
         parseJson(decodeUtf8(bytes, 'activation-provider-readback-conflict'),
           'activation-provider-readback-conflict')
       )
-    : parseSecAgentOperationActivationReceipt(
+    : parseActivationReceipt(
         parseJson(decodeUtf8(bytes, 'activation-provider-readback-conflict'),
           'activation-provider-readback-conflict')
       );
@@ -1334,21 +1334,21 @@ async function publishHosted(input: Readonly<{
       || !canonicalEqual(payload.provider, provider)) {
     unavailable('activation-provider-readback-conflict', bytes);
   }
-  const publication = createSecAgentOperationActivationPublication({
+  const publication = createActivationPublication({
     request,
     payloadDigest: 'preparationDigest' in payload ? payload.preparationDigest : payload.activationDigest,
     artifactId: input.artifactId,
     artifactName: secAgentOperationActivationArtifactName(request.phase, request.requestOperationId),
-    artifactFileName: SEC_AGENT_OPERATION_ACTIVATION_ARTIFACT_FILE,
+    artifactFileName: ACTIVATION_ARTIFACT_FILE,
     artifactDigest: input.artifactDigest,
     provider
   });
-  const repository = CodexDevelopmentParseCurrentStateSpec(decodeUtf8(
+  const repository = ParseCurrentStateSpec(decodeUtf8(
     (await readGitBlob(runtimeRoot, `${provider.workflowSha}:${CONTROL_PATHS.currentState}`)).bytes,
     'activation-stale'
   )).resolver.repository;
   await assertArtifactMetadata(runtimeRoot, repository, publication);
-  const body = renderSecAgentOperationActivationPublicationComment(publication);
+  const body = renderActivationPublicationComment(publication);
   let createdValue: unknown;
   try {
     createdValue = await withGitHubApiIssueCommentWriteSession({
@@ -1382,7 +1382,7 @@ async function publishHosted(input: Readonly<{
   });
 }
 
-interface SecResolvedAgentOperationActivationCommon {
+interface ResolvedActivationCommon {
   readonly manifest: WorkPackageManifest;
   readonly runtimeRoot: string;
   readonly candidateRoot: string;
@@ -1392,29 +1392,29 @@ interface SecResolvedAgentOperationActivationCommon {
   readonly manifestPath: string;
   readonly manifestRevision: string;
   readonly manifestDigest: `sha256:${string}`;
-  readonly authorityOwners: readonly SecOperationAuthorityOwnerObservation[];
+  readonly authorityOwners: readonly AuthorityOwnerObservation[];
 }
 
-export type SecResolvedAgentOperationActivation =
-  SecResolvedAgentOperationActivationCommon & Readonly<
+export type ResolvedActivation =
+  ResolvedActivationCommon & Readonly<
     | {
         phase: 'prepare';
-        preparation: SecAgentOperationActivationPreparation;
+        preparation: ActivationPreparation;
         receipt: null;
         activationDigest: `sha256:${string}`;
       }
     | {
         phase: 'finalize';
-        preparation: SecAgentOperationActivationPreparation;
-        receipt: SecAgentOperationActivationReceipt;
+        preparation: ActivationPreparation;
+        receipt: ActivationReceipt;
         activationDigest: `sha256:${string}`;
       }
   >;
 
-async function resolveSecAgentOperationActivationUnchecked(
+async function resolveActivationUnchecked(
   runtimeRootInput: string,
   candidateRootInput: string
-): Promise<SecResolvedAgentOperationActivation> {
+): Promise<ResolvedActivation> {
   const runtimeRoot = await repositoryRoot(runtimeRootInput);
   const candidateRoot = await repositoryRoot(candidateRootInput);
   await assertSameRepository(runtimeRoot, candidateRoot);
@@ -1469,14 +1469,14 @@ async function resolveSecAgentOperationActivationUnchecked(
     const pullRequest = await exactPullRequestEntry(decision, preparation.request, branch, candidateRoot);
     const records = await changedRecordsBetween(candidateRoot, decision.exactMain, targetCandidate);
     const paths = changedPaths(records);
-    CodexDevelopmentAssertWorkPackageChangedRecords(control.manifest, records);
+    AssertWorkPackageChangedRecords(control.manifest, records);
     assertPreparationSelection(control, decision);
     await assertPreparationProposal(records, control.manifest, control.manifestPath,
       control.manifestBytes, decision.exactMain, targetCandidate, candidateRoot);
     const authorityOwners = await observeOperationAuthorityOwners(
       candidateRoot, decision.exactMain, targetCandidate, control.manifest, paths
     );
-    const expected = createSecAgentOperationActivationPreparation({
+    const expected = createActivationPreparation({
       request: preparation.request,
       repository: decision.repository,
       workId: binding.item.workId,
@@ -1545,7 +1545,7 @@ async function resolveSecAgentOperationActivationUnchecked(
   const pullRequest = await exactPullRequestEntry(decision, receipt.request, branch, candidateRoot);
   const records = await changedRecordsBetween(candidateRoot, decision.exactMain, targetCandidate);
   const paths = changedPaths(records);
-  CodexDevelopmentAssertWorkPackageChangedRecords(control.manifest, records);
+  AssertWorkPackageChangedRecords(control.manifest, records);
   const authorityOwners = await observeOperationAuthorityOwners(
     candidateRoot, decision.exactMain, targetCandidate, control.manifest, paths
   );
@@ -1559,7 +1559,7 @@ async function resolveSecAgentOperationActivationUnchecked(
     control,
     binding
   );
-  const expected = createSecAgentOperationActivationReceipt({
+  const expected = createActivationReceipt({
     request: receipt.request,
     preparation: receipt.preparation,
     pullRequest,
@@ -1590,11 +1590,11 @@ async function resolveSecAgentOperationActivationUnchecked(
   });
 }
 
-export async function resolveSecAgentOperationActivation(
+export async function resolveActivation(
   runtimeRootInput: string,
   candidateRootInput: string
-): Promise<SecResolvedAgentOperationActivation> {
-  return guardedAsync('activation-stale', () => resolveSecAgentOperationActivationUnchecked(
+): Promise<ResolvedActivation> {
+  return guardedAsync('activation-stale', () => resolveActivationUnchecked(
     runtimeRootInput,
     candidateRootInput
   ));
@@ -1603,7 +1603,7 @@ export async function resolveSecAgentOperationActivation(
 async function dispatchRequest(
   runtimeRoot: string,
   repository: string,
-  request: SecAgentOperationActivationRequest
+  request: ActivationRequest
 ): Promise<void> {
   try {
     await withGitHubApiRepositoryDispatchWriteSession({
@@ -1612,7 +1612,7 @@ async function dispatchRequest(
       operation: async (capability) => {
         await executeGitHubApiOperation(capability, {
           kind: 'repository-dispatch',
-          eventType: SEC_AGENT_OPERATION_ACTIVATION_EVENT,
+          eventType: ACTIVATION_EVENT,
           clientPayload: Object.freeze({ payload: request })
         });
       }
@@ -1633,7 +1633,7 @@ async function resolveMaximalPreparation(
   manifestDigest: `sha256:${string}`
 ): Promise<Readonly<{
   commentId: number;
-  preparation: SecAgentOperationActivationPreparation;
+  preparation: ActivationPreparation;
 }>> {
   const publications = await allPublications(runtimeRoot, repository, pullRequestNumber);
   assertNoDuplicatePublicationIdentities(publications);
@@ -1748,7 +1748,7 @@ async function main(): Promise<void> {
     if (entry.manifestPath !== control.manifestPath || entry.manifestDigest !== control.manifestDigest) {
       unavailable('activation-stale', 'registry-manifest-drift');
     }
-    const request = createSecAgentOperationActivationRequest({
+    const request = createActivationRequest({
       phase,
       pullRequestNumber: entry.prNumber!,
       expectedBaseSha: decision.exactMain,
@@ -1771,7 +1771,7 @@ async function main(): Promise<void> {
     await dispatchRequest(runtimeRoot, decision.repository, request);
     process.stdout.write(`${JSON.stringify({
       status: 'dispatched',
-      event: SEC_AGENT_OPERATION_ACTIVATION_EVENT,
+      event: ACTIVATION_EVENT,
       requestOperationId: request.requestOperationId
     }, null, options.json === true ? 2 : 0)}\n`);
     return;
@@ -1848,9 +1848,9 @@ if (import.meta.main) {
   try {
     await main();
   } catch (error) {
-    const blocked = error instanceof SecAgentOperationActivationUnavailableError
+    const blocked = error instanceof ActivationUnavailableError
       ? error
-      : new SecAgentOperationActivationUnavailableError(
+      : new ActivationUnavailableError(
           'activation-issuer-unavailable',
           error instanceof Error ? error.message : String(error)
         );

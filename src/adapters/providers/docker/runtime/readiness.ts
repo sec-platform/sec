@@ -2,32 +2,32 @@ import path from 'node:path';
 
 import { sha256 } from '../../../../contracts/canonical.ts';
 import {
-  bindSecSemanticOperation,
+  bindSemanticOperation,
   compileCapabilityBinding,
   compileProviderSettlementSet,
   compileSemanticOperationPlan,
   issueNormalDomainReadbackReceipt,
-  issueSecNormalOwnerTerminalJoinReceipt,
+  issueNormalOwnerTerminalJoinReceipt,
   issueProviderSettlementReceipt,
   issueRecoveredDomainReadbackReceipt,
-  issueSecRecoveredOwnerTerminalJoinReceipt,
+  issueRecoveredOwnerTerminalJoinReceipt,
   issueRecoveredRetryAdmission,
   issueSemanticOperationAttemptContext,
   type BoundSemanticOperation,
   type OperationDigest
 } from '../../../../execution/operation/semantic.ts';
 import type {
-  SecDurableExecutionDigest
+  DurableExecutionDigest
 } from '../../../runtime-state/workspace-state/durable-execution/contract.ts';
 import {
   createDurableExecutionWriter,
   durableExecutionJournalIdentity,
   durableExecutionPredecessorAttemptReference,
-  type SecDurableExecutionWriter
+  type DurableExecutionWriter
 } from '../../../runtime-state/workspace-state/durable-execution/store.ts';
 import { createRuntimeStateJournalFileSystem } from '../../../runtime-state/workspace-state/journal-filesystem.ts';
-import { resolveSecWorkspaceRuntimeRoots } from '../../../runtime-state/workspace-state/paths.ts';
-import { acquireSecRuntimeJournalAuthority } from '../../../runtime-state/workspace-state/physical-authority.ts';
+import { resolveWorkspaceRuntimeRoots } from '../../../runtime-state/workspace-state/paths.ts';
+import { acquireRuntimeJournalAuthority } from '../../../runtime-state/workspace-state/physical-authority.ts';
 import { DockerCommandProviderUnavailableError } from '../contract/command-provider.ts';
 import {
   DockerDaemonAvailabilityFailure,
@@ -125,7 +125,7 @@ function bindReadinessOperation(input: Readonly<{
       id: REQUIREMENT_ID
     }]
   });
-  return bindSecSemanticOperation(plan, [compileCapabilityBinding({
+  return bindSemanticOperation(plan, [compileCapabilityBinding({
     requirementId: REQUIREMENT_ID,
     contractDigest,
     providerIdentityDigest: input.providerIdentityDigest
@@ -211,10 +211,10 @@ async function observeWithOwnedProvider(input: Readonly<{
 }
 
 function durableWriter(input: Readonly<{
-  authority: Awaited<ReturnType<typeof acquireSecRuntimeJournalAuthority>>;
+  authority: Awaited<ReturnType<typeof acquireRuntimeJournalAuthority>>;
   repositoryRoot: string;
-}>): SecDurableExecutionWriter {
-  const roots = resolveSecWorkspaceRuntimeRoots({ repositoryRoot: input.repositoryRoot });
+}>): DurableExecutionWriter {
+  const roots = resolveWorkspaceRuntimeRoots({ repositoryRoot: input.repositoryRoot });
   return createDurableExecutionWriter({
     fileSystem: createRuntimeStateJournalFileSystem(
       input.authority.directory(roots.workspaceStateRoot)
@@ -307,13 +307,13 @@ export async function observeLocalContainerEngineReadiness(input: Readonly<{
     mode,
     providerIdentityDigest: provider.providerIdentityDigest
   });
-  let journalAuthority: Awaited<ReturnType<typeof acquireSecRuntimeJournalAuthority>> | null = null;
+  let journalAuthority: Awaited<ReturnType<typeof acquireRuntimeJournalAuthority>> | null = null;
   const completion = (async (): Promise<LocalContainerEngineReadiness> => {
     try {
-    let writer: SecDurableExecutionWriter | null = null;
+    let writer: DurableExecutionWriter | null = null;
     let retryAlreadyClaimed = false;
     if (mode === 'ensure-started') {
-      journalAuthority = await acquireSecRuntimeJournalAuthority({ repositoryRoot: cwd });
+      journalAuthority = await acquireRuntimeJournalAuthority({ repositoryRoot: cwd });
       writer = durableWriter({ authority: journalAuthority, repositoryRoot: cwd });
       const prior = writer.read(durableExecutionJournalIdentity(operation));
       if (prior?.activeAttempt !== null && prior?.activeAttempt !== undefined) {
@@ -353,7 +353,7 @@ export async function observeLocalContainerEngineReadiness(input: Readonly<{
             disposition: 'applied'
           });
           writer.appendDomainReadback(recovery, recoveredReadback);
-          const terminal = issueSecRecoveredOwnerTerminalJoinReceipt(recovery, recoveredReadback, {
+          const terminal = issueRecoveredOwnerTerminalJoinReceipt(recovery, recoveredReadback, {
             ownerTerminalContractDigest: sha256('sec.docker.daemon.ready-terminal') as OperationDigest,
             ownerTerminalReferenceDigest: recoveredReady.providerIdentityDigest
           });
@@ -385,7 +385,7 @@ export async function observeLocalContainerEngineReadiness(input: Readonly<{
           });
           writer.appendDomainReadback(recovery, recoveredReadback);
           if (predecessor.deadlineAtUnixMs <= Date.now()) {
-            const terminal = issueSecRecoveredOwnerTerminalJoinReceipt(recovery, recoveredReadback, {
+            const terminal = issueRecoveredOwnerTerminalJoinReceipt(recovery, recoveredReadback, {
               ownerTerminalContractDigest: sha256('sec.docker.daemon.unavailable-terminal') as OperationDigest,
               ownerTerminalReferenceDigest: error.detailDigest
             });
@@ -435,7 +435,7 @@ export async function observeLocalContainerEngineReadiness(input: Readonly<{
             writer.appendRecoveredRetryAttemptStart(
               recovery,
               operation,
-              sha256('sec.docker.desktop-launcher-worker') as SecDurableExecutionDigest,
+              sha256('sec.docker.desktop-launcher-worker') as DurableExecutionDigest,
               retryAdmission,
               currentPhysicalEpochDigest
             );
@@ -472,7 +472,7 @@ export async function observeLocalContainerEngineReadiness(input: Readonly<{
           writer!.createIntent(operation);
           writer!.appendInitialAttemptStart(
             operation,
-            sha256('sec.docker.desktop-launcher-worker') as SecDurableExecutionDigest
+            sha256('sec.docker.desktop-launcher-worker') as DurableExecutionDigest
           );
         },
         observeDesktopLaunchSettlement: (settlement) => {
@@ -526,7 +526,7 @@ export async function observeLocalContainerEngineReadiness(input: Readonly<{
           disposition: 'applied'
         });
         writer.appendDomainReadback(operation, readback);
-        const terminal = issueSecNormalOwnerTerminalJoinReceipt(
+        const terminal = issueNormalOwnerTerminalJoinReceipt(
           operation,
           providerSettlements,
           readback,

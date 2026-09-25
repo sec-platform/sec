@@ -1,5 +1,5 @@
-import { createHash } from 'node:crypto';
 
+import { rawSha256Hex } from '../../../../contracts/canonical.ts';
 import {
   assertDurableRecoveryAuthority,
   assertGitBranchName,
@@ -166,7 +166,7 @@ function assertRecord(value: unknown, label: string): asserts value is Record<st
 }
 
 function sha256Bytes(bytes: Uint8Array | string): `sha256:${string}` {
-  return `sha256:${createHash('sha256').update(bytes).digest('hex')}`;
+  return `sha256:${rawSha256Hex(bytes)}`;
 }
 
 function canonicalBase64(value: unknown, label: string, maximumBytes: number): {

@@ -5,7 +5,7 @@ import path from 'node:path';
 
 import { sha256 } from '../../../contracts/canonical.ts';
 import {
-  bindSecSemanticOperation,
+  bindSemanticOperation,
   compileCapabilityBinding,
   compileSemanticOperationPlan,
   issueSemanticOperationAttemptContext,
@@ -22,7 +22,7 @@ import {
   secUserExternalProviderCoordinationPath,
   withExternalProviderCoordinationLeaseAtOwnerIssuedRoot
 } from './external-provider-coordination-lease.ts';
-import { resolveSecWorkspaceRuntimeRoots } from './paths.ts';
+import { resolveWorkspaceRuntimeRoots } from './paths.ts';
 
 const digest = (value: string): `sha256:${string}` => `sha256:${value.repeat(64).slice(0, 64)}`;
 const requirementId = 'external.provider.coordination-test';
@@ -48,7 +48,7 @@ function providerOperation(input: Readonly<{
       id: requirementId
     }]
   });
-  return bindSecSemanticOperation(plan, [compileCapabilityBinding({
+  return bindSemanticOperation(plan, [compileCapabilityBinding({
     contractDigest,
     providerIdentityDigest: input.providerEpochDigest ?? digest('a'),
     requirementId
@@ -120,7 +120,7 @@ test.skipIf(process.platform !== 'win32')(
         externalProviderCoordinationLeaseName(coordination())
       ]);
       expect(readdirSync(expectedDirectory)).toEqual([]);
-      const canonicalRoots = resolveSecWorkspaceRuntimeRoots({
+      const canonicalRoots = resolveWorkspaceRuntimeRoots({
         environment: { LOCALAPPDATA: rootPath },
         repositoryRoot: process.cwd()
       });

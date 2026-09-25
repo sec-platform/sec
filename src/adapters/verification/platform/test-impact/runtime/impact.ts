@@ -1,8 +1,8 @@
 import { uniqueSorted } from '../../../../../contracts/canonical.ts';
-import { SecError } from '../../../../../contracts/failure.ts';
-import { isSecRepositoryTestModulePath } from '../../../../../contracts/repository-test-path.ts';
+import { FailureError } from '../../../../../contracts/failure.ts';
+import { isRepositoryTestModulePath } from '../../../../../contracts/repository-test-path.ts';
 import {
-  normalizeSecRepositoryPath,
+  normalizeRepositoryModulePath,
   type RepositoryModuleGraph as ArchitectureModuleGraph
 } from '../../../../repository/architecture/contract.ts';
 import {
@@ -65,12 +65,12 @@ type ProviderIndex = Readonly<{
 let providerIndexCache = new WeakMap<object, ProviderIndex>();
 
 function normalizeRepoPath(value: string): string {
-  return normalizeSecRepositoryPath(value);
+  return normalizeRepositoryModulePath(value);
 }
 
 function assertIssuedProvider(provider: TestImpactSourceProvider): void {
   if (!issuedTestImpactProviders.has(provider)) {
-    throw new SecError(
+    throw new FailureError(
       'TEST-IMPACT-001',
       'Test impact requires an owner-issued provider composition',
       { kind: 'provider-unissued' }
@@ -157,7 +157,7 @@ function moduleIdForPath(
   // A containing module root is not proof that an arbitrary, absent path is
   // owned. Only paths present in the exact source projection and the module
   // descriptor itself may use the structural owner fallback.
-  if (!index.moduleIds.has(repositoryPath) && !repositoryPath.endsWith('/sec.module.json')) {
+  if (!index.moduleIds.has(repositoryPath) && !repositoryPath.endsWith('/module.json')) {
     return null;
   }
   const containingOwners = provider.projection.moduleOwners
@@ -189,7 +189,7 @@ export function isTestImpactModuleGraphInputFile(
   provider: TestImpactSourceProvider
 ): boolean {
   const normalized = normalizeRepoPath(file);
-  if (isSecRepositoryTestModulePath(normalized)) return false;
+  if (isRepositoryTestModulePath(normalized)) return false;
   return providerIndex(provider).moduleGraphInputs.has(normalized);
 }
 
@@ -198,7 +198,7 @@ export function isTestImpactSourceFile(
   provider: TestImpactSourceProvider
 ): boolean {
   const normalized = normalizeRepoPath(file);
-  if (isSecRepositoryTestModulePath(normalized)) return false;
+  if (isRepositoryTestModulePath(normalized)) return false;
   return isTestImpactModuleGraphInputFile(normalized, provider)
     || buildReverseImportMap(provider).map.has(normalized)
     || moduleIdForPath(normalized, provider) !== null
@@ -229,14 +229,14 @@ export function createRepositoryTestImpactSourceProvider(
   if (testInventory.workspaceSnapshotIdentityDigest !== projection.workspaceSnapshotIdentityDigest
       || testInventory.snapshotDigest !== projection.snapshotDigest
       || projection.testFiles.some((path) => (
-        isSecRepositoryTestModulePath(path) && !inventoryTestFiles.has(path)
+        isRepositoryTestModulePath(path) && !inventoryTestFiles.has(path)
       ))) {
-    throw new SecError('TEST-IMPACT-001', 'Test inventory differs from its Source Program projection.', {
+    throw new FailureError('TEST-IMPACT-001', 'Test inventory differs from its Source Program projection.', {
       kind: 'test-inventory-mismatch'
     });
   }
   if (Object.prototype.hasOwnProperty.call(input, 'transition')) {
-    throw new SecError(
+    throw new FailureError(
       'TEST-IMPACT-001',
       'Test impact transition must come from an owner-issued Git/source composition',
       { kind: 'transition-unissued' }
@@ -246,7 +246,7 @@ export function createRepositoryTestImpactSourceProvider(
     ? null
     : readIssuedAffectedTestImpactBinding(affectedSource);
   if (affectedSource !== undefined && affectedSource.projection !== projection) {
-    throw new SecError(
+    throw new FailureError(
       'TEST-IMPACT-001',
       'Test impact transition differs from the Source Program projection source',
       { kind: 'transition-source-mismatch' }
@@ -255,7 +255,7 @@ export function createRepositoryTestImpactSourceProvider(
   const moduleFileSet = new Set(projection.moduleGraph.files);
   const missingTestPath = projection.testFiles.find((testFile) => !moduleFileSet.has(testFile));
   if (missingTestPath !== undefined) {
-    throw new SecError(
+    throw new FailureError(
       'TEST-IMPACT-001',
       `Test impact projection omitted a test module from its graph: ${missingTestPath}.`,
       { kind: 'projection-test-module-missing', testPath: missingTestPath }
@@ -386,7 +386,7 @@ export function resolveTestImpactSelectionTrustBoundary(
   };
 }
 
-export function readRepositoryModuleGraphV1(
+export function readRepositoryModuleGraph(
   provider: TestImpactSourceProvider
 ): RepositoryModuleGraph {
   return buildReverseImportMap(provider).graph;
@@ -508,7 +508,7 @@ export function resolveTestImpactRiskPolicies(
   provider: TestImpactSourceProvider
 ): TestImpactRiskPolicy[] {
   const index = providerIndex(provider);
-  const graph = readRepositoryModuleGraphV1(provider);
+  const graph = readRepositoryModuleGraph(provider);
   const reverseConsumers = buildReverseImportMap(provider).map;
   const compilerTestInputs = new Set(provider.projection.testFiles);
   return uniqueSorted([
@@ -556,6 +556,6 @@ export function formatSlowImpactNotice(selection: TestImpactSelection): string {
   return [
     'Changed sources also affect slow e2e coverage:',
     ...selection.slow.map((file) => `- ${file}`),
-    'Run bun run test:slow or bun run test:full before release.'
+    'Run bun run test -- --scope slow or bun run test -- --scope full before release.'
   ].join('\n');
 }

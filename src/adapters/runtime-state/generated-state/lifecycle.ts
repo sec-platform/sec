@@ -14,8 +14,9 @@ import { acquirePhysicalMutationLease } from '../physical/runtime/mutation-lease
 import { PhysicalNoFollowError, assertPhysicallyDisjointDirectoryChains, createExclusiveNoFollowDirectory, createNoFollowOrdinaryDirectoryChain, deleteRetainedNoFollowEntry, inspectExactNoFollowDirectoryPresence, inspectNoFollowDirectoryChain, inspectNoFollowLinkEntry, inspectNoFollowOrdinaryFileEntry, physicallyContainsDirectoryChain, publishExclusiveDurableCanonicalFile, relocateRetainedNoFollowDirectoryAcrossParents, replaceDurableCanonicalFile, scanNoFollowDirectoryTreeMetadata, type PhysicalDirectoryChain, type PhysicalDirectoryIdentity } from '../physical/runtime/physical-no-follow.ts';
 import type { ByteCommandResult } from '../physical/runtime/process.ts';
 import { createRuntimeStateJournalFileSystem } from '../workspace-state/journal-filesystem.ts';
-import { resolveSecWorkspaceRuntimeRoots } from '../workspace-state/paths.ts';
-import { acquireSecRuntimeStatePhysicalAuthority } from '../workspace-state/physical-authority.ts';
+import { selectRuntimeStateDirectoryGeneration } from '../workspace-state/layout-migration.ts';
+import { resolveWorkspaceRuntimeRoots } from '../workspace-state/paths.ts';
+import { acquireRuntimeStatePhysicalAuthority } from '../workspace-state/physical-authority.ts';
 import {
   GENERATED_STATE_CLEANUP_CONTINUATION_SCHEMA,
   GENERATED_STATE_DISPOSAL_RECEIPT_SCHEMA,
@@ -46,7 +47,6 @@ import {
   type GeneratedStateWorktreeRetirement
 } from './contract.ts';
 
-const GENERATED_STATE_RUNTIME_VERSION = 'v1' as const;
 const GENERATED_STATE_CLEANUP_INTENT_SCHEMA = 'sec-generated-state-cleanup-intent-v2' as const;
 const GENERATED_STATE_DISPOSAL_KEY_SCHEMA = 'sec-generated-state-disposal-key-v1' as const;
 const MAXIMUM_CLEANUP_ENTRIES = 100_000;
@@ -430,15 +430,24 @@ function runtimePaths(
   workspaceRoot: string,
   options: GeneratedStateLifecycleOptions
 ): GeneratedStateRuntimePaths {
-  const roots = resolveSecWorkspaceRuntimeRoots({
+  const roots = resolveWorkspaceRuntimeRoots({
     repositoryRoot: workspaceRoot,
     environment: options.environment
   });
-  const generatedRoot = path.join(roots.workspaceStateRoot, 'generated-state', GENERATED_STATE_RUNTIME_VERSION);
+  const generation = selectRuntimeStateDirectoryGeneration({
+    label: 'generated state runtime',
+    legacyPath: path.join(roots.workspaceStateRoot, 'generated-state', 'v1'),
+    currentPath: path.join(roots.workspaceStateRoot, 'generated-state', 'runtime')
+  });
+  const generatedRoot = generation.path;
   return Object.freeze({
     workspaceStateRoot: roots.workspaceStateRoot,
-    legacyRegistrationsRoot: path.join(generatedRoot, 'registrations'),
-    registrationsRoot: path.join(generatedRoot, 'registrations-v2'),
+    legacyRegistrationsRoot: generation.kind === 'legacy'
+      ? path.join(generatedRoot, 'registrations')
+      : path.join(generatedRoot, 'registrations', 'previous'),
+    registrationsRoot: generation.kind === 'legacy'
+      ? path.join(generatedRoot, 'registrations-v2')
+      : path.join(generatedRoot, 'registrations', 'current'),
     settlementsRoot: path.join(generatedRoot, 'settlements'),
     transactionsRoot: path.join(generatedRoot, 'transactions')
   });
@@ -448,7 +457,7 @@ async function openRuntimeStore(
   workspaceRoot: string,
   options: GeneratedStateLifecycleOptions
 ): Promise<GeneratedStateRuntimeStore> {
-  const roots = resolveSecWorkspaceRuntimeRoots({
+  const roots = resolveWorkspaceRuntimeRoots({
     repositoryRoot: workspaceRoot,
     environment: options.environment
   });
@@ -496,7 +505,7 @@ async function openRuntimeStore(
       createNoFollowOrdinaryDirectoryChain(root, relative.split(path.sep));
     }
   }
-  const authority = await acquireSecRuntimeStatePhysicalAuthority({
+  const authority = await acquireRuntimeStatePhysicalAuthority({
     repositoryRoot: workspaceRoot,
     stateRoot: roots.stateRoot,
     cacheRoot: roots.cacheRoot,

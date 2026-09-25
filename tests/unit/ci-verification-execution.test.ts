@@ -35,7 +35,7 @@ import {
   CI_VERIFICATION_ACTION_RESOLUTION_SCHEMA,
   CI_VERIFICATION_ACTION_SANDBOX_RECEIPT_SCHEMA,
   AssembleHostedActionTerminal,
-  AssertHostedActionDependencyInputsV1,
+  AssertHostedActionDependencyInputs,
   AssertHostedActionParentEvent,
   AssertHostedDependencyArchiveProjection,
   AssertHostedSutSandboxCommandPlan,
@@ -1698,7 +1698,7 @@ test('dependency authority is exact-base only and materializer environment canno
       writeFileSync(path.join(base, file), `${file}:trusted\n`);
       writeFileSync(path.join(candidate, file), `${file}:trusted\n`);
     }
-    expect(AssertHostedActionDependencyInputsV1({
+    expect(AssertHostedActionDependencyInputs({
       baseRoot: base, candidateRoot: candidate, baseSha: BASE
     })).toMatch(/^sha256:[0-9a-f]{64}$/);
     expect(HostedDependencyMaterializerEnvironment()).toEqual({
@@ -1708,12 +1708,12 @@ test('dependency authority is exact-base only and materializer environment canno
       CI: '1'
     });
     writeFileSync(path.join(candidate, '.npmrc'), '//registry.example/:_authToken=stolen\n');
-    expect(() => AssertHostedActionDependencyInputsV1({
+    expect(() => AssertHostedActionDependencyInputs({
       baseRoot: base, candidateRoot: candidate, baseSha: BASE
     })).toThrow(/\.npmrc/u);
     rmSync(path.join(candidate, '.npmrc'));
     writeFileSync(path.join(candidate, 'bun.lock'), 'drift\n');
-    expect(() => AssertHostedActionDependencyInputsV1({
+    expect(() => AssertHostedActionDependencyInputs({
       baseRoot: base, candidateRoot: candidate, baseSha: BASE
     })).toThrow(/drifted/u);
   } finally {

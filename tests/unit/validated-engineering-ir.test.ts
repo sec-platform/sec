@@ -5,7 +5,7 @@ import { buildEngineeringIR, type BuildEngineeringIRInput } from '../../src/comp
 import { indexValidatedEngineeringIR } from '../../src/compiler/ir/index-engineering-ir.ts';
 import { factAssertionId } from '../../src/compiler/ir/ir-fact-store.ts';
 import { factIdentity } from '../../src/compiler/ir/ir-identity.ts';
-import { digest } from '../../src/compiler/ir/ir-revision.ts';
+import { rawSha256Hex } from '../../src/compiler/ir/ir-revision.ts';
 import { buildValidatedEngineeringIR, validateEngineeringIR } from '../../src/compiler/ir/validate-engineering-ir.ts';
 
 function input(): BuildEngineeringIRInput {
@@ -131,7 +131,7 @@ test('illegal Predicate/Object shapes are rejected through the unified validator
   const illegal = clone(buildEngineeringIR(source));
   const fact = illegal.facts[0]!;
   fact.predicate = 'WRITES';
-  fact.id = `fact:${digest(factIdentity(fact)).slice(0, 24)}`;
+  fact.id = `fact:${rawSha256Hex(factIdentity(fact)).slice(0, 24)}`;
   fact.assertions[0]!.id = factAssertionId(
     fact.id,
     fact.assertions[0]!.authority,

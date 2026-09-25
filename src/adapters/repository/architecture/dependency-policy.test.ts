@@ -1,24 +1,25 @@
 import { expect, test } from 'bun:test';
 import { readdirSync, readFileSync } from 'node:fs';
 import nodePath from 'node:path';
+import ts from 'typescript';
 
 import { compileRepositoryModuleGraph } from '../source-program-model/typescript.ts';
 import {
-  collectSecCanonicalSourceBoundaryViolations,
+  collectCanonicalSourceBoundaryViolations,
   collectRepositoryModuleBoundaryViolations,
   compileRepositoryModuleMembership,
   compileRepositoryModuleTopologyProjection,
   parseModuleDescriptor,
-  SEC_CANONICAL_SOURCE_MODULES,
-  SEC_CANONICAL_STATIC_DEPENDENCIES,
-  type SecCanonicalSourceModule,
+  CANONICAL_SOURCE_MODULES,
+  CANONICAL_STATIC_DEPENDENCIES,
+  type CanonicalSourceModule,
   type RepositoryModuleMembership
 } from './contract.ts';
 
 const descriptor = parseModuleDescriptor({
   importGraph: 'runtime',
   externalEntrypoints: []
-}, 'src/policy-observation/sec.module.json');
+}, 'src/policy-observation/module.json');
 
 const membership: RepositoryModuleMembership = {
   descriptors: [descriptor],
@@ -39,25 +40,25 @@ function violationsForEdge([from, to]: readonly [from: string, to: string]) {
       ? `import ${JSON.stringify(importSpecifier(from, to))};`
       : 'export {};'
   });
-  return collectSecCanonicalSourceBoundaryViolations(graph);
+  return collectCanonicalSourceBoundaryViolations(graph);
 }
 
-const samplePath = (owner: SecCanonicalSourceModule): string =>
+const samplePath = (owner: CanonicalSourceModule): string =>
   `src/${owner}/__architecture_policy_fixture__.ts`;
 
 test('canonical source roots and the 33 static dependency edges are the exact SEC-086 package contract', () => {
-  const modules = [...SEC_CANONICAL_SOURCE_MODULES];
+  const modules = [...CANONICAL_SOURCE_MODULES];
   expect(modules).toEqual([
     'contracts', 'workspace', 'semantics', 'compiler', 'assurance',
     'application', 'execution', 'adapters', 'entry', 'bootstrap'
   ]);
-  expect(Object.values(SEC_CANONICAL_STATIC_DEPENDENCIES).reduce((sum, deps) => sum + deps.length, 0)).toBe(33);
+  expect(Object.values(CANONICAL_STATIC_DEPENDENCIES).reduce((sum, deps) => sum + deps.length, 0)).toBe(33);
 
   for (const from of modules) {
     for (const to of modules) {
       if (from === to) continue;
       const violations = violationsForEdge([samplePath(from), samplePath(to)]);
-      const allowed = (SEC_CANONICAL_STATIC_DEPENDENCIES[from] as readonly SecCanonicalSourceModule[]).includes(to);
+      const allowed = (CANONICAL_STATIC_DEPENDENCIES[from] as readonly CanonicalSourceModule[]).includes(to);
       if (allowed) {
         expect(violations, `${from} -> ${to}`).not.toContainEqual(
           expect.objectContaining({ code: 'canonical-module-dependency' })
@@ -77,7 +78,7 @@ test('the tracked source tree has ten canonical responsibilities and one zero-au
     .filter((entry) => entry.isDirectory())
     .map((entry) => entry.name)
     .sort();
-  expect(actual).toEqual([...SEC_CANONICAL_SOURCE_MODULES, 'control'].sort());
+  expect(actual).toEqual([...CANONICAL_SOURCE_MODULES, 'control'].sort());
   const membership = compileRepositoryModuleMembership(repositoryRoot);
   const facade = membership.descriptors.find(({ root }) => root === 'src/control/documentation');
   if (facade === undefined) throw new Error('Documentation control facade descriptor is missing.');
@@ -113,7 +114,7 @@ test('the actual current source graph has no forbidden canonical-module edge', (
     files,
     readSource: (repositoryPath) => readFileSync(nodePath.join(repositoryRoot, repositoryPath), 'utf8')
   });
-  const violations = collectSecCanonicalSourceBoundaryViolations(
+  const violations = collectCanonicalSourceBoundaryViolations(
     graph,
     compileRepositoryModuleMembership(repositoryRoot)
   );
@@ -152,7 +153,7 @@ test('pure computation roots reject direct host IO imports, including type-only 
           files: [source],
           readSource: () => `${prefix} { HostHandle } from ${JSON.stringify(specifier)};`
         });
-        expect(collectSecCanonicalSourceBoundaryViolations(graph))
+        expect(collectCanonicalSourceBoundaryViolations(graph))
           .toContainEqual(expect.objectContaining({ code: 'core-no-host-io', from: source, to: specifier }));
       }
     }
@@ -161,15 +162,58 @@ test('pure computation roots reject direct host IO imports, including type-only 
   const graph = compileRepositoryModuleGraph({
     files: [source], readSource: () => "import { createHash } from 'node:crypto';"
   });
-  expect(collectSecCanonicalSourceBoundaryViolations(graph))
+  expect(collectCanonicalSourceBoundaryViolations(graph))
     .not.toContainEqual(expect.objectContaining({ code: 'core-no-host-io' }));
+});
+
+test('host SHA primitives have exactly two production owners: application digest and Git object identity', () => {
+  const repositoryRoot = nodePath.resolve(import.meta.dir, '../../../..');
+  const sourceRoot = nodePath.join(repositoryRoot, 'src');
+  const allowedOwners = new Set([
+    'src/contracts/digest.ts',
+    'src/contracts/git-object-id.ts'
+  ]);
+  const owners: string[] = [];
+  const pending = [sourceRoot];
+
+  while (pending.length > 0) {
+    const directory = pending.pop()!;
+    for (const entry of readdirSync(directory, { withFileTypes: true })) {
+      const absolute = nodePath.join(directory, entry.name);
+      if (entry.isDirectory()) {
+        pending.push(absolute);
+        continue;
+      }
+      if (!/\.(?:[cm]?[jt]s|[jt]sx)$/iu.test(entry.name) || /\.(?:test|spec)\.[cm]?[jt]sx?$/iu.test(entry.name)) {
+        continue;
+      }
+
+      const repositoryPath = nodePath.relative(repositoryRoot, absolute).replaceAll('\\', '/');
+      const source = readFileSync(absolute, 'utf8');
+      const sourceFile = ts.createSourceFile(repositoryPath, source, ts.ScriptTarget.Latest, true);
+      for (const statement of sourceFile.statements) {
+        if (!ts.isImportDeclaration(statement)
+          || !ts.isStringLiteral(statement.moduleSpecifier)
+          || statement.moduleSpecifier.text !== 'node:crypto') {
+          continue;
+        }
+        const bindings = statement.importClause?.namedBindings;
+        if (!bindings || !ts.isNamedImports(bindings)) continue;
+        if (bindings.elements.some((element) => (element.propertyName ?? element.name).text === 'createHash')) {
+          owners.push(repositoryPath);
+        }
+      }
+    }
+  }
+
+  expect([...new Set(owners)].sort()).toEqual([...allowedOwners].sort());
 });
 
 test('fine-grained descriptor cycles stay diagnostic inside one canonical package', () => {
   const makeDescriptor = (root: string) => parseModuleDescriptor({
     importGraph: 'runtime',
     externalEntrypoints: []
-  }, `${root}/sec.module.json`);
+  }, `${root}/module.json`);
   const first = makeDescriptor('src/adapters/first');
   const second = makeDescriptor('src/adapters/second');
   const membership = {

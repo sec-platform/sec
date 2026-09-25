@@ -1,5 +1,5 @@
-import { createHash } from 'node:crypto';
 
+import { rawSha256Hex } from '../../../../contracts/canonical.ts';
 import {
   executeObservedGitHubApiOperation,
   withGitHubApiReadSession,
@@ -56,7 +56,7 @@ function fail(message: string): never {
 function hash(value: string | Uint8Array | object): IssueDispositionDigest {
   const source = typeof value === 'string' || value instanceof Uint8Array
     ? value : encodeVerificationActionData(value);
-  return `sha256:${createHash('sha256').update(source).digest('hex')}`;
+  return `sha256:${rawSha256Hex(source)}`;
 }
 
 function record(value: unknown, label: string): Record<string, unknown> {

@@ -5,40 +5,40 @@ import path from 'node:path';
 
 import { sha256 } from '../../../../contracts/canonical.ts';
 import {
-  bindSecSemanticOperation,
+  bindSemanticOperation,
   compileCapabilityBinding,
   compileSemanticOperationPlan,
   issueProviderSettlementReceipt,
   issueRecoveredDomainReadbackReceipt,
-  issueSecRecoveredOwnerTerminalJoinReceipt,
+  issueRecoveredOwnerTerminalJoinReceipt,
   issueRecoveredRetryAdmission,
   issueSemanticOperationAttemptContext,
   type BoundSemanticOperation
 } from '../../../../execution/operation/semantic.ts';
 import { inspectNoFollowDirectoryChain } from '../../physical/runtime/physical-no-follow.ts';
 import { createRuntimeStateJournalFileSystem } from '../journal-filesystem.ts';
-import { type SecDurableExecutionDigest } from './contract.ts';
+import { type DurableExecutionDigest } from './contract.ts';
 import {
   createDurableExecutionStore,
   createDurableExecutionWriter,
   durableExecutionJournalIdentity,
   durableExecutionPredecessorAttemptReference,
-  type SecDurableExecutionStoreLimits
+  type DurableExecutionStoreLimits
 } from './store.ts';
 
-const digest = (value: string): SecDurableExecutionDigest =>
-  `sha256:${value.padStart(64, '0')}` as SecDurableExecutionDigest;
+const digest = (value: string): DurableExecutionDigest =>
+  `sha256:${value.padStart(64, '0')}` as DurableExecutionDigest;
 const operationDeadlineAtUnixMs = Date.now() + 30_000;
 
 function boundOperation(
   run: string,
   input: Readonly<{
-    authorityGrantDigest?: SecDurableExecutionDigest;
-    resumeEpochDigest?: SecDurableExecutionDigest | null;
+    authorityGrantDigest?: DurableExecutionDigest;
+    resumeEpochDigest?: DurableExecutionDigest | null;
     deadlineAtUnixMs?: number;
   }> = {}
 ): BoundSemanticOperation {
-  const contractDigest = sha256('durable execution contract') as SecDurableExecutionDigest;
+  const contractDigest = sha256('durable execution contract') as DurableExecutionDigest;
   const plan = compileSemanticOperationPlan({
     operation: 'runtime.durable-execution-test',
     intentDigest: digest('50'),
@@ -51,11 +51,11 @@ function boundOperation(
     }],
     attempt: issueSemanticOperationAttemptContext({
       authorityGrantDigest: input.authorityGrantDigest ?? digest('52'),
-      runIdDigest: sha256(run) as SecDurableExecutionDigest,
+      runIdDigest: sha256(run) as DurableExecutionDigest,
       resumeEpochDigest: input.resumeEpochDigest === undefined ? digest('53') : input.resumeEpochDigest
     })
   });
-  return bindSecSemanticOperation(plan, [compileCapabilityBinding({
+  return bindSemanticOperation(plan, [compileCapabilityBinding({
     requirementId: plan.execution.requirements[0]!.id,
     contractDigest,
     providerIdentityDigest: digest('54')
@@ -70,8 +70,8 @@ function recoveryOperation(run: string): BoundSemanticOperation {
 }
 
 function limits(
-  overrides: Partial<Omit<SecDurableExecutionStoreLimits, 'deadlineAtMonotonicMs'>> = {}
-): SecDurableExecutionStoreLimits {
+  overrides: Partial<Omit<DurableExecutionStoreLimits, 'deadlineAtMonotonicMs'>> = {}
+): DurableExecutionStoreLimits {
   return Object.freeze({
     deadlineAtMonotonicMs: performance.now() + 30_000,
     maximumRecords: 32,
@@ -83,7 +83,7 @@ function limits(
 }
 
 function fixture(
-  overrides: Partial<Omit<SecDurableExecutionStoreLimits, 'deadlineAtMonotonicMs'>> = {}
+  overrides: Partial<Omit<DurableExecutionStoreLimits, 'deadlineAtMonotonicMs'>> = {}
 ) {
   const root = mkdtempSync(path.join(tmpdir(), 'sec-durable-execution-'));
   const stateRoot = path.join(root, 'state');
@@ -124,7 +124,7 @@ function fdJournalCount(root: string): number {
   return Array.from(new Bun.Glob('**/*.jsonl').scanSync({ cwd: root, onlyFiles: true })).length;
 }
 
-function journalPath(root: string, operationKeyDigest: SecDurableExecutionDigest): string {
+function journalPath(root: string, operationKeyDigest: DurableExecutionDigest): string {
   return path.join(root, `${operationKeyDigest.slice(7)}.jsonl`);
 }
 
@@ -213,7 +213,7 @@ test('owner terminal resolution references only an exact owner-issued join recei
       currentPhysicalEpochDigest: digest('84'),
       disposition: 'applied'
     });
-    const join = issueSecRecoveredOwnerTerminalJoinReceipt(recovery, recoveredReadback, {
+    const join = issueRecoveredOwnerTerminalJoinReceipt(recovery, recoveredReadback, {
       ownerTerminalContractDigest: digest('85'),
       ownerTerminalReferenceDigest: digest('86')
     });
@@ -346,7 +346,7 @@ test('a restarted writer recovers from durable predecessor coordinates without r
       limits: value.storeLimits
     });
     restartedWriter.appendDomainReadback(recovery, readback);
-    const terminal = issueSecRecoveredOwnerTerminalJoinReceipt(recovery, readback, {
+    const terminal = issueRecoveredOwnerTerminalJoinReceipt(recovery, readback, {
       ownerTerminalContractDigest: digest('165'),
       ownerTerminalReferenceDigest: digest('166')
     });

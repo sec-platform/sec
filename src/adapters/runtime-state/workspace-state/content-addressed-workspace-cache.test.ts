@@ -5,7 +5,7 @@ import path from 'node:path';
 
 import { rawSha256, sha256 } from '../../../contracts/canonical.ts';
 import {
-  bindSecSemanticOperation,
+  bindSemanticOperation,
   compileCapabilityBinding,
   compileSemanticOperationPlan,
   issueSemanticOperationAttemptContext,
@@ -49,7 +49,7 @@ function fixture(input: Readonly<{
   const requirementId = 'runtime-state.cache.fixture';
   const contractDigest = sha256({ requirementId }) as OperationDigest;
   const deadlineMs = input.deadlineMs ?? 30_000;
-  const operation = bindSecSemanticOperation(compileSemanticOperationPlan({
+  const operation = bindSemanticOperation(compileSemanticOperationPlan({
     operation: 'runtime-state.content-addressed-cache.fixture',
     intentDigest: sha256({ repositoryRoot }) as OperationDigest,
     decisionDigest: contractDigest,

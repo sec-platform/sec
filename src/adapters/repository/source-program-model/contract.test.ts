@@ -26,10 +26,10 @@ import {
   SourceProgramReductionAdmissionError
 } from './reduction.ts';
 import {
-  compileRepositorySourceProgramModel,
-  compileSourceProgramOwnerIntentEvidence,
-  compileSourceProgramResponsibilityEvidence,
-  summarizeSourceProgramTopology
+  compileRepositoryModel,
+  compileOwnerIntentEvidence,
+  compileResponsibilityEvidence,
+  summarizeRepositoryTopology
 } from './repository.ts';
 import { compileSourceProgramTestRewriteDispositions } from './test-disposition-decisions.ts';
 import {
@@ -39,12 +39,12 @@ import {
 } from './test-value.ts';
 import {
   compileRepositoryModuleGraph,
-  compileTypeScriptSourceProgramModel,
-  compileTypeScriptSourceProgramModelIncremental,
-  observeSourceProgramDurableWorkerInput,
-  observeSourceProgramTypeScriptRename,
-  observeSourceProgramTypeScriptSyntax,
-  observeTypeScriptSourceProgramPerformanceForTests,
+  compileTypeScriptModel,
+  compileTypeScriptModelIncremental,
+  observeDurableWorkerInput,
+  observeTypeScriptRename,
+  observeTypeScriptSyntax,
+  observeTypeScriptPerformanceForTests,
   querySourceProgramModel
 } from './typescript.ts';
 import { compileWorkspaceSourceRevision } from './workspace-source-snapshot.ts';
@@ -62,7 +62,7 @@ test('source program classifies catalog-installed code as a resource surface', (
 test('source program input closure excludes target workspaces and generated artifacts', () => {
   expect(isSourceProgramInputPath('src/example.ts')).toBe(true);
   expect(isSourceProgramInputPath('tests/unit/example.test.ts')).toBe(true);
-  expect(isSourceProgramInputPath('src/example/sec.module.json')).toBe(true);
+  expect(isSourceProgramInputPath('src/example/module.json')).toBe(true);
   expect(isSourceProgramInputPath('.github/workflows/ci.yml')).toBe(true);
   expect(isSourceProgramInputPath('.documentation/documents.json')).toBe(true);
   expect(isSourceProgramInputPath('.documentation/baseline.json')).toBe(true);
@@ -92,7 +92,7 @@ test('TypeScript semantic compilation keeps production and test surfaces distinc
     source: source!,
     contentDigest: rawSha256(source!)
   }));
-  const model = compileTypeScriptSourceProgramModel({
+  const model = compileTypeScriptModel({
     sourceRevision: sha256(files.map(({ path, contentDigest }) => ({ path, contentDigest }))),
     files,
     moduleMembership
@@ -150,13 +150,13 @@ test('TypeScript semantic reference lookup skips names outside the canonical dec
     source,
     contentDigest: rawSha256(source)
   }));
-  const before = observeTypeScriptSourceProgramPerformanceForTests();
-  const model = compileTypeScriptSourceProgramModel({
+  const before = observeTypeScriptPerformanceForTests();
+  const model = compileTypeScriptModel({
     sourceRevision: sha256(files.map(({ path, contentDigest }) => ({ path, contentDigest }))),
     files,
     moduleMembership
   });
-  const after = observeTypeScriptSourceProgramPerformanceForTests();
+  const after = observeTypeScriptPerformanceForTests();
   const targetReferences = model.references.filter(({ targetPath }) => (
     targetPath === 'src/bootstrap/reference-target.ts'
   ));
@@ -196,13 +196,13 @@ test('TypeScript rename observations expire with their exact compiler generation
     source,
     contentDigest: rawSha256(source)
   })];
-  const model = compileTypeScriptSourceProgramModel({
+  const model = compileTypeScriptModel({
     sourceRevision: sha256(files.map(({ path, contentDigest }) => ({ path, contentDigest }))),
     files,
     moduleMembership
   });
   const position = source.indexOf('renamableSymbol');
-  expect(observeSourceProgramTypeScriptRename(model, 'src/example.ts', position)).toEqual(
+  expect(observeTypeScriptRename(model, 'src/example.ts', position)).toEqual(
     expect.objectContaining({ status: 'resolved', canRename: true })
   );
 
@@ -212,15 +212,15 @@ test('TypeScript rename observations expire with their exact compiler generation
     source: changedSource,
     contentDigest: rawSha256(changedSource)
   })];
-  compileTypeScriptSourceProgramModel({
+  compileTypeScriptModel({
     sourceRevision: sha256(changedFiles.map(({ path, contentDigest }) => ({ path, contentDigest }))),
     files: changedFiles,
     moduleMembership
   });
-  expect(observeSourceProgramTypeScriptRename(model, 'src/example.ts', position)).toEqual(
+  expect(observeTypeScriptRename(model, 'src/example.ts', position)).toEqual(
     expect.objectContaining({ status: 'unresolved', reason: 'generation-stale' })
   );
-  expect(observeSourceProgramTypeScriptRename(
+  expect(observeTypeScriptRename(
     { ...model },
     'src/example.ts',
     position
@@ -243,16 +243,16 @@ test('TypeScript syntax observations come only from an exact compiler generation
     source,
     contentDigest: rawSha256(source)
   })];
-  const model = compileTypeScriptSourceProgramModel({
+  const model = compileTypeScriptModel({
     sourceRevision: sha256(files.map(({ path, contentDigest }) => ({ path, contentDigest }))),
     files,
     moduleMembership
   });
 
-  expect(observeSourceProgramTypeScriptSyntax(model, 'tests/invalid.test.ts')).toEqual(
+  expect(observeTypeScriptSyntax(model, 'tests/invalid.test.ts')).toEqual(
     expect.objectContaining({ status: 'resolved', syntax: 'invalid' })
   );
-  expect(observeSourceProgramTypeScriptSyntax({ ...model }, 'tests/invalid.test.ts')).toEqual(
+  expect(observeTypeScriptSyntax({ ...model }, 'tests/invalid.test.ts')).toEqual(
     expect.objectContaining({
       status: 'unresolved',
       reason: 'exact-generation-unavailable'
@@ -311,7 +311,7 @@ test('unbound Source Program facts remain unknown responsibility evidence', () =
     }
   ];
   const descriptorSources = descriptors.map(({ root, descriptor }) => ({
-    descriptorPath: `${root}/sec.module.json`,
+    descriptorPath: `${root}/module.json`,
     source: JSON.stringify(descriptor)
   }));
   const membership = compileRepositoryModuleMembershipSnapshot({
@@ -324,7 +324,7 @@ test('unbound Source Program facts remain unknown responsibility evidence', () =
     contentDigest: rawSha256(source)
   }));
   const sourceRevision = sha256(files.map(({ path, contentDigest }) => ({ path, contentDigest })));
-  const model = compileRepositorySourceProgramModel({
+  const model = compileRepositoryModel({
     sourceRevision,
     files,
     moduleMembership: membership
@@ -368,7 +368,7 @@ test('unbound Source Program facts remain unknown responsibility evidence', () =
 test('Source Program binds validated semantic intent to one exact exported declaration', () => {
   const sourcePath = 'src/example/run.ts';
   const source = 'export function run(): string { return \'ok\'; }\n';
-  const descriptorPath = 'src/example/sec.module.json';
+  const descriptorPath = 'src/example/module.json';
   const membership = compileRepositoryModuleMembershipSnapshot({
     repositoryFiles: [sourcePath, descriptorPath],
     descriptorSources: [{
@@ -378,7 +378,7 @@ test('Source Program binds validated semantic intent to one exact exported decla
   });
   const files = [{ path: sourcePath, source, contentDigest: rawSha256(source) }];
   const sourceRevision = sha256(files.map(({ path, contentDigest }) => ({ path, contentDigest })));
-  const model = compileRepositorySourceProgramModel({ sourceRevision, files, moduleMembership: membership });
+  const model = compileRepositoryModel({ sourceRevision, files, moduleMembership: membership });
   const semanticContract = {
     blockId: 'example/basic',
     contractPath: 'catalog/registry/official/example.basic/contracts/example.yaml',
@@ -425,7 +425,7 @@ test('Source Program binds validated semantic intent to one exact exported decla
     semanticContracts: [contractInput]
   });
   const snapshot = buildValidatedEngineeringIR(engineeringInput(semanticContract));
-  const responsibilityEvidence = compileSourceProgramResponsibilityEvidence(model, snapshot);
+  const responsibilityEvidence = compileResponsibilityEvidence(model, snapshot);
   expect(responsibilityEvidence).toEqual([
     expect.objectContaining({
       responsibilityId: 'responsibility:example:ExampleOperation',
@@ -457,7 +457,7 @@ test('Source Program binds validated semantic intent to one exact exported decla
   const missingContract = structuredClone(semanticContract);
   missingContract.contract.responsibilities[0]!.bindings![0]!.declaration.exportName = 'missing';
   const missingSnapshot = buildValidatedEngineeringIR(engineeringInput(missingContract));
-  expect(compileSourceProgramResponsibilityEvidence(model, missingSnapshot)).toEqual([
+  expect(compileResponsibilityEvidence(model, missingSnapshot)).toEqual([
     expect.objectContaining({
       observationClass: 'unknown',
       reason: 'exported-declaration-missing'
@@ -477,7 +477,7 @@ test('Source Program binds validated semantic intent to one exact exported decla
     dependsOn: []
   });
   const conflictingSnapshot = buildValidatedEngineeringIR(engineeringInput(conflictingContract));
-  expect(compileSourceProgramResponsibilityEvidence(model, conflictingSnapshot)).toEqual([
+  expect(compileResponsibilityEvidence(model, conflictingSnapshot)).toEqual([
     expect.objectContaining({
       observationClass: 'unknown',
       reason: 'declaration-binding-conflict'
@@ -622,13 +622,13 @@ test('source program model finds capability producers, consumers, literals, and 
   const packageSource = JSON.stringify(packageManifest);
   const repositoryFiles = [
     'package.json',
-    'src/example/sec.module.json',
+    'src/example/module.json',
     ...sources.keys()
   ];
   const moduleMembership = compileRepositoryModuleMembershipSnapshot({
     repositoryFiles,
     descriptorSources: [{
-      descriptorPath: 'src/example/sec.module.json',
+      descriptorPath: 'src/example/module.json',
       source: JSON.stringify({
         importGraph: 'runtime',
         externalEntrypoints: [],
@@ -645,12 +645,12 @@ test('source program model finds capability producers, consumers, literals, and 
     contentDigest: rawSha256(source)
   }));
   const sourceRevision = compileWorkspaceSourceRevision(files);
-  const typeScriptModel = compileTypeScriptSourceProgramModel({
+  const typeScriptModel = compileTypeScriptModel({
     sourceRevision,
     files,
     moduleMembership
   });
-  const compile = (orderedFiles: typeof files) => compileRepositorySourceProgramModel({
+  const compile = (orderedFiles: typeof files) => compileRepositoryModel({
     sourceRevision,
     files: orderedFiles,
     moduleMembership,
@@ -658,7 +658,7 @@ test('source program model finds capability producers, consumers, literals, and 
   });
 
   const model = compile(files);
-  const tcbReviewedModel = compileRepositorySourceProgramModel({
+  const tcbReviewedModel = compileRepositoryModel({
     sourceRevision,
     files,
     moduleMembership,
@@ -729,7 +729,7 @@ test('source program model finds capability producers, consumers, literals, and 
   const unboundFiles = files.map((file) => file.path === 'package.json'
     ? { ...file, source: unboundPackageSource, contentDigest: rawSha256(unboundPackageSource) }
     : file);
-  const unboundModel = compileRepositorySourceProgramModel({
+  const unboundModel = compileRepositoryModel({
     sourceRevision: sha256(unboundFiles.map(({ contentDigest, path }) => ({ contentDigest, path }))),
     files: unboundFiles,
     moduleMembership
@@ -915,7 +915,7 @@ test('source program model finds capability producers, consumers, literals, and 
     name: 'REAL_SCHEMA',
     targetPath: 'src/example/contract.ts'
   }));
-  expect(summarizeSourceProgramTopology(model)).toEqual(expect.objectContaining({
+  expect(summarizeRepositoryTopology(model)).toEqual(expect.objectContaining({
     packages: 1,
     directProcessTransportPaths: 1,
     dependencyScopes: { runtime: 2 },
@@ -948,7 +948,7 @@ test('source program model finds capability producers, consumers, literals, and 
 test('source program blocks owner-internal process primitives at repository provider boundaries', () => {
   const providerPath = 'src/physical-provider/process.ts';
   const consumerPath = 'src/consumer/run.ts';
-  const descriptorPath = 'src/physical-provider/sec.module.json';
+  const descriptorPath = 'src/physical-provider/module.json';
   const files = [
     {
       path: providerPath,
@@ -960,7 +960,7 @@ test('source program blocks owner-internal process primitives at repository prov
     }
   ].map(({ path, source }) => ({ path, source, contentDigest: rawSha256(source) }));
   const moduleMembership = compileRepositoryModuleMembershipSnapshot({
-    repositoryFiles: [descriptorPath, 'src/consumer/sec.module.json', ...files.map(({ path }) => path)],
+    repositoryFiles: [descriptorPath, 'src/consumer/module.json', ...files.map(({ path }) => path)],
     descriptorSources: [
       {
         descriptorPath,
@@ -976,12 +976,12 @@ test('source program blocks owner-internal process primitives at repository prov
         })
       },
       {
-        descriptorPath: 'src/consumer/sec.module.json',
+        descriptorPath: 'src/consumer/module.json',
         source: JSON.stringify({ importGraph: 'runtime', externalEntrypoints: [] })
       }
     ]
   });
-  const model = compileRepositorySourceProgramModel({
+  const model = compileRepositoryModel({
     sourceRevision: rawSha256(JSON.stringify(files.map(({ path, contentDigest }) => ({
       path,
       contentDigest
@@ -1012,7 +1012,7 @@ test('source program blocks owner-internal process primitives at repository prov
 test('source program blocks raw process primitives imported only as a production test seam', () => {
   const providerPath = 'src/physical-provider/process.ts';
   const consumerPath = 'src/consumer/options.ts';
-  const descriptorPath = 'src/physical-provider/sec.module.json';
+  const descriptorPath = 'src/physical-provider/module.json';
   const files = [
     {
       path: providerPath,
@@ -1025,7 +1025,7 @@ test('source program blocks raw process primitives imported only as a production
     }
   ].map(({ path, source }) => ({ path, source, contentDigest: rawSha256(source) }));
   const moduleMembership = compileRepositoryModuleMembershipSnapshot({
-    repositoryFiles: [descriptorPath, 'src/consumer/sec.module.json', ...files.map(({ path }) => path)],
+    repositoryFiles: [descriptorPath, 'src/consumer/module.json', ...files.map(({ path }) => path)],
     descriptorSources: [
       {
         descriptorPath,
@@ -1041,12 +1041,12 @@ test('source program blocks raw process primitives imported only as a production
         })
       },
       {
-        descriptorPath: 'src/consumer/sec.module.json',
+        descriptorPath: 'src/consumer/module.json',
         source: JSON.stringify({ importGraph: 'runtime', externalEntrypoints: [] })
       }
     ]
   });
-  const model = compileRepositorySourceProgramModel({
+  const model = compileRepositoryModel({
     sourceRevision: rawSha256(JSON.stringify(files.map(({ path, contentDigest }) => ({
       path,
       contentDigest
@@ -1074,13 +1074,13 @@ test('source program classifies worker-thread construction as native process tra
     + "export function start(): Worker { return new Worker('./worker.ts'); }\n";
   const files = [{ path: consumerPath, source, contentDigest: rawSha256(source) }];
   const moduleMembership = compileRepositoryModuleMembershipSnapshot({
-    repositoryFiles: ['src/consumer/sec.module.json', consumerPath],
+    repositoryFiles: ['src/consumer/module.json', consumerPath],
     descriptorSources: [{
-      descriptorPath: 'src/consumer/sec.module.json',
+      descriptorPath: 'src/consumer/module.json',
       source: JSON.stringify({ importGraph: 'runtime', externalEntrypoints: [] })
     }]
   });
-  const model = compileRepositorySourceProgramModel({
+  const model = compileRepositoryModel({
     sourceRevision: rawSha256(JSON.stringify(files)),
     files,
     moduleMembership
@@ -1127,7 +1127,7 @@ test('incremental source facts invalidate the reverse consumer closure and remai
     'src/example/consumer.ts': "import { VALUE } from './contract.ts';\nexport const RESULT = VALUE;\n",
     'src/example/leaf.ts': 'export const LEAF = 1;\n'
   });
-  const initial = compileTypeScriptSourceProgramModelIncremental(initialInput, null);
+  const initial = compileTypeScriptModelIncremental(initialInput, null);
   expect(initial.mode).toBe('full');
 
   const changedBytesWithStaleDeclaredDigest = Object.freeze({
@@ -1136,7 +1136,7 @@ test('incremental source facts invalidate the reverse consumer closure and remai
       ? Object.freeze({ ...file, source: 'export const VALUE = 3;\n' })
       : file))
   });
-  const changedBytes = compileTypeScriptSourceProgramModelIncremental(
+  const changedBytes = compileTypeScriptModelIncremental(
     changedBytesWithStaleDeclaredDigest,
     initial.state
   );
@@ -1146,19 +1146,19 @@ test('incremental source facts invalidate the reverse consumer closure and remai
     'src/example/contract.ts'
   ]);
   expect(changedBytes.model).toEqual(
-    compileTypeScriptSourceProgramModel(changedBytesWithStaleDeclaredDigest)
+    compileTypeScriptModel(changedBytesWithStaleDeclaredDigest)
   );
 
-  const exact = compileTypeScriptSourceProgramModelIncremental(initialInput, initial.state);
+  const exact = compileTypeScriptModelIncremental(initialInput, initial.state);
   expect(exact.mode).toBe('exact');
   expect(exact.invalidatedPaths).toEqual([]);
-  expect(exact.model).toEqual(compileTypeScriptSourceProgramModel(initialInput));
+  expect(exact.model).toEqual(compileTypeScriptModel(initialInput));
 
   const foreignProviderState = Object.freeze({
     ...exact.state,
     providerRevision: sha256('foreign-typescript-workspace-generation')
   });
-  const providerChanged = compileTypeScriptSourceProgramModelIncremental(
+  const providerChanged = compileTypeScriptModelIncremental(
     initialInput,
     foreignProviderState
   );
@@ -1168,30 +1168,30 @@ test('incremental source facts invalidate the reverse consumer closure and remai
     'src/example/contract.ts',
     'src/example/leaf.ts'
   ]);
-  expect(providerChanged.model).toEqual(compileTypeScriptSourceProgramModel(initialInput));
+  expect(providerChanged.model).toEqual(compileTypeScriptModel(initialInput));
 
   const leafInput = sourceInput({
     'src/example/contract.ts': 'export const VALUE = 1;\n',
     'src/example/consumer.ts': "import { VALUE } from './contract.ts';\nexport const RESULT = VALUE;\n",
     'src/example/leaf.ts': 'export const LEAF = 2;\n'
   });
-  const leaf = compileTypeScriptSourceProgramModelIncremental(leafInput, initial.state);
+  const leaf = compileTypeScriptModelIncremental(leafInput, initial.state);
   expect(leaf.mode).toBe('incremental');
   expect(leaf.invalidatedPaths).toEqual(['src/example/leaf.ts']);
-  expect(leaf.model).toEqual(compileTypeScriptSourceProgramModel(leafInput));
+  expect(leaf.model).toEqual(compileTypeScriptModel(leafInput));
 
   const contractInput = sourceInput({
     'src/example/contract.ts': 'export const VALUE = 2;\n',
     'src/example/consumer.ts': "import { VALUE } from './contract.ts';\nexport const RESULT = VALUE;\n",
     'src/example/leaf.ts': 'export const LEAF = 2;\n'
   });
-  const contract = compileTypeScriptSourceProgramModelIncremental(contractInput, leaf.state);
+  const contract = compileTypeScriptModelIncremental(contractInput, leaf.state);
   expect(contract.mode).toBe('incremental');
   expect(contract.invalidatedPaths).toEqual([
     'src/example/consumer.ts',
     'src/example/contract.ts'
   ]);
-  expect(contract.model).toEqual(compileTypeScriptSourceProgramModel(contractInput));
+  expect(contract.model).toEqual(compileTypeScriptModel(contractInput));
 });
 
 test('reduction compiler resolves pure aggregate modules to declaration owners', () => {
@@ -1201,7 +1201,7 @@ test('reduction compiler resolves pure aggregate modules to declaration owners',
     ['src/consumer/use.ts', "import { execute } from '../provider/facade.ts';\nexport const result = execute();\n"]
   ]);
   const descriptorSources = ['src/provider', 'src/consumer'].map((root) => ({
-    descriptorPath: `${root}/sec.module.json`,
+    descriptorPath: `${root}/module.json`,
     source: JSON.stringify({ importGraph: 'runtime', externalEntrypoints: [] })
   }));
   const repositoryFiles = [...sources.keys(), ...descriptorSources.map(({ descriptorPath }) => descriptorPath)];
@@ -1215,12 +1215,12 @@ test('reduction compiler resolves pure aggregate modules to declaration owners',
     contentDigest: rawSha256(source)
   }));
   const sourceRevision = compileWorkspaceSourceRevision(files);
-  const typeScriptModel = compileTypeScriptSourceProgramModel({
+  const typeScriptModel = compileTypeScriptModel({
     sourceRevision,
     files,
     moduleMembership
   });
-  const model = compileRepositorySourceProgramModel({
+  const model = compileRepositoryModel({
     sourceRevision,
     files,
     moduleMembership,
@@ -1270,7 +1270,7 @@ test('reduction compiler resolves pure aggregate modules to declaration owners',
     expect((error as SourceProgramReductionAdmissionError).code).toBe('source-snapshot-drift');
   }
 
-  const driftedModel = compileRepositorySourceProgramModel({
+  const driftedModel = compileRepositoryModel({
     sourceRevision,
     files,
     moduleMembership,
@@ -1311,7 +1311,7 @@ function compileGraphCutFixture(
   sources: Readonly<Record<string, string>>,
   descriptorOverrides: Readonly<Record<string, unknown>> = Object.freeze({})
 ) {
-  const descriptorPath = 'src/example/sec.module.json';
+  const descriptorPath = 'src/example/module.json';
   const descriptorSource = JSON.stringify({
     importGraph: 'runtime',
     externalEntrypoints: [],
@@ -1334,12 +1334,12 @@ function compileGraphCutFixture(
     descriptorSources: [{ descriptorPath, source: descriptorSource }]
   });
   const sourceRevision = sha256(files.map(({ contentDigest, path }) => ({ contentDigest, path })));
-  const typeScriptModel = compileTypeScriptSourceProgramModel({
+  const typeScriptModel = compileTypeScriptModel({
     sourceRevision,
     files,
     moduleMembership
   });
-  const model = compileRepositorySourceProgramModel({
+  const model = compileRepositoryModel({
     sourceRevision,
     files,
     moduleMembership,
@@ -1664,7 +1664,7 @@ function compileSupersessionFixture(
       : [],
     preDependencyBootstrap: false
   });
-  const descriptorPath = 'src/example/sec.module.json';
+  const descriptorPath = 'src/example/module.json';
   const files = Object.entries(sources)
     .sort(([left], [right]) => left.localeCompare(right, 'en-US'))
     .map(([path, source]) => Object.freeze({
@@ -1678,12 +1678,12 @@ function compileSupersessionFixture(
     descriptorSources: [{ descriptorPath, source: descriptorSource }]
   });
   const sourceRevision = compileWorkspaceSourceRevision(files);
-  const typeScriptModel = compileTypeScriptSourceProgramModel({
+  const typeScriptModel = compileTypeScriptModel({
     sourceRevision,
     files,
     moduleMembership: membership
   });
-  const model = compileRepositorySourceProgramModel({
+  const model = compileRepositoryModel({
     sourceRevision,
     files,
     moduleMembership: membership,
@@ -1698,7 +1698,7 @@ function compileSupersessionFixture(
     model,
     typeScriptModel,
     tests,
-    intentEvidence: compileSourceProgramOwnerIntentEvidence(model, membership)
+    intentEvidence: compileOwnerIntentEvidence(model, membership)
   });
   const inputDigest = sha256({
     paths: files.map(({ path, contentDigest }) => ({ path, contentDigest })),
@@ -2611,7 +2611,7 @@ function compileIssuerRoleFixture(input: Readonly<{
     contentDigest: rawSha256(source)
   }));
   const descriptorSources = Object.entries(input.descriptors).map(([root, capabilityProviders]) => ({
-    descriptorPath: `${root}/sec.module.json`,
+    descriptorPath: `${root}/module.json`,
     source: JSON.stringify({
       importGraph: 'runtime',
       externalEntrypoints: [],
@@ -2628,7 +2628,7 @@ function compileIssuerRoleFixture(input: Readonly<{
     descriptorSources
   });
   const sourceRevision = sha256(files.map(({ path, contentDigest }) => ({ path, contentDigest })));
-  return compileRepositorySourceProgramModel({ sourceRevision, files, moduleMembership });
+  return compileRepositoryModel({ sourceRevision, files, moduleMembership });
 }
 
 test('source program closes issuer roles over exact owners and recovery modules', () => {
@@ -2720,7 +2720,7 @@ test('source program rejects cross-owner issuers, generic worker inputs, domain 
       'export function append(argv: string[], callback: () => void): number { callback(); return argv.length; }\n'
     )
   }];
-  const compilerModel = compileTypeScriptSourceProgramModel({
+  const compilerModel = compileTypeScriptModel({
     sourceRevision: sha256(compilerFiles.map(({ path, contentDigest }) => ({ path, contentDigest }))),
     files: compilerFiles,
     moduleMembership: Object.freeze({
@@ -2733,10 +2733,10 @@ test('source program rejects cross-owner issuers, generic worker inputs, domain 
   const appendDeclaration = compilerModel.declarations.find(({ name, path }) =>
     name === 'append' && path === 'src/store/worker.ts');
   expect(appendDeclaration).toBeDefined();
-  expect(observeSourceProgramDurableWorkerInput(compilerModel, appendDeclaration!)).toEqual(
+  expect(observeDurableWorkerInput(compilerModel, appendDeclaration!)).toEqual(
     expect.objectContaining({ status: 'resolved', risk: 'callback' })
   );
-  expect(observeSourceProgramDurableWorkerInput(
+  expect(observeDurableWorkerInput(
     { ...compilerModel },
     appendDeclaration!
   )).toEqual(expect.objectContaining({
@@ -3062,7 +3062,7 @@ function compileCausalReaderFixture(
     ...additionalSources
   };
   const descriptorSources = [{
-    descriptorPath: 'src/semantics/repair/sec.module.json',
+    descriptorPath: 'src/semantics/repair/module.json',
     source: JSON.stringify({
       importGraph: 'runtime',
       externalEntrypoints: [],
@@ -3079,10 +3079,10 @@ function compileCausalReaderFixture(
       }]
     })
   }, {
-    descriptorPath: 'src/adapters/filesystem/sec.module.json',
+    descriptorPath: 'src/adapters/filesystem/module.json',
     source: JSON.stringify({ importGraph: 'runtime', externalEntrypoints: [] })
   }, {
-    descriptorPath: 'src/adapters/workspace/sec.module.json',
+    descriptorPath: 'src/adapters/workspace/module.json',
     source: JSON.stringify({
       importGraph: 'runtime',
       externalEntrypoints: [],
@@ -3106,7 +3106,7 @@ function compileCausalReaderFixture(
     ],
     descriptorSources
   });
-  return compileRepositorySourceProgramModel({
+  return compileRepositoryModel({
     sourceRevision: sha256(files.map(({ path, contentDigest }) => ({ path, contentDigest }))),
     files,
     moduleMembership

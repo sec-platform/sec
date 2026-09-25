@@ -3,7 +3,7 @@ import path from 'node:path';
 import { sha256 } from '../../../contracts/canonical.ts';
 import { issueOperationRequirementBindingContext } from '../../../execution/operation/requirement-binding-context.ts';
 import {
-  bindSecSemanticOperation,
+  bindSemanticOperation,
   compileCapabilityBinding,
   compileSemanticOperationPlan,
   issueSemanticOperationAttemptContext,
@@ -139,7 +139,7 @@ function compileGitHubCredentialOperation(input: Readonly<{
       ]
     }]
   });
-  return bindSecSemanticOperation(plan, [compileCapabilityBinding({
+  return bindSemanticOperation(plan, [compileCapabilityBinding({
     requirementId: GITHUB_CREDENTIAL_REQUIREMENT,
     contractDigest: GITHUB_CREDENTIAL_CONTRACT_DIGEST,
     providerIdentityDigest: input.providerIdentityDigest

@@ -1,6 +1,6 @@
-import { createHash } from 'node:crypto';
 import path from 'node:path';
 
+import { rawSha256Hex } from '../../../../contracts/canonical.ts';
 import { assertGitBranchName } from '../../../../contracts/git-reference.ts';
 import type {
   BranchAuditSeverity,
@@ -116,9 +116,7 @@ function stableValue(value: unknown): unknown {
 }
 
 export function branchLifecycleDigest(value: unknown): `sha256:${string}` {
-  return `sha256:${createHash('sha256')
-    .update(JSON.stringify(stableValue(value)))
-    .digest('hex')}`;
+  return `sha256:${rawSha256Hex(JSON.stringify(stableValue(value)))}`;
 }
 
 function selectionDigest(value: unknown, label: string): `sha256:${string}` {

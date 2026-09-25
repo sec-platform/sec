@@ -9,7 +9,7 @@ import {
   type OperationRequirementBindingProjection
 } from '../../../../execution/operation/requirement-binding-context.ts';
 import {
-  assertSecSemanticOperationProjection,
+  assertSemanticOperationProjection,
   type BoundSemanticOperation,
   type OperationDigest
 } from '../../../../execution/operation/semantic.ts';
@@ -255,7 +255,7 @@ export function openProcessResourceSession(input: Readonly<{
 }>): ProcessResourceSession {
   // This session only meters a caller's already-retained command capability.
   // The semantic operation is correlation/budget input, never Effect grant.
-  assertSecSemanticOperationProjection(input.operation);
+  assertSemanticOperationProjection(input.operation);
   const bindingProjection = consumeOperationRequirementBindingContext(
     input.requirementBindingContext
   );

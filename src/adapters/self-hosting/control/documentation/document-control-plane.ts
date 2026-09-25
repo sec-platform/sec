@@ -11,7 +11,7 @@ import {
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
-import { digest, rawSha256, sha256 } from '../../../../contracts/canonical.ts';
+import { rawSha256Hex, rawSha256, sha256 } from '../../../../contracts/canonical.ts';
 import { enableExecutionProgress, observeExecutionProgressPhase, reportExecutionProgress } from '../../../../execution/execution-progress.ts';
 import { withWorkspaceWriteLease } from '../../../filesystem/write-lease.ts';
 import { GitReadAuthorityError, withAuthorityGitReadSession } from '../../../providers/git-read/authority.ts';
@@ -46,7 +46,7 @@ import {
 import { GIT_READ_OPERATION_BUDGET } from '../../development/tooling/git/git-read.ts';
 import {
   assertMainHealthPublicationAuthorityStable,
-  observeCanonicalMainHealthForDocumentControlTestingV2,
+  observeCanonicalMainHealthForDocumentControlTesting,
   observeCanonicalMainHealthForPublication,
   observeMainHealthGitHubControlInventory,
   observeMainHealthGitHubDefaultBranchSha,
@@ -70,34 +70,34 @@ import {
   type WorkSelectionProvider
 } from '../work-selection/runtime.ts';
 import {
-  CodexDevelopmentAssertControlPlaneBinding,
-  CodexDevelopmentAssertInitiallyAbsentEntryTransition,
-  CodexDevelopmentAssertPriorFreezeProjection,
-  CodexDevelopmentAssertRollingMachineBaseBinding,
-  CodexDevelopmentClassifyFreezeConvergence,
-  CodexDevelopmentClassifyInitiallyAbsentEntryTuple,
-  CodexDevelopmentClassifyPublishedControlBinding,
-  CodexDevelopmentClassifyTerminalRetirementPrefix,
-  CodexDevelopmentCreateFreezeProjection,
-  CodexDevelopmentDocumentControlRecoveryEntryStem,
-  CodexDevelopmentParseActivePointer,
-  CodexDevelopmentParseCurrentStateSpec,
-  CodexDevelopmentParseRollingMachineProjection,
-  CodexDevelopmentParseRollingPlan,
-  CodexDevelopmentParseRollingPlanHeadings,
-  CodexDevelopmentRequiresCommittedCandidateProjectionRefresh,
-  CodexDevelopmentResolveActiveWorkPackage,
-  CodexDevelopmentResolveWorkSelectionProjectionMode,
-  type CodexDevelopmentActiveWorkPackageResolution,
-  type CodexDevelopmentCommittedCandidateReplanAuthority,
-  type CodexDevelopmentDefaultRefState,
-  type CodexDevelopmentDocumentControlRecoveryTargetKey,
-  type CodexDevelopmentInitiallyAbsentTupleEdge,
-  type CodexDevelopmentInitiallyAbsentTupleEntry,
-  type CodexDevelopmentInitiallyAbsentTuplePlatform,
-  type CodexDevelopmentInitiallyAbsentTupleState,
-  type CodexDevelopmentMainHealthRepairProjection,
-  type CodexDevelopmentWorkSelectionProjection
+  AssertControlPlaneBinding,
+  AssertInitiallyAbsentEntryTransition,
+  AssertPriorFreezeProjection,
+  AssertRollingMachineBaseBinding,
+  ClassifyFreezeConvergence,
+  ClassifyInitiallyAbsentEntryTuple,
+  ClassifyPublishedControlBinding,
+  ClassifyTerminalRetirementPrefix,
+  CreateFreezeProjection,
+  DocumentControlRecoveryEntryStem,
+  ParseActivePointer,
+  ParseCurrentStateSpec,
+  ParseRollingMachineProjection,
+  ParseRollingPlan,
+  ParseRollingPlanHeadings,
+  RequiresCommittedCandidateProjectionRefresh,
+  ResolveActiveWorkPackage,
+  ResolveWorkSelectionProjectionMode,
+  type ActiveWorkPackageResolution,
+  type CommittedCandidateReplanAuthority,
+  type DefaultRefState,
+  type DocumentControlRecoveryTargetKey,
+  type InitiallyAbsentTupleEdge,
+  type InitiallyAbsentTupleEntry,
+  type InitiallyAbsentTuplePlatform,
+  type InitiallyAbsentTupleState,
+  type MainHealthRepairProjection,
+  type WorkSelectionProjection
 } from './document-control-plane-contract.ts';
 import {
   buildGitHubOpenInventoryCountsArgs,
@@ -147,8 +147,8 @@ export async function observeDocumentControlWorkRouting(input: Readonly<{
         capability,
         environment: testActor.mainHealthEnvironment(input.repositoryRoot)
       });
-      const first = await observeCanonicalMainHealthForDocumentControlTestingV2(jointInput);
-      const second = await observeCanonicalMainHealthForDocumentControlTestingV2(jointInput);
+      const first = await observeCanonicalMainHealthForDocumentControlTesting(jointInput);
+      const second = await observeCanonicalMainHealthForDocumentControlTesting(jointInput);
       if (first.stableDigest !== second.stableDigest) {
         throw new Error('document-control test MainHealth snapshot drifted between T1 and T2');
       }
@@ -217,41 +217,41 @@ type DocumentControlByteCommandResult = Readonly<{
  * object/index writes and GitHub calls remain separate semantic capabilities;
  * neither can inherit authority from the read session or raw transport.
  */
-export type CodexDevelopmentDocumentControlCliOperation =
+export type DocumentControlCliOperation =
   | 'git-read'
   | 'git-object-index-effect'
   | 'github-api-read'
   | 'github-effect';
 
-export type CodexDevelopmentDocumentControlCliAdmissionStatus =
+export type DocumentControlCliAdmissionStatus =
   | 'unsupported'
   | 'unknown'
   | 'unavailable';
 
-export type CodexDevelopmentDocumentControlCliAdmissionReason =
+export type DocumentControlCliAdmissionReason =
   | GitReadHostProviderResolutionReason
   | GitReadSessionFailure['reason']
   | GitScratchIndexTreeFailureReason
   | 'semantic-closure-unproven'
   | 'working-directory-binding-drift';
 
-export class CodexDevelopmentDocumentControlCliAdmissionError extends Error {
+export class DocumentControlCliAdmissionError extends Error {
   readonly code = 'DOCUMENT-CONTROL-CLI-ADMISSION-001' as const;
   readonly command: 'git' | 'gh';
-  readonly operation: CodexDevelopmentDocumentControlCliOperation;
-  readonly status: CodexDevelopmentDocumentControlCliAdmissionStatus;
-  readonly reason: CodexDevelopmentDocumentControlCliAdmissionReason;
+  readonly operation: DocumentControlCliOperation;
+  readonly status: DocumentControlCliAdmissionStatus;
+  readonly reason: DocumentControlCliAdmissionReason;
   readonly detailDigest: `sha256:${string}`;
 
   constructor(input: Readonly<{
     command: 'git' | 'gh';
-    operation: CodexDevelopmentDocumentControlCliOperation;
-    status: CodexDevelopmentDocumentControlCliAdmissionStatus;
-    reason: CodexDevelopmentDocumentControlCliAdmissionReason;
+    operation: DocumentControlCliOperation;
+    status: DocumentControlCliAdmissionStatus;
+    reason: DocumentControlCliAdmissionReason;
     detailDigest: `sha256:${string}`;
   }>) {
     super(`Document-control ${input.command} ${input.operation} admission is ${input.status}.`);
-    this.name = 'CodexDevelopmentDocumentControlCliAdmissionError';
+    this.name = 'DocumentControlCliAdmissionError';
     this.command = input.command;
     this.operation = input.operation;
     this.status = input.status;
@@ -297,7 +297,7 @@ export function createDocumentControlRoutingTestActorForTests(
  * AsyncLocalStorage binding prevents a test fixture from changing the
  * process-global production route or leaking into an unrelated async task.
  */
-export function withDocumentControlHostCliTestSessionV1<T>(
+export function withDocumentControlHostCliTestSession<T>(
   operation: () => T,
   routingActor?: DocumentControlRoutingTestActor
 ): T {
@@ -311,9 +311,9 @@ export function withDocumentControlHostCliTestSessionV1<T>(
 
 function documentControlCliFailureDigest(input: Readonly<{
   command: 'git' | 'gh';
-  operation: CodexDevelopmentDocumentControlCliOperation;
-  status: CodexDevelopmentDocumentControlCliAdmissionStatus;
-  reason: CodexDevelopmentDocumentControlCliAdmissionReason;
+  operation: DocumentControlCliOperation;
+  status: DocumentControlCliAdmissionStatus;
+  reason: DocumentControlCliAdmissionReason;
   sourceDetailDigest?: `sha256:${string}`;
 }>): `sha256:${string}` {
   return sha256({
@@ -325,7 +325,7 @@ function documentControlCliFailureDigest(input: Readonly<{
 function commandOperation(
   command: 'git' | 'gh',
   args: readonly string[]
-): CodexDevelopmentDocumentControlCliOperation {
+): DocumentControlCliOperation {
   if (command === 'gh') {
     // The current document-control GitHub calls are all reads.  Keep the
     // effect category explicit for future callers so a new mutation cannot
@@ -348,12 +348,12 @@ function commandOperation(
 
 function documentControlCliFailure(
   command: 'git' | 'gh',
-  operation: CodexDevelopmentDocumentControlCliOperation,
-  status: CodexDevelopmentDocumentControlCliAdmissionStatus,
-  reason: CodexDevelopmentDocumentControlCliAdmissionReason,
+  operation: DocumentControlCliOperation,
+  status: DocumentControlCliAdmissionStatus,
+  reason: DocumentControlCliAdmissionReason,
   sourceDetailDigest?: `sha256:${string}`
-): CodexDevelopmentDocumentControlCliAdmissionError {
-  return new CodexDevelopmentDocumentControlCliAdmissionError({
+): DocumentControlCliAdmissionError {
+  return new DocumentControlCliAdmissionError({
     command,
     operation,
     status,
@@ -403,7 +403,7 @@ const LegacyFreezeResultSchema = 'sec-document-control-plane-freeze-result-v1' a
 const FreezeResultSchema = 'sec-document-control-plane-freeze-result-v2' as const;
 const FreezeJournalRelativePath = '.tmp/codex/document-control-plane-freeze-v1/journal.json';
 
-export type CodexDevelopmentFreezeFault =
+export type FreezeFault =
   | 'after-journal-prepare'
   | 'after-index-lock-write'
   | 'after-index-pre-quarantine'
@@ -425,15 +425,15 @@ export type CodexDevelopmentFreezeFault =
   | 'after-journal-terminal-next-install'
   | 'after-terminal';
 
-export type CodexDevelopmentDurabilityStage =
+export type DurabilityStage =
   | 'renamed'
   | 'file-flushed'
   | 'parent-barrier';
 
-export interface CodexDevelopmentDurabilityEvent {
+export interface DurabilityEvent {
   readonly label: string;
   readonly targetPath: string;
-  readonly stage: CodexDevelopmentDurabilityStage;
+  readonly stage: DurabilityStage;
 }
 
 type AnchoredObjectIdentity = Readonly<{ device: string; inode: string }> | string;
@@ -454,11 +454,11 @@ function sameAnchoredObjectIdentity(
   return left.device === right.device && left.inode === right.inode;
 }
 
-export type CodexDevelopmentDurabilityObserver = (
-  event: CodexDevelopmentDurabilityEvent
+export type DurabilityObserver = (
+  event: DurabilityEvent
 ) => Promise<void> | void;
 
-export class CodexDevelopmentDurabilityBarrierError extends Error {
+export class DurabilityBarrierError extends Error {
   readonly code = 'DOCUMENT-CONTROL-DURABILITY-001' as const;
   readonly operation: 'file-flush' | 'parent-directory-barrier';
   readonly targetPath: string;
@@ -472,13 +472,13 @@ export class CodexDevelopmentDurabilityBarrierError extends Error {
       `Document control ${input.operation} is unsupported or failed for ${input.targetPath}.`,
       { cause: input.cause }
     );
-    this.name = 'CodexDevelopmentDurabilityBarrierError';
+    this.name = 'DurabilityBarrierError';
     this.operation = input.operation;
     this.targetPath = input.targetPath;
   }
 }
 
-export class CodexDevelopmentUnsafeAnchoredPathError extends Error {
+export class UnsafeAnchoredPathError extends Error {
   readonly code = 'DOCUMENT-CONTROL-UNSAFE-PATH-001' as const;
   readonly targetPath: string;
   readonly reparseTag: number | null;
@@ -493,25 +493,25 @@ export class CodexDevelopmentUnsafeAnchoredPathError extends Error {
       `${input.label} must not traverse or target a symbolic link, junction, or reparse point.`,
       input.cause === undefined ? undefined : { cause: input.cause }
     );
-    this.name = 'CodexDevelopmentUnsafeAnchoredPathError';
+    this.name = 'UnsafeAnchoredPathError';
     this.targetPath = input.targetPath;
     this.reparseTag = input.reparseTag ?? null;
   }
 }
 
-export class CodexDevelopmentUnsupportedAnchoredPathEffectError extends Error {
+export class UnsupportedAnchoredPathEffectError extends Error {
   readonly code = 'DOCUMENT-CONTROL-POSIX-CAPABILITY-001' as const;
   readonly capability: string;
 
   constructor(capability: string) {
     super(`Anchored document-control POSIX effects require the ${capability} capability.`);
-    this.name = 'CodexDevelopmentUnsupportedAnchoredPathEffectError';
+    this.name = 'UnsupportedAnchoredPathEffectError';
     this.capability = capability;
   }
 }
 
 interface FreezeDurabilityOptions {
-  readonly observer?: CodexDevelopmentDurabilityObserver;
+  readonly observer?: DurabilityObserver;
   /** Internal deterministic test seam. Production always uses the platform barrier. */
   readonly parentDirectoryBarrier?: (directoryPath: string) => Promise<void>;
   /** Internal deterministic test seam invoked only after rename source/parent anchors are open. */
@@ -561,7 +561,7 @@ type FreezeJournalPhase =
   | 'rolling-published'
   | 'terminal';
 
-export interface CodexDevelopmentFreezeResult {
+export interface FreezeResult {
   readonly schema: typeof LegacyFreezeResultSchema | typeof FreezeResultSchema;
   readonly status: 'ACTIVATED_INDEX_PENDING_COMMIT' | 'PROPOSED';
   readonly operationId: `sha256:${string}`;
@@ -576,7 +576,7 @@ export interface CodexDevelopmentFreezeResult {
 }
 
 /** The prior operation is settled; a composing owner must open a new session for the requested freeze. */
-export class CodexDevelopmentPriorFreezeOperationRetiredError extends Error {
+export class PriorFreezeOperationRetiredError extends Error {
   readonly code = 'DOCUMENT-CONTROL-PRIOR-FREEZE-RETIRED' as const;
   readonly priorOperationId: `sha256:${string}`;
   readonly repositoryRoot: string;
@@ -613,7 +613,7 @@ interface FreezeJournal {
   }>;
   readonly index: FreezeJournalFile;
   readonly indexTransportDigest: `sha256:${string}`;
-  readonly result: CodexDevelopmentFreezeResult;
+  readonly result: FreezeResult;
 }
 
 interface ControlIndexSnapshot {
@@ -652,7 +652,7 @@ function pathComparisonValue(candidate: string): string {
 function assertPathContained(root: string, candidate: string, label: string): void {
   const relative = path.relative(path.resolve(root), path.resolve(candidate));
   if (relative === '..' || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) {
-    throw new CodexDevelopmentUnsafeAnchoredPathError({ label, targetPath: candidate });
+    throw new UnsafeAnchoredPathError({ label, targetPath: candidate });
   }
 }
 
@@ -664,7 +664,7 @@ function transactionRelativePath(boundaryRoot: string, candidatePath: string, la
   assertPathContained(boundaryRoot, candidatePath, label);
   const relative = path.relative(path.resolve(boundaryRoot), path.resolve(candidatePath));
   if (relative.length === 0) {
-    throw new CodexDevelopmentUnsafeAnchoredPathError({ label, targetPath: candidatePath });
+    throw new UnsafeAnchoredPathError({ label, targetPath: candidatePath });
   }
   return relative;
 }
@@ -674,26 +674,26 @@ function mapDocumentPhysicalError(error: unknown, input: Readonly<{
   targetPath: string;
   operation?: 'file-flush' | 'parent-directory-barrier';
 }>): never {
-  if (error instanceof CodexDevelopmentDurabilityBarrierError
-      || error instanceof CodexDevelopmentUnsafeAnchoredPathError
-      || error instanceof CodexDevelopmentUnsupportedAnchoredPathEffectError) throw error;
+  if (error instanceof DurabilityBarrierError
+      || error instanceof UnsafeAnchoredPathError
+      || error instanceof UnsupportedAnchoredPathEffectError) throw error;
   if (error instanceof PhysicalNoFollowError) {
     if (error.code === 'PHYSICAL_NO_FOLLOW_ABSENT') {
       throw Object.assign(new Error(`${input.label} is absent.`, { cause: error }), { code: 'ENOENT' });
     }
     if (error.code === 'PHYSICAL_NO_FOLLOW_DURABILITY_FAILED' && input.operation !== undefined) {
-      throw new CodexDevelopmentDurabilityBarrierError({
+      throw new DurabilityBarrierError({
         operation: input.operation,
         targetPath: input.targetPath,
         cause: error
       });
     }
     if (error.code === 'PHYSICAL_NO_FOLLOW_CAPABILITY_UNAVAILABLE') {
-      throw new CodexDevelopmentUnsupportedAnchoredPathEffectError(error.code);
+      throw new UnsupportedAnchoredPathEffectError(error.code);
     }
     if (error.code === 'PHYSICAL_NO_FOLLOW_UNSAFE_PATH'
         || error.code === 'PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED') {
-      throw new CodexDevelopmentUnsafeAnchoredPathError({
+      throw new UnsafeAnchoredPathError({
         label: input.label,
         targetPath: input.targetPath,
         cause: error
@@ -775,7 +775,7 @@ async function ensureSafeDirectory(input: {
           try {
             input.durability?.beforeCreatedParentBarrier?.(event);
           } catch (error) {
-            throw new CodexDevelopmentDurabilityBarrierError({
+            throw new DurabilityBarrierError({
               operation: 'parent-directory-barrier',
               targetPath: event.parentPath,
               cause: error
@@ -889,7 +889,7 @@ async function withRetainedPhysicalTransaction<T>(
               try {
                 await durability.parentDirectoryBarrier?.(event.parentPath);
               } catch (error) {
-                throw new CodexDevelopmentDurabilityBarrierError({
+                throw new DurabilityBarrierError({
                   operation: 'parent-directory-barrier',
                   targetPath: event.parentPath,
                   cause: error
@@ -1078,7 +1078,7 @@ async function durableRename(input: {
   retained?: RetainedPublishObjectAuthority;
 }): Promise<void> {
   if (input.replaceExisting !== false) {
-    throw new CodexDevelopmentUnsupportedAnchoredPathEffectError('retained no-replace rename');
+    throw new UnsupportedAnchoredPathEffectError('retained no-replace rename');
   }
   const run = async (authority: RetainedPublishObjectAuthority): Promise<void> => {
     assertRetainedPublishAuthority({
@@ -1159,7 +1159,7 @@ async function assertPosixEntryIdentity(input: {
   }
 }
 function byteDigest(bytes: Uint8Array): `sha256:${string}` {
-  return `sha256:${digest(bytes)}`;
+  return `sha256:${rawSha256Hex(bytes)}`;
 }
 
 function toBase64(bytes: Uint8Array): string {
@@ -1234,7 +1234,7 @@ function freezeOperationId(
   }) as `sha256:${string}`;
 }
 
-function parseFreezeResult(value: unknown): CodexDevelopmentFreezeResult {
+function parseFreezeResult(value: unknown): FreezeResult {
   const record = recordValue(value, 'Freeze journal result');
   exactKeys(record, [
     'baseSha', 'baseTreeSha', 'candidateHeadSha', 'candidateTreeSha', 'indexPublished',
@@ -1250,8 +1250,8 @@ function parseFreezeResult(value: unknown): CodexDevelopmentFreezeResult {
     throw new Error('Freeze journal result identity is invalid.');
   }
   return Object.freeze({
-    schema: record.schema as CodexDevelopmentFreezeResult['schema'],
-    status: record.status as CodexDevelopmentFreezeResult['status'],
+    schema: record.schema as FreezeResult['schema'],
+    status: record.status as FreezeResult['status'],
     operationId: digestValue(record.operationId, 'Freeze result operationId'),
     baseSha: shaValue(record.baseSha, 'Freeze result baseSha'),
     baseTreeSha: shaValue(record.baseTreeSha, 'Freeze result baseTreeSha'),
@@ -1530,7 +1530,7 @@ async function observeCommittedCandidateProjectionSourceTreeDelta(input: Readonl
   currentTree: string;
   rollingPlanSource: string;
 }>): Promise<readonly string[] | null> {
-  const projection = CodexDevelopmentParseRollingMachineProjection(input.rollingPlanSource);
+  const projection = ParseRollingMachineProjection(input.rollingPlanSource);
   if (projection?.schema !== 'sec-work-rolling-transition-projection-v1'
       || projection.authority.kind !== 'committed-candidate-replan') {
     return null;
@@ -1804,7 +1804,7 @@ async function captureControlIndexSnapshot(
       const stateSource = decodeUtf8(stateBytes, 'Current-state spec');
       const pointerSource = decodeUtf8(pointerBytes, 'Active pointer');
       const rollingPlanSource = decodeUtf8(rollingPlanBytes, 'Rolling plan');
-      const pointer = CodexDevelopmentParseActivePointer(pointerSource);
+      const pointer = ParseActivePointer(pointerSource);
       const candidateManifestBlob = await readBlob(`:${pointer.manifest}`);
       const targetManifestBlob = options.targetManifestPath === undefined
         ? undefined
@@ -1896,10 +1896,10 @@ async function resolveRecoverableRepositoryFile(
 function entryRecoveryPath(input: {
   artifactRoot: string;
   operationId: string;
-  targetKey: CodexDevelopmentDocumentControlRecoveryTargetKey;
+  targetKey: DocumentControlRecoveryTargetKey;
   suffix: 'pre' | 'retired-pre' | 'retired-next';
 }): string {
-  const stem = CodexDevelopmentDocumentControlRecoveryEntryStem({
+  const stem = DocumentControlRecoveryEntryStem({
     operationId: input.operationId,
     targetKey: input.targetKey
   });
@@ -2056,7 +2056,7 @@ type PublishTupleClassifierSource = Readonly<{
   boundaryRoot: string;
   artifactRoot: string;
   targetPath: string;
-  targetKey: CodexDevelopmentDocumentControlRecoveryTargetKey;
+  targetKey: DocumentControlRecoveryTargetKey;
   nextPath: string;
   pre: Buffer;
   next: Buffer;
@@ -2203,7 +2203,7 @@ async function publishEntryNoReplaceCas(input: {
   boundaryRoot: string;
   artifactRoot: string;
   targetPath: string;
-  targetKey: CodexDevelopmentDocumentControlRecoveryTargetKey;
+  targetKey: DocumentControlRecoveryTargetKey;
   nextPath: string;
   pre: Buffer;
   next: Buffer;
@@ -2457,7 +2457,7 @@ function atomicCasNextPath(filePath: string, operationId: string): string {
 async function writeAtomicCas(input: {
   repositoryRoot: string;
   filePath: string;
-  targetKey: CodexDevelopmentDocumentControlRecoveryTargetKey;
+  targetKey: DocumentControlRecoveryTargetKey;
   pre: Buffer;
   next: Buffer;
   label: string;
@@ -2487,11 +2487,11 @@ async function writeAtomicCas(input: {
 }
 
 interface InitiallyAbsentEntryResolution {
-  readonly state: CodexDevelopmentInitiallyAbsentTupleState;
+  readonly state: InitiallyAbsentTupleState;
   readonly tuple: Readonly<{
-    target: CodexDevelopmentInitiallyAbsentTupleEntry;
-    next: CodexDevelopmentInitiallyAbsentTupleEntry;
-    retiredNext: CodexDevelopmentInitiallyAbsentTupleEntry;
+    target: InitiallyAbsentTupleEntry;
+    next: InitiallyAbsentTupleEntry;
+    retiredNext: InitiallyAbsentTupleEntry;
   }>;
   readonly target: PublishEntryObservation;
   readonly next: PublishEntryObservation;
@@ -2510,7 +2510,7 @@ type InitiallyAbsentTupleClassifierInput = Readonly<{
 function initialTupleEntryAdapter(
   entry: PublishEntryObservation,
   next: Buffer
-): CodexDevelopmentInitiallyAbsentTupleEntry {
+): InitiallyAbsentTupleEntry {
   const identity = entry.identity === null
     ? null
     : typeof entry.identity === 'string'
@@ -2532,8 +2532,8 @@ function initialTupleResolutionAdapter(input: Readonly<{
     next: initialTupleEntryAdapter(input.nextEntry, input.next),
     retiredNext: initialTupleEntryAdapter(input.retiredNext, input.next)
   });
-  const resolution = CodexDevelopmentClassifyInitiallyAbsentEntryTuple({
-    platform: process.platform as CodexDevelopmentInitiallyAbsentTuplePlatform,
+  const resolution = ClassifyInitiallyAbsentEntryTuple({
+    platform: process.platform as InitiallyAbsentTuplePlatform,
     tuple
   });
   if (resolution.status === 'invalid') {
@@ -2623,11 +2623,11 @@ async function withRetainedInitiallyAbsentEntryTuple<T>(
 function assertInitiallyAbsentTransitionFromContract(
   predecessor: InitiallyAbsentEntryResolution,
   successor: InitiallyAbsentEntryResolution,
-  expectedEdge: CodexDevelopmentInitiallyAbsentTupleEdge,
+  expectedEdge: InitiallyAbsentTupleEdge,
   label: string
 ): void {
-  const resolution = CodexDevelopmentAssertInitiallyAbsentEntryTransition({
-    platform: process.platform as CodexDevelopmentInitiallyAbsentTuplePlatform,
+  const resolution = AssertInitiallyAbsentEntryTransition({
+    platform: process.platform as InitiallyAbsentTuplePlatform,
     predecessor: predecessor.tuple,
     successor: successor.tuple,
     expectedEdge
@@ -2640,7 +2640,7 @@ function assertInitiallyAbsentTransitionFromContract(
 async function publishInitiallyAbsentEntryNoReplace(input: {
   boundaryRoot: string;
   targetPath: string;
-  targetKey: CodexDevelopmentDocumentControlRecoveryTargetKey;
+  targetKey: DocumentControlRecoveryTargetKey;
   nextPath: string;
   next: Buffer;
   label: string;
@@ -2670,7 +2670,7 @@ async function publishInitiallyAbsentEntryNoReplace(input: {
   }, input.durability);
   const assertSuccessor = async (
     predecessor: InitiallyAbsentEntryResolution,
-    expectedEdge: CodexDevelopmentInitiallyAbsentTupleEdge
+    expectedEdge: InitiallyAbsentTupleEdge
   ): Promise<void> => {
     const successor = await observeInitiallyAbsentEntryTuple(classifier);
     assertInitiallyAbsentTransitionFromContract(predecessor, successor, expectedEdge, input.label);
@@ -2737,7 +2737,7 @@ async function writeFreezeJournal(
   expectedPreBytes: Buffer | null,
   journal: FreezeJournal,
   durability: FreezeDurabilityOptions,
-  faultAfter?: CodexDevelopmentFreezeFault
+  faultAfter?: FreezeFault
 ): Promise<Buffer> {
   const transactionRoot = await resolveFreezeTransactionRoot(repositoryRoot, durability);
   const journalPath = path.join(repositoryRoot, FreezeJournalRelativePath);
@@ -2755,13 +2755,13 @@ async function writeFreezeJournal(
       durability
     });
   } else {
-    const preQuarantineFault: Readonly<Partial<Record<FreezeJournalPhase, CodexDevelopmentFreezeFault>>> = {
+    const preQuarantineFault: Readonly<Partial<Record<FreezeJournalPhase, FreezeFault>>> = {
       'index-published': 'after-journal-index-published-pre-quarantine',
       'pointer-published': 'after-journal-pointer-published-pre-quarantine',
       'rolling-published': 'after-journal-rolling-published-pre-quarantine',
       terminal: 'after-journal-terminal-pre-quarantine'
     };
-    const nextInstallFault: Readonly<Partial<Record<FreezeJournalPhase, CodexDevelopmentFreezeFault>>> = {
+    const nextInstallFault: Readonly<Partial<Record<FreezeJournalPhase, FreezeFault>>> = {
       'index-published': 'after-journal-index-published-next-install',
       terminal: 'after-journal-terminal-next-install'
     };
@@ -2966,7 +2966,7 @@ async function readJournalRecoveryEntry(
 function initialJournalTupleEntryAdapter(
   entry: AnchoredJournalEntry | null,
   nextBytes: Buffer
-): CodexDevelopmentInitiallyAbsentTupleEntry {
+): InitiallyAbsentTupleEntry {
   return initialTupleEntryAdapter(
     entry === null
       ? Object.freeze({ bytes: null, identity: null })
@@ -3037,8 +3037,8 @@ async function inspectJournalTransitionRecovery(input: {
     if (quarantine !== null || retiredPre !== null) {
       throw new Error('Initially-absent freeze journal recovery has unexpected PRE artifacts; preserving them.');
     }
-    const initialResolution = CodexDevelopmentClassifyInitiallyAbsentEntryTuple({
-      platform: process.platform as CodexDevelopmentInitiallyAbsentTuplePlatform,
+    const initialResolution = ClassifyInitiallyAbsentEntryTuple({
+      platform: process.platform as InitiallyAbsentTuplePlatform,
       tuple: Object.freeze({
         target: initialJournalTupleEntryAdapter(input.canonicalEntry, input.nextBytes),
         next: initialJournalTupleEntryAdapter(input.nextEntry, input.nextBytes),
@@ -3127,7 +3127,7 @@ function freezeJournalPhaseIndex(phase: FreezeJournalPhase): number {
 function freezeEntryRecoveryNames(input: {
   artifactRoot: string;
   operationId: string;
-  targetKey: CodexDevelopmentDocumentControlRecoveryTargetKey;
+  targetKey: DocumentControlRecoveryTargetKey;
 }): FreezeEntryRecoveryNames {
   const name = (suffix: FreezeEntryRecoverySuffix): string => path.basename(entryRecoveryPath({
     ...input,
@@ -3192,7 +3192,7 @@ function createFreezeEntryRecoveryCensusPlan(input: {
   }
 
   const addProjectionRecovery = (
-    targetKey: CodexDevelopmentDocumentControlRecoveryTargetKey,
+    targetKey: DocumentControlRecoveryTargetKey,
     pre: Buffer,
     next: Buffer,
     label: string
@@ -3319,8 +3319,8 @@ async function assertFreezeEntryRecoveryCensus(input: {
   };
   if (initialPreparedBytes !== null) {
     const initialRetiredNext = entries.get(input.plan.initialRetiredNext) ?? null;
-    const initialResolution = CodexDevelopmentClassifyInitiallyAbsentEntryTuple({
-      platform: process.platform as CodexDevelopmentInitiallyAbsentTuplePlatform,
+    const initialResolution = ClassifyInitiallyAbsentEntryTuple({
+      platform: process.platform as InitiallyAbsentTuplePlatform,
       tuple: Object.freeze({
         target: initialJournalTupleEntryAdapter(preparedCanonicalEntry, initialPreparedBytes),
         next: initialJournalTupleEntryAdapter(preparedNextEntry, initialPreparedBytes),
@@ -3515,7 +3515,7 @@ async function assertTerminalRetirementPrefix(input: {
       throw new Error(`${entry.label} has unknown bytes and is preserved.`);
     }
   }
-  const classification = CodexDevelopmentClassifyTerminalRetirementPrefix(presence);
+  const classification = ClassifyTerminalRetirementPrefix(presence);
   if (classification.status === 'invalid') {
     throw new Error('Terminal retirement residue topology is not one exact canonical deletion prefix; preserving it.');
   }
@@ -3740,8 +3740,8 @@ async function readFreezeJournalSnapshot(
           path.basename(initialRetiredNextPath),
           'Freeze journal initial retired NEXT entry'
         );
-        const initialResolution = CodexDevelopmentClassifyInitiallyAbsentEntryTuple({
-          platform: process.platform as CodexDevelopmentInitiallyAbsentTuplePlatform,
+        const initialResolution = ClassifyInitiallyAbsentEntryTuple({
+          platform: process.platform as InitiallyAbsentTuplePlatform,
           tuple: Object.freeze({
             target: initialJournalTupleEntryAdapter(canonicalEntry, canonicalEntry!.bytes),
             next: initialJournalTupleEntryAdapter(null, canonicalEntry!.bytes),
@@ -3804,7 +3804,7 @@ async function restoreFreezeJournalDurability(
   }
 }
 
-function maybeFault(actual: CodexDevelopmentFreezeFault | undefined, expected: CodexDevelopmentFreezeFault): void {
+function maybeFault(actual: FreezeFault | undefined, expected: FreezeFault): void {
   if (actual === expected) throw new Error(`Injected document control freeze fault: ${expected}.`);
 }
 
@@ -4359,7 +4359,7 @@ async function assertCommittedCandidateReplanAuthority(input: {
   trustedDefaultSha: string;
   trustedDefaultTree: string;
   manifestPath: string;
-}): Promise<CodexDevelopmentCommittedCandidateReplanAuthority> {
+}): Promise<CommittedCandidateReplanAuthority> {
   const ancestry = requireCommand(
     await run('git', ['rev-list', '--parents', '-n', '1', input.headSha], input.repositoryRoot),
     'Committed candidate ancestry'
@@ -4382,7 +4382,7 @@ async function assertCommittedCandidateReplanAuthority(input: {
   if (!candidateState.equals(trustedState)) {
     throw new Error('Committed candidate replan must preserve the exact live-default current-state authority bytes.');
   }
-  const spec = CodexDevelopmentParseCurrentStateSpec(
+  const spec = ParseCurrentStateSpec(
     decodeUtf8(candidateState, 'Committed candidate current-state')
   );
   const pointerBytes = await requireGitBlob(
@@ -4391,16 +4391,16 @@ async function assertCommittedCandidateReplanAuthority(input: {
     'Committed candidate active pointer'
   );
   const pointerSource = decodeUtf8(pointerBytes, 'Committed candidate active pointer');
-  const pointer = CodexDevelopmentParseActivePointer(pointerSource);
-  CodexDevelopmentAssertControlPlaneBinding({ spec, pointer });
+  const pointer = ParseActivePointer(pointerSource);
+  AssertControlPlaneBinding({ spec, pointer });
   const rollingBytes = await requireGitBlob(
     input.repositoryRoot,
     `${input.headSha}:${RollingPlanPath}`,
     'Committed candidate rolling plan'
   );
   const rollingSource = decodeUtf8(rollingBytes, 'Committed candidate rolling plan');
-  const rolling = CodexDevelopmentParseRollingPlanHeadings(rollingSource);
-  const rollingMachine = CodexDevelopmentParseRollingMachineProjection(rollingSource);
+  const rolling = ParseRollingPlanHeadings(rollingSource);
+  const rollingMachine = ParseRollingMachineProjection(rollingSource);
   const manifestBytes = await requireGitBlob(
     input.repositoryRoot,
     `${input.headSha}:${input.manifestPath}`,
@@ -4417,7 +4417,7 @@ async function assertCommittedCandidateReplanAuthority(input: {
       'Committed candidate replan requires the exact active pointer, rolling plan, manifest path, and base binding.'
     );
   }
-  if (CodexDevelopmentResolveWorkSelectionProjectionMode(spec) === 'required-v1'
+  if (ResolveWorkSelectionProjectionMode(spec) === 'required'
       && rollingMachine === null) {
     throw new Error('Committed candidate replan requires the prior machine projection identity.');
   }
@@ -4435,7 +4435,7 @@ async function assertCommittedCandidateReplanAuthority(input: {
   const rollingMatchesLiveDefault = liveDefaultRollingBytes.equals(rollingBytes);
   if (rollingMachine !== null) {
     if (rollingMachine.exactMain === input.trustedDefaultSha) {
-      CodexDevelopmentAssertRollingMachineBaseBinding({
+      AssertRollingMachineBaseBinding({
         projection: rollingMachine,
         exactMain: input.trustedDefaultSha,
         exactMainTree: input.trustedDefaultTree
@@ -4501,7 +4501,7 @@ async function assertCommittedCandidateReplanAuthority(input: {
           `${publicationCommit}:${ActivePointerPath}`,
           'Published rolling projection pointer'
         ), 'Published rolling projection pointer');
-        const publishedPointer = CodexDevelopmentParseActivePointer(publishedPointerSource);
+        const publishedPointer = ParseActivePointer(publishedPointerSource);
         const publishedManifestBytes = await requireGitBlob(
           input.repositoryRoot,
           `${publicationCommit}:${input.manifestPath}`,
@@ -4562,7 +4562,7 @@ async function assertCommittedCandidateReplanAuthority(input: {
           || rawSha256(sourceRolling) !== sourceAuthority.sourceRollingRevision) {
         throw new Error('Historical committed-candidate control bytes do not match their recorded authority.');
       }
-      const parsedSourcePointer = CodexDevelopmentParseActivePointer(sourcePointer);
+      const parsedSourcePointer = ParseActivePointer(sourcePointer);
       if (parsedSourcePointer.manifest !== input.manifestPath
           || parsedSourcePointer.manifestDigest !== sourceManifestDigest) {
         throw new Error('Historical committed-candidate source does not bind its exact manifest.');
@@ -4584,7 +4584,7 @@ async function assertCommittedCandidateReplanAuthority(input: {
     const pointerBindsDefault = defaultManifestDigest === pointer.manifestDigest;
     const pointerBindsRolling = rollingMachine?.schema === 'sec-work-rolling-transition-projection-v1'
       && rollingMachine.active.manifestDigest === pointer.manifestDigest;
-    const binding = CodexDevelopmentClassifyPublishedControlBinding({
+    const binding = ClassifyPublishedControlBinding({
       authorityProven: true,
       historicalBaseIsLiveDefault: rollingMachine?.exactMain === input.trustedDefaultSha,
       pointerBindsDefault,
@@ -4708,12 +4708,12 @@ async function freezeRetiredManifestPath(
   repositoryRoot: string,
   journal: FreezeJournal
 ): Promise<string | null> {
-  const basePointer = CodexDevelopmentParseActivePointer(decodeUtf8(await requireGitBlob(
+  const basePointer = ParseActivePointer(decodeUtf8(await requireGitBlob(
     repositoryRoot,
     `${journal.baseSha}:${ActivePointerPath}`,
     'Freeze base active pointer'
   ), 'Freeze base active pointer'));
-  const nextPointer = CodexDevelopmentParseActivePointer(decodeUtf8(fromBase64(
+  const nextPointer = ParseActivePointer(decodeUtf8(fromBase64(
     journal.files.pointer.next,
     'Freeze pointer NEXT retirement binding'
   ), 'Freeze pointer NEXT retirement binding'));
@@ -4773,9 +4773,9 @@ async function advanceFreezeJournal(input: {
   repositoryRoot: string;
   journal: FreezeJournal;
   journalBytes: Buffer;
-  faultAfter?: CodexDevelopmentFreezeFault;
+  faultAfter?: FreezeFault;
   durability: FreezeDurabilityOptions;
-}): Promise<CodexDevelopmentFreezeResult> {
+}): Promise<FreezeResult> {
   assertFreezeContinuationNativeCapacity(`journal-${input.journal.phase}`);
   let journal = input.journal;
   let journalBytes = input.journalBytes;
@@ -4902,10 +4902,10 @@ async function advanceFreezeJournal(input: {
       label: 'Freeze successor retired manifest'
     });
   }
-  const pointer = CodexDevelopmentParseActivePointer(decodeUtf8(pointerBytes, 'Freeze pointer NEXT'));
-  const rolling = CodexDevelopmentParseRollingPlan(decodeUtf8(rollingBytes, 'Freeze rolling-plan NEXT'));
-  CodexDevelopmentAssertControlPlaneBinding({
-    spec: CodexDevelopmentParseCurrentStateSpec(readback.stateSource),
+  const pointer = ParseActivePointer(decodeUtf8(pointerBytes, 'Freeze pointer NEXT'));
+  const rolling = ParseRollingPlan(decodeUtf8(rollingBytes, 'Freeze rolling-plan NEXT'));
+  AssertControlPlaneBinding({
+    spec: ParseCurrentStateSpec(readback.stateSource),
     pointer
   });
   if (rolling.activePackageId !== path.posix.basename(pointer.manifest, '.md')
@@ -4949,7 +4949,7 @@ async function verifyTerminalFreezeJournal(input: {
   manifestDigest: `sha256:${string}`;
   reviewedOn: string;
   retiredManifestPath?: string | null;
-}): Promise<CodexDevelopmentFreezeResult> {
+}): Promise<FreezeResult> {
   const journal = input.snapshot.journal;
   if (!input.snapshot.canonicalPresent || journal.phase !== 'terminal'
       || (input.snapshot.recovery !== null && input.snapshot.recovery.completionMode !== 'complete')) {
@@ -5039,10 +5039,10 @@ async function verifyTerminalFreezeJournal(input: {
 
   const stateSource = await terminalGit.readBlob(input.repositoryRoot, `${treeSha}:${CurrentStatePath}`);
   if (stateSource === undefined) throw new Error('Terminal freeze current-state spec is absent from the candidate tree.');
-  const pointer = CodexDevelopmentParseActivePointer(decodeUtf8(pointerNext, 'Terminal freeze pointer NEXT'));
-  const rolling = CodexDevelopmentParseRollingPlan(decodeUtf8(rollingNext, 'Terminal freeze rolling-plan NEXT'));
-  CodexDevelopmentAssertControlPlaneBinding({
-    spec: CodexDevelopmentParseCurrentStateSpec(decodeUtf8(stateSource, 'Terminal freeze current-state spec')),
+  const pointer = ParseActivePointer(decodeUtf8(pointerNext, 'Terminal freeze pointer NEXT'));
+  const rolling = ParseRollingPlan(decodeUtf8(rollingNext, 'Terminal freeze rolling-plan NEXT'));
+  AssertControlPlaneBinding({
+    spec: ParseCurrentStateSpec(decodeUtf8(stateSource, 'Terminal freeze current-state spec')),
     pointer
   });
   if (rolling.activePackageId !== path.posix.basename(pointer.manifest, '.md')
@@ -5270,9 +5270,9 @@ type FreezeDocumentControlPlaneInput = {
   reviewedOn: string;
   /** Author one untrusted tracking:none successor projection without activation authority. */
   proposalOnly?: boolean;
-  faultAfter?: CodexDevelopmentFreezeFault;
+  faultAfter?: FreezeFault;
   /** Internal deterministic contract-test observer for rename durability ordering. */
-  durabilityObserver?: CodexDevelopmentDurabilityObserver;
+  durabilityObserver?: DurabilityObserver;
   /** Internal deterministic contract-test seam for an unsupported directory barrier. */
   parentDirectoryBarrier?: (directoryPath: string) => Promise<void>;
   /** Internal deterministic contract-test seam before the post-admission local stability fence. */
@@ -5300,7 +5300,7 @@ type FreezeDocumentControlPlaneInput = {
  */
 async function freezeDocumentControlPlaneWithSession(
   input: FreezeDocumentControlPlaneInput
-): Promise<CodexDevelopmentFreezeResult> {
+): Promise<FreezeResult> {
   assertCanonicalManifestPath(input.manifestPath);
   assertReviewedOn(input.reviewedOn);
   const repositoryRoot = requireCommand(
@@ -5403,7 +5403,7 @@ async function freezeDocumentControlPlaneWithSession(
           && existingJournal.reviewedOn === input.reviewedOn) {
         return previousResult;
       }
-      throw new CodexDevelopmentPriorFreezeOperationRetiredError(previousResult.operationId, repositoryRoot);
+      throw new PriorFreezeOperationRetiredError(previousResult.operationId, repositoryRoot);
     }
 
     const headSha = shaValue(
@@ -5415,7 +5415,7 @@ async function freezeDocumentControlPlaneWithSession(
       `${headSha}:${CurrentStatePath}`,
       'Immutable candidate current-state authority'
     );
-    const spec = CodexDevelopmentParseCurrentStateSpec(
+    const spec = ParseCurrentStateSpec(
       decodeUtf8(headStateBytes, 'Immutable candidate current-state authority')
     );
     const localDefaultSha = shaValue(
@@ -5443,10 +5443,10 @@ async function freezeDocumentControlPlaneWithSession(
       `${localDefaultSha}:${CurrentStatePath}`,
       'Trusted default current-state authority'
     );
-    const defaultSpec = CodexDevelopmentParseCurrentStateSpec(
+    const defaultSpec = ParseCurrentStateSpec(
       decodeUtf8(defaultStateBytes, 'Trusted default current-state authority')
     );
-    const workSelectionProjectionMode = CodexDevelopmentResolveWorkSelectionProjectionMode(
+    const workSelectionProjectionMode = ResolveWorkSelectionProjectionMode(
       defaultSpec
     );
 
@@ -5458,13 +5458,13 @@ async function freezeDocumentControlPlaneWithSession(
       `${headSha}:${ActivePointerPath}`,
       'Immutable candidate active pointer preflight'
     ), 'Immutable candidate active pointer preflight');
-    const headPointer = CodexDevelopmentParseActivePointer(headPointerSource);
+    const headPointer = ParseActivePointer(headPointerSource);
     const targets = Object.freeze([...new Set([
       input.manifestPath,
       headPointer.manifest,
       ActivePointerPath,
       RollingPlanPath,
-      ...(workSelectionProjectionMode === 'required-v1' ? ['config/repository/work-selection.md'] : [])
+      ...(workSelectionProjectionMode === 'required' ? ['config/repository/work-selection.md'] : [])
     ])]);
     const targetSet = new Set<string>(targets);
     const snapshot = await observeExecutionProgressPhase('document-control-freeze', 'candidate-index-snapshot', () => captureControlIndexSnapshot(repositoryRoot, {
@@ -5475,9 +5475,9 @@ async function freezeDocumentControlPlaneWithSession(
     if (!snapshot.stateBytes.equals(headStateBytes)) {
       throw new Error('Document control freeze rejects staged current-state authority bytes.');
     }
-    const pointer = CodexDevelopmentParseActivePointer(snapshot.pointerSource);
-    CodexDevelopmentAssertControlPlaneBinding({ spec, pointer });
-    const rolling = CodexDevelopmentParseRollingPlan(snapshot.rollingPlanSource);
+    const pointer = ParseActivePointer(snapshot.pointerSource);
+    AssertControlPlaneBinding({ spec, pointer });
+    const rolling = ParseRollingPlan(snapshot.rollingPlanSource);
     if (rolling.activePackageId !== path.posix.basename(pointer.manifest, '.md')) {
       throw new Error('The immutable index pointer and rolling plan select different Work Packages.');
     }
@@ -5490,12 +5490,12 @@ async function freezeDocumentControlPlaneWithSession(
       `${headSha}:${RollingPlanPath}`,
       'Immutable candidate rolling plan'
     ), 'Immutable candidate rolling plan');
-    const immutablePointer = CodexDevelopmentParseActivePointer(immutablePointerSource);
-    CodexDevelopmentAssertControlPlaneBinding({ spec, pointer: immutablePointer });
+    const immutablePointer = ParseActivePointer(immutablePointerSource);
+    AssertControlPlaneBinding({ spec, pointer: immutablePointer });
     const immutableRolling = committedCandidateReplanAuthority !== undefined
-        && workSelectionProjectionMode === 'required-v1'
-      ? CodexDevelopmentParseRollingPlanHeadings(immutableRollingPlanSource)
-      : CodexDevelopmentParseRollingPlan(immutableRollingPlanSource);
+        && workSelectionProjectionMode === 'required'
+      ? ParseRollingPlanHeadings(immutableRollingPlanSource)
+      : ParseRollingPlan(immutableRollingPlanSource);
     if (immutableRolling.activePackageId !== path.posix.basename(immutablePointer.manifest, '.md')) {
       throw new Error('Immutable HEAD pointer and rolling plan do not bind one selection baseline.');
     }
@@ -5508,7 +5508,7 @@ async function freezeDocumentControlPlaneWithSession(
       repositoryRoot,
       `${localDefaultSha}:${immutablePointer.manifest}`
     ) ?? null;
-    const immutableCurrentResolution = CodexDevelopmentResolveActiveWorkPackage({
+    const immutableCurrentResolution = ResolveActiveWorkPackage({
       pointer: immutablePointer,
       candidateManifestBlob: immutableCurrentManifestBytes,
       defaultManifestBlob: immutableCurrentDefaultManifestBlob,
@@ -5524,7 +5524,7 @@ async function freezeDocumentControlPlaneWithSession(
       repositoryRoot,
       `${localDefaultSha}:${pointer.manifest}`
     ) ?? null;
-    const currentResolution = CodexDevelopmentResolveActiveWorkPackage({
+    const currentResolution = ResolveActiveWorkPackage({
       pointer,
       candidateManifestBlob: currentManifestBlob,
       defaultManifestBlob: currentDefaultManifestBlob,
@@ -5570,10 +5570,10 @@ async function freezeDocumentControlPlaneWithSession(
       repositoryRoot,
       `${localDefaultSha}:${input.manifestPath}`
     );
-    const immutableRollingMachine = CodexDevelopmentParseRollingMachineProjection(
+    const immutableRollingMachine = ParseRollingMachineProjection(
       immutableRollingPlanSource
     );
-    const publishedBinding = CodexDevelopmentClassifyPublishedControlBinding({
+    const publishedBinding = ClassifyPublishedControlBinding({
       authorityProven: committedCandidateReplanAuthority !== undefined,
       historicalBaseIsLiveDefault: immutableRollingMachine?.exactMain === localDefaultSha,
       pointerBindsDefault: defaultTargetManifest !== undefined
@@ -5594,7 +5594,7 @@ async function freezeDocumentControlPlaneWithSession(
     let priorProjectionFailure: unknown;
     if (!indexedControlMatchesImmutableHead && indexedTargetManifest !== undefined) {
       try {
-        CodexDevelopmentAssertPriorFreezeProjection({
+        AssertPriorFreezeProjection({
           spec,
           immutableRollingPlanSource,
           pointerSource: snapshot.pointerSource,
@@ -5618,7 +5618,7 @@ async function freezeDocumentControlPlaneWithSession(
 
     const requestedRollingPlanSource = rollingPlanWorktree.equals(rollingPlanPre)
       ? indexedControlMatchesPriorProjection
-          && CodexDevelopmentParseRollingMachineProjection(snapshot.rollingPlanSource) === null
+          && ParseRollingMachineProjection(snapshot.rollingPlanSource) === null
         ? snapshot.rollingPlanSource
         : undefined
       : decodeUtf8(rollingPlanWorktree, 'Requested rolling-plan projection');
@@ -5629,11 +5629,11 @@ async function freezeDocumentControlPlaneWithSession(
     const targetManifestDigest = WorkPackageManifestDigest(
       manifestBytes
     ) as `sha256:${string}`;
-    const committedCandidateProjectionRefreshRequired = workSelectionProjectionMode === 'required-v1'
+    const committedCandidateProjectionRefreshRequired = workSelectionProjectionMode === 'required'
       && committedCandidateReplanAuthority !== undefined
       && targetManifest.id === immutableRolling.activePackageId
-      && CodexDevelopmentRequiresCommittedCandidateProjectionRefresh({
-        projection: CodexDevelopmentParseRollingMachineProjection(immutableRollingPlanSource),
+      && RequiresCommittedCandidateProjectionRefresh({
+        projection: ParseRollingMachineProjection(immutableRollingPlanSource),
         exactMain: localDefaultSha,
         exactMainTree: baseTreeSha,
         active: {
@@ -5652,11 +5652,11 @@ async function freezeDocumentControlPlaneWithSession(
     // This delta is projection-freshness input, not Work Package scope authority.
     // A non-projection path forces a new digest-bound projection; the Work Package
     // Gate independently owns whether that candidate path is permitted at all.
-    let workSelectionProjection: CodexDevelopmentWorkSelectionProjection | undefined;
-    let mainHealthRepairProjection: CodexDevelopmentMainHealthRepairProjection | undefined;
+    let workSelectionProjection: WorkSelectionProjection | undefined;
+    let mainHealthRepairProjection: MainHealthRepairProjection | undefined;
     if (targetManifest.id !== immutableRolling.activePackageId
         && input.proposalOnly !== true
-        && workSelectionProjectionMode === 'required-v1') {
+        && workSelectionProjectionMode === 'required') {
       const candidateBranch = requireCommand(
         await run('git', ['branch', '--show-current'], repositoryRoot),
         'WorkDecision candidate branch'
@@ -5733,7 +5733,7 @@ async function freezeDocumentControlPlaneWithSession(
         workSelectionProjection = Object.freeze({ receipt: selection.receipt });
       }
     }
-    const projection = CodexDevelopmentCreateFreezeProjection({
+    const projection = CreateFreezeProjection({
       spec,
       currentPointerSource: immutablePointerSource,
       currentRollingPlanSource: immutableRollingPlanSource,
@@ -5747,7 +5747,7 @@ async function freezeDocumentControlPlaneWithSession(
             defaultManifestBytes: immutableCurrentDefaultManifestBlob!
           }
         : undefined,
-      committedCandidateReplanProjection: workSelectionProjectionMode === 'required-v1'
+      committedCandidateReplanProjection: workSelectionProjectionMode === 'required'
         && committedCandidateReplanAuthority !== undefined
         && targetManifest.id === immutableRolling.activePackageId
         && (
@@ -5864,7 +5864,7 @@ async function freezeDocumentControlPlaneWithSession(
       indexNext: Buffer
     ): Readonly<{
       journal: FreezeJournal;
-      result: CodexDevelopmentFreezeResult;
+      result: FreezeResult;
     }> => {
       const indexTransport = Object.freeze({ pre: toBase64(indexPre), next: toBase64(indexNext) });
       const semantic = Object.freeze({
@@ -5893,7 +5893,7 @@ async function freezeDocumentControlPlaneWithSession(
         indexTransportDigest: freezeIndexTransportDigest(indexTransport)
       });
       const operationId = freezeOperationId(semantic);
-      const result: CodexDevelopmentFreezeResult = Object.freeze({
+      const result: FreezeResult = Object.freeze({
         schema: projection.authoringDisposition === 'proposal-only'
           ? FreezeResultSchema
           : LegacyFreezeResultSchema,
@@ -5922,7 +5922,7 @@ async function freezeDocumentControlPlaneWithSession(
     };
     const retirementSatisfied = projection.retiredManifestPath === null
       || !snapshot.indexPaths.includes(projection.retiredManifestPath);
-    const convergence = CodexDevelopmentClassifyFreezeConvergence({
+    const convergence = ClassifyFreezeConvergence({
       targetManifestMatches: indexedTargetManifest !== undefined
         && indexedTargetManifest.equals(manifestBytes),
       pointerMatches: pointerPre.equals(pointerNext),
@@ -5967,7 +5967,7 @@ async function freezeDocumentControlPlaneWithSession(
         : [projection.retiredManifestPath]
     });
     const operation = createFreezeOperation(built.treeSha, built.bytes);
-    const builtConvergence = CodexDevelopmentClassifyFreezeConvergence({
+    const builtConvergence = ClassifyFreezeConvergence({
       candidateTreeMatches: built.treeSha === snapshot.treeSha,
       targetManifestMatches: true,
       pointerMatches: pointerWorktree.equals(pointerNext),
@@ -6041,7 +6041,7 @@ async function freezeDocumentControlPlaneWithSession(
  */
 export async function freezeDocumentControlPlane(
   input: FreezeDocumentControlPlaneInput
-): Promise<CodexDevelopmentFreezeResult> {
+): Promise<FreezeResult> {
   if (documentControlGitReadScope.getStore() !== undefined) {
     return freezeDocumentControlPlaneWithSession(input);
   }
@@ -6059,7 +6059,7 @@ export async function freezeDocumentControlPlane(
       () => freezeDocumentControlPlaneWithSession(input)
     )));
   } catch (error) {
-    if (error instanceof CodexDevelopmentDocumentControlCliAdmissionError) throw error;
+    if (error instanceof DocumentControlCliAdmissionError) throw error;
     if (error instanceof GitReadAuthorityError) {
       throw documentControlCliFailure(
         'git',
@@ -6079,7 +6079,7 @@ async function afterPriorTerminalFreezeRetirement<T>(
   try {
     return await run();
   } catch (error) {
-    if (!(error instanceof CodexDevelopmentPriorFreezeOperationRetiredError)) throw error;
+    if (!(error instanceof PriorFreezeOperationRetiredError)) throw error;
     const remainingJournal = await readFreezeJournalSnapshot(error.repositoryRoot);
     if (remainingJournal !== null) {
       throw new Error(`Prior freeze ${error.priorOperationId} reported retirement but a journal remains.`);
@@ -6264,7 +6264,7 @@ async function resolveActivationBlockedStatus(input: {
   terminal?: boolean;
 }): Promise<Record<string, unknown>> {
   const stateSource = await readFile(path.join(input.repositoryRoot, CurrentStatePath), 'utf8');
-  const spec = CodexDevelopmentParseCurrentStateSpec(stateSource);
+  const spec = ParseCurrentStateSpec(stateSource);
   const localDefaultShaResult = await input.resolverGit.run(
     ['rev-parse', '--verify', spec.resolver.defaultRef],
     input.repositoryRoot
@@ -6277,7 +6277,7 @@ async function resolveActivationBlockedStatus(input: {
     defaultBranch: spec.resolver.defaultBranch,
     resolverGit: input.resolverGit
   });
-  const defaultRefState: CodexDevelopmentDefaultRefState = localDefaultSha === undefined || liveDefaultSha === undefined
+  const defaultRefState: DefaultRefState = localDefaultSha === undefined || liveDefaultSha === undefined
     ? 'unavailable'
     : localDefaultSha === liveDefaultSha ? 'fresh' : 'stale';
   const headSha = requireCommand(
@@ -6394,7 +6394,7 @@ export async function resolveLiveControlPlane(
       () => resolveLiveControlPlaneWithGitReadSession(cwd, options)
     ));
   } catch (error) {
-    if (error instanceof CodexDevelopmentDocumentControlCliAdmissionError) throw error;
+    if (error instanceof DocumentControlCliAdmissionError) throw error;
     if (error instanceof GitReadAuthorityError) {
       throw documentControlCliFailure(
         'git',
@@ -6534,18 +6534,18 @@ async function resolveLiveControlPlaneWithGitReadSession(
     throw error;
   }
   await options.afterIndexSnapshot?.();
-  const spec = CodexDevelopmentParseCurrentStateSpec(snapshot.stateSource);
-  const pointer = CodexDevelopmentParseActivePointer(snapshot.pointerSource);
-  const rollingPlan = CodexDevelopmentParseRollingPlan(snapshot.rollingPlanSource);
-  const rollingMachine = CodexDevelopmentParseRollingMachineProjection(snapshot.rollingPlanSource);
+  const spec = ParseCurrentStateSpec(snapshot.stateSource);
+  const pointer = ParseActivePointer(snapshot.pointerSource);
+  const rollingPlan = ParseRollingPlan(snapshot.rollingPlanSource);
+  const rollingMachine = ParseRollingMachineProjection(snapshot.rollingPlanSource);
   const rollingManifestBinding = rollingMachine === null
     ? null
     : projectWorkRollingExactManifestBinding(rollingMachine);
-  CodexDevelopmentAssertControlPlaneBinding({ spec, pointer });
+  AssertControlPlaneBinding({ spec, pointer });
   if (rollingPlan.activePackageId !== path.posix.basename(pointer.manifest, '.md')) {
     throw new Error('Immutable index pointer and rolling plan select different Work Packages.');
   }
-  if (CodexDevelopmentResolveWorkSelectionProjectionMode(spec) === 'required-v1'
+  if (ResolveWorkSelectionProjectionMode(spec) === 'required'
       && rollingMachine === null) {
     throw new Error('Required rolling projection is absent.');
   }
@@ -6567,7 +6567,7 @@ async function resolveLiveControlPlaneWithGitReadSession(
     defaultBranch: spec.resolver.defaultBranch,
     resolverGit
   });
-  const defaultRefState: CodexDevelopmentDefaultRefState = (
+  const defaultRefState: DefaultRefState = (
     localDefaultSha === undefined || liveDefaultSha === undefined
       ? 'unavailable'
       : localDefaultSha === liveDefaultSha
@@ -6579,8 +6579,8 @@ async function resolveLiveControlPlaneWithGitReadSession(
   const defaultManifestBlob = defaultRefState === 'fresh'
     ? await resolverGit.readBlob(repositoryRoot, `${localDefaultSha}:${pointer.manifest}`) ?? null
     : null;
-  const activeWorkPackage: CodexDevelopmentActiveWorkPackageResolution =
-    CodexDevelopmentResolveActiveWorkPackage({
+  const activeWorkPackage: ActiveWorkPackageResolution =
+    ResolveActiveWorkPackage({
       pointer,
       candidateManifestBlob,
       defaultManifestBlob,
@@ -6616,7 +6616,7 @@ async function resolveLiveControlPlaneWithGitReadSession(
       && rollingMachine !== null
       && localDefaultSha !== undefined
       && mainTree !== undefined) {
-    CodexDevelopmentAssertRollingMachineBaseBinding({
+    AssertRollingMachineBaseBinding({
       projection: rollingMachine,
       exactMain: localDefaultSha,
       exactMainTree: mainTree
@@ -6821,9 +6821,9 @@ export async function runDocumentControlPlaneCli(): Promise<void> {
       ? resolved
       : projectDocumentControlPlaneStatusCli(resolved);
     process.stdout.write(`${JSON.stringify(output, null, 2)}\n`);
-    const repository = resolved.repository as { defaultRefState: CodexDevelopmentDefaultRefState };
+    const repository = resolved.repository as { defaultRefState: DefaultRefState };
     const github = resolved.github as { status: string };
-    const active = resolved.activeWorkPackage as CodexDevelopmentActiveWorkPackageResolution;
+    const active = resolved.activeWorkPackage as ActiveWorkPackageResolution;
     if (
       repository.defaultRefState !== 'fresh'
       || github.status !== 'resolved'
@@ -6880,7 +6880,7 @@ export async function runDocumentControlPlaneCli(): Promise<void> {
         requireCommand(await run('git', ['rev-parse', 'HEAD'], executionRoot), 'Document-control execution HEAD'),
         'Document-control execution HEAD'
       );
-      const executionSpec = CodexDevelopmentParseCurrentStateSpec(decodeUtf8(await requireGitBlob(
+      const executionSpec = ParseCurrentStateSpec(decodeUtf8(await requireGitBlob(
         executionRoot,
         `${executionHead}:${CurrentStatePath}`,
         'Document-control execution current-state authority'

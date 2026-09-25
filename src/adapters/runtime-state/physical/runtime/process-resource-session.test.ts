@@ -10,7 +10,7 @@ import {
   type OperationResourceCeiling
 } from '../../../../execution/operation/requirement-binding-context.ts';
 import {
-  bindSecSemanticOperation,
+  bindSemanticOperation,
   compileCapabilityBinding,
   compileSemanticOperationPlan,
   issueSemanticOperationAttemptContext,
@@ -83,7 +83,7 @@ function boundOperation(input: Readonly<{
       )
     })
   });
-  return bindSecSemanticOperation(plan, [compileCapabilityBinding({
+  return bindSemanticOperation(plan, [compileCapabilityBinding({
     requirementId: plan.execution.requirements[0]!.id,
     contractDigest: plan.execution.requirements[0]!.contractDigest,
     providerIdentityDigest: digest(input.providerLabel ?? 'process-native-test-provider')

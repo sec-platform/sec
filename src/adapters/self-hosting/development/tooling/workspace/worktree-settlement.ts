@@ -2,7 +2,7 @@ import path from 'node:path';
 
 import { sha256 } from '../../../../../contracts/canonical.ts';
 import {
-  bindSecSemanticOperation,
+  bindSemanticOperation,
   compileCapabilityBinding,
   compileSemanticOperationPlan,
   issueSemanticOperationAttemptContext,
@@ -125,7 +125,7 @@ function compileWorktreeSettlementOperation(
     }]
   });
   return Object.freeze({
-    operation: bindSecSemanticOperation(plan, [compileCapabilityBinding({
+    operation: bindSemanticOperation(plan, [compileCapabilityBinding({
       requirementId: WORKTREE_SETTLEMENT_REQUIREMENT,
       contractDigest,
       providerIdentityDigest

@@ -1,7 +1,7 @@
 /** Canonical VerificationSession V2 operator reducer and trusted runtime guards. */
 
-import { createHash } from 'node:crypto';
 
+import { rawSha256Hex } from '../../../../../contracts/canonical.ts';
 import { CI_VERIFICATION_CONTRACT_REVISION, CI_VERIFICATION_WORKFLOW_PATH } from '../../../../../assurance/verification/contract/revision.ts';
 import type { GitHubCheckObservation } from '../../../../providers/github-api/contract.ts';
 import {
@@ -36,7 +36,7 @@ import {
   type TrustedRuntimeMergeGateProvenance
 } from '../../../../self-hosting/control/integration/merge-gate.ts';
 import {
-  SEC_INTEGRATION_PLATFORM_POLICY_DIGEST
+  INTEGRATION_PLATFORM_POLICY_DIGEST
 } from '../../../../self-hosting/control/integration/platform-policy.ts';
 import {
   createMainHealthLedger,
@@ -58,7 +58,7 @@ import { encodeVerificationActionData, type VerificationActionInputRef } from '.
 import { buildCiVerificationActionPlanClosure, CI_VERIFICATION_HOSTED_EXECUTION_ENVIRONMENT, ciVerificationGateStep, parseCiVerificationActionPlanClosure, type CiVerificationActionPlanClosure, type CiVerificationExecutionEnvironment } from '../../action/contract/ci.ts';
 import { CI_VERIFICATION_ACTION_DEPENDENCY_INPUT_PATHS } from '../../action/contract/environment.ts';
 import { CI_GITHUB_ACTIONS_IDENTITY_POLICY } from '../../action/contract/provider.ts';
-import { assertReviewStabilityReceiptCurrent, createReviewStabilityReceipt, REVIEW_OBSERVER_PRODUCER_IDENTITY, SEC_REVIEW_STABILITY_POLICY, type ReviewStabilityReceipt } from '../../review/contract/stability.ts';
+import { assertReviewStabilityReceiptCurrent, createReviewStabilityReceipt, REVIEW_OBSERVER_PRODUCER_IDENTITY, REVIEW_STABILITY_POLICY, type ReviewStabilityReceipt } from '../../review/contract/stability.ts';
 import { createVerificationSession, createVerificationSessionProposalDigest, createVerificationSessionRevision, parseVerificationSession, type VerificationSession, type VerificationSessionInput } from '../../session/contract/session.ts';
 import type { TestImpactSourceProvider } from '../../test-impact/runtime/impact.ts';
 import { AssertTestImpactTransitionSelection, type TestImpactTransitionObservation } from '../../test-impact/runtime/transition.ts';
@@ -142,13 +142,13 @@ export const VERIFICATION_SESSION_HOSTED_ENVELOPE_SCHEMA =
 type Digest = `sha256:${string}`;
 
 function hash(value: unknown): Digest {
-  return `sha256:${createHash('sha256').update(encodeVerificationActionData(value)).digest('hex')}`;
+  return `sha256:${rawSha256Hex(encodeVerificationActionData(value))}`;
 }
 
-const SEC_EVIDENCE_REQUIREMENT_DIGEST = hash(Object.freeze({
+const EVIDENCE_REQUIREMENT_DIGEST = hash(Object.freeze({
   schema: 'sec-verification-evidence-requirement-v4', terminalStatus: 'passed', exactActionClosure: true
 }));
-const SEC_SCOPE_ISSUER_IDENTITY = 'src/adapters/verification/platform/ci/runtime/verification-session.ts@scope-issuer-v1' as const;
+const SCOPE_ISSUER_IDENTITY = 'src/adapters/verification/platform/ci/runtime/verification-session.ts@scope-issuer-v1' as const;
 
 export type VerificationSessionActionDependencyBlobObservation = Readonly<{
   path: (typeof CI_VERIFICATION_ACTION_DEPENDENCY_INPUT_PATHS)[number];
@@ -191,7 +191,7 @@ function createVerificationSessionActionDependencyRequiredBlobs(
     }
     return Object.freeze({
       path: dependencyPath,
-      digest: `sha256:${createHash('sha256').update(candidateBytes).digest('hex')}` as Digest
+      digest: `sha256:${rawSha256Hex(candidateBytes)}` as Digest
     });
   }));
 }
@@ -269,7 +269,7 @@ export function reconstructVerificationSessionHostedFacts(input: {
     principalId: input.producerPrincipalNodeId,
     role: 'trusted-base-a0' as const,
     trustRevision: request.expectedBaseSha,
-    producerIdentity: SEC_SCOPE_ISSUER_IDENTITY
+    producerIdentity: SCOPE_ISSUER_IDENTITY
   });
   const proposalDigest = createVerificationSessionScopeProposalDigest({
     repository: input.repository, prNumber: request.prNumber,
@@ -335,8 +335,8 @@ export function reconstructVerificationSessionHostedFacts(input: {
     manifestPath: request.manifestPath, manifestDigest: request.manifestDigest,
     sessionProposalDigest, scopeAuthorizationRevision, actionPlanClosureDigest: actionPlanClosure.actionPlanDigest,
     profile: request.profile, environmentDigest, trustRevision: request.expectedBaseSha,
-    reviewPolicyDigest: request.reviewPolicyDigest, evidenceRequirementDigest: SEC_EVIDENCE_REQUIREMENT_DIGEST,
-    integrationPolicyDigest: SEC_INTEGRATION_PLATFORM_POLICY_DIGEST,
+    reviewPolicyDigest: request.reviewPolicyDigest, evidenceRequirementDigest: EVIDENCE_REQUIREMENT_DIGEST,
+    integrationPolicyDigest: INTEGRATION_PLATFORM_POLICY_DIGEST,
     mainHealthRef: { mainSha: request.expectedBaseSha, mainTreeSha: request.expectedBaseTreeSha, healthRevision: mainHealth.healthRevision }
   });
   if (sessionRevision !== request.expectedSessionRevision) {
@@ -350,8 +350,8 @@ export function reconstructVerificationSessionHostedFacts(input: {
     scopeIssuedAt: input.observedAt, scopeExpiresAt: new Date(new Date(input.observedAt).getTime() + 600_000).toISOString(),
     environmentDigest, actionPlanClosure, testImpactTransitionDigest: transition.digest,
     mainHealth: mainHealthInput,
-    evidenceRequirementDigest: SEC_EVIDENCE_REQUIREMENT_DIGEST,
-    integrationPolicyDigest: SEC_INTEGRATION_PLATFORM_POLICY_DIGEST,
+    evidenceRequirementDigest: EVIDENCE_REQUIREMENT_DIGEST,
+    integrationPolicyDigest: INTEGRATION_PLATFORM_POLICY_DIGEST,
     reviewBarrier: input.reviewBarrier,
     reviewExpiresAt: new Date(new Date(input.observedAt).getTime() + 300_000).toISOString(),
     integrationPrincipalNodeId: input.integrationPrincipalNodeId
@@ -423,7 +423,7 @@ export interface TrustedIntegrationAuthorizationArtifact {
   artifactId: string;
   artifactName: string;
   canonicalByteDigest: Digest;
-  workflowPath: '.github/workflows/sec-merge-gate.yml';
+  workflowPath: '.github/workflows/merge-gate.yml';
   workflowRef: string;
   workflowSha: string;
   runId: string;
@@ -489,7 +489,7 @@ export function createTrustedRuntimeArtifactObservationFromDurableFile(input: {
   }
   return createTrustedRuntimeArtifactObservation({
     artifactFileName: 'verification-session-artifact.json',
-    artifactByteDigest: `sha256:${createHash('sha256').update(canonicalBytes).digest('hex')}`,
+    artifactByteDigest: `sha256:${rawSha256Hex(canonicalBytes)}`,
     artifactByteLength: Buffer.byteLength(canonicalBytes, 'utf8'),
     runtimeRef: `${MergeGateProducerIdentity}@${input.runtimeSha}`,
     runtimeSha: input.runtimeSha,
@@ -544,7 +544,7 @@ export function createHostedArtifactObservation(input: {
   if (input.artifactText !== canonicalBytes) throw new Error('Downloaded hosted artifact bytes are not canonical or do not match the parsed artifact.');
   return CreateHostedArtifactObservation({ artifactId: input.observation.artifactId,
     artifactName: input.observation.artifactName, artifactFileName: 'verification-session-artifact.json',
-    artifactByteDigest: `sha256:${createHash('sha256').update(canonicalBytes).digest('hex')}`,
+    artifactByteDigest: `sha256:${rawSha256Hex(canonicalBytes)}`,
     artifactByteLength: Buffer.byteLength(canonicalBytes, 'utf8'), artifactExpired: false,
     workflowPath: input.observation.workflowPath as '.github/workflows/compiler-pr-validation.yml',
     workflowRef: input.observation.workflowRef, workflowSha: input.observation.workflowSha,
@@ -559,13 +559,13 @@ export function createTrustedIntegrationAuthorizationArtifact(input: {
   observation: GitHubActionsArtifactObservation;
 }): TrustedIntegrationAuthorizationArtifact {
   const result = ParseMergeGateResult(input.resultJson);
-  if (input.observation.workflowPath !== '.github/workflows/sec-merge-gate.yml'
+  if (input.observation.workflowPath !== '.github/workflows/merge-gate.yml'
     || input.observation.eventName !== 'workflow_run') {
     throw new Error('Integration authorization artifact is not bound to the completed-source workflow.');
   }
   return Object.freeze({ resultJson: input.resultJson, artifactId: input.observation.artifactId,
     artifactName: input.observation.artifactName, canonicalByteDigest: hash(result),
-    workflowPath: input.observation.workflowPath as '.github/workflows/sec-merge-gate.yml',
+    workflowPath: input.observation.workflowPath as '.github/workflows/merge-gate.yml',
     workflowRef: input.observation.workflowRef, workflowSha: input.observation.workflowSha,
     runId: input.observation.runId, runAttempt: input.observation.runAttempt,
     eventName: input.observation.eventName as 'workflow_run', actorNodeId: input.observation.actorNodeId,
@@ -675,7 +675,7 @@ function outcome(
 /**
  * Proves an exact trusted-default revision checkout. Hosted jobs intentionally
  * use detached HEAD when actions/checkout receives an exact SHA; local
- * main-authority operations use assertTrustedMainRuntimeV1 instead.
+ * main-authority operations use assertTrustedMainRuntime instead.
  */
 export function assertTrustedExactRevisionRuntime(
   proof: TrustedRuntimeProof,
@@ -810,7 +810,7 @@ export function prepareTrustedMainVerificationSession(input: {
     toolchainRevision: executionEnvironment.toolchainRevision, providerRevision,
     contractRevision: CI_VERIFICATION_CONTRACT_REVISION, trustRevision: candidate.baseSha }));
   const issuerSemantic = Object.freeze({ principalId: input.producerPrincipalNodeId, role: 'trusted-base-a0' as const,
-    trustRevision: candidate.baseSha, producerIdentity: SEC_SCOPE_ISSUER_IDENTITY });
+    trustRevision: candidate.baseSha, producerIdentity: SCOPE_ISSUER_IDENTITY });
   const proposalDigest = createVerificationSessionScopeProposalDigest({ repository: input.repository,
     prNumber: candidate.number, baseSha: candidate.baseSha, baseTreeSha: candidate.baseTreeSha,
     headSha: candidate.headSha, headTreeSha: candidate.headTreeSha, manifestPath: input.manifestPath,
@@ -841,7 +841,7 @@ export function prepareTrustedMainVerificationSession(input: {
     manifestDigest: input.manifestDigest, testImpactTransitionDigest: transition.digest,
     scopeProposalDigest: proposalDigest,
     actionPlanClosureDigest: actionPlan.actionPlanDigest, profile: input.profile, environmentDigest,
-    trustRevision: candidate.baseSha, reviewPolicyDigest: SEC_REVIEW_STABILITY_POLICY.policyDigest,
+    trustRevision: candidate.baseSha, reviewPolicyDigest: REVIEW_STABILITY_POLICY.policyDigest,
     mainHealthPolicyDigest: CI_MAIN_HEALTH_POLICY_DIGEST });
   const mainHealthInput = input.mainHealthInput ?? createObservedMainHealthInput({
     repository: input.repository, mainSha: candidate.baseSha,
@@ -855,16 +855,16 @@ export function prepareTrustedMainVerificationSession(input: {
     headTreeSha: candidate.headTreeSha, manifestPath: input.manifestPath, manifestDigest: input.manifestDigest,
     sessionProposalDigest, scopeAuthorizationRevision: scopeRevision, actionPlanClosureDigest: actionPlan.actionPlanDigest,
     profile: input.profile, environmentDigest, trustRevision: candidate.baseSha,
-    reviewPolicyDigest: SEC_REVIEW_STABILITY_POLICY.policyDigest,
-    evidenceRequirementDigest: SEC_EVIDENCE_REQUIREMENT_DIGEST,
-    integrationPolicyDigest: SEC_INTEGRATION_PLATFORM_POLICY_DIGEST,
+    reviewPolicyDigest: REVIEW_STABILITY_POLICY.policyDigest,
+    evidenceRequirementDigest: EVIDENCE_REQUIREMENT_DIGEST,
+    integrationPolicyDigest: INTEGRATION_PLATFORM_POLICY_DIGEST,
     mainHealthRef: { mainSha: candidate.baseSha, mainTreeSha: candidate.baseTreeSha, healthRevision: mainHealth.healthRevision } });
   const semanticRequest = Object.freeze({ schema: CI_VERIFICATION_SESSION_REQUEST_SCHEMA,
     prNumber: candidate.number, expectedBaseSha: candidate.baseSha, expectedBaseTreeSha: candidate.baseTreeSha,
     expectedHeadSha: candidate.headSha, expectedHeadTreeSha: candidate.headTreeSha, manifestPath: input.manifestPath,
     manifestDigest: input.manifestDigest, profile: input.profile, expectedScopeProposalDigest: proposalDigest,
     expectedActionPlanDigest: actionPlan.actionPlanDigest, expectedSessionRevision: sessionRevision,
-    reviewPolicyDigest: SEC_REVIEW_STABILITY_POLICY.policyDigest });
+    reviewPolicyDigest: REVIEW_STABILITY_POLICY.policyDigest });
   const requestOperationId = createVerificationSessionOperationId({ sessionRevision, operationKind: 'hosted-dispatch',
     semanticInputDigest: hash(semanticRequest) });
   const request = Object.freeze({ ...semanticRequest, requestOperationId });
@@ -889,8 +889,8 @@ export function prepareTrustedMainVerificationSession(input: {
         actionPlanClosure: actionPlan,
         testImpactTransitionDigest: transition.digest,
         mainHealth: mainHealthInput,
-        evidenceRequirementDigest: SEC_EVIDENCE_REQUIREMENT_DIGEST,
-        integrationPolicyDigest: SEC_INTEGRATION_PLATFORM_POLICY_DIGEST,
+        evidenceRequirementDigest: EVIDENCE_REQUIREMENT_DIGEST,
+        integrationPolicyDigest: INTEGRATION_PLATFORM_POLICY_DIGEST,
         reviewBarrier: input.reviewBarrier,
         reviewExpiresAt: new Date(new Date(input.observedAt).getTime() + 300_000).toISOString(),
         integrationPrincipalNodeId: input.integrationPrincipalNodeId
@@ -1025,7 +1025,7 @@ export function createVerificationSessionReviewReceipt(input: {
     scopeAuthorizationReceiptDigest: input.scope.authorizationDigest,
     headSha: input.session.headSha,
     headTreeSha: input.session.headTreeSha,
-    policy: SEC_REVIEW_STABILITY_POLICY,
+    policy: REVIEW_STABILITY_POLICY,
     principal: input.barrier.principal,
     independence: {
       candidateAuthorNodeId: input.candidateAuthorNodeId,
@@ -1037,7 +1037,7 @@ export function createVerificationSessionReviewReceipt(input: {
       providerIdentity: input.barrier.authority.providerIdentity,
       candidateWriteCapability: input.barrier.authority.candidateWriteCapability,
       capabilityReceiptDigest: input.barrier.authority.capabilityReceiptDigest,
-      trustedRevision: SEC_REVIEW_STABILITY_POLICY.trustedRevision,
+      trustedRevision: REVIEW_STABILITY_POLICY.trustedRevision,
       sourceTransport: input.barrier.authority.sourceTransport,
       sourceRunId: input.producerSourceRunId ?? input.operationId,
       sourceRef: input.producerSourceRef ?? `github://${input.session.repository}/pull/${input.session.prNumber}@${input.session.headSha}`,
@@ -1050,7 +1050,7 @@ export function createVerificationSessionReviewReceipt(input: {
   return receipt;
 }
 
-export { SEC_VERIFICATION_SESSION_IMPLEMENTATION_IDENTITY } from '../../session/contract/session.ts';
+export { VERIFICATION_SESSION_IMPLEMENTATION_IDENTITY } from '../../session/contract/session.ts';
 
 function createVerificationSessionHostedRequest(input: {
   session: VerificationSession;
@@ -1153,10 +1153,10 @@ export function prepareVerificationSessionHosted(input: {
   if (candidate.state !== 'OPEN' || candidate.isDraft || candidate.isCrossRepository) {
     throw new Error('prepare-hosted requires one open same-repository non-draft candidate.');
   }
-  if (request.reviewPolicyDigest !== SEC_REVIEW_STABILITY_POLICY.policyDigest) {
+  if (request.reviewPolicyDigest !== REVIEW_STABILITY_POLICY.policyDigest) {
     throw new Error('prepare-hosted review policy is not canonical.');
   }
-  if (facts.integrationPolicyDigest !== SEC_INTEGRATION_PLATFORM_POLICY_DIGEST) {
+  if (facts.integrationPolicyDigest !== INTEGRATION_PLATFORM_POLICY_DIGEST) {
     throw new Error('prepare-hosted integration policy is not canonical.');
   }
   const reconstructedScopeProposalDigest = createVerificationSessionScopeProposalDigest({
@@ -1221,7 +1221,7 @@ export function prepareVerificationSessionHosted(input: {
     profile: request.profile,
     environmentDigest: facts.environmentDigest,
     trustRevision: request.expectedBaseSha,
-    reviewPolicyDigest: SEC_REVIEW_STABILITY_POLICY.policyDigest,
+    reviewPolicyDigest: REVIEW_STABILITY_POLICY.policyDigest,
     evidenceRequirementDigest: facts.evidenceRequirementDigest,
     integrationPolicyDigest: facts.integrationPolicyDigest,
     mainHealthRef: {
@@ -1465,11 +1465,11 @@ function verifyIntegrationArtifact(input: {
     || artifact.actorPermission !== 'none'
     || artifact.downloadTransport !== 'github-actions-artifact-api')
     || provenance.workflowSha !== session.trustRevision
-    || provenance.workflowRef !== `.github/workflows/sec-merge-gate.yml@${session.trustRevision}`
+    || provenance.workflowRef !== `.github/workflows/merge-gate.yml@${session.trustRevision}`
     || authorization.issuer.producerIdentity !== MergeGateProducerIdentity
     || authorization.issuer.sourceTransport !== 'github-actions'
     || authorization.issuer.trustedRevision !== session.trustRevision
-    || authorization.issuer.sourceRef !== `.github/workflows/sec-merge-gate.yml@${session.trustRevision}`
+    || authorization.issuer.sourceRef !== `.github/workflows/merge-gate.yml@${session.trustRevision}`
     || authorization.issuer.sourceDigest !== provenance.sourceDigest
   ) {
     throw new Error('IntegrationAuthorization trusted workflow/artifact provenance mismatch.');
@@ -1599,7 +1599,7 @@ export function resumeVerificationSession(input: {
     reason: 'hosted artifact disappeared', receiptDigest: null, completedStage: journal.completedStage });
   assertArtifactProvenance(hosted.artifact, hosted.provenance, session);
 
-  if (session.integrationPolicyDigest !== SEC_INTEGRATION_PLATFORM_POLICY_DIGEST) {
+  if (session.integrationPolicyDigest !== INTEGRATION_PLATFORM_POLICY_DIGEST) {
     throw new Error('Session integration platform policy is not the canonical no-admin policy.');
   }
   const integrationSource = input.external.integrationAuthorizationArtifact();

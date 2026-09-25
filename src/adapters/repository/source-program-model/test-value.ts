@@ -1,5 +1,5 @@
 import { compareCodeUnits, sha256 } from '../../../contracts/canonical.ts';
-import { isSecRepositoryTestModulePath } from '../../../contracts/repository-test-path.ts';
+import { isRepositoryTestModulePath } from '../../../contracts/repository-test-path.ts';
 import {
   resolveSourceProgramCompilationOperation,
   sourceProgramCompilationCheckpoint,
@@ -12,14 +12,14 @@ import type {
   SourceProgramSupersessionReceipt
 } from './contract.ts';
 import {
-  observeSourceProgramTestContractCensus,
-  SOURCE_PROGRAM_TEST_CONTRACT_CENSUS_UNRESOLVED_REASONS,
-  sourceProgramTestObservationsForFiles,
-  type SourceProgramTestContractCensusUnresolvedReason,
-  type SourceProgramTestSemanticClass
+  observeTestContractCensus,
+  TEST_CONTRACT_CENSUS_UNRESOLVED_REASONS,
+  testObservationsForFiles,
+  type TestContractCensusUnresolvedReason,
+  type TestSemanticClass
 } from './test-observations.ts';
 
-export type { SourceProgramTestSemanticClass } from './test-observations.ts';
+export type { TestSemanticClass } from './test-observations.ts';
 
 export type SourceProgramTestFindingCode =
   | 'test-module-missing-from-worktree'
@@ -95,7 +95,7 @@ export interface SourceProgramTestBaselineEvidence {
   readonly path: string;
   readonly baselineRevision: string;
   readonly observationStatus: 'resolved' | 'unresolved';
-  readonly observationReason: SourceProgramTestContractCensusUnresolvedReason | null;
+  readonly observationReason: TestContractCensusUnresolvedReason | null;
   readonly observationDigest: string;
   readonly census: SourceProgramTestDispositionCensus;
 }
@@ -148,7 +148,7 @@ export interface SourceProgramTestRegistration {
   readonly kind: string;
   readonly title: string | null;
   readonly span: SourceProgramSpan;
-  readonly semanticClasses: readonly SourceProgramTestSemanticClass[];
+  readonly semanticClasses: readonly TestSemanticClass[];
   readonly observedProductionPaths: readonly string[];
   readonly capabilityOperations: readonly string[];
   readonly assertionCount: number;
@@ -284,7 +284,7 @@ function canonicalTestPath(value: unknown, field: string): string {
     return dispositionError(field, 'expected a non-empty test path');
   }
   const normalized = value.replaceAll('\\', '/');
-  if (normalized !== value || !isSecRepositoryTestModulePath(normalized)
+  if (normalized !== value || !isRepositoryTestModulePath(normalized)
       || normalized.includes('/../') || normalized.startsWith('../')
       || normalized.includes('/./') || normalized.endsWith('/.')) {
     return dispositionError(field, 'expected a canonical repository-relative test path');
@@ -348,8 +348,8 @@ function canonicalBaselineEvidence(
   }
   if (observationStatus === 'unresolved'
       && (typeof observationReason !== 'string'
-        || !SOURCE_PROGRAM_TEST_CONTRACT_CENSUS_UNRESOLVED_REASONS.includes(
-          observationReason as SourceProgramTestContractCensusUnresolvedReason
+        || !TEST_CONTRACT_CENSUS_UNRESOLVED_REASONS.includes(
+          observationReason as TestContractCensusUnresolvedReason
         ))) {
     return dispositionError(
       'baselineEvidence.observationReason',
@@ -366,7 +366,7 @@ function canonicalBaselineEvidence(
     path: pathValue,
     baselineRevision,
     observationStatus,
-    observationReason: observationReason as SourceProgramTestContractCensusUnresolvedReason | null,
+    observationReason: observationReason as TestContractCensusUnresolvedReason | null,
     observationDigest: requiredString(
       record, 'observationDigest', 'baselineEvidence', DIGEST
     ),
@@ -686,7 +686,7 @@ export function compileSourceProgramTestBaselineEvidence(
   const canonicalPaths = canonicalBaselinePaths(input.baselineTestPaths);
   const evidence = Object.freeze(canonicalPaths.map((repositoryPath) => {
     sourceProgramCompilationCheckpoint(operation, 'baseline-test-evidence');
-    const observation = observeSourceProgramTestContractCensus(
+    const observation = observeTestContractCensus(
       input.baselineModel,
       input.candidateModel,
       repositoryPath,
@@ -808,7 +808,7 @@ export function compileSourceProgramTestValue(
   const baselineTestPaths = canonicalBaselinePaths(input.baselineTestPaths ?? []);
   const baselineDigest = sourceProgramTestBaselineDigest(baselineTestPaths);
   const candidateTestPaths = new Set(input.files
-    .filter(({ path: filePath }) => isSecRepositoryTestModulePath(filePath))
+    .filter(({ path: filePath }) => isRepositoryTestModulePath(filePath))
     .map(({ path: filePath }) => filePath));
   const baselineEvidence = Object.freeze((input.baselineEvidence ?? [])
     .map((evidence) => canonicalBaselineEvidence(evidence, baselineTestPaths))
@@ -855,7 +855,7 @@ export function compileSourceProgramTestValue(
   }
   const records: SourceProgramTestRegistration[] = [];
   const findings: SourceProgramTestFinding[] = [];
-  const observations = sourceProgramTestObservationsForFiles(
+  const observations = testObservationsForFiles(
     input.files,
     input.model.sourceRevision
   );

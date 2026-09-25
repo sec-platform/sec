@@ -13,8 +13,8 @@ function independentRawSha256(value: string): `sha256:${string}` {
 import { createMainHealthRepairWorkPackagePath } from '../../src/adapters/self-hosting/control/main-health/contract.ts';
 import type { CurrentWorkLifecycle } from '../../src/adapters/self-hosting/control/work-selection/contract.ts';
 import {
-  SEC_ROADMAP_WORK_CATALOG_BEGIN,
-  SEC_ROADMAP_WORK_CATALOG_END,
+  ROADMAP_WORK_CATALOG_BEGIN,
+  ROADMAP_WORK_CATALOG_END,
   assertRoadmapTerminalCompactionCandidate,
   assertRoadmapTerminalCompactionDelta,
   assertWorkDecisionReceipt,
@@ -53,13 +53,13 @@ const exactMain = 'a'.repeat(40);
 const exactMainTree = 'b'.repeat(40);
 const roadmapSource = readFileSync('config/repository/work-selection.md', 'utf8');
 
-type CatalogObservationV1 = Readonly<{
+type CatalogObservation = Readonly<{
   source: string;
   roadmapRevision: ReturnType<typeof rawSha256>;
   catalog: RoadmapWorkCatalog;
 }>;
 
-function observeCatalog(source: string): CatalogObservationV1 {
+function observeCatalog(source: string): CatalogObservation {
   return Object.freeze({
     source,
     roadmapRevision: rawSha256(source),
@@ -83,7 +83,7 @@ function fixtureGitSha(root: string, ref: string): string {
   return runFixtureGit(root, ['rev-parse', ref]).toString('utf8').trim();
 }
 
-function transitionCatalog(): CatalogObservationV1 {
+function transitionCatalog(): CatalogObservation {
   const items = [
     {
       packageId: 'operation-read-plan-authority-canary-v1',
@@ -164,11 +164,11 @@ function transitionCatalog(): CatalogObservationV1 {
     }
   ];
   return observeCatalog(
-    `${SEC_ROADMAP_WORK_CATALOG_BEGIN}\n\`\`\`json\n${JSON.stringify({
+    `${ROADMAP_WORK_CATALOG_BEGIN}\n\`\`\`json\n${JSON.stringify({
       schema: 'sec-roadmap-work-catalog-v1',
       stageRef: 'fixture-work-selection-transition',
       items
-    }, null, 2)}\n\`\`\`\n${SEC_ROADMAP_WORK_CATALOG_END}`
+    }, null, 2)}\n\`\`\`\n${ROADMAP_WORK_CATALOG_END}`
   );
 }
 
@@ -219,7 +219,7 @@ function registry(
 }
 
 function receiptForCatalog(
-  observation: CatalogObservationV1,
+  observation: CatalogObservation,
   completedWorkIds: readonly string[] = [],
   current: CurrentWorkLifecycle = lifecycle()
 ) {
@@ -361,7 +361,7 @@ describe('work-selection live contract', () => {
     expect(new Set(catalog.items.map(({ packageId }) => packageId)).size)
       .toBe(catalog.items.length);
     expect(() => parseRoadmapWorkCatalog(
-      `${roadmapSource}\n${SEC_ROADMAP_WORK_CATALOG_BEGIN}`
+      `${roadmapSource}\n${ROADMAP_WORK_CATALOG_BEGIN}`
     )).toThrow(/exactly one ordered catalog marker pair/u);
     const first = catalog.items[0]!;
     const last = catalog.items.at(-1)!;

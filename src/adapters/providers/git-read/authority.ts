@@ -2,7 +2,7 @@ import path from 'node:path';
 import { sha256 } from '../../../contracts/canonical.ts';
 import { issueOperationRequirementBindingContext } from '../../../execution/operation/requirement-binding-context.ts';
 import {
-  bindSecSemanticOperation,
+  bindSemanticOperation,
   compileCapabilityBinding,
   compileSemanticOperationPlan,
   issueSemanticOperationAttemptContext,
@@ -102,7 +102,7 @@ export function issueGitReadAuthorityOperation(
       ]
     }]
   });
-  return bindSecSemanticOperation(plan, [compileCapabilityBinding({
+  return bindSemanticOperation(plan, [compileCapabilityBinding({
     requirementId: GIT_READ_AUTHORITY_REQUIREMENT,
     contractDigest: GIT_READ_AUTHORITY_CONTRACT_DIGEST,
     providerIdentityDigest: GIT_READ_AUTHORITY_PROVIDER_DIGEST

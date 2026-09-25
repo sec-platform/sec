@@ -5,7 +5,7 @@ import { rawSha256, sha256 } from '../../../../contracts/canonical.ts';
 import { failureMessage } from '../../../../contracts/failure-inspection.ts';
 import { issueOperationRequirementBindingContext } from '../../../../execution/operation/requirement-binding-context.ts';
 import {
-  bindSecSemanticOperation,
+  bindSemanticOperation,
   compileCapabilityBinding,
   compileSemanticOperationPlan,
   issueSemanticOperationAttemptContext,
@@ -252,7 +252,7 @@ function compileDevCommandOperation(input: Readonly<{
       ]
     }])]
   });
-  return bindSecSemanticOperation(plan, [compileCapabilityBinding({
+  return bindSemanticOperation(plan, [compileCapabilityBinding({
     requirementId: commandRequirementId,
     contractDigest: commandContractDigest,
     providerIdentityDigest: input.providerIdentityDigest

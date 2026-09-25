@@ -1,15 +1,15 @@
-import { createHash, randomBytes } from 'node:crypto';
+import { randomBytes } from 'node:crypto';
 import { lstatSync, renameSync } from 'node:fs';
 import path from 'node:path';
 
-import { sha256 } from '../../../../../contracts/canonical.ts';
+import { rawSha256Hex, sha256 } from '../../../../../contracts/canonical.ts';
 import {
-  bindSecSemanticOperation,
+  bindSemanticOperation,
   compileCapabilityBinding,
   compileProviderSettlementSet,
   compileSemanticOperationPlan,
   issueNormalDomainReadbackReceipt,
-  issueSecNormalOwnerTerminalJoinReceipt,
+  issueNormalOwnerTerminalJoinReceipt,
   issueSemanticOperationAttemptContext,
   type BoundSemanticOperation,
   type OperationDigest,
@@ -45,8 +45,8 @@ import {
   withGitHubApiRunnerAdminSession
 } from '../../../../providers/github-api/operation-session.ts';
 import {
-  SEC_LINUX_VERIFICATION_ENVIRONMENT_AUTHORITY,
-  SEC_LINUX_VERIFICATION_RUNNER_INPUT_DIGEST
+  LINUX_VERIFICATION_ENVIRONMENT_AUTHORITY,
+  LINUX_VERIFICATION_RUNNER_INPUT_DIGEST
 } from '../../../../providers/linux-verification/contract.ts';
 import {
   compileEnvironmentMaterializationPlan,
@@ -54,8 +54,8 @@ import {
 } from '../../../../providers/linux-verification/materialization.ts';
 import { acquirePhysicalMutationLease, type PhysicalMutationLeaseHandle, type PhysicalMutationLeaseOwner } from '../../../../runtime-state/physical/runtime/mutation-lease.ts';
 import { createNoFollowDirectoryChain, deleteRetainedNoFollowEntry, inspectExactNoFollowDirectoryPresence, inspectNoFollowDirectoryChain, inspectNoFollowDirectoryChild, inspectNoFollowOrdinaryFileDigest, inspectNoFollowOrdinaryFileEntry, publishExclusiveDurableCanonicalFile, readNoFollowOrdinaryFile, replaceDurableCanonicalFile, scanNoFollowDirectoryTreeMetadata, type PhysicalDirectoryIdentity } from '../../../../runtime-state/physical/runtime/physical-no-follow.ts';
-import { resolveSecWorkspaceRuntimeRoots } from '../../../../runtime-state/workspace-state/paths.ts';
-import { acquireSecRuntimeCachePhysicalAuthority } from '../../../../runtime-state/workspace-state/physical-authority.ts';
+import { resolveWorkspaceRuntimeRoots } from '../../../../runtime-state/workspace-state/paths.ts';
+import { acquireRuntimeCachePhysicalAuthority } from '../../../../runtime-state/workspace-state/physical-authority.ts';
 import {
   GIT_READ_OPERATION_BUDGET,
   gitReadText
@@ -68,7 +68,7 @@ export const LOCAL_GITHUB_ACTIONS_RUNNER_STATE_SCHEMA =
 // Keep its immutable lineage label independent from later state/ledger schema
 // revisions so a control-plane migration cannot invalidate byte-identical
 // cached Linux capacity or silently demand a mutable rebuild.
-const ENVIRONMENT = SEC_LINUX_VERIFICATION_ENVIRONMENT_AUTHORITY;
+const ENVIRONMENT = LINUX_VERIFICATION_ENVIRONMENT_AUTHORITY;
 const LOCAL_GITHUB_ACTIONS_RUNNER_IMAGE_SCHEMA = ENVIRONMENT.image.lineageSchema;
 const LOCAL_GITHUB_ACTIONS_RUNNER_VERSION = ENVIRONMENT.archives.runner.version;
 const LOCAL_GITHUB_ACTIONS_RUNNER_ARCHIVE_SHA256 =
@@ -99,7 +99,7 @@ const LOCAL_GITHUB_ACTIONS_RUNNER_EXPECTED_IMAGE_ID =
   ENVIRONMENT.image.dockerProjectionDigest;
 const LOCAL_GITHUB_ACTIONS_RUNNER_OCI_RUNTIME_MANIFEST_DIGEST =
   ENVIRONMENT.image.runtimeContentDigest;
-const LOCAL_GITHUB_ACTIONS_RUNNER_RETIRED_V7_IMAGE_ID =
+const LOCAL_GITHUB_ACTIONS_RUNNER_RETIRED_ARCHIVE_IMAGE_ID =
   (() => {
     const retirement = ENVIRONMENT.image.retirements.find(({ imageTag }) =>
       imageTag.endsWith('-archive-v7'));
@@ -201,7 +201,7 @@ function bindLocalContainerEngineOperation(input: LocalContainerEngineOperationI
       authorityGrantDigest: contractDigest
     })
   });
-  const operation = bindSecSemanticOperation(plan, [compileCapabilityBinding({
+  const operation = bindSemanticOperation(plan, [compileCapabilityBinding({
     requirementId: 'external.container-engine-process',
     contractDigest,
     providerIdentityDigest: input.providerIdentityDigest
@@ -281,7 +281,7 @@ async function openLocalContainerEngineSession(
             ? 'not-applied'
             : 'unknown'
       });
-      joinReceipt = issueSecNormalOwnerTerminalJoinReceipt(
+      joinReceipt = issueNormalOwnerTerminalJoinReceipt(
         operation,
         providerSettlementSet,
         readback,
@@ -836,7 +836,7 @@ export function createLocalGitHubActionsRunnerEnvironmentSpec() {
       {
         id: 'authority-input-closure',
         version: ENVIRONMENT.environmentId,
-        sourceDigest: SEC_LINUX_VERIFICATION_RUNNER_INPUT_DIGEST
+        sourceDigest: LINUX_VERIFICATION_RUNNER_INPUT_DIGEST
       },
       {
         id: 'base-image',
@@ -924,7 +924,7 @@ function createLocalGitHubActionsRunnerProjectionBuildxArgsForUri(
 export function createLocalGitHubActionsRunnerBuildInputProjection() {
   return Object.freeze({
     schema: 'sec-local-runner-build-input-projection-v1' as const,
-    authorityInputDigest: SEC_LINUX_VERIFICATION_RUNNER_INPUT_DIGEST,
+    authorityInputDigest: LINUX_VERIFICATION_RUNNER_INPUT_DIGEST,
     dockerfileSource: createLocalGitHubActionsRunnerDockerfile(),
     bakeRequest: createLocalGitHubActionsRunnerOciBakeRequest('<candidate-layout>'),
     projectionArgs: createLocalGitHubActionsRunnerProjectionBuildxArgsForUri('<layout>'),
@@ -1783,7 +1783,7 @@ export function assertLocalGitHubActionsRunnerReplacementImageIdentity(
   if (value.Id !== expectedImageId) fail('superseding frozen image identity differs from its decision');
   if (expectedImageId === LOCAL_GITHUB_ACTIONS_RUNNER_EXPECTED_IMAGE_ID) {
     assertLocalGitHubActionsRunnerImageIdentity(value);
-  } else if (expectedImageId !== LOCAL_GITHUB_ACTIONS_RUNNER_RETIRED_V7_IMAGE_ID) {
+  } else if (expectedImageId !== LOCAL_GITHUB_ACTIONS_RUNNER_RETIRED_ARCHIVE_IMAGE_ID) {
     fail('superseding frozen image identity has no canonical lineage');
   }
 }
@@ -2015,7 +2015,7 @@ function readOciJsonBlob(
   validateOciBlob(blobs, descriptor, label);
   const bytes = readNoFollowOrdinaryFile(blobs, descriptor.digest.slice(7));
   if (bytes === null || bytes.byteLength !== descriptor.size
-      || `sha256:${createHash('sha256').update(bytes).digest('hex')}` !== descriptor.digest) {
+      || `sha256:${rawSha256Hex(bytes)}` !== descriptor.digest) {
     fail(`${label} JSON blob identity changed during readback`);
   }
   const parsed = JSON.parse(Buffer.from(bytes).toString('utf8')) as unknown;
@@ -2140,12 +2140,12 @@ async function resolveRunnerOciCacheDirectory(cwd: string): Promise<Readonly<{
   specDigest: `sha256:${string}`;
 }>> {
   const context = await resolveRepositoryContext(cwd);
-  const roots = resolveSecWorkspaceRuntimeRoots({ repositoryRoot: context.repositoryRoot });
+  const roots = resolveWorkspaceRuntimeRoots({ repositoryRoot: context.repositoryRoot });
   const spec = createLocalGitHubActionsRunnerEnvironmentSpec();
   const directoryPath = path.join(
-    roots.cacheRoot, 'environment-materialization', 'oci', 'v1', spec.specDigest.slice(7)
+    roots.cacheRoot, 'environment-materialization', 'oci', 'entries', spec.specDigest.slice(7)
   );
-  const authority = acquireSecRuntimeCachePhysicalAuthority({
+  const authority = acquireRuntimeCachePhysicalAuthority({
     repositoryRoot: context.repositoryRoot,
     cacheRoot: roots.cacheRoot,
     requiredDirectories: [directoryPath]

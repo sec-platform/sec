@@ -4,10 +4,10 @@ import { rawSha256 } from '../../../contracts/canonical.ts';
 import { compileRepositoryModuleMembershipSnapshot } from '../architecture/contract.ts';
 import { compileSourceProgramDeclarationTopology } from './declaration-topology.ts';
 import { compileVirtualRepositorySourceProgramCompilation } from './repository-compilation.ts';
-import { compileVirtualWorkspaceSourceSnapshot } from './workspace-source-snapshot.ts';
+import { compileVirtualSnapshot } from './workspace-source-snapshot.ts';
 
 function compileFixture(sources: Readonly<Record<string, string>>) {
-  const descriptorPath = 'src/example/sec.module.json';
+  const descriptorPath = 'src/example/module.json';
   const files = Object.entries(sources).map(([repositoryPath, source]) => ({
     path: repositoryPath,
     source,
@@ -30,7 +30,7 @@ function compileFixture(sources: Readonly<Record<string, string>>) {
   const sourceRevision = rawSha256(JSON.stringify([...files].sort((left, right) => (
     left.path.localeCompare(right.path, 'en-US')
   ))));
-  const workspaceSnapshot = compileVirtualWorkspaceSourceSnapshot({
+  const workspaceSnapshot = compileVirtualSnapshot({
     subject: {
       kind: 'virtual-mutation',
       provenance: {
