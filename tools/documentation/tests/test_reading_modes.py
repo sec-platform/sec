@@ -6,7 +6,7 @@ from pathlib import Path
 from unittest.mock import patch
 sys.dont_write_bytecode=True
 import build_html as b
-from test_check_documentation_identity import declaration
+from .test_check_documentation_identity import declaration
 import check_design as d
 
 class Modes(unittest.TestCase):

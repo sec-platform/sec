@@ -268,9 +268,9 @@ export function resolveRepositoryHeuristicSkills(path: string): AgentSkillId[] {
     return skills('heuristic-governance', 'repository-audit', 'task-delegation');
   }
   if (path.startsWith('.documentation/')
-    || path === 'tools/check_docs.py'
-    || path === 'tools/check_design.py'
-    || path === 'tools/source_inventory.py'
+    || path === 'tools/documentation/check_docs.py'
+    || path === 'tools/documentation/check_design.py'
+    || path === 'tools/documentation/source_inventory.py'
     || path.startsWith('src/adapters/self-hosting/control/documentation/')) {
     return skills('heuristic-governance', 'repository-audit');
   }

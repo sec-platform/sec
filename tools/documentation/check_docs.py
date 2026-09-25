@@ -197,7 +197,7 @@ def verify(root: Path) -> dict:
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('root', nargs='?', type=Path, default=Path(__file__).resolve().parent.parent)
+    parser.add_argument('root', nargs='?', type=Path, default=Path(__file__).resolve().parents[2])
     args = parser.parse_args()
     try:
         print(json.dumps(verify(args.root), ensure_ascii=False, indent=2))

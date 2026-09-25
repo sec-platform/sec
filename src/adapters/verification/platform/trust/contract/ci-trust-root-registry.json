@@ -12,11 +12,11 @@
     "src/adapters/self-hosting/control/branch-lifecycle/branch-local-residue-closeout.ts",
     "src/adapters/verification/platform/trust/contract/ci-trust-root-registry.json",
     "src/adapters/verification/platform/trust/runtime/closure-lock.ts",
-    "tools/check_design.py",
-    "tools/check_docs.py",
-    "tools/source_inventory.py",
-    "tools/test_check_design.py",
-    "tools/test_check_source_inventory.py",
+    "tools/documentation/check_design.py",
+    "tools/documentation/check_docs.py",
+    "tools/documentation/source_inventory.py",
+    "tools/documentation/tests/test_check_design.py",
+    "tools/documentation/tests/test_check_source_inventory.py",
     "tsconfig.json"
   ],
   "staticDirectoryPaths": [

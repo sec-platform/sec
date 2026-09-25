@@ -8,7 +8,7 @@ import stat
 import tempfile
 import unittest
 
-from test_check_documentation_identity import declaration
+from .test_check_documentation_identity import declaration
 from source_inventory import (
     MAX_FILE_BYTES,
     ProjectionSettlementError,

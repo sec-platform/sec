@@ -17,7 +17,7 @@ from unittest.mock import patch
 from html.parser import HTMLParser
 sys.dont_write_bytecode = True
 import build_html as b
-from test_check_documentation_identity import declaration
+from .test_check_documentation_identity import declaration
 
 class Originals(HTMLParser):
     def __init__(self):

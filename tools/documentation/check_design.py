@@ -280,7 +280,7 @@ def review(root: Path):
     return {'modules':len(model['dependencies']),'static_edges':sum(map(len,model['dependencies'].values())),'module_model':model,'decisions':rows,'mermaid_sources':graphs,'deliverables':products,'scope':'Current document structure, declared decisions and concrete deliverable closure; not semantic proof or product enforcement'}
 
 def main(argv=None):
-    ap=argparse.ArgumentParser(description=__doc__);ap.add_argument('--root',type=Path,default=Path(__file__).resolve().parent.parent);ap.add_argument('--diagram',type=Path);a=ap.parse_args(argv)
+    ap=argparse.ArgumentParser(description=__doc__);ap.add_argument('--root',type=Path,default=Path(__file__).resolve().parents[2]);ap.add_argument('--diagram',type=Path);a=ap.parse_args(argv)
     r=review(a.root.resolve())
     if a.diagram:
         out=a.diagram.resolve()

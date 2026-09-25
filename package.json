@@ -34,7 +34,7 @@
     "work:closeout": "\"$npm_execpath\" src/adapters/self-hosting/control/composition/trusted-runtime-closeout.ts",
     "build": "\"$npm_execpath\" ./src/bootstrap/release/build.ts",
     "release:build": "\"$npm_execpath\" ./src/bootstrap/release/build-release-set.ts",
-    "typecheck": "\"$npm_execpath\" ./tools/native-typecheck.ts",
+    "typecheck": "\"$npm_execpath\" ./src/adapters/self-hosting/development/runner/typecheck-feedback.ts",
     "typecheck:verified": "\"$npm_execpath\" ./src/adapters/self-hosting/development/runner/cli.ts typecheck",
     "reference:refresh": "\"$npm_execpath\" ./src/bootstrap/reference/compile-workspace.ts",
     "reference:check": "\"$npm_execpath\" run sec -- reference check",
@@ -57,10 +57,10 @@
     "audit": "\"$npm_execpath\" src/adapters/repository/repository-audit/cli.ts",
     "text:census": "\"$npm_execpath\" run sec -- text census --json",
     "environment:settle": "\"$npm_execpath\" run sec -- environment settle",
-    "docs:refresh": "\"$(\"$npm_execpath\" --print \"process.platform === 'win32' ? 'python' : 'python3'\")\" -B tools/source_inventory.py --write",
-    "docs:doctor": "\"$(\"$npm_execpath\" --print \"process.platform === 'win32' ? 'python' : 'python3'\")\" -B -m unittest discover -s tools -p 'test_check_*.py' -q && \"$(\"$npm_execpath\" --print \"process.platform === 'win32' ? 'python' : 'python3'\")\" -B tools/check_docs.py && \"$npm_execpath\" src/adapters/verification/platform/provider/capability-ledger-validation.ts",
+    "docs:refresh": "\"$(\"$npm_execpath\" --print \"process.platform === 'win32' ? 'python' : 'python3'\")\" -B tools/documentation/source_inventory.py --write",
+    "docs:doctor": "\"$(\"$npm_execpath\" --print \"process.platform === 'win32' ? 'python' : 'python3'\")\" -B -m unittest discover -s tools/documentation/tests -t tools/documentation -p 'test_check_*.py' -q && \"$(\"$npm_execpath\" --print \"process.platform === 'win32' ? 'python' : 'python3'\")\" -B tools/documentation/check_docs.py && \"$npm_execpath\" src/adapters/verification/platform/provider/capability-ledger-validation.ts",
     "check": "\"$npm_execpath\" ./src/adapters/self-hosting/development/runner/cli.ts check",
-    "docs:reading-check": "cd tools && \"$(\"$npm_execpath\" --print \"process.platform === 'win32' ? 'python' : 'python3'\")\" -B -m unittest test_build_html test_reading_modes -q"
+    "docs:reading-check": "cd tools/documentation && \"$(\"$npm_execpath\" --print \"process.platform === 'win32' ? 'python' : 'python3'\")\" -B -m unittest tests.test_build_html tests.test_reading_modes -q"
   },
   "dependencies": {
     "@awasm/noble": "0.1.4",

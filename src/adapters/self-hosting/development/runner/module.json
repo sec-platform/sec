@@ -1,7 +1,8 @@
 {
   "importGraph": "runtime",
   "externalEntrypoints": [
-    "src/adapters/self-hosting/development/runner/cli.ts"
+    "src/adapters/self-hosting/development/runner/cli.ts",
+    "src/adapters/self-hosting/development/runner/typecheck-feedback.ts"
   ],
   "capabilityProviders": [
     {
