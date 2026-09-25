@@ -1,6 +1,7 @@
-import { expect, test } from 'bun:test';
+import { test } from 'bun:test';
+import assert from 'node:assert/strict';
 
-import { compileRepositoryModuleGraph } from './typescript.ts';
+import { compileRepositoryModuleGraph } from "./typescript.ts";
 
 function compileFixture(sources: Readonly<Record<string, string>>) {
   const paths = Object.keys(sources);
@@ -22,11 +23,11 @@ test('TypeScript compiler supplies JSON and triple-slash dependencies to the can
     'src/example/values.json': '{"ready":true}\n'
   });
 
-  expect(graph.directDependencies('src/example/main.ts')).toEqual([
+  assert.deepEqual(graph.directDependencies('src/example/main.ts'), [
     'src/example/ambient.d.ts',
     'src/example/values.json'
   ]);
-  expect(graph.unresolvedFiles).toEqual([]);
+  assert.deepEqual(graph.unresolvedFiles, []);
 });
 
 test('missing relative resource and triple-slash targets fail closed in the same graph', () => {
@@ -39,11 +40,11 @@ test('missing relative resource and triple-slash targets fail closed in the same
     ].join('\n')
   });
 
-  expect(graph.references.map(({ specifier }) => specifier)).toEqual([
+  assert.deepEqual(graph.references.map(({ specifier }) => specifier), [
     './missing.d.ts',
     './missing.json'
   ]);
-  expect(graph.unresolvedFiles).toEqual(['src/example/main.ts']);
+  assert.deepEqual(graph.unresolvedFiles, ['src/example/main.ts']);
 });
 
 test('compiler syntax preserves import kinds and every precompilation reference class', () => {
@@ -58,7 +59,7 @@ test('compiler syntax preserves import kinds and every precompilation reference 
     ].join('\n')
   });
 
-  expect(graph.references.map(({ from: _from, candidateTargets: _candidates, resolvedTarget: _target, ...reference }) => reference)).toEqual([
+  assert.deepEqual(graph.references.map(({ from: _from, candidateTargets: _candidates, resolvedTarget: _target, ...reference }) => reference), [
     { kind: 'dynamic', specifier: './dynamic.ts', typeOnly: false },
     { kind: 'require', specifier: './required.ts', typeOnly: false },
     { kind: 'static', specifier: './static.ts', typeOnly: false },
@@ -79,11 +80,11 @@ test('runtime closure excludes type-only edges while compile impact retains them
     'src/example/runtime.ts': "export function run(): string { return 'ready'; }\n"
   });
 
-  expect(graph.directDependencies('src/example/main.ts')).toEqual([
+  assert.deepEqual(graph.directDependencies('src/example/main.ts'), [
     'src/example/runtime.ts',
     'src/example/types.ts'
   ]);
-  expect(graph.directRuntimeDependencies('src/example/main.ts')).toEqual([
+  assert.deepEqual(graph.directRuntimeDependencies('src/example/main.ts'), [
     'src/example/runtime.ts'
   ]);
 });
@@ -101,6 +102,32 @@ test('ordinary TypeScript import facts cannot be replaced by an embedded-languag
     }
   });
 
-  expect(providerCalls).toBe(0);
-  expect(graph.directDependencies('src/example/main.ts')).toEqual(['src/example/value.ts']);
+  assert.equal(providerCalls, 0);
+  assert.deepEqual(graph.directDependencies('src/example/main.ts'), ['src/example/value.ts']);
+});
+
+test('canonical frontend joins unresolved and import-type observations into its returned graph', () => {
+  const sources = new Map([
+    ['src/a.ts', "type Value = import('./b.ts').Value; void import(target);"],
+    ['src/b.ts', 'export type Value = string;']
+  ]);
+  const graph = compileRepositoryModuleGraph({
+    files: [...sources.keys()], readSource: (file) => sources.get(file) ?? null
+  });
+  assert.deepEqual(graph.unresolvedFiles, ['src/a.ts']);
+  assert.deepEqual(graph.directDependencies('src/a.ts'), ['src/b.ts']);
+  assert.deepEqual(graph.directRuntimeDependencies('src/a.ts'), []);
+});
+
+test('canonical frontend preserves empty-runtime imports left by inline type specifiers', () => {
+  const graph = compileFixture({
+    'src/statement.ts': "import type { Value } from './provider.ts';",
+    'src/inline.ts': "import { type Value } from './provider.ts';",
+    'src/reexport.ts': "export { type Value } from './provider.ts';",
+    'src/provider.ts': 'export type Value = string;'
+  });
+  assert.deepEqual(graph.directRuntimeDependencies('src/statement.ts'), []);
+  assert.deepEqual(graph.directRuntimeDependencies('src/inline.ts'), ['src/provider.ts']);
+  assert.deepEqual(graph.directRuntimeDependencies('src/reexport.ts'), ['src/provider.ts']);
+  assert.deepEqual(graph.directConsumers('src/provider.ts'), ['src/inline.ts', 'src/reexport.ts', 'src/statement.ts']);
 });

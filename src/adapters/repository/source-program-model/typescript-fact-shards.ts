@@ -4,7 +4,7 @@ import {
   isPlainObject,
   sha256
 } from '../../../contracts/canonical.ts';
-import { decodeExactUtf8 } from '../../runtime-state/physical/runtime/retained-file-read.ts';
+import { decodeExactUtf8 } from "../../../contracts/utf8.ts";
 import { normalizeRepositoryModulePath } from '../architecture/contract.ts';
 import type {
   SourceProgramCapabilityInvocation,
