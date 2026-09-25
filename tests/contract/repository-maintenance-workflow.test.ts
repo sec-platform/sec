@@ -23,16 +23,25 @@ test('repository maintenance is a thin current-main workflow_dispatch over canon
   expect(job['runs-on']).toEqual([
     'self-hosted', 'Linux', 'X64', 'sec-linux-verification-v1', 'sec-linux-verification-trusted-v1'
   ]);
-  const checkout = job.steps.find((step: any) => step.name === 'Checkout exact current main owner');
+  const checkout = job.steps.find((step: any) => step.name === 'Checkout trusted workflow revision');
   expect(checkout.with).toMatchObject({
-    ref: '${{ github.sha }}',
-    'fetch-depth': 0,
+    ref: '${{ github.workflow_sha }}',
+    'fetch-depth': 1,
     'persist-credentials': false
   });
+  expect(job.steps.some((step: any) => step.name === 'Cache Bun package downloads')).toBe(false);
+  const admission = job.steps.find((step: any) => step.name === 'Bind request to current main and maintainer actor');
+  expect(admission.env).toBeUndefined();
+  expect(admission.with.script).toContain('context.payload.inputs');
+  expect(admission.with.script).toContain('GITHUB_WORKFLOW_SHA');
+  expect(admission.with.script).toContain('GITHUB_TRIGGERING_ACTOR');
+  expect(admission.with.script).toContain("writeFileSync(path.join(requestRoot, 'request.json')");
   const execute = job.steps.find((step: any) => step.name === 'Execute canonical repository maintenance owner');
   expect(execute.env.SEC_BRANCH_RECOVERY_ROOT).toContain('${{ runner.temp }}');
-  expect(execute.run).toContain('src/adapters/self-hosting/control/repository-maintenance/repository-maintenance.ts execute');
+  expect(execute.run).toContain('src/adapters/self-hosting/control/repository-maintenance/repository-maintenance.ts execute --json');
+  expect(execute.run).not.toContain('--request');
   expect(execute.run).not.toMatch(/git push|git update-ref|curl|gh api/u);
   const upload = job.steps.find((step: any) => step.name === 'Upload bounded maintenance receipt');
+  expect(upload.with.path).not.toContain('request.json');
   expect(upload.with.path).toContain('${{ runner.temp }}/sec-repository-maintenance-recovery-');
 });

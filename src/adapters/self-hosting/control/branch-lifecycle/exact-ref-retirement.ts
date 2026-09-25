@@ -68,8 +68,6 @@ export async function retireExactRemoteRefs(input: Readonly<{
   recoveryRoot?: string;
 }>): Promise<Readonly<{
   retired: readonly string[];
-  recoveryPath: string;
-  recoverySha256: string;
   alreadyAbsent: readonly string[];
   recoveryPath: string | null;
   recoverySha256: string | null;

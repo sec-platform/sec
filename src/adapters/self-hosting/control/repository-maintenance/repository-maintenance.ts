@@ -22,6 +22,7 @@ import {
 } from './comment-retirement.ts';
 
 const SCHEMA = 'sec-repository-maintenance-request-v1' as const;
+const MAINTENANCE_REQUEST_PATH = path.join('.tmp', 'repository-maintenance', 'request.json');
 
 type MaintenanceOperation =
   | Readonly<{
@@ -229,22 +230,15 @@ export async function executeRepositoryMaintenance(input: Readonly<{
   });
 }
 
-function arg(argv: readonly string[], name: string): string {
-  const index = argv.indexOf(name);
-  if (index < 0 || index + 1 >= argv.length || argv[index + 1]!.startsWith('--')) {
-    throw new Error(`missing ${name}`);
-  }
-  if (argv.filter((value) => value === name).length !== 1) throw new Error(`duplicate ${name}`);
-  return argv[index + 1]!;
-}
-
 export async function repositoryMaintenanceCli(argv: readonly string[]): Promise<string> {
-  if (argv[0] !== 'execute' || argv.some((value, index) => index > 0 && value.startsWith('--') && value !== '--request' && value !== '--json')) {
-    throw new Error('usage: repository-maintenance execute --request <request.json> [--json]');
+  if (argv[0] !== 'execute' || argv.some((value, index) => index > 0 && value !== '--json')) {
+    throw new Error('usage: repository-maintenance execute [--json]');
   }
-  const requestPath = path.resolve(arg(argv, '--request'));
-  const request = parseRepositoryMaintenanceRequest(readFileSync(requestPath, 'utf8'));
-  const result = await executeRepositoryMaintenance({ repositoryRoot: process.cwd(), request });
+  const repositoryRoot = process.cwd();
+  const request = parseRepositoryMaintenanceRequest(
+    readFileSync(path.join(repositoryRoot, MAINTENANCE_REQUEST_PATH), 'utf8')
+  );
+  const result = await executeRepositoryMaintenance({ repositoryRoot, request });
   return JSON.stringify(result, null, argv.includes('--json') ? 2 : 0);
 }
 
