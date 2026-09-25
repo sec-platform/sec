@@ -1,5 +1,6 @@
 import {
   canonicalJson,
+  deepFreeze,
   compareCodeUnits,
   isPlainObject,
   sha256
@@ -82,6 +83,11 @@ export interface TypeScriptSourceProgramFactShard {
   readonly unknowns: readonly SourceProgramUnknown[];
   readonly shardDigest: string;
 }
+
+// This registry certifies immutable data ownership only, not provenance or
+// review authority. Reassembly can retain these snapshots without cloning the
+// same generation again; foreign inputs cross the canonical parser boundary.
+const issuedImmutableFactShards = new WeakSet<object>();
 
 type ShardFacts = Omit<TypeScriptSourceProgramFactShard,
   'compilerRevision' | 'moduleDigest' | 'providerRevision' | 'rawFileDigest'
@@ -324,7 +330,7 @@ function exactPath(path: string, values: readonly { readonly path: string }[]): 
   return values.every((value) => value.path === path);
 }
 
-export function compileTypeScriptSourceProgramFactShard(input: Readonly<{
+export function compileTypeScriptSourceProgramFactShard(rawInput: Readonly<{
   compilerRevision: string;
   providerRevision: string;
   rawFileDigest: string;
@@ -332,6 +338,7 @@ export function compileTypeScriptSourceProgramFactShard(input: Readonly<{
   semanticDependencyScope: TypeScriptSourceProgramFactShard['semanticDependencyScope'];
   facts: ShardFacts;
 }>): TypeScriptSourceProgramFactShard {
+  const input = canonicalJson(rawInput) as typeof rawInput;
   const { facts } = input;
   if (![input.compilerRevision, input.providerRevision, input.rawFileDigest, input.moduleDigest]
     .every((digest) => DIGEST.test(digest))) {
@@ -383,7 +390,7 @@ export function compileTypeScriptSourceProgramFactShard(input: Readonly<{
     unknowns: Object.freeze([...facts.unknowns].sort((left, right) =>
       sortByPathAndSpan(left, right) || compareCodeUnits(left.code, right.code)))
   });
-  const canonical = Object.freeze({
+  const canonical = deepFreeze({
     schemaDigest: SOURCE_PROGRAM_TYPESCRIPT_FACT_SHARD_SCHEMA_DIGEST,
     compilerRevision: input.compilerRevision,
     providerRevision: input.providerRevision,
@@ -392,10 +399,12 @@ export function compileTypeScriptSourceProgramFactShard(input: Readonly<{
     semanticDependencyScope: input.semanticDependencyScope,
     ...canonicalFacts
   });
-  return Object.freeze({
+  const shard = Object.freeze({
     ...canonical,
     shardDigest: sha256(canonical)
   });
+  issuedImmutableFactShards.add(shard);
+  return shard;
 }
 
 export function encodeTypeScriptSourceProgramFactShard(
@@ -469,22 +478,27 @@ export function assembleTypeScriptModel(input: Readonly<{
   provider: Readonly<{ readonly id: string; readonly revision: string }>;
   shards: readonly TypeScriptSourceProgramFactShard[];
 }>): SourceProgramModel {
-  if (input.sourceRevision.trim().length === 0 || !DIGEST.test(input.compilerRevision)) {
+  const { sourceRevision, compilerRevision } = input;
+  if (sourceRevision.trim().length === 0 || !DIGEST.test(compilerRevision)) {
     throw new Error('TypeScript Source Program root identity is invalid');
   }
-  const providerRevision = sha256(input.provider);
-  const shards = [...input.shards].sort((left, right) => compareCodeUnits(left.path, right.path));
+  const providers = deepFreeze(canonicalJson([input.provider])) as readonly Readonly<{ id: string; revision: string }>[];
+  const providerRevision = sha256(providers[0]);
+  const shards = input.shards.map((shard) => issuedImmutableFactShards.has(shard)
+    ? shard : parseTypeScriptSourceProgramFactShard(
+      new TextEncoder().encode(JSON.stringify(canonicalJson(shard)))
+    ))
+    .sort((left, right) => compareCodeUnits(left.path, right.path));
   if (new Set(shards.map(({ path }) => path)).size !== shards.length
       || shards.some((shard) => shard.schemaDigest !== SOURCE_PROGRAM_TYPESCRIPT_FACT_SHARD_SCHEMA_DIGEST
-        || shard.compilerRevision !== input.compilerRevision
+        || shard.compilerRevision !== compilerRevision
         || shard.providerRevision !== providerRevision)) {
     throw new Error('TypeScript Source Program root contains incompatible fact shards');
   }
-  const providers = Object.freeze([input.provider]);
   const rootIdentity = Object.freeze({
     schemaDigest: SOURCE_PROGRAM_TYPESCRIPT_FACT_SHARD_SCHEMA_DIGEST,
-    sourceRevision: input.sourceRevision,
-    compilerRevision: input.compilerRevision,
+    sourceRevision,
+    compilerRevision,
     providerDigest: sha256(providers),
     shardDigests: Object.freeze(shards.map(({ shardDigest }) => shardDigest)),
     componentDigests: Object.freeze({
@@ -495,7 +509,7 @@ export function assembleTypeScriptModel(input: Readonly<{
     })
   });
   return Object.freeze({
-    sourceRevision: input.sourceRevision,
+    sourceRevision,
     providers,
     files: Object.freeze(shards.map(({ file }) => file)),
     declarations: Object.freeze(shards.flatMap(({ declarations }) => declarations)),
