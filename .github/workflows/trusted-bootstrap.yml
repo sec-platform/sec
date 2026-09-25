@@ -1,4 +1,4 @@
-name: sec-trusted-bootstrap
+name: trusted-bootstrap
 run-name: 'trusted bootstrap PR #${{ github.event.client_payload.pull_request }} @ ${{ github.event.client_payload.expected_head }} base ${{ github.event.client_payload.expected_base }}'
 
 on:
@@ -419,7 +419,7 @@ jobs:
                   repositoryPath.split("/").some((segment) => segment.length === 0 || segment === "." || segment === ".."))) {
                 throw new Error("trusted bootstrap candidate changed-path inventory is not canonical.");
               }
-              const registryPath = registryContract.SEC_TRUSTED_BOOTSTRAP_REGISTRY_PATH;
+              const registryPath = registryContract.TRUSTED_BOOTSTRAP_REGISTRY_PATH;
               const baseRegistryBytes = tcb.readTcbClosureCandidateFile(registryPath, baseSnapshotOptions);
               const candidateRegistryBytes = tcb.readTcbClosureCandidateFile(registryPath, candidateSnapshotOptions);
               const digest = (bytes) => `sha256:${createHash("sha256").update(bytes).digest("hex")}`;
@@ -428,7 +428,7 @@ jobs:
               if (baseRegistryDigest !== required("SEC_BOOTSTRAP_REGISTRY_DIGEST")) {
                 throw new Error("trusted bootstrap checker base registry digest drifted.");
               }
-              const baseRegistry = registryContract.parseSecTrustedBootstrapRegistry(baseRegistryBytes.toString("utf8"));
+              const baseRegistry = registryContract.parseTrustedBootstrapRegistry(baseRegistryBytes.toString("utf8"));
               let pre = null;
               if (phase === "post") {
                 if (required("SEC_PRE_DOWNLOAD_OUTCOME") !== "success") {
@@ -461,7 +461,7 @@ jobs:
                   options: baseSnapshotOptions
                 });
                 checkerLock = checkerAction.identity;
-                const baseTrustRoot = registryContract.createSecTrustedBootstrapTrustRoot({
+                const baseTrustRoot = registryContract.createTrustedBootstrapTrustRoot({
                   registry: baseRegistry,
                   causalRuntimePaths: checkerLock.modules
                 });
@@ -483,7 +483,7 @@ jobs:
                   hardFailureReasons.add("trusted-bootstrap-request-does-not-change-trust-root");
                 }
                 try {
-                  registryContract.parseSecTrustedBootstrapRegistry(Buffer.from(candidateRegistryBytes).toString("utf8"));
+                  registryContract.parseTrustedBootstrapRegistry(Buffer.from(candidateRegistryBytes).toString("utf8"));
                 } catch (error) {
                   manualReasons.add(`candidate-registry-schema-or-policy-change:${error instanceof Error ? error.message : String(error)}`);
                 }
@@ -643,9 +643,9 @@ jobs:
                 candidateModuleCount: candidateAction?.identity.moduleCount ?? null,
                 checkerProgramDigest: digest(readFileSync(import.meta.path)),
                 checkerToolBlob: blob(trustedRoot, "src/adapters/verification/platform/trust/runtime/closure-lock.ts"),
-                checkerWorkflowBlob: blob(trustedRoot, ".github/workflows/sec-trusted-bootstrap.yml"),
+                checkerWorkflowBlob: blob(trustedRoot, ".github/workflows/trusted-bootstrap.yml"),
                 candidateToolBlob: blob(candidateRoot, "src/adapters/verification/platform/trust/runtime/closure-lock.ts"),
-                candidateWorkflowBlob: blob(candidateRoot, ".github/workflows/sec-trusted-bootstrap.yml"),
+                candidateWorkflowBlob: blob(candidateRoot, ".github/workflows/trusted-bootstrap.yml"),
                 authorityVerdict,
                 authorityReason,
                 baseUndecidablePaths,
