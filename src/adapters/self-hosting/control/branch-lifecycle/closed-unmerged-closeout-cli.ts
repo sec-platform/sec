@@ -69,7 +69,10 @@ export function parseClosedUnmergedCloseoutArguments(argv: readonly string[]): A
   });
 }
 
-export async function runClosedUnmergedCloseoutCli(argv: readonly string[]): Promise<number> {
+export async function runClosedUnmergedCloseoutCli(
+  argv: readonly string[],
+  write: (source: string) => void = (source) => { process.stdout.write(source); }
+): Promise<number> {
   const input = parseClosedUnmergedCloseoutArguments(argv);
   const repositoryRoot = path.resolve(process.cwd());
   let capturedPreparationPath = input.preparationPath;
@@ -162,7 +165,7 @@ export async function runClosedUnmergedCloseoutCli(argv: readonly string[]): Pro
         return compiled.operation;
       }
     });
-    process.stdout.write(`${JSON.stringify({
+    write(`${JSON.stringify({
       operation: 'closed-unmerged-closeout', repository: input.repository,
       pullRequestNumber: input.pullRequestNumber, disposition: input.disposition,
       preparationPath: result.status === 'completed' ? null : capturedPreparationPath,
@@ -170,7 +173,7 @@ export async function runClosedUnmergedCloseoutCli(argv: readonly string[]): Pro
     })}\n`);
     return result.status === 'completed' ? 0 : 2;
   } catch (error) {
-    process.stdout.write(`${JSON.stringify({
+    write(`${JSON.stringify({
       status: 'preserved', operation: 'closed-unmerged-closeout',
       repository: input.repository, pullRequestNumber: input.pullRequestNumber,
       disposition: input.disposition, stage: 'production-closeout',

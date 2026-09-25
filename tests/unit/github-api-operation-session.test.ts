@@ -111,6 +111,36 @@ test('issue comment publication uses a dedicated bounded write authority', async
   }]);
 });
 
+test('issue comment deletion uses bounded write authority and accepts DELETE 204 settlement', async () => {
+  const observed: Array<{ target: string; method: string }> = [];
+  const api = capability({
+    effect: 'issue-comment-write',
+    transport: async (target, init) => {
+      observed.push({ target: String(target), method: init?.method ?? 'GET' });
+      return new Response(null, { status: 204 });
+    }
+  });
+  expect(await withGitHubApiTestSession({ capability: api, operation: () => executeGitHubApiOperation(
+    api, { kind: 'delete-issue-comment', commentId: 91 }
+  ) })).toBeNull();
+  expect(observed).toEqual([{
+    target: 'https://api.github.com/repos/sec-platform/sec/issues/comments/91',
+    method: 'DELETE'
+  }]);
+});
+
+test('read authority cannot delete issue comments', async () => {
+  let calls = 0;
+  const api = capability({
+    effect: 'read',
+    transport: async () => { calls += 1; return new Response(null, { status: 204 }); }
+  });
+  await expect(withGitHubApiTestSession({ capability: api, operation: () => executeGitHubApiOperation(
+    api, { kind: 'delete-issue-comment', commentId: 91 }
+  ) })).rejects.toThrow('requires issue-comment-write authority');
+  expect(calls).toBe(0);
+});
+
 test('status-write preserves pending as a first-class GitHub status state', async () => {
   let observedBody: unknown = null;
   const api = capability({

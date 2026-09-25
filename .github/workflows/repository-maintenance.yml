@@ -1,0 +1,120 @@
+name: repository-maintenance
+run-name: repository maintenance run ${{ github.run_id }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      request_json:
+        description: Canonical sec-repository-maintenance-request-v1 JSON
+        required: true
+        type: string
+      request_digest:
+        description: Expected sha256 digest of the canonical request value
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sec-repository-maintenance-${{ github.repository_id }}
+  cancel-in-progress: false
+
+jobs:
+  maintenance:
+    runs-on: [self-hosted, Linux, X64, sec-linux-verification-v1, sec-linux-verification-trusted-v1]
+    timeout-minutes: 45
+    env:
+      SEC_BRANCH_RECOVERY_ROOT: ${{ runner.temp }}/sec-repository-maintenance-recovery-${{ github.run_id }}-${{ github.run_attempt }}
+    steps:
+      - name: Bind request to current main and maintainer actor
+        id: admission
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        env:
+          REQUEST_JSON: ${{ inputs.request_json }}
+          REQUEST_DIGEST: ${{ inputs.request_digest }}
+          WORKFLOW_SHA: ${{ github.sha }}
+        with:
+          script: |
+            const crypto = require('crypto');
+            const canonical = (value) => {
+              if (value === null || typeof value !== 'object') return value;
+              if (Array.isArray(value)) return value.map(canonical);
+              return Object.fromEntries(Object.keys(value).sort().map((key) => [key, canonical(value[key])]));
+            };
+            let request;
+            try { request = JSON.parse(process.env.REQUEST_JSON); }
+            catch { throw new Error('Maintenance request is not strict JSON.'); }
+            const digest = `sha256:${crypto.createHash('sha256').update(JSON.stringify(canonical(request))).digest('hex')}`;
+            if (digest !== process.env.REQUEST_DIGEST || request?.schema !== 'sec-repository-maintenance-request-v1') {
+              throw new Error('Maintenance request digest or schema is invalid.');
+            }
+            const [repository, actorPermission, main] = await Promise.all([
+              github.rest.repos.get({ owner: context.repo.owner, repo: context.repo.repo }),
+              github.rest.repos.getCollaboratorPermissionLevel({
+                owner: context.repo.owner, repo: context.repo.repo, username: context.actor
+              }),
+              github.rest.repos.getBranch({ owner: context.repo.owner, repo: context.repo.repo, branch: 'main' })
+            ]);
+            if (!['admin', 'maintain'].includes(actorPermission.data.permission)
+                || repository.data.full_name !== request.repository
+                || repository.data.default_branch !== 'main'
+                || context.ref !== 'refs/heads/main'
+                || context.sha !== main.data.commit.sha
+                || request.expectedMainSha !== main.data.commit.sha
+                || process.env.WORKFLOW_SHA !== main.data.commit.sha) {
+              throw new Error('Maintenance request actor, repository, workflow or exact-main identity is stale.');
+            }
+            core.setOutput('main-sha', main.data.commit.sha);
+            core.setOutput('request-b64', Buffer.from(process.env.REQUEST_JSON, 'utf8').toString('base64'));
+
+      - name: Checkout exact current main owner
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ steps.admission.outputs.main-sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Setup repository-pinned Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version-file: .bun-version
+
+      - name: Cache Bun package downloads
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.bun/install/cache
+          key: ${{ runner.os }}-repository-maintenance-bun-${{ hashFiles('bun.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-repository-maintenance-bun-
+
+      - name: Install exact dependencies without lifecycle scripts
+        run: bun install --frozen-lockfile --ignore-scripts
+
+      - name: Materialize exact maintenance request
+        env:
+          REQUEST_B64: ${{ steps.admission.outputs.request-b64 }}
+        run: |
+          set -euo pipefail
+          mkdir -p .tmp/repository-maintenance
+          printf '%s' "$REQUEST_B64" | base64 --decode > .tmp/repository-maintenance/request.json
+
+      - name: Execute canonical repository maintenance owner
+        id: execute
+        run: |
+          set -euo pipefail
+          bun src/adapters/self-hosting/control/repository-maintenance/repository-maintenance.ts execute \
+            --request .tmp/repository-maintenance/request.json --json \
+            | tee .tmp/repository-maintenance/result.json
+
+      - name: Upload bounded maintenance receipt
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: sec-repository-maintenance-${{ github.run_id }}-attempt-${{ github.run_attempt }}
+          path: |
+            .tmp/repository-maintenance/request.json
+            .tmp/repository-maintenance/result.json
+            ${{ env.SEC_BRANCH_RECOVERY_ROOT }}/
+          if-no-files-found: error
+          retention-days: 90

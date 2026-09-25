@@ -114,7 +114,8 @@
       },
       "consumerSupport": {
         "consumers": [
-          "verification.platform-ci"
+          "verification.platform-ci",
+          "control.repository-maintenance"
         ]
       },
       "effect": {

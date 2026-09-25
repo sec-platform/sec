@@ -24,6 +24,7 @@
 4. 一个logical run保持一个mutable candidate。只有独立结果与owner/文件边界明确、并行有实际收益时委派；子任务权限只收窄，主线程保留授权、架构裁决、集成、验证和收口，不能让多个writer修改同一owner。
 5. 编辑期执行最小有效哨兵；frozen对象才生成昂贵证据。执行集合按`RequiredClosure ∩ MissingOrStale`选择，同一ActionKey的fresh PASS、确定性失败及authenticated in-flight分别复用、停止该失败路径及join。证据只证明其绑定对象与环境。
    **Hosted evidence budget 是硬约束：**GitHub Actions、Default CodeQL及其他托管CI只用于最终候选上无法由本地/静态等价证明的必要证据，不用于探索、问题定位、试错、逐步调参或“看看结果是否变化”。在创建/更新会自动触发hosted检查的PR前，先在process candidate中穷尽适用约束、静态source→sink审查、owner/consumer/ownership、生成投影和focused本地证据，并冻结最终tree；随后只生成一次满足集成形状的clean candidate。同一revision、input、environment与ActionKey已有fresh evidence时必须复用，禁止重复dispatch/rerun。只有新的不可等价事实使既有evidence失效时，才支付新的hosted执行成本。
+   **协作表面不是控制总线：**PR/Issue Conversation 只承载可长期复核的 finding、裁决、迁移说明与最终 evidence locator。自动化触发、维护 Effect、重试和状态轮询必须走对应的 provider/Action owner；不得用重复 `@bot` 评论、一次性 workflow、浏览器点击或聊天日志替代。quota、capacity、login、临时 runner/tool 缺失等外部瞬时状态只作为该次 provider observation/typed blocker，除非改变长期支持合同，不得复制进仓库文档、长期 checkpoint 或新的 PR 评论。相同输入和根因失败后先 readback/join，不重复发命令制造噪声。
 6. 失败先定位owner、失效前提、影响闭包和恢复入口，不用扩大timeout、切换Provider、删测试或重复运行绕过。反证使旧计划失效，修正相交唯一owner；无关且安全的工作继续。实现迁移、独立审查与真实发布按其自身合同处理。
 7. 作用后取得真实settlement/readback；merge后重新绑定new main与新一代权限，完成声明区分设计、源码、局部测试、受信Gate、远端入库、合并与branch/worktree/runtime残留。辅助工作树先用generated-state/compiler-dependency退役与`worktree-physical-closeout`结算受管locator，不把`git worktree remove`当完整清理；旧操作责任不因换attempt、新提交或删除配置而消失。
 

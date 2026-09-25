@@ -110,6 +110,7 @@ export type GitHubApiOperation =
   | Readonly<{ kind: 'issue'; issueNumber: number }>
   | Readonly<{ kind: 'issue-comments'; issueNumber: number; page: number }>
   | Readonly<{ kind: 'issue-comment'; commentId: number }>
+  | Readonly<{ kind: 'delete-issue-comment'; commentId: number }>
   | Readonly<{
       kind: 'issue-closing-pull-references';
       pullRequestNumber: number;
@@ -282,9 +283,11 @@ function compileOperation(
   if (effect === 'issue-comment-write'
       && kind !== 'current-user'
       && kind !== 'collaborator-permission'
+      && kind !== 'issue'
       && kind !== 'issue-comments'
       && kind !== 'issue-comment'
-      && kind !== 'create-issue-comment') {
+      && kind !== 'create-issue-comment'
+      && kind !== 'delete-issue-comment') {
     throw new GitHubApiProviderError(
       'GitHub API issue-comment-write authority permits only fixed comment observations and effects'
     );
@@ -344,6 +347,15 @@ function compileOperation(
       return read(`/repos/${repo}/issues/${positiveInteger(operation.issueNumber, 'issue number')}/comments?per_page=100&page=${page(operation.page)}`);
     case 'issue-comment':
       return read(`/repos/${repo}/issues/comments/${positiveInteger(operation.commentId, 'issue comment id')}`);
+    case 'delete-issue-comment':
+      if (effect !== 'issue-comment-write') {
+        throw new GitHubApiProviderError('GitHub API issue comment deletion requires issue-comment-write authority');
+      }
+      return Object.freeze({
+        kind,
+        method: 'DELETE',
+        path: `/repos/${repo}/issues/comments/${positiveInteger(operation.commentId, 'issue comment id')}`
+      });
     case 'issue-closing-pull-references': {
       const parts = repositoryParts(repo);
       return read('/graphql', Object.freeze({
@@ -879,7 +891,7 @@ async function executeWithTokenObserved<T>(
           return Object.freeze({ value: null as T, source: null });
         }
         if (response.status === 204 && response.ok && compiled.method === 'DELETE'
-            && compiled.kind === 'delete-repository-runner') {
+            && (compiled.kind === 'delete-repository-runner' || compiled.kind === 'delete-issue-comment')) {
           return Object.freeze({ value: null as T, source: null });
         }
         if (response.status === 204) throw new GitHubApiProviderError(

@@ -12,6 +12,7 @@
     "src/adapters/self-hosting/control/branch-lifecycle/closed-unmerged-closeout-cli.ts!",
     "src/adapters/self-hosting/control/composition/trusted-runtime-closeout.ts!",
     "src/adapters/self-hosting/control/continuation/local-continuation.ts!",
+    "src/adapters/self-hosting/control/repository-maintenance/repository-maintenance.ts!",
     "src/adapters/verification/platform/provider/capability-ledger-validation.ts!",
     "src/adapters/self-hosting/control/documentation/document-control-plane.ts!",
     "src/adapters/self-hosting/control/work-selection/runtime.ts!",
