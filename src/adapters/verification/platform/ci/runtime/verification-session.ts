@@ -239,6 +239,18 @@ import {
   type VerificationSessionHostedEnvelope,
   type VerificationSessionHostedFacts
 } from './verification-session-runtime.ts';
+import { readExactCommitMarker } from './merge-commit-marker.ts';
+import {
+  assertHostedSquashMergeCompletion,
+  executeHostedSquashMerge,
+  parseHostedSynchronousSquashMergeResponse,
+  type HostedSynchronousSquashMergeResponse
+} from './verification-session-merge-provider.ts';
+import {
+  classifyDurableVerificationSessionProjection,
+  planHostedIntegrationEffects,
+  routeHostedIntegration
+} from './verification-session-integration-routing.ts';
 
 const SESSION_COMMAND_TIMEOUT_MS = 60_000;
 const HOSTED_LOCAL_REF_REQUIREMENT = 'verification-session.hosted-closeout.local-ref-delete';
@@ -1469,24 +1481,6 @@ function hostedMergeWakeupLocator(event: Record<string, any>): Readonly<{
     sourceRunAttempt: run.run_attempt });
 }
 
-function exactCommitMarker(message: string, name: string): string {
-  const prefix = `${name}: `;
-  const matches = message.split(/\r?\n/u).filter((line) => line.startsWith(prefix));
-  if (matches.length !== 1 || matches[0]!.slice(prefix.length).length === 0) {
-    throw new Error(`Merged commit must contain exactly one ${name} marker.`);
-  }
-  return matches[0]!.slice(prefix.length);
-}
-
-/**
- * Reads one exact merge marker without giving callers a second parser or
- * substring-based fallback.  Recovery paths use the committed marker only as
- * a locator and must still revalidate the referenced canonical artifacts.
- */
-export function readExactCommitMarker(message: string, name: string): string {
-  return exactCommitMarker(message, name);
-}
-
 /**
  * Canonical provider observation for an IssueDisposition plan.  The PR
  * candidate and the provider's closing-reference projection are deliberately
@@ -1568,282 +1562,6 @@ export async function observePostMergeIssueReconciliation(input: Readonly<{
       : 'manual-action-required',
     results
   });
-}
-
-function selectMergedAuthorizationPublication(input: {
-  candidate: GitHubCandidateObservation;
-  sessionRevision: `sha256:${string}`;
-  publications: readonly Readonly<{
-    commentId: number;
-    publication: IntegrationAuthorizationOperationPublication;
-  }>[];
-}): Readonly<{ commentId: number; publication: IntegrationAuthorizationOperationPublication }> {
-  const message = input.candidate.mergeCommitMessage;
-  if (input.candidate.state !== 'MERGED' || message === null) {
-    throw new Error('Merged PR has no exact merge commit message readback.');
-  }
-  const commentText = exactCommitMarker(message, 'Integration-Authorization-Comment');
-  if (!/^[1-9][0-9]*$/u.test(commentText)) {
-    throw new Error('Merged commit authorization comment marker is not a positive decimal id.');
-  }
-  const markerCommentId = Number(commentText);
-  if (!Number.isSafeInteger(markerCommentId)) {
-    throw new Error('Merged commit authorization comment marker exceeds safe integer range.');
-  }
-  const markerPublicationId = exactCommitMarker(message, 'Integration-Authorization-Publication');
-  const markerPublicationDigest = exactCommitMarker(message,
-    'Integration-Authorization-Publication-Digest');
-  const markerAuthorizationId = exactCommitMarker(message, 'Integration-Authorization');
-  const markerReceiptDigest = exactCommitMarker(message, 'Integration-Authorization-Receipt');
-  const markerOperationId = exactCommitMarker(message, 'Integration-Authorization-Operation');
-  const markerSession = exactCommitMarker(message, 'Verification-Session');
-  const matches = input.publications.filter(({ commentId, publication }) => (
-    commentId === markerCommentId
-    && publication.authorizationPublicationId === markerPublicationId
-    && publication.publicationDigest === markerPublicationDigest
-    && publication.authorizationId === markerAuthorizationId
-    && publication.authorizationReceiptDigest === markerReceiptDigest
-    && publication.consumptionOperationId === markerOperationId
-    && publication.sessionRevision === markerSession
-    && publication.sessionRevision === input.sessionRevision
-  ));
-  if (matches.length !== 1) {
-    throw new Error('Merged commit marker does not select exactly one trusted remote authorization publication.');
-  }
-  return matches[0]!;
-}
-
-function assertAuthorizationPublicationMatchesRequest(input: {
-  publication: IntegrationAuthorizationOperationPublication;
-  request: ReturnType<typeof parseVerificationSessionHostedRequest>;
-  repository: string;
-}): void {
-  const authorization = input.publication.result.authorization;
-  const checks: readonly [unknown, unknown, string][] = [
-    [input.publication.repository, input.repository, 'publication repository'],
-    [input.publication.pullRequestNumber, input.request.prNumber, 'publication pull request'],
-    [input.publication.sessionRevision, input.request.expectedSessionRevision, 'publication Session'],
-    [authorization.repository, input.repository, 'authorization repository'],
-    [authorization.prNumber, input.request.prNumber, 'authorization pull request'],
-    [authorization.sessionRevision, input.request.expectedSessionRevision, 'authorization Session'],
-    [authorization.baseSha, input.request.expectedBaseSha, 'authorization base'],
-    [authorization.baseTreeSha, input.request.expectedBaseTreeSha, 'authorization base tree'],
-    [authorization.headSha, input.request.expectedHeadSha, 'authorization head'],
-    [authorization.headTreeSha, input.request.expectedHeadTreeSha, 'authorization head tree'],
-    [authorization.manifestDigest, input.request.manifestDigest, 'authorization manifest'],
-    [authorization.actionClosureDigest, input.request.expectedActionPlanDigest, 'authorization Action closure'],
-    [authorization.trustRevision, input.request.expectedBaseSha, 'authorization trust revision']
-  ];
-  for (const [actual, expected, label] of checks) {
-    if (actual !== expected) throw new Error(`Durable ${label} differs from the trusted Session request.`);
-  }
-}
-
-export const HOSTED_INTEGRATION_ROUTE_SCHEMA =
-  'sec-verification-session-hosted-integration-route-v1' as const;
-
-type HostedIntegrationRouteCommon = Readonly<{
-  schema: typeof HOSTED_INTEGRATION_ROUTE_SCHEMA;
-  repository: string;
-  prNumber: number;
-  sessionRevision: `sha256:${string}`;
-  candidateState: GitHubCandidateObservation['state'];
-}>;
-
-export type HostedIntegrationRoute =
-  | (HostedIntegrationRouteCommon & Readonly<{
-      lane: 'open-first-effect';
-      reason: 'exact-open-candidate-without-prior-effect';
-    }>)
-  | (HostedIntegrationRouteCommon & Readonly<{
-      lane: 'merged-recovery';
-      reason: 'exact-marker-bound-merged-candidate';
-      mergeCommitSha: string;
-      mergeCommitTreeSha: string;
-    }>)
-  | (HostedIntegrationRouteCommon & Readonly<{
-      lane: 'blocked';
-      reason:
-        | 'candidate-session-identity-drift'
-        | 'open-candidate-identity-drift'
-        | 'open-prior-effect-started'
-        | 'merged-readback-incomplete-or-tree-mismatch'
-        | 'pull-request-closed-without-exact-merge';
-    }>);
-
-export interface HostedIntegrationEffectPlan {
-  prepareRecoveryArtifact: boolean;
-  createAuthorizationPublication: boolean;
-  executePhysicalMerge: boolean;
-  consumeOriginalAuthorizationPublication: boolean;
-  consumeOriginalRecoveryArtifact: boolean;
-}
-
-/**
- * Pure state router. Provider identity, TCB, artifact and publication proofs are
- * verified by the hosted transaction before this route can authorize an
- * effect. This function only prevents OPEN and MERGED semantics from sharing
- * one mutation path.
- */
-export function routeHostedIntegration(input: {
-  repository: string;
-  session: VerificationSession;
-  candidate: GitHubCandidateObservation;
-  priorEffectStarted: boolean;
-  authorizationPublicationCount: number;
-}): HostedIntegrationRoute {
-  if (!Number.isSafeInteger(input.authorizationPublicationCount)
-    || input.authorizationPublicationCount < 0) {
-    throw new Error('Hosted integration authorization publication count must be a non-negative safe integer.');
-  }
-  const common = Object.freeze({ schema: HOSTED_INTEGRATION_ROUTE_SCHEMA,
-    repository: input.repository, prNumber: input.session.prNumber,
-    sessionRevision: input.session.sessionRevision, candidateState: input.candidate.state });
-  const blocked = (reason: Extract<HostedIntegrationRoute, { lane: 'blocked' }>['reason']) => (
-    Object.freeze({ ...common, lane: 'blocked' as const, reason })
-  );
-  if (input.candidate.repository !== input.repository
-    || input.candidate.number !== input.session.prNumber
-    || input.candidate.headSha !== input.session.headSha
-    || input.candidate.headTreeSha !== input.session.headTreeSha) {
-    return blocked('candidate-session-identity-drift');
-  }
-  if (input.candidate.state === 'OPEN') {
-    if (input.candidate.baseSha !== input.session.baseSha
-      || input.candidate.baseTreeSha !== input.session.baseTreeSha
-      || input.candidate.isDraft || input.candidate.isCrossRepository) {
-      return blocked('open-candidate-identity-drift');
-    }
-    if (input.priorEffectStarted || input.authorizationPublicationCount > 0) {
-      return blocked('open-prior-effect-started');
-    }
-    return Object.freeze({ ...common, lane: 'open-first-effect' as const,
-      reason: 'exact-open-candidate-without-prior-effect' as const });
-  }
-  if (input.candidate.state === 'MERGED') {
-    if (input.candidate.mergeCommitSha === null || input.candidate.mergeCommitTreeSha === null
-      || input.candidate.mergeCommitMessage === null
-      || input.candidate.mergeCommitTreeSha !== input.session.headTreeSha) {
-      return blocked('merged-readback-incomplete-or-tree-mismatch');
-    }
-    return Object.freeze({ ...common, lane: 'merged-recovery' as const,
-      reason: 'exact-marker-bound-merged-candidate' as const,
-      mergeCommitSha: input.candidate.mergeCommitSha,
-      mergeCommitTreeSha: input.candidate.mergeCommitTreeSha });
-  }
-  return blocked('pull-request-closed-without-exact-merge');
-}
-
-/** Pure mutation-intent projection consumed by both hosted handlers and tests. */
-export function planHostedIntegrationEffects(
-  route: HostedIntegrationRoute
-): Readonly<HostedIntegrationEffectPlan> {
-  if (route.lane === 'open-first-effect') {
-    return Object.freeze({ prepareRecoveryArtifact: true,
-      createAuthorizationPublication: true, executePhysicalMerge: true,
-      consumeOriginalAuthorizationPublication: false,
-      consumeOriginalRecoveryArtifact: false });
-  }
-  if (route.lane === 'merged-recovery') {
-    return Object.freeze({ prepareRecoveryArtifact: false,
-      createAuthorizationPublication: false, executePhysicalMerge: false,
-      consumeOriginalAuthorizationPublication: true,
-      consumeOriginalRecoveryArtifact: true });
-  }
-  return Object.freeze({ prepareRecoveryArtifact: false,
-    createAuthorizationPublication: false, executePhysicalMerge: false,
-    consumeOriginalAuthorizationPublication: false,
-    consumeOriginalRecoveryArtifact: false });
-}
-
-export function classifyDurableVerificationSessionProjection(input: {
-  repository: string;
-  request: ReturnType<typeof parseVerificationSessionHostedRequest>;
-  candidate: GitHubCandidateObservation;
-  publications: readonly Readonly<{
-    commentId: number;
-    publication: IntegrationAuthorizationOperationPublication;
-  }>[];
-  closeout?: Readonly<{
-    closeoutOperationId: `sha256:${string}`;
-    commentId: number;
-    status: 'completed' | 'protected-pending' | 'blocked' | 'residue';
-  }> | null;
-}): Readonly<Record<string, unknown>> | null {
-  const { candidate, repository, request, publications } = input;
-  if (candidate.repository !== repository || candidate.number !== request.prNumber) {
-    throw new Error('Durable Session PR identity differs from the trusted request.');
-  }
-  if (candidate.state === 'OPEN') {
-    if (publications.length > 0) {
-      return Object.freeze({ mode: 'remote', status: 'BLOCKED_AMBIGUOUS_SIDE_EFFECT',
-        reason: 'an authorization effect-start receipt already exists while the PR is OPEN',
-        repository, prNumber: request.prNumber, sessionRevision: request.expectedSessionRevision,
-        candidateState: candidate.state,
-        authorizationPublications: publications.map(({ publication, commentId }) => Object.freeze({
-          authorizationPublicationId: publication.authorizationPublicationId,
-          authorizationReceiptDigest: publication.authorizationReceiptDigest,
-          commentId
-        })) });
-    }
-    const exact = candidate.baseSha === request.expectedBaseSha
-      && candidate.baseTreeSha === request.expectedBaseTreeSha
-      && candidate.headSha === request.expectedHeadSha
-      && candidate.headTreeSha === request.expectedHeadTreeSha
-      && !candidate.isDraft && !candidate.isCrossRepository;
-    if (!exact) {
-      return Object.freeze({ mode: 'remote', status: 'BLOCKED',
-        reason: 'OPEN candidate repository/base/head/tree identity drifted', repository,
-        prNumber: request.prNumber, sessionRevision: request.expectedSessionRevision,
-        candidateState: candidate.state });
-    }
-    return null;
-  }
-  if (candidate.state !== 'MERGED') {
-    return Object.freeze({ mode: 'remote', status: 'BLOCKED',
-      reason: 'pull request is closed without one marker-bound verified merge', repository,
-      prNumber: request.prNumber, sessionRevision: request.expectedSessionRevision,
-      candidateState: candidate.state });
-  }
-  if (candidate.headSha !== request.expectedHeadSha
-    || candidate.headTreeSha !== request.expectedHeadTreeSha
-    || candidate.mergeCommitSha === null || candidate.mergeCommitTreeSha === null
-    || candidate.mergeCommitMessage === null) {
-    throw new Error('Durable MERGED Session readback is partial or differs from the trusted candidate.');
-  }
-  const selected = selectMergedAuthorizationPublication({ candidate,
-    sessionRevision: request.expectedSessionRevision, publications });
-  assertAuthorizationPublicationMatchesRequest({ publication: selected.publication, request, repository });
-  if (candidate.mergeCommitTreeSha !== request.expectedHeadTreeSha) {
-    return Object.freeze({ mode: 'remote', status: 'BLOCKED',
-      reason: 'merged tree differs from verified candidate tree', repository,
-      prNumber: request.prNumber, sessionRevision: request.expectedSessionRevision,
-      candidateState: candidate.state, mergeCommitSha: candidate.mergeCommitSha,
-      mergeCommitTreeSha: candidate.mergeCommitTreeSha });
-  }
-  const binding = createBranchCloseoutOperationBinding({
-    integrationAuthorization: selected.publication.result.authorization,
-    preparation: selected.publication.closeoutPreparation.preparation,
-    newMainSha: candidate.mergeCommitSha,
-    newMainTreeSha: candidate.mergeCommitTreeSha,
-    candidateTreeSha: request.expectedHeadTreeSha
-  });
-  if (input.closeout !== undefined && input.closeout !== null
-    && input.closeout.closeoutOperationId !== binding.closeoutOperationId) {
-    throw new Error('Durable closeout publication belongs to a different operation binding.');
-  }
-  const closeoutStatus = input.closeout?.status ?? null;
-  return Object.freeze({ mode: 'remote', status: closeoutStatus === 'completed'
-    || closeoutStatus === 'protected-pending' ? 'COMPLETED'
-    : closeoutStatus === 'blocked' || closeoutStatus === 'residue' ? 'BLOCKED' : 'READY_TO_CLOSEOUT',
-    reason: closeoutStatus === null ? 'marker-bound merge awaits canonical closeout publication' : null,
-    durableSource: 'github-app-comments-and-merge-marker', repository,
-    prNumber: request.prNumber, sessionRevision: request.expectedSessionRevision,
-    candidateState: candidate.state, mergeCommitSha: candidate.mergeCommitSha,
-    mergeCommitTreeSha: candidate.mergeCommitTreeSha,
-    authorizationPublicationId: selected.publication.authorizationPublicationId,
-    authorizationCommentId: selected.commentId, closeoutOperationId: binding.closeoutOperationId,
-    closeoutCommentId: input.closeout?.commentId ?? null, closeoutStatus });
 }
 
 async function observeDurableVerificationSessionProjection(input: {
@@ -2324,11 +2042,11 @@ async function observeHostedTrackingIssueDisposition(input: Readonly<{
   if (issueDispositionCommitMarkerState(candidate.mergeCommitMessage) === 'absent') {
     return Object.freeze({ status: 'no-disposition-markers', reason: 'issue-disposition-markers-absent' });
   }
-  const mode = exactCommitMarker(candidate.mergeCommitMessage, 'Issue-Disposition-Mode');
+  const mode = readExactCommitMarker(candidate.mergeCommitMessage, 'Issue-Disposition-Mode');
   if (mode !== 'progress-only' && mode !== 'close-tracking-after-readback') {
     throw new Error('Merged IssueDisposition mode marker is invalid.');
   }
-  const trackingMarker = exactCommitMarker(candidate.mergeCommitMessage,
+  const trackingMarker = readExactCommitMarker(candidate.mergeCommitMessage,
     'Issue-Disposition-Tracking');
   if (trackingMarker !== 'none' && !/^[1-9][0-9]*$/u.test(trackingMarker)) {
     throw new Error('Merged IssueDisposition tracking marker is invalid.');
@@ -2351,9 +2069,9 @@ async function observeHostedTrackingIssueDisposition(input: Readonly<{
     tracking: manifest.tracking
   });
   if (plan.mode !== mode || plan.trackingIssueNumber !== trackingIssueNumber
-    || plan.titleBodyDigest !== exactCommitMarker(candidate.mergeCommitMessage,
+    || plan.titleBodyDigest !== readExactCommitMarker(candidate.mergeCommitMessage,
       'Issue-Disposition-Prose')
-    || plan.planDigest !== exactCommitMarker(candidate.mergeCommitMessage,
+    || plan.planDigest !== readExactCommitMarker(candidate.mergeCommitMessage,
       'Issue-Disposition-Plan')) {
     throw new Error('IssueDisposition merge markers differ from the exact live plan.');
   }
@@ -3930,123 +3648,6 @@ async function publishHostedIntegrationAuthorizationOperation(
   }
 }
 
-export function assertHostedSquashMergeCompletion(input: {
-  candidate: GitHubCandidateObservation;
-  expectedBaseSha: string;
-  expectedHeadSha: string;
-  expectedHeadTreeSha: string;
-  markers: readonly string[];
-  reviewReceipt: ReviewStabilityReceipt;
-  expectedTitle: string;
-  providerMergeCommitSha?: string | null;
-}): void {
-  const { candidate } = input;
-  if (candidate.state !== 'MERGED') {
-    throw new Error(
-      `hosted exact-head squash merge is not physically complete: candidate state is ${candidate.state}; `
-      + 'merge-queue enqueue is not integration success.'
-    );
-  }
-  if (candidate.headSha !== input.expectedHeadSha
-    || candidate.headTreeSha !== input.expectedHeadTreeSha
-    || candidate.mergeCommitSha === null
-    || candidate.mergeCommitTreeSha !== input.expectedHeadTreeSha
-    || candidate.mergeCommitMessage === null) {
-    throw new Error('hosted exact-head squash merge completed with a mismatched head or merge tree.');
-  }
-  if (candidate.baseSha !== input.expectedBaseSha
-    || candidate.mergeCommitParentShas?.length !== 1
-    || candidate.mergeCommitParentShas[0] !== input.expectedBaseSha) {
-    throw new Error('exact-head squash merge parent does not equal the verified base.');
-  }
-  const messageLines = candidate.mergeCommitMessage.split(/\r?\n/u);
-  if (!input.markers.every((marker) => messageLines.includes(marker))) {
-    throw new Error('hosted exact-head squash merge completed without the exact authorization markers.');
-  }
-  assertCanonicalMergeMessage({ authorizationMarkers: input.markers,
-    reviewReceipt: input.reviewReceipt, expectedTitle: input.expectedTitle,
-    message: candidate.mergeCommitMessage });
-  if (input.providerMergeCommitSha !== undefined && input.providerMergeCommitSha !== null
-    && candidate.mergeCommitSha !== input.providerMergeCommitSha) {
-    throw new Error('hosted exact-head squash merge provider response does not match the merge commit readback.');
-  }
-}
-
-export interface HostedSynchronousSquashMergeResponse {
-  readonly merged: true;
-  readonly sha: string;
-  readonly message: string;
-}
-
-export function parseHostedSynchronousSquashMergeResponse(
-  source: string
-): HostedSynchronousSquashMergeResponse {
-  let value: unknown;
-  try {
-    value = JSON.parse(source);
-  } catch {
-    throw new Error('hosted synchronous squash merge response is not valid JSON.');
-  }
-  if (value === null || typeof value !== 'object' || Array.isArray(value)) {
-    throw new Error('hosted synchronous squash merge response must be one object.');
-  }
-  const record = value as Record<string, unknown>;
-  if (record.merged !== true || typeof record.sha !== 'string'
-    || !/^[0-9a-f]{40}$/u.test(record.sha) || typeof record.message !== 'string') {
-    throw new Error('hosted synchronous squash merge response does not prove one physical merge commit.');
-  }
-  return Object.freeze({ merged: true, sha: record.sha, message: record.message });
-}
-
-async function executeHostedSquashMerge(input: {
-  ctx: VerificationSessionScope;
-  repository: string;
-  prNumber: number;
-  headSha: string;
-  sessionRevision: `sha256:${string}`;
-  publication: IntegrationAuthorizationOperationPublication;
-  commentId: number;
-  issueDispositionPlan: IssueDispositionPlan;
-}): Promise<HostedSynchronousSquashMergeResponse> {
-  const authorization = input.publication.result.authorization;
-  const authorizationMarkers = integrationAuthorizationMergeMarkers({
-    sessionRevision: input.sessionRevision,
-    authorizationId: authorization.authorizationId,
-    authorizationReceiptDigest: authorization.receiptDigest,
-    consumptionOperationId: authorization.consumptionOperationId as `sha256:${string}`,
-    authorizationPublicationId: input.publication.authorizationPublicationId,
-    authorizationPublicationDigest: input.publication.publicationDigest,
-    commentId: input.commentId
-  });
-  const reviewTrailer = renderIndependentReviewTrailer(input.publication.result.reviewReceipt);
-  const issueMarkers = [
-    `Issue-Disposition-Plan: ${input.issueDispositionPlan.planDigest}`,
-    `Issue-Disposition-Mode: ${input.issueDispositionPlan.mode}`,
-    `Issue-Disposition-Tracking: ${input.issueDispositionPlan.trackingIssueNumber ?? 'none'}`,
-    `Issue-Disposition-Prose: ${input.issueDispositionPlan.titleBodyDigest}`
-  ];
-  const markers = [...authorizationMarkers, ...issueMarkers, reviewTrailer];
-  const commitTitle = `Verified integration ${input.sessionRevision.slice(7, 19)}`;
-  if (parseGitHubClosingKeywordOccurrences(
-    `${commitTitle}\n${markers.join('\n')}`,
-    input.repository
-  ).length > 0) {
-    throw new Error('Canonical merge renderer produced a forbidden GitHub closing-keyword pattern.');
-  }
-  const result = await withGitHubApiMergeWriteSession({
-    repositoryRoot: input.ctx.repositoryRoot,
-    repository: input.repository,
-    operation: async (capability) => await executeGitHubApiOperation(capability, {
-      kind: 'merge-pull',
-      pullRequestNumber: input.prNumber,
-      headSha: input.headSha,
-      title: commitTitle,
-      message: markers.join('\n')
-    })
-  });
-  return parseHostedSynchronousSquashMergeResponse(JSON.stringify(result));
-}
-
 const USAGE = `Usage:
   bun src/adapters/verification/platform/ci/runtime/verification-session.ts project --default-ref <ref> [--open-prs true] [--repository <owner/name>] [--json]
   bun src/adapters/verification/platform/ci/runtime/verification-session.ts prepare --pr <n> --request-output <request.json> [--repository <owner/name>] [--json]
@@ -4136,7 +3737,7 @@ export async function verificationSessionCli(argv: string[]): Promise<string> {
     if (liveCandidate.state !== 'MERGED' || liveCandidate.mergeCommitMessage === null) {
       throw new Error('local-main closeout requires one live merged PR readback.');
     }
-    const sessionRevision = exactCommitMarker(liveCandidate.mergeCommitMessage, 'Verification-Session');
+    const sessionRevision = readExactCommitMarker(liveCandidate.mergeCommitMessage, 'Verification-Session');
     if (!/^sha256:[0-9a-f]{64}$/u.test(sessionRevision)) {
       throw new Error('merged commit Verification-Session marker is not an exact digest.');
     }
@@ -5042,7 +4643,7 @@ export async function verificationSessionCli(argv: string[]): Promise<string> {
           capability: 'github-writer',
           now: now()
         });
-        providerResponse = await executeHostedSquashMerge({ ctx, repository, prNumber: artifact.session.prNumber,
+        providerResponse = await executeHostedSquashMerge({ repositoryRoot: ctx.repositoryRoot, repository, prNumber: artifact.session.prNumber,
           headSha: artifact.session.headSha, sessionRevision: artifact.session.sessionRevision,
           publication: selected.publication, commentId: selected.commentId, issueDispositionPlan });
       } catch (error) {

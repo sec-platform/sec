@@ -149,14 +149,18 @@ import {
 import {
   assertHostedCompilerDispatchPayload,
   assertHostedCompilerInternalProvenance,
-  assertHostedSquashMergeCompletion,
-  classifyDurableVerificationSessionProjection,
-  parseHostedSynchronousSquashMergeResponse,
-  planHostedIntegrationEffects,
-  routeHostedIntegration,
   routePreparedWorktreeCleanupAttempt,
   verificationSessionCli
 } from '../../src/adapters/verification/platform/ci/runtime/verification-session.ts';
+import {
+  classifyDurableVerificationSessionProjection,
+  planHostedIntegrationEffects,
+  routeHostedIntegration
+} from '../../src/adapters/verification/platform/ci/runtime/verification-session-integration-routing.ts';
+import {
+  assertHostedSquashMergeCompletion,
+  parseHostedSynchronousSquashMergeResponse
+} from '../../src/adapters/verification/platform/ci/runtime/verification-session-merge-provider.ts';
 import { createVerificationSession, type VerificationSession } from '../../src/adapters/verification/platform/session/contract/session.ts';
 import { compileTcbClosureIdentity } from '../../src/adapters/verification/platform/trust/compiler.ts';
 import { TRUSTED_BOOTSTRAP_REGISTRY } from '../../src/adapters/verification/platform/trust/contract/root.ts';

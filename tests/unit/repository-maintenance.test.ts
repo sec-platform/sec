@@ -3,7 +3,8 @@ import { expect, test } from 'bun:test';
 import { sha256 } from '../../src/contracts/canonical.ts';
 import { parseExactCommentRetirement } from '../../src/adapters/self-hosting/control/repository-maintenance/comment-retirement.ts';
 import { parseExactRefRetirement } from '../../src/adapters/self-hosting/control/branch-lifecycle/exact-ref-retirement.ts';
-import { parseRepositoryMaintenanceRequest } from '../../src/adapters/self-hosting/control/repository-maintenance/repository-maintenance.ts';
+import { parseRepositoryMaintenanceRequest } from '../../src/adapters/self-hosting/control/repository-maintenance/contract.ts';
+import { planRepositoryMaintenance } from '../../src/adapters/self-hosting/control/repository-maintenance/plan.ts';
 
 const MAIN = '1'.repeat(40);
 
@@ -25,6 +26,13 @@ test('repository maintenance parser accepts only governed retirement operations'
     ]
   }));
   expect(request.operations).toHaveLength(3);
+  const plan = planRepositoryMaintenance(request);
+  expect(plan).toMatchObject({
+    schema: 'sec-repository-maintenance-plan-v1',
+    repository: 'sec-platform/sec',
+    expectedMainSha: MAIN
+  });
+  expect(plan.steps).toEqual(request.operations);
   expect(request.operations[0]).toEqual({ kind: 'exact-ref-retirement', retirement: parseExactRefRetirement({
     classification: 'transport-only', branches: ['transport/old'], expectedHeadSha: MAIN
   }) });

@@ -35,14 +35,16 @@ import {
   refreshVerificationSessionHostedArtifact
 } from '../../../verification/platform/ci/runtime/verification-session-runtime.ts';
 import {
-  assertHostedSquashMergeCompletion,
   observeExactIssueDispositionPlan,
   observePostMergeIssueReconciliation,
   observeVerificationSessionActionDependencyBlobs,
-  observeVerificationSessionChangedSelection,
-  parseHostedSynchronousSquashMergeResponse,
-  readExactCommitMarker
+  observeVerificationSessionChangedSelection
 } from '../../../verification/platform/ci/runtime/verification-session.ts';
+import { readExactCommitMarker } from '../../../verification/platform/ci/runtime/merge-commit-marker.ts';
+import {
+  assertHostedSquashMergeCompletion,
+  parseHostedSynchronousSquashMergeResponse
+} from '../../../verification/platform/ci/runtime/verification-session-merge-provider.ts';
 import { renderIndependentReviewTrailer } from '../../../verification/platform/review/contract/stability.ts';
 import { executeTrustedRuntimeContainerVerification, executeTrustedRuntimeWorkspaceCanary, parseTrustedRuntimeContainerReceipt, TRUSTED_RUNTIME_CONTAINER_EXECUTION_ENVIRONMENT, type TrustedRuntimeContainerReceipt } from '../../../verification/platform/trusted-runtime/trusted-runtime-container.ts';
 import { GIT_READ_OPERATION_BUDGET, gitReadText } from '../../development/tooling/git/git-read.ts';

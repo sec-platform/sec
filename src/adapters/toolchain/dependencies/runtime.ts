@@ -7,14 +7,21 @@ import { captureRuntimeDependencyInstallRequest, type RuntimeDependencyInstallRe
 import * as runtime from './runtime/project-runtime.ts';
 
 export type {
-  CompilerDependencyExecutionGenerationAuthority,
   CompilerDependencyMaterializationDigest,
-  CompilerDependencyMaterializationInputProjection, CompilerDependencyReadGenerationRetirementReceipt, CompilerDepsReadyState,
-  DependencyAuthorityPaths, RetainedCompilerDependencyExecutionGeneration, RetainedCompilerDependencyReadGeneration, RuntimeDependencySourceGeneration,
+  CompilerDependencyMaterializationInputProjection
+} from './runtime/compiler-materialization-input.ts';
+export type { RuntimeDependencySourceGeneration } from './runtime/dependency-transition/contract.ts';
+export type {
+  CompilerDependencyExecutionGenerationAuthority,
+  CompilerDependencyReadGenerationRetirementReceipt,
+  CompilerDepsReadyState,
+  DependencyAuthorityPaths,
+  RetainedCompilerDependencyExecutionGeneration,
+  RetainedCompilerDependencyReadGeneration,
   RuntimeDependencyTargetIdentity,
   RuntimeDepsStamp,
   SharedDepsReadyState
-} from './runtime/project-runtime.ts';
+} from './runtime/project-runtime-contract.ts';
 
 export {
   assertCompilerDependencyExecutionGenerationAuthority,

@@ -17,7 +17,7 @@ import {
 import type {
   CompilerDependencyExecutionGenerationAuthority,
   CompilerDepsReadyState
-} from '../runtime/project-runtime.ts';
+} from '../runtime/project-runtime-contract.ts';
 import {
   assertCompilerDependencyEnvironmentRetirementReceipt,
   compilerDependencyLocatorWorktreeRetirementProvider,
