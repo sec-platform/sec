@@ -6,6 +6,8 @@ import { encodeVerificationActionData } from '../../../verification/platform/act
 import { parseCiVerificationActionPlanClosure, type CiVerificationActionPlanClosure } from '../../../verification/platform/action/contract/ci.ts';
 import { assertVerificationEvidence, assertVerificationSessionArtifact, type VerificationSessionArtifact } from '../../../verification/platform/ci/contract/evidence.ts';
 import { CI_VERIFICATION_SESSION_ARTIFACT_PREFIX } from '../../../verification/platform/ci/contract/revision.ts';
+import { assertReviewReportCurrent, parseReviewReport, type ReviewReport } from '../../../verification/platform/review/contract/report.ts';
+import { createGitHubExactHeadReviewReport } from '../../../verification/platform/review/provider/github-report.ts';
 import { assertReviewStabilityReceiptCurrent, parseReviewStabilityReceipt, renderIndependentReviewTrailer, REVIEW_OBSERVER_PRODUCER_IDENTITY, type ReviewStabilityReceipt } from '../../../verification/platform/review/contract/stability.ts';
 import type { VerificationSession } from '../../../verification/platform/session/contract/session.ts';
 import {
@@ -31,11 +33,11 @@ import {
 export const MergeGateInputSchema =
   'codex-development-merge-gate-input-v2' as const;
 export const MergeGateResultSchema =
-  'codex-development-merge-gate-result-v2' as const;
+  'codex-development-merge-gate-result-v3' as const;
 const TrustedRuntimeMergeGateInputSchema =
   'sec-trusted-runtime-merge-gate-input-v1' as const;
 export const TrustedRuntimeMergeGateResultSchema =
-  'sec-trusted-runtime-merge-gate-result-v1' as const;
+  'sec-trusted-runtime-merge-gate-result-v2' as const;
 export const MergeGateProducerIdentity =
   'src/adapters/self-hosting/control/integration/merge-gate.ts' as const;
 export const MergeGateTerminalStatusContext =
@@ -168,6 +170,7 @@ export interface MergeGateResult {
   readonly status: 'authorized';
   readonly authorization: IntegrationAuthorization;
   readonly reviewReceipt: ReviewStabilityReceipt;
+  readonly reviewReport: ReviewReport;
   readonly mainHealth: MainHealthLedger;
   readonly platformObservation: MergeGatePlatformObservation;
   readonly hostedArtifactOrigin: HostedArtifactObservation;
@@ -182,6 +185,7 @@ export interface TrustedRuntimeMergeGateResult {
   readonly status: 'authorized';
   readonly authorization: IntegrationAuthorization;
   readonly reviewReceipt: ReviewStabilityReceipt;
+  readonly reviewReport: ReviewReport;
   readonly mainHealth: MainHealthLedger;
   readonly platformObservation: MergeGatePlatformObservation;
   readonly artifactObservation: TrustedRuntimeArtifactObservation;
@@ -643,6 +647,7 @@ type MergeGateCoreInput = Readonly<{
 type MergeGateCoreResult = Readonly<{
   authorization: IntegrationAuthorization;
   reviewReceipt: ReviewStabilityReceipt;
+  reviewReport: ReviewReport;
   mainHealth: MainHealthLedger;
   platformObservation: MergeGatePlatformObservation;
 }>;
@@ -706,6 +711,24 @@ function evaluateMergeGateCore(input: MergeGateCoreInput): MergeGateCoreResult {
     snapshotDigest: digest(input.reviewSnapshotDigest, 'reviewSnapshotDigest'),
     expectedReviewRevision: input.reviewReceipt.reviewRevision,
     now
+  });
+  const reviewReport = createGitHubExactHeadReviewReport({
+    receipt: input.reviewReceipt,
+    requiredSurfaces: scopeAuthorization.authorizedPaths
+  });
+  assertReviewReportCurrent(reviewReport, {
+    stage: 'pre-merge',
+    sessionRevision: session.sessionRevision,
+    scopeAuthorizationRevision: scopeAuthorization.authorizationRevision,
+    scopeAuthorizationReceiptDigest: scopeAuthorization.authorizationDigest,
+    headSha: candidate.headSha,
+    headTreeSha: candidate.headTreeSha,
+    policyDigest: session.reviewPolicyDigest,
+    sourceReviewRevision: input.reviewReceipt.reviewRevision,
+    sourceReceiptDigest: input.reviewReceipt.receiptDigest,
+    reviewMethodRevision: reviewReport.reviewMethodRevision,
+    coverageMode: reviewReport.coverageMode,
+    requiredSurfaces: scopeAuthorization.authorizedPaths
   });
   const health = resolveOrdinaryMainHealthLane({
     ledger: input.mainHealth,
@@ -771,6 +794,8 @@ function evaluateMergeGateCore(input: MergeGateCoreInput): MergeGateCoreResult {
     evidenceDigest: digest(evidence.evidenceDigest, 'evidence.evidenceDigest'),
     reviewRevision: input.reviewReceipt.reviewRevision,
     reviewReceiptDigest: input.reviewReceipt.receiptDigest,
+    reviewReportRevision: reviewReport.reportRevision,
+    reviewReportDigest: reviewReport.reportDigest,
     mainHealthRevision: input.mainHealth.healthRevision,
     mainHealthReceiptDigest: input.mainHealth.ledgerDigest,
     trustRevision,
@@ -790,6 +815,7 @@ function evaluateMergeGateCore(input: MergeGateCoreInput): MergeGateCoreResult {
   return Object.freeze({
     authorization,
     reviewReceipt: input.reviewReceipt,
+    reviewReport,
     mainHealth: input.mainHealth,
     platformObservation
   });
@@ -851,6 +877,7 @@ export function EvaluateMergeGate(
     status: 'authorized' as const,
     authorization: core.authorization,
     reviewReceipt: core.reviewReceipt,
+    reviewReport: core.reviewReport,
     mainHealth: core.mainHealth,
     platformObservation: core.platformObservation,
     hostedArtifactOrigin,
@@ -911,6 +938,7 @@ export function EvaluateTrustedRuntimeMergeGate(
     status: 'authorized' as const,
     authorization: core.authorization,
     reviewReceipt: core.reviewReceipt,
+    reviewReport: core.reviewReport,
     mainHealth: core.mainHealth,
     platformObservation: core.platformObservation,
     artifactObservation,
@@ -920,11 +948,31 @@ export function EvaluateTrustedRuntimeMergeGate(
   return Object.freeze({ ...withoutDigest, resultDigest: hash(withoutDigest) });
 }
 
+function assertReviewReportReceiptClosure(
+  reviewReport: ReviewReport,
+  reviewReceipt: ReviewStabilityReceipt
+): void {
+  assertReviewReportCurrent(reviewReport, {
+    stage: reviewReceipt.stage,
+    sessionRevision: reviewReceipt.sessionRevision,
+    scopeAuthorizationRevision: reviewReceipt.scopeAuthorizationRevision,
+    scopeAuthorizationReceiptDigest: reviewReceipt.scopeAuthorizationReceiptDigest,
+    headSha: reviewReceipt.headSha,
+    headTreeSha: reviewReceipt.headTreeSha,
+    policyDigest: reviewReceipt.policy.policyDigest,
+    sourceReviewRevision: reviewReceipt.reviewRevision,
+    sourceReceiptDigest: reviewReceipt.receiptDigest,
+    reviewMethodRevision: reviewReport.reviewMethodRevision,
+    coverageMode: reviewReport.coverageMode,
+    requiredSurfaces: reviewReport.requiredSurfaces
+  });
+}
+
 export function ParseMergeGateResult(
   source: string
 ): MergeGateResult {
   const value = exact(JSON.parse(source), [
-    'schema', 'status', 'authorization', 'reviewReceipt', 'mainHealth',
+    'schema', 'status', 'authorization', 'reviewReceipt', 'reviewReport', 'mainHealth',
     'platformObservation', 'hostedArtifactOrigin', 'hostedArtifactTransport', 'provenance', 'terminalStatusContext', 'resultDigest'
   ], 'merge-gate result');
   if (value.schema !== MergeGateResultSchema || value.status !== 'authorized' ||
@@ -937,9 +985,13 @@ export function ParseMergeGateResult(
   const reviewReceipt = parseReviewStabilityReceipt(
     encodeVerificationActionData(value.reviewReceipt)
   );
+  const reviewReport = parseReviewReport(
+    encodeVerificationActionData(value.reviewReport)
+  );
   const mainHealth = parseMainHealthLedger(
     encodeVerificationActionData(value.mainHealth)
   );
+  assertReviewReportReceiptClosure(reviewReport, reviewReceipt);
   const platformObservation = canonicalPlatformObservation(
     value.platformObservation as unknown as MergeGatePlatformObservation
   );
@@ -956,6 +1008,8 @@ export function ParseMergeGateResult(
   assertHostedArtifactResultClosure(authorization, hostedArtifactOrigin, hostedArtifactTransport);
   if (authorization.reviewRevision !== reviewReceipt.reviewRevision ||
       authorization.reviewReceiptDigest !== reviewReceipt.receiptDigest ||
+      authorization.reviewReportRevision !== reviewReport.reportRevision ||
+      authorization.reviewReportDigest !== reviewReport.reportDigest ||
       authorization.mainHealthRevision !== mainHealth.healthRevision ||
       authorization.mainHealthReceiptDigest !== mainHealth.ledgerDigest ||
       authorization.rulesetDigest !== platformObservation.rulesetDigest ||
@@ -973,6 +1027,7 @@ export function ParseMergeGateResult(
     status: 'authorized' as const,
     authorization,
     reviewReceipt,
+    reviewReport,
     mainHealth,
     platformObservation,
     hostedArtifactOrigin,
@@ -989,7 +1044,7 @@ export function ParseTrustedRuntimeMergeGateResult(
   source: string
 ): TrustedRuntimeMergeGateResult {
   const value = exact(JSON.parse(source), [
-    'schema', 'status', 'authorization', 'reviewReceipt', 'mainHealth',
+    'schema', 'status', 'authorization', 'reviewReceipt', 'reviewReport', 'mainHealth',
     'platformObservation', 'artifactObservation', 'provenance', 'terminalStatusContext', 'resultDigest'
   ], 'trusted runtime merge-gate result');
   if (value.schema !== TrustedRuntimeMergeGateResultSchema || value.status !== 'authorized' ||
@@ -1002,9 +1057,13 @@ export function ParseTrustedRuntimeMergeGateResult(
   const reviewReceipt = parseReviewStabilityReceipt(
     encodeVerificationActionData(value.reviewReceipt)
   );
+  const reviewReport = parseReviewReport(
+    encodeVerificationActionData(value.reviewReport)
+  );
   const mainHealth = parseMainHealthLedger(
     encodeVerificationActionData(value.mainHealth)
   );
+  assertReviewReportReceiptClosure(reviewReport, reviewReceipt);
   const platformObservation = canonicalPlatformObservation(
     value.platformObservation as unknown as MergeGatePlatformObservation
   );
@@ -1018,6 +1077,8 @@ export function ParseTrustedRuntimeMergeGateResult(
   assertTrustedRuntimeArtifactResultClosure(authorization, artifactObservation, provenance);
   if (authorization.reviewRevision !== reviewReceipt.reviewRevision ||
       authorization.reviewReceiptDigest !== reviewReceipt.receiptDigest ||
+      authorization.reviewReportRevision !== reviewReport.reportRevision ||
+      authorization.reviewReportDigest !== reviewReport.reportDigest ||
       authorization.mainHealthRevision !== mainHealth.healthRevision ||
       authorization.mainHealthReceiptDigest !== mainHealth.ledgerDigest ||
       authorization.rulesetDigest !== platformObservation.rulesetDigest ||
@@ -1035,6 +1096,7 @@ export function ParseTrustedRuntimeMergeGateResult(
     status: 'authorized' as const,
     authorization,
     reviewReceipt,
+    reviewReport,
     mainHealth,
     platformObservation,
     artifactObservation,

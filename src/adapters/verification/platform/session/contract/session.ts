@@ -18,10 +18,10 @@ export const VERIFICATION_REGISTRY_PROJECTION_SCHEMA =
 export const VERIFICATION_FREEZE_SESSION_SCHEMA =
   'sec-verification-freeze-session-v1' as const;
 export const VERIFICATION_SESSION_SCHEMA = 'sec-verification-session-v2' as const;
-export const VERIFICATION_SESSION_RUNTIME_ENTRYPOINT_PATH =
-  'src/adapters/verification/platform/ci/runtime/verification-session-runtime.ts' as const;
-export const VERIFICATION_SESSION_IMPLEMENTATION_IDENTITY =
-  'src/adapters/verification/platform/ci/runtime/verification-session.ts' as const;
+export {
+  VERIFICATION_SESSION_IMPLEMENTATION_IDENTITY,
+  VERIFICATION_SESSION_RUNTIME_ENTRYPOINT_PATH
+} from './identity.ts';
 
 type VerificationManifestSource = 'default' | 'open-pr';
 

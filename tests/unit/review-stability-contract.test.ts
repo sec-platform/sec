@@ -1,6 +1,7 @@
 import { expect, test } from 'bun:test';
 
-import { CODEX_CLEAN_REVIEW_ABOUT_NONEMPTY_LINES, CODEX_CLEAN_REVIEW_CONGRATULATIONS, CODEX_CLEAN_REVIEW_VERDICT_PREFIX, REVIEW_OBSERVER_READ_ONLY_CAPABILITY_RECEIPT, REVIEW_STABILITY_POLICY, assertMergeTrailerLines, assertReviewStabilityReceiptCurrent, createReviewSnapshotDigest, createReviewStabilityPolicy, createReviewStabilityReceipt, isCodexCleanReviewAboutBlock, isCodexCleanReviewVerdict, parseReviewStabilityPolicy, parseReviewStabilityReceipt, renderIndependentReviewTrailer, type ReviewSnapshot, type ReviewStabilityReceiptInput } from '../../src/adapters/verification/platform/review/contract/stability.ts';
+import { REVIEW_OBSERVER_READ_ONLY_CAPABILITY_RECEIPT, REVIEW_STABILITY_POLICY, assertMergeTrailerLines, assertReviewStabilityReceiptCurrent, createReviewSnapshotDigest, createReviewStabilityPolicy, createReviewStabilityReceipt, parseReviewStabilityPolicy, parseReviewStabilityReceipt, renderIndependentReviewTrailer, type ReviewSnapshot, type ReviewStabilityReceiptInput } from '../../src/adapters/verification/platform/review/contract/stability.ts';
+import { CODEX_CLEAN_REVIEW_ABOUT_NONEMPTY_LINES, CODEX_CLEAN_REVIEW_CONGRATULATIONS, CODEX_CLEAN_REVIEW_VERDICT_PREFIX, isCodexCleanReviewAboutBlock, isCodexCleanReviewVerdict } from '../../src/adapters/verification/platform/review/provider/codex-github.ts';
 
 test('Codex clean Review verdict owns one stable semantic prefix and closed presentation grammar', () => {
   expect(isCodexCleanReviewVerdict(CODEX_CLEAN_REVIEW_VERDICT_PREFIX)).toBe(true);

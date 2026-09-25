@@ -58,6 +58,7 @@ import { encodeVerificationActionData, type VerificationActionInputRef } from '.
 import { buildCiVerificationActionPlanClosure, CI_VERIFICATION_HOSTED_EXECUTION_ENVIRONMENT, ciVerificationGateStep, parseCiVerificationActionPlanClosure, type CiVerificationActionPlanClosure, type CiVerificationExecutionEnvironment } from '../../action/contract/ci.ts';
 import { CI_VERIFICATION_ACTION_DEPENDENCY_INPUT_PATHS } from '../../action/contract/environment.ts';
 import { CI_GITHUB_ACTIONS_IDENTITY_POLICY } from '../../action/contract/provider.ts';
+import { assertReviewReportCurrent } from '../../review/contract/report.ts';
 import { assertReviewStabilityReceiptCurrent, createReviewStabilityReceipt, REVIEW_OBSERVER_PRODUCER_IDENTITY, REVIEW_STABILITY_POLICY, type ReviewStabilityReceipt } from '../../review/contract/stability.ts';
 import { createVerificationSession, createVerificationSessionProposalDigest, createVerificationSessionRevision, parseVerificationSession, type VerificationSession, type VerificationSessionInput } from '../../session/contract/session.ts';
 import type { TestImpactSourceProvider } from '../../test-impact/runtime/impact.ts';
@@ -1430,10 +1431,25 @@ function verifyIntegrationArtifact(input: {
   result: MergeGateResult;
   hosted: TrustedArtifactProvenance;
   session: VerificationSession;
+  scopeAuthorization: ScopeAuthorization;
 }): void {
-  const { source, result, hosted, session } = input;
+  const { source, result, hosted, session, scopeAuthorization } = input;
   const { authorization, provenance } = result;
-  const expectedName = `sec-merge-gate-result-v2-pr-${session.prNumber}-session-${session.sessionRevision.slice(7)}-run-${provenance.sourceRunId}-attempt-${provenance.sourceRunAttempt}`;
+  assertReviewReportCurrent(result.reviewReport, {
+    stage: result.reviewReceipt.stage,
+    sessionRevision: session.sessionRevision,
+    scopeAuthorizationRevision: scopeAuthorization.authorizationRevision,
+    scopeAuthorizationReceiptDigest: scopeAuthorization.authorizationDigest,
+    headSha: session.headSha,
+    headTreeSha: session.headTreeSha,
+    policyDigest: session.reviewPolicyDigest,
+    sourceReviewRevision: result.reviewReceipt.reviewRevision,
+    sourceReceiptDigest: result.reviewReceipt.receiptDigest,
+    reviewMethodRevision: result.reviewReport.reviewMethodRevision,
+    coverageMode: result.reviewReport.coverageMode,
+    requiredSurfaces: scopeAuthorization.authorizedPaths
+  });
+  const expectedName = `sec-merge-gate-result-v3-pr-${session.prNumber}-session-${session.sessionRevision.slice(7)}-run-${provenance.sourceRunId}-attempt-${provenance.sourceRunAttempt}`;
   if (source.kind === 'github-comment') {
     const publication = source.publication;
     if (publication.result.resultDigest !== result.resultDigest
@@ -1609,7 +1625,7 @@ export function resumeVerificationSession(input: {
     ? ParseMergeGateResult(integrationSource.artifact.resultJson)
     : integrationSource.publication.result;
   verifyIntegrationArtifact({ source: integrationSource, result: integrationResult,
-    hosted: hosted.provenance, session });
+    hosted: hosted.provenance, session, scopeAuthorization: hosted.artifact.scopeAuthorization });
   const authorizationPrincipal = input.github.observePrincipalByNodeId(session.repository,
     integrationResult.provenance.actorNodeId);
   if (authorizationPrincipal.permission !== 'admin' && authorizationPrincipal.permission !== 'maintain') {
@@ -1693,6 +1709,8 @@ export function resumeVerificationSession(input: {
     evidenceDigest: hosted.artifact.evidence.evidenceDigest as Digest,
     reviewRevision: preMergeReceipt.reviewRevision,
     reviewReceiptDigest: preMergeReceipt.receiptDigest,
+    reviewReportRevision: integrationResult.reviewReport.reportRevision,
+    reviewReportDigest: integrationResult.reviewReport.reportDigest,
     mainHealthRevision: integrationResult.mainHealth.healthRevision,
     mainHealthReceiptDigest: integrationResult.mainHealth.ledgerDigest,
     trustRevision: session.trustRevision,

@@ -105,20 +105,20 @@ test('stable operation claim is immutable and prevents duplicate side effects', 
   const fs = new MemoryFs();
   const operationId = createVerificationSessionOperationId({
     sessionRevision: SESSION,
-    operationKind: 'request-review',
+    operationKind: 'hosted-dispatch',
     semanticInputDigest: INPUT
   });
   const first = claimVerificationSessionOperation({
     ...base(),
     operationId,
-    operationKind: 'request-review',
+    operationKind: 'hosted-dispatch',
     claimedAt: at(1),
     fs
   });
   const second = claimVerificationSessionOperation({
     ...base(),
     operationId,
-    operationKind: 'request-review',
+    operationKind: 'hosted-dispatch',
     claimedAt: at(2),
     fs
   });

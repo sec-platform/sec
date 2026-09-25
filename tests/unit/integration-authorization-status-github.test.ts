@@ -22,7 +22,7 @@ const HEAD = '2'.repeat(40);
 
 function result(): IntegrationAuthorizationGateResult {
   return {
-    schema: 'sec-trusted-runtime-merge-gate-result-v1',
+    schema: 'sec-trusted-runtime-merge-gate-result-v2',
     status: 'authorized',
     resultDigest: D('a'),
     authorization: createIntegrationAuthorization({
@@ -41,6 +41,8 @@ function result(): IntegrationAuthorizationGateResult {
       evidenceDigest: D('3'),
       reviewRevision: D('4'),
       reviewReceiptDigest: D('5'),
+      reviewReportRevision: D('a'),
+      reviewReportDigest: D('b'),
       mainHealthRevision: D('6'),
       mainHealthReceiptDigest: D('7'),
       trustRevision: BASE,
@@ -58,6 +60,7 @@ function result(): IntegrationAuthorizationGateResult {
       }
     }),
     reviewReceipt: {} as never,
+    reviewReport: {} as never,
     mainHealth: {} as never,
     platformObservation: {
       status: 'available',

@@ -94,8 +94,6 @@ import {
   classifyGitHubGraphQLSchemaFailure,
   createVerificationSessionGitHubClient,
   evaluateGitHubRepositoryActionsArtifactInventory,
-  evaluateHostedReviewLocatorObservation,
-  evaluateMaintainerReviewWakeupObservation,
   evaluatePlatformEnforcementObservation,
   evaluateVerificationSessionChangedPaths,
   evaluateVerificationSessionReviewObservation,
@@ -106,11 +104,7 @@ import {
   parseGitHubReviewPages,
   parseGitHubReviewThreadPages,
   PROVIDER_SCHEMA_UNSUPPORTED_STATUS,
-  shouldPublishMaintainerReviewWakeup,
-  VERIFICATION_SESSION_REVIEW_LOCATOR_COMMENT_MARKER,
-  VERIFICATION_SESSION_REVIEW_WAKEUP_COMMENT_MARKER,
   type GitHubActionsArtifactObservation,
-  type GitHubAppReviewCommentObservation,
   type GitHubCandidateObservation,
   type GitHubCommitResolutionObservation,
   type GitHubComparisonObservation,
@@ -304,188 +298,6 @@ test('hosted integration router separates first effect, merged recovery, and blo
     });
 });
 
-test('hosted Review locator is exact, non-triggering, and reuses only its matching locator', () => {
-  const input = {
-    repository: 'sec-platform/sec',
-    sessionRevision: `sha256:${'1'.repeat(64)}` as SessionDigest,
-    operationId: `sha256:${'2'.repeat(64)}` as SessionDigest,
-    prNumber: 42,
-    headSha: HEAD,
-    headTreeSha: HEAD,
-    sourceRunId: '900',
-    sourceRunAttempt: 1,
-    workflowRef: `.github/workflows/compiler-pr-validation.yml@${BASE}`
-  } as const;
-  const transport = new FakeTransport();
-  transport.issueComments = [[]];
-  const produced = evaluateHostedReviewLocatorObservation(transport, input);
-  expect(produced).toMatchObject({ status: 'absent', commentId: null });
-  expect(produced.body).toContain(VERIFICATION_SESSION_REVIEW_LOCATOR_COMMENT_MARKER);
-  expect(produced.body).not.toContain('@codex review');
-
-  transport.issueComments = [[actionsIssueComment(produced.body, '104')]];
-  expect(evaluateHostedReviewLocatorObservation(transport, input)).toMatchObject({
-    status: 'reused',
-    commentId: '104'
-  });
-
-  transport.issueComments = [[]];
-  const foreign = evaluateHostedReviewLocatorObservation(transport, {
-    ...input,
-    repository: 'foreign/repository'
-  });
-  transport.issueComments = [[actionsIssueComment(foreign.body)]];
-  expect(() => evaluateHostedReviewLocatorObservation(transport, input))
-    .toThrow('conflicting semantic bytes');
-
-  for (const drifted of [
-    { ...input, prNumber: input.prNumber + 1 },
-    { ...input, headSha: BASE },
-    { ...input, headTreeSha: BASE },
-    { ...input, sourceRunId: '901' },
-    { ...input, sourceRunAttempt: 2 },
-    { ...input, workflowRef: `.github/workflows/compiler-pr-validation.yml@${HEAD}` }
-  ]) {
-    transport.issueComments = [[]];
-    const drift = evaluateHostedReviewLocatorObservation(transport, drifted);
-    transport.issueComments = [[actionsIssueComment(drift.body)]];
-    expect(() => evaluateHostedReviewLocatorObservation(transport, input))
-      .toThrow('conflicting semantic bytes');
-  }
-
-  const encoded = produced.body.match(/```json\n(?<payload>.+)\n```$/u)?.groups?.payload;
-  if (encoded === undefined) throw new Error('production Review locator body did not contain canonical JSON');
-  const extraFieldBody = produced.body.replace(encoded, encodeVerificationActionData({
-    ...(JSON.parse(encoded) as Record<string, unknown>),
-    extraField: 'forbidden'
-  }));
-  transport.issueComments = [[actionsIssueComment(extraFieldBody)]];
-  expect(() => evaluateHostedReviewLocatorObservation(transport, input))
-    .toThrow('payload keys/schema are invalid');
-});
-
-test('maintainer Review wake-up is exact, user-authored, and at-most-once per session operation', () => {
-  expect(shouldPublishMaintainerReviewWakeup({ reviewBarrierStatus: 'waiting',
-    localVerificationStatus: 'passed', hostedArtifactPresent: false })).toBe(true);
-  for (const state of [
-    { reviewBarrierStatus: 'clear' as const, localVerificationStatus: 'passed' as const,
-      hostedArtifactPresent: false },
-    { reviewBarrierStatus: 'blocked' as const, localVerificationStatus: 'passed' as const,
-      hostedArtifactPresent: false },
-    { reviewBarrierStatus: PROVIDER_SCHEMA_UNSUPPORTED_STATUS, localVerificationStatus: 'passed' as const,
-      hostedArtifactPresent: false },
-    { reviewBarrierStatus: 'waiting' as const, localVerificationStatus: 'failed' as const,
-      hostedArtifactPresent: false },
-    { reviewBarrierStatus: 'waiting' as const, localVerificationStatus: 'blocked' as const,
-      hostedArtifactPresent: false },
-    { reviewBarrierStatus: 'waiting' as const, localVerificationStatus: null,
-      hostedArtifactPresent: false },
-    { reviewBarrierStatus: 'waiting' as const, localVerificationStatus: 'passed' as const,
-      hostedArtifactPresent: true }
-  ]) expect(shouldPublishMaintainerReviewWakeup(state)).toBe(false);
-
-  const input = {
-    repository: 'sec-platform/sec',
-    sessionRevision: `sha256:${'1'.repeat(64)}` as SessionDigest,
-    operationId: `sha256:${'2'.repeat(64)}` as SessionDigest,
-    requestOperationId: `sha256:${'3'.repeat(64)}` as SessionDigest,
-    prNumber: 42,
-    headSha: HEAD,
-    headTreeSha: HEAD,
-    publisherLogin: 'maintainer',
-    publisherNodeId: 'MAINTAINER_NODE'
-  } as const;
-  const transport = new FakeTransport();
-  transport.collaboratorPermissions.set('outsider', 'read');
-  transport.collaboratorPermissions.set('renamed-maintainer', 'admin');
-  type WakeupObservationTransaction = Parameters<
-    typeof evaluateMaintainerReviewWakeupObservation
-  >[0];
-  const acceptWakeupObservationTransaction = (_transaction: WakeupObservationTransaction): void => undefined;
-  if (false) {
-    // @ts-expect-error collaboratorPermission is an authority-bearing required capability.
-    acceptWakeupObservationTransaction({
-      issueCommentPage: transport.issueCommentPage.bind(transport)
-    });
-  }
-  transport.issueComments = [[]];
-  const produced = evaluateMaintainerReviewWakeupObservation(transport, input);
-  expect(produced).toMatchObject({ status: 'absent', commentId: null });
-  expect(produced.body.startsWith('@codex review\n\n')).toBe(true);
-  expect(produced.body).toContain(VERIFICATION_SESSION_REVIEW_WAKEUP_COMMENT_MARKER);
-
-  transport.issueComments = [[botIssueComment(produced.body, {
-    id: '200', authorLogin: 'outsider', authorId: 502, authorNodeId: 'OUTSIDER',
-    authorType: 'User', performedViaGitHubApp: null
-  })]];
-  expect(evaluateMaintainerReviewWakeupObservation(transport, input)).toMatchObject({
-    status: 'absent', commentId: null
-  });
-
-  transport.issueComments = [[botIssueComment(
-    `@codex review\n\n${VERIFICATION_SESSION_REVIEW_WAKEUP_COMMENT_MARKER}\n{not-json}`,
-    { id: '204', authorLogin: 'outsider', authorId: 502, authorNodeId: 'OUTSIDER',
-      authorType: 'User', performedViaGitHubApp: null }
-  )]];
-  expect(evaluateMaintainerReviewWakeupObservation(transport, input)).toMatchObject({
-    status: 'absent', commentId: null
-  });
-
-  transport.issueComments = [[maintainerIssueComment(produced.body)]];
-  expect(evaluateMaintainerReviewWakeupObservation(transport, input)).toMatchObject({
-    status: 'reused', commentId: '201', wakeupDigest: produced.wakeupDigest
-  });
-
-  transport.issueComments = [[maintainerIssueComment(produced.body, '205', {
-    authorLogin: 'renamed-maintainer'
-  })]];
-  expect(evaluateMaintainerReviewWakeupObservation(transport, input)).toMatchObject({
-    status: 'reused', commentId: '205', wakeupDigest: produced.wakeupDigest
-  });
-
-  transport.issueComments = [[]];
-  const otherMaintainer = evaluateMaintainerReviewWakeupObservation(transport, {
-    ...input,
-    publisherLogin: 'other-maintainer',
-    publisherNodeId: 'OTHER_MAINTAINER_NODE'
-  });
-  transport.issueComments = [[botIssueComment(otherMaintainer.body, {
-    id: '203', authorLogin: 'other-maintainer', authorId: 503,
-    authorNodeId: 'OTHER_MAINTAINER_NODE', authorType: 'User', performedViaGitHubApp: null
-  })]];
-  expect(evaluateMaintainerReviewWakeupObservation(transport, input)).toMatchObject({
-    status: 'reused', commentId: '203', wakeupDigest: otherMaintainer.wakeupDigest
-  });
-
-  transport.issueComments = [[maintainerIssueComment(produced.body, '201'),
-    maintainerIssueComment(produced.body, '202')]];
-  expect(() => evaluateMaintainerReviewWakeupObservation(transport, input))
-    .toThrow('duplicate maintainer Review wake-up comments');
-
-  transport.issueComments = [[]];
-  const drifted = evaluateMaintainerReviewWakeupObservation(transport, {
-    ...input,
-    headTreeSha: BASE
-  });
-  transport.issueComments = [[maintainerIssueComment(drifted.body)]];
-  expect(() => evaluateMaintainerReviewWakeupObservation(transport, input))
-    .toThrow('conflicting semantic bytes');
-
-  transport.issueComments = [[maintainerIssueComment(produced.body, '201', {
-    authorType: 'Bot',
-    performedViaGitHubApp: CI_GITHUB_ACTIONS_IDENTITY_POLICY.app
-  })]];
-  expect(evaluateMaintainerReviewWakeupObservation(transport, input)).toMatchObject({
-    status: 'absent', commentId: null
-  });
-
-  transport.issueComments = [[maintainerIssueComment(
-    `@codex review\n\n${VERIFICATION_SESSION_REVIEW_WAKEUP_COMMENT_MARKER}\n{not-json}`
-  )]];
-  expect(() => evaluateMaintainerReviewWakeupObservation(transport, input))
-    .toThrow('maintainer Review wake-up comment shape is invalid');
-});
-
 test('provider recovery artifact binds exact envelope and bundle bytes', () => {
   const artifact = createBranchCloseoutRecoveryArtifact({
     repository: 'sec-platform/sec',
@@ -527,7 +339,6 @@ class FakeTransport implements VerificationSessionReviewObservationTransaction,
   reviews: GitHubReviewObservation[][] = [[]];
   threads: GitHubReviewThreadObservation[][] = [[]];
   requests: GitHubReviewRequestObservation[][] = [[]];
-  comments: GitHubAppReviewCommentObservation[][] = [[]];
   issueComments: GitHubIssueCommentObservation[][] = [[]];
   workflowRuns: GitHubWorkflowRunObservation[][] = [[]];
   resolutions = new Map<string, GitHubCommitResolutionObservation>();
@@ -555,7 +366,6 @@ class FakeTransport implements VerificationSessionReviewObservationTransaction,
   reviewPage(_r: string, _p: number, after: string | null): GitHubPage<GitHubReviewObservation> { return this.at(this.reviews, after, 'a'); }
   threadPage(_r: string, _p: number, after: string | null): GitHubPage<GitHubReviewThreadObservation> { return this.at(this.threads, after, 'b'); }
   reviewRequestPage(_r: string, _p: number, after: string | null): GitHubPage<GitHubReviewRequestObservation> { return this.at(this.requests, after, 'c'); }
-  appCommentPage(_r: string, _p: number, after: string | null): GitHubPage<GitHubAppReviewCommentObservation> { return this.at(this.comments, after, 'd'); }
   issueCommentPage(_r: string, _p: number, after: string | null): GitHubPage<GitHubIssueCommentObservation> { return this.at(this.issueComments, after, 'e'); }
   resolveCommitOid(repository: string, locator: string): GitHubCommitResolutionObservation {
     const configured = this.resolutions.get(locator);
@@ -617,30 +427,6 @@ function botIssueComment(body = `Codex Review: Didn't find any major issues. Bra
     performedViaGitHubApp: { id: 1144995, nodeId: 'A_kwHOAOQ6Gs4AEXij',
       slug: 'chatgpt-codex-connector' },
     createdAt: '2026-08-09T14:00:00.000Z', ...overrides };
-}
-
-function actionsIssueComment(body: string, id = '101'): GitHubIssueCommentObservation {
-  return botIssueComment(body, {
-    id,
-    authorLogin: CI_GITHUB_ACTIONS_IDENTITY_POLICY.bot.login,
-    authorId: CI_GITHUB_ACTIONS_IDENTITY_POLICY.bot.id,
-    authorNodeId: CI_GITHUB_ACTIONS_IDENTITY_POLICY.bot.nodeId,
-    authorType: CI_GITHUB_ACTIONS_IDENTITY_POLICY.bot.type,
-    performedViaGitHubApp: CI_GITHUB_ACTIONS_IDENTITY_POLICY.app
-  });
-}
-
-function maintainerIssueComment(body: string, id = '201', overrides: Partial<
-  GitHubIssueCommentObservation> = {}): GitHubIssueCommentObservation {
-  return botIssueComment(body, {
-    id,
-    authorLogin: 'maintainer',
-    authorId: 501,
-    authorNodeId: 'MAINTAINER_NODE',
-    authorType: 'User',
-    performedViaGitHubApp: null,
-    ...overrides
-  });
 }
 
 function observe(transport: FakeTransport) {
@@ -1114,7 +900,7 @@ async function reducerFixture(options: {
   })).digest('hex')}` as const;
   const authorizationMetadata = {
     artifactId: '2000',
-    artifactName: `sec-merge-gate-result-v2-pr-42-session-${artifact.session.sessionRevision.slice(7)}-run-200-attempt-1`,
+    artifactName: `sec-merge-gate-result-v3-pr-42-session-${artifact.session.sessionRevision.slice(7)}-run-200-attempt-1`,
     archiveDigest: PAGE,
     workflowPath: '.github/workflows/merge-gate.yml', workflowRef: mergeWorkflowRef,
     workflowSha: BASE, runId: '200', runAttempt: 1, eventName: 'workflow_run',
@@ -1247,6 +1033,7 @@ function substituteAuthorizationLiveIdentity(
     status: fixture.result.status,
     authorization,
     reviewReceipt: fixture.result.reviewReceipt,
+    reviewReport: fixture.result.reviewReport,
     mainHealth: fixture.result.mainHealth,
     platformObservation: fixture.result.platformObservation,
     hostedArtifactOrigin: Object.freeze({ ...fixture.result.hostedArtifactOrigin,

@@ -203,7 +203,6 @@ import {
 } from './ci-orchestration-core.ts';
 import {
   createVerificationSessionGitHubClient,
-  shouldPublishMaintainerReviewWakeup,
   type GitHubActionsArtifactObservation,
   type GitHubCandidateObservation,
   type VerificationSessionGitHubClient
@@ -211,7 +210,6 @@ import {
 import {
   appendVerificationSessionJournalEvent,
   createEphemeralVerificationSessionJournalFs,
-  createVerificationSessionOperationId,
   readVerificationSessionJournal,
   type VerificationSessionJournalFileSystem
 } from './verification-session-journal.ts';
@@ -1229,6 +1227,47 @@ function assertUnavailableProviderCircuitBreakerNotAuthority(input: {
   if (capability.availability !== 'unavailable') return;
   assertProviderRetryGuard({ previous: { availability: capability.availability, epochId: epoch.epochId },
     requested: { capability: input.capability, epochId: epoch.epochId } });
+}
+
+
+type ProviderUnavailableObservation = Readonly<{
+  status: 'provider-unavailable';
+  capability: 'codex-review' | 'github-writer' | 'github-actions-hosted-verification';
+  reasonCode: string | null;
+  availabilityEpochId: string;
+  availabilityEpochDigest: `sha256:${string}`;
+  receiptRef: `sha256:${string}` | null;
+}>;
+
+/**
+ * Read-only negative provider projection. A stale/unknown/available ledger never
+ * grants authority and never becomes a positive provider claim. A fresh
+ * unavailable observation is normalized to bounded fields only; raw provider
+ * prose remains disposable and is never copied into Review/Gate evidence.
+ */
+function observeUnavailableProviderNotAuthority(input: {
+  ctx: VerificationSessionScope;
+  capability: ProviderUnavailableObservation['capability'];
+  now: string;
+}): ProviderUnavailableObservation | null {
+  const epoch = loadVerificationProviderCapabilityLedger(input.ctx.repositoryRoot);
+  if (input.now < epoch.observedAt || input.now >= epoch.expiresAt) return null;
+  const capability = resolveProviderAvailability(epoch, input.capability);
+  if (capability.availability !== 'unavailable') return null;
+  try {
+    assertProviderRetryGuard({ previous: { availability: capability.availability, epochId: epoch.epochId },
+      requested: { capability: input.capability, epochId: epoch.epochId } });
+  } catch (error) {
+    if (!(error instanceof CompilerError) || error.code !== 'PROVIDER-UNAVAILABLE-NOT-RETRIED') throw error;
+  }
+  return Object.freeze({
+    status: 'provider-unavailable' as const,
+    capability: input.capability,
+    reasonCode: capability.reasonCode,
+    availabilityEpochId: epoch.epochId,
+    availabilityEpochDigest: epoch.epochDigest,
+    receiptRef: capability.receiptRef
+  });
 }
 
 function githubEvent(environment: Readonly<Record<string, string | undefined>>): Record<string, any> {
@@ -3891,141 +3930,6 @@ async function publishHostedIntegrationAuthorizationOperation(
   }
 }
 
-async function ensureHostedReviewLocator(
-  ctx: VerificationSessionScope,
-  github: VerificationSessionGitHubClient,
-  input: Readonly<{
-    repository: string;
-    prNumber: number;
-    sessionRevision: `sha256:${string}`;
-    operationId: `sha256:${string}`;
-    headSha: string;
-    headTreeSha: string;
-    sourceRunId: string;
-    sourceRunAttempt: number;
-    workflowRef: string;
-  }>
-): Promise<Readonly<{
-  status: 'published' | 'reused';
-  commentId: string;
-  publicationDigest: `sha256:${string}`;
-}>> {
-  const observed = github.observeHostedReviewLocator(input);
-  if (observed.status === 'reused') {
-    if (observed.commentId === null) {
-      throw new Error('Hosted Review locator reuse has no comment identity.');
-    }
-    return Object.freeze({
-      status: 'reused' as const,
-      commentId: observed.commentId,
-      publicationDigest: observed.publicationDigest
-    });
-  }
-  assertUnavailableProviderCircuitBreakerNotAuthority({
-    ctx,
-    capability: 'github-writer',
-    now: new Date().toISOString()
-  });
-  let commentId: string;
-  try {
-    const response = await createGitHubIssueComment({
-      ctx,
-      repository: input.repository,
-      issueNumber: input.prNumber,
-      body: observed.body,
-      authority: 'verification-session'
-    });
-    if (!response || typeof response !== 'object' || Array.isArray(response)
-      || !Number.isSafeInteger((response as Record<string, unknown>).id)
-      || Number((response as Record<string, unknown>).id) <= 0) {
-      throw new Error('created comment has no positive id');
-    }
-    commentId = String((response as Record<string, unknown>).id);
-  } catch (error) {
-    throw new Error(
-      `AMBIGUOUS_SIDE_EFFECT: hosted Review locator POST outcome/response is invalid: ${error instanceof Error ? error.message : String(error)}`
-    );
-  }
-  await readGitHubIssueComment({ ctx, repository: input.repository, commentId: Number(commentId) });
-  const complete = github.observeHostedReviewLocator(input);
-  if (complete.status !== 'reused' || complete.commentId !== commentId
-    || complete.publicationDigest !== observed.publicationDigest) {
-    throw new Error(
-      'AMBIGUOUS_SIDE_EFFECT: hosted Review locator is not unique after complete readback.'
-    );
-  }
-  return Object.freeze({
-    status: 'published' as const,
-    commentId,
-    publicationDigest: complete.publicationDigest
-  });
-}
-
-async function ensureMaintainerReviewWakeup(
-  ctx: VerificationSessionScope,
-  github: VerificationSessionGitHubClient,
-  input: Readonly<{
-    repository: string;
-    prNumber: number;
-    sessionRevision: `sha256:${string}`;
-    operationId: `sha256:${string}`;
-    requestOperationId: `sha256:${string}`;
-    headSha: string;
-    headTreeSha: string;
-    publisherLogin: string;
-    publisherNodeId: string;
-  }>
-): Promise<Readonly<{
-  status: 'published' | 'reused';
-  commentId: string;
-  wakeupDigest: `sha256:${string}`;
-}>> {
-  const observed = github.observeMaintainerReviewWakeup(input);
-  if (observed.status === 'reused') {
-    if (observed.commentId === null) throw new Error('Maintainer Review wake-up reuse has no comment identity.');
-    return Object.freeze({ status: 'reused' as const, commentId: observed.commentId,
-      wakeupDigest: observed.wakeupDigest });
-  }
-  assertUnavailableProviderCircuitBreakerNotAuthority({
-    ctx,
-    capability: 'codex-review',
-    now: new Date().toISOString()
-  });
-  assertUnavailableProviderCircuitBreakerNotAuthority({
-    ctx,
-    capability: 'github-writer',
-    now: new Date().toISOString()
-  });
-  let commentId: string;
-  try {
-    const response = await createGitHubIssueComment({
-      ctx,
-      repository: input.repository,
-      issueNumber: input.prNumber,
-      body: observed.body,
-      authority: 'verification-session'
-    });
-    if (!response || typeof response !== 'object' || Array.isArray(response)
-      || !Number.isSafeInteger((response as Record<string, unknown>).id)
-      || Number((response as Record<string, unknown>).id) <= 0) {
-      throw new Error('created comment has no positive id');
-    }
-    commentId = String((response as Record<string, unknown>).id);
-  } catch (error) {
-    throw new Error(
-      `AMBIGUOUS_SIDE_EFFECT: maintainer Review wake-up POST outcome/response is invalid: ${error instanceof Error ? error.message : String(error)}`
-    );
-  }
-  await readGitHubIssueComment({ ctx, repository: input.repository, commentId: Number(commentId) });
-  const complete = github.observeMaintainerReviewWakeup(input);
-  if (complete.status !== 'reused' || complete.commentId !== commentId
-    || complete.wakeupDigest !== observed.wakeupDigest) {
-    throw new Error('AMBIGUOUS_SIDE_EFFECT: maintainer Review wake-up is not unique after complete readback.');
-  }
-  return Object.freeze({ status: 'published' as const, commentId,
-    wakeupDigest: complete.wakeupDigest });
-}
-
 export function assertHostedSquashMergeCompletion(input: {
   candidate: GitHubCandidateObservation;
   expectedBaseSha: string;
@@ -4392,7 +4296,7 @@ export async function verificationSessionCli(argv: string[]): Promise<string> {
           reasonCode: prepared.reviewBarrier.reasonCode,
           responseDigest: prepared.reviewBarrier.responseDigest,
           observedAt: prepared.reviewBarrier.observedAt }),
-        reviewWakeup: null, dispatchSignalSent: false, workflowJoin: null,
+        dispatchSignalSent: false, workflowJoin: null,
         localVerification: null }, null, 2);
     }
     const reviewBarrierAllowsExecution = prepared.reviewBarrier.status === 'clear'
@@ -4458,7 +4362,7 @@ export async function verificationSessionCli(argv: string[]): Promise<string> {
         && effectCandidate.headTreeSha === prepared.request.expectedHeadTreeSha
         && ParseWorkPackageLocator(effectCandidate.body) === prepared.request.manifestPath;
       if (!unchangedCandidate) {
-        throw new Error('prepare candidate drifted after local quick verification and before Review wake-up.');
+        throw new Error('prepare candidate drifted after local quick verification and before Review re-read.');
       }
       effectReviewBarrier = github.observeReviewBarrier({
         repository,
@@ -4472,32 +4376,13 @@ export async function verificationSessionCli(argv: string[]): Promise<string> {
         status: 'BLOCKED',
         sessionRevision: prepared.sessionRevision,
         reviewProvider: effectReviewBarrier,
-        reviewWakeup: null,
         dispatchSignalSent: false,
         workflowJoin: null,
         localVerification
       }, null, 2);
     }
-    const reviewWakeup = shouldPublishMaintainerReviewWakeup({
-      reviewBarrierStatus: effectReviewBarrier.status,
-      localVerificationStatus: localVerification?.result.status ?? null,
-      hostedArtifactPresent: hosted !== null
-    })
-      ? await ensureMaintainerReviewWakeup(ctx, github, {
-          repository,
-          prNumber,
-          sessionRevision: prepared.sessionRevision,
-          operationId: createVerificationSessionOperationId({
-            sessionRevision: prepared.sessionRevision,
-            operationKind: 'request-review',
-            semanticInputDigest: prepared.request.requestOperationId
-          }),
-          requestOperationId: prepared.request.requestOperationId,
-          headSha: prepared.request.expectedHeadSha,
-          headTreeSha: prepared.request.expectedHeadTreeSha,
-          publisherLogin: principal.login,
-          publisherNodeId: principal.nodeId
-        })
+    const reviewProvider = effectReviewBarrier.status === 'waiting'
+      ? observeUnavailableProviderNotAuthority({ ctx, capability: 'codex-review', now: now() })
       : null;
     const runJoin = github.observeVerificationSessionWorkflowJoin({ repository, prNumber,
       sessionRevision: prepared.sessionRevision,
@@ -4524,7 +4409,7 @@ export async function verificationSessionCli(argv: string[]): Promise<string> {
     }
     if (effectReviewBarrier.status === 'blocked') return JSON.stringify({ status: 'BLOCKED',
       sessionRevision: prepared.sessionRevision, reason: effectReviewBarrier.reason,
-      reviewWakeup, dispatchSignalSent, workflowJoin: runJoin, localVerification: null }, null, 2);
+      ...(reviewProvider === null ? {} : { reviewProvider }), dispatchSignalSent, workflowJoin: runJoin, localVerification: null }, null, 2);
     if (localVerification !== null && localVerification.result.status !== 'passed') {
       return JSON.stringify({
         status: localVerification.result.status === 'failed'
@@ -4534,7 +4419,7 @@ export async function verificationSessionCli(argv: string[]): Promise<string> {
           ? 'local quick Action DAG failed; hosted dispatch is forbidden'
           : 'local quick Action DAG did not acquire a terminal journal result; hosted dispatch is forbidden',
         requestOperationId: prepared.request.requestOperationId,
-        reviewWakeup,
+        ...(reviewProvider === null ? {} : { reviewProvider }),
         dispatchSignalSent,
         workflowJoin: runJoin,
         localVerification
@@ -4547,9 +4432,9 @@ export async function verificationSessionCli(argv: string[]): Promise<string> {
       sessionRevision: prepared.sessionRevision, reason: effectReviewBarrier.status === 'clear'
         ? hosted !== null ? 'joined exact remote Session artifact'
           : runJoin.status === 'joined' ? `joined hosted coordinator ${runJoin.reason}` : 'hosted coordinator signaled'
-        : `${effectReviewBarrier.reason}; hosted coordinator owns the canonical Review request`,
+        : `${effectReviewBarrier.reason}; Review activation is provider-managed and PR Conversation remains passive`,
       requestOperationId: prepared.request.requestOperationId,
-      reviewWakeup,
+      ...(reviewProvider === null ? {} : { reviewProvider }),
       dispatchSignalSent,
       workflowJoin: runJoin,
       localVerification,
@@ -4647,49 +4532,14 @@ export async function verificationSessionCli(argv: string[]): Promise<string> {
       throw new Error(`observe-hosted Review barrier blocked: ${reviewBarrier.reason}`);
     }
     if (reviewBarrier.status === 'waiting') {
-      const operationId = createVerificationSessionOperationId({
-        sessionRevision: request.expectedSessionRevision,
-        operationKind: 'request-review', semanticInputDigest: request.requestOperationId
+      const reviewProvider = observeUnavailableProviderNotAuthority({
+        ctx, capability: 'codex-review', now: now()
       });
-      // The hosted writer publishes only a non-triggering locator. It is an
-      // audit projection, not a Codex activation or Review authority.
-      const reviewLocator = await ensureHostedReviewLocator(ctx, github, { repository,
-        prNumber: request.prNumber, sessionRevision: request.expectedSessionRevision,
-        operationId, headSha: request.expectedHeadSha, headTreeSha: request.expectedHeadTreeSha,
-        sourceRunId: compilerIdentity.runId, sourceRunAttempt: compilerIdentity.runAttempt,
-        workflowRef: `.github/workflows/compiler-pr-validation.yml@${request.expectedBaseSha}` });
-      const providerEpoch = loadVerificationProviderCapabilityLedger(ctx.repositoryRoot);
-      const providerEpochNow = now();
-      const reviewer = resolveProviderAvailability(providerEpoch, 'codex-review');
-      const reviewProviderUnavailable = providerEpochNow >= providerEpoch.observedAt
-        && providerEpochNow < providerEpoch.expiresAt
-        && reviewer.availability === 'unavailable';
-      if (reviewProviderUnavailable) {
-        try {
-          assertProviderRetryGuard({ previous: { availability: reviewer.availability,
-            epochId: providerEpoch.epochId }, requested: { capability: 'codex-review',
-            epochId: providerEpoch.epochId } });
-        } catch (error) {
-          if (!(error instanceof CompilerError) || error.code !== 'PROVIDER-UNAVAILABLE-NOT-RETRIED') {
-            throw error;
-          }
-          // Expected fail-closed guard: the projection below records the typed
-          // unavailable state without invoking or re-requesting the provider.
-        }
-        // A negative circuit breaker blocks a same-epoch retry. The hosted
-        // principal never emits @codex; only authenticated local prepare may
-        // have published the maintainer wake-up after local quick PASS.
-        return JSON.stringify({ status: 'WAITING_REVIEW', sessionRevision: request.expectedSessionRevision,
-          reviewProvider: { status: 'review-provider-unavailable', capability: 'codex-review',
-            reasonCode: reviewer.reasonCode, availabilityEpochId: providerEpoch.epochId,
-            availabilityEpochDigest: providerEpoch.epochDigest,
-            receiptRef: reviewer.receiptRef },
-          reviewLocator: reviewLocator.status, reviewLocatorCommentId: reviewLocator.commentId,
-          reviewLocatorPublicationDigest: reviewLocator.publicationDigest, output: null }, null, 2);
-      }
-      return JSON.stringify({ status: 'WAITING_REVIEW', sessionRevision: request.expectedSessionRevision,
-        reviewLocator: reviewLocator.status, reviewLocatorCommentId: reviewLocator.commentId,
-        reviewLocatorPublicationDigest: reviewLocator.publicationDigest, output: null }, null, 2);
+      return JSON.stringify({ status: 'WAITING_REVIEW',
+        sessionRevision: request.expectedSessionRevision,
+        reason: reviewBarrier.reason,
+        ...(reviewProvider === null ? {} : { reviewProvider }),
+        output: null }, null, 2);
     }
     if (reviewBarrier.status !== 'clear') throw new Error('observe-hosted Review barrier did not narrow to clear.');
     const observedAt = now();

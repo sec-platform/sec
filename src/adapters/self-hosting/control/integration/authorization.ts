@@ -4,7 +4,7 @@ import { encodeVerificationActionData } from '../../../verification/platform/act
 
 /** Content-integrity decision object, not a signature. The physical executor independently rereads issuer, live facts, and consumption state. */
 
-const INTEGRATION_AUTHORIZATION_SCHEMA = 'sec-integration-authorization-v1' as const;
+const INTEGRATION_AUTHORIZATION_SCHEMA = 'sec-integration-authorization-v2' as const;
 type IntegrationAuthorizationDigest = `sha256:${string}`;
 
 interface IntegrationAuthorizationIssuer {
@@ -35,6 +35,8 @@ export interface IntegrationAuthorization {
   readonly evidenceDigest: IntegrationAuthorizationDigest;
   readonly reviewRevision: IntegrationAuthorizationDigest;
   readonly reviewReceiptDigest: IntegrationAuthorizationDigest;
+  readonly reviewReportRevision: IntegrationAuthorizationDigest;
+  readonly reviewReportDigest: IntegrationAuthorizationDigest;
   readonly mainHealthRevision: IntegrationAuthorizationDigest;
   readonly mainHealthReceiptDigest: IntegrationAuthorizationDigest;
   readonly trustRevision: string;
@@ -72,7 +74,7 @@ function record(value: unknown): Record<string, unknown> {
   return value as Record<string, unknown>;
 }
 function exact(value: Record<string, unknown>): void {
-  const expected = ['schema', 'authorizationId', 'consumptionOperationId', 'repository', 'prNumber', 'sessionRevision', 'baseSha', 'baseTreeSha', 'headSha', 'headTreeSha', 'manifestDigest', 'scopeAuthorizationRevision', 'scopeAuthorizationReceiptDigest', 'actionClosureDigest', 'evidenceDigest', 'reviewRevision', 'reviewReceiptDigest', 'mainHealthRevision', 'mainHealthReceiptDigest', 'trustRevision', 'rulesetDigest', 'issuedAt', 'expiresAt', 'issuer', 'receiptDigest'].sort();
+  const expected = ['schema', 'authorizationId', 'consumptionOperationId', 'repository', 'prNumber', 'sessionRevision', 'baseSha', 'baseTreeSha', 'headSha', 'headTreeSha', 'manifestDigest', 'scopeAuthorizationRevision', 'scopeAuthorizationReceiptDigest', 'actionClosureDigest', 'evidenceDigest', 'reviewRevision', 'reviewReceiptDigest', 'reviewReportRevision', 'reviewReportDigest', 'mainHealthRevision', 'mainHealthReceiptDigest', 'trustRevision', 'rulesetDigest', 'issuedAt', 'expiresAt', 'issuer', 'receiptDigest'].sort();
   const actual = Object.keys(value).sort();
   if (actual.length !== expected.length || actual.some((key, index) => key !== expected[index])) fail(`receipt must contain exactly: ${expected.join(', ')}.`);
 }
@@ -101,6 +103,8 @@ export function createIntegrationAuthorization(input: IntegrationAuthorizationIn
     evidenceDigest: digest(input.evidenceDigest, 'evidenceDigest'),
     reviewRevision: digest(input.reviewRevision, 'reviewRevision'),
     reviewReceiptDigest: digest(input.reviewReceiptDigest, 'reviewReceiptDigest'),
+    reviewReportRevision: digest(input.reviewReportRevision, 'reviewReportRevision'),
+    reviewReportDigest: digest(input.reviewReportDigest, 'reviewReportDigest'),
     mainHealthRevision: digest(input.mainHealthRevision, 'mainHealthRevision'),
     mainHealthReceiptDigest: digest(input.mainHealthReceiptDigest, 'mainHealthReceiptDigest'),
     trustRevision: sha(input.trustRevision, 'trustRevision'),
@@ -120,6 +124,7 @@ export function createIntegrationAuthorization(input: IntegrationAuthorizationIn
   if (withoutDigest.expiresAt <= withoutDigest.issuedAt) fail('expiresAt must be after issuedAt.');
   const { issuer, issuedAt: _issuedAt, expiresAt: _expiresAt,
     scopeAuthorizationReceiptDigest: _scopeReceipt, reviewReceiptDigest: _reviewReceipt,
+    reviewReportDigest: _reviewReportDigest,
     mainHealthReceiptDigest: _healthReceipt, ...semantic } = withoutDigest;
   const authorizationId = hash({ ...semantic, issuer: { principalId: issuer.principalId,
     producerIdentity: issuer.producerIdentity, trustedRevision: issuer.trustedRevision } });
@@ -155,6 +160,8 @@ export interface IntegrationAuthorizationLiveState {
   readonly evidenceDigest: IntegrationAuthorizationDigest;
   readonly reviewRevision: IntegrationAuthorizationDigest;
   readonly reviewReceiptDigest: IntegrationAuthorizationDigest;
+  readonly reviewReportRevision: IntegrationAuthorizationDigest;
+  readonly reviewReportDigest: IntegrationAuthorizationDigest;
   readonly mainHealthRevision: IntegrationAuthorizationDigest;
   readonly mainHealthReceiptDigest: IntegrationAuthorizationDigest;
   readonly trustRevision: string;
@@ -180,6 +187,8 @@ export function assertIntegrationAuthorizationUsable(
     [live.evidenceDigest, current.evidenceDigest, 'evidenceDigest'],
     [live.reviewRevision, current.reviewRevision, 'reviewRevision'],
     [live.reviewReceiptDigest, current.reviewReceiptDigest, 'reviewReceiptDigest'],
+    [live.reviewReportRevision, current.reviewReportRevision, 'reviewReportRevision'],
+    [live.reviewReportDigest, current.reviewReportDigest, 'reviewReportDigest'],
     [live.mainHealthRevision, current.mainHealthRevision, 'mainHealthRevision'],
     [live.mainHealthReceiptDigest, current.mainHealthReceiptDigest, 'mainHealthReceiptDigest'],
     [live.trustRevision, current.trustRevision, 'trustRevision'], [live.rulesetDigest, current.rulesetDigest, 'rulesetDigest']
