@@ -17,6 +17,7 @@ tasks:
       - docs/运行/验收/方法与独立证据.md
       - docs/运行/验收/测试生成与形式方法.md
       - docs/演进/实施/安全构建发布与环境.md
+      - docs/演进/实施/主线前沿与准入.md
       - .agents/skills/sec-test-design/SKILL.md
       - .documentation/source-manifest.json
 forbiddenPaths:
@@ -31,6 +32,7 @@ forbiddenPaths:
   - src/
   - tests/
 acceptance:
+  - Verification实施章节使用稳定显式anchor且所有真实consumer已同步到唯一新引用
   - 开发者测试发现与执行只消费已经选择为case-based方法的VerificationMethod
   - Claim身份绑定owner Requirement主体revision适用域生命周期和真实consumer而不依赖自由claim或gate字符串
   - Verification是贯穿现有十项责任的保证纵切而不是第十一顶层testing模块
