@@ -255,6 +255,7 @@ function compileOperation(
   if (effect === 'issue-comment-write'
       && kind !== 'current-user'
       && kind !== 'collaborator-permission'
+      && kind !== 'pull'
       && kind !== 'issue'
       && kind !== 'issue-comments'
       && kind !== 'issue-comment'
