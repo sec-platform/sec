@@ -48,7 +48,7 @@ function environment(source = requestSource()): NodeJS.ProcessEnv {
   };
 }
 
-test('maintenance request accepts one exact ref or exact comment retirement only', () => {
+test('maintenance request accepts one exact ref or bounded exact comment batch', () => {
   const parsed = parseRepositoryMaintenanceRequest(requestSource());
   expect(parsed.operations).toHaveLength(1);
   expect(parsed.operations[0]!.retirement).toEqual(parseExactRefRetirement({
@@ -86,29 +86,59 @@ test('maintenance request accepts one exact ref or exact comment retirement only
   const operations = multi.operations as unknown[];
   multi.operations = [...operations, ...operations];
   expect(() => parseRepositoryMaintenanceRequest(JSON.stringify(multi)))
-    .toThrow('exactly one operation');
+    .toThrow('exact ref retirement must remain one-operation-per-request');
 
   const comment = parseRepositoryMaintenanceRequest(JSON.stringify({
     schema: 'sec-repository-maintenance-request-v1',
     repository: 'sec-platform/sec',
     expectedMainSha: MAIN,
-    operations: [{
+    operations: [42, 43].map((commentId) => ({
       kind: 'exact-comment-retirement',
       retirement: {
         issueNumber: 313,
-        commentId: 42,
+        commentId,
         expectedBodyDigest: 'sha256:' + 'c'.repeat(64)
       }
-    }]
+    }))
   }));
-  expect(comment.operations).toEqual([{
+  expect(comment.operations).toEqual([42, 43].map((commentId) => ({
     kind: 'exact-comment-retirement',
     retirement: {
       issueNumber: 313,
-      commentId: 42,
+      commentId,
       expectedBodyDigest: 'sha256:' + 'c'.repeat(64)
     }
-  }]);
+  })));
+
+  const duplicate = JSON.parse(JSON.stringify(comment)) as Record<string, unknown>;
+  duplicate.operations = [
+    (comment.operations as readonly unknown[])[0],
+    (comment.operations as readonly unknown[])[0]
+  ];
+  expect(() => parseRepositoryMaintenanceRequest(JSON.stringify(duplicate)))
+    .toThrow('duplicate comment identity');
+
+  const mixed = JSON.parse(requestSource()) as Record<string, unknown>;
+  mixed.operations = [
+    ...(mixed.operations as unknown[]),
+    (comment.operations as readonly unknown[])[0]
+  ];
+  expect(() => parseRepositoryMaintenanceRequest(JSON.stringify(mixed)))
+    .toThrow('exact ref retirement must remain one-operation-per-request');
+
+  expect(() => parseRepositoryMaintenanceRequest(JSON.stringify({
+    schema: 'sec-repository-maintenance-request-v1',
+    repository: 'sec-platform/sec',
+    expectedMainSha: MAIN,
+    operations: Array.from({ length: 65 }, (_, index) => ({
+      kind: 'exact-comment-retirement',
+      retirement: {
+        issueNumber: 313,
+        commentId: index + 1,
+        expectedBodyDigest: 'sha256:' + 'd'.repeat(64)
+      }
+    }))
+  }))).toThrow('1..64 operations');
   expect(() => parseRepositoryMaintenanceRequest(JSON.stringify({
     schema: 'sec-repository-maintenance-request-v1',
     repository: 'sec-platform/sec',

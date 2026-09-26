@@ -61,23 +61,19 @@ function assertExactCommentIdentity(
   }
 }
 
-function maintenanceTargetBranch(body: string): string | null {
-  let request: MaintenanceRequest;
+function maintenanceRequest(body: string): MaintenanceRequest | null {
   try {
-    request = parseRepositoryMaintenanceRequest(body);
+    return parseRepositoryMaintenanceRequest(body);
   } catch {
     return null;
   }
-  const operation = request.operations[0]!;
-  if (operation.kind !== 'exact-ref-retirement') return null;
-  return operation.retirement.branches[0];
 }
 
 function classifyDisposableComment(
   retirement: ExactCommentRetirement,
   comment: ObservedComment
 ): Readonly<
-  | { kind: 'maintenance-trigger'; targetBranch: string }
+  | { kind: 'maintenance-trigger'; request: MaintenanceRequest }
   | { kind: 'codex-command' }
   | { kind: 'codex-setup-hint' }
   | { kind: 'codex-summary' }
@@ -85,8 +81,8 @@ function classifyDisposableComment(
 > {
   const trimmed = comment.body.trim();
   if (retirement.issueNumber === REPOSITORY_MAINTENANCE_ISSUE_NUMBER) {
-    const targetBranch = maintenanceTargetBranch(trimmed);
-    if (targetBranch !== null) return Object.freeze({ kind: 'maintenance-trigger', targetBranch });
+    const request = maintenanceRequest(trimmed);
+    if (request !== null) return Object.freeze({ kind: 'maintenance-trigger', request });
   }
   if (trimmed === '@codex review' || trimmed === '@codex security review') {
     return Object.freeze({ kind: 'codex-command' });
@@ -147,22 +143,35 @@ async function assertClosedPullConversation(input: Readonly<{
   });
 }
 
-async function assertMaintenanceTargetAbsent(input: Readonly<{
+async function assertMaintenanceRequestSettled(input: Readonly<{
   repositoryRoot: string;
   repository: string;
-  branch: string;
+  request: MaintenanceRequest;
 }>): Promise<void> {
+  if (input.request.repository !== input.repository) {
+    throw new Error('maintenance trigger repository differs from the active repository');
+  }
   await withGitHubApiReadSession({
     repositoryRoot: input.repositoryRoot,
     repository: input.repository,
     operation: async (capability) => {
-      try {
-        await executeGitHubApiOperation(capability, { kind: 'git-ref', branch: input.branch });
-      } catch (error) {
-        if (error instanceof GitHubApiProviderError && error.statusCode === 404) return;
-        throw error;
+      for (const operation of input.request.operations) {
+        if (operation.kind === 'exact-ref-retirement') {
+          const branch = operation.retirement.branches[0];
+          try {
+            await executeGitHubApiOperation(capability, { kind: 'git-ref', branch });
+          } catch (error) {
+            if (error instanceof GitHubApiProviderError && error.statusCode === 404) continue;
+            throw error;
+          }
+          throw new Error(`maintenance trigger target branch ${branch} is still present`);
+        }
+        if (await observeIssueComment(capability, operation.retirement.commentId) !== null) {
+          throw new Error(
+            `maintenance trigger target comment ${operation.retirement.commentId} is still present`
+          );
+        }
       }
-      throw new Error(`maintenance trigger target branch ${input.branch} is still present`);
     }
   });
 }
@@ -206,10 +215,10 @@ export async function retireExactIssueComment(input: Readonly<{
   assertExactCommentIdentity(input.repository, input.retirement, preflight);
   const classification = classifyDisposableComment(input.retirement, preflight);
   if (classification.kind === 'maintenance-trigger') {
-    await assertMaintenanceTargetAbsent({
+    await assertMaintenanceRequestSettled({
       repositoryRoot,
       repository: input.repository,
-      branch: classification.targetBranch
+      request: classification.request
     });
   } else if (classification.kind === 'codex-command'
       || classification.kind === 'codex-setup-hint'

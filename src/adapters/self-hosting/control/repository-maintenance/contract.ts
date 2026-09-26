@@ -118,13 +118,30 @@ export function parseRepositoryMaintenanceRequest(source: string): MaintenanceRe
   if (input.schema !== REPOSITORY_MAINTENANCE_REQUEST_SCHEMA) {
     throw new Error('repository maintenance request schema is invalid');
   }
-  if (!Array.isArray(input.operations) || input.operations.length !== 1) {
-    throw new Error('repository maintenance request requires exactly one operation');
+  if (!Array.isArray(input.operations)
+      || input.operations.length < 1
+      || input.operations.length > 64) {
+    throw new Error('repository maintenance request requires 1..64 operations');
+  }
+  const operations = input.operations.map(parseOperation);
+  const refOperations = operations.filter((operation) =>
+    operation.kind === 'exact-ref-retirement');
+  if (refOperations.length > 0 && operations.length !== 1) {
+    throw new Error('exact ref retirement must remain one-operation-per-request');
+  }
+  const commentIds = new Set<string>();
+  for (const operation of operations) {
+    if (operation.kind !== 'exact-comment-retirement') continue;
+    const key = `${operation.retirement.issueNumber}:${operation.retirement.commentId}`;
+    if (commentIds.has(key)) {
+      throw new Error('exact comment retirement request contains duplicate comment identity');
+    }
+    commentIds.add(key);
   }
   return Object.freeze({
     schema: REPOSITORY_MAINTENANCE_REQUEST_SCHEMA,
     repository: repository(input.repository),
     expectedMainSha: sha(input.expectedMainSha, 'expectedMainSha'),
-    operations: Object.freeze(input.operations.map(parseOperation))
+    operations: Object.freeze(operations)
   });
 }
