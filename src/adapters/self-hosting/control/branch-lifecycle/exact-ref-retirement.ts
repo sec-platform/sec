@@ -315,7 +315,7 @@ export async function retireExactRemoteRefs(input: Readonly<{
         }
         const afterPulls = await observeOpenPulls(capability, input.repository);
         try {
-          assertNoOpenPullConsumer(afterPulls, request.branches);
+          assertNoOpenPullConsumer(afterPulls, request.branches, input.repository);
           await assertLiveMain(capability, before.repository.defaultBranch, input.expectedMainSha);
         } catch (error) {
           throw new Error(
