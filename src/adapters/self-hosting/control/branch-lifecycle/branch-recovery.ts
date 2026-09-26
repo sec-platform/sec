@@ -411,7 +411,6 @@ export function createRecoveryBundle(input: {
   const bundleName = `sec-branch-closeout-${token}.bundle`;
   const bundlePath = path.join(recoveryRoot, bundleName);
   const checksumName = `${bundleName}.sha256`;
-  const checksumPath = path.join(recoveryRoot, checksumName);
   const sourceSpec = refSource.kind === 'pull'
     ? `refs/pull/${refSource.number}/head`
     : `refs/heads/${branch}`;
