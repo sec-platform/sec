@@ -357,6 +357,14 @@ function documentControlCliFailure(
 }
 
 const ExternalCommandTimeoutMs = 30_000;
+// Freeze keeps admission, scratch-object publication, recovery, and final
+// readback in one Git-read session. The ordinary tooling observation budget
+// covers only a single read phase; this bounded transaction uses the provider's
+// canonical process ceiling without reopening a session between phases.
+const DOCUMENT_CONTROL_FREEZE_GIT_READ_BUDGET = Object.freeze({
+  ...GIT_READ_OPERATION_BUDGET,
+  maxProcesses: 128
+});
 const ExternalCommandMaxBufferBytes = 8 * 1024 * 1024;
 const CurrentStatePath = 'config/repository/current-state.yaml';
 const ActivePointerPath = 'config/repository/active-work-package.md';
@@ -5983,7 +5991,7 @@ export async function freezeDocumentControlPlane(
   try {
     return await withAuthorityGitReadSession({
       cwd: path.resolve(input.cwd),
-      budget: GIT_READ_OPERATION_BUDGET,
+      budget: DOCUMENT_CONTROL_FREEZE_GIT_READ_BUDGET,
       deadlineAtUnixMs
     }, (session) => documentControlGitReadScope.run(
       session,
@@ -6821,7 +6829,7 @@ export async function runDocumentControlPlaneCli(): Promise<void> {
     const result = await withAuthorityGitReadSession({
       cwd: requestedWorkspace,
       budget: Object.freeze({
-        ...GIT_READ_OPERATION_BUDGET,
+        ...DOCUMENT_CONTROL_FREEZE_GIT_READ_BUDGET,
         deadlineMs: remainingFreezeBudget()
       }),
       deadlineAtUnixMs: freezeDeadlineAtUnixMs
