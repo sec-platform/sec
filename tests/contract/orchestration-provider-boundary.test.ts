@@ -1,17 +1,18 @@
 import { expect, test } from 'bun:test';
 
-import { readCompilerFile } from '../helpers/compiler-fixtures.ts';
+import { readCompilerTypeScriptMutationFixture } from '../helpers/compiler-fixtures.ts';
 
 test('hosted integration routing remains zero-write and provider-neutral', async () => {
-  const source = await readCompilerFile(
-    'src/adapters/verification/platform/ci/runtime/verification-session-integration-routing.ts'
+  const source = await readCompilerTypeScriptMutationFixture(
+    'src/adapters/verification/platform/ci/runtime/verification-session-integration-routing.ts', 'tcb-analysis'
   );
   expect(source).not.toMatch(/node:(?:fs|child_process)|providers\/github-api|withGitHubApi|executeGitHubApiOperation/u);
   expect(source).not.toMatch(/writeFile|unlink|rename|spawn|Bun\.spawn|fetch\(/u);
+  expect(source).not.toContain("from './verification-session-runtime.ts'");
   expect(source).toContain('routeHostedIntegration');
   expect(source).toContain('planHostedIntegrationEffects');
-  const mergeProvider = await readCompilerFile(
-    'src/adapters/verification/platform/ci/runtime/verification-session-merge-provider.ts'
+  const mergeProvider = await readCompilerTypeScriptMutationFixture(
+    'src/adapters/verification/platform/ci/runtime/verification-session-merge-provider.ts', 'tcb-analysis'
   );
   expect(mergeProvider).toContain('withGitHubApiMergeWriteSession');
   expect(mergeProvider).toContain('executeGitHubApiOperation');
@@ -20,8 +21,8 @@ test('hosted integration routing remains zero-write and provider-neutral', async
 
 test('dependency public contract is physically separate from effect runtime', async () => {
   const [contract, runtime] = await Promise.all([
-    readCompilerFile('src/adapters/toolchain/dependencies/runtime/project-runtime-contract.ts'),
-    readCompilerFile('src/adapters/toolchain/dependencies/runtime/project-runtime.ts')
+    readCompilerTypeScriptMutationFixture('src/adapters/toolchain/dependencies/runtime/project-runtime-contract.ts', 'tcb-analysis'),
+    readCompilerTypeScriptMutationFixture('src/adapters/toolchain/dependencies/runtime/project-runtime.ts', 'tcb-analysis')
   ]);
   expect(contract).not.toMatch(/node:(?:fs|child_process)|runBunInstall|withInstallLock|retireNoFollow|publishExclusive/u);
   expect(contract).toContain('RuntimeDependencyTargetIdentity');
@@ -29,8 +30,8 @@ test('dependency public contract is physically separate from effect runtime', as
   expect(runtime).toContain("from './project-runtime-contract.ts'");
   expect(runtime).not.toContain('export interface RuntimeDepsStamp');
   expect(runtime).not.toContain('export interface DependencyAuthorityPaths');
-  const ownedFileProvider = await readCompilerFile(
-    'src/adapters/toolchain/dependencies/runtime/owned-file-provider.ts'
+  const ownedFileProvider = await readCompilerTypeScriptMutationFixture(
+    'src/adapters/toolchain/dependencies/runtime/owned-file-provider.ts', 'tcb-analysis'
   );
   expect(ownedFileProvider).toContain('deleteRetainedNoFollowEntry');
   expect(contract).not.toContain('deleteRetainedNoFollowEntry');
@@ -39,8 +40,8 @@ test('dependency public contract is physically separate from effect runtime', as
 
 test('dependency coordination owns lock, cutover and Runtime State lease without importing project runtime', async () => {
   const [coordination, runtime] = await Promise.all([
-    readCompilerFile('src/adapters/toolchain/dependencies/runtime/dependency-coordination.ts'),
-    readCompilerFile('src/adapters/toolchain/dependencies/runtime/project-runtime.ts')
+    readCompilerTypeScriptMutationFixture('src/adapters/toolchain/dependencies/runtime/dependency-coordination.ts', 'tcb-analysis'),
+    readCompilerTypeScriptMutationFixture('src/adapters/toolchain/dependencies/runtime/project-runtime.ts', 'tcb-analysis')
   ]);
   expect(coordination).not.toContain("from './project-runtime.ts'");
   expect(coordination).toContain('withInstallLock');

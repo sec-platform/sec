@@ -30,13 +30,15 @@ test('repository maintenance is a thin current-main workflow_dispatch over canon
     'persist-credentials': false
   });
   expect(job.steps.some((step: any) => step.name === 'Cache Bun package downloads')).toBe(false);
-  const admission = job.steps.find((step: any) => step.name === 'Bind request to current main and maintainer actor');
+  const admission = job.steps.find((step: any) => step.name === 'Admit exact main and maintainer actors');
   expect(admission.env).toBeUndefined();
-  expect(admission.with.script).toContain('context.payload.inputs');
   expect(admission.with.script).toContain('GITHUB_WORKFLOW_SHA');
   expect(admission.with.script).toContain('GITHUB_TRIGGERING_ACTOR');
-  expect(admission.with.script).toContain("writeFileSync(path.join(requestRoot, 'request.json')");
+  expect(admission.with.script).toContain("context.eventName !== 'workflow_dispatch'");
+  expect(admission.with.script).not.toMatch(/createHash|JSON\.parse|writeFile|mkdir|canonical\s*=/u);
   const execute = job.steps.find((step: any) => step.name === 'Execute canonical repository maintenance owner');
+  expect(execute.env.SEC_MAINTENANCE_REQUEST_JSON).toBe('${{ inputs.request_json }}');
+  expect(execute.env.SEC_MAINTENANCE_REQUEST_DIGEST).toBe('${{ inputs.request_digest }}');
   expect(execute.env.SEC_BRANCH_RECOVERY_ROOT).toContain('${{ runner.temp }}');
   expect(execute.run).toContain('src/adapters/self-hosting/control/repository-maintenance/repository-maintenance.ts execute --json');
   expect(execute.run).not.toContain('--request');

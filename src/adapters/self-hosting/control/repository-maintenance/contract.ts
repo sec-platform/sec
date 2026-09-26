@@ -1,11 +1,11 @@
 import {
   parseExactRefRetirement,
   type ExactRefRetirement
-} from '../branch-lifecycle/exact-ref-retirement.ts';
+} from '../branch-lifecycle/exact-ref-retirement-contract.ts';
 import {
   parseExactCommentRetirement,
   type ExactCommentRetirement
-} from './comment-retirement.ts';
+} from './comment-retirement-contract.ts';
 
 export const REPOSITORY_MAINTENANCE_REQUEST_SCHEMA = 'sec-repository-maintenance-request-v1' as const;
 
@@ -86,10 +86,14 @@ function parseOperation(value: unknown): MaintenanceOperation {
     if (!Array.isArray(input.comments) || input.comments.length < 1 || input.comments.length > 100) {
       throw new Error('closed conversation comment retirement requires 1..100 comments');
     }
+    const comments = input.comments.map(parseExactCommentRetirement);
+    if (new Set(comments.map(({ commentId }) => commentId)).size !== comments.length) {
+      throw new Error('comment retirement request contains duplicate comment ids');
+    }
     return Object.freeze({
       kind: 'closed-conversation-comment-retirement',
       issueNumber: positiveInteger(input.issueNumber, 'issueNumber'),
-      comments: Object.freeze(input.comments.map(parseExactCommentRetirement))
+      comments: Object.freeze(comments)
     });
   }
   throw new Error('maintenance operation kind is unknown');

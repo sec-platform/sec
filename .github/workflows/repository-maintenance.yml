@@ -34,33 +34,10 @@ jobs:
           lfs: false
           submodules: false
 
-      - name: Bind request to current main and maintainer actor
-        id: admission
+      - name: Admit exact main and maintainer actors
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         with:
           script: |
-            const crypto = require('crypto');
-            const fs = require('fs');
-            const path = require('path');
-            const canonical = (value) => {
-              if (value === null || typeof value !== 'object') return value;
-              if (Array.isArray(value)) return value.map(canonical);
-              return Object.fromEntries(Object.keys(value).sort().map((key) => [key, canonical(value[key])]));
-            };
-            const inputs = context.payload.inputs;
-            const requestSource = inputs?.request_json;
-            const requestDigest = inputs?.request_digest;
-            if (typeof requestSource !== 'string' || requestSource.length === 0 || requestSource.length > 131072
-                || typeof requestDigest !== 'string' || !/^sha256:[0-9a-f]{64}$/.test(requestDigest)) {
-              throw new Error('Maintenance request input shape is invalid.');
-            }
-            let request;
-            try { request = JSON.parse(requestSource); }
-            catch { throw new Error('Maintenance request is not strict JSON.'); }
-            const digest = `sha256:${crypto.createHash('sha256').update(JSON.stringify(canonical(request))).digest('hex')}`;
-            if (digest !== requestDigest || request?.schema !== 'sec-repository-maintenance-request-v1') {
-              throw new Error('Maintenance request digest or schema is invalid.');
-            }
             const triggeringActor = process.env.GITHUB_TRIGGERING_ACTOR;
             if (typeof triggeringActor !== 'string' || triggeringActor.length === 0) {
               throw new Error('Maintenance triggering actor identity is unavailable.');
@@ -78,19 +55,15 @@ jobs:
             const trusted = (permission) => ['admin', 'maintain'].includes(permission.data.permission);
             const expectedWorkflowRef = `${repository.data.full_name}/.github/workflows/repository-maintenance.yml@refs/heads/main`;
             if (!trusted(actorPermission) || !trusted(triggeringPermission)
-                || repository.data.full_name !== request.repository
+                || repository.data.full_name !== `${context.repo.owner}/${context.repo.repo}`
+                || context.eventName !== 'workflow_dispatch'
                 || repository.data.default_branch !== 'main'
                 || context.ref !== 'refs/heads/main'
                 || context.sha !== main.data.commit.sha
-                || request.expectedMainSha !== main.data.commit.sha
                 || process.env.GITHUB_WORKFLOW_REF !== expectedWorkflowRef
                 || process.env.GITHUB_WORKFLOW_SHA !== main.data.commit.sha) {
               throw new Error('Maintenance request actor, repository, workflow or exact-main identity is stale.');
             }
-            const requestRoot = path.join(process.env.GITHUB_WORKSPACE, '.tmp', 'repository-maintenance');
-            fs.mkdirSync(requestRoot, { recursive: true });
-            fs.writeFileSync(path.join(requestRoot, 'request.json'), requestSource, { flag: 'wx' });
-            core.setOutput('main-sha', main.data.commit.sha);
 
       - name: Setup repository-pinned Bun
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
@@ -103,9 +76,12 @@ jobs:
       - name: Execute canonical repository maintenance owner
         id: execute
         env:
+          SEC_MAINTENANCE_REQUEST_JSON: ${{ inputs.request_json }}
+          SEC_MAINTENANCE_REQUEST_DIGEST: ${{ inputs.request_digest }}
           SEC_BRANCH_RECOVERY_ROOT: ${{ runner.temp }}/sec-repository-maintenance-recovery-${{ github.run_id }}-${{ github.run_attempt }}
         run: |
           set -euo pipefail
+          mkdir -p .tmp/repository-maintenance
           bun src/adapters/self-hosting/control/repository-maintenance/repository-maintenance.ts execute --json \
             | tee .tmp/repository-maintenance/result.json
 

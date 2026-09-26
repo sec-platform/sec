@@ -1,15 +1,10 @@
 #!/usr/bin/env bun
 
-import path from 'node:path';
-import { readFileSync } from 'node:fs';
-
 import { sha256 } from '../../../../contracts/canonical.ts';
-import { parseRepositoryMaintenanceRequest, type MaintenanceRequest } from './contract.ts';
+import type { MaintenanceRequest } from './contract.ts';
 import { planRepositoryMaintenance } from './plan.ts';
-import { assertHostedRepositoryMaintenanceIdentity } from './hosted-admission.ts';
+import { assertHostedRepositoryMaintenanceIdentity, parseHostedRepositoryMaintenanceRequest } from './hosted-admission.ts';
 import { executeRepositoryMaintenanceEffect, preflightRepositoryMaintenanceEffects } from './effect.ts';
-
-const MAINTENANCE_REQUEST_PATH = path.join('.tmp', 'repository-maintenance', 'request.json');
 
 export { parseRepositoryMaintenanceRequest } from './contract.ts';
 
@@ -49,9 +44,7 @@ export async function repositoryMaintenanceCli(argv: readonly string[]): Promise
     throw new Error('usage: repository-maintenance execute [--json]');
   }
   const repositoryRoot = process.cwd();
-  const request = parseRepositoryMaintenanceRequest(
-    readFileSync(path.join(repositoryRoot, MAINTENANCE_REQUEST_PATH), 'utf8')
-  );
+  const request = parseHostedRepositoryMaintenanceRequest(process.env);
   const result = await executeRepositoryMaintenance({ repositoryRoot, request });
   return JSON.stringify(result, null, argv.includes('--json') ? 2 : 0);
 }

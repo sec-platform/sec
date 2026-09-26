@@ -1,7 +1,7 @@
 import { createBranchCloseoutOperationBinding } from '../../../../self-hosting/control/branch-lifecycle/branch-closeout-contract.ts';
 import type { IntegrationAuthorizationOperationPublication } from '../../../../self-hosting/control/integration/integration-authorization-publication.ts';
 import type { VerificationSession } from '../../session/contract/session.ts';
-import { parseVerificationSessionHostedRequest } from './verification-session-runtime.ts';
+import type { VerificationSessionHostedRequest } from '../contract/session-request.ts';
 import type { GitHubCandidateObservation } from './verification-session-github.ts';
 import { readExactCommitMarker } from './merge-commit-marker.ts';
 
@@ -50,7 +50,7 @@ function selectMergedAuthorizationPublication(input: {
 
 function assertAuthorizationPublicationMatchesRequest(input: {
   publication: IntegrationAuthorizationOperationPublication;
-  request: ReturnType<typeof parseVerificationSessionHostedRequest>;
+  request: VerificationSessionHostedRequest;
   repository: string;
 }): void {
   const authorization = input.publication.result.authorization;
@@ -185,7 +185,7 @@ export function planHostedIntegrationEffects(
 
 export function classifyDurableVerificationSessionProjection(input: {
   repository: string;
-  request: ReturnType<typeof parseVerificationSessionHostedRequest>;
+  request: VerificationSessionHostedRequest;
   candidate: GitHubCandidateObservation;
   publications: readonly Readonly<{
     commentId: number;
