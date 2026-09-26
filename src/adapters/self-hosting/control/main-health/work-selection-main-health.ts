@@ -1326,7 +1326,7 @@ export async function observeCanonicalMainHealthForPublication(input: Readonly<{
  * the production T2 routing relationship without receiving a production
  * WorkSelection snapshot or publication authority.
  */
-export async function observeCanonicalMainHealthForDocumentControlTestingV2(input: Readonly<{
+export async function observeCanonicalMainHealthForDocumentControlTesting(input: Readonly<{
   repositoryRoot: string;
   repository: string;
   defaultBranch: string;

@@ -3,8 +3,8 @@ import { isDigest } from '../../../contracts/digest.ts';
 
 import type { TypeScriptSourceProgramFactShard } from './typescript-fact-shards.ts';
 import {
-  assertSourceProgramTypeScriptCompilerIdentity,
-  type SourceProgramTypeScriptCompilerIdentity
+  assertTypeScriptCompilerIdentity,
+  type TypeScriptCompilerIdentity
 } from './typescript.ts';
 
 const GENERATION_KEYS = Object.freeze([
@@ -57,7 +57,7 @@ export type IssueRepositoryCompilationGenerationInput = Readonly<{
   snapshotDigest: `sha256:${string}`;
   moduleMembershipDigest: `sha256:${string}`;
   moduleGraphDigest: `sha256:${string}`;
-  compiler: SourceProgramTypeScriptCompilerIdentity;
+  compiler: TypeScriptCompilerIdentity;
 }>;
 
 function generationDimensions(input: IssueRepositoryCompilationGenerationInput) {
@@ -81,7 +81,7 @@ function generationDimensions(input: IssueRepositoryCompilationGenerationInput) 
 export function issueRepositoryCompilationGenerationReceipt(
   input: IssueRepositoryCompilationGenerationInput
 ): RepositoryCompilationGenerationReceipt {
-  assertSourceProgramTypeScriptCompilerIdentity(input.compiler);
+  assertTypeScriptCompilerIdentity(input.compiler);
   const dimensions = generationDimensions(input);
   const generationDigest = sha256(dimensions) as `sha256:${string}`;
   const { schemaDigest: _schemaDigest, ...receipt } = Object.freeze({

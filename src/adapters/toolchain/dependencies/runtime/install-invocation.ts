@@ -1,4 +1,4 @@
-import { SecError } from '../../../../contracts/failure.ts';
+import { FailureError } from '../../../../contracts/failure.ts';
 import type { RuntimeDependencyInstallRequest } from '../contract/install-request.ts';
 import { isRuntimeDependencyInstallMode } from '../contract/install-request.ts';
 import { assertRuntimeDependencyTestMaterialization } from './materialization-fixture-capability.ts';
@@ -21,10 +21,10 @@ export function bindCompilerInstallInvocation(options: CompilerInstallInvocation
   const beforeCommit = own('beforeCommit');
   const materialization = own('testMaterialization');
   if (mode !== undefined && !isRuntimeDependencyInstallMode(mode)) {
-    throw new SecError('RUNTIME-DEPS-003', 'Runtime dependency install mode is invalid');
+    throw new FailureError('RUNTIME-DEPS-003', 'Runtime dependency install mode is invalid');
   }
-  if (mode === 'prebound-only') throw new SecError('RUNTIME-DEPS-003', 'Prebound-only mode cannot execute a dependency installation');
-  if (beforeCommit !== undefined && typeof beforeCommit !== 'function') throw new SecError('RUNTIME-DEPS-003', 'Compiler dependency commit fence must be callable');
+  if (mode === 'prebound-only') throw new FailureError('RUNTIME-DEPS-003', 'Prebound-only mode cannot execute a dependency installation');
+  if (beforeCommit !== undefined && typeof beforeCommit !== 'function') throw new FailureError('RUNTIME-DEPS-003', 'Compiler dependency commit fence must be callable');
   if (materialization !== undefined) assertRuntimeDependencyTestMaterialization(materialization);
   guard(options);
   const controls = runtimeDependencyOperationControls(options);

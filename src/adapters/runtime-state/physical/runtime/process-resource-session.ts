@@ -4,14 +4,14 @@ import {
   sha256
 } from '../../../../contracts/canonical.ts';
 import {
-  consumeSecOperationRequirementBindingContext,
-  type SecOperationRequirementBindingContext,
-  type SecOperationRequirementBindingProjection
+  consumeOperationRequirementBindingContext,
+  type OperationRequirementBindingContext,
+  type OperationRequirementBindingProjection
 } from '../../../../execution/operation/requirement-binding-context.ts';
 import {
-  assertSecSemanticOperationProjection,
-  type SecBoundSemanticOperation,
-  type SecOperationDigest
+  assertSemanticOperationProjection,
+  type BoundSemanticOperation,
+  type OperationDigest
 } from '../../../../execution/operation/semantic.ts';
 import { assertIndependentProviderProcessCapabilityForSession } from './independent-provider-process.ts';
 import {
@@ -19,10 +19,11 @@ import {
   type ObservedNativeProcessResourceLedgerSnapshot
 } from './observed-process.ts';
 import {
-  runRetainedCommandBytes,
+  runRetainedCommandObservedBytes,
   type ByteCommandResult,
   type RunRetainedCommandOptions
 } from './process.ts';
+import type { ObservedCommandOutcome } from './observed-process.ts';
 import type { RetainedCommandBoundary } from './retained-command-boundary.ts';
 
 export type ProcessResourceRunOptions = Omit<
@@ -36,15 +37,16 @@ export type ProcessResourceRunOptions = Omit<
 export type ProcessResourceRunResult = Readonly<{
   ordinal: number;
   result: ByteCommandResult;
+  outcome: ObservedCommandOutcome;
 }>;
 
 export type ProcessResourceSessionReceipt = Readonly<{
-  operationIdentityDigest: SecOperationDigest;
-  boundAttemptDigest: SecOperationDigest;
+  operationIdentityDigest: OperationDigest;
+  boundAttemptDigest: OperationDigest;
   requirementId: string;
-  providerBindingDigest: SecOperationDigest;
-  resourceCeilingIdentityDigest: SecOperationDigest;
-  requirementBindingContextDigest: SecOperationDigest;
+  providerBindingDigest: OperationDigest;
+  resourceCeilingIdentityDigest: OperationDigest;
+  requirementBindingContextDigest: OperationDigest;
   processCount: number;
   settledProcessCount: number;
   successfulProcessRecordCount: number;
@@ -59,20 +61,29 @@ export type ProcessResourceSessionReceipt = Readonly<{
   inputBytes: number;
   outputBytes: number;
   deadlineAtUnixMs: number;
-  receiptDigest: SecOperationDigest;
+  receiptDigest: OperationDigest;
 }>;
 
 export interface ProcessResourceSession {
-  readonly operationIdentityDigest: SecOperationDigest;
-  readonly boundAttemptDigest: SecOperationDigest;
+  readonly operationIdentityDigest: OperationDigest;
+  readonly boundAttemptDigest: OperationDigest;
   readonly requirementId: string;
-  readonly resourceCeilingIdentityDigest: SecOperationDigest;
+  readonly resourceCeilingIdentityDigest: OperationDigest;
   readonly deadlineAtUnixMs: number;
   /** The monotonic counterpart of deadlineAtUnixMs, fixed at admission. */
   readonly deadlineAtMonotonicMs: number;
   /** Aborts on caller cancellation, the fixed deadline, or session close. */
   readonly signal: AbortSignal;
   readonly processCount: number;
+  /** Live physical ledger readback; no authority or reservation is issued. */
+  observeNativeResourceCapacity(this: ProcessResourceSession): Readonly<{
+    maximum: number;
+    admitted: number;
+    remaining: number;
+    root: number;
+    stdinWorker: number;
+    helper: number;
+  }>;
   /** Terminal child settlements observed by this session. */
   readonly settledProcessCount: number;
   /** Successful immutable command result records issued by this session. */
@@ -100,10 +111,10 @@ export interface ProcessResourceSession {
 const ISSUED_PROCESS_RESOURCE_SESSIONS = new WeakSet<object>();
 type ProcessResourceSessionBindingState = {
   semanticOperation: string;
-  operationIdentityDigest: SecOperationDigest;
-  boundAttemptDigest: SecOperationDigest;
+  operationIdentityDigest: OperationDigest;
+  boundAttemptDigest: OperationDigest;
   requirementId: string;
-  providerIdentityDigest: SecOperationDigest;
+  providerIdentityDigest: OperationDigest;
   maximumDurationMs: number;
   maximumInputBytes: number;
   maximumOutputBytes: number;
@@ -119,23 +130,23 @@ type ProcessResourceRunResultBinding = Readonly<{
   session: ProcessResourceSession;
   commandResult: ByteCommandResult;
   boundary: RetainedCommandBoundary;
-  operationIdentityDigest: SecOperationDigest;
-  boundAttemptDigest: SecOperationDigest;
+  operationIdentityDigest: OperationDigest;
+  boundAttemptDigest: OperationDigest;
   requirementId: string;
   ordinal: number;
   argvBytes: number;
-  argvDigest: SecOperationDigest;
+  argvDigest: OperationDigest;
   hasStdin: boolean;
   stdinBytes: number;
-  stdinDigest: SecOperationDigest | null;
+  stdinDigest: OperationDigest | null;
   environmentMode: 'inherit' | 'replace';
   environmentEntryCount: number;
-  environmentDigest: SecOperationDigest;
+  environmentDigest: OperationDigest;
   exitCode: number;
   stdoutBytes: number;
-  stdoutDigest: SecOperationDigest;
+  stdoutDigest: OperationDigest;
   stderrBytes: number;
-  stderrDigest: SecOperationDigest;
+  stderrDigest: OperationDigest;
 }>;
 const PROCESS_RESOURCE_RUN_RESULT_BINDINGS = new WeakMap<
   object,
@@ -182,7 +193,7 @@ function executionTiming(
 }
 
 function ceiling(
-  projection: SecOperationRequirementBindingProjection,
+  projection: OperationRequirementBindingProjection,
   resource: 'duration-ms' | 'input-bytes' | 'output-bytes' | 'processes'
 ): number | null {
   return projection.resourceCeilings
@@ -202,7 +213,7 @@ function byteLength(value: Uint8Array | undefined): number {
 
 function argvIdentity(args: readonly string[]): Readonly<{
   bytes: number;
-  digest: SecOperationDigest;
+  digest: OperationDigest;
 }> {
   const bytes = Buffer.from(JSON.stringify([...args]), 'utf8');
   return Object.freeze({
@@ -218,7 +229,7 @@ function environmentIdentity(input: Readonly<{
   mode: 'inherit' | 'replace';
   entries: Readonly<NodeJS.ProcessEnv>;
   entryCount: number;
-  digest: SecOperationDigest;
+  digest: OperationDigest;
 }> {
   const mode = input.envMode ?? 'inherit';
   const entries = Object.freeze(Object.fromEntries(
@@ -233,19 +244,19 @@ function environmentIdentity(input: Readonly<{
       domain: 'sec.process-resource-session.environment',
       mode,
       entries
-    }) as SecOperationDigest
+    }) as OperationDigest
   });
 }
 
 export function openProcessResourceSession(input: Readonly<{
-  operation: SecBoundSemanticOperation;
-  requirementBindingContext: SecOperationRequirementBindingContext;
+  operation: BoundSemanticOperation;
+  requirementBindingContext: OperationRequirementBindingContext;
   signal?: AbortSignal;
 }>): ProcessResourceSession {
   // This session only meters a caller's already-retained command capability.
   // The semantic operation is correlation/budget input, never Effect grant.
-  assertSecSemanticOperationProjection(input.operation);
-  const bindingProjection = consumeSecOperationRequirementBindingContext(
+  assertSemanticOperationProjection(input.operation);
+  const bindingProjection = consumeOperationRequirementBindingContext(
     input.requirementBindingContext
   );
   if (bindingProjection.operationIdentityDigest
@@ -370,6 +381,19 @@ export function openProcessResourceSession(input: Readonly<{
     deadlineAtMonotonicMs,
     signal: sessionController.signal,
     get processCount() { return processCount; },
+    observeNativeResourceCapacity() {
+      assertIssuedReceiver(this, 'native resource capacity');
+      assertLive();
+      const usage = nativeResourceLedger.snapshot();
+      return Object.freeze({
+        maximum: maximumProcesses,
+        admitted: usage.admittedResourceCount,
+        remaining: Math.max(0, maximumProcesses - usage.admittedResourceCount),
+        root: usage.rootProcessCount,
+        stdinWorker: usage.stdinWorkerCount,
+        helper: usage.helperProcessCount
+      });
+    },
     get settledProcessCount() { return settledProcessCount; },
     get successfulProcessRecordCount() { return successfulProcessRecordCount; },
     get inputBytes() { return inputBytes; },
@@ -441,9 +465,14 @@ export function openProcessResourceSession(input: Readonly<{
       const requiredNativeResources = 1 + (
         process.platform === 'win32' && options.input !== undefined ? 1 : 0
       );
-      if (nativeResourceLedger.snapshot().admittedResourceCount + requiredNativeResources
-          > maximumProcesses) {
-        throw new Error('Process resource session process budget is exhausted.');
+      const nativeUsage = nativeResourceLedger.snapshot();
+      if (nativeUsage.admittedResourceCount + requiredNativeResources > maximumProcesses) {
+        throw new Error(
+          'Process resource session process budget is exhausted: '
+          + `native=${nativeUsage.admittedResourceCount}/${maximumProcesses}, `
+          + `root=${nativeUsage.rootProcessCount}, stdinWorker=${nativeUsage.stdinWorkerCount}, `
+          + `helper=${nativeUsage.helperProcessCount}, next=${requiredNativeResources}.`
+        );
       }
       const ordinal = processCount + 1;
       const admittedOutputBytes = options.maxStdoutBytes + options.maxStderrBytes;
@@ -452,7 +481,7 @@ export function openProcessResourceSession(input: Readonly<{
       inputBytes += commandInputBytes;
       outputBytes += admittedOutputBytes;
       try {
-        const result = await runRetainedCommandBytes(boundary, [...args], {
+        const observed = await runRetainedCommandObservedBytes(boundary, [...args], {
           ...options,
           env: invocationEnvironment.entries,
           envMode: invocationEnvironment.mode,
@@ -463,9 +492,9 @@ export function openProcessResourceSession(input: Readonly<{
           timeoutMs
         }, nativeResourceLedger);
         const immutableResult: ByteCommandResult = Object.freeze({
-          code: result.code,
-          stdout: new Uint8Array(result.stdout),
-          stderr: result.stderr
+          code: observed.result.code,
+          stdout: new Uint8Array(observed.result.stdout),
+          stderr: observed.result.stderr
         });
         const observedOutputBytes = immutableResult.stdout.byteLength
           + Buffer.byteLength(immutableResult.stderr, 'utf8');
@@ -482,7 +511,8 @@ export function openProcessResourceSession(input: Readonly<{
         successfulProcessRecordCount += 1;
         const runResult: ProcessResourceRunResult = Object.freeze({
           ordinal,
-          result: immutableResult
+          result: immutableResult,
+          outcome: observed.outcome
         });
         PROCESS_RESOURCE_RUN_RESULT_BINDINGS.set(runResult, Object.freeze({
           session,
@@ -547,7 +577,7 @@ export function openProcessResourceSession(input: Readonly<{
         receiptDigest: sha256({
           domain: 'sec.process-resource-session.receipt',
           receipt: withoutDigest
-        }) as SecOperationDigest
+        }) as OperationDigest
       });
       ISSUED_PROCESS_RESOURCE_SESSION_RECEIPTS.add(receipt);
       PROCESS_RESOURCE_SESSION_RECEIPT_BINDINGS.set(receipt, session);
@@ -589,9 +619,9 @@ export function assertProcessResourceSession(
   expected: Readonly<{
     semanticOperation: string;
     requirementId: string;
-    operationIdentityDigest?: SecOperationDigest;
-    boundAttemptDigest?: SecOperationDigest;
-    providerIdentityDigest?: SecOperationDigest;
+    operationIdentityDigest?: OperationDigest;
+    boundAttemptDigest?: OperationDigest;
+    providerIdentityDigest?: OperationDigest;
     maximumDurationMs: number;
     maximumInputBytes: number;
     maximumOutputBytes: number;
@@ -633,8 +663,8 @@ export function assertProcessResourceSession(
 export function assertProcessResourceSessionReceipt(
   receipt: ProcessResourceSessionReceipt,
   expected?: Readonly<{
-    readonly operationIdentityDigest: SecOperationDigest;
-    readonly boundAttemptDigest: SecOperationDigest;
+    readonly operationIdentityDigest: OperationDigest;
+    readonly boundAttemptDigest: OperationDigest;
     readonly requirementId: string;
   }>
 ): void {
@@ -671,8 +701,8 @@ export function assertProcessResourceRunResult(
   runResult: ProcessResourceRunResult,
   receipt: ProcessResourceSessionReceipt,
   expected: Readonly<{
-    readonly operationIdentityDigest: SecOperationDigest;
-    readonly boundAttemptDigest: SecOperationDigest;
+    readonly operationIdentityDigest: OperationDigest;
+    readonly boundAttemptDigest: OperationDigest;
     readonly requirementId: string;
     readonly boundary: RetainedCommandBoundary;
     readonly args: readonly string[];

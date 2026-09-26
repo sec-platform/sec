@@ -9,7 +9,7 @@ import {
   indexValidatedEngineeringIR,
   type EngineeringIRIndex
 } from '../ir/index-engineering-ir.ts';
-import { digest } from '../ir/ir-revision.ts';
+import { rawSha256Hex } from '../ir/ir-revision.ts';
 import {
   assertImpactPropagationRuleRegistry,
   IMPACT_PROPAGATION_RULES
@@ -1066,6 +1066,6 @@ export function buildImpactPropagation(
   };
   return deepFreeze({
     ...withoutRevision,
-    impactRevision: `sha256:${digest(impactDigestPayload(withoutRevision))}`
+    impactRevision: `sha256:${rawSha256Hex(impactDigestPayload(withoutRevision))}`
   });
 }

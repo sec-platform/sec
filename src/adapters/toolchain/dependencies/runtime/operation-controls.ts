@@ -1,7 +1,7 @@
 import crypto from 'node:crypto';
 import { assertNativeAbortSignal, linkNativeAbortSignals, throwIfNativeAborted } from '../../../../contracts/native-abort.ts';
 
-import { SecError } from '../../../../contracts/failure.ts';
+import { FailureError } from '../../../../contracts/failure.ts';
 
 // A default and a ceiling are independent decisions, even when equal today.
 const DEFAULT_DEPENDENCY_LOCK_TIMEOUT_MS = 300_000;
@@ -69,7 +69,7 @@ function runtimeDependencyPositiveBoundedInteger(
 ): number {
   const value = configured === undefined ? fallback : configured;
   if (!Number.isSafeInteger(value) || value <= 0 || value > maximum) {
-    throw new SecError(
+    throw new FailureError(
       'RUNTIME-DEPS-003',
       `Runtime dependency ${field} must be a positive safe integer within its canonical ceiling`,
       { field, maximum, value }
@@ -87,7 +87,7 @@ function createRuntimeDependencyMonotonicLedger(source: () => number): () => num
   return () => {
     const observed = source();
     if (!Number.isFinite(observed) || observed < previous) {
-      throw new SecError(
+      throw new FailureError(
         'RUNTIME-DEPS-003',
         'Runtime dependency operation monotonic clock is invalid or moved backwards',
         { observed, previous }
@@ -107,7 +107,7 @@ function ownControl<K extends keyof RuntimeDependencyOperationControlInput>(
 }
 
 function invalidBinding(): never {
-  throw new SecError('RUNTIME-DEPS-003', 'Runtime dependency operation binding is not owner-issued');
+  throw new FailureError('RUNTIME-DEPS-003', 'Runtime dependency operation binding is not owner-issued');
 }
 
 function assertIssuedContext(value: unknown): asserts value is RuntimeDependencyOperationContext {
@@ -141,7 +141,7 @@ function validateSignal(signal: AbortSignal | undefined): void {
     // throwIfAborted methods are not evidence that this is an AbortSignal.
     assertNativeAbortSignal(signal);
   } catch {
-    throw new SecError('RUNTIME-DEPS-003', 'Runtime dependency signal must be a native AbortSignal');
+    throw new FailureError('RUNTIME-DEPS-003', 'Runtime dependency signal must be a native AbortSignal');
   }
 }
 
@@ -153,7 +153,7 @@ export function captureRuntimeDependencyControlInput(
   options: RuntimeDependencyOperationControlInput
 ): Readonly<RuntimeDependencyOperationControlInput> {
   if (options === null || typeof options !== 'object') {
-    throw new SecError('RUNTIME-DEPS-003', 'Runtime dependency controls must be an object');
+    throw new FailureError('RUNTIME-DEPS-003', 'Runtime dependency controls must be an object');
   }
   if (issuedControlViews.has(options) || capturedControlInputs.has(options)) return options;
   const existing = existingContext(options);
@@ -180,7 +180,7 @@ export function runtimeDependencyOperationControls(
     signal: requestedSignal } = captured;
   validateSignal(requestedSignal);
   if (existing === undefined && requestedMonotonicNowMs !== undefined && typeof requestedMonotonicNowMs !== 'function') {
-    throw new SecError('RUNTIME-DEPS-003', 'Runtime dependency monotonic clock must be callable');
+    throw new FailureError('RUNTIME-DEPS-003', 'Runtime dependency monotonic clock must be callable');
   }
   const lockBudgetMs = runtimeDependencyPositiveBoundedInteger(
     'lockTimeoutMs',
@@ -195,7 +195,7 @@ export function runtimeDependencyOperationControls(
     MAX_DEPENDENCY_LOCK_POLL_INTERVAL_MS
   );
   if (requestedDeadline !== undefined && !Number.isSafeInteger(requestedDeadline)) {
-    throw new SecError('RUNTIME-DEPS-003', 'Runtime dependency absolute deadline is invalid', {
+    throw new FailureError('RUNTIME-DEPS-003', 'Runtime dependency absolute deadline is invalid', {
       deadlineAtUnixMs: requestedDeadline
     });
   }
@@ -212,7 +212,7 @@ export function runtimeDependencyOperationControls(
     ? requestedDeadline - nowUnixMs
     : Number.POSITIVE_INFINITY;
   if (absoluteDeadlineBudgetMs < 1) {
-    throw new SecError('RUNTIME-DEPS-003', 'Runtime dependency absolute deadline is exhausted');
+    throw new FailureError('RUNTIME-DEPS-003', 'Runtime dependency absolute deadline is exhausted');
   }
   const initialBudgetMs = Math.min(
     lockBudgetMs,
@@ -284,7 +284,7 @@ export function runtimeDependencyOperationRemainingMs(
   minimumMs = 1
 ): number {
   if (!Number.isFinite(minimumMs) || minimumMs < 0) {
-    throw new SecError('RUNTIME-DEPS-003', 'Runtime dependency minimum budget must be finite and non-negative', {
+    throw new FailureError('RUNTIME-DEPS-003', 'Runtime dependency minimum budget must be finite and non-negative', {
       minimumMs
     });
   }
@@ -304,7 +304,7 @@ function remainingFromContext(
   throwIfNativeAborted(context.signal);
   const remainingMs = context.deadlineAtMonotonicMs - observedAtMonotonicMs;
   if (!Number.isFinite(remainingMs) || remainingMs < minimumMs) {
-    throw new SecError('RUNTIME-DEPS-003', `${label} exceeded the runtime dependency operation deadline`,
+    throw new FailureError('RUNTIME-DEPS-003', `${label} exceeded the runtime dependency operation deadline`,
       {
         initialBudgetMs: context.initialBudgetMs,
         minimumMs,
@@ -349,7 +349,7 @@ export async function awaitRuntimeDependencyOperation(
           if (signal.aborted) abortListener();
         });
     const deadline = new Promise<never>((_resolve, reject) => {
-      deadlineTimer = setTimeout(() => reject(new SecError(
+      deadlineTimer = setTimeout(() => reject(new FailureError(
         'RUNTIME-DEPS-003',
         `${label} exceeded the runtime dependency operation deadline`,
         { initialBudgetMs: context.initialBudgetMs }
@@ -380,7 +380,7 @@ export async function waitForRuntimeDependencyOperation(
   // Infinite delays retain the saturating clamp; unordered inputs must not
   // reach provider work. Keep one captured ledger throughout the await.
   if (typeof requestedDelayMs !== 'number' || Number.isNaN(requestedDelayMs)) {
-    throw new SecError('RUNTIME-DEPS-003', 'Runtime dependency wait delay must be an ordered number', {
+    throw new FailureError('RUNTIME-DEPS-003', 'Runtime dependency wait delay must be an ordered number', {
       requestedDelayMs
     });
   }

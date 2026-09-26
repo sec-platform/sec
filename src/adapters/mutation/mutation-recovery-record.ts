@@ -8,6 +8,7 @@ import {
   semanticMutationRecoveryRecordRevision
 } from '../../compiler/semantic-mutation/recovery-record.ts';
 import { SEMANTIC_MUTATION_RECOVERY_RECORD_REVISION, SEMANTIC_MUTATION_TERMINAL_RETENTION, type SemanticMutationRecoveryRecord, type SemanticMutationRecoveryState, type SemanticMutationRequestIdentity, type SemanticMutationRequestRecord } from '../../semantics/mutation/transaction.ts';
+import { semanticMutationTransactionsRoot } from '../../workspace/contract/semantic-mutation/state-layout.ts';
 import {
   inspectExactNoFollowDirectoryPresence,
   inspectNoFollowOrdinaryFileEntry,
@@ -27,9 +28,11 @@ import {
   type SemanticMutationTerminalWriteTestHooks
 } from './mutation-terminal-record.ts';
 import { createSemanticMutationRecoveryRecordsDirectory } from './transaction-directories.ts';
+import { inspectSemanticMutationStateLayoutStatus } from './state-layout-migration.ts';
 import {
   assertSemanticMutationRecoveryRecordsDirectory,
   assertSemanticMutationTransactionRoot,
+  semanticMutationLegacyTransactionRoot,
   semanticMutationTransactionRoot,
   semanticMutationWorkspaceRootFromTransactionRoot,
   type SemanticMutationCommitFence
@@ -312,30 +315,30 @@ export async function querySemanticMutationRequestRecord(
   identity: SemanticMutationRequestIdentity,
   terminalTestHooks: SemanticMutationTerminalWriteTestHooks = {}
 ): Promise<SemanticMutationRequestRecord | null> {
+  const status = inspectSemanticMutationStateLayoutStatus(workspaceRoot);
+  if (status === 'ambiguous') {
+    throw new Error('Semantic Mutation request query found both current and legacy state roots');
+  }
+  if (status === 'absent') return null;
   const digest = semanticMutationRequestIdentityDigest(identity);
-  const transactionRoot = semanticMutationTransactionRoot(workspaceRoot, digest);
+  const transactionRoot = status === 'legacy'
+    ? semanticMutationLegacyTransactionRoot(workspaceRoot, digest)
+    : semanticMutationTransactionRoot(workspaceRoot, digest);
   return (await readRejectedSemanticMutationTerminal(transactionRoot, terminalTestHooks)) ??
     loadLatestSemanticMutationRecoveryRecord(transactionRoot, terminalTestHooks);
 }
 
-export async function pruneSemanticMutationTerminalRecords(
-  workspaceRoot: string,
+async function pruneSemanticMutationTerminalRecordsAtRoot(
+  transactionsRoot: string,
   commitFence: SemanticMutationCommitFence,
-  terminalTestHooks: SemanticMutationTerminalWriteTestHooks = {}
-): Promise<void> {
-  const transactionsRoot = path.join(
-    path.resolve(workspaceRoot),
-    '.sec',
-    'semantic-mutation',
-    'v1',
-    'transactions'
-  );
-  terminalTestHooks.observeIo?.({ kind: 'transactions-scan' });
+  terminalTestHooks: SemanticMutationTerminalWriteTestHooks
+): Promise<boolean> {
   const transactionsParent = retainOptionalDirectory(
     transactionsRoot,
     'Semantic Mutation transactions root'
   );
-  if (transactionsParent === null) return;
+  if (transactionsParent === null) return false;
+  terminalTestHooks.observeIo?.({ kind: 'transactions-scan' });
   const initialCensus = scanSemanticMutationTransactionCensus(transactionsParent);
   const identities = initialCensus.map(({ relativePath }) => relativePath);
   const terminals: Array<{
@@ -425,4 +428,27 @@ export async function pruneSemanticMutationTerminalRecords(
       root: terminal.rootIdentity
     });
   }
+  return true;
+}
+
+export async function pruneSemanticMutationTerminalRecords(
+  workspaceRoot: string,
+  commitFence: SemanticMutationCommitFence,
+  terminalTestHooks: SemanticMutationTerminalWriteTestHooks = {}
+): Promise<void> {
+  const root = path.resolve(workspaceRoot);
+  const status = inspectSemanticMutationStateLayoutStatus(root);
+  if (status === 'ambiguous') {
+    throw new Error('Semantic Mutation terminal prune found both current and legacy state roots');
+  }
+  if (status === 'absent') return;
+  const transactionsRoot = semanticMutationTransactionsRoot(
+    root,
+    status === 'legacy' ? 'legacy' : 'current'
+  );
+  await pruneSemanticMutationTerminalRecordsAtRoot(
+    transactionsRoot,
+    commitFence,
+    terminalTestHooks
+  );
 }

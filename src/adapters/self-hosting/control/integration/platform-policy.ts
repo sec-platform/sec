@@ -1,5 +1,5 @@
-import { createHash } from 'node:crypto';
 
+import { rawSha256Hex } from '../../../../contracts/canonical.ts';
 import { encodeVerificationActionData } from '../../../verification/platform/action/contract/action.ts';
 
 type IntegrationPlatformDigest = `sha256:${string}`;
@@ -11,17 +11,15 @@ type IntegrationPlatformDigest = `sha256:${string}`;
  * integration, but it must never be described as GitHub-side no-bypass
  * protection when the provider does not expose rulesets/branch protection.
  */
-export const SEC_INTEGRATION_PLATFORM_POLICY = Object.freeze({
+export const INTEGRATION_PLATFORM_POLICY = Object.freeze({
   schema: 'sec-integration-platform-policy-v1' as const,
   physicalMerge: 'github-pr-squash-exact-head-cas-no-admin' as const,
   allowPlatformEnforcementUnavailable: true as const,
   claimsNoBypassEnforcement: false as const
 });
 
-export const SEC_INTEGRATION_PLATFORM_POLICY_DIGEST =
-  `sha256:${createHash('sha256').update(
-    encodeVerificationActionData(SEC_INTEGRATION_PLATFORM_POLICY)
-  ).digest('hex')}` as const;
+export const INTEGRATION_PLATFORM_POLICY_DIGEST =
+  `sha256:${rawSha256Hex(encodeVerificationActionData(INTEGRATION_PLATFORM_POLICY))}` as const;
 
 export interface IntegrationPlatformObservation {
   readonly status: 'available' | 'platform-enforcement-unavailable';
@@ -70,8 +68,8 @@ export function canonicalizeIntegrationPlatformObservation(
   if (value.status !== 'platform-enforcement-unavailable') {
     fail('observation status is invalid.');
   }
-  if (!SEC_INTEGRATION_PLATFORM_POLICY.allowPlatformEnforcementUnavailable
-      || SEC_INTEGRATION_PLATFORM_POLICY.claimsNoBypassEnforcement) {
+  if (!INTEGRATION_PLATFORM_POLICY.allowPlatformEnforcementUnavailable
+      || INTEGRATION_PLATFORM_POLICY.claimsNoBypassEnforcement) {
     fail('unavailable enforcement is not admitted by the active policy.');
   }
   return Object.freeze({ status: value.status, rulesetDigest, reason: reason(value.reason) });

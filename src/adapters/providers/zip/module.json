@@ -1,0 +1,82 @@
+{
+  "importGraph": "runtime",
+  "externalEntrypoints": [],
+  "capabilityProviders": [
+    {
+      "capability": "zip-text-read",
+      "operations": [
+        "readZipTextFile"
+      ],
+      "effectKinds": [
+        "filesystem",
+        "process"
+      ],
+      "operationRoles": [
+        {
+          "operation": "readZipTextFile",
+          "role": "domain-owner",
+          "semanticOperation": "external-capabilities.zip-text-read",
+          "requirementId": null,
+          "recovery": null
+        }
+      ]
+    }
+  ],
+  "operationObligations": [
+    {
+      "operation": {
+        "kind": "capability",
+        "capability": "zip-text-read",
+        "operation": "readZipTextFile"
+      },
+      "consumerSupport": {
+        "consumers": [
+          "ci-verification-contract"
+        ]
+      },
+      "effect": {
+        "kinds": [
+          "filesystem",
+          "process"
+        ],
+        "failureKinds": [
+          "filesystem.read-failed",
+          "filesystem.write-failed",
+          "process.deadline-exhausted",
+          "process.output-budget-exhausted",
+          "process.settlement-unproven",
+          "process.unavailable"
+        ],
+        "recovery": "idempotent-retry"
+      },
+      "evolution": {
+        "migration": "not-required",
+        "retirement": "replacement-obligations-satisfied"
+      },
+      "resources": {
+        "aggregateBudgets": [
+          {
+            "resource": "duration-ms",
+            "maximum": 15000
+          },
+          {
+            "resource": "input-bytes",
+            "maximum": 33554432
+          },
+          {
+            "resource": "output-bytes",
+            "maximum": 10682368
+          },
+          {
+            "resource": "processes",
+            "maximum": 2
+          }
+        ]
+      },
+      "futureSupport": {
+        "condition": "semantic-superset-required"
+      }
+    }
+  ],
+  "preDependencyBootstrap": false
+}

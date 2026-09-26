@@ -3,6 +3,8 @@ import path from 'node:path';
 
 import { withAcquiredResource } from '../../../execution/resource-settlement.ts';
 import { acquireWorkspaceWriteLease } from '../../filesystem/write-lease.ts';
+import { withAuthorityGitReadSession } from '../../providers/git-read/authority.ts';
+import { GIT_READ_DEFAULT_OPERATION_BUDGET } from '../../providers/git-read/runtime/budget.ts';
 import {
   parseWorktreePorcelainZ,
   parseWorktreeStatusPorcelainZ,
@@ -10,10 +12,11 @@ import {
 } from '../physical/contract/git-worktree-observation.ts';
 import { acquirePhysicalMutationLease } from '../physical/runtime/mutation-lease.ts';
 import { PhysicalNoFollowError, assertPhysicallyDisjointDirectoryChains, createExclusiveNoFollowDirectory, createNoFollowOrdinaryDirectoryChain, deleteRetainedNoFollowEntry, inspectExactNoFollowDirectoryPresence, inspectNoFollowDirectoryChain, inspectNoFollowLinkEntry, inspectNoFollowOrdinaryFileEntry, physicallyContainsDirectoryChain, publishExclusiveDurableCanonicalFile, relocateRetainedNoFollowDirectoryAcrossParents, replaceDurableCanonicalFile, scanNoFollowDirectoryTreeMetadata, type PhysicalDirectoryChain, type PhysicalDirectoryIdentity } from '../physical/runtime/physical-no-follow.ts';
-import { runCommandBytes, type ByteCommandResult } from '../physical/runtime/process.ts';
+import type { ByteCommandResult } from '../physical/runtime/process.ts';
 import { createRuntimeStateJournalFileSystem } from '../workspace-state/journal-filesystem.ts';
-import { resolveSecWorkspaceRuntimeRoots } from '../workspace-state/paths.ts';
-import { acquireSecRuntimeStatePhysicalAuthority } from '../workspace-state/physical-authority.ts';
+import { selectRuntimeStateDirectoryGeneration } from '../workspace-state/layout-migration.ts';
+import { resolveWorkspaceRuntimeRoots } from '../workspace-state/paths.ts';
+import { acquireRuntimeStatePhysicalAuthority } from '../workspace-state/physical-authority.ts';
 import {
   GENERATED_STATE_CLEANUP_CONTINUATION_SCHEMA,
   GENERATED_STATE_DISPOSAL_RECEIPT_SCHEMA,
@@ -44,7 +47,6 @@ import {
   type GeneratedStateWorktreeRetirement
 } from './contract.ts';
 
-const GENERATED_STATE_RUNTIME_VERSION = 'v1' as const;
 const GENERATED_STATE_CLEANUP_INTENT_SCHEMA = 'sec-generated-state-cleanup-intent-v2' as const;
 const GENERATED_STATE_DISPOSAL_KEY_SCHEMA = 'sec-generated-state-disposal-key-v1' as const;
 const MAXIMUM_CLEANUP_ENTRIES = 100_000;
@@ -216,6 +218,37 @@ type GeneratedStateWorktreeRetirementEffectAuthorityState = {
   readonly input: GeneratedStateWorktreeRetirementEffectInput;
   consumed: boolean;
 };
+
+async function defaultGeneratedStateGitObservation(
+  cwd: string,
+  args: readonly string[]
+): Promise<ByteCommandResult> {
+  const hasNestedCwd = args[0] === '-C' && typeof args[1] === 'string';
+  const sessionCwd = hasNestedCwd ? path.resolve(cwd, args[1]!) : cwd;
+  const commandArgs = hasNestedCwd ? args.slice(2) : args;
+  try {
+    return await withAuthorityGitReadSession({
+      cwd: sessionCwd,
+      budget: GIT_READ_DEFAULT_OPERATION_BUDGET
+    }, async (session) => {
+      const command = await session.run(commandArgs);
+      if (command.kind !== 'completed') {
+        return Object.freeze({ code: 1, stdout: new Uint8Array(), stderr: command.detail });
+      }
+      return Object.freeze({
+        code: command.result.code,
+        stdout: command.result.stdout,
+        stderr: command.result.stderr
+      });
+    });
+  } catch (error) {
+    return Object.freeze({
+      code: 1,
+      stdout: new Uint8Array(),
+      stderr: error instanceof Error ? error.message : String(error)
+    });
+  }
+}
 
 const generatedStateWorktreeRetirementEffectAuthorities =
   new WeakMap<object, GeneratedStateWorktreeRetirementEffectAuthorityState>();
@@ -397,15 +430,24 @@ function runtimePaths(
   workspaceRoot: string,
   options: GeneratedStateLifecycleOptions
 ): GeneratedStateRuntimePaths {
-  const roots = resolveSecWorkspaceRuntimeRoots({
+  const roots = resolveWorkspaceRuntimeRoots({
     repositoryRoot: workspaceRoot,
     environment: options.environment
   });
-  const generatedRoot = path.join(roots.workspaceStateRoot, 'generated-state', GENERATED_STATE_RUNTIME_VERSION);
+  const generation = selectRuntimeStateDirectoryGeneration({
+    label: 'generated state runtime',
+    legacyPath: path.join(roots.workspaceStateRoot, 'generated-state', 'v1'),
+    currentPath: path.join(roots.workspaceStateRoot, 'generated-state', 'runtime')
+  });
+  const generatedRoot = generation.path;
   return Object.freeze({
     workspaceStateRoot: roots.workspaceStateRoot,
-    legacyRegistrationsRoot: path.join(generatedRoot, 'registrations'),
-    registrationsRoot: path.join(generatedRoot, 'registrations-v2'),
+    legacyRegistrationsRoot: generation.kind === 'legacy'
+      ? path.join(generatedRoot, 'registrations')
+      : path.join(generatedRoot, 'registrations', 'previous'),
+    registrationsRoot: generation.kind === 'legacy'
+      ? path.join(generatedRoot, 'registrations-v2')
+      : path.join(generatedRoot, 'registrations', 'current'),
     settlementsRoot: path.join(generatedRoot, 'settlements'),
     transactionsRoot: path.join(generatedRoot, 'transactions')
   });
@@ -415,7 +457,7 @@ async function openRuntimeStore(
   workspaceRoot: string,
   options: GeneratedStateLifecycleOptions
 ): Promise<GeneratedStateRuntimeStore> {
-  const roots = resolveSecWorkspaceRuntimeRoots({
+  const roots = resolveWorkspaceRuntimeRoots({
     repositoryRoot: workspaceRoot,
     environment: options.environment
   });
@@ -463,7 +505,7 @@ async function openRuntimeStore(
       createNoFollowOrdinaryDirectoryChain(root, relative.split(path.sep));
     }
   }
-  const authority = await acquireSecRuntimeStatePhysicalAuthority({
+  const authority = await acquireRuntimeStatePhysicalAuthority({
     repositoryRoot: workspaceRoot,
     stateRoot: roots.stateRoot,
     cacheRoot: roots.cacheRoot,
@@ -2659,8 +2701,8 @@ async function workspaceRegistrationState(
   workspaceRoot: string,
   options: GeneratedStateLifecycleOptions
 ): Promise<GeneratedStateInventory['workspaceRegistration']> {
-  const result = await (options.runGit ?? ((command, args, runOptions) =>
-    runCommandBytes(command, args, { cwd: runOptions.cwd })))(
+  const result = await (options.runGit ?? ((_command, args, runOptions) =>
+    defaultGeneratedStateGitObservation(runOptions.cwd, args)))(
       'git', ['worktree', 'list', '--porcelain', '-z'], { cwd: repositoryRoot }
     );
   if (result.code !== 0) return 'unresolved';
@@ -2959,7 +3001,7 @@ async function worktreeRetirementDomainRegistration(
 }
 
 async function worktreeRetirementGit(options: GeneratedStateLifecycleOptions, cwd: string, args: string[]): Promise<ByteCommandResult> {
-  return (options.runGit ?? ((command, commandArgs, runOptions) => runCommandBytes(command, commandArgs, { cwd: runOptions.cwd })))(
+  return (options.runGit ?? ((_command, commandArgs, runOptions) => defaultGeneratedStateGitObservation(runOptions.cwd, commandArgs)))(
     'git',
     args,
     { cwd }

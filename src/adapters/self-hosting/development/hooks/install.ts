@@ -1,13 +1,22 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
-import { spawnSync } from 'node:child_process';
-import { createHash } from 'node:crypto';
 import { chmod, lstat } from 'node:fs/promises';
 import path from 'node:path';
 
-import { canonicalJson, sha256 } from '../../../../contracts/canonical.ts';
-import type { SecBoundSemanticOperation } from '../../../../execution/operation/semantic.ts';
+import { createSha256Hasher } from '../../../../contracts/digest.ts';
+import { gitBlobObjectId } from '../../../../contracts/git-object-id.ts';
+import { canonicalJson, rawSha256Hex, sha256 } from '../../../../contracts/canonical.ts';
+import { withAcquiredResource } from '../../../../execution/resource-settlement.ts';
+import { issueOperationRequirementBindingContext } from '../../../../execution/operation/requirement-binding-context.ts';
+import {
+  bindSemanticOperation,
+  compileCapabilityBinding,
+  compileSemanticOperationPlan,
+  issueSemanticOperationAttemptContext,
+  type BoundSemanticOperation,
+  type OperationDigest
+} from '../../../../execution/operation/semantic.ts';
 import { withAuthorityGitReadSession } from '../../../providers/git-read/authority.ts';
-import { isolatedGitReadEnvironment, isProductionGitReadSession, type GitReadProviderResolutionFailure, type GitReadSession, type GitReadSessionResolution } from '../../../providers/git-read/runtime/session.ts';
+import { GIT_READ_DEFAULT_OPERATION_BUDGET, isolatedGitReadEnvironment, isProductionGitReadSession, type GitReadProviderResolutionFailure, type GitReadSession, type GitReadSessionResolution } from '../../../providers/git-read/runtime/session.ts';
 import {
   assertGitConfigEffectReceipt,
   closeGitConfigTargetCapability,
@@ -22,7 +31,11 @@ import {
 } from '../../../providers/git/physical-provider.ts';
 import { acquirePhysicalMutationLease, type PhysicalMutationLeaseHandle, type PhysicalMutationLeaseOwner } from '../../../runtime-state/physical/runtime/mutation-lease.ts';
 import { createExclusiveNoFollowDirectory, deleteRetainedNoFollowEntry, inspectExactNoFollowDirectoryPresence, inspectNoFollowDirectoryChain, inspectNoFollowOrdinaryFileEntry, PhysicalNoFollowError, publishExclusiveDurableCanonicalFile, replaceDurableCanonicalFile, scanNoFollowDirectoryTree, scanNoFollowDirectoryTreeMetadata, type PhysicalDirectoryChain, type PhysicalDirectoryIdentity } from '../../../runtime-state/physical/runtime/physical-no-follow.ts';
-import type { ProcessResourceSession } from '../../../runtime-state/physical/runtime/process-resource-session.ts';
+import {
+  assertProcessResourceSessionReceipt,
+  openProcessResourceSession,
+  type ProcessResourceSession
+} from '../../../runtime-state/physical/runtime/process-resource-session.ts';
 
 const MANAGED_HOOKS_PATH = '.githooks';
 const MANAGED_COMMON_DIRECTORY = 'sec-managed-hooks-v3';
@@ -57,6 +70,58 @@ const DEFAULT_GIT_INVOCATION_BUDGET = Object.freeze({
   maxCommandStdoutBytes: 2 * 1024 * 1024,
   maxCommandStderrBytes: 128 * 1024
 });
+const INSTALL_REQUIREMENT = 'development.hooks.process';
+const INSTALL_CONTRACT = sha256({
+  owner: 'development.hooks',
+  operation: 'install',
+  processBoundary: 'one-process-resource-session'
+}) as OperationDigest;
+const PROCESS_PROVIDER = sha256({
+  owner: 'runtime-state.physical',
+  provider: 'process-resource-session'
+}) as OperationDigest;
+
+function compileInstallOperation(input: Readonly<{
+  repoRoot: string;
+  lifecycle: boolean;
+  deadlineAtUnixMs: number;
+}>): BoundSemanticOperation {
+  const plan = compileSemanticOperationPlan({
+    operation: 'development.hooks.install',
+    intentDigest: sha256({ repoRoot: input.repoRoot, lifecycle: input.lifecycle }) as OperationDigest,
+    decisionDigest: INSTALL_CONTRACT,
+    deadlineAtUnixMs: input.deadlineAtUnixMs,
+    attempt: issueSemanticOperationAttemptContext({
+      authorityGrantDigest: INSTALL_CONTRACT
+    }),
+    aggregateBudgets: [
+      { resource: 'duration-ms', maximum: DEFAULT_GIT_INVOCATION_BUDGET.deadlineMs },
+      { resource: 'input-bytes', maximum: 1 },
+      { resource: 'output-bytes', maximum: DEFAULT_GIT_INVOCATION_BUDGET.maxStdoutBytes
+        + DEFAULT_GIT_INVOCATION_BUDGET.maxStderrBytes },
+      { resource: 'processes', maximum: DEFAULT_GIT_INVOCATION_BUDGET.maxProcesses }
+    ],
+    requirements: [{
+      id: INSTALL_REQUIREMENT,
+      contractDigest: INSTALL_CONTRACT,
+      effectKinds: ['filesystem', 'process', 'provider'],
+      failureKinds: [
+        'filesystem.identity-drift',
+        'filesystem.write-failed',
+        'process.cancelled',
+        'process.deadline-exhausted',
+        'process.output-budget-exhausted',
+        'process.settlement-unproven',
+        'process.unavailable'
+      ]
+    }]
+  });
+  return bindSemanticOperation(plan, [compileCapabilityBinding({
+    requirementId: INSTALL_REQUIREMENT,
+    contractDigest: INSTALL_CONTRACT,
+    providerIdentityDigest: PROCESS_PROVIDER
+  })]);
+}
 
 interface GitInvocationBudgetOptions {
   readonly deadlineMs?: number;
@@ -206,6 +271,32 @@ class GitInvocationBudget {
       throw new GitHookTransitionConflict('Canonical Git provider executable identity is unavailable');
     }
     return path.resolve(session.gitExecutableIdentity.realPath);
+  }
+
+  borrowedReadSessionFor(repoRoot: string): GitReadSession | null {
+    const session = this.bindGitExecutable();
+    return canonicalPath(session.cwd) === canonicalPath(path.resolve(repoRoot)) ? session : null;
+  }
+
+  nestedReadBudget(label: string) {
+    const remaining = this.deadlineAt - Date.now();
+    this.assertWithin(label + ' nested session budget');
+    return Object.freeze({
+      ...GIT_READ_DEFAULT_OPERATION_BUDGET,
+      deadlineMs: Math.min(GIT_READ_DEFAULT_OPERATION_BUDGET.deadlineMs, remaining),
+      maxProcesses: 1,
+      maxStdoutBytes: Math.min(this.maxCommandStdoutBytes, GIT_READ_DEFAULT_OPERATION_BUDGET.maxStdoutBytes),
+      maxStderrBytes: Math.min(this.maxCommandStderrBytes, GIT_READ_DEFAULT_OPERATION_BUDGET.maxStderrBytes),
+      maxRecords: Math.min(this.maxRecords, GIT_READ_DEFAULT_OPERATION_BUDGET.maxRecords),
+      maxCommandStdoutBytes: Math.min(
+        this.maxCommandStdoutBytes,
+        GIT_READ_DEFAULT_OPERATION_BUDGET.maxCommandStdoutBytes
+      ),
+      maxCommandStderrBytes: Math.min(
+        this.maxCommandStderrBytes,
+        GIT_READ_DEFAULT_OPERATION_BUDGET.maxCommandStderrBytes
+      )
+    });
   }
 
   beforeSpawn(kind: GitSpawnKind): void {
@@ -687,7 +778,7 @@ function physicalFileObservationFromEntry(
     device: entry.device,
     inode: entry.inode,
     size: entry.size,
-    byteDigest: 'sha256:' + createHash('sha256').update(entry.bytes).digest('hex')
+    byteDigest: 'sha256:' + rawSha256Hex(entry.bytes)
   });
 }
 
@@ -781,59 +872,57 @@ function isExecutable(metadata: Awaited<ReturnType<typeof lstat>>): boolean {
     && (process.platform === 'win32' || (Number(metadata.mode) & 0o111) !== 0);
 }
 
-function gitText(
+async function gitText(
   repoRoot: string,
   args: readonly string[],
-  options: {
-    readonly allowMissing?: boolean;
-    readonly operation?: 'read' | 'config-effect';
-  } = {}
-): string | null {
+  options: { readonly allowMissing?: boolean } = {}
+): Promise<string | null> {
+  return await gitReadText(repoRoot, args, { allowMissing: options.allowMissing });
+}
+
+async function gitReadText(
+  repoRoot: string,
+  args: readonly string[],
+  options: { readonly allowMissing?: boolean } = {}
+): Promise<string | null> {
   const root = path.resolve(repoRoot);
   const budget = currentGitInvocationBudget();
-  const isEffect = options.operation === 'config-effect';
-  const operationLabel = isEffect ? 'Git config effect' : 'Git read';
-  const executableFence = isEffect ? {} : { verifyExecutable: false };
-  budget.assertGitExecutableCurrent(operationLabel, executableFence);
-  const remainingMs = budget.beforeProcess(operationLabel);
-  budget.assertGitExecutableCurrent(operationLabel + ' pre-effect', executableFence);
-  budget.beforeSpawn(isEffect ? 'git-config' : 'git-read');
-  const result = spawnSync(budget.hostGitExecutionTarget(), ['-C', root, ...args], {
-    cwd: root,
-    encoding: 'utf8',
-    env: budget.environment,
-    windowsHide: true,
-    timeout: remainingMs,
-    maxBuffer: Math.max(budget.maxCommandStdoutBytes, budget.maxCommandStderrBytes)
-  });
-  const stdout = result.stdout ?? '';
-  const stderr = result.stderr ?? '';
-  if (result.error !== undefined) {
-    const code = (result.error as NodeJS.ErrnoException).code;
-    if (code === 'ETIMEDOUT' || result.signal !== null) {
+  const operationLabel = 'Git read';
+  budget.assertGitExecutableCurrent(operationLabel, { verifyExecutable: false });
+  budget.beforeProcess(operationLabel);
+  budget.beforeSpawn('git-read');
+  const run = async (session: GitReadSession) => {
+    const command = await session.run(args);
+    if (command.kind !== 'completed') {
       throw new GitHookTransitionConflict(
-        'Git command exceeded the installer invocation deadline: git ' + (args[0] ?? 'command')
+        'Git read provider rejected git ' + (args[0] ?? 'command') + ': ' + command.detail
       );
     }
-    if (code === 'ERR_CHILD_PROCESS_STDIO_MAXBUFFER') {
-      throw new GitHookTransitionConflict(
-        'Git command exceeded the installer command output budget: git ' + (args[0] ?? 'command')
-      );
+    const stdout = Buffer.from(command.result.stdout).toString('utf8');
+    const stderr = command.result.stderr;
+    budget.afterProcess(stdout, stderr, operationLabel);
+    const missingStatus = command.result.code === 1
+      || command.result.code === 2
+      || command.result.code === 5
+      || command.result.code === 128;
+    if (options.allowMissing && missingStatus && stdout.trim().length === 0) return null;
+    if (command.result.code !== 0) {
+      const detail = stderr.trim();
+      throw new Error('git ' + (args[0] ?? 'command') + ' failed'
+        + (detail.length > 0 ? ': ' + detail : ''));
     }
-  }
-  budget.afterProcess(stdout, stderr, operationLabel);
-  budget.assertGitExecutableCurrent(operationLabel + ' post-effect', executableFence);
-  const missingStatus = result.status === 1
-    || result.status === 2
-    || result.status === 5
-    || result.status === 128;
-  if (options.allowMissing && missingStatus && stdout.trim().length === 0) return null;
-  if (result.error || result.status !== 0) {
-    const detail = stderr.trim();
-    throw new Error('git ' + (args[0] ?? 'command') + ' failed'
-      + (detail.length > 0 ? ': ' + detail : ''));
-  }
-  return stdout.trim();
+    return stdout.trim();
+  };
+  const borrowed = budget.borrowedReadSessionFor(root);
+  const result = borrowed === null
+    ? await withAuthorityGitReadSession({
+      cwd: root,
+      source: budget.environment,
+      budget: budget.nestedReadBudget(operationLabel)
+    }, run)
+    : await run(borrowed);
+  budget.assertGitExecutableCurrent(operationLabel + ' completion', { verifyExecutable: false });
+  return result;
 }
 
 function managedCommonRoot(commonGitDir: string): string {
@@ -904,10 +993,10 @@ async function managedHookSnapshots(
     ))
   ) return null;
   const sourceByName = new Map(sourceEntries.map((entry) => [entry.relativePath, entry]));
-  const trackedRecords = gitText(
+  const trackedRecords = (await gitReadText(
     repoRoot,
     ['ls-files', '--stage', '-z', '--', ...MANAGED_HOOKS]
-  )?.split('\0').filter((record) => record.length > 0) ?? [];
+  ))?.split('\0').filter((record) => record.length > 0) ?? [];
   const trackedByPath = new Map<string, string>();
   for (const record of trackedRecords) {
     const match = /^(100755) ([0-9a-f]{40}|[0-9a-f]{64}) 0\t(.+)$/u.exec(record);
@@ -921,11 +1010,11 @@ async function managedHookSnapshots(
   if (trackedByPath.size !== MANAGED_HOOKS.length) return null;
   const headByPath = new Map<string, string>();
   if (options.requireHeadTree === true) {
-    const headRecords = gitText(
+    const headRecords = (await gitReadText(
       repoRoot,
       ['ls-tree', '-z', '--full-tree', 'HEAD', '--', ...MANAGED_HOOKS],
       { allowMissing: true }
-    )?.split('\0').filter((record) => record.length > 0) ?? [];
+    ))?.split('\0').filter((record) => record.length > 0) ?? [];
     for (const record of headRecords) {
       const match = /^(100755) blob ([0-9a-f]{40}|[0-9a-f]{64})\t(.+)$/u.exec(record);
       if (
@@ -960,10 +1049,7 @@ async function managedHookSnapshots(
     )) return null;
     const sourceBytes = Buffer.from(sourceEntry.bytes);
     const objectHash = trackedObjectId.length === 40 ? 'sha1' : 'sha256';
-    const workingBlob = createHash(objectHash)
-      .update('blob ' + sourceBytes.byteLength + '\0')
-      .update(sourceBytes)
-      .digest('hex');
+    const workingBlob = gitBlobObjectId(objectHash, sourceBytes);
     if (workingBlob !== trackedObjectId) return null;
     if (options.requireHeadTree === true && headByPath.get(hook) !== trackedObjectId) return null;
     snapshots.push(Object.freeze({
@@ -978,20 +1064,20 @@ async function managedHookSnapshots(
 }
 
 function sourceFingerprint(snapshots: readonly ManagedHookSnapshot[]): string {
-  const hash = createHash('sha256');
+  const hash = createSha256Hasher();
   hash.update('sec-managed-hook-source-fingerprint-v4\0');
   for (const snapshot of snapshots) {
     hash.update(snapshot.name + '\0' + snapshot.sourceBytes.byteLength + '\0');
     hash.update(snapshot.sourceBytes);
   }
-  return hash.digest('hex');
+  return hash.finish().slice('sha256:'.length);
 }
 
 function managedGenerationDigest(
   snapshots: readonly ManagedHookSnapshot[],
   binding: string
 ): string {
-  const hash = createHash('sha256');
+  const hash = createSha256Hasher();
   hash.update('sec-managed-hooks-v4-physical-binding\0');
   hash.update(binding + '\0');
   for (const snapshot of snapshots) {
@@ -1000,7 +1086,7 @@ function managedGenerationDigest(
     hash.update(snapshot.name + '\0' + snapshot.deployedBytes.byteLength + '\0');
     hash.update(snapshot.deployedBytes);
   }
-  return hash.digest('hex');
+  return hash.finish().slice('sha256:'.length);
 }
 
 function makeBinding(
@@ -1037,34 +1123,34 @@ async function createSourceContext(
   });
 }
 
-function assertBootstrapAuthorityCurrent(
+async function assertBootstrapAuthorityCurrent(
   context: SourceContext,
   label: string
-): void {
+): Promise<void> {
   if (context.bootstrapAuthority === null) return;
   const expected = context.bootstrapAuthority;
   try {
-    const branch = gitText(
+    const branch = await gitText(
       context.repoRoot,
       ['symbolic-ref', '--quiet', '--short', 'HEAD'],
       { allowMissing: true }
     );
-    const localHeadSha = gitText(
+    const localHeadSha = await gitText(
       context.repoRoot,
       ['rev-parse', '--verify', 'HEAD^{commit}'],
       { allowMissing: true }
     );
-    const originUrl = gitText(
+    const originUrl = await gitText(
       context.repoRoot,
       ['remote', 'get-url', 'origin'],
       { allowMissing: true }
     );
-    const originHeadRef = originUrl === null ? null : gitText(
+    const originHeadRef = originUrl === null ? null : await gitText(
       context.repoRoot,
       ['symbolic-ref', '--quiet', 'refs/remotes/origin/HEAD'],
       { allowMissing: true }
     );
-    const originHeadSha = originUrl === null ? null : gitText(
+    const originHeadSha = originUrl === null ? null : await gitText(
       context.repoRoot,
       ['rev-parse', '--verify', 'refs/remotes/origin/HEAD^{commit}'],
       { allowMissing: true }
@@ -1091,7 +1177,7 @@ async function assertSourceCurrent(context: SourceContext, label: string): Promi
   if (!sameChain(root, context.rootChain) || !sameChain(common, context.commonChain)) {
     throw new GitHookTransitionConflict(label + ' physical ancestor chain changed');
   }
-  assertBootstrapAuthorityCurrent(context, label);
+  await assertBootstrapAuthorityCurrent(context, label);
   const snapshots = await managedHookSnapshots(context.repoRoot, {
     requireHeadTree: context.requireHeadTree
   });
@@ -1559,7 +1645,7 @@ function generationPhysicalEvidence(
       device: direct.device,
       inode: direct.inode,
       size: direct.size,
-      byteDigest: 'sha256:' + createHash('sha256').update(direct.bytes).digest('hex')
+      byteDigest: 'sha256:' + rawSha256Hex(direct.bytes)
     });
   });
   return Object.freeze({
@@ -1603,7 +1689,7 @@ function assertGenerationPhysicalEvidenceCurrent(
       || actual.device !== file.device
       || actual.inode !== file.inode
       || actual.size !== file.size
-      || 'sha256:' + createHash('sha256').update(actual.bytes).digest('hex') !== file.byteDigest
+      || 'sha256:' + rawSha256Hex(actual.bytes) !== file.byteDigest
     ) {
       throw new GitHookTransitionConflict(label + ' file identity or bytes changed: ' + file.name);
     }
@@ -1661,7 +1747,7 @@ async function capturePriorGenerationForCleanup(
   ) {
     throw new GitHookTransitionConflict(label + ' marker/config generation lineage is not exact');
   }
-  const configuredObservation = readHookConfigObservation(
+  const configuredObservation = await readHookConfigObservation(
     options.repoRoot,
     options.commonGitDir,
     options.worktreeGitDir,
@@ -1741,7 +1827,7 @@ async function capturePriorGenerationForCleanup(
       device: direct.device,
       inode: direct.inode,
       size: direct.size,
-      byteDigest: 'sha256:' + createHash('sha256').update(direct.bytes).digest('hex')
+      byteDigest: 'sha256:' + rawSha256Hex(direct.bytes)
     }));
   }
   const ready = inspection.state === 'ready';
@@ -1751,7 +1837,7 @@ async function capturePriorGenerationForCleanup(
     assertRetainedDirectoryChainCurrent(currentCommonRoot, label + ' common generation namespace readback');
     return null;
   }
-  const finalConfiguredObservation = readHookConfigObservation(
+  const finalConfiguredObservation = await readHookConfigObservation(
     options.repoRoot,
     options.commonGitDir,
     options.worktreeGitDir,
@@ -1898,7 +1984,7 @@ function deleteGenerationByEvidence(
       || direct.device !== file.device
       || direct.inode !== file.inode
       || direct.size !== file.size
-      || 'sha256:' + createHash('sha256').update(direct.bytes).digest('hex') !== file.byteDigest
+      || 'sha256:' + rawSha256Hex(direct.bytes) !== file.byteDigest
       || entry.device !== direct.device
       || entry.inode !== direct.inode
     ) {
@@ -2011,7 +2097,7 @@ async function createAndPublishGeneration(
 }
 
 function deterministicUuid(seed: string): string {
-  const hex = createHash('sha256').update(seed).digest('hex').slice(0, 32);
+  const hex = rawSha256Hex(seed).slice(0, 32);
   return hex.slice(0, 8) + '-' + hex.slice(8, 12) + '-' + hex.slice(12, 16) + '-'
     + hex.slice(16, 20) + '-' + hex.slice(20, 32);
 }
@@ -2067,7 +2153,7 @@ function makeGenerationPlan(
     files: Object.freeze(snapshots.map((snapshot) => Object.freeze({
       name: snapshot.name,
       size: snapshot.deployedBytes.byteLength,
-      byteDigest: 'sha256:' + createHash('sha256').update(snapshot.deployedBytes).digest('hex')
+      byteDigest: 'sha256:' + rawSha256Hex(snapshot.deployedBytes)
     })))
   });
 }
@@ -2237,7 +2323,7 @@ function observeOptionalConfigFile(
       device: direct.device,
       inode: direct.inode,
       size: direct.size,
-      byteDigest: 'sha256:' + createHash('sha256').update(direct.bytes).digest('hex')
+      byteDigest: 'sha256:' + rawSha256Hex(direct.bytes)
     });
   } catch (error) {
     if (error instanceof GitHookTransitionConflict) throw error;
@@ -2289,12 +2375,12 @@ function assertConfigPhysicalBoundary(
   });
 }
 
-function configStateFromGit(
+async function configStateFromGit(
   repoRoot: string,
   worktreeConfigPath: string,
   boundary: ConfigPhysicalBoundary
-): HookConfigState {
-  const localRaw = gitText(
+): Promise<HookConfigState> {
+  const localRaw = await gitText(
     repoRoot,
     [
       'config',
@@ -2334,7 +2420,7 @@ function configStateFromGit(
       }
     }
   }
-  const worktreeRaw = gitText(
+  const worktreeRaw = await gitText(
     repoRoot,
     ['config', '--file', worktreeConfigPath, '--null', '--get', 'core.hooksPath'],
     { allowMissing: true }
@@ -2351,12 +2437,12 @@ function configStateFromGit(
   return Object.freeze({ worktreeConfig, commonHooksPath, worktreeHooksPath });
 }
 
-function readHookConfigObservation(
+async function readHookConfigObservation(
   repoRoot: string,
   commonGitDir: string,
   worktreeGitDir: string,
   worktreeConfigPath: string
-): ConfigObservation {
+): Promise<ConfigObservation> {
   const boundary = assertConfigPhysicalBoundary(
     repoRoot,
     commonGitDir,
@@ -2364,7 +2450,7 @@ function readHookConfigObservation(
     worktreeConfigPath
   );
   return Object.freeze({
-    state: configStateFromGit(repoRoot, worktreeConfigPath, boundary),
+    state: await configStateFromGit(repoRoot, worktreeConfigPath, boundary),
     boundary
   });
 }
@@ -3102,14 +3188,14 @@ function cleanupOwnedConfigStage(
   }
 }
 
-function assertConfigStageValue(
+async function assertConfigStageValue(
   repoRoot: string,
   stagePath: string,
   configKey: string,
   expectedValue: string,
   label: string
-): void {
-  const raw = gitText(
+): Promise<void> {
+  const raw = await gitText(
     repoRoot,
     ['config', '--file', stagePath, '--null', '--get', configKey],
     { allowMissing: true }
@@ -3123,30 +3209,18 @@ function assertConfigStageValue(
 }
 
 async function writeGitConfigFileValue(
-  repoRoot: string,
   configFilePath: string,
   key: string,
   value: string,
-  provider?: GitPhysicalProviderCapability
+  provider: GitPhysicalProviderCapability
 ): Promise<void> {
-  if (provider !== undefined) {
-    const target = await issueGitConfigTargetCapability({ path: configFilePath });
-    try {
-      const receipt = await replaceAllGitConfigValue({ provider, target, key, value });
-      assertGitConfigEffectReceipt(receipt);
-      return;
-    } finally {
-      closeGitConfigTargetCapability(target);
-    }
+  const target = await issueGitConfigTargetCapability({ path: configFilePath });
+  try {
+    const receipt = await replaceAllGitConfigValue({ provider, target, key, value });
+    assertGitConfigEffectReceipt(receipt);
+  } finally {
+    closeGitConfigTargetCapability(target);
   }
-  gitText(repoRoot, [
-    'config',
-    '--file',
-    configFilePath,
-    '--replace-all',
-    key,
-    value
-  ], { operation: 'config-effect' });
 }
 
 function acquireConfigFileLock(input: {
@@ -3368,7 +3442,7 @@ async function writeGitConfigValueCas(input: {
   readonly expected: ConfigObservation;
   readonly operationDigest: string;
   readonly lease: PhysicalMutationLeaseHandle;
-  readonly configEffectProvider?: GitPhysicalProviderCapability;
+  readonly configEffectProvider: GitPhysicalProviderCapability;
 }): Promise<ConfigObservation> {
   const target = configFileTarget(
     input.expected.boundary,
@@ -3397,7 +3471,7 @@ async function writeGitConfigValueCas(input: {
     // Git config actors fail to acquire this same lock instead of racing a
     // read-then-write check.  Re-read both semantic and physical preimages
     // only after that lock has been published.
-    const locked = readHookConfigObservation(
+    const locked = await readHookConfigObservation(
       input.repoRoot,
       input.commonGitDir,
       input.worktreeGitDir,
@@ -3451,7 +3525,6 @@ async function writeGitConfigValueCas(input: {
       throw new GitHookTransitionConflict('Git config stage was occupied during exclusive publication');
     }
     await writeGitConfigFileValue(
-      input.repoRoot,
       stagePath,
       input.step.configKey,
       input.step.value,
@@ -3464,14 +3537,14 @@ async function writeGitConfigValueCas(input: {
     if (stagedEntry === null || stagedEntry.bytes === null) {
       throw new GitHookTransitionConflict('Git config staged postimage disappeared');
     }
-    assertConfigStageValue(
+    await assertConfigStageValue(
       input.repoRoot,
       stagePath,
       input.step.configKey,
       input.step.value,
       'Git config staged postimage'
     );
-    const beforePublish = readHookConfigObservation(
+    const beforePublish = await readHookConfigObservation(
       input.repoRoot,
       input.commonGitDir,
       input.worktreeGitDir,
@@ -3496,7 +3569,7 @@ async function writeGitConfigValueCas(input: {
         }
       }
     });
-    const after = readHookConfigObservation(
+    const after = await readHookConfigObservation(
       input.repoRoot,
       input.commonGitDir,
       input.worktreeGitDir,
@@ -4341,7 +4414,7 @@ async function applyConfigTransition(input: {
   readonly testOnlyCrashAfterConfigStep?: number;
   readonly testOnlyConfigActorBeforeEffect?: (stepIndex: number, repoRoot: string) => void;
   readonly testOnlyConfigActorAfterStep?: (stepIndex: number, repoRoot: string) => void;
-  readonly beforeConfigEffect?: () => void;
+  readonly beforeConfigEffect?: () => void | Promise<void>;
   readonly configEffectProvider?: GitPhysicalProviderCapability;
 }): Promise<ConfigObservation> {
   const { transition } = input;
@@ -4372,7 +4445,7 @@ async function applyConfigTransition(input: {
     throw new GitHookTransitionConflict('Git config transition durable steps are not a contiguous prefix');
   }
   let previousReceipt = prefixLength === 0 ? null : durableReceipts[prefixLength - 1]!;
-  let prefixObservation = readHookConfigObservation(
+  let prefixObservation = await readHookConfigObservation(
     input.repoRoot,
     input.commonGitDir,
     input.worktreeGitDir,
@@ -4417,7 +4490,7 @@ async function applyConfigTransition(input: {
       durableReceipts[prefixLength] = recoveredReceipt;
       prefixLength += 1;
       previousReceipt = recoveredReceipt;
-      prefixObservation = readHookConfigObservation(
+      prefixObservation = await readHookConfigObservation(
         input.repoRoot,
         input.commonGitDir,
         input.worktreeGitDir,
@@ -4436,7 +4509,7 @@ async function applyConfigTransition(input: {
   for (let stepIndex = prefixLength; stepIndex < transition.intent.steps.length; stepIndex += 1) {
     const step = transition.intent.steps[stepIndex]!;
     assertConfigTransitionPhysicalCurrent(transition, input.commonRoot);
-    const observed = readHookConfigObservation(
+    const observed = await readHookConfigObservation(
       input.repoRoot,
       input.commonGitDir,
       input.worktreeGitDir,
@@ -4456,8 +4529,8 @@ async function applyConfigTransition(input: {
       throw new GitHookTransitionConflict('Git hook configuration changed before step ' + step.index);
     }
     let after = observed;
-    input.beforeConfigEffect?.();
-    const beforeLock = readHookConfigObservation(
+    await input.beforeConfigEffect?.();
+    const beforeLock = await readHookConfigObservation(
       input.repoRoot,
       input.commonGitDir,
       input.worktreeGitDir,
@@ -4478,6 +4551,9 @@ async function applyConfigTransition(input: {
       // The actual effect acquires the same canonical <config>.lock first and
       // therefore never overwrites a provider mutation observed in that window.
       input.testOnlyConfigActorBeforeEffect?.(step.index, input.repoRoot);
+      if (input.configEffectProvider === undefined) {
+        throw new GitHookTransitionConflict('Git config Effect provider is unavailable.');
+      }
       after = await writeGitConfigValueCas({
         repoRoot: input.repoRoot,
         commonGitDir: input.commonGitDir,
@@ -4487,9 +4563,7 @@ async function applyConfigTransition(input: {
         expected: beforeLock,
         operationDigest: transition.intent.operationDigest,
         lease: input.operationLease,
-        ...(input.configEffectProvider === undefined
-          ? {}
-          : { configEffectProvider: input.configEffectProvider })
+        configEffectProvider: input.configEffectProvider
       });
     }
     input.testOnlyConfigActorAfterStep?.(step.index, input.repoRoot);
@@ -4510,7 +4584,7 @@ async function applyConfigTransition(input: {
     previousReceipt = nextReceipt;
   }
   assertConfigTransitionPhysicalCurrent(transition, input.commonRoot);
-  const terminal = readHookConfigObservation(
+  const terminal = await readHookConfigObservation(
     input.repoRoot,
     input.commonGitDir,
     input.worktreeGitDir,
@@ -4737,7 +4811,7 @@ function assertKnownConfigTransitionNamespaces(
   }
 }
 
-function settlePriorCompletedConfigTransitions(input: {
+async function settlePriorCompletedConfigTransitions(input: {
   readonly commonRoot: PhysicalDirectoryChain;
   readonly currentTransitionName: string;
   readonly repoRoot: string;
@@ -4746,7 +4820,7 @@ function settlePriorCompletedConfigTransitions(input: {
   readonly worktreeConfigPath: string;
   readonly markerRoot: PhysicalDirectoryChain;
   readonly bootstrapMarkerRoot: PhysicalDirectoryChain;
-}): void {
+}): Promise<void> {
   for (const namespace of inspectConfigTransitionNamespaces(input.commonRoot)) {
     if (namespace.name === input.currentTransitionName) continue;
     const intentBytes = transitionFileBytes(namespace.chain, CONFIG_TRANSITION_INTENT_FILE);
@@ -4791,7 +4865,7 @@ function settlePriorCompletedConfigTransitions(input: {
         'Prior Git config transition is incomplete and must be resumed before a new operation: ' + namespace.name
       );
     }
-    settleCompletedConfigTransition({
+    await settleCompletedConfigTransition({
       commonRoot: input.commonRoot,
       transitionName: namespace.name,
       operationDigest: intent.operationDigest,
@@ -4805,7 +4879,7 @@ function settlePriorCompletedConfigTransitions(input: {
   }
 }
 
-function settleCompletedConfigTransition(input: {
+async function settleCompletedConfigTransition(input: {
   readonly commonRoot: PhysicalDirectoryChain;
   readonly transitionName: string;
   readonly operationDigest: string;
@@ -4817,7 +4891,7 @@ function settleCompletedConfigTransition(input: {
   readonly bootstrapMarkerRoot: PhysicalDirectoryChain;
   readonly expectedGeneration?: string;
   readonly expectedBootstrap?: string;
-}): boolean {
+}): Promise<boolean> {
   const transitionPath = path.join(input.commonRoot.target.path, input.transitionName);
   const presence = inspectExactNoFollowDirectoryPresence(
     transitionPath,
@@ -4906,7 +4980,7 @@ function settleCompletedConfigTransition(input: {
     input.commonRoot,
     'Git config completed transition bootstrap generation'
   );
-  const terminal = readHookConfigObservation(
+  const terminal = await readHookConfigObservation(
     input.repoRoot,
     input.commonGitDir,
     input.worktreeGitDir,
@@ -4923,23 +4997,23 @@ function settleCompletedConfigTransition(input: {
   return true;
 }
 
-function readPrimaryBootstrapAuthority(
+async function readPrimaryBootstrapAuthority(
   primaryRepoRoot: string,
   testOnlyNoRemoteFixture: boolean
-): PrimaryBootstrapAuthority | null {
-  const branch = gitText(
+): Promise<PrimaryBootstrapAuthority | null> {
+  const branch = await gitText(
       primaryRepoRoot,
       ['symbolic-ref', '--quiet', '--short', 'HEAD'],
       { allowMissing: true }
     );
     if (branch !== 'main') return null;
-    const localHeadSha = gitText(
+    const localHeadSha = await gitText(
       primaryRepoRoot,
       ['rev-parse', '--verify', 'HEAD^{commit}'],
       { allowMissing: true }
     );
     if (localHeadSha === null || !/^[0-9a-f]{40}$|^[0-9a-f]{64}$/u.test(localHeadSha)) return null;
-    const originUrl = gitText(
+    const originUrl = await gitText(
       primaryRepoRoot,
       ['remote', 'get-url', 'origin'],
       { allowMissing: true }
@@ -4955,19 +5029,19 @@ function readPrimaryBootstrapAuthority(
         originHeadSha: null
       });
     }
-    const originHeadRef = gitText(
+    const originHeadRef = await gitText(
       primaryRepoRoot,
       ['symbolic-ref', '--quiet', 'refs/remotes/origin/HEAD'],
       { allowMissing: true }
     );
     if (originHeadRef !== 'refs/remotes/origin/main') return null;
-    const originHeadSha = gitText(
+    const originHeadSha = await gitText(
       primaryRepoRoot,
       ['rev-parse', '--verify', 'refs/remotes/origin/HEAD^{commit}'],
       { allowMissing: true }
     );
     const localDescendsCanonicalHead = originHeadSha !== null
-      && gitText(
+      && await gitText(
         primaryRepoRoot,
         ['merge-base', '--is-ancestor', originHeadSha, localHeadSha],
         { allowMissing: true }
@@ -4994,26 +5068,30 @@ function leaseDigest(
   markerRoot: PhysicalDirectoryChain,
   bootstrapMarkerRoot: PhysicalDirectoryChain
 ): string {
-  return createHash('sha256')
-    .update('sec-managed-hook-operation-lease-v1\0')
-    .update(physicalChainKey(commonRoot))
-    .update('\0')
-    .update(source.digest)
-    .update('\0')
-    .update(bootstrap.digest)
-    .update('\0')
-    .update('bootstrap-authority\0')
-    .update(bootstrap.bootstrapAuthority === null
+  const digest = createSha256Hasher();
+  try {
+    digest.update('sec-managed-hook-operation-lease-v1\0');
+    digest.update(physicalChainKey(commonRoot));
+    digest.update('\0');
+    digest.update(source.digest);
+    digest.update('\0');
+    digest.update(bootstrap.digest);
+    digest.update('\0');
+    digest.update('bootstrap-authority\0');
+    digest.update(bootstrap.bootstrapAuthority === null
       ? 'none'
-      : bootstrapAuthorityKey(bootstrap.bootstrapAuthority))
-    .update('\0')
-    .update('require-head-tree\0')
-    .update(bootstrap.requireHeadTree ? '1' : '0')
-    .update('\0')
-    .update(physicalChainKey(markerRoot))
-    .update('\0')
-    .update(physicalChainKey(bootstrapMarkerRoot))
-    .digest('hex');
+      : bootstrapAuthorityKey(bootstrap.bootstrapAuthority));
+    digest.update('\0');
+    digest.update('require-head-tree\0');
+    digest.update(bootstrap.requireHeadTree ? '1' : '0');
+    digest.update('\0');
+    digest.update(physicalChainKey(markerRoot));
+    digest.update('\0');
+    digest.update(physicalChainKey(bootstrapMarkerRoot));
+    return digest.finish().slice('sha256:'.length);
+  } finally {
+    digest.dispose();
+  }
 }
 
 async function acquireOperationLease(
@@ -5031,10 +5109,15 @@ async function acquireOperationLease(
   // The lease serializes the whole common Git namespace, not just one source
   // digest.  A digest-specific lease would let a newer source operation run
   // beside an interrupted older operation and strand its provider lock.
-  const namespaceDigest = createHash('sha256')
-    .update('sec-managed-hook-operation-namespace-lease-v1\0')
-    .update(physicalChainKey(commonRoot))
-    .digest('hex');
+  const namespaceHasher = createSha256Hasher();
+  let namespaceDigest: string;
+  try {
+    namespaceHasher.update('sec-managed-hook-operation-namespace-lease-v1\0');
+    namespaceHasher.update(physicalChainKey(commonRoot));
+    namespaceDigest = namespaceHasher.finish().slice('sha256:'.length);
+  } finally {
+    namespaceHasher.dispose();
+  }
   const name = LEASE_FILE_PREFIX + namespaceDigest;
   try {
     const handle = acquirePhysicalMutationLease(commonRoot.target, name, {
@@ -5279,11 +5362,11 @@ async function installGitHooksInternalWithBudget(options: {
   const lifecycle = options.lifecycle === true;
   const repoRoot = path.resolve(options.repoRoot);
   const repoRootChain = inspectNoFollowDirectoryChain(repoRoot, 'Git repository root');
-  const commonGitDirText = gitText(
+  const commonGitDirText = await gitText(
     repoRoot,
     ['rev-parse', '--path-format=absolute', '--git-common-dir']
   );
-  const worktreeGitDirText = gitText(
+  const worktreeGitDirText = await gitText(
     repoRoot,
     ['rev-parse', '--path-format=absolute', '--absolute-git-dir']
   );
@@ -5294,7 +5377,7 @@ async function installGitHooksInternalWithBudget(options: {
   const worktreeGitDir = path.resolve(worktreeGitDirText);
   const commonChain = inspectNoFollowDirectoryChain(commonGitDir, 'Repository-common Git directory');
   const worktreeChain = inspectNoFollowDirectoryChain(worktreeGitDir, 'Worktree Git directory');
-  const worktreeConfigPathText = gitText(
+  const worktreeConfigPathText = await gitText(
     repoRoot,
     ['rev-parse', '--path-format=absolute', '--git-path', 'config.worktree']
   );
@@ -5307,18 +5390,18 @@ async function installGitHooksInternalWithBudget(options: {
   }
   const primaryRepoRoot = path.dirname(commonGitDir);
   const primaryChain = inspectNoFollowDirectoryChain(primaryRepoRoot, 'Primary worktree root');
-  const primaryTopLevel = gitText(primaryRepoRoot, ['rev-parse', '--show-toplevel']);
+  const primaryTopLevel = await gitText(primaryRepoRoot, ['rev-parse', '--show-toplevel']);
   if (primaryTopLevel === null || canonicalPath(primaryTopLevel) !== canonicalPath(primaryRepoRoot)) {
     throw new GitHookTransitionConflict('Primary worktree bootstrap identity is unavailable');
   }
-  const primaryCommonText = gitText(
+  const primaryCommonText = await gitText(
     primaryRepoRoot,
     ['rev-parse', '--path-format=absolute', '--git-common-dir']
   );
   if (primaryCommonText === null || canonicalPath(primaryCommonText) !== canonicalPath(commonGitDir)) {
     throw new GitHookTransitionConflict('Primary worktree common Git directory identity differs');
   }
-  const initialConfigObservation = readHookConfigObservation(
+  const initialConfigObservation = await readHookConfigObservation(
     repoRoot,
     commonGitDir,
     worktreeGitDir,
@@ -5417,7 +5500,7 @@ async function installGitHooksInternalWithBudget(options: {
   });
   const sourceDigest = fastSourceContext.digest;
   const bootstrapDigest = fastBootstrapContext.digest;
-  const primaryBranch = gitText(
+  const primaryBranch = await gitText(
     primaryRepoRoot,
     ['symbolic-ref', '--quiet', '--short', 'HEAD'],
     { allowMissing: true }
@@ -5493,7 +5576,7 @@ async function installGitHooksInternalWithBudget(options: {
           );
         }
         try {
-          settlePriorCompletedConfigTransitions({
+          await settlePriorCompletedConfigTransitions({
             commonRoot: existingCommonRoot,
             currentTransitionName: transitionName,
             repoRoot,
@@ -5504,7 +5587,7 @@ async function installGitHooksInternalWithBudget(options: {
             bootstrapMarkerRoot: bootstrapMarkerRootExisting
           });
           if (pendingTransition.state === 'present') {
-            settleCompletedConfigTransition({
+            await settleCompletedConfigTransition({
               commonRoot: existingCommonRoot,
               transitionName,
               operationDigest,
@@ -5559,7 +5642,7 @@ async function installGitHooksInternalWithBudget(options: {
     const realHook = firstRealHook(path.join(commonGitDir, 'hooks'));
     if (realHook !== null) return conflictResult(realHook, lifecycle);
   }
-  const primaryBootstrapAuthority = readPrimaryBootstrapAuthority(
+  const primaryBootstrapAuthority = await readPrimaryBootstrapAuthority(
     primaryRepoRoot,
     options.testOnlyNoRemoteFixture === true
   );
@@ -5722,7 +5805,7 @@ async function installGitHooksInternalWithBudget(options: {
       isPrimaryWorktree ? 1 : 2,
       'Managed generation namespace before publication'
     );
-    const preEffectObservation = readHookConfigObservation(
+    const preEffectObservation = await readHookConfigObservation(
       repoRoot,
       commonGitDir,
       worktreeGitDir,
@@ -5883,9 +5966,9 @@ async function installGitHooksInternalWithBudget(options: {
       testOnlyCrashAfterConfigStep: options.testOnlyCrashAfterConfigStep,
       testOnlyConfigActorBeforeEffect: options.testOnlyConfigActorBeforeEffect,
       testOnlyConfigActorAfterStep: options.testOnlyConfigActorAfterStep,
-      beforeConfigEffect: () => {
+      beforeConfigEffect: async () => {
         options.testOnlyBootstrapAuthorityActorBeforeConfigEffect?.(repoRoot);
-        assertBootstrapAuthorityCurrent(
+        await assertBootstrapAuthorityCurrent(
           bootstrapContext,
           'Managed hook configuration effect fence'
         );
@@ -5911,7 +5994,7 @@ async function installGitHooksInternalWithBudget(options: {
     }
     await assertSourceCurrent(sourceContext, 'Managed hook marker effect fence');
     if (!isPrimaryWorktree) await assertSourceCurrent(bootstrapContext, 'Managed bootstrap marker effect fence');
-    assertBootstrapAuthorityCurrent(bootstrapContext, 'Managed hook marker effect fence');
+    await assertBootstrapAuthorityCurrent(bootstrapContext, 'Managed hook marker effect fence');
     writeMarkerFile(markerRoot, markerRecord);
     if (!isPrimaryWorktree) {
       writeMarkerFile(bootstrapMarkerRoot, bootstrapMarkerRecord);
@@ -5934,12 +6017,12 @@ async function installGitHooksInternalWithBudget(options: {
     }
     await assertSourceCurrent(sourceContext, 'Managed hook marker final readback');
     if (!isPrimaryWorktree) await assertSourceCurrent(bootstrapContext, 'Managed bootstrap marker final readback');
-    const finalConfig = readHookConfigObservation(
+    const finalConfig = (await readHookConfigObservation(
       repoRoot,
       commonGitDir,
       worktreeGitDir,
       worktreeConfigPath
-    ).state;
+    )).state;
     if (!sameHookConfigState(finalConfig, postimage)) {
       throw new GitHookTransitionConflict('Git hook configuration changed after marker publication');
     }
@@ -5968,12 +6051,12 @@ async function installGitHooksInternalWithBudget(options: {
       ],
       options.testOnlyBeforeGenerationCleanup
     );
-    const afterCleanupConfig = readHookConfigObservation(
+    const afterCleanupConfig = (await readHookConfigObservation(
       repoRoot,
       commonGitDir,
       worktreeGitDir,
       worktreeConfigPath
-    ).state;
+    )).state;
     if (!sameHookConfigState(afterCleanupConfig, postimage)) {
       throw new GitHookTransitionConflict('Git hook configuration changed during managed cleanup');
     }
@@ -6035,12 +6118,108 @@ function conflictResult(configured: string, lifecycle: boolean): GitHookInstalla
   );
 }
 
-async function installGitHooksWithProvider(
+async function withInstallResources<T>(input: Readonly<{
+  repoRoot: string;
+  lifecycle: boolean;
+  providerResolution?: GitReadSessionResolution;
+  use: (
+    operation: BoundSemanticOperation,
+    processSession: ProcessResourceSession,
+    providerResolution: GitReadSessionResolution,
+    configProvider: GitPhysicalProviderCapability | undefined
+  ) => Promise<T>;
+}>): Promise<T> {
+  const deadlineAtUnixMs = Date.now() + DEFAULT_GIT_INVOCATION_BUDGET.deadlineMs;
+  const operation = compileInstallOperation({
+    repoRoot: input.repoRoot,
+    lifecycle: input.lifecycle,
+    deadlineAtUnixMs
+  });
+  return await withAcquiredResource({
+    operationLabel: 'hook-install',
+    resourceLabel: 'process-resource-session',
+    acquire: () => openProcessResourceSession({
+      operation,
+      requirementBindingContext: issueOperationRequirementBindingContext({
+        operation,
+        requirementId: INSTALL_REQUIREMENT,
+        resourceCeilings: operation.plan.execution.aggregateBudgets
+      })
+    }),
+    use: async (processSession) => {
+      const useResolution = async (providerResolution: GitReadSessionResolution): Promise<T> => {
+        if (providerResolution.status !== 'ready') {
+          return await input.use(operation, processSession, providerResolution, undefined);
+        }
+        const executable = providerResolution.session.gitExecutableIdentity?.realPath;
+        if (executable === undefined) {
+          throw new GitHookTransitionConflict('Git config Effect requires one retained Git executable identity.');
+        }
+        const resolution = openGitPhysicalProvider({
+          cwd: input.repoRoot,
+          executablePath: path.resolve(executable),
+          operation,
+          processSession,
+          environment: providerResolution.session.env,
+          environmentSource: {},
+          maximumExecutableBytes: providerResolution.session.budget.maxExecutableBytes
+        });
+        if (resolution.status !== 'ready') {
+          throw new GitHookTransitionConflict(
+            `Git config Effect provider is unavailable (${resolution.reason}).`
+          );
+        }
+        return await withAcquiredResource({
+          operationLabel: 'hook-install',
+          resourceLabel: 'git-config-provider',
+          acquire: () => resolution.capability,
+          use: (configProvider) => input.use(
+            operation,
+            processSession,
+            providerResolution,
+            configProvider
+          ),
+          release(configProvider) {
+            assertGitPhysicalProviderReceipt(closeGitPhysicalProvider(configProvider), configProvider);
+          }
+        });
+      };
+      if (input.providerResolution !== undefined) {
+        return await useResolution(input.providerResolution);
+      }
+      return await withAuthorityGitReadSession({
+        cwd: input.repoRoot,
+        operation,
+        processSession,
+        budget: DEFAULT_GIT_INVOCATION_BUDGET,
+        deadlineAtUnixMs
+      }, (session) => useResolution(Object.freeze({
+        status: 'ready' as const,
+        route: session.providerRoute,
+        session
+      })));
+    },
+    release(processSession) {
+      assertProcessResourceSessionReceipt(processSession.close(), {
+        operationIdentityDigest: operation.plan.identity.identityDigest,
+        boundAttemptDigest: operation.boundAttemptDigest,
+        requirementId: INSTALL_REQUIREMENT
+      });
+    }
+  });
+}
+
+async function installWithProvider(
   options: Readonly<{ repoRoot: string; lifecycle?: boolean }>,
-  providerResolution: GitReadSessionResolution
+  providerResolution: GitReadSessionResolution,
+  configEffectProvider: GitPhysicalProviderCapability
 ): Promise<GitHookInstallationResult> {
   try {
-    return await installGitHooksInternal({ ...options, providerResolution });
+    return await installGitHooksInternal({
+      ...options,
+      providerResolution,
+      configEffectProvider
+    });
   } catch (error) {
     const conflict = asTransition(error);
     if (options.lifecycle === true) {
@@ -6056,15 +6235,20 @@ export async function installGitHooks(options: {
 }): Promise<GitHookInstallationResult> {
   try {
     const repoRoot = path.resolve(options.repoRoot);
-    return await withAuthorityGitReadSession({
-      cwd: repoRoot,
-      source: isolatedGitReadEnvironment(),
-      budget: DEFAULT_GIT_INVOCATION_BUDGET
-    }, async (session) => installGitHooksWithProvider({ ...options, repoRoot }, Object.freeze({
-        status: 'ready' as const,
-        route: session.providerRoute,
-        session
-      })));
+    return await withInstallResources({
+      repoRoot,
+      lifecycle: options.lifecycle === true,
+      use: async (_operation, _processSession, providerResolution, configProvider) => {
+        if (providerResolution.status !== 'ready' || configProvider === undefined) {
+          throw new GitHookTransitionConflict('Git hook installer provider admission is unresolved.');
+        }
+        return await installWithProvider(
+          { ...options, repoRoot },
+          providerResolution,
+          configProvider
+        );
+      }
+    });
   } catch (error) {
     const conflict = asTransition(error);
     if (options.lifecycle === true) {
@@ -6083,7 +6267,7 @@ export async function installGitHooksWithSession(options: {
   readonly repoRoot: string;
   readonly lifecycle?: boolean;
   readonly session: GitReadSession;
-  readonly operation: SecBoundSemanticOperation;
+  readonly operation: BoundSemanticOperation;
   readonly processSession: ProcessResourceSession;
 }): Promise<GitHookInstallationResult> {
   if (!isProductionGitReadSession(options.session)) {
@@ -6203,29 +6387,38 @@ export async function installGitHooksForTest(options: {
   readonly leaseOwnerPid?: number;
 }): Promise<GitHookInstallationResult> {
   try {
-    return await installGitHooksInternal({
-      repoRoot: options.repoRoot,
-      lifecycle: options.lifecycle,
-      testOnlyGitBudget: options.gitBudget,
-      testOnlyProviderResolution: options.providerResolutionForTest,
-      testOnlyBeforeSpawn: options.beforeSpawnForTest,
-      testOnlyNoRemoteFixture: options.noRemoteFixture !== false,
-      testOnlyCrashAfterConfigStep: options.crashAfterConfigStep,
-      testOnlyConfigActorBeforeEffect: options.configActorBeforeEffect,
-      testOnlyConfigActorAfterStep: options.configActorAfterStep,
-      testOnlyBeforeGenerationPublication: options.beforeGenerationPublication,
-      testOnlyBeforeGenerationCleanup: options.beforeGenerationCleanup,
-      testOnlyBootstrapAuthorityActorBeforeConfigEffect:
-        options.bootstrapAuthorityActorBeforeConfigEffect,
-      testOnlyCrashAfterMarkerPublication: options.crashAfterMarkerPublication,
-      testOnlyCrashAfterConfigIntent: options.crashAfterConfigIntent,
-      testOnlyCrashAfterConfigPrepared: options.crashAfterConfigPrepared,
-      testOnlyCrashAfterGenerationPublication: options.crashAfterGenerationPublication,
-      testOnlyCrashAfterGenerationRetirementDelete:
-        options.crashAfterGenerationRetirementDelete,
-      testOnlyCrashAfterOperationLeaseAcquisition: options.crashAfterOperationLeaseAcquisition,
-      testOnlyLeaseOwnerHost: options.leaseOwnerHost,
-      testOnlyLeaseOwnerPid: options.leaseOwnerPid
+    const repoRoot = path.resolve(options.repoRoot);
+    return await withInstallResources({
+      repoRoot,
+      lifecycle: options.lifecycle === true,
+      ...(options.providerResolutionForTest === undefined
+        ? {}
+        : { providerResolution: options.providerResolutionForTest }),
+      use: async (_operation, _processSession, providerResolution, configProvider) => await installGitHooksInternal({
+        repoRoot,
+        lifecycle: options.lifecycle,
+        ...(configProvider === undefined ? {} : { configEffectProvider: configProvider }),
+        testOnlyGitBudget: options.gitBudget,
+        testOnlyProviderResolution: providerResolution,
+        testOnlyBeforeSpawn: options.beforeSpawnForTest,
+        testOnlyNoRemoteFixture: options.noRemoteFixture !== false,
+        testOnlyCrashAfterConfigStep: options.crashAfterConfigStep,
+        testOnlyConfigActorBeforeEffect: options.configActorBeforeEffect,
+        testOnlyConfigActorAfterStep: options.configActorAfterStep,
+        testOnlyBeforeGenerationPublication: options.beforeGenerationPublication,
+        testOnlyBeforeGenerationCleanup: options.beforeGenerationCleanup,
+        testOnlyBootstrapAuthorityActorBeforeConfigEffect:
+          options.bootstrapAuthorityActorBeforeConfigEffect,
+        testOnlyCrashAfterMarkerPublication: options.crashAfterMarkerPublication,
+        testOnlyCrashAfterConfigIntent: options.crashAfterConfigIntent,
+        testOnlyCrashAfterConfigPrepared: options.crashAfterConfigPrepared,
+        testOnlyCrashAfterGenerationPublication: options.crashAfterGenerationPublication,
+        testOnlyCrashAfterGenerationRetirementDelete:
+          options.crashAfterGenerationRetirementDelete,
+        testOnlyCrashAfterOperationLeaseAcquisition: options.crashAfterOperationLeaseAcquisition,
+        testOnlyLeaseOwnerHost: options.leaseOwnerHost,
+        testOnlyLeaseOwnerPid: options.leaseOwnerPid
+      })
     });
   } catch (error) {
     const conflict = asTransition(error);
@@ -6258,7 +6451,7 @@ async function installGitHooksMainWithBudget(options: {
     const cwd = path.resolve(options.cwd ?? process.cwd());
     let repoRoot: string | null;
     try {
-      repoRoot = gitText(cwd, ['rev-parse', '--show-toplevel']);
+      repoRoot = await gitText(cwd, ['rev-parse', '--show-toplevel']);
     } catch (error) {
       // Lifecycle mode may skip a genuinely Gitless checkout, but it must
       // never turn an authority-provider admission failure into a successful
@@ -6273,10 +6466,7 @@ async function installGitHooksMainWithBudget(options: {
       return 0;
     }
     if (repoRoot === null || repoRoot.length === 0) throw new Error('Git repository root is unavailable');
-    const result = await installGitHooksWithProvider({
-      repoRoot,
-      lifecycle
-    }, options.providerResolution);
+    const result = await installGitHooks({ repoRoot, lifecycle });
     if (result.status === 'conflict') console.warn(result.message);
     else console.log(result.message);
     return 0;

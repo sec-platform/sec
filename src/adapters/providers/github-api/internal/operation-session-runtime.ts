@@ -6,12 +6,19 @@ import { isNativeAborted, linkNativeAbortSignals } from '../../../../contracts/n
 import { ResourceCompositeSettlementError } from '../../../../execution/resource-settlement.ts';
 import { withOwnedByteStreamReader } from '../../../../execution/stream-reader.ts';
 
-import { GITHUB_API_BASE_URL, GITHUB_HOST } from '../contract.ts';
+import {
+  GITHUB_API_BASE_URL,
+  GITHUB_HOST,
+  GITHUB_ISSUE_TERMINAL_EVENTS_QUERY,
+  GITHUB_PULL_REQUEST_CLOSING_QUERY
+} from '../contract.ts';
 import { GitHubCredentialUnavailableError, readGitHubToken } from '../credential.ts';
 
 export type GitHubApiEffect =
   | 'read'
   | 'status-write'
+  | 'issue-comment-write'
+  | 'repository-dispatch-write'
   | 'merge-write'
   | 'runner-admin'
   | 'branch-closeout-write';
@@ -80,15 +87,18 @@ type GitHubApiRequestSession = {
 export type GitHubApiOperation =
   | Readonly<{ kind: 'current-user' }>
   | Readonly<{ kind: 'repository' }>
+  | Readonly<{ kind: 'repository-content'; path: string; ref: string }>
   | Readonly<{ kind: 'pull'; pullRequestNumber: number }>
   | Readonly<{ kind: 'branch'; branch: string }>
   | Readonly<{ kind: 'collaborator-permission'; login: string }>
+  | Readonly<{ kind: 'git-commit'; sha: string }>
+  | Readonly<{ kind: 'compare'; baseSha: string; headSha: string }>
   | Readonly<{ kind: 'commit-statuses'; sha: string; page: number }>
   | Readonly<{
       kind: 'create-commit-status';
       sha: string;
       status: Readonly<{
-        state: 'success';
+        state: 'error' | 'failure' | 'pending' | 'success';
         context: string;
         description: string;
         targetUrl: string;
@@ -100,11 +110,27 @@ export type GitHubApiOperation =
   | Readonly<{ kind: 'issue'; issueNumber: number }>
   | Readonly<{ kind: 'issue-comments'; issueNumber: number; page: number }>
   | Readonly<{ kind: 'issue-comment'; commentId: number }>
+  | Readonly<{ kind: 'delete-issue-comment'; commentId: number }>
+  | Readonly<{
+      kind: 'issue-closing-pull-references';
+      pullRequestNumber: number;
+      cursor: string | null;
+    }>
+  | Readonly<{ kind: 'issue-terminal-events'; issueNumber: number }>
   | Readonly<{ kind: 'create-issue-comment'; issueNumber: number; body: string }>
   | Readonly<{ kind: 'open-pulls'; baseBranch: string }>
+  | Readonly<{ kind: 'open-pulls-page'; page: number }>
+  | Readonly<{ kind: 'merged-pulls'; page: number }>
   | Readonly<{ kind: 'matching-head-refs'; page: number }>
   | Readonly<{ kind: 'git-ref'; branch: string }>
   | Readonly<{ kind: 'workflow-run'; runId: string }>
+  | Readonly<{ kind: 'workflow-run-attempt'; runId: string; runAttempt: number }>
+  | Readonly<{ kind: 'workflow'; path: '.github/workflows/compiler-pr-validation.yml' }>
+  | Readonly<{ kind: 'workflow-jobs'; runId: string; runAttempt: number; page: number }>
+  | Readonly<{ kind: 'artifacts'; page: number }>
+  | Readonly<{ kind: 'check-suite'; checkSuiteId: number }>
+  | Readonly<{ kind: 'artifact'; artifactId: number }>
+  | Readonly<{ kind: 'repository-dispatch'; eventType: string; clientPayload: unknown }>
   | Readonly<{ kind: 'check-runs'; sha: string; page: number }>
   | Readonly<{ kind: 'repository-runners'; page: number }>
   | Readonly<{ kind: 'create-runner-registration-token' }>
@@ -123,6 +149,11 @@ export type GitHubApiOperation =
       message: string;
     }>
   | Readonly<{ kind: 'delete-ref-cas'; branch: string; expectedOldSha: string }>;
+
+export type GitHubApiByteOperation = Readonly<{
+  kind: 'artifact-archive';
+  artifactId: number;
+}>;
 
 type CompiledGitHubApiRequest = Readonly<{
   kind: GitHubApiOperation['kind'];
@@ -249,15 +280,46 @@ function compileOperation(
       'GitHub API branch-closeout-write authority permits only fixed closeout observations and effects'
     );
   }
+  if (effect === 'issue-comment-write'
+      && kind !== 'current-user'
+      && kind !== 'collaborator-permission'
+      && kind !== 'issue'
+      && kind !== 'issue-comments'
+      && kind !== 'issue-comment'
+      && kind !== 'create-issue-comment'
+      && kind !== 'delete-issue-comment') {
+    throw new GitHubApiProviderError(
+      'GitHub API issue-comment-write authority permits only fixed comment observations and effects'
+    );
+  }
+  if (effect === 'repository-dispatch-write'
+      && kind !== 'current-user'
+      && kind !== 'collaborator-permission'
+      && kind !== 'repository-dispatch') {
+    throw new GitHubApiProviderError(
+      'GitHub API repository-dispatch-write authority permits only fixed dispatch enrollment and effect'
+    );
+  }
   const read = (path: string, body?: unknown): CompiledGitHubApiRequest =>
     Object.freeze({ kind, method: body === undefined ? 'GET' as const : 'POST' as const, path, body });
   switch (kind) {
     case 'current-user': return read('/user');
     case 'repository': return read(`/repos/${repo}`);
+    case 'repository-content': {
+      const rawPath = boundedText(operation.path, 'repository content path', 1024);
+      if (rawPath.startsWith('/') || rawPath.endsWith('/') || rawPath.includes('\\')
+          || rawPath.split('/').some((segment) => segment.length === 0 || segment === '.' || segment === '..')) {
+        throw new GitHubApiProviderError('GitHub API repository content path is invalid');
+      }
+      const encodedPath = rawPath.split('/').map((segment) => encodeURIComponent(segment)).join('/');
+      return read(`/repos/${repo}/contents/${encodedPath}?ref=${encodeURIComponent(sha(operation.ref))}`);
+    }
     case 'pull': return read(`/repos/${repo}/pulls/${positiveInteger(operation.pullRequestNumber, 'pull request number')}`);
     case 'branch': return read(`/repos/${repo}/branches/${encodeURIComponent(boundedText(operation.branch, 'branch', 255))}`);
     case 'collaborator-permission':
       return read(`/repos/${repo}/collaborators/${encodeURIComponent(boundedText(operation.login, 'login', 64))}/permission`);
+    case 'git-commit': return read(`/repos/${repo}/git/commits/${sha(operation.sha)}`);
+    case 'compare': return read(`/repos/${repo}/compare/${sha(operation.baseSha)}...${sha(operation.headSha)}`);
     case 'commit-statuses':
       return read(`/repos/${repo}/commits/${sha(operation.sha)}/statuses?per_page=100&page=${page(operation.page)}`);
     case 'create-commit-status': {
@@ -265,9 +327,11 @@ function compileOperation(
         throw new GitHubApiProviderError('GitHub API status publication requires status-write authority');
       }
       const status = operation.status;
-      if (status.state !== 'success') throw new GitHubApiProviderError('GitHub API status publication requires the admitted success state');
+      if (!['error', 'failure', 'pending', 'success'].includes(status.state)) {
+        throw new GitHubApiProviderError('GitHub API status publication state is invalid');
+      }
       return read(`/repos/${repo}/statuses/${sha(operation.sha)}`, Object.freeze({
-        state: 'success',
+        state: status.state,
         context: boundedText(status.context, 'status context', 100),
         description: boundedText(status.description, 'status description', 140),
         target_url: boundedText(status.targetUrl, 'status target URL', 512)
@@ -283,10 +347,42 @@ function compileOperation(
       return read(`/repos/${repo}/issues/${positiveInteger(operation.issueNumber, 'issue number')}/comments?per_page=100&page=${page(operation.page)}`);
     case 'issue-comment':
       return read(`/repos/${repo}/issues/comments/${positiveInteger(operation.commentId, 'issue comment id')}`);
+    case 'delete-issue-comment':
+      if (effect !== 'issue-comment-write') {
+        throw new GitHubApiProviderError('GitHub API issue comment deletion requires issue-comment-write authority');
+      }
+      return Object.freeze({
+        kind,
+        method: 'DELETE',
+        path: `/repos/${repo}/issues/comments/${positiveInteger(operation.commentId, 'issue comment id')}`
+      });
+    case 'issue-closing-pull-references': {
+      const parts = repositoryParts(repo);
+      return read('/graphql', Object.freeze({
+        query: GITHUB_PULL_REQUEST_CLOSING_QUERY,
+        variables: Object.freeze({
+          ...parts,
+          number: positiveInteger(operation.pullRequestNumber, 'pull request number'),
+          cursor: operation.cursor === null
+            ? null
+            : boundedText(operation.cursor, 'GraphQL cursor', 1024)
+        })
+      }));
+    }
+    case 'issue-terminal-events': {
+      const parts = repositoryParts(repo);
+      return read('/graphql', Object.freeze({
+        query: GITHUB_ISSUE_TERMINAL_EVENTS_QUERY,
+        variables: Object.freeze({
+          ...parts,
+          number: positiveInteger(operation.issueNumber, 'issue number')
+        })
+      }));
+    }
     case 'create-issue-comment':
-      if (effect !== 'branch-closeout-write') {
+      if (effect !== 'branch-closeout-write' && effect !== 'issue-comment-write') {
         throw new GitHubApiProviderError(
-          'GitHub API closeout receipt publication requires branch-closeout-write authority'
+          'GitHub API issue comment publication requires issue-comment-write or branch-closeout-write authority'
         );
       }
       return read(
@@ -294,6 +390,8 @@ function compileOperation(
         Object.freeze({ body: boundedMultilineText(operation.body, 'issue comment body', 65_536) })
       );
     case 'open-pulls': return read(`/repos/${repo}/pulls?state=open&base=${encodeURIComponent(boundedText(operation.baseBranch, 'base branch', 255))}&per_page=2&page=1`);
+    case 'open-pulls-page': return read(`/repos/${repo}/pulls?state=open&per_page=100&page=${page(operation.page)}`);
+    case 'merged-pulls': return read(`/repos/${repo}/pulls?state=closed&sort=updated&direction=desc&per_page=100&page=${page(operation.page)}`);
     case 'matching-head-refs': return read(`/repos/${repo}/git/matching-refs/heads/?per_page=100&page=${page(operation.page)}`);
     case 'git-ref': return read(`/repos/${repo}/git/ref/heads/${encodeURIComponent(boundedText(operation.branch, 'branch', 255))}`);
     case 'workflow-run': {
@@ -303,6 +401,40 @@ function compileOperation(
       }
       return read(`/repos/${repo}/actions/runs/${runId}`);
     }
+    case 'workflow-run-attempt': {
+      const runId = operation.runId;
+      const runAttempt = operation.runAttempt;
+      if (typeof runId !== 'string' || !/^[1-9][0-9]*$/u.test(runId)) {
+        throw new GitHubApiProviderError('GitHub API workflow run id is invalid');
+      }
+      return read(`/repos/${repo}/actions/runs/${runId}/attempts/${positiveInteger(runAttempt, 'workflow run attempt')}`);
+    }
+    case 'workflow':
+      return read(`/repos/${repo}/actions/workflows/${operation.path}`);
+    case 'workflow-jobs': {
+      const runId = operation.runId;
+      if (!/^[1-9][0-9]*$/u.test(runId)) throw new GitHubApiProviderError('GitHub API workflow run id is invalid');
+      return read(`/repos/${repo}/actions/runs/${runId}/attempts/${positiveInteger(operation.runAttempt, 'workflow run attempt')}/jobs?per_page=100&page=${page(operation.page)}`);
+    }
+    case 'artifacts':
+      return read(`/repos/${repo}/actions/artifacts?per_page=100&page=${page(operation.page)}`);
+    case 'check-suite':
+      return read(`/repos/${repo}/check-suites/${positiveInteger(operation.checkSuiteId, 'check suite id')}`);
+    case 'artifact':
+      return read(`/repos/${repo}/actions/artifacts/${positiveInteger(operation.artifactId, 'artifact id')}`);
+    case 'repository-dispatch':
+      if (effect !== 'repository-dispatch-write') {
+        throw new GitHubApiProviderError('GitHub API repository dispatch requires repository-dispatch-write authority');
+      }
+      return Object.freeze({
+        kind,
+        method: 'POST',
+        path: `/repos/${repo}/dispatches`,
+        body: Object.freeze({
+          event_type: boundedText(operation.eventType, 'repository dispatch event type', 100),
+          client_payload: operation.clientPayload
+        })
+      });
     case 'check-runs': return read(`/repos/${repo}/commits/${sha(operation.sha)}/check-runs?per_page=100&page=${page(operation.page)}`);
     case 'repository-runners':
       return read(`/repos/${repo}/actions/runners?per_page=100&page=${page(operation.page)}`);
@@ -385,6 +517,21 @@ function compileOperation(
   throw new GitHubApiProviderError('GitHub API operation kind is unsupported');
 }
 
+function compileByteOperation(
+  repositoryName: string,
+  effect: GitHubApiEffect,
+  operation: GitHubApiByteOperation
+): Readonly<{ kind: GitHubApiByteOperation['kind']; path: string }> {
+  if (effect !== 'read') {
+    throw new GitHubApiProviderError('GitHub API artifact download requires read authority');
+  }
+  const repo = repository(repositoryName);
+  return Object.freeze({
+    kind: operation.kind,
+    path: `/repos/${repo}/actions/artifacts/${positiveInteger(operation.artifactId, 'artifact id')}/zip`
+  });
+}
+
 function binding(capability: GitHubApiCapability): GitHubApiCapabilityBinding {
   const value = capabilityBindings.get(capability);
   if (value === undefined) {
@@ -420,6 +567,8 @@ export function assertGitHubApiCapability(
   if (value.repository !== repositoryName || !effectSatisfied
       || (requiredEffect === 'runner-admin' && value.principal.permission !== 'admin')
       || ((requiredEffect === 'status-write'
+          || requiredEffect === 'issue-comment-write'
+          || requiredEffect === 'repository-dispatch-write'
           || requiredEffect === 'merge-write'
           || requiredEffect === 'branch-closeout-write')
         && value.principal.permission !== 'admin'
@@ -453,6 +602,8 @@ function issueCapability(input: Readonly<{
     throw new GitHubApiProviderError('GitHub API runner-admin capability requires admin permission');
   }
   if ((input.effect === 'status-write'
+      || input.effect === 'issue-comment-write'
+      || input.effect === 'repository-dispatch-write'
       || input.effect === 'merge-write'
       || input.effect === 'branch-closeout-write')
       && input.principal.permission !== 'admin' && input.principal.permission !== 'maintain') {
@@ -571,6 +722,129 @@ async function executeWithToken<T>(
   operation: GitHubApiOperation,
   exactRepositoryNodeId?: string
 ): Promise<T> {
+  return (await executeWithTokenObserved<T>(
+    session,
+    token,
+    transport,
+    operation,
+    exactRepositoryNodeId
+  )).value;
+}
+
+async function readBoundedResponseBytes(
+  session: GitHubApiRequestSession,
+  response: Response,
+  label: string
+): Promise<Uint8Array> {
+  if (response.body === null || typeof response.body.getReader !== 'function') {
+    throw new GitHubApiProviderError(`${label} does not expose a bounded streaming body`, response.status);
+  }
+  return await withOwnedByteStreamReader(response.body, async read => {
+    const chunks: Uint8Array[] = [];
+    let total = 0;
+    for (;;) {
+      const chunk = await read();
+      if (!chunk.done) {
+        recordResponseBytes(session, chunk.value.byteLength);
+        total += chunk.value.byteLength;
+      }
+      remaining(session);
+      if (chunk.done) break;
+      chunks.push(chunk.value);
+    }
+    const output = new Uint8Array(total);
+    let offset = 0;
+    for (const chunk of chunks) {
+      output.set(chunk, offset);
+      offset += chunk.byteLength;
+    }
+    return output;
+  }, session.abortController.signal);
+}
+
+function artifactRedirectTarget(value: string): URL {
+  let target: URL;
+  try { target = new URL(value); }
+  catch { throw new GitHubApiProviderError('GitHub API artifact redirect URL is invalid'); }
+  if (target.protocol !== 'https:' || target.username !== '' || target.password !== '' || target.hash !== '') {
+    throw new GitHubApiProviderError('GitHub API artifact redirect must be credential-free HTTPS');
+  }
+  return target;
+}
+
+async function executeByteWithToken(
+  session: GitHubApiRequestSession,
+  token: string,
+  transport: GitHubApiTransport,
+  operation: GitHubApiByteOperation
+): Promise<Uint8Array> {
+  const compiled = compileByteOperation(session.repository, session.effect, operation);
+  reserve(session, 0);
+  const transportSignal = linkNativeAbortSignals(session.abortController.signal);
+  session.inFlight += 1;
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+  const request = (async (): Promise<Uint8Array> => {
+    try {
+      let response = await transport(canonicalTarget(compiled.path), {
+        method: 'GET',
+        redirect: 'manual',
+        headers: {
+          Accept: 'application/vnd.github+json',
+          Authorization: `Bearer ${token}`,
+          'X-GitHub-Api-Version': '2022-11-28',
+          'User-Agent': 'sec-github-api-operation-session-v1'
+        },
+        signal: transportSignal
+      });
+      if (response.status >= 300 && response.status < 400) {
+        if (response.body !== null) await readBoundedResponseBytes(session, response, 'GitHub API artifact redirect response');
+        const location = response.headers.get('location');
+        if (location === null) throw new GitHubApiProviderError('GitHub API artifact redirect lacks Location', response.status);
+        reserve(session, 0);
+        response = await transport(artifactRedirectTarget(location), {
+          method: 'GET',
+          redirect: 'error',
+          headers: { 'User-Agent': 'sec-github-api-operation-session-v1' },
+          signal: transportSignal
+        });
+      }
+      remaining(session);
+      const bytes = await readBoundedResponseBytes(session, response, 'GitHub API artifact response');
+      if (!response.ok) {
+        const detail = new TextDecoder('utf-8', { fatal: false }).decode(bytes.slice(-2048));
+        throw new GitHubApiProviderError(
+          `GitHub API ${compiled.kind} failed with HTTP ${response.status}: ${detail}`,
+          response.status
+        );
+      }
+      return bytes;
+    } finally {
+      session.inFlight -= 1;
+      if (session.phase === 'closing' && session.inFlight === 0) session.phase = 'settled';
+    }
+  })();
+  const deadline = new Promise<never>((_, reject) => {
+    timeout = setTimeout(() => {
+      if (!isNativeAborted(session.abortController.signal)) session.abortController.abort();
+      reject(new GitHubApiProviderError('GitHub API operation deadline exceeded'));
+    }, remaining(session));
+  });
+  try { return await Promise.race([request, deadline]); }
+  finally { clearTimeout(timeout); }
+}
+
+type ObservedGitHubApiOperation<T> = Readonly<{
+  value: T;
+  source: string | null;
+}>;
+
+async function executeWithTokenObserved<T>(
+  session: GitHubApiRequestSession,
+  token: string,
+  transport: GitHubApiTransport,
+  operation: GitHubApiOperation,
+  exactRepositoryNodeId?: string
+): Promise<ObservedGitHubApiOperation<T>> {
   const compiled = compileOperation(
     session.repository,
     session.effect,
@@ -595,7 +869,7 @@ async function executeWithToken<T>(
   };
   // This promise owns the real transport and response, not just observation of
   // them. A deadline may reject its observer but must not debit inFlight early.
-  const request = (async (): Promise<T> => {
+  const request = (async (): Promise<ObservedGitHubApiOperation<T>> => {
     try {
       const response = await transport(canonicalTarget(compiled.path), {
         method: compiled.method,
@@ -612,8 +886,14 @@ async function executeWithToken<T>(
       });
       if (response.body === null) {
         remaining(session);
+        if (response.status === 204 && response.ok && compiled.method === 'POST'
+            && compiled.kind === 'repository-dispatch') {
+          return Object.freeze({ value: null as T, source: null });
+        }
         if (response.status === 204 && response.ok && compiled.method === 'DELETE'
-            && compiled.kind === 'delete-repository-runner') return null as T;
+            && (compiled.kind === 'delete-repository-runner' || compiled.kind === 'delete-issue-comment')) {
+          return Object.freeze({ value: null as T, source: null });
+        }
         if (response.status === 204) throw new GitHubApiProviderError(
           `GitHub API ${compiled.kind} returned an invalid 204 response`, response.status
         );
@@ -644,7 +924,9 @@ async function executeWithToken<T>(
           if (!response.ok) throw new GitHubApiProviderError(
             `GitHub API ${compiled.kind} failed with HTTP ${response.status}: ${source.slice(-2048)}`, response.status
           );
-          try { return JSON.parse(source) as T; }
+          try {
+            return Object.freeze({ value: JSON.parse(source) as T, source });
+          }
           catch (error) { throw new GitHubApiProviderError(
             `GitHub API ${compiled.kind} returned invalid JSON: ${error instanceof Error ? error.message : String(error)}`, response.status
           ); }
@@ -752,6 +1034,61 @@ export async function executeGitHubApiOperation(
     );
   }
   return mutation;
+}
+
+export async function readGitHubApiBytes(
+  capability: GitHubApiCapability,
+  operation: GitHubApiByteOperation
+): Promise<Uint8Array> {
+  const value = binding(capability);
+  const session = requestSession.getStore();
+  if (session === undefined || session.capability !== capability
+      || session.repository !== value.repository || session.effect !== value.effect
+      || session.origin !== value.origin) {
+    throw new GitHubApiProviderError('GitHub API byte read requires the active exact operation session');
+  }
+  return await executeByteWithToken(session, value.token, value.transport, Object.freeze({
+    kind: operation.kind,
+    artifactId: positiveInteger(operation.artifactId, 'artifact id')
+  }));
+}
+
+/**
+ * Execute one admitted JSON operation while preserving the exact bounded
+ * UTF-8 response text for evidence consumers. Credentials, transport and
+ * resource settlement remain owned by the same active GitHub API session.
+ */
+export async function executeObservedGitHubApiOperation(
+  capability: GitHubApiCapability,
+  operation: GitHubApiOperation
+): Promise<Readonly<{ value: unknown; source: string }>> {
+  const value = binding(capability);
+  const session = requestSession.getStore();
+  if (session === undefined || session.capability !== capability
+      || session.repository !== value.repository || session.effect !== value.effect
+      || session.origin !== value.origin) {
+    throw new GitHubApiProviderError(
+      'GitHub API observed request requires the active exact operation session'
+    );
+  }
+  if (operation.kind === 'delete-ref-cas'
+      || operation.kind === 'delete-repository-runner') {
+    throw new GitHubApiProviderError(
+      'GitHub API observed request is only available for JSON response operations'
+    );
+  }
+  const capturedOperation = Object.create(operation) as GitHubApiOperation;
+  Object.defineProperty(capturedOperation, 'kind', { value: operation.kind });
+  const observed = await executeWithTokenObserved<unknown>(
+    session,
+    value.token,
+    value.transport,
+    capturedOperation
+  );
+  if (observed.source === null) {
+    throw new GitHubApiProviderError('GitHub API observed request returned no JSON source');
+  }
+  return Object.freeze({ value: observed.value, source: observed.source });
 }
 
 export function currentGitHubApiCapability(
@@ -972,6 +1309,13 @@ export async function withGitHubApiReadSession<T>(input: Readonly<{
   repository: string;
   operation: (capability: GitHubApiCapability) => Promise<T>;
 }>): Promise<T> {
+  const current = requestSession.getStore();
+  if (current?.capability !== undefined
+      && current.repository === input.repository
+      && current.effect === 'read') {
+    remaining(current);
+    return await input.operation(current.capability);
+  }
   return await withProductionSession({ ...input, effect: 'read' });
 }
 
@@ -981,6 +1325,22 @@ export async function withGitHubApiStatusWriteSession<T>(input: Readonly<{
   operation: (capability: GitHubApiCapability) => Promise<T>;
 }>): Promise<T> {
   return await withProductionSession({ ...input, effect: 'status-write' });
+}
+
+export async function withGitHubApiIssueCommentWriteSession<T>(input: Readonly<{
+  repositoryRoot: string;
+  repository: string;
+  operation: (capability: GitHubApiCapability) => Promise<T>;
+}>): Promise<T> {
+  return await withProductionSession({ ...input, effect: 'issue-comment-write' });
+}
+
+export async function withGitHubApiRepositoryDispatchWriteSession<T>(input: Readonly<{
+  repositoryRoot: string;
+  repository: string;
+  operation: (capability: GitHubApiCapability) => Promise<T>;
+}>): Promise<T> {
+  return await withProductionSession({ ...input, effect: 'repository-dispatch-write' });
 }
 
 export async function withGitHubApiMergeWriteSession<T>(input: Readonly<{

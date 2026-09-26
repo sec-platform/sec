@@ -6,9 +6,9 @@ import path from 'node:path';
 import { expect, test } from 'bun:test';
 
 import {
-  SEC_WINDOWS_CONTROL_CLI_ENVIRONMENT_AUTHORITY,
-  getSecWindowsControlCliExecutableBindingV1,
-  parseSecWindowsControlCliEnvironmentAuthority
+  WINDOWS_CONTROL_CLI_ENVIRONMENT_AUTHORITY,
+  getWindowsControlCliExecutableBinding,
+  parseWindowsControlCliEnvironmentAuthority
 } from '../../src/adapters/providers/windows-control-cli/contract/environment.ts';
 import {
   WindowsControlCliInstalledAdoptionError,
@@ -18,8 +18,8 @@ import {
 function installedRoot(command: 'git' | 'gh'): string {
   const locator = Bun.which(command);
   if (locator === null) throw new Error(`${command} is not installed for the Windows provider test`);
-  const binding = getSecWindowsControlCliExecutableBindingV1(
-    SEC_WINDOWS_CONTROL_CLI_ENVIRONMENT_AUTHORITY,
+  const binding = getWindowsControlCliExecutableBinding(
+    WINDOWS_CONTROL_CLI_ENVIRONMENT_AUTHORITY,
     command
   );
   if (binding === null) throw new Error(`${command} has no installed profile binding`);
@@ -35,8 +35,8 @@ function installedRoot(command: 'git' | 'gh'): string {
 
 async function copyBinding(command: 'git' | 'gh', targetRoot: string): Promise<void> {
   const sourceRoot = installedRoot(command);
-  const binding = getSecWindowsControlCliExecutableBindingV1(
-    SEC_WINDOWS_CONTROL_CLI_ENVIRONMENT_AUTHORITY,
+  const binding = getWindowsControlCliExecutableBinding(
+    WINDOWS_CONTROL_CLI_ENVIRONMENT_AUTHORITY,
     command
   )!;
   const entries = new Map([
@@ -71,7 +71,7 @@ windowsTest.serial('installed adopter authenticates exact bytes and pins replace
       LOCALAPPDATA: path.win32.join(root, 'local-app-data-none')
     };
     const adoption = adoptInstalledWindowsControlCli({
-      spec: SEC_WINDOWS_CONTROL_CLI_ENVIRONMENT_AUTHORITY,
+      spec: WINDOWS_CONTROL_CLI_ENVIRONMENT_AUTHORITY,
       workingDirectory: root,
       deadline,
       budget: {
@@ -92,7 +92,7 @@ windowsTest.serial('installed adopter authenticates exact bytes and pins replace
     bytes[0] = bytes[0]! ^ 0xff;
     await writeFile(gh, bytes);
     expect(() => adoptInstalledWindowsControlCli({
-      spec: SEC_WINDOWS_CONTROL_CLI_ENVIRONMENT_AUTHORITY,
+      spec: WINDOWS_CONTROL_CLI_ENVIRONMENT_AUTHORITY,
       workingDirectory: root,
       deadline,
       budget: {
@@ -109,7 +109,7 @@ windowsTest.serial('installed adopter authenticates exact bytes and pins replace
 
 windowsTest('installed adopter returns typed unknown without a matching physical closure', () => {
   expect(() => adoptInstalledWindowsControlCli({
-    spec: SEC_WINDOWS_CONTROL_CLI_ENVIRONMENT_AUTHORITY,
+    spec: WINDOWS_CONTROL_CLI_ENVIRONMENT_AUTHORITY,
     workingDirectory: process.cwd(),
     deadline: { remainingMs: () => 30_000, assertLive() {} },
     budget: {
@@ -138,11 +138,11 @@ windowsTest.serial('installed adopter rejects manifest-authenticated bytes witho
     bytes[0] = 0;
     await writeFile(ghPath, bytes);
     const { specDigest: _specDigest, ...authority } = structuredClone(
-      SEC_WINDOWS_CONTROL_CLI_ENVIRONMENT_AUTHORITY
+      WINDOWS_CONTROL_CLI_ENVIRONMENT_AUTHORITY
     );
     const gh = authority.executableBindings.find(({ id }) => id === 'gh')!;
     gh.executableEntries[0]!.observedSha256 = createHash('sha256').update(bytes).digest('hex');
-    const spec = parseSecWindowsControlCliEnvironmentAuthority(authority);
+    const spec = parseWindowsControlCliEnvironmentAuthority(authority);
     expect(() => adoptInstalledWindowsControlCli({
       spec,
       workingDirectory: root,

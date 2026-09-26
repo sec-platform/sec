@@ -1,10 +1,10 @@
 import { expect, test } from 'bun:test';
 
-import { SecError } from './failure.ts';
+import { FailureError } from './failure.ts';
 
-test('SecError preserves one typed runtime identity and native cause', () => {
+test('FailureError preserves one typed runtime identity and native cause', () => {
   const cause = new Error('physical failure');
-  const error = new SecError(
+  const error = new FailureError(
     'FOUNDATION-TEST-001',
     'foundation failure',
     { phase: 'readback' },
@@ -12,7 +12,7 @@ test('SecError preserves one typed runtime identity and native cause', () => {
   );
 
   expect(error).toBeInstanceOf(Error);
-  expect(error).toBeInstanceOf(SecError);
+  expect(error).toBeInstanceOf(FailureError);
   expect(error).toMatchObject({
     name: 'SecError',
     code: 'FOUNDATION-TEST-001',

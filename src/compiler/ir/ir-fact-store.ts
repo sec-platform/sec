@@ -4,7 +4,7 @@ import type { EvidenceReference, FactAssertion, FactProvenance, SemanticAuthorit
 import { CompilerError } from '../errors.ts';
 import { factIdentity } from './ir-identity.ts';
 import { normalizeEvidence, normalizeFactObject, normalizeProvenance } from './ir-normalization.ts';
-import { digest } from './ir-revision.ts';
+import { rawSha256Hex } from './ir-revision.ts';
 
 export interface FactInput {
   subject: SemanticEntityId;
@@ -41,7 +41,7 @@ export function factAssertionId(
   provenance: readonly FactProvenance[]
 ): string {
   const identity = [factId, authority, JSON.stringify(provenance)].join('\u0000');
-  return `assertion:${digest(identity).slice(0, 24)}`;
+  return `assertion:${rawSha256Hex(identity).slice(0, 24)}`;
 }
 
 function buildAssertion(factId: string, input: FactInput): FactAssertion {
@@ -60,7 +60,7 @@ function buildFact(input: FactInput): SemanticFact {
   assertFactInput(input);
   const normalizedObject = normalizeFactObject(input.object);
   const identity = factIdentity({ ...input, object: normalizedObject });
-  const id = `fact:${digest(identity).slice(0, 24)}`;
+  const id = `fact:${rawSha256Hex(identity).slice(0, 24)}`;
   return {
     id,
     subject: input.subject,

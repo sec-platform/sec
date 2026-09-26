@@ -11,7 +11,7 @@
 
 const ISO_INSTANT_INPUT = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})\.(\d{3}|\d{7})(Z|[+-]\d{2}:\d{2})$/u;
 
-export function canonicalizeIsoInstantInputV1(value: unknown, label = 'ISO-8601 instant'): string {
+export function canonicalizeIsoInstantInput(value: unknown, label = 'ISO-8601 instant'): string {
   if (typeof value !== 'string') {
     throw new Error(`${label} must use canonical ECMAScript or PowerShell round-trip ISO-8601 syntax.`);
   }

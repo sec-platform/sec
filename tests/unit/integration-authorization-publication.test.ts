@@ -18,9 +18,9 @@ const WORKFLOW_SHA = '1111111111111111111111111111111111111111';
 
 function integrationRun(input: Partial<GitHubWorkflowRunObservation> & { id: string }) {
   return Object.freeze({
-    name: 'sec-merge-gate',
+    name: 'merge-gate',
     displayTitle: 'integrate compiler session run 100 attempt 2',
-    workflowPath: '.github/workflows/sec-merge-gate.yml',
+    workflowPath: '.github/workflows/merge-gate.yml',
     event: 'workflow_run',
     status: 'in_progress',
     conclusion: null,

@@ -15,11 +15,11 @@ import {
   createBranchLifecycleGitHubRemoteObservation
 } from '../branch-lifecycle/branch-lifecycle-command.ts';
 import {
-  CodexDevelopmentAssertControlPlaneBinding,
-  CodexDevelopmentParseActivePointer,
-  CodexDevelopmentParseCurrentStateSpec,
-  CodexDevelopmentParseRollingMachineProjection,
-  CodexDevelopmentParseRollingPlan
+  AssertControlPlaneBinding,
+  ParseActivePointer,
+  ParseCurrentStateSpec,
+  ParseRollingMachineProjection,
+  ParseRollingPlan
 } from '../documentation/document-control-plane-contract.ts';
 import { buildGitHubDefaultBranchOpenPullRequestsArgs } from '../documentation/document-control-plane-github-observation.ts';
 import {
@@ -34,54 +34,54 @@ import {
   type WorkSelectionMainHealthProjection,
   type WorkSelectionMainHealthSnapshot
 } from '../main-health/work-selection-main-health.ts';
-import { CodexDevelopmentWorkPackageManifestDigest } from '../task/contract/work-package.ts';
+import { WorkPackageManifestDigest } from '../task/contract/work-package.ts';
 import type {
-  SecCurrentWorkLifecycle,
-  SecWorkDigest
+  CurrentWorkLifecycle,
+  WorkDigest
 } from './contract.ts';
 import {
-  compileSecWorkSelectionTerminalProjection,
-  createSecRoadmapTerminalCompactionCandidate,
-  createSecWorkCurrentSpecObservation,
-  createSecWorkDecisionReceipt,
-  createSecWorkRegistryObservation,
+  compileWorkSelectionTerminalProjection,
+  createRoadmapTerminalCompactionCandidate,
+  createWorkCurrentSpecObservation,
+  createWorkDecisionReceipt,
+  createWorkRegistryObservation,
   currentSpecRevisionFromBody,
-  parseSecRoadmapWorkCatalog,
-  renderSecWorkRollingPlan,
-  resolvedSecWorkSelectionLiveResult,
-  unresolvedSecWorkSelectionLiveResult,
-  type SecRoadmapTerminalCompaction,
-  type SecRoadmapTerminalCompactionCandidate,
-  type SecRoadmapWorkCatalogItem,
-  type SecWorkCurrentSpecObservation,
-  type SecWorkDecisionReceipt,
-  type SecWorkRegistryObservation,
-  type SecWorkSelectionLiveResult
+  parseRoadmapWorkCatalog,
+  renderWorkRollingPlan,
+  resolvedWorkSelectionLiveResult,
+  unresolvedWorkSelectionLiveResult,
+  type RoadmapTerminalCompaction,
+  type RoadmapTerminalCompactionCandidate,
+  type RoadmapWorkCatalogItem,
+  type WorkCurrentSpecObservation,
+  type WorkDecisionReceipt,
+  type WorkRegistryObservation,
+  type WorkSelectionLiveResult
 } from './live-contract.ts';
 
 // A provider callback is a testing seam, not a production authority. Keep
 // that distinction outside the structural live-result contract so JSON or
 // object-spread copies cannot be promoted into an effect-capable receipt.
-const productionSecWorkSelectionLiveResults = new WeakSet<object>();
-const productionSecWorkDecisionReceipts = new WeakSet<object>();
-const testingSecWorkSelectionLiveResults = new WeakSet<object>();
-const testingSecWorkDecisionReceipts = new WeakSet<object>();
+const productionWorkSelectionLiveResults = new WeakSet<object>();
+const productionWorkDecisionReceipts = new WeakSet<object>();
+const testingWorkSelectionLiveResults = new WeakSet<object>();
+const testingWorkDecisionReceipts = new WeakSet<object>();
 
-export interface SecWorkSelectionProviderCommandResult {
+export interface WorkSelectionProviderCommandResult {
   readonly status: number | null;
   readonly stdout: Buffer;
   readonly stderr: Buffer;
 }
 
-export type SecWorkSelectionProvider = (
+export type WorkSelectionProvider = (
   command: 'gh' | 'git',
   args: readonly string[],
   cwd: string,
   environment?: Readonly<NodeJS.ProcessEnv>,
   input?: Uint8Array
-) => SecWorkSelectionProviderCommandResult;
+) => WorkSelectionProviderCommandResult;
 
-type SecWorkSelectionMainHealthTestObserver = (input: Readonly<{
+type WorkSelectionMainHealthTestObserver = (input: Readonly<{
   repositoryRoot: string;
   repository: string;
   defaultBranch: string;
@@ -95,7 +95,7 @@ type CommandRunner = (
   cwd: string,
   environment?: Readonly<NodeJS.ProcessEnv>,
   input?: Uint8Array
-) => SecWorkSelectionProviderCommandResult | Promise<SecWorkSelectionProviderCommandResult>;
+) => WorkSelectionProviderCommandResult | Promise<WorkSelectionProviderCommandResult>;
 
 type WorkSelectionHostedProvider = Readonly<{
   resolveDefaultSha: (input: Readonly<{
@@ -120,7 +120,7 @@ type WorkSelectionHostedProvider = Readonly<{
   }>) => Promise<readonly Readonly<{ branch: string; sha: string }>[]>;
 }>;
 
-export interface ObserveSecWorkSelectionLiveInput {
+export interface ObserveWorkSelectionLiveInput {
   readonly cwd: string;
   /**
    * A trusted caller such as document-control may pass its already observed
@@ -132,8 +132,8 @@ export interface ObserveSecWorkSelectionLiveInput {
   readonly mainHealthSnapshot?: WorkSelectionMainHealthSnapshot;
 }
 
-export type ObserveSecWorkSelectionProductionInput = Readonly<
-  Omit<ObserveSecWorkSelectionLiveInput, 'exactMain' | 'exactMainTree' | 'mainHealthSnapshot'> & {
+export type ObserveWorkSelectionProductionInput = Readonly<
+  Omit<ObserveWorkSelectionLiveInput, 'exactMain' | 'exactMainTree' | 'mainHealthSnapshot'> & {
     exactMain: string;
     exactMainTree: string;
     mainHealthSnapshot: WorkSelectionMainHealthSnapshot;
@@ -142,7 +142,7 @@ export type ObserveSecWorkSelectionProductionInput = Readonly<
 
 class LiveObservationFailure extends Error {
   readonly reasonCode: string;
-  readonly blockerRef: SecWorkDigest;
+  readonly blockerRef: WorkDigest;
 
   constructor(reasonCode: string, blockerBytes: Uint8Array | string) {
     super(reasonCode);
@@ -151,7 +151,7 @@ class LiveObservationFailure extends Error {
   }
 }
 
-function combinedFailureBytes(result: SecWorkSelectionProviderCommandResult): Buffer {
+function combinedFailureBytes(result: WorkSelectionProviderCommandResult): Buffer {
   return Buffer.concat([result.stdout, Buffer.from('\0'), result.stderr]);
 }
 
@@ -214,7 +214,7 @@ async function resolveCanonicalDefaultProjection(input: {
   root: string;
 }): Promise<{
   stateBytes: Buffer;
-  state: ReturnType<typeof CodexDevelopmentParseCurrentStateSpec>;
+  state: ReturnType<typeof ParseCurrentStateSpec>;
 }> {
   const source = decodeUtf8(await requireCommand(input.run, 'git', [
     'for-each-ref', '--format=%(refname)%00%(symref)', 'refs/remotes/*/HEAD'
@@ -236,7 +236,7 @@ async function resolveCanonicalDefaultProjection(input: {
     `${defaultRef}:config/repository/current-state.yaml`,
     'trusted-current-state-unresolved'
   );
-  const state = CodexDevelopmentParseCurrentStateSpec(
+  const state = ParseCurrentStateSpec(
     decodeUtf8(stateBytes, 'trusted-current-state-invalid-utf8')
   );
   const projectedBranch = defaultRef.slice(`refs/remotes/${headMatch[1]!}/`.length);
@@ -421,8 +421,8 @@ function testWorkSelectionHostedProvider(
 async function observeCurrentSpecs(input: {
   hosted: WorkSelectionHostedProvider;
   repository: string;
-  items: readonly SecRoadmapWorkCatalogItem[];
-}): Promise<SecWorkCurrentSpecObservation[]> {
+  items: readonly RoadmapWorkCatalogItem[];
+}): Promise<WorkCurrentSpecObservation[]> {
   const aliases = input.items.map((item, index) => ({
     alias: `i${index}`,
     item,
@@ -440,7 +440,7 @@ async function observeCurrentSpecs(input: {
     if (record.number !== issueNumber || record.body.length === 0) {
       throw new LiveObservationFailure('current-spec-resource-malformed', JSON.stringify(record));
     }
-    return createSecWorkCurrentSpecObservation({
+    return createWorkCurrentSpecObservation({
       workId: item.workId,
       currentSpecRef: item.currentSpecRef,
       providerResourceRef: `github-node:${record.nodeId}`,
@@ -470,7 +470,7 @@ async function observeRegistry(input: {
   exactMain: string;
   exactMainTree: string;
   openPullRequests: ReturnType<typeof parseOpenPullRequestList>;
-}): Promise<SecWorkRegistryObservation> {
+}): Promise<WorkRegistryObservation> {
   let projected: string;
   try {
     projected = await projectWorkPackageRegistry({
@@ -498,7 +498,7 @@ async function observeRegistry(input: {
       `${registry.defaultTreeSha}:${input.exactMainTree}`
     );
   }
-  return createSecWorkRegistryObservation({
+  return createWorkRegistryObservation({
     defaultTreeSha: registry.defaultTreeSha,
     entries: registry.entries.map((entry) => ({ ...entry }))
   });
@@ -524,10 +524,10 @@ async function exactManifestPaths(
   return Object.freeze(paths.sort());
 }
 
-export type SecRoadmapTerminalCompactionCandidateObservation = Readonly<
+export type RoadmapTerminalCompactionCandidateObservation = Readonly<
   | { status: 'not-applicable'; candidate: null }
-  | { status: 'resolved'; candidate: SecRoadmapTerminalCompactionCandidate }
-  | { status: 'unresolved'; candidate: null; reasonCode: string; blockerRef: SecWorkDigest }
+  | { status: 'resolved'; candidate: RoadmapTerminalCompactionCandidate }
+  | { status: 'unresolved'; candidate: null; reasonCode: string; blockerRef: WorkDigest }
 >;
 
 /**
@@ -536,16 +536,16 @@ export type SecRoadmapTerminalCompactionCandidateObservation = Readonly<
  * re-observed from the exact object database.  This function produces no
  * authorization or effect authority.
  */
-export async function observeSecRoadmapTerminalCompactionCandidate(input: {
+export async function observeRoadmapTerminalCompactionCandidate(input: {
   run: CommandRunner;
   root: string;
   repository: string;
   defaultBranch: string;
   exactMain: string;
   roadmapSource: string;
-  terminalCompaction: SecRoadmapTerminalCompaction | null;
+  terminalCompaction: RoadmapTerminalCompaction | null;
   openPullRequests: ReturnType<typeof parseOpenPullRequestList>;
-}): Promise<SecRoadmapTerminalCompactionCandidateObservation> {
+}): Promise<RoadmapTerminalCompactionCandidateObservation> {
   if (input.terminalCompaction === null || input.openPullRequests.length !== 1) {
     return Object.freeze({ status: 'not-applicable', candidate: null });
   }
@@ -567,7 +567,7 @@ export async function observeSecRoadmapTerminalCompactionCandidate(input: {
       'rev-parse', `${pullRequest.headSha}^{tree}`
     ], input.root, 'terminal-candidate-tree-unresolved'), 'terminal-candidate-tree-invalid-utf8'),
     'terminal-candidate-tree-invalid');
-    const candidate = createSecRoadmapTerminalCompactionCandidate({
+    const candidate = createRoadmapTerminalCompactionCandidate({
       repository: input.repository,
       exactMain: input.exactMain,
       compaction: input.terminalCompaction,
@@ -782,20 +782,20 @@ async function observeCanonicalBranchLifecycle(input: {
 }
 
 function observeCanonicalControl(input: {
-  spec: ReturnType<typeof CodexDevelopmentParseCurrentStateSpec>;
+  spec: ReturnType<typeof ParseCurrentStateSpec>;
   pointerSource: string;
   rollingPlanSource: string;
   manifestPath: string;
   manifestBytes: Buffer;
 }): Readonly<{
-  state: SecCurrentWorkLifecycle['controlState'];
-  ref: SecWorkDigest;
+  state: CurrentWorkLifecycle['controlState'];
+  ref: WorkDigest;
 }> {
-  const pointer = CodexDevelopmentParseActivePointer(input.pointerSource);
-  CodexDevelopmentAssertControlPlaneBinding({ spec: input.spec, pointer });
-  const rolling = CodexDevelopmentParseRollingPlan(input.rollingPlanSource);
-  const rollingMachine = CodexDevelopmentParseRollingMachineProjection(input.rollingPlanSource);
-  const manifestDigest = CodexDevelopmentWorkPackageManifestDigest(input.manifestBytes);
+  const pointer = ParseActivePointer(input.pointerSource);
+  AssertControlPlaneBinding({ spec: input.spec, pointer });
+  const rolling = ParseRollingPlan(input.rollingPlanSource);
+  const rollingMachine = ParseRollingMachineProjection(input.rollingPlanSource);
+  const manifestDigest = WorkPackageManifestDigest(input.manifestBytes);
   const packageId = path.posix.basename(input.manifestPath, '.md');
   const machineBindingMatches = rollingMachine === null
     || (rollingMachine.active.packageId === packageId
@@ -807,7 +807,7 @@ function observeCanonicalControl(input: {
     id: packageId,
     tracking: rollingMachine?.active.tracking ?? null,
     digest: manifestDigest
-  } }) as SecWorkDigest;
+  } }) as WorkDigest;
   return Object.freeze({
     state: pointer.manifest === input.manifestPath
         && pointer.manifestDigest === manifestDigest
@@ -820,15 +820,15 @@ function observeCanonicalControl(input: {
 }
 
 function currentLifecycle(input: {
-  registry: SecWorkRegistryObservation;
-  catalogItems: readonly SecRoadmapWorkCatalogItem[];
+  registry: WorkRegistryObservation;
+  catalogItems: readonly RoadmapWorkCatalogItem[];
   openPullRequests: ReturnType<typeof parseOpenPullRequestList>;
   branchLifecycle: ReturnType<typeof projectBranchLifecycleForWorkSelection>;
   selectedPullRequest: ReturnType<typeof parseOpenPullRequestList>[number] | null;
   mainHealth: WorkSelectionMainHealthProjection;
   control: ReturnType<typeof observeCanonicalControl>;
-  terminalCandidate: SecRoadmapTerminalCompactionCandidate | null;
-}): SecCurrentWorkLifecycle {
+  terminalCandidate: RoadmapTerminalCompactionCandidate | null;
+}): CurrentWorkLifecycle {
   if (input.terminalCandidate !== null) {
     const pullRequest = input.openPullRequests.find(
       ({ number }) => number === input.terminalCandidate!.prNumber
@@ -886,7 +886,7 @@ function currentLifecycle(input: {
         baseSha: pullRequest.baseSha
       })),
       openEntries
-    }) as SecWorkDigest;
+    }) as WorkDigest;
     if (entry !== undefined && item !== undefined) {
       const pullRequest = input.selectedPullRequest;
       const exactActiveIdentity = isExactWorkSelectionActiveIdentity({
@@ -932,7 +932,7 @@ function currentLifecycle(input: {
         number, headBranch, headSha, baseBranch, baseSha
       })),
       openEntries
-    }) as SecWorkDigest;
+    }) as WorkDigest;
     return {
       activeWorkId: 'unmapped-open-pr',
       activeRef,
@@ -960,15 +960,15 @@ function currentLifecycle(input: {
   };
 }
 
-async function observeSecWorkSelectionWithinHostedSession(
-  input: ObserveSecWorkSelectionLiveInput,
+async function observeWorkSelectionWithinHostedSession(
+  input: ObserveWorkSelectionLiveInput,
   run: CommandRunner,
   hosted: WorkSelectionHostedProvider,
   root: string,
   defaultProjection: Awaited<ReturnType<typeof resolveCanonicalDefaultProjection>>,
   registryReadBudget: WorkPackageRegistryReadBudget,
-  mainHealthTestObserver?: SecWorkSelectionMainHealthTestObserver
-): Promise<SecWorkSelectionLiveResult> {
+  mainHealthTestObserver?: WorkSelectionMainHealthTestObserver
+): Promise<WorkSelectionLiveResult> {
     const exactMain = await resolveExactMain({
       run,
       hosted,
@@ -986,7 +986,7 @@ async function observeSecWorkSelectionWithinHostedSession(
         `${rawSha256(trustedStateBytes)}:${rawSha256(defaultProjection.stateBytes)}`
       );
     }
-    const state = CodexDevelopmentParseCurrentStateSpec(
+    const state = ParseCurrentStateSpec(
       decodeUtf8(trustedStateBytes, 'trusted-current-state-invalid-utf8')
     );
     const actualTree = gitSha(decodeUtf8(await requireCommand(run, 'git', [
@@ -1029,7 +1029,7 @@ async function observeSecWorkSelectionWithinHostedSession(
           mainTreeSha: mainHealthInput.exactMainTree
         });
     if (mainHealth.state !== 'healthy') {
-      return unresolvedSecWorkSelectionLiveResult({
+      return unresolvedWorkSelectionLiveResult({
         reasonCodes: [mainHealth.state === 'unhealthy'
           ? 'main-health-repair-only'
           : 'main-health-locked'],
@@ -1039,13 +1039,13 @@ async function observeSecWorkSelectionWithinHostedSession(
     const roadmapBytes = await readGitBlob(run, root, `${exactMain}:config/repository/work-selection.md`,
       'roadmap-unresolved');
     const roadmapSource = decodeUtf8(roadmapBytes, 'roadmap-invalid-utf8');
-    const observedCatalog = parseSecRoadmapWorkCatalog(roadmapSource);
+    const observedCatalog = parseRoadmapWorkCatalog(roadmapSource);
     const observedCurrentSpecs = await observeCurrentSpecs({
       hosted,
       repository: state.resolver.repository,
       items: observedCatalog.items
     });
-    const terminal = compileSecWorkSelectionTerminalProjection({
+    const terminal = compileWorkSelectionTerminalProjection({
       roadmapSource,
       currentSpecs: observedCurrentSpecs
     });
@@ -1064,7 +1064,7 @@ async function observeSecWorkSelectionWithinHostedSession(
       exactMain,
       openPullRequests
     });
-    const terminalObservation = await observeSecRoadmapTerminalCompactionCandidate({
+    const terminalObservation = await observeRoadmapTerminalCompactionCandidate({
       run,
       root,
       repository: state.resolver.repository,
@@ -1077,7 +1077,7 @@ async function observeSecWorkSelectionWithinHostedSession(
         : [branchObservation.selectedPullRequest]
     });
     if (terminalObservation.status === 'unresolved') {
-      return unresolvedSecWorkSelectionLiveResult({
+      return unresolvedWorkSelectionLiveResult({
         reasonCodes: [terminalObservation.reasonCode],
         blockerRefs: [terminalObservation.blockerRef]
       });
@@ -1109,7 +1109,7 @@ async function observeSecWorkSelectionWithinHostedSession(
     const pointerBytes = await readGitBlob(run, root, `${exactMain}:config/repository/active-work-package.md`,
       'active-pointer-unresolved');
     const pointerSource = decodeUtf8(pointerBytes, 'active-pointer-invalid-utf8');
-    const pointer = CodexDevelopmentParseActivePointer(pointerSource);
+    const pointer = ParseActivePointer(pointerSource);
     const rollingPlanSource = decodeUtf8(await readGitBlob(
       run,
       root,
@@ -1139,7 +1139,7 @@ async function observeSecWorkSelectionWithinHostedSession(
       control,
       terminalCandidate
     });
-    const receipt = createSecWorkDecisionReceipt({
+    const receipt = createWorkDecisionReceipt({
       repository: state.resolver.repository,
       exactMain,
       exactMainTree,
@@ -1149,15 +1149,15 @@ async function observeSecWorkSelectionWithinHostedSession(
       current,
       currentSpecs
     });
-    return resolvedSecWorkSelectionLiveResult(receipt, terminal.demandGraph, terminalCompaction);
+    return resolvedWorkSelectionLiveResult(receipt, terminal.demandGraph, terminalCompaction);
 }
 
-async function observeSecWorkSelectionBound(
-  input: ObserveSecWorkSelectionLiveInput,
+async function observeWorkSelectionBound(
+  input: ObserveWorkSelectionLiveInput,
   run: CommandRunner,
   registryReadBudget: WorkPackageRegistryReadBudget,
-  mainHealthTestObserver?: SecWorkSelectionMainHealthTestObserver
-): Promise<SecWorkSelectionLiveResult> {
+  mainHealthTestObserver?: WorkSelectionMainHealthTestObserver
+): Promise<WorkSelectionLiveResult> {
   try {
     const root = await repositoryRoot(run, input.cwd);
     const defaultProjection = await resolveCanonicalDefaultProjection({ run, root });
@@ -1173,7 +1173,7 @@ async function observeSecWorkSelectionBound(
     const hosted = mainHealthTestObserver === undefined
       ? productionWorkSelectionHostedProvider
       : testWorkSelectionHostedProvider(run, root);
-    const operation = async () => await observeSecWorkSelectionWithinHostedSession(
+    const operation = async () => await observeWorkSelectionWithinHostedSession(
       input,
       run,
       hosted,
@@ -1191,12 +1191,12 @@ async function observeSecWorkSelectionBound(
       : await operation();
   } catch (error) {
     if (error instanceof LiveObservationFailure) {
-      return unresolvedSecWorkSelectionLiveResult({
+      return unresolvedWorkSelectionLiveResult({
         reasonCodes: [error.reasonCode],
         blockerRefs: [error.blockerRef]
       });
     }
-    return unresolvedSecWorkSelectionLiveResult({
+    return unresolvedWorkSelectionLiveResult({
       reasonCodes: ['live-observation-unsupported'],
       blockerRefs: [rawSha256(error instanceof Error ? error.message : String(error))]
     });
@@ -1207,18 +1207,18 @@ async function observeSecWorkSelectionBound(
  * Test-only provider composition. A caller-supplied runner is deliberately
  * branded as test-origin and cannot satisfy the production receipt gate.
  */
-export async function observeSecWorkSelectionWithProviderV1(
-  input: ObserveSecWorkSelectionLiveInput,
-  run: SecWorkSelectionProvider,
-  mainHealthTestObserver?: SecWorkSelectionMainHealthTestObserver
-): Promise<SecWorkSelectionLiveResult> {
-  const result = await observeSecWorkSelectionBound(input, run, {
+export async function observeWorkSelectionWithProvider(
+  input: ObserveWorkSelectionLiveInput,
+  run: WorkSelectionProvider,
+  mainHealthTestObserver?: WorkSelectionMainHealthTestObserver
+): Promise<WorkSelectionLiveResult> {
+  const result = await observeWorkSelectionBound(input, run, {
     maxCommandStdoutBytes: GIT_READ_DEFAULT_OPERATION_BUDGET.maxCommandStdoutBytes,
     consumeRecords: () => {}
   }, mainHealthTestObserver);
-  testingSecWorkSelectionLiveResults.add(result);
+  testingWorkSelectionLiveResults.add(result);
   if (result.status === 'resolved') {
-    testingSecWorkDecisionReceipts.add(result.receipt);
+    testingWorkDecisionReceipts.add(result.receipt);
   }
   return result;
 }
@@ -1271,14 +1271,14 @@ async function withProductionGitRead<T>(
 }
 
 function retainProductionWorkSelectionResult(
-  result: SecWorkSelectionLiveResult
-): SecWorkSelectionLiveResult {
-  productionSecWorkSelectionLiveResults.add(result);
-  if (result.status === 'resolved') productionSecWorkDecisionReceipts.add(result.receipt);
+  result: WorkSelectionLiveResult
+): WorkSelectionLiveResult {
+  productionWorkSelectionLiveResults.add(result);
+  if (result.status === 'resolved') productionWorkDecisionReceipts.add(result.receipt);
   return result;
 }
 
-function unresolvedProductionWorkSelection(error: unknown): SecWorkSelectionLiveResult {
+function unresolvedProductionWorkSelection(error: unknown): WorkSelectionLiveResult {
   const reasonCode = error instanceof GitReadAuthorityError
     ? 'git-read-provider-unavailable'
     : error instanceof LiveObservationFailure
@@ -1287,7 +1287,7 @@ function unresolvedProductionWorkSelection(error: unknown): SecWorkSelectionLive
   const blockerRef = error instanceof LiveObservationFailure
     ? error.blockerRef
     : rawSha256(error instanceof Error ? error.message : String(error));
-  return retainProductionWorkSelectionResult(unresolvedSecWorkSelectionLiveResult({
+  return retainProductionWorkSelectionResult(unresolvedWorkSelectionLiveResult({
     reasonCodes: [reasonCode],
     blockerRefs: [blockerRef]
   }));
@@ -1297,24 +1297,24 @@ function unresolvedProductionWorkSelection(error: unknown): SecWorkSelectionLive
  * Trusted semantic consumer. Production callers must pass an exact main and
  * the opaque T2 snapshot issued by the MainHealth owner.
  */
-export async function observeSecWorkSelectionLive(
-  input: ObserveSecWorkSelectionProductionInput
-): Promise<SecWorkSelectionLiveResult> {
-  let result: SecWorkSelectionLiveResult;
+export async function observeWorkSelectionLive(
+  input: ObserveWorkSelectionProductionInput
+): Promise<WorkSelectionLiveResult> {
+  let result: WorkSelectionLiveResult;
   try {
     result = await withProductionGitRead(input.cwd, async (run, registryReadBudget) =>
-      await observeSecWorkSelectionBound(input, run, registryReadBudget));
+      await observeWorkSelectionBound(input, run, registryReadBudget));
   } catch (error) {
     return unresolvedProductionWorkSelection(error);
   }
   return retainProductionWorkSelectionResult(result);
 }
 
-export function requireResolvedSecWorkDecisionReceipt(
-  result: SecWorkSelectionLiveResult
-): SecWorkDecisionReceipt {
-  if (!productionSecWorkSelectionLiveResults.has(result)
-      || (result.status === 'resolved' && !productionSecWorkDecisionReceipts.has(result.receipt))) {
+export function requireResolvedWorkDecisionReceipt(
+  result: WorkSelectionLiveResult
+): WorkDecisionReceipt {
+  if (!productionWorkSelectionLiveResults.has(result)
+      || (result.status === 'resolved' && !productionWorkDecisionReceipts.has(result.receipt))) {
     throw new Error(
       'Work selection result is not issued by the trusted production live runner'
     );
@@ -1327,14 +1327,14 @@ export function requireResolvedSecWorkDecisionReceipt(
   return result.receipt;
 }
 
-export type SecWorkSelectionCliProjection = Readonly<
+export type WorkSelectionCliProjection = Readonly<
   | {
     schema: 'sec-work-selection-cli-projection-v1';
     status: 'resolved';
-    resultDigest: SecWorkSelectionLiveResult['resultDigest'];
+    resultDigest: WorkSelectionLiveResult['resultDigest'];
     exactMain: string;
     exactMainTree: string;
-    receiptDigest: SecWorkDecisionReceipt['receiptDigest'];
+    receiptDigest: WorkDecisionReceipt['receiptDigest'];
     demandGraph: Readonly<{
       graphDigest: `sha256:${string}`;
       capabilityDemands: readonly string[];
@@ -1342,15 +1342,15 @@ export type SecWorkSelectionCliProjection = Readonly<
       verificationObligations: readonly string[];
     }>;
     terminalCompaction: null | Readonly<{
-      compactionDigest: SecWorkDigest;
+      compactionDigest: WorkDigest;
       delayedManifestRetirementPaths: readonly string[];
       retiredWorkIds: readonly string[];
     }>;
     decision: Readonly<{
-      status: SecWorkDecisionReceipt['decision']['status'];
+      status: WorkDecisionReceipt['decision']['status'];
       selectedWorkId: string | null;
       selectedCandidateRef: string | null;
-      decisionDigest: SecWorkDecisionReceipt['decision']['decisionDigest'];
+      decisionDigest: WorkDecisionReceipt['decision']['decisionDigest'];
       reasonCodes: readonly string[];
       blockedCandidateRefs: readonly string[];
       requiredPreconditions: number;
@@ -1359,15 +1359,15 @@ export type SecWorkSelectionCliProjection = Readonly<
   | {
     schema: 'sec-work-selection-cli-projection-v1';
     status: 'unresolved';
-    resultDigest: SecWorkSelectionLiveResult['resultDigest'];
+    resultDigest: WorkSelectionLiveResult['resultDigest'];
     reasonCodes: readonly string[];
     blockerRefs: readonly string[];
   }
 >;
 
-export function projectSecWorkSelectionCli(
-  result: SecWorkSelectionLiveResult
-): SecWorkSelectionCliProjection {
+export function projectWorkSelectionCli(
+  result: WorkSelectionLiveResult
+): WorkSelectionCliProjection {
   if (result.status === 'unresolved') {
     return Object.freeze({
       schema: 'sec-work-selection-cli-projection-v1',
@@ -1417,7 +1417,7 @@ function usage(): string {
     + '  bun src/adapters/self-hosting/control/work-selection/runtime.ts project --reviewed-on <YYYY-MM-DD> [--json]\n';
 }
 
-async function observeSecWorkSelectionCliMainHealthFirst(cwd: string): Promise<SecWorkSelectionLiveResult> {
+async function observeWorkSelectionCliMainHealthFirst(cwd: string): Promise<WorkSelectionLiveResult> {
   try {
     const result = await withProductionGitRead(cwd, async (run, registryReadBudget) => {
       const root = await repositoryRoot(run, cwd);
@@ -1449,14 +1449,14 @@ async function observeSecWorkSelectionCliMainHealthFirst(cwd: string): Promise<S
             );
           }
           if (second.repairDecision.routingState !== 'ordinary-only') {
-            return unresolvedSecWorkSelectionLiveResult({
+            return unresolvedWorkSelectionLiveResult({
               reasonCodes: [second.repairDecision.routingState === 'repair-only'
                 ? 'main-health-repair-only'
                 : 'main-health-locked'],
               blockerRefs: [second.stableDigest]
             });
           }
-          return await observeSecWorkSelectionBound({
+          return await observeWorkSelectionBound({
             cwd: root,
             exactMain,
             exactMainTree,
@@ -1495,15 +1495,15 @@ async function main(): Promise<void> {
     }
     if (reviewedOn === undefined) throw new Error(usage());
   }
-  const result = await observeSecWorkSelectionCliMainHealthFirst(process.cwd());
+  const result = await observeWorkSelectionCliMainHealthFirst(process.cwd());
   if (command === 'observe') {
-    const output = args.includes('--full') ? result : projectSecWorkSelectionCli(result);
+    const output = args.includes('--full') ? result : projectWorkSelectionCli(result);
     process.stdout.write(`${JSON.stringify(output, null, 2)}\n`);
     if (result.status !== 'resolved') process.exitCode = 2;
     return;
   }
-  const receipt = requireResolvedSecWorkDecisionReceipt(result);
-  const source = renderSecWorkRollingPlan({ receipt, reviewedOn: reviewedOn! });
+  const receipt = requireResolvedWorkDecisionReceipt(result);
+  const source = renderWorkRollingPlan({ receipt, reviewedOn: reviewedOn! });
   if (json) {
     process.stdout.write(`${JSON.stringify({ result, rollingPlanSource: source }, null, 2)}\n`);
   } else {

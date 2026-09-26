@@ -1,15 +1,15 @@
 import type { VerificationActionKeyDigest, VerificationActionPlan } from '../../src/adapters/verification/platform/action/contract/action.ts';
 import { CI_VERIFICATION_HOSTED_EXECUTION_ENVIRONMENT, type CiVerificationNormalizedOperation } from '../../src/adapters/verification/platform/action/contract/ci.ts';
 import type { VerificationActionProviderOrigin } from '../../src/adapters/verification/platform/action/contract/provider.ts';
-import { CodexDevelopmentFinalizeVerificationActionTerminalArtifact, CodexDevelopmentVerificationActionCandidateBytesDigest, CodexDevelopmentVerificationDigest, type CodexDevelopmentVerificationActionTerminalArtifact } from '../../src/adapters/verification/platform/ci/contract/evidence.ts';
-import { CI_VERIFICATION_ACTION_SANDBOX_RECEIPT_SCHEMA, CodexDevelopmentCreateHostedSutExecutionAuthorization, CodexDevelopmentFinalizeHostedActionRawResult, CodexDevelopmentReduceHostedSutObservation, type CodexDevelopmentHostedSutSandboxReceipt } from '../../src/adapters/verification/platform/ci/contract/hosted-sut-observation.ts';
+import { finalizeVerificationActionTerminalArtifact, verificationActionCandidateBytesDigest, verificationDigest, type VerificationActionTerminalArtifact } from '../../src/adapters/verification/platform/ci/contract/evidence.ts';
+import { CI_VERIFICATION_ACTION_SANDBOX_RECEIPT_SCHEMA, CreateHostedSutExecutionAuthorization, FinalizeHostedActionRawResult, ReduceHostedSutObservation, type HostedSutSandboxReceipt } from '../../src/adapters/verification/platform/ci/contract/hosted-sut-observation.ts';
 import { CI_VERIFICATION_HOSTED_SANDBOX_POLICY, CI_VERIFICATION_HOSTED_SANDBOX_POLICY_DIGEST } from '../../src/adapters/verification/platform/ci/contract/revision.ts';
 
 function verificationFixtureDigest(value: unknown): VerificationActionKeyDigest {
-  return CodexDevelopmentVerificationDigest(value) as VerificationActionKeyDigest;
+  return verificationDigest(value) as VerificationActionKeyDigest;
 }
 
-export function buildUnsupportedVerificationActionTerminalArtifactV2(input: Readonly<{
+export function buildUnsupportedVerificationActionTerminalArtifact(input: Readonly<{
   actionPlan: VerificationActionPlan;
   normalizedOperation: CiVerificationNormalizedOperation;
   baseSha: string;
@@ -19,7 +19,7 @@ export function buildUnsupportedVerificationActionTerminalArtifactV2(input: Read
   manifestPath: string;
   manifestDigest: VerificationActionKeyDigest;
   producer: VerificationActionProviderOrigin;
-}>): CodexDevelopmentVerificationActionTerminalArtifact {
+}>): VerificationActionTerminalArtifact {
   const artifactInput = Object.freeze({
     baseSha: input.baseSha,
     baseTreeSha: input.baseTreeSha,
@@ -27,8 +27,8 @@ export function buildUnsupportedVerificationActionTerminalArtifactV2(input: Read
     headTreeSha: input.headTreeSha,
     manifestPath: input.manifestPath,
     manifestDigest: input.manifestDigest,
-    inputClosureDigest: CodexDevelopmentVerificationDigest(input.actionPlan.action.inputClosure),
-    candidateBytesDigest: CodexDevelopmentVerificationActionCandidateBytesDigest({
+    inputClosureDigest: verificationDigest(input.actionPlan.action.inputClosure),
+    candidateBytesDigest: verificationActionCandidateBytesDigest({
       baseSha: input.baseSha,
       baseTreeSha: input.baseTreeSha,
       headSha: input.headSha,
@@ -46,7 +46,7 @@ export function buildUnsupportedVerificationActionTerminalArtifactV2(input: Read
     dependencyClosureDigest: verificationFixtureDigest('unsupported-terminal-dependencies'),
     gitBundleDigest: verificationFixtureDigest('unsupported-terminal-git-closure')
   });
-  const authorization = CodexDevelopmentCreateHostedSutExecutionAuthorization({
+  const authorization = CreateHostedSutExecutionAuthorization({
     resolutionDigest: verificationFixtureDigest('unsupported-terminal-resolution'),
     ticketDigest: verificationFixtureDigest('unsupported-terminal-ticket'),
     actionPlan: input.actionPlan,
@@ -128,15 +128,15 @@ export function buildUnsupportedVerificationActionTerminalArtifactV2(input: Read
   const sandboxReceipt = Object.freeze({
     ...receiptWithoutDigest,
     receiptDigest: verificationFixtureDigest(receiptWithoutDigest)
-  }) as CodexDevelopmentHostedSutSandboxReceipt;
-  const observation = CodexDevelopmentFinalizeHostedActionRawResult({
+  }) as HostedSutSandboxReceipt;
+  const observation = FinalizeHostedActionRawResult({
     executionAuthorizationDigest: authorization.authorizationDigest,
     command: null,
     sandboxReceipt,
     startedAt: '2026-08-09T00:00:00.000Z',
     finishedAt: '2026-08-09T00:00:01.000Z'
   });
-  const terminal = CodexDevelopmentReduceHostedSutObservation({
+  const terminal = ReduceHostedSutObservation({
     actionPlan: input.actionPlan,
     normalizedOperation: input.normalizedOperation,
     candidateSha: input.headSha,
@@ -147,7 +147,7 @@ export function buildUnsupportedVerificationActionTerminalArtifactV2(input: Read
     observation,
     expectedRawResultDigest: observation.rawResultDigest
   });
-  return CodexDevelopmentFinalizeVerificationActionTerminalArtifact({
+  return finalizeVerificationActionTerminalArtifact({
     actionPlan: input.actionPlan,
     normalizedOperation: input.normalizedOperation,
     result: terminal.result,

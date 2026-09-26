@@ -1,4 +1,4 @@
-import { canonicalJson, digest, normalizedArtifactTarget } from '../../contracts/canonical.ts';
+import { canonicalJson, rawSha256Hex, normalizedArtifactTarget } from '../../contracts/canonical.ts';
 import type { LoadedSemanticContract } from '../../semantics/definitions/types.ts';
 import type { SemanticAttribute, SemanticEntity, SemanticEntityKind, SemanticPrimitive } from '../../semantics/engineering-ir/entity-types.ts';
 import type { SemanticFact, SemanticFactObject } from '../../semantics/engineering-ir/fact-types.ts';
@@ -79,7 +79,7 @@ export function contractResponsibilityBindingId(
   declarationPath: string,
   declarationExportName: string
 ): string {
-  return `responsibility-binding:${namespace}:${responsibilityId}:${digest(JSON.stringify({
+  return `responsibility-binding:${namespace}:${responsibilityId}:${rawSha256Hex(JSON.stringify({
     targetKind,
     targetId,
     declarationPath: normalizedArtifactTarget(declarationPath),
@@ -129,7 +129,7 @@ export function scenarioStepEntityId(scenarioId: string, stepId: string): string
 
 
 function semanticContractOwnerIdentity(input: LoadedSemanticContract): string {
-  return digest(JSON.stringify({
+  return rawSha256Hex(JSON.stringify({
     blockId: input.blockId,
     contractPath: input.contractPath,
     contract: canonicalJson(input.contract)

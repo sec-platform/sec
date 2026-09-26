@@ -4,8 +4,8 @@ import ts from 'typescript';
 
 import { compareCodeUnits, rawSha256, sha256 } from '../../../contracts/canonical.ts';
 import {
-  type SecRepositoryModuleGraph,
-  type SecRepositoryModuleMembership
+  type RepositoryModuleGraph,
+  type RepositoryModuleMembership
 } from '../architecture/contract.ts';
 import {
   resolveSourceProgramCompilationOperation,
@@ -25,38 +25,38 @@ import {
   type SourceProgramSpan,
   type SourceProgramUnknown
 } from './contract.ts';
-import { resolveSecRepositoryModuleImportCandidates } from './module-graph.ts';
+import { resolveRepositoryModuleImportCandidates } from './module-graph.ts';
 import {
-  compileSecRepositoryModuleGraph,
-  isCompiledTypeScriptSourceProgramModel,
-  sourceProgramTypeScriptIdentifierInitializer,
-  sourceProgramTypeScriptIdentifierIsAmbientGlobal,
-  sourceProgramTypeScriptIdentifierResolvesToImport,
-  sourceProgramTypeScriptSourceFile,
-  workspaceSourceSnapshotIdentityForTypeScriptModel
+  compileRepositoryModuleGraph,
+  isCompiledTypeScriptModel,
+  identifierInitializer,
+  identifierIsAmbientGlobal,
+  identifierResolvesToImport,
+  typeScriptSourceFile,
+  workspaceSnapshotIdentityForTypeScriptModel
 } from './typescript.ts';
 import type { WorkspaceSourceSnapshot } from './workspace-source-snapshot.ts';
 
-export interface CompileSourceProgramTestObservationsInput {
+export interface TestObservationsInput {
   /** Production-only facts signed by the canonical Source Program compiler. */
   readonly productionModel: SourceProgramModel;
   /** Exact production and test bytes for the candidate revision. */
   readonly files: readonly SourceProgramFileInput[];
-  readonly moduleMembership: SecRepositoryModuleMembership;
+  readonly moduleMembership: RepositoryModuleMembership;
   readonly repositoryRoot?: string;
   /** Reuse the enclosing compilation operation; this module never issues one. */
   readonly operation?: SourceProgramCompilationOperation;
 }
 
-type CompileSourceProgramTestObservationsInternalInput = Omit<
-  CompileSourceProgramTestObservationsInput,
+type TestObservationsInternalInput = Omit<
+  TestObservationsInput,
   'operation'
 > & Readonly<{
   operation: SourceProgramCompilationOperation;
   repositoryCompilation?: WorkspaceSourceSnapshot;
 }>;
 
-export type SourceProgramTestSemanticClass =
+export type TestSemanticClass =
   | 'behavior'
   | 'durable-state'
   | 'effect'
@@ -83,7 +83,7 @@ interface SourceProgramTestRegistrationObservation {
   readonly title: string | null;
   readonly span: SourceProgramSpan;
   readonly assertions: readonly SourceProgramTestAssertionObservation[];
-  readonly semanticClasses: readonly SourceProgramTestSemanticClass[];
+  readonly semanticClasses: readonly TestSemanticClass[];
   readonly observedProductionPaths: readonly string[];
   readonly capabilityOperations: readonly string[];
   readonly capabilityObservationIds: readonly string[];
@@ -107,7 +107,7 @@ interface SourceProgramTestLocalProgramInvocationObservation {
   readonly span: SourceProgramSpan;
 }
 
-export interface SourceProgramTestObservations {
+export interface TestObservations {
   readonly sourceRevision: string;
   readonly productionModelDigest: string;
   readonly testPaths: readonly string[];
@@ -123,17 +123,17 @@ export interface SourceProgramTestObservations {
   readonly observationDigest: string;
 }
 
-export const SOURCE_PROGRAM_TEST_CONTRACT_CENSUS_UNRESOLVED_REASONS = Object.freeze([
+export const TEST_CONTRACT_CENSUS_UNRESOLVED_REASONS = Object.freeze([
   'baseline-exact-generation-unavailable',
   'baseline-test-source-unavailable',
   'baseline-test-source-unresolved',
   'candidate-exact-generation-unavailable'
 ] as const);
 
-export type SourceProgramTestContractCensusUnresolvedReason =
-  typeof SOURCE_PROGRAM_TEST_CONTRACT_CENSUS_UNRESOLVED_REASONS[number];
+export type TestContractCensusUnresolvedReason =
+  typeof TEST_CONTRACT_CENSUS_UNRESOLVED_REASONS[number];
 
-export type SourceProgramTestContractCensusObservation = Readonly<{
+export type TestContractCensusObservation = Readonly<{
   status: 'resolved';
   census: Readonly<{
     producerCount: number;
@@ -143,26 +143,26 @@ export type SourceProgramTestContractCensusObservation = Readonly<{
   observationDigest: `sha256:${string}`;
 }> | Readonly<{
   status: 'unresolved';
-  reason: SourceProgramTestContractCensusUnresolvedReason;
+  reason: TestContractCensusUnresolvedReason;
   observationDigest: `sha256:${string}`;
 }>;
 
 const observationsByFiles = new WeakMap<
   readonly SourceProgramFileInput[],
-  SourceProgramTestObservations
+  TestObservations
 >();
 const repositoryCompilationDigestByObservations = new WeakMap<object, `sha256:${string}`>();
 
-export function workspaceSourceSnapshotIdentityForTestObservations(
-  observations: SourceProgramTestObservations
+export function snapshotIdentityForTestObservations(
+  observations: TestObservations
 ): `sha256:${string}` | null {
   return repositoryCompilationDigestByObservations.get(observations) ?? null;
 }
 
-export function sourceProgramTestObservationsForFiles(
+export function testObservationsForFiles(
   files: readonly SourceProgramFileInput[],
   sourceRevision: string
-): SourceProgramTestObservations | null {
+): TestObservations | null {
   const observations = observationsByFiles.get(files) ?? null;
   return observations?.sourceRevision === sourceRevision ? observations : null;
 }
@@ -201,7 +201,7 @@ function graphTarget(
 }
 
 function graphTargetIndex(
-  graph: SecRepositoryModuleGraph,
+  graph: RepositoryModuleGraph,
   operation: SourceProgramCompilationOperation
 ): ReadonlyMap<string, string | null> {
   const targets = new Map<string, string | null>();
@@ -288,7 +288,7 @@ function resolvedDeclaration(
 
 function operationRoleProvenance(
   declaration: SourceProgramDeclaration,
-  moduleMembership: SecRepositoryModuleMembership
+  moduleMembership: RepositoryModuleMembership
 ): readonly SourceProgramOperationRoleProvenance[] {
   const module = moduleMembership.moduleForPath(declaration.path);
   if (module === null) return Object.freeze([]);
@@ -378,7 +378,7 @@ function compilerRegistrationKind(
   node: ts.CallExpression,
   callReferencesByPath: ReadonlyMap<string, readonly SourceProgramReference[]>,
   declarationsByObservation: ReadonlyMap<string, SourceProgramDeclaration>,
-  moduleMembership: SecRepositoryModuleMembership
+  moduleMembership: RepositoryModuleMembership
 ): string | null {
   const direct = testRegistrationKind(node.expression);
   if (direct !== null) return direct;
@@ -398,7 +398,7 @@ function compilerRegistrationProvenance(
   node: ts.CallExpression,
   callReferencesByPath: ReadonlyMap<string, readonly SourceProgramReference[]>,
   declarationsByObservation: ReadonlyMap<string, SourceProgramDeclaration>,
-  moduleMembership: SecRepositoryModuleMembership
+  moduleMembership: RepositoryModuleMembership
 ): readonly SourceProgramOperationRoleProvenance[] {
   if (testRegistrationKind(node.expression) !== null) return Object.freeze([]);
   const call = callReferenceForExpression(
@@ -784,7 +784,7 @@ function rawTextReadPath(
           && (bound.operation === 'readFile' || bound.operation === 'readFileSync'))
         || (['node:fs/promises', 'fs/promises'].includes(bound.binding.moduleSpecifier)
           && bound.operation === 'readFile'))
-      && sourceProgramTypeScriptIdentifierResolvesToImport(
+      && identifierResolvesToImport(
         model, repositoryPath, callee, bound.binding.moduleSpecifier, bound.binding.targetName
       )) return node.arguments[0] ?? null;
   if (ts.isPropertyAccessExpression(node.expression)
@@ -794,9 +794,9 @@ function rawTextReadPath(
     if (ts.isPropertyAccessExpression(fileCall.expression)
         && fileCall.expression.name.text === 'file'
         && ts.isIdentifier(fileCall.expression.expression)
-        && (sourceProgramTypeScriptIdentifierIsAmbientGlobal(
+        && (identifierIsAmbientGlobal(
           model, repositoryPath, fileCall.expression.expression, 'Bun'
-        ) || sourceProgramTypeScriptIdentifierResolvesToImport(
+        ) || identifierResolvesToImport(
           model, repositoryPath, fileCall.expression.expression, 'bun', '*'
         ))) return fileCall.arguments[0] ?? null;
   }
@@ -813,12 +813,12 @@ function isCurrentProcessExecutable(
     && ts.isIdentifier(current.expression)
     && current.expression.text === 'process'
     && current.name.text === 'execPath'
-    && (sourceProgramTypeScriptIdentifierIsAmbientGlobal(
+    && (identifierIsAmbientGlobal(
         model,
         repositoryPath,
         current.expression,
         'process'
-      ) || sourceProgramTypeScriptIdentifierResolvesToImport(
+      ) || identifierResolvesToImport(
         model,
         repositoryPath,
         current.expression,
@@ -843,7 +843,7 @@ function localProgramInvocationArgument(
         ? node.expression.expression
         : null;
     if (calleeIdentifier === null
-        || !sourceProgramTypeScriptIdentifierResolvesToImport(
+        || !identifierResolvesToImport(
           model,
           repositoryPath,
           calleeIdentifier,
@@ -865,12 +865,12 @@ function localProgramInvocationArgument(
       || !ts.isIdentifier(node.expression.expression)
       || node.expression.expression.text !== 'Bun'
       || (node.expression.name.text !== 'spawn' && node.expression.name.text !== 'spawnSync')
-      || !(sourceProgramTypeScriptIdentifierIsAmbientGlobal(
+      || !(identifierIsAmbientGlobal(
           model,
           repositoryPath,
           node.expression.expression,
           'Bun'
-        ) || sourceProgramTypeScriptIdentifierResolvesToImport(
+        ) || identifierResolvesToImport(
           model,
           repositoryPath,
           node.expression.expression,
@@ -972,17 +972,17 @@ function candidateTestContractIndex(
  * projection never reparses either snapshot and never turns an unresolved
  * compiler origin into consumer-zero evidence.
  */
-export function observeSourceProgramTestContractCensus(
+export function observeTestContractCensus(
   baselineModel: SourceProgramModel,
   candidateModel: SourceProgramModel,
   repositoryPath: string,
   operation?: SourceProgramCompilationOperation
-): SourceProgramTestContractCensusObservation {
+): TestContractCensusObservation {
   const censusOperation = resolveSourceProgramCompilationOperation(operation);
   sourceProgramCompilationCheckpoint(censusOperation, 'baseline-test-evidence');
   const unresolved = (
-    reason: SourceProgramTestContractCensusUnresolvedReason
-  ): SourceProgramTestContractCensusObservation => Object.freeze({
+    reason: TestContractCensusUnresolvedReason
+  ): TestContractCensusObservation => Object.freeze({
     status: 'unresolved' as const,
     reason,
     observationDigest: sha256({
@@ -993,13 +993,13 @@ export function observeSourceProgramTestContractCensus(
       candidateSourceRevision: candidateModel.sourceRevision
     }) as `sha256:${string}`
   });
-  if (!isCompiledTypeScriptSourceProgramModel(baselineModel)) {
+  if (!isCompiledTypeScriptModel(baselineModel)) {
     return unresolved('baseline-exact-generation-unavailable');
   }
-  if (!isCompiledTypeScriptSourceProgramModel(candidateModel)) {
+  if (!isCompiledTypeScriptModel(candidateModel)) {
     return unresolved('candidate-exact-generation-unavailable');
   }
-  const sourceFile = sourceProgramTypeScriptSourceFile(baselineModel, repositoryPath);
+  const sourceFile = typeScriptSourceFile(baselineModel, repositoryPath);
   if (sourceFile === null) return unresolved('baseline-test-source-unavailable');
   const diagnostics = (sourceFile as ts.SourceFile & {
     readonly parseDiagnostics?: readonly ts.Diagnostic[];
@@ -1013,7 +1013,7 @@ export function observeSourceProgramTestContractCensus(
   const relativeSpecifier = (value: string): boolean =>
     value.startsWith('./') || value.startsWith('../');
   const liveRelativeConsumer = (specifier: string): boolean => (
-    resolveSecRepositoryModuleImportCandidates(repositoryPath, specifier)
+    resolveRepositoryModuleImportCandidates(repositoryPath, specifier)
       .some((candidate) => candidatePaths.has(candidate))
   );
   const importedNames = (statement: ts.ImportDeclaration): readonly string[] => {
@@ -1169,7 +1169,7 @@ function expressionReferenceTargets(
     .map(({ targetObservationId }) => targetObservationId)
     .filter((targetObservationId): targetObservationId is string => targetObservationId !== null));
   if (ts.isIdentifier(current)) {
-    const initializer = sourceProgramTypeScriptIdentifierInitializer(
+    const initializer = identifierInitializer(
       model,
       repositoryPath,
       current
@@ -1236,8 +1236,8 @@ function semanticClassesForRegistration(
   capabilities: readonly SourceProgramCapabilityInvocation[],
   registration: ts.CallExpression,
   operation: SourceProgramCompilationOperation
-): readonly SourceProgramTestSemanticClass[] {
-  const classes = new Set<SourceProgramTestSemanticClass>();
+): readonly TestSemanticClass[] {
+  const classes = new Set<TestSemanticClass>();
   if (references.some(({ kind, targetPath }) =>
     (kind === 'call' || kind === 'construct')
     && targetPath !== null
@@ -1274,18 +1274,18 @@ function semanticClassesForRegistration(
  * model.  Anything else remains a typed unknown.
  */
 function compileSourceProgramTestObservationsInternal(
-  input: CompileSourceProgramTestObservationsInternalInput
-): SourceProgramTestObservations {
+  input: TestObservationsInternalInput
+): TestObservations {
   checkpoint(input.operation);
   input.repositoryCompilation?.assertMatches(input);
-  if (!isCompiledTypeScriptSourceProgramModel(input.productionModel)
+  if (!isCompiledTypeScriptModel(input.productionModel)
       || input.productionModel.files.some(({ surface }) => (
         surface !== 'production' && surface !== 'test'
       ))) {
     throw new Error('test observations require one exact production-and-test Source Program model');
   }
   if (input.repositoryCompilation !== undefined
-      && workspaceSourceSnapshotIdentityForTypeScriptModel(input.productionModel)
+      && workspaceSnapshotIdentityForTypeScriptModel(input.productionModel)
         !== input.repositoryCompilation.identityDigest) {
     throw new Error('test observations cannot mix a production model from another repository compilation');
   }
@@ -1302,7 +1302,7 @@ function compileSourceProgramTestObservationsInternal(
   }
   const productionFiles = new Map([...compiledFiles].filter(([, file]) => file.surface === 'production'));
   const sourceByPath = new Map(files.map((file) => [file.path, file.source] as const));
-  const graph = input.repositoryCompilation?.moduleGraph ?? compileSecRepositoryModuleGraph({
+  const graph = input.repositoryCompilation?.moduleGraph ?? compileRepositoryModuleGraph({
     files: files.map(({ path }) => path),
     readSource: (repositoryPath) => sourceByPath.get(repositoryPath) ?? null
   });
@@ -1346,7 +1346,7 @@ function compileSourceProgramTestObservationsInternal(
 
   for (const file of testFiles) {
     checkpoint(input.operation);
-    const sourceFile = sourceProgramTypeScriptSourceFile(input.productionModel, file.path);
+    const sourceFile = typeScriptSourceFile(input.productionModel, file.path);
     if (sourceFile === null) {
       unknowns.push(Object.freeze({
         code: 'test-compiler-syntax-unresolved',
@@ -1919,19 +1919,19 @@ function compileSourceProgramTestObservationsInternal(
   return observations;
 }
 
-export function compileSourceProgramTestObservations(
-  input: CompileSourceProgramTestObservationsInput
-): SourceProgramTestObservations {
+export function compileTestObservations(
+  input: TestObservationsInput
+): TestObservations {
   return compileSourceProgramTestObservationsInternal({
     ...input,
     operation: resolveSourceProgramCompilationOperation(input.operation)
   });
 }
 
-export function compileSourceProgramTestObservationsFromWorkspaceSnapshot(
-  input: CompileSourceProgramTestObservationsInput,
+export function compileTestObservationsFromSnapshot(
+  input: TestObservationsInput,
   repositoryCompilation: WorkspaceSourceSnapshot
-): SourceProgramTestObservations {
+): TestObservations {
   repositoryCompilation.assertMatches(input);
   return compileSourceProgramTestObservationsInternal({
     ...input,

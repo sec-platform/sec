@@ -7,7 +7,7 @@ import {
   runtimeDependencyOperationOptions,
   waitForRuntimeDependencyOperation
 } from '../../src/adapters/toolchain/dependencies/runtime/operation-context.ts';
-import { SecError } from '../../src/contracts/failure.ts';
+import { FailureError } from '../../src/contracts/failure.ts';
 
 type Outcome = { kind: 'fulfilled' } | { kind: 'rejected'; error: unknown };
 function observed(work: Promise<void>): { outcome: () => Outcome | undefined; settled: Promise<Outcome> } {
@@ -99,7 +99,7 @@ for (const kind of ['wait', 'fence'] as const) {
       ]);
       assert.equal(result.kind, 'rejected');
       if (result.kind === 'rejected') {
-        assert.ok(result.error instanceof SecError);
+        assert.ok(result.error instanceof FailureError);
         assert.equal(result.error.code, 'RUNTIME-DEPS-003');
       }
     } finally {
@@ -179,7 +179,7 @@ test('the effect hook does not start after its budget is consumed before its mic
   now = 101;
   const result = await work.settled;
   assert.equal(result.kind, 'rejected');
-  if (result.kind === 'rejected') assert.ok(result.error instanceof SecError);
+  if (result.kind === 'rejected') assert.ok(result.error instanceof FailureError);
   assert.equal(calls, 0);
 });
 
@@ -218,7 +218,7 @@ test('the fence performs a terminal budget check after a successfully resolved p
   });
   const result = await observed(runtimeDependencyOperationEffectFence(options, 'terminal-budget')).settled;
   assert.equal(result.kind, 'rejected');
-  if (result.kind === 'rejected') assert.ok(result.error instanceof SecError);
+  if (result.kind === 'rejected') assert.ok(result.error instanceof FailureError);
 });
 
 test('a hook-free fence still observes cancellation before returning effect admission', async () => {
@@ -285,7 +285,7 @@ for (const terminal of ['success', 'provider failure', 'cancellation', 'deadline
       if (terminal === 'success') assert.equal(outcome.kind, 'fulfilled');
       else if (terminal === 'deadline') {
         assert.equal(outcome.kind, 'rejected');
-        if (outcome.kind === 'rejected') assert.equal((outcome.error as SecError).code, 'RUNTIME-DEPS-003');
+        if (outcome.kind === 'rejected') assert.equal((outcome.error as FailureError).code, 'RUNTIME-DEPS-003');
       } else requireRejection(outcome, failure);
       for (const observer of observedSignals) assert.deepEqual(getEventListeners(observer, 'abort'), []);
     } finally {

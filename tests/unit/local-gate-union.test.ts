@@ -65,7 +65,7 @@ function gateIds(plan: ReturnType<typeof buildLocalAffectedCheckPlan>): LocalAff
 test('local affected plan selects docs doctor alone for pure active documentation', () => {
   const plan = buildLocalAffectedCheckPlan(affectedPlan(
     ['docs/运行/保证/要求证据与裁决.md'],
-    ['tests/unit/codex-work-package-contract.test.ts']
+    ['tests/unit/work-package-contract.test.ts']
   ));
 
   expect(gateIds(plan)).toEqual(['docs:doctor']);
@@ -78,7 +78,7 @@ test('docs-only pre-compilation admission excludes Source Program roots and tool
   expect(isDocumentationOnlyAffectedSelection([])).toBe(false);
   expect(isDocumentationOnlyAffectedSelection(['.documentation/documents.json'])).toBe(false);
   expect(isDocumentationOnlyAffectedSelection(['.documentation/baseline.json'])).toBe(false);
-  expect(isDocumentationOnlyAffectedSelection(['tools/check_docs.py'])).toBe(false);
+  expect(isDocumentationOnlyAffectedSelection(['tools/documentation/check_docs.py'])).toBe(false);
   expect(isDocumentationOnlyAffectedSelection(['docs/运行/保证/要求证据与裁决.md', 'src/index.ts'])).toBe(false);
 });
 
@@ -104,10 +104,10 @@ test('local affected plan forms one ordered union for mixed TypeScript and docs 
     'bun run imports:check',
     'bun run typecheck',
     'bun run docs:doctor',
-    'bun run test:affected'
+    'bun run test -- --affected'
   ]);
   expect(new Set(plan.subsumedStandaloneCommands).size).toBe(plan.subsumedStandaloneCommands.length);
-  expect(plan.umbrellaCommand).toBe('bun run check:affected');
+  expect(plan.umbrellaCommand).toBe('bun run check -- --affected');
 });
 
 test('local affected plan keeps non-TypeScript contracts narrow', () => {
@@ -144,7 +144,7 @@ test('documentation support assets trigger docs doctor without becoming product 
     'examples/documentation-example.ts'
   ])))).toEqual(['docs:doctor']);
   expect(gateIds(buildLocalAffectedCheckPlan(affectedPlan(
-    ['tools/check_docs.py'],
+    ['tools/documentation/check_docs.py'],
     ['tests/unit/active-documentation-contract.test.ts']
   )))).toEqual(['docs:doctor', 'test:affected']);
   expect(gateIds(buildLocalAffectedCheckPlan(affectedPlan([

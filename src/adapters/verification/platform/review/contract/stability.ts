@@ -1,5 +1,5 @@
-import { createHash } from 'node:crypto';
-import { SEC_VERIFICATION_SESSION_IMPLEMENTATION_IDENTITY } from '../../session/contract/session.ts';
+import { rawSha256Hex } from '../../../../../contracts/canonical.ts';
+import { VERIFICATION_SESSION_IMPLEMENTATION_IDENTITY } from '../../session/contract/identity.ts';
 
 import { encodeVerificationActionData } from '../../action/contract/action.ts';
 
@@ -7,56 +7,6 @@ import { encodeVerificationActionData } from '../../action/contract/action.ts';
 
 const REVIEW_STABILITY_POLICY_SCHEMA = 'sec-review-stability-policy-v1' as const;
 const REVIEW_STABILITY_RECEIPT_SCHEMA = 'sec-review-stability-receipt-v1' as const;
-export const CODEX_CLEAN_REVIEW_VERDICT_PREFIX =
-  "Codex Review: Didn't find any major issues." as const;
-export const CODEX_CLEAN_REVIEW_CONGRATULATIONS = Object.freeze([
-  'Bravo.',
-  'Delightful!',
-  'Swish!',
-  'What shall we build next?',
-  'You’re on a roll!',
-  'Chef’s kiss.',
-  '🚀'
-] as const);
-export const CODEX_CLEAN_REVIEW_ABOUT_NONEMPTY_LINES = Object.freeze([
-  '<details> <summary>ℹ️ About Codex in GitHub</summary>',
-  '<br/>',
-  '[Your team has set up Codex to review pull requests in this repo](https://chatgpt.com/codex/cloud/settings/general). Reviews are triggered when you',
-  '- Open a pull request for review',
-  '- Mark a draft as ready',
-  '- Comment "@codex review".',
-  'If Codex has suggestions, it will comment; otherwise it will react with 👍.',
-  'Codex can also answer questions or update the PR. Try commenting "@codex address that feedback".',
-  '</details>'
-] as const);
-export type ReviewStabilityDigest = `sha256:${string}`;
-export type ReviewStabilityStage = 'pre-expensive' | 'pre-merge';
-
-/**
- * The trusted Codex App owns the clean-verdict semantic prefix. Presentation
- * text is accepted only from this versioned closed vocabulary: arbitrary
- * natural language cannot be proved non-finding content and therefore fails
- * closed until a later trust revision explicitly admits it.
- */
-export function isCodexCleanReviewVerdict(firstLine: unknown): boolean {
-  if (typeof firstLine !== 'string') return false;
-  if (firstLine === CODEX_CLEAN_REVIEW_VERDICT_PREFIX) return true;
-  const prefix = `${CODEX_CLEAN_REVIEW_VERDICT_PREFIX} `;
-  if (!firstLine.startsWith(prefix)) return false;
-  const congratulation = firstLine.slice(prefix.length);
-  return CODEX_CLEAN_REVIEW_CONGRATULATIONS.some((candidate) => candidate === congratulation);
-}
-
-/** Closed grammar for the optional provider help block; blank-line layout may vary, semantic lines may not. */
-export function isCodexCleanReviewAboutBlock(value: unknown): boolean {
-  if (typeof value !== 'string') return false;
-  const semanticLines = value.replaceAll('\r\n', '\n').split('\n')
-    .map((line) => line.trim())
-    .filter((line) => line.length > 0);
-  return semanticLines.length === CODEX_CLEAN_REVIEW_ABOUT_NONEMPTY_LINES.length
-    && semanticLines.every((line, index) => line === CODEX_CLEAN_REVIEW_ABOUT_NONEMPTY_LINES[index]);
-}
-
 interface ReviewStabilityTrustedApp {
   readonly actorNodeId: string;
   readonly appId: number;
@@ -178,7 +128,7 @@ function exact(value: Record<string, unknown>, expected: readonly string[], labe
   if (actual.length !== wanted.length || actual.some((key, index) => key !== wanted[index])) fail(`${label} must contain exactly: ${wanted.join(', ')}.`);
 }
 function hash(value: unknown): ReviewStabilityDigest {
-  return `sha256:${createHash('sha256').update(encodeVerificationActionData(value)).digest('hex')}`;
+  return `sha256:${rawSha256Hex(encodeVerificationActionData(value))}`;
 }
 export function createReviewSnapshotDigest(
   snapshot: Omit<ReviewSnapshot, 'snapshotDigest'>
@@ -228,7 +178,7 @@ export function parseReviewStabilityPolicy(source: string): ReviewStabilityPolic
   return policy;
 }
 
-export const SEC_REVIEW_STABILITY_POLICY = createReviewStabilityPolicy({
+export const REVIEW_STABILITY_POLICY = createReviewStabilityPolicy({
   policyId: 'sec-independent-exact-head-review-v1',
   trustedRevision: 'sec-review-stability-trust-v1',
   trustedApps: [{
@@ -248,7 +198,7 @@ export const REVIEW_OBSERVER_READ_ONLY_CAPABILITY_RECEIPT = hash(Object.freeze({
   producerIdentity: REVIEW_OBSERVER_PRODUCER_IDENTITY,
   providerIdentity: 'github',
   candidateWriteCapability: 'read-only',
-  trustedRevision: SEC_REVIEW_STABILITY_POLICY.trustedRevision
+  trustedRevision: REVIEW_STABILITY_POLICY.trustedRevision
 }));
 
 export function createReviewStabilityReceipt(input: ReviewStabilityReceiptInput): ReviewStabilityReceipt {
@@ -298,7 +248,7 @@ export function createReviewStabilityReceipt(input: ReviewStabilityReceiptInput)
     sourceRef: text(producerValue.sourceRef, 'producer.sourceRef'),
     sourceDigest: digest(producerValue.sourceDigest, 'producer.sourceDigest') });
   if (producer.identity !== REVIEW_OBSERVER_PRODUCER_IDENTITY
-    || producer.executionIdentity === SEC_VERIFICATION_SESSION_IMPLEMENTATION_IDENTITY
+    || producer.executionIdentity === VERIFICATION_SESSION_IMPLEMENTATION_IDENTITY
     || producer.capabilityReceiptDigest !== REVIEW_OBSERVER_READ_ONLY_CAPABILITY_RECEIPT) {
     fail('producer is not bound to the canonical independent read-only observer execution.');
   }
@@ -343,7 +293,7 @@ export function assertReviewStabilityReceiptCurrent(receipt: ReviewStabilityRece
 
 /**
  * The only origin of an `Independent-*` integration trailer is a validated
- * ReviewStabilityReceiptV1. Model free text can never fabricate one
+ * ReviewStabilityReceipt. Model free text can never fabricate one
  * (Issue #347 section G; PR #345 negative regression).
  */
 export function renderIndependentReviewTrailer(receipt: ReviewStabilityReceipt): string {
@@ -352,7 +302,7 @@ export function renderIndependentReviewTrailer(receipt: ReviewStabilityReceipt):
     + `revision=${current.reviewRevision} threads=${current.snapshot.threadCount} unresolved=0`;
 }
 
-export function assertMergeTrailerLinesV1(
+export function assertMergeTrailerLines(
   lines: readonly string[],
   receipt: ReviewStabilityReceipt
 ): void {

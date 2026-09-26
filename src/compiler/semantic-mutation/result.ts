@@ -8,7 +8,7 @@ import {
   nonEmptyString,
   sha256
 } from './canonical.ts';
-import { assertSemanticMutationPlanInvariant } from './plan-semantic-mutation.ts';
+import { assertSemanticMutationPlanInvariant } from './plan.ts';
 import { semanticMutationRequiredVerificationDigest } from './verification-policy.ts';
 
 type ReadyPlan = Extract<SemanticMutationPlan, { readonly status: 'ready' }>;

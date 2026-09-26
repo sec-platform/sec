@@ -1,6 +1,6 @@
 import path from 'node:path';
 
-import { SecError } from '../../../../contracts/failure.ts';
+import { FailureError } from '../../../../contracts/failure.ts';
 import type { GeneratedStatePhysicalIdentity } from '../../../runtime-state/generated-state/contract.ts';
 import { captureRuntimeDependencyLifecycle, type CapturedRuntimeDependencyLifecycle, type RuntimeDependencyLifecycleInput } from './lifecycle-capabilities.ts';
 import {
@@ -110,7 +110,7 @@ export async function birthAndBindCompilerDependencyGeneration(
   const lifecycle = captureRuntimeDependencyLifecycle({ generatedStateLifecycle: source }, ['born', 'bind'])!;
   const { born, bind } = lifecycle;
   if (born === undefined || bind === undefined) {
-    throw new SecError(
+    throw new FailureError(
       'IMPORT-AUTHORITY-004',
       'Compiler dependency active lifecycle birth has no exact readback binding'
     );
@@ -132,14 +132,14 @@ export async function bindExistingCompilerDependencyGeneration(
   const expected = compilerDependencyGenerationLifecycleExpectation(expectedPhysical);
   const lifecycle = captureRuntimeDependencyLifecycle(options, ['bind']);
   if (lifecycle === undefined) {
-    throw new SecError(
+    throw new FailureError(
       'IMPORT-AUTHORITY-004',
       'Existing compiler dependency generation has no producer provenance registration and is preserved'
     );
   }
   const bind = lifecycle.bind;
   if (bind === undefined) {
-    throw new SecError(
+    throw new FailureError(
       'IMPORT-AUTHORITY-004',
       'Compiler dependency generation adoption requires read-only producer provenance binding and is preserved'
     );
@@ -150,7 +150,7 @@ export async function bindExistingCompilerDependencyGeneration(
       expected
     );
   } catch (error) {
-    throw new SecError(
+    throw new FailureError(
       'IMPORT-AUTHORITY-004',
       'Compiler dependency generation producer provenance is missing, invalid, foreign, or stale; physical target is preserved',
       { cause: lifecycleFailureMessage(error) },
@@ -166,14 +166,14 @@ export async function bindExistingSharedDependencyRoot(
   const expected = sharedDependencyLifecycleExpectation(expectedPhysical);
   const lifecycle = captureRuntimeDependencyLifecycle(options, ['bind']);
   if (lifecycle === undefined) {
-    throw new SecError(
+    throw new FailureError(
       'IMPORT-AUTHORITY-004',
       'Existing shared dependency root has no producer provenance registration and is preserved'
     );
   }
   const bind = lifecycle.bind;
   if (bind === undefined) {
-    throw new SecError(
+    throw new FailureError(
       'IMPORT-AUTHORITY-004',
       'Shared dependency root adoption requires read-only producer provenance binding and is preserved'
     );
@@ -184,7 +184,7 @@ export async function bindExistingSharedDependencyRoot(
       expected
     );
   } catch (error) {
-    throw new SecError(
+    throw new FailureError(
       'IMPORT-AUTHORITY-004',
       'Shared dependency root producer provenance is missing, invalid, foreign, or stale; physical root is preserved',
       { cause: lifecycleFailureMessage(error) },
@@ -220,14 +220,14 @@ async function retireCapturedCompilerDependencyPreimage(
   controls?: BoundRuntimeDependencyOperationControls
 ): Promise<`sha256:${string}` | null> {
   if (lifecycle === undefined) {
-    throw new SecError(
+    throw new FailureError(
       'IMPORT-AUTHORITY-004',
       'Existing compiler dependency generation has no producer provenance registration and is preserved'
     );
   }
   const { bind, retired: retire } = lifecycle;
   if (bind === undefined || retire === undefined) {
-    throw new SecError(
+    throw new FailureError(
       'IMPORT-AUTHORITY-004',
       'Compiler dependency preimage retirement requires read-only producer provenance binding and is preserved'
     );
@@ -251,9 +251,9 @@ async function preserveRetirementFailure<T>(execute: () => Promise<T>): Promise<
   } catch (error) {
     // A revoked proxy or a hostile code getter is still the original cause.
     let ownerFailure = false;
-    try { ownerFailure = error instanceof SecError && error.code === 'IMPORT-AUTHORITY-004'; } catch { /* Preserve below. */ }
+    try { ownerFailure = error instanceof FailureError && error.code === 'IMPORT-AUTHORITY-004'; } catch { /* Preserve below. */ }
     if (ownerFailure) throw error;
-    throw new SecError(
+    throw new FailureError(
       'IMPORT-AUTHORITY-004',
       'Compiler dependency preimage producer provenance is missing, invalid, foreign, or stale; physical target is preserved',
       { cause: lifecycleFailureMessage(error) },
@@ -274,7 +274,7 @@ export async function ensureCompilerDependencyPreimageRetiredForRecovery(
   const source = options.generatedStateLifecycle;
   const lifecycle = captureRuntimeDependencyLifecycle({ generatedStateLifecycle: source }, ['observeRetirement']);
   if (lifecycle === undefined) {
-    throw new SecError(
+    throw new FailureError(
       'IMPORT-AUTHORITY-004',
       'Compiler dependency recovery has no producer provenance lifecycle'
     );
@@ -299,7 +299,7 @@ export async function ensureCompilerDependencyPreimageRetiredForRecovery(
     if (observation.status === 'retired-present' && observation.physical !== null &&
         sameGeneratedStateIdentity(observation.physical, expected.physical!)) return;
     if (observation.status !== 'active') {
-      throw new SecError(
+      throw new FailureError(
         'IMPORT-AUTHORITY-004',
         'Compiler dependency recovery requires an exact retired-present lifecycle observation',
         { status: observation.status, observationDigest: observation.observationDigest }

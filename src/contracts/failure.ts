@@ -1,4 +1,4 @@
-export type SecErrorDetails =
+export type FailureDetails =
   | Record<string, unknown>
   | string
   | number
@@ -11,14 +11,14 @@ export type SecErrorDetails =
  * projections; this class only preserves one runtime identity across package
  * boundaries so lower capabilities never import a higher domain error module.
  */
-export class SecError extends Error {
+export class FailureError extends Error {
   public readonly code: string;
-  public readonly details: SecErrorDetails;
+  public readonly details: FailureDetails;
 
   constructor(
     code: string,
     message: string,
-    details: SecErrorDetails = {},
+    details: FailureDetails = {},
     options?: ErrorOptions
   ) {
     super(message, options);
@@ -29,6 +29,6 @@ export class SecError extends Error {
 }
 
 /** Throw a domain-coded failure without introducing a second Error identity. */
-export function fail(code: string, message: string, details: SecErrorDetails = {}): never {
-  throw new SecError(code, message, details);
+export function fail(code: string, message: string, details: FailureDetails = {}): never {
+  throw new FailureError(code, message, details);
 }

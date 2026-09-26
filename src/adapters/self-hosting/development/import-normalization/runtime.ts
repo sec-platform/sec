@@ -1,39 +1,39 @@
 import { sha256 } from '../../../../contracts/canonical.ts';
 import { observeExecutionProgressPhase } from '../../../../execution/execution-progress.ts';
 import {
-  bindSecSemanticOperation,
-  compileSecCapabilityBinding,
-  compileSecProviderSettlementSet,
-  compileSecSemanticOperationPlan,
-  issueSecNormalDomainReadbackReceipt,
-  issueSecNormalOwnerTerminalJoinReceipt,
-  issueSecProviderSettlementReceipt,
-  issueSecSemanticOperationAttemptContext
+  bindSemanticOperation,
+  compileCapabilityBinding,
+  compileProviderSettlementSet,
+  compileSemanticOperationPlan,
+  issueNormalDomainReadbackReceipt,
+  issueNormalOwnerTerminalJoinReceipt,
+  issueProviderSettlementReceipt,
+  issueSemanticOperationAttemptContext
 } from '../../../../execution/operation/semantic.ts';
 import {
   withAuthorityGitReadSession,
   type AuthorityGitReadOperation
 } from '../../../providers/git-read/authority.ts';
 import {
-  CodexDevelopmentListExactGitTreeEntriesFromSession
+  ListExactGitTreeEntriesFromSession
 } from '../../../providers/git-read/exact-blob.ts';
 import {
   GIT_READ_EXACT_TREE_OPERATION_BUDGET,
   type GitReadSession
 } from '../../../providers/git-read/runtime/session.ts';
 import {
-  compileSourceProgramOperationProducerClosureFromWorkspaceSnapshot,
-  requireSourceProgramOperationProducerClosure
+  compileProducerClosureFromSnapshot,
+  requireProducerClosure
 } from '../../../repository/source-program-model/producer-closure.ts';
 import {
-  assertSourceProgramTypeScriptCompilerIdentity,
-  sourceProgramTypeScriptCompilerIdentity
+  assertTypeScriptCompilerIdentity,
+  typeScriptCompilerIdentity
 } from '../../../repository/source-program-model/typescript.ts';
 import {
-  acquireExactGitTreeWorkspaceSourceSnapshotFromSession,
-  acquireStagedIndexWorkspaceSourceSnapshot,
-  readBackStagedIndexWorkspaceSourceSnapshot,
-  selectStagedWorkspaceSourceSnapshot,
+  acquireExactGitTreeSnapshot,
+  acquireStagedIndexSnapshot,
+  readBackStagedIndexSnapshot,
+  selectStagedSnapshot,
   type PhysicalWorkspaceSourceSnapshot
 } from '../../../repository/source-program-model/workspace-source-snapshot.ts';
 import {
@@ -112,7 +112,7 @@ async function readBackCandidateNormalizationSnapshot(input: Readonly<{
   if (provenance.kind !== 'git-tree') {
     throw new Error('Candidate normalization readback requires exact Git provenance');
   }
-  const entries = await CodexDevelopmentListExactGitTreeEntriesFromSession(
+  const entries = await ListExactGitTreeEntriesFromSession(
     input.session,
     provenance.commitSha
   );
@@ -141,7 +141,7 @@ async function readBackNormalizationSubject(input: Readonly<{
       throw new Error('Staged candidate normalization readback requires its Git operation');
     }
     await input.stagedOperation.runPhase('normalization-readback', (session) => (
-      readBackStagedIndexWorkspaceSourceSnapshot(snapshot, session)
+      readBackStagedIndexSnapshot(snapshot, session)
     ));
     return input.subject.subjectDigest;
   }
@@ -170,7 +170,7 @@ async function settleNormalizationObservation(
     executionSubjectDigest: subject.subjectDigest,
     readbackSubjectDigest
   }) as CandidateNormalizationDigest;
-  const plan = compileSecSemanticOperationPlan({
+  const plan = compileSemanticOperationPlan({
     operation: 'development.import-normalization',
     intentDigest: action.actionKey,
     decisionDigest: subject.subjectDigest,
@@ -186,29 +186,29 @@ async function settleNormalizationObservation(
       effectKinds: ['filesystem', 'process'],
       failureKinds: ['candidate-normalization-noncanonical']
     }],
-    attempt: issueSecSemanticOperationAttemptContext({
+    attempt: issueSemanticOperationAttemptContext({
       authorityGrantDigest: subject.subjectDigest
     })
   });
-  const bound = bindSecSemanticOperation(plan, [compileSecCapabilityBinding({
+  const bound = bindSemanticOperation(plan, [compileCapabilityBinding({
     requirementId: 'candidate-normalization-observation',
     contractDigest: subject.normalizationContractDigest,
     providerIdentityDigest: subject.producerClosureDigest
   })]);
-  const provider = issueSecProviderSettlementReceipt(bound, {
+  const provider = issueProviderSettlementReceipt(bound, {
     requirementId: 'candidate-normalization-observation',
     physicalDisposition: 'settled',
     providerSettlementReferenceDigest: observationDigest
   });
-  const providerSet = compileSecProviderSettlementSet(bound, [provider]);
+  const providerSet = compileProviderSettlementSet(bound, [provider]);
   const passed = status === 'canonical';
-  const readback = issueSecNormalDomainReadbackReceipt(bound, providerSet, {
+  const readback = issueNormalDomainReadbackReceipt(bound, providerSet, {
     readbackContractDigest: subject.resultContractDigest,
     readbackReferenceDigest: observationDigest,
     currentPhysicalEpochDigest: readbackSubjectDigest,
     disposition: passed ? 'applied' : 'not-applied'
   });
-  const join = issueSecNormalOwnerTerminalJoinReceipt(bound, providerSet, readback, {
+  const join = issueNormalOwnerTerminalJoinReceipt(bound, providerSet, readback, {
     ownerTerminalContractDigest: subject.resultContractDigest,
     ownerTerminalReferenceDigest: observationDigest
   });
@@ -240,21 +240,21 @@ export async function verifyCandidateImportNormalization(input: Readonly<{
     cwd: input.repositoryRoot,
     budget: GIT_READ_EXACT_TREE_OPERATION_BUDGET
   }, async (session) => {
-    const snapshot = await acquireExactGitTreeWorkspaceSourceSnapshotFromSession({
+    const snapshot = await acquireExactGitTreeSnapshot({
       session,
       commitSha: input.candidateCommit
     });
-    const baseSnapshot = await acquireExactGitTreeWorkspaceSourceSnapshotFromSession({
+    const baseSnapshot = await acquireExactGitTreeSnapshot({
       session,
       commitSha: input.candidateBase
     });
-    const producerClosure = compileSourceProgramOperationProducerClosureFromWorkspaceSnapshot(
+    const producerClosure = compileProducerClosureFromSnapshot(
       snapshot,
       IMPORT_NORMALIZATION_OPERATION
     );
-    requireSourceProgramOperationProducerClosure(producerClosure);
-    const compilerIdentity = sourceProgramTypeScriptCompilerIdentity();
-    assertSourceProgramTypeScriptCompilerIdentity(compilerIdentity);
+    requireProducerClosure(producerClosure);
+    const compilerIdentity = typeScriptCompilerIdentity();
+    assertTypeScriptCompilerIdentity(compilerIdentity);
     const subject = compileCandidateNormalizationSubject({
       snapshot,
       baseSnapshot,
@@ -332,21 +332,21 @@ export async function verifyStagedCandidateImportNormalization(input: Readonly<{
   const { snapshot, stagedSelection, repositoryRoot } = await gitOperation.runPhase(
     'normalization-source',
     async (session) => {
-      const snapshot = await acquireStagedIndexWorkspaceSourceSnapshot({ session });
-      const stagedSelection = await selectStagedWorkspaceSourceSnapshot({
+      const snapshot = await acquireStagedIndexSnapshot({ session });
+      const stagedSelection = await selectStagedSnapshot({
         snapshot, session,
         ...(candidateBase === undefined ? {} : { candidateBase })
       });
       return { snapshot, stagedSelection, repositoryRoot: session.cwd };
     }
   );
-  const producerClosure = compileSourceProgramOperationProducerClosureFromWorkspaceSnapshot(
+  const producerClosure = compileProducerClosureFromSnapshot(
     snapshot,
     IMPORT_NORMALIZATION_OPERATION
   );
-  requireSourceProgramOperationProducerClosure(producerClosure);
-  const compilerIdentity = sourceProgramTypeScriptCompilerIdentity();
-  assertSourceProgramTypeScriptCompilerIdentity(compilerIdentity);
+  requireProducerClosure(producerClosure);
+  const compilerIdentity = typeScriptCompilerIdentity();
+  assertTypeScriptCompilerIdentity(compilerIdentity);
   const subject = compileCandidateNormalizationSubject({
     snapshot,
     stagedSelection,
@@ -362,7 +362,7 @@ export async function verifyStagedCandidateImportNormalization(input: Readonly<{
     stagedOperation: gitOperation
   });
   await gitOperation.runPhase('normalization-final-readback', (session) => (
-    readBackStagedIndexWorkspaceSourceSnapshot(snapshot, session)
+    readBackStagedIndexSnapshot(snapshot, session)
   ));
   return Object.freeze({
     outcome,
@@ -385,9 +385,9 @@ export async function checkStagedCandidateImportNormalization(input: Readonly<{
 }>): Promise<ImportCheckOutcome> {
   const progressCommand = input.progressCommand ?? 'imports:check';
   const snapshot = await observeExecutionProgressPhase(progressCommand, 'staged-source-snapshot',
-    () => acquireStagedIndexWorkspaceSourceSnapshot({ session: input.session }));
+    () => acquireStagedIndexSnapshot({ session: input.session }));
   const selection = await observeExecutionProgressPhase(progressCommand, 'staged-source-selection',
-    () => selectStagedWorkspaceSourceSnapshot({
+    () => selectStagedSnapshot({
       snapshot,
       session: input.session,
       ...(input.candidateBase === undefined ? {} : { candidateBase: input.candidateBase })
@@ -408,6 +408,6 @@ export async function checkStagedCandidateImportNormalization(input: Readonly<{
       }))
     }));
   await observeExecutionProgressPhase(progressCommand, 'staged-source-readback',
-    () => readBackStagedIndexWorkspaceSourceSnapshot(snapshot, input.session));
+    () => readBackStagedIndexSnapshot(snapshot, input.session));
   return outcome;
 }

@@ -1,7 +1,7 @@
 import { constants } from 'node:fs';
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { digest, sha256 } from '../../contracts/canonical.ts';
+import { rawSha256Hex, sha256 } from '../../contracts/canonical.ts';
 import {
   DOCUMENTATION_AUTHORED_METADATA,
   DOCUMENTATION_BASELINE,
@@ -10,7 +10,7 @@ import {
   DOCUMENTATION_REQUIREMENTS,
   DOCUMENTATION_SOURCE_MANIFEST,
   compareDocumentationPaths, decodeDocumentationJson, documentationIsNonSource,
-  documentationPath, documentationPathWithin,
+  documentationPath, documentationPathWithin, documentationSourceDigest, parseDocumentationBoundary,
   parseDocumentationSourceContract, type DocumentationBoundary, type DocumentationSourceContract
 } from '../../contracts/documentation-source.ts';
 import { portableLogicalPathCollisionKey } from '../../contracts/logical-path.ts';
@@ -163,27 +163,78 @@ async function enumerateSource(root: string, boundary: DocumentationBoundary): P
   }
   return Object.freeze(files.sort(compareDocumentationPaths));
 }
-export async function readDocumentationSource(root: string): Promise<DocumentationSourceContract> {
+
+function sourceManifestBytes(contract: DocumentationSourceContract): Buffer {
+  return Buffer.from(`${JSON.stringify({
+    schema: 'sec.documentation-source-manifest/2',
+    source_set_sha256: contract.sourceSetSha256,
+    members: contract.members
+  }, null, 2)}\n`, 'utf8');
+}
+
+/** Capture the authoritative documentation source directly from the declared
+ * baseline and ordinary source bytes. Generated projections are deliberately
+ * not inputs: release/source identity must remain reproducible after those
+ * projections are removed from Git or are absent from a clean checkout. */
+export async function captureDocumentationSource(root: string): Promise<DocumentationSourceContract> {
   root = await checkedRoot(root);
   const baselineBytes = await readOrdinary(root, DOCUMENTATION_BASELINE);
-  const manifestBytes = await readOrdinary(root, DOCUMENTATION_SOURCE_MANIFEST);
-  const contract = parseDocumentationSourceContract(baselineBytes, manifestBytes);
-  const names = await enumerateSource(root, contract.boundary);
-  if (JSON.stringify(names) !== JSON.stringify(contract.members.map(member => member.path))) {
-    throw new Error('Source manifest hides, adds or reorders authoritative files');
+  const boundary = parseDocumentationBoundary(baselineBytes);
+  const names = await enumerateSource(root, boundary);
+  const members = [] as { path: string; bytes: number; sha256: string }[];
+  let totalBytes = 0;
+  for (const relative of names) {
+    const bytes = await readOrdinary(root, relative);
+    totalBytes += bytes.byteLength;
+    if (totalBytes > DOCUMENTATION_LIMITS.totalBytes) {
+      throw new Error('Documentation source byte budget exceeded');
+    }
+    members.push({ path: relative, bytes: bytes.byteLength, sha256: rawSha256Hex(bytes) });
+  }
+  const material = Object.freeze({
+    boundary,
+    sourceSetSha256: documentationSourceDigest(members),
+    entrypoint: boundary.entrypoint,
+    members: Object.freeze(members.map(member => Object.freeze(member)))
+  });
+  const contract = parseDocumentationSourceContract(baselineBytes, sourceManifestBytes(material));
+
+  if (!baselineBytes.equals(await readOrdinary(root, DOCUMENTATION_BASELINE))
+      || JSON.stringify(names) !== JSON.stringify(await enumerateSource(root, boundary))) {
+    throw new Error('Documentation source changed across capture');
   }
   for (const member of contract.members) {
     const bytes = await readOrdinary(root, member.path);
-    if (bytes.byteLength !== member.bytes || digest(bytes) !== member.sha256) {
-      throw new Error(`Documentation source member differs from its manifest: ${member.path}`);
+    if (bytes.byteLength !== member.bytes || rawSha256Hex(bytes) !== member.sha256) {
+      throw new Error(`Documentation source changed across capture: ${member.path}`);
     }
   }
-  if (!baselineBytes.equals(await readOrdinary(root, DOCUMENTATION_BASELINE))
-      || !manifestBytes.equals(await readOrdinary(root, DOCUMENTATION_SOURCE_MANIFEST))
-      || JSON.stringify(names) !== JSON.stringify(await enumerateSource(root, contract.boundary))) {
-    throw new Error('Documentation source changed across capture');
-  }
   return contract;
+}
+
+export async function readDocumentationSource(root: string): Promise<DocumentationSourceContract> {
+  root = await checkedRoot(root);
+  const manifestBytes = await readOrdinary(root, DOCUMENTATION_SOURCE_MANIFEST);
+  const baselineBytes = await readOrdinary(root, DOCUMENTATION_BASELINE);
+  const sealed = parseDocumentationSourceContract(baselineBytes, manifestBytes);
+  const captured = await captureDocumentationSource(root);
+  if (JSON.stringify(sealed.members.map(member => member.path))
+      !== JSON.stringify(captured.members.map(member => member.path))) {
+    throw new Error('Source manifest hides, adds or reorders authoritative files');
+  }
+  for (let index = 0; index < sealed.members.length; index++) {
+    const expected = sealed.members[index]!, actual = captured.members[index]!;
+    if (expected.bytes !== actual.bytes || expected.sha256 !== actual.sha256) {
+      throw new Error(`Documentation source member differs from its manifest: ${expected.path}`);
+    }
+  }
+  if (sealed.sourceSetSha256 !== captured.sourceSetSha256) {
+    throw new Error('Source manifest differs from the authoritative documentation source');
+  }
+  if (!manifestBytes.equals(await readOrdinary(root, DOCUMENTATION_SOURCE_MANIFEST))) {
+    throw new Error('Documentation source manifest changed across capture');
+  }
+  return sealed;
 }
 
 const REQUIREMENT_SOURCE = 'docs/产品/产品要求与工作约束.md';
@@ -242,20 +293,30 @@ function projectDocumentationRequirements(bytes: Uint8Array): unknown {
         fragment = title.toLowerCase().replace(/[^\p{L}\p{N}_\s-]/gu, '').replace(/\s/gu, '-');
       }
       return { id: heading.id, path: REQUIREMENT_SOURCE, fragment,
-        body_sha256: digest(strip(source.slice(heading.offset, headings[index + 1]?.offset))) };
+        body_sha256: rawSha256Hex(strip(source.slice(heading.offset, headings[index + 1]?.offset))) };
     }) };
 }
-async function validateRequirementProjection(root: string, contract: DocumentationSourceContract): Promise<Buffer | null> {
-  const existing = await optionalBytes(root, DOCUMENTATION_REQUIREMENTS);
+async function deriveRequirementProjection(root: string, contract: DocumentationSourceContract): Promise<Buffer | null> {
   if (!contract.members.some(member => member.path === REQUIREMENT_SOURCE)) {
-    if (existing !== null) throw new Error('Requirement projection has no source authority in this documentation package');
     return null;
   }
   const expected = projectDocumentationRequirements(await readOrdinary(root, REQUIREMENT_SOURCE));
-  if (existing !== null && sha256(decodeDocumentationJson(existing, 'Requirement projection')) !== sha256(expected)) {
+  return Buffer.from(`${JSON.stringify(expected, null, 2)}\n`, 'utf8');
+}
+
+async function validateRequirementProjection(root: string, contract: DocumentationSourceContract): Promise<Buffer | null> {
+  const existing = await optionalBytes(root, DOCUMENTATION_REQUIREMENTS);
+  const expected = await deriveRequirementProjection(root, contract);
+  if (expected === null) {
+    if (existing !== null) throw new Error('Requirement projection has no source authority in this documentation package');
+    return null;
+  }
+  if (existing === null) throw new Error('Documentation package is missing its derived requirement projection');
+  const parsedExpected = decodeDocumentationJson(expected, 'Expected requirement projection');
+  if (sha256(decodeDocumentationJson(existing, 'Requirement projection')) !== sha256(parsedExpected)) {
     throw new Error('Requirement projection is stale or malformed');
   }
-  return Buffer.from(`${JSON.stringify(expected, null, 2)}\n`, 'utf8');
+  return expected;
 }
 
 export async function materializeDocumentationPackage(sourceRoot: string, targetRoot: string): Promise<DocumentationSourceContract> {
@@ -271,10 +332,10 @@ export async function materializeDocumentationPackage(sourceRoot: string, target
   }).length !== 0) {
     throw new Error('Documentation staging root must be empty');
   }
-  const contract = await readDocumentationSource(sourceRoot);
+  const contract = await captureDocumentationSource(sourceRoot);
   const outputs = new Map<string, Buffer>();
-  outputs.set(DOCUMENTATION_SOURCE_MANIFEST, await readOrdinary(sourceRoot, DOCUMENTATION_SOURCE_MANIFEST));
-  const requirements = await validateRequirementProjection(sourceRoot, contract);
+  outputs.set(DOCUMENTATION_SOURCE_MANIFEST, sourceManifestBytes(contract));
+  const requirements = await deriveRequirementProjection(sourceRoot, contract);
   if (requirements !== null) outputs.set(DOCUMENTATION_REQUIREMENTS, requirements);
   const figures = await optionalBytes(sourceRoot, DOCUMENTATION_FIGURES);
   if (figures !== null) outputs.set(DOCUMENTATION_FIGURES, figures);
@@ -312,7 +373,7 @@ export async function materializeDocumentationPackage(sourceRoot: string, target
 
   for (const member of contract.members) {
     const bytes = await readOrdinary(sourceRoot, member.path);
-    if (bytes.byteLength !== member.bytes || digest(bytes) !== member.sha256) throw new Error(`Source drift: ${member.path}`);
+    if (bytes.byteLength !== member.bytes || rawSha256Hex(bytes) !== member.sha256) throw new Error(`Source drift: ${member.path}`);
     await write(member.path, bytes);
   }
   for (const root of contract.boundary.sourceRoots) {
@@ -328,7 +389,7 @@ export async function materializeDocumentationPackage(sourceRoot: string, target
   }
   for (const [name, bytes] of outputs) await write(name, bytes);
   const target = await readDocumentationSource(targetRoot);
-  const finalSource = await readDocumentationSource(sourceRoot);
+  const finalSource = await captureDocumentationSource(sourceRoot);
   if (target.sourceSetSha256 !== contract.sourceSetSha256 || finalSource.sourceSetSha256 !== contract.sourceSetSha256) {
     throw new Error('Documentation source identity changed across materialization');
   }

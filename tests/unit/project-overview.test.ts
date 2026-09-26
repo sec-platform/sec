@@ -1,6 +1,6 @@
 import { expect, test } from 'bun:test';
 
-import { platformCommand } from '../../src/adapters/verification/platform/sec-command.ts';
+import { platformCommand } from '../../src/adapters/verification/platform/command.ts';
 import type { AcceptanceCoverageReport } from '../../src/assurance/acceptance/coverage.ts';
 import { CI_ARTIFACT_FILES } from '../../src/assurance/verification/ci-artifacts/contract/manifest.ts';
 import type { CiArtifactManifest } from '../../src/assurance/verification/ci-artifacts/contract/types.ts';

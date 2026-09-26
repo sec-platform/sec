@@ -1,7 +1,7 @@
-import { createHash } from 'node:crypto';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { parseArgs as parseNativeArgs } from 'node:util';
 
+import { rawSha256Hex } from '../../../../contracts/canonical.ts';
 import {
   assertGitHubApiCapability,
   executeGitHubApiOperation,
@@ -12,21 +12,21 @@ import {
 } from '../../../providers/github-api/operation-session.ts';
 import { encodeVerificationActionData } from '../../../verification/platform/action/contract/action.ts';
 import {
-  CodexDevelopmentMergeGateResultSchema,
-  CodexDevelopmentMergeGateTerminalStatusContext,
-  CodexDevelopmentParseMergeGateResult,
-  CodexDevelopmentParseTrustedRuntimeMergeGateResult,
-  CodexDevelopmentTrustedRuntimeMergeGateResultSchema,
-  type CodexDevelopmentMergeGateResult,
-  type CodexDevelopmentTrustedRuntimeMergeGateResult
+  MergeGateResultSchema,
+  MergeGateTerminalStatusContext,
+  ParseMergeGateResult,
+  ParseTrustedRuntimeMergeGateResult,
+  TrustedRuntimeMergeGateResultSchema,
+  type MergeGateResult,
+  type TrustedRuntimeMergeGateResult
 } from './merge-gate.ts';
 
 const INTEGRATION_AUTHORIZATION_STATUS_PUBLICATION_SCHEMA =
   'sec-integration-authorization-status-publication-v1' as const;
 
 export type IntegrationAuthorizationGateResult =
-  | CodexDevelopmentMergeGateResult
-  | CodexDevelopmentTrustedRuntimeMergeGateResult;
+  | MergeGateResult
+  | TrustedRuntimeMergeGateResult;
 
 export interface IntegrationAuthorizationStatusPublisherPrincipal {
   readonly creatorLogin: string;
@@ -43,7 +43,7 @@ export interface IntegrationAuthorizationStatusPublication {
   readonly authorizationReceiptDigest: `sha256:${string}`;
   readonly gateResultDigest: `sha256:${string}`;
   readonly rulesetDigest: `sha256:${string}`;
-  readonly context: typeof CodexDevelopmentMergeGateTerminalStatusContext;
+  readonly context: typeof MergeGateTerminalStatusContext;
   readonly state: 'success';
   readonly description: string;
   readonly targetUrl: string;
@@ -184,7 +184,7 @@ function repository(value: unknown): string {
 }
 
 function hash(value: unknown): `sha256:${string}` {
-  return `sha256:${createHash('sha256').update(encodeVerificationActionData(value)).digest('hex')}`;
+  return `sha256:${rawSha256Hex(encodeVerificationActionData(value))}`;
 }
 
 export function parseIntegrationAuthorizationGateResult(source: string): IntegrationAuthorizationGateResult {
@@ -198,11 +198,11 @@ export function parseIntegrationAuthorizationGateResult(source: string): Integra
     fail('merge-gate result must be an object.');
   }
   const schema = (parsed as Record<string, unknown>).schema;
-  if (schema === CodexDevelopmentMergeGateResultSchema) {
-    return CodexDevelopmentParseMergeGateResult(source);
+  if (schema === MergeGateResultSchema) {
+    return ParseMergeGateResult(source);
   }
-  if (schema === CodexDevelopmentTrustedRuntimeMergeGateResultSchema) {
-    return CodexDevelopmentParseTrustedRuntimeMergeGateResult(source);
+  if (schema === TrustedRuntimeMergeGateResultSchema) {
+    return ParseTrustedRuntimeMergeGateResult(source);
   }
   return fail('merge-gate result schema is not supported by the terminal publisher.');
 }
@@ -238,7 +238,7 @@ export function createIntegrationAuthorizationStatusPublication(input: Readonly<
     authorizationReceiptDigest: digest(result.authorization.receiptDigest, 'authorizationReceiptDigest'),
     gateResultDigest: digest(result.resultDigest, 'gateResultDigest'),
     rulesetDigest: digest(result.authorization.rulesetDigest, 'rulesetDigest'),
-    context: CodexDevelopmentMergeGateTerminalStatusContext,
+    context: MergeGateTerminalStatusContext,
     state: 'success' as const,
     description: createIntegrationAuthorizationStatusDescription(result),
     targetUrl,
@@ -270,7 +270,7 @@ export function parseIntegrationAuthorizationStatusPublication(
     fail(`publication must contain exactly: ${expected.join(', ')}.`);
   }
   if (record.schema !== INTEGRATION_AUTHORIZATION_STATUS_PUBLICATION_SCHEMA
-      || record.context !== CodexDevelopmentMergeGateTerminalStatusContext
+      || record.context !== MergeGateTerminalStatusContext
       || record.state !== 'success') {
     fail('publication semantic identity is invalid.');
   }
@@ -284,7 +284,7 @@ export function parseIntegrationAuthorizationStatusPublication(
     authorizationReceiptDigest: digest(record.authorizationReceiptDigest, 'authorizationReceiptDigest'),
     gateResultDigest: digest(record.gateResultDigest, 'gateResultDigest'),
     rulesetDigest: digest(record.rulesetDigest, 'rulesetDigest'),
-    context: CodexDevelopmentMergeGateTerminalStatusContext,
+    context: MergeGateTerminalStatusContext,
     state: 'success' as const,
     description: bounded(record.description, 'description'),
     targetUrl: bounded(record.targetUrl, 'targetUrl'),
@@ -365,7 +365,7 @@ function exactStatus(
   principal: IntegrationAuthorizationStatusPublisherPrincipal
 ): void {
   if (status.state !== 'success'
-      || status.context !== CodexDevelopmentMergeGateTerminalStatusContext
+      || status.context !== MergeGateTerminalStatusContext
       || status.description !== createIntegrationAuthorizationStatusDescription(result)
       || status.target_url !== targetUrl
       || status.creator?.login !== principal.creatorLogin
@@ -452,7 +452,7 @@ export async function publishIntegrationAuthorizationStatus(input: Readonly<{
       sha: result.authorization.headSha,
       status: Object.freeze({
         state: 'success',
-        context: CodexDevelopmentMergeGateTerminalStatusContext,
+        context: MergeGateTerminalStatusContext,
         description: createIntegrationAuthorizationStatusDescription(result),
         targetUrl
       })
@@ -470,7 +470,7 @@ export async function publishIntegrationAuthorizationStatus(input: Readonly<{
   if (exact.length !== 1) fail('terminal status exact id is absent or duplicated in provider readback.');
   exactStatus(exact[0]!, result, targetUrl, principal);
   const newerSamePrincipalContext = statuses.some((status) => status.id > created.id
-    && status.context === CodexDevelopmentMergeGateTerminalStatusContext
+    && status.context === MergeGateTerminalStatusContext
     && status.creator?.login === principal.creatorLogin
     && status.creator.id === principal.creatorId);
   if (newerSamePrincipalContext) fail('a newer terminal status exists for the same principal/context; publication is stale.');

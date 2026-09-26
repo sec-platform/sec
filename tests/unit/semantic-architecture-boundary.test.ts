@@ -1,7 +1,7 @@
 import { expect, test } from 'bun:test';
 
 import { buildEngineeringIR, type BuildEngineeringIRInput } from '../../src/compiler/ir/build-engineering-ir.ts';
-import { digest, semanticRevisionPayload } from '../../src/compiler/ir/ir-revision.ts';
+import { rawSha256Hex, semanticRevisionPayload } from '../../src/compiler/ir/ir-revision.ts';
 import { validateEngineeringIR } from '../../src/compiler/ir/validate-engineering-ir.ts';
 import { projectArchitectureView } from '../../src/compiler/projection/project-architecture-view.ts';
 
@@ -40,7 +40,7 @@ test('Architecture View covers validated Boundary entities without inventing a r
     ...base.entities,
     { id: 'boundary:external-api', kind: 'boundary' as const, label: 'External API', attributes: [] }
   ].sort((left, right) => left.id.localeCompare(right.id));
-  const semanticRevision = `sha256:${digest(semanticRevisionPayload(
+  const semanticRevision = `sha256:${rawSha256Hex(semanticRevisionPayload(
     base.graphId,
     base.appId,
     entities,

@@ -1,7 +1,7 @@
-import { createHash } from 'node:crypto';
 import { fchmodSync, fstatSync, fsyncSync, readSync } from 'node:fs';
 import path from 'node:path';
 
+import { createSha256Hasher } from '../../../../contracts/digest.ts';
 import {
   assertDurableCanonicalFileIdentityReceipt,
   assertRetainedNoFollowCapability,
@@ -78,7 +78,7 @@ export async function copyRetainedNoFollowFilePermissions(input: Readonly<{
       }
       fchmodSync(targetFd, mode);
       fsyncSync(targetFd);
-      const hash = createHash('sha256');
+      const hash = createSha256Hasher();
       const chunk = Buffer.alloc(64 * 1024);
       let offset = 0;
       while (offset < Number(replacement.size)) {
@@ -91,7 +91,7 @@ export async function copyRetainedNoFollowFilePermissions(input: Readonly<{
       if (!after.isFile() || after.dev !== replacement.dev || after.ino !== replacement.ino ||
           after.nlink !== 1n || after.uid !== replacement.uid || after.gid !== replacement.gid ||
           after.size !== replacement.size || after.mtimeNs !== replacement.mtimeNs ||
-          Number(after.mode & 0o7777n) !== mode || `sha256:${hash.digest('hex')}` !== target.digest) {
+          Number(after.mode & 0o7777n) !== mode || hash.finish() !== target.digest) {
         failure('Retained permission or byte readback differs.');
       }
     } else if (process.platform === 'win32' && (process.arch === 'x64' || process.arch === 'arm64')) {
@@ -171,7 +171,7 @@ async function copyWindowsPermissions(
     if (wanted !== expectedAttributes || before.size < 0n || before.size > BigInt(MAXIMUM_PERMISSION_FILE_BYTES)) {
       failure('Retained permission expectations changed.');
     }
-    const hash = createHash('sha256');
+    const hash = createSha256Hasher();
     const chunk = Buffer.alloc(64 * 1024);
     const received = Buffer.alloc(4);
     let offset = 0;
@@ -185,7 +185,7 @@ async function copyWindowsPermissions(
       hash.update(chunk.subarray(0, count));
       offset += count;
     }
-    if (`sha256:${hash.digest('hex')}` !== target.digest) failure('Permission target receipt bytes changed.');
+    if (hash.finish() !== target.digest) failure('Permission target receipt bytes changed.');
     let attributes = (before.attributes & ~WINDOWS_MUTATION_ATTRIBUTES) | wanted;
     if ((attributes & ~0x80) !== 0) attributes &= ~0x80;
     if (attributes === 0) attributes = 0x80;

@@ -4,7 +4,7 @@ import type { VerificationActionKeyDigest } from '../../src/adapters/verificatio
 import { buildCiVerificationActionPlanClosure, ciVerificationGateStep, type CiVerificationActionCandidate } from '../../src/adapters/verification/platform/action/contract/ci.ts';
 import { CI_VERIFICATION_HOSTED_PROVIDER_REVISION } from '../../src/adapters/verification/platform/action/contract/environment.ts';
 import type { VerificationActionProviderOrigin } from '../../src/adapters/verification/platform/action/contract/provider.ts';
-import { CI_VERIFICATION_ACTION_SANDBOX_RECEIPT_SCHEMA, CI_VERIFICATION_HOSTED_SUT_OUTPUT_BYTE_LIMIT, CodexDevelopmentCreateHostedSutExecutionAuthorization, CodexDevelopmentFinalizeHostedActionRawResult, CodexDevelopmentReduceHostedSutObservation, type CodexDevelopmentHostedActionRawResult, type CodexDevelopmentHostedSutSandboxReceipt } from '../../src/adapters/verification/platform/ci/contract/hosted-sut-observation.ts';
+import { CI_VERIFICATION_ACTION_SANDBOX_RECEIPT_SCHEMA, CI_VERIFICATION_HOSTED_SUT_OUTPUT_BYTE_LIMIT, CreateHostedSutExecutionAuthorization, FinalizeHostedActionRawResult, ReduceHostedSutObservation, type HostedActionRawResult, type HostedSutSandboxReceipt } from '../../src/adapters/verification/platform/ci/contract/hosted-sut-observation.ts';
 import { buildCiQuickGatePlan } from '../../src/adapters/verification/platform/ci/contract/plan.ts';
 import { CI_VERIFICATION_HOSTED_SANDBOX_POLICY, CI_VERIFICATION_HOSTED_SANDBOX_POLICY_DIGEST } from '../../src/adapters/verification/platform/ci/contract/revision.ts';
 import { CI_VERIFICATION_CONTRACT_REVISION } from '../../src/assurance/verification/contract/revision.ts';
@@ -62,7 +62,7 @@ const inventoryClosure = Object.freeze({
   dependencyClosureDigest: digest('3'),
   gitBundleDigest: digest('4')
 });
-const authorization = CodexDevelopmentCreateHostedSutExecutionAuthorization({
+const authorization = CreateHostedSutExecutionAuthorization({
   resolutionDigest: digest('5'),
   ticketDigest: digest('6'),
   actionPlan,
@@ -82,7 +82,7 @@ function receipt(input: Readonly<{
   capability?: 'supported' | 'unsupported' | 'invalidated';
   exitCode?: number;
   clean?: boolean;
-}> = {}): CodexDevelopmentHostedSutSandboxReceipt {
+}> = {}): HostedSutSandboxReceipt {
   const capability = input.capability ?? 'supported';
   const clean = input.clean ?? true;
   const executed = capability === 'supported';
@@ -156,9 +156,9 @@ function raw(input: Readonly<{
   capability?: 'supported' | 'unsupported' | 'invalidated';
   exitCode?: number;
   clean?: boolean;
-}> = {}): CodexDevelopmentHostedActionRawResult {
+}> = {}): HostedActionRawResult {
   const sandboxReceipt = receipt(input);
-  return CodexDevelopmentFinalizeHostedActionRawResult({
+  return FinalizeHostedActionRawResult({
     executionAuthorizationDigest: authorization.authorizationDigest,
     command: (input.capability ?? 'supported') === 'supported' ? Object.freeze({
       commandPlanDigest: sandboxReceipt.commandPlanDigest!,
@@ -172,10 +172,10 @@ function raw(input: Readonly<{
 }
 
 function reduce(
-  observation: CodexDevelopmentHostedActionRawResult,
+  observation: HostedActionRawResult,
   executionAuthorization: typeof authorization = authorization
 ) {
-  return CodexDevelopmentReduceHostedSutObservation({
+  return ReduceHostedSutObservation({
     actionPlan,
     normalizedOperation,
     candidateSha: candidate.headSha,
@@ -216,7 +216,7 @@ test('raw SUT transport is observation-only and the sole reducer derives four ph
 
 test('physical command authorization and PASS settlement reject recomputed contradictory observations', () => {
   const original = raw();
-  const rehashObservation = (observation: CodexDevelopmentHostedActionRawResult): void => {
+  const rehashObservation = (observation: HostedActionRawResult): void => {
     const { receiptDigest: ignoredReceiptDigest, ...receiptWithoutDigest } = observation.sandboxReceipt;
     void ignoredReceiptDigest;
     (observation.sandboxReceipt as { receiptDigest: VerificationActionKeyDigest }).receiptDigest =
@@ -227,9 +227,9 @@ test('physical command authorization and PASS settlement reject recomputed contr
       canonicalDigest(rawWithoutDigest);
   };
   const forgedObservation = (
-    mutate: (observation: CodexDevelopmentHostedActionRawResult) => void
-  ): CodexDevelopmentHostedActionRawResult => {
-    const observation = structuredClone(original) as CodexDevelopmentHostedActionRawResult;
+    mutate: (observation: HostedActionRawResult) => void
+  ): HostedActionRawResult => {
+    const observation = structuredClone(original) as HostedActionRawResult;
     mutate(observation);
     rehashObservation(observation);
     return observation;
@@ -291,31 +291,31 @@ test('physical command authorization and PASS settlement reject recomputed contr
   expect(() => reduce(forgedProjection)).toThrow(/physical command observation/u);
 
   for (const mutate of [
-    (observation: CodexDevelopmentHostedActionRawResult) => {
+    (observation: HostedActionRawResult) => {
       (observation.sandboxReceipt.execution as { outputTruncated: boolean }).outputTruncated = true;
     },
-    (observation: CodexDevelopmentHostedActionRawResult) => {
+    (observation: HostedActionRawResult) => {
       (observation.sandboxReceipt.execution as { stdoutBytesObserved: number }).stdoutBytesObserved =
         CI_VERIFICATION_HOSTED_SUT_OUTPUT_BYTE_LIMIT + 1;
     },
-    (observation: CodexDevelopmentHostedActionRawResult) => {
+    (observation: HostedActionRawResult) => {
       (observation.sandboxReceipt.execution as { stderrBytesObserved: number }).stderrBytesObserved =
         CI_VERIFICATION_HOSTED_SUT_OUTPUT_BYTE_LIMIT + 1;
     },
-    (observation: CodexDevelopmentHostedActionRawResult) => {
+    (observation: HostedActionRawResult) => {
       (observation.sandboxReceipt as { diagnostic: string | null }).diagnostic = 'dirty successful receipt';
     },
-    (observation: CodexDevelopmentHostedActionRawResult) => {
+    (observation: HostedActionRawResult) => {
       (observation.sandboxReceipt.execution as { started: boolean }).started = false;
     },
-    (observation: CodexDevelopmentHostedActionRawResult) => {
+    (observation: HostedActionRawResult) => {
       (observation.sandboxReceipt.execution as { postExecutionInputDigest: VerificationActionKeyDigest | null })
         .postExecutionInputDigest = null;
     },
-    (observation: CodexDevelopmentHostedActionRawResult) => {
+    (observation: HostedActionRawResult) => {
       (observation.sandboxReceipt.reap as { namespacePid1Exited: boolean }).namespacePid1Exited = false;
     },
-    (observation: CodexDevelopmentHostedActionRawResult) => {
+    (observation: HostedActionRawResult) => {
       (observation.sandboxReceipt.residue as { cgroupEmpty: boolean }).cgroupEmpty = false;
     }
   ]) {
@@ -350,7 +350,7 @@ test('physical command authorization and PASS settlement reject recomputed contr
   });
   expect(() => reduce(forgedInventory)).toThrow(/exact inventory closure/u);
 
-  expect(() => CodexDevelopmentReduceHostedSutObservation({
+  expect(() => ReduceHostedSutObservation({
     actionPlan,
     normalizedOperation,
     candidateSha: candidate.headSha,

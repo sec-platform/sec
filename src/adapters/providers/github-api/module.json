@@ -1,0 +1,544 @@
+{
+  "importGraph": "runtime",
+  "externalEntrypoints": [],
+  "capabilityProviders": [
+    {
+      "capability": "github-api.credential",
+      "operations": [
+        "readGitHubToken"
+      ],
+      "effectKinds": [
+        "process",
+        "provider"
+      ],
+      "operationRoles": [
+        {
+          "operation": "readGitHubToken",
+          "role": "domain-owner",
+          "semanticOperation": "external-capabilities.github-api.credential",
+          "requirementId": null,
+          "recovery": null
+        }
+      ]
+    },
+    {
+      "capability": "github-api.operation-session",
+      "operations": [
+        "executeGitHubApiOperation",
+        "executeObservedGitHubApiOperation",
+        "readGitHubApiBytes",
+        "issueGitHubApiCapabilityForTestSupport",
+        "withGitHubApiEnrollmentSessionForTestSupport",
+        "withGitHubApiReadOperationBudgetForTestSupport",
+        "withGitHubApiSessionForTestSupport",
+        "withGitHubApiBranchCloseoutWriteSession",
+        "withGitHubApiIssueCommentWriteSession",
+        "withGitHubApiReadSession",
+        "withGitHubApiRepositoryDispatchWriteSession",
+        "withGitHubApiRunnerAdminSession",
+        "withGitHubApiStatusWriteSession",
+        "withGitHubApiMergeWriteSession"
+      ],
+      "effectKinds": [
+        "process",
+        "provider"
+      ],
+      "ownerInternalOperations": [
+        "executeGitHubApiOperation",
+        "executeObservedGitHubApiOperation",
+        "readGitHubApiBytes",
+        "issueGitHubApiCapabilityForTestSupport",
+        "withGitHubApiEnrollmentSessionForTestSupport",
+        "withGitHubApiReadOperationBudgetForTestSupport",
+        "withGitHubApiSessionForTestSupport"
+      ],
+      "operationRoles": [
+        {
+          "operation": "withGitHubApiBranchCloseoutWriteSession",
+          "role": "domain-owner",
+          "semanticOperation": "external-capabilities.github-api.branch-closeout-write-session",
+          "requirementId": null,
+          "recovery": null
+        },
+        {
+          "operation": "withGitHubApiIssueCommentWriteSession",
+          "role": "domain-owner",
+          "semanticOperation": "external-capabilities.github-api.issue-comment-write-session",
+          "requirementId": null,
+          "recovery": null
+        },
+        {
+          "operation": "withGitHubApiRunnerAdminSession",
+          "role": "domain-owner",
+          "semanticOperation": "external-capabilities.github-api.runner-admin-session",
+          "requirementId": null,
+          "recovery": null
+        },
+        {
+          "operation": "withGitHubApiReadSession",
+          "role": "domain-owner",
+          "semanticOperation": "external-capabilities.github-api.read-session",
+          "requirementId": null,
+          "recovery": null
+        },
+        {
+          "operation": "withGitHubApiRepositoryDispatchWriteSession",
+          "role": "domain-owner",
+          "semanticOperation": "external-capabilities.github-api.repository-dispatch-write-session",
+          "requirementId": null,
+          "recovery": null
+        },
+        {
+          "operation": "withGitHubApiStatusWriteSession",
+          "role": "domain-owner",
+          "semanticOperation": "external-capabilities.github-api.status-write-session",
+          "requirementId": null,
+          "recovery": null
+        },
+        {
+          "operation": "withGitHubApiMergeWriteSession",
+          "role": "domain-owner",
+          "semanticOperation": "external-capabilities.github-api.merge-write-session",
+          "requirementId": null,
+          "recovery": null
+        }
+      ]
+    }
+  ],
+  "operationObligations": [
+    {
+      "operation": {
+        "kind": "capability",
+        "capability": "github-api.operation-session",
+        "operation": "withGitHubApiIssueCommentWriteSession"
+      },
+      "consumerSupport": {
+        "consumers": [
+          "verification.platform-ci",
+          "control.repository-maintenance"
+        ]
+      },
+      "effect": {
+        "kinds": [
+          "process",
+          "provider"
+        ],
+        "failureKinds": [
+          "process.cancelled",
+          "process.deadline-exhausted",
+          "process.identity-drift",
+          "process.output-budget-exhausted",
+          "process.settlement-unproven",
+          "provider.unavailable",
+          "provider.unverified"
+        ],
+        "recovery": "owner-intervention"
+      },
+      "evolution": {
+        "migration": "one-shot-owner-migration",
+        "retirement": "replacement-obligations-satisfied"
+      },
+      "resources": {
+        "aggregateBudgets": [
+          {
+            "resource": "duration-ms",
+            "maximum": 30000
+          },
+          {
+            "resource": "input-bytes",
+            "maximum": 4194304
+          },
+          {
+            "resource": "output-bytes",
+            "maximum": 33566720
+          },
+          {
+            "resource": "processes",
+            "maximum": 1
+          }
+        ]
+      },
+      "futureSupport": {
+        "condition": "semantic-superset-required"
+      }
+    },
+    {
+      "operation": {
+        "kind": "capability",
+        "capability": "github-api.operation-session",
+        "operation": "withGitHubApiBranchCloseoutWriteSession"
+      },
+      "consumerSupport": {
+        "consumers": [
+          "control.branch-lifecycle"
+        ]
+      },
+      "effect": {
+        "kinds": [
+          "process",
+          "provider"
+        ],
+        "failureKinds": [
+          "process.cancelled",
+          "process.deadline-exhausted",
+          "process.identity-drift",
+          "process.output-budget-exhausted",
+          "process.settlement-unproven",
+          "provider.unavailable",
+          "provider.unverified"
+        ],
+        "recovery": "owner-intervention"
+      },
+      "evolution": {
+        "migration": "one-shot-owner-migration",
+        "retirement": "replacement-obligations-satisfied"
+      },
+      "resources": {
+        "aggregateBudgets": [
+          {
+            "resource": "duration-ms",
+            "maximum": 30000
+          },
+          {
+            "resource": "input-bytes",
+            "maximum": 4194304
+          },
+          {
+            "resource": "output-bytes",
+            "maximum": 33566720
+          },
+          {
+            "resource": "processes",
+            "maximum": 1
+          }
+        ]
+      },
+      "futureSupport": {
+        "condition": "semantic-superset-required"
+      }
+    },
+    {
+      "operation": {
+        "kind": "capability",
+        "capability": "github-api.credential",
+        "operation": "readGitHubToken"
+      },
+      "consumerSupport": {
+        "consumers": [
+          "external-capabilities.github-api"
+        ]
+      },
+      "effect": {
+        "kinds": [
+          "process",
+          "provider"
+        ],
+        "failureKinds": [
+          "process.cancelled",
+          "process.deadline-exhausted",
+          "process.identity-drift",
+          "process.output-budget-exhausted",
+          "process.settlement-unproven",
+          "provider.unavailable",
+          "provider.unverified"
+        ],
+        "recovery": "idempotent-retry"
+      },
+      "evolution": {
+        "migration": "not-required",
+        "retirement": "replacement-obligations-satisfied"
+      },
+      "resources": {
+        "aggregateBudgets": [
+          {
+            "resource": "duration-ms",
+            "maximum": 30000
+          },
+          {
+            "resource": "input-bytes",
+            "maximum": 0
+          },
+          {
+            "resource": "output-bytes",
+            "maximum": 12288
+          },
+          {
+            "resource": "processes",
+            "maximum": 1
+          }
+        ]
+      },
+      "futureSupport": {
+        "condition": "semantic-superset-required"
+      }
+    },
+    {
+      "operation": {
+        "kind": "capability",
+        "capability": "github-api.operation-session",
+        "operation": "withGitHubApiRunnerAdminSession"
+      },
+      "consumerSupport": {
+        "consumers": [
+          "verification.ci"
+        ]
+      },
+      "effect": {
+        "kinds": [
+          "process",
+          "provider"
+        ],
+        "failureKinds": [
+          "process.cancelled",
+          "process.deadline-exhausted",
+          "process.identity-drift",
+          "process.output-budget-exhausted",
+          "process.settlement-unproven",
+          "provider.unavailable",
+          "provider.unverified"
+        ],
+        "recovery": "owner-intervention"
+      },
+      "evolution": {
+        "migration": "one-shot-owner-migration",
+        "retirement": "replacement-obligations-satisfied"
+      },
+      "resources": {
+        "aggregateBudgets": [
+          {
+            "resource": "duration-ms",
+            "maximum": 30000
+          },
+          {
+            "resource": "input-bytes",
+            "maximum": 4194304
+          },
+          {
+            "resource": "output-bytes",
+            "maximum": 33566720
+          },
+          {
+            "resource": "processes",
+            "maximum": 1
+          }
+        ]
+      },
+      "futureSupport": {
+        "condition": "semantic-superset-required"
+      }
+    },
+    {
+      "operation": {
+        "kind": "capability",
+        "capability": "github-api.operation-session",
+        "operation": "withGitHubApiReadSession"
+      },
+      "consumerSupport": {
+        "consumers": [
+          "control.main-health",
+          "verification.platform.ci"
+        ]
+      },
+      "effect": {
+        "kinds": [
+          "process",
+          "provider"
+        ],
+        "failureKinds": [
+          "process.cancelled",
+          "process.deadline-exhausted",
+          "process.identity-drift",
+          "process.output-budget-exhausted",
+          "process.settlement-unproven",
+          "provider.unavailable",
+          "provider.unverified"
+        ],
+        "recovery": "idempotent-retry"
+      },
+      "evolution": {
+        "migration": "one-shot-owner-migration",
+        "retirement": "replacement-obligations-satisfied"
+      },
+      "resources": {
+        "aggregateBudgets": [
+          {
+            "resource": "duration-ms",
+            "maximum": 600000
+          },
+          {
+            "resource": "input-bytes",
+            "maximum": 4194304
+          },
+          {
+            "resource": "output-bytes",
+            "maximum": 33566720
+          },
+          {
+            "resource": "processes",
+            "maximum": 2
+          }
+        ]
+      },
+      "futureSupport": {
+        "condition": "semantic-superset-required"
+      }
+    },
+    {
+      "operation": {
+        "kind": "capability",
+        "capability": "github-api.operation-session",
+        "operation": "withGitHubApiRepositoryDispatchWriteSession"
+      },
+      "consumerSupport": {
+        "consumers": [
+          "verification.platform.ci"
+        ]
+      },
+      "effect": {
+        "kinds": [
+          "process",
+          "provider"
+        ],
+        "failureKinds": [
+          "process.cancelled",
+          "process.deadline-exhausted",
+          "process.identity-drift",
+          "process.output-budget-exhausted",
+          "process.settlement-unproven",
+          "provider.unavailable",
+          "provider.unverified"
+        ],
+        "recovery": "owner-intervention"
+      },
+      "evolution": {
+        "migration": "one-shot-owner-migration",
+        "retirement": "replacement-obligations-satisfied"
+      },
+      "resources": {
+        "aggregateBudgets": [
+          { "resource": "duration-ms", "maximum": 30000 },
+          { "resource": "input-bytes", "maximum": 4194304 },
+          { "resource": "output-bytes", "maximum": 33566720 },
+          { "resource": "processes", "maximum": 1 }
+        ]
+      },
+      "futureSupport": {
+        "condition": "semantic-superset-required"
+      }
+    },
+    {
+      "operation": {
+        "kind": "capability",
+        "capability": "github-api.operation-session",
+        "operation": "withGitHubApiStatusWriteSession"
+      },
+      "consumerSupport": {
+        "consumers": [
+          "control.branch-lifecycle",
+          "control.integration",
+          "control.main-health",
+          "verification.platform.ci"
+        ]
+      },
+      "effect": {
+        "kinds": [
+          "process",
+          "provider"
+        ],
+        "failureKinds": [
+          "process.cancelled",
+          "process.deadline-exhausted",
+          "process.identity-drift",
+          "process.output-budget-exhausted",
+          "process.settlement-unproven",
+          "provider.unavailable",
+          "provider.unverified"
+        ],
+        "recovery": "owner-intervention"
+      },
+      "evolution": {
+        "migration": "one-shot-owner-migration",
+        "retirement": "replacement-obligations-satisfied"
+      },
+      "resources": {
+        "aggregateBudgets": [
+          {
+            "resource": "duration-ms",
+            "maximum": 30000
+          },
+          {
+            "resource": "input-bytes",
+            "maximum": 4194304
+          },
+          {
+            "resource": "output-bytes",
+            "maximum": 33566720
+          },
+          {
+            "resource": "processes",
+            "maximum": 1
+          }
+        ]
+      },
+      "futureSupport": {
+        "condition": "semantic-superset-required"
+      }
+    },
+    {
+      "operation": {
+        "kind": "capability",
+        "capability": "github-api.operation-session",
+        "operation": "withGitHubApiMergeWriteSession"
+      },
+      "consumerSupport": {
+        "consumers": [
+          "control.branch-lifecycle"
+        ]
+      },
+      "effect": {
+        "kinds": [
+          "process",
+          "provider"
+        ],
+        "failureKinds": [
+          "process.cancelled",
+          "process.deadline-exhausted",
+          "process.identity-drift",
+          "process.output-budget-exhausted",
+          "process.settlement-unproven",
+          "provider.unavailable",
+          "provider.unverified"
+        ],
+        "recovery": "owner-intervention"
+      },
+      "evolution": {
+        "migration": "one-shot-owner-migration",
+        "retirement": "replacement-obligations-satisfied"
+      },
+      "resources": {
+        "aggregateBudgets": [
+          {
+            "resource": "duration-ms",
+            "maximum": 30000
+          },
+          {
+            "resource": "input-bytes",
+            "maximum": 4194304
+          },
+          {
+            "resource": "output-bytes",
+            "maximum": 33566720
+          },
+          {
+            "resource": "processes",
+            "maximum": 1
+          }
+        ]
+      },
+      "futureSupport": {
+        "condition": "semantic-superset-required"
+      }
+    }
+  ],
+  "preDependencyBootstrap": false
+}

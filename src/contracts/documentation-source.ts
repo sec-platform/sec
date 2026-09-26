@@ -1,4 +1,4 @@
-import { digest, isPlainObject } from './canonical.ts';
+import { rawSha256Hex, isPlainObject } from './canonical.ts';
 import { parseExactJson } from './exact-json.ts';
 import { isCanonicalPortableLogicalPath, portableLogicalPathCollisionKey } from './logical-path.ts';
 
@@ -116,7 +116,7 @@ export function parseDocumentationBoundary(bytes: Uint8Array): DocumentationBoun
 }
 export function documentationSourceDigest(members: readonly DocumentationSourceMember[]): string {
   // Field order is the published compact-JSON byte protocol. Never use host locale/pretty JSON.
-  return digest(JSON.stringify(members.map(member => ({ bytes: member.bytes, path: member.path, sha256: member.sha256 }))));
+  return rawSha256Hex(JSON.stringify(members.map(member => ({ bytes: member.bytes, path: member.path, sha256: member.sha256 }))));
 }
 export function parseDocumentationSourceContract(baselineBytes: Uint8Array, manifestBytes: Uint8Array): DocumentationSourceContract {
   const boundary = parseDocumentationBoundary(baselineBytes);
@@ -151,7 +151,7 @@ export function parseDocumentationSourceContract(baselineBytes: Uint8Array, mani
     members.push(Object.freeze({ path: value.path, bytes: value.bytes, sha256: value.sha256 }));
   }
   const boundBaseline = members.find(member => member.path === DOCUMENTATION_BASELINE);
-  if (boundBaseline?.bytes !== baselineBytes.byteLength || boundBaseline.sha256 !== digest(baselineBytes)) {
+  if (boundBaseline?.bytes !== baselineBytes.byteLength || boundBaseline.sha256 !== rawSha256Hex(baselineBytes)) {
     throw new Error('Documentation boundary bytes are not bound by the source manifest');
   }
   if (!members.some(member => member.path === boundary.entrypoint)) throw new Error('Documentation entrypoint is not a source member');

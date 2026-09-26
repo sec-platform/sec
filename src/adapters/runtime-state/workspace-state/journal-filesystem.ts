@@ -1,6 +1,6 @@
-import { createHash } from 'node:crypto';
 import path from 'node:path';
 
+import { rawSha256Hex } from '../../../contracts/canonical.ts';
 import { acquirePhysicalMutationLease, type PhysicalMutationLeaseOptions } from '../physical/runtime/mutation-lease.ts';
 import { PhysicalNoFollowError, assertSameNoFollowDirectoryIdentity, createNoFollowOrdinaryDirectoryChain, deleteRetainedNoFollowEntry, inspectNoFollowDirectoryChain, inspectNoFollowDirectoryChild, inspectNoFollowOrdinaryFileEntry, publishExclusiveDurableCanonicalFile, readNoFollowOrdinaryFile, replaceDurableCanonicalFile, retainNoFollowOrdinaryFile, type PhysicalDirectoryIdentity, type RetainedNoFollowOrdinaryFile } from '../physical/runtime/physical-no-follow.ts';
 
@@ -52,9 +52,7 @@ export interface RuntimeStateJournalFileSystem {
 export type RuntimeStateJournalFileSystemOptions = PhysicalMutationLeaseOptions;
 
 export function runtimeStateJournalMutationLeaseName(rootPath: string, filePath: string): string {
-  return `.journal-mutation-${createHash('sha256')
-    .update(path.relative(path.resolve(rootPath), path.resolve(filePath)))
-    .digest('hex')}.lock`;
+  return `.journal-mutation-${rawSha256Hex(path.relative(path.resolve(rootPath), path.resolve(filePath)))}.lock`;
 }
 
 function relativeSegments(rootPath: string, targetPath: string, allowRoot: boolean): readonly string[] {

@@ -1,9 +1,9 @@
 import { uniqueSorted } from '../../../../../contracts/canonical.ts';
-import { SecError } from '../../../../../contracts/failure.ts';
-import { isSecRepositoryTestModulePath } from '../../../../../contracts/repository-test-path.ts';
+import { FailureError } from '../../../../../contracts/failure.ts';
+import { isRepositoryTestModulePath } from '../../../../../contracts/repository-test-path.ts';
 import {
-  normalizeSecRepositoryPath,
-  type SecRepositoryModuleGraph
+  normalizeRepositoryModulePath,
+  type RepositoryModuleGraph as ArchitectureModuleGraph
 } from '../../../../repository/architecture/contract.ts';
 import {
   assertIssuedTestImpactProjection,
@@ -26,7 +26,7 @@ import {
   readIssuedAffectedTestImpactBinding,
   type IssuedAffectedTestImpactSource
 } from './affected-source.ts';
-import type { CodexDevelopmentTestImpactTransitionObservation } from './transition.ts';
+import type { TestImpactTransitionObservation } from './transition.ts';
 
 export type TestImpactSelection = {
   fast: string[];
@@ -34,12 +34,12 @@ export type TestImpactSelection = {
   owners: string[];
 };
 
-export type CodexDevelopmentTestImpactSourceProvider = Readonly<{
+export type TestImpactSourceProvider = Readonly<{
   projection: IssuedTestImpactProjection;
   testInventory: IssuedTestInventoryProjection;
   activeDocumentationPaths: readonly string[];
 }>;
-export type RepositoryModuleGraph = SecRepositoryModuleGraph;
+export type RepositoryModuleGraph = ArchitectureModuleGraph;
 
 type ReverseImportMap = Readonly<{
   map: ReadonlyMap<string, readonly string[]>;
@@ -52,7 +52,7 @@ type ReverseImportMap = Readonly<{
 
 let providerReverseImportMapCache = new WeakMap<object, ReverseImportMap>();
 const issuedTestImpactProviders = new WeakSet<object>();
-const providerTransitions = new WeakMap<object, CodexDevelopmentTestImpactTransitionObservation>();
+const providerTransitions = new WeakMap<object, TestImpactTransitionObservation>();
 const providerAffectedBindings = new WeakMap<object, NonNullable<ReturnType<typeof readIssuedAffectedTestImpactBinding>>>();
 type ProviderIndex = Readonly<{
   activeDocumentationPaths: ReadonlySet<string>;
@@ -65,12 +65,12 @@ type ProviderIndex = Readonly<{
 let providerIndexCache = new WeakMap<object, ProviderIndex>();
 
 function normalizeRepoPath(value: string): string {
-  return normalizeSecRepositoryPath(value);
+  return normalizeRepositoryModulePath(value);
 }
 
-function assertIssuedProvider(provider: CodexDevelopmentTestImpactSourceProvider): void {
+function assertIssuedProvider(provider: TestImpactSourceProvider): void {
   if (!issuedTestImpactProviders.has(provider)) {
-    throw new SecError(
+    throw new FailureError(
       'TEST-IMPACT-001',
       'Test impact requires an owner-issued provider composition',
       { kind: 'provider-unissued' }
@@ -79,7 +79,7 @@ function assertIssuedProvider(provider: CodexDevelopmentTestImpactSourceProvider
   assertIssuedTestImpactProjection(provider.projection);
 }
 
-function providerIndex(provider: CodexDevelopmentTestImpactSourceProvider): ProviderIndex {
+function providerIndex(provider: TestImpactSourceProvider): ProviderIndex {
   assertIssuedProvider(provider);
   const cached = providerIndexCache.get(provider);
   if (cached !== undefined) return cached;
@@ -132,7 +132,7 @@ function providerIndex(provider: CodexDevelopmentTestImpactSourceProvider): Prov
 
 function classifyProviderSource(
   file: string,
-  provider: CodexDevelopmentTestImpactSourceProvider
+  provider: TestImpactSourceProvider
 ) {
   const index = providerIndex(provider);
   return classifyTestImpactSource(
@@ -144,7 +144,7 @@ function classifyProviderSource(
 
 function moduleIdForPath(
   file: string,
-  provider: CodexDevelopmentTestImpactSourceProvider
+  provider: TestImpactSourceProvider
 ): string | null {
   const repositoryPath = normalizeRepoPath(file);
   const index = providerIndex(provider);
@@ -157,7 +157,7 @@ function moduleIdForPath(
   // A containing module root is not proof that an arbitrary, absent path is
   // owned. Only paths present in the exact source projection and the module
   // descriptor itself may use the structural owner fallback.
-  if (!index.moduleIds.has(repositoryPath) && !repositoryPath.endsWith('/sec.module.json')) {
+  if (!index.moduleIds.has(repositoryPath) && !repositoryPath.endsWith('/module.json')) {
     return null;
   }
   const containingOwners = provider.projection.moduleOwners
@@ -175,7 +175,7 @@ function moduleIdForPath(
 
 function semanticModuleIdsForSource(
   file: string,
-  provider: CodexDevelopmentTestImpactSourceProvider
+  provider: TestImpactSourceProvider
 ): readonly string[] {
   const physicalOwner = moduleIdForPath(file, provider);
   return uniqueSorted([
@@ -186,19 +186,19 @@ function semanticModuleIdsForSource(
 
 export function isTestImpactModuleGraphInputFile(
   file: string,
-  provider: CodexDevelopmentTestImpactSourceProvider
+  provider: TestImpactSourceProvider
 ): boolean {
   const normalized = normalizeRepoPath(file);
-  if (isSecRepositoryTestModulePath(normalized)) return false;
+  if (isRepositoryTestModulePath(normalized)) return false;
   return providerIndex(provider).moduleGraphInputs.has(normalized);
 }
 
 export function isTestImpactSourceFile(
   file: string,
-  provider: CodexDevelopmentTestImpactSourceProvider
+  provider: TestImpactSourceProvider
 ): boolean {
   const normalized = normalizeRepoPath(file);
-  if (isSecRepositoryTestModulePath(normalized)) return false;
+  if (isRepositoryTestModulePath(normalized)) return false;
   return isTestImpactModuleGraphInputFile(normalized, provider)
     || buildReverseImportMap(provider).map.has(normalized)
     || moduleIdForPath(normalized, provider) !== null
@@ -216,7 +216,7 @@ export function createRepositoryTestImpactSourceProvider(
     activeDocumentationPaths: readonly string[];
     affectedSource?: IssuedAffectedTestImpactSource;
   }>
-): CodexDevelopmentTestImpactSourceProvider {
+): TestImpactSourceProvider {
   const {
     projection,
     testInventory,
@@ -229,14 +229,14 @@ export function createRepositoryTestImpactSourceProvider(
   if (testInventory.workspaceSnapshotIdentityDigest !== projection.workspaceSnapshotIdentityDigest
       || testInventory.snapshotDigest !== projection.snapshotDigest
       || projection.testFiles.some((path) => (
-        isSecRepositoryTestModulePath(path) && !inventoryTestFiles.has(path)
+        isRepositoryTestModulePath(path) && !inventoryTestFiles.has(path)
       ))) {
-    throw new SecError('TEST-IMPACT-001', 'Test inventory differs from its Source Program projection.', {
+    throw new FailureError('TEST-IMPACT-001', 'Test inventory differs from its Source Program projection.', {
       kind: 'test-inventory-mismatch'
     });
   }
   if (Object.prototype.hasOwnProperty.call(input, 'transition')) {
-    throw new SecError(
+    throw new FailureError(
       'TEST-IMPACT-001',
       'Test impact transition must come from an owner-issued Git/source composition',
       { kind: 'transition-unissued' }
@@ -246,7 +246,7 @@ export function createRepositoryTestImpactSourceProvider(
     ? null
     : readIssuedAffectedTestImpactBinding(affectedSource);
   if (affectedSource !== undefined && affectedSource.projection !== projection) {
-    throw new SecError(
+    throw new FailureError(
       'TEST-IMPACT-001',
       'Test impact transition differs from the Source Program projection source',
       { kind: 'transition-source-mismatch' }
@@ -255,7 +255,7 @@ export function createRepositoryTestImpactSourceProvider(
   const moduleFileSet = new Set(projection.moduleGraph.files);
   const missingTestPath = projection.testFiles.find((testFile) => !moduleFileSet.has(testFile));
   if (missingTestPath !== undefined) {
-    throw new SecError(
+    throw new FailureError(
       'TEST-IMPACT-001',
       `Test impact projection omitted a test module from its graph: ${missingTestPath}.`,
       { kind: 'projection-test-module-missing', testPath: missingTestPath }
@@ -287,7 +287,7 @@ function freezeAdjacency(map: Map<string, string[]>): ReadonlyMap<string, readon
   return map;
 }
 
-function buildReverseImportMap(provider: CodexDevelopmentTestImpactSourceProvider): ReverseImportMap {
+function buildReverseImportMap(provider: TestImpactSourceProvider): ReverseImportMap {
   assertIssuedProvider(provider);
   const cached = providerReverseImportMapCache.get(provider);
   if (cached !== undefined) return cached;
@@ -377,7 +377,7 @@ export type TestImpactSelectionResolution = {
 };
 
 export function resolveTestImpactSelectionTrustBoundary(
-  provider: CodexDevelopmentTestImpactSourceProvider
+  provider: TestImpactSourceProvider
 ): TestImpactSelectionResolution {
   const { unresolvedModuleFiles } = buildReverseImportMap(provider);
   return {
@@ -386,15 +386,15 @@ export function resolveTestImpactSelectionTrustBoundary(
   };
 }
 
-export function readRepositoryModuleGraphV1(
-  provider: CodexDevelopmentTestImpactSourceProvider
+export function readRepositoryModuleGraph(
+  provider: TestImpactSourceProvider
 ): RepositoryModuleGraph {
   return buildReverseImportMap(provider).graph;
 }
 
 function deriveTestsForSources(
   files: readonly string[],
-  provider: CodexDevelopmentTestImpactSourceProvider
+  provider: TestImpactSourceProvider
 ): string[] {
   const { declarationPaths, map, structuralMap } = buildReverseImportMap(provider);
   const runnableTestFiles = new Set(provider.projection.testFiles
@@ -426,7 +426,7 @@ function deriveTestsForSources(
 
 function deriveTestsForModuleIds(
   moduleIds: readonly string[],
-  provider: CodexDevelopmentTestImpactSourceProvider
+  provider: TestImpactSourceProvider
 ): readonly string[] {
   if (moduleIds.length === 0) return [];
   const wanted = new Set(moduleIds);
@@ -442,7 +442,7 @@ function deriveTestsForModuleIds(
 
 function selectionForSource(
   file: string,
-  provider: CodexDevelopmentTestImpactSourceProvider
+  provider: TestImpactSourceProvider
 ): TestImpactSelection {
   const normalizedFile = normalizeRepoPath(file);
   const semanticModuleIds = semanticModuleIdsForSource(normalizedFile, provider);
@@ -473,7 +473,7 @@ function selectionForSource(
 
 export function hasTestImpactForFile(
   file: string,
-  provider: CodexDevelopmentTestImpactSourceProvider
+  provider: TestImpactSourceProvider
 ): boolean {
   const selection = selectionForSource(file, provider);
   return selection.fast.length > 0 || selection.slow.length > 0;
@@ -481,7 +481,7 @@ export function hasTestImpactForFile(
 
 export function resolveTestImpactForFiles(
   files: readonly string[],
-  provider: CodexDevelopmentTestImpactSourceProvider
+  provider: TestImpactSourceProvider
 ): ReadonlySet<string> {
   const removedModuleOwners = providerIndex(provider).removedModuleOwners;
   return new Set(files.filter((file) => (
@@ -494,7 +494,7 @@ export function resolveTestImpactForFiles(
 
 export function resolveTestOwnership(
   files: readonly string[],
-  provider: CodexDevelopmentTestImpactSourceProvider
+  provider: TestImpactSourceProvider
 ): ResolvedTestOwnership[] {
   return files.flatMap((source) => semanticModuleIdsForSource(source, provider).map((moduleId) => ({
     source,
@@ -505,10 +505,10 @@ export function resolveTestOwnership(
 
 export function resolveTestImpactRiskPolicies(
   files: readonly string[],
-  provider: CodexDevelopmentTestImpactSourceProvider
+  provider: TestImpactSourceProvider
 ): TestImpactRiskPolicy[] {
   const index = providerIndex(provider);
-  const graph = readRepositoryModuleGraphV1(provider);
+  const graph = readRepositoryModuleGraph(provider);
   const reverseConsumers = buildReverseImportMap(provider).map;
   const compilerTestInputs = new Set(provider.projection.testFiles);
   return uniqueSorted([
@@ -533,7 +533,7 @@ export function resolveTestImpactRiskPolicies(
 
 export function selectTestsForSources(
   files: readonly string[],
-  provider: CodexDevelopmentTestImpactSourceProvider
+  provider: TestImpactSourceProvider
 ): TestImpactSelection {
   const fast = new Set<string>();
   const slow = new Set<string>();
@@ -556,6 +556,6 @@ export function formatSlowImpactNotice(selection: TestImpactSelection): string {
   return [
     'Changed sources also affect slow e2e coverage:',
     ...selection.slow.map((file) => `- ${file}`),
-    'Run bun run test:slow or bun run test:full before release.'
+    'Run bun run test -- --scope slow or bun run test -- --scope full before release.'
   ].join('\n');
 }

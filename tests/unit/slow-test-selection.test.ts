@@ -8,7 +8,7 @@ import {
 } from '../../src/adapters/self-hosting/development/runner/test-execution-policy.ts';
 import { compileTestBudgetProjection, slowTestPrRiskBaselineSuiteIds } from '../../src/adapters/verification/platform/test-impact/contract/budget.ts';
 import { hasTestImpactForFile } from '../../src/adapters/verification/platform/test-impact/runtime/impact.ts';
-import { CodexDevelopmentCreateTestImpactTransitionObservation } from '../../src/adapters/verification/platform/test-impact/runtime/transition.ts';
+import { CreateTestImpactTransitionObservation } from '../../src/adapters/verification/platform/test-impact/runtime/transition.ts';
 import { selectSlowTestRiskClosure as selectSlowTestClosureWithProvider } from '../../src/adapters/verification/platform/test-impact/slow-risk-selection.ts';
 import { compilerRoot } from "../../src/adapters/workspace-context.ts";
 import { acquireExactRepositoryTestImpactProviderFixture } from '../helpers/test-impact-provider.ts';
@@ -123,10 +123,10 @@ test('heterogeneous owned inputs form one resolved union', () => {
 
 test('module descriptors and owned sources resolve even when no runnable test consumes them', () => {
   for (const path of [
-    'src/adapters/self-hosting/control/branch-lifecycle/sec.module.json',
-    'src/adapters/self-hosting/control/composition/sec.module.json',
+    'src/adapters/self-hosting/control/branch-lifecycle/module.json',
+    'src/adapters/self-hosting/control/composition/module.json',
     'src/adapters/self-hosting/control/composition/trusted-runtime-closeout.ts',
-    'src/adapters/self-hosting/development/commit/sec.module.json'
+    'src/adapters/self-hosting/development/commit/module.json'
   ]) {
     expect(selectSlowTestRiskClosure([path])).toMatchObject({
       resolved: true,
@@ -168,7 +168,7 @@ test('deleted and renamed slow paths preserve transition identity without becomi
     unresolvedPaths: ['tests/e2e/deleted-unknown.test.ts']
   });
 
-  const transition = CodexDevelopmentCreateTestImpactTransitionObservation({
+  const transition = CreateTestImpactTransitionObservation({
     baseSha: 'a'.repeat(40),
     headSha: 'b'.repeat(40),
     records: [{

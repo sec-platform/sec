@@ -1,4 +1,4 @@
-import { SecError } from '../../../../contracts/failure.ts';
+import { FailureError } from '../../../../contracts/failure.ts';
 import { isNativeAborted } from '../../../../contracts/native-abort.ts';
 import {
   runtimeDependencyOperationContext,
@@ -54,7 +54,7 @@ function phaseOutcome(error: unknown, context: RuntimeDependencyOperationContext
   // value must not replace the failure that the action actually produced.
   try {
     if (isNativeAborted(context.signal)) return 'aborted';
-    if (error instanceof SecError && error.code === 'RUNTIME-DEPS-003') {
+    if (error instanceof FailureError && error.code === 'RUNTIME-DEPS-003') {
       const message = error.message;
       if (typeof message === 'string' && message.toLowerCase().includes('deadline')) {
         return 'deadline-exhausted';
