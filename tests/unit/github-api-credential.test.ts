@@ -147,7 +147,8 @@ test.serial('recognizes only the exact repository-maintenance issue-comment work
       'sec-platform/sec/.github/workflows/repository-maintenance.yml@refs/heads/main',
     workflowSha: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
     issueNumber: 313,
-    commentId: 42
+    commentId: 42,
+    actor: 'maintainer'
   });
   expect(inspectGitHubActionsProjectionCredentialIdentity(source, 'sec-platform/sec')).toBeNull();
   for (const changed of [
