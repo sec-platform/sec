@@ -149,7 +149,7 @@ export function renderCodeScanningProjection(projection: CodeScanningProjection)
         + finding.alertNumber + '](' + finding.htmlUrl + ') ' + markdown(finding.message) + ' |');
     }
   }
-  return lines.join('\n') + '\n';
+  return lines.join('\n');
 }
 
 function assertFinalCodeQlCheck(
