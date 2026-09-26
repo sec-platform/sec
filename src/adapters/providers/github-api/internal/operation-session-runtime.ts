@@ -124,6 +124,7 @@ export type GitHubApiOperation =
   | Readonly<{ kind: 'update-issue-comment'; commentId: number; body: string }>
   | Readonly<{ kind: 'create-issue-comment'; issueNumber: number; body: string }>
   | Readonly<{ kind: 'open-pulls'; baseBranch: string }>
+  | Readonly<{ kind: 'open-pulls-page'; page: number }>
   | Readonly<{ kind: 'matching-head-refs'; page: number }>
   | Readonly<{ kind: 'git-ref'; branch: string }>
   | Readonly<{ kind: 'workflow-run'; runId: string }>
@@ -267,6 +268,7 @@ function compileOperation(
       && kind !== 'issue-comments'
       && kind !== 'issue-comment'
       && kind !== 'create-issue-comment'
+      && kind !== 'open-pulls-page'
       && kind !== 'delete-ref-cas') {
     throw new GitHubApiProviderError(
       'GitHub API branch-closeout-write authority permits only fixed closeout observations and effects'
@@ -339,6 +341,8 @@ function compileOperation(
         Object.freeze({ body: boundedMultilineText(operation.body, 'issue comment body', 65_536) })
       );
     case 'open-pulls': return read(`/repos/${repo}/pulls?state=open&base=${encodeURIComponent(boundedText(operation.baseBranch, 'base branch', 255))}&per_page=2&page=1`);
+    case 'open-pulls-page':
+      return read(`/repos/${repo}/pulls?state=open&per_page=100&page=${page(operation.page)}`);
     case 'matching-head-refs': return read(`/repos/${repo}/git/matching-refs/heads/?per_page=100&page=${page(operation.page)}`);
     case 'git-ref': return read(`/repos/${repo}/git/ref/heads/${encodeURIComponent(boundedText(operation.branch, 'branch', 255))}`);
     case 'workflow-run': {
