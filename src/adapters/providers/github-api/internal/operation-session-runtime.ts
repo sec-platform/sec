@@ -469,12 +469,21 @@ export function assertGitHubApiCapability(
     : null;
   const workflowCommentPrincipal = requiredEffect === 'issue-comment-write'
     && value.principal.transport === 'github-actions-token'
-    && value.principal.permission === 'workflow';
+    && value.principal.permission === 'workflow'
+    && value.principal.workflowRef
+      === `${repositoryName}/.github/workflows/code-scanning-projection.yml@refs/heads/main`;
+  const workflowBranchCloseoutPrincipal = requiredEffect === 'branch-closeout-write'
+    && value.principal.transport === 'github-actions-token'
+    && value.principal.permission === 'workflow'
+    && value.principal.workflowRef
+      === `${repositoryName}/.github/workflows/repository-maintenance.yml@refs/heads/main`;
   if (value.repository !== repositoryName || !effectSatisfied
       || (requiredEffect === 'runner-admin' && userPrincipal?.permission !== 'admin')
-      || ((requiredEffect === 'status-write'
-          || requiredEffect === 'merge-write'
-          || requiredEffect === 'branch-closeout-write')
+      || ((requiredEffect === 'status-write' || requiredEffect === 'merge-write')
+        && userPrincipal?.permission !== 'admin'
+        && userPrincipal?.permission !== 'maintain')
+      || (requiredEffect === 'branch-closeout-write'
+        && !workflowBranchCloseoutPrincipal
         && userPrincipal?.permission !== 'admin'
         && userPrincipal?.permission !== 'maintain')
       || (requiredEffect === 'issue-comment-write'
@@ -507,8 +516,10 @@ function issueCapability(input: Readonly<{
     && input.principal.nodeId === 'MDM6Qm90NDE4OTgyODI='
     && input.principal.userId === 41898282
     && input.principal.permission === 'workflow'
-    && input.principal.workflowRef
-      === `${input.repository}/.github/workflows/code-scanning-projection.yml@refs/heads/main`
+    && (input.principal.workflowRef
+        === `${input.repository}/.github/workflows/code-scanning-projection.yml@refs/heads/main`
+      || input.principal.workflowRef
+        === `${input.repository}/.github/workflows/repository-maintenance.yml@refs/heads/main`)
     && /^[0-9a-f]{40}$/u.test(input.principal.workflowSha);
   if (!/^[^\s\u0000-\u001f\u007f-\u009f]{20,1024}$/u.test(input.token)
       || (!userPrincipalValid && !workflowPrincipalValid)
@@ -520,21 +531,41 @@ function issueCapability(input: Readonly<{
         || input.principal.permission !== 'admin')) {
     throw new GitHubApiProviderError('GitHub API runner-admin capability requires admin permission');
   }
-  if ((input.effect === 'status-write'
-      || input.effect === 'merge-write'
-      || input.effect === 'branch-closeout-write')
+  if ((input.effect === 'status-write' || input.effect === 'merge-write')
       && (input.principal.transport !== 'github-rest-token'
         || (input.principal.permission !== 'admin' && input.principal.permission !== 'maintain'))) {
     throw new GitHubApiProviderError('GitHub API privileged write capability requires maintain/admin user permission');
+  }
+  if (input.effect === 'branch-closeout-write') {
+    const maintenanceWorkflow = input.principal.transport === 'github-actions-token'
+      && input.principal.workflowRef
+        === `${input.repository}/.github/workflows/repository-maintenance.yml@refs/heads/main`;
+    const maintainerUser = input.principal.transport === 'github-rest-token'
+      && (input.principal.permission === 'admin' || input.principal.permission === 'maintain');
+    if (!maintenanceWorkflow && !maintainerUser) {
+      throw new GitHubApiProviderError(
+        'GitHub API branch-closeout capability requires maintainer user or exact maintenance workflow'
+      );
+    }
   }
   if (input.effect === 'issue-comment-write'
       && input.principal.transport === 'github-rest-token'
       && input.principal.permission !== 'admin' && input.principal.permission !== 'maintain') {
     throw new GitHubApiProviderError('GitHub API user comment write capability requires maintain/admin permission');
   }
-  if (input.principal.transport === 'github-actions-token'
-      && input.effect !== 'read' && input.effect !== 'issue-comment-write') {
-    throw new GitHubApiProviderError('GitHub Actions workflow principal permits only read and issue-comment-write effects');
+  if (input.principal.transport === 'github-actions-token') {
+    const projectionWorkflow = input.principal.workflowRef
+      === `${input.repository}/.github/workflows/code-scanning-projection.yml@refs/heads/main`;
+    const maintenanceWorkflow = input.principal.workflowRef
+      === `${input.repository}/.github/workflows/repository-maintenance.yml@refs/heads/main`;
+    const projectionEffect = input.effect === 'read' || input.effect === 'issue-comment-write';
+    const maintenanceEffect = input.effect === 'branch-closeout-write';
+    if ((!projectionWorkflow || !projectionEffect)
+        && (!maintenanceWorkflow || !maintenanceEffect)) {
+      throw new GitHubApiProviderError(
+        'GitHub Actions workflow principal effect is not authorized by its exact workflow identity'
+      );
+    }
   }
   const capability = Object.freeze({}) as GitHubApiCapability;
   capabilityBindings.set(capability, Object.freeze({
