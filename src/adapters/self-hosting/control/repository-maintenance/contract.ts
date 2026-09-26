@@ -35,7 +35,7 @@ function exactKeys(value: Record<string, unknown>, expected: readonly string[], 
 
 function repository(value: unknown): string {
   if (typeof value !== 'string'
-      || !/^[A-Za-z0-9][A-Za-z0-9._-]{0,99}\/[-A-Za-z0-9._]{1,100}$/u.test(value)) {
+      || !/^[A-Za-z0-9][A-Za-z0-9._-]{0,99}\/[A-Za-z0-9][A-Za-z0-9._-]{0,99}$/u.test(value)) {
     throw new Error('repository must be one bounded owner/name identity');
   }
   return value;
