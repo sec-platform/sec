@@ -44,6 +44,11 @@ export type GitHubApiPrincipal =
       workflowSha: string;
     }>;
 
+type GitHubUserApiPrincipal = Extract<
+  GitHubApiPrincipal,
+  Readonly<{ transport: 'github-rest-token' }>
+>;
+
 declare const githubApiCapabilityBrand: unique symbol;
 
 /** Opaque, in-process authority. Credential and transport stay in this owner. */
@@ -992,7 +997,7 @@ async function enroll(input: Readonly<{
       login,
       nodeId,
       userId: userId as number | null,
-      permission: permission as GitHubApiPrincipal['permission']
+      permission: permission as GitHubUserApiPrincipal['permission']
     }),
     effect: input.effect,
     transport: input.transport,
