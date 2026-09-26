@@ -640,7 +640,7 @@ function prepareAbsentRefRecovery(
   expectedSha: string,
   pullRequestNumber: number | null
 ): { recovery: BranchRecoveryAuthority; attempts: BranchCloseoutAttempt[] } {
-  const existing = findMatchingRecoveryBundle(scope, inventory, branch, expectedSha);
+  const existing = findMatchingRecoveryBundle(scope, inventory, expectedSha);
   if (existing !== null) {
     const attempts: BranchCloseoutAttempt[] = [{
       operation: 'recovery-create',
@@ -682,7 +682,6 @@ function prepareAbsentRefRecovery(
 function findMatchingRecoveryBundle(
   scope: BranchCloseoutScope,
   inventory: BranchLifecycleInventory,
-  branch: string,
   expectedSha: string
 ): BranchRecoveryAuthority | null {
   const recoveryRoot = ensureRecoveryRoot(inventory, scope.recoveryRoot);

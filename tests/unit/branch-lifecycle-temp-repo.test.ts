@@ -33,9 +33,13 @@ import {
 } from '../../src/adapters/self-hosting/control/task/contract/active-work-observation.ts';
 
 test('canonical Git child environment removes ambient steering and preserves host integration', () => {
+  if (process.platform === 'win32') {
+    expect(() => createBranchLifecycleGitChildEnvironment({
+      Path: 'trusted-path', PATH: 'duplicate-path'
+    })).toThrow('conflicting case variants of "PATH"');
+  }
   const environment = createBranchLifecycleGitChildEnvironment({
-    Path: 'trusted-path',
-    PATH: 'duplicate-path',
+    [process.platform === 'win32' ? 'Path' : 'PATH']: 'trusted-path',
     HOME: 'trusted-home',
     USERPROFILE: 'trusted-profile',
     SSH_AUTH_SOCK: 'trusted-agent',
@@ -57,7 +61,7 @@ test('canonical Git child environment removes ambient steering and preserves hos
   });
   expect(Object.keys(environment).filter((name) => name.toUpperCase() === 'PATH'))
     .toHaveLength(1);
-  expect(environment.Path).toBe('trusted-path');
+  expect(environment.PATH).toBe('trusted-path');
   expect(environment.HOME).toBe('trusted-home');
   expect(environment.USERPROFILE).toBe('trusted-profile');
   expect(environment.SSH_AUTH_SOCK).toBe('trusted-agent');

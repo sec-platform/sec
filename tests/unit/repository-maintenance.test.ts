@@ -1,12 +1,12 @@
 import { expect, test } from 'bun:test';
 
-import { sha256 } from '../../src/contracts/canonical.ts';
 import { parseExactRefRetirement } from '../../src/adapters/self-hosting/control/branch-lifecycle/exact-ref-retirement-contract.ts';
 import { parseRepositoryMaintenanceRequest } from '../../src/adapters/self-hosting/control/repository-maintenance/contract.ts';
 import {
   assertHostedRepositoryMaintenanceIdentity,
   parseHostedRepositoryMaintenanceRequest
 } from '../../src/adapters/self-hosting/control/repository-maintenance/hosted-admission.ts';
+import { sha256 } from '../../src/contracts/canonical.ts';
 
 const MAIN = 'a'.repeat(40);
 
@@ -88,6 +88,7 @@ test('maintenance request accepts one exact ref or exact comment retirement only
   expect(() => parseRepositoryMaintenanceRequest(JSON.stringify(multi)))
     .toThrow('exactly one operation');
 
+  const expectedBodyDigest = `sha256:${'c'.repeat(64)}` as const;
   const comment = parseRepositoryMaintenanceRequest(JSON.stringify({
     schema: 'sec-repository-maintenance-request-v1',
     repository: 'sec-platform/sec',
@@ -97,7 +98,7 @@ test('maintenance request accepts one exact ref or exact comment retirement only
       retirement: {
         issueNumber: 313,
         commentId: 42,
-        expectedBodyDigest: 'sha256:' + 'c'.repeat(64)
+        expectedBodyDigest
       }
     }]
   }));
@@ -106,7 +107,7 @@ test('maintenance request accepts one exact ref or exact comment retirement only
     retirement: {
       issueNumber: 313,
       commentId: 42,
-      expectedBodyDigest: 'sha256:' + 'c'.repeat(64)
+      expectedBodyDigest
     }
   }]);
   expect(() => parseRepositoryMaintenanceRequest(JSON.stringify({
