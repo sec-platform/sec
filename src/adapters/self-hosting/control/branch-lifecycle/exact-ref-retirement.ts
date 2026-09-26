@@ -264,7 +264,10 @@ export async function retireExactRemoteRefs(input: Readonly<{
   const present = request.branches.filter((branch) => initialRemoteState.get(branch) !== null);
   const alreadyAbsent = request.branches.filter((branch) => initialRemoteState.get(branch) === null);
 
-  const recoveries = present.map((branch) => {
+  const recoveryBranches = request.classification === 'closed-pr-superseded'
+    ? request.branches
+    : present;
+  const recoveries = recoveryBranches.map((branch) => {
     const prepared = createRecoveryBundle({
       inventory: before,
       branch,
