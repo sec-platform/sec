@@ -58,8 +58,14 @@ test('repository maintenance workflow exposes one maintainer-only lifecycle trig
   expect(execute.env.SEC_MAINTENANCE_REQUEST_JSON)
     .toBe('${{ github.event.comment.body }}');
   expect(execute.env.SEC_BRANCH_RECOVERY_ROOT).toBeUndefined();
+  const stage = retire.steps.find((step: any) => step.name === 'Stage exact ref recovery');
   const upload = retire.steps.find((step: any) => step.name === 'Upload exact ref recovery');
-  expect(upload.with.path).toBe('${{ github.workspace }}/../sec-recovery');
+  expect(stage.if).toBe('always()');
+  expect(stage.run).toContain('recovery_root="$(dirname "$GITHUB_WORKSPACE")/sec-recovery"');
+  expect(stage.run).toContain('artifact_root="$RUNNER_TEMP/sec-repository-maintenance-recovery"');
+  expect(retire.steps.indexOf(stage)).toBeLessThan(retire.steps.indexOf(upload));
+  expect(upload.if).toBe('always()');
+  expect(upload.with.path).toBe('${{ runner.temp }}/sec-repository-maintenance-recovery');
 });
 
 test('privileged repository maintenance runtime is part of the causal TCB policy', () => {
