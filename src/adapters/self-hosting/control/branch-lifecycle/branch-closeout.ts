@@ -297,7 +297,6 @@ export function rehydratePreparedBranchCloseoutRecoveryArtifact(input: {
   }
   const checksumText = `${digest}  ${bundleName}\n`;
   const checksumName = `${bundleName}.sha256`;
-  const checksumPath = path.join(recoveryRoot, checksumName);
   const existingChecksum = store.read(checksumName);
   if (existingChecksum !== null) {
     if (Buffer.from(existingChecksum).toString('utf8') !== checksumText) {
