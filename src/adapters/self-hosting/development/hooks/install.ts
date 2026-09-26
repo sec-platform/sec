@@ -183,11 +183,11 @@ class GitInvocationBudget {
     return session;
   }
 
-  assertGitExecutableCurrent(label: string, options: { readonly verifyExecutable?: boolean } = {}): void {
+  assertGitExecutableCurrent(label: string): void {
     this.assertWithin(label + ' executable start');
     this.assertEnvironmentCurrent(label);
     const session = this.bindGitExecutable();
-    if (options.verifyExecutable !== false && !session.verifyExecutable()) {
+    if (!session.verifyExecutable()) {
       throw new GitHookTransitionConflict(
         label + ' canonical Git executable identity changed'
           + (session.failure === null ? '' : ': ' + session.failure.detail)
@@ -793,10 +793,9 @@ function gitText(
   const budget = currentGitInvocationBudget();
   const isEffect = options.operation === 'config-effect';
   const operationLabel = isEffect ? 'Git config effect' : 'Git read';
-  const executableFence = isEffect ? {} : { verifyExecutable: false };
-  budget.assertGitExecutableCurrent(operationLabel, executableFence);
+  budget.assertGitExecutableCurrent(operationLabel);
   const remainingMs = budget.beforeProcess(operationLabel);
-  budget.assertGitExecutableCurrent(operationLabel + ' pre-effect', executableFence);
+  budget.assertGitExecutableCurrent(operationLabel + ' pre-effect');
   budget.beforeSpawn(isEffect ? 'git-config' : 'git-read');
   const result = spawnSync(budget.hostGitExecutionTarget(), ['-C', root, ...args], {
     cwd: root,
@@ -822,7 +821,7 @@ function gitText(
     }
   }
   budget.afterProcess(stdout, stderr, operationLabel);
-  budget.assertGitExecutableCurrent(operationLabel + ' post-effect', executableFence);
+  budget.assertGitExecutableCurrent(operationLabel + ' post-effect');
   const missingStatus = result.status === 1
     || result.status === 2
     || result.status === 5
