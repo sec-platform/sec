@@ -1,6 +1,6 @@
 import path from 'node:path';
 
-import { rawSha256 } from '../../../../contracts/canonical.ts';
+import { rawSha256, sha256 } from '../../../../contracts/canonical.ts';
 import {
   executeGitHubApiOperation,
   GitHubApiProviderError,
@@ -210,8 +210,9 @@ export async function retireMaintenanceTriggerComment(input: Readonly<{
   if (input.issueNumber !== REPOSITORY_MAINTENANCE_ISSUE_NUMBER) {
     throw new Error('maintenance trigger retirement is restricted to the lifecycle issue');
   }
-  if (parseRepositoryMaintenanceRequest(input.exactBody).repository !== input.request.repository
-      || rawSha256(input.exactBody) !== rawSha256(JSON.stringify(input.request))) {
+  const parsedBody = parseRepositoryMaintenanceRequest(input.exactBody);
+  if (parsedBody.repository !== input.request.repository
+      || sha256(parsedBody) !== sha256(input.request)) {
     throw new Error('maintenance trigger body differs from the parsed request');
   }
   await withGitHubApiIssueCommentWriteSession({
