@@ -15,6 +15,12 @@ description: 用于已有 Claim/acceptance 需要 case/test 证明时，判断�
 - CasePlan/casesRef 与实际测试框架继续拥有测试输入、oracle、环境和执行；Test Value/Supersession 继续拥有 keep/rewrite/merge/delete。Skill 不创建 `TestDesignDecision`、inventory、ledger、评分或平行 disposition。
 - Skill 不扩张 Work Package/operation scope；测试重写与退役按[测试发现与执行 Q4](../../../docs/开发/测试发现与执行.md#developer-test-selection)取得各自证据，不能把 rewrite 当成无替代者删除的许可。
 
+## 方法前置
+
+- 进入 TestCase 设计前，先确认上游 Assurance 已把相交 Proof Obligation 的方法选择为 case/test。若类型、Source Program、架构审计、静态安全、形式证明、runtime readback 或其他直接方法已经能产生资格充分的 Evidence，不为统一入口再创建 `.test.ts`。
+- repository invariant 应由其 canonical checker 对真实候选直接求值；TestCase 只校准 checker 的正反例、边界、解码与 failure meaning。禁止用测试复制生产规则、源码字符串、路径墓碑或私有布局形成第二真值。
+- runner 的 ordinary parallel/isolation/shard/timing/retry/reporting 属于 adopted Provider mechanics。测试设计不得为了这些机械能力创造新的 semantic metadata、suite authority 或 scheduler；只有 Provider 无法表达的真实资源/权限/settlement约束才交回 Execution owner。
+
 ## 判断
 1. 固定 Claim、适用域和真实失败模型；测试方法不得反向定义需求。
 2. 先比较现有 evidence 的 observation、环境和 authority/effect boundary；已有 proof 已充分覆盖所需 observation 时，不新增测试。
