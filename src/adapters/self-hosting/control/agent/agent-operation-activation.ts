@@ -1234,7 +1234,7 @@ async function produceHosted(input: Readonly<{
   await observeOperationAuthorityOwners(
     candidateRoot, decision.exactMain, request.expectedHeadSha, control.manifest, paths
   );
-  if (request.phase === 'prepare') {
+  const producePreparation = async () => {
     assertPreparationSelection(control, decision);
     await assertPreparationProposal(records, control.manifest, control.manifestPath,
       control.manifestBytes, request.expectedBaseSha, request.expectedHeadSha, candidateRoot);
@@ -1267,7 +1267,8 @@ async function produceHosted(input: Readonly<{
       requestOperationId: request.requestOperationId,
       artifactName: secAgentOperationActivationArtifactName('prepare', request.requestOperationId)
     });
-  }
+  };
+  if (request.phase === 'prepare') return await producePreparation();
   if (request.preparationCommentId === null) unavailable('activation-stale', 'preparation-comment-id-missing');
   const maximalPreparation = await resolveMaximalPreparation(
     runtimeRoot,
@@ -1456,7 +1457,7 @@ async function resolveActivationUnchecked(
     && publication.request.manifestPath === requestBinding.manifestPath
     && publication.request.manifestDigest === requestBinding.manifestDigest);
   if (finals.length > 1) unavailable('activation-provider-readback-conflict', targetCandidate);
-  if (finals.length === 0) {
+  const resolvePreparation = async (): Promise<ResolvedActivation> => {
     const preparations = publications.filter(({ publication }) => publication.request.phase === 'prepare'
       && publication.request.pullRequestNumber === requestBinding.pullRequestNumber
       && publication.request.expectedBaseSha === requestBinding.expectedBaseSha
@@ -1525,7 +1526,8 @@ async function resolveActivationUnchecked(
       manifestDigest: control.manifestDigest,
       authorityOwners
     });
-  }
+  };
+  if (finals.length === 0) return await resolvePreparation();
   const final = finals[0]!;
   await assertProviderLive(runtimeRoot, decision.repository, final.publication.provider);
   const receiptPayload = await validateArtifactPayload(runtimeRoot, decision.repository, final.publication);
