@@ -1,17 +1,17 @@
 import { expect, test } from 'bun:test';
 
-import { compileSecRepositoryModuleGraph } from '../source-program-model/typescript.ts';
+import { compileRepositoryModuleGraph } from '../source-program-model/typescript.ts';
 import {
-  type SecModuleDescriptor,
-  type SecModuleOperationObligation,
-  type SecRepositoryModuleMembership,
-  type SecRepositoryModuleSourceProgramFacts
+  type ModuleDescriptor,
+  type ModuleOperationObligation,
+  type RepositoryModuleMembership,
+  type RepositoryModuleSourceProgramFacts
 } from './contract.ts';
 import {
-  compileSecRepositoryModulePlacementAdmission
+  compileRepositoryModulePlacementAdmission
 } from './placement.ts';
 
-const operationObligation: SecModuleOperationObligation = Object.freeze({
+const operationObligation: ModuleOperationObligation = Object.freeze({
   operation: Object.freeze({ kind: 'capability', capability: 'example.execution', operation: 'run' }),
   consumerSupport: Object.freeze({ consumers: Object.freeze(['example.consumer']) }),
   effect: Object.freeze({
@@ -31,7 +31,7 @@ const operationObligation: SecModuleOperationObligation = Object.freeze({
   futureSupport: Object.freeze({ condition: 'semantic-superset-required' })
 });
 
-function descriptor(moduleId: string, root: string): SecModuleDescriptor {
+function descriptor(moduleId: string, root: string): ModuleDescriptor {
   return Object.freeze({
     moduleId,
     root,
@@ -75,11 +75,11 @@ function fixture(input: Readonly<{
     [contractPath, `${input.reverseContractImport ? "import { run } from '../example-alpha/run.ts';\n" : ''}export interface Contract { value: string; }`],
     [unknownPath, 'export function publicUnknown() {}\nfunction effectUnknown() {}']
   ]);
-  const graph = compileSecRepositoryModuleGraph({
+  const graph = compileRepositoryModuleGraph({
     files,
     readSource: (path) => source.get(path) ?? null
   });
-  const membership: SecRepositoryModuleMembership = Object.freeze({
+  const membership: RepositoryModuleMembership = Object.freeze({
     descriptors: Object.freeze([alpha, beta]),
     graphRoots: Object.freeze(['src']),
     moduleRoots: Object.freeze([alpha.root, beta.root]),
@@ -94,7 +94,7 @@ function fixture(input: Readonly<{
       Object.freeze({ observationId: 'node-effect-unknown', declarationDigest: 'digest-effect', path: unknownPath, moduleId: alpha.moduleId, name: 'effectUnknown', kind: 'FunctionDeclaration', exported: false })
     ] : [])
   ]);
-  const facts: SecRepositoryModuleSourceProgramFacts & { files: readonly ({
+  const facts: RepositoryModuleSourceProgramFacts & { files: readonly ({
     path: string;
     moduleId: string | null;
     surface: 'production';
@@ -141,7 +141,7 @@ function fixture(input: Readonly<{
 
 test('responsibility admission resolves compiler and descriptor facts while blocking only critical unknowns', () => {
   const input = fixture({ includeUnclassified: true, reverseContractImport: true });
-  const result = compileSecRepositoryModulePlacementAdmission({
+  const result = compileRepositoryModulePlacementAdmission({
     graph: input.graph,
     membership: input.membership,
     facts: input.facts
@@ -182,12 +182,12 @@ test('frontier indexes preserve exact identity and entrypoint multiplicity while
     ...input.facts,
     entrypoints: Object.freeze([Object.freeze({ ...entrypoint, targetPaths: Object.freeze(targetPaths) })])
   }) as typeof input.facts;
-  const single = compileSecRepositoryModulePlacementAdmission({
+  const single = compileRepositoryModulePlacementAdmission({
     graph: input.graph,
     membership: input.membership,
     facts: withEntrypoint([helperPath])
   });
-  const duplicate = compileSecRepositoryModulePlacementAdmission({
+  const duplicate = compileRepositoryModulePlacementAdmission({
     graph: input.graph,
     membership: input.membership,
     facts: withEntrypoint([helperPath, helperPath])
@@ -205,7 +205,7 @@ test('frontier indexes preserve exact identity and entrypoint multiplicity while
         : declaration
     )))
   } as typeof input.facts;
-  const undefinedIdentity = compileSecRepositoryModulePlacementAdmission({
+  const undefinedIdentity = compileRepositoryModulePlacementAdmission({
     graph: input.graph,
     membership: input.membership,
     facts: undefinedIdentityFacts
@@ -235,7 +235,7 @@ test('frontier indexes preserve exact identity and entrypoint multiplicity while
     targetPath: helperPath,
     observationClass: 'observed' as const
   })));
-  compileSecRepositoryModulePlacementAdmission({
+  compileRepositoryModulePlacementAdmission({
     graph: input.graph,
     membership: input.membership,
     facts: {

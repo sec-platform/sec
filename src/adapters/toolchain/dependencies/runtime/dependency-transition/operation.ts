@@ -5,7 +5,7 @@ import {
 } from '../../../../../contracts/canonical.ts';
 import { failureMessage, getErrorCode } from '../../../../../contracts/failure-inspection.ts';
 import {
-  SecError
+  FailureError
 } from '../../../../../contracts/failure.ts';
 import {
   generatedStateDigest
@@ -88,7 +88,7 @@ function admitDependencyTransitionRecord<T extends DependencyTransitionJournal>(
 
 function assertDependencyTransitionRecordAdmitted(record: DependencyTransitionJournal): void {
   if (!admittedDependencyTransitionRecords.has(record)) {
-    throw new SecError(
+    throw new FailureError(
       'RUNTIME-DEPS-004',
       'Dependency transition write requires an owner-admitted immutable record'
     );
@@ -108,7 +108,7 @@ export async function readDependencyTransitionLedger(
   const activeRollover = await inspectActiveDependencyTransitionRollover(ownerRoot, options);
   runtimeDependencyOperationRemainingMs(options, 'Dependency transition rollover observation readback');
   if (activeRollover !== null && activeRollover.active !== null) {
-    throw new SecError('RUNTIME-DEPS-004', 'Dependency transition ledger rollover requires owner recovery', {
+    throw new FailureError('RUNTIME-DEPS-004', 'Dependency transition ledger rollover requires owner recovery', {
       intentDigest: activeRollover.active.intentDigest,
       phase: activeRollover.active.phase,
       terminalRecordDigest: activeRollover.active.terminalRecordDigest
@@ -119,7 +119,7 @@ export async function readDependencyTransitionLedger(
   let completedMigration: DependencyTransitionMigrationIntent | null = null;
   if (namespace === null) {
     if (legacyNamespace !== null) {
-      throw new SecError('RUNTIME-DEPS-004', 'Legacy dependency transition journal requires an owner migration before it can be read', {
+      throw new FailureError('RUNTIME-DEPS-004', 'Legacy dependency transition journal requires an owner migration before it can be read', {
         schema: DEPENDENCY_TRANSITION_LEGACY_SCHEMA,
         namespace: legacyNamespace.journalRoot.path
       });
@@ -130,7 +130,7 @@ export async function readDependencyTransitionLedger(
   runtimeDependencyOperationRemainingMs(options, 'Dependency transition migration observation readback');
   if (legacyNamespace !== null) {
     if (migrationIntents.complete === null) {
-      throw new SecError('RUNTIME-DEPS-004', 'Dependency transition schema migration is incomplete; target is preserved', {
+      throw new FailureError('RUNTIME-DEPS-004', 'Dependency transition schema migration is incomplete; target is preserved', {
         namespace: namespace.journalRoot.path,
         preparedIntentDigest: migrationIntents.prepared?.intentDigest ?? null
       });
@@ -142,7 +142,7 @@ export async function readDependencyTransitionLedger(
     assertDependencyTransitionMigrationSourceNamespaceBinding(migrationIntents.complete, legacyNamespace);
     completedMigration = migrationIntents.complete;
   } else if (migrationIntents.prepared !== null || migrationIntents.complete !== null) {
-    throw new SecError('RUNTIME-DEPS-004', 'Dependency transition migration source evidence is missing and is preserved', {
+    throw new FailureError('RUNTIME-DEPS-004', 'Dependency transition migration source evidence is missing and is preserved', {
       preparedIntentDigest: migrationIntents.prepared?.intentDigest ?? null,
       completeIntentDigest: migrationIntents.complete?.intentDigest ?? null
     });
@@ -152,7 +152,7 @@ export async function readDependencyTransitionLedger(
     generatedStatePhysicalIdentity(namespace.recordsRoot),
     latestCompleteRollover.publishedRecordsRootPhysical!
   )) {
-    throw new SecError('RUNTIME-DEPS-004', 'Dependency transition records root is not the latest complete rollover publication');
+    throw new FailureError('RUNTIME-DEPS-004', 'Dependency transition records root is not the latest complete rollover publication');
   }
   const observed = readDependencyTransitionRecordSet(
     namespace.recordsRoot,
@@ -165,7 +165,7 @@ export async function readDependencyTransitionLedger(
     assertDependencyTransitionMigrationTargetBinding(completedMigration, namespace);
   }
   if (records.size === 0 && latestCompleteRollover !== null) {
-    throw new SecError('RUNTIME-DEPS-004', 'Latest complete dependency transition rollover has no checkpoint in its published records root');
+    throw new FailureError('RUNTIME-DEPS-004', 'Latest complete dependency transition rollover has no checkpoint in its published records root');
   }
   if (latestCompleteRollover !== null) {
     const checkpoint = records.get(latestCompleteRollover.checkpoint.recordDigest);
@@ -174,7 +174,7 @@ export async function readDependencyTransitionLedger(
           dependencyTransitionRecordBytes(latestCompleteRollover.checkpoint)
         ) ||
         checkpoint.previousRecordDigest !== null || checkpoint.sequence !== 1) {
-      throw new SecError('RUNTIME-DEPS-004', 'Published dependency transition records root does not contain the latest complete rollover checkpoint');
+      throw new FailureError('RUNTIME-DEPS-004', 'Published dependency transition records root does not contain the latest complete rollover checkpoint');
     }
   }
   for (const record of records.values()) admitDependencyTransitionRecord(record);
@@ -212,7 +212,7 @@ async function writeDependencyTransition(
     // immutable census, rather than current.json, is the expected-current CAS
     // preimage for this root publication.
     if (currentLedger?.tip !== null && currentLedger?.tip !== undefined) {
-      throw new SecError('RUNTIME-DEPS-002', 'Dependency transition immutable ledger already has a predecessor', {
+      throw new FailureError('RUNTIME-DEPS-002', 'Dependency transition immutable ledger already has a predecessor', {
         expectedCurrentRecordDigest,
         currentRecordDigest: currentLedger.tip.recordDigest,
         ownerRoot: namespace.ownerRoot.path
@@ -221,7 +221,7 @@ async function writeDependencyTransition(
   } else {
     if (currentLedger?.tip === null || currentLedger === null ||
         currentLedger.tip.recordDigest !== expectedCurrentRecordDigest) {
-      throw new SecError('RUNTIME-DEPS-002', 'Dependency transition expected-current record digest does not match the immutable ledger tip', {
+      throw new FailureError('RUNTIME-DEPS-002', 'Dependency transition expected-current record digest does not match the immutable ledger tip', {
         expectedCurrentRecordDigest,
         currentRecordDigest: currentLedger?.tip?.recordDigest ?? null,
         ownerRoot: namespace.ownerRoot.path
@@ -229,7 +229,7 @@ async function writeDependencyTransition(
     }
     if (currentLedger.records.size >= DEPENDENCY_TRANSITION_ROLLOVER_TRIGGER) {
       if (unsigned.phase !== 'prepared') {
-        throw new SecError('RUNTIME-DEPS-004', 'Dependency transition ledger is at rollover capacity during an active operation', {
+        throw new FailureError('RUNTIME-DEPS-004', 'Dependency transition ledger is at rollover capacity during an active operation', {
           recordCount: currentLedger.records.size,
           capacity: DEPENDENCY_TRANSITION_RECORD_CAPACITY
         });
@@ -261,7 +261,7 @@ async function writeDependencyTransition(
     const predecessorName = transitionRecordName(expectedCurrentRecordDigest);
     const predecessorEntry = inspectNoFollowOrdinaryFileEntry(namespace.recordsRoot, predecessorName);
     if (predecessorEntry === null || predecessorEntry.bytes === null) {
-      throw new SecError('RUNTIME-DEPS-002', 'Dependency transition expected immutable predecessor is missing', {
+      throw new FailureError('RUNTIME-DEPS-002', 'Dependency transition expected immutable predecessor is missing', {
         expectedCurrentRecordDigest,
         ownerRoot: namespace.ownerRoot.path
       });
@@ -269,7 +269,7 @@ async function writeDependencyTransition(
     const predecessor = parseDependencyTransitionRecord(predecessorEntry.bytes, predecessorName);
     if (predecessor.recordDigest !== expectedCurrentRecordDigest ||
         currentLedger.records.get(expectedCurrentRecordDigest)?.recordDigest !== predecessor.recordDigest) {
-      throw new SecError('RUNTIME-DEPS-002', 'Dependency transition expected immutable predecessor digest changed', {
+      throw new FailureError('RUNTIME-DEPS-002', 'Dependency transition expected immutable predecessor digest changed', {
         expectedCurrentRecordDigest,
         currentRecordDigest: predecessor.recordDigest,
         ownerRoot: namespace.ownerRoot.path
@@ -409,25 +409,25 @@ export async function beginDependencyTransition(input: Readonly<{
               input.sourceGeneration
             );
     if (expectedBackupPath === null || path.resolve(input.backupPath) !== path.resolve(expectedBackupPath)) {
-      throw new SecError('RUNTIME-DEPS-004', 'Dependency transition backup path is not derived from canonical operation inputs');
+      throw new FailureError('RUNTIME-DEPS-004', 'Dependency transition backup path is not derived from canonical operation inputs');
     }
   }
   if (backup !== null && backup.kind !== 'absent') {
-    throw new SecError('RUNTIME-DEPS-004', 'Dependency transition backup path is occupied by a foreign identity and is preserved', {
+    throw new FailureError('RUNTIME-DEPS-004', 'Dependency transition backup path is occupied by a foreign identity and is preserved', {
       backupPath: backup.path,
       backupKind: backup.kind
     });
   }
   if (stage !== null && stage.kind === 'absent') {
-    throw new SecError('RUNTIME-DEPS-002', 'Dependency transition stage disappeared before durable intent');
+    throw new FailureError('RUNTIME-DEPS-002', 'Dependency transition stage disappeared before durable intent');
   }
   if (stageRoot !== null && stageRoot.kind === 'absent') {
-    throw new SecError('RUNTIME-DEPS-002', 'Dependency transition staging root disappeared before durable intent');
+    throw new FailureError('RUNTIME-DEPS-002', 'Dependency transition staging root disappeared before durable intent');
   }
   if (stage !== null && stageRoot !== null && stage.kind !== 'absent' && stageRoot.kind !== 'absent') {
     const relativeStage = path.relative(stageRoot.path, stage.path);
     if (relativeStage.startsWith('..') || path.isAbsolute(relativeStage) || relativeStage.length === 0) {
-      throw new SecError('RUNTIME-DEPS-002', 'Dependency transition stage is not contained by its recorded staging root');
+      throw new FailureError('RUNTIME-DEPS-002', 'Dependency transition stage is not contained by its recorded staging root');
     }
   }
   const sourceOwner = inspectNoFollowDirectoryChain(
@@ -438,7 +438,7 @@ export async function beginDependencyTransition(input: Readonly<{
     generatedStatePhysicalIdentity(sourceOwner),
     input.sourceGeneration.ownerRootPhysical
   )) {
-    throw new SecError(
+    throw new FailureError(
       'RUNTIME-DEPS-004',
       'Dependency transition source-generation owner physical identity is foreign or stale'
     );
@@ -450,14 +450,14 @@ export async function beginDependencyTransition(input: Readonly<{
       stage!.physical,
       input.sourceGeneration.physical
     )) {
-      throw new SecError(
+      throw new FailureError(
         'RUNTIME-DEPS-004',
         'Dependency transition stage is not the compiler-issued source generation'
       );
     }
     if (input.kind === 'compiler-generation' &&
         path.resolve(input.sourceGeneration.sourcePath) !== path.resolve(stage!.path)) {
-      throw new SecError(
+      throw new FailureError(
         'RUNTIME-DEPS-004',
         'Compiler generation transition source path is not its exact staged generation'
       );
@@ -471,7 +471,7 @@ export async function beginDependencyTransition(input: Readonly<{
       generatedStatePhysicalIdentity(source),
       input.sourceGeneration.physical
     )) {
-      throw new SecError(
+      throw new FailureError(
         'RUNTIME-DEPS-004',
         'Dependency transition source generation physical identity is foreign or stale'
       );
@@ -479,7 +479,7 @@ export async function beginDependencyTransition(input: Readonly<{
   }
   const current = await readDependencyTransition(ownerRoot.path, input.options);
   if (current !== null && current.phase !== 'complete' && current.phase !== 'rolled-back') {
-    throw new SecError('RUNTIME-DEPS-002', 'Dependency transition already has an active owner-local operation', {
+    throw new FailureError('RUNTIME-DEPS-002', 'Dependency transition already has an active owner-local operation', {
       currentRecordDigest: current.recordDigest,
       currentPhase: current.phase,
       ownerRoot: ownerRoot.path
@@ -524,14 +524,14 @@ type DependencyTransitionUpdate = Readonly<Partial<Pick<DependencyTransitionJour
 
 function captureTransitionUpdate(patch: DependencyTransitionUpdate): DependencyTransitionUpdate {
   if (patch === null || typeof patch !== 'object' || Array.isArray(patch)) {
-    throw new SecError('RUNTIME-DEPS-004', 'Dependency transition update must be an object');
+    throw new FailureError('RUNTIME-DEPS-004', 'Dependency transition update must be an object');
   }
   const selected: Record<string, unknown> = {};
   for (const key of Reflect.ownKeys(patch)) {
     const descriptor = Object.getOwnPropertyDescriptor(patch, key);
     if (typeof key !== 'string' || !DEPENDENCY_TRANSITION_UPDATE_FIELDS.includes(key as never)
         || descriptor === undefined || !descriptor.enumerable || !('value' in descriptor)) {
-      throw new SecError('RUNTIME-DEPS-004', 'Dependency transition update cannot change immutable fields or use accessors');
+      throw new FailureError('RUNTIME-DEPS-004', 'Dependency transition update cannot change immutable fields or use accessors');
     }
     selected[key] = descriptor.value;
   }
@@ -566,7 +566,7 @@ export async function advanceDependencyTransition(
     sourceGeneration: successor.sourceGeneration
   });
   if (successorOperationKey !== previous.operationKey) {
-    throw new SecError(
+    throw new FailureError(
       'RUNTIME-DEPS-004',
       'Dependency transition successor changes the immutable operation topology',
       {
@@ -605,14 +605,14 @@ export function assertDirectStageRootSelector(
   const stageRootPath = path.resolve(stageRoot.path);
   if (path.dirname(stageRootPath) !== path.resolve(parent) ||
       !path.basename(stageRootPath).startsWith(prefix)) {
-    throw new SecError(
+    throw new FailureError(
       'RUNTIME-DEPS-004',
       'Dependency transition stage root is outside its canonical operation selector',
       { stageRootPath, parent: path.resolve(parent), prefix }
     );
   }
   if (stageRoot.kind !== 'directory' && stageRoot.kind !== 'absent') {
-    throw new SecError('RUNTIME-DEPS-004', 'Dependency transition stage root is not an ordinary directory slot');
+    throw new FailureError('RUNTIME-DEPS-004', 'Dependency transition stage root is not an ordinary directory slot');
   }
 }
 
@@ -626,10 +626,10 @@ export function assertTransitionBackupSelector(
   );
   if (path.dirname(transition.backup.path) !== backupParent ||
       !/^(?:generation|node_modules|locator-preimage|runtime|project-preimage)-[0-9a-f]{16,64}$/u.test(path.basename(transition.backup.path))) {
-    throw new SecError('RUNTIME-DEPS-004', 'Dependency transition backup path is outside its canonical selector');
+    throw new FailureError('RUNTIME-DEPS-004', 'Dependency transition backup path is outside its canonical selector');
   }
   if (expectedPath !== undefined && path.resolve(transition.backup.path) !== path.resolve(expectedPath)) {
-    throw new SecError('RUNTIME-DEPS-004', 'Dependency transition backup path is not the operation-derived slot');
+    throw new FailureError('RUNTIME-DEPS-004', 'Dependency transition backup path is not the operation-derived slot');
   }
 }
 
@@ -677,7 +677,7 @@ export function assertTransitionOperationKey(
     sourceGeneration: transition.sourceGeneration
   });
   if (expected !== transition.operationKey) {
-    throw new SecError(
+    throw new FailureError(
       'RUNTIME-DEPS-004',
       'Dependency transition operation identity is not bound to its canonical topology',
       {

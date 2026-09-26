@@ -1,6 +1,6 @@
 import { expect, test } from 'bun:test';
 
-import { VERIFICATION_FREEZE_SESSION_SCHEMA, VERIFICATION_REGISTRY_PROJECTION_SCHEMA, createVerificationSession, createVerificationSessionProposalDigest, parseVerificationFreezeSessionV1, parseVerificationRegistryProjection, parseVerificationSession } from '../../src/adapters/verification/platform/session/contract/session.ts';
+import { VERIFICATION_FREEZE_SESSION_SCHEMA, VERIFICATION_REGISTRY_PROJECTION_SCHEMA, createVerificationSession, createVerificationSessionProposalDigest, parseVerificationFreezeSession, parseVerificationRegistryProjection, parseVerificationSession } from '../../src/adapters/verification/platform/session/contract/session.ts';
 
 const BASE_SHA = '1111111111111111111111111111111111111111';
 const HEAD_SHA = '2222222222222222222222222222222222222222';
@@ -77,7 +77,7 @@ test('freeze session binds exact facts and rejects tampering', () => {
     candidateTreeSha: TREE_SHA,
     sessionDigest: ''
   };
-  expect(() => parseVerificationFreezeSessionV1(JSON.stringify(source))).toThrow('digest mismatch');
+  expect(() => parseVerificationFreezeSession(JSON.stringify(source))).toThrow('digest mismatch');
 });
 
 test('V2 revision is stable across run identity and timestamps and binds semantic inputs', () => {

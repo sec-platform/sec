@@ -4,10 +4,10 @@ import path from 'node:path';
 
 import { canonicalJson, sha256 } from '../../../../contracts/canonical.ts';
 import { withAcquiredResource } from '../../../../execution/resource-settlement.ts';
-import { acquireWorkspaceWriteLease, assertWorkspaceWriteLease, assertWorkspaceWriteLeaseRetirement, assertWorkspaceWriteLeaseRetirementProof, completeWorkspaceWriteLeaseRetirement, recoverWorkspaceWriteLeaseRetirement, resumeWorkspaceWriteLeaseRetirement, withWorkspaceWriteLease, type WorkspaceWriteLeaseRetirementReceipt } from '../../../filesystem/write-lease.ts';
+import { withAuthorityGitReadSession } from '../../../providers/git-read/authority.ts';
+import { acquireWorkspaceWriteLease, assertWorkspaceWriteLease, assertWorkspaceWriteLeaseRetirement, assertWorkspaceWriteLeaseRetirementProof, completeWorkspaceWriteLeaseRetirement, recoverWorkspaceWriteLeaseRetirement, resumeWorkspaceWriteLeaseRetirement, withWorkspaceWriteLease, type WorkspaceWriteLeaseRetirementReceipt, type WorkspaceWriteLeaseToken } from '../../../filesystem/write-lease.ts';
 import { assertGeneratedStateWorktreeRetirementEffectStart, isGeneratedStateWorktreeRetirementBlocked, settleGeneratedStateForWorktreeRetirement } from '../../../runtime-state/generated-state/lifecycle.ts';
 import { createNoFollowDirectoryChain, deleteRetainedNoFollowEntry, inspectExactNoFollowDirectoryPresence, inspectNoFollowDirectoryChain, publishExclusiveDurableCanonicalFile, readNoFollowOrdinaryFile, relocateRetainedNoFollowDirectory, relocateRetainedNoFollowDirectoryAcrossParents, replaceDurableCanonicalFile, retireNoFollowDirectoryTree, scanNoFollowDirectoryDirectMetadata, scanNoFollowDirectoryTree, scanNoFollowDirectoryTreeInventory, scanNoFollowDirectoryTreeMetadata, type PhysicalDirectoryIdentity } from '../../../runtime-state/physical/runtime/physical-no-follow.ts';
-import { runCommandBytes } from '../../../runtime-state/physical/runtime/process.ts';
 import {
   WORKTREE_PHYSICAL_CLOSEOUT_AUTHORIZATION_SCHEMA,
   assertStableWorktreePhysicalWorkingState,
@@ -31,9 +31,9 @@ import {
   type WorktreePorcelainRecord
 } from '../../../runtime-state/worktree-closeout-contract.ts';
 import { compilerDependencyLocatorWorktreeRetirementProvider } from '../../../toolchain/dependencies/runtime.ts';
+import { GIT_READ_OPERATION_BUDGET } from '../../development/tooling/git/git-read.ts';
 import { createBranchLifecycleGitChildEnvironment } from './branch-lifecycle-command.ts';
 
-const MAX_BUFFER = 64 * 1024 * 1024;
 const MAX_CLEANUP_ATTEMPTS = 4;
 const BACKOFF_MILLISECONDS = [0, 15, 40, 100] as const;
 
@@ -62,13 +62,26 @@ export interface PrepareDetachedScratchWorktreePhysicalCloseoutInput {
   readonly targetPath: string;
   readonly expectedHeadSha: string;
   readonly expectedTreeSha: string;
-  readonly expectedRecoveryAuthorityDigest: Digest;
+  /** Optional existing caller correlation; omission is derived by the physical owner. */
+  readonly expectedRecoveryAuthorityDigest?: Digest;
 }
 export interface ExecuteDetachedScratchWorktreePhysicalCloseoutInput extends PrepareDetachedScratchWorktreePhysicalCloseoutInput {
   readonly authorizationPath: string;
 }
 const DETACHED_BRANCH_PREFIX = 'detached-scratch-';
 function detachedMarker(headSha: string): string { return `${DETACHED_BRANCH_PREFIX}${headSha}`; }
+
+function detachedRecoveryCorrelationDigest(
+  input: PrepareDetachedScratchWorktreePhysicalCloseoutInput
+): Digest {
+  return input.expectedRecoveryAuthorityDigest ?? detailDigest({
+    domain: 'sec-detached-worktree-recovery-correlation-v1',
+    repositoryRoot: pathKey(input.repositoryRoot),
+    targetPath: pathKey(input.targetPath),
+    headSha: input.expectedHeadSha,
+    treeSha: input.expectedTreeSha
+  });
+}
 
 /** Opaque same-process capability; raw JSON can never mint this token. */
 export class WorktreePhysicalCloseoutConsumptionToken {
@@ -151,19 +164,26 @@ export interface PreparedWorktreePhysicalCloseout {
   readonly token: WorktreePhysicalCloseoutConsumptionToken;
 }
 
-async function runRepositoryGit(repositoryRoot: string, args: readonly string[]): Promise<CommandResult> {
-  const result = await runCommandBytes('git', ['-C', repositoryRoot, ...args], {
-    cwd: repositoryRoot,
-    env: createBranchLifecycleGitChildEnvironment(process.env),
-    envMode: 'replace',
-    maxStderrBytes: MAX_BUFFER,
-    maxStdoutBytes: MAX_BUFFER
+async function runRepositoryGit(
+  repositoryRoot: string,
+  args: readonly string[]
+): Promise<CommandResult> {
+  const hasNestedCwd = args[0] === '-C' && typeof args[1] === 'string';
+  const nestedCwd = hasNestedCwd ? path.resolve(repositoryRoot, args[1]!) : repositoryRoot;
+  const commandArgs = hasNestedCwd ? args.slice(2) : args;
+  return withAuthorityGitReadSession({
+    cwd: nestedCwd,
+    budget: GIT_READ_OPERATION_BUDGET,
+    environment: createBranchLifecycleGitChildEnvironment(process.env)
+  }, async (session) => {
+    const command = await session.run(commandArgs);
+    if (command.kind !== 'completed') throw new Error(command.detail);
+    return Object.freeze({
+      status: command.result.code,
+      stdout: Buffer.from(command.result.stdout),
+      stderr: Buffer.from(command.result.stderr, 'utf8')
+    });
   });
-  return {
-    status: result.code,
-    stdout: Buffer.from(result.stdout),
-    stderr: Buffer.from(result.stderr, 'utf8')
-  };
 }
 
 async function requireRepositoryGit(repositoryRoot: string, args: readonly string[], label: string): Promise<Buffer> {
@@ -247,6 +267,46 @@ async function repositoryFacts(repositoryRootInput: string): Promise<{
     commonDirInode: commonIdentity.inode,
     defaultBranch: symbolic.slice(prefix.length)
   };
+}
+
+async function assertCoordinatedRepository(
+  expected: Awaited<ReturnType<typeof repositoryFacts>>,
+  commonLease: WorkspaceWriteLeaseToken
+): Promise<void> {
+  await assertWorkspaceWriteLease(expected.commonDir, commonLease);
+  const observed = await repositoryFacts(expected.root);
+  if (pathKey(observed.root) !== pathKey(expected.root)
+      || observed.rootDevice !== expected.rootDevice
+      || observed.rootInode !== expected.rootInode
+      || pathKey(observed.commonDir) !== pathKey(expected.commonDir)
+      || observed.commonDirDevice !== expected.commonDirDevice
+      || observed.commonDirInode !== expected.commonDirInode
+      || observed.defaultBranch !== expected.defaultBranch) {
+    throw new Error('Coordinated repository or Git common-dir identity changed under the workspace lease.');
+  }
+}
+
+async function assertDetachedScratchRecoveryReachable(
+  repository: Awaited<ReturnType<typeof repositoryFacts>>,
+  headSha: string,
+  treeSha: string
+): Promise<void> {
+  const head = shaValue(await requireRepositoryGit(repository.root, [
+    'rev-parse', '--verify', '--end-of-options', `${headSha}^{commit}`
+  ], 'Resolve detached scratch commit'), 'Detached scratch commit');
+  const tree = shaValue(await requireRepositoryGit(repository.root, [
+    'rev-parse', '--verify', '--end-of-options', `${headSha}^{tree}`
+  ], 'Resolve detached scratch tree'), 'Detached scratch tree');
+  if (head !== headSha || tree !== treeSha) {
+    throw new Error('Detached scratch exact commit/tree is not available for recovery.');
+  }
+  const output = decodeUtf8(await requireRepositoryGit(repository.root, [
+    'for-each-ref', `--contains=${headSha}`, '--format=%(refname)', 'refs/heads/'
+  ], 'Resolve retained local branch recovery source'));
+  const refs = output.length === 0 ? [] : output.trimEnd().split('\n');
+  if (refs.length === 0 || refs.some((ref) => !ref.startsWith('refs/heads/') || ref.length <= 'refs/heads/'.length)) {
+    throw new Error('Detached scratch commit has no retained local branch recovery source.');
+  }
 }
 
 async function observeRegistry(repositoryRoot: string): Promise<{
@@ -690,29 +750,32 @@ async function assertWorktreeCloseoutAdmissionBeforeGeneratedState(input: Prepar
 export async function prepareWorktreePhysicalCloseout(
   input: PrepareWorktreePhysicalCloseoutInput
 ): Promise<WorktreePhysicalCloseoutAuthorization> {
-  await assertWorktreeCloseoutAdmissionBeforeGeneratedState(input);
-  let generatedStateRetirement: Awaited<ReturnType<typeof settleGeneratedStateForWorktreeRetirement>> = null;
-  if (!input.expectedBranch.startsWith(DETACHED_BRANCH_PREFIX)) {
-    try {
-      generatedStateRetirement = await settleGeneratedStateForWorktreeRetirement({
-        repositoryRoot: input.repositoryRoot,
-        workspaceRoot: input.targetPath,
-        expectedBranch: input.expectedBranch,
-        expectedHeadSha: input.expectedHeadSha,
-        expectedTreeSha: input.expectedTreeSha
-      }, {
-        worktreeRetirementProviders: Object.freeze([
-          compilerDependencyLocatorWorktreeRetirementProvider
-        ])
-      });
-    } catch (error) {
-      if (!isGeneratedStateWorktreeRetirementBlocked(error)) throw error;
-      // The generated-state owner made no Effect.  Preserve its fail-closed
-      // classification and let #186 emit the canonical working-state blocker.
-    }
-  }
   const repository = await repositoryFacts(input.repositoryRoot);
-  return withAcquiredResource({
+  return withWorkspaceWriteLease(repository.commonDir, undefined, async (commonLease) => {
+    await assertCoordinatedRepository(repository, commonLease);
+    await assertWorktreeCloseoutAdmissionBeforeGeneratedState(input);
+    let generatedStateRetirement: Awaited<ReturnType<typeof settleGeneratedStateForWorktreeRetirement>> = null;
+    if (!input.expectedBranch.startsWith(DETACHED_BRANCH_PREFIX)) {
+      try {
+        generatedStateRetirement = await settleGeneratedStateForWorktreeRetirement({
+          repositoryRoot: input.repositoryRoot,
+          workspaceRoot: input.targetPath,
+          expectedBranch: input.expectedBranch,
+          expectedHeadSha: input.expectedHeadSha,
+          expectedTreeSha: input.expectedTreeSha
+        }, {
+          worktreeRetirementProviders: Object.freeze([
+            compilerDependencyLocatorWorktreeRetirementProvider
+          ])
+        });
+      } catch (error) {
+        if (!isGeneratedStateWorktreeRetirementBlocked(error)) throw error;
+        // The generated-state owner made no Effect. Preserve its fail-closed
+        // classification and let #186 emit the canonical working-state blocker.
+      }
+    }
+    await assertCoordinatedRepository(repository, commonLease);
+    return withAcquiredResource({
     operationLabel: 'worktree-closeout-repository-lease-operation',
     resourceLabel: 'worktree-closeout-repository-write-lease',
     acquire: () => acquireWorkspaceWriteLease(repository.root),
@@ -721,6 +784,7 @@ export async function prepareWorktreePhysicalCloseout(
       resourceLabel: 'worktree-closeout-target-write-lease',
       acquire: () => acquireWorkspaceWriteLease(input.targetPath),
       use: async (targetLease) => {
+        await assertCoordinatedRepository(repository, commonLease);
         await repositoryLease.assertOwned();
         await targetLease.assertOwned();
         const ownedNamespace = await targetLease.ownedNamespace();
@@ -734,12 +798,17 @@ export async function prepareWorktreePhysicalCloseout(
           repository,
           targetLease,
           leaseHeldWorking,
-          generatedStateRetirement
+          generatedStateRetirement,
+          async () => {
+            await assertCoordinatedRepository(repository, commonLease);
+            await repositoryLease.assertOwned();
+          }
         );
       },
       release: (targetLease) => targetLease.release()
     }),
     release: (repositoryLease) => repositoryLease.release()
+    });
   });
 }
 
@@ -748,7 +817,8 @@ async function prepareWorktreePhysicalCloseoutUnderLease(
   repository: Awaited<ReturnType<typeof repositoryFacts>>,
   targetLease: Awaited<ReturnType<typeof acquireWorkspaceWriteLease>>,
   working: Awaited<ReturnType<typeof observeWorkingState>>,
-  generatedStateRetirement: Awaited<ReturnType<typeof settleGeneratedStateForWorktreeRetirement>>
+  generatedStateRetirement: Awaited<ReturnType<typeof settleGeneratedStateForWorktreeRetirement>>,
+  assertRepositoryLeases: () => Promise<void>
 ): Promise<WorktreePhysicalCloseoutAuthorization> {
   const targetPath = normalizedAbsolute(input.targetPath);
   const targetIdentity = physicalPresence(targetPath, 'Registered target worktree');
@@ -813,6 +883,11 @@ async function prepareWorktreePhysicalCloseoutUnderLease(
     authorizationPath: '<pending>',
     receiptPath: '<pending>'
   });
+  await assertRepositoryLeases();
+  await targetLease.assertOwned();
+  if (input.expectedBranch.startsWith(DETACHED_BRANCH_PREFIX)) {
+    await assertDetachedScratchRecoveryReachable(repository, input.expectedHeadSha, input.expectedTreeSha);
+  }
   const commonDir = physicalDirectory(repository.commonDir, 'Git common-dir');
   const recoveryRoot = createNoFollowDirectoryChain(commonDir, [
     'sec-worktree-closeout',
@@ -849,6 +924,8 @@ async function prepareWorktreePhysicalCloseoutUnderLease(
   // This is the only authorization publication, and it happens before any
   // Git unregister command.  If Windows parent durability is unavailable,
   // the shared primitive fails here without touching the registry.
+  await assertRepositoryLeases();
+  await targetLease.assertOwned();
   persistCanonical(recoveryRoot, 'authorization.json', authorization);
   const rereadRepository = await repositoryFacts(input.repositoryRoot);
   const rereadRegistry = await observeRegistry(rereadRepository.root);
@@ -871,6 +948,7 @@ async function prepareWorktreePhysicalCloseoutUnderLease(
   ) {
     throw new Error('Live repository, common-dir, registry, or target identity changed during authorization publication.');
   }
+  await assertRepositoryLeases();
   await targetLease.assertOwned();
   return authorization;
 }
@@ -907,13 +985,21 @@ export async function prepareTrustedWorktreePhysicalCloseout(
 export async function prepareDetachedScratchWorktreePhysicalCloseout(
   input: PrepareDetachedScratchWorktreePhysicalCloseoutInput
 ): Promise<WorktreePhysicalCloseoutAuthorization> {
-  return prepareWorktreePhysicalCloseout({ ...input, expectedBranch: detachedMarker(input.expectedHeadSha) });
+  return prepareWorktreePhysicalCloseout({
+    ...input,
+    expectedBranch: detachedMarker(input.expectedHeadSha),
+    expectedRecoveryAuthorityDigest: detachedRecoveryCorrelationDigest(input)
+  });
 }
 
 export async function executeDetachedScratchWorktreePhysicalCloseout(
   input: ExecuteDetachedScratchWorktreePhysicalCloseoutInput
 ): Promise<WorktreePhysicalCloseoutReceipt> {
-  return executeWorktreePhysicalCloseout({ ...input, expectedBranch: detachedMarker(input.expectedHeadSha) });
+  return executeWorktreePhysicalCloseout({
+    ...input,
+    expectedBranch: detachedMarker(input.expectedHeadSha),
+    expectedRecoveryAuthorityDigest: detachedRecoveryCorrelationDigest(input)
+  });
 }
 
 function boundedWait(milliseconds: number): void {
@@ -1192,6 +1278,12 @@ async function executeWorktreePhysicalCloseoutUnderLease(
     repository.commonDirInode !== authorization.repository.commonDirInode
   ) {
     throw new Error('Repository or Git common-dir physical identity changed after authorization.');
+  }
+  await assertLeases();
+  if (authorization.target.branch.startsWith(DETACHED_BRANCH_PREFIX)) {
+    await assertDetachedScratchRecoveryReachable(
+      repository, authorization.target.headSha, authorization.target.treeSha
+    );
   }
   const prior = loadLatestReceiptGeneration(expectedRecoveryRoot);
   const proofPresence = inspectExactNoFollowDirectoryPresence(
@@ -1476,6 +1568,11 @@ async function executeWorktreePhysicalCloseoutUnderLease(
       ));
     }
     await assertLeases();
+    if (authorization.target.branch.startsWith(DETACHED_BRANCH_PREFIX)) {
+      await assertDetachedScratchRecoveryReachable(
+        repository, authorization.target.headSha, authorization.target.treeSha
+      );
+    }
     const movedAdmin = relocateRetainedNoFollowDirectoryAcrossParents({
       directory: registryAdmin,
       destinationParent: expectedRecoveryRoot,
@@ -1766,12 +1863,19 @@ async function executeWorktreePhysicalCloseoutUnderLease(
 export async function executeWorktreePhysicalCloseout(
   input: ExecuteWorktreePhysicalCloseoutInput
 ): Promise<WorktreePhysicalCloseoutReceipt> {
-  return withWorkspaceWriteLease(input.repositoryRoot, undefined, async (lease) => {
-    const assertLease = () => assertWorkspaceWriteLease(input.repositoryRoot, lease);
-    await assertLease();
-    const receipt = await executeWorktreePhysicalCloseoutUnderLease(input, assertLease);
-    await assertLease();
-    return receipt;
+  const repository = await repositoryFacts(input.repositoryRoot);
+  return withWorkspaceWriteLease(repository.commonDir, undefined, async (commonLease) => {
+    await assertCoordinatedRepository(repository, commonLease);
+    return withWorkspaceWriteLease(input.repositoryRoot, undefined, async (rootLease) => {
+      const assertLeases = async () => {
+        await assertCoordinatedRepository(repository, commonLease);
+        await assertWorkspaceWriteLease(input.repositoryRoot, rootLease);
+      };
+      await assertLeases();
+      const receipt = await executeWorktreePhysicalCloseoutUnderLease(input, assertLeases);
+      await assertLeases();
+      return receipt;
+    });
   });
 }
 
@@ -1977,9 +2081,15 @@ export async function gcCompletedWorktreePhysicalCloseoutEvidence(
       retained: Object.freeze([])
     });
   }
-  return withWorkspaceWriteLease(repositoryRoot, undefined, async (lease) => {
-    await assertWorkspaceWriteLease(repositoryRoot, lease);
-    const repository = await repositoryFacts(repositoryRoot);
+  return withWorkspaceWriteLease(preflightRepository.commonDir, undefined, async (commonLease) => {
+    await assertCoordinatedRepository(preflightRepository, commonLease);
+    return withWorkspaceWriteLease(repositoryRoot, undefined, async (lease) => {
+    const assertGcLeases = async () => {
+      await assertCoordinatedRepository(preflightRepository, commonLease);
+      await assertWorkspaceWriteLease(repositoryRoot, lease);
+    };
+    await assertGcLeases();
+    const repository = preflightRepository;
     const commonDir = physicalDirectory(repository.commonDir, 'Worktree closeout GC common-dir');
     const ownerPath = path.join(commonDir.path, 'sec-worktree-closeout');
     const ownerPresence = inspectExactNoFollowDirectoryPresence(
@@ -2006,7 +2116,7 @@ export async function gcCompletedWorktreePhysicalCloseoutEvidence(
     const retired: Digest[] = [];
     const retained: Array<WorktreePhysicalCloseoutEvidenceGcResult['retained'][number]> = [];
     for (const child of [...children].sort((left, right) => left.relativePath.localeCompare(right.relativePath))) {
-      await assertWorkspaceWriteLease(repositoryRoot, lease);
+      await assertGcLeases();
       const operationRoot = physicalDirectory(
         path.join(owner.path, child.relativePath),
         'Worktree closeout GC operation root'
@@ -2148,6 +2258,7 @@ export async function gcCompletedWorktreePhysicalCloseoutEvidence(
           receipt: retiredPhase.retirementReceipt,
           proofParent: proofRoot
         });
+        await assertGcLeases();
         retireNoFollowDirectoryTree({
           deadlineAtMonotonicMs: performance.now() + 10_000,
           inventory: scanNoFollowDirectoryTreeMetadata(proofRoot, {
@@ -2184,6 +2295,7 @@ export async function gcCompletedWorktreePhysicalCloseoutEvidence(
             expectedTreeSha: authorization.current!.target.treeSha
           });
           const retentionRoot = retentionPresence.directory.target;
+          await assertGcLeases();
           retireNoFollowDirectoryTree({
             deadlineAtMonotonicMs: performance.now() + 10_000,
             inventory: scanNoFollowDirectoryTreeMetadata(retentionRoot, {
@@ -2205,7 +2317,7 @@ export async function gcCompletedWorktreePhysicalCloseoutEvidence(
         });
       }
       if (prooflessAuthorization !== null) {
-        await assertWorkspaceWriteLease(repositoryRoot, lease);
+        await assertGcLeases();
         const branchObservation = prooflessAuthorization.target.branch.startsWith(DETACHED_BRANCH_PREFIX)
           ? null
           : await runRepositoryGit(repository.root, [
@@ -2227,8 +2339,9 @@ export async function gcCompletedWorktreePhysicalCloseoutEvidence(
           retiredPhase: retiredPhase!,
           stage: 'gc-effect-boundary'
         });
-        await assertWorkspaceWriteLease(repositoryRoot, lease);
+        await assertGcLeases();
       }
+      await assertGcLeases();
       retireNoFollowDirectoryTree({
         deadlineAtMonotonicMs: performance.now() + 10_000,
         inventory: operationInventory,
@@ -2238,12 +2351,13 @@ export async function gcCompletedWorktreePhysicalCloseoutEvidence(
       trustedTokensByAuthorization.delete(authorization.authorizationDigest);
       retired.push(authorization.operationId);
     }
-    await assertWorkspaceWriteLease(repositoryRoot, lease);
+    await assertGcLeases();
     const ownerRetired = scanNoFollowDirectoryDirectMetadata(owner, {
       deadlineAtMs: performance.now() + 10_000,
       maximumEntries: 20_000
     }).length === 0;
     if (ownerRetired) {
+      await assertGcLeases();
       deleteRetainedNoFollowEntry({
         root: commonDir,
         relativePath: 'sec-worktree-closeout',
@@ -2264,6 +2378,7 @@ export async function gcCompletedWorktreePhysicalCloseoutEvidence(
       retiredOperationIds: Object.freeze(retired),
       ownerRetired,
       retained: Object.freeze(retained)
+    });
     });
   });
 }

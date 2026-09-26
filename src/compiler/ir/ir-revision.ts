@@ -1,4 +1,4 @@
-import { compareCodeUnits, digest, normalizedArtifactTarget, stableById, uniqueSorted, uniqueSortedByKey } from '../../contracts/canonical.ts';
+import { compareCodeUnits, rawSha256Hex, normalizedArtifactTarget, stableById, uniqueSorted, uniqueSortedByKey } from '../../contracts/canonical.ts';
 import type { LoadedSemanticContract, SemanticContract } from '../../semantics/definitions/types.ts';
 import { type SemanticEntity } from '../../semantics/engineering-ir/entity-types.ts';
 import { type SemanticFact } from '../../semantics/engineering-ir/fact-types.ts';
@@ -8,7 +8,7 @@ import type { ManifestGenerator } from '../../semantics/generation/types.ts';
 import type { PolicyRule } from '../../semantics/policies/types.ts';
 import type { BlockManifest, ManifestPin, ResolvedBlock } from '../contract.ts';
 
-export { digest };
+export { rawSha256Hex };
 
 interface InputRevisionManifest {
   blockId: string;

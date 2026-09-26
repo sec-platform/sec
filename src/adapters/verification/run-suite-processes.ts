@@ -16,14 +16,14 @@ import type { CommitFence } from '../../contracts/commit-fence.ts';
 import { parseExactJson } from '../../contracts/exact-json.ts';
 import { throwIfNativeAborted } from '../../contracts/native-abort.ts';
 import { relativePosixPath } from '../../contracts/relative-path.ts';
-import { issueSecOperationRequirementBindingContext } from '../../execution/operation/requirement-binding-context.ts';
+import { issueOperationRequirementBindingContext } from '../../execution/operation/requirement-binding-context.ts';
 import {
-  bindSecSemanticOperation,
-  compileSecCapabilityBinding,
-  compileSecSemanticOperationPlan,
-  issueSecSemanticOperationAttemptContext,
-  type SecBoundSemanticOperation,
-  type SecOperationDigest
+  bindSemanticOperation,
+  compileCapabilityBinding,
+  compileSemanticOperationPlan,
+  issueSemanticOperationAttemptContext,
+  type BoundSemanticOperation,
+  type OperationDigest
 } from '../../execution/operation/semantic.ts';
 import { settleResources, settleResourcesAsync } from '../../execution/resource-settlement.ts';
 import {
@@ -181,8 +181,8 @@ function parseTerminal(stdout: Uint8Array, nonce: string, file: string): FastSui
 function compileFastSuiteOperation(input: Readonly<{
   environment: NodeJS.ProcessEnv;
   file: CapturedSuite;
-  providerIdentityDigest: SecOperationDigest;
-}>): SecBoundSemanticOperation {
+  providerIdentityDigest: OperationDigest;
+}>): BoundSemanticOperation {
   const deadlineAtUnixMs = Date.now() + FAST_SUITE_PROCESS_MAX_DURATION_MS;
   const contractDigest = sha256({
     domain: 'verification.fast-suite-process.contract-v1',
@@ -190,18 +190,18 @@ function compileFastSuiteOperation(input: Readonly<{
     inputBytes: FAST_SUITE_PROCESS_MAX_INPUT_BYTES,
     outputBytes: FAST_SUITE_PROCESS_MAX_STDOUT_BYTES + FAST_SUITE_PROCESS_MAX_STDERR_BYTES,
     processes: FAST_SUITE_PROCESS_MAX_NATIVE_RESOURCES
-  }) as SecOperationDigest;
-  const plan = compileSecSemanticOperationPlan({
+  }) as OperationDigest;
+  const plan = compileSemanticOperationPlan({
     operation: FAST_SUITE_PROCESS_OPERATION,
     intentDigest: sha256({
       domain: 'verification.fast-suite-process.intent-v1',
       file: input.file.relativePath,
       environment: input.environment,
       providerIdentityDigest: input.providerIdentityDigest
-    }) as SecOperationDigest,
+    }) as OperationDigest,
     decisionDigest: contractDigest,
     deadlineAtUnixMs,
-    attempt: issueSecSemanticOperationAttemptContext({
+    attempt: issueSemanticOperationAttemptContext({
       authorityGrantDigest: contractDigest
     }),
     aggregateBudgets: [
@@ -228,7 +228,7 @@ function compileFastSuiteOperation(input: Readonly<{
       ]
     }]
   });
-  return bindSecSemanticOperation(plan, [compileSecCapabilityBinding({
+  return bindSemanticOperation(plan, [compileCapabilityBinding({
     requirementId: FAST_SUITE_PROCESS_REQUIREMENT,
     contractDigest,
     providerIdentityDigest: input.providerIdentityDigest
@@ -299,7 +299,7 @@ async function runOneSuite(input: Readonly<{
   boundary: ReturnType<typeof issueRetainedCommandBoundary>;
   environment: NodeJS.ProcessEnv;
   file: CapturedSuite;
-  providerIdentityDigest: SecOperationDigest;
+  providerIdentityDigest: OperationDigest;
   signal?: AbortSignal;
   commitFence?: CommitFence;
   sealedGeneration: boolean;
@@ -332,7 +332,7 @@ async function runOneSuite(input: Readonly<{
   });
   const session = openProcessResourceSession({
     operation,
-    requirementBindingContext: issueSecOperationRequirementBindingContext({
+    requirementBindingContext: issueOperationRequirementBindingContext({
       operation,
       requirementId: FAST_SUITE_PROCESS_REQUIREMENT,
       resourceCeilings: operation.plan.execution.aggregateBudgets
@@ -522,7 +522,7 @@ export async function runSuiteProcesses(
             kind: 'sealed-generation',
             inputDigest: exactGeneration.inputDigest
           }
-    }) as SecOperationDigest;
+    }) as OperationDigest;
     boundary = issueRetainedCommandBoundary({ executable, workingDirectory });
 
     for (const file of files) {

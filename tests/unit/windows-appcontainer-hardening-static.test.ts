@@ -7,8 +7,8 @@ import { readCompilerTypeScriptMutationFixture } from '../helpers/compiler-fixtu
 
 import { runObservedCommand } from '../../src/adapters/runtime-state/physical/runtime/observed-process.ts';
 import {
-  arbitrateWindowsAppContainerNativeExecutionDeadlinesForTests,
-  createWindowsAppContainerNativeExecutionBudgetForTests
+  arbitrateNativeExecutionDeadlinesForTests,
+  createNativeExecutionBudgetForTests
 } from '../../src/adapters/runtime-state/physical/test/windows-appcontainer.ts';
 
 const RECOVERY_OWNER_OBSERVATION_SCHEMA = 'sec-recovery-owner-behavior-observation-v1' as const;
@@ -43,9 +43,9 @@ interface RecoveryOwnerProjectionCleanupState {
 
 function recoveryOwnerProjectionHarness(): string {
   return String.raw`
-const __secRecoveryOwnerObservationSchemaV1 = 'sec-recovery-owner-behavior-observation-v1';
+const __recoveryOwnerObservationSchema = 'sec-recovery-owner-behavior-observation-v1';
 
-async function __secRecoveryOwnerBehaviorProjectionV1(payload: {
+async function __recoveryOwnerBehaviorProjection(payload: {
   readonly scenario: string;
   readonly transactionRoot: string;
   readonly stagingRoot: string;
@@ -53,7 +53,7 @@ async function __secRecoveryOwnerBehaviorProjectionV1(payload: {
   const authorityBindingDigest = 'sha256:' + 'a'.repeat(64);
   const stagingIdentityDigest = 'sha256:' + 'b'.repeat(64);
   const alternateStagingIdentityDigest = 'sha256:' + 'c'.repeat(64);
-  const baseOwner: WindowsAppContainerRecoveryOwnerV1 = Object.freeze({
+  const baseOwner: WindowsAppContainerRecoveryOwner = Object.freeze({
     formatVersion: RECOVERY_OWNER_FORMAT_VERSION,
     workspaceIdentityDigest: authorityBindingDigest,
     stagingIdentityDigest,
@@ -63,7 +63,7 @@ async function __secRecoveryOwnerBehaviorProjectionV1(payload: {
     appContainerName: buildAppContainerName(payload.stagingRoot, stagingIdentityDigest),
     appContainerSid: 'S-1-15-2-1-2-3-4-5-6-7'
   });
-  let expectedOwner: WindowsAppContainerRecoveryOwnerV1 | null = baseOwner;
+  let expectedOwner: WindowsAppContainerRecoveryOwner | null = baseOwner;
   let persistedOwner: Record<string, unknown> | undefined = baseOwner;
   let requestedNativeResultPath = nativeResultPath(payload.transactionRoot);
   const firstAlternateName = 'sec.sm3.000000000000.111111111111111111111111';
@@ -134,7 +134,7 @@ async function __secRecoveryOwnerBehaviorProjectionV1(payload: {
   }
   try {
     await assertRecoveryOwner(
-      expectedOwner as WindowsAppContainerRecoveryOwnerV1,
+      expectedOwner as WindowsAppContainerRecoveryOwner,
       {
         stagingRoot: payload.stagingRoot,
         transactionRoot: payload.transactionRoot,
@@ -148,12 +148,12 @@ async function __secRecoveryOwnerBehaviorProjectionV1(payload: {
       } as WindowsAppContainerExecutionBindingReceipt,
       requestedNativeResultPath
     );
-    return Object.freeze({ schema: __secRecoveryOwnerObservationSchemaV1, result: 'accepted' });
+    return Object.freeze({ schema: __recoveryOwnerObservationSchema, result: 'accepted' });
   } catch (error) {
     const result = error instanceof WindowsAppContainerExecutionError && error.phase === 'cleanup'
       ? 'cleanup'
       : 'unexpected';
-    return Object.freeze({ schema: __secRecoveryOwnerObservationSchemaV1, result });
+    return Object.freeze({ schema: __recoveryOwnerObservationSchema, result });
   }
 }
 
@@ -163,7 +163,7 @@ if (import.meta.main) {
     readonly transactionRoot: string;
     readonly stagingRoot: string;
   };
-  const observation = await __secRecoveryOwnerBehaviorProjectionV1(payload);
+  const observation = await __recoveryOwnerBehaviorProjection(payload);
   process.stdout.write(JSON.stringify(observation) + '\n');
 }
 `;
@@ -187,7 +187,7 @@ async function buildRecoveryOwnerProjection(
     minify: false,
     sourcemap: 'none',
     plugins: [{
-      name: 'recovery-owner-exact-module-projection-v1',
+      name: 'recovery-owner-exact-module-projection',
       setup(build) {
         build.onLoad({ filter: /executor\.ts$/u }, async (args) => {
           if (foldedLocalPath(args.path) !== canonicalEntryPath) return undefined;
@@ -355,15 +355,15 @@ test('Windows AppContainer recovery ownership and deadlines are behaviorally clo
     executorSource
   );
 
-  expect(arbitrateWindowsAppContainerNativeExecutionDeadlinesForTests(60_000)).toEqual({
+  expect(arbitrateNativeExecutionDeadlinesForTests(60_000)).toEqual({
     childTimeoutMs: 60_000,
     hostWatchdogMs: 70_000
   });
-  expect(arbitrateWindowsAppContainerNativeExecutionDeadlinesForTests(undefined)).toEqual({
+  expect(arbitrateNativeExecutionDeadlinesForTests(undefined)).toEqual({
     childTimeoutMs: 120_000,
     hostWatchdogMs: 130_000
   });
-  expect(createWindowsAppContainerNativeExecutionBudgetForTests(60_000, 1_000)).toEqual({
+  expect(createNativeExecutionBudgetForTests(60_000, 1_000)).toEqual({
     startedAtMs: 1_000,
     timeoutMs: 60_000
   });

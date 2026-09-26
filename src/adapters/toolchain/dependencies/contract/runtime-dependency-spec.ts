@@ -1,6 +1,6 @@
 import path from 'node:path';
-import { canonicalEquals, canonicalJson, compareCodeUnits, deepFreeze, digest, sortedKeys } from '../../../../contracts/canonical.ts';
-import { SecError } from '../../../../contracts/failure.ts';
+import { canonicalEquals, canonicalJson, compareCodeUnits, deepFreeze, rawSha256Hex, sortedKeys } from '../../../../contracts/canonical.ts';
+import { FailureError } from '../../../../contracts/failure.ts';
 import { readOptionalRetainedJson } from '../../../runtime-state/physical/runtime/retained-file-read.ts';
 import { compilerRoot } from "../../../workspace-context.ts";
 import { generatedRuntimeDependencyCapabilityNames } from './dependency-capability-contract.ts';
@@ -36,7 +36,7 @@ const LEGACY_RUNTIME_DEPENDENCY_MATERIALIZATION_FORMAT =
  * normal materialization builder.  Once the dependency owner replaces the
  * exact legacy generation, no production reader retains v2 compatibility.
  */
-export interface LegacyRuntimeDependencyMaterializationBindingV2 {
+export interface LegacyRuntimeDependencyMaterializationBinding {
   readonly formatVersion: typeof LEGACY_RUNTIME_DEPENDENCY_MATERIALIZATION_FORMAT;
   readonly manifestHash: string;
   readonly packages: readonly Readonly<RuntimeDependencyResolvedPackage>[];
@@ -100,7 +100,8 @@ export type RuntimeDependencyMaterializationBindingInput = Readonly<{
 }>;
 
 const RUNTIME_DEPS_PREBOUND_BINDING_FORMAT = 'runtime-deps-prebound-binding-v1' as const;
-export const RUNTIME_DEPS_PREBOUND_BINDING_FILE = '.sec-runtime-deps-binding-v1.json' as const;
+export const RUNTIME_DEPS_PREBOUND_BINDING_FILE = '.sec-runtime-deps-binding.json' as const;
+export const LEGACY_RUNTIME_DEPS_PREBOUND_BINDING_FILE = '.sec-runtime-deps-binding-v1.json' as const;
 
 export interface RuntimeDepsPreboundBinding {
   readonly formatVersion: typeof RUNTIME_DEPS_PREBOUND_BINDING_FORMAT;
@@ -114,7 +115,7 @@ const runtimeDevDependencyKeys = generatedRuntimeDependencyCapabilityNames('devD
 // registry.  v2 was published before the aliased native TypeScript checker
 // joined the runtime root set; deriving these names from the current registry
 // would silently reinterpret immutable legacy bytes.
-const legacyRuntimeDependencyPackageNamesV2 = Object.freeze([
+const legacyRuntimeDependencyPackageNames = Object.freeze([
   '@types/bun',
   '@types/node',
   'ts-morph',
@@ -159,7 +160,7 @@ export function parseRuntimeDependencyPackageReference(
 }
 
 function materializationBindingError(message: string): never {
-  throw new SecError('RUNTIME-DEPS-000', message);
+  throw new FailureError('RUNTIME-DEPS-000', message);
 }
 
 function canonicalPackagePath(value: string, label: string): string {
@@ -354,7 +355,7 @@ function canonicalRuntimeDependencyMaterializationBinding(
   } as const;
   return deepFreeze({
     ...content,
-    revision: `sha256:${digest(JSON.stringify(canonicalJson(content)))}` as const
+    revision: `sha256:${rawSha256Hex(JSON.stringify(canonicalJson(content)))}` as const
   });
 }
 
@@ -403,12 +404,12 @@ export function isRuntimeDependencyMaterializationBinding(
  * the physical generation.  Normal readiness must continue to call only
  * isRuntimeDependencyMaterializationBinding(), which is v3-only.
  */
-export function parseLegacyRuntimeDependencyMaterializationV2ForRecovery(
+export function parseLegacyRuntimeDependencyMaterializationForRecovery(
   value: unknown
-): Readonly<LegacyRuntimeDependencyMaterializationBindingV2> | null {
+): Readonly<LegacyRuntimeDependencyMaterializationBinding> | null {
   if (!value || typeof value !== 'object' || Array.isArray(value) ||
       Object.getPrototypeOf(value) !== Object.prototype) return null;
-  const candidate = value as Partial<LegacyRuntimeDependencyMaterializationBindingV2>;
+  const candidate = value as Partial<LegacyRuntimeDependencyMaterializationBinding>;
   if (candidate.formatVersion !== LEGACY_RUNTIME_DEPENDENCY_MATERIALIZATION_FORMAT ||
       typeof candidate.manifestHash !== 'string' || !Array.isArray(candidate.packages) ||
       !Array.isArray(candidate.rootPackages) || candidate.toolchain === null ||
@@ -433,8 +434,8 @@ export function parseLegacyRuntimeDependencyMaterializationV2ForRecovery(
         target: canonicalPackagePath(entry.target, 'Legacy runtime dependency root package target')
       });
     }).sort((left, right) => compareCodeUnits(left.name, right.name));
-    if (rootPackages.length !== legacyRuntimeDependencyPackageNamesV2.length ||
-        rootPackages.some((entry, index) => entry.name !== legacyRuntimeDependencyPackageNamesV2[index])) {
+    if (rootPackages.length !== legacyRuntimeDependencyPackageNames.length ||
+        rootPackages.some((entry, index) => entry.name !== legacyRuntimeDependencyPackageNames[index])) {
       return null;
     }
     for (const rootPackage of rootPackages) {
@@ -464,7 +465,7 @@ export function parseLegacyRuntimeDependencyMaterializationV2ForRecovery(
     });
     const canonical = deepFreeze({
       ...content,
-      revision: `sha256:${digest(JSON.stringify(canonicalJson(content)))}` as const
+      revision: `sha256:${rawSha256Hex(JSON.stringify(canonicalJson(content)))}` as const
     });
     return canonicalEquals(value, canonical) ? canonical : null;
   } catch {
@@ -485,13 +486,13 @@ export function isRuntimeDependencyPackageManifest(
 function resolveVersion(rootPackage: RootPackageJson, dependencyName: string): string {
   const version = rootPackage.dependencies?.[dependencyName] ?? rootPackage.devDependencies?.[dependencyName];
   if (!version) {
-    throw new SecError(
+    throw new FailureError(
       'RUNTIME-DEPS-000',
       `Root package.json is missing required runtime dependency "${dependencyName}"`
     );
   }
   if (parseRuntimeDependencyPackageReference(dependencyName, version) === null) {
-    throw new SecError(
+    throw new FailureError(
       'RUNTIME-DEPS-000',
       `Root package.json must pin runtime dependency "${dependencyName}" to one exact numeric release or exact npm alias`
     );
@@ -500,7 +501,7 @@ function resolveVersion(rootPackage: RootPackageJson, dependencyName: string): s
 }
 
 function stableHash(value: unknown): string {
-  return digest(JSON.stringify(value));
+  return rawSha256Hex(JSON.stringify(value));
 }
 
 export function buildRuntimeDependencySpec(rootPackage: RootPackageJson): RuntimeDependencySpec {
@@ -559,7 +560,7 @@ export function loadRuntimeDependencySpec(
     'Runtime dependency root package manifest'
   );
   if (rootPackage === null) {
-    throw new SecError(
+    throw new FailureError(
       'RUNTIME-DEPS-000',
       `Root package.json is missing: ${packageJsonPath}`
     );

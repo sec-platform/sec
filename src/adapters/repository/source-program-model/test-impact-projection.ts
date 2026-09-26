@@ -8,8 +8,8 @@ import {
   uniqueSorted
 } from '../../../contracts/canonical.ts';
 import { parseExactJson } from '../../../contracts/exact-json.ts';
-import { SecError } from '../../../contracts/failure.ts';
-import { normalizeSecRepositoryPath } from '../architecture/contract.ts';
+import { FailureError } from '../../../contracts/failure.ts';
+import { normalizeRepositoryModulePath } from '../architecture/contract.ts';
 import type {
   SourceProgramEntrypointKind,
   SourceProgramModel,
@@ -19,12 +19,12 @@ import {
   assertRepositoryCompilationGenerationReceipt,
   type RepositoryCompilationGenerationReceipt
 } from './repository-compilation-cache.ts';
-import { isCompiledRepositorySourceProgramModel } from './repository.ts';
+import { isCompiledRepositoryModel } from './repository.ts';
 import {
-  workspaceSourceSnapshotIdentityForTestObservations,
-  type SourceProgramTestObservations
+  snapshotIdentityForTestObservations,
+  type TestObservations
 } from './test-observations.ts';
-import { workspaceSourceSnapshotIdentityForTypeScriptModel } from './typescript.ts';
+import { workspaceSnapshotIdentityForTypeScriptModel } from './typescript.ts';
 import {
   assertPhysicalWorkspaceSourceSnapshot,
   assertWorkspaceSourceSnapshot,
@@ -40,7 +40,7 @@ const SCHEMA = 'sec-source-program-test-impact-projection-v5' as const;
 
 const digestSchema = z.string().regex(DIGEST);
 const repositoryPathSchema = z.string().min(1).refine(
-  (value) => normalizeSecRepositoryPath(value) === value,
+  (value) => normalizeRepositoryModulePath(value) === value,
   'repository path must be canonical'
 );
 const physicalSubjectSchema = z.object({
@@ -168,9 +168,9 @@ function referenceOrder(left: SourceProgramReference, right: SourceProgramRefere
 
 function compactReference(reference: SourceProgramReference): z.infer<typeof semanticReferenceSchema> {
   return {
-    path: normalizeSecRepositoryPath(reference.path),
+    path: normalizeRepositoryModulePath(reference.path),
     moduleSpecifier: reference.moduleSpecifier,
-    targetPath: reference.targetPath === null ? null : normalizeSecRepositoryPath(reference.targetPath),
+    targetPath: reference.targetPath === null ? null : normalizeRepositoryModulePath(reference.targetPath),
     precise: reference.name !== '*'
       && reference.targetObservationId !== null
       && reference.targetPath !== null
@@ -260,26 +260,26 @@ function assertProjectionInputsIssued(input: Readonly<{
   workspaceSnapshot: WorkspaceSourceSnapshot;
   repositoryModel: SourceProgramModel;
   typeScriptModel: SourceProgramModel;
-  testObservations: SourceProgramTestObservations;
+  testObservations: TestObservations;
   projectGeneration?: RepositoryCompilationGenerationReceipt;
 }>): void {
   const { workspaceSnapshot, repositoryModel, typeScriptModel, testObservations, projectGeneration } = input;
   assertWorkspaceSourceSnapshot(workspaceSnapshot);
   if (projectGeneration !== undefined) assertRepositoryCompilationGenerationReceipt(projectGeneration);
   if (workspaceSnapshot.moduleGraphCompilationCount !== 1
-      || !isCompiledRepositorySourceProgramModel(repositoryModel)
+      || !isCompiledRepositoryModel(repositoryModel)
       || repositoryModel.sourceRevision !== workspaceSnapshot.sourceRevision
       || typeScriptModel.sourceRevision !== workspaceSnapshot.sourceRevision
       || testObservations.sourceRevision !== workspaceSnapshot.sourceRevision
       || testObservations.productionModelDigest !== typeScriptModel.modelDigest
-      || workspaceSourceSnapshotIdentityForTypeScriptModel(typeScriptModel) !== workspaceSnapshot.identityDigest
-      || workspaceSourceSnapshotIdentityForTestObservations(testObservations) !== workspaceSnapshot.identityDigest
+      || workspaceSnapshotIdentityForTypeScriptModel(typeScriptModel) !== workspaceSnapshot.identityDigest
+      || snapshotIdentityForTestObservations(testObservations) !== workspaceSnapshot.identityDigest
       || (projectGeneration !== undefined
         && (projectGeneration.workspaceSnapshotIdentityDigest !== workspaceSnapshot.identityDigest
           || projectGeneration.snapshotDigest !== workspaceSnapshot.snapshotDigest
           || projectGeneration.moduleMembershipDigest !== workspaceSnapshot.moduleMembershipDigest
           || projectGeneration.moduleGraphDigest !== workspaceSnapshot.moduleGraphDigest))) {
-    throw new SecError(
+    throw new FailureError(
       'SOURCE-PROGRAM-TEST-IMPACT-001',
       'Test impact projection requires snapshot-issued TypeScript and test observations',
       { kind: 'projection-input-unissued' }
@@ -291,7 +291,7 @@ function compileTestImpactProjection(input: Readonly<{
   workspaceSnapshot: WorkspaceSourceSnapshot;
   repositoryModel: SourceProgramModel;
   typeScriptModel: SourceProgramModel;
-  testObservations: SourceProgramTestObservations;
+  testObservations: TestObservations;
   projectGeneration?: RepositoryCompilationGenerationReceipt;
 }>): TestImpactProjectionReceipt {
   assertProjectionInputsIssued(input);
@@ -315,23 +315,23 @@ function compileTestImpactProjection(input: Readonly<{
     ...testObservations.resourceReads
   ]) {
     const consumer = Object.freeze({
-      targetPath: normalizeSecRepositoryPath(targetPath),
-      testPath: normalizeSecRepositoryPath(testPath)
+      targetPath: normalizeRepositoryModulePath(targetPath),
+      testPath: normalizeRepositoryModulePath(testPath)
     });
     observedTestConsumerMap.set(observedTestConsumerKey(consumer), consumer);
   }
   for (const { path: testPath, target: targetPath } of testObservations.localProgramInvocations) {
     const consumer = Object.freeze({
-      targetPath: normalizeSecRepositoryPath(targetPath),
-      testPath: normalizeSecRepositoryPath(testPath)
+      targetPath: normalizeRepositoryModulePath(targetPath),
+      testPath: normalizeRepositoryModulePath(testPath)
     });
     observedTestConsumerMap.set(observedTestConsumerKey(consumer), consumer);
   }
   for (const registration of testObservations.registrations) {
     for (const targetPath of registration.observedProductionPaths) {
       const consumer = Object.freeze({
-        targetPath: normalizeSecRepositoryPath(targetPath),
-        testPath: normalizeSecRepositoryPath(registration.path)
+        targetPath: normalizeRepositoryModulePath(targetPath),
+        testPath: normalizeRepositoryModulePath(registration.path)
       });
       observedTestConsumerMap.set(observedTestConsumerKey(consumer), consumer);
     }
@@ -357,7 +357,7 @@ function compileTestImpactProjection(input: Readonly<{
     moduleOwners: workspaceSnapshot.moduleMembership.descriptors
       .map(({ moduleId, root }) => ({
         moduleId,
-        root: normalizeSecRepositoryPath(root)
+        root: normalizeRepositoryModulePath(root)
       }))
       .sort((left, right) => compareCodeUnits(
         `${left.root}\0${left.moduleId}`,
@@ -381,20 +381,20 @@ function compileTestImpactProjection(input: Readonly<{
       )),
     declarationPaths: uniqueSorted(repositoryModel.declarations.map(({ path }) => path)),
     moduleGraph: {
-      files: uniqueSorted(moduleGraph.files.map(normalizeSecRepositoryPath)),
+      files: uniqueSorted(moduleGraph.files.map(normalizeRepositoryModulePath)),
       references: moduleGraph.references.map((reference) => ({
-        from: normalizeSecRepositoryPath(reference.from),
+        from: normalizeRepositoryModulePath(reference.from),
         kind: reference.kind,
         typeOnly: reference.typeOnly,
         specifier: reference.specifier,
-        candidateTargets: uniqueSorted(reference.candidateTargets.map(normalizeSecRepositoryPath)),
+        candidateTargets: uniqueSorted(reference.candidateTargets.map(normalizeRepositoryModulePath)),
         resolvedTarget: reference.resolvedTarget === null
           ? null
-          : normalizeSecRepositoryPath(reference.resolvedTarget)
+          : normalizeRepositoryModulePath(reference.resolvedTarget)
       })).sort((left, right) => compareCodeUnits(moduleReferenceKey(left), moduleReferenceKey(right))),
-      unresolvedFiles: uniqueSorted(moduleGraph.unresolvedFiles.map(normalizeSecRepositoryPath))
+      unresolvedFiles: uniqueSorted(moduleGraph.unresolvedFiles.map(normalizeRepositoryModulePath))
     },
-    testFiles: uniqueSorted(testObservations.testPaths.map(normalizeSecRepositoryPath)),
+    testFiles: uniqueSorted(testObservations.testPaths.map(normalizeRepositoryModulePath)),
     semanticReferences: [...semanticReferenceMap.values()]
       .sort((left, right) => compareCodeUnits(semanticReferenceKey(left), semanticReferenceKey(right)))
   };
@@ -411,7 +411,7 @@ export function issueTestImpactProjection(input: Readonly<{
   workspaceSnapshot: PhysicalWorkspaceSourceSnapshot;
   repositoryModel: SourceProgramModel;
   typeScriptModel: SourceProgramModel;
-  testObservations: SourceProgramTestObservations;
+  testObservations: TestObservations;
   projectGeneration?: RepositoryCompilationGenerationReceipt;
 }>): IssuedTestImpactProjection {
   assertPhysicalWorkspaceSourceSnapshot(input.workspaceSnapshot);
@@ -425,7 +425,7 @@ export function compileVirtualTestImpactProjection(input: Readonly<{
   workspaceSnapshot: VirtualWorkspaceSourceSnapshot;
   repositoryModel: SourceProgramModel;
   typeScriptModel: SourceProgramModel;
-  testObservations: SourceProgramTestObservations;
+  testObservations: TestObservations;
   projectGeneration?: RepositoryCompilationGenerationReceipt;
 }>): TestImpactProjectionReceipt {
   if (input.workspaceSnapshot.subject.kind !== 'virtual-mutation') {
@@ -438,7 +438,7 @@ export function assertIssuedTestImpactProjection(
   projection: TestImpactProjectionReceipt | undefined
 ): asserts projection is IssuedTestImpactProjection {
   if (projection === undefined || !issuedProjections.has(projection)) {
-    throw new SecError(
+    throw new FailureError(
       'SOURCE-PROGRAM-TEST-IMPACT-001',
       'Test impact requires an owner-issued compact Source Program projection',
       { kind: 'projection-unissued' }

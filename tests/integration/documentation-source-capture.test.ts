@@ -2,11 +2,15 @@ import { expect, spyOn, test } from 'bun:test';
 import fs from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { materializeDocumentationPackage, readDocumentationSource } from '../../src/adapters/release/documentation-source.ts';
-import { digest } from '../../src/contracts/canonical.ts';
+import {
+  captureDocumentationSource,
+  materializeDocumentationPackage,
+  readDocumentationSource
+} from '../../src/adapters/release/documentation-source.ts';
+import { rawSha256Hex } from '../../src/contracts/canonical.ts';
 import {
   DOCUMENTATION_BASELINE, DOCUMENTATION_LIMITS, DOCUMENTATION_NON_SOURCE,
-  DOCUMENTATION_REQUIREMENTS,
+  DOCUMENTATION_FIGURES, DOCUMENTATION_REQUIREMENTS,
   DOCUMENTATION_SOURCE_MANIFEST,
   documentationSourceDigest
 } from '../../src/contracts/documentation-source.ts';
@@ -28,8 +32,8 @@ async function withSource(action: (root: string, sourceDigest: string) => Promis
     }));
     const text = Buffer.from('# Captured source\n');
     const members = [
-      { path: DOCUMENTATION_BASELINE, bytes: baseline.length, sha256: digest(baseline) },
-      { path: 'docs/main.md', bytes: text.length, sha256: digest(text) }
+      { path: DOCUMENTATION_BASELINE, bytes: baseline.length, sha256: rawSha256Hex(baseline) },
+      { path: 'docs/main.md', bytes: text.length, sha256: rawSha256Hex(text) }
     ];
     const sourceDigest = documentationSourceDigest(members);
     await fs.writeFile(path.join(root, DOCUMENTATION_BASELINE), baseline);
@@ -46,6 +50,16 @@ async function withSource(action: (root: string, sourceDigest: string) => Promis
 test.serial('ordinary documentation capture keeps the declared byte identity', async () => {
   await withSource(async (root, sourceDigest) => {
     const result = await readDocumentationSource(root);
+    expect(result.sourceSetSha256).toBe(sourceDigest);
+    expect(result.members.map(member => member.path)).toEqual([DOCUMENTATION_BASELINE, 'docs/main.md']);
+  });
+});
+
+test.serial('authoritative source capture does not require generated projections', async () => {
+  await withSource(async (root, sourceDigest) => {
+    await fs.rm(path.join(root, DOCUMENTATION_SOURCE_MANIFEST));
+    await fs.rm(path.join(root, DOCUMENTATION_REQUIREMENTS), { force: true });
+    const result = await captureDocumentationSource(root);
     expect(result.sourceSetSha256).toBe(sourceDigest);
     expect(result.members.map(member => member.path)).toEqual([DOCUMENTATION_BASELINE, 'docs/main.md']);
   });
@@ -203,7 +217,7 @@ test.serial('an absent optional output never hides a missing source ancestor bef
     const missingParent = Object.assign(new Error('source metadata parent disappeared'), { code: 'ENOENT' });
     let parentMissing = false;
     const lstat = spyOn(fs, 'lstat').mockImplementation((async (...args: Parameters<typeof fs.lstat>) => {
-      if (args[0] === path.join(root, DOCUMENTATION_REQUIREMENTS)) {
+      if (args[0] === path.join(root, DOCUMENTATION_FIGURES)) {
         parentMissing = true;
         throw Object.assign(new Error('optional output lookup failed'), { code: 'ENOENT' });
       }

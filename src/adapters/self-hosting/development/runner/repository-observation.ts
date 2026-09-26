@@ -2,8 +2,8 @@ import { lstatSync, readlinkSync } from 'node:fs';
 import path from 'node:path';
 
 import { rawSha256, sha256, uniqueSorted } from '../../../../contracts/canonical.ts';
-import { SecError } from '../../../../contracts/failure.ts';
-import type { SecBoundSemanticOperation } from '../../../../execution/operation/semantic.ts';
+import { FailureError } from '../../../../contracts/failure.ts';
+import type { BoundSemanticOperation } from '../../../../execution/operation/semantic.ts';
 import { settleResources as settlePhysicalResources, settleResourcesAsync as settlePhysicalResourcesAsync, type ResourceSettlementFailure as PhysicalResourceSettlementFailure } from '../../../../execution/resource-settlement.ts';
 import { GitReadAuthorityError, issueGitReadAuthorityOperation, withAuthorityGitReadSession } from '../../../providers/git-read/authority.ts';
 import { GIT_READ_EXACT_TREE_OPERATION_BUDGET } from '../../../providers/git-read/runtime/budget.ts';
@@ -34,7 +34,7 @@ const OBSERVATION_BUDGET = Object.freeze({
  * below. This does not authorize the command body or prove zero writes; those
  * remain with its original provider and native change-observer owners.
  */
-export function compileRepositoryObservationOperation(): SecBoundSemanticOperation {
+export function compileRepositoryObservationOperation(): BoundSemanticOperation {
   return issueGitReadAuthorityOperation({
     cwd: compilerRoot,
     environment: { LANG: 'C', LC_ALL: 'C' },
@@ -50,7 +50,7 @@ export type RepositoryObservationFailureKind =
   | 'receipt-closed'
   | 'receipt-unissued';
 
-export class RepositoryObservationError extends SecError {
+export class RepositoryObservationError extends FailureError {
   readonly kind: RepositoryObservationFailureKind;
 
   constructor(kind: RepositoryObservationFailureKind, message: string, ...cause: [] | [unknown]) {
@@ -134,7 +134,7 @@ const liveObservations = new WeakMap<object, LiveObservation>();
  */
 export async function resolveRepositoryObservationRoots(
   repositoryRoot: string,
-  operation: SecBoundSemanticOperation,
+  operation: BoundSemanticOperation,
   processSession?: ProcessResourceSession
 ): Promise<readonly string[]> {
   const exactRoot = path.resolve(repositoryRoot);
@@ -509,7 +509,7 @@ function issueReceipt(baseline: RepositoryObservationBaseline): RepositoryObserv
  */
 export async function withRepositoryFinalStateObservation<Value>(
   repositoryRoot: string,
-  semanticOperation: SecBoundSemanticOperation,
+  semanticOperation: BoundSemanticOperation,
   operation: () => Promise<Value>
 ): Promise<RepositoryObservedOperation<Value>> {
   if (typeof operation !== 'function') throw new TypeError('Repository observed operation must be callable');

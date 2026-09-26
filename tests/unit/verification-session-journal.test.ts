@@ -70,7 +70,7 @@ test('session journal persists a monotonic fsync/CAS hash chain outside the repo
   const readback = readVerificationSessionJournal({ ...base(), fs });
   expect(readback).toMatchObject({ completedStage: 'actions-terminal', completedStageIndex: 1 });
   expect(readback.filePath.replaceAll('\\', '/'))
-    .toContain('/state/sec/workspace/verification-sessions/v2/');
+    .toContain('/state/sec/workspace/verification-sessions/journal/');
   expect(readback.filePath).not.toContain('R:/repo/.tmp');
   expect(() => appendVerificationSessionJournalEvent({
     ...base(),
@@ -105,20 +105,20 @@ test('stable operation claim is immutable and prevents duplicate side effects', 
   const fs = new MemoryFs();
   const operationId = createVerificationSessionOperationId({
     sessionRevision: SESSION,
-    operationKind: 'request-review',
+    operationKind: 'hosted-dispatch',
     semanticInputDigest: INPUT
   });
   const first = claimVerificationSessionOperation({
     ...base(),
     operationId,
-    operationKind: 'request-review',
+    operationKind: 'hosted-dispatch',
     claimedAt: at(1),
     fs
   });
   const second = claimVerificationSessionOperation({
     ...base(),
     operationId,
-    operationKind: 'request-review',
+    operationKind: 'hosted-dispatch',
     claimedAt: at(2),
     fs
   });

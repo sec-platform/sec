@@ -278,13 +278,13 @@ test.skipIf(process.platform !== 'win32')('physical CAS recovers after native ch
       const scriptPath = path.join(root, 'cas-child.ts');
       const physicalUrl = pathToFileURL(path.resolve(import.meta.dir, '../../src/adapters/runtime-state/physical/runtime/physical-no-follow.ts')).href;
       writeFileSync(scriptPath, `
-        import { inspectNoFollowDirectoryChain, inspectNoFollowOrdinaryFileEntry, replaceDurableCanonicalFile, createWindowsDurableCanonicalFileReplacementInterruptionActorForTests } from ${JSON.stringify(physicalUrl)};
+        import { inspectNoFollowDirectoryChain, inspectNoFollowOrdinaryFileEntry, replaceDurableCanonicalFile, createDurableReplacementInterruptionActorForTests } from ${JSON.stringify(physicalUrl)};
         const parent = inspectNoFollowDirectoryChain(${JSON.stringify(parent.path)}, 'CAS child parent').target;
         const current = inspectNoFollowOrdinaryFileEntry(parent, 'owner.json');
         if (current === null) throw new Error('No preimage');
         replaceDurableCanonicalFile({ parent, name: 'owner.json', bytes: Buffer.from('new\\n'),
           expectedExisting: { device: current.device, inode: current.inode }, validate: () => undefined,
-          windowsInterruptionActor: createWindowsDurableCanonicalFileReplacementInterruptionActorForTests(${JSON.stringify(point)}, () => process.exit(73)) });
+          windowsInterruptionActor: createDurableReplacementInterruptionActorForTests(${JSON.stringify(point)}, () => process.exit(73)) });
         throw new Error('Native exit point was not reached');
       `);
       const child = Bun.spawn([process.execPath, '--no-env-file', scriptPath], {

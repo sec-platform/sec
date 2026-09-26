@@ -1,7 +1,7 @@
 import {
   executeGitHubApiOperation,
   inspectGitHubApiCapability,
-  withGitHubApiIssueCommentWriteSession,
+  withGitHubApiProjectionCommentWriteSession,
   withGitHubApiReadSession
 } from '../../../../providers/github-api/operation-session.ts';
 
@@ -271,7 +271,7 @@ async function publishProjection(input: Readonly<{
   projection: CodeScanningProjection;
 }>): Promise<Readonly<{ status: 'created' | 'updated' | 'reused'; commentId: number }>> {
   const body = renderCodeScanningProjection(input.projection);
-  return await withGitHubApiIssueCommentWriteSession({
+  return await withGitHubApiProjectionCommentWriteSession({
     repositoryRoot: input.repositoryRoot,
     repository: input.projection.repository,
     operation: async (capability) => {

@@ -17,7 +17,7 @@ type Workflow = Readonly<{
 }>;
 
 test('terminal status writer cannot mutate repository and effect job cannot mint status', async () => {
-  const source = await readCompilerFile('.github/workflows/sec-merge-gate.yml');
+  const source = await readCompilerFile('.github/workflows/merge-gate.yml');
   const workflow = parseYaml(source) as Workflow;
   const terminal = workflow.jobs['terminal-status']!;
   const integrate = workflow.jobs.integrate!;

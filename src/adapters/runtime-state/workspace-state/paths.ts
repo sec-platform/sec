@@ -1,10 +1,10 @@
 import { inspectNoFollowDirectoryChain } from '../physical/runtime/physical-no-follow.ts';
 import {
-  currentSecRuntimePlatform,
-  resolveSecRuntimeRoots,
-  resolveSecRuntimeStateLayout,
-  secRuntimeStateEnvironment,
-  type SecRuntimeStateLayout
+  currentRuntimePlatform,
+  resolveRuntimeRoots,
+  resolveRuntimeStateLayout,
+  runtimeStateEnvironment,
+  type RuntimeStateLayout
 } from './layout.ts';
 
 function workspacePhysicalIdentity(repositoryRoot: string) {
@@ -19,26 +19,26 @@ function workspacePhysicalIdentity(repositoryRoot: string) {
   });
 }
 
-export function resolveSecWorkspaceRuntimeRoots(input: Readonly<{
+export function resolveWorkspaceRuntimeRoots(input: Readonly<{
   repositoryRoot: string;
   environment?: NodeJS.ProcessEnv;
 }>) {
-  return resolveSecRuntimeRoots({
-    platform: currentSecRuntimePlatform(),
-    environment: secRuntimeStateEnvironment(input.environment ?? process.env),
+  return resolveRuntimeRoots({
+    platform: currentRuntimePlatform(),
+    environment: runtimeStateEnvironment(input.environment ?? process.env),
     repositoryRoot: input.repositoryRoot,
     workspacePhysicalIdentity: workspacePhysicalIdentity(input.repositoryRoot)
   });
 }
 
-export function resolveSecRuntimeStateForRepository(input: Readonly<{
+export function resolveRuntimeStateForRepository(input: Readonly<{
   repository: string;
   repositoryRoot: string;
   environment?: NodeJS.ProcessEnv;
-}>): SecRuntimeStateLayout {
-  return resolveSecRuntimeStateLayout({
-    platform: currentSecRuntimePlatform(),
-    environment: secRuntimeStateEnvironment(input.environment ?? process.env),
+}>): RuntimeStateLayout {
+  return resolveRuntimeStateLayout({
+    platform: currentRuntimePlatform(),
+    environment: runtimeStateEnvironment(input.environment ?? process.env),
     repository: input.repository,
     repositoryRoot: input.repositoryRoot,
     workspacePhysicalIdentity: workspacePhysicalIdentity(input.repositoryRoot)

@@ -1,6 +1,6 @@
 import { canonicalEquals, uniqueSorted } from '../../../../contracts/canonical.ts';
 import { assertCanonicalPortableLogicalPath } from '../../../../contracts/logical-path.ts';
-import { isSecRepositoryTestModulePath } from '../../../../contracts/repository-test-path.ts';
+import { isRepositoryTestModulePath } from '../../../../contracts/repository-test-path.ts';
 import type { FastVerificationLaneReport, RuntimeVerificationLaneReport } from '../../contract/types.ts';
 
 export interface AcceptanceProofBinding {
@@ -47,7 +47,7 @@ const ACCEPTANCE_PROOF_BINDINGS = Object.freeze([
 
 function canonicalTestPath(value: string): string {
   assertCanonicalPortableLogicalPath(value, 'Acceptance proof path');
-  if (!value.startsWith('tests/acceptance/') || !isSecRepositoryTestModulePath(value)) {
+  if (!value.startsWith('tests/acceptance/') || !isRepositoryTestModulePath(value)) {
     throw new Error(`Acceptance proof path is outside the canonical test domain: ${value}`);
   }
   return value;

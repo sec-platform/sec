@@ -37,7 +37,10 @@ test('project base emits the canonical TypeScript runtime package', async () => 
 
     expect(projectPackage.dependencies).toEqual(runtimeSpec.dependencies);
     expect(projectPackage.devDependencies).toEqual(runtimeSpec.devDependencies);
-    expect(projectPackage.scripts['verify:runtime:full']).toBe('bun run test:unit');
+    expect(projectPackage.scripts['verify:runtime']).toBe('bun run test:unit');
+    expect(projectPackage.scripts['verify:runtime:full']).toBeUndefined();
+    expect(projectPackage.scripts['test:host']).toBe('node --test --experimental-test-isolation=none');
+    expect(projectPackage.scripts['test:fast']).toBeUndefined();
     expect(projectPackage.scripts.dev).toBeUndefined();
     expect(projectPackage.scripts.build).toBeUndefined();
     expect(generatedDatabaseBytes).toEqual(templateBytes);

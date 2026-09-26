@@ -1,38 +1,40 @@
 import { describe, expect, test } from 'bun:test';
 
 import {
-  compileSecRepositoryModuleMembershipSnapshot,
-  compileSecRepositoryModuleTopologyProjection,
-  parseSecModuleDescriptor,
-  type SecRepositoryModuleMembership
+  compileRepositoryModuleMembershipSnapshot,
+  compileRepositoryModuleTopologyProjection,
+  parseModuleDescriptor,
+  type RepositoryModuleMembership
 } from '../../src/adapters/repository/architecture/contract.ts';
-import { compileSecRepositoryModulePlacementAdmission } from '../../src/adapters/repository/architecture/placement.ts';
+import { compileRepositoryModulePlacementAdmission } from '../../src/adapters/repository/architecture/placement.ts';
 import {
   projectRepositoryAuditCli,
+  projectRepositoryAuditFindingsCli,
   projectRepositoryModuleArchitectureAudit,
   RepositoryAuditCliProjectionContractError,
+  repositoryAuditFindingClass,
   repositoryModuleArchitectureShouldBlock,
   type RepositoryAuditReport
 } from '../../src/adapters/repository/repository-audit/cli.ts';
 import { compileSourceProgramDeclarationTopology } from '../../src/adapters/repository/source-program-model/declaration-topology.ts';
 import { compileVirtualRepositorySourceProgramCompilation } from '../../src/adapters/repository/source-program-model/repository-compilation.ts';
-import { compileSecRepositoryModuleGraph } from '../../src/adapters/repository/source-program-model/typescript.ts';
-import { compileVirtualWorkspaceSourceSnapshot } from '../../src/adapters/repository/source-program-model/workspace-source-snapshot.ts';
+import { compileRepositoryModuleGraph } from '../../src/adapters/repository/source-program-model/typescript.ts';
+import { compileVirtualSnapshot } from '../../src/adapters/repository/source-program-model/workspace-source-snapshot.ts';
 import {
   projectDocumentControlPlaneStatusCli
 } from '../../src/adapters/self-hosting/control/documentation/document-control-plane.ts';
-import { compileSecOperationDemandGraph } from '../../src/adapters/self-hosting/control/operation/demand.ts';
-import type { SecWorkSelectionLiveResult } from '../../src/adapters/self-hosting/control/work-selection/live-contract.ts';
-import { projectSecWorkSelectionCli } from '../../src/adapters/self-hosting/control/work-selection/runtime.ts';
+import { compileOperationDemandGraph } from '../../src/adapters/self-hosting/control/operation/demand.ts';
+import type { WorkSelectionLiveResult } from '../../src/adapters/self-hosting/control/work-selection/live-contract.ts';
+import { projectWorkSelectionCli } from '../../src/adapters/self-hosting/control/work-selection/runtime.ts';
 import { shouldReportDevRunnerSuccess } from '../../src/adapters/self-hosting/development/runner/cli.ts';
 import { rawSha256 } from '../../src/contracts/canonical.ts';
 
 function declarationTopologyFixture() {
-  const descriptorPath = 'src/projection-owner/sec.module.json';
+  const descriptorPath = 'src/projection-owner/module.json';
   const sourcePath = 'src/projection-owner/runtime.ts';
   const source = 'export const projection = true;';
   const sourceRevision = rawSha256(source);
-  const moduleMembership = compileSecRepositoryModuleMembershipSnapshot({
+  const moduleMembership = compileRepositoryModuleMembershipSnapshot({
     repositoryFiles: [descriptorPath, sourcePath],
     descriptorSources: [{
       descriptorPath,
@@ -46,7 +48,7 @@ function declarationTopologyFixture() {
       })
     }]
   });
-  const workspaceSnapshot = compileVirtualWorkspaceSourceSnapshot({
+  const workspaceSnapshot = compileVirtualSnapshot({
     subject: {
       kind: 'virtual-mutation',
       provenance: {
@@ -64,16 +66,16 @@ function declarationTopologyFixture() {
 }
 
 function architectureProjectionFixture(topology: 'acyclic' | 'cyclic') {
-  const contract = parseSecModuleDescriptor(
+  const contract = parseModuleDescriptor(
     { importGraph: 'runtime', externalEntrypoints: [] },
-    'src/contract-owner/sec.module.json'
+    'src/contract-owner/module.json'
   );
-  const runtime = parseSecModuleDescriptor(
+  const runtime = parseModuleDescriptor(
     { importGraph: 'runtime', externalEntrypoints: [] },
-    'src/runtime-owner/sec.module.json'
+    'src/runtime-owner/module.json'
   );
   const descriptors = Object.freeze([contract, runtime]);
-  const membership: SecRepositoryModuleMembership = Object.freeze({
+  const membership: RepositoryModuleMembership = Object.freeze({
     descriptors,
     graphRoots: Object.freeze(descriptors.map(({ root }) => root)),
     moduleRoots: Object.freeze(descriptors.map(({ root }) => root)),
@@ -95,12 +97,12 @@ function architectureProjectionFixture(topology: 'acyclic' | 'cyclic') {
         : 'export const runtime = true;'
     ]
   ]);
-  const graph = compileSecRepositoryModuleGraph({
+  const graph = compileRepositoryModuleGraph({
     files: [...sources.keys()],
     readSource: (sourcePath) => sources.get(sourcePath) ?? null
   });
-  const structural = compileSecRepositoryModuleTopologyProjection(graph, membership);
-  const responsibilityAdmission = compileSecRepositoryModulePlacementAdmission({
+  const structural = compileRepositoryModuleTopologyProjection(graph, membership);
+  const responsibilityAdmission = compileRepositoryModulePlacementAdmission({
     graph,
     membership,
     facts: Object.freeze({
@@ -156,22 +158,63 @@ describe('bounded control-plane CLI projections', () => {
         activeMarkdown: 1, behaviorCandidates: 0,
         contentCoverage: { excluded: 0, scanned: 500, unknown: 0 },
         findings: { critical: 0, high: 500, medium: 0, low: 0 },
-        markdown: 1, skills: 8, trackedPaths: 500, unknowns: 0
+        findingClasses: {
+          'structural-defect': 0,
+          'reference-graph-defect': 0,
+          'evidence-insufficient': 0,
+          'behavior-counterevidence': 500,
+          'policy-rejection': 0
+        },
+        markdown: 1,
+        sourceProgram: {
+          capabilities: 0, candidates: 0, declarations: 0, dependencies: 0,
+          entrypoints: 0, entrypointClosures: 0, files: 0, literals: 0,
+          packages: 0, references: 0, unknowns: 0
+        },
+        skills: 8, trackedPaths: 500, unknowns: 0
+      },
+      sourceProgram: { modelDigest: `sha256:${'d'.repeat(64)}` },
+      sourceProgramCompilation: {
+        subjectDigest: `sha256:${'1'.repeat(64)}`,
+        snapshotDigest: `sha256:${'2'.repeat(64)}`,
+        moduleGraphDigest: `sha256:${'3'.repeat(64)}`,
+        receiptDigest: `sha256:${'4'.repeat(64)}`
       },
       findings: Array.from({ length: 500 }, (_, index) => ({
-        code: 'one-root-class', message: `instance ${index}`, severity: 'high' as const
+        code: 'partial-discovery-named-all', findingClass: 'behavior-counterevidence' as const,
+        message: `instance ${index}`, severity: 'high' as const,
+        ...(index === 0 ? { skills: undefined } : {})
       })),
       unknowns: [],
+      optimizations: [],
+      heuristicRoutes: {},
+      surfaces: {},
       behaviorCandidates: Array.from({ length: 500 }, (_, index) => ({
         line: index + 1, path: `path-${index}`, skills: [], text: 'noise'
       })),
       contentCoverage: Array.from({ length: 500 }, (_, index) => ({ path: `path-${index}` }))
     } as unknown as RepositoryAuditReport;
     const projected = projectRepositoryAuditCli(report);
-    expect(projected.findingCodes).toEqual(['one-root-class']);
+    expect(projected.findingCodes).toEqual(['partial-discovery-named-all']);
+    expect(projected.summary.findingClasses).toEqual({
+      'structural-defect': 0,
+      'reference-graph-defect': 0,
+      'evidence-insufficient': 0,
+      'behavior-counterevidence': 500,
+      'policy-rejection': 0
+    });
     expect(projected).not.toHaveProperty('behaviorCandidates');
     expect(projected).not.toHaveProperty('contentCoverage');
     expect(JSON.stringify(projected).length).toBeLessThan(1_500);
+
+    const findings = projectRepositoryAuditFindingsCli(report);
+    expect(findings.reportDigest).toBe(projected.reportDigest);
+    expect(findings.revision).toBe(report.revision);
+    expect(findings.findings).toBe(report.findings);
+    expect(findings.unknowns).toBe(report.unknowns);
+    expect(findings.findingCodes).toEqual(['partial-discovery-named-all']);
+    expect(findings).not.toHaveProperty('sourceProgram');
+    expect(findings).not.toHaveProperty('behaviorCandidates');
 
     const { declarationTopology: _declarationTopology, ...staleReport } = report;
     expect(() => projectRepositoryAuditCli(
@@ -183,12 +226,25 @@ describe('bounded control-plane CLI projections', () => {
       ...report,
       architecture: incompleteArchitecture
     } as unknown as RepositoryAuditReport)).toThrow(RepositoryAuditCliProjectionContractError);
+
+    expect(repositoryAuditFindingClass('control-plane-pointer-invalid'))
+      .toBe('structural-defect');
+    expect(repositoryAuditFindingClass('control-plane-digest-drift'))
+      .toBe('behavior-counterevidence');
+    expect(repositoryAuditFindingClass('source-program-causal-identity-unresolved'))
+      .toBe('evidence-insufficient');
+    expect(repositoryAuditFindingClass('source-program-direct-process-transport-outside-owner'))
+      .toBe('policy-rejection');
+    expect(repositoryAuditFindingClass('workflow-entrypoint-missing'))
+      .toBe('reference-graph-defect');
+    expect(() => repositoryAuditFindingClass('unregistered-finding-code'))
+      .toThrow('Unclassified repository audit finding code');
   });
 
   test('work selection keeps authority identity and the actionable decision only', () => {
     const result = {
       status: 'resolved', resultDigest: 'sha256:result',
-      demandGraph: compileSecOperationDemandGraph({
+      demandGraph: compileOperationDemandGraph({
         operation: 'work-selection-observe',
         terminalWorkIds: []
       }),
@@ -204,8 +260,8 @@ describe('bounded control-plane CLI projections', () => {
           blockedCandidateRefs: ['issue-999'], requiredPreconditions: [{}, {}]
         }
       }
-    } as unknown as SecWorkSelectionLiveResult;
-    const projected = projectSecWorkSelectionCli(result);
+    } as unknown as WorkSelectionLiveResult;
+    const projected = projectWorkSelectionCli(result);
     expect(projected).toMatchObject({
       status: 'resolved', exactMain: 'a'.repeat(40),
       decision: { selectedWorkId: 'issue-346', requiredPreconditions: 2 }

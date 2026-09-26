@@ -16,6 +16,7 @@ import {
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
+import { inspectNoFollowDirectoryChain } from '../../src/adapters/runtime-state/physical/runtime/physical-no-follow.ts';
 import {
   createBranchCloseoutOperationBinding,
   createBranchCloseoutOperationJournal,
@@ -82,6 +83,9 @@ function createEffectFixture(label: string) {
   git(repositoryRoot, ['update-ref', 'refs/remotes/origin/release', mainSha]);
   git(repositoryRoot, ['symbolic-ref', 'refs/remotes/origin/HEAD', 'refs/remotes/origin/release']);
   const calls: string[][] = [];
+  let observedMainSha = mainSha;
+  let observedPrHeadSha = headSha;
+  let observedPrMergeSha = mainSha;
   const run = (command: 'gh' | 'git', args: readonly string[], cwd: string, input?: string) => {
     calls.push([command, ...args]);
     if (command === 'gh') {
@@ -109,10 +113,10 @@ function createEffectFixture(label: string) {
         stdout: Buffer.from(JSON.stringify([{
           number: 42,
           headRefName: 'fix/example',
-          headRefOid: headSha,
+          headRefOid: observedPrHeadSha,
           baseRefName: 'main',
           state: 'MERGED',
-          mergeCommit: { oid: mainSha },
+          mergeCommit: { oid: observedPrMergeSha },
           url: 'https://github.com/sec-platform/sec/pull/42'
         }])),
         stderr: Buffer.alloc(0)
@@ -121,7 +125,7 @@ function createEffectFixture(label: string) {
     if (args.includes('ls-remote')) {
       return {
         status: 0,
-        stdout: Buffer.from(`${mainSha}\trefs/heads/main\n`),
+        stdout: Buffer.from(`${observedMainSha}\trefs/heads/main\n${mainSha}\trefs/heads/release\n`),
         stderr: Buffer.alloc(0)
       };
     }
@@ -145,8 +149,122 @@ function createEffectFixture(label: string) {
     mainSha,
     calls,
     run,
+    setObservedMainSha: (sha: string) => { observedMainSha = sha; },
+    setObservedMergedPr: (head: string, merge: string) => {
+      observedPrHeadSha = head;
+      observedPrMergeSha = merge;
+    },
     dispose: () => rmSync(root, { recursive: true, force: true })
   };
+}
+
+function materializeLegacyPending(fixture: ReturnType<typeof createEffectFixture>): void {
+  const commonDir = path.join(fixture.repositoryRoot, '.git');
+  const store = acquireBranchRecoveryStore({ repositoryRoot: fixture.repositoryRoot,
+    commonDir, worktreeRoots: [fixture.repositoryRoot], recoveryRoot: fixture.recoveryRoot });
+  const identity = branchLifecycleDigest({ schema: 'sec-local-branch-residue-recovery-v1',
+    branch: 'fix/example', headSha: fixture.headSha, pullRequestNumber: 42 });
+  const bundleName = `sec-local-branch-residue-fix-example-${identity.slice(7)}.bundle`;
+  const temporaryBundle = path.join(fixture.root, 'legacy-pending.bundle');
+  git(fixture.repositoryRoot, ['bundle', 'create', temporaryBundle, 'refs/heads/fix/example']);
+  const bytes = readFileSync(temporaryBundle);
+  const bundleDigest = `sha256:${createHash('sha256').update(bytes).digest('hex')}` as const;
+  store.publishExclusive({ name: bundleName, bytes, validate: (candidate) => {
+    if (!Buffer.from(candidate).equals(bytes)) throw new Error('Legacy bundle fixture changed.');
+  } });
+  const checksumName = `${bundleName}.sha256`;
+  const checksum = Buffer.from(`${bundleDigest.slice(7)}  ${bundleName}\n`);
+  store.publishExclusive({ name: checksumName, bytes: checksum, validate: (candidate) => {
+    if (!Buffer.from(candidate).equals(checksum)) throw new Error('Legacy checksum fixture changed.');
+  } });
+  const bundle = store.inspectFile(bundleName)!;
+  const sidecar = store.inspectFile(checksumName)!;
+  const physical = (directory: string) => {
+    const chain = inspectNoFollowDirectoryChain(directory, 'legacy fixture directory');
+    return { path: chain.target.path, finalPath: chain.target.finalPath,
+      device: chain.target.device, inode: chain.target.inode, objectId: chain.target.objectId,
+      ancestorChainDigest: branchLifecycleDigest(chain.ancestors) };
+  };
+  const entry = { branch: 'fix/example', headSha: fixture.headSha,
+    pullRequestNumber: 42, mergeCommitSha: fixture.mainSha,
+    pullRequestUrl: 'https://github.com/sec-platform/sec/pull/42',
+    recovery: { path: path.join(store.root.path, bundleName), digest: bundleDigest,
+      device: bundle.device, inode: bundle.inode,
+      checksumDevice: sidecar.device, checksumInode: sidecar.inode } };
+  const material = { schema: 'sec-local-branch-residue-closeout-authorization-v1',
+    repository: 'sec-platform/sec', repositoryRoot: fixture.repositoryRoot,
+    commonDir, remote: 'origin', remoteUrl: 'https://github.com/sec-platform/sec.git',
+    repositoryPhysical: physical(fixture.repositoryRoot), commonDirPhysical: physical(commonDir),
+    recoveryRootPhysical: physical(fixture.recoveryRoot), remoteMainSha: fixture.mainSha,
+    defaultBranch: 'main', entries: [entry] };
+  const operationId = branchLifecycleDigest(material);
+  const unsigned = { ...material, operationId, authorizedAt: '2026-08-22T00:00:00.000Z' };
+  const authorization = { ...unsigned, authorizationDigest: branchLifecycleDigest(unsigned) };
+  const name = `sec-local-branch-residue-${operationId.slice(7)}.authorization.json`;
+  const canonical = Buffer.from(`${JSON.stringify(authorization, null, 2)}\n`);
+  store.publishExclusive({ name, bytes: canonical, validate: (candidate) => {
+    if (!Buffer.from(candidate).equals(canonical)) throw new Error('Legacy authorization fixture changed.');
+  } });
+}
+
+function materializeCompletedReviewedRetention(fixture: ReturnType<typeof createEffectFixture>): void {
+  git(fixture.repositoryRoot, ['branch', '-D', 'fix/example']);
+  const commonDir = path.join(fixture.repositoryRoot, '.git');
+  const store = acquireBranchRecoveryStore({ repositoryRoot: fixture.repositoryRoot,
+    commonDir, worktreeRoots: [fixture.repositoryRoot], recoveryRoot: fixture.recoveryRoot });
+  const physical = (directory: string) => {
+    const chain = inspectNoFollowDirectoryChain(directory, 'reviewed retention fixture directory');
+    return { path: chain.target.path, finalPath: chain.target.finalPath,
+      device: chain.target.device, inode: chain.target.inode, objectId: chain.target.objectId,
+      ancestorChainDigest: branchLifecycleDigest(chain.ancestors) };
+  };
+  const sourceTreeSha = git(fixture.repositoryRoot, ['rev-parse', `${fixture.headSha}^{tree}`]);
+  const mainTreeSha = git(fixture.repositoryRoot, ['rev-parse', `${fixture.mainSha}^{tree}`]);
+  const entries = [{
+    branch: 'fix/example', headSha: fixture.headSha, sourceTreeSha,
+    mainSha: fixture.mainSha, mainTreeSha, basis: 'reviewed-supersession',
+    review: {
+      pullRequestNumber: 99,
+      commentId: 123,
+      reference: 'https://github.com/sec-platform/sec/pull/99#issuecomment-123',
+      receiptDigest: branchLifecycleDigest({ fixture: 'review-receipt' }),
+      headSha: fixture.headSha,
+      headTreeSha: sourceTreeSha,
+      pathSet: { count: 1, digest: branchLifecycleDigest({ fixture: 'review-path-set' }) }
+    }
+  }] as const;
+  const material = {
+    schema: 'sec-local-branch-residue-closeout-authorization-v2',
+    repository: 'sec-platform/sec', repositoryRoot: fixture.repositoryRoot,
+    commonDir, remote: 'origin', remoteUrl: 'https://github.com/sec-platform/sec.git',
+    repositoryPhysical: physical(fixture.repositoryRoot), commonDirPhysical: physical(commonDir),
+    recoveryRootPhysical: physical(fixture.recoveryRoot), remoteMainSha: fixture.mainSha,
+    defaultBranch: 'main', entries
+  } as const;
+  const operationId = branchLifecycleDigest(material);
+  const unsigned = { ...material, operationId, authorizedAt: '2026-08-22T00:00:00.000Z' } as const;
+  const authorization = { ...unsigned, authorizationDigest: branchLifecycleDigest(unsigned) } as const;
+  const receiptMaterial = {
+    schema: 'sec-local-branch-residue-closeout-receipt-v2',
+    operationId,
+    authorizationDigest: authorization.authorizationDigest,
+    repository: authorization.repository,
+    remoteMainSha: authorization.remoteMainSha,
+    entries: authorization.entries,
+    effect: 'delete-exact-transaction',
+    completedAt: '2026-08-22T00:01:00.000Z'
+  } as const;
+  const receipt = { ...receiptMaterial, receiptDigest: branchLifecycleDigest(receiptMaterial) } as const;
+  const suffix = operationId.slice('sha256:'.length);
+  for (const [name, value] of [
+    [`sec-local-branch-residue-${suffix}.authorization.json`, authorization],
+    [`sec-local-branch-residue-${suffix}.receipt.json`, receipt]
+  ] as const) {
+    const bytes = Buffer.from(`${JSON.stringify(value, null, 2)}\n`);
+    store.publishExclusive({ name, bytes, validate: (candidate) => {
+      if (!Buffer.from(candidate).equals(bytes)) throw new Error(`Reviewed retention fixture changed: ${name}`);
+    } });
+  }
 }
 
 function completedDuplicateOperationReceipt(input: Readonly<{
@@ -406,6 +524,11 @@ for (const boundary of ['afterAuthorization', 'afterDelete', 'afterReadback', 'a
       expect(readdirSync(fixture.recoveryRoot)
         .filter((name) => name.endsWith('.receipt.json')))
         .toHaveLength(boundary === 'afterReceipt' ? 1 : 0);
+      if (boundary === 'afterReceipt') {
+        const terminalReceipt = readdirSync(fixture.recoveryRoot)
+          .find((name) => name.endsWith('.receipt.json'))!;
+        rmSync(path.join(fixture.recoveryRoot, terminalReceipt));
+      }
       expect(refExists(fixture.repositoryRoot, 'refs/heads/fix/example'))
         .toBe(boundary === 'afterAuthorization');
 
@@ -424,7 +547,7 @@ for (const boundary of ['afterAuthorization', 'afterDelete', 'afterReadback', 'a
         .filter((name) => name.endsWith('.bundle') || name.endsWith('.bundle.sha256'))).toEqual([]);
       expect(result.authorizationPath).toBeNull();
       expect(result.receiptPath).toBeNull();
-      expect(result.retiredRecoveryFiles.length).toBeGreaterThanOrEqual(4);
+      expect(result.retiredRecoveryFiles.length).toBeGreaterThanOrEqual(2);
       const ref = spawnSync('git', ['show-ref', '--verify', '--quiet', 'refs/heads/fix/example'], {
         cwd: fixture.repositoryRoot,
         windowsHide: true
@@ -440,7 +563,7 @@ for (const boundary of ['afterAuthorization', 'afterDelete', 'afterReadback', 'a
       expect(fixture.calls.filter((call) => call[0] === 'gh' && call[1] === 'pr')
         .every((call) => call.includes('--repo') && call.includes('sec-platform/sec'))).toBeTrue();
       expect(fixture.calls.filter((call) => call.includes('bundle') && call.includes('create')))
-        .toHaveLength(1);
+        .toHaveLength(0);
       expect(fixture.calls.filter((call) => call.includes('ls-remote'))
         .every((call) => call.at(-1) === 'https://github.com/sec-platform/sec.git'))
         .toBeTrue();
@@ -450,16 +573,35 @@ for (const boundary of ['afterAuthorization', 'afterDelete', 'afterReadback', 'a
   }, 30_000);
 }
 
+test('completed reviewed retention retires from its durable receipt without re-fetching the review', async () => {
+  const fixture = createEffectFixture('completed-reviewed-retirement');
+  try {
+    materializeCompletedReviewedRetention(fixture);
+    const result = await executeMergedLocalBranchResidueCloseout({
+      repositoryRoot: fixture.repositoryRoot,
+      recoveryRoot: fixture.recoveryRoot,
+      run: fixture.run,
+      now: () => new Date('2026-08-22T00:02:00.000Z')
+    });
+    expect(result.settled).toContain('fix/example');
+    expect(readdirSync(fixture.recoveryRoot)
+      .filter((name) => name.includes('sec-local-branch-residue-'))).toEqual([]);
+  } finally {
+    fixture.dispose();
+  }
+}, 30_000);
+
 test('terminal settlement removes the duplicate branch-closeout bundle family', async () => {
   const fixture = createEffectFixture('duplicate-bundle-retirement');
   try {
+    materializeLegacyPending(fixture);
     await expect(executeMergedLocalBranchResidueCloseout({
       repositoryRoot: fixture.repositoryRoot,
       recoveryRoot: fixture.recoveryRoot,
       run: fixture.run,
       now: () => new Date('2026-08-22T00:00:00.000Z'),
       faults: {
-        afterAuthorization: () => {
+        afterDelete: () => {
           const authorizationName = readdirSync(fixture.recoveryRoot)
             .find((name) => name.endsWith('.authorization.json'))!;
           const authorization = JSON.parse(
@@ -527,13 +669,14 @@ test('completed duplicate attempt cannot retire a newer pending operation in the
   let completedReceiptName = '';
   let pendingJournalName = '';
   try {
+    materializeLegacyPending(fixture);
     await expect(executeMergedLocalBranchResidueCloseout({
       repositoryRoot: fixture.repositoryRoot,
       recoveryRoot: fixture.recoveryRoot,
       run: fixture.run,
       now: () => new Date('2026-08-22T00:00:00.000Z'),
       faults: {
-        afterAuthorization: () => {
+        afterDelete: () => {
           const authorizationName = readdirSync(fixture.recoveryRoot)
             .find((name) => name.endsWith('.authorization.json'))!;
           const authorization = JSON.parse(
@@ -603,13 +746,14 @@ test('pure duplicate bundle and checksum retire without lifecycle evidence', asy
   const fixture = createEffectFixture('duplicate-bundle-only-retirement');
   let duplicateName = '';
   try {
+    materializeLegacyPending(fixture);
     await expect(executeMergedLocalBranchResidueCloseout({
       repositoryRoot: fixture.repositoryRoot,
       recoveryRoot: fixture.recoveryRoot,
       run: fixture.run,
       now: () => new Date('2026-08-22T00:00:00.000Z'),
       faults: {
-        afterAuthorization: () => {
+        afterDelete: () => {
           const authorizationName = readdirSync(fixture.recoveryRoot)
             .find((name) => name.endsWith('.authorization.json'))!;
           const authorization = JSON.parse(
@@ -647,13 +791,14 @@ test('malformed duplicate terminal filenames cannot authorize recovery retiremen
   const fixture = createEffectFixture('malformed-duplicate-terminal');
   let duplicateBundle = '';
   try {
+    materializeLegacyPending(fixture);
     await expect(executeMergedLocalBranchResidueCloseout({
       repositoryRoot: fixture.repositoryRoot,
       recoveryRoot: fixture.recoveryRoot,
       run: fixture.run,
       now: () => new Date('2026-08-22T00:00:00.000Z'),
       faults: {
-        afterAuthorization: () => {
+        afterDelete: () => {
           const authorizationName = readdirSync(fixture.recoveryRoot)
             .find((name) => name.endsWith('.authorization.json'))!;
           const authorization = JSON.parse(
@@ -706,6 +851,7 @@ test('malformed duplicate terminal filenames cannot authorize recovery retiremen
 test('orphan completion receipt is retained when its local branch is recreated at the effect boundary', async () => {
   const fixture = createEffectFixture('orphan-recreated-ref');
   try {
+    materializeLegacyPending(fixture);
     await expect(executeMergedLocalBranchResidueCloseout({
       repositoryRoot: fixture.repositoryRoot,
       recoveryRoot: fixture.recoveryRoot,
@@ -755,6 +901,50 @@ test('default recovery root is not left behind after terminal settlement', async
     expect(result.settled).toEqual(['fix/example']);
     expect(result.recoveryRootRetired).toBeTrue();
     expect(existsSync(defaultRecoveryRoot)).toBeFalse();
+  } finally {
+    fixture.dispose();
+  }
+}, 30_000);
+
+test('retains a non-ancestor local commit by exact merged-PR tree anchor after main advances', async () => {
+  const fixture = createEffectFixture('merged-anchor-after-main-advance');
+  try {
+    const baseSha = git(fixture.repositoryRoot, ['rev-parse', `${fixture.mainSha}^1`]);
+    const absorbedTree = git(fixture.repositoryRoot, ['rev-parse', `${fixture.mainSha}^{tree}`]);
+    const siblingSha = git(fixture.repositoryRoot,
+      ['commit-tree', absorbedTree, '-p', baseSha], 'sibling with absorbed tree\n');
+    git(fixture.repositoryRoot, ['update-ref', 'refs/heads/fix/example', siblingSha]);
+    fixture.setObservedMergedPr(siblingSha, fixture.mainSha);
+    writeFileSync(path.join(fixture.repositoryRoot, 'later-main.txt'), 'later\n');
+    git(fixture.repositoryRoot, ['add', 'later-main.txt']);
+    git(fixture.repositoryRoot, ['commit', '-m', 'advance main after absorption']);
+    const currentMainSha = git(fixture.repositoryRoot, ['rev-parse', 'HEAD']);
+    fixture.setObservedMainSha(currentMainSha);
+    expect(spawnSync('git', ['merge-base', '--is-ancestor', siblingSha, currentMainSha],
+      { cwd: fixture.repositoryRoot, windowsHide: true }).status).toBe(1);
+    await expect(executeMergedLocalBranchResidueCloseout({
+      repositoryRoot: fixture.repositoryRoot, recoveryRoot: fixture.recoveryRoot,
+      run: fixture.run,
+      faults: { afterAuthorization: () => { throw new Error('fault:inspect-anchor'); } }
+    })).rejects.toThrow('fault:inspect-anchor');
+    const name = readdirSync(fixture.recoveryRoot)
+      .find((candidate) => candidate.endsWith('.authorization.json'))!;
+    const authorization = JSON.parse(readFileSync(path.join(fixture.recoveryRoot, name), 'utf8')) as {
+      schema: string; remoteMainSha: string;
+      entries: Array<{ headSha: string; mainSha: string; basis: string }>;
+    };
+    expect(authorization.schema).toBe('sec-local-branch-residue-closeout-authorization-v2');
+    expect(authorization.remoteMainSha).toBe(currentMainSha);
+    expect(authorization.entries[0]).toMatchObject({
+      headSha: siblingSha, mainSha: fixture.mainSha, basis: 'identical-tree'
+    });
+    const result = await executeMergedLocalBranchResidueCloseout({
+      repositoryRoot: fixture.repositoryRoot, recoveryRoot: fixture.recoveryRoot,
+      run: fixture.run
+    });
+    expect(result.settled).toEqual(['fix/example']);
+    expect(refExists(fixture.repositoryRoot, 'refs/heads/fix/example')).toBeFalse();
+    expect(readdirSync(fixture.recoveryRoot)).toEqual([]);
   } finally {
     fixture.dispose();
   }
@@ -821,12 +1011,12 @@ test('fails closed on recovery target substitution and unsafe recovery roots', a
       now: () => new Date('2026-08-22T00:00:00.000Z'),
       faults: {
         afterAuthorization: () => {
-          const bundle = readdirSync(fixture.recoveryRoot)
-            .find((name) => name.endsWith('.bundle'))!;
-          writeFileSync(path.join(fixture.recoveryRoot, bundle), 'substituted');
+          const authorization = readdirSync(fixture.recoveryRoot)
+            .find((name) => name.endsWith('.authorization.json'))!;
+          writeFileSync(path.join(fixture.recoveryRoot, authorization), 'substituted');
         }
       }
-    })).rejects.toThrow(/Recovery bytes changed/u);
+    })).rejects.toThrow(/authorization bytes changed/u);
     const ref = spawnSync('git', ['show-ref', '--verify', '--quiet', 'refs/heads/fix/example'], {
       cwd: fixture.repositoryRoot,
       windowsHide: true
@@ -875,7 +1065,7 @@ test('fails closed on recovery target substitution and unsafe recovery roots', a
       recoveryRoot: restartedFixture.recoveryRoot,
       run: restartedFixture.run,
       now: () => new Date('2026-08-22T00:01:00.000Z')
-    })).rejects.toThrow(/physical identity changed/u);
+    })).rejects.toThrow(/physical identity changed|lease generation identity is inconsistent/u);
     expect(refExists(restartedFixture.repositoryRoot, 'refs/heads/fix/example')).toBeTrue();
   } finally {
     restartedFixture.dispose();

@@ -18,7 +18,7 @@ import {
   normalizeSemanticMutationAuthorization,
   normalizeSemanticMutationRequest
 } from './normalize-request.ts';
-import { assertSemanticMutationPlanInvariant } from './plan-semantic-mutation.ts';
+import { assertSemanticMutationPlanInvariant } from './plan.ts';
 import { assertSemanticMutationResultInvariant } from './result.ts';
 import { semanticMutationRequiredVerificationDigest } from './verification-policy.ts';
 

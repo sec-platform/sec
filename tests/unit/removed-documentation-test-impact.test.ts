@@ -1,8 +1,8 @@
 import { expect, test } from 'bun:test';
 
-import { CodexDevelopmentBuildAffectedTestInventory } from '../../src/adapters/verification/platform/test-impact/affected.ts';
+import { BuildAffectedTestInventory } from '../../src/adapters/verification/platform/test-impact/affected.ts';
 import { createRepositoryTestImpactSourceProvider } from '../../src/adapters/verification/platform/test-impact/runtime/impact.ts';
-import { CodexDevelopmentCreateTestImpactTransitionObservation } from '../../src/adapters/verification/platform/test-impact/runtime/transition.ts';
+import { CreateTestImpactTransitionObservation } from '../../src/adapters/verification/platform/test-impact/runtime/transition.ts';
 import { selectSlowTestRiskClosure } from '../../src/adapters/verification/platform/test-impact/slow-risk-selection.ts';
 import { createRemovedDocumentationTestImpactFixture } from '../helpers/test-impact-provider.ts';
 
@@ -15,7 +15,7 @@ test('an exact removed Markdown blob retains its compiler-issued module test res
     expect(result.resolved).toBe(true);
     expect(result.owners).toContain('adapters.providers.docker');
     expect(result.unresolvedPaths).toEqual([]);
-    expect(CodexDevelopmentBuildAffectedTestInventory([readme], fixture.provider).selectedFastTests)
+    expect(BuildAffectedTestInventory([readme], fixture.provider).selectedFastTests)
       .toEqual(['tests/unit/trusted-runtime-container.test.ts']);
   } finally {
     fixture.dispose();
@@ -47,7 +47,7 @@ test('a removed Markdown owner without a current test responsibility remains unr
 test('a transition DTO cannot be spliced onto an issued Source Program projection', async () => {
   const fixture = await createRemovedDocumentationTestImpactFixture();
   try {
-    const mismatchedTransition = CodexDevelopmentCreateTestImpactTransitionObservation({
+    const mismatchedTransition = CreateTestImpactTransitionObservation({
       baseSha: fixture.transition.baseSha,
       headSha: 'f'.repeat(40),
       records: [{ status: 'removed', path: readme }],

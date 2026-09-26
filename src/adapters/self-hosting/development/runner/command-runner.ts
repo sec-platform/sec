@@ -3,14 +3,14 @@ import path from 'node:path';
 import { snapshotByteTail } from '../../../../contracts/byte-snapshot.ts';
 import { rawSha256, sha256 } from '../../../../contracts/canonical.ts';
 import { failureMessage } from '../../../../contracts/failure-inspection.ts';
-import { issueSecOperationRequirementBindingContext } from '../../../../execution/operation/requirement-binding-context.ts';
+import { issueOperationRequirementBindingContext } from '../../../../execution/operation/requirement-binding-context.ts';
 import {
-  bindSecSemanticOperation,
-  compileSecCapabilityBinding,
-  compileSecSemanticOperationPlan,
-  issueSecSemanticOperationAttemptContext,
-  type SecBoundSemanticOperation,
-  type SecOperationDigest
+  bindSemanticOperation,
+  compileCapabilityBinding,
+  compileSemanticOperationPlan,
+  issueSemanticOperationAttemptContext,
+  type BoundSemanticOperation,
+  type OperationDigest
 } from '../../../../execution/operation/semantic.ts';
 import { settleResources as settlePhysicalResources } from '../../../../execution/resource-settlement.ts';
 import {
@@ -72,7 +72,7 @@ const DEV_COMMAND_CONTRACT_DIGEST = sha256({
   maximumStdinBytes: DEV_COMMAND_MAX_STDIN_BYTES,
   maximumStdoutBytes: DEV_COMMAND_MAX_STDOUT_BYTES,
   maximumStderrBytes: DEV_COMMAND_MAX_STDERR_BYTES
-}) as SecOperationDigest;
+}) as OperationDigest;
 const TEST_SUITE_CHILD_CONTRACT_DIGEST = sha256({
   domain: 'development.runner.test-suite.bun-child',
   executable: 'current-bun-runtime',
@@ -81,7 +81,7 @@ const TEST_SUITE_CHILD_CONTRACT_DIGEST = sha256({
   maximumStdinBytes: DEV_COMMAND_MAX_STDIN_BYTES,
   maximumStdoutBytes: DEV_COMMAND_MAX_STDOUT_BYTES,
   maximumStderrBytes: DEV_COMMAND_MAX_STDERR_BYTES
-}) as SecOperationDigest;
+}) as OperationDigest;
 
 export function boundedUtf8TextTail(
   value: string | Uint8Array,
@@ -189,12 +189,12 @@ function compileDevCommandOperation(input: Readonly<{
   inputDigest: `sha256:${string}`;
   inputBytes: number;
   maximumNativeProcessResources: number;
-  providerIdentityDigest: SecOperationDigest;
+  providerIdentityDigest: OperationDigest;
   timeoutMs: number;
   workingDirectory: string;
   testSuiteAdmission?: TestSuiteExecutionAdmission;
-  observerProviderIdentityDigest?: SecOperationDigest;
-}>): SecBoundSemanticOperation {
+  observerProviderIdentityDigest?: OperationDigest;
+}>): BoundSemanticOperation {
   const suite = input.testSuiteAdmission;
   if ((suite === undefined) !== (input.observerProviderIdentityDigest === undefined)) {
     throw new Error('Dev command suite operation requires both physical providers.');
@@ -206,7 +206,7 @@ function compileDevCommandOperation(input: Readonly<{
   const commandContractDigest = suite === undefined
     ? DEV_COMMAND_CONTRACT_DIGEST
     : TEST_SUITE_CHILD_CONTRACT_DIGEST;
-  const plan = compileSecSemanticOperationPlan({
+  const plan = compileSemanticOperationPlan({
     operation: suite === undefined ? 'development.runner.bun-command' : TEST_SUITE_EXECUTION_OPERATION,
     intentDigest: sha256({
       effectiveArgv: input.effectiveArgv,
@@ -215,10 +215,10 @@ function compileDevCommandOperation(input: Readonly<{
       auxiliaryOrdinaryFilePaths: input.auxiliaryOrdinaryFilePaths,
       workingDirectory: input.workingDirectory,
       ...(suite === undefined ? {} : { testSuitePolicyDigest: suite.policy.policyDigest })
-    }) as SecOperationDigest,
+    }) as OperationDigest,
     decisionDigest: suite?.policy.policyDigest ?? DEV_COMMAND_CONTRACT_DIGEST,
     deadlineAtUnixMs: suite?.logicalDeadlineAtUnixMs ?? input.deadlineAtUnixMs,
-    attempt: issueSecSemanticOperationAttemptContext({
+    attempt: issueSemanticOperationAttemptContext({
       authorityGrantDigest: suite?.policy.policyDigest ?? DEV_COMMAND_CONTRACT_DIGEST
     }),
     aggregateBudgets: [
@@ -252,11 +252,11 @@ function compileDevCommandOperation(input: Readonly<{
       ]
     }])]
   });
-  return bindSecSemanticOperation(plan, [compileSecCapabilityBinding({
+  return bindSemanticOperation(plan, [compileCapabilityBinding({
     requirementId: commandRequirementId,
     contractDigest: commandContractDigest,
     providerIdentityDigest: input.providerIdentityDigest
-  }), ...(suite === undefined ? [] : [compileSecCapabilityBinding({
+  }), ...(suite === undefined ? [] : [compileCapabilityBinding({
     requirementId: RETAINED_WINDOWS_REPOSITORY_CHANGE_OBSERVER_REQUIREMENT_ID,
     contractDigest: RETAINED_WINDOWS_REPOSITORY_CHANGE_OBSERVER_CONTRACT_DIGEST,
     providerIdentityDigest: input.observerProviderIdentityDigest!
@@ -267,7 +267,7 @@ interface DevCommandPhysicalCapability {
   readonly auxiliaryOrdinaryFiles: readonly RetainedNoFollowOrdinaryFile[];
   readonly boundary: RetainedCommandBoundary;
   readonly executable: RetainedNoFollowOrdinaryFile;
-  readonly providerIdentityDigest: SecOperationDigest;
+  readonly providerIdentityDigest: OperationDigest;
   readonly workingDirectory: RetainedNoFollowChildProcessDirectory;
 }
 
@@ -365,7 +365,7 @@ function issueDevCommandPhysicalCapability(input: Readonly<{
           size: file.size
         })),
         workingDirectory: workingDirectoryChain.target
-      }) as SecOperationDigest,
+      }) as OperationDigest,
       workingDirectory
     });
     ISSUED_DEV_COMMAND_PHYSICAL_CAPABILITIES.add(capability);
@@ -381,7 +381,7 @@ function issueDevCommandPhysicalCapability(input: Readonly<{
 
 function assertDevCommandResourceReceipt(
   receipt: ProcessResourceSessionReceipt,
-  operation: SecBoundSemanticOperation,
+  operation: BoundSemanticOperation,
   completed: boolean,
   expectedInputBytes: number,
   expectedRequirementId: string
@@ -408,7 +408,7 @@ function settleDevCommandExecution(input: Readonly<{
   executionFailure: Readonly<{ error: unknown }> | undefined;
   completed: boolean;
   expectedInputBytes: number;
-  operation: SecBoundSemanticOperation;
+  operation: BoundSemanticOperation;
   session: ProcessResourceSession;
   expectedRequirementId: string;
 }>): void {
@@ -473,7 +473,7 @@ export function runDevCommand<TOptions extends DevCommandOptions | undefined = u
       auxiliaryOrdinaryFilePaths,
       workingDirectory
     });
-    let operation: SecBoundSemanticOperation;
+    let operation: BoundSemanticOperation;
     let session: ProcessResourceSession;
     try {
       operation = compileDevCommandOperation({
@@ -498,7 +498,7 @@ export function runDevCommand<TOptions extends DevCommandOptions | undefined = u
         const observerResolution = await armPreparedWindowsRepositoryChangeObserver({
           prepared: testSuiteObserver,
           operation,
-          requirementBindingContext: issueSecOperationRequirementBindingContext({
+          requirementBindingContext: issueOperationRequirementBindingContext({
             operation,
             requirementId: RETAINED_WINDOWS_REPOSITORY_CHANGE_OBSERVER_REQUIREMENT_ID,
             resourceCeilings: [{ resource: 'duration-ms', maximum: observerDurationMs }]
@@ -516,7 +516,7 @@ export function runDevCommand<TOptions extends DevCommandOptions | undefined = u
       }
       session = openProcessResourceSession({
         operation,
-        requirementBindingContext: issueSecOperationRequirementBindingContext({
+        requirementBindingContext: issueOperationRequirementBindingContext({
           operation,
           requirementId: testSuiteAdmission === undefined
             ? DEV_COMMAND_REQUIREMENT_ID

@@ -1,6 +1,6 @@
 import path from 'node:path';
 
-import { SecError } from '../contracts/failure.ts';
+import { FailureError } from '../contracts/failure.ts';
 
 declare const isolatedVerificationCapabilityBrand: unique symbol;
 
@@ -33,7 +33,7 @@ export function assertIsolatedVerificationCapability(
 ): asserts value is IsolatedVerificationCapability {
   if (!value || typeof value !== 'object' ||
     workspaceRootsByCapability.get(value) !== exactWorkspaceRoot(workspaceRoot)) {
-    throw new SecError(
+    throw new FailureError(
       'VERIFY-ISOLATION-001',
       'Isolated Verification capability is not bound to the exact workspace root'
     );

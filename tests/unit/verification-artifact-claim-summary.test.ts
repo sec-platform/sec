@@ -5,9 +5,9 @@ import { isCanonicalVerificationArtifactSet } from '../../src/assurance/verifica
 import { buildExpectedProductVerificationClaimSummary, PRODUCT_FAST_GATE_ID, PRODUCT_POLICY_CLAIM_ID, PRODUCT_POLICY_GATE_ID } from '../../src/assurance/verification/profile/contract/product.ts';
 import type { VerificationClaimResult, VerificationGateResult, VerificationReasonCode, VerificationResultStatus } from '../../src/assurance/verification/result/contract/result.ts';
 import {
-  classifySemanticMutationIsolatedVerificationArtifactSet,
-  type SemanticMutationIsolatedVerificationArtifactSet
-} from '../../src/assurance/verification/semantic-mutation/isolated-classification.ts';
+  classifyIsolatedVerificationArtifactSet,
+  type IsolatedVerificationArtifactSet
+} from '../../src/assurance/verification/semantic-mutation/isolated/classification.ts';
 import { productVerificationObservationsFixture } from '../helpers/verification-fixtures.ts';
 
 const INPUT_REVISION = `sha256:${'1'.repeat(64)}`;
@@ -25,7 +25,7 @@ interface RuntimeStep {
   command: string | null;
 }
 
-interface MutableClaimSummaryArtifactSet extends SemanticMutationIsolatedVerificationArtifactSet {
+interface MutableClaimSummaryArtifactSet extends IsolatedVerificationArtifactSet {
   verificationReport: {
     build: { status: PolicyStatus };
     policy: { status: PolicyStatus; violations: unknown[] };
@@ -150,7 +150,7 @@ function semanticBundle() {
   };
 }
 
-function artifactSet(status: 'passed' | 'failed'): SemanticMutationIsolatedVerificationArtifactSet {
+function artifactSet(status: 'passed' | 'failed'): IsolatedVerificationArtifactSet {
   const policy = policyReport();
   const fastLogs = { stdout: 'fast-verification', stderr: '' };
   const runtimeLogs = status === 'passed'
@@ -245,9 +245,9 @@ function invalidateCoverage(candidate: MutableClaimSummaryArtifactSet): void {
   candidate.acceptanceCoverage.uncoveredBlocks = candidate.acceptanceCoverage.blocks.map((entry) => entry.id);
 }
 
-function expectBlocked(candidate: SemanticMutationIsolatedVerificationArtifactSet): void {
+function expectBlocked(candidate: IsolatedVerificationArtifactSet): void {
   expect(isCanonicalVerificationArtifactSet(candidate)).toBe(false);
-  expect(classifySemanticMutationIsolatedVerificationArtifactSet(candidate)).toBe('blocked');
+  expect(classifyIsolatedVerificationArtifactSet(candidate)).toBe('blocked');
 }
 
 test('canonical artifact contract accepts complete current-writer pass and failure inventories', () => {
@@ -255,8 +255,8 @@ test('canonical artifact contract accepts complete current-writer pass and failu
   const failed = artifactSet('failed');
   expect(isCanonicalVerificationArtifactSet(passed)).toBe(true);
   expect(isCanonicalVerificationArtifactSet(failed)).toBe(true);
-  expect(classifySemanticMutationIsolatedVerificationArtifactSet(passed)).toBe('passed');
-  expect(classifySemanticMutationIsolatedVerificationArtifactSet(failed)).toBe('failed');
+  expect(classifyIsolatedVerificationArtifactSet(passed)).toBe('passed');
+  expect(classifyIsolatedVerificationArtifactSet(failed)).toBe('failed');
 });
 
 test('current production artifacts cannot delete claimSummary and fall back to legacy PASS', () => {
@@ -425,5 +425,5 @@ test('object member reordering preserves a semantically identical artifact', () 
     }
   };
   expect(isCanonicalVerificationArtifactSet(candidate)).toBe(true);
-  expect(classifySemanticMutationIsolatedVerificationArtifactSet(candidate)).toBe('passed');
+  expect(classifyIsolatedVerificationArtifactSet(candidate)).toBe('passed');
 });

@@ -32,7 +32,7 @@ function alert(overrides: Record<string, unknown> = {}): Record<string, unknown>
   };
 }
 
-test('CodeQL projection admits only open findings from the exact requested PR merge ref', () => {
+test('CodeQL projection admits only open findings from the exact PR merge analysis', () => {
   expect(parseCodeScanningFinding(alert(), REF)).toEqual({
     alertNumber: 17,
     ruleId: 'js/user-controlled-bypass',
@@ -46,6 +46,7 @@ test('CodeQL projection admits only open findings from the exact requested PR me
   });
   expect(parseCodeScanningFinding(alert({ state: 'dismissed' }), REF)).toBeNull();
   expect(parseCodeScanningFinding(alert({ tool: { name: 'Other' } }), REF)).toBeNull();
+  expect(parseCodeScanningFinding(alert(), 'refs/pull/637/merge')).toBeNull();
   expect(parseCodeScanningFinding(alert(), 'refs/pull/637/merge')).toBeNull();
 });
 

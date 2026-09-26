@@ -8,7 +8,7 @@ import {
   createDockerEndpointIdentity,
   type DockerEndpointIdentity
 } from '../../src/adapters/providers/docker/contract/daemon.ts';
-import { SEC_LINUX_VERIFICATION_ENVIRONMENT_AUTHORITY } from '../../src/adapters/providers/linux-verification/contract.ts';
+import { LINUX_VERIFICATION_ENVIRONMENT_AUTHORITY } from '../../src/adapters/providers/linux-verification/contract.ts';
 import { acquirePhysicalMutationLease } from '../../src/adapters/runtime-state/physical/runtime/mutation-lease.ts';
 import { inspectNoFollowDirectoryChain } from '../../src/adapters/runtime-state/physical/runtime/physical-no-follow.ts';
 import { CI_VERIFICATION_HOSTED_SANDBOX_POLICY } from '../../src/adapters/verification/platform/ci/contract/revision.ts';
@@ -44,7 +44,7 @@ const repository = 'sec-platform/sec';
 const providerName = 'sec-main-health-1';
 const operationLabel = `sec-operation-${'b'.repeat(64)}`;
 const roles = ['control', 'trusted', 'sut'] as const;
-const environment = SEC_LINUX_VERIFICATION_ENVIRONMENT_AUTHORITY;
+const environment = LINUX_VERIFICATION_ENVIRONMENT_AUTHORITY;
 
 function createOciFixture() {
   const root = mkdtempSync(path.join(tmpdir(), 'sec-runner-oci-'));
@@ -150,7 +150,7 @@ function runner(role: LocalGitHubActionsRunnerRole, overrides: Record<string, un
 function container(role: LocalGitHubActionsRunnerRole, overrides: Record<string, unknown> = {}) {
   const instance = instances.find((candidate) => candidate.role === role)!;
   const isSut = role === 'sut';
-  const resources = SEC_LINUX_VERIFICATION_ENVIRONMENT_AUTHORITY.runtime.resources[role];
+  const resources = LINUX_VERIFICATION_ENVIRONMENT_AUTHORITY.runtime.resources[role];
   return {
     Id: instance.containerId,
     Name: `/${instance.name}`,
@@ -191,7 +191,7 @@ function container(role: LocalGitHubActionsRunnerRole, overrides: Record<string,
 
 describe('local GitHub Actions runner contract', () => {
   test('pins the Linux provider toolchain and contains the SUT sandbox', () => {
-    const authority = SEC_LINUX_VERIFICATION_ENVIRONMENT_AUTHORITY;
+    const authority = LINUX_VERIFICATION_ENVIRONMENT_AUTHORITY;
     const retiredImage = authority.image.retirements.find(({ imageTag }) =>
       imageTag.endsWith('-archive-v7'));
     expect(retiredImage).toBeDefined();
@@ -242,7 +242,7 @@ describe('local GitHub Actions runner contract', () => {
 
     const environmentSpec = createLocalGitHubActionsRunnerEnvironmentSpec();
     expect(environmentSpec.providerRequirement)
-      .toBe(SEC_LINUX_VERIFICATION_ENVIRONMENT_AUTHORITY.provider.requirement);
+      .toBe(LINUX_VERIFICATION_ENVIRONMENT_AUTHORITY.provider.requirement);
     expect(environmentSpec.components.map(({ id }) => id)).toEqual([
       'authority-input-closure', 'base-image', 'bootstrap-ca-bundle', 'dockerfile-frontend',
       'github-cli', 'node', 'runner', 'runner-build-input-closure'

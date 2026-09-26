@@ -1,0 +1,60 @@
+{
+  "importGraph": "runtime",
+  "externalEntrypoints": [
+    "src/adapters/repository/source-program-model/producer-closure.ts"
+  ],
+  "capabilityProviders": [
+    {
+      "capability": "source-program-model",
+      "operations": [
+        "acquireExactGitTreeSnapshot",
+        "acquireWorkingTreeSnapshot",
+        "compileRepositoryModel",
+        "compileRepositoryModuleGraph",
+        "createRepositoryCompilationCacheProvider",
+        "compileVirtualSnapshot",
+        "compileTypeScriptProjectInput",
+        "issueTypeScriptProjectGenerationEvidence",
+        "compileSourceProgramGraphCutReductionPlan",
+        "compileSourceProgramImplementationDominance",
+        "compileSourceProgramTestValue",
+        "compileTypeScriptModelIncremental",
+        "compileProducerClosure"
+      ],
+      "operationRoles": [
+        {
+          "operation": "compileProducerClosure",
+          "role": "registration-issuer",
+          "semanticOperation": "brownfield.source-program-model.operation-producer-closure",
+          "requirementId": null,
+          "recovery": null
+        }
+      ]
+    }
+  ],
+  "operationObligations": [],
+  "causalRelations": [
+    {
+      "subject": "brownfield.source-program-model.operation-producer-closure",
+      "relation": "declares",
+      "symbol": {
+        "path": "src/adapters/repository/source-program-model/contract.ts",
+        "name": "OperationProducerClosure"
+      },
+      "operation": null
+    },
+    {
+      "subject": "brownfield.source-program-model.operation-producer-closure",
+      "relation": "produces",
+      "symbol": {
+        "path": "src/adapters/repository/source-program-model/producer-closure.ts",
+        "name": "compileProducerClosure"
+      },
+      "operation": {
+        "semanticOperation": "brownfield.source-program-model.operation-producer-closure",
+        "requirementId": null
+      }
+    }
+  ],
+  "preDependencyBootstrap": false
+}

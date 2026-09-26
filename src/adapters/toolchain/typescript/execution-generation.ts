@@ -3,9 +3,9 @@ import path from 'node:path';
 
 import { sha256 } from '../../../contracts/canonical.ts';
 import {
-  assertWorkspaceTypeScriptProjectGenerationEvidence,
-  type WorkspaceTypeScriptProjectGenerationEvidence,
-  type WorkspaceTypeScriptProjectInput
+  assertTypeScriptProjectGenerationEvidence,
+  type TypeScriptProjectGenerationEvidence,
+  type TypeScriptProjectInput
 } from '../../repository/source-program-model/workspace-source-snapshot.ts';
 import type {
   PhysicalDirectoryIdentity,
@@ -57,7 +57,7 @@ export interface TypeScriptExecutionGeneration {
   readonly [typeScriptExecutionGenerationBrand]: true;
   readonly dependencyDirectory: RetainedNoFollowProvenDirectoryGeneration;
   readonly generationDigest: `sha256:${string}`;
-  readonly projectInput: WorkspaceTypeScriptProjectInput;
+  readonly projectInput: TypeScriptProjectInput;
   readonly workingDirectory: RetainedNoFollowSealedDirectoryGeneration | RetainedNoFollowProvenDirectoryGeneration;
   assertCurrent(): Promise<void>;
   retire(): Promise<TypeScriptExecutionGenerationCleanupReceipt>;
@@ -141,7 +141,7 @@ async function assertDependencyLocatorTargetsGeneration(
 }
 
 function assertSourceProgramExecutionConfigContainment(
-  evidence: WorkspaceTypeScriptProjectGenerationEvidence
+  evidence: TypeScriptProjectGenerationEvidence
 ): void {
   const projectInput = evidence.projectInput;
   const receipt = projectInput.executionConfigContainment;
@@ -167,9 +167,9 @@ function assertSourceProgramExecutionConfigContainment(
 }
 
 export function typeScriptExecutionGenerationDigest(
-  evidence: WorkspaceTypeScriptProjectGenerationEvidence
+  evidence: TypeScriptProjectGenerationEvidence
 ): `sha256:${string}` {
-  assertWorkspaceTypeScriptProjectGenerationEvidence(evidence);
+  assertTypeScriptProjectGenerationEvidence(evidence);
   return sha256(Object.freeze({
     projectInputDigest: evidence.projectInput.projectInputDigest
   })) as `sha256:${string}`;
@@ -188,7 +188,7 @@ export function assertTypeScriptExecutionGeneration(
  * Runtime Physical owns every filesystem, ACL, link and retirement Effect.
  */
 export async function materializeTypeScriptExecutionGeneration(
-  evidence: WorkspaceTypeScriptProjectGenerationEvidence,
+  evidence: TypeScriptProjectGenerationEvidence,
   input: MaterializeTypeScriptExecutionGenerationInput
 ): Promise<TypeScriptExecutionGeneration> {
   const assertOperationActive = (label: string): void => {
@@ -201,7 +201,7 @@ export async function materializeTypeScriptExecutionGeneration(
     }
   };
   assertOperationActive('admission');
-  assertWorkspaceTypeScriptProjectGenerationEvidence(evidence);
+  assertTypeScriptProjectGenerationEvidence(evidence);
   const dependencyGeneration = input.dependencyGeneration;
   let physical: RetainedTypeScriptExecutionGeneration;
   try {
