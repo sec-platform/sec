@@ -1,7 +1,7 @@
 
 import { rawSha256Hex } from '../../../../contracts/canonical.ts';
 import {
-  assertDurableRecoveryAuthority,
+  assertDurableRecoveryProof,
   assertGitBranchName,
   assertGitSha,
   auditBranchLifecycle,
@@ -393,7 +393,14 @@ function durableGoalBlocker(
   return null;
 }
 
-export function authorizeBranchCloseout(input: {
+/**
+ * Deterministically evaluate the current closeout policy.
+ *
+ * The returned BranchCloseoutAuthorization is a serializable policy decision,
+ * not an authority-bearing capability. Effect authority remains with the
+ * capability/lease/provider owners that consume this decision.
+ */
+export function evaluateBranchCloseoutPolicy(input: {
   preparation: BranchCloseoutPreparation;
   request: BranchCloseoutRequest;
   before: BranchLifecycleInventory;
@@ -486,7 +493,7 @@ export function authorizeBranchCloseout(input: {
   }
 
   try {
-    assertDurableRecoveryAuthority(preparation.recovery, current);
+    assertDurableRecoveryProof(preparation.recovery, current);
   } catch (error) {
     blockers.push(error instanceof Error ? error.message : String(error));
   }
