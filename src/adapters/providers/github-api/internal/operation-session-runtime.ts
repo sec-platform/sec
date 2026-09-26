@@ -559,7 +559,7 @@ function issueCapability(input: Readonly<{
     const maintenanceWorkflow = input.principal.workflowRef
       === `${input.repository}/.github/workflows/repository-maintenance.yml@refs/heads/main`;
     const projectionEffect = input.effect === 'read' || input.effect === 'issue-comment-write';
-    const maintenanceEffect = input.effect === 'branch-closeout-write';
+    const maintenanceEffect = input.effect === 'read' || input.effect === 'branch-closeout-write';
     if ((!projectionWorkflow || !projectionEffect)
         && (!maintenanceWorkflow || !maintenanceEffect)) {
       throw new GitHubApiProviderError(
@@ -965,9 +965,10 @@ async function enroll(input: Readonly<{
         'GitHub Actions projection credential cannot enroll a privileged repository effect'
       );
     }
-    if (maintenanceWorkflowIdentity !== null && input.effect !== 'branch-closeout-write') {
+    if (maintenanceWorkflowIdentity !== null
+        && input.effect !== 'read' && input.effect !== 'branch-closeout-write') {
       throw new GitHubApiProviderError(
-        'GitHub Actions repository-maintenance credential permits only branch-closeout-write'
+        'GitHub Actions repository-maintenance credential permits only read and branch-closeout-write'
       );
     }
     const repositoryValue = await executeWithToken<unknown>(
