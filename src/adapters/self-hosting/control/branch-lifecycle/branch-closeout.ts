@@ -1,7 +1,6 @@
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import {
-  existsSync,
   readFileSync,
   readdirSync
 } from 'node:fs';
@@ -29,10 +28,10 @@ import {
   type BranchLifecycleInventoryScope
 } from './branch-lifecycle-inventory.ts';
 import {
+  acquireBranchRecoveryStore,
   createRecoveryBundle,
   ensureRecoveryRoot,
-  verifyRecoveryAuthorityLive,
-  writeDurableFile
+  verifyRecoveryAuthorityLive
 } from './branch-recovery.ts';
 
 const COMMAND_TIMEOUT_MS = 60_000;
@@ -271,23 +270,49 @@ export function rehydratePreparedBranchCloseoutRecoveryArtifact(input: {
   }
   const inventory = collectBranchLifecycleInventory(input.scope);
   assertBranchCloseoutInventoryResolved(inventory);
-  const recoveryRoot = ensureRecoveryRoot(inventory, input.scope.recoveryRoot);
-  const bundlePath = path.join(recoveryRoot, `sec-branch-closeout-restored-${digest}.bundle`);
-  if (existsSync(bundlePath)) {
-    if (!readFileSync(bundlePath).equals(bytes)) {
+  const store = acquireBranchRecoveryStore({
+    repositoryRoot: inventory.repository.root,
+    commonDir: inventory.repository.commonDir,
+    worktreeRoots: inventory.worktrees.map((worktree) => worktree.path),
+    ...(input.scope.recoveryRoot === undefined ? {} : { recoveryRoot: input.scope.recoveryRoot })
+  });
+  const recoveryRoot = store.root.path;
+  const bundleName = `sec-branch-closeout-restored-${digest}.bundle`;
+  const bundlePath = path.join(recoveryRoot, bundleName);
+  const existingBundle = store.read(bundleName);
+  if (existingBundle !== null) {
+    if (!Buffer.from(existingBundle).equals(bytes)) {
       throw new Error('Existing restored recovery bundle path contains conflicting bytes.');
     }
   } else {
-    writeDurableFile(bundlePath, bytes);
+    store.publishExclusive({
+      name: bundleName,
+      bytes,
+      validate: (published) => {
+        if (!Buffer.from(published).equals(bytes)) {
+          throw new Error('Restored recovery bundle publication changed bytes.');
+        }
+      }
+    });
   }
-  const checksumText = `${digest}  ${path.basename(bundlePath)}\n`;
-  const checksumPath = `${bundlePath}.sha256`;
-  if (existsSync(checksumPath)) {
-    if (readFileSync(checksumPath, 'utf8') !== checksumText) {
+  const checksumText = `${digest}  ${bundleName}\n`;
+  const checksumName = `${bundleName}.sha256`;
+  const checksumPath = path.join(recoveryRoot, checksumName);
+  const existingChecksum = store.read(checksumName);
+  if (existingChecksum !== null) {
+    if (Buffer.from(existingChecksum).toString('utf8') !== checksumText) {
       throw new Error('Existing restored recovery checksum contains conflicting bytes.');
     }
   } else {
-    writeDurableFile(checksumPath, checksumText);
+    store.publishExclusive({
+      name: checksumName,
+      bytes: Buffer.from(checksumText, 'utf8'),
+      validate: (published) => {
+        if (Buffer.from(published).toString('utf8') !== checksumText) {
+          throw new Error('Restored recovery checksum publication changed bytes.');
+        }
+      }
+    });
   }
   const recovery = {
     ...input.remote.preparation.recovery,
@@ -358,10 +383,32 @@ export function operationReceiptFilePath(
   return `${preparation.recovery.path}.closeout-${operationSuffix(closeoutOperationId)}.receipt.json`;
 }
 
-function persistPreparedEnvelope(envelope: PreparedBranchCloseoutEnvelope): string {
-  const filePath = preparationFilePath(envelope.preparation);
-  writeDurableFile(filePath, `${JSON.stringify(envelope, null, 2)}\n`);
-  return filePath;
+function persistPreparedEnvelope(
+  envelope: PreparedBranchCloseoutEnvelope,
+  configuredRecoveryRoot?: string
+): string {
+  const store = acquireBranchRecoveryStore({
+    repositoryRoot: envelope.before.repository.root,
+    commonDir: envelope.before.repository.commonDir,
+    worktreeRoots: envelope.before.worktrees.map((worktree) => worktree.path),
+    ...(configuredRecoveryRoot === undefined ? {} : { recoveryRoot: configuredRecoveryRoot })
+  });
+  const recoveryPath = path.resolve(envelope.preparation.recovery.path);
+  if (path.dirname(recoveryPath) !== store.root.path) {
+    throw new Error('Prepared closeout recovery path is outside the owned recovery store.');
+  }
+  const fileName = `${path.basename(recoveryPath)}.preparation.json`;
+  const payload = `${JSON.stringify(envelope, null, 2)}\n`;
+  const published = store.publishExclusive({
+    name: fileName,
+    bytes: Buffer.from(payload, 'utf8'),
+    validate: (bytes) => {
+      if (Buffer.from(bytes).toString('utf8') !== payload) {
+        throw new Error('Prepared closeout envelope publication changed bytes.');
+      }
+    }
+  });
+  return published.path;
 }
 
 function prepareBranchCloseoutInternal(
@@ -550,7 +597,7 @@ function prepareBranchCloseoutInternal(
   });
   const envelope = createPreparedEnvelope({ preparation, before, attempts,
     foreignWorktreeObservations: [] });
-  persistPreparedEnvelope(envelope);
+  persistPreparedEnvelope(envelope, scope.recoveryRoot);
   return envelope;
 }
 
