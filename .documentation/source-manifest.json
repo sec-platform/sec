@@ -1,6 +1,6 @@
 {
   "schema": "sec.documentation-source-manifest/2",
-  "source_set_sha256": "ada4c39efaa039433a8fef24f4d0b7c3574f9eacbd63753b510282f95736dc6a",
+  "source_set_sha256": "76d0acb370cee5363bda2b2984f32ad64e04c32a4d23ea1008b144b9a6f26c9d",
   "members": [
     {
       "path": ".documentation/README.md",
@@ -1104,8 +1104,8 @@
     },
     {
       "path": "docs/运行/保证/要求证据与裁决.md",
-      "bytes": 64814,
-      "sha256": "70a722ba06582d4d03a3c37e27ff4eefcb1c752e71c23ba87e0b1fa954d885f9"
+      "bytes": 67408,
+      "sha256": "abaa096fc899c3aaa67c1f13fc2442e935d4607472a77a273ed1f1569c50c9ba"
     },
     {
       "path": "docs/运行/保证/覆盖成熟度与验收范围.md",
