@@ -28,7 +28,7 @@ export type CodeScanningProjection = Readonly<{
   repository: string;
   pullRequestNumber: number;
   headSha: string;
-  mergeSha: string;
+  analysisRef: string;
   codeQlCheckId: number;
   findings: readonly CodeScanningFinding[];
 }>;
@@ -86,15 +86,16 @@ function severityRank(value: string): number {
 
 export function parseCodeScanningFinding(
   value: unknown,
-  expectedRef: string
+  expectedRef: string,
+  expectedHeadSha: string
 ): CodeScanningFinding | null {
   const alert = record(value, 'code scanning alert');
   if (alert.state !== 'open') return null;
   const tool = record(alert.tool, 'code scanning alert tool');
   if (tool.name !== 'CodeQL') return null;
   const instance = record(alert.most_recent_instance, 'code scanning alert instance');
-  gitSha(instance.commit_sha, 'code scanning alert instance commit');
-  if (instance.ref !== expectedRef) return null;
+  const instanceCommitSha = gitSha(instance.commit_sha, 'code scanning alert instance commit');
+  if (instance.ref !== expectedRef || instanceCommitSha !== expectedHeadSha) return null;
   const rule = record(alert.rule, 'code scanning alert rule');
   const location = record(instance.location, 'code scanning alert location');
   const message = record(instance.message, 'code scanning alert message');
@@ -129,7 +130,7 @@ export function renderCodeScanningProjection(projection: CodeScanningProjection)
     '> SEC projection only. GitHub Code Scanning remains the authoritative security evidence.',
     '',
     '- Exact PR head: ' + TICK + projection.headSha + TICK,
-    '- PR merge analysis: ' + TICK + projection.mergeSha + TICK,
+    '- CodeQL analysis ref: ' + TICK + projection.analysisRef + TICK,
     '- CodeQL check: ' + TICK + projection.codeQlCheckId + TICK,
     '- Open findings for this exact analysis: **' + findings.length + '**',
     ''
@@ -209,8 +210,6 @@ async function observeProjection(input: Readonly<{
           || pullHeadRepo.full_name !== input.repository) {
         throw new Error('CodeQL projection no longer binds the exact open same-repository main-targeting PR head');
       }
-      const mergeSha = gitSha(pull.merge_commit_sha, 'pull request merge analysis SHA');
-
       const finalChecks: unknown[] = [];
       for (let page = 1; page <= MAX_CHECK_PAGES; page += 1) {
         const response = record(await executeGitHubApiOperation(capability, {
@@ -232,7 +231,7 @@ async function observeProjection(input: Readonly<{
         input.expectedCheckId
       );
 
-      const expectedRef = `refs/pull/${input.pullRequestNumber}/merge`;
+      const expectedRef = `refs/pull/${input.pullRequestNumber}/head`;
       const findings: CodeScanningFinding[] = [];
       for (let page = 1; page <= MAX_ALERT_PAGES; page += 1) {
         const alerts = await executeGitHubApiOperation(capability, {
@@ -240,7 +239,7 @@ async function observeProjection(input: Readonly<{
         });
         if (!Array.isArray(alerts)) throw new Error('code scanning alert inventory is invalid');
         for (const alert of alerts) {
-          const finding = parseCodeScanningFinding(alert, expectedRef);
+          const finding = parseCodeScanningFinding(alert, expectedRef, input.expectedHeadSha);
           if (finding !== null) findings.push(finding);
         }
         if (alerts.length < PAGE_SIZE) {
@@ -255,7 +254,7 @@ async function observeProjection(input: Readonly<{
             repository: input.repository,
             pullRequestNumber: input.pullRequestNumber,
             headSha: input.expectedHeadSha,
-            mergeSha,
+            analysisRef: expectedRef,
             codeQlCheckId: input.expectedCheckId,
             findings: projectedFindings
           });
@@ -338,7 +337,7 @@ export async function projectCodeScanningPullRequest(input: Readonly<{
   commentId: number;
   pullRequestNumber: number;
   headSha: string;
-  mergeSha: string;
+  analysisRef: string;
   codeQlCheckId: number;
   findingCount: number;
 }>> {
@@ -349,7 +348,7 @@ export async function projectCodeScanningPullRequest(input: Readonly<{
     ...published,
     pullRequestNumber: projection.pullRequestNumber,
     headSha: projection.headSha,
-    mergeSha: projection.mergeSha,
+    analysisRef: projection.analysisRef,
     codeQlCheckId: projection.codeQlCheckId,
     findingCount: projection.findings.length
   });

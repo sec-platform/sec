@@ -7,8 +7,7 @@ import {
 } from '../../src/adapters/verification/platform/ci/runtime/code-scanning-projection.ts';
 
 const HEAD = 'a'.repeat(40);
-const MERGE = 'b'.repeat(40);
-const REF = 'refs/pull/636/merge';
+const REF = 'refs/pull/636/head';
 
 function alert(overrides: Record<string, unknown> = {}): Record<string, unknown> {
   return {
@@ -24,7 +23,7 @@ function alert(overrides: Record<string, unknown> = {}): Record<string, unknown>
     },
     most_recent_instance: {
       ref: REF,
-      commit_sha: MERGE,
+      commit_sha: HEAD,
       message: { text: 'A user-controlled value may bypass this security check.' },
       location: { path: 'src/example.ts', start_line: 41, end_line: 41 }
     },
@@ -32,8 +31,8 @@ function alert(overrides: Record<string, unknown> = {}): Record<string, unknown>
   };
 }
 
-test('CodeQL projection admits only open findings from the exact requested PR merge ref', () => {
-  expect(parseCodeScanningFinding(alert(), REF)).toEqual({
+test('CodeQL projection admits only open findings from the exact requested PR head analysis', () => {
+  expect(parseCodeScanningFinding(alert(), REF, HEAD)).toEqual({
     alertNumber: 17,
     ruleId: 'js/user-controlled-bypass',
     ruleName: 'User-controlled bypass of security check',
@@ -44,20 +43,16 @@ test('CodeQL projection admits only open findings from the exact requested PR me
     endLine: 41,
     htmlUrl: 'https://github.com/sec-platform/sec/security/code-scanning/17'
   });
-  expect(parseCodeScanningFinding(alert({ state: 'dismissed' }), REF)).toBeNull();
-  expect(parseCodeScanningFinding(alert({ tool: { name: 'Other' } }), REF)).toBeNull();
-  expect(parseCodeScanningFinding(alert(), 'refs/pull/637/merge')).toBeNull();
+  expect(parseCodeScanningFinding(alert({ state: 'dismissed' }), REF, HEAD)).toBeNull();
+  expect(parseCodeScanningFinding(alert({ tool: { name: 'Other' } }), REF, HEAD)).toBeNull();
+  expect(parseCodeScanningFinding(alert(), 'refs/pull/637/head', HEAD)).toBeNull();
 });
 
-test('PR-scoped finding identity does not equate alert instance commit with PR merge metadata', () => {
+test('PR-scoped finding identity rejects an alert instance from a stale head commit', () => {
   const value = alert();
   const instance = value.most_recent_instance as Record<string, unknown>;
   instance.commit_sha = 'c'.repeat(40);
-  expect(parseCodeScanningFinding(value, REF)).toMatchObject({
-    alertNumber: 17,
-    path: 'src/example.ts',
-    startLine: 41
-  });
+  expect(parseCodeScanningFinding(value, REF, HEAD)).toBeNull();
 });
 
 test('projection refuses an empty finding set when final CodeQL reports annotations', () => {
@@ -67,17 +62,17 @@ test('projection refuses an empty finding set when final CodeQL reports annotati
 });
 
 test('CodeQL projection renders exact head, merge analysis, and final check identity', () => {
-  const finding = parseCodeScanningFinding(alert(), REF)!;
+  const finding = parseCodeScanningFinding(alert(), REF, HEAD)!;
   const body = renderCodeScanningProjection({
     repository: 'sec-platform/sec',
     pullRequestNumber: 636,
     headSha: HEAD,
-    mergeSha: MERGE,
+    analysisRef: REF,
     codeQlCheckId: 108424693203,
     findings: [finding]
   });
   expect(body).toContain('Exact PR head: ' + String.fromCharCode(96) + HEAD + String.fromCharCode(96));
-  expect(body).toContain('PR merge analysis: ' + String.fromCharCode(96) + MERGE + String.fromCharCode(96));
+  expect(body).toContain('CodeQL analysis ref: ' + String.fromCharCode(96) + REF + String.fromCharCode(96));
   expect(body).toContain('CodeQL check: ' + String.fromCharCode(96) + '108424693203' + String.fromCharCode(96));
   expect(body).toContain('Open findings for this exact analysis: **1**');
   expect(body).toContain('js/user-controlled-bypass');
@@ -90,7 +85,7 @@ test('CodeQL projection explicitly represents a clean exact analysis', () => {
     repository: 'sec-platform/sec',
     pullRequestNumber: 636,
     headSha: HEAD,
-    mergeSha: MERGE,
+    analysisRef: REF,
     codeQlCheckId: 108424693203,
     findings: []
   });
