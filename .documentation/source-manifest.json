@@ -1,6 +1,6 @@
 {
   "schema": "sec.documentation-source-manifest/2",
-  "source_set_sha256": "34c5eb1c05108206b0e5f5bd624b2b6708d7abb1a942d3190669ac460357b5a9",
+  "source_set_sha256": "d014974a417b9ca360adc8ff243d93f07b65059b322c561230cb96cf85b2f56e",
   "members": [
     {
       "path": ".documentation/README.md",
@@ -1189,13 +1189,13 @@
     },
     {
       "path": "docs/运行/验收/方法与独立证据.md",
-      "bytes": 70459,
-      "sha256": "84c2dc51dd198db5ceb1a94be370f3372dcc933a604179885e2bd9c63473549c"
+      "bytes": 70973,
+      "sha256": "6cf6e24ee94f89e2dc2071c774824e27e88ebad172b5b8c4160124f2594eb461"
     },
     {
       "path": "docs/运行/验收/测试生成与形式方法.md",
-      "bytes": 22244,
-      "sha256": "26d6053b495d33f85b8b6bb8030684d925132397ef77ab2d2d2461af7830f3a9"
+      "bytes": 22314,
+      "sha256": "aa7be06480e980c433271e023faccc0d479bb630a9bc273aa00b19bfa41d05c0"
     },
     {
       "path": "docs/运行/验收/系统组合挑战与反例.md",
