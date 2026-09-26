@@ -5018,7 +5018,7 @@ function createHostedActionParentPlan(input: Readonly<{
   });
 }
 
-function hostedActionParentAuthority(input: Readonly<{
+function hostedActionParentContext(input: Readonly<{
   requestPath: string;
   envelopePath: string;
   parentPlanPath: string;
@@ -5062,7 +5062,7 @@ function hostedActionParentAuthority(input: Readonly<{
   return Object.freeze({ sessionRequest, envelope, parentPlan, providerEnvelopes: Object.freeze(providerEnvelopes) });
 }
 
-function hostedActionChildAuthority(input: Readonly<{
+function hostedActionChildContext(input: Readonly<{
   providerEnvelopePath: string;
   envelopePath: string;
   resolutionPath?: string;
@@ -5096,7 +5096,7 @@ function hostedActionChildAuthority(input: Readonly<{
   return Object.freeze({ providerEnvelope, envelope, resolution });
 }
 
-async function observeHostedActionAuthority(input: Readonly<{
+async function observeHostedActionState(input: Readonly<{
   providerEnvelope: CiVerificationActionProviderEnvelope;
   envelope: VerificationSessionHostedEnvelope;
   role: 'parent' | 'child';
@@ -5131,11 +5131,11 @@ async function observeHostedActionAuthority(input: Readonly<{
 
 
 async function readParentPlanObservation(
-  authority: ReturnType<typeof hostedActionParentAuthority>
+  authority: ReturnType<typeof hostedActionParentContext>
 ): Promise<string> {
   const first = authority.providerEnvelopes[0];
   if (first === undefined) throw new Error('parent dispatch plan has no Action proposal.');
-  const observed = await observeHostedActionAuthority({
+  const observed = await observeHostedActionState({
     providerEnvelope: first,
     envelope: authority.envelope,
     role: 'parent'
@@ -5149,7 +5149,7 @@ async function readParentPlanObservation(
 }
 
 async function coordinateHostedSessionProvider(input: Readonly<{
-  authority: ReturnType<typeof hostedActionParentAuthority>;
+  authority: ReturnType<typeof hostedActionParentContext>;
   allowDispatch: boolean;
 }>): Promise<Readonly<{
   artifactIndex: CodexDevelopmentHostedActionProviderIndex;
@@ -5162,7 +5162,7 @@ async function coordinateHostedSessionProvider(input: Readonly<{
   const providerStatusReadbacks: VerificationActionProviderStatusReadback[] = [];
   const envelopesByKey = new Map<VerificationActionKeyDigest, CiVerificationActionProviderEnvelope>();
   for (const providerEnvelope of input.authority.providerEnvelopes) {
-    const observed = await observeHostedActionAuthority({
+    const observed = await observeHostedActionState({
       providerEnvelope,
       envelope: input.authority.envelope,
       role: 'parent'
@@ -5210,26 +5210,6 @@ async function coordinateHostedSessionProvider(input: Readonly<{
   return Object.freeze({ artifactIndex, coordination, dispatched });
 }
 
-/**
- * Fixed hosted-provider gateways. Intent routing selects an operation only;
- * each operation then crosses an unconditional provider context/readback call.
- */
-function loadHostedActionParentContext(
-  ...args: Parameters<typeof hostedActionParentAuthority>
-): ReturnType<typeof hostedActionParentAuthority> {
-  return hostedActionParentAuthority(...args);
-}
-function loadHostedActionChildContext(
-  ...args: Parameters<typeof hostedActionChildAuthority>
-): ReturnType<typeof hostedActionChildAuthority> {
-  return hostedActionChildAuthority(...args);
-}
-function observeHostedActionState(
-  ...args: Parameters<typeof observeHostedActionAuthority>
-): ReturnType<typeof observeHostedActionAuthority> {
-  return observeHostedActionAuthority(...args);
-}
-
 export async function CodexDevelopmentCiVerificationHostedActionCli(argv: string[]): Promise<string> {
   const command = argv[0];
   const commandHandlers: Readonly<Record<string, () => Promise<string>>> = Object.freeze({
@@ -5260,7 +5240,7 @@ export async function CodexDevelopmentCiVerificationHostedActionCli(argv: string
             '--parent-artifact-archive-digest', ...(mode === 'verify-parent-plan' ? [] : ['--artifact-index'])
           ];
           const args = hostedActionCliArgs(argv, allowed);
-          const authority = loadHostedActionParentContext({
+          const authority = hostedActionParentContext({
             requestPath: args.get('--request')!,
             envelopePath: args.get('--envelope')!,
             parentPlanPath: args.get('--parent-plan')!,
@@ -5311,7 +5291,7 @@ export async function CodexDevelopmentCiVerificationHostedActionCli(argv: string
           const args = hostedActionCliArgs(argv, [
             '--intent', '--provider-envelope', '--envelope', '--resolution', '--artifact-index'
           ]);
-          const authority = loadHostedActionChildContext({
+          const authority = hostedActionChildContext({
             providerEnvelopePath: args.get('--provider-envelope')!,
             envelopePath: args.get('--envelope')!,
             resolutionPath: args.get('--resolution')!
@@ -5333,7 +5313,7 @@ export async function CodexDevelopmentCiVerificationHostedActionCli(argv: string
             '--prepared-candidate-archive', '--base-dependency-closure-digest',
             '--authenticated-git-closure-digest', '--output'
           ]);
-          const authority = loadHostedActionChildContext({
+          const authority = hostedActionChildContext({
             providerEnvelopePath: args.get('--provider-envelope')!,
             envelopePath: args.get('--envelope')!,
             resolutionPath: args.get('--resolution')!
@@ -5387,7 +5367,7 @@ export async function CodexDevelopmentCiVerificationHostedActionCli(argv: string
             '--prepared-candidate-archive', '--base-dependency-closure-digest',
             '--authenticated-git-closure-digest', '--output'
           ]);
-          const authority = loadHostedActionChildContext({
+          const authority = hostedActionChildContext({
             providerEnvelopePath: args.get('--provider-envelope')!,
             envelopePath: args.get('--envelope')!,
             resolutionPath: args.get('--resolution')!
@@ -5451,7 +5431,7 @@ export async function CodexDevelopmentCiVerificationHostedActionCli(argv: string
           const args = hostedActionCliArgs(argv, [
             '--intent', '--provider-envelope', '--envelope', '--resolution', '--output'
           ]);
-          const authority = loadHostedActionChildContext({
+          const authority = hostedActionChildContext({
             providerEnvelopePath: args.get('--provider-envelope')!,
             envelopePath: args.get('--envelope')!,
             resolutionPath: args.get('--resolution')!
@@ -5505,7 +5485,7 @@ export async function CodexDevelopmentCiVerificationHostedActionCli(argv: string
           const args = hostedActionCliArgs(argv, [
             '--intent', '--provider-envelope', '--envelope', '--resolution'
           ]);
-          const authority = loadHostedActionChildContext({
+          const authority = hostedActionChildContext({
             providerEnvelopePath: args.get('--provider-envelope')!,
             envelopePath: args.get('--envelope')!,
             resolutionPath: args.get('--resolution')!
@@ -5663,7 +5643,7 @@ export async function CodexDevelopmentCiVerificationHostedActionCli(argv: string
         '--provider-envelope', '--envelope', '--resolution', '--ticket', '--raw-result',
         '--expected-raw-result-digest', '--output'
       ]);
-      const authority = loadHostedActionChildContext({
+      const authority = hostedActionChildContext({
         providerEnvelopePath: args.get('--provider-envelope')!,
         envelopePath: args.get('--envelope')!,
         resolutionPath: args.get('--resolution')!
