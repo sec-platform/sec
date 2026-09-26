@@ -127,6 +127,10 @@ export async function executeRepositoryMaintenance(input: Readonly<{
 }
 
 export async function repositoryMaintenanceCli(argv: readonly string[]): Promise<string> {
+  if (argv.length > 1
+      || (argv.length === 1 && argv[0] !== '--json' && argv[0] !== 'retire-trigger')) {
+    throw new Error('usage: repository-maintenance [--json] | retire-trigger');
+  }
   const request = parseHostedRepositoryMaintenanceRequest(process.env);
   if (argv.length === 1 && argv[0] === 'retire-trigger') {
     const issueNumber = positiveEnvironmentInteger(
@@ -148,9 +152,6 @@ export async function repositoryMaintenanceCli(argv: readonly string[]): Promise
       exactBody
     });
     return JSON.stringify({ status: 'retired-trigger', commentId });
-  }
-  if (argv.length > 1 || (argv.length === 1 && argv[0] !== '--json')) {
-    throw new Error('usage: repository-maintenance [--json] | retire-trigger');
   }
   const result = await executeRepositoryMaintenance({
     repositoryRoot: process.cwd(),
