@@ -83,10 +83,8 @@ test('maintenance request accepts one exact closed-PR or single transport retire
     expectedHeadSha: 'b'.repeat(40)
   })).toThrow('transport/*');
   const multi = JSON.parse(requestSource()) as Record<string, unknown>;
-  multi.operations = [
-    ...multi.operations as unknown[],
-    ...(multi.operations as unknown[])
-  ];
+  const operations = multi.operations as unknown[];
+  multi.operations = [...operations, ...operations];
   expect(() => parseRepositoryMaintenanceRequest(JSON.stringify(multi)))
     .toThrow('exactly one operation');
 });
