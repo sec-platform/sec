@@ -28,7 +28,7 @@ jobs:
     if: >-
       ${{ github.event.pull_request.base.ref == 'main' &&
           github.event.pull_request.head.repo.full_name == github.repository }}
-    runs-on: [self-hosted, Linux, X64, sec-linux-verification-v1, sec-linux-verification-trusted-v1]
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
       - name: Checkout trusted projection owner
@@ -92,6 +92,7 @@ jobs:
 
       - name: Project exact CodeQL findings to the pull request
         env:
+          GH_TOKEN: ${{ github.token }}
           SEC_CODE_SCANNING_PR_NUMBER: ${{ github.event.pull_request.number }}
           SEC_CODE_SCANNING_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           SEC_CODE_SCANNING_CHECK_ID: ${{ steps.codeql.outputs.check-id }}
