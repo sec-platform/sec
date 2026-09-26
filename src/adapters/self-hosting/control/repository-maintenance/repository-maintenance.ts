@@ -6,7 +6,7 @@ import { sha256 } from '../../../../contracts/canonical.ts';
 import {
   executeGitHubApiOperation,
   inspectGitHubApiCapability,
-  withGitHubApiBranchCloseoutWriteSession
+  withGitHubApiReadSession
 } from '../../../providers/github-api/operation-session.ts';
 import { retireExactRemoteRefs } from '../branch-lifecycle/exact-ref-retirement.ts';
 import {
@@ -48,16 +48,16 @@ export async function executeRepositoryMaintenance(input: Readonly<{
     throw new Error('repository maintenance actor is absent');
   }
 
-  await withGitHubApiBranchCloseoutWriteSession({
+  await withGitHubApiReadSession({
     repositoryRoot,
     repository: input.request.repository,
     operation: async (capability) => {
       const binding = inspectGitHubApiCapability(capability);
       if (binding.repository !== input.request.repository
-          || binding.effect !== 'branch-closeout-write'
+          || binding.effect !== 'read'
           || binding.origin !== 'production'
           || binding.principal.transport !== 'github-actions-token') {
-        throw new Error('repository maintenance capability preflight is invalid');
+        throw new Error('repository maintenance read preflight capability is invalid');
       }
       const repository = await executeGitHubApiOperation(capability, { kind: 'repository' });
       if (repository === null || typeof repository !== 'object' || Array.isArray(repository)
