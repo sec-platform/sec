@@ -8,7 +8,6 @@
     "bunfig.toml",
     "config/verification/trusted-runtime.Dockerfile",
     "package.json",
-    "src/adapters/self-hosting/control/branch-lifecycle/branch-lifecycle.ts",
     "src/adapters/self-hosting/control/branch-lifecycle/branch-local-residue-closeout.ts",
     "src/adapters/verification/platform/trust/contract/ci-trust-root-registry.json",
     "src/adapters/verification/platform/trust/runtime/closure-lock.ts",

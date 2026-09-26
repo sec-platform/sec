@@ -90,11 +90,6 @@ test('trust-root registry rejects structural ambiguity, path aliases and self-de
     mutate({ staticPrefixes: ['../'] }),
     mutate({ staticExactPaths: base.staticExactPaths.filter((entry) => entry !== '.bun-version') }),
     mutate({
-      staticExactPaths: base.staticExactPaths.filter(
-        (entry) => entry !== 'src/adapters/self-hosting/control/branch-lifecycle/branch-lifecycle.ts'
-      )
-    }),
-    mutate({
       staticExactPaths: base.staticExactPaths.filter((entry) => entry !== TCB_CLOSURE_RUNTIME_PATH)
     }),
     mutate({
