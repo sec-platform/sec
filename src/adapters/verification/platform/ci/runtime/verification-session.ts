@@ -214,7 +214,7 @@ import {
   createVerificationSessionMergeOperationId,
   createVerificationSessionReviewReceipt,
   finalizeVerificationSessionHostedArtifact,
-  integrationAuthorizationMergeMarkers,
+  integrationMergeMarkers,
   parseVerificationSessionHostedRequest,
   prepareLocalQuickVerificationActionPlan,
   prepareTrustedMainVerificationSession,
@@ -1187,7 +1187,7 @@ function addSeconds(instant: string, seconds: number): string {
  * Deny-only routing guard: ledger observations never permit an effect. They
  * only suppress a same-epoch retry when the provider is explicitly unavailable.
  */
-function assertUnavailableProviderCircuitBreakerNotAuthority(input: {
+function assertUnavailableProviderCircuitBreakerInvariant(input: {
   ctx: VerificationSessionScope;
   capability: 'codex-review' | 'github-writer' | 'github-actions-hosted-verification';
   now: string;
@@ -1208,10 +1208,19 @@ function githubEvent(environment: Readonly<Record<string, string | undefined>>):
   return value as Record<string, any>;
 }
 
-function hostedActorLogin(event: Record<string, any>): string {
+function hostedActorHandle(event: Record<string, any>): string {
   const login = event.sender?.login;
   if (typeof login !== 'string' || login.length === 0) throw new Error('Trusted GitHub event actor login is unavailable.');
   return login;
+}
+
+async function openRuntimeJournalFileSystem(
+  repositoryRoot: string,
+  environment: Readonly<Record<string, string | undefined>>
+): Promise<VerificationSessionJournalFileSystem> {
+  const authority = await acquireSecRuntimeJournalAuthority({ repositoryRoot, environment });
+  const roots = resolveSecWorkspaceRuntimeRoots({ repositoryRoot, environment });
+  return createRuntimeStateJournalFileSystem(authority.directory(roots.workspaceStateRoot));
 }
 
 function positiveEnvironmentInteger(name: string, environment: Readonly<Record<string, string | undefined>>): number {
@@ -2342,7 +2351,7 @@ function publishHostedCloseoutEffectStart(
   const endpoint = `/repos/${publication.binding.repository}`
     + `/issues/${publication.binding.pullRequestNumber}/comments`;
   const body = renderBranchCloseoutEffectStartPublicationComment(publication);
-  assertUnavailableProviderCircuitBreakerNotAuthority({
+  assertUnavailableProviderCircuitBreakerInvariant({
     ctx,
     capability: 'github-writer',
     now: new Date().toISOString()
@@ -2506,7 +2515,7 @@ function pruneHostedRemote(
  * later ref effect.  Every marker/ref/prune boundary therefore obtains this
  * under the canonical repository lease immediately before its effect.
  */
-async function authorizeHostedCloseoutEffectUnderLease(input: Readonly<{
+async function evaluateHostedCloseoutEffectPreconditionsUnderLease(input: Readonly<{
   ctx: VerificationSessionScope;
   prepared: PreparedBranchCloseoutEnvelope;
   binding: ReturnType<typeof createBranchCloseoutOperationBinding>;
@@ -2695,7 +2704,7 @@ async function finalizeHostedBranchCloseout(input: Readonly<{
     disposition: 'merged',
     durableGoal: { kind: 'main', reference: `main@${input.binding.newMainSha}` }
   } as const;
-  const remoteGuard = await authorizeHostedCloseoutEffectUnderLease({
+  const remoteGuard = await evaluateHostedCloseoutEffectPreconditionsUnderLease({
     ctx: input.ctx,
     prepared: input.prepared,
     binding: input.binding,
@@ -2737,7 +2746,7 @@ async function finalizeHostedBranchCloseout(input: Readonly<{
         + encodeVerificationActionData(evidence)
       );
     }
-    assertUnavailableProviderCircuitBreakerNotAuthority({
+    assertUnavailableProviderCircuitBreakerInvariant({
       ctx: input.ctx,
       capability: 'github-writer',
       now: input.now()
@@ -2842,7 +2851,7 @@ async function finalizeHostedBranchCloseout(input: Readonly<{
 
   // The host-local journal is recovery memory, not effect authority. Recompute
   // the live owner authorization even when a prior state would otherwise be reused.
-  const localGuard = await authorizeHostedCloseoutEffectUnderLease({
+  const localGuard = await evaluateHostedCloseoutEffectPreconditionsUnderLease({
     ctx: input.ctx,
     prepared: input.prepared,
     binding: input.binding,
@@ -2884,7 +2893,7 @@ async function finalizeHostedBranchCloseout(input: Readonly<{
     closeoutAttempt(attempts, 'local-delete', 'skipped', `reused ${journal.local.state}`);
   }
 
-  const pruneGuard = await authorizeHostedCloseoutEffectUnderLease({
+  const pruneGuard = await evaluateHostedCloseoutEffectPreconditionsUnderLease({
     ctx: input.ctx,
     prepared: input.prepared,
     binding: input.binding,
@@ -2985,7 +2994,7 @@ async function finalizeSameInvocationCloseout(input: Readonly<{
   });
   if (existing !== null) return;
   await withWorkspaceWriteLease(input.ctx.repositoryRoot, undefined, async (lease) => {
-    const guard = await authorizeHostedCloseoutEffectUnderLease({ ctx: input.ctx,
+    const guard = await evaluateHostedCloseoutEffectPreconditionsUnderLease({ ctx: input.ctx,
       prepared: input.prepared, binding: input.binding, lease,
       worktreeCleanupTokens: input.worktreeCleanupTokens,
       foreignWorktreeObservationDigests: [] });
@@ -3072,7 +3081,7 @@ function publishHostedCloseoutTerminal(input: Readonly<{
     }
     return Object.freeze({ disposition: 'recovered', ...observed });
   };
-  assertUnavailableProviderCircuitBreakerNotAuthority({
+  assertUnavailableProviderCircuitBreakerInvariant({
     ctx: input.ctx,
     capability: 'github-writer',
     now: new Date().toISOString()
@@ -3669,7 +3678,7 @@ function publishHostedIntegrationAuthorizationOperation(
 
   const endpoint = `/repos/${publication.repository}/issues/${publication.pullRequestNumber}/comments`;
   const body = renderIntegrationAuthorizationOperationPublicationComment(publication);
-  assertUnavailableProviderCircuitBreakerNotAuthority({
+  assertUnavailableProviderCircuitBreakerInvariant({
     ctx,
     capability: 'github-writer',
     now: new Date().toISOString()
@@ -3741,7 +3750,7 @@ function ensureHostedReviewLocator(
       publicationDigest: observed.publicationDigest
     });
   }
-  assertUnavailableProviderCircuitBreakerNotAuthority({
+  assertUnavailableProviderCircuitBreakerInvariant({
     ctx,
     capability: 'github-writer',
     now: new Date().toISOString()
@@ -3821,12 +3830,12 @@ function ensureMaintainerReviewWakeup(
     return Object.freeze({ status: 'reused' as const, commentId: observed.commentId,
       wakeupDigest: observed.wakeupDigest });
   }
-  assertUnavailableProviderCircuitBreakerNotAuthority({
+  assertUnavailableProviderCircuitBreakerInvariant({
     ctx,
     capability: 'codex-review',
     now: new Date().toISOString()
   });
-  assertUnavailableProviderCircuitBreakerNotAuthority({
+  assertUnavailableProviderCircuitBreakerInvariant({
     ctx,
     capability: 'github-writer',
     now: new Date().toISOString()
@@ -3955,7 +3964,7 @@ function executeHostedSquashMerge(input: {
   issueDispositionPlan: IssueDispositionPlan;
 }): HostedSynchronousSquashMergeResponse {
   const authorization = input.publication.result.authorization;
-  const authorizationMarkers = integrationAuthorizationMergeMarkers({
+  const authorizationMarkers = integrationMergeMarkers({
     sessionRevision: input.sessionRevision,
     authorizationId: authorization.authorizationId,
     authorizationReceiptDigest: authorization.receiptDigest,
@@ -4064,11 +4073,7 @@ export async function verificationSessionCli(argv: string[]): Promise<string> {
   }
   let runtimeJournalFs: VerificationSessionJournalFileSystem | null = null;
   if (new Set(['prepare', 'resume', 'status', 'status-offline', 'integrate-hosted']).has(command)) {
-    const authority = await acquireSecRuntimeJournalAuthority({ repositoryRoot, environment });
-    const roots = resolveSecWorkspaceRuntimeRoots({ repositoryRoot, environment });
-    runtimeJournalFs = createRuntimeStateJournalFileSystem(
-      authority.directory(roots.workspaceStateRoot)
-    );
+    runtimeJournalFs = await openRuntimeJournalFileSystem(repositoryRoot, environment);
   }
   const durableJournalFs = (): VerificationSessionJournalFileSystem => {
     if (runtimeJournalFs === null) {
@@ -4108,7 +4113,7 @@ export async function verificationSessionCli(argv: string[]): Promise<string> {
       || liveCandidate.mergeCommitTreeSha !== liveCandidate.headTreeSha) {
       throw new Error('live merged candidate differs from the hosted IntegrationAuthorization closure.');
     }
-    const markers = integrationAuthorizationMergeMarkers({
+    const markers = integrationMergeMarkers({
       sessionRevision: selected.publication.sessionRevision,
       authorizationId: selected.publication.authorizationId,
       authorizationReceiptDigest: selected.publication.authorizationReceiptDigest,
@@ -4375,7 +4380,7 @@ export async function verificationSessionCli(argv: string[]): Promise<string> {
       // repository_dispatch is deliberately only an at-least-once wake-up
       // signal. The serialized hosted coordinator owns Review-request and
       // candidate execution dedup; the local journal is cache, not authority.
-      assertUnavailableProviderCircuitBreakerNotAuthority({
+      assertUnavailableProviderCircuitBreakerInvariant({
         ctx,
         capability: 'github-actions-hosted-verification',
         now: now()
@@ -4604,7 +4609,7 @@ export async function verificationSessionCli(argv: string[]): Promise<string> {
           );
           const eventPayload = event();
           const github = githubAdapter();
-          const actor = github.observePrincipal(envelope.session.repository, hostedActorLogin(eventPayload));
+          const actor = github.observePrincipal(envelope.session.repository, hostedActorHandle(eventPayload));
           if (actor.permission !== 'admin' && actor.permission !== 'maintain') {
             throw new Error('trusted artifact refresh actor lacks maintain/admin permission.');
           }
@@ -4646,7 +4651,7 @@ export async function verificationSessionCli(argv: string[]): Promise<string> {
     if (hosted === null) {
       const redispatched = runJoin.status === 'redispatch-eligible';
       if (redispatched) {
-        assertUnavailableProviderCircuitBreakerNotAuthority({
+        assertUnavailableProviderCircuitBreakerInvariant({
           ctx,
           capability: 'github-actions-hosted-verification',
           now: now()
@@ -4670,7 +4675,7 @@ export async function verificationSessionCli(argv: string[]): Promise<string> {
     if (reuse.status !== 'whole-artifact-current') {
       const redispatched = runJoin.status === 'redispatch-eligible';
       if (redispatched) {
-        assertUnavailableProviderCircuitBreakerNotAuthority({
+        assertUnavailableProviderCircuitBreakerInvariant({
           ctx,
           capability: 'github-actions-hosted-verification',
           now: now()
@@ -4911,7 +4916,7 @@ export async function verificationSessionCli(argv: string[]): Promise<string> {
       consumedAuthorizationIds: () => {
         const observed = github.observeCandidate(repository, artifact.session.prNumber);
         if (observed.state !== 'MERGED' || observed.mergeCommitMessage === null) return new Set<string>();
-        const markers = integrationAuthorizationMergeMarkers({
+        const markers = integrationMergeMarkers({
           sessionRevision: artifact.session.sessionRevision,
           authorizationId: selected.publication.authorizationId,
           authorizationReceiptDigest: selected.publication.authorizationReceiptDigest,
@@ -5013,7 +5018,7 @@ export async function verificationSessionCli(argv: string[]): Promise<string> {
         || immediatePlan.planDigest !== issueDispositionPlan.planDigest) {
         throw new Error('integrate-hosted Issue disposition plan drifted immediately before merge.');
       }
-      const markers = integrationAuthorizationMergeMarkers({
+      const markers = integrationMergeMarkers({
         sessionRevision: artifact.session.sessionRevision,
         authorizationId: selected.publication.authorizationId,
         authorizationReceiptDigest: selected.publication.authorizationReceiptDigest,
@@ -5030,7 +5035,7 @@ export async function verificationSessionCli(argv: string[]): Promise<string> {
       let providerResponse: HostedSynchronousSquashMergeResponse | null = null;
       let mergeCommandFailure: unknown = null;
       try {
-        assertUnavailableProviderCircuitBreakerNotAuthority({
+        assertUnavailableProviderCircuitBreakerInvariant({
           ctx,
           capability: 'github-writer',
           now: now()
@@ -5228,7 +5233,7 @@ export async function verificationSessionCli(argv: string[]): Promise<string> {
         || phase.stepName !== BRANCH_CLOSEOUT_MUTATION_PHASE_STEP_NAME) {
         throw new Error('Hosted closeout mutation phase is not the canonical provider step.');
       }
-      const preMarkerGuard = await authorizeHostedCloseoutEffectUnderLease({
+      const preMarkerGuard = await evaluateHostedCloseoutEffectPreconditionsUnderLease({
         ctx,
         prepared: closeout.recovery.prepared,
         binding: closeout.binding,

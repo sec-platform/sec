@@ -617,7 +617,7 @@ interface IntegrationAuthorizationPublicationObservation {
   preparationDigest: Digest;
 }
 
-export function integrationAuthorizationMergeMarkers(input: {
+export function integrationMergeMarkers(input: {
   sessionRevision: Digest;
   authorizationId: string;
   authorizationReceiptDigest: Digest;
@@ -639,6 +639,9 @@ export function integrationAuthorizationMergeMarkers(input: {
     `Verification-Session: ${input.sessionRevision}`
   ]);
 }
+
+/** Compatibility name for callers that still consume the historical schema label. */
+export const integrationAuthorizationMergeMarkers = integrationMergeMarkers;
 
 export type VerificationSessionRuntimeOutcome = Readonly<{
   status:
@@ -1629,7 +1632,7 @@ export function resumeVerificationSession(input: {
       && remoteAuthorization.authorizationPublicationDigest !== integrationSource.publication.publicationDigest)) {
     throw new Error('Remote authorization operation publication repository/PR/receipt differs from the merge-gate result.');
   }
-  const markers = integrationAuthorizationMergeMarkers({ sessionRevision: session.sessionRevision,
+  const markers = integrationMergeMarkers({ sessionRevision: session.sessionRevision,
     authorizationId: authorization.authorizationId,
     authorizationReceiptDigest: authorization.receiptDigest as Digest,
     consumptionOperationId: authorization.consumptionOperationId as Digest,
