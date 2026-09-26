@@ -43,7 +43,6 @@ acceptance:
   - existing WorkSelection active pointer rolling plan and current-state control files are unchanged by this documentation convergence
   - documentation source manifest is refreshed for every changed authoritative documentation source
 tests:
-  - docs:doctor
   - tests/contract/agent-skills.test.ts
 ---
 
