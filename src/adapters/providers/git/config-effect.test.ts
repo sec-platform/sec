@@ -6,13 +6,13 @@ import path from 'node:path';
 import { expect, test } from 'bun:test';
 
 import { sha256 } from '../../../contracts/canonical.ts';
-import { issueSecOperationRequirementBindingContext } from '../../../execution/operation/requirement-binding-context.ts';
+import { issueOperationRequirementBindingContext } from '../../../execution/operation/requirement-binding-context.ts';
 import {
-  bindSecSemanticOperation,
-  compileSecCapabilityBinding,
-  compileSecSemanticOperationPlan,
-  issueSecSemanticOperationAttemptContext,
-  type SecOperationDigest
+  bindSemanticOperation,
+  compileCapabilityBinding,
+  compileSemanticOperationPlan,
+  issueSemanticOperationAttemptContext,
+  type OperationDigest
 } from '../../../execution/operation/semantic.ts';
 import { openProcessResourceSession } from '../../runtime-state/physical/runtime/process-resource-session.ts';
 import {
@@ -28,7 +28,7 @@ import {
   runGitPhysicalCommandInternal
 } from './physical-provider.ts';
 
-const CONTRACT = sha256({ test: 'git-config-effect' }) as SecOperationDigest;
+const CONTRACT = sha256({ test: 'git-config-effect' }) as OperationDigest;
 const REQUIREMENT = 'git.config-effect.process';
 
 function testOperation(input: Readonly<{
@@ -36,12 +36,12 @@ function testOperation(input: Readonly<{
   outputBytes?: number;
   signal?: AbortSignal;
 }> = {}) {
-  const plan = compileSecSemanticOperationPlan({
+  const plan = compileSemanticOperationPlan({
     operation: 'external-capabilities.git.config-effect.test',
-    intentDigest: sha256({ processes: input.processes ?? 2 }) as SecOperationDigest,
+    intentDigest: sha256({ processes: input.processes ?? 2 }) as OperationDigest,
     decisionDigest: CONTRACT,
     deadlineAtUnixMs: Date.now() + 10_000,
-    attempt: issueSecSemanticOperationAttemptContext({ authorityGrantDigest: CONTRACT }),
+    attempt: issueSemanticOperationAttemptContext({ authorityGrantDigest: CONTRACT }),
     aggregateBudgets: [
       { resource: 'duration-ms', maximum: 10_000 },
       { resource: 'input-bytes', maximum: 0 },
@@ -55,7 +55,7 @@ function testOperation(input: Readonly<{
       failureKinds: ['filesystem.identity-drift', 'process.unavailable']
     }]
   });
-  return bindSecSemanticOperation(plan, [compileSecCapabilityBinding({
+  return bindSemanticOperation(plan, [compileCapabilityBinding({
     requirementId: REQUIREMENT,
     contractDigest: CONTRACT,
     providerIdentityDigest: CONTRACT
@@ -72,7 +72,7 @@ function openTestProvider(root: string, processes = 2, outputBytes = 512 * 1024)
   const operation = testOperation({ processes, outputBytes });
   const processSession = openProcessResourceSession({
     operation,
-    requirementBindingContext: issueSecOperationRequirementBindingContext({
+    requirementBindingContext: issueOperationRequirementBindingContext({
       operation,
       requirementId: REQUIREMENT,
       resourceCeilings: operation.plan.execution.aggregateBudgets
@@ -227,7 +227,7 @@ test('GitConfigEffect rejects insufficient parent process budget and cancelled p
   const controller = new AbortController();
   const cancelled = openProcessResourceSession({
     operation,
-    requirementBindingContext: issueSecOperationRequirementBindingContext({
+    requirementBindingContext: issueOperationRequirementBindingContext({
       operation,
       requirementId: REQUIREMENT,
       resourceCeilings: operation.plan.execution.aggregateBudgets

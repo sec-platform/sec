@@ -2,7 +2,7 @@ import { expect, test } from 'bun:test';
 
 import { buildEngineeringIR, type BuildEngineeringIRInput } from '../../src/compiler/ir/build-engineering-ir.ts';
 import { addFact } from '../../src/compiler/ir/ir-fact-store.ts';
-import { digest, semanticRevisionPayload } from '../../src/compiler/ir/ir-revision.ts';
+import { rawSha256Hex, semanticRevisionPayload } from '../../src/compiler/ir/ir-revision.ts';
 import { validateEngineeringIR } from '../../src/compiler/ir/validate-engineering-ir.ts';
 import { projectStateView } from '../../src/compiler/projection/project-state-view.ts';
 import type { LoadedSemanticContract, SemanticContractOperation } from '../../src/semantics/definitions/types.ts';
@@ -119,7 +119,7 @@ test('State View preserves same-endpoint transition Fact identity and inferred b
   });
 
   const pendingFacts = [...facts.values()].sort((left, right) => left.id.localeCompare(right.id));
-  const semanticRevision = `sha256:${digest(semanticRevisionPayload(
+  const semanticRevision = `sha256:${rawSha256Hex(semanticRevisionPayload(
     base.graphId,
     base.appId,
     base.entities,

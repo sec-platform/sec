@@ -1,6 +1,6 @@
 import { expect, test } from 'bun:test';
 
-import { SecError } from '../../../../../contracts/failure.ts';
+import { FailureError } from '../../../../../contracts/failure.ts';
 import { runtimeDependencyOperationOptions } from '../operation-context.ts';
 import { DEPENDENCY_TRANSITION_SCHEMA } from './contract.ts';
 import { advanceDependencyTransition } from './operation.ts';
@@ -57,5 +57,5 @@ test('journal successor rejects a caller-constructed structural record before an
   )).rejects.toMatchObject({
     code: 'RUNTIME-DEPS-004',
     message: 'Dependency transition write requires an owner-admitted immutable record'
-  } satisfies Partial<SecError>);
+  } satisfies Partial<FailureError>);
 });

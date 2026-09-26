@@ -109,7 +109,7 @@ export interface RuntimeVerificationLaneReport {
 
 /**
  * Claim-based verification summary produced by aggregating lane-level gate
- * results through `CodexDevelopmentAggregateVerificationClaimsV1`. Replaces
+ * results through `aggregateVerificationClaims`. Replaces
  * the legacy "skipped → passed" false-green path: `overallStatus` is `passed`
  * only when every required claim is `passed`.
  */
@@ -130,7 +130,7 @@ export interface VerificationReport {
     requestedLane: VerificationLane;
     failedLanes: Array<'fast' | 'runtime'>;
     /**
-     * Claim-based summary from `CodexDevelopmentAggregateVerificationClaimsV1`.
+     * Claim-based summary from `aggregateVerificationClaims`.
      * Production code always sets this; tests for unrelated features may omit it.
      * When present, `status` MUST be consistent with `claimSummary.overall.overallStatus`.
      */

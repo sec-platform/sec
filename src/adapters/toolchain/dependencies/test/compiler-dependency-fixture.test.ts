@@ -5,9 +5,9 @@ import path from 'node:path';
 
 import { expect, test } from 'bun:test';
 
-import { digest } from '../../../../contracts/canonical.ts';
+import { rawSha256Hex } from '../../../../contracts/canonical.ts';
 import { settleResourcesAsync as settlePhysicalResourcesAsync } from '../../../../execution/resource-settlement.ts';
-import { resolveSecWorkspaceRuntimeRoots } from '../../../runtime-state/workspace-state/paths.ts';
+import { resolveWorkspaceRuntimeRoots } from '../../../runtime-state/workspace-state/paths.ts';
 
 import { runtimeDependencyOperationOptions } from '../runtime/operation-context.ts';
 import { readRuntimeDependencyOperationTelemetry } from '../runtime/operation-telemetry.ts';
@@ -19,7 +19,7 @@ import {
   retainCompilerDependencyExecutionGeneration,
   retainCompilerDependencyReadGeneration,
   type RetainedCompilerDependencyExecutionGeneration
-} from '../runtime/project-runtime.ts';
+} from '../runtime.ts';
 import {
   issueCompilerDependencyFixtureOperation,
   rematerializeCompilerDependencyFixtureOperation,
@@ -66,7 +66,7 @@ function fixtureDescriptor(dependencyRootPath: string) {
 
 async function removeFixtureRuntimeState(dependencyRoot: string): Promise<void> {
   if (!existsSync(dependencyRoot)) return;
-  const runtimeRoots = resolveSecWorkspaceRuntimeRoots({ repositoryRoot: dependencyRoot });
+  const runtimeRoots = resolveWorkspaceRuntimeRoots({ repositoryRoot: dependencyRoot });
   await rm(runtimeRoots.workspaceStateRoot, { recursive: true, force: true });
 }
 
@@ -125,7 +125,7 @@ test('dependency fixture operation owns lifecycle-backed publication and retirem
       .toThrow('not owner-issued');
     expect(() => assertRetainedCompilerDependencyReadGeneration({
       ...readGeneration,
-      generationDigest: `sha256:${digest(Buffer.from('foreign-generation'))}`
+      generationDigest: `sha256:${rawSha256Hex(Buffer.from('foreign-generation'))}`
     })).toThrow('not owner-issued');
     expect(firstGeneration.directRootResolution).toEqual({
       entries: [{
@@ -149,7 +149,7 @@ test('dependency fixture operation owns lifecycle-backed publication and retirem
         packageName: 'yaml',
         resolvedVersion: '2.9.0'
       }],
-      lockDigest: `sha256:${digest(Buffer.from('fixture-lock-v1\n'))}`
+      lockDigest: `sha256:${rawSha256Hex(Buffer.from('fixture-lock-v1\n'))}`
     });
     const firstGenerationPath = firstGeneration.physicalGeneration.root.path;
     const second = await rematerializeCompilerDependencyFixtureOperation(
@@ -177,11 +177,11 @@ test('dependency fixture operation owns lifecycle-backed publication and retirem
       { ...readRetirement },
       observedAuthority!.generationDigest
     )).toThrow('was not issued for the expected generation');
-    const runtimeRoots = resolveSecWorkspaceRuntimeRoots({ repositoryRoot: dependencyRoot });
+    const runtimeRoots = resolveWorkspaceRuntimeRoots({ repositoryRoot: dependencyRoot });
     expect(await readdir(path.join(
       runtimeRoots.workspaceStateRoot,
       'compiler-dependency-coordination',
-      'v1',
+      'journal',
       'consumers'
     ))).toEqual([]);
 

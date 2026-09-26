@@ -1,7 +1,7 @@
-import { createHash, randomUUID } from 'node:crypto';
+import { randomUUID } from 'node:crypto';
 import path from 'node:path';
 
-import { acquirePhysicalMutationLease } from '../../adapters/runtime-state/physical/runtime/mutation-lease.ts';
+import { acquirePhysicalMutationLease } from '../runtime-state/physical/runtime/mutation-lease.ts';
 import {
   assertSameNoFollowDirectoryIdentity,
   copyNoFollowDirectoryTreesBulk,
@@ -14,11 +14,11 @@ import {
   relocateRetainedNoFollowDirectoryAcrossParents,
   scanNoFollowDirectoryTreeInventory,
   type PhysicalDirectoryIdentity
-} from '../../adapters/runtime-state/physical/runtime/physical-no-follow.ts';
+} from '../runtime-state/physical/runtime/physical-no-follow.ts';
 import {
   COMPILER_RUNTIME_RESOURCE_RELATIVE_PATHS
-} from '../../adapters/toolchain/runtime.ts';
-import { sha256 } from '../../contracts/canonical.ts';
+} from '../toolchain/runtime.ts';
+import { rawSha256Hex, sha256 } from '../../contracts/canonical.ts';
 import {
   allocateReleaseStage,
   retireReleaseTree
@@ -306,7 +306,7 @@ async function publishAcceptedArtifact(
   if (path.dirname(destinationRoot) !== parent.path) {
     throw new Error('Release artifact destination is not a direct child of its retained publication parent');
   }
-  const destinationKey = createHash('sha256').update(path.basename(destinationRoot)).digest('hex');
+  const destinationKey = rawSha256Hex(path.basename(destinationRoot));
   const backupName = `.sec-release-previous-${destinationKey}`;
   const backupRoot = path.join(parent.path, backupName);
   const lease = acquirePhysicalMutationLease(

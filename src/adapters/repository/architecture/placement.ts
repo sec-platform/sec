@@ -1,19 +1,19 @@
-import { createHash } from 'node:crypto';
 
+import { rawSha256Hex } from '../../../contracts/canonical.ts';
 import {
-  compileSecRepositoryModuleTopologyProjection,
-  isSecRepositoryNodeDependencyAllowed,
-  normalizeSecRepositoryPath,
-  type SecRepositoryModuleBoundaryViolation,
-  type SecRepositoryModuleGraph,
-  type SecRepositoryModuleMembership,
-  type SecRepositoryModuleSourceProgramFacts,
-  type SecRepositoryNodeResponsibility
+  compileRepositoryModuleTopologyProjection,
+  isRepositoryNodeDependencyAllowed,
+  normalizeRepositoryModulePath,
+  type RepositoryModuleBoundaryViolation,
+  type RepositoryModuleGraph,
+  type RepositoryModuleMembership,
+  type RepositoryModuleSourceProgramFacts,
+  type RepositoryNodeResponsibility
 } from './contract.ts';
 
 type Sha256 = `sha256:${string}`;
 
-type SecRepositoryDeclarationResponsibilityReason =
+type RepositoryDeclarationResponsibilityReason =
   | 'bounded-semantic-evidence-conflict'
   | 'bounded-semantic-evidence-missing'
   | 'compiler-observed-capability'
@@ -25,7 +25,7 @@ type SecRepositoryDeclarationResponsibilityReason =
   | 'descriptor-owner-internal-capability'
   | 'semantic-responsibility-binding';
 
-type SecRepositoryDeclarationResponsibilityProjection = Readonly<{
+type RepositoryDeclarationResponsibilityProjection = Readonly<{
   readonly nodeId: string;
   readonly declarationDigest: string;
   readonly path: string;
@@ -33,13 +33,13 @@ type SecRepositoryDeclarationResponsibilityProjection = Readonly<{
   readonly name: string;
   readonly exported: boolean;
   readonly status: 'bounded-unknown' | 'resolved';
-  readonly responsibility: SecRepositoryNodeResponsibility | null;
-  readonly reason: SecRepositoryDeclarationResponsibilityReason;
+  readonly responsibility: RepositoryNodeResponsibility | null;
+  readonly reason: RepositoryDeclarationResponsibilityReason;
   readonly criticality: readonly ('authority-mint' | 'effect' | 'public')[];
   readonly evidenceDigest: Sha256;
 }>;
 
-type SecRepositoryModulePlacementMetrics = Readonly<{
+type RepositoryModulePlacementMetrics = Readonly<{
   readonly ownerEdges: number;
   readonly cyclicOwners: number;
   readonly reciprocalPairs: number;
@@ -51,27 +51,27 @@ type SecRepositoryModulePlacementMetrics = Readonly<{
   readonly publicOperations: number;
 }>;
 
-export type SecRepositoryModulePlacementAdmission = Readonly<{
-  readonly responsibilityFrontier: readonly SecRepositoryDeclarationResponsibilityProjection[];
-  readonly current: SecRepositoryModulePlacementMetrics;
-  readonly violations: readonly SecRepositoryModuleBoundaryViolation[];
+export type RepositoryModulePlacementAdmission = Readonly<{
+  readonly responsibilityFrontier: readonly RepositoryDeclarationResponsibilityProjection[];
+  readonly current: RepositoryModulePlacementMetrics;
+  readonly violations: readonly RepositoryModuleBoundaryViolation[];
   readonly admissionDigest: Sha256;
 }>;
 
-type PlacementFacts = Omit<SecRepositoryModuleSourceProgramFacts, 'files'> & Readonly<{
-  readonly files: readonly (SecRepositoryModuleSourceProgramFacts['files'][number] & Readonly<{
+type PlacementFacts = Omit<RepositoryModuleSourceProgramFacts, 'files'> & Readonly<{
+  readonly files: readonly (RepositoryModuleSourceProgramFacts['files'][number] & Readonly<{
     readonly sourceLines?: number;
   }>)[];
 }>;
 
 type ResponsibilityCandidate = Readonly<{
-  responsibility: SecRepositoryNodeResponsibility;
-  reason: SecRepositoryDeclarationResponsibilityReason;
+  responsibility: RepositoryNodeResponsibility;
+  reason: RepositoryDeclarationResponsibilityReason;
   evidence: unknown;
 }>;
 
 function digest(value: unknown): Sha256 {
-  return `sha256:${createHash('sha256').update(JSON.stringify(value)).digest('hex')}`;
+  return `sha256:${rawSha256Hex(JSON.stringify(value))}`;
 }
 
 function textOrder(left: string, right: string): number {
@@ -81,7 +81,7 @@ function textOrder(left: string, right: string): number {
 function relationResponsibility(
   relation: string,
   operation: unknown
-): SecRepositoryNodeResponsibility {
+): RepositoryNodeResponsibility {
   if (operation !== null) return 'operation';
   if (relation === 'declares') return 'contract';
   if (relation === 'writes' || relation === 'executes' || relation === 'settles'
@@ -90,7 +90,7 @@ function relationResponsibility(
   return 'computation';
 }
 
-function semanticTargetResponsibility(kind: string): SecRepositoryNodeResponsibility {
+function semanticTargetResponsibility(kind: string): RepositoryNodeResponsibility {
   if (kind === 'entity') return 'contract';
   if (kind === 'effect') return 'capability';
   if (kind === 'operation') return 'operation';
@@ -127,20 +127,20 @@ const CONTRACT_DECLARATION_KINDS = new Set([
  * descriptor intent. Paths only locate compiler facts; neither a directory nor
  * a filename can grant a responsibility.
  */
-function compileSecRepositoryDeclarationResponsibilityFrontier(
-  membership: SecRepositoryModuleMembership,
+function compileRepositoryDeclarationResponsibilityFrontier(
+  membership: RepositoryModuleMembership,
   facts: PlacementFacts
-): readonly SecRepositoryDeclarationResponsibilityProjection[] {
+): readonly RepositoryDeclarationResponsibilityProjection[] {
   const productionPaths = new Set(facts.files
     .filter(({ surface }) => surface === 'production')
-    .map(({ path }) => normalizeSecRepositoryPath(path)));
+    .map(({ path }) => normalizeRepositoryModulePath(path)));
   const declarations = [...(facts.declarations ?? [])]
-    .map((declaration) => ({ ...declaration, path: normalizeSecRepositoryPath(declaration.path) }))
+    .map((declaration) => ({ ...declaration, path: normalizeRepositoryModulePath(declaration.path) }))
     .filter(({ path }) => productionPaths.has(path))
     .sort((left, right) => textOrder(left.path, right.path)
       || textOrder(left.observationId ?? '', right.observationId ?? ''));
   const fileFacts = new Map(facts.files.map((file) => (
-    [normalizeSecRepositoryPath(file.path), file] as const
+    [normalizeRepositoryModulePath(file.path), file] as const
   )));
   const declarationIdentityCounts = new Map<string, number>();
   for (const declaration of declarations) {
@@ -150,7 +150,7 @@ function compileSecRepositoryDeclarationResponsibilityFrontier(
   const unknownPaths = new Set<string>();
   for (const file of facts.files) {
     if (file.semanticObservationClass === 'unknown') {
-      unknownPaths.add(normalizeSecRepositoryPath(file.path));
+      unknownPaths.add(normalizeRepositoryModulePath(file.path));
     }
   }
 
@@ -167,7 +167,7 @@ function compileSecRepositoryDeclarationResponsibilityFrontier(
       observedConsumerOwnersByTarget.set(targetObservationId, owners);
     }
     owners.add(membership.moduleForPath(
-      normalizeSecRepositoryPath(reference.path)
+      normalizeRepositoryModulePath(reference.path)
     )?.moduleId);
   }
 
@@ -205,7 +205,7 @@ function compileSecRepositoryDeclarationResponsibilityFrontier(
   for (const entrypoint of facts.entrypoints) {
     if (entrypoint.observationClass === 'unknown') continue;
     const uniqueTargetPaths = new Set((entrypoint.targetPaths ?? [])
-      .map((path) => normalizeSecRepositoryPath(path)));
+      .map((path) => normalizeRepositoryModulePath(path)));
     for (const targetPath of uniqueTargetPaths) {
       const values = entrypointsByTargetPath.get(targetPath) ?? [];
       values.push(entrypoint);
@@ -268,7 +268,7 @@ function compileSecRepositoryDeclarationResponsibilityFrontier(
     }
 
     for (const relation of owner?.causalRelations ?? []) {
-      if (normalizeSecRepositoryPath(relation.symbol.path) !== declaration.path
+      if (normalizeRepositoryModulePath(relation.symbol.path) !== declaration.path
           || relation.symbol.name !== declaration.name) continue;
       candidates.push(Object.freeze({
         responsibility: relationResponsibility(relation.relation, relation.operation),
@@ -318,7 +318,7 @@ function compileSecRepositoryDeclarationResponsibilityFrontier(
     const resolved = owner !== null && identityResolved && responsibilities.length === 1
       && fileFacts.get(declaration.path)?.semanticKind !== 'pure-reexport'
       && fileFacts.get(declaration.path)?.semanticObservationClass !== 'unknown';
-    const reason: SecRepositoryDeclarationResponsibilityReason = resolved
+    const reason: RepositoryDeclarationResponsibilityReason = resolved
       ? candidates[0]!.reason
       : candidates.length > 0
         ? 'bounded-semantic-evidence-conflict'
@@ -355,9 +355,9 @@ function compileSecRepositoryDeclarationResponsibilityFrontier(
 }
 
 function fileResponsibilities(
-  frontier: readonly SecRepositoryDeclarationResponsibilityProjection[]
-): ReadonlyMap<string, SecRepositoryNodeResponsibility> {
-  const candidates = new Map<string, SecRepositoryNodeResponsibility[]>();
+  frontier: readonly RepositoryDeclarationResponsibilityProjection[]
+): ReadonlyMap<string, RepositoryNodeResponsibility> {
+  const candidates = new Map<string, RepositoryNodeResponsibility[]>();
   for (const node of frontier) {
     if (node.status !== 'resolved' || node.responsibility === null) continue;
     const values = candidates.get(node.path) ?? [];
@@ -371,8 +371,8 @@ function fileResponsibilities(
 }
 
 function publicOperationClosure(
-  membership: SecRepositoryModuleMembership,
-  frontier: readonly SecRepositoryDeclarationResponsibilityProjection[],
+  membership: RepositoryModuleMembership,
+  frontier: readonly RepositoryDeclarationResponsibilityProjection[],
   ownerForPath: (path: string) => string | null
 ): Readonly<{ digest: Sha256; count: number; unresolved: readonly string[] }> {
   const identities: unknown[] = [];
@@ -410,32 +410,32 @@ function publicOperationClosure(
 }
 
 function placementMetrics(
-  graph: SecRepositoryModuleGraph,
-  membership: SecRepositoryModuleMembership,
+  graph: RepositoryModuleGraph,
+  membership: RepositoryModuleMembership,
   facts: PlacementFacts,
-  frontier: readonly SecRepositoryDeclarationResponsibilityProjection[],
+  frontier: readonly RepositoryDeclarationResponsibilityProjection[],
   reassignedOwners: ReadonlyMap<string, string>
-): Readonly<{ metrics: SecRepositoryModulePlacementMetrics; unresolved: readonly string[] }> {
-  const virtualMembership: SecRepositoryModuleMembership = Object.freeze({
+): Readonly<{ metrics: RepositoryModulePlacementMetrics; unresolved: readonly string[] }> {
+  const virtualMembership: RepositoryModuleMembership = Object.freeze({
     descriptors: membership.descriptors,
     graphRoots: membership.graphRoots,
     moduleRoots: membership.moduleRoots,
     moduleForPath: (path) => {
-      const normalized = normalizeSecRepositoryPath(path);
+      const normalized = normalizeRepositoryModulePath(path);
       const ownerId = reassignedOwners.get(normalized);
       return ownerId === undefined
         ? membership.moduleForPath(normalized)
         : membership.descriptors.find(({ moduleId }) => moduleId === ownerId) ?? null;
     }
   });
-  const topology = compileSecRepositoryModuleTopologyProjection(graph, virtualMembership);
+  const topology = compileRepositoryModuleTopologyProjection(graph, virtualMembership);
   const pureReexports = new Set(facts.files.filter(({ semanticKind }) => semanticKind === 'pure-reexport')
-    .map(({ path }) => normalizeSecRepositoryPath(path)));
+    .map(({ path }) => normalizeRepositoryModulePath(path)));
   const aggregateFacades = new Set(topology.ownerEdges.flatMap(({ witnesses }) => (
     witnesses.flatMap(({ toPath }) => pureReexports.has(toPath) ? [toPath] : [])
   ))).size;
   const lineByPath = new Map(facts.files.map(({ path, sourceLines }) => (
-    [normalizeSecRepositoryPath(path), sourceLines] as const
+    [normalizeRepositoryModulePath(path), sourceLines] as const
   )));
   const unresolved = new Set<string>();
   let sourceLinesResolved = true;
@@ -479,12 +479,12 @@ function placementMetrics(
  * target placement must be recompiled from a compiler-issued post-placement
  * subject before any migration transaction may be admitted.
  */
-export function compileSecRepositoryModulePlacementAdmission(input: Readonly<{
-  readonly graph: SecRepositoryModuleGraph;
-  readonly membership: SecRepositoryModuleMembership;
+export function compileRepositoryModulePlacementAdmission(input: Readonly<{
+  readonly graph: RepositoryModuleGraph;
+  readonly membership: RepositoryModuleMembership;
   readonly facts: PlacementFacts;
-}>): SecRepositoryModulePlacementAdmission {
-  const frontier = compileSecRepositoryDeclarationResponsibilityFrontier(
+}>): RepositoryModulePlacementAdmission {
+  const frontier = compileRepositoryDeclarationResponsibilityFrontier(
     input.membership,
     input.facts
   );
@@ -495,7 +495,7 @@ export function compileSecRepositoryModulePlacementAdmission(input: Readonly<{
     frontier,
     new Map()
   );
-  const violations: SecRepositoryModuleBoundaryViolation[] = [];
+  const violations: RepositoryModuleBoundaryViolation[] = [];
   for (const node of frontier) {
     if (node.status !== 'bounded-unknown') continue;
     const effectful = node.criticality.includes('effect') || node.criticality.includes('authority-mint');
@@ -513,11 +513,11 @@ export function compileSecRepositoryModulePlacementAdmission(input: Readonly<{
   const responsibilities = fileResponsibilities(frontier);
   for (const reference of input.graph.references) {
     if (reference.resolvedTarget === null) continue;
-    const fromPath = normalizeSecRepositoryPath(reference.from);
-    const toPath = normalizeSecRepositoryPath(reference.resolvedTarget);
+    const fromPath = normalizeRepositoryModulePath(reference.from);
+    const toPath = normalizeRepositoryModulePath(reference.resolvedTarget);
     const from = responsibilities.get(fromPath);
     const to = responsibilities.get(toPath);
-    if (from === undefined || to === undefined || isSecRepositoryNodeDependencyAllowed(from, to)) continue;
+    if (from === undefined || to === undefined || isRepositoryNodeDependencyAllowed(from, to)) continue;
     violations.push(Object.freeze({
       code: 'repository-node-responsibility-reverse-dependency',
       from: fromPath,

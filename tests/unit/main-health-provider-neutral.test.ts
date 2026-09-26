@@ -4,7 +4,7 @@ import type { GitHubCheckObservation } from '../../src/adapters/providers/github
 import {
   createObservedMainHealthInputWithPolicy,
   createRegisteredHostedMainHealthInputs,
-  createTrustedRuntimeMainHealthCheckProviderPolicyV1,
+  createTrustedRuntimeMainHealthCheckProviderPolicy,
   GITHUB_ACTIONS_MAIN_HEALTH_CHECK_PROVIDER_POLICY
 } from '../../src/adapters/self-hosting/control/main-health/main-health-observation.ts';
 import { CI_MAIN_HEALTH_POLICY, createCiMainHealthRequestOperationId } from '../../src/adapters/self-hosting/control/main-health/provider-policy.ts';
@@ -14,7 +14,7 @@ const MAIN_TREE = '2'.repeat(40);
 const APP = Object.freeze({ id: 900001, nodeId: 'A_sec_integrator', slug: 'sec-integrator' });
 const RUNTIME_REF = `src/adapters/self-hosting/control/integration/merge-gate.ts@${MAIN}`;
 
-const policy = createTrustedRuntimeMainHealthCheckProviderPolicyV1({
+const policy = createTrustedRuntimeMainHealthCheckProviderPolicy({
   policyRevision: 'sec-main-health-trusted-runtime-v1',
   app: APP
 });

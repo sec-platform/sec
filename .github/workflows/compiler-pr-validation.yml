@@ -1406,7 +1406,7 @@ jobs:
 
       - name: Reject static architecture contradictions
         id: static-architecture
-        run: bun run audit:static
+        run: bun run audit -- --scope source-program --enforce
 
       - name: Validate active documentation authority
         id: docs-doctor
@@ -1414,4 +1414,4 @@ jobs:
 
       - name: Run the complete fast test inventory
         id: test-fast
-        run: bun run test:fast
+        run: bun run test -- --scope fast

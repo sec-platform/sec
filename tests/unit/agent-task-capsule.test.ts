@@ -1,19 +1,19 @@
 import { expect, test } from 'bun:test';
 
 import {
-  compileSecTaskCapsule,
-  parseSecTaskCapsule,
-  SEC_TASK_CAPSULE_AUTHORITY_STATUS,
-  SEC_TASK_CAPSULE_INPUT_SCHEMA,
-  SEC_TASK_CAPSULE_REVISION,
-  type SecDigest,
-  type SecTaskCapsuleInputV1,
-  type SecTaskCapsulePlanningContext
+  compileTaskCapsule,
+  parseTaskCapsule,
+  TASK_CAPSULE_AUTHORITY_STATUS,
+  TASK_CAPSULE_INPUT_SCHEMA,
+  TASK_CAPSULE_REVISION,
+  type TaskCapsuleDigest,
+  type TaskCapsuleInput,
+  type TaskCapsulePlanningContext
 } from '../../src/adapters/self-hosting/control/agent/task-capsule.ts';
 
-const digest = (character: string): SecDigest => `sha256:${character.repeat(64)}`;
+const digest = (character: string): TaskCapsuleDigest => `sha256:${character.repeat(64)}`;
 
-function planningContext(): SecTaskCapsulePlanningContext {
+function planningContext(): TaskCapsulePlanningContext {
   return {
     operationId: 'work-package-task-capsule-compiler-v1',
     role: 'worker',
@@ -55,13 +55,13 @@ function planningContext(): SecTaskCapsulePlanningContext {
       revision: 'v1',
       reasonCode: 'public-contract-change'
     }],
-    skillCandidateIds: ['sec-worker-development']
+    skillCandidateIds: ['worker-development']
   };
 }
 
-function input(overrides: Partial<SecTaskCapsuleInputV1> = {}): SecTaskCapsuleInputV1 {
+function input(overrides: Partial<TaskCapsuleInput> = {}): TaskCapsuleInput {
   return {
-    schema: SEC_TASK_CAPSULE_INPUT_SCHEMA,
+    schema: TASK_CAPSULE_INPUT_SCHEMA,
     ref: 'urn:sec:task-capsule:work-package/task-capsule-compiler-v1',
     planningContext: planningContext(),
     ...overrides
@@ -69,9 +69,9 @@ function input(overrides: Partial<SecTaskCapsuleInputV1> = {}): SecTaskCapsuleIn
 }
 
 test('Task Capsule is a deterministic content-addressed pure compiler output', () => {
-  const first = compileSecTaskCapsule(input());
+  const first = compileTaskCapsule(input());
   const source = planningContext();
-  const second = compileSecTaskCapsule(input({
+  const second = compileTaskCapsule(input({
     planningContext: {
       ...source,
       ownerFacts: [...source.ownerFacts].reverse(),
@@ -84,20 +84,20 @@ test('Task Capsule is a deterministic content-addressed pure compiler output', (
     }
   }));
   expect(second).toEqual(first);
-  expect(first.revision).toBe(SEC_TASK_CAPSULE_REVISION);
-  expect(first.authorityStatus).toBe(SEC_TASK_CAPSULE_AUTHORITY_STATUS);
+  expect(first.revision).toBe(TASK_CAPSULE_REVISION);
+  expect(first.authorityStatus).toBe(TASK_CAPSULE_AUTHORITY_STATUS);
   expect(first.effectAuthority).toBe('none');
-  expect(parseSecTaskCapsule(JSON.parse(JSON.stringify(first)))).toEqual(first);
+  expect(parseTaskCapsule(JSON.parse(JSON.stringify(first)))).toEqual(first);
 });
 
 test('Task Capsule rejects unknown caller fields and digest tampering', () => {
-  expect(() => compileSecTaskCapsule({
+  expect(() => compileTaskCapsule({
     ...input(),
     currentState: 'candidate'
   })).toThrow(/keys must be exact/u);
 
-  const capsule = compileSecTaskCapsule(input());
-  expect(() => parseSecTaskCapsule({
+  const capsule = compileTaskCapsule(input());
+  expect(() => parseTaskCapsule({
     ...capsule,
     digest: digest('f')
   })).toThrow(/digest does not bind its complete planning content/u);
@@ -105,7 +105,7 @@ test('Task Capsule rejects unknown caller fields and digest tampering', () => {
 
 test('Task Capsule scope rejects write-forbidden overlap and changed-path escape', () => {
   const source = planningContext();
-  expect(() => compileSecTaskCapsule(input({
+  expect(() => compileTaskCapsule(input({
     planningContext: {
       ...source,
       scopeProposal: {
@@ -117,7 +117,7 @@ test('Task Capsule scope rejects write-forbidden overlap and changed-path escape
     }
   }))).toThrow(/overlaps forbidden/u);
 
-  expect(() => compileSecTaskCapsule(input({
+  expect(() => compileTaskCapsule(input({
     planningContext: {
       ...source,
       scopeProposal: {
@@ -131,22 +131,22 @@ test('Task Capsule scope rejects write-forbidden overlap and changed-path escape
 
 test('Task Capsule requires exact Git and Work Package identities plus a real owner fact', () => {
   const source = planningContext();
-  expect(() => compileSecTaskCapsule(input({
+  expect(() => compileTaskCapsule(input({
     planningContext: { ...source, trustedRevision: 'main' }
   }))).toThrow(/exact lowercase Git object ID/u);
-  expect(() => compileSecTaskCapsule(input({
-    planningContext: { ...source, workPackageProjectionId: 'freeze-latest' as SecDigest }
+  expect(() => compileTaskCapsule(input({
+    planningContext: { ...source, workPackageProjectionId: 'freeze-latest' as TaskCapsuleDigest }
   }))).toThrow(/lowercase SHA-256 digest/u);
-  expect(() => compileSecTaskCapsule(input({
+  expect(() => compileTaskCapsule(input({
     planningContext: { ...source, ownerFacts: [] }
   }))).toThrow(/at least one canonical owner/u);
-  expect(() => compileSecTaskCapsule(input({
+  expect(() => compileTaskCapsule(input({
     planningContext: {
       ...source,
       workPackageProposalRef: '../outside.md'
     }
   }))).toThrow(/canonical repository path/u);
-  expect(() => compileSecTaskCapsule(input({
+  expect(() => compileTaskCapsule(input({
     planningContext: {
       ...source,
       scopeGrantId: digest('d') as unknown as null

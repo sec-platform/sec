@@ -1,6 +1,6 @@
 import { parseDocument as parseExternalYamlDocument, type Document } from 'yaml';
 
-import { SecError } from '../../contracts/failure.ts';
+import { FailureError } from '../../contracts/failure.ts';
 
 export interface YamlInputAdmission {
   readonly label: string;
@@ -17,7 +17,7 @@ export interface YamlValueAdmission extends YamlInputAdmission {
 export type StrictYamlDocument = Document.Parsed;
 export type YamlSyntaxFailureKind = 'duplicate-key' | 'invalid-yaml' | 'resource-exhaustion';
 
-export class YamlInputLimitError extends SecError {
+export class YamlInputLimitError extends FailureError {
   readonly kind = 'input-too-large' as const;
   readonly actualInputBytes: number;
   readonly maximumInputBytes: number;
@@ -34,7 +34,7 @@ export class YamlInputLimitError extends SecError {
   }
 }
 
-export class YamlSyntaxError extends SecError {
+export class YamlSyntaxError extends FailureError {
   readonly kind: YamlSyntaxFailureKind;
   readonly yamlErrorCode: string | null;
 

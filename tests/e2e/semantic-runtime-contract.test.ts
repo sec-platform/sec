@@ -23,7 +23,7 @@ import {
 } from '../../src/adapters/mutation/transaction-identity.ts';
 import { resolveWorkspaceArtifactPath } from "../../src/adapters/workspace-context.ts";
 import { loadWorkspaceEngineeringIRBuildInput } from '../../src/adapters/workspace/engineering-input.ts';
-import { projectSemanticMutationRequestRecordView } from '../../src/application/semantic-mutation-query.ts';
+import { projectSemanticMutationRequestRecordView } from '../../src/application/semantic-mutation/query.ts';
 import { CI_ARTIFACT_FILES } from '../../src/assurance/verification/ci-artifacts/contract/manifest.ts';
 import type { VerificationReport } from '../../src/assurance/verification/contract/types.ts';
 import {
@@ -49,7 +49,7 @@ import {
   recoveryRequiredResult,
   rejectedResult,
   rolledBackResult
-} from '../helpers/semantic-mutation-recovery-fixture.ts';
+} from '../helpers/semantic-mutation/recovery-fixture.ts';
 import { prepareTicketSemanticRuntime } from '../testkit/semantic-runtime.ts';
 import { prepareVerifiedWorkspace, withTempWorkspace } from '../testkit/workspace.ts';
 
@@ -143,7 +143,7 @@ test('SM-3 terminal receipts reject a pre-existing reparse directory without wri
   await withTempWorkspace(async (workspaceRoot) => {
     const externalRoot = await mkdtemp(path.join(path.dirname(workspaceRoot), 'sm3-terminal-order-escape-'));
     try {
-      const journalRoot = path.join(workspaceRoot, '.sec', 'semantic-mutation', 'v1');
+      const journalRoot = path.join(workspaceRoot, '.sec', 'semantic-mutation', 'journal');
       await mkdir(journalRoot, { recursive: true });
       await symlink(
         externalRoot,
@@ -214,7 +214,7 @@ test('SM-3 terminal completion revalidates containment after the open fence', as
     try {
       const draft = recoveryDraft('request:completion-pre-open-junction');
       const transactionRoot = semanticMutationTransactionRoot(workspaceRoot, draft.requestIdentityDigest);
-      const journalRoot = path.join(workspaceRoot, '.sec', 'semantic-mutation', 'v1');
+      const journalRoot = path.join(workspaceRoot, '.sec', 'semantic-mutation', 'journal');
       const terminalOrder = path.join(journalRoot, 'terminal-order');
       const parkedTerminalOrder = path.join(journalRoot, 'terminal-order-after-fence');
       let swapped = false;
@@ -334,7 +334,7 @@ test('SM-3 terminal completion post-open directory swap preserves containment fa
     try {
       const draft = recoveryDraft('request:completion-post-open-junction');
       const transactionRoot = semanticMutationTransactionRoot(workspaceRoot, draft.requestIdentityDigest);
-      const journalRoot = path.join(workspaceRoot, '.sec', 'semantic-mutation', 'v1');
+      const journalRoot = path.join(workspaceRoot, '.sec', 'semantic-mutation', 'journal');
       const terminalOrder = path.join(journalRoot, 'terminal-order');
       const parkedTerminalOrder = path.join(journalRoot, 'terminal-order-before-junction');
       let swapped = false;

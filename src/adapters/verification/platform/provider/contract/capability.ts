@@ -14,8 +14,8 @@
  * SEC runtime can satisfy it through distinct capability identities.
  */
 
-import { createHash } from 'node:crypto';
 
+import { rawSha256Hex } from '../../../../../contracts/canonical.ts';
 import { CompilerError } from '../../../../../compiler/errors.ts';
 import { encodeVerificationActionData } from '../../action/contract/action.ts';
 
@@ -107,7 +107,7 @@ function instant(value: unknown, label: string): string {
 }
 
 function hash(value: unknown): `sha256:${string}` {
-  return `sha256:${createHash('sha256').update(encodeVerificationActionData(value)).digest('hex')}`;
+  return `sha256:${rawSha256Hex(encodeVerificationActionData(value))}`;
 }
 
 function expectedRole(capability: VerificationProviderCapabilityId): VerificationProviderRole {
@@ -210,7 +210,7 @@ export function createVerificationProviderAvailabilityEpoch(input: {
   return Object.freeze({ ...withoutDigest, epochDigest: hash(withoutDigest) });
 }
 
-export function assertProviderCapabilityUsableV1(input: {
+export function assertProviderCapabilityUsable(input: {
   epoch: VerificationProviderAvailabilityEpoch;
   capability: VerificationProviderCapabilityId;
   expectedRole: VerificationProviderRole;
@@ -289,7 +289,7 @@ export function assertProviderRetryGuard(input: {
  * reasonCode and a content digest may be retained; the raw bytes never become
  * engineering truth.
  */
-export function classifyProviderDiagnosticTextV1(
+export function classifyProviderDiagnosticText(
   raw: string
 ): { reasonCode: string; receiptRef: `sha256:${string}` } {
   const bounded = raw.length > 4096 ? raw.slice(0, 4096) : raw;

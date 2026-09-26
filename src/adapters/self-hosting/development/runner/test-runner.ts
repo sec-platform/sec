@@ -5,9 +5,9 @@ import path from 'node:path';
 import { deepFreeze, rawSha256, uniqueSorted } from '../../../../contracts/canonical.ts';
 import { uniqueSortedLines } from '../../../../contracts/collections.ts';
 import { posixPath } from '../../../../contracts/relative-path.ts';
-import { isSecRepositoryTestModulePath, normalizeSecRepositoryTestModulePath } from '../../../../contracts/repository-test-path.ts';
+import { isRepositoryTestModulePath, normalizeRepositoryTestModulePath } from '../../../../contracts/repository-test-path.ts';
 import { observeExecutionProgressPhase } from '../../../../execution/execution-progress.ts';
-import type { SecBoundSemanticOperation } from '../../../../execution/operation/semantic.ts';
+import type { BoundSemanticOperation } from '../../../../execution/operation/semantic.ts';
 import { settleResourcesAsync as settlePhysicalResourcesAsync } from '../../../../execution/resource-settlement.ts';
 import { createAuthorityGitReadSession, type GitReadSession, type GitReadSessionCommand } from '../../../providers/git-read/runtime/session.ts';
 import {
@@ -16,17 +16,17 @@ import {
 } from '../../../repository/source-program-model/compilation-operation.ts';
 import type { IssuedTestImpactProjection } from '../../../repository/source-program-model/test-impact-projection.ts';
 import {
-  acquireWorkingTreeWorkspaceSourceSnapshot,
-  assertWorkspaceTypeScriptProjectGenerationEvidence,
-  type WorkspaceTypeScriptProjectGenerationEvidence
+  acquireWorkingTreeSnapshot,
+  assertTypeScriptProjectGenerationEvidence,
+  type TypeScriptProjectGenerationEvidence
 } from '../../../repository/source-program-model/workspace-source-snapshot.ts';
 import type { ProcessResourceSession } from '../../../runtime-state/physical/runtime/process-resource-session.ts';
-import { secRuntimeStateEnvironment } from '../../../runtime-state/workspace-state/layout.ts';
+import { runtimeStateEnvironment } from '../../../runtime-state/workspace-state/layout.ts';
 import type { RetainedCompilerDependencyReadGeneration } from '../../../toolchain/dependencies/runtime.ts';
 import {
   classifyAffectedSelectionTrustBoundary,
-  CodexDevelopmentAffectedInventoryInputs,
-  CodexDevelopmentBuildAffectedTestInventory,
+  AffectedInventoryInputs,
+  BuildAffectedTestInventory,
   defaultAffectedSelectionProjectionContext,
   isAffectedSelectionFailClosed,
   projectAffectedSelectionToVerificationGateResult
@@ -38,14 +38,14 @@ import {
   readIssuedAffectedTestImpactBinding,
   type AffectedGitSelectionObservation
 } from '../../../verification/platform/test-impact/runtime/affected-source.ts';
-import { createRepositoryTestImpactSourceProvider, formatSlowImpactNotice, type CodexDevelopmentTestImpactSourceProvider } from '../../../verification/platform/test-impact/runtime/impact.ts';
-import { CodexDevelopmentCreateTestImpactTransitionObservation, gitChangedFileDiffArgs, gitIndexChangedFileDiffArgs, gitPathBlobBatchArgs, gitUntrackedFileArgs, gitWorkingTreeStatusArgs, gitWorktreeChangedFileDiffArgs, parseGitChangedRecordsOutput, parseGitPathBlobBatchOutput, parseGitUntrackedFileOutput, type CodexDevelopmentTestImpactTransitionObservation } from '../../../verification/platform/test-impact/runtime/transition.ts';
+import { createRepositoryTestImpactSourceProvider, formatSlowImpactNotice, type TestImpactSourceProvider } from '../../../verification/platform/test-impact/runtime/impact.ts';
+import { CreateTestImpactTransitionObservation, gitChangedFileDiffArgs, gitIndexChangedFileDiffArgs, gitPathBlobBatchArgs, gitUntrackedFileArgs, gitWorkingTreeStatusArgs, gitWorktreeChangedFileDiffArgs, parseGitChangedRecordsOutput, parseGitPathBlobBatchOutput, parseGitUntrackedFileOutput, type TestImpactTransitionObservation } from '../../../verification/platform/test-impact/runtime/transition.ts';
 import { selectSlowTestRiskClosure } from '../../../verification/platform/test-impact/slow-risk-selection.ts';
 import { compilerRoot } from "../../../workspace-context.ts";
 import { currentActiveDocumentationPaths } from '../../control/documentation/active.ts';
 import {
-  compileSecOperationDemandGraph,
-  type SecOperationKind
+  compileOperationDemandGraph,
+  type OperationKind
 } from '../../control/operation/demand.ts';
 import { GIT_READ_OPERATION_BUDGET } from '../tooling/git/git-read.ts';
 import {
@@ -168,7 +168,7 @@ function testFileMatchesSelector(file: string, selector: string): boolean {
 }
 
 function isTestFileSelector(selector: string): boolean {
-  return isSecRepositoryTestModulePath(selector);
+  return isRepositoryTestModulePath(selector);
 }
 
 function selectMatchingTestFiles(availableFiles: string[], selectors: string[], label: string): string[] {
@@ -272,7 +272,7 @@ function affectedTestsBaseRef(): string | undefined {
 
 type GitChangedFilesResult = Readonly<{
   files: string[];
-  transitionObservation?: CodexDevelopmentTestImpactTransitionObservation;
+  transitionObservation?: TestImpactTransitionObservation;
   gitObservation: GitSelectionGitObservation;
 }>;
 
@@ -362,7 +362,7 @@ async function observeGitSelectionState(
 }
 
 type AffectedGitRevalidationLedger = {
-  readonly operation: SecBoundSemanticOperation;
+  readonly operation: BoundSemanticOperation;
   readonly processSession?: ProcessResourceSession;
   /** Absolute parent wall deadline shared by every revalidation session. */
   readonly deadlineAt: number;
@@ -618,7 +618,7 @@ async function gitChangedFiles(
       return {
         files,
         gitObservation: initialObservation,
-        transitionObservation: CodexDevelopmentCreateTestImpactTransitionObservation({
+        transitionObservation: CreateTestImpactTransitionObservation({
           baseSha,
           headSha: initialObservation.headSha,
           records: committedRecords,
@@ -631,7 +631,7 @@ async function gitChangedFiles(
       return {
         files,
         gitObservation: initialObservation,
-        transitionObservation: CodexDevelopmentCreateTestImpactTransitionObservation({
+        transitionObservation: CreateTestImpactTransitionObservation({
           baseSha,
           headSha: initialObservation.headSha,
           records: committedRecords,
@@ -691,7 +691,7 @@ async function reobserveTestBudgetExecutionSource(input: Readonly<{
       console.error('Test budget reobservation rejected a changed Git selection identity.');
       return false;
     }
-    const snapshot = await acquireWorkingTreeWorkspaceSourceSnapshot({ session });
+    const snapshot = await acquireWorkingTreeSnapshot({ session });
     const inventory = issueTestInventoryProjection({ snapshot });
     const currentBudget = compileTestBudgetProjection(inventory);
     result = inventory.inventoryDigest === input.expectedTestInventory.inventoryDigest
@@ -733,7 +733,7 @@ async function issueCurrentTestBudgetExecutionSource(): Promise<TestBudgetExecut
   let primaryPresent = false;
   let primary: unknown;
   try {
-    const snapshot = await acquireWorkingTreeWorkspaceSourceSnapshot({ session });
+    const snapshot = await acquireWorkingTreeSnapshot({ session });
     const testInventory = issueTestInventoryProjection({ snapshot });
     const budgetProjection = compileTestBudgetProjection(testInventory);
     outcome = Object.freeze({
@@ -783,7 +783,7 @@ async function issueAffectedWorkingTreeTestImpactProjection(
       status: 'ready';
       projection: IssuedTestImpactProjection;
       testInventory: IssuedTestInventoryProjection;
-      projectGenerationEvidence: WorkspaceTypeScriptProjectGenerationEvidence;
+      projectGenerationEvidence: TypeScriptProjectGenerationEvidence;
     }
   | {
       status: 'unavailable';
@@ -797,7 +797,7 @@ async function issueAffectedWorkingTreeTestImpactProjection(
     session
   });
   const { projection, projectGenerationEvidence } = observation;
-  assertWorkspaceTypeScriptProjectGenerationEvidence(projectGenerationEvidence);
+  assertTypeScriptProjectGenerationEvidence(projectGenerationEvidence);
   if (projectGenerationEvidence.projectInput.workspaceSnapshotIdentityDigest
       !== projection.workspaceSnapshotIdentityDigest
       || projectGenerationEvidence.projectInput.snapshotDigest !== projection.snapshotDigest
@@ -823,11 +823,11 @@ type OperationDependencyContext = {
 };
 
 async function withOperationDependencies<T>(
-  operation: Exclude<SecOperationKind, 'dependency-setup' | 'work-selection-observe'>,
+  operation: Exclude<OperationKind, 'dependency-setup' | 'work-selection-observe'>,
   callback: (context: OperationDependencyContext) => Promise<T>,
   prepared?: OperationDependencyBootstrapResult
 ): Promise<T> {
-  const demandGraph = compileSecOperationDemandGraph({
+  const demandGraph = compileOperationDemandGraph({
     operation,
     terminalWorkIds: []
   });
@@ -934,7 +934,7 @@ function receiptArgv(argv: readonly string[]): { argv: string[]; truncated: bool
 }
 
 function invocationTestFiles(invocation: FastTestInvocation): string[] {
-  return invocation.args.filter(isTestFileSelector).map(normalizeSecRepositoryTestModulePath);
+  return invocation.args.filter(isTestFileSelector).map(normalizeRepositoryTestModulePath);
 }
 
 function emitFastTestFailureReceipt(
@@ -1124,7 +1124,7 @@ async function runWithParentOwnedProcessTemp<TResult>(
 function affectedTestSelection(
   files: string[],
   budgetProjection: TestBudgetProjection,
-  provider: CodexDevelopmentTestImpactSourceProvider
+  provider: TestImpactSourceProvider
 ): AffectedTestSelection {
   const currentFastFiles = [...getFastTestFilesSync(budgetProjection)];
   assertFastTestProcessPolicyInventory(currentFastFiles);
@@ -1132,8 +1132,8 @@ function affectedTestSelection(
     ...currentFastFiles,
     ...getSlowTestFilesSync(budgetProjection)
   ]);
-  const inventory = CodexDevelopmentBuildAffectedTestInventory(
-    CodexDevelopmentAffectedInventoryInputs(files, (file) => currentTestFiles.has(file)),
+  const inventory = BuildAffectedTestInventory(
+    AffectedInventoryInputs(files, (file) => currentTestFiles.has(file)),
     provider
   );
   // A changed fast-test source can introduce or remove a process-global
@@ -1143,7 +1143,7 @@ function affectedTestSelection(
   const processPolicySentinels = files.some(isFastTestFile)
     ? [FAST_TEST_PROCESS_POLICY_TEST_FILE]
     : [];
-  const architecturePolicySentinels = files.some(isSecRepositoryTestModulePath)
+  const architecturePolicySentinels = files.some(isRepositoryTestModulePath)
     ? [TEST_ARCHITECTURE_POLICY_TEST_FILE]
     : [];
   const policySentinels = unionTestFiles(processPolicySentinels, architecturePolicySentinels);
@@ -1176,7 +1176,7 @@ export interface ResolvedAffectedTestExecution {
    * that produced `plan`. It is deliberately absent from every JSON plan and
    * terminal: another process must acquire a new physical observation.
    */
-  readonly projectGenerationEvidence: WorkspaceTypeScriptProjectGenerationEvidence | null;
+  readonly projectGenerationEvidence: TypeScriptProjectGenerationEvidence | null;
   /** Re-observes the same Git/source/provider identity before any effect. */
   readonly assertCurrent: () => Promise<boolean>;
   readonly run: (preparedDependencies?: OperationDependencyBootstrapResult) => Promise<number>;
@@ -1260,8 +1260,8 @@ function framedChangedPathDigest(files: readonly string[]): `sha256:${string}` {
 function affectedTestPlan(
   files: string[],
   broadFallbackEnabled: boolean,
-  provider: CodexDevelopmentTestImpactSourceProvider,
-  transition?: CodexDevelopmentTestImpactTransitionObservation,
+  provider: TestImpactSourceProvider,
+  transition?: TestImpactTransitionObservation,
   gitObservation?: GitSelectionGitObservation,
   observationFailure: 'git' | 'source' | null = null
 ): AffectedTestPlan {
@@ -1459,7 +1459,7 @@ async function runAffectedTestPlan(
 
 export async function resolveAffectedTestExecution(options: Readonly<{
   dependencyGeneration?: RetainedCompilerDependencyReadGeneration;
-  operation: SecBoundSemanticOperation;
+  operation: BoundSemanticOperation;
   /** Borrowed process ledger owned by the surrounding repository fence. */
   processSession?: ProcessResourceSession;
   issueTestImpactProjection: AffectedTestImpactProjectionIssuer;
@@ -1717,12 +1717,12 @@ export async function runAffectedTests(
   issueTestImpactProjection: AffectedTestImpactProjectionIssuer,
   args: string[] = [],
   options: Readonly<{
-    operation?: SecBoundSemanticOperation;
+    operation?: BoundSemanticOperation;
     processSession?: ProcessResourceSession;
   }> = {}
 ): Promise<number> {
   if (args.includes('--plan') && !(args.length === 1 && args[0] === '--plan')) {
-    console.error('test:affected --plan cannot be combined with execution arguments.');
+    console.error('test --affected --plan cannot be combined with execution arguments.');
     return 1;
   }
   if (args.length > 0 && !(args.length === 1 && args[0] === '--plan')) {
@@ -1853,7 +1853,7 @@ async function runFastTestsForInventory(
           invocationRuntime = await createTestInvocationRuntimeRoots({
             repositoryRoot: compilerRoot,
             hostTempRoot: tmpdir(),
-            environment: { ...secRuntimeStateEnvironment(), ...workspaceEnv },
+            environment: { ...runtimeStateEnvironment(), ...workspaceEnv },
             fastTestBatchAdmission: admission
           });
         }
@@ -2034,7 +2034,7 @@ export async function prepareSlowTestSuiteExecutions(
     files.push(file);
     filesBySuite.set(selectedOwner[0]!, files);
   }
-  const dependencies = await ensureOperationDependencies(compileSecOperationDemandGraph({
+  const dependencies = await ensureOperationDependencies(compileOperationDemandGraph({
     operation: 'test-slow',
     terminalWorkIds: []
   }));

@@ -7,10 +7,10 @@ import {
   isTestImpactSourceFile,
   resolveTestImpactSelectionTrustBoundary,
   selectTestsForSources,
-  type CodexDevelopmentTestImpactSourceProvider
+  type TestImpactSourceProvider
 } from './runtime/impact.ts';
 
-export type CodexDevelopmentAffectedTestInventory = {
+export type AffectedTestInventory = {
   changedFastTests: string[];
   changedSlowTests: string[];
   affectedFastTests: string[];
@@ -35,7 +35,7 @@ export type CodexDevelopmentAffectedTestInventory = {
   unresolvedModuleFiles: string[];
 };
 
-export function CodexDevelopmentAffectedInventoryInputs(
+export function AffectedInventoryInputs(
   changedPaths: readonly string[],
   currentTestPathIsRunnable: (file: string) => boolean
 ): string[] {
@@ -44,10 +44,10 @@ export function CodexDevelopmentAffectedInventoryInputs(
   )));
 }
 
-export function CodexDevelopmentBuildAffectedTestInventory(
+export function BuildAffectedTestInventory(
   files: readonly string[],
-  provider: CodexDevelopmentTestImpactSourceProvider
-): CodexDevelopmentAffectedTestInventory {
+  provider: TestImpactSourceProvider
+): AffectedTestInventory {
   const changedFastTests = uniqueSorted(files.filter(isFastTestFile));
   const changedSlowTests = uniqueSorted(files.filter(isSlowTestFile));
   const impactSourceFiles = files.filter((file) => isTestImpactSourceFile(file, provider));
@@ -88,7 +88,7 @@ export function CodexDevelopmentBuildAffectedTestInventory(
 // ---------------------------------------------------------------------------
 //
 // Classifies the result of an affected-test selection into a trust boundary
-// and projects it to the unified VerificationGateResultV1 model (PR #204).
+// and projects it to the unified VerificationGateResult model (PR #204).
 //
 // The core problem this solves: `test-runner.ts` used to return exit 0 when
 // `sourceChanged=true && selectedFastTests=[]` even when the empty closure was
@@ -209,7 +209,7 @@ export function classifyAffectedSelectionTrustBoundary(
 }
 
 /**
- * Context for projecting a trust boundary to a VerificationGateResultV1.
+ * Context for projecting a trust boundary to a VerificationGateResult.
  * The caller is responsible for providing identity fields (gate/owner/subject/digest).
  */
 export interface AffectedSelectionProjectionContext {
@@ -228,8 +228,8 @@ const AFFECTED_SELECTION_OWNER = 'affected-selection-worker' as const;
 const AFFECTED_SELECTION_GATE_ID = 'test:affected' as const;
 
 /**
- * Default context for the standard `bun run test:affected` / `--plan` path.
- * Callers with a different gate identity (e.g. `check:affected` umbrella)
+ * Default context for the standard `bun run test -- --affected` / `--plan` path.
+ * Callers with a different gate identity (e.g. `check --affected` umbrella)
  * can override individual fields.
  */
 export function defaultAffectedSelectionProjectionContext(
@@ -249,7 +249,7 @@ export function defaultAffectedSelectionProjectionContext(
 }
 
 /**
- * Project an affected-selection trust boundary to a VerificationGateResultV1.
+ * Project an affected-selection trust boundary to a VerificationGateResult.
  *
  * This projection is for the PLAN phase (before test execution). Execution
  * outcome (passed/failed) is NOT represented here — `applicable-with-tests`
@@ -257,7 +257,7 @@ export function defaultAffectedSelectionProjectionContext(
  * has run yet. After execution, the runner constructs a fresh result with
  * the actual exit code; that path is outside this contract.
  *
- * Cross-field invariants enforced by CodexDevelopmentBuildVerificationGateResultV1:
+ * Cross-field invariants enforced by BuildVerificationGateResult:
  * - `applicability: unresolved` requires `status: invalidated`.
  * - `applicability: not-applicable` requires `status: not-run`.
  * - `status: invalidated` requires an INVALIDATED reasonCode (selection-unresolved).
@@ -266,9 +266,9 @@ export function defaultAffectedSelectionProjectionContext(
  *
  * Implementation note: this function constructs the result object directly
  * (with a local schema constant) rather than calling
- * CodexDevelopmentBuildVerificationGateResultV1, to avoid pulling
+ * BuildVerificationGateResult, to avoid pulling
  * verification-result-contract.ts into the TCB runtime import closure.
- * The result is validated by CodexDevelopmentAssertVerificationGateResultV1
+ * The result is validated by AssertVerificationGateResult
  * in tests/contract/affected-selection-trust-boundary.test.ts.
  */
 export function projectAffectedSelectionToVerificationGateResult(

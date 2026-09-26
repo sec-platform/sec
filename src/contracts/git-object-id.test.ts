@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { isDigest, parseDigest, type Digest } from './digest.ts';
-import { isObjectFormat, isObjectId, parseObjectId, type ObjectId } from './git-object-id.ts';
+import { gitBlobObjectId, isObjectFormat, isObjectId, parseObjectId, type ObjectId } from './git-object-id.ts';
 
 test('Git object names require their repository format, not an application algorithm', () => {
   for (const [format, width] of [['sha1', 40], ['sha256', 64]] as const) {
@@ -41,4 +41,13 @@ test('digest prefixes and Git names never silently convert', () => {
 test('existing Git null/CAS spelling is preserved without asserting an object exists', () => {
   assert.equal(isObjectId('0'.repeat(40), 'sha1'), true);
   assert.equal(isObjectId('0'.repeat(64), 'sha256'), true);
+});
+
+
+test('Git blob identity uses the repository object format and exact Git framing', () => {
+  const empty = new Uint8Array();
+  assert.equal(gitBlobObjectId('sha1', empty), 'e69de29bb2d1d6434b8b29ae775ad8c2e48c5391');
+  assert.equal(gitBlobObjectId('sha256', empty), '473a0f4c3be8a93681a267e3b1e9a7dcda1185436fe141f7749120a303721813');
+  assert.notEqual(gitBlobObjectId('sha1', new TextEncoder().encode('a')), gitBlobObjectId('sha1', empty));
+  assert.throws(() => gitBlobObjectId('blake3' as never, empty), TypeError);
 });

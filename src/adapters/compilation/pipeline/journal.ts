@@ -1,5 +1,6 @@
-import { createHash, randomUUID } from 'node:crypto';
+import { randomUUID } from 'node:crypto';
 import path from 'node:path';
+import { rawSha256Hex } from '../../../contracts/canonical.ts';
 import type { PipelineSource } from '../../../compiler/pipeline/source.ts';
 
 import type { PassId } from '../../../compiler/contract/pass-status.ts';
@@ -95,7 +96,7 @@ type ObservedPipelineJournalFile = Readonly<{
 }>;
 
 function rawBytesDigest(bytes: Uint8Array): `sha256:${string}` {
-  return `sha256:${createHash('sha256').update(bytes).digest('hex')}`;
+  return `sha256:${rawSha256Hex(bytes)}`;
 }
 
 function physicalIdentity(value: Readonly<{ device: string; inode: string }>): Readonly<{

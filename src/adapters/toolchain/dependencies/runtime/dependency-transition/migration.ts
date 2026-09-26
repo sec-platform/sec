@@ -6,7 +6,7 @@ import {
 } from '../../../../../contracts/canonical.ts';
 import { readonlyMapSnapshot } from '../../../../../contracts/collections.ts';
 import {
-  SecError
+  FailureError
 } from '../../../../../contracts/failure.ts';
 import { formatJsonFile } from "../../../../../contracts/json-text.ts";
 import {
@@ -179,12 +179,12 @@ function parseLegacyDependencyTransitionRecord(
   try {
     value = JSON.parse(Buffer.from(bytes).toString('utf8')) as unknown;
   } catch (error) {
-    throw new SecError('RUNTIME-DEPS-002', 'Legacy dependency transition journal record is not JSON', {
+    throw new FailureError('RUNTIME-DEPS-002', 'Legacy dependency transition journal record is not JSON', {
       cause: error instanceof Error ? error.message : String(error)
     });
   }
   if (!hasExactObjectKeys(value, DEPENDENCY_TRANSITION_LEGACY_RECORD_KEYS)) {
-    throw new SecError('RUNTIME-DEPS-002', 'Legacy dependency transition journal record has noncanonical keys');
+    throw new FailureError('RUNTIME-DEPS-002', 'Legacy dependency transition journal record has noncanonical keys');
   }
   const record = value as unknown as LegacyDependencyTransitionJournal;
   if (record.schema !== DEPENDENCY_TRANSITION_LEGACY_SCHEMA || !isSha256Digest(record.recordDigest) ||
@@ -205,7 +205,7 @@ function parseLegacyDependencyTransitionRecord(
       (record.failure !== null && (!hasExactObjectKeys(record.failure, ['code', 'message']) ||
         typeof record.failure.code !== 'string' || record.failure.code.length === 0 ||
         typeof record.failure.message !== 'string' || record.failure.message.length === 0))) {
-    throw new SecError('RUNTIME-DEPS-002', 'Legacy dependency transition journal record fields are invalid');
+    throw new FailureError('RUNTIME-DEPS-002', 'Legacy dependency transition journal record fields are invalid');
   }
   if (record.destination.path !== record.preimage.path ||
       (record.backup !== null && path.dirname(record.backup.path) !==
@@ -218,17 +218,17 @@ function parseLegacyDependencyTransitionRecord(
         path.basename(record.sourceGeneration.sourcePath).toLocaleLowerCase('en-US') !== 'node_modules' ||
         path.resolve(record.destination.path) === path.resolve(record.sourceGeneration.sourcePath)
       ))) {
-    throw new SecError('RUNTIME-DEPS-002', 'Legacy dependency transition journal topology is noncanonical');
+    throw new FailureError('RUNTIME-DEPS-002', 'Legacy dependency transition journal topology is noncanonical');
   }
   if (expectedName !== undefined && expectedName !== transitionRecordName(record.recordDigest)) {
-    throw new SecError('RUNTIME-DEPS-002', 'Legacy dependency transition journal filename does not match its digest');
+    throw new FailureError('RUNTIME-DEPS-002', 'Legacy dependency transition journal filename does not match its digest');
   }
   const { recordDigest: _recordDigest, ...unsigned } = record;
   if (generatedStateDigest(unsigned) !== record.recordDigest) {
-    throw new SecError('RUNTIME-DEPS-002', 'Legacy dependency transition journal record digest is invalid');
+    throw new FailureError('RUNTIME-DEPS-002', 'Legacy dependency transition journal record digest is invalid');
   }
   if (formatJsonFile(record) !== Buffer.from(bytes).toString('utf8')) {
-    throw new SecError('RUNTIME-DEPS-002', 'Legacy dependency transition journal record bytes are not canonical');
+    throw new FailureError('RUNTIME-DEPS-002', 'Legacy dependency transition journal record bytes are not canonical');
   }
   return deepFreeze(record);
 }
@@ -280,12 +280,12 @@ function parseDependencyTransitionMigrationIntent(
   try {
     value = JSON.parse(Buffer.from(bytes).toString('utf8')) as unknown;
   } catch (error) {
-    throw new SecError('RUNTIME-DEPS-004', 'Dependency transition migration intent is not JSON', {
+    throw new FailureError('RUNTIME-DEPS-004', 'Dependency transition migration intent is not JSON', {
       cause: error instanceof Error ? error.message : String(error)
     });
   }
   if (!hasExactObjectKeys(value, DEPENDENCY_TRANSITION_MIGRATION_KEYS)) {
-    throw new SecError('RUNTIME-DEPS-004', 'Dependency transition migration intent has noncanonical keys');
+    throw new FailureError('RUNTIME-DEPS-004', 'Dependency transition migration intent has noncanonical keys');
   }
   const intent = value as unknown as DependencyTransitionMigrationIntent;
   if (intent.schema !== DEPENDENCY_TRANSITION_MIGRATION_SCHEMA ||
@@ -313,7 +313,7 @@ function parseDependencyTransitionMigrationIntent(
       (intent.phase === 'prepared' && intent.previousIntentDigest !== null) ||
       (intent.phase === 'complete' && intent.previousIntentDigest === null) ||
       dependencyTransitionMigrationIntentStableDigest(intent) !== intent.intentDigest) {
-    throw new SecError('RUNTIME-DEPS-004', 'Dependency transition migration intent fields are invalid');
+    throw new FailureError('RUNTIME-DEPS-004', 'Dependency transition migration intent fields are invalid');
   }
   const legacyPaths = dependencyTransitionLegacyNamespacePaths(intent.ownerRoot);
   const targetPaths = dependencyTransitionNamespacePaths(intent.ownerRoot);
@@ -327,10 +327,10 @@ function parseDependencyTransitionMigrationIntent(
         intent.intentDigest,
         intent.phase
       )) {
-    throw new SecError('RUNTIME-DEPS-004', 'Dependency transition migration intent topology is noncanonical');
+    throw new FailureError('RUNTIME-DEPS-004', 'Dependency transition migration intent topology is noncanonical');
   }
   if (formatJsonFile(canonicalJson(intent)) !== Buffer.from(bytes).toString('utf8')) {
-    throw new SecError('RUNTIME-DEPS-004', 'Dependency transition migration intent bytes are not canonical');
+    throw new FailureError('RUNTIME-DEPS-004', 'Dependency transition migration intent bytes are not canonical');
   }
   return deepFreeze(intent);
 }
@@ -380,11 +380,11 @@ export function inspectLegacyDependencyTransitionNamespace(
     'Legacy dependency transition records root'
   );
   if (recordsRoot === null) {
-    throw new SecError('RUNTIME-DEPS-004', 'Legacy dependency transition journal is present without its records root');
+    throw new FailureError('RUNTIME-DEPS-004', 'Legacy dependency transition journal is present without its records root');
   }
   if (paths.backupRoot !== backupRoot.path || paths.journalRoot !== journalRoot.path ||
       paths.recordsRoot !== recordsRoot.path) {
-    throw new SecError('RUNTIME-DEPS-002', 'Legacy dependency transition namespace path normalization changed');
+    throw new FailureError('RUNTIME-DEPS-002', 'Legacy dependency transition namespace path normalization changed');
   }
   return Object.freeze({
     ownerRoot: owner,
@@ -428,18 +428,18 @@ function readLegacyDependencyTransitionRecordSet(
   for (const entry of census) {
     assertRuntimeDependencyOperationActive(operation, `${label} read deadline`);
     if (entry.kind !== 'file' || !/^record-[0-9a-f]{64}\.json$/u.test(entry.relativePath)) {
-      throw new SecError('RUNTIME-DEPS-002', `${label} contains an unknown physical entry`);
+      throw new FailureError('RUNTIME-DEPS-002', `${label} contains an unknown physical entry`);
     }
     if (entry.bytes === null) {
-      throw new SecError('RUNTIME-DEPS-002', `${label} record disappeared during census`);
+      throw new FailureError('RUNTIME-DEPS-002', `${label} record disappeared during census`);
     }
     const record = parseLegacyDependencyTransitionRecord(entry.bytes, entry.relativePath);
     if (record.ownerRoot !== ownerRoot ||
         !sameGeneratedStateIdentity(record.ownerRootPhysical, ownerRootPhysical)) {
-      throw new SecError('RUNTIME-DEPS-002', `${label} record belongs to a foreign owner root or physical epoch`);
+      throw new FailureError('RUNTIME-DEPS-002', `${label} record belongs to a foreign owner root or physical epoch`);
     }
     if (records.has(record.recordDigest)) {
-      throw new SecError('RUNTIME-DEPS-002', `${label} record digest is duplicated`);
+      throw new FailureError('RUNTIME-DEPS-002', `${label} record digest is duplicated`);
     }
     records.set(record.recordDigest, record);
   }
@@ -448,10 +448,10 @@ function readLegacyDependencyTransitionRecordSet(
     generatedStatePhysicalIdentity(before),
     generatedStatePhysicalIdentity(after)
   )) {
-    throw new SecError('RUNTIME-DEPS-002', `${label} identity changed during census`);
+    throw new FailureError('RUNTIME-DEPS-002', `${label} identity changed during census`);
   }
   if (records.size === 0) {
-    throw new SecError('RUNTIME-DEPS-004', `${label} has no legacy records to migrate`);
+    throw new FailureError('RUNTIME-DEPS-004', `${label} has no legacy records to migrate`);
   }
 
   const grouped = new Map<`sha256:${string}`, LegacyDependencyTransitionJournal[]>();
@@ -464,7 +464,7 @@ function readLegacyDependencyTransitionRecordSet(
     if (record.previousRecordDigest !== null) {
       const previousChild = children.get(record.previousRecordDigest);
       if (previousChild !== undefined && previousChild !== record.recordDigest) {
-        throw new SecError('RUNTIME-DEPS-002', `${label} contains a forked legacy predecessor`);
+        throw new FailureError('RUNTIME-DEPS-002', `${label} contains a forked legacy predecessor`);
       }
       children.set(record.previousRecordDigest, record.recordDigest);
     }
@@ -478,11 +478,11 @@ function readLegacyDependencyTransitionRecordSet(
       assertRuntimeDependencyOperationActive(operation, `${label} chain validation`);
       if (previous === undefined) {
         if (record.sequence !== 1 || record.previousRecordDigest !== null) {
-          throw new SecError('RUNTIME-DEPS-002', `${label} legacy chain has an invalid root`);
+          throw new FailureError('RUNTIME-DEPS-002', `${label} legacy chain has an invalid root`);
         }
       } else if (record.sequence !== previous.sequence + 1 ||
           record.previousRecordDigest !== previous.recordDigest) {
-        throw new SecError('RUNTIME-DEPS-002', `${label} legacy chain has a missing or forked predecessor`);
+        throw new FailureError('RUNTIME-DEPS-002', `${label} legacy chain has a missing or forked predecessor`);
       }
       previous = record;
     }
@@ -490,7 +490,7 @@ function readLegacyDependencyTransitionRecordSet(
   });
   chains.sort((left, right) => compareCodeUnits(left[0]!.operationKey, right[0]!.operationKey));
   if (chains.length === 0) {
-    throw new SecError('RUNTIME-DEPS-004', `${label} has no complete legacy chain`);
+    throw new FailureError('RUNTIME-DEPS-004', `${label} has no complete legacy chain`);
   }
   assertRuntimeDependencyOperationActive(operation, `${label} graph-validation readback`);
   return Object.freeze({
@@ -514,7 +514,7 @@ async function buildMigratedDependencyTransitionRecords(
   for (const chain of source.chains) {
     const terminal = chain.at(-1);
     if (terminal === undefined || (terminal.phase !== 'complete' && terminal.phase !== 'rolled-back')) {
-      throw new SecError(
+      throw new FailureError(
         'RUNTIME-DEPS-004',
         'Legacy dependency transition migration requires every chain to be terminal',
         {
@@ -525,7 +525,7 @@ async function buildMigratedDependencyTransitionRecords(
     }
   }
   if (source.chains.length === 0) {
-    throw new SecError('RUNTIME-DEPS-004', 'Legacy dependency transition migration has no records');
+    throw new FailureError('RUNTIME-DEPS-004', 'Legacy dependency transition migration has no records');
   }
   // Legacy source-generation receipts predate the bounded source-tree digest.
   // Translating them into v2 operation records would manufacture proof that
@@ -561,7 +561,7 @@ export async function readDependencyTransitionMigrationIntents(
         /^migration-[0-9a-f]{64}-(?:prepared|complete)\.json$/u.test(name)) {
       continue;
     }
-    throw new SecError('RUNTIME-DEPS-004', 'Dependency transition migration namespace contains unknown residue', { name });
+    throw new FailureError('RUNTIME-DEPS-004', 'Dependency transition migration namespace contains unknown residue', { name });
   }
   let prepared: DependencyTransitionMigrationIntent | null = null;
   let complete: DependencyTransitionMigrationIntent | null = null;
@@ -570,7 +570,7 @@ export async function readDependencyTransitionMigrationIntents(
     if (!name.startsWith('migration-')) continue;
     const entry = inspectNoFollowOrdinaryFileEntry(namespace.journalRoot, name);
     if (entry === null || entry.bytes === null) {
-      throw new SecError('RUNTIME-DEPS-004', 'Dependency transition migration intent disappeared during census', { name });
+      throw new FailureError('RUNTIME-DEPS-004', 'Dependency transition migration intent disappeared during census', { name });
     }
     const intent = parseDependencyTransitionMigrationIntent(entry.bytes, name);
     if (path.resolve(intent.ownerRoot) !== namespace.ownerRoot.path ||
@@ -588,22 +588,22 @@ export async function readDependencyTransitionMigrationIntents(
           intent.targetRecordsRootPhysical,
           generatedStatePhysicalIdentity(namespace.recordsRoot)
         )) {
-      throw new SecError('RUNTIME-DEPS-004', 'Dependency transition migration intent is foreign to its target namespace', { name });
+      throw new FailureError('RUNTIME-DEPS-004', 'Dependency transition migration intent is foreign to its target namespace', { name });
     }
     if (intent.phase === 'prepared') {
       if (prepared !== null) {
-        throw new SecError('RUNTIME-DEPS-004', 'Dependency transition migration has duplicate prepared intents');
+        throw new FailureError('RUNTIME-DEPS-004', 'Dependency transition migration has duplicate prepared intents');
       }
       prepared = intent;
     } else {
       if (complete !== null) {
-        throw new SecError('RUNTIME-DEPS-004', 'Dependency transition migration has duplicate complete intents');
+        throw new FailureError('RUNTIME-DEPS-004', 'Dependency transition migration has duplicate complete intents');
       }
       complete = intent;
     }
   }
   if (complete !== null && (prepared === null || complete.previousIntentDigest !== prepared.intentDigest)) {
-    throw new SecError('RUNTIME-DEPS-004', 'Dependency transition migration complete intent has no prepared predecessor');
+    throw new FailureError('RUNTIME-DEPS-004', 'Dependency transition migration complete intent has no prepared predecessor');
   }
   runtimeDependencyOperationRemainingMs(options, 'Dependency transition migration intents readback');
   return Object.freeze({ prepared, complete });
@@ -631,7 +631,7 @@ function assertDependencyTransitionMigrationSourceBinding(
       ) ||
       intent.sourceLedgerDigest !== sourceLedger.ledgerDigest ||
       intent.sourceRecordCount !== sourceLedger.records.size) {
-    throw new SecError('RUNTIME-DEPS-004', 'Dependency transition migration source changed and is preserved');
+    throw new FailureError('RUNTIME-DEPS-004', 'Dependency transition migration source changed and is preserved');
   }
 }
 
@@ -662,7 +662,7 @@ export function assertDependencyTransitionMigrationSourceNamespaceBinding(
         intent.sourceRecordsRootPhysical,
         generatedStatePhysicalIdentity(source.recordsRoot)
       )) {
-    throw new SecError('RUNTIME-DEPS-004', 'Dependency transition migration source namespace changed and is preserved');
+    throw new FailureError('RUNTIME-DEPS-004', 'Dependency transition migration source namespace changed and is preserved');
   }
 }
 
@@ -680,7 +680,7 @@ export function assertDependencyTransitionMigrationTargetBinding(
         intent.targetRecordsRootPhysical,
         generatedStatePhysicalIdentity(target.recordsRoot)
       )) {
-    throw new SecError('RUNTIME-DEPS-004', 'Dependency transition migration target changed and is preserved');
+    throw new FailureError('RUNTIME-DEPS-004', 'Dependency transition migration target changed and is preserved');
   }
 }
 
@@ -715,7 +715,7 @@ async function writeDependencyTransitionMigrationIntent(
   );
   const readback = inspectNoFollowOrdinaryFileEntry(namespace.journalRoot, name);
   if (readback === null || readback.bytes === null || !Buffer.from(readback.bytes).equals(bytes)) {
-    throw new SecError('RUNTIME-DEPS-004', 'Dependency transition migration intent disappeared after publication', { name });
+    throw new FailureError('RUNTIME-DEPS-004', 'Dependency transition migration intent disappeared after publication', { name });
   }
   parseDependencyTransitionMigrationIntent(readback.bytes, name);
 }
@@ -747,7 +747,7 @@ async function assertLegacyDependencyTransitionUnchanged(
         generatedStatePhysicalIdentity(currentNamespace.recordsRoot),
         expected.recordsRootPhysical
       )) {
-    throw new SecError('RUNTIME-DEPS-004', `${label} namespace physical identity changed and is preserved`);
+    throw new FailureError('RUNTIME-DEPS-004', `${label} namespace physical identity changed and is preserved`);
   }
   const current = readLegacyDependencyTransitionRecordSet(
     currentNamespace.recordsRoot,
@@ -757,7 +757,7 @@ async function assertLegacyDependencyTransitionUnchanged(
     label
   );
   if (current.records.size !== expected.records.size || current.ledgerDigest !== expected.ledgerDigest) {
-    throw new SecError('RUNTIME-DEPS-004', `${label} immutable records changed and are preserved`, {
+    throw new FailureError('RUNTIME-DEPS-004', `${label} immutable records changed and are preserved`, {
       expectedLedgerDigest: expected.ledgerDigest,
       observedLedgerDigest: current.ledgerDigest,
       expectedRecordCount: expected.records.size,
@@ -779,7 +779,7 @@ async function publishMigratedDependencyTransitionRecords(
     'Dependency transition v2 migration target records'
   );
   if (current.records.size > expected.ordered.length) {
-    throw new SecError('RUNTIME-DEPS-004', 'Dependency transition migration target contains extra records');
+    throw new FailureError('RUNTIME-DEPS-004', 'Dependency transition migration target contains extra records');
   }
   let publishedCount = current.records.size;
   for (let index = 0; index < expected.ordered.length; index += 1) {
@@ -789,14 +789,14 @@ async function publishMigratedDependencyTransitionRecords(
       if (!Buffer.from(dependencyTransitionRecordBytes(existing)).equals(
         dependencyTransitionRecordBytes(record)
       )) {
-        throw new SecError('RUNTIME-DEPS-004', 'Dependency transition migration target record collides with different bytes', {
+        throw new FailureError('RUNTIME-DEPS-004', 'Dependency transition migration target record collides with different bytes', {
           recordDigest: record.recordDigest
         });
       }
       continue;
     }
     if (index !== publishedCount) {
-      throw new SecError('RUNTIME-DEPS-004', 'Dependency transition migration target has a non-prefix partial chain', {
+      throw new FailureError('RUNTIME-DEPS-004', 'Dependency transition migration target has a non-prefix partial chain', {
         expectedIndex: index,
         observedRecordCount: publishedCount
       });
@@ -822,7 +822,7 @@ async function publishMigratedDependencyTransitionRecords(
   );
   if (final.records.size !== expected.records.size || final.ledgerDigest !== expected.ledgerDigest ||
       final.tip?.recordDigest !== expected.ordered.at(-1)?.recordDigest) {
-    throw new SecError('RUNTIME-DEPS-004', 'Dependency transition v2 migration target readback is incomplete');
+    throw new FailureError('RUNTIME-DEPS-004', 'Dependency transition v2 migration target readback is incomplete');
   }
 }
 
@@ -842,7 +842,7 @@ export async function migrateLegacyDependencyTransitionUnderLease(
       // migrate, and normal v2 readers remain the sole authority.
       const intents = await readDependencyTransitionMigrationIntents(targetNamespace, options);
       if (intents.prepared !== null || intents.complete !== null) {
-        throw new SecError('RUNTIME-DEPS-004', 'Dependency transition migration source evidence is missing and is preserved', {
+        throw new FailureError('RUNTIME-DEPS-004', 'Dependency transition migration source evidence is missing and is preserved', {
           preparedIntentDigest: intents.prepared?.intentDigest ?? null,
           completeIntentDigest: intents.complete?.intentDigest ?? null
         });
@@ -859,7 +859,7 @@ export async function migrateLegacyDependencyTransitionUnderLease(
   );
   for (const name of legacyNames) {
     if (name !== 'current.json' && name !== 'records') {
-      throw new SecError('RUNTIME-DEPS-004', 'Legacy dependency transition namespace contains unknown residue', { name });
+      throw new FailureError('RUNTIME-DEPS-004', 'Legacy dependency transition namespace contains unknown residue', { name });
     }
   }
   const source = readLegacyDependencyTransitionRecordSet(
@@ -891,17 +891,17 @@ export async function migrateLegacyDependencyTransitionUnderLease(
       assertDependencyTransitionMigrationTargetBinding(intents.complete, targetNamespace);
       if (intents.complete.targetLedgerDigest !== migrated.ledgerDigest ||
           intents.complete.targetRecordCount !== migrated.records.size) {
-        throw new SecError('RUNTIME-DEPS-004', 'Dependency transition migration completed target is not derived from its source');
+        throw new FailureError('RUNTIME-DEPS-004', 'Dependency transition migration completed target is not derived from its source');
       }
       return;
     }
     if (intents.prepared === null) {
-      throw new SecError('RUNTIME-DEPS-004', 'Dependency transition v2 namespace exists without a migration intent; target is preserved');
+      throw new FailureError('RUNTIME-DEPS-004', 'Dependency transition v2 namespace exists without a migration intent; target is preserved');
     }
     assertDependencyTransitionMigrationSourceBinding(intents.prepared, legacyNamespace, source);
     if (intents.prepared.targetLedgerDigest !== migrated.ledgerDigest ||
         intents.prepared.targetRecordCount !== migrated.records.size) {
-      throw new SecError('RUNTIME-DEPS-004', 'Dependency transition migration target derivation changed');
+      throw new FailureError('RUNTIME-DEPS-004', 'Dependency transition migration target derivation changed');
     }
     await publishMigratedDependencyTransitionRecords(targetNamespace, migrated, options);
     const sourceAfter = await assertLegacyDependencyTransitionUnchanged(
@@ -954,7 +954,7 @@ export async function migrateLegacyDependencyTransitionUnderLease(
     'Dependency transition v2 migration target preflight'
   );
   if (targetBefore.records.size !== 0) {
-    throw new SecError('RUNTIME-DEPS-004', 'Dependency transition v2 target appeared during migration');
+    throw new FailureError('RUNTIME-DEPS-004', 'Dependency transition v2 target appeared during migration');
   }
   const prepared = dependencyTransitionMigrationIntent({
     previousIntentDigest: null,

@@ -3,7 +3,7 @@ import { isMap, isScalar, isSeq } from 'yaml';
 
 import { rawSha256 } from '../../../contracts/canonical.ts';
 import { parseYamlDocument } from '../../formats/yaml.ts';
-import type { SecRepositoryModuleGraphImport } from '../architecture/contract.ts';
+import type { RepositoryModuleGraphImport } from '../architecture/contract.ts';
 import {
   isSourceProgramInputPath,
   sourceProgramSurfaceForPath,
@@ -39,8 +39,8 @@ export type SourceProgramEmbeddedProgramUnit = Readonly<{
   contentDigest: `sha256:${string}`;
   provider: string;
   source: string;
-  imports: readonly SecRepositoryModuleGraphImport[];
-  graphImports: readonly SecRepositoryModuleGraphImport[];
+  imports: readonly RepositoryModuleGraphImport[];
+  graphImports: readonly RepositoryModuleGraphImport[];
   targetPackages: readonly string[];
   unknowns: readonly SourceProgramEmbeddedProgramUnknown[];
   span: SourceProgramSpan;
@@ -144,7 +144,7 @@ export function observeSourceProgramEmbeddedTypeScriptLiteral(
 }
 
 function compileEmbeddedJavaScriptFacts(source: string): Readonly<{
-  imports: readonly SecRepositoryModuleGraphImport[];
+  imports: readonly RepositoryModuleGraphImport[];
   unknowns: readonly SourceProgramEmbeddedProgramUnknown[];
 }> {
   const sourceFile = ts.createSourceFile(
@@ -154,10 +154,10 @@ function compileEmbeddedJavaScriptFacts(source: string): Readonly<{
     true,
     ts.ScriptKind.JS
   );
-  const imports: SecRepositoryModuleGraphImport[] = [];
+  const imports: RepositoryModuleGraphImport[] = [];
   let dynamic = false;
   const add = (
-    kind: SecRepositoryModuleGraphImport['kind'],
+    kind: RepositoryModuleGraphImport['kind'],
     specifier: string,
     typeOnly = false
   ): void => {
@@ -343,7 +343,7 @@ export function compileSourceProgramEmbeddedWorkflowPrograms(
 export function sourceProgramModuleImports(
   repositoryPath: string,
   source: string
-): readonly SecRepositoryModuleGraphImport[] {
+): readonly RepositoryModuleGraphImport[] {
   if (!isWorkflowSourceProgramInput(repositoryPath)) return Object.freeze([]);
   const units = compileSourceProgramEmbeddedWorkflowPrograms(Object.freeze({
     path: repositoryPath,

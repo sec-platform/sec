@@ -1,10 +1,9 @@
-import { createHash } from 'node:crypto';
-
-import { SEC_LINUX_VERIFICATION_ENVIRONMENT_AUTHORITY } from '../../../../providers/linux-verification/contract.ts';
+import { rawSha256Hex } from '../../../../../contracts/canonical.ts';
+import { LINUX_VERIFICATION_ENVIRONMENT_AUTHORITY } from '../../../../providers/linux-verification/contract.ts';
 import { VERIFICATION_SESSION_SCHEMA } from '../../session/contract/session.ts';
 
 const HOSTED_SANDBOX_PYTHON_VERSION =
-  SEC_LINUX_VERIFICATION_ENVIRONMENT_AUTHORITY.runtime.pythonVersion;
+  LINUX_VERIFICATION_ENVIRONMENT_AUTHORITY.runtime.pythonVersion;
 const hostedSandboxPythonVersion = /^(\d+)\.(\d+)\.\d+$/u.exec(HOSTED_SANDBOX_PYTHON_VERSION);
 if (hostedSandboxPythonVersion === null) {
   throw new Error('Hosted sandbox Python authority must be one exact semantic version.');
@@ -138,6 +137,4 @@ export const CI_VERIFICATION_HOSTED_SANDBOX_POLICY = Object.freeze({
   teardown: 'unshare-kill-child-process-close-readback' as const
 });
 
-export const CI_VERIFICATION_HOSTED_SANDBOX_POLICY_DIGEST = `sha256:${createHash('sha256')
-  .update(JSON.stringify(CI_VERIFICATION_HOSTED_SANDBOX_POLICY))
-  .digest('hex')}` as const;
+export const CI_VERIFICATION_HOSTED_SANDBOX_POLICY_DIGEST = `sha256:${rawSha256Hex(JSON.stringify(CI_VERIFICATION_HOSTED_SANDBOX_POLICY))}` as const;

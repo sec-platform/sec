@@ -8,7 +8,7 @@ import { encodeVerificationActionData, type VerificationActionKeyDigest } from '
 import { buildCiVerificationActionPlanClosure, CI_VERIFICATION_ACTION_DISPATCH_TYPE, createCiVerificationActionParentDispatchPlan, createCiVerificationActionProposal, createCiVerificationActionProviderEnvelope, type CiVerificationActionPlanClosure, type CiVerificationActionProviderEnvelope } from '../../src/adapters/verification/platform/action/contract/ci.ts';
 import { CI_GITHUB_ACTIONS_IDENTITY_POLICY, createVerificationActionProviderStartMarker, createVerificationActionProviderTerminalAnchor, VERIFICATION_ACTION_PROVIDER_START_ARTIFACT_PREFIX, VERIFICATION_ACTION_PROVIDER_TERMINAL_ANCHOR_PREFIX, VERIFICATION_ACTION_PROVIDER_TERMINAL_ARTIFACT_PREFIX, verificationActionProviderRunTargetUrl, verificationActionProviderStartArtifactName, verificationActionProviderStartDescription, verificationActionProviderStatusContext, verificationActionProviderTerminalAnchorName, verificationActionProviderTerminalArtifactName, type VerificationActionProviderOrigin } from '../../src/adapters/verification/platform/action/contract/provider.ts';
 import { CI_VERIFICATION_SESSION_DISPATCH_TYPE } from '../../src/adapters/verification/platform/ci/contract/revision.ts';
-import { buildUnsupportedVerificationActionTerminalArtifactV2 } from '../helpers/verification-action-fixtures.ts';
+import { buildUnsupportedVerificationActionTerminalArtifact } from '../helpers/verification-action-fixtures.ts';
 
 const REPOSITORY = 'openai/sec';
 const REPOSITORY_ID = 311;
@@ -375,14 +375,91 @@ class FakeGh {
 }
 
 let fakeGh = new FakeGh();
-const spawnSync = mock((
-  command: string,
-  args: readonly string[],
-  options?: Readonly<{ input?: string }>
-) => fakeGh.spawn(command, args, options));
-mock.module('node:child_process', () => ({ spawnSync }));
+
+type FakeGitHubOperation = Readonly<Record<string, unknown> & { kind: string }>;
+
+function fakeOperationRaw(operation: FakeGitHubOperation): string {
+  const repo = `/repos/${REPOSITORY}`;
+  let args: string[];
+  let input: string | undefined;
+  switch (operation.kind) {
+    case 'repository': args = ['api', repo]; break;
+    case 'workflow': args = ['api', `${repo}/actions/workflows/compiler-pr-validation.yml`]; break;
+    case 'collaborator-permission':
+      args = ['api', `${repo}/collaborators/${String(operation.login)}/permission`]; break;
+    case 'workflow-jobs':
+      args = ['api', `${repo}/actions/runs/${String(operation.runId)}/attempts/${String(operation.runAttempt)}/jobs?per_page=100&page=${String(operation.page)}`]; break;
+    case 'artifacts': args = ['api', `${repo}/actions/artifacts?per_page=100&page=${String(operation.page)}`]; break;
+    case 'commit-statuses':
+      args = ['api', `${repo}/commits/${String(operation.sha)}/statuses?per_page=100&page=${String(operation.page)}`]; break;
+    case 'create-commit-status': {
+      const status = operation.status as Readonly<Record<string, unknown>>;
+      args = ['api', '--method', 'POST', `${repo}/statuses/${String(operation.sha)}`,
+        '-f', `state=${String(status.state)}`, '-f', `context=${String(status.context)}`,
+        '-f', `description=${String(status.description)}`, '-f', `target_url=${String(status.targetUrl)}`];
+      break;
+    }
+    case 'workflow-run': args = ['api', `${repo}/actions/runs/${String(operation.runId)}`]; break;
+    case 'workflow-run-attempt':
+      args = ['api', `${repo}/actions/runs/${String(operation.runId)}/attempts/${String(operation.runAttempt)}`]; break;
+    case 'check-suite': args = ['api', `${repo}/check-suites/${String(operation.checkSuiteId)}`]; break;
+    case 'artifact': args = ['api', `${repo}/actions/artifacts/${String(operation.artifactId)}`]; break;
+    case 'repository-dispatch':
+      args = ['api', '--method', 'POST', `${repo}/dispatches`];
+      input = JSON.stringify({ event_type: operation.eventType, client_payload: operation.clientPayload });
+      break;
+    default: throw new Error(`unexpected fake GitHub operation: ${operation.kind}`);
+  }
+  const result = fakeGh.spawn('gh', args, input === undefined ? undefined : { input });
+  if (result.status !== 0) throw new Error(String(result.stderr));
+  return Buffer.isBuffer(result.stdout) ? result.stdout.toString('utf8') : String(result.stdout ?? '');
+}
+
+async function fakeExecuteOperation(_capability: unknown, operation: FakeGitHubOperation): Promise<unknown> {
+  const raw = fakeOperationRaw(operation);
+  return raw.length === 0 ? null : JSON.parse(raw) as unknown;
+}
+
+const fakeSession = async <T>(input: Readonly<{
+  operation: (capability: Readonly<Record<string, never>>) => Promise<T>;
+}>) => await input.operation(Object.freeze({}));
+
+mock.module('../../src/adapters/providers/github-api/operation-session.ts', () => ({
+  withGitHubApiReadSession: fakeSession,
+  withGitHubApiStatusWriteSession: fakeSession,
+  withGitHubApiRepositoryDispatchWriteSession: fakeSession,
+  executeGitHubApiOperation: fakeExecuteOperation,
+  executeObservedGitHubApiOperation: async (_capability: unknown, operation: FakeGitHubOperation) => {
+    const source = fakeOperationRaw(operation);
+    return Object.freeze({ value: JSON.parse(source) as unknown, source });
+  },
+  readGitHubApiBytes: async (_capability: unknown, input: Readonly<{
+    kind: 'artifact-archive';
+    artifactId: number;
+  }>) => {
+    const artifact = fakeGh.artifacts.find((entry) => entry.id === input.artifactId);
+    if (artifact === undefined) throw new Error('artifact not found');
+    fakeGh.lastDownloadedArtifactId = artifact.id;
+    fakeGh.downloadedArtifactIds.push(artifact.id);
+    return new Uint8Array(Buffer.from(`zip-${artifact.id}`));
+  }
+}));
+mock.module('../../src/adapters/providers/zip/runtime.ts', () => ({
+  readZipTextFile: async (input: Readonly<{
+    expectedFileName: string;
+  }>) => {
+    const artifact = fakeGh.artifacts.find((entry) => entry.id === fakeGh.lastDownloadedArtifactId);
+    if (artifact === undefined) throw new Error('no artifact fixture');
+    if (artifact.fileName !== input.expectedFileName) {
+      throw new Error('archive inventory is not the exact single expected member');
+    }
+    return artifact.source;
+  }
+}));
 const provider = await import('../../src/adapters/verification/platform/ci/runtime/verification-action-github-provider.ts');
-const ensureTransaction = provider.ensureVerificationActionGitHubProviderTransaction;
+const ensureTransaction = (
+  input: Omit<Parameters<typeof provider.ensureVerificationActionGitHubProviderTransaction>[0], 'repositoryRoot'>
+) => provider.ensureVerificationActionGitHubProviderTransaction({ repositoryRoot: EVENT_ROOT, ...input });
 
 function trustedEnvironment(eventEnvelope: CiVerificationActionProviderEnvelope = envelope): void {
   Object.assign(process.env, {
@@ -900,7 +977,7 @@ describe('VerificationAction GitHub provider authenticated transaction', () => {
   });
 
   test('terminal publication binds the authenticated current run and full artifact chain', async () => {
-    const terminalArtifact = buildUnsupportedVerificationActionTerminalArtifactV2({
+    const terminalArtifact = buildUnsupportedVerificationActionTerminalArtifact({
       actionPlan: closure.actions[0]!,
       normalizedOperation: closure.normalizedOperations[0]!,
       baseSha: BASE,

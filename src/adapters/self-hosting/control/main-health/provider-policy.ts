@@ -1,5 +1,5 @@
-import { createHash } from 'node:crypto';
 
+import { rawSha256Hex } from '../../../../contracts/canonical.ts';
 import { CI_COMPILER_WORKFLOW_RUN_IDENTITY, CI_GITHUB_ACTIONS_IDENTITY_POLICY } from '../../../verification/platform/action/contract/provider.ts';
 import { DEFAULT_BRANCH_REVISION_HEALTH_PRODUCER_IDENTITY } from './contract.ts';
 
@@ -9,10 +9,10 @@ export function createCiMainHealthRequestOperationId(mainSha: string): `sha256:$
   if (!/^[0-9a-f]{40}$/u.test(mainSha)) {
     throw new Error('MainHealth request operation identity requires an exact lowercase main SHA.');
   }
-  return `sha256:${createHash('sha256').update(JSON.stringify({
+  return `sha256:${rawSha256Hex(JSON.stringify({
     schema: CI_MAIN_HEALTH_REQUEST_SCHEMA,
     mainSha
-  })).digest('hex')}`;
+  }))}`;
 }
 
 /** The only exact-main health producer accepted by the ordinary Session lane. */
@@ -58,6 +58,4 @@ export const CI_MAIN_HEALTH_POLICY = Object.freeze({
   locked: Object.freeze({ allowedLanes: Object.freeze([] as const) })
 });
 
-export const CI_MAIN_HEALTH_POLICY_DIGEST = `sha256:${createHash('sha256')
-  .update(JSON.stringify(CI_MAIN_HEALTH_POLICY))
-  .digest('hex')}` as const;
+export const CI_MAIN_HEALTH_POLICY_DIGEST = `sha256:${rawSha256Hex(JSON.stringify(CI_MAIN_HEALTH_POLICY))}` as const;

@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { resolveSecRuntimeStateForRepository } from '../../src/adapters/runtime-state/workspace-state/paths.ts';
+import { resolveRuntimeStateForRepository } from '../../src/adapters/runtime-state/workspace-state/paths.ts';
 import { createLocalContinuationCheckpoint } from '../../src/adapters/self-hosting/control/continuation/checkpoint.ts';
 import { clearActiveContinuation, gcContinuationObjects, loadActiveContinuationCheckpoint, persistActiveContinuationCheckpoint } from '../../src/adapters/self-hosting/control/continuation/runtime-store.ts';
 
@@ -16,7 +16,7 @@ function fixture() {
   const checkpoint = createLocalContinuationCheckpoint({ repository: 'sec-platform/sec', prNumber: 573,
     branch: 'refactor/repository-architecture-convergence-v1', baseSha: '1'.repeat(40), baseTreeSha: '2'.repeat(40),
     headSha: '3'.repeat(40), headTreeSha: '4'.repeat(40), manifestPath: 'config/repository/work-packages/sec-static-convergence-v1.md' });
-  const layout = resolveSecRuntimeStateForRepository({ repository: checkpoint.repository, repositoryRoot, environment });
+  const layout = resolveRuntimeStateForRepository({ repository: checkpoint.repository, repositoryRoot, environment });
   return { root, repositoryRoot, environment, checkpoint, layout };
 }
 

@@ -1,5 +1,3 @@
-import { spawnSync } from 'node:child_process';
-import { createHash } from 'node:crypto';
 import {
   closeSync,
   fsyncSync,
@@ -16,7 +14,27 @@ import {
 } from 'node:fs';
 import path from 'node:path';
 
-import { assertPhysicallyDisjointDirectoryChains, assertSameNoFollowDirectoryIdentity, createNoFollowOrdinaryDirectoryChain, deleteRetainedNoFollowEntry, inspectExactNoFollowDirectoryPresence, inspectNoFollowDirectoryChain, inspectNoFollowOrdinaryFileEntry, publishExclusiveDurableCanonicalFile, readNoFollowOrdinaryFile, scanNoFollowDirectoryTreeMetadata, type NoFollowDirectoryTreeEntry, type PhysicalDirectoryChain, type PhysicalDirectoryIdentity } from '../../../runtime-state/physical/runtime/physical-no-follow.ts';
+import { rawSha256Hex, sha256 } from '../../../../contracts/canonical.ts';
+import { issueOperationRequirementBindingContext } from '../../../../execution/operation/requirement-binding-context.ts';
+import { withAcquiredResource } from '../../../../execution/resource-settlement.ts';
+import {
+  bindSemanticOperation,
+  compileCapabilityBinding,
+  compileSemanticOperationPlan,
+  issueSemanticOperationAttemptContext,
+  type OperationDigest
+} from '../../../../execution/operation/semantic.ts';
+import { assertPhysicallyDisjointDirectoryChains, assertSameNoFollowDirectoryIdentity, createNoFollowOrdinaryDirectoryChain, deleteRetainedNoFollowEntry, inspectExactNoFollowDirectoryPresence, inspectNoFollowDirectoryChain, inspectNoFollowOrdinaryFileEntry, publishExclusiveDurableCanonicalFile, readNoFollowOrdinaryFile, retainNoFollowDirectoryForChildProcess, retainNoFollowOrdinaryFile, scanNoFollowDirectoryTreeMetadata, type NoFollowDirectoryTreeEntry, type PhysicalDirectoryChain, type PhysicalDirectoryIdentity } from '../../../runtime-state/physical/runtime/physical-no-follow.ts';
+import {
+  assertProcessResourceSessionReceipt,
+  openProcessResourceSession
+} from '../../../runtime-state/physical/runtime/process-resource-session.ts';
+import {
+  issueRetainedCommandBoundary,
+  resolveExecutableLocator,
+  RETAINED_EXECUTABLE_CHILD_DESCRIPTOR,
+  RETAINED_WORKING_DIRECTORY_CHILD_DESCRIPTOR
+} from '../../../runtime-state/physical/runtime/process.ts';
 
 import {
   createBranchLifecycleGitChildEnvironment,
@@ -25,40 +43,188 @@ import {
   decodeBranchLifecycleChildStdout
 } from './branch-lifecycle-command.ts';
 import {
-  assertDurableRecoveryAuthority,
+  assertDurableRecoveryProof,
   assertGitBranchName,
   assertGitSha,
   type BranchCloseoutAttempt,
   type BranchLifecycleInventory,
   type BranchRecoveryAuthority
 } from './branch-lifecycle-contract.ts';
+import {
+  assertClosedSupersessionEvidence,
+  type ClosedSupersessionEvidence
+} from './closed-supersession-review.ts';
 
-const COMMAND_TIMEOUT_MS = 60_000;
-const COMMAND_MAX_BUFFER = 32 * 1024 * 1024;
+const RECOVERY_GIT_DURATION_MS = 120_000;
+const RECOVERY_GIT_REQUIREMENT = 'branch-lifecycle.recovery-git.process';
+const RECOVERY_GIT_CONTRACT = sha256({
+  owner: 'control.branch-lifecycle',
+  operation: 'recovery-git',
+  transport: 'runtime-state.process-resource-session'
+}) as OperationDigest;
+const RECOVERY_GIT_MAX_PROCESSES = 32;
+const RECOVERY_GIT_MAX_STREAM_BYTES = 4 * 1024 * 1024;
+const RECOVERY_GIT_MAX_OUTPUT_BYTES = RECOVERY_GIT_MAX_PROCESSES
+  * RECOVERY_GIT_MAX_STREAM_BYTES * 2;
 
-function runRecoveryGit(cwd: string, args: readonly string[]) {
-  if (args.some((arg) => arg.includes('\0'))) {
-    throw new Error('Recovery command argument contains NUL.');
-  }
-  const result = spawnSync('git', [...args], {
-    cwd,
-    encoding: 'buffer',
-    windowsHide: true,
-    timeout: COMMAND_TIMEOUT_MS,
-    maxBuffer: COMMAND_MAX_BUFFER,
-    env: createBranchLifecycleGitChildEnvironment(process.env)
+type RecoveryGitResult = Readonly<{
+  status: number;
+  stdout: Buffer;
+  stderr: Buffer;
+}>;
+type RecoveryGitRunner = (cwd: string, args: readonly string[]) => Promise<RecoveryGitResult>;
+
+function compileRecoveryGitOperation(input: Readonly<{
+  repositoryRoot: string;
+  intent: unknown;
+  providerIdentityDigest: OperationDigest;
+  deadlineAtUnixMs: number;
+}>) {
+  const plan = compileSemanticOperationPlan({
+    operation: 'control.branch-lifecycle.recovery-git',
+    intentDigest: sha256({ repositoryRoot: input.repositoryRoot, intent: input.intent }) as OperationDigest,
+    decisionDigest: RECOVERY_GIT_CONTRACT,
+    deadlineAtUnixMs: input.deadlineAtUnixMs,
+    attempt: issueSemanticOperationAttemptContext({ authorityGrantDigest: RECOVERY_GIT_CONTRACT }),
+    aggregateBudgets: [
+      { resource: 'duration-ms', maximum: RECOVERY_GIT_DURATION_MS },
+      { resource: 'input-bytes', maximum: 1 },
+      { resource: 'output-bytes', maximum: RECOVERY_GIT_MAX_OUTPUT_BYTES },
+      { resource: 'processes', maximum: RECOVERY_GIT_MAX_PROCESSES }
+    ],
+    requirements: [{
+      id: RECOVERY_GIT_REQUIREMENT,
+      contractDigest: RECOVERY_GIT_CONTRACT,
+      effectKinds: ['filesystem', 'process', 'provider'],
+      failureKinds: [
+        'filesystem.identity-drift',
+        'filesystem.write-failed',
+        'process.cancelled',
+        'process.deadline-exhausted',
+        'process.output-budget-exhausted',
+        'process.settlement-unproven',
+        'process.unavailable',
+        'provider.unavailable'
+      ]
+    }]
   });
-  return {
-    status: result.status,
-    stdout: Buffer.isBuffer(result.stdout) ? result.stdout : Buffer.from(String(result.stdout ?? '')),
-    stderr: Buffer.isBuffer(result.stderr)
-      ? result.stderr
-      : Buffer.from(String(result.stderr ?? result.error?.message ?? ''))
-  };
+  return bindSemanticOperation(plan, [compileCapabilityBinding({
+    requirementId: RECOVERY_GIT_REQUIREMENT,
+    contractDigest: RECOVERY_GIT_CONTRACT,
+    providerIdentityDigest: input.providerIdentityDigest
+  })]);
 }
 
-function requireRecoveryGitText(cwd: string, args: readonly string[], label: string): string {
-  const result = runRecoveryGit(cwd, args);
+async function withRecoveryGitRunner<T>(
+  repositoryRoot: string,
+  intent: unknown,
+  use: (run: RecoveryGitRunner) => Promise<T>
+): Promise<T> {
+  const root = path.resolve(repositoryRoot);
+  if (!path.isAbsolute(repositoryRoot) || root !== repositoryRoot) {
+    throw new Error('Recovery Git repository root must be canonical and absolute.');
+  }
+  const locator = resolveExecutableLocator('git', {
+    cwd: root,
+    pathValue: process.env.PATH ?? ''
+  });
+  if (locator === null || !path.isAbsolute(locator)) {
+    throw new Error('Recovery Git executable is unavailable.');
+  }
+  return withAcquiredResource({
+    operationLabel: 'branch-recovery-git',
+    resourceLabel: 'git-executable',
+    acquire: () => retainNoFollowOrdinaryFile(
+      inspectNoFollowDirectoryChain(path.dirname(locator), 'Recovery Git executable parent'),
+      path.basename(locator),
+      undefined,
+      'Recovery Git executable',
+      RETAINED_EXECUTABLE_CHILD_DESCRIPTOR,
+      'executable'
+    ),
+    async use(executable) {
+      const rootChain = inspectNoFollowDirectoryChain(root, 'Recovery Git repository root');
+      return withAcquiredResource({
+        operationLabel: 'branch-recovery-git',
+        resourceLabel: 'working-directory',
+        acquire: () => retainNoFollowDirectoryForChildProcess(
+          rootChain,
+          RETAINED_WORKING_DIRECTORY_CHILD_DESCRIPTOR,
+          'Recovery Git working directory'
+        ),
+        async use(workingDirectory) {
+          const providerIdentityDigest = sha256({
+            owner: 'runtime-state.physical',
+            provider: 'branch-recovery-git-process',
+            executable: {
+              path: executable.path,
+              physical: executable.physical,
+              digest: executable.digest().byteDigest
+            },
+            workingDirectory: rootChain.target
+          }) as OperationDigest;
+          const deadlineAtUnixMs = Date.now() + RECOVERY_GIT_DURATION_MS;
+          const operation = compileRecoveryGitOperation({
+            repositoryRoot: root,
+            intent,
+            providerIdentityDigest,
+            deadlineAtUnixMs
+          });
+          const boundary = issueRetainedCommandBoundary({ executable, workingDirectory });
+          return withAcquiredResource({
+            operationLabel: 'branch-recovery-git',
+            resourceLabel: 'process-session',
+            acquire: () => openProcessResourceSession({
+              operation,
+              requirementBindingContext: issueOperationRequirementBindingContext({
+                operation,
+                requirementId: RECOVERY_GIT_REQUIREMENT,
+                resourceCeilings: operation.plan.execution.aggregateBudgets
+              })
+            }),
+            async use(session) {
+              const run: RecoveryGitRunner = async (cwd, args) => {
+                const target = path.resolve(cwd);
+                if (!path.isAbsolute(cwd) || target !== cwd || args.some((arg) => arg.includes('\0'))) {
+                  throw new Error('Recovery Git command input is not canonical.');
+                }
+                const result = await session.run(boundary, ['-C', target, ...args], {
+                  env: createBranchLifecycleGitChildEnvironment(process.env),
+                  envMode: 'replace',
+                  maxStdoutBytes: RECOVERY_GIT_MAX_STREAM_BYTES,
+                  maxStderrBytes: RECOVERY_GIT_MAX_STREAM_BYTES
+                });
+                return Object.freeze({
+                  status: result.result.code,
+                  stdout: Buffer.from(result.result.stdout),
+                  stderr: Buffer.from(result.result.stderr, 'utf8')
+                });
+              };
+              return use(run);
+            },
+            release(session) {
+              assertProcessResourceSessionReceipt(session.close(), {
+                operationIdentityDigest: operation.plan.identity.identityDigest,
+                boundAttemptDigest: operation.boundAttemptDigest,
+                requirementId: RECOVERY_GIT_REQUIREMENT
+              });
+            }
+          });
+        },
+        release: (workingDirectory) => workingDirectory.dispose()
+      });
+    },
+    release: (executable) => executable.dispose()
+  });
+}
+
+async function requireRecoveryGitText(
+  run: RecoveryGitRunner,
+  cwd: string,
+  args: readonly string[],
+  label: string
+): Promise<string> {
+  const result = await run(cwd, args);
   if (result.status !== 0) {
     throw new Error(`${label} failed: ${decodeBranchLifecycleChildError(result)}`);
   }
@@ -407,13 +573,13 @@ export function ensureRecoveryRoot(
   }).root.path;
 }
 
-export function createRecoveryBundle(input: {
+export async function createRecoveryBundle(input: {
   inventory: BranchLifecycleInventory;
   branch: string;
   expectedSha: string;
   recoveryRoot?: string;
   refSource: { kind: 'local-branch' | 'remote-branch' } | { kind: 'pull'; number: number };
-}): { recovery: BranchRecoveryAuthority; attempts: BranchCloseoutAttempt[] } {
+}): Promise<{ recovery: BranchRecoveryAuthority; attempts: BranchCloseoutAttempt[] }> {
   const { inventory, branch, expectedSha } = input;
   const refSource = input.refSource;
   assertGitBranchName(branch);
@@ -442,126 +608,418 @@ export function createRecoveryBundle(input: {
     ? null
     : mkdtempSync(path.join(recoveryRoot, '.sec-recovery-fetch-'));
 
-  try {
-    let bundleSourceRoot: string;
-    let bundleSourceRef: string;
-    if (refSource.kind === 'local-branch') {
-      bundleSourceRoot = repositoryRoot;
-      bundleSourceRef = sourceSpec;
-    } else {
-      if (temporaryRepository === null) throw new Error('Remote recovery workspace is unavailable.');
-      const initialize = runRecoveryGit(temporaryRepository, ['init', '--bare', '.']);
-      if (initialize.status !== 0) {
-        throw new Error(`recovery repository initialization failed: ${decodeBranchLifecycleChildError(initialize)}`);
+  return withRecoveryGitRunner(repositoryRoot, {
+    operation: 'create-recovery-bundle',
+    branch,
+    expectedSha,
+    source: refSource
+  }, async (run) => {
+    try {
+      let bundleSourceRoot: string;
+      let bundleSourceRef: string;
+      if (refSource.kind === 'local-branch') {
+        bundleSourceRoot = repositoryRoot;
+        bundleSourceRef = sourceSpec;
+      } else {
+        if (temporaryRepository === null) throw new Error('Remote recovery workspace is unavailable.');
+        const initialize = await run(temporaryRepository, ['init', '--bare', '.']);
+        if (initialize.status !== 0) {
+          throw new Error(`recovery repository initialization failed: ${decodeBranchLifecycleChildError(initialize)}`);
+        }
+        const fetch = await run(temporaryRepository, [
+          ...createBranchLifecycleGitHubCredentialArgs(),
+          'fetch',
+          '--no-tags',
+          inventory.repository.remoteUrl,
+          `+${sourceSpec}:refs/heads/recovery`
+        ]);
+        if (fetch.status !== 0) {
+          throw new Error(
+            `recovery fetch failed (${sourceLabel}): ${decodeBranchLifecycleChildError(fetch)}`
+          );
+        }
+        bundleSourceRoot = temporaryRepository;
+        bundleSourceRef = 'refs/heads/recovery';
       }
-      const fetch = runRecoveryGit(temporaryRepository, [
-        ...createBranchLifecycleGitHubCredentialArgs(),
-        'fetch',
-        '--no-tags',
-        inventory.repository.remoteUrl,
-        `+${sourceSpec}:refs/heads/recovery`
-      ]);
-      if (fetch.status !== 0) {
+      const resolvedSha = await requireRecoveryGitText(
+        run,
+        bundleSourceRoot,
+        ['rev-parse', '--verify', bundleSourceRef],
+        'recovery source resolution'
+      );
+      if (resolvedSha !== expectedSha) {
         throw new Error(
-          `recovery fetch failed (${sourceLabel}): ${decodeBranchLifecycleChildError(fetch)}`
+          `${sourceLabel} SHA raced during recovery preparation: expected ${expectedSha}, resolved ${resolvedSha}`
         );
       }
-      bundleSourceRoot = temporaryRepository;
-      bundleSourceRef = 'refs/heads/recovery';
-    }
-    const resolvedSha = requireRecoveryGitText(
-      bundleSourceRoot,
-      ['rev-parse', '--verify', bundleSourceRef],
-      'recovery source resolution'
-    );
-    if (resolvedSha !== expectedSha) {
-      throw new Error(
-        `${sourceLabel} SHA raced during recovery preparation: expected ${expectedSha}, resolved ${resolvedSha}`
-      );
-    }
 
-    const partialBundlePath = `${bundlePath}.${process.pid}.partial`;
-    const create = runRecoveryGit(
-      bundleSourceRoot,
-      ['bundle', 'create', partialBundlePath, bundleSourceRef]
-    );
-    if (create.status !== 0) {
-      try { unlinkSync(partialBundlePath); } catch { /* no residue */ }
-      throw new Error(`git bundle create failed: ${decodeBranchLifecycleChildError(create)}`);
-    }
-    if (statSync(partialBundlePath).size <= 0) {
-      try { unlinkSync(partialBundlePath); } catch { /* no residue */ }
-      throw new Error('recovery bundle is empty');
-    }
-    const bundleHeads = requireRecoveryGitText(
-      repositoryRoot,
-      ['bundle', 'list-heads', partialBundlePath],
-      'recovery bundle head readback'
-    );
-    if (!bundleHeads.split(/\r?\n/u).some((line) => line.startsWith(`${expectedSha} `))) {
-      try { unlinkSync(partialBundlePath); } catch { /* no residue */ }
-      throw new Error(
-        `${sourceLabel} changed while the recovery bundle was created; expected head ${expectedSha} is absent.`
+      const partialBundlePath = `${bundlePath}.${process.pid}.partial`;
+      const create = await run(
+        bundleSourceRoot,
+        ['bundle', 'create', partialBundlePath, bundleSourceRef]
       );
-    }
-    fsyncPath(partialBundlePath);
-    renameSync(partialBundlePath, bundlePath);
-    fsyncPath(bundlePath);
-    fsyncDirectory(recoveryRoot);
-    attempts.push({
-      operation: 'recovery-create',
-      status: 'success',
-      detail: `${bundlePath} (source ${sourceLabel})`
-    });
+      if (create.status !== 0) {
+        try { unlinkSync(partialBundlePath); } catch { /* no residue */ }
+        throw new Error(`git bundle create failed: ${decodeBranchLifecycleChildError(create)}`);
+      }
+      if (statSync(partialBundlePath).size <= 0) {
+        try { unlinkSync(partialBundlePath); } catch { /* no residue */ }
+        throw new Error('recovery bundle is empty');
+      }
+      const bundleHeads = await requireRecoveryGitText(
+        run,
+        repositoryRoot,
+        ['bundle', 'list-heads', partialBundlePath],
+        'recovery bundle head readback'
+      );
+      if (!bundleHeads.split(/\r?\n/u).some((line) => line.startsWith(`${expectedSha} `))) {
+        try { unlinkSync(partialBundlePath); } catch { /* no residue */ }
+        throw new Error(
+          `${sourceLabel} changed while the recovery bundle was created; expected head ${expectedSha} is absent.`
+        );
+      }
+      fsyncPath(partialBundlePath);
+      renameSync(partialBundlePath, bundlePath);
+      fsyncPath(bundlePath);
+      fsyncDirectory(recoveryRoot);
+      attempts.push({
+        operation: 'recovery-create',
+        status: 'success',
+        detail: `${bundlePath} (source ${sourceLabel})`
+      });
 
-    const verify = runRecoveryGit(repositoryRoot, ['bundle', 'verify', bundlePath]);
-    const verifyOutput = [
-      verify.stdout.toString('utf8').trim(),
-      verify.stderr.toString('utf8').trim()
-    ].filter(Boolean).join('\n');
-    if (verify.status !== 0) {
+      const verify = await run(repositoryRoot, ['bundle', 'verify', bundlePath]);
+      const verifyOutput = [
+        verify.stdout.toString('utf8').trim(),
+        verify.stderr.toString('utf8').trim()
+      ].filter(Boolean).join('\n');
+      if (verify.status !== 0) {
+        attempts.push({
+          operation: 'recovery-verify',
+          status: 'failed',
+          detail: verifyOutput || decodeBranchLifecycleChildError(verify)
+        });
+        throw new Error(
+          `git bundle verify failed: ${verifyOutput || decodeBranchLifecycleChildError(verify)}`
+        );
+      }
+
+      const digest = rawSha256Hex(readFileSync(bundlePath));
+      writeDurableFile(checksumPath, `${digest}  ${path.basename(bundlePath)}\n`);
+      const recovery: BranchRecoveryAuthority = {
+        kind: 'bundle',
+        path: realpathSync(bundlePath),
+        sha256: `sha256:${digest}`,
+        verified: true,
+        verifyOutput
+      };
+      assertDurableRecoveryProof(recovery, inventory);
       attempts.push({
         operation: 'recovery-verify',
-        status: 'failed',
-        detail: verifyOutput || decodeBranchLifecycleChildError(verify)
+        status: 'success',
+        detail: `${recovery.sha256}; ${verifyOutput}`
       });
-      throw new Error(
-        `git bundle verify failed: ${verifyOutput || decodeBranchLifecycleChildError(verify)}`
-      );
+      return { recovery, attempts };
+    } finally {
+      if (temporaryRepository !== null) {
+        rmSync(temporaryRepository, { recursive: true, force: true });
+      }
     }
+  });
+}
 
-    const digest = createHash('sha256').update(readFileSync(bundlePath)).digest('hex');
-    writeDurableFile(checksumPath, `${digest}  ${path.basename(bundlePath)}\n`);
-    const recovery: BranchRecoveryAuthority = {
-      kind: 'bundle',
-      path: realpathSync(bundlePath),
-      sha256: `sha256:${digest}`,
-      verified: true,
-      verifyOutput
-    };
-    assertDurableRecoveryAuthority(recovery, inventory);
-    attempts.push({
-      operation: 'recovery-verify',
-      status: 'success',
-      detail: `${recovery.sha256}; ${verifyOutput}`
+type MainAbsorptionRecovery = Extract<BranchRecoveryAuthority, { kind: 'main-absorption' }>;
+
+export interface NativeMainAbsorptionObservation {
+  readonly sourceSha: string;
+  readonly sourceTreeSha: string;
+  readonly mainSha: string;
+  readonly mainTreeSha: string;
+  readonly basis: 'native-ancestor' | 'identical-tree';
+  readonly recoveryDigest: `sha256:${string}`;
+}
+
+async function exactCommitTree(run: RecoveryGitRunner, repositoryRoot: string, sha: string, label: string): Promise<string> {
+  assertGitSha(sha, `${label} SHA`);
+  const commit = await requireRecoveryGitText(run, repositoryRoot, [
+    'rev-parse', '--verify', '--end-of-options', `${sha}^{commit}`
+  ], `${label} commit`);
+  if (commit !== sha) throw new Error(`${label} commit identity differs.`);
+  const tree = await requireRecoveryGitText(run, repositoryRoot, [
+    'rev-parse', '--verify', '--end-of-options', `${sha}^{tree}`
+  ], `${label} tree`);
+  assertGitSha(tree, `${label} tree SHA`);
+  return tree;
+}
+
+async function isNativeAncestor(run: RecoveryGitRunner, repositoryRoot: string, sourceSha: string, mainSha: string): Promise<boolean> {
+  const result = await run(repositoryRoot, [
+    'merge-base', '--is-ancestor', sourceSha, mainSha
+  ]);
+  if (result.status === 0) return true;
+  if (result.status === 1) return false;
+  throw new Error(`Main absorption ancestry observation failed: ${decodeBranchLifecycleChildError(result)}`);
+}
+
+function mainAbsorptionProofBytes(input: Readonly<{
+  sourceSha: string;
+  sourceTreeSha: string;
+  mainSha: string;
+  mainTreeSha: string;
+  basis: MainAbsorptionRecovery['basis'];
+  reviewReference?: string;
+  reviewReceiptDigest?: `sha256:${string}`;
+}>): Buffer {
+  return Buffer.from(`${JSON.stringify({
+    schema: 'sec-branch-main-absorption-proof-v1',
+    sourceSha: input.sourceSha,
+    sourceTreeSha: input.sourceTreeSha,
+    mainSha: input.mainSha,
+    mainTreeSha: input.mainTreeSha,
+    basis: input.basis,
+    ...(input.reviewReference === undefined ? {} : { reviewReference: input.reviewReference }),
+    ...(input.reviewReceiptDigest === undefined ? {} : { reviewReceiptDigest: input.reviewReceiptDigest })
+  })}\n`, 'utf8');
+}
+
+/** Pure native retention observation used before any recovery/preparation bytes are published. */
+export async function observeNativeMainAbsorption(input: Readonly<{
+  repositoryRoot: string;
+  sourceSha: string;
+  mainSha: string;
+}>): Promise<NativeMainAbsorptionObservation | null> {
+  return withRecoveryGitRunner(input.repositoryRoot, {
+    operation: 'observe-native-main-absorption',
+    sourceSha: input.sourceSha,
+    mainSha: input.mainSha
+  }, async (run) => {
+    const sourceTreeSha = await exactCommitTree(run, input.repositoryRoot, input.sourceSha, 'Absorbed source');
+    const mainTreeSha = await exactCommitTree(run, input.repositoryRoot, input.mainSha, 'Absorbing main');
+    const basis = await isNativeAncestor(run, input.repositoryRoot, input.sourceSha, input.mainSha)
+      ? 'native-ancestor' as const
+      : sourceTreeSha === mainTreeSha
+        ? 'identical-tree' as const
+        : null;
+    if (basis === null) return null;
+    const proof = mainAbsorptionProofBytes({
+      sourceSha: input.sourceSha,
+      sourceTreeSha,
+      mainSha: input.mainSha,
+      mainTreeSha,
+      basis
     });
-    return { recovery, attempts };
-  } finally {
-    if (temporaryRepository !== null) {
-      rmSync(temporaryRepository, { recursive: true, force: true });
-    }
+    return Object.freeze({
+      sourceSha: input.sourceSha,
+      sourceTreeSha,
+      mainSha: input.mainSha,
+      mainTreeSha,
+      basis,
+      recoveryDigest: `sha256:${rawSha256Hex(proof)}` as const
+    });
+  });
+}
+
+async function assertLiveMainContains(
+  run: RecoveryGitRunner,
+  inventory: BranchLifecycleInventory,
+  mainSha: string
+): Promise<void> {
+  const root = inventory.repository.root;
+  const branch = inventory.repository.defaultBranch;
+  const candidates = [
+    { expected: inventory.main.localSha, ref: `refs/heads/${branch}` },
+    { expected: inventory.main.remoteSha, ref: `refs/remotes/${inventory.repository.remote}/${branch}` }
+  ];
+  const observed: string[] = [];
+  for (const { expected, ref } of candidates) {
+    if (expected === null) continue;
+    const actual = await requireRecoveryGitText(run, root, ['rev-parse', '--verify', ref], `Current main ${ref}`);
+    if (actual !== expected) throw new Error(`Current main ref changed after inventory: ${ref}`);
+    observed.push(actual);
+  }
+  for (const current of observed) {
+    if (await isNativeAncestor(run, root, mainSha, current)) return;
+  }
+  throw new Error('Absorbing main commit is not retained by a current main ref.');
+}
+
+function assertReviewedAbsorption(
+  inventory: BranchLifecycleInventory,
+  recovery: MainAbsorptionRecovery,
+  evidence: ClosedSupersessionEvidence | undefined
+): void {
+  if (evidence === undefined) throw new Error('Reviewed main absorption requires live authenticated review evidence.');
+  assertClosedSupersessionEvidence(evidence);
+  const review = evidence.review;
+  if (review.repository !== inventory.repository.fullName
+      || review.headSha !== recovery.sourceSha
+      || review.headTreeSha !== recovery.sourceTreeSha
+      || review.currentMainSha !== recovery.mainSha
+      || review.currentMainTreeSha !== recovery.mainTreeSha
+      || evidence.reference !== recovery.reviewReference
+      || evidence.receiptDigest !== recovery.reviewReceiptDigest) {
+    throw new Error('Authenticated supersession review differs from exact main absorption.');
   }
 }
 
-export function verifyRecoveryAuthorityLive(input: {
+async function assertMainAbsorptionLive(
+  run: RecoveryGitRunner,
+  inventory: BranchLifecycleInventory,
+  recovery: MainAbsorptionRecovery,
+  reviewEvidence?: ClosedSupersessionEvidence
+): Promise<string> {
+  assertDurableRecoveryProof(recovery, inventory);
+  const root = inventory.repository.root;
+  if (await exactCommitTree(run, root, recovery.sourceSha, 'Absorbed source') !== recovery.sourceTreeSha
+      || await exactCommitTree(run, root, recovery.mainSha, 'Absorbing main') !== recovery.mainTreeSha) {
+    throw new Error('Main absorption exact Git tree changed.');
+  }
+  await assertLiveMainContains(run, inventory, recovery.mainSha);
+  if (recovery.basis === 'native-ancestor') {
+    if (!await isNativeAncestor(run, root, recovery.sourceSha, recovery.mainSha)) {
+      throw new Error('Source commit is not an ancestor of absorbing main.');
+    }
+  } else if (recovery.basis === 'identical-tree') {
+    if (recovery.sourceTreeSha !== recovery.mainTreeSha) {
+      throw new Error('Source and absorbing main trees differ.');
+    }
+  } else {
+    assertReviewedAbsorption(inventory, recovery, reviewEvidence);
+  }
+  return `${recovery.basis}; source ${recovery.sourceSha}/${recovery.sourceTreeSha}; main ${recovery.mainSha}/${recovery.mainTreeSha}`;
+}
+
+function mainAbsorptionProof(recovery: MainAbsorptionRecovery): Buffer {
+  return mainAbsorptionProofBytes(recovery);
+}
+
+export async function createMainAbsorptionRecovery(input: {
   inventory: BranchLifecycleInventory;
-  recovery: BranchRecoveryAuthority;
-}): BranchCloseoutAttempt {
+  branch: string;
+  expectedSha: string;
+  mainSha: string;
+  basis: MainAbsorptionRecovery['basis'];
+  recoveryRoot?: string;
+  reviewEvidence?: ClosedSupersessionEvidence;
+}): Promise<{ recovery: BranchRecoveryAuthority; attempts: BranchCloseoutAttempt[] }> {
+  const { inventory, branch, expectedSha, mainSha, basis } = input;
+  assertGitBranchName(branch);
+  assertGitSha(expectedSha, 'absorbed source SHA');
+  assertGitSha(mainSha, 'absorbing main SHA');
+  if (basis !== 'native-ancestor' && basis !== 'identical-tree'
+      && basis !== 'reviewed-supersession') throw new Error('Main absorption basis is invalid.');
+  return withRecoveryGitRunner(inventory.repository.root, {
+    operation: 'create-main-absorption-recovery',
+    branch,
+    expectedSha,
+    mainSha,
+    basis
+  }, async (run) => {
+    const sourceTreeSha = await exactCommitTree(run, inventory.repository.root, expectedSha, 'Absorbed source');
+    const mainTreeSha = await exactCommitTree(run, inventory.repository.root, mainSha, 'Absorbing main');
+    const store = acquireBranchRecoveryStore({
+      repositoryRoot: inventory.repository.root,
+      commonDir: inventory.repository.commonDir,
+      worktreeRoots: inventory.worktrees.map(({ path: worktreePath }) => worktreePath),
+      recoveryRoot: input.recoveryRoot
+    });
+    let name: string | null = null;
+    let createdProof = false;
+    try {
+      const review = basis === 'reviewed-supersession' ? input.reviewEvidence : undefined;
+      const draft: MainAbsorptionRecovery = {
+        kind: 'main-absorption',
+        path: path.join(store.root.path, 'sec-branch-closeout-pending.main-absorption.json'),
+        sha256: `sha256:${'0'.repeat(64)}`,
+        verified: true,
+        verifyOutput: basis,
+        sourceSha: expectedSha,
+        sourceTreeSha,
+        mainSha,
+        mainTreeSha,
+        basis,
+        ...(review === undefined ? {} : {
+          reviewReference: review.reference,
+          reviewReceiptDigest: review.receiptDigest
+        })
+      };
+      const verifyOutput = await assertMainAbsorptionLive(run, inventory, draft, review);
+      const verified: MainAbsorptionRecovery = { ...draft, verifyOutput };
+      const bytes = mainAbsorptionProof(verified);
+      const digest = rawSha256Hex(bytes);
+      const identity = rawSha256Hex(JSON.stringify({ branch, digest }));
+      name = `sec-branch-closeout-${sanitizeFileSegment(branch)}-${identity}.main-absorption.json`;
+      const recovery: MainAbsorptionRecovery = {
+        ...verified,
+        path: path.join(store.root.path, name),
+        sha256: `sha256:${digest}`
+      };
+      const existing = store.read(name);
+      if (existing !== null) {
+        if (!Buffer.from(existing).equals(bytes)) {
+          throw new Error('Existing main absorption proof differs from exact retry identity.');
+        }
+        const retained = store.inspectFile(name);
+        if (retained === null || retained.kind !== 'file') {
+          throw new Error('Existing main absorption proof physical identity is absent.');
+        }
+      } else {
+        const published = store.publishExclusive({
+          name,
+          bytes,
+          validate: (actual) => {
+            if (!Buffer.from(actual).equals(bytes)) throw new Error('Main absorption proof publication changed.');
+          }
+        });
+        if (published.path !== recovery.path) throw new Error('Main absorption proof path changed.');
+        createdProof = true;
+      }
+      const attempt = await verifyRecoveryAuthorityLiveWithRunner(run, {
+        inventory,
+        recovery,
+        reviewEvidence: review
+      });
+      if (attempt.status !== 'success') throw new Error(attempt.detail);
+      return {
+        recovery,
+        attempts: [
+          { operation: 'recovery-create', status: 'success', detail: recovery.path },
+          attempt
+        ]
+      };
+    } catch (error) {
+      const proof = createdProof && name !== null ? store.inspectFile(name) : null;
+      if (proof !== null && name !== null) store.removeExact(name, proof);
+      if (store.createdByAcquisition) store.retireIfEmpty();
+      throw error;
+    }
+  });
+}
+
+async function verifyRecoveryAuthorityLiveWithRunner(
+  run: RecoveryGitRunner,
+  input: {
+    inventory: BranchLifecycleInventory;
+    recovery: BranchRecoveryAuthority;
+    reviewEvidence?: ClosedSupersessionEvidence;
+  }
+): Promise<BranchCloseoutAttempt> {
   const { inventory, recovery } = input;
   try {
-    assertDurableRecoveryAuthority(recovery, inventory);
+    assertDurableRecoveryProof(recovery, inventory);
+    if (recovery.kind === 'main-absorption') {
+      const parent = inspectNoFollowDirectoryChain(path.dirname(recovery.path), 'Main absorption recovery root').target;
+      const bytes = readNoFollowOrdinaryFile(parent, path.basename(recovery.path));
+      if (bytes === null) throw new Error('Main absorption proof is absent.');
+      const digest = `sha256:${rawSha256Hex(bytes)}`;
+      if (digest !== recovery.sha256 || !Buffer.from(bytes).equals(mainAbsorptionProof(recovery))) {
+        throw new Error('Main absorption proof digest or exact content changed.');
+      }
+      const output = await assertMainAbsorptionLive(run, inventory, recovery, input.reviewEvidence);
+      return { operation: 'recovery-verify', status: 'success', detail: `live main absorption ${recovery.sha256}; ${output}` };
+    }
     const bytes = readFileSync(recovery.path);
-    const digest = createHash('sha256').update(bytes).digest('hex');
+    const digest = rawSha256Hex(bytes);
     if (`sha256:${digest}` !== recovery.sha256) {
       throw new Error(
         `recovery bundle digest mismatch: expected ${recovery.sha256}, observed sha256:${digest}`
@@ -572,7 +1030,7 @@ export function verifyRecoveryAuthorityLive(input: {
     if (checksum !== expectedChecksum) {
       throw new Error('recovery checksum sidecar does not match the verified bundle');
     }
-    const verify = runRecoveryGit(inventory.repository.root, ['bundle', 'verify', recovery.path]);
+    const verify = await run(inventory.repository.root, ['bundle', 'verify', recovery.path]);
     const output = [
       verify.stdout.toString('utf8').trim(),
       verify.stderr.toString('utf8').trim()
@@ -594,4 +1052,16 @@ export function verifyRecoveryAuthorityLive(input: {
       detail: error instanceof Error ? error.message : String(error)
     };
   }
+}
+
+export async function verifyRecoveryAuthorityLive(input: {
+  inventory: BranchLifecycleInventory;
+  recovery: BranchRecoveryAuthority;
+  reviewEvidence?: ClosedSupersessionEvidence;
+}): Promise<BranchCloseoutAttempt> {
+  return withRecoveryGitRunner(input.inventory.repository.root, {
+    operation: 'verify-recovery-authority',
+    recoveryKind: input.recovery.kind,
+    recoveryDigest: input.recovery.sha256
+  }, (run) => verifyRecoveryAuthorityLiveWithRunner(run, input));
 }

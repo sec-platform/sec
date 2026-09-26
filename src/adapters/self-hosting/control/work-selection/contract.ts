@@ -1,11 +1,11 @@
 import { canonicalEquals, compareCodeUnits, deepFreeze, sha256 } from '../../../../contracts/canonical.ts';
 import type { MainHealthRoutingState } from '../main-health/contract.ts';
 
-export const SEC_WORK_SELECTION_INPUT_SCHEMA = 'sec-work-selection-input-v1' as const;
-const SEC_WORK_DECISION_SCHEMA = 'sec-work-decision-v1' as const;
-export const SEC_WORK_SELECTION_POLICY_REVISION = 'work-selection-policy-v1' as const;
+export const WORK_SELECTION_INPUT_SCHEMA = 'sec-work-selection-input-v1' as const;
+const WORK_DECISION_SCHEMA = 'sec-work-decision-v1' as const;
+export const WORK_SELECTION_POLICY_REVISION = 'work-selection-policy-v1' as const;
 
-export const SEC_WORK_PRIORITY_CLASSES = [
+export const WORK_PRIORITY_CLASSES = [
   'integrity-critical',
   'active-critical-path',
   'product-critical-path',
@@ -14,8 +14,8 @@ export const SEC_WORK_PRIORITY_CLASSES = [
   'defer'
 ] as const;
 
-export type SecWorkPriorityClass = (typeof SEC_WORK_PRIORITY_CLASSES)[number];
-type SecWorkDecisionStatus =
+export type WorkPriorityClass = (typeof WORK_PRIORITY_CLASSES)[number];
+type WorkDecisionStatus =
   | 'continue-active'
   | 'closeout'
   | 'reconcile'
@@ -23,21 +23,21 @@ type SecWorkDecisionStatus =
   | 'none'
   | 'unresolved'
   | 'human-escalation';
-export type SecWorkCandidateDecisionStatus =
+export type WorkCandidateDecisionStatus =
   | 'eligible'
   | 'rejected'
   | 'unresolved'
   | 'human-required';
-export type SecWorkDigest = `sha256:${string}`;
+export type WorkDigest = `sha256:${string}`;
 
-interface SecWorkSelectionIdentity {
+interface WorkSelectionIdentity {
   readonly exactMain: string;
-  readonly roadmapRevision: SecWorkDigest;
-  readonly candidateSetRevision: SecWorkDigest;
-  readonly selectionPolicyRevision: typeof SEC_WORK_SELECTION_POLICY_REVISION;
+  readonly roadmapRevision: WorkDigest;
+  readonly candidateSetRevision: WorkDigest;
+  readonly selectionPolicyRevision: typeof WORK_SELECTION_POLICY_REVISION;
 }
 
-export interface SecCurrentWorkLifecycle {
+export interface CurrentWorkLifecycle {
   readonly activeWorkId: string | null;
   readonly activeRef: string | null;
   readonly activeState: 'none' | 'incomplete' | 'complete' | 'unresolved';
@@ -50,26 +50,26 @@ export interface SecCurrentWorkLifecycle {
   readonly controlRef: string;
 }
 
-export interface SecWorkDependencyFact {
+export interface WorkDependencyFact {
   readonly ref: string;
   readonly status: 'satisfied' | 'unsatisfied' | 'unresolved';
 }
 
-export interface SecWorkCandidate {
+export interface WorkCandidate {
   readonly workId: string;
   readonly candidateRef: string;
   readonly currentSpecRef: string;
-  readonly currentSpecRevision: SecWorkDigest;
+  readonly currentSpecRevision: WorkDigest;
   readonly ownerRef: string | null;
   readonly kind: 'focused' | 'program' | 'maintenance' | 'diagnostic' | 'spike';
   readonly lifecycle: 'open' | 'already-in-main' | 'superseded' | 'deferred';
   readonly lifecycleRef: string;
-  readonly priorityClass: SecWorkPriorityClass;
+  readonly priorityClass: WorkPriorityClass;
   readonly priorityEvidenceRefs: readonly string[];
   readonly readiness: 'ready' | 'not-ready' | 'unresolved';
   readonly readinessRef: string;
-  readonly prerequisiteFacts: readonly SecWorkDependencyFact[];
-  readonly orderedAfterFacts: readonly SecWorkDependencyFact[];
+  readonly prerequisiteFacts: readonly WorkDependencyFact[];
+  readonly orderedAfterFacts: readonly WorkDependencyFact[];
   readonly conflictStatus:
     | 'clear'
     | 'write-conflict'
@@ -88,52 +88,52 @@ export interface SecWorkCandidate {
   readonly humanDecisionRef: string | null;
 }
 
-export interface SecWorkSelectionInput {
-  readonly schema: typeof SEC_WORK_SELECTION_INPUT_SCHEMA;
-  readonly identity: SecWorkSelectionIdentity;
-  readonly current: SecCurrentWorkLifecycle;
-  readonly candidates: readonly SecWorkCandidate[];
+export interface WorkSelectionInput {
+  readonly schema: typeof WORK_SELECTION_INPUT_SCHEMA;
+  readonly identity: WorkSelectionIdentity;
+  readonly current: CurrentWorkLifecycle;
+  readonly candidates: readonly WorkCandidate[];
 }
 
-interface SecWorkCandidateDecision {
+interface WorkCandidateDecision {
   readonly workId: string;
   readonly candidateRef: string;
   readonly currentSpecRef: string;
-  readonly currentSpecRevision: SecWorkDigest;
-  readonly status: SecWorkCandidateDecisionStatus;
+  readonly currentSpecRevision: WorkDigest;
+  readonly status: WorkCandidateDecisionStatus;
   readonly reasonCodes: readonly string[];
   readonly blockerRefs: readonly string[];
 }
 
-interface SecWorkSelectionPrecondition {
+interface WorkSelectionPrecondition {
   readonly workId: string;
   readonly currentSpecRef: string | null;
-  readonly currentSpecRevision: SecWorkDigest | null;
+  readonly currentSpecRevision: WorkDigest | null;
   readonly reasonCode: string;
   readonly blockerRef: string;
 }
 
-interface SecWorkCurrentSpecBinding {
+interface WorkCurrentSpecBinding {
   readonly workId: string;
   readonly currentSpecRef: string;
-  readonly currentSpecRevision: SecWorkDigest;
+  readonly currentSpecRevision: WorkDigest;
 }
 
-export interface SecWorkDecision {
-  readonly schema: typeof SEC_WORK_DECISION_SCHEMA;
-  readonly policyRevision: typeof SEC_WORK_SELECTION_POLICY_REVISION;
-  readonly inputDigest: SecWorkDigest;
-  readonly status: SecWorkDecisionStatus;
+export interface WorkDecision {
+  readonly schema: typeof WORK_DECISION_SCHEMA;
+  readonly policyRevision: typeof WORK_SELECTION_POLICY_REVISION;
+  readonly inputDigest: WorkDigest;
+  readonly status: WorkDecisionStatus;
   readonly selectedWorkId: string | null;
   readonly selectedCandidateRef: string | null;
   readonly selectedCurrentSpecRef: string | null;
-  readonly selectedCurrentSpecRevision: SecWorkDigest | null;
-  readonly currentSpecBindings: readonly SecWorkCurrentSpecBinding[];
+  readonly selectedCurrentSpecRevision: WorkDigest | null;
+  readonly currentSpecBindings: readonly WorkCurrentSpecBinding[];
   readonly blockedCandidateRefs: readonly string[];
   readonly reasonCodes: readonly string[];
-  readonly requiredPreconditions: readonly SecWorkSelectionPrecondition[];
-  readonly rejectionWitnesses: readonly SecWorkCandidateDecision[];
-  readonly decisionDigest: SecWorkDigest;
+  readonly requiredPreconditions: readonly WorkSelectionPrecondition[];
+  readonly rejectionWitnesses: readonly WorkCandidateDecision[];
+  readonly decisionDigest: WorkDigest;
 }
 
 const INPUT_KEYS = ['schema', 'identity', 'current', 'candidates'] as const;
@@ -156,10 +156,10 @@ const CANDIDATE_KEYS = [
 ] as const;
 const DEPENDENCY_KEYS = ['ref', 'status'] as const;
 
-const PRIORITY_ORDER = new Map<SecWorkPriorityClass, number>(
-  SEC_WORK_PRIORITY_CLASSES.map((priorityClass, index) => [priorityClass, index])
+const PRIORITY_ORDER = new Map<WorkPriorityClass, number>(
+  WORK_PRIORITY_CLASSES.map((priorityClass, index) => [priorityClass, index])
 );
-const FRESHNESS_ORDER = new Map<SecWorkCandidate['reproductionOrEvidenceFreshness'], number>([
+const FRESHNESS_ORDER = new Map<WorkCandidate['reproductionOrEvidenceFreshness'], number>([
   ['fresh', 0],
   ['stale', 1],
   ['missing', 2]
@@ -217,12 +217,12 @@ function exactMain(value: unknown, label: string): string {
   return parsed;
 }
 
-function digest(value: unknown, label: string): SecWorkDigest {
+function digest(value: unknown, label: string): WorkDigest {
   const parsed = text(value, label);
   if (!/^sha256:[0-9a-f]{64}$/u.test(parsed)) {
     fail(`${label} must be one lowercase SHA-256 digest.`);
   }
-  return parsed as SecWorkDigest;
+  return parsed as WorkDigest;
 }
 
 function enumeration<Value extends string>(
@@ -259,7 +259,7 @@ function sortedUniqueTexts(value: unknown, label: string): string[] {
   return parsed.sort(compareCodeUnits);
 }
 
-function parseDependencyFacts(value: unknown, label: string): SecWorkDependencyFact[] {
+function parseDependencyFacts(value: unknown, label: string): WorkDependencyFact[] {
   const facts = array(value, label).map((entry, index) => {
     const item = record(entry, `${label}[${index}]`);
     exactKeys(item, DEPENDENCY_KEYS, `${label}[${index}]`);
@@ -278,7 +278,7 @@ function parseDependencyFacts(value: unknown, label: string): SecWorkDependencyF
   return facts.sort((left, right) => compareCodeUnits(left.ref, right.ref));
 }
 
-function parseCandidate(value: unknown, index: number): SecWorkCandidate {
+function parseCandidate(value: unknown, index: number): WorkCandidate {
   const label = `candidates[${index}]`;
   const item = record(value, label);
   exactKeys(item, CANDIDATE_KEYS, label);
@@ -288,7 +288,7 @@ function parseCandidate(value: unknown, index: number): SecWorkCandidate {
   if (new Set(allDependencyRefs).size !== allDependencyRefs.length) {
     fail(`${label} repeats one dependency ref across prerequisiteFacts and orderedAfterFacts.`);
   }
-  const parsed: SecWorkCandidate = {
+  const parsed: WorkCandidate = {
     workId: token(item.workId, `${label}.workId`),
     candidateRef: reference(item.candidateRef, `${label}.candidateRef`),
     currentSpecRef: reference(item.currentSpecRef, `${label}.currentSpecRef`),
@@ -305,7 +305,7 @@ function parseCandidate(value: unknown, index: number): SecWorkCandidate {
       `${label}.lifecycle`
     ),
     lifecycleRef: reference(item.lifecycleRef, `${label}.lifecycleRef`),
-    priorityClass: enumeration(item.priorityClass, SEC_WORK_PRIORITY_CLASSES, `${label}.priorityClass`),
+    priorityClass: enumeration(item.priorityClass, WORK_PRIORITY_CLASSES, `${label}.priorityClass`),
     priorityEvidenceRefs: sortedUniqueTexts(item.priorityEvidenceRefs, `${label}.priorityEvidenceRefs`),
     readiness: enumeration(
       item.readiness,
@@ -372,7 +372,7 @@ function parseCandidate(value: unknown, index: number): SecWorkCandidate {
   return parsed;
 }
 
-function normalizeCandidates(value: unknown): SecWorkCandidate[] {
+function normalizeCandidates(value: unknown): WorkCandidate[] {
   const candidates = array(value, 'candidates').map(parseCandidate);
   if (new Set(candidates.map(({ workId }) => workId)).size !== candidates.length) {
     fail('candidates contains a duplicate workId.');
@@ -386,22 +386,22 @@ function normalizeCandidates(value: unknown): SecWorkCandidate[] {
   return candidates.sort((left, right) => compareCodeUnits(left.workId, right.workId));
 }
 
-export function computeSecWorkCandidateSetRevision(
-  candidates: readonly SecWorkCandidate[]
-): SecWorkDigest {
-  return sha256(normalizeCandidates(candidates)) as SecWorkDigest;
+export function computeWorkCandidateSetRevision(
+  candidates: readonly WorkCandidate[]
+): WorkDigest {
+  return sha256(normalizeCandidates(candidates)) as WorkDigest;
 }
 
-export function parseSecWorkSelectionInput(value: unknown): SecWorkSelectionInput {
+export function parseWorkSelectionInput(value: unknown): WorkSelectionInput {
   const input = record(value, 'input');
   exactKeys(input, INPUT_KEYS, 'input');
-  if (input.schema !== SEC_WORK_SELECTION_INPUT_SCHEMA) {
-    fail(`input.schema must be ${SEC_WORK_SELECTION_INPUT_SCHEMA}.`);
+  if (input.schema !== WORK_SELECTION_INPUT_SCHEMA) {
+    fail(`input.schema must be ${WORK_SELECTION_INPUT_SCHEMA}.`);
   }
   const identity = record(input.identity, 'identity');
   exactKeys(identity, IDENTITY_KEYS, 'identity');
-  if (identity.selectionPolicyRevision !== SEC_WORK_SELECTION_POLICY_REVISION) {
-    fail(`identity.selectionPolicyRevision must be ${SEC_WORK_SELECTION_POLICY_REVISION}.`);
+  if (identity.selectionPolicyRevision !== WORK_SELECTION_POLICY_REVISION) {
+    fail(`identity.selectionPolicyRevision must be ${WORK_SELECTION_POLICY_REVISION}.`);
   }
   const current = record(input.current, 'current');
   exactKeys(current, CURRENT_KEYS, 'current');
@@ -435,12 +435,12 @@ export function parseSecWorkSelectionInput(value: unknown): SecWorkSelectionInpu
     fail('identity.candidateSetRevision does not bind the normalized candidate set.');
   }
   return deepFreeze({
-    schema: SEC_WORK_SELECTION_INPUT_SCHEMA,
+    schema: WORK_SELECTION_INPUT_SCHEMA,
     identity: {
       exactMain: exactMain(identity.exactMain, 'identity.exactMain'),
       roadmapRevision: digest(identity.roadmapRevision, 'identity.roadmapRevision'),
       candidateSetRevision,
-      selectionPolicyRevision: SEC_WORK_SELECTION_POLICY_REVISION
+      selectionPolicyRevision: WORK_SELECTION_POLICY_REVISION
     },
     current: {
       activeWorkId,
@@ -471,15 +471,15 @@ export function parseSecWorkSelectionInput(value: unknown): SecWorkSelectionInpu
 }
 
 export interface CandidateEvaluation {
-  readonly candidate: SecWorkCandidate;
-  readonly decision: SecWorkCandidateDecision;
+  readonly candidate: WorkCandidate;
+  readonly decision: WorkCandidateDecision;
 }
 
 function uniqueSorted(values: readonly string[]): string[] {
   return [...new Set(values)].sort(compareCodeUnits);
 }
 
-export function evaluateSecWorkCandidate(candidate: SecWorkCandidate): CandidateEvaluation {
+export function evaluateWorkCandidate(candidate: WorkCandidate): CandidateEvaluation {
   const rejected: string[] = [];
   const unresolved: string[] = [];
   const reasons: string[] = [];
@@ -556,7 +556,7 @@ export function evaluateSecWorkCandidate(candidate: SecWorkCandidate): Candidate
   if (candidate.roadmapDirect) reasons.push('product-stage-direct');
   if (candidate.nearTermConsumerRef !== null) reasons.push('near-term-consumer-proven');
 
-  let status: SecWorkCandidateDecisionStatus;
+  let status: WorkCandidateDecisionStatus;
   if (rejected.length > 0) {
     status = 'rejected';
     reasons.push(...rejected);
@@ -584,7 +584,7 @@ export function evaluateSecWorkCandidate(candidate: SecWorkCandidate): Candidate
   };
 }
 
-function compareCandidateRank(left: SecWorkCandidate, right: SecWorkCandidate): number {
+function compareCandidateRank(left: WorkCandidate, right: WorkCandidate): number {
   const priority = PRIORITY_ORDER.get(left.priorityClass)! - PRIORITY_ORDER.get(right.priorityClass)!;
   if (priority !== 0) return priority;
   if (left.blockedReadySuccessorCount !== right.blockedReadySuccessorCount) {
@@ -603,13 +603,13 @@ function compareCandidateRank(left: SecWorkCandidate, right: SecWorkCandidate): 
 
 function candidatePreconditions(
   evaluations: readonly CandidateEvaluation[]
-): SecWorkSelectionPrecondition[] {
-  const projected: SecWorkSelectionPrecondition[] = [];
+): WorkSelectionPrecondition[] {
+  const projected: WorkSelectionPrecondition[] = [];
   const precondition = (
-    candidate: SecWorkCandidate,
+    candidate: WorkCandidate,
     reasonCode: string,
     blockerRef: string
-  ): SecWorkSelectionPrecondition => ({
+  ): WorkSelectionPrecondition => ({
     workId: candidate.workId,
     currentSpecRef: candidate.currentSpecRef,
     currentSpecRevision: candidate.currentSpecRevision,
@@ -650,8 +650,8 @@ function candidatePreconditions(
   ));
 }
 
-function currentPreconditions(input: SecWorkSelectionInput): SecWorkSelectionPrecondition[] {
-  const projected: SecWorkSelectionPrecondition[] = [];
+function currentPreconditions(input: WorkSelectionInput): WorkSelectionPrecondition[] {
+  const projected: WorkSelectionPrecondition[] = [];
   const workId = input.current.activeWorkId ?? 'current-control';
   if (
     (input.current.activeState === 'unresolved' || input.current.activeLegality === 'unresolved')
@@ -699,9 +699,9 @@ function currentPreconditions(input: SecWorkSelectionInput): SecWorkSelectionPre
 }
 
 function finalizeDecision(
-  input: SecWorkSelectionInput,
+  input: WorkSelectionInput,
   material: Omit<
-    SecWorkDecision,
+    WorkDecision,
     | 'schema'
     | 'policyRevision'
     | 'inputDigest'
@@ -710,7 +710,7 @@ function finalizeDecision(
     | 'currentSpecBindings'
     | 'decisionDigest'
   >
-): SecWorkDecision {
+): WorkDecision {
   const selectedCandidate = material.selectedCandidateRef === null
     ? null
     : input.candidates.find(({ candidateRef }) => candidateRef === material.selectedCandidateRef) ?? null;
@@ -718,9 +718,9 @@ function finalizeDecision(
     fail('selected candidate ref must resolve inside the bound candidate set.');
   }
   const withoutDigest = {
-    schema: SEC_WORK_DECISION_SCHEMA,
-    policyRevision: SEC_WORK_SELECTION_POLICY_REVISION,
-    inputDigest: sha256(input) as SecWorkDigest,
+    schema: WORK_DECISION_SCHEMA,
+    policyRevision: WORK_SELECTION_POLICY_REVISION,
+    inputDigest: sha256(input) as WorkDigest,
     selectedCurrentSpecRef: selectedCandidate?.currentSpecRef ?? null,
     selectedCurrentSpecRevision: selectedCandidate?.currentSpecRevision ?? null,
     currentSpecBindings: input.candidates.map((candidate) => ({
@@ -732,14 +732,14 @@ function finalizeDecision(
   };
   return deepFreeze({
     ...withoutDigest,
-    decisionDigest: sha256(withoutDigest) as SecWorkDigest
+    decisionDigest: sha256(withoutDigest) as WorkDigest
   });
 }
 
-export function compileSecWorkDecision(value: unknown): SecWorkDecision {
-  const input = parseSecWorkSelectionInput(value);
-  const emptyWitnesses: readonly SecWorkCandidateDecision[] = Object.freeze([]);
-  const emptyPreconditions: readonly SecWorkSelectionPrecondition[] = Object.freeze([]);
+export function compileWorkDecision(value: unknown): WorkDecision {
+  const input = parseWorkSelectionInput(value);
+  const emptyWitnesses: readonly WorkCandidateDecision[] = Object.freeze([]);
+  const emptyPreconditions: readonly WorkSelectionPrecondition[] = Object.freeze([]);
   if (
     input.current.activeState === 'incomplete'
     && input.current.activeLegality === 'legal'
@@ -801,7 +801,7 @@ export function compileSecWorkDecision(value: unknown): SecWorkDecision {
     });
   }
 
-  const evaluations = input.candidates.map(evaluateSecWorkCandidate);
+  const evaluations = input.candidates.map(evaluateWorkCandidate);
   const ordered = [...evaluations].sort((left, right) => (
     compareCandidateRank(left.candidate, right.candidate)
   ));
@@ -859,11 +859,11 @@ export function compileSecWorkDecision(value: unknown): SecWorkDecision {
   });
 }
 
-export function assertSecWorkDecision(
+export function assertWorkDecision(
   value: unknown,
   input: unknown
-): SecWorkDecision {
-  const compiled = compileSecWorkDecision(input);
+): WorkDecision {
+  const compiled = compileWorkDecision(input);
   if (!canonicalEquals(value, compiled)) {
     fail('decision does not equal the canonical decision for its bound input.');
   }

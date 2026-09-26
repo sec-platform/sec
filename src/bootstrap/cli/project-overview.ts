@@ -1,4 +1,4 @@
-import { platformCommand } from '../../adapters/verification/platform/sec-command.ts';
+import { platformCommand } from '../../adapters/verification/platform/command.ts';
 import { getWorkspacePaths } from '../../adapters/workspace-context.ts';
 import { readProjectOverviewArtifacts } from '../../adapters/workspace/project-overview-read.ts';
 import type { BuildProjectOverviewInput as ApplicationOverviewInput, ProjectOverview, ProjectOverviewWorkspace } from '../../application/project-overview.ts';

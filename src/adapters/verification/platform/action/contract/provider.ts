@@ -1,5 +1,5 @@
-import { createHash } from 'node:crypto';
 
+import { rawSha256Hex } from '../../../../../contracts/canonical.ts';
 import {
   encodeVerificationActionData,
   type VerificationActionKeyDigest
@@ -270,7 +270,7 @@ function fail(message: string): never {
 }
 
 function digest(value: unknown): `sha256:${string}` {
-  return `sha256:${createHash('sha256').update(encodeVerificationActionData(value)).digest('hex')}`;
+  return `sha256:${rawSha256Hex(encodeVerificationActionData(value))}`;
 }
 
 function assertDigest(value: unknown, label: string): asserts value is VerificationActionKeyDigest {

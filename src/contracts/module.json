@@ -1,0 +1,24 @@
+{
+  "importGraph": "runtime",
+  "externalEntrypoints": [],
+  "causalRelations": [
+    {
+      "subject": "git.branch-reference-name",
+      "relation": "declares",
+      "symbol": {
+        "path": "src/contracts/git-reference.ts",
+        "name": "assertGitBranchName"
+      },
+      "operation": null
+    },
+    {
+      "subject": "git.branch-reference-name",
+      "relation": "parses",
+      "symbol": {
+        "path": "src/contracts/git-reference.ts",
+        "name": "assertGitBranchName"
+      },
+      "operation": null
+    }
+  ]
+}

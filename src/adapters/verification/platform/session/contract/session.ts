@@ -8,9 +8,9 @@
  * owning modules.
  */
 
-import { createHash } from 'node:crypto';
 import { z } from 'zod';
 
+import { rawSha256Hex } from '../../../../../contracts/canonical.ts';
 import { encodeVerificationActionData } from '../../action/contract/action.ts';
 
 export const VERIFICATION_REGISTRY_PROJECTION_SCHEMA =
@@ -18,10 +18,10 @@ export const VERIFICATION_REGISTRY_PROJECTION_SCHEMA =
 export const VERIFICATION_FREEZE_SESSION_SCHEMA =
   'sec-verification-freeze-session-v1' as const;
 export const VERIFICATION_SESSION_SCHEMA = 'sec-verification-session-v2' as const;
-export const VERIFICATION_SESSION_RUNTIME_ENTRYPOINT_PATH =
-  'src/adapters/verification/platform/ci/runtime/verification-session-runtime.ts' as const;
-export const SEC_VERIFICATION_SESSION_IMPLEMENTATION_IDENTITY =
-  'src/adapters/verification/platform/ci/runtime/verification-session.ts' as const;
+export {
+  VERIFICATION_SESSION_IMPLEMENTATION_IDENTITY,
+  VERIFICATION_SESSION_RUNTIME_ENTRYPOINT_PATH
+} from './identity.ts';
 
 type VerificationManifestSource = 'default' | 'open-pr';
 
@@ -117,10 +117,10 @@ export function parseVerificationRegistryProjection(
 }
 
 function sessionDigest(value: Record<string, unknown>): `sha256:${string}` {
-  return `sha256:${createHash('sha256').update(encodeVerificationActionData(value)).digest('hex')}`;
+  return `sha256:${rawSha256Hex(encodeVerificationActionData(value))}`;
 }
 
-export function parseVerificationFreezeSessionV1(source: string): VerificationFreezeSession {
+export function parseVerificationFreezeSession(source: string): VerificationFreezeSession {
   const parsed = freezeSession.parse(JSON.parse(source) as unknown);
   const { sessionDigest: _sessionDigest, ...withoutDigest } = parsed;
   const expectedDigest = sessionDigest(withoutDigest);

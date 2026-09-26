@@ -1,20 +1,20 @@
 import { expect, test } from 'bun:test';
 
 import { rawSha256, sha256 } from '../../../contracts/canonical.ts';
-import { isSecRepositoryTestModulePath } from '../../../contracts/repository-test-path.ts';
+import { isRepositoryTestModulePath } from '../../../contracts/repository-test-path.ts';
 import {
   createSourceProgramCompilationOperation,
   SourceProgramCompilationInterruptedError
 } from './compilation-operation.ts';
 import type { SourceProgramSupersessionReceipt } from './contract.ts';
-import { compileRepositorySourceProgramModel } from './repository.ts';
+import { compileRepositoryModel } from './repository.ts';
 import { compileSourceProgramTestRewriteDispositions } from './test-disposition-decisions.ts';
 import {
   compileSourceProgramTestBaselineEvidence,
   compileSourceProgramTestValue,
   reconcileSourceProgramTestValueWithSupersession
 } from './test-value.ts';
-import { compileTypeScriptSourceProgramModel } from './typescript.ts';
+import { compileTypeScriptModel } from './typescript.ts';
 
 const repositoryRoot = process.cwd();
 const moduleMembership = Object.freeze({
@@ -47,7 +47,7 @@ function compileExactTypeScriptModel(files: readonly Readonly<{
   source: string;
   contentDigest: string;
 }>[]) {
-  return compileTypeScriptSourceProgramModel({
+  return compileTypeScriptModel({
     sourceRevision: sha256(files.map(({ path, contentDigest }) => ({ path, contentDigest }))),
     files,
     moduleMembership
@@ -66,7 +66,7 @@ function compile(
   }));
   const sourceRevision = sourceRevisionFor(files);
   const typeScriptModel = compileExactTypeScriptModel(sourceFiles);
-  const model = compileRepositorySourceProgramModel({
+  const model = compileRepositoryModel({
     sourceRevision,
     files: sourceFiles,
     moduleMembership,
@@ -83,7 +83,7 @@ function compile(
     files: sourceFiles,
     model,
     baselineTestPaths: options.baselineTestPaths ?? [
-      ...Object.keys(files).filter(isSecRepositoryTestModulePath),
+      ...Object.keys(files).filter(isRepositoryTestModulePath),
       ...missing
     ],
     baselineEvidence: options.baselineEvidence,

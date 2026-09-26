@@ -1,5 +1,5 @@
-import { createHash } from 'node:crypto';
 
+import { rawSha256Hex } from '../../../../contracts/canonical.ts';
 import { encodeVerificationActionData } from '../../../verification/platform/action/contract/action.ts';
 
 /** Content-integrity decision object, not a signature. Consumers independently verify producer transport and exact live main. */
@@ -75,7 +75,7 @@ function optionalText(value: unknown, label: string): string | null {
   return value === null ? null : text(value, label);
 }
 function hash(value: unknown): MainHealthDigest {
-  return `sha256:${createHash('sha256').update(encodeVerificationActionData(value)).digest('hex')}`;
+  return `sha256:${rawSha256Hex(encodeVerificationActionData(value))}`;
 }
 
 /**

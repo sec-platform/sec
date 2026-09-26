@@ -3,7 +3,7 @@ import { expect, test } from 'bun:test';
 import { CompilerError } from '../../src/compiler/errors.ts';
 import { buildEngineeringIR, type BuildEngineeringIRInput } from '../../src/compiler/ir/build-engineering-ir.ts';
 import { addFact, type FactInput } from '../../src/compiler/ir/ir-fact-store.ts';
-import { digest, semanticRevisionPayload } from '../../src/compiler/ir/ir-revision.ts';
+import { rawSha256Hex, semanticRevisionPayload } from '../../src/compiler/ir/ir-revision.ts';
 import { validateEngineeringIR } from '../../src/compiler/ir/validate-engineering-ir.ts';
 import { projectArchitectureView } from '../../src/compiler/projection/project-architecture-view.ts';
 import { summarizeFactAssertions } from '../../src/compiler/projection/semantic-view-utils.ts';
@@ -43,7 +43,7 @@ function semanticRevisionFor(
   ir: Pick<EngineeringIR, 'graphId' | 'appId' | 'entities' | 'scenarios'>,
   facts: readonly SemanticFact[]
 ): string {
-  return `sha256:${digest(semanticRevisionPayload(ir.graphId, ir.appId, ir.entities, facts, ir.scenarios))}`;
+  return `sha256:${rawSha256Hex(semanticRevisionPayload(ir.graphId, ir.appId, ir.entities, facts, ir.scenarios))}`;
 }
 
 function projectionInput(): BuildEngineeringIRInput {

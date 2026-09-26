@@ -5,10 +5,10 @@ import type {
   RetainedNoFollowSealedDirectoryGeneration
 } from './physical-no-follow.ts';
 import {
-  materializeRetainedSealedPhysicalExecutionTreeGeneration,
-  SealedPhysicalExecutionTreeResidueError,
-  type RetainedSealedPhysicalExecutionTreeGeneration,
-  type SealedPhysicalExecutionTreeResidue
+  materializeSealedExecutionTree,
+  SealedExecutionTreeResidueError,
+  type RetainedSealedExecutionTreeGeneration,
+  type SealedExecutionTreeResidue
 } from './sealed-execution-tree-generation.ts';
 
 const retainedTypeScriptExecutionGenerationBrand: unique symbol = Symbol(
@@ -29,12 +29,12 @@ export type RetainedTypeScriptExecutionGenerationCleanupReceipt = Readonly<{
 
 export class RetainedTypeScriptExecutionGenerationResidueError extends Error {
   readonly code = 'RUNTIME_PHYSICAL_TYPESCRIPT_EXECUTION_GENERATION_RESIDUE' as const;
-  readonly physicalResidues: readonly SealedPhysicalExecutionTreeResidue[];
+  readonly physicalResidues: readonly SealedExecutionTreeResidue[];
 
   constructor(
     message: string,
     cause: unknown,
-    physicalResidues: readonly SealedPhysicalExecutionTreeResidue[] = []
+    physicalResidues: readonly SealedExecutionTreeResidue[] = []
   ) {
     super(message, { cause });
     this.name = 'RetainedTypeScriptExecutionGenerationResidueError';
@@ -74,9 +74,9 @@ export function assertRetainedTypeScriptExecutionGeneration(
 export async function materializeRetainedTypeScriptExecutionGeneration(
   input: MaterializeRetainedTypeScriptExecutionGenerationInput
 ): Promise<RetainedTypeScriptExecutionGeneration> {
-  let physical: RetainedSealedPhysicalExecutionTreeGeneration | null = null;
+  let physical: RetainedSealedExecutionTreeGeneration | null = null;
   try {
-    physical = await materializeRetainedSealedPhysicalExecutionTreeGeneration({
+    physical = await materializeSealedExecutionTree({
       deadlineAtUnixMs: input.deadlineAtUnixMs,
       directoryNamePrefix: 'typecheck-generation-',
       filePublication: 'sealed-ephemeral',
@@ -111,7 +111,7 @@ export async function materializeRetainedTypeScriptExecutionGeneration(
             });
             return terminalReceipt;
           } catch (error) {
-            const residues = error instanceof SealedPhysicalExecutionTreeResidueError
+            const residues = error instanceof SealedExecutionTreeResidueError
               ? [error.residue]
               : [];
             throw new RetainedTypeScriptExecutionGenerationResidueError(
@@ -140,7 +140,7 @@ export async function materializeRetainedTypeScriptExecutionGeneration(
       failures.push(cleanupError);
     }
     const physicalResidues = Object.freeze(failures.flatMap((failure) => (
-      failure instanceof SealedPhysicalExecutionTreeResidueError ? [failure.residue] : []
+      failure instanceof SealedExecutionTreeResidueError ? [failure.residue] : []
     )));
     if (failures.length > 1 || physicalResidues.length > 0) {
       throw new RetainedTypeScriptExecutionGenerationResidueError(

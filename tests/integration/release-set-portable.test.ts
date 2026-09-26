@@ -4,7 +4,6 @@ import { createHash } from 'node:crypto';
 import fs from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { compareDocumentationPaths, documentationSourceDigest } from '../../src/contracts/documentation-source.ts';
 
 import {
   RELEASE_SET_MANIFEST,
@@ -17,7 +16,7 @@ import {
   PACKAGE_SOURCE_LAUNCHER_SCRIPT,
   packageArtifactLauncherScript
 } from '../../src/adapters/toolchain/runtime.ts';
-import { digest, sha256 } from '../../src/contracts/canonical.ts';
+import { sha256 } from '../../src/contracts/canonical.ts';
 
 function command(root: string, executable: string, args: readonly string[]) {
   const result = spawnSync(executable, [...args], { cwd: root, encoding: 'utf8', windowsHide: true });
@@ -95,20 +94,20 @@ test('release set is self-contained, relocatable and documentation-exact', async
       await write(root, `${relative.replaceAll('\\', '/')}/fixture.txt`, 'runtime-resource\n');
     }
 
-    const readme = await write(root, 'README.md', '# Fixture docs\n');
-    const reuse = await fs.readFile(path.join(root, 'REUSE.toml'));
-    const license = await fs.readFile(path.join(root, 'LICENSE'));
-    const members = [
-      { path: 'LICENSE', bytes: license.byteLength, sha256: digest(license) },
-      { path: 'README.md', bytes: readme.byteLength, sha256: digest(readme) },
-      { path: 'REUSE.toml', bytes: reuse.byteLength, sha256: digest(reuse) }
-    ];
-    const boundaryBytes = await write(root, '.documentation/baseline.json', `${JSON.stringify({
+    await write(root, 'README.md', '# Fixture docs\n');
+    await write(root, 'docs/产品/产品要求与工作约束.md', [
+      '<a id="req001"></a>',
+      '',
+      '### REQ001｜Fixture requirement',
+      'fixture requirement body',
+      ''
+    ].join('\n'));
+    await write(root, '.documentation/baseline.json', `${JSON.stringify({
       schema: 'sec.documentation-baseline/2',
       source_root: '..',
-      source_roots: ['.documentation', 'README.md', 'LICENSE', 'REUSE.toml'],
+      source_roots: ['.documentation', 'README.md', 'LICENSE', 'REUSE.toml', 'docs'],
       source_manifest: 'source-manifest.json',
-      audited_namespaces: ['.documentation'],
+      audited_namespaces: ['.documentation', 'docs'],
       non_documentation_roots: [],
       excluded_from_source_hash: [
         '.documentation/figures.json', '.documentation/requirements.json', '.documentation/source-manifest.json'
@@ -119,15 +118,13 @@ test('release set is self-contained, relocatable and documentation-exact', async
       scope: 'fixture',
       authority_limit: 'fixture'
     }, null, 2)}\n`);
-    members.push({ path: '.documentation/baseline.json', bytes: boundaryBytes.byteLength, sha256: digest(boundaryBytes) });
-    members.sort((a, b) => compareDocumentationPaths(a.path, b.path));
-    const sourceSetSha256 = documentationSourceDigest(members);
-    await write(root, '.documentation/source-manifest.json', `${JSON.stringify({
-      schema: 'sec.documentation-source-manifest/2', source_set_sha256: sourceSetSha256, members
-    }, null, 2)}\n`);
 
     command(root, 'git', ['add', '--all']);
     command(root, 'git', ['commit', '--quiet', '-m', 'fixture']);
+    await expect(fs.lstat(path.join(root, '.documentation', 'source-manifest.json')))
+      .rejects.toMatchObject({ code: 'ENOENT' });
+    await expect(fs.lstat(path.join(root, '.documentation', 'requirements.json')))
+      .rejects.toMatchObject({ code: 'ENOENT' });
     const receipt = await buildReleaseSet(root, destination);
     expect(receipt.cleanupFindings).toEqual([]);
     expect(receipt.publicationStatus).toBe('accepted');
@@ -141,6 +138,19 @@ test('release set is self-contained, relocatable and documentation-exact', async
       sourceCommit: receipt.sourceCommit,
       sourceTree: receipt.sourceTree
     });
+    const generatedSourceManifest = JSON.parse(await fs.readFile(
+      path.join(destination, 'documentation', '.documentation', 'source-manifest.json'), 'utf8'
+    ));
+    expect(generatedSourceManifest.members.map((member: { path: string }) => member.path))
+      .toContain('docs/产品/产品要求与工作约束.md');
+    const generatedRequirements = JSON.parse(await fs.readFile(
+      path.join(destination, 'documentation', '.documentation', 'requirements.json'), 'utf8'
+    ));
+    expect(generatedRequirements.items.map((item: { id: string }) => item.id)).toEqual(['REQ001']);
+    await expect(fs.lstat(path.join(root, '.documentation', 'source-manifest.json')))
+      .rejects.toMatchObject({ code: 'ENOENT' });
+    await expect(fs.lstat(path.join(root, '.documentation', 'requirements.json')))
+      .rejects.toMatchObject({ code: 'ENOENT' });
     await expect(fs.lstat(path.join(destination, 'runtime', 'node_modules')))
       .rejects.toMatchObject({ code: 'ENOENT' });
     const portablePackage = JSON.parse(await fs.readFile(

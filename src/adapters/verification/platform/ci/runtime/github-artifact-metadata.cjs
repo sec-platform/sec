@@ -1,7 +1,7 @@
 'use strict';
 
-const CodexDevelopmentGitHubArtifactMaxBytes = 5_242_880;
-const CodexDevelopmentGitHubArtifactSafetyWindowMs = 24 * 60 * 60 * 1_000;
+const gitHubArtifactMaxBytes = 5_242_880;
+const gitHubArtifactSafetyWindowMs = 24 * 60 * 60 * 1_000;
 const SHA256_DIGEST = /^sha256:[0-9a-f]{64}$/;
 
 function canonicalUtcTimestamp(value, label) {
@@ -30,14 +30,14 @@ function canonicalizeGitHubArtifactMetadata(value, options) {
   }
   if (value.expired !== false) throw new Error(`${label} must be explicitly unexpired.`);
   const expiresAt = canonicalUtcTimestamp(value.expires_at, `${label}.expires_at`);
-  if (new Date(expiresAt).getTime() - checkedAtMs < CodexDevelopmentGitHubArtifactSafetyWindowMs) {
+  if (new Date(expiresAt).getTime() - checkedAtMs < gitHubArtifactSafetyWindowMs) {
     throw new Error(`${label} is inside the 24-hour safety window.`);
   }
   if (!Number.isSafeInteger(value.size_in_bytes) || value.size_in_bytes <= 0) {
     throw new Error(`${label}.size_in_bytes must be a positive safe integer.`);
   }
-  if (value.size_in_bytes > CodexDevelopmentGitHubArtifactMaxBytes) {
-    throw new Error(`${label}.size_in_bytes exceeds the V1 limit.`);
+  if (value.size_in_bytes > gitHubArtifactMaxBytes) {
+    throw new Error(`${label}.size_in_bytes exceeds the artifact size limit.`);
   }
   return {
     id: value.id,
@@ -50,7 +50,7 @@ function canonicalizeGitHubArtifactMetadata(value, options) {
 }
 
 module.exports = {
-  CodexDevelopmentGitHubArtifactMaxBytesV1: CodexDevelopmentGitHubArtifactMaxBytes,
-  CodexDevelopmentGitHubArtifactSafetyWindowMsV1: CodexDevelopmentGitHubArtifactSafetyWindowMs,
-  canonicalizeGitHubArtifactMetadataV1: canonicalizeGitHubArtifactMetadata
+  gitHubArtifactMaxBytes,
+  gitHubArtifactSafetyWindowMs,
+  canonicalizeGitHubArtifactMetadata
 };

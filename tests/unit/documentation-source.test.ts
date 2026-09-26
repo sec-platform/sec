@@ -1,5 +1,5 @@
 import { expect, test } from 'bun:test';
-import { digest } from '../../src/contracts/canonical.ts';
+import { rawSha256Hex } from '../../src/contracts/canonical.ts';
 import {
   compareDocumentationPaths, DOCUMENTATION_BASELINE, DOCUMENTATION_NON_SOURCE,
   documentationSourceDigest, parseDocumentationSourceContract
@@ -15,8 +15,8 @@ function fixture() {
     scope: 'Byte identity only', authority_limit: 'Not approval'
   }));
   const members = [
-    { path: DOCUMENTATION_BASELINE, bytes: baseline.byteLength, sha256: digest(baseline) },
-    { path: 'docs/main.md', bytes: 0, sha256: digest('') }
+    { path: DOCUMENTATION_BASELINE, bytes: baseline.byteLength, sha256: rawSha256Hex(baseline) },
+    { path: 'docs/main.md', bytes: 0, sha256: rawSha256Hex('') }
   ];
   const manifest = { schema: 'sec.documentation-source-manifest/2', members,
     source_set_sha256: documentationSourceDigest(members) };
@@ -42,7 +42,7 @@ test('boundary changes cannot hide behind unchanged member names', () => {
 test('cache and index bytes cannot be promoted into authoritative members', () => {
   for (const path of DOCUMENTATION_NON_SOURCE) {
     const f = fixture();
-    f.manifest.members.push({ path, bytes: 0, sha256: digest('') });
+    f.manifest.members.push({ path, bytes: 0, sha256: rawSha256Hex('') });
     f.manifest.members.sort((a, b) => compareDocumentationPaths(a.path, b.path));
     f.manifest.source_set_sha256 = documentationSourceDigest(f.manifest.members);
     expect(() => parseDocumentationSourceContract(f.baseline, bytes(f.manifest))).toThrow('member');
