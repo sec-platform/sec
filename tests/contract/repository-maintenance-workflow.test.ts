@@ -45,14 +45,21 @@ test('repository maintenance workflow exposes one maintainer-only lifecycle trig
     'persist-credentials': false
   });
 
+  const install = retire.steps.find((step: any) =>
+    step.name === 'Install maintenance dependencies from frozen lock');
   const execute = retire.steps.find((step: any) =>
     step.name === 'Execute exact repository maintenance request');
+  expect(install.run).toBe('bun install --frozen-lockfile --ignore-scripts');
+  expect(retire.steps.indexOf(install)).toBeLessThan(retire.steps.indexOf(execute));
   expect(execute.run).toBe(
     'bun src/adapters/self-hosting/control/repository-maintenance/repository-maintenance.ts --json'
   );
   expect(execute.env.GH_TOKEN).toBe('${{ github.token }}');
   expect(execute.env.SEC_MAINTENANCE_REQUEST_JSON)
     .toBe('${{ github.event.comment.body }}');
+  expect(execute.env.SEC_BRANCH_RECOVERY_ROOT).toBeUndefined();
+  const upload = retire.steps.find((step: any) => step.name === 'Upload exact ref recovery');
+  expect(upload.with.path).toBe('${{ github.workspace }}/../sec-recovery');
 });
 
 test('privileged repository maintenance runtime is part of the causal TCB policy', () => {
