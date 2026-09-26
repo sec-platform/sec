@@ -131,6 +131,17 @@ function unavailable(
   throw new ActivationUnavailableError(reasonCode, detail);
 }
 
+function requiredHostedHeadRef(): string {
+  const value = process.env.SEC_ACTIVATION_HEAD_REF;
+  if (value === undefined) {
+    throw new ActivationUnavailableError(
+      'activation-issuer-unavailable',
+      'SEC_ACTIVATION_HEAD_REF'
+    );
+  }
+  return value;
+}
+
 function guarded<T>(
   reasonCode: ActivationReasonCode,
   operation: () => T
@@ -1215,8 +1226,7 @@ async function produceHosted(input: Readonly<{
     unavailable('activation-stale', 'request-manifest-binding-drift');
   }
   const binding = workBinding(decision, control.manifest, request.phase);
-  const hostedHeadRef = process.env.SEC_ACTIVATION_HEAD_REF;
-  if (hostedHeadRef === undefined) unavailable('activation-issuer-unavailable', 'SEC_ACTIVATION_HEAD_REF');
+  const hostedHeadRef = requiredHostedHeadRef();
   const pullRequest = await exactPullRequestEntry(decision, request, hostedHeadRef, candidateRoot);
   const records = await changedRecordsBetween(candidateRoot, request.expectedBaseSha, request.expectedHeadSha);
   const paths = changedPaths(records);
