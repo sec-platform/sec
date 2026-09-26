@@ -102,6 +102,7 @@
       },
       "consumerSupport": {
         "consumers": [
+          "control.repository-maintenance",
           "verification.platform-ci"
         ]
       },

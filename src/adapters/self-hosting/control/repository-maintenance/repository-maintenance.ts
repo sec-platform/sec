@@ -9,6 +9,10 @@ import {
   withGitHubApiBranchCloseoutWriteSession
 } from '../../../providers/github-api/operation-session.ts';
 import { retireExactRemoteRefs } from '../branch-lifecycle/exact-ref-retirement.ts';
+import {
+  retireExactIssueComment,
+  retireMaintenanceTriggerComment
+} from './comment-retirement.ts';
 import type { MaintenanceRequest } from './contract.ts';
 import {
   assertHostedRepositoryMaintenanceIdentity,
@@ -16,6 +20,15 @@ import {
 } from './hosted-admission.ts';
 
 export { parseRepositoryMaintenanceRequest } from './contract.ts';
+
+function positiveEnvironmentInteger(value: string | undefined, label: string): number {
+  if (value === undefined || !/^[1-9][0-9]*$/u.test(value)) {
+    throw new Error(`${label} must be one positive integer`);
+  }
+  const parsed = Number(value);
+  if (!Number.isSafeInteger(parsed)) throw new Error(`${label} exceeds the safe integer range`);
+  return parsed;
+}
 
 export async function executeRepositoryMaintenance(input: Readonly<{
   repositoryRoot: string;
@@ -77,15 +90,31 @@ export async function executeRepositoryMaintenance(input: Readonly<{
     }
   });
 
+  const triggeringCommentId = positiveEnvironmentInteger(
+    environment.SEC_MAINTENANCE_COMMENT_ID,
+    'SEC_MAINTENANCE_COMMENT_ID'
+  );
   const results: unknown[] = [];
   for (const operation of input.request.operations) {
+    if (operation.kind === 'exact-ref-retirement') {
+      results.push(Object.freeze({
+        kind: operation.kind,
+        ...(await retireExactRemoteRefs({
+          repositoryRoot,
+          repository: input.request.repository,
+          expectedMainSha: input.request.expectedMainSha,
+          retirement: operation.retirement
+        }))
+      }));
+      continue;
+    }
     results.push(Object.freeze({
       kind: operation.kind,
-      ...(await retireExactRemoteRefs({
+      ...(await retireExactIssueComment({
         repositoryRoot,
         repository: input.request.repository,
-        expectedMainSha: input.request.expectedMainSha,
-        retirement: operation.retirement
+        retirement: operation.retirement,
+        triggeringCommentId
       }))
     }));
   }
@@ -98,10 +127,32 @@ export async function executeRepositoryMaintenance(input: Readonly<{
 }
 
 export async function repositoryMaintenanceCli(argv: readonly string[]): Promise<string> {
-  if (argv.length > 1 || (argv.length === 1 && argv[0] !== '--json')) {
-    throw new Error('usage: repository-maintenance [--json]');
+  if (argv.length > 1
+      || (argv.length === 1 && argv[0] !== '--json' && argv[0] !== 'retire-trigger')) {
+    throw new Error('usage: repository-maintenance [--json] | retire-trigger');
   }
   const request = parseHostedRepositoryMaintenanceRequest(process.env);
+  if (argv.length === 1 && argv[0] === 'retire-trigger') {
+    const issueNumber = positiveEnvironmentInteger(
+      process.env.SEC_MAINTENANCE_ISSUE_NUMBER,
+      'SEC_MAINTENANCE_ISSUE_NUMBER'
+    );
+    const commentId = positiveEnvironmentInteger(
+      process.env.SEC_MAINTENANCE_COMMENT_ID,
+      'SEC_MAINTENANCE_COMMENT_ID'
+    );
+    const exactBody = process.env.SEC_MAINTENANCE_REQUEST_JSON;
+    if (exactBody === undefined) throw new Error('SEC_MAINTENANCE_REQUEST_JSON is absent');
+    await retireMaintenanceTriggerComment({
+      repositoryRoot: process.cwd(),
+      repository: request.repository,
+      request,
+      commentId,
+      issueNumber,
+      exactBody
+    });
+    return JSON.stringify({ status: 'retired-trigger', commentId });
+  }
   const result = await executeRepositoryMaintenance({
     repositoryRoot: process.cwd(),
     request

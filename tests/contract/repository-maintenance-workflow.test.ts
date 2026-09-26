@@ -16,7 +16,7 @@ test('repository maintenance workflow exposes one maintainer-only lifecycle trig
   expect(workflow.on).toEqual({ issue_comment: { types: ['created'] } });
   expect(workflow.permissions).toEqual({
     contents: 'write',
-    issues: 'read',
+    issues: 'write',
     'pull-requests': 'read'
   });
   expect(workflow.concurrency).toEqual({
@@ -51,21 +51,41 @@ test('repository maintenance workflow exposes one maintainer-only lifecycle trig
     step.name === 'Execute exact repository maintenance request');
   expect(install.run).toBe('bun install --frozen-lockfile --ignore-scripts');
   expect(retire.steps.indexOf(install)).toBeLessThan(retire.steps.indexOf(execute));
-  expect(execute.run).toBe(
+  expect(execute.shell).toBe('bash');
+  expect(execute.run).toContain('set -euo pipefail');
+  expect(execute.run).toContain('sec-repository-maintenance-request.json');
+  expect(execute.run).toContain('sec-repository-maintenance-result.json');
+  expect(execute.run).toContain(
     'bun src/adapters/self-hosting/control/repository-maintenance/repository-maintenance.ts --json'
   );
+  expect(execute.run).toContain('| tee');
   expect(execute.env.GH_TOKEN).toBe('${{ github.token }}');
   expect(execute.env.SEC_MAINTENANCE_REQUEST_JSON)
     .toBe('${{ github.event.comment.body }}');
   expect(execute.env.SEC_BRANCH_RECOVERY_ROOT).toBeUndefined();
-  const stage = retire.steps.find((step: any) => step.name === 'Stage exact ref recovery');
-  const upload = retire.steps.find((step: any) => step.name === 'Upload exact ref recovery');
+  const stage = retire.steps.find((step: any) =>
+    step.name === 'Stage repository maintenance receipt');
+  const upload = retire.steps.find((step: any) =>
+    step.name === 'Upload repository maintenance receipt');
+  const retireTrigger = retire.steps.find((step: any) =>
+    step.name === 'Retire maintenance trigger comment');
   expect(stage.if).toBe('always()');
   expect(stage.run).toContain('recovery_root="$(dirname "$GITHUB_WORKSPACE")/sec-recovery"');
-  expect(stage.run).toContain('artifact_root="$RUNNER_TEMP/sec-repository-maintenance-recovery"');
+  expect(stage.run).toContain('artifact_root="$RUNNER_TEMP/sec-repository-maintenance-receipt"');
+  expect(stage.run).toContain('sec-repository-maintenance-request.json');
+  expect(stage.run).toContain('sec-repository-maintenance-result.json');
   expect(retire.steps.indexOf(stage)).toBeLessThan(retire.steps.indexOf(upload));
   expect(upload.if).toBe('always()');
-  expect(upload.with.path).toBe('${{ runner.temp }}/sec-repository-maintenance-recovery');
+  expect(upload.with.path).toBe('${{ runner.temp }}/sec-repository-maintenance-receipt');
+  expect(upload.with['if-no-files-found']).toBe('error');
+  expect(upload.with['retention-days']).toBe(30);
+  expect(retire.steps.indexOf(upload)).toBeLessThan(retire.steps.indexOf(retireTrigger));
+  expect(retireTrigger.if).toBe('success()');
+  expect(retireTrigger.run).toBe(
+    'bun src/adapters/self-hosting/control/repository-maintenance/repository-maintenance.ts retire-trigger'
+  );
+  expect(retireTrigger.env.GH_TOKEN).toBe('${{ github.token }}');
+  expect(retireTrigger.env.SEC_MAINTENANCE_COMMENT_ID).toBe('${{ github.event.comment.id }}');
 });
 
 test('privileged repository maintenance runtime is part of the causal TCB policy', () => {
