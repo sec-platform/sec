@@ -1,5 +1,5 @@
 import {
-  authorizeBranchCloseout,
+  evaluateBranchCloseoutPolicy,
   createBranchCloseoutReceipt
 } from './branch-closeout-contract.ts';
 import {
@@ -11,7 +11,7 @@ import {
   type PreparedBranchCloseoutEnvelope
 } from './branch-closeout.ts';
 import {
-  assertDurableRecoveryAuthority,
+  assertDurableRecoveryProof,
   assertGitBranchName,
   assertGitSha,
   branchLifecycleDigest
@@ -427,7 +427,7 @@ function exactCurrentBlockers(input: {
     blockers.push('remote branch is absent while the exact PR remains open');
   }
   try {
-    assertDurableRecoveryAuthority(preparation.recovery, inventory);
+    assertDurableRecoveryProof(preparation.recovery, inventory);
     if (preparation.recovery.kind === 'main-absorption') {
       const recovery = preparation.recovery;
       if (recovery.basis === 'reviewed-supersession') {
@@ -494,7 +494,7 @@ export function compileClosedUnmergedCloseoutOperation(input: {
   if (preparation.preparationDigest !== input.prepared.preparation.preparationDigest) {
     blockers.push('preparation digest changed');
   }
-  const authorization = authorizeBranchCloseout({
+  const authorization = evaluateBranchCloseoutPolicy({
     preparation,
     request: closeoutRequest(evidence),
     before: input.prepared.before,
@@ -722,11 +722,17 @@ async function observeExactInventory(
     ? observation.value : blocked(operation, stage, [live.detail]);
 }
 
-function currentAuthorization(
+/**
+ * Re-evaluate the pure branch-closeout policy against a fresh inventory.
+ * The policy evaluator is invoked unconditionally here; callers branch only on
+ * its returned decision and never use remote input to decide whether authority
+ * validation itself runs.
+ */
+function currentCloseoutDecision(
   operation: ClosedUnmergedCloseoutOperation,
   inventory: BranchLifecycleInventory
 ): BranchCloseoutAuthorization {
-  return authorizeBranchCloseout({ preparation: operation.prepared.preparation,
+  return evaluateBranchCloseoutPolicy({ preparation: operation.prepared.preparation,
     request: closeoutRequest(operation.evidence), before: operation.prepared.before,
     current: inventory, expectedHeadTreeSha: operation.evidence.headTreeSha });
 }
@@ -783,7 +789,7 @@ function terminalConvergenceBlockers(input: Readonly<{
     }
   }
   try {
-    assertDurableRecoveryAuthority(preparation.recovery, inventory);
+    assertDurableRecoveryProof(preparation.recovery, inventory);
   } catch (error) {
     blockers.push(error instanceof Error ? error.message : String(error));
   }
@@ -888,7 +894,7 @@ export async function executeClosedUnmergedCloseoutOperation(input: {
     const beforeStart = await observeExactInventory(operation, adapter,
       'effect-start-precondition', ['closed']);
     if (isExecutionResult(beforeStart)) return beforeStart;
-    const startAuthorization = currentAuthorization(operation, beforeStart);
+    const startAuthorization = currentCloseoutDecision(operation, beforeStart);
     if (startAuthorization.blockers.length > 0) {
       return blocked(operation, 'effect-start-precondition', startAuthorization.blockers);
     }
@@ -922,7 +928,7 @@ export async function executeClosedUnmergedCloseoutOperation(input: {
   let inventory = await observeExactInventory(operation, adapter,
     'remote-delete-precondition', ['closed']);
   if (isExecutionResult(inventory)) return inventory;
-  let authorization = currentAuthorization(operation, inventory);
+  let authorization = currentCloseoutDecision(operation, inventory);
   if (authorization.blockers.length > 0) {
     return blocked(operation, 'remote-delete-authorization', authorization.blockers);
   }
@@ -954,7 +960,7 @@ export async function executeClosedUnmergedCloseoutOperation(input: {
 
   inventory = await observeExactInventory(operation, adapter, 'prune-precondition', ['closed']);
   if (isExecutionResult(inventory)) return inventory;
-  authorization = currentAuthorization(operation, inventory);
+  authorization = currentCloseoutDecision(operation, inventory);
   if (authorization.blockers.length > 0) {
     return blocked(operation, 'prune-authorization', authorization.blockers);
   }
@@ -978,7 +984,7 @@ export async function executeClosedUnmergedCloseoutOperation(input: {
 
   inventory = await observeExactInventory(operation, adapter, 'local-delete-precondition', ['closed']);
   if (isExecutionResult(inventory)) return inventory;
-  authorization = currentAuthorization(operation, inventory);
+  authorization = currentCloseoutDecision(operation, inventory);
   if (authorization.blockers.length > 0) {
     return blocked(operation, 'local-delete-authorization', authorization.blockers);
   }
@@ -1022,7 +1028,7 @@ export async function executeClosedUnmergedCloseoutOperation(input: {
       && finalInventory.localBranches.some(({ branch }) => branch === operation.evidence.branch)) {
     return preserve(operation, 'readback', 'local branch remains after exact CAS deletion');
   }
-  const terminalAuthorization = currentAuthorization(operation, finalInventory);
+  const terminalAuthorization = currentCloseoutDecision(operation, finalInventory);
   if (terminalAuthorization.blockers.length > 0) {
     return blocked(operation, 'terminal-publication-authorization', terminalAuthorization.blockers);
   }

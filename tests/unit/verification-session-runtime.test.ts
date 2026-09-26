@@ -43,7 +43,7 @@ import type {
   GitHubWorkflowRunObservation
 } from '../../src/adapters/providers/github-api/contract.ts';
 import {
-  authorizeBranchCloseout,
+  evaluateBranchCloseoutPolicy,
   BRANCH_CLOSEOUT_RECOVERY_ARTIFACT_FILE_NAME,
   createBranchCloseoutOperationBinding,
   createBranchCloseoutPreparation,
@@ -4435,7 +4435,7 @@ test('rehydrated prepared envelope preserves remote history and composes with cl
   expect(JSON.stringify(rehydrated.foreignWorktreeObservations)).not.toContain(remoteWorktreePath);
   expect(rehydrated.attempts).toEqual(local.attempts);
   expect(rehydrated.preparation.preparationDigest).toBe(remotePreparation.preparationDigest);
-  const authorization = authorizeBranchCloseout({
+  const authorization = evaluateBranchCloseoutPolicy({
     preparation: rehydrated.preparation,
     request: { capability: BRANCH_REF_CLOSEOUT_CAPABILITY, disposition: 'merged',
       durableGoal: { kind: 'main', reference: `main@${'9'.repeat(40)}` } },

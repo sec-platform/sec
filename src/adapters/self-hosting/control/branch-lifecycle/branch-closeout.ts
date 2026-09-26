@@ -731,7 +731,3 @@ export async function prepareMergedPullRequestCloseout(
     pullRequestNumber: input.number
   });
 }
-
-export function loadPreparedBranchCloseoutEnvelope(filePath: string): PreparedBranchCloseoutEnvelope {
-  return parsePreparedBranchCloseoutEnvelope(readFileSync(path.resolve(filePath), 'utf8'));
-}

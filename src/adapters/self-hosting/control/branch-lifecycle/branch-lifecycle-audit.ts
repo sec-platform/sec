@@ -362,7 +362,12 @@ export function isPathWithin(candidate: string, parent: string): boolean {
   );
 }
 
-export function assertDurableRecoveryAuthority(
+/**
+ * Validate the durable recovery proof carried by a closeout preparation.
+ * This is structural/evidentiary validation only; it does not issue an
+ * execution capability or authenticate a principal.
+ */
+export function assertDurableRecoveryProof(
   recovery: BranchRecoveryAuthority,
   inventory: BranchLifecycleInventory
 ): void {

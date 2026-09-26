@@ -66,7 +66,7 @@ import { resolveWorkspaceRuntimeRoots } from '../../../../runtime-state/workspac
 import { acquireRuntimeJournalAuthority } from '../../../../runtime-state/workspace-state/physical-authority.ts';
 import {
   BRANCH_CLOSEOUT_RECOVERY_ARTIFACT_FILE_NAME,
-  authorizeBranchCloseout,
+  evaluateBranchCloseoutPolicy,
   createBranchCloseoutOperationBinding,
   createBranchCloseoutOperationJournal,
   createBranchCloseoutOperationReceipt,
@@ -2452,7 +2452,7 @@ async function authorizeHostedCloseoutEffectUnderLease(input: Readonly<{
   foreignWorktreeObservationDigests: readonly `sha256:${string}`[];
 }>): Promise<Readonly<{
   current: BranchLifecycleInventory;
-  authorization: ReturnType<typeof authorizeBranchCloseout>;
+  authorization: ReturnType<typeof evaluateBranchCloseoutPolicy>;
 }>> {
   const preparation = input.prepared.preparation;
   await assertWorkspaceWriteLease(preparation.repository.commonDir, input.coordinatedLease);
@@ -2475,7 +2475,7 @@ async function authorizeHostedCloseoutEffectUnderLease(input: Readonly<{
     ['rev-parse', `${preparation.expectedHeadSha}^{tree}`],
     'branch closeout immediate effect prepared head tree'
   );
-  const authorization = authorizeBranchCloseout({
+  const authorization = evaluateBranchCloseoutPolicy({
     preparation,
     request: {
       capability: BRANCH_REF_CLOSEOUT_CAPABILITY,

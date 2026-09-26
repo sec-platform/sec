@@ -43,7 +43,7 @@ import {
   decodeBranchLifecycleChildStdout
 } from './branch-lifecycle-command.ts';
 import {
-  assertDurableRecoveryAuthority,
+  assertDurableRecoveryProof,
   assertGitBranchName,
   assertGitSha,
   type BranchCloseoutAttempt,
@@ -713,7 +713,7 @@ export async function createRecoveryBundle(input: {
         verified: true,
         verifyOutput
       };
-      assertDurableRecoveryAuthority(recovery, inventory);
+      assertDurableRecoveryProof(recovery, inventory);
       attempts.push({
         operation: 'recovery-verify',
         status: 'success',
@@ -868,7 +868,7 @@ async function assertMainAbsorptionLive(
   recovery: MainAbsorptionRecovery,
   reviewEvidence?: ClosedSupersessionEvidence
 ): Promise<string> {
-  assertDurableRecoveryAuthority(recovery, inventory);
+  assertDurableRecoveryProof(recovery, inventory);
   const root = inventory.repository.root;
   if (await exactCommitTree(run, root, recovery.sourceSha, 'Absorbed source') !== recovery.sourceTreeSha
       || await exactCommitTree(run, root, recovery.mainSha, 'Absorbing main') !== recovery.mainTreeSha) {
@@ -1006,7 +1006,7 @@ async function verifyRecoveryAuthorityLiveWithRunner(
 ): Promise<BranchCloseoutAttempt> {
   const { inventory, recovery } = input;
   try {
-    assertDurableRecoveryAuthority(recovery, inventory);
+    assertDurableRecoveryProof(recovery, inventory);
     if (recovery.kind === 'main-absorption') {
       const parent = inspectNoFollowDirectoryChain(path.dirname(recovery.path), 'Main absorption recovery root').target;
       const bytes = readNoFollowOrdinaryFile(parent, path.basename(recovery.path));

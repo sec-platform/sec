@@ -1,6 +1,6 @@
 export * from './branch-closeout-contract.ts';
 export {
-  assertDurableRecoveryAuthority,
+  assertDurableRecoveryProof,
   assertGitBranchName,
   assertGitSha,
   branchLifecycleDigest,
