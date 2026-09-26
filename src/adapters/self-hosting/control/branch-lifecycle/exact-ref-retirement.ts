@@ -4,6 +4,7 @@ import {
   executeGitHubApiOperation,
   withGitHubApiBranchCloseoutWriteSession
 } from '../../../providers/github-api/operation-session.ts';
+import { observeActiveWorkPackage } from '../documentation/document-control-plane.ts';
 import { collectBranchLifecycleInventory } from './branch-lifecycle-inventory.ts';
 import {
   parseExactRefRetirement,
@@ -40,7 +41,11 @@ export async function retireExactRemoteRefs(input: Readonly<{
 }>> {
   const root = path.resolve(input.repositoryRoot);
   const request = parseExactRefRetirement(input.retirement);
-  const before = collectBranchLifecycleInventory({ repositoryRoot: root });
+  const activeWorkPackageObservation = await observeActiveWorkPackage(root);
+  const before = collectBranchLifecycleInventory({
+    repositoryRoot: root,
+    activeWorkPackageObservation
+  });
   if (before.repository.fullName !== input.repository) {
     throw new Error('exact ref retirement repository identity differs');
   }
@@ -107,7 +112,10 @@ export async function retireExactRemoteRefs(input: Readonly<{
     retired.push(branch);
   }
 
-  const after = collectBranchLifecycleInventory({ repositoryRoot: root });
+  const after = collectBranchLifecycleInventory({
+    repositoryRoot: root,
+    activeWorkPackageObservation: await observeActiveWorkPackage(root)
+  });
   if (after.repository.fullName !== input.repository || after.unknowns.length > 0) {
     throw new Error('exact ref retirement readback inventory is unresolved');
   }
