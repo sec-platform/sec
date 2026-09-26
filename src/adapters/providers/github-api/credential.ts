@@ -80,6 +80,7 @@ export type GitHubActionsRepositoryMaintenanceCredentialIdentity = Readonly<{
   workflowSha: string;
   issueNumber: 313;
   commentId: number;
+  actor: string;
 }>;
 
 type GitHubCredentialSource = 'stored-gh-auth' | 'github-actions-token';
@@ -167,7 +168,8 @@ export function inspectGitHubActionsRepositoryMaintenanceCredentialIdentity(
     workflowRef,
     workflowSha,
     issueNumber: 313,
-    commentId: Number(commentId)
+    commentId: Number(commentId),
+    actor: commentAuthor
   });
 }
 
