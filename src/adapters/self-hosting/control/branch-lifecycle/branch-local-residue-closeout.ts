@@ -1,11 +1,19 @@
-import { createHash } from 'node:crypto';
-import { mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
-import { assertWorkspaceWriteLease, withWorkspaceWriteLease } from '../../../filesystem/write-lease.ts';
+import { rawSha256Hex } from '../../../../contracts/canonical.ts';
+import { issueOperationRequirementBindingContext } from '../../../../execution/operation/requirement-binding-context.ts';
+import { bindSemanticOperation, compileCapabilityBinding, compileSemanticOperationPlan, issueSemanticOperationAttemptContext, type OperationDigest } from '../../../../execution/operation/semantic.ts';
+import { assertWorkspaceWriteLease, withWorkspaceWriteLease, type WorkspaceWriteLeaseToken } from '../../../filesystem/write-lease.ts';
+import { inspectGitBundleBytes } from '../../../providers/git-bundle/runtime.ts';
+import { withAuthorityGitReadSession } from '../../../providers/git-read/authority.ts';
+import { executeGitHubApiOperation, withGitHubApiReadSession } from '../../../providers/github-api/operation-session.ts';
+import { assertGitPhysicalProviderReceipt, closeGitPhysicalProvider, openGitPhysicalProvider } from '../../../providers/git/physical-provider.ts';
+import { assertGitLocalRefDeleteBatchReceipt, deleteExactLocalGitRefs, MAXIMUM_LOCAL_REF_DELETE_INPUT_BYTES, MAXIMUM_LOCAL_REF_DELETE_OUTPUT_BYTES, measureExactLocalGitRefDeleteBatchInputBytes, measureExactLocalGitRefDeleteBatchOutputBytes } from '../../../providers/git/ref-effect.ts';
 import { inspectNoFollowDirectoryChain, type PhysicalDirectoryChain } from '../../../runtime-state/physical/runtime/physical-no-follow.ts';
-import { runCommandBytes } from '../../../runtime-state/physical/runtime/process.ts';
+import { assertProcessResourceSessionReceipt, openProcessResourceSession } from '../../../runtime-state/physical/runtime/process-resource-session.ts';
+import { GIT_READ_OPERATION_BUDGET, parseNulUtf8 } from '../../development/tooling/git/git-read.ts';
 import {
   parseBranchCloseoutOperationJournal,
   parseBranchCloseoutOperationReceipt,
@@ -28,6 +36,8 @@ import {
   acquireBranchRecoveryStore,
   type BranchRecoveryStore
 } from './branch-recovery.ts';
+import { assertClosedSupersessionEvidence, summarizeClosedSupersessionPaths, type ClosedSupersessionEvidence } from './closed-supersession-review.ts';
+import { observeProductionClosedSupersessionEvidence } from './closed-unmerged-closeout-production.ts';
 import {
   gcCompletedWorktreePhysicalCloseoutEvidence,
   type WorktreePhysicalCloseoutEvidenceGcResult
@@ -35,9 +45,13 @@ import {
 
 const AUTHORIZATION_SCHEMA = 'sec-local-branch-residue-closeout-authorization-v1' as const;
 const RECEIPT_SCHEMA = 'sec-local-branch-residue-closeout-receipt-v1' as const;
+const RETAINED_AUTHORIZATION_SCHEMA = 'sec-local-branch-residue-closeout-authorization-v2' as const;
+const RETAINED_RECEIPT_SCHEMA = 'sec-local-branch-residue-closeout-receipt-v2' as const;
 const COMMAND_TIMEOUT_MS = 60_000;
-const COMMAND_MAX_BUFFER = 32 * 1024 * 1024;
 const MERGED_PULL_REQUEST_LIMIT = 1_000;
+const REF_EFFECT_REQUIREMENT = 'branch-lifecycle.merged-local.ref-delete';
+const REF_EFFECT_CONTRACT = branchLifecycleDigest({ owner: 'control.branch-lifecycle', operation: 'merged-local-ref-delete', effect: 'exact-batch-native-git-ref-cas' }) as OperationDigest;
+const REF_EFFECT_PROVIDER = branchLifecycleDigest({ provider: 'external-capabilities.git.physical-provider', operation: REF_EFFECT_REQUIREMENT }) as OperationDigest;
 
 type Digest = `sha256:${string}`;
 
@@ -131,6 +145,56 @@ interface LocalBranchResidueReceipt {
   readonly receiptDigest: Digest;
 }
 
+interface RetainedReviewBinding {
+  readonly pullRequestNumber: number;
+  readonly commentId: number;
+  readonly reference: string;
+  readonly receiptDigest: Digest;
+  readonly headSha: string;
+  readonly headTreeSha: string;
+  readonly pathSet: Readonly<{ count: number; digest: Digest }>;
+}
+
+interface RetentionEvidence {
+  readonly branch: string;
+  readonly headSha: string;
+  readonly sourceTreeSha: string;
+  readonly mainSha: string;
+  readonly mainTreeSha: string;
+  readonly basis: 'native-ancestor' | 'identical-tree' | 'reviewed-supersession';
+  readonly review: RetainedReviewBinding | null;
+}
+
+interface RetainedLocalBranchAuthorization {
+  readonly schema: typeof RETAINED_AUTHORIZATION_SCHEMA;
+  readonly operationId: Digest;
+  readonly repository: string;
+  readonly repositoryRoot: string;
+  readonly commonDir: string;
+  readonly remote: string;
+  readonly remoteUrl: string;
+  readonly repositoryPhysical: PhysicalDirectoryBinding;
+  readonly commonDirPhysical: PhysicalDirectoryBinding;
+  readonly recoveryRootPhysical: PhysicalDirectoryBinding;
+  readonly remoteMainSha: string;
+  readonly defaultBranch: string;
+  readonly entries: readonly RetentionEvidence[];
+  readonly authorizedAt: string;
+  readonly authorizationDigest: Digest;
+}
+
+interface RetainedLocalBranchReceipt {
+  readonly schema: typeof RETAINED_RECEIPT_SCHEMA;
+  readonly operationId: Digest;
+  readonly authorizationDigest: Digest;
+  readonly repository: string;
+  readonly remoteMainSha: string;
+  readonly entries: readonly RetentionEvidence[];
+  readonly effect: 'delete-exact-transaction';
+  readonly completedAt: string;
+  readonly receiptDigest: Digest;
+}
+
 interface CommandResult {
   readonly status: number | null;
   readonly stdout: Buffer;
@@ -150,7 +214,7 @@ function digest(value: unknown): Digest {
 }
 
 function sha256Bytes(bytes: Uint8Array): Digest {
-  return `sha256:${createHash('sha256').update(bytes).digest('hex')}`;
+  return `sha256:${rawSha256Hex(bytes)}`;
 }
 
 function canonicalSource(value: unknown): string {
@@ -189,29 +253,31 @@ async function defaultRunner(
   if (args.some((argument) => argument.includes('\0'))) {
     throw new Error('Local branch residue closeout argument contains NUL.');
   }
-  const result = await runCommandBytes(command, [...args], {
+  if (command !== 'git') {
+    throw new Error('Production local branch residue transport only admits Git observations.');
+  }
+  return withAuthorityGitReadSession({
     cwd,
-    timeoutMs: COMMAND_TIMEOUT_MS,
-    maxStdoutBytes: COMMAND_MAX_BUFFER,
-    maxStderrBytes: COMMAND_MAX_BUFFER,
-    ...(input === undefined ? {} : {
-      input: Buffer.from(input, 'utf8'),
-      maxStdinBytes: Buffer.byteLength(input, 'utf8')
-    }),
-    envMode: 'replace',
-    env: {
-      ...(environment ?? (command === 'git'
-        ? createBranchLifecycleGitChildEnvironment(process.env)
-        : process.env)),
-      GH_PROMPT_DISABLED: '1',
-      GIT_TERMINAL_PROMPT: '0'
+    budget: GIT_READ_OPERATION_BUDGET,
+    environment: environment ?? createBranchLifecycleGitChildEnvironment(process.env),
+    deadlineAtUnixMs: Date.now() + COMMAND_TIMEOUT_MS
+  }, async (session) => {
+    const observed = await session.run(args, input === undefined
+      ? undefined
+      : { input: Buffer.from(input, 'utf8') });
+    if (observed.kind !== 'completed') {
+      return Object.freeze({
+        status: null,
+        stdout: Buffer.alloc(0),
+        stderr: Buffer.from(observed.detail, 'utf8')
+      });
     }
+    return Object.freeze({
+      status: observed.result.code,
+      stdout: Buffer.from(observed.result.stdout),
+      stderr: Buffer.from(observed.result.stderr, 'utf8')
+    });
   });
-  return {
-    status: result.code,
-    stdout: Buffer.from(result.stdout),
-    stderr: Buffer.from(result.stderr, 'utf8')
-  };
 }
 
 async function requireText(
@@ -282,6 +348,113 @@ function parseWorktreeRoots(source: string): readonly string[] {
     .map((field) => path.resolve(field.slice('worktree '.length)));
   if (roots.length === 0) throw new Error('Worktree observation contains no repository root.');
   return Object.freeze([...new Set(roots)].sort((left, right) => left.localeCompare(right)));
+}
+
+function parseGitHubRepositoryProviderObservation(
+  value: unknown,
+  expectedRepository: string
+): RepositoryProviderObservation {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) {
+    throw new Error('GitHub repository provider observation must be an object.');
+  }
+  const record = value as Record<string, unknown>;
+  const result = Object.freeze({
+    repository: String(record.full_name),
+    defaultBranch: String(record.default_branch)
+  });
+  if (result.repository !== expectedRepository) {
+    throw new Error(`Repository provider identity differs: expected ${expectedRepository}, observed ${result.repository}.`);
+  }
+  assertGitBranchName(result.defaultBranch, 'provider default branch');
+  return result;
+}
+
+async function observeProductionRepositoryProvider(
+  repositoryRoot: string,
+  repository: string
+): Promise<RepositoryProviderObservation> {
+  return await withGitHubApiReadSession({
+    repositoryRoot,
+    repository,
+    operation: async (capability) => parseGitHubRepositoryProviderObservation(
+      await executeGitHubApiOperation(capability, { kind: 'repository' }), repository
+    )
+  });
+}
+
+function parseGitHubMergedPullRequestPage(
+  value: unknown,
+  expectedRepository: string
+): readonly MergedPullRequestHead[] {
+  if (!Array.isArray(value)) throw new Error('GitHub merged pull request page must be an array.');
+  if (value.length > 100) throw new Error('GitHub merged pull request page exceeds its 100-item bound.');
+  const result: MergedPullRequestHead[] = [];
+  for (let index = 0; index < value.length; index += 1) {
+    const candidate = value[index];
+    if (candidate === null || typeof candidate !== 'object' || Array.isArray(candidate)) {
+      throw new Error(`GitHub merged pull request ${index} must be an object.`);
+    }
+    const record = candidate as Record<string, unknown>;
+    if (record.merged_at === null) continue;
+    const head = record.head;
+    const base = record.base;
+    if (head === null || typeof head !== 'object' || Array.isArray(head)
+        || base === null || typeof base !== 'object' || Array.isArray(base)) {
+      throw new Error(`GitHub merged pull request ${index} has invalid head/base identity.`);
+    }
+    const headRecord = head as Record<string, unknown>;
+    const baseRecord = base as Record<string, unknown>;
+    const baseRepo = baseRecord.repo;
+    if (baseRepo === null || typeof baseRepo !== 'object' || Array.isArray(baseRepo)
+        || (baseRepo as Record<string, unknown>).full_name !== expectedRepository) {
+      throw new Error(`GitHub merged pull request ${index} base repository differs from ${expectedRepository}.`);
+    }
+    const entry: MergedPullRequestHead = {
+      number: Number(record.number),
+      headBranch: String(headRecord.ref),
+      headSha: String(headRecord.sha),
+      baseBranch: String(baseRecord.ref),
+      mergeCommitSha: String(record.merge_commit_sha),
+      state: 'MERGED',
+      url: String(record.html_url)
+    };
+    if (!Number.isSafeInteger(entry.number) || entry.number < 1) {
+      throw new Error(`GitHub merged pull request ${index} identity is invalid.`);
+    }
+    assertGitBranchName(entry.headBranch, `merged pull request ${entry.number} head`);
+    assertGitBranchName(entry.baseBranch, `merged pull request ${entry.number} base`);
+    assertGitSha(entry.headSha, `merged pull request ${entry.number} head SHA`);
+    assertGitSha(entry.mergeCommitSha, `merged pull request ${entry.number} merge SHA`);
+    const expectedUrl = `https://github.com/${expectedRepository}/pull/${entry.number}`;
+    if (entry.url !== expectedUrl) {
+      throw new Error(`Merged pull request ${entry.number} URL differs from ${expectedUrl}.`);
+    }
+    result.push(Object.freeze(entry));
+  }
+  return Object.freeze(result);
+}
+
+async function observeProductionMergedPullRequests(
+  repositoryRoot: string,
+  repository: string
+): Promise<readonly MergedPullRequestHead[]> {
+  return await withGitHubApiReadSession({
+    repositoryRoot,
+    repository,
+    operation: async (capability) => {
+      const merged: MergedPullRequestHead[] = [];
+      for (let page = 1; page <= MERGED_PULL_REQUEST_LIMIT / 100; page += 1) {
+        const value = await executeGitHubApiOperation(capability, { kind: 'merged-pulls', page });
+        const entries = parseGitHubMergedPullRequestPage(value, repository);
+        merged.push(...entries);
+        if (!Array.isArray(value) || value.length < 100) break;
+      }
+      if (merged.length >= MERGED_PULL_REQUEST_LIMIT) {
+        throw new Error(`Merged pull request observation reached its bounded ${MERGED_PULL_REQUEST_LIMIT}-item limit.`);
+      }
+      return Object.freeze(merged.sort((left, right) => left.number - right.number));
+    }
+  });
 }
 
 export function parseRepositoryProviderObservation(
@@ -405,6 +578,13 @@ async function verifyBundleBytes(
   bytes: Uint8Array,
   label: string
 ): Promise<void> {
+  if (run === defaultRunner) {
+    const inspection = await inspectGitBundleBytes({ repositoryRoot, bytes });
+    if (!inspection.heads.some((head) => head.objectId === entry.headSha)) {
+      throw new Error(`${label} does not contain ${entry.branch}@${entry.headSha}.`);
+    }
+    return;
+  }
   const temporaryRoot = mkdtempSync(path.join(tmpdir(), 'sec-local-branch-residue-verify-'));
   const temporaryBundle = path.join(temporaryRoot, 'recovery.bundle');
   try {
@@ -418,91 +598,6 @@ async function verifyBundleBytes(
     if (!heads.split(/\r?\n/u).some((line) => line.startsWith(`${entry.headSha} `))) {
       throw new Error(`${label} does not contain ${entry.branch}@${entry.headSha}.`);
     }
-  } finally {
-    rmSync(temporaryRoot, { recursive: true, force: true });
-  }
-}
-
-function bindRecoveryFiles(
-  store: BranchRecoveryStore,
-  name: string,
-  bundleDigest: Digest
-): RecoveryBinding {
-  const bundle = store.inspectFile(name);
-  const checksum = store.inspectFile(`${name}.sha256`);
-  if (bundle === null || checksum === null) {
-    throw new Error(`Recovery publication disappeared before physical binding: ${name}`);
-  }
-  return Object.freeze({
-    path: path.join(store.root.path, name),
-    digest: bundleDigest,
-    device: bundle.device,
-    inode: bundle.inode,
-    checksumDevice: checksum.device,
-    checksumInode: checksum.inode
-  });
-}
-
-async function createRecovery(
-  run: CommandRunner,
-  repositoryRoot: string,
-  store: BranchRecoveryStore,
-  entry: LocalBranchResiduePlanEntry
-): Promise<RecoveryBinding> {
-  const identity = digest({
-    schema: 'sec-local-branch-residue-recovery-v1',
-    branch: entry.branch,
-    headSha: entry.headSha,
-    pullRequestNumber: entry.pullRequestNumber
-  });
-  const safeBranch = entry.branch.replace(/[^A-Za-z0-9._-]+/gu, '-').slice(0, 80);
-  const name = `sec-local-branch-residue-${safeBranch}-${identity.slice('sha256:'.length)}.bundle`;
-  const existing = store.read(name);
-  if (existing !== null) {
-    const bundleDigest = sha256Bytes(existing);
-    const checksum = store.read(`${name}.sha256`);
-    const expectedChecksum = Buffer.from(
-      `${bundleDigest.slice('sha256:'.length)}  ${name}\n`,
-      'utf8'
-    );
-    if (checksum === null || !Buffer.from(checksum).equals(expectedChecksum)) {
-      throw new Error(`Existing recovery checksum differs for ${entry.branch}.`);
-    }
-    await verifyBundleBytes(run, repositoryRoot, entry, existing, 'Existing recovery bundle');
-    return bindRecoveryFiles(store, name, bundleDigest);
-  }
-  const temporaryRoot = mkdtempSync(path.join(tmpdir(), 'sec-local-branch-residue-'));
-  const temporaryBundle = path.join(temporaryRoot, 'recovery.bundle');
-  try {
-    await requireText(run, 'git', ['bundle', 'create', temporaryBundle, `refs/heads/${entry.branch}`],
-      repositoryRoot, `recovery bundle creation for ${entry.branch}`);
-    const bytes = readFileSync(temporaryBundle);
-    if (bytes.byteLength === 0) throw new Error(`Recovery bundle is empty for ${entry.branch}.`);
-    await verifyBundleBytes(run, repositoryRoot, entry, bytes, 'Recovery bundle');
-    const bundleDigest = sha256Bytes(bytes);
-    store.publishExclusive({
-      name,
-      bytes,
-      validate: (candidate) => {
-        if (candidate.byteLength === 0 || sha256Bytes(candidate) !== bundleDigest) {
-          throw new Error(`Recovery bundle bytes differ for ${entry.branch}.`);
-        }
-      }
-    });
-    const checksum = Buffer.from(
-      `${bundleDigest.slice('sha256:'.length)}  ${name}\n`,
-      'utf8'
-    );
-    store.publishExclusive({
-      name: `${name}.sha256`,
-      bytes: checksum,
-      validate: (candidate) => {
-        if (!Buffer.from(candidate).equals(checksum)) {
-          throw new Error(`Recovery checksum differs for ${entry.branch}.`);
-        }
-      }
-    });
-    return bindRecoveryFiles(store, name, bundleDigest);
   } finally {
     rmSync(temporaryRoot, { recursive: true, force: true });
   }
@@ -572,11 +667,13 @@ async function observe(
     ], repositoryRoot, 'remote branch observation', undefined, remoteObservation.environment)),
     worktreeBranches: parseWorktreeBranches(worktrees),
     worktreeRoots: parseWorktreeRoots(worktrees),
-    mergedPullRequests: parseMergedPullRequestHeads(await requireText(run, 'gh', [
-      'pr', 'list', '--repo', repository, '--state', 'merged', '--limit',
-      String(MERGED_PULL_REQUEST_LIMIT), '--json',
-      'number,headRefName,headRefOid,baseRefName,state,mergeCommit,url'
-    ], repositoryRoot, 'merged pull request observation'), repository)
+    mergedPullRequests: run === defaultRunner
+      ? await observeProductionMergedPullRequests(repositoryRoot, repository)
+      : parseMergedPullRequestHeads(await requireText(run, 'gh', [
+        'pr', 'list', '--repo', repository, '--state', 'merged', '--limit',
+        String(MERGED_PULL_REQUEST_LIMIT), '--json',
+        'number,headRefName,headRefOid,baseRefName,state,mergeCommit,url'
+      ], repositoryRoot, 'merged pull request observation'), repository)
   });
 }
 
@@ -598,39 +695,6 @@ async function assertMergeCommitsReachable(
       throw new Error(`PR #${entry.pullRequestNumber} merge commit is not reachable from exact remote main.`);
     }
   }
-}
-
-function createAuthorization(input: Readonly<{
-  repository: string;
-  repositoryRoot: string;
-  commonDir: string;
-  remote: string;
-  remoteUrl: string;
-  repositoryPhysical: PhysicalDirectoryBinding;
-  commonDirPhysical: PhysicalDirectoryBinding;
-  recoveryRootPhysical: PhysicalDirectoryBinding;
-  remoteMainSha: string;
-  defaultBranch: string;
-  entries: readonly AuthorizationEntry[];
-  now: () => Date;
-}>): LocalBranchResidueAuthorization {
-  const material = Object.freeze({
-    schema: AUTHORIZATION_SCHEMA,
-    repository: input.repository,
-    repositoryRoot: input.repositoryRoot,
-    commonDir: input.commonDir,
-    remote: input.remote,
-    remoteUrl: input.remoteUrl,
-    repositoryPhysical: input.repositoryPhysical,
-    commonDirPhysical: input.commonDirPhysical,
-    recoveryRootPhysical: input.recoveryRootPhysical,
-    remoteMainSha: input.remoteMainSha,
-    defaultBranch: input.defaultBranch,
-    entries: input.entries
-  });
-  const operationId = digest(material);
-  const withoutDigest = Object.freeze({ ...material, operationId, authorizedAt: input.now().toISOString() });
-  return Object.freeze({ ...withoutDigest, authorizationDigest: digest(withoutDigest) });
 }
 
 function assertDigest(value: string, label: string): asserts value is Digest {
@@ -861,6 +925,165 @@ function parseReceipt(source: Uint8Array): LocalBranchResidueReceipt {
   return Object.freeze(parsed);
 }
 
+function exactRecord(value: unknown, keys: readonly string[], label: string): Record<string, unknown> {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)
+      || Object.keys(value).sort().join(',') !== [...keys].sort().join(',')) {
+    throw new Error(`${label} exact shape is invalid.`);
+  }
+  return value as Record<string, unknown>;
+}
+
+function parseRetentionEntries(value: unknown): readonly RetentionEvidence[] {
+  if (!Array.isArray(value) || value.length === 0) throw new Error('Retained authorization entries are absent.');
+  const entries = value.map((candidate, index) => {
+    const entry = exactRecord(candidate, [
+      'branch', 'headSha', 'sourceTreeSha', 'mainSha', 'mainTreeSha', 'basis', 'review'
+    ], `Retention entry ${index}`);
+    const branch = String(entry.branch);
+    const headSha = String(entry.headSha);
+    const sourceTreeSha = String(entry.sourceTreeSha);
+    const mainSha = String(entry.mainSha);
+    const mainTreeSha = String(entry.mainTreeSha);
+    assertGitBranchName(branch, 'retained branch');
+    for (const [label, sha] of [
+      ['source', headSha], ['source tree', sourceTreeSha], ['main', mainSha], ['main tree', mainTreeSha]
+    ] as const) assertGitSha(sha, `Retention ${label}`);
+    const basis = entry.basis;
+    if (basis !== 'native-ancestor' && basis !== 'identical-tree'
+        && basis !== 'reviewed-supersession') throw new Error('Retention basis is invalid.');
+    let review: RetainedReviewBinding | null = null;
+    if (basis === 'reviewed-supersession') {
+      const binding = exactRecord(entry.review, [
+        'pullRequestNumber', 'commentId', 'reference', 'receiptDigest',
+        'headSha', 'headTreeSha', 'pathSet'
+      ], 'Retention review');
+      const pathSet = exactRecord(binding.pathSet, ['count', 'digest'], 'Retention review path-set');
+      const pullRequestNumber = Number(binding.pullRequestNumber);
+      const commentId = Number(binding.commentId);
+      const reference = String(binding.reference);
+      const receiptDigest = String(binding.receiptDigest) as Digest;
+      const reviewHeadSha = String(binding.headSha);
+      const reviewHeadTreeSha = String(binding.headTreeSha);
+      const count = Number(pathSet.count);
+      const pathSetDigest = String(pathSet.digest) as Digest;
+      if (!Number.isSafeInteger(pullRequestNumber) || pullRequestNumber <= 0
+          || !Number.isSafeInteger(commentId) || commentId <= 0
+          || !Number.isSafeInteger(count) || count < 0
+          || !/^https:\/\/github\.com\/[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+\/pull\/[1-9][0-9]*#issuecomment-[1-9][0-9]*$/u.test(reference)) {
+        throw new Error('Retention review identity is invalid.');
+      }
+      assertDigest(receiptDigest, 'retention review receipt');
+      assertDigest(pathSetDigest, 'retention review path-set');
+      assertGitSha(reviewHeadSha, 'retention review head');
+      assertGitSha(reviewHeadTreeSha, 'retention review head tree');
+      review = Object.freeze({
+        pullRequestNumber, commentId, reference, receiptDigest,
+        headSha: reviewHeadSha, headTreeSha: reviewHeadTreeSha,
+        pathSet: Object.freeze({ count, digest: pathSetDigest })
+      });
+    } else if (entry.review !== null) {
+      throw new Error('Native retention must not carry a review binding.');
+    }
+    return Object.freeze({ branch, headSha, sourceTreeSha, mainSha, mainTreeSha, basis, review });
+  });
+  if (new Set(entries.map(({ branch }) => branch)).size !== entries.length) {
+    throw new Error('Retention authorization has duplicate branches.');
+  }
+  return Object.freeze(entries);
+}
+
+function parseRetainedAuthorization(source: Uint8Array): RetainedLocalBranchAuthorization {
+  const text = Buffer.from(source).toString('utf8');
+  const record = exactRecord(JSON.parse(text) as unknown, [
+    'schema', 'operationId', 'repository', 'repositoryRoot', 'commonDir', 'remote', 'remoteUrl',
+    'repositoryPhysical', 'commonDirPhysical', 'recoveryRootPhysical',
+    'remoteMainSha', 'defaultBranch', 'entries', 'authorizedAt', 'authorizationDigest'
+  ], 'Retained local authorization');
+  if (record.schema !== RETAINED_AUTHORIZATION_SCHEMA) throw new Error('Retained authorization schema differs.');
+  const parsed: RetainedLocalBranchAuthorization = {
+    schema: RETAINED_AUTHORIZATION_SCHEMA,
+    repository: String(record.repository),
+    repositoryRoot: String(record.repositoryRoot),
+    commonDir: String(record.commonDir),
+    remote: String(record.remote),
+    remoteUrl: String(record.remoteUrl),
+    repositoryPhysical: parsePhysicalDirectoryBinding(record.repositoryPhysical, 'repository'),
+    commonDirPhysical: parsePhysicalDirectoryBinding(record.commonDirPhysical, 'common directory'),
+    recoveryRootPhysical: parsePhysicalDirectoryBinding(record.recoveryRootPhysical, 'recovery root'),
+    remoteMainSha: String(record.remoteMainSha),
+    defaultBranch: String(record.defaultBranch),
+    entries: parseRetentionEntries(record.entries),
+    operationId: String(record.operationId) as Digest,
+    authorizedAt: String(record.authorizedAt),
+    authorizationDigest: String(record.authorizationDigest) as Digest
+  };
+  assertDigest(parsed.operationId, 'retained operationId');
+  assertDigest(parsed.authorizationDigest, 'retained authorization digest');
+  assertGitSha(parsed.remoteMainSha, 'retained remote main');
+  assertGitBranchName(parsed.remote, 'retained remote');
+  assertGitBranchName(parsed.defaultBranch, 'retained default branch');
+  if (!path.isAbsolute(parsed.repositoryRoot) || !path.isAbsolute(parsed.commonDir)
+      || Number.isNaN(Date.parse(parsed.authorizedAt))) {
+    throw new Error('Retained authorization identity is invalid.');
+  }
+  const { operationId, authorizedAt, authorizationDigest, ...material } = parsed;
+  if (operationId !== digest(material)
+      || authorizationDigest !== digest({ ...material, operationId, authorizedAt })
+      || text !== canonicalSource(parsed)) {
+    throw new Error('Retained authorization digest or canonical bytes differ.');
+  }
+  return Object.freeze(parsed);
+}
+
+function createRetainedReceipt(
+  authorization: RetainedLocalBranchAuthorization,
+  now: () => Date
+): RetainedLocalBranchReceipt {
+  const material = {
+    schema: RETAINED_RECEIPT_SCHEMA,
+    operationId: authorization.operationId,
+    authorizationDigest: authorization.authorizationDigest,
+    repository: authorization.repository,
+    remoteMainSha: authorization.remoteMainSha,
+    entries: authorization.entries,
+    effect: 'delete-exact-transaction' as const,
+    completedAt: now().toISOString()
+  };
+  return Object.freeze({ ...material, receiptDigest: digest(material) });
+}
+
+function parseRetainedReceipt(source: Uint8Array): RetainedLocalBranchReceipt {
+  const text = Buffer.from(source).toString('utf8');
+  const record = exactRecord(JSON.parse(text) as unknown, [
+    'schema', 'operationId', 'authorizationDigest', 'repository', 'remoteMainSha',
+    'entries', 'effect', 'completedAt', 'receiptDigest'
+  ], 'Retained local receipt');
+  if (record.schema !== RETAINED_RECEIPT_SCHEMA || record.effect !== 'delete-exact-transaction') {
+    throw new Error('Retained receipt schema or effect differs.');
+  }
+  const parsed: RetainedLocalBranchReceipt = {
+    schema: RETAINED_RECEIPT_SCHEMA,
+    operationId: String(record.operationId) as Digest,
+    authorizationDigest: String(record.authorizationDigest) as Digest,
+    repository: String(record.repository),
+    remoteMainSha: String(record.remoteMainSha),
+    entries: parseRetentionEntries(record.entries),
+    effect: 'delete-exact-transaction',
+    completedAt: String(record.completedAt),
+    receiptDigest: String(record.receiptDigest) as Digest
+  };
+  assertDigest(parsed.operationId, 'retained receipt operationId');
+  assertDigest(parsed.authorizationDigest, 'retained receipt authorization digest');
+  assertDigest(parsed.receiptDigest, 'retained receipt digest');
+  assertGitSha(parsed.remoteMainSha, 'retained receipt main');
+  if (Number.isNaN(Date.parse(parsed.completedAt))) throw new Error('Retained receipt timestamp is invalid.');
+  const { receiptDigest, ...material } = parsed;
+  if (receiptDigest !== digest(material) || text !== canonicalSource(parsed)) {
+    throw new Error('Retained receipt digest or canonical bytes differ.');
+  }
+  return Object.freeze(parsed);
+}
+
 function publishCanonical<T>(input: Readonly<{
   store: BranchRecoveryStore;
   name: string;
@@ -926,6 +1149,8 @@ function scanLocalBranchResidueOperations(
   for (const name of names) {
     const bytes = store.read(name);
     if (bytes === null) throw new Error(`Authorization disappeared during recovery scan: ${name}`);
+    if ((JSON.parse(Buffer.from(bytes).toString('utf8')) as Record<string, unknown>).schema
+        === RETAINED_AUTHORIZATION_SCHEMA) continue;
     const authorization = parseAuthorization(bytes);
     const expectedNames = operationNames(authorization.operationId);
     if (name !== expectedNames.authorization) {
@@ -944,6 +1169,72 @@ function scanLocalBranchResidueOperations(
     throw new Error(`Multiple pending local branch residue operations require reconciliation: ${pending.length}.`);
   }
   return Object.freeze({ pending: pending[0] ?? null, completed: Object.freeze(completed) });
+}
+
+interface ScannedRetainedLocalBranchOperations {
+  readonly pending: RetainedLocalBranchAuthorization | null;
+  readonly completed: readonly Readonly<{
+    authorization: RetainedLocalBranchAuthorization;
+    receipt: RetainedLocalBranchReceipt;
+    names: Readonly<{ authorization: string; receipt: string }>;
+  }>[];
+}
+
+function scanRetainedLocalBranchOperations(
+  store: BranchRecoveryStore
+): ScannedRetainedLocalBranchOperations {
+  const pending: RetainedLocalBranchAuthorization[] = [];
+  const completed: ScannedRetainedLocalBranchOperations['completed'][number][] = [];
+  for (const name of store.listOwnedFiles('sec-local-branch-residue-')
+    .filter((candidate) => candidate.endsWith('.authorization.json'))) {
+    const bytes = store.read(name);
+    if (bytes === null) throw new Error(`Retained authorization disappeared: ${name}`);
+    if ((JSON.parse(Buffer.from(bytes).toString('utf8')) as Record<string, unknown>).schema
+        !== RETAINED_AUTHORIZATION_SCHEMA) continue;
+    const authorization = parseRetainedAuthorization(bytes);
+    const names = operationNames(authorization.operationId);
+    if (name !== names.authorization) throw new Error('Retained authorization filename differs.');
+    const receiptBytes = store.read(names.receipt);
+    if (receiptBytes === null) {
+      pending.push(authorization);
+      continue;
+    }
+    const receipt = parseRetainedReceipt(receiptBytes);
+    if (receipt.operationId !== authorization.operationId
+        || receipt.authorizationDigest !== authorization.authorizationDigest
+        || receipt.repository !== authorization.repository
+        || receipt.remoteMainSha !== authorization.remoteMainSha
+        || canonicalSource(receipt.entries) !== canonicalSource(authorization.entries)) {
+      throw new Error('Retained receipt differs from authorization.');
+    }
+    completed.push(Object.freeze({ authorization, receipt, names }));
+  }
+  if (pending.length > 1) throw new Error('Multiple pending retained local branch operations require reconciliation.');
+  for (const name of store.listOwnedFiles('sec-local-branch-residue-')
+    .filter((candidate) => candidate.endsWith('.receipt.json'))) {
+    const bytes = store.read(name);
+    if (bytes === null) throw new Error(`Retained receipt disappeared: ${name}`);
+    if ((JSON.parse(Buffer.from(bytes).toString('utf8')) as Record<string, unknown>).schema
+        !== RETAINED_RECEIPT_SCHEMA) continue;
+    const receipt = parseRetainedReceipt(bytes);
+    const expected = operationNames(receipt.operationId);
+    if (name !== expected.receipt || store.read(expected.authorization) === null) {
+      throw new Error(`Retained receipt has no exact authorization: ${name}`);
+    }
+  }
+  return Object.freeze({ pending: pending[0] ?? null, completed: Object.freeze(completed) });
+}
+
+function assertRetainedAuthorizationBytes(
+  store: BranchRecoveryStore,
+  authorization: RetainedLocalBranchAuthorization
+): void {
+  const name = operationNames(authorization.operationId).authorization;
+  const bytes = store.read(name);
+  if (bytes === null || !Buffer.from(bytes).equals(Buffer.from(canonicalSource(authorization)))) {
+    throw new Error('Retained authorization bytes changed at effect boundary.');
+  }
+  parseRetainedAuthorization(bytes);
 }
 
 function safeRecoverySegment(branch: string): string {
@@ -992,7 +1283,7 @@ function retireRecoveryBundleFamily(input: Readonly<{
     }
     return;
   }
-  if (bundle.bytes === null || `sha256:${createHash('sha256').update(bundle.bytes).digest('hex')}`
+  if (bundle.bytes === null || `sha256:${rawSha256Hex(bundle.bytes)}`
       !== input.expectedDigest) {
     throw new Error(`Recovery bundle differs before terminal retirement: ${input.bundleName}`);
   }
@@ -1019,7 +1310,7 @@ function retireSupersededBranchCloseoutBundles(input: Readonly<{
     .filter((candidate) => candidate.endsWith('.bundle'))) {
     const bundle = input.store.inspectFile(name);
     if (bundle === null || bundle.bytes === null) continue;
-    const digest = `sha256:${createHash('sha256').update(bundle.bytes).digest('hex')}` as Digest;
+    const digest = `sha256:${rawSha256Hex(bundle.bytes)}` as Digest;
     if (digest !== input.entry.recovery.digest) continue;
     const family = input.store.listOwnedFiles(`${name}.`);
     const assertPreparationBinding = (preparation: Readonly<{
@@ -1172,6 +1463,12 @@ async function retireOrphanCompletedReceipts(input: Readonly<{
 }>): Promise<readonly string[]> {
   const receiptNames = [...input.store.listOwnedFiles('sec-local-branch-residue-')]
     .filter((candidate) => candidate.endsWith('.receipt.json'))
+    .filter((candidate) => {
+      const bytes = input.store.read(candidate);
+      if (bytes === null) throw new Error(`Receipt disappeared during recovery scan: ${candidate}`);
+      return (JSON.parse(Buffer.from(bytes).toString('utf8')) as Record<string, unknown>).schema
+        !== RETAINED_RECEIPT_SCHEMA;
+    })
     .filter((candidate) => input.store.read(
       candidate.replace(/\.receipt\.json$/u, '.authorization.json')
     ) === null);
@@ -1245,6 +1542,9 @@ async function observeRepositoryProvider(
   repositoryRoot: string,
   repository: string
 ): Promise<RepositoryProviderObservation> {
+  if (run === defaultRunner) {
+    return await observeProductionRepositoryProvider(repositoryRoot, repository);
+  }
   return parseRepositoryProviderObservation(await requireText(run, 'gh', [
     'repo', 'view', repository, '--json', 'nameWithOwner,defaultBranchRef'
   ], repositoryRoot, 'repository provider observation'), repository);
@@ -1282,7 +1582,7 @@ async function observeWorktreeState(
 }
 
 function assertAuthorizationIdentity(input: Readonly<{
-  authorization: LocalBranchResidueAuthorization;
+  authorization: LocalBranchResidueAuthorization | RetainedLocalBranchAuthorization;
   repository: string;
   repositoryRoot: string;
   commonDir: string;
@@ -1322,16 +1622,18 @@ function assertAuthorizationIdentity(input: Readonly<{
     'Recovery root'
   );
   input.store.assertCurrent();
-  for (const entry of authorization.entries) {
-    if (entry.pullRequestUrl
-        !== `https://github.com/${authorization.repository}/pull/${entry.pullRequestNumber}`) {
-      throw new Error(`Authorization PR URL differs for #${entry.pullRequestNumber}.`);
+  if (authorization.schema === AUTHORIZATION_SCHEMA) {
+    for (const entry of authorization.entries) {
+      if (entry.pullRequestUrl
+          !== `https://github.com/${authorization.repository}/pull/${entry.pullRequestNumber}`) {
+        throw new Error(`Authorization PR URL differs for #${entry.pullRequestNumber}.`);
+      }
     }
   }
 }
 
 function authorizedLocalState(
-  authorization: LocalBranchResidueAuthorization,
+  authorization: LocalBranchResidueAuthorization | RetainedLocalBranchAuthorization,
   observation: LocalBranchResidueObservation
 ): 'present' | 'absent' {
   const states = authorization.entries.map((entry) => {
@@ -1424,21 +1726,294 @@ function assertAuthorizedObservation(
 }
 
 async function deleteExactTransaction(
-  run: CommandRunner,
   repositoryRoot: string,
-  entries: readonly AuthorizationEntry[]
+  entries: readonly Readonly<{ branch: string; headSha: string }>[],
+  coordinatedLease: WorkspaceWriteLeaseToken,
+  operationId: Digest
 ): Promise<void> {
-  const source = ['start', ...entries.map((entry) => (
-    `delete refs/heads/${entry.branch} ${entry.headSha}`
-  )), 'prepare', 'commit', ''].join('\n');
-  await requireText(run, 'git', ['update-ref', '--stdin'], repositoryRoot,
-    'atomic local branch residue closeout', source);
+  const durationMs = 120_000;
+  const refEntries = entries.map(({ branch, headSha }) => ({
+    ref: `refs/heads/${branch}`, expectedOldSha: headSha
+  }));
+  const inputBytes = measureExactLocalGitRefDeleteBatchInputBytes(refEntries);
+  const outputBytes = measureExactLocalGitRefDeleteBatchOutputBytes(refEntries);
+  if (inputBytes > MAXIMUM_LOCAL_REF_DELETE_INPUT_BYTES) {
+    throw new Error('Atomic local ref delete exceeds the bounded product input budget.');
+  }
+  if (outputBytes > MAXIMUM_LOCAL_REF_DELETE_OUTPUT_BYTES) {
+    throw new Error('Atomic local ref delete exceeds the bounded product output budget.');
+  }
+  const plan = compileSemanticOperationPlan({
+    operation: 'control.branch-lifecycle.merged-local-ref-delete',
+    intentDigest: operationId as OperationDigest,
+    decisionDigest: REF_EFFECT_CONTRACT,
+    deadlineAtUnixMs: Date.now() + durationMs,
+    attempt: issueSemanticOperationAttemptContext({ authorityGrantDigest: operationId as OperationDigest }),
+    aggregateBudgets: [
+      { resource: 'duration-ms', maximum: durationMs },
+      { resource: 'input-bytes', maximum: inputBytes },
+      { resource: 'output-bytes', maximum: outputBytes },
+      { resource: 'processes', maximum: 7 }
+    ],
+    requirements: [{ id: REF_EFFECT_REQUIREMENT, contractDigest: REF_EFFECT_CONTRACT,
+      effectKinds: ['filesystem', 'process', 'provider'],
+      failureKinds: ['filesystem.identity-drift', 'filesystem.write-failed', 'process.cancelled',
+        'process.deadline-exhausted', 'process.output-budget-exhausted', 'process.settlement-unproven', 'process.unavailable'] }]
+  });
+  const operation = bindSemanticOperation(plan, [compileCapabilityBinding({
+    requirementId: REF_EFFECT_REQUIREMENT, contractDigest: REF_EFFECT_CONTRACT,
+    providerIdentityDigest: REF_EFFECT_PROVIDER
+  })]);
+  const processSession = openProcessResourceSession({ operation,
+    requirementBindingContext: issueOperationRequirementBindingContext({ operation,
+      requirementId: REF_EFFECT_REQUIREMENT, resourceCeilings: operation.plan.execution.aggregateBudgets }) });
+  let primaryError: unknown;
+  try {
+    await withAuthorityGitReadSession({ cwd: repositoryRoot, budget: GIT_READ_OPERATION_BUDGET }, async (session) => {
+      const executablePath = session.gitExecutableIdentity?.realPath;
+      if (executablePath === undefined) throw new Error('Git read owner did not retain an executable identity.');
+      const resolution = openGitPhysicalProvider({ cwd: repositoryRoot, executablePath, operation, processSession,
+        environmentSource: process.env, maximumExecutableBytes: 128 * 1024 * 1024 });
+      if (resolution.status !== 'ready') throw new Error(`Git physical provider unavailable: ${resolution.reason}`);
+      let effectError: unknown;
+      try {
+        const receipt = await deleteExactLocalGitRefs({ provider: resolution.capability, coordinatedLease,
+          entries: refEntries });
+        assertGitLocalRefDeleteBatchReceipt(receipt);
+      } catch (error) { effectError = error; }
+      try { assertGitPhysicalProviderReceipt(closeGitPhysicalProvider(resolution.capability), resolution.capability); }
+      catch (error) { effectError ??= error; }
+      if (effectError !== undefined) throw effectError;
+    });
+  } catch (error) { primaryError = error; }
+  try {
+    assertProcessResourceSessionReceipt(processSession.close(), { operationIdentityDigest: operation.plan.identity.identityDigest,
+      boundAttemptDigest: operation.boundAttemptDigest, requirementId: REF_EFFECT_REQUIREMENT });
+  } catch (error) { primaryError ??= error; }
+  if (primaryError !== undefined) throw primaryError;
+}
+
+async function exactTree(run: CommandRunner, root: string, sha: string): Promise<string> {
+  assertGitSha(sha, 'retention commit');
+  const commit = await requireText(run, 'git', [
+    'rev-parse', '--verify', '--end-of-options', `${sha}^{commit}`
+  ], root, 'retention commit');
+  if (commit !== sha) throw new Error('Retention commit identity differs.');
+  const tree = await requireText(run, 'git', [
+    'rev-parse', '--verify', '--end-of-options', `${sha}^{tree}`
+  ], root, 'retention tree');
+  assertGitSha(tree, 'retention tree');
+  return tree;
+}
+
+async function gitAncestor(
+  run: CommandRunner, root: string, sourceSha: string, mainSha: string
+): Promise<boolean> {
+  const result = await run('git', ['merge-base', '--is-ancestor', sourceSha, mainSha], root);
+  if (result.status === 0) return true;
+  if (result.status === 1) return false;
+  throw new Error(`Retention ancestry observation failed: ${decodeBranchLifecycleChildError(result)}`);
+}
+
+async function changedPathSet(
+  run: CommandRunner, root: string, sourceSha: string, mainSha: string
+): Promise<Readonly<{ count: number; digest: Digest }>> {
+  const result = await run('git', [
+    'diff', '--no-ext-diff', '--no-textconv', '--no-renames', '--name-only', '-z',
+    sourceSha, mainSha, '--'
+  ], root);
+  if (result.status !== 0 || result.stderr.length !== 0) {
+    throw new Error(`Retention changed-path observation failed: ${decodeBranchLifecycleChildError(result)}`);
+  }
+  return summarizeClosedSupersessionPaths(parseNulUtf8(result.stdout, 'retention changed paths'));
+}
+
+async function observedReviewBinding(input: Readonly<{
+  repositoryRoot: string;
+  repository: string;
+  pullRequestNumber: number;
+  commentId: number;
+}>): Promise<ClosedSupersessionEvidence> {
+  const evidence = await observeProductionClosedSupersessionEvidence(input);
+  assertClosedSupersessionEvidence(evidence);
+  return evidence;
+}
+
+async function assertRetentionLive(input: Readonly<{
+  run: CommandRunner;
+  repositoryRoot: string;
+  repository: string;
+  entry: RetentionEvidence;
+}>): Promise<void> {
+  const { run, repositoryRoot, repository, entry } = input;
+  if (await exactTree(run, repositoryRoot, entry.headSha) !== entry.sourceTreeSha
+      || await exactTree(run, repositoryRoot, entry.mainSha) !== entry.mainTreeSha) {
+    throw new Error(`Retention exact Git tree changed for ${entry.branch}.`);
+  }
+  if (entry.basis === 'native-ancestor') {
+    if (!await gitAncestor(run, repositoryRoot, entry.headSha, entry.mainSha)) {
+      throw new Error(`Retained source is not an ancestor of main: ${entry.branch}.`);
+    }
+  } else if (entry.basis === 'identical-tree') {
+    if (entry.sourceTreeSha !== entry.mainTreeSha) {
+      throw new Error(`Retained source tree differs from main: ${entry.branch}.`);
+    }
+  } else {
+    const binding = entry.review;
+    if (binding === null) throw new Error(`Reviewed retention lacks a review binding: ${entry.branch}.`);
+    const evidence = await observedReviewBinding({
+      repositoryRoot, repository,
+      pullRequestNumber: binding.pullRequestNumber,
+      commentId: binding.commentId
+    });
+    const review = evidence.review;
+    const pathSet = await changedPathSet(run, repositoryRoot, entry.headSha, entry.mainSha);
+    const reviewedSet = 'pathSet' in review
+      ? review.pathSet
+      : summarizeClosedSupersessionPaths(review.paths.map(({ path: changedPath }) => changedPath));
+    if (review.repository !== repository
+        || review.headSha !== binding.headSha
+        || review.headTreeSha !== binding.headTreeSha
+        || review.currentMainSha !== entry.mainSha
+        || review.currentMainTreeSha !== entry.mainTreeSha
+        || binding.headTreeSha !== entry.sourceTreeSha
+        || evidence.reference !== binding.reference
+        || evidence.receiptDigest !== binding.receiptDigest
+        || pathSet.count !== binding.pathSet.count
+        || pathSet.digest !== binding.pathSet.digest
+        || reviewedSet.count !== pathSet.count
+        || reviewedSet.digest !== pathSet.digest
+        || await exactTree(run, repositoryRoot, binding.headSha) !== binding.headTreeSha) {
+      throw new Error(`Authenticated review differs from exact local retention: ${entry.branch}.`);
+    }
+  }
+}
+
+async function assertCompletedRetentionSettlement(input: Readonly<{
+  run: CommandRunner;
+  repositoryRoot: string;
+  authorization: RetainedLocalBranchAuthorization;
+  observation: LocalBranchResidueObservation;
+}>): Promise<void> {
+  const currentMainSha = remoteMainSha(input.observation);
+  if (authorizedLocalState(input.authorization, input.observation) !== 'absent'
+      || !await gitAncestor(input.run, input.repositoryRoot,
+        input.authorization.remoteMainSha, currentMainSha)) {
+    throw new Error(
+      `Completed retained local refs reappeared or main lost absorption: ${input.authorization.operationId}`
+    );
+  }
+  for (const entry of input.authorization.entries) {
+    if (!await gitAncestor(input.run, input.repositoryRoot, entry.mainSha, currentMainSha)) {
+      throw new Error(`Retained main anchor disappeared: ${entry.branch}.`);
+    }
+  }
+}
+
+async function planRetainedEntries(input: Readonly<{
+  run: CommandRunner;
+  repositoryRoot: string;
+  repository: string;
+  observation: LocalBranchResidueObservation;
+  reviews: readonly Readonly<{ branch: string; pullRequestNumber: number; commentId: number }>[];
+}>): Promise<Readonly<{
+  eligible: readonly RetentionEvidence[];
+  protectedBranches: readonly string[];
+  unresolvedBranches: readonly string[];
+}>> {
+  const { run, repositoryRoot, repository, observation } = input;
+  const mainSha = remoteMainSha(observation);
+  const mainTreeSha = await exactTree(run, repositoryRoot, mainSha);
+  const reviews = new Map(input.reviews.map((review) => [review.branch, review]));
+  if (reviews.size !== input.reviews.length) throw new Error('Duplicate local retention review branch.');
+  const eligible: RetentionEvidence[] = [];
+  const protectedBranches: string[] = [];
+  const unresolvedBranches: string[] = [];
+  for (const [branch, headSha] of Object.entries(observation.localRefs)
+    .sort(([left], [right]) => left.localeCompare(right))) {
+    if (branch === observation.defaultBranch) continue;
+    assertGitBranchName(branch, 'local retained branch');
+    assertGitSha(headSha, 'local retained head');
+    if (observation.worktreeBranches.includes(branch)) {
+      protectedBranches.push(branch);
+      continue;
+    }
+    if (observation.remoteRefs[branch] !== undefined) {
+      unresolvedBranches.push(branch);
+      continue;
+    }
+    const sourceTreeSha = await exactTree(run, repositoryRoot, headSha);
+    const reviewed = reviews.get(branch);
+    let basis: RetentionEvidence['basis'];
+    let review: RetainedReviewBinding | null = null;
+    let anchorSha = mainSha;
+    let anchorTreeSha = mainTreeSha;
+    const mergedAnchors = observation.mergedPullRequests.filter((pullRequest) => (
+      pullRequest.headBranch === branch && pullRequest.headSha === headSha
+      && pullRequest.baseBranch === observation.defaultBranch
+    ));
+    if (await gitAncestor(run, repositoryRoot, headSha, mainSha)) basis = 'native-ancestor';
+    else if (mergedAnchors.length === 1
+        && await gitAncestor(run, repositoryRoot, mergedAnchors[0]!.mergeCommitSha, mainSha)
+        && sourceTreeSha === await exactTree(run, repositoryRoot, mergedAnchors[0]!.mergeCommitSha)) {
+      basis = 'identical-tree';
+      anchorSha = mergedAnchors[0]!.mergeCommitSha;
+      anchorTreeSha = sourceTreeSha;
+    } else if (sourceTreeSha === mainTreeSha) basis = 'identical-tree';
+    else if (reviewed !== undefined) {
+      const evidence = await observedReviewBinding({
+        repositoryRoot, repository,
+        pullRequestNumber: reviewed.pullRequestNumber,
+        commentId: reviewed.commentId
+      });
+      anchorSha = evidence.review.currentMainSha;
+      anchorTreeSha = await exactTree(run, repositoryRoot, anchorSha);
+      if (!await gitAncestor(run, repositoryRoot, anchorSha, mainSha)) {
+        throw new Error(`Reviewed absorption anchor is absent from current main: ${branch}.`);
+      }
+      const pathSet = await changedPathSet(run, repositoryRoot, headSha, anchorSha);
+      const reviewedSet = 'pathSet' in evidence.review
+        ? evidence.review.pathSet
+        : summarizeClosedSupersessionPaths(evidence.review.paths.map(({ path: changedPath }) => changedPath));
+      if (evidence.review.repository !== repository
+          || evidence.review.headTreeSha !== sourceTreeSha
+          || evidence.review.currentMainTreeSha !== anchorTreeSha
+          || await exactTree(run, repositoryRoot, evidence.review.headSha) !== sourceTreeSha
+          || reviewedSet.count !== pathSet.count || reviewedSet.digest !== pathSet.digest) {
+        throw new Error(`Review does not cover exact local branch retention: ${branch}.`);
+      }
+      basis = 'reviewed-supersession';
+      review = Object.freeze({
+        pullRequestNumber: reviewed.pullRequestNumber,
+        commentId: reviewed.commentId,
+        reference: evidence.reference,
+        receiptDigest: evidence.receiptDigest,
+        headSha: evidence.review.headSha,
+        headTreeSha: evidence.review.headTreeSha,
+        pathSet
+      });
+    } else {
+      unresolvedBranches.push(branch);
+      continue;
+    }
+    eligible.push(Object.freeze({ branch, headSha, sourceTreeSha,
+      mainSha: anchorSha, mainTreeSha: anchorTreeSha, basis, review }));
+  }
+  for (const review of input.reviews) {
+    if (!eligible.some(({ branch }) => branch === review.branch)) {
+      throw new Error(`Local retention review did not bind an eligible exact branch: ${review.branch}.`);
+    }
+  }
+  return Object.freeze({ eligible: Object.freeze(eligible),
+    protectedBranches: Object.freeze(protectedBranches),
+    unresolvedBranches: Object.freeze(unresolvedBranches) });
 }
 
 export async function executeMergedLocalBranchResidueCloseout(input: Readonly<{
   repositoryRoot: string;
   remote?: string;
   recoveryRoot?: string;
+  reviews?: readonly Readonly<{ branch: string; pullRequestNumber: number; commentId: number }>[];
   now?: () => Date;
   run?: CommandRunner;
   faults?: Readonly<{
@@ -1517,7 +2092,9 @@ export async function executeMergedLocalBranchResidueCloseout(input: Readonly<{
     unresolvedBranches: readonly string[]
   ) => {
     const names = operationNames(authorization.operationId);
-    await withWorkspaceWriteLease(repositoryRoot, undefined, async (lease) => {
+    await withWorkspaceWriteLease(commonDir, undefined, (coordinatedLease) => (
+      withWorkspaceWriteLease(repositoryRoot, undefined, async (lease) => {
+      await assertWorkspaceWriteLease(commonDir, coordinatedLease);
       await assertWorkspaceWriteLease(repositoryRoot, lease);
       const currentProvider = await observeRepositoryProvider(run, repositoryRoot, repository);
       assertAuthorizationIdentity({
@@ -1576,9 +2153,11 @@ export async function executeMergedLocalBranchResidueCloseout(input: Readonly<{
       );
       for (const entry of authorization.entries) assertRecoveryBytes(store, entry);
       if (state === 'present') {
-        await deleteExactTransaction(run, repositoryRoot, authorization.entries);
+        await assertWorkspaceWriteLease(commonDir, coordinatedLease);
+        await deleteExactTransaction(repositoryRoot, authorization.entries, coordinatedLease, authorization.operationId);
         input.faults?.afterDelete?.();
       }
+      await assertWorkspaceWriteLease(commonDir, coordinatedLease);
       await assertWorkspaceWriteLease(repositoryRoot, lease);
       const localReadback = parseLocalRefs(await requireText(run, 'git', [
         'for-each-ref', '--format=%(refname:lstrip=2)%00%(objectname)%00', 'refs/heads/'
@@ -1599,7 +2178,8 @@ export async function executeMergedLocalBranchResidueCloseout(input: Readonly<{
       assertReceiptMatchesAuthorization(receipt, authorization);
       input.faults?.afterReceipt?.();
       store.assertCurrent();
-    });
+      })
+    ));
     const completed = scanLocalBranchResidueOperations(store).completed
       .find((candidate) => candidate.authorization.operationId === authorization.operationId);
     if (completed === undefined) {
@@ -1640,13 +2220,17 @@ export async function executeMergedLocalBranchResidueCloseout(input: Readonly<{
     });
   };
 
+  const scanned = scanLocalBranchResidueOperations(store);
+  const retained = scanRetainedLocalBranchOperations(store);
+  if (retained.pending !== null && scanned.pending !== null) {
+    throw new Error('Legacy and retained local branch operations cannot both be pending.');
+  }
   const orphanReceiptFiles = await retireOrphanCompletedReceipts({
     run,
     repositoryRoot,
     repository,
     store
   });
-  const scanned = scanLocalBranchResidueOperations(store);
   let retiredBefore = Object.freeze({
     branches: Object.freeze([]) as readonly string[],
     files: orphanReceiptFiles
@@ -1671,72 +2255,195 @@ export async function executeMergedLocalBranchResidueCloseout(input: Readonly<{
     });
   }
   const pending = scanned.pending;
+  const retiredRetained: string[] = [];
+  const retiredRetainedBranches: string[] = [];
+  for (const completed of retained.completed) {
+    assertAuthorizationIdentity({ authorization: completed.authorization, repository,
+      repositoryRoot, commonDir, remote, remoteUrl, provider, store });
+    const current = await observe(run, repositoryRoot, repository, provider.defaultBranch);
+    await assertCompletedRetentionSettlement({ run, repositoryRoot,
+      authorization: completed.authorization, observation: current });
+    removeOwnedRecoveryFile(store, completed.names.receipt, retiredRetained);
+    removeOwnedRecoveryFile(store, completed.names.authorization, retiredRetained);
+    retiredRetainedBranches.push(...completed.authorization.entries.map(({ branch }) => branch));
+  }
+
   if (pending !== null) {
-    assertAuthorizationIdentity({
-      authorization: pending,
-      repository,
-      repositoryRoot,
-      commonDir,
-      remote,
-      remoteUrl,
-      provider,
-      store
-    });
+    assertAuthorizationIdentity({ authorization: pending, repository, repositoryRoot,
+      commonDir, remote, remoteUrl, provider, store });
     const settled = await settleAuthorization(pending, false, Object.freeze([]), Object.freeze([]));
-    return Object.freeze({
-      ...settled,
-      settled: Object.freeze([...new Set([...retiredBefore.branches, ...settled.settled])]
+    return Object.freeze({ ...settled,
+      settled: Object.freeze([...new Set([
+        ...retiredBefore.branches, ...retiredRetainedBranches, ...settled.settled
+      ])].sort((left, right) => left.localeCompare(right))),
+      retiredRecoveryFiles: Object.freeze([
+        ...retiredBefore.files, ...retiredRetained, ...settled.retiredRecoveryFiles
+      ]) });
+  }
+
+  const settleRetained = async (
+    authorization: RetainedLocalBranchAuthorization,
+    publishAuthorization: boolean,
+    protectedBranches: readonly string[],
+    unresolvedBranches: readonly string[]
+  ) => {
+    const names = operationNames(authorization.operationId);
+    await withWorkspaceWriteLease(commonDir, undefined, (coordinatedLease) => (
+      withWorkspaceWriteLease(repositoryRoot, undefined, async (lease) => {
+        await assertWorkspaceWriteLease(commonDir, coordinatedLease);
+        await assertWorkspaceWriteLease(repositoryRoot, lease);
+        const currentProvider = await observeRepositoryProvider(run, repositoryRoot, repository);
+        assertAuthorizationIdentity({ authorization, repository, repositoryRoot,
+          commonDir, remote, remoteUrl, provider: currentProvider, store });
+        const current = await observe(run, repositoryRoot, repository, authorization.defaultBranch);
+        assertRecoverySeparatedFromWorktrees(store, current);
+        if (remoteMainSha(current) !== authorization.remoteMainSha) {
+          throw new Error('Remote main changed after retained authorization.');
+        }
+        for (const entry of authorization.entries) {
+          if (current.remoteRefs[entry.branch] !== undefined
+              || current.worktreeBranches.includes(entry.branch)) {
+            throw new Error(`Retained local branch acquired remote ref or worktree: ${entry.branch}.`);
+          }
+          if (!await gitAncestor(run, repositoryRoot, entry.mainSha, authorization.remoteMainSha)) {
+            throw new Error(`Retained main anchor is absent: ${entry.branch}.`);
+          }
+          await assertRetentionLive({ run, repositoryRoot, repository, entry });
+        }
+        const state = authorizedLocalState(authorization, current);
+        if (publishAuthorization) {
+          publishCanonical({ store, name: names.authorization, value: authorization,
+            parse: parseRetainedAuthorization });
+          input.faults?.afterAuthorization?.();
+        }
+        assertRetainedAuthorizationBytes(store, authorization);
+        await assertWorkspaceWriteLease(commonDir, coordinatedLease);
+        await assertWorkspaceWriteLease(repositoryRoot, lease);
+        const boundary = await observe(run, repositoryRoot, repository, authorization.defaultBranch);
+        if (remoteMainSha(boundary) !== authorization.remoteMainSha
+            || authorizedLocalState(authorization, boundary) !== state) {
+          throw new Error('Retained branch or main changed at ref effect boundary.');
+        }
+        assertRecoverySeparatedFromWorktrees(store, boundary);
+        for (const entry of authorization.entries) {
+          if (boundary.remoteRefs[entry.branch] !== undefined
+              || boundary.worktreeBranches.includes(entry.branch)) {
+            throw new Error(`Retained local branch acquired a ref or worktree at effect boundary: ${entry.branch}.`);
+          }
+          if (!await gitAncestor(run, repositoryRoot, entry.mainSha, authorization.remoteMainSha)) {
+            throw new Error(`Retained main anchor changed at effect boundary: ${entry.branch}.`);
+          }
+          await assertRetentionLive({ run, repositoryRoot, repository, entry });
+        }
+        assertPhysicalDirectoryBinding(authorization.repositoryPhysical,
+          inspectNoFollowDirectoryChain(repositoryRoot, 'Retained ref effect repository'), 'Repository root');
+        assertPhysicalDirectoryBinding(authorization.commonDirPhysical,
+          inspectNoFollowDirectoryChain(commonDir, 'Retained ref effect common directory'), 'Git common directory');
+        assertRetainedAuthorizationBytes(store, authorization);
+        if (state === 'present') {
+          await deleteExactTransaction(repositoryRoot, authorization.entries,
+            coordinatedLease, authorization.operationId);
+          input.faults?.afterDelete?.();
+        }
+        await assertWorkspaceWriteLease(commonDir, coordinatedLease);
+        await assertWorkspaceWriteLease(repositoryRoot, lease);
+        const refs = parseLocalRefs(await requireText(run, 'git', [
+          'for-each-ref', '--format=%(refname:lstrip=2)%00%(objectname)%00', 'refs/heads/'
+        ], repositoryRoot, 'retained local ref readback'));
+        if (authorization.entries.some(({ branch }) => refs[branch] !== undefined)) {
+          throw new Error('Retained local branch remains after exact CAS.');
+        }
+        assertRetainedAuthorizationBytes(store, authorization);
+        input.faults?.afterReadback?.();
+        input.faults?.beforeReceipt?.();
+        const receipt = publishCanonical({ store, name: names.receipt,
+          value: createRetainedReceipt(authorization, now), parse: parseRetainedReceipt });
+        if (receipt.authorizationDigest !== authorization.authorizationDigest) {
+          throw new Error('Retained receipt differs from authorization.');
+        }
+        input.faults?.afterReceipt?.();
+        store.assertCurrent();
+      })
+    ));
+    const completed = scanRetainedLocalBranchOperations(store).completed
+      .find(({ authorization: candidate }) => candidate.operationId === authorization.operationId);
+    if (completed === undefined) throw new Error('Retained local receipt disappeared.');
+    const after = await observe(run, repositoryRoot, repository, authorization.defaultBranch);
+    await assertCompletedRetentionSettlement({ run, repositoryRoot,
+      authorization: completed.authorization, observation: after });
+    const files: string[] = [];
+    removeOwnedRecoveryFile(store, names.receipt, files);
+    removeOwnedRecoveryFile(store, names.authorization, files);
+    const recoveryRootRetired = retireRecoveryRoot && store.retireIfEmpty();
+    const finalWorktreeEvidenceGc = initialWorktreeEvidenceGc.retained.some(
+      ({ reason }) => reason === 'branch-live'
+    ) ? await gcCompletedWorktreePhysicalCloseoutEvidence(repositoryRoot) : initialWorktreeEvidenceGc;
+    return Object.freeze({ schema: 'sec-local-branch-residue-closeout-result-v2' as const,
+      settled: Object.freeze(authorization.entries.map(({ branch }) => branch)),
+      protectedBranches, unresolvedBranches,
+      authorizationPath: null, receiptPath: null,
+      retiredRecoveryFiles: Object.freeze(files), recoveryRootRetired,
+      worktreeEvidenceGc: mergeWorktreeEvidenceGc(initialWorktreeEvidenceGc, finalWorktreeEvidenceGc) });
+  };
+
+  const retiredBranches = Object.freeze([...new Set([
+    ...retiredBefore.branches, ...retiredRetainedBranches
+  ])].sort((left, right) => left.localeCompare(right)));
+  const retiredFiles = Object.freeze([...retiredBefore.files, ...retiredRetained]);
+  if (retained.pending !== null) {
+    const settled = await settleRetained(retained.pending, false, Object.freeze([]), Object.freeze([]));
+    return Object.freeze({ ...settled,
+      settled: Object.freeze([...new Set([...retiredBranches, ...settled.settled])]
         .sort((left, right) => left.localeCompare(right))),
-      retiredRecoveryFiles: Object.freeze([...retiredBefore.files, ...settled.retiredRecoveryFiles])
-    });
+      retiredRecoveryFiles: Object.freeze([...retiredFiles, ...settled.retiredRecoveryFiles]) });
   }
 
   const first = await observe(run, repositoryRoot, repository, provider.defaultBranch);
   assertRecoverySeparatedFromWorktrees(store, first);
-  const plan = planMergedLocalBranchResidueCloseout(first);
+  const plan = await planRetainedEntries({ run, repositoryRoot, repository, observation: first,
+    reviews: input.reviews ?? [] });
   if (plan.eligible.length === 0) {
-    return Object.freeze({
-      schema: 'sec-local-branch-residue-closeout-result-v2',
-      settled: retiredBefore.branches,
-      protectedBranches: plan.protectedBranches,
-      unresolvedBranches: plan.unresolvedBranches,
-      authorizationPath: null,
-      receiptPath: null,
-      retiredRecoveryFiles: retiredBefore.files,
+    return Object.freeze({ schema: 'sec-local-branch-residue-closeout-result-v2' as const,
+      settled: retiredBranches, protectedBranches: plan.protectedBranches,
+      unresolvedBranches: plan.unresolvedBranches, authorizationPath: null,
+      receiptPath: null, retiredRecoveryFiles: retiredFiles,
       recoveryRootRetired: retireRecoveryRoot && store.retireIfEmpty(),
-      worktreeEvidenceGc: initialWorktreeEvidenceGc
-    });
+      worktreeEvidenceGc: initialWorktreeEvidenceGc });
   }
-  const exactRemoteMain = remoteMainSha(first);
-  await assertMergeCommitsReachable(run, repositoryRoot, exactRemoteMain, plan.eligible);
-  const entries = Object.freeze(await Promise.all(plan.eligible.map(async (entry) => Object.freeze({
-    ...entry,
-    recovery: await createRecovery(run, repositoryRoot, store, entry)
-  }))));
-  const authorization = createAuthorization({
-    repository,
-    repositoryRoot,
-    commonDir,
-    remote,
-    remoteUrl,
+  const plannedInputBytes = measureExactLocalGitRefDeleteBatchInputBytes(
+    plan.eligible.map(({ branch, headSha }) => ({
+      ref: `refs/heads/${branch}`, expectedOldSha: headSha
+    }))
+  );
+  const plannedOutputBytes = measureExactLocalGitRefDeleteBatchOutputBytes(
+    plan.eligible.map(({ branch, headSha }) => ({
+      ref: `refs/heads/${branch}`, expectedOldSha: headSha
+    }))
+  );
+  if (plannedInputBytes > MAXIMUM_LOCAL_REF_DELETE_INPUT_BYTES) {
+    throw new Error('Retained local ref operation exceeds the bounded product input budget before authorization.');
+  }
+  if (plannedOutputBytes > MAXIMUM_LOCAL_REF_DELETE_OUTPUT_BYTES) {
+    throw new Error('Retained local ref operation exceeds the bounded product output budget before authorization.');
+  }
+  const material = Object.freeze({
+    schema: RETAINED_AUTHORIZATION_SCHEMA,
+    repository, repositoryRoot, commonDir, remote, remoteUrl,
     repositoryPhysical: bindPhysicalDirectory(repositoryPhysical),
     commonDirPhysical: bindPhysicalDirectory(commonDirPhysical),
     recoveryRootPhysical: bindPhysicalDirectory(store.rootChain),
-    remoteMainSha: exactRemoteMain,
-    defaultBranch: provider.defaultBranch,
-    entries,
-    now
+    remoteMainSha: remoteMainSha(first), defaultBranch: provider.defaultBranch,
+    entries: plan.eligible
   });
-  const settled = await settleAuthorization(
-    authorization,
-    true,
-    plan.protectedBranches,
-    plan.unresolvedBranches
-  );
-  return Object.freeze({
-    ...settled,
-    settled: Object.freeze([...new Set([...retiredBefore.branches, ...settled.settled])]
+  const operationId = digest(material);
+  const unsigned = Object.freeze({ ...material, operationId, authorizedAt: now().toISOString() });
+  const authorization: RetainedLocalBranchAuthorization = Object.freeze({
+    ...unsigned, authorizationDigest: digest(unsigned)
+  });
+  const settled = await settleRetained(authorization, true,
+    plan.protectedBranches, plan.unresolvedBranches);
+  return Object.freeze({ ...settled,
+    settled: Object.freeze([...new Set([...retiredBranches, ...settled.settled])]
       .sort((left, right) => left.localeCompare(right))),
-    retiredRecoveryFiles: Object.freeze([...retiredBefore.files, ...settled.retiredRecoveryFiles])
-  });
+    retiredRecoveryFiles: Object.freeze([...retiredFiles, ...settled.retiredRecoveryFiles]) });
 }

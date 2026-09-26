@@ -6,7 +6,7 @@ import {
   semanticMutationByteDigest
 } from '../../compiler/semantic-mutation/canonical.ts';
 import { normalizeSemanticMutationRequest } from '../../compiler/semantic-mutation/normalize-request.ts';
-import { preflightSemanticMutation } from '../../compiler/semantic-mutation/preflight-semantic-mutation.ts';
+import { preflightSemanticMutation } from '../../compiler/semantic-mutation/preflight.ts';
 import { resolveSemanticMutationSource } from '../../compiler/semantic-mutation/source-adapter-registry.ts';
 import {
   assertSemanticMutationRollbackManifestInvariant,

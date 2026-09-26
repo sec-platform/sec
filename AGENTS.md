@@ -12,18 +12,19 @@
 
 新增 U 只允许记录现有 U 无法容纳的独立义务；同一问题的新反例、来源、消费者或实现缺口回写原 U，不为“看起来还有工作”增加编号。任何进度汇报都必须给出当前主线交付、活动工作组或 Work Package、已闭合/仍开放的相交义务、绑定修订证据与阻塞；不得把 U/G/branch/commit 的数量或“还剩多少 U”当完成率、任务数或燃尽指标。
 
-完整机制变更先遵守[完整变化的一次闭合](docs/维护/规格写作与完整性.md#complete-change-closure)，再按短时工具预算实施；不以局部PASS或文件存在代签全链完成。规范写入准入也覆盖原文的真实错误与遗漏，不是“没有代码变化就不许修文档”。权威/投影/缓存与源包/制品身份消费[唯一身份域合同](docs/维护/文档身份与重组协议.md#documentation-identity-domains)；不得为生成器或旧缓存改写权威输入。
+完整机制变更先遵守[完整变化的一次闭合](docs/维护/规格写作与完整性.md#complete-change-closure)；实现命名消费[实现命名与上下文压缩](docs/维护/设计任务规则.md#实现命名与上下文压缩)，命令面消费[命令名称、长运行与可恢复执行](docs/开发/工具协议/README.md#命令名称长运行与可恢复执行)。再按短时工具预算实施；不以局部PASS或文件存在代签全链完成。规范写入准入也覆盖原文的真实错误与遗漏，不是“没有代码变化就不许修文档”。权威/投影/缓存与源包/制品身份消费[唯一身份域合同](docs/维护/文档身份与重组协议.md#documentation-identity-domains)；不得为生成器或旧缓存改写权威输入。
 
 ## 仓库实施与恢复
 
 下列入口消费[仓库开发准入与恢复](docs/开发/AI协作/规则装载与任务恢复.md#sec自身仓库开发的行为准入工作身份与恢复)的实现接合，不要求所有SEC目标工程复制本仓库控制面。
 
-1. 新任务、续跑、压缩恢复与实施前先运行`bun run dev:status -- --json`，绑定live main、exact candidate、工作区、活动Work Package及有效operation。按机器返回的continuation route继续；unresolved/invalid只阻断依赖它的动作并报告typed blocker，不能由PR、branch、聊天或测试绿色补足权限。
+1. 新任务、续跑、压缩恢复与实施前先运行`bun run work:status -- --json`，绑定live main、exact candidate、工作区、活动Work Package及有效operation。按机器返回的continuation route继续；unresolved/invalid只阻断依赖它的动作并报告typed blocker，不能由PR、branch、聊天或测试绿色补足权限。
 2. 写入前核唯一写者、前像、dirty归属及并发。保护用户和无关工作，不reset/stash/restore/格式化/清理或纳入交付。当前用户授权决定提交、推送、合并、发布、安装和删除的作用上限，scope/envelope与实际Effect admission分别约束具体执行。用户已明确授权仓库终态后，该义务持续到settlement/readback；默认分支保护拒绝直推时，自动转入同内容的最小branch→PR→Gate→merge通路，不等待重复授权。force、改保护、额外发布等扩大作用仍须另行授权。
 3. 从可观察终态做删除反事实，判断保留对象的独立价值、真实消费者、失败恢复、并发、资源、外部能力、迁移及验证成本。原生Git/compiler/provider等成熟能力按最窄稳定接口使用；展示、路径、摘要、caller字段和测试seam不创造事实或权限。
 4. 一个logical run保持一个mutable candidate。只有独立结果与owner/文件边界明确、并行有实际收益时委派；子任务权限只收窄，主线程保留授权、架构裁决、集成、验证和收口，不能让多个writer修改同一owner。
 5. 编辑期执行最小有效哨兵；frozen对象才生成昂贵证据。执行集合按`RequiredClosure ∩ MissingOrStale`选择，同一ActionKey的fresh PASS、确定性失败及authenticated in-flight分别复用、停止该失败路径及join。证据只证明其绑定对象与环境。
    **Hosted evidence budget 是硬约束：**GitHub Actions、Default CodeQL及其他托管CI只用于最终候选上无法由本地/静态等价证明的必要证据，不用于探索、问题定位、试错、逐步调参或“看看结果是否变化”。在创建/更新会自动触发hosted检查的PR前，先在process candidate中穷尽适用约束、静态source→sink审查、owner/consumer/ownership、生成投影和focused本地证据，并冻结最终tree；随后只生成一次满足集成形状的clean candidate。同一revision、input、environment与ActionKey已有fresh evidence时必须复用，禁止重复dispatch/rerun。只有新的不可等价事实使既有evidence失效时，才支付新的hosted执行成本。
+   **协作表面不是控制总线：**PR/Issue Conversation 只承载可长期复核的 finding、裁决、迁移说明与最终 evidence locator。自动化触发、维护 Effect、重试和状态轮询必须走对应的 provider/Action owner；不得用重复 `@bot` 评论、一次性 workflow、浏览器点击或聊天日志替代。quota、capacity、login、临时 runner/tool 缺失等外部瞬时状态只作为该次 provider observation/typed blocker，除非改变长期支持合同，不得复制进仓库文档、长期 checkpoint 或新的 PR 评论。相同输入和根因失败后先 readback/join，不重复发命令制造噪声。
 6. 失败先定位owner、失效前提、影响闭包和恢复入口，不用扩大timeout、切换Provider、删测试或重复运行绕过。反证使旧计划失效，修正相交唯一owner；无关且安全的工作继续。实现迁移、独立审查与真实发布按其自身合同处理。
 7. 作用后取得真实settlement/readback；merge后重新绑定new main与新一代权限，完成声明区分设计、源码、局部测试、受信Gate、远端入库、合并与branch/worktree/runtime残留。辅助工作树先用generated-state/compiler-dependency退役与`worktree-physical-closeout`结算受管locator，不把`git worktree remove`当完整清理；旧操作责任不因换attempt、新提交或删除配置而消失。
 

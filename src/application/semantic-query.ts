@@ -8,7 +8,7 @@ import {
 import { compileSemanticInput, type SemanticCompilation, type SemanticCompilationInput } from '../compiler/semantic-compiler.ts';
 import { captureSemanticRoots } from '../compiler/semantic-roots.ts';
 import { cloneAndDeepFreeze } from '../contracts/canonical.ts';
-import { SecError } from '../contracts/failure.ts';
+import { FailureError } from '../contracts/failure.ts';
 import { assertNativeAbortSignal, throwIfNativeAborted } from '../contracts/native-abort.ts';
 import type { StructuredIdentityRuntime } from '../contracts/structured-identity.ts';
 import type { SemanticGeneratorPlanTask } from '../semantics/generation/types.ts';
@@ -37,7 +37,7 @@ export type SemanticQueryResult =
 
 export function requireSemanticQueryPurpose(value: unknown): SemanticQueryPurpose {
   if (value === 'analyze' || value === 'generate') return value;
-  throw new SecError('SEMANTIC-QUERY-001', 'Semantic query must select analyze or generate');
+  throw new FailureError('SEMANTIC-QUERY-001', 'Semantic query must select analyze or generate');
 }
 
 /** Own source values at the request boundary; retain the original live signal.
@@ -48,7 +48,7 @@ export function prepareSemanticQuery(request: SemanticQueryRequest) {
   if (signal !== undefined) assertNativeAbortSignal(signal);
   throwIfNativeAborted(signal);
   if ((input === undefined) === (candidate === undefined)) {
-    throw new SecError('SEMANTIC-QUERY-004', 'Semantic query requires exactly one input or candidate');
+    throw new FailureError('SEMANTIC-QUERY-004', 'Semantic query requires exactly one input or candidate');
   }
   // A workspace candidate is already owned and immutable. Reuse its source;
   // one-shot callers still transfer a copy at this boundary.
@@ -65,7 +65,7 @@ function evaluateSemanticQuery(
 ): SemanticQueryEvaluationResult {
   throwIfNativeAborted(query.signal);
   if (query.purpose === 'generate' && typeof render !== 'function') {
-    throw new SecError('SEMANTIC-QUERY-002', 'The requested semantic target is not assembled');
+    throw new FailureError('SEMANTIC-QUERY-002', 'The requested semantic target is not assembled');
   }
   const compilation = compileSemanticInput(query.input, query.roots);
   throwIfNativeAborted(query.signal);

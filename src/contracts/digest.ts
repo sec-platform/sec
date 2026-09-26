@@ -12,7 +12,7 @@ const NON_LOWERCASE_HEX = /[^0-9a-f]/u;
 
 /** Exact 256-bit hexadecimal representation. This does not assert provenance,
  * algorithm, a preimage, authenticity, or the existence of an object. */
-export function isDigestHex(value: unknown): value is string {
+export function isDigest256Hex(value: unknown): value is string {
   return typeof value === 'string' && value.length === 64 && !NON_LOWERCASE_HEX.test(value);
 }
 
@@ -24,7 +24,7 @@ export function isDigest<Algorithm extends DigestAlgorithm>(
   if (algorithm !== 'sha256' && algorithm !== 'blake3') return false;
   return typeof value === 'string' && value.startsWith(`${algorithm}:`)
     && value.length === algorithm.length + 65
-    && isDigestHex(value.slice(algorithm.length + 1));
+    && isDigest256Hex(value.slice(algorithm.length + 1));
 }
 
 export function parseDigest<Algorithm extends DigestAlgorithm>(

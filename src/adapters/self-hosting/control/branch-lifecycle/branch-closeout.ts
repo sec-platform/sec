@@ -1,11 +1,15 @@
-import { spawnSync } from 'node:child_process';
-import { createHash } from 'node:crypto';
 import {
   existsSync,
   readFileSync,
   readdirSync
 } from 'node:fs';
 import path from 'node:path';
+
+import { rawSha256Hex } from '../../../../contracts/canonical.ts';
+import { inspectGitBundleBytes } from '../../../providers/git-bundle/runtime.ts';
+import { withAuthorityGitReadSession } from '../../../providers/git-read/authority.ts';
+import { GIT_READ_OPERATION_BUDGET } from '../../development/tooling/git/git-read.ts';
+import { assertClosedSupersessionEvidence, type ClosedSupersessionEvidence } from './closed-supersession-review.ts';
 
 import {
   createBranchLifecycleGitChildEnvironment,
@@ -29,14 +33,12 @@ import {
   type BranchLifecycleInventoryScope
 } from './branch-lifecycle-inventory.ts';
 import {
+  createMainAbsorptionRecovery,
   createRecoveryBundle,
   ensureRecoveryRoot,
   verifyRecoveryAuthorityLive,
   writeDurableFile
 } from './branch-recovery.ts';
-
-const COMMAND_TIMEOUT_MS = 60_000;
-const COMMAND_MAX_BUFFER = 32 * 1024 * 1024;
 
 export interface BranchCloseoutScope extends BranchLifecycleInventoryScope {
   recoveryRoot?: string;
@@ -54,25 +56,23 @@ function assertBranchCloseoutInventoryResolved(inventory: BranchLifecycleInvento
   }
 }
 
-function runCloseoutGit(repositoryRoot: string, args: readonly string[]) {
+async function runCloseoutGitRead(repositoryRoot: string, args: readonly string[]) {
   if (args.some((arg) => arg.includes('\0'))) {
     throw new Error('Branch closeout argument contains NUL.');
   }
-  const result = spawnSync('git', [...args], {
+  return withAuthorityGitReadSession({
     cwd: repositoryRoot,
-    encoding: 'buffer',
-    windowsHide: true,
-    timeout: COMMAND_TIMEOUT_MS,
-    maxBuffer: COMMAND_MAX_BUFFER,
-    env: createBranchLifecycleGitChildEnvironment(process.env)
+    budget: GIT_READ_OPERATION_BUDGET,
+    environment: createBranchLifecycleGitChildEnvironment(process.env)
+  }, async (session) => {
+    const command = await session.run(args);
+    if (command.kind !== 'completed') throw new Error(command.detail);
+    return Object.freeze({
+      status: command.result.code,
+      stdout: Buffer.from(command.result.stdout),
+      stderr: Buffer.from(command.result.stderr, 'utf8')
+    });
   });
-  return {
-    status: result.status,
-    stdout: Buffer.isBuffer(result.stdout) ? result.stdout : Buffer.from(String(result.stdout ?? '')),
-    stderr: Buffer.isBuffer(result.stderr)
-      ? result.stderr
-      : Buffer.from(String(result.stderr ?? result.error?.message ?? ''))
-  };
 }
 
 export const BRANCH_CLOSEOUT_PREPARED_ENVELOPE_SCHEMA =
@@ -117,6 +117,8 @@ export interface PrepareClosedUnmergedPullRequestCloseoutInput {
   baseSha: string;
   /** Fresh provider observation retained even after the branch ref is absent. */
   exactPullRequest: BranchPullRequestObservation;
+  /** Required only when exact native main absorption cannot prove retention. */
+  reviewEvidence?: ClosedSupersessionEvidence;
 }
 
 type BranchCloseoutPreparationAdmission =
@@ -126,7 +128,30 @@ type BranchCloseoutPreparationAdmission =
       expectedBaseBranch: string;
       expectedBaseSha: string;
       exactPullRequest: BranchPullRequestObservation;
+      reviewEvidence?: ClosedSupersessionEvidence;
     };
+
+async function closedMainAbsorptionBasis(
+  repositoryRoot: string,
+  sourceSha: string,
+  mainSha: string
+): Promise<'native-ancestor' | 'identical-tree' | null> {
+  const ancestry = await runCloseoutGitRead(repositoryRoot, ['merge-base', '--is-ancestor', sourceSha, mainSha]);
+  if (ancestry.status === 0) return 'native-ancestor';
+  if (ancestry.status !== 1) {
+    throw new Error('Closed-unmerged native main ancestry observation is unavailable.');
+  }
+  const sourceTree = await runCloseoutGitRead(repositoryRoot, ['rev-parse', '--verify', `${sourceSha}^{tree}`]);
+  const mainTree = await runCloseoutGitRead(repositoryRoot, ['rev-parse', '--verify', `${mainSha}^{tree}`]);
+  if (sourceTree.status !== 0 || mainTree.status !== 0) {
+    throw new Error('Closed-unmerged exact native tree observation is unavailable.');
+  }
+  const sourceTreeSha = decodeBranchLifecycleChildStdout(sourceTree);
+  const mainTreeSha = decodeBranchLifecycleChildStdout(mainTree);
+  assertGitSha(sourceTreeSha, 'closed-unmerged source tree');
+  assertGitSha(mainTreeSha, 'closed-unmerged main tree');
+  return sourceTreeSha === mainTreeSha ? 'identical-tree' : null;
+}
 
 function createPreparedEnvelope(input: Omit<
   PreparedBranchCloseoutEnvelope,
@@ -258,18 +283,18 @@ export function rehydratePreparedBranchCloseoutEnvelope(input: {
  * Actions artifact on a fresh hosted runner. The stable preparation identity
  * remains byte-identical; only host-local paths/inventory are reconstructed.
  */
-export function rehydratePreparedBranchCloseoutRecoveryArtifact(input: {
+export async function rehydratePreparedBranchCloseoutRecoveryArtifact(input: {
   scope: BranchCloseoutScope;
   remote: PreparedBranchCloseoutEnvelope;
   recoveryBundleBytes: Uint8Array;
-}): PreparedBranchCloseoutEnvelope {
+}): Promise<PreparedBranchCloseoutEnvelope> {
   assertPreparedBranchCloseoutEnvelope(input.remote);
   const bytes = Buffer.from(input.recoveryBundleBytes);
-  const digest = createHash('sha256').update(bytes).digest('hex');
+  const digest = rawSha256Hex(bytes);
   if (`sha256:${digest}` !== input.remote.preparation.recovery.sha256) {
     throw new Error('Provider recovery bundle digest differs from the authorized preparation.');
   }
-  const inventory = collectBranchLifecycleInventory(input.scope);
+  const inventory = await collectBranchLifecycleInventory(input.scope);
   assertBranchCloseoutInventoryResolved(inventory);
   const recoveryRoot = ensureRecoveryRoot(inventory, input.scope.recoveryRoot);
   const bundlePath = path.join(recoveryRoot, `sec-branch-closeout-restored-${digest}.bundle`);
@@ -294,7 +319,7 @@ export function rehydratePreparedBranchCloseoutRecoveryArtifact(input: {
     path: bundlePath,
     sha256: `sha256:${digest}` as const
   };
-  const recoveryReadback = verifyRecoveryAuthorityLive({ inventory, recovery });
+  const recoveryReadback = await verifyRecoveryAuthorityLive({ inventory, recovery });
   if (recoveryReadback.status !== 'success') {
     throw new Error(`Restored provider recovery bundle failed live verification: ${recoveryReadback.detail}`);
   }
@@ -364,11 +389,11 @@ function persistPreparedEnvelope(envelope: PreparedBranchCloseoutEnvelope): stri
   return filePath;
 }
 
-function prepareBranchCloseoutInternal(
+async function prepareBranchCloseoutInternal(
   scope: BranchCloseoutScope,
   input: PrepareBranchCloseoutInput,
   admission: BranchCloseoutPreparationAdmission
-): PreparedBranchCloseoutEnvelope {
+): Promise<PreparedBranchCloseoutEnvelope> {
   assertGitBranchName(input.branch);
   const refState = input.refState ?? 'present';
   if (refState !== 'present' && refState !== 'absent') {
@@ -388,7 +413,7 @@ function prepareBranchCloseoutInternal(
     throw new Error('pullRequestNumber must be a positive safe integer.');
   }
 
-  let before = collectBranchLifecycleInventory(scope);
+  let before = await collectBranchLifecycleInventory(scope);
   if (admission.kind === 'closed-unmerged') {
     const exact = admission.exactPullRequest;
     if (exact.isCrossRepository
@@ -506,19 +531,37 @@ function prepareBranchCloseoutInternal(
     if (remote === undefined) throw new Error(`Remote branch ${input.branch} is absent.`);
     expectedHeadSha = remote.sha;
   }
-  if (local !== undefined && local.sha !== expectedHeadSha) {
-    throw new Error(
-      `Local branch SHA mismatch: expected ${expectedHeadSha}, observed ${local.sha}.`
-    );
-  }
+  // The remote ref and local branch are distinct Git objects. Preserve the
+  // observed local preimage independently; authorization will protect it when
+  // it differs from the recovered remote head.
   const localSha = local?.sha ?? null;
   const expectedPrHeadSha = refState === 'absent'
     ? (input.expectedPrHeadSha ?? pullRequest?.headSha ?? null)
     : null;
 
-  const { recovery, attempts } = refState === 'absent'
-    ? prepareAbsentRefRecovery(scope, before, input.branch, expectedHeadSha, pullRequestNumber)
-    : createRecoveryBundle({
+  const mainSha = before.main.remoteSha;
+  if (admission.kind === 'closed-unmerged' && mainSha === null) {
+    throw new Error('Closed-unmerged main absorption requires one exact remote main SHA.');
+  }
+  const retentionBasis = admission.kind === 'closed-unmerged'
+      && admission.reviewEvidence === undefined
+    ? await closedMainAbsorptionBasis(before.repository.root, expectedHeadSha, mainSha!)
+    : null;
+  if (admission.kind === 'closed-unmerged' && retentionBasis === null
+      && admission.reviewEvidence === undefined) {
+    throw new Error('Closed-unmerged distinct-tree head requires one exact adopted supersession review.');
+  }
+  if (admission.kind === 'closed-unmerged' && admission.reviewEvidence !== undefined) {
+    assertClosedSupersessionEvidence(admission.reviewEvidence);
+  }
+  const { recovery, attempts } = admission.kind === 'closed-unmerged'
+    ? await createMainAbsorptionRecovery({ inventory: before, branch: input.branch,
+        expectedSha: expectedHeadSha, mainSha: mainSha!,
+        basis: retentionBasis ?? 'reviewed-supersession', recoveryRoot: scope.recoveryRoot,
+        ...(retentionBasis === null ? { reviewEvidence: admission.reviewEvidence } : {}) })
+    : refState === 'absent'
+      ? await prepareAbsentRefRecovery(scope, before, input.branch, expectedHeadSha, pullRequestNumber)
+      : await createRecoveryBundle({
         inventory: before,
         branch: input.branch,
         expectedSha: expectedHeadSha,
@@ -554,18 +597,18 @@ function prepareBranchCloseoutInternal(
   return envelope;
 }
 
-export function prepareBranchCloseout(
+export async function prepareBranchCloseout(
   scope: BranchCloseoutScope,
   input: PrepareBranchCloseoutInput
-): PreparedBranchCloseoutEnvelope {
+): Promise<PreparedBranchCloseoutEnvelope> {
   return prepareBranchCloseoutInternal(scope, input, { kind: 'active-work-package' });
 }
 
 /** Durable preparation only; the operation compiler and provider still own Effect admission. */
-export function prepareClosedUnmergedPullRequestCloseout(
+export async function prepareClosedUnmergedPullRequestCloseout(
   scope: BranchCloseoutScope,
   input: PrepareClosedUnmergedPullRequestCloseoutInput
-): PreparedBranchCloseoutEnvelope {
+): Promise<PreparedBranchCloseoutEnvelope> {
   if (input.refState !== 'present' && input.refState !== 'absent') {
     throw new Error('Closed-unmerged ref state must be present or absent.');
   }
@@ -583,25 +626,26 @@ export function prepareClosedUnmergedPullRequestCloseout(
     kind: 'closed-unmerged',
     expectedBaseBranch: input.baseBranch,
     expectedBaseSha: input.baseSha,
-    exactPullRequest: input.exactPullRequest
+    exactPullRequest: input.exactPullRequest,
+    ...(input.reviewEvidence === undefined ? {} : { reviewEvidence: input.reviewEvidence })
   });
 }
 
-function prepareAbsentRefRecovery(
+async function prepareAbsentRefRecovery(
   scope: BranchCloseoutScope,
   inventory: BranchLifecycleInventory,
   branch: string,
   expectedSha: string,
   pullRequestNumber: number | null
-): { recovery: BranchRecoveryAuthority; attempts: BranchCloseoutAttempt[] } {
-  const existing = findMatchingRecoveryBundle(scope, inventory, branch, expectedSha);
+): Promise<{ recovery: BranchRecoveryAuthority; attempts: BranchCloseoutAttempt[] }> {
+  const existing = await findMatchingRecoveryBundle(scope, inventory, branch, expectedSha);
   if (existing !== null) {
     const attempts: BranchCloseoutAttempt[] = [{
       operation: 'recovery-create',
       status: 'success',
       detail: `${existing.path} (reused verified recovery bundle)`
     }];
-    const live = verifyRecoveryAuthorityLive({ inventory, recovery: existing });
+    const live = await verifyRecoveryAuthorityLive({ inventory, recovery: existing });
     attempts.push(live);
     if (live.status !== 'success') {
       throw new Error(`Reused recovery bundle failed live revalidation: ${live.detail}`);
@@ -637,12 +681,12 @@ function safeRecoverySegment(branch: string): string {
   return branch.replace(/[^A-Za-z0-9._-]+/gu, '-').replace(/^-+|-+$/gu, '').slice(0, 80);
 }
 
-function findMatchingRecoveryBundle(
+async function findMatchingRecoveryBundle(
   scope: BranchCloseoutScope,
   inventory: BranchLifecycleInventory,
   branch: string,
   expectedSha: string
-): BranchRecoveryAuthority | null {
+): Promise<BranchRecoveryAuthority | null> {
   const recoveryRoot = ensureRecoveryRoot(inventory, scope.recoveryRoot);
   const prefix = `sec-branch-closeout-${safeRecoverySegment(branch)}-`;
   const candidates = readdirSync(recoveryRoot)
@@ -653,21 +697,16 @@ function findMatchingRecoveryBundle(
       const checksumPath = `${candidate}.sha256`;
       const checksum = readFileSync(checksumPath, 'utf8');
       const digestMatch = /^([0-9a-f]{64})\s+\S+$/u.exec(checksum.trim());
-      const digest = createHash('sha256').update(readFileSync(candidate)).digest('hex');
+      const bundleBytes = readFileSync(candidate);
+      const digest = rawSha256Hex(bundleBytes);
       if (digestMatch === null || digestMatch[1] !== digest) continue;
-      const verify = runCloseoutGit(inventory.repository.root, ['bundle', 'verify', candidate]);
-      if (verify.status !== 0) continue;
-      const headsResult = runCloseoutGit(
-        inventory.repository.root,
-        ['bundle', 'list-heads', candidate]
-      );
-      if (headsResult.status !== 0) continue;
-      const heads = decodeBranchLifecycleChildStdout(headsResult);
-      if (!heads.split(/\r?\n/u).some((line) => line.trim().startsWith(expectedSha))) continue;
-      const verifyOutput = [
-        verify.stdout.toString('utf8').trim(),
-        verify.stderr.toString('utf8').trim()
-      ].filter(Boolean).join('\n');
+      const inspection = await inspectGitBundleBytes({
+        repositoryRoot: inventory.repository.root,
+        bytes: bundleBytes
+      });
+      if (inspection.bundleDigest !== `sha256:${digest}`
+          || !inspection.heads.some(({ objectId }) => objectId === expectedSha)) continue;
+      const verifyOutput = `git-bundle provider verified ${inspection.heads.length} head(s)`;
       return {
         kind: 'bundle',
         path: candidate,
@@ -682,10 +721,10 @@ function findMatchingRecoveryBundle(
   return null;
 }
 
-export function prepareMergedPullRequestCloseout(
+export async function prepareMergedPullRequestCloseout(
   scope: BranchCloseoutScope,
   input: { number: number; headBranch: string; headSha: string }
-): PreparedBranchCloseoutEnvelope {
+): Promise<PreparedBranchCloseoutEnvelope> {
   return prepareBranchCloseout(scope, {
     branch: input.headBranch,
     expectedHeadSha: input.headSha,

@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 
 import { runtimeDependencyOperationOptions, runtimeDependencyOperationRemainingMs } from '../../src/adapters/toolchain/dependencies/runtime/operation-context.ts';
 import { measureRuntimeDependencyOperationPhase, measureRuntimeDependencyOperationPhaseAsync, readRuntimeDependencyOperationTelemetry } from '../../src/adapters/toolchain/dependencies/runtime/operation-telemetry.ts';
-import { SecError } from '../../src/contracts/failure.ts';
+import { FailureError } from '../../src/contracts/failure.ts';
 
 function clock() {
   let now = 0;
@@ -83,7 +83,7 @@ for (const end of [-1, NaN, Infinity, -Infinity]) {
 for (const field of ['code', 'message', 'name'] as const) {
   test(`throwing error ${field} getter does not replace the primary failure`, () => {
     const state = clock();
-    const error = new SecError('RUNTIME-DEPS-003', 'failure');
+    const error = new FailureError('RUNTIME-DEPS-003', 'failure');
     Object.defineProperty(error, field, { get() { throw new Error('secondary classification error'); } });
     assert.throws(() => measureRuntimeDependencyOperationPhase(state.options, 'cleanup', () => { throw error; }), (actual: unknown) => actual === error);
     assert.equal(readRuntimeDependencyOperationTelemetry(state.options).phases[0]!.outcomes.failed, 1);
@@ -92,7 +92,7 @@ for (const field of ['code', 'message', 'name'] as const) {
 
 test('classification does not inspect an unrelated message field', () => {
   const state = clock();
-  const error = new SecError('UNRELATED', 'failure'); error.name = 'AbortError';
+  const error = new FailureError('UNRELATED', 'failure'); error.name = 'AbortError';
   Object.defineProperty(error, 'message', { get() { throw new Error('irrelevant message'); } });
   assert.throws(() => measureRuntimeDependencyOperationPhase(state.options, 'cleanup', () => { throw error; }), (actual: unknown) => actual === error);
   assert.equal(readRuntimeDependencyOperationTelemetry(state.options).phases[0]!.outcomes.aborted, 1);
@@ -101,7 +101,7 @@ test('classification does not inspect an unrelated message field', () => {
 test('existing cancellation and deadline outcome projections retain their precedence', () => {
   const controller = new AbortController();
   const options = runtimeDependencyOperationOptions({ signal: controller.signal, monotonicNowMs: () => 0 });
-  const deadline = new SecError('RUNTIME-DEPS-003', 'operation DEADLINE exhausted');
+  const deadline = new FailureError('RUNTIME-DEPS-003', 'operation DEADLINE exhausted');
   assert.throws(() => measureRuntimeDependencyOperationPhase(options, 'install', () => { throw deadline; }), (error: unknown) => error === deadline);
   assert.throws(() => measureRuntimeDependencyOperationPhase(options, 'install', () => { controller.abort(deadline); throw deadline; }), (error: unknown) => error === deadline);
   const phase = readRuntimeDependencyOperationTelemetry(options).phases[0]!;

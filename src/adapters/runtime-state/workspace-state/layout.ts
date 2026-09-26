@@ -2,11 +2,11 @@ import path from 'node:path';
 
 import { sha256 } from '../../../contracts/canonical.ts';
 
-const SEC_RUNTIME_STATE_LAYOUT_SCHEMA = 'sec-runtime-state-layout-v1' as const;
+const RUNTIME_STATE_LAYOUT_SCHEMA = 'sec-runtime-state-layout-v1' as const;
 
-export type SecRuntimePlatform = 'win32' | 'linux' | 'darwin';
+export type RuntimePlatform = 'win32' | 'linux' | 'darwin';
 
-export type SecRuntimeStateEnvironment = Readonly<{
+export type RuntimeStateEnvironment = Readonly<{
   SEC_STATE_HOME?: string;
   SEC_CACHE_HOME?: string;
   LOCALAPPDATA?: string;
@@ -15,9 +15,10 @@ export type SecRuntimeStateEnvironment = Readonly<{
   HOME?: string;
 }>;
 
-export interface SecRuntimeRoots {
+export interface RuntimeRoots {
   readonly stateRoot: string;
   readonly cacheRoot: string;
+  readonly workspaceCollectionRoot: string;
   readonly workspaceLocatorRoot: string;
   readonly workspaceStateRoot: string;
   readonly workspaceLocatorKey: `sha256:${string}`;
@@ -25,20 +26,21 @@ export interface SecRuntimeRoots {
   readonly testProcessTempLeaseRoot: string;
 }
 
-export interface SecWorkspacePhysicalIdentity {
+export interface WorkspacePhysicalIdentity {
   readonly device: string;
   readonly inode: string;
   readonly objectId: string;
 }
 
-export interface SecRuntimeStateLayout {
-  readonly schema: typeof SEC_RUNTIME_STATE_LAYOUT_SCHEMA;
+export interface RuntimeStateLayout {
+  readonly schema: typeof RUNTIME_STATE_LAYOUT_SCHEMA;
   readonly stateRoot: string;
   readonly cacheRoot: string;
   readonly repositoryKey: `sha256:${string}`;
   readonly workspaceKey: `sha256:${string}`;
   readonly workspaceLocatorKey: `sha256:${string}`;
   readonly repositoryStateRoot: string;
+  readonly workspaceCollectionRoot: string;
   readonly workspaceStateRoot: string;
   readonly continuationObjectRoot: string;
   readonly continuationPointerPath: string;
@@ -47,18 +49,18 @@ export interface SecRuntimeStateLayout {
   readonly processDiagnosticObjectRoot: string;
 }
 
-export function currentSecRuntimePlatform(
+export function currentRuntimePlatform(
   platform: NodeJS.Platform = process.platform
-): SecRuntimePlatform {
+): RuntimePlatform {
   if (platform !== 'win32' && platform !== 'linux' && platform !== 'darwin') {
     fail(`does not support platform ${platform}.`);
   }
   return platform;
 }
 
-export function secRuntimeStateEnvironment(
+export function runtimeStateEnvironment(
   source: NodeJS.ProcessEnv = process.env
-): SecRuntimeStateEnvironment {
+): RuntimeStateEnvironment {
   const result: Record<string, string> = {};
   for (const name of [
     'SEC_STATE_HOME', 'SEC_CACHE_HOME', 'LOCALAPPDATA',
@@ -67,7 +69,7 @@ export function secRuntimeStateEnvironment(
     const value = source[name];
     if (typeof value === 'string' && value.length > 0) result[name] = value;
   }
-  return Object.freeze(result as SecRuntimeStateEnvironment);
+  return Object.freeze(result as RuntimeStateEnvironment);
 }
 
 function fail(message: string): never {
@@ -94,17 +96,17 @@ function repository(value: unknown): string {
   return result;
 }
 
-function flavor(platform: SecRuntimePlatform): typeof path.win32 | typeof path.posix {
+function flavor(platform: RuntimePlatform): typeof path.win32 | typeof path.posix {
   return platform === 'win32' ? path.win32 : path.posix;
 }
 
-function requireAbsolute(value: string, platform: SecRuntimePlatform, label: string): string {
+function requireAbsolute(value: string, platform: RuntimePlatform, label: string): string {
   const api = flavor(platform);
   if (!api.isAbsolute(value)) fail(`${label} must be absolute.`);
   return api.normalize(value);
 }
 
-function defaultStateRoot(platform: SecRuntimePlatform, env: SecRuntimeStateEnvironment): string {
+function defaultStateRoot(platform: RuntimePlatform, env: RuntimeStateEnvironment): string {
   const api = flavor(platform);
   if (env.SEC_STATE_HOME !== undefined) return requireAbsolute(env.SEC_STATE_HOME, platform, 'SEC_STATE_HOME');
   if (platform === 'win32') {
@@ -121,7 +123,7 @@ function defaultStateRoot(platform: SecRuntimePlatform, env: SecRuntimeStateEnvi
     : api.join(home, '.local', 'state', 'sec');
 }
 
-function defaultCacheRoot(platform: SecRuntimePlatform, env: SecRuntimeStateEnvironment): string {
+function defaultCacheRoot(platform: RuntimePlatform, env: RuntimeStateEnvironment): string {
   const api = flavor(platform);
   if (env.SEC_CACHE_HOME !== undefined) return requireAbsolute(env.SEC_CACHE_HOME, platform, 'SEC_CACHE_HOME');
   if (platform === 'win32') {
@@ -138,9 +140,9 @@ function defaultCacheRoot(platform: SecRuntimePlatform, env: SecRuntimeStateEnvi
     : api.join(home, '.cache', 'sec');
 }
 
-export function resolveSecRuntimeCacheRoot(input: Readonly<{
-  platform: SecRuntimePlatform;
-  environment: SecRuntimeStateEnvironment;
+export function resolveRuntimeCacheRoot(input: Readonly<{
+  platform: RuntimePlatform;
+  environment: RuntimeStateEnvironment;
   repositoryRoot: string;
 }>): string {
   const repositoryRoot = requireAbsolute(input.repositoryRoot, input.platform, 'repositoryRoot');
@@ -152,8 +154,8 @@ export function resolveSecRuntimeCacheRoot(input: Readonly<{
 }
 
 function workspacePhysicalIdentity(
-  value: SecWorkspacePhysicalIdentity
-): SecWorkspacePhysicalIdentity {
+  value: WorkspacePhysicalIdentity
+): WorkspacePhysicalIdentity {
   const result = Object.freeze({
     device: boundedText(value.device, 'workspace physical device'),
     inode: boundedText(value.inode, 'workspace physical inode'),
@@ -162,7 +164,7 @@ function workspacePhysicalIdentity(
   return result;
 }
 
-function isSameOrInside(candidate: string, parent: string, platform: SecRuntimePlatform): boolean {
+function isSameOrInside(candidate: string, parent: string, platform: RuntimePlatform): boolean {
   const api = flavor(platform);
   const left = platform === 'win32' ? api.normalize(candidate).toLowerCase() : api.normalize(candidate);
   const right = platform === 'win32' ? api.normalize(parent).toLowerCase() : api.normalize(parent);
@@ -170,8 +172,8 @@ function isSameOrInside(candidate: string, parent: string, platform: SecRuntimeP
   return relative === '' || (!relative.startsWith(`..${api.sep}`) && relative !== '..' && !api.isAbsolute(relative));
 }
 
-export function createSecWorkspaceLocatorKey(input: Readonly<{
-  workspacePhysicalIdentity: SecWorkspacePhysicalIdentity;
+export function createWorkspaceLocatorKey(input: Readonly<{
+  workspacePhysicalIdentity: WorkspacePhysicalIdentity;
 }>): `sha256:${string}` {
   return digest(Object.freeze({
     schema: 'sec-workspace-locator-key-v1',
@@ -179,15 +181,15 @@ export function createSecWorkspaceLocatorKey(input: Readonly<{
   }));
 }
 
-export function resolveSecRuntimeRoots(input: Readonly<{
-  platform: SecRuntimePlatform;
-  environment: SecRuntimeStateEnvironment;
+export function resolveRuntimeRoots(input: Readonly<{
+  platform: RuntimePlatform;
+  environment: RuntimeStateEnvironment;
   repositoryRoot: string;
-  workspacePhysicalIdentity: SecWorkspacePhysicalIdentity;
-}>): SecRuntimeRoots {
+  workspacePhysicalIdentity: WorkspacePhysicalIdentity;
+}>): RuntimeRoots {
   const repositoryRoot = requireAbsolute(input.repositoryRoot, input.platform, 'repositoryRoot');
   const stateRoot = defaultStateRoot(input.platform, input.environment);
-  const cacheRoot = resolveSecRuntimeCacheRoot({
+  const cacheRoot = resolveRuntimeCacheRoot({
     platform: input.platform,
     environment: input.environment,
     repositoryRoot
@@ -200,31 +202,33 @@ export function resolveSecRuntimeRoots(input: Readonly<{
     fail('durable state and disposable cache roots must be physically disjoint.');
   }
   const api = flavor(input.platform);
-  const workspaceLocatorKey = createSecWorkspaceLocatorKey({
+  const workspaceLocatorKey = createWorkspaceLocatorKey({
     workspacePhysicalIdentity: input.workspacePhysicalIdentity
   });
-  const workspaceStateRoot = api.join(stateRoot, 'workspaces', 'v1', workspaceLocatorKey.slice(7));
+  const workspaceCollectionRoot = api.join(stateRoot, 'workspaces', 'records');
+  const workspaceStateRoot = api.join(workspaceCollectionRoot, workspaceLocatorKey.slice(7));
   return Object.freeze({
     stateRoot,
     cacheRoot,
-    workspaceLocatorRoot: api.join(stateRoot, 'workspace-locators', 'v1'),
+    workspaceCollectionRoot,
+    workspaceLocatorRoot: api.join(stateRoot, 'workspace-locators', 'records'),
     workspaceStateRoot,
     workspaceLocatorKey,
     processDiagnosticObjectRoot: api.join(workspaceStateRoot, 'objects', 'process-diagnostics'),
-    testProcessTempLeaseRoot: api.join(workspaceStateRoot, 'test-process-temp', 'v1')
+    testProcessTempLeaseRoot: api.join(workspaceStateRoot, 'test-process-temp', 'leases')
   });
 }
 
-export function resolveSecRuntimeStateLayout(input: Readonly<{
-  platform: SecRuntimePlatform;
-  environment: SecRuntimeStateEnvironment;
+export function resolveRuntimeStateLayout(input: Readonly<{
+  platform: RuntimePlatform;
+  environment: RuntimeStateEnvironment;
   repository: string;
   repositoryRoot: string;
-  workspacePhysicalIdentity: SecWorkspacePhysicalIdentity;
-}>): SecRuntimeStateLayout {
+  workspacePhysicalIdentity: WorkspacePhysicalIdentity;
+}>): RuntimeStateLayout {
   const repositoryIdentity = repository(input.repository);
   const repositoryRoot = requireAbsolute(input.repositoryRoot, input.platform, 'repositoryRoot');
-  const roots = resolveSecRuntimeRoots({
+  const roots = resolveRuntimeRoots({
     platform: input.platform,
     environment: input.environment,
     repositoryRoot,
@@ -239,20 +243,21 @@ export function resolveSecRuntimeStateLayout(input: Readonly<{
   }));
   const repositoryStateRoot = api.join(roots.stateRoot, 'repositories', repositoryKey.slice(7));
   return Object.freeze({
-    schema: SEC_RUNTIME_STATE_LAYOUT_SCHEMA,
+    schema: RUNTIME_STATE_LAYOUT_SCHEMA,
     stateRoot: roots.stateRoot,
     cacheRoot: roots.cacheRoot,
     repositoryKey,
     workspaceKey,
     workspaceLocatorKey: roots.workspaceLocatorKey,
     repositoryStateRoot,
+    workspaceCollectionRoot: roots.workspaceCollectionRoot,
     workspaceStateRoot: roots.workspaceStateRoot,
-    continuationObjectRoot: api.join(repositoryStateRoot, 'objects', 'continuation-v1'),
-    continuationPointerPath: api.join(roots.workspaceStateRoot, 'active-continuation-v1.json'),
+    continuationObjectRoot: api.join(repositoryStateRoot, 'objects', 'continuation'),
+    continuationPointerPath: api.join(roots.workspaceStateRoot, 'active-continuation.json'),
     durableLocalExecutionJournalRoot: api.join(
       roots.workspaceStateRoot, 'durable-local-executions'
     ),
-    verificationSessionJournalRoot: api.join(roots.workspaceStateRoot, 'verification-sessions', 'v2'),
+    verificationSessionJournalRoot: api.join(roots.workspaceStateRoot, 'verification-sessions', 'journal'),
     processDiagnosticObjectRoot: roots.processDiagnosticObjectRoot
   });
 }

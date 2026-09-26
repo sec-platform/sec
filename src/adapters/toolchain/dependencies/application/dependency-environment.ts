@@ -1,7 +1,7 @@
 import { constants as fsConstants } from 'node:fs';
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { SecError } from '../../../../contracts/failure.ts';
+import { FailureError } from '../../../../contracts/failure.ts';
 import { isFileNotFoundError, pathExists, removeDir } from "../../../filesystem/files.ts";
 import { compilerRoot, getWorkspacePaths, resolveWorkspacePlanPath } from "../../../workspace-context.ts";
 import { loadRuntimeDependencySpec } from '../contract/runtime-dependency-spec.ts';
@@ -49,7 +49,7 @@ function environmentLocation(options: DependencyEnvironmentOptions, cwd: string)
 }> {
   const selected = options.sharedDepsRoot;
   if (selected !== undefined && (typeof selected !== 'string' || selected.length === 0)) {
-    throw new SecError('RUNTIME-DEPS-003', 'Shared dependency root must be a nonempty path');
+    throw new FailureError('RUNTIME-DEPS-003', 'Shared dependency root must be a nonempty path');
   }
   return Object.freeze({ sharedDepsRoot: path.resolve(cwd, selected ?? defaultSharedDepsRoot()) });
 }
@@ -64,7 +64,7 @@ function captureCleanupSelection(options: DependencyCleanOptions): Readonly<Depe
   const { project, shared, bunCache, all, force } = options;
   for (const [field, value] of Object.entries({ project, shared, bunCache, all, force })) {
     if (value !== undefined && typeof value !== 'boolean') {
-      throw new SecError('RUNTIME-DEPS-003', `Dependency cleanup ${field} must be boolean`);
+      throw new FailureError('RUNTIME-DEPS-003', `Dependency cleanup ${field} must be boolean`);
     }
   }
   // force remains a compatibility input, never a permission to bypass an owner.
@@ -336,7 +336,7 @@ export async function cleanDependencyEnvironment(
   const plan = [...targets].map(target => ({ target, shared: sameHostPath(target, sharedRoot) }));
   const hasSharedSettlement = plan.some(step => step.shared);
   if (hasSharedSettlement && !sameHostPath(sharedRoot, defaultSharedDepsRoot())) {
-    throw new SecError('IMPORT-AUTHORITY-004',
+    throw new FailureError('IMPORT-AUTHORITY-004',
       'Custom shared dependency roots cannot be retired through the public cleanup projection without owner-issued lifecycle authority');
   }
   const settlementOptions = hasSharedSettlement

@@ -1,19 +1,20 @@
-import { createHash } from 'node:crypto';
 import {
   readdirSync,
   statSync
 } from 'node:fs';
 import path from 'node:path';
+import { rawSha256Hex } from '../../../../contracts/canonical.ts';
 import { isDigest } from '../../../../contracts/digest.ts';
 import { parseExactJson } from '../../../../contracts/exact-json.ts';
 import { withAcquiredResource } from '../../../../execution/resource-settlement.ts';
 import { decodeExactUtf8 } from '../../../runtime-state/physical/runtime/retained-file-read.ts';
 import { waitForHeavyVerificationGateLease, withAcquiredHeavyVerificationGateLease } from '../../../verification/platform/gate/state/heavy-lease-lifecycle.ts';
 
-import { deleteRetainedNoFollowEntry, inspectNoFollowDirectoryChild, inspectNoFollowOrdinaryFileEntry, publishExclusiveDurableCanonicalFile, readNoFollowOrdinaryFile, replaceDurableCanonicalFile, type PhysicalDirectoryIdentity } from '../../../runtime-state/physical/runtime/physical-no-follow.ts';
-import type { SecRuntimeStateLayout } from '../../../runtime-state/workspace-state/layout.ts';
-import { resolveSecRuntimeStateForRepository, resolveSecWorkspaceRuntimeRoots } from '../../../runtime-state/workspace-state/paths.ts';
-import { acquireSecRuntimeStatePhysicalAuthority, type SecRuntimeStatePhysicalAuthority } from '../../../runtime-state/workspace-state/physical-authority.ts';
+import { deleteRetainedNoFollowEntry, inspectExactNoFollowDirectoryPresence, inspectNoFollowDirectoryChild, inspectNoFollowOrdinaryFileEntry, publishExclusiveDurableCanonicalFile, readNoFollowOrdinaryFile, replaceDurableCanonicalFile, type PhysicalDirectoryIdentity } from '../../../runtime-state/physical/runtime/physical-no-follow.ts';
+import type { RuntimeStateLayout } from '../../../runtime-state/workspace-state/layout.ts';
+import { migrateRuntimeStateDirectoryGeneration } from '../../../runtime-state/workspace-state/layout-migration.ts';
+import { resolveRuntimeStateForRepository, resolveWorkspaceRuntimeRoots } from '../../../runtime-state/workspace-state/paths.ts';
+import { acquireRuntimeStatePhysicalAuthority, type RuntimeStatePhysicalAuthority } from '../../../runtime-state/workspace-state/physical-authority.ts';
 import { encodeVerificationActionData } from '../../../verification/platform/action/contract/action.ts';
 import { acquireHeavyVerificationGateLease } from '../../../verification/platform/gate/state/heavy-lease.ts';
 import {
@@ -48,13 +49,13 @@ interface WorkspaceRuntimeLocator {
 interface ContinuationLocationInput {
   readonly repositoryRoot: string;
   readonly environment?: NodeJS.ProcessEnv;
-  readonly layout?: SecRuntimeStateLayout;
+  readonly layout?: RuntimeStateLayout;
 }
-function captureContinuationLocation(input: ContinuationLocationInput & { readonly layout: SecRuntimeStateLayout }): Readonly<{
-  repositoryRoot: string; environment: NodeJS.ProcessEnv; layout: SecRuntimeStateLayout;
+function captureContinuationLocation(input: ContinuationLocationInput & { readonly layout: RuntimeStateLayout }): Readonly<{
+  repositoryRoot: string; environment: NodeJS.ProcessEnv; layout: RuntimeStateLayout;
 }>;
 function captureContinuationLocation(input: ContinuationLocationInput): Readonly<{
-  repositoryRoot: string; environment: NodeJS.ProcessEnv; layout?: SecRuntimeStateLayout;
+  repositoryRoot: string; environment: NodeJS.ProcessEnv; layout?: RuntimeStateLayout;
 }>;
 function captureContinuationLocation(input: ContinuationLocationInput) {
   // Only this owner's location fields are captured. Do not enumerate unrelated
@@ -67,7 +68,7 @@ function captureContinuationLocation(input: ContinuationLocationInput) {
 }
 
 function hash(value: unknown): Digest {
-  return `sha256:${createHash('sha256').update(encodeVerificationActionData(value)).digest('hex')}`;
+  return `sha256:${rawSha256Hex(encodeVerificationActionData(value))}`;
 }
 
 function exactBytes(expected: Uint8Array): (actual: Uint8Array) => void {
@@ -93,14 +94,14 @@ function writeAtomicDurable(
   });
 }
 
-function continuationObjectPath(layout: SecRuntimeStateLayout, checkpointDigest: Digest): string {
+function continuationObjectPath(layout: RuntimeStateLayout, checkpointDigest: Digest): string {
   if (!isDigest(checkpointDigest, 'sha256')) {
     throw new Error('SEC runtime continuation digest is invalid.');
   }
   return path.join(layout.continuationObjectRoot, `${checkpointDigest.slice(7)}.json`);
 }
 
-function createPointer(layout: SecRuntimeStateLayout, checkpointDigest: Digest): ActiveContinuationPointer {
+function createPointer(layout: RuntimeStateLayout, checkpointDigest: Digest): ActiveContinuationPointer {
   const semantic = Object.freeze({
     schema: ACTIVE_CONTINUATION_POINTER_SCHEMA,
     repositoryKey: layout.repositoryKey,
@@ -146,7 +147,7 @@ function parsePointerRecord(source: string): ActiveContinuationPointer {
   return pointer;
 }
 
-function parsePointer(source: string, layout: SecRuntimeStateLayout): ActiveContinuationPointer {
+function parsePointer(source: string, layout: RuntimeStateLayout): ActiveContinuationPointer {
   const pointer = parsePointerRecord(source);
   if (pointer.repositoryKey !== layout.repositoryKey || pointer.workspaceKey !== layout.workspaceKey) {
     throw new Error('SEC runtime continuation pointer layout identity is invalid.');
@@ -155,11 +156,11 @@ function parsePointer(source: string, layout: SecRuntimeStateLayout): ActiveCont
 }
 
 function locatorPath(repositoryRoot: string, source: NodeJS.ProcessEnv): string {
-  const roots = resolveSecWorkspaceRuntimeRoots({ repositoryRoot, environment: source });
+  const roots = resolveWorkspaceRuntimeRoots({ repositoryRoot, environment: source });
   return path.join(roots.workspaceLocatorRoot, `${roots.workspaceLocatorKey.slice(7)}.json`);
 }
 
-function createLocator(layout: SecRuntimeStateLayout, repository: string): WorkspaceRuntimeLocator {
+function createLocator(layout: RuntimeStateLayout, repository: string): WorkspaceRuntimeLocator {
   const semantic = Object.freeze({
     schema: WORKSPACE_RUNTIME_LOCATOR_SCHEMA,
     workspaceLocatorKey: layout.workspaceLocatorKey,
@@ -171,30 +172,38 @@ function createLocator(layout: SecRuntimeStateLayout, repository: string): Works
 }
 
 function continuationMutationLeaseRoot(stateRoot: string): string {
-  return path.join(stateRoot, 'operation-leases', 'v1');
+  return path.join(stateRoot, 'operation-leases', 'locks');
 }
 
 function continuationRequiredDirectories(
-  layout: SecRuntimeStateLayout,
+  layout: RuntimeStateLayout,
   repositoryRoot: string,
   source: NodeJS.ProcessEnv
 ): readonly string[] {
-  const roots = resolveSecWorkspaceRuntimeRoots({ repositoryRoot, environment: source });
+  const roots = resolveWorkspaceRuntimeRoots({ repositoryRoot, environment: source });
   return Object.freeze([
     roots.workspaceLocatorRoot,
-    path.join(layout.stateRoot, 'workspaces', 'v1'),
+    roots.workspaceCollectionRoot,
     path.dirname(layout.continuationPointerPath),
     layout.continuationObjectRoot,
     continuationMutationLeaseRoot(layout.stateRoot)
   ]);
 }
 
+function continuationMigrationRequiredDirectories(layout: RuntimeStateLayout): readonly string[] {
+  return Object.freeze([
+    path.dirname(layout.continuationObjectRoot),
+    path.dirname(layout.continuationPointerPath),
+    continuationMutationLeaseRoot(layout.stateRoot)
+  ]);
+}
+
 async function acquireContinuationAuthority(input: Readonly<{
-  layout: SecRuntimeStateLayout;
+  layout: RuntimeStateLayout;
   repositoryRoot: string;
   environment: NodeJS.ProcessEnv;
-}>): Promise<SecRuntimeStatePhysicalAuthority> {
-  return acquireSecRuntimeStatePhysicalAuthority({
+}>): Promise<RuntimeStatePhysicalAuthority> {
+  return acquireRuntimeStatePhysicalAuthority({
     repositoryRoot: input.repositoryRoot,
     stateRoot: input.layout.stateRoot,
     cacheRoot: input.layout.cacheRoot,
@@ -206,12 +215,24 @@ async function acquireContinuationAuthority(input: Readonly<{
   });
 }
 
+async function acquireContinuationMigrationAuthority(input: Readonly<{
+  layout: RuntimeStateLayout;
+  repositoryRoot: string;
+}>): Promise<RuntimeStatePhysicalAuthority> {
+  return acquireRuntimeStatePhysicalAuthority({
+    repositoryRoot: input.repositoryRoot,
+    stateRoot: input.layout.stateRoot,
+    cacheRoot: input.layout.cacheRoot,
+    requiredDirectories: continuationMigrationRequiredDirectories(input.layout)
+  });
+}
+
 async function acquireWorkspaceLocatorAuthority(input: Readonly<{
   repositoryRoot: string;
   environment: NodeJS.ProcessEnv;
-}>): Promise<SecRuntimeStatePhysicalAuthority> {
-  const roots = resolveSecWorkspaceRuntimeRoots(input);
-  return acquireSecRuntimeStatePhysicalAuthority({
+}>): Promise<RuntimeStatePhysicalAuthority> {
+  const roots = resolveWorkspaceRuntimeRoots(input);
+  return acquireRuntimeStatePhysicalAuthority({
     repositoryRoot: input.repositoryRoot,
     stateRoot: roots.stateRoot,
     cacheRoot: roots.cacheRoot,
@@ -219,31 +240,103 @@ async function acquireWorkspaceLocatorAuthority(input: Readonly<{
   });
 }
 
-async function acquireContinuationMutationLease(stateRoot: string) {
-  const lockPath = path.join(continuationMutationLeaseRoot(stateRoot), 'continuation-v1');
+async function acquireContinuationMutationLeaseAt(lockPath: string) {
   return waitForHeavyVerificationGateLease(() => acquireHeavyVerificationGateLease({
     gateId: 'runtime-state:continuation', lockPath, waitTimeoutMs: 0
   }), CONTINUATION_MUTATION_LEASE_WAIT_MS);
 }
 
+async function withContinuationMutationLease<T>(
+  stateRoot: string,
+  operation: () => Promise<T>
+): Promise<T> {
+  const root = continuationMutationLeaseRoot(stateRoot);
+  const legacyPath = path.join(root, 'continuation-v1');
+  const currentPath = path.join(root, 'continuation');
+  const legacy = inspectExactNoFollowDirectoryPresence(
+    legacyPath,
+    'SEC continuation legacy mutation lease'
+  );
+  const withCurrent = async (): Promise<T> => {
+    const currentLease = await acquireContinuationMutationLeaseAt(currentPath);
+    return withAcquiredHeavyVerificationGateLease(currentLease, operation);
+  };
+  if (legacy.state === 'absent') return withCurrent();
+  const legacyLease = await acquireContinuationMutationLeaseAt(legacyPath);
+  return withAcquiredHeavyVerificationGateLease(legacyLease, withCurrent);
+}
+
+function legacyContinuationObjectRoot(layout: RuntimeStateLayout): string {
+  return path.join(path.dirname(layout.continuationObjectRoot), 'continuation-v1');
+}
+
+function legacyContinuationPointerPath(layout: RuntimeStateLayout): string {
+  return path.join(path.dirname(layout.continuationPointerPath), 'active-continuation-v1.json');
+}
+
+function migrateContinuationPointer(
+  authority: RuntimeStatePhysicalAuthority,
+  layout: RuntimeStateLayout
+): void {
+  const parent = authority.directory(path.dirname(layout.continuationPointerPath));
+  const legacyPath = legacyContinuationPointerPath(layout);
+  const legacyBytes = readNoFollowOrdinaryFile(parent, path.basename(legacyPath));
+  if (legacyBytes === null) return;
+  let currentBytes = readNoFollowOrdinaryFile(parent, path.basename(layout.continuationPointerPath));
+  if (currentBytes === null) {
+    publishExclusiveDurableCanonicalFile({
+      parent,
+      name: path.basename(layout.continuationPointerPath),
+      bytes: legacyBytes,
+      validate: exactBytes(legacyBytes)
+    });
+    currentBytes = readNoFollowOrdinaryFile(parent, path.basename(layout.continuationPointerPath));
+  }
+  if (currentBytes === null || !Buffer.from(currentBytes).equals(Buffer.from(legacyBytes))) {
+    throw new Error('SEC continuation current and legacy pointer bytes diverge during migration.');
+  }
+  deleteFileIfPresent(parent, legacyPath);
+}
+
+function migrateContinuationLayout(
+  authority: RuntimeStatePhysicalAuthority,
+  layout: RuntimeStateLayout
+): void {
+  migrateRuntimeStateDirectoryGeneration({
+    label: 'continuation objects',
+    legacyPath: legacyContinuationObjectRoot(layout),
+    currentPath: layout.continuationObjectRoot,
+    mode: 'quiescent'
+  });
+  migrateContinuationPointer(authority, layout);
+}
+
 async function withContinuationMutationAuthority<T>(input: Readonly<{
-  layout: SecRuntimeStateLayout;
+  layout: RuntimeStateLayout;
   repositoryRoot: string;
   environment: NodeJS.ProcessEnv;
-}>, operation: (authority: SecRuntimeStatePhysicalAuthority) => T | Promise<T>): Promise<T> {
+}>, operation: (authority: RuntimeStatePhysicalAuthority) => T | Promise<T>): Promise<T> {
   return withAcquiredResource({
-    operationLabel: 'continuation-mutation-authority-operation',
-    resourceLabel: 'continuation-runtime-state-authority',
-    acquire: () => acquireContinuationAuthority(input),
-    use: async (authority) => {
-      const lease = await acquireContinuationMutationLease(input.layout.stateRoot);
-      return withAcquiredHeavyVerificationGateLease(lease, async () => {
-        await authority.assertCurrent();
-        const result = await operation(authority);
-        await authority.assertCurrent();
-        return result;
+    operationLabel: 'continuation-layout-migration-authority-operation',
+    resourceLabel: 'continuation-layout-migration-authority',
+    acquire: () => acquireContinuationMigrationAuthority(input),
+    use: (migrationAuthority) => withContinuationMutationLease(input.layout.stateRoot, async () => {
+      await migrationAuthority.assertCurrent();
+      migrateContinuationLayout(migrationAuthority, input.layout);
+      await migrationAuthority.assertCurrent();
+      return withAcquiredResource({
+        operationLabel: 'continuation-mutation-authority-operation',
+        resourceLabel: 'continuation-runtime-state-authority',
+        acquire: () => acquireContinuationAuthority(input),
+        use: async (authority) => {
+          await authority.assertCurrent();
+          const result = await operation(authority);
+          await authority.assertCurrent();
+          return result;
+        },
+        release: (authority) => authority.release()
       });
-    },
+    }),
     release: (authority) => authority.release()
   });
 }
@@ -268,8 +361,8 @@ function deleteFileIfPresent(parent: PhysicalDirectoryIdentity, filePath: string
 }
 
 function persistLocator(
-  authority: SecRuntimeStatePhysicalAuthority,
-  layout: SecRuntimeStateLayout,
+  authority: RuntimeStatePhysicalAuthority,
+  layout: RuntimeStateLayout,
   repository: string,
   repositoryRoot: string,
   source: NodeJS.ProcessEnv
@@ -298,7 +391,7 @@ function parseLocator(
   const record = value as Record<string, unknown>;
   const expected = ['schema', 'workspaceLocatorKey', 'repository', 'repositoryKey', 'workspaceKey', 'locatorDigest'].sort();
   const actual = Object.keys(record).sort();
-  const roots = resolveSecWorkspaceRuntimeRoots({ repositoryRoot, environment: source });
+  const roots = resolveWorkspaceRuntimeRoots({ repositoryRoot, environment: source });
   if (JSON.stringify(actual) !== JSON.stringify(expected)
       || record.schema !== WORKSPACE_RUNTIME_LOCATOR_SCHEMA
       || record.workspaceLocatorKey !== roots.workspaceLocatorKey
@@ -309,7 +402,7 @@ function parseLocator(
       || typeof record.locatorDigest !== 'string' || !isDigest(record.locatorDigest, 'sha256')) {
     throw new Error('SEC workspace runtime locator identity is invalid.');
   }
-  const layout = resolveSecRuntimeStateForRepository({
+  const layout = resolveRuntimeStateForRepository({
     repository: record.repository,
     repositoryRoot,
     environment: source
@@ -322,10 +415,10 @@ function parseLocator(
   return locator;
 }
 
-export async function resolveSecRuntimeStateFromWorkspaceLocator(input: Readonly<{
+export async function resolveRuntimeStateFromWorkspaceLocator(input: Readonly<{
   repositoryRoot: string;
   environment?: NodeJS.ProcessEnv;
-}>): Promise<Readonly<{ repository: string; layout: SecRuntimeStateLayout }> | null> {
+}>): Promise<Readonly<{ repository: string; layout: RuntimeStateLayout }> | null> {
   const location = captureContinuationLocation(input);
   const source = location.environment ?? process.env;
   const filePath = locatorPath(location.repositoryRoot, source);
@@ -342,7 +435,7 @@ export async function resolveSecRuntimeStateFromWorkspaceLocator(input: Readonly
       const locator = parseLocator(locatorSource, location.repositoryRoot, source);
       return Object.freeze({
         repository: locator.repository,
-        layout: resolveSecRuntimeStateForRepository({
+        layout: resolveRuntimeStateForRepository({
           repository: locator.repository,
           repositoryRoot: location.repositoryRoot,
           environment: source
@@ -354,7 +447,7 @@ export async function resolveSecRuntimeStateFromWorkspaceLocator(input: Readonly
 }
 
 export async function persistActiveContinuationCheckpoint(input: Readonly<{
-  layout: SecRuntimeStateLayout;
+  layout: RuntimeStateLayout;
   repositoryRoot: string;
   checkpoint: LocalContinuationCheckpoint;
   environment?: NodeJS.ProcessEnv;
@@ -407,7 +500,7 @@ export async function persistActiveContinuationCheckpoint(input: Readonly<{
 }
 
 export async function loadActiveContinuationCheckpoint(input: Readonly<{
-  layout: SecRuntimeStateLayout;
+  layout: RuntimeStateLayout;
   repositoryRoot: string;
   environment?: NodeJS.ProcessEnv;
 }>): Promise<LocalContinuationCheckpoint | null> {
@@ -438,7 +531,7 @@ export async function loadActiveContinuationCheckpoint(input: Readonly<{
 }
 
 export async function clearActiveContinuation(input: Readonly<{
-  layout: SecRuntimeStateLayout;
+  layout: RuntimeStateLayout;
   repositoryRoot: string;
   environment?: NodeJS.ProcessEnv;
 }>): Promise<void> {
@@ -459,11 +552,11 @@ export async function clearActiveContinuation(input: Readonly<{
 }
 
 function activeContinuationDigests(
-  authority: SecRuntimeStatePhysicalAuthority,
-  stateRoot: string
+  authority: RuntimeStatePhysicalAuthority,
+  workspaceCollectionRoot: string
 ): Set<string> {
   const result = new Set<string>();
-  const workspacesRoot = path.join(stateRoot, 'workspaces', 'v1');
+  const workspacesRoot = workspaceCollectionRoot;
   const workspaces = authority.directory(workspacesRoot);
   for (const workspace of readdirSync(workspaces.path, { withFileTypes: true })) {
     if (!workspace.isDirectory() || !/^[0-9a-f]{64}$/u.test(workspace.name)) {
@@ -476,10 +569,19 @@ function activeContinuationDigests(
         'SEC runtime workspace state'
       );
       if (workspaceDirectory === null) return new Set<string>(['*']);
-      const pointerSource = readNoFollowOrdinaryFile(
+      const currentPointerSource = readNoFollowOrdinaryFile(
+        workspaceDirectory,
+        'active-continuation.json'
+      );
+      const legacyPointerSource = readNoFollowOrdinaryFile(
         workspaceDirectory,
         'active-continuation-v1.json'
       );
+      if (currentPointerSource !== null && legacyPointerSource !== null
+          && !Buffer.from(currentPointerSource).equals(Buffer.from(legacyPointerSource))) {
+        return new Set<string>(['*']);
+      }
+      const pointerSource = currentPointerSource ?? legacyPointerSource;
       if (pointerSource === null) continue;
       const pointer = parsePointerRecord(decodeExactUtf8(pointerSource, 'SEC continuation pointer'));
       result.add(pointer.checkpointDigest.slice(7));
@@ -492,7 +594,7 @@ function activeContinuationDigests(
 }
 
 export async function gcContinuationObjects(input: Readonly<{
-  layout: SecRuntimeStateLayout;
+  layout: RuntimeStateLayout;
   repositoryRoot: string;
   environment?: NodeJS.ProcessEnv;
   nowMs?: number;
@@ -512,7 +614,7 @@ export async function gcContinuationObjects(input: Readonly<{
     environment
   }, (authority) => {
     const objectRoot = authority.directory(location.layout.continuationObjectRoot);
-    const reachable = activeContinuationDigests(authority, location.layout.stateRoot);
+    const reachable = activeContinuationDigests(authority, location.layout.workspaceCollectionRoot);
     let scanned = 0;
     let removed = 0;
     let retained = 0;

@@ -1,4 +1,4 @@
-import type { PassId } from '../../compiler/contract/pass-status.ts';
+import type { PassId } from '../contract/pass-status.ts';
 import { CompilerError } from '../errors.ts';
 
 interface StageOwnership {

@@ -5,7 +5,7 @@ import { compareCodeUnits, isPlainObject } from '../../../../contracts/canonical
 import { parseDocumentationBoundary } from '../../../../contracts/documentation-source.ts';
 import { parseExactJson } from '../../../../contracts/exact-json.ts';
 import { portableLogicalPathCollisionKey } from '../../../../contracts/logical-path.ts';
-import { CodexDevelopmentIsCanonicalRepositoryPath } from '../../../../contracts/repository-path.ts';
+import { IsCanonicalRepositoryPath } from '../../../../contracts/repository-path.ts';
 
 export const DOCUMENTATION_IDENTITY_PATH = '.documentation/documents.json' as const;
 const DOCUMENTATION_IDENTITY_SCHEMA = 'sec.documentation-identity/1' as const;
@@ -70,7 +70,7 @@ export function isDocumentationVerificationInputPath(
   file: string,
   baseline: DocumentationVerificationBaseline = CURRENT_DOCUMENTATION_VERIFICATION_BASELINE
 ): boolean {
-  if (!CodexDevelopmentIsCanonicalRepositoryPath(file)) return false;
+  if (!IsCanonicalRepositoryPath(file)) return false;
   // Rendering bytes belong to the reading consumer, not source-only verification.
   if (file === '.documentation/figures.json') return false;
   if (file === DOCUMENTATION_BASELINE_PATH || file === DOCUMENTATION_SOURCE_MANIFEST_PATH) return true;
@@ -107,7 +107,7 @@ export function parseDocumentationIdentityRegistry(source: string): Documentatio
       fail(`documents[${index}].document_id must be one lowercase UUID URN.`);
     }
     const repositoryPath = parseText(entry.path, `documents[${index}].path`);
-    if (!CodexDevelopmentIsCanonicalRepositoryPath(repositoryPath)
+    if (!IsCanonicalRepositoryPath(repositoryPath)
         || !repositoryPath.endsWith('.md')) {
       fail(`documents[${index}].path must be one canonical Markdown repository path.`);
     }
@@ -175,11 +175,11 @@ export function currentDocumentationVerificationBaseline(): DocumentationVerific
 }
 
 export function isActiveDocumentationPath(file: string): boolean {
-  return CodexDevelopmentIsCanonicalRepositoryPath(file)
+  return IsCanonicalRepositoryPath(file)
     && ACTIVE_DOCUMENTATION_PATHS.has(file);
 }
 
 export function activeDocumentationRecord(file: string): DocumentationIdentityRecord | undefined {
-  if (!CodexDevelopmentIsCanonicalRepositoryPath(file)) return undefined;
+  if (!IsCanonicalRepositoryPath(file)) return undefined;
   return documentationIdentityByPath(ACTIVE_DOCUMENTATION_REGISTRY, file);
 }

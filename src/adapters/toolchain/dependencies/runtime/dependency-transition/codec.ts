@@ -4,7 +4,7 @@ import {
   deepFreeze
 } from '../../../../../contracts/canonical.ts';
 import {
-  SecError
+  FailureError
 } from '../../../../../contracts/failure.ts';
 import { formatJsonFile } from "../../../../../contracts/json-text.ts";
 import {
@@ -106,12 +106,12 @@ export function parseDependencyTransitionRecord(
   try {
     value = JSON.parse(Buffer.from(bytes).toString('utf8')) as unknown;
   } catch (error) {
-    throw new SecError('RUNTIME-DEPS-002', 'Dependency transition journal record is not JSON', {
+    throw new FailureError('RUNTIME-DEPS-002', 'Dependency transition journal record is not JSON', {
       cause: error instanceof Error ? error.message : String(error)
     });
   }
   if (!hasExactObjectKeys(value, DEPENDENCY_TRANSITION_RECORD_KEYS)) {
-    throw new SecError('RUNTIME-DEPS-002', 'Dependency transition journal record has noncanonical keys');
+    throw new FailureError('RUNTIME-DEPS-002', 'Dependency transition journal record has noncanonical keys');
   }
   const record = value as unknown as DependencyTransitionJournal;
   if (record.schema !== DEPENDENCY_TRANSITION_SCHEMA || !isSha256Digest(record.recordDigest) ||
@@ -132,7 +132,7 @@ export function parseDependencyTransitionRecord(
       (record.failure !== null && (!hasExactObjectKeys(record.failure, ['code', 'message']) ||
         typeof record.failure.code !== 'string' || record.failure.code.length === 0 ||
         typeof record.failure.message !== 'string' || record.failure.message.length === 0))) {
-    throw new SecError('RUNTIME-DEPS-002', 'Dependency transition journal record fields are invalid');
+    throw new FailureError('RUNTIME-DEPS-002', 'Dependency transition journal record fields are invalid');
   }
   if (record.destination.path !== record.preimage.path ||
       (record.stage === null) !== (record.stageRoot === null) ||
@@ -143,7 +143,7 @@ export function parseDependencyTransitionRecord(
       )) ||
       (record.backup !== null && path.dirname(record.backup.path) !==
         path.join(record.ownerRoot, '.tmp', 'dependency-installs', 'compiler-backups'))) {
-    throw new SecError('RUNTIME-DEPS-002', 'Dependency transition journal topology is noncanonical');
+    throw new FailureError('RUNTIME-DEPS-002', 'Dependency transition journal topology is noncanonical');
   }
   if (record.kind === 'compiler-bridge' && (
     record.preimage.kind !== 'absent' ||
@@ -154,7 +154,7 @@ export function parseDependencyTransitionRecord(
     !isCanonicalDescendantPath(record.ownerRoot, record.sourceGeneration.sourcePath) ||
     path.resolve(record.destination.path) === path.resolve(record.sourceGeneration.sourcePath)
   )) {
-    throw new SecError('RUNTIME-DEPS-002', 'Compiler bridge transition journal topology is noncanonical');
+    throw new FailureError('RUNTIME-DEPS-002', 'Compiler bridge transition journal topology is noncanonical');
   }
   if (record.kind === 'project-runtime-bridge' && (
     record.preimage.kind !== 'absent' ||
@@ -170,17 +170,17 @@ export function parseDependencyTransitionRecord(
     ) ||
     path.resolve(record.destination.path) === path.resolve(record.sourceGeneration.sourcePath)
   )) {
-    throw new SecError('RUNTIME-DEPS-002', 'Project runtime bridge transition journal topology is noncanonical');
+    throw new FailureError('RUNTIME-DEPS-002', 'Project runtime bridge transition journal topology is noncanonical');
   }
   if (expectedName !== undefined && expectedName !== transitionRecordName(record.recordDigest)) {
-    throw new SecError('RUNTIME-DEPS-002', 'Dependency transition journal filename does not match its digest');
+    throw new FailureError('RUNTIME-DEPS-002', 'Dependency transition journal filename does not match its digest');
   }
   const { recordDigest: _recordDigest, ...unsigned } = record;
   if (dependencyTransitionDigestWithoutRecord(unsigned) !== record.recordDigest) {
-    throw new SecError('RUNTIME-DEPS-002', 'Dependency transition journal record digest is invalid');
+    throw new FailureError('RUNTIME-DEPS-002', 'Dependency transition journal record digest is invalid');
   }
   if (formatJsonFile(canonicalJson(record)) !== Buffer.from(bytes).toString('utf8')) {
-    throw new SecError('RUNTIME-DEPS-002', 'Dependency transition journal record bytes are not canonical');
+    throw new FailureError('RUNTIME-DEPS-002', 'Dependency transition journal record bytes are not canonical');
   }
   return deepFreeze(record);
 }
@@ -194,17 +194,17 @@ export function assertDependencyTransitionPointerBytes(bytes: Uint8Array): void 
   try {
     value = JSON.parse(Buffer.from(bytes).toString('utf8')) as unknown;
   } catch (error) {
-    throw new SecError('RUNTIME-DEPS-002', 'Dependency transition pointer is not JSON', {
+    throw new FailureError('RUNTIME-DEPS-002', 'Dependency transition pointer is not JSON', {
       cause: error instanceof Error ? error.message : String(error)
     });
   }
   if (!hasExactObjectKeys(value, DEPENDENCY_TRANSITION_POINTER_KEYS)) {
-    throw new SecError('RUNTIME-DEPS-002', 'Dependency transition pointer has noncanonical keys');
+    throw new FailureError('RUNTIME-DEPS-002', 'Dependency transition pointer has noncanonical keys');
   }
   const pointer = value as { schema: string; recordDigest: string };
   if (pointer.schema !== DEPENDENCY_TRANSITION_POINTER_SCHEMA || !isSha256Digest(pointer.recordDigest) ||
       formatJsonFile(canonicalJson(value)) !== Buffer.from(bytes).toString('utf8')) {
-    throw new SecError('RUNTIME-DEPS-002', 'Dependency transition pointer schema is invalid');
+    throw new FailureError('RUNTIME-DEPS-002', 'Dependency transition pointer schema is invalid');
   }
 }
 

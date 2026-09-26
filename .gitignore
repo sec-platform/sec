@@ -36,6 +36,9 @@ graphify-out/
 CLAUDE.md
 .trae/
 .graph-it/
+.documentation/source-manifest.json
+.documentation/requirements.json
+.documentation/figures.json
 .worktrees/
 .chatgpt-handoff/
 _handoff/

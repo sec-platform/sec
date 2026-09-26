@@ -16,8 +16,17 @@ async function readCompilerText(relativePath: string): Promise<string> {
   return content;
 }
 
-export async function readCompilerFile(relativePath: string): Promise<string> {
-  if (/\.(?:ts|tsx)$/u.test(relativePath)) {
+type TypeScriptFixturePath = `${string}.${'ts' | 'tsx' | 'mts' | 'cts'}`;
+type OrdinaryFixturePath<Path extends string> =
+  Extract<Lowercase<Path>, TypeScriptFixturePath> extends never ? Path : never;
+
+/** Literal/union source paths fail typechecking; dynamic paths remain guarded
+ * at runtime. The explicit source-analysis reader owns TypeScript access.
+ */
+export async function readCompilerFile<const Path extends string>(
+  relativePath: Path & OrdinaryFixturePath<Path>
+): Promise<string> {
+  if (/\.(?:[cm]?ts|tsx)$/iu.test(relativePath)) {
     throw new Error(
       `Production TypeScript is not a text fixture; use an explicit hostile-mutation, TCB-analysis, or transpile-input capability: ${relativePath}`
     );
@@ -26,7 +35,7 @@ export async function readCompilerFile(relativePath: string): Promise<string> {
 }
 
 export async function readCompilerTypeScriptMutationFixture(
-  relativePath: `${string}.ts` | `${string}.tsx`,
+  relativePath: TypeScriptFixturePath,
   purpose: 'hostile-mutation' | 'tcb-analysis' | 'transpile-input'
 ): Promise<string> {
   if (purpose !== 'hostile-mutation' && purpose !== 'tcb-analysis' && purpose !== 'transpile-input') {

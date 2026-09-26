@@ -68,6 +68,7 @@ const GIT_READ_ONLY_COMMANDS = new Set([
   'rev-list',
   'rev-parse',
   'show',
+  'show-ref',
   'status',
   'symbolic-ref',
   'var',
@@ -198,9 +199,34 @@ export function gitReadCommandIsObservation(args: readonly string[]): boolean {
       && commandArgs[5] === 'eol';
   }
   if (command === 'config') {
-    return commandArgs.length === 2
-      && commandArgs[0] === '--get'
-      && !commandArgs[1]!.startsWith('-');
+    if (commandArgs.length === 2) {
+      return commandArgs[0] === '--get'
+        && !commandArgs[1]!.startsWith('-');
+    }
+    if (commandArgs.length === 4
+        && commandArgs[0] === '--local'
+        && commandArgs[1] === '--bool'
+        && commandArgs[2] === '--get') {
+      return !commandArgs[3]!.startsWith('-') && !/[\0\r\n]/u.test(commandArgs[3]!);
+    }
+    if (commandArgs.length === 4
+        && commandArgs[0] === '--local'
+        && commandArgs[1] === '--null'
+        && commandArgs[2] === '--get-regexp') {
+      return commandArgs[3] === '^(extensions\\.worktreeconfig|core\\.hookspath)$';
+    }
+    if (commandArgs.length === 5
+        && commandArgs[0] === '--file'
+        && commandArgs[2] === '--null'
+        && commandArgs[3] === '--get'
+        && (commandArgs[4] === 'core.hooksPath'
+          || commandArgs[4] === 'extensions.worktreeConfig')) {
+      const configPath = commandArgs[1]!;
+      return configPath.length > 0
+        && !configPath.startsWith('-')
+        && !/[\0\r\n]/u.test(configPath);
+    }
+    return false;
   }
   if (command === 'remote') {
     return commandArgs.length >= 2
@@ -247,6 +273,14 @@ export function gitReadCommandIsObservation(args: readonly string[]): boolean {
   if (command === 'show') {
     return commandArgs.length === 1 && !commandArgs[0]!.startsWith('-');
   }
+  if (command === 'show-ref') {
+    return commandArgs.length === 3
+      && commandArgs[0] === '--verify'
+      && commandArgs[1] === '--quiet'
+      && /^refs\/heads\/[A-Za-z0-9][A-Za-z0-9._\/-]*$/u.test(commandArgs[2]!)
+      && !commandArgs[2]!.includes('..')
+      && !commandArgs[2]!.includes('//');
+  }
   if (command === 'merge-base') {
     return (commandArgs.length === 2 && commandArgs.every((argument) => !argument.startsWith('-')))
       || (commandArgs.length === 3
@@ -254,9 +288,14 @@ export function gitReadCommandIsObservation(args: readonly string[]): boolean {
         && commandArgs.slice(1).every((argument) => !argument.startsWith('-')));
   }
   if (command === 'for-each-ref') {
-    return commandArgs.length === 2
-      && commandArgs[0]!.startsWith('--format=')
-      && !commandArgs[1]!.startsWith('-');
+    const contains = commandArgs[0]?.startsWith('--contains=') === true
+      ? commandArgs[0]!.slice('--contains='.length)
+      : null;
+    const offset = contains === null ? 0 : 1;
+    if (contains !== null && !/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/u.test(contains)) return false;
+    return commandArgs.length === offset + 2
+      && commandArgs[offset]!.startsWith('--format=')
+      && !commandArgs[offset + 1]!.startsWith('-');
   }
   if (command === 'diff' || command === 'diff-files' || command === 'diff-index') {
     const allowed = DIFF_FLAGS;

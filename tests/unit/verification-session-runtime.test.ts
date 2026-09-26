@@ -21,6 +21,7 @@ const PHYSICAL_RUNTIME_AUTHORITY_TEST_TIMEOUT_MS = 30_000;
 const VERIFICATION_ACTION_TEST_PROCESS_ISSUER =
   issueVerificationActionTestProcessIssuerForTests();
 
+import { DOCUMENTATION_BASELINE_PATH, parseDocumentationVerificationBaseline } from '../../src/adapters/self-hosting/control/documentation/active.ts';
 import { createIntegrationAuthorization } from '../../src/adapters/self-hosting/control/integration/authorization.ts';
 import {
   createMainHealthLedger,
@@ -31,10 +32,11 @@ import {
 import { createScopeAuthorization, type ScopeAuthorization } from '../../src/adapters/self-hosting/control/scope/authorization.ts';
 import { encodeVerificationActionData } from '../../src/adapters/verification/platform/action/contract/action.ts';
 import { ciVerificationActionParentDispatchPlanPayloadDigest, createCiVerificationActionParentDispatchPlan, createCiVerificationActionProposal, createCiVerificationActionProviderEnvelope, createCiVerificationLocalExecutionEnvironment } from '../../src/adapters/verification/platform/action/contract/ci.ts';
-import { CodexDevelopmentCreateVerificationEvidenceProducer, CodexDevelopmentFinalizeVerificationEvidenceV4, CodexDevelopmentFinalizeVerificationSessionArtifact } from '../../src/adapters/verification/platform/ci/contract/evidence.ts';
-import { createReviewSnapshotDigest, createReviewStabilityReceipt, renderIndependentReviewTrailer, REVIEW_OBSERVER_READ_ONLY_CAPABILITY_RECEIPT, SEC_REVIEW_STABILITY_POLICY } from '../../src/adapters/verification/platform/review/contract/stability.ts';
-import { CodexDevelopmentCreateTestImpactTransitionObservation, CodexDevelopmentTestImpactTransitionDigest, type CodexDevelopmentTestImpactTransitionObservation } from '../../src/adapters/verification/platform/test-impact/runtime/transition.ts';
-import { CodexDevelopmentBuildVerificationGateResult } from '../../src/assurance/verification/result/contract/result.ts';
+import { createVerificationEvidenceProducer, finalizeVerificationEvidence, finalizeVerificationSessionArtifact } from '../../src/adapters/verification/platform/ci/contract/evidence.ts';
+import { bindDocumentationVerificationGateInput } from '../../src/adapters/verification/platform/ci/contract/plan.ts';
+import { createReviewSnapshotDigest, createReviewStabilityReceipt, renderIndependentReviewTrailer, REVIEW_OBSERVER_READ_ONLY_CAPABILITY_RECEIPT, REVIEW_STABILITY_POLICY } from '../../src/adapters/verification/platform/review/contract/stability.ts';
+import { CreateTestImpactTransitionObservation, TestImpactTransitionDigest, type TestImpactTransitionObservation } from '../../src/adapters/verification/platform/test-impact/runtime/transition.ts';
+import { BuildVerificationGateResult } from '../../src/assurance/verification/result/contract/result.ts';
 
 import type {
   GitHubCheckObservation, GitHubWorkflowJobObservation,
@@ -74,8 +76,8 @@ import {
   renderIntegrationAuthorizationOperationPublicationComment
 } from '../../src/adapters/self-hosting/control/integration/integration-authorization-publication.ts';
 import {
-  CodexDevelopmentEvaluateMergeGate,
-  type CodexDevelopmentMergeGateResult
+  EvaluateMergeGate,
+  type MergeGateResult
 } from '../../src/adapters/self-hosting/control/integration/merge-gate.ts';
 import { createObservedMainHealthInput } from '../../src/adapters/self-hosting/control/main-health/main-health-observation.ts';
 import { CI_MAIN_HEALTH_POLICY, createCiMainHealthRequestOperationId } from '../../src/adapters/self-hosting/control/main-health/provider-policy.ts';
@@ -92,8 +94,6 @@ import {
   classifyGitHubGraphQLSchemaFailure,
   createVerificationSessionGitHubClient,
   evaluateGitHubRepositoryActionsArtifactInventory,
-  evaluateHostedReviewLocatorObservation,
-  evaluateMaintainerReviewWakeupObservation,
   evaluatePlatformEnforcementObservation,
   evaluateVerificationSessionChangedPaths,
   evaluateVerificationSessionReviewObservation,
@@ -104,11 +104,7 @@ import {
   parseGitHubReviewPages,
   parseGitHubReviewThreadPages,
   PROVIDER_SCHEMA_UNSUPPORTED_STATUS,
-  shouldPublishMaintainerReviewWakeup,
-  VERIFICATION_SESSION_REVIEW_LOCATOR_COMMENT_MARKER,
-  VERIFICATION_SESSION_REVIEW_WAKEUP_COMMENT_MARKER,
   type GitHubActionsArtifactObservation,
-  type GitHubAppReviewCommentObservation,
   type GitHubCandidateObservation,
   type GitHubCommitResolutionObservation,
   type GitHubComparisonObservation,
@@ -144,7 +140,7 @@ import {
   prepareVerificationSessionMergeInput,
   reconstructVerificationSessionHostedFacts,
   resumeVerificationSession,
-  SEC_VERIFICATION_SESSION_IMPLEMENTATION_IDENTITY,
+  VERIFICATION_SESSION_IMPLEMENTATION_IDENTITY,
   VERIFICATION_SESSION_HOSTED_ENVELOPE_SCHEMA,
   type VerificationSessionHostedEnvelope,
   type VerificationSessionHostedFacts,
@@ -153,17 +149,21 @@ import {
 import {
   assertHostedCompilerDispatchPayload,
   assertHostedCompilerInternalProvenance,
-  assertHostedSquashMergeCompletion,
-  classifyDurableVerificationSessionProjection,
-  parseHostedSynchronousSquashMergeResponse,
-  planHostedIntegrationEffects,
-  routeHostedIntegration,
   routePreparedWorktreeCleanupAttempt,
   verificationSessionCli
 } from '../../src/adapters/verification/platform/ci/runtime/verification-session.ts';
+import {
+  classifyDurableVerificationSessionProjection,
+  planHostedIntegrationEffects,
+  routeHostedIntegration
+} from '../../src/adapters/verification/platform/ci/runtime/verification-session-integration-routing.ts';
+import {
+  assertHostedSquashMergeCompletion,
+  parseHostedSynchronousSquashMergeResponse
+} from '../../src/adapters/verification/platform/ci/runtime/verification-session-merge-provider.ts';
 import { createVerificationSession, type VerificationSession } from '../../src/adapters/verification/platform/session/contract/session.ts';
 import { compileTcbClosureIdentity } from '../../src/adapters/verification/platform/trust/compiler.ts';
-import { SEC_TRUSTED_BOOTSTRAP_REGISTRY } from '../../src/adapters/verification/platform/trust/contract/root.ts';
+import { TRUSTED_BOOTSTRAP_REGISTRY } from '../../src/adapters/verification/platform/trust/contract/root.ts';
 import { acquireExactRepositoryTestImpactProviderFixture } from '../helpers/test-impact-provider.ts';
 import { runRetainedBunTestProcess } from '../testkit/process-resource.ts';
 
@@ -173,15 +173,31 @@ const BOT = 'BOT_kgDOC98s_g';
 const PAGE = `sha256:${'a'.repeat(64)}` as const;
 const JOIN_SESSION = `sha256:${'6'.repeat(64)}` as const;
 const JOIN_ACTION = `sha256:${'7'.repeat(64)}` as const;
-const testImpactFixture = await acquireExactRepositoryTestImpactProviderFixture();
-const TEST_IMPACT_SOURCE_PROVIDER = testImpactFixture.provider;
+let testImpactFixture: Awaited<ReturnType<typeof acquireExactRepositoryTestImpactProviderFixture>> | undefined;
+let testImpactSourceProviderPromise: Promise<ReturnType<typeof bindDocumentationVerificationGateInput>> | undefined;
+function testImpactSourceProvider(): Promise<ReturnType<typeof bindDocumentationVerificationGateInput>> {
+  return testImpactSourceProviderPromise ??= (async () => {
+    const fixture = await acquireExactRepositoryTestImpactProviderFixture();
+    testImpactFixture = fixture;
+    const exactDocumentationBaseline = spawnSync('git', [
+      'show', `${fixture.fixtureCommitSha}:${DOCUMENTATION_BASELINE_PATH}`
+    ], { cwd: fixture.repositoryRoot, encoding: 'utf8', windowsHide: true });
+    if (exactDocumentationBaseline.status !== 0) {
+      throw new Error(`Exact TestImpact fixture documentation baseline is unavailable: ${exactDocumentationBaseline.stderr}`);
+    }
+    return bindDocumentationVerificationGateInput(
+      fixture.provider,
+      parseDocumentationVerificationBaseline(exactDocumentationBaseline.stdout)
+    );
+  })();
+}
 
 function changedTransition(
   changedPaths: readonly string[],
   baseSha = BASE,
   headSha = HEAD
-): CodexDevelopmentTestImpactTransitionObservation {
-  return CodexDevelopmentCreateTestImpactTransitionObservation({
+): TestImpactTransitionObservation {
+  return CreateTestImpactTransitionObservation({
     baseSha,
     headSha,
     records: changedPaths.map((changedPath) => ({ status: 'changed' as const, path: changedPath })),
@@ -286,188 +302,6 @@ test('hosted integration router separates first effect, merged recovery, and blo
     });
 });
 
-test('hosted Review locator is exact, non-triggering, and reuses only its matching locator', () => {
-  const input = {
-    repository: 'sec-platform/sec',
-    sessionRevision: `sha256:${'1'.repeat(64)}` as SessionDigest,
-    operationId: `sha256:${'2'.repeat(64)}` as SessionDigest,
-    prNumber: 42,
-    headSha: HEAD,
-    headTreeSha: HEAD,
-    sourceRunId: '900',
-    sourceRunAttempt: 1,
-    workflowRef: `.github/workflows/compiler-pr-validation.yml@${BASE}`
-  } as const;
-  const transport = new FakeTransport();
-  transport.issueComments = [[]];
-  const produced = evaluateHostedReviewLocatorObservation(transport, input);
-  expect(produced).toMatchObject({ status: 'absent', commentId: null });
-  expect(produced.body).toContain(VERIFICATION_SESSION_REVIEW_LOCATOR_COMMENT_MARKER);
-  expect(produced.body).not.toContain('@codex review');
-
-  transport.issueComments = [[actionsIssueComment(produced.body, '104')]];
-  expect(evaluateHostedReviewLocatorObservation(transport, input)).toMatchObject({
-    status: 'reused',
-    commentId: '104'
-  });
-
-  transport.issueComments = [[]];
-  const foreign = evaluateHostedReviewLocatorObservation(transport, {
-    ...input,
-    repository: 'foreign/repository'
-  });
-  transport.issueComments = [[actionsIssueComment(foreign.body)]];
-  expect(() => evaluateHostedReviewLocatorObservation(transport, input))
-    .toThrow('conflicting semantic bytes');
-
-  for (const drifted of [
-    { ...input, prNumber: input.prNumber + 1 },
-    { ...input, headSha: BASE },
-    { ...input, headTreeSha: BASE },
-    { ...input, sourceRunId: '901' },
-    { ...input, sourceRunAttempt: 2 },
-    { ...input, workflowRef: `.github/workflows/compiler-pr-validation.yml@${HEAD}` }
-  ]) {
-    transport.issueComments = [[]];
-    const drift = evaluateHostedReviewLocatorObservation(transport, drifted);
-    transport.issueComments = [[actionsIssueComment(drift.body)]];
-    expect(() => evaluateHostedReviewLocatorObservation(transport, input))
-      .toThrow('conflicting semantic bytes');
-  }
-
-  const encoded = produced.body.match(/```json\n(?<payload>.+)\n```$/u)?.groups?.payload;
-  if (encoded === undefined) throw new Error('production Review locator body did not contain canonical JSON');
-  const extraFieldBody = produced.body.replace(encoded, encodeVerificationActionData({
-    ...(JSON.parse(encoded) as Record<string, unknown>),
-    extraField: 'forbidden'
-  }));
-  transport.issueComments = [[actionsIssueComment(extraFieldBody)]];
-  expect(() => evaluateHostedReviewLocatorObservation(transport, input))
-    .toThrow('payload keys/schema are invalid');
-});
-
-test('maintainer Review wake-up is exact, user-authored, and at-most-once per session operation', () => {
-  expect(shouldPublishMaintainerReviewWakeup({ reviewBarrierStatus: 'waiting',
-    localVerificationStatus: 'passed', hostedArtifactPresent: false })).toBe(true);
-  for (const state of [
-    { reviewBarrierStatus: 'clear' as const, localVerificationStatus: 'passed' as const,
-      hostedArtifactPresent: false },
-    { reviewBarrierStatus: 'blocked' as const, localVerificationStatus: 'passed' as const,
-      hostedArtifactPresent: false },
-    { reviewBarrierStatus: PROVIDER_SCHEMA_UNSUPPORTED_STATUS, localVerificationStatus: 'passed' as const,
-      hostedArtifactPresent: false },
-    { reviewBarrierStatus: 'waiting' as const, localVerificationStatus: 'failed' as const,
-      hostedArtifactPresent: false },
-    { reviewBarrierStatus: 'waiting' as const, localVerificationStatus: 'blocked' as const,
-      hostedArtifactPresent: false },
-    { reviewBarrierStatus: 'waiting' as const, localVerificationStatus: null,
-      hostedArtifactPresent: false },
-    { reviewBarrierStatus: 'waiting' as const, localVerificationStatus: 'passed' as const,
-      hostedArtifactPresent: true }
-  ]) expect(shouldPublishMaintainerReviewWakeup(state)).toBe(false);
-
-  const input = {
-    repository: 'sec-platform/sec',
-    sessionRevision: `sha256:${'1'.repeat(64)}` as SessionDigest,
-    operationId: `sha256:${'2'.repeat(64)}` as SessionDigest,
-    requestOperationId: `sha256:${'3'.repeat(64)}` as SessionDigest,
-    prNumber: 42,
-    headSha: HEAD,
-    headTreeSha: HEAD,
-    publisherLogin: 'maintainer',
-    publisherNodeId: 'MAINTAINER_NODE'
-  } as const;
-  const transport = new FakeTransport();
-  transport.collaboratorPermissions.set('outsider', 'read');
-  transport.collaboratorPermissions.set('renamed-maintainer', 'admin');
-  type WakeupObservationTransaction = Parameters<
-    typeof evaluateMaintainerReviewWakeupObservation
-  >[0];
-  const acceptWakeupObservationTransaction = (_transaction: WakeupObservationTransaction): void => undefined;
-  if (false) {
-    // @ts-expect-error collaboratorPermission is an authority-bearing required capability.
-    acceptWakeupObservationTransaction({
-      issueCommentPage: transport.issueCommentPage.bind(transport)
-    });
-  }
-  transport.issueComments = [[]];
-  const produced = evaluateMaintainerReviewWakeupObservation(transport, input);
-  expect(produced).toMatchObject({ status: 'absent', commentId: null });
-  expect(produced.body.startsWith('@codex review\n\n')).toBe(true);
-  expect(produced.body).toContain(VERIFICATION_SESSION_REVIEW_WAKEUP_COMMENT_MARKER);
-
-  transport.issueComments = [[botIssueComment(produced.body, {
-    id: '200', authorLogin: 'outsider', authorId: 502, authorNodeId: 'OUTSIDER',
-    authorType: 'User', performedViaGitHubApp: null
-  })]];
-  expect(evaluateMaintainerReviewWakeupObservation(transport, input)).toMatchObject({
-    status: 'absent', commentId: null
-  });
-
-  transport.issueComments = [[botIssueComment(
-    `@codex review\n\n${VERIFICATION_SESSION_REVIEW_WAKEUP_COMMENT_MARKER}\n{not-json}`,
-    { id: '204', authorLogin: 'outsider', authorId: 502, authorNodeId: 'OUTSIDER',
-      authorType: 'User', performedViaGitHubApp: null }
-  )]];
-  expect(evaluateMaintainerReviewWakeupObservation(transport, input)).toMatchObject({
-    status: 'absent', commentId: null
-  });
-
-  transport.issueComments = [[maintainerIssueComment(produced.body)]];
-  expect(evaluateMaintainerReviewWakeupObservation(transport, input)).toMatchObject({
-    status: 'reused', commentId: '201', wakeupDigest: produced.wakeupDigest
-  });
-
-  transport.issueComments = [[maintainerIssueComment(produced.body, '205', {
-    authorLogin: 'renamed-maintainer'
-  })]];
-  expect(evaluateMaintainerReviewWakeupObservation(transport, input)).toMatchObject({
-    status: 'reused', commentId: '205', wakeupDigest: produced.wakeupDigest
-  });
-
-  transport.issueComments = [[]];
-  const otherMaintainer = evaluateMaintainerReviewWakeupObservation(transport, {
-    ...input,
-    publisherLogin: 'other-maintainer',
-    publisherNodeId: 'OTHER_MAINTAINER_NODE'
-  });
-  transport.issueComments = [[botIssueComment(otherMaintainer.body, {
-    id: '203', authorLogin: 'other-maintainer', authorId: 503,
-    authorNodeId: 'OTHER_MAINTAINER_NODE', authorType: 'User', performedViaGitHubApp: null
-  })]];
-  expect(evaluateMaintainerReviewWakeupObservation(transport, input)).toMatchObject({
-    status: 'reused', commentId: '203', wakeupDigest: otherMaintainer.wakeupDigest
-  });
-
-  transport.issueComments = [[maintainerIssueComment(produced.body, '201'),
-    maintainerIssueComment(produced.body, '202')]];
-  expect(() => evaluateMaintainerReviewWakeupObservation(transport, input))
-    .toThrow('duplicate maintainer Review wake-up comments');
-
-  transport.issueComments = [[]];
-  const drifted = evaluateMaintainerReviewWakeupObservation(transport, {
-    ...input,
-    headTreeSha: BASE
-  });
-  transport.issueComments = [[maintainerIssueComment(drifted.body)]];
-  expect(() => evaluateMaintainerReviewWakeupObservation(transport, input))
-    .toThrow('conflicting semantic bytes');
-
-  transport.issueComments = [[maintainerIssueComment(produced.body, '201', {
-    authorType: 'Bot',
-    performedViaGitHubApp: CI_GITHUB_ACTIONS_IDENTITY_POLICY.app
-  })]];
-  expect(evaluateMaintainerReviewWakeupObservation(transport, input)).toMatchObject({
-    status: 'absent', commentId: null
-  });
-
-  transport.issueComments = [[maintainerIssueComment(
-    `@codex review\n\n${VERIFICATION_SESSION_REVIEW_WAKEUP_COMMENT_MARKER}\n{not-json}`
-  )]];
-  expect(() => evaluateMaintainerReviewWakeupObservation(transport, input))
-    .toThrow('maintainer Review wake-up comment shape is invalid');
-});
-
 test('provider recovery artifact binds exact envelope and bundle bytes', () => {
   const artifact = createBranchCloseoutRecoveryArtifact({
     repository: 'sec-platform/sec',
@@ -509,7 +343,6 @@ class FakeTransport implements VerificationSessionReviewObservationTransaction,
   reviews: GitHubReviewObservation[][] = [[]];
   threads: GitHubReviewThreadObservation[][] = [[]];
   requests: GitHubReviewRequestObservation[][] = [[]];
-  comments: GitHubAppReviewCommentObservation[][] = [[]];
   issueComments: GitHubIssueCommentObservation[][] = [[]];
   workflowRuns: GitHubWorkflowRunObservation[][] = [[]];
   resolutions = new Map<string, GitHubCommitResolutionObservation>();
@@ -537,7 +370,6 @@ class FakeTransport implements VerificationSessionReviewObservationTransaction,
   reviewPage(_r: string, _p: number, after: string | null): GitHubPage<GitHubReviewObservation> { return this.at(this.reviews, after, 'a'); }
   threadPage(_r: string, _p: number, after: string | null): GitHubPage<GitHubReviewThreadObservation> { return this.at(this.threads, after, 'b'); }
   reviewRequestPage(_r: string, _p: number, after: string | null): GitHubPage<GitHubReviewRequestObservation> { return this.at(this.requests, after, 'c'); }
-  appCommentPage(_r: string, _p: number, after: string | null): GitHubPage<GitHubAppReviewCommentObservation> { return this.at(this.comments, after, 'd'); }
   issueCommentPage(_r: string, _p: number, after: string | null): GitHubPage<GitHubIssueCommentObservation> { return this.at(this.issueComments, after, 'e'); }
   resolveCommitOid(repository: string, locator: string): GitHubCommitResolutionObservation {
     const configured = this.resolutions.get(locator);
@@ -599,30 +431,6 @@ function botIssueComment(body = `Codex Review: Didn't find any major issues. Bra
     performedViaGitHubApp: { id: 1144995, nodeId: 'A_kwHOAOQ6Gs4AEXij',
       slug: 'chatgpt-codex-connector' },
     createdAt: '2026-08-09T14:00:00.000Z', ...overrides };
-}
-
-function actionsIssueComment(body: string, id = '101'): GitHubIssueCommentObservation {
-  return botIssueComment(body, {
-    id,
-    authorLogin: CI_GITHUB_ACTIONS_IDENTITY_POLICY.bot.login,
-    authorId: CI_GITHUB_ACTIONS_IDENTITY_POLICY.bot.id,
-    authorNodeId: CI_GITHUB_ACTIONS_IDENTITY_POLICY.bot.nodeId,
-    authorType: CI_GITHUB_ACTIONS_IDENTITY_POLICY.bot.type,
-    performedViaGitHubApp: CI_GITHUB_ACTIONS_IDENTITY_POLICY.app
-  });
-}
-
-function maintainerIssueComment(body: string, id = '201', overrides: Partial<
-  GitHubIssueCommentObservation> = {}): GitHubIssueCommentObservation {
-  return botIssueComment(body, {
-    id,
-    authorLogin: 'maintainer',
-    authorId: 501,
-    authorNodeId: 'MAINTAINER_NODE',
-    authorType: 'User',
-    performedViaGitHubApp: null,
-    ...overrides
-  });
 }
 
 function observe(transport: FakeTransport) {
@@ -894,7 +702,7 @@ function createPureReviewFixture(input: {
     scopeAuthorizationRevision: input.scope.authorizationRevision,
     scopeAuthorizationReceiptDigest: input.scope.authorizationDigest,
     headSha: input.session.headSha, headTreeSha: input.session.headTreeSha,
-    policy: SEC_REVIEW_STABILITY_POLICY, principal: input.barrier.principal,
+    policy: REVIEW_STABILITY_POLICY, principal: input.barrier.principal,
     independence: { candidateAuthorNodeId: input.candidateAuthorNodeId,
       integrationPrincipalNodeId: input.integrationPrincipalNodeId },
     producer: {
@@ -903,7 +711,7 @@ function createPureReviewFixture(input: {
       providerIdentity: input.barrier.authority.providerIdentity,
       candidateWriteCapability: input.barrier.authority.candidateWriteCapability,
       capabilityReceiptDigest: input.barrier.authority.capabilityReceiptDigest,
-      trustedRevision: SEC_REVIEW_STABILITY_POLICY.trustedRevision,
+      trustedRevision: REVIEW_STABILITY_POLICY.trustedRevision,
       sourceTransport: input.barrier.authority.sourceTransport,
       sourceRunId: input.operationId,
       sourceRef: `github://${input.session.repository}/pull/${input.session.prNumber}@${input.session.headSha}`,
@@ -940,7 +748,7 @@ function createPureHostedEnvelopeFixture(input: {
     scopeAuthorizationReceiptDigest: scopeAuthorization.authorizationDigest,
     actionPlanClosureDigest: facts.actionPlanClosure.actionPlanDigest, profile: request.profile,
     environmentDigest: facts.environmentDigest, trustRevision: request.expectedBaseSha,
-    reviewPolicyDigest: SEC_REVIEW_STABILITY_POLICY.policyDigest,
+    reviewPolicyDigest: REVIEW_STABILITY_POLICY.policyDigest,
     evidenceRequirementDigest: facts.evidenceRequirementDigest,
     integrationPolicyDigest: facts.integrationPolicyDigest,
     mainHealthRef: { mainSha: mainHealth.mainSha, mainTreeSha: mainHealth.mainTreeSha,
@@ -957,7 +765,7 @@ function createPureHostedEnvelopeFixture(input: {
   return Object.freeze({ ...withoutDigest, envelopeDigest });
 }
 
-function reducerFixture(options: {
+async function reducerFixture(options: {
   now?: string;
   mergeAt?: string;
   authorizationExpiresAt?: string;
@@ -968,6 +776,7 @@ function reducerFixture(options: {
   baseToMerge?: GitHubComparisonObservation;
   mergeToDefault?: GitHubComparisonObservation;
 } = {}) {
+  const TEST_IMPACT_SOURCE_PROVIDER = await testImpactSourceProvider();
   const mergeAt = options.mergeAt ?? MERGE_AT;
   const repositoryRoot = mkdtempSync(path.join(tmpdir(), 'sec-verification-session-'));
   const journalFs = createEphemeralVerificationSessionJournalFs(
@@ -983,30 +792,32 @@ function reducerFixture(options: {
   if (barrier.status !== 'clear') throw new Error('fixture Review must be clear');
   const changedPaths = ['src/adapters/verification/platform/ci/runtime/verification-session.ts'];
   const testImpactTransition = changedTransition(changedPaths);
+  const sessionMainHealthCheck = mainHealthCheck({ id: 100, workflowRunId: '100',
+    detailsUrl: 'https://github.example/actions/runs/100' });
   const local = prepareTrustedMainVerificationSession({ repository: 'sec-platform/sec',
     candidate: transport.candidate(), manifestPath: V6_MANIFEST_PATH, manifestDigest: V6_MANIFEST_DIGEST,
     changedPaths, testImpactTransition, testImpactSourceProvider: TEST_IMPACT_SOURCE_PROVIDER,
     profile: 'quick', integrationPrincipalNodeId: 'INTEGRATOR',
     producerPrincipalNodeId: 'INTEGRATOR', sourceRunId: '100',
     sourceRef: `refs/heads/main@${BASE}`, observedAt: VERIFIED_AT,
-    reviewBarrier: barrier, mainHealthChecks: [mainHealthCheck()],
+    reviewBarrier: barrier, mainHealthChecks: [sessionMainHealthCheck],
     dependencyBlobs: actionDependencyBlobs() });
   const facts = reconstructVerificationSessionHostedFacts({ request: local.request,
     repository: 'sec-platform/sec', candidate: transport.candidate(), changedPaths, testImpactTransition,
     testImpactSourceProvider: TEST_IMPACT_SOURCE_PROVIDER,
     integrationPrincipalNodeId: 'INTEGRATOR', producerPrincipalNodeId: 'INTEGRATOR',
     sourceRunId: '100', sourceRef: `.github/workflows/compiler-pr-validation.yml@${BASE}`,
-    observedAt: VERIFIED_AT, reviewBarrier: barrier, mainHealthChecks: [mainHealthCheck()],
+    observedAt: VERIFIED_AT, reviewBarrier: barrier, mainHealthChecks: [sessionMainHealthCheck],
     dependencyBlobs: actionDependencyBlobs() });
   const envelope = createPureHostedEnvelopeFixture({ request: local.request, facts });
-  const producer = CodexDevelopmentCreateVerificationEvidenceProducer({
+  const producer = createVerificationEvidenceProducer({
     sourceTransport: 'github-actions', workflowPath: '.github/workflows/compiler-pr-validation.yml',
     workflowRef: `.github/workflows/compiler-pr-validation.yml@${BASE}`, workflowSha: BASE,
     runId: '100', runAttempt: 1, actorNodeId: 'INTEGRATOR'
   });
   const gates = envelope.actionPlanClosure.actions.map(({ action }, index) => ({
     action,
-    result: CodexDevelopmentBuildVerificationGateResult({
+    result: BuildVerificationGateResult({
       gateId: action.operation.identity, gateRevision: action.operation.revision,
       owner: 'ci-verification-maintainer', requirementKey: `gate:${action.operation.identity}`,
       subjectRevision: HEAD, inputDigest: action.actionKey, applicability: 'required',
@@ -1023,7 +834,7 @@ function reducerFixture(options: {
     }),
     cleanup: { status: 'not-required' as const, evidenceRefs: [] as string[], diagnostic: null }
   }));
-  const evidence = CodexDevelopmentFinalizeVerificationEvidenceV4({
+  const evidence = finalizeVerificationEvidence({
     contractRevision: 'ci-verification-v19', sessionRevision: envelope.session.sessionRevision,
     sessionProposalDigest: envelope.session.sessionProposalDigest,
     scopeAuthorizationRevision: envelope.scopeAuthorization.authorizationRevision,
@@ -1037,7 +848,7 @@ function reducerFixture(options: {
     finishedAt: '2026-08-09T14:03:00.000Z', gates, evidenceRefs: [],
     invalidationRules: ['Session, Action, Review, MainHealth, or trust changes']
   });
-  const artifact = CodexDevelopmentFinalizeVerificationSessionArtifact({
+  const artifact = finalizeVerificationSessionArtifact({
     scopeAuthorization: envelope.scopeAuthorization, session: envelope.session,
     preGateReview: envelope.preGateReview, mainHealth: envelope.mainHealth, evidence, producer
   });
@@ -1060,11 +871,13 @@ function reducerFixture(options: {
     session: artifact.session, scope: artifact.scopeAuthorization, barrier: preMergeBarrier,
     candidateAuthorNodeId: 'AUTHOR', integrationPrincipalNodeId: 'INTEGRATOR',
     expiresAt: '2026-08-09T14:20:00.000Z', operationId: PAGE });
-  const mergeWorkflowRef = `.github/workflows/sec-merge-gate.yml@${BASE}`;
+  const mergeWorkflowRef = `.github/workflows/merge-gate.yml@${BASE}`;
+  const freshMainHealthSourceRef = `github-check-runs:sec-platform/sec@${BASE}`;
   const freshMainHealth = createMainHealthLedger(createObservedMainHealthInput({
     repository: 'sec-platform/sec', mainSha: BASE, mainTreeSha: BASE, trustRevision: BASE,
     observedAt: mergeAt, expiresAt: '2026-08-09T14:20:00.000Z', sourceRunId: '200',
-    sourceRef: mergeWorkflowRef, checks: [mainHealthCheck()]
+    sourceRef: freshMainHealthSourceRef, checks: [mainHealthCheck({ id: 200, workflowRunId: '200',
+      detailsUrl: 'https://github.example/actions/runs/200' })]
   }));
   const platform = github.observePlatformEnforcement('sec-platform/sec');
   if (platform.status === 'unknown') throw new Error('fixture platform observation must be known');
@@ -1078,22 +891,22 @@ function reducerFixture(options: {
       headOpenPullRequestCount: 1, currentBaseSha: BASE, currentBaseTreeSha: BASE,
       headSha: HEAD, headTreeSha: HEAD, baseIsAncestor: true, behindBy: 0,
       manifestPath: V6_MANIFEST_PATH, manifestDigest: V6_MANIFEST_DIGEST, changedPaths },
-    provenance: { workflowPath: '.github/workflows/sec-merge-gate.yml', workflowRef: mergeWorkflowRef,
+    provenance: { workflowPath: '.github/workflows/merge-gate.yml', workflowRef: mergeWorkflowRef,
       workflowSha: BASE, eventName: 'workflow_run', sourceRunId: '200', sourceRunAttempt: 1,
       actorNodeId: 'INTEGRATOR', actorPermission: 'maintain' },
     mainHealth: freshMainHealth, consumptionOperationId, issuedAt: mergeAt,
     expiresAt: options.authorizationExpiresAt ?? '2026-08-09T14:10:00.000Z'
   });
-  const result = CodexDevelopmentEvaluateMergeGate(mergeInput);
+  const result = EvaluateMergeGate(mergeInput);
   const authorizationPublicationId = `sha256:${createHash('sha256').update(encodeVerificationActionData({
     consumptionOperationId: result.authorization.consumptionOperationId,
     authorizationReceiptDigest: result.authorization.receiptDigest
   })).digest('hex')}` as const;
   const authorizationMetadata = {
     artifactId: '2000',
-    artifactName: `sec-merge-gate-result-v2-pr-42-session-${artifact.session.sessionRevision.slice(7)}-run-200-attempt-1`,
+    artifactName: `sec-merge-gate-result-v3-pr-42-session-${artifact.session.sessionRevision.slice(7)}-run-200-attempt-1`,
     archiveDigest: PAGE,
-    workflowPath: '.github/workflows/sec-merge-gate.yml', workflowRef: mergeWorkflowRef,
+    workflowPath: '.github/workflows/merge-gate.yml', workflowRef: mergeWorkflowRef,
     workflowSha: BASE, runId: '200', runAttempt: 1, eventName: 'workflow_run',
     actorNodeId: CI_GITHUB_ACTIONS_IDENTITY_POLICY.bot.nodeId,
     actorPermission: 'none' as const, expired: false
@@ -1167,7 +980,7 @@ function reducerFixture(options: {
   return { repositoryRoot, journalFs, transport, github, artifact, result, external, counters, changedPaths,
     testImpactTransition, markers,
     request: local.request, preparation,
-    setAuthorizationResult: (next: CodexDevelopmentMergeGateResult | string) => {
+    setAuthorizationResult: (next: MergeGateResult | string) => {
       trustedAuthorization = typeof next === 'string'
         ? { ...trustedAuthorization, resultJson: next }
         : createTrustedIntegrationAuthorizationArtifact({
@@ -1176,7 +989,7 @@ function reducerFixture(options: {
     dispose: () => rmSync(repositoryRoot, { recursive: true, force: true }) };
 }
 
-function runReducer(fixture: ReturnType<typeof reducerFixture>) {
+function runReducer(fixture: Awaited<ReturnType<typeof reducerFixture>>) {
   return resumeVerificationSession({ repositoryRoot: fixture.repositoryRoot,
     session: fixture.artifact.session, scopeAuthorization: fixture.artifact.scopeAuthorization,
     changedPaths: fixture.changedPaths, testImpactTransition: fixture.testImpactTransition,
@@ -1184,7 +997,7 @@ function runReducer(fixture: ReturnType<typeof reducerFixture>) {
     github: fixture.github, external: fixture.external, journalFs: fixture.journalFs });
 }
 
-function durablePublication(fixture: ReturnType<typeof reducerFixture>): Readonly<{
+function durablePublication(fixture: Awaited<ReturnType<typeof reducerFixture>>): Readonly<{
   commentId: number;
   publication: IntegrationAuthorizationOperationPublication;
 }> {
@@ -1209,9 +1022,9 @@ function durablePublication(fixture: ReturnType<typeof reducerFixture>): Readonl
 }
 
 function substituteAuthorizationLiveIdentity(
-  fixture: ReturnType<typeof reducerFixture>,
+  fixture: Awaited<ReturnType<typeof reducerFixture>>,
   identity: { repository?: string; prNumber?: number }
-): CodexDevelopmentMergeGateResult {
+): MergeGateResult {
   const previous = fixture.result.authorization;
   const { schema: _schema, authorizationId: _authorizationId, receiptDigest: _receiptDigest,
     ...authorizationInput } = previous;
@@ -1224,6 +1037,7 @@ function substituteAuthorizationLiveIdentity(
     status: fixture.result.status,
     authorization,
     reviewReceipt: fixture.result.reviewReceipt,
+    reviewReport: fixture.result.reviewReport,
     mainHealth: fixture.result.mainHealth,
     platformObservation: fixture.result.platformObservation,
     hostedArtifactOrigin: Object.freeze({ ...fixture.result.hostedArtifactOrigin,
@@ -2104,7 +1918,7 @@ test('IssueDisposition post-main readback consumes the canonical exact MainHealt
   const common = {
     repository: 'sec-platform/sec', newMainSha: BASE, newMainTreeSha: HEAD,
     observedAt: '2026-08-09T14:00:00.000Z', sourceRunId: '200',
-    sourceRef: `.github/workflows/sec-merge-gate.yml@${BASE}`
+    sourceRef: `.github/workflows/merge-gate.yml@${BASE}`
   };
   const dispatched = mainHealthCheck({ id: 8 });
   const single = compilePostMainIssueDispositionHealthReadback({ ...common, checks: [dispatched] });
@@ -2134,7 +1948,8 @@ test('IssueDisposition post-main readback consumes the canonical exact MainHealt
   }
 });
 
-test('trusted-main proposal and hosted sole issuer reconstruct the same stable Session revision', () => {
+test('trusted-main proposal and hosted sole issuer reconstruct the same stable Session revision', async () => {
+  const TEST_IMPACT_SOURCE_PROVIDER = await testImpactSourceProvider();
   const transport = new FakeTransport();
   transport.issueComments = [[botIssueComment()]];
   const barrier = observe(transport);
@@ -2186,7 +2001,8 @@ test('trusted-main proposal and hosted sole issuer reconstruct the same stable S
     .toThrow(/package\.json drifted from the trusted base/i);
 });
 
-test('VerificationSession binds the exact deletion transition through Scope, Action, Session, and hosted reconstruction', () => {
+test('VerificationSession binds the exact deletion transition through Scope, Action, Session, and hosted reconstruction', async () => {
+  const TEST_IMPACT_SOURCE_PROVIDER = await testImpactSourceProvider();
   const baseSha = '9ed0291a0b51b4f3f6769ab317c4cc1a2753cb4b';
   const headSha = 'b'.repeat(40);
   const retiredPath = 'src/adapters/verification/platform/ci/runtime/verification-session-github.ts';
@@ -2202,14 +2018,14 @@ test('VerificationSession binds the exact deletion transition through Scope, Act
       ? { mode: '100644' as const, blobSha: '3fbfa041119f70429b5f6cc4440816b50ab3a0ef' }
       : null
   );
-  const testImpactTransition = CodexDevelopmentCreateTestImpactTransitionObservation({
+  const testImpactTransition = CreateTestImpactTransitionObservation({
     baseSha, headSha, records, readPathBlob
   });
-  const reordered = CodexDevelopmentCreateTestImpactTransitionObservation({
+  const reordered = CreateTestImpactTransitionObservation({
     baseSha, headSha, records: [...records].reverse(), readPathBlob
   });
-  expect(CodexDevelopmentTestImpactTransitionDigest(reordered))
-    .toBe(CodexDevelopmentTestImpactTransitionDigest(testImpactTransition));
+  expect(TestImpactTransitionDigest(reordered))
+    .toBe(TestImpactTransitionDigest(testImpactTransition));
 
   const transport = new FakeTransport();
   transport.issueComments = [[botIssueComment()]];
@@ -2236,7 +2052,7 @@ test('VerificationSession binds the exact deletion transition through Scope, Act
     workflowRef: `${CI_MAIN_HEALTH_POLICY.producer.workflowPath}@${baseSha}`
   })];
   const manifestDigest = `sha256:${'e'.repeat(64)}` as const;
-  const unownedTransition = CodexDevelopmentCreateTestImpactTransitionObservation({
+  const unownedTransition = CreateTestImpactTransitionObservation({
     baseSha,
     headSha,
     records: [{ status: 'removed', path: unownedRetiredPath }],
@@ -2306,7 +2122,8 @@ test('VerificationSession binds the exact deletion transition through Scope, Act
   })).toThrow(/exact candidate selection input/i);
 });
 
-test('same paths with a different Git transition change the complete VerificationSession identity chain', () => {
+test('same paths with a different Git transition change the complete VerificationSession identity chain', async () => {
+  const TEST_IMPACT_SOURCE_PROVIDER = await testImpactSourceProvider();
   const transport = new FakeTransport();
   transport.issueComments = [[botIssueComment()]];
   const barrier = observe(transport);
@@ -2317,7 +2134,7 @@ test('same paths with a different Git transition change the complete Verificatio
     repository: candidate.repository, candidate,
     manifestPath: 'config/repository/work-packages/example.md', manifestDigest: `sha256:${'e'.repeat(64)}`,
     changedPaths,
-    testImpactTransition: CodexDevelopmentCreateTestImpactTransitionObservation({
+    testImpactTransition: CreateTestImpactTransitionObservation({
       baseSha: candidate.baseSha, headSha: candidate.headSha,
       records: [{ status, path: changedPaths[0]! }], readPathBlob: () => null
     }),
@@ -2338,6 +2155,7 @@ test('same paths with a different Git transition change the complete Verificatio
 });
 
 test('Session local quick DAG keeps durable journals in external Runtime State and executes exact detached candidate', async () => {
+  const TEST_IMPACT_SOURCE_PROVIDER = await testImpactSourceProvider();
   const authorityRoot = mkdtempSync(path.join(tmpdir(), 'sec-session-authority-'));
   const runtimeRoot = mkdtempSync(path.join(tmpdir(), 'sec-session-runtime-'));
   const runtimeStateRoot = path.join(runtimeRoot, 'state');
@@ -2396,7 +2214,7 @@ test('Session local quick DAG keeps durable journals in external Runtime State a
       baseSha,
       headSha
     );
-    const testImpactTransitionDigest = CodexDevelopmentTestImpactTransitionDigest(testImpactTransition);
+    const testImpactTransitionDigest = TestImpactTransitionDigest(testImpactTransition);
     const closure = prepareLocalQuickVerificationActionPlan({ candidate,
       manifestPath: 'config/repository/work-packages/verification-action-trusted-cutover-v6.md',
       manifestDigest: `sha256:${'9'.repeat(64)}`, changedPaths: ['src/adapters/verification/platform/ci/runtime/verification-session.ts'],
@@ -2423,7 +2241,7 @@ test('Session local quick DAG keeps durable journals in external Runtime State a
     expect(result.status).toBe('passed');
     expect(result.actionPlanDigest).toBe(closure.actionPlanDigest);
     expect(result.actionResults.every((entry) => entry.terminal?.status === 'passed')).toBe(true);
-    expect(existsSync(path.join(runtimeStateRoot, 'workspaces', 'v1'))).toBe(true);
+    expect(existsSync(path.join(runtimeStateRoot, 'workspaces', 'records'))).toBe(true);
     expect(existsSync(path.join(authorityRoot, '.tmp', 'codex', 'verification-actions', 'v2'))).toBe(false);
     expect(existsSync(path.join(candidateRoot, '.tmp', 'codex', 'verification-actions', 'v2'))).toBe(false);
     expect(runGit(candidateRoot, ['rev-parse', 'HEAD'])).toBe(headSha);
@@ -2477,7 +2295,7 @@ test('synchronous hosted merge rejects queued effects and requires exact physica
   const reviewReceipt = createReviewStabilityReceipt({ stage: 'pre-merge', repository: 'sec-platform/sec',
     prNumber: 42, sessionRevision: PAGE, scopeAuthorizationRevision: PAGE,
     scopeAuthorizationReceiptDigest: PAGE, headSha: HEAD, headTreeSha: HEAD,
-    policy: SEC_REVIEW_STABILITY_POLICY,
+    policy: REVIEW_STABILITY_POLICY,
     principal: { kind: 'github-app', actorNodeId: BOT, appId: 1144995,
       appNodeId: 'A_kwHOAOQ6Gs4AEXij', appSlug: 'chatgpt-codex-connector', reviewState: 'COMMENTED' },
     independence: { candidateAuthorNodeId: 'AUTHOR', integrationPrincipalNodeId: 'INTEGRATOR' },
@@ -2485,7 +2303,7 @@ test('synchronous hosted merge rejects queued effects and requires exact physica
       executionIdentity: `github-review-observer:sec-platform/sec:42:${HEAD}`,
       providerIdentity: 'github', candidateWriteCapability: 'read-only',
       capabilityReceiptDigest: REVIEW_OBSERVER_READ_ONLY_CAPABILITY_RECEIPT,
-      trustedRevision: SEC_REVIEW_STABILITY_POLICY.trustedRevision,
+      trustedRevision: REVIEW_STABILITY_POLICY.trustedRevision,
       sourceTransport: 'github-graphql', sourceRunId: 'run-1', sourceRef: 'pull/42',
       sourceDigest: reviewSnapshot.snapshotDigest }, snapshot: reviewSnapshot,
     reviewedAt: '2026-08-09T00:00:00.000Z', expiresAt: '2026-08-09T01:00:00.000Z' });
@@ -2613,8 +2431,8 @@ test('expired hosted authority permits only independently revalidated Action Evi
   }
 });
 
-test('actual reducer recovers a crash after remote merge without a second merge or publication', () => {
-  const fixture = reducerFixture();
+test('actual reducer recovers a crash after remote merge without a second merge or publication', async () => {
+  const fixture = await reducerFixture();
   try {
     expect(runReducer(fixture)).toMatchObject({ status: 'READY_TO_INTEGRATE',
       operationId: fixture.result.authorization.consumptionOperationId });
@@ -2632,8 +2450,8 @@ test('actual reducer recovers a crash after remote merge without a second merge 
   }
 });
 
-test('durable comment and merge markers reconstruct terminal status without an Actions artifact', () => {
-  const fixture = reducerFixture();
+test('durable comment and merge markers reconstruct terminal status without an Actions artifact', async () => {
+  const fixture = await reducerFixture();
   try {
     const publication = durablePublication(fixture);
     const exactOpen = classifyDurableVerificationSessionProjection({
@@ -2679,9 +2497,9 @@ test('durable remote projection blocks closed PR and OPEN candidate identity dri
   }
 });
 
-test('MERGED recovery permits advanced main only when the marker commit remains reachable', () => {
+test('MERGED recovery permits advanced main only when the marker commit remains reachable', async () => {
   const advancedMain = '8'.repeat(40);
-  const reachable = reducerFixture({ remoteDefaultSha: advancedMain,
+  const reachable = await reducerFixture({ remoteDefaultSha: advancedMain,
     mergeToDefault: { status: 'ahead', behindBy: 0 } });
   try {
     reachable.transport.adoptMerged(reachable.markers, reachable.result.reviewReceipt,
@@ -2695,7 +2513,7 @@ test('MERGED recovery permits advanced main only when the marker commit remains 
     { status: 'diverged', behindBy: 1 },
     { status: 'behind', behindBy: 1 }
   ] satisfies GitHubComparisonObservation[]) {
-    const blocked = reducerFixture({ remoteDefaultSha: advancedMain, mergeToDefault: comparison });
+    const blocked = await reducerFixture({ remoteDefaultSha: advancedMain, mergeToDefault: comparison });
     try {
       blocked.transport.adoptMerged(blocked.markers, blocked.result.reviewReceipt,
         blocked.artifact.session.sessionRevision);
@@ -2704,7 +2522,7 @@ test('MERGED recovery permits advanced main only when the marker commit remains 
       blocked.dispose();
     }
   }
-  const invalidBase = reducerFixture({ baseToMerge: { status: 'diverged', behindBy: 1 } });
+  const invalidBase = await reducerFixture({ baseToMerge: { status: 'diverged', behindBy: 1 } });
   try {
     invalidBase.transport.adoptMerged(invalidBase.markers, invalidBase.result.reviewReceipt,
       invalidBase.artifact.session.sessionRevision);
@@ -2714,9 +2532,9 @@ test('MERGED recovery permits advanced main only when the marker commit remains 
   }
 });
 
-test('MERGED reachability permits detached old-base only with synchronized post-merge default', () => {
+test('MERGED reachability permits detached old-base only with synchronized post-merge default', async () => {
   const advancedMain = '8'.repeat(40);
-  const fixture = reducerFixture({ remoteDefaultSha: advancedMain,
+  const fixture = await reducerFixture({ remoteDefaultSha: advancedMain,
     mergeToDefault: { status: 'ahead', behindBy: 0 } });
   try {
     fixture.transport.adoptMerged(fixture.markers, fixture.result.reviewReceipt,
@@ -2743,12 +2561,12 @@ test('MERGED reachability permits detached old-base only with synchronized post-
   }
 });
 
-test('actual reducer rejects OPEN base/head drift before any merge claim or effect', () => {
+test('actual reducer rejects OPEN base/head drift before any merge claim or effect', async () => {
   for (const [field, value] of [
     ['baseSha', 'f'.repeat(40)],
     ['headSha', 'e'.repeat(40)]
   ] as const) {
-    const fixture = reducerFixture();
+    const fixture = await reducerFixture();
     try {
       fixture.transport.observation = { ...fixture.transport.observation, [field]: value };
       expect(() => runReducer(fixture)).toThrow(/live .* drifted/i);
@@ -2758,11 +2576,12 @@ test('actual reducer rejects OPEN base/head drift before any merge claim or effe
   }
 });
 
-test('actual reducer rejects expired or already-consumed authorization before merge', () => {
-  for (const fixture of [
-    reducerFixture({ authorizationExpiresAt: '2026-08-09T14:06:00.000Z', now: '2026-08-09T14:07:00.000Z' }),
-    reducerFixture({ consumed: true })
+test('actual reducer rejects expired or already-consumed authorization before merge', async () => {
+  for (const options of [
+    { authorizationExpiresAt: '2026-08-09T14:06:00.000Z', now: '2026-08-09T14:07:00.000Z' },
+    { consumed: true }
   ]) {
+    const fixture = await reducerFixture(options);
     try {
       expect(() => runReducer(fixture)).toThrow(/expired|already consumed/i);
     } finally {
@@ -2771,12 +2590,12 @@ test('actual reducer rejects expired or already-consumed authorization before me
   }
 });
 
-test('actual reducer binds IntegrationAuthorization to trusted live repository and PR', () => {
+test('actual reducer binds IntegrationAuthorization to trusted live repository and PR', async () => {
   for (const identity of [
     { repository: 'attacker/fork' },
     { prNumber: 99 }
   ]) {
-    const fixture = reducerFixture();
+    const fixture = await reducerFixture();
     try {
       fixture.setAuthorizationResult(substituteAuthorizationLiveIdentity(fixture, identity));
       expect(() => runReducer(fixture)).toThrow(/repository|prNumber/i);
@@ -2786,12 +2605,12 @@ test('actual reducer binds IntegrationAuthorization to trusted live repository a
   }
 });
 
-test('actual reducer rejects downloaded merge-result digest or provenance substitution', () => {
+test('actual reducer rejects downloaded merge-result digest or provenance substitution', async () => {
   for (const mutate of [
     (value: Record<string, any>) => { value.resultDigest = `sha256:${'f'.repeat(64)}`; },
     (value: Record<string, any>) => { value.provenance.sourceRunId = 'forged-run'; }
   ]) {
-    const fixture = reducerFixture();
+    const fixture = await reducerFixture();
     try {
       const value = JSON.parse(encodeVerificationActionData(fixture.result)) as Record<string, any>;
       mutate(value);
@@ -2803,8 +2622,8 @@ test('actual reducer rejects downloaded merge-result digest or provenance substi
   }
 });
 
-test('actual reducer blocks merged-tree mismatch and blocked/residue closeout terminals', () => {
-  const mismatch = reducerFixture();
+test('actual reducer blocks merged-tree mismatch and blocked/residue closeout terminals', async () => {
+  const mismatch = await reducerFixture();
   try {
     mismatch.transport.mergedTreeSha = 'd'.repeat(40);
     expect(runReducer(mismatch)).toMatchObject({ status: 'READY_TO_INTEGRATE' });
@@ -2815,7 +2634,7 @@ test('actual reducer blocks merged-tree mismatch and blocked/residue closeout te
     mismatch.dispose();
   }
   for (const terminal of ['blocked', 'residue'] as const) {
-    const fixture = reducerFixture({ closeout: terminal });
+    const fixture = await reducerFixture({ closeout: terminal });
     try {
       expect(runReducer(fixture)).toMatchObject({ status: 'READY_TO_INTEGRATE' });
       fixture.transport.adoptMerged(fixture.markers, fixture.result.reviewReceipt,
@@ -2827,8 +2646,8 @@ test('actual reducer blocks merged-tree mismatch and blocked/residue closeout te
   }
 });
 
-test('reducer emits one stable integration intent and never executes a physical merge', () => {
-  const fixture = reducerFixture();
+test('reducer emits one stable integration intent and never executes a physical merge', async () => {
+  const fixture = await reducerFixture();
   try {
     const first = runReducer(fixture);
     const replay = runReducer(fixture);
@@ -3107,6 +2926,8 @@ const branchRef = 'refs/heads/' + state.branch;
 if (args[0] === 'init' && args[1] === '--bare' && args[2] === '.') out('');
 if (args[0] === 'rev-parse' && args[1] === '--show-toplevel') out(state.repositoryRoot);
 if (args[0] === 'rev-parse' && args[1] === '--git-common-dir') out(state.commonDir);
+if (args[0] === 'rev-parse' && args[1] === '--path-format=absolute'
+  && args[2] === '--git-common-dir') out(state.commonDir + '\\n');
 if (args[0] === 'rev-parse' && args[1] === 'HEAD') {
   state.headReadValues = [...(state.headReadValues || []), state.baseSha];
   save(state);
@@ -3129,6 +2950,13 @@ if (args[0] === '-C' && args.includes('status')) out('');
 if (args[0] === 'remote' && args[1] === 'get-url') out('https://github.com/' + state.repository + '.git');
 if (args[0] === 'symbolic-ref') out('origin/main');
 if (args[0] === 'for-each-ref') {
+  if (JSON.stringify(args) === JSON.stringify([
+    'for-each-ref', '--format=%(refname)%00%(symref)%00%(objectname)%00', 'refs/heads/'
+  ])) {
+    let value = 'refs/heads/main\\0\\0' + state.baseSha + '\\0\\n';
+    if (state.localPresent) value += branchRef + '\\0\\0' + state.headSha + '\\0\\n';
+    out(value);
+  }
   let value = 'main\\0' + state.baseSha + '\\0\\n';
   if (state.localPresent) value += state.branch + '\\0' + state.headSha + '\\0\\n';
   out(value);
@@ -3208,13 +3036,14 @@ if (args[0] === 'cat-file' && args[1] === '-e') {
   if (String(args[2]).includes('src/adapters/self-hosting/control/branch-lifecycle/branch-closeout-receipt.ts')) fail('missing enforcement marker');
   out('');
 }
-if (args[0] === 'update-ref' && args[1] === '-d') {
-  if (args[2] === branchRef) {
-    state.localPresent = false;
-    state.localDeleteCount += 1;
-    save(state);
-  }
-  out('');
+if (JSON.stringify(args) === JSON.stringify(['update-ref', '--no-deref', '--stdin'])) {
+  const transcript = readFileSync(0, 'utf8');
+  const expected = ['start', 'delete ' + branchRef + ' ' + state.headSha, 'prepare', 'commit', ''].join('\\n');
+  if (transcript !== expected || state.localPresent !== true) fail('non-canonical local ref CAS transaction');
+  state.localPresent = false;
+  state.localDeleteCount += 1;
+  save(state);
+  out('start: ok\\nprepare: ok\\ncommit: ok\\n');
 }
 if (args[0] === '-c'
   && args[1] === 'http.extraHeader='
@@ -3349,7 +3178,7 @@ if (endpoint.includes('/actions/runs?head_sha=')) {
   out([{ workflow_runs: [{ id: 200,
     name: 'integrate compiler session run 100 attempt 1',
     display_title: 'integrate compiler session run 100 attempt 1',
-    path: '.github/workflows/sec-merge-gate.yml', event: 'workflow_run',
+    path: '.github/workflows/merge-gate.yml', event: 'workflow_run',
     status: 'in_progress', conclusion: null, head_sha: state.baseSha,
     run_attempt: currentRun.run_attempt, updated_at: '2026-08-09T14:05:00.000Z' }] }]);
 }
@@ -3480,12 +3309,12 @@ function closeoutHarnessActionsComment(
   };
 }
 
-function withCloseoutHarnessCommands<T>(
+async function withCloseoutHarnessCommands<T>(
   shimRoot: string,
   statePath: string,
   recoveryRoot: string,
-  run: () => T
-): T {
+  run: () => T | Promise<T>
+): Promise<Awaited<T>> {
   const previous = {
     path: process.env.PATH,
     state: process.env.SEC_CLOSEOUT_TEST_STATE,
@@ -3495,7 +3324,7 @@ function withCloseoutHarnessCommands<T>(
   process.env.SEC_CLOSEOUT_TEST_STATE = statePath;
   process.env.SEC_BRANCH_RECOVERY_ROOT = recoveryRoot;
   try {
-    return run();
+    return await run();
   } finally {
     if (previous.path === undefined) delete process.env.PATH;
     else process.env.PATH = previous.path;
@@ -3513,12 +3342,12 @@ function closeoutTcbModuleBlobs(): Readonly<Record<string, string>> {
   return closeoutTcbClosureIdentity.moduleBlobs;
 }
 
-function createCloseoutCliScenario(input: {
+async function createCloseoutCliScenario(input: {
   harnessRoot: string;
   recoveryHarnessRoot: string;
   shimRoot: string;
   name: string;
-  fixture: ReturnType<typeof reducerFixture>;
+  fixture: Awaited<ReturnType<typeof reducerFixture>>;
   seed?: 'none' | 'null-app' | 'wrong-app' | 'duplicate' | 'old';
   tamper?: 'original' | 'artifact' | 'stable-digest';
   postDisposition?: 'success' | 'lost';
@@ -3544,7 +3373,7 @@ function createCloseoutCliScenario(input: {
   mkdirSync(commonDir, { recursive: true });
   const statePath = path.join(root, 'provider-state.json');
   const tcbBlobs: Record<string, string> = { ...closeoutTcbModuleBlobs() };
-  for (const edge of SEC_TRUSTED_BOOTSTRAP_REGISTRY.reviewedBoundaryEdges) {
+  for (const edge of TRUSTED_BOOTSTRAP_REGISTRY.reviewedBoundaryEdges) {
     const target = edge.split(' -> ')[1];
     if (target !== undefined && tcbBlobs[target] === undefined) tcbBlobs[target] = 'd'.repeat(40);
   }
@@ -3617,14 +3446,14 @@ function createCloseoutCliScenario(input: {
         triggering_actor: { login: 'integrator', node_id: 'INTEGRATOR' },
         repository: { id: 123 } },
       199: { id: 199, run_attempt: 1, event: 'workflow_run',
-        path: '.github/workflows/sec-merge-gate.yml', head_sha: BASE,
+        path: '.github/workflows/merge-gate.yml', head_sha: BASE,
         actor: { login: CI_GITHUB_ACTIONS_IDENTITY_POLICY.bot.login,
           id: CI_GITHUB_ACTIONS_IDENTITY_POLICY.bot.id,
           node_id: CI_GITHUB_ACTIONS_IDENTITY_POLICY.bot.nodeId,
           type: CI_GITHUB_ACTIONS_IDENTITY_POLICY.bot.type },
         triggering_actor: { login: 'integrator', node_id: 'INTEGRATOR' }, repository: { id: 123 } },
       200: { id: 200, run_attempt: currentRunAttempt, event: 'workflow_run',
-        path: '.github/workflows/sec-merge-gate.yml', head_sha: BASE,
+        path: '.github/workflows/merge-gate.yml', head_sha: BASE,
         actor: { login: CI_GITHUB_ACTIONS_IDENTITY_POLICY.bot.login,
           id: CI_GITHUB_ACTIONS_IDENTITY_POLICY.bot.id,
           node_id: CI_GITHUB_ACTIONS_IDENTITY_POLICY.bot.nodeId,
@@ -3642,7 +3471,7 @@ process.stdout.write(JSON.stringify(state.activeWorkPackageSelected
       workspace: { branch: state.branch } }
   : { activeWorkPackage: { state: 'none', manifest: null }, workspace: { branch: null } }));
 `, 'utf8');
-  const prepared = withCloseoutHarnessCommands(input.shimRoot, statePath, providerRecoveryRoot, () => (
+  const prepared = await withCloseoutHarnessCommands(input.shimRoot, statePath, providerRecoveryRoot, () => (
     prepareBranchCloseout({ repositoryRoot: root }, {
       branch: 'feat/example', expectedHeadSha: HEAD, pullRequestNumber: 42
     })
@@ -3654,7 +3483,7 @@ process.stdout.write(JSON.stringify(state.activeWorkPackageSelected
   state.liveDefaultSha = state.mergeCommitSha;
   state.localDefaultSha = state.mergeCommitSha;
   writeCloseoutCliHarnessState(statePath, state);
-  const rehydratedPrepared = withCloseoutHarnessCommands(input.shimRoot, statePath, recoveryRoot,
+  const rehydratedPrepared = await withCloseoutHarnessCommands(input.shimRoot, statePath, recoveryRoot,
     () => rehydratePreparedBranchCloseoutRecoveryArtifact({
       scope: { repositoryRoot: root },
       remote: prepared,
@@ -3693,8 +3522,8 @@ process.stdout.write(JSON.stringify(state.activeWorkPackageSelected
   });
   const canonicalCommentProvenance = (runId: string) => createHostedWorkflowCommentProvenance({
     repositoryId: '123',
-    workflowPath: '.github/workflows/sec-merge-gate.yml',
-    workflowRef: `.github/workflows/sec-merge-gate.yml@${BASE}`,
+    workflowPath: '.github/workflows/merge-gate.yml',
+    workflowRef: `.github/workflows/merge-gate.yml@${BASE}`,
     workflowSha: BASE,
     runId,
     runAttempt: 1,
@@ -3819,7 +3648,7 @@ process.stdout.write(JSON.stringify(state.activeWorkPackageSelected
 
 function runCloseoutCliProcess(
   shimRoot: string,
-  scenario: ReturnType<typeof createCloseoutCliScenario>,
+  scenario: Awaited<ReturnType<typeof createCloseoutCliScenario>>,
   command: 'integrate-hosted' | 'closeout-mutate-hosted' | 'closeout-publish-hosted'
 ) {
   const state = readCloseoutCliHarnessState(scenario.statePath);
@@ -3848,7 +3677,7 @@ function runCloseoutCliProcess(
 
 function startCloseoutCliProcess(
   shimRoot: string,
-  scenario: ReturnType<typeof createCloseoutCliScenario>,
+  scenario: Awaited<ReturnType<typeof createCloseoutCliScenario>>,
   command: 'closeout-mutate-hosted' | 'closeout-publish-hosted'
 ) {
   const state = readCloseoutCliHarnessState(scenario.statePath);
@@ -4012,7 +3841,7 @@ function isProcessAlive(pid: number): boolean {
 
 function closeoutCliProcessEnvironment(
   shimRoot: string,
-  scenario: ReturnType<typeof createCloseoutCliScenario>
+  scenario: Awaited<ReturnType<typeof createCloseoutCliScenario>>
 ): NodeJS.ProcessEnv {
   const state = readCloseoutCliHarnessState(scenario.statePath);
   const environment: NodeJS.ProcessEnv = {
@@ -4025,7 +3854,7 @@ function closeoutCliProcessEnvironment(
     GITHUB_SHA: BASE,
     GITHUB_REF: 'refs/heads/main',
     GITHUB_WORKFLOW_REF:
-      'sec-platform/sec/.github/workflows/sec-merge-gate.yml@refs/heads/main',
+      'sec-platform/sec/.github/workflows/merge-gate.yml@refs/heads/main',
     GITHUB_WORKFLOW_SHA: BASE,
     GITHUB_RUN_ID: '200',
     GITHUB_RUN_ATTEMPT: String(state.runs['200'].run_attempt),
@@ -4072,7 +3901,7 @@ function resolveCloseoutCliGh(environment: NodeJS.ProcessEnv) {
 
 function assertCloseoutCliProviderShim(
   shimRoot: string,
-  scenario: ReturnType<typeof createCloseoutCliScenario>
+  scenario: Awaited<ReturnType<typeof createCloseoutCliScenario>>
 ): void {
   const executable = path.join(shimRoot, process.platform === 'win32' ? 'gh.exe' : 'gh');
   if (!existsSync(executable)) throw new Error(`Closeout CLI gh shim is absent: ${executable}`);
@@ -4137,7 +3966,7 @@ beforeAll(() => {
 });
 
 afterAll(() => {
-  testImpactFixture.dispose();
+  testImpactFixture?.dispose();
   if (sharedCloseoutCliShimSuiteRoot !== '') {
     rmSync(sharedCloseoutCliShimSuiteRoot, { recursive: true, force: true });
   }
@@ -4146,17 +3975,17 @@ afterAll(() => {
   }
 });
 
-function withCloseoutCliPartition<T>(run: (input: Readonly<{
+async function withCloseoutCliPartition<T>(run: (input: Readonly<{
   harnessRoot: string;
   recoveryHarnessRoot: string;
   shimRoot: string;
-  fixture: ReturnType<typeof reducerFixture>;
-}>) => T): T {
+  fixture: Awaited<ReturnType<typeof reducerFixture>>;
+}>) => T | Promise<T>): Promise<Awaited<T>> {
   const harnessRoot = mkdtempSync(path.join(tmpdir(), 'sec-verification-session-v6-cli-'));
   const recoveryHarnessRoot = mkdtempSync(path.join(tmpdir(), 'sec-verification-session-v6-recovery-'));
-  const fixture = reducerFixture();
+  const fixture = await reducerFixture();
   try {
-    return run({ harnessRoot, recoveryHarnessRoot, shimRoot: sharedCloseoutCliShimRoot, fixture });
+    return await run({ harnessRoot, recoveryHarnessRoot, shimRoot: sharedCloseoutCliShimRoot, fixture });
   } finally {
     fixture.dispose();
     rmSync(harnessRoot, { recursive: true, force: true });
@@ -4168,11 +3997,11 @@ async function withCloseoutCliPartitionSettled<T>(run: (input: Readonly<{
   harnessRoot: string;
   recoveryHarnessRoot: string;
   shimRoot: string;
-  fixture: ReturnType<typeof reducerFixture>;
+  fixture: Awaited<ReturnType<typeof reducerFixture>>;
 }>) => Promise<T>): Promise<T> {
   const harnessRoot = mkdtempSync(path.join(tmpdir(), 'sec-verification-session-v6-cli-'));
   const recoveryHarnessRoot = mkdtempSync(path.join(tmpdir(), 'sec-verification-session-v6-recovery-'));
-  const fixture = reducerFixture();
+  const fixture = await reducerFixture();
   try {
     return await run({ harnessRoot, recoveryHarnessRoot, shimRoot: sharedCloseoutCliShimRoot,
       fixture });
@@ -4227,10 +4056,10 @@ test('prepared cleanup route invokes the local sequence once for the exact targe
   })).rejects.toThrow('same-host-worktree-closeout-required');
 });
 
-closeoutCliE2eTest('trusted remote default ref synchronization closes ordinary merge and merged recovery safely', () => {
-  withCloseoutCliPartition(({ harnessRoot, recoveryHarnessRoot, shimRoot, fixture }) => {
-    const runRecovery = (name: string, configure?: (state: CloseoutCliHarnessState) => void) => {
-      const scenario = createCloseoutCliScenario({ harnessRoot, recoveryHarnessRoot, shimRoot,
+closeoutCliE2eTest('trusted remote default ref synchronization closes ordinary merge and merged recovery safely', async () => {
+  await withCloseoutCliPartition(async ({ harnessRoot, recoveryHarnessRoot, shimRoot, fixture }) => {
+    const runRecovery = async (name: string, configure?: (state: CloseoutCliHarnessState) => void) => {
+      const scenario = await createCloseoutCliScenario({ harnessRoot, recoveryHarnessRoot, shimRoot,
         name, fixture });
       const state = readCloseoutCliHarnessState(scenario.statePath);
       state.currentPhase = 'closeoutMutation';
@@ -4243,7 +4072,7 @@ closeoutCliE2eTest('trusted remote default ref synchronization closes ordinary m
       return { scenario, result: runCloseoutCliProcess(shimRoot, scenario, 'integrate-hosted') };
     };
 
-    const exact = runRecovery('ref-sync-exact');
+    const exact = await runRecovery('ref-sync-exact');
     assertCloseoutCliProcessSucceeded('integrate-hosted merged recovery ref synchronization',
       exact.result);
     expect(JSON.parse(readFileSync(exact.result.output, 'utf8'))).toMatchObject({
@@ -4260,7 +4089,7 @@ closeoutCliE2eTest('trusted remote default ref synchronization closes ordinary m
     expect(new Set(readCloseoutCliHarnessState(exact.scenario.statePath).headReadValues))
       .toEqual(new Set([BASE]));
 
-    const failed = runRecovery('ref-sync-fetch-failure', (state) => {
+    const failed = await runRecovery('ref-sync-fetch-failure', (state) => {
       state.refOnlyFetchFailure = true;
     });
     expect(failed.result.result.status).not.toBe(0);
@@ -4272,7 +4101,7 @@ closeoutCliE2eTest('trusted remote default ref synchronization closes ordinary m
       remoteDeleteCount: 0
     });
 
-    const raced = runRecovery('ref-sync-race', (state) => {
+    const raced = await runRecovery('ref-sync-race', (state) => {
       state.raceAfterRefOnlyFetch = true;
     });
     expect(raced.result.result.status).not.toBe(0);
@@ -4290,9 +4119,9 @@ closeoutCliE2eTest('trusted remote default ref synchronization closes ordinary m
   });
 }, 180_000);
 
-closeoutCliE2eTest('public Session closeout CLI partition A exact delete, publish, and reuse', () => {
-  withCloseoutCliPartition(({ harnessRoot, recoveryHarnessRoot, shimRoot, fixture }) => {
-    const exact = createCloseoutCliScenario({ harnessRoot, recoveryHarnessRoot, shimRoot,
+closeoutCliE2eTest('public Session closeout CLI partition A exact delete, publish, and reuse', async () => {
+  await withCloseoutCliPartition(async ({ harnessRoot, recoveryHarnessRoot, shimRoot, fixture }) => {
+    const exact = await createCloseoutCliScenario({ harnessRoot, recoveryHarnessRoot, shimRoot,
       name: 'exact', fixture });
     expect(encodeVerificationActionData(exact.providerPrepared))
       .not.toBe(encodeVerificationActionData(exact.rehydratedPrepared));
@@ -4345,7 +4174,7 @@ closeoutCliE2eTest('public Session closeout CLI partition A exact delete, publis
 closeoutCliE2eTest('public Session closeout CLI partition B crash recovery performs zero second delete', async () => {
   await withCloseoutCliPartitionSettled(async ({ harnessRoot, recoveryHarnessRoot, shimRoot,
     fixture }) => {
-    const crash = createCloseoutCliScenario({ harnessRoot, recoveryHarnessRoot, shimRoot,
+    const crash = await createCloseoutCliScenario({ harnessRoot, recoveryHarnessRoot, shimRoot,
       name: 'crash', fixture, crashAfterDelete: true });
     const crashed = startCloseoutCliProcess(shimRoot, crash, 'closeout-mutate-hosted');
     let killCount = 0;
@@ -4420,10 +4249,10 @@ closeoutCliE2eTest('public Session closeout CLI partition B crash recovery perfo
   });
 }, 120_000);
 
-closeoutCliE2eTest('public Session closeout CLI partition C rejects invalid existing markers without delete', () => {
-  withCloseoutCliPartition(({ harnessRoot, recoveryHarnessRoot, shimRoot, fixture }) => {
+closeoutCliE2eTest('public Session closeout CLI partition C rejects invalid existing markers without delete', async () => {
+  await withCloseoutCliPartition(async ({ harnessRoot, recoveryHarnessRoot, shimRoot, fixture }) => {
     for (const seed of ['null-app', 'wrong-app', 'duplicate', 'old'] as const) {
-      const blocked = createCloseoutCliScenario({ harnessRoot, recoveryHarnessRoot, shimRoot,
+      const blocked = await createCloseoutCliScenario({ harnessRoot, recoveryHarnessRoot, shimRoot,
         name: seed, fixture, seed });
       const result = runCloseoutCliProcess(shimRoot, blocked, 'closeout-mutate-hosted');
       expect(result.result.status).not.toBe(0);
@@ -4434,10 +4263,10 @@ closeoutCliE2eTest('public Session closeout CLI partition C rejects invalid exis
   });
 }, 180_000);
 
-closeoutCliE2eTest('public Session closeout CLI partition D rejects authority tamper without delete', () => {
-  withCloseoutCliPartition(({ harnessRoot, recoveryHarnessRoot, shimRoot, fixture }) => {
+closeoutCliE2eTest('public Session closeout CLI partition D rejects authority tamper without delete', async () => {
+  await withCloseoutCliPartition(async ({ harnessRoot, recoveryHarnessRoot, shimRoot, fixture }) => {
     for (const tamper of ['original', 'artifact', 'stable-digest'] as const) {
-      const blocked = createCloseoutCliScenario({ harnessRoot, recoveryHarnessRoot, shimRoot,
+      const blocked = await createCloseoutCliScenario({ harnessRoot, recoveryHarnessRoot, shimRoot,
         name: `tampered-${tamper}`, fixture, tamper });
       const result = runCloseoutCliProcess(shimRoot, blocked, 'closeout-mutate-hosted');
       expect(result.result.status).not.toBe(0);
@@ -4448,9 +4277,9 @@ closeoutCliE2eTest('public Session closeout CLI partition D rejects authority ta
   });
 }, 180_000);
 
-closeoutCliE2eTest('public Session closeout CLI partition E lost marker POST and replay perform zero delete', () => {
-  withCloseoutCliPartition(({ harnessRoot, recoveryHarnessRoot, shimRoot, fixture }) => {
-    const lost = createCloseoutCliScenario({ harnessRoot, recoveryHarnessRoot, shimRoot,
+closeoutCliE2eTest('public Session closeout CLI partition E lost marker POST and replay perform zero delete', async () => {
+  await withCloseoutCliPartition(async ({ harnessRoot, recoveryHarnessRoot, shimRoot, fixture }) => {
+    const lost = await createCloseoutCliScenario({ harnessRoot, recoveryHarnessRoot, shimRoot,
       name: 'lost', fixture, postDisposition: 'lost' });
     const uncertain = runCloseoutCliProcess(shimRoot, lost, 'closeout-mutate-hosted');
     expect(uncertain.result.status).not.toBe(0);
@@ -4465,9 +4294,9 @@ closeoutCliE2eTest('public Session closeout CLI partition E lost marker POST and
   });
 }, 120_000);
 
-closeoutCliE2eTest('V9 integration reruns retain producing attempts and authorize fresh integration after pre-gate expiry', () => {
+closeoutCliE2eTest('V9 integration reruns retain producing attempts and authorize fresh integration after pre-gate expiry', async () => {
   const stalePreGateAt = '2026-08-09T14:07:00.000Z';
-  const stalePreGate = reducerFixture({ mergeAt: stalePreGateAt });
+  const stalePreGate = await reducerFixture({ mergeAt: stalePreGateAt });
   try {
     expect(classifyVerificationSessionArtifactReuse(stalePreGate.artifact, stalePreGateAt))
       .toMatchObject({ status: 'fresh-authority-required', actionEvidenceCandidate: true });
@@ -4485,8 +4314,8 @@ closeoutCliE2eTest('V9 integration reruns retain producing attempts and authoriz
     stalePreGate.dispose();
   }
 
-  withCloseoutCliPartition(({ harnessRoot, recoveryHarnessRoot, shimRoot, fixture }) => {
-    const samePrincipal = createCloseoutCliScenario({ harnessRoot, recoveryHarnessRoot, shimRoot,
+  await withCloseoutCliPartition(async ({ harnessRoot, recoveryHarnessRoot, shimRoot, fixture }) => {
+    const samePrincipal = await createCloseoutCliScenario({ harnessRoot, recoveryHarnessRoot, shimRoot,
       name: 'rerun-same-principal', fixture, currentRunAttempt: 2,
       includeStableArtifact: true });
     const sameResult = runCloseoutCliProcess(shimRoot, samePrincipal, 'closeout-mutate-hosted');
@@ -4500,7 +4329,7 @@ closeoutCliE2eTest('V9 integration reruns retain producing attempts and authoriz
       ] }
     });
 
-    const delegatedMaintainer = createCloseoutCliScenario({ harnessRoot, recoveryHarnessRoot,
+    const delegatedMaintainer = await createCloseoutCliScenario({ harnessRoot, recoveryHarnessRoot,
       shimRoot, name: 'rerun-delegated-maintainer', fixture, currentRunAttempt: 2,
       triggeringPrincipal: { login: 'release-manager', nodeId: 'RELEASE_MANAGER',
         permission: 'maintain' } });
@@ -4512,7 +4341,7 @@ closeoutCliE2eTest('V9 integration reruns retain producing attempts and authoriz
       principalUserLookups: ['integrator', 'release-manager']
     });
 
-    const writeOnly = createCloseoutCliScenario({ harnessRoot, recoveryHarnessRoot, shimRoot,
+    const writeOnly = await createCloseoutCliScenario({ harnessRoot, recoveryHarnessRoot, shimRoot,
       name: 'rerun-write-only', fixture, currentRunAttempt: 2,
       triggeringPrincipal: { login: 'write-only', nodeId: 'WRITE_ONLY', permission: 'write' } });
     const blocked = runCloseoutCliProcess(shimRoot, writeOnly, 'closeout-mutate-hosted');
@@ -4524,7 +4353,7 @@ closeoutCliE2eTest('V9 integration reruns retain producing attempts and authoriz
       principalUserLookups: ['integrator', 'write-only']
     });
 
-    const historicalAttemptMismatch = createCloseoutCliScenario({ harnessRoot,
+    const historicalAttemptMismatch = await createCloseoutCliScenario({ harnessRoot,
       recoveryHarnessRoot, shimRoot, name: 'rerun-historical-attempt-mismatch', fixture,
       currentRunAttempt: 2, historicalAttemptMismatch: true });
     const mismatched = runCloseoutCliProcess(shimRoot, historicalAttemptMismatch,
@@ -4635,7 +4464,7 @@ test('GitHub GraphQL schema drift is classified as typed provider-schema-unsuppo
 });
 
 test('the implementation session cannot issue an independent Review receipt', async () => {
-  const { SEC_REVIEW_STABILITY_POLICY: SEC_REVIEW_STABILITY_POLICY_V1, createReviewStabilityReceipt: createReviewStabilityReceiptV1 } =
+  const { REVIEW_STABILITY_POLICY: loadedReviewStabilityPolicy, createReviewStabilityReceipt: loadedCreateReviewStabilityReceipt } =
     await import('../../src/adapters/verification/platform/review/contract/stability.ts');
   const sha = 'a'.repeat(40);
   const digest = (value: string) => `sha256:${value}` as const;
@@ -4670,22 +4499,22 @@ test('the implementation session cannot issue an independent Review receipt', as
     scopeAuthorizationReceiptDigest: digest('e'.repeat(64)),
     headSha: sha,
     headTreeSha: '3'.repeat(40),
-    policy: SEC_REVIEW_STABILITY_POLICY_V1,
+    policy: loadedReviewStabilityPolicy,
     principal,
     independence: { candidateAuthorNodeId: 'USER_author', integrationPrincipalNodeId: 'USER_integrator' },
     snapshot,
     reviewedAt: '2026-08-09T00:00:00.000Z',
     expiresAt: '2026-08-09T01:00:00.000Z'
   };
-  expect(() => createReviewStabilityReceiptV1({
+  expect(() => loadedCreateReviewStabilityReceipt({
       ...baseInput,
       producer: {
         identity: 'src/adapters/verification/platform/ci/runtime/verification-session-github.ts',
-        executionIdentity: SEC_VERIFICATION_SESSION_IMPLEMENTATION_IDENTITY,
+        executionIdentity: VERIFICATION_SESSION_IMPLEMENTATION_IDENTITY,
         providerIdentity: 'github',
         candidateWriteCapability: 'read-only',
         capabilityReceiptDigest: REVIEW_OBSERVER_READ_ONLY_CAPABILITY_RECEIPT,
-        trustedRevision: SEC_REVIEW_STABILITY_POLICY_V1.trustedRevision,
+        trustedRevision: loadedReviewStabilityPolicy.trustedRevision,
         sourceTransport: 'github-graphql',
         sourceRunId: 'run-1',
         sourceRef: 'pull/345',

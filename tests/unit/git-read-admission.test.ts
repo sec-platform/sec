@@ -15,23 +15,40 @@ const accepted = [
   ['--version'], ['status', '--porcelain=v1', '-z', '--untracked-files=all', '--ignored=no'],
   ['-c', 'core.fsmonitor=false', 'status', '--short'], ['branch', '--show-current'],
   ['cat-file', '--batch'], ['cat-file', '-t', 'HEAD'], ['show', 'HEAD:package.json'],
+  ['show-ref', '--verify', '--quiet', 'refs/heads/topic/nested'],
   ['rev-parse', '--verify', 'HEAD^{commit}'], ['rev-parse', '--path-format=absolute', '--git-common-dir'],
   ['worktree', 'list', '--porcelain', '-z'], ['remote', 'get-url', '--all', 'origin'],
-  ['config', '--get', 'core.hooksPath'], ['symbolic-ref', '--short', 'HEAD'],
+  ['config', '--get', 'core.hooksPath'],
+  ['config', '--local', '--null', '--get-regexp', '^(extensions\\.worktreeconfig|core\\.hookspath)$'],
+  ['config', '--file', '/repo/.git/config.worktree', '--null', '--get', 'core.hooksPath'],
+  ['config', '--file', '/repo/.git/config.stage', '--null', '--get', 'extensions.worktreeConfig'],
+  ['symbolic-ref', '--short', 'HEAD'],
   ['diff', '--no-ext-diff', '--no-textconv', '--name-only', '-z', 'HEAD', '--', 'src'],
   ['diff-files', '--name-only'], ['diff-index', '--cached', 'HEAD'],
   ['ls-files', '-z', '--stage'], ['ls-tree', '-r', '-z', '--full-tree', 'HEAD'],
   ['rev-list', '--first-parent', '--ancestry-path', '--reverse', 'main..HEAD'],
   ['merge-base', '--is-ancestor', 'main', 'HEAD'], ['var', 'GIT_AUTHOR_IDENT'],
-  ['for-each-ref', '--format=%(refname)', 'refs/heads/'], ['ls-remote', '--exit-code', 'origin', 'refs/heads/main']
+  ['for-each-ref', '--format=%(refname)', 'refs/heads/'],
+  ['for-each-ref', '--contains=0123456789abcdef0123456789abcdef01234567', '--format=%(refname)', 'refs/heads/'],
+  ['ls-remote', '--exit-code', 'origin', 'refs/heads/main']
 ];
 const forbidden = [
   [], ['reset', '--hard'], ['checkout', 'main'], ['clean', '-fd'], ['branch', '-D', 'main'],
-  ['config', 'core.hooksPath', '/other'], ['worktree', 'remove', '/other'],
+  ['config', 'core.hooksPath', '/other'],
+  ['config', '--local', '--null', '--get-regexp', '.*'],
+  ['config', '--file', '-unsafe', '--null', '--get', 'core.hooksPath'],
+  ['config', '--file', '/tmp/other', '--null', '--get', 'user.email'],
+  ['config', '--file', '/tmp/other', '--null', '--get', 'extensions.worktreeconfig'],
+  ['worktree', 'remove', '/other'],
   ['remote', 'add', 'other', '/other'], ['symbolic-ref', 'HEAD', 'refs/heads/other'],
   ['-c', 'core.hooksPath=/other', 'status'], ['diff', '--ext-diff'], ['show', '--textconv'],
   ['ls-remote', '--upload-pack=other', 'origin', 'refs/heads/main'],
-  ['cat-file', '--filters', 'HEAD:source'], ['grep', '--recurse-submodules', 'x'], ['commit', '-m', 'unrequested']
+  ['cat-file', '--filters', 'HEAD:source'], ['grep', '--recurse-submodules', 'x'],
+  ['show-ref', '--verify', '--quiet', 'refs/tags/release'],
+  ['show-ref', '--verify', 'refs/heads/topic'],
+  ['for-each-ref', '--contains=HEAD', '--format=%(refname)', 'refs/heads/'],
+  ['for-each-ref', '--merged=main', '--format=%(refname)', 'refs/heads/'],
+  ['commit', '-m', 'unrequested']
 ];
 
 test('normal budgets preserve existing defaults, exact-tree duration and selected overrides', () => {

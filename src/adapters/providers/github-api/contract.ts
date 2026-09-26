@@ -1,5 +1,9 @@
 export const GITHUB_HOST = 'github.com' as const;
 export const GITHUB_API_BASE_URL = 'https://api.github.com' as const;
+export const GITHUB_PULL_REQUEST_CLOSING_QUERY =
+  'query($owner:String!,$name:String!,$number:Int!,$cursor:String){repository(owner:$owner,name:$name){pullRequest(number:$number){number title body state mergeCommit{oid} closingIssuesReferences(first:100,after:$cursor){totalCount nodes{number repository{nameWithOwner}} pageInfo{hasNextPage endCursor}}}}}' as const;
+export const GITHUB_ISSUE_TERMINAL_EVENTS_QUERY =
+  'query($owner:String!,$name:String!,$number:Int!){repository(owner:$owner,name:$name){issue(number:$number){number timelineItems(last:100,itemTypes:[CLOSED_EVENT,REOPENED_EVENT]){nodes{__typename ... on ClosedEvent{id createdAt actor{login} closer{__typename ... on PullRequest{number repository{nameWithOwner} mergeCommit{oid}}}} ... on ReopenedEvent{id createdAt actor{login}}}}}}}' as const;
 export interface GitHubCheckObservation {
   id: number;
   name: string;

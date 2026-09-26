@@ -1,14 +1,14 @@
-const SEC_DOCUMENT_CONTROL_FREEZE_CHILD_FAILURE_SCHEMA_V1 =
+const DOCUMENT_CONTROL_FREEZE_CHILD_FAILURE_SCHEMA =
   'sec-document-control-freeze-child-failure-v1' as const;
-export const SEC_DOCUMENT_CONTROL_FREEZE_CHILD_FAILURE_MAX_BYTES_V1 = 512;
-const SEC_DOCUMENT_CONTROL_FREEZE_CHILD_FAILURE_FIELD_LIMITS_V1 = Object.freeze({
+export const DOCUMENT_CONTROL_FREEZE_CHILD_FAILURE_MAX_BYTES = 512;
+const DOCUMENT_CONTROL_FREEZE_CHILD_FAILURE_FIELD_LIMITS = Object.freeze({
   name: 32,
   code: 64,
   message: 128
 });
 
-export interface SecDocumentControlFreezeChildFailureV1 {
-  readonly schema: typeof SEC_DOCUMENT_CONTROL_FREEZE_CHILD_FAILURE_SCHEMA_V1;
+export interface DocumentControlFreezeChildFailure {
+  readonly schema: typeof DOCUMENT_CONTROL_FREEZE_CHILD_FAILURE_SCHEMA;
   readonly name: 'Error' | 'UnexpectedFailure';
   readonly code: null | 'DOCUMENT-CONTROL-FREEZE-CHILD-UNEXPECTED-001';
   readonly message:
@@ -16,17 +16,17 @@ export interface SecDocumentControlFreezeChildFailureV1 {
     | 'Unexpected document-control freeze child failure.';
 }
 
-export const SEC_DOCUMENT_CONTROL_FREEZE_OUTSIDE_INDEX_FAILURE_V1:
-SecDocumentControlFreezeChildFailureV1 = Object.freeze({
-  schema: SEC_DOCUMENT_CONTROL_FREEZE_CHILD_FAILURE_SCHEMA_V1,
+export const DOCUMENT_CONTROL_FREEZE_OUTSIDE_INDEX_FAILURE:
+DocumentControlFreezeChildFailure = Object.freeze({
+  schema: DOCUMENT_CONTROL_FREEZE_CHILD_FAILURE_SCHEMA,
   name: 'Error',
   code: null,
   message: 'Git index escapes its canonical transaction root.'
 });
 
-export const SEC_DOCUMENT_CONTROL_FREEZE_UNEXPECTED_CHILD_FAILURE_V1:
-SecDocumentControlFreezeChildFailureV1 = Object.freeze({
-  schema: SEC_DOCUMENT_CONTROL_FREEZE_CHILD_FAILURE_SCHEMA_V1,
+export const DOCUMENT_CONTROL_FREEZE_UNEXPECTED_CHILD_FAILURE:
+DocumentControlFreezeChildFailure = Object.freeze({
+  schema: DOCUMENT_CONTROL_FREEZE_CHILD_FAILURE_SCHEMA,
   name: 'UnexpectedFailure',
   code: 'DOCUMENT-CONTROL-FREEZE-CHILD-UNEXPECTED-001',
   message: 'Unexpected document-control freeze child failure.'
@@ -43,26 +43,26 @@ function observedString(error: unknown, property: 'name' | 'code' | 'message'): 
 }
 
 function isExactOutsideIndexFailure(error: unknown): boolean {
-  return observedString(error, 'name') === SEC_DOCUMENT_CONTROL_FREEZE_OUTSIDE_INDEX_FAILURE_V1.name &&
+  return observedString(error, 'name') === DOCUMENT_CONTROL_FREEZE_OUTSIDE_INDEX_FAILURE.name &&
     observedString(error, 'code') === null &&
     observedString(error, 'message') ===
-      SEC_DOCUMENT_CONTROL_FREEZE_OUTSIDE_INDEX_FAILURE_V1.message;
+      DOCUMENT_CONTROL_FREEZE_OUTSIDE_INDEX_FAILURE.message;
 }
 
-export function compileSecDocumentControlFreezeChildFailureV1(
+export function compileDocumentControlFreezeChildFailure(
   error: unknown
-): SecDocumentControlFreezeChildFailureV1 {
+): DocumentControlFreezeChildFailure {
   return isExactOutsideIndexFailure(error)
-    ? SEC_DOCUMENT_CONTROL_FREEZE_OUTSIDE_INDEX_FAILURE_V1
-    : SEC_DOCUMENT_CONTROL_FREEZE_UNEXPECTED_CHILD_FAILURE_V1;
+    ? DOCUMENT_CONTROL_FREEZE_OUTSIDE_INDEX_FAILURE
+    : DOCUMENT_CONTROL_FREEZE_UNEXPECTED_CHILD_FAILURE;
 }
 
 function allowedFailureTuple(
   value: Readonly<Record<string, unknown>>
-): SecDocumentControlFreezeChildFailureV1 | null {
+): DocumentControlFreezeChildFailure | null {
   return [
-    SEC_DOCUMENT_CONTROL_FREEZE_OUTSIDE_INDEX_FAILURE_V1,
-    SEC_DOCUMENT_CONTROL_FREEZE_UNEXPECTED_CHILD_FAILURE_V1
+    DOCUMENT_CONTROL_FREEZE_OUTSIDE_INDEX_FAILURE,
+    DOCUMENT_CONTROL_FREEZE_UNEXPECTED_CHILD_FAILURE
   ].find((allowed) => allowed.schema === value.schema && allowed.name === value.name &&
     allowed.code === value.code && allowed.message === value.message) ?? null;
 }
@@ -72,7 +72,7 @@ function codePointLength(value: string): number {
 }
 
 function assertBoundedFailureFields(value: Readonly<Record<string, unknown>>): void {
-  const limits = SEC_DOCUMENT_CONTROL_FREEZE_CHILD_FAILURE_FIELD_LIMITS_V1;
+  const limits = DOCUMENT_CONTROL_FREEZE_CHILD_FAILURE_FIELD_LIMITS;
   if (typeof value.name !== 'string' || value.name.length === 0 ||
     codePointLength(value.name) > limits.name ||
     (value.code !== null && (typeof value.code !== 'string' || value.code.length === 0 ||
@@ -83,21 +83,21 @@ function assertBoundedFailureFields(value: Readonly<Record<string, unknown>>): v
   }
 }
 
-export function renderSecDocumentControlFreezeChildFailureV1(error: unknown): string {
-  const rendered = `${JSON.stringify(compileSecDocumentControlFreezeChildFailureV1(error))}\n`;
+export function renderDocumentControlFreezeChildFailure(error: unknown): string {
+  const rendered = `${JSON.stringify(compileDocumentControlFreezeChildFailure(error))}\n`;
   if (Buffer.byteLength(rendered, 'utf8') >
-    SEC_DOCUMENT_CONTROL_FREEZE_CHILD_FAILURE_MAX_BYTES_V1) {
+    DOCUMENT_CONTROL_FREEZE_CHILD_FAILURE_MAX_BYTES) {
     throw new Error('Freeze child failure envelope exceeds its canonical byte bound.');
   }
   return rendered;
 }
 
-export function parseSecDocumentControlFreezeChildFailureV1(
+export function parseDocumentControlFreezeChildFailure(
   source: string | Uint8Array
-): SecDocumentControlFreezeChildFailureV1 {
+): DocumentControlFreezeChildFailure {
   const bytes = typeof source === 'string' ? Buffer.from(source, 'utf8') : Buffer.from(source);
   if (bytes.byteLength === 0 ||
-    bytes.byteLength > SEC_DOCUMENT_CONTROL_FREEZE_CHILD_FAILURE_MAX_BYTES_V1) {
+    bytes.byteLength > DOCUMENT_CONTROL_FREEZE_CHILD_FAILURE_MAX_BYTES) {
     throw new Error('Freeze child failure envelope byte length is invalid.');
   }
   const text = new TextDecoder('utf-8', { fatal: true }).decode(bytes);
@@ -111,7 +111,7 @@ export function parseSecDocumentControlFreezeChildFailureV1(
   const record = parsed as Record<string, unknown>;
   if (JSON.stringify(Object.keys(record).sort()) !==
     JSON.stringify(['code', 'message', 'name', 'schema']) ||
-    record.schema !== SEC_DOCUMENT_CONTROL_FREEZE_CHILD_FAILURE_SCHEMA_V1) {
+    record.schema !== DOCUMENT_CONTROL_FREEZE_CHILD_FAILURE_SCHEMA) {
     throw new Error('Freeze child failure envelope keys or schema are invalid.');
   }
   assertBoundedFailureFields(record);

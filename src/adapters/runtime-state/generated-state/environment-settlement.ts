@@ -2,12 +2,12 @@ import path from 'node:path';
 
 import { sha256 } from '../../../contracts/canonical.ts';
 import {
-  bindSecSemanticOperation,
-  compileSecCapabilityBinding,
-  compileSecSemanticOperationPlan,
-  issueSecSemanticOperationAttemptContext,
-  type SecBoundSemanticOperation,
-  type SecOperationDigest
+  bindSemanticOperation,
+  compileCapabilityBinding,
+  compileSemanticOperationPlan,
+  issueSemanticOperationAttemptContext,
+  type BoundSemanticOperation,
+  type OperationDigest
 } from '../../../execution/operation/semantic.ts';
 import { GitReadAuthorityError, withAuthorityGitReadSession } from '../../providers/git-read/authority.ts';
 import type {
@@ -48,23 +48,23 @@ function compileWorkspaceGitStatusOperation(input: Readonly<{
   workspaceRoot: string;
   fixRequested: boolean;
   deadlineAtUnixMs: number;
-}>): SecBoundSemanticOperation {
+}>): BoundSemanticOperation {
   const contractDigest = sha256({
     operation: WORKSPACE_ENVIRONMENT_SETTLEMENT_OPERATION,
     requirement: WORKSPACE_GIT_STATUS_REQUIREMENT,
     provider: 'external-capabilities.git-read',
     observation: 'nul-terminated-worktree-status'
-  }) as SecOperationDigest;
-  const plan = compileSecSemanticOperationPlan({
+  }) as OperationDigest;
+  const plan = compileSemanticOperationPlan({
     operation: WORKSPACE_ENVIRONMENT_SETTLEMENT_OPERATION,
     intentDigest: sha256({
       workspaceRoot: input.workspaceRoot,
       fixRequested: input.fixRequested,
       command: ['status', '--porcelain=v1', '-z', '--untracked-files=all']
-    }) as SecOperationDigest,
+    }) as OperationDigest,
     decisionDigest: contractDigest,
     deadlineAtUnixMs: input.deadlineAtUnixMs,
-    attempt: issueSecSemanticOperationAttemptContext({
+    attempt: issueSemanticOperationAttemptContext({
       authorityGrantDigest: contractDigest
     }),
     aggregateBudgets: [
@@ -91,13 +91,13 @@ function compileWorkspaceGitStatusOperation(input: Readonly<{
       ]
     }]
   });
-  return bindSecSemanticOperation(plan, [compileSecCapabilityBinding({
+  return bindSemanticOperation(plan, [compileCapabilityBinding({
     requirementId: WORKSPACE_GIT_STATUS_REQUIREMENT,
     contractDigest,
     providerIdentityDigest: sha256({
       provider: 'external-capabilities.git-read',
       capability: 'exact-worktree-status'
-    }) as SecOperationDigest
+    }) as OperationDigest
   })]);
 }
 

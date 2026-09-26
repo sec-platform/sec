@@ -2,12 +2,12 @@ import path from 'node:path';
 
 import { sha256 } from '../../contracts/canonical.ts';
 import {
-  bindSecSemanticOperation,
-  compileSecCapabilityBinding,
-  compileSecSemanticOperationPlan,
-  issueSecSemanticOperationAttemptContext,
-  type SecBoundSemanticOperation,
-  type SecOperationDigest
+  bindSemanticOperation,
+  compileCapabilityBinding,
+  compileSemanticOperationPlan,
+  issueSemanticOperationAttemptContext,
+  type BoundSemanticOperation,
+  type OperationDigest
 } from '../../execution/operation/semantic.ts';
 import { GitReadAuthorityError, withAuthorityGitReadSession } from '../providers/git-read/authority.ts';
 import { decodeTrackedProjectPathInventory, isTrackedProjectRepositoryAbsent } from './tracked-path-inventory.ts';
@@ -20,21 +20,21 @@ const TRACKED_PROJECT_PATH_COMMAND_OUTPUT_MAX_BYTES = 32 * 1024 * 1024;
 const TRACKED_PROJECT_PATH_COMMAND_STDERR_MAX_BYTES = 512 * 1024;
 const TRACKED_PROJECT_PATH_RECORD_MAXIMUM = 250_000;
 
-function compileTrackedProjectPathOperation(workspaceRoot: string): SecBoundSemanticOperation {
+function compileTrackedProjectPathOperation(workspaceRoot: string): BoundSemanticOperation {
   const contractDigest = sha256({
     operation: 'workspace.list-tracked-project-paths',
     provider: 'external-capabilities.git-read',
     records: 'nul-terminated-canonical-workspace-paths'
-  }) as SecOperationDigest;
-  const plan = compileSecSemanticOperationPlan({
+  }) as OperationDigest;
+  const plan = compileSemanticOperationPlan({
     operation: 'workspace.list-tracked-project-paths',
     intentDigest: sha256({
       workspaceRoot,
       command: ['ls-files', '-z', '--']
-    }) as SecOperationDigest,
+    }) as OperationDigest,
     decisionDigest: contractDigest,
     deadlineAtUnixMs: Date.now() + TRACKED_PROJECT_PATH_DURATION_MS,
-    attempt: issueSecSemanticOperationAttemptContext({
+    attempt: issueSemanticOperationAttemptContext({
       authorityGrantDigest: contractDigest
     }),
     aggregateBudgets: [
@@ -61,7 +61,7 @@ function compileTrackedProjectPathOperation(workspaceRoot: string): SecBoundSema
       ]
     }]
   });
-  return bindSecSemanticOperation(plan, [compileSecCapabilityBinding({
+  return bindSemanticOperation(plan, [compileCapabilityBinding({
     requirementId: 'workspace.tracked-project-paths',
     contractDigest,
     providerIdentityDigest: contractDigest

@@ -6,11 +6,11 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 
 import { inspectNoFollowDirectoryChain } from '../../src/adapters/runtime-state/physical/runtime/physical-no-follow.ts';
 import {
-  acquireTestWorkspaceSupervisorChallengeServerV1,
-  bindTestWorkspaceSupervisorLeaseIssuerProjectionV1,
-  bindTestWorkspaceSupervisorLeaseV1,
-  createTestWorkspaceRunChildAssignmentV1,
-  createTestWorkspaceSupervisorLeaseV1,
+  acquireTestWorkspaceSupervisorChallengeServer,
+  bindTestWorkspaceSupervisorLeaseIssuerProjection,
+  bindTestWorkspaceSupervisorLease,
+  createTestWorkspaceRunChildAssignment,
+  createTestWorkspaceSupervisorLease,
   deriveTestWorkspaceRunNamespace,
   getTestWorkspaceTemplateRoot,
   getTestWorkspaceTempRoot,
@@ -36,6 +36,7 @@ test('test workspace roots honor a safe CI lane namespace', () => {
   const defaultRoot = getTestWorkspaceTempRoot(isolatedTestWorkspaceEnvironment);
 
   const relativeToRepository = path.relative(compilerRoot, defaultRoot);
+  expect(path.basename(path.dirname(defaultRoot))).toBe('runs');
   expect(path.isAbsolute(relativeToRepository) || relativeToRepository.startsWith('..')).toBe(true);
   expect(getTestWorkspaceTempRoot({
     ...isolatedTestWorkspaceEnvironment,
@@ -107,7 +108,7 @@ test('issuer projection is exact while a non-snapshot consumer rejects caller-se
     'gate-execution-snapshots',
     namespace
   );
-  const supervisorLease = createTestWorkspaceSupervisorLeaseV1({
+  const supervisorLease = createTestWorkspaceSupervisorLease({
     namespace,
     runId: 'env-manager-test',
     repositoryRoot,
@@ -125,12 +126,12 @@ test('issuer projection is exact while a non-snapshot consumer rejects caller-se
   await fs.mkdir(path.dirname(supervisorLeasePath), { recursive: true });
   await fs.writeFile(supervisorLeasePath, JSON.stringify(supervisorLease), { encoding: 'utf8', flag: 'wx' });
   try {
-    const supervisorBinding = bindTestWorkspaceSupervisorLeaseIssuerProjectionV1(
+    const supervisorBinding = bindTestWorkspaceSupervisorLeaseIssuerProjection(
       supervisorLeasePath,
       supervisorLease.namespace,
       executionSnapshotRoot
     );
-    const assignment = createTestWorkspaceRunChildAssignmentV1({
+    const assignment = createTestWorkspaceRunChildAssignment({
       parentNamespace: namespace,
       issuerProcessId: process.ppid,
       device: 'device-1',
@@ -156,7 +157,7 @@ test('issuer projection is exact while a non-snapshot consumer rejects caller-se
     );
     await fs.mkdir(path.dirname(foreignPath), { recursive: true });
     await fs.writeFile(foreignPath, JSON.stringify(supervisorLease), { encoding: 'utf8', flag: 'wx' });
-    expect(() => bindTestWorkspaceSupervisorLeaseV1(foreignPath, namespace))
+    expect(() => bindTestWorkspaceSupervisorLease(foreignPath, namespace))
       .toThrow('Gate execution snapshot binding is invalid');
     await fs.rm(foreignRoot, { recursive: true, force: true });
   } finally {
@@ -181,7 +182,7 @@ test('a real execution-snapshot consumer must spend the live supervisor challeng
     '.gate-supervisor-leases',
     `${namespace}.lock`
   );
-  let server: Awaited<ReturnType<typeof acquireTestWorkspaceSupervisorChallengeServerV1>> | null = null;
+  let server: Awaited<ReturnType<typeof acquireTestWorkspaceSupervisorChallengeServer>> | null = null;
   try {
     await fs.mkdir(executionSnapshotRoot, { recursive: true });
     const compilerPaths = getWorkspacePaths(compilerRoot);
@@ -191,7 +192,7 @@ test('a real execution-snapshot consumer must spend the live supervisor challeng
     });
     await fs.copyFile(compilerPaths.packageJsonPath, getWorkspacePaths(executionSnapshotRoot).packageJsonPath);
     await fs.mkdir(path.dirname(leasePath), { recursive: true });
-    const lease = createTestWorkspaceSupervisorLeaseV1({
+    const lease = createTestWorkspaceSupervisorLease({
       namespace,
       runId: 'real-snapshot-consumer',
       repositoryRoot,
@@ -200,12 +201,12 @@ test('a real execution-snapshot consumer must spend the live supervisor challeng
       nonce: '9'.repeat(64)
     });
     await fs.writeFile(leasePath, JSON.stringify(lease), { encoding: 'utf8', flag: 'wx' });
-    const binding = bindTestWorkspaceSupervisorLeaseIssuerProjectionV1(
+    const binding = bindTestWorkspaceSupervisorLeaseIssuerProjection(
       leasePath,
       namespace,
       executionSnapshotRoot
     );
-    const draftAssignment = createTestWorkspaceRunChildAssignmentV1({
+    const draftAssignment = createTestWorkspaceRunChildAssignment({
       parentNamespace: namespace,
       issuerProcessId: process.pid,
       device: 'pending-device',
@@ -228,7 +229,7 @@ test('a real execution-snapshot consumer must spend the live supervisor challeng
     await fs.mkdir(childRoot, { recursive: true });
     const namespaceIdentity = inspectNoFollowDirectoryChain(path.dirname(childRoot)).target;
     const childIdentity = inspectNoFollowDirectoryChain(childRoot).target;
-    const assignment = createTestWorkspaceRunChildAssignmentV1({
+    const assignment = createTestWorkspaceRunChildAssignment({
       parentNamespace: namespace,
       issuerProcessId: process.pid,
       device: childIdentity.device,
@@ -241,11 +242,11 @@ test('a real execution-snapshot consumer must spend the live supervisor challeng
       namespaceDevice: namespaceIdentity.device,
       namespaceInode: namespaceIdentity.inode
     });
-    server = await acquireTestWorkspaceSupervisorChallengeServerV1({
+    server = await acquireTestWorkspaceSupervisorChallengeServer({
       executionSnapshotRoot,
       supervisorLeaseDigest: lease.leaseDigest
     });
-    await expect(acquireTestWorkspaceSupervisorChallengeServerV1({
+    await expect(acquireTestWorkspaceSupervisorChallengeServer({
       executionSnapshotRoot,
       supervisorLeaseDigest: lease.leaseDigest
     })).rejects.toThrow('supervisor challenge');
@@ -324,7 +325,7 @@ test('a real execution-snapshot consumer must spend the live supervisor challeng
 
 test('a serialized assignment cannot be used as cleanup authority', () => {
   const namespace = 'forged-cleanup-authority';
-  const assignment = createTestWorkspaceRunChildAssignmentV1({
+  const assignment = createTestWorkspaceRunChildAssignment({
     parentNamespace: namespace,
     issuerProcessId: process.pid,
     device: 'device',

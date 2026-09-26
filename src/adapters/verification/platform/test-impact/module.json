@@ -1,0 +1,21 @@
+{
+  "importGraph": "runtime",
+  "externalEntrypoints": [],
+  "capabilityProviders": [
+    {
+      "capability": "test-impact-selection",
+      "operations": [
+        "BuildAffectedTestInventory",
+        "CreateTestImpactTransitionObservation",
+        "buildTestBudgetContract",
+        "createRepositoryTestImpactSourceProvider",
+        "projectAffectedSelectionToVerificationGateResult",
+        "resolveTestImpactForFiles",
+        "selectSlowTestRiskClosure",
+        "selectTestsForSources",
+        "TestImpactTransitionDigest"
+      ]
+    }
+  ],
+  "preDependencyBootstrap": false
+}

@@ -1,7 +1,7 @@
 import { Buffer } from 'node:buffer';
-import { createHash } from 'node:crypto';
 import { z } from 'zod';
 
+import { rawSha256Hex } from '../../../../contracts/canonical.ts';
 import { encodeVerificationActionData } from '../../../verification/platform/action/contract/action.ts';
 
 const LOCAL_CONTINUATION_CHECKPOINT_SCHEMA =
@@ -83,9 +83,7 @@ function fail(message: string): never {
 }
 
 function hash(value: unknown): LocalContinuationDigest {
-  return `sha256:${createHash('sha256')
-    .update(encodeVerificationActionData(value))
-    .digest('hex')}`;
+  return `sha256:${rawSha256Hex(encodeVerificationActionData(value))}`;
 }
 
 const canonicalText = z.string().min(1).max(512).refine(

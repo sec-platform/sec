@@ -1,78 +1,78 @@
 import { canonicalEquals, canonicalJson, compareCodeUnits, deepFreeze, rawSha256, sha256 } from '../../../../contracts/canonical.ts';
 import { createMainHealthRepairWorkPackagePath } from '../main-health/contract.ts';
 import {
-  compileSecOperationDemandGraph,
-  type SecOperationDemandGraph
+  compileOperationDemandGraph,
+  type OperationDemandGraph
 } from '../operation/demand.ts';
 import {
-  SEC_WORK_PRIORITY_CLASSES,
-  SEC_WORK_SELECTION_POLICY_REVISION,
-  assertSecWorkDecision,
-  compileSecWorkDecision,
-  computeSecWorkCandidateSetRevision,
-  evaluateSecWorkCandidate,
-  parseSecWorkSelectionInput,
-  type SecCurrentWorkLifecycle,
-  type SecWorkCandidate,
-  type SecWorkCandidateDecisionStatus,
-  type SecWorkDecision,
-  type SecWorkDependencyFact,
-  type SecWorkDigest,
-  type SecWorkPriorityClass,
-  type SecWorkSelectionInput
+  WORK_PRIORITY_CLASSES,
+  WORK_SELECTION_POLICY_REVISION,
+  assertWorkDecision,
+  compileWorkDecision,
+  computeWorkCandidateSetRevision,
+  evaluateWorkCandidate,
+  parseWorkSelectionInput,
+  type CurrentWorkLifecycle,
+  type WorkCandidate,
+  type WorkCandidateDecisionStatus,
+  type WorkDecision,
+  type WorkDependencyFact,
+  type WorkDigest,
+  type WorkPriorityClass,
+  type WorkSelectionInput
 } from './contract.ts';
 
-const SEC_ROADMAP_WORK_CATALOG_SCHEMA =
+const ROADMAP_WORK_CATALOG_SCHEMA =
   'sec-roadmap-work-catalog-v1' as const;
-const SEC_WORK_DECISION_RECEIPT_SCHEMA =
+const WORK_DECISION_RECEIPT_SCHEMA =
   'sec-work-decision-receipt-v1' as const;
-const SEC_WORK_ROLLING_PROJECTION_SCHEMA =
+const WORK_ROLLING_PROJECTION_SCHEMA =
   'sec-work-rolling-projection-v1' as const;
-const SEC_WORK_ROLLING_TRANSITION_PROJECTION_SCHEMA =
+const WORK_ROLLING_TRANSITION_PROJECTION_SCHEMA =
   'sec-work-rolling-transition-projection-v1' as const;
-const SEC_WORK_ROLLING_PROPOSAL_PROJECTION_SCHEMA =
+const WORK_ROLLING_PROPOSAL_PROJECTION_SCHEMA =
   'sec-work-rolling-proposal-projection-v1' as const;
-const SEC_WORK_SELECTION_LIVE_RESULT_SCHEMA =
+const WORK_SELECTION_LIVE_RESULT_SCHEMA =
   'sec-work-selection-live-result-v1' as const;
-const SEC_WORK_SELECTION_LIVE_ISSUER =
+const WORK_SELECTION_LIVE_ISSUER =
   'sec-work-selection-live-adapter-v1' as const;
-export const SEC_ROADMAP_WORK_CATALOG_BEGIN =
+export const ROADMAP_WORK_CATALOG_BEGIN =
   '<!-- sec-work-selection-roadmap-catalog-v1:begin -->' as const;
-export const SEC_ROADMAP_WORK_CATALOG_END =
+export const ROADMAP_WORK_CATALOG_END =
   '<!-- sec-work-selection-roadmap-catalog-v1:end -->' as const;
 
-type SecRoadmapCatalogDisposition = 'active' | 'deferred' | 'superseded';
+type RoadmapCatalogDisposition = 'active' | 'deferred' | 'superseded';
 
-export interface SecRoadmapWorkCatalogItem {
+export interface RoadmapWorkCatalogItem {
   readonly packageId: string;
   readonly workId: string;
   readonly tracking: string;
   readonly currentSpecRef: string;
   readonly ownerRef: string;
-  readonly kind: SecWorkCandidate['kind'];
-  readonly disposition: SecRoadmapCatalogDisposition;
-  readonly priorityClass: SecWorkPriorityClass;
+  readonly kind: WorkCandidate['kind'];
+  readonly disposition: RoadmapCatalogDisposition;
+  readonly priorityClass: WorkPriorityClass;
   readonly priorityEvidenceRefs: readonly string[];
   readonly prerequisiteWorkIds: readonly string[];
   readonly orderedAfterWorkIds: readonly string[];
   readonly reproductionOrEvidenceFreshness:
-    SecWorkCandidate['reproductionOrEvidenceFreshness'];
-  readonly rootCauseState: SecWorkCandidate['rootCauseState'];
+    WorkCandidate['reproductionOrEvidenceFreshness'];
+  readonly rootCauseState: WorkCandidate['rootCauseState'];
   readonly rootCauseRef: string;
-  readonly scopeClosure: SecWorkCandidate['scopeClosure'];
+  readonly scopeClosure: WorkCandidate['scopeClosure'];
   readonly exitCriteriaRef: string;
   readonly nearTermConsumerRef: string | null;
   readonly humanDecisionRef: string | null;
 }
 
-export interface SecRoadmapWorkCatalog {
-  readonly schema: typeof SEC_ROADMAP_WORK_CATALOG_SCHEMA;
+export interface RoadmapWorkCatalog {
+  readonly schema: typeof ROADMAP_WORK_CATALOG_SCHEMA;
   readonly stageRef: string;
-  readonly items: readonly SecRoadmapWorkCatalogItem[];
-  readonly catalogDigest: SecWorkDigest;
+  readonly items: readonly RoadmapWorkCatalogItem[];
+  readonly catalogDigest: WorkDigest;
 }
 
-export interface SecRoadmapTerminalCompaction {
+export interface RoadmapTerminalCompaction {
   readonly schema: 'sec-roadmap-terminal-compaction-v2';
   readonly retiredWorkIds: readonly string[];
   /**
@@ -81,44 +81,44 @@ export interface SecRoadmapTerminalCompaction {
    * with publication of the new manifest, pointer and rolling projection.
    */
   readonly delayedManifestRetirementPaths: readonly string[];
-  readonly catalog: SecRoadmapWorkCatalog;
+  readonly catalog: RoadmapWorkCatalog;
   readonly roadmapSource: string;
   readonly demandGraphDigest: `sha256:${string}`;
-  readonly compactionDigest: SecWorkDigest;
+  readonly compactionDigest: WorkDigest;
 }
 
-export interface SecRoadmapTerminalCompactionCandidate {
+export interface RoadmapTerminalCompactionCandidate {
   readonly schema: 'sec-roadmap-terminal-compaction-candidate-v2';
   readonly repository: string;
   readonly prNumber: number;
   readonly baseSha: string;
   readonly headSha: string;
   readonly headTreeSha: string;
-  readonly compactionDigest: SecWorkDigest;
+  readonly compactionDigest: WorkDigest;
   readonly retiredWorkIds: readonly string[];
-  readonly bindingDigest: SecWorkDigest;
+  readonly bindingDigest: WorkDigest;
 }
 
-export interface SecWorkSelectionTerminalProjection {
-  readonly demandGraph: SecOperationDemandGraph;
-  readonly catalog: SecRoadmapWorkCatalog;
-  readonly currentSpecs: readonly SecWorkCurrentSpecObservation[];
-  readonly roadmapRevision: SecWorkDigest;
-  readonly terminalCompaction: SecRoadmapTerminalCompaction | null;
+export interface WorkSelectionTerminalProjection {
+  readonly demandGraph: OperationDemandGraph;
+  readonly catalog: RoadmapWorkCatalog;
+  readonly currentSpecs: readonly WorkCurrentSpecObservation[];
+  readonly roadmapRevision: WorkDigest;
+  readonly terminalCompaction: RoadmapTerminalCompaction | null;
 }
 
-export interface SecWorkCurrentSpecObservation {
+export interface WorkCurrentSpecObservation {
   readonly workId: string;
   readonly currentSpecRef: string;
   readonly providerResourceRef: string;
   readonly providerState: 'open' | 'closed';
-  readonly currentSpecRevision: SecWorkDigest;
-  readonly observationDigest: SecWorkDigest;
+  readonly currentSpecRevision: WorkDigest;
+  readonly observationDigest: WorkDigest;
 }
 
-interface SecWorkRegistryEntryObservation {
+interface WorkRegistryEntryObservation {
   readonly manifestPath: string;
-  readonly manifestDigest: SecWorkDigest;
+  readonly manifestDigest: WorkDigest;
   readonly source: 'default' | 'open-pr';
   readonly prNumber: number | null;
   readonly baseSha: string | null;
@@ -126,65 +126,65 @@ interface SecWorkRegistryEntryObservation {
   readonly headTreeSha: string | null;
 }
 
-export interface SecWorkRegistryObservation {
+export interface WorkRegistryObservation {
   readonly defaultTreeSha: string;
-  readonly entries: readonly SecWorkRegistryEntryObservation[];
-  readonly registryDigest: SecWorkDigest;
+  readonly entries: readonly WorkRegistryEntryObservation[];
+  readonly registryDigest: WorkDigest;
 }
 
-export interface SecWorkDecisionReceipt {
-  readonly schema: typeof SEC_WORK_DECISION_RECEIPT_SCHEMA;
-  readonly issuer: typeof SEC_WORK_SELECTION_LIVE_ISSUER;
+export interface WorkDecisionReceipt {
+  readonly schema: typeof WORK_DECISION_RECEIPT_SCHEMA;
+  readonly issuer: typeof WORK_SELECTION_LIVE_ISSUER;
   readonly repository: string;
   readonly exactMain: string;
   readonly exactMainTree: string;
   readonly roadmapPath: 'config/repository/work-selection.md';
-  readonly roadmapRevision: SecWorkDigest;
-  readonly catalog: SecRoadmapWorkCatalog;
-  readonly registry: SecWorkRegistryObservation;
-  readonly lifecycleDigest: SecWorkDigest;
-  readonly currentSpecs: readonly SecWorkCurrentSpecObservation[];
-  readonly input: SecWorkSelectionInput;
-  readonly decision: SecWorkDecision;
-  readonly receiptDigest: SecWorkDigest;
+  readonly roadmapRevision: WorkDigest;
+  readonly catalog: RoadmapWorkCatalog;
+  readonly registry: WorkRegistryObservation;
+  readonly lifecycleDigest: WorkDigest;
+  readonly currentSpecs: readonly WorkCurrentSpecObservation[];
+  readonly input: WorkSelectionInput;
+  readonly decision: WorkDecision;
+  readonly receiptDigest: WorkDigest;
 }
 
-interface SecWorkRollingProjectionItem {
+interface WorkRollingProjectionItem {
   readonly packageId: string;
   readonly workId: string;
   readonly tracking: string;
   readonly currentSpecRef: string;
-  readonly currentSpecRevision: SecWorkDigest;
-  readonly decisionStatus: SecWorkCandidateDecisionStatus | 'selected';
+  readonly currentSpecRevision: WorkDigest;
+  readonly decisionStatus: WorkCandidateDecisionStatus | 'selected';
 }
 
-export interface SecWorkRollingProjection {
-  readonly schema: typeof SEC_WORK_ROLLING_PROJECTION_SCHEMA;
+export interface WorkRollingProjection {
+  readonly schema: typeof WORK_ROLLING_PROJECTION_SCHEMA;
   readonly exactMain: string;
-  readonly roadmapRevision: SecWorkDigest;
-  readonly catalogDigest: SecWorkDigest;
-  readonly receiptDigest: SecWorkDigest;
-  readonly decisionDigest: SecWorkDigest;
-  readonly active: SecWorkRollingProjectionItem;
-  readonly candidates: readonly SecWorkRollingProjectionItem[];
-  readonly projectionDigest: SecWorkDigest;
+  readonly roadmapRevision: WorkDigest;
+  readonly catalogDigest: WorkDigest;
+  readonly receiptDigest: WorkDigest;
+  readonly decisionDigest: WorkDigest;
+  readonly active: WorkRollingProjectionItem;
+  readonly candidates: readonly WorkRollingProjectionItem[];
+  readonly projectionDigest: WorkDigest;
 }
 
-export type SecWorkRollingTransitionAuthority = Readonly<
+export type WorkRollingTransitionAuthority = Readonly<
   | {
     kind: 'committed-candidate-replan';
     sourceHead: string;
     sourceTree: string;
-    sourceManifestDigest: SecWorkDigest;
-    sourcePointerRevision: SecWorkDigest;
-    sourceRollingRevision: SecWorkDigest;
+    sourceManifestDigest: WorkDigest;
+    sourcePointerRevision: WorkDigest;
+    sourceRollingRevision: WorkDigest;
   }
   | {
     kind: 'main-health-repair';
-    decisionDigest: SecWorkDigest;
-    healthRevision: SecWorkDigest;
-    ledgerDigest: SecWorkDigest;
-    failureFingerprints: readonly SecWorkDigest[];
+    decisionDigest: WorkDigest;
+    healthRevision: WorkDigest;
+    ledgerDigest: WorkDigest;
+    failureFingerprints: readonly WorkDigest[];
     publishedActivePackageId: string | null;
   }
   | {
@@ -199,19 +199,19 @@ export type SecWorkRollingTransitionAuthority = Readonly<
     repository: string;
     defaultBranch: string;
     owner: string;
-    healthRevision: SecWorkDigest;
-    bootstrapObservationDigest: SecWorkDigest;
-    failureFingerprints: readonly SecWorkDigest[];
+    healthRevision: WorkDigest;
+    bootstrapObservationDigest: WorkDigest;
+    failureFingerprints: readonly WorkDigest[];
     publishedActivePackageId: string;
     retirementPolicy: 'exact-new-main-readback';
   }
 >;
 
-export interface SecWorkRollingTransitionActive {
+export interface WorkRollingTransitionActive {
   readonly packageId: string;
   readonly tracking: string;
   readonly manifestPath: string;
-  readonly manifestDigest: SecWorkDigest;
+  readonly manifestDigest: WorkDigest;
 }
 
 /**
@@ -223,52 +223,52 @@ export interface SecWorkRollingTransitionActive {
  * effectful document-control owner still proves the referenced Git or health
  * authority before publishing these bytes.
  */
-export interface SecWorkRollingTransitionProjection {
-  readonly schema: typeof SEC_WORK_ROLLING_TRANSITION_PROJECTION_SCHEMA;
+export interface WorkRollingTransitionProjection {
+  readonly schema: typeof WORK_ROLLING_TRANSITION_PROJECTION_SCHEMA;
   readonly exactMain: string;
   readonly exactMainTree: string;
-  readonly authority: SecWorkRollingTransitionAuthority;
-  readonly active: SecWorkRollingTransitionActive;
+  readonly authority: WorkRollingTransitionAuthority;
+  readonly active: WorkRollingTransitionActive;
   readonly candidates: readonly string[];
-  readonly projectionDigest: SecWorkDigest;
+  readonly projectionDigest: WorkDigest;
 }
 
 /** Authority-free authoring projection. Its digest protects representation
  * integrity only; no field selects work or grants an Effect. */
-export interface SecWorkRollingProposalProjection {
-  readonly schema: typeof SEC_WORK_ROLLING_PROPOSAL_PROJECTION_SCHEMA;
+export interface WorkRollingProposalProjection {
+  readonly schema: typeof WORK_ROLLING_PROPOSAL_PROJECTION_SCHEMA;
   readonly exactMain: string;
   readonly exactMainTree: string;
   readonly authority: 'none';
-  readonly active: SecWorkRollingTransitionActive & Readonly<{ tracking: 'none' }>;
+  readonly active: WorkRollingTransitionActive & Readonly<{ tracking: 'none' }>;
   readonly candidates: readonly string[];
-  readonly projectionDigest: SecWorkDigest;
+  readonly projectionDigest: WorkDigest;
 }
 
-export type SecWorkRollingMachineProjection =
-  | SecWorkRollingProjection
-  | SecWorkRollingTransitionProjection
-  | SecWorkRollingProposalProjection;
+export type WorkRollingMachineProjection =
+  | WorkRollingProjection
+  | WorkRollingTransitionProjection
+  | WorkRollingProposalProjection;
 
-export interface SecWorkRollingTopology {
+export interface WorkRollingTopology {
   readonly activePackageId: string;
   readonly candidatePackageIds: readonly string[];
 }
 
-export interface SecWorkRollingExactManifestBinding {
+export interface WorkRollingExactManifestBinding {
   readonly kind: 'transition' | 'proposal';
   readonly exactMain: string;
   readonly exactMainTree: string;
-  readonly active: SecWorkRollingTransitionActive;
+  readonly active: WorkRollingTransitionActive;
 }
 
 /** Common exact binding carried by every non-ordinary rolling projection. */
-export function projectSecWorkRollingExactManifestBinding(
-  projection: SecWorkRollingMachineProjection
-): SecWorkRollingExactManifestBinding | null {
-  if (projection.schema === SEC_WORK_ROLLING_PROJECTION_SCHEMA) return null;
+export function projectWorkRollingExactManifestBinding(
+  projection: WorkRollingMachineProjection
+): WorkRollingExactManifestBinding | null {
+  if (projection.schema === WORK_ROLLING_PROJECTION_SCHEMA) return null;
   return deepFreeze({
-    kind: projection.schema === SEC_WORK_ROLLING_PROPOSAL_PROJECTION_SCHEMA
+    kind: projection.schema === WORK_ROLLING_PROPOSAL_PROJECTION_SCHEMA
       ? 'proposal' as const
       : 'transition' as const,
     exactMain: projection.exactMain,
@@ -277,26 +277,26 @@ export function projectSecWorkRollingExactManifestBinding(
   });
 }
 
-export type SecWorkSelectionLiveResult = Readonly<
+export type WorkSelectionLiveResult = Readonly<
   | {
-    schema: typeof SEC_WORK_SELECTION_LIVE_RESULT_SCHEMA;
+    schema: typeof WORK_SELECTION_LIVE_RESULT_SCHEMA;
     status: 'resolved';
     reasonCodes: readonly [];
     blockerRefs: readonly [];
-    receipt: SecWorkDecisionReceipt;
-    demandGraph: SecOperationDemandGraph;
-    terminalCompaction: SecRoadmapTerminalCompaction | null;
-    resultDigest: SecWorkDigest;
+    receipt: WorkDecisionReceipt;
+    demandGraph: OperationDemandGraph;
+    terminalCompaction: RoadmapTerminalCompaction | null;
+    resultDigest: WorkDigest;
   }
   | {
-    schema: typeof SEC_WORK_SELECTION_LIVE_RESULT_SCHEMA;
+    schema: typeof WORK_SELECTION_LIVE_RESULT_SCHEMA;
     status: 'unresolved';
     reasonCodes: readonly string[];
     blockerRefs: readonly string[];
     receipt: null;
     demandGraph: null;
     terminalCompaction: null;
-    resultDigest: SecWorkDigest;
+    resultDigest: WorkDigest;
   }
 >;
 
@@ -384,11 +384,11 @@ function packageId(value: unknown, label: string): string {
   return parsed;
 }
 
-function digest(value: unknown, label: string): SecWorkDigest {
+function digest(value: unknown, label: string): WorkDigest {
   if (typeof value !== 'string' || !/^sha256:[0-9a-f]{64}$/u.test(value)) {
     fail(`${label} must be one SHA-256 digest.`);
   }
-  return value as SecWorkDigest;
+  return value as WorkDigest;
 }
 
 function gitSha(value: unknown, label: string): string {
@@ -427,11 +427,11 @@ function nonNegativeInteger(value: unknown, label: string): number {
   return value;
 }
 
-function parseCatalogItem(value: unknown, index: number): SecRoadmapWorkCatalogItem {
+function parseCatalogItem(value: unknown, index: number): RoadmapWorkCatalogItem {
   const label = `catalog.items[${index}]`;
   const item = record(value, label);
   exactKeys(item, CATALOG_ITEM_KEYS, label);
-  const parsed: SecRoadmapWorkCatalogItem = {
+  const parsed: RoadmapWorkCatalogItem = {
     packageId: packageId(item.packageId, `${label}.packageId`),
     workId: token(item.workId, `${label}.workId`),
     tracking: token(item.tracking, `${label}.tracking`),
@@ -447,7 +447,7 @@ function parseCatalogItem(value: unknown, index: number): SecRoadmapWorkCatalogI
       ['active', 'deferred', 'superseded'] as const,
       `${label}.disposition`
     ),
-    priorityClass: enumeration(item.priorityClass, SEC_WORK_PRIORITY_CLASSES, `${label}.priorityClass`),
+    priorityClass: enumeration(item.priorityClass, WORK_PRIORITY_CLASSES, `${label}.priorityClass`),
     priorityEvidenceRefs: stringArray(item.priorityEvidenceRefs, `${label}.priorityEvidenceRefs`),
     prerequisiteWorkIds: stringArray(item.prerequisiteWorkIds, `${label}.prerequisiteWorkIds`),
     orderedAfterWorkIds: stringArray(item.orderedAfterWorkIds, `${label}.orderedAfterWorkIds`),
@@ -501,11 +501,11 @@ function parseCatalogItem(value: unknown, index: number): SecRoadmapWorkCatalogI
   return deepFreeze(parsed);
 }
 
-function normalizeCatalog(value: unknown): SecRoadmapWorkCatalog {
+function normalizeCatalog(value: unknown): RoadmapWorkCatalog {
   const catalog = record(value, 'catalog');
   exactKeys(catalog, CATALOG_KEYS, 'catalog');
-  if (catalog.schema !== SEC_ROADMAP_WORK_CATALOG_SCHEMA) {
-    fail(`catalog.schema must be ${SEC_ROADMAP_WORK_CATALOG_SCHEMA}.`);
+  if (catalog.schema !== ROADMAP_WORK_CATALOG_SCHEMA) {
+    fail(`catalog.schema must be ${ROADMAP_WORK_CATALOG_SCHEMA}.`);
   }
   if (!Array.isArray(catalog.items) || catalog.items.length < 3 || catalog.items.length > 7) {
     fail('catalog.items must contain three to seven bounded near-term records.');
@@ -537,13 +537,13 @@ function normalizeCatalog(value: unknown): SecRoadmapWorkCatalog {
     }
   }
   const withoutDigest = deepFreeze({
-    schema: SEC_ROADMAP_WORK_CATALOG_SCHEMA,
+    schema: ROADMAP_WORK_CATALOG_SCHEMA,
     stageRef: token(catalog.stageRef, 'catalog.stageRef'),
     items
   });
   return deepFreeze({
     ...withoutDigest,
-    catalogDigest: sha256(withoutDigest) as SecWorkDigest
+    catalogDigest: sha256(withoutDigest) as WorkDigest
   });
 }
 
@@ -674,21 +674,21 @@ function parseDuplicateAwareJson(source: string, label = 'roadmap catalog'): unk
   return parsed;
 }
 
-export function parseSecRoadmapWorkCatalog(source: string): SecRoadmapWorkCatalog {
-  const begin = source.indexOf(SEC_ROADMAP_WORK_CATALOG_BEGIN);
-  const end = source.indexOf(SEC_ROADMAP_WORK_CATALOG_END);
+export function parseRoadmapWorkCatalog(source: string): RoadmapWorkCatalog {
+  const begin = source.indexOf(ROADMAP_WORK_CATALOG_BEGIN);
+  const end = source.indexOf(ROADMAP_WORK_CATALOG_END);
   if (begin < 0 || end <= begin
-      || source.indexOf(SEC_ROADMAP_WORK_CATALOG_BEGIN, begin + 1) >= 0
-      || source.indexOf(SEC_ROADMAP_WORK_CATALOG_END, end + 1) >= 0) {
+      || source.indexOf(ROADMAP_WORK_CATALOG_BEGIN, begin + 1) >= 0
+      || source.indexOf(ROADMAP_WORK_CATALOG_END, end + 1) >= 0) {
     fail('canonical roadmap must contain exactly one ordered catalog marker pair.');
   }
-  const between = source.slice(begin + SEC_ROADMAP_WORK_CATALOG_BEGIN.length, end);
+  const between = source.slice(begin + ROADMAP_WORK_CATALOG_BEGIN.length, end);
   const match = /^\r?\n```json\r?\n([\s\S]*?)\r?\n```\r?\n$/u.exec(between);
   if (match === null) fail('roadmap catalog markers must enclose exactly one JSON code block.');
   return normalizeCatalog(parseDuplicateAwareJson(match[1]!));
 }
 
-function workManifestPath(item: SecRoadmapWorkCatalogItem): string {
+function workManifestPath(item: RoadmapWorkCatalogItem): string {
   return `config/repository/work-packages/${item.packageId}.md`;
 }
 
@@ -721,17 +721,17 @@ function renderRoadmapCatalogJson(value: unknown, depth = 0): string {
 
 function renderRoadmapCatalogSource(
   source: string,
-  catalog: SecRoadmapWorkCatalog
+  catalog: RoadmapWorkCatalog
 ): string {
-  const begin = source.indexOf(SEC_ROADMAP_WORK_CATALOG_BEGIN);
-  const end = source.indexOf(SEC_ROADMAP_WORK_CATALOG_END);
+  const begin = source.indexOf(ROADMAP_WORK_CATALOG_BEGIN);
+  const end = source.indexOf(ROADMAP_WORK_CATALOG_END);
   if (begin < 0 || end <= begin) fail('canonical roadmap catalog markers disappeared during rendering.');
   const payload = {
     schema: catalog.schema,
     stageRef: catalog.stageRef,
     items: catalog.items
   };
-  const block = `${SEC_ROADMAP_WORK_CATALOG_BEGIN}\n\u0060\u0060\u0060json\n${renderRoadmapCatalogJson(payload)}\n\u0060\u0060\u0060\n`;
+  const block = `${ROADMAP_WORK_CATALOG_BEGIN}\n\u0060\u0060\u0060json\n${renderRoadmapCatalogJson(payload)}\n\u0060\u0060\u0060\n`;
   return `${source.slice(0, begin)}${block}${source.slice(end)}`;
 }
 
@@ -742,17 +742,17 @@ function renderRoadmapCatalogSource(
  * manifest is deliberately retained until the successor freeze can replace
  * the complete active-control tuple atomically.
  */
-export function compileSecRoadmapTerminalCompaction(input: {
+export function compileRoadmapTerminalCompaction(input: {
   roadmapSource: string;
   completedWorkIds: readonly string[];
-}): SecRoadmapTerminalCompaction {
-  const prior = parseSecRoadmapWorkCatalog(input.roadmapSource);
+}): RoadmapTerminalCompaction {
+  const prior = parseRoadmapWorkCatalog(input.roadmapSource);
   const retiredWorkIds = [...input.completedWorkIds].sort(compareCodeUnits);
   if (retiredWorkIds.length === 0 || new Set(retiredWorkIds).size !== retiredWorkIds.length) {
     fail('terminal compaction requires one or more unique completed work ids.');
   }
   const retired = new Set(retiredWorkIds);
-  const demandGraph = compileSecOperationDemandGraph({
+  const demandGraph = compileOperationDemandGraph({
     operation: 'work-selection-observe',
     terminalWorkIds: retiredWorkIds
   });
@@ -787,15 +787,15 @@ export function compileSecRoadmapTerminalCompaction(input: {
   });
   return deepFreeze({
     ...withoutDigest,
-    compactionDigest: sha256(withoutDigest) as SecWorkDigest
+    compactionDigest: sha256(withoutDigest) as WorkDigest
   });
 }
 
-export function compileSecWorkSelectionTerminalProjection(input: {
+export function compileWorkSelectionTerminalProjection(input: {
   roadmapSource: string;
-  currentSpecs: readonly SecWorkCurrentSpecObservation[];
-}): SecWorkSelectionTerminalProjection {
-  const catalog = parseSecRoadmapWorkCatalog(input.roadmapSource);
+  currentSpecs: readonly WorkCurrentSpecObservation[];
+}): WorkSelectionTerminalProjection {
+  const catalog = parseRoadmapWorkCatalog(input.roadmapSource);
   const currentSpecs = input.currentSpecs.map((entry, index) => (
     normalizeCurrentSpecObservation(entry, `terminalProjection.currentSpecs[${index}]`)
   ));
@@ -807,7 +807,7 @@ export function compileSecWorkSelectionTerminalProjection(input: {
   const terminalSpecs = currentSpecs
     .filter(({ providerState }) => providerState === 'closed')
     .sort((left, right) => compareCodeUnits(left.workId, right.workId));
-  const demandGraph = compileSecOperationDemandGraph({
+  const demandGraph = compileOperationDemandGraph({
     operation: 'work-selection-observe',
     terminalWorkIds: terminalSpecs.map(({ workId }) => workId)
   });
@@ -820,7 +820,7 @@ export function compileSecWorkSelectionTerminalProjection(input: {
       terminalCompaction: null
     });
   }
-  const terminalCompaction = compileSecRoadmapTerminalCompaction({
+  const terminalCompaction = compileRoadmapTerminalCompaction({
     roadmapSource: input.roadmapSource,
     completedWorkIds: terminalSpecs.map(({ workId }) => workId)
   });
@@ -835,13 +835,13 @@ export function compileSecWorkSelectionTerminalProjection(input: {
       roadmapSourceRevision: rawSha256(input.roadmapSource),
       terminalCompactionDigest: terminalCompaction.compactionDigest,
       terminalSpecObservations: terminalSpecs
-    }) as SecWorkDigest,
+    }) as WorkDigest,
     terminalCompaction
   });
 }
 
-export function assertSecRoadmapTerminalCompactionCandidate(input: {
-  compaction: SecRoadmapTerminalCompaction;
+export function assertRoadmapTerminalCompactionCandidate(input: {
+  compaction: RoadmapTerminalCompaction;
   roadmapSource: string;
   presentDelayedManifestPaths: readonly string[];
 }): void {
@@ -860,14 +860,14 @@ export function assertSecRoadmapTerminalCompactionCandidate(input: {
  * byte addressable.  Manifest retirement belongs to the successor freeze that
  * replaces manifest, pointer and rolling projection together.
  */
-export function assertSecRoadmapTerminalCompactionDelta(input: {
+export function assertRoadmapTerminalCompactionDelta(input: {
   priorRoadmapSource: string;
   roadmapSource: string;
   priorManifestPaths: readonly string[];
   manifestPaths: readonly string[];
 }): void {
-  const prior = parseSecRoadmapWorkCatalog(input.priorRoadmapSource);
-  const current = parseSecRoadmapWorkCatalog(input.roadmapSource);
+  const prior = parseRoadmapWorkCatalog(input.priorRoadmapSource);
+  const current = parseRoadmapWorkCatalog(input.roadmapSource);
   const priorManifests = new Set(input.priorManifestPaths);
   const currentManifests = new Set(input.manifestPaths);
   // Terminality belongs to the canonical provider subject, not to a mutable
@@ -879,7 +879,7 @@ export function assertSecRoadmapTerminalCompactionDelta(input: {
     .filter((item) => !currentByTracking.has(item.tracking))
     .map((item) => item.workId);
   if (retiredWorkIds.length === 0) return;
-  const compiled = compileSecRoadmapTerminalCompaction({
+  const compiled = compileRoadmapTerminalCompaction({
     roadmapSource: input.priorRoadmapSource,
     completedWorkIds: retiredWorkIds
   });
@@ -898,10 +898,10 @@ export function assertSecRoadmapTerminalCompactionDelta(input: {
  * PR prose and branch names are deliberately absent: they are transports, not
  * operation identity or completion authority.
  */
-export function createSecRoadmapTerminalCompactionCandidate(input: {
+export function createRoadmapTerminalCompactionCandidate(input: {
   repository: string;
   exactMain: string;
-  compaction: SecRoadmapTerminalCompaction;
+  compaction: RoadmapTerminalCompaction;
   priorRoadmapSource: string;
   roadmapSource: string;
   priorManifestPaths: readonly string[];
@@ -910,21 +910,21 @@ export function createSecRoadmapTerminalCompactionCandidate(input: {
   baseSha: string;
   headSha: string;
   headTreeSha: string;
-}): SecRoadmapTerminalCompactionCandidate {
+}): RoadmapTerminalCompactionCandidate {
   const repository = text(input.repository, 'terminalCandidate.repository');
   const exactMain = gitSha(input.exactMain, 'terminalCandidate.exactMain');
   const baseSha = gitSha(input.baseSha, 'terminalCandidate.baseSha');
   if (baseSha !== exactMain) fail('terminal candidate base must equal exact main.');
   const prNumber = nonNegativeInteger(input.prNumber, 'terminalCandidate.prNumber');
   if (prNumber === 0) fail('terminal candidate PR number must be positive.');
-  assertSecRoadmapTerminalCompactionCandidate({
+  assertRoadmapTerminalCompactionCandidate({
     compaction: input.compaction,
     roadmapSource: input.roadmapSource,
     presentDelayedManifestPaths: input.compaction.delayedManifestRetirementPaths.filter(
       (manifestPath) => input.manifestPaths.includes(manifestPath)
     )
   });
-  assertSecRoadmapTerminalCompactionDelta({
+  assertRoadmapTerminalCompactionDelta({
     priorRoadmapSource: input.priorRoadmapSource,
     roadmapSource: input.roadmapSource,
     priorManifestPaths: input.priorManifestPaths,
@@ -942,7 +942,7 @@ export function createSecRoadmapTerminalCompactionCandidate(input: {
   });
   return deepFreeze({
     ...withoutDigest,
-    bindingDigest: sha256(withoutDigest) as SecWorkDigest
+    bindingDigest: sha256(withoutDigest) as WorkDigest
   });
 }
 
@@ -950,7 +950,7 @@ function normalizeRollingProjectionItem(
   value: unknown,
   label: string,
   active: boolean
-): SecWorkRollingProjectionItem {
+): WorkRollingProjectionItem {
   const item = record(value, label);
   exactKeys(item, ROLLING_PROJECTION_ITEM_KEYS, label);
   return deepFreeze({
@@ -975,12 +975,12 @@ function normalizeRollingProjectionItem(
  * normalized fields; selection authority still belongs to the bound receipt
  * and the live Work Selection adapter.
  */
-function normalizeSecWorkRollingProjection(
+function normalizeWorkRollingProjection(
   raw: Record<string, unknown>
-): SecWorkRollingProjection {
+): WorkRollingProjection {
   exactKeys(raw, ROLLING_PROJECTION_KEYS, 'rolling projection');
-  if (raw.schema !== SEC_WORK_ROLLING_PROJECTION_SCHEMA) {
-    fail(`rolling projection.schema must be ${SEC_WORK_ROLLING_PROJECTION_SCHEMA}.`);
+  if (raw.schema !== WORK_ROLLING_PROJECTION_SCHEMA) {
+    fail(`rolling projection.schema must be ${WORK_ROLLING_PROJECTION_SCHEMA}.`);
   }
   if (!Array.isArray(raw.candidates) || raw.candidates.length < 2 || raw.candidates.length > 5) {
     fail('rolling projection.candidates must contain two to five items.');
@@ -1003,7 +1003,7 @@ function normalizeSecWorkRollingProjection(
     }
   }
   const withoutDigest = deepFreeze({
-    schema: SEC_WORK_ROLLING_PROJECTION_SCHEMA,
+    schema: WORK_ROLLING_PROJECTION_SCHEMA,
     exactMain: gitSha(raw.exactMain, 'rolling projection.exactMain'),
     roadmapRevision: digest(raw.roadmapRevision, 'rolling projection.roadmapRevision'),
     catalogDigest: digest(raw.catalogDigest, 'rolling projection.catalogDigest'),
@@ -1030,7 +1030,7 @@ function orderedPackageIds(value: unknown, label: string): readonly string[] {
 
 function normalizeTransitionAuthority(
   value: unknown
-): SecWorkRollingTransitionAuthority {
+): WorkRollingTransitionAuthority {
   const authority = record(value, 'rolling transition authority');
   if (authority.kind === 'committed-candidate-replan') {
     exactKeys(authority, CANDIDATE_REPLAN_AUTHORITY_KEYS, 'rolling transition authority');
@@ -1112,7 +1112,7 @@ function normalizeTransitionAuthority(
   return fail('rolling transition authority.kind is unsupported.');
 }
 
-function normalizeTransitionActive(value: unknown): SecWorkRollingTransitionActive {
+function normalizeTransitionActive(value: unknown): WorkRollingTransitionActive {
   const active = record(value, 'rolling transition active');
   exactKeys(active, ROLLING_TRANSITION_ACTIVE_KEYS, 'rolling transition active');
   const parsedPackageId = packageId(active.packageId, 'rolling transition active.packageId');
@@ -1128,13 +1128,13 @@ function normalizeTransitionActive(value: unknown): SecWorkRollingTransitionActi
   });
 }
 
-function normalizeSecWorkRollingTransitionProjection(
+function normalizeWorkRollingTransitionProjection(
   raw: Record<string, unknown>
-): SecWorkRollingTransitionProjection {
+): WorkRollingTransitionProjection {
   exactKeys(raw, ROLLING_TRANSITION_PROJECTION_KEYS, 'rolling transition projection');
-  if (raw.schema !== SEC_WORK_ROLLING_TRANSITION_PROJECTION_SCHEMA) {
+  if (raw.schema !== WORK_ROLLING_TRANSITION_PROJECTION_SCHEMA) {
     fail(
-      `rolling transition projection.schema must be ${SEC_WORK_ROLLING_TRANSITION_PROJECTION_SCHEMA}.`
+      `rolling transition projection.schema must be ${WORK_ROLLING_TRANSITION_PROJECTION_SCHEMA}.`
     );
   }
   const authority = normalizeTransitionAuthority(raw.authority);
@@ -1161,7 +1161,7 @@ function normalizeSecWorkRollingTransitionProjection(
     fail('manual MainHealth bootstrap manifest is not the canonical content-addressed repair path.');
   }
   const withoutDigest = deepFreeze({
-    schema: SEC_WORK_ROLLING_TRANSITION_PROJECTION_SCHEMA,
+    schema: WORK_ROLLING_TRANSITION_PROJECTION_SCHEMA,
     exactMain,
     exactMainTree,
     authority,
@@ -1178,32 +1178,32 @@ function normalizeSecWorkRollingTransitionProjection(
   return deepFreeze({ ...withoutDigest, projectionDigest });
 }
 
-export function compileSecWorkRollingTransitionProjection(input: Readonly<{
+export function compileWorkRollingTransitionProjection(input: Readonly<{
   exactMain: string;
   exactMainTree: string;
-  authority: SecWorkRollingTransitionAuthority;
-  active: SecWorkRollingTransitionActive;
+  authority: WorkRollingTransitionAuthority;
+  active: WorkRollingTransitionActive;
   candidates: readonly string[];
-}>): SecWorkRollingTransitionProjection {
+}>): WorkRollingTransitionProjection {
   const semantic = {
-    schema: SEC_WORK_ROLLING_TRANSITION_PROJECTION_SCHEMA,
+    schema: WORK_ROLLING_TRANSITION_PROJECTION_SCHEMA,
     exactMain: input.exactMain,
     exactMainTree: input.exactMainTree,
     authority: input.authority,
     active: input.active,
     candidates: input.candidates
   };
-  return normalizeSecWorkRollingTransitionProjection({
+  return normalizeWorkRollingTransitionProjection({
     ...semantic,
     projectionDigest: sha256(semantic)
   });
 }
 
-function normalizeSecWorkRollingProposalProjection(
+function normalizeWorkRollingProposalProjection(
   raw: Record<string, unknown>
-): SecWorkRollingProposalProjection {
+): WorkRollingProposalProjection {
   exactKeys(raw, ROLLING_PROPOSAL_PROJECTION_KEYS, 'rolling proposal projection');
-  if (raw.schema !== SEC_WORK_ROLLING_PROPOSAL_PROJECTION_SCHEMA || raw.authority !== 'none') {
+  if (raw.schema !== WORK_ROLLING_PROPOSAL_PROJECTION_SCHEMA || raw.authority !== 'none') {
     fail('rolling proposal projection must use its proposal schema and authority none.');
   }
   const active = normalizeTransitionActive(raw.active);
@@ -1215,7 +1215,7 @@ function normalizeSecWorkRollingProposalProjection(
     fail('rolling proposal active package cannot also be a candidate.');
   }
   const withoutDigest = deepFreeze({
-    schema: SEC_WORK_ROLLING_PROPOSAL_PROJECTION_SCHEMA,
+    schema: WORK_ROLLING_PROPOSAL_PROJECTION_SCHEMA,
     exactMain: gitSha(raw.exactMain, 'rolling proposal projection.exactMain'),
     exactMainTree: gitSha(raw.exactMainTree, 'rolling proposal projection.exactMainTree'),
     authority: 'none' as const,
@@ -1229,54 +1229,54 @@ function normalizeSecWorkRollingProposalProjection(
   return deepFreeze({ ...withoutDigest, projectionDigest });
 }
 
-export function compileSecWorkRollingProposalProjection(input: Readonly<{
+export function compileWorkRollingProposalProjection(input: Readonly<{
   exactMain: string;
   exactMainTree: string;
-  active: SecWorkRollingTransitionActive & Readonly<{ tracking: 'none' }>;
+  active: WorkRollingTransitionActive & Readonly<{ tracking: 'none' }>;
   candidates: readonly string[];
-}>): SecWorkRollingProposalProjection {
+}>): WorkRollingProposalProjection {
   const semantic = {
-    schema: SEC_WORK_ROLLING_PROPOSAL_PROJECTION_SCHEMA,
+    schema: WORK_ROLLING_PROPOSAL_PROJECTION_SCHEMA,
     exactMain: input.exactMain,
     exactMainTree: input.exactMainTree,
     authority: 'none' as const,
     active: input.active,
     candidates: input.candidates
   };
-  return normalizeSecWorkRollingProposalProjection({
+  return normalizeWorkRollingProposalProjection({
     ...semantic,
     projectionDigest: sha256(semantic)
   });
 }
 
-export function parseSecWorkRollingMachineProjection(
+export function parseWorkRollingMachineProjection(
   source: string
-): SecWorkRollingMachineProjection {
+): WorkRollingMachineProjection {
   const raw = record(parseDuplicateAwareJson(source, 'rolling projection'), 'rolling projection');
-  if (raw.schema === SEC_WORK_ROLLING_PROJECTION_SCHEMA) {
-    return normalizeSecWorkRollingProjection(raw);
+  if (raw.schema === WORK_ROLLING_PROJECTION_SCHEMA) {
+    return normalizeWorkRollingProjection(raw);
   }
-  if (raw.schema === SEC_WORK_ROLLING_TRANSITION_PROJECTION_SCHEMA) {
-    return normalizeSecWorkRollingTransitionProjection(raw);
+  if (raw.schema === WORK_ROLLING_TRANSITION_PROJECTION_SCHEMA) {
+    return normalizeWorkRollingTransitionProjection(raw);
   }
-  if (raw.schema === SEC_WORK_ROLLING_PROPOSAL_PROJECTION_SCHEMA) {
-    return normalizeSecWorkRollingProposalProjection(raw);
+  if (raw.schema === WORK_ROLLING_PROPOSAL_PROJECTION_SCHEMA) {
+    return normalizeWorkRollingProposalProjection(raw);
   }
   return fail('rolling projection.schema is unsupported.');
 }
 
-export function parseSecWorkRollingProjectionV1(source: string): SecWorkRollingProjection {
-  const projection = parseSecWorkRollingMachineProjection(source);
-  if (projection.schema !== SEC_WORK_ROLLING_PROJECTION_SCHEMA) {
-    return fail(`rolling projection.schema must be ${SEC_WORK_ROLLING_PROJECTION_SCHEMA}.`);
+export function parseWorkRollingProjection(source: string): WorkRollingProjection {
+  const projection = parseWorkRollingMachineProjection(source);
+  if (projection.schema !== WORK_ROLLING_PROJECTION_SCHEMA) {
+    return fail(`rolling projection.schema must be ${WORK_ROLLING_PROJECTION_SCHEMA}.`);
   }
   return projection;
 }
 
 export function rollingTopologyFromMachineProjection(
-  projection: SecWorkRollingMachineProjection
-): SecWorkRollingTopology {
-  return projection.schema === SEC_WORK_ROLLING_PROJECTION_SCHEMA
+  projection: WorkRollingMachineProjection
+): WorkRollingTopology {
+  return projection.schema === WORK_ROLLING_PROJECTION_SCHEMA
     ? deepFreeze({
         activePackageId: projection.active.packageId,
         candidatePackageIds: projection.candidates.map(({ packageId: id }) => id)
@@ -1288,9 +1288,9 @@ export function rollingTopologyFromMachineProjection(
 }
 
 function normalizeCurrentSpecObservation(
-  value: SecWorkCurrentSpecObservation,
+  value: WorkCurrentSpecObservation,
   label: string
-): SecWorkCurrentSpecObservation {
+): WorkCurrentSpecObservation {
   const withoutDigest = {
     workId: token(value.workId, `${label}.workId`),
     currentSpecRef: text(value.currentSpecRef, `${label}.currentSpecRef`),
@@ -1305,10 +1305,10 @@ function normalizeCurrentSpecObservation(
   return deepFreeze({ ...withoutDigest, observationDigest });
 }
 
-export function createSecWorkCurrentSpecObservation(input: Omit<
-  SecWorkCurrentSpecObservation,
+export function createWorkCurrentSpecObservation(input: Omit<
+  WorkCurrentSpecObservation,
   'observationDigest'
->): SecWorkCurrentSpecObservation {
+>): WorkCurrentSpecObservation {
   const withoutDigest = {
     workId: token(input.workId, 'currentSpec.workId'),
     currentSpecRef: text(input.currentSpecRef, 'currentSpec.currentSpecRef'),
@@ -1322,11 +1322,11 @@ export function createSecWorkCurrentSpecObservation(input: Omit<
   };
   return deepFreeze({
     ...withoutDigest,
-    observationDigest: sha256(withoutDigest) as SecWorkDigest
+    observationDigest: sha256(withoutDigest) as WorkDigest
   });
 }
 
-function normalizeRegistry(input: SecWorkRegistryObservation): SecWorkRegistryObservation {
+function normalizeRegistry(input: WorkRegistryObservation): WorkRegistryObservation {
   const entries = [...input.entries].map((entry, index) => {
     const label = `registry.entries[${index}]`;
     const manifestPath = text(entry.manifestPath, `${label}.manifestPath`);
@@ -1374,10 +1374,10 @@ function normalizeRegistry(input: SecWorkRegistryObservation): SecWorkRegistryOb
   return deepFreeze({ ...withoutDigest, registryDigest });
 }
 
-export function createSecWorkRegistryObservation(input: Omit<
-  SecWorkRegistryObservation,
+export function createWorkRegistryObservation(input: Omit<
+  WorkRegistryObservation,
   'registryDigest'
->): SecWorkRegistryObservation {
+>): WorkRegistryObservation {
   const ordered = [...input.entries].sort((left, right) => (
     compareCodeUnits(left.manifestPath, right.manifestPath)
     || compareCodeUnits(left.source, right.source)
@@ -1388,15 +1388,15 @@ export function createSecWorkRegistryObservation(input: Omit<
     registryDigest: sha256({
       defaultTreeSha: input.defaultTreeSha,
       entries: ordered
-    }) as SecWorkDigest
+    }) as WorkDigest
   });
 }
 
 function dependencyFacts(
   workIds: readonly string[],
-  itemsByWorkId: ReadonlyMap<string, SecRoadmapWorkCatalogItem>,
+  itemsByWorkId: ReadonlyMap<string, RoadmapWorkCatalogItem>,
   completedManifests: ReadonlySet<string>
-): SecWorkDependencyFact[] {
+): WorkDependencyFact[] {
   return workIds.map((workId) => {
     const dependency = itemsByWorkId.get(workId);
     if (dependency === undefined) fail(`dependency ${workId} disappeared after catalog validation.`);
@@ -1409,9 +1409,9 @@ function dependencyFacts(
 }
 
 function blockedReadySuccessorCount(
-  candidate: SecWorkCandidate,
-  candidates: readonly SecWorkCandidate[],
-  itemsByWorkId: ReadonlyMap<string, SecRoadmapWorkCatalogItem>
+  candidate: WorkCandidate,
+  candidates: readonly WorkCandidate[],
+  itemsByWorkId: ReadonlyMap<string, RoadmapWorkCatalogItem>
 ): number {
   const item = itemsByWorkId.get(candidate.workId);
   if (item === undefined) fail(`candidate ${candidate.workId} disappeared after catalog validation.`);
@@ -1437,27 +1437,27 @@ function blockedReadySuccessorCount(
       orderedAfterFacts,
       blockedReadySuccessorCount: 0
     });
-    return evaluateSecWorkCandidate(hypothetical).decision.status === 'eligible';
+    return evaluateWorkCandidate(hypothetical).decision.status === 'eligible';
   }).length;
 }
 
 function candidateFromLiveFacts(input: {
-  item: SecRoadmapWorkCatalogItem;
-  catalog: SecRoadmapWorkCatalog;
-  currentSpec: SecWorkCurrentSpecObservation;
-  registry: SecWorkRegistryObservation;
-  current: SecCurrentWorkLifecycle;
-  lifecycleDigest: SecWorkDigest;
-  itemsByWorkId: ReadonlyMap<string, SecRoadmapWorkCatalogItem>;
+  item: RoadmapWorkCatalogItem;
+  catalog: RoadmapWorkCatalog;
+  currentSpec: WorkCurrentSpecObservation;
+  registry: WorkRegistryObservation;
+  current: CurrentWorkLifecycle;
+  lifecycleDigest: WorkDigest;
+  itemsByWorkId: ReadonlyMap<string, RoadmapWorkCatalogItem>;
   completedManifests: ReadonlySet<string>;
-}): SecWorkCandidate {
+}): WorkCandidate {
   const completionManifest = `config/repository/work-packages/${input.item.packageId}.md`;
   const alreadyInMain = input.completedManifests.has(completionManifest);
   if (!alreadyInMain && input.item.disposition === 'active'
       && input.currentSpec.providerState !== 'open') {
     fail(`${input.item.workId} current spec is closed without default-branch completion evidence.`);
   }
-  const lifecycle: SecWorkCandidate['lifecycle'] = alreadyInMain
+  const lifecycle: WorkCandidate['lifecycle'] = alreadyInMain
     ? 'already-in-main'
     : input.item.disposition === 'superseded'
       ? 'superseded'
@@ -1528,12 +1528,12 @@ function receiptWithoutDigest(input: {
   repository: string;
   exactMain: string;
   exactMainTree: string;
-  roadmapRevision: SecWorkDigest;
-  catalog: SecRoadmapWorkCatalog;
-  registry: SecWorkRegistryObservation;
-  current: SecCurrentWorkLifecycle;
-  currentSpecs: readonly SecWorkCurrentSpecObservation[];
-}): Omit<SecWorkDecisionReceipt, 'receiptDigest'> {
+  roadmapRevision: WorkDigest;
+  catalog: RoadmapWorkCatalog;
+  registry: WorkRegistryObservation;
+  current: CurrentWorkLifecycle;
+  currentSpecs: readonly WorkCurrentSpecObservation[];
+}): Omit<WorkDecisionReceipt, 'receiptDigest'> {
   const exactMain = gitSha(input.exactMain, 'receipt.exactMain');
   const exactMainTree = gitSha(input.exactMainTree, 'receipt.exactMainTree');
   const catalog = normalizeCatalog({
@@ -1562,7 +1562,7 @@ function receiptWithoutDigest(input: {
       fail(`current spec observation for ${item.workId} does not bind the catalog ref.`);
     }
   }
-  const lifecycleDigest = sha256(input.current) as SecWorkDigest;
+  const lifecycleDigest = sha256(input.current) as WorkDigest;
   const itemsByWorkId = new Map(catalog.items.map((item) => [item.workId, item]));
   const completedManifests = new Set(registry.entries
     .filter(({ source }) => source === 'default')
@@ -1581,21 +1581,21 @@ function receiptWithoutDigest(input: {
     ...candidate,
     blockedReadySuccessorCount: blockedReadySuccessorCount(candidate, baseCandidates, itemsByWorkId)
   }));
-  const selectionInput = parseSecWorkSelectionInput({
+  const selectionInput = parseWorkSelectionInput({
     schema: 'sec-work-selection-input-v1',
     identity: {
       exactMain,
       roadmapRevision: digest(input.roadmapRevision, 'receipt.roadmapRevision'),
-      candidateSetRevision: computeSecWorkCandidateSetRevision(candidates),
-      selectionPolicyRevision: SEC_WORK_SELECTION_POLICY_REVISION
+      candidateSetRevision: computeWorkCandidateSetRevision(candidates),
+      selectionPolicyRevision: WORK_SELECTION_POLICY_REVISION
     },
     current: input.current,
     candidates
   });
-  const decision = compileSecWorkDecision(selectionInput);
+  const decision = compileWorkDecision(selectionInput);
   return deepFreeze({
-    schema: SEC_WORK_DECISION_RECEIPT_SCHEMA,
-    issuer: SEC_WORK_SELECTION_LIVE_ISSUER,
+    schema: WORK_DECISION_RECEIPT_SCHEMA,
+    issuer: WORK_SELECTION_LIVE_ISSUER,
     repository: text(input.repository, 'receipt.repository'),
     exactMain,
     exactMainTree,
@@ -1610,21 +1610,21 @@ function receiptWithoutDigest(input: {
   });
 }
 
-export function createSecWorkDecisionReceipt(input: Parameters<
+export function createWorkDecisionReceipt(input: Parameters<
   typeof receiptWithoutDigest
->[0]): SecWorkDecisionReceipt {
+>[0]): WorkDecisionReceipt {
   const withoutDigest = receiptWithoutDigest(input);
   return deepFreeze({
     ...withoutDigest,
-    receiptDigest: sha256(withoutDigest) as SecWorkDigest
+    receiptDigest: sha256(withoutDigest) as WorkDigest
   });
 }
 
-export function assertSecWorkDecisionReceiptV1(
-  receipt: SecWorkDecisionReceipt,
+export function assertWorkDecisionReceipt(
+  receipt: WorkDecisionReceipt,
   input: Parameters<typeof receiptWithoutDigest>[0]
-): SecWorkDecisionReceipt {
-  const expected = createSecWorkDecisionReceipt(input);
+): WorkDecisionReceipt {
+  const expected = createWorkDecisionReceipt(input);
   if (!canonicalEquals(receipt, expected)) {
     fail('receipt does not equal the canonical live decision for its bound sources.');
   }
@@ -1632,10 +1632,10 @@ export function assertSecWorkDecisionReceiptV1(
 }
 
 function projectionItem(
-  item: SecRoadmapWorkCatalogItem,
-  receipt: SecWorkDecisionReceipt,
-  decisionStatus: SecWorkRollingProjectionItem['decisionStatus']
-): SecWorkRollingProjectionItem {
+  item: RoadmapWorkCatalogItem,
+  receipt: WorkDecisionReceipt,
+  decisionStatus: WorkRollingProjectionItem['decisionStatus']
+): WorkRollingProjectionItem {
   const binding = receipt.decision.currentSpecBindings.find(({ workId }) => workId === item.workId);
   if (binding === undefined) fail(`decision is missing current spec binding for ${item.workId}.`);
   return deepFreeze({
@@ -1648,7 +1648,7 @@ function projectionItem(
   });
 }
 
-function assertRollingDecisionReceipt(receipt: SecWorkDecisionReceipt): void {
+function assertRollingDecisionReceipt(receipt: WorkDecisionReceipt): void {
   const receiptMaterial = {
     schema: receipt.schema,
     issuer: receipt.issuer,
@@ -1664,16 +1664,16 @@ function assertRollingDecisionReceipt(receipt: SecWorkDecisionReceipt): void {
     input: receipt.input,
     decision: receipt.decision
   };
-  if (receipt.schema !== SEC_WORK_DECISION_RECEIPT_SCHEMA
+  if (receipt.schema !== WORK_DECISION_RECEIPT_SCHEMA
       || receipt.receiptDigest !== sha256(receiptMaterial)) {
     fail('rolling topology requires one internally valid decision receipt.');
   }
-  assertSecWorkDecision(receipt.decision, receipt.input);
+  assertWorkDecision(receipt.decision, receipt.input);
 }
 
 function rollingTopologyFromValidatedReceipt(
-  receipt: SecWorkDecisionReceipt
-): SecWorkRollingTopology {
+  receipt: WorkDecisionReceipt
+): WorkRollingTopology {
   if ((receipt.decision.status !== 'select-next' && receipt.decision.status !== 'continue-active')
       || receipt.decision.selectedWorkId === null) {
     fail('rolling topology requires a select-next or continue-active decision.');
@@ -1700,16 +1700,16 @@ function rollingTopologyFromValidatedReceipt(
   return deepFreeze({ activePackageId: active.packageId, candidatePackageIds });
 }
 
-export function compileSecWorkRollingTopology(
-  receipt: SecWorkDecisionReceipt
-): SecWorkRollingTopology {
+export function compileWorkRollingTopology(
+  receipt: WorkDecisionReceipt
+): WorkRollingTopology {
   assertRollingDecisionReceipt(receipt);
   return rollingTopologyFromValidatedReceipt(receipt);
 }
 
-export function compileSecWorkRollingProjection(
-  receipt: SecWorkDecisionReceipt
-): SecWorkRollingProjection {
+export function compileWorkRollingProjection(
+  receipt: WorkDecisionReceipt
+): WorkRollingProjection {
   assertRollingDecisionReceipt(receipt);
   if (receipt.decision.status !== 'select-next' || receipt.decision.selectedWorkId === null) {
     fail('rolling projection requires a select-next decision.');
@@ -1721,7 +1721,7 @@ export function compileSecWorkRollingProjection(
   const candidatesByPackageId = new Map(receipt.catalog.items.map((item) => [item.packageId, item]));
   const futureItems = topology.candidatePackageIds.map((packageId) => candidatesByPackageId.get(packageId)!);
   const withoutDigest = {
-    schema: SEC_WORK_ROLLING_PROJECTION_SCHEMA,
+    schema: WORK_ROLLING_PROJECTION_SCHEMA,
     exactMain: receipt.exactMain,
     roadmapRevision: receipt.roadmapRevision,
     catalogDigest: receipt.catalog.catalogDigest,
@@ -1736,7 +1736,7 @@ export function compileSecWorkRollingProjection(
   };
   return deepFreeze({
     ...withoutDigest,
-    projectionDigest: sha256(withoutDigest) as SecWorkDigest
+    projectionDigest: sha256(withoutDigest) as WorkDigest
   });
 }
 
@@ -1749,7 +1749,7 @@ function assertRollingReviewedOn(reviewedOn: string): void {
 
 function renderRollingPlanDocument(input: Readonly<{
   reviewedOn: string;
-  projection: SecWorkRollingMachineProjection;
+  projection: WorkRollingMachineProjection;
   introduction: string;
   activeDescription: string;
   candidateDescriptions: readonly string[];
@@ -1800,11 +1800,11 @@ ${candidateSections}
 `;
 }
 
-export function renderSecWorkRollingPlan(input: {
-  receipt: SecWorkDecisionReceipt;
+export function renderWorkRollingPlan(input: {
+  receipt: WorkDecisionReceipt;
   reviewedOn: string;
 }): string {
-  const projection = compileSecWorkRollingProjection(input.receipt);
+  const projection = compileWorkRollingProjection(input.receipt);
   const machine = JSON.stringify(canonicalJson(projection), null, 2);
   if (machine.length === 0) fail('rolling selection projection serialization failed.');
   return renderRollingPlanDocument({
@@ -1823,11 +1823,11 @@ export function renderSecWorkRollingPlan(input: {
   });
 }
 
-export function renderSecWorkRollingTransitionPlan(input: Readonly<{
-  projection: SecWorkRollingTransitionProjection;
+export function renderWorkRollingTransitionPlan(input: Readonly<{
+  projection: WorkRollingTransitionProjection;
   reviewedOn: string;
 }>): string {
-  const projection = normalizeSecWorkRollingTransitionProjection(
+  const projection = normalizeWorkRollingTransitionProjection(
     input.projection as unknown as Record<string, unknown>
   );
   const authorityDigest = sha256(projection.authority);
@@ -1856,11 +1856,11 @@ export function renderSecWorkRollingTransitionPlan(input: Readonly<{
   });
 }
 
-export function renderSecWorkRollingProposalPlan(input: Readonly<{
-  projection: SecWorkRollingProposalProjection;
+export function renderWorkRollingProposalPlan(input: Readonly<{
+  projection: WorkRollingProposalProjection;
   reviewedOn: string;
 }>): string {
-  const projection = normalizeSecWorkRollingProposalProjection(
+  const projection = normalizeWorkRollingProposalProjection(
     input.projection as unknown as Record<string, unknown>
   );
   return renderRollingPlanDocument({
@@ -1877,17 +1877,17 @@ export function renderSecWorkRollingProposalPlan(input: Readonly<{
   });
 }
 
-function liveResultDigest(value: unknown): SecWorkDigest {
-  return sha256(value) as SecWorkDigest;
+function liveResultDigest(value: unknown): WorkDigest {
+  return sha256(value) as WorkDigest;
 }
 
-export function resolvedSecWorkSelectionLiveResult(
-  receipt: SecWorkDecisionReceipt,
-  demandGraph: SecOperationDemandGraph,
-  terminalCompaction: SecRoadmapTerminalCompaction | null = null
-): SecWorkSelectionLiveResult {
+export function resolvedWorkSelectionLiveResult(
+  receipt: WorkDecisionReceipt,
+  demandGraph: OperationDemandGraph,
+  terminalCompaction: RoadmapTerminalCompaction | null = null
+): WorkSelectionLiveResult {
   const withoutDigest = deepFreeze({
-    schema: SEC_WORK_SELECTION_LIVE_RESULT_SCHEMA,
+    schema: WORK_SELECTION_LIVE_RESULT_SCHEMA,
     status: 'resolved' as const,
     reasonCodes: [] as const,
     blockerRefs: [] as const,
@@ -1898,10 +1898,10 @@ export function resolvedSecWorkSelectionLiveResult(
   return deepFreeze({ ...withoutDigest, resultDigest: liveResultDigest(withoutDigest) });
 }
 
-export function unresolvedSecWorkSelectionLiveResult(input: {
+export function unresolvedWorkSelectionLiveResult(input: {
   reasonCodes: readonly string[];
   blockerRefs: readonly string[];
-}): SecWorkSelectionLiveResult {
+}): WorkSelectionLiveResult {
   const reasonCodes = [...new Set(input.reasonCodes.map((entry) => token(entry, 'reasonCode')))]
     .sort(compareCodeUnits);
   const blockerRefs = [...new Set(input.blockerRefs.map((entry) => text(entry, 'blockerRef')))]
@@ -1910,7 +1910,7 @@ export function unresolvedSecWorkSelectionLiveResult(input: {
     fail('unresolved live result requires reason codes and bounded blocker refs.');
   }
   const withoutDigest = deepFreeze({
-    schema: SEC_WORK_SELECTION_LIVE_RESULT_SCHEMA,
+    schema: WORK_SELECTION_LIVE_RESULT_SCHEMA,
     status: 'unresolved' as const,
     reasonCodes,
     blockerRefs,
@@ -1921,6 +1921,6 @@ export function unresolvedSecWorkSelectionLiveResult(input: {
   return deepFreeze({ ...withoutDigest, resultDigest: liveResultDigest(withoutDigest) });
 }
 
-export function currentSpecRevisionFromBody(body: string): SecWorkDigest {
+export function currentSpecRevisionFromBody(body: string): WorkDigest {
   return rawSha256(body);
 }

@@ -1,5 +1,5 @@
 import { isPlainObject } from './canonical.ts';
-import { SecError } from './failure.ts';
+import { FailureError } from './failure.ts';
 
 // BufferSource instances can shadow these public properties. Resource
 // admission must read native view slots, not caller-selected accessors.
@@ -26,7 +26,7 @@ export interface ExactJsonContract {
   readonly rootObjectKeys: readonly string[];
 }
 
-export class ExactJsonError extends SecError {
+export class ExactJsonError extends FailureError {
   readonly kind: ExactJsonFailureKind;
   readonly offset: number;
 

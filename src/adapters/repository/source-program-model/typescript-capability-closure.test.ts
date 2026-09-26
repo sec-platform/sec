@@ -2,10 +2,10 @@ import { expect, test } from 'bun:test';
 
 import { rawSha256, sha256 } from '../../../contracts/canonical.ts';
 import {
-  assertSourceProgramTypeScriptRequiredApiClosure,
-  compileTypeScriptSourceProgramModel,
-  sourceProgramTypeScriptRequiredApiClosure,
-  type SourceProgramTypeScriptRequiredApiClosure
+  assertTypeScriptRequiredApiClosure,
+  compileTypeScriptModel,
+  currentTypeScriptRequiredApiClosure,
+  type TypeScriptRequiredApiClosure
 } from './typescript.ts';
 
 const moduleMembership = Object.freeze({
@@ -15,18 +15,18 @@ const moduleMembership = Object.freeze({
   moduleForPath: () => null
 });
 
-function compile(source: string): SourceProgramTypeScriptRequiredApiClosure {
+function compile(source: string): TypeScriptRequiredApiClosure {
   const files = Object.freeze([Object.freeze({
     path: 'src/example.ts',
     source,
     contentDigest: rawSha256(source)
   })]);
-  const model = compileTypeScriptSourceProgramModel({
+  const model = compileTypeScriptModel({
     sourceRevision: sha256(files.map(({ path, contentDigest }) => ({ path, contentDigest }))),
     files,
     moduleMembership
   });
-  const closure = sourceProgramTypeScriptRequiredApiClosure(model);
+  const closure = currentTypeScriptRequiredApiClosure(model);
   if (closure === null) throw new Error('Expected one exact TypeScript API closure');
   return closure;
 }
@@ -40,7 +40,7 @@ test('Source Program derives stable TypeScript API requirements from bound symbo
     + '}\n'
   );
 
-  assertSourceProgramTypeScriptRequiredApiClosure(closure);
+  assertTypeScriptRequiredApiClosure(closure);
   expect(closure.unknowns).toEqual([]);
   expect(closure.requirements.map(({ apiPath, space }) => `${space}:${apiPath}`)).toEqual([
     'type:Program',
@@ -70,7 +70,7 @@ test('Source Program blocks dynamic and unstable TypeScript surfaces', () => {
 
 test('a structural closure cannot cross the Source Program issuer boundary', () => {
   const closure = compile("import ts from 'typescript';\nexport const compilerVersion = ts.version;\n");
-  expect(() => assertSourceProgramTypeScriptRequiredApiClosure({
+  expect(() => assertTypeScriptRequiredApiClosure({
     ...closure
-  } as SourceProgramTypeScriptRequiredApiClosure)).toThrow('not Source Program issued');
+  } as TypeScriptRequiredApiClosure)).toThrow('not Source Program issued');
 });

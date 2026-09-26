@@ -1,5 +1,5 @@
 import { inspectFailureValue } from './failure-inspection.ts';
-import { SecError, type SecErrorDetails } from './failure.ts';
+import { FailureError, type FailureDetails } from './failure.ts';
 
 /** Render one failure without assuming a domain-specific Error subclass. */
 export function formatFailure(error: unknown): string {
@@ -8,8 +8,8 @@ export function formatFailure(error: unknown): string {
 
     const primary = error.stack ?? error.message;
     if (typeof primary !== 'string') return inspectFailureValue(error);
-    if (!(error instanceof SecError)) return primary;
-    let details: SecErrorDetails | undefined;
+    if (!(error instanceof FailureError)) return primary;
+    let details: FailureDetails | undefined;
     try {
       details = error.details;
       return details ? `${primary}\n${JSON.stringify(details, null, 2)}` : primary;

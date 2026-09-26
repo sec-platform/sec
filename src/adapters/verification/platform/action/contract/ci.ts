@@ -1,8 +1,7 @@
-import { createHash } from 'node:crypto';
-
+import { rawSha256Hex } from '../../../../../contracts/canonical.ts';
 import { VERIFICATION_GATE_RESULT_SCHEMA } from '../../../../../assurance/verification/result/contract/schema.ts';
 import { assertCanonicalPortableLogicalPath } from '../../../../../contracts/logical-path.ts';
-import { isSecRepositoryTestModulePath } from '../../../../../contracts/repository-test-path.ts';
+import { isRepositoryTestModulePath } from '../../../../../contracts/repository-test-path.ts';
 import {
   createVerificationActionKey,
   createVerificationActionPlan,
@@ -270,13 +269,11 @@ function digest(value: unknown, label: string): CiVerificationActionDigest {
 }
 
 function hash(value: unknown): CiVerificationActionDigest {
-  return `sha256:${createHash('sha256').update(encodeVerificationActionData(value)).digest('hex')}`;
+  return `sha256:${rawSha256Hex(encodeVerificationActionData(value))}`;
 }
 
 function hashCanonicalLine(value: unknown): CiVerificationActionDigest {
-  return `sha256:${createHash('sha256')
-    .update(`${encodeVerificationActionData(value)}\n`, 'utf8')
-    .digest('hex')}`;
+  return `sha256:${rawSha256Hex(`${encodeVerificationActionData(value)}\n`)}`;
 }
 
 function exactKeys(value: Record<string, unknown>, expected: readonly string[], label: string): void {
@@ -688,7 +685,7 @@ function canonicalBunTestArguments(args: readonly string[]): readonly string[] {
     } catch {
       fail('gate Bun test path is not canonical and repository-relative.');
     }
-    if (!isSecRepositoryTestModulePath(testPath)) {
+    if (!isRepositoryTestModulePath(testPath)) {
       fail('gate Bun test path is not canonical and repository-relative.');
     }
     if (paths.has(testPath)) fail('gate Bun test paths must be unique.');

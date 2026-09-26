@@ -2,7 +2,9 @@ import { expect, test } from 'bun:test';
 
 import {
   executeGitHubApiOperation,
+  executeObservedGitHubApiOperation,
   inspectGitHubApiCapability,
+  readGitHubApiBytes,
   type GitHubApiCapability,
   type GitHubApiPrincipal
 } from '../../src/adapters/providers/github-api/operation-session.ts';
@@ -12,7 +14,7 @@ import {
   withGitHubApiTestSession,
   type GitHubApiTransport
 } from '../../src/adapters/providers/github-api/test/operation-session.ts';
-import { compileSecRepositoryModuleGraph } from '../../src/adapters/repository/source-program-model/typescript.ts';
+import { compileRepositoryModuleGraph } from '../../src/adapters/repository/source-program-model/typescript.ts';
 
 const TOKEN = 'test-token-0123456789';
 const SHA = '1'.repeat(40);
@@ -25,7 +27,7 @@ const PRINCIPAL: GitHubApiPrincipal = Object.freeze({
 });
 
 function capability(input: Readonly<{
-  effect: 'read' | 'status-write' | 'merge-write' | 'runner-admin' | 'branch-closeout-write';
+  effect: 'read' | 'status-write' | 'issue-comment-write' | 'repository-dispatch-write' | 'merge-write' | 'runner-admin' | 'branch-closeout-write';
   transport: GitHubApiTransport;
   principal?: GitHubApiPrincipal;
 }>): GitHubApiCapability {
@@ -38,11 +40,131 @@ function capability(input: Readonly<{
   });
 }
 
+test('verification provider fixed reads compile without exposing arbitrary REST paths', async () => {
+  const urls: string[] = [];
+  const api = capability({
+    effect: 'read',
+    transport: async (target) => {
+      urls.push(String(target));
+      return Response.json({});
+    }
+  });
+  await withGitHubApiTestSession({
+    capability: api,
+    operation: async () => {
+      await executeGitHubApiOperation(api, { kind: 'workflow', path: '.github/workflows/compiler-pr-validation.yml' });
+      await executeGitHubApiOperation(api, { kind: 'workflow-jobs', runId: '12', runAttempt: 3, page: 2 });
+      await executeGitHubApiOperation(api, { kind: 'artifacts', page: 4 });
+      await executeGitHubApiOperation(api, { kind: 'check-suite', checkSuiteId: 55 });
+      await executeGitHubApiOperation(api, { kind: 'artifact', artifactId: 66 });
+      await executeGitHubApiOperation(api, { kind: 'open-pulls-page', page: 3 });
+      await executeGitHubApiOperation(api, { kind: 'git-commit', sha: SHA });
+      await executeGitHubApiOperation(api, { kind: 'compare', baseSha: SHA, headSha: '2'.repeat(40) });
+    }
+  });
+  expect(urls).toEqual([
+    'https://api.github.com/repos/sec-platform/sec/actions/workflows/.github/workflows/compiler-pr-validation.yml',
+    'https://api.github.com/repos/sec-platform/sec/actions/runs/12/attempts/3/jobs?per_page=100&page=2',
+    'https://api.github.com/repos/sec-platform/sec/actions/artifacts?per_page=100&page=4',
+    'https://api.github.com/repos/sec-platform/sec/check-suites/55',
+    'https://api.github.com/repos/sec-platform/sec/actions/artifacts/66',
+    'https://api.github.com/repos/sec-platform/sec/pulls?state=open&per_page=100&page=3',
+    `https://api.github.com/repos/sec-platform/sec/git/commits/${SHA}`,
+    `https://api.github.com/repos/sec-platform/sec/compare/${SHA}...${'2'.repeat(40)}`
+  ]);
+});
+
+test('repository dispatch uses its own write authority and accepts canonical 204 settlement', async () => {
+  let observedBody: unknown = null;
+  const api = capability({
+    effect: 'repository-dispatch-write',
+    transport: async (_target, init) => {
+      observedBody = JSON.parse(String(init?.body));
+      return new Response(null, { status: 204 });
+    }
+  });
+  expect(await withGitHubApiTestSession({
+    capability: api,
+    operation: () => executeGitHubApiOperation(api, {
+      kind: 'repository-dispatch', eventType: 'sec-test', clientPayload: { value: 1 }
+    })
+  })).toBeNull();
+  expect(observedBody).toEqual({ event_type: 'sec-test', client_payload: { value: 1 } });
+});
+
+test('issue comment publication uses a dedicated bounded write authority', async () => {
+  const observed: Array<{ target: string; method: string; body: unknown }> = [];
+  const api = capability({
+    effect: 'issue-comment-write',
+    transport: async (target, init) => {
+      observed.push({ target: String(target), method: init?.method ?? 'GET',
+        body: init?.body === undefined ? null : JSON.parse(String(init.body)) });
+      return Response.json({ id: 91, body: 'receipt' });
+    }
+  });
+  expect(await withGitHubApiTestSession({ capability: api, operation: () => executeGitHubApiOperation(
+    api, { kind: 'create-issue-comment', issueNumber: 17, body: 'receipt' }
+  ) })).toEqual({ id: 91, body: 'receipt' });
+  expect(observed).toEqual([{
+    target: 'https://api.github.com/repos/sec-platform/sec/issues/17/comments',
+    method: 'POST', body: { body: 'receipt' }
+  }]);
+});
+
+test('issue comment deletion uses bounded write authority and accepts DELETE 204 settlement', async () => {
+  const observed: Array<{ target: string; method: string }> = [];
+  const api = capability({
+    effect: 'issue-comment-write',
+    transport: async (target, init) => {
+      observed.push({ target: String(target), method: init?.method ?? 'GET' });
+      return new Response(null, { status: 204 });
+    }
+  });
+  expect(await withGitHubApiTestSession({ capability: api, operation: () => executeGitHubApiOperation(
+    api, { kind: 'delete-issue-comment', commentId: 91 }
+  ) })).toBeNull();
+  expect(observed).toEqual([{
+    target: 'https://api.github.com/repos/sec-platform/sec/issues/comments/91',
+    method: 'DELETE'
+  }]);
+});
+
+test('read authority cannot delete issue comments', async () => {
+  let calls = 0;
+  const api = capability({
+    effect: 'read',
+    transport: async () => { calls += 1; return new Response(null, { status: 204 }); }
+  });
+  await expect(withGitHubApiTestSession({ capability: api, operation: () => executeGitHubApiOperation(
+    api, { kind: 'delete-issue-comment', commentId: 91 }
+  ) })).rejects.toThrow('requires issue-comment-write authority');
+  expect(calls).toBe(0);
+});
+
+test('status-write preserves pending as a first-class GitHub status state', async () => {
+  let observedBody: unknown = null;
+  const api = capability({
+    effect: 'status-write',
+    transport: async (_target, init) => {
+      observedBody = JSON.parse(String(init?.body));
+      return Response.json({ ok: true });
+    }
+  });
+  await withGitHubApiTestSession({
+    capability: api,
+    operation: () => executeGitHubApiOperation(api, {
+      kind: 'create-commit-status', sha: SHA,
+      status: { state: 'pending', context: 'sec/test', description: 'pending', targetUrl: 'https://example.test/run' }
+    })
+  });
+  expect(observedBody).toMatchObject({ state: 'pending' });
+});
+
 test('production surface excludes test issuers and the repository graph rejects their import', async () => {
   const production = await import('../../src/adapters/providers/github-api/operation-session.ts');
   expect(Object.keys(production).sort()).not.toContain('issueGitHubApiTestCapability');
   expect(Object.keys(production).sort()).not.toContain('withGitHubApiTestSession');
-  expect(() => compileSecRepositoryModuleGraph({
+  expect(() => compileRepositoryModuleGraph({
     files: [
       'src/adapters/providers/github-api/production-consumer.ts',
       'src/adapters/providers/github-api/test/operation-session.ts'
@@ -80,6 +202,106 @@ test('owner-issued operation compiles one fixed api.github.com request and keeps
   });
   expect(observations[0]!.init?.signal).toBeInstanceOf(AbortSignal);
   expect(settlement.operationSignal?.aborted).toBe(true);
+});
+
+test('observed operation preserves the exact bounded JSON response text without a second transport', async () => {
+  const raw = '{"full_name":"sec-platform/sec","default_branch":"main"} \n';
+  let transportCalls = 0;
+  const api = capability({
+    effect: 'read',
+    transport: async () => {
+      transportCalls += 1;
+      return new Response(raw, { status: 200, headers: { 'Content-Type': 'application/json' } });
+    }
+  });
+  const observed = await withGitHubApiTestSession({
+    capability: api,
+    operation: async () => await executeObservedGitHubApiOperation(api, { kind: 'repository' })
+  });
+  expect(observed.source).toBe(raw);
+  expect(observed.value).toMatchObject({ full_name: 'sec-platform/sec', default_branch: 'main' });
+  expect(transportCalls).toBe(1);
+});
+
+test('artifact bytes stay inside read authority and cross-origin redirect drops credentials', async () => {
+  const observations: Array<Readonly<{ url: string; authorization: string | null }>> = [];
+  const payload = new Uint8Array([0x50, 0x4b, 0x03, 0x04, 1, 2, 3]);
+  const api = capability({
+    effect: 'read',
+    transport: async (target, init) => {
+      const headers = new Headers(init?.headers);
+      observations.push(Object.freeze({ url: String(target), authorization: headers.get('authorization') }));
+      if (observations.length === 1) {
+        return new Response(null, {
+          status: 302,
+          headers: { location: 'https://objects.githubusercontent.test/artifact.zip?sig=opaque' }
+        });
+      }
+      return new Response(payload, { status: 200 });
+    }
+  });
+  const bytes = await withGitHubApiTestSession({
+    capability: api,
+    operation: async () => await readGitHubApiBytes(api, { kind: 'artifact-archive', artifactId: 123 })
+  });
+  expect([...bytes]).toEqual([...payload]);
+  expect(observations).toEqual([
+    {
+      url: 'https://api.github.com/repos/sec-platform/sec/actions/artifacts/123/zip',
+      authorization: `Bearer ${TOKEN}`
+    },
+    {
+      url: 'https://objects.githubusercontent.test/artifact.zip?sig=opaque',
+      authorization: null
+    }
+  ]);
+});
+
+test('artifact redirect rejects non-HTTPS targets before a second request', async () => {
+  let calls = 0;
+  const api = capability({
+    effect: 'read',
+    transport: async () => {
+      calls += 1;
+      return new Response(null, { status: 302, headers: { location: 'http://example.test/artifact.zip' } });
+    }
+  });
+  await expect(withGitHubApiTestSession({
+    capability: api,
+    operation: async () => await readGitHubApiBytes(api, { kind: 'artifact-archive', artifactId: 123 })
+  })).rejects.toThrow('credential-free HTTPS');
+  expect(calls).toBe(1);
+});
+
+test('IssueDisposition GraphQL reads compile only the fixed provider-owned queries', async () => {
+  const requests: Array<Readonly<{ path: string; body: unknown }>> = [];
+  const api = capability({
+    effect: 'read',
+    transport: async (target, init) => {
+      requests.push(Object.freeze({
+        path: new URL(String(target)).pathname,
+        body: init?.body === undefined ? null : JSON.parse(String(init.body))
+      }));
+      return Response.json({ data: { repository: {} } });
+    }
+  });
+  await withGitHubApiTestSession({
+    capability: api,
+    operation: async () => {
+      await executeGitHubApiOperation(api, {
+        kind: 'issue-closing-pull-references', pullRequestNumber: 628, cursor: 'cursor-1'
+      });
+      await executeGitHubApiOperation(api, { kind: 'issue-terminal-events', issueNumber: 352 });
+    }
+  });
+  expect(requests).toHaveLength(2);
+  expect(requests.map(({ path }) => path)).toEqual(['/graphql', '/graphql']);
+  expect(requests[0]!.body).toMatchObject({
+    variables: { owner: 'sec-platform', name: 'sec', number: 628, cursor: 'cursor-1' }
+  });
+  expect(requests[1]!.body).toMatchObject({
+    variables: { owner: 'sec-platform', name: 'sec', number: 352 }
+  });
 });
 
 test('credential enrollment binds the live numeric principal and repository permission', async () => {
@@ -755,6 +977,24 @@ test('a validated workflow locator is not re-read while compiling its request ro
   expect(targets).toEqual(['https://api.github.com/repos/sec-platform/sec/actions/runs/123']);
 });
 
+test('workflow attempt locator captures run identity and attempt exactly once', async () => {
+  const reads = { runId: 0, runAttempt: 0 };
+  const operation = Object.defineProperties({ kind: 'workflow-run-attempt' as const }, {
+    runId: { get() { reads.runId++; return reads.runId === 1 ? '123' : '../../different-resource'; } },
+    runAttempt: { get() { reads.runAttempt++; return reads.runAttempt === 1 ? 4 : 999; } }
+  }) as Parameters<typeof executeGitHubApiOperation>[1];
+  const targets: string[] = [];
+  const api = capability({ effect: 'read', transport: async target => {
+    targets.push(String(target));
+    return Response.json({ id: 123, run_attempt: 4 });
+  } });
+  await withGitHubApiTestSession({ capability: api,
+    operation: () => executeGitHubApiOperation(api, operation)
+  });
+  expect(reads).toEqual({ runId: 1, runAttempt: 1 });
+  expect(targets).toEqual(['https://api.github.com/repos/sec-platform/sec/actions/runs/123/attempts/4']);
+});
+
 test('caller mutation cannot revoke or reinterpret an already admitted DELETE response', async () => {
   const operation = { kind: 'delete-repository-runner', runnerId: 42 };
   const api = capability({ effect: 'runner-admin', principal: { ...PRINCIPAL, permission: 'admin' },
@@ -800,6 +1040,8 @@ test('request grammar rejects coercible identifiers and unsupported status state
   const api = capability({ effect: 'status-write', transport: async () => { requests++; return Response.json({}); } });
   const requestsToReject: unknown[] = [
     { kind: 'workflow-run', runId: text }, { kind: 'workflow-run', runId: 123 },
+    { kind: 'workflow-run-attempt', runId: '123', runAttempt: text },
+    { kind: 'workflow-run-attempt', runId: '123', runAttempt: 0 },
     { kind: 'commit-statuses', sha: { toString() { coerced++; return 'a'.repeat(40); } }, page: 1 },
     { kind: 'branch', branch: new String('main') }, { kind: 'unsupported' },
     { kind: 'create-commit-status', sha: 'a'.repeat(40), status: {
@@ -814,4 +1056,26 @@ test('request grammar rejects coercible identifiers and unsupported status state
   } });
   expect(coerced).toBe(0);
   expect(requests).toBe(0);
+});
+
+test('merged pull inventory uses one bounded fixed REST page and rejects invalid pages before transport', async () => {
+  const urls: string[] = [];
+  const api = capability({
+    effect: 'read',
+    transport: async (target) => {
+      urls.push(String(target));
+      return Response.json([]);
+    }
+  });
+  await withGitHubApiTestSession({
+    capability: api,
+    operation: async () => await executeGitHubApiOperation(api, { kind: 'merged-pulls', page: 1 })
+  });
+  expect(urls).toEqual([
+    'https://api.github.com/repos/sec-platform/sec/pulls?state=closed&sort=updated&direction=desc&per_page=100&page=1'
+  ]);
+  await expect(withGitHubApiTestSession({
+    capability: api,
+    operation: async () => await executeGitHubApiOperation(api, { kind: 'merged-pulls', page: 0 })
+  })).rejects.toThrow(/page/u);
 });

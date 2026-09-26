@@ -20,10 +20,15 @@ export interface RetainedCommandBoundary {
   readonly workingDirectory: RetainedCommandWorkingDirectory;
 }
 
-export type RetainedCommandAuxiliaryInput = Readonly<{
-  readonly capability: RetainedNoFollowChildProcessDirectory | RetainedNoFollowOrdinaryFile;
-  readonly kind: 'directory' | 'ordinary-file';
-}>;
+export type RetainedCommandAuxiliaryInput =
+  | Readonly<{
+      readonly capability: RetainedNoFollowChildProcessDirectory;
+      readonly kind: 'directory';
+    }>
+  | Readonly<{
+      readonly capability: RetainedNoFollowOrdinaryFile;
+      readonly kind: 'ordinary-file';
+    }>;
 
 const RETAINED_COMMAND_BOUNDARY_AUXILIARY_INPUTS =
   new WeakMap<RetainedCommandBoundary, readonly RetainedCommandAuxiliaryInput[]>();
@@ -62,5 +67,8 @@ export function assertRetainedCommandBoundaryCurrent(boundary: RetainedCommandBo
   );
   boundary.executable.assertCurrent();
   boundary.workingDirectory.assertCurrent();
-  for (const auxiliary of auxiliaryInputs) auxiliary.capability.assertCurrent();
+  for (const auxiliary of auxiliaryInputs) {
+    if (auxiliary.kind === 'ordinary-file') auxiliary.capability.assertHandleCurrent();
+    else auxiliary.capability.assertCurrent();
+  }
 }

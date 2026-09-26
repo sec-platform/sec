@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 
 import {
-  SEC_INTEGRATION_PLATFORM_POLICY,
+  INTEGRATION_PLATFORM_POLICY,
   canonicalizeIntegrationPlatformObservation
 } from '../../src/adapters/self-hosting/control/integration/platform-policy.ts';
 
@@ -9,7 +9,7 @@ const DIGEST = `sha256:${'1'.repeat(64)}` as const;
 
 describe('integration platform policy', () => {
   test('admits a stable provider feature-unavailable fact without claiming no-bypass', () => {
-    expect(SEC_INTEGRATION_PLATFORM_POLICY).toMatchObject({
+    expect(INTEGRATION_PLATFORM_POLICY).toMatchObject({
       physicalMerge: 'github-pr-squash-exact-head-cas-no-admin',
       allowPlatformEnforcementUnavailable: true,
       claimsNoBypassEnforcement: false

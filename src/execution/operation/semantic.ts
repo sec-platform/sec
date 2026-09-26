@@ -1,182 +1,165 @@
-import { createHash, randomBytes } from 'node:crypto';
+import { randomBytes } from 'node:crypto';
 import {
   compareCodeUnits,
   deepFreeze,
+  rawSha256Hex,
   sha256
 } from '../../contracts/canonical.ts';
-import { SEC_SEMANTIC_OPERATION_ID_PATTERN } from './identity.ts';
+import { SEMANTIC_OPERATION_ID_PATTERN } from './identity.ts';
 
-export type SecOperationDigest = `sha256:${string}`;
+import {
+  canonicalOperationBudget,
+  canonicalOperationEffectKinds,
+  canonicalUniqueOperationStrings,
+  type OperationBudget,
+  type OperationEffectKind
+} from './contract.ts';
 
-const SEC_OPERATION_EFFECT_KINDS = [
-  'filesystem',
-  'network',
-  'persistent-state',
-  'process',
-  'provider'
-] as const;
+export {
+  isCanonicalOperationBudgetMaximum,
+  OPERATION_BUDGET_RESOURCES,
+  OPERATION_EFFECT_KINDS,
+  PROCESS_OPERATION_BUDGET_RESOURCES
+} from './contract.ts';
+export type { OperationBudget, OperationBudgetResource, OperationEffectKind } from './contract.ts';
 
-export type SecOperationEffectKind = (typeof SEC_OPERATION_EFFECT_KINDS)[number];
+export type OperationDigest = `sha256:${string}`;
 
-export const SEC_OPERATION_BUDGET_RESOURCES = [
-  'duration-ms',
-  'input-bytes',
-  'output-bytes',
-  'processes',
-  'records'
-] as const;
-
-export type SecOperationBudgetResource =
-  (typeof SEC_OPERATION_BUDGET_RESOURCES)[number];
-
-export const SEC_PROCESS_OPERATION_BUDGET_RESOURCES = Object.freeze([
-  'duration-ms',
-  'input-bytes',
-  'output-bytes',
-  'processes'
-] as const satisfies readonly SecOperationBudgetResource[]);
-
-export type SecOperationRequirement = Readonly<{
+export type OperationRequirement = Readonly<{
   readonly id: string;
-  readonly contractDigest: SecOperationDigest;
-  readonly effectKinds: readonly SecOperationEffectKind[];
+  readonly contractDigest: OperationDigest;
+  readonly effectKinds: readonly OperationEffectKind[];
   readonly failureKinds: readonly string[];
 }>;
 
-export type SecOperationBudget = Readonly<{
-  readonly resource: SecOperationBudgetResource;
-  /** Static aggregate ceiling. Runtime consumption belongs to the physical resource ledger. */
-  readonly maximum: number;
-}>;
-
-type SecSemanticOperationIdentity = Readonly<{
+type SemanticOperationIdentity = Readonly<{
   readonly operation: string;
-  readonly intentDigest: SecOperationDigest;
-  readonly decisionDigest: SecOperationDigest;
-  readonly identityDigest: SecOperationDigest;
+  readonly intentDigest: OperationDigest;
+  readonly decisionDigest: OperationDigest;
+  readonly identityDigest: OperationDigest;
 }>;
 
-type SecSemanticOperationExecutionPlan = Readonly<{
-  readonly operationIdentityDigest: SecOperationDigest;
-  readonly aggregateBudgets: readonly SecOperationBudget[];
-  readonly requirements: readonly SecOperationRequirement[];
-  readonly executionPlanDigest: SecOperationDigest;
+type SemanticOperationExecutionPlan = Readonly<{
+  readonly operationIdentityDigest: OperationDigest;
+  readonly aggregateBudgets: readonly OperationBudget[];
+  readonly requirements: readonly OperationRequirement[];
+  readonly executionPlanDigest: OperationDigest;
 }>;
 
 /** Stable OperationKey and Effect plan; physical attempts are issued separately. */
-export type SecSemanticOperationIntent = Readonly<{
-  readonly identity: SecSemanticOperationIdentity;
-  readonly execution: SecSemanticOperationExecutionPlan;
+export type SemanticOperationIntent = Readonly<{
+  readonly identity: SemanticOperationIdentity;
+  readonly execution: SemanticOperationExecutionPlan;
 }>;
 
-export type SecSemanticOperationAttemptContext = Readonly<{
-  readonly authorityGrantDigest: SecOperationDigest;
-  readonly runIdDigest: SecOperationDigest | null;
-  readonly resumeEpochDigest: SecOperationDigest | null;
-  readonly attemptNonceDigest: SecOperationDigest;
+export type SemanticOperationAttemptContext = Readonly<{
+  readonly authorityGrantDigest: OperationDigest;
+  readonly runIdDigest: OperationDigest | null;
+  readonly resumeEpochDigest: OperationDigest | null;
+  readonly attemptNonceDigest: OperationDigest;
 }>;
 
-type SecSemanticOperationAttempt = Readonly<{
-  readonly operationIdentityDigest: SecOperationDigest;
-  readonly executionPlanDigest: SecOperationDigest;
-  readonly authorityGrantDigest: SecOperationDigest;
-  readonly runIdDigest: SecOperationDigest | null;
-  readonly resumeEpochDigest: SecOperationDigest | null;
-  readonly attemptNonceDigest: SecOperationDigest;
+type SemanticOperationAttempt = Readonly<{
+  readonly operationIdentityDigest: OperationDigest;
+  readonly executionPlanDigest: OperationDigest;
+  readonly authorityGrantDigest: OperationDigest;
+  readonly runIdDigest: OperationDigest | null;
+  readonly resumeEpochDigest: OperationDigest | null;
+  readonly attemptNonceDigest: OperationDigest;
   readonly deadlineAtUnixMs: number;
-  readonly attemptDigest: SecOperationDigest;
+  readonly attemptDigest: OperationDigest;
 }>;
 
-export type SecSemanticOperationPlan = Readonly<{
-  readonly identity: SecSemanticOperationIdentity;
-  readonly execution: SecSemanticOperationExecutionPlan;
-  readonly attempt: SecSemanticOperationAttempt;
+export type SemanticOperationPlan = Readonly<{
+  readonly identity: SemanticOperationIdentity;
+  readonly execution: SemanticOperationExecutionPlan;
+  readonly attempt: SemanticOperationAttempt;
 }>;
 
-export type SecCapabilityBinding = Readonly<{
+export type CapabilityBinding = Readonly<{
   readonly requirementId: string;
-  readonly contractDigest: SecOperationDigest;
-  readonly providerIdentityDigest: SecOperationDigest;
-  readonly bindingDigest: SecOperationDigest;
+  readonly contractDigest: OperationDigest;
+  readonly providerIdentityDigest: OperationDigest;
+  readonly bindingDigest: OperationDigest;
 }>;
 
-export type SecBoundSemanticOperation = Readonly<{
-  readonly plan: SecSemanticOperationPlan;
-  readonly bindings: readonly SecCapabilityBinding[];
-  readonly bindingSetIdentityDigest: SecOperationDigest;
-  readonly boundAttemptDigest: SecOperationDigest;
+export type BoundSemanticOperation = Readonly<{
+  readonly plan: SemanticOperationPlan;
+  readonly bindings: readonly CapabilityBinding[];
+  readonly bindingSetIdentityDigest: OperationDigest;
+  readonly boundAttemptDigest: OperationDigest;
 }>;
 
-const SEC_PROVIDER_PHYSICAL_DISPOSITIONS = [
+const PROVIDER_PHYSICAL_DISPOSITIONS = [
   'not-started',
   'settled',
   'unknown'
 ] as const;
 
-export type SecProviderPhysicalDisposition =
-  (typeof SEC_PROVIDER_PHYSICAL_DISPOSITIONS)[number];
+export type ProviderPhysicalDisposition =
+  (typeof PROVIDER_PHYSICAL_DISPOSITIONS)[number];
 
-const SEC_DOMAIN_READBACK_DISPOSITIONS = [
+const DOMAIN_READBACK_DISPOSITIONS = [
   'applied',
   'not-applied',
   'unknown'
 ] as const;
 
-export type SecDomainReadbackDisposition =
-  (typeof SEC_DOMAIN_READBACK_DISPOSITIONS)[number];
+export type DomainReadbackDisposition =
+  (typeof DOMAIN_READBACK_DISPOSITIONS)[number];
 
 /** Physical settlement for exactly one requirement of one bound attempt. */
-export type SecProviderSettlementReceipt = Readonly<{
+export type ProviderSettlementReceipt = Readonly<{
   readonly requirementId: string;
-  readonly contractDigest: SecOperationDigest;
-  readonly bindingDigest: SecOperationDigest;
-  readonly operationIdentityDigest: SecOperationDigest;
-  readonly executionPlanDigest: SecOperationDigest;
-  readonly boundAttemptDigest: SecOperationDigest;
-  readonly physicalDisposition: SecProviderPhysicalDisposition;
-  readonly providerSettlementReferenceDigest: SecOperationDigest;
-  readonly providerReceiptDigest: SecOperationDigest;
+  readonly contractDigest: OperationDigest;
+  readonly bindingDigest: OperationDigest;
+  readonly operationIdentityDigest: OperationDigest;
+  readonly executionPlanDigest: OperationDigest;
+  readonly boundAttemptDigest: OperationDigest;
+  readonly physicalDisposition: ProviderPhysicalDisposition;
+  readonly providerSettlementReferenceDigest: OperationDigest;
+  readonly providerReceiptDigest: OperationDigest;
 }>;
 
 /** Canonical exact set: one provider settlement for every requirement. */
-export type SecProviderSettlementSet = Readonly<{
-  readonly operationIdentityDigest: SecOperationDigest;
-  readonly executionPlanDigest: SecOperationDigest;
-  readonly bindingSetIdentityDigest: SecOperationDigest;
-  readonly boundAttemptDigest: SecOperationDigest;
-  readonly settlements: readonly SecProviderSettlementReceipt[];
-  readonly providerReceiptDigests: readonly SecOperationDigest[];
-  readonly providerSettlementSetDigest: SecOperationDigest;
+export type ProviderSettlementSet = Readonly<{
+  readonly operationIdentityDigest: OperationDigest;
+  readonly executionPlanDigest: OperationDigest;
+  readonly bindingSetIdentityDigest: OperationDigest;
+  readonly boundAttemptDigest: OperationDigest;
+  readonly settlements: readonly ProviderSettlementReceipt[];
+  readonly providerReceiptDigests: readonly OperationDigest[];
+  readonly providerSettlementSetDigest: OperationDigest;
 }>;
 
-type SecDomainReadbackReceiptBase = Readonly<{
-  readonly operationIdentityDigest: SecOperationDigest;
-  readonly executionPlanDigest: SecOperationDigest;
-  readonly bindingSetIdentityDigest: SecOperationDigest;
-  readonly boundAttemptDigest: SecOperationDigest;
-  readonly readbackContractDigest: SecOperationDigest;
-  readonly readbackReferenceDigest: SecOperationDigest;
-  readonly currentPhysicalEpochDigest: SecOperationDigest;
-  readonly disposition: SecDomainReadbackDisposition;
-  readonly readbackReceiptDigest: SecOperationDigest;
+type DomainReadbackReceiptBase = Readonly<{
+  readonly operationIdentityDigest: OperationDigest;
+  readonly executionPlanDigest: OperationDigest;
+  readonly bindingSetIdentityDigest: OperationDigest;
+  readonly boundAttemptDigest: OperationDigest;
+  readonly readbackContractDigest: OperationDigest;
+  readonly readbackReferenceDigest: OperationDigest;
+  readonly currentPhysicalEpochDigest: OperationDigest;
+  readonly disposition: DomainReadbackDisposition;
+  readonly readbackReceiptDigest: OperationDigest;
 }>;
 
-export type SecNormalDomainReadbackReceipt = SecDomainReadbackReceiptBase & Readonly<{
+export type NormalDomainReadbackReceipt = DomainReadbackReceiptBase & Readonly<{
   readonly recoveryMode: 'normal';
-  readonly providerSettlementSetDigest: SecOperationDigest;
+  readonly providerSettlementSetDigest: OperationDigest;
   readonly durableObservationDigest: null;
 }>;
 
-export type SecRecoveredDomainReadbackReceipt = SecDomainReadbackReceiptBase & Readonly<{
+export type RecoveredDomainReadbackReceipt = DomainReadbackReceiptBase & Readonly<{
   readonly recoveryMode: 'recovered';
   readonly providerSettlementSetDigest: null;
-  readonly durableObservationDigest: SecOperationDigest;
-  readonly predecessorExecutionPlanDigest: SecOperationDigest;
-  readonly predecessorBindingSetIdentityDigest: SecOperationDigest;
-  readonly predecessorBoundAttemptDigest: SecOperationDigest;
-  readonly predecessorAttemptNonceDigest: SecOperationDigest;
-  readonly predecessorAuthorityGrantDigest: SecOperationDigest;
-  readonly predecessorResumeEpochDigest: SecOperationDigest | null;
+  readonly durableObservationDigest: OperationDigest;
+  readonly predecessorExecutionPlanDigest: OperationDigest;
+  readonly predecessorBindingSetIdentityDigest: OperationDigest;
+  readonly predecessorBoundAttemptDigest: OperationDigest;
+  readonly predecessorAttemptNonceDigest: OperationDigest;
+  readonly predecessorAuthorityGrantDigest: OperationDigest;
+  readonly predecessorResumeEpochDigest: OperationDigest | null;
   readonly predecessorDeadlineAtUnixMs: number;
 }>;
 
@@ -186,55 +169,55 @@ export type SecRecoveredDomainReadbackReceipt = SecDomainReadbackReceiptBase & R
  * obtain a new recovery operation from current authority before a domain owner
  * can turn these coordinates into a readback receipt.
  */
-export type SecRecoveredPredecessorAttemptReference = Readonly<{
-  readonly operationIdentityDigest: SecOperationDigest;
-  readonly executionPlanDigest: SecOperationDigest;
-  readonly bindingSetIdentityDigest: SecOperationDigest;
-  readonly boundAttemptDigest: SecOperationDigest;
-  readonly attemptNonceDigest: SecOperationDigest;
-  readonly authorityGrantDigest: SecOperationDigest;
-  readonly resumeEpochDigest: SecOperationDigest | null;
+export type RecoveredPredecessorAttemptReference = Readonly<{
+  readonly operationIdentityDigest: OperationDigest;
+  readonly executionPlanDigest: OperationDigest;
+  readonly bindingSetIdentityDigest: OperationDigest;
+  readonly boundAttemptDigest: OperationDigest;
+  readonly attemptNonceDigest: OperationDigest;
+  readonly authorityGrantDigest: OperationDigest;
+  readonly resumeEpochDigest: OperationDigest | null;
   readonly deadlineAtUnixMs: number;
 }>;
 
-export type SecDomainReadbackReceipt =
-  | SecNormalDomainReadbackReceipt
-  | SecRecoveredDomainReadbackReceipt;
+export type DomainReadbackReceipt =
+  | NormalDomainReadbackReceipt
+  | RecoveredDomainReadbackReceipt;
 
-export type SecOwnerTerminalJoinReceipt = Readonly<{
+export type OwnerTerminalJoinReceipt = Readonly<{
   readonly recoveryMode: 'normal' | 'recovered';
-  readonly operationIdentityDigest: SecOperationDigest;
-  readonly executionPlanDigest: SecOperationDigest;
-  readonly bindingSetIdentityDigest: SecOperationDigest;
-  readonly boundAttemptDigest: SecOperationDigest;
-  readonly providerSettlementSetDigest: SecOperationDigest | null;
-  readonly readbackReceiptDigest: SecOperationDigest;
-  readonly ownerTerminalContractDigest: SecOperationDigest;
-  readonly ownerTerminalReferenceDigest: SecOperationDigest;
-  readonly joinReceiptDigest: SecOperationDigest;
+  readonly operationIdentityDigest: OperationDigest;
+  readonly executionPlanDigest: OperationDigest;
+  readonly bindingSetIdentityDigest: OperationDigest;
+  readonly boundAttemptDigest: OperationDigest;
+  readonly providerSettlementSetDigest: OperationDigest | null;
+  readonly readbackReceiptDigest: OperationDigest;
+  readonly ownerTerminalContractDigest: OperationDigest;
+  readonly ownerTerminalReferenceDigest: OperationDigest;
+  readonly joinReceiptDigest: OperationDigest;
 }>;
 
-export type SecRecoveredRetryAdmission = Readonly<{
-  readonly operationIdentityDigest: SecOperationDigest;
-  readonly previousExecutionPlanDigest: SecOperationDigest;
-  readonly previousBindingSetIdentityDigest: SecOperationDigest;
-  readonly previousBoundAttemptDigest: SecOperationDigest;
-  readonly previousAttemptNonceDigest: SecOperationDigest;
+export type RecoveredRetryAdmission = Readonly<{
+  readonly operationIdentityDigest: OperationDigest;
+  readonly previousExecutionPlanDigest: OperationDigest;
+  readonly previousBindingSetIdentityDigest: OperationDigest;
+  readonly previousBoundAttemptDigest: OperationDigest;
+  readonly previousAttemptNonceDigest: OperationDigest;
   readonly previousDeadlineAtUnixMs: number;
-  readonly recoveryBoundAttemptDigest: SecOperationDigest;
-  readonly recoveryAuthorityGrantDigest: SecOperationDigest;
-  readonly recoveryResumeEpochDigest: SecOperationDigest;
-  readonly recoveredReadbackReceiptDigest: SecOperationDigest;
-  readonly currentPhysicalEpochDigest: SecOperationDigest;
-  readonly retryAdmissionDigest: SecOperationDigest;
+  readonly recoveryBoundAttemptDigest: OperationDigest;
+  readonly recoveryAuthorityGrantDigest: OperationDigest;
+  readonly recoveryResumeEpochDigest: OperationDigest;
+  readonly recoveredReadbackReceiptDigest: OperationDigest;
+  readonly currentPhysicalEpochDigest: OperationDigest;
+  readonly retryAdmissionDigest: OperationDigest;
 }>;
 
-export type SecCapabilityDiagnostic = Readonly<{
-  readonly bindingDigest: SecOperationDigest;
+export type CapabilityDiagnostic = Readonly<{
+  readonly bindingDigest: OperationDigest;
   readonly code: string;
   readonly failureKind: string;
   readonly evidenceByteLength: number;
-  readonly evidenceDigest: SecOperationDigest;
+  readonly evidenceDigest: OperationDigest;
 }>;
 
 const DIGEST_PATTERN = /^sha256:[0-9a-f]{64}$/u;
@@ -245,81 +228,49 @@ const ISSUED_RECOVERED_RETRY_ADMISSIONS = new WeakSet<object>();
 const CONSUMED_RECOVERED_READBACK_RECEIPTS = new WeakSet<object>();
 const CONSUMED_RECOVERED_RETRY_ADMISSIONS = new WeakSet<object>();
 
-function requireDigest(value: string, label: string): SecOperationDigest {
+function requireDigest(value: string, label: string): OperationDigest {
   if (!DIGEST_PATTERN.test(value)) {
     throw new Error(`${label} must be a canonical SHA-256 digest.`);
   }
-  return value as SecOperationDigest;
+  return value as OperationDigest;
 }
 
 function requireId(value: string, label: string): string {
-  if (!SEC_SEMANTIC_OPERATION_ID_PATTERN.test(value)) {
+  if (!SEMANTIC_OPERATION_ID_PATTERN.test(value)) {
     throw new Error(`${label} must be a canonical semantic identity.`);
   }
   return value;
 }
 
-function canonicalUniqueStrings(values: readonly string[], label: string): readonly string[] {
-  const canonical = [...values].sort(compareCodeUnits);
-  if (canonical.some((value) => value.length === 0 || value.trim() !== value)
-      || new Set(canonical).size !== canonical.length) {
-    throw new Error(`${label} must contain unique non-empty canonical values.`);
-  }
-  return Object.freeze(canonical);
-}
-
-export function isCanonicalSecOperationBudgetMaximum(
-  resource: SecOperationBudgetResource,
-  maximum: number
-): boolean {
-  return SEC_OPERATION_BUDGET_RESOURCES.includes(resource)
-    && Number.isSafeInteger(maximum)
-    && (maximum > 0 || (resource === 'input-bytes' && maximum === 0));
-}
-
-function canonicalOperationBudget(budget: SecOperationBudget): SecOperationBudget {
-  const keys = Object.keys(budget).sort(compareCodeUnits);
-  if (keys.length !== 2 || keys[0] !== 'maximum' || keys[1] !== 'resource'
-      || !isCanonicalSecOperationBudgetMaximum(budget.resource, budget.maximum)) {
-    throw new Error('Semantic operation aggregate budget is not canonical.');
-  }
-  return Object.freeze({ resource: budget.resource, maximum: budget.maximum });
-}
-
 function canonicalRequirement(
-  requirement: SecOperationRequirement
-): SecOperationRequirement {
+  requirement: OperationRequirement
+): OperationRequirement {
   const id = requireId(requirement.id, 'Operation requirement id');
-  const effectKinds = canonicalUniqueStrings(
+  const effectKinds = canonicalOperationEffectKinds(
     requirement.effectKinds,
     `Operation requirement ${id} effect kinds`
   );
-  if (effectKinds.some((kind) => !SEC_OPERATION_EFFECT_KINDS.includes(
-    kind as SecOperationEffectKind
-  ))) {
-    throw new Error(`Operation requirement ${id} contains an unsupported Effect kind.`);
-  }
   return deepFreeze({
     id,
     contractDigest: requireDigest(
       requirement.contractDigest,
       `Operation requirement ${id} contract digest`
     ),
-    effectKinds: effectKinds as readonly SecOperationEffectKind[],
-    failureKinds: canonicalUniqueStrings(
+    effectKinds: effectKinds as readonly OperationEffectKind[],
+    failureKinds: canonicalUniqueOperationStrings(
       requirement.failureKinds,
       `Operation requirement ${id} failure kinds`
     )
   });
 }
 
-export function compileSecSemanticOperationIntent(input: Readonly<{
+export function compileSemanticOperationIntent(input: Readonly<{
   readonly operation: string;
-  readonly intentDigest: SecOperationDigest;
-  readonly decisionDigest: SecOperationDigest;
-  readonly aggregateBudgets: readonly SecOperationBudget[];
-  readonly requirements: readonly SecOperationRequirement[];
-}>): SecSemanticOperationIntent {
+  readonly intentDigest: OperationDigest;
+  readonly decisionDigest: OperationDigest;
+  readonly aggregateBudgets: readonly OperationBudget[];
+  readonly requirements: readonly OperationRequirement[];
+}>): SemanticOperationIntent {
   const operation = requireId(input.operation, 'Semantic operation');
   const aggregateBudgets = [...input.aggregateBudgets]
     .sort((left, right) => compareCodeUnits(left.resource, right.resource))
@@ -342,7 +293,7 @@ export function compileSecSemanticOperationIntent(input: Readonly<{
   });
   const identity = deepFreeze({
     ...identityWithoutDigest,
-    identityDigest: sha256(identityWithoutDigest) as SecOperationDigest
+    identityDigest: sha256(identityWithoutDigest) as OperationDigest
   });
   const executionWithoutDigest = deepFreeze({
     operationIdentityDigest: identity.identityDigest,
@@ -351,27 +302,27 @@ export function compileSecSemanticOperationIntent(input: Readonly<{
   });
   const execution = deepFreeze({
     ...executionWithoutDigest,
-    executionPlanDigest: sha256(executionWithoutDigest) as SecOperationDigest
+    executionPlanDigest: sha256(executionWithoutDigest) as OperationDigest
   });
   return deepFreeze({ identity, execution });
 }
 
-export function compileSecSemanticOperationPlan(input: Readonly<{
+export function compileSemanticOperationPlan(input: Readonly<{
   readonly operation: string;
-  readonly intentDigest: SecOperationDigest;
-  readonly decisionDigest: SecOperationDigest;
+  readonly intentDigest: OperationDigest;
+  readonly decisionDigest: OperationDigest;
   readonly deadlineAtUnixMs: number;
-  readonly aggregateBudgets: readonly SecOperationBudget[];
-  readonly requirements: readonly SecOperationRequirement[];
-  readonly attempt: SecSemanticOperationAttemptContext;
-}>): SecSemanticOperationPlan {
+  readonly aggregateBudgets: readonly OperationBudget[];
+  readonly requirements: readonly OperationRequirement[];
+  readonly attempt: SemanticOperationAttemptContext;
+}>): SemanticOperationPlan {
   if (!Number.isSafeInteger(input.deadlineAtUnixMs) || input.deadlineAtUnixMs < 1) {
     throw new Error('Semantic operation deadline must be an absolute safe integer.');
   }
   if (!COMPILED_ATTEMPT_CONTEXTS.has(input.attempt)) {
     throw new Error('Semantic operation attempt context is not foundation-compiled.');
   }
-  const { identity, execution } = compileSecSemanticOperationIntent(input);
+  const { identity, execution } = compileSemanticOperationIntent(input);
   const attemptWithoutDigest = deepFreeze({
     operationIdentityDigest: identity.identityDigest,
     executionPlanDigest: execution.executionPlanDigest,
@@ -386,7 +337,7 @@ export function compileSecSemanticOperationPlan(input: Readonly<{
     execution,
     attempt: deepFreeze({
       ...attemptWithoutDigest,
-      attemptDigest: sha256(attemptWithoutDigest) as SecOperationDigest
+      attemptDigest: sha256(attemptWithoutDigest) as OperationDigest
     })
   });
   COMPILED_OPERATION_PLANS.add(plan);
@@ -398,11 +349,11 @@ export function compileSecSemanticOperationPlan(input: Readonly<{
  * accidental attempt reuse, but the caller-supplied grant digest is not
  * Effect authority.
  */
-export function issueSecSemanticOperationAttemptContext(input: Readonly<{
-  readonly authorityGrantDigest: SecOperationDigest;
-  readonly runIdDigest?: SecOperationDigest | null;
-  readonly resumeEpochDigest?: SecOperationDigest | null;
-}>): SecSemanticOperationAttemptContext {
+export function issueSemanticOperationAttemptContext(input: Readonly<{
+  readonly authorityGrantDigest: OperationDigest;
+  readonly runIdDigest?: OperationDigest | null;
+  readonly resumeEpochDigest?: OperationDigest | null;
+}>): SemanticOperationAttemptContext {
   const context = deepFreeze({
     authorityGrantDigest: requireDigest(
       input.authorityGrantDigest,
@@ -414,17 +365,17 @@ export function issueSecSemanticOperationAttemptContext(input: Readonly<{
     resumeEpochDigest: input.resumeEpochDigest === undefined || input.resumeEpochDigest === null
       ? null
       : requireDigest(input.resumeEpochDigest, 'Semantic operation resume epoch digest'),
-    attemptNonceDigest: `sha256:${randomBytes(32).toString('hex')}` as SecOperationDigest
+    attemptNonceDigest: `sha256:${randomBytes(32).toString('hex')}` as OperationDigest
   });
   COMPILED_ATTEMPT_CONTEXTS.add(context);
   return context;
 }
 
-export function compileSecCapabilityBinding(input: Readonly<{
+export function compileCapabilityBinding(input: Readonly<{
   readonly requirementId: string;
-  readonly contractDigest: SecOperationDigest;
-  readonly providerIdentityDigest: SecOperationDigest;
-}>): SecCapabilityBinding {
+  readonly contractDigest: OperationDigest;
+  readonly providerIdentityDigest: OperationDigest;
+}>): CapabilityBinding {
   const withoutDigest = deepFreeze({
     requirementId: requireId(input.requirementId, 'Capability binding requirement id'),
     contractDigest: requireDigest(input.contractDigest, 'Capability binding contract digest'),
@@ -435,15 +386,15 @@ export function compileSecCapabilityBinding(input: Readonly<{
   });
   return deepFreeze({
     ...withoutDigest,
-    bindingDigest: sha256(withoutDigest) as SecOperationDigest
+    bindingDigest: sha256(withoutDigest) as OperationDigest
   });
 }
 
-export function bindSecSemanticOperation(
-  plan: SecSemanticOperationPlan,
-  suppliedBindings: readonly SecCapabilityBinding[]
-): SecBoundSemanticOperation {
-  assertSecSemanticOperationPlan(plan);
+export function bindSemanticOperation(
+  plan: SemanticOperationPlan,
+  suppliedBindings: readonly CapabilityBinding[]
+): BoundSemanticOperation {
+  assertSemanticOperationPlan(plan);
   const bindings = [...suppliedBindings]
     .sort((left, right) => compareCodeUnits(left.requirementId, right.requirementId));
   if (bindings.length !== plan.execution.requirements.length
@@ -455,7 +406,7 @@ export function bindSecSemanticOperation(
     if (binding === undefined || binding.contractDigest !== requirement.contractDigest) {
       throw new Error(`Semantic operation requirement ${requirement.id} is not exactly bound.`);
     }
-    const canonical = compileSecCapabilityBinding(binding);
+    const canonical = compileCapabilityBinding(binding);
     if (canonical.bindingDigest !== binding.bindingDigest) {
       throw new Error(`Semantic operation requirement ${requirement.id} binding is noncanonical.`);
     }
@@ -465,7 +416,7 @@ export function bindSecSemanticOperation(
     operationIdentityDigest: plan.identity.identityDigest,
     executionPlanDigest: plan.execution.executionPlanDigest,
     bindings: frozenBindings.map(({ bindingDigest }) => bindingDigest)
-  }) as SecOperationDigest;
+  }) as OperationDigest;
   const bound = deepFreeze({
     plan,
     bindings: frozenBindings,
@@ -473,14 +424,14 @@ export function bindSecSemanticOperation(
     boundAttemptDigest: sha256({
       attemptDigest: plan.attempt.attemptDigest,
       bindingSetIdentityDigest
-    }) as SecOperationDigest
+    }) as OperationDigest
   });
   return bound;
 }
 
 /** Structural plan bytes do not prove that the operation foundation compiled them. */
-export function assertSecSemanticOperationPlan(
-  plan: SecSemanticOperationPlan
+export function assertSemanticOperationPlan(
+  plan: SemanticOperationPlan
 ): void {
   if (!COMPILED_OPERATION_PLANS.has(plan)) {
     throw new Error('Semantic operation binding requires a foundation-compiled operation plan.');
@@ -492,26 +443,26 @@ export function assertSecSemanticOperationPlan(
  * budget projection.  Passing this check never grants an Effect: the domain
  * owner must still require its own opaque provider/physical capability.
  */
-export function assertSecSemanticOperationProjection(
-  operation: SecBoundSemanticOperation
+export function assertSemanticOperationProjection(
+  operation: BoundSemanticOperation
 ): void {
-  assertSecSemanticOperationPlan(operation.plan);
-  const rebound = bindSecSemanticOperation(operation.plan, operation.bindings);
+  assertSemanticOperationPlan(operation.plan);
+  const rebound = bindSemanticOperation(operation.plan, operation.bindings);
   if (rebound.bindingSetIdentityDigest !== operation.bindingSetIdentityDigest
       || rebound.boundAttemptDigest !== operation.boundAttemptDigest) {
     throw new Error('Semantic operation projection is not canonical.');
   }
 }
 
-export function issueSecProviderSettlementReceipt(
-  operation: SecBoundSemanticOperation,
+export function issueProviderSettlementReceipt(
+  operation: BoundSemanticOperation,
   input: Readonly<{
     readonly requirementId: string;
-    readonly physicalDisposition: SecProviderPhysicalDisposition;
-    readonly providerSettlementReferenceDigest: SecOperationDigest;
+    readonly physicalDisposition: ProviderPhysicalDisposition;
+    readonly providerSettlementReferenceDigest: OperationDigest;
   }>
-): SecProviderSettlementReceipt {
-  assertSecSemanticOperationProjection(operation);
+): ProviderSettlementReceipt {
+  assertSemanticOperationProjection(operation);
   const requirementId = requireId(input.requirementId, 'Provider settlement requirement id');
   const requirement = operation.plan.execution.requirements.find(
     ({ id }) => id === requirementId
@@ -523,7 +474,7 @@ export function issueSecProviderSettlementReceipt(
       || binding.contractDigest !== requirement.contractDigest) {
     throw new Error('Provider settlement does not bind an exact operation requirement.');
   }
-  if (!SEC_PROVIDER_PHYSICAL_DISPOSITIONS.includes(input.physicalDisposition)) {
+  if (!PROVIDER_PHYSICAL_DISPOSITIONS.includes(input.physicalDisposition)) {
     throw new Error('Provider physical disposition is not canonical.');
   }
   const withoutDigest = deepFreeze({
@@ -544,18 +495,18 @@ export function issueSecProviderSettlementReceipt(
     providerReceiptDigest: sha256({
       domain: 'sec.operation.provider-settlement-receipt',
       receipt: withoutDigest
-    }) as SecOperationDigest
+    }) as OperationDigest
   });
   return receipt;
 }
 
-export function assertSecProviderSettlementReceipt(
+export function assertProviderSettlementReceipt(
   value: unknown
-): asserts value is SecProviderSettlementReceipt {
+): asserts value is ProviderSettlementReceipt {
   if (value === null || typeof value !== 'object') {
     throw new Error('Provider settlement projection is invalid.');
   }
-  const receipt = value as SecProviderSettlementReceipt;
+  const receipt = value as ProviderSettlementReceipt;
   const { providerReceiptDigest, ...withoutDigest } = receipt;
   if (!DIGEST_PATTERN.test(providerReceiptDigest)
       || sha256({ domain: 'sec.operation.provider-settlement-receipt', receipt: withoutDigest })
@@ -564,11 +515,11 @@ export function assertSecProviderSettlementReceipt(
   }
 }
 
-export function compileSecProviderSettlementSet(
-  operation: SecBoundSemanticOperation,
-  suppliedSettlements: readonly SecProviderSettlementReceipt[]
-): SecProviderSettlementSet {
-  assertSecSemanticOperationProjection(operation);
+export function compileProviderSettlementSet(
+  operation: BoundSemanticOperation,
+  suppliedSettlements: readonly ProviderSettlementReceipt[]
+): ProviderSettlementSet {
+  assertSemanticOperationProjection(operation);
   const settlements = [...suppliedSettlements].sort((left, right) => (
     compareCodeUnits(left.requirementId, right.requirementId)
   ));
@@ -579,7 +530,7 @@ export function compileSecProviderSettlementSet(
   }
   for (const [index, requirement] of operation.plan.execution.requirements.entries()) {
     const settlement = settlements[index];
-    assertSecProviderSettlementReceipt(settlement);
+    assertProviderSettlementReceipt(settlement);
     const binding = operation.bindings[index];
     if (settlement.requirementId !== requirement.id
         || binding?.requirementId !== requirement.id
@@ -610,20 +561,20 @@ export function compileSecProviderSettlementSet(
     providerSettlementSetDigest: sha256({
       domain: 'sec.operation.provider-settlement-set',
       settlementSet: withoutDigest
-    }) as SecOperationDigest
+    }) as OperationDigest
   });
   return settlementSet;
 }
 
-export function assertSecProviderSettlementSet(
+export function assertProviderSettlementSet(
   value: unknown
-): asserts value is SecProviderSettlementSet {
+): asserts value is ProviderSettlementSet {
   if (value === null || typeof value !== 'object') {
     throw new Error('Provider settlement projection set is invalid.');
   }
-  const settlementSet = value as SecProviderSettlementSet;
+  const settlementSet = value as ProviderSettlementSet;
   for (const settlement of settlementSet.settlements ?? []) {
-    assertSecProviderSettlementReceipt(settlement);
+    assertProviderSettlementReceipt(settlement);
   }
   const { providerSettlementSetDigest, ...withoutDigest } = settlementSet;
   if (!DIGEST_PATTERN.test(providerSettlementSetDigest)
@@ -633,27 +584,27 @@ export function assertSecProviderSettlementSet(
   }
 }
 
-function requireBoundReadbackOperation(operation: SecBoundSemanticOperation): void {
-  assertSecSemanticOperationProjection(operation);
+function requireBoundReadbackOperation(operation: BoundSemanticOperation): void {
+  assertSemanticOperationProjection(operation);
 }
 
-function canonicalReadbackDisposition(value: string): SecDomainReadbackDisposition {
-  if (!SEC_DOMAIN_READBACK_DISPOSITIONS.includes(value as SecDomainReadbackDisposition)) {
+function canonicalReadbackDisposition(value: string): DomainReadbackDisposition {
+  if (!DOMAIN_READBACK_DISPOSITIONS.includes(value as DomainReadbackDisposition)) {
     throw new Error('Domain readback disposition is not canonical.');
   }
-  return value as SecDomainReadbackDisposition;
+  return value as DomainReadbackDisposition;
 }
 
 function issueDomainReadbackReceipt(input: Readonly<{
-  readonly operation: SecBoundSemanticOperation;
+  readonly operation: BoundSemanticOperation;
   readonly recoveryMode: 'normal' | 'recovered';
-  readonly providerSettlementSetDigest: SecOperationDigest | null;
-  readonly durableObservationDigest: SecOperationDigest | null;
-  readonly readbackContractDigest: SecOperationDigest;
-  readonly readbackReferenceDigest: SecOperationDigest;
-  readonly currentPhysicalEpochDigest: SecOperationDigest;
-  readonly disposition: SecDomainReadbackDisposition;
-}>): SecDomainReadbackReceipt {
+  readonly providerSettlementSetDigest: OperationDigest | null;
+  readonly durableObservationDigest: OperationDigest | null;
+  readonly readbackContractDigest: OperationDigest;
+  readonly readbackReferenceDigest: OperationDigest;
+  readonly currentPhysicalEpochDigest: OperationDigest;
+  readonly disposition: DomainReadbackDisposition;
+}>): DomainReadbackReceipt {
   const withoutDigest = deepFreeze({
     recoveryMode: input.recoveryMode,
     operationIdentityDigest: input.operation.plan.identity.identityDigest,
@@ -681,23 +632,23 @@ function issueDomainReadbackReceipt(input: Readonly<{
     readbackReceiptDigest: sha256({
       domain: 'sec.operation.domain-readback-receipt',
       readback: withoutDigest
-    }) as SecOperationDigest
-  }) as SecDomainReadbackReceipt;
+    }) as OperationDigest
+  }) as DomainReadbackReceipt;
   return receipt;
 }
 
-export function issueSecNormalDomainReadbackReceipt(
-  operation: SecBoundSemanticOperation,
-  providerSettlementSet: SecProviderSettlementSet,
+export function issueNormalDomainReadbackReceipt(
+  operation: BoundSemanticOperation,
+  providerSettlementSet: ProviderSettlementSet,
   input: Readonly<{
-    readonly readbackContractDigest: SecOperationDigest;
-    readonly readbackReferenceDigest: SecOperationDigest;
-    readonly currentPhysicalEpochDigest: SecOperationDigest;
-    readonly disposition: SecDomainReadbackDisposition;
+    readonly readbackContractDigest: OperationDigest;
+    readonly readbackReferenceDigest: OperationDigest;
+    readonly currentPhysicalEpochDigest: OperationDigest;
+    readonly disposition: DomainReadbackDisposition;
   }>
-): SecNormalDomainReadbackReceipt {
+): NormalDomainReadbackReceipt {
   requireBoundReadbackOperation(operation);
-  assertSecProviderSettlementSet(providerSettlementSet);
+  assertProviderSettlementSet(providerSettlementSet);
   if (providerSettlementSet.operationIdentityDigest !== operation.plan.identity.identityDigest
       || providerSettlementSet.executionPlanDigest
         !== operation.plan.execution.executionPlanDigest
@@ -711,20 +662,20 @@ export function issueSecNormalDomainReadbackReceipt(
     providerSettlementSetDigest: providerSettlementSet.providerSettlementSetDigest,
     durableObservationDigest: null,
     ...input
-  }) as SecNormalDomainReadbackReceipt;
+  }) as NormalDomainReadbackReceipt;
 }
 
-export function issueSecRecoveredDomainReadbackReceipt(
-  recoveryOperation: SecBoundSemanticOperation,
+export function issueRecoveredDomainReadbackReceipt(
+  recoveryOperation: BoundSemanticOperation,
   input: Readonly<{
-    readonly predecessor: SecRecoveredPredecessorAttemptReference;
-    readonly durableObservationDigest: SecOperationDigest;
-    readonly readbackContractDigest: SecOperationDigest;
-    readonly readbackReferenceDigest: SecOperationDigest;
-    readonly currentPhysicalEpochDigest: SecOperationDigest;
-    readonly disposition: SecDomainReadbackDisposition;
+    readonly predecessor: RecoveredPredecessorAttemptReference;
+    readonly durableObservationDigest: OperationDigest;
+    readonly readbackContractDigest: OperationDigest;
+    readonly readbackReferenceDigest: OperationDigest;
+    readonly currentPhysicalEpochDigest: OperationDigest;
+    readonly disposition: DomainReadbackDisposition;
   }>
-): SecRecoveredDomainReadbackReceipt {
+): RecoveredDomainReadbackReceipt {
   requireBoundReadbackOperation(recoveryOperation);
   const predecessor = input.predecessor;
   if (predecessor.operationIdentityDigest !== recoveryOperation.plan.identity.identityDigest
@@ -771,19 +722,19 @@ export function issueSecRecoveredDomainReadbackReceipt(
     readbackReceiptDigest: sha256({
       domain: 'sec.operation.domain-readback-receipt',
       readback: withoutDigest
-    }) as SecOperationDigest
+    }) as OperationDigest
   });
   ISSUED_RECOVERED_READBACK_RECEIPTS.add(receipt);
   return receipt;
 }
 
-export function assertSecDomainReadbackReceipt(
+export function assertDomainReadbackReceipt(
   value: unknown
-): asserts value is SecDomainReadbackReceipt {
+): asserts value is DomainReadbackReceipt {
   if (value === null || typeof value !== 'object') {
     throw new Error('Domain readback projection is invalid.');
   }
-  const readback = value as SecDomainReadbackReceipt;
+  const readback = value as DomainReadbackReceipt;
   const { readbackReceiptDigest, ...withoutDigest } = readback;
   if (!DIGEST_PATTERN.test(readbackReceiptDigest)
       || sha256({ domain: 'sec.operation.domain-readback-receipt', readback: withoutDigest })
@@ -793,10 +744,10 @@ export function assertSecDomainReadbackReceipt(
 }
 
 function assertReadbackBindsOperation(
-  operation: SecBoundSemanticOperation,
-  readback: SecDomainReadbackReceipt
+  operation: BoundSemanticOperation,
+  readback: DomainReadbackReceipt
 ): void {
-  assertSecDomainReadbackReceipt(readback);
+  assertDomainReadbackReceipt(readback);
   if (readback.operationIdentityDigest !== operation.plan.identity.identityDigest
       || readback.executionPlanDigest !== operation.plan.execution.executionPlanDigest
       || readback.bindingSetIdentityDigest !== operation.bindingSetIdentityDigest
@@ -806,11 +757,11 @@ function assertReadbackBindsOperation(
 }
 
 function issueOwnerTerminalJoinReceipt(input: Readonly<{
-  readonly operation: SecBoundSemanticOperation;
-  readonly readback: SecDomainReadbackReceipt;
-  readonly ownerTerminalContractDigest: SecOperationDigest;
-  readonly ownerTerminalReferenceDigest: SecOperationDigest;
-}>): SecOwnerTerminalJoinReceipt {
+  readonly operation: BoundSemanticOperation;
+  readonly readback: DomainReadbackReceipt;
+  readonly ownerTerminalContractDigest: OperationDigest;
+  readonly ownerTerminalReferenceDigest: OperationDigest;
+}>): OwnerTerminalJoinReceipt {
   const withoutDigest = deepFreeze({
     recoveryMode: input.readback.recoveryMode,
     operationIdentityDigest: input.operation.plan.identity.identityDigest,
@@ -833,22 +784,22 @@ function issueOwnerTerminalJoinReceipt(input: Readonly<{
     joinReceiptDigest: sha256({
       domain: 'sec.operation.owner-terminal-join',
       join: withoutDigest
-    }) as SecOperationDigest
+    }) as OperationDigest
   });
   return receipt;
 }
 
-export function issueSecNormalOwnerTerminalJoinReceipt(
-  operation: SecBoundSemanticOperation,
-  providerSettlementSet: SecProviderSettlementSet,
-  readback: SecNormalDomainReadbackReceipt,
+export function issueNormalOwnerTerminalJoinReceipt(
+  operation: BoundSemanticOperation,
+  providerSettlementSet: ProviderSettlementSet,
+  readback: NormalDomainReadbackReceipt,
   input: Readonly<{
-    readonly ownerTerminalContractDigest: SecOperationDigest;
-    readonly ownerTerminalReferenceDigest: SecOperationDigest;
+    readonly ownerTerminalContractDigest: OperationDigest;
+    readonly ownerTerminalReferenceDigest: OperationDigest;
   }>
-): SecOwnerTerminalJoinReceipt {
+): OwnerTerminalJoinReceipt {
   requireBoundReadbackOperation(operation);
-  assertSecProviderSettlementSet(providerSettlementSet);
+  assertProviderSettlementSet(providerSettlementSet);
   assertReadbackBindsOperation(operation, readback);
   if (readback.recoveryMode !== 'normal'
       || readback.providerSettlementSetDigest
@@ -858,14 +809,14 @@ export function issueSecNormalOwnerTerminalJoinReceipt(
   return issueOwnerTerminalJoinReceipt({ operation, readback, ...input });
 }
 
-export function issueSecRecoveredOwnerTerminalJoinReceipt(
-  operation: SecBoundSemanticOperation,
-  readback: SecRecoveredDomainReadbackReceipt,
+export function issueRecoveredOwnerTerminalJoinReceipt(
+  operation: BoundSemanticOperation,
+  readback: RecoveredDomainReadbackReceipt,
   input: Readonly<{
-    readonly ownerTerminalContractDigest: SecOperationDigest;
-    readonly ownerTerminalReferenceDigest: SecOperationDigest;
+    readonly ownerTerminalContractDigest: OperationDigest;
+    readonly ownerTerminalReferenceDigest: OperationDigest;
   }>
-): SecOwnerTerminalJoinReceipt {
+): OwnerTerminalJoinReceipt {
   requireBoundReadbackOperation(operation);
   assertReadbackBindsOperation(operation, readback);
   if (readback.recoveryMode !== 'recovered'
@@ -879,13 +830,13 @@ export function issueSecRecoveredOwnerTerminalJoinReceipt(
   return issueOwnerTerminalJoinReceipt({ operation, readback, ...input });
 }
 
-export function assertSecOwnerTerminalJoinReceipt(
+export function assertOwnerTerminalJoinReceipt(
   value: unknown
-): asserts value is SecOwnerTerminalJoinReceipt {
+): asserts value is OwnerTerminalJoinReceipt {
   if (value === null || typeof value !== 'object') {
     throw new Error('Owner terminal join projection is invalid.');
   }
-  const join = value as SecOwnerTerminalJoinReceipt;
+  const join = value as OwnerTerminalJoinReceipt;
   const { joinReceiptDigest, ...withoutDigest } = join;
   if (!DIGEST_PATTERN.test(joinReceiptDigest)
       || sha256({ domain: 'sec.operation.owner-terminal-join', join: withoutDigest })
@@ -894,12 +845,12 @@ export function assertSecOwnerTerminalJoinReceipt(
   }
 }
 
-export function issueSecRecoveredRetryAdmission(
-  recoveryOperation: SecBoundSemanticOperation,
-  readback: SecRecoveredDomainReadbackReceipt
-): SecRecoveredRetryAdmission {
-  assertSecSemanticOperationProjection(recoveryOperation);
-  assertSecDomainReadbackReceipt(readback);
+export function issueRecoveredRetryAdmission(
+  recoveryOperation: BoundSemanticOperation,
+  readback: RecoveredDomainReadbackReceipt
+): RecoveredRetryAdmission {
+  assertSemanticOperationProjection(recoveryOperation);
+  assertDomainReadbackReceipt(readback);
   if (readback.recoveryMode !== 'recovered'
       || !ISSUED_RECOVERED_READBACK_RECEIPTS.has(readback)
       || readback.disposition !== 'not-applied'
@@ -931,19 +882,19 @@ export function issueSecRecoveredRetryAdmission(
     retryAdmissionDigest: sha256({
       domain: 'sec.operation.recovered-retry-admission',
       admission: withoutDigest
-    }) as SecOperationDigest
+    }) as OperationDigest
   });
   CONSUMED_RECOVERED_READBACK_RECEIPTS.add(readback);
   ISSUED_RECOVERED_RETRY_ADMISSIONS.add(admission);
   return admission;
 }
 
-export function consumeSecRecoveredRetryAdmission(
-  admission: SecRecoveredRetryAdmission,
-  successor: SecBoundSemanticOperation,
-  currentPhysicalEpochDigest: SecOperationDigest
+export function consumeRecoveredRetryAdmission(
+  admission: RecoveredRetryAdmission,
+  successor: BoundSemanticOperation,
+  currentPhysicalEpochDigest: OperationDigest
 ): void {
-  assertSecRecoveredRetryAdmissionForSuccessor(
+  assertRecoveredRetryAdmissionForSuccessor(
     admission,
     successor,
     currentPhysicalEpochDigest
@@ -955,13 +906,13 @@ export function consumeSecRecoveredRetryAdmission(
 }
 
 /** Validates a successor before its durable start claim without consuming it. */
-export function assertSecRecoveredRetryAdmissionForSuccessor(
-  admission: SecRecoveredRetryAdmission,
-  successor: SecBoundSemanticOperation,
-  currentPhysicalEpochDigest: SecOperationDigest
+export function assertRecoveredRetryAdmissionForSuccessor(
+  admission: RecoveredRetryAdmission,
+  successor: BoundSemanticOperation,
+  currentPhysicalEpochDigest: OperationDigest
 ): void {
-  assertSecRecoveredRetryAdmission(admission);
-  assertSecSemanticOperationProjection(successor);
+  assertRecoveredRetryAdmission(admission);
+  assertSemanticOperationProjection(successor);
   if (successor.plan.identity.identityDigest !== admission.operationIdentityDigest
       || successor.plan.execution.executionPlanDigest !== admission.previousExecutionPlanDigest
       || successor.bindingSetIdentityDigest !== admission.previousBindingSetIdentityDigest
@@ -980,14 +931,14 @@ export function assertSecRecoveredRetryAdmissionForSuccessor(
   }
 }
 
-export function assertSecRecoveredRetryAdmission(
+export function assertRecoveredRetryAdmission(
   value: unknown
-): asserts value is SecRecoveredRetryAdmission {
+): asserts value is RecoveredRetryAdmission {
   if (value === null || typeof value !== 'object'
       || !ISSUED_RECOVERED_RETRY_ADMISSIONS.has(value)) {
     throw new Error('Recovered retry projection is invalid.');
   }
-  const admission = value as SecRecoveredRetryAdmission;
+  const admission = value as RecoveredRetryAdmission;
   const { retryAdmissionDigest, ...withoutDigest } = admission;
   if (!DIGEST_PATTERN.test(retryAdmissionDigest)
       || sha256({ domain: 'sec.operation.recovered-retry-admission', admission: withoutDigest })
@@ -996,12 +947,12 @@ export function assertSecRecoveredRetryAdmission(
   }
 }
 
-export function projectSecCapabilityDiagnostic(input: Readonly<{
-  readonly bindingDigest: SecOperationDigest;
+export function projectCapabilityDiagnostic(input: Readonly<{
+  readonly bindingDigest: OperationDigest;
   readonly code: string;
   readonly failureKind: string;
   readonly rawEvidence: string | Uint8Array;
-}>): SecCapabilityDiagnostic {
+}>): CapabilityDiagnostic {
   const evidence = typeof input.rawEvidence === 'string'
     ? new TextEncoder().encode(input.rawEvidence)
     : input.rawEvidence;
@@ -1011,7 +962,7 @@ export function projectSecCapabilityDiagnostic(input: Readonly<{
     failureKind: requireId(input.failureKind, 'Capability diagnostic failure kind'),
     evidenceByteLength: evidence.byteLength,
     evidenceDigest: (
-      `sha256:${createHash('sha256').update(evidence).digest('hex')}`
-    ) as SecOperationDigest
+      `sha256:${rawSha256Hex(evidence)}`
+    ) as OperationDigest
   });
 }

@@ -23,7 +23,7 @@ function request(overrides: Partial<RepositoryAuditWorkerRequestInput> = {}) {
     boundAttemptDigest: digest('attempt'),
     generationDigest: digest('generation'),
     entrypointAddress: (
-      'module-entrypoint:src/fixture/sec.module.json#fixture.audit:src/fixture/worker.ts'
+      'module-entrypoint:src/fixture/module.json#fixture.audit:src/fixture/worker.ts'
     ) as SourceProgramEntrypointAddress,
     implementationDigest: digest('implementation'),
     dependencyGenerationDigest: digest('dependency'),
@@ -116,7 +116,7 @@ test('worker protocol preserves typed rejection for every foreign binding dimens
     ['foreign-generation', { generationDigest: digest('foreign-generation') }],
     ['foreign-entrypoint', {
       entrypointAddress: (
-        'module-entrypoint:src/foreign/sec.module.json#foreign:src/foreign/worker.ts'
+        'module-entrypoint:src/foreign/module.json#foreign:src/foreign/worker.ts'
       ) as SourceProgramEntrypointAddress
     }],
     ['foreign-implementation', { implementationDigest: digest('foreign-implementation') }],

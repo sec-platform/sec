@@ -112,10 +112,10 @@ const authoritySchema = z.object({
   }).strict()
 }).strict();
 
-export type SecLinuxVerificationEnvironmentAuthority = z.infer<typeof authoritySchema>;
+export type LinuxVerificationEnvironmentAuthority = z.infer<typeof authoritySchema>;
 
-export function computeSecLinuxVerificationRunnerInputDigest(
-  value: SecLinuxVerificationEnvironmentAuthority
+export function computeLinuxVerificationRunnerInputDigest(
+  value: LinuxVerificationEnvironmentAuthority
 ): `sha256:${string}` {
   return sha256(Object.freeze({
     schema: 'sec-linux-verification-runner-input-v1',
@@ -150,9 +150,9 @@ function fail(message: string): never {
   throw new Error(`SEC Linux verification environment authority: ${message}`);
 }
 
-export function parseSecLinuxVerificationEnvironmentAuthority(
+export function parseLinuxVerificationEnvironmentAuthority(
   input: unknown
-): SecLinuxVerificationEnvironmentAuthority {
+): LinuxVerificationEnvironmentAuthority {
   const parsed = authoritySchema.safeParse(input);
   if (!parsed.success) fail(z.prettifyError(parsed.error));
   const value = parsed.data;
@@ -263,15 +263,15 @@ export function parseSecLinuxVerificationEnvironmentAuthority(
   return deepFreeze(value);
 }
 
-export const SEC_LINUX_VERIFICATION_ENVIRONMENT_AUTHORITY =
-  parseSecLinuxVerificationEnvironmentAuthority(source);
-export const SEC_LINUX_VERIFICATION_TRUSTED_BUN_EXECUTABLE_PATH =
-  SEC_LINUX_VERIFICATION_ENVIRONMENT_AUTHORITY.trustedRuntime.bunExecutablePath;
-export const SEC_LINUX_VERIFICATION_TRUSTED_BUN_EXECUTABLE_DIGEST =
-  SEC_LINUX_VERIFICATION_ENVIRONMENT_AUTHORITY.trustedRuntime.bunExecutableDigest;
-export const SEC_LINUX_VERIFICATION_TRUSTED_RUNTIME_DOCKERFILE_PATH =
-  SEC_LINUX_VERIFICATION_ENVIRONMENT_AUTHORITY.trustedRuntime.dockerfilePath;
-export const SEC_LINUX_VERIFICATION_RUNNER_INPUT_DIGEST =
-  computeSecLinuxVerificationRunnerInputDigest(
-    SEC_LINUX_VERIFICATION_ENVIRONMENT_AUTHORITY
+export const LINUX_VERIFICATION_ENVIRONMENT_AUTHORITY =
+  parseLinuxVerificationEnvironmentAuthority(source);
+export const LINUX_VERIFICATION_TRUSTED_BUN_EXECUTABLE_PATH =
+  LINUX_VERIFICATION_ENVIRONMENT_AUTHORITY.trustedRuntime.bunExecutablePath;
+export const LINUX_VERIFICATION_TRUSTED_BUN_EXECUTABLE_DIGEST =
+  LINUX_VERIFICATION_ENVIRONMENT_AUTHORITY.trustedRuntime.bunExecutableDigest;
+export const LINUX_VERIFICATION_TRUSTED_RUNTIME_DOCKERFILE_PATH =
+  LINUX_VERIFICATION_ENVIRONMENT_AUTHORITY.trustedRuntime.dockerfilePath;
+export const LINUX_VERIFICATION_RUNNER_INPUT_DIGEST =
+  computeLinuxVerificationRunnerInputDigest(
+    LINUX_VERIFICATION_ENVIRONMENT_AUTHORITY
   );

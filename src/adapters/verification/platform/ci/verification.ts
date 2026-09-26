@@ -1,10 +1,8 @@
-import { spawn, spawnSync } from 'node:child_process';
-import { createHash } from 'node:crypto';
+import { spawnSync } from 'node:child_process';
 import {
   closeSync,
   existsSync,
-  constants as fsConstants,
-  fstatSync, lstatSync,
+  lstatSync,
   mkdirSync,
   openSync,
   readdirSync,
@@ -14,101 +12,126 @@ import {
   rmSync, writeFileSync
 } from 'node:fs';
 import path from 'node:path';
-import { uniqueSorted } from '../../../../contracts/canonical.ts';
+import { createSha256Hasher } from '../../../../contracts/digest.ts';
+import { rawSha256Hex, uniqueSorted } from '../../../../contracts/canonical.ts';
 import {
   enableExecutionProgress,
   observeExecutionProgressPhase,
   reportExecutionProgress
 } from '../../../../execution/execution-progress.ts';
+import { issueOperationRequirementBindingContext } from '../../../../execution/operation/requirement-binding-context.ts';
 import {
-  bindSecSemanticOperation,
-  compileSecCapabilityBinding,
-  compileSecProviderSettlementSet,
-  compileSecSemanticOperationPlan,
-  issueSecNormalDomainReadbackReceipt,
-  issueSecNormalOwnerTerminalJoinReceipt,
-  issueSecProviderSettlementReceipt,
-  issueSecSemanticOperationAttemptContext,
-  type SecBoundSemanticOperation,
-  type SecOperationDigest
+  bindSemanticOperation,
+  compileCapabilityBinding,
+  compileProviderSettlementSet,
+  compileSemanticOperationPlan,
+  issueNormalDomainReadbackReceipt,
+  issueNormalOwnerTerminalJoinReceipt,
+  issueProviderSettlementReceipt,
+  issueSemanticOperationAttemptContext,
+  type BoundSemanticOperation,
+  type OperationDigest
 } from '../../../../execution/operation/semantic.ts';
+import { settleResources as settlePhysicalResources } from '../../../../execution/resource-settlement.ts';
 
 import { CI_VERIFICATION_CONTRACT_REVISION, CI_VERIFICATION_WORKFLOW_PATH } from '../../../../assurance/verification/contract/revision.ts';
-import { CodexDevelopmentBuildVerificationGateResult, type VerificationGateResult } from '../../../../assurance/verification/result/contract/result.ts';
+import { BuildVerificationGateResult, type VerificationGateResult } from '../../../../assurance/verification/result/contract/result.ts';
 import {
   withAuthorityGitReadOperation,
   type AuthorityGitReadOperation
 } from '../../../providers/git-read/authority.ts';
 import {
-  type CodexDevelopmentExactGitBlobReadOptions
-} from '../../../providers/git-read/exact-blob.ts';
+  executeGitHubApiOperation,
+  withGitHubApiReadSession,
+  type GitHubApiCapability
+} from '../../../providers/github-api/internal/operation-session-runtime.ts';
 import {
   GIT_READ_EXACT_TREE_OPERATION_BUDGET,
   type GitBlobBytes
 } from '../../../providers/git-read/runtime/session.ts';
 import type { PhysicalWorkspaceSourceSnapshot } from '../../../repository/source-program-model/workspace-source-snapshot.ts';
-import { assertSameNoFollowDirectoryIdentity, inspectNoFollowDirectoryChain, scanNoFollowDirectoryTreeInventory, type NoFollowDirectoryTreeInventoryEntry, type PhysicalDirectoryIdentity } from '../../../runtime-state/physical/runtime/physical-no-follow.ts';
-import { assertProcessResourceSessionReceipt } from '../../../runtime-state/physical/runtime/process-resource-session.ts';
 import {
-  CodexDevelopmentParseCurrentWorkPackageManifest,
-  CodexDevelopmentWorkPackageManifestDigest, type CodexDevelopmentWorkPackageManifest
+  assertSameNoFollowDirectoryIdentity,
+  inspectNoFollowDirectoryChain,
+  retainNoFollowDirectoryForChildProcess,
+  retainNoFollowOrdinaryFile,
+  scanNoFollowDirectoryTreeInventory,
+  type NoFollowDirectoryTreeInventoryEntry,
+  type PhysicalDirectoryIdentity,
+  type RetainedNoFollowOrdinaryFile
+} from '../../../runtime-state/physical/runtime/physical-no-follow.ts';
+import {
+  assertProcessResourceSessionReceipt,
+  openProcessResourceSession
+} from '../../../runtime-state/physical/runtime/process-resource-session.ts';
+import {
+  issueRetainedCommandBoundary,
+  retainCommandAuxiliaryOrdinaryFiles,
+  RETAINED_COMMAND_AUXILIARY_DESCRIPTOR_BASE,
+  RETAINED_EXECUTABLE_CHILD_DESCRIPTOR,
+  RETAINED_WORKING_DIRECTORY_CHILD_DESCRIPTOR,
+  RetainedCommandTransportError
+} from '../../../runtime-state/physical/runtime/process.ts';
+import {
+  ParseCurrentWorkPackageManifest,
+  WorkPackageManifestDigest, type WorkPackageManifest
 } from '../../../self-hosting/control/task/contract/work-package.ts';
 import { DEV_RUNNER_ENTRYPOINT_PATH } from '../../../self-hosting/development/runner/contract.ts';
 import { encodeVerificationActionData, issueProcessVerificationActionTerminalSettlement, issueVerificationActionOwnerTerminalReceipt, isVerificationActionRunnable, parseVerificationActionPlan, type VerificationActionDependencyResolution, type VerificationActionKeyDigest, type VerificationActionPlan } from '../action/contract/action.ts';
 import { buildCiVerificationActionPlanClosure, CI_VERIFICATION_HOSTED_EXECUTION_ENVIRONMENT, ciVerificationActionParentDispatchPlanArtifactName, ciVerificationActionParentDispatchPlanPayloadDigest, ciVerificationGateStep, ciVerificationNormalizedOperationArgv, createCiVerificationActionParentDispatchPlan, createCiVerificationActionProposal, createCiVerificationActionProviderEnvelope, createCiVerificationLocalExecutionEnvironment, parseCiVerificationActionParentDispatchPlan, parseCiVerificationActionPlanClosure, parseCiVerificationActionProposal, parseCiVerificationActionProviderEnvelope, resolveCiVerificationDevRunnerTarget, type CiVerificationActionCandidate, type CiVerificationActionParentActor, type CiVerificationActionParentDispatchPlan, type CiVerificationActionPlanClosure, type CiVerificationActionProposal, type CiVerificationActionProviderEnvelope, type CiVerificationExecutionEnvironment, type CiVerificationGateStep, type CiVerificationProducerGate } from '../action/contract/ci.ts';
 import { CI_VERIFICATION_ACTION_DEPENDENCY_INPUT_PATHS, CI_VERIFICATION_HOSTED_PROVIDER_REVISION } from '../action/contract/environment.ts';
-import { CI_GITHUB_ACTIONS_IDENTITY_POLICY, createVerificationActionProviderStartMarker as createVerificationActionStartMarkerV2, createVerificationActionProviderTerminalAnchor as createVerificationActionTerminalStatusAnchorV2, parseVerificationActionProviderStatusReadback, parseVerificationActionProviderStartMarker as parseVerificationActionStartMarkerV2, parseVerificationActionProviderTerminalAnchor as parseVerificationActionTerminalStatusAnchorV2, reduceVerificationActionProviderState, verificationActionProviderStartDescription, verificationActionProviderStatusContext, verificationActionProviderTerminalAnchorName, verificationActionProviderTerminalArtifactName, verificationActionProviderStartArtifactName as verificationActionStartMarkerNameV2, type VerificationActionProviderDecision, type VerificationActionProviderOrigin, type VerificationActionProviderStartObservation, type VerificationActionProviderStatusObservation, type VerificationActionProviderStatusReadback, type VerificationActionProviderTerminalAnchorObservation, type VerificationActionProviderTerminalObservation, type VerificationActionProviderStartMarker as VerificationActionStartMarkerV2 } from '../action/contract/provider.ts';
+import { CI_GITHUB_ACTIONS_IDENTITY_POLICY, createVerificationActionProviderStartMarker as createVerificationActionStartMarker, createVerificationActionProviderTerminalAnchor as createVerificationActionTerminalStatusAnchor, parseVerificationActionProviderStatusReadback, parseVerificationActionProviderStartMarker as parseVerificationActionStartMarker, parseVerificationActionProviderTerminalAnchor as parseVerificationActionTerminalStatusAnchor, reduceVerificationActionProviderState, verificationActionProviderStartDescription, verificationActionProviderStatusContext, verificationActionProviderTerminalAnchorName, verificationActionProviderTerminalArtifactName, verificationActionProviderStartArtifactName as verificationActionStartMarkerName, type VerificationActionProviderDecision, type VerificationActionProviderOrigin, type VerificationActionProviderStartObservation, type VerificationActionProviderStatusObservation, type VerificationActionProviderStatusReadback, type VerificationActionProviderTerminalAnchorObservation, type VerificationActionProviderTerminalObservation, type VerificationActionProviderStartMarker as VerificationActionStartMarker } from '../action/contract/provider.ts';
 import {
-  writeVerificationActionStartMarkerV2Atomic,
-  writeVerificationActionTerminalStatusAnchorV2Atomic
+  writeVerificationActionStartMarkerAtomic,
+  writeVerificationActionTerminalStatusAnchorAtomic
 } from '../action/journal.ts';
 import {
   createVerificationActionRunner,
   type VerificationActionRunner,
   type VerificationActionRunOutcome
 } from '../action/runner.ts';
-import type { CodexDevelopmentTestImpactSourceProvider } from '../test-impact/runtime/impact.ts';
-import type { CodexDevelopmentGitChangedRecord, CodexDevelopmentTestImpactTransitionObservation } from '../test-impact/runtime/transition.ts';
-import { CodexDevelopmentAssertTestImpactTransitionSelection } from '../test-impact/runtime/transition.ts';
+import type { TestImpactSourceProvider } from '../test-impact/runtime/impact.ts';
+import type { GitChangedRecord, TestImpactTransitionObservation } from '../test-impact/runtime/transition.ts';
+import { AssertTestImpactTransitionSelection } from '../test-impact/runtime/transition.ts';
 import {
-  aggregateV4Status,
-  CodexDevelopmentAssertVerificationActionTerminalArtifact,
-  CodexDevelopmentCreateVerificationEvidenceProducer,
-  CodexDevelopmentFinalizeVerificationActionTerminalArtifact,
-  CodexDevelopmentFinalizeVerificationEvidenceV4,
-  CodexDevelopmentParseVerificationActionTerminalArtifact,
-  CodexDevelopmentPrepareVerificationEvidenceTarget,
-  CodexDevelopmentVerificationActionCandidateBytesDigest,
-  CodexDevelopmentVerificationDigest,
-  CodexDevelopmentWriteVerificationActionTerminalArtifactV2Atomic,
-  CodexDevelopmentWriteVerificationEvidenceV4Atomic,
-  type CodexDevelopmentVerificationActionArtifactInput,
-  type CodexDevelopmentVerificationActionArtifactProducer,
-  type CodexDevelopmentVerificationActionTerminalArtifact,
-  type CodexDevelopmentVerificationEvidenceV4,
-  type CodexDevelopmentVerificationGateEvidenceV4
+  aggregateVerificationStatus,
+  assertVerificationActionTerminalArtifact,
+  createVerificationEvidenceProducer,
+  finalizeVerificationActionTerminalArtifact,
+  finalizeVerificationEvidence,
+  parseVerificationActionTerminalArtifact,
+  prepareVerificationEvidenceTarget,
+  verificationActionCandidateBytesDigest,
+  verificationDigest,
+  writeVerificationActionTerminalArtifactAtomic,
+  writeVerificationEvidenceAtomic,
+  type VerificationActionArtifactInput,
+  type VerificationActionArtifactProducer,
+  type VerificationActionTerminalArtifact,
+  type VerificationEvidence,
+  type VerificationGateEvidence
 } from './contract/evidence.ts';
 import {
   CI_VERIFICATION_ACTION_PHYSICAL_COMMAND_SCHEMA,
   CI_VERIFICATION_ACTION_SANDBOX_RECEIPT_SCHEMA,
   CI_VERIFICATION_ACTION_SUT_AUTHORIZATION_SCHEMA,
   CI_VERIFICATION_HOSTED_SUT_OUTPUT_BYTE_LIMIT,
-  CodexDevelopmentCreateHostedSutExecutionAuthorization,
-  CodexDevelopmentFinalizeHostedActionRawResult,
-  CodexDevelopmentHostedSutCandidateEnvironment,
-  CodexDevelopmentParseHostedSutSandboxReceipt,
-  CodexDevelopmentReduceHostedSutObservation,
-  CodexDevelopmentParseHostedActionRawResult as parseHostedActionRawResultContractV2,
-  type CodexDevelopmentHostedActionRawResult,
-  type CodexDevelopmentHostedSutExecutionAuthorization,
-  type CodexDevelopmentHostedSutInventoryClosure,
-  type CodexDevelopmentHostedSutSandboxReceipt
+  CreateHostedSutExecutionAuthorization,
+  FinalizeHostedActionRawResult,
+  HostedSutCandidateEnvironment,
+  ParseHostedSutSandboxReceipt,
+  ReduceHostedSutObservation,
+  ParseHostedActionRawResult as parseHostedActionRawResultContract,
+  type HostedActionRawResult,
+  type HostedSutExecutionAuthorization,
+  type HostedSutInventoryClosure,
+  type HostedSutSandboxReceipt
 } from './contract/hosted-sut-observation.ts';
 import {
   assertCiExpectedHead,
-  CodexDevelopmentBuildVerificationPlan,
-  type CodexDevelopmentVerificationPlan,
-  type CodexDevelopmentVerificationPlanProfile
+  BuildVerificationPlan,
+  type VerificationPlan,
+  type VerificationPlanProfile
 } from './contract/plan.ts';
 import {
   CI_VERIFICATION_HOSTED_SANDBOX_POLICY,
@@ -120,18 +143,18 @@ import type { VerificationSessionHostedRequest } from './contract/session-reques
 import {
   CODEX_DEVELOPMENT_GATE_STDERR_BYTE_LIMIT,
   CODEX_DEVELOPMENT_GATE_STDOUT_BYTE_LIMIT,
-  CodexDevelopmentChangedFilesFromRecords,
-  CodexDevelopmentDefaultChangedPaths,
-  CodexDevelopmentDefaultGitRevision,
-  CodexDevelopmentDefaultTrackedTreeIsClean,
-  CodexDevelopmentExactGitWorkspaceSourceSnapshot,
-  CodexDevelopmentFailureTail,
-  CodexDevelopmentReadExactGitBlobs,
-  CodexDevelopmentRunGateProcess,
-  CodexDevelopmentTestImpactSourceProviderFromSnapshot,
-  type CodexDevelopmentChangedPathSnapshot,
-  type CodexDevelopmentGateProcessResult,
-  type CodexDevelopmentGateProcessSettlement
+  ChangedFilesFromRecords,
+  DefaultChangedPaths,
+  DefaultGitRevision,
+  DefaultTrackedTreeIsClean,
+  ExactGitWorkspaceSourceSnapshot,
+  FailureTail,
+  ReadExactGitBlobs,
+  RunGateProcess,
+  TestImpactSourceProviderFromSnapshot,
+  type ChangedPathSnapshot,
+  type GateProcessResult,
+  type GateProcessSettlement
 } from './runtime/ci-orchestration-core.ts';
 import {
   ensureVerificationActionGitHubProviderTransaction,
@@ -145,8 +168,8 @@ import {
 export {
   CI_VERIFICATION_ACTION_RAW_RESULT_SCHEMA,
   CI_VERIFICATION_ACTION_SANDBOX_RECEIPT_SCHEMA,
-  type CodexDevelopmentHostedActionRawResult,
-  type CodexDevelopmentHostedSutSandboxReceipt
+  type HostedActionRawResult,
+  type HostedSutSandboxReceipt
 } from './contract/hosted-sut-observation.ts';
 
 const VERIFICATION_EVIDENCE_PATH = '.tmp/ci-verification-evidence.json';
@@ -188,11 +211,11 @@ const CI_VERIFICATION_ACTION_SANDBOX_CAPABILITY_MARKER =
   '__SEC_HOSTED_SANDBOX_CAPABILITY_V1__';
 const CI_VERIFICATION_ACTION_SANDBOX_RESIDUE_MARKER =
   '__SEC_HOSTED_SANDBOX_RESIDUE_EMPTY_V1__';
-const HOSTED_SUT_RETAINED_ARCHIVE_CHILD_FD = 3;
+const HOSTED_SUT_RETAINED_ARCHIVE_CHILD_FD = RETAINED_COMMAND_AUXILIARY_DESCRIPTOR_BASE;
 const HOSTED_SUT_RETAINED_ARCHIVE_CHILD_PATH =
   `/proc/self/fd/${HOSTED_SUT_RETAINED_ARCHIVE_CHILD_FD}` as const;
 
-export type CodexDevelopmentHostedSutSandboxCommandPlan = Readonly<{
+export type HostedSutSandboxCommandPlan = Readonly<{
   schema: typeof CI_VERIFICATION_ACTION_SANDBOX_COMMAND_PLAN_SCHEMA;
   policyDigest: typeof CI_VERIFICATION_HOSTED_SANDBOX_POLICY_DIGEST;
   phase: 'capability-self-test' | 'execute' | 'bootstrap-execute' | 'teardown';
@@ -205,8 +228,8 @@ export type CodexDevelopmentHostedSutSandboxCommandPlan = Readonly<{
   planDigest: VerificationActionKeyDigest;
 }>;
 
-export type CodexDevelopmentHostedSutSandboxProcessObservation =
-  CodexDevelopmentGateProcessResult & Readonly<{
+export type HostedSutSandboxProcessObservation =
+  GateProcessResult & Readonly<{
     commandStarted: boolean;
     stdoutDigest: VerificationActionKeyDigest;
     stderrDigest: VerificationActionKeyDigest;
@@ -215,27 +238,27 @@ export type CodexDevelopmentHostedSutSandboxProcessObservation =
     outputTruncated: boolean;
   }>;
 
-export type CodexDevelopmentHostedSutSandboxProcess = (
-  plan: CodexDevelopmentHostedSutSandboxCommandPlan,
-  retainedArchive?: CodexDevelopmentRetainedHostedSutArchive
-) => Promise<CodexDevelopmentHostedSutSandboxProcessObservation>;
+export type HostedSutSandboxProcess = (
+  plan: HostedSutSandboxCommandPlan,
+  retainedArchive?: RetainedHostedSutArchive
+) => Promise<HostedSutSandboxProcessObservation>;
 
-export type CodexDevelopmentHostedActionProposal = CiVerificationActionProposal & Readonly<{
+export type HostedActionProposal = CiVerificationActionProposal & Readonly<{
   sessionRequest: VerificationSessionHostedRequest;
 }>;
 
-export type CodexDevelopmentHostedActionResolution = Readonly<{
+export type HostedActionResolution = Readonly<{
   schema: typeof CI_VERIFICATION_ACTION_RESOLUTION_SCHEMA;
   requestDigest: VerificationActionKeyDigest;
   actionKeyHex: string;
   actionPlan: VerificationActionPlan;
   actionPlanClosure: CiVerificationActionPlanClosure;
-  artifactInput: CodexDevelopmentVerificationActionArtifactInput;
+  artifactInput: VerificationActionArtifactInput;
   executionEnvironment: typeof CI_VERIFICATION_HOSTED_EXECUTION_ENVIRONMENT;
   resolutionDigest: VerificationActionKeyDigest;
 }>;
 
-export type CodexDevelopmentHostedActionExecutionTicket = Readonly<{
+export type HostedActionExecutionTicket = Readonly<{
   schema: typeof CI_VERIFICATION_ACTION_EXECUTION_TICKET_SCHEMA;
   resolutionDigest: VerificationActionKeyDigest;
   actionKey: VerificationActionKeyDigest;
@@ -254,21 +277,21 @@ export type CodexDevelopmentHostedActionExecutionTicket = Readonly<{
   preparedCandidateTotalFileBytes: number;
   baseDependencyClosureDigest: VerificationActionKeyDigest;
   authenticatedGitClosureDigest: VerificationActionKeyDigest;
-  producer: CodexDevelopmentVerificationActionArtifactProducer;
+  producer: VerificationActionArtifactProducer;
   ticketDigest: VerificationActionKeyDigest;
 }>;
 
-export type CodexDevelopmentHostedActionArtifactObservation = Readonly<{
+export type HostedActionArtifactObservation = Readonly<{
   providerObservation: VerificationActionProviderTerminalObservation;
-  artifact: CodexDevelopmentVerificationActionTerminalArtifact | null;
+  artifact: VerificationActionTerminalArtifact | null;
 }>;
 
-export type CodexDevelopmentHostedActionStartObservation = VerificationActionProviderStartObservation;
+export type HostedActionStartObservation = VerificationActionProviderStartObservation;
 
-export type CodexDevelopmentHostedActionTerminalAnchorObservation =
+export type HostedActionTerminalAnchorObservation =
   VerificationActionProviderTerminalAnchorObservation;
 
-export type CodexDevelopmentHostedActionCoordination = Readonly<{
+export type HostedActionCoordination = Readonly<{
   schema: typeof CI_VERIFICATION_ACTION_COORDINATION_SCHEMA;
   disposition: 'dispatch' | 'waiting' | 'complete' | 'blocked';
   actionPlanDigest: VerificationActionKeyDigest;
@@ -279,16 +302,16 @@ export type CodexDevelopmentHostedActionCoordination = Readonly<{
   coordinationDigest: VerificationActionKeyDigest;
 }>;
 
-export type CodexDevelopmentHostedActionProviderIndex = Readonly<{
+export type HostedActionProviderIndex = Readonly<{
   schema: typeof CI_VERIFICATION_ACTION_ARTIFACT_INDEX_SCHEMA;
-  terminalObservations: readonly CodexDevelopmentHostedActionArtifactObservation[];
+  terminalObservations: readonly HostedActionArtifactObservation[];
   startObservations: readonly VerificationActionProviderStartObservation[];
   terminalAnchorObservations: readonly VerificationActionProviderTerminalAnchorObservation[];
   providerStatusReadbacks: readonly VerificationActionProviderStatusReadback[];
 }>;
 
 function ciActionDigest(value: unknown): VerificationActionKeyDigest {
-  return CodexDevelopmentVerificationDigest(value) as VerificationActionKeyDigest;
+  return verificationDigest(value) as VerificationActionKeyDigest;
 }
 
 function exactObject(value: unknown, keys: readonly string[], label: string): Record<string, unknown> {
@@ -304,12 +327,12 @@ function exactObject(value: unknown, keys: readonly string[], label: string): Re
   return record;
 }
 
-export function CodexDevelopmentReadHostedActionArtifactIndex(input: Readonly<{
+export function ReadHostedActionArtifactIndex(input: Readonly<{
   source: string;
 }>): Readonly<{
-  observations: readonly CodexDevelopmentHostedActionArtifactObservation[];
-  startObservations: readonly CodexDevelopmentHostedActionStartObservation[];
-  terminalAnchorObservations: readonly CodexDevelopmentHostedActionTerminalAnchorObservation[];
+  observations: readonly HostedActionArtifactObservation[];
+  startObservations: readonly HostedActionStartObservation[];
+  terminalAnchorObservations: readonly HostedActionTerminalAnchorObservation[];
   providerStatusReadbacks: readonly VerificationActionProviderStatusReadback[];
 }> {
   const value = exactObject(JSON.parse(input.source) as unknown, [
@@ -327,7 +350,7 @@ export function CodexDevelopmentReadHostedActionArtifactIndex(input: Readonly<{
     const providerObservation = terminal.providerObservation as VerificationActionProviderTerminalObservation;
     const artifact = terminal.artifact === null
       ? null
-      : CodexDevelopmentParseVerificationActionTerminalArtifact(
+      : parseVerificationActionTerminalArtifact(
         encodeVerificationActionData(terminal.artifact)
       );
     if (providerObservation === null || typeof providerObservation !== 'object' ||
@@ -339,14 +362,14 @@ export function CodexDevelopmentReadHostedActionArtifactIndex(input: Readonly<{
   const startObservations = Object.freeze(value.startObservations.map((entry) => {
     const observation = entry as VerificationActionProviderStartObservation;
     if (observation !== null && typeof observation === 'object' && observation.payload !== null) {
-      parseVerificationActionStartMarkerV2(observation.payload);
+      parseVerificationActionStartMarker(observation.payload);
     }
     return observation;
   }));
   const terminalAnchorObservations = Object.freeze(value.terminalAnchorObservations.map((entry) => {
     const observation = entry as VerificationActionProviderTerminalAnchorObservation;
     if (observation !== null && typeof observation === 'object' && observation.payload !== null) {
-      parseVerificationActionTerminalStatusAnchorV2(observation.payload);
+      parseVerificationActionTerminalStatusAnchor(observation.payload);
     }
     return observation;
   }));
@@ -358,9 +381,9 @@ export function CodexDevelopmentReadHostedActionArtifactIndex(input: Readonly<{
 
 
 
-export function CodexDevelopmentParseHostedActionRequest(
+export function ParseHostedActionRequest(
   source: string
-): CodexDevelopmentHostedActionProposal {
+): HostedActionProposal {
   const value = parseCiVerificationActionProposal(JSON.parse(source) as unknown);
   const sessionRequest = parseVerificationSessionHostedRequest(
     encodeVerificationActionData(value.sessionRequest)
@@ -405,11 +428,11 @@ function parseHostedEnvelope(value: unknown): VerificationSessionHostedEnvelope 
   });
 }
 
-export function CodexDevelopmentResolveHostedAction(input: Readonly<{
-  request: CodexDevelopmentHostedActionProposal;
+export function ResolveHostedAction(input: Readonly<{
+  request: HostedActionProposal;
   envelope: VerificationSessionHostedEnvelope;
-}>): CodexDevelopmentHostedActionResolution {
-  const request = CodexDevelopmentParseHostedActionRequest(
+}>): HostedActionResolution {
+  const request = ParseHostedActionRequest(
     encodeVerificationActionData(input.request)
   );
   const envelope = parseHostedEnvelope(input.envelope);
@@ -448,7 +471,7 @@ export function CodexDevelopmentResolveHostedAction(input: Readonly<{
     manifestPath: session.manifestPath,
     manifestDigest: session.manifestDigest,
     inputClosureDigest: ciActionDigest(actionPlan.action.inputClosure),
-    candidateBytesDigest: CodexDevelopmentVerificationActionCandidateBytesDigest({
+    candidateBytesDigest: verificationActionCandidateBytesDigest({
       baseSha: session.baseSha,
       baseTreeSha: session.baseTreeSha,
       headSha: session.headSha,
@@ -457,7 +480,7 @@ export function CodexDevelopmentResolveHostedAction(input: Readonly<{
       manifestDigest: session.manifestDigest,
       action: actionPlan.action
     })
-  }) satisfies CodexDevelopmentVerificationActionArtifactInput;
+  }) satisfies VerificationActionArtifactInput;
   const withoutDigest = Object.freeze({
     schema: CI_VERIFICATION_ACTION_RESOLUTION_SCHEMA,
     requestDigest: ciActionDigest(request),
@@ -470,9 +493,9 @@ export function CodexDevelopmentResolveHostedAction(input: Readonly<{
   return Object.freeze({ ...withoutDigest, resolutionDigest: ciActionDigest(withoutDigest) });
 }
 
-export function CodexDevelopmentParseHostedActionResolution(
+export function ParseHostedActionResolution(
   source: string
-): CodexDevelopmentHostedActionResolution {
+): HostedActionResolution {
   const value = exactObject(JSON.parse(source) as unknown, [
     'schema', 'requestDigest', 'actionKeyHex', 'actionPlan', 'actionPlanClosure', 'artifactInput',
     'executionEnvironment', 'resolutionDigest'
@@ -499,10 +522,10 @@ export function CodexDevelopmentParseHostedActionResolution(
         encodeVerificationActionData(CI_VERIFICATION_HOSTED_EXECUTION_ENVIRONMENT)) {
     throw new Error('Hosted Action resolution environment or key projection mismatch.');
   }
-  const artifactInput = value.artifactInput as CodexDevelopmentVerificationActionArtifactInput;
+  const artifactInput = value.artifactInput as VerificationActionArtifactInput;
   if (artifactInput === null || typeof artifactInput !== 'object' ||
       artifactInput.inputClosureDigest !== ciActionDigest(actionPlan.action.inputClosure) ||
-      artifactInput.candidateBytesDigest !== CodexDevelopmentVerificationActionCandidateBytesDigest({
+      artifactInput.candidateBytesDigest !== verificationActionCandidateBytesDigest({
         ...artifactInput,
         action: actionPlan.action
       })) {
@@ -526,20 +549,20 @@ export function CodexDevelopmentParseHostedActionResolution(
   });
 }
 
-export function CodexDevelopmentCreateHostedActionExecutionTicket(input: Readonly<{
-  resolution: CodexDevelopmentHostedActionResolution;
-  marker: VerificationActionStartMarkerV2;
+export function CreateHostedActionExecutionTicket(input: Readonly<{
+  resolution: HostedActionResolution;
+  marker: VerificationActionStartMarker;
   startObservation: VerificationActionProviderStartObservation;
   startStatus: VerificationActionProviderStatusObservation;
   preparedCandidateArtifactName: string;
-  preparedCandidateInventory: CodexDevelopmentHostedSutInventoryClosure;
-}>): CodexDevelopmentHostedActionExecutionTicket {
-  const resolution = CodexDevelopmentParseHostedActionResolution(
+  preparedCandidateInventory: HostedSutInventoryClosure;
+}>): HostedActionExecutionTicket {
+  const resolution = ParseHostedActionResolution(
     encodeVerificationActionData(input.resolution)
   );
-  const marker = parseVerificationActionStartMarkerV2(input.marker);
+  const marker = parseVerificationActionStartMarker(input.marker);
   const observation = input.startObservation;
-  const expectedName = verificationActionStartMarkerNameV2(resolution.actionPlan.action.actionKey);
+  const expectedName = verificationActionStartMarkerName(resolution.actionPlan.action.actionKey);
   if (marker.actionKey !== resolution.actionPlan.action.actionKey ||
       marker.candidateSha !== resolution.artifactInput.headSha ||
       marker.executionEnvironmentRevision !== CI_VERIFICATION_HOSTED_PROVIDER_REVISION ||
@@ -590,9 +613,9 @@ export function CodexDevelopmentCreateHostedActionExecutionTicket(input: Readonl
   return Object.freeze({ ...withoutDigest, ticketDigest: ciActionDigest(withoutDigest) });
 }
 
-export function CodexDevelopmentParseHostedActionExecutionTicket(
+export function ParseHostedActionExecutionTicket(
   source: string
-): CodexDevelopmentHostedActionExecutionTicket {
+): HostedActionExecutionTicket {
   const value = exactObject(JSON.parse(source) as unknown, [
     'schema', 'resolutionDigest', 'actionKey', 'candidateSha', 'candidateBytesDigest',
     'startStatusId', 'startStatusNodeId', 'startMarkerDigest', 'startArtifactOriginId',
@@ -647,12 +670,12 @@ export function CodexDevelopmentParseHostedActionExecutionTicket(
     preparedCandidateTotalFileBytes: Number(value.preparedCandidateTotalFileBytes),
     baseDependencyClosureDigest: value.baseDependencyClosureDigest as VerificationActionKeyDigest,
     authenticatedGitClosureDigest: value.authenticatedGitClosureDigest as VerificationActionKeyDigest,
-    producer: value.producer as CodexDevelopmentVerificationActionArtifactProducer
+    producer: value.producer as VerificationActionArtifactProducer
   });
   const expectedPreparedArtifactName =
     `sec-verification-action-prepared-v2-${withoutDigest.actionKey.slice(7)}-run-${withoutDigest.producer.runId}` +
     `-attempt-${withoutDigest.producer.runAttempt}`;
-  if (value.startArtifactName !== verificationActionStartMarkerNameV2(withoutDigest.actionKey) ||
+  if (value.startArtifactName !== verificationActionStartMarkerName(withoutDigest.actionKey) ||
       value.preparedCandidateArtifactName !== expectedPreparedArtifactName ||
       value.ticketDigest !== ciActionDigest(withoutDigest)) {
     throw new Error('Hosted Action execution ticket V2 digest or artifact name mismatch.');
@@ -662,11 +685,11 @@ export function CodexDevelopmentParseHostedActionExecutionTicket(
 
 function hostedActionProviderIndexFromSnapshot(
   snapshot: VerificationActionGitHubProviderSnapshot
-): CodexDevelopmentHostedActionProviderIndex {
+): HostedActionProviderIndex {
   const terminalObservations = snapshot.terminalObservations.map((observation) => {
     const artifact = observation.payload === null
       ? null
-      : CodexDevelopmentParseVerificationActionTerminalArtifact(
+      : parseVerificationActionTerminalArtifact(
         encodeVerificationActionData(observation.payload)
       );
     return Object.freeze({
@@ -691,13 +714,13 @@ function hostedActionProviderIndexFromSnapshot(
   });
 }
 
-export function CodexDevelopmentReduceHostedActionProviderIndex(input: Readonly<{
-  resolution: CodexDevelopmentHostedActionResolution;
+export function ReduceHostedActionProviderIndex(input: Readonly<{
+  resolution: HostedActionResolution;
   repositoryId: number;
   repository: string;
-  index: CodexDevelopmentHostedActionProviderIndex;
+  index: HostedActionProviderIndex;
 }>): VerificationActionProviderDecision {
-  const resolution = CodexDevelopmentParseHostedActionResolution(
+  const resolution = ParseHostedActionResolution(
     encodeVerificationActionData(input.resolution)
   );
   const actionKey = resolution.actionPlan.action.actionKey;
@@ -713,7 +736,7 @@ export function CodexDevelopmentReduceHostedActionProviderIndex(input: Readonly<
     executionEnvironmentRevision: CI_VERIFICATION_HOSTED_PROVIDER_REVISION,
     statusReadback: readbacks[0]!,
     startObservations: input.index.startObservations.filter(
-      (entry) => entry.payload?.actionKey === actionKey || entry.artifactName === verificationActionStartMarkerNameV2(actionKey)
+      (entry) => entry.payload?.actionKey === actionKey || entry.artifactName === verificationActionStartMarkerName(actionKey)
     ),
     terminalObservations: input.index.terminalObservations
       .map((entry) => entry.providerObservation)
@@ -772,7 +795,7 @@ function gitCandidateBytes(repositoryRoot: string, args: readonly string[]): Buf
 
 function hostedActionFileDigest(filePath: string): VerificationActionKeyDigest {
   const descriptor = openSync(path.resolve(filePath), 'r');
-  const hash = createHash('sha256');
+  const hash = createSha256Hasher();
   const buffer = Buffer.allocUnsafe(1024 * 1024);
   try {
     for (;;) {
@@ -783,78 +806,65 @@ function hostedActionFileDigest(filePath: string): VerificationActionKeyDigest {
   } finally {
     closeSync(descriptor);
   }
-  return `sha256:${hash.digest('hex')}`;
+  return hash.finish();
 }
 
-type CodexDevelopmentRetainedHostedSutArchive = Readonly<{
-  fileDescriptor: number;
+type RetainedHostedSutArchive = Readonly<{
+  capability: RetainedNoFollowOrdinaryFile;
   archiveDigest: VerificationActionKeyDigest;
   identityDigest: VerificationActionKeyDigest;
 }>;
 
-function retainedHostedSutArchiveObservation(fileDescriptor: number): Readonly<{
+function retainedHostedSutArchiveObservation(capability: RetainedNoFollowOrdinaryFile): Readonly<{
   archiveDigest: VerificationActionKeyDigest;
   identityDigest: VerificationActionKeyDigest;
 }> {
-  const before = fstatSync(fileDescriptor, { bigint: true });
-  if (!before.isFile() || before.size < 0n || before.size > BigInt(Number.MAX_SAFE_INTEGER)) {
-    throw new Error('Hosted SUT retained archive is not one bounded ordinary file.');
-  }
-  const hash = createHash('sha256');
-  const buffer = Buffer.allocUnsafe(1024 * 1024);
-  let offset = 0;
-  while (offset < Number(before.size)) {
-    const bytes = readSync(
-      fileDescriptor,
-      buffer,
-      0,
-      Math.min(buffer.byteLength, Number(before.size) - offset),
-      offset
-    );
-    if (bytes === 0) throw new Error('Hosted SUT retained archive ended before its retained size.');
-    hash.update(buffer.subarray(0, bytes));
-    offset += bytes;
-  }
-  const after = fstatSync(fileDescriptor, { bigint: true });
-  const identity = (value: typeof before) => Object.freeze({
-    device: value.dev.toString(),
-    inode: value.ino.toString(),
-    mode: value.mode.toString(),
-    size: value.size.toString()
-  });
-  const beforeIdentity = identity(before);
-  const afterIdentity = identity(after);
-  if (encodeVerificationActionData(beforeIdentity) !== encodeVerificationActionData(afterIdentity)) {
-    throw new Error('Hosted SUT retained archive changed while its bytes were observed.');
-  }
+  capability.assertHandleCurrent();
+  const digest = capability.handleDigest();
+  capability.assertHandleCurrent();
   return Object.freeze({
-    archiveDigest: `sha256:${hash.digest('hex')}`,
-    identityDigest: ciActionDigest(beforeIdentity)
+    archiveDigest: digest.byteDigest as VerificationActionKeyDigest,
+    identityDigest: ciActionDigest(Object.freeze({
+      device: capability.physical.device,
+      inode: capability.physical.inode,
+      size: capability.size,
+      linkCount: capability.linkCount
+    }))
   });
 }
 
 function retainHostedSutArchive(
   filePath: string,
   expectedDigest: VerificationActionKeyDigest
-): CodexDevelopmentRetainedHostedSutArchive {
-  const noFollow = process.platform === 'linux' ? fsConstants.O_NOFOLLOW : 0;
-  const fileDescriptor = openSync(path.resolve(filePath), fsConstants.O_RDONLY | noFollow);
+): RetainedHostedSutArchive {
+  const absolutePath = path.resolve(filePath);
+  const [capability] = retainCommandAuxiliaryOrdinaryFiles([{
+    expectedParent: inspectNoFollowDirectoryChain(
+      path.dirname(absolutePath),
+      'Hosted SUT retained archive parent'
+    ),
+    name: path.basename(absolutePath),
+    label: 'Hosted SUT retained archive'
+  }]);
   try {
-    const observed = retainedHostedSutArchiveObservation(fileDescriptor);
+    const observed = retainedHostedSutArchiveObservation(capability);
     if (observed.archiveDigest !== expectedDigest) {
       throw new Error('Hosted SUT retained archive differs from its authenticated digest.');
     }
-    return Object.freeze({ fileDescriptor, ...observed });
+    if (capability.childPath !== HOSTED_SUT_RETAINED_ARCHIVE_CHILD_PATH) {
+      throw new Error('Hosted SUT retained archive did not receive the canonical auxiliary child descriptor.');
+    }
+    return Object.freeze({ capability, ...observed });
   } catch (error) {
-    closeSync(fileDescriptor);
+    capability.dispose();
     throw error;
   }
 }
 
 function assertRetainedHostedSutArchive(
-  retained: CodexDevelopmentRetainedHostedSutArchive
+  retained: RetainedHostedSutArchive
 ): VerificationActionKeyDigest {
-  const observed = retainedHostedSutArchiveObservation(retained.fileDescriptor);
+  const observed = retainedHostedSutArchiveObservation(retained.capability);
   if (observed.archiveDigest !== retained.archiveDigest ||
       observed.identityDigest !== retained.identityDigest) {
     throw new Error('Hosted SUT retained archive changed after authentication.');
@@ -863,11 +873,11 @@ function assertRetainedHostedSutArchive(
 }
 
 /** Verify prepared candidate bytes before the durable start tombstone exists. */
-export function CodexDevelopmentAssertPreparedHostedActionCandidate(input: Readonly<{
-  resolution: CodexDevelopmentHostedActionResolution;
+export function AssertPreparedHostedActionCandidate(input: Readonly<{
+  resolution: HostedActionResolution;
   candidateRoot: string;
 }>): void {
-  const resolution = CodexDevelopmentParseHostedActionResolution(
+  const resolution = ParseHostedActionResolution(
     encodeVerificationActionData(input.resolution)
   );
   const candidateRoot = realpathSync.native(path.resolve(input.candidateRoot));
@@ -897,12 +907,12 @@ export function CodexDevelopmentAssertPreparedHostedActionCandidate(input: Reado
     path.resolve(candidateRoot, ...resolution.artifactInput.manifestPath.split('/')),
     'utf8'
   );
-  if (CodexDevelopmentWorkPackageManifestDigest(manifestSource) !== resolution.artifactInput.manifestDigest) {
+  if (WorkPackageManifestDigest(manifestSource) !== resolution.artifactInput.manifestDigest) {
     throw new Error('Hosted Action prepared candidate manifest bytes differ from the trusted resolution.');
   }
 }
 
-export type CodexDevelopmentHostedActionArchiveInventory = Readonly<{
+export type HostedActionArchiveInventory = Readonly<{
   archiveDigest: VerificationActionKeyDigest;
   inventoryDigest: VerificationActionKeyDigest;
   entryCount: number;
@@ -915,7 +925,7 @@ const HOSTED_ACTION_DEPENDENCY_AUTHORITY_PATHS = Object.freeze([
   '.bun-version', 'bun.lock', 'bunfig.toml', 'package.json'
 ] as const);
 
-export function CodexDevelopmentHostedDependencyMaterializerEnvironment(): NodeJS.ProcessEnv {
+export function HostedDependencyMaterializerEnvironment(): NodeJS.ProcessEnv {
   return Object.freeze({
     PATH: '/usr/bin:/bin',
     HOME: '/tmp/sec-hosted-dependency-home',
@@ -971,7 +981,7 @@ function hostedActionDependencyClosure(input: Readonly<{
     }
     return Object.freeze({
       path: relativePath,
-      bytesDigest: `sha256:${createHash('sha256').update(baseBytes).digest('hex')}`
+      bytesDigest: `sha256:${rawSha256Hex(baseBytes)}`
     });
   });
   return Object.freeze({
@@ -979,11 +989,11 @@ function hostedActionDependencyClosure(input: Readonly<{
     baseSha: input.baseSha,
     authority: Object.freeze(authority),
     installArgv: Object.freeze(['bun', 'install', '--frozen-lockfile', '--ignore-scripts']),
-    materializerEnvironment: CodexDevelopmentHostedDependencyMaterializerEnvironment()
+    materializerEnvironment: HostedDependencyMaterializerEnvironment()
   });
 }
 
-export function CodexDevelopmentAssertHostedActionDependencyInputsV1(input: Readonly<{
+export function AssertHostedActionDependencyInputs(input: Readonly<{
   baseRoot: string;
   candidateRoot: string;
   baseSha: string;
@@ -1008,13 +1018,13 @@ function strictPosixDescendant(root: string, candidate: string): boolean {
   return relative !== '' && relative !== '..' && !relative.startsWith('../') && !path.posix.isAbsolute(relative);
 }
 
-export type CodexDevelopmentHostedDependencyPhysicalSnapshot = Readonly<{
+export type HostedDependencyPhysicalSnapshot = Readonly<{
   schema: 'sec-hosted-dependency-physical-snapshot-v1';
   root: PhysicalDirectoryIdentity;
   entries: readonly NoFollowDirectoryTreeInventoryEntry[];
 }>;
 
-export type CodexDevelopmentHostedDependencyArchiveProjection = Readonly<{
+export type HostedDependencyArchiveProjection = Readonly<{
   schema: 'sec-hosted-dependency-archive-projection-v1';
   entriesObserved: number;
   linksProjected: number;
@@ -1022,9 +1032,9 @@ export type CodexDevelopmentHostedDependencyArchiveProjection = Readonly<{
   archiveProjectionDigest: VerificationActionKeyDigest;
 }>;
 
-export function CodexDevelopmentCaptureHostedDependencyPhysicalSnapshot(
+export function CaptureHostedDependencyPhysicalSnapshot(
   dependencyRoot: string
-): CodexDevelopmentHostedDependencyPhysicalSnapshot {
+): HostedDependencyPhysicalSnapshot {
   const root = inspectNoFollowDirectoryChain(
     path.resolve(dependencyRoot), 'Hosted dependency physical snapshot root'
   ).target;
@@ -1068,11 +1078,11 @@ function dependencyArchiveTarget(
  * in-root links are normalized only in the archive header, then every
  * dependency archive entry is compared with the retained pre-read snapshot.
  */
-export function CodexDevelopmentAssertHostedDependencyArchiveProjection(input: Readonly<{
-  before: CodexDevelopmentHostedDependencyPhysicalSnapshot;
-  after: CodexDevelopmentHostedDependencyPhysicalSnapshot;
+export function AssertHostedDependencyArchiveProjection(input: Readonly<{
+  before: HostedDependencyPhysicalSnapshot;
+  after: HostedDependencyPhysicalSnapshot;
   archiveEntries: readonly HostedActionArchiveInventoryEntry[];
-}>): CodexDevelopmentHostedDependencyArchiveProjection {
+}>): HostedDependencyArchiveProjection {
   if (input.before.schema !== 'sec-hosted-dependency-physical-snapshot-v1' ||
       input.after.schema !== 'sec-hosted-dependency-physical-snapshot-v1' ||
       JSON.stringify(input.before) !== JSON.stringify(input.after)) {
@@ -1270,9 +1280,9 @@ const HOSTED_ACTION_ARCHIVE_MATERIALIZER_SCRIPT = [
   '  os.close(output_fd); os.close(dependency_fd); os.close(candidate_fd)'
 ].join('\n');
 
-export function CodexDevelopmentMaterializeTrustedBootstrapArchive(input: Readonly<{
+export function MaterializeTrustedBootstrapArchive(input: Readonly<{
   candidateRoot: string;
-  dependencySnapshot: CodexDevelopmentHostedDependencyPhysicalSnapshot;
+  dependencySnapshot: HostedDependencyPhysicalSnapshot;
   outputDirectory: string;
 }>): string {
   if (process.platform !== 'linux') {
@@ -1389,7 +1399,7 @@ function resolveHostedArchiveLinkTarget(entryPath: string, target: string, hardl
   return stack.join('/');
 }
 
-export function CodexDevelopmentValidateHostedActionArchiveInventory(
+export function ValidateHostedActionArchiveInventory(
   source: unknown
 ): Readonly<{
   entries: readonly HostedActionArchiveInventoryEntry[];
@@ -1495,23 +1505,23 @@ export function CodexDevelopmentValidateHostedActionArchiveInventory(
   });
 }
 
-export function CodexDevelopmentInspectHostedActionArchiveInventory(
+export function InspectHostedActionArchiveInventory(
   archive: string,
   label: string = 'Hosted Action archive inventory'
-): ReturnType<typeof CodexDevelopmentValidateHostedActionArchiveInventory> {
-  return CodexDevelopmentValidateHostedActionArchiveInventory(
+): ReturnType<typeof ValidateHostedActionArchiveInventory> {
+  return ValidateHostedActionArchiveInventory(
     inspectHostedActionArchiveMetadata(archive, label)
   );
 }
 
-export function CodexDevelopmentInspectHostedActionArchive(input: Readonly<{
-  resolution: CodexDevelopmentHostedActionResolution;
+export function InspectHostedActionArchive(input: Readonly<{
+  resolution: HostedActionResolution;
   preparedCandidateArchive: string;
   baseDependencyClosureDigest: VerificationActionKeyDigest;
   authenticatedGitClosureDigest: VerificationActionKeyDigest;
   inspectArchive?: (archive: string) => unknown;
-}>): CodexDevelopmentHostedActionArchiveInventory {
-  const resolution = CodexDevelopmentParseHostedActionResolution(
+}>): HostedActionArchiveInventory {
+  const resolution = ParseHostedActionResolution(
     encodeVerificationActionData(input.resolution)
   );
   if (!/^sha256:[0-9a-f]{64}$/u.test(input.baseDependencyClosureDigest) ||
@@ -1533,7 +1543,7 @@ export function CodexDevelopmentInspectHostedActionArchive(input: Readonly<{
       'Hosted Action prepared candidate archive'
     );
   }
-  const validated = CodexDevelopmentValidateHostedActionArchiveInventory(rawInventory);
+  const validated = ValidateHostedActionArchiveInventory(rawInventory);
   for (const required of [
     ...resolution.actionPlan.action.inputClosure.map((entry) => entry.path),
     resolution.artifactInput.manifestPath,
@@ -1565,9 +1575,9 @@ export function CodexDevelopmentInspectHostedActionArchive(input: Readonly<{
   });
 }
 
-export type CodexDevelopmentPreparedHostedActionInputs = Readonly<{
+export type PreparedHostedActionInputs = Readonly<{
   preparedCandidateArchive: string;
-  archiveInventory: CodexDevelopmentHostedActionArchiveInventory;
+  archiveInventory: HostedActionArchiveInventory;
   baseDependencyClosureDigest: VerificationActionKeyDigest;
   authenticatedGitClosureDigest: VerificationActionKeyDigest;
 }>;
@@ -1596,7 +1606,7 @@ function runHostedMaterializerCommand(
   }
 }
 
-export type CodexDevelopmentDependencyMaterializationRecovery = Readonly<{
+export type DependencyMaterializationRecovery = Readonly<{
   attempts: 1 | 2;
   recoveredFrom: 'none' | 'bun-tarball-extraction';
 }>;
@@ -1611,9 +1621,9 @@ function isBunTarballExtractionFailure(error: unknown): boolean {
     diagnostic.includes('error: Fail extracting tarball from ');
 }
 
-export function CodexDevelopmentRunBoundedDependencyMaterialization(
+export function RunBoundedDependencyMaterialization(
   runExactMaterialization: () => void
-): CodexDevelopmentDependencyMaterializationRecovery {
+): DependencyMaterializationRecovery {
   try {
     runExactMaterialization();
     return Object.freeze({ attempts: 1, recoveredFrom: 'none' as const });
@@ -1625,8 +1635,8 @@ export function CodexDevelopmentRunBoundedDependencyMaterialization(
     } catch (secondError) {
       const firstDiagnostic = dependencyMaterializationFailureDiagnostic(firstError);
       const secondDiagnostic = dependencyMaterializationFailureDiagnostic(secondError);
-      const firstDigest = createHash('sha256').update(firstDiagnostic).digest('hex');
-      const secondDigest = createHash('sha256').update(secondDiagnostic).digest('hex');
+      const firstDigest = rawSha256Hex(firstDiagnostic);
+      const secondDigest = rawSha256Hex(secondDiagnostic);
       throw new Error(
         'Trusted bootstrap exact-base dependency materialization failed after one bounded ' +
         `Bun tarball-extraction recovery retry: first=sha256:${firstDigest} ` +
@@ -1636,16 +1646,16 @@ export function CodexDevelopmentRunBoundedDependencyMaterialization(
   }
 }
 
-export function CodexDevelopmentPrepareHostedActionInputs(input: Readonly<{
-  resolution: CodexDevelopmentHostedActionResolution;
+export function PrepareHostedActionInputs(input: Readonly<{
+  resolution: HostedActionResolution;
   baseRoot: string;
   candidateRoot: string;
   outputDirectory: string;
-}>): CodexDevelopmentPreparedHostedActionInputs {
+}>): PreparedHostedActionInputs {
   if (process.platform !== 'linux') {
     throw new Error('Hosted Action input preparation requires the pinned ubuntu-24.04 runner.');
   }
-  const resolution = CodexDevelopmentParseHostedActionResolution(
+  const resolution = ParseHostedActionResolution(
     encodeVerificationActionData(input.resolution)
   );
   const baseRoot = realpathSync.native(path.resolve(input.baseRoot));
@@ -1655,7 +1665,7 @@ export function CodexDevelopmentPrepareHostedActionInputs(input: Readonly<{
   if (baseHead !== resolution.artifactInput.baseSha || baseTree !== resolution.artifactInput.baseTreeSha) {
     throw new Error('Hosted Action dependency materializer is not the exact resolved base/tree.');
   }
-  CodexDevelopmentAssertPreparedHostedActionCandidate({ resolution, candidateRoot });
+  AssertPreparedHostedActionCandidate({ resolution, candidateRoot });
   const dependencyClosure = hostedActionDependencyClosure({
     baseRoot,
     candidateRoot,
@@ -1714,7 +1724,7 @@ export function CodexDevelopmentPrepareHostedActionInputs(input: Readonly<{
     '--sort=name', '--mtime=UTC 1970-01-01', '--owner=0', '--group=0', '--numeric-owner',
     '--exclude=./.git', '-cf', preparedCandidateArchive, '-C', candidateRoot, '.'
   ], 'Hosted Action raw prepared candidate archive materialization');
-  const archiveInventory = CodexDevelopmentInspectHostedActionArchive({
+  const archiveInventory = InspectHostedActionArchive({
     resolution,
     preparedCandidateArchive,
     baseDependencyClosureDigest,
@@ -1728,7 +1738,7 @@ export function CodexDevelopmentPrepareHostedActionInputs(input: Readonly<{
   });
 }
 
-export type CodexDevelopmentPreparedTrustedBootstrapSutInputs = Readonly<{
+export type PreparedTrustedBootstrapSutInputs = Readonly<{
   preparedCandidateArchive: string;
   archiveDigest: VerificationActionKeyDigest;
   archiveInventoryDigest: VerificationActionKeyDigest;
@@ -1736,11 +1746,11 @@ export type CodexDevelopmentPreparedTrustedBootstrapSutInputs = Readonly<{
   authenticatedGitClosureDigest: VerificationActionKeyDigest;
   entryCount: number;
   totalFileBytes: number;
-  dependencyMaterialization: CodexDevelopmentDependencyMaterializationRecovery;
-  dependencyArchiveProjection: CodexDevelopmentHostedDependencyArchiveProjection;
+  dependencyMaterialization: DependencyMaterializationRecovery;
+  dependencyArchiveProjection: HostedDependencyArchiveProjection;
 }>;
 
-export function CodexDevelopmentAssertTrustedBootstrapSutMaterializationClean(input: Readonly<{
+export function AssertTrustedBootstrapSutMaterializationClean(input: Readonly<{
   baseRoot: string;
   candidateRoot: string;
 }>): void {
@@ -1773,14 +1783,14 @@ export function CodexDevelopmentAssertTrustedBootstrapSutMaterializationClean(in
   }
 }
 
-export function CodexDevelopmentPrepareTrustedBootstrapSutInputs(input: Readonly<{
+export function PrepareTrustedBootstrapSutInputs(input: Readonly<{
   baseRoot: string;
   candidateRoot: string;
   outputDirectory: string;
   baseSha: string;
   headSha: string;
   treeSha: string;
-}>): CodexDevelopmentPreparedTrustedBootstrapSutInputs {
+}>): PreparedTrustedBootstrapSutInputs {
   if (process.platform !== 'linux' || !/^[0-9a-f]{40}$/u.test(input.baseSha) ||
       !/^[0-9a-f]{40}$/u.test(input.headSha) || !/^[0-9a-f]{40}$/u.test(input.treeSha)) {
     throw new Error('Trusted bootstrap SUT input identity is invalid or unsupported on this host.');
@@ -1800,15 +1810,15 @@ export function CodexDevelopmentPrepareTrustedBootstrapSutInputs(input: Readonly
       candidateParents[1] !== input.baseSha) {
     throw new Error('Trusted bootstrap SUT checkouts are not the exact base and single-parent candidate.');
   }
-  CodexDevelopmentAssertTrustedBootstrapSutMaterializationClean({ baseRoot, candidateRoot });
+  AssertTrustedBootstrapSutMaterializationClean({ baseRoot, candidateRoot });
   const dependencyClosure = hostedActionDependencyClosure({
     baseRoot, candidateRoot, baseSha: input.baseSha
   });
-  const materializerEnvironment = CodexDevelopmentHostedDependencyMaterializerEnvironment();
+  const materializerEnvironment = HostedDependencyMaterializerEnvironment();
   mkdirSync(materializerEnvironment.BUN_INSTALL_CACHE_DIR!, { recursive: true });
   mkdirSync(materializerEnvironment.HOME!, { recursive: true });
   mkdirSync(materializerEnvironment.TMPDIR!, { recursive: true });
-  const dependencyMaterialization = CodexDevelopmentRunBoundedDependencyMaterialization(() => {
+  const dependencyMaterialization = RunBoundedDependencyMaterialization(() => {
     runHostedMaterializerCommand(
       realpathSync.native(process.execPath),
       ['install', '--frozen-lockfile', '--ignore-scripts'],
@@ -1822,7 +1832,7 @@ export function CodexDevelopmentPrepareTrustedBootstrapSutInputs(input: Readonly
     throw new Error('Trusted bootstrap exact-base dependency materialization has no ordinary node_modules.');
   }
   const dependencyPhysicalBefore =
-    CodexDevelopmentCaptureHostedDependencyPhysicalSnapshot(baseNodeModules);
+    CaptureHostedDependencyPhysicalSnapshot(baseNodeModules);
   if (existsSync(candidateNodeModules)) {
     throw new Error('Trusted bootstrap candidate node_modules already exists.');
   }
@@ -1863,7 +1873,7 @@ export function CodexDevelopmentPrepareTrustedBootstrapSutInputs(input: Readonly
       '/usr/bin/git', ['-C', candidateRoot, 'bundle', 'verify', gitBundlePath],
       'Trusted bootstrap authenticated candidate Git bundle verification'
     );
-    const materializedArchive = CodexDevelopmentMaterializeTrustedBootstrapArchive({
+    const materializedArchive = MaterializeTrustedBootstrapArchive({
       candidateRoot,
       dependencySnapshot: dependencyPhysicalBefore,
       outputDirectory
@@ -1871,7 +1881,7 @@ export function CodexDevelopmentPrepareTrustedBootstrapSutInputs(input: Readonly
     if (materializedArchive !== preparedCandidateArchive) {
       throw new Error('Trusted bootstrap retained archive projection returned the wrong output identity.');
     }
-    const validated = CodexDevelopmentInspectHostedActionArchiveInventory(
+    const validated = InspectHostedActionArchiveInventory(
       preparedCandidateArchive,
       'Trusted bootstrap prepared candidate archive inventory'
     );
@@ -1888,8 +1898,8 @@ export function CodexDevelopmentPrepareTrustedBootstrapSutInputs(input: Readonly
       throw new Error('Trusted bootstrap archive lost its authenticated Git or dependency closure.');
     }
     const dependencyPhysicalAfter =
-      CodexDevelopmentCaptureHostedDependencyPhysicalSnapshot(baseNodeModules);
-    const dependencyArchiveProjection = CodexDevelopmentAssertHostedDependencyArchiveProjection({
+      CaptureHostedDependencyPhysicalSnapshot(baseNodeModules);
+    const dependencyArchiveProjection = AssertHostedDependencyArchiveProjection({
       before: dependencyPhysicalBefore,
       after: dependencyPhysicalAfter,
       archiveEntries: validated.entries
@@ -1910,22 +1920,22 @@ export function CodexDevelopmentPrepareTrustedBootstrapSutInputs(input: Readonly
   }
 }
 
-export function CodexDevelopmentMaterializeHostedActionCandidate(input: Readonly<{
-  resolution: CodexDevelopmentHostedActionResolution;
-  ticket: CodexDevelopmentHostedActionExecutionTicket;
+export function MaterializeHostedActionCandidate(input: Readonly<{
+  resolution: HostedActionResolution;
+  ticket: HostedActionExecutionTicket;
   preparedCandidateArchive: string;
   inspectArchive?: (archive: string) => unknown;
-}>): CodexDevelopmentHostedActionArchiveInventory {
-  const resolution = CodexDevelopmentParseHostedActionResolution(
+}>): HostedActionArchiveInventory {
+  const resolution = ParseHostedActionResolution(
     encodeVerificationActionData(input.resolution)
   );
-  const ticket = CodexDevelopmentParseHostedActionExecutionTicket(
+  const ticket = ParseHostedActionExecutionTicket(
     encodeVerificationActionData(input.ticket)
   );
   if (ticket.resolutionDigest !== resolution.resolutionDigest) {
     throw new Error('Hosted Action execution ticket differs from the trusted resolution.');
   }
-  const inspected = CodexDevelopmentInspectHostedActionArchive({
+  const inspected = InspectHostedActionArchive({
     resolution,
     preparedCandidateArchive: input.preparedCandidateArchive,
     baseDependencyClosureDigest: ticket.baseDependencyClosureDigest,
@@ -1967,7 +1977,7 @@ const HOSTED_SUT_SEMANTIC_ENVIRONMENT_NAMES = Object.freeze([
   'SEC_WORK_PACKAGE_MANIFEST_PATH'
 ] as const);
 
-export function CodexDevelopmentCandidateProcessEnvironment(
+export function CandidateProcessEnvironment(
   source: NodeJS.ProcessEnv,
   semanticBindings: Readonly<Record<string, string>> = {}
 ): NodeJS.ProcessEnv {
@@ -2105,7 +2115,7 @@ const HOSTED_SUT_NAMESPACE_SCRIPT = [
   `mount -t tmpfs -o nodev,nosuid,mode=0755,size=${CI_VERIFICATION_HOSTED_SANDBOX_POLICY.limits.workspaceBytes} tmpfs "$root"`,
   'mkdir -p "$root/tool/bin" "$root/authenticated-input" "$root/workspace" "$root/tmp" "$root/home/sut" "$root/dev" "$root/proc" "$root/etc"',
   ...HOSTED_SUT_RUNTIME_TOOL_CLOSURE,
-  '[ "$candidate_archive" = "/proc/self/fd/3" ]',
+  `[ "$candidate_archive" = "/proc/self/fd/${HOSTED_SUT_RETAINED_ARCHIVE_CHILD_FD}" ]`,
   '/usr/bin/cat -- "$candidate_archive" > "$root/authenticated-input/prepared-candidate.tar"',
   '[ "sha256:$(/usr/bin/sha256sum "$root/authenticated-input/prepared-candidate.tar" | /usr/bin/cut -d " " -f 1)" = "$expected_archive_digest" ]',
   '/usr/bin/chmod 0400 "$root/authenticated-input/prepared-candidate.tar"',
@@ -2131,7 +2141,7 @@ const TRUSTED_BOOTSTRAP_SUT_FOCUSED_TESTS = Object.freeze([
   'tests/unit/tcb-trust-root-contract.test.ts',
   'tests/unit/test-runner.test.ts',
   'tests/contract/ci-contract.test.ts',
-  'tests/contract/sec-merge-gate.test.ts',
+  'tests/contract/merge-gate.test.ts',
   'tests/contract/tcb-closure-lock.test.ts',
   'tests/contract/repository-audit.test.ts',
   'tests/contract/documentation-authority.test.ts',
@@ -2143,7 +2153,7 @@ const TRUSTED_BOOTSTRAP_SUT_FOCUSED_TESTS = Object.freeze([
 // bootstrap candidate may execute. Child output is streamed into bounded
 // digest/tail observations; it never reaches GitHub command files or the host
 // runner's inherited stdout directly.
-export const CodexDevelopmentTrustedBootstrapSutHarness = [
+export const TrustedBootstrapSutHarness = [
   '(async () => {',
   'const { createHash } = require("node:crypto");',
   'const CAP = 2097152;',
@@ -2213,8 +2223,8 @@ export const CodexDevelopmentTrustedBootstrapSutHarness = [
     'bun', 'test', '--timeout', '180000', ...TRUSTED_BOOTSTRAP_SUT_FOCUSED_TESTS
   ])});`,
   '  await execute("repository-audit", ["bun", "src/adapters/repository/repository-audit/cli.ts", "--json"]);',
-  '  await execute("affected-plan", ["bun", "run", "check:affected", "--plan"]);',
-  '  await execute("affected-tests", ["bun", "run", "test:affected"]);',
+  '  await execute("affected-plan", ["bun", "run", "check", "--", "--affected", "--plan"]);',
+  '  await execute("affected-tests", ["bun", "run", "test", "--", "--affected"]);',
   '  const worktree = await execute("worktree-readback", ["git", "status", "--porcelain=v1"]);',
   '  if (worktree.stdoutTail.length !== 0) throw new Error("tracked-worktree-not-clean");',
   '} catch (error) { status = "failed"; diagnostic = error instanceof Error ? error.message : String(error); }',
@@ -2224,7 +2234,7 @@ export const CodexDevelopmentTrustedBootstrapSutHarness = [
   '})().catch((error) => { process.stdout.write(`${JSON.stringify({ schema: "sec-trusted-bootstrap-sandbox-summary-v1", status: "failed", diagnostic: error instanceof Error ? error.message : String(error), results: [] })}\\n`); process.exitCode = 1; });'
 ].join('');
 
-export const CodexDevelopmentHostedSutCapabilityAssertion = [
+export const HostedSutCapabilityAssertion = [
   '(async () => {',
   'const fs = require("node:fs");',
   'const { execFileSync, spawn } = require("node:child_process");',
@@ -2268,7 +2278,7 @@ export const CodexDevelopmentHostedSutCapabilityAssertion = [
 
 const HOSTED_SUT_CHROOT_CAPABILITY_SCRIPT = [
   'mount -t proc -o nosuid,nodev,noexec,hidepid=2 proc /proc',
-  `exec /usr/bin/setpriv --reuid=${CI_VERIFICATION_HOSTED_SANDBOX_POLICY.isolatedUid} --regid=${CI_VERIFICATION_HOSTED_SANDBOX_POLICY.isolatedGid} --clear-groups --no-new-privs --bounding-set=-all --inh-caps=-all --ambient-caps=-all /usr/bin/prlimit --cpu=${CI_VERIFICATION_HOSTED_SANDBOX_POLICY.limits.perProcessCpuSeconds} --as=${CI_VERIFICATION_HOSTED_SANDBOX_POLICY.limits.addressSpaceBytes} --fsize=${CI_VERIFICATION_HOSTED_SANDBOX_POLICY.limits.fileSizeBytes} --nofile=${CI_VERIFICATION_HOSTED_SANDBOX_POLICY.limits.openFiles} --nproc=${CI_VERIFICATION_HOSTED_SANDBOX_POLICY.limits.processes} -- /usr/bin/env -i PATH=/tool/bin:/usr/bin:/bin HOME=/home/sut TMPDIR=/tmp LANG=C /tool/bin/bun -e ${shellSingleQuote(CodexDevelopmentHostedSutCapabilityAssertion)}`
+  `exec /usr/bin/setpriv --reuid=${CI_VERIFICATION_HOSTED_SANDBOX_POLICY.isolatedUid} --regid=${CI_VERIFICATION_HOSTED_SANDBOX_POLICY.isolatedGid} --clear-groups --no-new-privs --bounding-set=-all --inh-caps=-all --ambient-caps=-all /usr/bin/prlimit --cpu=${CI_VERIFICATION_HOSTED_SANDBOX_POLICY.limits.perProcessCpuSeconds} --as=${CI_VERIFICATION_HOSTED_SANDBOX_POLICY.limits.addressSpaceBytes} --fsize=${CI_VERIFICATION_HOSTED_SANDBOX_POLICY.limits.fileSizeBytes} --nofile=${CI_VERIFICATION_HOSTED_SANDBOX_POLICY.limits.openFiles} --nproc=${CI_VERIFICATION_HOSTED_SANDBOX_POLICY.limits.processes} -- /usr/bin/env -i PATH=/tool/bin:/usr/bin:/bin HOME=/home/sut TMPDIR=/tmp LANG=C /tool/bin/bun -e ${shellSingleQuote(HostedSutCapabilityAssertion)}`
 ].join('\n');
 
 const HOSTED_SUT_CAPABILITY_SCRIPT = [
@@ -2321,14 +2331,14 @@ function hostedSutSandboxUnitName(actionKey: VerificationActionKeyDigest, nonce:
 }
 
 function finalizeHostedSutSandboxCommandPlan(input: Readonly<{
-  phase: CodexDevelopmentHostedSutSandboxCommandPlan['phase'];
-  command: CodexDevelopmentHostedSutSandboxCommandPlan['command'];
+  phase: HostedSutSandboxCommandPlan['phase'];
+  command: HostedSutSandboxCommandPlan['command'];
   unitName: string;
   argv: readonly string[];
   candidateEnvironmentNames: readonly string[];
   executionAuthorizationDigest: VerificationActionKeyDigest | null;
   physicalCommandProjectionDigest: VerificationActionKeyDigest | null;
-}>): CodexDevelopmentHostedSutSandboxCommandPlan {
+}>): HostedSutSandboxCommandPlan {
   if (!/^sec-sut-[0-9a-f]{16}-[A-Za-z0-9_.-]{1,32}$/u.test(input.unitName) ||
       input.argv.length === 0 || input.argv.some((entry) => typeof entry !== 'string' || entry.includes('\0'))) {
     throw new Error('Hosted SUT sandbox command plan identity is invalid.');
@@ -2352,8 +2362,8 @@ function finalizeHostedSutSandboxCommandPlan(input: Readonly<{
   return Object.freeze({ ...withoutDigest, planDigest: ciActionDigest(withoutDigest) });
 }
 
-export function CodexDevelopmentAssertHostedSutSandboxCommandPlan(
-  plan: CodexDevelopmentHostedSutSandboxCommandPlan
+export function AssertHostedSutSandboxCommandPlan(
+  plan: HostedSutSandboxCommandPlan
 ): void {
   const value = exactObject(plan, [
     'schema', 'policyDigest', 'phase', 'unitName', 'command', 'argv',
@@ -2425,7 +2435,7 @@ export function CodexDevelopmentAssertHostedSutSandboxCommandPlan(
   }
 }
 
-export function CodexDevelopmentBuildHostedSutSandboxCommandPlan(input: Readonly<{
+export function BuildHostedSutSandboxCommandPlan(input: Readonly<{
   actionKey: VerificationActionKeyDigest;
   candidateArchiveDigest: VerificationActionKeyDigest;
   bunExecutable: string;
@@ -2433,8 +2443,8 @@ export function CodexDevelopmentBuildHostedSutSandboxCommandPlan(input: Readonly
   headSha: string;
   normalizedArgv: readonly string[];
   candidateEnvironment: NodeJS.ProcessEnv;
-  executionAuthorization: CodexDevelopmentHostedSutExecutionAuthorization;
-}>): CodexDevelopmentHostedSutSandboxCommandPlan {
+  executionAuthorization: HostedSutExecutionAuthorization;
+}>): HostedSutSandboxCommandPlan {
   if (!/^sha256:[0-9a-f]{64}$/u.test(input.actionKey) || input.normalizedArgv[0] !== 'bun' ||
       input.normalizedArgv.length < 2 || !/^sha256:[0-9a-f]{64}$/u.test(input.candidateArchiveDigest) ||
       !path.isAbsolute(input.bunExecutable) || !/^[0-9a-f]{40}$/u.test(input.baseSha) ||
@@ -2490,11 +2500,11 @@ export function CodexDevelopmentBuildHostedSutSandboxCommandPlan(input: Readonly
       ...environment.map(([name, value]) => `${name}=${value}`), ...input.normalizedArgv
     ]
   });
-  CodexDevelopmentAssertHostedSutSandboxCommandPlan(plan);
+  AssertHostedSutSandboxCommandPlan(plan);
   return plan;
 }
 
-export function CodexDevelopmentBuildTrustedBootstrapSutSandboxCommandPlan(input: Readonly<{
+export function BuildTrustedBootstrapSutSandboxCommandPlan(input: Readonly<{
   bootstrapDigest: VerificationActionKeyDigest;
   candidateArchiveDigest: VerificationActionKeyDigest;
   bunExecutable: string;
@@ -2502,7 +2512,7 @@ export function CodexDevelopmentBuildTrustedBootstrapSutSandboxCommandPlan(input
   headSha: string;
   candidateEnvironment: NodeJS.ProcessEnv;
   unitNonce: string;
-}>): CodexDevelopmentHostedSutSandboxCommandPlan {
+}>): HostedSutSandboxCommandPlan {
   if (!/^sha256:[0-9a-f]{64}$/u.test(input.bootstrapDigest) ||
       !/^sha256:[0-9a-f]{64}$/u.test(input.candidateArchiveDigest) ||
       !path.isAbsolute(input.bunExecutable) ||
@@ -2527,10 +2537,10 @@ export function CodexDevelopmentBuildTrustedBootstrapSutSandboxCommandPlan(input
       input.bunExecutable, input.baseSha, input.headSha,
       String(environment.length),
       ...environment.map(([name, value]) => `${name}=${value}`),
-      'bun', '-e', CodexDevelopmentTrustedBootstrapSutHarness
+      'bun', '-e', TrustedBootstrapSutHarness
     ]
   });
-  CodexDevelopmentAssertHostedSutSandboxCommandPlan(plan);
+  AssertHostedSutSandboxCommandPlan(plan);
   return plan;
 }
 
@@ -2538,8 +2548,8 @@ function hostedSutCapabilityCommandPlan(input: Readonly<{
   actionKey: VerificationActionKeyDigest;
   bunExecutable: string;
   unitNonce: string;
-  executionAuthorization?: CodexDevelopmentHostedSutExecutionAuthorization;
-}>): CodexDevelopmentHostedSutSandboxCommandPlan {
+  executionAuthorization?: HostedSutExecutionAuthorization;
+}>): HostedSutSandboxCommandPlan {
   if (input.executionAuthorization !== undefined &&
       input.executionAuthorization.actionKey !== input.actionKey) {
     throw new Error('Hosted SUT capability plan authorization differs from its ActionKey.');
@@ -2564,7 +2574,7 @@ function hostedSutCapabilityCommandPlan(input: Readonly<{
 function hostedSutTeardownCommandPlan(input: Readonly<{
   actionKey: VerificationActionKeyDigest;
   unitName: string;
-}>): CodexDevelopmentHostedSutSandboxCommandPlan {
+}>): HostedSutSandboxCommandPlan {
   return finalizeHostedSutSandboxCommandPlan({
     phase: 'teardown',
     command: '/usr/bin/bash',
@@ -2578,104 +2588,218 @@ function hostedSutTeardownCommandPlan(input: Readonly<{
   });
 }
 
-function defaultHostedSutSandboxProcess(
-  plan: CodexDevelopmentHostedSutSandboxCommandPlan,
-  retainedArchive?: CodexDevelopmentRetainedHostedSutArchive
-): Promise<CodexDevelopmentHostedSutSandboxProcessObservation> {
+const HOSTED_SUT_PROCESS_REQUIREMENT_ID = 'verification.hosted-sut.process';
+const HOSTED_SUT_PROCESS_BUDGET = Object.freeze({
+  maximumDurationMs: CI_VERIFICATION_HOSTED_SANDBOX_POLICY.limits.wallSeconds * 1_000,
+  maximumInputBytes: 0,
+  maximumOutputBytes: CI_VERIFICATION_HOSTED_SUT_OUTPUT_BYTE_LIMIT * 2,
+  maximumProcesses: 1
+});
+
+function bindHostedSutProcessOperation(
+  plan: HostedSutSandboxCommandPlan,
+  providerIdentityDigest: OperationDigest
+): BoundSemanticOperation {
+  const contractDigest = ciActionDigest(Object.freeze({
+    schema: 'sec-hosted-sut-process-contract-v1',
+    policyDigest: CI_VERIFICATION_HOSTED_SANDBOX_POLICY_DIGEST,
+    maximumDurationMs: HOSTED_SUT_PROCESS_BUDGET.maximumDurationMs,
+    maximumOutputBytes: HOSTED_SUT_PROCESS_BUDGET.maximumOutputBytes,
+    maximumProcesses: HOSTED_SUT_PROCESS_BUDGET.maximumProcesses
+  })) as OperationDigest;
+  const operationPlan = compileSemanticOperationPlan({
+    operation: 'verification.hosted-sut.process',
+    intentDigest: plan.planDigest as OperationDigest,
+    decisionDigest: ciActionDigest(Object.freeze({
+      schema: 'sec-hosted-sut-process-decision-v1',
+      phase: plan.phase,
+      command: plan.command,
+      planDigest: plan.planDigest
+    })) as OperationDigest,
+    deadlineAtUnixMs: Date.now() + HOSTED_SUT_PROCESS_BUDGET.maximumDurationMs,
+    aggregateBudgets: [
+      { resource: 'duration-ms', maximum: HOSTED_SUT_PROCESS_BUDGET.maximumDurationMs },
+      { resource: 'input-bytes', maximum: HOSTED_SUT_PROCESS_BUDGET.maximumInputBytes },
+      { resource: 'output-bytes', maximum: HOSTED_SUT_PROCESS_BUDGET.maximumOutputBytes },
+      { resource: 'processes', maximum: HOSTED_SUT_PROCESS_BUDGET.maximumProcesses }
+    ],
+    requirements: [{
+      id: HOSTED_SUT_PROCESS_REQUIREMENT_ID,
+      contractDigest,
+      effectKinds: ['process'],
+      failureKinds: ['process.failed', 'process.settlement-failed']
+    }],
+    attempt: issueSemanticOperationAttemptContext({
+      authorityGrantDigest: (plan.executionAuthorizationDigest ?? plan.planDigest) as OperationDigest
+    })
+  });
+  return bindSemanticOperation(operationPlan, [compileCapabilityBinding({
+    requirementId: HOSTED_SUT_PROCESS_REQUIREMENT_ID,
+    contractDigest,
+    providerIdentityDigest
+  })]);
+}
+
+async function defaultHostedSutSandboxProcess(
+  plan: HostedSutSandboxCommandPlan,
+  retainedArchive?: RetainedHostedSutArchive
+): Promise<HostedSutSandboxProcessObservation> {
   const consumesArchive = plan.phase === 'execute' || plan.phase === 'bootstrap-execute';
   if (consumesArchive !== (retainedArchive !== undefined)) {
     throw new Error('Hosted SUT process has a missing or extraneous retained archive descriptor.');
   }
   if (retainedArchive !== undefined) {
     assertRetainedHostedSutArchive(retainedArchive);
-    if (plan.argv.filter((entry) => entry === HOSTED_SUT_RETAINED_ARCHIVE_CHILD_PATH).length !== 1 ||
+    if (retainedArchive.capability.childPath !== HOSTED_SUT_RETAINED_ARCHIVE_CHILD_PATH ||
+        plan.argv.filter((entry) => entry === HOSTED_SUT_RETAINED_ARCHIVE_CHILD_PATH).length !== 1 ||
         plan.argv.filter((entry) => entry === retainedArchive.archiveDigest).length !== 1) {
       throw new Error('Hosted SUT process plan differs from its retained archive binding.');
     }
   }
-  const outputByteLimit = CI_VERIFICATION_HOSTED_SUT_OUTPUT_BYTE_LIMIT;
-  const tailByteLimit = 64 * 1024;
-  return new Promise((resolve) => {
-    const child = spawn(plan.command, plan.argv, {
-      cwd: process.cwd(),
-      env: { PATH: '/usr/bin:/bin', LANG: 'C.UTF-8' },
-      stdio: retainedArchive === undefined
-        ? ['ignore', 'pipe', 'pipe']
-        : ['ignore', 'pipe', 'pipe', retainedArchive.fileDescriptor],
-      windowsHide: true
-    });
-    const streams = {
-      stdout: { hash: createHash('sha256'), bytes: 0, hashed: 0, tail: Buffer.alloc(0) },
-      stderr: { hash: createHash('sha256'), bytes: 0, hashed: 0, tail: Buffer.alloc(0) }
-    };
-    let outputTruncated = false;
-    let wallTimedOut = false;
-    let commandStarted = false;
-    let settled = false;
-    let wallTimer: ReturnType<typeof setTimeout> | null = null;
-    const observe = (kind: 'stdout' | 'stderr', chunk: Buffer): void => {
-      const stream = streams[kind];
-      stream.bytes += chunk.byteLength;
-      const remaining = Math.max(0, outputByteLimit - stream.hashed);
-      if (remaining > 0) {
-        const retained = chunk.subarray(0, remaining);
-        stream.hash.update(retained);
-        stream.hashed += retained.byteLength;
-      }
-      const tail = Buffer.concat([stream.tail, chunk]);
-      stream.tail = tail.subarray(Math.max(0, tail.byteLength - tailByteLimit));
-      if (stream.bytes > outputByteLimit && !outputTruncated) {
-        outputTruncated = true;
-        child.kill('SIGKILL');
-      }
-    };
-    child.stdout?.on('data', (chunk: Buffer) => observe('stdout', chunk));
-    child.stderr?.on('data', (chunk: Buffer) => observe('stderr', chunk));
-    const finish = (code: number): void => {
-      if (settled) return;
-      settled = true;
-      if (wallTimer !== null) clearTimeout(wallTimer);
-      const stdoutDigest = `sha256:${streams.stdout.hash.digest('hex')}` as VerificationActionKeyDigest;
-      const stderrDigest = `sha256:${streams.stderr.hash.digest('hex')}` as VerificationActionKeyDigest;
-      const failureTail = wallTimedOut
-        ? 'Hosted SUT exceeded the trusted wall-clock bound and the unshare process was terminated.'
-        : outputTruncated
-        ? 'Hosted SUT stdout/stderr exceeded the trusted capture bound and the whole unit was terminated.'
-        : [streams.stdout.tail.toString('utf8'), streams.stderr.tail.toString('utf8')]
-            .filter((entry) => entry.length > 0).join('\n').trim();
-      const outputProjection = Object.freeze({
-        stdoutDigest, stderrDigest,
-        stdoutBytesObserved: streams.stdout.bytes,
-        stderrBytesObserved: streams.stderr.bytes,
-        outputTruncated,
-        commandStarted
-      });
-      resolve(Object.freeze({
-        code: wallTimedOut ? 124 : outputTruncated ? 125 : code,
-        rawOutputDigest: ciActionDigest({ ...outputProjection, wallTimedOut }),
-        failureTail,
-        ...outputProjection
-      }));
-    };
-    child.on('spawn', () => { commandStarted = true; });
-    child.on('error', (error) => {
-      observe('stderr', Buffer.from(error instanceof Error ? error.message : String(error)));
-      finish(1);
-    });
-    child.on('close', (code) => finish(code ?? 1));
-    wallTimer = setTimeout(() => {
-      if (settled) return;
-      wallTimedOut = true;
-      child.kill('SIGKILL');
-    }, CI_VERIFICATION_HOSTED_SANDBOX_POLICY.limits.wallSeconds * 1_000);
-    wallTimer.unref();
+
+  const executablePath = path.resolve(plan.command);
+  const executableParent = inspectNoFollowDirectoryChain(
+    path.dirname(executablePath),
+    'Hosted SUT process executable parent'
+  );
+  const workingDirectoryChain = inspectNoFollowDirectoryChain(
+    path.resolve(process.cwd()),
+    'Hosted SUT process working directory'
+  );
+  const executable = retainNoFollowOrdinaryFile(
+    executableParent,
+    path.basename(executablePath),
+    undefined,
+    'Hosted SUT process executable',
+    RETAINED_EXECUTABLE_CHILD_DESCRIPTOR,
+    'executable'
+  );
+  const workingDirectory = retainNoFollowDirectoryForChildProcess(
+    workingDirectoryChain,
+    RETAINED_WORKING_DIRECTORY_CHILD_DESCRIPTOR,
+    'Hosted SUT process working directory'
+  );
+  const providerIdentityDigest = ciActionDigest(Object.freeze({
+    schema: 'sec-hosted-sut-process-provider-v1',
+    executable: Object.freeze({
+      path: executable.path,
+      physical: executable.physical,
+      digest: executable.digest().byteDigest
+    }),
+    workingDirectory: workingDirectoryChain.target,
+    auxiliaryArchive: retainedArchive === undefined ? null : Object.freeze({
+      physical: retainedArchive.capability.physical,
+      archiveDigest: retainedArchive.archiveDigest,
+      childPath: retainedArchive.capability.childPath
+    })
+  })) as OperationDigest;
+  const operation = bindHostedSutProcessOperation(plan, providerIdentityDigest);
+  const session = openProcessResourceSession({
+    operation,
+    requirementBindingContext: issueOperationRequirementBindingContext({
+      operation,
+      requirementId: HOSTED_SUT_PROCESS_REQUIREMENT_ID,
+      resourceCeilings: operation.plan.execution.aggregateBudgets
+    })
   });
+  const boundary = issueRetainedCommandBoundary({
+    executable,
+    workingDirectory,
+    ...(retainedArchive === undefined ? {} : {
+      auxiliaryInputs: [{
+        capability: retainedArchive.capability,
+        kind: 'ordinary-file' as const
+      }]
+    })
+  });
+
+  let observation: HostedSutSandboxProcessObservation | undefined;
+  let primaryFailure: Readonly<{ error: unknown }> | undefined;
+  try {
+    const executed = await session.run(boundary, plan.argv, {
+      env: { PATH: '/usr/bin:/bin', LANG: 'C.UTF-8' },
+      envMode: 'replace',
+      maxStdoutBytes: CI_VERIFICATION_HOSTED_SUT_OUTPUT_BYTE_LIMIT,
+      maxStderrBytes: CI_VERIFICATION_HOSTED_SUT_OUTPUT_BYTE_LIMIT
+    });
+    const stdout = Buffer.from(executed.result.stdout);
+    const stderr = Buffer.from(executed.result.stderr, 'utf8');
+    const tailByteLimit = 64 * 1024;
+    const stdoutDigest = `sha256:${rawSha256Hex(stdout)}` as VerificationActionKeyDigest;
+    const stderrDigest = `sha256:${rawSha256Hex(stderr)}` as VerificationActionKeyDigest;
+    const outputProjection = Object.freeze({
+      stdoutDigest,
+      stderrDigest,
+      stdoutBytesObserved: stdout.byteLength,
+      stderrBytesObserved: stderr.byteLength,
+      outputTruncated: false,
+      commandStarted: true
+    });
+    observation = Object.freeze({
+      code: executed.result.code,
+      rawOutputDigest: ciActionDigest({ ...outputProjection, wallTimedOut: false }),
+      failureTail: [
+        stdout.subarray(Math.max(0, stdout.byteLength - tailByteLimit)).toString('utf8'),
+        stderr.subarray(Math.max(0, stderr.byteLength - tailByteLimit)).toString('utf8')
+      ].filter((entry) => entry.length > 0).join('\n').trim(),
+      ...outputProjection
+    });
+  } catch (error) {
+    if (error instanceof RetainedCommandTransportError) {
+      const outputTruncated = error.outcome.stdout.observerTruncated ||
+        error.outcome.stderr.observerTruncated || /(?:stdout|stderr) exceeded/u.test(error.message);
+      const stdoutDigest = error.outcome.stdout.digest as VerificationActionKeyDigest;
+      const stderrDigest = error.outcome.stderr.digest as VerificationActionKeyDigest;
+      const outputProjection = Object.freeze({
+        stdoutDigest,
+        stderrDigest,
+        stdoutBytesObserved: error.outcome.stdout.bytes,
+        stderrBytesObserved: error.outcome.stderr.bytes,
+        outputTruncated,
+        commandStarted: error.outcome.started
+      });
+      observation = Object.freeze({
+        code: error.outcome.status === 'timed-out' ? 124
+          : outputTruncated ? 125 : error.outcome.exitCode ?? 1,
+        rawOutputDigest: ciActionDigest(Object.freeze({
+          ...outputProjection,
+          transportStatus: error.outcome.status
+        })),
+        failureTail: hostedSutDiagnostic(error.message, 'Hosted SUT process transport failed.'),
+        ...outputProjection
+      });
+    } else {
+      primaryFailure = Object.freeze({ error });
+    }
+  }
+
+  settlePhysicalResources({
+    ...(primaryFailure === undefined ? {} : {
+      primary: { label: 'Hosted SUT process execution', error: primaryFailure.error }
+    }),
+    cleanup: [
+      {
+        label: 'Hosted SUT process session',
+        settle: () => assertProcessResourceSessionReceipt(session.close(), {
+          operationIdentityDigest: operation.plan.identity.identityDigest,
+          boundAttemptDigest: operation.boundAttemptDigest,
+          requirementId: HOSTED_SUT_PROCESS_REQUIREMENT_ID
+        })
+      },
+      { label: 'Hosted SUT working directory', settle: () => workingDirectory.dispose() },
+      { label: 'Hosted SUT executable', settle: () => executable.dispose() }
+    ]
+  });
+  if (observation === undefined) {
+    throw new Error('Hosted SUT process settled without one physical observation.');
+  }
+  return observation;
 }
 
 function syntheticHostedSutSandboxProcessObservation(
   code: number,
   diagnostic: string
-): CodexDevelopmentHostedSutSandboxProcessObservation {
+): HostedSutSandboxProcessObservation {
   const stdoutDigest = ciActionDigest('');
   const stderrDigest = ciActionDigest(diagnostic);
   return Object.freeze({
@@ -2704,7 +2828,7 @@ const TRUSTED_BOOTSTRAP_SUT_EVIDENCE_FILES = Object.freeze([
   ['tcb-lock-post.json', 'tcb-lock-post']
 ] as const);
 
-export async function CodexDevelopmentExecuteTrustedBootstrapSut(input: Readonly<{
+export async function ExecuteTrustedBootstrapSut(input: Readonly<{
   baseRoot: string;
   candidateRoot: string;
   outputDirectory: string;
@@ -2727,10 +2851,10 @@ export async function CodexDevelopmentExecuteTrustedBootstrapSut(input: Readonly
   mkdirSync(outputDirectory, { recursive: true });
   const transportDirectory = path.resolve(outputDirectory, '.transport');
   const candidateNodeModules = path.resolve(input.candidateRoot, 'node_modules');
-  let prepared: CodexDevelopmentPreparedTrustedBootstrapSutInputs | null = null;
-  let retainedArchive: CodexDevelopmentRetainedHostedSutArchive | null = null;
+  let prepared: PreparedTrustedBootstrapSutInputs | null = null;
+  let retainedArchive: RetainedHostedSutArchive | null = null;
   try {
-    prepared = CodexDevelopmentPrepareTrustedBootstrapSutInputs({
+    prepared = PrepareTrustedBootstrapSutInputs({
       baseRoot: input.baseRoot,
       candidateRoot: input.candidateRoot,
       outputDirectory: transportDirectory,
@@ -2750,7 +2874,7 @@ export async function CodexDevelopmentExecuteTrustedBootstrapSut(input: Readonly
       dependencyArchiveProjection: prepared.dependencyArchiveProjection,
       sandboxPolicyDigest: CI_VERIFICATION_HOSTED_SANDBOX_POLICY_DIGEST
     }));
-    const candidateEnvironment = CodexDevelopmentCandidateProcessEnvironment({}, {
+    const candidateEnvironment = CandidateProcessEnvironment({}, {
       SEC_BOOTSTRAP_BASE: input.baseSha,
       SEC_BOOTSTRAP_HEAD: input.headSha,
       SEC_BOOTSTRAP_TREE: input.treeSha,
@@ -2759,10 +2883,10 @@ export async function CodexDevelopmentExecuteTrustedBootstrapSut(input: Readonly
       SEC_REPOSITORY_AUDIT_DEFAULT_REF: input.baseSha,
       SEC_WORK_PACKAGE_MANIFEST_PATH: input.manifestPath
     });
-    const capability = await CodexDevelopmentProbeHostedSutSandboxCapability({
+    const capability = await ProbeHostedSutSandboxCapability({
       actionKey: bootstrapDigest
     });
-    let commandPlan: CodexDevelopmentHostedSutSandboxCommandPlan | null = null;
+    let commandPlan: HostedSutSandboxCommandPlan | null = null;
     let execution = syntheticHostedSutSandboxProcessObservation(
       1, capability.diagnostic ?? `sandbox-capability:${capability.state}`
     );
@@ -2773,7 +2897,7 @@ export async function CodexDevelopmentExecuteTrustedBootstrapSut(input: Readonly
         prepared.preparedCandidateArchive,
         prepared.archiveDigest
       );
-      commandPlan = CodexDevelopmentBuildTrustedBootstrapSutSandboxCommandPlan({
+      commandPlan = BuildTrustedBootstrapSutSandboxCommandPlan({
         bootstrapDigest,
         candidateArchiveDigest: retainedArchive.archiveDigest,
         bunExecutable: realpathSync.native(process.execPath),
@@ -2795,7 +2919,7 @@ export async function CodexDevelopmentExecuteTrustedBootstrapSut(input: Readonly
             retainedArchiveStable =
               assertRetainedHostedSutArchive(retainedArchive) === prepared.archiveDigest;
           } finally {
-            closeSync(retainedArchive.fileDescriptor);
+            retainedArchive.capability.dispose();
             retainedArchive = null;
           }
         }
@@ -2825,7 +2949,7 @@ export async function CodexDevelopmentExecuteTrustedBootstrapSut(input: Readonly
       }));
     }
     const sumsSource = `${TRUSTED_BOOTSTRAP_SUT_EVIDENCE_FILES.map(([fileName]) =>
-      `${createHash('sha256').update(readFileSync(path.resolve(outputDirectory, fileName))).digest('hex')}  ${fileName}`
+      `${rawSha256Hex(readFileSync(path.resolve(outputDirectory, fileName)))}  ${fileName}`
     ).join('\n')}\n`;
     writeFileSync(path.resolve(outputDirectory, 'SHA256SUMS'), sumsSource, { encoding: 'utf8', flag: 'wx' });
     const residuePassed = teardown.commandStarted && teardown.code === 0 &&
@@ -2845,7 +2969,7 @@ export async function CodexDevelopmentExecuteTrustedBootstrapSut(input: Readonly
       treeSha: input.treeSha,
       parentSha: input.baseSha,
       auxiliaryStatus: status,
-      evidenceSetDigest: `sha256:${createHash('sha256').update(sumsSource).digest('hex')}`,
+      evidenceSetDigest: `sha256:${rawSha256Hex(sumsSource)}`,
       bootstrapDigest,
       sandboxPolicyDigest: CI_VERIFICATION_HOSTED_SANDBOX_POLICY_DIGEST,
       commandPlanDigest: commandPlan?.planDigest ?? null,
@@ -2854,7 +2978,7 @@ export async function CodexDevelopmentExecuteTrustedBootstrapSut(input: Readonly
       executionOutputDigest: execution.rawOutputDigest,
       residueReadbackDigest: teardown.rawOutputDigest
     });
-    const receiptDigest = (`sha256:${createHash('sha256').update(JSON.stringify(semantic)).digest('hex')}`) as VerificationActionKeyDigest;
+    const receiptDigest = (`sha256:${rawSha256Hex(JSON.stringify(semantic))}`) as VerificationActionKeyDigest;
     writeFileSync(
       path.resolve(outputDirectory, 'sut-receipt.json'),
       `${JSON.stringify({ ...semantic, receiptDigest }, null, 2)}\n`,
@@ -2868,7 +2992,7 @@ export async function CodexDevelopmentExecuteTrustedBootstrapSut(input: Readonly
     }
     return Object.freeze({ status, bootstrapDigest, receiptDigest });
   } finally {
-    if (retainedArchive !== null) closeSync(retainedArchive.fileDescriptor);
+    if (retainedArchive !== null) retainedArchive.capability.dispose();
     if (prepared !== null && existsSync(prepared.preparedCandidateArchive)) {
       rmSync(prepared.preparedCandidateArchive, { force: true });
     }
@@ -2878,11 +3002,11 @@ export async function CodexDevelopmentExecuteTrustedBootstrapSut(input: Readonly
 }
 
 function hostedSutDiagnostic(value: string, fallback: string): string {
-  const bounded = CodexDevelopmentFailureTail(value, fallback);
+  const bounded = FailureTail(value, fallback);
   const escaped = bounded.replace(/[\u0000-\u001f\u007f-\u009f]/gu, (character) =>
     `\\u${character.codePointAt(0)!.toString(16).padStart(4, '0')}`
   );
-  return CodexDevelopmentFailureTail(escaped, fallback);
+  return FailureTail(escaped, fallback);
 }
 
 type HostedSutSandboxCapabilityObservation = Readonly<{
@@ -2900,13 +3024,13 @@ type HostedSutSandboxCapabilityObservation = Readonly<{
   diagnostic: string | null;
 }>;
 
-export async function CodexDevelopmentProbeHostedSutSandboxCapability(input: Readonly<{
+export async function ProbeHostedSutSandboxCapability(input: Readonly<{
   actionKey: VerificationActionKeyDigest;
-  executionAuthorization?: CodexDevelopmentHostedSutExecutionAuthorization;
+  executionAuthorization?: HostedSutExecutionAuthorization;
   bunExecutable?: string;
   unitNonce?: string;
   platform?: NodeJS.Platform;
-  runSandboxProcess?: CodexDevelopmentHostedSutSandboxProcess;
+  runSandboxProcess?: HostedSutSandboxProcess;
 }>): Promise<HostedSutSandboxCapabilityObservation> {
   if ((input.platform ?? process.platform) !== 'linux') {
     const diagnostic = 'Hosted SUT sandbox requires the native ubuntu-24.04 Linux runner.';
@@ -2925,7 +3049,7 @@ export async function CodexDevelopmentProbeHostedSutSandboxCapability(input: Rea
     unitNonce: input.unitNonce ?? `${process.pid}`,
     executionAuthorization: input.executionAuthorization
   });
-  let observed: CodexDevelopmentHostedSutSandboxProcessObservation;
+  let observed: HostedSutSandboxProcessObservation;
   try {
     observed = await run(plan);
   } catch (error) {
@@ -2934,7 +3058,7 @@ export async function CodexDevelopmentProbeHostedSutSandboxCapability(input: Rea
     );
   }
   const teardownPlan = hostedSutTeardownCommandPlan({ actionKey: input.actionKey, unitName: plan.unitName });
-  let teardown: CodexDevelopmentHostedSutSandboxProcessObservation;
+  let teardown: HostedSutSandboxProcessObservation;
   try {
     teardown = await run(teardownPlan);
   } catch (error) {
@@ -2984,9 +3108,9 @@ export async function CodexDevelopmentProbeHostedSutSandboxCapability(input: Rea
 }
 
 function finalizeHostedSutSandboxReceipt(input: Omit<
-  CodexDevelopmentHostedSutSandboxReceipt,
+  HostedSutSandboxReceipt,
   'schema' | 'policyDigest' | 'resources' | 'receiptDigest'
->): CodexDevelopmentHostedSutSandboxReceipt {
+>): HostedSutSandboxReceipt {
   const withoutDigest = Object.freeze({
     schema: CI_VERIFICATION_ACTION_SANDBOX_RECEIPT_SCHEMA,
     policyDigest: CI_VERIFICATION_HOSTED_SANDBOX_POLICY_DIGEST,
@@ -3001,14 +3125,14 @@ function finalizeHostedSutSandboxReceipt(input: Omit<
     residue: input.residue,
     diagnostic: input.diagnostic
   });
-  return CodexDevelopmentParseHostedSutSandboxReceipt(Object.freeze({
+  return ParseHostedSutSandboxReceipt(Object.freeze({
     ...withoutDigest,
     receiptDigest: ciActionDigest(withoutDigest)
   }));
 }
 
 function hostedSutRootIsolationReceipt(environmentNames: readonly string[]):
-CodexDevelopmentHostedSutSandboxReceipt['rootIsolation'] {
+HostedSutSandboxReceipt['rootIsolation'] {
   return Object.freeze({
     substrate: CI_VERIFICATION_HOSTED_SANDBOX_POLICY.substrate,
     namespaces: CI_VERIFICATION_HOSTED_SANDBOX_POLICY.namespaces,
@@ -3024,7 +3148,7 @@ CodexDevelopmentHostedSutSandboxReceipt['rootIsolation'] {
 
 function hostedSutCapabilityReceipt(
   capability: HostedSutSandboxCapabilityObservation
-): CodexDevelopmentHostedSutSandboxReceipt['capability'] {
+): HostedSutSandboxReceipt['capability'] {
   return Object.freeze({
     commandPlanDigest: capability.commandPlanDigest,
     commandStarted: capability.commandStarted,
@@ -3041,8 +3165,8 @@ function hostedSutCapabilityReceipt(
 }
 
 function hostedSutInventoryClosureFromTicket(
-  ticket: CodexDevelopmentHostedActionExecutionTicket
-): CodexDevelopmentHostedSutInventoryClosure {
+  ticket: HostedActionExecutionTicket
+): HostedSutInventoryClosure {
   return Object.freeze({
     archiveDigest: ticket.preparedCandidateArchiveDigest,
     inventoryDigest: ticket.preparedCandidateInventoryDigest,
@@ -3053,22 +3177,22 @@ function hostedSutInventoryClosureFromTicket(
   });
 }
 
-export async function CodexDevelopmentExecuteHostedActionSut(input: Readonly<{
-  resolution: CodexDevelopmentHostedActionResolution;
-  ticket: CodexDevelopmentHostedActionExecutionTicket;
+export async function ExecuteHostedActionSut(input: Readonly<{
+  resolution: HostedActionResolution;
+  ticket: HostedActionExecutionTicket;
   candidateArchive: string;
-  archiveInventory: CodexDevelopmentHostedActionArchiveInventory;
+  archiveInventory: HostedActionArchiveInventory;
   env?: NodeJS.ProcessEnv;
   now?: () => Date;
   platform?: NodeJS.Platform;
   bunExecutable?: string;
   unitNonce?: string;
-  runSandboxProcess?: CodexDevelopmentHostedSutSandboxProcess;
-}>): Promise<CodexDevelopmentHostedActionRawResult> {
-  const resolution = CodexDevelopmentParseHostedActionResolution(
+  runSandboxProcess?: HostedSutSandboxProcess;
+}>): Promise<HostedActionRawResult> {
+  const resolution = ParseHostedActionResolution(
     encodeVerificationActionData(input.resolution)
   );
-  const ticket = CodexDevelopmentParseHostedActionExecutionTicket(
+  const ticket = ParseHostedActionExecutionTicket(
     encodeVerificationActionData(input.ticket)
   );
   if (ticket.resolutionDigest !== resolution.resolutionDigest ||
@@ -3089,7 +3213,7 @@ export async function CodexDevelopmentExecuteHostedActionSut(input: Readonly<{
       normalizedOperation.semanticDigest !== resolution.actionPlan.action.operation.semanticDigest) {
     throw new Error('Hosted Action resolution lost its normalized operation.');
   }
-  const executionAuthorization = CodexDevelopmentCreateHostedSutExecutionAuthorization({
+  const executionAuthorization = CreateHostedSutExecutionAuthorization({
     resolutionDigest: resolution.resolutionDigest,
     ticketDigest: ticket.ticketDigest,
     actionPlan: resolution.actionPlan,
@@ -3100,7 +3224,7 @@ export async function CodexDevelopmentExecuteHostedActionSut(input: Readonly<{
     inventoryClosure: ticketInventory,
     producer: ticket.producer
   });
-  const env = CodexDevelopmentHostedSutCandidateEnvironment({
+  const env = HostedSutCandidateEnvironment({
     normalizedOperation,
     manifestPath: resolution.artifactInput.manifestPath
   });
@@ -3109,7 +3233,7 @@ export async function CodexDevelopmentExecuteHostedActionSut(input: Readonly<{
   const actionKey = resolution.actionPlan.action.actionKey;
   const unitNonce = input.unitNonce ?? `${process.pid}-${startedAt.getTime()}`;
   const runSandboxProcess = input.runSandboxProcess ?? defaultHostedSutSandboxProcess;
-  const capability = await CodexDevelopmentProbeHostedSutSandboxCapability({
+  const capability = await ProbeHostedSutSandboxCapability({
     actionKey,
     executionAuthorization,
     bunExecutable: input.bunExecutable,
@@ -3157,7 +3281,7 @@ export async function CodexDevelopmentExecuteHostedActionSut(input: Readonly<{
       }),
       diagnostic: capability.diagnostic
     });
-    return CodexDevelopmentFinalizeHostedActionRawResult({
+    return FinalizeHostedActionRawResult({
       executionAuthorizationDigest: executionAuthorization.authorizationDigest,
       command: null,
       sandboxReceipt: receipt,
@@ -3173,7 +3297,7 @@ export async function CodexDevelopmentExecuteHostedActionSut(input: Readonly<{
   );
   const preExecutionArchiveDigest = retainedArchive.archiveDigest;
   try {
-  const commandPlan = CodexDevelopmentBuildHostedSutSandboxCommandPlan({
+  const commandPlan = BuildHostedSutSandboxCommandPlan({
     actionKey,
     candidateArchiveDigest: retainedArchive.archiveDigest,
     bunExecutable: realpathSync.native(path.resolve(input.bunExecutable ?? process.execPath)),
@@ -3190,7 +3314,7 @@ export async function CodexDevelopmentExecuteHostedActionSut(input: Readonly<{
   if (authorizedOperation.semanticDigest !== normalizedOperation.semanticDigest) {
     throw new Error('Hosted SUT executor received a substituted normalized operation.');
   }
-  let physical: CodexDevelopmentHostedSutSandboxProcessObservation | null = null;
+  let physical: HostedSutSandboxProcessObservation | null = null;
   let executionObservationLost = false;
   try {
     physical = await runSandboxProcess(commandPlan, retainedArchive);
@@ -3201,13 +3325,13 @@ export async function CodexDevelopmentExecuteHostedActionSut(input: Readonly<{
     );
   }
   const exitCode = physical.code;
-  const observedPhysical = physical as CodexDevelopmentHostedSutSandboxProcessObservation | null;
+  const observedPhysical = physical as HostedSutSandboxProcessObservation | null;
   if (observedPhysical === null || exitCode !== observedPhysical.code) {
     throw new Error('Hosted Action facade lost its one physical process observation.');
   }
   const processResult = observedPhysical;
   const teardownPlan = hostedSutTeardownCommandPlan({ actionKey, unitName: commandPlan.unitName });
-  let teardown: CodexDevelopmentHostedSutSandboxProcessObservation;
+  let teardown: HostedSutSandboxProcessObservation;
   try {
     teardown = await runSandboxProcess(teardownPlan);
   } catch (error) {
@@ -3291,7 +3415,7 @@ export async function CodexDevelopmentExecuteHostedActionSut(input: Readonly<{
     }),
     diagnostic
   });
-  return CodexDevelopmentFinalizeHostedActionRawResult({
+  return FinalizeHostedActionRawResult({
     executionAuthorizationDigest: executionAuthorization.authorizationDigest,
     command: Object.freeze({
       commandPlanDigest: commandPlan.physicalCommandProjectionDigest!,
@@ -3303,30 +3427,30 @@ export async function CodexDevelopmentExecuteHostedActionSut(input: Readonly<{
     finishedAt: finishedAt.toISOString()
   });
   } finally {
-    closeSync(retainedArchive.fileDescriptor);
+    retainedArchive.capability.dispose();
   }
 }
 
-export function CodexDevelopmentParseHostedActionRawResult(
+export function ParseHostedActionRawResult(
   source: string
-): CodexDevelopmentHostedActionRawResult {
-  return parseHostedActionRawResultContractV2(source);
+): HostedActionRawResult {
+  return parseHostedActionRawResultContract(source);
 }
 
-export function CodexDevelopmentAssembleHostedActionTerminal(input: Readonly<{
-  resolution: CodexDevelopmentHostedActionResolution;
-  ticket: CodexDevelopmentHostedActionExecutionTicket;
-  rawResult: CodexDevelopmentHostedActionRawResult;
+export function AssembleHostedActionTerminal(input: Readonly<{
+  resolution: HostedActionResolution;
+  ticket: HostedActionExecutionTicket;
+  rawResult: HostedActionRawResult;
   expectedRawResultDigest: VerificationActionKeyDigest;
-  producer: CodexDevelopmentVerificationActionArtifactProducer;
-}>): CodexDevelopmentVerificationActionTerminalArtifact {
-  const resolution = CodexDevelopmentParseHostedActionResolution(
+  producer: VerificationActionArtifactProducer;
+}>): VerificationActionTerminalArtifact {
+  const resolution = ParseHostedActionResolution(
     encodeVerificationActionData(input.resolution)
   );
-  const ticket = CodexDevelopmentParseHostedActionExecutionTicket(
+  const ticket = ParseHostedActionExecutionTicket(
     encodeVerificationActionData(input.ticket)
   );
-  const rawResult = CodexDevelopmentParseHostedActionRawResult(
+  const rawResult = ParseHostedActionRawResult(
     encodeVerificationActionData(input.rawResult)
   );
   const memberIndex = resolution.actionPlanClosure.actions.findIndex(
@@ -3344,7 +3468,7 @@ export function CodexDevelopmentAssembleHostedActionTerminal(input: Readonly<{
       encodeVerificationActionData(input.producer) !== encodeVerificationActionData(ticket.producer)) {
     throw new Error('Hosted Action assembler inputs differ from the original trusted execution ticket.');
   }
-  const authorization = CodexDevelopmentCreateHostedSutExecutionAuthorization({
+  const authorization = CreateHostedSutExecutionAuthorization({
     resolutionDigest: resolution.resolutionDigest,
     ticketDigest: ticket.ticketDigest,
     actionPlan: resolution.actionPlan,
@@ -3355,7 +3479,7 @@ export function CodexDevelopmentAssembleHostedActionTerminal(input: Readonly<{
     inventoryClosure: hostedSutInventoryClosureFromTicket(ticket),
     producer: input.producer
   });
-  const terminal = CodexDevelopmentReduceHostedSutObservation({
+  const terminal = ReduceHostedSutObservation({
     actionPlan: resolution.actionPlan,
     normalizedOperation,
     candidateSha: ticket.candidateSha,
@@ -3366,7 +3490,7 @@ export function CodexDevelopmentAssembleHostedActionTerminal(input: Readonly<{
     observation: rawResult,
     expectedRawResultDigest: input.expectedRawResultDigest
   });
-  return CodexDevelopmentFinalizeVerificationActionTerminalArtifact({
+  return finalizeVerificationActionTerminalArtifact({
     actionPlan: resolution.actionPlan,
     normalizedOperation,
     result: terminal.result,
@@ -3379,7 +3503,7 @@ export function CodexDevelopmentAssembleHostedActionTerminal(input: Readonly<{
 }
 
 function terminalDependencyState(
-  artifact: CodexDevelopmentVerificationActionTerminalArtifact | undefined
+  artifact: VerificationActionTerminalArtifact | undefined
 ): VerificationActionDependencyResolution['state'] {
   if (artifact === undefined) return 'unknown';
   if (artifact.cleanup.status === 'failed') return 'terminal-failed';
@@ -3395,7 +3519,7 @@ function terminalDependencyState(
 function deriveHostedSyntheticNotRunActionKeys(
   plan: CiVerificationActionPlanClosure,
   terminalArtifactsByKey: ReadonlyMap<VerificationActionKeyDigest,
-    CodexDevelopmentVerificationActionTerminalArtifact>
+    VerificationActionTerminalArtifact>
 ): ReadonlySet<VerificationActionKeyDigest> {
   const syntheticNotRunActionKeys = new Set<VerificationActionKeyDigest>();
   let changed = true;
@@ -3418,19 +3542,19 @@ function deriveHostedSyntheticNotRunActionKeys(
   return syntheticNotRunActionKeys;
 }
 
-export function CodexDevelopmentCoordinateHostedActions(input: Readonly<{
+export function CoordinateHostedActions(input: Readonly<{
   envelope: VerificationSessionHostedEnvelope;
-  observations: readonly CodexDevelopmentHostedActionArtifactObservation[];
-  startObservations: readonly CodexDevelopmentHostedActionStartObservation[];
-  terminalAnchorObservations: readonly CodexDevelopmentHostedActionTerminalAnchorObservation[];
+  observations: readonly HostedActionArtifactObservation[];
+  startObservations: readonly HostedActionStartObservation[];
+  terminalAnchorObservations: readonly HostedActionTerminalAnchorObservation[];
   providerStatusReadbacks: readonly VerificationActionProviderStatusReadback[];
-}>): CodexDevelopmentHostedActionCoordination {
+}>): HostedActionCoordination {
   const envelope = parseHostedEnvelope(input.envelope);
   const plan = envelope.actionPlanClosure;
   const membersByKey = new Map(plan.actions.map((member) => [member.action.actionKey, member] as const));
   const actionKeyForName = (name: string, kind: 'start' | 'terminal' | 'anchor'): VerificationActionKeyDigest => {
     const member = plan.actions.find((entry) => {
-      if (kind === 'start') return verificationActionStartMarkerNameV2(entry.action.actionKey) === name;
+      if (kind === 'start') return verificationActionStartMarkerName(entry.action.actionKey) === name;
       if (kind === 'terminal') return verificationActionProviderTerminalArtifactName(entry.action.actionKey) === name;
       return verificationActionProviderTerminalAnchorName(entry.action.actionKey) === name;
     });
@@ -3439,7 +3563,7 @@ export function CodexDevelopmentCoordinateHostedActions(input: Readonly<{
   };
   const origins = new Set<string>();
   const assertCurrentBaseOrigin = (
-    origin: CodexDevelopmentVerificationActionArtifactProducer | null,
+    origin: VerificationActionArtifactProducer | null,
     label: string
   ): void => {
     if (origin === null || origin.repository !== envelope.scopeAuthorization.repository ||
@@ -3452,7 +3576,7 @@ export function CodexDevelopmentCoordinateHostedActions(input: Readonly<{
     if (origins.has(originId)) throw new Error('Hosted Action provider index repeats one artifact origin.');
     origins.add(originId);
   };
-  const terminalsByKey = new Map<VerificationActionKeyDigest, CodexDevelopmentHostedActionArtifactObservation>();
+  const terminalsByKey = new Map<VerificationActionKeyDigest, HostedActionArtifactObservation>();
   for (const observation of input.observations) {
     const provider = observation.providerObservation;
     assertCurrentBaseOrigin(provider.referencedOrigin, 'Hosted Action terminal origin');
@@ -3461,7 +3585,7 @@ export function CodexDevelopmentCoordinateHostedActions(input: Readonly<{
     if (terminalsByKey.has(actionKey)) throw new Error('Hosted ActionKey has multiple terminal origins.');
     if (observation.artifact !== null) {
       const member = membersByKey.get(actionKey)!;
-      CodexDevelopmentAssertVerificationActionTerminalArtifact(observation.artifact, {
+      assertVerificationActionTerminalArtifact(observation.artifact, {
         actionPlan: member,
         executionEnvironmentRevision: CI_VERIFICATION_HOSTED_PROVIDER_REVISION
       });
@@ -3507,7 +3631,7 @@ export function CodexDevelopmentCoordinateHostedActions(input: Readonly<{
     throw new Error('Hosted Action provider status census is incomplete for the canonical Session closure.');
   }
 
-  const byKey = new Map<VerificationActionKeyDigest, CodexDevelopmentVerificationActionTerminalArtifact>();
+  const byKey = new Map<VerificationActionKeyDigest, VerificationActionTerminalArtifact>();
   const repairable: VerificationActionKeyDigest[] = [];
   const firstExecutionCandidates = new Set<VerificationActionKeyDigest>();
   for (const member of plan.actions) {
@@ -3580,12 +3704,12 @@ export function CodexDevelopmentCoordinateHostedActions(input: Readonly<{
 
 function finalizeCoordination(
   actionPlanDigest: VerificationActionKeyDigest,
-  disposition: CodexDevelopmentHostedActionCoordination['disposition'],
+  disposition: HostedActionCoordination['disposition'],
   dispatchActionKeys: readonly VerificationActionKeyDigest[],
   terminalActionKeys: readonly VerificationActionKeyDigest[],
   missingActionKeys: readonly VerificationActionKeyDigest[],
   reason: string | null
-): CodexDevelopmentHostedActionCoordination {
+): HostedActionCoordination {
   const withoutDigest = Object.freeze({
     schema: CI_VERIFICATION_ACTION_COORDINATION_SCHEMA,
     disposition,
@@ -3598,20 +3722,20 @@ function finalizeCoordination(
   return Object.freeze({ ...withoutDigest, coordinationDigest: ciActionDigest(withoutDigest) });
 }
 
-export function CodexDevelopmentComposeHostedEvidence(input: Readonly<{
+export function ComposeHostedEvidence(input: Readonly<{
   envelope: VerificationSessionHostedEnvelope;
-  observations: readonly CodexDevelopmentHostedActionArtifactObservation[];
-  startObservations: readonly CodexDevelopmentHostedActionStartObservation[];
-  terminalAnchorObservations: readonly CodexDevelopmentHostedActionTerminalAnchorObservation[];
+  observations: readonly HostedActionArtifactObservation[];
+  startObservations: readonly HostedActionStartObservation[];
+  terminalAnchorObservations: readonly HostedActionTerminalAnchorObservation[];
   providerStatusReadbacks: readonly VerificationActionProviderStatusReadback[];
-  producer: ReturnType<typeof CodexDevelopmentCreateVerificationEvidenceProducer>;
+  producer: ReturnType<typeof createVerificationEvidenceProducer>;
   now?: () => Date;
 }>): Readonly<{
-  coordination: CodexDevelopmentHostedActionCoordination;
-  evidence: CodexDevelopmentVerificationEvidenceV4 | null;
+  coordination: HostedActionCoordination;
+  evidence: VerificationEvidence | null;
 }> {
   const envelope = parseHostedEnvelope(input.envelope);
-  const coordination = CodexDevelopmentCoordinateHostedActions({
+  const coordination = CoordinateHostedActions({
     envelope,
     observations: input.observations,
     startObservations: input.startObservations,
@@ -3621,7 +3745,7 @@ export function CodexDevelopmentComposeHostedEvidence(input: Readonly<{
   if (coordination.disposition !== 'complete') {
     return Object.freeze({ coordination, evidence: null });
   }
-  const byKey = new Map<VerificationActionKeyDigest, CodexDevelopmentVerificationActionTerminalArtifact>();
+  const byKey = new Map<VerificationActionKeyDigest, VerificationActionTerminalArtifact>();
   for (const observation of input.observations) {
     if (!observation.providerObservation.expired && observation.artifact !== null) {
       byKey.set(observation.artifact.actionPlan.action.actionKey, observation.artifact);
@@ -3636,7 +3760,7 @@ export function CodexDevelopmentComposeHostedEvidence(input: Readonly<{
     if (artifact !== undefined) {
       const evidenceRef = `verification-action-artifact:${artifact.artifactDigest}`;
       const reusableTerminal = artifact.result.status === 'passed' || artifact.result.status === 'failed';
-      const result = CodexDevelopmentBuildVerificationGateResult({
+      const result = BuildVerificationGateResult({
         ...artifact.result,
         disposition: reusableTerminal ? 'reused' : artifact.result.disposition,
         execution: reusableTerminal ? null : artifact.result.execution,
@@ -3653,7 +3777,7 @@ export function CodexDevelopmentComposeHostedEvidence(input: Readonly<{
     }
     return Object.freeze({
       action: member.action,
-      result: CodexDevelopmentBuildVerificationGateResult({
+      result: BuildVerificationGateResult({
         gateId: member.action.operation.identity,
         gateRevision: member.action.operation.revision,
         owner: 'ci-verification-maintainer',
@@ -3681,8 +3805,8 @@ export function CodexDevelopmentComposeHostedEvidence(input: Readonly<{
   const observedAt = (input.now ?? (() => new Date()))().toISOString();
   const startedAt = [...timestamps, observedAt].sort()[0]!;
   const finishedAt = [...timestamps, observedAt].sort().at(-1)!;
-  const status = aggregateV4Status(gates);
-  const evidence = CodexDevelopmentFinalizeVerificationEvidenceV4({
+  const status = aggregateVerificationStatus(gates);
+  const evidence = finalizeVerificationEvidence({
     contractRevision: CI_VERIFICATION_CONTRACT_REVISION,
     sessionRevision: envelope.session.sessionRevision,
     sessionProposalDigest: envelope.session.sessionProposalDigest,
@@ -3716,7 +3840,7 @@ export function CodexDevelopmentComposeHostedEvidence(input: Readonly<{
   return Object.freeze({ coordination, evidence });
 }
 
-export type CodexDevelopmentCiVerificationTestOptions = {
+export type CiVerificationTestOptions = {
   argv?: string[];
   env?: NodeJS.ProcessEnv;
   now?: () => Date;
@@ -3724,32 +3848,37 @@ export type CodexDevelopmentCiVerificationTestOptions = {
   gitRevision?: (ref: string) => string | null;
   trackedTreeIsClean?: () => boolean;
   changedFiles?: (baseRef: string) => string[] | null;
-  changedRecords?: (baseRef: string) => CodexDevelopmentGitChangedRecord[] | null;
-  transitionObservation?: CodexDevelopmentTestImpactTransitionObservation;
+  changedRecords?: (baseRef: string) => GitChangedRecord[] | null;
+  transitionObservation?: TestImpactTransitionObservation;
   readGitBlob?: (ref: string, file: string) => GitBlobBytes | null;
   runGate?: (
     step: { id: string; argv: string[]; env: NodeJS.ProcessEnv },
     execution: Readonly<{
-      operation: SecBoundSemanticOperation;
+      operation: BoundSemanticOperation;
       requirementId: string;
     }>
-  ) => Promise<CodexDevelopmentGateProcessSettlement>;
-  writeEvidence?: (filePath: string, evidence: CodexDevelopmentVerificationEvidenceV4) => void;
+  ) => Promise<GateProcessSettlement>;
+  writeEvidence?: (filePath: string, evidence: VerificationEvidence) => void;
   actionRunner?: VerificationActionRunner;
   readDurableActionResult?: (actionKey: VerificationActionKeyDigest) => Readonly<{
     result: VerificationGateResult;
     evidenceRefs: readonly string[];
   }> | null;
-  readExactGitBlob?: (options: CodexDevelopmentExactGitBlobReadOptions) => GitBlobBytes;
+  readExactGitBlob?: (options: Readonly<{
+    repositoryRoot: string;
+    commitSha: string;
+    maxBytes?: number;
+    repositoryPath: string;
+  }>) => GitBlobBytes;
   /** Owner-issued test seam; production CLI always acquires the exact candidate projection. */
-  testImpactSourceProvider?: CodexDevelopmentTestImpactSourceProvider;
+  testImpactSourceProvider?: TestImpactSourceProvider;
   /** Test-only pure plan seam; never exposed by the production CLI entry. */
-  testVerificationPlan?: CodexDevelopmentVerificationPlan;
+  testVerificationPlan?: VerificationPlan;
 };
 
-export interface CodexDevelopmentCiActionExecution {
+export interface CiActionExecution {
   readonly actionPlan: CiVerificationActionPlanClosure;
-  readonly gates: readonly CodexDevelopmentVerificationGateEvidenceV4[];
+  readonly gates: readonly VerificationGateEvidence[];
   readonly failed: boolean;
 }
 
@@ -3768,24 +3897,24 @@ function bindCiActionEffect(
   plan: VerificationActionPlan,
   operation: CiVerificationActionPlanClosure['normalizedOperations'][number],
   deadlineAtUnixMs: number
-): SecBoundSemanticOperation {
-  const processContractDigest = CodexDevelopmentVerificationDigest({
+): BoundSemanticOperation {
+  const processContractDigest = verificationDigest({
     schema: 'sec-ci-action-effect-contract-v1',
     actionKey: plan.action.actionKey,
     operation
-  }) as SecOperationDigest;
-  const diagnosticContractDigest = CodexDevelopmentVerificationDigest({
+  }) as OperationDigest;
+  const diagnosticContractDigest = verificationDigest({
     schema: 'sec-ci-action-combined-diagnostic-contract-v1',
     actionKey: plan.action.actionKey
-  }) as SecOperationDigest;
-  const authorityGrantDigest = CodexDevelopmentVerificationDigest({
+  }) as OperationDigest;
+  const authorityGrantDigest = verificationDigest({
     processContractDigest,
     diagnosticContractDigest
-  }) as SecOperationDigest;
-  const semanticPlan = compileSecSemanticOperationPlan({
+  }) as OperationDigest;
+  const semanticPlan = compileSemanticOperationPlan({
     operation: 'verification.hosted-ci',
-    intentDigest: plan.action.actionKey as SecOperationDigest,
-    decisionDigest: operation.semanticDigest as SecOperationDigest,
+    intentDigest: plan.action.actionKey as OperationDigest,
+    decisionDigest: operation.semanticDigest as OperationDigest,
     deadlineAtUnixMs,
     aggregateBudgets: [
       { resource: 'duration-ms', maximum: CI_ACTION_EFFECT_RESOURCE_BUDGET.maximumDurationMs },
@@ -3804,24 +3933,24 @@ function bindCiActionEffect(
       effectKinds: ['filesystem'],
       failureKinds: ['diagnostic.incomplete-object', 'diagnostic.resource-exhausted']
     }],
-    attempt: issueSecSemanticOperationAttemptContext({ authorityGrantDigest })
+    attempt: issueSemanticOperationAttemptContext({ authorityGrantDigest })
   });
-  return bindSecSemanticOperation(semanticPlan, [
-    compileSecCapabilityBinding({
+  return bindSemanticOperation(semanticPlan, [
+    compileCapabilityBinding({
       requirementId: CI_ACTION_PROCESS_REQUIREMENT_ID,
       contractDigest: processContractDigest,
-      providerIdentityDigest: CodexDevelopmentVerificationDigest({
+      providerIdentityDigest: verificationDigest({
         schema: 'sec-ci-action-provider-binding-v1',
         environment: plan.action.environment,
         declaredEnvironment: plan.action.operation.declaredEnvironment
-      }) as SecOperationDigest
+      }) as OperationDigest
     }),
-    compileSecCapabilityBinding({
+    compileCapabilityBinding({
       requirementId: CI_ACTION_DIAGNOSTIC_REQUIREMENT_ID,
       contractDigest: diagnosticContractDigest,
-      providerIdentityDigest: CodexDevelopmentVerificationDigest(
+      providerIdentityDigest: verificationDigest(
         'runtime-state.process-diagnostics'
-      ) as SecOperationDigest
+      ) as OperationDigest
     })
   ]);
 }
@@ -3829,10 +3958,10 @@ function bindCiActionEffect(
 async function issueCiActionEffectSettlement(input: Readonly<{
   runner: VerificationActionRunner;
   repositoryRoot: string;
-  operation: SecBoundSemanticOperation;
+  operation: BoundSemanticOperation;
   plan: VerificationActionPlan;
   gateId: string;
-  settlement: CodexDevelopmentGateProcessSettlement;
+  settlement: GateProcessSettlement;
 }>) {
   const { operation, plan, gateId, settlement } = input;
   const { result, processResourceReceipt } = settlement;
@@ -3849,17 +3978,17 @@ async function issueCiActionEffectSettlement(input: Readonly<{
       || !/^sha256:[0-9a-f]{64}$/u.test(result.rawOutputDigest)) {
     throw new Error('CI Action process settlement is not canonical.');
   }
-  const processSettlement = issueSecProviderSettlementReceipt(operation, {
+  const processSettlement = issueProviderSettlementReceipt(operation, {
     requirementId: CI_ACTION_PROCESS_REQUIREMENT_ID,
     physicalDisposition: 'settled',
-    providerSettlementReferenceDigest: CodexDevelopmentVerificationDigest({
+    providerSettlementReferenceDigest: verificationDigest({
       schema: 'sec-ci-action-provider-settlement-reference-v1',
       actionKey: plan.action.actionKey,
       gateId,
       exitCode: result.code,
       rawOutputDigest: result.rawOutputDigest,
       processResourceReceiptDigest: processResourceReceipt.receiptDigest
-    }) as SecOperationDigest
+    }) as OperationDigest
   });
   const diagnosticObjects = await input.runner.publishBoundProcessDiagnostics({
     repositoryRoot: input.repositoryRoot,
@@ -3871,59 +4000,59 @@ async function issueCiActionEffectSettlement(input: Readonly<{
       bytes: new TextEncoder().encode(result.failureTail)
     }]
   });
-  const diagnosticSettlement = issueSecProviderSettlementReceipt(operation, {
+  const diagnosticSettlement = issueProviderSettlementReceipt(operation, {
     requirementId: CI_ACTION_DIAGNOSTIC_REQUIREMENT_ID,
     physicalDisposition: 'settled',
-    providerSettlementReferenceDigest: CodexDevelopmentVerificationDigest(
+    providerSettlementReferenceDigest: verificationDigest(
       diagnosticObjects.map(({ receipt, readback }) => ({
         objectDigest: receipt.objectDigest,
         readbackDigest: readback.readbackDigest
       }))
-    ) as SecOperationDigest
+    ) as OperationDigest
   });
-  const providerSettlementSet = compileSecProviderSettlementSet(
+  const providerSettlementSet = compileProviderSettlementSet(
     operation,
     [processSettlement, diagnosticSettlement]
   );
-  const failureTailDigest = CodexDevelopmentVerificationDigest(result.failureTail);
-  const readback = issueSecNormalDomainReadbackReceipt(operation, providerSettlementSet, {
-    readbackContractDigest: CodexDevelopmentVerificationDigest({
+  const failureTailDigest = verificationDigest(result.failureTail);
+  const readback = issueNormalDomainReadbackReceipt(operation, providerSettlementSet, {
+    readbackContractDigest: verificationDigest({
       schema: 'sec-ci-action-domain-readback-contract-v1',
       resultSchemaRevision: plan.action.resultSchemaRevision
-    }) as SecOperationDigest,
-    readbackReferenceDigest: CodexDevelopmentVerificationDigest({
+    }) as OperationDigest,
+    readbackReferenceDigest: verificationDigest({
       schema: 'sec-ci-action-domain-readback-reference-v1',
       actionKey: plan.action.actionKey,
       gateId,
       exitCode: result.code,
       rawOutputDigest: result.rawOutputDigest,
       failureTailDigest
-    }) as SecOperationDigest,
-    currentPhysicalEpochDigest: CodexDevelopmentVerificationDigest({
+    }) as OperationDigest,
+    currentPhysicalEpochDigest: verificationDigest({
       schema: 'sec-ci-action-physical-epoch-v1',
       actionKey: plan.action.actionKey,
       gateId,
       rawOutputDigest: result.rawOutputDigest
-    }) as SecOperationDigest,
+    }) as OperationDigest,
     disposition: 'applied'
   });
-  const ownerTerminalJoin = issueSecNormalOwnerTerminalJoinReceipt(
+  const ownerTerminalJoin = issueNormalOwnerTerminalJoinReceipt(
     operation,
     providerSettlementSet,
     readback,
     {
-      ownerTerminalContractDigest: CodexDevelopmentVerificationDigest({
+      ownerTerminalContractDigest: verificationDigest({
         schema: 'sec-verification-action-terminal-contract-v1',
         resultSchemaRevision: plan.action.resultSchemaRevision
-      }) as SecOperationDigest,
-      ownerTerminalReferenceDigest: CodexDevelopmentVerificationDigest({
+      }) as OperationDigest,
+      ownerTerminalReferenceDigest: verificationDigest({
         schema: 'sec-ci-action-owner-terminal-reference-v1',
         actionKey: plan.action.actionKey,
         gateId,
         exitCode: result.code,
         rawOutputDigest: result.rawOutputDigest,
         failureTailDigest
-      }) as SecOperationDigest
+      }) as OperationDigest
     }
   );
   const actionTerminalReceipt = issueVerificationActionOwnerTerminalReceipt({
@@ -3940,7 +4069,7 @@ async function issueCiActionEffectSettlement(input: Readonly<{
   });
 }
 
-export async function CodexDevelopmentExecuteCiActionClosure(options: {
+export async function ExecuteCiActionClosure(options: {
   readonly repositoryRoot: string;
   readonly actionPlan: CiVerificationActionPlanClosure;
   readonly gates: readonly Readonly<{
@@ -3952,13 +4081,13 @@ export async function CodexDevelopmentExecuteCiActionClosure(options: {
   readonly runGate: (
     step: { id: string; argv: string[]; env: NodeJS.ProcessEnv },
     execution: Readonly<{
-      operation: SecBoundSemanticOperation;
+      operation: BoundSemanticOperation;
       requirementId: string;
     }>
-  ) => Promise<CodexDevelopmentGateProcessSettlement>;
+  ) => Promise<GateProcessSettlement>;
   readonly actionRunner?: VerificationActionRunner;
-  readonly readDurableActionResult?: CodexDevelopmentCiVerificationTestOptions['readDurableActionResult'];
-}): Promise<CodexDevelopmentCiActionExecution> {
+  readonly readDurableActionResult?: CiVerificationTestOptions['readDurableActionResult'];
+}): Promise<CiActionExecution> {
   const actionPlan = parseCiVerificationActionPlanClosure(
     encodeVerificationActionData(options.actionPlan)
   );
@@ -3966,7 +4095,7 @@ export async function CodexDevelopmentExecuteCiActionClosure(options: {
     throw new Error('CI Action executor gate/plan cardinality mismatch.');
   }
   const runner = options.actionRunner ?? createVerificationActionRunner();
-  const evidence: CodexDevelopmentVerificationGateEvidenceV4[] = [];
+  const evidence: VerificationGateEvidence[] = [];
   let failed = false;
   for (let index = 0; index < actionPlan.actions.length; index += 1) {
     const plan = actionPlan.actions[index]!;
@@ -3995,7 +4124,7 @@ export async function CodexDevelopmentExecuteCiActionClosure(options: {
     if (failed) {
       evidence.push({
         action: plan.action,
-        result: CodexDevelopmentBuildVerificationGateResult({
+        result: BuildVerificationGateResult({
           gateId: descriptor.gate.id,
           gateRevision: plan.action.operation.revision,
           owner: 'ci-verification-maintainer',
@@ -4018,7 +4147,7 @@ export async function CodexDevelopmentExecuteCiActionClosure(options: {
       });
       continue;
     }
-    let physical: CodexDevelopmentGateProcessSettlement | null = null;
+    let physical: GateProcessSettlement | null = null;
     let gateStarted: Date | null = null;
     let gateFinished: Date | null = null;
     const outcome: VerificationActionRunOutcome = await runner.execute({
@@ -4062,10 +4191,10 @@ export async function CodexDevelopmentExecuteCiActionClosure(options: {
           }`
         );
       }
-      const processResult = (physical as CodexDevelopmentGateProcessSettlement).result;
+      const processResult = (physical as GateProcessSettlement).result;
       const started = gateStarted as Date;
       const finished = gateFinished as Date;
-      result = CodexDevelopmentBuildVerificationGateResult({
+      result = BuildVerificationGateResult({
         gateId: descriptor.gate.id,
         gateRevision: plan.action.operation.revision,
         owner: 'ci-verification-maintainer',
@@ -4100,7 +4229,7 @@ export async function CodexDevelopmentExecuteCiActionClosure(options: {
         invalidationRules: ['ActionKey, session, scope, review, main health, or trust revision changes'],
         diagnostic: processResult.code === 0
           ? null
-          : CodexDevelopmentFailureTail(processResult.failureTail, `${descriptor.gate.id} failed.`)
+          : FailureTail(processResult.failureTail, `${descriptor.gate.id} failed.`)
       });
     } else {
       const durable = options.readDurableActionResult?.(plan.action.actionKey) ?? null;
@@ -4109,7 +4238,7 @@ export async function CodexDevelopmentExecuteCiActionClosure(options: {
           durable.result.subjectRevision !== options.headSha) {
         throw new Error(`CI Action ${plan.action.actionKey} ${outcome.disposition} without independently readable durable Evidence.`);
       }
-      result = CodexDevelopmentBuildVerificationGateResult({
+      result = BuildVerificationGateResult({
         ...durable.result,
         disposition: 'reused',
         execution: null,
@@ -4214,8 +4343,8 @@ function formalVerificationBinding(env: NodeJS.ProcessEnv): Readonly<{
   });
 }
 
-function parseProfile(argv: string[]): { profile: CodexDevelopmentVerificationPlanProfile; expectedHead: string | undefined } {
-  let profile: CodexDevelopmentVerificationPlanProfile | null = null;
+function parseProfile(argv: string[]): { profile: VerificationPlanProfile; expectedHead: string | undefined } {
+  let profile: VerificationPlanProfile | null = null;
   let expectedHead: string | undefined;
   for (let index = 0; index < argv.length; index += 1) {
     const argument = argv[index]!;
@@ -4241,7 +4370,7 @@ function parseProfile(argv: string[]): { profile: CodexDevelopmentVerificationPl
 type ManifestBinding = {
   manifestPath: string | null;
   manifestDigest: string | null;
-  manifest: CodexDevelopmentWorkPackageManifest | null;
+  manifest: WorkPackageManifest | null;
 };
 
 function manifestBinding(
@@ -4261,16 +4390,16 @@ function manifestBinding(
     throw new Error('Work Package manifest exceeds its canonical byte limit.');
   }
   const text = new TextDecoder('utf-8', { fatal: true }).decode(source);
-  const manifest = CodexDevelopmentParseCurrentWorkPackageManifest(text, manifestPath);
+  const manifest = ParseCurrentWorkPackageManifest(text, manifestPath);
   return {
     manifestPath,
-    manifestDigest: CodexDevelopmentWorkPackageManifestDigest(source),
+    manifestDigest: WorkPackageManifestDigest(source),
     manifest
   };
 }
 
-async function runCodexDevelopmentCiVerification(
-  options: CodexDevelopmentCiVerificationTestOptions,
+async function runCiVerification(
+  options: CiVerificationTestOptions,
   gitOperation: AuthorityGitReadOperation
 ): Promise<number> {
   const argv = options.argv ?? process.argv.slice(2);
@@ -4283,7 +4412,7 @@ async function runCodexDevelopmentCiVerification(
   const changedRecordResolver = options.changedRecords;
   const readGitBlob = options.readGitBlob;
   const runGate = options.runGate
-    ?? ((step, execution) => CodexDevelopmentRunGateProcess(repositoryRoot, step, execution));
+    ?? ((step, execution) => RunGateProcess(repositoryRoot, step, execution));
   const writeEvidence = options.writeEvidence;
   const evidencePath = path.resolve(env.SEC_CI_VERIFICATION_EVIDENCE_PATH ?? VERIFICATION_EVIDENCE_PATH);
   let started = new Date();
@@ -4296,26 +4425,26 @@ async function runCodexDevelopmentCiVerification(
   let affectedBaseSha: string | null = null;
   let cleanBefore: boolean | null = null;
   let cleanAfter: boolean | null = null;
-  let profile: CodexDevelopmentVerificationPlanProfile = 'quick';
+  let profile: VerificationPlanProfile = 'quick';
   let files: string[] | null = null;
   let steps: CiVerificationGateStep[] = [];
   let actionPlan: CiVerificationActionPlanClosure | null = null;
   let actionCandidate: CiVerificationActionCandidate | null = null;
-  let actionGates: readonly CodexDevelopmentVerificationGateEvidenceV4[] = [];
+  let actionGates: readonly VerificationGateEvidence[] = [];
   let formalBinding: ReturnType<typeof formalVerificationBinding> = null;
   let failure: { stage: string; tail: string } | null = null;
   let exitCode = 0;
   let stage = 'argv';
   let binding: ManifestBinding = { manifestPath: null, manifestDigest: null, manifest: null };
   let initializationFailure: string | null = null;
-  let defaultChangedSnapshot: CodexDevelopmentChangedPathSnapshot | null = null;
+  let defaultChangedSnapshot: ChangedPathSnapshot | null = null;
   let defaultBaseTreeSha: string | null = null;
   let exactCandidateBlobs: ReadonlyMap<string, GitBlobBytes> = new Map();
   let exactWorkspaceSnapshot: PhysicalWorkspaceSourceSnapshot | null = null;
   let parsedProfile: ReturnType<typeof parseProfile> | null = null;
 
   try {
-    CodexDevelopmentPrepareVerificationEvidenceTarget(evidencePath);
+    prepareVerificationEvidenceTarget(evidencePath);
   } catch (error) {
     initializationFailure = error instanceof Error ? error.stack ?? error.message : String(error);
   }
@@ -4361,27 +4490,27 @@ async function runCodexDevelopmentCiVerification(
             let observedAffectedBaseSha = affectedBaseSha;
             let observedCleanBefore = cleanBefore;
             let observedBaseTreeSha: string | null = null;
-            let observedChangedSnapshot: CodexDevelopmentChangedPathSnapshot | null = null;
+            let observedChangedSnapshot: ChangedPathSnapshot | null = null;
             if (gitRevision === undefined) {
-              observedHeadSha = await CodexDevelopmentDefaultGitRevision(session, 'HEAD');
-              observedTreeSha = await CodexDevelopmentDefaultGitRevision(session, 'HEAD^{tree}');
-              observedPrBaseSha = await CodexDevelopmentDefaultGitRevision(session, prBaseRef);
-              observedAffectedBaseSha = await CodexDevelopmentDefaultGitRevision(
+              observedHeadSha = await DefaultGitRevision(session, 'HEAD');
+              observedTreeSha = await DefaultGitRevision(session, 'HEAD^{tree}');
+              observedPrBaseSha = await DefaultGitRevision(session, prBaseRef);
+              observedAffectedBaseSha = await DefaultGitRevision(
                 session,
                 affectedBaseRef
               );
-              observedBaseTreeSha = await CodexDevelopmentDefaultGitRevision(
+              observedBaseTreeSha = await DefaultGitRevision(
                 session,
                 `${observedPrBaseSha}^{tree}`
               );
             }
             if (trackedTreeIsClean === undefined) {
-              observedCleanBefore = await CodexDevelopmentDefaultTrackedTreeIsClean(session);
+              observedCleanBefore = await DefaultTrackedTreeIsClean(session);
             }
             if (requiresDefaultChangedObservation
                 && observedPrBaseSha !== null
                 && observedHeadSha !== null) {
-              observedChangedSnapshot = await CodexDevelopmentDefaultChangedPaths(
+              observedChangedSnapshot = await DefaultChangedPaths(
                 session,
                 observedPrBaseSha,
                 observedHeadSha
@@ -4392,7 +4521,7 @@ async function runCodexDevelopmentCiVerification(
             }
             const observedExactBlobs = exactBlobPaths.length === 0
               ? new Map<string, GitBlobBytes>()
-              : await CodexDevelopmentReadExactGitBlobs(
+              : await ReadExactGitBlobs(
                   session,
                   observedHeadSha,
                   exactBlobPaths
@@ -4400,7 +4529,7 @@ async function runCodexDevelopmentCiVerification(
             const observedWorkspaceSnapshot = parsedProfile?.profile === 'quick'
                 && options.testVerificationPlan === undefined
                 && options.testImpactSourceProvider === undefined
-              ? await CodexDevelopmentExactGitWorkspaceSourceSnapshot(session, observedHeadSha)
+              ? await ExactGitWorkspaceSourceSnapshot(session, observedHeadSha)
               : null;
             return Object.freeze({
               headSha: observedHeadSha,
@@ -4464,14 +4593,14 @@ async function runCodexDevelopmentCiVerification(
     }
     formalBinding = formalVerificationBinding(env);
     let rawChangedFiles: string[] | null;
-    let transitionObservation: CodexDevelopmentTestImpactTransitionObservation | undefined;
-    let injectedChangedRecords: CodexDevelopmentGitChangedRecord[] | null | undefined;
+    let transitionObservation: TestImpactTransitionObservation | undefined;
+    let injectedChangedRecords: GitChangedRecord[] | null | undefined;
     if (changedRecordResolver) {
       const changedRecords = changedRecordResolver(prBaseSha);
       injectedChangedRecords = changedRecords;
       rawChangedFiles = changedRecords === null
         ? null
-        : CodexDevelopmentChangedFilesFromRecords(changedRecords);
+        : ChangedFilesFromRecords(changedRecords);
       transitionObservation = options.transitionObservation;
     } else if (changedFileResolver) {
       if (options.transitionObservation !== undefined) {
@@ -4489,7 +4618,7 @@ async function runCodexDevelopmentCiVerification(
       transitionObservation = defaultChangedSnapshot.transitionObservation;
     }
     if (rawChangedFiles !== null && transitionObservation !== undefined) {
-      CodexDevelopmentAssertTestImpactTransitionSelection({
+      AssertTestImpactTransitionSelection({
         baseSha: prBaseSha,
         headSha,
         changedPaths: rawChangedFiles,
@@ -4509,14 +4638,14 @@ async function runCodexDevelopmentCiVerification(
         : options.testImpactSourceProvider
           ?? (exactWorkspaceSnapshot === null
             ? null
-            : CodexDevelopmentTestImpactSourceProviderFromSnapshot(
+            : TestImpactSourceProviderFromSnapshot(
                 exactWorkspaceSnapshot,
                 repositoryRoot
               ));
       if (profile === 'quick' && testImpactProvider === null) {
         throw new Error('CI verification did not receive an owner-issued exact test-impact source provider.');
       }
-      return CodexDevelopmentBuildVerificationPlan(
+      return BuildVerificationPlan(
         profile,
         rawChangedFiles,
         testImpactProvider,
@@ -4553,7 +4682,7 @@ async function runCodexDevelopmentCiVerification(
         : gitRevision(`${prBaseSha}^{tree}`));
     if (baseTreeSha === null) throw new Error('CI Action producer cannot resolve the exact base tree.');
     const localDigest = (value: unknown): `sha256:${string}` => (
-      CodexDevelopmentVerificationDigest(value) as `sha256:${string}`
+      verificationDigest(value) as `sha256:${string}`
     );
     const executionEnvironment = formalBinding !== null
       ? formalBinding.executionEnvironment
@@ -4576,7 +4705,7 @@ async function runCodexDevelopmentCiVerification(
           }
           return Object.freeze({
             path: dependencyPath,
-            digest: `sha256:${createHash('sha256').update(blob.bytes).digest('hex')}` as VerificationActionKeyDigest
+            digest: `sha256:${rawSha256Hex(blob.bytes)}` as VerificationActionKeyDigest
           });
         })
       : [];
@@ -4609,7 +4738,7 @@ async function runCodexDevelopmentCiVerification(
     if (formalBinding !== null && actionPlan.actionPlanDigest !== formalBinding.actionPlanDigest) {
       throw new Error('Formal hosted Action plan digest differs from the trusted dispatcher reconstruction.');
     }
-    const actionExecution = await CodexDevelopmentExecuteCiActionClosure({
+    const actionExecution = await ExecuteCiActionClosure({
       repositoryRoot,
       actionPlan,
       gates: descriptors,
@@ -4638,7 +4767,7 @@ async function runCodexDevelopmentCiVerification(
   } catch (error) {
     exitCode = exitCode || 1;
     const message = error instanceof Error ? error.stack ?? error.message : String(error);
-    failure ??= { stage, tail: CodexDevelopmentFailureTail(message, 'CI verification failed.') };
+    failure ??= { stage, tail: FailureTail(message, 'CI verification failed.') };
     console.error(message);
   } finally {
     let finalObservationStage = 'exact-identity';
@@ -4657,12 +4786,12 @@ async function runCodexDevelopmentCiVerification(
         await gitOperation.runPhase('readback', async (session) => {
           if (headSha !== null && treeSha !== null && gitRevision === undefined) {
             finalObservationStage = 'exact-identity';
-            finalHead = await CodexDevelopmentDefaultGitRevision(session, 'HEAD');
-            finalTree = await CodexDevelopmentDefaultGitRevision(session, 'HEAD^{tree}');
+            finalHead = await DefaultGitRevision(session, 'HEAD');
+            finalTree = await DefaultGitRevision(session, 'HEAD^{tree}');
           }
           if (trackedTreeIsClean === undefined) {
             finalObservationStage = 'clean-state';
-            cleanAfter = await CodexDevelopmentDefaultTrackedTreeIsClean(session);
+            cleanAfter = await DefaultTrackedTreeIsClean(session);
           }
         });
       }
@@ -4677,7 +4806,7 @@ async function runCodexDevelopmentCiVerification(
       exitCode = 1;
       failure ??= {
         stage: finalObservationStage,
-        tail: CodexDevelopmentFailureTail(
+        tail: FailureTail(
           error instanceof Error ? error.stack ?? error.message : String(error),
           finalObservationStage === 'exact-identity'
             ? 'Exact identity recheck failed.'
@@ -4696,7 +4825,7 @@ async function runCodexDevelopmentCiVerification(
       exitCode = 1;
       failure = {
         stage: 'clock',
-        tail: CodexDevelopmentFailureTail(
+        tail: FailureTail(
           error instanceof Error ? error.stack ?? error.message : String(error),
           'Clock probe failed.'
         )
@@ -4725,9 +4854,9 @@ async function runCodexDevelopmentCiVerification(
             : finalGates.some((gate) => gate.result.status === 'not-run') ? 'not-run' as const
               : 'passed' as const;
       const localBindingDigest = (value: unknown): `sha256:${string}` => (
-        CodexDevelopmentVerificationDigest(value) as `sha256:${string}`
+        verificationDigest(value) as `sha256:${string}`
       );
-      const evidence = CodexDevelopmentFinalizeVerificationEvidenceV4({
+      const evidence = finalizeVerificationEvidence({
         contractRevision: CI_VERIFICATION_CONTRACT_REVISION,
         sessionRevision: formalBinding?.sessionRevision ?? CI_VERIFICATION_SESSION_CONTRACT_REVISION,
         sessionProposalDigest: formalBinding?.sessionProposalDigest ?? localBindingDigest({
@@ -4749,7 +4878,7 @@ async function runCodexDevelopmentCiVerification(
         headTreeSha: actionCandidate.headTreeSha,
         manifestPath: actionCandidate.manifestPath,
         manifestDigest: actionCandidate.manifestDigest,
-        producer: CodexDevelopmentCreateVerificationEvidenceProducer({
+        producer: createVerificationEvidenceProducer({
           sourceTransport: formalBinding?.mode === 'github-actions' ? 'github-actions' : 'local-dev-runner',
           workflowPath: formalBinding?.mode === 'github-actions'
             ? '.github/workflows/compiler-pr-validation.yml'
@@ -4786,7 +4915,7 @@ async function runCodexDevelopmentCiVerification(
         ]
       });
       if (writeEvidence) writeEvidence(evidencePath, evidence);
-      else CodexDevelopmentWriteVerificationEvidenceV4Atomic(evidencePath, evidence);
+      else writeVerificationEvidenceAtomic(evidencePath, evidence);
       console.log(`SEC verification evidence: ${evidencePath}`);
       console.log(`SEC_VERIFICATION_SUMMARY ${JSON.stringify(evidence)}`);
     } catch (error) {
@@ -4797,8 +4926,8 @@ async function runCodexDevelopmentCiVerification(
   return exitCode;
 }
 
-async function executeCodexDevelopmentCiVerification(
-  options: CodexDevelopmentCiVerificationTestOptions
+async function executeCiVerification(
+  options: CiVerificationTestOptions
 ): Promise<number> {
   const repositoryRoot = path.resolve(options.repositoryRoot ?? process.cwd());
   const deadlineAtUnixMs = Date.now()
@@ -4807,19 +4936,19 @@ async function executeCodexDevelopmentCiVerification(
     cwd: repositoryRoot,
     budget: GIT_READ_EXACT_TREE_OPERATION_BUDGET,
     deadlineAtUnixMs
-  }, (gitOperation) => runCodexDevelopmentCiVerification(options, gitOperation));
+  }, (gitOperation) => runCiVerification(options, gitOperation));
 }
 
 /** Production CLI entry. Provider and repository observations are never caller-injected. */
-export async function CodexDevelopmentCiVerificationMain(): Promise<number> {
-  return executeCodexDevelopmentCiVerification({});
+export async function CiVerificationMain(): Promise<number> {
+  return executeCiVerification({});
 }
 
 /** Test-only execution harness; production modules must not import this entry. */
-export async function CodexDevelopmentCiVerificationMainForTests(
-  options: CodexDevelopmentCiVerificationTestOptions
+export async function CiVerificationMainForTests(
+  options: CiVerificationTestOptions
 ): Promise<number> {
-  return executeCodexDevelopmentCiVerification(options);
+  return executeCiVerification(options);
 }
 
 const HOSTED_ACTION_COMMANDS = new Set([
@@ -4868,22 +4997,6 @@ function positiveEnvironmentInteger(name: string): number {
   return parsed;
 }
 
-function hostedActionGhReadJson(args: readonly string[], label: string): unknown {
-  const result = spawnSync('gh', ['api', '-H', 'Accept: application/vnd.github+json', ...args], {
-    encoding: 'utf8',
-    maxBuffer: 128 * 1024 * 1024,
-    windowsHide: true
-  });
-  if (result.error !== undefined || result.status !== 0 || typeof result.stdout !== 'string') {
-    throw new Error(`${label} readback failed: ${String(result.error ?? result.stderr).slice(0, 512)}`);
-  }
-  try {
-    return JSON.parse(result.stdout) as unknown;
-  } catch (error) {
-    throw new Error(`${label} readback is not JSON: ${String(error).slice(0, 512)}`);
-  }
-}
-
 function hostedActionRecord(value: unknown, label: string): Record<string, unknown> {
   if (value === null || typeof value !== 'object' || Array.isArray(value)) {
     throw new Error(`${label} must be one object.`);
@@ -4904,7 +5017,9 @@ function hostedActionCanonicalFile<T>(
   return value;
 }
 
-function hostedActionParentActor(repository: string): CiVerificationActionParentActor {
+async function hostedActionParentActor(
+  capability: GitHubApiCapability
+): Promise<CiVerificationActionParentActor> {
   const event = hostedActionRecord(
     JSON.parse(readFileSync(process.env.GITHUB_EVENT_PATH ?? '', 'utf8')) as unknown,
     'parent Session event'
@@ -4918,9 +5033,9 @@ function hostedActionParentActor(repository: string): CiVerificationActionParent
       sender.type !== 'User' || process.env.GITHUB_ACTOR !== login || process.env.GITHUB_TRIGGERING_ACTOR !== login) {
     throw new Error('parent Session event sender is not one exact human principal.');
   }
-  const permissionReadback = hostedActionRecord(hostedActionGhReadJson([
-    `/repos/${repository}/collaborators/${login}/permission`
-  ], 'parent actor permission'), 'parent actor permission');
+  const permissionReadback = hostedActionRecord(await executeGitHubApiOperation(capability, {
+    kind: 'collaborator-permission', login
+  }), 'parent actor permission');
   const user = hostedActionRecord(permissionReadback.user, 'parent actor permission user');
   const permission = permissionReadback.permission;
   if ((permission !== 'maintain' && permission !== 'admin') || user.login !== login || user.id !== id ||
@@ -4936,12 +5051,16 @@ function hostedActionParentActor(repository: string): CiVerificationActionParent
   });
 }
 
-function hostedActionParentJobId(repository: string, runId: string, runAttempt: number): string {
+async function hostedActionParentJobId(
+  capability: GitHubApiCapability,
+  runId: string,
+  runAttempt: number
+): Promise<string> {
   const jobs: Record<string, unknown>[] = [];
   for (let page = 1; page <= 1000; page += 1) {
-    const response = hostedActionRecord(hostedActionGhReadJson([
-      `/repos/${repository}/actions/runs/${runId}/attempts/${runAttempt}/jobs?per_page=100&page=${page}`
-    ], `parent job page ${page}`), `parent job page ${page}`);
+    const response = hostedActionRecord(await executeGitHubApiOperation(capability, {
+      kind: 'workflow-jobs', runId, runAttempt, page
+    }), `parent job page ${page}`);
     if (!Array.isArray(response.jobs) || response.jobs.length > 100) {
       throw new Error(`parent job page ${page} is incomplete.`);
     }
@@ -4961,7 +5080,7 @@ function hostedActionParentJobId(repository: string, runId: string, runAttempt: 
   return String(matches[0]!.id);
 }
 
-export function CodexDevelopmentAssertHostedActionParentEvent(
+export function AssertHostedActionParentEvent(
   eventValue: unknown,
   sessionRequest: VerificationSessionHostedRequest
 ): void {
@@ -4974,10 +5093,11 @@ export function CodexDevelopmentAssertHostedActionParentEvent(
   }
 }
 
-function createHostedActionParentPlan(input: Readonly<{
+async function createHostedActionParentPlan(input: Readonly<{
+  repositoryRoot: string;
   sessionRequest: VerificationSessionHostedRequest;
   envelope: VerificationSessionHostedEnvelope;
-}>): CiVerificationActionParentDispatchPlan {
+}>): Promise<CiVerificationActionParentDispatchPlan> {
   const repositoryIdentity = hostedActionRepositoryIdentity();
   const runId = process.env.GITHUB_RUN_ID ?? '';
   const runAttempt = positiveEnvironmentInteger('GITHUB_RUN_ATTEMPT');
@@ -4989,7 +5109,7 @@ function createHostedActionParentPlan(input: Readonly<{
       process.env.GITHUB_JOB !== 'coordinate-verification-session') {
     throw new Error('parent dispatch plan is not running in the exact trusted Session coordinator.');
   }
-  CodexDevelopmentAssertHostedActionParentEvent(
+  AssertHostedActionParentEvent(
     JSON.parse(readFileSync(process.env.GITHUB_EVENT_PATH ?? '', 'utf8')) as unknown,
     input.sessionRequest
   );
@@ -5000,20 +5120,28 @@ function createHostedActionParentPlan(input: Readonly<{
     })
   );
   for (const proposal of proposals) {
-    CodexDevelopmentResolveHostedAction({
-      request: CodexDevelopmentParseHostedActionRequest(encodeVerificationActionData(proposal)),
+    ResolveHostedAction({
+      request: ParseHostedActionRequest(encodeVerificationActionData(proposal)),
       envelope: input.envelope
     });
   }
+  const provider = await withGitHubApiReadSession({
+    repositoryRoot: input.repositoryRoot,
+    repository: repositoryIdentity.repository,
+    operation: async (capability) => Object.freeze({
+      parentJobId: await hostedActionParentJobId(capability, runId, runAttempt),
+      parentActor: await hostedActionParentActor(capability)
+    })
+  });
   return createCiVerificationActionParentDispatchPlan({
     repositoryId: String(repositoryIdentity.repositoryId),
     repository: repositoryIdentity.repository,
     parentRunId: runId,
     parentRunAttempt: runAttempt,
-    parentJobId: hostedActionParentJobId(repositoryIdentity.repository, runId, runAttempt),
+    parentJobId: provider.parentJobId,
     parentWorkflowRef: workflowRef,
     parentWorkflowSha: workflowSha,
-    parentActor: hostedActionParentActor(repositoryIdentity.repository),
+    parentActor: provider.parentActor,
     proposals
   });
 }
@@ -5069,7 +5197,7 @@ function hostedActionChildAuthority(input: Readonly<{
 }>): Readonly<{
   providerEnvelope: CiVerificationActionProviderEnvelope;
   envelope: VerificationSessionHostedEnvelope;
-  resolution: CodexDevelopmentHostedActionResolution;
+  resolution: HostedActionResolution;
 }> {
   const providerEnvelope = hostedActionCanonicalFile(
     input.providerEnvelopePath,
@@ -5079,14 +5207,14 @@ function hostedActionChildAuthority(input: Readonly<{
   const envelope = parseHostedEnvelope(
     JSON.parse(readFileSync(path.resolve(input.envelopePath), 'utf8')) as unknown
   );
-  const resolution = CodexDevelopmentResolveHostedAction({
-    request: CodexDevelopmentParseHostedActionRequest(
+  const resolution = ResolveHostedAction({
+    request: ParseHostedActionRequest(
       encodeVerificationActionData(providerEnvelope.proposal)
     ),
     envelope
   });
   if (input.resolutionPath !== undefined) {
-    const supplied = CodexDevelopmentParseHostedActionResolution(
+    const supplied = ParseHostedActionResolution(
       readFileSync(path.resolve(input.resolutionPath), 'utf8')
     );
     if (encodeVerificationActionData(supplied) !== encodeVerificationActionData(resolution)) {
@@ -5097,14 +5225,16 @@ function hostedActionChildAuthority(input: Readonly<{
 }
 
 async function observeHostedActionAuthority(input: Readonly<{
+  repositoryRoot: string;
   providerEnvelope: CiVerificationActionProviderEnvelope;
   envelope: VerificationSessionHostedEnvelope;
   role: 'parent' | 'child';
 }>): Promise<Readonly<{
-  index: CodexDevelopmentHostedActionProviderIndex;
+  index: HostedActionProviderIndex;
   decision: VerificationActionProviderDecision;
 }>> {
   const result = await ensureVerificationActionGitHubProviderTransaction({
+    repositoryRoot: input.repositoryRoot,
     authority: {
       envelope: input.providerEnvelope,
       actionPlanClosure: input.envelope.actionPlanClosure
@@ -5115,13 +5245,13 @@ async function observeHostedActionAuthority(input: Readonly<{
     throw new Error(`hosted Action provider observation returned ${result.disposition}.`);
   }
   const index = hostedActionProviderIndexFromSnapshot(result.snapshot);
-  const resolution = CodexDevelopmentResolveHostedAction({
-    request: CodexDevelopmentParseHostedActionRequest(
+  const resolution = ResolveHostedAction({
+    request: ParseHostedActionRequest(
       encodeVerificationActionData(input.providerEnvelope.proposal)
     ),
     envelope: input.envelope
   });
-  const decision = CodexDevelopmentReduceHostedActionProviderIndex({
+  const decision = ReduceHostedActionProviderIndex({
     resolution,
     ...hostedActionRepositoryIdentity(),
     index
@@ -5130,20 +5260,22 @@ async function observeHostedActionAuthority(input: Readonly<{
 }
 
 async function coordinateHostedSessionProvider(input: Readonly<{
+  repositoryRoot: string;
   authority: ReturnType<typeof hostedActionParentAuthority>;
   allowDispatch: boolean;
 }>): Promise<Readonly<{
-  artifactIndex: CodexDevelopmentHostedActionProviderIndex;
-  coordination: CodexDevelopmentHostedActionCoordination;
+  artifactIndex: HostedActionProviderIndex;
+  coordination: HostedActionCoordination;
   dispatched: number;
 }>> {
-  const terminalObservations: CodexDevelopmentHostedActionArtifactObservation[] = [];
+  const terminalObservations: HostedActionArtifactObservation[] = [];
   const startObservations: VerificationActionProviderStartObservation[] = [];
   const terminalAnchorObservations: VerificationActionProviderTerminalAnchorObservation[] = [];
   const providerStatusReadbacks: VerificationActionProviderStatusReadback[] = [];
   const envelopesByKey = new Map<VerificationActionKeyDigest, CiVerificationActionProviderEnvelope>();
   for (const providerEnvelope of input.authority.providerEnvelopes) {
     const observed = await observeHostedActionAuthority({
+      repositoryRoot: input.repositoryRoot,
       providerEnvelope,
       envelope: input.authority.envelope,
       role: 'parent'
@@ -5161,7 +5293,7 @@ async function coordinateHostedSessionProvider(input: Readonly<{
     terminalAnchorObservations: Object.freeze(terminalAnchorObservations),
     providerStatusReadbacks: Object.freeze(providerStatusReadbacks)
   });
-  const coordination = CodexDevelopmentCoordinateHostedActions({
+  const coordination = CoordinateHostedActions({
     envelope: input.authority.envelope,
     observations: artifactIndex.terminalObservations,
     startObservations: artifactIndex.startObservations,
@@ -5176,6 +5308,7 @@ async function coordinateHostedSessionProvider(input: Readonly<{
         throw new Error('coordinator selected an Action outside the authenticated parent plan.');
       }
       const result = await ensureVerificationActionGitHubProviderTransaction({
+        repositoryRoot: input.repositoryRoot,
         authority: {
           envelope: providerEnvelope,
           actionPlanClosure: input.authority.envelope.actionPlanClosure
@@ -5191,14 +5324,18 @@ async function coordinateHostedSessionProvider(input: Readonly<{
   return Object.freeze({ artifactIndex, coordination, dispatched });
 }
 
-export async function CodexDevelopmentCiVerificationHostedActionCli(argv: string[]): Promise<string> {
+export async function CiVerificationHostedActionCli(
+  argv: string[],
+  repositoryRoot = process.cwd()
+): Promise<string> {
+  const exactRepositoryRoot = path.resolve(repositoryRoot);
   const command = argv[0];
   if (command === 'execute-trusted-bootstrap-sut') {
     const args = hostedActionCliArgs(argv, [
       '--base-root', '--candidate-root', '--output-directory', '--base-sha',
       '--head-sha', '--tree-sha', '--manifest-path'
     ]);
-    const result = await CodexDevelopmentExecuteTrustedBootstrapSut({
+    const result = await ExecuteTrustedBootstrapSut({
       baseRoot: args.get('--base-root')!,
       candidateRoot: args.get('--candidate-root')!,
       outputDirectory: args.get('--output-directory')!,
@@ -5222,7 +5359,9 @@ export async function CodexDevelopmentCiVerificationHostedActionCli(argv: string
       const envelope = parseHostedEnvelope(
         JSON.parse(readFileSync(path.resolve(args.get('--envelope')!), 'utf8')) as unknown
       );
-      const parentPlan = createHostedActionParentPlan({ sessionRequest, envelope });
+      const parentPlan = await createHostedActionParentPlan({
+        repositoryRoot: exactRepositoryRoot, sessionRequest, envelope
+      });
       writeHostedActionJson(args.get('--output')!, parentPlan);
       return JSON.stringify({
         status: 'prepared',
@@ -5255,6 +5394,7 @@ export async function CodexDevelopmentCiVerificationHostedActionCli(argv: string
         const first = authority.providerEnvelopes[0];
         if (first === undefined) throw new Error('parent dispatch plan has no Action proposal.');
         const observed = await observeHostedActionAuthority({
+          repositoryRoot: exactRepositoryRoot,
           providerEnvelope: first,
           envelope: authority.envelope,
           role: 'parent'
@@ -5267,6 +5407,7 @@ export async function CodexDevelopmentCiVerificationHostedActionCli(argv: string
         });
       }
       const coordinated = await coordinateHostedSessionProvider({
+        repositoryRoot: exactRepositoryRoot,
         authority,
         allowDispatch: intent === 'coordinate-session'
       });
@@ -5289,6 +5430,7 @@ export async function CodexDevelopmentCiVerificationHostedActionCli(argv: string
         resolutionPath: args.get('--resolution')!
       });
       const observed = await observeHostedActionAuthority({
+        repositoryRoot: exactRepositoryRoot,
         providerEnvelope: authority.providerEnvelope,
         envelope: authority.envelope,
         role: 'child'
@@ -5312,7 +5454,7 @@ export async function CodexDevelopmentCiVerificationHostedActionCli(argv: string
         envelopePath: args.get('--envelope')!,
         resolutionPath: args.get('--resolution')!
       });
-      const archiveInventory = CodexDevelopmentInspectHostedActionArchive({
+      const archiveInventory = InspectHostedActionArchive({
         resolution: authority.resolution,
         preparedCandidateArchive: args.get('--prepared-candidate-archive')!,
         baseDependencyClosureDigest:
@@ -5320,7 +5462,7 @@ export async function CodexDevelopmentCiVerificationHostedActionCli(argv: string
         authenticatedGitClosureDigest:
           args.get('--authenticated-git-closure-digest')! as VerificationActionKeyDigest
       });
-      const sandboxCapability = await CodexDevelopmentProbeHostedSutSandboxCapability({
+      const sandboxCapability = await ProbeHostedSutSandboxCapability({
         actionKey: authority.resolution.actionPlan.action.actionKey
       });
       if (sandboxCapability.state === 'unknown') {
@@ -5329,6 +5471,7 @@ export async function CodexDevelopmentCiVerificationHostedActionCli(argv: string
         }`);
       }
       const observed = await observeHostedActionAuthority({
+        repositoryRoot: exactRepositoryRoot,
         providerEnvelope: authority.providerEnvelope,
         envelope: authority.envelope,
         role: 'child'
@@ -5336,17 +5479,17 @@ export async function CodexDevelopmentCiVerificationHostedActionCli(argv: string
       if (observed.decision.disposition !== 'start-allowed' || !observed.decision.physicalExecutionAllowed) {
         throw new Error(`start marker cannot be prepared from ${observed.decision.disposition}.`);
       }
-      const marker = createVerificationActionStartMarkerV2({
+      const marker = createVerificationActionStartMarker({
         actionKey: authority.resolution.actionPlan.action.actionKey,
         candidateSha: authority.resolution.artifactInput.headSha,
         executionEnvironmentRevision: CI_VERIFICATION_HOSTED_PROVIDER_REVISION,
         producer: currentHostedActionProducer()
       });
-      writeVerificationActionStartMarkerV2Atomic(args.get('--output')!, marker);
+      writeVerificationActionStartMarkerAtomic(args.get('--output')!, marker);
       return JSON.stringify({
         status: 'marker-prepared',
         actionKey: marker.actionKey,
-        markerName: verificationActionStartMarkerNameV2(marker.actionKey),
+        markerName: verificationActionStartMarkerName(marker.actionKey),
         markerDigest: marker.markerDigest,
         archiveDigest: archiveInventory.archiveDigest,
         archiveInventoryDigest: archiveInventory.inventoryDigest,
@@ -5369,6 +5512,7 @@ export async function CodexDevelopmentCiVerificationHostedActionCli(argv: string
         resolutionPath: args.get('--resolution')!
       });
       const before = await ensureVerificationActionGitHubProviderTransaction({
+        repositoryRoot: exactRepositoryRoot,
         authority: { envelope: authority.providerEnvelope, actionPlanClosure: authority.envelope.actionPlanClosure },
         intent: { kind: 'coordinate' }
       });
@@ -5377,8 +5521,9 @@ export async function CodexDevelopmentCiVerificationHostedActionCli(argv: string
           markerObservation?.expired !== false || markerObservation.payload === null) {
         throw new Error('claim-start requires one exact uploaded immutable start marker.');
       }
-      const marker = parseVerificationActionStartMarkerV2(markerObservation.payload);
+      const marker = parseVerificationActionStartMarker(markerObservation.payload);
       const claimed = await ensureVerificationActionGitHubProviderTransaction({
+        repositoryRoot: exactRepositoryRoot,
         authority: { envelope: authority.providerEnvelope, actionPlanClosure: authority.envelope.actionPlanClosure },
         intent: { kind: 'claim-start', marker }
       });
@@ -5396,7 +5541,7 @@ export async function CodexDevelopmentCiVerificationHostedActionCli(argv: string
       if (claimed.snapshot.startObservations.length !== 1 || startObservation?.payload === null) {
         throw new Error('claim-start readback lost the exact start marker.');
       }
-      const preparedCandidateInventory = CodexDevelopmentInspectHostedActionArchive({
+      const preparedCandidateInventory = InspectHostedActionArchive({
         resolution: authority.resolution,
         preparedCandidateArchive: args.get('--prepared-candidate-archive')!,
         baseDependencyClosureDigest:
@@ -5404,7 +5549,7 @@ export async function CodexDevelopmentCiVerificationHostedActionCli(argv: string
         authenticatedGitClosureDigest:
           args.get('--authenticated-git-closure-digest')! as VerificationActionKeyDigest
       });
-      const ticket = CodexDevelopmentCreateHostedActionExecutionTicket({
+      const ticket = CreateHostedActionExecutionTicket({
         resolution: authority.resolution,
         marker,
         startObservation,
@@ -5435,6 +5580,7 @@ export async function CodexDevelopmentCiVerificationHostedActionCli(argv: string
         resolutionPath: args.get('--resolution')!
       });
       const observed = await observeHostedActionAuthority({
+        repositoryRoot: exactRepositoryRoot,
         providerEnvelope: authority.providerEnvelope,
         envelope: authority.envelope,
         role: 'child'
@@ -5454,7 +5600,7 @@ export async function CodexDevelopmentCiVerificationHostedActionCli(argv: string
           terminalObservation.providerObservation.archiveDigest === null || startStatus === undefined) {
         throw new Error('terminal anchor lacks exact authenticated start and terminal bytes.');
       }
-      const anchor = createVerificationActionTerminalStatusAnchorV2({
+      const anchor = createVerificationActionTerminalStatusAnchor({
         actionKey: authority.resolution.actionPlan.action.actionKey,
         candidateSha: authority.resolution.artifactInput.headSha,
         startStatusId: startStatus.id,
@@ -5470,7 +5616,7 @@ export async function CodexDevelopmentCiVerificationHostedActionCli(argv: string
         terminalAssemblerOrigin: terminalObservation.artifact.producer,
         anchorPublisherOrigin: currentHostedActionProducer()
       });
-      writeVerificationActionTerminalStatusAnchorV2Atomic(args.get('--output')!, anchor);
+      writeVerificationActionTerminalStatusAnchorAtomic(args.get('--output')!, anchor);
       return JSON.stringify({
         status: 'anchor-prepared',
         actionKey: anchor.actionKey,
@@ -5491,6 +5637,7 @@ export async function CodexDevelopmentCiVerificationHostedActionCli(argv: string
         resolutionPath: args.get('--resolution')!
       });
       const before = await ensureVerificationActionGitHubProviderTransaction({
+        repositoryRoot: exactRepositoryRoot,
         authority: { envelope: authority.providerEnvelope, actionPlanClosure: authority.envelope.actionPlanClosure },
         intent: { kind: 'coordinate' }
       });
@@ -5500,6 +5647,7 @@ export async function CodexDevelopmentCiVerificationHostedActionCli(argv: string
         throw new Error('anchor-terminal requires one exact uploaded terminal anchor.');
       }
       const result = await ensureVerificationActionGitHubProviderTransaction({
+        repositoryRoot: exactRepositoryRoot,
         authority: { envelope: authority.providerEnvelope, actionPlanClosure: authority.envelope.actionPlanClosure },
         intent: { kind: 'anchor-terminal', anchor: anchorObservation.payload }
       });
@@ -5508,7 +5656,7 @@ export async function CodexDevelopmentCiVerificationHostedActionCli(argv: string
         throw new Error(`neutral terminal tombstone was not anchored: ${result.reason ?? result.disposition}.`);
       }
       const index = hostedActionProviderIndexFromSnapshot(result.snapshot);
-      const decision = CodexDevelopmentReduceHostedActionProviderIndex({
+      const decision = ReduceHostedActionProviderIndex({
         resolution: authority.resolution,
         ...hostedActionRepositoryIdentity(),
         index
@@ -5529,10 +5677,10 @@ export async function CodexDevelopmentCiVerificationHostedActionCli(argv: string
     const args = hostedActionCliArgs(argv, [
       '--resolution', '--base-root', '--candidate-root', '--output-directory'
     ]);
-    const resolution = CodexDevelopmentParseHostedActionResolution(
+    const resolution = ParseHostedActionResolution(
       readFileSync(path.resolve(args.get('--resolution')!), 'utf8')
     );
-    const prepared = CodexDevelopmentPrepareHostedActionInputs({
+    const prepared = PrepareHostedActionInputs({
       resolution,
       baseRoot: args.get('--base-root')!,
       candidateRoot: args.get('--candidate-root')!,
@@ -5550,10 +5698,10 @@ export async function CodexDevelopmentCiVerificationHostedActionCli(argv: string
   }
   if (command === 'self-test-hosted-action-sandbox') {
     const args = hostedActionCliArgs(argv, ['--resolution']);
-    const resolution = CodexDevelopmentParseHostedActionResolution(
+    const resolution = ParseHostedActionResolution(
       readFileSync(path.resolve(args.get('--resolution')!), 'utf8')
     );
-    const observation = await CodexDevelopmentProbeHostedSutSandboxCapability({
+    const observation = await ProbeHostedSutSandboxCapability({
       actionKey: resolution.actionPlan.action.actionKey
     });
     if (observation.state === 'unknown') {
@@ -5576,13 +5724,13 @@ export async function CodexDevelopmentCiVerificationHostedActionCli(argv: string
     const providerEnvelope = parseCiVerificationActionProviderEnvelope(
       JSON.parse(readFileSync(path.resolve(args.get('--provider-envelope')!), 'utf8')) as unknown
     );
-    const request = CodexDevelopmentParseHostedActionRequest(
+    const request = ParseHostedActionRequest(
       encodeVerificationActionData(providerEnvelope.proposal)
     );
     const envelope = parseHostedEnvelope(
       JSON.parse(readFileSync(path.resolve(args.get('--envelope')!), 'utf8')) as unknown
     );
-    const resolution = CodexDevelopmentResolveHostedAction({ request, envelope });
+    const resolution = ResolveHostedAction({ request, envelope });
     writeHostedActionJson(args.get('--output')!, resolution);
     return JSON.stringify({
       status: 'resolved',
@@ -5596,10 +5744,10 @@ export async function CodexDevelopmentCiVerificationHostedActionCli(argv: string
     const args = hostedActionCliArgs(argv, [
       '--resolution', '--ticket', '--prepared-candidate-archive', '--output'
     ]);
-    const resolution = CodexDevelopmentParseHostedActionResolution(
+    const resolution = ParseHostedActionResolution(
       readFileSync(path.resolve(args.get('--resolution')!), 'utf8')
     );
-    const ticket = CodexDevelopmentParseHostedActionExecutionTicket(
+    const ticket = ParseHostedActionExecutionTicket(
       readFileSync(path.resolve(args.get('--ticket')!), 'utf8')
     );
     if (ticket.resolutionDigest !== resolution.resolutionDigest ||
@@ -5608,12 +5756,12 @@ export async function CodexDevelopmentCiVerificationHostedActionCli(argv: string
         ticket.candidateBytesDigest !== resolution.artifactInput.candidateBytesDigest) {
       throw new Error('Hosted Action SUT ticket differs from the trusted resolution.');
     }
-    const archiveInventory = CodexDevelopmentMaterializeHostedActionCandidate({
+    const archiveInventory = MaterializeHostedActionCandidate({
       resolution,
       ticket,
       preparedCandidateArchive: args.get('--prepared-candidate-archive')!
     });
-    const rawResult = await CodexDevelopmentExecuteHostedActionSut({
+    const rawResult = await ExecuteHostedActionSut({
       resolution,
       ticket,
       candidateArchive: args.get('--prepared-candidate-archive')!,
@@ -5638,13 +5786,14 @@ export async function CodexDevelopmentCiVerificationHostedActionCli(argv: string
       resolutionPath: args.get('--resolution')!
     });
     const resolution = authority.resolution;
-    const ticket = CodexDevelopmentParseHostedActionExecutionTicket(
+    const ticket = ParseHostedActionExecutionTicket(
       readFileSync(path.resolve(args.get('--ticket')!), 'utf8')
     );
-    const rawResult = CodexDevelopmentParseHostedActionRawResult(
+    const rawResult = ParseHostedActionRawResult(
       readFileSync(path.resolve(args.get('--raw-result')!), 'utf8')
     );
     const observed = await ensureVerificationActionGitHubProviderTransaction({
+      repositoryRoot: exactRepositoryRoot,
       authority: { envelope: authority.providerEnvelope, actionPlanClosure: authority.envelope.actionPlanClosure },
       intent: { kind: 'coordinate' }
     });
@@ -5663,7 +5812,7 @@ export async function CodexDevelopmentCiVerificationHostedActionCli(argv: string
         index.terminalObservations.length !== 0 || index.terminalAnchorObservations.length !== 0) {
       throw new Error('Hosted Action assembler does not own the sole exact unresolved start ticket.');
     }
-    const rebuiltTicket = CodexDevelopmentCreateHostedActionExecutionTicket({
+    const rebuiltTicket = CreateHostedActionExecutionTicket({
       resolution,
       marker: startObservation.payload!,
       startObservation,
@@ -5674,14 +5823,14 @@ export async function CodexDevelopmentCiVerificationHostedActionCli(argv: string
     if (rebuiltTicket.ticketDigest !== ticket.ticketDigest) {
       throw new Error('Hosted Action assembler ticket no longer matches provider readback.');
     }
-    const artifact = CodexDevelopmentAssembleHostedActionTerminal({
+    const artifact = AssembleHostedActionTerminal({
       resolution,
       ticket,
       rawResult,
       expectedRawResultDigest: args.get('--expected-raw-result-digest')! as VerificationActionKeyDigest,
       producer
     });
-    CodexDevelopmentWriteVerificationActionTerminalArtifactV2Atomic(args.get('--output')!, artifact);
+    writeVerificationActionTerminalArtifactAtomic(args.get('--output')!, artifact);
     return JSON.stringify({
       status: artifact.result.status,
       actionKey: artifact.actionPlan.action.actionKey,
@@ -5697,10 +5846,10 @@ export async function CodexDevelopmentCiVerificationHostedActionCli(argv: string
     const envelope = parseHostedEnvelope(
       JSON.parse(readFileSync(path.resolve(args.get('--envelope')!), 'utf8')) as unknown
     );
-    const index = CodexDevelopmentReadHostedActionArtifactIndex({
+    const index = ReadHostedActionArtifactIndex({
       source: readFileSync(path.resolve(args.get('--artifact-index')!), 'utf8')
     });
-    const producer = CodexDevelopmentCreateVerificationEvidenceProducer({
+    const producer = createVerificationEvidenceProducer({
       sourceTransport: 'github-actions',
       workflowPath: '.github/workflows/compiler-pr-validation.yml',
       workflowRef: `.github/workflows/compiler-pr-validation.yml@${envelope.session.baseSha}`,
@@ -5709,7 +5858,7 @@ export async function CodexDevelopmentCiVerificationHostedActionCli(argv: string
       runAttempt: positiveEnvironmentInteger('GITHUB_RUN_ATTEMPT'),
       actorNodeId: envelope.scopeAuthorization.issuer.principalId
     });
-    const composed = CodexDevelopmentComposeHostedEvidence({
+    const composed = ComposeHostedEvidence({
       envelope,
       observations: index.observations,
       startObservations: index.startObservations,
@@ -5718,7 +5867,7 @@ export async function CodexDevelopmentCiVerificationHostedActionCli(argv: string
       producer
     });
     if (composed.evidence !== null) {
-      CodexDevelopmentWriteVerificationEvidenceV4Atomic(args.get('--output')!, composed.evidence);
+      writeVerificationEvidenceAtomic(args.get('--output')!, composed.evidence);
     }
     return JSON.stringify({
       ...composed.coordination,
@@ -5731,11 +5880,11 @@ export async function CodexDevelopmentCiVerificationHostedActionCli(argv: string
 
 async function main(): Promise<number> {
   if (HOSTED_ACTION_COMMANDS.has(process.argv[2] ?? '')) {
-    const result = await CodexDevelopmentCiVerificationHostedActionCli(process.argv.slice(2));
+    const result = await CiVerificationHostedActionCli(process.argv.slice(2));
     process.stdout.write(`${result}\n`);
     return 0;
   }
-  return CodexDevelopmentCiVerificationMain();
+  return CiVerificationMain();
 }
 
 if (import.meta.main) {
