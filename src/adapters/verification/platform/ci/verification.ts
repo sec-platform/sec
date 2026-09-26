@@ -3053,6 +3053,19 @@ function hostedSutInventoryClosureFromTicket(
   });
 }
 
+type HostedSutExecutionGrantInput =
+  Parameters<typeof CodexDevelopmentCreateHostedSutExecutionAuthorization>[0];
+
+/**
+ * Validation/reconstruction belongs to the caller. Once that typed context
+ * reaches this gateway, authority-artifact issuance is unconditional.
+ */
+function issueHostedSutExecutionGrant(
+  input: HostedSutExecutionGrantInput
+): ReturnType<typeof CodexDevelopmentCreateHostedSutExecutionAuthorization> {
+  return CodexDevelopmentCreateHostedSutExecutionAuthorization(input);
+}
+
 export async function CodexDevelopmentExecuteHostedActionSut(input: Readonly<{
   resolution: CodexDevelopmentHostedActionResolution;
   ticket: CodexDevelopmentHostedActionExecutionTicket;
@@ -3089,7 +3102,7 @@ export async function CodexDevelopmentExecuteHostedActionSut(input: Readonly<{
       normalizedOperation.semanticDigest !== resolution.actionPlan.action.operation.semanticDigest) {
     throw new Error('Hosted Action resolution lost its normalized operation.');
   }
-  const executionAuthorization = CodexDevelopmentCreateHostedSutExecutionAuthorization({
+  const executionAuthorization = issueHostedSutExecutionGrant({
     resolutionDigest: resolution.resolutionDigest,
     ticketDigest: ticket.ticketDigest,
     actionPlan: resolution.actionPlan,
@@ -3344,7 +3357,7 @@ export function CodexDevelopmentAssembleHostedActionTerminal(input: Readonly<{
       encodeVerificationActionData(input.producer) !== encodeVerificationActionData(ticket.producer)) {
     throw new Error('Hosted Action assembler inputs differ from the original trusted execution ticket.');
   }
-  const authorization = CodexDevelopmentCreateHostedSutExecutionAuthorization({
+  const authorization = issueHostedSutExecutionGrant({
     resolutionDigest: resolution.resolutionDigest,
     ticketDigest: ticket.ticketDigest,
     actionPlan: resolution.actionPlan,
@@ -4797,17 +4810,25 @@ async function runCodexDevelopmentCiVerification(
   return exitCode;
 }
 
+async function runCiVerificationWithGitRead(
+  repositoryRoot: string,
+  deadlineAtUnixMs: number,
+  options: CodexDevelopmentCiVerificationTestOptions
+): Promise<number> {
+  return withAuthorityGitReadOperation({
+    cwd: repositoryRoot,
+    budget: GIT_READ_EXACT_TREE_OPERATION_BUDGET,
+    deadlineAtUnixMs
+  }, (gitOperation) => runCodexDevelopmentCiVerification(options, gitOperation));
+}
+
 async function executeCodexDevelopmentCiVerification(
   options: CodexDevelopmentCiVerificationTestOptions
 ): Promise<number> {
   const repositoryRoot = path.resolve(options.repositoryRoot ?? process.cwd());
   const deadlineAtUnixMs = Date.now()
     + CI_VERIFICATION_HOSTED_SANDBOX_POLICY.limits.wallSeconds * 1_000;
-  return withAuthorityGitReadOperation({
-    cwd: repositoryRoot,
-    budget: GIT_READ_EXACT_TREE_OPERATION_BUDGET,
-    deadlineAtUnixMs
-  }, (gitOperation) => runCodexDevelopmentCiVerification(options, gitOperation));
+  return runCiVerificationWithGitRead(repositoryRoot, deadlineAtUnixMs, options);
 }
 
 /** Production CLI entry. Provider and repository observations are never caller-injected. */
