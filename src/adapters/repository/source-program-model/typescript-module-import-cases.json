@@ -1,0 +1,572 @@
+[
+  {
+    "name": "value import",
+    "source": "import { value } from './b.ts';",
+    "imports": [
+      {
+        "kind": "static",
+        "specifier": "./b.ts",
+        "typeOnly": false
+      }
+    ],
+    "unresolved": false
+  },
+  {
+    "name": "type import",
+    "source": "import type { Value } from './b.ts';",
+    "imports": [
+      {
+        "kind": "static",
+        "specifier": "./b.ts",
+        "typeOnly": true
+      }
+    ],
+    "unresolved": false
+  },
+  {
+    "name": "all inline type imports",
+    "source": "import {type A, type B} from './b.ts';",
+    "imports": [
+      {
+        "kind": "static",
+        "specifier": "./b.ts",
+        "typeOnly": false
+      }
+    ],
+    "unresolved": false
+  },
+  {
+    "name": "mixed inline import",
+    "source": "import {type A, value} from './b.ts';",
+    "imports": [
+      {
+        "kind": "static",
+        "specifier": "./b.ts",
+        "typeOnly": false
+      }
+    ],
+    "unresolved": false
+  },
+  {
+    "name": "default with inline types remains runtime",
+    "source": "import value, {type A} from './b.ts';",
+    "imports": [
+      {
+        "kind": "static",
+        "specifier": "./b.ts",
+        "typeOnly": false
+      }
+    ],
+    "unresolved": false
+  },
+  {
+    "name": "side effect import",
+    "source": "import './b.ts';",
+    "imports": [
+      {
+        "kind": "static",
+        "specifier": "./b.ts",
+        "typeOnly": false
+      }
+    ],
+    "unresolved": false
+  },
+  {
+    "name": "empty value import",
+    "source": "import {} from './b.ts';",
+    "imports": [
+      {
+        "kind": "static",
+        "specifier": "./b.ts",
+        "typeOnly": false
+      }
+    ],
+    "unresolved": false
+  },
+  {
+    "name": "export type",
+    "source": "export type {Value} from './b.ts';",
+    "imports": [
+      {
+        "kind": "static",
+        "specifier": "./b.ts",
+        "typeOnly": true
+      }
+    ],
+    "unresolved": false
+  },
+  {
+    "name": "mixed export",
+    "source": "export {type A, value} from './b.ts';",
+    "imports": [
+      {
+        "kind": "static",
+        "specifier": "./b.ts",
+        "typeOnly": false
+      }
+    ],
+    "unresolved": false
+  },
+  {
+    "name": "import type expression",
+    "source": "type A = import('./b.ts').Value;",
+    "imports": [
+      {
+        "kind": "static",
+        "specifier": "./b.ts",
+        "typeOnly": true
+      }
+    ],
+    "unresolved": false
+  },
+  {
+    "name": "typeof import expression",
+    "source": "type A = typeof import('./b.ts');",
+    "imports": [
+      {
+        "kind": "static",
+        "specifier": "./b.ts",
+        "typeOnly": true
+      }
+    ],
+    "unresolved": false
+  },
+  {
+    "name": "import equals",
+    "source": "import b = require('./b.ts');",
+    "imports": [
+      {
+        "kind": "require",
+        "specifier": "./b.ts",
+        "typeOnly": false
+      }
+    ],
+    "unresolved": false
+  },
+  {
+    "name": "type import equals",
+    "source": "import type b = require('./b.ts');",
+    "imports": [
+      {
+        "kind": "require",
+        "specifier": "./b.ts",
+        "typeOnly": true
+      }
+    ],
+    "unresolved": false
+  },
+  {
+    "name": "dynamic literal",
+    "source": "void import('./b.ts');",
+    "imports": [
+      {
+        "kind": "dynamic",
+        "specifier": "./b.ts",
+        "typeOnly": false
+      }
+    ],
+    "unresolved": false
+  },
+  {
+    "name": "dynamic no substitution template",
+    "source": "void import(`./b.ts`);",
+    "imports": [
+      {
+        "kind": "dynamic",
+        "specifier": "./b.ts",
+        "typeOnly": false
+      }
+    ],
+    "unresolved": false
+  },
+  {
+    "name": "dynamic erased type wrapper",
+    "source": "void import(('./b.ts' as const));",
+    "imports": [
+      {
+        "kind": "dynamic",
+        "specifier": "./b.ts",
+        "typeOnly": false
+      }
+    ],
+    "unresolved": false
+  },
+  {
+    "name": "computed dynamic",
+    "source": "void import(target);",
+    "imports": [],
+    "unresolved": true
+  },
+  {
+    "name": "computed concatenation",
+    "source": "void import('./' + target);",
+    "imports": [],
+    "unresolved": true
+  },
+  {
+    "name": "computed template",
+    "source": "void import(`./${target}.ts`);",
+    "imports": [],
+    "unresolved": true
+  },
+  {
+    "name": "missing dynamic operand",
+    "source": "void import();",
+    "imports": [],
+    "unresolved": true
+  },
+  {
+    "name": "require literal",
+    "source": "require('./b.ts');",
+    "imports": [
+      {
+        "kind": "require",
+        "specifier": "./b.ts",
+        "typeOnly": false
+      }
+    ],
+    "unresolved": false
+  },
+  {
+    "name": "require no substitution template",
+    "source": "require(`./b.ts`);",
+    "imports": [
+      {
+        "kind": "require",
+        "specifier": "./b.ts",
+        "typeOnly": false
+      }
+    ],
+    "unresolved": false
+  },
+  {
+    "name": "require erased type wrapper",
+    "source": "require(('./b.ts' as const));",
+    "imports": [
+      {
+        "kind": "require",
+        "specifier": "./b.ts",
+        "typeOnly": false
+      }
+    ],
+    "unresolved": false
+  },
+  {
+    "name": "computed require",
+    "source": "require(target);",
+    "imports": [],
+    "unresolved": true
+  },
+  {
+    "name": "missing require operand",
+    "source": "require();",
+    "imports": [],
+    "unresolved": true
+  },
+  {
+    "name": "spread require operand",
+    "source": "require(...targets);",
+    "imports": [],
+    "unresolved": true
+  },
+  {
+    "name": "ordinary same-named function",
+    "source": "function require(value: string) { return value; } require('./b.ts');",
+    "imports": [],
+    "unresolved": false
+  },
+  {
+    "name": "ordinary same-named parameter",
+    "source": "function ordinary(require: (value: string) => string) { return require('./b.ts'); }",
+    "imports": [],
+    "unresolved": false
+  },
+  {
+    "name": "ordinary same-named arrow",
+    "source": "const require = (value: string) => value; require(target);",
+    "imports": [],
+    "unresolved": false
+  },
+  {
+    "name": "immutable require alias",
+    "source": "const load = require; load('./b.ts');",
+    "imports": [
+      {
+        "kind": "require",
+        "specifier": "./b.ts",
+        "typeOnly": false
+      }
+    ],
+    "unresolved": false
+  },
+  {
+    "name": "immutable alias chain",
+    "source": "const first = require; const load = first; load('./b.ts');",
+    "imports": [
+      {
+        "kind": "require",
+        "specifier": "./b.ts",
+        "typeOnly": false
+      }
+    ],
+    "unresolved": false
+  },
+  {
+    "name": "mutable alias is unresolved",
+    "source": "let load = require; load('./b.ts');",
+    "imports": [],
+    "unresolved": true
+  },
+  {
+    "name": "alias cycle is not a module loader",
+    "source": "const a = b; const b = a; a('./b.ts');",
+    "imports": [],
+    "unresolved": false
+  },
+  {
+    "name": "commonjs module require",
+    "source": "module.require('./b.ts');",
+    "imports": [
+      {
+        "kind": "require",
+        "specifier": "./b.ts",
+        "typeOnly": false
+      }
+    ],
+    "unresolved": false
+  },
+  {
+    "name": "commonjs element require",
+    "source": "module['require']('./b.ts');",
+    "imports": [
+      {
+        "kind": "require",
+        "specifier": "./b.ts",
+        "typeOnly": false
+      }
+    ],
+    "unresolved": false
+  },
+  {
+    "name": "ordinary same-named module",
+    "source": "const module = {require: (value: string) => value}; module.require('./b.ts');",
+    "imports": [],
+    "unresolved": false
+  },
+  {
+    "name": "createRequire cannot invent lexical root",
+    "source": "import {createRequire} from 'node:module'; const load = createRequire('/other/tree.js'); load('./b.ts');",
+    "imports": [
+      {
+        "kind": "static",
+        "specifier": "node:module",
+        "typeOnly": false
+      }
+    ],
+    "unresolved": true
+  },
+  {
+    "name": "renamed factory cannot invent lexical root",
+    "source": "import {createRequire as make} from 'node:module'; const load = make(import.meta.url); load('./b.ts');",
+    "imports": [
+      {
+        "kind": "static",
+        "specifier": "node:module",
+        "typeOnly": false
+      }
+    ],
+    "unresolved": true
+  },
+  {
+    "name": "namespace factory cannot invent lexical root",
+    "source": "import * as mod from 'node:module'; const load = mod.createRequire(import.meta.url); load('./b.ts');",
+    "imports": [
+      {
+        "kind": "static",
+        "specifier": "node:module",
+        "typeOnly": false
+      }
+    ],
+    "unresolved": true
+  },
+  {
+    "name": "destructured commonjs factory",
+    "source": "const {createRequire: make} = require('node:module'); const load = make(__filename); load('./b.ts');",
+    "imports": [
+      {
+        "kind": "require",
+        "specifier": "node:module",
+        "typeOnly": false
+      }
+    ],
+    "unresolved": true
+  },
+  {
+    "name": "indirect require call",
+    "source": "require.call(null, './b.ts');",
+    "imports": [],
+    "unresolved": true
+  },
+  {
+    "name": "bound require is unresolved",
+    "source": "const load = require.bind(null); load('./b.ts');",
+    "imports": [],
+    "unresolved": true
+  },
+  {
+    "name": "require resolve preserves dependency",
+    "source": "require.resolve('./b.ts');",
+    "imports": [
+      {
+        "kind": "require",
+        "specifier": "./b.ts",
+        "typeOnly": false
+      }
+    ],
+    "unresolved": false
+  },
+  {
+    "name": "computed require member",
+    "source": "require[method]('./b.ts');",
+    "imports": [],
+    "unresolved": true
+  },
+  {
+    "name": "runtime union after type expression",
+    "source": "type B = import('./b.ts').Value; import {value} from './b.ts';",
+    "imports": [
+      {
+        "kind": "static",
+        "specifier": "./b.ts",
+        "typeOnly": false
+      }
+    ],
+    "unresolved": false
+  },
+  {
+    "name": "runtime union before type expression",
+    "source": "import {value} from './b.ts'; type B = import('./b.ts').Value;",
+    "imports": [
+      {
+        "kind": "static",
+        "specifier": "./b.ts",
+        "typeOnly": false
+      }
+    ],
+    "unresolved": false
+  },
+  {
+    "name": "syntax failure is not a complete graph",
+    "source": "const broken = ;",
+    "imports": [],
+    "unresolved": true
+  },
+  {
+    "name": "reference directive",
+    "source": "/// <reference path=\"./b.ts\" />\nexport {};",
+    "imports": [
+      {
+        "kind": "static",
+        "specifier": "./b.ts",
+        "typeOnly": true
+      }
+    ],
+    "unresolved": false
+  },
+  {
+    "name": "factory immutable alias",
+    "source": "import {createRequire} from 'node:module'; const make = createRequire; const load = make(import.meta.url); load('./b.ts');",
+    "imports": [
+      {
+        "kind": "static",
+        "specifier": "node:module",
+        "typeOnly": false
+      }
+    ],
+    "unresolved": true
+  },
+  {
+    "name": "node module namespace immutable alias",
+    "source": "const mod = require('node:module'); const load = mod.createRequire(__filename); load('./b.ts');",
+    "imports": [
+      {
+        "kind": "require",
+        "specifier": "node:module",
+        "typeOnly": false
+      }
+    ],
+    "unresolved": true
+  },
+  {
+    "name": "destructured commonjs require alias",
+    "source": "const {require: load} = module; load('./b.ts');",
+    "imports": [
+      {
+        "kind": "require",
+        "specifier": "./b.ts",
+        "typeOnly": false
+      }
+    ],
+    "unresolved": false
+  },
+  {
+    "name": "conditional loader identity remains unknown",
+    "source": "const load = flag ? require : ordinary; load('./b.ts');",
+    "imports": [],
+    "unresolved": true
+  },
+  {
+    "name": "short circuit loader identity remains unknown",
+    "source": "const load = fallback ?? require; load('./b.ts');",
+    "imports": [],
+    "unresolved": true
+  },
+  {
+    "name": "all inline type exports",
+    "source": "export {type A, type B} from './b.ts';",
+    "imports": [
+      {
+        "kind": "static",
+        "specifier": "./b.ts",
+        "typeOnly": false
+      }
+    ],
+    "unresolved": false
+  },
+  {
+    "name": "empty value export",
+    "source": "export {} from './b.ts';",
+    "imports": [
+      {
+        "kind": "static",
+        "specifier": "./b.ts",
+        "typeOnly": false
+      }
+    ],
+    "unresolved": false
+  },
+  {
+    "name": "type export star",
+    "source": "export type * from './b.ts';",
+    "imports": [
+      {
+        "kind": "static",
+        "specifier": "./b.ts",
+        "typeOnly": true
+      }
+    ],
+    "unresolved": false
+  },
+  {
+    "name": "runtime export star",
+    "source": "export * from './b.ts';",
+    "imports": [
+      {
+        "kind": "static",
+        "specifier": "./b.ts",
+        "typeOnly": false
+      }
+    ],
+    "unresolved": false
+  }
+]
