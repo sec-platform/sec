@@ -48,7 +48,7 @@ function environment(source = requestSource()): NodeJS.ProcessEnv {
   };
 }
 
-test('maintenance request accepts one exact closed-PR or single transport retirement only', () => {
+test('maintenance request accepts one exact ref or exact comment retirement only', () => {
   const parsed = parseRepositoryMaintenanceRequest(requestSource());
   expect(parsed.operations).toHaveLength(1);
   expect(parsed.operations[0]!.retirement).toEqual(parseExactRefRetirement({
@@ -87,6 +87,41 @@ test('maintenance request accepts one exact closed-PR or single transport retire
   multi.operations = [...operations, ...operations];
   expect(() => parseRepositoryMaintenanceRequest(JSON.stringify(multi)))
     .toThrow('exactly one operation');
+
+  const comment = parseRepositoryMaintenanceRequest(JSON.stringify({
+    schema: 'sec-repository-maintenance-request-v1',
+    repository: 'sec-platform/sec',
+    expectedMainSha: MAIN,
+    operations: [{
+      kind: 'exact-comment-retirement',
+      retirement: {
+        issueNumber: 313,
+        commentId: 42,
+        expectedBodyDigest: 'sha256:' + 'c'.repeat(64)
+      }
+    }]
+  }));
+  expect(comment.operations).toEqual([{
+    kind: 'exact-comment-retirement',
+    retirement: {
+      issueNumber: 313,
+      commentId: 42,
+      expectedBodyDigest: 'sha256:' + 'c'.repeat(64)
+    }
+  }]);
+  expect(() => parseRepositoryMaintenanceRequest(JSON.stringify({
+    schema: 'sec-repository-maintenance-request-v1',
+    repository: 'sec-platform/sec',
+    expectedMainSha: MAIN,
+    operations: [{
+      kind: 'exact-comment-retirement',
+      retirement: {
+        issueNumber: 313,
+        commentId: 0,
+        expectedBodyDigest: 'sha256:' + 'c'.repeat(64)
+      }
+    }]
+  }))).toThrow('commentId');
 });
 
 test('hosted maintenance binds exact main workflow, lifecycle issue and maintainer event identity', () => {
