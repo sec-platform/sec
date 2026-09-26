@@ -86,18 +86,15 @@ function severityRank(value: string): number {
 
 export function parseCodeScanningFinding(
   value: unknown,
-  expectedRef: string,
-  expectedMergeSha: string
+  expectedRef: string
 ): CodeScanningFinding | null {
   const alert = record(value, 'code scanning alert');
   if (alert.state !== 'open') return null;
   const tool = record(alert.tool, 'code scanning alert tool');
   if (tool.name !== 'CodeQL') return null;
   const instance = record(alert.most_recent_instance, 'code scanning alert instance');
-  if (instance.ref !== expectedRef
-      || gitSha(instance.commit_sha, 'code scanning alert merge commit') !== expectedMergeSha) {
-    return null;
-  }
+  gitSha(instance.commit_sha, 'code scanning alert instance commit');
+  if (instance.ref !== expectedRef) return null;
   const rule = record(alert.rule, 'code scanning alert rule');
   const location = record(instance.location, 'code scanning alert location');
   const message = record(instance.message, 'code scanning alert message');
@@ -156,16 +153,35 @@ function assertFinalCodeQlCheck(
   value: unknown,
   expectedHeadSha: string,
   expectedCheckId: number
-): void {
+): number {
   const check = record(value, 'CodeQL check run');
   const app = record(check.app, 'CodeQL check app');
+  const output = record(check.output, 'CodeQL check output');
+  const annotations = output.annotations_count;
   if (check.id !== expectedCheckId
       || check.name !== 'CodeQL'
       || check.head_sha !== expectedHeadSha
       || check.status !== 'completed'
       || (check.conclusion !== 'success' && check.conclusion !== 'failure')
-      || app.slug !== 'github-advanced-security') {
+      || app.slug !== 'github-advanced-security'
+      || !Number.isSafeInteger(annotations)
+      || Number(annotations) < 0) {
     throw new Error('CodeQL check is not the final GitHub Advanced Security result for the exact PR head');
+  }
+  return Number(annotations);
+}
+
+export function assertCodeScanningFindingProjectionConsistent(
+  codeQlAnnotationCount: number,
+  findings: readonly CodeScanningFinding[]
+): void {
+  if (!Number.isSafeInteger(codeQlAnnotationCount) || codeQlAnnotationCount < 0) {
+    throw new Error('CodeQL annotation count must be a non-negative safe integer');
+  }
+  if (codeQlAnnotationCount > 0 && findings.length === 0) {
+    throw new Error(
+      'CodeQL reported annotations but the PR-scoped finding projection is empty'
+    );
   }
 }
 
@@ -210,7 +226,11 @@ async function observeProjection(input: Readonly<{
         if (page === MAX_CHECK_PAGES) throw new Error('check run inventory exceeds bounded pagination');
       }
       if (finalChecks.length !== 1) throw new Error('exact CodeQL check is absent or duplicated');
-      assertFinalCodeQlCheck(finalChecks[0], input.expectedHeadSha, input.expectedCheckId);
+      const codeQlAnnotationCount = assertFinalCodeQlCheck(
+        finalChecks[0],
+        input.expectedHeadSha,
+        input.expectedCheckId
+      );
 
       const expectedRef = `refs/pull/${input.pullRequestNumber}/merge`;
       const findings: CodeScanningFinding[] = [];
@@ -220,19 +240,24 @@ async function observeProjection(input: Readonly<{
         });
         if (!Array.isArray(alerts)) throw new Error('code scanning alert inventory is invalid');
         for (const alert of alerts) {
-          const finding = parseCodeScanningFinding(alert, expectedRef, mergeSha);
+          const finding = parseCodeScanningFinding(alert, expectedRef);
           if (finding !== null) findings.push(finding);
         }
         if (alerts.length < PAGE_SIZE) {
           const byNumber = new Map<number, CodeScanningFinding>();
           for (const finding of findings) byNumber.set(finding.alertNumber, finding);
+          const projectedFindings = Object.freeze([...byNumber.values()]);
+          assertCodeScanningFindingProjectionConsistent(
+            codeQlAnnotationCount,
+            projectedFindings
+          );
           return Object.freeze({
             repository: input.repository,
             pullRequestNumber: input.pullRequestNumber,
             headSha: input.expectedHeadSha,
             mergeSha,
             codeQlCheckId: input.expectedCheckId,
-            findings: Object.freeze([...byNumber.values()])
+            findings: projectedFindings
           });
         }
       }
