@@ -983,7 +983,24 @@ async function enroll(input: Readonly<{
     );
     if (repositoryValue === null || typeof repositoryValue !== 'object' || Array.isArray(repositoryValue)
         || (repositoryValue as Record<string, unknown>).full_name !== input.repository) {
-      throw new GitHubApiProviderError('GitHub Actions projection token is not bound to this repository');
+      throw new GitHubApiProviderError('GitHub Actions token is not bound to this repository');
+    }
+    if (maintenanceWorkflowIdentity !== null) {
+      const permissionValue = await executeWithToken<unknown>(
+        session,
+        token,
+        input.transport,
+        { kind: 'collaborator-permission', login: maintenanceWorkflowIdentity.actor }
+      );
+      const permission = permissionValue !== null && typeof permissionValue === 'object'
+        && !Array.isArray(permissionValue)
+        ? (permissionValue as Record<string, unknown>).permission
+        : null;
+      if (permission !== 'admin' && permission !== 'maintain') {
+        throw new GitHubApiProviderError(
+          'GitHub Actions repository-maintenance actor requires maintain/admin permission'
+        );
+      }
     }
     const capability = issueCapability({
       repository: input.repository,
