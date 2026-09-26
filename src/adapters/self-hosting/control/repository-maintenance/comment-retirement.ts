@@ -79,6 +79,7 @@ function classifyDisposableComment(
 ): Readonly<
   | { kind: 'maintenance-trigger'; targetBranch: string }
   | { kind: 'codex-command' }
+  | { kind: 'codex-setup-hint' }
   | { kind: 'codex-summary' }
   | { kind: 'codex-usage-limit' }
 > {
@@ -93,6 +94,10 @@ function classifyDisposableComment(
   if (comment.authorLogin === 'chatgpt-codex-connector[bot]'
       && trimmed.startsWith('<!-- codex-pull-request-review-summary -->')) {
     return Object.freeze({ kind: 'codex-summary' });
+  }
+  if (comment.authorLogin === 'chatgpt-codex-connector[bot]'
+      && trimmed.startsWith('To use Codex here, [create an environment for this repo](')) {
+    return Object.freeze({ kind: 'codex-setup-hint' });
   }
   if (comment.authorLogin === 'chatgpt-codex-connector[bot]'
       && trimmed.startsWith('You have reached your Codex usage limits for code reviews.')) {
@@ -173,6 +178,7 @@ export async function retireExactIssueComment(input: Readonly<{
   classification:
     | 'maintenance-trigger'
     | 'codex-command'
+    | 'codex-setup-hint'
     | 'codex-summary'
     | 'codex-usage-limit'
     | 'already-absent';
@@ -206,6 +212,7 @@ export async function retireExactIssueComment(input: Readonly<{
       branch: classification.targetBranch
     });
   } else if (classification.kind === 'codex-command'
+      || classification.kind === 'codex-setup-hint'
       || classification.kind === 'codex-summary') {
     await assertClosedPullConversation({
       repositoryRoot,
