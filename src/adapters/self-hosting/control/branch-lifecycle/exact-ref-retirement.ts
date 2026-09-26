@@ -212,7 +212,6 @@ export async function retireExactRemoteRefs(input: Readonly<{
   repository: string;
   expectedMainSha: string;
   retirement: ExactRefRetirement;
-  recoveryRoot?: string;
 }>): Promise<Readonly<{
   retired: readonly string[];
   alreadyAbsent: readonly string[];
@@ -257,7 +256,6 @@ export async function retireExactRemoteRefs(input: Readonly<{
       inventory: before,
       branch,
       expectedSha: request.expectedHeadSha,
-      recoveryRoot: input.recoveryRoot,
       refSource: request.classification === 'closed-pr-superseded'
         ? { kind: 'pull' as const, number: request.pullRequestNumber }
         : { kind: 'remote-branch' as const }
