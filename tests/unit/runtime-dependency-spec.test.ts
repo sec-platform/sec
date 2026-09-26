@@ -2,8 +2,8 @@ import path from 'node:path';
 
 import { expect, test } from 'bun:test';
 
-import { parseLegacyRuntimeDependencyMaterializationV2ForRecovery } from '../../src/adapters/toolchain/dependencies/contract/runtime-dependency-spec.ts';
-import { canonicalJson, digest } from '../../src/contracts/canonical.ts';
+import { parseLegacyRuntimeDependencyMaterializationForRecovery } from '../../src/adapters/toolchain/dependencies/contract/runtime-dependency-spec.ts';
+import { canonicalJson, rawSha256Hex } from '../../src/contracts/canonical.ts';
 
 import {
   buildRuntimeDependencyMaterializationBinding,
@@ -135,7 +135,7 @@ test('durable materialization grammar survives a later current-root retirement',
   });
   const historical = Object.freeze({
     ...content,
-    revision: `sha256:${digest(JSON.stringify(canonicalJson(content)))}` as const
+    revision: `sha256:${rawSha256Hex(JSON.stringify(canonicalJson(content)))}` as const
   });
 
   expect(isRuntimeDependencyMaterializationBinding(historical)).toBe(true);
@@ -177,16 +177,16 @@ test('legacy materialization grammar is exact recovery input and never current r
   });
   const legacy = Object.freeze({
     ...content,
-    revision: `sha256:${digest(JSON.stringify(canonicalJson(content)))}` as const
+    revision: `sha256:${rawSha256Hex(JSON.stringify(canonicalJson(content)))}` as const
   });
 
-  expect(parseLegacyRuntimeDependencyMaterializationV2ForRecovery(legacy)).toEqual(legacy);
+  expect(parseLegacyRuntimeDependencyMaterializationForRecovery(legacy)).toEqual(legacy);
   expect(isRuntimeDependencyMaterializationBinding(legacy)).toBe(false);
-  expect(parseLegacyRuntimeDependencyMaterializationV2ForRecovery({
+  expect(parseLegacyRuntimeDependencyMaterializationForRecovery({
     ...legacy,
     rootPackages: legacy.rootPackages.slice(1)
   })).toBeNull();
-  expect(parseLegacyRuntimeDependencyMaterializationV2ForRecovery({
+  expect(parseLegacyRuntimeDependencyMaterializationForRecovery({
     ...legacy,
     unexpected: true
   })).toBeNull();

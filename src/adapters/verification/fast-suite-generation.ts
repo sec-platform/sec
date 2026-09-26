@@ -15,9 +15,9 @@ import {
   type PhysicalDirectoryIdentity
 } from '../runtime-state/physical/runtime/physical-no-follow.ts';
 import {
-  materializeRetainedSealedPhysicalExecutionTreeGeneration,
-  retainMutableSealedPhysicalExecutionProtectedRoot,
-  type RetainedSealedPhysicalExecutionTreeGeneration
+  materializeSealedExecutionTree,
+  retainMutableSealedExecutionProtectedRoot,
+  type RetainedSealedExecutionTreeGeneration
 } from '../runtime-state/physical/runtime/sealed-execution-tree-generation.ts';
 
 const FAST_SUITE_GENERATION_MAXIMUM_ENTRIES = 300_000;
@@ -25,7 +25,7 @@ const FAST_SUITE_GENERATION_MAXIMUM_BYTES = 1024 * 1024 * 1024;
 const FAST_SUITE_GENERATION_DURATION_MS = 180_000;
 
 export interface FastSuiteExecutionGeneration {
-  readonly generation: RetainedSealedPhysicalExecutionTreeGeneration;
+  readonly generation: RetainedSealedExecutionTreeGeneration;
   readonly sourceRoot: PhysicalDirectoryIdentity;
   readonly inputDigest: `sha256:${string}`;
   assertCurrent(): Promise<void>;
@@ -160,7 +160,7 @@ export async function materializeFastSuiteExecutionGeneration(input: Readonly<{
     'Fast suite sealed source workspace'
   );
   const sourceRoot = sourceChain.target;
-  const protectedRoot = retainMutableSealedPhysicalExecutionProtectedRoot(sourceRoot);
+  const protectedRoot = retainMutableSealedExecutionProtectedRoot(sourceRoot);
   const hostTempRoot = inspectNoFollowDirectoryChain(
     os.tmpdir(),
     'Fast suite generation host temp root'
@@ -169,7 +169,7 @@ export async function materializeFastSuiteExecutionGeneration(input: Readonly<{
     hostTempRoot,
     'sec-fast-suite-generation-parent-'
   );
-  let generation: RetainedSealedPhysicalExecutionTreeGeneration | undefined;
+  let generation: RetainedSealedExecutionTreeGeneration | undefined;
 
   try {
     await assertCurrent();
@@ -200,7 +200,7 @@ export async function materializeFastSuiteExecutionGeneration(input: Readonly<{
       }))
     }) as `sha256:${string}`;
 
-    generation = await materializeRetainedSealedPhysicalExecutionTreeGeneration({
+    generation = await materializeSealedExecutionTree({
       deadlineAtUnixMs,
       directoryNamePrefix: 'fast-suite-generation-',
       directories: exact.directories,

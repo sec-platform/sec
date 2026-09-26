@@ -6,8 +6,8 @@ import path from 'node:path';
 import { expect, test } from 'bun:test';
 
 import { buildCiVerificationActionPlanClosure, ciVerificationNormalizedOperationArgv, type CiVerificationActionCandidate, type CiVerificationProducerGate } from '../../src/adapters/verification/platform/action/contract/ci.ts';
-import { CodexDevelopmentRunGateProcess, type CodexDevelopmentGateProcessSettlement } from '../../src/adapters/verification/platform/ci/runtime/ci-orchestration-core.ts';
-import { CodexDevelopmentExecuteCiActionClosure } from '../../src/adapters/verification/platform/ci/verification.ts';
+import { RunGateProcess, type GateProcessSettlement } from '../../src/adapters/verification/platform/ci/runtime/ci-orchestration-core.ts';
+import { ExecuteCiActionClosure } from '../../src/adapters/verification/platform/ci/verification.ts';
 
 const digest = (value: string): `sha256:${string}` => (
   `sha256:${createHash('sha256').update(value).digest('hex')}`
@@ -59,8 +59,8 @@ function executeSentinelGate(repositoryRoot: string, code: number, output = '') 
 function executeScriptGate(repositoryRoot: string, script: string) {
   return async (
     gate: Readonly<{ id: string; argv: string[]; env: NodeJS.ProcessEnv }>,
-    execution: Parameters<typeof CodexDevelopmentRunGateProcess>[2]
-  ): Promise<CodexDevelopmentGateProcessSettlement> => CodexDevelopmentRunGateProcess(
+    execution: Parameters<typeof RunGateProcess>[2]
+  ): Promise<GateProcessSettlement> => RunGateProcess(
     repositoryRoot,
     {
       ...gate,
@@ -75,7 +75,7 @@ test('composition gates execute through the same Action runner and preserve prod
   try {
     const plan = buildCiVerificationActionPlanClosure({ candidate, gates });
     const calls: Array<{ id: string; argv: readonly string[] }> = [];
-    const result = await CodexDevelopmentExecuteCiActionClosure({
+    const result = await ExecuteCiActionClosure({
       repositoryRoot: root,
       actionPlan: plan,
       gates: gates.map((gate) => ({ gate, env: { SEC_CHANGED_BASE: candidate.baseSha } })),
@@ -112,7 +112,7 @@ test('composition failure remains failed and later Action is canonical not-run',
   try {
     const failureCandidate = candidateFor('failed-composition');
     const plan = buildCiVerificationActionPlanClosure({ candidate: failureCandidate, gates });
-    const result = await CodexDevelopmentExecuteCiActionClosure({
+    const result = await ExecuteCiActionClosure({
       repositoryRoot: root,
       actionPlan: plan,
       gates: gates.map((gate) => ({ gate, env: {} })),
@@ -137,7 +137,7 @@ test('composition rejects same-id descriptor argv or runtime substitution before
       { ...gates[0]!, runtime: 'bun@1.3.14' }
     ]) {
       let physicalExecutions = 0;
-      await expect(CodexDevelopmentExecuteCiActionClosure({
+      await expect(ExecuteCiActionClosure({
         repositoryRoot: root,
         actionPlan: plan,
         gates: [{ gate, env: {} }],
@@ -163,7 +163,7 @@ test('composition rejects a plain structural process result without an owner-iss
   });
   const root = mkdtempSync(path.join(tmpdir(), 'sec-ci-composition-plain-result-'));
   try {
-    await expect(CodexDevelopmentExecuteCiActionClosure({
+    await expect(ExecuteCiActionClosure({
       repositoryRoot: root,
       actionPlan: plan,
       gates: [{ gate: gates[0]!, env: {} }],
@@ -173,7 +173,7 @@ test('composition rejects a plain structural process result without an owner-iss
         code: 0,
         rawOutputDigest: digest('plain-result'),
         failureTail: ''
-      } as unknown as CodexDevelopmentGateProcessSettlement)
+      } as unknown as GateProcessSettlement)
     })).rejects.toThrow(/did not receive an owner-issued process terminal/u);
   } finally {
     rmSync(root, { recursive: true, force: true });

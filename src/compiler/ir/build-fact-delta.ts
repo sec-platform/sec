@@ -3,7 +3,7 @@ import { fail } from '../../contracts/failure.ts';
 import type { FactAssertionUpdate, FactAssertionUpdateField, FactDelta, FactDeltaEndpoint, FactDeltaEndpointContext, SemanticFactChange } from '../../semantics/engineering-ir/delta-types.ts';
 import { FACT_DELTA_CONTRACT_VERSION, FACT_DELTA_SCOPE } from '../../semantics/engineering-ir/delta-types.ts';
 import type { FactAssertion, SemanticFact } from '../../semantics/engineering-ir/fact-types.ts';
-import { digest, semanticRevisionPayload } from './ir-revision.ts';
+import { rawSha256Hex, semanticRevisionPayload } from './ir-revision.ts';
 
 type CanonicalFactPayload = Omit<SemanticFact, 'assertions'> & {
   assertions: Array<Omit<FactAssertion, 'validFromRevision' | 'validToRevision'>>;
@@ -120,7 +120,7 @@ function factSetDigest(context: FactDeltaEndpointContext): string {
     appId: ir.appId,
     facts: ir.facts.map(canonicalFact)
   });
-  return `sha256:${digest(payload)}`;
+  return `sha256:${rawSha256Hex(payload)}`;
 }
 
 function sameTriple(before: SemanticFact, after: SemanticFact): boolean {
@@ -388,7 +388,7 @@ export function buildFactDelta(
   };
   const result: FactDelta = {
     ...deltaWithoutRevision,
-    deltaRevision: `sha256:${digest(deltaDigestPayload(deltaWithoutRevision))}`
+    deltaRevision: `sha256:${rawSha256Hex(deltaDigestPayload(deltaWithoutRevision))}`
   };
   return deepFreeze(result);
 }

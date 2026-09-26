@@ -5,7 +5,7 @@ import {
   sha256
 } from '../../../contracts/canonical.ts';
 import { decodeExactUtf8 } from '../../runtime-state/physical/runtime/retained-file-read.ts';
-import { normalizeSecRepositoryPath } from '../architecture/contract.ts';
+import { normalizeRepositoryModulePath } from '../architecture/contract.ts';
 import type {
   SourceProgramCapabilityInvocation,
   SourceProgramDeclaration,
@@ -430,7 +430,7 @@ export function parseTypeScriptSourceProgramFactShard(
     new Set(['module-scoped', 'global-or-ambient', 'unknown']),
     'TypeScript fact shard semantic dependency scope'
   );
-  if (normalizeSecRepositoryPath(parsed.path as string) !== parsed.path) {
+  if (normalizeRepositoryModulePath(parsed.path as string) !== parsed.path) {
     throw new Error('TypeScript fact shard path is not canonical');
   }
   exactShardFacts(parsed);
@@ -463,7 +463,7 @@ export function parseTypeScriptSourceProgramFactShard(
 const EMPTY_COMPONENT = Object.freeze([]);
 const EMPTY_COMPONENT_DIGEST = sha256(EMPTY_COMPONENT);
 
-export function assembleTypeScriptSourceProgramModel(input: Readonly<{
+export function assembleTypeScriptModel(input: Readonly<{
   sourceRevision: string;
   compilerRevision: string;
   provider: Readonly<{ readonly id: string; readonly revision: string }>;

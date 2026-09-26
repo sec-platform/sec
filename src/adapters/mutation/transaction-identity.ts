@@ -1,10 +1,17 @@
 import { lstat, realpath } from 'node:fs/promises';
 import path from 'node:path';
+
+import {
+  classifySemanticMutationTransactionRoot,
+  semanticMutationStateRoot,
+  semanticMutationTransactionRootForLayout,
+  semanticMutationTransactionsRoot,
+  type SemanticMutationStateLayout
+} from '../../workspace/contract/semantic-mutation/state-layout.ts';
 import { isSemanticMutationWindowsReparsePoint } from './windows-file-attributes.ts';
 
 const SHA256_PREFIX = 'sha256:';
 const TRANSACTION_NAME_PATTERN = /^[0-9a-f]{64}$/u;
-const TRANSACTION_PARENT_SEGMENTS = ['.sec', 'semantic-mutation', 'v1', 'transactions'] as const;
 
 export type SemanticMutationCommitFence = () => Promise<void>;
 
@@ -86,21 +93,19 @@ function semanticMutationRequestIdentityDigestFromTransactionName(name: string):
   return `${SHA256_PREFIX}${name}`;
 }
 
+function transactionLocation(transactionRoot: string) {
+  const location = classifySemanticMutationTransactionRoot(transactionRoot);
+  if (location === null) transactionRootFailure();
+  semanticMutationRequestIdentityDigestFromTransactionName(location.transactionName);
+  return location;
+}
+
 export function semanticMutationWorkspaceRootFromTransactionRoot(transactionRoot: string): string {
-  if (!path.isAbsolute(transactionRoot) || path.normalize(transactionRoot) !== transactionRoot) {
-    transactionRootFailure();
-  }
-  const resolvedRoot = path.resolve(transactionRoot);
-  const name = path.basename(resolvedRoot);
-  semanticMutationRequestIdentityDigestFromTransactionName(name);
-  let current = path.dirname(resolvedRoot);
-  for (const expected of [...TRANSACTION_PARENT_SEGMENTS].reverse()) {
-    if (path.basename(current) !== expected) transactionRootFailure();
-    current = path.dirname(current);
-  }
-  const expectedRoot = path.join(current, ...TRANSACTION_PARENT_SEGMENTS, name);
-  if (!samePath(resolvedRoot, expectedRoot)) transactionRootFailure();
-  return current;
+  return transactionLocation(transactionRoot).workspaceRoot;
+}
+
+export function semanticMutationTransactionLayout(transactionRoot: string): SemanticMutationStateLayout {
+  return transactionLocation(transactionRoot).layout;
 }
 
 export async function assertSemanticMutationTransactionRoot(
@@ -108,17 +113,16 @@ export async function assertSemanticMutationTransactionRoot(
   transactionRoot: string,
   requestIdentityDigest?: string
 ): Promise<void> {
-  const derivedWorkspaceRoot = semanticMutationWorkspaceRootFromTransactionRoot(transactionRoot);
+  const location = transactionLocation(transactionRoot);
   const resolvedWorkspaceRoot = path.resolve(workspaceRoot);
   const resolvedTransactionRoot = path.resolve(transactionRoot);
-  const transactionName = path.basename(resolvedTransactionRoot);
-  const boundDigest = semanticMutationRequestIdentityDigestFromTransactionName(transactionName);
-  if (!samePath(derivedWorkspaceRoot, resolvedWorkspaceRoot) ||
+  const boundDigest = semanticMutationRequestIdentityDigestFromTransactionName(location.transactionName);
+  if (!samePath(location.workspaceRoot, resolvedWorkspaceRoot) ||
     (requestIdentityDigest !== undefined && requestIdentityDigest !== boundDigest)) {
     transactionRootFailure();
   }
 
-  const transactionsParent = path.join(resolvedWorkspaceRoot, ...TRANSACTION_PARENT_SEGMENTS);
+  const transactionsParent = semanticMutationTransactionsRoot(resolvedWorkspaceRoot, location.layout);
   if (!samePath(path.dirname(resolvedTransactionRoot), transactionsParent)) transactionRootFailure();
 
   let workspaceStat: Awaited<ReturnType<typeof lstat>>;
@@ -135,9 +139,10 @@ export async function assertSemanticMutationTransactionRoot(
     transactionRootFailure();
   }
 
+  const relative = path.relative(resolvedWorkspaceRoot, resolvedTransactionRoot);
   let currentPath = resolvedWorkspaceRoot;
   let expectedRealPath = workspaceReal;
-  for (const segment of [...TRANSACTION_PARENT_SEGMENTS, transactionName]) {
+  for (const segment of relative.split(path.sep)) {
     currentPath = path.join(currentPath, segment);
     expectedRealPath = path.join(expectedRealPath, segment);
     let currentStat: Awaited<ReturnType<typeof lstat>>;
@@ -178,13 +183,13 @@ export async function assertSemanticMutationTerminalOrderDirectory(
   transactionRoot: string,
   requestIdentityDigest?: string
 ): Promise<string> {
-  const workspaceRoot = semanticMutationWorkspaceRootFromTransactionRoot(transactionRoot);
-  await assertSemanticMutationTransactionRoot(workspaceRoot, transactionRoot, requestIdentityDigest);
-  const expectedJournalRoot = semanticMutationJournalRoot(workspaceRoot);
+  const location = transactionLocation(transactionRoot);
+  await assertSemanticMutationTransactionRoot(location.workspaceRoot, transactionRoot, requestIdentityDigest);
+  const expectedJournalRoot = semanticMutationJournalRoot(location.workspaceRoot, location.layout);
   const transactionJournalRoot = path.dirname(path.dirname(path.resolve(transactionRoot)));
   if (!samePath(expectedJournalRoot, transactionJournalRoot)) journalDirectoryFailure();
   const directory = path.join(expectedJournalRoot, 'terminal-order');
-  await assertCanonicalJournalDirectoryChain(workspaceRoot, directory);
+  await assertCanonicalJournalDirectoryChain(location.workspaceRoot, directory);
   return directory;
 }
 
@@ -196,13 +201,23 @@ export function semanticMutationTransactionRoot(
   if (semanticMutationRequestIdentityDigestFromTransactionName(transactionName) !== requestIdentityDigest) {
     transactionRootFailure();
   }
-  return path.join(
-    path.resolve(workspaceRoot),
-    ...TRANSACTION_PARENT_SEGMENTS,
-    transactionName
-  );
+  return semanticMutationTransactionRootForLayout(workspaceRoot, transactionName);
 }
 
-export function semanticMutationJournalRoot(workspaceRoot: string): string {
-  return path.join(path.resolve(workspaceRoot), '.sec', 'semantic-mutation', 'v1');
+export function semanticMutationLegacyTransactionRoot(
+  workspaceRoot: string,
+  requestIdentityDigest: string
+): string {
+  const transactionName = requestIdentityDigest.slice(SHA256_PREFIX.length);
+  if (semanticMutationRequestIdentityDigestFromTransactionName(transactionName) !== requestIdentityDigest) {
+    transactionRootFailure();
+  }
+  return semanticMutationTransactionRootForLayout(workspaceRoot, transactionName, 'legacy');
+}
+
+export function semanticMutationJournalRoot(
+  workspaceRoot: string,
+  layout: SemanticMutationStateLayout = 'current'
+): string {
+  return semanticMutationStateRoot(workspaceRoot, layout);
 }

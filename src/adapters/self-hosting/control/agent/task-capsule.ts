@@ -1,15 +1,15 @@
 import { compareCodeUnits, deepFreeze, sha256 } from '../../../../contracts/canonical.ts';
-import { CodexDevelopmentIsCanonicalRepositoryPath } from '../../../../contracts/repository-path.ts';
+import { IsCanonicalRepositoryPath } from '../../../../contracts/repository-path.ts';
 
-export const SEC_TASK_CAPSULE_COMPILE_REQUEST_SCHEMA =
+export const TASK_CAPSULE_COMPILE_REQUEST_SCHEMA =
   'sec-task-capsule-compile-request-v2' as const;
-export const SEC_TASK_CAPSULE_INPUT_SCHEMA = 'sec-task-capsule-input-v2' as const;
-const SEC_TASK_CAPSULE_SCHEMA = 'sec-task-capsule-v2' as const;
-export const SEC_TASK_CAPSULE_REVISION = 'task-capsule-compiler-v2' as const;
-export const SEC_TASK_CAPSULE_AUTHORITY_STATUS = 'unbound-planning-content' as const;
+export const TASK_CAPSULE_INPUT_SCHEMA = 'sec-task-capsule-input-v2' as const;
+const TASK_CAPSULE_SCHEMA = 'sec-task-capsule-v2' as const;
+export const TASK_CAPSULE_REVISION = 'task-capsule-compiler-v2' as const;
+export const TASK_CAPSULE_AUTHORITY_STATUS = 'unbound-planning-content' as const;
 
 /** Operation vocabulary is upstream execution identity, not Skill-owned guidance. */
-const SEC_AGENT_ROLES = [
+const AGENT_ROLES = [
   'a0',
   'worker',
   'reviewer',
@@ -17,9 +17,9 @@ const SEC_AGENT_ROLES = [
   'maintainer'
 ] as const;
 
-export type SecAgentRole = (typeof SEC_AGENT_ROLES)[number];
+export type AgentRole = (typeof AGENT_ROLES)[number];
 
-const SEC_OPERATION_KINDS = [
+const OPERATION_KINDS = [
   'orient',
   'audit',
   'diagnose',
@@ -31,26 +31,26 @@ const SEC_OPERATION_KINDS = [
   'no-change'
 ] as const;
 
-export type SecOperationKind = (typeof SEC_OPERATION_KINDS)[number];
+export type TaskOperationKind = (typeof OPERATION_KINDS)[number];
 
-export function isSecAgentRole(value: unknown): value is SecAgentRole {
-  return typeof value === 'string' && (SEC_AGENT_ROLES as readonly string[]).includes(value);
+export function isAgentRole(value: unknown): value is AgentRole {
+  return typeof value === 'string' && (AGENT_ROLES as readonly string[]).includes(value);
 }
 
-export function isSecOperationKind(value: unknown): value is SecOperationKind {
-  return typeof value === 'string' && (SEC_OPERATION_KINDS as readonly string[]).includes(value);
+export function isTaskOperationKind(value: unknown): value is TaskOperationKind {
+  return typeof value === 'string' && (OPERATION_KINDS as readonly string[]).includes(value);
 }
 
-export type SecDigest = `sha256:${string}`;
+export type TaskCapsuleDigest = `sha256:${string}`;
 
-interface SecAgentOwnerFact {
+interface AgentOwnerFact {
   readonly id: string;
   readonly ref: string;
   readonly owner: string;
   readonly revision: string;
 }
 
-interface SecAgentOperationScopeProposal {
+interface AgentOperationScopeProposal {
   readonly readPaths: readonly string[];
   readonly writePaths: readonly string[];
   readonly forbiddenPaths: readonly string[];
@@ -59,33 +59,33 @@ interface SecAgentOperationScopeProposal {
   readonly changedPaths: readonly string[];
 }
 
-interface SecAgentVerificationObligation {
+interface AgentVerificationObligation {
   readonly id: string;
   readonly revision: string;
   readonly reasonCode: string;
 }
 
-export interface SecTaskCapsulePlanningContext {
+export interface TaskCapsulePlanningContext {
   readonly operationId: string;
-  readonly role: SecAgentRole;
-  readonly operationKind: SecOperationKind;
-  readonly goalDigest: SecDigest;
+  readonly role: AgentRole;
+  readonly operationKind: TaskOperationKind;
+  readonly goalDigest: TaskCapsuleDigest;
   readonly trustedRevision: string;
   readonly targetCandidate: string;
   readonly workPackageProposalRef: string;
-  readonly workPackageProposalDigest: SecDigest;
-  readonly workPackageProjectionId: SecDigest;
+  readonly workPackageProposalDigest: TaskCapsuleDigest;
+  readonly workPackageProjectionId: TaskCapsuleDigest;
   readonly scopeGrantId: null;
-  readonly ownerFacts: readonly SecAgentOwnerFact[];
-  readonly scopeProposal: SecAgentOperationScopeProposal;
-  readonly verificationObligations: readonly SecAgentVerificationObligation[];
+  readonly ownerFacts: readonly AgentOwnerFact[];
+  readonly scopeProposal: AgentOperationScopeProposal;
+  readonly verificationObligations: readonly AgentVerificationObligation[];
   readonly skillCandidateIds: readonly string[];
 }
 
-export interface SecTaskCapsuleInputV1 {
-  readonly schema: typeof SEC_TASK_CAPSULE_INPUT_SCHEMA;
+export interface TaskCapsuleInput {
+  readonly schema: typeof TASK_CAPSULE_INPUT_SCHEMA;
   readonly ref: string;
-  readonly planningContext: SecTaskCapsulePlanningContext;
+  readonly planningContext: TaskCapsulePlanningContext;
 }
 
 /**
@@ -93,16 +93,16 @@ export interface SecTaskCapsuleInputV1 {
  * identity; downstream Read Plan, Skill, Session and Review consumers may
  * reference the capsule but may not reconstruct a parallel content owner.
  */
-export interface SecTaskCapsule {
-  readonly schema: typeof SEC_TASK_CAPSULE_SCHEMA;
+export interface TaskCapsule {
+  readonly schema: typeof TASK_CAPSULE_SCHEMA;
   readonly ref: string;
-  readonly revision: typeof SEC_TASK_CAPSULE_REVISION;
+  readonly revision: typeof TASK_CAPSULE_REVISION;
   /** Content is not issuer-bound until a separate trusted adapter supplies live provenance. */
-  readonly authorityStatus: typeof SEC_TASK_CAPSULE_AUTHORITY_STATUS;
+  readonly authorityStatus: typeof TASK_CAPSULE_AUTHORITY_STATUS;
   /** Capsule is immutable planning input; an effect executor still needs separate live permission. */
   readonly effectAuthority: 'none';
-  readonly planningContext: SecTaskCapsulePlanningContext;
-  readonly digest: SecDigest;
+  readonly planningContext: TaskCapsulePlanningContext;
+  readonly digest: TaskCapsuleDigest;
 }
 
 const INPUT_KEYS = ['schema', 'ref', 'planningContext'] as const;
@@ -156,12 +156,12 @@ function token(value: unknown, label: string): string {
   return normalized;
 }
 
-function digest(value: unknown, label: string): SecDigest {
+function digest(value: unknown, label: string): TaskCapsuleDigest {
   const normalized = text(value, label);
   if (!/^sha256:[0-9a-f]{64}$/u.test(normalized)) {
     fail(`${label} must be one lowercase SHA-256 digest.`);
   }
-  return normalized as SecDigest;
+  return normalized as TaskCapsuleDigest;
 }
 
 function gitRevision(value: unknown, label: string): string {
@@ -175,7 +175,7 @@ function gitRevision(value: unknown, label: string): string {
 function repositoryScope(value: unknown, label: string): string {
   const normalized = text(value, label);
   const exact = normalized.endsWith('/') ? normalized.slice(0, -1) : normalized;
-  if (!CodexDevelopmentIsCanonicalRepositoryPath(exact)) {
+  if (!IsCanonicalRepositoryPath(exact)) {
     fail(`${label} must be one canonical repository path or directory prefix.`);
   }
   return normalized;
@@ -212,7 +212,7 @@ function sortedById<Value extends { readonly id: string }>(
   return [...values].sort((left, right) => compareCodeUnits(left.id, right.id));
 }
 
-function parseOwnerFacts(value: unknown): SecAgentOwnerFact[] {
+function parseOwnerFacts(value: unknown): AgentOwnerFact[] {
   const facts = array(value, 'planningContext.ownerFacts').map((entry, index) => {
     const item = record(entry, `planningContext.ownerFacts[${index}]`);
     exactKeys(item, OWNER_FACT_KEYS, `planningContext.ownerFacts[${index}]`);
@@ -238,7 +238,7 @@ function scopesOverlap(left: string, right: string): boolean {
     || scopeMatchesPath(right, left.endsWith('/') ? left.slice(0, -1) : left);
 }
 
-function parseScopeProposal(value: unknown): SecAgentOperationScopeProposal {
+function parseScopeProposal(value: unknown): AgentOperationScopeProposal {
   const item = record(value, 'planningContext.scopeProposal');
   exactKeys(item, SCOPE_KEYS, 'planningContext.scopeProposal');
   const readPaths = sortedUniqueStrings(
@@ -290,7 +290,7 @@ function parseScopeProposal(value: unknown): SecAgentOperationScopeProposal {
   };
 }
 
-function parseVerification(value: unknown): SecAgentVerificationObligation[] {
+function parseVerification(value: unknown): AgentVerificationObligation[] {
   return sortedById(array(value, 'planningContext.verificationObligations').map((entry, index) => {
     const item = record(entry, `planningContext.verificationObligations[${index}]`);
     exactKeys(item, VERIFICATION_KEYS, `planningContext.verificationObligations[${index}]`);
@@ -305,11 +305,11 @@ function parseVerification(value: unknown): SecAgentVerificationObligation[] {
   }), 'planningContext.verificationObligations');
 }
 
-function parsePlanningContext(value: unknown): SecTaskCapsulePlanningContext {
+function parsePlanningContext(value: unknown): TaskCapsulePlanningContext {
   const item = record(value, 'planningContext');
   exactKeys(item, PLANNING_CONTEXT_KEYS, 'planningContext');
-  if (!isSecAgentRole(item.role)) fail('planningContext.role is unsupported.');
-  if (!isSecOperationKind(item.operationKind)) fail('planningContext.operationKind is unsupported.');
+  if (!isAgentRole(item.role)) fail('planningContext.role is unsupported.');
+  if (!isTaskOperationKind(item.operationKind)) fail('planningContext.operationKind is unsupported.');
   if (item.scopeGrantId !== null) {
     fail('planningContext.scopeGrantId must remain null in unbound planning content.');
   }
@@ -344,35 +344,35 @@ function parsePlanningContext(value: unknown): SecTaskCapsulePlanningContext {
   };
 }
 
-export function compileSecTaskCapsule(value: unknown): SecTaskCapsule {
+export function compileTaskCapsule(value: unknown): TaskCapsule {
   const input = record(value, 'input');
   exactKeys(input, INPUT_KEYS, 'input');
-  if (input.schema !== SEC_TASK_CAPSULE_INPUT_SCHEMA) fail('input schema is unsupported.');
+  if (input.schema !== TASK_CAPSULE_INPUT_SCHEMA) fail('input schema is unsupported.');
   const withoutDigest = {
-    schema: SEC_TASK_CAPSULE_SCHEMA,
+    schema: TASK_CAPSULE_SCHEMA,
     ref: text(input.ref, 'ref'),
-    revision: SEC_TASK_CAPSULE_REVISION,
-    authorityStatus: SEC_TASK_CAPSULE_AUTHORITY_STATUS,
+    revision: TASK_CAPSULE_REVISION,
+    authorityStatus: TASK_CAPSULE_AUTHORITY_STATUS,
     effectAuthority: 'none' as const,
     planningContext: parsePlanningContext(input.planningContext)
   };
   return deepFreeze({
     ...withoutDigest,
-    digest: sha256(withoutDigest) as SecDigest
+    digest: sha256(withoutDigest) as TaskCapsuleDigest
   });
 }
 
-export function parseSecTaskCapsule(value: unknown): SecTaskCapsule {
+export function parseTaskCapsule(value: unknown): TaskCapsule {
   const capsule = record(value, 'capsule');
   exactKeys(capsule, CAPSULE_KEYS, 'capsule');
-  if (capsule.schema !== SEC_TASK_CAPSULE_SCHEMA
-      || capsule.revision !== SEC_TASK_CAPSULE_REVISION
-      || capsule.authorityStatus !== SEC_TASK_CAPSULE_AUTHORITY_STATUS
+  if (capsule.schema !== TASK_CAPSULE_SCHEMA
+      || capsule.revision !== TASK_CAPSULE_REVISION
+      || capsule.authorityStatus !== TASK_CAPSULE_AUTHORITY_STATUS
       || capsule.effectAuthority !== 'none') {
     fail('capsule schema or compiler revision is unsupported.');
   }
-  const compiled = compileSecTaskCapsule({
-    schema: SEC_TASK_CAPSULE_INPUT_SCHEMA,
+  const compiled = compileTaskCapsule({
+    schema: TASK_CAPSULE_INPUT_SCHEMA,
     ref: capsule.ref,
     planningContext: capsule.planningContext
   });

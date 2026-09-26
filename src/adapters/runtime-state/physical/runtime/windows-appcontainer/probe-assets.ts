@@ -1,8 +1,8 @@
-import { createHash } from 'node:crypto';
 import type { BigIntStats } from 'node:fs';
 import { lstat, open, realpath, rm } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { rawSha256Hex } from '../../../../../contracts/canonical.ts';
 
 export type WindowsAppContainerProbeAssetRole =
   | 'execution-conformance'
@@ -84,7 +84,7 @@ export class WindowsAppContainerProbeAssetError extends Error {
 const loadedProbeAssetSets = new WeakMap<WindowsAppContainerLoadedProbeAssetSet, readonly LoadedProbeAsset[]>();
 
 function sha256(bytes: Uint8Array): `sha256:${string}` {
-  return `sha256:${createHash('sha256').update(bytes).digest('hex')}`;
+  return `sha256:${rawSha256Hex(bytes)}`;
 }
 
 function samePath(left: string, right: string): boolean {

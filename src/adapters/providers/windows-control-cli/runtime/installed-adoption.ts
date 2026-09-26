@@ -14,10 +14,11 @@ import {
 } from '../../../runtime-state/physical/runtime/physical-no-follow.ts';
 import {
   RETAINED_EXECUTABLE_CHILD_DESCRIPTOR,
-  RETAINED_WORKING_DIRECTORY_CHILD_DESCRIPTOR
+  RETAINED_WORKING_DIRECTORY_CHILD_DESCRIPTOR,
+  resolveExecutableLocator
 } from '../../../runtime-state/physical/runtime/process.ts';
 import {
-  getSecWindowsControlCliExecutableBindingV1,
+  getWindowsControlCliExecutableBinding,
   type WindowsControlCliEnvironmentSpec,
   type WindowsControlCliExecutableBindingProjection
 } from '../contract/environment.ts';
@@ -155,8 +156,8 @@ function candidateRoots(
     if (root !== null) candidates.set(pathKey(root), root);
   };
   const pathValue = environmentValue(environment, 'PATH') ?? '';
-  const selectedHint = Bun.which(binding.executableName, {
-    PATH: pathValue,
+  const selectedHint = resolveExecutableLocator(binding.executableName, {
+    pathValue,
     cwd: workingDirectory
   });
   if (selectedHint !== null) {
@@ -613,7 +614,7 @@ export function adoptInstalledWindowsControlCli(
     );
     ledger.record();
     for (const id of ['git', 'gh'] as const) {
-      const binding = getSecWindowsControlCliExecutableBindingV1(input.spec, id);
+      const binding = getWindowsControlCliExecutableBinding(input.spec, id);
       if (binding === null) fail('installed-executable-capability-unproven');
       closures.push(selectExecutableClosure(
         binding,

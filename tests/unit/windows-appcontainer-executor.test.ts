@@ -1,14 +1,14 @@
 import { expect, test } from 'bun:test';
-import { mkdir, mkdtemp, rm, stat, writeFile } from 'node:fs/promises';
+import { copyFile, mkdir, mkdtemp, rename, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 import {
   acquireWindowsAppContainerNativeHelperCapability,
-  buildWindowsAppContainerNativeHelperBundleSourceForTests,
-  createWindowsAppContainerNativeHelperBundleLoaderForTests,
-  proveWindowsAppContainerNativeHelperEntryForTests,
+  buildNativeHelperBundleForTests,
+  createNativeHelperBundleLoaderForTests,
+  proveNativeHelperEntryForTests,
   readWindowsAppContainerNativeHelperCapability,
   WindowsAppContainerNativeHelperMaterializationError
 } from '../../src/adapters/runtime-state/physical/runtime/windows-appcontainer/native-helper-materialization.ts';
@@ -394,7 +394,7 @@ test('Windows AppContainer probe conformance owner settles servers and validates
 test('Windows AppContainer native-helper bundle retries one transient rejected build', async () => {
   let attempts = 0;
   const expected = new TextEncoder().encode('export default 1;\n');
-  const loader = createWindowsAppContainerNativeHelperBundleLoaderForTests(async () => {
+  const loader = createNativeHelperBundleLoaderForTests(async () => {
     attempts += 1;
     if (attempts === 1) throw new Error('transient-build-rejection');
     return expected;
@@ -404,7 +404,7 @@ test('Windows AppContainer native-helper bundle retries one transient rejected b
   expect(await loader.build()).toEqual(expected);
   expect(attempts).toBe(2);
 
-  const invalidLoader = createWindowsAppContainerNativeHelperBundleLoaderForTests(
+  const invalidLoader = createNativeHelperBundleLoaderForTests(
     async () => new Uint8Array()
   );
   const invalid = await invalidLoader.build().then(() => undefined, (error: unknown) => error);
@@ -420,7 +420,7 @@ test('Windows AppContainer native-helper prebind and later build share one opaqu
     releaseSource = resolve;
   });
   const expected = new TextEncoder().encode('export default 1;\n');
-  const loader = createWindowsAppContainerNativeHelperBundleLoaderForTests(async () => {
+  const loader = createNativeHelperBundleLoaderForTests(async () => {
     attempts += 1;
     await sourceReleased;
     return expected;
@@ -452,9 +452,9 @@ test('Windows AppContainer native-helper entry proof rejects missing, aliases, a
     linkCount: 1
   });
   const assertEntryFailure = async (probe: Parameters<
-    typeof proveWindowsAppContainerNativeHelperEntryForTests
+    typeof proveNativeHelperEntryForTests
   >[1]) => {
-    const failure = await proveWindowsAppContainerNativeHelperEntryForTests(entryPath, probe)
+    const failure = await proveNativeHelperEntryForTests(entryPath, probe)
       .then(() => undefined, (error: unknown) => error);
     expect(failure).toBeInstanceOf(WindowsAppContainerNativeHelperMaterializationError);
     expect((failure as WindowsAppContainerNativeHelperMaterializationError).failure)
@@ -488,7 +488,7 @@ test('Windows AppContainer native-helper build and bundle contract failures stay
     async lstat() { return metadata; },
     async realpath() { return entryPath; }
   };
-  const buildFailure = await buildWindowsAppContainerNativeHelperBundleSourceForTests(
+  const buildFailure = await buildNativeHelperBundleForTests(
     entryPath,
     probe,
     async () => { throw new Error('build rejected'); }
@@ -497,7 +497,7 @@ test('Windows AppContainer native-helper build and bundle contract failures stay
   expect((buildFailure as WindowsAppContainerNativeHelperMaterializationError).failure)
     .toBe('native-helper-build');
 
-  const unsuccessfulBuild = await buildWindowsAppContainerNativeHelperBundleSourceForTests(
+  const unsuccessfulBuild = await buildNativeHelperBundleForTests(
     entryPath,
     probe,
     async () => ({ success: false, outputs: [] })
@@ -505,7 +505,7 @@ test('Windows AppContainer native-helper build and bundle contract failures stay
   expect((unsuccessfulBuild as WindowsAppContainerNativeHelperMaterializationError).failure)
     .toBe('native-helper-build');
 
-  const invalidOutputCount = await buildWindowsAppContainerNativeHelperBundleSourceForTests(
+  const invalidOutputCount = await buildNativeHelperBundleForTests(
     entryPath,
     probe,
     async () => ({
@@ -519,7 +519,7 @@ test('Windows AppContainer native-helper build and bundle contract failures stay
   expect((invalidOutputCount as WindowsAppContainerNativeHelperMaterializationError).failure)
     .toBe('native-helper-build');
 
-  const outputReadFailure = await buildWindowsAppContainerNativeHelperBundleSourceForTests(
+  const outputReadFailure = await buildNativeHelperBundleForTests(
     entryPath,
     probe,
     async () => ({
@@ -531,7 +531,7 @@ test('Windows AppContainer native-helper build and bundle contract failures stay
     .toBe('native-helper-build');
 
   for (const source of ['', 'import value from "./helper.ts";\n']) {
-    const loader = createWindowsAppContainerNativeHelperBundleLoaderForTests(async () =>
+    const loader = createNativeHelperBundleLoaderForTests(async () =>
       new TextEncoder().encode(source));
     const failure = await loader.build().then(() => undefined, (error: unknown) => error);
     expect((failure as WindowsAppContainerNativeHelperMaterializationError).failure)
@@ -552,7 +552,7 @@ test('Windows AppContainer native-helper capability is immutable, unforgeable, a
 
   const entryPath = path.resolve('native-helper-entry.ts');
   let metadataReads = 0;
-  const drifted = await buildWindowsAppContainerNativeHelperBundleSourceForTests(
+  const drifted = await buildNativeHelperBundleForTests(
     entryPath,
     {
       async lstat() {
@@ -585,7 +585,7 @@ test('Windows AppContainer native-helper capability is immutable, unforgeable, a
 });
 
 test('Windows AppContainer exact native-helper production entry builds without AppContainer', async () => {
-  const bundle = await buildWindowsAppContainerNativeHelperBundleSourceForTests();
+  const bundle = await buildNativeHelperBundleForTests();
   expect(bundle.byteLength).toBeGreaterThan(0);
   expect(new TextDecoder().decode(bundle)).not.toMatch(
     /(?:from|import\s*\()\s*["'][^"']+\.ts["']/u
@@ -597,7 +597,7 @@ test('Windows AppContainer exact native-helper bundle self-boots its finite Work
   let worker: Worker | undefined;
   try {
     const helperPath = path.join(root, 'native-helper.mjs');
-    await writeFile(helperPath, await buildWindowsAppContainerNativeHelperBundleSourceForTests());
+    await writeFile(helperPath, await buildNativeHelperBundleForTests());
     worker = new Worker(pathToFileURL(helperPath), { ref: true });
     const terminal = await new Promise<unknown>((resolve, reject) => {
       const timeout = setTimeout(() => reject(new Error('worker bootstrap timed out')), 2_000);
@@ -624,8 +624,10 @@ test('Windows AppContainer exact native-helper bundle self-boots its finite Work
 
 test('Windows AppContainer owner pending publication recovers before rename and after rename', async () => {
   const root = await mkdtemp(path.join(tmpdir(), '.tmp-appcontainer-owner-publication-'));
-  const ownerName = '.semantic-mutation-appcontainer-provisional-owner-v1.json';
-  const pendingName = `${ownerName}.pending-v1`;
+  const ownerName = '.semantic-mutation-appcontainer-provisional-owner.json';
+  const pendingName = `${ownerName}.pending`;
+  const legacyOwnerName = '.semantic-mutation-appcontainer-provisional-owner-v1.json';
+  const legacyPendingName = `${legacyOwnerName}.pending-v1`;
   try {
     const beforeRename = path.join(root, 'before-rename');
     await mkdir(beforeRename);
@@ -650,6 +652,33 @@ test('Windows AppContainer owner pending publication recovers before rename and 
     expect(ownerFailure).toBeInstanceOf(WindowsAppContainerExecutionError);
     expect((ownerFailure as WindowsAppContainerExecutionError).preparationSubstage)
       .toBe('owner-publication');
+
+    const legacyAfterRename = path.join(root, 'legacy-after-rename');
+    await mkdir(legacyAfterRename);
+    await expect(publishWindowsAppContainerProvisionalOwnerForTests(legacyAfterRename, 'after-rename'))
+      .rejects.toThrow('simulated-owner-publication-after-rename');
+    await rename(
+      path.join(legacyAfterRename, ownerName),
+      path.join(legacyAfterRename, legacyOwnerName)
+    );
+    expect(await recoverWindowsAppContainerProvisionalOwnerForTests(legacyAfterRename))
+      .toBe('canonical');
+
+    const dualGeneration = path.join(root, 'dual-generation');
+    await mkdir(dualGeneration);
+    await expect(publishWindowsAppContainerProvisionalOwnerForTests(dualGeneration, 'after-rename'))
+      .rejects.toThrow('simulated-owner-publication-after-rename');
+    await copyFile(path.join(dualGeneration, ownerName), path.join(dualGeneration, legacyOwnerName));
+    await expect(recoverWindowsAppContainerProvisionalOwnerForTests(dualGeneration))
+      .rejects.toBeInstanceOf(WindowsAppContainerExecutionError);
+
+    const legacyPending = path.join(root, 'legacy-pending');
+    await mkdir(legacyPending);
+    await expect(publishWindowsAppContainerProvisionalOwnerForTests(legacyPending, 'after-pending'))
+      .rejects.toThrow('simulated-owner-publication-after-pending');
+    await rename(path.join(legacyPending, pendingName), path.join(legacyPending, legacyPendingName));
+    expect(await recoverWindowsAppContainerProvisionalOwnerForTests(legacyPending)).toBe('none');
+    expect(await exists(path.join(legacyPending, legacyPendingName))).toBe(false);
   } finally {
     await rm(root, { recursive: true, force: true });
   }

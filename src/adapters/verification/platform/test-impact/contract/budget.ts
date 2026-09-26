@@ -4,13 +4,13 @@ import {
   sha256,
   uniqueSorted
 } from '../../../../../contracts/canonical.ts';
-import { isSecRepositoryTestModulePath, normalizeSecRepositoryTestModulePath } from '../../../../../contracts/repository-test-path.ts';
+import { isRepositoryTestModulePath, normalizeRepositoryTestModulePath } from '../../../../../contracts/repository-test-path.ts';
 import { sourceProgramSurfaceForPath } from '../../../../repository/source-program-model/contract.ts';
 import {
   assertWorkspaceSourceSnapshot,
   type WorkspaceSourceSnapshot
 } from '../../../../repository/source-program-model/workspace-source-snapshot.ts';
-import { platformCommand } from '../../sec-command.ts';
+import { platformCommand } from '../../command.ts';
 
 export type TestBudgetLane = {
   id: 'fast' | 'runtime' | 'all';
@@ -348,7 +348,7 @@ const issuedTestInventories = new WeakSet<object>();
 function testFilesFromSnapshotFiles(files: readonly { path: string }[]): readonly string[] {
   return uniqueSorted(files.map(({ path }) => path).filter((path) => (
     sourceProgramSurfaceForPath(path) === 'test'
-      && isSecRepositoryTestModulePath(path)
+      && isRepositoryTestModulePath(path)
   )));
 }
 
@@ -418,8 +418,8 @@ function captureTestBudgetInput(source: IssuedTestInventoryProjection): Captured
   return {
     generation,
     generationKey: projectionGenerationKey(generation),
-    testFiles: new Set(source.testFiles.filter(isSecRepositoryTestModulePath)
-      .map(normalizeSecRepositoryTestModulePath))
+    testFiles: new Set(source.testFiles.filter(isRepositoryTestModulePath)
+      .map(normalizeRepositoryTestModulePath))
   };
 }
 
@@ -509,7 +509,7 @@ export function slowTestSuiteIds(): readonly string[] {
 
 /** Canonical suite identity for a live, removed, or renamed test path. */
 export function slowTestSuiteIdsForFile(file: string): readonly string[] {
-  file = normalizeSecRepositoryTestModulePath(file);
+  file = normalizeRepositoryTestModulePath(file);
   return slowTestSuiteIndex.idsByFile.get(file) ?? NO_SLOW_TEST_SUITES;
 }
 
@@ -529,13 +529,13 @@ export function slowTestPrRiskBaselineSuiteIds(
 }
 
 export function isSlowTestFile(file: string): boolean {
-  const normalized = normalizeSecRepositoryTestModulePath(file);
-  return isSecRepositoryTestModulePath(normalized)
+  const normalized = normalizeRepositoryTestModulePath(file);
+  return isRepositoryTestModulePath(normalized)
     && (slowTestSuiteIndex.idsByFile.has(normalized) || normalized.startsWith('tests/e2e/'));
 }
 
 export function isFastTestFile(file: string): boolean {
-  return isSecRepositoryTestModulePath(file) && !isSlowTestFile(file);
+  return isRepositoryTestModulePath(file) && !isSlowTestFile(file);
 }
 
 export function buildTestBudgetContract(
@@ -557,7 +557,7 @@ export function buildTestBudgetContract(
     slowSuiteCount: slowSuites.length,
     slowSuites,
     lanes,
-    localDefault: 'bun run check:affected runs affected fast tests and skips broad source fallback unless SEC_AFFECTED_TESTS_FULL_FAST_FALLBACK=1; use test:slow -- --suite <id>, test:full, or check:full for slow runtime gates',
+    localDefault: 'bun run check -- --affected runs affected fast tests and skips broad source fallback unless SEC_AFFECTED_TESTS_FULL_FAST_FALLBACK=1; use test -- --scope slow --suite <id>, test -- --scope full, or check -- --scope full for slow runtime gates',
     fullRuntimeGate: 'affected runtime changes or explicit release/demo verification'
   });
 }const testBudgetLanes: readonly TestBudgetLane[] = deepFreeze([

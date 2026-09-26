@@ -18,9 +18,15 @@ import {
   WindowsHostDirectoryAuthorityError,
   type WindowsHostDirectoryAuthority
 } from '../physical/runtime/windows-host-filesystem-authority.ts';
-import { resolveSecWorkspaceRuntimeRoots } from './paths.ts';
+import {
+  migrateRuntimeStateDirectoryGenerations,
+  runtimeStateRootGenerationMigrations,
+  runtimeStateWorkspaceGenerationMigrations,
+  type RuntimeStateDirectoryMigrationSpec
+} from './layout-migration.ts';
+import { resolveWorkspaceRuntimeRoots } from './paths.ts';
 
-export interface SecRuntimeStatePhysicalAuthority {
+export interface RuntimeStatePhysicalAuthority {
   readonly stateRoot: PhysicalDirectoryIdentity;
   readonly cacheRoot: PhysicalDirectoryIdentity;
   readonly directory: (absolutePath: string) => PhysicalDirectoryIdentity;
@@ -31,13 +37,13 @@ export interface SecRuntimeStatePhysicalAuthority {
   readonly release: (input?: Readonly<{ deadlineAtUnixMs?: number }>) => Promise<void>;
 }
 
-export interface SecRuntimeCachePhysicalAuthority {
+export interface RuntimeCachePhysicalAuthority {
   readonly cacheRoot: PhysicalDirectoryIdentity;
   readonly directory: (absolutePath: string) => PhysicalDirectoryIdentity;
   readonly assertCurrent: () => void;
 }
 
-const issuedSecRuntimeStatePhysicalAuthorities = new WeakSet<object>();
+const issuedRuntimeStatePhysicalAuthorities = new WeakSet<object>();
 
 async function settleWindowsHostDirectoryAuthorities(input: Readonly<{
   authorities: readonly WindowsRuntimeStateAuthorityCapability[];
@@ -74,8 +80,8 @@ function isRequestScopedAuthorityFailure(error: unknown): boolean {
       && (error.failure === 'deadline-exhausted' || error.failure === 'aborted'));
 }
 
-export function assertSecRuntimeStatePhysicalAuthority(authority: SecRuntimeStatePhysicalAuthority): void {
-  if (!issuedSecRuntimeStatePhysicalAuthorities.has(authority)) {
+export function assertRuntimeStatePhysicalAuthority(authority: RuntimeStatePhysicalAuthority): void {
+  if (!issuedRuntimeStatePhysicalAuthorities.has(authority)) {
     throw new Error('SEC Runtime State physical authority is not owner-issued.');
   }
 }
@@ -542,13 +548,13 @@ function pathInside(candidate: string, root: string): boolean {
  * separate from durable Runtime State issuance: short-lived read-only tools
  * must not create the state root or pay the Windows state-DACL issuance cost.
  */
-export function acquireSecRuntimeCachePhysicalAuthority(
+export function acquireRuntimeCachePhysicalAuthority(
   input: Readonly<{
     repositoryRoot: string;
     cacheRoot: string;
     requiredDirectories: readonly string[];
   }>
-): SecRuntimeCachePhysicalAuthority {
+): RuntimeCachePhysicalAuthority {
   const repository = inspectNoFollowDirectoryChain(path.resolve(input.repositoryRoot), 'SEC runtime repository root');
   const cachePlan = planPhysicalDirectoryMaterialization(input.cacheRoot, repository, 'cache root planned location');
   let cache = materializePlannedPhysicalDirectory(cachePlan, 'cache root materialization');
@@ -614,15 +620,16 @@ export function acquireSecRuntimeCachePhysicalAuthority(
  * contract deliberately remains effect-free; this tooling owner is its sole
  * host-filesystem authority.
  */
-export async function acquireSecRuntimeStatePhysicalAuthority(
+export async function acquireRuntimeStatePhysicalAuthority(
   input: Readonly<{
     repositoryRoot: string;
     stateRoot: string;
     cacheRoot: string;
     requiredDirectories: readonly string[];
+    directoryMigrations?: readonly RuntimeStateDirectoryMigrationSpec[];
     deadlineAtUnixMs?: number;
   }>
-): Promise<SecRuntimeStatePhysicalAuthority> {
+): Promise<RuntimeStatePhysicalAuthority> {
   if (input.deadlineAtUnixMs !== undefined
       && (!Number.isSafeInteger(input.deadlineAtUnixMs) || input.deadlineAtUnixMs <= Date.now())) {
     throw new Error('SEC Runtime State physical authority admission deadline is invalid or expired.');
@@ -670,6 +677,10 @@ export async function acquireSecRuntimeStatePhysicalAuthority(
           input.deadlineAtUnixMs
         )
       );
+      migrateRuntimeStateDirectoryGenerations([
+        ...runtimeStateRootGenerationMigrations(stateRootPath),
+        ...(input.directoryMigrations ?? [])
+      ]);
       const admission = await windowsAuthorities[0]!.admitDirectories(
         requested,
         input.deadlineAtUnixMs === undefined ? undefined : { deadlineAtUnixMs: input.deadlineAtUnixMs }
@@ -681,6 +692,10 @@ export async function acquireSecRuntimeStatePhysicalAuthority(
         directoryChains.set(directoryPath, directoryChain);
       }
     } else {
+      migrateRuntimeStateDirectoryGenerations([
+        ...runtimeStateRootGenerationMigrations(stateRootPath),
+        ...(input.directoryMigrations ?? [])
+      ]);
       for (const directoryPath of requested.sort(
         (left, right) => left.split(path.sep).length - right.split(path.sep).length || left.localeCompare(right)
       )) {
@@ -776,7 +791,7 @@ export async function acquireSecRuntimeStatePhysicalAuthority(
       assertCurrent: current,
       release
     });
-    issuedSecRuntimeStatePhysicalAuthorities.add(authority);
+    issuedRuntimeStatePhysicalAuthorities.add(authority);
     return authority;
   } catch (error) {
     await settleWindowsHostDirectoryAuthorities({
@@ -791,25 +806,26 @@ export async function acquireSecRuntimeStatePhysicalAuthority(
 }
 
 /** Acquires the one shared physical root used by both durable journal families. */
-export async function acquireSecRuntimeJournalAuthority(
+export async function acquireRuntimeJournalAuthority(
   input: Readonly<{
     repositoryRoot: string;
     environment?: NodeJS.ProcessEnv;
   }>
-): Promise<SecRuntimeStatePhysicalAuthority> {
-  const roots = resolveSecWorkspaceRuntimeRoots({
+): Promise<RuntimeStatePhysicalAuthority> {
+  const roots = resolveWorkspaceRuntimeRoots({
     repositoryRoot: input.repositoryRoot,
     environment: input.environment ?? process.env
   });
-  return acquireSecRuntimeStatePhysicalAuthority({
+  return acquireRuntimeStatePhysicalAuthority({
     repositoryRoot: input.repositoryRoot,
     stateRoot: roots.stateRoot,
     cacheRoot: roots.cacheRoot,
     requiredDirectories: [
       roots.workspaceStateRoot,
       path.join(roots.workspaceStateRoot, 'verification-actions', 'terminal-bound'),
-      path.join(roots.workspaceStateRoot, 'verification-sessions', 'v2'),
+      path.join(roots.workspaceStateRoot, 'verification-sessions', 'journal'),
       roots.processDiagnosticObjectRoot
-    ]
+    ],
+    directoryMigrations: runtimeStateWorkspaceGenerationMigrations(roots.workspaceStateRoot)
   });
 }

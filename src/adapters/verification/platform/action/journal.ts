@@ -6,7 +6,7 @@
  * evidence. Normal reads and writes accept exactly the diagnostic-bound grammar.
  */
 
-import { createHash, randomUUID } from 'node:crypto';
+import { randomUUID } from 'node:crypto';
 import {
   closeSync,
   fsyncSync,
@@ -20,6 +20,7 @@ import {
 import { hostname } from 'node:os';
 import path from 'node:path';
 
+import { rawSha256Hex } from '../../../../contracts/canonical.ts';
 import { parseExactJson } from '../../../../contracts/exact-json.ts';
 import { PHYSICAL_MUTATION_LEASE_SCHEMA } from '../../../runtime-state/physical/runtime/mutation-lease.ts';
 import {
@@ -166,7 +167,7 @@ export interface VerificationActionLegacyRecoveryObservation {
   readonly reason: string | null;
 }
 
-export function writeVerificationActionStartMarkerV2Atomic(
+export function writeVerificationActionStartMarkerAtomic(
   filePath: string,
   marker: VerificationActionProviderStartMarker
 ): void {
@@ -193,7 +194,7 @@ export function writeVerificationActionStartMarkerV2Atomic(
   }
 }
 
-export function writeVerificationActionTerminalStatusAnchorV2Atomic(
+export function writeVerificationActionTerminalStatusAnchorAtomic(
   filePath: string,
   anchor: VerificationActionProviderTerminalAnchor
 ): void {
@@ -342,7 +343,7 @@ function eventWithoutDigest(event: Omit<VerificationActionJournalEvent, 'eventDi
 function eventDigest(
   event: Omit<VerificationActionJournalEvent, 'eventDigest'>
 ): VerificationActionKeyDigest {
-  return `sha256:${createHash('sha256').update(eventWithoutDigest(event)).digest('hex')}`;
+  return `sha256:${rawSha256Hex(eventWithoutDigest(event))}`;
 }
 
 function actionPath(
@@ -393,7 +394,7 @@ function legacyQuarantinePath(
 }
 
 function sha256(source: string | Buffer): VerificationActionKeyDigest {
-  return `sha256:${createHash('sha256').update(source).digest('hex')}`;
+  return `sha256:${rawSha256Hex(source)}`;
 }
 
 function observeJournalSource(
@@ -1738,19 +1739,19 @@ const LEGACY_SETTLEMENT_RECEIPT_KEYS = Object.freeze([
   'observedAt', 'phase', 'providerRevision', 'reasonCode', 'receiptDigest',
   'schema', 'state'
 ]);
-const LEGACY_STATIC_CLOSURE_V1_KEYS = Object.freeze([
+const LEGACY_STATIC_CLOSURE_BASE_KEYS = Object.freeze([
   'actionKey', 'actionPlan', 'actionPlanDigest', 'analysisReadback',
   'analysisStage', 'closureDigest', 'dependencyEvidence', 'dimensions',
   'environmentDigest', 'invalidationDigest', 'openDefectClasses',
   'operationSemanticDigest', 'producer', 'retirement', 'schema', 'status',
   'subjectDigest', 'trackedInputDigest', 'unknowns'
 ]);
-const LEGACY_STATIC_CLOSURE_V2_KEYS = Object.freeze([
-  ...LEGACY_STATIC_CLOSURE_V1_KEYS,
+const LEGACY_STATIC_CLOSURE_PROOF_SCOPE_KEYS = Object.freeze([
+  ...LEGACY_STATIC_CLOSURE_BASE_KEYS,
   'proofScope'
 ]);
-const LEGACY_STATIC_CLOSURE_V2_BOUND_KEYS = Object.freeze([
-  ...LEGACY_STATIC_CLOSURE_V2_KEYS,
+const LEGACY_STATIC_CLOSURE_BOUND_KEYS = Object.freeze([
+  ...LEGACY_STATIC_CLOSURE_PROOF_SCOPE_KEYS,
   'actionPlanClosureDigest'
 ]);
 const LEGACY_STATIC_POINTER_KEYS = Object.freeze([
@@ -1783,11 +1784,11 @@ function parseLegacyStaticClosure(
   }
   const candidate = preliminary as Record<string, unknown>;
   const keys = candidate.schema === 'sec-development-critical-path-static-closure-v1'
-    ? LEGACY_STATIC_CLOSURE_V1_KEYS
+    ? LEGACY_STATIC_CLOSURE_BASE_KEYS
     : candidate.schema === 'sec-development-critical-path-static-closure-v2'
       ? Object.hasOwn(candidate, 'actionPlanClosureDigest')
-        ? LEGACY_STATIC_CLOSURE_V2_BOUND_KEYS
-        : LEGACY_STATIC_CLOSURE_V2_KEYS
+        ? LEGACY_STATIC_CLOSURE_BOUND_KEYS
+        : LEGACY_STATIC_CLOSURE_PROOF_SCOPE_KEYS
       : fail('legacy static closure schema is unknown.');
   const value = parseCanonicalJournalDocument(
     source,
@@ -2784,7 +2785,7 @@ function collectMachineCutoverCensus(
   const quarantines: MachineCutoverObservedQuarantine[] = [];
   scanMachineCutoverTree({
     fs,
-    rootPath: path.join(fs.rootPath, 'workspaces', 'v1'),
+    rootPath: path.join(fs.rootPath, 'workspaces', 'records'),
     mode: 'workspaces',
     groups,
     evidence,

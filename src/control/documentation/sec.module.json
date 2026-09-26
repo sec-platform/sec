@@ -1,6 +1,0 @@
-{
-  "importGraph": "runtime",
-  "externalEntrypoints": [
-    "src/control/documentation/document-control-plane.ts"
-  ]
-}

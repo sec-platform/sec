@@ -2,7 +2,7 @@ import path from 'node:path';
 
 import { isPlainObject } from '../../../contracts/canonical.ts';
 import { parseExactJson } from '../../../contracts/exact-json.ts';
-import { SecError } from '../../../contracts/failure.ts';
+import { FailureError } from '../../../contracts/failure.ts';
 import {
   decodeExactUtf8,
   readOptionalRetainedOrdinaryLeaf,
@@ -27,7 +27,7 @@ export interface CanonicalBunPackageRunnerObservation {
   readonly runtimeVersion: string | undefined;
 }
 
-export function assertCanonicalBunRuntimeVersion(
+function assertCanonicalBunRuntimeVersion(
   version: CanonicalBunRuntimeVersion,
   runtimeVersion: string | undefined = process.versions.bun
 ): void {
@@ -37,7 +37,7 @@ export function assertCanonicalBunRuntimeVersion(
 }
 
 function fail(message: string): never {
-  throw new SecError('IMPORT-AUTHORITY-001', message);
+  throw new FailureError('IMPORT-AUTHORITY-001', message);
 }
 
 function retainedRuntimeRoot(root: string) {
@@ -140,7 +140,7 @@ export async function readCanonicalBunRuntimeProjection(
   try {
     miseValue = Bun.TOML.parse(miseSource);
   } catch (error) {
-    throw new SecError('IMPORT-AUTHORITY-001', 'mise.toml is not canonical TOML', {}, {
+    throw new FailureError('IMPORT-AUTHORITY-001', 'mise.toml is not canonical TOML', {}, {
       cause: error
     });
   }

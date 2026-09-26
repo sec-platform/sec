@@ -11,25 +11,25 @@ import { expect, test } from 'bun:test';
 import { createObservedNativeLifecycleFailureForTests, observedCommandNativeLifecycleDiagnosticForTests, registerObservedWindowsJobControllerForTests, runObservedCommand, type ObservedCommandDependencies, type ObservedCommandOutcome } from '../../src/adapters/runtime-state/physical/runtime/observed-process.ts';
 import { decodeWindowsJobActiveProcessCount, windowsNaturalExitSettlementDisposition, windowsPipeFailureDisposition, windowsWaitDisposition } from '../../src/adapters/runtime-state/physical/runtime/windows-process-codec.ts';
 import {
-  arbitrateWindowsAppContainerNativeExecutionDeadlinesForTests,
-  bindWindowsAppContainerObservedNativeHelperSettlement,
+  arbitrateNativeExecutionDeadlinesForTests,
+  bindNativeHelperSettlement,
   classifyObservedWindowsAppContainerNativeHelperForTests,
   completeWindowsAppContainerOwnedExecutionForTests,
-  createWindowsAppContainerNativeExecutionBudgetForTests,
+  createNativeExecutionBudgetForTests,
   encodeWindowsAppContainerNativeFailure,
   normalizeWindowsAppContainerPreparationErrorForTests,
   projectWindowsAppContainerHostToolFailureForTests,
-  remainingWindowsAppContainerNativeExecutionBudgetForTests,
+  remainingNativeExecutionBudgetForTests,
   remainingWindowsAppContainerNativeHelperTimeout,
   runWindowsAppContainerExecutionStepsForTests,
   settleObservedWindowsAppContainerNativeHelperForTests,
   settleWindowsAppContainerNativeHelperInvocationForTests,
-  settleWindowsAppContainerNativeJobAfterFailureForTests,
+  settleNativeJobAfterFailureForTests,
   superviseWindowsAppContainerNativeWorkerForHelper,
-  waitForWindowsAppContainerNativeProcessForTests,
+  waitForNativeProcessForTests,
   windowsAppContainerExecutionCleanupChainForTests,
   WindowsAppContainerExecutionError,
-  windowsAppContainerObservedNativeHelperSettlementForTests
+  nativeHelperSettlementForTests
 } from '../../src/adapters/runtime-state/physical/test/windows-appcontainer.ts';
 
 interface FakeChild extends EventEmitter {
@@ -1740,15 +1740,15 @@ function exactNativeHelperOutcome(stdout: Uint8Array, stderr: Uint8Array): Obser
 }
 
 test('native helper deadline arbitration gives the child a finite preparation-to-exit budget', () => {
-  const explicit = arbitrateWindowsAppContainerNativeExecutionDeadlinesForTests(60_000);
+  const explicit = arbitrateNativeExecutionDeadlinesForTests(60_000);
   expect(explicit).toEqual({ childTimeoutMs: 60_000, hostWatchdogMs: 70_000 });
   expect(Object.isFrozen(explicit)).toBe(true);
 
-  const implicit = arbitrateWindowsAppContainerNativeExecutionDeadlinesForTests(undefined);
+  const implicit = arbitrateNativeExecutionDeadlinesForTests(undefined);
   expect(implicit).toEqual({ childTimeoutMs: 120_000, hostWatchdogMs: 130_000 });
   expect(Object.isFrozen(implicit)).toBe(true);
 
-  const helperEntryBudget = createWindowsAppContainerNativeExecutionBudgetForTests(
+  const helperEntryBudget = createNativeExecutionBudgetForTests(
     60_000,
     1_000
   );
@@ -1758,30 +1758,30 @@ test('native helper deadline arbitration gives the child a finite preparation-to
 
 test('native helper deadline arbitration rejects invalid and overflowing budgets', () => {
   for (const timeoutMs of [0, -1, 1.5]) {
-    expect(() => arbitrateWindowsAppContainerNativeExecutionDeadlinesForTests(timeoutMs))
+    expect(() => arbitrateNativeExecutionDeadlinesForTests(timeoutMs))
       .toThrow(WindowsAppContainerExecutionError);
   }
 
   const maximumChildTimeoutMs = Number.MAX_SAFE_INTEGER - 10_000;
-  expect(arbitrateWindowsAppContainerNativeExecutionDeadlinesForTests(
+  expect(arbitrateNativeExecutionDeadlinesForTests(
     maximumChildTimeoutMs
   )).toEqual({
     childTimeoutMs: maximumChildTimeoutMs,
     hostWatchdogMs: Number.MAX_SAFE_INTEGER
   });
-  expect(() => arbitrateWindowsAppContainerNativeExecutionDeadlinesForTests(
+  expect(() => arbitrateNativeExecutionDeadlinesForTests(
     maximumChildTimeoutMs + 1
   )).toThrow(WindowsAppContainerExecutionError);
 });
 
 test('native helper elapsed budget is bounded and fails closed on clock rollback', () => {
-  const budget = createWindowsAppContainerNativeExecutionBudgetForTests(60_000, 1_000);
-  expect(remainingWindowsAppContainerNativeExecutionBudgetForTests(budget, 1_000)).toBe(60_000);
-  expect(remainingWindowsAppContainerNativeExecutionBudgetForTests(budget, 60_999)).toBe(1);
+  const budget = createNativeExecutionBudgetForTests(60_000, 1_000);
+  expect(remainingNativeExecutionBudgetForTests(budget, 1_000)).toBe(60_000);
+  expect(remainingNativeExecutionBudgetForTests(budget, 60_999)).toBe(1);
 
   for (const observedAtMs of [999, 61_000, Number.NaN]) {
     try {
-      remainingWindowsAppContainerNativeExecutionBudgetForTests(budget, observedAtMs);
+      remainingNativeExecutionBudgetForTests(budget, observedAtMs);
       throw new Error('expected elapsed budget rejection');
     } catch (error) {
       expect(error).toBeInstanceOf(WindowsAppContainerExecutionError);
@@ -1885,7 +1885,7 @@ test('execute helper settles the child deadline before the host watchdog', () =>
   const waitSlices: number[] = [];
   let innerFailure: unknown;
   try {
-    waitForWindowsAppContainerNativeProcessForTests(60_000, 1_000, {
+    waitForNativeProcessForTests(60_000, 1_000, {
       nowMs: () => observedAtMs.shift()!,
       waitForProcess: (timeoutMs) => {
         waitSlices.push(timeoutMs);
@@ -1925,7 +1925,7 @@ test('execute helper settles the child deadline before the host watchdog', () =>
       nativeReceipt: 'declared-failure'
     }
   });
-  expect(windowsAppContainerObservedNativeHelperSettlementForTests(
+  expect(nativeHelperSettlementForTests(
     receiptBackedFailure as Error
   )).toBeUndefined();
 });
@@ -1936,7 +1936,7 @@ test('execute helper explicitly settles the inner AppContainer Job within one fi
   let waitCalls = 0;
   let sleepCalls = 0;
   const activeProcesses = [2, 1, 0];
-  expect(settleWindowsAppContainerNativeJobAfterFailureForTests({
+  expect(settleNativeJobAfterFailureForTests({
     nowMs: () => nowMs,
     terminateJob: () => {
       terminateCalls += 1;
@@ -1958,7 +1958,7 @@ test('execute helper explicitly settles the inner AppContainer Job within one fi
     sleepCalls: 2
   });
 
-  expect(settleWindowsAppContainerNativeJobAfterFailureForTests({
+  expect(settleNativeJobAfterFailureForTests({
     nowMs: () => 1_000,
     terminateJob: () => true,
     waitForRoot: () => 0,
@@ -1968,7 +1968,7 @@ test('execute helper explicitly settles the inner AppContainer Job within one fi
 
   let deadlineNowMs = 2_000;
   let deadlineSleepCalls = 0;
-  expect(settleWindowsAppContainerNativeJobAfterFailureForTests({
+  expect(settleNativeJobAfterFailureForTests({
     nowMs: () => deadlineNowMs,
     terminateJob: () => true,
     waitForRoot: (timeoutMs) => {
@@ -2000,7 +2000,7 @@ function captureObservedNativeHelperFailure(
 
 test('native helper settlement sidecar survives finite preparation normalization', () => {
   const primary = new WindowsAppContainerExecutionError('preparation');
-  bindWindowsAppContainerObservedNativeHelperSettlement(
+  bindNativeHelperSettlement(
     primary,
     'derive',
     Object.freeze({ status: 'rejected', reason: 'not-exited' })
@@ -2010,11 +2010,11 @@ test('native helper settlement sidecar survives finite preparation normalization
     primary,
     'native-helper-invocation'
   ) as WindowsAppContainerExecutionError;
-  const settlement = windowsAppContainerObservedNativeHelperSettlementForTests(normalized);
+  const settlement = nativeHelperSettlementForTests(normalized);
 
   expect(normalized).not.toBe(primary);
   expect(normalized.preparationSubstage).toBe('native-helper-invocation');
-  expect(settlement).toBe(windowsAppContainerObservedNativeHelperSettlementForTests(primary));
+  expect(settlement).toBe(nativeHelperSettlementForTests(primary));
   expect(settlement).toEqual({ mode: 'derive', reason: 'not-exited' });
   expect(Object.keys(settlement ?? {})).toEqual(['mode', 'reason']);
   expect(normalized.nativeHelperObservation).toBeUndefined();
@@ -2085,7 +2085,7 @@ test('observed native helper settlement classifier separates finite lifecycle di
     expect(Object.isFrozen(classification)).toBe(true);
     if (classification.status === 'rejected') {
       const primary = captureObservedNativeHelperFailure(outcome, stdout);
-      const settlement = windowsAppContainerObservedNativeHelperSettlementForTests(primary);
+      const settlement = nativeHelperSettlementForTests(primary);
       expect(settlement).toEqual({ mode: 'execute', reason: classification.reason });
       expect(Object.isFrozen(settlement)).toBe(true);
       expect(Object.keys(settlement ?? {})).toEqual(['mode', 'reason']);
@@ -2154,7 +2154,7 @@ test('observed native helper settlement classifier separates stream truncation a
       observedDiagnostic,
       'create-profile'
     );
-    const settlement = windowsAppContainerObservedNativeHelperSettlementForTests(primary);
+    const settlement = nativeHelperSettlementForTests(primary);
     expect(settlement).toEqual({ mode: 'create-profile', reason });
     expect(Object.isFrozen(settlement)).toBe(true);
     expect(Object.keys(settlement ?? {})).toEqual(['mode', 'reason']);
@@ -2178,7 +2178,7 @@ test('native helper classification stays explanatory while closed-tree evidence 
   )).toEqual({ status: 'rejected', reason: 'timed-out' });
 
   const primary = captureObservedNativeHelperFailure(closedTimedOut, wire);
-  expect(windowsAppContainerObservedNativeHelperSettlementForTests(primary)).toEqual({
+  expect(nativeHelperSettlementForTests(primary)).toEqual({
     mode: 'execute',
     reason: 'timed-out'
   });
@@ -2253,7 +2253,7 @@ test('unproved native helper trees retain all owned resources without public dia
       preparationSubstage: 'native-helper-invocation'
     });
     expect(primary.hostToolFailure).toBeUndefined();
-    expect(windowsAppContainerObservedNativeHelperSettlementForTests(primary)).toEqual({
+    expect(nativeHelperSettlementForTests(primary)).toEqual({
       mode: 'execute',
       reason: trigger === 'timed-out' ? 'timed-out' : 'closure-unproven'
     });
@@ -2302,7 +2302,7 @@ test('closed-tree native helper protocol failures permit cleanup while preservin
     }
   ] as const;
   for (const { primary, reason } of failures) {
-    expect(windowsAppContainerObservedNativeHelperSettlementForTests(primary)).toEqual({
+    expect(nativeHelperSettlementForTests(primary)).toEqual({
       mode: 'execute',
       reason
     });

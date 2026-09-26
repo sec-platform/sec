@@ -21,7 +21,8 @@ test('heavy verification gate derives its default mutable lease from canonical e
   });
   expect(path.relative(cacheRoot, lockPath).startsWith('..')).toBe(false);
   expect(path.relative(repositoryRoot, lockPath).startsWith('..')).toBe(true);
-  expect(lockPath).toContain(path.join('heavy-verification-gates', 'v1'));
+  expect(lockPath).toContain(path.join('heavy-verification-gates', 'locks'));
+  expect(path.basename(lockPath)).toBe('gate');
   expect(heavyVerificationGateLockPath({
     physicalWorktreeRoot: repositoryRoot,
     environment: { ...process.env, SEC_CACHE_HOME: cacheRoot }
@@ -76,7 +77,7 @@ test.skipIf(process.platform === 'win32')('heavy verification gate atomically re
   await withLockRoot(async (lockPath) => {
     await mkdir(lockPath);
     await writeFile(path.join(lockPath, 'owner.json'), `${JSON.stringify({
-      command: ['bun', 'run', 'test:affected'],
+      command: ['bun', 'run', 'test', '--', '--affected'],
       gateId: 'test:affected',
       host: 'test-host',
       pid: 101,
@@ -118,7 +119,7 @@ test.skipIf(process.platform === 'win32')('heavy verification gate never reclaim
   await withLockRoot(async (lockPath) => {
     await mkdir(lockPath);
     await writeFile(path.join(lockPath, 'owner.json'), `${JSON.stringify({
-      command: ['bun', 'run', 'test:affected'],
+      command: ['bun', 'run', 'test', '--', '--affected'],
       gateId: 'test:affected',
       host: 'foreign-host',
       pid: 101,

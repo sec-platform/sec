@@ -21,6 +21,25 @@ if (probeArguments.some((argument) => argument !== '--spawned-probe') ||
   process.exit(NESTED_EXIT.argumentParsing);
 }
 
+const PARENT_CANARY_NAMES = Object.freeze([
+  '.appcontainer-host-read-canary',
+  '.appcontainer-host-read-canary-v1'
+]);
+const OUTER_CANARY_NAMES = Object.freeze([
+  '.appcontainer-outer-host-read-canary',
+  '.appcontainer-outer-host-read-canary-v1'
+]);
+
+async function canReadCanary(relativeSegments, names) {
+  for (const name of names) {
+    try {
+      await Bun.file(path.resolve(process.cwd(), ...relativeSegments, name)).text();
+      return true;
+    } catch {}
+  }
+  return false;
+}
+
 async function runSpawnedProbe() {
   const result = {
     insideWrite: false,
@@ -32,8 +51,8 @@ async function runSpawnedProbe() {
   };
   try { await Bun.write(path.resolve(process.cwd(), 'spawned-inside.txt'), 'inside'); result.insideWrite = true; } catch {}
   try { await Bun.write(path.resolve(process.cwd(), '..', 'spawned-outside.txt'), 'outside'); result.outsideWrite = true; } catch {}
-  try { await Bun.file(path.resolve(process.cwd(), '..', '.appcontainer-host-read-canary-v1')).text(); result.parentRead = true; } catch {}
-  try { await Bun.file(path.resolve(process.cwd(), '..', '..', '.appcontainer-outer-host-read-canary-v1')).text(); result.outerRead = true; } catch {}
+  result.parentRead = await canReadCanary(['..'], PARENT_CANARY_NAMES);
+  result.outerRead = await canReadCanary(['..', '..'], OUTER_CANARY_NAMES);
   try {
     const network = await probeLoopbackNetwork({
       httpPort: process.env.SEC_APPCONTAINER_PROBE_HTTP_PORT,
@@ -70,8 +89,8 @@ const direct = {
 };
 try { await Bun.write(path.resolve(process.cwd(), 'direct-inside.txt'), 'inside'); direct.insideWrite = true; } catch {}
 try { await Bun.write(path.resolve(process.cwd(), '..', 'direct-outside.txt'), 'outside'); direct.outsideWrite = true; } catch {}
-try { await Bun.file(path.resolve(process.cwd(), '..', '.appcontainer-host-read-canary-v1')).text(); direct.parentRead = true; } catch {}
-try { await Bun.file(path.resolve(process.cwd(), '..', '..', '.appcontainer-outer-host-read-canary-v1')).text(); direct.outerRead = true; } catch {}
+direct.parentRead = await canReadCanary(['..'], PARENT_CANARY_NAMES);
+direct.outerRead = await canReadCanary(['..', '..'], OUTER_CANARY_NAMES);
 const network = await probeLoopbackNetwork({
   httpPort: process.env.SEC_APPCONTAINER_PROBE_HTTP_PORT,
   rawPort: process.env.SEC_APPCONTAINER_PROBE_RAW_PORT

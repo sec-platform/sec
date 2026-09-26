@@ -6,8 +6,8 @@ import {
   sha256
 } from '../../../contracts/canonical.ts';
 import { parseExactJson } from '../../../contracts/exact-json.ts';
-import { SecError } from '../../../contracts/failure.ts';
-import type { SecOperationDigest } from '../../../execution/operation/semantic.ts';
+import { FailureError } from '../../../contracts/failure.ts';
+import type { OperationDigest } from '../../../execution/operation/semantic.ts';
 
 const BOUNDED_PROCESS_DIAGNOSTIC_OBJECT_SCHEMA =
   'sec-bounded-process-diagnostic-object' as const;
@@ -33,25 +33,25 @@ export type BoundedProcessDiagnosticStream = 'combined-tail' | 'stderr' | 'stdou
 
 export type BoundedProcessDiagnosticObjectReceipt = Readonly<{
   schema: typeof BOUNDED_PROCESS_DIAGNOSTIC_OBJECT_SCHEMA;
-  operationIdentityDigest: SecOperationDigest;
-  executionPlanDigest: SecOperationDigest;
-  boundAttemptDigest: SecOperationDigest;
-  subjectDigest: SecOperationDigest;
-  settlementDigest: SecOperationDigest;
+  operationIdentityDigest: OperationDigest;
+  executionPlanDigest: OperationDigest;
+  boundAttemptDigest: OperationDigest;
+  subjectDigest: OperationDigest;
+  settlementDigest: OperationDigest;
   stream: BoundedProcessDiagnosticStream;
   byteLength: number;
-  contentDigest: SecOperationDigest;
+  contentDigest: OperationDigest;
   retainedUntilUnixMs: number;
-  objectDigest: SecOperationDigest;
+  objectDigest: OperationDigest;
 }>;
 
 export type BoundedProcessDiagnosticObjectReadbackReceipt = Readonly<{
   disposition: 'current';
-  objectDigest: SecOperationDigest;
-  physicalIdentityDigest: SecOperationDigest;
-  contentDigest: SecOperationDigest;
+  objectDigest: OperationDigest;
+  physicalIdentityDigest: OperationDigest;
+  contentDigest: OperationDigest;
   byteLength: number;
-  readbackDigest: SecOperationDigest;
+  readbackDigest: OperationDigest;
 }>;
 
 export type BoundedProcessDiagnosticPublishedObject = Readonly<{
@@ -67,7 +67,7 @@ export type BoundedProcessDiagnosticFailureKind =
   | 'physical-replacement'
   | 'resource-exhausted';
 
-export class BoundedProcessDiagnosticObjectError extends SecError {
+export class BoundedProcessDiagnosticObjectError extends FailureError {
   readonly kind: BoundedProcessDiagnosticFailureKind;
 
   constructor(kind: BoundedProcessDiagnosticFailureKind, message: string, cause?: unknown) {
@@ -90,11 +90,11 @@ function fail(
   throw new BoundedProcessDiagnosticObjectError(kind, message, cause);
 }
 
-function exactDigest(value: unknown, label: string): SecOperationDigest {
+function exactDigest(value: unknown, label: string): OperationDigest {
   if (typeof value !== 'string' || !DIGEST.test(value)) {
     fail('corrupt-object', `${label} is not a canonical SHA-256 digest`);
   }
-  return value as SecOperationDigest;
+  return value as OperationDigest;
 }
 
 function exactSafeInteger(value: unknown, label: string): number {
@@ -109,11 +109,11 @@ function receiptUnsigned(receipt: Omit<BoundedProcessDiagnosticObjectReceipt, 'o
 }
 
 export function createBoundedProcessDiagnosticObjectReceipt(input: Readonly<{
-  operationIdentityDigest: SecOperationDigest;
-  executionPlanDigest: SecOperationDigest;
-  boundAttemptDigest: SecOperationDigest;
-  subjectDigest: SecOperationDigest;
-  settlementDigest: SecOperationDigest;
+  operationIdentityDigest: OperationDigest;
+  executionPlanDigest: OperationDigest;
+  boundAttemptDigest: OperationDigest;
+  subjectDigest: OperationDigest;
+  settlementDigest: OperationDigest;
   stream: BoundedProcessDiagnosticStream;
   bytes: Uint8Array;
   retainedUntilUnixMs: number;
@@ -127,12 +127,12 @@ export function createBoundedProcessDiagnosticObjectReceipt(input: Readonly<{
     settlementDigest: exactDigest(input.settlementDigest, 'Diagnostic process settlement'),
     stream: input.stream,
     byteLength: input.bytes.byteLength,
-    contentDigest: rawSha256(input.bytes) as SecOperationDigest,
+    contentDigest: rawSha256(input.bytes) as OperationDigest,
     retainedUntilUnixMs: exactSafeInteger(input.retainedUntilUnixMs, 'Diagnostic retention deadline')
   });
   return Object.freeze({
     ...unsigned,
-    objectDigest: sha256(unsigned) as SecOperationDigest
+    objectDigest: sha256(unsigned) as OperationDigest
   });
 }
 

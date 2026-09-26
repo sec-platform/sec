@@ -1,9 +1,9 @@
 import { spawn, type ChildProcess, type SpawnOptions } from 'node:child_process';
-import { createHash } from 'node:crypto';
 import { EventEmitter } from 'node:events';
 import path from 'node:path';
 import { PassThrough } from 'node:stream';
 
+import { createSha256Hasher, type Hasher } from '../../../../contracts/digest.ts';
 import type { CommitFence } from '../../../../contracts/commit-fence.ts';
 import {
   assertIndependentProviderProcessCapability,
@@ -416,7 +416,7 @@ export interface ObservedCommandDependencies {
 
 interface MutableStreamEvidence {
   bytes: number;
-  digest: ReturnType<typeof createHash>;
+  digest: Hasher<'sha256'>;
   observerBytes: number;
   observerTruncated: boolean;
 }
@@ -424,7 +424,7 @@ interface MutableStreamEvidence {
 function emptyStreamEvidence(): MutableStreamEvidence {
   return {
     bytes: 0,
-    digest: createHash('sha256'),
+    digest: createSha256Hasher(),
     observerBytes: 0,
     observerTruncated: false
   };
@@ -433,7 +433,7 @@ function emptyStreamEvidence(): MutableStreamEvidence {
 function finalStreamEvidence(value: MutableStreamEvidence): ObservedCommandStreamEvidence {
   return Object.freeze({
     bytes: value.bytes,
-    digest: `sha256:${value.digest.digest('hex')}`,
+    digest: value.digest.finish(),
     observerTruncated: value.observerTruncated
   });
 }

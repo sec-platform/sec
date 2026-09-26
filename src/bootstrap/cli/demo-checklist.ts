@@ -1,4 +1,4 @@
-import { platformCommand } from '../../adapters/verification/platform/sec-command.ts';
+import { platformCommand } from '../../adapters/verification/platform/command.ts';
 import { findPresentWorkspaceArtifacts } from '../../adapters/workspace/artifact-presence.ts';
 import { buildDemoChecklist as buildApplicationDemoChecklist, createDemoChecklistPlan, type DemoChecklist } from '../../application/demo-checklist.ts';
 

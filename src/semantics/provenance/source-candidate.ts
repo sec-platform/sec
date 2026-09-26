@@ -1,4 +1,4 @@
-import { deepFreeze, digest } from '../../contracts/canonical.ts';
+import { deepFreeze, rawSha256Hex } from '../../contracts/canonical.ts';
 import type { LoadedSemanticContract } from '../definitions/types.ts';
 import type { SemanticMutationLoadedSourceCandidate, SemanticMutationSourceKind } from '../mutation/types.ts';
 
@@ -13,7 +13,7 @@ export function semanticContractSourceRevision(
     contractPath: loadedContract.contractPath,
     contract: loadedContract.contract
   });
-  return `sha256:${digest(payload)}`;
+  return `sha256:${rawSha256Hex(payload)}`;
 }
 
 export function buildSemanticContractSourceCandidate(

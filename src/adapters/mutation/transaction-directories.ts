@@ -3,6 +3,7 @@ import path from 'node:path';
 import {
   assertSameNoFollowDirectoryIdentity,
   createNoFollowOrdinaryDirectoryChain,
+  inspectExactNoFollowDirectoryPresence,
   inspectNoFollowDirectoryChain,
   inspectNoFollowDirectoryLeaf,
   PhysicalNoFollowError,
@@ -15,6 +16,7 @@ import {
   assertSemanticMutationTerminalOrderDirectory,
   assertSemanticMutationTransactionRoot,
   semanticMutationJournalRoot,
+  semanticMutationTransactionLayout,
   semanticMutationWorkspaceRootFromTransactionRoot,
   type SemanticMutationCommitFence
 } from './transaction-identity.ts';
@@ -30,6 +32,16 @@ export async function createSemanticMutationTransactionDirectory(
 ): Promise<PhysicalDirectoryIdentity> {
   await assertSemanticMutationTransactionRoot(workspaceRoot, transactionRoot);
   const workspace = inspectNoFollowDirectoryChain(path.resolve(workspaceRoot), 'Mutation workspace').target;
+  if (semanticMutationTransactionLayout(transactionRoot) === 'legacy') {
+    const legacy = inspectExactNoFollowDirectoryPresence(
+      path.resolve(transactionRoot),
+      'Legacy Semantic Mutation transaction'
+    );
+    if (legacy.state !== 'present') {
+      throw new Error('Semantic Mutation cannot create a transaction in the legacy state layout');
+    }
+    return legacy.directory.target;
+  }
   await commitFence();
   const transaction = createNoFollowOrdinaryDirectoryChain(
     workspace,

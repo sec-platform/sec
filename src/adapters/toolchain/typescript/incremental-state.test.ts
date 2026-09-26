@@ -24,7 +24,7 @@ async function fixture(name: string) {
     actionPrivateParent: inspectNoFollowDirectoryChain(actionParentPath).target,
     deadlineAtUnixMs: Date.now() + 30_000,
     seedBindingDigest: BINDING,
-    stableSeedFile: path.join(seedParentPath, 'typescript-incremental-seed-v1.json'),
+    stableSeedFile: path.join(seedParentPath, 'typescript-incremental-seed.json'),
     stableSeedParent: inspectNoFollowDirectoryChain(seedParentPath).target
   });
 }

@@ -1,7 +1,7 @@
 /** Canonical provider-checks to MainHealth-ledger input compiler. */
 
-import { createHash } from 'node:crypto';
 
+import { rawSha256Hex } from '../../../../contracts/canonical.ts';
 import type { GitHubCheckObservation } from '../../../providers/github-api/contract.ts';
 import { encodeVerificationActionData } from '../../../verification/platform/action/contract/action.ts';
 import {
@@ -52,7 +52,7 @@ export type MainHealthCheckProviderPolicy = Readonly<{
 }>;
 
 function hash(value: unknown): Digest {
-  return `sha256:${createHash('sha256').update(encodeVerificationActionData(value)).digest('hex')}`;
+  return `sha256:${rawSha256Hex(encodeVerificationActionData(value))}`;
 }
 
 function boundedText(value: string, label: string): string {
@@ -132,7 +132,7 @@ readonly MainHealthCheckProviderPolicy[] = Object.freeze([
  * that owns the App credentials remains responsible for executing the actual
  * MainHealth closure before publishing it.
  */
-export function createTrustedRuntimeMainHealthCheckProviderPolicyV1(input: Readonly<{
+export function createTrustedRuntimeMainHealthCheckProviderPolicy(input: Readonly<{
   policyRevision: string;
   app: Readonly<{ id: number; nodeId: string; slug: string }>;
 }>): MainHealthCheckProviderPolicy {

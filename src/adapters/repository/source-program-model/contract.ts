@@ -1,11 +1,11 @@
-import { isSecRepositoryTestModulePath } from '../../../contracts/repository-test-path.ts';
+import { isRepositoryTestModulePath } from '../../../contracts/repository-test-path.ts';
 import type { SemanticResponsibilityTargetKind } from '../../../semantics/definitions/types.ts';
 import type {
-  SecModuleCausalRelation,
-  SecModuleOperationObligation,
-  SecModuleOperationRole,
-  SecRepositoryModuleGraph,
-  SecRepositoryModuleMembership
+  ModuleCausalRelation,
+  ModuleOperationObligation,
+  ModuleOperationRole,
+  RepositoryModuleGraph,
+  RepositoryModuleMembership
 } from '../architecture/contract.ts';
 
 export const REPOSITORY_AUDIT_ENTRYPOINT_PATH = 'src/adapters/repository/repository-audit/cli.ts' as const;
@@ -54,7 +54,7 @@ export function isSourceProgramInputPath(repositoryPath: string): boolean {
 export function sourceProgramSurfaceForPath(repositoryPath: string): SourceProgramSurface {
   if (SOURCE_PROGRAM_FIXTURE_PATH.test(repositoryPath)) return 'fixture';
   if (SOURCE_PROGRAM_TEST_DIRECTORY_PATH.test(repositoryPath)
-      || isSecRepositoryTestModulePath(repositoryPath)) return 'test';
+      || isRepositoryTestModulePath(repositoryPath)) return 'test';
   if (SOURCE_PROGRAM_CATALOG_RESOURCE_PATH.test(repositoryPath)) return 'resource';
   if (repositoryPath.startsWith('.github/workflows/')) return 'workflow';
   if (SOURCE_PROGRAM_RESOURCE_EXTENSION.test(repositoryPath)) return 'resource';
@@ -85,13 +85,13 @@ export type SourceProgramCompilationMatchInput = Readonly<{
   sourceRevision?: string;
   productionModel?: SourceProgramModel;
   files: readonly SourceProgramFileInput[];
-  moduleMembership: SecRepositoryModuleMembership;
+  moduleMembership: RepositoryModuleMembership;
 }>;
 
 export interface SourceProgramCompilation {
   readonly identityDigest: `sha256:${string}`;
   readonly moduleGraphDigest: `sha256:${string}`;
-  readonly moduleGraph: SecRepositoryModuleGraph;
+  readonly moduleGraph: RepositoryModuleGraph;
   file(repositoryPath: string): SourceProgramFileInput | null;
   assertMatches(input: SourceProgramCompilationMatchInput): void;
 }
@@ -301,7 +301,7 @@ export type SourceProgramOperationSourceEvidence = Readonly<{
  * generation, loaded implementation bytes, or process authority. Consumers
  * select only the operation identity; all paths and bytes remain compiler-owned.
  */
-export interface SourceProgramOperationProducerClosure {
+export interface OperationProducerClosure {
   readonly [sourceProgramOperationProducerClosureBrand]: true;
   readonly authority: 'source-evidence-only';
   readonly operation: SourceProgramOperationIdentity;
@@ -379,7 +379,7 @@ export interface SourceProgramOperationRoleProvenance {
   readonly moduleId: string;
   readonly capability: string;
   readonly operation: string;
-  readonly role: SecModuleOperationRole;
+  readonly role: ModuleOperationRole;
   readonly semanticOperation: string;
   readonly requirementId: string | null;
 }
@@ -445,7 +445,7 @@ export const SOURCE_PROGRAM_BLOCKING_CANDIDATE_CODES = Object.freeze([
 
 export interface SourceProgramCausalRelationEvidence {
   readonly owner: string;
-  readonly intent: SecModuleCausalRelation;
+  readonly intent: ModuleCausalRelation;
   readonly declaration: Readonly<{
     readonly observationId: string | null;
     readonly declarationDigest: string | null;
@@ -565,7 +565,7 @@ export interface SourceProgramOwnerIntentEvidence {
 }
 
 export interface SourceProgramOperationObligationEvidence {
-  readonly obligation: SecModuleOperationObligation;
+  readonly obligation: ModuleOperationObligation;
   readonly observation: Readonly<{
     readonly status: 'unknown' | 'verified';
     readonly reason: 'consumer-closure-unresolved' | 'effect-closure-unresolved' | 'identity-unresolved' | 'verified';

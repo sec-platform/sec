@@ -1,3 +1,5 @@
+import { createHash } from 'node:crypto';
+
 /** Git's object storage format is independent of the application's digest
  * profile. This type validates names only, never object existence or authority. */
 export type ObjectFormat = 'sha1' | 'sha256';
@@ -40,4 +42,17 @@ export function parseObjectId<Format extends ObjectFormat>(
     throw new TypeError('Git object ID does not match its required repository format');
   }
   return value;
+}
+/** Compute the exact Git blob object name for one repository object format.
+ * This is Git object identity, not an application content digest. The Git
+ * header and raw bytes are hashed exactly as stored by Git. */
+export function gitBlobObjectId<Format extends ObjectFormat>(
+  format: Format,
+  bytes: Uint8Array
+): ObjectId<Format> {
+  if (!isObjectFormat(format)) throw new TypeError('Unsupported Git object format');
+  const hash = createHash(format);
+  hash.update(`blob ${bytes.byteLength}\0`);
+  hash.update(bytes);
+  return parseObjectId(hash.digest('hex'), format);
 }
