@@ -1,6 +1,7 @@
 import { expect, test } from 'bun:test';
 
 import {
+  assertCodeScanningFindingProjectionConsistent,
   parseCodeScanningFinding,
   renderCodeScanningProjection
 } from '../../src/adapters/verification/platform/ci/runtime/code-scanning-projection.ts';
@@ -32,7 +33,7 @@ function alert(overrides: Record<string, unknown> = {}): Record<string, unknown>
 }
 
 test('CodeQL projection admits only open findings from the exact PR merge analysis', () => {
-  expect(parseCodeScanningFinding(alert(), REF, MERGE)).toEqual({
+  expect(parseCodeScanningFinding(alert(), REF)).toEqual({
     alertNumber: 17,
     ruleId: 'js/user-controlled-bypass',
     ruleName: 'User-controlled bypass of security check',
@@ -43,14 +44,31 @@ test('CodeQL projection admits only open findings from the exact PR merge analys
     endLine: 41,
     htmlUrl: 'https://github.com/sec-platform/sec/security/code-scanning/17'
   });
-  expect(parseCodeScanningFinding(alert({ state: 'dismissed' }), REF, MERGE)).toBeNull();
-  expect(parseCodeScanningFinding(alert({ tool: { name: 'Other' } }), REF, MERGE)).toBeNull();
-  expect(parseCodeScanningFinding(alert(), REF, 'c'.repeat(40))).toBeNull();
-  expect(parseCodeScanningFinding(alert(), 'refs/pull/637/merge', MERGE)).toBeNull();
+  expect(parseCodeScanningFinding(alert({ state: 'dismissed' }), REF)).toBeNull();
+  expect(parseCodeScanningFinding(alert({ tool: { name: 'Other' } }), REF)).toBeNull();
+  expect(parseCodeScanningFinding(alert(), 'refs/pull/637/merge')).toBeNull();
+  expect(parseCodeScanningFinding(alert(), 'refs/pull/637/merge')).toBeNull();
+});
+
+test('PR-scoped finding identity does not equate alert instance commit with PR merge metadata', () => {
+  const value = alert();
+  const instance = value.most_recent_instance as Record<string, unknown>;
+  instance.commit_sha = 'c'.repeat(40);
+  expect(parseCodeScanningFinding(value, REF)).toMatchObject({
+    alertNumber: 17,
+    path: 'src/example.ts',
+    startLine: 41
+  });
+});
+
+test('projection refuses an empty finding set when final CodeQL reports annotations', () => {
+  expect(() => assertCodeScanningFindingProjectionConsistent(3, []))
+    .toThrow('PR-scoped finding projection is empty');
+  expect(() => assertCodeScanningFindingProjectionConsistent(0, [])).not.toThrow();
 });
 
 test('CodeQL projection renders exact head, merge analysis, and final check identity', () => {
-  const finding = parseCodeScanningFinding(alert(), REF, MERGE)!;
+  const finding = parseCodeScanningFinding(alert(), REF)!;
   const body = renderCodeScanningProjection({
     repository: 'sec-platform/sec',
     pullRequestNumber: 636,
