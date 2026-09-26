@@ -79,6 +79,7 @@ function classifyDisposableComment(
 ): Readonly<
   | { kind: 'maintenance-trigger'; targetBranch: string }
   | { kind: 'codex-command' }
+  | { kind: 'codex-summary' }
   | { kind: 'codex-usage-limit' }
 > {
   const trimmed = comment.body.trim();
@@ -88,6 +89,10 @@ function classifyDisposableComment(
   }
   if (trimmed === '@codex review' || trimmed === '@codex security review') {
     return Object.freeze({ kind: 'codex-command' });
+  }
+  if (comment.authorLogin === 'chatgpt-codex-connector[bot]'
+      && trimmed.startsWith('<!-- codex-pull-request-review-summary -->')) {
+    return Object.freeze({ kind: 'codex-summary' });
   }
   if (comment.authorLogin === 'chatgpt-codex-connector[bot]'
       && trimmed.startsWith('You have reached your Codex usage limits for code reviews.')) {
@@ -109,6 +114,32 @@ async function observeIssueComment(
     if (error instanceof GitHubApiProviderError && error.statusCode === 404) return null;
     throw error;
   }
+}
+
+async function assertClosedPullConversation(input: Readonly<{
+  repositoryRoot: string;
+  repository: string;
+  issueNumber: number;
+}>): Promise<void> {
+  await withGitHubApiReadSession({
+    repositoryRoot: input.repositoryRoot,
+    repository: input.repository,
+    operation: async (capability) => {
+      const value = record(
+        await executeGitHubApiOperation(capability, {
+          kind: 'issue',
+          issueNumber: input.issueNumber
+        }),
+        'comment parent issue'
+      );
+      if (value.state !== 'closed'
+          || value.pull_request === null
+          || typeof value.pull_request !== 'object'
+          || Array.isArray(value.pull_request)) {
+        throw new Error('Codex transport comment retirement requires one closed pull request');
+      }
+    }
+  });
 }
 
 async function assertMaintenanceTargetAbsent(input: Readonly<{
@@ -139,7 +170,12 @@ export async function retireExactIssueComment(input: Readonly<{
 }>): Promise<Readonly<{
   retired: readonly number[];
   alreadyAbsent: readonly number[];
-  classification: 'maintenance-trigger' | 'codex-command' | 'codex-usage-limit' | 'already-absent';
+  classification:
+    | 'maintenance-trigger'
+    | 'codex-command'
+    | 'codex-summary'
+    | 'codex-usage-limit'
+    | 'already-absent';
 }>> {
   const repositoryRoot = path.resolve(input.repositoryRoot);
   if (input.retirement.commentId === input.triggeringCommentId) {
@@ -168,6 +204,13 @@ export async function retireExactIssueComment(input: Readonly<{
       repositoryRoot,
       repository: input.repository,
       branch: classification.targetBranch
+    });
+  } else if (classification.kind === 'codex-command'
+      || classification.kind === 'codex-summary') {
+    await assertClosedPullConversation({
+      repositoryRoot,
+      repository: input.repository,
+      issueNumber: input.retirement.issueNumber
     });
   }
 
