@@ -24,6 +24,7 @@ import { GIT_READ_OPERATION_BUDGET } from '../../development/tooling/git/git-rea
 import { observeActiveWorkPackage } from '../documentation/document-control-plane.ts';
 import {
   parsePreparedBranchCloseoutEnvelope,
+  prepareClosedUnmergedPullRequestCloseout,
   type PreparedBranchCloseoutEnvelope
 } from './branch-closeout.ts';
 import type { BranchLifecycleInventory, BranchPullRequestObservation } from './branch-lifecycle-contract.ts';
@@ -34,8 +35,11 @@ import {
   type ClosedSupersessionEvidence
 } from './closed-supersession-review.ts';
 import {
+  compileClosedUnmergedCloseoutOperation,
+  createClosedSupersededDispositionEvidence,
   executeClosedUnmergedCloseoutOperation,
   issueClosedUnmergedCloseoutEffectProvider,
+  tryCreateClosedNativeAbsorptionDispositionEvidence,
   type ClosedUnmergedCloseoutEffectAdapter,
   type ClosedUnmergedCloseoutEffectStartReceipt,
   type ClosedUnmergedCloseoutExecutionResult,
@@ -606,6 +610,113 @@ export async function executeProductionClosedUnmergedCloseout(input: Readonly<{
     return completed;
     })
   ));
+}
+
+
+export interface ProductionClosedUnmergedRetirementRequest {
+  readonly repositoryRoot: string;
+  readonly repository: string;
+  readonly pullRequestNumber: number;
+  readonly reviewCommentId: number | null;
+}
+
+/**
+ * Production closeout owner. Caller input selects only the repository/PR
+ * subject and, when native retention is impossible, one review-evidence
+ * locator. The retention security path itself is derived from live repository
+ * facts; callers cannot supply a preparation artifact or choose its kind.
+ */
+export async function executeProductionClosedUnmergedRetirement(
+  input: Readonly<ProductionClosedUnmergedRetirementRequest>
+): Promise<ClosedUnmergedCloseoutExecutionResult> {
+  const repositoryRoot = canonicalRoot(input.repositoryRoot);
+  return executeProductionClosedUnmergedCloseout({
+    repositoryRoot,
+    repository: input.repository,
+    compileOperation: async (context) => {
+      const pull = await context.observePullRequest(input.pullRequestNumber);
+      if (pull.state !== 'closed' || pull.headSha === null || pull.baseSha == null) {
+        throw new Error('closed-superseded production closeout requires one exact closed PR with complete head/base identity');
+      }
+      const headRef = await context.observeHeadRef(pull.headBranch);
+      if (headRef.state === 'present' && headRef.sha !== pull.headSha) {
+        throw new Error('current remote head ref differs from the exact closed PR head');
+      }
+      const scope = {
+        repositoryRoot,
+        repositoryFullName: input.repository,
+        activeWorkPackageObservation: await observeActiveWorkPackage(repositoryRoot)
+      };
+      const request = {
+        number: pull.number,
+        refState: headRef.state,
+        headBranch: pull.headBranch,
+        headSha: pull.headSha,
+        baseBranch: pull.baseBranch,
+        baseSha: pull.baseSha,
+        exactPullRequest: pull
+      } as const;
+
+      const mainRef = await context.observeHeadRef(pull.baseBranch);
+      if (mainRef.state !== 'present') {
+        throw new Error('Closed-unmerged retention requires the exact current base ref.');
+      }
+
+      let evidence = await tryCreateClosedNativeAbsorptionDispositionEvidence({
+        repositoryRoot,
+        repository: input.repository,
+        pullRequestNumber: pull.number,
+        branch: pull.headBranch,
+        headSha: pull.headSha,
+        baseBranch: pull.baseBranch,
+        baseSha: pull.baseSha,
+        currentMainSha: mainRef.sha
+      });
+
+      let prepared: PreparedBranchCloseoutEnvelope;
+      if (evidence !== null) {
+        prepared = await context.observeCompletedPreparation(pull.number, evidence.evidenceDigest)
+          ?? await prepareClosedUnmergedPullRequestCloseout(scope, request);
+      } else {
+        if (input.reviewCommentId === null) {
+          throw new Error('Closed-unmerged distinct-tree retirement requires one adopted review comment.');
+        }
+        const supersession = await context.observeSupersessionEvidence({
+          pullRequestNumber: pull.number,
+          commentId: input.reviewCommentId
+        });
+        evidence = createClosedSupersededDispositionEvidence({
+          repository: input.repository,
+          pullRequestNumber: pull.number,
+          branch: pull.headBranch,
+          headSha: pull.headSha,
+          headTreeSha: supersession.review.headTreeSha,
+          baseBranch: pull.baseBranch,
+          baseSha: pull.baseSha,
+          currentMainSha: supersession.review.currentMainSha,
+          currentMainTreeSha: supersession.review.currentMainTreeSha,
+          durableGoal: { kind: 'evidence', reference: supersession.reference },
+          supersession
+        });
+        prepared = await context.observeCompletedPreparation(pull.number, evidence.evidenceDigest)
+          ?? await prepareClosedUnmergedPullRequestCloseout(scope, {
+            ...request,
+            reviewEvidence: supersession
+          });
+      }
+
+      if (prepared.before.repository.fullName !== input.repository
+          || prepared.before.repository.defaultBranch !== pull.baseBranch
+          || prepared.before.main.remoteSha !== evidence.currentMainSha) {
+        throw new Error('prepared repository/main identity differs from the exact retention evidence');
+      }
+      const compiled = compileClosedUnmergedCloseoutOperation({ prepared, evidence });
+      if (compiled.status !== 'ready') {
+        throw new Error(`closed-unmerged operation compilation blocked: ${compiled.blockers.join(' | ')}`);
+      }
+      return compiled.operation;
+    }
+  });
 }
 
 /** Re-observe one exact adopted review through the existing bounded GitHub owner. */
