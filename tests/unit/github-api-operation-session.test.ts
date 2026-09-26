@@ -842,7 +842,7 @@ test('code scanning alert inventory is one bounded fixed read', async () => {
     })
   })).toEqual([]);
   expect(urls).toEqual([
-    'https://api.github.com/repos/sec-platform/sec/code-scanning/alerts?state=open&tool_name=CodeQL&pr=636&per_page=100&page=2'
+    'https://api.github.com/repos/sec-platform/sec/code-scanning/alerts?state=open&tool_name=CodeQL&ref=refs%2Fpull%2F636%2Fmerge&per_page=100&page=2'
   ]);
 });
 
