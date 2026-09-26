@@ -1,9 +1,8 @@
 import { spawnSync } from 'node:child_process';
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import {
   closeSync,
   fsyncSync,
-  mkdirSync,
   mkdtempSync,
   openSync,
   readFileSync,
@@ -11,8 +10,7 @@ import {
   renameSync,
   rmSync,
   statSync,
-  unlinkSync,
-  writeFileSync
+  unlinkSync
 } from 'node:fs';
 import path from 'node:path';
 
@@ -81,29 +79,6 @@ function fsyncDirectory(directoryPath: string): void {
     // Windows does not always permit opening a directory for fsync. The file
     // itself is still flushed before the rename completes.
   }
-}
-
-export function writeDurableFile(filePath: string, content: string | Buffer): void {
-  const directory = path.dirname(filePath);
-  mkdirSync(directory, { recursive: true });
-  const temporary = path.join(
-    directory,
-    `.${path.basename(filePath)}.${process.pid}.${Date.now()}.partial`
-  );
-  try {
-    writeFileSync(temporary, content, { flag: 'wx' });
-    fsyncPath(temporary);
-    renameSync(temporary, filePath);
-    fsyncPath(filePath);
-    fsyncDirectory(directory);
-  } catch (error) {
-    try { unlinkSync(temporary); } catch { /* no residue */ }
-    throw error;
-  }
-}
-
-function sanitizeFileSegment(value: string): string {
-  return value.replace(/[^A-Za-z0-9._-]+/gu, '-').replace(/^-+|-+$/gu, '').slice(0, 80);
 }
 
 export interface BranchRecoveryStore {
@@ -200,7 +175,6 @@ export function acquireBranchRecoveryStore(input: Readonly<{
   const worktreeRoots = [...new Set(input.worktreeRoots.map((entry) => path.resolve(entry)))];
   const requested = path.resolve(
     input.recoveryRoot
-      ?? process.env.SEC_BRANCH_RECOVERY_ROOT
       ?? path.join(path.dirname(repositoryRoot), `${path.basename(repositoryRoot)}-recovery`)
   );
   for (const forbidden of [repositoryRoot, commonDir, ...worktreeRoots]) {
@@ -426,12 +400,18 @@ export function createRecoveryBundle(input: {
   }
   const attempts: BranchCloseoutAttempt[] = [];
   const repositoryRoot = inventory.repository.root;
-  const recoveryRoot = ensureRecoveryRoot(inventory, input.recoveryRoot);
-  const token = `${Date.now()}-${process.pid}-${expectedSha.slice(0, 12)}`;
-  const safeBranch = sanitizeFileSegment(branch);
-  const bundleName = `sec-branch-closeout-${safeBranch}-${token}.bundle`;
+  const store = acquireBranchRecoveryStore({
+    repositoryRoot: inventory.repository.root,
+    commonDir: inventory.repository.commonDir,
+    worktreeRoots: inventory.worktrees.map((worktree) => worktree.path),
+    ...(input.recoveryRoot === undefined ? {} : { recoveryRoot: input.recoveryRoot })
+  });
+  const recoveryRoot = store.root.path;
+  const token = `${Date.now()}-${process.pid}-${randomUUID()}`;
+  const bundleName = `sec-branch-closeout-${token}.bundle`;
   const bundlePath = path.join(recoveryRoot, bundleName);
-  const checksumPath = `${bundlePath}.sha256`;
+  const checksumName = `${bundleName}.sha256`;
+  const checksumPath = path.join(recoveryRoot, checksumName);
   const sourceSpec = refSource.kind === 'pull'
     ? `refs/pull/${refSource.number}/head`
     : `refs/heads/${branch}`;
@@ -508,6 +488,7 @@ export function createRecoveryBundle(input: {
     renameSync(partialBundlePath, bundlePath);
     fsyncPath(bundlePath);
     fsyncDirectory(recoveryRoot);
+    store.assertCurrent();
     attempts.push({
       operation: 'recovery-create',
       status: 'success',
@@ -531,7 +512,16 @@ export function createRecoveryBundle(input: {
     }
 
     const digest = createHash('sha256').update(readFileSync(bundlePath)).digest('hex');
-    writeDurableFile(checksumPath, `${digest}  ${path.basename(bundlePath)}\n`);
+    const checksumText = `${digest}  ${bundleName}\n`;
+    store.publishExclusive({
+      name: checksumName,
+      bytes: Buffer.from(checksumText, 'utf8'),
+      validate: (bytes) => {
+        if (Buffer.from(bytes).toString('utf8') !== checksumText) {
+          throw new Error('Branch recovery checksum publication changed bytes.');
+        }
+      }
+    });
     const recovery: BranchRecoveryAuthority = {
       kind: 'bundle',
       path: realpathSync(bundlePath),
