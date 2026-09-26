@@ -43,6 +43,9 @@ jobs:
         with:
           bun-version-file: .bun-version
 
+      - name: Install maintenance dependencies from frozen lock
+        run: bun install --frozen-lockfile --ignore-scripts
+
       - name: Execute exact repository maintenance request
         env:
           GH_TOKEN: ${{ github.token }}
