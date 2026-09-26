@@ -738,11 +738,14 @@ async function executeWithToken<T>(
         signal: transportSignal,
         ...(body === undefined ? {} : { body })
       });
+      const acceptsDeleteNoContent = response.status === 204
+        && response.ok
+        && compiled.method === 'DELETE'
+        && (compiled.kind === 'delete-repository-runner'
+          || compiled.kind === 'delete-issue-comment');
       if (response.body === null) {
         remaining(session);
-        if (response.status === 204 && response.ok && compiled.method === 'DELETE'
-            && (compiled.kind === 'delete-repository-runner'
-              || compiled.kind === 'delete-issue-comment')) return null as T;
+        if (acceptsDeleteNoContent) return null as T;
         if (response.status === 204) throw new GitHubApiProviderError(
           `GitHub API ${compiled.kind} returned an invalid 204 response`, response.status
         );
@@ -756,9 +759,26 @@ async function executeWithToken<T>(
           // Also rejects a late response before decoding or installing it, but
           // only after its returned body has entered the closeout owner.
           remaining(session);
-          if (response.status === 204) throw new GitHubApiProviderError(
-            `GitHub API ${compiled.kind} returned an invalid 204 response`, response.status
-          );
+          if (response.status === 204) {
+            if (!acceptsDeleteNoContent) throw new GitHubApiProviderError(
+              `GitHub API ${compiled.kind} returned an invalid 204 response`, response.status
+            );
+            let observedBytes = 0;
+            for (;;) {
+              const chunk = await read();
+              if (!chunk.done) {
+                observedBytes += chunk.value.byteLength;
+                recordResponseBytes(session, chunk.value.byteLength);
+              }
+              remaining(session);
+              if (chunk.done) break;
+            }
+            if (observedBytes !== 0) throw new GitHubApiProviderError(
+              `GitHub API ${compiled.kind} returned bytes with a terminal 204 response`,
+              response.status
+            );
+            return null as T;
+          }
           const decoder = new TextDecoder('utf-8', { fatal: true });
           const chunks: string[] = [];
           for (;;) {
