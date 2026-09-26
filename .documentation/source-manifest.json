@@ -1,6 +1,6 @@
 {
   "schema": "sec.documentation-source-manifest/2",
-  "source_set_sha256": "81a8aba084e3b4b06c97c83e1b3262e06cd65ff8d173fe94420746a6c9b5299a",
+  "source_set_sha256": "140c5a0e63aba0a006572f5de02928090daa3c43ca60f97f0165d15e6286283b",
   "members": [
     {
       "path": ".documentation/README.md",
@@ -694,8 +694,8 @@
     },
     {
       "path": "docs/架构/总体设计.md",
-      "bytes": 26252,
-      "sha256": "8d1d343586586594e9ea92d540777844e4ac4abb39fb6e0561c1d9a2aa3fc9c7"
+      "bytes": 28278,
+      "sha256": "47e03f68fb5575a838da05570ff6680976a5f1d6aee4a6cef98109985f6e9f74"
     },
     {
       "path": "docs/架构/约束强制与整体一致性.md",
@@ -749,8 +749,8 @@
     },
     {
       "path": "docs/演进/实施/安全构建发布与环境.md",
-      "bytes": 9949,
-      "sha256": "4672144d777bae1d95d92b1343619d812642837d583311eb7d31c5eedf89eea2"
+      "bytes": 18939,
+      "sha256": "359b359481b0c2d6c62963f4143e86e6c624fcafef4d20eb75da855f75c0cc23"
     },
     {
       "path": "docs/演进/实施/独立能力的实施单元.md",
@@ -1104,8 +1104,8 @@
     },
     {
       "path": "docs/运行/保证/要求证据与裁决.md",
-      "bytes": 64814,
-      "sha256": "70a722ba06582d4d03a3c37e27ff4eefcb1c752e71c23ba87e0b1fa954d885f9"
+      "bytes": 67408,
+      "sha256": "abaa096fc899c3aaa67c1f13fc2442e935d4607472a77a273ed1f1569c50c9ba"
     },
     {
       "path": "docs/运行/保证/覆盖成熟度与验收范围.md",
@@ -1189,13 +1189,13 @@
     },
     {
       "path": "docs/运行/验收/方法与独立证据.md",
-      "bytes": 61529,
-      "sha256": "a635aeb20b2dad49cef90a55d55c510b5b7599078c041ff1291876278200b770"
+      "bytes": 68587,
+      "sha256": "0690cf3ba852f6b4f6d29a73fca9e6290c2ff00e0ce493a3a65a2aa4b1a6b980"
     },
     {
       "path": "docs/运行/验收/测试生成与形式方法.md",
-      "bytes": 18843,
-      "sha256": "3691c50a844599c718bc81980c52d0f2d7ed529bf5f7102e39ed31c6c4315562"
+      "bytes": 21680,
+      "sha256": "18f140d5da5b5b59e7a40619c1ea877cb5f8f5972abd23df8e42e88fb16e6db1"
     },
     {
       "path": "docs/运行/验收/系统组合挑战与反例.md",
