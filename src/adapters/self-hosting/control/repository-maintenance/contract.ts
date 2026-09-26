@@ -73,8 +73,8 @@ export function parseRepositoryMaintenanceRequest(source: string): MaintenanceRe
   if (input.schema !== REPOSITORY_MAINTENANCE_REQUEST_SCHEMA) {
     throw new Error('repository maintenance request schema is invalid');
   }
-  if (!Array.isArray(input.operations) || input.operations.length < 1 || input.operations.length > 64) {
-    throw new Error('repository maintenance request requires 1..64 operations');
+  if (!Array.isArray(input.operations) || input.operations.length !== 1) {
+    throw new Error('repository maintenance request requires exactly one operation');
   }
   return Object.freeze({
     schema: REPOSITORY_MAINTENANCE_REQUEST_SCHEMA,
