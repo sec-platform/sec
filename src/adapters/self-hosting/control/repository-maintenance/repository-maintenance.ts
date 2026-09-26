@@ -3,10 +3,6 @@
 import path from 'node:path';
 
 import { sha256 } from '../../../../contracts/canonical.ts';
-import {
-  inspectGitHubApiCapability,
-  withGitHubApiBranchCloseoutWriteSession
-} from '../../../providers/github-api/operation-session.ts';
 import { writeDurableFile } from '../branch-lifecycle/branch-recovery.ts';
 import { retireExactRemoteRefs } from '../branch-lifecycle/exact-ref-retirement.ts';
 import type { MaintenanceRequest } from './contract.ts';
@@ -30,20 +26,6 @@ export async function executeRepositoryMaintenance(input: Readonly<{
   const environment = input.environment ?? process.env;
   const repositoryRoot = path.resolve(input.repositoryRoot);
   assertHostedRepositoryMaintenanceIdentity(input.request, environment);
-
-  await withGitHubApiBranchCloseoutWriteSession({
-    repositoryRoot,
-    repository: input.request.repository,
-    operation: async (capability) => {
-      const binding = inspectGitHubApiCapability(capability);
-      if (binding.repository !== input.request.repository
-          || binding.effect !== 'branch-closeout-write'
-          || binding.origin !== 'production'
-          || binding.principal.transport !== 'github-actions-token') {
-        throw new Error('repository maintenance branch capability preflight is invalid');
-      }
-    }
-  });
 
   const results: unknown[] = [];
   for (const operation of input.request.operations) {
