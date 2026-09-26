@@ -1,22 +1,23 @@
 name: code-scanning-projection
-run-name: 'project CodeQL run ${{ github.event.workflow_run.id }} @ ${{ github.event.workflow_run.head_sha }}'
+run-name: 'project CodeQL findings for PR #${{ github.event.pull_request.number }} @ ${{ github.event.pull_request.head.sha }}'
 
 on:
-  workflow_run:
-    workflows:
-      - CodeQL
+  pull_request_target:
     types:
-      - completed
+      - opened
+      - reopened
+      - synchronize
+      - ready_for_review
 
 permissions:
-  actions: read
+  checks: read
   contents: read
   issues: write
   pull-requests: read
   security-events: read
 
 concurrency:
-  group: sec-code-scanning-projection-${{ github.event.workflow_run.id }}
+  group: sec-code-scanning-projection-${{ github.event.pull_request.number }}
   cancel-in-progress: true
 
 env:
@@ -25,16 +26,15 @@ env:
 jobs:
   project:
     if: >-
-      ${{ github.event.workflow_run.event == 'pull_request' &&
-          github.event.workflow_run.conclusion == 'success' &&
-          github.event.workflow_run.pull_requests[0] != null }}
+      ${{ github.event.pull_request.base.ref == 'main' &&
+          github.event.pull_request.head.repo.full_name == github.repository }}
     runs-on: [self-hosted, Linux, X64, sec-linux-verification-v1, sec-linux-verification-trusted-v1]
-    timeout-minutes: 10
+    timeout-minutes: 15
     steps:
       - name: Checkout trusted projection owner
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ github.workflow_sha }}
+          ref: ${{ github.sha }}
           fetch-depth: 1
           persist-credentials: false
           lfs: false
@@ -45,7 +45,54 @@ jobs:
         with:
           bun-version-file: .bun-version
 
+      - name: Join final GitHub Advanced Security CodeQL check
+        id: codeql
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        env:
+          EXPECTED_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        with:
+          script: |
+            const expectedHead = process.env.EXPECTED_HEAD_SHA;
+            const deadline = Date.now() + 12 * 60 * 1000;
+            while (true) {
+              const response = await github.rest.checks.listForRef({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                ref: expectedHead,
+                filter: 'latest',
+                per_page: 100
+              });
+              const codeql = response.data.check_runs.filter((run) =>
+                run.name === 'CodeQL' &&
+                run.head_sha === expectedHead &&
+                run.app?.slug === 'github-advanced-security'
+              );
+              const terminal = codeql.filter((run) =>
+                run.status === 'completed' &&
+                (run.conclusion === 'success' || run.conclusion === 'failure')
+              );
+              if (terminal.length === 1) {
+                core.setOutput('check-id', String(terminal[0].id));
+                return;
+              }
+              if (terminal.length > 1) {
+                throw new Error('Multiple final GitHub Advanced Security CodeQL checks bind this exact head.');
+              }
+              const otherCompleted = codeql.filter((run) =>
+                run.status === 'completed' && run.conclusion !== null && run.conclusion !== 'neutral'
+              );
+              if (otherCompleted.length > 0) {
+                throw new Error('CodeQL completed without a publishable security result.');
+              }
+              if (Date.now() >= deadline) {
+                throw new Error('Timed out waiting for the final CodeQL check for the exact PR head.');
+              }
+              await new Promise((resolve) => setTimeout(resolve, 15000));
+            }
+
       - name: Project exact CodeQL findings to the pull request
-        run: >-
-          bun src/adapters/verification/platform/ci/runtime/code-scanning-projection.ts
-          publish ${{ github.event.workflow_run.id }}
+        env:
+          SEC_CODE_SCANNING_PR_NUMBER: ${{ github.event.pull_request.number }}
+          SEC_CODE_SCANNING_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          SEC_CODE_SCANNING_CHECK_ID: ${{ steps.codeql.outputs.check-id }}
+        run: bun src/adapters/verification/platform/ci/runtime/code-scanning-projection.ts publish

@@ -6,7 +6,8 @@ import {
 } from '../../src/adapters/verification/platform/ci/runtime/code-scanning-projection.ts';
 
 const HEAD = 'a'.repeat(40);
-const ANALYSIS = 'b'.repeat(40);
+const MERGE = 'b'.repeat(40);
+const REF = 'refs/pull/636/merge';
 
 function alert(overrides: Record<string, unknown> = {}): Record<string, unknown> {
   return {
@@ -21,7 +22,8 @@ function alert(overrides: Record<string, unknown> = {}): Record<string, unknown>
       security_severity_level: 'high'
     },
     most_recent_instance: {
-      commit_sha: ANALYSIS,
+      ref: REF,
+      commit_sha: MERGE,
       message: { text: 'A user-controlled value may bypass this security check.' },
       location: { path: 'src/example.ts', start_line: 41, end_line: 41 }
     },
@@ -29,8 +31,8 @@ function alert(overrides: Record<string, unknown> = {}): Record<string, unknown>
   };
 }
 
-test('CodeQL projection admits only open findings from the source analysis merge SHA', () => {
-  expect(parseCodeScanningFinding(alert(), ANALYSIS)).toEqual({
+test('CodeQL projection admits only open findings from the exact PR merge analysis', () => {
+  expect(parseCodeScanningFinding(alert(), REF, MERGE)).toEqual({
     alertNumber: 17,
     ruleId: 'js/user-controlled-bypass',
     ruleName: 'User-controlled bypass of security check',
@@ -41,37 +43,39 @@ test('CodeQL projection admits only open findings from the source analysis merge
     endLine: 41,
     htmlUrl: 'https://github.com/sec-platform/sec/security/code-scanning/17'
   });
-  expect(parseCodeScanningFinding(alert({ state: 'dismissed' }), ANALYSIS)).toBeNull();
-  expect(parseCodeScanningFinding(alert({ tool: { name: 'Other' } }), ANALYSIS)).toBeNull();
-  expect(parseCodeScanningFinding(alert(), 'c'.repeat(40))).toBeNull();
+  expect(parseCodeScanningFinding(alert({ state: 'dismissed' }), REF, MERGE)).toBeNull();
+  expect(parseCodeScanningFinding(alert({ tool: { name: 'Other' } }), REF, MERGE)).toBeNull();
+  expect(parseCodeScanningFinding(alert(), REF, 'c'.repeat(40))).toBeNull();
+  expect(parseCodeScanningFinding(alert(), 'refs/pull/637/merge', MERGE)).toBeNull();
 });
 
-test('CodeQL projection renders the exact PR head and merge analysis separately', () => {
-  const finding = parseCodeScanningFinding(alert(), ANALYSIS)!;
+test('CodeQL projection renders exact head, merge analysis, and final check identity', () => {
+  const finding = parseCodeScanningFinding(alert(), REF, MERGE)!;
   const body = renderCodeScanningProjection({
     repository: 'sec-platform/sec',
     pullRequestNumber: 636,
     headSha: HEAD,
-    analysisSha: ANALYSIS,
-    sourceRunId: '12345',
+    mergeSha: MERGE,
+    codeQlCheckId: 108424693203,
     findings: [finding]
   });
   expect(body).toContain('Exact PR head: ' + String.fromCharCode(96) + HEAD + String.fromCharCode(96));
-  expect(body).toContain('Analysis merge SHA: ' + String.fromCharCode(96) + ANALYSIS + String.fromCharCode(96));
-  expect(body).toContain('Open findings for this analysis: **1**');
+  expect(body).toContain('PR merge analysis: ' + String.fromCharCode(96) + MERGE + String.fromCharCode(96));
+  expect(body).toContain('CodeQL check: ' + String.fromCharCode(96) + '108424693203' + String.fromCharCode(96));
+  expect(body).toContain('Open findings for this exact analysis: **1**');
   expect(body).toContain('js/user-controlled-bypass');
   expect(body).toContain('src/example.ts:41');
 });
 
-test('CodeQL projection explicitly represents a clean analysis', () => {
+test('CodeQL projection explicitly represents a clean exact analysis', () => {
   const body = renderCodeScanningProjection({
     repository: 'sec-platform/sec',
     pullRequestNumber: 636,
     headSha: HEAD,
-    analysisSha: ANALYSIS,
-    sourceRunId: '12345',
+    mergeSha: MERGE,
+    codeQlCheckId: 108424693203,
     findings: []
   });
-  expect(body).toContain('Open findings for this analysis: **0**');
+  expect(body).toContain('Open findings for this exact analysis: **0**');
   expect(body).toContain('No open CodeQL findings are reported for this exact PR analysis.');
 });

@@ -7,6 +7,7 @@ import {
 
 const COMMENT_MARKER = '<!-- sec-code-scanning-projection:v1 -->' as const;
 const MAX_ALERT_PAGES = 32;
+const MAX_CHECK_PAGES = 32;
 const MAX_COMMENT_PAGES = 64;
 const PAGE_SIZE = 100;
 const TICK = String.fromCharCode(96);
@@ -27,34 +28,43 @@ export type CodeScanningProjection = Readonly<{
   repository: string;
   pullRequestNumber: number;
   headSha: string;
-  analysisSha: string;
-  sourceRunId: string;
+  mergeSha: string;
+  codeQlCheckId: number;
   findings: readonly CodeScanningFinding[];
 }>;
 
 function record(value: unknown, label: string): Record<string, unknown> {
   if (value === null || typeof value !== 'object' || Array.isArray(value)) {
-    throw new Error(label + ' must be one object');
+    throw new Error(`${label} must be one object`);
   }
   return value as Record<string, unknown>;
 }
 
 function positiveInteger(value: unknown, label: string): number {
-  if (!Number.isSafeInteger(value) || Number(value) < 1) throw new Error(label + ' must be one positive integer');
+  if (!Number.isSafeInteger(value) || Number(value) < 1) {
+    throw new Error(`${label} must be one positive integer`);
+  }
   return Number(value);
+}
+
+function positiveIntegerText(value: unknown, label: string): number {
+  if (typeof value !== 'string' || !/^[1-9][0-9]*$/u.test(value)) {
+    throw new Error(`${label} must be one positive integer string`);
+  }
+  return positiveInteger(Number(value), label);
 }
 
 function boundedText(value: unknown, label: string, maximum = 4096): string {
   if (typeof value !== 'string' || value.length < 1 || value.length > maximum
       || /[\u0000-\u0008\u000b-\u001f\u007f]/u.test(value)) {
-    throw new Error(label + ' must be bounded text');
+    throw new Error(`${label} must be bounded text`);
   }
   return value;
 }
 
 function gitSha(value: unknown, label: string): string {
   const parsed = boundedText(value, label, 40);
-  if (!/^[0-9a-f]{40}$/u.test(parsed)) throw new Error(label + ' must be one Git SHA');
+  if (!/^[0-9a-f]{40}$/u.test(parsed)) throw new Error(`${label} must be one Git SHA`);
   return parsed;
 }
 
@@ -74,13 +84,20 @@ function severityRank(value: string): number {
   return ({ critical: 0, high: 1, medium: 2, low: 3, error: 4, warning: 5, note: 6 } as Record<string, number>)[value] ?? 7;
 }
 
-export function parseCodeScanningFinding(value: unknown, expectedAnalysisSha: string): CodeScanningFinding | null {
+export function parseCodeScanningFinding(
+  value: unknown,
+  expectedRef: string,
+  expectedMergeSha: string
+): CodeScanningFinding | null {
   const alert = record(value, 'code scanning alert');
   if (alert.state !== 'open') return null;
   const tool = record(alert.tool, 'code scanning alert tool');
   if (tool.name !== 'CodeQL') return null;
   const instance = record(alert.most_recent_instance, 'code scanning alert instance');
-  if (gitSha(instance.commit_sha, 'code scanning alert analysis commit') !== expectedAnalysisSha) return null;
+  if (instance.ref !== expectedRef
+      || gitSha(instance.commit_sha, 'code scanning alert merge commit') !== expectedMergeSha) {
+    return null;
+  }
   const rule = record(alert.rule, 'code scanning alert rule');
   const location = record(instance.location, 'code scanning alert location');
   const message = record(instance.message, 'code scanning alert message');
@@ -115,9 +132,9 @@ export function renderCodeScanningProjection(projection: CodeScanningProjection)
     '> SEC projection only. GitHub Code Scanning remains the authoritative security evidence.',
     '',
     '- Exact PR head: ' + TICK + projection.headSha + TICK,
-    '- Analysis merge SHA: ' + TICK + projection.analysisSha + TICK,
-    '- CodeQL workflow run: ' + TICK + projection.sourceRunId + TICK,
-    '- Open findings for this analysis: **' + findings.length + '**',
+    '- PR merge analysis: ' + TICK + projection.mergeSha + TICK,
+    '- CodeQL check: ' + TICK + projection.codeQlCheckId + TICK,
+    '- Open findings for this exact analysis: **' + findings.length + '**',
     ''
   ];
   if (findings.length === 0) {
@@ -135,59 +152,75 @@ export function renderCodeScanningProjection(projection: CodeScanningProjection)
   return lines.join('\n') + '\n';
 }
 
-function workflowRunBinding(run: Record<string, unknown>): Readonly<{
-  pullRequestNumber: number;
-  headSha: string;
-  analysisSha: string;
-}> {
-  if (!Array.isArray(run.pull_requests) || run.pull_requests.length !== 1) {
-    throw new Error('CodeQL workflow run must bind exactly one pull request');
+function assertFinalCodeQlCheck(
+  value: unknown,
+  expectedHeadSha: string,
+  expectedCheckId: number
+): void {
+  const check = record(value, 'CodeQL check run');
+  const app = record(check.app, 'CodeQL check app');
+  if (check.id !== expectedCheckId
+      || check.name !== 'CodeQL'
+      || check.head_sha !== expectedHeadSha
+      || check.status !== 'completed'
+      || (check.conclusion !== 'success' && check.conclusion !== 'failure')
+      || app.slug !== 'github-advanced-security') {
+    throw new Error('CodeQL check is not the final GitHub Advanced Security result for the exact PR head');
   }
-  const pull = record(run.pull_requests[0], 'workflow run pull request');
-  const head = record(pull.head, 'workflow run pull request head');
-  const base = record(pull.base, 'workflow run pull request base');
-  if (base.ref !== 'main') throw new Error('CodeQL workflow run is not for main');
-  return Object.freeze({
-    pullRequestNumber: positiveInteger(pull.number, 'pull request number'),
-    headSha: gitSha(head.sha, 'workflow run pull request head SHA'),
-    analysisSha: gitSha(run.head_sha, 'CodeQL analysis merge SHA')
-  });
 }
 
 async function observeProjection(input: Readonly<{
   repositoryRoot: string;
   repository: string;
-  runId: string;
+  pullRequestNumber: number;
+  expectedHeadSha: string;
+  expectedCheckId: number;
 }>): Promise<CodeScanningProjection> {
   return await withGitHubApiReadSession({
     repositoryRoot: input.repositoryRoot,
     repository: input.repository,
     operation: async (capability) => {
-      const run = record(await executeGitHubApiOperation(capability, {
-        kind: 'workflow-run', runId: input.runId
-      }), 'CodeQL workflow run');
-      if (String(run.id) !== input.runId || run.name !== 'CodeQL' || run.event !== 'pull_request'
-          || run.status !== 'completed' || run.conclusion !== 'success') {
-        throw new Error('workflow run is not one successful completed pull-request CodeQL run');
-      }
-      const binding = workflowRunBinding(run);
       const pull = record(await executeGitHubApiOperation(capability, {
-        kind: 'pull', pullRequestNumber: binding.pullRequestNumber
+        kind: 'pull', pullRequestNumber: input.pullRequestNumber
       }), 'CodeQL pull request');
       const pullHead = record(pull.head, 'CodeQL pull request head');
+      const pullHeadRepo = record(pullHead.repo, 'CodeQL pull request head repository');
       const pullBase = record(pull.base, 'CodeQL pull request base');
-      if (pull.number !== binding.pullRequestNumber || pull.state !== 'open'
-          || pullHead.sha !== binding.headSha || pullBase.ref !== 'main') {
-        throw new Error('CodeQL workflow run no longer binds the exact open main-targeting PR head');
+      if (pull.number !== input.pullRequestNumber
+          || pull.state !== 'open'
+          || pullBase.ref !== 'main'
+          || pullHead.sha !== input.expectedHeadSha
+          || pullHeadRepo.full_name !== input.repository) {
+        throw new Error('CodeQL projection no longer binds the exact open same-repository main-targeting PR head');
       }
+      const mergeSha = gitSha(pull.merge_commit_sha, 'pull request merge analysis SHA');
+
+      const finalChecks: unknown[] = [];
+      for (let page = 1; page <= MAX_CHECK_PAGES; page += 1) {
+        const response = record(await executeGitHubApiOperation(capability, {
+          kind: 'check-runs', sha: input.expectedHeadSha, page
+        }), 'check run inventory');
+        const checks = response.check_runs;
+        if (!Array.isArray(checks)) throw new Error('check run inventory is invalid');
+        for (const check of checks) {
+          const item = record(check, 'check run');
+          if (item.id === input.expectedCheckId) finalChecks.push(check);
+        }
+        if (checks.length < PAGE_SIZE) break;
+        if (page === MAX_CHECK_PAGES) throw new Error('check run inventory exceeds bounded pagination');
+      }
+      if (finalChecks.length !== 1) throw new Error('exact CodeQL check is absent or duplicated');
+      assertFinalCodeQlCheck(finalChecks[0], input.expectedHeadSha, input.expectedCheckId);
+
+      const expectedRef = `refs/pull/${input.pullRequestNumber}/merge`;
       const findings: CodeScanningFinding[] = [];
       for (let page = 1; page <= MAX_ALERT_PAGES; page += 1) {
         const alerts = await executeGitHubApiOperation(capability, {
-          kind: 'code-scanning-alerts', pullRequestNumber: binding.pullRequestNumber, page
+          kind: 'code-scanning-alerts', pullRequestNumber: input.pullRequestNumber, page
         });
         if (!Array.isArray(alerts)) throw new Error('code scanning alert inventory is invalid');
         for (const alert of alerts) {
-          const finding = parseCodeScanningFinding(alert, binding.analysisSha);
+          const finding = parseCodeScanningFinding(alert, expectedRef, mergeSha);
           if (finding !== null) findings.push(finding);
         }
         if (alerts.length < PAGE_SIZE) {
@@ -195,10 +228,10 @@ async function observeProjection(input: Readonly<{
           for (const finding of findings) byNumber.set(finding.alertNumber, finding);
           return Object.freeze({
             repository: input.repository,
-            pullRequestNumber: binding.pullRequestNumber,
-            headSha: binding.headSha,
-            analysisSha: binding.analysisSha,
-            sourceRunId: input.runId,
+            pullRequestNumber: input.pullRequestNumber,
+            headSha: input.expectedHeadSha,
+            mergeSha,
+            codeQlCheckId: input.expectedCheckId,
             findings: Object.freeze([...byNumber.values()])
           });
         }
@@ -230,7 +263,8 @@ async function publishProjection(input: Readonly<{
           if (user.login === principal && typeof comment.body === 'string'
               && comment.body.startsWith(COMMENT_MARKER)) {
             matching.push(Object.freeze({
-              id: positiveInteger(comment.id, 'issue comment id'), body: comment.body
+              id: positiveInteger(comment.id, 'issue comment id'),
+              body: comment.body
             }));
           }
         }
@@ -268,48 +302,53 @@ async function publishProjection(input: Readonly<{
   });
 }
 
-export async function projectCodeScanningRun(input: Readonly<{
+export async function projectCodeScanningPullRequest(input: Readonly<{
   repositoryRoot: string;
   repository: string;
-  runId: string;
+  pullRequestNumber: number;
+  expectedHeadSha: string;
+  expectedCheckId: number;
 }>): Promise<Readonly<{
   status: 'created' | 'updated' | 'reused';
   commentId: number;
   pullRequestNumber: number;
   headSha: string;
-  analysisSha: string;
+  mergeSha: string;
+  codeQlCheckId: number;
   findingCount: number;
 }>> {
   const repository = repositoryName(input.repository);
-  if (!/^[1-9][0-9]*$/u.test(input.runId)) throw new Error('runId must be one positive integer string');
   const projection = await observeProjection({ ...input, repository });
   const published = await publishProjection({ repositoryRoot: input.repositoryRoot, projection });
   return Object.freeze({
     ...published,
     pullRequestNumber: projection.pullRequestNumber,
     headSha: projection.headSha,
-    analysisSha: projection.analysisSha,
+    mergeSha: projection.mergeSha,
+    codeQlCheckId: projection.codeQlCheckId,
     findingCount: projection.findings.length
   });
 }
 
 export async function codeScanningProjectionCli(argv: readonly string[]): Promise<string> {
-  if (argv.length !== 2 || argv[0] !== 'publish' || !/^[1-9][0-9]*$/u.test(argv[1] ?? '')) {
-    throw new Error('usage: code-scanning-projection publish <workflow-run-id>');
+  if (argv.length !== 1 || argv[0] !== 'publish') {
+    throw new Error('usage: code-scanning-projection publish');
   }
   const repository = repositoryName(process.env.GITHUB_REPOSITORY);
   const workflowRef = repository + '/.github/workflows/code-scanning-projection.yml@refs/heads/main';
-  if (process.env.GITHUB_EVENT_NAME !== 'workflow_run'
+  if (process.env.GITHUB_EVENT_NAME !== 'pull_request_target'
       || process.env.GITHUB_REF !== 'refs/heads/main'
       || process.env.GITHUB_SHA === undefined
       || process.env.GITHUB_SHA !== process.env.GITHUB_WORKFLOW_SHA
       || process.env.GITHUB_WORKFLOW_REF !== workflowRef) {
     throw new Error('Code scanning projection must execute from the exact trusted default-branch workflow identity');
   }
-  return JSON.stringify(await projectCodeScanningRun({
+  return JSON.stringify(await projectCodeScanningPullRequest({
     repositoryRoot: process.cwd(),
     repository,
-    runId: argv[1]!
+    pullRequestNumber: positiveIntegerText(process.env.SEC_CODE_SCANNING_PR_NUMBER, 'pull request number'),
+    expectedHeadSha: gitSha(process.env.SEC_CODE_SCANNING_HEAD_SHA, 'expected pull request head'),
+    expectedCheckId: positiveIntegerText(process.env.SEC_CODE_SCANNING_CHECK_ID, 'CodeQL check id')
   }), null, 2);
 }
 
