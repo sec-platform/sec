@@ -30,6 +30,7 @@
         "withGitHubApiReadOperationBudgetForTestSupport",
         "withGitHubApiSessionForTestSupport",
         "withGitHubApiBranchCloseoutWriteSession",
+        "withGitHubApiIssueCommentWriteSession",
         "withGitHubApiReadSession",
         "withGitHubApiRunnerAdminSession",
         "withGitHubApiStatusWriteSession",
@@ -51,6 +52,13 @@
           "operation": "withGitHubApiBranchCloseoutWriteSession",
           "role": "domain-owner",
           "semanticOperation": "external-capabilities.github-api.branch-closeout-write-session",
+          "requirementId": null,
+          "recovery": null
+        },
+        {
+          "operation": "withGitHubApiIssueCommentWriteSession",
+          "role": "domain-owner",
+          "semanticOperation": "external-capabilities.github-api.issue-comment-write-session",
           "requirementId": null,
           "recovery": null
         },
@@ -86,6 +94,61 @@
     }
   ],
   "operationObligations": [
+    {
+      "operation": {
+        "kind": "capability",
+        "capability": "github-api.operation-session",
+        "operation": "withGitHubApiIssueCommentWriteSession"
+      },
+      "consumerSupport": {
+        "consumers": [
+          "verification.platform-ci"
+        ]
+      },
+      "effect": {
+        "kinds": [
+          "process",
+          "provider"
+        ],
+        "failureKinds": [
+          "process.cancelled",
+          "process.deadline-exhausted",
+          "process.identity-drift",
+          "process.output-budget-exhausted",
+          "process.settlement-unproven",
+          "provider.unavailable",
+          "provider.unverified"
+        ],
+        "recovery": "owner-intervention"
+      },
+      "evolution": {
+        "migration": "one-shot-owner-migration",
+        "retirement": "replacement-obligations-satisfied"
+      },
+      "resources": {
+        "aggregateBudgets": [
+          {
+            "resource": "duration-ms",
+            "maximum": 30000
+          },
+          {
+            "resource": "input-bytes",
+            "maximum": 4194304
+          },
+          {
+            "resource": "output-bytes",
+            "maximum": 33566720
+          },
+          {
+            "resource": "processes",
+            "maximum": 1
+          }
+        ]
+      },
+      "futureSupport": {
+        "condition": "semantic-superset-required"
+      }
+    },
     {
       "operation": {
         "kind": "capability",

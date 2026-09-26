@@ -1,0 +1,51 @@
+name: code-scanning-projection
+run-name: 'project CodeQL run ${{ github.event.workflow_run.id }} @ ${{ github.event.workflow_run.head_sha }}'
+
+on:
+  workflow_run:
+    workflows:
+      - CodeQL
+    types:
+      - completed
+
+permissions:
+  actions: read
+  contents: read
+  issues: write
+  pull-requests: read
+  security-events: read
+
+concurrency:
+  group: sec-code-scanning-projection-${{ github.event.workflow_run.id }}
+  cancel-in-progress: true
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
+
+jobs:
+  project:
+    if: >-
+      ${{ github.event.workflow_run.event == 'pull_request' &&
+          github.event.workflow_run.conclusion == 'success' &&
+          github.event.workflow_run.pull_requests[0] != null }}
+    runs-on: [self-hosted, Linux, X64, sec-linux-verification-v1, sec-linux-verification-trusted-v1]
+    timeout-minutes: 10
+    steps:
+      - name: Checkout trusted projection owner
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.workflow_sha }}
+          fetch-depth: 1
+          persist-credentials: false
+          lfs: false
+          submodules: false
+
+      - name: Setup repository-pinned Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version-file: .bun-version
+
+      - name: Project exact CodeQL findings to the pull request
+        run: >-
+          bun src/adapters/verification/platform/ci/runtime/code-scanning-projection.ts
+          publish ${{ github.event.workflow_run.id }}

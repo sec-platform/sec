@@ -12,6 +12,7 @@ import { GitHubCredentialUnavailableError, readGitHubToken } from '../credential
 export type GitHubApiEffect =
   | 'read'
   | 'status-write'
+  | 'issue-comment-write'
   | 'merge-write'
   | 'runner-admin'
   | 'branch-closeout-write';
@@ -100,12 +101,14 @@ export type GitHubApiOperation =
   | Readonly<{ kind: 'issue'; issueNumber: number }>
   | Readonly<{ kind: 'issue-comments'; issueNumber: number; page: number }>
   | Readonly<{ kind: 'issue-comment'; commentId: number }>
+  | Readonly<{ kind: 'update-issue-comment'; commentId: number; body: string }>
   | Readonly<{ kind: 'create-issue-comment'; issueNumber: number; body: string }>
   | Readonly<{ kind: 'open-pulls'; baseBranch: string }>
   | Readonly<{ kind: 'matching-head-refs'; page: number }>
   | Readonly<{ kind: 'git-ref'; branch: string }>
   | Readonly<{ kind: 'workflow-run'; runId: string }>
   | Readonly<{ kind: 'check-runs'; sha: string; page: number }>
+  | Readonly<{ kind: 'code-scanning-alerts'; pullRequestNumber: number; page: number }>
   | Readonly<{ kind: 'repository-runners'; page: number }>
   | Readonly<{ kind: 'create-runner-registration-token' }>
   | Readonly<{ kind: 'delete-repository-runner'; runnerId: number }>
@@ -126,7 +129,7 @@ export type GitHubApiOperation =
 
 type CompiledGitHubApiRequest = Readonly<{
   kind: GitHubApiOperation['kind'];
-  method: 'DELETE' | 'GET' | 'POST' | 'PUT';
+  method: 'DELETE' | 'GET' | 'PATCH' | 'POST' | 'PUT';
   path: string;
   body?: unknown;
 }>;
@@ -249,6 +252,17 @@ function compileOperation(
       'GitHub API branch-closeout-write authority permits only fixed closeout observations and effects'
     );
   }
+  if (effect === 'issue-comment-write'
+      && kind !== 'current-user'
+      && kind !== 'collaborator-permission'
+      && kind !== 'issue-comments'
+      && kind !== 'issue-comment'
+      && kind !== 'create-issue-comment'
+      && kind !== 'update-issue-comment') {
+    throw new GitHubApiProviderError(
+      'GitHub API issue-comment-write authority permits only fixed comment observations and effects'
+    );
+  }
   const read = (path: string, body?: unknown): CompiledGitHubApiRequest =>
     Object.freeze({ kind, method: body === undefined ? 'GET' as const : 'POST' as const, path, body });
   switch (kind) {
@@ -283,10 +297,20 @@ function compileOperation(
       return read(`/repos/${repo}/issues/${positiveInteger(operation.issueNumber, 'issue number')}/comments?per_page=100&page=${page(operation.page)}`);
     case 'issue-comment':
       return read(`/repos/${repo}/issues/comments/${positiveInteger(operation.commentId, 'issue comment id')}`);
+    case 'update-issue-comment':
+      if (effect !== 'issue-comment-write') {
+        throw new GitHubApiProviderError('GitHub API issue comment update requires issue-comment-write authority');
+      }
+      return Object.freeze({
+        kind,
+        method: 'PATCH',
+        path: `/repos/${repo}/issues/comments/${positiveInteger(operation.commentId, 'issue comment id')}`,
+        body: Object.freeze({ body: boundedMultilineText(operation.body, 'issue comment body', 65_536) })
+      });
     case 'create-issue-comment':
-      if (effect !== 'branch-closeout-write') {
+      if (effect !== 'branch-closeout-write' && effect !== 'issue-comment-write') {
         throw new GitHubApiProviderError(
-          'GitHub API closeout receipt publication requires branch-closeout-write authority'
+          'GitHub API issue comment publication requires issue-comment-write or branch-closeout-write authority'
         );
       }
       return read(
@@ -304,6 +328,8 @@ function compileOperation(
       return read(`/repos/${repo}/actions/runs/${runId}`);
     }
     case 'check-runs': return read(`/repos/${repo}/commits/${sha(operation.sha)}/check-runs?per_page=100&page=${page(operation.page)}`);
+    case 'code-scanning-alerts':
+      return read(`/repos/${repo}/code-scanning/alerts?state=open&tool_name=CodeQL&pr=${positiveInteger(operation.pullRequestNumber, 'pull request number')}&per_page=100&page=${page(operation.page)}`);
     case 'repository-runners':
       return read(`/repos/${repo}/actions/runners?per_page=100&page=${page(operation.page)}`);
     case 'create-runner-registration-token':
@@ -420,6 +446,7 @@ export function assertGitHubApiCapability(
   if (value.repository !== repositoryName || !effectSatisfied
       || (requiredEffect === 'runner-admin' && value.principal.permission !== 'admin')
       || ((requiredEffect === 'status-write'
+          || requiredEffect === 'issue-comment-write'
           || requiredEffect === 'merge-write'
           || requiredEffect === 'branch-closeout-write')
         && value.principal.permission !== 'admin'
@@ -453,6 +480,7 @@ function issueCapability(input: Readonly<{
     throw new GitHubApiProviderError('GitHub API runner-admin capability requires admin permission');
   }
   if ((input.effect === 'status-write'
+      || input.effect === 'issue-comment-write'
       || input.effect === 'merge-write'
       || input.effect === 'branch-closeout-write')
       && input.principal.permission !== 'admin' && input.principal.permission !== 'maintain') {
@@ -981,6 +1009,14 @@ export async function withGitHubApiStatusWriteSession<T>(input: Readonly<{
   operation: (capability: GitHubApiCapability) => Promise<T>;
 }>): Promise<T> {
   return await withProductionSession({ ...input, effect: 'status-write' });
+}
+
+export async function withGitHubApiIssueCommentWriteSession<T>(input: Readonly<{
+  repositoryRoot: string;
+  repository: string;
+  operation: (capability: GitHubApiCapability) => Promise<T>;
+}>): Promise<T> {
+  return await withProductionSession({ ...input, effect: 'issue-comment-write' });
 }
 
 export async function withGitHubApiMergeWriteSession<T>(input: Readonly<{

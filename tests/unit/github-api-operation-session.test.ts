@@ -815,3 +815,50 @@ test('request grammar rejects coercible identifiers and unsupported status state
   expect(coerced).toBe(0);
   expect(requests).toBe(0);
 });
+
+
+test('code scanning alert inventory is one bounded fixed read', async () => {
+  const urls: string[] = [];
+  const api = capability({
+    effect: 'read',
+    transport: async (target) => {
+      urls.push(String(target));
+      return Response.json([]);
+    }
+  });
+  expect(await withGitHubApiTestSession({
+    capability: api,
+    operation: () => executeGitHubApiOperation(api, {
+      kind: 'code-scanning-alerts', pullRequestNumber: 636, page: 2
+    })
+  })).toEqual([]);
+  expect(urls).toEqual([
+    'https://api.github.com/repos/sec-platform/sec/code-scanning/alerts?state=open&tool_name=CodeQL&pr=636&per_page=100&page=2'
+  ]);
+});
+
+test('issue comment update uses the bounded comment write authority', async () => {
+  const observed: Array<{ target: string; method: string; body: unknown }> = [];
+  const api = capability({
+    effect: 'issue-comment-write',
+    transport: async (target, init) => {
+      observed.push({
+        target: String(target),
+        method: init?.method ?? 'GET',
+        body: init?.body === undefined ? null : JSON.parse(String(init.body))
+      });
+      return Response.json({ id: 91, body: 'updated' });
+    }
+  });
+  expect(await withGitHubApiTestSession({
+    capability: api,
+    operation: () => executeGitHubApiOperation(api, {
+      kind: 'update-issue-comment', commentId: 91, body: 'updated'
+    })
+  })).toEqual({ id: 91, body: 'updated' });
+  expect(observed).toEqual([{
+    target: 'https://api.github.com/repos/sec-platform/sec/issues/comments/91',
+    method: 'PATCH',
+    body: { body: 'updated' }
+  }]);
+});
