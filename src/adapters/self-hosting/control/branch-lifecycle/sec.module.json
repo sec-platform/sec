@@ -72,6 +72,28 @@
           "recovery": null
         }
       ]
+    },
+    {
+      "capability": "branch-lifecycle.exact-ref-retirement",
+      "operations": [
+        "retireExactRemoteRefs"
+      ],
+      "effectKinds": [
+        "filesystem",
+        "provider"
+      ],
+      "ownerInternalOperations": [
+        "retireExactRemoteRefs"
+      ],
+      "operationRoles": [
+        {
+          "operation": "retireExactRemoteRefs",
+          "role": "domain-owner",
+          "semanticOperation": "control.branch-lifecycle.exact-ref-retirement",
+          "requirementId": null,
+          "recovery": "verified git bundle before exact-SHA remote CAS; complete remote inventory readback after effect"
+        }
+      ]
     }
   ],
   "preDependencyBootstrap": false
