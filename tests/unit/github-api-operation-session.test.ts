@@ -960,23 +960,54 @@ test('issue comment update uses the bounded comment write authority', async () =
   }]);
 });
 
-test('issue comment deletion owns one exact DELETE and accepts only the terminal 204', async () => {
-  const observed: Array<{ target: string; method: string }> = [];
+function streamedNoContent(bytes: Uint8Array = new Uint8Array()): Response {
+  return {
+    status: 204,
+    ok: true,
+    body: new ReadableStream<Uint8Array>({
+      start(controller) {
+        if (bytes.byteLength > 0) controller.enqueue(bytes);
+        controller.close();
+      }
+    })
+  } as unknown as Response;
+}
+
+test('issue comment deletion owns one exact DELETE and settles null or streamed empty 204', async () => {
+  for (const response of [
+    new Response(null, { status: 204 }),
+    streamedNoContent()
+  ]) {
+    const observed: Array<{ target: string; method: string }> = [];
+    const api = capability({
+      effect: 'issue-comment-write',
+      transport: async (target, init) => {
+        observed.push({ target: String(target), method: init?.method ?? 'GET' });
+        return response;
+      }
+    });
+    await expect(withGitHubApiTestSession({
+      capability: api,
+      operation: () => executeGitHubApiOperation(api, {
+        kind: 'delete-issue-comment', commentId: 91
+      })
+    })).resolves.toBeNull();
+    expect(observed).toEqual([{
+      target: 'https://api.github.com/repos/sec-platform/sec/issues/comments/91',
+      method: 'DELETE'
+    }]);
+  }
+});
+
+test('terminal delete 204 rejects unexpected response bytes', async () => {
   const api = capability({
     effect: 'issue-comment-write',
-    transport: async (target, init) => {
-      observed.push({ target: String(target), method: init?.method ?? 'GET' });
-      return new Response(null, { status: 204 });
-    }
+    transport: async () => streamedNoContent(new Uint8Array([1]))
   });
   await expect(withGitHubApiTestSession({
     capability: api,
     operation: () => executeGitHubApiOperation(api, {
       kind: 'delete-issue-comment', commentId: 91
     })
-  })).resolves.toBeNull();
-  expect(observed).toEqual([{
-    target: 'https://api.github.com/repos/sec-platform/sec/issues/comments/91',
-    method: 'DELETE'
-  }]);
+  })).rejects.toThrow('returned bytes with a terminal 204 response');
 });
