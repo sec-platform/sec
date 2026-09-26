@@ -349,7 +349,7 @@ function compileOperation(
     }
     case 'check-runs': return read(`/repos/${repo}/commits/${sha(operation.sha)}/check-runs?per_page=100&page=${page(operation.page)}`);
     case 'code-scanning-alerts':
-      return read(`/repos/${repo}/code-scanning/alerts?state=open&tool_name=CodeQL&pr=${positiveInteger(operation.pullRequestNumber, 'pull request number')}&per_page=100&page=${page(operation.page)}`);
+      return read(`/repos/${repo}/code-scanning/alerts?state=open&tool_name=CodeQL&ref=${encodeURIComponent(`refs/pull/${positiveInteger(operation.pullRequestNumber, 'pull request number')}/merge`)}&per_page=100&page=${page(operation.page)}`);
     case 'repository-runners':
       return read(`/repos/${repo}/actions/runners?per_page=100&page=${page(operation.page)}`);
     case 'create-runner-registration-token':
