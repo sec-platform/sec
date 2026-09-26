@@ -71,13 +71,14 @@ test('repository maintenance workflow exposes one maintainer-only lifecycle trig
     step.name === 'Retire maintenance trigger comment');
   expect(stage.if).toBe('always()');
   expect(stage.run).toContain('recovery_root="$(dirname "$GITHUB_WORKSPACE")/sec-recovery"');
-  expect(stage.run).toContain('artifact_root="$RUNNER_TEMP/sec-repository-maintenance-recovery"');
+  expect(stage.run).toContain('artifact_root="$RUNNER_TEMP/sec-repository-maintenance-receipt"');
   expect(stage.run).toContain('sec-repository-maintenance-request.json');
   expect(stage.run).toContain('sec-repository-maintenance-result.json');
   expect(retire.steps.indexOf(stage)).toBeLessThan(retire.steps.indexOf(upload));
   expect(upload.if).toBe('always()');
-  expect(upload.with.path).toBe('${{ runner.temp }}/sec-repository-maintenance-recovery');
+  expect(upload.with.path).toBe('${{ runner.temp }}/sec-repository-maintenance-receipt');
   expect(upload.with['if-no-files-found']).toBe('error');
+  expect(upload.with['retention-days']).toBe(30);
   expect(retire.steps.indexOf(upload)).toBeLessThan(retire.steps.indexOf(retireTrigger));
   expect(retireTrigger.if).toBe('success()');
   expect(retireTrigger.run).toBe(
