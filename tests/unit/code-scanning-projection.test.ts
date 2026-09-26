@@ -65,6 +65,7 @@ test('CodeQL projection renders exact head, merge analysis, and final check iden
   expect(body).toContain('Open findings for this exact analysis: **1**');
   expect(body).toContain('js/user-controlled-bypass');
   expect(body).toContain('src/example.ts:41');
+  expect(body).toBe(body.trim());
 });
 
 test('CodeQL projection explicitly represents a clean exact analysis', () => {
