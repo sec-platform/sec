@@ -12,8 +12,8 @@ on:
 permissions:
   checks: read
   contents: read
-  issues: write
-  pull-requests: read
+  issues: read
+  pull-requests: write
   security-events: read
 
 concurrency:
