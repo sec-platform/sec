@@ -5544,11 +5544,19 @@ export async function CodexDevelopmentCiVerificationHostedActionCli(argv: string
           });
         }
       });
-      const intentHandler = intent === undefined ? undefined : intentHandlers[intent];
-      if (intentHandler === undefined) {
-        throw new Error(`Unknown ensure-hosted-action-provider intent: ${intent ?? '<missing>'}.`);
+      switch (intent) {
+        case 'prepare-parent-plan': return intentHandlers['prepare-parent-plan']!();
+        case 'verify-parent-plan': return intentHandlers['verify-parent-plan']!();
+        case 'coordinate-session': return intentHandlers['coordinate-session']!();
+        case 'observe-session': return intentHandlers['observe-session']!();
+        case 'observe-action': return intentHandlers['observe-action']!();
+        case 'prepare-start-marker': return intentHandlers['prepare-start-marker']!();
+        case 'claim-start': return intentHandlers['claim-start']!();
+        case 'prepare-terminal-anchor': return intentHandlers['prepare-terminal-anchor']!();
+        case 'anchor-terminal': return intentHandlers['anchor-terminal']!();
+        default:
+          throw new Error(`Unknown ensure-hosted-action-provider intent: ${intent ?? '<missing>'}.`);
       }
-      return intentHandler();
     },
     'prepare-hosted-action-inputs': async () => {
       const args = hostedActionCliArgs(argv, [
@@ -5750,11 +5758,18 @@ export async function CodexDevelopmentCiVerificationHostedActionCli(argv: string
       });
     }
   });
-  const commandHandler = command === undefined ? undefined : commandHandlers[command];
-  if (commandHandler === undefined) {
-    throw new Error(`Unknown hosted Action command: ${command ?? '<missing>'}.`);
+  switch (command) {
+    case 'execute-trusted-bootstrap-sut': return commandHandlers['execute-trusted-bootstrap-sut']!();
+    case 'ensure-hosted-action-provider': return commandHandlers['ensure-hosted-action-provider']!();
+    case 'prepare-hosted-action-inputs': return commandHandlers['prepare-hosted-action-inputs']!();
+    case 'self-test-hosted-action-sandbox': return commandHandlers['self-test-hosted-action-sandbox']!();
+    case 'resolve-hosted-action': return commandHandlers['resolve-hosted-action']!();
+    case 'execute-hosted-action-sut': return commandHandlers['execute-hosted-action-sut']!();
+    case 'assemble-hosted-action-terminal': return commandHandlers['assemble-hosted-action-terminal']!();
+    case 'compose-hosted-evidence': return commandHandlers['compose-hosted-evidence']!();
+    default:
+      throw new Error(`Unknown hosted Action command: ${command ?? '<missing>'}.`);
   }
-  return commandHandler();
 }
 
 async function main(): Promise<number> {

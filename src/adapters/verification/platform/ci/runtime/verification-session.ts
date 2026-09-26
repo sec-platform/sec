@@ -5422,9 +5422,24 @@ export async function verificationSessionCli(argv: string[]): Promise<string> {
       return JSON.stringify({ ...projection, output: path.resolve(required(args, '--output')) }, null, 2);
     }
   });
-  const commandHandler = commandHandlers[command];
-  if (commandHandler === undefined) throw new Error(USAGE);
-  return commandHandler();
+  switch (command) {
+    case 'local-main-closeout': return commandHandlers['local-main-closeout']!();
+    case 'project': return commandHandlers['project']!();
+    case 'prepare': return commandHandlers['prepare']!();
+    case 'freeze': return commandHandlers['freeze']!();
+    case 'status-offline': return commandHandlers['status-offline']!();
+    case 'status': return commandHandlers['status']!();
+    case 'observe-hosted': return commandHandlers['observe-hosted']!();
+    case 'prepare-hosted': return commandHandlers['prepare-hosted']!();
+    case 'artifact-status': return commandHandlers['artifact-status']!();
+    case 'finalize-hosted': return commandHandlers['finalize-hosted']!();
+    case 'resume': return commandHandlers['resume']!();
+    case 'prepare-integration-hosted': return commandHandlers['prepare-integration-hosted']!();
+    case 'integrate-hosted': return commandHandlers['integrate-hosted']!();
+    case 'closeout-mutate-hosted': return commandHandlers['closeout-mutate-hosted']!();
+    case 'closeout-publish-hosted': return commandHandlers['closeout-publish-hosted']!();
+    default: throw new Error(USAGE);
+  }
 }
 
 if (import.meta.main) {
