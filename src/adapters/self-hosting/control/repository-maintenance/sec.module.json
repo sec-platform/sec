@@ -3,29 +3,6 @@
   "externalEntrypoints": [
     "src/adapters/self-hosting/control/repository-maintenance/repository-maintenance.ts"
   ],
-  "capabilityProviders": [
-    {
-      "capability": "repository-maintenance.exact-ref-retirement",
-      "operations": [
-        "retireExactRemoteRefs"
-      ],
-      "effectKinds": [
-        "provider",
-        "filesystem"
-      ],
-      "ownerInternalOperations": [
-        "retireExactRemoteRefs"
-      ],
-      "operationRoles": [
-        {
-          "operation": "retireExactRemoteRefs",
-          "role": "domain-owner",
-          "semanticOperation": "control.repository-maintenance.exact-ref-retirement",
-          "requirementId": null,
-          "recovery": "verified git bundle before exact-SHA remote CAS; complete remote inventory readback after effect"
-        }
-      ]
-    }
-  ],
+  "capabilityProviders": [],
   "preDependencyBootstrap": false
 }
