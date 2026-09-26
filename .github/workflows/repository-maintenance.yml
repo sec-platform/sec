@@ -51,14 +51,13 @@ jobs:
           SEC_MAINTENANCE_COMMENT_ID: ${{ github.event.comment.id }}
           SEC_MAINTENANCE_COMMENT_AUTHOR: ${{ github.event.comment.user.login }}
           SEC_MAINTENANCE_AUTHOR_ASSOCIATION: ${{ github.event.comment.author_association }}
-          SEC_BRANCH_RECOVERY_ROOT: ${{ runner.temp }}/sec-repository-maintenance-recovery
         run: bun src/adapters/self-hosting/control/repository-maintenance/repository-maintenance.ts --json
 
-      - name: Upload exact ref recovery and terminal result
+      - name: Upload exact ref recovery
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: sec-repository-maintenance-recovery-${{ github.run_id }}-${{ github.run_attempt }}
-          path: ${{ runner.temp }}/sec-repository-maintenance-recovery
+          path: ${{ github.workspace }}/../sec-recovery
           if-no-files-found: ignore
           retention-days: 90
