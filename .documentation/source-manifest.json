@@ -1,6 +1,6 @@
 {
   "schema": "sec.documentation-source-manifest/2",
-  "source_set_sha256": "6c62f11e5e5c98683f05c08546b3f6aaddef8dd8c8de6fafb1e0c45f900a8d46",
+  "source_set_sha256": "34c5eb1c05108206b0e5f5bd624b2b6708d7abb1a942d3190669ac460357b5a9",
   "members": [
     {
       "path": ".documentation/README.md",
@@ -649,8 +649,8 @@
     },
     {
       "path": "docs/开发/测试发现与执行.md",
-      "bytes": 14401,
-      "sha256": "a7f7a4e4c02d3c263258de14f31c89dd0e74ee173d1aab6bad6aab40397d6770"
+      "bytes": 14729,
+      "sha256": "f9e891aac57ffa3907630425cbeb63c441436db7701b5aef2e8ef0693dd4ff51"
     },
     {
       "path": "docs/开发/用途与任务范围.md",
