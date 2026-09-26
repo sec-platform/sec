@@ -12,6 +12,7 @@ tasks:
     ownedPaths:
       - config/repository/work-packages/sec-static-convergence-v1.md
       - docs/架构/总体设计.md
+      - docs/开发/测试发现与执行.md
       - docs/运行/保证/要求证据与裁决.md
       - docs/运行/验收/方法与独立证据.md
       - docs/运行/验收/测试生成与形式方法.md
@@ -30,6 +31,7 @@ forbiddenPaths:
   - src/
   - tests/
 acceptance:
+  - developer test discovery and execution is explicitly scoped to case-based VerificationMethods
   - Claim identity binds owner requirement subject revision applicability lifecycle and consumer scope rather than relying on free claim or gate strings
   - Verification is defined as a cross-responsibility assurance vertical rather than an eleventh testing module
   - Requirement Claim ProofObligation VerificationMethod VerificationAction Evidence and Verdict have explicit non-substitutable ownership boundaries
