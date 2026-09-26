@@ -11,8 +11,8 @@ test('CodeQL finding projection runs trusted default code after same-repository 
   expect(workflow.permissions).toEqual({
     checks: 'read',
     contents: 'read',
-    issues: 'write',
-    'pull-requests': 'read',
+    issues: 'read',
+    'pull-requests': 'write',
     'security-events': 'read'
   });
   expect(workflow.concurrency).toEqual({
