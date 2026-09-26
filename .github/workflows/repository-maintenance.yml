@@ -56,11 +56,22 @@ jobs:
           SEC_MAINTENANCE_AUTHOR_ASSOCIATION: ${{ github.event.comment.author_association }}
         run: bun src/adapters/self-hosting/control/repository-maintenance/repository-maintenance.ts --json
 
+      - name: Stage exact ref recovery
+        if: always()
+        shell: bash
+        run: |
+          recovery_root="$(dirname "$GITHUB_WORKSPACE")/sec-recovery"
+          artifact_root="$RUNNER_TEMP/sec-repository-maintenance-recovery"
+          if [[ -d "$recovery_root" ]]; then
+            mkdir -p -- "$artifact_root"
+            cp -a -- "$recovery_root/." "$artifact_root/"
+          fi
+
       - name: Upload exact ref recovery
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: sec-repository-maintenance-recovery-${{ github.run_id }}-${{ github.run_attempt }}
-          path: ${{ github.workspace }}/../sec-recovery
+          path: ${{ runner.temp }}/sec-repository-maintenance-recovery
           if-no-files-found: ignore
           retention-days: 90
