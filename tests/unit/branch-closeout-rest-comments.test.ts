@@ -1,13 +1,13 @@
 import { expect, test } from 'bun:test';
 
 import { parseBranchCloseoutReceipt } from '../../src/adapters/self-hosting/control/branch-lifecycle/branch-closeout-contract.ts';
+import { renderPublishedBranchCloseoutReceiptComment } from '../../src/adapters/self-hosting/control/branch-lifecycle/branch-closeout-receipt.ts';
+import { branchLifecycleDigest } from '../../src/adapters/self-hosting/control/branch-lifecycle/branch-lifecycle-audit.ts';
+import { parseRestCloseoutReceiptCommentCandidates } from '../../src/adapters/self-hosting/control/branch-lifecycle/branch-lifecycle-parsers.ts';
 import {
   BRANCH_CLOSEOUT_PUBLISHED_RECEIPT_SCHEMA,
-  branchLifecycleDigest,
-  parseRestCloseoutReceiptCommentCandidates,
-  renderPublishedBranchCloseoutReceiptComment,
-  type BranchPublishedCloseoutReceipt,
-} from '../../src/adapters/self-hosting/control/branch-lifecycle/branch-lifecycle.ts';
+  type BranchPublishedCloseoutReceipt
+} from '../../src/adapters/self-hosting/control/branch-lifecycle/branch-lifecycle-types.ts';
 
 const MAIN_SHA = '1111111111111111111111111111111111111111';
 const HEAD_SHA = '2222222222222222222222222222222222222222';

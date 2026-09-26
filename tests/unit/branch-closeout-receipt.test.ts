@@ -334,7 +334,6 @@ test('hosted publisher requires the exact non-null Actions bot and App tuple', (
 test('public modules expose no permit, publisher, finalizer, or runner injection authority', async () => {
   const receiptModule = await import('../../src/adapters/self-hosting/control/branch-lifecycle/branch-closeout-receipt.ts');
   const closeoutModule = await import('../../src/adapters/self-hosting/control/branch-lifecycle/branch-closeout.ts');
-  const barrel = await import('../../src/adapters/self-hosting/control/branch-lifecycle/branch-lifecycle.ts');
   for (const name of [
     'publishAndReadBackBranchCloseoutEffectStartV1',
     'publishAndReadBackIntegratedBranchCloseoutReceipt',
@@ -348,14 +347,11 @@ test('public modules expose no permit, publisher, finalizer, or runner injection
     'finalizeIntegratedBranchCloseout'
   ]) {
     expect(name in closeoutModule).toBe(false);
-    expect(name in barrel).toBe(false);
   }
-  expect('defaultBranchLifecycleCommandRunner' in barrel).toBe(false);
 });
 
 test('public branch lifecycle modules cannot mint or invoke arbitrary subprocess effects', async () => {
   const command = await import('../../src/adapters/self-hosting/control/branch-lifecycle/branch-lifecycle-command.ts');
-  const barrel = await import('../../src/adapters/self-hosting/control/branch-lifecycle/branch-lifecycle.ts');
   for (const symbol of [
     'BranchLifecycleContext',
     'createBranchLifecycleContext',
@@ -365,6 +361,5 @@ test('public branch lifecycle modules cannot mint or invoke arbitrary subprocess
     'optionalBranchCommandText'
   ]) {
     expect(symbol in command).toBe(false);
-    expect(symbol in barrel).toBe(false);
   }
 });

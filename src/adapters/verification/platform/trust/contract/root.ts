@@ -13,7 +13,6 @@ export const SEC_TRUSTED_BOOTSTRAP_DISPATCHER_OWNER =
 
 const REQUIRED_TRUSTED_BOOTSTRAP_STATIC_EXACT_PATHS = Object.freeze([
   '.bun-version',
-  'src/adapters/self-hosting/control/branch-lifecycle/branch-lifecycle.ts',
   SEC_TRUSTED_BOOTSTRAP_REGISTRY_PATH,
   SEC_TCB_CLOSURE_RUNTIME_PATH
 ]);
