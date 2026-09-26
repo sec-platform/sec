@@ -896,6 +896,40 @@ test('workflow-scoped Actions principals are confined to their exact workflow ef
   })).toThrow('branch-closeout capability requires');
 });
 
+test('maintenance workflow principal admits read plus branch-closeout but no other writes', () => {
+  expect(() => capability({
+    effect: 'read',
+    principal: MAINTENANCE_WORKFLOW_PRINCIPAL,
+    transport: async () => Response.json({})
+  })).not.toThrow();
+  expect(() => capability({
+    effect: 'status-write',
+    principal: MAINTENANCE_WORKFLOW_PRINCIPAL,
+    transport: async () => Response.json({})
+  })).toThrow('workflow principal effect is not authorized');
+});
+
+test('branch-closeout open pull census is bounded and page-addressed', async () => {
+  const targets: string[] = [];
+  const api = capability({
+    effect: 'branch-closeout-write',
+    transport: async (target) => {
+      targets.push(String(target));
+      return Response.json([]);
+    }
+  });
+  expect(await withGitHubApiTestSession({
+    capability: api,
+    operation: () => executeGitHubApiOperation(api, {
+      kind: 'open-pulls-page',
+      page: 3
+    })
+  })).toEqual([]);
+  expect(targets).toEqual([
+    'https://api.github.com/repos/sec-platform/sec/pulls?state=open&per_page=100&page=3'
+  ]);
+});
+
 test('issue comment update uses the bounded comment write authority', async () => {
   const observed: Array<{ target: string; method: string; body: unknown }> = [];
   const api = capability({
