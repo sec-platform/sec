@@ -846,6 +846,29 @@ test('code scanning alert inventory is one bounded fixed read', async () => {
   ]);
 });
 
+test('code scanning alert instance inventory is fixed to the PR merge ref and PR number', async () => {
+  const urls: string[] = [];
+  const api = capability({
+    effect: 'read',
+    transport: async (target) => {
+      urls.push(String(target));
+      return Response.json([]);
+    }
+  });
+  expect(await withGitHubApiTestSession({
+    capability: api,
+    operation: () => executeGitHubApiOperation(api, {
+      kind: 'code-scanning-alert-instances',
+      alertNumber: 17,
+      pullRequestNumber: 636,
+      page: 3
+    })
+  })).toEqual([]);
+  expect(urls).toEqual([
+    'https://api.github.com/repos/sec-platform/sec/code-scanning/alerts/17/instances?ref=refs%2Fpull%2F636%2Fmerge&pr=636&per_page=100&page=3'
+  ]);
+});
+
 test('workflow-scoped Actions principal is confined to read and projection comment authority', async () => {
   const api = capability({
     effect: 'issue-comment-write',

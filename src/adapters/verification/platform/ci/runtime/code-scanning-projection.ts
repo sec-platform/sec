@@ -7,6 +7,7 @@ import {
 
 const COMMENT_MARKER = '<!-- sec-code-scanning-projection:v1 -->' as const;
 const MAX_ALERT_PAGES = 32;
+const MAX_INSTANCE_PAGES = 32;
 const MAX_CHECK_PAGES = 32;
 const MAX_COMMENT_PAGES = 64;
 const PAGE_SIZE = 100;
@@ -21,6 +22,7 @@ export type CodeScanningFinding = Readonly<{
   path: string;
   startLine: number;
   endLine: number;
+  commitSha: string;
   htmlUrl: string;
 }>;
 
@@ -28,7 +30,7 @@ export type CodeScanningProjection = Readonly<{
   repository: string;
   pullRequestNumber: number;
   headSha: string;
-  mergeSha: string;
+  observedMergeSha: string;
   codeQlCheckId: number;
   findings: readonly CodeScanningFinding[];
 }>;
@@ -85,19 +87,18 @@ function severityRank(value: string): number {
 }
 
 export function parseCodeScanningFinding(
-  value: unknown,
-  expectedRef: string,
-  expectedMergeSha: string
+  alertValue: unknown,
+  instanceValue: unknown,
+  expectedRef: string
 ): CodeScanningFinding | null {
-  const alert = record(value, 'code scanning alert');
+  const alert = record(alertValue, 'code scanning alert');
   if (alert.state !== 'open') return null;
   const tool = record(alert.tool, 'code scanning alert tool');
   if (tool.name !== 'CodeQL') return null;
-  const instance = record(alert.most_recent_instance, 'code scanning alert instance');
-  if (instance.ref !== expectedRef
-      || gitSha(instance.commit_sha, 'code scanning alert merge commit') !== expectedMergeSha) {
-    return null;
-  }
+
+  const instance = record(instanceValue, 'code scanning alert instance');
+  if (instance.state !== 'open' || instance.ref !== expectedRef) return null;
+
   const rule = record(alert.rule, 'code scanning alert rule');
   const location = record(instance.location, 'code scanning alert location');
   const message = record(instance.message, 'code scanning alert message');
@@ -114,6 +115,7 @@ export function parseCodeScanningFinding(
     path: boundedText(location.path, 'code scanning alert path', 4096),
     startLine: positiveInteger(location.start_line, 'code scanning alert start line'),
     endLine: positiveInteger(location.end_line, 'code scanning alert end line'),
+    commitSha: gitSha(instance.commit_sha, 'code scanning alert instance commit'),
     htmlUrl
   });
 }
@@ -132,7 +134,7 @@ export function renderCodeScanningProjection(projection: CodeScanningProjection)
     '> SEC projection only. GitHub Code Scanning remains the authoritative security evidence.',
     '',
     '- Exact PR head: ' + TICK + projection.headSha + TICK,
-    '- PR merge analysis: ' + TICK + projection.mergeSha + TICK,
+    '- Observed PR merge ref SHA: ' + TICK + projection.observedMergeSha + TICK,
     '- CodeQL check: ' + TICK + projection.codeQlCheckId + TICK,
     '- Open findings for this exact analysis: **' + findings.length + '**',
     ''
@@ -140,12 +142,13 @@ export function renderCodeScanningProjection(projection: CodeScanningProjection)
   if (findings.length === 0) {
     lines.push('No open CodeQL findings are reported for this exact PR analysis.');
   } else {
-    lines.push('| Severity | Rule | Location | Finding |', '| --- | --- | --- | --- |');
+    lines.push('| Severity | Rule | Location | Instance commit | Finding |', '| --- | --- | --- | --- | --- |');
     for (const finding of findings) {
       const location = markdown(finding.path) + ':' + finding.startLine
         + (finding.endLine === finding.startLine ? '' : '-' + finding.endLine);
       lines.push('| ' + markdown(finding.severity) + ' | ' + TICK + markdown(finding.ruleId) + TICK
-        + ' ' + markdown(finding.ruleName) + ' | ' + TICK + location + TICK + ' | [#'
+        + ' ' + markdown(finding.ruleName) + ' | ' + TICK + location + TICK + ' | '
+        + TICK + finding.commitSha + TICK + ' | [#'
         + finding.alertNumber + '](' + finding.htmlUrl + ') ' + markdown(finding.message) + ' |');
     }
   }
@@ -193,7 +196,7 @@ async function observeProjection(input: Readonly<{
           || pullHeadRepo.full_name !== input.repository) {
         throw new Error('CodeQL projection no longer binds the exact open same-repository main-targeting PR head');
       }
-      const mergeSha = gitSha(pull.merge_commit_sha, 'pull request merge analysis SHA');
+      const observedMergeSha = gitSha(pull.merge_commit_sha, 'observed pull request merge ref SHA');
 
       const finalChecks: unknown[] = [];
       for (let page = 1; page <= MAX_CHECK_PAGES; page += 1) {
@@ -220,8 +223,34 @@ async function observeProjection(input: Readonly<{
         });
         if (!Array.isArray(alerts)) throw new Error('code scanning alert inventory is invalid');
         for (const alert of alerts) {
-          const finding = parseCodeScanningFinding(alert, expectedRef, mergeSha);
-          if (finding !== null) findings.push(finding);
+          const alertRecord = record(alert, 'code scanning alert');
+          const alertNumber = positiveInteger(alertRecord.number, 'code scanning alert number');
+          const matchingInstances: CodeScanningFinding[] = [];
+          for (let instancePage = 1; instancePage <= MAX_INSTANCE_PAGES; instancePage += 1) {
+            const instances = await executeGitHubApiOperation(capability, {
+              kind: 'code-scanning-alert-instances',
+              alertNumber,
+              pullRequestNumber: input.pullRequestNumber,
+              page: instancePage
+            });
+            if (!Array.isArray(instances)) {
+              throw new Error(`code scanning alert ${alertNumber} instance inventory is invalid`);
+            }
+            for (const instance of instances) {
+              const finding = parseCodeScanningFinding(alert, instance, expectedRef);
+              if (finding !== null) matchingInstances.push(finding);
+            }
+            if (instances.length < PAGE_SIZE) break;
+            if (instancePage === MAX_INSTANCE_PAGES) {
+              throw new Error(`code scanning alert ${alertNumber} instance inventory exceeds bounded pagination`);
+            }
+          }
+          if (matchingInstances.length !== 1) {
+            throw new Error(
+              `code scanning alert ${alertNumber} must resolve exactly one open instance for ${expectedRef}; observed ${matchingInstances.length}`
+            );
+          }
+          findings.push(matchingInstances[0]!);
         }
         if (alerts.length < PAGE_SIZE) {
           const byNumber = new Map<number, CodeScanningFinding>();
@@ -230,7 +259,7 @@ async function observeProjection(input: Readonly<{
             repository: input.repository,
             pullRequestNumber: input.pullRequestNumber,
             headSha: input.expectedHeadSha,
-            mergeSha,
+            observedMergeSha,
             codeQlCheckId: input.expectedCheckId,
             findings: Object.freeze([...byNumber.values()])
           });
@@ -313,7 +342,7 @@ export async function projectCodeScanningPullRequest(input: Readonly<{
   commentId: number;
   pullRequestNumber: number;
   headSha: string;
-  mergeSha: string;
+  observedMergeSha: string;
   codeQlCheckId: number;
   findingCount: number;
 }>> {
@@ -324,7 +353,7 @@ export async function projectCodeScanningPullRequest(input: Readonly<{
     ...published,
     pullRequestNumber: projection.pullRequestNumber,
     headSha: projection.headSha,
-    mergeSha: projection.mergeSha,
+    observedMergeSha: projection.observedMergeSha,
     codeQlCheckId: projection.codeQlCheckId,
     findingCount: projection.findings.length
   });

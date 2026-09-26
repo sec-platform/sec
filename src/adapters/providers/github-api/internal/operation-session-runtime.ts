@@ -128,6 +128,12 @@ export type GitHubApiOperation =
   | Readonly<{ kind: 'workflow-run'; runId: string }>
   | Readonly<{ kind: 'check-runs'; sha: string; page: number }>
   | Readonly<{ kind: 'code-scanning-alerts'; pullRequestNumber: number; page: number }>
+  | Readonly<{
+      kind: 'code-scanning-alert-instances';
+      alertNumber: number;
+      pullRequestNumber: number;
+      page: number;
+    }>
   | Readonly<{ kind: 'repository-runners'; page: number }>
   | Readonly<{ kind: 'create-runner-registration-token' }>
   | Readonly<{ kind: 'delete-repository-runner'; runnerId: number }>
@@ -350,6 +356,12 @@ function compileOperation(
     case 'check-runs': return read(`/repos/${repo}/commits/${sha(operation.sha)}/check-runs?per_page=100&page=${page(operation.page)}`);
     case 'code-scanning-alerts':
       return read(`/repos/${repo}/code-scanning/alerts?state=open&tool_name=CodeQL&ref=${encodeURIComponent(`refs/pull/${positiveInteger(operation.pullRequestNumber, 'pull request number')}/merge`)}&per_page=100&page=${page(operation.page)}`);
+    case 'code-scanning-alert-instances': {
+      const pullRequestNumber = positiveInteger(operation.pullRequestNumber, 'pull request number');
+      return read(
+        `/repos/${repo}/code-scanning/alerts/${positiveInteger(operation.alertNumber, 'code scanning alert number')}/instances?ref=${encodeURIComponent(`refs/pull/${pullRequestNumber}/merge`)}&pr=${pullRequestNumber}&per_page=100&page=${page(operation.page)}`
+      );
+    }
     case 'repository-runners':
       return read(`/repos/${repo}/actions/runners?per_page=100&page=${page(operation.page)}`);
     case 'create-runner-registration-token':
