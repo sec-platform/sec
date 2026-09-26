@@ -680,10 +680,6 @@ function prepareAbsentRefRecovery(
   );
 }
 
-function safeRecoverySegment(branch: string): string {
-  return branch.replace(/[^A-Za-z0-9._-]+/gu, '-').replace(/^-+|-+$/gu, '').slice(0, 80);
-}
-
 function findMatchingRecoveryBundle(
   scope: BranchCloseoutScope,
   inventory: BranchLifecycleInventory,
@@ -691,9 +687,8 @@ function findMatchingRecoveryBundle(
   expectedSha: string
 ): BranchRecoveryAuthority | null {
   const recoveryRoot = ensureRecoveryRoot(inventory, scope.recoveryRoot);
-  const prefix = `sec-branch-closeout-${safeRecoverySegment(branch)}-`;
   const candidates = readdirSync(recoveryRoot)
-    .filter((name) => name.startsWith(prefix) && name.endsWith('.bundle'))
+    .filter((name) => name.startsWith('sec-branch-closeout-') && name.endsWith('.bundle'))
     .map((name) => path.join(recoveryRoot, name));
   for (const candidate of candidates.sort()) {
     try {
