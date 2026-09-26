@@ -1,0 +1,64 @@
+name: repository-maintenance
+run-name: 'retire audited repository refs from lifecycle issue #${{ github.event.issue.number }}'
+
+on:
+  issue_comment:
+    types:
+      - created
+
+permissions:
+  contents: write
+  issues: read
+  pull-requests: read
+
+concurrency:
+  group: sec-repository-maintenance
+  cancel-in-progress: false
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
+
+jobs:
+  retire:
+    if: >-
+      ${{ github.event.issue.number == 313 &&
+          (github.event.comment.author_association == 'OWNER' ||
+           github.event.comment.author_association == 'MEMBER') &&
+          github.actor == github.event.comment.user.login &&
+          startsWith(github.event.comment.body, '{"schema":"sec-repository-maintenance-request-v1"') }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Checkout exact maintenance authority
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+          lfs: false
+          submodules: false
+
+      - name: Setup repository-pinned Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version-file: .bun-version
+
+      - name: Execute exact repository maintenance request
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SEC_MAINTENANCE_REQUEST_JSON: ${{ github.event.comment.body }}
+          SEC_MAINTENANCE_ISSUE_NUMBER: ${{ github.event.issue.number }}
+          SEC_MAINTENANCE_COMMENT_ID: ${{ github.event.comment.id }}
+          SEC_MAINTENANCE_COMMENT_AUTHOR: ${{ github.event.comment.user.login }}
+          SEC_MAINTENANCE_AUTHOR_ASSOCIATION: ${{ github.event.comment.author_association }}
+          SEC_BRANCH_RECOVERY_ROOT: ${{ runner.temp }}/sec-repository-maintenance-recovery
+        run: bun src/adapters/self-hosting/control/repository-maintenance/repository-maintenance.ts --json
+
+      - name: Upload exact ref recovery and terminal result
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: sec-repository-maintenance-recovery-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/sec-repository-maintenance-recovery
+          if-no-files-found: ignore
+          retention-days: 90
