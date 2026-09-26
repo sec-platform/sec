@@ -38,6 +38,13 @@ const GITHUB_CREDENTIAL_REQUIREMENT = 'github-api.credential-process';
 const GITHUB_CREDENTIAL_CONTRACT_DIGEST = sha256({
   operation: GITHUB_CREDENTIAL_OPERATION,
   provider: 'github-cli',
+  credentialSources: ['stored-gh-auth', 'github-actions-token'],
+  githubActionsTokenEnvironment: {
+    token: 'GH_TOKEN',
+    actions: 'true',
+    serverUrl: 'https://github.com',
+    apiUrl: 'https://api.github.com'
+  },
   hostname: GITHUB_HOST,
   args: ['auth', 'token', '--hostname', GITHUB_HOST],
   credentialOutput: 'ascii-token',
@@ -60,22 +67,68 @@ export type GitHubCredentialInput = Readonly<{
   deadlineAtUnixMs: number;
 }>;
 
+type GitHubCredentialSource = 'stored-gh-auth' | 'github-actions-token';
+
+type GitHubCredentialProcessEnvironment = Readonly<{
+  child: NodeJS.ProcessEnv;
+  identity: Readonly<NodeJS.ProcessEnv>;
+  source: GitHubCredentialSource;
+}>;
+
 function environmentValue(source: Readonly<NodeJS.ProcessEnv>, key: string): string | undefined {
   const actual = Object.keys(source).find((candidate) => candidate.toLowerCase() === key.toLowerCase());
   return actual === undefined ? undefined : source[actual];
 }
 
-/** The credential child never inherits PATH, token, host, config, HOME or XDG selectors. */
-function githubCredentialEnvironment(source: Readonly<NodeJS.ProcessEnv>): NodeJS.ProcessEnv {
-  const environment: NodeJS.ProcessEnv = {
+function githubActionsCredentialToken(source: Readonly<NodeJS.ProcessEnv>): string | undefined {
+  if (environmentValue(source, 'GITHUB_ACTIONS') !== 'true'
+      || environmentValue(source, 'GITHUB_SERVER_URL') !== 'https://github.com'
+      || environmentValue(source, 'GITHUB_API_URL') !== 'https://api.github.com') {
+    return undefined;
+  }
+  const value = environmentValue(source, 'GH_TOKEN');
+  if (value === undefined) return undefined;
+  if (value.length === 0 || value !== value.trim()
+      || Buffer.byteLength(value, 'utf8') > MAX_TOKEN_BYTES
+      || !/^[^\s\u0000-\u001f\u007f-\u009f]+$/u.test(value)) {
+    throw new GitHubCredentialUnavailableError('token');
+  }
+  return value;
+}
+
+/**
+ * The credential child never inherits PATH, host, config, HOME or XDG selectors.
+ * A GitHub Actions token is forwarded only as GH_TOKEN from an exact github.com
+ * Actions environment; the secret is excluded from the semantic operation digest.
+ */
+function githubCredentialEnvironment(
+  source: Readonly<NodeJS.ProcessEnv>
+): GitHubCredentialProcessEnvironment {
+  const child: NodeJS.ProcessEnv = {
+    GH_PROMPT_DISABLED: '1',
+    NO_COLOR: '1'
+  };
+  const identity: NodeJS.ProcessEnv = {
     GH_PROMPT_DISABLED: '1',
     NO_COLOR: '1'
   };
   for (const key of ['SYSTEMROOT', 'WINDIR', 'APPDATA', 'LOCALAPPDATA', 'USERPROFILE'] as const) {
     const value = environmentValue(source, key);
-    if (value !== undefined) environment[key] = value;
+    if (value !== undefined) {
+      child[key] = value;
+      identity[key] = value;
+    }
   }
-  return environment;
+  const actionsToken = githubActionsCredentialToken(source);
+  const credentialSource: GitHubCredentialSource = actionsToken === undefined
+    ? 'stored-gh-auth'
+    : 'github-actions-token';
+  if (actionsToken !== undefined) child.GH_TOKEN = actionsToken;
+  return Object.freeze({
+    child,
+    identity: Object.freeze(identity),
+    source: credentialSource
+  });
 }
 
 function tokenBytes(stdout: Uint8Array): Uint8Array {
@@ -97,7 +150,8 @@ function tokenBytes(stdout: Uint8Array): Uint8Array {
 function compileGitHubCredentialOperation(input: Readonly<{
   cwd: string;
   deadlineAtUnixMs: number;
-  environment: Readonly<NodeJS.ProcessEnv>;
+  environmentIdentity: Readonly<NodeJS.ProcessEnv>;
+  credentialSource: GitHubCredentialSource;
   providerIdentityDigest: SecOperationDigest;
 }>): SecBoundSemanticOperation {
   const durationMs = input.deadlineAtUnixMs - Date.now();
@@ -110,7 +164,8 @@ function compileGitHubCredentialOperation(input: Readonly<{
     intentDigest: sha256({
       cwd: input.cwd,
       hostname: GITHUB_HOST,
-      environment: input.environment,
+      environment: input.environmentIdentity,
+      credentialSource: input.credentialSource,
       providerIdentityDigest: input.providerIdentityDigest
     }) as SecOperationDigest,
     decisionDigest: GITHUB_CREDENTIAL_CONTRACT_DIGEST,
@@ -232,7 +287,11 @@ export async function readGitHubToken(input: GitHubCredentialInput): Promise<Uin
               workingDirectory: workingDirectoryChain.target
             }) as SecOperationDigest;
             const operation = compileGitHubCredentialOperation({
-              cwd, deadlineAtUnixMs: deadlineAt, environment, providerIdentityDigest
+              cwd,
+              deadlineAtUnixMs: deadlineAt,
+              environmentIdentity: environment.identity,
+              credentialSource: environment.source,
+              providerIdentityDigest
             });
             return withAcquiredResource({
               operationLabel: 'github-credential-command',
@@ -251,7 +310,7 @@ export async function readGitHubToken(input: GitHubCredentialInput): Promise<Uin
               },
               async use(session) {
                 const completed = await session.run(boundary, ['auth', 'token', '--hostname', GITHUB_HOST], {
-                  env: environment,
+                  env: environment.child,
                   envMode: 'replace',
                   maxStderrBytes: MAX_ERROR_BYTES,
                   maxStdoutBytes: MAX_TOKEN_BYTES

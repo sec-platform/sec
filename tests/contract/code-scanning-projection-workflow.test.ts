@@ -22,9 +22,7 @@ test('CodeQL finding projection runs trusted default code after same-repository 
   const job = workflow.jobs.project;
   expect(job.if).toContain("github.event.pull_request.base.ref == 'main'");
   expect(job.if).toContain('github.event.pull_request.head.repo.full_name == github.repository');
-  expect(job['runs-on']).toEqual([
-    'self-hosted', 'Linux', 'X64', 'sec-linux-verification-v1', 'sec-linux-verification-trusted-v1'
-  ]);
+  expect(job['runs-on']).toBe('ubuntu-24.04');
   const checkout = job.steps.find((step: any) => step.name === 'Checkout trusted projection owner');
   expect(checkout.with).toMatchObject({
     ref: '${{ github.sha }}',
@@ -38,5 +36,6 @@ test('CodeQL finding projection runs trusted default code after same-repository 
   expect(join.with.script).toContain("run.conclusion === 'success' || run.conclusion === 'failure'");
   const publish = job.steps.find((step: any) => step.name === 'Project exact CodeQL findings to the pull request');
   expect(publish.run).toBe('bun src/adapters/verification/platform/ci/runtime/code-scanning-projection.ts publish');
+  expect(publish.env.GH_TOKEN).toBe('${{ github.token }}');
   expect(publish.env.SEC_CODE_SCANNING_CHECK_ID).toBe('${{ steps.codeql.outputs.check-id }}');
 });
