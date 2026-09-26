@@ -7,7 +7,11 @@ import { ResourceCompositeSettlementError } from '../../../../execution/resource
 import { withOwnedByteStreamReader } from '../../../../execution/stream-reader.ts';
 
 import { GITHUB_API_BASE_URL, GITHUB_HOST } from '../contract.ts';
-import { GitHubCredentialUnavailableError, readGitHubToken } from '../credential.ts';
+import {
+  GitHubCredentialUnavailableError,
+  inspectGitHubActionsProjectionCredentialIdentity,
+  readGitHubToken
+} from '../credential.ts';
 
 export type GitHubApiEffect =
   | 'read'
@@ -22,13 +26,23 @@ export type GitHubApiTransport = (
   init?: RequestInit
 ) => Promise<Response>;
 
-export type GitHubApiPrincipal = Readonly<{
-  transport: 'github-rest-token';
-  login: string;
-  nodeId: string;
-  userId: number | null;
-  permission: 'admin' | 'maintain' | 'write' | 'triage' | 'read' | 'none';
-}>;
+export type GitHubApiPrincipal =
+  | Readonly<{
+      transport: 'github-rest-token';
+      login: string;
+      nodeId: string;
+      userId: number | null;
+      permission: 'admin' | 'maintain' | 'write' | 'triage' | 'read' | 'none';
+    }>
+  | Readonly<{
+      transport: 'github-actions-token';
+      login: 'github-actions[bot]';
+      nodeId: 'MDM6Qm90NDE4OTgyODI=';
+      userId: 41898282;
+      permission: 'workflow';
+      workflowRef: string;
+      workflowSha: string;
+    }>;
 
 declare const githubApiCapabilityBrand: unique symbol;
 
@@ -255,6 +269,7 @@ function compileOperation(
   if (effect === 'issue-comment-write'
       && kind !== 'current-user'
       && kind !== 'collaborator-permission'
+      && kind !== 'repository'
       && kind !== 'issue-comments'
       && kind !== 'issue-comment'
       && kind !== 'create-issue-comment'
@@ -443,14 +458,23 @@ export function assertGitHubApiCapability(
   const effectSatisfied = requiredEffect === 'read'
     ? true
     : value.effect === requiredEffect;
+  const userPrincipal = value.principal.transport === 'github-rest-token'
+    ? value.principal
+    : null;
+  const workflowCommentPrincipal = requiredEffect === 'issue-comment-write'
+    && value.principal.transport === 'github-actions-token'
+    && value.principal.permission === 'workflow';
   if (value.repository !== repositoryName || !effectSatisfied
-      || (requiredEffect === 'runner-admin' && value.principal.permission !== 'admin')
+      || (requiredEffect === 'runner-admin' && userPrincipal?.permission !== 'admin')
       || ((requiredEffect === 'status-write'
-          || requiredEffect === 'issue-comment-write'
           || requiredEffect === 'merge-write'
           || requiredEffect === 'branch-closeout-write')
-        && value.principal.permission !== 'admin'
-        && value.principal.permission !== 'maintain')) {
+        && userPrincipal?.permission !== 'admin'
+        && userPrincipal?.permission !== 'maintain')
+      || (requiredEffect === 'issue-comment-write'
+        && !workflowCommentPrincipal
+        && userPrincipal?.permission !== 'admin'
+        && userPrincipal?.permission !== 'maintain')) {
     throw new GitHubApiProviderError(
       'GitHub API capability is absent, repository-bound incorrectly, or not effect-authorized'
     );
@@ -466,25 +490,45 @@ function issueCapability(input: Readonly<{
   origin: 'production' | 'test';
 }>): GitHubApiCapability {
   repository(input.repository);
+  const userPrincipalValid = input.principal.transport === 'github-rest-token'
+    && /^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})(?:\[bot\])?$/u.test(input.principal.login)
+    && input.principal.nodeId.length > 0
+    && (input.principal.userId === null
+      || (Number.isSafeInteger(input.principal.userId) && input.principal.userId > 0))
+    && ['admin', 'maintain', 'write', 'triage', 'read', 'none'].includes(input.principal.permission);
+  const workflowPrincipalValid = input.principal.transport === 'github-actions-token'
+    && input.principal.login === 'github-actions[bot]'
+    && input.principal.nodeId === 'MDM6Qm90NDE4OTgyODI='
+    && input.principal.userId === 41898282
+    && input.principal.permission === 'workflow'
+    && input.principal.workflowRef
+      === `${input.repository}/.github/workflows/code-scanning-projection.yml@refs/heads/main`
+    && /^[0-9a-f]{40}$/u.test(input.principal.workflowSha);
   if (!/^[^\s\u0000-\u001f\u007f-\u009f]{20,1024}$/u.test(input.token)
-      || input.principal.transport !== 'github-rest-token'
-      || !/^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})(?:\[bot\])?$/u.test(input.principal.login)
-      || input.principal.nodeId.length === 0
-      || (input.principal.userId !== null
-        && (!Number.isSafeInteger(input.principal.userId) || input.principal.userId < 1))
-      || !['admin', 'maintain', 'write', 'triage', 'read', 'none'].includes(input.principal.permission)
+      || (!userPrincipalValid && !workflowPrincipalValid)
       || typeof input.transport !== 'function') {
     throw new GitHubApiProviderError('GitHub API capability issuance input is invalid');
   }
-  if (input.effect === 'runner-admin' && input.principal.permission !== 'admin') {
+  if (input.effect === 'runner-admin'
+      && (input.principal.transport !== 'github-rest-token'
+        || input.principal.permission !== 'admin')) {
     throw new GitHubApiProviderError('GitHub API runner-admin capability requires admin permission');
   }
   if ((input.effect === 'status-write'
-      || input.effect === 'issue-comment-write'
       || input.effect === 'merge-write'
       || input.effect === 'branch-closeout-write')
+      && (input.principal.transport !== 'github-rest-token'
+        || (input.principal.permission !== 'admin' && input.principal.permission !== 'maintain'))) {
+    throw new GitHubApiProviderError('GitHub API privileged write capability requires maintain/admin user permission');
+  }
+  if (input.effect === 'issue-comment-write'
+      && input.principal.transport === 'github-rest-token'
       && input.principal.permission !== 'admin' && input.principal.permission !== 'maintain') {
-    throw new GitHubApiProviderError('GitHub API write capability requires maintain/admin permission');
+    throw new GitHubApiProviderError('GitHub API user comment write capability requires maintain/admin permission');
+  }
+  if (input.principal.transport === 'github-actions-token'
+      && input.effect !== 'read' && input.effect !== 'issue-comment-write') {
+    throw new GitHubApiProviderError('GitHub Actions workflow principal permits only read and issue-comment-write effects');
   }
   const capability = Object.freeze({}) as GitHubApiCapability;
   capabilityBindings.set(capability, Object.freeze({
@@ -833,6 +877,7 @@ async function readProductionToken(repositoryRoot: string, session: GitHubApiReq
   try {
     bytes = await readGitHubToken({
       cwd: path.resolve(repositoryRoot),
+      repository: session.repository,
       hostname: GITHUB_HOST,
       deadlineAtUnixMs: Math.min(session.deadlineAt, Date.now() + remaining(session))
     });
@@ -869,6 +914,45 @@ async function enroll(input: Readonly<{
   }
   if (session.capability !== undefined) return session.capability;
   const token = await input.readToken(input.repositoryRoot, session);
+  const workflowIdentity = input.origin === 'production'
+    ? inspectGitHubActionsProjectionCredentialIdentity(process.env, input.repository)
+    : null;
+  if (workflowIdentity !== null) {
+    if (input.effect !== 'read' && input.effect !== 'issue-comment-write') {
+      throw new GitHubApiProviderError(
+        'GitHub Actions projection credential cannot enroll a privileged repository effect'
+      );
+    }
+    const repositoryValue = await executeWithToken<unknown>(
+      session,
+      token,
+      input.transport,
+      { kind: 'repository' }
+    );
+    if (repositoryValue === null || typeof repositoryValue !== 'object' || Array.isArray(repositoryValue)
+        || (repositoryValue as Record<string, unknown>).full_name !== input.repository) {
+      throw new GitHubApiProviderError('GitHub Actions projection token is not bound to this repository');
+    }
+    const capability = issueCapability({
+      repository: input.repository,
+      token,
+      principal: Object.freeze({
+        transport: 'github-actions-token',
+        login: 'github-actions[bot]',
+        nodeId: 'MDM6Qm90NDE4OTgyODI=',
+        userId: 41898282,
+        permission: 'workflow',
+        workflowRef: workflowIdentity.workflowRef,
+        workflowSha: workflowIdentity.workflowSha
+      }),
+      effect: input.effect,
+      transport: input.transport,
+      origin: input.origin
+    });
+    session.capability = capability;
+    remaining(session);
+    return capability;
+  }
   const viewer = await executeWithToken<unknown>(session, token, input.transport, { kind: 'current-user' });
   if (viewer === null || typeof viewer !== 'object' || Array.isArray(viewer)) {
     throw new GitHubApiProviderError('GitHub API token principal response is invalid');

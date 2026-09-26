@@ -63,8 +63,15 @@ export class GitHubCredentialUnavailableError extends Error {
 
 export type GitHubCredentialInput = Readonly<{
   cwd: string;
+  repository: string;
   hostname: typeof GITHUB_HOST;
   deadlineAtUnixMs: number;
+}>;
+
+export type GitHubActionsProjectionCredentialIdentity = Readonly<{
+  repository: string;
+  workflowRef: string;
+  workflowSha: string;
 }>;
 
 type GitHubCredentialSource = 'stored-gh-auth' | 'github-actions-token';
@@ -80,20 +87,41 @@ function environmentValue(source: Readonly<NodeJS.ProcessEnv>, key: string): str
   return actual === undefined ? undefined : source[actual];
 }
 
-function githubActionsCredentialToken(source: Readonly<NodeJS.ProcessEnv>): string | undefined {
-  if (environmentValue(source, 'GITHUB_ACTIONS') !== 'true'
+export function inspectGitHubActionsProjectionCredentialIdentity(
+  source: Readonly<NodeJS.ProcessEnv>,
+  repository: string
+): GitHubActionsProjectionCredentialIdentity | null {
+  const workflowRef = `${repository}/.github/workflows/code-scanning-projection.yml@refs/heads/main`;
+  const workflowSha = environmentValue(source, 'GITHUB_WORKFLOW_SHA');
+  const token = environmentValue(source, 'GH_TOKEN');
+  if (!/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/u.test(repository)
+      || environmentValue(source, 'GITHUB_ACTIONS') !== 'true'
       || environmentValue(source, 'GITHUB_SERVER_URL') !== 'https://github.com'
-      || environmentValue(source, 'GITHUB_API_URL') !== 'https://api.github.com') {
-    return undefined;
+      || environmentValue(source, 'GITHUB_API_URL') !== 'https://api.github.com'
+      || environmentValue(source, 'GITHUB_REPOSITORY') !== repository
+      || environmentValue(source, 'GITHUB_EVENT_NAME') !== 'pull_request_target'
+      || environmentValue(source, 'GITHUB_REF') !== 'refs/heads/main'
+      || environmentValue(source, 'GITHUB_WORKFLOW_REF') !== workflowRef
+      || typeof workflowSha !== 'string'
+      || !/^[0-9a-f]{40}$/u.test(workflowSha)
+      || environmentValue(source, 'GITHUB_SHA') !== workflowSha
+      || token === undefined) {
+    return null;
   }
-  const value = environmentValue(source, 'GH_TOKEN');
-  if (value === undefined) return undefined;
-  if (value.length === 0 || value !== value.trim()
-      || Buffer.byteLength(value, 'utf8') > MAX_TOKEN_BYTES
-      || !/^[^\s\u0000-\u001f\u007f-\u009f]+$/u.test(value)) {
+  if (token.length === 0 || token !== token.trim()
+      || Buffer.byteLength(token, 'utf8') > MAX_TOKEN_BYTES
+      || !/^[^\s\u0000-\u001f\u007f-\u009f]+$/u.test(token)) {
     throw new GitHubCredentialUnavailableError('token');
   }
-  return value;
+  return Object.freeze({ repository, workflowRef, workflowSha });
+}
+
+function githubActionsCredentialToken(
+  source: Readonly<NodeJS.ProcessEnv>,
+  repository: string
+): string | undefined {
+  if (inspectGitHubActionsProjectionCredentialIdentity(source, repository) === null) return undefined;
+  return environmentValue(source, 'GH_TOKEN');
 }
 
 /**
@@ -102,7 +130,8 @@ function githubActionsCredentialToken(source: Readonly<NodeJS.ProcessEnv>): stri
  * Actions environment; the secret is excluded from the semantic operation digest.
  */
 function githubCredentialEnvironment(
-  source: Readonly<NodeJS.ProcessEnv>
+  source: Readonly<NodeJS.ProcessEnv>,
+  repository: string
 ): GitHubCredentialProcessEnvironment {
   const child: NodeJS.ProcessEnv = {
     GH_PROMPT_DISABLED: '1',
@@ -119,7 +148,7 @@ function githubCredentialEnvironment(
       identity[key] = value;
     }
   }
-  const actionsToken = githubActionsCredentialToken(source);
+  const actionsToken = githubActionsCredentialToken(source, repository);
   const credentialSource: GitHubCredentialSource = actionsToken === undefined
     ? 'stored-gh-auth'
     : 'github-actions-token';
@@ -219,9 +248,10 @@ function assertGitHubCredentialReceipt(
 }
 
 export async function readGitHubToken(input: GitHubCredentialInput): Promise<Uint8Array> {
-  const { cwd, hostname, deadlineAtUnixMs } = input;
+  const { cwd, repository, hostname, deadlineAtUnixMs } = input;
   const startedAt = Date.now();
   if (hostname !== GITHUB_HOST
+      || !/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/u.test(repository)
       || !path.isAbsolute(cwd) || path.resolve(cwd) !== cwd
       || !Number.isSafeInteger(deadlineAtUnixMs)) {
     throw new GitHubCredentialUnavailableError('admission');
@@ -273,7 +303,7 @@ export async function readGitHubToken(input: GitHubCredentialInput): Promise<Uin
           async use(workingDirectory) {
             if (remainingMs() < 1) throw new GitHubCredentialUnavailableError('deadline');
             const boundary = issueRetainedCommandBoundary({ executable, workingDirectory });
-            const environment = githubCredentialEnvironment(process.env);
+            const environment = githubCredentialEnvironment(process.env, repository);
             const providerIdentityDigest = sha256({
               provider: 'github-cli',
               hostname: GITHUB_HOST,

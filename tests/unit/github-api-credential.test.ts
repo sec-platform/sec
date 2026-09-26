@@ -3,14 +3,18 @@ import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 
-import { readGitHubToken } from '../../src/adapters/providers/github-api/credential.ts';
+import {
+  inspectGitHubActionsProjectionCredentialIdentity,
+  readGitHubToken
+} from '../../src/adapters/providers/github-api/credential.ts';
 
 const GH_EXECUTABLE_NAME = process.platform === 'win32' ? 'gh.exe' : 'gh';
 
 if (import.meta.main && path.basename(process.execPath).toLowerCase() === GH_EXECUTABLE_NAME) {
   const observedKeys = [
     'PATH', 'GH_HOST', 'GH_TOKEN', 'GITHUB_TOKEN', 'GH_CONFIG_DIR', 'HOME', 'XDG_CONFIG_HOME',
-    'GITHUB_ACTIONS', 'GITHUB_SERVER_URL', 'GITHUB_API_URL'
+    'GITHUB_ACTIONS', 'GITHUB_SERVER_URL', 'GITHUB_API_URL', 'GITHUB_REPOSITORY',
+    'GITHUB_EVENT_NAME', 'GITHUB_REF', 'GITHUB_SHA', 'GITHUB_WORKFLOW_SHA', 'GITHUB_WORKFLOW_REF'
   ];
   await Bun.write('observed.json', JSON.stringify({
     args: process.argv.slice(-4),
@@ -55,6 +59,7 @@ test.serial('acquires one token through the retained fixed command and scrubs am
     process.env.XDG_CONFIG_HOME = path.join(root, 'redirected-xdg');
     const token = await readGitHubToken({
       cwd: root,
+      repository: 'sec-platform/sec',
       hostname: 'github.com',
       deadlineAtUnixMs: Date.now() + 10_000
     });
@@ -71,7 +76,13 @@ test.serial('acquires one token through the retained fixed command and scrubs am
         XDG_CONFIG_HOME: null,
         GITHUB_ACTIONS: null,
         GITHUB_SERVER_URL: null,
-        GITHUB_API_URL: null
+        GITHUB_API_URL: null,
+        GITHUB_REPOSITORY: null,
+        GITHUB_EVENT_NAME: null,
+        GITHUB_REF: null,
+        GITHUB_SHA: null,
+        GITHUB_WORKFLOW_SHA: null,
+        GITHUB_WORKFLOW_REF: null
       }
     });
     token.fill(0);
@@ -82,6 +93,31 @@ test.serial('acquires one token through the retained fixed command and scrubs am
   }
 });
 
+test.serial('recognizes only the exact code-scanning projection workflow as the Actions credential source', () => {
+  const source: NodeJS.ProcessEnv = {
+    GITHUB_ACTIONS: 'true',
+    GITHUB_SERVER_URL: 'https://github.com',
+    GITHUB_API_URL: 'https://api.github.com',
+    GITHUB_REPOSITORY: 'sec-platform/sec',
+    GITHUB_EVENT_NAME: 'pull_request_target',
+    GITHUB_REF: 'refs/heads/main',
+    GITHUB_SHA: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+    GITHUB_WORKFLOW_SHA: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+    GITHUB_WORKFLOW_REF:
+      'sec-platform/sec/.github/workflows/code-scanning-projection.yml@refs/heads/main',
+    GH_TOKEN: 'ghs_actions-token-0123456789'
+  };
+  expect(inspectGitHubActionsProjectionCredentialIdentity(source, 'sec-platform/sec')).toEqual({
+    repository: 'sec-platform/sec',
+    workflowRef: 'sec-platform/sec/.github/workflows/code-scanning-projection.yml@refs/heads/main',
+    workflowSha: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
+  });
+  expect(inspectGitHubActionsProjectionCredentialIdentity(
+    { ...source, GITHUB_WORKFLOW_REF: 'sec-platform/sec/.github/workflows/other.yml@refs/heads/main' },
+    'sec-platform/sec'
+  )).toBeNull();
+});
+
 test.serial('forwards only the explicit GitHub Actions token to the fixed credential command', async () => {
   const root = await fixture();
   const original = { ...process.env };
@@ -90,6 +126,13 @@ test.serial('forwards only the explicit GitHub Actions token to the fixed creden
     process.env.GITHUB_ACTIONS = 'true';
     process.env.GITHUB_SERVER_URL = 'https://github.com';
     process.env.GITHUB_API_URL = 'https://api.github.com';
+    process.env.GITHUB_REPOSITORY = 'sec-platform/sec';
+    process.env.GITHUB_EVENT_NAME = 'pull_request_target';
+    process.env.GITHUB_REF = 'refs/heads/main';
+    process.env.GITHUB_SHA = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
+    process.env.GITHUB_WORKFLOW_SHA = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
+    process.env.GITHUB_WORKFLOW_REF =
+      'sec-platform/sec/.github/workflows/code-scanning-projection.yml@refs/heads/main';
     process.env.GH_TOKEN = 'ghs_actions-token-0123456789';
     process.env.GITHUB_TOKEN = 'must-not-forward';
     process.env.GH_HOST = 'evil.example';
@@ -98,6 +141,7 @@ test.serial('forwards only the explicit GitHub Actions token to the fixed creden
     process.env.XDG_CONFIG_HOME = path.join(root, 'redirected-xdg');
     const token = await readGitHubToken({
       cwd: root,
+      repository: 'sec-platform/sec',
       hostname: 'github.com',
       deadlineAtUnixMs: Date.now() + 10_000
     });
@@ -114,7 +158,13 @@ test.serial('forwards only the explicit GitHub Actions token to the fixed creden
         XDG_CONFIG_HOME: null,
         GITHUB_ACTIONS: null,
         GITHUB_SERVER_URL: null,
-        GITHUB_API_URL: null
+        GITHUB_API_URL: null,
+        GITHUB_REPOSITORY: null,
+        GITHUB_EVENT_NAME: null,
+        GITHUB_REF: null,
+        GITHUB_SHA: null,
+        GITHUB_WORKFLOW_SHA: null,
+        GITHUB_WORKFLOW_REF: null
       }
     });
     token.fill(0);
@@ -128,6 +178,7 @@ test.serial('rejects an expired deadline before executable discovery', async () 
   const root = await fixture();
   await expect(readGitHubToken({
     cwd: root,
+    repository: 'sec-platform/sec',
     hostname: 'github.com',
     deadlineAtUnixMs: Date.now() - 1
   })).rejects.toEqual(expect.objectContaining({

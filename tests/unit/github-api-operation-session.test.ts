@@ -23,9 +23,18 @@ const PRINCIPAL: GitHubApiPrincipal = Object.freeze({
   userId: 900001,
   permission: 'maintain'
 });
+const WORKFLOW_PRINCIPAL: GitHubApiPrincipal = Object.freeze({
+  transport: 'github-actions-token',
+  login: 'github-actions[bot]',
+  nodeId: 'MDM6Qm90NDE4OTgyODI=',
+  userId: 41898282,
+  permission: 'workflow',
+  workflowRef: 'sec-platform/sec/.github/workflows/code-scanning-projection.yml@refs/heads/main',
+  workflowSha: SHA
+});
 
 function capability(input: Readonly<{
-  effect: 'read' | 'status-write' | 'merge-write' | 'runner-admin' | 'branch-closeout-write';
+  effect: 'read' | 'status-write' | 'issue-comment-write' | 'merge-write' | 'runner-admin' | 'branch-closeout-write';
   transport: GitHubApiTransport;
   principal?: GitHubApiPrincipal;
 }>): GitHubApiCapability {
@@ -835,6 +844,32 @@ test('code scanning alert inventory is one bounded fixed read', async () => {
   expect(urls).toEqual([
     'https://api.github.com/repos/sec-platform/sec/code-scanning/alerts?state=open&tool_name=CodeQL&ref=refs%2Fpull%2F636%2Fmerge&per_page=100&page=2'
   ]);
+});
+
+test('workflow-scoped Actions principal is confined to read and projection comment authority', async () => {
+  const api = capability({
+    effect: 'issue-comment-write',
+    principal: WORKFLOW_PRINCIPAL,
+    transport: async (target, init) => Response.json({
+      id: 91,
+      body: init?.body === undefined ? null : JSON.parse(String(init.body)).body,
+      target: String(target)
+    })
+  });
+  await expect(withGitHubApiTestSession({
+    capability: api,
+    operation: () => executeGitHubApiOperation(api, { kind: 'repository' })
+  })).resolves.toMatchObject({ id: 91 });
+  expect(() => capability({
+    effect: 'merge-write',
+    principal: WORKFLOW_PRINCIPAL,
+    transport: async () => Response.json({})
+  })).toThrow('permits only read and issue-comment-write effects');
+  expect(() => capability({
+    effect: 'status-write',
+    principal: WORKFLOW_PRINCIPAL,
+    transport: async () => Response.json({})
+  })).toThrow('privileged write capability requires maintain/admin user permission');
 });
 
 test('issue comment update uses the bounded comment write authority', async () => {
