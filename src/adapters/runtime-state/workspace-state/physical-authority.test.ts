@@ -10,17 +10,187 @@ import {
   type PhysicalDirectoryIdentity
 } from '../physical/runtime/physical-no-follow.ts';
 import { observeWindowsAclSessionLifecycleForTests } from '../physical/test/windows-host-filesystem.ts';
-import { acquireSecRuntimeCachePhysicalAuthority, acquireSecRuntimeStatePhysicalAuthority } from './physical-authority.ts';
+import {
+  migrateRuntimeStateDirectoryGeneration,
+  selectRuntimeStateDirectoryGeneration,
+  runtimeStateTestInvocationGenerationMigrations,
+  runtimeStateWorkspaceGenerationMigrations
+} from './layout-migration.ts';
+import { acquireRuntimeCachePhysicalAuthority, acquireRuntimeStatePhysicalAuthority } from './physical-authority.ts';
+
+test('runtime state generation selector keeps one authority namespace without creating a second generation', () => {
+  const root = mkdtempSync(path.join(tmpdir(), 'sec-runtime-layout-selection-'));
+  try {
+    const parent = path.join(root, 'trusted-runtime');
+    const legacy = path.join(parent, 'v1');
+    const current = path.join(parent, 'sessions');
+    expect(selectRuntimeStateDirectoryGeneration({
+      label: 'selection fixture', legacyPath: legacy, currentPath: current
+    })).toEqual({ kind: 'current', path: current });
+    mkdirSync(legacy, { recursive: true });
+    expect(selectRuntimeStateDirectoryGeneration({
+      label: 'selection fixture', legacyPath: legacy, currentPath: current
+    })).toEqual({ kind: 'legacy', path: legacy });
+    mkdirSync(current, { recursive: true });
+    expect(() => selectRuntimeStateDirectoryGeneration({
+      label: 'selection fixture', legacyPath: legacy, currentPath: current
+    })).toThrow('current and legacy directories both exist');
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test.skipIf(process.platform !== 'linux' && process.platform !== 'win32')(
+  'runtime state authority atomically migrates numeric root generations before materializing current directories',
+  async () => {
+    const root = mkdtempSync(path.join(tmpdir(), 'sec-runtime-layout-migration-'));
+    try {
+      const repositoryRoot = path.join(root, 'repository');
+      const stateRoot = path.join(root, 'state');
+      const cacheRoot = path.join(root, 'cache');
+      mkdirSync(repositoryRoot);
+      const pairs = [
+        [path.join(stateRoot, 'workspaces', 'v1'), path.join(stateRoot, 'workspaces', 'records')],
+        [path.join(stateRoot, 'workspace-locators', 'v1'), path.join(stateRoot, 'workspace-locators', 'records')],
+        [path.join(stateRoot, 'operation-leases', 'v1'), path.join(stateRoot, 'operation-leases', 'locks')]
+      ] as const;
+      const legacyIdentities = new Map<string, PhysicalDirectoryIdentity>();
+      for (const [legacy] of pairs) {
+        mkdirSync(legacy, { recursive: true });
+        legacyIdentities.set(legacy, inspectNoFollowDirectoryChain(legacy, 'legacy generation fixture').target);
+      }
+
+      const authority = await acquireRuntimeStatePhysicalAuthority({
+        repositoryRoot,
+        stateRoot,
+        cacheRoot,
+        requiredDirectories: pairs.map(([, current]) => current)
+      });
+      try {
+        for (const [legacy, current] of pairs) {
+          expect(existsSync(legacy)).toBe(false);
+          const expected = legacyIdentities.get(legacy)!;
+          const observed = inspectNoFollowDirectoryChain(current, 'migrated generation fixture').target;
+          expect([observed.device, observed.inode, observed.objectId])
+            .toEqual([expected.device, expected.inode, expected.objectId]);
+          expect(authority.directory(current).objectId).toBe(observed.objectId);
+        }
+      } finally {
+        await authority.release();
+      }
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  }
+);
+
+test.skipIf(process.platform !== 'linux' && process.platform !== 'win32')(
+  'runtime state authority rejects dual legacy/current root generations',
+  async () => {
+    const root = mkdtempSync(path.join(tmpdir(), 'sec-runtime-layout-ambiguous-'));
+    try {
+      const repositoryRoot = path.join(root, 'repository');
+      const stateRoot = path.join(root, 'state');
+      const cacheRoot = path.join(root, 'cache');
+      mkdirSync(repositoryRoot);
+      mkdirSync(path.join(stateRoot, 'workspaces', 'v1'), { recursive: true });
+      mkdirSync(path.join(stateRoot, 'workspaces', 'records'), { recursive: true });
+      await expect(acquireRuntimeStatePhysicalAuthority({
+        repositoryRoot,
+        stateRoot,
+        cacheRoot,
+        requiredDirectories: [path.join(stateRoot, 'workspaces', 'records')]
+      })).rejects.toThrow('current and legacy directories both exist');
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  }
+);
+
+test.skipIf(process.platform !== 'linux' && process.platform !== 'win32')(
+  'runtime state authority migrates workspace and test-invocation generations as one admitted plan',
+  async () => {
+    const root = mkdtempSync(path.join(tmpdir(), 'sec-runtime-nested-layout-migration-'));
+    try {
+      const repositoryRoot = path.join(root, 'repository');
+      const stateRoot = path.join(root, 'state');
+      const cacheRoot = path.join(root, 'cache');
+      const workspaceRoot = path.join(stateRoot, 'workspaces', 'records', 'workspace');
+      mkdirSync(repositoryRoot);
+      const pairs = [
+        [path.join(workspaceRoot, 'test-process-temp', 'v1'), path.join(workspaceRoot, 'test-process-temp', 'leases')],
+        [path.join(workspaceRoot, 'verification-sessions', 'v2'), path.join(workspaceRoot, 'verification-sessions', 'journal')],
+        [path.join(stateRoot, 'test-invocation-runs', 'v1'), path.join(stateRoot, 'test-invocation-runs', 'records')],
+        [path.join(cacheRoot, 'test-invocation-runs', 'v1'), path.join(cacheRoot, 'test-invocation-runs', 'records')]
+      ] as const;
+      for (const [legacy] of pairs) mkdirSync(legacy, { recursive: true });
+
+      const authority = await acquireRuntimeStatePhysicalAuthority({
+        repositoryRoot,
+        stateRoot,
+        cacheRoot,
+        requiredDirectories: pairs.map(([, current]) => current),
+        directoryMigrations: [
+          ...runtimeStateWorkspaceGenerationMigrations(workspaceRoot),
+          ...runtimeStateTestInvocationGenerationMigrations(stateRoot, cacheRoot)
+        ]
+      });
+      try {
+        for (const [legacy, current] of pairs) {
+          expect(existsSync(legacy)).toBe(false);
+          expect(authority.directory(current).path).toBe(current);
+        }
+      } finally {
+        await authority.release();
+      }
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  }
+);
+
+test.skipIf(process.platform !== 'linux' && process.platform !== 'win32')(
+  'automatic runtime-state migration rejects non-empty legacy state while explicit quiescent migration preserves it',
+  async () => {
+    const root = mkdtempSync(path.join(tmpdir(), 'sec-runtime-layout-quiescent-'));
+    try {
+      const repositoryRoot = path.join(root, 'repository');
+      const stateRoot = path.join(root, 'state');
+      const cacheRoot = path.join(root, 'cache');
+      const legacy = path.join(stateRoot, 'workspaces', 'v1');
+      const current = path.join(stateRoot, 'workspaces', 'records');
+      mkdirSync(repositoryRoot);
+      mkdirSync(path.join(legacy, 'retained'), { recursive: true });
+      await expect(acquireRuntimeStatePhysicalAuthority({
+        repositoryRoot,
+        stateRoot,
+        cacheRoot,
+        requiredDirectories: [current]
+      })).rejects.toThrow('requires quiescent migration');
+      expect(existsSync(path.join(legacy, 'retained'))).toBe(true);
+      expect(migrateRuntimeStateDirectoryGeneration({
+        label: 'workspace records',
+        legacyPath: legacy,
+        currentPath: current,
+        mode: 'quiescent'
+      })).toBe('migrated');
+      expect(existsSync(legacy)).toBe(false);
+      expect(existsSync(path.join(current, 'retained'))).toBe(true);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  }
+);
 
 test('runtime cache authority materializes one no-follow tree physically outside the repository', () => {
   const root = mkdtempSync(path.join(tmpdir(), 'sec-runtime-cache-authority-'));
   try {
     const repositoryRoot = path.join(root, 'repository');
     const cacheRoot = path.join(root, 'cache');
-    const snapshots = path.join(cacheRoot, 'docs-doctor', 'index-snapshots', 'v1');
+    const snapshots = path.join(cacheRoot, 'docs-doctor', 'index-snapshots', 'records');
     mkdirSync(repositoryRoot);
 
-    const authority = acquireSecRuntimeCachePhysicalAuthority({
+    const authority = acquireRuntimeCachePhysicalAuthority({
       repositoryRoot,
       cacheRoot,
       requiredDirectories: [snapshots]
@@ -49,7 +219,7 @@ test('runtime cache authority rejects a symlink or junction ancestor before crea
     symlinkSync(repositoryRoot, cacheRoot, process.platform === 'win32' ? 'junction' : 'dir');
 
     expect(() =>
-      acquireSecRuntimeCachePhysicalAuthority({
+      acquireRuntimeCachePhysicalAuthority({
         repositoryRoot,
         cacheRoot,
         requiredDirectories: [forbiddenDescendant]
@@ -90,7 +260,7 @@ test('bounded Runtime State authority settlement preserves the live capability a
   const stateRoot = path.join(root, 'state');
   const cacheRoot = path.join(root, 'cache');
   mkdirSync(repositoryRoot);
-  const authority = await acquireSecRuntimeStatePhysicalAuthority({
+  const authority = await acquireRuntimeStatePhysicalAuthority({
     repositoryRoot,
     stateRoot,
     cacheRoot,
@@ -115,7 +285,7 @@ test.skipIf(process.platform !== 'win32')(
     const stateRoot = path.join(root, 'state');
     const cacheRoot = path.join(root, 'cache');
     mkdirSync(repositoryRoot);
-    const authority = await acquireSecRuntimeStatePhysicalAuthority({
+    const authority = await acquireRuntimeStatePhysicalAuthority({
       repositoryRoot,
       stateRoot,
       cacheRoot,
@@ -146,7 +316,7 @@ test.skipIf(process.platform !== 'win32')(
     const stateRoot = path.join(root, 'state');
     const cacheRoot = path.join(root, 'cache');
     mkdirSync(repositoryRoot);
-    const authority = await acquireSecRuntimeStatePhysicalAuthority({
+    const authority = await acquireRuntimeStatePhysicalAuthority({
       repositoryRoot,
       stateRoot,
       cacheRoot,
@@ -194,8 +364,8 @@ test.skipIf(process.platform !== 'win32')(
       requiredDirectories: []
     };
     mkdirSync(input.repositoryRoot);
-    const first = await acquireSecRuntimeStatePhysicalAuthority(input);
-    const second = await acquireSecRuntimeStatePhysicalAuthority(input);
+    const first = await acquireRuntimeStatePhysicalAuthority(input);
+    const second = await acquireRuntimeStatePhysicalAuthority(input);
     try {
       const current = first.assertCurrent();
       await expect(second.release({ deadlineAtUnixMs: Date.now() + 10_000 }))
@@ -223,13 +393,13 @@ test.skipIf(process.platform !== 'win32')(
       requiredDirectories: []
     };
     mkdirSync(input.repositoryRoot);
-    const authority = await acquireSecRuntimeStatePhysicalAuthority(input);
-    let reopened: Awaited<ReturnType<typeof acquireSecRuntimeStatePhysicalAuthority>> | undefined;
+    const authority = await acquireRuntimeStatePhysicalAuthority(input);
+    let reopened: Awaited<ReturnType<typeof acquireRuntimeStatePhysicalAuthority>> | undefined;
     try {
       const retirement = authority.release({ deadlineAtUnixMs: Date.now() + 10_000 });
-      await expect(acquireSecRuntimeStatePhysicalAuthority(input)).rejects.toThrow('generation is retired');
+      await expect(acquireRuntimeStatePhysicalAuthority(input)).rejects.toThrow('generation is retired');
       await retirement;
-      reopened = await acquireSecRuntimeStatePhysicalAuthority(input);
+      reopened = await acquireRuntimeStatePhysicalAuthority(input);
       await expect(reopened.assertCurrent()).resolves.toBeUndefined();
     } finally {
       await reopened?.release().catch(() => undefined);
@@ -250,15 +420,15 @@ test.skipIf(process.platform !== 'win32')(
       requiredDirectories: []
     };
     mkdirSync(input.repositoryRoot);
-    const authority = await acquireSecRuntimeStatePhysicalAuthority(input);
-    let reopened: Awaited<ReturnType<typeof acquireSecRuntimeStatePhysicalAuthority>> | undefined;
+    const authority = await acquireRuntimeStatePhysicalAuthority(input);
+    let reopened: Awaited<ReturnType<typeof acquireRuntimeStatePhysicalAuthority>> | undefined;
     try {
       const current = authority.assertCurrent();
       const retirement = authority.release();
-      await expect(acquireSecRuntimeStatePhysicalAuthority(input)).rejects.toThrow('generation is retired');
+      await expect(acquireRuntimeStatePhysicalAuthority(input)).rejects.toThrow('generation is retired');
       await current;
       await retirement;
-      reopened = await acquireSecRuntimeStatePhysicalAuthority(input);
+      reopened = await acquireRuntimeStatePhysicalAuthority(input);
       await expect(reopened.assertCurrent()).resolves.toBeUndefined();
     } finally {
       await reopened?.release().catch(() => undefined);
@@ -274,25 +444,25 @@ test.skipIf(process.platform !== 'win32')('bounded owner child generations queue
   const stateRoot = path.join(root, 'state');
   const cacheRoot = path.join(root, 'cache');
   mkdirSync(repositoryRoot);
-  const first = await acquireSecRuntimeStatePhysicalAuthority({
+  const first = await acquireRuntimeStatePhysicalAuthority({
     repositoryRoot,
     stateRoot,
     cacheRoot,
     requiredDirectories: []
   });
-  let second: Awaited<ReturnType<typeof acquireSecRuntimeStatePhysicalAuthority>> | undefined;
-  let third: Awaited<ReturnType<typeof acquireSecRuntimeStatePhysicalAuthority>> | undefined;
+  let second: Awaited<ReturnType<typeof acquireRuntimeStatePhysicalAuthority>> | undefined;
+  let third: Awaited<ReturnType<typeof acquireRuntimeStatePhysicalAuthority>> | undefined;
   try {
     const concurrentDeadlineAtUnixMs = Date.now() + 30_000;
     const concurrent = await Promise.allSettled([
-      acquireSecRuntimeStatePhysicalAuthority({
+      acquireRuntimeStatePhysicalAuthority({
         repositoryRoot,
         stateRoot,
         cacheRoot,
         requiredDirectories: [path.join(stateRoot, 'operations', 'first')],
         deadlineAtUnixMs: concurrentDeadlineAtUnixMs
       }),
-      acquireSecRuntimeStatePhysicalAuthority({
+      acquireRuntimeStatePhysicalAuthority({
         repositoryRoot,
         stateRoot,
         cacheRoot,
@@ -332,16 +502,16 @@ test.skipIf(process.platform !== 'win32')(
     mkdirSync(firstRepositoryRoot);
     mkdirSync(secondRepositoryRoot);
     const before = observeWindowsAclSessionLifecycleForTests();
-    const first = await acquireSecRuntimeStatePhysicalAuthority({
+    const first = await acquireRuntimeStatePhysicalAuthority({
       repositoryRoot: firstRepositoryRoot,
       stateRoot,
       cacheRoot,
       requiredDirectories: []
     });
-    let second: Awaited<ReturnType<typeof acquireSecRuntimeStatePhysicalAuthority>> | undefined;
-    let firstWarm: Awaited<ReturnType<typeof acquireSecRuntimeStatePhysicalAuthority>> | undefined;
+    let second: Awaited<ReturnType<typeof acquireRuntimeStatePhysicalAuthority>> | undefined;
+    let firstWarm: Awaited<ReturnType<typeof acquireRuntimeStatePhysicalAuthority>> | undefined;
     try {
-      second = await acquireSecRuntimeStatePhysicalAuthority({
+      second = await acquireRuntimeStatePhysicalAuthority({
         repositoryRoot: secondRepositoryRoot,
         stateRoot,
         cacheRoot,
@@ -351,7 +521,7 @@ test.skipIf(process.platform !== 'win32')(
       expect(afterIndependentRoots.opened - before.opened).toBe(2);
       expect(afterIndependentRoots.closed - before.closed).toBe(0);
 
-      firstWarm = await acquireSecRuntimeStatePhysicalAuthority({
+      firstWarm = await acquireRuntimeStatePhysicalAuthority({
         repositoryRoot: firstRepositoryRoot,
         stateRoot,
         cacheRoot,
@@ -377,20 +547,20 @@ test.skipIf(process.platform !== 'win32')('warm closure reuses one generation an
   const terminalRoot = path.join(stateRoot, 'operations', 'two', 'terminal');
   mkdirSync(repositoryRoot);
   const before = observeWindowsAclSessionLifecycleForTests();
-  const cold = await acquireSecRuntimeStatePhysicalAuthority({
+  const cold = await acquireRuntimeStatePhysicalAuthority({
     repositoryRoot,
     stateRoot,
     cacheRoot,
     requiredDirectories: []
   });
-  let warm: Awaited<ReturnType<typeof acquireSecRuntimeStatePhysicalAuthority>> | undefined;
-  let delta: Awaited<ReturnType<typeof acquireSecRuntimeStatePhysicalAuthority>> | undefined;
-  let deltaWarm: Awaited<ReturnType<typeof acquireSecRuntimeStatePhysicalAuthority>> | undefined;
+  let warm: Awaited<ReturnType<typeof acquireRuntimeStatePhysicalAuthority>> | undefined;
+  let delta: Awaited<ReturnType<typeof acquireRuntimeStatePhysicalAuthority>> | undefined;
+  let deltaWarm: Awaited<ReturnType<typeof acquireRuntimeStatePhysicalAuthority>> | undefined;
   try {
     const afterCold = observeWindowsAclSessionLifecycleForTests();
     expect(afterCold.opened - before.opened).toBe(1);
 
-    warm = await acquireSecRuntimeStatePhysicalAuthority({
+    warm = await acquireRuntimeStatePhysicalAuthority({
       repositoryRoot,
       stateRoot,
       cacheRoot,
@@ -399,7 +569,7 @@ test.skipIf(process.platform !== 'win32')('warm closure reuses one generation an
     const afterWarm = observeWindowsAclSessionLifecycleForTests();
     expect(afterWarm.opened).toBe(afterCold.opened);
 
-    delta = await acquireSecRuntimeStatePhysicalAuthority({
+    delta = await acquireRuntimeStatePhysicalAuthority({
       repositoryRoot,
       stateRoot,
       cacheRoot,
@@ -411,7 +581,7 @@ test.skipIf(process.platform !== 'win32')('warm closure reuses one generation an
     expect(delta.directory(operationRoot).path).toBe(operationRoot);
     expect(delta.directory(terminalRoot).path).toBe(terminalRoot);
 
-    deltaWarm = await acquireSecRuntimeStatePhysicalAuthority({
+    deltaWarm = await acquireRuntimeStatePhysicalAuthority({
       repositoryRoot,
       stateRoot,
       cacheRoot,
@@ -437,7 +607,7 @@ test.skipIf(process.platform !== 'win32')(
     const stateRoot = path.join(root, 'state');
     const cacheRoot = path.join(root, 'cache');
     mkdirSync(repositoryRoot);
-    const authority = await acquireSecRuntimeStatePhysicalAuthority({
+    const authority = await acquireRuntimeStatePhysicalAuthority({
       repositoryRoot,
       stateRoot,
       cacheRoot,

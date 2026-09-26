@@ -2,7 +2,7 @@ import { expect, test } from 'bun:test';
 import path from 'node:path';
 
 import { rawSha256, sha256 } from '../../../contracts/canonical.ts';
-import { compileSecRepositoryModuleMembership } from '../architecture/contract.ts';
+import { compileRepositoryModuleMembership } from '../architecture/contract.ts';
 import { compileVirtualRepositorySourceProgramCompilation } from './repository-compilation.ts';
 import {
   assertIssuedTestImpactProjection,
@@ -10,13 +10,13 @@ import {
   encodeTestImpactProjectionReceipt,
   parseTestImpactProjectionReceipt
 } from './test-impact-projection.ts';
-import { compileVirtualWorkspaceSourceSnapshot } from './workspace-source-snapshot.ts';
+import { compileVirtualSnapshot } from './workspace-source-snapshot.ts';
 
-const membership = compileSecRepositoryModuleMembership(path.resolve(import.meta.dir, '../../../..'));
+const membership = compileRepositoryModuleMembership(path.resolve(import.meta.dir, '../../../..'));
 
 function fixture(sources: Readonly<Record<string, string>>) {
   const sourceRevision = rawSha256(JSON.stringify(sources));
-  const workspaceSnapshot = compileVirtualWorkspaceSourceSnapshot({
+  const workspaceSnapshot = compileVirtualSnapshot({
     subject: {
       kind: 'virtual-mutation',
       provenance: {

@@ -20,32 +20,32 @@ import {
   GIT_READ_OPERATION_BUDGET,
   runGitRead
 } from '../../src/adapters/self-hosting/development/tooling/git/git-read.ts';
-import { issueSecOperationRequirementBindingContext } from '../../src/execution/operation/requirement-binding-context.ts';
+import { issueOperationRequirementBindingContext } from '../../src/execution/operation/requirement-binding-context.ts';
 import {
-  bindSecSemanticOperation,
-  compileSecCapabilityBinding,
-  compileSecSemanticOperationPlan,
-  issueSecSemanticOperationAttemptContext,
-  type SecBoundSemanticOperation,
-  type SecOperationDigest
+  bindSemanticOperation,
+  compileCapabilityBinding,
+  compileSemanticOperationPlan,
+  issueSemanticOperationAttemptContext,
+  type BoundSemanticOperation,
+  type OperationDigest
 } from '../../src/execution/operation/semantic.ts';
 
-const TEST_GIT_READ_CONTRACT_DIGEST = `sha256:${'1'.repeat(64)}` as SecOperationDigest;
-const TEST_GIT_READ_PROVIDER_DIGEST = `sha256:${'2'.repeat(64)}` as SecOperationDigest;
+const TEST_GIT_READ_CONTRACT_DIGEST = `sha256:${'1'.repeat(64)}` as OperationDigest;
+const TEST_GIT_READ_PROVIDER_DIGEST = `sha256:${'2'.repeat(64)}` as OperationDigest;
 
 function issueTestGitReadOperation(input: Readonly<{
   deadlineAtUnixMs?: number;
   maxInputBytes?: number;
   maxOutputBytes?: number;
   maxProcesses?: number;
-}> = {}): SecBoundSemanticOperation {
-  const plan = compileSecSemanticOperationPlan({
+}> = {}): BoundSemanticOperation {
+  const plan = compileSemanticOperationPlan({
     operation: 'git-read.host-observation',
-    intentDigest: `sha256:${'3'.repeat(64)}` as SecOperationDigest,
+    intentDigest: `sha256:${'3'.repeat(64)}` as OperationDigest,
     decisionDigest: TEST_GIT_READ_CONTRACT_DIGEST,
     deadlineAtUnixMs: input.deadlineAtUnixMs
       ?? Date.now() + GIT_READ_OPERATION_BUDGET.deadlineMs,
-    attempt: issueSecSemanticOperationAttemptContext({
+    attempt: issueSemanticOperationAttemptContext({
       authorityGrantDigest: TEST_GIT_READ_CONTRACT_DIGEST
     }),
     aggregateBudgets: [
@@ -73,7 +73,7 @@ function issueTestGitReadOperation(input: Readonly<{
       failureKinds: ['provider.cancelled', 'provider.execution-failed', 'provider.unavailable']
     }]
   });
-  return bindSecSemanticOperation(plan, [compileSecCapabilityBinding({
+  return bindSemanticOperation(plan, [compileCapabilityBinding({
     requirementId: 'git-read.host-process',
     contractDigest: TEST_GIT_READ_CONTRACT_DIGEST,
     providerIdentityDigest: TEST_GIT_READ_PROVIDER_DIGEST
@@ -387,7 +387,7 @@ test.skipIf(process.platform !== 'win32')(
     const operation = issueTestGitReadOperation({ maxProcesses: 3 });
     const processSession = openProcessResourceSession({
       operation,
-      requirementBindingContext: issueSecOperationRequirementBindingContext({
+      requirementBindingContext: issueOperationRequirementBindingContext({
         operation,
         requirementId: 'git-read.host-process',
         resourceCeilings: operation.plan.execution.aggregateBudgets

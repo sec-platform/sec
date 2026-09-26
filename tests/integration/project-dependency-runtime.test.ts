@@ -5,6 +5,7 @@ import path from 'node:path';
 import { readJson } from "../../src/adapters/filesystem/files.ts";
 import {
   buildRuntimeDepsPreboundBinding,
+  LEGACY_RUNTIME_DEPS_PREBOUND_BINDING_FILE,
   loadRuntimeDependencySpec,
   RUNTIME_DEPENDENCY_PACKAGE_NAMES,
   RUNTIME_DEPS_PREBOUND_BINDING_FILE
@@ -370,6 +371,26 @@ describe('ensureProjectDependencies', () => {
       expect({ dev: afterRoot.dev, ino: afterRoot.ino }).toEqual({ dev: beforeRoot.dev, ino: beforeRoot.ino });
       expect({ dev: afterSample.dev, ino: afterSample.ino }).toEqual({ dev: beforeSample.dev, ino: beforeSample.ino });
     }, 'engineering-compiler-runtime-prebound-constant-work-');
+  });
+
+  test.concurrent('prebound dependency readiness accepts the legacy filename but rejects dual generations', async () => {
+    await withTempWorkspace(async (workspaceRoot) => {
+      await ensureProjectBase(workspaceRoot);
+      const nodeModulesRoot = path.join(workspaceRoot, 'node_modules');
+      const currentBindingPath = path.join(nodeModulesRoot, RUNTIME_DEPS_PREBOUND_BINDING_FILE);
+      const legacyBindingPath = path.join(nodeModulesRoot, LEGACY_RUNTIME_DEPS_PREBOUND_BINDING_FILE);
+      const runtimeSpec = await loadRuntimeDependencySpec();
+      const bytes = `${JSON.stringify(buildRuntimeDepsPreboundBinding(runtimeSpec))}\n`;
+      await installRuntimePackageManifestClosure(nodeModulesRoot);
+      await fs.writeFile(legacyBindingPath, bytes, 'utf8');
+
+      await expect(ensureProjectDependencies(workspaceRoot, { installMode: 'prebound-only' }))
+        .resolves.toBeUndefined();
+
+      await fs.writeFile(currentBindingPath, bytes, 'utf8');
+      await expect(ensureProjectDependencies(workspaceRoot, { installMode: 'prebound-only' }))
+        .rejects.toThrow('conflicting binding generations');
+    }, 'engineering-compiler-runtime-prebound-legacy-filename-');
   });
 
   test.concurrent('prebound dependency readiness rejects incomplete or forged package closure', async () => {

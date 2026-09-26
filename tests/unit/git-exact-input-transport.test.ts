@@ -4,7 +4,7 @@ import path from 'node:path';
 import { canonicalCommitTreeInput, captureGitDevelopmentCommitContract, gitCommitEnvironment } from '../../src/adapters/providers/git-read/runtime/commit-contract.ts';
 import { captureGitReadArguments } from '../../src/adapters/providers/git-read/runtime/read-command.ts';
 import { captureGitScratchIndexDelta, formatGitScratchIndexRecord } from '../../src/adapters/providers/git-read/runtime/scratch-input.ts';
-import { CodexDevelopmentIsCanonicalRepositoryPath } from '../../src/contracts/repository-path.ts';
+import { IsCanonicalRepositoryPath } from '../../src/contracts/repository-path.ts';
 
 const person = () => ({ name: 'Maintainer', email: 'maintainer@example.test', date: '0 +0000' });
 const commit = (width = 40) => ({ tree: 'a'.repeat(width), parents: ['b'.repeat(width)], message: 'Message',
@@ -75,12 +75,12 @@ test('impossible argv counts are rejected before any element is inspected', () =
 test('argv and repository selectors reject strings that cannot reach Git unchanged', () => {
   for (const text of ['\ud800', 'a\udc00', '\ud800\ud800']) {
     assert.equal(captureGitReadArguments(['ls-files', '--', text], 4096).status, 'invalid');
-    assert.equal(CodexDevelopmentIsCanonicalRepositoryPath(text), false);
+    assert.equal(IsCanonicalRepositoryPath(text), false);
     assert.throws(() => captureGitScratchIndexDelta({ additions: [], removals: [text] }, 'sha1', 1000));
   }
   for (const text of ['🙂', '界/文件', 'replacement-�']) {
     assert.equal(captureGitReadArguments(['ls-files', '--', text], 4096).status, 'ready');
-    assert.equal(CodexDevelopmentIsCanonicalRepositoryPath(text), true);
+    assert.equal(IsCanonicalRepositoryPath(text), true);
   }
 });
 

@@ -19,8 +19,10 @@ import {
 } from '../../src/adapters/self-hosting/control/branch-lifecycle/branch-closeout.ts';
 import { branchLifecycleDigest } from '../../src/adapters/self-hosting/control/branch-lifecycle/branch-lifecycle-audit.ts';
 import type { BranchLifecycleInventory } from '../../src/adapters/self-hosting/control/branch-lifecycle/branch-lifecycle-types.ts';
+import { createMainAbsorptionRecovery } from '../../src/adapters/self-hosting/control/branch-lifecycle/branch-recovery.ts';
 import {
   compileClosedUnmergedCloseoutOperation,
+  createClosedNativeAbsorptionDispositionEvidence,
   createClosedSupersededDispositionEvidence,
   executeClosedUnmergedCloseoutOperation,
   issueClosedUnmergedCloseoutEffectProvider,
@@ -50,13 +52,13 @@ function git(root: string, args: readonly string[]): string {
   return result.stdout.trim();
 }
 
-function fixture(remote = 'origin'): Readonly<{
+async function fixture(remote = 'origin', retention: 'bundle' | 'main-absorption' = 'bundle'): Promise<Readonly<{
   root: string;
   recoveryRoot: string;
   bundlePath: string;
   prepared: PreparedBranchCloseoutEnvelope;
   inventory: BranchLifecycleInventory;
-}> {
+}>> {
   const parent = mkdtempSync(path.join(tmpdir(), 'sec-closed-recovery-retirement-'));
   const root = path.join(parent, 'repository');
   const recoveryRoot = `${root}-recovery`;
@@ -72,6 +74,7 @@ function fixture(remote = 'origin'): Readonly<{
   writeFileSync(path.join(root, 'tracked.txt'), 'current main replacement\n', 'utf8');
   git(root, ['commit', '--quiet', '-am', 'current main replacement']);
   const mainSha = git(root, ['rev-parse', 'HEAD']);
+  git(root, ['update-ref', `refs/remotes/${remote}/main`, mainSha]);
   const commonDir = path.resolve(root, '.git');
   const inventory: BranchLifecycleInventory = {
     schema: 'sec-branch-lifecycle-inventory-v1', observedAt: '2026-09-16T00:00:00.000Z',
@@ -91,20 +94,29 @@ function fixture(remote = 'origin'): Readonly<{
     pruneConfiguration: { observation: 'resolved', fetchPrune: true,
       remotePrune: true, fetchPruneTags: true, reason: null }, unknowns: []
   };
-  const bundlePath = path.join(recoveryRoot, 'sec-branch-closeout-retirement-fixture.bundle');
-  mkdirSync(recoveryRoot);
-  git(root, ['bundle', 'create', bundlePath, 'refs/heads/main']);
-  const bundle = readFileSync(bundlePath);
-  const bundleDigest = createHash('sha256').update(bundle).digest('hex');
-  writeFileSync(`${bundlePath}.sha256`, `${bundleDigest}  ${path.basename(bundlePath)}\n`, 'utf8');
+  let bundlePath: string;
+  let recovery;
+  if (retention === 'main-absorption') {
+    recovery = (await createMainAbsorptionRecovery({ inventory, branch: BRANCH,
+      expectedSha: headSha, mainSha, basis: 'native-ancestor', recoveryRoot })).recovery;
+    bundlePath = recovery.path;
+  } else {
+    bundlePath = path.join(recoveryRoot, 'sec-branch-closeout-retirement-fixture.bundle');
+    mkdirSync(recoveryRoot);
+    git(root, ['bundle', 'create', bundlePath, 'refs/heads/main']);
+    const bundle = readFileSync(bundlePath);
+    const bundleDigest = createHash('sha256').update(bundle).digest('hex');
+    writeFileSync(`${bundlePath}.sha256`, `${bundleDigest}  ${path.basename(bundlePath)}\n`, 'utf8');
+    recovery = { kind: 'bundle' as const, path: bundlePath, sha256: `sha256:${bundleDigest}` as const,
+      verified: true, verifyOutput: 'verified fixture bundle' };
+  }
   const preparation = createBranchCloseoutPreparation({
     preparedAt: '2026-09-16T00:01:00.000Z',
     repository: inventory.repository, branch: BRANCH, refState: 'absent',
     expectedHeadSha: headSha, expectedRemoteSha: headSha, expectedLocalSha: null,
     expectedPrHeadSha: headSha, pullRequestNumber: PR_NUMBER,
     pullRequestStateAtPreparation: 'closed',
-    recovery: { kind: 'bundle', path: bundlePath, sha256: `sha256:${bundleDigest}`,
-      verified: true, verifyOutput: 'verified fixture bundle' },
+    recovery,
     worktreePathsAtPreparation: []
   });
   const payload = { schema: BRANCH_CLOSEOUT_PREPARED_ENVELOPE_SCHEMA, preparation,
@@ -114,7 +126,7 @@ function fixture(remote = 'origin'): Readonly<{
   return Object.freeze({ root, recoveryRoot, bundlePath, prepared, inventory });
 }
 
-async function completed(input: ReturnType<typeof fixture>): Promise<Readonly<{
+async function completed(input: Awaited<ReturnType<typeof fixture>>): Promise<Readonly<{
   operation: ClosedUnmergedCloseoutOperation;
   completed: ClosedUnmergedCloseoutExecutionResult;
 }>> {
@@ -126,7 +138,8 @@ async function completed(input: ReturnType<typeof fixture>): Promise<Readonly<{
   if (currentMainSha === null) throw new Error('Retirement fixture must observe a main commit.');
   const headTreeSha = git(input.root, ['rev-parse', `${pullRequest.headSha}^{tree}`]);
   const currentMainTreeSha = git(input.root, ['rev-parse', `${currentMainSha}^{tree}`]);
-  const supersession = await observeTestClosedSupersessionEvidence({
+  const supersession = input.prepared.preparation.recovery.kind === 'bundle'
+    ? await observeTestClosedSupersessionEvidence({
     repositoryRoot: input.root,
     repository: REPOSITORY,
     pullRequestNumber: PR_NUMBER,
@@ -139,20 +152,27 @@ async function completed(input: ReturnType<typeof fixture>): Promise<Readonly<{
       path: 'tracked.txt', disposition: 'superseded',
       reason: 'Current main replaces the closed branch behavior.'
     }]
-  });
-  const evidence = createClosedSupersededDispositionEvidence({ repository: REPOSITORY,
-    pullRequestNumber: PR_NUMBER, branch: BRANCH,
-    headSha: pullRequest.headSha, headTreeSha,
-    baseBranch: 'main', baseSha: pullRequest.baseSha,
-    currentMainSha, currentMainTreeSha,
-    durableGoal: { kind: 'evidence', reference: 'closed-superseded-retirement-fixture' },
-    supersession });
+    }) : null;
+  const evidence = supersession === null
+    ? createClosedNativeAbsorptionDispositionEvidence({ prepared: input.prepared,
+        repository: REPOSITORY, pullRequestNumber: PR_NUMBER, branch: BRANCH,
+        headSha: pullRequest.headSha, headTreeSha,
+        baseBranch: 'main', baseSha: pullRequest.baseSha,
+        currentMainSha, currentMainTreeSha,
+        durableGoal: { kind: 'evidence', reference: 'native-main-absorption-fixture' } })
+    : createClosedSupersededDispositionEvidence({ repository: REPOSITORY,
+        pullRequestNumber: PR_NUMBER, branch: BRANCH,
+        headSha: pullRequest.headSha, headTreeSha,
+        baseBranch: 'main', baseSha: pullRequest.baseSha,
+        currentMainSha, currentMainTreeSha,
+        durableGoal: { kind: 'evidence', reference: 'closed-superseded-retirement-fixture' },
+        supersession });
   const compiled = compileClosedUnmergedCloseoutOperation({ prepared: input.prepared, evidence });
   if (compiled.status !== 'ready') throw new Error(compiled.blockers.join(' | '));
   const starts = new Map<string, Parameters<ClosedUnmergedCloseoutEffectAdapter['publishEffectStart']>[0]>();
   const terminals = new Map<string, ClosedUnmergedTerminal>();
   const adapter: ClosedUnmergedCloseoutEffectAdapter = {
-    localRefDeleteAtomicity: 'supported',
+    localRefDeleteCoordination: 'coordinated',
     providerIdentity: 'fixture-provider', repository: REPOSITORY,
     async observeInventory() { return { status: 'observed', value: structuredClone(input.inventory) }; },
     async observeEffectStart(operationId) { return { status: 'observed', value: starts.get(operationId) ?? null }; },
@@ -170,7 +190,7 @@ async function completed(input: ReturnType<typeof fixture>): Promise<Readonly<{
 }
 
 async function retireWithGitHubObservation(
-  fixtureValue: ReturnType<typeof fixture>,
+  fixtureValue: Awaited<ReturnType<typeof fixture>>,
   input: Omit<Parameters<typeof retireClosedUnmergedRecoveryFamily>[0], 'capability'>
 ) {
   const pullRequest = fixtureValue.inventory.pullRequests.find(({ number }) => number === PR_NUMBER);
@@ -215,7 +235,7 @@ async function retireWithGitHubObservation(
 }
 
 test('closed-unmerged terminal retires its exact recovery family and default empty root', async () => {
-  const value = fixture();
+  const value = await fixture();
   try {
     const settlement = await completed(value);
     const result = await retireWithGitHubObservation(value, settlement);
@@ -240,9 +260,22 @@ test('closed-unmerged terminal retires its exact recovery family and default emp
   }
 }, 30_000);
 
+test('closed-unmerged native absorption retires proof and preparation without a history bundle', async () => {
+  const value = await fixture('origin', 'main-absorption');
+  try {
+    const settlement = await completed(value);
+    const result = await retireWithGitHubObservation(value, settlement);
+    expect(result.status).toBe('completed');
+    expect(result.retired).toEqual([value.bundlePath, `${value.bundlePath}.preparation.json`]);
+    expect(existsSync(value.recoveryRoot)).toBe(false);
+  } finally {
+    rmSync(path.dirname(value.root), { recursive: true, force: true });
+  }
+}, 30_000);
+
 test('retirement rejects copied settlement and unknown family consumer before the first delete', async () => {
   for (const mode of ['copy', 'sidecar'] as const) {
-    const value = fixture();
+    const value = await fixture();
     try {
       const settlement = await completed(value);
       if (mode === 'sidecar') writeFileSync(`${value.bundlePath}.consumer.json`, '{}\n', 'utf8');
@@ -262,7 +295,7 @@ test('retirement rejects copied settlement and unknown family consumer before th
 }, 30_000);
 
 test('ordered partial retirement resumes safely and preserves an explicit shared root', async () => {
-  const value = fixture();
+  const value = await fixture();
   try {
     const settlement = await completed(value);
     unlinkSync(value.bundlePath);
@@ -283,7 +316,7 @@ test('ordered partial retirement resumes safely and preserves an explicit shared
 }, 30_000);
 
 test('matching unknown journal preserves recovery before and after an absent-root continuation', async () => {
-  const value = fixture();
+  const value = await fixture();
   try {
     const settlement = await completed(value);
     const headSha = value.inventory.pullRequests[0]!.headSha;
@@ -324,7 +357,7 @@ test('matching unknown journal preserves recovery before and after an absent-roo
 }, 30_000);
 
 test('non-origin prepared remote tracking ref blocks journal and recovery retirement', async () => {
-  const value = fixture('upstream');
+  const value = await fixture('upstream');
   try {
     const settlement = await completed(value);
     const headSha = value.inventory.pullRequests[0]!.headSha;

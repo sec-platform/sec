@@ -13,7 +13,7 @@ import {
   retainCompilerDependencyReadGeneration
 } from '../../toolchain/dependencies/runtime.ts';
 import { compileRepositorySourceProgramCompilation } from '../source-program-model/repository-compilation.ts';
-import { acquireWorkingTreeWorkspaceSourceSnapshot } from '../source-program-model/workspace-source-snapshot.ts';
+import { acquireWorkingTreeSnapshot } from '../source-program-model/workspace-source-snapshot.ts';
 import { executeKnipUnusedSymbolProvider } from './knip-provider.ts';
 
 function git(repositoryRoot: string, args: readonly string[]): void {
@@ -30,7 +30,7 @@ async function observe(repositoryRoot: string) {
     cwd: repositoryRoot,
     budget: Object.freeze({ ...GIT_READ_OPERATION_BUDGET, maxProcesses: 4 })
   }, async (session) => {
-    const workspaceSnapshot = await acquireWorkingTreeWorkspaceSourceSnapshot({ session });
+    const workspaceSnapshot = await acquireWorkingTreeSnapshot({ session });
     const compilation = compileRepositorySourceProgramCompilation({
       workspaceSnapshot,
       repositoryRoot
@@ -64,7 +64,7 @@ test('sealed Knip provider binds source, config and dependencies and signs only 
       compilerOptions: { strict: true },
       include: ['src/**/*.ts']
     }, null, 2)}\n`),
-    writeFile(path.join(repositoryRoot, 'src', 'example', 'sec.module.json'), `${JSON.stringify({
+    writeFile(path.join(repositoryRoot, 'src', 'example', 'module.json'), `${JSON.stringify({
       importGraph: 'runtime',
       externalEntrypoints: ['src/example/index.ts'],
       capabilityProviders: [],

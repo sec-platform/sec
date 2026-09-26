@@ -18,7 +18,7 @@ const CLOSED_SUPERSESSION_REVIEW_MARKER =
  * Maintainer adoption of an exact-object semantic review. The reviewer field
  * is review prose, not an authenticated independent-reviewer identity.
  */
-interface ClosedSupersessionReview {
+interface ClosedSupersessionReviewBase {
   readonly kind: 'branch-supersession-review';
   readonly repository: string;
   readonly pullRequestNumber: number;
@@ -28,12 +28,40 @@ interface ClosedSupersessionReview {
   readonly currentMainTreeSha: string;
   readonly reviewer: string;
   readonly verdict: 'approved';
+  readonly unknowns: readonly never[];
+}
+
+interface LegacyClosedSupersessionReview extends ClosedSupersessionReviewBase {
   readonly paths: readonly Readonly<{
     path: string;
     disposition: 'retained' | 'superseded';
     reason: string;
   }>[];
-  readonly unknowns: readonly never[];
+}
+
+interface CurrentClosedSupersessionReview extends ClosedSupersessionReviewBase {
+  readonly version: 2;
+  readonly pathSet: Readonly<{ count: number; digest: `sha256:${string}` }>;
+  readonly assessment: string;
+}
+
+type ClosedSupersessionReview = LegacyClosedSupersessionReview | CurrentClosedSupersessionReview;
+
+/** Pure encoding helper; only the observer's complete native Git census issues evidence. */
+export function summarizeClosedSupersessionPaths(paths: readonly string[]): Readonly<{
+  count: number;
+  digest: `sha256:${string}`;
+}> {
+  const sorted = [...paths].sort((left, right) => Buffer.compare(
+    Buffer.from(left, 'utf8'), Buffer.from(right, 'utf8')
+  ));
+  if (new Set(sorted).size !== sorted.length) {
+    throw new Error('Supersession Git path set contains duplicates.');
+  }
+  return Object.freeze({
+    count: sorted.length,
+    digest: branchLifecycleDigest({ schema: 'sec-branch-supersession-path-set-v2', paths: sorted })
+  });
 }
 
 export interface ClosedSupersessionEvidence {
@@ -67,16 +95,16 @@ function parseClosedSupersessionReview(source: string): ClosedSupersessionReview
       || !source.startsWith(CLOSED_SUPERSESSION_REVIEW_MARKER)) {
     throw new Error('Supersession review marker or byte bound is invalid.');
   }
-  const value = exactObject(
-    JSON.parse(source.slice(CLOSED_SUPERSESSION_REVIEW_MARKER.length)),
-    [
-      'kind', 'repository', 'pullRequestNumber', 'headSha', 'headTreeSha',
-      'currentMainSha', 'currentMainTreeSha', 'reviewer', 'verdict', 'paths', 'unknowns'
-    ]
-  );
+  const raw = JSON.parse(source.slice(CLOSED_SUPERSESSION_REVIEW_MARKER.length)) as unknown;
+  const versionTwo = raw !== null && typeof raw === 'object' && !Array.isArray(raw)
+    && (raw as Record<string, unknown>).version === 2;
+  const value = exactObject(raw, [
+    'kind', 'repository', 'pullRequestNumber', 'headSha', 'headTreeSha',
+    'currentMainSha', 'currentMainTreeSha', 'reviewer', 'verdict', 'unknowns',
+    ...(versionTwo ? ['version', 'pathSet', 'assessment'] : ['paths'])
+  ]);
   if (value.kind !== 'branch-supersession-review' || value.verdict !== 'approved'
       || !Number.isSafeInteger(value.pullRequestNumber) || Number(value.pullRequestNumber) < 1
-      || !Array.isArray(value.paths) || value.paths.length > 1_000
       || !Array.isArray(value.unknowns) || value.unknowns.length !== 0) {
     throw new Error('Supersession review is incomplete or unresolved.');
   }
@@ -86,6 +114,25 @@ function parseClosedSupersessionReview(source: string): ClosedSupersessionReview
   }
   for (const key of ['headSha', 'headTreeSha', 'currentMainSha', 'currentMainTreeSha']) {
     assertGitSha(boundedText(value[key], 64), `Supersession review ${key}`);
+  }
+  const reviewer = boundedText(value.reviewer, 512);
+  if (versionTwo) {
+    const pathSet = exactObject(value.pathSet, ['count', 'digest']);
+    if (!Number.isSafeInteger(pathSet.count) || Number(pathSet.count) < 0
+        || typeof pathSet.digest !== 'string' || !/^sha256:[0-9a-f]{64}$/u.test(pathSet.digest)) {
+      throw new Error('Supersession review path-set identity is invalid.');
+    }
+    return Object.freeze({
+      ...value,
+      repository,
+      reviewer,
+      pathSet: Object.freeze({ count: pathSet.count, digest: pathSet.digest }),
+      assessment: boundedText(value.assessment, 8192),
+      unknowns: Object.freeze([])
+    }) as CurrentClosedSupersessionReview;
+  }
+  if (!Array.isArray(value.paths) || value.paths.length > 1_000) {
+    throw new Error('Legacy supersession review paths are incomplete or over bound.');
   }
   const paths = value.paths.map((entry) => {
     const row = exactObject(entry, ['path', 'disposition', 'reason']);
@@ -107,7 +154,7 @@ function parseClosedSupersessionReview(source: string): ClosedSupersessionReview
   return Object.freeze({
     ...value,
     repository,
-    reviewer: boundedText(value.reviewer, 512),
+    reviewer,
     paths: Object.freeze(paths),
     unknowns: Object.freeze([])
   }) as unknown as ClosedSupersessionReview;
@@ -183,10 +230,17 @@ export async function observeClosedSupersessionEvidence(input: Readonly<{
       const changed = parseNulUtf8(await read([
         'diff', '--no-ext-diff', '--no-textconv', '--no-renames', '--name-only', '-z',
         review.headSha, review.currentMainSha, '--'
-      ]), 'Supersession changed paths').sort();
-      const reviewed = review.paths.map(({ path }) => path).sort();
-      if (JSON.stringify(changed) !== JSON.stringify(reviewed)) {
-        throw new Error('Supersession review does not cover the complete exact Git delta.');
+      ]), 'Supersession changed paths');
+      if ('pathSet' in review) {
+        const observed = summarizeClosedSupersessionPaths(changed);
+        if (observed.count !== review.pathSet.count || observed.digest !== review.pathSet.digest) {
+          throw new Error('Supersession review path set differs from the complete exact Git delta.');
+        }
+      } else {
+        const reviewed = review.paths.map(({ path }) => path).sort();
+        if (JSON.stringify([...changed].sort()) !== JSON.stringify(reviewed)) {
+          throw new Error('Supersession review does not cover the complete exact Git delta.');
+        }
       }
     }
   );

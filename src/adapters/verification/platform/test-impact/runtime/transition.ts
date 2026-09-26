@@ -1,13 +1,13 @@
 import { sha256, uniqueSorted } from '../../../../../contracts/canonical.ts';
-import { CodexDevelopmentIsCanonicalRepositoryPath } from '../../../../../contracts/repository-path.ts';
+import { IsCanonicalRepositoryPath } from '../../../../../contracts/repository-path.ts';
 
-export type CodexDevelopmentGitChangedRecord = {
+export type GitChangedRecord = {
   status: 'added' | 'changed' | 'removed' | 'renamed' | 'copied';
   path: string;
   previousPath?: string;
 };
 
-type CodexDevelopmentGitPathBlobObservation = Readonly<{
+type GitPathBlobObservation = Readonly<{
   path: string;
   baseMode: '100644' | '100755';
   baseBlobSha: string;
@@ -15,28 +15,28 @@ type CodexDevelopmentGitPathBlobObservation = Readonly<{
   headBlobSha: null;
 }>;
 
-export type CodexDevelopmentGitPathBlobEntry = Readonly<{
+export type GitPathBlobEntry = Readonly<{
   mode: '100644' | '100755';
   blobSha: string;
 }>;
 
-export type CodexDevelopmentTestImpactTransitionObservation = Readonly<{
+export type TestImpactTransitionObservation = Readonly<{
   schema: 'sec-test-impact-transition-observation-v1';
   baseSha: string;
   headSha: string;
-  records: readonly CodexDevelopmentGitChangedRecord[];
-  removedPathBlobs: readonly CodexDevelopmentGitPathBlobObservation[];
+  records: readonly GitChangedRecord[];
+  removedPathBlobs: readonly GitPathBlobObservation[];
 }>;
 
 const GIT_OBJECT_SHA = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/u;
 
 function canonicalChangedRecords(
-  records: readonly CodexDevelopmentGitChangedRecord[]
-): readonly CodexDevelopmentGitChangedRecord[] {
+  records: readonly GitChangedRecord[]
+): readonly GitChangedRecord[] {
   if (!Array.isArray(records)) {
     throw new Error('Test-impact transition changed records must be one array.');
   }
-  const canonical = records.map((record): CodexDevelopmentGitChangedRecord => {
+  const canonical = records.map((record): GitChangedRecord => {
     if (record === null || typeof record !== 'object' || Array.isArray(record)) {
       throw new Error('Test-impact transition contains a malformed changed record.');
     }
@@ -51,7 +51,7 @@ function canonicalChangedRecords(
     if (!['added', 'changed', 'removed', 'renamed', 'copied'].includes(record.status)) {
       throw new Error('Test-impact transition contains a malformed changed record.');
     }
-    if (!CodexDevelopmentIsCanonicalRepositoryPath(record.path)) {
+    if (!IsCanonicalRepositoryPath(record.path)) {
       throw new Error(
         'Test-impact transition changed-record path is not canonical repository-relative POSIX.'
       );
@@ -62,7 +62,7 @@ function canonicalChangedRecords(
     }
     if (paired) {
       const previousPath = record.previousPath;
-      if (!CodexDevelopmentIsCanonicalRepositoryPath(previousPath)
+      if (!IsCanonicalRepositoryPath(previousPath)
           || previousPath === record.path) {
         throw new Error('Test-impact transition changed-record pairing is invalid.');
       }
@@ -81,8 +81,8 @@ function canonicalChangedRecords(
   return Object.freeze(canonical);
 }
 
-export function CodexDevelopmentTestImpactTransitionDigest(
-  observation: CodexDevelopmentTestImpactTransitionObservation
+export function TestImpactTransitionDigest(
+  observation: TestImpactTransitionObservation
 ): `sha256:${string}` {
   if (observation === null || typeof observation !== 'object' || Array.isArray(observation)
       || JSON.stringify(Object.keys(observation).sort()) !== JSON.stringify([
@@ -111,7 +111,7 @@ export function CodexDevelopmentTestImpactTransitionDigest(
         || JSON.stringify(Object.keys(entry).sort()) !== JSON.stringify([
           'baseBlobSha', 'baseMode', 'headBlobSha', 'headMode', 'path'
         ])
-        || !CodexDevelopmentIsCanonicalRepositoryPath(entry.path)
+        || !IsCanonicalRepositoryPath(entry.path)
         || (entry.baseMode !== '100644' && entry.baseMode !== '100755')
         || !GIT_OBJECT_SHA.test(entry.baseBlobSha)
         || entry.headMode !== null || entry.headBlobSha !== null) {
@@ -125,14 +125,14 @@ export function CodexDevelopmentTestImpactTransitionDigest(
   return sha256(observation) as `sha256:${string}`;
 }
 
-export function CodexDevelopmentAssertTestImpactTransitionSelection(input: {
+export function AssertTestImpactTransitionSelection(input: {
   baseSha: string;
   headSha: string;
   changedPaths: readonly string[];
-  records?: readonly CodexDevelopmentGitChangedRecord[];
-  observation: CodexDevelopmentTestImpactTransitionObservation;
+  records?: readonly GitChangedRecord[];
+  observation: TestImpactTransitionObservation;
 }): `sha256:${string}` {
-  const digest = CodexDevelopmentTestImpactTransitionDigest(input.observation);
+  const digest = TestImpactTransitionDigest(input.observation);
   const changedPaths = uniqueSorted(input.changedPaths);
   const transitionPaths = uniqueSorted(input.observation.records.flatMap((record) => (
     record.previousPath === undefined ? [record.path] : [record.previousPath, record.path]
@@ -150,7 +150,7 @@ export function CodexDevelopmentAssertTestImpactTransitionSelection(input: {
 
 export function gitPathBlobArgs(revision: string, repositoryPath: string): string[] {
   if (!GIT_OBJECT_SHA.test(revision)) throw new Error('Git path blob revision must be one exact object SHA.');
-  if (!CodexDevelopmentIsCanonicalRepositoryPath(repositoryPath)) {
+  if (!IsCanonicalRepositoryPath(repositoryPath)) {
     throw new Error('Git path blob path must be canonical repository-relative POSIX.');
   }
   return [
@@ -169,7 +169,7 @@ export function gitPathBlobBatchArgs(
   if (!GIT_OBJECT_SHA.test(revision)) throw new Error('Git path blob revision must be one exact object SHA.');
   const paths = uniqueSorted([...repositoryPaths]);
   if (paths.length === 0 || paths.some((repositoryPath) => (
-    !CodexDevelopmentIsCanonicalRepositoryPath(repositoryPath)
+    !IsCanonicalRepositoryPath(repositoryPath)
   ))) {
     throw new Error('Git path blob batch paths must be non-empty canonical repository-relative POSIX paths.');
   }
@@ -184,7 +184,7 @@ export function gitPathBlobBatchArgs(
 export function parseGitPathBlobOutput(
   stdout: Uint8Array,
   repositoryPath: string
-): CodexDevelopmentGitPathBlobEntry | null {
+): GitPathBlobEntry | null {
   const output = decodeGitPathOutput(stdout, 'path-blob');
   if (output.length === 0) return null;
   if (!output.endsWith('\0')) throw new Error('Malformed Git path-blob output: missing final NUL terminator.');
@@ -201,12 +201,12 @@ export function parseGitPathBlobOutput(
 export function parseGitPathBlobBatchOutput(
   stdout: Uint8Array,
   repositoryPaths: readonly string[]
-): Map<string, CodexDevelopmentGitPathBlobEntry> {
+): Map<string, GitPathBlobEntry> {
   const output = decodeGitPathOutput(stdout, 'path-blob-batch');
   if (output.length === 0) return new Map();
   if (!output.endsWith('\0')) throw new Error('Malformed Git path-blob batch output: missing final NUL terminator.');
   const expected = new Set(repositoryPaths);
-  const result = new Map<string, CodexDevelopmentGitPathBlobEntry>();
+  const result = new Map<string, GitPathBlobEntry>();
   for (const record of output.slice(0, -1).split('\0')) {
     const match = /^([0-7]{6}) blob ([0-9a-f]{40}|[0-9a-f]{64})\t(.+)$/u.exec(record);
     if (!match || (match[1] !== '100644' && match[1] !== '100755') || !expected.has(match[3]!)) {
@@ -221,12 +221,12 @@ export function parseGitPathBlobBatchOutput(
   return result;
 }
 
-export function CodexDevelopmentCreateTestImpactTransitionObservation(input: {
+export function CreateTestImpactTransitionObservation(input: {
   baseSha: string;
   headSha: string;
-  records: readonly CodexDevelopmentGitChangedRecord[];
-  readPathBlob: (revision: string, repositoryPath: string) => CodexDevelopmentGitPathBlobEntry | null;
-}): CodexDevelopmentTestImpactTransitionObservation {
+  records: readonly GitChangedRecord[];
+  readPathBlob: (revision: string, repositoryPath: string) => GitPathBlobEntry | null;
+}): TestImpactTransitionObservation {
   if (!GIT_OBJECT_SHA.test(input.baseSha) || !GIT_OBJECT_SHA.test(input.headSha)
       || (input.baseSha === input.headSha && input.records.length > 0)) {
     throw new Error('Test-impact transition requires exact base/head SHAs consistent with its records.');
@@ -239,7 +239,7 @@ export function CodexDevelopmentCreateTestImpactTransitionObservation(input: {
     throw new Error('Test-impact transition contains duplicate removed paths.');
   }
   const removedPathBlobs = uniqueSorted(removedPaths).map((repositoryPath) => {
-    if (!CodexDevelopmentIsCanonicalRepositoryPath(repositoryPath)) {
+    if (!IsCanonicalRepositoryPath(repositoryPath)) {
       throw new Error('Test-impact transition removed path is not canonical.');
     }
     const baseBlob = input.readPathBlob(input.baseSha, repositoryPath);
@@ -262,7 +262,7 @@ export function CodexDevelopmentCreateTestImpactTransitionObservation(input: {
     records,
     removedPathBlobs: Object.freeze(removedPathBlobs)
   });
-  CodexDevelopmentTestImpactTransitionDigest(observation);
+  TestImpactTransitionDigest(observation);
   return observation;
 }
 
@@ -376,7 +376,7 @@ export function parseGitChangedFileOutput(stdout: Uint8Array): string[] {
   )));
 }
 
-export function parseGitChangedRecordsOutput(stdout: Uint8Array): CodexDevelopmentGitChangedRecord[] {
+export function parseGitChangedRecordsOutput(stdout: Uint8Array): GitChangedRecord[] {
   // Git path records are identities; domain validators, not this reader, decide canonical syntax.
   const output = decodeGitPathOutput(stdout, 'changed-path');
   if (output.length === 0) return [];
@@ -385,7 +385,7 @@ export function parseGitChangedRecordsOutput(stdout: Uint8Array): CodexDevelopme
     throw new Error('Malformed Git changed-path output: missing final NUL terminator.');
   }
 
-  const changedRecords: CodexDevelopmentGitChangedRecord[] = [];
+  const changedRecords: GitChangedRecord[] = [];
   for (let index = 0; index < records.length;) {
     const status = records[index++];
     const singlePath = /^[ADMTUXB]$/u.test(status ?? '');

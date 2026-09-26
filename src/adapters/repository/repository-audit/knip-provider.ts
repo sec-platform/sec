@@ -2,14 +2,14 @@ import path from 'node:path';
 
 import { sha256 } from '../../../contracts/canonical.ts';
 import { parseExactJson } from '../../../contracts/exact-json.ts';
-import { issueSecOperationRequirementBindingContext } from '../../../execution/operation/requirement-binding-context.ts';
+import { issueOperationRequirementBindingContext } from '../../../execution/operation/requirement-binding-context.ts';
 import {
-  bindSecSemanticOperation,
-  compileSecCapabilityBinding,
-  compileSecSemanticOperationPlan,
-  issueSecSemanticOperationAttemptContext,
-  type SecBoundSemanticOperation,
-  type SecOperationDigest
+  bindSemanticOperation,
+  compileCapabilityBinding,
+  compileSemanticOperationPlan,
+  issueSemanticOperationAttemptContext,
+  type BoundSemanticOperation,
+  type OperationDigest
 } from '../../../execution/operation/semantic.ts';
 import { settleResourcesAsync as settlePhysicalResourcesAsync } from '../../../execution/resource-settlement.ts';
 import {
@@ -31,10 +31,10 @@ import {
 } from '../../runtime-state/physical/runtime/process.ts';
 import type { RetainedCommandBoundary } from '../../runtime-state/physical/runtime/retained-command-boundary.ts';
 import {
-  assertSealedPhysicalExecutionTreeRetirementReceipt,
-  materializeRetainedSealedPhysicalExecutionTreeGeneration,
-  type RetainedSealedPhysicalExecutionTreeGeneration,
-  type SealedPhysicalExecutionTreeRetirementReceipt
+  assertSealedExecutionTreeRetirementReceipt,
+  materializeSealedExecutionTree,
+  type RetainedSealedExecutionTreeGeneration,
+  type SealedExecutionTreeRetirementReceipt
 } from '../../runtime-state/physical/runtime/sealed-execution-tree-generation.ts';
 import type { RetainedCompilerDependencyReadGeneration } from '../../toolchain/dependencies/runtime.ts';
 import type { SourceProgramModel } from '../source-program-model/contract.ts';
@@ -169,20 +169,20 @@ function compileOperation(input: Readonly<{
   generationDigest: `sha256:${string}`;
   sourceRevision: `sha256:${string}`;
   deadlineAtUnixMs: number;
-}>): SecBoundSemanticOperation {
+}>): BoundSemanticOperation {
   const contractDigest = sha256({
     schema: 'sec-knip-provider-operation-v1',
     command: KNIP_COMMAND,
     input: 'one-compiler-issued-physical-workspace-snapshot',
     output: 'knip-json-exports-and-types',
     authority: 'candidate-evidence-only'
-  }) as SecOperationDigest;
-  return bindSecSemanticOperation(compileSecSemanticOperationPlan({
+  }) as OperationDigest;
+  return bindSemanticOperation(compileSemanticOperationPlan({
     operation: KNIP_OPERATION,
-    intentDigest: sha256(input) as SecOperationDigest,
+    intentDigest: sha256(input) as OperationDigest,
     decisionDigest: contractDigest,
     deadlineAtUnixMs: input.deadlineAtUnixMs,
-    attempt: issueSecSemanticOperationAttemptContext({ authorityGrantDigest: contractDigest }),
+    attempt: issueSemanticOperationAttemptContext({ authorityGrantDigest: contractDigest }),
     aggregateBudgets: [
       { resource: 'duration-ms', maximum: input.deadlineAtUnixMs - Date.now() },
       { resource: 'input-bytes', maximum: 1 },
@@ -195,14 +195,14 @@ function compileOperation(input: Readonly<{
       effectKinds: ['process'],
       failureKinds: ['process.failed']
     }]
-  }), [compileSecCapabilityBinding({
+  }), [compileCapabilityBinding({
     requirementId: KNIP_REQUIREMENT,
     contractDigest,
     providerIdentityDigest: sha256({
       bunDigest: input.bunDigest,
       dependencyGenerationDigest: input.dependencyGenerationDigest,
       command: KNIP_COMMAND
-    }) as SecOperationDigest
+    }) as OperationDigest
   })]);
 }
 
@@ -295,10 +295,10 @@ export async function executeKnipUnusedSymbolProvider(
   const executablePath = path.resolve(input.bunExecutablePath ?? process.execPath);
   const environment = isolatedEnvironment();
   let executable: RetainedNoFollowOrdinaryFile | null = null;
-  let generation: RetainedSealedPhysicalExecutionTreeGeneration | null = null;
-  let retirement: SealedPhysicalExecutionTreeRetirementReceipt | null = null;
+  let generation: RetainedSealedExecutionTreeGeneration | null = null;
+  let retirement: SealedExecutionTreeRetirementReceipt | null = null;
   let boundary: RetainedCommandBoundary | null = null;
-  let operation: SecBoundSemanticOperation | null = null;
+  let operation: BoundSemanticOperation | null = null;
   let session: ProcessResourceSession | null = null;
   let sessionReceipt: ProcessResourceSessionReceipt | null = null;
   let run: ProcessResourceRunResult | null = null;
@@ -307,7 +307,7 @@ export async function executeKnipUnusedSymbolProvider(
   let executionFailed = false;
   try {
     input.dependencyGeneration.physicalGeneration.assertCurrent();
-    generation = await materializeRetainedSealedPhysicalExecutionTreeGeneration({
+    generation = await materializeSealedExecutionTree({
       deadlineAtUnixMs: input.deadlineAtUnixMs,
       directoryNamePrefix: 'knip-provider-',
       files: input.workspaceSnapshot.files.map((file) => Object.freeze({
@@ -337,7 +337,7 @@ export async function executeKnipUnusedSymbolProvider(
     });
     session = openProcessResourceSession({
       operation,
-      requirementBindingContext: issueSecOperationRequirementBindingContext({
+      requirementBindingContext: issueOperationRequirementBindingContext({
         operation,
         requirementId: KNIP_REQUIREMENT,
         resourceCeilings: [
@@ -397,7 +397,7 @@ export async function executeKnipUnusedSymbolProvider(
       env: environment,
       envMode: 'replace'
     });
-    assertSealedPhysicalExecutionTreeRetirementReceipt(retirement, generation);
+    assertSealedExecutionTreeRetirementReceipt(retirement, generation);
     input.dependencyGeneration.physicalGeneration.assertCurrent();
     await input.dependencyGeneration.physicalGeneration.assertAuthorityCurrent();
     const candidates = parseCandidates(run.result.stdout);

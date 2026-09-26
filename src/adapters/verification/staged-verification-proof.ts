@@ -10,7 +10,7 @@ import {
   createStagedVerificationProofRuntime
 } from '../../assurance/verification/staged-proof/runtime.ts';
 import type { LockFile } from '../../compiler/contract.ts';
-import { stagedVerificationProjectInputDigest } from './semantic-mutation-staged-project-input.ts';
+import { stagedVerificationProjectInputDigest } from './semantic-mutation/staged-project-input.ts';
 
 const runtime = createStagedVerificationProofRuntime({
   projectInputDigest: stagedVerificationProjectInputDigest

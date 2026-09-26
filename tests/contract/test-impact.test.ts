@@ -6,11 +6,11 @@ import path from 'node:path';
 
 import { compileRepositorySourceProgramCompilation } from '../../src/adapters/repository/source-program-model/repository-compilation.ts';
 import { issueTestImpactProjection } from '../../src/adapters/repository/source-program-model/test-impact-projection.ts';
-import { acquireExactGitTreeWorkspaceSourceSnapshot } from '../../src/adapters/repository/source-program-model/workspace-source-snapshot.ts';
 import { currentActiveDocumentationPaths } from '../../src/adapters/self-hosting/control/documentation/active.ts';
 import { issueTestInventoryProjection } from '../../src/adapters/verification/platform/test-impact/contract/budget.ts';
 import { classifyTestImpactSource } from '../../src/adapters/verification/platform/test-impact/contract/ownership.ts';
-import { createRepositoryTestImpactSourceProvider, isTestImpactModuleGraphInputFile, isTestImpactSourceFile, readRepositoryModuleGraphV1, resolveTestImpactSelectionTrustBoundary, resolveTestOwnership, selectTestsForSources } from '../../src/adapters/verification/platform/test-impact/runtime/impact.ts';
+import { createRepositoryTestImpactSourceProvider, isTestImpactModuleGraphInputFile, isTestImpactSourceFile, readRepositoryModuleGraph, resolveTestImpactSelectionTrustBoundary, resolveTestOwnership, selectTestsForSources } from '../../src/adapters/verification/platform/test-impact/runtime/impact.ts';
+import { acquireExactGitTreeWorkspaceSourceSnapshotForTests } from '../helpers/git-read-authority.ts';
 
 function git(root: string, args: readonly string[]): string {
   const result = spawnSync('git', args, { cwd: root, encoding: 'utf8' });
@@ -20,7 +20,7 @@ function git(root: string, args: readonly string[]): string {
   return result.stdout.trim();
 }
 
-function sourceProvider(sources: Readonly<Record<string, string>>) {
+async function sourceProvider(sources: Readonly<Record<string, string>>) {
   const root = mkdtempSync(path.join(os.tmpdir(), 'sec-test-impact-'));
   try {
     git(root, ['init', '--quiet']);
@@ -29,10 +29,10 @@ function sourceProvider(sources: Readonly<Record<string, string>>) {
     const fixtureSources = {
       ...sources,
       ...(Object.keys(sources).some((repositoryPath) => repositoryPath.startsWith('src/compiler/'))
-        ? { 'src/compiler/sec.module.json': '{"importGraph":"runtime","externalEntrypoints":[]}' }
+        ? { 'src/compiler/module.json': '{"importGraph":"runtime","externalEntrypoints":[]}' }
         : {}),
       ...(Object.keys(sources).some((repositoryPath) => repositoryPath.startsWith('src/bootstrap/change-management/upgrade/'))
-        ? { 'src/bootstrap/upgrade/sec.module.json': '{"importGraph":"runtime","externalEntrypoints":[]}' }
+        ? { 'src/bootstrap/upgrade/module.json': '{"importGraph":"runtime","externalEntrypoints":[]}' }
         : {})
     };
     for (const [repositoryPath, source] of Object.entries(fixtureSources)) {
@@ -42,10 +42,10 @@ function sourceProvider(sources: Readonly<Record<string, string>>) {
     }
     git(root, ['add', '--all']);
     git(root, ['commit', '--quiet', '-m', 'test-impact-fixture']);
-    const workspaceSnapshot = acquireExactGitTreeWorkspaceSourceSnapshot({
-      repositoryRoot: root,
-      commitSha: git(root, ['rev-parse', 'HEAD'])
-    });
+    const workspaceSnapshot = await acquireExactGitTreeWorkspaceSourceSnapshotForTests(
+      root,
+      git(root, ['rev-parse', 'HEAD'])
+    );
     const repositoryCompilation = compileRepositorySourceProgramCompilation({ workspaceSnapshot });
     return createRepositoryTestImpactSourceProvider({
       projection: issueTestImpactProjection({
@@ -70,7 +70,7 @@ function expectUnique(values: readonly string[]): void {
   expect(new Set(values).size).toBe(values.length);
 }
 
-test('repository sources route by semantic kind and module identity', () => {
+test('repository sources route by semantic kind and module identity', async () => {
   const activeDocumentationPath = (candidate: string) => candidate === 'config/repository/work-selection.md';
   expect(classifyTestImpactSource(
     'catalog/registry/official/ticket.basic/block.manifest.yaml',
@@ -101,12 +101,12 @@ test('repository sources route by semantic kind and module identity', () => {
   expect(classifyTestImpactSource('.codex/agents/notes.md', activeDocumentationPath)).toBeNull();
 
   const compilerFixturePath = 'src/compiler/fixture.ts';
-  const provider = sourceProvider({
+  const provider = await sourceProvider({
     [compilerFixturePath]: 'export const fixture = true;',
     'tests/unit/compiler-fixture.test.ts': "import { fixture } from '../../src/compiler/fixture.ts'; void fixture;",
     '.codex/agents/worker.toml': 'name = "worker"\n',
     'src/adapters/self-hosting/control/agent/skill.ts': 'export const role = true;',
-    'src/adapters/self-hosting/control/agent/sec.module.json': '{"importGraph":"runtime","externalEntrypoints":[]}',
+    'src/adapters/self-hosting/control/agent/module.json': '{"importGraph":"runtime","externalEntrypoints":[]}',
     'tests/unit/agent-fixture.test.ts': "import { role } from '../../src/adapters/self-hosting/control/agent/skill.ts'; void role;"
   });
   expect(resolveTestOwnership([compilerFixturePath], provider)).toEqual([{
@@ -123,11 +123,11 @@ test('repository sources route by semantic kind and module identity', () => {
     .toEqual(['tests/unit/agent-fixture.test.ts']);
 });
 
-test('observed git-hook entrypoints route through development hooks ownership', () => {
-  const provider = sourceProvider({
-    '.githooks/post-merge': '#!/usr/bin/env sh\nexec bun run dev -- workspace-transition post-merge "$@"\n',
+test('observed git-hook entrypoints route through development hooks ownership', async () => {
+  const provider = await sourceProvider({
+    '.githooks/post-merge': '#!/usr/bin/env sh\nexec bun run workspace:transition -- post-merge "$@"\n',
     'src/adapters/self-hosting/development/hooks/install.ts': 'export const installHooks = true;',
-    'src/adapters/self-hosting/development/hooks/sec.module.json': JSON.stringify({
+    'src/adapters/self-hosting/development/hooks/module.json': JSON.stringify({
       importGraph: 'runtime',
       externalEntrypoints: ['src/adapters/self-hosting/development/hooks/install.ts'],
       capabilityProviders: [],
@@ -145,12 +145,12 @@ test('observed git-hook entrypoints route through development hooks ownership', 
     .toContain('tests/unit/install-hooks-fixture.test.ts');
 });
 
-test('repository module graph is the single resolved dependency observation', () => {
-  const provider = sourceProvider({
+test('repository module graph is the single resolved dependency observation', async () => {
+  const provider = await sourceProvider({
     'src/compiler/fixture.ts': 'export const fixture = true;',
     'tests/unit/compiler-fixture.test.ts': "import { fixture } from '../../src/compiler/fixture.ts'; void fixture;"
   });
-  const graph = readRepositoryModuleGraphV1(provider);
+  const graph = readRepositoryModuleGraph(provider);
   const resolution = resolveTestImpactSelectionTrustBoundary(provider);
 
   expect(resolution).toEqual({ selectionResolved: true, unresolvedModuleFiles: [] });
@@ -165,13 +165,13 @@ test('repository module graph is the single resolved dependency observation', ()
   }
 });
 
-test('impact follows executable imports instead of import-like text', () => {
+test('impact follows executable imports instead of import-like text', async () => {
   const source = 'src/compiler/virtual-source.ts';
   const facade = 'src/compiler/virtual-entrypoint.ts';
   const helper = 'src/compiler/virtual-test-helper.ts';
   const selected = 'tests/unit/virtual-facade.test.ts';
   const ignored = 'tests/unit/virtual-import-text.test.ts';
-  const provider = sourceProvider({
+  const provider = await sourceProvider({
       [source]: 'export const value = 1;',
       [facade]: "export { value } from './virtual-source.ts';",
       [helper]: "export { value } from './virtual-entrypoint.ts';",
@@ -185,10 +185,10 @@ test('impact follows executable imports instead of import-like text', () => {
   expect(selection.owners).toEqual(['compiler']);
 });
 
-test('colocated source tests use the canonical repository test-module identity', () => {
+test('colocated source tests use the canonical repository test-module identity', async () => {
   const source = 'src/compiler/colocated-source.ts';
   const selected = 'src/compiler/colocated-source.spec.ts';
-  const provider = sourceProvider({
+  const provider = await sourceProvider({
     [source]: 'export const value = 1;',
     [selected]: "import { value } from './colocated-source.ts'; void value;"
   });
@@ -198,13 +198,13 @@ test('colocated source tests use the canonical repository test-module identity',
   expect(selectTestsForSources([source], provider).fast).toEqual([selected]);
 });
 
-test('compiler-resolved named barrel references do not select unrelated consumers', () => {
+test('compiler-resolved named barrel references do not select unrelated consumers', async () => {
   const alpha = 'src/compiler/virtual-alpha.ts';
   const beta = 'src/compiler/virtual-beta.ts';
   const facade = 'src/compiler/virtual-public.ts';
   const alphaTest = 'tests/unit/virtual-alpha.test.ts';
   const betaTest = 'tests/unit/virtual-beta.test.ts';
-  const provider = semanticSourceProvider({
+  const provider = await semanticSourceProvider({
     [alpha]: 'export const alpha = 1;',
     [beta]: 'export const beta = 2;',
     [facade]: "export { alpha } from './virtual-alpha.ts';\nexport { beta } from './virtual-beta.ts';",
@@ -217,7 +217,7 @@ test('compiler-resolved named barrel references do not select unrelated consumer
   expect(selectTestsForSources([facade], provider).fast).toEqual([alphaTest, betaTest]);
 });
 
-test('repository receipts isolate exact source bytes across equal-length mutations', () => {
+test('repository receipts isolate exact source bytes across equal-length mutations', async () => {
   const sourceA = 'src/compiler/virtual-source-a.ts';
   const sourceB = 'src/compiler/virtual-source-b.ts';
   const selected = 'tests/unit/virtual-source-switch.test.ts';
@@ -226,21 +226,21 @@ test('repository receipts isolate exact source bytes across equal-length mutatio
     [sourceB]: 'export const b = 1;',
     [selected]: "import '../../src/compiler/virtual-source-a.ts';"
   };
-  const initialProvider = sourceProvider(sources);
+  const initialProvider = await sourceProvider(sources);
 
   expect(selectTestsForSources([sourceA], initialProvider).fast).toEqual([selected]);
   const previousLength = Buffer.byteLength(sources[selected]!);
   sources[selected] = "import '../../src/compiler/virtual-source-b.ts';";
   expect(Buffer.byteLength(sources[selected]!)).toBe(previousLength);
-  const mutatedProvider = sourceProvider(sources);
+  const mutatedProvider = await sourceProvider(sources);
   expect(selectTestsForSources([sourceA], initialProvider).fast).toEqual([selected]);
   expect(selectTestsForSources([sourceA], mutatedProvider).fast).toEqual([]);
   expect(selectTestsForSources([sourceB], mutatedProvider).fast).toEqual([selected]);
 });
 
-test('deleted local dependency makes selection unresolved', () => {
+test('deleted local dependency makes selection unresolved', async () => {
   const consumer = 'tests/unit/retired-owner-consumer.test.ts';
-  const provider = sourceProvider({
+  const provider = await sourceProvider({
     [consumer]: "import '../../src/adapters/self-hosting/development/tooling/retired-owner.ts';"
   });
 
@@ -250,11 +250,11 @@ test('deleted local dependency makes selection unresolved', () => {
   });
 });
 
-test('imported machine data uses the same reverse dependency graph', () => {
+test('imported machine data uses the same reverse dependency graph', async () => {
   const data = 'src/compiler/virtual-registry.json';
   const consumer = 'src/compiler/virtual-registry-consumer.ts';
   const selected = 'tests/unit/virtual-registry-consumer.test.ts';
-  const provider = sourceProvider({
+  const provider = await sourceProvider({
       [consumer]: "import registry from './virtual-registry.json' with { type: 'json' }; export { registry };",
       [selected]: "import { registry } from '../../src/compiler/virtual-registry-consumer.ts'; void registry;"
   });
@@ -266,8 +266,8 @@ test('imported machine data uses the same reverse dependency graph', () => {
   });
 });
 
-test('non-code product inputs reach tests through semantic module owners', () => {
-  const provider = sourceProvider({
+test('non-code product inputs reach tests through semantic module owners', async () => {
+  const provider = await sourceProvider({
     'catalog/registry/official/ticket.basic/block.manifest.yaml': 'id: ticket.basic\n',
     'src/compiler/virtual-manifest-consumer.ts': 'export const manifestConsumer = true;',
     'tests/unit/virtual-manifest-consumer.test.ts': "import { manifestConsumer } from '../../src/compiler/virtual-manifest-consumer.ts'; void manifestConsumer;"

@@ -5,10 +5,10 @@ import path from 'node:path';
 
 import { ResourceCompositeSettlementError, withAcquiredResource } from '../../execution/resource-settlement.ts';
 
-import { canonicalEquals, digest, sha256 } from '../../contracts/canonical.ts';
+import { canonicalEquals, rawSha256Hex, sha256 } from '../../contracts/canonical.ts';
 import { type CommitFence } from "../../contracts/commit-fence.ts";
 import { resolveWorkspaceLocalStateRoot } from '../../workspace/contract/local-state.ts';
-import { isSemanticMutationStagingWorkspace } from '../../workspace/contract/semantic-mutation-staging.ts';
+import { isSemanticMutationStagingWorkspace } from '../../workspace/contract/semantic-mutation/staging.ts';
 import {
   issueWindowsAppContainerExecutionCapability as issuePhysicalWindowsAppContainerExecutionCapability,
   type WindowsAppContainerExecutionCapability
@@ -623,7 +623,7 @@ function jsonFile(value: unknown): string {
 }
 
 function candidateFileName(kind: string, id: string): string {
-  const digestHex = digest(JSON.stringify({ kind, id }));
+  const digestHex = rawSha256Hex(JSON.stringify({ kind, id }));
   return `.${kind}-${digestHex}.candidate`;
 }
 
@@ -864,7 +864,7 @@ function generationTerminalPath(root: string, generation: number): string {
 }
 
 function holderDirectory(holders: string, token: Pick<WorkspaceWriteLeaseToken, 'generation' | 'leaseId'>): string {
-  const digestHex = digest(JSON.stringify({
+  const digestHex = rawSha256Hex(JSON.stringify({
     domain: 'workspace-write-lease-holder-v2',
     generation: token.generation,
     leaseId: token.leaseId
@@ -879,7 +879,7 @@ function workspaceWriteLeasePathsFor(workspaceRoot: string): WorkspaceWriteLease
 }
 
 function retirementFenceName(workspaceIdentityDigest: string): string {
-  return `.workspace-write-lease-retired-${digest(workspaceIdentityDigest)}.json`;
+  return `.workspace-write-lease-retired-${rawSha256Hex(workspaceIdentityDigest)}.json`;
 }
 
 interface WorkspaceWriteLeaseRetirementTransition {

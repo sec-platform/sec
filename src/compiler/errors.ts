@@ -2,9 +2,9 @@ export { formatFailure as formatCompilerFailure } from '../contracts/failure-for
 export { getErrorCode, inspectFailureValue } from '../contracts/failure-inspection.ts';
 
 import {
-  SecError,
-  type SecErrorDetails
+  FailureError,
+  type FailureDetails
 } from '../contracts/failure.ts';
 
-export { SecError as CompilerError };
-export type CompilerErrorDetails = SecErrorDetails;
+export { FailureError as CompilerError };
+export type CompilerErrorDetails = FailureDetails;

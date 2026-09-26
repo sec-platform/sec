@@ -14,6 +14,9 @@ import {
   executeProductionClosedUnmergedCloseout,
   observeProductionClosedUnmergedPullRequest
 } from '../../src/adapters/self-hosting/control/branch-lifecycle/closed-unmerged-closeout-production.ts';
+import {
+  parseClosedUnmergedCloseoutArguments
+} from '../../src/adapters/self-hosting/control/branch-lifecycle/closed-unmerged-closeout-cli.ts';
 
 const REPOSITORY = 'sec-platform/sec';
 const TOKEN = 'test-token-0123456789';
@@ -21,6 +24,27 @@ const PRINCIPAL: GitHubApiPrincipal = Object.freeze({
   transport: 'github-rest-token', login: 'maintainer', nodeId: 'MDQ6VXNlcjE=',
   userId: 900001, permission: 'maintain'
 });
+
+test('closed-unmerged CLI exposes only subject locators and never accepts preparation authority', () => {
+  expect(parseClosedUnmergedCloseoutArguments([
+    '--repository', REPOSITORY,
+    '--pr', '593',
+    '--disposition', 'closed-superseded',
+    '--review-comment', '7'
+  ])).toEqual({
+    repository: REPOSITORY,
+    pullRequestNumber: 593,
+    disposition: 'closed-superseded',
+    reviewCommentId: 7
+  });
+  expect(() => parseClosedUnmergedCloseoutArguments([
+    '--repository', REPOSITORY,
+    '--pr', '593',
+    '--disposition', 'closed-superseded',
+    '--preparation', '/tmp/forged.json'
+  ])).toThrow('unknown argument');
+});
+
 function capability(effect: 'branch-closeout-write', transport: GitHubApiTransport) {
   return issueGitHubApiTestCapability({ repository: REPOSITORY, token: TOKEN,
     principal: PRINCIPAL, effect, transport });

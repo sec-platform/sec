@@ -1,7 +1,7 @@
 import { expect, test } from 'bun:test';
 
 import {
-  classifyGitHubObservationFailureV1,
+  classifyGitHubObservationFailure,
   parseGitHubCheckPages
 } from '../../src/adapters/verification/platform/ci/runtime/verification-session-github.ts';
 
@@ -66,7 +66,7 @@ test('GitHub check census accepts exact zero and classifies reached malformed by
       failure = error;
     }
     expect(failure).toBeInstanceOf(Error);
-    expect(classifyGitHubObservationFailureV1(failure)).toMatchObject({
+    expect(classifyGitHubObservationFailure(failure)).toMatchObject({
       kind: 'provider-invalid'
     });
   }

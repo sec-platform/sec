@@ -1,6 +1,6 @@
 import { isUtf8 } from 'node:buffer';
 
-import { digest } from '../../contracts/canonical.ts';
+import { rawSha256Hex } from '../../contracts/canonical.ts';
 import { readOptionalRetainedOrdinaryFile } from '../runtime-state/physical/runtime/retained-file-read.ts';
 
 function readProjectFileBytes(absolutePath: string): Uint8Array | undefined {
@@ -19,7 +19,7 @@ function readProjectFileBytes(absolutePath: string): Uint8Array | undefined {
  */
 export function calculateProjectFileHash(absolutePath: string): string | undefined {
   const content = readProjectFileBytes(absolutePath);
-  return content === undefined ? undefined : digest(content);
+  return content === undefined ? undefined : rawSha256Hex(content);
 }
 
 /**
@@ -36,5 +36,5 @@ export function calculateCanonicalProjectFileHash(absolutePath: string): string 
   const canonicalContent = isUtf8(buffer)
     ? buffer.toString('utf8').replace(/\r\n?/g, '\n')
     : buffer;
-  return digest(canonicalContent);
+  return rawSha256Hex(canonicalContent);
 }

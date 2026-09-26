@@ -1,0 +1,52 @@
+{
+  "importGraph": "runtime",
+  "externalEntrypoints": [
+    "src/adapters/self-hosting/control/repository-maintenance/repository-maintenance.ts"
+  ],
+  "capabilityProviders": [
+    {
+      "capability": "repository-maintenance.comment-retirement",
+      "operations": [
+        "retireExactClosedIssueComments"
+      ],
+      "effectKinds": [
+        "provider"
+      ],
+      "ownerInternalOperations": [
+        "retireExactClosedIssueComments"
+      ],
+      "operationRoles": [
+        {
+          "operation": "retireExactClosedIssueComments",
+          "role": "domain-owner",
+          "semanticOperation": "control.repository-maintenance.comment-retirement",
+          "requirementId": null,
+          "recovery": null
+        }
+      ]
+    },
+    {
+      "capability": "repository-maintenance.exact-ref-retirement",
+      "operations": [
+        "retireExactRemoteRefs"
+      ],
+      "effectKinds": [
+        "provider",
+        "filesystem"
+      ],
+      "ownerInternalOperations": [
+        "retireExactRemoteRefs"
+      ],
+      "operationRoles": [
+        {
+          "operation": "retireExactRemoteRefs",
+          "role": "domain-owner",
+          "semanticOperation": "control.repository-maintenance.exact-ref-retirement",
+          "requirementId": null,
+          "recovery": "verified git bundle before exact-SHA CAS; fresh remote inventory readback after effect"
+        }
+      ]
+    }
+  ],
+  "preDependencyBootstrap": false
+}

@@ -1,7 +1,7 @@
 import { canonicalJson, compareCodeUnits } from '../../../../contracts/canonical.ts';
 import {
-  CodexDevelopmentClassifyWorkPackageCensus,
-  type CodexDevelopmentWorkPackageCensusEntry
+  ClassifyWorkPackageCensus,
+  type WorkPackageCensusEntry
 } from '../documentation/document-control-plane-contract.ts';
 
 const WORK_PACKAGE_PATH_PATTERN = /^config\/repository\/work-packages\/[a-z0-9][a-z0-9-]*\.md$/u;
@@ -45,7 +45,7 @@ export function isCanonicalAgentOperationActivationWorkPackagePath(value: string
  */
 export function assertAgentOperationActivationWorkPackageCensus(input: Readonly<{
   selectedManifestPath: string;
-  candidateEntries: readonly CodexDevelopmentWorkPackageCensusEntry[];
+  candidateEntries: readonly WorkPackageCensusEntry[];
   defaultPackagePaths: readonly string[];
   roadmapSource?: string;
 }>): readonly string[] {
@@ -55,7 +55,7 @@ export function assertAgentOperationActivationWorkPackageCensus(input: Readonly<
       || new Set(defaultPackagePaths).size !== defaultPackagePaths.length) {
     throw new Error(`Default Work Package paths are noncanonical: ${JSON.stringify(defaultPackagePaths)}`);
   }
-  const census = CodexDevelopmentClassifyWorkPackageCensus({
+  const census = ClassifyWorkPackageCensus({
     selectedManifestPath: input.selectedManifestPath,
     entries: input.candidateEntries,
     ...(input.roadmapSource === undefined ? {} : { roadmapSource: input.roadmapSource })

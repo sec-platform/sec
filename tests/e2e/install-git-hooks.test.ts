@@ -22,7 +22,7 @@ import { DEV_RUNNER_ENTRYPOINT_PATH } from '../../src/adapters/self-hosting/deve
 // Real repository, linked-worktree, and managed-hook lifecycle acceptance belongs to the slow lane.
 
 const managedHookNames = ['pre-commit', 'pre-push', 'post-checkout', 'post-merge', 'post-rewrite'] as const;
-const workspaceTransitionCommand = 'bun run dev -- workspace-transition';
+const workspaceTransitionCommand = 'bun run workspace:transition --';
 const importsApplyStagedCommand = 'bun run imports:apply --staged';
 const importsFreezeCommand = 'bun run imports:freeze';
 

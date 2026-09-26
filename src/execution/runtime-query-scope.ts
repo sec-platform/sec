@@ -1,4 +1,4 @@
-import { SecError } from '../contracts/failure.ts';
+import { FailureError } from '../contracts/failure.ts';
 
 /** Bounded in-process query lifetime, not a worker pool or a physical resource
  * sandbox. Accepted work owns its slot through settlement; close only drains. */
@@ -10,7 +10,7 @@ export function createRuntimeQueryScope(maximumPendingQueries: number) {
   let closed: Promise<void> | undefined;
   const pending = new Set<Promise<void>>();
   const assertAccepting = (): void => {
-    if (!accepting) throw new SecError('RUNTIME-CLOSED-001', 'Semantic runtime is closed');
+    if (!accepting) throw new FailureError('RUNTIME-CLOSED-001', 'Semantic runtime is closed');
   };
 
   const run = <Prepared, Result>(
@@ -20,7 +20,7 @@ export function createRuntimeQueryScope(maximumPendingQueries: number) {
     try {
       assertAccepting();
       if (pending.size >= maximumPendingQueries) {
-        throw new SecError('RUNTIME-BUSY-001', 'Semantic runtime query capacity is exhausted');
+        throw new FailureError('RUNTIME-BUSY-001', 'Semantic runtime query capacity is exhausted');
       }
     } catch (error) { return Promise.reject(error); }
 

@@ -88,7 +88,7 @@ export class GitReadBudgetError extends Error {
     message: string
   ) {
     super(message);
-    this.name = 'GitReadBudgetErrorV1';
+    this.name = 'GitReadBudgetError';
   }
 }
 

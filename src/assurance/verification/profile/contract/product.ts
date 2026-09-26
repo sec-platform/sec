@@ -3,7 +3,7 @@ import type { PolicyReport } from '../../../../semantics/policies/types.ts';
 import type { AcceptanceCoverageReport } from '../../../acceptance/coverage.ts';
 import { validatePolicyReport } from "../../../policies/report.ts";
 import type { FastVerificationLaneReport, RuntimeVerificationLaneReport, VerificationClaimSummary, VerificationLane, VerificationStatus, VerificationStepReport } from '../../contract/types.ts';
-import { CodexDevelopmentAggregateVerificationClaims, CodexDevelopmentBuildVerificationGateResult, CodexDevelopmentVerificationEnvironmentIdentity, mapProductVerificationStatus, type ProductVerificationMappingContext, type VerificationApplicability, type VerificationClaimDefinition, type VerificationGateEnvironment, type VerificationGateExecution, type VerificationGateResult, type VerificationReasonCode, type VerificationResultStatus } from '../../result/contract/result.ts';
+import { aggregateVerificationClaims, BuildVerificationGateResult, verificationEnvironmentIdentity, mapProductVerificationStatus, type ProductVerificationMappingContext, type VerificationApplicability, type VerificationClaimDefinition, type VerificationGateEnvironment, type VerificationGateExecution, type VerificationGateResult, type VerificationReasonCode, type VerificationResultStatus } from '../../result/contract/result.ts';
 
 const PRODUCT_VERIFICATION_PROFILE_REVISION = 'product-verification-v1' as const;
 const PRODUCT_VERIFICATION_OWNER = 'product-verify-project' as const;
@@ -75,7 +75,7 @@ function buildMappedGate(
 ): VerificationGateResult {
   const mapping = mapProductVerificationStatus(legacyStatus, context);
   const executed = mapping.disposition === 'executed';
-  return CodexDevelopmentBuildVerificationGateResult({
+  return BuildVerificationGateResult({
     gateId,
     gateRevision: PRODUCT_VERIFICATION_PROFILE_REVISION,
     owner: PRODUCT_VERIFICATION_OWNER,
@@ -103,7 +103,7 @@ function buildInvalidGate(
   invalidationRule: string,
   observation: ProductVerificationGateObservation
 ): VerificationGateResult {
-  return CodexDevelopmentBuildVerificationGateResult({
+  return BuildVerificationGateResult({
     gateId,
     gateRevision: PRODUCT_VERIFICATION_PROFILE_REVISION,
     owner: PRODUCT_VERIFICATION_OWNER,
@@ -210,7 +210,7 @@ export function buildExpectedProductRuntimeGate(
   observation: ProductVerificationGateObservation
 ): VerificationGateResult {
   if (runtimeMode === 'service' && runtime.status === 'passed') {
-    return CodexDevelopmentBuildVerificationGateResult({
+    return BuildVerificationGateResult({
       gateId: PRODUCT_RUNTIME_GATE_ID,
       gateRevision: PRODUCT_VERIFICATION_PROFILE_REVISION,
       owner: PRODUCT_VERIFICATION_OWNER,
@@ -283,7 +283,7 @@ export function buildExpectedProductPolicyGate(
     );
   }
   if (report.status === 'skipped') {
-    return CodexDevelopmentBuildVerificationGateResult({
+    return BuildVerificationGateResult({
       gateId: PRODUCT_POLICY_GATE_ID,
       gateRevision: PRODUCT_VERIFICATION_PROFILE_REVISION,
       owner: PRODUCT_VERIFICATION_OWNER,
@@ -304,7 +304,7 @@ export function buildExpectedProductPolicyGate(
     });
   }
   if (report.status === 'passed' && !policyReportSupportsSemanticPass(report)) {
-    return CodexDevelopmentBuildVerificationGateResult({
+    return BuildVerificationGateResult({
       gateId: PRODUCT_POLICY_GATE_ID,
       gateRevision: PRODUCT_VERIFICATION_PROFILE_REVISION,
       owner: PRODUCT_VERIFICATION_OWNER,
@@ -325,7 +325,7 @@ export function buildExpectedProductPolicyGate(
     });
   }
   const passed = report.status === 'passed';
-  return CodexDevelopmentBuildVerificationGateResult({
+  return BuildVerificationGateResult({
     gateId: PRODUCT_POLICY_GATE_ID,
     gateRevision: PRODUCT_VERIFICATION_PROFILE_REVISION,
     owner: PRODUCT_VERIFICATION_OWNER,
@@ -357,7 +357,7 @@ function productVerificationClaimDefinitions(
   lane: VerificationLane,
   includePolicyClaim = true
 ): VerificationClaimDefinition[] {
-  const owningEnvironments = [CodexDevelopmentVerificationEnvironmentIdentity(
+  const owningEnvironments = [verificationEnvironmentIdentity(
     process.platform,
     process.arch
   )];
@@ -411,7 +411,7 @@ export function buildExpectedProductVerificationClaimSummary(
   const includePolicyClaim = canonicalPolicy === null || canonicalPolicy.status !== 'skipped';
   return {
     gates,
-    overall: CodexDevelopmentAggregateVerificationClaims({
+    overall: aggregateVerificationClaims({
       claims: productVerificationClaimDefinitions(lane, includePolicyClaim),
       gateResults: gates
     })
@@ -427,7 +427,7 @@ export function buildBlockedProductVerificationClaimSummary(
     claimId: string,
     observation: ProductVerificationGateObservation
   ): VerificationGateResult =>
-    CodexDevelopmentBuildVerificationGateResult({
+    BuildVerificationGateResult({
       gateId,
       gateRevision: PRODUCT_VERIFICATION_PROFILE_REVISION,
       owner: PRODUCT_VERIFICATION_OWNER,
@@ -453,7 +453,7 @@ export function buildBlockedProductVerificationClaimSummary(
   ];
   return {
     gates,
-    overall: CodexDevelopmentAggregateVerificationClaims({
+    overall: aggregateVerificationClaims({
       claims: productVerificationClaimDefinitions(lane, true),
       gateResults: gates
     })

@@ -1,6 +1,6 @@
 import { test } from 'bun:test';
 import assert from 'node:assert/strict';
-import { compileVirtualWorkspaceSourceSnapshot } from '../../src/adapters/repository/source-program-model/workspace-source-snapshot.ts';
+import { compileVirtualSnapshot } from '../../src/adapters/repository/source-program-model/workspace-source-snapshot.ts';
 import {
   assertFastTestProcessPolicyInventory, assertUniqueFastTestProcessIsolationDefinitions,
   DEFAULT_FAST_TEST_EXCLUDED_FILES, FAST_TEST_PROCESS_ISOLATION_REGISTRY,
@@ -13,7 +13,7 @@ import {
   slowTestSuiteIdsForFile
 } from '../../src/adapters/verification/platform/test-impact/contract/budget.ts';
 import { rawSha256, sha256 } from '../../src/contracts/canonical.ts';
-import { isSecRepositoryTestModulePath } from '../../src/contracts/repository-test-path.ts';
+import { isRepositoryTestModulePath } from '../../src/contracts/repository-test-path.ts';
 
 const spellings = (file: string) => [file, `./${file}`, file.replaceAll('/', '\\'), `.\\${file.replaceAll('/', '\\')}`];
 const independent = 'tests/unit/command-runner.test.ts';
@@ -24,7 +24,7 @@ const shared = 'tests/unit/windows-appcontainer-executor.test.ts';
 function snapshot(files: string[], generation = 'a') {
   const digest = `sha256:${generation.repeat(64)}` as `sha256:${string}`;
   const sources = Object.fromEntries(files.map((path) => [path, 'export {};\n']));
-  return compileVirtualWorkspaceSourceSnapshot({
+  return compileVirtualSnapshot({
     subject: { kind: 'virtual-mutation', provenance: { kind: 'source-program-virtual-mutation',
       baseSnapshotDigest: digest, mutationDigest: sha256(sources) as `sha256:${string}` } },
     files: Object.entries(sources).map(([path, text]) => ({ path, source: text, contentDigest: rawSha256(text) })),
@@ -39,7 +39,7 @@ function source(files: string[], generation = 'a'): Parameters<typeof compileTes
 test('recognized portable spellings retain the same isolated resource queue', () => {
   for (const [file, resourceClass] of [[independent, 'independent-process'], [shared, 'shared-host-runtime']] as const) {
     for (const spelling of spellings(file)) {
-      assert.equal(isSecRepositoryTestModulePath(spelling), true);
+      assert.equal(isRepositoryTestModulePath(spelling), true);
       const partition = partitionFastTestFiles([spelling]);
       assert.deepEqual(partition.concurrent, []);
       assert.deepEqual(partition.resourceQueues[resourceClass], [file]);
@@ -48,7 +48,7 @@ test('recognized portable spellings retain the same isolated resource queue', ()
 });
 
 test('default exclusion cannot be avoided with an already-supported portable spelling', () => {
-  for (const spelling of spellings('tests/integration/semantic-mutation-apply.test.ts')) {
+  for (const spelling of spellings('tests/integration/semantic-mutation/apply.test.ts')) {
     assert.equal(isDefaultFastTestFile(spelling), false);
   }
   assert.equal(isDefaultFastTestFile('tests/unit/unregistered.test.ts'), true);

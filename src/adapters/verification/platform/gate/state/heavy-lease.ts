@@ -5,8 +5,9 @@ import path from 'node:path';
 import { parseExactJson } from '../../../../../contracts/exact-json.ts';
 import { HeavyVerificationGateBusyError, onceHeavyVerificationGateRelease, waitForHeavyVerificationGateLease, withAcquiredHeavyVerificationGateLease } from './heavy-lease-lifecycle.ts';
 
-import { digest } from '../../../../../contracts/canonical.ts';
-import { currentSecRuntimePlatform, resolveSecRuntimeCacheRoot, secRuntimeStateEnvironment } from '../../../../runtime-state/workspace-state/layout.ts';
+import { rawSha256Hex } from '../../../../../contracts/canonical.ts';
+import { currentRuntimePlatform, resolveRuntimeCacheRoot, runtimeStateEnvironment } from '../../../../runtime-state/workspace-state/layout.ts';
+import { selectRuntimeStateDirectoryGeneration } from '../../../../runtime-state/workspace-state/layout-migration.ts';
 import { compilerRoot } from "../../../../workspace-context.ts";
 
 type HeavyVerificationGateOwner = Readonly<{
@@ -39,7 +40,8 @@ export type HeavyVerificationGateLeaseCallOptions = Readonly<
   Pick<HeavyVerificationGateLeaseOptions, 'namespace' | 'waitTimeoutMs'>
 >;
 
-const HEAVY_VERIFICATION_GATE_LOCK_NAME = 'heavy-verification-gate-v1';
+const HEAVY_VERIFICATION_GATE_LOCK_NAME = 'gate';
+const LEGACY_HEAVY_VERIFICATION_GATE_LOCK_NAME = 'heavy-verification-gate-v1';
 const HEAVY_VERIFICATION_GATE_ID_PATTERN = /^[a-z0-9][a-z0-9:-]*$/u;
 const HEAVY_VERIFICATION_GATE_DEFAULT_WAIT_TIMEOUT_MS = 0;
 const OWNER_FILE = 'owner.json';
@@ -53,19 +55,24 @@ export function heavyVerificationGateLockPath(input: Readonly<{
   environment?: NodeJS.ProcessEnv;
 }>): string {
   const physicalWorktreeRoot = path.resolve(input.physicalWorktreeRoot);
-  const cacheRoot = resolveSecRuntimeCacheRoot({
-    platform: currentSecRuntimePlatform(),
-    environment: secRuntimeStateEnvironment(input.environment ?? process.env),
+  const cacheRoot = resolveRuntimeCacheRoot({
+    platform: currentRuntimePlatform(),
+    environment: runtimeStateEnvironment(input.environment ?? process.env),
     repositoryRoot: physicalWorktreeRoot
   });
+  const generation = selectRuntimeStateDirectoryGeneration({
+    label: 'heavy verification gate leases',
+    legacyPath: path.join(cacheRoot, 'heavy-verification-gates', 'v1'),
+    currentPath: path.join(cacheRoot, 'heavy-verification-gates', 'locks')
+  });
   return path.join(
-    cacheRoot,
-    'heavy-verification-gates',
-    'v1',
-    digest(process.platform === 'win32'
+    generation.path,
+    rawSha256Hex(process.platform === 'win32'
       ? physicalWorktreeRoot.toLocaleLowerCase('en-US')
       : physicalWorktreeRoot),
-    HEAVY_VERIFICATION_GATE_LOCK_NAME
+    generation.kind === 'legacy'
+      ? LEGACY_HEAVY_VERIFICATION_GATE_LOCK_NAME
+      : HEAVY_VERIFICATION_GATE_LOCK_NAME
   );
 }
 
@@ -102,11 +109,11 @@ function windowsWide(value: string): Buffer {
 
 function heavyVerificationGateMutexName(worktreeRoot: string, namespace?: string): string {
   const canonical = path.resolve(worktreeRoot).toLocaleLowerCase('en-US');
-  const digestHex = digest(canonical).slice(0, 32);
+  const digestHex = rawSha256Hex(canonical).slice(0, 32);
   if (!namespace) {
     return `Global\\sec-heavy-verification-gate-${digestHex}`;
   }
-  const namespaceDigest = digest(namespace).slice(0, 16);
+  const namespaceDigest = rawSha256Hex(namespace).slice(0, 16);
   return `Global\\sec-heavy-verification-gate-${digestHex}-${namespaceDigest}`;
 }
 
@@ -117,7 +124,7 @@ function validateHeavyVerificationGateNamespace(namespace: string): void {
 }
 
 function heavyVerificationGateNamespaceSegment(namespace: string): string {
-  return digest(namespace).slice(0, 16);
+  return rawSha256Hex(namespace).slice(0, 16);
 }
 
 function isProcessAlive(pid: number): boolean {

@@ -3,7 +3,7 @@ import path from 'node:path';
 
 import { CompilerError } from '../../compiler/errors.ts';
 import { compareCodeUnits } from '../../contracts/canonical.ts';
-import { isSemanticMutationStagingWorkspace } from '../../workspace/contract/semantic-mutation-staging.ts';
+import { isSemanticMutationStagingWorkspace } from '../../workspace/contract/semantic-mutation/staging.ts';
 import { WORKSPACE_WRITE_LEASE_DIRECTORY_NAME, inspectWorkspaceWriteLease, withWorkspaceWriteLeaseControlPlaneQuiesced, type WorkspaceWriteLeaseToken } from '../filesystem/write-lease.ts';
 import { ISOLATED_VERIFICATION_ENV_KEY } from '../runtime-state/physical/runtime/process.ts';
 

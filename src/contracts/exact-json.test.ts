@@ -1,7 +1,7 @@
 import { expect, test } from 'bun:test';
 
 import { ExactJsonError, parseExactJson, parseExactJsonBytes } from './exact-json.ts';
-import { SecError } from './failure.ts';
+import { FailureError } from './failure.ts';
 
 test('exact JSON retains duplicate-key information and one typed failure identity', () => {
   const parse = () => parseExactJson('{"value":1,"\\u0076alue":2}', 'Exact fixture');
@@ -10,7 +10,7 @@ test('exact JSON retains duplicate-key information and one typed failure identit
   try {
     parse();
   } catch (error) {
-    expect(error).toBeInstanceOf(SecError);
+    expect(error).toBeInstanceOf(FailureError);
     expect(error).toMatchObject({
       code: 'EXACT-JSON-001',
       kind: 'duplicate-key',
