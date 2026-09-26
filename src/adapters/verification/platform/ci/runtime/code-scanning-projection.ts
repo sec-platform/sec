@@ -1,4 +1,5 @@
 import {
+  GitHubApiProviderError,
   executeGitHubApiOperation,
   inspectGitHubApiCapability,
   withGitHubApiIssueCommentWriteSession,
@@ -244,9 +245,14 @@ async function observeProjection(input: Readonly<{
 async function publishProjection(input: Readonly<{
   repositoryRoot: string;
   projection: CodeScanningProjection;
-}>): Promise<Readonly<{ status: 'created' | 'updated' | 'reused'; commentId: number }>> {
+}>): Promise<Readonly<{
+  status: 'created' | 'updated' | 'reused' | 'policy-blocked';
+  commentId: number | null;
+  body: string;
+}>> {
   const body = renderCodeScanningProjection(input.projection);
-  return await withGitHubApiIssueCommentWriteSession({
+  try {
+    const published = await withGitHubApiIssueCommentWriteSession({
     repositoryRoot: input.repositoryRoot,
     repository: input.projection.repository,
     operation: async (capability) => {
@@ -299,7 +305,14 @@ async function publishProjection(input: Readonly<{
       }
       return Object.freeze({ status, commentId });
     }
-  });
+    });
+    return Object.freeze({ ...published, body });
+  } catch (error) {
+    if (error instanceof GitHubApiProviderError && error.statusCode === 403) {
+      return Object.freeze({ status: 'policy-blocked' as const, commentId: null, body });
+    }
+    throw error;
+  }
 }
 
 export async function projectCodeScanningPullRequest(input: Readonly<{
@@ -309,24 +322,29 @@ export async function projectCodeScanningPullRequest(input: Readonly<{
   expectedHeadSha: string;
   expectedCheckId: number;
 }>): Promise<Readonly<{
-  status: 'created' | 'updated' | 'reused';
-  commentId: number;
+  status: 'created' | 'updated' | 'reused' | 'policy-blocked';
+  commentId: number | null;
   pullRequestNumber: number;
   headSha: string;
   mergeSha: string;
   codeQlCheckId: number;
   findingCount: number;
+  findings: readonly CodeScanningFinding[];
+  renderedBody: string;
 }>> {
   const repository = repositoryName(input.repository);
   const projection = await observeProjection({ ...input, repository });
   const published = await publishProjection({ repositoryRoot: input.repositoryRoot, projection });
   return Object.freeze({
-    ...published,
+    status: published.status,
+    commentId: published.commentId,
     pullRequestNumber: projection.pullRequestNumber,
     headSha: projection.headSha,
     mergeSha: projection.mergeSha,
     codeQlCheckId: projection.codeQlCheckId,
-    findingCount: projection.findings.length
+    findingCount: projection.findings.length,
+    findings: projection.findings,
+    renderedBody: published.body
   });
 }
 
