@@ -10,6 +10,7 @@ import { GITHUB_API_BASE_URL, GITHUB_HOST } from '../contract.ts';
 import {
   GitHubCredentialUnavailableError,
   inspectGitHubActionsProjectionCredentialIdentity,
+  inspectGitHubActionsRepositoryMaintenanceCredentialIdentity,
   readGitHubToken
 } from '../credential.ts';
 
@@ -919,13 +920,23 @@ async function enroll(input: Readonly<{
   }
   if (session.capability !== undefined) return session.capability;
   const token = await input.readToken(input.repositoryRoot, session);
-  const workflowIdentity = input.origin === 'production'
+  const projectionWorkflowIdentity = input.origin === 'production'
     ? inspectGitHubActionsProjectionCredentialIdentity(process.env, input.repository)
     : null;
+  const maintenanceWorkflowIdentity = input.origin === 'production'
+    ? inspectGitHubActionsRepositoryMaintenanceCredentialIdentity(process.env, input.repository)
+    : null;
+  const workflowIdentity = projectionWorkflowIdentity ?? maintenanceWorkflowIdentity;
   if (workflowIdentity !== null) {
-    if (input.effect !== 'read' && input.effect !== 'issue-comment-write') {
+    if (projectionWorkflowIdentity !== null
+        && input.effect !== 'read' && input.effect !== 'issue-comment-write') {
       throw new GitHubApiProviderError(
         'GitHub Actions projection credential cannot enroll a privileged repository effect'
+      );
+    }
+    if (maintenanceWorkflowIdentity !== null && input.effect !== 'branch-closeout-write') {
+      throw new GitHubApiProviderError(
+        'GitHub Actions repository-maintenance credential permits only branch-closeout-write'
       );
     }
     const repositoryValue = await executeWithToken<unknown>(
