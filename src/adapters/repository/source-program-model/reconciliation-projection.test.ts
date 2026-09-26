@@ -2,7 +2,7 @@ import { expect, test } from 'bun:test';
 
 import { rawSha256 } from '../../../contracts/canonical.ts';
 import {
-  compileSecRepositoryModuleMembershipSnapshot
+  compileRepositoryModuleMembershipSnapshot
 } from '../architecture/contract.ts';
 import type { SourceProgramUnknown } from './contract.ts';
 import {
@@ -11,7 +11,7 @@ import {
   type SourceProgramReconciliationProviderEvidence
 } from './reconciliation-projection.ts';
 import { compileVirtualRepositorySourceProgramCompilation } from './repository-compilation.ts';
-import { compileVirtualWorkspaceSourceSnapshot } from './workspace-source-snapshot.ts';
+import { compileVirtualSnapshot } from './workspace-source-snapshot.ts';
 
 type DescriptorFixture = Readonly<{
   root: string;
@@ -32,7 +32,7 @@ function compileFixture(
     contentDigest: rawSha256(source)
   }));
   const descriptorSources = descriptors.map(({ root, source }) => Object.freeze({
-    descriptorPath: `${root}/sec.module.json`,
+    descriptorPath: `${root}/module.json`,
     source: JSON.stringify({
       importGraph: 'runtime',
       externalEntrypoints: [],
@@ -43,7 +43,7 @@ function compileFixture(
       ...source
     })
   }));
-  const membership = compileSecRepositoryModuleMembershipSnapshot({
+  const membership = compileRepositoryModuleMembershipSnapshot({
     repositoryFiles: [
       ...files.map(({ path }) => path),
       ...descriptorSources.map(({ descriptorPath }) => descriptorPath)
@@ -54,7 +54,7 @@ function compileFixture(
     files: files.map(({ path, contentDigest }) => ({ path, contentDigest })),
     descriptors: descriptorSources
   }));
-  const workspaceSnapshot = compileVirtualWorkspaceSourceSnapshot({
+  const workspaceSnapshot = compileVirtualSnapshot({
     subject: {
       kind: 'virtual-mutation',
       provenance: {

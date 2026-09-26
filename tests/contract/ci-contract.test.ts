@@ -1,7 +1,7 @@
 import { expect, test } from 'bun:test';
 import { parse as parseYaml } from 'yaml';
 
-import { SEC_LINUX_VERIFICATION_ENVIRONMENT_AUTHORITY } from '../../src/adapters/providers/linux-verification/contract.ts';
+import { LINUX_VERIFICATION_ENVIRONMENT_AUTHORITY } from '../../src/adapters/providers/linux-verification/contract.ts';
 import { CI_VERIFICATION_ACTION_DISPATCH_TYPE, CI_VERIFICATION_ACTION_PARENT_DISPATCH_PLAN_FILE } from '../../src/adapters/verification/platform/action/contract/ci.ts';
 import { CI_VERIFICATION_HOSTED_PROVIDER_REVISION, CI_VERIFICATION_HOSTED_TOOLCHAIN_REVISION, createCiVerificationHostedProviderRevision, createCiVerificationHostedToolchainRevision } from '../../src/adapters/verification/platform/action/contract/environment.ts';
 import { CI_COMPILER_WORKFLOW_RUN_IDENTITY, matchesCiCompilerWorkflowRunIdentity, matchesCiWorkflowRunIdentity } from '../../src/adapters/verification/platform/action/contract/provider.ts';
@@ -72,13 +72,13 @@ const WORKFLOW_RUNNER_ROLES = Object.freeze({
     'main-health': 'trusted'
   },
   '.github/workflows/compiler-release-validation.yml': { 'compiler-release-verification': 'sut' },
-  '.github/workflows/sec-merge-gate.yml': {
+  '.github/workflows/merge-gate.yml': {
     plan: 'trusted',
     authorize: 'control',
     'terminal-status': 'trusted',
     integrate: 'control'
   },
-  '.github/workflows/sec-trusted-bootstrap.yml': {
+  '.github/workflows/trusted-bootstrap.yml': {
     resolve: 'trusted',
     'checker-pre': 'trusted',
     'candidate-sut': 'sut',
@@ -115,11 +115,11 @@ test('all hosted run consumers exclude mutable provider name from identity', asy
     headSha: 'c'.repeat(40)
   })).toBe(false);
   expect(matchesCiWorkflowRunIdentity({
-    workflowPath: '.github/workflows/sec-merge-gate.yml',
+    workflowPath: '.github/workflows/merge-gate.yml',
     eventName: 'workflow_run',
     displayTitle: 'integrate compiler session run 100 attempt 1',
     headSha,
-    expectedWorkflowPath: '.github/workflows/sec-merge-gate.yml',
+    expectedWorkflowPath: '.github/workflows/merge-gate.yml',
     expectedEventName: 'workflow_run',
     expectedDisplayTitle: 'integrate compiler session run 100 attempt 1',
     expectedHeadSha: headSha
@@ -127,7 +127,7 @@ test('all hosted run consumers exclude mutable provider name from identity', asy
 });
 
 test('hosted provider revision binds the exact trusted runtime profile', () => {
-  const authority = SEC_LINUX_VERIFICATION_ENVIRONMENT_AUTHORITY;
+  const authority = LINUX_VERIFICATION_ENVIRONMENT_AUTHORITY;
   expect(CI_VERIFICATION_HOSTED_TOOLCHAIN_REVISION)
     .toBe(createCiVerificationHostedToolchainRevision(authority));
   expect(CI_VERIFICATION_HOSTED_PROVIDER_REVISION)
@@ -165,7 +165,7 @@ test('coordinators never occupy the sole role of a downstream producer they join
   ] as const) {
     expect(sessionCoordinatorRole, downstream).not.toBe(compilerRoles[downstream]);
   }
-  const mergeRoles = WORKFLOW_RUNNER_ROLES['.github/workflows/sec-merge-gate.yml'];
+  const mergeRoles = WORKFLOW_RUNNER_ROLES['.github/workflows/merge-gate.yml'];
   expect(mergeRoles.authorize, 'authorization must not occupy trusted leaf role').not.toBe(mergeRoles['terminal-status']);
   expect(mergeRoles.integrate, 'post-merge MainHealth join').not.toBe(compilerRoles['main-health']);
 });
@@ -365,7 +365,7 @@ test('active PR contract has one V2 Session dispatch and no legacy verification 
   ]);
   expect(CI_VERIFICATION_HOSTED_SANDBOX_POLICY.runtimeBinaries).toContain('/usr/bin/tar');
   expect(CI_VERIFICATION_HOSTED_SANDBOX_POLICY.python.version)
-    .toBe(SEC_LINUX_VERIFICATION_ENVIRONMENT_AUTHORITY.runtime.pythonVersion);
+    .toBe(LINUX_VERIFICATION_ENVIRONMENT_AUTHORITY.runtime.pythonVersion);
   expect(CI_VERIFICATION_HOSTED_SANDBOX_POLICY.runtimeBinaries)
     .toContain(CI_VERIFICATION_HOSTED_SANDBOX_POLICY.python.executablePath);
   expect(CI_VERIFICATION_HOSTED_SANDBOX_POLICY.runtimeDirectories).toEqual([
@@ -377,7 +377,7 @@ test('active PR contract has one V2 Session dispatch and no legacy verification 
 test('every cold SUT facade installs exact-base dependencies before its first repository module import', async () => {
   const [compiler, bootstrap] = await Promise.all([
     readCompilerFile('.github/workflows/compiler-pr-validation.yml'),
-    readCompilerFile('.github/workflows/sec-trusted-bootstrap.yml')
+    readCompilerFile('.github/workflows/trusted-bootstrap.yml')
   ]).then((sources) => sources.map((source) => parseYaml(source) as Workflow));
   const cases = [
     {

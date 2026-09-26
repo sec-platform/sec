@@ -19,13 +19,13 @@ type CanonicalArtifact = {
 };
 
 const {
-  CodexDevelopmentGitHubArtifactMaxBytesV1,
-  CodexDevelopmentGitHubArtifactSafetyWindowMsV1,
-  canonicalizeGitHubArtifactMetadataV1
+  gitHubArtifactMaxBytes,
+  gitHubArtifactSafetyWindowMs,
+  canonicalizeGitHubArtifactMetadata
 } = require('../../src/adapters/verification/platform/ci/runtime/github-artifact-metadata.cjs') as {
-  CodexDevelopmentGitHubArtifactMaxBytesV1: number;
-  CodexDevelopmentGitHubArtifactSafetyWindowMsV1: number;
-  canonicalizeGitHubArtifactMetadataV1: (
+  gitHubArtifactMaxBytes: number;
+  gitHubArtifactSafetyWindowMs: number;
+  canonicalizeGitHubArtifactMetadata: (
     value: RawArtifact,
     options: { checkedAtMs: number; label?: string },
   ) => CanonicalArtifact;
@@ -53,7 +53,7 @@ describe('GitHub artifact metadata ingress contract', () => {
     ['canonical zero milliseconds', '2026-10-16T17:42:35.000Z', '2026-10-16T17:42:35.000Z', 677],
     ['canonical nonzero milliseconds', '2026-10-16T17:42:35.123Z', '2026-10-16T17:42:35.123Z', 677]
   ])('canonicalizes %s expiry at the GitHub boundary', (_label, raw, expected, size) => {
-    const value = canonicalizeGitHubArtifactMetadataV1(
+    const value = canonicalizeGitHubArtifactMetadata(
       artifact({ expires_at: raw, size_in_bytes: size }),
       { checkedAtMs: CHECKED_AT }
     );
@@ -69,14 +69,14 @@ describe('GitHub artifact metadata ingress contract', () => {
     '2026-10-16T17:42:35.0Z',
     'not-a-time'
   ])('rejects noncanonical external timestamp %s', (expiresAt) => {
-    expect(() => canonicalizeGitHubArtifactMetadataV1(
+    expect(() => canonicalizeGitHubArtifactMetadata(
       artifact({ expires_at: expiresAt }),
       { checkedAtMs: CHECKED_AT }
     )).toThrow();
   });
 
   test('rejects a non-string external timestamp', () => {
-    expect(() => canonicalizeGitHubArtifactMetadataV1(
+    expect(() => canonicalizeGitHubArtifactMetadata(
       artifact({ expires_at: undefined }),
       { checkedAtMs: CHECKED_AT }
     )).toThrow('must be a UTC timestamp string');
@@ -88,18 +88,18 @@ describe('GitHub artifact metadata ingress contract', () => {
     ['invalid digest', { digest: `sha512:${'a'.repeat(64)}` }],
     ['zero size', { size_in_bytes: 0 }],
     ['fractional size', { size_in_bytes: 677.5 }],
-    ['oversize archive', { size_in_bytes: CodexDevelopmentGitHubArtifactMaxBytesV1 + 1 }],
+    ['oversize archive', { size_in_bytes: gitHubArtifactMaxBytes + 1 }],
     ['unsafe lifetime', { expires_at: '2026-07-19T17:44:59Z' }]
   ])('rejects %s metadata', (_label, overrides) => {
-    expect(() => canonicalizeGitHubArtifactMetadataV1(
+    expect(() => canonicalizeGitHubArtifactMetadata(
       artifact(overrides as Partial<RawArtifact>),
       { checkedAtMs: CHECKED_AT }
     )).toThrow();
   });
 
   test('accepts an expiry exactly at the safety-window boundary', () => {
-    const expiresAt = new Date(CHECKED_AT + CodexDevelopmentGitHubArtifactSafetyWindowMsV1).toISOString();
-    expect(canonicalizeGitHubArtifactMetadataV1(
+    const expiresAt = new Date(CHECKED_AT + gitHubArtifactSafetyWindowMs).toISOString();
+    expect(canonicalizeGitHubArtifactMetadata(
       artifact({ expires_at: expiresAt }),
       { checkedAtMs: CHECKED_AT }
     ).expiresAt).toBe(expiresAt);

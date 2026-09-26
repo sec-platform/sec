@@ -1,7 +1,7 @@
 import { compareCodeUnits, sha256 } from '../../../contracts/canonical.ts';
 import {
-  isSecRepositoryTestModulePath,
-  normalizeSecRepositoryTestModulePath
+  isRepositoryTestModulePath,
+  normalizeRepositoryTestModulePath
 } from '../../../contracts/repository-test-path.ts';
 import type {
   SourceProgramTestBaselineEvidence,
@@ -29,10 +29,10 @@ function decisionError(field: string, detail: string): never {
 }
 
 function canonicalDecisionPath(value: string, field: string): string {
-  if (typeof value !== 'string' || !isSecRepositoryTestModulePath(value)) {
+  if (typeof value !== 'string' || !isRepositoryTestModulePath(value)) {
     return decisionError(field, 'expected a canonical SEC test-module path');
   }
-  const normalized = normalizeSecRepositoryTestModulePath(value);
+  const normalized = normalizeRepositoryTestModulePath(value);
   if (normalized !== value) return decisionError(field, 'path is not canonical');
   return normalized;
 }

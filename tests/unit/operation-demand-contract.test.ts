@@ -1,12 +1,12 @@
 import { expect, test } from 'bun:test';
 
 import {
-  assertSecOperationDemandGraph,
-  compileSecOperationDemandGraph
+  assertOperationDemandGraph,
+  compileOperationDemandGraph
 } from '../../src/adapters/self-hosting/control/operation/demand.ts';
 
 test('one demand compiler derives terminal transition and no ambient execution capability', () => {
-  const graph = compileSecOperationDemandGraph({
+  const graph = compileOperationDemandGraph({
     operation: 'work-selection-observe',
     terminalWorkIds: ['issue-271', 'issue-186']
   });
@@ -41,7 +41,7 @@ test('all executable operations derive the same compiler dependency capability',
     'test-direct-ambiguous',
     'typecheck'
   ] as const) {
-    const graph = compileSecOperationDemandGraph({ operation, terminalWorkIds: [] });
+    const graph = compileOperationDemandGraph({ operation, terminalWorkIds: [] });
     expect(graph.capabilityDemands).toEqual(['compiler-dependency-tree']);
     if (processIsolatedOperations.has(operation)) {
       expect(graph.verificationObligations).toContain('test-process-isolation');
@@ -52,7 +52,7 @@ test('all executable operations derive the same compiler dependency capability',
 });
 
 test('dependency setup is the only operation that can demand managed Git hooks', () => {
-  const setup = compileSecOperationDemandGraph({
+  const setup = compileOperationDemandGraph({
     operation: 'dependency-setup',
     terminalWorkIds: [],
     hookPolicy: 'always'
@@ -63,7 +63,7 @@ test('dependency setup is the only operation that can demand managed Git hooks',
   ]);
   expect(setup.verificationObligations).toContain('git-hook-lifecycle');
 
-  const nestedHook = compileSecOperationDemandGraph({
+  const nestedHook = compileOperationDemandGraph({
     operation: 'dependency-setup',
     terminalWorkIds: [],
     hookPolicy: 'never'
@@ -73,17 +73,17 @@ test('dependency setup is the only operation that can demand managed Git hooks',
 });
 
 test('demand identity is order-independent and forged ambient demand is rejected', () => {
-  const graph = compileSecOperationDemandGraph({
+  const graph = compileOperationDemandGraph({
     operation: 'work-selection-observe',
     terminalWorkIds: ['issue-271', 'issue-186']
   });
-  const reordered = compileSecOperationDemandGraph({
+  const reordered = compileOperationDemandGraph({
     operation: 'work-selection-observe',
     terminalWorkIds: ['issue-186', 'issue-271']
   });
   expect(reordered).toEqual(graph);
 
-  expect(() => assertSecOperationDemandGraph({
+  expect(() => assertOperationDemandGraph({
     ...graph,
     capabilityDemands: ['compiler-dependency-tree']
   })).toThrow('differs from the canonical compiler output');

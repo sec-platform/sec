@@ -1,8 +1,18 @@
-import { spawnSync } from 'node:child_process';
 import { realpathSync } from 'node:fs';
 import path from 'node:path';
 
 import { parseGitHubRepositoryIdentityFromRemoteUrl } from '../../../../contracts/git-reference.ts';
+import {
+  executeGitHubApiOperation,
+  withGitHubApiReadSession,
+  type GitHubApiCapability
+} from '../../../providers/github-api/operation-session.ts';
+import { withAuthorityGitReadSession } from '../../../providers/git-read/authority.ts';
+import type { GitReadSession } from '../../../providers/git-read/runtime/session.ts';
+import {
+  GIT_READ_OPERATION_BUDGET,
+  runGitRead
+} from '../../development/tooling/git/git-read.ts';
 
 import {
   requireActiveWorkPackageOwnerObservation,
@@ -15,8 +25,6 @@ import {
 } from './branch-closeout-receipt.ts';
 import { selectBranchLifecyclePullRequests } from './branch-lifecycle-audit.ts';
 import {
-  createBranchLifecycleGitChildEnvironment,
-  createBranchLifecycleGitHubCredentialArgs,
   decodeBranchLifecycleChildError,
   decodeBranchLifecycleChildStdout
 } from './branch-lifecycle-command.ts';
@@ -36,15 +44,11 @@ import {
 import {
   countPorcelainStatus,
   parseLocalBranchRefs,
-  parsePullRequestObservations,
-  parseRemoteHeadRefs,
   parseRestCloseoutReceiptCommentCandidates,
   parseWorktreePorcelain
 } from './branch-lifecycle-parsers.ts';
 
 const DEFAULT_REMOTE = 'origin';
-const COMMAND_TIMEOUT_MS = 60_000;
-const COMMAND_MAX_BUFFER = 32 * 1024 * 1024;
 type CollaboratorPermission = 'trusted' | 'untrusted' | 'unknown';
 
 export interface BranchLifecycleInventoryScope {
@@ -66,60 +70,44 @@ export interface BranchLifecycleCloseoutTargetScope
 }
 
 type InventoryRuntime = BranchLifecycleInventoryScope;
+type InventoryCommandResult = Readonly<{
+  status: number | null;
+  stdout: Buffer;
+  stderr: Buffer;
+}>;
 
-function runInventoryCommand(
-  ctx: InventoryRuntime,
-  command: 'gh' | 'git',
-  args: readonly string[],
-  cwd = ctx.repositoryRoot
-) {
+async function runInventoryGit(
+  session: GitReadSession,
+  args: readonly string[]
+): Promise<InventoryCommandResult> {
   if (args.some((arg) => arg.includes('\0'))) {
     throw new Error('Branch inventory argument contains NUL.');
   }
-  const result = spawnSync(command, [...args], {
-    cwd,
-    encoding: 'buffer',
-    windowsHide: true,
-    timeout: COMMAND_TIMEOUT_MS,
-    maxBuffer: COMMAND_MAX_BUFFER,
-    env: {
-      ...(command === 'git'
-        ? createBranchLifecycleGitChildEnvironment(process.env)
-        : process.env),
-      GH_PROMPT_DISABLED: '1',
-      GIT_TERMINAL_PROMPT: '0'
-    }
-  });
-  return {
+  const result = await runGitRead(session, args, { maxBuffer: GIT_READ_OPERATION_BUDGET.maxCommandStdoutBytes });
+  return Object.freeze({
     status: result.status,
-    stdout: Buffer.isBuffer(result.stdout) ? result.stdout : Buffer.from(String(result.stdout ?? '')),
-    stderr: Buffer.isBuffer(result.stderr)
-      ? result.stderr
-      : Buffer.from(String(result.stderr ?? result.error?.message ?? ''))
-  };
+    stdout: result.stdout,
+    stderr: result.error === undefined ? result.stderr : Buffer.from(result.error.message, 'utf8')
+  });
 }
 
-function requireInventoryCommandText(
-  ctx: InventoryRuntime,
-  command: 'gh' | 'git',
+async function requireInventoryGitText(
+  session: GitReadSession,
   args: readonly string[],
-  label: string,
-  cwd = ctx.repositoryRoot
-): string {
-  const result = runInventoryCommand(ctx, command, args, cwd);
+  label: string
+): Promise<string> {
+  const result = await runInventoryGit(session, args);
   if (result.status !== 0) {
     throw new Error(`${label} failed: ${decodeBranchLifecycleChildError(result)}`);
   }
   return decodeBranchLifecycleChildStdout(result);
 }
 
-function optionalInventoryCommandText(
-  ctx: InventoryRuntime,
-  command: 'gh' | 'git',
-  args: readonly string[],
-  cwd = ctx.repositoryRoot
-): string | null {
-  const result = runInventoryCommand(ctx, command, args, cwd);
+async function optionalInventoryGitText(
+  session: GitReadSession,
+  args: readonly string[]
+): Promise<string | null> {
+  const result = await runInventoryGit(session, args);
   return result.status === 0 ? decodeBranchLifecycleChildStdout(result) : null;
 }
 
@@ -139,43 +127,36 @@ function resolveRealPath(value: string): string {
   }
 }
 
-function resolveRepositoryRoot(ctx: InventoryRuntime): string {
-  return resolveRealPath(requireInventoryCommandText(
-    ctx,
-    'git',
+async function resolveRepositoryRoot(session: GitReadSession): Promise<string> {
+  return resolveRealPath(await requireInventoryGitText(
+    session,
     ['rev-parse', '--show-toplevel'],
     'repository root discovery'
   ));
 }
 
-function resolveCommonDir(ctx: InventoryRuntime, repositoryRoot: string): string {
-  const raw = requireInventoryCommandText(
-    ctx,
-    'git',
+async function resolveCommonDir(session: GitReadSession, repositoryRoot: string): Promise<string> {
+  const raw = await requireInventoryGitText(
+    session,
     ['rev-parse', '--git-common-dir'],
-    'git common-dir discovery',
-    repositoryRoot
+    'git common-dir discovery'
   );
   return resolveRealPath(path.isAbsolute(raw) ? raw : path.resolve(repositoryRoot, raw));
 }
 
-function resolveRemoteUrl(
-  ctx: InventoryRuntime,
-  repositoryRoot: string,
+async function resolveRemoteUrl(
+  session: GitReadSession,
   remote: string
-): string {
-  return requireInventoryCommandText(
-    ctx,
-    'git',
+): Promise<string> {
+  return await requireInventoryGitText(
+    session,
     ['remote', 'get-url', remote],
-    `remote ${remote} URL discovery`,
-    repositoryRoot
+    `remote ${remote} URL discovery`
   );
 }
 
 function resolveRepositoryFullName(
   ctx: InventoryRuntime,
-  repositoryRoot: string,
   remoteUrl: string,
   unknowns: string[]
 ): string {
@@ -186,116 +167,136 @@ function resolveRepositoryFullName(
     }
     return fromRemote;
   }
-  const fromGh = optionalInventoryCommandText(
-    ctx,
-    'gh',
-    ['repo', 'view', '--json', 'nameWithOwner', '--jq', '.nameWithOwner'],
-    repositoryRoot
-  );
-  if (fromGh !== null
-      && parseGitHubRepositoryIdentityFromRemoteUrl(`https://github.com/${fromGh}.git`) === fromGh) {
-    if (ctx.repositoryFullName !== undefined && ctx.repositoryFullName !== fromGh) {
-      throw new Error('repositoryFullName differs from the provider-observed repository identity');
-    }
-    return fromGh;
+  if (ctx.repositoryFullName !== undefined
+      && parseGitHubRepositoryIdentityFromRemoteUrl(`https://github.com/${ctx.repositoryFullName}.git`)
+        === ctx.repositoryFullName) {
+    return ctx.repositoryFullName;
   }
-  unknowns.push('repository full name could not be resolved from remote URL or gh');
+  unknowns.push('repository full name could not be resolved from remote URL or supplied identity');
   return '<unknown>/<unknown>';
 }
 
-function resolveDefaultBranch(
+async function resolveDefaultBranch(
   ctx: InventoryRuntime,
-  repositoryRoot: string,
+  git: GitReadSession,
+  github: GitHubApiCapability | null,
   remote: string,
   unknowns: string[]
-): string {
+): Promise<string> {
   if (ctx.defaultBranch) {
     assertGitBranchName(ctx.defaultBranch, 'default branch');
     return ctx.defaultBranch;
   }
-  const symbolic = optionalInventoryCommandText(
-    ctx,
-    'git',
-    ['symbolic-ref', '--quiet', '--short', `refs/remotes/${remote}/HEAD`],
-    repositoryRoot
+  const symbolic = await optionalInventoryGitText(
+    git,
+    ['symbolic-ref', '--quiet', '--short', `refs/remotes/${remote}/HEAD`]
   );
   if (symbolic?.startsWith(`${remote}/`)) {
     const branch = symbolic.slice(remote.length + 1);
     assertGitBranchName(branch, 'default branch');
     return branch;
   }
-  const fromGh = optionalInventoryCommandText(
-    ctx,
-    'gh',
-    ['repo', 'view', '--json', 'defaultBranchRef', '--jq', '.defaultBranchRef.name'],
-    repositoryRoot
-  );
-  if (fromGh !== null) {
-    assertGitBranchName(fromGh, 'default branch');
-    return fromGh;
+  if (github !== null) {
+    const repository = await executeGitHubApiOperation(github, { kind: 'repository' });
+    if (repository && typeof repository === 'object' && !Array.isArray(repository)) {
+      const fromProvider = (repository as Record<string, unknown>).default_branch;
+      if (typeof fromProvider === 'string') {
+        assertGitBranchName(fromProvider, 'default branch');
+        return fromProvider;
+      }
+    }
   }
   unknowns.push('default branch could not be resolved; temporary fallback `main` is untrusted');
   return 'main';
 }
 
-function listLocalBranches(
-  ctx: InventoryRuntime,
-  repositoryRoot: string
-): BranchRefObservation[] {
-  const result = runInventoryCommand(ctx, 'git', [
+async function listLocalBranches(
+  git: GitReadSession
+): Promise<BranchRefObservation[]> {
+  const result = await runInventoryGit(git, [
     'for-each-ref',
     '--format=%(refname:short)%00%(objectname)%00',
     'refs/heads'
-  ], repositoryRoot);
+  ]);
   if (result.status !== 0) {
     throw new Error(`local branch inventory failed: ${decodeBranchLifecycleChildError(result)}`);
   }
   return parseLocalBranchRefs(result.stdout);
 }
 
-function listRemoteBranches(
-  ctx: InventoryRuntime,
-  repositoryRoot: string,
-  remote: string
-): BranchRefObservation[] {
-  const result = runInventoryCommand(ctx, 'git', [
-    ...createBranchLifecycleGitHubCredentialArgs(),
-    'ls-remote', '--heads', remote
-  ], repositoryRoot);
-  if (result.status !== 0) {
-    throw new Error(`remote branch inventory failed: ${decodeBranchLifecycleChildError(result)}`);
-  }
-  return parseRemoteHeadRefs(decodeBranchLifecycleChildStdout(result));
+function parseRemoteBranchesFromGitHub(value: unknown): BranchRefObservation[] {
+  if (!Array.isArray(value)) throw new Error('remote branch inventory must be an array');
+  return value.map((entry, index) => {
+    if (!entry || typeof entry !== 'object' || Array.isArray(entry)) {
+      throw new Error(`remote branch inventory entry ${index} is invalid`);
+    }
+    const record = entry as Record<string, unknown>;
+    const ref = record.ref;
+    const object = record.object;
+    if (typeof ref !== 'string' || !ref.startsWith('refs/heads/')
+        || !object || typeof object !== 'object' || Array.isArray(object)) {
+      throw new Error(`remote branch inventory entry ${index} has invalid identity`);
+    }
+    const branch = ref.slice('refs/heads/'.length);
+    const sha = (object as Record<string, unknown>).sha;
+    assertGitBranchName(branch, `remote branch[${index}]`);
+    if (typeof sha !== 'string') throw new Error(`remote branch[${index}] SHA is invalid`);
+    assertGitSha(sha, `remote branch[${index}] SHA`);
+    return { branch, sha };
+  }).sort((left, right) => left.branch.localeCompare(right.branch));
 }
 
-function listWorktrees(
-  ctx: InventoryRuntime,
-  repositoryRoot: string,
+async function listRemoteBranches(
+  github: GitHubApiCapability
+): Promise<BranchRefObservation[]> {
+  const branches: BranchRefObservation[] = [];
+  for (let page = 1; page <= 100; page += 1) {
+    const batch = parseRemoteBranchesFromGitHub(
+      await executeGitHubApiOperation(github, { kind: 'matching-head-refs', page })
+    );
+    branches.push(...batch);
+    if (batch.length < 100) break;
+  }
+  return branches.sort((left, right) => left.branch.localeCompare(right.branch));
+}
+
+async function listWorktrees(
+  git: GitReadSession,
   unknowns: string[]
-): BranchWorktreeObservation[] {
-  const result = runInventoryCommand(
-    ctx,
-    'git',
-    ['worktree', 'list', '--porcelain', '-z'],
-    repositoryRoot
-  );
+): Promise<BranchWorktreeObservation[]> {
+  const result = await runInventoryGit(git, ['worktree', 'list', '--porcelain', '-z']);
   if (result.status !== 0) {
     unknowns.push(`worktree inventory failed: ${decodeBranchLifecycleChildError(result)}`);
     return [];
   }
 
-  return stableSortWorktrees(parseWorktreePorcelain(result.stdout).map((record) => {
+  const worktrees: BranchWorktreeObservation[] = [];
+  for (const record of parseWorktreePorcelain(result.stdout)) {
     const worktreePath = resolveRealPath(record.path!);
-    const status = runInventoryCommand(ctx, 'git', [
-      '-C',
-      worktreePath,
-      'status',
-      '--porcelain=v1',
-      '-z',
-      '--untracked-files=all'
-    ], repositoryRoot);
+    let status: InventoryCommandResult;
+    try {
+      status = await withAuthorityGitReadSession({
+        cwd: worktreePath,
+        budget: GIT_READ_OPERATION_BUDGET
+      }, async (worktreeGit) => await runInventoryGit(worktreeGit, [
+        'status', '--porcelain=v1', '-z', '--untracked-files=all'
+      ]));
+    } catch (error) {
+      worktrees.push({
+        path: worktreePath,
+        headSha: record.headSha,
+        branch: record.branch,
+        dirtyCount: null,
+        untrackedCount: null,
+        locked: record.locked,
+        prunable: record.prunable,
+        observation: 'unknown',
+        reason: error instanceof Error ? error.message : String(error)
+      });
+      continue;
+    }
     if (status.status !== 0) {
-      return {
+      worktrees.push({
         path: worktreePath,
         headSha: record.headSha,
         branch: record.branch,
@@ -305,10 +306,11 @@ function listWorktrees(
         prunable: record.prunable,
         observation: 'unknown',
         reason: decodeBranchLifecycleChildError(status)
-      };
+      });
+      continue;
     }
     const counts = countPorcelainStatus(status.stdout);
-    return {
+    worktrees.push({
       path: worktreePath,
       headSha: record.headSha,
       branch: record.branch,
@@ -318,49 +320,42 @@ function listWorktrees(
       prunable: record.prunable,
       observation: 'resolved',
       reason: null
-    };
-  }));
-}
-
-function listTargetLocalBranches(
-  ctx: InventoryRuntime,
-  repositoryRoot: string,
-  branches: readonly string[]
-): BranchRefObservation[] {
-  const result = runInventoryCommand(ctx, 'git', [
-    'for-each-ref', '--format=%(refname:short)%00%(objectname)%00',
-    ...branches.map((branch) => `refs/heads/${branch}`)
-  ], repositoryRoot);
-  if (result.status !== 0) {
-    throw new Error(`target local branch inventory failed: ${decodeBranchLifecycleChildError(result)}`);
+    });
   }
-  return parseLocalBranchRefs(result.stdout);
+  return stableSortWorktrees(worktrees);
 }
 
-function listTargetRemoteBranches(
-  ctx: InventoryRuntime,
-  repositoryRoot: string,
-  remote: string,
+async function listTargetLocalBranches(
+  git: GitReadSession,
   branches: readonly string[]
-): BranchRefObservation[] {
-  const result = runInventoryCommand(ctx, 'git', [
-    ...createBranchLifecycleGitHubCredentialArgs(),
-    'ls-remote', '--heads', remote,
-    ...branches.map((branch) => `refs/heads/${branch}`)
-  ], repositoryRoot);
-  if (result.status !== 0) {
-    throw new Error(`target remote branch inventory failed: ${decodeBranchLifecycleChildError(result)}`);
+): Promise<BranchRefObservation[]> {
+  const observations: BranchRefObservation[] = [];
+  for (const branch of branches) {
+    const result = await runInventoryGit(git, [
+      'for-each-ref', '--format=%(refname:short)%00%(objectname)%00', `refs/heads/${branch}`
+    ]);
+    if (result.status !== 0) {
+      throw new Error(`target local branch inventory failed: ${decodeBranchLifecycleChildError(result)}`);
+    }
+    observations.push(...parseLocalBranchRefs(result.stdout));
   }
-  return parseRemoteHeadRefs(decodeBranchLifecycleChildStdout(result));
+  return observations.sort((left, right) => left.branch.localeCompare(right.branch));
 }
 
-function listCloseoutTargetWorktrees(
-  ctx: InventoryRuntime,
-  repositoryRoot: string,
+async function listTargetRemoteBranches(
+  github: GitHubApiCapability,
+  branches: readonly string[]
+): Promise<BranchRefObservation[]> {
+  const wanted = new Set(branches);
+  return (await listRemoteBranches(github)).filter(({ branch }) => wanted.has(branch));
+}
+
+async function listCloseoutTargetWorktrees(
+  git: GitReadSession,
   targetBranch: string,
   unknowns: string[]
-): BranchWorktreeObservation[] {
-  const result = runInventoryCommand(ctx, 'git', ['worktree', 'list', '--porcelain', '-z'], repositoryRoot);
+): Promise<BranchWorktreeObservation[]> {
+  const result = await runInventoryGit(git, ['worktree', 'list', '--porcelain', '-z']);
   if (result.status !== 0) {
     unknowns.push(`worktree registry inventory failed: ${decodeBranchLifecycleChildError(result)}`);
     return [];
@@ -380,77 +375,64 @@ function listCloseoutTargetWorktrees(
   })));
 }
 
-function remoteMarkerRequirement(
-  ctx: InventoryRuntime,
-  repositoryRoot: string,
-  repositoryFullName: string,
+async function remoteMarkerRequirement(
+  github: GitHubApiCapability,
   baseSha: string
-): BranchCloseoutReceiptObservation['requirement'] {
-  const result = runInventoryCommand(ctx, 'gh', [
-    'api',
-    `/repos/${repositoryFullName}/contents/${BRANCH_CLOSEOUT_ENFORCEMENT_MARKER_PATH}?ref=${baseSha}`,
-    '--silent'
-  ], repositoryRoot);
-  if (result.status === 0) return 'required';
-  const error = decodeBranchLifecycleChildError(result);
-  return /(?:HTTP\s+404|status\s+404|Not Found)/iu.test(error) ? 'not-required' : 'unknown';
+): Promise<BranchCloseoutReceiptObservation['requirement']> {
+  try {
+    await executeGitHubApiOperation(github, {
+      kind: 'repository-content', path: BRANCH_CLOSEOUT_ENFORCEMENT_MARKER_PATH, ref: baseSha
+    });
+    return 'required';
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return /(?:HTTP\s+404|status\s+404|Not Found)/iu.test(message) ? 'not-required' : 'unknown';
+  }
 }
 
-function closeoutReceiptRequirement(
-  ctx: InventoryRuntime,
-  repositoryRoot: string,
-  repositoryFullName: string,
+async function closeoutReceiptRequirement(
+  git: GitReadSession,
+  github: GitHubApiCapability,
   pullRequest: BranchPullRequestObservation
-): BranchCloseoutReceiptObservation['requirement'] {
+): Promise<BranchCloseoutReceiptObservation['requirement']> {
   if (pullRequest.isCrossRepository) return 'not-required';
   if (pullRequest.baseSha === null || pullRequest.baseSha === undefined) return 'unknown';
-  const commit = runInventoryCommand(
-    ctx,
-    'git',
-    ['cat-file', '-e', `${pullRequest.baseSha}^{commit}`],
-    repositoryRoot
-  );
+  const commit = await runInventoryGit(git, ['cat-file', '-e', `${pullRequest.baseSha}^{commit}`]);
   if (commit.status !== 0) {
-    return remoteMarkerRequirement(
-      ctx,
-      repositoryRoot,
-      repositoryFullName,
-      pullRequest.baseSha
-    );
+    return await remoteMarkerRequirement(github, pullRequest.baseSha);
   }
-  const marker = runInventoryCommand(
-    ctx,
-    'git',
-    ['cat-file', '-e', `${pullRequest.baseSha}:${BRANCH_CLOSEOUT_ENFORCEMENT_MARKER_PATH}`],
-    repositoryRoot
-  );
+  const marker = await runInventoryGit(git, [
+    'cat-file', '-e', `${pullRequest.baseSha}:${BRANCH_CLOSEOUT_ENFORCEMENT_MARKER_PATH}`
+  ]);
   return marker.status === 0 ? 'required' : 'not-required';
 }
 
-function collaboratorPermission(
-  ctx: InventoryRuntime,
-  repositoryRoot: string,
-  repositoryFullName: string,
+async function collaboratorPermission(
+  github: GitHubApiCapability,
   author: string,
   cache: Map<string, { permission: CollaboratorPermission; reason: string | null }>
-): { permission: CollaboratorPermission; reason: string | null } {
+): Promise<{ permission: CollaboratorPermission; reason: string | null }> {
   const cached = cache.get(author);
   if (cached) return cached;
-  const result = runInventoryCommand(ctx, 'gh', [
-    'api',
-    `/repos/${repositoryFullName}/collaborators/${author}/permission`,
-    '--jq',
-    '.role_name // .permission'
-  ], repositoryRoot);
-  if (result.status !== 0) {
+  let response: unknown;
+  try {
+    response = await executeGitHubApiOperation(github, { kind: 'collaborator-permission', login: author });
+  } catch (error) {
     const observation = {
       permission: 'unknown' as const,
-      reason: `collaborator permission for ${author} failed: ${decodeBranchLifecycleChildError(result)}`
+      reason: `collaborator permission for ${author} failed: ${error instanceof Error ? error.message : String(error)}`
     };
     cache.set(author, observation);
     return observation;
   }
-  const role = decodeBranchLifecycleChildStdout(result).toLowerCase();
+  if (!response || typeof response !== 'object' || Array.isArray(response)) {
+    const observation = { permission: 'unknown' as const, reason: `collaborator permission for ${author} is invalid` };
+    cache.set(author, observation);
+    return observation;
+  }
+  const record = response as Record<string, unknown>;
+  const rawRole = record.role_name ?? record.permission;
+  const role = typeof rawRole === 'string' ? rawRole.toLowerCase() : '';
   const observation = {
     permission: role === 'admin' || role === 'maintain'
       ? 'trusted' as const
@@ -461,31 +443,23 @@ function collaboratorPermission(
   return observation;
 }
 
-function loadCloseoutReceiptCommentCandidates(
-  ctx: InventoryRuntime,
-  repositoryRoot: string,
-  repositoryFullName: string,
+async function loadCloseoutReceiptCommentCandidates(
+  github: GitHubApiCapability,
   pullRequest: BranchPullRequestObservation
-): { candidates: NonNullable<BranchPullRequestObservation['closeoutReceiptCommentCandidates']> | null; reason: string | null } {
+): Promise<{ candidates: NonNullable<BranchPullRequestObservation['closeoutReceiptCommentCandidates']> | null; reason: string | null }> {
   const existing = pullRequest.closeoutReceiptCommentCandidates ?? [];
   if (existing.length > 0) return { candidates: existing, reason: null };
-
-  const result = runInventoryCommand(ctx, 'gh', [
-    'api',
-    '--paginate',
-    '--slurp',
-    `/repos/${repositoryFullName}/issues/${pullRequest.number}/comments?per_page=100`
-  ], repositoryRoot);
-  if (result.status !== 0) {
-    return {
-      candidates: null,
-      reason: `comment inventory failed: ${decodeBranchLifecycleChildError(result)}`
-    };
-  }
   try {
+    const pages: unknown[] = [];
+    for (let page = 1; page <= 100; page += 1) {
+      const value = await executeGitHubApiOperation(github, { kind: 'issue-comments', issueNumber: pullRequest.number, page });
+      if (!Array.isArray(value)) throw new Error('GitHub issue comments response must be an array');
+      pages.push(value);
+      if (value.length < 100) break;
+    }
     return {
       candidates: parseRestCloseoutReceiptCommentCandidates(
-        decodeBranchLifecycleChildStdout(result),
+        JSON.stringify(pages),
         pullRequest.number
       ),
       reason: null
@@ -498,26 +472,21 @@ function loadCloseoutReceiptCommentCandidates(
   }
 }
 
-function bindCloseoutReceiptObservations(
-  scope: Readonly<{ repositoryRoot: string }>,
-  repositoryRoot: string,
+async function bindCloseoutReceiptObservations(
+  git: GitReadSession,
+  github: GitHubApiCapability,
   repositoryFullName: string,
   pullRequests: BranchPullRequestObservation[]
-): BranchPullRequestObservation[] {
-  const ctx: InventoryRuntime = scope;
+): Promise<BranchPullRequestObservation[]> {
   const permissionCache = new Map<
     string,
     { permission: CollaboratorPermission; reason: string | null }
   >();
-  return pullRequests.map((pullRequest) => {
-    const requirement = closeoutReceiptRequirement(
-      ctx,
-      repositoryRoot,
-      repositoryFullName,
-      pullRequest
-    );
+  const observations: BranchPullRequestObservation[] = [];
+  for (const pullRequest of pullRequests) {
+    const requirement = await closeoutReceiptRequirement(git, github, pullRequest);
     if (requirement !== 'required') {
-      return {
+      observations.push({
         ...pullRequest,
         publishedCloseoutReceipts: [],
         invalidCloseoutReceiptComments: [],
@@ -526,17 +495,13 @@ function bindCloseoutReceiptObservations(
           pullRequest,
           requirement
         })
-      };
+      });
+      continue;
     }
 
-    const commentInventory = loadCloseoutReceiptCommentCandidates(
-      ctx,
-      repositoryRoot,
-      repositoryFullName,
-      pullRequest
-    );
+    const commentInventory = await loadCloseoutReceiptCommentCandidates(github, pullRequest);
     if (commentInventory.candidates === null) {
-      return {
+      observations.push({
         ...pullRequest,
         publishedCloseoutReceipts: [],
         invalidCloseoutReceiptComments: [],
@@ -546,26 +511,21 @@ function bindCloseoutReceiptObservations(
           receipt: null,
           reason: commentInventory.reason
         }
-      };
+      });
+      continue;
     }
 
     const trustedBodies: string[] = [];
     const permissionFailures: string[] = [];
     for (const candidate of commentInventory.candidates) {
-      const permission = collaboratorPermission(
-        ctx,
-        repositoryRoot,
-        repositoryFullName,
-        candidate.author,
-        permissionCache
-      );
+      const permission = await collaboratorPermission(github, candidate.author, permissionCache);
       if (permission.permission === 'trusted') trustedBodies.push(candidate.body);
       else if (permission.permission === 'unknown') {
         permissionFailures.push(permission.reason ?? `permission for ${candidate.author} is unknown`);
       }
     }
     if (permissionFailures.length > 0) {
-      return {
+      observations.push({
         ...pullRequest,
         publishedCloseoutReceipts: [],
         invalidCloseoutReceiptComments: [],
@@ -575,7 +535,8 @@ function bindCloseoutReceiptObservations(
           receipt: null,
           reason: [...new Set(permissionFailures)].sort().join(' | ')
         }
-      };
+      });
+      continue;
     }
 
     const parsed = parsePublishedBranchCloseoutReceiptComments(trustedBodies);
@@ -585,42 +546,92 @@ function bindCloseoutReceiptObservations(
       publishedCloseoutReceipts: parsed.receipts,
       invalidCloseoutReceiptComments: parsed.invalid
     };
-    return {
+    observations.push({
       ...enriched,
       closeoutReceipt: resolveBranchCloseoutReceiptObservation({
         repository: repositoryFullName,
         pullRequest: enriched,
         requirement
       })
-    };
-  });
+    });
+  }
+  return observations;
 }
 
-function listPullRequests(
-  ctx: InventoryRuntime,
-  repositoryRoot: string,
+function parseRestPullRequestObservation(
+  value: unknown,
+  repositoryFullName: string,
+  index: number
+): BranchPullRequestObservation {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new Error(`PR observation ${index} must be an object.`);
+  }
+  const record = value as Record<string, unknown>;
+  const number = record.number;
+  const head = record.head;
+  const base = record.base;
+  if (typeof number !== 'number' || !Number.isSafeInteger(number) || number <= 0
+      || !head || typeof head !== 'object' || Array.isArray(head)
+      || !base || typeof base !== 'object' || Array.isArray(base)) {
+    throw new Error(`PR observation ${index} has invalid identity.`);
+  }
+  const headRecord = head as Record<string, unknown>;
+  const baseRecord = base as Record<string, unknown>;
+  const headBranch = headRecord.ref;
+  const headSha = headRecord.sha;
+  const baseBranch = baseRecord.ref;
+  const baseSha = baseRecord.sha;
+  if (typeof headBranch !== 'string' || typeof headSha !== 'string'
+      || typeof baseBranch !== 'string' || typeof baseSha !== 'string') {
+    throw new Error(`PR #${number} branch/commit identity is invalid.`);
+  }
+  assertGitBranchName(headBranch, `PR #${number} head branch`);
+  assertGitBranchName(baseBranch, `PR #${number} base branch`);
+  assertGitSha(headSha, `PR #${number} head SHA`);
+  assertGitSha(baseSha, `PR #${number} base SHA`);
+  const headRepository = headRecord.repo;
+  const headFullName = headRepository && typeof headRepository === 'object' && !Array.isArray(headRepository)
+    ? (headRepository as Record<string, unknown>).full_name
+    : null;
+  const state = record.merged_at !== null && record.merged_at !== undefined
+    ? 'merged' as const
+    : record.state === 'open' ? 'open' as const : 'closed' as const;
+  return {
+    number,
+    headBranch,
+    headSha,
+    baseBranch,
+    baseSha,
+    state,
+    isDraft: record.draft === true,
+    isCrossRepository: typeof headFullName === 'string' ? headFullName !== repositoryFullName : true,
+    url: typeof record.html_url === 'string' ? record.html_url : null,
+    closeoutReceiptCommentCandidates: [],
+    publishedCloseoutReceipts: [],
+    invalidCloseoutReceiptComments: []
+  };
+}
+
+async function listPullRequests(
+  git: GitReadSession,
+  github: GitHubApiCapability,
   repositoryFullName: string,
   physicalBranchIdentities: readonly Readonly<{ branch: string; headSha: string }>[],
   unknowns: string[]
-): BranchPullRequestObservation[] {
-  const result = runInventoryCommand(ctx, 'gh', [
-    'pr',
-    'list',
-    '--repo',
-    repositoryFullName,
-    '--state',
-    'all',
-    '--limit',
-    '1000',
-    '--json',
-    'number,headRefName,headRefOid,baseRefName,baseRefOid,state,isDraft,isCrossRepository,url'
-  ], repositoryRoot);
-  if (result.status !== 0) {
-    unknowns.push(`PR inventory failed: ${decodeBranchLifecycleChildError(result)}`);
-    return [];
-  }
+): Promise<BranchPullRequestObservation[]> {
   try {
-    const observations = parsePullRequestObservations(decodeBranchLifecycleChildStdout(result));
+    const raw: unknown[] = [];
+    for (const kind of ['open-pulls-page', 'merged-pulls'] as const) {
+      for (let page = 1; page <= 10; page += 1) {
+        const value = await executeGitHubApiOperation(github, { kind, page });
+        if (!Array.isArray(value)) throw new Error(`${kind} response must be an array`);
+        raw.push(...value);
+        if (value.length < 100) break;
+      }
+    }
+    const observations = raw.map((value, index) =>
+      parseRestPullRequestObservation(value, repositoryFullName, index)
+    );
     if (observations.length >= 1000) {
       unknowns.push('PR inventory reached its bounded 1000-item limit');
     }
@@ -628,9 +639,9 @@ function listPullRequests(
       observations,
       physicalBranchIdentities
     );
-    return bindCloseoutReceiptObservations(
-      ctx,
-      repositoryRoot,
+    return await bindCloseoutReceiptObservations(
+      git,
+      github,
       repositoryFullName,
       relevant
     );
@@ -701,45 +712,41 @@ function bindActiveWorkPackageObservation(
   };
 }
 
-function resolveRepositorySetting(
-  ctx: InventoryRuntime,
-  repositoryRoot: string,
-  repositoryFullName: string
-): BranchRepositorySettingObservation {
-  const result = runInventoryCommand(ctx, 'gh', [
-    'api',
-    `/repos/${repositoryFullName}`,
-    '--jq',
-    '.delete_branch_on_merge'
-  ], repositoryRoot);
-  if (result.status !== 0) {
+async function resolveRepositorySetting(
+  github: GitHubApiCapability
+): Promise<BranchRepositorySettingObservation> {
+  let value: unknown;
+  try {
+    value = await executeGitHubApiOperation(github, { kind: 'repository' });
+  } catch (error) {
     return {
       observation: 'unknown',
       deleteBranchOnMerge: null,
-      reason: decodeBranchLifecycleChildError(result)
+      reason: error instanceof Error ? error.message : String(error)
     };
   }
-  const value = decodeBranchLifecycleChildStdout(result);
-  if (value !== 'true' && value !== 'false') {
+  const setting = value && typeof value === 'object' && !Array.isArray(value)
+    ? (value as Record<string, unknown>).delete_branch_on_merge
+    : null;
+  if (typeof setting !== 'boolean') {
     return {
       observation: 'unknown',
       deleteBranchOnMerge: null,
-      reason: `unexpected setting value: ${value}`
+      reason: 'repository delete_branch_on_merge setting is invalid'
     };
   }
   return {
     observation: 'resolved',
-    deleteBranchOnMerge: value === 'true',
+    deleteBranchOnMerge: setting,
     reason: null
   };
 }
 
-function readBooleanConfig(
-  ctx: InventoryRuntime,
-  repositoryRoot: string,
+async function readBooleanConfig(
+  git: GitReadSession,
   key: string
-): boolean | null {
-  const result = runInventoryCommand(ctx, 'git', ['config', '--local', '--bool', '--get', key], repositoryRoot);
+): Promise<boolean | null> {
+  const result = await runInventoryGit(git, ['config', '--local', '--bool', '--get', key]);
   if (result.status !== 0) return null;
   const value = decodeBranchLifecycleChildStdout(result).toLowerCase();
   if (value === 'true') return true;
@@ -747,16 +754,15 @@ function readBooleanConfig(
   return null;
 }
 
-function resolvePruneConfiguration(
-  ctx: InventoryRuntime,
-  repositoryRoot: string,
+async function resolvePruneConfiguration(
+  git: GitReadSession,
   remote: string
-): BranchPruneConfigurationObservation {
+): Promise<BranchPruneConfigurationObservation> {
   return {
     observation: 'resolved',
-    fetchPrune: readBooleanConfig(ctx, repositoryRoot, 'fetch.prune'),
-    remotePrune: readBooleanConfig(ctx, repositoryRoot, `remote.${remote}.prune`),
-    fetchPruneTags: readBooleanConfig(ctx, repositoryRoot, 'fetch.pruneTags'),
+    fetchPrune: await readBooleanConfig(git, 'fetch.prune'),
+    remotePrune: await readBooleanConfig(git, `remote.${remote}.prune`),
+    fetchPruneTags: await readBooleanConfig(git, 'fetch.pruneTags'),
     reason: null
   };
 }
@@ -766,9 +772,9 @@ function resolvePruneConfiguration(
  * the authenticated exact PR; this owner independently re-observes mutable
  * local and remote Git facts without scanning unrelated PRs or worktree files.
  */
-export function collectBranchLifecycleCloseoutTargetInventory(
+export async function collectBranchLifecycleCloseoutTargetInventory(
   input: Readonly<BranchLifecycleCloseoutTargetScope>
-): BranchLifecycleInventory {
+): Promise<BranchLifecycleInventory> {
   assertGitBranchName(input.targetBranch, 'closeout target branch');
   if (!Number.isSafeInteger(input.pullRequestNumber) || input.pullRequestNumber < 1) {
     throw new Error('closeout target pull request number must be a positive safe integer');
@@ -777,23 +783,31 @@ export function collectBranchLifecycleCloseoutTargetInventory(
     ? undefined
     : requireActiveWorkPackageOwnerObservation(input.activeWorkPackageObservation);
   const ctx: InventoryRuntime = { ...input, activeWorkPackageObservation };
-  const unknowns: string[] = [];
-  const repositoryRoot = resolveRepositoryRoot(ctx);
-  const commonDir = resolveCommonDir(ctx, repositoryRoot);
-  const remote = ctx.remote ?? DEFAULT_REMOTE;
-  assertGitBranchName(remote, 'remote name');
-  const remoteUrl = resolveRemoteUrl(ctx, repositoryRoot, remote);
-  const fullName = resolveRepositoryFullName(ctx, repositoryRoot, remoteUrl, unknowns);
-  const defaultBranch = resolveDefaultBranch(ctx, repositoryRoot, remote, unknowns);
-  const preparedRepository = input.preparedInventory.repository;
-  if (preparedRepository.root !== repositoryRoot
-    || preparedRepository.commonDir !== commonDir
-    || preparedRepository.fullName !== fullName
-    || preparedRepository.remote !== remote
-    || preparedRepository.remoteUrl !== remoteUrl
-    || preparedRepository.defaultBranch !== defaultBranch) {
-    throw new Error('target-scoped closeout repository identity differs from preparation');
-  }
+  return await withAuthorityGitReadSession({
+    cwd: path.resolve(input.repositoryRoot),
+    budget: GIT_READ_OPERATION_BUDGET
+  }, async (git) => {
+    const unknowns: string[] = [];
+    const repositoryRoot = await resolveRepositoryRoot(git);
+    const commonDir = await resolveCommonDir(git, repositoryRoot);
+    const remote = ctx.remote ?? DEFAULT_REMOTE;
+    assertGitBranchName(remote, 'remote name');
+    const remoteUrl = await resolveRemoteUrl(git, remote);
+    const fullName = resolveRepositoryFullName(ctx, remoteUrl, unknowns);
+    if (fullName.startsWith('<unknown>')) {
+      throw new Error('target-scoped closeout requires one resolved GitHub repository identity');
+    }
+    return await withGitHubApiReadSession({ repositoryRoot, repository: fullName, operation: async (github) => {
+      const defaultBranch = await resolveDefaultBranch(ctx, git, github, remote, unknowns);
+      const preparedRepository = input.preparedInventory.repository;
+      if (preparedRepository.root !== repositoryRoot
+        || preparedRepository.commonDir !== commonDir
+        || preparedRepository.fullName !== fullName
+        || preparedRepository.remote !== remote
+        || preparedRepository.remoteUrl !== remoteUrl
+        || preparedRepository.defaultBranch !== defaultBranch) {
+        throw new Error('target-scoped closeout repository identity differs from preparation');
+      }
 
   const exactPullRequest = structuredClone(input.exactPullRequest);
   if (exactPullRequest.number !== input.pullRequestNumber
@@ -810,72 +824,79 @@ export function collectBranchLifecycleCloseoutTargetInventory(
   assertGitSha(exactPullRequest.headSha, 'authenticated exact PR head');
   assertGitSha(exactPullRequest.baseSha, 'authenticated exact PR base');
   const branches = [...new Set([defaultBranch, input.targetBranch])];
-  let localBranches: BranchRefObservation[] = [];
-  let remoteBranches: BranchRefObservation[] = [];
-  try {
-    localBranches = listTargetLocalBranches(ctx, repositoryRoot, branches);
-  } catch (error) {
-    unknowns.push(error instanceof Error ? error.message : String(error));
-  }
-  try {
-    remoteBranches = listTargetRemoteBranches(ctx, repositoryRoot, remote, branches);
-  } catch (error) {
-    unknowns.push(error instanceof Error ? error.message : String(error));
-  }
-  const worktrees = listCloseoutTargetWorktrees(ctx, repositoryRoot, input.targetBranch, unknowns);
+      let localBranches: BranchRefObservation[] = [];
+      let remoteBranches: BranchRefObservation[] = [];
+      try {
+        localBranches = await listTargetLocalBranches(git, branches);
+      } catch (error) {
+        unknowns.push(error instanceof Error ? error.message : String(error));
+      }
+      try {
+        remoteBranches = await listTargetRemoteBranches(github, branches);
+      } catch (error) {
+        unknowns.push(error instanceof Error ? error.message : String(error));
+      }
+      const worktrees = await listCloseoutTargetWorktrees(git, input.targetBranch, unknowns);
   const remoteDefaultSha = remoteBranches.find(({ branch }) => branch === defaultBranch)?.sha ?? null;
   const activeWorkPackage = bindActiveWorkPackageObservation(
     ctx.activeWorkPackageObservation, fullName, defaultBranch, remoteDefaultSha, unknowns
   );
-  return {
-    schema: BRANCH_LIFECYCLE_INVENTORY_SCHEMA,
-    observedAt: new Date().toISOString(),
-    repository: { root: repositoryRoot, commonDir, fullName, remote, remoteUrl, defaultBranch },
-    main: {
-      localSha: localBranches.find(({ branch }) => branch === defaultBranch)?.sha ?? null,
-      remoteSha: remoteDefaultSha
-    },
-    localBranches,
-    remoteBranches,
-    worktrees,
-    pullRequests: [exactPullRequest],
-    activeWorkPackage,
-    repositorySetting: structuredClone(input.preparedInventory.repositorySetting),
-    pruneConfiguration: structuredClone(input.preparedInventory.pruneConfiguration),
-    unknowns: [...new Set(unknowns)].sort((left, right) => left.localeCompare(right))
-  };
+      return {
+        schema: BRANCH_LIFECYCLE_INVENTORY_SCHEMA,
+        observedAt: new Date().toISOString(),
+        repository: { root: repositoryRoot, commonDir, fullName, remote, remoteUrl, defaultBranch },
+        main: {
+          localSha: localBranches.find(({ branch }) => branch === defaultBranch)?.sha ?? null,
+          remoteSha: remoteDefaultSha
+        },
+        localBranches,
+        remoteBranches,
+        worktrees,
+        pullRequests: [exactPullRequest],
+        activeWorkPackage,
+        repositorySetting: structuredClone(input.preparedInventory.repositorySetting),
+        pruneConfiguration: structuredClone(input.preparedInventory.pruneConfiguration),
+        unknowns: [...new Set(unknowns)].sort((left, right) => left.localeCompare(right))
+      };
+    }});
+  });
 }
 
-export function collectBranchLifecycleInventory(
+export async function collectBranchLifecycleInventory(
   input: Readonly<BranchLifecycleInventoryScope>
-): BranchLifecycleInventory {
+): Promise<BranchLifecycleInventory> {
   const activeWorkPackageObservation = input.activeWorkPackageObservation === undefined
     ? undefined
     : requireActiveWorkPackageOwnerObservation(input.activeWorkPackageObservation);
   const ctx: InventoryRuntime = { ...input, activeWorkPackageObservation };
-  const unknowns: string[] = [];
-  const repositoryRoot = resolveRepositoryRoot(ctx);
-  const commonDir = resolveCommonDir(ctx, repositoryRoot);
-  const remote = ctx.remote ?? DEFAULT_REMOTE;
-  assertGitBranchName(remote, 'remote name');
-  const remoteUrl = resolveRemoteUrl(ctx, repositoryRoot, remote);
-  const fullName = resolveRepositoryFullName(ctx, repositoryRoot, remoteUrl, unknowns);
-  const defaultBranch = resolveDefaultBranch(ctx, repositoryRoot, remote, unknowns);
+  return await withAuthorityGitReadSession({
+    cwd: path.resolve(input.repositoryRoot),
+    budget: GIT_READ_OPERATION_BUDGET
+  }, async (git) => {
+    const unknowns: string[] = [];
+    const repositoryRoot = await resolveRepositoryRoot(git);
+    const commonDir = await resolveCommonDir(git, repositoryRoot);
+    const remote = ctx.remote ?? DEFAULT_REMOTE;
+    assertGitBranchName(remote, 'remote name');
+    const remoteUrl = await resolveRemoteUrl(git, remote);
+    const fullName = resolveRepositoryFullName(ctx, remoteUrl, unknowns);
+    const collect = async (github: GitHubApiCapability | null): Promise<BranchLifecycleInventory> => {
+      const defaultBranch = await resolveDefaultBranch(ctx, git, github, remote, unknowns);
 
   let localBranches: BranchRefObservation[] = [];
   let remoteBranches: BranchRefObservation[] = [];
   try {
-    localBranches = listLocalBranches(ctx, repositoryRoot);
+    localBranches = await listLocalBranches(git);
   } catch (error) {
     unknowns.push(error instanceof Error ? error.message : String(error));
   }
   try {
-    remoteBranches = listRemoteBranches(ctx, repositoryRoot, remote);
+    remoteBranches = github === null ? [] : await listRemoteBranches(github);
   } catch (error) {
     unknowns.push(error instanceof Error ? error.message : String(error));
   }
 
-  const worktrees = listWorktrees(ctx, repositoryRoot, unknowns);
+  const worktrees = await listWorktrees(git, unknowns);
   const physicalBranchIdentities = [
     ...localBranches.map(({ branch, sha }) => ({ branch, headSha: sha })),
     ...remoteBranches.map(({ branch, sha }) => ({ branch, headSha: sha })),
@@ -885,7 +906,7 @@ export function collectBranchLifecycleInventory(
   ];
   const pullRequests = fullName.startsWith('<unknown>')
     ? []
-    : listPullRequests(ctx, repositoryRoot, fullName, physicalBranchIdentities, unknowns);
+    : await listPullRequests(git, github!, fullName, physicalBranchIdentities, unknowns);
   const activeWorkPackage = bindActiveWorkPackageObservation(
     ctx.activeWorkPackageObservation,
     fullName,
@@ -899,8 +920,8 @@ export function collectBranchLifecycleInventory(
         deleteBranchOnMerge: null,
         reason: 'repository full name unresolved'
       }
-    : resolveRepositorySetting(ctx, repositoryRoot, fullName);
-  const pruneConfiguration = resolvePruneConfiguration(ctx, repositoryRoot, remote);
+    : await resolveRepositorySetting(github!);
+  const pruneConfiguration = await resolvePruneConfiguration(git, remote);
 
   return {
     schema: BRANCH_LIFECYCLE_INVENTORY_SCHEMA,
@@ -926,4 +947,9 @@ export function collectBranchLifecycleInventory(
     pruneConfiguration,
     unknowns: [...new Set(unknowns)].sort((left, right) => left.localeCompare(right))
   };
+    };
+    return fullName.startsWith('<unknown>')
+      ? await collect(null)
+      : await withGitHubApiReadSession({ repositoryRoot, repository: fullName, operation: collect });
+  });
 }

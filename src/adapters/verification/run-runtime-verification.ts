@@ -8,7 +8,7 @@ import { relativePosixPath } from '../../contracts/relative-path.ts';
 import { defaultLogger } from '../diagnostics/json-logger.ts';
 import { listFilesRecursive } from '../filesystem/discovery.ts';
 import { writeText } from "../filesystem/files.ts";
-import { buildIsolatedProcessEnvironment, ensureIsolatedProcessDirectories, runCommand } from '../runtime-state/physical/runtime/process.ts';
+import { buildIsolatedProcessEnvironment, ensureIsolatedProcessDirectories, type CommandResult, type RunCommandOptions } from '../runtime-state/physical/runtime/process.ts';
 import {
   dependencyAuthorityPaths,
   ensureProjectDependencies,
@@ -21,11 +21,18 @@ import {
 } from './assert-isolated-staging-tree.ts';
 import {
   withSemanticMutationIsolatedPhaseTelemetry,
-  type SemanticMutationIsolatedPhase
-} from './isolation/isolated-verification-phase-telemetry.ts';
+  type IsolatedPhase
+} from './semantic-mutation/isolated/phase-telemetry.ts';
 import { RUNTIME_VERIFICATION_INVOCATION_CONTRACT } from './runtime-verification-invocation-contract.ts';
+import { runRuntimeUnitProcess } from './runtime-unit-process.ts';
 
 type RuntimeVerificationMode = 'service' | 'full';
+
+type RuntimeVerificationCommandRunner = (
+  command: string,
+  args: string[],
+  options: RunCommandOptions
+) => Promise<CommandResult>;
 
 export interface IsolatedRuntimeDependencySources {
   readonly compilerModulesRoot: string;
@@ -85,7 +92,7 @@ export function resolveIsolatedRuntimeDependencySources(): Readonly<IsolatedRunt
 
 type RuntimeVerificationOptions = {
   beforeCommit?: CommitFence;
-  commandRunnerForTests?: typeof runCommand;
+  commandRunnerForTests?: RuntimeVerificationCommandRunner;
   emitTiming?: boolean;
   isolated?: boolean;
   signal?: AbortSignal;
@@ -162,7 +169,7 @@ export async function runRuntimeVerification(
     throw new Error('Isolated runtime verification requires its staging workspace root');
   }
   const withPhase = async <T>(
-    phase: SemanticMutationIsolatedPhase,
+    phase: IsolatedPhase,
     execute: () => Promise<T>
   ): Promise<T> => isolated
     ? withSemanticMutationIsolatedPhaseTelemetry(options.stagingWorkspaceRoot!, phase, execute)
@@ -229,13 +236,23 @@ export async function runRuntimeVerification(
   try {
     const invocation = runtimeVerificationInvocation(workspaceRoot, isolated, isolatedConfigPath);
     const executeRuntimeUnit = () => timed('runtime unit', options.emitTiming ?? true, () =>
-      (options.commandRunnerForTests ?? runCommand)(invocation.command, invocation.args, {
-        beforeSpawn: isolated ? options.beforeCommit : undefined,
-        cwd: workspaceRoot,
-        env: environment,
-        signal: options.signal,
-        ...(isolated ? { envMode: 'replace' as const } : {})
-      })
+      options.commandRunnerForTests === undefined
+        ? runRuntimeUnitProcess({
+            workspaceRoot,
+            command: invocation.command,
+            args: invocation.args,
+            environment,
+            isolated,
+            beforeCommit: options.beforeCommit,
+            signal: options.signal
+          })
+        : options.commandRunnerForTests(invocation.command, invocation.args, {
+            beforeSpawn: isolated ? options.beforeCommit : undefined,
+            cwd: workspaceRoot,
+            env: environment,
+            signal: options.signal,
+            ...(isolated ? { envMode: 'replace' as const } : {})
+          })
     );
     const result = isolated
       ? await executeRuntimeUnit()

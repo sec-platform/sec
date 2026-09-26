@@ -1,5 +1,8 @@
-import { spawnSync } from 'node:child_process';
-
+import {
+  executeGitHubApiOperation,
+  withGitHubApiReadSession,
+  type GitHubApiCapability
+} from '../../../providers/github-api/operation-session.ts';
 import { encodeVerificationActionData } from '../../../verification/platform/action/contract/action.ts';
 import { CI_GITHUB_ACTIONS_IDENTITY_POLICY } from '../../../verification/platform/action/contract/provider.ts';
 import {
@@ -14,10 +17,6 @@ import {
   branchLifecycleDigest
 } from './branch-lifecycle-audit.ts';
 import {
-  decodeBranchLifecycleChildError,
-  decodeBranchLifecycleChildStdout
-} from './branch-lifecycle-command.ts';
-import {
   BRANCH_CLOSEOUT_PUBLISHED_RECEIPT_SCHEMA,
   type BranchCloseoutAttempt,
   type BranchCloseoutDisposition,
@@ -27,30 +26,6 @@ import {
   type BranchPublishedCloseoutReceipt,
   type BranchPullRequestObservation
 } from './branch-lifecycle-types.ts';
-
-const COMMAND_TIMEOUT_MS = 60_000;
-const COMMAND_MAX_BUFFER = 32 * 1024 * 1024;
-
-function runCloseoutObservationGh(repositoryRoot: string, args: readonly string[]) {
-  if (args.some((arg) => arg.includes('\0'))) {
-    throw new Error('Closeout observation argument contains NUL.');
-  }
-  const result = spawnSync('gh', [...args], {
-    cwd: repositoryRoot,
-    encoding: 'buffer',
-    windowsHide: true,
-    timeout: COMMAND_TIMEOUT_MS,
-    maxBuffer: COMMAND_MAX_BUFFER,
-    env: { ...process.env, GH_PROMPT_DISABLED: '1', GIT_TERMINAL_PROMPT: '0' }
-  });
-  return {
-    status: result.status,
-    stdout: Buffer.isBuffer(result.stdout) ? result.stdout : Buffer.from(String(result.stdout ?? '')),
-    stderr: Buffer.isBuffer(result.stderr)
-      ? result.stderr
-      : Buffer.from(String(result.stderr ?? result.error?.message ?? ''))
-  };
-}
 
 export const BRANCH_CLOSEOUT_ENFORCEMENT_MARKER_PATH =
   'src/adapters/self-hosting/control/branch-lifecycle/branch-closeout-receipt.ts' as const;
@@ -72,7 +47,7 @@ const HOSTED_WORKFLOW_COMMENT_PROVENANCE_SCHEMA =
 export interface HostedWorkflowCommentProvenance {
   schema: typeof HOSTED_WORKFLOW_COMMENT_PROVENANCE_SCHEMA;
   repositoryId: string;
-  workflowPath: '.github/workflows/sec-merge-gate.yml';
+  workflowPath: '.github/workflows/merge-gate.yml';
   workflowRef: string;
   workflowSha: string;
   runId: string;
@@ -281,7 +256,7 @@ export function createHostedWorkflowCommentProvenance(input: Omit<
     throw new Error('Hosted comment repository/run identities must be positive decimal strings.');
   }
   assertGitSha(input.workflowSha, 'hosted comment workflow SHA');
-  if (input.workflowPath !== '.github/workflows/sec-merge-gate.yml'
+  if (input.workflowPath !== '.github/workflows/merge-gate.yml'
     || input.workflowRef !== `${input.workflowPath}@${input.workflowSha}`
     || input.eventName !== 'workflow_run') {
     throw new Error('Hosted comment workflow provenance is not the canonical merge workflow exact ref.');
@@ -315,7 +290,7 @@ export function parseHostedWorkflowCommentProvenance(
   assertExactKeys(value.app, ['id', 'nodeId', 'slug'], 'Hosted workflow comment app');
   const provenance = createHostedWorkflowCommentProvenance({
     repositoryId: boundedIdentity(value.repositoryId, 'Hosted comment repositoryId'),
-    workflowPath: value.workflowPath as '.github/workflows/sec-merge-gate.yml',
+    workflowPath: value.workflowPath as '.github/workflows/merge-gate.yml',
     workflowRef: boundedIdentity(value.workflowRef, 'Hosted comment workflowRef'),
     workflowSha: boundedIdentity(value.workflowSha, 'Hosted comment workflowSha'),
     runId: boundedIdentity(value.runId, 'Hosted comment runId'),
@@ -957,60 +932,56 @@ export function issueCommentRecord(value: unknown, label: string): IssueCommentR
   };
 }
 
-function issueCommentRecords(source: string): IssueCommentRecord[] {
-  const parsed: unknown = JSON.parse(source);
-  if (!Array.isArray(parsed)) throw new Error('GitHub issue comments response must be an array.');
-  if (!parsed.every(Array.isArray)) {
-    throw new Error('GitHub issue comments inventory must be the complete --paginate --slurp page set.');
-  }
-  const comments: unknown[] = parsed.flat();
-  return comments.map((value, index) => issueCommentRecord(value, `GitHub issue comment ${index}`));
+function issueCommentRecordsPage(value: unknown, label: string): IssueCommentRecord[] {
+  if (!Array.isArray(value)) throw new Error(`${label} must be an array.`);
+  return value.map((entry, index) => issueCommentRecord(entry, `${label} comment ${index}`));
 }
 
-function collaboratorCanPublishReceipt(
-  repositoryRoot: string,
-  repository: string,
+async function collaboratorCanPublishReceipt(
+  capability: GitHubApiCapability,
   author: string
-): { trusted: boolean; reason: string | null } {
-  const result = runCloseoutObservationGh(repositoryRoot, [
-    'api',
-    `/repos/${repository}/collaborators/${author}/permission`,
-    '--jq',
-    '.role_name // .permission'
-  ]);
-  if (result.status !== 0) {
+): Promise<{ trusted: boolean; reason: string | null }> {
+  try {
+    const value = await executeGitHubApiOperation(capability, {
+      kind: 'collaborator-permission', login: author
+    });
+    assertRecord(value, `collaborator permission for ${author}`);
+    const rawRole = value.role_name ?? value.permission;
+    const role = typeof rawRole === 'string' ? rawRole.toLowerCase() : '';
+    return {
+      trusted: role === 'admin' || role === 'maintain',
+      reason: role === 'admin' || role === 'maintain'
+        ? null
+        : `collaborator ${author} has insufficient role ${role || '<missing>'}`
+    };
+  } catch (error) {
     return {
       trusted: false,
-      reason: `collaborator permission for ${author} failed: ${decodeBranchLifecycleChildError(result)}`
+      reason: `collaborator permission for ${author} failed: ${error instanceof Error ? error.message : String(error)}`
     };
   }
-  const role = decodeBranchLifecycleChildStdout(result).toLowerCase();
-  return {
-    trusted: role === 'admin' || role === 'maintain',
-    reason: role === 'admin' || role === 'maintain'
-      ? null
-      : `collaborator ${author} has insufficient role ${role}`
-  };
 }
 
-export function listIssueComments(
-  repositoryRoot: string,
-  endpoint: string
-): { comments: IssueCommentRecord[] | null; detail: string | null } {
-  const result = runCloseoutObservationGh(repositoryRoot, [
-    'api',
-    '--paginate',
-    '--slurp',
-    `${endpoint}?per_page=100`
-  ]);
-  if (result.status !== 0) {
-    return { comments: null, detail: decodeBranchLifecycleChildError(result) };
-  }
+/**
+ * Complete issue-comment inventory through the active canonical GitHub read
+ * capability. Pagination remains fail-closed: provider request/byte budgets
+ * bound the inventory instead of silently truncating it.
+ */
+export async function listIssueComments(
+  capability: GitHubApiCapability,
+  issueNumber: number
+): Promise<{ comments: IssueCommentRecord[] | null; detail: string | null }> {
+  const comments: IssueCommentRecord[] = [];
   try {
-    return {
-      comments: issueCommentRecords(decodeBranchLifecycleChildStdout(result)),
-      detail: null
-    };
+    for (let page = 1; ; page += 1) {
+      const value = await executeGitHubApiOperation(capability, {
+        kind: 'issue-comments', issueNumber, page
+      });
+      const current = issueCommentRecordsPage(value, `GitHub issue comments page ${page}`);
+      comments.push(...current);
+      if (current.length < 100) break;
+    }
+    return { comments, detail: null };
   } catch (error) {
     return {
       comments: null,
@@ -1028,33 +999,34 @@ export function hostedPublisherMatches(comment: IssueCommentRecord): boolean {
     && comment.app.slug === CI_GITHUB_ACTIONS_IDENTITY_POLICY.app.slug);
 }
 
-function jsonApi(repositoryRoot: string, endpoint: string, label: string): Record<string, unknown> {
-  const result = runCloseoutObservationGh(repositoryRoot, ['api', endpoint]);
-  if (result.status !== 0) {
-    throw new Error(`${label} failed: ${decodeBranchLifecycleChildError(result)}`);
-  }
-  const value: unknown = JSON.parse(decodeBranchLifecycleChildStdout(result));
+async function githubApiRecord(
+  capability: GitHubApiCapability,
+  operation: Parameters<typeof executeGitHubApiOperation>[1],
+  label: string
+): Promise<Record<string, unknown>> {
+  const value = await executeGitHubApiOperation(capability, operation);
   assertRecord(value, label);
   return value;
 }
 
-export function assertHostedCommentProvenanceLive(
-  repositoryRoot: string,
+export async function assertHostedCommentProvenanceLiveWithCapability(
+  capability: GitHubApiCapability,
   repository: string,
   comment: IssueCommentRecord,
   provenance: HostedWorkflowCommentProvenance
-): void {
+): Promise<void> {
   if (!hostedPublisherMatches(comment)) {
     throw new Error(`comment ${comment.id} was not performed by the canonical GitHub Actions app`);
   }
-  const repo = jsonApi(repositoryRoot, `/repos/${repository}`, 'hosted comment repository readback');
+  const repo = await githubApiRecord(capability, { kind: 'repository' },
+    'hosted comment repository readback');
   if (String(repo.id ?? '') !== provenance.repositoryId || repo.full_name !== repository
     || repo.default_branch !== 'main') {
     throw new Error('hosted comment repository identity drifted');
   }
-  const run = jsonApi(repositoryRoot,
-    `/repos/${repository}/actions/runs/${provenance.runId}/attempts/${provenance.runAttempt}`,
-    'hosted comment workflow run attempt readback');
+  const run = await githubApiRecord(capability, {
+    kind: 'workflow-run-attempt', runId: provenance.runId, runAttempt: provenance.runAttempt
+  }, 'hosted comment workflow run attempt readback');
   assertRecord(run.actor, 'hosted comment workflow actor');
   assertRecord(run.repository, 'hosted comment workflow repository');
   if (String(run.id ?? '') !== provenance.runId || run.run_attempt !== provenance.runAttempt
@@ -1063,9 +1035,10 @@ export function assertHostedCommentProvenanceLive(
     || String(run.repository.id ?? '') !== provenance.repositoryId) {
     throw new Error('hosted comment workflow run provenance drifted');
   }
-  const source = jsonApi(repositoryRoot,
-    `/repos/${repository}/actions/runs/${provenance.sourceRunId}/attempts/${provenance.sourceRunAttempt}`,
-    'hosted comment source workflow run attempt readback');
+  const source = await githubApiRecord(capability, {
+    kind: 'workflow-run-attempt', runId: provenance.sourceRunId,
+    runAttempt: provenance.sourceRunAttempt
+  }, 'hosted comment source workflow run attempt readback');
   assertRecord(source.triggering_actor, 'hosted comment source triggering actor');
   if (String(source.id ?? '') !== provenance.sourceRunId
     || source.run_attempt !== provenance.sourceRunAttempt
@@ -1076,19 +1049,38 @@ export function assertHostedCommentProvenanceLive(
     || source.triggering_actor?.node_id !== provenance.actorNodeId) {
     throw new Error('hosted comment source workflow provenance drifted');
   }
-  const permission = collaboratorCanPublishReceipt(repositoryRoot, repository, provenance.actorLogin);
-  if (!permission.trusted) throw new Error(permission.reason ?? 'hosted comment actor permission is not trusted');
+  const permission = await collaboratorCanPublishReceipt(capability, provenance.actorLogin);
+  if (!permission.trusted) {
+    throw new Error(permission.reason ?? 'hosted comment actor permission is not trusted');
+  }
 }
 
-function effectStartPublicationsInComments(
+export async function assertHostedCommentProvenanceLive(
   repositoryRoot: string,
+  repository: string,
+  comment: IssueCommentRecord,
+  provenance: HostedWorkflowCommentProvenance
+): Promise<void> {
+  await withGitHubApiReadSession({
+    repositoryRoot,
+    repository,
+    operation: async (capability) => {
+      await assertHostedCommentProvenanceLiveWithCapability(
+        capability, repository, comment, provenance
+      );
+    }
+  });
+}
+
+async function effectStartPublicationsInComments(
+  capability: GitHubApiCapability,
   repository: string,
   pullRequestNumber: number,
   comments: readonly IssueCommentRecord[]
-): readonly Readonly<{
+): Promise<readonly Readonly<{
   publication: BranchCloseoutEffectStartPublication;
   commentId: number;
-}>[] {
+}>[]> {
   const publications: Array<{
     publication: BranchCloseoutEffectStartPublication;
     commentId: number;
@@ -1106,7 +1098,7 @@ function effectStartPublicationsInComments(
     } catch (error) {
       throw new Error(`Closeout effect start comment ${comment.id} is invalid: ${error instanceof Error ? error.message : String(error)}`);
     }
-    assertHostedCommentProvenanceLive(repositoryRoot, repository, comment, publication.provenance);
+    await assertHostedCommentProvenanceLiveWithCapability(capability, repository, comment, publication.provenance);
     if (publication.binding.repository !== repository
       || publication.binding.pullRequestNumber !== pullRequestNumber) {
       throw new Error(`Closeout effect start comment ${comment.id} targets a different PR.`);
@@ -1168,26 +1160,31 @@ export function assertBranchCloseoutEffectStartMatches(input: {
   }
 }
 
-export function observeBranchCloseoutEffectStartPublication(
+export async function observeBranchCloseoutEffectStartPublication(
   repositoryRoot: string,
   input: { repository: string; pullRequestNumber: number; closeoutOperationId: `sha256:${string}` }
-): Readonly<{
+): Promise<Readonly<{
   publication: BranchCloseoutEffectStartPublication;
   commentId: number;
-}> | null {
-  const endpoint = `/repos/${input.repository}/issues/${input.pullRequestNumber}/comments`;
-  const inventory = listIssueComments(repositoryRoot, endpoint);
-  if (inventory.comments === null) {
-    throw new Error(`Closeout effect start inventory failed: ${inventory.detail}`);
-  }
-  const matching = effectStartPublicationsInComments(repositoryRoot, input.repository,
-    input.pullRequestNumber, inventory.comments).filter(({ publication }) => (
-      publication.closeoutOperationId === input.closeoutOperationId
-    ));
-  if (matching.length > 1) {
-    throw new Error('Duplicate closeout effect start markers exist for one operation.');
-  }
-  return matching[0] ?? null;
+}> | null> {
+  return await withGitHubApiReadSession({
+    repositoryRoot,
+    repository: input.repository,
+    operation: async (capability) => {
+      const inventory = await listIssueComments(capability, input.pullRequestNumber);
+      if (inventory.comments === null) {
+        throw new Error(`Closeout effect start inventory failed: ${inventory.detail}`);
+      }
+      const matching = (await effectStartPublicationsInComments(capability, input.repository,
+        input.pullRequestNumber, inventory.comments)).filter(({ publication }) => (
+        publication.closeoutOperationId === input.closeoutOperationId
+      ));
+      if (matching.length > 1) {
+        throw new Error('Duplicate closeout effect start markers exist for one operation.');
+      }
+      return matching[0] ?? null;
+    }
+  });
 }
 
 const OPERATION_COMMENT_JSON_PREFIX =
@@ -1380,16 +1377,16 @@ export function parseBranchCloseoutOperationPublicationComment(
   return publication;
 }
 
-function assertEffectStartReferenceInComments(
-  repositoryRoot: string,
+async function assertEffectStartReferenceInComments(
+  capability: GitHubApiCapability,
   repository: string,
   comments: readonly IssueCommentRecord[],
   terminal: BranchCloseoutOperationPublication
-): void {
-  const matching = effectStartPublicationsInComments(repositoryRoot, repository,
-    terminal.binding.pullRequestNumber, comments).filter(({ publication }) => (
-      publication.closeoutOperationId === terminal.closeoutOperationId
-    ));
+): Promise<void> {
+  const matching = (await effectStartPublicationsInComments(capability, repository,
+    terminal.binding.pullRequestNumber, comments)).filter(({ publication }) => (
+    publication.closeoutOperationId === terminal.closeoutOperationId
+  ));
   if (matching.length !== 1) {
     throw new Error('Terminal closeout publication requires exactly one App-authenticated effect start marker.');
   }
@@ -1403,47 +1400,52 @@ function assertEffectStartReferenceInComments(
   }
 }
 
-export function observeBranchCloseoutOperationPublication(
+export async function observeBranchCloseoutOperationPublication(
   repositoryRoot: string,
   input: { repository: string; pullRequestNumber: number; closeoutOperationId: `sha256:${string}` }
-): Readonly<{ publication: BranchCloseoutOperationPublication; commentId: number }> | null {
-  const endpoint = `/repos/${input.repository}/issues/${input.pullRequestNumber}/comments`;
-  const inventory = listIssueComments(repositoryRoot, endpoint);
-  if (inventory.comments === null) {
-    throw new Error(`Closeout publication inventory failed: ${inventory.detail}`);
-  }
-  const matching: Array<{ publication: BranchCloseoutOperationPublication; commentId: number }> = [];
-  for (const comment of inventory.comments) {
-    if (!comment.body.includes(BRANCH_CLOSEOUT_OPERATION_RECEIPT_COMMENT_MARKER)) continue;
-    if (!hostedPublisherMatches(comment)) {
-      throw new Error(`Closeout publication comment ${comment.id} has the wrong publisher provenance.`);
+): Promise<Readonly<{ publication: BranchCloseoutOperationPublication; commentId: number }> | null> {
+  return await withGitHubApiReadSession({
+    repositoryRoot,
+    repository: input.repository,
+    operation: async (capability) => {
+      const inventory = await listIssueComments(capability, input.pullRequestNumber);
+      if (inventory.comments === null) {
+        throw new Error(`Closeout publication inventory failed: ${inventory.detail}`);
+      }
+      const matching: Array<{ publication: BranchCloseoutOperationPublication; commentId: number }> = [];
+      for (const comment of inventory.comments) {
+        if (!comment.body.includes(BRANCH_CLOSEOUT_OPERATION_RECEIPT_COMMENT_MARKER)) continue;
+        if (!hostedPublisherMatches(comment)) {
+          throw new Error(`Closeout publication comment ${comment.id} has the wrong publisher provenance.`);
+        }
+        let publication: BranchCloseoutOperationPublication;
+        try {
+          const parsed = parseBranchCloseoutOperationPublicationComment(comment.body);
+          if (parsed === null) throw new Error('closeout marker did not parse');
+          publication = parsed;
+        } catch (error) {
+          throw new Error(`Closeout publication comment ${comment.id} is invalid: ${error instanceof Error ? error.message : String(error)}`);
+        }
+        await assertHostedCommentProvenanceLiveWithCapability(
+          capability,
+          input.repository,
+          comment,
+          publication.provenance
+        );
+        if (publication.receipt.repository !== input.repository
+          || publication.receipt.pullRequest !== input.pullRequestNumber) {
+          throw new Error(`Closeout publication comment ${comment.id} targets a different PR.`);
+        }
+        if (publication.closeoutOperationId === input.closeoutOperationId) {
+          matching.push({ publication, commentId: comment.id });
+        }
+      }
+      if (matching.length > 1) throw new Error('Duplicate comments exist for one closeout operation.');
+      if (matching[0] !== undefined) {
+        await assertEffectStartReferenceInComments(capability, input.repository, inventory.comments,
+          matching[0].publication);
+      }
+      return matching[0] === undefined ? null : Object.freeze(matching[0]);
     }
-    let publication: BranchCloseoutOperationPublication;
-    try {
-      const parsed = parseBranchCloseoutOperationPublicationComment(comment.body);
-      if (parsed === null) throw new Error('closeout marker did not parse');
-      publication = parsed;
-    } catch (error) {
-      throw new Error(`Closeout publication comment ${comment.id} is invalid: ${error instanceof Error ? error.message : String(error)}`);
-    }
-    assertHostedCommentProvenanceLive(
-      repositoryRoot,
-      input.repository,
-      comment,
-      publication.provenance
-    );
-    if (publication.receipt.repository !== input.repository
-      || publication.receipt.pullRequest !== input.pullRequestNumber) {
-      throw new Error(`Closeout publication comment ${comment.id} targets a different PR.`);
-    }
-    if (publication.closeoutOperationId === input.closeoutOperationId) {
-      matching.push({ publication, commentId: comment.id });
-    }
-  }
-  if (matching.length > 1) throw new Error('Duplicate comments exist for one closeout operation.');
-  if (matching[0] !== undefined) {
-    assertEffectStartReferenceInComments(repositoryRoot, input.repository, inventory.comments,
-      matching[0].publication);
-  }
-  return matching[0] === undefined ? null : Object.freeze(matching[0]);
+  });
 }

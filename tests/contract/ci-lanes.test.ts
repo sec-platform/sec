@@ -5,10 +5,10 @@ import {
 } from '../../src/adapters/self-hosting/control/documentation/active.ts';
 
 import { buildCiContract } from '../../src/adapters/verification/platform/ci/contract/core.ts';
-import { bindDocumentationVerificationGateInput, buildCiFullGatePlan, buildCiQuickGatePlan, CodexDevelopmentBuildVerificationPlan as buildVerificationPlanWithProvider, CodexDevelopmentCanonicalChangedFiles, type CodexDevelopmentVerificationPlanProfile } from '../../src/adapters/verification/platform/ci/contract/plan.ts';
+import { bindDocumentationVerificationGateInput, buildCiFullGatePlan, buildCiQuickGatePlan, BuildVerificationPlan as buildVerificationPlanWithProvider, CanonicalChangedFiles, type VerificationPlanProfile } from '../../src/adapters/verification/platform/ci/contract/plan.ts';
 import {
-  CodexDevelopmentChangedFilesFromRecords,
-  CodexDevelopmentCreateNotRunGate
+  ChangedFilesFromRecords,
+  CreateNotRunGate
 } from '../../src/adapters/verification/platform/ci/runtime/ci-orchestration-core.ts';
 import { compileTestBudgetProjection, getSlowTestSuitesSync as getSnapshotSlowTestSuites, slowTestSuiteIds, slowTestPrRiskBaselineSuiteIds as snapshotBaselineSuiteIds } from '../../src/adapters/verification/platform/test-impact/contract/budget.ts';
 import { parseGitChangedFileOutput } from '../../src/adapters/verification/platform/test-impact/runtime/transition.ts';
@@ -33,8 +33,8 @@ const testImpactProvider = () => {
 };
 afterAll(() => testImpactFixture?.dispose());
 const testBudgetProjection = async () => compileTestBudgetProjection((await testImpactProvider()).testInventory);
-const CodexDevelopmentBuildVerificationPlan = async (
-  profile: CodexDevelopmentVerificationPlanProfile,
+const BuildVerificationPlan = async (
+  profile: VerificationPlanProfile,
   files: readonly string[] | null
 ) => buildVerificationPlanWithProvider(profile, files, await testImpactProvider());
 const slowTestPrRiskBaselineSuiteIds = async () => snapshotBaselineSuiteIds(await testBudgetProjection());
@@ -53,7 +53,7 @@ test('CI verification plans execute canonical affected Quick and ordered Full wo
     includeDocs: false
   })).toEqual([
     { id: 'typecheck', phase: 'quick', args: ['run', 'typecheck:verified'] },
-    { id: 'affected-tests', phase: 'quick', args: ['run', 'test:affected'] }
+    { id: 'affected-tests', phase: 'quick', args: ['run', 'test', '--', '--affected'] }
   ]);
 
   const full = buildCiFullGatePlan();
@@ -70,20 +70,20 @@ test('CI verification plans execute canonical affected Quick and ordered Full wo
 });
 
 test('CI translates owner-issued selection into executable plan gates', async () => {
-  const pipeline = await CodexDevelopmentBuildVerificationPlan('quick', [
+  const pipeline = await BuildVerificationPlan('quick', [
     'src/adapters/compilation/compose/generate-runtime-library.ts'
   ]);
   expect(pipeline.selectionResolved).toBe(true);
   expect(pipeline.selectionReasons).toEqual(['ownership-impact']);
   expect(pipeline.affectedOwners).toContain('adapters.compilation');
 
-  const runtime = await CodexDevelopmentBuildVerificationPlan('quick', [
+  const runtime = await BuildVerificationPlan('quick', [
     'src/adapters/verification/run-runtime-verification.ts'
   ]);
   expect(runtime.selectionResolved).toBe(true);
   expect(runtime.selectionReasons).toEqual(['ownership-impact']);
 
-  const directSlow = await CodexDevelopmentBuildVerificationPlan('quick', [
+  const directSlow = await BuildVerificationPlan('quick', [
     'tests/e2e/dry-run-plan.test.ts'
   ]);
   expect(directSlow).toMatchObject({
@@ -95,7 +95,7 @@ test('CI translates owner-issued selection into executable plan gates', async ()
 }, 180_000);
 
 test('Quick plan resolves the canonical active documentation corpus', async () => {
-  const plan = await CodexDevelopmentBuildVerificationPlan('quick', [...currentActiveDocumentationPaths()]);
+  const plan = await BuildVerificationPlan('quick', [...currentActiveDocumentationPaths()]);
 
   expect(plan.selectionResolved).toBe(true);
   expect(plan.gates.map((gate) => gate.id).filter((id) => !id.startsWith('slow-suite-'))).toEqual([
@@ -107,14 +107,14 @@ test('Quick plan resolves the canonical active documentation corpus', async () =
 
 test('Quick docs gate follows the canonical documentation lifecycle owner', async () => {
   for (const file of currentActiveDocumentationPaths()) {
-    const plan = await CodexDevelopmentBuildVerificationPlan('quick', [file]);
+    const plan = await BuildVerificationPlan('quick', [file]);
     expect(plan.selectionResolved).toBe(true);
     expect(plan.affectedOwners).toContain('adapters.self-hosting.control.documentation');
     expect(plan.affectedOwners).not.toContain('bounded-slow-risk');
     expect(plan.gates.map(({ id }) => id)).toContain('docs-doctor');
   }
 
-  const unknownDocsYaml = await CodexDevelopmentBuildVerificationPlan('quick', [
+  const unknownDocsYaml = await BuildVerificationPlan('quick', [
     'docs/unregistered.manifest.yaml'
   ]);
   expect(unknownDocsYaml.selectionResolved).toBe(false);
@@ -123,7 +123,7 @@ test('Quick docs gate follows the canonical documentation lifecycle owner', asyn
   expect(unknownDocsYaml.gates.filter(({ id }) => id.startsWith('slow-suite-')))
     .toHaveLength((await slowTestPrRiskBaselineSuiteIds()).length);
 
-  const documentationExample = await CodexDevelopmentBuildVerificationPlan('quick', [
+  const documentationExample = await BuildVerificationPlan('quick', [
     'examples/documentation-example.ts'
   ]);
   expect(documentationExample.gates.map(({ id }) => id)).toContain('docs-doctor');
@@ -131,7 +131,7 @@ test('Quick docs gate follows the canonical documentation lifecycle owner', asyn
 });
 
 test('changed-file canonicalization shares the repository path contract', () => {
-  expect(CodexDevelopmentCanonicalChangedFiles([
+  expect(CanonicalChangedFiles([
     'config/repository/current-state.yaml',
     'README.md',
     'README.md'
@@ -151,7 +151,7 @@ test('changed-file canonicalization shares the repository path contract', () => 
     'config/repository/\0state.yaml',
     'docs/e\u0301.md'
   ]) {
-    expect(() => CodexDevelopmentCanonicalChangedFiles([file])).toThrow(
+    expect(() => CanonicalChangedFiles([file])).toThrow(
       'not canonical repository-relative POSIX'
     );
   }
@@ -161,13 +161,13 @@ test('Git raw path identity reaches canonical validation without separator laund
   const raw = new TextEncoder().encode('M\0docs\\work\\current-state.yaml\0');
   const changedFiles = parseGitChangedFileOutput(raw);
   expect(changedFiles).toEqual(['docs\\work\\current-state.yaml']);
-  await expect(CodexDevelopmentBuildVerificationPlan('quick', changedFiles)).rejects.toThrow(
+  await expect(BuildVerificationPlan('quick', changedFiles)).rejects.toThrow(
     'not canonical repository-relative POSIX'
   );
 });
 
 test('Ticket semantic Contract reaches CI through the owner-issued plan boundary', async () => {
-  const selection = await CodexDevelopmentBuildVerificationPlan('quick', [
+  const selection = await BuildVerificationPlan('quick', [
     'catalog/registry/official/ticket.basic/contracts/ticket.yaml'
   ]);
   expect(selection).toMatchObject({
@@ -191,7 +191,7 @@ test('slow suite budget distinguishes state safety from runtime resource pressur
 test('CI changed files derive from one immutable changed-record snapshot', () => {
   const changedPath = 'scripts/fixture-ci.ts';
   const orchestrationPath = 'scripts/codex/fixture-core.ts';
-  expect(CodexDevelopmentChangedFilesFromRecords([
+  expect(ChangedFilesFromRecords([
     { status: 'changed', path: changedPath },
     {
       status: 'renamed',
@@ -207,7 +207,7 @@ test('CI changed files derive from one immutable changed-record snapshot', () =>
 });
 
 test('shared CI orchestration preserves transient not-run observation', () => {
-  expect(CodexDevelopmentCreateNotRunGate({
+  expect(CreateNotRunGate({
     id: 'not-run-sentinel',
     argv: ['bun', 'test', 'sentinel.test.ts']
   })).toEqual({

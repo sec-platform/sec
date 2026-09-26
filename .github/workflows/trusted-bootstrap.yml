@@ -1,0 +1,1078 @@
+name: trusted-bootstrap
+run-name: 'trusted bootstrap PR #${{ github.event.client_payload.pull_request }} @ ${{ github.event.client_payload.expected_head }} base ${{ github.event.client_payload.expected_base }}'
+
+on:
+  repository_dispatch:
+    types:
+      - sec-trusted-bootstrap-v1
+
+permissions:
+  contents: read
+  pull-requests: read
+
+concurrency:
+  group: sec-trusted-bootstrap-${{ github.event.client_payload.pull_request }}
+  cancel-in-progress: true
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
+
+jobs:
+  resolve:
+    runs-on: [self-hosted, Linux, X64, sec-linux-verification-v1, sec-linux-verification-trusted-v1]
+    timeout-minutes: 15
+    outputs:
+      base: ${{ steps.resolve.outputs.base }}
+      base-tree: ${{ steps.resolve.outputs.base-tree }}
+      head: ${{ steps.resolve.outputs.head }}
+      tree: ${{ steps.resolve.outputs.tree }}
+      manifest: ${{ steps.resolve.outputs.manifest }}
+      manifest-digest: ${{ steps.resolve.outputs.manifest-digest }}
+      registry-digest: ${{ steps.resolve.outputs.registry-digest }}
+      bun-version: ${{ steps.resolve.outputs.bun-version }}
+      pull-request: ${{ steps.resolve.outputs.pull-request }}
+    steps:
+      - name: Resolve trusted bootstrap request from current base
+        id: resolve
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        env:
+          PAYLOAD_JSON: ${{ toJSON(github.event.client_payload) }}
+          EVENT_TYPE: sec-trusted-bootstrap-v1
+          WORKFLOW_HEAD: ${{ github.sha }}
+          ACTOR: ${{ github.actor }}
+          TRIGGERING_ACTOR: ${{ github.triggering_actor }}
+        with:
+          script: |
+            const crypto = require('crypto');
+            const payload = JSON.parse(process.env.PAYLOAD_JSON);
+            if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
+              throw new Error('client_payload must be an object.');
+            }
+            const expectedKeys = [
+              'expected_base', 'expected_head', 'manifest_digest', 'manifest_path', 'pull_request', 'schema'
+            ];
+            if (JSON.stringify(Object.keys(payload).sort()) !== JSON.stringify(expectedKeys)) {
+              throw new Error('client_payload keys are invalid.');
+            }
+            if (payload.schema !== 'sec-trusted-bootstrap-request-v1') {
+              throw new Error('client_payload schema is invalid.');
+            }
+            if (!Number.isSafeInteger(payload.pull_request) || payload.pull_request <= 0) {
+              throw new Error('pull_request is invalid.');
+            }
+            for (const key of ['expected_base', 'expected_head']) {
+              if (typeof payload[key] !== 'string' || !/^[0-9a-f]{40}$/.test(payload[key])) {
+                throw new Error(`${key} is invalid.`);
+              }
+            }
+            if (
+              typeof payload.manifest_path !== 'string' ||
+              !/^config\/repository\/work-packages\/[a-z0-9][a-z0-9-]*\.md$/.test(payload.manifest_path)
+            ) throw new Error('manifest_path is invalid.');
+            if (typeof payload.manifest_digest !== 'string' || !/^sha256:[0-9a-f]{64}$/.test(payload.manifest_digest)) {
+              throw new Error('manifest_digest is invalid.');
+            }
+            if (process.env.EVENT_TYPE !== 'sec-trusted-bootstrap-v1') {
+              throw new Error('repository_dispatch type is invalid.');
+            }
+
+            const [repository, pull, actorPermission, triggeringPermission] = await Promise.all([
+              github.rest.repos.get({ owner: context.repo.owner, repo: context.repo.repo }),
+              github.rest.pulls.get({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                pull_number: payload.pull_request
+              }),
+              github.rest.repos.getCollaboratorPermissionLevel({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                username: process.env.ACTOR
+              }),
+              github.rest.repos.getCollaboratorPermissionLevel({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                username: process.env.TRIGGERING_ACTOR
+              })
+            ]);
+            const trusted = (permission) => permission === 'maintain' || permission === 'admin';
+            if (!trusted(actorPermission.data.permission) || !trusted(triggeringPermission.data.permission)) {
+              throw new Error('Trusted bootstrap requires maintain/admin actor and triggering actor.');
+            }
+
+            const livePull = pull.data;
+            const [baseBranch, openPulls, headCommit] = await Promise.all([
+              github.rest.repos.getBranch({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                branch: repository.data.default_branch
+              }),
+              github.paginate(github.rest.pulls.list, {
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                state: 'open',
+                per_page: 100
+              }),
+              github.rest.repos.getCommit({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                ref: payload.expected_head
+              })
+            ]);
+            const currentBase = baseBranch.data.commit.sha;
+            if (
+              process.env.WORKFLOW_HEAD !== currentBase ||
+              currentBase !== payload.expected_base ||
+              livePull.state !== 'open' || livePull.draft ||
+              livePull.base.sha !== currentBase || livePull.head.sha !== payload.expected_head ||
+              livePull.base.repo.id !== repository.data.id || livePull.head.repo?.id !== repository.data.id ||
+              headCommit.data.parents.length !== 1 || headCommit.data.parents[0].sha !== currentBase ||
+              openPulls.filter((candidate) => candidate.head.sha === payload.expected_head).length !== 1
+            ) throw new Error('Trusted bootstrap request is stale or not one open same-repository single-parent PR head.');
+
+            const locatorLines = (livePull.body ?? '').replaceAll('\r\n', '\n').split('\n')
+              .filter((line) => line.startsWith('Work-Package:'));
+            if (locatorLines.length !== 1 || locatorLines[0] !== `Work-Package: ${payload.manifest_path}`) {
+              throw new Error('PR Work-Package locator does not match bootstrap request.');
+            }
+
+            const [headTree, baseTree] = await Promise.all([
+              github.rest.git.getTree({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                tree_sha: headCommit.data.commit.tree.sha,
+                recursive: 'true'
+              }),
+              github.rest.git.getTree({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                tree_sha: baseBranch.data.commit.commit.tree.sha,
+                recursive: 'true'
+              })
+            ]);
+            if (headTree.data.truncated || baseTree.data.truncated) {
+              throw new Error('Trusted bootstrap tree comparison was truncated.');
+            }
+
+            const readBlobFromTree = async (tree, repositoryPath, label) => {
+              const entry = tree.data.tree.find((candidate) => candidate.path === repositoryPath);
+              if (
+                !entry || entry.type !== 'blob' || entry.mode !== '100644' ||
+                typeof entry.sha !== 'string' || !/^[0-9a-f]{40}$/.test(entry.sha)
+              ) throw new Error(`${label} is unavailable or not one ordinary blob.`);
+              const response = await github.rest.git.getBlob({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                file_sha: entry.sha
+              });
+              if (response.data.encoding !== 'base64' || typeof response.data.content !== 'string') {
+                throw new Error(`${label} blob encoding is invalid.`);
+              }
+              return {
+                bytes: Buffer.from(response.data.content.replaceAll('\n', ''), 'base64'),
+                entry
+              };
+            };
+
+            const manifest = await readBlobFromTree(headTree, payload.manifest_path, 'Work Package manifest');
+            const manifestDigest = `sha256:${crypto.createHash('sha256').update(manifest.bytes).digest('hex')}`;
+            if (manifestDigest !== payload.manifest_digest) {
+              throw new Error('Work Package manifest digest is stale.');
+            }
+
+            const registryPath = 'src/adapters/verification/platform/trust/contract/ci-trust-root-registry.json';
+            const registryBlob = await readBlobFromTree(baseTree, registryPath, 'Trusted-base trust-root registry');
+            let registry;
+            try {
+              registry = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(registryBlob.bytes));
+            } catch {
+              throw new Error('Trusted-base trust-root registry is not strict UTF-8 JSON.');
+            }
+            const registryKeys = [
+              'reviewedBoundaryEdges', 'reviewedExternalImports', 'reviewedSutEdges',
+              'runtimeEntrypoints', 'schema',
+              'staticDirectoryPaths', 'staticExactPaths', 'staticPrefixes'
+            ];
+            if (
+              !registry || typeof registry !== 'object' || Array.isArray(registry) ||
+              registry.schema !== 'sec-trusted-bootstrap-registry-v3' ||
+              JSON.stringify(Object.keys(registry).sort()) !== JSON.stringify(registryKeys)
+            ) throw new Error('Trusted-base trust-root registry schema is invalid.');
+            for (const key of [
+              'staticExactPaths', 'staticDirectoryPaths', 'staticPrefixes', 'runtimeEntrypoints',
+              'reviewedSutEdges', 'reviewedBoundaryEdges', 'reviewedExternalImports'
+            ]) {
+              if (!Array.isArray(registry[key]) || registry[key].some((entry) => typeof entry !== 'string')) {
+                throw new Error(`Trusted-base trust-root registry ${key} is invalid.`);
+              }
+            }
+            if (registry.reviewedBoundaryEdges.some((edge) => !/^[^ ]+ -> [^ ]+$/.test(edge))) {
+              throw new Error('Trusted-base reviewedBoundaryEdges do not match the canonical V3 boundary shape.');
+            }
+            const bunVersionBlob = await readBlobFromTree(baseTree, '.bun-version', 'Trusted-base Bun version');
+            const bunVersion = new TextDecoder('utf-8', { fatal: true }).decode(bunVersionBlob.bytes).trim();
+            if (!/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/.test(bunVersion)) {
+              throw new Error('Trusted-base Bun version is invalid.');
+            }
+
+            core.setOutput('base', currentBase);
+            core.setOutput('base-tree', baseBranch.data.commit.commit.tree.sha);
+            core.setOutput('head', payload.expected_head);
+            core.setOutput('tree', headCommit.data.commit.tree.sha);
+            core.setOutput('manifest', payload.manifest_path);
+            core.setOutput('manifest-digest', manifestDigest);
+            core.setOutput('registry-digest', `sha256:${crypto.createHash('sha256').update(registryBlob.bytes).digest('hex')}`);
+            core.setOutput('bun-version', bunVersion);
+            core.setOutput('pull-request', String(payload.pull_request));
+
+  checker-pre:
+    needs: resolve
+    runs-on: [self-hosted, Linux, X64, sec-linux-verification-v1, sec-linux-verification-trusted-v1]
+    timeout-minutes: 30
+    steps:
+      - name: Setup trusted-base Bun runtime
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: ${{ needs.resolve.outputs.bun-version }}
+
+      - name: Checkout exact trusted base checker
+        uses: &checkout_action actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.resolve.outputs.base }}
+          path: trusted-base
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Checkout exact candidate as data
+        uses: *checkout_action
+        with:
+          ref: ${{ needs.resolve.outputs.head }}
+          path: candidate-data
+          fetch-depth: 2
+          persist-credentials: false
+
+      - name: Preflight exact trusted-base checkout
+        shell: bash
+        env:
+          TRUSTED_BASE_ROOT: ${{ github.workspace }}/trusted-base
+          SEC_BOOTSTRAP_BASE: ${{ needs.resolve.outputs.base }}
+          SEC_BOOTSTRAP_BASE_TREE: ${{ needs.resolve.outputs.base-tree }}
+        run: |
+          set -euo pipefail
+          unset GH_TOKEN GITHUB_TOKEN ACTIONS_RUNTIME_TOKEN ACTIONS_ID_TOKEN_REQUEST_TOKEN ACTIONS_ID_TOKEN_REQUEST_URL
+          unset GITHUB_ENV GITHUB_OUTPUT GITHUB_PATH GITHUB_STEP_SUMMARY
+          bun --no-env-file - <<'BUN'
+            const { lstatSync, realpathSync } = require("node:fs");
+            const path = require("node:path");
+            const { spawnSync } = require("node:child_process");
+            const required = (name) => process.env[name] ?? (() => { throw new Error(`missing ${name}`); })();
+            const sha = (name) => {
+              const value = required(name);
+              if (!/^[0-9a-f]{40}$/u.test(value)) throw new Error(`${name} is not one exact SHA.`);
+              return value;
+            };
+            const logicalRoot = required("TRUSTED_BASE_ROOT");
+            if (!path.isAbsolute(logicalRoot) || path.resolve(logicalRoot) !== logicalRoot) {
+              throw new Error("trusted-base logical root is not one absolute canonical path.");
+            }
+            const metadata = lstatSync(logicalRoot);
+            if (!metadata.isDirectory() || metadata.isSymbolicLink()) {
+              throw new Error("trusted-base root is not one ordinary non-symlink directory.");
+            }
+            const physicalRoot = realpathSync.native(logicalRoot);
+            if (physicalRoot !== logicalRoot) {
+              throw new Error("trusted-base logical root is not its exact physical root.");
+            }
+            const gitEnvironment = Object.fromEntries(Object.entries(process.env)
+              .filter(([name]) => !name.startsWith("GIT_")));
+            gitEnvironment.GIT_NO_REPLACE_OBJECTS = "1";
+            const git = (args) => {
+              const result = spawnSync(
+                "git",
+                ["--no-replace-objects", "-C", physicalRoot, ...args],
+                { encoding: null, env: gitEnvironment, windowsHide: true }
+              );
+              if (result.error || result.status !== 0 || !Buffer.isBuffer(result.stdout)) {
+                throw new Error(`workflow-owned trusted-base git ${args.join(" ")} failed.`);
+              }
+              return result.stdout;
+            };
+            const exactText = (args) => git(args).toString("utf8").trim();
+            if (exactText(["rev-parse", "--show-toplevel"]) !== physicalRoot ||
+                exactText(["rev-parse", "--verify", "HEAD^{commit}"]) !== sha("SEC_BOOTSTRAP_BASE") ||
+                exactText(["rev-parse", "--verify", "HEAD^{tree}"]) !== sha("SEC_BOOTSTRAP_BASE_TREE") ||
+                git(["status", "--porcelain=v1", "--untracked-files=all"]).byteLength !== 0) {
+              throw new Error("trusted-base workflow-owned identity, tree, root, or cleanliness preflight failed.");
+            }
+          BUN
+
+      - name: Install trusted-base checker dependencies without lifecycle scripts
+        shell: bash
+        env:
+          TRUSTED_BASE_ROOT: ${{ github.workspace }}/trusted-base
+        run: |
+          set -euo pipefail
+          unset GH_TOKEN GITHUB_TOKEN ACTIONS_RUNTIME_TOKEN ACTIONS_ID_TOKEN_REQUEST_TOKEN ACTIONS_ID_TOKEN_REQUEST_URL
+          unset GITHUB_ENV GITHUB_OUTPUT GITHUB_PATH GITHUB_STEP_SUMMARY
+          cd "$TRUSTED_BASE_ROOT"
+          bun install --frozen-lockfile --ignore-scripts
+
+      - name: Produce trusted-base PRE candidate-root receipt
+        id: regression
+        shell: bash
+        env:
+          TRUSTED_BASE_ROOT: ${{ github.workspace }}/trusted-base
+          CANDIDATE_ROOT: ${{ github.workspace }}/candidate-data
+          BOOTSTRAP_EVIDENCE_ROOT: ${{ runner.temp }}/sec-trusted-bootstrap-pre-${{ github.run_id }}-${{ github.run_attempt }}
+          SEC_BOOTSTRAP_BASE: ${{ needs.resolve.outputs.base }}
+          SEC_BOOTSTRAP_BASE_TREE: ${{ needs.resolve.outputs.base-tree }}
+          SEC_BOOTSTRAP_HEAD: ${{ needs.resolve.outputs.head }}
+          SEC_BOOTSTRAP_TREE: ${{ needs.resolve.outputs.tree }}
+          SEC_BOOTSTRAP_REGISTRY_DIGEST: ${{ needs.resolve.outputs.registry-digest }}
+        run: |
+          set -euo pipefail
+          unset GH_TOKEN GITHUB_TOKEN ACTIONS_RUNTIME_TOKEN ACTIONS_ID_TOKEN_REQUEST_TOKEN ACTIONS_ID_TOKEN_REQUEST_URL
+          unset GITHUB_ENV GITHUB_OUTPUT GITHUB_PATH GITHUB_STEP_SUMMARY
+          TRUSTED_BASE_ROOT="$(realpath "$TRUSTED_BASE_ROOT")"
+          CANDIDATE_ROOT="$(realpath "$CANDIDATE_ROOT")"
+          BOOTSTRAP_EVIDENCE_ROOT="$(realpath -m "$BOOTSTRAP_EVIDENCE_ROOT")"
+          export TRUSTED_BASE_ROOT CANDIDATE_ROOT BOOTSTRAP_EVIDENCE_ROOT
+          out="$BOOTSTRAP_EVIDENCE_ROOT"
+          mkdir -p "$out"
+          cat > "$out/checker.mjs" <<'CHECKER'
+              import { createHash } from "node:crypto";
+              import { readFileSync, writeFileSync } from "node:fs";
+              import path from "node:path";
+              import { pathToFileURL } from "node:url";
+              const required = (name) => {
+                const value = process.env[name];
+                if (!value) throw new Error(`trusted bootstrap checker requires ${name}.`);
+                return value;
+              };
+              const trustedRoot = required("TRUSTED_BASE_ROOT");
+              const candidateRoot = required("CANDIDATE_ROOT");
+              const phase = required("SEC_BOOTSTRAP_PHASE");
+              const receiptPath = required("SEC_BOOTSTRAP_RECEIPT");
+              const expectedBase = required("SEC_BOOTSTRAP_BASE");
+              const expectedBaseTree = required("SEC_BOOTSTRAP_BASE_TREE");
+              const expectedHead = required("SEC_BOOTSTRAP_HEAD");
+              const expectedTree = required("SEC_BOOTSTRAP_TREE");
+              if (phase !== "pre" && phase !== "post") throw new Error("trusted bootstrap checker phase is invalid.");
+              for (const [label, value] of [["base", expectedBase], ["base tree", expectedBaseTree], ["head", expectedHead], ["tree", expectedTree]]) {
+                if (!/^[0-9a-f]{40}$/u.test(value)) throw new Error(`trusted bootstrap checker ${label} is invalid.`);
+              }
+              const importFromTrustedBase = async (repositoryPath) => import(pathToFileURL(
+                path.join(trustedRoot, ...repositoryPath.split("/"))
+              ).href);
+              const tcb = await importFromTrustedBase("src/adapters/verification/platform/trust/runtime/closure-lock.ts");
+              const registryContract = await importFromTrustedBase("src/adapters/verification/platform/trust/contract/root.ts");
+              const gitEnvironment = Object.fromEntries(Object.entries(process.env)
+                .filter(([name]) => !name.startsWith("GIT_")));
+              gitEnvironment.GIT_NO_REPLACE_OBJECTS = "1";
+              const gitBytes = (root, args) => {
+                const result = Bun.spawnSync(
+                  ["git", "--no-replace-objects", "-C", root, ...args],
+                  { stdout: "pipe", stderr: "pipe", env: gitEnvironment }
+                );
+                if (result.exitCode !== 0) {
+                  throw new Error(`trusted bootstrap checker git ${args.join(" ")} failed.`);
+                }
+                return Buffer.from(result.stdout);
+              };
+              const gitText = (root, args) => gitBytes(root, args).toString("utf8").trim();
+              const git = (root, ref) => {
+                const value = gitText(root, ["rev-parse", "--verify", ref]);
+                if (!/^[0-9a-f]{40}$/u.test(value)) {
+                  throw new Error(`trusted bootstrap checker cannot resolve ${ref}.`);
+                }
+                return value;
+              };
+              const clean = (root) => {
+                const result = Bun.spawnSync(
+                  ["git", "--no-replace-objects", "-C", root, "status", "--porcelain=v1"],
+                  { stdout: "pipe", stderr: "pipe", env: gitEnvironment }
+                );
+                return result.exitCode === 0 && result.stdout.byteLength === 0;
+              };
+              const assertExactGitIdentity = () => {
+                if (git(trustedRoot, "HEAD^{commit}") !== expectedBase ||
+                    git(trustedRoot, "HEAD^{tree}") !== expectedBaseTree || !clean(trustedRoot)) {
+                  throw new Error("trusted bootstrap checker base identity is not exact and clean.");
+                }
+                const parents = gitText(candidateRoot, ["rev-list", "--parents", "-n", "1", "HEAD"]).split(/\s+/u);
+                if (git(candidateRoot, "HEAD^{commit}") !== expectedHead ||
+                    git(candidateRoot, "HEAD^{tree}") !== expectedTree ||
+                    parents.length !== 2 || parents[0] !== expectedHead || parents[1] !== expectedBase ||
+                    !clean(candidateRoot)) {
+                  throw new Error("trusted bootstrap candidate identity is not exact, single-parent, and clean.");
+                }
+              };
+              assertExactGitIdentity();
+              const baseSnapshot = tcb.createTcbClosureCandidateSnapshot({ candidateRoot: trustedRoot });
+              const candidateSnapshot = tcb.createTcbClosureCandidateSnapshot({ candidateRoot });
+              const baseSnapshotOptions = { candidateSnapshot: baseSnapshot };
+              const candidateSnapshotOptions = { candidateSnapshot };
+              const changedPaths = gitBytes(candidateRoot, [
+                "diff", "--name-only", "--diff-filter=ACDMRTUXB", "-z", expectedBase, expectedHead
+              ]).toString("utf8").split("\0").filter(Boolean);
+              if (changedPaths.some((repositoryPath) => repositoryPath.includes("\\") ||
+                  repositoryPath.startsWith("/") || path.posix.normalize(repositoryPath) !== repositoryPath ||
+                  repositoryPath.split("/").some((segment) => segment.length === 0 || segment === "." || segment === ".."))) {
+                throw new Error("trusted bootstrap candidate changed-path inventory is not canonical.");
+              }
+              const registryPath = registryContract.TRUSTED_BOOTSTRAP_REGISTRY_PATH;
+              const baseRegistryBytes = tcb.readTcbClosureCandidateFile(registryPath, baseSnapshotOptions);
+              const candidateRegistryBytes = tcb.readTcbClosureCandidateFile(registryPath, candidateSnapshotOptions);
+              const digest = (bytes) => `sha256:${createHash("sha256").update(bytes).digest("hex")}`;
+              const baseRegistryDigest = digest(baseRegistryBytes);
+              const candidateRegistryDigest = digest(candidateRegistryBytes);
+              if (baseRegistryDigest !== required("SEC_BOOTSTRAP_REGISTRY_DIGEST")) {
+                throw new Error("trusted bootstrap checker base registry digest drifted.");
+              }
+              const baseRegistry = registryContract.parseTrustedBootstrapRegistry(baseRegistryBytes.toString("utf8"));
+              let pre = null;
+              if (phase === "post") {
+                if (required("SEC_PRE_DOWNLOAD_OUTCOME") !== "success") {
+                  throw new Error("trusted bootstrap reducer requires the base-owned PRE artifact.");
+                }
+                pre = JSON.parse(readFileSync(path.join(required("BOOTSTRAP_EVIDENCE_ROOT"), "pre-receipt.json"), "utf8"));
+                const { receiptDigest: preReceiptDigest, ...preSemantic } = pre;
+                if (preReceiptDigest !== digest(Buffer.from(JSON.stringify(preSemantic), "utf8")) ||
+                    pre.schema !== "sec-trusted-bootstrap-checker-receipt-v1" || pre.phase !== "pre" ||
+                    pre.checkerBaseSha !== expectedBase || pre.baseTreeSha !== expectedBaseTree ||
+                    pre.candidateHeadSha !== expectedHead || pre.candidateTreeSha !== expectedTree ||
+                    pre.candidateParentSha !== expectedBase || pre.registryDigest !== baseRegistryDigest) {
+                  throw new Error("trusted bootstrap PRE receipt identity or digest is invalid.");
+                }
+              }
+              let checkerAction;
+              let checkerLock;
+              let candidateAction;
+              let baseUndecidablePaths;
+              let authorityVerdict;
+              let authorityReason;
+              if (pre === null) {
+                checkerAction = tcb.compileTcbClosureActionResult({
+                  plan: tcb.createTcbClosureActionPlan({
+                    exactTreeSha: expectedBaseTree,
+                    registryDigest: baseRegistryDigest,
+                    toolchainRevision: `bun@${Bun.version}:typescript`,
+                    providerRevision: "github-actions-trusted-bootstrap-v1"
+                  }),
+                  options: baseSnapshotOptions
+                });
+                checkerLock = checkerAction.identity;
+                const baseTrustRoot = registryContract.createTrustedBootstrapTrustRoot({
+                  registry: baseRegistry,
+                  causalRuntimePaths: checkerLock.modules
+                });
+                const candidateDemand = tcb.selectTcbClosureCandidateAction({
+                  changedPaths,
+                  exactTreeSha: expectedTree,
+                  registryDigest: baseRegistryDigest,
+                  toolchainRevision: `bun@${Bun.version}:typescript`,
+                  providerRevision: "github-actions-trusted-bootstrap-v1",
+                  trustedRegistry: baseRegistry,
+                  checkerResult: checkerAction
+                });
+                baseUndecidablePaths = candidateDemand.impactedPaths;
+                const hardFailureReasons = new Set();
+                const manualReasons = new Set(baseUndecidablePaths.length === 0
+                  ? []
+                  : ["trusted-base-cannot-decide-checker-policy-or-validation-plan-change"]);
+                if (baseUndecidablePaths.length === 0) {
+                  hardFailureReasons.add("trusted-bootstrap-request-does-not-change-trust-root");
+                }
+                try {
+                  registryContract.parseTrustedBootstrapRegistry(Buffer.from(candidateRegistryBytes).toString("utf8"));
+                } catch (error) {
+                  manualReasons.add(`candidate-registry-schema-or-policy-change:${error instanceof Error ? error.message : String(error)}`);
+                }
+                if (candidateRegistryDigest !== baseRegistryDigest) {
+                  manualReasons.add("candidate-registry-differs-from-trusted-base-policy");
+                }
+                candidateAction = null;
+                if (candidateDemand.plan !== null) {
+                  try {
+                    candidateAction = tcb.compileTcbClosureActionResult({
+                      plan: candidateDemand.plan,
+                      options: candidateSnapshotOptions,
+                      upstreamResults: [checkerAction]
+                    });
+                    if (JSON.stringify(candidateAction.identity.modules) !== JSON.stringify(baseTrustRoot.causalRuntimePaths)) {
+                      manualReasons.add("candidate-causal-closure-differs-from-trusted-base-closure");
+                    }
+                  } catch (error) {
+                    hardFailureReasons.add(`candidate-closure-computation-failed:${error instanceof Error ? error.message : String(error)}`);
+                  }
+                }
+                authorityVerdict = hardFailureReasons.size > 0
+                  ? "failed"
+                  : manualReasons.size > 0 ? "manual-bootstrap-required" : "passed";
+                authorityReason = authorityVerdict === "failed"
+                  ? [...hardFailureReasons].sort().join("|")
+                  : authorityVerdict === "manual-bootstrap-required"
+                    ? [...manualReasons].sort().join("|")
+                    : "trusted-base-policy-fully-decided-candidate";
+              } else {
+                checkerAction = {
+                  actionKey: pre.checkerActionKey,
+                  resultDigest: pre.checkerActionResultDigest
+                };
+                checkerLock = { closureDigest: pre.checkerClosureDigest };
+                candidateAction = pre.candidateActionKey === null ? null : {
+                  actionKey: pre.candidateActionKey,
+                  resultDigest: pre.candidateActionResultDigest,
+                  identity: {
+                    closureDigest: pre.candidateClosureDigest,
+                    trustRevision: pre.candidateTrustRevision,
+                    moduleCount: pre.candidateModuleCount
+                  }
+                };
+                baseUndecidablePaths = pre.baseUndecidablePaths;
+                authorityVerdict = pre.authorityVerdict;
+                authorityReason = pre.authorityReason;
+              }
+              const blob = (root, repositoryPath) => git(root, `HEAD:${repositoryPath}`);
+              const exactKeys = (value, expected, label) => {
+                if (!value || typeof value !== "object" || Array.isArray(value) ||
+                    JSON.stringify(Object.keys(value).sort()) !== JSON.stringify([...expected].sort())) {
+                  throw new Error(`${label} fields are unknown or missing.`);
+                }
+              };
+              let sutEvidenceDigest = null;
+              let sutJobResult = null;
+              let sutDiagnosticDigest = null;
+              let auxiliaryStatus = phase === "pre" ? "not-observed" : "unavailable";
+              if (phase === "post") {
+                sutJobResult = required("SEC_SUT_JOB_RESULT");
+                const sutDownloadOutcome = required("SEC_SUT_DOWNLOAD_OUTCOME");
+                let candidateReceiptDigest = null;
+                let auxiliaryReason = "candidate-sut-artifact-unavailable";
+                if (sutDownloadOutcome === "success") {
+                  try {
+                    const sutRoot = required("SUT_EVIDENCE_ROOT");
+                    const evidenceFiles = [
+                      "tcb-lock-pre.json", "imports.log", "docs-doctor.log", "typecheck.log", "diff-check.log",
+                      "focused-tests.log", "repository-audit.json", "affected-plan.json", "affected-tests.log",
+                      "tcb-lock-post.json"
+                    ];
+                    const sumsSource = readFileSync(path.join(sutRoot, "SHA256SUMS"), "utf8");
+                    const expectedLines = evidenceFiles.map((name) => {
+                      const fileDigest = createHash("sha256").update(readFileSync(path.join(sutRoot, name))).digest("hex");
+                      return `${fileDigest}  ${name}`;
+                    });
+                    if (sumsSource !== `${expectedLines.join("\n")}\n`) {
+                      throw new Error("candidate SUT evidence digest inventory is invalid");
+                    }
+                    const sutReceipt = JSON.parse(readFileSync(path.join(sutRoot, "sut-receipt.json"), "utf8"));
+                    exactKeys(sutReceipt, [
+                      "schema", "baseSha", "headSha", "treeSha", "parentSha", "auxiliaryStatus",
+                      "evidenceSetDigest", "bootstrapDigest", "sandboxPolicyDigest", "commandPlanDigest",
+                      "archiveDigest", "archiveInventoryDigest", "executionOutputDigest",
+                      "residueReadbackDigest", "receiptDigest"
+                    ], "trusted bootstrap SUT receipt");
+                    const { receiptDigest: sutReceiptDigest, ...sutSemantic } = sutReceipt;
+                    const digestFields = [
+                      sutReceipt.evidenceSetDigest, sutReceipt.bootstrapDigest, sutReceipt.sandboxPolicyDigest,
+                      sutReceipt.archiveDigest, sutReceipt.archiveInventoryDigest,
+                      sutReceipt.executionOutputDigest, sutReceipt.residueReadbackDigest
+                    ];
+                    if (sutReceipt.schema !== "sec-trusted-bootstrap-sut-receipt-v2" ||
+                        sutReceipt.baseSha !== expectedBase || sutReceipt.headSha !== expectedHead ||
+                        sutReceipt.treeSha !== expectedTree || sutReceipt.parentSha !== expectedBase ||
+                        (sutReceipt.auxiliaryStatus !== "passed" && sutReceipt.auxiliaryStatus !== "failed") ||
+                        digestFields.some((value) => typeof value !== "string" || !/^sha256:[0-9a-f]{64}$/.test(value)) ||
+                        (sutReceipt.commandPlanDigest !== null &&
+                          (typeof sutReceipt.commandPlanDigest !== "string" ||
+                            !/^sha256:[0-9a-f]{64}$/.test(sutReceipt.commandPlanDigest))) ||
+                        (sutReceipt.auxiliaryStatus === "passed" && sutReceipt.commandPlanDigest === null) ||
+                        sutReceipt.evidenceSetDigest !== digest(Buffer.from(sumsSource, "utf8")) ||
+                        sutReceiptDigest !== digest(Buffer.from(JSON.stringify(sutSemantic), "utf8")) ||
+                        (sutReceipt.auxiliaryStatus === "passed") !== (sutJobResult === "success")) {
+                      throw new Error("candidate SUT receipt identity or digest is invalid");
+                    }
+                    auxiliaryStatus = sutReceipt.auxiliaryStatus;
+                    auxiliaryReason = auxiliaryStatus === "passed"
+                      ? "candidate-sut-diagnostics-passed"
+                      : "candidate-sut-diagnostics-failed";
+                    sutEvidenceDigest = sutReceipt.evidenceSetDigest;
+                    candidateReceiptDigest = sutReceiptDigest;
+                  } catch (error) {
+                    auxiliaryStatus = "invalid";
+                    auxiliaryReason = `candidate-sut-artifact-invalid:${error instanceof Error ? error.message : String(error)}`;
+                  }
+                }
+                const sutDiagnostic = {
+                  schema: "sec-trusted-bootstrap-sut-diagnostic-v1",
+                  baseSha: expectedBase,
+                  headSha: expectedHead,
+                  treeSha: expectedTree,
+                  jobResult: sutJobResult,
+                  downloadOutcome: sutDownloadOutcome,
+                  auxiliaryStatus,
+                  auxiliaryReason,
+                  evidenceSetDigest: sutEvidenceDigest,
+                  candidateReceiptDigest
+                };
+                sutDiagnosticDigest = digest(Buffer.from(JSON.stringify(sutDiagnostic), "utf8"));
+                writeFileSync(
+                  path.join(required("FINAL_EVIDENCE_ROOT"), "sut-diagnostic.json"),
+                  `${JSON.stringify({ ...sutDiagnostic, receiptDigest: sutDiagnosticDigest }, null, 2)}\n`,
+                  { encoding: "utf8", flag: "wx" }
+                );
+              }
+              tcb.finalizeTcbClosureCandidateSnapshot(baseSnapshot);
+              tcb.finalizeTcbClosureCandidateSnapshot(candidateSnapshot);
+              assertExactGitIdentity();
+              const semantic = {
+                schema: "sec-trusted-bootstrap-checker-receipt-v1",
+                phase,
+                checkerBaseSha: expectedBase,
+                baseTreeSha: expectedBaseTree,
+                candidateHeadSha: expectedHead,
+                candidateTreeSha: expectedTree,
+                candidateParentSha: expectedBase,
+                registryDigest: baseRegistryDigest,
+                checkerActionKey: checkerAction.actionKey,
+                checkerActionResultDigest: checkerAction.resultDigest,
+                checkerClosureDigest: checkerLock.closureDigest,
+                candidateActionKey: candidateAction?.actionKey ?? null,
+                candidateActionResultDigest: candidateAction?.resultDigest ?? null,
+                candidateClosureDigest: candidateAction?.identity.closureDigest ?? null,
+                candidateTrustRevision: candidateAction?.identity.trustRevision ?? null,
+                candidateModuleCount: candidateAction?.identity.moduleCount ?? null,
+                checkerProgramDigest: digest(readFileSync(import.meta.path)),
+                checkerToolBlob: blob(trustedRoot, "src/adapters/verification/platform/trust/runtime/closure-lock.ts"),
+                checkerWorkflowBlob: blob(trustedRoot, ".github/workflows/trusted-bootstrap.yml"),
+                candidateToolBlob: blob(candidateRoot, "src/adapters/verification/platform/trust/runtime/closure-lock.ts"),
+                candidateWorkflowBlob: blob(candidateRoot, ".github/workflows/trusted-bootstrap.yml"),
+                authorityVerdict,
+                authorityReason,
+                baseUndecidablePaths,
+                auxiliaryStatus,
+                sutEvidenceDigest,
+                sutJobResult,
+                sutDiagnosticDigest
+              };
+              const receiptDigest = digest(Buffer.from(JSON.stringify(semantic), "utf8"));
+              const receipt = { ...semantic, receiptDigest };
+              if (phase === "post") {
+                exactKeys(pre, [...Object.keys(semantic), "receiptDigest"], "trusted bootstrap PRE receipt");
+                const { receiptDigest: preReceiptDigest, ...preSemantic } = pre;
+                if (preReceiptDigest !== digest(Buffer.from(JSON.stringify(preSemantic), "utf8"))) {
+                  throw new Error("trusted bootstrap PRE receipt digest is invalid.");
+                }
+                const stable = ({ phase: _phase, receiptDigest: _digest, auxiliaryStatus: _auxiliaryStatus,
+                  sutEvidenceDigest: _sutDigest, sutJobResult: _sutResult,
+                  sutDiagnosticDigest: _sutDiagnosticDigest, ...value }) => value;
+                if (pre.schema !== receipt.schema || pre.phase !== "pre" ||
+                    JSON.stringify(stable(pre)) !== JSON.stringify(stable(receipt))) {
+                  throw new Error("trusted bootstrap PRE and POST candidate closure receipts differ.");
+                }
+              }
+              writeFileSync(receiptPath, `${JSON.stringify(receipt, null, 2)}\n`, { encoding: "utf8", flag: "wx" });
+          CHECKER
+          SEC_BOOTSTRAP_PHASE=pre SEC_BOOTSTRAP_RECEIPT="$out/pre-receipt.json" bun "$out/checker.mjs"
+          (cd "$out" && sha256sum checker.mjs pre-receipt.json > SHA256SUMS)
+
+      - name: Upload bounded checker PRE artifact
+        uses: &upload_artifact_action actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: sec-trusted-bootstrap-pre-${{ needs.resolve.outputs.head }}-run-${{ github.run_id }}-attempt-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/sec-trusted-bootstrap-pre-${{ github.run_id }}-${{ github.run_attempt }}
+          if-no-files-found: error
+          retention-days: 1
+
+  candidate-sut:
+    needs:
+      - resolve
+      - checker-pre
+    runs-on: [self-hosted, Linux, X64, sec-linux-verification-v1, sec-linux-verification-sut-v1]
+    timeout-minutes: 90
+    steps:
+      - name: Checkout exact trusted base sandbox owner
+        uses: *checkout_action
+        with:
+          ref: ${{ needs.resolve.outputs.base }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Checkout clean exact base SUT input
+        uses: *checkout_action
+        with:
+          ref: ${{ needs.resolve.outputs.base }}
+          path: base-sut
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Checkout exact candidate SUT only
+        uses: *checkout_action
+        with:
+          ref: ${{ needs.resolve.outputs.head }}
+          path: candidate-sut
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Setup trusted-base Bun runtime for candidate SUT
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: ${{ needs.resolve.outputs.bun-version }}
+
+      - name: Restore exact-base dependency download cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: /tmp/sec-hosted-dependency-home/.bun/install/cache
+          key: ${{ runner.os }}-trusted-bootstrap-bun-${{ hashFiles('bun.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-trusted-bootstrap-bun-
+
+      - name: Install exact-base SUT facade dependencies without lifecycle scripts
+        shell: bash
+        run: |
+          set -euo pipefail
+          unset GH_TOKEN GITHUB_TOKEN ACTIONS_RUNTIME_TOKEN ACTIONS_ID_TOKEN_REQUEST_TOKEN ACTIONS_ID_TOKEN_REQUEST_URL
+          unset GITHUB_ENV GITHUB_OUTPUT GITHUB_PATH GITHUB_STEP_SUMMARY
+          test ! -e .npmrc
+          mkdir -p /tmp/sec-hosted-dependency-home /tmp/sec-hosted-dependency-tmp
+          BUN_BIN="$(command -v bun)"
+          env -i \
+            PATH=/usr/bin:/bin \
+            HOME=/tmp/sec-hosted-dependency-home \
+            TMPDIR=/tmp/sec-hosted-dependency-tmp \
+            BUN_INSTALL_CACHE_DIR=/tmp/sec-hosted-dependency-home/.bun/install/cache \
+            LANG=C.UTF-8 \
+            CI=1 \
+            "$BUN_BIN" install --frozen-lockfile --ignore-scripts
+
+      - name: Run candidate SUT through trusted private sandbox
+        shell: bash
+        env:
+          BASE_SUT_ROOT: ${{ github.workspace }}/base-sut
+          CANDIDATE_ROOT: ${{ github.workspace }}/candidate-sut
+          SUT_EVIDENCE_ROOT: ${{ runner.temp }}/sec-trusted-bootstrap-sut-${{ github.run_id }}-${{ github.run_attempt }}
+          SEC_BOOTSTRAP_BASE: ${{ needs.resolve.outputs.base }}
+          SEC_BOOTSTRAP_HEAD: ${{ needs.resolve.outputs.head }}
+          SEC_BOOTSTRAP_TREE: ${{ needs.resolve.outputs.tree }}
+          SEC_CHANGED_BASE: ${{ needs.resolve.outputs.base }}
+          SEC_AFFECTED_TESTS_BASE: ${{ needs.resolve.outputs.base }}
+          SEC_WORK_PACKAGE_MANIFEST_PATH: ${{ needs.resolve.outputs.manifest }}
+          SEC_REPOSITORY_AUDIT_DEFAULT_REF: ${{ needs.resolve.outputs.base }}
+        run: |
+          set -euo pipefail
+          unset GH_TOKEN GITHUB_TOKEN ACTIONS_RUNTIME_TOKEN ACTIONS_ID_TOKEN_REQUEST_TOKEN ACTIONS_ID_TOKEN_REQUEST_URL
+          unset GITHUB_ENV GITHUB_OUTPUT GITHUB_PATH GITHUB_STEP_SUMMARY
+          bun src/adapters/verification/platform/ci/verification.ts execute-trusted-bootstrap-sut \
+            --base-root "$BASE_SUT_ROOT" \
+            --candidate-root "$CANDIDATE_ROOT" \
+            --output-directory "$SUT_EVIDENCE_ROOT" \
+            --base-sha "$SEC_BOOTSTRAP_BASE" \
+            --head-sha "$SEC_BOOTSTRAP_HEAD" \
+            --tree-sha "$SEC_BOOTSTRAP_TREE" \
+            --manifest-path "$SEC_WORK_PACKAGE_MANIFEST_PATH"
+
+      - name: Upload bounded candidate SUT artifact
+        if: always()
+        uses: *upload_artifact_action
+        with:
+          name: sec-trusted-bootstrap-sut-${{ needs.resolve.outputs.head }}-run-${{ github.run_id }}-attempt-${{ github.run_attempt }}
+          path: |
+            ${{ runner.temp }}/sec-trusted-bootstrap-sut-${{ github.run_id }}-${{ github.run_attempt }}/tcb-lock-pre.json
+            ${{ runner.temp }}/sec-trusted-bootstrap-sut-${{ github.run_id }}-${{ github.run_attempt }}/imports.log
+            ${{ runner.temp }}/sec-trusted-bootstrap-sut-${{ github.run_id }}-${{ github.run_attempt }}/docs-doctor.log
+            ${{ runner.temp }}/sec-trusted-bootstrap-sut-${{ github.run_id }}-${{ github.run_attempt }}/typecheck.log
+            ${{ runner.temp }}/sec-trusted-bootstrap-sut-${{ github.run_id }}-${{ github.run_attempt }}/diff-check.log
+            ${{ runner.temp }}/sec-trusted-bootstrap-sut-${{ github.run_id }}-${{ github.run_attempt }}/focused-tests.log
+            ${{ runner.temp }}/sec-trusted-bootstrap-sut-${{ github.run_id }}-${{ github.run_attempt }}/repository-audit.json
+            ${{ runner.temp }}/sec-trusted-bootstrap-sut-${{ github.run_id }}-${{ github.run_attempt }}/affected-plan.json
+            ${{ runner.temp }}/sec-trusted-bootstrap-sut-${{ github.run_id }}-${{ github.run_attempt }}/affected-tests.log
+            ${{ runner.temp }}/sec-trusted-bootstrap-sut-${{ github.run_id }}-${{ github.run_attempt }}/tcb-lock-post.json
+            ${{ runner.temp }}/sec-trusted-bootstrap-sut-${{ github.run_id }}-${{ github.run_attempt }}/SHA256SUMS
+            ${{ runner.temp }}/sec-trusted-bootstrap-sut-${{ github.run_id }}-${{ github.run_attempt }}/sut-receipt.json
+          if-no-files-found: error
+          retention-days: 1
+
+  checker-post:
+    if: ${{ always() && needs.resolve.result == 'success' }}
+    needs:
+      - resolve
+      - checker-pre
+      - candidate-sut
+    runs-on: [self-hosted, Linux, X64, sec-linux-verification-v1, sec-linux-verification-trusted-v1]
+    timeout-minutes: 30
+    steps:
+      - name: Setup trusted-base Bun runtime for reducer
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: ${{ needs.resolve.outputs.bun-version }}
+
+      - name: Initialize fail-closed final evidence envelope
+        shell: bash
+        env:
+          FINAL_EVIDENCE_ROOT: ${{ runner.temp }}/sec-trusted-bootstrap-final-${{ github.run_id }}-${{ github.run_attempt }}
+          SEC_BOOTSTRAP_BASE: ${{ needs.resolve.outputs.base }}
+          SEC_BOOTSTRAP_BASE_TREE: ${{ needs.resolve.outputs.base-tree }}
+          SEC_BOOTSTRAP_HEAD: ${{ needs.resolve.outputs.head }}
+          SEC_BOOTSTRAP_TREE: ${{ needs.resolve.outputs.tree }}
+          SEC_BOOTSTRAP_RUN_ID: ${{ github.run_id }}
+          SEC_BOOTSTRAP_RUN_ATTEMPT: ${{ github.run_attempt }}
+        run: |
+          set -euo pipefail
+          unset GH_TOKEN GITHUB_TOKEN ACTIONS_RUNTIME_TOKEN ACTIONS_ID_TOKEN_REQUEST_TOKEN ACTIONS_ID_TOKEN_REQUEST_URL
+          unset GITHUB_ENV GITHUB_OUTPUT GITHUB_PATH GITHUB_STEP_SUMMARY
+          mkdir -p "$FINAL_EVIDENCE_ROOT"
+          bun --no-env-file - <<'BUN'
+            const { createHash } = require("node:crypto");
+            const { renameSync, writeFileSync } = require("node:fs");
+            const path = require("node:path");
+            const required = (name) => process.env[name] ?? (() => { throw new Error(`missing ${name}`); })();
+            const sha = (name) => {
+              const value = required(name);
+              if (!/^[0-9a-f]{40}$/.test(value)) throw new Error(`${name} is invalid.`);
+              return value;
+            };
+            const positiveInteger = (name) => {
+              const value = required(name);
+              if (!/^[1-9][0-9]{0,19}$/.test(value)) throw new Error(`${name} is invalid.`);
+              return value;
+            };
+            const semantic = {
+              schema: "sec-trusted-bootstrap-final-evidence-v1",
+              baseSha: sha("SEC_BOOTSTRAP_BASE"),
+              baseTreeSha: sha("SEC_BOOTSTRAP_BASE_TREE"),
+              headSha: sha("SEC_BOOTSTRAP_HEAD"),
+              treeSha: sha("SEC_BOOTSTRAP_TREE"),
+              runId: positiveInteger("SEC_BOOTSTRAP_RUN_ID"),
+              runAttempt: positiveInteger("SEC_BOOTSTRAP_RUN_ATTEMPT"),
+              status: "incomplete",
+              reason: "checker-post-not-complete"
+            };
+            const receiptDigest = `sha256:${createHash("sha256").update(JSON.stringify(semantic)).digest("hex")}`;
+            const root = required("FINAL_EVIDENCE_ROOT");
+            const temporary = path.join(root, "final-envelope.json.tmp");
+            writeFileSync(temporary, `${JSON.stringify({ ...semantic, receiptDigest }, null, 2)}\n`, { flag: "wx" });
+            renameSync(temporary, path.join(root, "final-envelope.json"));
+          BUN
+          (cd "$FINAL_EVIDENCE_ROOT" && sha256sum final-envelope.json > SHA256SUMS.tmp && mv SHA256SUMS.tmp SHA256SUMS)
+
+      - name: Checkout exact trusted base reducer
+        uses: *checkout_action
+        with:
+          ref: ${{ needs.resolve.outputs.base }}
+          path: trusted-base
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Checkout exact candidate as POST data
+        uses: *checkout_action
+        with:
+          ref: ${{ needs.resolve.outputs.head }}
+          path: candidate-data
+          fetch-depth: 2
+          persist-credentials: false
+
+      - name: Preflight exact trusted-base checkout
+        shell: bash
+        env:
+          TRUSTED_BASE_ROOT: ${{ github.workspace }}/trusted-base
+          SEC_BOOTSTRAP_BASE: ${{ needs.resolve.outputs.base }}
+          SEC_BOOTSTRAP_BASE_TREE: ${{ needs.resolve.outputs.base-tree }}
+        run: |
+          set -euo pipefail
+          unset GH_TOKEN GITHUB_TOKEN ACTIONS_RUNTIME_TOKEN ACTIONS_ID_TOKEN_REQUEST_TOKEN ACTIONS_ID_TOKEN_REQUEST_URL
+          unset GITHUB_ENV GITHUB_OUTPUT GITHUB_PATH GITHUB_STEP_SUMMARY
+          bun --no-env-file - <<'BUN'
+            const { lstatSync, realpathSync } = require("node:fs");
+            const path = require("node:path");
+            const { spawnSync } = require("node:child_process");
+            const required = (name) => process.env[name] ?? (() => { throw new Error(`missing ${name}`); })();
+            const sha = (name) => {
+              const value = required(name);
+              if (!/^[0-9a-f]{40}$/u.test(value)) throw new Error(`${name} is not one exact SHA.`);
+              return value;
+            };
+            const logicalRoot = required("TRUSTED_BASE_ROOT");
+            if (!path.isAbsolute(logicalRoot) || path.resolve(logicalRoot) !== logicalRoot) {
+              throw new Error("trusted-base logical root is not one absolute canonical path.");
+            }
+            const metadata = lstatSync(logicalRoot);
+            if (!metadata.isDirectory() || metadata.isSymbolicLink()) {
+              throw new Error("trusted-base root is not one ordinary non-symlink directory.");
+            }
+            const physicalRoot = realpathSync.native(logicalRoot);
+            if (physicalRoot !== logicalRoot) {
+              throw new Error("trusted-base logical root is not its exact physical root.");
+            }
+            const gitEnvironment = Object.fromEntries(Object.entries(process.env)
+              .filter(([name]) => !name.startsWith("GIT_")));
+            gitEnvironment.GIT_NO_REPLACE_OBJECTS = "1";
+            const git = (args) => {
+              const result = spawnSync(
+                "git",
+                ["--no-replace-objects", "-C", physicalRoot, ...args],
+                { encoding: null, env: gitEnvironment, windowsHide: true }
+              );
+              if (result.error || result.status !== 0 || !Buffer.isBuffer(result.stdout)) {
+                throw new Error(`workflow-owned trusted-base git ${args.join(" ")} failed.`);
+              }
+              return result.stdout;
+            };
+            const exactText = (args) => git(args).toString("utf8").trim();
+            if (exactText(["rev-parse", "--show-toplevel"]) !== physicalRoot ||
+                exactText(["rev-parse", "--verify", "HEAD^{commit}"]) !== sha("SEC_BOOTSTRAP_BASE") ||
+                exactText(["rev-parse", "--verify", "HEAD^{tree}"]) !== sha("SEC_BOOTSTRAP_BASE_TREE") ||
+                git(["status", "--porcelain=v1", "--untracked-files=all"]).byteLength !== 0) {
+              throw new Error("trusted-base workflow-owned identity, tree, root, or cleanliness preflight failed.");
+            }
+          BUN
+
+      - name: Install trusted-base reducer dependencies without lifecycle scripts
+        shell: bash
+        env:
+          TRUSTED_BASE_ROOT: ${{ github.workspace }}/trusted-base
+        run: |
+          set -euo pipefail
+          unset GH_TOKEN GITHUB_TOKEN ACTIONS_RUNTIME_TOKEN ACTIONS_ID_TOKEN_REQUEST_TOKEN ACTIONS_ID_TOKEN_REQUEST_URL
+          unset GITHUB_ENV GITHUB_OUTPUT GITHUB_PATH GITHUB_STEP_SUMMARY
+          cd "$TRUSTED_BASE_ROOT"
+          bun install --frozen-lockfile --ignore-scripts
+
+      - name: Download bounded checker PRE artifact
+        id: download-pre
+        continue-on-error: true
+        uses: &download_artifact_action actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: sec-trusted-bootstrap-pre-${{ needs.resolve.outputs.head }}-run-${{ github.run_id }}-attempt-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/sec-trusted-bootstrap-pre-${{ github.run_id }}-${{ github.run_attempt }}
+
+      - name: Download bounded candidate SUT artifact
+        id: download-sut
+        continue-on-error: true
+        uses: *download_artifact_action
+        with:
+          name: sec-trusted-bootstrap-sut-${{ needs.resolve.outputs.head }}-run-${{ github.run_id }}-attempt-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/sec-trusted-bootstrap-sut-${{ github.run_id }}-${{ github.run_attempt }}
+
+      - name: Reuse PRE Actions and reduce exact bootstrap evidence
+        shell: bash
+        env:
+          TRUSTED_BASE_ROOT: ${{ github.workspace }}/trusted-base
+          CANDIDATE_ROOT: ${{ github.workspace }}/candidate-data
+          BOOTSTRAP_EVIDENCE_ROOT: ${{ runner.temp }}/sec-trusted-bootstrap-pre-${{ github.run_id }}-${{ github.run_attempt }}
+          SUT_EVIDENCE_ROOT: ${{ runner.temp }}/sec-trusted-bootstrap-sut-${{ github.run_id }}-${{ github.run_attempt }}
+          FINAL_EVIDENCE_ROOT: ${{ runner.temp }}/sec-trusted-bootstrap-final-${{ github.run_id }}-${{ github.run_attempt }}
+          SEC_BOOTSTRAP_BASE: ${{ needs.resolve.outputs.base }}
+          SEC_BOOTSTRAP_BASE_TREE: ${{ needs.resolve.outputs.base-tree }}
+          SEC_BOOTSTRAP_HEAD: ${{ needs.resolve.outputs.head }}
+          SEC_BOOTSTRAP_TREE: ${{ needs.resolve.outputs.tree }}
+          SEC_BOOTSTRAP_RUN_ID: ${{ github.run_id }}
+          SEC_BOOTSTRAP_RUN_ATTEMPT: ${{ github.run_attempt }}
+          SEC_BOOTSTRAP_REGISTRY_DIGEST: ${{ needs.resolve.outputs.registry-digest }}
+          SEC_SUT_JOB_RESULT: ${{ needs.candidate-sut.result }}
+          SEC_PRE_DOWNLOAD_OUTCOME: ${{ steps.download-pre.outcome }}
+          SEC_SUT_DOWNLOAD_OUTCOME: ${{ steps.download-sut.outcome }}
+        run: |
+          set -euo pipefail
+          unset GH_TOKEN GITHUB_TOKEN ACTIONS_RUNTIME_TOKEN ACTIONS_ID_TOKEN_REQUEST_TOKEN ACTIONS_ID_TOKEN_REQUEST_URL
+          unset GITHUB_ENV GITHUB_OUTPUT GITHUB_PATH GITHUB_STEP_SUMMARY
+          TRUSTED_BASE_ROOT="$(realpath "$TRUSTED_BASE_ROOT")"
+          CANDIDATE_ROOT="$(realpath "$CANDIDATE_ROOT")"
+          BOOTSTRAP_EVIDENCE_ROOT="$(realpath "$BOOTSTRAP_EVIDENCE_ROOT")"
+          SUT_EVIDENCE_ROOT="$(realpath "$SUT_EVIDENCE_ROOT")"
+          FINAL_EVIDENCE_ROOT="$(realpath -m "$FINAL_EVIDENCE_ROOT")"
+          export TRUSTED_BASE_ROOT CANDIDATE_ROOT BOOTSTRAP_EVIDENCE_ROOT SUT_EVIDENCE_ROOT FINAL_EVIDENCE_ROOT
+          mkdir -p "$FINAL_EVIDENCE_ROOT"
+          (cd "$BOOTSTRAP_EVIDENCE_ROOT" && sha256sum -c SHA256SUMS)
+          SEC_BOOTSTRAP_PHASE=post SEC_BOOTSTRAP_RECEIPT="$FINAL_EVIDENCE_ROOT/post-receipt.json" bun "$BOOTSTRAP_EVIDENCE_ROOT/checker.mjs"
+          cp "$BOOTSTRAP_EVIDENCE_ROOT/pre-receipt.json" "$FINAL_EVIDENCE_ROOT/pre-receipt.json"
+          {
+            printf 'schema=sec-trusted-bootstrap-environment-v1\n'
+            printf 'base=%s\n' '${{ needs.resolve.outputs.base }}'
+            printf 'baseTree=%s\n' '${{ needs.resolve.outputs.base-tree }}'
+            printf 'head=%s\n' '${{ needs.resolve.outputs.head }}'
+            printf 'tree=%s\n' '${{ needs.resolve.outputs.tree }}'
+            printf 'registryDigest=%s\n' '${{ needs.resolve.outputs.registry-digest }}'
+            printf 'manifestDigest=%s\n' '${{ needs.resolve.outputs.manifest-digest }}'
+            printf 'sutJobResult=%s\n' '${{ needs.candidate-sut.result }}'
+            printf 'bun=%s\n' "$(bun --revision)"
+            printf 'git=%s\n' "$(git --version)"
+            printf 'os=%s\n' "$(uname -a)"
+          } > "$FINAL_EVIDENCE_ROOT/environment.txt"
+          bun --no-env-file - <<'BUN'
+            const { createHash } = require("node:crypto");
+            const { readFileSync, renameSync, writeFileSync } = require("node:fs");
+            const path = require("node:path");
+            const required = (name) => process.env[name] ?? (() => { throw new Error(`missing ${name}`); })();
+            const root = required("FINAL_EVIDENCE_ROOT");
+            const envelopePath = path.join(root, "final-envelope.json");
+            const envelope = JSON.parse(readFileSync(envelopePath, "utf8"));
+            const expectedKeys = [
+              "baseSha", "baseTreeSha", "headSha", "reason", "receiptDigest", "runAttempt",
+              "runId", "schema", "status", "treeSha"
+            ];
+            if (!envelope || typeof envelope !== "object" || Array.isArray(envelope) ||
+                JSON.stringify(Object.keys(envelope).sort()) !== JSON.stringify(expectedKeys)) {
+              throw new Error("fail-closed final evidence envelope fields are invalid.");
+            }
+            const { receiptDigest, ...semantic } = envelope;
+            const digest = (value) => `sha256:${createHash("sha256").update(JSON.stringify(value)).digest("hex")}`;
+            if (receiptDigest !== digest(semantic) ||
+                envelope.schema !== "sec-trusted-bootstrap-final-evidence-v1" ||
+                envelope.baseSha !== required("SEC_BOOTSTRAP_BASE") ||
+                envelope.baseTreeSha !== required("SEC_BOOTSTRAP_BASE_TREE") ||
+                envelope.headSha !== required("SEC_BOOTSTRAP_HEAD") ||
+                envelope.treeSha !== required("SEC_BOOTSTRAP_TREE") ||
+                envelope.runId !== required("SEC_BOOTSTRAP_RUN_ID") ||
+                envelope.runAttempt !== required("SEC_BOOTSTRAP_RUN_ATTEMPT") ||
+                envelope.status !== "incomplete" || envelope.reason !== "checker-post-not-complete") {
+              throw new Error("fail-closed final evidence envelope identity or digest is invalid.");
+            }
+            const postReceipt = JSON.parse(readFileSync(path.join(root, "post-receipt.json"), "utf8"));
+            const { receiptDigest: postReceiptDigest, ...postSemantic } = postReceipt;
+            if (postReceiptDigest !== digest(postSemantic) ||
+                !["passed", "manual-bootstrap-required", "failed"].includes(postReceipt.authorityVerdict) ||
+                !["passed", "failed", "invalid", "unavailable"].includes(postReceipt.auxiliaryStatus)) {
+              throw new Error("base-owned POST authority or auxiliary diagnostic receipt is invalid.");
+            }
+            let status;
+            let reason;
+            if (postReceipt.authorityVerdict === "manual-bootstrap-required") {
+              status = "manual-bootstrap-required";
+              reason = postReceipt.authorityReason;
+            } else if (postReceipt.authorityVerdict === "failed") {
+              status = "failed";
+              reason = postReceipt.authorityReason;
+            } else if (postReceipt.auxiliaryStatus === "passed") {
+              status = "passed";
+              reason = "base-authority-and-candidate-auxiliary-passed";
+            } else if (postReceipt.auxiliaryStatus === "failed") {
+              status = "failed";
+              reason = "candidate-auxiliary-diagnostics-failed";
+            } else {
+              status = "incomplete";
+              reason = "candidate-auxiliary-diagnostics-missing-or-invalid";
+            }
+            const final = { ...semantic, status, reason };
+            const upgraded = { ...final, receiptDigest: digest(final) };
+            const temporary = path.join(root, "final-envelope.json.tmp");
+            writeFileSync(temporary, `${JSON.stringify(upgraded, null, 2)}\n`, { flag: "wx" });
+            renameSync(temporary, envelopePath);
+          BUN
+          (cd "$FINAL_EVIDENCE_ROOT" && \
+            sha256sum environment.txt final-envelope.json post-receipt.json pre-receipt.json sut-diagnostic.json > SHA256SUMS.tmp && \
+            mv SHA256SUMS.tmp SHA256SUMS)
+          test "$(bun --no-env-file -p 'JSON.parse(require("node:fs").readFileSync(process.argv[1], "utf8")).status' "$FINAL_EVIDENCE_ROOT/final-envelope.json")" = passed
+
+      - name: Upload final canonical trusted bootstrap evidence
+        if: always()
+        uses: *upload_artifact_action
+        with:
+          name: sec-trusted-bootstrap-v1-pr-${{ needs.resolve.outputs.pull-request }}-base-${{ needs.resolve.outputs.base }}-head-${{ needs.resolve.outputs.head }}-run-${{ github.run_id }}-attempt-${{ github.run_attempt }}
+          path: |
+            ${{ runner.temp }}/sec-trusted-bootstrap-final-${{ github.run_id }}-${{ github.run_attempt }}/final-envelope.json
+            ${{ runner.temp }}/sec-trusted-bootstrap-final-${{ github.run_id }}-${{ github.run_attempt }}/SHA256SUMS
+            ${{ runner.temp }}/sec-trusted-bootstrap-final-${{ github.run_id }}-${{ github.run_attempt }}/environment.txt
+            ${{ runner.temp }}/sec-trusted-bootstrap-final-${{ github.run_id }}-${{ github.run_attempt }}/post-receipt.json
+            ${{ runner.temp }}/sec-trusted-bootstrap-final-${{ github.run_id }}-${{ github.run_attempt }}/pre-receipt.json
+            ${{ runner.temp }}/sec-trusted-bootstrap-final-${{ github.run_id }}-${{ github.run_attempt }}/sut-diagnostic.json
+          if-no-files-found: error
+          retention-days: 90

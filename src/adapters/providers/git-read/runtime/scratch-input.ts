@@ -1,5 +1,5 @@
 import { snapshotByteView } from '../../../../contracts/byte-snapshot.ts';
-import { CodexDevelopmentIsCanonicalRepositoryPath } from '../../../../contracts/repository-path.ts';
+import { IsCanonicalRepositoryPath } from '../../../../contracts/repository-path.ts';
 
 export type GitScratchIndexTreeDelta = Readonly<{
   readonly additions: readonly Readonly<{
@@ -59,7 +59,7 @@ export function captureGitScratchIndexDelta(
   }
   const seen = new Set<string>();
   const selectPath = (value: unknown): string => {
-    if (!CodexDevelopmentIsCanonicalRepositoryPath(value) || seen.has(value)) {
+    if (!IsCanonicalRepositoryPath(value) || seen.has(value)) {
       throw new TypeError('Git scratch delta path is invalid or repeated');
     }
     // Repository selectors supply the canonical path syntax; index writes also

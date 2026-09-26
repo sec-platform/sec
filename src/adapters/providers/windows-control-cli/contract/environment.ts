@@ -1,18 +1,18 @@
 import { deepFreeze, sha256 } from '../../../../contracts/canonical.ts';
-import source from '../profile/sec-windows-control-cli-v1.json' with { type: 'json' };
+import source from '../profile/default.json' with { type: 'json' };
 
-const SEC_WINDOWS_CONTROL_CLI_ENVIRONMENT_SCHEMA =
+const WINDOWS_CONTROL_CLI_ENVIRONMENT_SCHEMA =
   'sec-windows-control-cli-environment-authority-v2' as const;
-export const SEC_WINDOWS_CONTROL_CLI_ENVIRONMENT_SPEC_PATH =
-  'src/adapters/providers/windows-control-cli/profile/sec-windows-control-cli-v1.json' as const;
-export const SEC_WINDOWS_CONTROL_CLI_PROFILE_ID = 'sec-windows-control-cli-v1' as const;
-export const SEC_WINDOWS_CONTROL_CLI_SESSION_SURFACE =
+export const WINDOWS_CONTROL_CLI_ENVIRONMENT_SPEC_PATH =
+  'src/adapters/providers/windows-control-cli/profile/default.json' as const;
+export const WINDOWS_CONTROL_CLI_PROFILE_ID = 'sec-windows-control-cli-v1' as const;
+export const WINDOWS_CONTROL_CLI_SESSION_SURFACE =
   'windows-control-cli-session' as const;
-const SEC_WINDOWS_CONTROL_CLI_ROOT_CLOSURE_STATUS =
+const WINDOWS_CONTROL_CLI_ROOT_CLOSURE_STATUS =
   'live-adoption-required' as const;
-export const SEC_WINDOWS_CONTROL_CLI_ROOT_CLOSURE_REASON =
+export const WINDOWS_CONTROL_CLI_ROOT_CLOSURE_REASON =
   'installed-executable-capability-unproven' as const;
-const SEC_WINDOWS_CONTROL_CLI_ROOT_CLOSURE_RECEIPT_SCHEMA =
+const WINDOWS_CONTROL_CLI_ROOT_CLOSURE_RECEIPT_SCHEMA =
   'sec-windows-control-cli-installed-adoption-receipt-v1' as const;
 
 type WindowsControlCliExecutableRole = 'launcher' | 'effective';
@@ -40,8 +40,8 @@ type WindowsControlCliExecutableBinding = {
   appLocalModules: WindowsControlCliModuleEntryAuthority[];
 };
 export type WindowsControlCliEnvironmentAuthority = {
-  schema: typeof SEC_WINDOWS_CONTROL_CLI_ENVIRONMENT_SCHEMA;
-  profileId: typeof SEC_WINDOWS_CONTROL_CLI_PROFILE_ID;
+  schema: typeof WINDOWS_CONTROL_CLI_ENVIRONMENT_SCHEMA;
+  profileId: typeof WINDOWS_CONTROL_CLI_PROFILE_ID;
   platform: 'win32';
   architecture: 'x64';
   resourceContract: {
@@ -69,11 +69,11 @@ export type WindowsControlCliEnvironmentAuthority = {
     };
   };
   rootClosure: {
-    status: typeof SEC_WINDOWS_CONTROL_CLI_ROOT_CLOSURE_STATUS;
-    reasonCode: typeof SEC_WINDOWS_CONTROL_CLI_ROOT_CLOSURE_REASON;
+    status: typeof WINDOWS_CONTROL_CLI_ROOT_CLOSURE_STATUS;
+    reasonCode: typeof WINDOWS_CONTROL_CLI_ROOT_CLOSURE_REASON;
     liveAvailability: 'unknown';
     positiveReceiptContract: {
-      schema: typeof SEC_WINDOWS_CONTROL_CLI_ROOT_CLOSURE_RECEIPT_SCHEMA;
+      schema: typeof WINDOWS_CONTROL_CLI_ROOT_CLOSURE_RECEIPT_SCHEMA;
       candidate: 'bounded-untrusted-locator-readback';
       executable: 'retained-exact-bytes-readback';
       loader: 'minimal-app-local-and-system-loader-readback';
@@ -392,8 +392,8 @@ function parseAuthoritySchema(input: unknown): WindowsControlCliEnvironmentAutho
     'authorization', 'persistentExecutableCache'
   ]);
   return {
-    schema: exactLiteral(value.schema, SEC_WINDOWS_CONTROL_CLI_ENVIRONMENT_SCHEMA, 'schema'),
-    profileId: exactLiteral(value.profileId, SEC_WINDOWS_CONTROL_CLI_PROFILE_ID, 'profileId'),
+    schema: exactLiteral(value.schema, WINDOWS_CONTROL_CLI_ENVIRONMENT_SCHEMA, 'schema'),
+    profileId: exactLiteral(value.profileId, WINDOWS_CONTROL_CLI_PROFILE_ID, 'profileId'),
     platform: exactLiteral(value.platform, 'win32', 'platform'),
     architecture: exactLiteral(value.architecture, 'x64', 'architecture'),
     resourceContract: {
@@ -424,11 +424,11 @@ function parseAuthoritySchema(input: unknown): WindowsControlCliEnvironmentAutho
       }
     },
     rootClosure: {
-      status: exactLiteral(rootClosure.status, SEC_WINDOWS_CONTROL_CLI_ROOT_CLOSURE_STATUS, 'rootClosure.status'),
-      reasonCode: exactLiteral(rootClosure.reasonCode, SEC_WINDOWS_CONTROL_CLI_ROOT_CLOSURE_REASON, 'rootClosure.reasonCode'),
+      status: exactLiteral(rootClosure.status, WINDOWS_CONTROL_CLI_ROOT_CLOSURE_STATUS, 'rootClosure.status'),
+      reasonCode: exactLiteral(rootClosure.reasonCode, WINDOWS_CONTROL_CLI_ROOT_CLOSURE_REASON, 'rootClosure.reasonCode'),
       liveAvailability: exactLiteral(rootClosure.liveAvailability, 'unknown', 'rootClosure.liveAvailability'),
       positiveReceiptContract: {
-        schema: exactLiteral(receipt.schema, SEC_WINDOWS_CONTROL_CLI_ROOT_CLOSURE_RECEIPT_SCHEMA, 'rootClosure.positiveReceiptContract.schema'),
+        schema: exactLiteral(receipt.schema, WINDOWS_CONTROL_CLI_ROOT_CLOSURE_RECEIPT_SCHEMA, 'rootClosure.positiveReceiptContract.schema'),
         candidate: exactLiteral(receipt.candidate, 'bounded-untrusted-locator-readback', 'rootClosure.positiveReceiptContract.candidate'),
         executable: exactLiteral(receipt.executable, 'retained-exact-bytes-readback', 'rootClosure.positiveReceiptContract.executable'),
         loader: exactLiteral(receipt.loader, 'minimal-app-local-and-system-loader-readback', 'rootClosure.positiveReceiptContract.loader'),
@@ -442,13 +442,13 @@ function parseAuthoritySchema(input: unknown): WindowsControlCliEnvironmentAutho
   };
 }
 
-export function computeSecWindowsControlCliEnvironmentSpecDigest(
+export function computeWindowsControlCliEnvironmentSpecDigest(
   input: WindowsControlCliEnvironmentAuthority
 ): `sha256:${string}` {
   return sha256(input) as `sha256:${string}`;
 }
 
-export function parseSecWindowsControlCliEnvironmentAuthority(
+export function parseWindowsControlCliEnvironmentAuthority(
   input: unknown
 ): WindowsControlCliEnvironmentSpec {
   const candidate = typeof input === 'object' && input !== null && 'specDigest' in input
@@ -477,7 +477,7 @@ export function parseSecWindowsControlCliEnvironmentAuthority(
   const body = deepFreeze(value);
   return deepFreeze({
     ...body,
-    specDigest: computeSecWindowsControlCliEnvironmentSpecDigest(body)
+    specDigest: computeWindowsControlCliEnvironmentSpecDigest(body)
   });
 }
 
@@ -501,7 +501,7 @@ function projectExecutableBinding(
   });
 }
 
-export function getSecWindowsControlCliExecutableBindingV1(
+export function getWindowsControlCliExecutableBinding(
   spec: WindowsControlCliEnvironmentSpec,
   id: string
 ): WindowsControlCliExecutableBindingProjection | null {
@@ -509,7 +509,7 @@ export function getSecWindowsControlCliExecutableBindingV1(
   return binding === undefined ? null : projectExecutableBinding(binding);
 }
 
-export function projectSecWindowsControlCliEnvironmentV1(
+export function projectWindowsControlCliEnvironment(
   spec: WindowsControlCliEnvironmentSpec
 ): WindowsControlCliEnvironmentProjection {
   return Object.freeze({
@@ -531,7 +531,7 @@ export function projectSecWindowsControlCliEnvironmentV1(
   });
 }
 
-export const SEC_WINDOWS_CONTROL_CLI_ENVIRONMENT_AUTHORITY =
-  parseSecWindowsControlCliEnvironmentAuthority(source);
-export const SEC_WINDOWS_CONTROL_CLI_ENVIRONMENT_SPEC_DIGEST =
-  SEC_WINDOWS_CONTROL_CLI_ENVIRONMENT_AUTHORITY.specDigest;
+export const WINDOWS_CONTROL_CLI_ENVIRONMENT_AUTHORITY =
+  parseWindowsControlCliEnvironmentAuthority(source);
+export const WINDOWS_CONTROL_CLI_ENVIRONMENT_SPEC_DIGEST =
+  WINDOWS_CONTROL_CLI_ENVIRONMENT_AUTHORITY.specDigest;

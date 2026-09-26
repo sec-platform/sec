@@ -7,8 +7,8 @@ import { normalizeSemanticMutationRequest } from '../../compiler/semantic-mutati
 import {
   planSemanticMutation,
   planSemanticMutationWithVerificationPlanningProducer
-} from '../../compiler/semantic-mutation/plan-semantic-mutation.ts';
-import { preflightSemanticMutation } from '../../compiler/semantic-mutation/preflight-semantic-mutation.ts';
+} from '../../compiler/semantic-mutation/plan.ts';
+import { preflightSemanticMutation } from '../../compiler/semantic-mutation/preflight.ts';
 import { buildSemanticMutationVerificationPlanningContext } from '../../compiler/semantic-mutation/verification-policy.ts';
 import type { FactDeltaEndpointContext } from '../../semantics/engineering-ir/delta-types.ts';
 import type { SemanticMutationTransactionInput } from '../../semantics/mutation/transaction.ts';

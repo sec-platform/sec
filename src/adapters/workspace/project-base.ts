@@ -115,11 +115,10 @@ export async function ensureProjectBase(
   await writeJson(packageJsonPath, {
     ...buildRuntimePackageManifest('generated-customer-admin', runtimeDependencySpec),
     scripts: {
-      'test:fast': 'node --test --experimental-test-isolation=none',
+      'test:host': 'node --test --experimental-test-isolation=none',
       'test:unit': 'bun test tests/runtime/unit',
-      'verify:runtime:full': 'bun run test:unit',
-      'verify:runtime': 'bun run verify:runtime:full',
-      test: 'bun run test:fast && bun run test:unit'
+      'verify:runtime': 'bun run test:unit',
+      test: 'bun run test:host && bun run test:unit'
     }
   }, commitFence);
 

@@ -4,26 +4,26 @@ import path from 'node:path';
 import { expect, test } from 'bun:test';
 
 import {
-  compileSecOperationReadPlan,
-  SEC_OPERATION_READ_CLOSURE_REQUEST_SCHEMA,
-  SEC_OPERATION_READ_PLAN_INPUT_SCHEMA,
-  type SecOperationReadPlan,
-  type SecOperationReadPlanInput
+  compileReadPlan,
+  READ_CLOSURE_REQUEST_SCHEMA,
+  READ_PLAN_INPUT_SCHEMA,
+  type ReadPlan,
+  type ReadPlanInput
 } from '../../src/adapters/self-hosting/control/agent/read-plan.ts';
 import {
-  compileSecTaskCapsule,
-  SEC_TASK_CAPSULE_COMPILE_REQUEST_SCHEMA,
-  SEC_TASK_CAPSULE_INPUT_SCHEMA,
-  type SecDigest,
-  type SecTaskCapsulePlanningContext
+  compileTaskCapsule,
+  TASK_CAPSULE_COMPILE_REQUEST_SCHEMA,
+  TASK_CAPSULE_INPUT_SCHEMA,
+  type TaskCapsuleDigest,
+  type TaskCapsulePlanningContext
 } from '../../src/adapters/self-hosting/control/agent/task-capsule.ts';
 
 const REPOSITORY_ROOT = path.resolve(import.meta.dir, '../..');
-const digest = (character: string): SecDigest => `sha256:${character.repeat(64)}`;
+const digest = (character: string): TaskCapsuleDigest => `sha256:${character.repeat(64)}`;
 
-function capsule(planningContext: SecTaskCapsulePlanningContext): SecOperationReadPlanInput['taskCapsule'] {
-  return compileSecTaskCapsule({
-    schema: SEC_TASK_CAPSULE_INPUT_SCHEMA,
+function capsule(planningContext: TaskCapsulePlanningContext): ReadPlanInput['taskCapsule'] {
+  return compileTaskCapsule({
+    schema: TASK_CAPSULE_INPUT_SCHEMA,
     ref: 'urn:sec:task-capsule:issue-346-contract',
     planningContext
   });
@@ -39,10 +39,10 @@ function gitHead(): string {
   return result.stdout.trim();
 }
 
-function input(): SecOperationReadPlanInput {
+function input(): ReadPlanInput {
   const head = gitHead();
   return {
-    schema: SEC_OPERATION_READ_PLAN_INPUT_SCHEMA,
+    schema: READ_PLAN_INPUT_SCHEMA,
     taskCapsule: capsule({
       operationId: 'issue-346-contract',
       role: 'worker',
@@ -73,7 +73,7 @@ function input(): SecOperationReadPlanInput {
         revision: 'v1',
         reasonCode: 'public-contract-change'
       }],
-      skillCandidateIds: ['sec-worker-development']
+      skillCandidateIds: ['worker-development']
     }),
     requiredRefs: [{
       id: 'development-governance',
@@ -113,7 +113,7 @@ function run(script: string, args: readonly string[]): {
 }
 
 test('pure compiler and verify CLI produce one content-bound Read Plan without claiming live authority', () => {
-  const plan = compileSecOperationReadPlan(input()) as SecOperationReadPlan;
+  const plan = compileReadPlan(input()) as ReadPlan;
   expect(plan.requiredRefs.map((reference) => reference.id)).toEqual(['development-governance']);
   expect(plan.preApplicabilitySkillBodiesRead).toBe(0);
 
@@ -146,7 +146,7 @@ test('Task Capsule verify is content-only and compile rejects caller authority b
   const rejected = run('src/adapters/self-hosting/control/agent/task-capsule-host.ts', [
     'compile',
     '--input',
-    JSON.stringify({ schema: SEC_TASK_CAPSULE_COMPILE_REQUEST_SCHEMA, authority: {} }),
+    JSON.stringify({ schema: TASK_CAPSULE_COMPILE_REQUEST_SCHEMA, authority: {} }),
     '--candidate-root',
     REPOSITORY_ROOT
   ]);
@@ -156,7 +156,7 @@ test('Task Capsule verify is content-only and compile rejects caller authority b
   const blocked = run('src/adapters/self-hosting/control/agent/task-capsule-host.ts', [
     'compile',
     '--input',
-    JSON.stringify({ schema: SEC_TASK_CAPSULE_COMPILE_REQUEST_SCHEMA }),
+    JSON.stringify({ schema: TASK_CAPSULE_COMPILE_REQUEST_SCHEMA }),
     '--candidate-root',
     REPOSITORY_ROOT
   ]);
@@ -176,7 +176,7 @@ test('compile CLI rejects caller-provided Capsule authority before live observat
   const result = run('src/adapters/self-hosting/control/agent/operation-read-plan.ts', [
     'compile',
     '--input',
-    JSON.stringify({ ...supplied, schema: SEC_OPERATION_READ_CLOSURE_REQUEST_SCHEMA }),
+    JSON.stringify({ ...supplied, schema: READ_CLOSURE_REQUEST_SCHEMA }),
     '--candidate-root',
     REPOSITORY_ROOT
   ]);
@@ -189,7 +189,7 @@ test('compile CLI rejects caller-provided read refs and policy before live obser
     'compile',
     '--input',
     JSON.stringify({
-      schema: SEC_OPERATION_READ_CLOSURE_REQUEST_SCHEMA,
+      schema: READ_CLOSURE_REQUEST_SCHEMA,
       requiredRefs: [],
       forbiddenSources: []
     }),
@@ -204,7 +204,7 @@ test('schema-only Read Plan production compile fails closed without a trusted is
   const result = run('src/adapters/self-hosting/control/agent/operation-read-plan.ts', [
     'compile',
     '--input',
-    JSON.stringify({ schema: SEC_OPERATION_READ_CLOSURE_REQUEST_SCHEMA }),
+    JSON.stringify({ schema: READ_CLOSURE_REQUEST_SCHEMA }),
     '--candidate-root',
     REPOSITORY_ROOT
   ]);
@@ -216,7 +216,7 @@ test('schema-only Read Plan production compile fails closed without a trusted is
 });
 
 test('Skill CLI requires an explicit candidate root before live authority observation', () => {
-  const plan = compileSecOperationReadPlan(input());
+  const plan = compileReadPlan(input());
   const selected = run('src/adapters/self-hosting/control/agent/skill-applicability.ts', [
     '--read-plan', JSON.stringify(plan)
   ]);

@@ -1,8 +1,8 @@
-import { createHash, randomUUID } from 'node:crypto';
+import { randomUUID } from 'node:crypto';
 import path from 'node:path';
 import { assertDocumentationSourceReadback, materializeDocumentationPackage } from './documentation-source.ts';
 
-import { digest, isPlainObject, sha256 } from '../../contracts/canonical.ts';
+import { rawSha256Hex, isPlainObject, sha256 } from '../../contracts/canonical.ts';
 import { parseExactJson } from '../../contracts/exact-json.ts';
 import { isCanonicalPortableLogicalPath } from '../../contracts/logical-path.ts';
 import { acquirePhysicalMutationLease } from '../runtime-state/physical/runtime/mutation-lease.ts';
@@ -770,7 +770,7 @@ export async function assertReleaseSetReadback(releaseRoot: string): Promise<Rel
   ]);
   for (const member of manifest.members) {
     const observed = actual.get(member.name)!;
-    if (`sha256:${digest(observed.bytes)}` !== member.manifestDigest
+    if (`sha256:${rawSha256Hex(observed.bytes)}` !== member.manifestDigest
         || observed.fileCount !== member.fileCount) {
       throw new Error(`Release set member binding differs from manifest: ${member.name}`);
     }
@@ -794,13 +794,13 @@ async function buildStagedReleaseSet(source: FrozenReleaseSource, stageRoot: str
     Object.freeze({
       name: 'documentation',
       manifestPath: `documentation/${DOCUMENTATION_PACKAGE_MANIFEST}`,
-      manifestDigest: `sha256:${digest(documentationManifestBytes)}`,
+      manifestDigest: `sha256:${rawSha256Hex(documentationManifestBytes)}`,
       fileCount: documentation.files.length
     }),
     Object.freeze({
       name: 'runtime',
       manifestPath: `runtime/${RUNTIME_PACKAGE_MANIFEST}`,
-      manifestDigest: `sha256:${digest(runtimeManifestBytes)}`,
+      manifestDigest: `sha256:${rawSha256Hex(runtimeManifestBytes)}`,
       fileCount: runtime.files.length
     })
   ]);
@@ -856,7 +856,7 @@ async function publishReleaseSet(
   parent: PhysicalDirectoryIdentity
 ): Promise<readonly ReleaseSetCleanupFinding[]> {
   const destinationName = path.basename(destinationRoot);
-  const key = createHash('sha256').update(destinationName).digest('hex');
+  const key = rawSha256Hex(destinationName);
   const backupName = `.sec-release-set-previous-${key}`;
   const backupRoot = path.join(parent.path, backupName);
   const failedPrefix = `.sec-release-set-failed-${key}`;

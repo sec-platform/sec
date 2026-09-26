@@ -1,19 +1,27 @@
-import { spawnSync } from 'node:child_process';
-import { createHash } from 'node:crypto';
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { readFileSync } from 'node:fs';
 import path from 'node:path';
 
+import { rawSha256Hex } from '../../../../../contracts/canonical.ts';
 import { encodeVerificationActionData, type VerificationActionKeyDigest } from '../../action/contract/action.ts';
 import { assertCiVerificationActionProviderEnvelopeMember, CI_VERIFICATION_ACTION_DISPATCH_TYPE, CI_VERIFICATION_ACTION_PARENT_DISPATCH_PLAN_FILE, ciVerificationActionParentDispatchPlanPayloadDigest, parseCiVerificationActionParentDispatchPlan, parseCiVerificationActionPlanClosure, parseCiVerificationActionProviderEnvelope, type CiVerificationActionPlanClosure, type CiVerificationActionProviderEnvelope } from '../../action/contract/ci.ts';
 import { CI_VERIFICATION_HOSTED_PROVIDER_REVISION } from '../../action/contract/environment.ts';
 import { CI_GITHUB_ACTIONS_IDENTITY_POLICY, finalizeVerificationActionProviderStatusReadback, matchesCiCompilerWorkflowRunIdentity, parseVerificationActionProviderStartMarker, parseVerificationActionProviderTerminalAnchor, reduceVerificationActionProviderState, VERIFICATION_ACTION_PROVIDER_START_ARTIFACT_FILE, VERIFICATION_ACTION_PROVIDER_START_ARTIFACT_PREFIX, VERIFICATION_ACTION_PROVIDER_TERMINAL_ANCHOR_FILE, VERIFICATION_ACTION_PROVIDER_TERMINAL_ANCHOR_PREFIX, VERIFICATION_ACTION_PROVIDER_TERMINAL_ARTIFACT_FILE, VERIFICATION_ACTION_PROVIDER_TERMINAL_ARTIFACT_PREFIX, verificationActionProviderRunTargetUrl, verificationActionProviderStartArtifactName, verificationActionProviderStartDescription, verificationActionProviderStatusContext, verificationActionProviderTerminalAnchorName, verificationActionProviderTerminalArtifactName, verificationActionProviderTerminalDescription, type VerificationActionProviderArtifactObservation, type VerificationActionProviderOrigin, type VerificationActionProviderStartMarker, type VerificationActionProviderStatusObservation, type VerificationActionProviderStatusReadback, type VerificationActionProviderTerminalAnchor, type VerificationActionProviderTerminalObservation } from '../../action/contract/provider.ts';
 import {
-  CodexDevelopmentParseVerificationActionTerminalArtifact
+  parseVerificationActionTerminalArtifact
 } from '../contract/evidence.ts';
 import {
   CI_VERIFICATION_SESSION_DISPATCH_TYPE
 } from '../contract/revision.ts';
+import {
+  executeGitHubApiOperation,
+  executeObservedGitHubApiOperation,
+  readGitHubApiBytes,
+  withGitHubApiReadSession,
+  withGitHubApiRepositoryDispatchWriteSession,
+  withGitHubApiStatusWriteSession,
+  type GitHubApiOperation
+} from '../../../../providers/github-api/operation-session.ts';
+import { readZipTextFile } from '../../../../providers/zip/runtime.ts';
 
 const GITHUB_EXACT_COMMIT_STATUS_HISTORY_SCHEMA =
   'sec-github-exact-commit-status-history-v1' as const;
@@ -124,6 +132,7 @@ interface VerificationActionGitHubProviderTransport
   downloadArtifact(input: Readonly<{
     repository: string;
     artifactId: string;
+    expectedFileName: string;
   }>): Promise<Readonly<{
     archiveBytes: Uint8Array;
     files: Readonly<Record<string, string>>;
@@ -146,56 +155,67 @@ function createVerificationActionRepositoryDispatchClientPayload(
   return Object.freeze({ payload: parseCiVerificationActionProviderEnvelope(envelope) });
 }
 
-function dispatchVerificationActionRepositoryWakeup(input: Readonly<{
-  repository: string;
-  eventType: typeof CI_VERIFICATION_ACTION_DISPATCH_TYPE;
-  clientPayload: VerificationActionRepositoryDispatchClientPayload;
-}>): void {
-  const body = `${encodeVerificationActionData({
-    event_type: input.eventType,
-    client_payload: createVerificationActionRepositoryDispatchClientPayload(
-      input.clientPayload.payload
-    )
-  })}\n`;
-  const result = spawnSync('gh', [
-    'api', '--method', 'POST',
-    '-H', 'Accept: application/vnd.github+json',
-    `/repos/${repository(input.repository)}/dispatches`,
-    '--input', '-'
-  ], {
-    input: body,
-    encoding: 'utf8',
-    maxBuffer: 1024 * 1024,
-    windowsHide: true
-  });
-  if (result.error !== undefined || result.status !== 0) {
-    fail(`repository dispatch outcome is unknown: ${boundedError(result.error ?? result.stderr)}`);
-  }
-}
+class GitHubApiVerificationActionTransport implements VerificationActionGitHubProviderTransport {
+  readonly #repositoryRoot: string;
 
-class GhCliVerificationActionTransport implements VerificationActionGitHubProviderTransport {
+  constructor(repositoryRoot: string) {
+    this.#repositoryRoot = path.resolve(repositoryRoot);
+  }
+
+  async #read(repositoryName: string, operation: GitHubApiOperation): Promise<unknown> {
+    return await withGitHubApiReadSession({
+      repositoryRoot: this.#repositoryRoot,
+      repository: repository(repositoryName),
+      operation: async (api) => await executeGitHubApiOperation(api, operation)
+    });
+  }
+
+  async #readObserved(repositoryName: string, operation: GitHubApiOperation): Promise<Readonly<{
+    value: unknown;
+    rawResponseDigest: VerificationActionKeyDigest;
+  }>> {
+    const observed = await withGitHubApiReadSession({
+      repositoryRoot: this.#repositoryRoot,
+      repository: repository(repositoryName),
+      operation: async (api) => await executeObservedGitHubApiOperation(api, operation)
+    });
+    return Object.freeze({
+      value: observed.value,
+      rawResponseDigest: bytesDigest(Buffer.from(observed.source, 'utf8'))
+    });
+  }
+
   async createRepositoryDispatch(input: Readonly<{
     repository: string;
     eventType: typeof CI_VERIFICATION_ACTION_DISPATCH_TYPE;
     clientPayload: VerificationActionRepositoryDispatchClientPayload;
   }>): Promise<void> {
-    dispatchVerificationActionRepositoryWakeup(input);
+    await withGitHubApiRepositoryDispatchWriteSession({
+      repositoryRoot: this.#repositoryRoot,
+      repository: repository(input.repository),
+      operation: async (api) => {
+        await executeGitHubApiOperation(api, {
+          kind: 'repository-dispatch',
+          eventType: input.eventType,
+          clientPayload: createVerificationActionRepositoryDispatchClientPayload(input.clientPayload.payload)
+        });
+      }
+    });
   }
 
   async getRepository(input: Readonly<{ repository: string }>): Promise<unknown> {
-    return ghJson(['api', '-H', 'Accept: application/vnd.github+json',
-      `/repos/${repository(input.repository)}`]);
+    return await this.#read(input.repository, { kind: 'repository' });
   }
 
   async getWorkflow(input: Readonly<{ repository: string }>): Promise<unknown> {
-    return ghJson(['api', '-H', 'Accept: application/vnd.github+json',
-      `/repos/${repository(input.repository)}/actions/workflows/compiler-pr-validation.yml`]);
+    return await this.#read(input.repository, {
+      kind: 'workflow', path: '.github/workflows/compiler-pr-validation.yml'
+    });
   }
 
   async getPrincipalPermission(input: Readonly<{ repository: string; login: string }>): Promise<unknown> {
     if (!/^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})$/u.test(input.login)) fail('principal login is invalid.');
-    return ghJson(['api', '-H', 'Accept: application/vnd.github+json',
-      `/repos/${repository(input.repository)}/collaborators/${input.login}/permission`]);
+    return await this.#read(input.repository, { kind: 'collaborator-permission', login: input.login });
   }
 
   async listWorkflowJobsPage(input: Readonly<{
@@ -206,11 +226,10 @@ class GhCliVerificationActionTransport implements VerificationActionGitHubProvid
   }>): Promise<GitHubProviderPage> {
     if (!Number.isSafeInteger(input.runAttempt) || input.runAttempt < 1 ||
         !Number.isSafeInteger(input.page) || input.page < 1) fail('workflow job page request is invalid.');
-    const response = record(ghJson([
-      'api', '-H', 'Accept: application/vnd.github+json',
-      `/repos/${repository(input.repository)}/actions/runs/${positiveId(input.runId, 'run id')}` +
-        `/attempts/${input.runAttempt}/jobs?per_page=100&page=${input.page}`
-    ]), 'workflow job page');
+    const response = record(await this.#read(input.repository, {
+      kind: 'workflow-jobs', runId: positiveId(input.runId, 'run id'),
+      runAttempt: input.runAttempt, page: input.page
+    }), 'workflow job page');
     if (!Array.isArray(response.jobs)) fail('workflow job page jobs are invalid.');
     return Object.freeze({ records: response.jobs, hasNextPage: response.jobs.length === 100 });
   }
@@ -223,10 +242,7 @@ class GhCliVerificationActionTransport implements VerificationActionGitHubProvid
     if (!Number.isSafeInteger(input.page) || input.page < 1) {
       fail('artifact inventory page request is invalid.');
     }
-    const raw = ghJsonWithRawDigest([
-      'api', '-H', 'Accept: application/vnd.github+json',
-      `/repos/${repository(input.repository)}/actions/artifacts?per_page=100&page=${input.page}`
-    ]);
+    const raw = await this.#readObserved(input.repository, { kind: 'artifacts', page: input.page });
     const response = record(raw.value, 'artifact inventory page');
     if (!Array.isArray(response.artifacts) || !Number.isSafeInteger(response.total_count) ||
         Number(response.total_count) < 0) {
@@ -245,11 +261,9 @@ class GhCliVerificationActionTransport implements VerificationActionGitHubProvid
     perPage: 100;
     page: number;
   }>): Promise<GitHubExactCommitStatusPage> {
-    const response = ghJsonWithRawDigest([
-      'api',
-      '-H', 'Accept: application/vnd.github+json',
-      `/repos/${repository(input.repository)}/commits/${sha(input.sha)}/statuses?per_page=100&page=${input.page}`
-    ]);
+    const response = await this.#readObserved(input.repository, {
+      kind: 'commit-statuses', sha: sha(input.sha), page: input.page
+    });
     const records = response.value;
     if (!Array.isArray(records)) fail('commit status page response is not an array.');
     return Object.freeze({ records, hasNextPage: records.length === input.perPage,
@@ -264,20 +278,21 @@ class GhCliVerificationActionTransport implements VerificationActionGitHubProvid
     description: string;
     targetUrl: string;
   }>): Promise<unknown> {
-    return ghJson([
-      'api', '--method', 'POST',
-      '-H', 'Accept: application/vnd.github+json',
-      `/repos/${repository(input.repository)}/statuses/${sha(input.sha)}`,
-      '-f', `state=${input.state}`,
-      '-f', `context=${input.context}`,
-      '-f', `description=${input.description}`,
-      '-f', `target_url=${input.targetUrl}`
-    ]);
+    return await withGitHubApiStatusWriteSession({
+      repositoryRoot: this.#repositoryRoot,
+      repository: repository(input.repository),
+      operation: async (api) => await executeGitHubApiOperation(api, {
+        kind: 'create-commit-status', sha: sha(input.sha),
+        status: {
+          state: input.state,
+          context: input.context, description: input.description, targetUrl: input.targetUrl
+        }
+      })
+    });
   }
 
   async getWorkflowRun(input: Readonly<{ repository: string; runId: string }>): Promise<unknown> {
-    return ghJson(['api', '-H', 'Accept: application/vnd.github+json',
-      `/repos/${repository(input.repository)}/actions/runs/${positiveId(input.runId, 'run id')}`]);
+    return await this.#read(input.repository, { kind: 'workflow-run', runId: positiveId(input.runId, 'run id') });
   }
 
   async getWorkflowRunAttempt(input: Readonly<{
@@ -288,46 +303,41 @@ class GhCliVerificationActionTransport implements VerificationActionGitHubProvid
     if (!Number.isSafeInteger(input.runAttempt) || input.runAttempt < 1) {
       fail('workflow run attempt is invalid.');
     }
-    return ghJson(['api', '-H', 'Accept: application/vnd.github+json',
-      `/repos/${repository(input.repository)}/actions/runs/${positiveId(input.runId, 'run id')}` +
-        `/attempts/${input.runAttempt}`]);
+    return await this.#read(input.repository, {
+      kind: 'workflow-run-attempt', runId: positiveId(input.runId, 'run id'), runAttempt: input.runAttempt
+    });
   }
 
   async getCheckSuite(input: Readonly<{ repository: string; checkSuiteId: number }>): Promise<unknown> {
     if (!Number.isSafeInteger(input.checkSuiteId) || input.checkSuiteId < 1) fail('check suite id is invalid.');
-    return ghJson(['api', '-H', 'Accept: application/vnd.github+json',
-      `/repos/${repository(input.repository)}/check-suites/${input.checkSuiteId}`]);
+    return await this.#read(input.repository, { kind: 'check-suite', checkSuiteId: input.checkSuiteId });
   }
 
   async getArtifact(input: Readonly<{ repository: string; artifactId: string }>): Promise<unknown> {
-    return ghJson(['api', '-H', 'Accept: application/vnd.github+json',
-      `/repos/${repository(input.repository)}/actions/artifacts/${positiveId(input.artifactId, 'artifact id')}`]);
+    return await this.#read(input.repository, {
+      kind: 'artifact', artifactId: Number(positiveId(input.artifactId, 'artifact id'))
+    });
   }
 
   async downloadArtifact(input: Readonly<{
     repository: string;
     artifactId: string;
+    expectedFileName: string;
   }>): Promise<Readonly<{ archiveBytes: Uint8Array; files: Readonly<Record<string, string>> }>> {
-    const archiveBytes = ghBytes(['api', '-H', 'Accept: application/vnd.github+json',
-      `/repos/${repository(input.repository)}/actions/artifacts/${positiveId(input.artifactId, 'artifact id')}/zip`]);
-    const temporaryRoot = mkdtempSync(path.join(tmpdir(), 'sec-action-artifact-'));
-    const archivePath = path.join(temporaryRoot, 'artifact.zip');
-    try {
-      writeFileSync(archivePath, archiveBytes);
-      const list = runProcessText('unzip', ['-Z1', archivePath]);
-      const names = list.split(/\r?\n/u).filter((entry) => entry.length > 0);
-      if (names.length === 0 || names.some((entry) =>
-        entry.endsWith('/') || entry.includes('\\') || entry.startsWith('/') ||
-        entry.split('/').some((segment) => segment === '' || segment === '.' || segment === '..')
-      )) fail('artifact ZIP inventory is empty or unsafe.');
-      const files: Record<string, string> = {};
-      for (const name of names) {
-        files[name] = runProcessText('unzip', ['-p', archivePath, name]);
-      }
-      return Object.freeze({ archiveBytes, files: Object.freeze(files) });
-    } finally {
-      rmSync(temporaryRoot, { recursive: true, force: true });
-    }
+    const artifactId = Number(positiveId(input.artifactId, 'artifact id'));
+    const archiveBytes = await withGitHubApiReadSession({
+      repositoryRoot: this.#repositoryRoot,
+      repository: repository(input.repository),
+      operation: async (api) => await readGitHubApiBytes(api, { kind: 'artifact-archive', artifactId })
+    });
+    const source = await readZipTextFile({
+      archiveBytes,
+      expectedFileName: input.expectedFileName
+    });
+    return Object.freeze({
+      archiveBytes,
+      files: Object.freeze({ [input.expectedFileName]: source })
+    });
   }
 }
 
@@ -336,64 +346,16 @@ function positiveId(value: string, label: string): string {
   return value;
 }
 
-function runProcessText(command: string, args: readonly string[]): string {
-  const result = spawnSync(command, [...args], {
-    encoding: 'utf8',
-    maxBuffer: 128 * 1024 * 1024,
-    windowsHide: true
-  });
-  if (result.error !== undefined || result.status !== 0 || typeof result.stdout !== 'string') {
-    fail(`${command} failed: ${boundedError(result.error ?? result.stderr)}`);
-  }
-  return result.stdout;
-}
-
-function ghJson(args: readonly string[]): unknown {
-  const source = runProcessText('gh', args);
-  try {
-    return JSON.parse(source) as unknown;
-  } catch (error) {
-    fail(`gh returned invalid JSON: ${boundedError(error)}`);
-  }
-}
-
-function ghJsonWithRawDigest(args: readonly string[]): Readonly<{
-  value: unknown;
-  rawResponseDigest: VerificationActionKeyDigest;
-}> {
-  const source = runProcessText('gh', args);
-  try {
-    return Object.freeze({
-      value: JSON.parse(source) as unknown,
-      rawResponseDigest: bytesDigest(Buffer.from(source, 'utf8'))
-    });
-  } catch (error) {
-    fail(`gh returned invalid JSON: ${boundedError(error)}`);
-  }
-}
-
-function ghBytes(args: readonly string[]): Uint8Array {
-  const result = spawnSync('gh', [...args], {
-    encoding: 'buffer',
-    maxBuffer: 128 * 1024 * 1024,
-    windowsHide: true
-  });
-  if (result.error !== undefined || result.status !== 0 || !Buffer.isBuffer(result.stdout)) {
-    fail(`gh binary download failed: ${boundedError(result.error ?? result.stderr)}`);
-  }
-  return new Uint8Array(result.stdout);
-}
-
 function fail(message: string): never {
   throw new Error(`VerificationAction GitHub provider ${message}`);
 }
 
 function digest(value: unknown): VerificationActionKeyDigest {
-  return `sha256:${createHash('sha256').update(encodeVerificationActionData(value)).digest('hex')}`;
+  return `sha256:${rawSha256Hex(encodeVerificationActionData(value))}`;
 }
 
 function bytesDigest(value: Uint8Array): VerificationActionKeyDigest {
-  return `sha256:${createHash('sha256').update(value).digest('hex')}`;
+  return `sha256:${rawSha256Hex(value)}`;
 }
 
 function record(value: unknown, label: string): Record<string, unknown> {
@@ -989,7 +951,8 @@ async function readVerificationActionArtifactObservation<TPayload>(
   }
   const download = await transport.downloadArtifact({
     repository: input.repository,
-    artifactId: input.artifactId
+    artifactId: input.artifactId,
+    expectedFileName: input.expectedFileName
   });
   if (!(download.archiveBytes instanceof Uint8Array) ||
       Object.keys(download.files).length !== 1 ||
@@ -1197,7 +1160,8 @@ async function authenticateVerificationActionAuthority(
   }
   const parentDownload = await transport.downloadArtifact({
     repository: repositoryName,
-    artifactId: envelope.parentDispatchPlanArtifactId
+    artifactId: envelope.parentDispatchPlanArtifactId,
+    expectedFileName: CI_VERIFICATION_ACTION_PARENT_DISPATCH_PLAN_FILE
   });
   const parentSource = parentDownload.files[CI_VERIFICATION_ACTION_PARENT_DISPATCH_PLAN_FILE];
   if (bytesDigest(parentDownload.archiveBytes) !== envelope.parentDispatchPlanArchiveDigest ||
@@ -1435,7 +1399,7 @@ async function readVerificationActionGitHubProviderSnapshot(
         artifactId: entry.artifactId,
         expectedArtifactName: terminalName,
         expectedFileName: VERIFICATION_ACTION_PROVIDER_TERMINAL_ARTIFACT_FILE,
-        parsePayload: (value) => CodexDevelopmentParseVerificationActionTerminalArtifact(
+        parsePayload: (value) => parseVerificationActionTerminalArtifact(
           encodeVerificationActionData(value)
         ),
         producingOrigin: (payload) => payload.producer
@@ -1470,7 +1434,7 @@ function reduceVerificationActionGitHubProviderSnapshot(
       if (observation.payload === null) {
         return Object.freeze({ ...observation, payload: null });
       }
-      const artifact = CodexDevelopmentParseVerificationActionTerminalArtifact(
+      const artifact = parseVerificationActionTerminalArtifact(
         encodeVerificationActionData(observation.payload)
       );
       return Object.freeze({
@@ -1520,10 +1484,11 @@ function transactionResult(
  * target URLs, pagination, and the mutation transport remain module-private.
  */
 export async function ensureVerificationActionGitHubProviderTransaction(input: Readonly<{
+  repositoryRoot: string;
   authority: VerificationActionGitHubProviderAuthority;
   intent: VerificationActionGitHubProviderIntent;
 }>): Promise<VerificationActionGitHubProviderTransactionResult> {
-  const transport = new GhCliVerificationActionTransport();
+  const transport = new GitHubApiVerificationActionTransport(input.repositoryRoot);
   const authenticated = await authenticateVerificationActionAuthority(
     transport,
     input.authority,

@@ -4,6 +4,7 @@ import {
   mkdirSync,
   mkdtempSync,
   readFileSync,
+  renameSync,
   rmSync,
   symlinkSync,
   writeFileSync
@@ -17,9 +18,9 @@ import {
   gcContinuationObjects,
   loadActiveContinuationCheckpoint,
   persistActiveContinuationCheckpoint,
-  resolveSecRuntimeStateFromWorkspaceLocator
+  resolveRuntimeStateFromWorkspaceLocator
 } from '../../self-hosting/control/continuation/runtime-store.ts';
-import { resolveSecRuntimeStateForRepository } from './paths.ts';
+import { resolveRuntimeStateForRepository } from './paths.ts';
 
 function fixture() {
   const root = mkdtempSync(path.join(tmpdir(), 'sec-runtime-state-'));
@@ -42,7 +43,7 @@ function fixture() {
     headTreeSha: '4'.repeat(40),
     manifestPath: 'config/repository/work-packages/sec-static-convergence-v1.md'
   });
-  const layout = resolveSecRuntimeStateForRepository({
+  const layout = resolveRuntimeStateForRepository({
     repository: checkpoint.repository,
     repositoryRoot,
     environment
@@ -64,7 +65,7 @@ test('one admitted handoff becomes a reusable CAS object plus workspace locator 
       repositoryRoot: value.repositoryRoot,
       environment: value.environment
     })).toEqual(value.checkpoint);
-    const located = await resolveSecRuntimeStateFromWorkspaceLocator({
+    const located = await resolveRuntimeStateFromWorkspaceLocator({
       repositoryRoot: value.repositoryRoot,
       environment: value.environment
     });
@@ -77,6 +78,64 @@ test('one admitted handoff becomes a reusable CAS object plus workspace locator 
     expect(value.layout.continuationObjectRoot.startsWith(value.repositoryRoot)).toBe(false);
     expect(value.layout.durableLocalExecutionJournalRoot.startsWith(value.stateRoot)).toBe(true);
     expect(value.layout.durableLocalExecutionJournalRoot.startsWith(value.repositoryRoot)).toBe(false);
+  } finally {
+    rmSync(value.root, { recursive: true, force: true });
+  }
+}, 30_000);
+
+test('continuation state migrates legacy object and pointer paths without changing bytes or directory identity', async () => {
+  const value = fixture();
+  try {
+    await persistActiveContinuationCheckpoint({
+      layout: value.layout,
+      repositoryRoot: value.repositoryRoot,
+      checkpoint: value.checkpoint,
+      environment: value.environment
+    });
+    const currentObjectRoot = value.layout.continuationObjectRoot;
+    const legacyObjectRoot = path.join(path.dirname(currentObjectRoot), 'continuation-v1');
+    const currentPointerPath = value.layout.continuationPointerPath;
+    const legacyPointerPath = path.join(path.dirname(currentPointerPath), 'active-continuation-v1.json');
+    const objectBefore = lstatSync(currentObjectRoot, { bigint: true });
+    const pointerBytes = readFileSync(currentPointerPath);
+    renameSync(currentObjectRoot, legacyObjectRoot);
+    renameSync(currentPointerPath, legacyPointerPath);
+
+    expect(await loadActiveContinuationCheckpoint({
+      layout: value.layout,
+      repositoryRoot: value.repositoryRoot,
+      environment: value.environment
+    })).toEqual(value.checkpoint);
+
+    expect(() => lstatSync(legacyObjectRoot)).toThrow();
+    expect(() => lstatSync(legacyPointerPath)).toThrow();
+    const objectAfter = lstatSync(currentObjectRoot, { bigint: true });
+    expect([objectAfter.dev, objectAfter.ino]).toEqual([objectBefore.dev, objectBefore.ino]);
+    expect(readFileSync(currentPointerPath)).toEqual(pointerBytes);
+  } finally {
+    rmSync(value.root, { recursive: true, force: true });
+  }
+}, 30_000);
+
+test('continuation pointer cutover rejects divergent current and legacy bytes', async () => {
+  const value = fixture();
+  try {
+    await persistActiveContinuationCheckpoint({
+      layout: value.layout,
+      repositoryRoot: value.repositoryRoot,
+      checkpoint: value.checkpoint,
+      environment: value.environment
+    });
+    const legacyPointerPath = path.join(
+      path.dirname(value.layout.continuationPointerPath),
+      'active-continuation-v1.json'
+    );
+    writeFileSync(legacyPointerPath, '{"divergent":true}\n', 'utf8');
+    await expect(loadActiveContinuationCheckpoint({
+      layout: value.layout,
+      repositoryRoot: value.repositoryRoot,
+      environment: value.environment
+    })).rejects.toThrow('current and legacy pointer bytes diverge');
   } finally {
     rmSync(value.root, { recursive: true, force: true });
   }
@@ -99,7 +158,7 @@ test('active continuation object is retained, terminal pointer retirement makes 
       repositoryRoot: value.repositoryRoot,
       environment: value.environment
     });
-    expect(await resolveSecRuntimeStateFromWorkspaceLocator({
+    expect(await resolveRuntimeStateFromWorkspaceLocator({
       repositoryRoot: value.repositoryRoot,
       environment: value.environment
     })).toBeNull();
@@ -189,7 +248,7 @@ test('physical Runtime State rejects a symlink or junction into the repository b
     headTreeSha: '4'.repeat(40),
     manifestPath: 'config/repository/work-packages/sec-static-convergence-v1.md'
   });
-  const layout = resolveSecRuntimeStateForRepository({
+  const layout = resolveRuntimeStateForRepository({
     repository: checkpoint.repository,
     repositoryRoot,
     environment

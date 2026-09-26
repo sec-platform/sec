@@ -1,10 +1,11 @@
-import { createHash, randomUUID } from 'node:crypto';
+import { randomUUID } from 'node:crypto';
 import type { Dirent } from 'node:fs';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 
+import { createSha256Hasher } from '../../../../contracts/digest.ts';
 import { CompilerError } from '../../../../compiler/errors.ts';
-import { canonicalJson, digest } from '../../../../contracts/canonical.ts';
+import { canonicalJson, rawSha256Hex } from '../../../../contracts/canonical.ts';
 import { resolveWorkspaceLocalStateRoot } from '../../../../workspace/contract/local-state.ts';
 import { ensureDir } from "../../../filesystem/files.ts";
 import { assertWorkspaceWriteLease, withWorkspaceWriteLease } from '../../../filesystem/write-lease.ts';
@@ -335,7 +336,7 @@ type RecoveredTransaction = Readonly<{
   transactionId: string;
   journalPath: string;
   files: readonly PreparedWrite[];
-  journalVersion: 'v2' | 'v3';
+  journalFormat: 'legacy' | 'compact';
   bindingDigest: string;
   compactJournalTail: CompactJournalEntry | null;
   journalWasMissing: boolean;
@@ -854,7 +855,7 @@ async function digestRegularTransactionArtifact(
   if (!metadata.isFile() || metadata.isSymbolicLink()) recoveryFailure(label + ' is not an ordinary file.');
   if (metadata.size > maximumBytes) recoveryFailure(label + ' exceeds its bounded byte limit.');
   const handle = await fs.open(filePath, 'r');
-  const hash = createHash('sha256');
+  const hash = createSha256Hasher();
   let offset = 0;
   try {
     const opened = await handle.stat();
@@ -878,7 +879,7 @@ async function digestRegularTransactionArtifact(
   } finally {
     await handle.close();
   }
-  return Object.freeze({ digest: hash.digest('hex'), bytes: offset });
+  return Object.freeze({ digest: hash.finish().slice('sha256:'.length), bytes: offset });
 }
 
 function parseTerminalReceipt(
@@ -954,7 +955,7 @@ async function writeLegacyTerminalReceipt(
     transactionId,
     bindingDigest,
     journalFormat: ImportTransformJournalFormat,
-    journalDigest: digest(journalBytes),
+    journalDigest: rawSha256Hex(journalBytes),
     journalBytes: journalBytes.byteLength,
     state: terminal.state,
     publishedCount: terminal.published.length,
@@ -984,7 +985,7 @@ async function readUnfinishedTransaction(
     || binding.writes.length > IMPORT_TRANSFORM_JOURNAL_MAX_RECORDS) {
     recoveryFailure('Import transform transaction binding identity is invalid.');
   }
-  const bindingDigest = digest(bindingBytes);
+  const bindingDigest = rawSha256Hex(bindingBytes);
   const seen = new Set<string>();
   const files: PreparedWrite[] = [];
   for (const rawWrite of binding.writes) {
@@ -1008,7 +1009,7 @@ async function readUnfinishedTransaction(
       || write.replacementCandidateRelativePath !== candidateRelative(replacementCandidatePath)) {
       recoveryFailure('Import transform transaction candidate binding is invalid.');
     }
-    const stem = digest(write.relativePath);
+    const stem = rawSha256Hex(write.relativePath);
     const preimagePath = path.join(transactionRoot, `${stem}.preimage`);
     const replacementPath = path.join(transactionRoot, `${stem}.replacement`);
     await assertOrdinaryContainedTargetChain(workspaceRoot, preimagePath);
@@ -1017,7 +1018,7 @@ async function readUnfinishedTransaction(
       'Import transform transaction preimage');
     const replacementBytes = await readRegularTransactionArtifact(replacementPath,
       'Import transform transaction replacement');
-    if (digest(expectedBytes) !== write.expectedDigest || digest(replacementBytes) !== write.replacementDigest) {
+    if (rawSha256Hex(expectedBytes) !== write.expectedDigest || rawSha256Hex(replacementBytes) !== write.replacementDigest) {
       recoveryFailure('Import transform transaction artifact digest is invalid.');
     }
     files.push(Object.freeze({
@@ -1029,7 +1030,7 @@ async function readUnfinishedTransaction(
   const terminalReceiptPath = path.join(transactionRoot, 'terminal-receipt.json');
   const allowedArtifacts = new Set<string>(['binding.json', 'journal.jsonl', 'terminal-receipt.json']);
   for (const file of files) {
-    const stem = digest(file.relativePath);
+    const stem = rawSha256Hex(file.relativePath);
     allowedArtifacts.add(stem + '.preimage');
     allowedArtifacts.add(stem + '.replacement');
   }
@@ -1060,7 +1061,7 @@ async function readUnfinishedTransaction(
       transactionId,
       journalPath,
       files: Object.freeze(files),
-      journalVersion: 'v2' as const,
+      journalFormat: 'legacy' as const,
       bindingDigest,
       compactJournalTail: null,
       journalWasMissing: false,
@@ -1091,28 +1092,28 @@ async function readUnfinishedTransaction(
     : journalBytes.subarray(0, journalRepairOffset).toString('utf8');
   const firstLine = completeJournalSource.split('\n').find((line) => line.length > 0);
   if (firstLine === undefined) {
-    // A missing/empty/torn-only journal has no v2 grammar to relax; the only
-    // safe interpretation is pre-publication, followed by an explicit v3
+    // A missing/empty/torn-only journal has no legacy grammar to relax; the only
+    // safe interpretation is pre-publication, followed by an explicit compact
     // prepared record before any recovery decision.
     if (journalRepairOffset !== null) {
       if (journalIdentity === undefined) recoveryFailure('Import transform journal tail has no physical identity.');
       await repairJournalTail(journalPath, journalRepairOffset, assertLease, journalIdentity);
     }
-    return Object.freeze({ transactionId, journalPath, files: Object.freeze(files), journalVersion: 'v3' as const,
+    return Object.freeze({ transactionId, journalPath, files: Object.freeze(files), journalFormat: 'compact' as const,
       bindingDigest, compactJournalTail: null, journalWasMissing,
       state: 'prepared' as const, published: Object.freeze([]), outstanding: Object.freeze([]),
       publicationReasonCode: null, recoveryReasonCode: null });
   }
   const firstEntry = asRecord(parseRecoveryJson(firstLine, 'Import transform transaction journal'),
     'Import transform transaction journal');
-  const journalVersion = firstEntry.formatVersion === ImportTransformCompactJournalFormat ? 'v3' as const
-    : firstEntry.formatVersion === ImportTransformJournalFormat ? 'v2' as const
+  const journalFormat = firstEntry.formatVersion === ImportTransformCompactJournalFormat ? 'compact' as const
+    : firstEntry.formatVersion === ImportTransformJournalFormat ? 'legacy' as const
       : recoveryFailure('Import transform transaction journal format is unsupported.');
-  if (journalVersion === 'v3' && journalBytes.byteLength > IMPORT_TRANSFORM_JOURNAL_MAX_BYTES) {
+  if (journalFormat === 'compact' && journalBytes.byteLength > IMPORT_TRANSFORM_JOURNAL_MAX_BYTES) {
     recoveryFailure('Import transform compact journal exceeds its bounded byte limit.');
   }
-  if (journalVersion === 'v2') {
-    // v2 is a bounded read-only legacy input; new writers never emit it.
+  if (journalFormat === 'legacy') {
+    // The legacy journal grammar is bounded and read-only; new writers emit only the compact grammar.
     if (journalRepairOffset !== null) recoveryFailure('Import transform legacy journal has a partial final line.');
     const journal = parseLegacyJournalEntries(completeJournalSource, transactionId, files);
     const last = journal.at(-1);
@@ -1122,12 +1123,12 @@ async function readUnfinishedTransaction(
         journalBytes, last, assertLease);
       const readback = await readOptionalTerminalReceipt(terminalReceiptPath,
         transactionId, bindingDigest, files.length);
-      if (readback === null || readback.journalDigest !== digest(journalBytes)
+      if (readback === null || readback.journalDigest !== rawSha256Hex(journalBytes)
         || readback.journalBytes !== journalBytes.byteLength || readback.state !== last.state) {
         recoveryFailure('Import transform terminal receipt readback failed.');
       }
     }
-    return Object.freeze({ transactionId, journalPath, files: Object.freeze(files), journalVersion, bindingDigest,
+    return Object.freeze({ transactionId, journalPath, files: Object.freeze(files), journalFormat, bindingDigest,
       compactJournalTail: null, journalWasMissing,
       state: last.state, published: last.published, outstanding: last.outstanding,
       publicationReasonCode: last.publicationReasonCode, recoveryReasonCode: last.recoveryReasonCode });
@@ -1139,7 +1140,7 @@ async function readUnfinishedTransaction(
   }
   const published = Object.freeze(files.slice(0, last.publishedCount).map((file) => file.relativePath));
   const outstanding = Object.freeze(files.slice(0, last.outstandingCount).map((file) => file.relativePath));
-  return Object.freeze({ transactionId, journalPath, files: Object.freeze(files), journalVersion, bindingDigest,
+  return Object.freeze({ transactionId, journalPath, files: Object.freeze(files), journalFormat, bindingDigest,
     compactJournalTail: last, journalWasMissing,
     state: last.state, published, outstanding,
     publicationReasonCode: last.publicationReasonCode, recoveryReasonCode: last.recoveryReasonCode });
@@ -1238,16 +1239,16 @@ async function reconcileUnfinishedImportTransactions(
     if (transaction.state === 'accepted' || transaction.state === 'rolled-back') {
       continue;
     }
-    // Legacy v2 is a read-only migration/recovery input. There is no v2
-    // append path: an unfinished legacy transaction blocks until a dedicated
+    // The legacy journal grammar is a read-only migration/recovery input. There is no legacy
+    // append path: an unfinished transaction blocks until a dedicated
     // migration owner rewrites it under its own lease.
-    if (transaction.journalVersion === 'v2') {
+    if (transaction.journalFormat === 'legacy') {
       return recoveryRequiredOutcome(transaction.transactionId, transaction.journalPath, 'journal-failed',
         transaction.outstanding);
     }
     let compactJournalTail = transaction.compactJournalTail;
     try {
-      if (transaction.journalVersion === 'v3' && transaction.compactJournalTail === null) {
+      if (transaction.journalFormat === 'compact' && transaction.compactJournalTail === null) {
         compactJournalTail = await appendCompactJournal(transaction.journalPath, transaction.transactionId,
           transaction.bindingDigest, undefined, 'prepared', 0, 0, null, null, transaction.files.length,
           testHooks, transaction.journalWasMissing);
@@ -1278,10 +1279,10 @@ async function reconcileUnfinishedImportTransactions(
         await reconcileCandidateArtifact(workspaceRoot, file.replacementCandidatePath, file.replacementBytes, file.mode);
       }
     } catch {
-      let physicalOutstanding = transaction.journalVersion === 'v3' && transaction.state === 'publishing'
+      let physicalOutstanding = transaction.journalFormat === 'compact' && transaction.state === 'publishing'
         ? transaction.published : transaction.outstanding;
       try {
-        const replacements = transaction.journalVersion === 'v3' && transaction.state === 'publishing'
+        const replacements = transaction.journalFormat === 'compact' && transaction.state === 'publishing'
           ? await observePublishedPrefixAfterFailure(transaction.files, transaction.published.length, true)
           : await observeReplacementPrefix(transaction.files);
         physicalOutstanding = Object.freeze(replacements
@@ -1303,7 +1304,7 @@ async function reconcileUnfinishedImportTransactions(
       return recoveryRequiredOutcome(transaction.transactionId, transaction.journalPath,
         transaction.recoveryReasonCode ?? 'journal-failed', transaction.outstanding);
     }
-    let replacements: readonly PreparedWrite[] = transaction.journalVersion === 'v3' && transaction.state === 'publishing'
+    let replacements: readonly PreparedWrite[] = transaction.journalFormat === 'compact' && transaction.state === 'publishing'
       ? transaction.files.slice(0, transaction.published.length) : [];
     let outstanding: PreparedWrite[] = [];
     const publicationReason = transaction.publicationReasonCode ?? 'publication-failed';
@@ -1312,7 +1313,7 @@ async function reconcileUnfinishedImportTransactions(
         await assertLease();
         await assertOrdinaryContainedTargetChain(workspaceRoot, file.absolutePath);
       }
-      replacements = transaction.journalVersion === 'v3' && transaction.state === 'publishing'
+      replacements = transaction.journalFormat === 'compact' && transaction.state === 'publishing'
         ? await observePublishedPrefixAfterFailure(transaction.files, transaction.published.length, true)
         : await observeReplacementPrefix(transaction.files);
       const published = transaction.state === 'rolling-back' ? transaction.published
@@ -1397,8 +1398,8 @@ async function prepareWrites(
       replacementCandidatePath,
       expectedBytes: Buffer.from(write.expectedBytes),
       replacementBytes: Buffer.from(write.replacementBytes),
-      expectedDigest: digest(write.expectedBytes),
-      replacementDigest: digest(write.replacementBytes),
+      expectedDigest: rawSha256Hex(write.expectedBytes),
+      replacementDigest: rawSha256Hex(write.replacementBytes),
       mode: metadata.mode & 0o777
     }));
   }
@@ -1493,7 +1494,7 @@ export async function publishImportTransformTransaction(
       await syncDirectory(path.dirname(transactionRoot));
       await syncDirectory(transactionRoot);
       for (const file of prepared) {
-        const stem = digest(file.relativePath);
+        const stem = rawSha256Hex(file.relativePath);
         await writeDurable(path.join(transactionRoot, `${stem}.preimage`), file.expectedBytes);
         await writeDurable(path.join(transactionRoot, `${stem}.replacement`), file.replacementBytes);
       }
@@ -1510,7 +1511,7 @@ export async function publishImportTransformTransaction(
           mode: file.mode
         }))
       }))}\n`;
-      bindingDigest = digest(bindingBytes);
+      bindingDigest = rawSha256Hex(bindingBytes);
       await writeDurable(path.join(transactionRoot, 'binding.json'), bindingBytes);
       await appendCompactProgress('prepared', 0, 0, null, null, true);
     } catch {

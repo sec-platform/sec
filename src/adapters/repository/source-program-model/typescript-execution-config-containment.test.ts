@@ -3,8 +3,8 @@ import ts from 'typescript';
 
 import { rawSha256 } from '../../../contracts/canonical.ts';
 import {
-  compileVirtualWorkspaceSourceSnapshot,
-  compileWorkspaceTypeScriptProjectInput
+  compileVirtualSnapshot,
+  compileTypeScriptProjectInput
 } from './workspace-source-snapshot.ts';
 
 function projectInput(config: Readonly<Record<string, unknown>>, source = 'export const value = 1;\n') {
@@ -12,7 +12,7 @@ function projectInput(config: Readonly<Record<string, unknown>>, source = 'expor
     'src/value.ts': source,
     'tsconfig.json': `${JSON.stringify(config, null, 2)}\n`
   });
-  const snapshot = compileVirtualWorkspaceSourceSnapshot({
+  const snapshot = compileVirtualSnapshot({
     subject: Object.freeze({
       kind: 'virtual-mutation' as const,
       provenance: Object.freeze({
@@ -34,7 +34,7 @@ function projectInput(config: Readonly<Record<string, unknown>>, source = 'expor
     })
   });
   return Object.freeze({
-    input: compileWorkspaceTypeScriptProjectInput(snapshot, 'tsconfig.json'),
+    input: compileTypeScriptProjectInput(snapshot, 'tsconfig.json'),
     snapshot
   });
 }

@@ -1,6 +1,6 @@
 import path from 'node:path';
 import type { CommitFence } from "../../../../contracts/commit-fence.ts";
-import { SecError } from '../../../../contracts/failure.ts';
+import { FailureError } from '../../../../contracts/failure.ts';
 import { assertCapturedRuntimeDependencyInstallRequest, type RuntimeDependencyInstallRequest } from '../contract/install-request.ts';
 import type { RuntimeDependencyLifecycleInput } from './lifecycle-capabilities.ts';
 import type { RuntimeDependencyTestMaterializationCapability } from './materialization-fixture-capability.ts';
@@ -121,7 +121,7 @@ function assertNoUnownedParentBoundAccessors(
     guard(input);
   }
   if (unownedAccessor !== undefined) {
-    throw new SecError(
+    throw new FailureError(
       'RUNTIME-DEPS-003',
       'Parent-bound runtime dependency options contain an unowned executable accessor'
     );
@@ -136,7 +136,7 @@ function bindOperationMethod<F extends (...args: never[]) => unknown>(
   value: F | undefined, receiver: object, label: string
 ): F | undefined {
   if (value === undefined) return undefined;
-  if (typeof value !== 'function') throw new SecError('RUNTIME-DEPS-003', `${label} must be callable`);
+  if (typeof value !== 'function') throw new FailureError('RUNTIME-DEPS-003', `${label} must be callable`);
   if (boundOperationMethods.has(value)) return value;
   const bound = ((...args: Parameters<F>) => Reflect.apply(value, receiver, args)) as F;
   boundOperationMethods.add(bound);
@@ -151,7 +151,7 @@ export function runtimeDependencyOperationOptions<T extends RuntimeDependencyIns
   options: T
 ): RuntimeDependencyOperationOptions {
   if (options === null || typeof options !== 'object') {
-    throw new SecError('RUNTIME-DEPS-003', 'Runtime dependency options must be an object');
+    throw new FailureError('RUNTIME-DEPS-003', 'Runtime dependency options must be an object');
   }
   if (issuedOperationOptions.has(options)) {
     // Re-sample the checked clock and propagate cancellation as before; effects
@@ -183,7 +183,7 @@ export function runtimeDependencyOperationOptions<T extends RuntimeDependencyIns
   const testMaterialization = ownOption(options, 'testMaterialization');
   guard(options);
   if (sharedDepsRoot !== undefined && typeof sharedDepsRoot !== 'string') {
-    throw new SecError('RUNTIME-DEPS-003', 'Runtime dependency shared root must be a path string');
+    throw new FailureError('RUNTIME-DEPS-003', 'Runtime dependency shared root must be a path string');
   }
   // Reuse the request owner's boolean/mode/fence grammar. Do not maintain a
   // second coercion policy at the internal coordinator boundary.

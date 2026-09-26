@@ -1,6 +1,6 @@
 import {
-  SEC_LINUX_VERIFICATION_ENVIRONMENT_AUTHORITY,
-  type SecLinuxVerificationEnvironmentAuthority
+  LINUX_VERIFICATION_ENVIRONMENT_AUTHORITY,
+  type LinuxVerificationEnvironmentAuthority
 } from '../../../../providers/linux-verification/contract.ts';
 
 export const CI_VERIFICATION_ACTION_ENVIRONMENT_CONTRACT_REVISION =
@@ -14,13 +14,13 @@ export const CI_VERIFICATION_ACTION_DEPENDENCY_INPUT_PATHS = Object.freeze([
 ] as const);
 
 export function createCiVerificationHostedToolchainRevision(
-  authority: SecLinuxVerificationEnvironmentAuthority
+  authority: LinuxVerificationEnvironmentAuthority
 ): string {
   return `bun@${authority.trustedRuntime.bunVersion}`;
 }
 
 export function createCiVerificationHostedProviderRevision(
-  authority: SecLinuxVerificationEnvironmentAuthority
+  authority: LinuxVerificationEnvironmentAuthority
 ): string {
   return `github-actions:self-hosted:ubuntu-${authority.ubuntu.version}:x64:`
     + `${authority.environmentId}:roles-control-trusted-sut-v1:`
@@ -34,9 +34,9 @@ export function createCiVerificationHostedProviderRevision(
 
 export const CI_VERIFICATION_HOSTED_PROVIDER_REVISION =
   createCiVerificationHostedProviderRevision(
-    SEC_LINUX_VERIFICATION_ENVIRONMENT_AUTHORITY
+    LINUX_VERIFICATION_ENVIRONMENT_AUTHORITY
   );
 export const CI_VERIFICATION_HOSTED_TOOLCHAIN_REVISION =
   createCiVerificationHostedToolchainRevision(
-    SEC_LINUX_VERIFICATION_ENVIRONMENT_AUTHORITY
+    LINUX_VERIFICATION_ENVIRONMENT_AUTHORITY
   );

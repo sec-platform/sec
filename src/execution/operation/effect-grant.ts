@@ -1,12 +1,12 @@
 import { randomBytes } from 'node:crypto';
 import { deepFreeze, sha256 } from '../../contracts/canonical.ts';
-import { SEC_SEMANTIC_OPERATION_ID_PATTERN } from './identity.ts';
+import { SEMANTIC_OPERATION_ID_PATTERN } from './identity.ts';
 import {
-  assertSecSemanticOperationPlan,
-  compileSecSemanticOperationIntent,
-  type SecOperationDigest,
-  type SecSemanticOperationIntent,
-  type SecSemanticOperationPlan
+  assertSemanticOperationPlan,
+  compileSemanticOperationIntent,
+  type OperationDigest,
+  type SemanticOperationIntent,
+  type SemanticOperationPlan
 } from './semantic.ts';
 
 declare const SEC_OPERATION_EFFECT_GRANT_BRAND: unique symbol;
@@ -16,11 +16,11 @@ declare const SEC_OPERATION_EFFECT_GRANT_BRAND: unique symbol;
  * no serializable authority fields; only its issuing authority's paired
  * consumer can resolve it.
  */
-export type SecOperationEffectGrant = Readonly<{
+export type OperationEffectGrant = Readonly<{
   readonly [SEC_OPERATION_EFFECT_GRANT_BRAND]: true;
 }>;
 
-const SEC_OPERATION_EFFECT_GRANT_FAILURE_REASONS = Object.freeze([
+const OPERATION_EFFECT_GRANT_FAILURE_REASONS = Object.freeze([
   'already-consumed',
   'deadline-mismatch',
   'decision-mismatch',
@@ -34,90 +34,90 @@ const SEC_OPERATION_EFFECT_GRANT_FAILURE_REASONS = Object.freeze([
   'operation-mismatch'
 ] as const);
 
-export type SecOperationEffectGrantFailureReason =
-  (typeof SEC_OPERATION_EFFECT_GRANT_FAILURE_REASONS)[number];
+export type OperationEffectGrantFailureReason =
+  (typeof OPERATION_EFFECT_GRANT_FAILURE_REASONS)[number];
 
-export class SecOperationEffectGrantError extends Error {
+export class OperationEffectGrantError extends Error {
   readonly code = 'SEC-OPERATION-EFFECT-GRANT';
 
-  constructor(readonly reason: SecOperationEffectGrantFailureReason, message: string) {
+  constructor(readonly reason: OperationEffectGrantFailureReason, message: string) {
     super(message);
-    this.name = 'SecOperationEffectGrantError';
+    this.name = 'OperationEffectGrantError';
   }
 }
 
-export type SecIssuedOperationEffectGrant = Readonly<{
-  readonly grant: SecOperationEffectGrant;
+export type IssuedOperationEffectGrant = Readonly<{
+  readonly grant: OperationEffectGrant;
   /** Correlation digest consumed by the semantic attempt compiler; not Effect authority. */
-  readonly authorityGrantDigest: SecOperationDigest;
-  readonly operationIdentityDigest: SecOperationDigest;
-  readonly executionPlanDigest: SecOperationDigest;
-  readonly currentEpochDigest: SecOperationDigest;
+  readonly authorityGrantDigest: OperationDigest;
+  readonly operationIdentityDigest: OperationDigest;
+  readonly executionPlanDigest: OperationDigest;
+  readonly currentEpochDigest: OperationDigest;
   readonly deadlineAtUnixMs: number;
 }>;
 
-export type SecConsumedOperationEffectGrantBinding = Readonly<{
-  readonly authorityGrantDigest: SecOperationDigest;
-  readonly operationIdentityDigest: SecOperationDigest;
-  readonly executionPlanDigest: SecOperationDigest;
-  readonly attemptDigest: SecOperationDigest;
-  readonly currentEpochDigest: SecOperationDigest;
+export type ConsumedOperationEffectGrantBinding = Readonly<{
+  readonly authorityGrantDigest: OperationDigest;
+  readonly operationIdentityDigest: OperationDigest;
+  readonly executionPlanDigest: OperationDigest;
+  readonly attemptDigest: OperationDigest;
+  readonly currentEpochDigest: OperationDigest;
   readonly deadlineAtUnixMs: number;
-  readonly attemptBindingDigest: SecOperationDigest;
+  readonly attemptBindingDigest: OperationDigest;
 }>;
 
-type SecOperationEffectGrantIssuer = Readonly<{
+type OperationEffectGrantIssuer = Readonly<{
   issue(input: Readonly<{
-    readonly operation: SecSemanticOperationIntent;
-    readonly currentEpochDigest: SecOperationDigest;
+    readonly operation: SemanticOperationIntent;
+    readonly currentEpochDigest: OperationDigest;
     readonly deadlineAtUnixMs: number;
-  }>): SecIssuedOperationEffectGrant;
+  }>): IssuedOperationEffectGrant;
 }>;
 
-type SecOperationEffectGrantConsumer = Readonly<{
+type OperationEffectGrantConsumer = Readonly<{
   consume(input: Readonly<{
-    readonly grant: SecOperationEffectGrant;
-    readonly operation: SecSemanticOperationPlan;
-    readonly currentEpochDigest: SecOperationDigest;
-  }>): SecConsumedOperationEffectGrantBinding;
+    readonly grant: OperationEffectGrant;
+    readonly operation: SemanticOperationPlan;
+    readonly currentEpochDigest: OperationDigest;
+  }>): ConsumedOperationEffectGrantBinding;
 }>;
 
-export type SecOperationEffectGrantAuthority = Readonly<{
+export type OperationEffectGrantAuthority = Readonly<{
   /** Kept by the exact sec.module operation classified as grant-issuer. */
-  readonly issuer: SecOperationEffectGrantIssuer;
+  readonly issuer: OperationEffectGrantIssuer;
   /** Given to the Effect owner without exposing grant issuance. */
-  readonly consumer: SecOperationEffectGrantConsumer;
+  readonly consumer: OperationEffectGrantConsumer;
 }>;
 
 type GrantRecord = {
-  readonly issuerIdentityDigest: SecOperationDigest;
+  readonly issuerIdentityDigest: OperationDigest;
   readonly semanticOperation: string;
-  readonly intentDigest: SecOperationDigest;
-  readonly decisionDigest: SecOperationDigest;
-  readonly operationIdentityDigest: SecOperationDigest;
-  readonly executionPlanDigest: SecOperationDigest;
-  readonly currentEpochDigest: SecOperationDigest;
+  readonly intentDigest: OperationDigest;
+  readonly decisionDigest: OperationDigest;
+  readonly operationIdentityDigest: OperationDigest;
+  readonly executionPlanDigest: OperationDigest;
+  readonly currentEpochDigest: OperationDigest;
   readonly deadlineAtUnixMs: number;
   readonly deadlineAtMonotonicMs: number;
-  readonly authorityGrantDigest: SecOperationDigest;
+  readonly authorityGrantDigest: OperationDigest;
   consumed: boolean;
 };
 
 const DIGEST_PATTERN = /^sha256:[0-9a-f]{64}$/u;
 
-function fail(reason: SecOperationEffectGrantFailureReason, message: string): never {
-  throw new SecOperationEffectGrantError(reason, message);
+function fail(reason: OperationEffectGrantFailureReason, message: string): never {
+  throw new OperationEffectGrantError(reason, message);
 }
 
-function requireDigest(value: string, label: string): SecOperationDigest {
+function requireDigest(value: string, label: string): OperationDigest {
   if (!DIGEST_PATTERN.test(value)) {
     fail('invalid-authority', `${label} must be one canonical SHA-256 digest.`);
   }
-  return value as SecOperationDigest;
+  return value as OperationDigest;
 }
 
-function requireCanonicalIntent(operation: SecSemanticOperationIntent): void {
-  const canonical = compileSecSemanticOperationIntent({
+function requireCanonicalIntent(operation: SemanticOperationIntent): void {
+  const canonical = compileSemanticOperationIntent({
     operation: operation.identity.operation,
     intentDigest: operation.identity.intentDigest,
     decisionDigest: operation.identity.decisionDigest,
@@ -136,14 +136,14 @@ function requireCanonicalIntent(operation: SecSemanticOperationIntent): void {
  * Creates one process-local issuer/consumer pair for exactly one semantic
  * operation.  This factory does not itself grant an Effect: a domain module
  * must keep `issuer` behind its exported operation classified as
- * `grant-issuer` in `sec.module.json`, while the Effect owner receives only
+ * `grant-issuer` in `module.json`, while the Effect owner receives only
  * `consumer`.
  */
-export function createSecOperationEffectGrantAuthority(input: Readonly<{
+export function createOperationEffectGrantAuthority(input: Readonly<{
   readonly semanticOperation: string;
-  readonly issuerIdentityDigest: SecOperationDigest;
-}>): SecOperationEffectGrantAuthority {
-  if (!SEC_SEMANTIC_OPERATION_ID_PATTERN.test(input.semanticOperation)) {
+  readonly issuerIdentityDigest: OperationDigest;
+}>): OperationEffectGrantAuthority {
+  if (!SEMANTIC_OPERATION_ID_PATTERN.test(input.semanticOperation)) {
     fail('invalid-authority', 'Effect grant semantic operation must be canonical.');
   }
   const issuerIdentityDigest = requireDigest(
@@ -152,7 +152,7 @@ export function createSecOperationEffectGrantAuthority(input: Readonly<{
   );
   const grants = new WeakMap<object, GrantRecord>();
 
-  const issuer: SecOperationEffectGrantIssuer = Object.freeze({
+  const issuer: OperationEffectGrantIssuer = Object.freeze({
     issue(issueInput) {
       requireCanonicalIntent(issueInput.operation);
       if (issueInput.operation.identity.operation !== input.semanticOperation) {
@@ -168,7 +168,7 @@ export function createSecOperationEffectGrantAuthority(input: Readonly<{
         fail('expired', 'Effect grant deadline must be a future absolute safe integer.');
       }
       const deadlineAtMonotonicMs = performance.now() + (issueInput.deadlineAtUnixMs - now);
-      const nonceDigest = `sha256:${randomBytes(32).toString('hex')}` as SecOperationDigest;
+      const nonceDigest = `sha256:${randomBytes(32).toString('hex')}` as OperationDigest;
       const authorityGrantDigest = sha256({
         domain: 'sec.operation.effect-grant',
         issuerIdentityDigest,
@@ -180,8 +180,8 @@ export function createSecOperationEffectGrantAuthority(input: Readonly<{
         currentEpochDigest,
         deadlineAtUnixMs: issueInput.deadlineAtUnixMs,
         nonceDigest
-      }) as SecOperationDigest;
-      const grant = Object.freeze({}) as SecOperationEffectGrant;
+      }) as OperationDigest;
+      const grant = Object.freeze({}) as OperationEffectGrant;
       grants.set(grant, {
         issuerIdentityDigest,
         semanticOperation: input.semanticOperation,
@@ -206,7 +206,7 @@ export function createSecOperationEffectGrantAuthority(input: Readonly<{
     }
   });
 
-  const consumer: SecOperationEffectGrantConsumer = Object.freeze({
+  const consumer: OperationEffectGrantConsumer = Object.freeze({
     consume(consumeInput) {
       const record = grants.get(consumeInput.grant);
       if (record === undefined || record.issuerIdentityDigest !== issuerIdentityDigest) {
@@ -215,7 +215,7 @@ export function createSecOperationEffectGrantAuthority(input: Readonly<{
       if (record.consumed) {
         fail('already-consumed', 'Effect grant has already been consumed.');
       }
-      assertSecSemanticOperationPlan(consumeInput.operation);
+      assertSemanticOperationPlan(consumeInput.operation);
       const currentEpochDigest = requireDigest(
         consumeInput.currentEpochDigest,
         'Effect grant current epoch digest'
@@ -262,7 +262,7 @@ export function createSecOperationEffectGrantAuthority(input: Readonly<{
         attemptDigest: plan.attempt.attemptDigest,
         currentEpochDigest: record.currentEpochDigest,
         deadlineAtUnixMs: record.deadlineAtUnixMs
-      }) as SecOperationDigest;
+      }) as OperationDigest;
       return deepFreeze({
         authorityGrantDigest: record.authorityGrantDigest,
         operationIdentityDigest: record.operationIdentityDigest,

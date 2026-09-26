@@ -23,10 +23,10 @@ import {
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
-import { runRetainedGitWriteTreeProbeV1 } from '../helpers/retained-git-write-tree-probe.ts';
+import { runRetainedGitWriteTreeProbe } from '../helpers/retained-git-write-tree-probe.ts';
 
 import type { LinuxNoFollowDirectoryCreateRaceActor, LinuxNoFollowDirectoryCreateRacePoint } from '../../src/adapters/runtime-state/physical/runtime/physical-no-follow.ts';
-import { assertRetainedNoFollowCapability, assertSameNoFollowDirectoryIdentity, copyNoFollowDirectoryTreesBulk, createExclusiveNoFollowDirectory, createLinuxNoFollowDirectoryCreateRaceActorForTests, createNoFollowDirectoryChain, createWindowsDurableCanonicalFileReplacementInterruptionActorForTests, deleteRetainedNoFollowEntry, inspectExactNoFollowDirectoryPresence, inspectNoFollowDirectoryChain, inspectNoFollowDirectoryChild, inspectNoFollowDirectoryLeaf, inspectNoFollowLinkEntry, inspectNoFollowOrdinaryFileDigest, inspectNoFollowOrdinaryFileEntry, PhysicalNoFollowError, publishExclusiveDurableCanonicalFile, readNoFollowOrdinaryFile, recoverDurableCanonicalFileReplacement, relocateRetainedNoFollowDirectory, replaceDurableCanonicalFile, retainNoFollowDirectoryForChildProcess, retainNoFollowOrdinaryFile, retainNoFollowOrdinaryFileForChildProcess, retainNoFollowSealedDirectoryGeneration, retireNoFollowDirectoryTree, scanNoFollowDirectoryTree, scanNoFollowDirectoryTreeInventory, scanNoFollowDirectoryTreeMetadata, scanNoFollowDirectoryTreeSelectedForest } from '../../src/adapters/runtime-state/physical/runtime/physical-no-follow.ts';
+import { assertRetainedNoFollowCapability, assertSameNoFollowDirectoryIdentity, copyNoFollowDirectoryTreesBulk, createExclusiveNoFollowDirectory, createLinuxNoFollowDirectoryCreateRaceActorForTests, createNoFollowDirectoryChain, createDurableReplacementInterruptionActorForTests, deleteRetainedNoFollowEntry, inspectExactNoFollowDirectoryPresence, inspectNoFollowDirectoryChain, inspectNoFollowDirectoryChild, inspectNoFollowDirectoryLeaf, inspectNoFollowLinkEntry, inspectNoFollowOrdinaryFileDigest, inspectNoFollowOrdinaryFileEntry, PhysicalNoFollowError, publishExclusiveDurableCanonicalFile, readNoFollowOrdinaryFile, recoverDurableCanonicalFileReplacement, relocateRetainedNoFollowDirectory, replaceDurableCanonicalFile, retainNoFollowDirectoryForChildProcess, retainNoFollowOrdinaryFile, retainNoFollowOrdinaryFileForChildProcess, retainNoFollowSealedDirectoryGeneration, retireNoFollowDirectoryTree, scanNoFollowDirectoryTree, scanNoFollowDirectoryTreeInventory, scanNoFollowDirectoryTreeMetadata, scanNoFollowDirectoryTreeSelectedForest } from '../../src/adapters/runtime-state/physical/runtime/physical-no-follow.ts';
 import { sealExistingWindowsReadOnlyTreeAuthority } from '../../src/adapters/runtime-state/physical/runtime/windows-host-filesystem-authority.ts';
 import { sha256 } from '../../src/contracts/canonical.ts';
 
@@ -580,8 +580,11 @@ test('retained child-process file reads the observed inode after leaf replacemen
       expect(child.status).toBe(0);
       expect(child.stdout).toBe('authorized-index\n');
       if (process.platform === 'linux') {
-        // A retained descriptor can still read the old inode. That fact does
-        // not renew the current lexical/source binding after replacement.
+        // The retained descriptor remains a valid child-process input even
+        // after the lexical path is replaced.  That handle-only fact must not
+        // renew the stronger current-path binding.
+        expect(capability.handleDigest().byteDigest).toBe(expectedDigest);
+        capability.assertHandleCurrent();
         expectPhysicalCode(() => capability.digest(), 'PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED');
         expectPhysicalCode(() => capability.assertCurrent(), 'PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED');
       } else {
@@ -597,7 +600,7 @@ test('retained child-process file reads the observed inode after leaf replacemen
 });
 
 test('retained Git index and object directories support write-tree without lexical reopen', () => {
-  expect(runRetainedGitWriteTreeProbeV1()).toMatch(/^[0-9a-f]{40}$/u);
+  expect(runRetainedGitWriteTreeProbe()).toMatch(/^[0-9a-f]{40}$/u);
 });
 
 test('exact ordinary leaf observation does not scan unrelated parent entries', () => {
@@ -1452,7 +1455,7 @@ test('Windows durable identity CAS recovers every persisted interruption state b
       const parent = inspectNoFollowDirectoryChain(parentPath, 'CAS recovery parent').target;
       const current = inspectNoFollowOrdinaryFileEntry(parent, 'owner.json')!;
       let concurrentRecoveryRejected = false;
-      const actor = createWindowsDurableCanonicalFileReplacementInterruptionActorForTests(
+      const actor = createDurableReplacementInterruptionActorForTests(
         scenario.point,
         scenario.point === 'after-transaction-record'
           ? () => {
@@ -1500,7 +1503,7 @@ test('Windows durable CAS rejects a same-byte foreign final by FileId and preser
       bytes: Buffer.from('new\n', 'utf8'),
       expectedExisting: { device: current.device, inode: current.inode },
       validate: () => undefined,
-      windowsInterruptionActor: createWindowsDurableCanonicalFileReplacementInterruptionActorForTests(
+      windowsInterruptionActor: createDurableReplacementInterruptionActorForTests(
         'after-candidate-publication'
       )
     }), 'PHYSICAL_NO_FOLLOW_DURABILITY_FAILED');

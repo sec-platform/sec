@@ -2,13 +2,13 @@ import { rawSha256 } from '../../../../../contracts/canonical.ts';
 
 import type { ObservedCommandOutcome } from '../observed-process.ts';
 
-export type WindowsAppContainerObservedNativeHelperMode =
+export type NativeHelperMode =
   | 'derive'
   | 'create-profile'
   | 'suspended-create'
   | 'execute';
 
-type WindowsAppContainerObservedNativeHelperSettlementRejection =
+type SettlementRejection =
   | 'timed-out'
   | 'not-started'
   | 'closure-unproven'
@@ -20,19 +20,19 @@ type WindowsAppContainerObservedNativeHelperSettlementRejection =
   | 'stdout-evidence-mismatch'
   | 'stderr-evidence-mismatch';
 
-export type WindowsAppContainerObservedNativeHelperSettlementClassification =
+export type NativeHelperSettlementClassification =
   | Readonly<{ readonly status: 'success' }>
   | Readonly<{
       readonly status: 'rejected';
-      readonly reason: WindowsAppContainerObservedNativeHelperSettlementRejection;
+      readonly reason: SettlementRejection;
     }>;
 
-export type WindowsAppContainerObservedNativeHelperSettlement = Readonly<{
-  readonly mode: WindowsAppContainerObservedNativeHelperMode;
-  readonly reason: WindowsAppContainerObservedNativeHelperSettlementRejection;
+export type NativeHelperSettlement = Readonly<{
+  readonly mode: NativeHelperMode;
+  readonly reason: SettlementRejection;
 }>;
 
-export interface WindowsAppContainerObservedNativeHelperDiagnosticCapture {
+export interface NativeHelperDiagnosticCapture {
   readonly bytes: number;
   readonly digest: `sha256:${string}`;
   readonly present: boolean;
@@ -64,11 +64,11 @@ const CLASSIFICATIONS = Object.freeze({
   })
 });
 
-export const WINDOWS_APPCONTAINER_OBSERVED_NATIVE_HELPER_EXIT_STATUS_UNPROVEN =
+export const NATIVE_HELPER_EXIT_STATUS_UNPROVEN =
   CLASSIFICATIONS.exitStatusUnproven;
 
 const settlementsByError =
-  new WeakMap<Error, WindowsAppContainerObservedNativeHelperSettlement>();
+  new WeakMap<Error, NativeHelperSettlement>();
 
 function observedOutputMatches(
   contents: Uint8Array,
@@ -78,11 +78,11 @@ function observedOutputMatches(
     evidence.digest === rawSha256(contents);
 }
 
-export function classifyWindowsAppContainerObservedNativeHelperSettlement(
+export function classifyNativeHelperSettlement(
   outcome: ObservedCommandOutcome,
   stdout: Uint8Array,
-  diagnostic: WindowsAppContainerObservedNativeHelperDiagnosticCapture
-): WindowsAppContainerObservedNativeHelperSettlementClassification {
+  diagnostic: NativeHelperDiagnosticCapture
+): NativeHelperSettlementClassification {
   if (outcome.status === 'timed-out' || outcome.trigger === 'timed-out') {
     return CLASSIFICATIONS.timedOut;
   }
@@ -108,16 +108,16 @@ export function classifyWindowsAppContainerObservedNativeHelperSettlement(
   return CLASSIFICATIONS.success;
 }
 
-export function bindWindowsAppContainerObservedNativeHelperSettlement(
+export function bindNativeHelperSettlement(
   error: Error,
-  mode: WindowsAppContainerObservedNativeHelperMode,
-  classification: WindowsAppContainerObservedNativeHelperSettlementClassification
+  mode: NativeHelperMode,
+  classification: NativeHelperSettlementClassification
 ): void {
   if (classification.status !== 'rejected') return;
   settlementsByError.set(error, Object.freeze({ mode, reason: classification.reason }));
 }
 
-export function copyWindowsAppContainerObservedNativeHelperSettlement(
+export function copyNativeHelperSettlement(
   source: Error,
   target: Error
 ): void {
@@ -126,8 +126,8 @@ export function copyWindowsAppContainerObservedNativeHelperSettlement(
 }
 
 /** Test-only finite sidecar; it never retains process, command, path, or output values. */
-export function windowsAppContainerObservedNativeHelperSettlementForTests(
+export function nativeHelperSettlementForTests(
   error: Error
-): WindowsAppContainerObservedNativeHelperSettlement | undefined {
+): NativeHelperSettlement | undefined {
   return settlementsByError.get(error);
 }

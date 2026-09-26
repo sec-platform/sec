@@ -49,8 +49,11 @@ function binding(expectedLocalPreimageSha = git(protectedRoot!, ['rev-parse', 'H
 }
 
 async function execute(bindingValue: ReturnType<typeof binding>) {
-  return withWorkspaceWriteLease(protectedRoot!, undefined, (lease) => (
-    executeLocalMainCloseout(protectedRoot!, bindingValue, gitRunner, lease)
+  const commonDir = git(protectedRoot!, ['rev-parse', '--path-format=absolute', '--git-common-dir']).trim();
+  return withWorkspaceWriteLease(commonDir, undefined, (commonLease) => (
+    withWorkspaceWriteLease(protectedRoot!, undefined, (lease) => (
+      executeLocalMainCloseout(protectedRoot!, bindingValue, gitRunner, lease, commonLease)
+    ))
   ));
 }
 

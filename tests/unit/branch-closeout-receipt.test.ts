@@ -1,5 +1,12 @@
 import { expect, test } from 'bun:test';
 
+import type { GitHubApiPrincipal } from '../../src/adapters/providers/github-api/operation-session.ts';
+import {
+  issueGitHubApiTestCapability,
+  withGitHubApiTestSession,
+  type GitHubApiTransport
+} from '../../src/adapters/providers/github-api/test/operation-session.ts';
+
 import {
   createBranchCloseoutOperationBinding,
   createBranchCloseoutOperationReceipt,
@@ -12,8 +19,10 @@ import {
   createBranchCloseoutEffectStartPublication,
   createBranchCloseoutOperationPublication,
   createHostedWorkflowCommentProvenance,
+  assertHostedCommentProvenanceLiveWithCapability,
   hostedPublisherMatches,
   issueCommentRecord,
+  listIssueComments,
   parseBranchCloseoutEffectStartPublicationComment,
   parseBranchCloseoutOperationPublicationComment,
   parsePublishedBranchCloseoutReceiptComment,
@@ -164,8 +173,8 @@ function operationReceipt(generatedAt = '2026-08-09T00:01:00.000Z', writerId = '
 function provenance() {
   return createHostedWorkflowCommentProvenance({
     repositoryId: '123',
-    workflowPath: '.github/workflows/sec-merge-gate.yml',
-    workflowRef: `.github/workflows/sec-merge-gate.yml@${MAIN_SHA}`,
+    workflowPath: '.github/workflows/merge-gate.yml',
+    workflowRef: `.github/workflows/merge-gate.yml@${MAIN_SHA}`,
     workflowSha: MAIN_SHA,
     runId: '200',
     runAttempt: 1,
@@ -362,4 +371,101 @@ test('public branch lifecycle modules cannot mint or invoke arbitrary subprocess
   ]) {
     expect(symbol in command).toBe(false);
   }
+});
+
+
+const TEST_GITHUB_PRINCIPAL: GitHubApiPrincipal = Object.freeze({
+  transport: 'github-rest-token',
+  login: 'integrator',
+  nodeId: 'MDQ6VXNlcjE=',
+  userId: 900001,
+  permission: 'maintain'
+});
+
+function githubReadCapability(transport: GitHubApiTransport) {
+  return issueGitHubApiTestCapability({
+    repository: 'sec-platform/sec',
+    token: 'test-token-branch-closeout',
+    principal: TEST_GITHUB_PRINCIPAL,
+    effect: 'read',
+    transport
+  });
+}
+
+test('closeout issue-comment inventory paginates through the canonical GitHub read capability', async () => {
+  const requests: string[] = [];
+  const firstPage = Array.from({ length: 100 }, (_, index) => actionsComment(
+    index + 1, `comment-${index + 1}`
+  ));
+  const secondPage = [actionsComment(101, 'comment-101')];
+  const capability = githubReadCapability(async (target) => {
+    const url = String(target);
+    requests.push(url);
+    return Response.json(url.endsWith('page=1') ? firstPage : secondPage);
+  });
+  const inventory = await withGitHubApiTestSession({
+    capability,
+    operation: async () => await listIssueComments(capability, 42)
+  });
+  expect(inventory.detail).toBeNull();
+  expect(inventory.comments?.map(({ id }) => id)).toEqual(
+    Array.from({ length: 101 }, (_, index) => index + 1)
+  );
+  expect(requests).toEqual([
+    'https://api.github.com/repos/sec-platform/sec/issues/42/comments?per_page=100&page=1',
+    'https://api.github.com/repos/sec-platform/sec/issues/42/comments?per_page=100&page=2'
+  ]);
+});
+
+test('hosted closeout provenance revalidates repository, exact run attempts, and actor permission via one capability', async () => {
+  const observedPaths: string[] = [];
+  const expected = provenance();
+  const comment = issueCommentRecord(
+    actionsComment(20, 'receipt'),
+    'hosted closeout test comment'
+  );
+  const capability = githubReadCapability(async (target) => {
+    const url = new URL(String(target));
+    observedPaths.push(url.pathname);
+    if (url.pathname === '/repos/sec-platform/sec') {
+      return Response.json({ id: 123, full_name: 'sec-platform/sec', default_branch: 'main' });
+    }
+    if (url.pathname === '/repos/sec-platform/sec/actions/runs/200/attempts/1') {
+      return Response.json({
+        id: 200,
+        run_attempt: 1,
+        event: 'workflow_run',
+        path: '.github/workflows/merge-gate.yml',
+        head_sha: MAIN_SHA,
+        actor: { login: 'github-actions[bot]' },
+        repository: { id: 123 }
+      });
+    }
+    if (url.pathname === '/repos/sec-platform/sec/actions/runs/100/attempts/1') {
+      return Response.json({
+        id: 100,
+        run_attempt: 1,
+        event: 'repository_dispatch',
+        path: '.github/workflows/compiler-pr-validation.yml',
+        head_sha: MAIN_SHA,
+        triggering_actor: { login: 'integrator', node_id: 'MDQ6VXNlcjE=' }
+      });
+    }
+    if (url.pathname === '/repos/sec-platform/sec/collaborators/integrator/permission') {
+      return Response.json({ permission: 'maintain' });
+    }
+    return Response.json({ error: 'unexpected path' }, { status: 404 });
+  });
+  await withGitHubApiTestSession({
+    capability,
+    operation: async () => await assertHostedCommentProvenanceLiveWithCapability(
+      capability, 'sec-platform/sec', comment, expected
+    )
+  });
+  expect(observedPaths).toEqual([
+    '/repos/sec-platform/sec',
+    '/repos/sec-platform/sec/actions/runs/200/attempts/1',
+    '/repos/sec-platform/sec/actions/runs/100/attempts/1',
+    '/repos/sec-platform/sec/collaborators/integrator/permission'
+  ]);
 });

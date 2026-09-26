@@ -1,7 +1,7 @@
 import { expect, test } from 'bun:test';
 
 import {
-  CodexDevelopmentMergeGateProducerIdentity,
+  MergeGateProducerIdentity,
   createTrustedRuntimeArtifactObservation,
   createTrustedRuntimeMergeGateProvenance
 } from '../../src/adapters/self-hosting/control/integration/merge-gate.ts';
@@ -11,22 +11,22 @@ const D = (value: string): `sha256:${string}` => `sha256:${value.repeat(64).slic
 
 test('trusted runtime provenance binds the exact trusted merge-gate revision', () => {
   const provenance = createTrustedRuntimeMergeGateProvenance({
-    runtimePath: CodexDevelopmentMergeGateProducerIdentity,
-    runtimeRef: `${CodexDevelopmentMergeGateProducerIdentity}@${BASE}`,
+    runtimePath: MergeGateProducerIdentity,
+    runtimeRef: `${MergeGateProducerIdentity}@${BASE}`,
     runtimeSha: BASE,
     executionId: 'trusted-runtime-1',
     actorNodeId: 'APP_sec_integrator',
     actorPermission: 'maintain'
   });
   expect(provenance.runtimeSha).toBe(BASE);
-  expect(provenance.runtimeRef).toBe(`${CodexDevelopmentMergeGateProducerIdentity}@${BASE}`);
+  expect(provenance.runtimeRef).toBe(`${MergeGateProducerIdentity}@${BASE}`);
   expect(provenance.sourceDigest).toMatch(/^sha256:[0-9a-f]{64}$/u);
 });
 
 test('trusted runtime provenance rejects candidate or ambiguous runtime identity', () => {
   expect(() => createTrustedRuntimeMergeGateProvenance({
-    runtimePath: CodexDevelopmentMergeGateProducerIdentity,
-    runtimeRef: `${CodexDevelopmentMergeGateProducerIdentity}@${'2'.repeat(40)}`,
+    runtimePath: MergeGateProducerIdentity,
+    runtimeRef: `${MergeGateProducerIdentity}@${'2'.repeat(40)}`,
     runtimeSha: BASE,
     executionId: 'trusted-runtime-1',
     actorNodeId: 'APP_sec_integrator',
@@ -34,8 +34,8 @@ test('trusted runtime provenance rejects candidate or ambiguous runtime identity
   })).toThrow('runtime ref must bind the exact merge-gate revision');
 
   expect(() => createTrustedRuntimeMergeGateProvenance({
-    runtimePath: 'scripts/codex/other-gate.ts' as typeof CodexDevelopmentMergeGateProducerIdentity,
-    runtimeRef: `${CodexDevelopmentMergeGateProducerIdentity}@${BASE}`,
+    runtimePath: 'scripts/codex/other-gate.ts' as typeof MergeGateProducerIdentity,
+    runtimeRef: `${MergeGateProducerIdentity}@${BASE}`,
     runtimeSha: BASE,
     executionId: 'trusted-runtime-1',
     actorNodeId: 'APP_sec_integrator',
@@ -48,7 +48,7 @@ test('trusted runtime artifact observation is durable-file readback, not an Acti
     artifactFileName: 'verification-session-artifact.json',
     artifactByteDigest: D('a'),
     artifactByteLength: 123,
-    runtimeRef: `${CodexDevelopmentMergeGateProducerIdentity}@${BASE}`,
+    runtimeRef: `${MergeGateProducerIdentity}@${BASE}`,
     runtimeSha: BASE,
     executionId: 'trusted-runtime-1',
     producerSourceDigest: D('b'),
@@ -63,7 +63,7 @@ test('trusted runtime artifact observation rejects Actions-style or stale readba
     artifactFileName: 'verification-session-artifact.json',
     artifactByteDigest: D('a'),
     artifactByteLength: 123,
-    runtimeRef: `${CodexDevelopmentMergeGateProducerIdentity}@${BASE}`,
+    runtimeRef: `${MergeGateProducerIdentity}@${BASE}`,
     runtimeSha: BASE,
     executionId: 'trusted-runtime-1',
     producerSourceDigest: D('b'),

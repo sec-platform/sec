@@ -1,21 +1,21 @@
-import { createHash } from 'node:crypto';
 import path from 'node:path';
 
-import { issueSecOperationRequirementBindingContext } from '../../../../execution/operation/requirement-binding-context.ts';
+import { rawSha256Hex } from '../../../../contracts/canonical.ts';
+import { issueOperationRequirementBindingContext } from '../../../../execution/operation/requirement-binding-context.ts';
 import {
-  bindSecSemanticOperation,
-  compileSecCapabilityBinding,
-  compileSecSemanticOperationPlan,
-  issueSecSemanticOperationAttemptContext
+  bindSemanticOperation,
+  compileCapabilityBinding,
+  compileSemanticOperationPlan,
+  issueSemanticOperationAttemptContext
 } from '../../../../execution/operation/semantic.ts';
 import type { GitHubApiCapability } from '../../../providers/github-api/operation-session.ts';
 import { inspectExactNoFollowDirectoryPresence } from '../../../runtime-state/physical/runtime/physical-no-follow.ts';
 import {
   acknowledgeClosedAbsentDevelopmentCommitJournalRetirement,
-  CLOSED_ABSENT_DEVELOPMENT_COMMIT_JOURNAL_RETIREMENT_CONTRACT_DIGEST,
-  CLOSED_ABSENT_DEVELOPMENT_COMMIT_JOURNAL_RETIREMENT_PROVIDER_IDENTITY_DIGEST,
-  CLOSED_ABSENT_DEVELOPMENT_COMMIT_JOURNAL_RETIREMENT_REQUIREMENT_ID,
-  CLOSED_ABSENT_DEVELOPMENT_COMMIT_JOURNAL_RETIREMENT_RESOURCE_CEILINGS,
+  JOURNAL_RETIREMENT_CONTRACT_DIGEST,
+  JOURNAL_RETIREMENT_PROVIDER_DIGEST,
+  JOURNAL_RETIREMENT_REQUIREMENT_ID,
+  JOURNAL_RETIREMENT_RESOURCE_CEILINGS,
   prepareClosedAbsentDevelopmentCommitJournalRetirement
 } from '../../development/commit/operation.ts';
 import {
@@ -56,20 +56,20 @@ function compileCommitJournalRetirementOperation(
   completed: Extract<ClosedUnmergedCloseoutExecutionResult, { status: 'completed' }>
 ) {
   const deadlineAtUnixMs = Date.now()
-    + CLOSED_ABSENT_DEVELOPMENT_COMMIT_JOURNAL_RETIREMENT_RESOURCE_CEILINGS
+    + JOURNAL_RETIREMENT_RESOURCE_CEILINGS
       .find(({ resource }) => resource === 'duration-ms')!.maximum;
-  const plan = compileSecSemanticOperationPlan({
+  const plan = compileSemanticOperationPlan({
     operation: 'control.branch-lifecycle.closed-unmerged-commit-journal-retirement',
     intentDigest: operation.operationId,
-    decisionDigest: CLOSED_ABSENT_DEVELOPMENT_COMMIT_JOURNAL_RETIREMENT_CONTRACT_DIGEST,
+    decisionDigest: JOURNAL_RETIREMENT_CONTRACT_DIGEST,
     deadlineAtUnixMs,
-    attempt: issueSecSemanticOperationAttemptContext({
+    attempt: issueSemanticOperationAttemptContext({
       authorityGrantDigest: completed.receipt.publicationDigest
     }),
-    aggregateBudgets: CLOSED_ABSENT_DEVELOPMENT_COMMIT_JOURNAL_RETIREMENT_RESOURCE_CEILINGS,
+    aggregateBudgets: JOURNAL_RETIREMENT_RESOURCE_CEILINGS,
     requirements: [Object.freeze({
-      id: CLOSED_ABSENT_DEVELOPMENT_COMMIT_JOURNAL_RETIREMENT_REQUIREMENT_ID,
-      contractDigest: CLOSED_ABSENT_DEVELOPMENT_COMMIT_JOURNAL_RETIREMENT_CONTRACT_DIGEST,
+      id: JOURNAL_RETIREMENT_REQUIREMENT_ID,
+      contractDigest: JOURNAL_RETIREMENT_CONTRACT_DIGEST,
       effectKinds: Object.freeze(['filesystem', 'process', 'provider'] as const),
       failureKinds: Object.freeze([
         'development.commit.readback-invalid',
@@ -77,11 +77,11 @@ function compileCommitJournalRetirementOperation(
       ])
     })]
   });
-  return bindSecSemanticOperation(plan, [compileSecCapabilityBinding({
-    requirementId: CLOSED_ABSENT_DEVELOPMENT_COMMIT_JOURNAL_RETIREMENT_REQUIREMENT_ID,
-    contractDigest: CLOSED_ABSENT_DEVELOPMENT_COMMIT_JOURNAL_RETIREMENT_CONTRACT_DIGEST,
+  return bindSemanticOperation(plan, [compileCapabilityBinding({
+    requirementId: JOURNAL_RETIREMENT_REQUIREMENT_ID,
+    contractDigest: JOURNAL_RETIREMENT_CONTRACT_DIGEST,
     providerIdentityDigest:
-      CLOSED_ABSENT_DEVELOPMENT_COMMIT_JOURNAL_RETIREMENT_PROVIDER_IDENTITY_DIGEST
+      JOURNAL_RETIREMENT_PROVIDER_DIGEST
   })]);
 }
 
@@ -100,11 +100,11 @@ async function retireCommitJournalConsumers(input: Readonly<{
     ref: `refs/heads/${input.operation.evidence.branch}`,
     capability: input.capability,
     pullRequestNumber: input.operation.evidence.pullRequestNumber,
-    requirementBindingContext: issueSecOperationRequirementBindingContext({
+    requirementBindingContext: issueOperationRequirementBindingContext({
       operation: semanticOperation,
-      requirementId: CLOSED_ABSENT_DEVELOPMENT_COMMIT_JOURNAL_RETIREMENT_REQUIREMENT_ID,
+      requirementId: JOURNAL_RETIREMENT_REQUIREMENT_ID,
       resourceCeilings:
-        CLOSED_ABSENT_DEVELOPMENT_COMMIT_JOURNAL_RETIREMENT_RESOURCE_CEILINGS
+        JOURNAL_RETIREMENT_RESOURCE_CEILINGS
     })
   });
   const settlement = await acknowledgeClosedAbsentDevelopmentCommitJournalRetirement(plan);
@@ -150,38 +150,42 @@ export async function retireClosedUnmergedRecoveryFamily(input: Readonly<{
     worktreeRoots: input.operation.prepared.before.worktrees.map(({ path: worktreePath }) => worktreePath),
     recoveryRoot
   });
-  const bundleName = path.basename(recoveryPath);
-  if (path.join(store.root.path, bundleName) !== recoveryPath) {
-    throw new Error('Closed-unmerged recovery bundle escapes its exact owner root.');
+  const recoveryName = path.basename(recoveryPath);
+  if (path.join(store.root.path, recoveryName) !== recoveryPath) {
+    throw new Error('Closed-unmerged recovery proof escapes its exact owner root.');
   }
-  const checksumName = `${bundleName}.sha256`;
-  const preparationName = `${bundleName}.preparation.json`;
-  const orderedNames = Object.freeze([bundleName, checksumName, preparationName]);
-  const allowedSidecars = new Set([checksumName, preparationName]);
-  const unexpected = store.listOwnedFiles(`${bundleName}.`)
+  const bundleRecovery = preparation.recovery.kind === 'bundle';
+  const checksumName = `${recoveryName}.sha256`;
+  const preparationName = `${recoveryName}.preparation.json`;
+  const orderedNames = Object.freeze(bundleRecovery
+    ? [recoveryName, checksumName, preparationName] : [recoveryName, preparationName]);
+  const allowedSidecars = new Set(bundleRecovery
+    ? [checksumName, preparationName] : [preparationName]);
+  const unexpected = store.listOwnedFiles(`${recoveryName}.`)
     .filter((name) => !allowedSidecars.has(name));
   if (unexpected.length > 0) {
     throw new Error(`Closed-unmerged recovery family has active or unknown consumers: ${unexpected.join(', ')}`);
   }
 
-  const bundle = store.inspectFile(bundleName);
-  const checksum = store.inspectFile(checksumName);
+  const proof = store.inspectFile(recoveryName);
+  const checksum = bundleRecovery ? store.inspectFile(checksumName) : null;
   const prepared = store.inspectFile(preparationName);
   // Preparation remains the durable continuation until the final deletion.
-  if ((bundle !== null && checksum === null) || (checksum !== null && prepared === null)) {
+  if ((bundleRecovery && proof !== null && checksum === null)
+      || (checksum !== null && prepared === null)) {
     throw new Error('Closed-unmerged recovery family is not one valid ordered retirement state.');
   }
-  if (bundle !== null) {
-    if (bundle.kind !== 'file' || bundle.bytes === null || bundle.linkTarget !== null
-      || `sha256:${createHash('sha256').update(bundle.bytes).digest('hex')}`
+  if (proof !== null) {
+    if (proof.kind !== 'file' || proof.bytes === null || proof.linkTarget !== null
+      || `sha256:${rawSha256Hex(proof.bytes)}`
         !== preparation.recovery.sha256) {
-      throw new Error('Closed-unmerged recovery bundle differs from its prepared digest.');
+      throw new Error('Closed-unmerged recovery proof differs from its prepared digest.');
     }
   }
   if (checksum !== null) {
     if (checksum.kind !== 'file' || checksum.bytes === null || checksum.linkTarget !== null
       || !Buffer.from(checksum.bytes).equals(Buffer.from(
-        `${preparation.recovery.sha256.slice('sha256:'.length)}  ${bundleName}\n`, 'utf8'
+        `${preparation.recovery.sha256.slice('sha256:'.length)}  ${recoveryName}\n`, 'utf8'
       ))) {
       throw new Error('Closed-unmerged recovery checksum differs from its exact bundle identity.');
     }
@@ -196,8 +200,8 @@ export async function retireClosedUnmergedRecoveryFamily(input: Readonly<{
       throw new Error('Closed-unmerged recovery preparation identity differs from the exact issued envelope.');
     }
   }
-  if (bundle !== null && checksum !== null) {
-    const verification = verifyRecoveryAuthorityLive({
+  if (bundleRecovery && proof !== null && checksum !== null) {
+    const verification = await verifyRecoveryAuthorityLive({
       inventory: input.operation.prepared.before,
       recovery: preparation.recovery
     });
@@ -214,7 +218,7 @@ export async function retireClosedUnmergedRecoveryFamily(input: Readonly<{
   const retired: string[] = [];
   let failure: string | null = null;
   const admittedEntries = new Map([
-    [bundleName, bundle], [checksumName, checksum], [preparationName, prepared]
+    [recoveryName, proof], [checksumName, checksum], [preparationName, prepared]
   ] as const);
   for (const name of orderedNames) {
     const observed = admittedEntries.get(name) ?? null;

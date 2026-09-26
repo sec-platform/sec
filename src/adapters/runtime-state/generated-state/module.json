@@ -1,0 +1,41 @@
+{
+  "importGraph": "runtime",
+  "externalEntrypoints": [],
+  "capabilityProviders": [
+    {
+      "capability": "generated-state-lifecycle",
+      "operations": [
+        "generatedStateProducerHooks",
+        "inspectGeneratedState",
+        "planGeneratedStateCleanup",
+        "runGeneratedStateOperation",
+        "settleGeneratedState",
+        "settleWorkspaceEnvironment"
+      ]
+    }
+  ],
+  "causalRelations": [
+    {
+      "subject": "runtime-state.workspace-environment-settlement",
+      "relation": "declares",
+      "symbol": {
+        "path": "src/adapters/runtime-state/generated-state/environment-settlement.ts",
+        "name": "settleWorkspaceEnvironment"
+      },
+      "operation": null
+    },
+    {
+      "subject": "runtime-state.workspace-environment-settlement",
+      "relation": "settles",
+      "symbol": {
+        "path": "src/adapters/runtime-state/generated-state/environment-settlement.ts",
+        "name": "settleWorkspaceEnvironment"
+      },
+      "operation": {
+        "semanticOperation": "runtime-state.workspace-environment-settlement",
+        "requirementId": null
+      }
+    }
+  ],
+  "preDependencyBootstrap": false
+}

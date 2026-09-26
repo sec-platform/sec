@@ -1,5 +1,5 @@
-import { createHash } from 'node:crypto';
 
+import { rawSha256Hex } from '../../../../contracts/canonical.ts';
 import { encodeVerificationActionData } from '../../../verification/platform/action/contract/action.ts';
 import { CI_GITHUB_ACTIONS_IDENTITY_POLICY } from '../../../verification/platform/action/contract/provider.ts';
 import { INTEGRATION_AUTHORIZATION_STATUS_CONTEXT } from './github-status-namespace.ts';
@@ -52,7 +52,7 @@ function array(value: unknown, label: string): readonly unknown[] {
 }
 
 function digest(value: unknown): MainAuthorityRulesetDigest {
-  return `sha256:${createHash('sha256').update(encodeVerificationActionData(value)).digest('hex')}`;
+  return `sha256:${rawSha256Hex(encodeVerificationActionData(value))}`;
 }
 
 function canonicalRepository(value: unknown): string {

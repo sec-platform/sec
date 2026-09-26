@@ -1,9 +1,12 @@
-import { spawnSync } from 'node:child_process';
-import { createHash } from 'node:crypto';
 
+import { rawSha256Hex } from '../../../../contracts/canonical.ts';
+import {
+  executeObservedGitHubApiOperation,
+  withGitHubApiReadSession,
+  type GitHubApiCapability
+} from '../../../providers/github-api/operation-session.ts';
 import { encodeVerificationActionData } from '../../../verification/platform/action/contract/action.ts';
 import {
-  GITHUB_PULL_REQUEST_CLOSING_QUERY,
   decideUnexpectedIssueReopen,
   parseGitHubClosingKeywordOccurrences,
   parseGitHubPullRequestClosingFactsPage,
@@ -53,7 +56,7 @@ function fail(message: string): never {
 function hash(value: string | Uint8Array | object): IssueDispositionDigest {
   const source = typeof value === 'string' || value instanceof Uint8Array
     ? value : encodeVerificationActionData(value);
-  return `sha256:${createHash('sha256').update(source).digest('hex')}`;
+  return `sha256:${rawSha256Hex(source)}`;
 }
 
 function record(value: unknown, label: string): Record<string, unknown> {
@@ -218,41 +221,37 @@ export function parseGitHubLatestClosedEvent(input: Readonly<{
   }
 }
 
-function gh(args: readonly string[]): string {
-  const result = spawnSync('gh', args, { encoding: 'utf8', windowsHide: true,
-    maxBuffer: 16 * 1024 * 1024, stdio: ['ignore', 'pipe', 'pipe'] });
-  if (result.error !== undefined || result.status !== 0) {
-    const diagnostic = `${result.error?.message ?? ''}\n${result.stderr ?? ''}`.trim();
-    return fail(`provider command failed; diagnostic digest ${hash(diagnostic)}.`);
-  }
-  return result.stdout;
-}
-
-function ghGraphql(query: string, variables: Readonly<Record<string, unknown>>): string {
-  const args = ['api', 'graphql', '-f', `query=${query}`];
-  for (const [name, value] of Object.entries(variables)) {
-    if (value !== null) args.push('-F', `${name}=${String(value)}`);
-  }
-  return gh(args);
-}
-
-function observeIssue(repositoryIdentity: string, issueNumber: number): GitHubIssueObservation {
-  return parseGitHubIssueObservation({ source: gh(['api',
-    `/repos/${repositoryIdentity}/issues/${issueNumber}`]), repository: repositoryIdentity, issueNumber });
-}
-
-export function observeGitHubIssue(
+async function observeIssue(
+  capability: GitHubApiCapability,
   repositoryIdentity: string,
   issueNumber: number
-): GitHubIssueObservation {
-  return observeIssue(repository(repositoryIdentity), positiveInteger(issueNumber, 'issueNumber'));
+): Promise<GitHubIssueObservation> {
+  const observed = await executeObservedGitHubApiOperation(capability, {
+    kind: 'issue', issueNumber
+  });
+  return parseGitHubIssueObservation({ source: observed.source,
+    repository: repositoryIdentity, issueNumber });
 }
 
-function observeGitHubPullRequestClosingFacts(
+export async function observeGitHubIssue(
+  repositoryRoot: string,
+  repositoryIdentity: string,
+  issueNumber: number
+): Promise<GitHubIssueObservation> {
+  const expectedRepository = repository(repositoryIdentity);
+  const expectedIssueNumber = positiveInteger(issueNumber, 'issueNumber');
+  return await withGitHubApiReadSession({ repositoryRoot, repository: expectedRepository,
+    operation: async (capability) => await observeIssue(
+      capability, expectedRepository, expectedIssueNumber
+    ) });
+}
+
+async function observeGitHubPullRequestClosingFacts(
+  capability: GitHubApiCapability,
   repositoryIdentity: string,
   prNumber: number
-): GitHubPullRequestClosingFacts {
-  const [owner, name] = repository(repositoryIdentity).split('/') as [string, string];
+): Promise<GitHubPullRequestClosingFacts> {
+  repository(repositoryIdentity);
   let cursor: string | null = null;
   let common: ReturnType<typeof parseGitHubPullRequestClosingFactsPage>['facts'] | null = null;
   let expectedTotal: number | null = null;
@@ -260,9 +259,11 @@ function observeGitHubPullRequestClosingFacts(
   const references: GitHubIssueReference[] = [];
   const decodedPageDigests: IssueDispositionDigest[] = [];
   for (let page = 0; page < 256; page += 1) {
-    const parsed = parseGitHubPullRequestClosingFactsPage({ source: ghGraphql(
-      GITHUB_PULL_REQUEST_CLOSING_QUERY, { owner, name, number: prNumber, cursor }
-    ), repository: repositoryIdentity, prNumber, expectedCursor: cursor,
+    const observed = await executeObservedGitHubApiOperation(capability, {
+      kind: 'issue-closing-pull-references', pullRequestNumber: prNumber, cursor
+    });
+    const parsed = parseGitHubPullRequestClosingFactsPage({ source: observed.source,
+    repository: repositoryIdentity, prNumber, expectedCursor: cursor,
     observedBeforeCount: references.length, expectedTotalCount: expectedTotal });
     if (common === null) common = parsed.facts;
     else if (encodeVerificationActionData(common) !== encodeVerificationActionData(parsed.facts)) {
@@ -308,15 +309,17 @@ function observeGitHubPullRequestClosingFacts(
       providerTotalCount: expectedTotal, closingIssues: unique }) });
 }
 
-const ISSUE_TERMINAL_EVENTS_QUERY = 'query($owner:String!,$name:String!,$number:Int!){repository(owner:$owner,name:$name){issue(number:$number){number timelineItems(last:100,itemTypes:[CLOSED_EVENT,REOPENED_EVENT]){nodes{__typename ... on ClosedEvent{id createdAt actor{login} closer{__typename ... on PullRequest{number repository{nameWithOwner} mergeCommit{oid}}}} ... on ReopenedEvent{id createdAt actor{login}}}}}}}';
-
-function observeLatestClosedEvent(
+async function observeLatestClosedEvent(
+  capability: GitHubApiCapability,
   repositoryIdentity: string,
   issueNumber: number
-): GitHubLatestClosedEvent | null {
-  const [owner, name] = repository(repositoryIdentity).split('/') as [string, string];
-  const source = ghGraphql(ISSUE_TERMINAL_EVENTS_QUERY, { owner, name, number: issueNumber });
-  return parseGitHubLatestClosedEvent({ source, repository: repositoryIdentity, issueNumber });
+): Promise<GitHubLatestClosedEvent | null> {
+  repository(repositoryIdentity);
+  const observed = await executeObservedGitHubApiOperation(capability, {
+    kind: 'issue-terminal-events', issueNumber
+  });
+  return parseGitHubLatestClosedEvent({ source: observed.source,
+    repository: repositoryIdentity, issueNumber });
 }
 
 /**
@@ -325,32 +328,41 @@ function observeLatestClosedEvent(
  * Issue. An exact causal mismatch becomes a typed maintainer action instead of
  * a racy last-writer-wins mutation disguised as CAS.
  */
-export function observeUnexpectedGitHubIssueClosures(input: Readonly<{
+export async function observeUnexpectedGitHubIssueClosures(input: Readonly<{
+  repositoryRoot: string;
   repository: string;
   prNumber: number;
   mergeCommitSha: string;
-}>): readonly GitHubIssueReconciliationResult[] {
+}>): Promise<readonly GitHubIssueReconciliationResult[]> {
   const repositoryIdentity = repository(input.repository);
   const prNumber = positiveInteger(input.prNumber, 'prNumber');
   const mergeCommitSha = sha(input.mergeCommitSha, 'mergeCommitSha');
-  const pullRequest = observeGitHubPullRequestClosingFacts(repositoryIdentity, prNumber);
-  if (pullRequest.state !== 'MERGED' || pullRequest.mergeCommitSha !== mergeCommitSha) {
-    return fail('unexpected-close reconciliation requires exact merged PR readback.');
-  }
-  return Object.freeze(pullRequest.closingIssues.map((reference) => {
-    if (reference.repository.toLowerCase() !== repositoryIdentity.toLowerCase()) {
-      return fail('cross-repository unexpected close requires its owning repository observation.');
-    }
-    const issue = observeIssue(repositoryIdentity, reference.issueNumber);
-    const event = issue.state === 'CLOSED'
-      ? observeLatestClosedEvent(repositoryIdentity, reference.issueNumber) : null;
-    const decision = decideUnexpectedIssueReopen({ repository: repositoryIdentity,
-      issueNumber: reference.issueNumber, issueState: issue.state, authorizedIssueNumbers: [],
-      closer: event?.closer ?? null, expectedPrNumber: prNumber,
-      expectedMergeCommitSha: mergeCommitSha });
-    return Object.freeze({ status: decision.decision === 'no-op' ? 'no-op'
-      : decision.decision === 'manual-reopen-required' ? 'manual-action-required' : 'blocked',
-    issueNumber: reference.issueNumber, issueDigest: issue.responseDigest,
-    closedEventDigest: event?.responseDigest ?? null, decision });
-  }));
+  return await withGitHubApiReadSession({ repositoryRoot: input.repositoryRoot,
+    repository: repositoryIdentity, operation: async (capability) => {
+      const pullRequest = await observeGitHubPullRequestClosingFacts(
+        capability, repositoryIdentity, prNumber
+      );
+      if (pullRequest.state !== 'MERGED' || pullRequest.mergeCommitSha !== mergeCommitSha) {
+        return fail('unexpected-close reconciliation requires exact merged PR readback.');
+      }
+      const results: GitHubIssueReconciliationResult[] = [];
+      for (const reference of pullRequest.closingIssues) {
+        if (reference.repository.toLowerCase() !== repositoryIdentity.toLowerCase()) {
+          return fail('cross-repository unexpected close requires its owning repository observation.');
+        }
+        const issue = await observeIssue(capability, repositoryIdentity, reference.issueNumber);
+        const event = issue.state === 'CLOSED'
+          ? await observeLatestClosedEvent(capability, repositoryIdentity, reference.issueNumber)
+          : null;
+        const decision = decideUnexpectedIssueReopen({ repository: repositoryIdentity,
+          issueNumber: reference.issueNumber, issueState: issue.state, authorizedIssueNumbers: [],
+          closer: event?.closer ?? null, expectedPrNumber: prNumber,
+          expectedMergeCommitSha: mergeCommitSha });
+        results.push(Object.freeze({ status: decision.decision === 'no-op' ? 'no-op'
+          : decision.decision === 'manual-reopen-required' ? 'manual-action-required' : 'blocked',
+        issueNumber: reference.issueNumber, issueDigest: issue.responseDigest,
+        closedEventDigest: event?.responseDigest ?? null, decision }));
+      }
+      return Object.freeze(results);
+    } });
 }

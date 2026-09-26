@@ -1,6 +1,6 @@
 import { expect, test } from 'bun:test';
 
-import { SecError } from '../../contracts/failure.ts';
+import { FailureError } from '../../contracts/failure.ts';
 import {
   YamlInputLimitError,
   YamlSyntaxError,
@@ -28,7 +28,7 @@ test('strict YAML projects parser throws through one typed syntax identity', () 
   try {
     parse();
   } catch (error) {
-    expect(error).toBeInstanceOf(SecError);
+    expect(error).toBeInstanceOf(FailureError);
     expect(error).toMatchObject({
       code: 'YAML-SYNTAX-001',
       kind: 'invalid-yaml',

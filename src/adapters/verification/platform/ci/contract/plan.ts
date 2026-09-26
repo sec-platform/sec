@@ -1,7 +1,5 @@
-import { createHash } from 'node:crypto';
-
-import { uniqueSorted } from '../../../../../contracts/canonical.ts';
-import { CodexDevelopmentIsCanonicalRepositoryPath } from '../../../../../contracts/repository-path.ts';
+import { rawSha256Hex, uniqueSorted } from '../../../../../contracts/canonical.ts';
+import { IsCanonicalRepositoryPath } from '../../../../../contracts/repository-path.ts';
 import { isSourceProgramInputPath } from '../../../../repository/source-program-model/contract.ts';
 import {
   isDocumentationVerificationInputPath,
@@ -9,16 +7,16 @@ import {
 } from '../../../../self-hosting/control/documentation/active.ts';
 import type { CiVerificationGatePhase, CiVerificationGateStep } from '../../action/contract/ci.ts';
 import { isKnownSlowTestSuiteId, isSlowTestFile, slowTestSuiteIds, slowTestSuiteIdsForFile } from '../../test-impact/contract/budget.ts';
-import type { CodexDevelopmentTestImpactSourceProvider } from '../../test-impact/runtime/impact.ts';
-import type { CodexDevelopmentTestImpactTransitionObservation } from '../../test-impact/runtime/transition.ts';
+import type { TestImpactSourceProvider } from '../../test-impact/runtime/impact.ts';
+import type { TestImpactTransitionObservation } from '../../test-impact/runtime/transition.ts';
 import { selectSlowTestRiskClosure } from '../../test-impact/slow-risk-selection.ts';
 
 export const CI_VERIFICATION_EXECUTION_MODEL = 'verification-session-v2-action-closure' as const;
 
-export type CodexDevelopmentVerificationPlanProfile = 'quick' | 'full';
+export type VerificationPlanProfile = 'quick' | 'full';
 
-export type CodexDevelopmentVerificationPlan = {
-  profile: CodexDevelopmentVerificationPlanProfile;
+export type VerificationPlan = {
+  profile: VerificationPlanProfile;
   changedFiles: string[] | null;
   selectionResolved: boolean;
   selectionReasons: string[];
@@ -39,7 +37,7 @@ function gate(id: string, phase: CiVerificationGatePhase, ...args: string[]): Ci
 }
 
 function selectedSlowTestGateId(file: string): string {
-  return `slow-test-${createHash('sha256').update(file, 'utf8').digest('hex')}`;
+  return `slow-test-${rawSha256Hex(file)}`;
 }
 
 function selectedRiskGates(
@@ -54,7 +52,7 @@ function selectedRiskGates(
     }
   }
   for (const file of slowTests) {
-    if (!CodexDevelopmentIsCanonicalRepositoryPath(file) || !isSlowTestFile(file)) {
+    if (!IsCanonicalRepositoryPath(file) || !isSlowTestFile(file)) {
       throw new Error(`Verification selected a noncanonical slow-test path: ${file}`);
     }
     if (slowTestSuiteIdsForFile(file).length > 0) {
@@ -66,8 +64,10 @@ function selectedRiskGates(
       `slow-suite-${suite}`,
       'risk',
       'run',
-      'test:slow',
+      'test',
       '--',
+      '--scope',
+      'slow',
       '--suite',
       suite
     )),
@@ -75,8 +75,10 @@ function selectedRiskGates(
       selectedSlowTestGateId(file),
       'risk',
       'run',
-      'test:slow',
+      'test',
       '--',
+      '--scope',
+      'slow',
       file
     ))
   ];
@@ -96,7 +98,7 @@ export function buildCiQuickGatePlan(options: {
     ...(options.includeImports ? [gate('imports', 'quick', 'run', 'imports:check')] : []),
     ...(options.includeDocs ? [gate('docs-doctor', 'quick', 'run', 'docs:doctor')] : []),
     gate('typecheck', 'quick', 'run', 'typecheck:verified'),
-    gate('affected-tests', 'quick', 'run', 'test:affected'),
+    gate('affected-tests', 'quick', 'run', 'test', '--', '--affected'),
     ...riskGates
   ];
 }
@@ -106,7 +108,7 @@ export function buildCiFullGatePlan(): CiVerificationGateStep[] {
     gate('imports', 'quick', 'run', 'imports:check'),
     gate('typecheck', 'quick', 'run', 'typecheck:verified'),
     gate('docs-doctor', 'quick', 'run', 'docs:doctor'),
-    gate('full-fast', 'full', 'run', 'test:fast'),
+    gate('full-fast', 'full', 'run', 'test', '--', '--scope', 'fast'),
     gate('test-budget', 'full', 'run', 'sec', '--', 'test', 'budget', '--json', '--compact'),
     ...selectedRiskGates(slowTestSuiteIds(), []),
     gate('deps-warmup', 'full', 'run', 'sec', '--', 'deps', 'warmup'),
@@ -119,9 +121,9 @@ export function buildCiFullGatePlan(): CiVerificationGateStep[] {
   ];
 }
 
-export function CodexDevelopmentCanonicalChangedFiles(files: readonly string[]): string[] {
+export function CanonicalChangedFiles(files: readonly string[]): string[] {
   for (const file of files) {
-    if (!CodexDevelopmentIsCanonicalRepositoryPath(file)) {
+    if (!IsCanonicalRepositoryPath(file)) {
       throw new Error(`Verification changed path is not canonical repository-relative POSIX: ${String(file)}`);
     }
   }
@@ -145,7 +147,7 @@ function hasDocumentationLifecycleChange(owners: readonly string[]): boolean {
 
 const documentationVerificationBaselines = new WeakMap<object, DocumentationVerificationBaseline>();
 
-export function bindDocumentationVerificationGateInput<T extends CodexDevelopmentTestImpactSourceProvider>(
+export function bindDocumentationVerificationGateInput<T extends TestImpactSourceProvider>(
   provider: T,
   baseline: DocumentationVerificationBaseline
 ): T {
@@ -158,7 +160,7 @@ export function bindDocumentationVerificationGateInput<T extends CodexDevelopmen
 }
 
 function documentationVerificationBaselineFromProvider(
-  provider: CodexDevelopmentTestImpactSourceProvider
+  provider: TestImpactSourceProvider
 ): DocumentationVerificationBaseline {
   const candidate = documentationVerificationBaselines.get(provider);
   if (candidate === undefined) {
@@ -167,13 +169,13 @@ function documentationVerificationBaselineFromProvider(
   return candidate;
 }
 
-export function CodexDevelopmentBuildVerificationPlan(
-  profile: CodexDevelopmentVerificationPlanProfile,
+export function BuildVerificationPlan(
+  profile: VerificationPlanProfile,
   rawChangedFiles: readonly string[] | null,
-  testImpactSourceProvider: CodexDevelopmentTestImpactSourceProvider | null,
-  transition?: CodexDevelopmentTestImpactTransitionObservation
-): CodexDevelopmentVerificationPlan {
-  const changedFiles = rawChangedFiles === null ? null : CodexDevelopmentCanonicalChangedFiles(rawChangedFiles);
+  testImpactSourceProvider: TestImpactSourceProvider | null,
+  transition?: TestImpactTransitionObservation
+): VerificationPlan {
+  const changedFiles = rawChangedFiles === null ? null : CanonicalChangedFiles(rawChangedFiles);
   if (profile === 'full') {
     return {
       profile,

@@ -12,7 +12,7 @@ export {
   planSemanticMutationTransaction,
   querySemanticMutationRequest,
   recoverSemanticMutationWorkspace
-} from './semantic-mutation-orchestrator.ts';
+} from './semantic-mutation/orchestrator.ts';
 export { buildWorkspaceEngineeringIR } from './semantic-orchestrator.ts';
 export { verifyWorkspace } from './verify-orchestrator.ts';
 export { initWorkspace } from './workspace-orchestrator.ts';

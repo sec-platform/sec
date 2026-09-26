@@ -3,12 +3,12 @@ import {
   uniqueSorted
 } from '../../contracts/canonical.ts';
 import {
-  bindSecSemanticOperation,
-  compileSecCapabilityBinding,
-  compileSecSemanticOperationPlan,
-  issueSecSemanticOperationAttemptContext,
-  type SecBoundSemanticOperation,
-  type SecOperationDigest
+  bindSemanticOperation,
+  compileCapabilityBinding,
+  compileSemanticOperationPlan,
+  issueSemanticOperationAttemptContext,
+  type BoundSemanticOperation,
+  type OperationDigest
 } from '../../execution/operation/semantic.ts';
 import { GitReadAuthorityError, withAuthorityGitReadSession } from '../providers/git-read/authority.ts';
 import { type ByteCommandResult } from '../runtime-state/physical/runtime/process.ts';
@@ -48,22 +48,22 @@ export function buildReferenceDriftCommands(
 function compileReferenceDriftOperation(
   root: string,
   commands: ReferenceDriftCommands
-): SecBoundSemanticOperation {
+): BoundSemanticOperation {
   const contractDigest = sha256({
     operation: 'reference.scan-drift',
     provider: 'external-capabilities.git-read',
     records: 'tracked-and-untracked-reference-workspace-paths'
-  }) as SecOperationDigest;
-  const plan = compileSecSemanticOperationPlan({
+  }) as OperationDigest;
+  const plan = compileSemanticOperationPlan({
     operation: 'reference.scan-drift',
     intentDigest: sha256({
       root,
       trackedCommand: commands.tracked,
       untrackedCommand: commands.untracked
-    }) as SecOperationDigest,
+    }) as OperationDigest,
     decisionDigest: contractDigest,
     deadlineAtUnixMs: Date.now() + REFERENCE_GIT_DURATION_MS,
-    attempt: issueSecSemanticOperationAttemptContext({
+    attempt: issueSemanticOperationAttemptContext({
       authorityGrantDigest: contractDigest
     }),
     aggregateBudgets: [
@@ -91,7 +91,7 @@ function compileReferenceDriftOperation(
       ]
     }]
   });
-  return bindSecSemanticOperation(plan, [compileSecCapabilityBinding({
+  return bindSemanticOperation(plan, [compileCapabilityBinding({
     requirementId: 'reference.drift-observation',
     contractDigest,
     providerIdentityDigest: contractDigest

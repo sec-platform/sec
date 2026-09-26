@@ -1,5 +1,5 @@
 import { cloneAndDeepFreeze, isPlainObject } from '../contracts/canonical.ts';
-import { SecError } from '../contracts/failure.ts';
+import { FailureError } from '../contracts/failure.ts';
 
 const candidateBrand: unique symbol = Symbol('author-candidate');
 
@@ -40,7 +40,7 @@ function capture<Value>(input: Value): Value {
     if (current === null || typeof current !== 'object') continue;
     if (visited.has(current)) continue;
     if (!Array.isArray(current) && !isPlainObject(current)) {
-      throw new SecError('AUTHOR-CANDIDATE-001', 'This author profile accepts only plain structured values');
+      throw new FailureError('AUTHOR-CANDIDATE-001', 'This author profile accepts only plain structured values');
     }
     visited.add(current);
     for (const key of Reflect.ownKeys(current)) {
@@ -53,7 +53,7 @@ function capture<Value>(input: Value): Value {
 
 export function readAuthorCandidate<Value>(candidate: AuthorCandidate<Value>): Value {
   if (candidate === null || typeof candidate !== 'object' || !candidateOwners.has(candidate)) {
-    throw new SecError('AUTHOR-CANDIDATE-002', 'Author candidate was not issued by a workspace');
+    throw new FailureError('AUTHOR-CANDIDATE-002', 'Author candidate was not issued by a workspace');
   }
   return candidate.content;
 }
@@ -67,12 +67,12 @@ export function createAuthorWorkspace<Value>(initial: Value): AuthorWorkspace<Va
   const own = (candidate: AuthorCandidate<Value>): void => {
     readAuthorCandidate(candidate);
     if (candidateOwners.get(candidate) !== owner) {
-      throw new SecError('AUTHOR-CANDIDATE-003', 'Author candidate belongs to a different workspace');
+      throw new FailureError('AUTHOR-CANDIDATE-003', 'Author candidate belongs to a different workspace');
     }
   };
   const issue = (content: Value, parentRevision: number | null): AuthorCandidate<Value> => {
     const captured = capture(content);
-    if (!Number.isSafeInteger(revision + 1)) throw new SecError('AUTHOR-CANDIDATE-004', 'Workspace revision space is exhausted');
+    if (!Number.isSafeInteger(revision + 1)) throw new FailureError('AUTHOR-CANDIDATE-004', 'Workspace revision space is exhausted');
     const candidate: AuthorCandidate<Value> = Object.freeze({
       [candidateBrand]: true as const, revision: ++revision, parentRevision, content: captured
     });
