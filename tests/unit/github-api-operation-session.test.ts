@@ -884,11 +884,15 @@ test('workflow-scoped Actions principals are confined to their exact workflow ef
     effect: 'branch-closeout-write',
     principal: { workflowRef: MAINTENANCE_WORKFLOW_PRINCIPAL.workflowRef }
   });
-  expect(() => capability({
+  const maintenanceComments = capability({
     effect: 'issue-comment-write',
     principal: MAINTENANCE_WORKFLOW_PRINCIPAL,
     transport: async () => Response.json({})
-  })).toThrow('workflow principal effect is not authorized');
+  });
+  expect(inspectGitHubApiCapability(maintenanceComments)).toMatchObject({
+    effect: 'issue-comment-write',
+    principal: { workflowRef: MAINTENANCE_WORKFLOW_PRINCIPAL.workflowRef }
+  });
   expect(() => capability({
     effect: 'branch-closeout-write',
     principal: WORKFLOW_PRINCIPAL,
@@ -896,7 +900,7 @@ test('workflow-scoped Actions principals are confined to their exact workflow ef
   })).toThrow('branch-closeout capability requires');
 });
 
-test('maintenance workflow principal admits read plus branch-closeout but no other writes', () => {
+test('maintenance workflow principal admits read, branch-closeout, and exact comment writes only', () => {
   expect(() => capability({
     effect: 'read',
     principal: MAINTENANCE_WORKFLOW_PRINCIPAL,
@@ -953,5 +957,26 @@ test('issue comment update uses the bounded comment write authority', async () =
     target: 'https://api.github.com/repos/sec-platform/sec/issues/comments/91',
     method: 'PATCH',
     body: { body: 'updated' }
+  }]);
+});
+
+test('issue comment deletion owns one exact DELETE and accepts only the terminal 204', async () => {
+  const observed: Array<{ target: string; method: string }> = [];
+  const api = capability({
+    effect: 'issue-comment-write',
+    transport: async (target, init) => {
+      observed.push({ target: String(target), method: init?.method ?? 'GET' });
+      return new Response(null, { status: 204 });
+    }
+  });
+  await expect(withGitHubApiTestSession({
+    capability: api,
+    operation: () => executeGitHubApiOperation(api, {
+      kind: 'delete-issue-comment', commentId: 91
+    })
+  })).resolves.toBeNull();
+  expect(observed).toEqual([{
+    target: 'https://api.github.com/repos/sec-platform/sec/issues/comments/91',
+    method: 'DELETE'
   }]);
 });
