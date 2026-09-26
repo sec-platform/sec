@@ -8,7 +8,6 @@ import {
   inspectGitHubApiCapability,
   withGitHubApiBranchCloseoutWriteSession
 } from '../../../providers/github-api/operation-session.ts';
-import { writeDurableFile } from '../branch-lifecycle/branch-recovery.ts';
 import { retireExactRemoteRefs } from '../branch-lifecycle/exact-ref-retirement.ts';
 import type { MaintenanceRequest } from './contract.ts';
 import {
@@ -86,8 +85,7 @@ export async function executeRepositoryMaintenance(input: Readonly<{
         repositoryRoot,
         repository: input.request.repository,
         expectedMainSha: input.request.expectedMainSha,
-        retirement: operation.retirement,
-        recoveryRoot: environment.SEC_BRANCH_RECOVERY_ROOT
+        retirement: operation.retirement
       }))
     }));
   }
@@ -108,12 +106,7 @@ export async function repositoryMaintenanceCli(argv: readonly string[]): Promise
     repositoryRoot: process.cwd(),
     request
   });
-  const rendered = JSON.stringify(result, null, argv.includes('--json') ? 2 : 0);
-  const recoveryRoot = process.env.SEC_BRANCH_RECOVERY_ROOT;
-  if (recoveryRoot !== undefined && recoveryRoot.length > 0) {
-    writeDurableFile(path.join(path.resolve(recoveryRoot), 'maintenance-result.json'), rendered + '\n');
-  }
-  return rendered;
+  return JSON.stringify(result, null, argv.includes('--json') ? 2 : 0);
 }
 
 if (import.meta.main) {
