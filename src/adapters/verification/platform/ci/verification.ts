@@ -5129,6 +5129,25 @@ async function observeHostedActionAuthority(input: Readonly<{
   return Object.freeze({ index, decision });
 }
 
+
+async function readParentPlanObservation(
+  authority: ReturnType<typeof hostedActionParentAuthority>
+): Promise<string> {
+  const first = authority.providerEnvelopes[0];
+  if (first === undefined) throw new Error('parent dispatch plan has no Action proposal.');
+  const observed = await observeHostedActionAuthority({
+    providerEnvelope: first,
+    envelope: authority.envelope,
+    role: 'parent'
+  });
+  return JSON.stringify({
+    status: 'verified',
+    parentDispatchPlanDigest: authority.parentPlan.parentDispatchPlanDigest,
+    parentArtifactPayloadDigest: first.parentDispatchPlanPayloadDigest,
+    firstActionDisposition: observed.decision.disposition
+  });
+}
+
 async function coordinateHostedSessionProvider(input: Readonly<{
   authority: ReturnType<typeof hostedActionParentAuthority>;
   allowDispatch: boolean;
@@ -5252,19 +5271,7 @@ export async function CodexDevelopmentCiVerificationHostedActionCli(argv: string
         parentArtifactArchiveDigest: args.get('--parent-artifact-archive-digest')!
       });
       if (intent === 'verify-parent-plan') {
-        const first = authority.providerEnvelopes[0];
-        if (first === undefined) throw new Error('parent dispatch plan has no Action proposal.');
-        const observed = await observeHostedActionAuthority({
-          providerEnvelope: first,
-          envelope: authority.envelope,
-          role: 'parent'
-        });
-        return JSON.stringify({
-          status: 'verified',
-          parentDispatchPlanDigest: authority.parentPlan.parentDispatchPlanDigest,
-          parentArtifactPayloadDigest: authority.providerEnvelopes[0]!.parentDispatchPlanPayloadDigest,
-          firstActionDisposition: observed.decision.disposition
-        });
+        return readParentPlanObservation(authority);
       }
       const coordinated = await coordinateHostedSessionProvider({
         authority,
