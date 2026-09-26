@@ -6,10 +6,21 @@ import {
 export const REPOSITORY_MAINTENANCE_REQUEST_SCHEMA =
   'sec-repository-maintenance-request-v1' as const;
 
-export type MaintenanceOperation = Readonly<{
-  kind: 'exact-ref-retirement';
-  retirement: ExactRefRetirement;
+export type ExactCommentRetirement = Readonly<{
+  issueNumber: number;
+  commentId: number;
+  expectedBodyDigest: `sha256:${string}`;
 }>;
+
+export type MaintenanceOperation =
+  | Readonly<{
+      kind: 'exact-ref-retirement';
+      retirement: ExactRefRetirement;
+    }>
+  | Readonly<{
+      kind: 'exact-comment-retirement';
+      retirement: ExactCommentRetirement;
+    }>;
 
 export type MaintenanceRequest = Readonly<{
   schema: typeof REPOSITORY_MAINTENANCE_REQUEST_SCHEMA;
@@ -48,16 +59,50 @@ function sha(value: unknown, label: string): string {
   return value;
 }
 
+function digest(value: unknown, label: string): `sha256:${string}` {
+  if (typeof value !== 'string' || !/^sha256:[0-9a-f]{64}$/u.test(value)) {
+    throw new Error(`${label} must be one SHA-256 digest`);
+  }
+  return value as `sha256:${string}`;
+}
+
+function positiveInteger(value: unknown, label: string): number {
+  if (!Number.isSafeInteger(value) || Number(value) < 1) {
+    throw new Error(`${label} must be one positive integer`);
+  }
+  return Number(value);
+}
+
+function parseExactCommentRetirement(value: unknown): ExactCommentRetirement {
+  const input = record(value, 'exact comment retirement');
+  exactKeys(
+    input,
+    ['issueNumber', 'commentId', 'expectedBodyDigest'],
+    'exact comment retirement'
+  );
+  return Object.freeze({
+    issueNumber: positiveInteger(input.issueNumber, 'issueNumber'),
+    commentId: positiveInteger(input.commentId, 'commentId'),
+    expectedBodyDigest: digest(input.expectedBodyDigest, 'expectedBodyDigest')
+  });
+}
+
 function parseOperation(value: unknown): MaintenanceOperation {
   const input = record(value, 'maintenance operation');
   exactKeys(input, ['kind', 'retirement'], 'maintenance operation');
-  if (input.kind !== 'exact-ref-retirement') {
-    throw new Error('maintenance operation kind is unknown');
+  if (input.kind === 'exact-ref-retirement') {
+    return Object.freeze({
+      kind: 'exact-ref-retirement',
+      retirement: parseExactRefRetirement(input.retirement)
+    });
   }
-  return Object.freeze({
-    kind: 'exact-ref-retirement',
-    retirement: parseExactRefRetirement(input.retirement)
-  });
+  if (input.kind === 'exact-comment-retirement') {
+    return Object.freeze({
+      kind: 'exact-comment-retirement',
+      retirement: parseExactCommentRetirement(input.retirement)
+    });
+  }
+  throw new Error('maintenance operation kind is unknown');
 }
 
 export function parseRepositoryMaintenanceRequest(source: string): MaintenanceRequest {
