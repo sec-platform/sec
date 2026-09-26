@@ -4,7 +4,7 @@ import {
   withGitHubApiBranchCloseoutWriteSession,
   withGitHubApiIssueCommentWriteSession
 } from '../../../providers/github-api/operation-session.ts';
-import { runClosedUnmergedCloseoutCli } from '../branch-lifecycle/closed-unmerged-closeout-cli.ts';
+import { executeClosedUnmergedCloseoutRequest } from '../branch-lifecycle/closed-unmerged-closeout-cli.ts';
 import { retireExactRemoteRefs } from '../branch-lifecycle/exact-ref-retirement.ts';
 import { retireExactClosedIssueComments } from './comment-retirement.ts';
 import type { MaintenanceOperation } from './contract.ts';
@@ -54,14 +54,13 @@ export async function executeRepositoryMaintenanceEffect(input: Readonly<{
     return Object.freeze({ kind: operation.kind, ...retired });
   }
   if (operation.kind === 'closed-pr-retirement') {
-    const args = [
-      '--repository', input.repository,
-      '--pr', String(operation.pullRequestNumber),
-      '--disposition', 'closed-superseded'
-    ];
-    if (operation.reviewCommentId !== null) args.push('--review-comment', String(operation.reviewCommentId));
     const branchLogs: string[] = [];
-    const code = await runClosedUnmergedCloseoutCli(args, (source) => { branchLogs.push(source); });
+    const code = await executeClosedUnmergedCloseoutRequest({
+      repositoryRoot: input.repositoryRoot,
+      repository: input.repository,
+      pullRequestNumber: operation.pullRequestNumber,
+      reviewCommentId: operation.reviewCommentId
+    }, (source) => { branchLogs.push(source); });
     if (code !== 0) throw new Error(`closed PR ${operation.pullRequestNumber} retirement did not complete`);
     return Object.freeze({
       kind: operation.kind, pullRequestNumber: operation.pullRequestNumber, status: 'completed',
