@@ -233,9 +233,7 @@ export async function retireClosedUnmergedRecoveryFamily(input: Readonly<{
     `${path.basename(preparation.repository.root)}-recovery`
   );
   const mayRetireRoot = store.createdByAcquisition
-    || (input.recoveryRoot === undefined
-      && process.env.SEC_BRANCH_RECOVERY_ROOT === undefined
-      && recoveryRoot === canonicalDefaultRoot);
+    || (input.recoveryRoot === undefined && recoveryRoot === canonicalDefaultRoot);
   const recoveryRootRetired = failure === null && retained.length === 0
     && mayRetireRoot && store.retireIfEmpty();
   return Object.freeze({
