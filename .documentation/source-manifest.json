@@ -1,6 +1,6 @@
 {
   "schema": "sec.documentation-source-manifest/2",
-  "source_set_sha256": "d014974a417b9ca360adc8ff243d93f07b65059b322c561230cb96cf85b2f56e",
+  "source_set_sha256": "59330e8c8667c6cf60472b9ec1b864507f7cc7d4c01505d98a4fbd2b2068557c",
   "members": [
     {
       "path": ".documentation/README.md",
@@ -739,8 +739,8 @@
     },
     {
       "path": "docs/演进/实施/主线前沿与准入.md",
-      "bytes": 80311,
-      "sha256": "b3b9551e2958b268ede8b62ef8f0cd9eede51ad22e6dd0b19f48045ddb357ba9"
+      "bytes": 80283,
+      "sha256": "94e528887045916b9507902e7a91542a1615ad931211510855e8da60f1ada911"
     },
     {
       "path": "docs/演进/实施/仓库迁移与自托管.md",
@@ -749,8 +749,8 @@
     },
     {
       "path": "docs/演进/实施/安全构建发布与环境.md",
-      "bytes": 18939,
-      "sha256": "359b359481b0c2d6c62963f4143e86e6c624fcafef4d20eb75da855f75c0cc23"
+      "bytes": 18977,
+      "sha256": "b09cbd1ae0ba749814302c19b162f6eb1f5ccfcbbd859722d746ed81cbd54b03"
     },
     {
       "path": "docs/演进/实施/独立能力的实施单元.md",
