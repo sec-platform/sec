@@ -5,6 +5,7 @@ import path from 'node:path';
 
 import {
   inspectGitHubActionsProjectionCredentialIdentity,
+  inspectGitHubActionsRepositoryMaintenanceCredentialIdentity,
   readGitHubToken
 } from '../../src/adapters/providers/github-api/credential.ts';
 
@@ -116,6 +117,52 @@ test.serial('recognizes only the exact code-scanning projection workflow as the 
     { ...source, GITHUB_WORKFLOW_REF: 'sec-platform/sec/.github/workflows/other.yml@refs/heads/main' },
     'sec-platform/sec'
   )).toBeNull();
+});
+
+test.serial('recognizes only the exact repository-maintenance issue-comment workflow identity', () => {
+  const source: NodeJS.ProcessEnv = {
+    GITHUB_ACTIONS: 'true',
+    GITHUB_SERVER_URL: 'https://github.com',
+    GITHUB_API_URL: 'https://api.github.com',
+    GITHUB_REPOSITORY: 'sec-platform/sec',
+    GITHUB_EVENT_NAME: 'issue_comment',
+    GITHUB_REF: 'refs/heads/main',
+    GITHUB_SHA: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+    GITHUB_WORKFLOW_SHA: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+    GITHUB_WORKFLOW_REF:
+      'sec-platform/sec/.github/workflows/repository-maintenance.yml@refs/heads/main',
+    GITHUB_ACTOR: 'maintainer',
+    SEC_MAINTENANCE_ISSUE_NUMBER: '313',
+    SEC_MAINTENANCE_COMMENT_ID: '42',
+    SEC_MAINTENANCE_COMMENT_AUTHOR: 'maintainer',
+    SEC_MAINTENANCE_AUTHOR_ASSOCIATION: 'MEMBER',
+    GH_TOKEN: 'ghs_actions-token-0123456789'
+  };
+  expect(inspectGitHubActionsRepositoryMaintenanceCredentialIdentity(
+    source,
+    'sec-platform/sec'
+  )).toEqual({
+    repository: 'sec-platform/sec',
+    workflowRef:
+      'sec-platform/sec/.github/workflows/repository-maintenance.yml@refs/heads/main',
+    workflowSha: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+    issueNumber: 313,
+    commentId: 42,
+    actor: 'maintainer'
+  });
+  expect(inspectGitHubActionsProjectionCredentialIdentity(source, 'sec-platform/sec')).toBeNull();
+  for (const changed of [
+    { GITHUB_EVENT_NAME: 'pull_request_target' },
+    { GITHUB_WORKFLOW_REF: 'sec-platform/sec/.github/workflows/other.yml@refs/heads/main' },
+    { SEC_MAINTENANCE_ISSUE_NUMBER: '312' },
+    { SEC_MAINTENANCE_AUTHOR_ASSOCIATION: 'CONTRIBUTOR' },
+    { GITHUB_ACTOR: 'other' }
+  ]) {
+    expect(inspectGitHubActionsRepositoryMaintenanceCredentialIdentity(
+      { ...source, ...changed },
+      'sec-platform/sec'
+    )).toBeNull();
+  }
 });
 
 test.serial('forwards only the explicit GitHub Actions token to the fixed credential command', async () => {

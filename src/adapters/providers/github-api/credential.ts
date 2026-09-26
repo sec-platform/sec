@@ -74,6 +74,15 @@ export type GitHubActionsProjectionCredentialIdentity = Readonly<{
   workflowSha: string;
 }>;
 
+export type GitHubActionsRepositoryMaintenanceCredentialIdentity = Readonly<{
+  repository: string;
+  workflowRef: string;
+  workflowSha: string;
+  issueNumber: 313;
+  commentId: number;
+  actor: string;
+}>;
+
 type GitHubCredentialSource = 'stored-gh-auth' | 'github-actions-token';
 
 type GitHubCredentialProcessEnvironment = Readonly<{
@@ -116,11 +125,61 @@ export function inspectGitHubActionsProjectionCredentialIdentity(
   return Object.freeze({ repository, workflowRef, workflowSha });
 }
 
+export function inspectGitHubActionsRepositoryMaintenanceCredentialIdentity(
+  source: Readonly<NodeJS.ProcessEnv>,
+  repository: string
+): GitHubActionsRepositoryMaintenanceCredentialIdentity | null {
+  const workflowRef =
+    `${repository}/.github/workflows/repository-maintenance.yml@refs/heads/main`;
+  const workflowSha = environmentValue(source, 'GITHUB_WORKFLOW_SHA');
+  const token = environmentValue(source, 'GH_TOKEN');
+  const issueNumber = environmentValue(source, 'SEC_MAINTENANCE_ISSUE_NUMBER');
+  const commentId = environmentValue(source, 'SEC_MAINTENANCE_COMMENT_ID');
+  const commentAuthor = environmentValue(source, 'SEC_MAINTENANCE_COMMENT_AUTHOR');
+  const association = environmentValue(source, 'SEC_MAINTENANCE_AUTHOR_ASSOCIATION');
+  const actor = environmentValue(source, 'GITHUB_ACTOR');
+  if (!/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/u.test(repository)
+      || environmentValue(source, 'GITHUB_ACTIONS') !== 'true'
+      || environmentValue(source, 'GITHUB_SERVER_URL') !== 'https://github.com'
+      || environmentValue(source, 'GITHUB_API_URL') !== 'https://api.github.com'
+      || environmentValue(source, 'GITHUB_REPOSITORY') !== repository
+      || environmentValue(source, 'GITHUB_EVENT_NAME') !== 'issue_comment'
+      || environmentValue(source, 'GITHUB_REF') !== 'refs/heads/main'
+      || environmentValue(source, 'GITHUB_WORKFLOW_REF') !== workflowRef
+      || typeof workflowSha !== 'string'
+      || !/^[0-9a-f]{40}$/u.test(workflowSha)
+      || environmentValue(source, 'GITHUB_SHA') !== workflowSha
+      || issueNumber !== '313'
+      || typeof commentId !== 'string' || !/^[1-9][0-9]*$/u.test(commentId)
+      || !Number.isSafeInteger(Number(commentId))
+      || (association !== 'OWNER' && association !== 'MEMBER')
+      || typeof commentAuthor !== 'string' || commentAuthor.length === 0
+      || commentAuthor !== actor
+      || token === undefined) {
+    return null;
+  }
+  if (token.length === 0 || token !== token.trim()
+      || Buffer.byteLength(token, 'utf8') > MAX_TOKEN_BYTES
+      || !/^[^\s\u0000-\u001f\u007f-\u009f]+$/u.test(token)) {
+    throw new GitHubCredentialUnavailableError('token');
+  }
+  return Object.freeze({
+    repository,
+    workflowRef,
+    workflowSha,
+    issueNumber: 313,
+    commentId: Number(commentId),
+    actor: commentAuthor
+  });
+}
+
 function githubActionsCredentialToken(
   source: Readonly<NodeJS.ProcessEnv>,
   repository: string
 ): string | undefined {
-  if (inspectGitHubActionsProjectionCredentialIdentity(source, repository) === null) return undefined;
+  const projection = inspectGitHubActionsProjectionCredentialIdentity(source, repository);
+  const maintenance = inspectGitHubActionsRepositoryMaintenanceCredentialIdentity(source, repository);
+  if (projection === null && maintenance === null) return undefined;
   return environmentValue(source, 'GH_TOKEN');
 }
 

@@ -38,6 +38,7 @@
     "src/adapters/self-hosting/control/integration/authorization.ts",
     "src/adapters/self-hosting/control/integration/merge-gate.ts",
     "src/adapters/self-hosting/control/main-health/contract.ts",
+    "src/adapters/self-hosting/control/repository-maintenance/repository-maintenance.ts",
     "src/adapters/self-hosting/control/scope/authorization.ts",
     "src/adapters/self-hosting/control/task/contract/work-package.ts",
     "src/adapters/self-hosting/development/runner/cli.ts",
