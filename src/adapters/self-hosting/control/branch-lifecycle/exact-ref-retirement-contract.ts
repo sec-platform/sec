@@ -2,8 +2,8 @@ import { assertGitBranchName } from '../../../../contracts/git-reference.ts';
 
 export type ExactRefRetirement =
   | Readonly<{
-      classification: 'transport-only' | 'duplicate-transport-alias';
-      branches: readonly string[];
+      classification: 'transport-only';
+      branches: readonly [string];
       expectedHeadSha: string;
     }>
   | Readonly<{
@@ -27,19 +27,12 @@ function positiveInteger(value: unknown, label: string): number {
   return Number(value);
 }
 
-function branches(value: unknown): readonly string[] {
-  if (!Array.isArray(value) || value.length < 1 || value.length > 16
-      || value.some((branch) => typeof branch !== 'string')) {
-    throw new Error('exact ref retirement requires 1..16 branch names');
+function singleBranch(value: unknown): readonly [string] {
+  if (!Array.isArray(value) || value.length !== 1 || typeof value[0] !== 'string') {
+    throw new Error('exact ref retirement requires exactly one branch');
   }
-  const parsed = value.map((branch) => {
-    assertGitBranchName(branch as string, 'maintenance retirement branch');
-    return branch as string;
-  });
-  if (new Set(parsed).size !== parsed.length) {
-    throw new Error('exact ref retirement contains duplicate branches');
-  }
-  return Object.freeze(parsed);
+  assertGitBranchName(value[0], 'maintenance retirement branch');
+  return Object.freeze([value[0]] as const);
 }
 
 export function parseExactRefRetirement(value: unknown): ExactRefRetirement {
@@ -53,13 +46,9 @@ export function parseExactRefRetirement(value: unknown): ExactRefRetirement {
     if (keys.length !== expected.length || keys.some((key, index) => key !== expected[index])) {
       throw new Error('closed PR retirement fields are invalid');
     }
-    const parsedBranches = branches(input.branches);
-    if (parsedBranches.length !== 1) {
-      throw new Error('closed PR retirement requires exactly one branch');
-    }
     return Object.freeze({
       classification: 'closed-pr-superseded',
-      branches: Object.freeze([parsedBranches[0]!] as const),
+      branches: singleBranch(input.branches),
       expectedHeadSha: sha(input.expectedHeadSha, 'expectedHeadSha'),
       pullRequestNumber: positiveInteger(input.pullRequestNumber, 'pullRequestNumber')
     });
@@ -70,27 +59,16 @@ export function parseExactRefRetirement(value: unknown): ExactRefRetirement {
   if (keys.length !== expected.length || keys.some((key, index) => key !== expected[index])) {
     throw new Error('exact ref retirement fields are invalid');
   }
-  if (input.classification !== 'transport-only'
-      && input.classification !== 'duplicate-transport-alias') {
+  if (input.classification !== 'transport-only') {
     throw new Error('exact ref retirement classification is invalid');
   }
-  const parsedBranches = branches(input.branches);
-  if (input.classification === 'transport-only') {
-    if (!parsedBranches.every((branch) => branch.startsWith('transport/'))) {
-      throw new Error('transport-only retirement accepts only transport/* branches');
-    }
-  } else if (parsedBranches.length < 2
-      || !parsedBranches.some((branch) => branch.startsWith('transport/'))
-      || !parsedBranches.every((branch) => (
-        branch.startsWith('transport/') || branch.startsWith('work/')
-      ))) {
-    throw new Error(
-      'duplicate transport alias retirement requires transport/* plus only transport/* or work/* aliases'
-    );
+  const branches = singleBranch(input.branches);
+  if (!branches[0].startsWith('transport/')) {
+    throw new Error('transport-only retirement accepts only transport/* branches');
   }
   return Object.freeze({
-    classification: input.classification,
-    branches: parsedBranches,
+    classification: 'transport-only',
+    branches,
     expectedHeadSha: sha(input.expectedHeadSha, 'expectedHeadSha')
   });
 }
