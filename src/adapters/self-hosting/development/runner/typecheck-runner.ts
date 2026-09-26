@@ -7,33 +7,33 @@ import { sha256 } from '../../../../contracts/canonical.ts';
 import { isPathInside } from "../../../../contracts/relative-path.ts";
 import { observeExecutionProgressPhase } from '../../../../execution/execution-progress.ts';
 import {
-  issueSecOperationRequirementBindingContext
+  issueOperationRequirementBindingContext
 } from '../../../../execution/operation/requirement-binding-context.ts';
 import {
-  bindSecSemanticOperation,
-  compileSecCapabilityBinding,
-  compileSecProviderSettlementSet,
-  compileSecSemanticOperationPlan,
-  issueSecNormalDomainReadbackReceipt,
-  issueSecNormalOwnerTerminalJoinReceipt,
-  issueSecProviderSettlementReceipt,
-  issueSecSemanticOperationAttemptContext,
-  projectSecCapabilityDiagnostic,
-  type SecBoundSemanticOperation,
-  type SecDomainReadbackDisposition,
-  type SecOperationDigest
+  bindSemanticOperation,
+  compileCapabilityBinding,
+  compileProviderSettlementSet,
+  compileSemanticOperationPlan,
+  issueNormalDomainReadbackReceipt,
+  issueNormalOwnerTerminalJoinReceipt,
+  issueProviderSettlementReceipt,
+  issueSemanticOperationAttemptContext,
+  projectCapabilityDiagnostic,
+  type BoundSemanticOperation,
+  type DomainReadbackDisposition,
+  type OperationDigest
 } from '../../../../execution/operation/semantic.ts';
 import { withAuthorityGitReadSession } from '../../../providers/git-read/authority.ts';
 import {
-  acquireWorkingTreeWorkspaceSourceSnapshot,
-  assertWorkspaceTypeScriptProjectGenerationEvidence,
-  assertWorkspaceTypeScriptProjectInput,
-  compileWorkspaceTypeScriptProjectFactIdentity,
-  compileWorkspaceTypeScriptProjectInput,
-  issueWorkspaceTypeScriptProjectGenerationEvidence,
-  projectWorkspaceTypeScriptProjectFactIdentity,
-  type WorkspaceTypeScriptProjectGenerationEvidence,
-  type WorkspaceTypeScriptProjectInput
+  acquireWorkingTreeSnapshot,
+  assertTypeScriptProjectGenerationEvidence,
+  assertTypeScriptProjectInput,
+  compileTypeScriptProjectFactIdentity,
+  compileTypeScriptProjectInput,
+  issueTypeScriptProjectGenerationEvidence,
+  projectTypeScriptProjectFactIdentity,
+  type TypeScriptProjectGenerationEvidence,
+  type TypeScriptProjectInput
 } from '../../../repository/source-program-model/workspace-source-snapshot.ts';
 import {
   assertProcessResourceSessionReceipt,
@@ -41,8 +41,8 @@ import {
   type ProcessResourceSessionReceipt
 } from '../../../runtime-state/physical/runtime/process-resource-session.ts';
 import { WINDOWS_READ_ONLY_TREE_ADMISSION_POLICY } from '../../../runtime-state/physical/runtime/windows-host-filesystem-authority.ts';
-import { currentSecRuntimePlatform, resolveSecRuntimeCacheRoot, secRuntimeStateEnvironment } from '../../../runtime-state/workspace-state/layout.ts';
-import { acquireSecRuntimeCachePhysicalAuthority } from '../../../runtime-state/workspace-state/physical-authority.ts';
+import { currentRuntimePlatform, resolveRuntimeCacheRoot, runtimeStateEnvironment } from '../../../runtime-state/workspace-state/layout.ts';
+import { acquireRuntimeCachePhysicalAuthority } from '../../../runtime-state/workspace-state/physical-authority.ts';
 import { TYPESCRIPT_NATIVE_CHECKER_EXECUTION_POLICY, assertTypeScriptNativeChecker, canonicalTypeScriptDiagnosticArguments, executeTypeScriptNativeChecker, issueTypeScriptCheckerProcessExecutionAdmission, requireSelectedTypeScriptNativeChecker, selectInstalledTypeScriptNativeChecker, type InstalledTypeScriptNativeChecker, type TypeScriptNativeCheckerProvider } from '../../../toolchain/typescript/checker.ts';
 import {
   assertTypeScriptExecutionGeneration,
@@ -115,7 +115,7 @@ const typecheckActionRunner = new VerificationActionRunner();
 
 function assertTypecheckProcessResourceReceipt(
   receipt: ProcessResourceSessionReceipt,
-  operation: SecBoundSemanticOperation,
+  operation: BoundSemanticOperation,
   execution: Awaited<ReturnType<typeof executeTypeScriptNativeChecker>> | undefined
 ): void {
   assertProcessResourceSessionReceipt(receipt, {
@@ -157,7 +157,7 @@ type TypecheckTerminalProcessEvidence =
   }>;
 
 type PendingTypecheckTerminalCore = Readonly<{
-  readbackDisposition: SecDomainReadbackDisposition;
+  readbackDisposition: DomainReadbackDisposition;
   status: VerificationResultStatus;
   reasonCode: VerificationReasonCode;
   executionObservation: unknown;
@@ -549,25 +549,25 @@ function canonicalPathIdentity(value: string): string {
 }
 
 async function issueTypecheckOperationSettlement(
-  operation: SecBoundSemanticOperation,
+  operation: BoundSemanticOperation,
   input: Readonly<{
     action: VerificationActionKey;
     actionKey: VerificationActionKeyDigest;
     executionObservation: unknown;
     readback: unknown;
-    readbackDisposition: SecDomainReadbackDisposition;
+    readbackDisposition: DomainReadbackDisposition;
     status: VerificationResultStatus;
     reasonCode: VerificationReasonCode;
   }> & TypecheckTerminalProcessEvidence
 ): Promise<VerificationActionTerminalSettlement> {
-  const checker = issueSecProviderSettlementReceipt(operation, {
+  const checker = issueProviderSettlementReceipt(operation, {
     requirementId: TYPECHECK_REQUIREMENT.projectCheck,
     physicalDisposition: input.checkerDisposition,
     providerSettlementReferenceDigest: actionDigest({
       actionKey: input.actionKey,
       requirement: TYPECHECK_REQUIREMENT.projectCheck,
       executionObservation: input.executionObservation
-    }) as SecOperationDigest
+    }) as OperationDigest
   });
   const diagnosticObjects = input.processOutput === null
     ? Object.freeze([])
@@ -581,7 +581,7 @@ async function issueTypecheckOperationSettlement(
           { stream: 'stderr', bytes: new TextEncoder().encode(input.processOutput.stderr) }
         ]
       });
-  const providerSettlements = [checker, issueSecProviderSettlementReceipt(operation, {
+  const providerSettlements = [checker, issueProviderSettlementReceipt(operation, {
     requirementId: 'verification.action-diagnostics',
     physicalDisposition: diagnosticObjects.length === 0 ? 'not-started' : 'settled',
     providerSettlementReferenceDigest: actionDigest(
@@ -591,38 +591,38 @@ async function issueTypecheckOperationSettlement(
             objectDigest: receipt.objectDigest,
             readbackDigest: readback.readbackDigest
           }))
-    ) as SecOperationDigest
+    ) as OperationDigest
   })];
-  const providerSettlementSet = compileSecProviderSettlementSet(operation, providerSettlements);
-  const readback = issueSecNormalDomainReadbackReceipt(operation, providerSettlementSet, {
+  const providerSettlementSet = compileProviderSettlementSet(operation, providerSettlements);
+  const readback = issueNormalDomainReadbackReceipt(operation, providerSettlementSet, {
     readbackContractDigest: actionDigest({
       contract: 'typescript-project-check-readback',
       requirements: Object.values(TYPECHECK_REQUIREMENT)
-    }) as SecOperationDigest,
+    }) as OperationDigest,
     readbackReferenceDigest: actionDigest({
       actionKey: input.actionKey,
       readback: input.readback
-    }) as SecOperationDigest,
+    }) as OperationDigest,
     currentPhysicalEpochDigest: actionDigest({
       actionKey: input.actionKey,
       operationAttempt: operation.boundAttemptDigest,
       readback: input.readback
-    }) as SecOperationDigest,
+    }) as OperationDigest,
     disposition: input.readbackDisposition
   });
-  const ownerTerminalJoin = issueSecNormalOwnerTerminalJoinReceipt(
+  const ownerTerminalJoin = issueNormalOwnerTerminalJoinReceipt(
     operation,
     providerSettlementSet,
     readback,
     {
       ownerTerminalContractDigest: actionDigest({
         contract: 'verification-action.typescript-project-check-terminal'
-      }) as SecOperationDigest,
+      }) as OperationDigest,
       ownerTerminalReferenceDigest: actionDigest({
         actionKey: input.actionKey,
         executionObservation: input.executionObservation,
         readbackReceiptDigest: readback.readbackReceiptDigest
-      }) as SecOperationDigest
+      }) as OperationDigest
     }
   );
   const actionTerminalReceipt = issueVerificationActionOwnerTerminalReceipt({
@@ -653,7 +653,7 @@ type TypecheckProjectActionIdentity = Readonly<{
 }>;
 
 type TypecheckMaterializedProjectGeneration = Readonly<{
-  evidence: WorkspaceTypeScriptProjectGenerationEvidence;
+  evidence: TypeScriptProjectGenerationEvidence;
 }>;
 
 type TypecheckProjectGenerationSource = Readonly<{
@@ -692,10 +692,10 @@ function deferredTypecheckActionProviderIdentity(
 }
 
 function projectActionIdentityFromInput(
-  projectInput: WorkspaceTypeScriptProjectInput
+  projectInput: TypeScriptProjectInput
 ): TypecheckProjectActionIdentity {
-  assertWorkspaceTypeScriptProjectInput(projectInput);
-  const factIdentity = projectWorkspaceTypeScriptProjectFactIdentity(projectInput);
+  assertTypeScriptProjectInput(projectInput);
+  const factIdentity = projectTypeScriptProjectFactIdentity(projectInput);
   return Object.freeze({
     projectInputDigest: requireActionDigest(
       factIdentity.projectFactDigest,
@@ -734,7 +734,7 @@ function compileTypecheckActionInputFromIdentity(input: Readonly<{
   provider: TypecheckActionProviderIdentity;
   project: TypecheckProjectActionIdentity;
   diagnosticArguments: readonly string[];
-  semanticOperation: SecBoundSemanticOperation;
+  semanticOperation: BoundSemanticOperation;
 }>): VerificationActionKeyInput {
   const dependencyAdmissionDigest = requireActionDigest(
     input.dependencies.identityDigest,
@@ -814,9 +814,9 @@ function compileTypecheckActionInputFromIdentity(input: Readonly<{
 export function compileTypecheckActionInput(input: Readonly<{
   dependencies: TypecheckBuildDependencyIdentity;
   dependencyGenerationDigest: `sha256:${string}`;
-  projectInput: WorkspaceTypeScriptProjectInput;
+  projectInput: TypeScriptProjectInput;
   diagnosticArguments: readonly string[];
-  semanticOperation: SecBoundSemanticOperation;
+  semanticOperation: BoundSemanticOperation;
 }>): VerificationActionKeyInput {
   return compileTypecheckActionInputFromIdentity({
     dependencies: input.dependencies,
@@ -832,7 +832,7 @@ export function compileTypecheckSemanticOperation(input: Readonly<{
   diagnosticArguments: readonly string[];
   checker: InstalledTypeScriptNativeChecker;
   deadlineAtUnixMs: number;
-}>): SecBoundSemanticOperation {
+}>): BoundSemanticOperation {
   assertTypeScriptNativeChecker(input.checker);
   const provider = input.checker.provider;
   if (input.projectConfigPath !== provider.projectConfig) {
@@ -851,7 +851,7 @@ function compileTypecheckSemanticOperationWithProviderIdentity(input: Readonly<{
   diagnosticArguments: readonly string[];
   providerIdentityDigest: VerificationActionKeyDigest;
   deadlineAtUnixMs: number;
-}>): SecBoundSemanticOperation {
+}>): BoundSemanticOperation {
   const checkerContractDigest = actionDigest({
     operation: 'verification.typecheck',
     projectConfig: 'tsconfig.json',
@@ -865,24 +865,24 @@ function compileTypecheckSemanticOperationWithProviderIdentity(input: Readonly<{
     generationSetupPolicy: TYPECHECK_MATERIALIZATION_POLICY,
     checkerExecutionPolicy: TYPESCRIPT_NATIVE_CHECKER_EXECUTION_POLICY,
     windowsReadOnlyTreeAdmissionPolicy: WINDOWS_READ_ONLY_TREE_ADMISSION_POLICY
-  }) as SecOperationDigest;
+  }) as OperationDigest;
   const diagnosticContractDigest = actionDigest({
     operation: 'verification.typecheck-process-diagnostics',
     streams: ['stderr', 'stdout']
-  }) as SecOperationDigest;
+  }) as OperationDigest;
   const decisionDigest = actionDigest({
     checkerContractDigest,
     diagnosticContractDigest
-  }) as SecOperationDigest;
-  const plan = compileSecSemanticOperationPlan({
+  }) as OperationDigest;
+  const plan = compileSemanticOperationPlan({
     operation: 'verification.typecheck',
     intentDigest: actionDigest({
       projectConfigPath: input.projectConfigPath,
       diagnosticProjection: input.diagnosticArguments
-    }) as SecOperationDigest,
+    }) as OperationDigest,
     decisionDigest,
     deadlineAtUnixMs: input.deadlineAtUnixMs,
-    attempt: issueSecSemanticOperationAttemptContext({
+    attempt: issueSemanticOperationAttemptContext({
       authorityGrantDigest: decisionDigest
     }),
     aggregateBudgets: [
@@ -931,16 +931,16 @@ function compileTypecheckSemanticOperationWithProviderIdentity(input: Readonly<{
       }
     ]
   });
-  return bindSecSemanticOperation(plan, [
-    compileSecCapabilityBinding({
+  return bindSemanticOperation(plan, [
+    compileCapabilityBinding({
       requirementId: TYPECHECK_REQUIREMENT.projectCheck,
       contractDigest: checkerContractDigest,
-      providerIdentityDigest: input.providerIdentityDigest as SecOperationDigest
+      providerIdentityDigest: input.providerIdentityDigest as OperationDigest
     }),
-    compileSecCapabilityBinding({
+    compileCapabilityBinding({
       requirementId: 'verification.action-diagnostics',
       contractDigest: diagnosticContractDigest,
-      providerIdentityDigest: actionDigest('runtime-state.process-diagnostics') as SecOperationDigest
+      providerIdentityDigest: actionDigest('runtime-state.process-diagnostics') as OperationDigest
     })
   ]);
 }
@@ -959,9 +959,9 @@ export function resolveTypecheckBuildInfoPath(input: Readonly<{
     ? resolvedCompilerRoot.toLowerCase()
     : resolvedCompilerRoot;
   const derivedCacheRoot = path.resolve(input.cacheRoot ?? path.join(
-    resolveSecRuntimeCacheRoot({
-      platform: currentSecRuntimePlatform(),
-      environment: secRuntimeStateEnvironment(),
+    resolveRuntimeCacheRoot({
+      platform: currentRuntimePlatform(),
+      environment: runtimeStateEnvironment(),
       repositoryRoot: resolvedCompilerRoot
     }),
     'typecheck'
@@ -992,7 +992,7 @@ export function resolveTypecheckBuildInfoPath(input: Readonly<{
   const buildInfoFile = path.join(
     derivedCacheRoot,
     cacheKey,
-    'typescript-incremental-seed-v1.json'
+    'typescript-incremental-seed.json'
   );
   if (isPathInside(resolvedCompilerRoot, buildInfoFile)) {
     throw new Error('TypeCheck incremental seed cache must remain outside the compiler tree');
@@ -1104,7 +1104,7 @@ async function executeObservedTypecheckWithProvider(
         command: 'typecheck', phase: 'source-project-materialization', state: 'complete'
       });
       const projectGenerationEvidence = materializedProjectGeneration.evidence;
-      assertWorkspaceTypeScriptProjectGenerationEvidence(projectGenerationEvidence);
+      assertTypeScriptProjectGenerationEvidence(projectGenerationEvidence);
       const projectInput = projectGenerationEvidence.projectInput;
       const materializedProjectIdentity = projectActionIdentityFromInput(projectInput);
       if (materializedProjectIdentity.projectInputDigest !== projectGeneration.identity.projectInputDigest
@@ -1156,7 +1156,7 @@ async function executeObservedTypecheckWithProvider(
       );
       const settlement = async (
         processEvidence: TypecheckTerminalProcessEvidence,
-        readbackDisposition: SecDomainReadbackDisposition,
+        readbackDisposition: DomainReadbackDisposition,
         status: VerificationResultStatus,
         reasonCode: VerificationReasonCode,
         executionObservation: unknown,
@@ -1181,7 +1181,7 @@ async function executeObservedTypecheckWithProvider(
       let readbackStage: TypecheckSubordinateStage = Object.freeze({ status: 'not-applied' });
       const finalSettlement = async (
         processEvidence: TypecheckTerminalProcessEvidence,
-        readbackDisposition: SecDomainReadbackDisposition,
+        readbackDisposition: DomainReadbackDisposition,
         status: VerificationResultStatus,
         reasonCode: VerificationReasonCode,
         executionObservation: unknown,
@@ -1209,7 +1209,7 @@ async function executeObservedTypecheckWithProvider(
           readback
         );
       };
-      let cacheAuthority: ReturnType<typeof acquireSecRuntimeCachePhysicalAuthority> | null = null;
+      let cacheAuthority: ReturnType<typeof acquireRuntimeCachePhysicalAuthority> | null = null;
       const postReadback = async () => {
         try {
           operation.assertActive('readback admission');
@@ -1254,15 +1254,15 @@ async function executeObservedTypecheckWithProvider(
       };
       try {
         operation.assertActive('runtime cache admission');
-        const cacheRoot = path.join(resolveSecRuntimeCacheRoot({
-          platform: currentSecRuntimePlatform(),
-          environment: secRuntimeStateEnvironment(),
+        const cacheRoot = path.join(resolveRuntimeCacheRoot({
+          platform: currentRuntimePlatform(),
+          environment: runtimeStateEnvironment(),
           repositoryRoot: compilerRoot
         }), 'typecheck');
         const generationParentPath = path.join(cacheRoot, 'execution-generations');
         const auxiliaryParentPath = path.join(cacheRoot, 'action-auxiliaries');
         startSetupPhase('cache-authority');
-        cacheAuthority = acquireSecRuntimeCachePhysicalAuthority({
+        cacheAuthority = acquireRuntimeCachePhysicalAuthority({
           repositoryRoot: compilerRoot,
           cacheRoot,
           requiredDirectories: [
@@ -1372,7 +1372,7 @@ async function executeObservedTypecheckWithProvider(
       const executeAndObserve = async (): Promise<PendingTypecheckTerminal> => {
         const processSession = openProcessResourceSession({
           operation: semanticOperation,
-          requirementBindingContext: issueSecOperationRequirementBindingContext({
+          requirementBindingContext: issueOperationRequirementBindingContext({
             operation: semanticOperation,
             requirementId: TYPECHECK_REQUIREMENT.projectCheck,
             resourceCeilings: [
@@ -1487,7 +1487,7 @@ async function executeObservedTypecheckWithProvider(
           if (checkerBinding === undefined) {
             throw new Error('Typecheck semantic operation lost its checker capability binding.');
           }
-          const diagnostic = projectSecCapabilityDiagnostic({
+          const diagnostic = projectCapabilityDiagnostic({
             bindingDigest: checkerBinding.bindingDigest,
             code: 'typescript.provider-unverified',
             failureKind: `provider.${execution.reason}`,
@@ -1735,13 +1735,13 @@ async function executeTypecheckWithProjectGeneration(
   dependencies: MaterializedTypecheckBuildDependencyIdentity,
   dependencyGeneration: RetainedTypeScriptCompilerDependencyGeneration | null,
   installed: InstalledTypeScriptNativeChecker | null,
-  projectGenerationEvidence: WorkspaceTypeScriptProjectGenerationEvidence,
+  projectGenerationEvidence: TypeScriptProjectGenerationEvidence,
   args: string[],
   operation: TypecheckOperationContext
 ): Promise<number> {
   operation.assertActive('project generation admission');
   if (installed !== null) assertTypeScriptNativeChecker(installed);
-  assertWorkspaceTypeScriptProjectGenerationEvidence(projectGenerationEvidence);
+  assertTypeScriptProjectGenerationEvidence(projectGenerationEvidence);
   return executeObservedTypecheckWithProvider(
     dependencies,
     dependencyGeneration,
@@ -1804,12 +1804,12 @@ async function executeTypecheckWithRetainedProvider(
     }, async (session) => {
       const snapshot = await observeExecutionProgressPhase(
         'typecheck', 'workspace-source-snapshot',
-        () => acquireWorkingTreeWorkspaceSourceSnapshot({ session })
+        () => acquireWorkingTreeSnapshot({ session })
       );
       operation.assertActive('Source Program snapshot readback');
       const projectFactIdentity = await observeExecutionProgressPhase(
         'typecheck', 'project-fact-identity',
-        () => compileWorkspaceTypeScriptProjectFactIdentity(
+        () => compileTypeScriptProjectFactIdentity(
           snapshot,
           projectConfigPath,
           {
@@ -1829,7 +1829,7 @@ async function executeTypecheckWithRetainedProvider(
             throw new Error('Typecheck ProjectInput retained a foreign dependency generation.');
           }
           operation.assertActive('Source Program ProjectInput admission');
-          const projectInput = compileWorkspaceTypeScriptProjectInput(
+          const projectInput = compileTypeScriptProjectInput(
             snapshot,
             projectConfigPath,
             {
@@ -1839,7 +1839,7 @@ async function executeTypecheckWithRetainedProvider(
           );
           operation.assertActive('Source Program ProjectInput compilation settlement');
           return Object.freeze({
-            evidence: issueWorkspaceTypeScriptProjectGenerationEvidence(snapshot, projectInput)
+            evidence: issueTypeScriptProjectGenerationEvidence(snapshot, projectInput)
           });
         }
       });
@@ -1889,11 +1889,11 @@ export async function runTypecheckWithDependencyAuthority(
 export async function runTypecheckWithProjectGenerationEvidence(
   dependencies: TypecheckDependencyAdmission,
   installed: InstalledTypeScriptNativeChecker,
-  projectGeneration: WorkspaceTypeScriptProjectGenerationEvidence,
+  projectGeneration: TypeScriptProjectGenerationEvidence,
   args: string[] = [],
   options: TypecheckOperationOptions = {}
 ): Promise<number> {
-  assertWorkspaceTypeScriptProjectGenerationEvidence(projectGeneration);
+  assertTypeScriptProjectGenerationEvidence(projectGeneration);
   canonicalTypeScriptDiagnosticArguments(args);
   const operation = issueTypecheckOperationContext(options);
   const dependencyIdentity = materializedTypecheckDependencyIdentity(dependencies);

@@ -1,13 +1,13 @@
 import path from 'node:path';
 
 import { sha256 } from '../../../../contracts/canonical.ts';
-import { issueSecOperationRequirementBindingContext } from '../../../../execution/operation/requirement-binding-context.ts';
+import { issueOperationRequirementBindingContext } from '../../../../execution/operation/requirement-binding-context.ts';
 import {
-  assertSecSemanticOperationProjection,
-  issueSecProviderSettlementReceipt,
-  type SecBoundSemanticOperation,
-  type SecOperationDigest,
-  type SecProviderSettlementReceipt
+  assertSemanticOperationProjection,
+  issueProviderSettlementReceipt,
+  type BoundSemanticOperation,
+  type OperationDigest,
+  type ProviderSettlementReceipt
 } from '../../../../execution/operation/semantic.ts';
 import { settleResources as settlePhysicalResources } from '../../../../execution/resource-settlement.ts';
 import {
@@ -83,7 +83,7 @@ function fail(message: string): never {
 }
 
 function semanticOperationBudget(
-  operation: SecBoundSemanticOperation,
+  operation: BoundSemanticOperation,
   resource: 'input-bytes' | 'output-bytes' | 'processes'
 ): number {
   return operation.plan.execution.aggregateBudgets
@@ -95,12 +95,12 @@ function semanticOperationBudget(
  * from a real provider-owned semantic operation scope.
  */
 export function assertContainerEngineOperationScopeAdmission(input: Readonly<{
-  operation: SecBoundSemanticOperation;
+  operation: BoundSemanticOperation;
   requirementId: string;
-  providerIdentityDigest: SecOperationDigest;
+  providerIdentityDigest: OperationDigest;
   sessionDeadlineAtUnixMs: number;
 }>): void {
-  assertSecSemanticOperationProjection(input.operation);
+  assertSemanticOperationProjection(input.operation);
   const requirement = input.operation.plan.execution.requirements.find(
     ({ id }) => id === input.requirementId
   );
@@ -126,11 +126,11 @@ export function assertContainerEngineOperationScopeAdmission(input: Readonly<{
 }
 
 export function compileContainerEngineAdmissionProviderIdentity(input: Readonly<{
-  authorityProviderIdentityDigest: SecOperationDigest;
-  projectionProviderIdentityDigest: SecOperationDigest;
-  environmentDigest: SecOperationDigest;
-  operationIdentityDigest: SecOperationDigest;
-  boundAttemptDigest: SecOperationDigest;
+  authorityProviderIdentityDigest: OperationDigest;
+  projectionProviderIdentityDigest: OperationDigest;
+  environmentDigest: OperationDigest;
+  operationIdentityDigest: OperationDigest;
+  boundAttemptDigest: OperationDigest;
   executable: Readonly<{
     path: string;
     size: number;
@@ -143,7 +143,7 @@ export function compileContainerEngineAdmissionProviderIdentity(input: Readonly<
     directory: PhysicalDirectoryIdentity;
   }>[];
   generationCensus: RuntimeGenerationCensusReceipt;
-}>): SecOperationDigest {
+}>): OperationDigest {
   assertRuntimeGenerationCensusReceipt(input.generationCensus);
   if (input.generationCensus.providerIdentityDigest
       !== input.authorityProviderIdentityDigest) {
@@ -152,15 +152,15 @@ export function compileContainerEngineAdmissionProviderIdentity(input: Readonly<
   return sha256({
     schema: 'sec-container-engine-provider-admission-identity-v1',
     ...input
-  }) as SecOperationDigest;
+  }) as OperationDigest;
 }
 
 export function compileObservedContainerEngineProviderIdentity(input: Readonly<{
-  authorityProviderIdentityDigest: SecOperationDigest;
-  projectionProviderIdentityDigest: SecOperationDigest;
-  environmentDigest: SecOperationDigest;
-  operationIdentityDigest: SecOperationDigest;
-  boundAttemptDigest: SecOperationDigest;
+  authorityProviderIdentityDigest: OperationDigest;
+  projectionProviderIdentityDigest: OperationDigest;
+  environmentDigest: OperationDigest;
+  operationIdentityDigest: OperationDigest;
+  boundAttemptDigest: OperationDigest;
   executable: Readonly<{
     path: string;
     size: number;
@@ -168,23 +168,23 @@ export function compileObservedContainerEngineProviderIdentity(input: Readonly<{
     contentDigest: `sha256:${string}`;
   }>;
   workingDirectory: PhysicalDirectoryIdentity;
-}>): SecOperationDigest {
+}>): OperationDigest {
   return sha256({
     schema: 'sec-container-engine-observed-provider-identity-v1',
     ...input
-  }) as SecOperationDigest;
+  }) as OperationDigest;
 }
 
 export function compileContainerEngineReadyProviderIdentity(input: Readonly<{
-  admissionProviderIdentityDigest: SecOperationDigest;
+  admissionProviderIdentityDigest: OperationDigest;
   endpoint: DockerEndpointIdentity;
-}>): SecOperationDigest {
+}>): OperationDigest {
   const endpoint = parseDockerEndpointIdentity(input.endpoint);
   return sha256({
     schema: 'sec-container-engine-retained-provider-identity-v1',
     predecessorAdmissionProviderIdentityDigest: input.admissionProviderIdentityDigest,
     endpoint
-  }) as SecOperationDigest;
+  }) as OperationDigest;
 }
 
 interface DockerDesktopLifecycleEnvironment {
@@ -523,7 +523,7 @@ export async function openContainerEngineSession(
   try {
     processSession = openProcessResourceSession({
       operation: input.operation,
-      requirementBindingContext: issueSecOperationRequirementBindingContext({
+      requirementBindingContext: issueOperationRequirementBindingContext({
         operation: input.operation,
         requirementId: providerAuthorityBinding.requirementId,
         resourceCeilings: [
@@ -567,17 +567,17 @@ export async function openContainerEngineSession(
   let terminalCloseFailure: unknown;
   let runtimeState: DockerDesktopLifecycleEnvironment | null = null;
   let independentProvider: IndependentProviderProcessCapability | null = null;
-  let admissionProviderIdentityDigest: SecOperationDigest = providerAuthorityIdentityDigest;
+  let admissionProviderIdentityDigest: OperationDigest = providerAuthorityIdentityDigest;
   type ScopeCommandSettlement = Readonly<{
     ordinal: number;
     operationKind: ContainerEngineOperation['kind'];
-    argumentsDigest: SecOperationDigest;
+    argumentsDigest: OperationDigest;
     exitCode: number;
-    stdoutDigest: SecOperationDigest;
-    stderrDigest: SecOperationDigest;
+    stdoutDigest: OperationDigest;
+    stderrDigest: OperationDigest;
   }>;
   type ActiveScope = {
-    operation: SecBoundSemanticOperation;
+    operation: BoundSemanticOperation;
     requirementId: string;
     processCount: number;
     inputBytes: number;
@@ -673,14 +673,14 @@ export async function openContainerEngineSession(
           operationKind: scopedOperation!.kind,
           argumentsDigest: sha256({
             arguments: boundedArguments(scopedOperation!.arguments)
-          }) as SecOperationDigest,
+          }) as OperationDigest,
           exitCode: commandResult.code,
           stdoutDigest: sha256({
             stdout: commandResult.stdout.toString('base64')
-          }) as SecOperationDigest,
+          }) as OperationDigest,
           stderrDigest: sha256({
             stderr: commandResult.stderr.toString('base64')
-          }) as SecOperationDigest
+          }) as OperationDigest
         }));
       }
       if (options.acceptAnyExitCode !== true
@@ -907,12 +907,12 @@ export async function openContainerEngineSession(
           settlements: []
         };
         currentScope = scope;
-        let receipt: SecProviderSettlementReceipt | null = null;
+        let receipt: ProviderSettlementReceipt | null = null;
         const handle: ContainerEngineOperationScope = Object.freeze({
           operationIdentityDigest: scopeInput.operation.plan.identity.identityDigest,
           boundAttemptDigest: scopeInput.operation.boundAttemptDigest,
           requirementId: scopeInput.requirementId,
-          settle(): SecProviderSettlementReceipt {
+          settle(): ProviderSettlementReceipt {
             if (receipt !== null) return receipt;
             if (currentScope !== scope) fail('provider settlement scope is no longer current');
             if (active > 0) fail('provider settlement scope cannot settle during an active operation');
@@ -934,8 +934,8 @@ export async function openContainerEngineSession(
               inputBytes: scope.inputBytes,
               outputBytes: scope.outputBytes,
               settlements: scope.settlements
-            }) as SecOperationDigest;
-            receipt = issueSecProviderSettlementReceipt(scope.operation, {
+            }) as OperationDigest;
+            receipt = issueProviderSettlementReceipt(scope.operation, {
               requirementId: scope.requirementId,
               physicalDisposition,
               providerSettlementReferenceDigest

@@ -1,14 +1,16 @@
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import path from 'node:path';
 
-import { sha256 } from '../../../contracts/canonical.ts';
-import { issueSecOperationRequirementBindingContext } from '../../../execution/operation/requirement-binding-context.ts';
+import { rawSha256, sha256 } from '../../../contracts/canonical.ts';
+import { issueOperationRequirementBindingContext } from '../../../execution/operation/requirement-binding-context.ts';
 import {
-  bindSecSemanticOperation,
-  compileSecCapabilityBinding,
-  compileSecSemanticOperationPlan,
-  issueSecSemanticOperationAttemptContext,
-  type SecBoundSemanticOperation,
-  type SecOperationDigest
+  bindSemanticOperation,
+  compileCapabilityBinding,
+  compileSemanticOperationPlan,
+  issueSemanticOperationAttemptContext,
+  type BoundSemanticOperation,
+  type OperationDigest
 } from '../../../execution/operation/semantic.ts';
 import { settleResources as settlePhysicalResources, settleResourcesAsync as settlePhysicalResourcesAsync, type ResourceSettlementFailure as PhysicalResourceSettlementFailure } from '../../../execution/resource-settlement.ts';
 import {
@@ -52,11 +54,11 @@ const CANDIDATE_BUNDLE_CONTRACT = sha256({
   source: 'git-read-exact-repository-identity-v1',
   effect: 'fixed-local-fetch-and-bundle-v1',
   output: 'retained-ordinary-file-v1'
-}) as SecOperationDigest;
+}) as OperationDigest;
 const CANDIDATE_BUNDLE_PROCESS_PROVIDER = sha256({
   provider: 'runtime-state.physical.process-resource-session',
   consumer: CANDIDATE_BUNDLE_OPERATION
-}) as SecOperationDigest;
+}) as OperationDigest;
 const CANDIDATE_BUNDLE_DURATION_MS = 120_000;
 const CANDIDATE_BUNDLE_MAXIMUM_PROCESSES = 32;
 const CANDIDATE_BUNDLE_MAXIMUM_INPUT_BYTES = 64 * 1024;
@@ -66,6 +68,21 @@ const CANDIDATE_BUNDLE_COMMAND_OUTPUT_BYTES = 256 * 1024;
 const CANDIDATE_BUNDLE_EXECUTABLE_BYTES = 64 * 1024 * 1024;
 const CANDIDATE_BUNDLE_BARE_NAME = 'bundle-source.git';
 const CANDIDATE_BUNDLE_FILE_NAME = 'candidate.bundle';
+const BUNDLE_INSPECTION_OPERATION = 'external-capabilities.git-bundle.inspect';
+const BUNDLE_INSPECTION_REQUIREMENT = 'git-bundle.inspect-host-process';
+const BUNDLE_INSPECTION_CONTRACT = sha256({
+  operation: BUNDLE_INSPECTION_OPERATION,
+  source: 'caller-supplied-bundle-bytes-v1',
+  effect: 'temporary-retained-bundle-inspection-v1',
+  output: 'verified-bundle-heads-v1'
+}) as OperationDigest;
+const BUNDLE_INSPECTION_PROCESS_PROVIDER = sha256({
+  provider: 'runtime-state.physical.process-resource-session',
+  consumer: BUNDLE_INSPECTION_OPERATION
+}) as OperationDigest;
+const BUNDLE_INSPECTION_FILE_NAME = 'observed.bundle';
+const BUNDLE_INSPECTION_MAXIMUM_FILE_BYTES = 16 * 1024 * 1024;
+const BUNDLE_INSPECTION_OUTPUT_BYTES = 512 * 1024;
 const OBJECT_ID = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/u;
 
 const GIT_READ_BUDGET = Object.freeze({
@@ -83,6 +100,10 @@ const GIT_READ_BUDGET = Object.freeze({
   maxCommandStderrBytes: 64 * 1024,
   maxExecutableBytes: CANDIDATE_BUNDLE_EXECUTABLE_BYTES
 });
+const BUNDLE_INSPECTION_MAXIMUM_PROCESSES = GIT_READ_BUDGET.maxProcesses + 2;
+const BUNDLE_INSPECTION_MAXIMUM_OUTPUT_BYTES = GIT_READ_BUDGET.maxStdoutBytes
+  + GIT_READ_BUDGET.maxStderrBytes
+  + 2 * (BUNDLE_INSPECTION_OUTPUT_BYTES + CANDIDATE_BUNDLE_COMMAND_OUTPUT_BYTES);
 
 export type GitCandidateBundle = Readonly<{
   readonly bundlePath: string;
@@ -91,19 +112,27 @@ export type GitCandidateBundle = Readonly<{
   readonly baseSha: string;
   readonly headSha: string;
   readonly objectFormat: 'sha1' | 'sha256';
-  readonly materializationIdentityDigest: SecOperationDigest;
+  readonly materializationIdentityDigest: OperationDigest;
 }>;
 
 export type GitCandidateBundleReceipt = Readonly<{
   readonly schema: 'sec-git-candidate-bundle-receipt-v1';
-  readonly materializationIdentityDigest: SecOperationDigest;
+  readonly materializationIdentityDigest: OperationDigest;
   readonly bundlePath: string;
   readonly bundleSize: number;
   readonly bundleDigest: `sha256:${string}`;
   readonly baseSha: string;
   readonly headSha: string;
   readonly terminal: 'released';
-  readonly receiptDigest: SecOperationDigest;
+  readonly receiptDigest: OperationDigest;
+}>;
+
+export type GitBundleInspection = Readonly<{
+  readonly bundleDigest: `sha256:${string}`;
+  readonly heads: readonly Readonly<{
+    readonly objectId: string;
+    readonly reference: string;
+  }>[];
 }>;
 
 type GitCandidateBundleState = {
@@ -122,8 +151,8 @@ function compileCandidateBundleOperation(input: Readonly<{
   baseSha: string;
   headSha: string;
   deadlineAtUnixMs: number;
-}>): SecBoundSemanticOperation {
-  const plan = compileSecSemanticOperationPlan({
+}>): BoundSemanticOperation {
+  const plan = compileSemanticOperationPlan({
     operation: CANDIDATE_BUNDLE_OPERATION,
     intentDigest: sha256({
       sourceRoot: input.sourceRoot,
@@ -132,10 +161,10 @@ function compileCandidateBundleOperation(input: Readonly<{
       headSha: input.headSha,
       bareName: CANDIDATE_BUNDLE_BARE_NAME,
       bundleName: CANDIDATE_BUNDLE_FILE_NAME
-    }) as SecOperationDigest,
+    }) as OperationDigest,
     decisionDigest: CANDIDATE_BUNDLE_CONTRACT,
     deadlineAtUnixMs: input.deadlineAtUnixMs,
-    attempt: issueSecSemanticOperationAttemptContext({
+    attempt: issueSemanticOperationAttemptContext({
       authorityGrantDigest: CANDIDATE_BUNDLE_CONTRACT
     }),
     aggregateBudgets: [
@@ -163,10 +192,59 @@ function compileCandidateBundleOperation(input: Readonly<{
       ]
     }]
   });
-  return bindSecSemanticOperation(plan, [compileSecCapabilityBinding({
+  return bindSemanticOperation(plan, [compileCapabilityBinding({
     requirementId: CANDIDATE_BUNDLE_REQUIREMENT,
     contractDigest: CANDIDATE_BUNDLE_CONTRACT,
     providerIdentityDigest: CANDIDATE_BUNDLE_PROCESS_PROVIDER
+  })]);
+}
+
+function compileBundleInspectionOperation(input: Readonly<{
+  repositoryRoot: string;
+  bundleDigest: `sha256:${string}`;
+  bundleBytes: number;
+  deadlineAtUnixMs: number;
+}>): BoundSemanticOperation {
+  const plan = compileSemanticOperationPlan({
+    operation: BUNDLE_INSPECTION_OPERATION,
+    intentDigest: sha256({
+      repositoryRoot: input.repositoryRoot,
+      bundleDigest: input.bundleDigest,
+      bundleBytes: input.bundleBytes
+    }) as OperationDigest,
+    decisionDigest: BUNDLE_INSPECTION_CONTRACT,
+    deadlineAtUnixMs: input.deadlineAtUnixMs,
+    attempt: issueSemanticOperationAttemptContext({
+      authorityGrantDigest: BUNDLE_INSPECTION_CONTRACT
+    }),
+    aggregateBudgets: [
+      { resource: 'duration-ms', maximum: CANDIDATE_BUNDLE_DURATION_MS },
+      { resource: 'input-bytes', maximum: input.bundleBytes },
+      { resource: 'output-bytes', maximum: BUNDLE_INSPECTION_MAXIMUM_OUTPUT_BYTES },
+      { resource: 'processes', maximum: BUNDLE_INSPECTION_MAXIMUM_PROCESSES }
+    ],
+    requirements: [{
+      id: BUNDLE_INSPECTION_REQUIREMENT,
+      contractDigest: BUNDLE_INSPECTION_CONTRACT,
+      effectKinds: ['filesystem', 'process', 'provider'],
+      failureKinds: [
+        'filesystem.identity-drift',
+        'filesystem.read-failed',
+        'filesystem.write-failed',
+        'process.cancelled',
+        'process.deadline-exhausted',
+        'process.output-budget-exhausted',
+        'process.settlement-unproven',
+        'process.unavailable',
+        'provider.unavailable',
+        'provider.unverified'
+      ]
+    }]
+  });
+  return bindSemanticOperation(plan, [compileCapabilityBinding({
+    requirementId: BUNDLE_INSPECTION_REQUIREMENT,
+    contractDigest: BUNDLE_INSPECTION_CONTRACT,
+    providerIdentityDigest: BUNDLE_INSPECTION_PROCESS_PROVIDER
   })]);
 }
 
@@ -249,13 +327,13 @@ async function materializeCandidateBundle(input: Readonly<{
   temporaryRoot: string;
   baseSha: string;
   headSha: string;
-  operation: SecBoundSemanticOperation;
+  operation: BoundSemanticOperation;
   processSession: ReturnType<typeof openProcessResourceSession>;
   temporaryRootIdentity: PhysicalDirectoryChain;
 }>): Promise<Readonly<{
   retainedBundle: RetainedNoFollowOrdinaryFile;
   objectFormat: 'sha1' | 'sha256';
-  sourceIdentityDigest: SecOperationDigest;
+  sourceIdentityDigest: OperationDigest;
   publicationDigest: string;
   providerReceipt: GitPhysicalProviderReceipt;
 }>> {
@@ -482,7 +560,7 @@ async function materializeCandidateBundle(input: Readonly<{
           sourceRoot: sourceChain.target,
           gitDirectory: gitDirectoryChain.target,
           commonDirectory: commonDirectoryChain.target
-        }) as SecOperationDigest,
+        }) as OperationDigest,
         publicationDigest,
         providerReceipt
       });
@@ -499,6 +577,157 @@ async function materializeCandidateBundle(input: Readonly<{
     }
     throw error;
   }
+}
+
+export async function inspectGitBundleBytes(input: Readonly<{
+  readonly repositoryRoot: string;
+  readonly bytes: Uint8Array;
+}>): Promise<GitBundleInspection> {
+  const repositoryRoot = path.resolve(input.repositoryRoot);
+  if (!path.isAbsolute(input.repositoryRoot) || repositoryRoot !== input.repositoryRoot
+      || input.bytes.byteLength === 0
+      || input.bytes.byteLength > BUNDLE_INSPECTION_MAXIMUM_FILE_BYTES) {
+    throw new Error('Git bundle inspection input is not canonical.');
+  }
+  inspectNoFollowDirectoryChain(repositoryRoot, 'Git bundle inspection repository root');
+  const bundleDigest = rawSha256(input.bytes);
+  const deadlineAtUnixMs = Date.now() + CANDIDATE_BUNDLE_DURATION_MS;
+  const operation = compileBundleInspectionOperation({
+    repositoryRoot,
+    bundleDigest,
+    bundleBytes: input.bytes.byteLength,
+    deadlineAtUnixMs
+  });
+  const processSession = openProcessResourceSession({
+    operation,
+    requirementBindingContext: issueOperationRequirementBindingContext({
+      operation,
+      requirementId: BUNDLE_INSPECTION_REQUIREMENT,
+      resourceCeilings: operation.plan.execution.aggregateBudgets
+    })
+  });
+  const temporaryRoot = mkdtempSync(path.join(tmpdir(), 'sec-git-bundle-inspect-'));
+  let retainedBundle: RetainedNoFollowOrdinaryFile | null = null;
+  let provider: GitPhysicalProviderCapability | null = null;
+  let providerReceipt: GitPhysicalProviderReceipt | null = null;
+  let inspection: GitBundleInspection | null = null;
+  let primaryError: unknown;
+  try {
+    const temporaryRootIdentity = inspectNoFollowDirectoryChain(
+      temporaryRoot,
+      'Git bundle inspection temporary root'
+    );
+    const bundlePath = path.join(temporaryRoot, BUNDLE_INSPECTION_FILE_NAME);
+    writeFileSync(bundlePath, input.bytes, { flag: 'wx' });
+    retainedBundle = retainNoFollowOrdinaryFile(
+      temporaryRootIdentity,
+      BUNDLE_INSPECTION_FILE_NAME,
+      undefined,
+      'Git bundle inspection input',
+      7
+    );
+    await withAuthorityGitReadSession({
+      cwd: repositoryRoot,
+      operation,
+      processSession,
+      budget: GIT_READ_BUDGET,
+      deadlineAtUnixMs,
+      source: process.env
+    }, async (session: GitReadSession) => {
+      const executablePath = session.gitExecutableIdentity?.realPath;
+      if (executablePath === undefined) {
+        throw new Error('Git bundle inspection lacks one retained Git executable identity.');
+      }
+      const resolution = openGitPhysicalProvider({
+        cwd: repositoryRoot,
+        executablePath,
+        operation,
+        processSession,
+        environmentSource: process.env,
+        maximumExecutableBytes: CANDIDATE_BUNDLE_EXECUTABLE_BYTES
+      });
+      if (resolution.status !== 'ready') {
+        throw new Error(`Git bundle inspection physical provider is unavailable: ${resolution.reason}`);
+      }
+      provider = resolution.capability;
+      assertGitPhysicalResourceAdmissionInternal(provider, {
+        processes: 2,
+        inputBytes: 0,
+        outputBytes: 2 * (BUNDLE_INSPECTION_OUTPUT_BYTES + CANDIDATE_BUNDLE_COMMAND_OUTPUT_BYTES)
+      });
+      const auxiliary = Object.freeze([Object.freeze({
+        capability: retainedBundle!,
+        kind: 'ordinary-file' as const
+      })]);
+      await runRequiredGitCommand(
+        provider,
+        ['bundle', 'verify', retainedBundle!.childPath],
+        'inspection verification',
+        auxiliary,
+        BUNDLE_INSPECTION_OUTPUT_BYTES
+      );
+      const headsBytes = await runRequiredGitCommand(
+        provider,
+        ['bundle', 'list-heads', retainedBundle!.childPath],
+        'inspection head enumeration',
+        auxiliary,
+        BUNDLE_INSPECTION_OUTPUT_BYTES
+      );
+      const source = new TextDecoder('utf-8', { fatal: true }).decode(headsBytes);
+      const heads = source.split(/\r?\n/u).filter(Boolean).map((line) => {
+        const separator = line.indexOf(' ');
+        const objectId = separator < 0 ? '' : line.slice(0, separator);
+        const reference = separator < 0 ? '' : line.slice(separator + 1);
+        if (!OBJECT_ID.test(objectId) || reference.length === 0 || /[\0\r\n]/u.test(reference)) {
+          throw new Error('Git bundle inspection head enumeration is malformed.');
+        }
+        return Object.freeze({ objectId, reference });
+      });
+      if (heads.length === 0) {
+        throw new Error('Git bundle inspection contains no advertised heads.');
+      }
+      inspection = Object.freeze({ bundleDigest, heads: Object.freeze(heads) });
+    });
+  } catch (error) {
+    primaryError = error;
+  }
+  try {
+    await settlePhysicalResourcesAsync({
+      primary: primaryError === undefined ? undefined : {
+        label: 'git-bundle-inspection', error: primaryError
+      },
+      cleanup: [
+        ...(provider === null ? [] : [{
+          label: 'git-bundle-inspection-physical-provider',
+          settle: () => {
+            providerReceipt = closeGitPhysicalProvider(provider!);
+            assertGitPhysicalProviderReceipt(providerReceipt, provider!);
+          }
+        }]),
+        ...(retainedBundle === null ? [] : [{
+          label: 'git-bundle-inspection-input',
+          settle: () => retainedBundle!.dispose()
+        }]),
+        {
+          label: 'git-bundle-inspection-process-session',
+          settle: () => {
+            const receipt = processSession.close();
+            assertProcessResourceSessionReceipt(receipt, {
+              operationIdentityDigest: operation.plan.identity.identityDigest,
+              boundAttemptDigest: operation.boundAttemptDigest,
+              requirementId: BUNDLE_INSPECTION_REQUIREMENT
+            });
+          }
+        }
+      ]
+    });
+  } finally {
+    rmSync(temporaryRoot, { recursive: true, force: true });
+  }
+  if (inspection === null || providerReceipt === null) {
+    throw primaryError ?? new Error('Git bundle inspection completed without exact settlement.');
+  }
+  return inspection;
 }
 
 export async function createGitCandidateBundle(input: Readonly<{
@@ -533,7 +762,7 @@ export async function createGitCandidateBundle(input: Readonly<{
   });
   const processSession = openProcessResourceSession({
     operation,
-    requirementBindingContext: issueSecOperationRequirementBindingContext({
+    requirementBindingContext: issueOperationRequirementBindingContext({
       operation,
       requirementId: CANDIDATE_BUNDLE_REQUIREMENT,
       resourceCeilings: operation.plan.execution.aggregateBudgets
@@ -616,7 +845,7 @@ export async function createGitCandidateBundle(input: Readonly<{
       materializationIdentityDigest: sha256({
         domain: 'external-capabilities.git-bundle.materialization',
         materialization: withoutIdentity
-      }) as SecOperationDigest
+      }) as OperationDigest
     });
     GIT_CANDIDATE_BUNDLE_STATES.set(bundle, {
       retainedBundle: materialized.retainedBundle,
@@ -684,7 +913,7 @@ export function closeGitCandidateBundle(bundle: GitCandidateBundle): GitCandidat
     receiptDigest: sha256({
       domain: 'external-capabilities.git-bundle.receipt',
       receipt: withoutDigest
-    }) as SecOperationDigest
+    }) as OperationDigest
   });
   ISSUED_GIT_CANDIDATE_BUNDLE_RECEIPTS.add(state.receipt);
   return state.receipt;

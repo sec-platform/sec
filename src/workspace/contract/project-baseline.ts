@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { isDigestHex } from '../../contracts/digest.ts';
+import { isDigest256Hex } from '../../contracts/digest.ts';
 
 import { deepFreeze } from '../../contracts/canonical.ts';
 import { parseExactJson } from '../../contracts/exact-json.ts';
@@ -23,7 +23,7 @@ const projectBaselineArtifactSchema = z.object({
     isCanonicalPortableLogicalPath,
     'must be one canonical portable logical path'
   ),
-  hash: z.string().refine(isDigestHex, 'must be one lowercase SHA-256 digest')
+  hash: z.string().refine(isDigest256Hex, 'must be one lowercase SHA-256 digest')
 }).strict();
 
 const ProjectBaselineSchema = z.object({

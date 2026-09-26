@@ -3,11 +3,11 @@ import path from 'node:path';
 import { canonicalJson, compareCodeUnits, isPlainObject, rawSha256, sha256 } from '../../../contracts/canonical.ts';
 import { isDigest } from '../../../contracts/digest.ts';
 import { parseExactJson } from '../../../contracts/exact-json.ts';
-import { SecError } from '../../../contracts/failure.ts';
+import { FailureError } from '../../../contracts/failure.ts';
 import {
-  assertSecSemanticOperationProjection,
-  type SecBoundSemanticOperation,
-  type SecOperationDigest
+  assertSemanticOperationProjection,
+  type BoundSemanticOperation,
+  type OperationDigest
 } from '../../../execution/operation/semantic.ts';
 import {
   PhysicalNoFollowError,
@@ -18,8 +18,8 @@ import {
   type PhysicalDirectoryIdentity
 } from '../physical/runtime/physical-no-follow.ts';
 import { decodeExactUtf8, readOptionalRetainedOrdinaryLeaf } from '../physical/runtime/retained-file-read.ts';
-import { currentSecRuntimePlatform, resolveSecRuntimeCacheRoot, secRuntimeStateEnvironment } from './layout.ts';
-import { acquireSecRuntimeCachePhysicalAuthority, type SecRuntimeCachePhysicalAuthority } from './physical-authority.ts';
+import { currentRuntimePlatform, resolveRuntimeCacheRoot, runtimeStateEnvironment } from './layout.ts';
+import { acquireRuntimeCachePhysicalAuthority, type RuntimeCachePhysicalAuthority } from './physical-authority.ts';
 
 const CACHE_SESSION_MAX_DURATION_MS = 300_000;
 const CACHE_SESSION_MAX_BYTES = 1024 * 1024 * 1024;
@@ -41,7 +41,7 @@ export type ContentAddressedWorkspaceCacheFailureKind =
   | 'foreign-residue'
   | 'physical-replacement';
 
-export class ContentAddressedWorkspaceCacheError extends SecError {
+export class ContentAddressedWorkspaceCacheError extends FailureError {
   readonly kind: ContentAddressedWorkspaceCacheFailureKind;
 
   constructor(kind: ContentAddressedWorkspaceCacheFailureKind, message: string, cause?: unknown) {
@@ -93,20 +93,20 @@ interface ContentAddressedWorkspaceCacheNamespace {
 }
 
 type ContentAddressedWorkspaceCacheSessionReceipt = Readonly<{
-  operationIdentityDigest: SecOperationDigest;
-  boundAttemptDigest: SecOperationDigest;
+  operationIdentityDigest: OperationDigest;
+  boundAttemptDigest: OperationDigest;
   deadlineAtUnixMs: number;
   records: number;
   readBytes: number;
   writeBytes: number;
   writes: number;
   failedOperations: number;
-  receiptDigest: SecOperationDigest;
+  receiptDigest: OperationDigest;
 }>;
 
 export interface ContentAddressedWorkspaceCacheSession {
-  readonly operationIdentityDigest: SecOperationDigest;
-  readonly boundAttemptDigest: SecOperationDigest;
+  readonly operationIdentityDigest: OperationDigest;
+  readonly boundAttemptDigest: OperationDigest;
   readonly deadlineAtUnixMs: number;
   readonly deadlineAtMonotonicMs: number;
   readonly signal: AbortSignal;
@@ -233,7 +233,7 @@ function atCacheBoundary<Value>(label: string, operation: () => Value): Value {
 }
 
 function loadGeneration(input: Readonly<{
-  authority: SecRuntimeCachePhysicalAuthority;
+  authority: RuntimeCachePhysicalAuthority;
   directory: PhysicalDirectoryIdentity;
   keyDigest: `sha256:${string}`;
   maximumEntries: number;
@@ -301,9 +301,9 @@ function createContentAddressedWorkspaceCacheNamespace(input: Readonly<{
     throw new Error('Content-addressed cache entry limit must be one positive safe integer');
   }
   const namespaceDigest = sha256(Object.freeze({ namespace, schemaDigest: input.schemaDigest })) as `sha256:${string}`;
-  const cacheRoot = resolveSecRuntimeCacheRoot({
-    platform: currentSecRuntimePlatform(),
-    environment: secRuntimeStateEnvironment(),
+  const cacheRoot = resolveRuntimeCacheRoot({
+    platform: currentRuntimePlatform(),
+    environment: runtimeStateEnvironment(),
     repositoryRoot
   });
   const namespaceRoot = path.join(
@@ -319,7 +319,7 @@ function createContentAddressedWorkspaceCacheNamespace(input: Readonly<{
       exactDigest(keyDigest, 'Content-addressed cache key');
       const generationRoot = path.join(namespaceRoot, keyDigest.slice('sha256:'.length));
       input.operation.consumeWrite(0, 1);
-      const authority = acquireSecRuntimeCachePhysicalAuthority({
+      const authority = acquireRuntimeCachePhysicalAuthority({
         repositoryRoot,
         cacheRoot,
         requiredDirectories: [namespaceRoot, generationRoot]
@@ -348,7 +348,7 @@ function createContentAddressedWorkspaceCacheNamespace(input: Readonly<{
             const pointer = parsePointer(pointerBytes, namespaceDigest);
             if (pointer.keyDigest === keyDigest) return Object.freeze({ status: 'miss' as const, keyDigest });
             const predecessorRoot = path.join(namespaceRoot, pointer.keyDigest.slice('sha256:'.length));
-            const predecessorAuthority = acquireSecRuntimeCachePhysicalAuthority({
+            const predecessorAuthority = acquireRuntimeCachePhysicalAuthority({
               repositoryRoot,
               cacheRoot,
               requiredDirectories: [namespaceRoot, predecessorRoot]
@@ -455,7 +455,7 @@ function createContentAddressedWorkspaceCacheNamespace(input: Readonly<{
 }
 
 function operationBudget(
-  operation: SecBoundSemanticOperation,
+  operation: BoundSemanticOperation,
   resource: 'duration-ms' | 'input-bytes' | 'output-bytes' | 'records',
   ceiling: number
 ): number {
@@ -473,12 +473,12 @@ function operationBudget(
  * pass paths or create independent deadlines and ledgers.
  */
 export function openContentAddressedWorkspaceCacheSession(input: Readonly<{
-  operation: SecBoundSemanticOperation;
+  operation: BoundSemanticOperation;
   requirementId: string;
   repository: PhysicalDirectoryIdentity;
   signal?: AbortSignal;
 }>): ContentAddressedWorkspaceCacheSession {
-  assertSecSemanticOperationProjection(input.operation);
+  assertSemanticOperationProjection(input.operation);
   const requirement = input.operation.plan.execution.requirements
     .find(({ id }) => id === input.requirementId);
   if (requirement === undefined || !requirement.effectKinds.includes('filesystem')) {
@@ -611,7 +611,7 @@ export function openContentAddressedWorkspaceCacheSession(input: Readonly<{
       });
       receipt = Object.freeze({
         ...unsigned,
-        receiptDigest: sha256(unsigned) as SecOperationDigest
+        receiptDigest: sha256(unsigned) as OperationDigest
       });
       controller.abort(new Error('Content-addressed cache session closed'));
       return receipt;

@@ -7,24 +7,25 @@
  */
 
 import { AsyncLocalStorage } from 'node:async_hooks';
-import { createHash, randomUUID } from 'node:crypto';
+import { randomUUID } from 'node:crypto';
 import { realpathSync } from 'node:fs';
 import { watch as watchFileSystem } from 'node:fs/promises';
 import path from 'node:path';
-import { issueSecOperationRequirementBindingContext } from '../../../../execution/operation/requirement-binding-context.ts';
+import { rawSha256Hex } from '../../../../contracts/canonical.ts';
+import { issueOperationRequirementBindingContext } from '../../../../execution/operation/requirement-binding-context.ts';
 import {
-  assertSecProviderSettlementReceipt,
-  bindSecSemanticOperation,
-  compileSecCapabilityBinding,
-  compileSecProviderSettlementSet,
-  compileSecSemanticOperationPlan,
-  issueSecNormalDomainReadbackReceipt,
-  issueSecNormalOwnerTerminalJoinReceipt,
-  issueSecProviderSettlementReceipt,
-  issueSecSemanticOperationAttemptContext,
-  type SecBoundSemanticOperation,
-  type SecOperationDigest,
-  type SecProviderSettlementReceipt
+  assertProviderSettlementReceipt,
+  bindSemanticOperation,
+  compileCapabilityBinding,
+  compileProviderSettlementSet,
+  compileSemanticOperationPlan,
+  issueNormalDomainReadbackReceipt,
+  issueNormalOwnerTerminalJoinReceipt,
+  issueProviderSettlementReceipt,
+  issueSemanticOperationAttemptContext,
+  type BoundSemanticOperation,
+  type OperationDigest,
+  type ProviderSettlementReceipt
 } from '../../../../execution/operation/semantic.ts';
 import { ResourceCompositeSettlementError, withAcquiredResource } from '../../../../execution/resource-settlement.ts';
 import {
@@ -39,10 +40,10 @@ import {
   type BoundedProcessDiagnosticStream
 } from '../../../runtime-state/workspace-state/bounded-process-diagnostic-object.ts';
 import { createRuntimeStateJournalFileSystem, type RuntimeStateJournalFileSystem } from '../../../runtime-state/workspace-state/journal-filesystem.ts';
-import { resolveSecWorkspaceRuntimeRoots } from '../../../runtime-state/workspace-state/paths.ts';
+import { resolveWorkspaceRuntimeRoots } from '../../../runtime-state/workspace-state/paths.ts';
 import {
-  acquireSecRuntimeStatePhysicalAuthority,
-  type SecRuntimeStatePhysicalAuthority
+  acquireRuntimeStatePhysicalAuthority,
+  type RuntimeStatePhysicalAuthority
 } from '../../../runtime-state/workspace-state/physical-authority.ts';
 import {
   createVerificationActionKey,
@@ -314,11 +315,11 @@ function nextOwnerToken(): string {
 }
 
 function localDagDigest(value: unknown): VerificationActionKeyDigest {
-  return `sha256:${createHash('sha256').update(encodeVerificationActionData(value)).digest('hex')}`;
+  return `sha256:${rawSha256Hex(encodeVerificationActionData(value))}`;
 }
 
 function rawDigest(value: string | Uint8Array): VerificationActionKeyDigest {
-  return `sha256:${createHash('sha256').update(value).digest('hex')}`;
+  return `sha256:${rawSha256Hex(value)}`;
 }
 
 function canonicalProcessRunResult(value: unknown): ProcessResourceRunResult {
@@ -340,19 +341,19 @@ function bindLocalDagOperation(input: Readonly<{
   normalizedOperation: CiVerificationNormalizedOperation;
   executionEnvironment: CiVerificationExecutionEnvironment;
   deadlineAtUnixMs: number;
-}>): SecBoundSemanticOperation {
+}>): BoundSemanticOperation {
   const processContractDigest = localDagDigest({
     contract: 'verification.local-action-execution',
     normalizedOperationDigest: input.normalizedOperation.semanticDigest
-  }) as SecOperationDigest;
+  }) as OperationDigest;
   const diagnosticContractDigest = localDagDigest({
     contract: 'verification.local-action-process-diagnostics',
     normalizedOperationDigest: input.normalizedOperation.semanticDigest
-  }) as SecOperationDigest;
+  }) as OperationDigest;
   const decisionDigest = localDagDigest({ processContractDigest, diagnosticContractDigest });
-  const operationPlan = compileSecSemanticOperationPlan({
+  const operationPlan = compileSemanticOperationPlan({
     operation: 'verification.local-action',
-    intentDigest: input.action.actionKey as SecOperationDigest,
+    intentDigest: input.action.actionKey as OperationDigest,
     decisionDigest,
     deadlineAtUnixMs: input.deadlineAtUnixMs,
     aggregateBudgets: [
@@ -393,25 +394,25 @@ function bindLocalDagOperation(input: Readonly<{
         'diagnostic.resource-exhausted'
       ]
     }],
-    attempt: issueSecSemanticOperationAttemptContext({
+    attempt: issueSemanticOperationAttemptContext({
       authorityGrantDigest: decisionDigest
     })
   });
-  const bound = bindSecSemanticOperation(operationPlan, [
-    compileSecCapabilityBinding({
+  const bound = bindSemanticOperation(operationPlan, [
+    compileCapabilityBinding({
       requirementId: 'verification.local-provider',
       contractDigest: processContractDigest,
       providerIdentityDigest: localDagDigest({
         executionEnvironmentRevision: input.executionEnvironment.executionEnvironmentRevision,
         toolchainRevision: input.executionEnvironment.toolchainRevision
-      }) as SecOperationDigest
+      }) as OperationDigest
     }),
-    compileSecCapabilityBinding({
+    compileCapabilityBinding({
       requirementId: 'verification.action-diagnostics',
       contractDigest: diagnosticContractDigest,
       providerIdentityDigest: localDagDigest(
         'runtime-state.process-diagnostics'
-      ) as SecOperationDigest
+      ) as OperationDigest
     })
   ]);
   return bound;
@@ -819,7 +820,7 @@ async function ensureMachineCutoverBeforeAdmission(
 export class VerificationActionRunner {
   readonly #journalFileSystemPromises = new Map<string, Promise<RuntimeStateJournalFileSystem>>();
   readonly #journalFileSystems = new Map<string, RuntimeStateJournalFileSystem>();
-  readonly #runtimeAuthorities = new Map<string, SecRuntimeStatePhysicalAuthority>();
+  readonly #runtimeAuthorities = new Map<string, RuntimeStatePhysicalAuthority>();
   readonly #diagnosticStores = new Map<string, BoundedProcessDiagnosticObjectStore>();
   readonly #operationAdmission = new AsyncLocalStorage<true>();
   readonly #activeOperations = new Set<Promise<void>>();
@@ -854,12 +855,12 @@ export class VerificationActionRunner {
         throw new Error('VerificationAction Runtime State authority has unresolved closeout.');
       }
       pending = (async () => {
-        const roots = resolveSecWorkspaceRuntimeRoots({ repositoryRoot: physicalRoot });
+        const roots = resolveWorkspaceRuntimeRoots({ repositoryRoot: physicalRoot });
         const actionJournalRoot = path.join(
           roots.stateRoot,
           VERIFICATION_ACTION_JOURNAL_DIRECTORY
         );
-        const authority = await acquireSecRuntimeStatePhysicalAuthority({
+        const authority = await acquireRuntimeStatePhysicalAuthority({
           repositoryRoot: physicalRoot,
           stateRoot: roots.stateRoot,
           cacheRoot: roots.cacheRoot,
@@ -921,8 +922,8 @@ export class VerificationActionRunner {
   async publishBoundProcessDiagnostics(input: Readonly<{
     repositoryRoot: string;
     action: VerificationActionKey;
-    operation: SecBoundSemanticOperation;
-    processSettlement: SecProviderSettlementReceipt;
+    operation: BoundSemanticOperation;
+    processSettlement: ProviderSettlementReceipt;
     streams: readonly Readonly<{
       stream: BoundedProcessDiagnosticStream;
       bytes: Uint8Array;
@@ -931,7 +932,7 @@ export class VerificationActionRunner {
   }>): Promise<readonly BoundedProcessDiagnosticPublishedObject[]> {
     return this.#withAdmittedOperation(async () => {
       const action = canonicalAction(input.action);
-      assertSecProviderSettlementReceipt(input.processSettlement);
+      assertProviderSettlementReceipt(input.processSettlement);
       const operationBindsAction = input.operation.plan.identity.intentDigest === action.actionKey
         || action.operation.semanticDigest === input.operation.plan.identity.identityDigest;
       if (!operationBindsAction
@@ -948,7 +949,7 @@ export class VerificationActionRunner {
       return this.#diagnosticStore(input.repositoryRoot).publish({
         operation: input.operation,
         requirementId: 'verification.action-diagnostics',
-        subjectDigest: action.actionKey as SecOperationDigest,
+        subjectDigest: action.actionKey as OperationDigest,
         settlementDigest: input.processSettlement.providerReceiptDigest,
         streams: input.streams,
         signal: input.signal
@@ -1543,7 +1544,7 @@ export async function executeLocalVerificationActionDag(
       executor: async () => {
         const session = openProcessResourceSession({
           operation: boundOperation,
-          requirementBindingContext: issueSecOperationRequirementBindingContext({
+          requirementBindingContext: issueOperationRequirementBindingContext({
             operation: boundOperation,
             requirementId: 'verification.local-provider',
             resourceCeilings: [
@@ -1609,7 +1610,7 @@ export async function executeLocalVerificationActionDag(
             || processReceipt.operationIdentityDigest !== boundOperation.plan.identity.identityDigest) {
           throw new Error('local VerificationAction process receipt does not settle the exact attempt.');
         }
-        const providerSettlement = issueSecProviderSettlementReceipt(boundOperation, {
+        const providerSettlement = issueProviderSettlementReceipt(boundOperation, {
           requirementId: 'verification.local-provider',
           physicalDisposition: 'settled',
           providerSettlementReferenceDigest: localDagDigest({
@@ -1631,7 +1632,7 @@ export async function executeLocalVerificationActionDag(
           ],
           signal: input.signal
         });
-        const diagnosticSettlement = issueSecProviderSettlementReceipt(boundOperation, {
+        const diagnosticSettlement = issueProviderSettlementReceipt(boundOperation, {
           requirementId: 'verification.action-diagnostics',
           physicalDisposition: 'settled',
           providerSettlementReferenceDigest: localDagDigest(
@@ -1641,7 +1642,7 @@ export async function executeLocalVerificationActionDag(
             }))
           )
         });
-        const providerSettlementSet = compileSecProviderSettlementSet(
+        const providerSettlementSet = compileProviderSettlementSet(
           boundOperation,
           [providerSettlement, diagnosticSettlement]
         );
@@ -1655,7 +1656,7 @@ export async function executeLocalVerificationActionDag(
             'local VerificationAction candidate readback drifted after process settlement.'
           );
         }
-        const readback = issueSecNormalDomainReadbackReceipt(
+        const readback = issueNormalDomainReadbackReceipt(
           boundOperation,
           providerSettlementSet,
           {
@@ -1672,7 +1673,7 @@ export async function executeLocalVerificationActionDag(
             disposition: 'applied'
           }
         );
-        const ownerTerminalJoin = issueSecNormalOwnerTerminalJoinReceipt(
+        const ownerTerminalJoin = issueNormalOwnerTerminalJoinReceipt(
           boundOperation,
           providerSettlementSet,
           readback,

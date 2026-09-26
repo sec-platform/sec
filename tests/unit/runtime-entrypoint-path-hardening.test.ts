@@ -10,12 +10,12 @@ import {
   parseCompilerPackageEntrypointBinding,
   resolveCompilerRuntimeLayout
 } from '../../src/adapters/toolchain/runtime/layout.ts';
-import { SecError } from '../../src/contracts/failure.ts';
+import { FailureError } from '../../src/contracts/failure.ts';
 
 function manifest(source: unknown = './src/cli.ts', artifact: unknown = './dist/index.js') {
   return { source, bin: { sec: artifact }, scripts: { sec: PACKAGE_SOURCE_LAUNCHER_SCRIPT } };
 }
-const invalid = (error: unknown): boolean => error instanceof SecError && error.code === 'RUNTIME-LAYOUT-001';
+const invalid = (error: unknown): boolean => error instanceof FailureError && error.code === 'RUNTIME-LAYOUT-001';
 
 test('runtime source entrypoint cannot name its package root or parent', () => {
   for (const value of ['./.', './..', './', './../outside.ts', './src/../cli.ts']) {

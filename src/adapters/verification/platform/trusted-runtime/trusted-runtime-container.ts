@@ -1,4 +1,4 @@
-import { createHash, randomUUID } from 'node:crypto';
+import { randomUUID } from 'node:crypto';
 import {
   mkdtempSync,
   readFileSync,
@@ -7,19 +7,20 @@ import {
 import { hostname, tmpdir } from 'node:os';
 import path from 'node:path';
 
+import { rawSha256Hex } from '../../../../contracts/canonical.ts';
 import { CI_VERIFICATION_WORKFLOW_PATH } from '../../../../assurance/verification/contract/revision.ts';
 import {
-  bindSecSemanticOperation,
-  compileSecCapabilityBinding,
-  compileSecProviderSettlementSet,
-  compileSecSemanticOperationPlan,
-  issueSecNormalDomainReadbackReceipt,
-  issueSecNormalOwnerTerminalJoinReceipt,
-  issueSecSemanticOperationAttemptContext,
-  type SecBoundSemanticOperation,
-  type SecOperationDigest,
-  type SecOwnerTerminalJoinReceipt,
-  type SecProviderSettlementReceipt
+  bindSemanticOperation,
+  compileCapabilityBinding,
+  compileProviderSettlementSet,
+  compileSemanticOperationPlan,
+  issueNormalDomainReadbackReceipt,
+  issueNormalOwnerTerminalJoinReceipt,
+  issueSemanticOperationAttemptContext,
+  type BoundSemanticOperation,
+  type OperationDigest,
+  type OwnerTerminalJoinReceipt,
+  type ProviderSettlementReceipt
 } from '../../../../execution/operation/semantic.ts';
 import { settleResourcesAsync as settlePhysicalResourcesAsync } from '../../../../execution/resource-settlement.ts';
 import type {
@@ -48,22 +49,23 @@ import {
 import { withAuthorityGitReadSession } from '../../../providers/git-read/authority.ts';
 import { isolatedGitChildEnvironment } from '../../../providers/git-read/runtime/session.ts';
 import {
-  SEC_LINUX_VERIFICATION_ENVIRONMENT_AUTHORITY,
-  SEC_LINUX_VERIFICATION_TRUSTED_BUN_EXECUTABLE_DIGEST,
-  SEC_LINUX_VERIFICATION_TRUSTED_BUN_EXECUTABLE_PATH,
-  SEC_LINUX_VERIFICATION_TRUSTED_RUNTIME_DOCKERFILE_PATH
+  LINUX_VERIFICATION_ENVIRONMENT_AUTHORITY,
+  LINUX_VERIFICATION_TRUSTED_BUN_EXECUTABLE_DIGEST,
+  LINUX_VERIFICATION_TRUSTED_BUN_EXECUTABLE_PATH,
+  LINUX_VERIFICATION_TRUSTED_RUNTIME_DOCKERFILE_PATH
 } from '../../../providers/linux-verification/contract.ts';
 import {
   parseGitObjectIdReply
 } from '../../../runtime-state/physical/contract/git-worktree-observation.ts';
 import { acquirePhysicalMutationLease } from '../../../runtime-state/physical/runtime/mutation-lease.ts';
-import { resolveSecRuntimeStateForRepository } from '../../../runtime-state/workspace-state/paths.ts';
-import { acquireSecRuntimeStatePhysicalAuthority } from '../../../runtime-state/workspace-state/physical-authority.ts';
+import { selectRuntimeStateDirectoryGeneration } from '../../../runtime-state/workspace-state/layout-migration.ts';
+import { resolveRuntimeStateForRepository } from '../../../runtime-state/workspace-state/paths.ts';
+import { acquireRuntimeStatePhysicalAuthority } from '../../../runtime-state/workspace-state/physical-authority.ts';
 import { compilerRuntimeLayout } from '../../../toolchain/runtime/layout.ts';
 import { TYPECHECK_PROVIDER_CANARY_ENTRYPOINT_PATH } from '../../../toolchain/typescript/canary.ts';
 import { encodeVerificationActionData } from '../action/contract/action.ts';
 import { createCiVerificationLocalExecutionEnvironment, type CiVerificationExecutionEnvironment } from '../action/contract/ci.ts';
-import { type CodexDevelopmentVerificationEvidenceV4 } from '../ci/contract/evidence.ts';
+import { type VerificationEvidence } from '../ci/contract/evidence.ts';
 import {
   createBuildxRawJsonProgressAdmission,
   ensureLocalGitHubActionsRunnerToolchainMaterialization,
@@ -71,7 +73,7 @@ import {
 } from '../ci/runtime/local-github-actions-runner.ts';
 import type { VerificationSessionHostedEnvelope } from '../ci/runtime/verification-session-runtime.ts';
 
-const ENVIRONMENT = SEC_LINUX_VERIFICATION_ENVIRONMENT_AUTHORITY;
+const ENVIRONMENT = LINUX_VERIFICATION_ENVIRONMENT_AUTHORITY;
 const TRUSTED_RUNTIME_CONTAINER_SCHEMA = ENVIRONMENT.trustedRuntime.imageSchema;
 const TRUSTED_RUNTIME_DEPENDENCY_CACHE_SCHEMA =
   'sec-trusted-runtime-dependency-cache-v1' as const;
@@ -93,6 +95,14 @@ CiVerificationExecutionEnvironment = createCiVerificationLocalExecutionEnvironme
   bunVersion: ENVIRONMENT.trustedRuntime.bunVersion
 });
 
+function trustedRuntimeContainerLeaseRoot(repositoryStateRoot: string): string {
+  return selectRuntimeStateDirectoryGeneration({
+    label: 'trusted runtime container leases',
+    legacyPath: path.join(repositoryStateRoot, 'trusted-runtime-container-leases', 'v1'),
+    currentPath: path.join(repositoryStateRoot, 'trusted-runtime-container-leases', 'locks')
+  }).path;
+}
+
 export interface TrustedRuntimeImageBuildPlan {
   readonly args: readonly string[];
   readonly absoluteTimeoutMs: number;
@@ -103,10 +113,10 @@ function trustedRuntimeDockerfilePath(): string {
   const packageRoot = path.resolve(compilerRuntimeLayout.packageRoot);
   const dockerfile = path.resolve(
     packageRoot,
-    ...SEC_LINUX_VERIFICATION_TRUSTED_RUNTIME_DOCKERFILE_PATH.split('/')
+    ...LINUX_VERIFICATION_TRUSTED_RUNTIME_DOCKERFILE_PATH.split('/')
   );
   const relativeReadback = path.relative(packageRoot, dockerfile).split(path.sep).join('/');
-  if (relativeReadback !== SEC_LINUX_VERIFICATION_TRUSTED_RUNTIME_DOCKERFILE_PATH) {
+  if (relativeReadback !== LINUX_VERIFICATION_TRUSTED_RUNTIME_DOCKERFILE_PATH) {
     fail('trusted runtime Dockerfile projection escapes the canonical package root');
   }
   return dockerfile;
@@ -131,7 +141,7 @@ export function createTrustedRuntimeImageBuildPlan(
       '--build-arg', `SEC_BUN_ARCHIVE_URL=${ENVIRONMENT.trustedRuntime.bunArchiveUrl}`,
       '--build-arg', `SEC_BUN_ARCHIVE_DIGEST=${ENVIRONMENT.trustedRuntime.bunArchiveDigest}`,
       '--build-arg',
-      `SEC_BUN_EXECUTABLE_DIGEST=${SEC_LINUX_VERIFICATION_TRUSTED_BUN_EXECUTABLE_DIGEST}`,
+      `SEC_BUN_EXECUTABLE_DIGEST=${LINUX_VERIFICATION_TRUSTED_BUN_EXECUTABLE_DIGEST}`,
       '--build-arg', `SEC_BUN_VERSION=${ENVIRONMENT.trustedRuntime.bunVersion}`,
       '--tag', TRUSTED_RUNTIME_CONTAINER_IMAGE,
       '--file', dockerfile,
@@ -157,7 +167,7 @@ const TRUSTED_RUNTIME_TRUSTED_TREE = `${TRUSTED_RUNTIME_MUTABLE_ROOT}/trusted`;
 const TRUSTED_RUNTIME_WORKSPACE = `${TRUSTED_RUNTIME_MUTABLE_ROOT}/workspace`;
 const TRUSTED_RUNTIME_OUTPUT = `${TRUSTED_RUNTIME_MUTABLE_ROOT}/output`;
 const TRUSTED_RUNTIME_DEPENDENCY_PACKAGE_COMMAND = Object.freeze([
-  SEC_LINUX_VERIFICATION_TRUSTED_BUN_EXECUTABLE_PATH,
+  LINUX_VERIFICATION_TRUSTED_BUN_EXECUTABLE_PATH,
   'run',
   'deps:ensure'
 ] as const);
@@ -227,7 +237,7 @@ function fail(message: string): never {
 }
 
 function digestBytes(value: string | Uint8Array): Digest {
-  return `sha256:${createHash('sha256').update(value).digest('hex')}`;
+  return `sha256:${rawSha256Hex(value)}`;
 }
 
 function digestValue(value: unknown): Digest {
@@ -249,15 +259,15 @@ function bindTrustedRuntimeContainerEngineOperation(input: Readonly<{
   headSha: string;
   operationKey: string;
   setupMode: 'full' | 'lifecycle-canary' | 'dependency-canary';
-  providerIdentityDigest: SecOperationDigest;
+  providerIdentityDigest: OperationDigest;
   deadlineAtUnixMs?: number;
-}>): SecBoundSemanticOperation {
+}>): BoundSemanticOperation {
   const contractDigest = digestValue(Object.freeze({
     schema: 'sec-trusted-runtime-container-engine-contract-v1',
     environment: ENVIRONMENT.provider.requirement,
     imageId: TRUSTED_RUNTIME_CONTAINER_IMAGE_ID
-  })) as SecOperationDigest;
-  const plan = compileSecSemanticOperationPlan({
+  })) as OperationDigest;
+  const plan = compileSemanticOperationPlan({
     operation: 'verification.trusted-runtime-container',
     intentDigest: digestValue(Object.freeze({
       repositoryRoot: input.repositoryRoot,
@@ -266,11 +276,11 @@ function bindTrustedRuntimeContainerEngineOperation(input: Readonly<{
       headSha: input.headSha,
       operationKey: input.operationKey,
       setupMode: input.setupMode
-    })) as SecOperationDigest,
+    })) as OperationDigest,
     decisionDigest: digestValue(Object.freeze({
       contractDigest,
       budget: TRUSTED_RUNTIME_CONTAINER_OPERATION_BUDGET
-    })) as SecOperationDigest,
+    })) as OperationDigest,
     deadlineAtUnixMs: input.deadlineAtUnixMs
       ?? Date.now() + TRUSTED_RUNTIME_CONTAINER_OPERATION_BUDGET.durationMs,
     aggregateBudgets: [
@@ -291,11 +301,11 @@ function bindTrustedRuntimeContainerEngineOperation(input: Readonly<{
         'container-engine.runtime-endpoint-residue'
       ]
     }],
-    attempt: issueSecSemanticOperationAttemptContext({
+    attempt: issueSemanticOperationAttemptContext({
       authorityGrantDigest: contractDigest
     })
   });
-  return bindSecSemanticOperation(plan, [compileSecCapabilityBinding({
+  return bindSemanticOperation(plan, [compileCapabilityBinding({
     requirementId: 'external.container-engine-process',
     contractDigest,
     providerIdentityDigest: input.providerIdentityDigest
@@ -303,39 +313,39 @@ function bindTrustedRuntimeContainerEngineOperation(input: Readonly<{
 }
 
 function issueTrustedRuntimeContainerEngineTerminalJoinWithSettlements(input: Readonly<{
-  operation: SecBoundSemanticOperation;
-  primaryProviderSettlement: SecProviderSettlementReceipt;
-  providerSettlements: readonly SecProviderSettlementReceipt[];
+  operation: BoundSemanticOperation;
+  primaryProviderSettlement: ProviderSettlementReceipt;
+  providerSettlements: readonly ProviderSettlementReceipt[];
   endpointReadback: DockerEndpointIdentity;
-  ownerTerminalContractDigest: SecOperationDigest;
-  ownerTerminalReferenceDigest: SecOperationDigest;
+  ownerTerminalContractDigest: OperationDigest;
+  ownerTerminalReferenceDigest: OperationDigest;
 }>) {
-  const providerSettlementSet = compileSecProviderSettlementSet(
+  const providerSettlementSet = compileProviderSettlementSet(
     input.operation,
     input.providerSettlements
   );
-  const readback = issueSecNormalDomainReadbackReceipt(input.operation, providerSettlementSet, {
+  const readback = issueNormalDomainReadbackReceipt(input.operation, providerSettlementSet, {
     readbackContractDigest: digestValue(Object.freeze({
       schema: 'sec-container-engine-endpoint-readback-contract-v1',
       contextName: input.endpointReadback.contextName,
       endpointHost: input.endpointReadback.endpointHost
-    })) as SecOperationDigest,
+    })) as OperationDigest,
     readbackReferenceDigest: digestValue(Object.freeze({
       schema: 'sec-container-engine-endpoint-readback-v1',
       endpoint: input.endpointReadback
-    })) as SecOperationDigest,
+    })) as OperationDigest,
     currentPhysicalEpochDigest: digestValue(Object.freeze({
       schema: 'sec-container-engine-physical-epoch-v1',
       endpointHost: input.endpointReadback.endpointHost,
       daemonId: input.endpointReadback.daemonId
-    })) as SecOperationDigest,
+    })) as OperationDigest,
     disposition: input.primaryProviderSettlement.physicalDisposition === 'settled'
       ? 'applied'
       : input.primaryProviderSettlement.physicalDisposition === 'not-started'
         ? 'not-applied'
         : 'unknown'
   });
-  const ownerTerminalProjection = issueSecNormalOwnerTerminalJoinReceipt(
+  const ownerTerminalProjection = issueNormalOwnerTerminalJoinReceipt(
     input.operation,
     providerSettlementSet,
     readback,
@@ -348,12 +358,12 @@ function issueTrustedRuntimeContainerEngineTerminalJoinWithSettlements(input: Re
 }
 
 export function issueTrustedRuntimeContainerEngineOwnerTerminalJoin(input: Readonly<{
-  operation: SecBoundSemanticOperation;
-  providerSettlement: SecProviderSettlementReceipt;
+  operation: BoundSemanticOperation;
+  providerSettlement: ProviderSettlementReceipt;
   endpointReadback: DockerEndpointIdentity;
-  ownerTerminalContractDigest: SecOperationDigest;
-  ownerTerminalReferenceDigest: SecOperationDigest;
-}>): SecOwnerTerminalJoinReceipt {
+  ownerTerminalContractDigest: OperationDigest;
+  ownerTerminalReferenceDigest: OperationDigest;
+}>): OwnerTerminalJoinReceipt {
   return issueTrustedRuntimeContainerEngineTerminalJoinWithSettlements({
     ...input,
     primaryProviderSettlement: input.providerSettlement,
@@ -363,10 +373,10 @@ export function issueTrustedRuntimeContainerEngineOwnerTerminalJoin(input: Reado
 
 async function settleTrustedRuntimeContainerEngineOperation(input: Readonly<{
   session: ContainerEngineSession;
-  operation: SecBoundSemanticOperation;
+  operation: BoundSemanticOperation;
   scope: ContainerEngineOperationScope;
   ownerTerminalReference: Readonly<Record<string, unknown>>;
-}>): Promise<SecOwnerTerminalJoinReceipt> {
+}>): Promise<OwnerTerminalJoinReceipt> {
   const providerSettlement = input.scope.settle();
   const endpointReadback = await input.session.observeEndpoint();
   return issueTrustedRuntimeContainerEngineOwnerTerminalJoin({
@@ -376,11 +386,11 @@ async function settleTrustedRuntimeContainerEngineOperation(input: Readonly<{
     ownerTerminalContractDigest: digestValue(Object.freeze({
       schema: 'sec-trusted-runtime-container-engine-owner-terminal-contract-v1',
       operation: input.operation.plan.identity.operation
-    })) as SecOperationDigest,
+    })) as OperationDigest,
     ownerTerminalReferenceDigest: digestValue(Object.freeze({
       schema: 'sec-trusted-runtime-container-engine-owner-terminal-reference-v1',
       ...input.ownerTerminalReference
-    })) as SecOperationDigest
+    })) as OperationDigest
   });
 }
 
@@ -936,7 +946,7 @@ function imageObservation(source: string): TrustedRuntimeContainerImageObservati
     'sec.trusted-runtime.base-image-id': TRUSTED_RUNTIME_CONTAINER_BASE_IMAGE_ID,
     'sec.trusted-runtime.bun-archive-sha256': TRUSTED_RUNTIME_CONTAINER_BUN_ARCHIVE_SHA256,
     'sec.trusted-runtime.bun-executable-sha256':
-      SEC_LINUX_VERIFICATION_TRUSTED_BUN_EXECUTABLE_DIGEST,
+      LINUX_VERIFICATION_TRUSTED_BUN_EXECUTABLE_DIGEST,
     'sec.trusted-runtime.bun-version': ENVIRONMENT.trustedRuntime.bunVersion
   });
   for (const [key, value] of Object.entries(expected)) {
@@ -950,7 +960,7 @@ function imageObservation(source: string): TrustedRuntimeContainerImageObservati
   });
 }
 
-export function assertTrustedRuntimeContainerImageV1(
+export function assertTrustedRuntimeContainerImage(
   source: string
 ): TrustedRuntimeContainerImageObservation {
   return imageObservation(source);
@@ -1223,17 +1233,15 @@ async function withTrustedRuntimeWorkspace<T>(input: Readonly<{
   if (!/^[a-z0-9][a-z0-9-]{7,47}$/u.test(input.operationKey)) {
     fail('workspace operation key is invalid');
   }
-  const runtimeLayout = resolveSecRuntimeStateForRepository({
+  const runtimeLayout = resolveRuntimeStateForRepository({
     repository: repositoryIdentity,
     repositoryRoot
   });
-  const operationLeaseRoot = path.join(
-    runtimeLayout.repositoryStateRoot,
-    'trusted-runtime-container-leases',
-    'v1'
+  const operationLeaseRoot = trustedRuntimeContainerLeaseRoot(
+    runtimeLayout.repositoryStateRoot
   );
   let operationLeaseAuthority:
-    Awaited<ReturnType<typeof acquireSecRuntimeStatePhysicalAuthority>> | null = null;
+    Awaited<ReturnType<typeof acquireRuntimeStatePhysicalAuthority>> | null = null;
   let operationLease: ReturnType<typeof acquirePhysicalMutationLease> = null;
   let commandProvider: Awaited<ReturnType<typeof openWindowsDockerCommandProvider>> | null = null;
   let commandProviderTransferred = false;
@@ -1241,7 +1249,7 @@ async function withTrustedRuntimeWorkspace<T>(input: Readonly<{
   let primaryFailure: unknown;
   let hasPrimaryFailure = false;
   try {
-    operationLeaseAuthority = await acquireSecRuntimeStatePhysicalAuthority({
+    operationLeaseAuthority = await acquireRuntimeStatePhysicalAuthority({
       repositoryRoot,
       stateRoot: runtimeLayout.stateRoot,
       cacheRoot: runtimeLayout.cacheRoot,
@@ -1636,7 +1644,7 @@ export async function executeTrustedRuntimeContainerVerification(input: Readonly
   actorNodeId: string;
   requiredBlobs: readonly Readonly<{ path: string; digest: Digest }>[];
 }>): Promise<Readonly<{
-  evidence: CodexDevelopmentVerificationEvidenceV4;
+  evidence: VerificationEvidence;
   canonicalEvidenceBytes: string;
   receipt: TrustedRuntimeContainerReceipt;
 }>> {
@@ -1687,7 +1695,7 @@ export async function executeTrustedRuntimeContainerVerification(input: Readonly
       arguments: [`${containerName}:${TRUSTED_RUNTIME_OUTPUT}/verification-evidence.json`, outputPath]
     });
     const canonicalEvidenceBytes = readFileSync(outputPath, 'utf8');
-    const parsed = JSON.parse(canonicalEvidenceBytes) as CodexDevelopmentVerificationEvidenceV4;
+    const parsed = JSON.parse(canonicalEvidenceBytes) as VerificationEvidence;
     if (canonicalEvidenceBytes !== `${encodeVerificationActionData(parsed)}\n`) {
       fail('verification Evidence durable bytes are not canonical');
     }

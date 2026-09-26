@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { test } from 'node:test';
-import { digest, rawSha256, sha256 } from './canonical.ts';
-import { createSha256Hasher, isDigest, isDigestHex, parseDigest, type Digest } from './digest.ts';
+import { rawSha256Hex, rawSha256, sha256 } from './canonical.ts';
+import { createSha256Hasher, isDigest, isDigest256Hex, parseDigest, type Digest } from './digest.ts';
 
 const abc = 'ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad';
 
@@ -21,13 +21,13 @@ test('digest grammar requires an explicit supported algorithm and exact lowercas
   }
   assert.equal(isDigest(`sha256:${abc}`, '__proto__' as never), false);
   assert.equal(isDigest(`sha256:${abc}`, 'sha1' as never), false);
-  assert.equal(isDigestHex(abc), true);
-  assert.equal(isDigestHex(`${'a'.repeat(63)}\n`), false);
-  assert.equal(isDigestHex(`sha256:${abc}`), false);
+  assert.equal(isDigest256Hex(abc), true);
+  assert.equal(isDigest256Hex(`${'a'.repeat(63)}\n`), false);
+  assert.equal(isDigest256Hex(`sha256:${abc}`), false);
 });
 
 test('legacy raw SHA-256 still hashes bytes, not JSON strings', () => {
-  assert.equal(digest('abc'), abc);
+  assert.equal(rawSha256Hex('abc'), abc);
   assert.equal(rawSha256('abc'), `sha256:${abc}`);
   assert.equal(rawSha256(''), 'sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855');
   assert.notEqual(sha256('abc'), rawSha256('abc'));

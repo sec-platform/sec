@@ -59,7 +59,7 @@ function gitPath(value: string): string {
   return value.replaceAll('\\', '/');
 }
 
-function writeCompilerDependencyInputsV1(root: string): void {
+function writeCompilerDependencyInputs(root: string): void {
   writeFileSync(path.join(root, 'package.json'), `${JSON.stringify({
     packageManager: `bun@${process.versions.bun}`,
     dependencies: { commander: '1.0.0' },
@@ -70,7 +70,7 @@ function writeCompilerDependencyInputsV1(root: string): void {
   writeFileSync(path.join(root, '.gitignore'), 'node_modules/\n.tmp/\n', 'utf8');
 }
 
-function materializeCompilerDependencyFixtureV1(root: string): void {
+function materializeCompilerDependencyFixture(root: string): void {
   const packages = [
     { name: 'commander', version: '1.0.0' },
     { name: 'typescript', version: '1.0.0', main: './lib/typescript.js' }
@@ -98,7 +98,7 @@ function fixture(options: Readonly<{ compilerDependencies?: boolean }> = {}) {
   git(repository, ['config', 'user.email', 'sec-test@example.invalid']);
   git(repository, ['config', 'core.autocrlf', 'false']);
   writeFileSync(path.join(repository, 'tracked.txt'), 'main\n', 'utf8');
-  if (options.compilerDependencies === true) writeCompilerDependencyInputsV1(repository);
+  if (options.compilerDependencies === true) writeCompilerDependencyInputs(repository);
   git(repository, ['add', '.']);
   git(repository, ['commit', '-m', 'main']);
   git(repository, ['remote', 'add', 'origin', remote]);
@@ -114,7 +114,7 @@ function fixture(options: Readonly<{ compilerDependencies?: boolean }> = {}) {
   return { root, repository, target, branch, headSha, treeSha, recoveryAuthorityDigest };
 }
 
-async function persistRetiredPhaseForCrashV1(authorization: Awaited<ReturnType<typeof prepareWorktreePhysicalCloseout>>): Promise<string> {
+async function persistRetiredPhaseForCrash(authorization: Awaited<ReturnType<typeof prepareWorktreePhysicalCloseout>>): Promise<string> {
   const tombstone = path.join(path.dirname(authorization.target.path), authorization.tombstoneName);
   relocateRetainedNoFollowDirectory({
     directory: inspectNoFollowDirectoryChain(authorization.target.path, 'crash phase source').target,
@@ -718,7 +718,7 @@ test('closeout composes provider retirement for an automatically reused dependen
   try {
     await ensureCompilerDepsReady({
       materialize: async (_args, command) => {
-        materializeCompilerDependencyFixtureV1(command.cwd);
+        materializeCompilerDependencyFixture(command.cwd);
         return { code: 0, stdout: 'ok', stderr: '' };
       },
       generatedStateLifecycle: repositoryLifecycle
@@ -1095,6 +1095,71 @@ test('detached scratch closeout is branch-token-ineligible and reaches physical/
   } finally { rmSync(value.root, { recursive: true, force: true }); }
 }, 60_000);
 
+test('detached scratch derives its correlation without a caller marker when only main retains its commit', async () => {
+  const value = fixture();
+  const scratch = path.join(value.root, 'markerless-detached-scratch');
+  try {
+    git(value.repository, ['worktree', 'remove', value.target]);
+    git(value.repository, ['branch', '-D', value.branch]);
+    git(value.repository, ['worktree', 'add', '--detach', scratch, value.headSha]);
+    const input = {
+      repositoryRoot: value.repository, targetPath: scratch,
+      expectedHeadSha: value.headSha, expectedTreeSha: value.treeSha
+    };
+    const authorization = await prepareDetachedScratchWorktreePhysicalCloseout(input);
+    expect(authorization.target.recoveryAuthorityDigest).toMatch(/^sha256:[0-9a-f]{64}$/u);
+    const receipt = await executeDetachedScratchWorktreePhysicalCloseout({
+      ...input, authorizationPath: authorization.authorizationPath
+    });
+    expect(receipt.terminal).toBe('completed');
+    expect(existsSync(scratch)).toBe(false);
+  } finally { rmSync(value.root, { recursive: true, force: true }); }
+}, 60_000);
+
+test('detached scratch rejects an unreferenced commit before publishing closeout authorization', async () => {
+  const value = fixture();
+  const scratch = path.join(value.root, 'unreferenced-detached-scratch');
+  try {
+    git(value.repository, ['worktree', 'add', '--detach', scratch, value.headSha]);
+    writeFileSync(path.join(scratch, 'scratch.txt'), 'unreferenced\n', 'utf8');
+    git(scratch, ['add', 'scratch.txt']);
+    git(scratch, ['commit', '-m', 'unreferenced scratch']);
+    const scratchHead = git(scratch, ['rev-parse', 'HEAD']);
+    const scratchTree = git(scratch, ['rev-parse', 'HEAD^{tree}']);
+    await expect(prepareDetachedScratchWorktreePhysicalCloseout({
+      repositoryRoot: value.repository, targetPath: scratch,
+      expectedHeadSha: scratchHead, expectedTreeSha: scratchTree
+    })).rejects.toThrow('no retained local branch recovery source');
+    expect(existsSync(scratch)).toBe(true);
+    expect(gitPath(git(value.repository, ['worktree', 'list', '--porcelain']))).toContain(gitPath(scratch));
+  } finally { rmSync(value.root, { recursive: true, force: true }); }
+}, 60_000);
+
+test('detached scratch rechecks retained branch reachability before unregister', async () => {
+  const value = fixture();
+  const scratch = path.join(value.root, 'drifting-detached-scratch');
+  try {
+    git(value.repository, ['worktree', 'add', '--detach', scratch, value.headSha]);
+    writeFileSync(path.join(scratch, 'scratch.txt'), 'later-unreferenced\n', 'utf8');
+    git(scratch, ['add', 'scratch.txt']);
+    git(scratch, ['commit', '-m', 'later unreferenced scratch']);
+    const scratchHead = git(scratch, ['rev-parse', 'HEAD']);
+    const scratchTree = git(scratch, ['rev-parse', 'HEAD^{tree}']);
+    git(value.repository, ['branch', 'retain-scratch', scratchHead]);
+    const input = {
+      repositoryRoot: value.repository, targetPath: scratch,
+      expectedHeadSha: scratchHead, expectedTreeSha: scratchTree
+    };
+    const authorization = await prepareDetachedScratchWorktreePhysicalCloseout(input);
+    git(value.repository, ['branch', '-D', 'retain-scratch']);
+    await expect(executeDetachedScratchWorktreePhysicalCloseout({
+      ...input, authorizationPath: authorization.authorizationPath
+    })).rejects.toThrow('no retained local branch recovery source');
+    expect(existsSync(scratch)).toBe(true);
+    expect(gitPath(git(value.repository, ['worktree', 'list', '--porcelain']))).toContain(gitPath(scratch));
+  } finally { rmSync(value.root, { recursive: true, force: true }); }
+}, 60_000);
+
 test('an unregistered physical orphan cannot be adopted or removed', async () => {
   const value = fixture();
   try {
@@ -1147,7 +1212,7 @@ test('prepared token cannot be promoted by a caller-completed public retirement 
     // valid pre-bound proof and durable phase, then a normal execute process
     // converges it.  It deliberately never executes the engine branch that
     // held the target lease and receives its `retireOwnedNamespace` result.
-    await persistRetiredPhaseForCrashV1(prepared.authorization);
+    await persistRetiredPhaseForCrash(prepared.authorization);
     const receipt = await executeWorktreePhysicalCloseout({
       repositoryRoot: value.repository, targetPath: value.target, expectedBranch: value.branch,
       expectedHeadSha: value.headSha, expectedTreeSha: value.treeSha,
@@ -1210,7 +1275,7 @@ test('foreign retained-proof content blocks execute and leaves the retirement fe
       expectedHeadSha: value.headSha, expectedTreeSha: value.treeSha,
       expectedRecoveryAuthorityDigest: value.recoveryAuthorityDigest
     });
-    await persistRetiredPhaseForCrashV1(authorization);
+    await persistRetiredPhaseForCrash(authorization);
     writeFileSync(path.join(authorization.proofRoot.path, 'foreign-proof.txt'), 'foreign\n');
     const receipt = await executeWorktreePhysicalCloseout({
       repositoryRoot: value.repository, targetPath: value.target, expectedBranch: value.branch,
@@ -1356,7 +1421,7 @@ test('retired target phase resumes before unregister and rejects registry disapp
         expectedHeadSha: value.headSha, expectedTreeSha: value.treeSha,
         expectedRecoveryAuthorityDigest: value.recoveryAuthorityDigest
       });
-      const tombstone = await persistRetiredPhaseForCrashV1(authorization);
+      const tombstone = await persistRetiredPhaseForCrash(authorization);
       expect(existsSync(value.target)).toBe(false);
       if (crashBoundary === 'after-unregister') {
         const gitdir = /^gitdir: ([^\r\n]+)/u.exec(readFileSync(path.join(tombstone, '.git'), 'utf8'))?.[1];
@@ -1393,7 +1458,7 @@ test('a rebuilt original path survives retained registry-admin deletion without 
       expectedHeadSha: value.headSha, expectedTreeSha: value.treeSha,
       expectedRecoveryAuthorityDigest: value.recoveryAuthorityDigest
     });
-    const tombstone = await persistRetiredPhaseForCrashV1(authorization);
+    const tombstone = await persistRetiredPhaseForCrash(authorization);
     mkdirSync(value.target);
     writeFileSync(path.join(value.target, 'new-owner.txt'), 'must survive\n');
     const receipt = await executeWorktreePhysicalCloseout({

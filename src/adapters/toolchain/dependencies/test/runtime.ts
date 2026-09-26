@@ -18,7 +18,7 @@ export {
 } from '../runtime/project-runtime.ts';
 export type {
   CompilerDependencyEnvironmentRetirementReceipt
-} from '../runtime/project-runtime.ts';
+} from '../runtime/project-runtime-contract.ts';
 export {
   issueCompilerDependencyFixtureOperation,
   retireCompilerDependencyFixtureOperation,

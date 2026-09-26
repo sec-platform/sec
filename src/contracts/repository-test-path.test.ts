@@ -1,6 +1,6 @@
 import { test } from 'bun:test';
 import assert from 'node:assert/strict';
-import { isSecRepositoryTestModulePath } from './repository-test-path.ts';
+import { isRepositoryTestModulePath } from './repository-test-path.ts';
 
 test('repository test identity preserves dotted suffixes and portable path spellings', () => {
   for (const file of [
@@ -10,7 +10,7 @@ test('repository test identity preserves dotted suffixes and portable path spell
     'src/example/example.spec.cjs',
     '.\\src\\example\\windows.test.ts'
   ]) {
-    assert.equal(isSecRepositoryTestModulePath(file), true, file);
+    assert.equal(isRepositoryTestModulePath(file), true, file);
   }
 });
 
@@ -19,15 +19,15 @@ test('underscore test and spec files use the same executable-test identity acros
     for (const suffix of ['_test', '_spec']) {
       for (const extension of ['ts', 'tsx', 'mts', 'cts', 'js', 'jsx', 'mjs', 'cjs']) {
         const file = `${root}/nested/example${suffix}.${extension}`;
-        assert.equal(isSecRepositoryTestModulePath(file), true, file);
+        assert.equal(isRepositoryTestModulePath(file), true, file);
       }
     }
   }
 });
 
 test('underscore identities retain the existing leading-dot and separator projection', () => {
-  assert.equal(isSecRepositoryTestModulePath('./tests/unit/example_test.ts'), true);
-  assert.equal(isSecRepositoryTestModulePath('.\\src\\nested\\example_spec.tsx'), true);
+  assert.equal(isRepositoryTestModulePath('./tests/unit/example_test.ts'), true);
+  assert.equal(isRepositoryTestModulePath('.\\src\\nested\\example_spec.tsx'), true);
 });
 
 test('support modules and unsupported extensions are not promoted into executable tests', () => {
@@ -44,6 +44,6 @@ test('support modules and unsupported extensions are not promoted into executabl
     'tests/example_spec.cjsx',
     'tests/example_specification.ts'
   ]) {
-    assert.equal(isSecRepositoryTestModulePath(file), false, file);
+    assert.equal(isRepositoryTestModulePath(file), false, file);
   }
 });

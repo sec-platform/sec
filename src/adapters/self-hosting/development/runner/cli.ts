@@ -1,8 +1,8 @@
 import path from 'node:path';
 
-import type { SecBoundSemanticOperation } from '../../../../execution/operation/semantic.ts';
+import type { BoundSemanticOperation } from '../../../../execution/operation/semantic.ts';
 import type { ProcessResourceSession } from '../../../runtime-state/physical/runtime/process-resource-session.ts';
-import { compileSecOperationDemandGraph } from '../../control/operation/demand.ts';
+import { compileOperationDemandGraph } from '../../control/operation/demand.ts';
 import { WORKSPACE_TRANSITION_DEADLINE_ENV } from '../workspace-transition/contract.ts';
 import { requireCommandExitCode } from './command-outcome.ts';
 import { DEV_RUNNER_ENTRYPOINT_PATH } from './contract.ts';
@@ -57,7 +57,7 @@ export async function handoffDevRunnerToFreshProcess(
   });
 }
 
-type CheckAffectedDemand = ReturnType<typeof compileSecOperationDemandGraph>;
+type CheckAffectedDemand = ReturnType<typeof compileOperationDemandGraph>;
 
 export interface CheckAffectedCommandOperations {
   readonly runPlan: () => Promise<number>;
@@ -84,18 +84,18 @@ export async function runCheckAffectedCommand(
   operations: CheckAffectedCommandOperations
 ): Promise<number> {
   if (args.length > 0 && (args.length !== 1 || args[0] !== '--plan')) {
-    throw new Error('check:affected accepts only --plan');
+    throw new Error('check --affected accepts only --plan');
   }
   if (args.length === 1) {
     const runPlan = operations.runPlan;
     if (typeof runPlan !== 'function') throw new TypeError('Affected plan callback must be callable');
-    reportDevExecutionProgress({ command: 'check:affected', phase: 'plan', state: 'start' });
+    reportDevExecutionProgress({ command: 'check', phase: 'affected.plan', state: 'start' });
     const exitCode = requireCommandExitCode(
       await Reflect.apply(runPlan, operations, []),
       'Affected plan'
     );
     reportDevExecutionProgress({
-      command: 'check:affected', phase: 'plan', state: 'complete', detail: { exitCode }
+      command: 'check', phase: 'affected.plan', state: 'complete', detail: { exitCode }
     });
     return exitCode;
   }
@@ -103,38 +103,38 @@ export async function runCheckAffectedCommand(
   if ([ensureDependencies, handoff, runExecution].some(action => typeof action !== 'function')) {
     throw new TypeError('Affected execution requires its dependency, handoff and execution callbacks');
   }
-  const demand = compileSecOperationDemandGraph({
+  const demand = compileOperationDemandGraph({
     operation: 'check-affected',
     terminalWorkIds: []
   });
   reportDevExecutionProgress({
-    command: 'check:affected', phase: 'dependency-admission', state: 'start'
+    command: 'check', phase: 'affected.dependency-admission', state: 'start'
   });
   const dependencies = await Reflect.apply(ensureDependencies, operations, [demand]);
   reportDevExecutionProgress({
-    command: 'check:affected', phase: 'dependency-admission', state: 'complete',
+    command: 'check', phase: 'affected.dependency-admission', state: 'complete',
     detail: { source: dependencies.source }
   });
-  reportDevExecutionProgress({ command: 'check:affected', phase: 'fresh-process-handoff', state: 'start' });
+  reportDevExecutionProgress({ command: 'check', phase: 'affected.fresh-process-handoff', state: 'start' });
   const handoffExitCode = await Reflect.apply(handoff, operations, [dependencies]);
   if (handoffExitCode !== null) {
     reportDevExecutionProgress({
-      command: 'check:affected', phase: 'fresh-process-handoff', state: 'complete',
+      command: 'check', phase: 'affected.fresh-process-handoff', state: 'complete',
       detail: { exitCode: handoffExitCode, handedOff: true }
     });
     return requireCommandExitCode(handoffExitCode, 'Affected dependency handoff');
   }
   reportDevExecutionProgress({
-    command: 'check:affected', phase: 'fresh-process-handoff', state: 'complete',
+    command: 'check', phase: 'affected.fresh-process-handoff', state: 'complete',
     detail: { handedOff: false }
   });
-  reportDevExecutionProgress({ command: 'check:affected', phase: 'gates', state: 'start' });
+  reportDevExecutionProgress({ command: 'check', phase: 'affected.gates', state: 'start' });
   const exitCode = requireCommandExitCode(
     await Reflect.apply(runExecution, operations, [dependencies, demand]),
     'Affected execution'
   );
   reportDevExecutionProgress({
-    command: 'check:affected', phase: 'gates', state: 'complete', detail: { exitCode }
+    command: 'check', phase: 'affected.gates', state: 'complete', detail: { exitCode }
   });
   return exitCode;
 }
@@ -147,7 +147,7 @@ export async function runCheckAffectedCommand(
  */
 export async function runTypecheckCommand(args: readonly string[]): Promise<number> {
   const selectedArgs = [...args];
-  const demand = compileSecOperationDemandGraph({
+  const demand = compileOperationDemandGraph({
     operation: 'typecheck',
     terminalWorkIds: []
   });
@@ -171,7 +171,7 @@ export async function runTypecheckCommand(args: readonly string[]): Promise<numb
 }
 
 function usage(): never {
-  console.error('Usage: bun ./src/adapters/self-hosting/development/runner/cli.ts <commit <message>|commit:recover <absolute-journal-path>|workspace-transition <post-checkout|post-merge|post-rewrite> [hook-args...]|deps:ensure|typecheck|check:fast|check:affected [--plan]|test|test:affected|test:fast|test:slow|test:full|imports:check [--all|--candidate-base <sha>] [--remove-unused]|imports:check --staged [--candidate-base <sha>]|imports:apply [--all|--candidate-base <sha>] [--remove-unused]|imports:apply --staged [--candidate-base <sha>]|imports:freeze|generated-state:inspect|generated-state:plan|generated-state:cleanup|environment:workspace-settle> [args...]');
+  console.error('Usage: bun ./src/adapters/self-hosting/development/runner/cli.ts <commit <message>|commit:recover <absolute-journal-path>|workspace-transition <post-checkout|post-merge|post-rewrite> [hook-args...]|deps:ensure|typecheck|check [--affected [--plan]|--scope <fast|full>]|test [--affected [--plan]|--scope <fast|slow|full>] [test-args...]|imports:check [--all|--candidate-base <sha>] [--remove-unused]|imports:check --staged [--candidate-base <sha>]|imports:apply [--all|--candidate-base <sha>] [--remove-unused]|imports:apply --staged [--candidate-base <sha>]|imports:freeze|generated-state:inspect|generated-state:plan|generated-state:cleanup|environment:workspace-settle> [args...]');
   process.exit(1);
 }
 
@@ -188,17 +188,17 @@ async function runRepositoryZeroWriteCommand(
     processSession?: ProcessResourceSession,
     executionContext?: RepositoryMutationFenceExecutionContext
   ) => Promise<number>,
-  semanticOperation: SecBoundSemanticOperation,
+  semanticOperation: BoundSemanticOperation,
   fenceOptions: Omit<RepositoryMutationFenceOptions, 'operation'> = {}
 ): Promise<number> {
   if (semanticOperation === undefined) {
     console.error(`${commandId} strict-zero-write-unproven: semantic operation authority is unavailable.`);
     return 1;
   }
-  const { runRepositoryZeroWriteOperation: runRepositoryZeroWriteOperationV1 } = await import(
+  const { runRepositoryZeroWriteOperation } = await import(
     './repository-mutation-fence.ts'
   );
-  return runRepositoryZeroWriteOperationV1(commandId, operation, {
+  return runRepositoryZeroWriteOperation(commandId, operation, {
     ...fenceOptions,
     operation: semanticOperation
   });
@@ -308,9 +308,10 @@ async function main(): Promise<void> {
     return;
   }
 
-  if (target === 'check:affected') {
-    if (args.length > 0 && (args.length !== 1 || args[0] !== '--plan')) usage();
-    process.exitCode = await runCheckAffectedCommand(args, {
+  if (target === 'check' && args[0] === '--affected') {
+    const affectedArgs = args.slice(1);
+    if (affectedArgs.length > 0 && (affectedArgs.length !== 1 || affectedArgs[0] !== '--plan')) usage();
+    process.exitCode = await runCheckAffectedCommand(affectedArgs, {
       runPlan: async () => {
         const { runLocalAffectedCheck } = await import('./check-runner.ts');
         const { compileAffectedTestSelectionSemanticOperation } = await import('./affected-plan-contract.ts');
@@ -318,7 +319,7 @@ async function main(): Promise<void> {
           purpose: 'check-affected'
         });
         return runRepositoryZeroWriteCommand(
-          'check:affected',
+          'check:affected-selection',
           (processSession) => runLocalAffectedCheck(['--plan'], { operation, processSession }),
           operation
         );
@@ -340,9 +341,18 @@ async function main(): Promise<void> {
     return;
   }
 
-  if (target === 'check:fast') {
-    if (args.length > 0) usage();
-    const demand = compileSecOperationDemandGraph({ operation: 'check-fast', terminalWorkIds: [] });
+  if (target === 'check') {
+    let scope: 'fast' | 'full' = 'fast';
+    if (args.length > 0) {
+      if (args.length !== 2 || args[0] !== '--scope' || (args[1] !== 'fast' && args[1] !== 'full')) usage();
+      scope = args[1];
+    }
+    if (scope === 'full') {
+      const { runFullCheck } = await import('./check-runner.ts');
+      process.exitCode = await runFullCheck();
+      return;
+    }
+    const demand = compileOperationDemandGraph({ operation: 'check-fast', terminalWorkIds: [] });
     const dependencies = await ensureOperationDependencies(demand);
     const handoffExitCode = await handoffDevRunnerToFreshProcess(dependencies);
     if (handoffExitCode !== null) {
@@ -356,9 +366,10 @@ async function main(): Promise<void> {
     return;
   }
 
-  if (target === 'test:affected') {
-    if (args.includes('--plan') && !(args.length === 1 && args[0] === '--plan')) {
-      console.error('test:affected --plan cannot be combined with execution arguments.');
+  if (target === 'test' && args[0] === '--affected') {
+    const affectedArgs = args.slice(1);
+    if (affectedArgs.includes('--plan') && !(affectedArgs.length === 1 && affectedArgs[0] === '--plan')) {
+      console.error('test --affected --plan cannot be combined with execution arguments.');
       process.exitCode = 1;
       return;
     }
@@ -372,10 +383,10 @@ async function main(): Promise<void> {
     const operation = compileAffectedTestSelectionSemanticOperation({
       purpose: 'check-affected'
     });
-    if (args.length === 1 && args[0] === '--plan') {
+    if (affectedArgs.length === 1 && affectedArgs[0] === '--plan') {
       process.exitCode = await runRepositoryZeroWriteCommand(
         'test:affected',
-        (processSession) => runAffectedTests(issueCheckAffectedTestImpactProjection, args, {
+        (processSession) => runAffectedTests(issueCheckAffectedTestImpactProjection, affectedArgs, {
           operation,
           processSession
         }),
@@ -384,15 +395,15 @@ async function main(): Promise<void> {
       return;
     }
     const { withHeavyVerificationGateLease } = await import('../../../verification/platform/gate/state/heavy-lease.ts');
-    if (args.length > 0 && isSelectorlessTestRunnerSelection(args)) {
-      console.error('test:affected option-only execution is unsupported because it cannot prove a fast-only or slow-only test selection.');
+    if (affectedArgs.length > 0 && isSelectorlessTestRunnerSelection(affectedArgs)) {
+      console.error('test --affected option-only execution is unsupported because it cannot prove a fast-only or slow-only test selection.');
       process.exitCode = 1;
       return;
     }
-    if (isExactSlowTestRunnerSelection(args)) {
+    if (isExactSlowTestRunnerSelection(affectedArgs)) {
       process.exitCode = await withHeavyVerificationGateLease(
         'test:affected',
-        () => runAffectedTests(issueCheckAffectedTestImpactProjection, args, {
+        () => runAffectedTests(issueCheckAffectedTestImpactProjection, affectedArgs, {
           operation
         }),
         { namespace: 'test:affected', waitTimeoutMs: 5000 }
@@ -401,14 +412,14 @@ async function main(): Promise<void> {
     }
     process.exitCode = await withHeavyVerificationGateLease(
       'test:affected',
-      () => runAffectedTests(issueCheckAffectedTestImpactProjection, args, { operation }),
+      () => runAffectedTests(issueCheckAffectedTestImpactProjection, affectedArgs, { operation }),
       { namespace: 'test:affected', waitTimeoutMs: 5000 }
     );
     return;
   }
 
   if (target === 'deps:ensure') {
-    const dependencies = await ensureOperationDependencies(compileSecOperationDemandGraph({
+    const dependencies = await ensureOperationDependencies(compileOperationDemandGraph({
       operation: 'dependency-setup',
       terminalWorkIds: [],
       hookPolicy: process.env.SEC_GIT_HOOK_ACTIVE === '1' ? 'never' : 'always'
@@ -427,7 +438,7 @@ async function main(): Promise<void> {
     if (target === 'imports:freeze' && args.length !== 0) usage();
     const selectedImport = target === 'imports:freeze'
       ? undefined : parseImportOperationArgs(args, { allowStaged: true });
-    const dependencies = await ensureOperationDependencies(compileSecOperationDemandGraph({
+    const dependencies = await ensureOperationDependencies(compileOperationDemandGraph({
       operation: target === 'imports:check'
         ? 'imports-check'
         : target === 'imports:apply'
@@ -546,7 +557,7 @@ async function main(): Promise<void> {
     return;
   }
 
-  if (!['test', 'test:full', 'test:fast', 'test:slow'].includes(target)) usage();
+  if (target !== 'test') usage();
 
   const {
     executePreparedSlowTestSuiteExecutions,
@@ -559,26 +570,32 @@ async function main(): Promise<void> {
   } = await import('./test-runner.ts');
   const runPreparedSlowSuites = async (slowArgs: string[]): Promise<number> => {
     const preparedSuites = await prepareSlowTestSuiteExecutions(slowArgs);
-    return executePreparedSlowTestSuiteExecutions(preparedSuites, target);
+    return executePreparedSlowTestSuiteExecutions(preparedSuites, 'test');
   };
-  if (target === 'test:slow' || (
-    (target === 'test' || target === 'test:full') && isExactSlowTestRunnerSelection(args)
+  let testScope: 'auto' | 'fast' | 'slow' | 'full' = 'auto';
+  let testArgs = args;
+  if (args[0] === '--scope') {
+    const selectedScope = args[1];
+    if (selectedScope !== 'fast' && selectedScope !== 'slow' && selectedScope !== 'full') usage();
+    testScope = selectedScope;
+    testArgs = args.slice(2);
+  }
+  if (testScope === 'slow' || (
+    (testScope === 'auto' || testScope === 'full') && isExactSlowTestRunnerSelection(testArgs)
   )) {
-    process.exitCode = await runPreparedSlowSuites(args);
+    process.exitCode = await runPreparedSlowSuites(testArgs);
     return;
   }
-  if ((target === 'test' || target === 'test:full') && isSelectorlessTestRunnerSelection(args)) {
-    const fastCode = await runTests(args, { omitSlowSuites: true });
-    process.exitCode = fastCode === 0 ? await runPreparedSlowSuites(args) : fastCode;
+  if (testScope === 'full' && isSelectorlessTestRunnerSelection(testArgs)) {
+    const fastCode = await runTests(testArgs, { omitSlowSuites: true });
+    process.exitCode = fastCode === 0 ? await runPreparedSlowSuites(testArgs) : fastCode;
     return;
   }
-  process.exitCode = target === 'test' || target === 'test:full'
-    ? await runTests(args)
-    : target === 'test:fast'
-      ? await runFastTests(args)
-      : target === 'test:slow'
-        ? await runSlowTests(args)
-        : usage();
+  process.exitCode = testScope === 'full'
+    ? await runTests(testArgs)
+    : testScope === 'fast'
+      ? await runFastTests(testArgs)
+      : await runTests(testArgs, { omitSlowSuites: true });
 }
 
 if (import.meta.main) {

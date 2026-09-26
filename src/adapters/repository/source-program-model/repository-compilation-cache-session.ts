@@ -1,10 +1,10 @@
 import { sha256 } from '../../../contracts/canonical.ts';
 import {
-  bindSecSemanticOperation,
-  compileSecCapabilityBinding,
-  compileSecSemanticOperationPlan,
-  issueSecSemanticOperationAttemptContext,
-  type SecOperationDigest
+  bindSemanticOperation,
+  compileCapabilityBinding,
+  compileSemanticOperationPlan,
+  issueSemanticOperationAttemptContext,
+  type OperationDigest
 } from '../../../execution/operation/semantic.ts';
 import { settleResources as settlePhysicalResources } from '../../../execution/resource-settlement.ts';
 import {
@@ -27,7 +27,7 @@ import {
 } from './repository-compilation.ts';
 import {
   assertPhysicalWorkspaceSourceSnapshot,
-  assertWorkspaceTypeScriptProjectInputMatchesSnapshot,
+  assertTypeScriptProjectMatchesSnapshot,
   type PhysicalWorkspaceSourceSnapshot
 } from './workspace-source-snapshot.ts';
 
@@ -76,18 +76,18 @@ function openRepositoryCompilationCacheSession(input: Readonly<{
     operation: 'brownfield.source-program-model.repository-compilation-cache',
     physicalProvider: 'runtime-state.content-addressed-workspace-cache',
     authority: 'non-authoritative-acceleration-only'
-  }) as SecOperationDigest;
-  const plan = compileSecSemanticOperationPlan({
+  }) as OperationDigest;
+  const plan = compileSemanticOperationPlan({
     operation: 'brownfield.source-program-model.repository-compilation-cache',
     intentDigest: sha256({
       repository,
       sourceRevision: input.workspaceSnapshot.sourceRevision,
       sourceByteLength,
       sourceFileCount
-    }) as SecOperationDigest,
+    }) as OperationDigest,
     decisionDigest: contractDigest,
     deadlineAtUnixMs,
-    attempt: issueSecSemanticOperationAttemptContext({ authorityGrantDigest: contractDigest }),
+    attempt: issueSemanticOperationAttemptContext({ authorityGrantDigest: contractDigest }),
     aggregateBudgets: [
       { resource: 'duration-ms', maximum: durationMs },
       { resource: 'input-bytes', maximum: cacheByteBudget },
@@ -107,13 +107,13 @@ function openRepositoryCompilationCacheSession(input: Readonly<{
       ]
     }]
   });
-  const operation = bindSecSemanticOperation(plan, [compileSecCapabilityBinding({
+  const operation = bindSemanticOperation(plan, [compileCapabilityBinding({
     requirementId: REPOSITORY_COMPILATION_CACHE_REQUIREMENT,
     contractDigest,
     providerIdentityDigest: sha256({
       provider: 'runtime-state.content-addressed-workspace-cache',
       repository
-    }) as SecOperationDigest
+    }) as OperationDigest
   })]);
   return openContentAddressedWorkspaceCacheSession({
     operation,
@@ -149,7 +149,7 @@ export function compileRepositorySourceProgramWithCache(
   // A foreign or forged project input is an admission failure, not a cache
   // miss. Validate it before acquiring any optional physical cache resources.
   if (projectInput !== undefined) {
-    assertWorkspaceTypeScriptProjectInputMatchesSnapshot(projectInput, workspaceSnapshot);
+    assertTypeScriptProjectMatchesSnapshot(projectInput, workspaceSnapshot);
   }
   if (cacheAccess !== 'read-only' && cacheAccess !== 'read-write') {
     throw new Error('Repository compilation cache access must be read-only or read-write.');

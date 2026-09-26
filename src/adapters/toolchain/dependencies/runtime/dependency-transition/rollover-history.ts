@@ -1,5 +1,5 @@
 import path from 'node:path';
-import { SecError } from '../../../../../contracts/failure.ts';
+import { FailureError } from '../../../../../contracts/failure.ts';
 import { sameGeneratedStateIdentity } from './contract.ts';
 import type { DependencyTransitionRolloverIntent } from './rollover-phase.ts';
 import {
@@ -19,7 +19,7 @@ export function analyzeRolloverHistory(
   residueNames: readonly string[],
   assertActive: () => void
 ): History {
-  const fail = (message: string): never => { throw new SecError('RUNTIME-DEPS-004', message); };
+  const fail = (message: string): never => { throw new FailureError('RUNTIME-DEPS-004', message); };
   assertActive();
   const epochs = new Map<string, Array<Intent | undefined>>();
   for (const receipt of receipts) {

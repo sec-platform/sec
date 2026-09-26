@@ -1,0 +1,146 @@
+{
+  "importGraph": "runtime",
+  "externalEntrypoints": [
+    "src/adapters/self-hosting/development/runner/cli.ts",
+    "src/adapters/self-hosting/development/runner/typecheck-feedback.ts"
+  ],
+  "capabilityProviders": [
+    {
+      "capability": "development.command",
+      "operations": [
+        "runDevCommand"
+      ],
+      "effectKinds": [
+        "process"
+      ],
+      "operationRoles": [
+        {
+          "operation": "runDevCommand",
+          "role": "domain-owner",
+          "semanticOperation": "development.runner.bun-command",
+          "requirementId": null,
+          "recovery": null
+        }
+      ]
+    },
+    {
+      "capability": "verification.effectful-test-policy",
+      "operations": [
+        "compileEffectfulTestExecutionPolicy"
+      ],
+      "effectKinds": [],
+      "operationRoles": [
+        {
+          "operation": "compileEffectfulTestExecutionPolicy",
+          "role": "domain-owner",
+          "semanticOperation": "verification.effectful-test",
+          "requirementId": null,
+          "recovery": null
+        }
+      ]
+    }
+  ],
+  "operationObligations": [
+    {
+      "operation": {
+        "kind": "capability",
+        "capability": "development.command",
+        "operation": "runDevCommand"
+      },
+      "consumerSupport": {
+        "consumers": [
+          "reference"
+        ]
+      },
+      "effect": {
+        "kinds": [
+          "process"
+        ],
+        "failureKinds": [
+          "process.cancelled",
+          "process.deadline-exhausted",
+          "process.identity-drift",
+          "process.output-budget-exhausted",
+          "process.settlement-unproven",
+          "process.unavailable"
+        ],
+        "recovery": "idempotent-retry"
+      },
+      "evolution": {
+        "migration": "not-required",
+        "retirement": "replacement-obligations-satisfied"
+      },
+      "resources": {
+        "aggregateBudgets": [
+          {
+            "resource": "duration-ms",
+            "maximum": 300000
+          },
+          {
+            "resource": "input-bytes",
+            "maximum": 1048576
+          },
+          {
+            "resource": "output-bytes",
+            "maximum": 67108864
+          },
+          {
+            "resource": "processes",
+            "maximum": 2
+          }
+        ]
+      },
+      "futureSupport": {
+        "condition": "semantic-superset-required"
+      }
+    }
+  ],
+  "causalRelations": [
+    {
+      "subject": "verification.affected-check-plan",
+      "relation": "declares",
+      "symbol": {
+        "path": "src/adapters/self-hosting/development/runner/affected-plan-contract.ts",
+        "name": "LocalAffectedCheckPlan"
+      },
+      "operation": null
+    },
+    {
+      "subject": "verification.affected-check-plan",
+      "relation": "produces",
+      "symbol": {
+        "path": "src/adapters/self-hosting/development/runner/affected-plan-contract.ts",
+        "name": "buildLocalAffectedCheckPlan"
+      },
+      "operation": null
+    },
+    {
+      "subject": "verification.affected-test-selection-operation",
+      "relation": "declares",
+      "symbol": {
+        "path": "src/adapters/self-hosting/development/runner/affected-plan-contract.ts",
+        "name": "compileAffectedTestSelectionSemanticOperation"
+      },
+      "operation": null
+    },
+    {
+      "subject": "verification.affected-test-plan-result",
+      "relation": "declares",
+      "symbol": {
+        "path": "src/adapters/self-hosting/development/runner/affected-plan-contract.ts",
+        "name": "AffectedTestPlan"
+      },
+      "operation": null
+    },
+    {
+      "subject": "verification.affected-test-plan-result",
+      "relation": "projects",
+      "symbol": {
+        "path": "src/adapters/self-hosting/development/runner/affected-plan-contract.ts",
+        "name": "affectedTestPlanExitCode"
+      },
+      "operation": null
+    }
+  ],
+  "preDependencyBootstrap": true
+}

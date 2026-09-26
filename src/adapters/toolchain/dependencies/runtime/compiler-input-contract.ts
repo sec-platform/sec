@@ -1,7 +1,7 @@
 import { snapshotByteView } from '../../../../contracts/byte-snapshot.ts';
-import { compareCodeUnits, digest } from '../../../../contracts/canonical.ts';
+import { compareCodeUnits, rawSha256Hex } from '../../../../contracts/canonical.ts';
 import { parseExactJson } from '../../../../contracts/exact-json.ts';
-import { SecError } from '../../../../contracts/failure.ts';
+import { FailureError } from '../../../../contracts/failure.ts';
 
 export type CompilerDependencyManifestAuthority = Readonly<{
   declaredBunVersion: string;
@@ -17,18 +17,18 @@ export function compilerInputText(bytes: Uint8Array, label: string): string {
     return new TextDecoder('utf-8', { fatal: true, ignoreBOM: true })
       .decode(snapshotByteView(bytes, label));
   } catch (cause) {
-    throw new SecError('IMPORT-AUTHORITY-001', `${label} is not an exact UTF-8 byte input`, {}, { cause });
+    throw new FailureError('IMPORT-AUTHORITY-001', `${label} is not an exact UTF-8 byte input`, {}, { cause });
   }
 }
 
 function dependencyRecord(value: unknown, field: string): Record<string, string> {
   if (value === undefined) return Object.freeze({});
   if (value === null || typeof value !== 'object' || Array.isArray(value)) {
-    throw new SecError('IMPORT-AUTHORITY-001', `Root ${field} must be a dependency object`);
+    throw new FailureError('IMPORT-AUTHORITY-001', `Root ${field} must be a dependency object`);
   }
   const entries = Object.entries(value).map(([name, version]) => {
     if (typeof version !== 'string') {
-      throw new SecError('IMPORT-AUTHORITY-001', `Root ${field}.${name} must be a version string`);
+      throw new FailureError('IMPORT-AUTHORITY-001', `Root ${field}.${name} must be a version string`);
     }
     return [name, version] as const;
   }).sort(([left], [right]) => compareCodeUnits(left, right));
@@ -44,18 +44,18 @@ export function compilerDependencyManifestAuthority(
   try {
     value = parseExactJson(compilerInputText(packageJsonBytes, 'Root package manifest'), 'Root package manifest');
   } catch (cause) {
-    throw new SecError('IMPORT-AUTHORITY-001', 'Root package manifest is not exact JSON', {}, { cause });
+    throw new FailureError('IMPORT-AUTHORITY-001', 'Root package manifest is not exact JSON', {}, { cause });
   }
   if (value === null || typeof value !== 'object' || Array.isArray(value)) {
-    throw new SecError('IMPORT-AUTHORITY-001', 'Root package manifest must be an object');
+    throw new FailureError('IMPORT-AUTHORITY-001', 'Root package manifest must be an object');
   }
   const record = value as Record<string, unknown>;
   const packageManager = record.packageManager;
   const match = typeof packageManager === 'string' ? /^bun@([^\s]+)$/u.exec(packageManager) : null;
-  if (!match) throw new SecError('IMPORT-AUTHORITY-001', 'Root packageManager must pin one Bun version exactly');
+  if (!match) throw new FailureError('IMPORT-AUTHORITY-001', 'Root packageManager must pin one Bun version exactly');
   const dependencies = dependencyRecord(record.dependencies, 'dependencies');
   const devDependencies = dependencyRecord(record.devDependencies, 'devDependencies');
   return Object.freeze({ declaredBunVersion: match[1]!, dependencies,
-    dependencyManifestSha256: digest(JSON.stringify({ dependencies, devDependencies, packageManager })),
+    dependencyManifestSha256: rawSha256Hex(JSON.stringify({ dependencies, devDependencies, packageManager })),
     devDependencies });
 }

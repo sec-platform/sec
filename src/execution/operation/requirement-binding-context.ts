@@ -4,11 +4,11 @@ import {
   sha256
 } from '../../contracts/canonical.ts';
 import {
-  assertSecSemanticOperationProjection,
-  isCanonicalSecOperationBudgetMaximum,
-  type SecBoundSemanticOperation,
-  type SecOperationBudgetResource,
-  type SecOperationDigest
+  assertSemanticOperationProjection,
+  isCanonicalOperationBudgetMaximum,
+  type BoundSemanticOperation,
+  type OperationBudgetResource,
+  type OperationDigest
 } from './semantic.ts';
 
 /**
@@ -17,37 +17,37 @@ import {
  * retained resources and settlement.  This context only proves that one
  * physical requirement admission is bound to one exact semantic attempt.
  */
-export const SEC_OPERATION_REQUIREMENT_BINDING_ISSUER_ROLE =
+export const OPERATION_REQUIREMENT_BINDING_ISSUER_ROLE =
   'semantic-operation-foundation' as const;
 
 declare const SEC_OPERATION_REQUIREMENT_BINDING_CONTEXT: unique symbol;
 
 /**
  * Process-local, single-consumer capability. Consumers must call
- * consumeSecOperationRequirementBindingContext; its object shape is not an
+ * consumeOperationRequirementBindingContext; its object shape is not an
  * authority surface and cannot be reconstructed from serialized bytes.
  */
-export type SecOperationRequirementBindingContext = Readonly<{
+export type OperationRequirementBindingContext = Readonly<{
   readonly [SEC_OPERATION_REQUIREMENT_BINDING_CONTEXT]: true;
 }>;
 
-export type SecOperationRequirementBindingProjection = Readonly<{
-  readonly issuerRole: typeof SEC_OPERATION_REQUIREMENT_BINDING_ISSUER_ROLE;
-  readonly operationIdentityDigest: SecOperationDigest;
-  readonly executionPlanDigest: SecOperationDigest;
-  readonly boundAttemptDigest: SecOperationDigest;
+export type OperationRequirementBindingProjection = Readonly<{
+  readonly issuerRole: typeof OPERATION_REQUIREMENT_BINDING_ISSUER_ROLE;
+  readonly operationIdentityDigest: OperationDigest;
+  readonly executionPlanDigest: OperationDigest;
+  readonly boundAttemptDigest: OperationDigest;
   readonly requirementId: string;
-  readonly requirementContractDigest: SecOperationDigest;
-  readonly providerIdentityDigest: SecOperationDigest;
-  readonly providerBindingDigest: SecOperationDigest;
+  readonly requirementContractDigest: OperationDigest;
+  readonly providerIdentityDigest: OperationDigest;
+  readonly providerBindingDigest: OperationDigest;
   readonly absoluteDeadlineAtUnixMs: number;
-  readonly resourceCeilings: readonly SecOperationResourceCeiling[];
-  readonly resourceCeilingIdentityDigest: SecOperationDigest;
-  readonly contextDigest: SecOperationDigest;
+  readonly resourceCeilings: readonly OperationResourceCeiling[];
+  readonly resourceCeilingIdentityDigest: OperationDigest;
+  readonly contextDigest: OperationDigest;
 }>;
 
-export type SecOperationResourceCeiling = Readonly<{
-  readonly resource: SecOperationBudgetResource;
+export type OperationResourceCeiling = Readonly<{
+  readonly resource: OperationBudgetResource;
   readonly maximum: number;
 }>;
 
@@ -55,17 +55,17 @@ const ISSUED_REQUIREMENT_BINDING_CONTEXTS = new WeakSet<object>();
 const CONSUMED_REQUIREMENT_BINDING_CONTEXTS = new WeakSet<object>();
 const PROJECTION_BY_CONTEXT = new WeakMap<
   object,
-  SecOperationRequirementBindingProjection
+  OperationRequirementBindingProjection
 >();
 const CONTEXT_BY_OPERATION_REQUIREMENT = new WeakMap<
   object,
-  Map<string, SecOperationRequirementBindingContext>
+  Map<string, OperationRequirementBindingContext>
 >();
 
 function canonicalResourceCeilings(
-  operation: SecBoundSemanticOperation,
-  suppliedCeilings: readonly SecOperationResourceCeiling[]
-): readonly SecOperationResourceCeiling[] {
+  operation: BoundSemanticOperation,
+  suppliedCeilings: readonly OperationResourceCeiling[]
+): readonly OperationResourceCeiling[] {
   if (suppliedCeilings.length === 0) {
     throw new Error('Operation requirement binding needs at least one resource ceiling.');
   }
@@ -77,7 +77,7 @@ function canonicalResourceCeilings(
         throw new Error('Operation requirement resource ceiling is not canonical.');
       }
       const { resource, maximum } = ceiling;
-      if (!isCanonicalSecOperationBudgetMaximum(resource, maximum)) {
+      if (!isCanonicalOperationBudgetMaximum(resource, maximum)) {
         throw new Error('Operation requirement resource ceiling is not canonical.');
       }
       const parent = operation.plan.execution.aggregateBudgets.find(
@@ -89,7 +89,7 @@ function canonicalResourceCeilings(
         );
       }
       return Object.freeze({
-        resource: resource as SecOperationBudgetResource,
+        resource: resource as OperationBudgetResource,
         maximum
       });
     });
@@ -99,14 +99,14 @@ function canonicalResourceCeilings(
   return Object.freeze(ceilings);
 }
 
-export function issueSecOperationRequirementBindingContext(input: Readonly<{
-  readonly operation: SecBoundSemanticOperation;
+export function issueOperationRequirementBindingContext(input: Readonly<{
+  readonly operation: BoundSemanticOperation;
   readonly requirementId: string;
-  readonly resourceCeilings: readonly SecOperationResourceCeiling[];
+  readonly resourceCeilings: readonly OperationResourceCeiling[];
   /** Optional fixed child deadline; omission preserves the operation attempt deadline. */
   readonly absoluteDeadlineAtUnixMs?: number;
-}>): SecOperationRequirementBindingContext {
-  assertSecSemanticOperationProjection(input.operation);
+}>): OperationRequirementBindingContext {
+  assertSemanticOperationProjection(input.operation);
   const requirement = input.operation.plan.execution.requirements.find(
     ({ id }) => id === input.requirementId
   );
@@ -137,9 +137,9 @@ export function issueSecOperationRequirementBindingContext(input: Readonly<{
     providerBindingDigest: providerBinding.bindingDigest,
     absoluteDeadlineAtUnixMs,
     resourceCeilings
-  }) as SecOperationDigest;
+  }) as OperationDigest;
   const withoutContextDigest = deepFreeze({
-    issuerRole: SEC_OPERATION_REQUIREMENT_BINDING_ISSUER_ROLE,
+    issuerRole: OPERATION_REQUIREMENT_BINDING_ISSUER_ROLE,
     operationIdentityDigest: input.operation.plan.identity.identityDigest,
     executionPlanDigest: input.operation.plan.execution.executionPlanDigest,
     boundAttemptDigest: input.operation.boundAttemptDigest,
@@ -156,10 +156,10 @@ export function issueSecOperationRequirementBindingContext(input: Readonly<{
     contextDigest: sha256({
       domain: 'sec.operation.requirement-binding-context',
       binding: withoutContextDigest
-    }) as SecOperationDigest
+    }) as OperationDigest
   });
   const operationContexts = CONTEXT_BY_OPERATION_REQUIREMENT.get(input.operation)
-    ?? new Map<string, SecOperationRequirementBindingContext>();
+    ?? new Map<string, OperationRequirementBindingContext>();
   const existing = operationContexts.get(requirement.id);
   if (existing !== undefined) {
     const existingProjection = PROJECTION_BY_CONTEXT.get(existing);
@@ -170,7 +170,7 @@ export function issueSecOperationRequirementBindingContext(input: Readonly<{
     }
     return existing;
   }
-  const context = Object.freeze({}) as unknown as SecOperationRequirementBindingContext;
+  const context = Object.freeze({}) as unknown as OperationRequirementBindingContext;
   ISSUED_REQUIREMENT_BINDING_CONTEXTS.add(context);
   PROJECTION_BY_CONTEXT.set(context, projection);
   operationContexts.set(requirement.id, context);
@@ -183,9 +183,9 @@ export function issueSecOperationRequirementBindingContext(input: Readonly<{
  * The returned projection is admission input only; possession of its bytes
  * does not recreate the opaque context or authorize another resource ledger.
  */
-export function consumeSecOperationRequirementBindingContext(
-  context: SecOperationRequirementBindingContext
-): SecOperationRequirementBindingProjection {
+export function consumeOperationRequirementBindingContext(
+  context: OperationRequirementBindingContext
+): OperationRequirementBindingProjection {
   if (context === null || typeof context !== 'object'
       || !ISSUED_REQUIREMENT_BINDING_CONTEXTS.has(context)) {
     throw new Error(

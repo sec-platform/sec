@@ -1,4 +1,4 @@
-import { SecError } from './failure.ts';
+import { FailureError } from './failure.ts';
 
 export const LOG_LEVELS = Object.freeze(['debug', 'info', 'warn', 'error'] as const);
 export type LogLevel = (typeof LOG_LEVELS)[number];
@@ -33,7 +33,7 @@ const RESERVED_LOG_FIELDS: ReadonlySet<string> = new Set(['level', 'time', 'msg'
 
 export function assertLogLevel(value: unknown): asserts value is LogLevel {
   if (typeof value === 'string' && LOG_LEVEL_SET.has(value)) return;
-  throw new SecError(
+  throw new FailureError(
     'LOGGING-CONFIG-001',
     `LOG_LEVEL must be one of: ${LOG_LEVELS.join(', ')}`,
     { value }
@@ -61,7 +61,7 @@ export function buildJsonLogRecord(
 ): JsonLogRecord {
   assertLogLevel(level);
   if (!Number.isSafeInteger(observedAtUnixMs) || observedAtUnixMs < 0) {
-    throw new SecError(
+    throw new FailureError(
       'LOGGING-RECORD-001',
       'Log record time must be a non-negative safe Unix millisecond integer',
       { observedAtUnixMs }
@@ -71,7 +71,7 @@ export function buildJsonLogRecord(
   // JavaScript/configuration callers do not carry TypeScript's string proof.
   // Do not coerce a message or dispatch its serialization hooks into `msg`.
   if (typeof message !== 'string') {
-    throw new SecError(
+    throw new FailureError(
       'LOGGING-RECORD-001',
       'Log record message must be a string',
       { valueType: message === null ? 'null' : typeof message }

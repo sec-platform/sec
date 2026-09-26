@@ -14,14 +14,14 @@ import { GIT_READ_DEFAULT_OPERATION_BUDGET } from '../../src/adapters/providers/
 import { currentDocumentationVerificationBaseline } from '../../src/adapters/self-hosting/control/documentation/active.ts';
 import {
   bindDocumentationVerificationGateInput,
-  CodexDevelopmentBuildVerificationPlan
+  BuildVerificationPlan
 } from '../../src/adapters/verification/platform/ci/contract/plan.ts';
 import {
-  CodexDevelopmentDefaultChangedPaths,
-  CodexDevelopmentDefaultGitRevision,
-  CodexDevelopmentDefaultTrackedTreeIsClean,
-  CodexDevelopmentExactGitWorkspaceSourceSnapshot,
-  CodexDevelopmentTestImpactSourceProviderFromSnapshot
+  DefaultChangedPaths,
+  DefaultGitRevision,
+  DefaultTrackedTreeIsClean,
+  ExactGitWorkspaceSourceSnapshot,
+  TestImpactSourceProviderFromSnapshot
 } from '../../src/adapters/verification/platform/ci/runtime/ci-orchestration-core.ts';
 import { selectTestsForSources } from '../../src/adapters/verification/platform/test-impact/runtime/impact.ts';
 import { selectSlowTestRiskClosure } from '../../src/adapters/verification/platform/test-impact/slow-risk-selection.ts';
@@ -59,9 +59,9 @@ test('CI orchestration Git observations ignore ambient repository redirection', 
 
     await withAuthorityGitReadSession({ cwd: repositoryRoot, budget: {} }, async (session) => {
       const admittedExecutableBytes = session.executableBytes;
-      expect(await CodexDevelopmentDefaultGitRevision(session, 'HEAD')).toBe(headSha);
-      expect(await CodexDevelopmentDefaultTrackedTreeIsClean(session)).toBe(true);
-      const changed = await CodexDevelopmentDefaultChangedPaths(session, baseSha, headSha);
+      expect(await DefaultGitRevision(session, 'HEAD')).toBe(headSha);
+      expect(await DefaultTrackedTreeIsClean(session)).toBe(true);
+      const changed = await DefaultChangedPaths(session, baseSha, headSha);
       expect(changed.files).toEqual(['fixture.txt', 'removed.txt']);
       expect(changed.transitionObservation.removedPathBlobs).toEqual([expect.objectContaining({
         path: 'removed.txt',
@@ -96,9 +96,9 @@ test('GitRead phases share aggregate process budget and parent deadline', async 
         budget: { ...GIT_READ_DEFAULT_OPERATION_BUDGET, maxProcesses: 1 }
       }, async (operation) => {
         await operation.runPhase('preflight', (session) =>
-          CodexDevelopmentDefaultGitRevision(session, 'HEAD'));
+          DefaultGitRevision(session, 'HEAD'));
         await operation.runPhase('readback', (session) =>
-          CodexDevelopmentDefaultGitRevision(session, 'HEAD'));
+          DefaultGitRevision(session, 'HEAD'));
       });
     } catch (error) {
       processFailure = error;
@@ -243,11 +243,11 @@ test('trusted-base TestImpact reads a new candidate module graph from exact Git 
     mkdirSync(path.join(repositoryRoot, '.documentation'), { recursive: true });
     mkdirSync(path.join(repositoryRoot, 'docs'), { recursive: true });
     mkdirSync(path.join(repositoryRoot, 'tests', 'unit'), { recursive: true });
-    writeFileSync(path.join(repositoryRoot, 'src', 'candidate', 'sec.module.json'), JSON.stringify({
+    writeFileSync(path.join(repositoryRoot, 'src', 'candidate', 'module.json'), JSON.stringify({
       importGraph: 'runtime',
       externalEntrypoints: []
     }), 'utf8');
-    writeFileSync(path.join(repositoryRoot, 'tests', 'sec.module.json'), JSON.stringify({
+    writeFileSync(path.join(repositoryRoot, 'tests', 'module.json'), JSON.stringify({
       importGraph: 'runtime',
       externalEntrypoints: []
     }), 'utf8');
@@ -292,22 +292,22 @@ test('trusted-base TestImpact reads a new candidate module graph from exact Git 
     await withAuthorityGitReadSession(
       { cwd: repositoryRoot, budget: {} },
       async (session) => {
-        await expect(CodexDevelopmentExactGitWorkspaceSourceSnapshot(session, baseSha))
+        await expect(ExactGitWorkspaceSourceSnapshot(session, baseSha))
           .rejects.toThrow('documentation verification baseline was not observed');
       }
     );
     const snapshots = await withAuthorityGitReadSession(
       { cwd: repositoryRoot, budget: {} },
       async (session) => Object.freeze([
-        await CodexDevelopmentExactGitWorkspaceSourceSnapshot(session, candidateSha),
-        await CodexDevelopmentExactGitWorkspaceSourceSnapshot(session, candidateSha)
+        await ExactGitWorkspaceSourceSnapshot(session, candidateSha),
+        await ExactGitWorkspaceSourceSnapshot(session, candidateSha)
       ] as const)
     );
-    const coldProvider = CodexDevelopmentTestImpactSourceProviderFromSnapshot(
+    const coldProvider = TestImpactSourceProviderFromSnapshot(
       snapshots[0],
       repositoryRoot
     );
-    const warmProvider = CodexDevelopmentTestImpactSourceProviderFromSnapshot(
+    const warmProvider = TestImpactSourceProviderFromSnapshot(
       snapshots[1],
       repositoryRoot
     );
@@ -325,12 +325,12 @@ test('trusted-base TestImpact reads a new candidate module graph from exact Git 
       .toContain('src/candidate/candidate-only.ts');
     expect(warmProvider.projection.moduleGraph.files)
       .toContain('tests/unit/candidate-only.test.ts');
-    expect(CodexDevelopmentBuildVerificationPlan(
+    expect(BuildVerificationPlan(
       'quick',
       ['candidate-doc-assets/new.txt'],
       warmProvider
     ).gates.map(({ id }) => id)).toContain('docs-doctor');
-    expect(CodexDevelopmentBuildVerificationPlan(
+    expect(BuildVerificationPlan(
       'quick',
       ['src/candidate/candidate-only.ts'],
       warmProvider

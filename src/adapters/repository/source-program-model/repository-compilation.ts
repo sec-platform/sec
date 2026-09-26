@@ -27,37 +27,37 @@ import {
   issueRepositoryCompilationGenerationReceipt
 } from './repository-compilation-cache.ts';
 import {
-  compileRepositorySourceProgramModelFromWorkspaceSnapshot
+  compileRepositoryModelFromSnapshot
 } from './repository.ts';
 import {
-  compileSourceProgramTestObservationsFromWorkspaceSnapshot,
-  type SourceProgramTestObservations
+  compileTestObservationsFromSnapshot,
+  type TestObservations
 } from './test-observations.ts';
 import {
-  adoptTypeScriptSourceProgramFactShardsFromWorkspaceSnapshot,
-  compileTypeScriptSourceProgramModelIncrementalFromWorkspaceSnapshot,
-  sourceProgramTypeScriptCompilerIdentity,
-  sourceProgramTypeScriptRequiredApiClosure,
-  type CompileTypeScriptSourceProgramModelInput,
-  type SourceProgramTypeScriptRequiredApiClosure,
-  type TypeScriptSourceProgramIncrementalResult,
-  type TypeScriptSourceProgramIncrementalState
+  adoptTypeScriptFactShards,
+  compileTypeScriptModelIncrementalWithCompilation,
+  typeScriptCompilerIdentity,
+  currentTypeScriptRequiredApiClosure,
+  type TypeScriptModelInput,
+  type TypeScriptRequiredApiClosure,
+  type TypeScriptIncrementalResult,
+  type TypeScriptIncrementalState
 } from './typescript.ts';
 import {
   assertPhysicalWorkspaceSourceSnapshot,
   assertWorkspaceSourceSnapshot,
-  assertWorkspaceTypeScriptProjectInputMatchesSnapshot,
+  assertTypeScriptProjectMatchesSnapshot,
   type PhysicalWorkspaceSourceSnapshot,
   type VirtualWorkspaceSourceSnapshot,
   type WorkspaceSourceSnapshot,
-  type WorkspaceTypeScriptProjectInput
+  type TypeScriptProjectInput
 } from './workspace-source-snapshot.ts';
 
 export type CompileRepositorySourceProgramCompilationInput = Readonly<{
   workspaceSnapshot: PhysicalWorkspaceSourceSnapshot;
   cacheProvider?: RepositoryCompilationCacheProvider;
   cacheAccess?: 'read-only' | 'read-write';
-  projectInput?: WorkspaceTypeScriptProjectInput;
+  projectInput?: TypeScriptProjectInput;
   repositoryRoot?: string;
   reviewedProcessDispatchers?: readonly string[];
   unknowns?: readonly SourceProgramUnknown[];
@@ -83,9 +83,9 @@ export interface RepositorySourceProgramCompilationReceipt {
   readonly projectGeneration: RepositoryCompilationGenerationReceipt;
   readonly cacheReceipt: RepositoryCompilationCacheReceipt | null;
   readonly moduleGraphCompilationCount: 1;
-  readonly typeScriptCompilation: TypeScriptSourceProgramIncrementalResult;
-  readonly typeScriptRequiredApiClosure: SourceProgramTypeScriptRequiredApiClosure;
-  readonly testObservations: SourceProgramTestObservations;
+  readonly typeScriptCompilation: TypeScriptIncrementalResult;
+  readonly typeScriptRequiredApiClosure: TypeScriptRequiredApiClosure;
+  readonly testObservations: TestObservations;
   readonly model: SourceProgramModel;
   readonly receiptDigest: `sha256:${string}`;
   readonly workspaceSnapshot: WorkspaceSourceSnapshot;
@@ -138,13 +138,13 @@ export function repositoryCompilationDiagnostics(
 
 function loadedTypeScriptState(
   workspaceSnapshot: WorkspaceSourceSnapshot,
-  input: CompileTypeScriptSourceProgramModelInput,
+  input: TypeScriptModelInput,
   loaded: Extract<
     RepositoryCompilationCacheLoad,
     { status: 'hit' }
   >
-): TypeScriptSourceProgramIncrementalState {
-  return adoptTypeScriptSourceProgramFactShardsFromWorkspaceSnapshot(
+): TypeScriptIncrementalState {
+  return adoptTypeScriptFactShards(
     input,
     loaded.shards,
     workspaceSnapshot,
@@ -181,10 +181,10 @@ function compileRepositorySourceProgramCompilationCore(
   const operation = resolveSourceProgramCompilationOperation(requestedOperation);
   sourceProgramCompilationCheckpoint(operation, 'admission', 'start');
   if (projectInput !== undefined) {
-    assertWorkspaceTypeScriptProjectInputMatchesSnapshot(projectInput, workspaceSnapshot);
+    assertTypeScriptProjectMatchesSnapshot(projectInput, workspaceSnapshot);
   }
   sourceProgramCompilationCheckpoint(operation, 'admission', 'complete');
-  const compiler = sourceProgramTypeScriptCompilerIdentity();
+  const compiler = typeScriptCompilerIdentity();
   const projectGeneration = issueRepositoryCompilationGenerationReceipt({
     projectInputDigest: projectInput?.projectInputDigest ?? null,
     projectConfigDigest: projectInput?.projectConfigDigest ?? null,
@@ -230,7 +230,7 @@ function compileRepositorySourceProgramCompilationCore(
     moduleMembership: workspaceSnapshot.moduleMembership,
     operation
   });
-  let cachedState: TypeScriptSourceProgramIncrementalState | null = null;
+  let cachedState: TypeScriptIncrementalState | null = null;
   if (loaded?.status === 'hit') {
     sourceProgramCompilationCheckpoint(operation, 'fact-shard-assembly', 'start');
     try {
@@ -248,9 +248,9 @@ function compileRepositorySourceProgramCompilationCore(
   }
   const modelAssemblyMs = performance.now() - modelAssemblyStarted;
   const incrementalExactStarted = performance.now();
-  let typeScriptCompilation: TypeScriptSourceProgramIncrementalResult;
+  let typeScriptCompilation: TypeScriptIncrementalResult;
   try {
-    typeScriptCompilation = compileTypeScriptSourceProgramModelIncrementalFromWorkspaceSnapshot(
+    typeScriptCompilation = compileTypeScriptModelIncrementalWithCompilation(
       typeScriptInput,
       cachedState,
       workspaceSnapshot
@@ -261,13 +261,13 @@ function compileRepositorySourceProgramCompilationCore(
     exactLoaded = null;
     loaded = null;
     cacheReceipt = null;
-    typeScriptCompilation = compileTypeScriptSourceProgramModelIncrementalFromWorkspaceSnapshot(
+    typeScriptCompilation = compileTypeScriptModelIncrementalWithCompilation(
       typeScriptInput,
       null,
       workspaceSnapshot
     );
   }
-  const typeScriptRequiredApiClosure = sourceProgramTypeScriptRequiredApiClosure(
+  const typeScriptRequiredApiClosure = currentTypeScriptRequiredApiClosure(
     typeScriptCompilation.model
   );
   if (typeScriptRequiredApiClosure === null) {
@@ -303,7 +303,7 @@ function compileRepositorySourceProgramCompilationCore(
   });
   sourceProgramCompilationCheckpoint(operation, 'test-observations', 'start');
   const testObservationsStarted = performance.now();
-  const testObservations = compileSourceProgramTestObservationsFromWorkspaceSnapshot(
+  const testObservations = compileTestObservationsFromSnapshot(
     testObservationInput,
     workspaceSnapshot
   );
@@ -320,7 +320,7 @@ function compileRepositorySourceProgramCompilationCore(
   });
   sourceProgramCompilationCheckpoint(operation, 'repository-projection', 'start');
   const repositoryProjectionStarted = performance.now();
-  const model = compileRepositorySourceProgramModelFromWorkspaceSnapshot(repositoryInput, workspaceSnapshot);
+  const model = compileRepositoryModelFromSnapshot(repositoryInput, workspaceSnapshot);
   const repositoryProjectionMs = performance.now() - repositoryProjectionStarted;
   sourceProgramCompilationCheckpoint(operation, 'repository-projection', 'complete');
   sourceProgramCompilationCheckpoint(operation, 'settlement', 'start');

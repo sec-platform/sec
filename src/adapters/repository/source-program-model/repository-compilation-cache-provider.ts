@@ -1,7 +1,7 @@
 import { canonicalJson, compareCodeUnits, isPlainObject, rawSha256, sha256 } from '../../../contracts/canonical.ts';
 import { isDigest } from '../../../contracts/digest.ts';
 import { parseExactJson } from '../../../contracts/exact-json.ts';
-import { SecError } from '../../../contracts/failure.ts';
+import { FailureError } from '../../../contracts/failure.ts';
 import {
   ContentAddressedWorkspaceCacheError,
   type ContentAddressedWorkspaceCacheEntry,
@@ -71,7 +71,7 @@ export type RepositoryCompilationCacheProviderFailureKind =
   | 'identity-mismatch'
   | 'physical-replacement';
 
-export class RepositoryCompilationCacheProviderError extends SecError {
+export class RepositoryCompilationCacheProviderError extends FailureError {
   readonly kind: RepositoryCompilationCacheProviderFailureKind;
 
   constructor(kind: RepositoryCompilationCacheProviderFailureKind, message: string, cause?: unknown) {

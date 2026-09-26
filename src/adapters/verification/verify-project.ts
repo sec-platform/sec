@@ -7,7 +7,7 @@ import type {
 } from '../../assurance/verification/contract/types.ts';
 import type { ProductVerificationGateObservation } from '../../assurance/verification/profile/contract/product.ts';
 import { createSkippedFastLane } from '../../assurance/verification/project/report.ts';
-import { CodexDevelopmentSnapshotVerificationData } from '../../assurance/verification/result/contract/result.ts';
+import { snapshotVerificationData } from '../../assurance/verification/result/contract/result.ts';
 import type { LockFile } from '../../compiler/contract.ts';
 import { CompilerError, formatCompilerFailure } from '../../compiler/errors.ts';
 import { canonicalEquals, compareCodeUnits, sha256 } from '../../contracts/canonical.ts';
@@ -223,7 +223,7 @@ export async function assertStagedVerificationLiveContext(
   >
 ): Promise<void> {
   workspaceRoot = path.resolve(workspaceRoot);
-  const expected = CodexDevelopmentSnapshotVerificationData(
+  const expected = snapshotVerificationData(
     artifacts,
     'Staged Verification live-context input'
   ) as unknown as typeof artifacts;

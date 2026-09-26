@@ -6,9 +6,9 @@ import {
   sha256
 } from '../../../contracts/canonical.ts';
 import {
-  assertSecSemanticOperationProjection,
-  type SecBoundSemanticOperation,
-  type SecOperationDigest
+  assertSemanticOperationProjection,
+  type BoundSemanticOperation,
+  type OperationDigest
 } from '../../../execution/operation/semantic.ts';
 import {
   PhysicalNoFollowError,
@@ -35,10 +35,10 @@ import {
   type BoundedProcessDiagnosticPublishedObject,
   type BoundedProcessDiagnosticStream
 } from './bounded-process-diagnostic-contract.ts';
-import { resolveSecWorkspaceRuntimeRoots } from './paths.ts';
+import { resolveWorkspaceRuntimeRoots } from './paths.ts';
 import {
-  assertSecRuntimeStatePhysicalAuthority,
-  type SecRuntimeStatePhysicalAuthority
+  assertRuntimeStatePhysicalAuthority,
+  type RuntimeStatePhysicalAuthority
 } from './physical-authority.ts';
 
 export {
@@ -72,22 +72,22 @@ type BoundedProcessDiagnosticRead = Readonly<{
 }>;
 
 type BoundedProcessDiagnosticGcReceipt = Readonly<{
-  operationIdentityDigest: SecOperationDigest;
-  boundAttemptDigest: SecOperationDigest;
+  operationIdentityDigest: OperationDigest;
+  boundAttemptDigest: OperationDigest;
   observedObjects: number;
   retainedObjects: number;
   deletedObjects: number;
   incompleteObjects: number;
   unknownObjects: number;
   readBytes: number;
-  receiptDigest: SecOperationDigest;
+  receiptDigest: OperationDigest;
 }>;
 
 type BoundedProcessDiagnosticPublishInput = Readonly<{
-  operation: SecBoundSemanticOperation;
+  operation: BoundSemanticOperation;
   requirementId: string;
-  subjectDigest: SecOperationDigest;
-  settlementDigest: SecOperationDigest;
+  subjectDigest: OperationDigest;
+  settlementDigest: OperationDigest;
   streams: readonly Readonly<{
     stream: BoundedProcessDiagnosticStream;
     bytes: Uint8Array;
@@ -96,14 +96,14 @@ type BoundedProcessDiagnosticPublishInput = Readonly<{
 }>;
 
 type BoundedProcessDiagnosticReadInput = Readonly<{
-  operation: SecBoundSemanticOperation;
+  operation: BoundSemanticOperation;
   requirementId: string;
   receipt: BoundedProcessDiagnosticObjectReceipt;
   signal?: AbortSignal;
 }>;
 
 type BoundedProcessDiagnosticGcInput = Readonly<{
-  operation: SecBoundSemanticOperation;
+  operation: BoundSemanticOperation;
   requirementId: string;
   signal?: AbortSignal;
 }>;
@@ -131,22 +131,22 @@ function fail(
   throw new BoundedProcessDiagnosticObjectError(kind, message, cause);
 }
 
-function exactDigest(value: unknown, label: string): SecOperationDigest {
+function exactDigest(value: unknown, label: string): OperationDigest {
   if (typeof value !== 'string' || !DIGEST.test(value)) {
     fail('corrupt-object', `${label} is not a canonical SHA-256 digest`);
   }
-  return value as SecOperationDigest;
+  return value as OperationDigest;
 }
 
 function operationControl(input: Readonly<{
-  operation: SecBoundSemanticOperation;
+  operation: BoundSemanticOperation;
   requirementId: string;
   signal?: AbortSignal;
 }>, options: Readonly<{
   byteResource: 'input-bytes' | 'output-bytes';
   requireRecords?: boolean;
 }>): OperationControl {
-  assertSecSemanticOperationProjection(input.operation);
+  assertSemanticOperationProjection(input.operation);
   const requirement = input.operation.plan.execution.requirements
     .find(({ id }) => id === input.requirementId);
   if (requirement === undefined || !requirement.effectKinds.includes('filesystem')) {
@@ -209,7 +209,7 @@ function readRetainedLeaf(
   name: string,
   maximumBytes: number,
   control: OperationControl
-): Readonly<{ bytes: Uint8Array; physicalIdentityDigest: SecOperationDigest }> | null {
+): Readonly<{ bytes: Uint8Array; physicalIdentityDigest: OperationDigest }> | null {
   control.assertLive();
   const chain = inspectNoFollowDirectoryChain(root.path, 'Diagnostic object root read');
   let retained: RetainedNoFollowOrdinaryFile;
@@ -237,7 +237,7 @@ function readRetainedLeaf(
         name: retained.name,
         device: retained.physical.device,
         inode: retained.physical.inode
-      }) as SecOperationDigest
+      }) as OperationDigest
     });
   } finally {
     retained.dispose();
@@ -277,12 +277,12 @@ function deleteInventoriedFile(
 }
 
 export function createBoundedProcessDiagnosticObjectStore(input: Readonly<{
-  authority: SecRuntimeStatePhysicalAuthority;
+  authority: RuntimeStatePhysicalAuthority;
   repositoryRoot: string;
   environment?: NodeJS.ProcessEnv;
 }>): BoundedProcessDiagnosticObjectStore {
-  assertSecRuntimeStatePhysicalAuthority(input.authority);
-  const roots = resolveSecWorkspaceRuntimeRoots({
+  assertRuntimeStatePhysicalAuthority(input.authority);
+  const roots = resolveWorkspaceRuntimeRoots({
     repositoryRoot: input.repositoryRoot,
     environment: input.environment
   });
@@ -342,7 +342,7 @@ export function createBoundedProcessDiagnosticObjectStore(input: Readonly<{
       bytes: payload.bytes,
       readback: Object.freeze({
         ...readbackUnsigned,
-        readbackDigest: sha256(readbackUnsigned) as SecOperationDigest
+        readbackDigest: sha256(readbackUnsigned) as OperationDigest
       })
     });
   });
@@ -518,7 +518,7 @@ export function createBoundedProcessDiagnosticObjectStore(input: Readonly<{
         const pendingEntries = inventory.filter(({ relativePath }) => (
           relativePath.endsWith('.pending.json')
         )).sort((left, right) => compareCodeUnits(left.relativePath, right.relativePath));
-        const pending = new Map<SecOperationDigest, Readonly<{
+        const pending = new Map<OperationDigest, Readonly<{
           receipt: BoundedProcessDiagnosticObjectReceipt;
           entry: NoFollowDirectoryTreeInventoryEntry;
         }>>();
@@ -535,7 +535,7 @@ export function createBoundedProcessDiagnosticObjectStore(input: Readonly<{
           .filter(({ relativePath }) => relativePath.endsWith('.bin'))
           .sort((left, right) => compareCodeUnits(left.relativePath, right.relativePath));
         const unknownPayloads = payloadEntries.filter(({ relativePath }) => {
-          const digest = `sha256:${path.basename(relativePath, '.bin')}` as SecOperationDigest;
+          const digest = `sha256:${path.basename(relativePath, '.bin')}` as OperationDigest;
           return !committedDigests.has(digest) && !pendingDigests.has(digest);
         });
         for (const { receipt, payload } of committed) {
@@ -599,11 +599,11 @@ export function createBoundedProcessDiagnosticObjectStore(input: Readonly<{
           input.authority.assertRootIdentityCurrent();
         }
         retainedObjects += unknownPayloads.length;
-        const observedDigests = new Set<SecOperationDigest>([
+        const observedDigests = new Set<OperationDigest>([
           ...committedDigests,
           ...pendingDigests,
           ...payloadEntries.map(({ relativePath }) => (
-            `sha256:${path.basename(relativePath, '.bin')}` as SecOperationDigest
+            `sha256:${path.basename(relativePath, '.bin')}` as OperationDigest
           ))
         ]);
         const unsigned = Object.freeze({
@@ -618,7 +618,7 @@ export function createBoundedProcessDiagnosticObjectStore(input: Readonly<{
         });
         return Object.freeze({
           ...unsigned,
-          receiptDigest: sha256(unsigned) as SecOperationDigest
+          receiptDigest: sha256(unsigned) as OperationDigest
         });
       });
     }

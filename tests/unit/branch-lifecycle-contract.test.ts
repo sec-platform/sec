@@ -12,7 +12,7 @@ import {
 import {
   BRANCH_REF_CLOSEOUT_CAPABILITY,
   auditBranchLifecycle,
-  authorizeBranchCloseout,
+  evaluateBranchCloseoutPolicy,
   classifyBranchLifecycle,
   createBranchCloseoutPreparation,
   createBranchCloseoutReceipt,
@@ -324,7 +324,7 @@ test('remote absence and exact local residue are independently authorized', () =
     worktreePathsAtPreparation: []
   });
 
-  const authorization = authorizeBranchCloseout({
+  const authorization = evaluateBranchCloseoutPolicy({
     preparation: prepared,
     request: {
       capability: BRANCH_REF_CLOSEOUT_CAPABILITY,
@@ -761,7 +761,7 @@ test('authorization blocks an exact remote SHA race', () => {
       url: null
     }]
   });
-  const authorization = authorizeBranchCloseout({
+  const authorization = evaluateBranchCloseoutPolicy({
     preparation: preparation(before),
     request: {
       capability: BRANCH_REF_CLOSEOUT_CAPABILITY,
@@ -815,7 +815,7 @@ test('local branch appearing after preparation blocks all deletion', () => {
       url: null
     }]
   });
-  const authorization = authorizeBranchCloseout({
+  const authorization = evaluateBranchCloseoutPolicy({
     preparation: preparation(before, null),
     request: {
       capability: BRANCH_REF_CLOSEOUT_CAPABILITY,
@@ -872,7 +872,7 @@ test('divergent local branch is protected because remote recovery does not cover
       url: null
     }]
   });
-  const authorization = authorizeBranchCloseout({
+  const authorization = evaluateBranchCloseoutPolicy({
     preparation: prepared,
     request: {
       capability: BRANCH_REF_CLOSEOUT_CAPABILITY,
@@ -965,7 +965,7 @@ test('merged closeout cannot delete either ref while a registered worktree remai
     disposition: 'merged' as const,
     durableGoal: { kind: 'main' as const, reference: `main@${MAIN_SHA}` }
   };
-  const authorization = authorizeBranchCloseout({ preparation: prepared, request, before, current });
+  const authorization = evaluateBranchCloseoutPolicy({ preparation: prepared, request, before, current });
   expect(authorization.remoteAction).toBe('blocked');
   expect(authorization.localAction).toBe('protect-local');
   expect(authorization.blockers).toContain('registered worktree must reach completed physical closeout before branch/ref CAS');
@@ -1036,12 +1036,12 @@ test('branch/ref CAS rejects missing or caller-forged worktree cleanup authority
     disposition: 'merged' as const,
     durableGoal: { kind: 'main' as const, reference: `main@${MAIN_SHA}` }
   };
-  const withoutReceipt = authorizeBranchCloseout({ preparation: prepared, request, before, current });
+  const withoutReceipt = evaluateBranchCloseoutPolicy({ preparation: prepared, request, before, current });
   expect(withoutReceipt.remoteAction).toBe('blocked');
   expect(withoutReceipt.localAction).toBe('blocked');
   expect(withoutReceipt.blockers).toContain(`exact completed worktree cleanup receipt is required for ${targetPath}`);
 
-  const forged = authorizeBranchCloseout({
+  const forged = evaluateBranchCloseoutPolicy({
     preparation: prepared,
     request,
     before,
@@ -1065,7 +1065,7 @@ test('foreign observations require a new preparation after original-host physica
     disposition: 'completed-spike' as const,
     durableGoal: { kind: 'issue' as const, reference: 'sec-platform/sec#269' }
   };
-  const foreign = authorizeBranchCloseout({
+  const foreign = evaluateBranchCloseoutPolicy({
     preparation: prepared,
     request,
     before: observed,
@@ -1076,7 +1076,7 @@ test('foreign observations require a new preparation after original-host physica
   expect(foreign.remoteAction).toBe('blocked');
   // A local, post-physical-closeout fresh preparation has no foreign fact and
   // may be considered normally; no artifact/job success can erase it.
-  const refreshed = authorizeBranchCloseout({ preparation: prepared, request, before: observed,
+  const refreshed = evaluateBranchCloseoutPolicy({ preparation: prepared, request, before: observed,
     current: observed });
   expect(refreshed.blockers).toEqual([]);
   expect(refreshed.remoteAction).toBe('delete-cas');
@@ -1122,7 +1122,7 @@ function orphanPreparation(before: BranchLifecycleInventory): BranchCloseoutPrep
 test('orphan remote closeout requires an explicit completed-spike disposition and durable issue goal', () => {
   const observed = orphanRemoteInventory();
   const prepared = orphanPreparation(observed);
-  const authorization = authorizeBranchCloseout({
+  const authorization = evaluateBranchCloseoutPolicy({
     preparation: prepared,
     request: {
       capability: BRANCH_REF_CLOSEOUT_CAPABILITY,
@@ -1141,7 +1141,7 @@ test('orphan remote closeout requires an explicit completed-spike disposition an
 test('orphan remote closeout rejects merged and closed-superseded dispositions', () => {
   const observed = orphanRemoteInventory();
   const prepared = orphanPreparation(observed);
-  const merged = authorizeBranchCloseout({
+  const merged = evaluateBranchCloseoutPolicy({
     preparation: prepared,
     request: {
       capability: BRANCH_REF_CLOSEOUT_CAPABILITY,
@@ -1152,7 +1152,7 @@ test('orphan remote closeout rejects merged and closed-superseded dispositions',
     current: observed
   });
   expect(merged.blockers).toContain('disposition merged cannot close out orphan-unknown');
-  const superseded = authorizeBranchCloseout({
+  const superseded = evaluateBranchCloseoutPolicy({
     preparation: prepared,
     request: {
       capability: BRANCH_REF_CLOSEOUT_CAPABILITY,
@@ -1197,7 +1197,7 @@ test('active work package selecting another branch does not block orphan closeou
       reason: null
     }
   };
-  const authorization = authorizeBranchCloseout({
+  const authorization = evaluateBranchCloseoutPolicy({
     preparation: orphanPreparation(observed),
     request: {
       capability: BRANCH_REF_CLOSEOUT_CAPABILITY,
@@ -1222,7 +1222,7 @@ test('active work package selecting the closeout branch blocks it', () => {
       reason: null
     }
   };
-  const authorization = authorizeBranchCloseout({
+  const authorization = evaluateBranchCloseoutPolicy({
     preparation: orphanPreparation(observed),
     request: {
       capability: BRANCH_REF_CLOSEOUT_CAPABILITY,

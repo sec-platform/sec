@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { setTimeout as delay } from 'node:timers/promises';
 
-import { canonicalJson, digest } from '../../../../contracts/canonical.ts';
+import { canonicalJson, rawSha256Hex } from '../../../../contracts/canonical.ts';
 import type {
   VerificationActionKey,
   VerificationActionKeyDigest,
@@ -9,8 +9,8 @@ import type {
   VerificationActionTerminalSettlement
 } from '../../../verification/platform/action/contract/action.ts';
 import {
-  assertSecOperationDemandGraph,
-  type SecOperationDemandGraph
+  assertOperationDemandGraph,
+  type OperationDemandGraph
 } from '../../control/operation/demand.ts';
 
 type CompilerDependencyExecutionGenerationAuthority = Readonly<{
@@ -51,7 +51,7 @@ export interface MaterializedOperationDependencyBootstrapResult
 
 const materializedOperationDemands = new WeakMap<
   OperationDependencyBootstrapResult,
-  SecOperationDemandGraph
+  OperationDemandGraph
 >();
 
 interface CompilerDependencyBootstrapOptions {
@@ -69,7 +69,7 @@ const DEPENDENCY_BOOTSTRAP_REQUIREMENT = 'development.compiler-dependency-materi
 const DEPENDENCY_BOOTSTRAP_JOIN_POLL_MS = 50;
 
 function actionDigest(value: unknown): `sha256:${string}` {
-  return `sha256:${digest(JSON.stringify(canonicalJson(value)))}`;
+  return `sha256:${rawSha256Hex(JSON.stringify(canonicalJson(value)))}`;
 }
 
 const DEPENDENCY_BOOTSTRAP_SEMANTIC_CONTRACT = Object.freeze({
@@ -201,7 +201,7 @@ export function createDependencyFreshProcessHandoff(
 }
 
 function publishOperationDependencyResult(
-  demandGraph: SecOperationDemandGraph,
+  demandGraph: OperationDemandGraph,
   result: MaterializedOperationDependencyBootstrapResult
 ): MaterializedOperationDependencyBootstrapResult {
   const published = Object.freeze(result);
@@ -211,9 +211,9 @@ function publishOperationDependencyResult(
 
 export function reuseOperationDependencies(
   result: OperationDependencyBootstrapResult,
-  demandGraph: SecOperationDemandGraph
+  demandGraph: OperationDemandGraph
 ): MaterializedOperationDependencyBootstrapResult {
-  assertSecOperationDemandGraph(demandGraph);
+  assertOperationDemandGraph(demandGraph);
   assertMaterializedOperationDependencyBootstrapResult(result);
   const materializedDemand = materializedOperationDemands.get(result);
   if (materializedDemand === undefined) throw new Error('Unreachable dependency provenance state.');
@@ -241,14 +241,14 @@ async function issueDependencyBootstrapTerminal(
   maximumDurationMs: number
 ): Promise<VerificationActionTerminalSettlement> {
   const [{
-    bindSecSemanticOperation,
-    compileSecCapabilityBinding,
-    compileSecProviderSettlementSet,
-    compileSecSemanticOperationPlan,
-    issueSecNormalDomainReadbackReceipt,
-    issueSecNormalOwnerTerminalJoinReceipt,
-    issueSecProviderSettlementReceipt,
-    issueSecSemanticOperationAttemptContext
+    bindSemanticOperation,
+    compileCapabilityBinding,
+    compileProviderSettlementSet,
+    compileSemanticOperationPlan,
+    issueNormalDomainReadbackReceipt,
+    issueNormalOwnerTerminalJoinReceipt,
+    issueProviderSettlementReceipt,
+    issueSemanticOperationAttemptContext
   }, {
     issueNonProcessVerificationActionTerminalSettlement,
     issueVerificationActionOwnerTerminalReceipt
@@ -263,7 +263,7 @@ async function issueDependencyBootstrapTerminal(
     materializationInputDigest: projection.projectionDigest,
     transitionDigest: ready.transitionDigest
   });
-  const operationPlan = compileSecSemanticOperationPlan({
+  const operationPlan = compileSemanticOperationPlan({
     operation: 'development.compiler-dependency-materialization',
     intentDigest: action.actionKey,
     decisionDigest: contractDigest,
@@ -287,26 +287,26 @@ async function issueDependencyBootstrapTerminal(
         'provider.unverified'
       ]
     }],
-    attempt: issueSecSemanticOperationAttemptContext({ authorityGrantDigest: contractDigest })
+    attempt: issueSemanticOperationAttemptContext({ authorityGrantDigest: contractDigest })
   });
-  const operation = bindSecSemanticOperation(operationPlan, [compileSecCapabilityBinding({
+  const operation = bindSemanticOperation(operationPlan, [compileCapabilityBinding({
     requirementId: DEPENDENCY_BOOTSTRAP_REQUIREMENT,
     contractDigest,
     providerIdentityDigest: contractDigest
   })]);
-  const provider = issueSecProviderSettlementReceipt(operation, {
+  const provider = issueProviderSettlementReceipt(operation, {
     requirementId: DEPENDENCY_BOOTSTRAP_REQUIREMENT,
     physicalDisposition: 'settled',
     providerSettlementReferenceDigest: readyDigest
   });
-  const providerSet = compileSecProviderSettlementSet(operation, [provider]);
-  const readback = issueSecNormalDomainReadbackReceipt(operation, providerSet, {
+  const providerSet = compileProviderSettlementSet(operation, [provider]);
+  const readback = issueNormalDomainReadbackReceipt(operation, providerSet, {
     readbackContractDigest: contractDigest,
     readbackReferenceDigest: readyDigest,
     currentPhysicalEpochDigest: ready.transitionDigest,
     disposition: 'applied'
   });
-  const ownerTerminal = issueSecNormalOwnerTerminalJoinReceipt(
+  const ownerTerminal = issueNormalOwnerTerminalJoinReceipt(
     operation,
     providerSet,
     readback,
@@ -476,10 +476,10 @@ async function materializeCompilerDependenciesSingleFlight(
  * name, installed package, cache presence or environment state.
  */
 export async function ensureOperationDependencies(
-  demandGraph: SecOperationDemandGraph,
+  demandGraph: OperationDemandGraph,
   options: OperationDependencyBootstrapOptions = {}
 ): Promise<MaterializedOperationDependencyBootstrapResult> {
-  assertSecOperationDemandGraph(demandGraph);
+  assertOperationDemandGraph(demandGraph);
   if (!demandGraph.capabilityDemands.includes('compiler-dependency-tree')) {
     throw new Error('Dependency bootstrap requires an operation demand for compiler-dependency-tree.');
   }

@@ -1,0 +1,283 @@
+{
+  "importGraph": "runtime",
+  "externalEntrypoints": [
+    "src/adapters/toolchain/typescript/canary.ts"
+  ],
+  "capabilityProviders": [
+    {
+      "capability": "typescript-project-typecheck",
+      "operations": [
+        "assertTypeScriptNativeChecker",
+        "canonicalTypeScriptDiagnosticArguments",
+        "executeTypeScriptNativeChecker",
+        "issueTypeScriptCheckerProcessExecutionAdmission",
+        "materializeTypeScriptExecutionGeneration",
+        "prepareTypeScriptIncrementalState",
+        "requireSelectedTypeScriptNativeChecker",
+        "selectInstalledTypeScriptNativeChecker",
+        "typeScriptExecutionGenerationDigest",
+        "typeScriptCheckerArguments"
+      ],
+      "operationRoles": [
+        {
+          "operation": "selectInstalledTypeScriptNativeChecker",
+          "role": "domain-owner",
+          "semanticOperation": "toolchain.typescript.native-checker-selection",
+          "requirementId": null,
+          "recovery": null
+        },
+        {
+          "operation": "executeTypeScriptNativeChecker",
+          "role": "domain-owner",
+          "semanticOperation": "toolchain.typescript.native-checker-execution",
+          "requirementId": null,
+          "recovery": null
+        },
+        {
+          "operation": "materializeTypeScriptExecutionGeneration",
+          "role": "domain-owner",
+          "semanticOperation": "toolchain.typescript.execution-generation",
+          "requirementId": null,
+          "recovery": null
+        },
+        {
+          "operation": "prepareTypeScriptIncrementalState",
+          "role": "domain-owner",
+          "semanticOperation": "toolchain.typescript.incremental-state",
+          "requirementId": null,
+          "recovery": null
+        }
+      ]
+    }
+  ],
+  "operationObligations": [
+    {
+      "operation": {
+        "kind": "capability",
+        "capability": "typescript-project-typecheck",
+        "operation": "issueTypeScriptCheckerProcessExecutionAdmission"
+      },
+      "consumerSupport": {
+        "consumers": [
+          "development.runner"
+        ]
+      },
+      "effect": {
+        "kinds": [],
+        "failureKinds": [],
+        "recovery": "not-applicable"
+      },
+      "evolution": {
+        "migration": "not-required",
+        "retirement": "replacement-obligations-satisfied"
+      },
+      "resources": {
+        "aggregateBudgets": [
+          {
+            "resource": "records",
+            "maximum": 1
+          }
+        ]
+      },
+      "futureSupport": {
+        "condition": "semantic-superset-required"
+      }
+    },
+    {
+      "operation": {
+        "kind": "capability",
+        "capability": "typescript-project-typecheck",
+        "operation": "selectInstalledTypeScriptNativeChecker"
+      },
+      "consumerSupport": {
+        "consumers": [
+          "development.runner",
+          "toolchain.typescript"
+        ]
+      },
+      "effect": {
+        "kinds": [
+          "filesystem"
+        ],
+        "failureKinds": [
+          "typescript-provider-mismatch",
+          "typescript-provider-unavailable",
+          "typescript-provider-unverified"
+        ],
+        "recovery": "owner-intervention"
+      },
+      "evolution": {
+        "migration": "not-required",
+        "retirement": "replacement-obligations-satisfied"
+      },
+      "resources": {
+        "aggregateBudgets": [
+          {
+            "resource": "duration-ms",
+            "maximum": 30000
+          },
+          {
+            "resource": "input-bytes",
+            "maximum": 67108864
+          },
+          {
+            "resource": "records",
+            "maximum": 4
+          }
+        ]
+      },
+      "futureSupport": {
+        "condition": "semantic-superset-required"
+      }
+    },
+    {
+      "operation": {
+        "kind": "capability",
+        "capability": "typescript-project-typecheck",
+        "operation": "executeTypeScriptNativeChecker"
+      },
+      "consumerSupport": {
+        "consumers": [
+          "development.runner"
+        ]
+      },
+      "effect": {
+        "kinds": [
+          "filesystem",
+          "process"
+        ],
+        "failureKinds": [
+          "typescript-provider-cancelled",
+          "typescript-provider-deadline-exhausted",
+          "typescript-provider-drift",
+          "typescript-provider-process-boundary-unavailable"
+        ],
+        "recovery": "owner-intervention"
+      },
+      "evolution": {
+        "migration": "not-required",
+        "retirement": "replacement-obligations-satisfied"
+      },
+      "resources": {
+        "aggregateBudgets": [
+          {
+            "resource": "duration-ms",
+            "maximum": 120000
+          },
+          {
+            "resource": "input-bytes",
+            "maximum": 67108864
+          },
+          {
+            "resource": "output-bytes",
+            "maximum": 67108864
+          },
+          {
+            "resource": "processes",
+            "maximum": 1
+          }
+        ]
+      },
+      "futureSupport": {
+        "condition": "semantic-superset-required"
+      }
+    },
+    {
+      "operation": {
+        "kind": "capability",
+        "capability": "typescript-project-typecheck",
+        "operation": "materializeTypeScriptExecutionGeneration"
+      },
+      "consumerSupport": {
+        "consumers": [
+          "development.runner"
+        ]
+      },
+      "effect": {
+        "kinds": [
+          "filesystem"
+        ],
+        "failureKinds": [
+          "typescript-execution-generation-invalid",
+          "typescript-execution-generation-residue"
+        ],
+        "recovery": "owner-intervention"
+      },
+      "evolution": {
+        "migration": "not-required",
+        "retirement": "replacement-obligations-satisfied"
+      },
+      "resources": {
+        "aggregateBudgets": [
+          {
+            "resource": "duration-ms",
+            "maximum": 300000
+          },
+          {
+            "resource": "input-bytes",
+            "maximum": 536870912
+          },
+          {
+            "resource": "records",
+            "maximum": 500000
+          }
+        ]
+      },
+      "futureSupport": {
+        "condition": "semantic-superset-required"
+      }
+    },
+    {
+      "operation": {
+        "kind": "capability",
+        "capability": "typescript-project-typecheck",
+        "operation": "prepareTypeScriptIncrementalState"
+      },
+      "consumerSupport": {
+        "consumers": [
+          "development.runner"
+        ]
+      },
+      "effect": {
+        "kinds": [
+          "filesystem"
+        ],
+        "failureKinds": [
+          "typescript-incremental-cache-unavailable",
+          "typescript-incremental-cancelled",
+          "typescript-incremental-deadline-exhausted",
+          "typescript-incremental-residue"
+        ],
+        "recovery": "owner-intervention"
+      },
+      "evolution": {
+        "migration": "not-required",
+        "retirement": "replacement-obligations-satisfied"
+      },
+      "resources": {
+        "aggregateBudgets": [
+          {
+            "resource": "duration-ms",
+            "maximum": 30000
+          },
+          {
+            "resource": "input-bytes",
+            "maximum": 67108864
+          },
+          {
+            "resource": "output-bytes",
+            "maximum": 67108864
+          },
+          {
+            "resource": "records",
+            "maximum": 1
+          }
+        ]
+      },
+      "futureSupport": {
+        "condition": "semantic-superset-required"
+      }
+    }
+  ],
+  "preDependencyBootstrap": false
+}

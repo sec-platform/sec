@@ -1,8 +1,10 @@
 import { dlopen, FFIType, ptr, read } from 'bun:ffi';
-import { createHash, randomUUID } from 'node:crypto';
+import { randomUUID } from 'node:crypto';
 import { closeSync, fchmodSync, fstatSync, fsyncSync, readSync, writeSync } from 'node:fs';
 import path from 'node:path';
 
+import { createSha256Hasher } from '../../../../contracts/digest.ts';
+import { rawSha256Hex } from '../../../../contracts/canonical.ts';
 import {
   assertSameNoFollowDirectoryIdentity,
   PhysicalNoFollowError,
@@ -94,7 +96,7 @@ function leafName(value: string): string {
 }
 
 function digest(bytes: Uint8Array): string {
-  return createHash('sha256').update(bytes).digest('hex');
+  return rawSha256Hex(bytes);
 }
 
 type Snapshot = Readonly<{
@@ -477,7 +479,7 @@ function linuxBackend(sourceParent: number, targetParent: number, sourceName: st
     createCandidate: () => open(sourceParent, sourceName, true),
     inspect(file) {
       const before = physical(file);
-      const hash = createHash('sha256');
+      const hash = createSha256Hasher();
       const chunk = Buffer.alloc(64 * 1024);
       let offset = 0;
       while (offset < Number(before.size)) {
@@ -488,7 +490,7 @@ function linuxBackend(sourceParent: number, targetParent: number, sourceName: st
       }
       const after = physical(file);
       if (fingerprint(before) !== fingerprint(after)) fail('Source replacement retained read changed');
-      return { device: String(before.dev), inode: String(before.ino), size: Number(before.size), mode: Number(before.mode & 0o7777n), attributes: null, fingerprint: fingerprint(after), digest: hash.digest('hex') };
+      return { device: String(before.dev), inode: String(before.ino), size: Number(before.size), mode: Number(before.mode & 0o7777n), attributes: null, fingerprint: fingerprint(after), digest: hash.finish().slice('sha256:'.length) };
     },
     assertName,
     write(file, bytes) {
@@ -637,7 +639,7 @@ function windowsBackend(sourceParent: PhysicalDirectoryIdentity, targetParent: P
     openTemporary: () => openLeaf(from, sourceName, false, false, true)!,
     createCandidate: () => openLeaf(from, sourceName, true)!,
     inspect(file) {
-      const before = metadata(file), hash = createHash('sha256'), chunk = Buffer.alloc(64 * 1024), count = Buffer.alloc(4);
+      const before = metadata(file), hash = createSha256Hasher(), chunk = Buffer.alloc(64 * 1024), count = Buffer.alloc(4);
       rewind(file as bigint);
       let offset = 0;
       while (offset < before.size) {
@@ -650,7 +652,7 @@ function windowsBackend(sourceParent: PhysicalDirectoryIdentity, targetParent: P
       }
       const after = metadata(file);
       if (before.fingerprint !== after.fingerprint) fail('Source replacement retained bytes changed');
-      return { ...after, mode: null, attributes: after.attributes & WINDOWS_ATTRIBUTES, digest: hash.digest('hex') };
+      return { ...after, mode: null, attributes: after.attributes & WINDOWS_ATTRIBUTES, digest: hash.finish().slice('sha256:'.length) };
     },
     assertName,
     write(file, bytes) {

@@ -5,10 +5,10 @@ import {
   runtimeDependencyOperationRemainingMs,
   waitForRuntimeDependencyOperation
 } from '../../src/adapters/toolchain/dependencies/runtime/operation-context.ts';
-import { SecError } from '../../src/contracts/failure.ts';
+import { FailureError } from '../../src/contracts/failure.ts';
 
 const deadlineFailure = (error: unknown): boolean =>
-  error instanceof SecError && error.code === 'RUNTIME-DEPS-003';
+  error instanceof FailureError && error.code === 'RUNTIME-DEPS-003';
 
 test('invalid dependency delay never reaches the sleep effect through coercion or NaN', async () => {
   for (const delay of [NaN, '5', null, undefined, {}]) {

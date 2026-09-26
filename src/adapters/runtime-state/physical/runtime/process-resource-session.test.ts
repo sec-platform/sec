@@ -5,19 +5,19 @@ import path from 'node:path';
 
 import { sha256 } from '../../../../contracts/canonical.ts';
 import {
-  issueSecOperationRequirementBindingContext,
-  type SecOperationRequirementBindingContext,
-  type SecOperationResourceCeiling
+  issueOperationRequirementBindingContext,
+  type OperationRequirementBindingContext,
+  type OperationResourceCeiling
 } from '../../../../execution/operation/requirement-binding-context.ts';
 import {
-  bindSecSemanticOperation,
-  compileSecCapabilityBinding,
-  compileSecSemanticOperationPlan,
-  issueSecSemanticOperationAttemptContext,
-  type SecBoundSemanticOperation,
-  type SecOperationBudget,
-  type SecOperationDigest,
-  type SecOperationEffectKind
+  bindSemanticOperation,
+  compileCapabilityBinding,
+  compileSemanticOperationPlan,
+  issueSemanticOperationAttemptContext,
+  type BoundSemanticOperation,
+  type OperationBudget,
+  type OperationDigest,
+  type OperationEffectKind
 } from '../../../../execution/operation/semantic.ts';
 import {
   issueIndependentProviderProcessCapability
@@ -47,19 +47,19 @@ import {
 } from './process.ts';
 import type { RetainedCommandBoundary } from './retained-command-boundary.ts';
 
-const digest = (value: unknown): SecOperationDigest => sha256(value) as SecOperationDigest;
+const digest = (value: unknown): OperationDigest => sha256(value) as OperationDigest;
 const compilerRoot = path.resolve(import.meta.dir, '../../../..');
 
 function boundOperation(input: Readonly<{
   authorityGrantLabel?: string;
-  budgets?: readonly SecOperationBudget[];
+  budgets?: readonly OperationBudget[];
   deadlineAtUnixMs?: number;
-  effectKinds?: readonly SecOperationEffectKind[];
+  effectKinds?: readonly OperationEffectKind[];
   label?: string;
   providerLabel?: string;
-}> = {}): SecBoundSemanticOperation {
+}> = {}): BoundSemanticOperation {
   const label = input.label ?? 'process-resource-test';
-  const plan = compileSecSemanticOperationPlan({
+  const plan = compileSemanticOperationPlan({
     operation: 'verification.process-resource-test',
     intentDigest: digest(`${label}-intent`),
     decisionDigest: digest(`${label}-decision`),
@@ -76,14 +76,14 @@ function boundOperation(input: Readonly<{
       effectKinds: input.effectKinds ?? ['process'],
       failureKinds: ['process.failed']
     }],
-    attempt: issueSecSemanticOperationAttemptContext({
+    attempt: issueSemanticOperationAttemptContext({
       // A distinct grant changes only the bound attempt, not the operation plan.
       authorityGrantDigest: digest(
         input.authorityGrantLabel ?? 'process-native-test-authority-grant'
       )
     })
   });
-  return bindSecSemanticOperation(plan, [compileSecCapabilityBinding({
+  return bindSemanticOperation(plan, [compileCapabilityBinding({
     requirementId: plan.execution.requirements[0]!.id,
     contractDigest: plan.execution.requirements[0]!.contractDigest,
     providerIdentityDigest: digest(input.providerLabel ?? 'process-native-test-provider')
@@ -91,13 +91,13 @@ function boundOperation(input: Readonly<{
 }
 
 function requirementBindingContext(
-  operation: SecBoundSemanticOperation,
-  ceilings?: readonly SecOperationResourceCeiling[]
-): SecOperationRequirementBindingContext {
+  operation: BoundSemanticOperation,
+  ceilings?: readonly OperationResourceCeiling[]
+): OperationRequirementBindingContext {
   const inputBudget = operation.plan.execution.aggregateBudgets.find(
     ({ resource }) => resource === 'input-bytes'
   );
-  return issueSecOperationRequirementBindingContext({
+  return issueOperationRequirementBindingContext({
     operation,
     requirementId: operation.plan.execution.requirements[0]!.id,
     resourceCeilings: ceilings ?? [
@@ -185,7 +185,7 @@ test('independent provider identity binds retained auxiliary provider inputs', a
 
 test('process sessions reject structural operation and session clones', async () => {
   const operation = boundOperation();
-  const operationClone = structuredClone(operation) as SecBoundSemanticOperation;
+  const operationClone = structuredClone(operation) as BoundSemanticOperation;
   expect(() => openProcessResourceSession({
     operation: operationClone,
     requirementBindingContext: requirementBindingContext(operation)
@@ -206,6 +206,9 @@ test('process sessions reject structural operation and session clones', async ()
     maximumProcesses: 2
   } as const;
   expect(() => assertProcessResourceSession(session, expectedBinding)).not.toThrow();
+  expect(session.observeNativeResourceCapacity()).toMatchObject({
+    maximum: 2, admitted: 0, remaining: 2, root: 0, stdinWorker: 0, helper: 0
+  });
   const clone = Object.freeze({ ...session });
   expect(() => assertProcessResourceSession(clone, expectedBinding))
     .toThrow(/owner-issued live session/u);
@@ -218,11 +221,13 @@ test('process sessions reject structural operation and session clones', async ()
     providerIdentityDigest: digest('foreign-provider')
   })).toThrow(/binding differs/u);
   expect(() => clone.close()).toThrow(/owner-issued session/u);
+  expect(() => clone.observeNativeResourceCapacity()).toThrow(/owner-issued session/u);
   await expect(clone.run({} as RetainedCommandBoundary, [], {
     maxStderrBytes: 0,
     maxStdoutBytes: 0
   })).rejects.toThrow(/owner-issued session/u);
   session.close();
+  expect(() => session.observeNativeResourceCapacity()).toThrow(/closed/u);
   expect(() => assertProcessResourceSession(session, expectedBinding))
     .toThrow(/current live session/u);
 });
@@ -272,9 +277,18 @@ test('process sessions require one process Effect and complete bound resource ce
       maxStderrBytes: 0,
       maxStdoutBytes: 5
     });
-    expect(first).toEqual({
+    expect(first).toMatchObject({
       ordinal: 1,
       result: { code: 0, stdout: new Uint8Array([0, 1, 255]), stderr: '' }
+    });
+    expect(first.outcome.status).toBe('exited');
+    expect(first.outcome.termination).toMatchObject({
+      childCloseObserved: true,
+      streamsDrained: true,
+      treeClosed: true
+    });
+    expect(session.observeNativeResourceCapacity()).toMatchObject({
+      remaining: 1, root: 1, stdinWorker: process.platform === 'win32' ? 1 : 0
     });
 
     await expect(session.run(retained.boundary, ['--version'], {
@@ -300,6 +314,7 @@ test('process sessions require one process Effect and complete bound resource ce
     expect(second.ordinal).toBe(2);
     expect(Buffer.from(second.result.stdout).toString('utf8')).toBe('ok');
     expect(session.processCount).toBe(2);
+    expect(session.observeNativeResourceCapacity()).toMatchObject({ remaining: 0, root: 2 });
     expect(session.inputBytes).toBe(3);
     expect(session.outputBytes).toBe(5);
 

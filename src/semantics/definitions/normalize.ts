@@ -1,5 +1,5 @@
 import { compareCodeUnits, stableById, uniqueSorted } from '../../contracts/canonical.ts';
-import { SecError as CompilerError } from '../../contracts/failure.ts';
+import { FailureError as CompilerError } from '../../contracts/failure.ts';
 import { isSafeRelativePath, posixPath } from '../../contracts/relative-path.ts';
 import { SEMANTIC_CONTRACT_FORMAT_VERSION, SEMANTIC_EFFECT_KINDS, SEMANTIC_RESPONSIBILITY_TARGET_KINDS, type SemanticContract, type SemanticContractEffect, type SemanticContractEntity, type SemanticContractImport, type SemanticContractOperation, type SemanticContractResponsibility, type SemanticContractResponsibilityBinding, type SemanticContractScenario, type SemanticContractScenarioStep, type SemanticContractState, type SemanticContractTransition } from './types.ts';
 

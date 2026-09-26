@@ -1,12 +1,12 @@
 import path from 'node:path';
 
 import { sha256 } from '../../../../contracts/canonical.ts';
-import { issueSecOperationRequirementBindingContext } from '../../../../execution/operation/requirement-binding-context.ts';
-import { bindSecSemanticOperation, compileSecCapabilityBinding, compileSecSemanticOperationPlan, issueSecSemanticOperationAttemptContext, type SecOperationDigest } from '../../../../execution/operation/semantic.ts';
-import { assertWorkspaceWriteLease, withWorkspaceWriteLease } from '../../../filesystem/write-lease.ts';
+import { issueOperationRequirementBindingContext } from '../../../../execution/operation/requirement-binding-context.ts';
+import { bindSemanticOperation, compileCapabilityBinding, compileSemanticOperationPlan, issueSemanticOperationAttemptContext, type OperationDigest } from '../../../../execution/operation/semantic.ts';
+import { assertWorkspaceWriteLease, withWorkspaceWriteLease, type WorkspaceWriteLeaseToken } from '../../../filesystem/write-lease.ts';
 import { withAuthorityGitReadSession } from '../../../providers/git-read/authority.ts';
 import { assertGitPhysicalProviderReceipt, closeGitPhysicalProvider, openGitPhysicalProvider } from '../../../providers/git/physical-provider.ts';
-import { deleteExactGitRef, GIT_LOCAL_REF_DELETE_ATOMICITY } from '../../../providers/git/ref-effect.ts';
+import { deleteExactGitRef, deleteExactLocalGitRefs } from '../../../providers/git/ref-effect.ts';
 import {
   executeGitHubApiOperation,
   GITHUB_API_REQUEST_TIMEOUT_MS,
@@ -17,13 +17,14 @@ import {
 } from '../../../providers/github-api/operation-session.ts';
 import { assertProcessResourceSessionReceipt, openProcessResourceSession } from '../../../runtime-state/physical/runtime/process-resource-session.ts';
 import {
-  CLOSED_ABSENT_DEVELOPMENT_COMMIT_JOURNAL_RETIREMENT_REQUEST_CEILING,
+  JOURNAL_RETIREMENT_REQUEST_CEILING,
   settleDevelopmentCommitJournalsForRef
 } from '../../development/commit/operation.ts';
 import { GIT_READ_OPERATION_BUDGET } from '../../development/tooling/git/git-read.ts';
 import { observeActiveWorkPackage } from '../documentation/document-control-plane.ts';
 import {
   parsePreparedBranchCloseoutEnvelope,
+  prepareClosedUnmergedPullRequestCloseout,
   type PreparedBranchCloseoutEnvelope
 } from './branch-closeout.ts';
 import type { BranchLifecycleInventory, BranchPullRequestObservation } from './branch-lifecycle-contract.ts';
@@ -34,8 +35,11 @@ import {
   type ClosedSupersessionEvidence
 } from './closed-supersession-review.ts';
 import {
+  compileClosedUnmergedCloseoutOperation,
+  createClosedSupersededDispositionEvidence,
   executeClosedUnmergedCloseoutOperation,
   issueClosedUnmergedCloseoutEffectProvider,
+  tryCreateClosedNativeAbsorptionDispositionEvidence,
   type ClosedUnmergedCloseoutEffectAdapter,
   type ClosedUnmergedCloseoutEffectStartReceipt,
   type ClosedUnmergedCloseoutExecutionResult,
@@ -51,8 +55,8 @@ const MAX_COMMENT_PAGES = 20;
 const COMMENTS_PER_PAGE = 100;
 const LOCAL_EFFECT_DURATION_MS = 120_000;
 const LOCAL_EFFECT_REQUIREMENT = 'branch-lifecycle.closed-unmerged.ref-delete';
-const LOCAL_EFFECT_CONTRACT = sha256({ owner: 'control.branch-lifecycle', operation: 'closed-unmerged-ref-delete', effect: 'one-exact-native-git-ref-cas' }) as SecOperationDigest;
-const LOCAL_EFFECT_PROVIDER = sha256({ owner: 'external-capabilities.git', provider: 'git-physical-provider' }) as SecOperationDigest;
+const LOCAL_EFFECT_CONTRACT = sha256({ owner: 'control.branch-lifecycle', operation: 'closed-unmerged-ref-delete', effect: 'one-exact-native-git-ref-cas' }) as OperationDigest;
+const LOCAL_EFFECT_PROVIDER = sha256({ owner: 'external-capabilities.git', provider: 'git-physical-provider' }) as OperationDigest;
 const COMPILE_FIXED_SESSION_COUNT = 3;
 const COMPLETED_PREPARATION_OBSERVATION_COUNT = 1;
 const EXECUTION_INVENTORY_COUNT = 6;
@@ -67,7 +71,7 @@ const ENROLLED_REVIEW_REQUESTS = 4;
 const ENROLLED_PUBLICATION_READBACK_REQUESTS = 4;
 const ENROLLED_REMOTE_CAS_REQUESTS = 4;
 const ENROLLED_RETIREMENT_REQUESTS = 2
-  + CLOSED_ABSENT_DEVELOPMENT_COMMIT_JOURNAL_RETIREMENT_REQUEST_CEILING;
+  + JOURNAL_RETIREMENT_REQUEST_CEILING;
 const WORKFLOW_SESSION_LIMIT = COMPILE_FIXED_SESSION_COUNT
   + COMPLETED_PREPARATION_OBSERVATION_COUNT * COMMENT_PAGE_SESSION_COUNT
   + EXECUTION_INVENTORY_COUNT
@@ -379,34 +383,36 @@ async function publishMarked<T extends { operationId: string }>(input: Readonly<
   }
 }
 
-function compileLocalRefDeleteOperation(operationId: SecOperationDigest) {
+function compileLocalRefDeleteOperation(operationId: OperationDigest, local: boolean) {
   const deadlineAtUnixMs = Date.now() + LOCAL_EFFECT_DURATION_MS;
-  const plan = compileSecSemanticOperationPlan({
+  const plan = compileSemanticOperationPlan({
     operation: 'control.branch-lifecycle.closed-unmerged-ref-delete', intentDigest: operationId,
     decisionDigest: LOCAL_EFFECT_CONTRACT, deadlineAtUnixMs,
-    attempt: issueSecSemanticOperationAttemptContext({ authorityGrantDigest: operationId }),
+    attempt: issueSemanticOperationAttemptContext({ authorityGrantDigest: operationId }),
     aggregateBudgets: [
-      { resource: 'duration-ms', maximum: LOCAL_EFFECT_DURATION_MS }, { resource: 'input-bytes', maximum: 1 },
-      { resource: 'output-bytes', maximum: 1024 * 1024 }, { resource: 'processes', maximum: 4 }
+      { resource: 'duration-ms', maximum: LOCAL_EFFECT_DURATION_MS }, { resource: 'input-bytes', maximum: local ? 4096 : 0 },
+      { resource: 'output-bytes', maximum: 1024 * 1024 }, { resource: 'processes', maximum: local ? 7 : 4 }
     ],
     requirements: [{ id: LOCAL_EFFECT_REQUIREMENT, contractDigest: LOCAL_EFFECT_CONTRACT,
       effectKinds: ['filesystem', 'process', 'provider'],
       failureKinds: ['filesystem.identity-drift', 'filesystem.write-failed', 'process.cancelled',
         'process.deadline-exhausted', 'process.output-budget-exhausted', 'process.settlement-unproven', 'process.unavailable'] }]
   });
-  return bindSecSemanticOperation(plan, [compileSecCapabilityBinding({ requirementId: LOCAL_EFFECT_REQUIREMENT,
+  return bindSemanticOperation(plan, [compileCapabilityBinding({ requirementId: LOCAL_EFFECT_REQUIREMENT,
     contractDigest: LOCAL_EFFECT_CONTRACT, providerIdentityDigest: LOCAL_EFFECT_PROVIDER })]);
 }
 
 async function deleteLocalGitRef(input: Readonly<{
   repositoryRoot: string;
-  operationId: SecOperationDigest;
+  operationId: OperationDigest;
   ref: string;
   expectedOldSha: string;
+  coordinatedLease?: WorkspaceWriteLeaseToken;
 }>): Promise<'deleted' | 'already-absent'> {
-  const operation = compileLocalRefDeleteOperation(input.operationId);
+  const local = input.ref.startsWith('refs/heads/');
+  const operation = compileLocalRefDeleteOperation(input.operationId, local);
   const processSession = openProcessResourceSession({ operation,
-    requirementBindingContext: issueSecOperationRequirementBindingContext({ operation,
+    requirementBindingContext: issueOperationRequirementBindingContext({ operation,
       requirementId: LOCAL_EFFECT_REQUIREMENT, resourceCeilings: operation.plan.execution.aggregateBudgets }) });
   let disposition: 'deleted' | 'already-absent' | undefined;
   let primaryError: unknown;
@@ -418,7 +424,17 @@ async function deleteLocalGitRef(input: Readonly<{
         environmentSource: process.env, maximumExecutableBytes: 128 * 1024 * 1024 });
       if (resolution.status !== 'ready') throw new Error(`Git physical provider unavailable: ${resolution.reason}`);
       let effectError: unknown;
-      try { disposition = (await deleteExactGitRef({ provider: resolution.capability, ref: input.ref, expectedOldSha: input.expectedOldSha })).disposition; }
+      try {
+        if (local) {
+          if (input.coordinatedLease === undefined) throw new Error('Local ref deletion lacks a coordinated common-directory lease.');
+          await deleteExactLocalGitRefs({ provider: resolution.capability, coordinatedLease: input.coordinatedLease,
+            entries: [{ ref: input.ref, expectedOldSha: input.expectedOldSha }] });
+          disposition = 'deleted';
+        } else {
+          disposition = (await deleteExactGitRef({ provider: resolution.capability, ref: input.ref,
+            expectedOldSha: input.expectedOldSha })).disposition;
+        }
+      }
       catch (error) { effectError = error; }
       try { assertGitPhysicalProviderReceipt(closeGitPhysicalProvider(resolution.capability), resolution.capability); }
       catch (error) { effectError ??= error; }
@@ -462,6 +478,7 @@ function createProductionClosedUnmergedCloseoutAdapter(input: Readonly<{
   withSession: BoundGitHubSession;
   assertWorkflowCurrent(): void;
   assertWriteLease(): Promise<void>;
+  coordinatedLease: WorkspaceWriteLeaseToken;
 }>): ClosedUnmergedCloseoutEffectAdapter {
   const repositoryRoot = canonicalRoot(input.repositoryRoot);
   const binding = input.binding;
@@ -475,7 +492,7 @@ function createProductionClosedUnmergedCloseoutAdapter(input: Readonly<{
           observeProductionClosedUnmergedPullRequest({ capability, pullRequestNumber: input.pullRequestNumber })
         ) })
       ]);
-      return Object.freeze({ status: 'observed', value: collectBranchLifecycleCloseoutTargetInventory({
+      return Object.freeze({ status: 'observed', value: await collectBranchLifecycleCloseoutTargetInventory({
         repositoryRoot,
         repositoryFullName: input.repository,
         activeWorkPackageObservation,
@@ -488,7 +505,7 @@ function createProductionClosedUnmergedCloseoutAdapter(input: Readonly<{
   };
   return Object.freeze<ClosedUnmergedCloseoutEffectAdapter>({
     providerIdentity, repository: input.repository, observeInventory,
-    localRefDeleteAtomicity: GIT_LOCAL_REF_DELETE_ATOMICITY,
+    localRefDeleteCoordination: 'coordinated',
     observeEffectStart: (operationId) => observeMarked<ClosedUnmergedCloseoutEffectStartReceipt>({ withSession: input.withSession,
       pullRequestNumber: input.pullRequestNumber, operationId,
       marker: START_MARKER, principalNodeId: binding.principal.nodeId }),
@@ -523,7 +540,8 @@ function createProductionClosedUnmergedCloseoutAdapter(input: Readonly<{
         input.assertWorkflowCurrent();
         await input.assertWriteLease();
         const disposition = await deleteLocalGitRef({ repositoryRoot, operationId: request.operationId,
-          ref: `refs/heads/${request.branch}`, expectedOldSha: request.expectedOldSha });
+          ref: `refs/heads/${request.branch}`, expectedOldSha: request.expectedOldSha,
+          coordinatedLease: input.coordinatedLease });
         return Object.freeze({ status: disposition === 'deleted' ? 'applied' : 'already-applied', detail: `local topic ref ${disposition}` });
       } catch (error) { return Object.freeze({ status: 'ambiguous', detail: error instanceof Error ? error.message : String(error) }); }
     },
@@ -542,9 +560,16 @@ export async function executeProductionClosedUnmergedCloseout(input: Readonly<{
   compileOperation(context: ProductionClosedUnmergedCompileContext): Promise<ClosedUnmergedCloseoutOperation>;
 }>): Promise<ClosedUnmergedCloseoutExecutionResult> {
   const repositoryRoot = canonicalRoot(input.repositoryRoot);
-  return withWorkspaceWriteLease(repositoryRoot, undefined, async (lease) => {
-    const workflow = createWorkflowSessions({ repositoryRoot, repository: input.repository });
-    const operation = await input.compileOperation(workflow.context);
+  const workflow = createWorkflowSessions({ repositoryRoot, repository: input.repository });
+  const operation = await input.compileOperation(workflow.context);
+  const commonDir = canonicalRoot(operation.prepared.preparation.repository.commonDir);
+  return withWorkspaceWriteLease(commonDir, undefined, (coordinatedLease) => (
+    withWorkspaceWriteLease(repositoryRoot, undefined, async (lease) => {
+    const assertBothLeases = async () => {
+      await assertWorkspaceWriteLease(commonDir, coordinatedLease);
+      await assertWorkspaceWriteLease(repositoryRoot, lease);
+    };
+    await assertBothLeases();
     if (operation.prepared.preparation.pullRequestStateAtPreparation !== 'closed') {
       throw new Error('Production closed-unmerged closeout requires an already-closed PR preparation.');
     }
@@ -555,11 +580,12 @@ export async function executeProductionClosedUnmergedCloseout(input: Readonly<{
         preparedInventory: operation.prepared.before,
         binding: workflow.binding(), withSession: workflow.withSession,
         assertWorkflowCurrent: workflow.assertCurrent,
-        assertWriteLease: () => assertWorkspaceWriteLease(repositoryRoot, lease)
+        assertWriteLease: assertBothLeases,
+        coordinatedLease
       })) });
     if (completed.status !== 'completed') return completed;
     workflow.assertCurrent();
-    await assertWorkspaceWriteLease(repositoryRoot, lease);
+    await assertBothLeases();
     await assertRemoteTrackingRefAbsent({ repositoryRoot,
       remote: operation.prepared.preparation.repository.remote,
       branch: operation.evidence.branch });
@@ -582,5 +608,127 @@ export async function executeProductionClosedUnmergedCloseout(input: Readonly<{
         ]) });
     }
     return completed;
+    })
+  ));
+}
+
+
+export interface ProductionClosedUnmergedRetirementRequest {
+  readonly repositoryRoot: string;
+  readonly repository: string;
+  readonly pullRequestNumber: number;
+  readonly reviewCommentId: number | null;
+}
+
+/**
+ * Production closeout owner. Caller input selects only the repository/PR
+ * subject and, when native retention is impossible, one review-evidence
+ * locator. The retention security path itself is derived from live repository
+ * facts; callers cannot supply a preparation artifact or choose its kind.
+ */
+export async function executeProductionClosedUnmergedRetirement(
+  input: Readonly<ProductionClosedUnmergedRetirementRequest>
+): Promise<ClosedUnmergedCloseoutExecutionResult> {
+  const repositoryRoot = canonicalRoot(input.repositoryRoot);
+  return executeProductionClosedUnmergedCloseout({
+    repositoryRoot,
+    repository: input.repository,
+    compileOperation: async (context) => {
+      const pull = await context.observePullRequest(input.pullRequestNumber);
+      if (pull.state !== 'closed' || pull.headSha === null || pull.baseSha == null) {
+        throw new Error('closed-superseded production closeout requires one exact closed PR with complete head/base identity');
+      }
+      const headRef = await context.observeHeadRef(pull.headBranch);
+      if (headRef.state === 'present' && headRef.sha !== pull.headSha) {
+        throw new Error('current remote head ref differs from the exact closed PR head');
+      }
+      const scope = {
+        repositoryRoot,
+        repositoryFullName: input.repository,
+        activeWorkPackageObservation: await observeActiveWorkPackage(repositoryRoot)
+      };
+      const request = {
+        number: pull.number,
+        refState: headRef.state,
+        headBranch: pull.headBranch,
+        headSha: pull.headSha,
+        baseBranch: pull.baseBranch,
+        baseSha: pull.baseSha,
+        exactPullRequest: pull
+      } as const;
+
+      const mainRef = await context.observeHeadRef(pull.baseBranch);
+      if (mainRef.state !== 'present') {
+        throw new Error('Closed-unmerged retention requires the exact current base ref.');
+      }
+
+      let evidence = await tryCreateClosedNativeAbsorptionDispositionEvidence({
+        repositoryRoot,
+        repository: input.repository,
+        pullRequestNumber: pull.number,
+        branch: pull.headBranch,
+        headSha: pull.headSha,
+        baseBranch: pull.baseBranch,
+        baseSha: pull.baseSha,
+        currentMainSha: mainRef.sha
+      });
+
+      let prepared: PreparedBranchCloseoutEnvelope;
+      if (evidence !== null) {
+        prepared = await context.observeCompletedPreparation(pull.number, evidence.evidenceDigest)
+          ?? await prepareClosedUnmergedPullRequestCloseout(scope, request);
+      } else {
+        if (input.reviewCommentId === null) {
+          throw new Error('Closed-unmerged distinct-tree retirement requires one adopted review comment.');
+        }
+        const supersession = await context.observeSupersessionEvidence({
+          pullRequestNumber: pull.number,
+          commentId: input.reviewCommentId
+        });
+        evidence = createClosedSupersededDispositionEvidence({
+          repository: input.repository,
+          pullRequestNumber: pull.number,
+          branch: pull.headBranch,
+          headSha: pull.headSha,
+          headTreeSha: supersession.review.headTreeSha,
+          baseBranch: pull.baseBranch,
+          baseSha: pull.baseSha,
+          currentMainSha: supersession.review.currentMainSha,
+          currentMainTreeSha: supersession.review.currentMainTreeSha,
+          durableGoal: { kind: 'evidence', reference: supersession.reference },
+          supersession
+        });
+        prepared = await context.observeCompletedPreparation(pull.number, evidence.evidenceDigest)
+          ?? await prepareClosedUnmergedPullRequestCloseout(scope, {
+            ...request,
+            reviewEvidence: supersession
+          });
+      }
+
+      if (prepared.before.repository.fullName !== input.repository
+          || prepared.before.repository.defaultBranch !== pull.baseBranch
+          || prepared.before.main.remoteSha !== evidence.currentMainSha) {
+        throw new Error('prepared repository/main identity differs from the exact retention evidence');
+      }
+      const compiled = compileClosedUnmergedCloseoutOperation({ prepared, evidence });
+      if (compiled.status !== 'ready') {
+        throw new Error(`closed-unmerged operation compilation blocked: ${compiled.blockers.join(' | ')}`);
+      }
+      return compiled.operation;
+    }
+  });
+}
+
+/** Re-observe one exact adopted review through the existing bounded GitHub owner. */
+export async function observeProductionClosedSupersessionEvidence(input: Readonly<{
+  repositoryRoot: string;
+  repository: string;
+  pullRequestNumber: number;
+  commentId: number;
+}>): Promise<ClosedSupersessionEvidence> {
+  const workflow = createWorkflowSessions({ repositoryRoot: canonicalRoot(input.repositoryRoot),
+    repository: input.repository });
+  return workflow.context.observeSupersessionEvidence({
+    pullRequestNumber: input.pullRequestNumber, commentId: input.commentId
   });
 }

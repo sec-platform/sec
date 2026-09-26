@@ -1,4 +1,4 @@
-import { platformCommand } from '../../adapters/verification/platform/sec-command.ts';
+import { platformCommand } from '../../adapters/verification/platform/command.ts';
 import { buildErrorProtocolContract as buildApplicationErrorProtocolContract } from '../../application/error-protocol-contract.ts';
 
 ;

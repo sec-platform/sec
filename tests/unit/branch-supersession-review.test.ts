@@ -13,7 +13,8 @@ import {
 } from '../../src/adapters/providers/github-api/test/operation-session.ts';
 import {
   assertClosedSupersessionEvidence,
-  observeClosedSupersessionEvidence
+  observeClosedSupersessionEvidence,
+  summarizeClosedSupersessionPaths
 } from '../../src/adapters/self-hosting/control/branch-lifecycle/closed-supersession-review.ts';
 
 const REPOSITORY = 'sec-platform/sec';
@@ -36,6 +37,7 @@ type RepositoryFixture = Readonly<{
   headTreeSha: string;
   currentMainSha: string;
   currentMainTreeSha: string;
+  changedPaths: readonly string[];
 }>;
 
 type ReviewPath = Readonly<{
@@ -44,22 +46,24 @@ type ReviewPath = Readonly<{
   reason: string;
 }>;
 
-function git(repositoryRoot: string, args: readonly string[]): string {
+function git(repositoryRoot: string, args: readonly string[], input?: string): string {
   const result = spawnSync('git', [...args], {
     cwd: repositoryRoot,
     encoding: 'utf8',
-    windowsHide: true
+    windowsHide: true,
+    input
   });
   if (result.error) throw result.error;
   if (result.status !== 0) throw new Error(result.stderr.trim() || `git ${args.join(' ')} failed`);
   return result.stdout.trim();
 }
 
-function createRepositoryFixture(): RepositoryFixture {
+function createRepositoryFixture(additionalPaths = 0): RepositoryFixture {
   const root = mkdtempSync(path.join(tmpdir(), 'sec-branch-supersession-review-'));
   git(root, ['init', '--quiet', '--initial-branch=main']);
   git(root, ['config', 'user.name', 'SEC Test']);
   git(root, ['config', 'user.email', 'sec-test@example.invalid']);
+  git(root, ['config', 'core.autocrlf', 'false']);
   git(root, ['remote', 'add', 'origin', `https://github.com/${REPOSITORY}.git`]);
 
   writeFileSync(path.join(root, 'retained.txt'), 'closed branch behavior\n', 'utf8');
@@ -71,12 +75,22 @@ function createRepositoryFixture(): RepositoryFixture {
 
   writeFileSync(path.join(root, 'retained.txt'), 'current main keeps the behavior\n', 'utf8');
   unlinkSync(path.join(root, 'superseded.txt'));
+  const changedPaths = ['retained.txt', 'superseded.txt'];
+  for (let index = 0; index < additionalPaths; index += 1) {
+    const pathname = `bulk/${String(index).padStart(4, '0')}.txt`;
+    changedPaths.push(pathname);
+  }
   git(root, ['add', 'retained.txt', 'superseded.txt']);
+  if (additionalPaths > 0) {
+    const blob = git(root, ['hash-object', '-w', '--stdin'], 'replacement\n');
+    git(root, ['update-index', '--index-info'], changedPaths.slice(2)
+      .map((pathname) => `100644 ${blob}\t${pathname}\n`).join(''));
+  }
   git(root, ['commit', '--quiet', '-m', 'current main replacement']);
   const currentMainSha = git(root, ['rev-parse', 'HEAD']);
   const currentMainTreeSha = git(root, ['rev-parse', `${currentMainSha}^{tree}`]);
 
-  return Object.freeze({ root, headSha, headTreeSha, currentMainSha, currentMainTreeSha });
+  return Object.freeze({ root, headSha, headTreeSha, currentMainSha, currentMainTreeSha, changedPaths });
 }
 
 function reviewSource(fixture: RepositoryFixture, override: Readonly<{
@@ -100,6 +114,28 @@ function reviewSource(fixture: RepositoryFixture, override: Readonly<{
       { path: 'superseded.txt', disposition: 'superseded', reason: 'Current main replaces the old obligation.' }
     ],
     unknowns: []
+  });
+}
+
+function reviewSource(fixture: RepositoryFixture, override: Readonly<{
+  pathSet?: Readonly<{ count: number; digest: `sha256:${string}` }>;
+  assessment?: string;
+  unknowns?: readonly string[];
+}> = {}): string {
+  return REVIEW_MARKER + JSON.stringify({
+    kind: 'branch-supersession-review',
+    version: 2,
+    repository: REPOSITORY,
+    pullRequestNumber: PULL_REQUEST_NUMBER,
+    headSha: fixture.headSha,
+    headTreeSha: fixture.headTreeSha,
+    currentMainSha: fixture.currentMainSha,
+    currentMainTreeSha: fixture.currentMainTreeSha,
+    reviewer: 'independent-exact-reviewer',
+    verdict: 'approved',
+    pathSet: override.pathSet ?? summarizeClosedSupersessionPaths(fixture.changedPaths),
+    assessment: override.assessment ?? 'The current main preserves retained behavior and replaces obsolete obligations across the complete exact diff.',
+    unknowns: override.unknowns ?? []
   });
 }
 
@@ -172,6 +208,49 @@ test('maintainer-adopted review binds the complete exact Git delta before issuin
     const clonedEvidence = Object.freeze({ ...evidence });
     expect(() => assertClosedSupersessionEvidence(clonedEvidence))
       .toThrow();
+  } finally {
+    rmSync(fixture.root, { recursive: true, force: true });
+  }
+});
+
+test('versioned compact review binds all 2475 native Git paths without listing them in the comment', async () => {
+  const fixture = createRepositoryFixture(2473);
+  try {
+    const source = reviewSource(fixture);
+    expect(fixture.changedPaths).toHaveLength(2475);
+    expect(Buffer.byteLength(source, 'utf8')).toBeLessThan(60_000);
+    const evidence = await observe({ fixture, source });
+    expect(evidence.review).toMatchObject({
+      version: 2,
+      headSha: fixture.headSha,
+      headTreeSha: fixture.headTreeSha,
+      currentMainSha: fixture.currentMainSha,
+      currentMainTreeSha: fixture.currentMainTreeSha,
+      pathSet: summarizeClosedSupersessionPaths(fixture.changedPaths),
+      unknowns: []
+    });
+    expect(() => assertClosedSupersessionEvidence(evidence)).not.toThrow();
+  } finally {
+    rmSync(fixture.root, { recursive: true, force: true });
+  }
+});
+
+test('versioned review refuses incomplete path identity, unknowns, or absent semantic assessment', async () => {
+  const fixture = createRepositoryFixture();
+  try {
+    const actual = summarizeClosedSupersessionPaths(fixture.changedPaths);
+    await expect(observe({ fixture, source: reviewSource(fixture, {
+      pathSet: { ...actual, count: actual.count - 1 }
+    }) })).rejects.toThrow();
+    await expect(observe({ fixture, source: reviewSource(fixture, {
+      pathSet: { ...actual, digest: `sha256:${'0'.repeat(64)}` }
+    }) })).rejects.toThrow();
+    await expect(observe({ fixture, source: reviewSource(fixture, {
+      unknowns: ['one unresolved obligation']
+    }) })).rejects.toThrow();
+    await expect(observe({ fixture, source: reviewSource(fixture, {
+      assessment: ''
+    }) })).rejects.toThrow();
   } finally {
     rmSync(fixture.root, { recursive: true, force: true });
   }

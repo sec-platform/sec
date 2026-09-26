@@ -6,7 +6,7 @@ import { normalizePlan, validatePlan } from '../../src/compiler/contract/plan-va
 import { CompilerError } from '../../src/compiler/errors.ts';
 import { buildEngineeringIR, type BuildEngineeringIRInput } from '../../src/compiler/ir/build-engineering-ir.ts';
 import { artifactEntityId, normalizedArtifactTarget } from '../../src/compiler/ir/ir-identity.ts';
-import { digest } from '../../src/compiler/ir/ir-revision.ts';
+import { rawSha256Hex } from '../../src/compiler/ir/ir-revision.ts';
 import type { LoadedSemanticContract } from '../../src/semantics/definitions/types.ts';
 import { TENANT_CONTEXT_MUST_FLOW_TO_QUERY_RULE } from '../../src/semantics/policies/rules.ts';
 const PLAN_NORMALIZATION_DEFAULTS = Object.freeze({
@@ -169,7 +169,7 @@ test('canonical primitive known-answer vectors remain byte-identical', () => {
   }];
   const ir = buildEngineeringIR(input);
 
-  expect(digest('SEC canonical primitives\n工程')).toBe(
+  expect(rawSha256Hex('SEC canonical primitives\n工程')).toBe(
     '5f977604c630d50f70017523d83a380745f74dfceabbb89acfaa2a6b7342593d'
   );
   expect(normalizedArtifactTarget(generatorTarget)).toBe(

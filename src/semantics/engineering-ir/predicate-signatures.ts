@@ -1,5 +1,5 @@
 import { compareCodeUnits, uniqueSorted } from '../../contracts/canonical.ts';
-import { SecError as CompilerError } from '../../contracts/failure.ts';
+import { FailureError as CompilerError } from '../../contracts/failure.ts';
 import { type SemanticEntity, type SemanticEntityKind } from './entity-types.ts';
 import { SEMANTIC_PREDICATES, type SemanticFact, type SemanticValue } from './fact-types.ts';
 import { type PredicateSignatureRegistry, type PredicateSignatureVariant, type PredicateValueSchema } from './predicate-signature-types.ts';

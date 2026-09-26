@@ -1,8 +1,8 @@
 import { compareCodeUnits, rawSha256, sha256 } from '../../../contracts/canonical.ts';
 import { parseExactJsonBytes } from '../../../contracts/exact-json.ts';
 import {
-  assertSourceProgramTypeScriptRequiredApiClosure,
-  type SourceProgramTypeScriptRequiredApiClosure
+  assertTypeScriptRequiredApiClosure,
+  type TypeScriptRequiredApiClosure
 } from '../../repository/source-program-model/typescript.ts';
 import {
   assertTypeScriptNativeChecker,
@@ -112,9 +112,9 @@ export function compileTypeScriptCapabilityCoverage(input: Readonly<{
   readonly nativeChecker: InstalledTypeScriptNativeChecker;
   readonly nativeDependency: TypeScriptDependencyBinding;
   readonly nativePackageManifestBytes: Uint8Array;
-  readonly requiredApiClosure: SourceProgramTypeScriptRequiredApiClosure;
+  readonly requiredApiClosure: TypeScriptRequiredApiClosure;
 }>): TypeScriptCapabilityCoverageDecision {
-  assertSourceProgramTypeScriptRequiredApiClosure(input.requiredApiClosure);
+  assertTypeScriptRequiredApiClosure(input.requiredApiClosure);
   assertTypeScriptNativeChecker(input.nativeChecker);
   const requiredApiClosureDigest = input.requiredApiClosure.closureDigest;
   if (input.requiredApiClosure.unknowns.length > 0) {

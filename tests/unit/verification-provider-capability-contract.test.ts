@@ -4,7 +4,7 @@ import {
   parseVerificationProviderCapabilityLedger,
   VERIFICATION_PROVIDER_LEDGER_MAX_INPUT_BYTES
 } from '../../src/adapters/verification/platform/provider/capability-ledger.ts';
-import { assertProviderCapabilityUsableV1, assertProviderRetryGuard, classifyProviderDiagnosticTextV1, createVerificationProviderAvailabilityEpoch, createVerificationProviderCapability, resolveProviderAvailability } from '../../src/adapters/verification/platform/provider/contract/capability.ts';
+import { assertProviderCapabilityUsable, assertProviderRetryGuard, classifyProviderDiagnosticText, createVerificationProviderAvailabilityEpoch, createVerificationProviderCapability, resolveProviderAvailability } from '../../src/adapters/verification/platform/provider/contract/capability.ts';
 
 const OBSERVED_AT = '2026-08-11T00:00:00.000Z';
 const EXPIRES_AT = '2026-08-12T00:00:00.000Z';
@@ -80,7 +80,7 @@ describe('verification provider capability contract', () => {
 
   test('raw quota prose is never engineering truth: only reasonCode and a digest are retained', () => {
     const raw = 'You have reached your quota. Upgrade your plan or check your billing settings to continue.';
-    const classified = classifyProviderDiagnosticTextV1(raw);
+    const classified = classifyProviderDiagnosticText(raw);
     expect(classified.reasonCode).toBe('provider-quota-unavailable');
     expect(classified.receiptRef).toMatch(/^sha256:[0-9a-f]{64}$/u);
     expect(raw).not.toContain(classified.reasonCode);
@@ -163,11 +163,11 @@ describe('verification provider capability contract', () => {
     expect(resolveProviderAvailability(registry, 'github-writer').availability).toBe('unknown');
     expect(resolveProviderAvailability(registry, 'github-actions-hosted-verification').availability)
       .toBe('unknown');
-    expect(() => assertProviderCapabilityUsableV1({ epoch: registry, capability: 'codex-review',
+    expect(() => assertProviderCapabilityUsable({ epoch: registry, capability: 'codex-review',
       expectedRole: 'writer', now: '2026-08-11T02:00:00.000Z' })).toThrow('registered for reviewer');
-    expect(() => assertProviderCapabilityUsableV1({ epoch: registry, capability: 'codex-review',
+    expect(() => assertProviderCapabilityUsable({ epoch: registry, capability: 'codex-review',
       expectedRole: 'reviewer', now: registry.expiresAt })).toThrow('expired');
-    expect(() => assertProviderCapabilityUsableV1({ epoch: registry, capability: 'codex-review',
+    expect(() => assertProviderCapabilityUsable({ epoch: registry, capability: 'codex-review',
       expectedRole: 'reviewer', now: '2026-08-10T23:59:59.999Z' })).toThrow('availability epoch');
   });
 

@@ -1,11 +1,11 @@
 import { test } from 'bun:test';
 import assert from 'node:assert/strict';
 import { createLogger } from '../../src/adapters/diagnostics/json-logger.ts';
-import { SecError } from '../../src/contracts/failure.ts';
+import { FailureError } from '../../src/contracts/failure.ts';
 import { LOG_LEVELS, buildJsonLogRecord, resolveLogLevel, type LogLevel } from '../../src/contracts/logging.ts';
 
 const invalidLevel = (error: unknown): boolean =>
-  error instanceof SecError && error.code === 'LOGGING-CONFIG-001';
+  error instanceof FailureError && error.code === 'LOGGING-CONFIG-001';
 
 test('JSON serialization cannot invoke a metadata hook to replace canonical log fields', () => {
   let calls = 0;
@@ -75,6 +75,6 @@ test('log records preserve primitive metadata and reject invalid timestamps', ()
   assert.equal(Object.hasOwn(buildJsonLogRecord('info', 'x', undefined, 0), 'data'), false);
   for (const time of [-1, 0.1, NaN, Infinity, Number.MAX_SAFE_INTEGER + 1]) {
     assert.throws(() => buildJsonLogRecord('info', 'x', {}, time),
-      (error: unknown) => error instanceof SecError && error.code === 'LOGGING-RECORD-001');
+      (error: unknown) => error instanceof FailureError && error.code === 'LOGGING-RECORD-001');
   }
 });

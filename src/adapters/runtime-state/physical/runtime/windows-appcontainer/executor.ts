@@ -1,4 +1,3 @@
-import { createHash } from 'node:crypto';
 import {
   copyFile,
   lstat,
@@ -14,7 +13,8 @@ import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 import type { Pointer } from 'bun:ffi';
-import { canonicalEquals, compareCodeUnits, digest, rawSha256 } from '../../../../../contracts/canonical.ts';
+import { createSha256Hasher } from '../../../../../contracts/digest.ts';
+import { canonicalEquals, compareCodeUnits, rawSha256Hex, rawSha256 } from '../../../../../contracts/canonical.ts';
 import {
   assertWindowsAppContainerExecutionBindingReceipt,
   assertWindowsAppContainerExecutionCapability,
@@ -32,13 +32,13 @@ import {
   type WindowsAppContainerNativeHelperCapability
 } from './native-helper-materialization.ts';
 import {
-  bindWindowsAppContainerObservedNativeHelperSettlement,
-  classifyWindowsAppContainerObservedNativeHelperSettlement,
-  copyWindowsAppContainerObservedNativeHelperSettlement,
-  WINDOWS_APPCONTAINER_OBSERVED_NATIVE_HELPER_EXIT_STATUS_UNPROVEN,
-  type WindowsAppContainerObservedNativeHelperDiagnosticCapture,
-  type WindowsAppContainerObservedNativeHelperMode,
-  type WindowsAppContainerObservedNativeHelperSettlementClassification
+  bindNativeHelperSettlement,
+  classifyNativeHelperSettlement,
+  copyNativeHelperSettlement,
+  NATIVE_HELPER_EXIT_STATUS_UNPROVEN,
+  type NativeHelperDiagnosticCapture,
+  type NativeHelperMode,
+  type NativeHelperSettlementClassification
 } from './native-helper-settlement.ts';
 import {
   loadWindowsAppContainerProbeAssetSet,
@@ -88,21 +88,28 @@ const HOST_BUN_CONFIG_RELATIVE_ROOT = '.sm3h';
 const ISOLATED_BUN_CONFIG_CONTENT = '# isolated runtime\n';
 const NATIVE_HELPER_BUNDLE_NAME = 'windows-appcontainer-native-helper.mjs';
 const RECOVERY_OWNER_FORMAT_VERSION = 'windows-appcontainer-recovery-owner-v1';
-const RECOVERY_OWNER_FILE_NAME = '.semantic-mutation-appcontainer-owner-v1.json';
-const RECOVERY_OWNER_PENDING_FILE_NAME = `${RECOVERY_OWNER_FILE_NAME}.pending-v1`;
+const RECOVERY_OWNER_FILE_NAME = '.semantic-mutation-appcontainer-owner.json';
+const RECOVERY_OWNER_PENDING_FILE_NAME = `${RECOVERY_OWNER_FILE_NAME}.pending`;
+const LEGACY_RECOVERY_OWNER_FILE_NAME = '.semantic-mutation-appcontainer-owner-v1.json';
+const LEGACY_RECOVERY_OWNER_PENDING_FILE_NAME = `${LEGACY_RECOVERY_OWNER_FILE_NAME}.pending-v1`;
 const PROVISIONAL_OWNER_FORMAT_VERSION = 'windows-appcontainer-provisional-owner-v1';
-const PROVISIONAL_OWNER_FILE_NAME = '.semantic-mutation-appcontainer-provisional-owner-v1.json';
-const PROVISIONAL_OWNER_PENDING_FILE_NAME = `${PROVISIONAL_OWNER_FILE_NAME}.pending-v1`;
+const PROVISIONAL_OWNER_FILE_NAME = '.semantic-mutation-appcontainer-provisional-owner.json';
+const PROVISIONAL_OWNER_PENDING_FILE_NAME = `${PROVISIONAL_OWNER_FILE_NAME}.pending`;
+const LEGACY_PROVISIONAL_OWNER_FILE_NAME = '.semantic-mutation-appcontainer-provisional-owner-v1.json';
+const LEGACY_PROVISIONAL_OWNER_PENDING_FILE_NAME = `${LEGACY_PROVISIONAL_OWNER_FILE_NAME}.pending-v1`;
 const PROBE_OWNER_FORMAT_VERSION = 'windows-appcontainer-probe-owner-v1';
-const PROBE_OWNER_FILE_NAME = '.semantic-mutation-appcontainer-probe-owner-v1.json';
-const PROBE_OWNER_PENDING_FILE_NAME = `${PROBE_OWNER_FILE_NAME}.pending-v1`;
-const NATIVE_RESULT_FILE_NAME = '.semantic-mutation-appcontainer-result-v1.json';
+const PROBE_OWNER_FILE_NAME = '.semantic-mutation-appcontainer-probe-owner.json';
+const PROBE_OWNER_PENDING_FILE_NAME = `${PROBE_OWNER_FILE_NAME}.pending`;
+const LEGACY_PROBE_OWNER_FILE_NAME = '.semantic-mutation-appcontainer-probe-owner-v1.json';
+const LEGACY_PROBE_OWNER_PENDING_FILE_NAME = `${LEGACY_PROBE_OWNER_FILE_NAME}.pending-v1`;
+const NATIVE_RESULT_FILE_NAME = '.semantic-mutation-appcontainer-result.json';
+const LEGACY_NATIVE_RESULT_FILE_NAME = '.semantic-mutation-appcontainer-result-v1.json';
 const WINDOWS_HOST_TOOL_DEADLINE_MS = 120_000;
 const WINDOWS_HOST_TOOL_OUTPUT_LIMIT_BYTES = 1024 * 1024;
-const WINDOWS_APPCONTAINER_NATIVE_EXECUTION_DEFAULT_TIMEOUT_MS = 120_000;
-const WINDOWS_APPCONTAINER_NATIVE_HELPER_STARTUP_SETTLEMENT_ALLOWANCE_MS = 10_000;
-const WINDOWS_APPCONTAINER_NATIVE_WAIT_SLICE_MS = 20;
-const WINDOWS_APPCONTAINER_NATIVE_JOB_SETTLEMENT_MS = 5_000;
+const NATIVE_EXECUTION_DEFAULT_TIMEOUT_MS = 120_000;
+const NATIVE_HELPER_STARTUP_SETTLEMENT_ALLOWANCE_MS = 10_000;
+const NATIVE_WAIT_SLICE_MS = 20;
+const NATIVE_JOB_SETTLEMENT_MS = 5_000;
 const WINDOWS_JOB_OBJECT_BASIC_ACCOUNTING_INFORMATION = 1;
 const WINDOWS_JOB_OBJECT_BASIC_ACCOUNTING_INFORMATION_BYTES = 48;
 const WINDOWS_JOB_OBJECT_ACTIVE_PROCESSES_OFFSET = 40;
@@ -131,8 +138,10 @@ const WINDOWS_APPCONTAINER_ENVIRONMENT_KEYS = new Set([
 ]);
 
 const CAPABILITY_PROBE_RELATIVE_ROOT = '.sm3p';
-const CAPABILITY_PARENT_CANARY_NAME = '.appcontainer-host-read-canary-v1';
-const CAPABILITY_OUTER_CANARY_NAME = '.appcontainer-outer-host-read-canary-v1';
+const CAPABILITY_PARENT_CANARY_NAME = '.appcontainer-host-read-canary';
+const CAPABILITY_OUTER_CANARY_NAME = '.appcontainer-outer-host-read-canary';
+const LEGACY_CAPABILITY_PARENT_CANARY_NAME = '.appcontainer-host-read-canary-v1';
+const LEGACY_CAPABILITY_OUTER_CANARY_NAME = '.appcontainer-outer-host-read-canary-v1';
 const CAPABILITY_CANARY_CONTENT = 'windows-appcontainer-host-read-canary-v1\n';
 
 
@@ -506,7 +515,7 @@ interface WindowsAppContainerRecoveryOwner {
   readonly stagingIdentityDigest: string;
   readonly stagingDirectoryName: string;
   readonly runtimeRelativePath: typeof RUNTIME_DIRECTORY_NAME;
-  readonly resultFileName: typeof NATIVE_RESULT_FILE_NAME;
+  readonly resultFileName: typeof NATIVE_RESULT_FILE_NAME | typeof LEGACY_NATIVE_RESULT_FILE_NAME;
   readonly appContainerName: string;
   readonly appContainerSid: string;
 }
@@ -526,8 +535,12 @@ interface WindowsAppContainerProbeOwner {
   readonly probeWorkspaceIdentityDigest: string;
   readonly outerStagingIdentityDigest: string;
   readonly probeStagingDirectoryName: 's';
-  readonly parentCanaryName: typeof CAPABILITY_PARENT_CANARY_NAME;
-  readonly outerCanaryName: typeof CAPABILITY_OUTER_CANARY_NAME;
+  readonly parentCanaryName:
+    | typeof CAPABILITY_PARENT_CANARY_NAME
+    | typeof LEGACY_CAPABILITY_PARENT_CANARY_NAME;
+  readonly outerCanaryName:
+    | typeof CAPABILITY_OUTER_CANARY_NAME
+    | typeof LEGACY_CAPABILITY_OUTER_CANARY_NAME;
 }
 
 export interface WindowsAppContainerNativeExecutionRequest {
@@ -708,17 +721,17 @@ function executionError(
   );
 }
 
-interface WindowsAppContainerNativeExecutionDeadlines {
+interface NativeExecutionDeadlines {
   readonly childTimeoutMs: number;
   readonly hostWatchdogMs: number;
 }
 
-interface WindowsAppContainerNativeExecutionBudget {
+interface NativeExecutionBudget {
   readonly startedAtMs: number;
   readonly timeoutMs: number;
 }
 
-interface WindowsAppContainerNativeProcessWaitDependencies {
+interface NativeProcessWaitDependencies {
   readonly nowMs: () => number;
   readonly waitForProcess: (timeoutMs: number) => number;
 }
@@ -882,27 +895,27 @@ interface WindowsAppContainerNativeJobSettlementDependencies {
   readonly sleep: (timeoutMs: number) => void;
 }
 
-function arbitrateWindowsAppContainerNativeExecutionDeadlines(
+function arbitrateNativeExecutionDeadlines(
   requestedTimeoutMs: number | undefined
-): WindowsAppContainerNativeExecutionDeadlines {
+): NativeExecutionDeadlines {
   const childTimeoutMs = requestedTimeoutMs ??
-    WINDOWS_APPCONTAINER_NATIVE_EXECUTION_DEFAULT_TIMEOUT_MS;
+    NATIVE_EXECUTION_DEFAULT_TIMEOUT_MS;
   if (!Number.isSafeInteger(childTimeoutMs) || childTimeoutMs <= 0 ||
     childTimeoutMs > Number.MAX_SAFE_INTEGER -
-      WINDOWS_APPCONTAINER_NATIVE_HELPER_STARTUP_SETTLEMENT_ALLOWANCE_MS) {
+      NATIVE_HELPER_STARTUP_SETTLEMENT_ALLOWANCE_MS) {
     throw executionError('invalid-input');
   }
   return Object.freeze({
     childTimeoutMs,
     hostWatchdogMs: childTimeoutMs +
-      WINDOWS_APPCONTAINER_NATIVE_HELPER_STARTUP_SETTLEMENT_ALLOWANCE_MS
+      NATIVE_HELPER_STARTUP_SETTLEMENT_ALLOWANCE_MS
   });
 }
 
-function createWindowsAppContainerNativeExecutionBudget(
+function createNativeExecutionBudget(
   childTimeoutMs: number,
   startedAtMs: number
-): WindowsAppContainerNativeExecutionBudget {
+): NativeExecutionBudget {
   if (!Number.isSafeInteger(childTimeoutMs) || childTimeoutMs <= 0 ||
     !Number.isSafeInteger(startedAtMs) || startedAtMs < 0) {
     throw executionError('invalid-input');
@@ -910,8 +923,8 @@ function createWindowsAppContainerNativeExecutionBudget(
   return Object.freeze({ startedAtMs, timeoutMs: childTimeoutMs });
 }
 
-function remainingWindowsAppContainerNativeExecutionBudget(
-  budget: WindowsAppContainerNativeExecutionBudget,
+function remainingNativeExecutionBudget(
+  budget: NativeExecutionBudget,
   observedAtMs: number
 ): number {
   if (!Number.isSafeInteger(observedAtMs) || observedAtMs < budget.startedAtMs) {
@@ -924,14 +937,14 @@ function remainingWindowsAppContainerNativeExecutionBudget(
   return budget.timeoutMs - elapsedMs;
 }
 
-function waitForWindowsAppContainerNativeProcess(
-  budget: WindowsAppContainerNativeExecutionBudget,
-  dependencies: WindowsAppContainerNativeProcessWaitDependencies
+function waitForNativeProcess(
+  budget: NativeExecutionBudget,
+  dependencies: NativeProcessWaitDependencies
 ): void {
   while (true) {
     const waitSliceMs = Math.min(
-      WINDOWS_APPCONTAINER_NATIVE_WAIT_SLICE_MS,
-      remainingWindowsAppContainerNativeExecutionBudget(budget, dependencies.nowMs())
+      NATIVE_WAIT_SLICE_MS,
+      remainingNativeExecutionBudget(budget, dependencies.nowMs())
     );
     const waitResult = dependencies.waitForProcess(waitSliceMs);
     if (waitResult === WAIT_OBJECT_0) return;
@@ -941,9 +954,9 @@ function waitForWindowsAppContainerNativeProcess(
   }
 }
 
-function settleWindowsAppContainerNativeJobAfterFailure(
+function settleNativeJobAfterFailure(
   dependencies: WindowsAppContainerNativeJobSettlementDependencies,
-  settlementMs = WINDOWS_APPCONTAINER_NATIVE_JOB_SETTLEMENT_MS
+  settlementMs = NATIVE_JOB_SETTLEMENT_MS
 ): boolean {
   const startedAtMs = dependencies.nowMs();
   if (!Number.isSafeInteger(startedAtMs) || startedAtMs < 0 ||
@@ -957,7 +970,7 @@ function settleWindowsAppContainerNativeJobAfterFailure(
     const observedAtMs = dependencies.nowMs();
     if (!Number.isSafeInteger(observedAtMs) || observedAtMs < startedAtMs ||
       observedAtMs >= deadlineAtMs) return false;
-    const sliceMs = Math.min(WINDOWS_APPCONTAINER_NATIVE_WAIT_SLICE_MS,
+    const sliceMs = Math.min(NATIVE_WAIT_SLICE_MS,
       deadlineAtMs - observedAtMs);
     if (!rootClosed) {
       const waitResult = dependencies.waitForRoot(sliceMs);
@@ -975,34 +988,34 @@ function settleWindowsAppContainerNativeJobAfterFailure(
       const beforeSleepMs = dependencies.nowMs();
       if (!Number.isSafeInteger(beforeSleepMs) || beforeSleepMs < afterWaitMs ||
         beforeSleepMs >= deadlineAtMs) return false;
-      dependencies.sleep(Math.min(WINDOWS_APPCONTAINER_NATIVE_WAIT_SLICE_MS,
+      dependencies.sleep(Math.min(NATIVE_WAIT_SLICE_MS,
         deadlineAtMs - beforeSleepMs));
     }
   }
 }
 
 /** Pure finite projection of the child-owned timeout and host settlement watchdog. */
-export function arbitrateWindowsAppContainerNativeExecutionDeadlinesForTests(
+export function arbitrateNativeExecutionDeadlinesForTests(
   requestedTimeoutMs: number | undefined
-): WindowsAppContainerNativeExecutionDeadlines {
-  return arbitrateWindowsAppContainerNativeExecutionDeadlines(requestedTimeoutMs);
+): NativeExecutionDeadlines {
+  return arbitrateNativeExecutionDeadlines(requestedTimeoutMs);
 }
 
 /** Pure test seam for the helper-entry elapsed budget. */
-export function createWindowsAppContainerNativeExecutionBudgetForTests(
+export function createNativeExecutionBudgetForTests(
   requestedTimeoutMs: number | undefined,
   startedAtMs: number
-): WindowsAppContainerNativeExecutionBudget {
-  const deadlines = arbitrateWindowsAppContainerNativeExecutionDeadlines(requestedTimeoutMs);
-  return createWindowsAppContainerNativeExecutionBudget(deadlines.childTimeoutMs, startedAtMs);
+): NativeExecutionBudget {
+  const deadlines = arbitrateNativeExecutionDeadlines(requestedTimeoutMs);
+  return createNativeExecutionBudget(deadlines.childTimeoutMs, startedAtMs);
 }
 
 /** Pure test seam for fail-closed elapsed-budget observation. */
-export function remainingWindowsAppContainerNativeExecutionBudgetForTests(
-  budget: WindowsAppContainerNativeExecutionBudget,
+export function remainingNativeExecutionBudgetForTests(
+  budget: NativeExecutionBudget,
   observedAtMs: number
 ): number {
-  return remainingWindowsAppContainerNativeExecutionBudget(budget, observedAtMs);
+  return remainingNativeExecutionBudget(budget, observedAtMs);
 }
 
 export function remainingWindowsAppContainerNativeHelperTimeout(
@@ -1010,11 +1023,11 @@ export function remainingWindowsAppContainerNativeHelperTimeout(
   helperStartedAtMs: number,
   observedAtMs: number
 ): number {
-  const deadlines = arbitrateWindowsAppContainerNativeExecutionDeadlines(
+  const deadlines = arbitrateNativeExecutionDeadlines(
     requestedTimeoutMs
   );
-  return remainingWindowsAppContainerNativeExecutionBudget(
-    createWindowsAppContainerNativeExecutionBudget(
+  return remainingNativeExecutionBudget(
+    createNativeExecutionBudget(
       deadlines.childTimeoutMs,
       helperStartedAtMs
     ),
@@ -1023,24 +1036,24 @@ export function remainingWindowsAppContainerNativeHelperTimeout(
 }
 
 /** Deterministic test seam for the production-used native process wait loop. */
-export function waitForWindowsAppContainerNativeProcessForTests(
+export function waitForNativeProcessForTests(
   requestedTimeoutMs: number,
   startedAtMs: number,
-  dependencies: WindowsAppContainerNativeProcessWaitDependencies
+  dependencies: NativeProcessWaitDependencies
 ): void {
-  const budget = createWindowsAppContainerNativeExecutionBudgetForTests(
+  const budget = createNativeExecutionBudgetForTests(
     requestedTimeoutMs,
     startedAtMs
   );
-  waitForWindowsAppContainerNativeProcess(budget, dependencies);
+  waitForNativeProcess(budget, dependencies);
 }
 
 /** Deterministic test seam for timeout cleanup of the inner AppContainer Job. */
-export function settleWindowsAppContainerNativeJobAfterFailureForTests(
+export function settleNativeJobAfterFailureForTests(
   dependencies: WindowsAppContainerNativeJobSettlementDependencies,
   settlementMs?: number
 ): boolean {
-  return settleWindowsAppContainerNativeJobAfterFailure(dependencies, settlementMs);
+  return settleNativeJobAfterFailure(dependencies, settlementMs);
 }
 
 function normalizeExecutionError(
@@ -1064,7 +1077,7 @@ function normalizeExecutionError(
         error.nativeWorkerProgressStage
       );
       if (observation) nativeHelperObservations.set(normalized, observation);
-      copyWindowsAppContainerObservedNativeHelperSettlement(error, normalized);
+      copyNativeHelperSettlement(error, normalized);
       return normalized;
     }
     return error;
@@ -1121,7 +1134,7 @@ function foldedWindowsPath(filePath: string): string {
 }
 
 function sha256Hex(value: unknown): string {
-  return digest(JSON.stringify(value));
+  return rawSha256Hex(JSON.stringify(value));
 }
 
 function isInside(root: string, target: string): boolean {
@@ -2203,10 +2216,10 @@ interface HostBunCommandResult {
 }
 
 function settleObservedHostBunCommand(
-  mode: WindowsAppContainerObservedNativeHelperMode,
+  mode: NativeHelperMode,
   outcome: ObservedCommandOutcome,
   stdoutChunks: readonly Uint8Array[],
-  diagnostic: WindowsAppContainerObservedNativeHelperDiagnosticCapture
+  diagnostic: NativeHelperDiagnosticCapture
 ): HostBunCommandResult {
   const stdout = Buffer.concat(stdoutChunks.map((chunk) => Buffer.from(chunk)));
   const closedTree = outcome.termination.childCloseObserved &&
@@ -2214,20 +2227,20 @@ function settleObservedHostBunCommand(
   const cleanupSafe = outcome.started
     ? closedTree
     : outcome.termination.streamsDrained && outcome.termination.treeClosed;
-  const classification = classifyWindowsAppContainerObservedNativeHelperSettlement(
+  const classification = classifyNativeHelperSettlement(
     outcome,
     stdout,
     diagnostic
   );
   if (classification.status !== 'success' || outcome.exitCode === null) {
-    const rejection: WindowsAppContainerObservedNativeHelperSettlementClassification =
+    const rejection: NativeHelperSettlementClassification =
       classification.status === 'rejected'
         ? classification
-        : WINDOWS_APPCONTAINER_OBSERVED_NATIVE_HELPER_EXIT_STATUS_UNPROVEN;
+        : NATIVE_HELPER_EXIT_STATUS_UNPROVEN;
     const error = executionError(
       'preparation', undefined, undefined, 'native-helper-invocation'
     );
-    bindWindowsAppContainerObservedNativeHelperSettlement(error, mode, rejection);
+    bindNativeHelperSettlement(error, mode, rejection);
     if (!cleanupSafe) executionRetainedOwners.add(error);
     throw error;
   }
@@ -2240,7 +2253,7 @@ function settleObservedHostBunCommand(
 
 function observedDiagnosticCaptureForTests(
   stderr: Uint8Array
-): WindowsAppContainerObservedNativeHelperDiagnosticCapture {
+): NativeHelperDiagnosticCapture {
   return Object.freeze({
     bytes: stderr.byteLength,
     digest: rawSha256(stderr),
@@ -2253,8 +2266,8 @@ export function classifyObservedWindowsAppContainerNativeHelperForTests(
   outcome: ObservedCommandOutcome,
   stdout: Uint8Array,
   stderr: Uint8Array
-): WindowsAppContainerObservedNativeHelperSettlementClassification {
-  return classifyWindowsAppContainerObservedNativeHelperSettlement(
+): NativeHelperSettlementClassification {
+  return classifyNativeHelperSettlement(
     outcome,
     stdout,
     observedDiagnosticCaptureForTests(stderr)
@@ -2266,7 +2279,7 @@ export function settleObservedWindowsAppContainerNativeHelperForTests(
   outcome: ObservedCommandOutcome,
   stdout: Uint8Array,
   stderr: Uint8Array,
-  mode: WindowsAppContainerObservedNativeHelperMode = 'execute'
+  mode: NativeHelperMode = 'execute'
 ): HostBunCommandResult {
   return settleObservedHostBunCommand(
     mode,
@@ -2277,7 +2290,7 @@ export function settleObservedWindowsAppContainerNativeHelperForTests(
 }
 
 async function runHostBunCommand(
-  mode: WindowsAppContainerObservedNativeHelperMode,
+  mode: NativeHelperMode,
   stagingRoot: string,
   environment: Readonly<Record<string, string>>,
   commitFence: () => Promise<void>,
@@ -2295,7 +2308,7 @@ async function runHostBunCommand(
   let primaryError: WindowsAppContainerCapabilityUnavailableError | WindowsAppContainerExecutionError | undefined;
   try {
     const stdoutChunks: Buffer[] = [];
-    const diagnosticDigest = createHash('sha256');
+    const diagnosticDigest = createSha256Hasher();
     let diagnosticBytes = 0;
     let diagnosticPresent = false;
     const observed = await runObservedCommand(process.execPath, [
@@ -2328,7 +2341,7 @@ async function runHostBunCommand(
     });
     result = settleObservedHostBunCommand(mode, observed, stdoutChunks, Object.freeze({
       bytes: diagnosticBytes,
-      digest: `sha256:${diagnosticDigest.digest('hex')}`,
+      digest: diagnosticDigest.finish(),
       present: diagnosticPresent
     }));
     await commitFence();
@@ -2361,7 +2374,7 @@ function buildAppContainerName(stagingRoot: string, stagingIdentityDigest: strin
 async function executeNativeAppContainer(
   appContainerSidBytes: Buffer,
   prepared: PreparedExecution,
-  executionBudget: WindowsAppContainerNativeExecutionBudget,
+  executionBudget: NativeExecutionBudget,
   commitFence: () => Promise<void>,
   suspendedCreateOnly = false,
   onProgress?: (
@@ -2556,7 +2569,7 @@ async function executeNativeAppContainer(
       WINDOWS_APPCONTAINER_NATIVE_CONTRACT.processInformationBytes
     );
     await commitFence();
-    remainingWindowsAppContainerNativeExecutionBudget(executionBudget, Date.now());
+    remainingNativeExecutionBudget(executionBudget, Date.now());
     const applicationName = suspendedCreateOnly
       ? windowsWide(process.execPath)
       : prepared.executablePath;
@@ -2597,7 +2610,7 @@ async function executeNativeAppContainer(
       const jobAccounting = Buffer.alloc(
         WINDOWS_JOB_OBJECT_BASIC_ACCOUNTING_INFORMATION_BYTES
       );
-      if (!settleWindowsAppContainerNativeJobAfterFailure({
+      if (!settleNativeJobAfterFailure({
         nowMs: Date.now,
         terminateJob: () => kernel32!.symbols.TerminateJobObject(
           jobHandle,
@@ -2620,19 +2633,19 @@ async function executeNativeAppContainer(
       })) throw executionError('wait');
       onProgress?.('job-settled');
       await commitFence();
-      remainingWindowsAppContainerNativeExecutionBudget(executionBudget, Date.now());
+      remainingNativeExecutionBudget(executionBudget, Date.now());
       executionCommitted = true;
       return 0;
     }
     await commitFence();
-    remainingWindowsAppContainerNativeExecutionBudget(executionBudget, Date.now());
+    remainingNativeExecutionBudget(executionBudget, Date.now());
     if (kernel32.symbols.ResumeThread(threadHandle) === MAXIMUM_RESUME_THREAD_RESULT) {
       throw executionError('launch');
     }
     kernel32.symbols.CloseHandle(threadHandle);
     threadHandle = 0n;
 
-    waitForWindowsAppContainerNativeProcess(executionBudget, {
+    waitForNativeProcess(executionBudget, {
       nowMs: Date.now,
       waitForProcess: (timeoutMs) => kernel32!.symbols.WaitForSingleObject(
         processHandle,
@@ -2656,7 +2669,7 @@ async function executeNativeAppContainer(
         const jobAccounting = Buffer.alloc(
           WINDOWS_JOB_OBJECT_BASIC_ACCOUNTING_INFORMATION_BYTES
         );
-        const settled = jobHandle !== 0n && settleWindowsAppContainerNativeJobAfterFailure({
+        const settled = jobHandle !== 0n && settleNativeJobAfterFailure({
           nowMs: Date.now,
           terminateJob: () => kernel32!.symbols.TerminateJobObject(
             jobHandle,
@@ -2719,7 +2732,8 @@ function recoveryOwnerLooksValid(value: unknown): value is WindowsAppContainerRe
   const owner = value as Record<string, unknown>;
   return owner.formatVersion === RECOVERY_OWNER_FORMAT_VERSION &&
     owner.runtimeRelativePath === RUNTIME_DIRECTORY_NAME &&
-    owner.resultFileName === NATIVE_RESULT_FILE_NAME &&
+    (owner.resultFileName === NATIVE_RESULT_FILE_NAME ||
+      owner.resultFileName === LEGACY_NATIVE_RESULT_FILE_NAME) &&
     typeof owner.workspaceIdentityDigest === 'string' && /^sha256:[0-9a-f]{64}$/u.test(owner.workspaceIdentityDigest) &&
     typeof owner.stagingIdentityDigest === 'string' && /^sha256:[0-9a-f]{64}$/u.test(owner.stagingIdentityDigest) &&
     typeof owner.stagingDirectoryName === 'string' && owner.stagingDirectoryName.length > 0 &&
@@ -2758,9 +2772,12 @@ function probeOwnerLooksValid(value: unknown): value is WindowsAppContainerProbe
     'probeWorkspaceIdentityDigest'
   ])) return false;
   const owner = value as Record<string, unknown>;
+  const canaryNamesAreCurrent = owner.outerCanaryName === CAPABILITY_OUTER_CANARY_NAME &&
+    owner.parentCanaryName === CAPABILITY_PARENT_CANARY_NAME;
+  const canaryNamesAreLegacy = owner.outerCanaryName === LEGACY_CAPABILITY_OUTER_CANARY_NAME &&
+    owner.parentCanaryName === LEGACY_CAPABILITY_PARENT_CANARY_NAME;
   return owner.formatVersion === PROBE_OWNER_FORMAT_VERSION &&
-    owner.outerCanaryName === CAPABILITY_OUTER_CANARY_NAME &&
-    owner.parentCanaryName === CAPABILITY_PARENT_CANARY_NAME &&
+    (canaryNamesAreCurrent || canaryNamesAreLegacy) &&
     owner.probeStagingDirectoryName === 's' &&
     typeof owner.outerWorkspaceIdentityDigest === 'string' &&
     /^sha256:[0-9a-f]{64}$/u.test(owner.outerWorkspaceIdentityDigest) &&
@@ -2806,49 +2823,138 @@ async function validateRecoveryStagingBoundary(
   };
 }
 
-function recoveryOwnerPath(transactionRoot: string): string {
-  return path.join(transactionRoot, RECOVERY_OWNER_FILE_NAME);
+type AppContainerArtifactGeneration = 'current' | 'legacy';
+
+interface DurableOwnerArtifactPaths {
+  readonly generation: AppContainerArtifactGeneration;
+  readonly ownerPath: string;
+  readonly pendingPath: string;
 }
 
-function recoveryOwnerPendingPath(transactionRoot: string): string {
-  return path.join(transactionRoot, RECOVERY_OWNER_PENDING_FILE_NAME);
+function recoveryOwnerArtifactPaths(
+  transactionRoot: string,
+  generation: AppContainerArtifactGeneration = 'current'
+): DurableOwnerArtifactPaths {
+  return generation === 'current'
+    ? Object.freeze({
+      generation,
+      ownerPath: path.join(transactionRoot, RECOVERY_OWNER_FILE_NAME),
+      pendingPath: path.join(transactionRoot, RECOVERY_OWNER_PENDING_FILE_NAME)
+    })
+    : Object.freeze({
+      generation,
+      ownerPath: path.join(transactionRoot, LEGACY_RECOVERY_OWNER_FILE_NAME),
+      pendingPath: path.join(transactionRoot, LEGACY_RECOVERY_OWNER_PENDING_FILE_NAME)
+    });
 }
 
-function provisionalOwnerPath(transactionRoot: string): string {
-  return path.join(transactionRoot, PROVISIONAL_OWNER_FILE_NAME);
+function provisionalOwnerArtifactPaths(
+  transactionRoot: string,
+  generation: AppContainerArtifactGeneration = 'current'
+): DurableOwnerArtifactPaths {
+  return generation === 'current'
+    ? Object.freeze({
+      generation,
+      ownerPath: path.join(transactionRoot, PROVISIONAL_OWNER_FILE_NAME),
+      pendingPath: path.join(transactionRoot, PROVISIONAL_OWNER_PENDING_FILE_NAME)
+    })
+    : Object.freeze({
+      generation,
+      ownerPath: path.join(transactionRoot, LEGACY_PROVISIONAL_OWNER_FILE_NAME),
+      pendingPath: path.join(transactionRoot, LEGACY_PROVISIONAL_OWNER_PENDING_FILE_NAME)
+    });
 }
 
-function provisionalOwnerPendingPath(transactionRoot: string): string {
-  return path.join(transactionRoot, PROVISIONAL_OWNER_PENDING_FILE_NAME);
+function probeOwnerArtifactPaths(
+  probeRoot: string,
+  generation: AppContainerArtifactGeneration = 'current'
+): DurableOwnerArtifactPaths {
+  return generation === 'current'
+    ? Object.freeze({
+      generation,
+      ownerPath: path.join(probeRoot, PROBE_OWNER_FILE_NAME),
+      pendingPath: path.join(probeRoot, PROBE_OWNER_PENDING_FILE_NAME)
+    })
+    : Object.freeze({
+      generation,
+      ownerPath: path.join(probeRoot, LEGACY_PROBE_OWNER_FILE_NAME),
+      pendingPath: path.join(probeRoot, LEGACY_PROBE_OWNER_PENDING_FILE_NAME)
+    });
 }
 
-function probeOwnerPath(probeRoot: string): string {
-  return path.join(probeRoot, PROBE_OWNER_FILE_NAME);
+async function selectDurableOwnerArtifactPaths(
+  current: DurableOwnerArtifactPaths,
+  legacy: DurableOwnerArtifactPaths
+): Promise<DurableOwnerArtifactPaths | undefined> {
+  const [currentOwner, currentPending, legacyOwner, legacyPending] = await Promise.all([
+    pathExists(current.ownerPath),
+    pathExists(current.pendingPath),
+    pathExists(legacy.ownerPath),
+    pathExists(legacy.pendingPath)
+  ]);
+  const currentExists = currentOwner || currentPending;
+  const legacyExists = legacyOwner || legacyPending;
+  if (currentExists && legacyExists) throw executionError('cleanup');
+  if (currentExists) return current;
+  if (legacyExists) return legacy;
+  return undefined;
 }
 
-function probeOwnerPendingPath(probeRoot: string): string {
-  return path.join(probeRoot, PROBE_OWNER_PENDING_FILE_NAME);
+function nativeResultPath(
+  transactionRoot: string,
+  generation: AppContainerArtifactGeneration = 'current'
+): string {
+  return path.join(
+    transactionRoot,
+    generation === 'current' ? NATIVE_RESULT_FILE_NAME : LEGACY_NATIVE_RESULT_FILE_NAME
+  );
 }
 
-function nativeResultPath(transactionRoot: string): string {
-  return path.join(transactionRoot, NATIVE_RESULT_FILE_NAME);
+function nativeResultPathForOwner(
+  transactionRoot: string,
+  owner: WindowsAppContainerRecoveryOwner
+): string {
+  return path.join(transactionRoot, owner.resultFileName);
+}
+
+function canaryNamesForGeneration(generation: AppContainerArtifactGeneration): Readonly<{
+  parent: WindowsAppContainerProbeOwner['parentCanaryName'];
+  outer: WindowsAppContainerProbeOwner['outerCanaryName'];
+}> {
+  return generation === 'current'
+    ? Object.freeze({ parent: CAPABILITY_PARENT_CANARY_NAME, outer: CAPABILITY_OUTER_CANARY_NAME })
+    : Object.freeze({
+      parent: LEGACY_CAPABILITY_PARENT_CANARY_NAME,
+      outer: LEGACY_CAPABILITY_OUTER_CANARY_NAME
+    });
 }
 
 async function assertRecoveryOwner(
   owner: WindowsAppContainerRecoveryOwner,
   boundary: Omit<ValidatedExecutionBoundary, 'runnerRelativePath'>,
   executionBinding: WindowsAppContainerExecutionBindingReceipt,
-  requestedNativeResultPath: string
+  requestedNativeResultPath: string,
+  knownOwnerPaths?: DurableOwnerArtifactPaths
 ): Promise<void> {
+  const ownerPaths = knownOwnerPaths ?? await selectDurableOwnerArtifactPaths(
+    recoveryOwnerArtifactPaths(boundary.transactionRoot),
+    recoveryOwnerArtifactPaths(boundary.transactionRoot, 'legacy')
+  );
+  if (!ownerPaths) throw executionError('cleanup');
+  const expectedResultFileName = ownerPaths.generation === 'current'
+    ? NATIVE_RESULT_FILE_NAME
+    : LEGACY_NATIVE_RESULT_FILE_NAME;
   if (!recoveryOwnerLooksValid(owner) ||
+    owner.resultFileName !== expectedResultFileName ||
     owner.workspaceIdentityDigest !== executionBinding.authorityBindingDigest ||
     owner.stagingIdentityDigest !== boundary.stagingIdentityDigest ||
     owner.stagingDirectoryName !== path.basename(boundary.stagingRoot) ||
     owner.appContainerName !== buildAppContainerName(boundary.stagingRoot, boundary.stagingIdentityDigest) ||
-    foldedWindowsPath(requestedNativeResultPath) !== foldedWindowsPath(nativeResultPath(boundary.transactionRoot))) {
+    foldedWindowsPath(requestedNativeResultPath) !==
+      foldedWindowsPath(nativeResultPath(boundary.transactionRoot, ownerPaths.generation))) {
     throw executionError('cleanup');
   }
-  const canonicalOwner = await readRecoveryOwner(recoveryOwnerPath(boundary.transactionRoot));
+  const canonicalOwner = await readRecoveryOwner(ownerPaths.ownerPath);
   if (!canonicalOwner || !canonicalEquals(canonicalOwner, owner)) {
     throw executionError('cleanup');
   }
@@ -2890,11 +2996,15 @@ function assertProvisionalOwner(
 
 function assertProbeOwner(
   owner: WindowsAppContainerProbeOwner,
+  ownerPaths: DurableOwnerArtifactPaths,
   outerBoundary: Omit<ValidatedExecutionBoundary, 'runnerRelativePath'>,
   outerExecutionBinding: WindowsAppContainerExecutionBindingReceipt,
   probeExecutionBinding: WindowsAppContainerExecutionBindingReceipt
 ): void {
+  const expectedCanaries = canaryNamesForGeneration(ownerPaths.generation);
   if (!probeOwnerLooksValid(owner) ||
+    owner.parentCanaryName !== expectedCanaries.parent ||
+    owner.outerCanaryName !== expectedCanaries.outer ||
     owner.outerWorkspaceIdentityDigest !== outerExecutionBinding.authorityBindingDigest ||
     owner.probeWorkspaceIdentityDigest !== probeExecutionBinding.authorityBindingDigest ||
     owner.outerStagingIdentityDigest !== outerBoundary.stagingIdentityDigest) {
@@ -3406,10 +3516,10 @@ async function runWindowsAppContainerNativeChildInternal(
 ): Promise<WindowsAppContainerExecutionResult> {
   const startedAtMs = Date.now();
   const execution = request.execution;
-  const executionDeadlines = arbitrateWindowsAppContainerNativeExecutionDeadlines(
+  const executionDeadlines = arbitrateNativeExecutionDeadlines(
     execution.timeoutMs
   );
-  const executionBudget = createWindowsAppContainerNativeExecutionBudget(
+  const executionBudget = createNativeExecutionBudget(
     executionDeadlines.childTimeoutMs,
     startedAtMs
   );
@@ -3552,10 +3662,11 @@ async function cleanupWindowsAppContainerNativeOwner(
 async function cleanupPlannedOwner(
   execution: WindowsAppContainerExecutionRequest,
   owner: WindowsAppContainerRecoveryOwner,
+  ownerPaths: DurableOwnerArtifactPaths,
   boundary: Omit<ValidatedExecutionBoundary, 'runnerRelativePath'>,
   commitFence: () => Promise<void>
 ): Promise<void> {
-  const resultPath = nativeResultPath(boundary.transactionRoot);
+  const resultPath = nativeResultPathForOwner(boundary.transactionRoot, owner);
   const cleanupRequest: WindowsAppContainerNativeCleanupRequest = {
     stagingRoot: boundary.stagingRoot,
     nativeResultPath: resultPath,
@@ -3570,13 +3681,13 @@ async function cleanupPlannedOwner(
   );
   await cleanupWindowsAppContainerNativeOwner(cleanupRequest, provenAppContainerSid);
   await commitFence();
-  const ownerPath = recoveryOwnerPath(boundary.transactionRoot);
-  await durableRemovePendingOwnerFile(recoveryOwnerPendingPath(boundary.transactionRoot), commitFence);
-  await durableRemoveFile(ownerPath, commitFence);
+  await durableRemovePendingOwnerFile(ownerPaths.pendingPath, commitFence);
+  await durableRemoveFile(ownerPaths.ownerPath, commitFence);
 }
 
 async function cleanupProvisionalOwner(
   owner: WindowsAppContainerProvisionalOwner,
+  ownerPaths: DurableOwnerArtifactPaths,
   boundary: Omit<ValidatedExecutionBoundary, 'runnerRelativePath'>,
   executionBinding: WindowsAppContainerExecutionBindingReceipt,
   commitFence: () => Promise<void>,
@@ -3586,9 +3697,9 @@ async function cleanupProvisionalOwner(
   assertProvisionalOwner(owner, boundary, executionBinding);
   await cleanupHostBunConfig(boundary.stagingRoot, commitFence);
   signal?.throwIfAborted();
-  await durableRemovePendingOwnerFile(provisionalOwnerPendingPath(boundary.transactionRoot), commitFence);
+  await durableRemovePendingOwnerFile(ownerPaths.pendingPath, commitFence);
   signal?.throwIfAborted();
-  await durableRemoveFile(provisionalOwnerPath(boundary.transactionRoot), commitFence);
+  await durableRemoveFile(ownerPaths.ownerPath, commitFence);
 }
 
 async function publishProvisionalOwner(
@@ -3597,14 +3708,22 @@ async function publishProvisionalOwner(
   commitFence: () => Promise<void>,
   testHooks: DurableOwnerPublishTestHooks = {}
 ): Promise<void> {
+  const currentPaths = provisionalOwnerArtifactPaths(transactionRoot);
+  const existingPaths = await selectDurableOwnerArtifactPaths(
+    currentPaths,
+    provisionalOwnerArtifactPaths(transactionRoot, 'legacy')
+  );
+  if (existingPaths?.generation === 'legacy') {
+    throw executionError('preparation', undefined, undefined, 'owner-publication');
+  }
   await durablePublishOwnerFile(
-    provisionalOwnerPath(transactionRoot),
-    provisionalOwnerPendingPath(transactionRoot),
+    currentPaths.ownerPath,
+    currentPaths.pendingPath,
     `${JSON.stringify(owner)}\n`,
     commitFence,
     testHooks
   );
-  const canonical = await readProvisionalOwner(provisionalOwnerPath(transactionRoot));
+  const canonical = await readProvisionalOwner(currentPaths.ownerPath);
   if (!canonical || !canonicalEquals(canonical, owner)) {
     throw executionError('preparation', undefined, undefined, 'owner-publication');
   }
@@ -3637,11 +3756,13 @@ export async function publishWindowsAppContainerProvisionalOwnerForTests(
 export async function recoverWindowsAppContainerProvisionalOwnerForTests(
   transactionRoot: string
 ): Promise<'canonical' | 'none'> {
-  await durableRemovePendingOwnerFile(
-    provisionalOwnerPendingPath(transactionRoot),
-    async () => undefined
+  const paths = await selectDurableOwnerArtifactPaths(
+    provisionalOwnerArtifactPaths(transactionRoot),
+    provisionalOwnerArtifactPaths(transactionRoot, 'legacy')
   );
-  return await readProvisionalOwner(provisionalOwnerPath(transactionRoot)) ? 'canonical' : 'none';
+  if (!paths) return 'none';
+  await durableRemovePendingOwnerFile(paths.pendingPath, async () => undefined);
+  return await readProvisionalOwner(paths.ownerPath) ? 'canonical' : 'none';
 }
 
 async function publishRecoveryOwner(
@@ -3649,13 +3770,21 @@ async function publishRecoveryOwner(
   transactionRoot: string,
   commitFence: () => Promise<void>
 ): Promise<void> {
+  const currentPaths = recoveryOwnerArtifactPaths(transactionRoot);
+  const existingPaths = await selectDurableOwnerArtifactPaths(
+    currentPaths,
+    recoveryOwnerArtifactPaths(transactionRoot, 'legacy')
+  );
+  if (existingPaths?.generation === 'legacy') {
+    throw executionError('preparation', undefined, undefined, 'owner-publication');
+  }
   await durablePublishOwnerFile(
-    recoveryOwnerPath(transactionRoot),
-    recoveryOwnerPendingPath(transactionRoot),
+    currentPaths.ownerPath,
+    currentPaths.pendingPath,
     `${JSON.stringify(owner)}\n`,
     commitFence
   );
-  const canonical = await readRecoveryOwner(recoveryOwnerPath(transactionRoot));
+  const canonical = await readRecoveryOwner(currentPaths.ownerPath);
   if (!canonical || !canonicalEquals(canonical, owner)) {
     throw executionError('preparation', undefined, undefined, 'owner-publication');
   }
@@ -3667,22 +3796,46 @@ async function recoverPreviousOwnership(
   boundary: Omit<ValidatedExecutionBoundary, 'runnerRelativePath'>,
   commitFence: () => Promise<void>
 ): Promise<void> {
-  await durableRemovePendingOwnerFile(recoveryOwnerPendingPath(boundary.transactionRoot), commitFence);
-  await durableRemovePendingOwnerFile(provisionalOwnerPendingPath(boundary.transactionRoot), commitFence);
-  const owner = await readRecoveryOwner(recoveryOwnerPath(boundary.transactionRoot));
-  const provisional = await readProvisionalOwner(provisionalOwnerPath(boundary.transactionRoot));
+  const recoveryPaths = await selectDurableOwnerArtifactPaths(
+    recoveryOwnerArtifactPaths(boundary.transactionRoot),
+    recoveryOwnerArtifactPaths(boundary.transactionRoot, 'legacy')
+  );
+  const provisionalPaths = await selectDurableOwnerArtifactPaths(
+    provisionalOwnerArtifactPaths(boundary.transactionRoot),
+    provisionalOwnerArtifactPaths(boundary.transactionRoot, 'legacy')
+  );
+  if (recoveryPaths) await durableRemovePendingOwnerFile(recoveryPaths.pendingPath, commitFence);
+  if (provisionalPaths) await durableRemovePendingOwnerFile(provisionalPaths.pendingPath, commitFence);
+  const owner = recoveryPaths ? await readRecoveryOwner(recoveryPaths.ownerPath) : undefined;
+  const provisional = provisionalPaths
+    ? await readProvisionalOwner(provisionalPaths.ownerPath)
+    : undefined;
+  if (recoveryPaths && provisionalPaths && recoveryPaths.generation !== provisionalPaths.generation) {
+    throw executionError('cleanup');
+  }
+  const [currentResultExists, legacyResultExists] = await Promise.all([
+    pathExists(nativeResultPath(boundary.transactionRoot)),
+    pathExists(nativeResultPath(boundary.transactionRoot, 'legacy'))
+  ]);
+  if (!owner && (currentResultExists || legacyResultExists)) throw executionError('cleanup');
   if (owner) {
+    const oppositeResultExists = recoveryPaths!.generation === 'current'
+      ? legacyResultExists
+      : currentResultExists;
+    if (oppositeResultExists) throw executionError('cleanup');
     await assertRecoveryOwner(
       owner,
       boundary,
       executionBinding,
-      nativeResultPath(boundary.transactionRoot)
+      nativeResultPathForOwner(boundary.transactionRoot, owner),
+      recoveryPaths!
     );
-    await cleanupPlannedOwner(execution, owner, boundary, commitFence);
+    await cleanupPlannedOwner(execution, owner, recoveryPaths!, boundary, commitFence);
   }
   if (provisional) {
     await cleanupProvisionalOwner(
       provisional,
+      provisionalPaths!,
       boundary,
       executionBinding,
       commitFence
@@ -3706,7 +3859,7 @@ async function runWindowsAppContainerChildInternal(
   const commitFence = executionCommitFence(request.executionCapability, request.stagingRoot);
   await commitFence();
   const validated = await validateExecutionRequest(request);
-  const executionDeadlines = arbitrateWindowsAppContainerNativeExecutionDeadlines(
+  const executionDeadlines = arbitrateNativeExecutionDeadlines(
     request.timeoutMs
   );
   validateAndSortEnvironment(request.environment, validated.stagingRoot);
@@ -3757,9 +3910,15 @@ async function runWindowsAppContainerChildInternal(
     await runPreparationStep('owner-publication', () =>
       publishRecoveryOwner(owner!, validated.transactionRoot, commitFence));
     await runPreparationStep('owner-publication', () =>
-      durableRemovePendingOwnerFile(provisionalOwnerPendingPath(validated.transactionRoot), commitFence));
+      durableRemovePendingOwnerFile(
+        provisionalOwnerArtifactPaths(validated.transactionRoot).pendingPath,
+        commitFence
+      ));
     await runPreparationStep('owner-publication', () =>
-      durableRemoveFile(provisionalOwnerPath(validated.transactionRoot), commitFence));
+      durableRemoveFile(
+        provisionalOwnerArtifactPaths(validated.transactionRoot).ownerPath,
+        commitFence
+      ));
     await runPreparationStep('runtime-identity', () =>
       materializeRuntime(validated.stagingRoot, commitFence));
     const systemDirectory = await runPreparationStep(
@@ -3829,24 +3988,40 @@ async function runWindowsAppContainerChildInternal(
 
   return completeWindowsAppContainerOwnedExecution(result, primaryError, async () => {
     await commitFence();
-    const canonicalOwner = await readRecoveryOwner(recoveryOwnerPath(validated.transactionRoot));
+    const recoveryPaths = await selectDurableOwnerArtifactPaths(
+      recoveryOwnerArtifactPaths(validated.transactionRoot),
+      recoveryOwnerArtifactPaths(validated.transactionRoot, 'legacy')
+    );
+    const canonicalOwner = recoveryPaths
+      ? await readRecoveryOwner(recoveryPaths.ownerPath)
+      : undefined;
     if (canonicalOwner) {
       if (!owner || !canonicalEquals(canonicalOwner, owner)) {
         throw executionError('cleanup');
       }
-      await cleanupPlannedOwner(request, canonicalOwner, validated, commitFence);
+      await cleanupPlannedOwner(request, canonicalOwner, recoveryPaths!, validated, commitFence);
     }
-    const canonicalProvisional = await readProvisionalOwner(provisionalOwnerPath(validated.transactionRoot));
+    const provisionalPaths = await selectDurableOwnerArtifactPaths(
+      provisionalOwnerArtifactPaths(validated.transactionRoot),
+      provisionalOwnerArtifactPaths(validated.transactionRoot, 'legacy')
+    );
+    const canonicalProvisional = provisionalPaths
+      ? await readProvisionalOwner(provisionalPaths.ownerPath)
+      : undefined;
     if (canonicalProvisional) {
       await cleanupProvisionalOwner(
         canonicalProvisional,
+        provisionalPaths!,
         validated,
         executionBinding,
         commitFence
       );
     }
-    await durableRemovePendingOwnerFile(recoveryOwnerPendingPath(validated.transactionRoot), commitFence);
-    await durableRemovePendingOwnerFile(provisionalOwnerPendingPath(validated.transactionRoot), commitFence);
+    if (recoveryPaths) await durableRemovePendingOwnerFile(recoveryPaths.pendingPath, commitFence);
+    if (provisionalPaths) await durableRemovePendingOwnerFile(provisionalPaths.pendingPath, commitFence);
+    if (await executionRecoveryResidueExists(validated.transactionRoot)) {
+      throw executionError('cleanup');
+    }
   }, 'wait');
 }
 
@@ -3910,25 +4085,42 @@ async function publishProbeOwner(
   probeRoot: string,
   commitFence: () => Promise<void>
 ): Promise<void> {
+  const currentPaths = probeOwnerArtifactPaths(probeRoot);
+  const existingPaths = await selectDurableOwnerArtifactPaths(
+    currentPaths,
+    probeOwnerArtifactPaths(probeRoot, 'legacy')
+  );
+  if (existingPaths?.generation === 'legacy') {
+    throw executionError('preparation', undefined, undefined, 'owner-publication');
+  }
   await durablePublishOwnerFile(
-    probeOwnerPath(probeRoot),
-    probeOwnerPendingPath(probeRoot),
+    currentPaths.ownerPath,
+    currentPaths.pendingPath,
     `${JSON.stringify(owner)}\n`,
     commitFence
   );
-  const canonical = await readProbeOwner(probeOwnerPath(probeRoot));
+  const canonical = await readProbeOwner(currentPaths.ownerPath);
   if (!canonical || !canonicalEquals(canonical, owner)) {
     throw executionError('preparation', undefined, undefined, 'owner-publication');
   }
 }
 
 async function executionRecoveryResidueExists(transactionRoot: string): Promise<boolean> {
+  const currentRecovery = recoveryOwnerArtifactPaths(transactionRoot);
+  const legacyRecovery = recoveryOwnerArtifactPaths(transactionRoot, 'legacy');
+  const currentProvisional = provisionalOwnerArtifactPaths(transactionRoot);
+  const legacyProvisional = provisionalOwnerArtifactPaths(transactionRoot, 'legacy');
   for (const candidate of [
-    recoveryOwnerPath(transactionRoot),
-    recoveryOwnerPendingPath(transactionRoot),
-    provisionalOwnerPath(transactionRoot),
-    provisionalOwnerPendingPath(transactionRoot),
-    nativeResultPath(transactionRoot)
+    currentRecovery.ownerPath,
+    currentRecovery.pendingPath,
+    legacyRecovery.ownerPath,
+    legacyRecovery.pendingPath,
+    currentProvisional.ownerPath,
+    currentProvisional.pendingPath,
+    legacyProvisional.ownerPath,
+    legacyProvisional.pendingPath,
+    nativeResultPath(transactionRoot),
+    nativeResultPath(transactionRoot, 'legacy')
   ]) {
     if (await pathExists(candidate)) return true;
   }
@@ -3936,11 +4128,19 @@ async function executionRecoveryResidueExists(transactionRoot: string): Promise<
 }
 
 async function executionRecoveryAuthorityExists(transactionRoot: string): Promise<boolean> {
+  const currentRecovery = recoveryOwnerArtifactPaths(transactionRoot);
+  const legacyRecovery = recoveryOwnerArtifactPaths(transactionRoot, 'legacy');
+  const currentProvisional = provisionalOwnerArtifactPaths(transactionRoot);
+  const legacyProvisional = provisionalOwnerArtifactPaths(transactionRoot, 'legacy');
   for (const candidate of [
-    recoveryOwnerPath(transactionRoot),
-    recoveryOwnerPendingPath(transactionRoot),
-    provisionalOwnerPath(transactionRoot),
-    provisionalOwnerPendingPath(transactionRoot)
+    currentRecovery.ownerPath,
+    currentRecovery.pendingPath,
+    legacyRecovery.ownerPath,
+    legacyRecovery.pendingPath,
+    currentProvisional.ownerPath,
+    currentProvisional.pendingPath,
+    legacyProvisional.ownerPath,
+    legacyProvisional.pendingPath
   ]) {
     if (await pathExists(candidate)) return true;
   }
@@ -4004,6 +4204,7 @@ export async function probeWindowsAppContainerCapabilityForTests(
   let probeLeaseReleased = false;
   let conformanceServers: WindowsAppContainerProbeConformanceServerLease | undefined;
   let probeRoot: string | undefined;
+  let parentCanaryPath: string | undefined;
   let outerCanaryPath: string | undefined;
   let outerCanaryOwned = false;
   let observedLeaseLossProcessIds: readonly number[] = Object.freeze([]);
@@ -4017,10 +4218,17 @@ export async function probeWindowsAppContainerCapabilityForTests(
     const boundary = await validateRecoveryStagingBoundary(request.stagingRoot);
     validateAndSortEnvironment(request.environment, boundary.stagingRoot);
     probeRoot = path.join(boundary.stagingRoot, CAPABILITY_PROBE_RELATIVE_ROOT);
-    outerCanaryPath = path.join(boundary.stagingRoot, CAPABILITY_OUTER_CANARY_NAME);
     const probeStagingRoot = path.join(probeRoot, 's');
-    const hadProbeOwner = await pathExists(probeOwnerPath(probeRoot));
-    const hadProbeOwnerPending = await pathExists(probeOwnerPendingPath(probeRoot));
+    const initialProbePaths = await selectDurableOwnerArtifactPaths(
+      probeOwnerArtifactPaths(probeRoot),
+      probeOwnerArtifactPaths(probeRoot, 'legacy')
+    );
+    const hadProbeOwner = initialProbePaths
+      ? await pathExists(initialProbePaths.ownerPath)
+      : false;
+    const hadProbeOwnerPending = initialProbePaths
+      ? await pathExists(initialProbePaths.pendingPath)
+      : false;
     const needsInitialRecovery = await executionRecoveryAuthorityExists(probeRoot);
 
     at('probe-root', 'probe-root-prepared');
@@ -4071,21 +4279,46 @@ export async function probeWindowsAppContainerCapabilityForTests(
         probeStagingRoot
       );
     };
-    await durableRemovePendingOwnerFile(probeOwnerPendingPath(probeRoot), probeFence);
-    const existingProbeOwner = await readProbeOwner(probeOwnerPath(probeRoot));
+    const existingProbePaths = await selectDurableOwnerArtifactPaths(
+      probeOwnerArtifactPaths(probeRoot),
+      probeOwnerArtifactPaths(probeRoot, 'legacy')
+    );
+    if (existingProbePaths) {
+      await durableRemovePendingOwnerFile(existingProbePaths.pendingPath, probeFence);
+    }
+    const existingProbeOwner = existingProbePaths
+      ? await readProbeOwner(existingProbePaths.ownerPath)
+      : undefined;
     if (existingProbeOwner) {
       at('ownership', 'probe-owner-valid');
       assertProbeOwner(
         existingProbeOwner,
+        existingProbePaths!,
         boundary,
         outerExecutionBinding,
         probeExecutionBinding
       );
+      const oppositeCanaries = canaryNamesForGeneration(
+        existingProbePaths!.generation === 'current' ? 'legacy' : 'current'
+      );
+      if (await pathExists(path.join(probeRoot, oppositeCanaries.parent)) ||
+        await pathExists(path.join(boundary.stagingRoot, oppositeCanaries.outer))) {
+        throwProbeFailure('canary', 'canary-owned');
+      }
+      parentCanaryPath = path.join(probeRoot, existingProbeOwner.parentCanaryName);
+      outerCanaryPath = path.join(boundary.stagingRoot, existingProbeOwner.outerCanaryName);
       outerCanaryOwned = true;
     } else {
-      const parentCanaryPath = path.join(probeRoot, CAPABILITY_PARENT_CANARY_NAME);
-      const existingCanary = await pathExists(parentCanaryPath) || await pathExists(outerCanaryPath);
-      if (existingCanary && !needsInitialRecovery) {
+      const currentCanaries = canaryNamesForGeneration('current');
+      const legacyCanaries = canaryNamesForGeneration('legacy');
+      const canaryCandidates = [
+        path.join(probeRoot, currentCanaries.parent),
+        path.join(boundary.stagingRoot, currentCanaries.outer),
+        path.join(probeRoot, legacyCanaries.parent),
+        path.join(boundary.stagingRoot, legacyCanaries.outer)
+      ];
+      const existingCanary = (await Promise.all(canaryCandidates.map(pathExists))).some(Boolean);
+      if (existingCanary) {
         throwProbeFailure('canary', 'canary-owned');
       }
       const probeOwner: WindowsAppContainerProbeOwner = Object.freeze({
@@ -4099,11 +4332,13 @@ export async function probeWindowsAppContainerCapabilityForTests(
       });
       at('ownership', 'probe-owner-valid');
       await publishProbeOwner(probeOwner, probeRoot, probeFence);
+      parentCanaryPath = path.join(probeRoot, probeOwner.parentCanaryName);
+      outerCanaryPath = path.join(boundary.stagingRoot, probeOwner.outerCanaryName);
       outerCanaryOwned = true;
     }
 
     at('canary', 'canary-owned');
-    const parentCanaryPath = path.join(probeRoot, CAPABILITY_PARENT_CANARY_NAME);
+    if (!parentCanaryPath || !outerCanaryPath) throwProbeFailure('canary', 'canary-owned');
     for (const canaryPath of [parentCanaryPath, outerCanaryPath]) {
       if (await pathExists(canaryPath)) {
         await probeFence();
@@ -4194,7 +4429,12 @@ export async function probeWindowsAppContainerCapabilityForTests(
     observedLeaseLossProcessIds = Object.freeze([marker.processId, marker.descendantProcessId]);
     await probeLease.release();
     probeLeaseReleased = true;
-    if (!await leaseLossRejected || !await pathExists(recoveryOwnerPath(probeRoot))) {
+    const leaseLossRecoveryPaths = await selectDurableOwnerArtifactPaths(
+      recoveryOwnerArtifactPaths(probeRoot),
+      recoveryOwnerArtifactPaths(probeRoot, 'legacy')
+    );
+    if (!await leaseLossRejected || !leaseLossRecoveryPaths ||
+      !await pathExists(leaseLossRecoveryPaths.ownerPath)) {
       throwProbeFailure('lease-loss', 'lease-loss-owner-durable');
     }
     at('lease-loss', 'lease-loss-processes-exited');

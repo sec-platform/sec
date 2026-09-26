@@ -1,4 +1,4 @@
-import { SecError } from '../../../../contracts/failure.ts';
+import { FailureError } from '../../../../contracts/failure.ts';
 import { ResourceCompositeSettlementError as PhysicalResourceCompositeSettlementError, settleResources as settlePhysicalResources } from '../../../../execution/resource-settlement.ts';
 import type {
   RetainedNoFollowChildProcessDirectory,
@@ -27,7 +27,7 @@ export interface CompilerInstallResources {
 
 /** Keep the existing installation error shape while the common physical owner
  * handles ordering and error collection. A failed release is not telemetry. */
-export class CompilerInstallSettlementFailure extends SecError {
+export class CompilerInstallSettlementFailure extends FailureError {
   readonly primaryFailed: boolean;
   readonly resourceFailures: readonly CompilerInstallResourceFailure[];
 

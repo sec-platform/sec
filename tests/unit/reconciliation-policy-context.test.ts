@@ -1,6 +1,6 @@
 import { test } from 'bun:test';
 import assert from 'node:assert/strict';
-import { compileSecRepositoryModuleMembershipSnapshot } from '../../src/adapters/repository/architecture/contract.ts';
+import { compileRepositoryModuleMembershipSnapshot } from '../../src/adapters/repository/architecture/contract.ts';
 import {
   compileSourceProgramFindingDelta as compare,
   summarizeSourceProgramFindingDelta as summarize,
@@ -8,7 +8,7 @@ import {
 } from '../../src/adapters/repository/source-program-model/reconciliation-findings.ts';
 import { captureRepositoryAnalysisPolicy as policy } from '../../src/adapters/repository/source-program-model/repository-analysis-policy.ts';
 import { compileVirtualRepositorySourceProgramCompilation } from '../../src/adapters/repository/source-program-model/repository-compilation.ts';
-import { compileVirtualWorkspaceSourceSnapshot } from '../../src/adapters/repository/source-program-model/workspace-source-snapshot.ts';
+import { compileVirtualSnapshot } from '../../src/adapters/repository/source-program-model/workspace-source-snapshot.ts';
 import { rawSha256, sha256 } from '../../src/contracts/canonical.ts';
 
 type Snapshot = Parameters<typeof compare>[0];
@@ -17,14 +17,14 @@ const reviewed = 'src/example/a.ts::function-declaration:run::spawn#1';
 function snapshot(hasFinding = false, dispatchers: string[] = [], includeFile = true): Snapshot {
   const source = 'export function run() { return 1; }\n';
   const files = includeFile ? [{ path: 'src/example/a.ts', source, contentDigest: rawSha256(source) }] : [];
-  const descriptorPath = 'src/example/sec.module.json';
-  const moduleMembership = compileSecRepositoryModuleMembershipSnapshot({
+  const descriptorPath = 'src/example/module.json';
+  const moduleMembership = compileRepositoryModuleMembershipSnapshot({
     repositoryFiles: [...files.map(({ path }) => path), descriptorPath],
     descriptorSources: [{ descriptorPath, source: JSON.stringify({
       importGraph: 'runtime', externalEntrypoints: [], capabilityProviders: [], preDependencyBootstrap: false
     }) }]
   });
-  const workspaceSnapshot = compileVirtualWorkspaceSourceSnapshot({
+  const workspaceSnapshot = compileVirtualSnapshot({
     files,
     moduleMembership,
     subject: { kind: 'virtual-mutation', provenance: { kind: 'source-program-virtual-mutation',

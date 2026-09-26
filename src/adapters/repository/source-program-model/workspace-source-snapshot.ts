@@ -11,23 +11,21 @@ import {
 import { throwIfNativeAborted } from '../../../contracts/native-abort.ts';
 import { mapTaskGroup } from '../../../execution/task-group.ts';
 import {
-  CodexDevelopmentListExactGitTreeEntries,
-  CodexDevelopmentListExactGitTreeEntriesFromSession,
-  CodexDevelopmentReadExactGitTextBlobsBatch,
-  CodexDevelopmentReadExactGitTextBlobsBatchFromSession,
-  type CodexDevelopmentExactGitTextBlob,
-  type CodexDevelopmentExactGitTreeEntry
+  ListExactGitTreeEntriesFromSession,
+  ReadExactGitTextBlobsBatchFromSession,
+  type ExactGitTextBlob,
+  type ExactGitTreeEntry
 } from '../../providers/git-read/exact-blob.ts';
 import {
   assertProductionGitReadSession,
   type GitReadSession
 } from '../../providers/git-read/runtime/session.ts';
 import type { RetainedNoFollowProvenDirectoryGeneration } from '../../runtime-state/physical/runtime/physical-no-follow.ts';
-import type { SecRepositoryModuleGraph } from '../architecture/contract.ts';
+import type { RepositoryModuleGraph } from '../architecture/contract.ts';
 import {
-  compileSecRepositoryModuleMembershipSnapshot,
-  normalizeSecRepositoryPath,
-  type SecRepositoryModuleMembership
+  compileRepositoryModuleMembershipSnapshot,
+  normalizeRepositoryModulePath,
+  type RepositoryModuleMembership
 } from '../architecture/contract.ts';
 import {
   isSourceProgramInputPath,
@@ -36,7 +34,7 @@ import {
   type SourceProgramFileInput
 } from './contract.ts';
 import { sourceProgramModuleImports } from './embedded-programs.ts';
-import { compileSecRepositoryModuleGraph } from './typescript.ts';
+import { compileRepositoryModuleGraph } from './typescript.ts';
 
 const DIGEST = /^sha256:[0-9a-f]{64}$/u;
 const SOURCE_SNAPSHOT_MAX_FILE_BYTES = 2 * 1024 * 1024;
@@ -49,10 +47,10 @@ const stagedWorkspaceSourceSelectionBrand: unique symbol = Symbol(
 const issuedStagedWorkspaceSourceSelections = new WeakSet<object>();
 const workspaceTypeScriptProjectInputBrand: unique symbol = Symbol('workspace-typescript-project-input');
 const issuedWorkspaceTypeScriptProjectInputs = new WeakSet<object>();
-const workspaceTypeScriptProjectGenerationEvidenceBrand: unique symbol = Symbol(
+const typeScriptProjectGenerationEvidenceBrand: unique symbol = Symbol(
   'workspace-typescript-project-generation-evidence'
 );
-const issuedWorkspaceTypeScriptProjectGenerationEvidence = new WeakSet<object>();
+const issuedTypeScriptProjectGenerationEvidence = new WeakSet<object>();
 
 export type WorkspaceSourceSnapshotSubject =
   | Readonly<{
@@ -103,14 +101,14 @@ export type WorkspaceSourceFile = SourceProgramFileInput & Readonly<{
 type IssueWorkspaceSourceSnapshotInput = Readonly<{
   subject: WorkspaceSourceSnapshotSubject;
   files: readonly WorkspaceSourceFile[];
-  moduleMembership: SecRepositoryModuleMembership;
+  moduleMembership: RepositoryModuleMembership;
   sourceByteLength: number | null;
 }>;
 
-export type CompileVirtualWorkspaceSourceSnapshotInput = Readonly<{
+export type CompileVirtualSnapshotInput = Readonly<{
   subject: Extract<WorkspaceSourceSnapshotSubject, { kind: 'virtual-mutation' }>;
   files: readonly (SourceProgramFileInput & Readonly<{ mode?: WorkspaceSourceFileMode }>)[];
-  moduleMembership: SecRepositoryModuleMembership;
+  moduleMembership: RepositoryModuleMembership;
 }>;
 
 type IssuePhysicalWorkspaceSourceSnapshotInput = Omit<
@@ -132,15 +130,15 @@ type IssuePhysicalWorkspaceSourceSnapshotInput = Omit<
       }>;
 }>;
 
-export type AcquireWorkingTreeWorkspaceSourceSnapshotInput = Readonly<{
+export type AcquireWorkingTreeSnapshotInput = Readonly<{
   session: GitReadSession;
 }>;
 
-export type AcquireStagedIndexWorkspaceSourceSnapshotInput = Readonly<{
+export type AcquireStagedIndexSnapshotInput = Readonly<{
   session: GitReadSession;
 }>;
 
-export interface StagedWorkspaceSourceSelection {
+export interface StagedSourceSelection {
   readonly [stagedWorkspaceSourceSelectionBrand]: true;
   readonly candidateBase: string;
   readonly snapshotSubjectDigest: `sha256:${string}`;
@@ -148,12 +146,7 @@ export interface StagedWorkspaceSourceSelection {
   readonly selectionDigest: `sha256:${string}`;
 }
 
-export type AcquireExactGitTreeWorkspaceSourceSnapshotInput = Readonly<{
-  commitSha: string;
-  repositoryRoot: string;
-}>;
-
-export type AcquireExactGitTreeWorkspaceSourceSnapshotFromSessionInput = Readonly<{
+export type AcquireExactGitTreeSnapshotInput = Readonly<{
   commitSha: string;
   session: GitReadSession;
 }>;
@@ -173,7 +166,7 @@ export interface WorkspaceSourceSnapshot extends SourceProgramCompilation {
   readonly files: readonly WorkspaceSourceFile[];
   /** Physical provider observation reused by resource admission; never semantic identity. */
   readonly sourceByteLength: number | null;
-  readonly moduleMembership: SecRepositoryModuleMembership;
+  readonly moduleMembership: RepositoryModuleMembership;
   readonly snapshotDigest: `sha256:${string}`;
   readonly moduleMembershipDigest: `sha256:${string}`;
   readonly moduleGraphCompilationCount: 1;
@@ -212,7 +205,7 @@ type WorkspaceTypeScriptExecutionConfigContainmentReceipt = Readonly<{
   containmentDigest: `sha256:${string}`;
 }>;
 
-export interface WorkspaceTypeScriptProjectInput {
+export interface TypeScriptProjectInput {
   readonly [workspaceTypeScriptProjectInputBrand]: true;
   readonly sourceRevision: string;
   readonly snapshotDigest: `sha256:${string}`;
@@ -230,7 +223,7 @@ export interface WorkspaceTypeScriptProjectInput {
   readonly observationDigest: `sha256:${string}`;
 }
 
-export interface WorkspaceTypeScriptProjectFactIdentity {
+export interface TypeScriptProjectFactIdentity {
   readonly projectConfigDigest: `sha256:${string}`;
   readonly projectFactDigest: `sha256:${string}`;
   readonly rootSourceFacts: readonly WorkspaceTypeScriptSourceFact[];
@@ -249,10 +242,10 @@ function typeScriptProjectFactDigest(input: Readonly<{
   })) as `sha256:${string}`;
 }
 
-export function projectWorkspaceTypeScriptProjectFactIdentity(
-  projectInput: WorkspaceTypeScriptProjectInput
-): WorkspaceTypeScriptProjectFactIdentity {
-  assertWorkspaceTypeScriptProjectInput(projectInput);
+export function projectTypeScriptProjectFactIdentity(
+  projectInput: TypeScriptProjectInput
+): TypeScriptProjectFactIdentity {
+  assertTypeScriptProjectInput(projectInput);
   const rootSourceFacts = Object.freeze(projectInput.sourceFacts.filter(({ path: sourcePath }) => (
     sourcePath !== projectInput.projectConfigPath
   )));
@@ -275,13 +268,13 @@ export function projectWorkspaceTypeScriptProjectFactIdentity(
  * dependency/provider materialization is represented only by the opaque
  * generation identity issued by its owner.
  */
-export function compileWorkspaceTypeScriptProjectFactIdentity(
+export function compileTypeScriptProjectFactIdentity(
   snapshot: WorkspaceSourceSnapshot,
   projectConfigPath: string,
   input: Readonly<{
     dependencyGenerationDigest: `sha256:${string}` | null;
   }>
-): WorkspaceTypeScriptProjectFactIdentity {
+): TypeScriptProjectFactIdentity {
   assertWorkspaceSourceSnapshot(snapshot);
   const projectConfig = snapshot.file(projectConfigPath);
   if (projectConfig === null) {
@@ -478,35 +471,35 @@ export function compileWorkspaceTypeScriptProjectFactIdentity(
  * consumed. A durable fact-store receipt cannot manufacture a frozen execution
  * input from this evidence.
  */
-export interface WorkspaceTypeScriptProjectGenerationEvidence {
-  readonly [workspaceTypeScriptProjectGenerationEvidenceBrand]: true;
+export interface TypeScriptProjectGenerationEvidence {
+  readonly [typeScriptProjectGenerationEvidenceBrand]: true;
   readonly generationDigest: `sha256:${string}`;
-  readonly projectInput: WorkspaceTypeScriptProjectInput;
+  readonly projectInput: TypeScriptProjectInput;
   readonly sourceFiles: readonly WorkspaceSourceFile[];
 }
 
-export function assertWorkspaceTypeScriptProjectGenerationEvidence(
-  evidence: WorkspaceTypeScriptProjectGenerationEvidence
+export function assertTypeScriptProjectGenerationEvidence(
+  evidence: TypeScriptProjectGenerationEvidence
 ): void {
-  if (!issuedWorkspaceTypeScriptProjectGenerationEvidence.has(evidence)) {
+  if (!issuedTypeScriptProjectGenerationEvidence.has(evidence)) {
     throw new Error('TypeScript project generation evidence was not issued by the Source Program owner');
   }
-  assertWorkspaceTypeScriptProjectInput(evidence.projectInput);
+  assertTypeScriptProjectInput(evidence.projectInput);
 }
 
-export function assertWorkspaceTypeScriptProjectInput(
-  input: WorkspaceTypeScriptProjectInput
+export function assertTypeScriptProjectInput(
+  input: TypeScriptProjectInput
 ): void {
   if (!issuedWorkspaceTypeScriptProjectInputs.has(input)) {
     throw new Error('TypeScript ProjectInput was not issued by the Workspace Source Snapshot owner');
   }
 }
 
-export function assertWorkspaceTypeScriptProjectInputMatchesSnapshot(
-  input: WorkspaceTypeScriptProjectInput,
+export function assertTypeScriptProjectMatchesSnapshot(
+  input: TypeScriptProjectInput,
   snapshot: WorkspaceSourceSnapshot
 ): void {
-  assertWorkspaceTypeScriptProjectInput(input);
+  assertTypeScriptProjectInput(input);
   assertWorkspaceSourceSnapshot(snapshot);
   if (input.sourceRevision !== snapshot.sourceRevision
       || input.snapshotDigest !== snapshot.snapshotDigest
@@ -713,16 +706,16 @@ function parseTypeScriptProjectConfiguration(
     : parsed;
 }
 
-export function compileWorkspaceTypeScriptProjectInput(
+export function compileTypeScriptProjectInput(
   snapshot: WorkspaceSourceSnapshot,
   projectConfigPath: string,
   input: Readonly<{
     dependencyGeneration?: RetainedNoFollowProvenDirectoryGeneration;
     dependencyGenerationDigest?: `sha256:${string}`;
   }> = {}
-): WorkspaceTypeScriptProjectInput {
+): TypeScriptProjectInput {
   assertWorkspaceSourceSnapshot(snapshot);
-  const canonicalConfigPath = normalizeSecRepositoryPath(projectConfigPath);
+  const canonicalConfigPath = normalizeRepositoryModulePath(projectConfigPath);
   if (canonicalConfigPath !== projectConfigPath || canonicalConfigPath.length === 0) {
     throw new Error('TypeScript ProjectInput config path is not canonical');
   }
@@ -783,6 +776,18 @@ export function compileWorkspaceTypeScriptProjectInput(
     if (lexicalPath !== null) return lexicalPath;
     return dependencyFinalRoot === null ? null : pathInside(dependencyFinalRoot, fileName);
   };
+  const externalHostPathForRead = (fileName: string): string | null => {
+    const virtualDependencyPath = dependencyFileForAbsolute(fileName);
+    if (virtualDependencyPath !== null) return virtualDependencyPath;
+    if (dependencyPathForHostSource(fileName) !== null) return fileName;
+    return pathInside(defaultLibraryRoot, fileName) === null ? null : fileName;
+  };
+  const externalHostDirectoryForRead = (directoryName: string): string | null => {
+    const dependencyDirectory = dependencyFileForAbsolute(directoryName);
+    if (dependencyDirectory !== null) return dependencyDirectory;
+    if (dependencyPathForHostSource(directoryName) !== null) return directoryName;
+    return pathInside(defaultLibraryRoot, directoryName) === null ? null : directoryName;
+  };
   const parseHost: ts.ParseConfigHost = {
     useCaseSensitiveFileNames: true,
     fileExists: (fileName) => snapshotFileForAbsolute(fileName) !== null,
@@ -814,9 +819,9 @@ export function compileWorkspaceTypeScriptProjectInput(
   const host: ts.CompilerHost = {
     ...baseHost,
     directoryExists: (directoryName) => {
-      const dependencyDirectory = dependencyFileForAbsolute(directoryName);
-      if (dependencyDirectory !== null) {
-        return baseHost.directoryExists?.(dependencyDirectory) ?? false;
+      const externalDirectory = externalHostDirectoryForRead(directoryName);
+      if (externalDirectory !== null) {
+        return baseHost.directoryExists?.(externalDirectory) ?? false;
       }
       const repositoryPath = pathInside(virtualRoot, directoryName);
       if (repositoryPath !== null) {
@@ -824,12 +829,12 @@ export function compileWorkspaceTypeScriptProjectInput(
           repositoryPath === '' || sourcePath.startsWith(`${repositoryPath}/`)
         ));
       }
-      return baseHost.directoryExists?.(directoryName) ?? false;
+      return false;
     },
     fileExists: (fileName) => {
       if (snapshotFileForAbsolute(fileName) !== null) return true;
-      const dependencyFile = dependencyFileForAbsolute(fileName);
-      return baseHost.fileExists(dependencyFile ?? fileName);
+      const externalFile = externalHostPathForRead(fileName);
+      return externalFile === null ? false : baseHost.fileExists(externalFile);
     },
     getCurrentDirectory: () => virtualRoot,
     getSourceFile: (fileName, languageVersion, onError, shouldCreateNewSourceFile) => {
@@ -843,17 +848,18 @@ export function compileWorkspaceTypeScriptProjectInput(
           typeScriptScriptKind(source.path)
         );
       }
-      const dependencyFile = dependencyFileForAbsolute(fileName);
+      const dependencyPath = dependencyPathForHostSource(fileName);
+      const externalFile = externalHostPathForRead(fileName);
+      if (externalFile === null) return undefined;
       const externalSource = baseHost.getSourceFile(
-        dependencyFile ?? fileName,
+        externalFile,
         languageVersion,
         onError,
         shouldCreateNewSourceFile
       );
-      if (externalSource === undefined || externalSource.fileName === fileName) {
+      if (externalSource === undefined || dependencyPath === null) {
         return externalSource;
       }
-      const dependencyPath = dependencyPathForHostSource(dependencyFile ?? fileName);
       const resolvedExternalPath = dependencyPathForHostSource(externalSource.fileName);
       if (dependencyPath !== null && resolvedExternalPath !== dependencyPath) {
         throw new Error(
@@ -863,7 +869,7 @@ export function compileWorkspaceTypeScriptProjectInput(
       if (dependencyPath !== null) {
         rememberDependencyHostResolution(
           dependencyPath,
-          dependencyFile,
+          externalFile,
           externalSource.fileName
         );
       }
@@ -897,19 +903,31 @@ export function compileWorkspaceTypeScriptProjectInput(
           depth
         );
       }
-      return baseHost.readDirectory?.(rootDir, extensions, excludes, includes, depth) ?? [];
+      const externalDirectory = externalHostDirectoryForRead(rootDir);
+      return externalDirectory === null
+        ? []
+        : (baseHost.readDirectory?.(
+            externalDirectory,
+            extensions,
+            excludes,
+            includes,
+            depth
+          ) ?? []);
     },
     readFile: (fileName) => {
       const source = snapshotFileForAbsolute(fileName)?.source;
       if (source !== undefined) return source;
-      return baseHost.readFile(dependencyFileForAbsolute(fileName) ?? fileName);
+      const externalFile = externalHostPathForRead(fileName);
+      return externalFile === null ? undefined : baseHost.readFile(externalFile);
     },
     realpath: (fileName) => {
       const dependencyFile = dependencyFileForAbsolute(fileName);
       if (dependencyFile !== null) return fileName;
-      return pathInside(virtualRoot, fileName) === null
-        ? (baseHost.realpath?.(fileName) ?? fileName)
-        : fileName;
+      if (pathInside(virtualRoot, fileName) !== null
+          || dependencyPathForHostSource(fileName) !== null) return fileName;
+      return pathInside(defaultLibraryRoot, fileName) === null
+        ? fileName
+        : (baseHost.realpath?.(fileName) ?? fileName);
     }
   };
   const program = ts.createProgram({
@@ -1042,7 +1060,7 @@ export function compileWorkspaceTypeScriptProjectInput(
     orderedSourceFactsDigest
   });
   const projectInputDigest = sha256(semanticInput) as `sha256:${string}`;
-  const projectInput: WorkspaceTypeScriptProjectInput = Object.freeze({
+  const projectInput: TypeScriptProjectInput = Object.freeze({
     [workspaceTypeScriptProjectInputBrand]: true as const,
     ...observation,
     projectConfigPath,
@@ -1063,12 +1081,12 @@ export function compileWorkspaceTypeScriptProjectInput(
   return projectInput;
 }
 
-export function issueWorkspaceTypeScriptProjectGenerationEvidence(
+export function issueTypeScriptProjectGenerationEvidence(
   snapshot: PhysicalWorkspaceSourceSnapshot,
-  projectInput: WorkspaceTypeScriptProjectInput
-): WorkspaceTypeScriptProjectGenerationEvidence {
+  projectInput: TypeScriptProjectInput
+): TypeScriptProjectGenerationEvidence {
   assertPhysicalWorkspaceSourceSnapshot(snapshot);
-  assertWorkspaceTypeScriptProjectInputMatchesSnapshot(projectInput, snapshot);
+  assertTypeScriptProjectMatchesSnapshot(projectInput, snapshot);
   if (snapshot.subject.provenance.kind !== 'working-tree-observation') {
     throw new Error('TypeScript project generation requires one retained working-tree observation');
   }
@@ -1084,13 +1102,13 @@ export function issueWorkspaceTypeScriptProjectGenerationEvidence(
     }
     return file;
   }));
-  const evidence: WorkspaceTypeScriptProjectGenerationEvidence = Object.freeze({
-    [workspaceTypeScriptProjectGenerationEvidenceBrand]: true as const,
+  const evidence: TypeScriptProjectGenerationEvidence = Object.freeze({
+    [typeScriptProjectGenerationEvidenceBrand]: true as const,
     generationDigest,
     projectInput,
     sourceFiles
   });
-  issuedWorkspaceTypeScriptProjectGenerationEvidence.add(evidence);
+  issuedTypeScriptProjectGenerationEvidence.add(evidence);
   return evidence;
 }
 
@@ -1156,7 +1174,7 @@ function canonicalFiles(
   files: readonly (SourceProgramFileInput & Readonly<{ mode?: WorkspaceSourceFileMode }>)[]
 ): readonly WorkspaceSourceFile[] {
   const canonical = files.map((file) => {
-    const repositoryPath = normalizeSecRepositoryPath(file.path);
+    const repositoryPath = normalizeRepositoryModulePath(file.path);
     if (repositoryPath !== file.path || repositoryPath.length === 0) {
       throw new Error(`Workspace source snapshot path is not canonical: ${file.path}`);
     }
@@ -1198,7 +1216,7 @@ export function compileWorkspaceSourceRevision(
 
 function membershipDigest(
   files: readonly SourceProgramFileInput[],
-  membership: SecRepositoryModuleMembership
+  membership: RepositoryModuleMembership
 ): `sha256:${string}` {
   return sha256({
     graphRoots: [...membership.graphRoots].sort(compareCodeUnits),
@@ -1207,7 +1225,7 @@ function membershipDigest(
   }) as `sha256:${string}`;
 }
 
-function graphDigest(graph: SecRepositoryModuleGraph): `sha256:${string}` {
+function graphDigest(graph: RepositoryModuleGraph): `sha256:${string}` {
   return sha256({
     files: graph.files,
     references: graph.references,
@@ -1215,7 +1233,7 @@ function graphDigest(graph: SecRepositoryModuleGraph): `sha256:${string}` {
   }) as `sha256:${string}`;
 }
 
-function emptyModuleMembership(): SecRepositoryModuleMembership {
+function emptyModuleMembership(): RepositoryModuleMembership {
   return Object.freeze({
     descriptors: Object.freeze([]),
     graphRoots: Object.freeze([]),
@@ -1238,14 +1256,14 @@ function issueWorkspaceSourceSnapshot(
   const sourceByPath = new Map(files.map((file) => [file.path, file] as const));
   const subjectDigest = sha256(subject) as `sha256:${string}`;
   let semanticProjection: Readonly<{
-    moduleGraph: SecRepositoryModuleGraph;
+    moduleGraph: RepositoryModuleGraph;
     moduleGraphDigest: `sha256:${string}`;
     snapshotDigest: `sha256:${string}`;
     identityDigest: `sha256:${string}`;
   }> | null = null;
   const requireSemanticProjection = () => {
     if (semanticProjection !== null) return semanticProjection;
-    const moduleGraph = compileSecRepositoryModuleGraph({
+    const moduleGraph = compileRepositoryModuleGraph({
       files: files.filter(({ path }) => isSourceProgramInputPath(path)).map(({ path }) => path),
       readSource: (repositoryPath) => sourceByPath.get(repositoryPath)?.source ?? null,
       readImports: (repositoryPath, source) => sourceProgramModuleImports(repositoryPath, source)
@@ -1309,8 +1327,8 @@ function issueWorkspaceSourceSnapshot(
 }
 
 /** Pure, explicitly unbound input for virtual reductions and synthetic tests. */
-export function compileVirtualWorkspaceSourceSnapshot(
-  input: CompileVirtualWorkspaceSourceSnapshotInput
+export function compileVirtualSnapshot(
+  input: CompileVirtualSnapshotInput
 ): VirtualWorkspaceSourceSnapshot {
   return issueWorkspaceSourceSnapshot({
     subject: input.subject,
@@ -1397,7 +1415,7 @@ function nulSeparatedRepositoryPaths(bytes: Uint8Array, label: string): readonly
   }
   const paths = source.length === 0 ? [] : source.slice(0, -1).split('\0');
   const canonical = paths.map((repositoryPath) => {
-    const normalized = normalizeSecRepositoryPath(repositoryPath);
+    const normalized = normalizeRepositoryModulePath(repositoryPath);
     if (normalized !== repositoryPath || normalized.length === 0) {
       throw new Error(`${label} path is not canonical: ${repositoryPath}`);
     }
@@ -1524,7 +1542,7 @@ function nulSeparatedRepositoryPathsWithIndexMetadata(
     if (match === null || match[3] !== '0') {
       throw new Error('Staged index membership contains a noncanonical or unmerged entry');
     }
-    const repositoryPath = normalizeSecRepositoryPath(match[4]!);
+    const repositoryPath = normalizeRepositoryModulePath(match[4]!);
     if (repositoryPath.length === 0 || repositoryPath !== match[4]) {
       throw new Error(`Staged index path is not canonical: ${match[4]}`);
     }
@@ -1609,13 +1627,13 @@ async function observeWorkingTreeMembership(
     .map((record): WorkingTreeMembershipEntry => {
       const match = /^([0-7]{6}) [0-9a-f]{40,64} 0\t([\s\S]+)$/u.exec(record);
       if (match === null) {
-        const repositoryPath = normalizeSecRepositoryPath(record);
+        const repositoryPath = normalizeRepositoryModulePath(record);
         if (repositoryPath !== record || repositoryPath.length === 0) {
           throw new Error(`Workspace untracked membership path is not canonical: ${record}`);
         }
         return Object.freeze({ path: repositoryPath, mode: null });
       }
-      const repositoryPath = normalizeSecRepositoryPath(match[2]!);
+      const repositoryPath = normalizeRepositoryModulePath(match[2]!);
       if (repositoryPath !== match[2] || repositoryPath.length === 0) {
         throw new Error(`Workspace tracked membership path is not canonical: ${match[2]}`);
       }
@@ -1647,8 +1665,8 @@ async function observeWorkingTreeMembership(
  * identity are derived inside the live production Git session; callers cannot
  * report paths, bytes, membership or a working-tree identity.
  */
-export async function acquireWorkingTreeWorkspaceSourceSnapshot(
-  input: AcquireWorkingTreeWorkspaceSourceSnapshotInput
+export async function acquireWorkingTreeSnapshot(
+  input: AcquireWorkingTreeSnapshotInput
 ): Promise<PhysicalWorkspaceSourceSnapshot> {
   assertProductionGitReadSession(input.session);
   const session = input.session;
@@ -1663,7 +1681,7 @@ export async function acquireWorkingTreeWorkspaceSourceSnapshot(
   ));
   const admittedEntries = await mapTaskGroup(sourceMembershipEntries, async (membershipEntry) => {
     const repositoryPath = membershipEntry.path;
-    const canonicalPath = normalizeSecRepositoryPath(repositoryPath);
+    const canonicalPath = normalizeRepositoryModulePath(repositoryPath);
     if (canonicalPath !== repositoryPath || canonicalPath.length === 0) {
       throw new Error(`Workspace source membership path is not canonical: ${repositoryPath}`);
     }
@@ -1715,11 +1733,11 @@ export async function acquireWorkingTreeWorkspaceSourceSnapshot(
   const files = observedEntries.map(({ file }) => file);
   const physicalFileObservations = observedEntries.map(({ physical }) => physical);
   const descriptorSources = files
-    .filter(({ path: repositoryPath }) => repositoryPath.endsWith('/sec.module.json'))
+    .filter(({ path: repositoryPath }) => repositoryPath.endsWith('/module.json'))
     .map(({ path: descriptorPath, source }) => ({ descriptorPath, source }));
   const moduleMembership = descriptorSources.length === 0
     ? emptyModuleMembership()
-    : compileSecRepositoryModuleMembershipSnapshot({
+    : compileRepositoryModuleMembershipSnapshot({
         repositoryFiles: files.map(({ path: repositoryPath }) => repositoryPath),
         descriptorSources
       });
@@ -1747,8 +1765,8 @@ export async function acquireWorkingTreeWorkspaceSourceSnapshot(
  * The same production GitRead session owns repository/index discovery,
  * membership, immutable blob reads, resource accounting and terminal readback.
  */
-export async function acquireStagedIndexWorkspaceSourceSnapshot(
-  input: AcquireStagedIndexWorkspaceSourceSnapshotInput
+export async function acquireStagedIndexSnapshot(
+  input: AcquireStagedIndexSnapshotInput
 ): Promise<PhysicalWorkspaceSourceSnapshot> {
   assertProductionGitReadSession(input.session);
   const session = input.session;
@@ -1788,11 +1806,11 @@ export async function acquireStagedIndexWorkspaceSourceSnapshot(
     throw new Error('Staged workspace source snapshot exceeds its aggregate byte ceiling');
   }
   const descriptorSources = files
-    .filter(({ path: repositoryPath }) => repositoryPath.endsWith('/sec.module.json'))
+    .filter(({ path: repositoryPath }) => repositoryPath.endsWith('/module.json'))
     .map(({ path: descriptorPath, source }) => ({ descriptorPath, source }));
   const moduleMembership = descriptorSources.length === 0
     ? emptyModuleMembership()
-    : compileSecRepositoryModuleMembershipSnapshot({
+    : compileRepositoryModuleMembershipSnapshot({
         repositoryFiles: before.entries.map(({ path: repositoryPath }) => repositoryPath),
         descriptorSources
       });
@@ -1817,7 +1835,7 @@ export async function acquireStagedIndexWorkspaceSourceSnapshot(
 }
 
 /** Exact post-observation fence for a still-live staged snapshot/session pair. */
-export async function readBackStagedIndexWorkspaceSourceSnapshot(
+export async function readBackStagedIndexSnapshot(
   snapshot: PhysicalWorkspaceSourceSnapshot,
   session: GitReadSession
 ): Promise<`sha256:${string}`> {
@@ -1849,11 +1867,11 @@ export async function readBackStagedIndexWorkspaceSourceSnapshot(
  * and staged snapshot. Callers may provide an exact base identity, but never a
  * path list; the Git index diff remains the sole selection authority.
  */
-export async function selectStagedWorkspaceSourceSnapshot(input: Readonly<{
+export async function selectStagedSnapshot(input: Readonly<{
   snapshot: PhysicalWorkspaceSourceSnapshot;
   session: GitReadSession;
   candidateBase?: string;
-}>): Promise<StagedWorkspaceSourceSelection> {
+}>): Promise<StagedSourceSelection> {
   assertPhysicalWorkspaceSourceSnapshot(input.snapshot);
   assertProductionGitReadSession(input.session);
   const provenance = input.snapshot.subject.provenance;
@@ -1886,7 +1904,7 @@ export async function selectStagedWorkspaceSourceSnapshot(input: Readonly<{
   if (input.session.consumeRecords(selectedPaths.length) !== null) {
     throw new Error('Staged candidate import surface exceeded the Git session record budget');
   }
-  await readBackStagedIndexWorkspaceSourceSnapshot(input.snapshot, input.session);
+  await readBackStagedIndexSnapshot(input.snapshot, input.session);
   const unsigned = Object.freeze({
     candidateBase,
     snapshotSubjectDigest: input.snapshot.subjectDigest,
@@ -1901,10 +1919,10 @@ export async function selectStagedWorkspaceSourceSnapshot(input: Readonly<{
   return selection;
 }
 
-export function requireStagedWorkspaceSourceSelection(
-  selection: StagedWorkspaceSourceSelection,
+export function requireStagedSourceSelection(
+  selection: StagedSourceSelection,
   snapshot: PhysicalWorkspaceSourceSnapshot
-): StagedWorkspaceSourceSelection {
+): StagedSourceSelection {
   if (!issuedStagedWorkspaceSourceSelections.has(selection)) {
     throw new Error('Staged workspace source selection is not owner-issued');
   }
@@ -1928,8 +1946,8 @@ export function requireStagedWorkspaceSourceSelection(
  */
 function issueExactGitTreeWorkspaceSourceSnapshot(input: Readonly<{
   commitSha: string;
-  treeEntries: readonly CodexDevelopmentExactGitTreeEntry[];
-  sourceBlobs: readonly CodexDevelopmentExactGitTextBlob[];
+  treeEntries: readonly ExactGitTreeEntry[];
+  sourceBlobs: readonly ExactGitTextBlob[];
 }>): PhysicalWorkspaceSourceSnapshot {
   const { treeEntries, sourceBlobs } = input;
   const ordinaryEntries = treeEntries.filter(({ mode, type }) => (
@@ -1937,7 +1955,7 @@ function issueExactGitTreeWorkspaceSourceSnapshot(input: Readonly<{
   ));
   const unsafeDescriptor = treeEntries.find(({ repositoryPath, mode, type }) => (
     isSourceProgramInputPath(repositoryPath)
-      && repositoryPath.endsWith('/sec.module.json')
+      && repositoryPath.endsWith('/module.json')
       && ((mode !== '100644' && mode !== '100755') || type !== 'blob')
   ));
   if (unsafeDescriptor !== undefined) {
@@ -1959,7 +1977,7 @@ function issueExactGitTreeWorkspaceSourceSnapshot(input: Readonly<{
   const sourceByPath = new Map(sourceBlobs.map(({ repositoryPath, source }) => [repositoryPath, source]));
   const sourceEntryByPath = new Map(sourceEntries.map((entry) => [entry.repositoryPath, entry]));
   const descriptorSources = sourceEntries
-    .filter(({ repositoryPath }) => repositoryPath.endsWith('/sec.module.json'))
+    .filter(({ repositoryPath }) => repositoryPath.endsWith('/module.json'))
     .map(({ repositoryPath: descriptorPath }) => ({
       descriptorPath,
       source: sourceByPath.get(descriptorPath)!
@@ -1969,7 +1987,7 @@ function issueExactGitTreeWorkspaceSourceSnapshot(input: Readonly<{
   }
   const moduleMembership = descriptorSources.length === 0
     ? emptyModuleMembership()
-    : compileSecRepositoryModuleMembershipSnapshot({
+    : compileRepositoryModuleMembershipSnapshot({
         repositoryFiles: sourceEntries.map(({ repositoryPath }) => repositoryPath),
         descriptorSources
       });
@@ -2000,33 +2018,11 @@ function issueExactGitTreeWorkspaceSourceSnapshot(input: Readonly<{
   }) as PhysicalWorkspaceSourceSnapshot;
 }
 
-export function acquireExactGitTreeWorkspaceSourceSnapshot(
-  input: AcquireExactGitTreeWorkspaceSourceSnapshotInput
-): PhysicalWorkspaceSourceSnapshot {
-  const treeEntries = CodexDevelopmentListExactGitTreeEntries({
-    repositoryRoot: input.repositoryRoot,
-    commitSha: input.commitSha
-  });
-  const sourceEntries = treeEntries.filter(({ repositoryPath, mode, type }) => (
-    isSourceProgramInputPath(repositoryPath)
-      && (mode === '100644' || mode === '100755')
-      && type === 'blob'
-  ));
-  return issueExactGitTreeWorkspaceSourceSnapshot({
-    commitSha: input.commitSha,
-    treeEntries,
-    sourceBlobs: CodexDevelopmentReadExactGitTextBlobsBatch({
-      repositoryRoot: input.repositoryRoot,
-      entries: sourceEntries
-    })
-  });
-}
-
-export async function acquireExactGitTreeWorkspaceSourceSnapshotFromSession(
-  input: AcquireExactGitTreeWorkspaceSourceSnapshotFromSessionInput
+export async function acquireExactGitTreeSnapshot(
+  input: AcquireExactGitTreeSnapshotInput
 ): Promise<PhysicalWorkspaceSourceSnapshot> {
   assertProductionGitReadSession(input.session);
-  const treeEntries = await CodexDevelopmentListExactGitTreeEntriesFromSession(
+  const treeEntries = await ListExactGitTreeEntriesFromSession(
     input.session,
     input.commitSha
   );
@@ -2038,7 +2034,7 @@ export async function acquireExactGitTreeWorkspaceSourceSnapshotFromSession(
   return issueExactGitTreeWorkspaceSourceSnapshot({
     commitSha: input.commitSha,
     treeEntries,
-    sourceBlobs: await CodexDevelopmentReadExactGitTextBlobsBatchFromSession(
+    sourceBlobs: await ReadExactGitTextBlobsBatchFromSession(
       input.session,
       { entries: sourceEntries, maxTotalBytes: SOURCE_SNAPSHOT_MAX_TOTAL_BYTES }
     )

@@ -21,7 +21,7 @@ import { createSha256Hasher, type Digest } from './digest.ts';
  * - `uniqueSortedByKey` deduplicates by key (matching its `unique` prefix).
  */
 
-export function digest(value: string | Uint8Array): string {
+export function rawSha256Hex(value: string | Uint8Array): string {
   return rawSha256(value).slice('sha256:'.length);
 }
 
