@@ -72,7 +72,8 @@ test('hosted maintenance binds event, repository, ref, checkout and workflow rev
     operations: [{ kind: 'closed-pr-retirement', pullRequestNumber: 631, reviewCommentId: null }]
   })));
   const environment = {
-    GITHUB_EVENT_NAME: 'workflow_dispatch',
+    GITHUB_EVENT_NAME: 'repository_dispatch',
+    SEC_MAINTENANCE_EVENT_TYPE: 'sec-repository-maintenance-v1',
     GITHUB_REPOSITORY: 'sec-platform/sec',
     GITHUB_REF: 'refs/heads/main',
     GITHUB_SHA: MAIN,
@@ -110,7 +111,9 @@ test('hosted input binds the complete canonical request and never repairs digest
   // not an expected digest produced by the request decoder under test.
   const source = `{"expectedMainSha":"${MAIN}","operations":[{"kind":"closed-pr-retirement","pullRequestNumber":631,"reviewCommentId":null}],"repository":"sec-platform/sec","schema":"sec-repository-maintenance-request-v1"}`;
   const environment = {
-    GITHUB_EVENT_NAME: 'workflow_dispatch', GITHUB_REPOSITORY: 'sec-platform/sec', GITHUB_REF: 'refs/heads/main',
+    GITHUB_EVENT_NAME: 'repository_dispatch',
+    SEC_MAINTENANCE_EVENT_TYPE: 'sec-repository-maintenance-v1',
+    GITHUB_REPOSITORY: 'sec-platform/sec', GITHUB_REF: 'refs/heads/main',
     GITHUB_SHA: MAIN, GITHUB_WORKFLOW_SHA: MAIN,
     GITHUB_WORKFLOW_REF: 'sec-platform/sec/.github/workflows/repository-maintenance.yml@refs/heads/main',
     SEC_MAINTENANCE_REQUEST_JSON: source,

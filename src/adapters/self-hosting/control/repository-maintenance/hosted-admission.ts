@@ -8,13 +8,14 @@ export function assertHostedRepositoryMaintenanceIdentity(
   environment: NodeJS.ProcessEnv
 ): void {
   const expectedWorkflow = `${plan.repository}/.github/workflows/repository-maintenance.yml@refs/heads/main`;
-  if (environment.GITHUB_EVENT_NAME !== 'workflow_dispatch'
+  if (environment.GITHUB_EVENT_NAME !== 'repository_dispatch'
+      || environment.SEC_MAINTENANCE_EVENT_TYPE !== 'sec-repository-maintenance-v1'
       || environment.GITHUB_REPOSITORY !== plan.repository
       || environment.GITHUB_REF !== 'refs/heads/main'
       || environment.GITHUB_SHA !== plan.expectedMainSha
       || environment.GITHUB_WORKFLOW_SHA !== plan.expectedMainSha
       || environment.GITHUB_WORKFLOW_REF !== expectedWorkflow) {
-    throw new Error('repository maintenance must execute from the exact current main workflow_dispatch identity');
+    throw new Error('repository maintenance must execute from the exact current main repository_dispatch identity');
   }
 }
 
