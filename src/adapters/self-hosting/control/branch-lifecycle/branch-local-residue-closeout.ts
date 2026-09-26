@@ -1494,8 +1494,7 @@ export async function executeMergedLocalBranchResidueCloseout(input: Readonly<{
     worktreeRoots: parseWorktreeRoots(initialWorktrees),
     ...(input.recoveryRoot === undefined ? {} : { recoveryRoot: input.recoveryRoot })
   });
-  const retireRecoveryRoot = (input.recoveryRoot === undefined
-    && process.env.SEC_BRANCH_RECOVERY_ROOT === undefined)
+  const retireRecoveryRoot = input.recoveryRoot === undefined
     || store.createdByAcquisition;
   const mergeWorktreeEvidenceGc = (
     initial: WorktreePhysicalCloseoutEvidenceGcResult,
