@@ -1,5 +1,5 @@
 name: repository-maintenance
-run-name: 'retire audited repository refs from lifecycle issue #${{ github.event.issue.number }}'
+run-name: 'execute audited repository maintenance from lifecycle issue #${{ github.event.issue.number }}'
 
 on:
   issue_comment:
@@ -8,7 +8,7 @@ on:
 
 permissions:
   contents: write
-  issues: read
+  issues: write
   pull-requests: read
 
 concurrency:
@@ -47,6 +47,7 @@ jobs:
         run: bun install --frozen-lockfile --ignore-scripts
 
       - name: Execute exact repository maintenance request
+        shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
           SEC_MAINTENANCE_REQUEST_JSON: ${{ github.event.comment.body }}
@@ -54,24 +55,46 @@ jobs:
           SEC_MAINTENANCE_COMMENT_ID: ${{ github.event.comment.id }}
           SEC_MAINTENANCE_COMMENT_AUTHOR: ${{ github.event.comment.user.login }}
           SEC_MAINTENANCE_AUTHOR_ASSOCIATION: ${{ github.event.comment.author_association }}
-        run: bun src/adapters/self-hosting/control/repository-maintenance/repository-maintenance.ts --json
+        run: |
+          set -euo pipefail
+          printf '%s\n' "$SEC_MAINTENANCE_REQUEST_JSON" > "$RUNNER_TEMP/sec-repository-maintenance-request.json"
+          bun src/adapters/self-hosting/control/repository-maintenance/repository-maintenance.ts --json \
+            | tee "$RUNNER_TEMP/sec-repository-maintenance-result.json"
 
-      - name: Stage exact ref recovery
+      - name: Stage repository maintenance receipt
         if: always()
         shell: bash
         run: |
           recovery_root="$(dirname "$GITHUB_WORKSPACE")/sec-recovery"
-          artifact_root="$RUNNER_TEMP/sec-repository-maintenance-recovery"
+          artifact_root="$RUNNER_TEMP/sec-repository-maintenance-receipt"
+          mkdir -p -- "$artifact_root"
           if [[ -d "$recovery_root" ]]; then
-            mkdir -p -- "$artifact_root"
             cp -a -- "$recovery_root/." "$artifact_root/"
           fi
+          for receipt in \
+            "$RUNNER_TEMP/sec-repository-maintenance-request.json" \
+            "$RUNNER_TEMP/sec-repository-maintenance-result.json"; do
+            if [[ -f "$receipt" ]]; then
+              cp -- "$receipt" "$artifact_root/"
+            fi
+          done
 
-      - name: Upload exact ref recovery
+      - name: Upload repository maintenance receipt
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: sec-repository-maintenance-recovery-${{ github.run_id }}-${{ github.run_attempt }}
-          path: ${{ runner.temp }}/sec-repository-maintenance-recovery
-          if-no-files-found: ignore
-          retention-days: 90
+          name: sec-repository-maintenance-receipt-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/sec-repository-maintenance-receipt
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Retire maintenance trigger comment
+        if: success()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SEC_MAINTENANCE_REQUEST_JSON: ${{ github.event.comment.body }}
+          SEC_MAINTENANCE_ISSUE_NUMBER: ${{ github.event.issue.number }}
+          SEC_MAINTENANCE_COMMENT_ID: ${{ github.event.comment.id }}
+          SEC_MAINTENANCE_COMMENT_AUTHOR: ${{ github.event.comment.user.login }}
+          SEC_MAINTENANCE_AUTHOR_ASSOCIATION: ${{ github.event.comment.author_association }}
+        run: bun src/adapters/self-hosting/control/repository-maintenance/repository-maintenance.ts retire-trigger

@@ -122,6 +122,7 @@ export type GitHubApiOperation =
   | Readonly<{ kind: 'issue-comments'; issueNumber: number; page: number }>
   | Readonly<{ kind: 'issue-comment'; commentId: number }>
   | Readonly<{ kind: 'update-issue-comment'; commentId: number; body: string }>
+  | Readonly<{ kind: 'delete-issue-comment'; commentId: number }>
   | Readonly<{ kind: 'create-issue-comment'; issueNumber: number; body: string }>
   | Readonly<{ kind: 'open-pulls'; baseBranch: string }>
   | Readonly<{ kind: 'open-pulls-page'; page: number }>
@@ -281,7 +282,8 @@ function compileOperation(
       && kind !== 'issue-comments'
       && kind !== 'issue-comment'
       && kind !== 'create-issue-comment'
-      && kind !== 'update-issue-comment') {
+      && kind !== 'update-issue-comment'
+      && kind !== 'delete-issue-comment') {
     throw new GitHubApiProviderError(
       'GitHub API issue-comment-write authority permits only fixed comment observations and effects'
     );
@@ -329,6 +331,15 @@ function compileOperation(
         method: 'PATCH',
         path: `/repos/${repo}/issues/comments/${positiveInteger(operation.commentId, 'issue comment id')}`,
         body: Object.freeze({ body: boundedMultilineText(operation.body, 'issue comment body', 65_536) })
+      });
+    case 'delete-issue-comment':
+      if (effect !== 'issue-comment-write') {
+        throw new GitHubApiProviderError('GitHub API issue comment deletion requires issue-comment-write authority');
+      }
+      return Object.freeze({
+        kind,
+        method: 'DELETE',
+        path: `/repos/${repo}/issues/comments/${positiveInteger(operation.commentId, 'issue comment id')}`
       });
     case 'create-issue-comment':
       if (effect !== 'branch-closeout-write' && effect !== 'issue-comment-write') {
@@ -474,8 +485,10 @@ export function assertGitHubApiCapability(
   const workflowCommentPrincipal = requiredEffect === 'issue-comment-write'
     && value.principal.transport === 'github-actions-token'
     && value.principal.permission === 'workflow'
-    && value.principal.workflowRef
-      === `${repositoryName}/.github/workflows/code-scanning-projection.yml@refs/heads/main`;
+    && (value.principal.workflowRef
+        === `${repositoryName}/.github/workflows/code-scanning-projection.yml@refs/heads/main`
+      || value.principal.workflowRef
+        === `${repositoryName}/.github/workflows/repository-maintenance.yml@refs/heads/main`);
   const workflowBranchCloseoutPrincipal = requiredEffect === 'branch-closeout-write'
     && value.principal.transport === 'github-actions-token'
     && value.principal.permission === 'workflow'
@@ -563,7 +576,9 @@ function issueCapability(input: Readonly<{
     const maintenanceWorkflow = input.principal.workflowRef
       === `${input.repository}/.github/workflows/repository-maintenance.yml@refs/heads/main`;
     const projectionEffect = input.effect === 'read' || input.effect === 'issue-comment-write';
-    const maintenanceEffect = input.effect === 'read' || input.effect === 'branch-closeout-write';
+    const maintenanceEffect = input.effect === 'read'
+      || input.effect === 'branch-closeout-write'
+      || input.effect === 'issue-comment-write';
     if ((!projectionWorkflow || !projectionEffect)
         && (!maintenanceWorkflow || !maintenanceEffect)) {
       throw new GitHubApiProviderError(
@@ -726,7 +741,8 @@ async function executeWithToken<T>(
       if (response.body === null) {
         remaining(session);
         if (response.status === 204 && response.ok && compiled.method === 'DELETE'
-            && compiled.kind === 'delete-repository-runner') return null as T;
+            && (compiled.kind === 'delete-repository-runner'
+              || compiled.kind === 'delete-issue-comment')) return null as T;
         if (response.status === 204) throw new GitHubApiProviderError(
           `GitHub API ${compiled.kind} returned an invalid 204 response`, response.status
         );
@@ -970,9 +986,11 @@ async function enroll(input: Readonly<{
       );
     }
     if (maintenanceWorkflowIdentity !== null
-        && input.effect !== 'read' && input.effect !== 'branch-closeout-write') {
+        && input.effect !== 'read'
+        && input.effect !== 'branch-closeout-write'
+        && input.effect !== 'issue-comment-write') {
       throw new GitHubApiProviderError(
-        'GitHub Actions repository-maintenance credential permits only read and branch-closeout-write'
+        'GitHub Actions repository-maintenance credential permits only read, branch-closeout-write, and issue-comment-write'
       );
     }
     const repositoryValue = await executeWithToken<unknown>(
