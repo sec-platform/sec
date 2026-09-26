@@ -14,13 +14,14 @@ import {
 } from './exact-ref-retirement-contract.ts';
 import { createRecoveryBundle } from './branch-recovery.ts';
 
-const MAX_OPEN_PULL_PAGES = 20;
+const MAX_OPEN_PULL_PAGES = 2;
 const OPEN_PULLS_PER_PAGE = 100;
 
 type OpenPull = Readonly<{
   number: number;
   headBranch: string;
   headSha: string;
+  headRepository: string | null;
   baseBranch: string;
 }>;
 
@@ -40,22 +41,31 @@ function repositoryFullName(value: unknown, label: string): string {
   return repo.full_name;
 }
 
+function optionalRepositoryFullName(value: unknown, label: string): string | null {
+  if (value === null) return null;
+  return repositoryFullName(value, label);
+}
+
 function parseOpenPull(value: unknown, repository: string): OpenPull {
   const pull = record(value, 'open pull request');
   const head = record(pull.head, 'open pull request head');
   const base = record(pull.base, 'open pull request base');
+  const headRepository = optionalRepositoryFullName(
+    head.repo,
+    'open pull request head repository'
+  );
   if (!Number.isSafeInteger(pull.number) || Number(pull.number) < 1
       || pull.state !== 'open'
       || typeof head.ref !== 'string' || typeof base.ref !== 'string'
       || typeof head.sha !== 'string' || !/^[0-9a-f]{40}$/u.test(head.sha)
-      || repositoryFullName(head.repo, 'open pull request head repository') !== repository
       || repositoryFullName(base.repo, 'open pull request base repository') !== repository) {
-    throw new Error('open pull request response is not one same-repository exact identity');
+    throw new Error('open pull request response is not one exact identity');
   }
   return Object.freeze({
     number: Number(pull.number),
     headBranch: head.ref,
     headSha: head.sha,
+    headRepository,
     baseBranch: base.ref
   });
 }
@@ -79,11 +89,13 @@ async function observeOpenPulls(
 
 function assertNoOpenPullConsumer(
   pulls: readonly OpenPull[],
-  branches: readonly string[]
+  branches: readonly string[],
+  repository: string
 ): void {
   for (const branch of branches) {
     const consumer = pulls.find((pull) => (
-      pull.headBranch === branch || pull.baseBranch === branch
+      (pull.headRepository === repository && pull.headBranch === branch)
+      || pull.baseBranch === branch
     ));
     if (consumer !== undefined) {
       throw new Error(
@@ -187,7 +199,8 @@ async function observeRemoteState(input: Readonly<{
       await assertLiveMain(capability, input.defaultBranch, input.expectedMainSha);
       assertNoOpenPullConsumer(
         await observeOpenPulls(capability, input.repository),
-        input.request.branches
+        input.request.branches,
+        input.repository
       );
       if (input.request.classification === 'closed-pr-superseded') {
         await assertExactClosedPullRequest(capability, input.repository, input.request);
@@ -276,7 +289,8 @@ export async function retireExactRemoteRefs(input: Readonly<{
         await assertLiveMain(capability, before.repository.defaultBranch, input.expectedMainSha);
         assertNoOpenPullConsumer(
           await observeOpenPulls(capability, input.repository),
-          request.branches
+          request.branches,
+          input.repository
         );
         if (request.classification === 'closed-pr-superseded') {
           await assertExactClosedPullRequest(capability, input.repository, request);
