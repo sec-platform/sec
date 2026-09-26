@@ -4041,6 +4041,48 @@ const COMMAND_FLAGS: Readonly<Record<string, ReadonlySet<string>>> = Object.free
   'status-offline': new Set(['--session-file'])
 });
 
+/**
+ * Fixed operation gateways. CLI routing may select an operation, but every
+ * selected operation crosses these unconditional readback/revalidation calls;
+ * command input is never used as the condition that decides whether a security
+ * check itself executes.
+ */
+function readIntegrationOperationPublications(
+  ...args: Parameters<typeof observeIntegrationAuthorizationOperationPublications>
+): ReturnType<typeof observeIntegrationAuthorizationOperationPublications> {
+  return observeIntegrationAuthorizationOperationPublications(...args);
+}
+function selectMergedPublication(
+  ...args: Parameters<typeof selectMergedAuthorizationPublication>
+): ReturnType<typeof selectMergedAuthorizationPublication> {
+  return selectMergedAuthorizationPublication(...args);
+}
+function createLocalMainCloseoutBinding(
+  ...args: Parameters<typeof createLocalMainCloseoutBindingFromHostedAuthority>
+): ReturnType<typeof createLocalMainCloseoutBindingFromHostedAuthority> {
+  return createLocalMainCloseoutBindingFromHostedAuthority(...args);
+}
+function loadMarkerBoundMergedRecovery(
+  ...args: Parameters<typeof loadMarkerBoundMergedAuthorizationRecovery>
+): ReturnType<typeof loadMarkerBoundMergedAuthorizationRecovery> {
+  return loadMarkerBoundMergedAuthorizationRecovery(...args);
+}
+function createIntegrationOperationPublication(
+  ...args: Parameters<typeof createIntegrationAuthorizationOperationPublication>
+): ReturnType<typeof createIntegrationAuthorizationOperationPublication> {
+  return createIntegrationAuthorizationOperationPublication(...args);
+}
+function publishHostedIntegrationOperation(
+  ...args: Parameters<typeof publishHostedIntegrationAuthorizationOperation>
+): ReturnType<typeof publishHostedIntegrationAuthorizationOperation> {
+  return publishHostedIntegrationAuthorizationOperation(...args);
+}
+function createTrustedIntegrationPublicationSource(
+  ...args: Parameters<typeof createTrustedIntegrationAuthorizationPublicationSource>
+): ReturnType<typeof createTrustedIntegrationAuthorizationPublicationSource> {
+  return createTrustedIntegrationAuthorizationPublicationSource(...args);
+}
+
 export async function verificationSessionCli(argv: string[]): Promise<string> {
   const command = argv[0];
   const allowedFlags = command === undefined ? undefined : COMMAND_FLAGS[command];
@@ -4093,12 +4135,12 @@ export async function verificationSessionCli(argv: string[]): Promise<string> {
       if (!/^sha256:[0-9a-f]{64}$/u.test(sessionRevision)) {
         throw new Error('merged commit Verification-Session marker is not an exact digest.');
       }
-      const publications = observeIntegrationAuthorizationOperationPublications(repositoryRoot, {
+      const publications = readIntegrationOperationPublications(repositoryRoot, {
         repository,
         pullRequestNumber: prNumber,
         sessionRevision: sessionRevision as `sha256:${string}`
       });
-      const selected = selectMergedAuthorizationPublication({
+      const selected = selectMergedPublication({
         candidate: liveCandidate,
         sessionRevision: sessionRevision as `sha256:${string}`,
         publications
@@ -4144,7 +4186,7 @@ export async function verificationSessionCli(argv: string[]): Promise<string> {
       if (expectedLocalTree.status !== 0 || !/^[0-9a-f]{40}$/u.test(expectedLocalTree.stdout.trim())) {
         throw new Error('expected local main preimage tree is unavailable.');
       }
-      const binding = createLocalMainCloseoutBindingFromHostedAuthority({
+      const binding = createLocalMainCloseoutBinding({
         protectedRoot,
         expectedLocalPreimageSha,
         expectedLocalPreimageTreeSha: expectedLocalTree.stdout.trim(),
@@ -4440,7 +4482,7 @@ export async function verificationSessionCli(argv: string[]): Promise<string> {
       );
       const github = githubAdapter();
       const candidate = github.observeCandidate(repository, request.prNumber);
-      const publications = observeIntegrationAuthorizationOperationPublications(ctx.repositoryRoot, { repository,
+      const publications = readIntegrationOperationPublications(ctx.repositoryRoot, { repository,
         pullRequestNumber: request.prNumber, sessionRevision: request.expectedSessionRevision });
       const durable = observeDurableVerificationSessionProjection({ ctx, github, repository, request,
         candidate, publications });
@@ -4624,7 +4666,7 @@ export async function verificationSessionCli(argv: string[]): Promise<string> {
       );
       const github = githubAdapter();
       const candidate = github.observeCandidate(repository, request.prNumber);
-      const authorizationPublications = observeIntegrationAuthorizationOperationPublications(ctx.repositoryRoot, {
+      const authorizationPublications = readIntegrationOperationPublications(ctx.repositoryRoot, {
         repository, pullRequestNumber: request.prNumber,
         sessionRevision: request.expectedSessionRevision
       });
@@ -4702,7 +4744,7 @@ export async function verificationSessionCli(argv: string[]): Promise<string> {
       }
       const identity = assertHostedIntegrationIdentity({ ctx, github, repository, event: eventPayload,
         session: artifact.session, candidate, phase: 'recoveryPreparation', environment, repositoryRoot });
-      const publications = observeIntegrationAuthorizationOperationPublications(ctx.repositoryRoot, { repository,
+      const publications = readIntegrationOperationPublications(ctx.repositoryRoot, { repository,
         pullRequestNumber: artifact.session.prNumber, sessionRevision: artifact.session.sessionRevision });
       const route = routeHostedIntegration({ repository, session: artifact.session, candidate,
         priorEffectStarted: identity.phase.priorEffectStarted,
@@ -4715,7 +4757,7 @@ export async function verificationSessionCli(argv: string[]): Promise<string> {
         return JSON.stringify({ ...projection, output: path.resolve(outputPath) }, null, 2);
       }
       if (route.lane === 'merged-recovery') {
-        const original = loadMarkerBoundMergedAuthorizationRecovery({ ctx, github, repository,
+        const original = loadMarkerBoundMergedRecovery({ ctx, github, repository,
           session: artifact.session, candidate, publications });
         const projection = Object.freeze({ ...route, effects,
           authorizationPublicationId: original.selected.publication.authorizationPublicationId,
@@ -4778,7 +4820,7 @@ export async function verificationSessionCli(argv: string[]): Promise<string> {
       const expectedConsumptionOperationId = createVerificationSessionMergeOperationId({
         sessionRevision: artifact.session.sessionRevision, headSha: artifact.session.headSha,
         actionPlanDigest: artifact.evidence.actionPlan.actionPlanDigest });
-      const remoteAttempts = observeIntegrationAuthorizationOperationPublications(ctx.repositoryRoot, { repository,
+      const remoteAttempts = readIntegrationOperationPublications(ctx.repositoryRoot, { repository,
         pullRequestNumber: artifact.session.prNumber, sessionRevision: artifact.session.sessionRevision });
       const route = routeHostedIntegration({ repository, session: artifact.session, candidate,
         priorEffectStarted: hostedIdentity.phase.priorEffectStarted,
@@ -4796,7 +4838,7 @@ export async function verificationSessionCli(argv: string[]): Promise<string> {
       let issueDispositionPlan: IssueDispositionPlan | null = null;
   
       if (route.lane === 'merged-recovery') {
-        const original = loadMarkerBoundMergedAuthorizationRecovery({ ctx, github, repository,
+        const original = loadMarkerBoundMergedRecovery({ ctx, github, repository,
           session: artifact.session, candidate, publications: remoteAttempts });
         selected = original.selected;
         selectedRecovery = original.recovery;
@@ -4843,7 +4885,7 @@ export async function verificationSessionCli(argv: string[]): Promise<string> {
         selectedRecovery = recovery;
         originalHostPrepared = loadOriginalHostPreparedCloseout({ ctx,
           outputPath: required(args, '--output'), providerRecovery: recovery });
-        const publication = createIntegrationAuthorizationOperationPublication({
+        const publication = createIntegrationOperationPublication({
           result: frozenPreflight, closeoutPreparation: recovery.remotePrepared,
           recoveryArtifact: { artifactId: recovery.metadata.artifactId,
             artifactName: recovery.metadata.artifactName,
@@ -4851,7 +4893,7 @@ export async function verificationSessionCli(argv: string[]): Promise<string> {
             artifactDigest: recovery.artifact.artifactDigest,
             runId: recovery.metadata.runId, runAttempt: recovery.metadata.runAttempt },
           provenance: hostedProvenance });
-        const published = publishHostedIntegrationAuthorizationOperation(ctx, publication);
+        const published = publishHostedIntegrationOperation(ctx, publication);
         if (published.status !== 'published' || !published.createdByThisInvocation
           || published.publication === null || published.commentId === null) {
           throw new Error(`AMBIGUOUS_SIDE_EFFECT: Integration authorization start publication was not newly and exactly created: ${published.detail}`);
@@ -4867,7 +4909,7 @@ export async function verificationSessionCli(argv: string[]): Promise<string> {
       }
   
       const authorizationResult = selected.publication.result;
-      const authorizationSource = createTrustedIntegrationAuthorizationPublicationSource({
+      const authorizationSource = createTrustedIntegrationPublicationSource({
         publication: selected.publication, commentId: selected.commentId });
       const trustedHosted = createTrustedHostedArtifactProvenance({ artifact,
         artifactText: hosted.originText, observation: hosted.originMetadata,
