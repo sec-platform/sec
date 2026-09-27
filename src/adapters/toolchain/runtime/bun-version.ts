@@ -27,7 +27,7 @@ export interface CanonicalBunPackageRunnerObservation {
   readonly runtimeVersion: string | undefined;
 }
 
-export function assertCanonicalBunRuntimeVersion(
+function assertCanonicalBunRuntimeVersion(
   version: CanonicalBunRuntimeVersion,
   runtimeVersion: string | undefined = process.versions.bun
 ): void {

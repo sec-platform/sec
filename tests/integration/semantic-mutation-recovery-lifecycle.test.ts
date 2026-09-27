@@ -106,7 +106,7 @@ function authorization(stateId = 'item-status'): SemanticMutationAuthorizationCo
     allowedOperationKinds: ['add-state-transition'],
     allowedTargetEntityIds: [`state:item:${stateId}`],
     allowedSourceOwnerIds: ['semantic-contract-owner:item:item-core'],
-    allowedPathPrefixes: ['source/model/'],
+    allowedPathPrefixes: ['model/'],
     requiredPreconditions: [],
     requiredPostconditions: [],
     minimumVerification: []
@@ -122,14 +122,14 @@ async function createTemplate(
   await installPrivateBannerBlock(workspaceRoot);
   await addBlock(workspaceRoot, 'private/banner-basic');
   await resolveWorkspace(workspaceRoot);
-  const modelRoot = path.join(workspaceRoot, 'source', 'model');
+  const modelRoot = path.join(workspaceRoot, 'model');
   await mkdir(modelRoot, { recursive: true });
   await writeFile(path.join(modelRoot, 'item.yaml'), authoringSource, 'utf8');
   await writeFile(path.join(modelRoot, 'semantic-contracts.yaml'), [
     'formatRevision: authoring-semantic-contract-index-v1',
     'contracts:',
     '  - blockId: private/banner-basic',
-    '    path: source/model/item.yaml',
+    '    path: model/item.yaml',
     ''
   ].join('\n'), 'utf8');
 }
@@ -190,7 +190,7 @@ async function mutationInput(
   requestId: string,
   transition: MutationTransitionFixture = DEFAULT_MUTATION_TRANSITION
 ) {
-  const sourcePath = path.join(workspaceRoot, 'source', 'model', 'item.yaml');
+  const sourcePath = path.join(workspaceRoot, 'model', 'item.yaml');
   const beforeBundle = await buildWorkspaceSemanticBundle(workspaceRoot);
   const base = endpoint(beforeBundle.snapshot, 'tx:sm3-lifecycle-base');
   const operation = {
@@ -726,7 +726,7 @@ test('SM-3 real lifecycle covers CAS rejection/collision and prepared, rolled-ba
       frontendFailureWorkspace,
       'request:prepared-frontend-failure'
     );
-    await writeFile(path.join(frontendFailureWorkspace, 'source', 'app.yaml'), 'invalid: [\n', 'utf8');
+    await writeFile(path.join(frontendFailureWorkspace, 'sec.yaml'), 'invalid: [\n', 'utf8');
     const frontendRecovery = await recoverSemanticMutationWorkspace(frontendFailureWorkspace);
     expect(frontendRecovery.status).toBe('recovery-required');
     if (frontendRecovery.status !== 'recovery-required') throw new Error(JSON.stringify(frontendRecovery));
@@ -745,7 +745,7 @@ test('SM-3 real lifecycle covers CAS rejection/collision and prepared, rolled-ba
     );
     await rm(path.join(restoreValidation.transactionRoot, 'records', '000003-verified.json'));
     await writeFile(restoreValidation.sourcePath, restoreValidation.beforeBytes);
-    await writeFile(path.join(restoreValidationWorkspace, 'source', 'app.yaml'), 'invalid: [\n', 'utf8');
+    await writeFile(path.join(restoreValidationWorkspace, 'sec.yaml'), 'invalid: [\n', 'utf8');
     const restoreValidationRecovery = await recoverSemanticMutationWorkspace(restoreValidationWorkspace);
     expect(restoreValidationRecovery.status).toBe('recovery-required');
     if (restoreValidationRecovery.status !== 'recovery-required') {

@@ -25,6 +25,7 @@ import {
 } from '../../src/adapters/verification/platform/ci/runtime/ci-orchestration-core.ts';
 import { selectTestsForSources } from '../../src/adapters/verification/platform/test-impact/runtime/impact.ts';
 import { selectSlowTestRiskClosure } from '../../src/adapters/verification/platform/test-impact/slow-risk-selection.ts';
+import { ResourceCompositeSettlementError } from '../../src/execution/resource-settlement.ts';
 
 function git(repositoryRoot: string, args: readonly string[]): string {
   const result = spawnSync('git', [...args], {
@@ -149,8 +150,12 @@ test('GitRead phases share aggregate process budget and parent deadline', async 
     } catch (error) {
       outputFailure = error;
     }
-    expect(outputFailure).toBeInstanceOf(GitReadAuthorityError);
-    expect((outputFailure as GitReadAuthorityError).failure.reason)
+    expect(outputFailure).toBeInstanceOf(ResourceCompositeSettlementError);
+    const outputSettlement = outputFailure as ResourceCompositeSettlementError;
+    expect(outputSettlement.failures).toHaveLength(1);
+    expect(outputSettlement.failures[0]?.label).toBe('git-read-provider-terminal-failure');
+    expect(outputSettlement.failures[0]?.error).toBeInstanceOf(GitReadAuthorityError);
+    expect((outputSettlement.failures[0]?.error as GitReadAuthorityError).failure.reason)
       .toBe('stdout-budget-exhausted');
 
     let callbackReached = false;
@@ -222,7 +227,14 @@ test('GitRead phases share aggregate process budget and parent deadline', async 
     }
     expect(detachedPhaseSettled).toBe(true);
     expect(concurrentPhaseFailure).toBeInstanceOf(Error);
-    expect(observedFailure).toBe(outerFailure);
+    expect(observedFailure).toBeInstanceOf(ResourceCompositeSettlementError);
+    const phaseSettlement = observedFailure as ResourceCompositeSettlementError;
+    expect(phaseSettlement.failures.map(({ label }) => label))
+      .toEqual(['git-read-operation', 'git-read-active-phases']);
+    expect(phaseSettlement.failures[0]?.error).toBe(outerFailure);
+    expect(phaseSettlement.failures[1]?.error).toBeInstanceOf(Error);
+    expect((phaseSettlement.failures[1]?.error as Error).message)
+      .toBe('Git read operation phase requires one live non-reentrant owner-issued scope.');
   } finally {
     rmSync(repositoryRoot, { recursive: true, force: true });
   }

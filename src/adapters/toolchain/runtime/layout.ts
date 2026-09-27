@@ -239,6 +239,12 @@ export function resolveCompilerRuntimeLayout(
           sourceEntrypointRelativePath: binding.source
         });
       }
+      // The nearest package manifest owns this module's layout.  An unrelated
+      // ancestor package must not reinterpret a module outside its entrypoints.
+      return runtimeLayoutError('Unsupported SEC runtime module layout', {
+        executableModulePath,
+        packageRoot: candidateRoot
+      });
     }
     const parent = path.dirname(candidateRoot);
     if (parent === candidateRoot) break;

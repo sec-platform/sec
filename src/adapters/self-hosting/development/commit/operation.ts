@@ -13,6 +13,8 @@ import {
   type SecOperationDigest,
   type SecProviderSettlementSet
 } from '../../../../execution/operation/semantic.ts';
+import { withAcquiredResource } from '../../../../execution/resource-settlement.ts';
+import { assertWorkspaceWriteLease, withWorkspaceWriteLease } from '../../../filesystem/write-lease.ts';
 import { withAuthorityGitReadSession } from '../../../providers/git-read/authority.ts';
 import { assertGitHubRepositoryBinding } from '../../../providers/git-read/repository-binding.ts';
 import {
@@ -52,12 +54,16 @@ const MAXIMUM_JOURNAL_CENSUS_ENTRIES = 256;
 const MAXIMUM_JOURNAL_CENSUS_BYTES = MAXIMUM_JOURNAL_CENSUS_ENTRIES * MAXIMUM_JOURNAL_BYTES;
 const MAXIMUM_REF_JOURNALS = 12;
 const DEVELOPMENT_COMMIT_PROVIDER_ADMISSION_PROCESS_COUNT = 1;
+const DEVELOPMENT_COMMIT_COMMON_DIRECTORY_PROCESS_COUNT = 1;
 const DEVELOPMENT_COMMIT_READBACK_PROCESS_COUNT = 5;
 const DEVELOPMENT_COMMIT_MATERIALIZATION_PROCESS_COUNT = 2;
+const DEVELOPMENT_COMMIT_MATERIALIZATION_STDIN_WORKER_COUNT = 1;
 const DEVELOPMENT_COMMIT_REF_EFFECT_PROCESS_COUNT = 1;
 const DEVELOPMENT_COMMIT_EXECUTION_PROCESS_COUNT =
   DEVELOPMENT_COMMIT_PROVIDER_ADMISSION_PROCESS_COUNT + 2
+  + DEVELOPMENT_COMMIT_COMMON_DIRECTORY_PROCESS_COUNT
   + DEVELOPMENT_COMMIT_MATERIALIZATION_PROCESS_COUNT
+  + DEVELOPMENT_COMMIT_MATERIALIZATION_STDIN_WORKER_COUNT
   + DEVELOPMENT_COMMIT_REF_EFFECT_PROCESS_COUNT
   + DEVELOPMENT_COMMIT_READBACK_PROCESS_COUNT;
 const OBJECT_ID = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/u;
@@ -414,73 +420,88 @@ async function execute(
     }
   });
   if (resolution.status !== 'ready') throw new Error(`Development commit provider unavailable: ${resolution.reason}`);
-  let providerSettlementSet: SecProviderSettlementSet | null = null;
-  let readback: DevelopmentCommitReadbackReceipt | null = null;
-  try {
-    await assertDevelopmentCommitCandidateCurrent({
-      candidate: frozen,
-      request,
-      session: resolution.session
-    });
-    createJournalWithinRefAttemptCeiling(candidateDetails.commonDirectory, journalPath, journal);
-    const object = await materializeAuthorityDevelopmentCommitObject({
-      gitReadSession: resolution.session,
-      contract
-    });
-    if (object.status !== 'completed') {
-      if (object.status === 'cas-conflict') {
-        throw new Error(
-          `Development commit object materialization returned an invalid CAS conflict for ${object.object}`
-        );
+  return withAcquiredResource({
+    operationLabel: 'development-commit',
+    resourceLabel: 'development-commit-git-session',
+    acquire: () => resolution.session,
+    use: async () => {
+      const commonDirectory = path.resolve(await commandText(
+        resolution.session,
+        ['rev-parse', '--path-format=absolute', '--git-common-dir'],
+        'resolve coordinated commit common directory'
+      ));
+      if (commonDirectory !== candidateDetails.commonDirectory) {
+        throw new Error('Development commit common directory changed before coordinated mutation.');
       }
-      throw new Error(
-        `Development commit object materialization failed: ${object.reason}`
-        + (object.detail === undefined ? '' : `; ${object.detail}`)
-      );
-    }
-    journal = Object.freeze({ ...journal, object: object.object });
-    writeJournal(candidateDetails.commonDirectory, journalPath, journal, false);
-    await hooks.afterObjectJournaled?.(journalPath);
-    const refSettlement = await compareAndSwapAuthorityDevelopmentCommitRef({ gitReadSession: resolution.session, contract });
-    providerSettlementSet = compileSecProviderSettlementSet(operation, [
-      settleGitDevelopmentCommitOperation(operation, refSettlement)
-    ]);
-    try {
-      await hooks.afterRefUpdateBeforeReadback?.(journalPath);
-    } catch (error) {
-      throw new DevelopmentCommitLostHandleError(frozen.repositoryRoot, journalPath, error);
-    }
-    if (providerSettlementSet === null) throw new Error('Development commit provider settlement is absent.');
-    readback = await readDevelopmentCommitOutcome({
-      session: resolution.session,
-      commonDirectory: candidateDetails.commonDirectory,
-      journal,
-      normal: { operation, settlement: providerSettlementSet, contractDigest: compileGitDevelopmentCommitContractDigest(contract) }
-    });
-  } finally {
-    await resolution.session.close?.();
-  }
-  if (readback === null) throw new Error('Development commit readback receipt is absent.');
-  const { disposition } = readback;
-  journal = Object.freeze({ ...journal, terminal: disposition });
-  writeJournal(candidateDetails.commonDirectory, journalPath, journal, false);
-  const result = Object.freeze({
-    schema: 'sec-development-commit-result-v1',
-    disposition,
-    ref: journal.ref,
-    preimage: journal.preimage,
-    target: journal.target,
-    tree: journal.tree,
-    journalPath
+      return withWorkspaceWriteLease(commonDirectory, undefined, async (lease) => {
+        await assertDevelopmentCommitCandidateCurrent({
+          candidate: frozen,
+          request,
+          session: resolution.session
+        });
+        createJournalWithinRefAttemptCeiling(commonDirectory, journalPath, journal);
+        const object = await materializeAuthorityDevelopmentCommitObject({
+          gitReadSession: resolution.session,
+          contract
+        });
+        if (object.status !== 'completed') {
+          if (object.status === 'cas-conflict') {
+            throw new Error(
+              `Development commit object materialization returned an invalid CAS conflict for ${object.object}`
+            );
+          }
+          throw new Error(
+            `Development commit object materialization failed: ${object.reason}`
+            + (object.detail === undefined ? '' : `; ${object.detail}`)
+          );
+        }
+        journal = Object.freeze({ ...journal, object: object.object });
+        writeJournal(commonDirectory, journalPath, journal, false);
+        await hooks.afterObjectJournaled?.(journalPath);
+        await assertWorkspaceWriteLease(commonDirectory, lease);
+        const refSettlement = await compareAndSwapAuthorityDevelopmentCommitRef({
+          gitReadSession: resolution.session,
+          contract
+        });
+        const providerSettlementSet: SecProviderSettlementSet = compileSecProviderSettlementSet(operation, [
+          settleGitDevelopmentCommitOperation(operation, refSettlement)
+        ]);
+        try {
+          await hooks.afterRefUpdateBeforeReadback?.(journalPath);
+        } catch (error) {
+          throw new DevelopmentCommitLostHandleError(frozen.repositoryRoot, journalPath, error);
+        }
+        const readback = await readDevelopmentCommitOutcome({
+          session: resolution.session,
+          commonDirectory,
+          journal,
+          normal: { operation, settlement: providerSettlementSet, contractDigest: compileGitDevelopmentCommitContractDigest(contract) }
+        });
+        const { disposition } = readback;
+        journal = Object.freeze({ ...journal, terminal: disposition });
+        await assertWorkspaceWriteLease(commonDirectory, lease);
+        writeJournal(commonDirectory, journalPath, journal, false);
+        const result = Object.freeze({
+          schema: 'sec-development-commit-result-v1',
+          disposition,
+          ref: journal.ref,
+          preimage: journal.preimage,
+          target: journal.target,
+          tree: journal.tree,
+          journalPath
+        });
+        ISSUED_DEVELOPMENT_COMMIT_RESULTS.set(result, Object.freeze({
+          repositoryRoot: frozen.repositoryRoot,
+          commonDirectory,
+          journalPath,
+          journalSource: encodeJournal(journal),
+          readback
+        }));
+        return result;
+      });
+    },
+    release: async (session) => { await session.close?.(); }
   });
-  ISSUED_DEVELOPMENT_COMMIT_RESULTS.set(result, Object.freeze({
-    repositoryRoot: frozen.repositoryRoot,
-    commonDirectory: candidateDetails.commonDirectory,
-    journalPath,
-    journalSource: encodeJournal(journal),
-    readback
-  }));
-  return result;
 }
 
 function assertDevelopmentCommitReadbackReceipt(value: DevelopmentCommitReadbackReceipt): void {
@@ -535,6 +556,60 @@ export async function acknowledgeNotAppliedDevelopmentCommitResult(result: Devel
 
 export type DevelopmentCommitJournalSettlement = Readonly<{ ref: string; observed: number; retired: number }>;
 
+/** Retire completed local attempts after the exact ref has moved past them. */
+export async function retireSupersededLocalDevelopmentCommitJournals(input: Readonly<{
+  repositoryRoot: string;
+  ref: string;
+}>): Promise<DevelopmentCommitJournalSettlement> {
+  if (!REF.test(input.ref)) throw new Error('Superseded commit journal ref is invalid.');
+  const repositoryRoot = path.resolve(input.repositoryRoot);
+  return withAuthorityGitReadSession({ cwd: repositoryRoot, budget: GIT_READ_OPERATION_BUDGET }, async (session) => {
+    const commonDirectory = path.resolve(await commandText(
+      session, ['rev-parse', '--path-format=absolute', '--git-common-dir'],
+      'resolve superseded journal common directory'
+    ));
+    return withWorkspaceWriteLease(commonDirectory, undefined, async (lease) => {
+      const { matching, writer } = observeJournalCensus(commonDirectory, input.ref);
+      const current = await commandText(session,
+        ['rev-parse', '--verify', '--end-of-options', input.ref], 'observe superseded journal ref');
+      const reflog = await commandText(session,
+        ['rev-list', '--walk-reflogs', input.ref], 'observe superseded journal reflog');
+      const transitions = reflog.length === 0 ? [] : reflog.split(/\r?\n/u);
+      for (const { journal } of matching) {
+        if (journal.terminal !== 'applied' || journal.object !== journal.target
+            || journal.target === current) {
+          throw new Error('Superseded commit journal preserves an active or unknown attempt.');
+        }
+        const bytes = await commandText(session, ['cat-file', 'commit', journal.target],
+          'read superseded journal commit');
+        const headers = bytes.split('\n\n', 1)[0]!.split('\n');
+        if (JSON.stringify(headers.filter((line) => line.startsWith('tree ')))
+              !== JSON.stringify([`tree ${journal.tree}`])
+            || JSON.stringify(headers.filter((line) => line.startsWith('parent ')))
+              !== JSON.stringify([`parent ${journal.preimage}`])
+            || !transitions.some((target, index) => target === journal.target
+              && transitions[index + 1] === journal.preimage)) {
+          throw new Error('Superseded commit journal lacks its exact local ref transition.');
+        }
+      }
+      if (await commandText(session,
+        ['rev-parse', '--verify', '--end-of-options', input.ref], 'reobserve superseded journal ref') !== current
+          || await commandText(session,
+            ['rev-list', '--walk-reflogs', input.ref], 'reobserve superseded journal reflog') !== reflog) {
+        throw new Error('Superseded commit journal ref history changed before retirement.');
+      }
+      await assertWorkspaceWriteLease(commonDirectory, lease);
+      for (const candidate of matching) {
+        if (!writer.deleteFsyncCas(candidate.journalPath, candidate.source)) {
+          throw new Error('Superseded commit journal changed before exact retirement.');
+        }
+      }
+      retireEmptyJournalDirectory(commonDirectory);
+      return Object.freeze({ ref: input.ref, observed: matching.length, retired: matching.length });
+    });
+  });
+}
+
 /** Ref retirement requires classifying the entire family before its reflog is lost. */
 export async function settleDevelopmentCommitJournalsForRef(input: Readonly<{
   repositoryRoot: string;
@@ -548,9 +623,26 @@ export async function settleDevelopmentCommitJournalsForRef(input: Readonly<{
     ));
     const { matching, writer } = observeJournalCensus(commonDirectory, input.ref);
     for (const candidate of matching) {
-      const readback = await readDevelopmentCommitOutcome({ session, commonDirectory, journal: candidate.journal, normal: null });
-      if (readback.disposition !== 'applied') {
-        throw new Error(`Development commit journal settlement requires applied readback, got ${readback.disposition}.`);
+      const journal = candidate.journal;
+      // A linked worktree may already be retired. Its index is not the index
+      // of repositoryRoot, and the ref's committed history does not depend on
+      // any surviving checkout index. Prove the exact active transition from
+      // Git's ref, commit object and reflog before deleting its journal.
+      const current = await commandText(session,
+        ['rev-parse', '--verify', '--end-of-options', journal.ref],
+        'read journal retirement ref').catch(() => '');
+      const objectBytes = await commandText(session,
+        ['cat-file', 'commit', journal.target],
+        'read journal retirement commit').catch(() => '');
+      const reflog = await commandText(session,
+        ['rev-list', '--walk-reflogs', journal.ref],
+        'read journal retirement reflog').catch(() => '');
+      const transitions = reflog.length === 0 ? [] : reflog.split(/\r?\n/u);
+      if (current !== journal.target
+          || !objectBytes.startsWith(`tree ${journal.tree}\nparent ${journal.preimage}\n`)
+          || transitions[0] !== journal.target
+          || transitions[1] !== journal.preimage) {
+        throw new Error('Development commit journal settlement requires applied readback, got unknown.');
       }
     }
     for (const candidate of matching) {
@@ -898,29 +990,32 @@ async function recoverDevelopmentCommitWithReadback(input: Readonly<{
           || relative.startsWith(`..${path.sep}`)) {
         throw new Error('Development commit recovery journal escapes its exact owner root.');
       }
-      let journal = readJournal(commonDirectory, path.resolve(input.journalPath));
-      const readback = await readDevelopmentCommitOutcome({ session, commonDirectory, journal, normal: null });
-      journal = Object.freeze({
-        ...journal,
-        terminal: readback.disposition === 'applied'
-          ? 'applied' as const
-          : journal.terminal !== null && journal.terminal !== readback.disposition
-            ? 'unknown' as const
-            : readback.disposition
-      });
-      writeJournal(commonDirectory, path.resolve(input.journalPath), journal, false);
-      const journalSource = encodeJournal(journal);
-      const result = Object.freeze({
-        schema: 'sec-development-commit-result-v1' as const,
-        disposition: journal.terminal!, ref: journal.ref, preimage: journal.preimage,
-        target: journal.target, tree: journal.tree, journalPath: path.resolve(input.journalPath)
-      });
-      return Object.freeze({
-        result,
-        readback,
-        commonDirectory,
-        providerIdentityDigest: sha256(session.providerIdentity) as SecOperationDigest,
-        journalSource
+      return withWorkspaceWriteLease(commonDirectory, undefined, async (lease) => {
+        let journal = readJournal(commonDirectory, path.resolve(input.journalPath));
+        const readback = await readDevelopmentCommitOutcome({ session, commonDirectory, journal, normal: null });
+        journal = Object.freeze({
+          ...journal,
+          terminal: readback.disposition === 'applied'
+            ? 'applied' as const
+            : journal.terminal !== null && journal.terminal !== readback.disposition
+              ? 'unknown' as const
+              : readback.disposition
+        });
+        await assertWorkspaceWriteLease(commonDirectory, lease);
+        writeJournal(commonDirectory, path.resolve(input.journalPath), journal, false);
+        const journalSource = encodeJournal(journal);
+        const result = Object.freeze({
+          schema: 'sec-development-commit-result-v1' as const,
+          disposition: journal.terminal!, ref: journal.ref, preimage: journal.preimage,
+          target: journal.target, tree: journal.tree, journalPath: path.resolve(input.journalPath)
+        });
+        return Object.freeze({
+          result,
+          readback,
+          commonDirectory,
+          providerIdentityDigest: sha256(session.providerIdentity) as SecOperationDigest,
+          journalSource
+        });
       });
     }
   );

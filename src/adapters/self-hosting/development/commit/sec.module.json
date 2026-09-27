@@ -10,7 +10,8 @@
         "recoverDevelopmentCommit",
         "prepareClosedAbsentDevelopmentCommitJournalRetirement",
         "acknowledgeClosedAbsentDevelopmentCommitJournalRetirement",
-        "settleDevelopmentCommitJournalsForRef"
+        "settleDevelopmentCommitJournalsForRef",
+        "retireSupersededLocalDevelopmentCommitJournals"
       ],
       "effectKinds": [
         "filesystem",
@@ -56,6 +57,13 @@
           "operation": "settleDevelopmentCommitJournalsForRef",
           "role": "domain-owner",
           "semanticOperation": "development.commit-ref-journal-settlement",
+          "requirementId": null,
+          "recovery": null
+        },
+        {
+          "operation": "retireSupersededLocalDevelopmentCommitJournals",
+          "role": "domain-owner",
+          "semanticOperation": "development.commit-superseded-local-journal-retirement",
           "requirementId": null,
           "recovery": null
         }
@@ -328,6 +336,37 @@
           "development.commit.readback-invalid",
           "development.commit.readback-unknown"
         ],
+        "recovery": "owner-intervention"
+      },
+      "evolution": {
+        "migration": "not-required",
+        "retirement": "replacement-obligations-satisfied"
+      },
+      "resources": {
+        "aggregateBudgets": [
+          { "resource": "duration-ms", "maximum": 30000 },
+          { "resource": "input-bytes", "maximum": 65536 },
+          { "resource": "output-bytes", "maximum": 67108864 },
+          { "resource": "processes", "maximum": 64 },
+          { "resource": "records", "maximum": 256 }
+        ]
+      },
+      "futureSupport": {
+        "condition": "semantic-superset-required"
+      }
+    },
+    {
+      "operation": {
+        "kind": "capability",
+        "capability": "development.commit",
+        "operation": "retireSupersededLocalDevelopmentCommitJournals"
+      },
+      "consumerSupport": {
+        "consumers": ["development.runner"]
+      },
+      "effect": {
+        "kinds": ["filesystem", "process"],
+        "failureKinds": ["development.commit.readback-invalid", "development.commit.readback-unknown"],
         "recovery": "owner-intervention"
       },
       "evolution": {

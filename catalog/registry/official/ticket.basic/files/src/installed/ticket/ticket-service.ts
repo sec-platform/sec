@@ -44,10 +44,6 @@ export function assertTenantTicket(db: Database, ticketId: number, tenantId: str
   return ticket;
 }
 
-export function listTenantTickets(db: Database, tenantId: string): TicketRecord[] {
-  return sortById(db.tickets.filter((ticket) => ticket.tenantId === tenantId));
-}
-
 export function listTicketScopedRecords<TRecord extends TicketScopedRecord>(
   records: TRecord[],
   tenantId: string,
@@ -93,7 +89,7 @@ export function transitionTicketStatus(
 
 export function listTickets(db: Database, session: Session): TicketRecord[] {
   const tenantId = currentTenant(session);
-  return listTenantTickets(db, tenantId);
+  return sortById(db.tickets.filter((ticket) => ticket.tenantId === tenantId));
 }
 
 export function listTicketsWithFilters(db: Database, session: Session, filters: TicketFilters): TicketRecord[] {

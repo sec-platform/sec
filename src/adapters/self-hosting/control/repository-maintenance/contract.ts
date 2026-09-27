@@ -3,7 +3,7 @@ import {
   type ExactRefRetirement
 } from '../branch-lifecycle/exact-ref-retirement-contract.ts';
 
-export const REPOSITORY_MAINTENANCE_REQUEST_SCHEMA =
+const REPOSITORY_MAINTENANCE_REQUEST_SCHEMA =
   'sec-repository-maintenance-request-v1' as const;
 
 export const REPOSITORY_MAINTENANCE_ISSUE_NUMBER = 313 as const;
@@ -14,7 +14,7 @@ export type ExactCommentRetirement = Readonly<{
   expectedBodyDigest: `sha256:${string}`;
 }>;
 
-export type MaintenanceOperation =
+type MaintenanceOperation =
   | Readonly<{
       kind: 'exact-ref-retirement';
       retirement: ExactRefRetirement;

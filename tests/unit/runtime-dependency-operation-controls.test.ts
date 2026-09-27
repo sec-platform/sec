@@ -19,7 +19,7 @@ import {
 } from '../../src/adapters/toolchain/dependencies/runtime/operation-telemetry.ts';
 
 const unownedFields = ['beforeCommit', 'installMode', 'sharedDepsRoot', 'rematerialize',
-  'now', 'sleep', 'skipSharedDepsWarmup', 'testCompilerPublishHook',
+  'now', 'sleep', 'testCompilerPublishHook',
   'testProjectProjectionHook', 'testCompilerBridgeValidationHook',
   'testCompilerRename', 'testMaterialization', 'generatedStateLifecycle'];
 function controlsOnlyInput(): RuntimeDependencyOperationControlInput {

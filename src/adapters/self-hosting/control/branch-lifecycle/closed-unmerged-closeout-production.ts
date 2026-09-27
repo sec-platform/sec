@@ -3,18 +3,30 @@ import path from 'node:path';
 import { sha256 } from '../../../../contracts/canonical.ts';
 import { issueSecOperationRequirementBindingContext } from '../../../../execution/operation/requirement-binding-context.ts';
 import { bindSecSemanticOperation, compileSecCapabilityBinding, compileSecSemanticOperationPlan, issueSecSemanticOperationAttemptContext, type SecOperationDigest } from '../../../../execution/operation/semantic.ts';
-import { assertWorkspaceWriteLease, withWorkspaceWriteLease } from '../../../filesystem/write-lease.ts';
+import { assertWorkspaceWriteLease, withWorkspaceWriteLease, type WorkspaceWriteLeaseToken } from '../../../filesystem/write-lease.ts';
 import { withAuthorityGitReadSession } from '../../../providers/git-read/authority.ts';
 import { assertGitPhysicalProviderReceipt, closeGitPhysicalProvider, openGitPhysicalProvider } from '../../../providers/git/physical-provider.ts';
-import { deleteExactGitRef, GIT_LOCAL_REF_DELETE_ATOMICITY } from '../../../providers/git/ref-effect.ts';
+import {
+  assertGitLocalRefDeleteBatchReceipt,
+  deleteExactGitRef,
+  deleteExactLocalGitRefs,
+  GitLocalRefDeleteAtomicityUnavailableError,
+  GitLocalRefDeleteBlockedError,
+  MAXIMUM_LOCAL_REF_DELETE_AGGREGATE_OUTPUT_BYTES,
+  MAXIMUM_LOCAL_REF_DELETE_PROCESS_COUNT,
+  measureExactLocalGitRefDeleteBatchAggregateInputBytes
+} from '../../../providers/git/ref-effect.ts';
 import {
   executeGitHubApiOperation,
   GITHUB_API_REQUEST_TIMEOUT_MS,
   GitHubApiProviderError,
   inspectGitHubApiCapability,
   withGitHubApiBranchCloseoutWriteSession,
+  withGitHubApiReadOperationBudget,
+  withGitHubApiReadSession,
   type GitHubApiCapability
 } from '../../../providers/github-api/operation-session.ts';
+import { inspectExactNoFollowDirectoryPresence, inspectNoFollowOrdinaryFileEntry } from '../../../runtime-state/physical/runtime/physical-no-follow.ts';
 import { assertProcessResourceSessionReceipt, openProcessResourceSession } from '../../../runtime-state/physical/runtime/process-resource-session.ts';
 import {
   CLOSED_ABSENT_DEVELOPMENT_COMMIT_JOURNAL_RETIREMENT_REQUEST_CEILING,
@@ -22,6 +34,7 @@ import {
 } from '../../development/commit/operation.ts';
 import { GIT_READ_OPERATION_BUDGET } from '../../development/tooling/git/git-read.ts';
 import { observeActiveWorkPackage } from '../documentation/document-control-plane.ts';
+import { parsePublishedBranchCloseoutReceipt } from './branch-closeout-receipt.ts';
 import {
   parsePreparedBranchCloseoutEnvelope,
   type PreparedBranchCloseoutEnvelope
@@ -29,6 +42,7 @@ import {
 import type { BranchLifecycleInventory, BranchPullRequestObservation } from './branch-lifecycle-contract.ts';
 import { collectBranchLifecycleCloseoutTargetInventory } from './branch-lifecycle-inventory.ts';
 import { parsePullRequestObservations } from './branch-lifecycle-parsers.ts';
+import { assertRetiredNativeMainAbsorptionLive } from './branch-recovery.ts';
 import {
   observeClosedSupersessionEvidence,
   type ClosedSupersessionEvidence
@@ -44,6 +58,44 @@ import {
   type ClosedUnmergedTerminal
 } from './closed-unmerged-closeout.ts';
 import { retireClosedUnmergedRecoveryFamily } from './closed-unmerged-recovery-retirement.ts';
+
+/** Read-only production entry for an exact PR comment adopted by a maintainer. */
+export async function observeProductionClosedSupersessionEvidence(input: Readonly<{
+  repositoryRoot: string;
+  repository: string;
+  pullRequestNumber: number;
+  commentId: number;
+}>): Promise<ClosedSupersessionEvidence> {
+  const repositoryRoot = canonicalRoot(input.repositoryRoot);
+  return withGitHubApiReadOperationBudget({ repositoryRoot, repository: input.repository,
+    operation: () => withGitHubApiReadSession({ repositoryRoot, repository: input.repository,
+      operation: (capability) => observeClosedSupersessionFromReadCapability({
+        repositoryRoot, capability, pullRequestNumber: input.pullRequestNumber,
+        commentId: input.commentId
+      }) }) });
+}
+
+/** Consume one bounded read capability; the review owner alone issues the evidence. */
+export async function observeClosedSupersessionFromReadCapability(input: Readonly<{
+  repositoryRoot: string;
+  capability: GitHubApiCapability;
+  pullRequestNumber: number;
+  commentId: number;
+}>): Promise<ClosedSupersessionEvidence> {
+  const binding = inspectGitHubApiCapability(input.capability);
+  if (binding.effect !== 'read') {
+    throw new Error('Supersession observation requires a GitHub read capability.');
+  }
+  const pull = await observeProductionClosedUnmergedPullRequest({
+    capability: input.capability, pullRequestNumber: input.pullRequestNumber
+  });
+  if (pull.state !== 'closed') {
+    throw new Error('Supersession review requires one exact closed pull request.');
+  }
+  return observeClosedSupersessionEvidence({ repositoryRoot: input.repositoryRoot,
+    capability: input.capability, pullRequestNumber: input.pullRequestNumber,
+    commentId: input.commentId });
+}
 
 const START_MARKER = '<!-- sec-closed-unmerged-effect-start -->\n';
 const TERMINAL_MARKER = '<!-- sec-closed-unmerged-terminal -->\n';
@@ -111,7 +163,17 @@ export interface ProductionClosedUnmergedCompileContext {
     pullRequestNumber: number,
     evidenceDigest: `sha256:${string}`
   ): Promise<PreparedBranchCloseoutEnvelope | null>;
+  observeCompletedNativeCloseout(
+    pull: BranchPullRequestObservation
+  ): Promise<NativeCompletedCloseoutObservation | null>;
 }
+
+type NativeCompletedCloseoutObservation =
+  | Readonly<{ status: 'preparation-retained'; prepared: PreparedBranchCloseoutEnvelope }>
+  | Readonly<{ status: 'already-completed'; operationId: `sha256:${string}`;
+    receipt: ClosedUnmergedTerminal['receipt'] }>;
+
+const issuedNativeCompletedObservations = new WeakSet<object>();
 
 type BoundGitHubSession = <T>(input: Readonly<{
   requestCeiling: number;
@@ -207,6 +269,10 @@ function createWorkflowSessions(input: Readonly<{
     observeCompletedPreparation: (pullRequestNumber, evidenceDigest) => observeCompletedPreparation({
       withSession, pullRequestNumber, evidenceDigest,
       principalNodeId: established?.principal.nodeId ?? ''
+    }),
+    observeCompletedNativeCloseout: (pull) => observeCompletedNativeCloseout({
+      repositoryRoot: input.repositoryRoot, repository: input.repository,
+      withSession, pull, principalNodeId: established?.principal.nodeId ?? ''
     })
   });
   return Object.freeze({ withSession, context, assertCurrent,
@@ -344,6 +410,106 @@ async function observeCompletedPreparation(input: Readonly<{
   return parsePreparedBranchCloseoutEnvelope(JSON.stringify(prepared));
 }
 
+async function observeCompletedNativeCloseout(input: Readonly<{
+  repositoryRoot: string;
+  repository: string;
+  withSession: BoundGitHubSession;
+  pull: BranchPullRequestObservation;
+  principalNodeId: string;
+}>): Promise<NativeCompletedCloseoutObservation | null> {
+  if (input.principalNodeId.length === 0) {
+    throw new Error('Closed-unmerged workflow principal is not established.');
+  }
+  const pull = input.pull;
+  if (pull.state !== 'closed' || pull.headSha === null || pull.baseSha === null) {
+    throw new Error('Native completed lookup requires one exact closed PR.');
+  }
+  const matches: ClosedUnmergedTerminal[] = [];
+  for (const comment of await listComments(input.withSession, pull.number)) {
+    if (comment.authorNodeId !== input.principalNodeId
+        || !comment.body.startsWith(TERMINAL_MARKER)) continue;
+    let terminal: ClosedUnmergedTerminal;
+    try { terminal = JSON.parse(comment.body.slice(TERMINAL_MARKER.length)) as ClosedUnmergedTerminal; }
+    catch { throw new Error('Closed-unmerged terminal marker has invalid JSON.'); }
+    if (terminal?.prepared?.preparation?.pullRequestNumber !== pull.number) continue;
+    if (comment.body !== renderComment(TERMINAL_MARKER, terminal)) {
+      throw new Error('Closed-unmerged completed terminal provenance is invalid.');
+    }
+    const prepared = parsePreparedBranchCloseoutEnvelope(JSON.stringify(terminal.prepared));
+    const recovery = prepared.preparation.recovery;
+    if (recovery.kind !== 'main-absorption') continue;
+    if (prepared.before.repository.fullName !== input.repository
+        || prepared.before.repository.root !== input.repositoryRoot
+        || prepared.preparation.branch !== pull.headBranch
+        || prepared.preparation.expectedHeadSha !== pull.headSha
+        || prepared.preparation.expectedRemoteSha !== pull.headSha
+        || prepared.before.repository.defaultBranch !== pull.baseBranch
+        || prepared.before.main.remoteSha !== recovery.mainSha
+        || recovery.sourceSha !== pull.headSha
+        || prepared.before.pullRequests.find(({ number }) => number === pull.number)?.baseSha !== pull.baseSha) {
+      continue;
+    }
+    const receipt = parsePublishedBranchCloseoutReceipt(terminal.receipt);
+    if (!/^sha256:[0-9a-f]{64}$/u.test(terminal.operationId)
+        || !/^sha256:[0-9a-f]{64}$/u.test(terminal.evidenceDigest)
+        || receipt.repository !== input.repository || receipt.pullRequest !== pull.number
+        || receipt.branch !== pull.headBranch || receipt.preparedHeadSha !== pull.headSha
+        || receipt.preparationDigest !== prepared.preparation.preparationDigest
+        || receipt.recoveryDigest !== recovery.sha256
+        || receipt.disposition !== 'closed-superseded'
+        || receipt.durableGoal.kind !== 'evidence'
+        || receipt.durableGoal.reference !== `main-absorption:${recovery.sha256}`) {
+      throw new Error('Closed-unmerged native terminal differs from its exact prepared receipt.');
+    }
+    matches.push({ ...terminal, prepared, receipt });
+  }
+  if (matches.length > 1) {
+    throw new Error('Closed-unmerged native terminal is ambiguous for the exact PR.');
+  }
+  const terminal = matches[0];
+  if (terminal === undefined) return null;
+  const prepared = terminal.prepared;
+  const recovery = prepared.preparation.recovery;
+  const recoveryRoot = path.dirname(recovery.path);
+  const root = inspectExactNoFollowDirectoryPresence(recoveryRoot,
+    'Closed-unmerged completed recovery root');
+  if (root.state === 'present') {
+    const proof = inspectNoFollowOrdinaryFileEntry(root.directory.target, path.basename(recovery.path));
+    const sidecar = inspectNoFollowOrdinaryFileEntry(root.directory.target,
+      path.basename(`${recovery.path}.preparation.json`));
+    if (proof !== null || sidecar !== null) {
+      return Object.freeze({ status: 'preparation-retained', prepared });
+    }
+  }
+  if (terminal.receipt.closeoutStatus !== 'completed') {
+    throw new Error('Closed-unmerged native terminal is not completed and its preparation is absent.');
+  }
+  const activeWorkPackageObservation = await observeActiveWorkPackage(input.repositoryRoot);
+  const inventory = collectBranchLifecycleCloseoutTargetInventory({
+    repositoryRoot: input.repositoryRoot,
+    repositoryFullName: input.repository,
+    activeWorkPackageObservation,
+    targetBranch: pull.headBranch,
+    pullRequestNumber: pull.number,
+    exactPullRequest: pull,
+    preparedInventory: prepared.before
+  });
+  if (inventory.unknowns.length > 0
+      || inventory.remoteBranches.some(({ branch }) => branch === pull.headBranch)
+      || inventory.localBranches.some(({ branch }) => branch === pull.headBranch)
+      || inventory.worktrees.some(({ branch }) => branch === pull.headBranch)
+      || (inventory.activeWorkPackage.state === 'active'
+        && inventory.activeWorkPackage.branch === pull.headBranch)) {
+    throw new Error('Closed-unmerged native terminal has unresolved live branch residue.');
+  }
+  if (recovery.kind !== 'main-absorption') throw new Error('Native terminal recovery changed.');
+  assertRetiredNativeMainAbsorptionLive(inventory, recovery);
+  const completed = Object.freeze({ status: 'already-completed' as const,
+    operationId: terminal.operationId, receipt: terminal.receipt });
+  issuedNativeCompletedObservations.add(completed);
+  return completed;
+}
+
 async function publishMarked<T extends { operationId: string }>(input: Readonly<{
   withSession: BoundGitHubSession;
   pullRequestNumber: number;
@@ -379,15 +545,24 @@ async function publishMarked<T extends { operationId: string }>(input: Readonly<
   }
 }
 
-function compileLocalRefDeleteOperation(operationId: SecOperationDigest) {
+function compileLocalRefDeleteOperation(
+  operationId: SecOperationDigest,
+  localEntry?: Readonly<{ ref: string; expectedOldSha: string }>
+) {
   const deadlineAtUnixMs = Date.now() + LOCAL_EFFECT_DURATION_MS;
+  const localEntries = localEntry === undefined ? undefined : [localEntry];
   const plan = compileSecSemanticOperationPlan({
     operation: 'control.branch-lifecycle.closed-unmerged-ref-delete', intentDigest: operationId,
     decisionDigest: LOCAL_EFFECT_CONTRACT, deadlineAtUnixMs,
     attempt: issueSecSemanticOperationAttemptContext({ authorityGrantDigest: operationId }),
     aggregateBudgets: [
-      { resource: 'duration-ms', maximum: LOCAL_EFFECT_DURATION_MS }, { resource: 'input-bytes', maximum: 1 },
-      { resource: 'output-bytes', maximum: 1024 * 1024 }, { resource: 'processes', maximum: 4 }
+      { resource: 'duration-ms', maximum: LOCAL_EFFECT_DURATION_MS },
+      { resource: 'input-bytes', maximum: localEntries === undefined
+        ? 1 : measureExactLocalGitRefDeleteBatchAggregateInputBytes(localEntries) },
+      { resource: 'output-bytes', maximum: localEntries === undefined
+        ? 1024 * 1024 : MAXIMUM_LOCAL_REF_DELETE_AGGREGATE_OUTPUT_BYTES },
+      { resource: 'processes', maximum: localEntries === undefined
+        ? 4 : MAXIMUM_LOCAL_REF_DELETE_PROCESS_COUNT }
     ],
     requirements: [{ id: LOCAL_EFFECT_REQUIREMENT, contractDigest: LOCAL_EFFECT_CONTRACT,
       effectKinds: ['filesystem', 'process', 'provider'],
@@ -403,8 +578,12 @@ async function deleteLocalGitRef(input: Readonly<{
   operationId: SecOperationDigest;
   ref: string;
   expectedOldSha: string;
+  coordinatedLease?: WorkspaceWriteLeaseToken;
 }>): Promise<'deleted' | 'already-absent'> {
-  const operation = compileLocalRefDeleteOperation(input.operationId);
+  const entry = Object.freeze({ ref: input.ref, expectedOldSha: input.expectedOldSha });
+  const operation = compileLocalRefDeleteOperation(
+    input.operationId, input.coordinatedLease === undefined ? undefined : entry
+  );
   const processSession = openProcessResourceSession({ operation,
     requirementBindingContext: issueSecOperationRequirementBindingContext({ operation,
       requirementId: LOCAL_EFFECT_REQUIREMENT, resourceCeilings: operation.plan.execution.aggregateBudgets }) });
@@ -418,7 +597,17 @@ async function deleteLocalGitRef(input: Readonly<{
         environmentSource: process.env, maximumExecutableBytes: 128 * 1024 * 1024 });
       if (resolution.status !== 'ready') throw new Error(`Git physical provider unavailable: ${resolution.reason}`);
       let effectError: unknown;
-      try { disposition = (await deleteExactGitRef({ provider: resolution.capability, ref: input.ref, expectedOldSha: input.expectedOldSha })).disposition; }
+      try {
+        if (input.coordinatedLease === undefined) {
+          disposition = (await deleteExactGitRef({ provider: resolution.capability,
+            ref: input.ref, expectedOldSha: input.expectedOldSha })).disposition;
+        } else {
+          const receipt = await deleteExactLocalGitRefs({ provider: resolution.capability,
+            coordinatedLease: input.coordinatedLease, entries: [entry] });
+          assertGitLocalRefDeleteBatchReceipt(receipt);
+          disposition = 'deleted';
+        }
+      }
       catch (error) { effectError = error; }
       try { assertGitPhysicalProviderReceipt(closeGitPhysicalProvider(resolution.capability), resolution.capability); }
       catch (error) { effectError ??= error; }
@@ -462,6 +651,7 @@ function createProductionClosedUnmergedCloseoutAdapter(input: Readonly<{
   withSession: BoundGitHubSession;
   assertWorkflowCurrent(): void;
   assertWriteLease(): Promise<void>;
+  coordinatedLease: WorkspaceWriteLeaseToken;
 }>): ClosedUnmergedCloseoutEffectAdapter {
   const repositoryRoot = canonicalRoot(input.repositoryRoot);
   const binding = input.binding;
@@ -488,7 +678,7 @@ function createProductionClosedUnmergedCloseoutAdapter(input: Readonly<{
   };
   return Object.freeze<ClosedUnmergedCloseoutEffectAdapter>({
     providerIdentity, repository: input.repository, observeInventory,
-    localRefDeleteAtomicity: GIT_LOCAL_REF_DELETE_ATOMICITY,
+    localRefDeleteCoordination: 'coordinated',
     observeEffectStart: (operationId) => observeMarked<ClosedUnmergedCloseoutEffectStartReceipt>({ withSession: input.withSession,
       pullRequestNumber: input.pullRequestNumber, operationId,
       marker: START_MARKER, principalNodeId: binding.principal.nodeId }),
@@ -523,9 +713,14 @@ function createProductionClosedUnmergedCloseoutAdapter(input: Readonly<{
         input.assertWorkflowCurrent();
         await input.assertWriteLease();
         const disposition = await deleteLocalGitRef({ repositoryRoot, operationId: request.operationId,
-          ref: `refs/heads/${request.branch}`, expectedOldSha: request.expectedOldSha });
+          ref: `refs/heads/${request.branch}`, expectedOldSha: request.expectedOldSha,
+          coordinatedLease: input.coordinatedLease });
         return Object.freeze({ status: disposition === 'deleted' ? 'applied' : 'already-applied', detail: `local topic ref ${disposition}` });
-      } catch (error) { return Object.freeze({ status: 'ambiguous', detail: error instanceof Error ? error.message : String(error) }); }
+      } catch (error) {
+        const status = error instanceof GitLocalRefDeleteBlockedError ? 'rejected'
+          : error instanceof GitLocalRefDeleteAtomicityUnavailableError ? 'unavailable' : 'ambiguous';
+        return Object.freeze({ status, detail: error instanceof Error ? error.message : String(error) });
+      }
     },
     observeTerminalReceipt: (operationId) => observeMarked<ClosedUnmergedTerminal>({ withSession: input.withSession,
       pullRequestNumber: input.pullRequestNumber, operationId,
@@ -539,48 +734,64 @@ function createProductionClosedUnmergedCloseoutAdapter(input: Readonly<{
 export async function executeProductionClosedUnmergedCloseout(input: Readonly<{
   repositoryRoot: string;
   repository: string;
-  compileOperation(context: ProductionClosedUnmergedCompileContext): Promise<ClosedUnmergedCloseoutOperation>;
-}>): Promise<ClosedUnmergedCloseoutExecutionResult> {
+  compileOperation(context: ProductionClosedUnmergedCompileContext): Promise<
+    ClosedUnmergedCloseoutOperation | Extract<NativeCompletedCloseoutObservation, { status: 'already-completed' }>
+  >;
+}>): Promise<ClosedUnmergedCloseoutExecutionResult | Extract<NativeCompletedCloseoutObservation, { status: 'already-completed' }>> {
   const repositoryRoot = canonicalRoot(input.repositoryRoot);
-  return withWorkspaceWriteLease(repositoryRoot, undefined, async (lease) => {
-    const workflow = createWorkflowSessions({ repositoryRoot, repository: input.repository });
-    const operation = await input.compileOperation(workflow.context);
-    if (operation.prepared.preparation.pullRequestStateAtPreparation !== 'closed') {
-      throw new Error('Production closed-unmerged closeout requires an already-closed PR preparation.');
+  const workflow = createWorkflowSessions({ repositoryRoot, repository: input.repository });
+  const operation = await input.compileOperation(workflow.context);
+  if ('status' in operation) {
+    if (!issuedNativeCompletedObservations.has(operation)) {
+      throw new Error('Closed-unmerged native completion was not observed by the production owner.');
     }
-    const completed = await executeClosedUnmergedCloseoutOperation({ operation,
-      provider: issueClosedUnmergedCloseoutEffectProvider(createProductionClosedUnmergedCloseoutAdapter({
-        repositoryRoot, repository: input.repository, pullRequestNumber: operation.evidence.pullRequestNumber,
-        targetBranch: operation.evidence.branch,
-        preparedInventory: operation.prepared.before,
-        binding: workflow.binding(), withSession: workflow.withSession,
-        assertWorkflowCurrent: workflow.assertCurrent,
-        assertWriteLease: () => assertWorkspaceWriteLease(repositoryRoot, lease)
-      })) });
-    if (completed.status !== 'completed') return completed;
-    workflow.assertCurrent();
-    await assertWorkspaceWriteLease(repositoryRoot, lease);
-    await assertRemoteTrackingRefAbsent({ repositoryRoot,
-      remote: operation.prepared.preparation.repository.remote,
-      branch: operation.evidence.branch });
-    let retirement: Awaited<ReturnType<typeof retireClosedUnmergedRecoveryFamily>>;
-    try {
-      retirement = await workflow.withSession({ requestCeiling: ENROLLED_RETIREMENT_REQUESTS, operation: (capability) => (
-        retireClosedUnmergedRecoveryFamily({ operation, completed, capability })
-      ) });
-    } catch (error) {
-      return Object.freeze({ status: 'preserved' as const, operationId: operation.operationId,
-        stage: 'recovery-retirement', reasons: Object.freeze([
-          error instanceof Error ? error.message : String(error)
-        ]) });
-    }
-    if (retirement.status === 'partial') {
-      return Object.freeze({ status: 'preserved' as const, operationId: operation.operationId,
-        stage: 'recovery-retirement', reasons: Object.freeze([
-          retirement.failure ?? 'closed-unmerged recovery family remains partially retained',
-          ...retirement.retained
-        ]) });
-    }
-    return completed;
-  });
+    return operation;
+  }
+  const commonDir = operation.prepared.preparation.repository.commonDir;
+  return withWorkspaceWriteLease(commonDir, undefined, async (coordinatedLease) => (
+    withWorkspaceWriteLease(repositoryRoot, undefined, async (lease) => {
+      if (operation.prepared.preparation.pullRequestStateAtPreparation !== 'closed') {
+        throw new Error('Production closed-unmerged closeout requires an already-closed PR preparation.');
+      }
+      const completed = await executeClosedUnmergedCloseoutOperation({ operation,
+        provider: issueClosedUnmergedCloseoutEffectProvider(createProductionClosedUnmergedCloseoutAdapter({
+          repositoryRoot, repository: input.repository, pullRequestNumber: operation.evidence.pullRequestNumber,
+          targetBranch: operation.evidence.branch,
+          preparedInventory: operation.prepared.before,
+          binding: workflow.binding(), withSession: workflow.withSession,
+          assertWorkflowCurrent: workflow.assertCurrent,
+          assertWriteLease: async () => {
+            await assertWorkspaceWriteLease(commonDir, coordinatedLease);
+            await assertWorkspaceWriteLease(repositoryRoot, lease);
+          },
+          coordinatedLease
+        })) });
+      if (completed.status !== 'completed') return completed;
+      workflow.assertCurrent();
+      await assertWorkspaceWriteLease(commonDir, coordinatedLease);
+      await assertWorkspaceWriteLease(repositoryRoot, lease);
+      await assertRemoteTrackingRefAbsent({ repositoryRoot,
+        remote: operation.prepared.preparation.repository.remote,
+        branch: operation.evidence.branch });
+      let retirement: Awaited<ReturnType<typeof retireClosedUnmergedRecoveryFamily>>;
+      try {
+        retirement = await workflow.withSession({ requestCeiling: ENROLLED_RETIREMENT_REQUESTS, operation: (capability) => (
+          retireClosedUnmergedRecoveryFamily({ operation, completed, capability })
+        ) });
+      } catch (error) {
+        return Object.freeze({ status: 'preserved' as const, operationId: operation.operationId,
+          stage: 'recovery-retirement', reasons: Object.freeze([
+            error instanceof Error ? error.message : String(error)
+          ]) });
+      }
+      if (retirement.status === 'partial') {
+        return Object.freeze({ status: 'preserved' as const, operationId: operation.operationId,
+          stage: 'recovery-retirement', reasons: Object.freeze([
+            retirement.failure ?? 'closed-unmerged recovery family remains partially retained',
+            ...retirement.retained
+          ]) });
+      }
+      return completed;
+    })
+  ));
 }

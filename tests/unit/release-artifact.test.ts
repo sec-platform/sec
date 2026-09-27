@@ -214,6 +214,8 @@ test('Bun-target release bundle launches under the retained Bun generation', asy
     try {
       await buildFrozenReleaseBundle(frozen, artifactRoot);
       const entrypoint = path.join(artifactRoot, 'index.js');
+      expect(await fs.readFile(path.join(artifactRoot, '.bun-version'), 'utf8'))
+        .toBe(`${Bun.version}\n`);
       const entrypointBytes = await fs.readFile(entrypoint);
       expect(entrypointBytes.toString('utf8').startsWith(RELEASE_BUN_ENTRYPOINT_SHEBANG))
         .toBe(true);

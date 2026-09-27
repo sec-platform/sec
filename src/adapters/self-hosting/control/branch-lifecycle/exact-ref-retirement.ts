@@ -4,15 +4,17 @@ import {
   executeGitHubApiOperation,
   GitHubApiProviderError,
   withGitHubApiBranchCloseoutWriteSession,
+  withGitHubApiReadSession,
   type GitHubApiCapability
 } from '../../../providers/github-api/operation-session.ts';
 import { observeActiveWorkPackage } from '../documentation/document-control-plane.ts';
+import type { BranchRecoveryAuthority } from './branch-lifecycle-contract.ts';
 import { collectBranchLifecycleInventory } from './branch-lifecycle-inventory.ts';
+import { createRecoveryBundle, verifyRecoveryAuthorityHeadLive } from './branch-recovery.ts';
 import {
   parseExactRefRetirement,
   type ExactRefRetirement
 } from './exact-ref-retirement-contract.ts';
-import { createRecoveryBundle } from './branch-recovery.ts';
 
 const MAX_OPEN_PULL_PAGES = 2;
 const OPEN_PULLS_PER_PAGE = 100;
@@ -218,40 +220,216 @@ function criticalInventoryUnknowns(unknowns: readonly string[]): readonly string
   ));
 }
 
-async function observeRemoteState(input: Readonly<{
+type RemoteStateInput = Readonly<{
   repositoryRoot: string;
   repository: string;
   defaultBranch: string;
   expectedMainSha: string;
   request: ExactRefRetirement;
-}>): Promise<ReadonlyMap<string, string | null>> {
+}>;
+
+async function observeRemoteStateWithCapability(
+  capability: GitHubApiCapability,
+  input: RemoteStateInput
+): Promise<ReadonlyMap<string, string | null>> {
+  await assertLiveMain(capability, input.defaultBranch, input.expectedMainSha);
+  assertNoOpenPullConsumer(
+    await observeOpenPulls(capability, input.repository),
+    input.request.branches,
+    input.repository
+  );
+  if (input.request.classification === 'closed-pr-superseded') {
+    await assertExactClosedPullRequest(capability, input.repository, input.request);
+  } else if (input.request.classification === 'main-tree-identical') {
+    await assertMainTreeIdentical(capability, input.request, input.expectedMainSha);
+  }
+  const state = new Map<string, string | null>();
+  for (const branch of input.request.branches) {
+    const observed = await observeGitRef(capability, branch);
+    if (observed !== null && observed !== input.request.expectedHeadSha) {
+      throw new Error(
+        `branch ${branch} does not bind expected head ${input.request.expectedHeadSha}`
+      );
+    }
+    state.set(branch, observed);
+  }
+  return state;
+}
+
+async function observeRemoteState(input: RemoteStateInput): Promise<ReadonlyMap<string, string | null>> {
   return withGitHubApiBranchCloseoutWriteSession({
     repositoryRoot: input.repositoryRoot,
     repository: input.repository,
-    operation: async (capability) => {
-      await assertLiveMain(capability, input.defaultBranch, input.expectedMainSha);
-      assertNoOpenPullConsumer(
-        await observeOpenPulls(capability, input.repository),
-        input.request.branches,
-        input.repository
-      );
-      if (input.request.classification === 'closed-pr-superseded') {
-        await assertExactClosedPullRequest(capability, input.repository, input.request);
-      } else if (input.request.classification === 'main-tree-identical') {
-        await assertMainTreeIdentical(capability, input.request, input.expectedMainSha);
-      }
-      const state = new Map<string, string | null>();
-      for (const branch of input.request.branches) {
-        const observed = await observeGitRef(capability, branch);
-        if (observed !== null && observed !== input.request.expectedHeadSha) {
-          throw new Error(
-            `branch ${branch} does not bind expected head ${input.request.expectedHeadSha}`
-          );
-        }
-        state.set(branch, observed);
-      }
-      return state;
+    operation: async (capability) => observeRemoteStateWithCapability(capability, input)
+  });
+}
+
+async function observeRemoteStateReadOnly(
+  input: RemoteStateInput
+): Promise<ReadonlyMap<string, string | null>> {
+  return withGitHubApiReadSession({
+    repositoryRoot: input.repositoryRoot,
+    repository: input.repository,
+    operation: async (capability) => observeRemoteStateWithCapability(capability, input)
+  });
+}
+
+async function collectAdmittedRetirementInventory(input: Readonly<{
+  root: string;
+  repository: string;
+  expectedMainSha: string;
+  request: ExactRefRetirement;
+}>) {
+  const activeWorkPackageObservation = await observeActiveWorkPackage(input.root);
+  const before = collectBranchLifecycleInventory({
+    repositoryRoot: input.root,
+    activeWorkPackageObservation
+  });
+  if (before.repository.fullName !== input.repository) {
+    throw new Error('exact ref retirement repository identity differs');
+  }
+  const criticalUnknowns = criticalInventoryUnknowns(before.unknowns);
+  if (criticalUnknowns.length > 0) {
+    throw new Error(
+      `exact ref retirement critical inventory is unresolved: ${criticalUnknowns.join(' | ')}`
+    );
+  }
+  assertActiveWorkPackageSafe(before.activeWorkPackage, input.request.branches);
+  if (input.request.branches.includes(before.repository.defaultBranch)) {
+    throw new Error('default branch cannot be retired');
+  }
+  if (before.main.remoteSha !== input.expectedMainSha) {
+    throw new Error(
+      `inventory default branch drifted: expected ${input.expectedMainSha}, observed ${before.main.remoteSha ?? '<absent>'}`
+    );
+  }
+  return before;
+}
+
+const EXACT_REF_RECOVERY_PREPARATION_SCHEMA =
+  'sec-exact-ref-retirement-recovery-preparation-v1' as const;
+
+export type ExactRemoteRefRecoveryPreparation = Readonly<{
+  schema: typeof EXACT_REF_RECOVERY_PREPARATION_SCHEMA;
+  repository: string;
+  expectedMainSha: string;
+  retirement: ExactRefRetirement;
+  refState: 'present' | 'absent';
+  recovery: null | Readonly<{
+    bundleName: string;
+    sha256: `sha256:${string}`;
+    verifyOutput: string;
+  }>;
+}>;
+
+function preparationKeys(value: Record<string, unknown>, expected: readonly string[], label: string): void {
+  const actual = Object.keys(value).sort();
+  const sorted = [...expected].sort();
+  if (actual.length !== sorted.length || actual.some((key, index) => key !== sorted[index])) {
+    throw new Error(`${label} fields are invalid`);
+  }
+}
+
+export function parseExactRemoteRefRecoveryPreparation(
+  value: unknown
+): ExactRemoteRefRecoveryPreparation {
+  const input = record(value, 'exact ref recovery preparation');
+  preparationKeys(
+    input,
+    ['schema', 'repository', 'expectedMainSha', 'retirement', 'refState', 'recovery'],
+    'exact ref recovery preparation'
+  );
+  if (input.schema !== EXACT_REF_RECOVERY_PREPARATION_SCHEMA
+      || typeof input.repository !== 'string'
+      || !/^[A-Za-z0-9][A-Za-z0-9._-]{0,99}\/[A-Za-z0-9][A-Za-z0-9._-]{0,99}$/u.test(input.repository)
+      || typeof input.expectedMainSha !== 'string'
+      || !/^[0-9a-f]{40}$/u.test(input.expectedMainSha)
+      || (input.refState !== 'present' && input.refState !== 'absent')) {
+    throw new Error('exact ref recovery preparation identity is invalid');
+  }
+  const retirement = parseExactRefRetirement(input.retirement);
+  let recovery: ExactRemoteRefRecoveryPreparation['recovery'] = null;
+  if (input.recovery !== null) {
+    const candidate = record(input.recovery, 'exact ref recovery bundle');
+    preparationKeys(
+      candidate,
+      ['bundleName', 'sha256', 'verifyOutput'],
+      'exact ref recovery bundle'
+    );
+    if (typeof candidate.bundleName !== 'string'
+        || !/^sec-branch-closeout-[A-Za-z0-9.-]+\.bundle$/u.test(candidate.bundleName)
+        || typeof candidate.sha256 !== 'string'
+        || !/^sha256:[0-9a-f]{64}$/u.test(candidate.sha256)
+        || typeof candidate.verifyOutput !== 'string'
+        || candidate.verifyOutput.length > 32_768
+        || /[\u0000]/u.test(candidate.verifyOutput)) {
+      throw new Error('exact ref recovery bundle identity is invalid');
     }
+    recovery = Object.freeze({
+      bundleName: candidate.bundleName,
+      sha256: candidate.sha256 as `sha256:${string}`,
+      verifyOutput: candidate.verifyOutput
+    });
+  }
+  return Object.freeze({
+    schema: EXACT_REF_RECOVERY_PREPARATION_SCHEMA,
+    repository: input.repository,
+    expectedMainSha: input.expectedMainSha,
+    retirement,
+    refState: input.refState,
+    recovery
+  });
+}
+
+export async function prepareExactRemoteRefRecovery(input: Readonly<{
+  repositoryRoot: string;
+  repository: string;
+  expectedMainSha: string;
+  retirement: ExactRefRetirement;
+}>): Promise<ExactRemoteRefRecoveryPreparation> {
+  const root = path.resolve(input.repositoryRoot);
+  const request = parseExactRefRetirement(input.retirement);
+  const before = await collectAdmittedRetirementInventory({
+    root,
+    repository: input.repository,
+    expectedMainSha: input.expectedMainSha,
+    request
+  });
+  const state = await observeRemoteStateReadOnly({
+    repositoryRoot: root,
+    repository: input.repository,
+    defaultBranch: before.repository.defaultBranch,
+    expectedMainSha: input.expectedMainSha,
+    request
+  });
+  const present = state.get(request.branches[0]) !== null;
+  const recoveryRequired = request.classification === 'closed-pr-superseded' || present;
+  const recovery = recoveryRequired
+    ? createRecoveryBundle({
+        inventory: before,
+        branch: request.branches[0],
+        expectedSha: request.expectedHeadSha,
+        refSource: request.classification === 'closed-pr-superseded'
+          ? { kind: 'pull' as const, number: request.pullRequestNumber }
+          : { kind: 'remote-branch' as const }
+      }).recovery
+    : null;
+  if (recovery !== null && (recovery.kind !== 'bundle' || recovery.verified !== true)) {
+    throw new Error('exact ref recovery preparation did not produce one verified git bundle');
+  }
+  return Object.freeze({
+    schema: EXACT_REF_RECOVERY_PREPARATION_SCHEMA,
+    repository: input.repository,
+    expectedMainSha: input.expectedMainSha,
+    retirement: request,
+    refState: present ? 'present' as const : 'absent' as const,
+    recovery: recovery === null
+      ? null
+      : Object.freeze({
+          bundleName: path.basename(recovery.path),
+          sha256: recovery.sha256,
+          verifyOutput: recovery.verifyOutput
+        })
   });
 }
 
@@ -260,34 +438,23 @@ export async function retireExactRemoteRefs(input: Readonly<{
   repository: string;
   expectedMainSha: string;
   retirement: ExactRefRetirement;
+  preEffectRecovery: Readonly<{
+    refState: 'present' | 'absent';
+    recovery: BranchRecoveryAuthority | null;
+  }>;
 }>): Promise<Readonly<{
   retired: readonly string[];
   alreadyAbsent: readonly string[];
-  recoveries: readonly Readonly<{ branch: string; path: string; sha256: string }>[];
+  recoveries: readonly Readonly<{ branch: string; sha256: string }>[];
 }>> {
   const root = path.resolve(input.repositoryRoot);
   const request = parseExactRefRetirement(input.retirement);
-  const activeWorkPackageObservation = await observeActiveWorkPackage(root);
-  const before = collectBranchLifecycleInventory({
-    repositoryRoot: root,
-    activeWorkPackageObservation
+  const before = await collectAdmittedRetirementInventory({
+    root,
+    repository: input.repository,
+    expectedMainSha: input.expectedMainSha,
+    request
   });
-  if (before.repository.fullName !== input.repository) {
-    throw new Error('exact ref retirement repository identity differs');
-  }
-  const criticalUnknowns = criticalInventoryUnknowns(before.unknowns);
-  if (criticalUnknowns.length > 0) {
-    throw new Error(`exact ref retirement critical inventory is unresolved: ${criticalUnknowns.join(' | ')}`);
-  }
-  assertActiveWorkPackageSafe(before.activeWorkPackage, request.branches);
-  if (request.branches.includes(before.repository.defaultBranch)) {
-    throw new Error('default branch cannot be retired');
-  }
-  if (before.main.remoteSha !== input.expectedMainSha) {
-    throw new Error(
-      `inventory default branch drifted: expected ${input.expectedMainSha}, observed ${before.main.remoteSha ?? '<absent>'}`
-    );
-  }
 
   const initialRemoteState = await observeRemoteState({
     repositoryRoot: root,
@@ -299,24 +466,36 @@ export async function retireExactRemoteRefs(input: Readonly<{
   const present = request.branches.filter((branch) => initialRemoteState.get(branch) !== null);
   const alreadyAbsent = request.branches.filter((branch) => initialRemoteState.get(branch) === null);
 
-  const recoveryBranches = request.classification === 'closed-pr-superseded'
-    ? request.branches
-    : present;
-  const recoveries = recoveryBranches.map((branch) => {
-    const prepared = createRecoveryBundle({
+  const observedRefState = present.length > 0 ? 'present' as const : 'absent' as const;
+  if (input.preEffectRecovery.refState !== observedRefState) {
+    throw new Error(
+      `exact ref retirement state drifted after recovery publication: expected ${input.preEffectRecovery.refState}, observed ${observedRefState}`
+    );
+  }
+  const published = input.preEffectRecovery.recovery;
+  if ((observedRefState === 'present' || request.classification === 'closed-pr-superseded')
+      && published === null) {
+    throw new Error('exact ref retirement requires a published recovery bundle before effect');
+  }
+  let recoveries: ReadonlyArray<Readonly<{ branch: string; sha256: string }>>;
+  if (published !== null) {
+    const verification = verifyRecoveryAuthorityHeadLive({
       inventory: before,
-      branch,
-      expectedSha: request.expectedHeadSha,
-      refSource: request.classification === 'closed-pr-superseded'
-        ? { kind: 'pull' as const, number: request.pullRequestNumber }
-        : { kind: 'remote-branch' as const }
+      recovery: published,
+      expectedHeadSha: request.expectedHeadSha
     });
-    const recovery = prepared.recovery;
-    if (recovery.kind !== 'bundle' || recovery.verified !== true) {
-      throw new Error(`branch ${branch} recovery is not one verified git bundle`);
+    if (verification.status !== 'success') {
+      throw new Error(`published recovery readback is invalid: ${verification.detail}`);
     }
-    return Object.freeze({ branch, path: recovery.path, sha256: recovery.sha256 });
-  });
+    recoveries = Object.freeze([
+      Object.freeze({
+        branch: request.branches[0],
+        sha256: published.sha256
+      })
+    ]);
+  } else {
+    recoveries = Object.freeze([]);
+  }
 
   const retired: string[] = [];
   for (const branch of present) {

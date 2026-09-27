@@ -766,7 +766,9 @@ async function publishImmutableJsonNoReplace(
 async function replaceHeartbeat(
   holder: string,
   heartbeat: WorkspaceWriteLeaseHeartbeat,
-  createId: () => string
+  createId: () => string,
+  assertCurrentOwner: () => Promise<void>,
+  retryBudgetMs: number
 ): Promise<void> {
   const temporary = path.join(holder, candidateFileName('heartbeat', createId()));
   const handle = await fs.open(temporary, 'wx');
@@ -777,7 +779,34 @@ async function replaceHeartbeat(
     await handle.close();
   }
   try {
-    await fs.rename(temporary, path.join(holder, HEARTBEAT_FILE));
+    const target = path.join(holder, HEARTBEAT_FILE);
+    const retryDeadline = performance.now() + retryBudgetMs;
+    for (;;) {
+      try {
+        await fs.rename(temporary, target);
+        break;
+      } catch (error) {
+        const systemCode = systemErrorCode(error) ?? 'UNKNOWN';
+        if (process.platform !== 'win32' || !['EPERM', 'EACCES'].includes(systemCode)
+            || performance.now() >= retryDeadline) {
+          throw new WorkspaceWriteLeaseError(
+            'WORKSPACE-WRITE-LEASE-002',
+            'Workspace writer lease heartbeat replacement failed',
+            { operation: 'heartbeat', phase: 'heartbeat-rename', systemCode }
+          );
+        }
+        // A Windows reader can briefly deny replacement. The candidate has
+        // not been published; prove the same generation still belongs to this
+        // writer before the next bounded attempt.
+        await assertCurrentOwner();
+        const remainingMs = retryDeadline - performance.now();
+        if (remainingMs <= 0) continue;
+        await new Promise<void>((resolve) => setTimeout(
+          resolve,
+          Math.min(remainingMs, Math.max(1, Math.floor(retryBudgetMs / 50)))
+        ));
+      }
+    }
     await fsyncDirectory(holder);
   } catch (error) {
     await fs.unlink(temporary).catch(() => undefined);
@@ -2238,16 +2267,36 @@ export function createWorkspaceWriteLeaseManager(
     workspaceRoot: string,
     token: WorkspaceWriteLeaseToken
   ): Promise<void> => {
-    await assertOwned(workspaceRoot, token);
-    const paths = pathsFor(workspaceRoot);
-    const state = await readGenerationState(paths.root, token.generation);
-    const previous = await readBoundHeartbeat(paths, state);
-    const updated: WorkspaceWriteLeaseHeartbeat = Object.freeze({
-      ...previous,
-      heartbeatAtMs: Math.max(previous.heartbeatAtMs, currentTime())
-    });
-    await replaceHeartbeat(holderDirectory(paths.holders, token), updated, createId);
-    await assertOwned(workspaceRoot, token);
+    let phase = 'ownership-before';
+    try {
+      await assertOwned(workspaceRoot, token);
+      const paths = pathsFor(workspaceRoot);
+      phase = 'generation-state';
+      const state = await readGenerationState(paths.root, token.generation);
+      phase = 'heartbeat-read';
+      const previous = await readBoundHeartbeat(paths, state);
+      const updated: WorkspaceWriteLeaseHeartbeat = Object.freeze({
+        ...previous,
+        heartbeatAtMs: Math.max(previous.heartbeatAtMs, currentTime())
+      });
+      phase = 'heartbeat-publish';
+      await replaceHeartbeat(
+        holderDirectory(paths.holders, token),
+        updated,
+        createId,
+        () => assertOwned(workspaceRoot, token),
+        Math.min(heartbeatIntervalMs, staleAfterMs - heartbeatIntervalMs) / 2
+      );
+      phase = 'ownership-after';
+      await assertOwned(workspaceRoot, token);
+    } catch (error) {
+      if (error instanceof WorkspaceWriteLeaseError) throw error;
+      throw new WorkspaceWriteLeaseError(
+        'WORKSPACE-WRITE-LEASE-002',
+        'Workspace writer lease heartbeat failed',
+        { operation: 'heartbeat', phase, systemCode: systemErrorCode(error) ?? 'UNKNOWN' }
+      );
+    }
   };
 
   const heartbeat = async (
@@ -2725,7 +2774,7 @@ export function createWorkspaceWriteLeaseManager(
       activeLeaseBoundaries.set(tokenKey(token), executionBoundary);
       const timer = setInterval(() => {
         void requestHeartbeat().catch((error) => {
-          heartbeatFailure = Object.freeze({ error });
+          if (heartbeatFailure === undefined) heartbeatFailure = Object.freeze({ error });
         });
       }, heartbeatIntervalMs);
       timer.unref?.();
@@ -2762,19 +2811,12 @@ export function createWorkspaceWriteLeaseManager(
 
       const assertHandle = async (): Promise<void> => {
         assertHandleOpen();
-        if (heartbeatFailure !== undefined) {
-          throw new WorkspaceWriteLeaseError(
-            'WORKSPACE-WRITE-LEASE-002',
-            'Workspace writer lease heartbeat failed'
-          );
-        }
+        if (heartbeatFailure !== undefined) throw heartbeatFailure.error;
         await assertOwned(currentWorkspaceRoot, token);
       };
       const relocateHandle = async (nextWorkspaceRoot: string): Promise<void> => {
         assertHandleOpen();
-        if (heartbeatFailure !== undefined) throw new WorkspaceWriteLeaseError(
-          'WORKSPACE-WRITE-LEASE-002', 'Workspace writer lease heartbeat failed'
-        );
+        if (heartbeatFailure !== undefined) throw heartbeatFailure.error;
         const next = path.resolve(nextWorkspaceRoot);
         // Physical v2 identity deliberately excludes lexical spelling, but
         // this equality check proves the new root is the exact token resource.
@@ -2940,12 +2982,7 @@ export function createWorkspaceWriteLeaseManager(
         token,
         heartbeat: async () => {
           assertHandleOpen();
-          if (heartbeatFailure !== undefined) {
-            throw new WorkspaceWriteLeaseError(
-              'WORKSPACE-WRITE-LEASE-002',
-              'Workspace writer lease heartbeat failed'
-            );
-          }
+          if (heartbeatFailure !== undefined) throw heartbeatFailure.error;
           await requestHeartbeat();
         },
         assertOwned: assertHandle,

@@ -102,7 +102,6 @@ export const DEFAULT_FAST_TEST_RESOURCE_CLASS_LIMITS =
   DEFAULT_MANAGED_FAST_TEST_CONCURRENCY.resourceClassLimits;
 
 const DEFAULT_FAST_TEST_EXCLUSION_REGISTRY = [
-  { file: 'tests/integration/semantic-mutation-apply.test.ts', reason: 'full-semantic-mutation-transaction' },
   {
     file: 'tests/integration/semantic-mutation-recovery-lifecycle.test.ts',
     reason: 'durable-recovery-lifecycle'
@@ -161,7 +160,22 @@ const FAST_TEST_PROCESS_ISOLATION_DEFINITIONS = [
     resourceClass: 'independent-process'
   },
   {
-    file: 'tests/integration/compiler-dependency-installation.test.ts',
+    file: 'tests/integration/compiler-dependency-generation.test.ts',
+    reason: 'process-global-environment-and-isolated-physical-lifecycle',
+    resourceClass: 'independent-process'
+  },
+  {
+    file: 'tests/integration/compiler-dependency-external.test.ts',
+    reason: 'process-global-environment-and-isolated-physical-lifecycle',
+    resourceClass: 'independent-process'
+  },
+  {
+    file: 'tests/integration/compiler-dependency-recovery.test.ts',
+    reason: 'process-global-environment-and-isolated-physical-lifecycle',
+    resourceClass: 'independent-process'
+  },
+  {
+    file: 'tests/integration/compiler-dependency-locks.test.ts',
     reason: 'process-global-environment-and-isolated-physical-lifecycle',
     resourceClass: 'independent-process'
   },
@@ -169,11 +183,6 @@ const FAST_TEST_PROCESS_ISOLATION_DEFINITIONS = [
     file: 'tests/integration/pipeline-workspace-write-lease.test.ts',
     reason: 'workspace-mutation',
     resourceClass: 'independent-process'
-  },
-  {
-    file: 'tests/integration/semantic-mutation-apply.test.ts',
-    reason: 'production-host-and-runtime-lifecycle',
-    resourceClass: 'shared-host-runtime'
   },
   {
     file: 'tests/integration/semantic-mutation-recovery-lifecycle.test.ts',

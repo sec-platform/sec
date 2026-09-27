@@ -71,7 +71,6 @@ function fsyncPath(filePath: string): void {
     closeSync(handle);
   }
 }
-
 function fsyncDirectory(directoryPath: string): void {
   try {
     fsyncPath(directoryPath);
@@ -542,6 +541,162 @@ export function createRecoveryBundle(input: {
   }
 }
 
+type MainAbsorptionRecovery = Extract<BranchRecoveryAuthority, { kind: 'main-absorption' }>;
+
+function exactCommitTree(repositoryRoot: string, sha: string, label: string): string {
+  assertGitSha(sha, `${label} SHA`);
+  const commit = requireRecoveryGitText(repositoryRoot, [
+    'rev-parse', '--verify', '--end-of-options', `${sha}^{commit}`
+  ], `${label} commit`);
+  if (commit !== sha) throw new Error(`${label} commit identity differs.`);
+  const tree = requireRecoveryGitText(repositoryRoot, [
+    'rev-parse', '--verify', '--end-of-options', `${sha}^{tree}`
+  ], `${label} tree`);
+  assertGitSha(tree, `${label} tree SHA`);
+  return tree;
+}
+
+function isNativeAncestor(repositoryRoot: string, sourceSha: string, mainSha: string): boolean {
+  const result = runRecoveryGit(repositoryRoot, [
+    'merge-base', '--is-ancestor', sourceSha, mainSha
+  ]);
+  if (result.status === 0) return true;
+  if (result.status === 1) return false;
+  throw new Error(`Main absorption ancestry observation failed: ${decodeBranchLifecycleChildError(result)}`);
+}
+
+function assertLiveMainContains(inventory: BranchLifecycleInventory, mainSha: string): void {
+  const root = inventory.repository.root;
+  const branch = inventory.repository.defaultBranch;
+  const candidates = [
+    { expected: inventory.main.localSha, ref: `refs/heads/${branch}` },
+    { expected: inventory.main.remoteSha, ref: `refs/remotes/${inventory.repository.remote}/${branch}` }
+  ];
+  const observed = candidates.filter(({ expected }) => expected !== null).map(({ expected, ref }) => {
+    const actual = requireRecoveryGitText(root, ['rev-parse', '--verify', ref], `Current main ${ref}`);
+    if (actual !== expected) throw new Error(`Current main ref changed after inventory: ${ref}`);
+    return actual;
+  });
+  if (!observed.some((current) => isNativeAncestor(root, mainSha, current))) {
+    throw new Error('Absorbing main commit is not retained by a current main ref.');
+  }
+}
+
+/** Recheck immutable native absorption after its completed recovery proof was retired. */
+export function assertRetiredNativeMainAbsorptionLive(
+  inventory: BranchLifecycleInventory,
+  recovery: MainAbsorptionRecovery
+): void {
+  assertDurableRecoveryAuthority(recovery, inventory);
+  const root = inventory.repository.root;
+  if (exactCommitTree(root, recovery.sourceSha, 'Absorbed source') !== recovery.sourceTreeSha
+      || exactCommitTree(root, recovery.mainSha, 'Absorbing main') !== recovery.mainTreeSha) {
+    throw new Error('Retired main absorption exact Git tree changed.');
+  }
+  assertLiveMainContains(inventory, recovery.mainSha);
+  if (recovery.basis === 'native-ancestor') {
+    if (!isNativeAncestor(root, recovery.sourceSha, recovery.mainSha)) {
+      throw new Error('Retired source is not an ancestor of absorbing main.');
+    }
+  } else if (recovery.sourceTreeSha !== recovery.mainTreeSha) {
+    throw new Error('Retired source and absorbing main trees differ.');
+  }
+}
+
+function mainAbsorptionProof(recovery: MainAbsorptionRecovery): Buffer {
+  return Buffer.from(`${JSON.stringify({
+    schema: 'sec-branch-main-absorption-proof-v1',
+    sourceSha: recovery.sourceSha,
+    sourceTreeSha: recovery.sourceTreeSha,
+    mainSha: recovery.mainSha,
+    mainTreeSha: recovery.mainTreeSha,
+    basis: recovery.basis
+  })}\n`, 'utf8');
+}
+
+export function createMainAbsorptionRecovery(input: Readonly<{
+  inventory: BranchLifecycleInventory;
+  branch: string;
+  expectedSha: string;
+  mainSha: string;
+  basis: MainAbsorptionRecovery['basis'];
+  recoveryRoot?: string;
+}>): { recovery: MainAbsorptionRecovery; attempts: BranchCloseoutAttempt[] } {
+  const { inventory, branch, expectedSha, mainSha, basis } = input;
+  assertGitBranchName(branch);
+  assertGitSha(expectedSha, 'absorbed source SHA');
+  assertGitSha(mainSha, 'absorbing main SHA');
+  const sourceTreeSha = exactCommitTree(inventory.repository.root, expectedSha, 'Absorbed source');
+  const mainTreeSha = exactCommitTree(inventory.repository.root, mainSha, 'Absorbing main');
+  const store = acquireBranchRecoveryStore({
+    repositoryRoot: inventory.repository.root,
+    commonDir: inventory.repository.commonDir,
+    worktreeRoots: inventory.worktrees.map(({ path: worktreePath }) => worktreePath),
+    ...(input.recoveryRoot === undefined ? {} : { recoveryRoot: input.recoveryRoot })
+  });
+  let name: string | null = null;
+  let createdProof = false;
+  try {
+    const draft: MainAbsorptionRecovery = {
+      kind: 'main-absorption',
+      path: path.join(store.root.path, 'sec-branch-closeout-pending.main-absorption.json'),
+      sha256: `sha256:${'0'.repeat(64)}`,
+      verified: true,
+      verifyOutput: basis,
+      sourceSha: expectedSha,
+      sourceTreeSha,
+      mainSha,
+      mainTreeSha,
+      basis
+    };
+    assertRetiredNativeMainAbsorptionLive(inventory, draft);
+    const verified = { ...draft, verifyOutput: `${basis}; source ${expectedSha}/${sourceTreeSha}; main ${mainSha}/${mainTreeSha}` };
+    const bytes = mainAbsorptionProof(verified);
+    const digest = createHash('sha256').update(bytes).digest('hex');
+    const identity = createHash('sha256').update(JSON.stringify({ branch, digest })).digest('hex');
+    name = `sec-branch-closeout-${identity}.main-absorption.json`;
+    const recovery: MainAbsorptionRecovery = {
+      ...verified,
+      path: path.join(store.root.path, name),
+      sha256: `sha256:${digest}`
+    };
+    const existing = store.read(name);
+    if (existing !== null) {
+      if (!Buffer.from(existing).equals(bytes)) {
+        throw new Error('Existing main absorption proof differs from exact retry identity.');
+      }
+      const retained = store.inspectFile(name);
+      if (retained === null || retained.kind !== 'file') {
+        throw new Error('Existing main absorption proof physical identity is absent.');
+      }
+    } else {
+      const published = store.publishExclusive({
+        name,
+        bytes,
+        validate: (actual) => {
+          if (!Buffer.from(actual).equals(bytes)) throw new Error('Main absorption proof publication changed.');
+        }
+      });
+      if (published.path !== recovery.path) throw new Error('Main absorption proof path changed.');
+      createdProof = true;
+    }
+    const attempt = verifyRecoveryAuthorityLive({ inventory, recovery });
+    if (attempt.status !== 'success') throw new Error(attempt.detail);
+    return {
+      recovery,
+      attempts: [
+        { operation: 'recovery-create', status: 'success', detail: recovery.path },
+        attempt
+      ]
+    };
+  } catch (error) {
+    const proof = createdProof && name !== null ? store.inspectFile(name) : null;
+    if (proof !== null && name !== null) store.removeExact(name, proof);
+    if (store.createdByAcquisition) store.retireIfEmpty();
+    throw error;
+  }
+}
+
 export function verifyRecoveryAuthorityLive(input: {
   inventory: BranchLifecycleInventory;
   recovery: BranchRecoveryAuthority;
@@ -549,6 +704,17 @@ export function verifyRecoveryAuthorityLive(input: {
   const { inventory, recovery } = input;
   try {
     assertDurableRecoveryAuthority(recovery, inventory);
+    if (recovery.kind === 'main-absorption') {
+      const parent = inspectNoFollowDirectoryChain(path.dirname(recovery.path), 'Main absorption recovery root').target;
+      const bytes = readNoFollowOrdinaryFile(parent, path.basename(recovery.path));
+      if (bytes === null) throw new Error('Main absorption proof is absent.');
+      const digest = `sha256:${createHash('sha256').update(bytes).digest('hex')}`;
+      if (digest !== recovery.sha256 || !Buffer.from(bytes).equals(mainAbsorptionProof(recovery))) {
+        throw new Error('Main absorption proof digest or exact content changed.');
+      }
+      assertRetiredNativeMainAbsorptionLive(inventory, recovery);
+      return { operation: 'recovery-verify', status: 'success', detail: `live main absorption ${recovery.sha256}; ${recovery.verifyOutput}` };
+    }
     const bytes = readFileSync(recovery.path);
     const digest = createHash('sha256').update(bytes).digest('hex');
     if (`sha256:${digest}` !== recovery.sha256) {
@@ -575,6 +741,39 @@ export function verifyRecoveryAuthorityLive(input: {
       operation: 'recovery-verify',
       status: 'success',
       detail: `live revalidation ${recovery.sha256}; ${output}`
+    };
+  } catch (error) {
+    return {
+      operation: 'recovery-verify',
+      status: 'failed',
+      detail: error instanceof Error ? error.message : String(error)
+    };
+  }
+}
+
+export function verifyRecoveryAuthorityHeadLive(input: {
+  inventory: BranchLifecycleInventory;
+  recovery: BranchRecoveryAuthority;
+  expectedHeadSha: string;
+}): BranchCloseoutAttempt {
+  assertGitSha(input.expectedHeadSha, 'recovery expected head SHA');
+  const verified = verifyRecoveryAuthorityLive(input);
+  if (verified.status !== 'success') return verified;
+  try {
+    const heads = requireRecoveryGitText(
+      input.inventory.repository.root,
+      ['bundle', 'list-heads', input.recovery.path],
+      'recovery bundle head readback'
+    );
+    if (!heads.split(/\r?\n/u).some((line) => line.startsWith(`${input.expectedHeadSha} `))) {
+      throw new Error(
+        `recovery bundle does not retain expected head ${input.expectedHeadSha}`
+      );
+    }
+    return {
+      operation: 'recovery-verify',
+      status: 'success',
+      detail: `live head-bound revalidation ${input.recovery.sha256}; ${input.expectedHeadSha}`
     };
   } catch (error) {
     return {

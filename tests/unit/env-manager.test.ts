@@ -44,9 +44,24 @@ test('test workspace roots honor a safe CI lane namespace', () => {
   expect(getTestWorkspaceTempRoot({
     ...isolatedTestWorkspaceEnvironment,
     [TEST_WORKSPACE_NAMESPACE_ENV]: 'verification-gate',
-    [TEST_WORKSPACE_RUN_CHILD_ENV]: `fast-${'a'.repeat(64)}`
-  })).toBe(path.join(defaultRoot, 'verification-gate', `fast-${'a'.repeat(64)}`));
+    [TEST_WORKSPACE_RUN_CHILD_ENV]: `fast-${'a'.repeat(32)}`
+  })).toBe(path.join(defaultRoot, 'verification-gate', `fast-${'a'.repeat(32)}`));
   expect(getTestWorkspaceTemplateRoot()).toBe(path.join(defaultRoot, '.templates'));
+});
+
+test.skipIf(process.platform !== 'win32')('test workspace root does not inherit a nested invocation cache cwd', () => {
+  const namespace = `fast-${'a'.repeat(32)}`;
+  const stableRoot = getTestWorkspaceTempRoot({
+    ...isolatedTestWorkspaceEnvironment,
+    [TEST_WORKSPACE_NAMESPACE_ENV]: namespace
+  });
+  const isolatedCache = path.join(stableRoot, 'test-invocation-runs', 'v1',
+    `run-${'b'.repeat(64)}`, 'invocation-runtime', 'independent-process-001');
+  expect(getTestWorkspaceTempRoot({
+    ...isolatedTestWorkspaceEnvironment,
+    [TEST_WORKSPACE_NAMESPACE_ENV]: namespace,
+    SEC_CACHE_HOME: isolatedCache
+  })).toBe(stableRoot);
 });
 
 test('test workspace namespace rejects path traversal and nested paths', () => {
@@ -67,7 +82,7 @@ test('test workspace namespace rejects path traversal and nested paths', () => {
   })).toThrow('SEC_TEST_WORKSPACE_RUN_CHILD must be an exact run-owned child segment');
   expect(() => getTestWorkspaceTempRoot({
     ...isolatedTestWorkspaceEnvironment,
-    [TEST_WORKSPACE_RUN_CHILD_ENV]: `fast-${'b'.repeat(64)}`
+    [TEST_WORKSPACE_RUN_CHILD_ENV]: `fast-${'b'.repeat(32)}`
   })).toThrow('SEC_TEST_WORKSPACE_RUN_CHILD requires SEC_TEST_WORKSPACE_NAMESPACE');
 });
 
@@ -88,7 +103,7 @@ test('run-owned workspace namespaces bind but never reuse the caller scope', () 
   } as const;
   const first = deriveTestWorkspaceRunNamespace(seed);
 
-  expect(first).toMatch(/^fast-[0-9a-f]{64}$/u);
+  expect(first).toMatch(/^fast-[0-9a-f]{32}$/u);
   expect(first).not.toBe(seed.parentNamespace);
   expect(deriveTestWorkspaceRunNamespace(seed)).toBe(first);
   expect(deriveTestWorkspaceRunNamespace({ ...seed, runSequence: 2 })).not.toBe(first);
@@ -348,11 +363,11 @@ test('opaque retained cleanup removes only the prepared physical child beneath i
   const parentEnv = { [TEST_WORKSPACE_NAMESPACE_ENV]: namespace };
   const env = {
     ...parentEnv,
-    [TEST_WORKSPACE_RUN_CHILD_ENV]: `fast-${'c'.repeat(64)}`
+    [TEST_WORKSPACE_RUN_CHILD_ENV]: `fast-${'c'.repeat(32)}`
   };
   const siblingEnv = {
     ...parentEnv,
-    [TEST_WORKSPACE_RUN_CHILD_ENV]: `fast-${'d'.repeat(64)}`
+    [TEST_WORKSPACE_RUN_CHILD_ENV]: `fast-${'d'.repeat(32)}`
   };
   const parentRoot = getTestWorkspaceTempRoot(parentEnv);
   const root = getTestWorkspaceTempRoot(env);
@@ -383,7 +398,7 @@ test('opaque retained cleanup rejects a replaced child and preserves the replace
   const parentEnv = { [TEST_WORKSPACE_NAMESPACE_ENV]: namespace };
   const env = {
     ...parentEnv,
-    [TEST_WORKSPACE_RUN_CHILD_ENV]: `fast-${'e'.repeat(64)}`
+    [TEST_WORKSPACE_RUN_CHILD_ENV]: `fast-${'e'.repeat(32)}`
   };
   const parentRoot = getTestWorkspaceTempRoot(parentEnv);
   const root = getTestWorkspaceTempRoot(env);

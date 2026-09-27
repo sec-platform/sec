@@ -4,8 +4,7 @@ import {
   type MaintenanceRequest
 } from './contract.ts';
 
-export { REPOSITORY_MAINTENANCE_ISSUE_NUMBER } from './contract.ts';
-export const REPOSITORY_MAINTENANCE_WORKFLOW_PATH =
+const REPOSITORY_MAINTENANCE_WORKFLOW_PATH =
   '.github/workflows/repository-maintenance.yml' as const;
 
 function positiveIntegerText(value: string | undefined, label: string): number {

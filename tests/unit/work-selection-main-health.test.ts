@@ -5,13 +5,59 @@ import {
   withGitHubApiTestSession
 } from '../../src/adapters/providers/github-api/test/operation-session.ts';
 import { createMainHealthLedger } from '../../src/adapters/self-hosting/control/main-health/contract.ts';
+import { GITHUB_ACTIONS_MAIN_HEALTH_CHECK_PROVIDER_POLICY } from '../../src/adapters/self-hosting/control/main-health/main-health-observation.ts';
 import {
+  attachRegisteredMainHealthWorkflowProvenance,
   resolveWorkSelectionMainHealthProviders
 } from '../../src/adapters/self-hosting/control/main-health/work-selection-main-health.ts';
 
 const MAIN = '1'.repeat(40);
 const TREE = '2'.repeat(40);
 const TEST_TOKEN = 'test-token-0123456789';
+
+test('unrelated Actions checks do not require MainHealth workflow provenance', () => {
+  const policy = GITHUB_ACTIONS_MAIN_HEALTH_CHECK_PROVIDER_POLICY;
+  const check = {
+    id: 108459011050,
+    name: 'Analyze (actions)',
+    status: 'completed',
+    conclusion: 'success',
+    headSha: MAIN,
+    detailsUrl: 'https://github.com/sec-platform/sec/actions/runs/36261827172/job/108459011050',
+    appId: policy.app.id,
+    appNodeId: policy.app.nodeId,
+    appSlug: policy.app.slug,
+    workflowPath: null,
+    workflowRef: null,
+    eventName: null,
+    workflowRunId: '36261827172',
+    workflowRunDisplayTitle: null
+  } as const;
+  expect(attachRegisteredMainHealthWorkflowProvenance({
+    checks: [check], workflows: new Map(), mainSha: MAIN
+  })).toEqual([check]);
+
+  const registered = { ...check, name: policy.context };
+  expect(() => attachRegisteredMainHealthWorkflowProvenance({
+    checks: [registered], workflows: new Map(), mainSha: MAIN
+  })).toThrow('provenance was not observed');
+  expect(() => attachRegisteredMainHealthWorkflowProvenance({
+    checks: [{ ...registered, workflowRunId: null }], workflows: new Map(), mainSha: MAIN
+  })).toThrow('lacks a workflow run identity');
+  const workflowPath = '.github/workflows/compiler-pr-validation.yml';
+  const attached = attachRegisteredMainHealthWorkflowProvenance({
+    checks: [registered],
+    workflows: new Map([[registered.workflowRunId, {
+      raw: {}, workflowPath, eventName: 'repository_dispatch',
+      workflowRunDisplayTitle: 'SEC main health'
+    }]]),
+    mainSha: MAIN
+  });
+  expect(attached[0]).toMatchObject({
+    workflowPath, workflowRef: `${workflowPath}@${MAIN}`,
+    eventName: 'repository_dispatch'
+  });
+});
 
 test('WorkSelection resolves only registered hosted repository health', () => {
   const base = {

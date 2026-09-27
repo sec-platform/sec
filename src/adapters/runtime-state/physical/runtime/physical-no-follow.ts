@@ -4753,7 +4753,8 @@ function scanNoFollowDirectoryTreeInternal(
   omitNavigationPrefixes = false,
   directChildrenOnly = false,
   excludedRelativePaths?: ReadonlySet<string>,
-  onEntryVisited?: () => void
+  onEntryVisited?: () => void,
+  volatileDirectEntries = false
 ): readonly InternalNoFollowDirectoryTreeEntry[] {
   const boundedMetadata = Object.freeze({
     deadlineAtMs: metadataOptions.deadlineAtMs ?? Number.POSITIVE_INFINITY,
@@ -4833,7 +4834,14 @@ function scanNoFollowDirectoryTreeInternal(
             ? 'selected'
             : selectedForestPathRole(relativePath, selectedPatterns);
           if (selectedRole === 'excluded') continue;
-          const retained = linuxOpenLeafAt(directoryFd, name, 'No-follow scan leaf');
+          let retained: number;
+          try {
+            retained = linuxOpenLeafAt(directoryFd, name, 'No-follow scan leaf');
+          } catch (error) {
+            if (volatileDirectEntries && directChildrenOnly && prefix.length === 0
+                && error instanceof PhysicalNoFollowError && error.code === 'PHYSICAL_NO_FOLLOW_ABSENT') continue;
+            throw error;
+          }
           try {
             const stat = fstatSync(retained, { bigint: true });
             const kind: NoFollowDirectoryTreeEntryKind = stat.isSymbolicLink()
@@ -4959,11 +4967,18 @@ function scanNoFollowDirectoryTreeInternal(
             continue;
           }
         }
-        const scanned = fileMode === 'bounded-bytes'
-          ? Object.freeze({ ...windowsScanRetainedEntry(absolute, 'No-follow scan entry', reserveFileBytes, assertReadCurrent), contentDigest: null })
-          : fileMode === 'metadata-only'
-            ? Object.freeze({ ...windowsMetadataRetainedEntry(absolute, 'No-follow metadata entry'), bytes: null })
-            : Object.freeze({ ...windowsInventoryRetainedEntry(absolute, 'No-follow inventory entry', reserveFileBytes, assertReadCurrent), bytes: null });
+        let scanned: Omit<InternalNoFollowDirectoryTreeEntry, 'relativePath'>;
+        try {
+          scanned = fileMode === 'bounded-bytes'
+            ? Object.freeze({ ...windowsScanRetainedEntry(absolute, 'No-follow scan entry', reserveFileBytes, assertReadCurrent), contentDigest: null })
+            : fileMode === 'metadata-only'
+              ? Object.freeze({ ...windowsMetadataRetainedEntry(absolute, 'No-follow metadata entry'), bytes: null })
+              : Object.freeze({ ...windowsInventoryRetainedEntry(absolute, 'No-follow inventory entry', reserveFileBytes, assertReadCurrent), bytes: null });
+        } catch (error) {
+          if (volatileDirectEntries && directChildrenOnly && prefix.length === 0
+              && error instanceof PhysicalNoFollowError && error.code === 'PHYSICAL_NO_FOLLOW_ABSENT') continue;
+          throw error;
+        }
         if (fileMode === 'metadata-only' && scanned.kind === 'file') reserveFileBytes(scanned.size);
         if (!(omitNavigationPrefixes && selectedRole === 'navigation')) {
           entries.push(Object.freeze({
@@ -5175,6 +5190,29 @@ export function scanNoFollowDirectoryDirectMetadata(
     options,
     null,
     false,
+    true
+  ).map((entry) => projectNoFollowDirectoryTreeInventoryEntry(entry, null)));
+}
+
+/**
+ * Discovers candidates in a volatile direct-child namespace. A name that
+ * disappears between enumeration and retained open contributes no candidate;
+ * every returned entry still has a retained no-follow identity. Callers must
+ * independently acquire and validate an entry before any mutation.
+ */
+export function scanNoFollowVolatileDirectoryDirectMetadata(
+  root: PhysicalDirectoryIdentity,
+  options: NoFollowDirectoryTreeMetadataOptions
+): readonly NoFollowDirectoryTreeInventoryEntry[] {
+  return Object.freeze(scanNoFollowDirectoryTreeInternal(
+    root,
+    'metadata-only',
+    options,
+    null,
+    false,
+    true,
+    undefined,
+    undefined,
     true
   ).map((entry) => projectNoFollowDirectoryTreeInventoryEntry(entry, null)));
 }
@@ -6103,7 +6141,8 @@ async function copyNoFollowSingleTreeWithRetainedHandles(input: Readonly<{
             sourcePath,
             WINDOWS_FILE_OPEN,
             'No-follow bulk source directory',
-            WINDOWS_SHARE_READ
+            WINDOWS_SHARE_READ,
+            true
           );
           if (next === null) throw physicalError('PHYSICAL_NO_FOLLOW_ABSENT', `No-follow bulk source directory disappeared for ${entry.relativePath}.`);
           pendingSourceHandle = next;

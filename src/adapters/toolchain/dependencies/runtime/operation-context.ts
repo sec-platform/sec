@@ -80,7 +80,7 @@ const boundOperationMethods = new WeakSet<object>();
 const runtimeDependencyInstallOptionKeys = new Set<PropertyKey>([
   'beforeCommit', 'deadlineAtUnixMs', 'generatedStateLifecycle', 'installMode',
   'lockTimeoutMs', 'monotonicNowMs', 'now', 'pollIntervalMs', 'rematerialize',
-  'sharedDepsRoot', 'signal', 'skipSharedDepsWarmup', 'sleep',
+  'sharedDepsRoot', 'signal', 'sleep',
   'testCompilerBridgeValidationHook', 'testCompilerPublishHook',
   'testCompilerPublishPlatform', 'testCompilerRename', 'testInstallLockDelete',
   'testInstallLockDeletePlatform', 'testMaterialization', 'testProjectProjectionHook'
@@ -168,7 +168,6 @@ export function runtimeDependencyOperationOptions<T extends RuntimeDependencyIns
   const beforeCommit = ownOption(options, 'beforeCommit');
   const installMode = ownOption(options, 'installMode');
   const rematerialize = ownOption(options, 'rematerialize');
-  const skipSharedDepsWarmup = ownOption(options, 'skipSharedDepsWarmup');
   const now = ownOption(options, 'now');
   const sleep = ownOption(options, 'sleep');
   const sharedDepsRoot = ownOption(options, 'sharedDepsRoot');
@@ -189,7 +188,7 @@ export function runtimeDependencyOperationOptions<T extends RuntimeDependencyIns
   // second coercion policy at the internal coordinator boundary.
   const request = Object.freeze({
     beforeCommit: bindOperationMethod(beforeCommit, options, 'Runtime dependency commit fence'),
-    installMode, rematerialize, skipSharedDepsWarmup
+    installMode, rematerialize
   });
   assertCapturedRuntimeDependencyInstallRequest(request);
   const methods = {

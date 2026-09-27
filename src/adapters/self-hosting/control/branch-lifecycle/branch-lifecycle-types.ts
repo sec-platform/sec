@@ -188,13 +188,30 @@ export interface BranchLifecycleAuditReport {
   findings: BranchLifecycleAuditFinding[];
 }
 
-export interface BranchRecoveryAuthority {
+interface BranchBundleRecoveryAuthority {
   kind: 'bundle';
   path: string;
   sha256: `sha256:${string}`;
   verified: boolean;
   verifyOutput: string;
 }
+
+interface BranchMainAbsorptionRecoveryAuthority {
+  kind: 'main-absorption';
+  path: string;
+  sha256: `sha256:${string}`;
+  verified: true;
+  verifyOutput: string;
+  sourceSha: string;
+  sourceTreeSha: string;
+  mainSha: string;
+  mainTreeSha: string;
+  basis: 'native-ancestor' | 'identical-tree';
+}
+
+export type BranchRecoveryAuthority =
+  | BranchBundleRecoveryAuthority
+  | BranchMainAbsorptionRecoveryAuthority;
 
 export interface BranchCloseoutPreparation {
   schema: typeof BRANCH_CLOSEOUT_PREPARATION_SCHEMA;

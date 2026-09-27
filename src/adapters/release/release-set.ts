@@ -620,7 +620,10 @@ async function buildRuntimePackage(
     undefined,
     0o755
   ).path;
-  const bundle = await buildFrozenReleaseBundle(source, distRoot, { externalPackageNames: [] });
+  const bundle = await buildFrozenReleaseBundle(source, distRoot, {
+    externalPackageNames: [],
+    runtimeMarkerLocation: 'package-root'
+  });
 
   for (const relativePath of Object.values(COMPILER_RUNTIME_RESOURCE_RELATIVE_PATHS)) {
     await copyOrdinaryTree(

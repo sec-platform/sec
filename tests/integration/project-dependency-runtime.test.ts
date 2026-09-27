@@ -10,12 +10,12 @@ import {
   RUNTIME_DEPS_PREBOUND_BINDING_FILE
 } from '../../src/adapters/toolchain/dependencies/contract/runtime-dependency-spec.ts';
 import {
+  ensureCompilerDepsReady,
   ensureProjectDependencies,
-  ensureSharedDepsReady,
   readRuntimeDepsStamp,
-  SHARED_DEPENDENCY_FORBIDDEN_AUTHORITY_FILES,
   withProjectDependencyBridge
 } from '../../src/adapters/toolchain/dependencies/test/runtime.ts';
+import { compilerRoot } from '../../src/adapters/workspace-context.ts';
 import { ensureProjectBase } from '../../src/adapters/workspace/project-base.ts';
 import { readCompilerPackageJson } from '../helpers/compiler-fixtures.ts';
 import { withTempWorkspace } from '../testkit/workspace.ts';
@@ -24,6 +24,29 @@ type RuntimePackageJson = {
   dependencies: Record<string, string>;
   devDependencies: Record<string, string>;
 };
+
+async function observeCanonicalSharedDependencies(): Promise<unknown> {
+  const sharedRoot = path.join(compilerRoot, '.shared-deps');
+  let root: Awaited<ReturnType<typeof fs.lstat>>;
+  try {
+    root = await fs.lstat(sharedRoot);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return { state: 'absent' };
+    throw error;
+  }
+  if (!root.isDirectory() || root.isSymbolicLink()) {
+    throw new Error('Canonical shared dependency root is not a physical directory');
+  }
+  const children = await fs.readdir(sharedRoot);
+  return {
+    state: 'present',
+    root: { dev: root.dev, ino: root.ino, mode: root.mode },
+    children: await Promise.all(children.sort().map(async (name) => {
+      const entry = await fs.lstat(path.join(sharedRoot, name));
+      return { name, dev: entry.dev, ino: entry.ino, mode: entry.mode };
+    }))
+  };
+}
 
 async function installRuntimePackageManifestClosure(nodeModulesRoot: string): Promise<void> {
   const runtimeSpec = await loadRuntimeDependencySpec();
@@ -47,213 +70,22 @@ async function installRuntimePackageManifestClosure(nodeModulesRoot: string): Pr
   );
 }
 
-describe('shared runtime dependency projection', () => {
-  test('projects one exact compiler closure and reuses it without a second Bun install', async () => {
-    await withTempWorkspace(async (tempRoot) => {
-      const sharedDepsRoot = path.join(tempRoot, '.shared-deps');
-      let unexpectedSpawnCalls = 0;
-      const materialize = async () => {
-        unexpectedSpawnCalls += 1;
-        return { code: 1, stdout: '', stderr: 'unexpected package-manager spawn' };
-      };
-
-      const ready = await Promise.all([
-        ensureSharedDepsReady({ materialize, pollIntervalMs: 10, sharedDepsRoot }),
-        ensureSharedDepsReady({ materialize, pollIntervalMs: 10, sharedDepsRoot }),
-        ensureSharedDepsReady({ materialize, pollIntervalMs: 10, sharedDepsRoot })
-      ]);
-
-      expect(unexpectedSpawnCalls).toBe(0);
-      expect(new Set(ready.map((entry) => entry.binding.revision)).size).toBe(1);
-      expect(ready[0]!.binding.packages.length).toBeGreaterThan(RUNTIME_DEPENDENCY_PACKAGE_NAMES.length);
-      const stampPath = path.join(sharedDepsRoot, 'runtime-deps.stamp.json');
-      expect(await readRuntimeDepsStamp(stampPath)).toMatchObject({
-        formatVersion: 'runtime-deps-stamp-v3',
-        packageManager: 'bun'
-      });
-      const stamp = JSON.parse(await fs.readFile(stampPath, 'utf8')) as Record<string, unknown>;
-      await fs.writeFile(stampPath, `${JSON.stringify({ ...stamp, unexpected: true })}\n`, 'utf8');
-      expect(await readRuntimeDepsStamp(stampPath)).toBeNull();
-    }, 'engineering-compiler-shared-deps-');
-  });
-
-  test('does not reuse a missing or version-drifted transitive package', async () => {
-    await withTempWorkspace(async (tempRoot) => {
-      const sharedDepsRoot = path.join(tempRoot, '.shared-deps');
-      const ready = await ensureSharedDepsReady({ sharedDepsRoot });
-      const directTargets = new Set(ready.binding.rootPackages.map((entry) => entry.target));
-      const transitive = ready.binding.packages.find((entry) => !directTargets.has(entry.relativePath));
-      expect(transitive).toBeDefined();
-      const manifestPath = path.join(ready.nodeModulesPath, ...transitive!.relativePath.split('/'), 'package.json');
-      const originalManifest = await fs.readFile(manifestPath);
-      const manifest = JSON.parse(originalManifest.toString('utf8')) as Record<string, unknown>;
-      await fs.writeFile(manifestPath, `${JSON.stringify({ ...manifest, version: '0.0.0' })}\n`, 'utf8');
-
-      await expect(
-        ensureSharedDepsReady({
-          beforeCommit: async () => {
-            throw new Error('injected stop before projection repair');
-          },
-          sharedDepsRoot
-        })
-      ).rejects.toThrow('injected stop before projection repair');
-      await fs.writeFile(manifestPath, originalManifest);
-      await fs.rm(manifestPath);
-      await expect(
-        ensureSharedDepsReady({
-          beforeCommit: async () => {
-            throw new Error('injected stop before projection repair');
-          },
-          sharedDepsRoot
-        })
-      ).rejects.toThrow('injected stop before projection repair');
-    }, 'engineering-compiler-shared-deps-incomplete-');
-  });
-
-  test('preserves and rejects stale generated control residue without reinstalling', async () => {
-    await withTempWorkspace(async (tempRoot) => {
-      const sharedDepsRoot = path.join(tempRoot, '.shared-deps');
-      await ensureSharedDepsReady({ sharedDepsRoot });
-      await fs.writeFile(path.join(sharedDepsRoot, 'bun.lock'), 'stale generated residue\n', 'utf8');
-      let unexpectedInstallCalls = 0;
-
-      await expect(
-        ensureSharedDepsReady({
-          materialize: async () => {
-            unexpectedInstallCalls += 1;
-            return { code: 1, stdout: '', stderr: 'unexpected reinstall' };
-          },
-          sharedDepsRoot
-        })
-      ).rejects.toMatchObject({
-        code: 'RUNTIME-DEPS-002',
-        message: 'Shared dependency root contains competing authority files: bun.lock'
-      });
-
-      expect(unexpectedInstallCalls).toBe(0);
-      await expect(fs.readFile(path.join(sharedDepsRoot, 'bun.lock'), 'utf8')).resolves.toBe('stale generated residue\n');
-    }, 'engineering-compiler-shared-deps-residue-preserve-');
-  });
-
-  test('rejects a reparse shared root before any install or cleanup effect', async () => {
-    await withTempWorkspace(async (tempRoot) => {
-      const outsideRoot = path.join(tempRoot, 'outside-root');
-      const sharedDepsRoot = path.join(tempRoot, '.shared-deps');
-      const outsideSentinel = path.join(outsideRoot, 'bun.lock');
-      await fs.mkdir(outsideRoot);
-      await fs.writeFile(outsideSentinel, 'outside authority\n', 'utf8');
-      await fs.symlink(outsideRoot, sharedDepsRoot, process.platform === 'win32' ? 'junction' : 'dir');
-      let installCalls = 0;
-
-      await expect(
-        ensureSharedDepsReady({
-          materialize: async () => {
-            installCalls += 1;
-            return { code: 0, stdout: 'unexpected', stderr: '' };
-          },
-          sharedDepsRoot
-        })
-      ).rejects.toMatchObject({
-        code: 'RUNTIME-DEPS-002',
-        message: expect.stringContaining('must be a physical directory')
-      });
-
-      expect(installCalls).toBe(0);
-      await expect(fs.readFile(outsideSentinel, 'utf8')).resolves.toBe('outside authority\n');
-      expect((await fs.lstat(sharedDepsRoot)).isSymbolicLink()).toBe(true);
-    }, 'engineering-compiler-shared-deps-reparse-root-');
-  });
-
-  test('preserves and rejects a forbidden child symlink without touching its target', async () => {
-    await withTempWorkspace(async (tempRoot) => {
-      const sharedDepsRoot = path.join(tempRoot, '.shared-deps');
-      const outsideTarget = path.join(tempRoot, 'outside-lock');
-      const outsideSentinel = path.join(outsideTarget, 'sentinel.txt');
-      await fs.mkdir(sharedDepsRoot);
-      await fs.mkdir(outsideTarget);
-      await fs.writeFile(outsideSentinel, 'outside target\n', 'utf8');
-      await fs.symlink(outsideTarget, path.join(sharedDepsRoot, 'bun.lock'), process.platform === 'win32' ? 'junction' : 'dir');
-      let installCalls = 0;
-
-      await expect(
-        ensureSharedDepsReady({
-          materialize: async () => {
-            installCalls += 1;
-            return { code: 0, stdout: 'unexpected', stderr: '' };
-          },
-          sharedDepsRoot
-        })
-      ).rejects.toMatchObject({
-        code: 'RUNTIME-DEPS-002',
-        message: 'Shared dependency root contains competing authority files: bun.lock'
-      });
-
-      expect(installCalls).toBe(0);
-      expect((await fs.lstat(path.join(sharedDepsRoot, 'bun.lock'))).isSymbolicLink()).toBe(true);
-      await expect(fs.readFile(outsideSentinel, 'utf8')).resolves.toBe('outside target\n');
-    }, 'engineering-compiler-shared-deps-child-link-');
-  });
-
-  test('rejects generated control aliases and hardlinks before writing through them', async () => {
-    await withTempWorkspace(async (tempRoot) => {
-      const sharedDepsRoot = path.join(tempRoot, '.shared-deps');
-      const hardlinkSharedDepsRoot = path.join(tempRoot, '.shared-deps-hardlink');
-      const outsideTarget = path.join(tempRoot, 'outside-manifest');
-      const outsideSentinel = path.join(outsideTarget, 'sentinel.txt');
-      await fs.mkdir(sharedDepsRoot);
-      await fs.mkdir(hardlinkSharedDepsRoot);
-      await fs.mkdir(outsideTarget);
-      await fs.writeFile(outsideSentinel, 'outside target\n', 'utf8');
-      await fs.symlink(outsideTarget, path.join(sharedDepsRoot, 'package.json'), process.platform === 'win32' ? 'junction' : 'dir');
-
-      await expect(ensureSharedDepsReady({ sharedDepsRoot })).rejects.toMatchObject({
-        code: 'RUNTIME-DEPS-002',
-        message: expect.stringContaining('control file is not physical')
-      });
-
-      expect((await fs.lstat(path.join(sharedDepsRoot, 'package.json'))).isSymbolicLink()).toBe(true);
-      await expect(fs.readFile(outsideSentinel, 'utf8')).resolves.toBe('outside target\n');
-
-      const hardlinkPath = path.join(hardlinkSharedDepsRoot, 'package.json');
-      await fs.link(outsideSentinel, hardlinkPath);
-      await expect(ensureSharedDepsReady({ sharedDepsRoot: hardlinkSharedDepsRoot })).rejects.toMatchObject({
-        code: 'RUNTIME-DEPS-002',
-        message: expect.stringContaining('control file is not physical')
-      });
-      expect((await fs.lstat(hardlinkPath)).nlink).toBe(2);
-      await expect(fs.readFile(outsideSentinel, 'utf8')).resolves.toBe('outside target\n');
-    }, 'engineering-compiler-shared-deps-control-link-');
-  });
-
-  test('publishes no package-manager lock or configuration authority', async () => {
-    await withTempWorkspace(async (tempRoot) => {
-      const sharedDepsRoot = path.join(tempRoot, '.shared-deps');
-      await ensureSharedDepsReady({ sharedDepsRoot });
-      await Promise.all(
-        SHARED_DEPENDENCY_FORBIDDEN_AUTHORITY_FILES.map(async (name) => {
-          await expect(fs.lstat(path.join(sharedDepsRoot, name))).rejects.toMatchObject({ code: 'ENOENT' });
-        })
-      );
-    }, 'engineering-compiler-shared-deps-control-authority-');
-  });
-});
-describe('project and shared runtime manifests', () => {
+describe('project and compiler runtime manifests', () => {
   test('derive versions from the root package.json', async () => {
     await withTempWorkspace(async (workspaceRoot) => {
-      const sharedDepsRoot = path.join(workspaceRoot, '.shared-deps');
-
       await ensureProjectBase(workspaceRoot);
-      await ensureSharedDepsReady({ sharedDepsRoot });
+      const compiler = await ensureCompilerDepsReady();
 
       const rootPackage = await readCompilerPackageJson();
       const projectPackage = await readJson<RuntimePackageJson>(path.join(workspaceRoot, 'package.json'));
-      const sharedPackage = await readJson<RuntimePackageJson>(path.join(sharedDepsRoot, 'package.json'));
+      const compilerPackage = await readJson<RuntimePackageJson>(path.join(compiler.root, 'package.json'));
 
       expect(projectPackage.dependencies.yaml).toBe(rootPackage.dependencies?.yaml as string);
       expect(projectPackage.devDependencies['@types/node']).toBe(rootPackage.devDependencies?.['@types/node'] as string);
       expect(projectPackage.devDependencies.typescript).toBe(rootPackage.devDependencies?.typescript as string);
-      expect(sharedPackage.dependencies).toEqual(projectPackage.dependencies);
-      expect(sharedPackage.devDependencies).toEqual(projectPackage.devDependencies);
+      expect(compilerPackage.dependencies).toEqual(projectPackage.dependencies);
+      expect(compilerPackage.devDependencies).toEqual(projectPackage.devDependencies);
+      await expect(fs.lstat(path.join(workspaceRoot, '.shared-deps'))).rejects.toMatchObject({ code: 'ENOENT' });
     }, 'engineering-compiler-runtime-manifest-');
   });
 });
@@ -450,22 +282,47 @@ describe('ensureProjectDependencies', () => {
     }, 'engineering-compiler-runtime-prebound-stale-');
   });
 
-  test('bridges and isolated-copies the same exact shared binding without another install', async () => {
+  test('bridges one authenticated compiler generation without creating shared deps or reinstalling', async () => {
     await withTempWorkspace(async (workspaceRoot) => {
       const sharedDepsRoot = path.join(workspaceRoot, '.shared-deps');
       await ensureProjectBase(workspaceRoot);
-      const shared = await ensureSharedDepsReady({ sharedDepsRoot });
+      const canonicalSharedBefore = await observeCanonicalSharedDependencies();
+      const compiler = await ensureCompilerDepsReady();
+      expect(await observeCanonicalSharedDependencies()).toEqual(canonicalSharedBefore);
+      const sourcePath = compiler.sourceGeneration?.sourcePath ?? await fs.realpath(path.join(compilerRoot, 'node_modules'));
+      expect(compiler.runtimeMaterialization).toBeDefined();
+      await expect(fs.lstat(sharedDepsRoot)).rejects.toMatchObject({ code: 'ENOENT' });
       const sequence: string[] = [];
       await ensureProjectDependencies(workspaceRoot, {
         materialize: async () => {
           sequence.push('unexpected-spawn');
           return { code: 1, stdout: '', stderr: 'unexpected' };
-        },
-        sharedDepsRoot
+        }
       });
 
       expect(sequence).not.toContain('unexpected-spawn');
-      expect(await fs.realpath(path.join(workspaceRoot, 'node_modules'))).toBe(path.join(sharedDepsRoot, 'node_modules'));
+      expect(await fs.realpath(path.join(workspaceRoot, 'node_modules'))).toBe(sourcePath);
+      expect(await observeCanonicalSharedDependencies()).toEqual(canonicalSharedBefore);
+      await expect(fs.lstat(sharedDepsRoot)).rejects.toMatchObject({ code: 'ENOENT' });
+      expect(await readRuntimeDepsStamp(path.join(workspaceRoot, '.runtime-deps.stamp.json'))).toMatchObject({
+        binding: { revision: compiler.runtimeMaterialization!.revision },
+        sourceGeneration: { sourcePath },
+        packageManager: 'bun'
+      });
+    }, 'engineering-compiler-runtime-link-');
+  });
+
+  test('isolated-copies one authenticated compiler generation without creating shared deps or reinstalling', async () => {
+    await withTempWorkspace(async (workspaceRoot) => {
+      const sharedDepsRoot = path.join(workspaceRoot, '.shared-deps');
+      await ensureProjectBase(workspaceRoot);
+      const canonicalSharedBefore = await observeCanonicalSharedDependencies();
+      const compiler = await ensureCompilerDepsReady();
+      expect(await observeCanonicalSharedDependencies()).toEqual(canonicalSharedBefore);
+      const sourcePath = compiler.sourceGeneration?.sourcePath ?? await fs.realpath(path.join(compilerRoot, 'node_modules'));
+      expect(compiler.runtimeMaterialization).toBeDefined();
+      await expect(fs.lstat(sharedDepsRoot)).rejects.toMatchObject({ code: 'ENOENT' });
+      const sequence: string[] = [];
       const beforeCommit = async (): Promise<void> => {
         sequence.push('fence');
       };
@@ -477,9 +334,7 @@ describe('ensureProjectDependencies', () => {
           return { code: 1, stdout: '', stderr: 'unexpected' };
         },
         installMode: 'offline-copy-only',
-        rematerialize: true,
-        sharedDepsRoot,
-        skipSharedDepsWarmup: true
+        rematerialize: true
       });
 
       expect(sequence).not.toContain('unexpected-spawn');
@@ -487,9 +342,13 @@ describe('ensureProjectDependencies', () => {
       expect((await fs.lstat(path.join(workspaceRoot, 'node_modules'))).isSymbolicLink()).toBe(false);
       await expect(fs.stat(path.join(workspaceRoot, 'node_modules', 'yaml', 'package.json'))).resolves.toBeDefined();
       expect(await readRuntimeDepsStamp(path.join(workspaceRoot, '.runtime-deps.stamp.json'))).toMatchObject({
-        binding: { revision: shared.binding.revision },
+        binding: { revision: compiler.runtimeMaterialization!.revision },
+        sourceGeneration: { sourcePath },
         packageManager: 'bun'
       });
-    }, 'engineering-compiler-runtime-projection-');
+      expect(await observeCanonicalSharedDependencies()).toEqual(canonicalSharedBefore);
+      await expect(fs.lstat(sharedDepsRoot)).rejects.toMatchObject({ code: 'ENOENT' });
+    }, 'engineering-compiler-runtime-isolated-copy-');
   });
+
 });

@@ -9,7 +9,6 @@ export type DependencyEnvironmentPresentationSource = Readonly<{
   mode: string;
   manifestHash: string;
   rootNodeModules: DependencyEntryPresentationSource;
-  sharedNodeModules: DependencyEntryPresentationSource;
   projectNodeModules: DependencyEntryPresentationSource;
   bunCache: DependencyEntryPresentationSource;
   recommendedAction: string;
@@ -61,7 +60,6 @@ export function formatDependencyEnvironmentStatus(
     `Mode: ${status.mode}`,
     `Manifest hash: ${status.manifestHash}`,
     `Root node_modules: ${formatEntryStatus(status.rootNodeModules)}`,
-    `Shared deps: ${formatEntryStatus(status.sharedNodeModules)}`,
     `Project node_modules: ${formatEntryStatus(status.projectNodeModules)}`,
     `Bun cache: ${formatEntryStatus(status.bunCache)}`,
     `Recommended action: ${status.recommendedAction}`
@@ -69,7 +67,7 @@ export function formatDependencyEnvironmentStatus(
   if (status.projectNodeModules.target &&
       status.projectNodeModules.kind === 'link') {
     lines.splice(
-      6,
+      5,
       0,
       `Project node_modules target: ${status.projectNodeModules.target}`
     );

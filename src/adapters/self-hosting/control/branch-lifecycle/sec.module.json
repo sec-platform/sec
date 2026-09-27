@@ -53,7 +53,8 @@
     {
       "capability": "branch-lifecycle.closed-supersession-review",
       "operations": [
-        "observeClosedSupersessionEvidence"
+        "observeClosedSupersessionEvidence",
+        "observeProductionClosedSupersessionEvidence"
       ],
       "effectKinds": [
         "filesystem",
@@ -61,7 +62,8 @@
         "provider"
       ],
       "ownerInternalOperations": [
-        "observeClosedSupersessionEvidence"
+        "observeClosedSupersessionEvidence",
+        "observeProductionClosedSupersessionEvidence"
       ],
       "operationRoles": [
         {
@@ -76,6 +78,7 @@
     {
       "capability": "branch-lifecycle.exact-ref-retirement",
       "operations": [
+        "prepareExactRemoteRefRecovery",
         "retireExactRemoteRefs"
       ],
       "effectKinds": [
@@ -83,9 +86,17 @@
         "provider"
       ],
       "ownerInternalOperations": [
+        "prepareExactRemoteRefRecovery",
         "retireExactRemoteRefs"
       ],
       "operationRoles": [
+        {
+          "operation": "prepareExactRemoteRefRecovery",
+          "role": "domain-owner",
+          "semanticOperation": "control.branch-lifecycle.exact-ref-retirement.prepare-recovery",
+          "requirementId": null,
+          "recovery": null
+        },
         {
           "operation": "retireExactRemoteRefs",
           "role": "domain-owner",

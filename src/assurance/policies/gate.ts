@@ -206,6 +206,7 @@ export function preparePolicyGateEvaluation(input: Readonly<{
   if (!canonicalEquals(
     input.engineeringIRInput.policyDeclarations,
     input.definitions.map(definition => definition.policy)
+      .sort((left, right) => compareCodeUnits(left.id, right.id))
   )) {
     throw new CompilerError(
       'VERIFY-POLICY-005',

@@ -562,7 +562,7 @@ describe('work-selection live contract', () => {
     try {
       const clone = spawnSync('git', [
         '-c', 'core.longpaths=true',
-        'clone', '--quiet', '--shared', process.cwd(), root
+        'clone', '--quiet', '--no-hardlinks', process.cwd(), root
       ], {
         encoding: 'buffer',
         windowsHide: true
@@ -570,6 +570,7 @@ describe('work-selection live contract', () => {
       if (clone.status !== 0) {
         throw new Error(Buffer.from(clone.stderr ?? '').toString('utf8'));
       }
+      expect(existsSync(path.join(root, '.git', 'objects', 'info', 'alternates'))).toBe(false);
       runFixtureGit(root, ['config', 'user.name', 'SEC Test']);
       runFixtureGit(root, ['config', 'user.email', 'sec-test@example.invalid']);
       runFixtureGit(root, ['checkout', '--quiet', '-B', 'main', 'HEAD']);

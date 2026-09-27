@@ -1,6 +1,6 @@
 {
   "schema": "sec.documentation-source-manifest/2",
-  "source_set_sha256": "dab428b29aad7498442aef9c39f0cee5f52105538678d4a9c51cb74f3356ba7b",
+  "source_set_sha256": "6316b0d5f38a8d2ff41fa3be8d428cf02ed4435f4174880f2b54111f652610d3",
   "members": [
     {
       "path": ".documentation/README.md",
@@ -589,8 +589,8 @@
     },
     {
       "path": "docs/开发/AI协作/规则装载与任务恢复.md",
-      "bytes": 42958,
-      "sha256": "7d54606547adee7ec9c1b195b154cdee3f817f7adecd270cfea83c0299106447"
+      "bytes": 51963,
+      "sha256": "509b9e7940e007804ea52e302bde8dc6c82e05c9189a5bccc96daabc9763f804"
     },
     {
       "path": "docs/开发/AI协作/需求与作者上下文.md",
@@ -1134,8 +1134,8 @@
     },
     {
       "path": "docs/运行/发布运行与资源生命周期.md",
-      "bytes": 87732,
-      "sha256": "0cca9c4ea163b97d104e8cbdd36d06762e283efa84040c479cc3cd01bcfd3934"
+      "bytes": 88047,
+      "sha256": "7fe04d4f0725b3e43a02acc6b916d8decb3ba11001f8f4878a93a86793ecb2f5"
     },
     {
       "path": "docs/运行/宿主生态与技术约束.md",

@@ -47,7 +47,7 @@ import {
   retainNoFollowOrdinaryFile
 } from '../runtime-state/physical/runtime/physical-no-follow.ts';
 import { buildIsolatedProcessEnvironment, ensureIsolatedProcessDirectories, ISOLATED_VERIFICATION_ENV_KEY, runCommand, type CommandResult } from '../runtime-state/physical/runtime/process.ts';
-import { ensureSharedDepsReady } from '../toolchain/dependencies/runtime.ts';
+import { ensureCompilerDepsReady } from '../toolchain/dependencies/runtime.ts';
 import {
   compilerRuntimeLayout,
   compilerRuntimeResources, loadCanonicalBunRuntimeVersion
@@ -485,7 +485,7 @@ function resolveCanonicalSemanticMutationIsolatedRuntimeInputSources(
 
 async function prepareCanonicalSemanticMutationIsolatedRuntimeInputSources(
 ): Promise<SemanticMutationIsolatedRuntimeInputSources> {
-  await ensureSharedDepsReady();
+  await ensureCompilerDepsReady();
   return Object.freeze(resolveCanonicalSemanticMutationIsolatedRuntimeInputSources());
 }
 

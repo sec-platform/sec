@@ -31,11 +31,10 @@ function dependencyStatus(workspaceRoot: string): DependencyEnvironmentStatus {
   return {
     bunCache: entry('bun-cache'),
     manifestHash: 'dependency-manifest',
-    mode: 'warm-shared',
+    mode: 'warm-compiler',
     projectNodeModules: entry('project-node-modules'),
     recommendedAction: 'platform deps relink',
     rootNodeModules: entry('root-node-modules'),
-    sharedNodeModules: entry('shared-node-modules')
   };
 }
 
@@ -91,12 +90,18 @@ test('dependency maintenance CLI routes through one explicit command domain with
 
     const json = await runCli(workspaceRoot, ['deps', 'status', '--json'], cli);
     expect(json.code).toBe(0);
-    expect(JSON.parse(json.stdout)).toMatchObject({
+    const observed = JSON.parse(json.stdout) as Record<string, unknown>;
+    expect(observed).toMatchObject({
       manifestHash: status.manifestHash,
-      mode: status.mode,
+      mode: 'warm-compiler',
       recommendedAction: status.recommendedAction,
-      sharedNodeModules: { kind: 'physical' }
+      rootNodeModules: {
+        exists: true,
+        kind: 'physical',
+        path: `${workspaceRoot}/root-node-modules`
+      }
     });
+    expect(Object.hasOwn(observed, 'sharedNodeModules')).toBe(false);
 
     const compact = await runCli(workspaceRoot, ['deps', 'status', '--json', '--compact'], cli);
     expect(compact.code).toBe(0);

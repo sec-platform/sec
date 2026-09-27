@@ -9,7 +9,7 @@ async function fixture(run: (root: string) => Promise<void>): Promise<void> {
   const root = await fs.mkdtemp(path.join(tmpdir(), 'sec-environment-observation-'));
   try { await run(root); } finally { await fs.rm(root, { recursive: true, force: true }); }
 }
-const stamps = { manifestHash: 'current', sharedStampHash: 'current', projectStampHash: 'current' };
+const stamps = { manifestHash: 'current', compilerReady: true, projectStampHash: 'current' };
 
 // Actual ordinary filesystem observations; no retained-IO, content validation or
 // installation authorization is inferred from a healthy diagnostic.
@@ -76,11 +76,11 @@ test('ordinary project directories remain dirty even when stamps match', async (
   assert.equal(classifyDependencyEnvironment(stamps, await observeDependencyEntry(shared), await observeDependencyEntry(project)), 'dirty');
 }));
 
-test('a missing projection remains warm-shared when its cache is available', async () => fixture(async root => {
-  assert.equal(classifyDependencyEnvironment(stamps, await observeDependencyEntry(root), await observeDependencyEntry(path.join(root, 'missing'))), 'warm-shared');
+test('a missing project projection remains warm-compiler when its generation is available', async () => fixture(async root => {
+  assert.equal(classifyDependencyEnvironment(stamps, await observeDependencyEntry(root), await observeDependencyEntry(path.join(root, 'missing'))), 'warm-compiler');
 }));
 
-test('a missing or unusable shared cache remains cold despite stamps', async () => fixture(async root => {
+test('a missing compiler generation remains cold despite stamps', async () => fixture(async root => {
   const missing = await observeDependencyEntry(path.join(root, 'missing'));
   assert.equal(classifyDependencyEnvironment(stamps, missing, await observeDependencyEntry(root)), 'cold');
 }));
@@ -89,10 +89,10 @@ test('stale stamp decisions and absent project stamps retain existing precedence
   const shared = path.join(root, 'shared'), project = path.join(root, 'project');
   await fs.mkdir(shared); await fs.symlink(shared, project, 'dir');
   const [a, b] = await Promise.all([observeDependencyEntry(shared), observeDependencyEntry(project)]);
-  assert.equal(classifyDependencyEnvironment({ ...stamps, sharedStampHash: 'old' }, a, b), 'stale');
+  assert.equal(classifyDependencyEnvironment({ ...stamps, compilerReady: false }, a, b), 'cold');
   assert.equal(classifyDependencyEnvironment({ ...stamps, projectStampHash: 'old' }, a, b), 'stale');
-  assert.equal(classifyDependencyEnvironment({ ...stamps, projectStampHash: undefined }, a, b), 'warm-shared');
-  assert.equal(classifyDependencyEnvironment({ ...stamps, sharedStampHash: undefined }, a, b), 'cold');
+  assert.equal(classifyDependencyEnvironment({ ...stamps, projectStampHash: undefined }, a, b), 'warm-compiler');
+  assert.equal(classifyDependencyEnvironment({ ...stamps, compilerReady: false }, a, b), 'cold');
 }));
 
 test('retargeting a link during observation is an error, not a mixed healthy result', async () => fixture(async root => {

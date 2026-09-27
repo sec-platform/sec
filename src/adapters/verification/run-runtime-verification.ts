@@ -10,7 +10,6 @@ import { listFilesRecursive } from '../filesystem/discovery.ts';
 import { writeText } from "../filesystem/files.ts";
 import { buildIsolatedProcessEnvironment, ensureIsolatedProcessDirectories, runCommand } from '../runtime-state/physical/runtime/process.ts';
 import {
-  dependencyAuthorityPaths,
   ensureProjectDependencies,
   withProjectDependencyBridge
 } from '../toolchain/dependencies/runtime.ts';
@@ -71,16 +70,7 @@ export function revalidateIsolatedRuntimeBuildNodeModulesProof(
 
 export function resolveIsolatedRuntimeDependencySources(): Readonly<IsolatedRuntimeDependencySources> {
   const compilerModulesRoot = captureIsolatedRuntimeBuildNodeModulesProof().physicalRoot;
-  const authority = dependencyAuthorityPaths();
-  const dependencyModules = (() => {
-    try {
-      const resolved = realpathSync.native(authority.dependencyModules);
-      return lstatSync(resolved).isDirectory() ? resolved : compilerModulesRoot;
-    } catch {
-      return compilerModulesRoot;
-    }
-  })();
-  return Object.freeze({ compilerModulesRoot, dependencyModules });
+  return Object.freeze({ compilerModulesRoot, dependencyModules: compilerModulesRoot });
 }
 
 type RuntimeVerificationOptions = {
@@ -196,7 +186,6 @@ export async function runRuntimeVerification(
     await withPhase('runtime-dependency-validation', () => ensureProjectDependencies(workspaceRoot, {
       beforeCommit: options.beforeCommit,
       signal: options.signal,
-      skipSharedDepsWarmup: true,
       installMode: 'prebound-only'
     }));
   }

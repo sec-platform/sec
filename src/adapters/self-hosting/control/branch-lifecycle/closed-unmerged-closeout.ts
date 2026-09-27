@@ -24,6 +24,7 @@ import {
   type BranchPublishedCloseoutReceipt,
   type BranchPullRequestObservation
 } from './branch-lifecycle-types.ts';
+import { verifyRecoveryAuthorityLive } from './branch-recovery.ts';
 import {
   assertClosedSupersessionEvidence,
   type ClosedSupersessionEvidence
@@ -64,7 +65,16 @@ export interface ClosedSupersededDispositionEvidence
   readonly supersessionReference: string;
 }
 
-export type ClosedUnmergedCloseoutEvidence = ClosedSupersededDispositionEvidence;
+export interface ClosedNativeAbsorptionDispositionEvidence
+  extends ClosedUnmergedCloseoutEvidenceBase {
+  readonly disposition: 'closed-superseded';
+  readonly retentionBasis: 'native-ancestor' | 'identical-tree';
+  readonly recoveryDigest: `sha256:${string}`;
+}
+
+export type ClosedUnmergedCloseoutEvidence =
+  | ClosedSupersededDispositionEvidence
+  | ClosedNativeAbsorptionDispositionEvidence;
 
 export interface ClosedUnmergedCloseoutOperation {
   readonly schema: typeof CLOSED_UNMERGED_CLOSEOUT_OPERATION_SCHEMA;
@@ -111,7 +121,7 @@ export type ClosedUnmergedProviderMutation = Readonly<{
 export interface ClosedUnmergedCloseoutEffectAdapter {
   readonly providerIdentity: string;
   readonly repository: string;
-  readonly localRefDeleteAtomicity: 'supported' | 'unavailable';
+  readonly localRefDeleteCoordination: 'coordinated' | 'unavailable';
   observeInventory(): Promise<ClosedUnmergedProviderObservation<BranchLifecycleInventory>>;
   observeEffectStart(
     operationId: `sha256:${string}`
@@ -200,6 +210,8 @@ function evidencePayload(input: Omit<
 > & {
   readonly supersessionReviewDigest?: `sha256:${string}`;
   readonly supersessionReference?: string;
+  readonly retentionBasis?: 'native-ancestor' | 'identical-tree';
+  readonly recoveryDigest?: `sha256:${string}`;
 }): Record<string, unknown> {
   return {
     schema: CLOSED_UNMERGED_CLOSEOUT_EVIDENCE_SCHEMA,
@@ -281,6 +293,29 @@ export function createClosedSupersededDispositionEvidence(input: Omit<
   return evidence;
 }
 
+export function createClosedNativeAbsorptionDispositionEvidence(input: Omit<
+  ClosedNativeAbsorptionDispositionEvidence,
+  'schema' | 'disposition' | 'evidenceDigest' | 'retentionBasis' | 'recoveryDigest'
+> & Readonly<{ prepared: PreparedBranchCloseoutEnvelope }>): ClosedNativeAbsorptionDispositionEvidence {
+  const { prepared, ...base } = input;
+  validateEvidenceInput(base);
+  assertPreparedBranchCloseoutEnvelope(prepared);
+  const recovery = prepared.preparation.recovery;
+  if (recovery.kind !== 'main-absorption'
+      || recovery.sourceSha !== base.headSha || recovery.sourceTreeSha !== base.headTreeSha
+      || recovery.mainSha !== base.currentMainSha || recovery.mainTreeSha !== base.currentMainTreeSha
+      || prepared.preparation.branch !== base.branch
+      || prepared.preparation.expectedRemoteSha !== base.headSha) {
+    throw new Error('Closed-native disposition does not bind the exact issued main-absorption recovery.');
+  }
+  const payload = evidencePayload({ ...base, disposition: 'closed-superseded',
+    retentionBasis: recovery.basis, recoveryDigest: recovery.sha256 });
+  const evidence = Object.freeze({ ...payload,
+    evidenceDigest: branchLifecycleDigest(payload) }) as ClosedNativeAbsorptionDispositionEvidence;
+  issuedEvidence.add(evidence);
+  return evidence;
+}
+
 function exactPullRequest(
   inventory: BranchLifecycleInventory,
   evidence: ClosedUnmergedCloseoutEvidence
@@ -338,6 +373,14 @@ function exactCurrentBlockers(input: {
   }
   try {
     assertDurableRecoveryAuthority(preparation.recovery, inventory);
+    if (preparation.recovery.kind === 'main-absorption') {
+      const recovery = preparation.recovery;
+      if (!('retentionBasis' in evidence)
+          || evidence.retentionBasis !== recovery.basis
+          || evidence.recoveryDigest !== recovery.sha256) {
+        throw new Error('Native disposition does not bind the exact main-absorption recovery.');
+      }
+    }
   } catch (error) {
     blockers.push(error instanceof Error ? error.message : String(error));
   }
@@ -474,8 +517,8 @@ export function issueClosedUnmergedCloseoutEffectProvider(
   if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,99}\/[A-Za-z0-9][A-Za-z0-9._-]{0,99}$/u.test(adapter.repository)) {
     throw new Error('Closed-unmerged provider repository is invalid.');
   }
-  if (adapter.localRefDeleteAtomicity !== 'supported' && adapter.localRefDeleteAtomicity !== 'unavailable') {
-    throw new Error('Closed-unmerged provider local-ref delete atomicity is invalid.');
+  if (adapter.localRefDeleteCoordination !== 'coordinated' && adapter.localRefDeleteCoordination !== 'unavailable') {
+    throw new Error('Closed-unmerged provider local-ref delete coordination is invalid.');
   }
   const provider = Object.freeze({
     providerIdentity: adapter.providerIdentity,
@@ -601,7 +644,12 @@ async function observeExactInventory(
   if (observation.status !== 'observed') return preserve(operation, stage, observation.detail);
   const blockers = exactCurrentBlockers({ prepared: operation.prepared,
     evidence: operation.evidence, inventory: observation.value, allowedPrStates });
-  return blockers.length > 0 ? blocked(operation, stage, blockers) : observation.value;
+  if (blockers.length > 0) return blocked(operation, stage, blockers);
+  const recovery = operation.prepared.preparation.recovery;
+  if (recovery.kind !== 'main-absorption') return observation.value;
+  const live = verifyRecoveryAuthorityLive({ inventory: observation.value, recovery });
+  return live.status === 'success'
+    ? observation.value : blocked(operation, stage, [live.detail]);
 }
 
 function currentAuthorization(
@@ -617,8 +665,8 @@ function localRefDeleteCapabilityBlocker(
   adapter: ClosedUnmergedCloseoutEffectAdapter,
   authorization: BranchCloseoutAuthorization
 ): string | null {
-  return authorization.localAction === 'delete-exact' && adapter.localRefDeleteAtomicity !== 'supported'
-    ? 'Git local ref exact delete is unavailable before further branch effects'
+  return authorization.localAction === 'delete-exact' && adapter.localRefDeleteCoordination !== 'coordinated'
+    ? 'Git local ref coordinated exact delete is unavailable before further branch effects'
     : null;
 }
 

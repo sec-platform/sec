@@ -10,16 +10,17 @@ import { CI_ARTIFACT_FILES } from '../../src/assurance/verification/ci-artifacts
 import {
   addBlock,
   buildWorkspaceEngineeringIR,
+  composeWorkspace,
   initWorkspace,
   resolveWorkspace
 } from '../../src/bootstrap/engineering/cli.ts';
+import { POLICY_RULE_IDS } from '../../src/semantics/policies/rules.ts';
 import { withTempWorkspace } from '../testkit/workspace.ts';
 
 test('workspace builds one deterministic canonical Engineering IR independent of derived artifacts', async () => {
   await withTempWorkspace(async (workspaceRoot) => {
     await initWorkspace(workspaceRoot);
     await addBlock(workspaceRoot, 'ticket/basic');
-    await resolveWorkspace(workspaceRoot);
     const paths = getWorkspacePaths(workspaceRoot);
     const explainGraphPath = resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.explainGraph);
     const policyReportPath = resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.policyReport);
@@ -30,9 +31,11 @@ test('workspace builds one deterministic canonical Engineering IR independent of
         id: 'canonical-source-policy',
         severity: 'warn',
         appliesTo: ['ticket/basic'],
-        rule: 'declaration_only_for_revision_stability'
+        rule: POLICY_RULE_IDS[0]
       }]
     });
+    await resolveWorkspace(workspaceRoot);
+    await composeWorkspace(workspaceRoot);
 
     const first = await buildWorkspaceEngineeringIR(workspaceRoot);
     const second = await buildWorkspaceEngineeringIR(workspaceRoot);

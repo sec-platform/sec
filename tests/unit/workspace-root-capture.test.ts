@@ -58,7 +58,16 @@ for (const operation of operations) {
         await writeYaml(planPath, plan);
         // Satisfy stage prerequisites, but keep verification artifacts absent:
         // domain rejection must remain the same, not become a locator failure.
-        await saveLock(root, buildReviewLock({ passStatus: { lock: 'succeeded' } }));
+        await saveLock(root, buildReviewLock({
+          app: {
+            id: plan.app.id,
+            name: plan.app.name,
+            stack: plan.app.stack,
+            mode: plan.app.mode
+          },
+          acceptancePlan: plan.acceptance.map(({ id }) => id).sort(),
+          passStatus: { lock: 'succeeded' }
+        }));
       }
       const expected = await observe(operation.run(baseline), baseline);
       const pending = operation.run(path.relative(cwd, target));
@@ -67,7 +76,9 @@ for (const operation of operations) {
       expect(actual).toEqual(expected);
       expect(await readdir(decoy)).toEqual([]);
       if (['init', 'resolve', 'engineering input'].includes(operation.name)) {
-        expect(actual.status).toBe('returned');
+        if (actual.status !== 'returned') {
+          throw new Error(`Expected successful ${operation.name} root capture: ${JSON.stringify(actual)}`);
+        }
       }
     } finally {
       process.chdir(cwd);

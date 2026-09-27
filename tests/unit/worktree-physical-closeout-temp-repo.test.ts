@@ -14,6 +14,7 @@ import {
   rmSync,
   symlinkSync,
   truncateSync,
+  unlinkSync,
   writeFileSync,
   writeSync
 } from 'node:fs';
@@ -43,7 +44,8 @@ import {
   assertCompilerDependencyEnvironmentRetirementReceipt,
   compilerDependencyLocatorWorktreeRetirementProvider,
   disposeCompilerDependencyEnvironment,
-  ensureCompilerDepsReady
+  ensureCompilerDepsReady,
+  retireSettledCompilerDependencyStageIntents
 } from '../../src/adapters/toolchain/dependencies/test/runtime.ts';
 import { sha256 } from '../../src/contracts/canonical.ts';
 
@@ -87,7 +89,7 @@ function materializeCompilerDependencyFixtureV1(root: string): void {
   }
 }
 
-function fixture(options: Readonly<{ compilerDependencies?: boolean }> = {}) {
+function fixture(options: Readonly<{ compilerDependencies?: boolean; documentationCoordination?: boolean }> = {}) {
   const root = mkdtempSync(path.join(tmpdir(), 'sec-worktree-physical-closeout-'));
   const remote = path.join(root, 'remote.git');
   const repository = path.join(root, 'repository');
@@ -99,6 +101,7 @@ function fixture(options: Readonly<{ compilerDependencies?: boolean }> = {}) {
   git(repository, ['config', 'core.autocrlf', 'false']);
   writeFileSync(path.join(repository, 'tracked.txt'), 'main\n', 'utf8');
   if (options.compilerDependencies === true) writeCompilerDependencyInputsV1(repository);
+  if (options.documentationCoordination === true) writeFileSync(path.join(repository, '.gitignore'), '.tmp/\n', 'utf8');
   git(repository, ['add', '.']);
   git(repository, ['commit', '-m', 'main']);
   git(repository, ['remote', 'add', 'origin', remote]);
@@ -244,6 +247,125 @@ test('completed worktree evidence is retained while the branch is live and recla
     expect(existsSync(path.dirname(authorization.authorizationPath))).toBeFalse();
     expect(existsSync(path.dirname(path.dirname(authorization.authorizationPath)))).toBeFalse();
     expect(existsSync(authorization.proofRoot.path)).toBeFalse();
+  } finally {
+    rmSync(value.root, { recursive: true, force: true });
+  }
+}, 30_000);
+
+test('common-dir writer excludes worktree unregister and evidence retirement until released', async () => {
+  const value = fixture();
+  try {
+    const authorization = await prepareWorktreePhysicalCloseout({
+      repositoryRoot: value.repository,
+      targetPath: value.target,
+      expectedBranch: value.branch,
+      expectedHeadSha: value.headSha,
+      expectedTreeSha: value.treeSha,
+      expectedRecoveryAuthorityDigest: value.recoveryAuthorityDigest
+    });
+    const commonDir = git(value.repository, ['rev-parse', '--path-format=absolute', '--git-common-dir']);
+    const execute = () => executeWorktreePhysicalCloseout({
+      repositoryRoot: value.repository,
+      targetPath: value.target,
+      expectedBranch: value.branch,
+      expectedHeadSha: value.headSha,
+      expectedTreeSha: value.treeSha,
+      expectedRecoveryAuthorityDigest: value.recoveryAuthorityDigest,
+      authorizationPath: authorization.authorizationPath
+    });
+    const firstLease = await acquireWorkspaceWriteLease(commonDir);
+    try {
+      await expect(execute()).rejects.toThrow('Workspace writer lease is already held');
+      expect(gitPath(git(value.repository, ['worktree', 'list', '--porcelain']))).toContain(gitPath(value.target));
+      expect(existsSync(value.target)).toBeTrue();
+    } finally {
+      await firstLease.release();
+    }
+    expect((await execute()).terminal).toBe('completed');
+    git(value.repository, ['branch', '-D', value.branch]);
+
+    const secondLease = await acquireWorkspaceWriteLease(commonDir);
+    try {
+      await expect(gcCompletedWorktreePhysicalCloseoutEvidence(value.repository))
+        .rejects.toThrow('Workspace writer lease is already held');
+      expect(existsSync(authorization.authorizationPath)).toBeTrue();
+    } finally {
+      await secondLease.release();
+    }
+    expect((await gcCompletedWorktreePhysicalCloseoutEvidence(value.repository)).retiredOperationIds)
+      .toEqual([authorization.operationId]);
+  } finally {
+    rmSync(value.root, { recursive: true, force: true });
+  }
+}, 30_000);
+
+test('closeout retires only an empty ignored documentation coordination leaf', async () => {
+  const value = fixture({ documentationCoordination: true });
+  const lock = path.join(value.target, '.tmp', 'documentation-projection.lock');
+  try {
+    mkdirSync(path.dirname(lock));
+    writeFileSync(lock, '');
+    expect(git(value.target, ['check-ignore', '-v', '.tmp/documentation-projection.lock'])).toContain('.tmp/');
+    const authorization = await prepareWorktreePhysicalCloseout({
+      repositoryRoot: value.repository,
+      targetPath: value.target,
+      expectedBranch: value.branch,
+      expectedHeadSha: value.headSha,
+      expectedTreeSha: value.treeSha,
+      expectedRecoveryAuthorityDigest: value.recoveryAuthorityDigest
+    });
+    expect(existsSync(lock)).toBeFalse();
+    expect(existsSync(authorization.authorizationPath)).toBeTrue();
+    expect((await executeWorktreePhysicalCloseout({
+      repositoryRoot: value.repository,
+      targetPath: value.target,
+      expectedBranch: value.branch,
+      expectedHeadSha: value.headSha,
+      expectedTreeSha: value.treeSha,
+      expectedRecoveryAuthorityDigest: value.recoveryAuthorityDigest,
+      authorizationPath: authorization.authorizationPath
+    })).terminal).toBe('completed');
+  } finally {
+    rmSync(value.root, { recursive: true, force: true });
+  }
+}, 30_000);
+
+test('nonempty documentation coordination state rejects closeout without deleting the leaf', async () => {
+  const value = fixture({ documentationCoordination: true });
+  const lock = path.join(value.target, '.tmp', 'documentation-projection.lock');
+  try {
+    mkdirSync(path.dirname(lock));
+    writeFileSync(lock, 'x');
+    await expect(prepareWorktreePhysicalCloseout({
+      repositoryRoot: value.repository,
+      targetPath: value.target,
+      expectedBranch: value.branch,
+      expectedHeadSha: value.headSha,
+      expectedTreeSha: value.treeSha,
+      expectedRecoveryAuthorityDigest: value.recoveryAuthorityDigest
+    })).rejects.toThrow('refuses nonempty state');
+    expect(readFileSync(lock, 'utf8')).toBe('x');
+    expect(gitPath(git(value.repository, ['worktree', 'list', '--porcelain']))).toContain(gitPath(value.target));
+  } finally {
+    rmSync(value.root, { recursive: true, force: true });
+  }
+}, 30_000);
+
+test('non-file documentation coordination state rejects closeout without deleting the leaf', async () => {
+  const value = fixture({ documentationCoordination: true });
+  const lock = path.join(value.target, '.tmp', 'documentation-projection.lock');
+  try {
+    mkdirSync(lock, { recursive: true });
+    await expect(prepareWorktreePhysicalCloseout({
+      repositoryRoot: value.repository,
+      targetPath: value.target,
+      expectedBranch: value.branch,
+      expectedHeadSha: value.headSha,
+      expectedTreeSha: value.treeSha,
+      expectedRecoveryAuthorityDigest: value.recoveryAuthorityDigest
+    })).rejects.toThrow();
+    expect(existsSync(lock)).toBeTrue();
+    expect(gitPath(git(value.repository, ['worktree', 'list', '--porcelain']))).toContain(gitPath(value.target));
   } finally {
     rmSync(value.root, { recursive: true, force: true });
   }
@@ -928,6 +1050,92 @@ test('first same-branch completed token remains target-valid after a second regi
     expect(gitPath(git(value.repository, ['worktree', 'list', '--porcelain']))).not.toContain(gitPath(value.target));
     expect(gitPath(git(value.repository, ['worktree', 'list', '--porcelain']))).not.toContain(gitPath(secondTarget));
   } finally {
+    rmSync(value.root, { recursive: true, force: true });
+  }
+}, 60_000);
+
+test('dependency owner retires settled compiler staging intents in a linked worktree', async () => {
+  const value = fixture({ compilerDependencies: true });
+  const previousCacheHome = process.env.SEC_CACHE_HOME;
+  const previousStateHome = process.env.SEC_STATE_HOME;
+  process.env.SEC_CACHE_HOME = path.join(value.root, 'runtime-cache');
+  process.env.SEC_STATE_HOME = path.join(value.root, 'runtime-state');
+  try {
+    const lifecycle = generatedStateProducerHooks({
+      repositoryRoot: value.repository,
+      workspaceRoot: value.target
+    }, {
+      environment: { ...process.env },
+      worktreeRetirementProviders: [compilerDependencyLocatorWorktreeRetirementProvider]
+    });
+    await ensureCompilerDepsReady({
+      materialize: async (_args, command) => {
+        materializeCompilerDependencyFixtureV1(command.cwd);
+        return { code: 0, stdout: 'ok', stderr: '' };
+      },
+      generatedStateLifecycle: lifecycle
+    }, value.target);
+    const intents = path.join(value.target, '.tmp', 'dependency-installs', '.compiler-stage-intents-v1');
+    expect(readdirSync(intents).filter((name) => name.endsWith('.json')).length).toBeGreaterThan(0);
+    const originalName = readdirSync(intents).find((name) => name.endsWith('-settled.json'));
+    expect(originalName).toBeString();
+    const originalPath = path.join(intents, originalName!);
+    const originalBytes = readFileSync(originalPath);
+    const foreignPath = path.join(intents, 'foreign.txt');
+    writeFileSync(foreignPath, 'owner unknown\n');
+    await expect(retireSettledCompilerDependencyStageIntents(value.target))
+      .rejects.toThrow('unknown residue');
+    expect(readFileSync(foreignPath, 'utf8')).toBe('owner unknown\n');
+    expect(readFileSync(originalPath).equals(originalBytes)).toBe(true);
+    unlinkSync(foreignPath);
+    writeFileSync(originalPath, Buffer.concat([originalBytes, Buffer.from('x')]));
+    await expect(retireSettledCompilerDependencyStageIntents(value.target))
+      .rejects.toThrow();
+    expect(readFileSync(originalPath).equals(Buffer.concat([originalBytes, Buffer.from('x')]))).toBe(true);
+    writeFileSync(originalPath, originalBytes);
+    const stageRootPath = (JSON.parse(originalBytes.toString('utf8')) as { stageRootPath: string }).stageRootPath;
+    unlinkSync(originalPath);
+    mkdirSync(stageRootPath);
+    writeFileSync(path.join(stageRootPath, 'foreign.txt'), 'active stage replacement\n');
+    await expect(retireSettledCompilerDependencyStageIntents(value.target))
+      .rejects.toThrow();
+    expect(readFileSync(path.join(stageRootPath, 'foreign.txt'), 'utf8'))
+      .toBe('active stage replacement\n');
+    expect(existsSync(originalPath)).toBe(false);
+    rmSync(stageRootPath, { recursive: true, force: true });
+    writeFileSync(originalPath, originalBytes);
+    const preparedName = originalName!.replace('-settled.json', '-prepared.json');
+    const disposingName = originalName!.replace('-settled.json', '-disposing.json');
+    await expect(retireSettledCompilerDependencyStageIntents(value.target, {
+      beforeCommit: async () => {
+        if (!existsSync(path.join(intents, preparedName)) &&
+            existsSync(path.join(intents, disposingName))) {
+          throw new Error('stage-retirement-cutpoint');
+        }
+      }
+    })).rejects.toThrow();
+    expect(existsSync(path.join(intents, preparedName))).toBe(false);
+    expect(existsSync(path.join(intents, disposingName))).toBe(true);
+    expect(readdirSync(intents).some((name) => name.startsWith('retiring-'))).toBe(true);
+    const retirement = await retireSettledCompilerDependencyStageIntents(value.target);
+    expect(existsSync(intents)).toBe(false);
+    expect(retirement).toMatchObject({
+      schema: 'sec-compiler-dependency-stage-intent-retirement-v1',
+      ownerRoot: path.resolve(value.target),
+      terminal: 'absent'
+    });
+    expect(retirement.retiredOperationKeys.length).toBeGreaterThan(0);
+    const disposed = await disposeCompilerDependencyEnvironment(
+      value.target,
+      { generatedStateLifecycle: lifecycle },
+      'stage-intent-retirement-fixture-complete'
+    );
+    assertCompilerDependencyEnvironmentRetirementReceipt(disposed, value.target);
+  } finally {
+    if (previousCacheHome === undefined) delete process.env.SEC_CACHE_HOME;
+    else process.env.SEC_CACHE_HOME = previousCacheHome;
+    if (previousStateHome === undefined) delete process.env.SEC_STATE_HOME;
+    else process.env.SEC_STATE_HOME = previousStateHome;
     rmSync(value.root, { recursive: true, force: true });
   }
 }, 60_000);

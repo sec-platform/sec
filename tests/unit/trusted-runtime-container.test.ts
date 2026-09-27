@@ -138,7 +138,7 @@ describe('provider-neutral trusted runtime container', () => {
 
   test('enters dependency materialization through the exact Bun package runner', () => {
     expect(TRUSTED_RUNTIME_WORKSPACE_SETUP_SCRIPT).toContain(
-      `CI=1 ${SEC_LINUX_VERIFICATION_TRUSTED_BUN_EXECUTABLE_PATH} run deps:ensure`
+      `CI=1 SEC_CACHE_HOME=/tmp/sec-hosted-dependency-home ${SEC_LINUX_VERIFICATION_TRUSTED_BUN_EXECUTABLE_PATH} run deps:ensure`
     );
     expect(TRUSTED_RUNTIME_WORKSPACE_SETUP_SCRIPT).not.toContain(
       'src/adapters/self-hosting/development/runner/cli.ts deps:ensure'

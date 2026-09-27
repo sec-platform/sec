@@ -29,10 +29,12 @@ import {
 } from './branch-lifecycle-inventory.ts';
 import {
   acquireBranchRecoveryStore,
+  createMainAbsorptionRecovery,
   createRecoveryBundle,
   ensureRecoveryRoot,
   verifyRecoveryAuthorityLive
 } from './branch-recovery.ts';
+import { assertClosedSupersessionEvidence, type ClosedSupersessionEvidence } from './closed-supersession-review.ts';
 
 const COMMAND_TIMEOUT_MS = 60_000;
 const COMMAND_MAX_BUFFER = 32 * 1024 * 1024;
@@ -116,6 +118,8 @@ export interface PrepareClosedUnmergedPullRequestCloseoutInput {
   baseSha: string;
   /** Fresh provider observation retained even after the branch ref is absent. */
   exactPullRequest: BranchPullRequestObservation;
+  /** Required when exact native main absorption cannot prove retention. */
+  reviewEvidence?: ClosedSupersessionEvidence;
 }
 
 type BranchCloseoutPreparationAdmission =
@@ -125,7 +129,30 @@ type BranchCloseoutPreparationAdmission =
       expectedBaseBranch: string;
       expectedBaseSha: string;
       exactPullRequest: BranchPullRequestObservation;
+      reviewEvidence?: ClosedSupersessionEvidence;
     };
+
+function closedMainAbsorptionBasis(
+  repositoryRoot: string,
+  sourceSha: string,
+  mainSha: string
+): 'native-ancestor' | 'identical-tree' | null {
+  const ancestry = runCloseoutGit(repositoryRoot, ['merge-base', '--is-ancestor', sourceSha, mainSha]);
+  if (ancestry.status === 0) return 'native-ancestor';
+  if (ancestry.status !== 1) {
+    throw new Error('Closed-unmerged native main ancestry observation is unavailable.');
+  }
+  const sourceTree = runCloseoutGit(repositoryRoot, ['rev-parse', '--verify', `${sourceSha}^{tree}`]);
+  const mainTree = runCloseoutGit(repositoryRoot, ['rev-parse', '--verify', `${mainSha}^{tree}`]);
+  if (sourceTree.status !== 0 || mainTree.status !== 0) {
+    throw new Error('Closed-unmerged exact native tree observation is unavailable.');
+  }
+  const sourceTreeSha = decodeBranchLifecycleChildStdout(sourceTree);
+  const mainTreeSha = decodeBranchLifecycleChildStdout(mainTree);
+  assertGitSha(sourceTreeSha, 'closed-unmerged source tree');
+  assertGitSha(mainTreeSha, 'closed-unmerged main tree');
+  return sourceTreeSha === mainTreeSha ? 'identical-tree' : null;
+}
 
 function createPreparedEnvelope(input: Omit<
   PreparedBranchCloseoutEnvelope,
@@ -562,7 +589,26 @@ function prepareBranchCloseoutInternal(
     ? (input.expectedPrHeadSha ?? pullRequest?.headSha ?? null)
     : null;
 
-  const { recovery, attempts } = refState === 'absent'
+  const mainSha = before.main.remoteSha;
+  if (admission.kind === 'closed-unmerged' && mainSha === null) {
+    throw new Error('Closed-unmerged main absorption requires one exact remote main SHA.');
+  }
+  const retentionBasis = admission.kind === 'closed-unmerged'
+      && admission.reviewEvidence === undefined
+    ? closedMainAbsorptionBasis(before.repository.root, expectedHeadSha, mainSha!)
+    : null;
+  if (admission.kind === 'closed-unmerged' && retentionBasis === null
+      && admission.reviewEvidence === undefined) {
+    throw new Error('Closed-unmerged distinct-tree head requires one exact adopted supersession review.');
+  }
+  if (admission.kind === 'closed-unmerged' && admission.reviewEvidence !== undefined) {
+    assertClosedSupersessionEvidence(admission.reviewEvidence);
+  }
+  const { recovery, attempts } = admission.kind === 'closed-unmerged' && retentionBasis !== null
+    ? createMainAbsorptionRecovery({ inventory: before, branch: input.branch,
+        expectedSha: expectedHeadSha, mainSha: mainSha!, basis: retentionBasis,
+        ...(scope.recoveryRoot === undefined ? {} : { recoveryRoot: scope.recoveryRoot }) })
+    : refState === 'absent'
     ? prepareAbsentRefRecovery(scope, before, input.branch, expectedHeadSha, pullRequestNumber)
     : createRecoveryBundle({
         inventory: before,
@@ -629,7 +675,8 @@ export function prepareClosedUnmergedPullRequestCloseout(
     kind: 'closed-unmerged',
     expectedBaseBranch: input.baseBranch,
     expectedBaseSha: input.baseSha,
-    exactPullRequest: input.exactPullRequest
+    exactPullRequest: input.exactPullRequest,
+    ...(input.reviewEvidence === undefined ? {} : { reviewEvidence: input.reviewEvidence })
   });
 }
 

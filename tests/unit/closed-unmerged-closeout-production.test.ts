@@ -10,12 +10,18 @@ import {
   withGitHubApiTestSession,
   type GitHubApiTransport
 } from '../../src/adapters/providers/github-api/test/operation-session.ts';
+import { parseClosedUnmergedCloseoutArguments } from '../../src/adapters/self-hosting/control/branch-lifecycle/closed-unmerged-closeout-cli.ts';
 import {
   executeProductionClosedUnmergedCloseout,
   observeProductionClosedUnmergedPullRequest
 } from '../../src/adapters/self-hosting/control/branch-lifecycle/closed-unmerged-closeout-production.ts';
 
 const REPOSITORY = 'sec-platform/sec';
+test('native closeout CLI needs no review comment while reviewed lane retains exact review identity', () => {
+  const base = ['--repository', REPOSITORY, '--pr', '593', '--disposition', 'closed-superseded'];
+  expect(parseClosedUnmergedCloseoutArguments(base).reviewCommentId).toBeNull();
+  expect(parseClosedUnmergedCloseoutArguments([...base, '--review-comment', '5931']).reviewCommentId).toBe(5931);
+});
 const TOKEN = 'test-token-0123456789';
 const PRINCIPAL: GitHubApiPrincipal = Object.freeze({
   transport: 'github-rest-token', login: 'maintainer', nodeId: 'MDQ6VXNlcjE=',

@@ -21,6 +21,7 @@ const PHYSICAL_RUNTIME_AUTHORITY_TEST_TIMEOUT_MS = 30_000;
 const VERIFICATION_ACTION_TEST_PROCESS_ISSUER =
   issueVerificationActionTestProcessIssuerForTests();
 
+import { currentDocumentationVerificationBaseline } from '../../src/adapters/self-hosting/control/documentation/active.ts';
 import { createIntegrationAuthorization } from '../../src/adapters/self-hosting/control/integration/authorization.ts';
 import {
   createMainHealthLedger,
@@ -32,6 +33,7 @@ import { createScopeAuthorization, type ScopeAuthorization } from '../../src/ada
 import { encodeVerificationActionData } from '../../src/adapters/verification/platform/action/contract/action.ts';
 import { ciVerificationActionParentDispatchPlanPayloadDigest, createCiVerificationActionParentDispatchPlan, createCiVerificationActionProposal, createCiVerificationActionProviderEnvelope, createCiVerificationLocalExecutionEnvironment } from '../../src/adapters/verification/platform/action/contract/ci.ts';
 import { CodexDevelopmentCreateVerificationEvidenceProducer, CodexDevelopmentFinalizeVerificationEvidenceV4, CodexDevelopmentFinalizeVerificationSessionArtifact } from '../../src/adapters/verification/platform/ci/contract/evidence.ts';
+import { bindDocumentationVerificationGateInput } from '../../src/adapters/verification/platform/ci/contract/plan.ts';
 import { createReviewSnapshotDigest, createReviewStabilityReceipt, renderIndependentReviewTrailer, REVIEW_OBSERVER_READ_ONLY_CAPABILITY_RECEIPT, SEC_REVIEW_STABILITY_POLICY } from '../../src/adapters/verification/platform/review/contract/stability.ts';
 import { CodexDevelopmentCreateTestImpactTransitionObservation, CodexDevelopmentTestImpactTransitionDigest, type CodexDevelopmentTestImpactTransitionObservation } from '../../src/adapters/verification/platform/test-impact/runtime/transition.ts';
 import { CodexDevelopmentBuildVerificationGateResult } from '../../src/assurance/verification/result/contract/result.ts';
@@ -174,7 +176,10 @@ const PAGE = `sha256:${'a'.repeat(64)}` as const;
 const JOIN_SESSION = `sha256:${'6'.repeat(64)}` as const;
 const JOIN_ACTION = `sha256:${'7'.repeat(64)}` as const;
 const testImpactFixture = await acquireExactRepositoryTestImpactProviderFixture();
-const TEST_IMPACT_SOURCE_PROVIDER = testImpactFixture.provider;
+const TEST_IMPACT_SOURCE_PROVIDER = bindDocumentationVerificationGateInput(
+  testImpactFixture.provider,
+  currentDocumentationVerificationBaseline()
+);
 
 function changedTransition(
   changedPaths: readonly string[],
@@ -659,7 +664,7 @@ await import(pathToFileURL(runner).href);
     writeFileSync(source, sourceText, 'utf8');
     const compiled = spawnSync(process.execPath, [
       'build', '--compile', source, '--outfile', output
-    ], { encoding: 'utf8', windowsHide: true });
+    ], { cwd: privateGhProxySuiteRoot, encoding: 'utf8', windowsHide: true });
     if (compiled.status !== 0) {
       throw new Error(`cannot compile private gh proxy: ${compiled.stderr || compiled.stdout}`);
     }
@@ -969,6 +974,19 @@ function reducerFixture(options: {
   mergeToDefault?: GitHubComparisonObservation;
 } = {}) {
   const mergeAt = options.mergeAt ?? MERGE_AT;
+  const repository = 'sec-platform/sec';
+  const identity = Object.freeze({
+    repository,
+    prNumber: 42,
+    verificationRunId: '100',
+    mergeRunId: '200',
+    freshMainHealthRunId: '7',
+    verificationWorkflowPath: '.github/workflows/compiler-pr-validation.yml',
+    mergeWorkflowPath: '.github/workflows/sec-merge-gate.yml',
+    mainHealthSourceRef: `github-check-runs:${repository}@${BASE}`
+  });
+  const verificationWorkflowRef = `${identity.verificationWorkflowPath}@${BASE}`;
+  const mergeWorkflowRef = `${identity.mergeWorkflowPath}@${BASE}`;
   const repositoryRoot = mkdtempSync(path.join(tmpdir(), 'sec-verification-session-'));
   const journalFs = createEphemeralVerificationSessionJournalFs(
     path.join(repositoryRoot, 'runtime-state')
@@ -978,31 +996,33 @@ function reducerFixture(options: {
   const github = fakeGitHubClient(transport, (input) => observePrivateClearReviewBarrier(
     input.observedAt ?? VERIFIED_AT
   ));
-  const barrier = github.observeReviewBarrier({ repository: 'sec-platform/sec', prNumber: 42,
+  const candidate = transport.candidate();
+  const barrier = github.observeReviewBarrier({ repository: identity.repository, prNumber: identity.prNumber,
     headSha: HEAD, excludedPrincipalNodeIds: new Set(['AUTHOR', 'INTEGRATOR']), observedAt: VERIFIED_AT });
   if (barrier.status !== 'clear') throw new Error('fixture Review must be clear');
   const changedPaths = ['src/adapters/verification/platform/ci/runtime/verification-session.ts'];
   const testImpactTransition = changedTransition(changedPaths);
-  const local = prepareTrustedMainVerificationSession({ repository: 'sec-platform/sec',
-    candidate: transport.candidate(), manifestPath: V6_MANIFEST_PATH, manifestDigest: V6_MANIFEST_DIGEST,
+  const initialMainHealthCheck = mainHealthCheck({ workflowRunId: identity.verificationRunId });
+  const local = prepareTrustedMainVerificationSession({ repository: identity.repository,
+    candidate, manifestPath: V6_MANIFEST_PATH, manifestDigest: V6_MANIFEST_DIGEST,
     changedPaths, testImpactTransition, testImpactSourceProvider: TEST_IMPACT_SOURCE_PROVIDER,
     profile: 'quick', integrationPrincipalNodeId: 'INTEGRATOR',
-    producerPrincipalNodeId: 'INTEGRATOR', sourceRunId: '100',
+    producerPrincipalNodeId: 'INTEGRATOR', sourceRunId: identity.verificationRunId,
     sourceRef: `refs/heads/main@${BASE}`, observedAt: VERIFIED_AT,
-    reviewBarrier: barrier, mainHealthChecks: [mainHealthCheck()],
+    reviewBarrier: barrier, mainHealthChecks: [initialMainHealthCheck],
     dependencyBlobs: actionDependencyBlobs() });
   const facts = reconstructVerificationSessionHostedFacts({ request: local.request,
-    repository: 'sec-platform/sec', candidate: transport.candidate(), changedPaths, testImpactTransition,
+    repository: identity.repository, candidate, changedPaths, testImpactTransition,
     testImpactSourceProvider: TEST_IMPACT_SOURCE_PROVIDER,
     integrationPrincipalNodeId: 'INTEGRATOR', producerPrincipalNodeId: 'INTEGRATOR',
-    sourceRunId: '100', sourceRef: `.github/workflows/compiler-pr-validation.yml@${BASE}`,
-    observedAt: VERIFIED_AT, reviewBarrier: barrier, mainHealthChecks: [mainHealthCheck()],
+    sourceRunId: identity.verificationRunId, sourceRef: verificationWorkflowRef,
+    observedAt: VERIFIED_AT, reviewBarrier: barrier, mainHealthChecks: [initialMainHealthCheck],
     dependencyBlobs: actionDependencyBlobs() });
   const envelope = createPureHostedEnvelopeFixture({ request: local.request, facts });
   const producer = CodexDevelopmentCreateVerificationEvidenceProducer({
-    sourceTransport: 'github-actions', workflowPath: '.github/workflows/compiler-pr-validation.yml',
-    workflowRef: `.github/workflows/compiler-pr-validation.yml@${BASE}`, workflowSha: BASE,
-    runId: '100', runAttempt: 1, actorNodeId: 'INTEGRATOR'
+    sourceTransport: 'github-actions', workflowPath: identity.verificationWorkflowPath,
+    workflowRef: verificationWorkflowRef, workflowSha: BASE,
+    runId: identity.verificationRunId, runAttempt: 1, actorNodeId: 'INTEGRATOR'
   });
   const gates = envelope.actionPlanClosure.actions.map(({ action }, index) => ({
     action,
@@ -1044,27 +1064,27 @@ function reducerFixture(options: {
   const artifactText = `${encodeVerificationActionData(artifact)}\n`;
   const hostedMetadata = {
     artifactId: '1000',
-    artifactName: `sec-verification-session-v2-pr-42-session-${artifact.session.sessionRevision.slice(7)}-run-100-attempt-1`,
+    artifactName: `sec-verification-session-v2-pr-${identity.prNumber}-session-${artifact.session.sessionRevision.slice(7)}-run-${identity.verificationRunId}-attempt-1`,
     archiveDigest: PAGE,
-    workflowPath: '.github/workflows/compiler-pr-validation.yml',
-    workflowRef: `.github/workflows/compiler-pr-validation.yml@${BASE}`, workflowSha: BASE,
-    runId: '100', runAttempt: 1, eventName: 'repository_dispatch', actorNodeId: 'INTEGRATOR',
+    workflowPath: identity.verificationWorkflowPath,
+    workflowRef: verificationWorkflowRef, workflowSha: BASE,
+    runId: identity.verificationRunId, runAttempt: 1, eventName: 'repository_dispatch', actorNodeId: 'INTEGRATOR',
     actorPermission: 'maintain' as const, expired: false
   };
   const hostedObservation = createHostedArtifactObservation({ artifact, artifactText,
     observation: hostedMetadata });
-  const preMergeBarrier = github.observeReviewBarrier({ repository: 'sec-platform/sec', prNumber: 42,
+  const preMergeBarrier = github.observeReviewBarrier({ repository: identity.repository, prNumber: identity.prNumber,
     headSha: HEAD, excludedPrincipalNodeIds: new Set(['AUTHOR', 'INTEGRATOR']), observedAt: mergeAt });
   if (preMergeBarrier.status !== 'clear') throw new Error('fixture pre-merge Review must be clear');
   const preMergeReview = createPureReviewFixture({ stage: 'pre-merge',
     session: artifact.session, scope: artifact.scopeAuthorization, barrier: preMergeBarrier,
     candidateAuthorNodeId: 'AUTHOR', integrationPrincipalNodeId: 'INTEGRATOR',
     expiresAt: '2026-08-09T14:20:00.000Z', operationId: PAGE });
-  const mergeWorkflowRef = `.github/workflows/sec-merge-gate.yml@${BASE}`;
   const freshMainHealth = createMainHealthLedger(createObservedMainHealthInput({
-    repository: 'sec-platform/sec', mainSha: BASE, mainTreeSha: BASE, trustRevision: BASE,
-    observedAt: mergeAt, expiresAt: '2026-08-09T14:20:00.000Z', sourceRunId: '200',
-    sourceRef: mergeWorkflowRef, checks: [mainHealthCheck()]
+    repository: identity.repository, mainSha: BASE, mainTreeSha: BASE, trustRevision: BASE,
+    observedAt: mergeAt, expiresAt: '2026-08-09T14:20:00.000Z', sourceRunId: identity.freshMainHealthRunId,
+    sourceRef: identity.mainHealthSourceRef,
+    checks: [mainHealthCheck({ workflowRunId: identity.freshMainHealthRunId })]
   }));
   const platform = github.observePlatformEnforcement('sec-platform/sec');
   if (platform.status === 'unknown') throw new Error('fixture platform observation must be known');
@@ -1074,12 +1094,12 @@ function reducerFixture(options: {
   });
   const mergeInput = prepareVerificationSessionMergeInput({ artifact, preMergeReview,
     platform, hostedArtifactOrigin: hostedObservation, hostedArtifactTransport: hostedObservation,
-    candidate: { repository: 'sec-platform/sec', prNumber: 42, draft: false,
+    candidate: { repository: identity.repository, prNumber: identity.prNumber, draft: false,
       headOpenPullRequestCount: 1, currentBaseSha: BASE, currentBaseTreeSha: BASE,
       headSha: HEAD, headTreeSha: HEAD, baseIsAncestor: true, behindBy: 0,
       manifestPath: V6_MANIFEST_PATH, manifestDigest: V6_MANIFEST_DIGEST, changedPaths },
-    provenance: { workflowPath: '.github/workflows/sec-merge-gate.yml', workflowRef: mergeWorkflowRef,
-      workflowSha: BASE, eventName: 'workflow_run', sourceRunId: '200', sourceRunAttempt: 1,
+    provenance: { workflowPath: identity.mergeWorkflowPath, workflowRef: mergeWorkflowRef,
+      workflowSha: BASE, eventName: 'workflow_run', sourceRunId: identity.mergeRunId, sourceRunAttempt: 1,
       actorNodeId: 'INTEGRATOR', actorPermission: 'maintain' },
     mainHealth: freshMainHealth, consumptionOperationId, issuedAt: mergeAt,
     expiresAt: options.authorizationExpiresAt ?? '2026-08-09T14:10:00.000Z'
@@ -1091,10 +1111,10 @@ function reducerFixture(options: {
   })).digest('hex')}` as const;
   const authorizationMetadata = {
     artifactId: '2000',
-    artifactName: `sec-merge-gate-result-v2-pr-42-session-${artifact.session.sessionRevision.slice(7)}-run-200-attempt-1`,
+    artifactName: `sec-merge-gate-result-v2-pr-${identity.prNumber}-session-${artifact.session.sessionRevision.slice(7)}-run-${identity.mergeRunId}-attempt-1`,
     archiveDigest: PAGE,
-    workflowPath: '.github/workflows/sec-merge-gate.yml', workflowRef: mergeWorkflowRef,
-    workflowSha: BASE, runId: '200', runAttempt: 1, eventName: 'workflow_run',
+    workflowPath: identity.mergeWorkflowPath, workflowRef: mergeWorkflowRef,
+    workflowSha: BASE, runId: identity.mergeRunId, runAttempt: 1, eventName: 'workflow_run',
     actorNodeId: CI_GITHUB_ACTIONS_IDENTITY_POLICY.bot.nodeId,
     actorPermission: 'none' as const, expired: false
   };
@@ -1103,7 +1123,7 @@ function reducerFixture(options: {
   });
   const preparation = createBranchCloseoutPreparation({ preparedAt: MERGE_AT,
     repository: { root: repositoryRoot, commonDir: path.join(repositoryRoot, '.git'),
-      fullName: 'sec-platform/sec', remote: 'origin', defaultBranch: 'main' },
+      fullName: identity.repository, remote: 'origin', defaultBranch: 'main' },
     branch: 'feat/example', refState: 'present', expectedHeadSha: HEAD, expectedRemoteSha: HEAD,
     expectedLocalSha: HEAD, expectedPrHeadSha: null, pullRequestNumber: 42,
     pullRequestStateAtPreparation: 'open', recovery: { kind: 'bundle', path: 'recovery.bundle',
@@ -2103,7 +2123,7 @@ test('MainHealth accepts one exact dispatch and locks duplicate or foreign produ
 test('IssueDisposition post-main readback consumes the canonical exact MainHealth decision', () => {
   const common = {
     repository: 'sec-platform/sec', newMainSha: BASE, newMainTreeSha: HEAD,
-    observedAt: '2026-08-09T14:00:00.000Z', sourceRunId: '200',
+    observedAt: '2026-08-09T14:00:00.000Z', sourceRunId: '7',
     sourceRef: `.github/workflows/sec-merge-gate.yml@${BASE}`
   };
   const dispatched = mainHealthCheck({ id: 8 });
@@ -2146,14 +2166,14 @@ test('trusted-main proposal and hosted sole issuer reconstruct the same stable S
   const local = prepareTrustedMainVerificationSession({ repository: candidate.repository, candidate,
     manifestPath: 'config/repository/work-packages/example.md', manifestDigest, changedPaths, testImpactTransition,
     testImpactSourceProvider: TEST_IMPACT_SOURCE_PROVIDER, profile: 'quick',
-    integrationPrincipalNodeId: 'INTEGRATOR', producerPrincipalNodeId: 'INTEGRATOR', sourceRunId: '1',
+    integrationPrincipalNodeId: 'INTEGRATOR', producerPrincipalNodeId: 'INTEGRATOR', sourceRunId: '7',
     sourceRef: `refs/heads/main@${BASE}`, observedAt: barrier.observedAt, reviewBarrier: barrier,
     mainHealthChecks: [mainHealthCheck()], dependencyBlobs: actionDependencyBlobs() });
   const facts = reconstructVerificationSessionHostedFacts({ request: local.request,
     repository: candidate.repository, candidate, changedPaths, testImpactTransition,
     testImpactSourceProvider: TEST_IMPACT_SOURCE_PROVIDER,
     integrationPrincipalNodeId: 'INTEGRATOR',
-    producerPrincipalNodeId: 'INTEGRATOR', sourceRunId: '2',
+    producerPrincipalNodeId: 'INTEGRATOR', sourceRunId: '7',
     sourceRef: `.github/workflows/compiler-pr-validation.yml@${BASE}`, observedAt: barrier.observedAt,
     reviewBarrier: barrier, mainHealthChecks: [mainHealthCheck()],
     dependencyBlobs: actionDependencyBlobs() });
@@ -2171,7 +2191,7 @@ test('trusted-main proposal and hosted sole issuer reconstruct the same stable S
   expect(() => prepareTrustedMainVerificationSession({ repository: candidate.repository, candidate,
     manifestPath: 'config/repository/work-packages/example.md', manifestDigest, changedPaths, testImpactTransition,
     testImpactSourceProvider: TEST_IMPACT_SOURCE_PROVIDER, profile: 'quick',
-    integrationPrincipalNodeId: 'INTEGRATOR', producerPrincipalNodeId: 'INTEGRATOR', sourceRunId: '1',
+    integrationPrincipalNodeId: 'INTEGRATOR', producerPrincipalNodeId: 'INTEGRATOR', sourceRunId: '7',
     sourceRef: `refs/heads/main@${BASE}`, observedAt: barrier.observedAt, reviewBarrier: barrier,
     mainHealthChecks: [mainHealthCheck()], dependencyBlobs: actionDependencyBlobs('bun.lock') }))
     .toThrow(/bun\.lock drifted from the trusted base/i);
@@ -2179,7 +2199,7 @@ test('trusted-main proposal and hosted sole issuer reconstruct the same stable S
     repository: candidate.repository, candidate, changedPaths, testImpactTransition,
     testImpactSourceProvider: TEST_IMPACT_SOURCE_PROVIDER,
     integrationPrincipalNodeId: 'INTEGRATOR',
-    producerPrincipalNodeId: 'INTEGRATOR', sourceRunId: '2',
+    producerPrincipalNodeId: 'INTEGRATOR', sourceRunId: '7',
     sourceRef: `.github/workflows/compiler-pr-validation.yml@${BASE}`, observedAt: barrier.observedAt,
     reviewBarrier: barrier, mainHealthChecks: [mainHealthCheck()],
     dependencyBlobs: actionDependencyBlobs('package.json') }))
@@ -2323,7 +2343,7 @@ test('same paths with a different Git transition change the complete Verificatio
     }),
     testImpactSourceProvider: TEST_IMPACT_SOURCE_PROVIDER,
     profile: 'quick', integrationPrincipalNodeId: 'INTEGRATOR',
-    producerPrincipalNodeId: 'INTEGRATOR', sourceRunId: `transition-${status}`,
+    producerPrincipalNodeId: 'INTEGRATOR', sourceRunId: '7',
     sourceRef: `refs/heads/main@${candidate.baseSha}`, observedAt: VERIFIED_AT,
     reviewBarrier: barrier, mainHealthChecks: [mainHealthCheck()],
     dependencyBlobs: actionDependencyBlobs()
@@ -3443,7 +3463,7 @@ fail('unsupported test gh command: ' + args.join(' '));
   if (process.platform === 'win32') {
     for (const [source, output] of [[gitProgram, 'git.exe'], [ghProgram, 'gh.exe']] as const) {
       const compiled = spawnSync(process.execPath, ['build', '--compile', source,
-        '--outfile', path.join(shimRoot, output)], { encoding: 'utf8', windowsHide: true });
+        '--outfile', path.join(shimRoot, output)], { cwd: shimRoot, encoding: 'utf8', windowsHide: true });
       if (compiled.status !== 0) {
         throw new Error(`cannot compile ${output}: ${compiled.stderr || compiled.stdout}`);
       }
@@ -4465,7 +4485,7 @@ closeoutCliE2eTest('public Session closeout CLI partition E lost marker POST and
   });
 }, 120_000);
 
-closeoutCliE2eTest('V9 integration reruns retain producing attempts and authorize fresh integration after pre-gate expiry', () => {
+test('V9 expired pre-gate authority requires a fresh integration while retaining exact Action Evidence', () => {
   const stalePreGateAt = '2026-08-09T14:07:00.000Z';
   const stalePreGate = reducerFixture({ mergeAt: stalePreGateAt });
   try {
@@ -4484,7 +4504,9 @@ closeoutCliE2eTest('V9 integration reruns retain producing attempts and authoriz
   } finally {
     stalePreGate.dispose();
   }
+});
 
+closeoutCliE2eTest('V9 integration reruns retain producing attempts and authorize fresh integration after pre-gate expiry', () => {
   withCloseoutCliPartition(({ harnessRoot, recoveryHarnessRoot, shimRoot, fixture }) => {
     const samePrincipal = createCloseoutCliScenario({ harnessRoot, recoveryHarnessRoot, shimRoot,
       name: 'rerun-same-principal', fixture, currentRunAttempt: 2,

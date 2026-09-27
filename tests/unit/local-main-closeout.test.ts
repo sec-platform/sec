@@ -49,8 +49,11 @@ function binding(expectedLocalPreimageSha = git(protectedRoot!, ['rev-parse', 'H
 }
 
 async function execute(bindingValue: ReturnType<typeof binding>) {
-  return withWorkspaceWriteLease(protectedRoot!, undefined, (lease) => (
-    executeLocalMainCloseout(protectedRoot!, bindingValue, gitRunner, lease)
+  const commonDir = git(protectedRoot!, ['rev-parse', '--path-format=absolute', '--git-common-dir']).trim();
+  return withWorkspaceWriteLease(commonDir, undefined, (commonLease) => (
+    withWorkspaceWriteLease(protectedRoot!, undefined, (lease) => (
+      executeLocalMainCloseout(protectedRoot!, bindingValue, gitRunner, lease, commonLease)
+    ))
   ));
 }
 
@@ -81,6 +84,21 @@ beforeAll(async () => {
 
 afterAll(async () => {
   if (baseRoot) await rm(baseRoot, { recursive: true, force: true });
+});
+
+test.serial('local-main mutation requires the Git common-dir lease before fetch', async () => {
+  const beforeHead = git(protectedRoot!, ['rev-parse', 'HEAD']).trim();
+  let fetchCount = 0;
+  const observingRunner: typeof gitRunner = (repoRoot, args) => {
+    if (args[0] === 'fetch') fetchCount += 1;
+    return gitRunner(repoRoot, args);
+  };
+  await withWorkspaceWriteLease(protectedRoot!, undefined, async (rootLease) => {
+    await expect(executeLocalMainCloseout(protectedRoot!, binding(beforeHead),
+      observingRunner, rootLease, rootLease)).rejects.toThrow();
+  });
+  expect(fetchCount).toBe(0);
+  expect(git(protectedRoot!, ['rev-parse', 'HEAD']).trim()).toBe(beforeHead);
 });
 
 test.serial('clean fast-forwardable protected main ends in LOCAL_MAIN_READY via ff-only with exact readback', async () => {
