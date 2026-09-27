@@ -1,6 +1,6 @@
 {
   "schema": "sec.documentation-source-manifest/2",
-  "source_set_sha256": "069a0899e9bff1b5ae2380de3b2a30c51dae52ddb68202525b260e9be82b1d6b",
+  "source_set_sha256": "5fd8eea1a94bb14de61d45b3d53dfdd4490856b7e4b23c804e726fbc1b518784",
   "members": [
     {
       "path": ".documentation/README.md",
@@ -1069,8 +1069,8 @@
     },
     {
       "path": "docs/编译/表示/目标运行与观测.md",
-      "bytes": 25681,
-      "sha256": "27cb7e6f26f91b356814075fc5635e5976a258e8faf694d737283ef83530bd08"
+      "bytes": 25789,
+      "sha256": "fcc1baa800d25e0599f94d348df5df04354c1803db3999d45d6ce4ed556b1327"
     },
     {
       "path": "docs/编译/表示/编辑与受管回源.md",
