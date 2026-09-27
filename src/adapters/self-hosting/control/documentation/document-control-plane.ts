@@ -4484,7 +4484,8 @@ async function assertCommittedCandidateReplanAuthority(input: {
             }
             const generation = identities[0]!;
             const controlDiff = await run('git', [
-              'diff', '--quiet', '--no-ext-diff', '--no-textconv', '--no-renames',
+              'diff', '--exit-code', '--name-only', '-z',
+              '--no-ext-diff', '--no-textconv', '--no-renames',
               rollingMachine.exactMain, generation, '--', ...unchangedControlPaths
             ], input.repositoryRoot);
             if (controlDiff.code !== 0) {
