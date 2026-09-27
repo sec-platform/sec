@@ -13,6 +13,7 @@ import { branchLifecycleDigest } from '../../src/adapters/self-hosting/control/b
 import type {
   BranchLifecycleInventory
 } from '../../src/adapters/self-hosting/control/branch-lifecycle/branch-lifecycle-types.ts';
+import { createMainAbsorptionRecovery, verifyRecoveryAuthorityLive } from '../../src/adapters/self-hosting/control/branch-lifecycle/branch-recovery.ts';
 import {
   assertClosedUnmergedCloseoutCompletedSettlement,
   compileClosedUnmergedCloseoutOperation,
@@ -225,7 +226,7 @@ interface ProviderHarness {
 
 function providerHarness(
   initial: BranchLifecycleInventory,
-  localRefDeleteAtomicity: 'supported' | 'unavailable' = 'supported'
+  localRefDeleteCoordination: 'coordinated' | 'unavailable' = 'coordinated'
 ): ProviderHarness {
   let current = structuredClone(initial);
   let remoteDeleteResult: ClosedUnmergedProviderMutation | null = null;
@@ -239,7 +240,7 @@ function providerHarness(
   const adapter: ClosedUnmergedCloseoutEffectAdapter = {
     providerIdentity: 'fixture-github-and-git-provider',
     repository: REPOSITORY,
-    localRefDeleteAtomicity,
+    localRefDeleteCoordination,
     async observeInventory() {
       if (inventoryUnavailable !== null) {
         return { status: 'unavailable', detail: inventoryUnavailable };
@@ -362,6 +363,52 @@ function terminalInventory(): BranchLifecycleInventory {
 }
 
 describe('closed-unmerged branch lifecycle operation', () => {
+  test('native ancestor proof is live, while divergent branch cannot borrow that basis', () => {
+    git(repositoryRoot, ['update-ref', 'refs/remotes/origin/main', MAIN_SHA]);
+    const before = inventory();
+    before.repository.root = repositoryRoot;
+    before.repository.commonDir = path.join(repositoryRoot, '.git');
+    before.worktrees[0]!.path = repositoryRoot;
+    const recoveryRoot = mkdtempSync(path.join(tmpdir(), 'sec-native-absorption-'));
+    try {
+      const { recovery } = createMainAbsorptionRecovery({
+        inventory: before, branch: BRANCH, expectedSha: BASE_SHA,
+        mainSha: MAIN_SHA, basis: 'native-ancestor', recoveryRoot
+      });
+      expect(recovery.kind).toBe('main-absorption');
+      expect(verifyRecoveryAuthorityLive({ inventory: before, recovery }).status).toBe('success');
+      expect(() => createMainAbsorptionRecovery({
+        inventory: before, branch: BRANCH, expectedSha: HEAD_SHA,
+        mainSha: MAIN_SHA, basis: 'native-ancestor', recoveryRoot
+      })).toThrow('Retired source is not an ancestor of absorbing main.');
+    } finally {
+      rmSync(recoveryRoot, { recursive: true, force: true });
+    }
+  });
+
+  test('identical tree proves absorption across divergent commit history and detects proof mutation', () => {
+    git(repositoryRoot, ['update-ref', 'refs/remotes/origin/main', MAIN_SHA]);
+    const equivalentSha = git(repositoryRoot, [
+      'commit-tree', MAIN_TREE, '-p', BASE_SHA, '-m', 'equivalent history'
+    ]);
+    const before = inventory();
+    before.repository.root = repositoryRoot;
+    before.repository.commonDir = path.join(repositoryRoot, '.git');
+    before.worktrees[0]!.path = repositoryRoot;
+    const recoveryRoot = mkdtempSync(path.join(tmpdir(), 'sec-identical-absorption-'));
+    try {
+      const { recovery } = createMainAbsorptionRecovery({
+        inventory: before, branch: BRANCH, expectedSha: equivalentSha,
+        mainSha: MAIN_SHA, basis: 'identical-tree', recoveryRoot
+      });
+      expect(verifyRecoveryAuthorityLive({ inventory: before, recovery }).status).toBe('success');
+      writeFileSync(recovery.path, 'altered proof\n', 'utf8');
+      expect(verifyRecoveryAuthorityLive({ inventory: before, recovery }).status).toBe('failed');
+    } finally {
+      rmSync(recoveryRoot, { recursive: true, force: true });
+    }
+  });
+
   test('open PR input is rejected at the closed-only preparation boundary', () => {
     const before = inventory();
     before.pullRequests[0]!.state = 'open';
@@ -463,7 +510,7 @@ describe('closed-unmerged branch lifecycle operation', () => {
     expect(harness.counters.deleteLocalRef).toBe(1);
   });
 
-  test('unavailable local-ref atomicity blocks before effect-start or remote deletion', async () => {
+  test('unavailable local-ref coordination blocks before effect-start or remote deletion', async () => {
     const before = inventory();
     before.localBranches.push({ branch: BRANCH, sha: HEAD_SHA });
     const preparedOperation = compileClosedUnmergedCloseoutOperation({

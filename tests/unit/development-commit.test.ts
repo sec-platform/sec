@@ -14,6 +14,7 @@ import {
 import {
   acknowledgeDevelopmentCommitResult,
   readDevelopmentCommitOutcome,
+  retireSupersededLocalDevelopmentCommitJournals,
   runDevelopmentCommit,
   settleDevelopmentCommitJournalsForRef
 } from '../../src/adapters/self-hosting/development/commit/operation.ts';
@@ -158,6 +159,35 @@ test('development.commit classifies every exact-ref journal before retiring any'
     expect(await settleDevelopmentCommitJournalsForRef({ repositoryRoot: root, ref: result.ref }))
       .toEqual({ ref: result.ref, observed: 1, retired: 1 });
     await expect(lstat(result.journalPath)).rejects.toMatchObject({ code: 'ENOENT' });
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+}, 30_000);
+
+test('development.commit retires verified applied attempts after a local ref rewrite', async () => {
+  const { root } = await fixture();
+  try {
+    const prepared = await issueDevelopmentCommitAdmission({ repositoryRoot: root, message: 'apply staged candidate\n' });
+    const result = await runDevelopmentCommit(prepared.request, prepared.admission);
+    const source = await readFile(result.journalPath, 'utf8');
+    git(root, ['reset', '--mixed', result.preimage]);
+    expect(git(root, ['rev-parse', result.ref])).toBe(result.preimage);
+    const unknown = { ...JSON.parse(source) as Record<string, unknown>, terminal: 'unknown' };
+    const unknownPath = path.join(path.dirname(result.journalPath), `${'a'.repeat(64)}.json`);
+    await writeFile(unknownPath, `${JSON.stringify(unknown)}\n`);
+    await expect(retireSupersededLocalDevelopmentCommitJournals({ repositoryRoot: root, ref: result.ref }))
+      .rejects.toThrow('active or unknown');
+    expect(await readFile(result.journalPath, 'utf8')).toBe(source);
+    await rm(unknownPath);
+    if (process.platform === 'linux') {
+      await expect(retireSupersededLocalDevelopmentCommitJournals({ repositoryRoot: root, ref: result.ref }))
+        .rejects.toThrow('needs a native namespace exclusion on Linux');
+      return;
+    }
+    expect(await retireSupersededLocalDevelopmentCommitJournals({ repositoryRoot: root, ref: result.ref }))
+      .toEqual({ ref: result.ref, observed: 1, retired: 1 });
+    await expect(lstat(result.journalPath)).rejects.toMatchObject({ code: 'ENOENT' });
+    expect(git(root, ['rev-parse', result.ref])).toBe(result.preimage);
   } finally {
     await rm(root, { recursive: true, force: true });
   }

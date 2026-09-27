@@ -650,12 +650,15 @@ function retainedCommandTransportError(
   outcome: ObservedCommandOutcome,
   cause?: Error
 ): RetainedCommandTransportError {
+  const spawnDetail = outcome.spawnFailure === undefined
+    ? ''
+    : `; phase=${outcome.spawnFailure.phase}; systemCode=${outcome.spawnFailure.systemCode}`;
   return new RetainedCommandTransportError(
     cause?.message ?? (
       `Retained command "${command}" did not settle successfully: `
       + `${outcome.status}; childClose=${outcome.termination.childCloseObserved}; `
       + `streamsDrained=${outcome.termination.streamsDrained}; `
-      + `treeClosed=${outcome.termination.treeClosed}`
+      + `treeClosed=${outcome.termination.treeClosed}${spawnDetail}`
     ),
     outcome
   );

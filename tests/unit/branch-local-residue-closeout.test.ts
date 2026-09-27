@@ -16,6 +16,7 @@ import {
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
+import { withWorkspaceWriteLease } from '../../src/adapters/filesystem/write-lease.ts';
 import {
   createBranchCloseoutOperationBinding,
   createBranchCloseoutOperationJournal,
@@ -33,6 +34,7 @@ import {
   planMergedLocalBranchResidueCloseout
 } from '../../src/adapters/self-hosting/control/branch-lifecycle/branch-local-residue-closeout.ts';
 import { acquireBranchRecoveryStore } from '../../src/adapters/self-hosting/control/branch-lifecycle/branch-recovery.ts';
+import type { ClosedSupersessionEvidence } from '../../src/adapters/self-hosting/control/branch-lifecycle/closed-supersession-review.ts';
 
 const MAIN = '1'.repeat(40);
 const HEAD = '2'.repeat(40);
@@ -56,6 +58,26 @@ function refExists(cwd: string, ref: string): boolean {
     cwd,
     windowsHide: true
   }).status === 0;
+}
+
+function writeDevelopmentCommitJournal(repositoryRoot: string, target: string,
+  disposition: 'applied' | 'unknown'): string {
+  const attempt = disposition === 'applied' ? 'a'.repeat(64) : 'b'.repeat(64);
+  const journalPath = path.join(repositoryRoot, '.git', 'sec-development-commit', `${attempt}.json`);
+  mkdirSync(path.dirname(journalPath), { recursive: true });
+  const journal = {
+    attempt: `sha256:${attempt}`,
+    object: disposition === 'applied' ? target : null,
+    operation: `sha256:${'c'.repeat(64)}`,
+    preimage: git(repositoryRoot, ['rev-parse', `${target}^`]),
+    ref: 'refs/heads/fix/example',
+    schema: 'sec-development-commit-journal-v1',
+    target: disposition === 'applied' ? target : 'd'.repeat(40),
+    terminal: disposition === 'applied' ? 'applied' : 'unknown',
+    tree: git(repositoryRoot, ['rev-parse', `${target}^{tree}`])
+  };
+  writeFileSync(journalPath, `${JSON.stringify(journal)}\n`);
+  return journalPath;
 }
 
 function createEffectFixture(label: string) {
@@ -365,6 +387,42 @@ test('parses canonical merged PR facts and rejects bounded-query saturation', ()
   )).toThrow(/bounded 1000-item limit/u);
 });
 
+test('missing provider merge commits remain unknown only for their exact local ref', () => {
+  const records = [
+    { number: 42, headRefName: 'fix/example', headRefOid: HEAD,
+      baseRefName: 'main', state: 'MERGED', mergeCommit: { oid: MERGE },
+      url: 'https://github.com/sec-platform/sec/pull/42' },
+    { number: 43, headRefName: 'fix/unknown', headRefOid: HEAD,
+      baseRefName: 'main', state: 'MERGED', mergeCommit: null,
+      url: 'https://github.com/sec-platform/sec/pull/43' }
+  ];
+  const observed = parseMergedPullRequestHeads(JSON.stringify(records), 'sec-platform/sec');
+  expect(observed[1]?.mergeCommitSha).toBeNull();
+  const plan = (mergedPullRequests: typeof observed) => planMergedLocalBranchResidueCloseout({
+    defaultBranch: 'main',
+    localRefs: { main: MAIN, 'fix/example': HEAD, 'fix/unknown': HEAD },
+    remoteRefs: { main: MAIN },
+    worktreeBranches: ['main'],
+    worktreeRoots: ['D:\\Project\\sec'],
+    mergedPullRequests
+  });
+  expect(plan(observed)).toMatchObject({
+    eligible: [{ branch: 'fix/example', mergeCommitSha: MERGE }],
+    unresolvedBranches: ['fix/unknown']
+  });
+  const conflicting = parseMergedPullRequestHeads(JSON.stringify([
+    ...records,
+    { ...records[1], number: 44, headRefName: 'fix/example',
+      url: 'https://github.com/sec-platform/sec/pull/44' }
+  ]), 'sec-platform/sec');
+  expect(plan(conflicting)).toMatchObject({
+    eligible: [], unresolvedBranches: ['fix/example', 'fix/unknown']
+  });
+  expect(() => parseMergedPullRequestHeads(JSON.stringify([
+    { ...records[1], mergeCommit: {} }
+  ]), 'sec-platform/sec')).toThrow(/merge SHA/u);
+});
+
 test('binds repository provider identity and exact PR repository URLs', () => {
   expect(parseRepositoryProviderObservation(JSON.stringify({
     nameWithOwner: 'sec-platform/sec',
@@ -431,6 +489,8 @@ for (const boundary of ['afterAuthorization', 'afterDelete', 'afterReadback', 'a
       });
       expect(ref.status).not.toBe(0);
       expect(fixture.calls.some((call) => call.includes('symbolic-ref'))).toBeFalse();
+      expect(fixture.calls.some((call) => call[0] === 'git' && call[1] === 'update-ref'))
+        .toBeFalse();
       expect(fixture.calls.filter(([command]) => command === 'gh')
         .every((call) => call.includes('sec-platform/sec'))).toBeTrue();
       expect(fixture.calls.filter((call) => call[0] === 'gh' && call[1] === 'repo')
@@ -449,6 +509,277 @@ for (const boundary of ['afterAuthorization', 'afterDelete', 'afterReadback', 'a
     }
   }, 30_000);
 }
+
+test('a branch bound to a new worktree after authorization retains its ref and recovery', async () => {
+  const fixture = createEffectFixture('late-worktree-binding');
+  try {
+    await expect(executeMergedLocalBranchResidueCloseout({
+      repositoryRoot: fixture.repositoryRoot,
+      recoveryRoot: fixture.recoveryRoot,
+      run: fixture.run,
+      now: () => new Date('2026-08-22T00:00:00.000Z'),
+      faults: {
+        afterAuthorization: () => {
+          git(fixture.repositoryRoot, [
+            'worktree', 'add', path.join(fixture.root, 'late-worktree'), 'fix/example'
+          ]);
+        }
+      }
+    })).rejects.toThrow(/Worktree acquired branch/u);
+    expect(refExists(fixture.repositoryRoot, 'refs/heads/fix/example')).toBeTrue();
+    expect(readdirSync(fixture.recoveryRoot).some((name) => name.endsWith('.authorization.json')))
+      .toBeTrue();
+  } finally {
+    fixture.dispose();
+  }
+}, 30_000);
+
+test('retained native refs require explicit exact targets and leave other refs untouched', async () => {
+  const fixture = createEffectFixture('retained-exact-target');
+  const noMergedPr = ((command: 'gh' | 'git', args: readonly string[], cwd: string, input?: string) => (
+    command === 'gh' && args[0] === 'pr'
+      ? { status: 0, stdout: Buffer.from('[]'), stderr: Buffer.alloc(0) }
+      : fixture.run(command, args, cwd, input)
+  ));
+  try {
+    const withoutSelection = await executeMergedLocalBranchResidueCloseout({
+      repositoryRoot: fixture.repositoryRoot,
+      recoveryRoot: fixture.recoveryRoot,
+      run: noMergedPr
+    });
+    expect(withoutSelection.settled).toEqual([]);
+    expect(refExists(fixture.repositoryRoot, 'refs/heads/fix/example')).toBeTrue();
+    expect(refExists(fixture.repositoryRoot, 'refs/heads/release')).toBeTrue();
+
+    const selected = await executeMergedLocalBranchResidueCloseout({
+      repositoryRoot: fixture.repositoryRoot,
+      recoveryRoot: fixture.recoveryRoot,
+      retainedTargets: [{ branch: 'fix/example', expectedHeadSha: fixture.headSha }],
+      run: noMergedPr
+    });
+    expect(selected.settled).toEqual(['fix/example']);
+    expect(refExists(fixture.repositoryRoot, 'refs/heads/fix/example')).toBeFalse();
+    expect(refExists(fixture.repositoryRoot, 'refs/heads/release')).toBeTrue();
+    expect(selected.recoveryRootRetired).toBeTrue();
+    expect(existsSync(fixture.recoveryRoot)).toBeFalse();
+  } finally {
+    fixture.dispose();
+  }
+}, 30_000);
+
+for (const lane of ['merged', 'retained'] as const) {
+  test(`${lane} local ref retires exact applied development journals before ref CAS`, async () => {
+    const fixture = createEffectFixture(`journal-before-ref-${lane}`);
+    const journalPath = writeDevelopmentCommitJournal(fixture.repositoryRoot, fixture.headSha, 'applied');
+    const noMergedPr = ((command: 'gh' | 'git', args: readonly string[], cwd: string, input?: string) => (
+      command === 'gh' && args[0] === 'pr'
+        ? { status: 0, stdout: Buffer.from('[]'), stderr: Buffer.alloc(0) }
+        : fixture.run(command, args, cwd, input)
+    ));
+    try {
+      const settled = await executeMergedLocalBranchResidueCloseout({
+        repositoryRoot: fixture.repositoryRoot,
+        recoveryRoot: fixture.recoveryRoot,
+        run: lane === 'merged' ? fixture.run : noMergedPr,
+        ...(lane === 'retained' ? {
+          retainedTargets: [{ branch: 'fix/example', expectedHeadSha: fixture.headSha }]
+        } : {}),
+        faults: { afterDelete: () => {
+          expect(existsSync(journalPath)).toBeFalse();
+          expect(refExists(fixture.repositoryRoot, 'refs/heads/fix/example')).toBeFalse();
+        } }
+      });
+      expect(settled.settled).toEqual(['fix/example']);
+    } finally {
+      fixture.dispose();
+    }
+  }, 45_000);
+
+  test(`${lane} local ref preserves recovery and ref when a development journal is unknown`, async () => {
+    const fixture = createEffectFixture(`journal-unknown-${lane}`);
+    const journalPath = writeDevelopmentCommitJournal(fixture.repositoryRoot, fixture.headSha, 'unknown');
+    const noMergedPr = ((command: 'gh' | 'git', args: readonly string[], cwd: string, input?: string) => (
+      command === 'gh' && args[0] === 'pr'
+        ? { status: 0, stdout: Buffer.from('[]'), stderr: Buffer.alloc(0) }
+        : fixture.run(command, args, cwd, input)
+    ));
+    try {
+      await expect(executeMergedLocalBranchResidueCloseout({
+        repositoryRoot: fixture.repositoryRoot,
+        recoveryRoot: fixture.recoveryRoot,
+        run: lane === 'merged' ? fixture.run : noMergedPr,
+        ...(lane === 'retained' ? {
+          retainedTargets: [{ branch: 'fix/example', expectedHeadSha: fixture.headSha }]
+        } : {})
+      })).rejects.toThrow('requires applied readback');
+      expect(existsSync(journalPath)).toBeTrue();
+      expect(refExists(fixture.repositoryRoot, 'refs/heads/fix/example')).toBeTrue();
+      expect(readdirSync(fixture.recoveryRoot).some((name) => name.endsWith('.authorization.json')))
+        .toBeTrue();
+    } finally {
+      fixture.dispose();
+    }
+  }, 45_000);
+
+  test(`${lane} local ref settlement allows a common-dir-first competing writer`, async () => {
+    const fixture = createEffectFixture(`ordered-leases-${lane}`);
+    const commonDir = path.join(fixture.repositoryRoot, '.git');
+    const noMergedPr = ((command: 'gh' | 'git', args: readonly string[], cwd: string, input?: string) => (
+      command === 'gh' && args[0] === 'pr'
+        ? { status: 0, stdout: Buffer.from('[]'), stderr: Buffer.alloc(0) }
+        : fixture.run(command, args, cwd, input)
+    ));
+    try {
+      const settled = await executeMergedLocalBranchResidueCloseout({
+        repositoryRoot: fixture.repositoryRoot,
+        recoveryRoot: fixture.recoveryRoot,
+        run: lane === 'merged' ? fixture.run : noMergedPr,
+        ...(lane === 'retained' ? {
+          retainedTargets: [{ branch: 'fix/example', expectedHeadSha: fixture.headSha }]
+        } : {}),
+        faults: {
+          afterAuthorization: async () => {
+            let acquiredCommonDir = false;
+            await expect(withWorkspaceWriteLease(commonDir, undefined, async () => {
+              acquiredCommonDir = true;
+              await withWorkspaceWriteLease(fixture.repositoryRoot, undefined, async () => {});
+            })).rejects.toThrow('already held');
+            expect(acquiredCommonDir).toBeFalse();
+          }
+        }
+      });
+      await withWorkspaceWriteLease(commonDir, undefined, async () =>
+        withWorkspaceWriteLease(fixture.repositoryRoot, undefined, async () => {}));
+      expect(settled.settled).toEqual(['fix/example']);
+      expect(refExists(fixture.repositoryRoot, 'refs/heads/fix/example')).toBeFalse();
+    } finally {
+      fixture.dispose();
+    }
+  }, 45_000);
+}
+
+test('retiring a worktree branch journal reads its ref history without the caller index', async () => {
+  const fixture = createEffectFixture('retired-worktree-index');
+  const journalPath = writeDevelopmentCommitJournal(fixture.repositoryRoot, fixture.headSha, 'applied');
+  try {
+    writeFileSync(path.join(fixture.repositoryRoot, 'caller-index-only.txt'), 'unrelated staged bytes\n');
+    git(fixture.repositoryRoot, ['add', 'caller-index-only.txt']);
+    expect(spawnSync('git', ['diff-index', '--cached', '--exit-code',
+      git(fixture.repositoryRoot, ['rev-parse', `${fixture.headSha}^{tree}`]), '--'], {
+      cwd: fixture.repositoryRoot, windowsHide: true
+    }).status).not.toBe(0);
+    const noMergedPr = ((command: 'gh' | 'git', args: readonly string[], cwd: string, input?: string) => (
+      command === 'gh' && args[0] === 'pr'
+        ? { status: 0, stdout: Buffer.from('[]'), stderr: Buffer.alloc(0) }
+        : fixture.run(command, args, cwd, input)
+    ));
+    const settled = await executeMergedLocalBranchResidueCloseout({
+      repositoryRoot: fixture.repositoryRoot,
+      recoveryRoot: fixture.recoveryRoot,
+      retainedTargets: [{ branch: 'fix/example', expectedHeadSha: fixture.headSha }],
+      run: noMergedPr
+    });
+    expect(settled.settled).toEqual(['fix/example']);
+    expect(existsSync(journalPath)).toBeFalse();
+  } finally {
+    fixture.dispose();
+  }
+}, 45_000);
+
+test('absent local ref recovery refuses a late development journal before terminal receipt', async () => {
+  const fixture = createEffectFixture('absent-ref-journal');
+  try {
+    await expect(executeMergedLocalBranchResidueCloseout({
+      repositoryRoot: fixture.repositoryRoot,
+      recoveryRoot: fixture.recoveryRoot,
+      run: fixture.run,
+      faults: { afterDelete: () => { throw new Error('crash-after-ref-effect'); } }
+    })).rejects.toThrow('crash-after-ref-effect');
+    expect(refExists(fixture.repositoryRoot, 'refs/heads/fix/example')).toBeFalse();
+    const journalPath = writeDevelopmentCommitJournal(fixture.repositoryRoot, fixture.headSha, 'unknown');
+    await expect(executeMergedLocalBranchResidueCloseout({
+      repositoryRoot: fixture.repositoryRoot,
+      recoveryRoot: fixture.recoveryRoot,
+      run: fixture.run
+    })).rejects.toThrow('requires applied readback');
+    expect(existsSync(journalPath)).toBeTrue();
+    expect(readdirSync(fixture.recoveryRoot).some((name) => name.endsWith('.authorization.json')))
+      .toBeTrue();
+    expect(readdirSync(fixture.recoveryRoot).some((name) => name.endsWith('.receipt.json')))
+      .toBeFalse();
+  } finally {
+    fixture.dispose();
+  }
+}, 45_000);
+
+test('retained authorization resumes without repeating its selected targets', async () => {
+  const fixture = createEffectFixture('retained-resume');
+  const noMergedPr = ((command: 'gh' | 'git', args: readonly string[], cwd: string, input?: string) => (
+    command === 'gh' && args[0] === 'pr'
+      ? { status: 0, stdout: Buffer.from('[]'), stderr: Buffer.alloc(0) }
+      : fixture.run(command, args, cwd, input)
+  ));
+  try {
+    await expect(executeMergedLocalBranchResidueCloseout({
+      repositoryRoot: fixture.repositoryRoot,
+      recoveryRoot: fixture.recoveryRoot,
+      retainedTargets: [{ branch: 'fix/example', expectedHeadSha: fixture.headSha }],
+      run: noMergedPr,
+      faults: { afterAuthorization: () => { throw new Error('retained-crash'); } }
+    })).rejects.toThrow('retained-crash');
+    expect(refExists(fixture.repositoryRoot, 'refs/heads/fix/example')).toBeTrue();
+    const resumed = await executeMergedLocalBranchResidueCloseout({
+      repositoryRoot: fixture.repositoryRoot,
+      recoveryRoot: fixture.recoveryRoot,
+      run: noMergedPr
+    });
+    expect(resumed.settled).toEqual(['fix/example']);
+    expect(refExists(fixture.repositoryRoot, 'refs/heads/fix/example')).toBeFalse();
+    expect(refExists(fixture.repositoryRoot, 'refs/heads/release')).toBeTrue();
+    expect(resumed.recoveryRootRetired).toBeFalse();
+    expect(readdirSync(fixture.recoveryRoot)).toEqual([]);
+  } finally {
+    fixture.dispose();
+  }
+}, 30_000);
+
+test('a divergent retained target stays unresolved without owner-issued review evidence', async () => {
+  const fixture = createEffectFixture('retained-review-required');
+  const noMergedPr = ((command: 'gh' | 'git', args: readonly string[], cwd: string, input?: string) => (
+    command === 'gh' && args[0] === 'pr'
+      ? { status: 0, stdout: Buffer.from('[]'), stderr: Buffer.alloc(0) }
+      : fixture.run(command, args, cwd, input)
+  ));
+  try {
+    git(fixture.repositoryRoot, ['checkout', '-b', 'fix/divergent', 'main']);
+    writeFileSync(path.join(fixture.repositoryRoot, 'divergent.txt'), 'not in main\n');
+    git(fixture.repositoryRoot, ['add', 'divergent.txt']);
+    git(fixture.repositoryRoot, ['commit', '-m', 'divergent']);
+    const divergentSha = git(fixture.repositoryRoot, ['rev-parse', 'HEAD']);
+    git(fixture.repositoryRoot, ['checkout', 'main']);
+    const unresolved = await executeMergedLocalBranchResidueCloseout({
+      repositoryRoot: fixture.repositoryRoot,
+      recoveryRoot: fixture.recoveryRoot,
+      retainedTargets: [{ branch: 'fix/divergent', expectedHeadSha: divergentSha }],
+      run: noMergedPr
+    });
+    expect(unresolved.settled).toEqual([]);
+    expect(unresolved.unresolvedBranches).toEqual(['fix/divergent']);
+    expect(refExists(fixture.repositoryRoot, 'refs/heads/fix/divergent')).toBeTrue();
+
+    await expect(executeMergedLocalBranchResidueCloseout({
+      repositoryRoot: fixture.repositoryRoot,
+      recoveryRoot: fixture.recoveryRoot,
+      retainedTargets: [{ branch: 'fix/divergent', expectedHeadSha: divergentSha,
+        review: { pullRequestNumber: 42, commentId: 1 } }],
+      observeReview: async () => ({} as ClosedSupersessionEvidence),
+      run: noMergedPr
+    })).rejects.toThrow(/authenticated owner observation/u);
+    expect(refExists(fixture.repositoryRoot, 'refs/heads/fix/divergent')).toBeTrue();
+  } finally {
+    fixture.dispose();
+  }
+}, 30_000);
 
 test('terminal settlement removes the duplicate branch-closeout bundle family', async () => {
   const fixture = createEffectFixture('duplicate-bundle-retirement');

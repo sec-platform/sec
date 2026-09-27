@@ -73,6 +73,15 @@ export interface ProcessResourceSession {
   /** Aborts on caller cancellation, the fixed deadline, or session close. */
   readonly signal: AbortSignal;
   readonly processCount: number;
+  /** Live physical ledger readback; no authority or reservation is issued. */
+  observeNativeResourceCapacity(this: ProcessResourceSession): Readonly<{
+    maximum: number;
+    admitted: number;
+    remaining: number;
+    root: number;
+    stdinWorker: number;
+    helper: number;
+  }>;
   /** Terminal child settlements observed by this session. */
   readonly settledProcessCount: number;
   /** Successful immutable command result records issued by this session. */
@@ -370,6 +379,19 @@ export function openProcessResourceSession(input: Readonly<{
     deadlineAtMonotonicMs,
     signal: sessionController.signal,
     get processCount() { return processCount; },
+    observeNativeResourceCapacity() {
+      assertIssuedReceiver(this, 'native resource capacity');
+      assertLive();
+      const usage = nativeResourceLedger.snapshot();
+      return Object.freeze({
+        maximum: maximumProcesses,
+        admitted: usage.admittedResourceCount,
+        remaining: Math.max(0, maximumProcesses - usage.admittedResourceCount),
+        root: usage.rootProcessCount,
+        stdinWorker: usage.stdinWorkerCount,
+        helper: usage.helperProcessCount
+      });
+    },
     get settledProcessCount() { return settledProcessCount; },
     get successfulProcessRecordCount() { return successfulProcessRecordCount; },
     get inputBytes() { return inputBytes; },

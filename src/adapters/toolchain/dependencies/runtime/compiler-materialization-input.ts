@@ -169,7 +169,6 @@ export async function compilerDependencyIdentity(root: string): Promise<Compiler
   const installConfigSha256 = compilerInstallConfigSha256(installConfigBytes);
   const manifestContent = (configSha256: string | null) => JSON.stringify({
     dependencyManifestSha256: manifestAuthority.dependencyManifestSha256,
-    installConfigPresent: installConfigBytes !== null,
     installConfigSha256: configSha256,
     lockSha256,
     runtime: {

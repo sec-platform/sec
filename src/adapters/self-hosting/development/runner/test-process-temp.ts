@@ -25,6 +25,7 @@ import {
   retireNoFollowDirectoryTree,
   scanNoFollowDirectoryDirectMetadata,
   scanNoFollowDirectoryTreeMetadata,
+  scanNoFollowVolatileDirectoryDirectMetadata,
   type PhysicalDirectoryChain,
   type PhysicalDirectoryIdentity
 } from '../../../runtime-state/physical/runtime/physical-no-follow.ts';
@@ -1008,7 +1009,10 @@ function recoverDeadRuntimeInvocationLeases(input: Readonly<{
   leaseOptions?: PhysicalMutationLeaseOptions;
   deadlineAtUnixMs?: number;
 }>): void {
-  const entries = topLevelInventory(input.leaseParent, input.deadlineAtUnixMs);
+  const entries = scanNoFollowVolatileDirectoryDirectMetadata(input.leaseParent, {
+    deadlineAtMs: cleanupDeadline(input.deadlineAtUnixMs),
+    maximumEntries: TEST_RUNTIME_CLEANUP_MAXIMUM_ENTRIES
+  });
   for (const entry of entries) {
     const match = RUNTIME_RECOVERY_LEASE.exec(entry.relativePath);
     if (entry.kind !== 'file' || match === null) continue;

@@ -1,4 +1,5 @@
-import { copyFileSync, mkdirSync, mkdtempSync, renameSync, rmSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
+import { copyFileSync, mkdirSync, mkdtempSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { devNull, tmpdir } from 'node:os';
 import path from 'node:path';
 
@@ -471,9 +472,22 @@ test.skipIf(process.platform !== 'linux')(
 test.skipIf(process.platform !== 'win32')(
   'production Git scratch computes, reads, and materializes one bound tree without generic GitRead mutation',
   async () => {
+    const repositoryRoot = mkdtempSync(path.join(tmpdir(), 'sec-git-scratch-repository-'));
     const scratchRoot = mkdtempSync(path.join(tmpdir(), 'sec-git-scratch-index-tree-'));
+    const runFixtureGit = (args: readonly string[]): void => {
+      const result = spawnSync('git', [...args], {
+        cwd: repositoryRoot,
+        env: isolatedGitChildEnvironment(process.env),
+        encoding: 'utf8',
+        windowsHide: true
+      });
+      if (result.status !== 0) throw new Error(`Git scratch fixture failed: ${result.stderr}`);
+    };
+    runFixtureGit(['init', '--quiet']);
+    writeFileSync(path.join(repositoryRoot, 'package.json'), '{"name":"scratch-fixture"}\n');
+    runFixtureGit(['add', '--', 'package.json']);
     const resolution = createAuthorityGitReadSession({
-      cwd: process.cwd(),
+      cwd: repositoryRoot,
       operation: issueTestGitReadOperation(),
       budget: { maxProcesses: 32 }
     });
@@ -568,6 +582,7 @@ test.skipIf(process.platform !== 'win32')(
     } finally {
       await resolution.session.close?.();
       rmSync(scratchRoot, { recursive: true, force: true });
+      rmSync(repositoryRoot, { recursive: true, force: true });
     }
   }, { timeout: 15_000 }
 );

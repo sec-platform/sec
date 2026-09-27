@@ -19,15 +19,26 @@ import {
   scanNoFollowDirectoryTreeInventory
 } from '../../src/adapters/runtime-state/physical/runtime/physical-no-follow.ts';
 import { runCommand } from '../../src/adapters/runtime-state/physical/runtime/process.ts';
+import {
+  armWindowsRepositoryChangeObserver,
+  settleWindowsRepositoryChangeObserver
+} from '../../src/adapters/runtime-state/physical/runtime/windows-repository-change-observer.ts';
+import { resolveSecWorkspaceRuntimeRoots } from '../../src/adapters/runtime-state/workspace-state/paths.ts';
+import { loadRuntimeDependencySpec, RUNTIME_DEPENDENCY_PACKAGE_NAMES } from '../../src/adapters/toolchain/dependencies/contract/runtime-dependency-spec.ts';
+import { transitionRecordName } from '../../src/adapters/toolchain/dependencies/runtime/dependency-transition/codec.ts';
+import { transitionAbsentSlot } from '../../src/adapters/toolchain/dependencies/runtime/dependency-transition/contract.ts';
+import { advanceDependencyTransition, beginDependencyTransition, compilerTransitionBackupPath, markDependencyTransitionFailure, readDependencyTransition } from '../../src/adapters/toolchain/dependencies/runtime/dependency-transition/operation.ts';
+import { dependencyTransitionNamespacePaths, observeDependencyTransitionSlot } from '../../src/adapters/toolchain/dependencies/runtime/dependency-transition/store.ts';
 import { runtimeDependencyOperationOptions } from '../../src/adapters/toolchain/dependencies/runtime/operation-context.ts';
 import { readRuntimeDependencyOperationTelemetry } from '../../src/adapters/toolchain/dependencies/runtime/operation-telemetry.ts';
 import {
   retainCompilerDependencyExecutionGeneration,
-  retainCompilerDependencyReadGeneration
+  retainCompilerDependencyReadGeneration,
+  settleAbandonedLegacyProjection
 } from '../../src/adapters/toolchain/dependencies/runtime/project-runtime.ts';
 import {
   RUNTIME_DEPENDENCY_SOURCE_MAXIMUM_BYTES,
-  RUNTIME_DEPENDENCY_SOURCE_MAXIMUM_ENTRIES
+  RUNTIME_DEPENDENCY_SOURCE_MAXIMUM_ENTRIES, runtimeDependencySourceGeneration
 } from '../../src/adapters/toolchain/dependencies/runtime/source-generation.ts';
 import {
   assertCompilerDependencyEnvironmentRetirementReceipt,
@@ -36,6 +47,7 @@ import {
   ensureCompilerDepsReady,
   observeCompilerDependencyExecutionGenerationAuthority
 } from '../../src/adapters/toolchain/dependencies/test/runtime.ts';
+import { SecError } from '../../src/contracts/failure.ts';
 import {
   effectfulTest,
   settleEffectfulTestCleanup,
@@ -52,6 +64,13 @@ type IsolatedGeneratedStateLifecycle = Readonly<
   GeneratedStateProducerHookSet & GeneratedStateProducerQuarantineHook
 >;
 const generatedStateFixtureRoots = new WeakMap<IsolatedGeneratedStateLifecycle, string>();
+
+function compilerCoordinationLockPath(
+  repositoryRoot: string
+): string {
+  const roots = resolveSecWorkspaceRuntimeRoots({ repositoryRoot });
+  return path.join(roots.workspaceStateRoot, 'compiler-dependency-coordination', 'v1', 'compiler.lock');
+}
 
 async function isolatedGeneratedStateLifecycle(
   repositoryRoot: string,
@@ -456,7 +475,82 @@ function effectfulLinkedCompilerTest(
   });
 }
 
+export function registerCompilerDependencyInstallationTests(
+  shard: 'generation' | 'external' | 'recovery' | 'locks'
+): void {
 describe('compiler dependency installation', () => {
+  if (shard === 'generation') {
+  if (process.platform === 'win32') effectfulCompilerTest(
+    'reads an existing coordination locator without transient repository writes',
+    'engineering-compiler-coordination-zero-write-',
+    async (tempRoot, operation) => {
+      await writeCompilerDependencyRoot(tempRoot);
+      const options = {
+        ...operation,
+        materialize: async (_args: string[], command: { cwd: string }) => {
+          await installCompilerDependencyFixture(command.cwd, 'stable');
+          return { code: 0, stdout: 'ok', stderr: '' };
+        }
+      };
+      expect((await ensureCompilerDepsReady(options, tempRoot)).source).toBe('installed');
+      const resolution = await armWindowsRepositoryChangeObserver({
+        roots: [path.join(tempRoot, '.tmp', 'dependency-installs')],
+        deadlineAtUnixMs: operation.deadlineAtUnixMs
+      });
+      expect(resolution.status).toBe('ready');
+      if (resolution.status !== 'ready') return;
+      try {
+        expect((await ensureCompilerDepsReady(options, tempRoot)).source).toBe('existing');
+      } finally {
+        const settlement = await settleWindowsRepositoryChangeObserver(resolution.observer);
+        if (settlement.status !== 'zero-events') {
+          throw new Error(`Existing compiler locator read mutated its coordination namespace: ${JSON.stringify({
+            status: settlement.status,
+            events: settlement.status === 'events' ? settlement.events.slice(0, 8) : undefined
+          })}`);
+        }
+      }
+    });
+  effectfulLinkedCompilerTest(
+    'retires an owned dangling linked-worktree locator after its physical owner advances',
+    async ({ consumerOperation, consumerRoot, ownerOperation, ownerRoot }) => {
+      const consumerLocator = path.join(consumerRoot, 'node_modules');
+      expect((await ensureCompilerDepsReady({
+        ...consumerOperation,
+        materialize: async () => {
+          throw new Error('The first linked consumer must reuse its owner.');
+        }
+      }, consumerRoot)).source).toBe('existing');
+      const oldTarget = await fs.realpath(consumerLocator);
+
+      await fs.writeFile(path.join(ownerRoot, 'bun.lock'), 'lock-v3\n');
+      await runFixtureGit(ownerRoot, ['add', 'bun.lock']);
+      await runFixtureGit(ownerRoot, ['commit', '-m', 'epoch-v3']);
+      await runFixtureGit(consumerRoot, ['reset', '--hard', 'main']);
+      await ensureCompilerDepsReady({
+        ...ownerOperation,
+        materialize: async (_args, command) => {
+          await installCompilerDependencyFixture(command.cwd, 'primary-generation-v3');
+          return { code: 0, stdout: 'ok', stderr: '' };
+        }
+      }, ownerRoot);
+      await expect(fs.lstat(oldTarget)).rejects.toMatchObject({ code: 'ENOENT' });
+      expect((await fs.lstat(consumerLocator)).isSymbolicLink()).toBeTrue();
+
+      expect((await ensureCompilerDepsReady({
+        ...consumerOperation,
+        materialize: async () => {
+          throw new Error('A dangling owned locator must recover from its physical owner.');
+        }
+      }, consumerRoot)).source).toBe('existing');
+      expect(await fs.realpath(consumerLocator))
+        .toBe(await fs.realpath(path.join(ownerRoot, 'node_modules')));
+      expect(await fs.readFile(path.join(
+        consumerLocator, 'typescript', 'lib', 'typescript.js'
+      ), 'utf8')).toBe('primary-generation-v3:typescript\n');
+    }
+  );
+
   effectfulTest(test,
     'serializes immutable generations and invalidates the binding on lockfile or runtime changes',
     {
@@ -800,6 +894,8 @@ describe('compiler dependency installation', () => {
       );
     });
 
+  }
+  if (shard === 'external') {
   effectfulTest(test,
     'reuses a compatible external physical generation without giving its bridge mutation ownership',
     {
@@ -1428,36 +1524,202 @@ describe('compiler dependency installation', () => {
       expect(admittedByFreshProcess.transitionDigest).not.toBe(ready.transitionDigest);
     });
 
+  }
+  if (shard === 'recovery') {
+  effectfulCompilerTest(
+    'settles a fully absent unpublished foreign project attempt without trusting its source',
+    'engineering-project-orphan-owner-',
+    async (ownerRoot, operation) => {
+      await writeCompilerDependencyRoot(ownerRoot);
+      const ready = await ensureCompilerDepsReady({
+        ...operation,
+        materialize: async (_args, command) => {
+          await installCompilerDependencyFixture(command.cwd, 'project-orphan-owner');
+          return { code: 0, stdout: 'fixture', stderr: '' };
+        }
+      }, ownerRoot);
+      const options = runtimeDependencyOperationOptions(operation);
+      const sourcePath = ready.sourceGeneration!.sourcePath;
+      const sourceBinding = await readJson<unknown>(
+        path.join(sourcePath, '.sec-compiler-deps-binding-v5.json')
+      );
+      const sourceGeneration = await runtimeDependencySourceGeneration({
+        binding: sourceBinding,
+        options,
+        ownerRoot,
+        sourcePath
+      });
+      const canonicalTarget = path.join(ownerRoot, 'current-project', 'node_modules');
+      let abandoned: Awaited<ReturnType<typeof beginDependencyTransition>> | undefined;
+      await withTempWorkspace(async (fixtureRoot) => {
+        const target = path.join(fixtureRoot, 'node_modules');
+        const stageRoot = path.join(fixtureRoot, '.tmp', 'project.staging-abandoned');
+        const stage = path.join(stageRoot, 'node_modules');
+        await fs.mkdir(stage, { recursive: true });
+        abandoned = await beginDependencyTransition({
+          kind: 'project-projection', ownerRoot, destinationPath: target,
+          stagePath: stage, stageRootPath: stageRoot, backupPath: null,
+          sourceGeneration, bindingDigest: sourceGeneration.bindingDigest, options
+        });
+        abandoned = await markDependencyTransitionFailure(abandoned,
+          new SecError('RUNTIME-DEPS-004', 'Project transition journal targets a foreign canonical path'), options);
+        await expect(settleAbandonedLegacyProjection(abandoned, ownerRoot, canonicalTarget, options))
+          .rejects.toThrow('physical residue');
+        expect((await fs.lstat(stage)).isDirectory()).toBe(true);
+      }, 'engineering-project-orphan-fixture-');
+      expect(await settleAbandonedLegacyProjection(abandoned!, ownerRoot, canonicalTarget, options)).toBe(true);
+      expect((await readDependencyTransition(ownerRoot, options))?.phase).toBe('rolled-back');
+
+      await withTempWorkspace(async (fixtureRoot) => {
+        const target = path.join(fixtureRoot, 'node_modules');
+        const stageRoot = path.join(fixtureRoot, '.tmp', 'project.staging-published');
+        const stage = path.join(stageRoot, 'node_modules');
+        await fs.mkdir(stage, { recursive: true });
+        let published = await beginDependencyTransition({
+          kind: 'project-projection', ownerRoot, destinationPath: target,
+          stagePath: stage, stageRootPath: stageRoot, backupPath: null,
+          sourceGeneration, bindingDigest: sourceGeneration.bindingDigest, options
+        });
+        await fs.rename(stage, target);
+        published = await advanceDependencyTransition(published, {
+          destination: await observeDependencyTransitionSlot(target, sourceGeneration.bindingDigest),
+          stage: transitionAbsentSlot(stage),
+          phase: 'published'
+        }, options);
+        published = await markDependencyTransitionFailure(published,
+          new SecError('RUNTIME-DEPS-004', 'Project transition journal targets a foreign canonical path'), options);
+        abandoned = published;
+      }, 'engineering-project-published-fixture-');
+      await expect(settleAbandonedLegacyProjection(abandoned!, ownerRoot, canonicalTarget, options))
+        .rejects.toThrow('source binding is not exact');
+      await advanceDependencyTransition(abandoned!, {
+        destination: transitionAbsentSlot(abandoned!.destination.path),
+        stage: transitionAbsentSlot(abandoned!.stage!.path),
+        stageRoot: transitionAbsentSlot(abandoned!.stageRoot!.path),
+        phase: 'rolled-back',
+        durability: 'known'
+      }, options);
+    }
+  );
+  effectfulCompilerTest(
+    'settles only an abandoned legacy runtime projection after residue and tamper checks',
+    'engineering-compiler-legacy-projection-',
+    async (root, operation) => {
+      await writeCompilerDependencyRoot(root);
+      const runtimeSpec = await loadRuntimeDependencySpec();
+      await fs.writeFile(path.join(root, 'package.json'), `${JSON.stringify({
+        packageManager: `bun@${process.versions.bun}`,
+        dependencies: runtimeSpec.dependencies,
+        devDependencies: runtimeSpec.devDependencies
+      })}\n`);
+      const ready = await ensureCompilerDepsReady({
+        ...operation,
+        materialize: async (_args, command) => {
+          await installCompilerDependencyFixture(command.cwd, 'legacy-runtime-source');
+          for (const name of RUNTIME_DEPENDENCY_PACKAGE_NAMES) {
+            const packageRoot = path.join(command.cwd, 'node_modules', ...name.split('/'));
+            const request = runtimeSpec.dependencies[name] ?? runtimeSpec.devDependencies[name]!;
+            const alias = /^npm:(@[^/\s]+\/[^@\s]+|[^@\s]+)@(.+)$/u.exec(request);
+            const manifestName = alias?.[1] ?? name;
+            const version = alias?.[2] ?? request;
+            await fs.mkdir(packageRoot, { recursive: true });
+            await fs.writeFile(path.join(packageRoot, 'package.json'), `${JSON.stringify({
+              name: manifestName,
+              version,
+              ...(name === 'typescript' ? { main: './lib/typescript.js' } : {})
+            })}\n`);
+          }
+          return { code: 0, stdout: 'fixture', stderr: '' };
+        }
+      }, root);
+      expect(ready.runtimeMaterialization).not.toBeNull();
+      const options = runtimeDependencyOperationOptions(operation);
+      const source = await runtimeDependencySourceGeneration({
+        binding: ready.runtimeMaterialization!,
+        options,
+        ownerRoot: root,
+        sourcePath: ready.sourceGeneration!.sourcePath
+      });
+      const legacyFixture = await fs.mkdtemp(path.join(tmpdir(), 'sec-legacy-projection-'));
+      try {
+        const sharedRoot = path.join(legacyFixture, '.shared-deps');
+        const stageRoot = path.join(sharedRoot, '.runtime-generation-abc123');
+        const stagePath = path.join(stageRoot, 'node_modules');
+        const activePath = path.join(sharedRoot, 'node_modules');
+        await fs.mkdir(stagePath, { recursive: true });
+        let transition = await beginDependencyTransition({
+          kind: 'runtime-projection', ownerRoot: root, destinationPath: activePath,
+          stagePath, stageRootPath: stageRoot,
+          backupPath: compilerTransitionBackupPath(root, 'runtime', source),
+          sourceGeneration: source, bindingDigest: source.bindingDigest, options
+        });
+        await fs.rename(stagePath, activePath);
+        transition = await advanceDependencyTransition(transition, {
+          destination: await observeDependencyTransitionSlot(activePath, source.bindingDigest),
+          stage: transitionAbsentSlot(stagePath),
+          phase: 'published'
+        }, options);
+        transition = await markDependencyTransitionFailure(transition,
+          new SecError('IMPORT-AUTHORITY-004', 'Compiler transition journal targets a foreign canonical path'),
+          options);
+        await expect(ensureCompilerDepsReady(operation, root)).rejects.toMatchObject({
+          code: 'IMPORT-AUTHORITY-004',
+          details: { cause: 'Abandoned projection still has physical residue' }
+        });
+        expect((await fs.lstat(activePath)).isDirectory()).toBeTrue();
+        await fs.rm(legacyFixture, { recursive: true });
+        const blocked = (await readDependencyTransition(root, options))!;
+        const recordPath = path.join(dependencyTransitionNamespacePaths(root).recordsRoot,
+          transitionRecordName(blocked.recordDigest));
+        const originalBytes = await fs.readFile(recordPath);
+        try {
+          await fs.writeFile(recordPath, Buffer.from(originalBytes.toString('utf8').replace('runtime-projection', 'untime-projection')));
+          await expect(ensureCompilerDepsReady(operation, root)).rejects.toBeDefined();
+        } finally {
+          await fs.writeFile(recordPath, originalBytes);
+        }
+        const settled = await ensureCompilerDepsReady(operation, root);
+        expect(settled.source).toBe('existing');
+        expect((await readDependencyTransition(root, options))?.phase).toBe('rolled-back');
+        await expect(fs.lstat(activePath)).rejects.toMatchObject({ code: 'ENOENT' });
+      } finally {
+        await fs.rm(legacyFixture, { recursive: true, force: true });
+      }
+    });
   effectfulLinkedCompilerTest(
     'preserves an unknown physical worktree dependency directory instead of claiming it',
     async ({ consumerOperation, consumerRoot }) => {
       const ownedGeneration = path.join(consumerRoot, 'node_modules.owned-fixture');
       const unknownGeneration = path.join(consumerRoot, 'node_modules');
+      const ownedTarget = await fs.realpath(unknownGeneration);
       await fs.rename(unknownGeneration, ownedGeneration);
-      await fs.mkdir(unknownGeneration);
-      await fs.writeFile(path.join(unknownGeneration, 'user-sentinel.txt'), 'preserve-me\n');
+      try {
+        await fs.mkdir(unknownGeneration);
+        await fs.writeFile(path.join(unknownGeneration, 'user-sentinel.txt'), 'preserve-me\n');
 
-      await expect(ensureCompilerDepsReady({
-        ...consumerOperation,
-        materialize: async () => {
-          throw new Error('Unknown physical state must not trigger install.');
-        }
-      }, consumerRoot)).rejects.toMatchObject({
-        code: 'IMPORT-AUTHORITY-004',
-        message: expect.stringContaining('not an owned compiler dependency generation')
-      });
-      expect((await fs.lstat(unknownGeneration)).isDirectory()).toBeTrue();
-      expect(await fs.readFile(path.join(unknownGeneration, 'user-sentinel.txt'), 'utf8')).toBe('preserve-me\n');
-      expect((await fs.lstat(ownedGeneration)).isDirectory()).toBeTrue();
-      await fs.rm(unknownGeneration, { recursive: true });
-      await fs.rename(ownedGeneration, unknownGeneration);
+        await expect(ensureCompilerDepsReady({
+          ...consumerOperation,
+          materialize: async () => {
+            throw new Error('Unknown physical state must not trigger install.');
+          }
+        }, consumerRoot)).rejects.toMatchObject({
+          code: 'IMPORT-AUTHORITY-004',
+          message: expect.stringContaining('not an owned compiler dependency generation')
+        });
+        expect((await fs.lstat(unknownGeneration)).isDirectory()).toBeTrue();
+        expect(await fs.readFile(path.join(unknownGeneration, 'user-sentinel.txt'), 'utf8')).toBe('preserve-me\n');
+        expect((await fs.lstat(ownedGeneration)).isSymbolicLink()).toBeTrue();
+        expect(await fs.realpath(ownedGeneration)).toBe(ownedTarget);
+      } finally {
+        await fs.rm(unknownGeneration, { recursive: true, force: true });
+        await fs.rename(ownedGeneration, unknownGeneration);
+      }
     });
 
   effectfulLinkedCompilerTest(
-    'restores the exact stale generation when locator validation fails before ownership binding',
-    async ({ consumerOperation, consumerRoot }) => {
+    'recovers a retired stale locator after validation fails before ownership binding',
+    async ({ consumerOperation, consumerRoot, ownerRoot }) => {
       const consumerNodeModules = path.join(consumerRoot, 'node_modules');
-      const staleIdentity = await fs.lstat(consumerNodeModules, { bigint: true });
 
       await expect(ensureCompilerDepsReady({
         ...consumerOperation,
@@ -1469,13 +1731,20 @@ describe('compiler dependency installation', () => {
         details: { cause: 'injected locator validation failure' },
         message: 'Compiler dependency consumer bridge is incompatible'
       });
-      const restoredIdentity = await fs.lstat(consumerNodeModules, { bigint: true });
-      expect({ dev: restoredIdentity.dev, ino: restoredIdentity.ino, mode: restoredIdentity.mode })
-        .toEqual({ dev: staleIdentity.dev, ino: staleIdentity.ino, mode: staleIdentity.mode });
+      await expect(fs.lstat(consumerNodeModules)).rejects.toMatchObject({ code: 'ENOENT' });
+      const recovered = await ensureCompilerDepsReady({
+        ...consumerOperation,
+        materialize: async () => {
+          throw new Error('Retired locator recovery must reuse its physical owner.');
+        }
+      }, consumerRoot);
+      expect(recovered.source).toBe('existing');
+      expect(await fs.realpath(consumerNodeModules))
+        .toBe(await fs.realpath(path.join(ownerRoot, 'node_modules')));
       expect(await fs.readFile(
         path.join(consumerNodeModules, 'typescript', 'lib', 'typescript.js'),
         'utf8'
-      )).toBe('candidate-generation-v1:typescript\n');
+      )).toBe('primary-generation-v2:typescript\n');
     });
 
   effectfulLinkedCompilerTest(
@@ -1505,13 +1774,12 @@ describe('compiler dependency installation', () => {
         details: {
           cause: string;
           causeDetails: { cause: string };
-          recoveryBackup: string;
+          recoveryBackup: string | null;
           rollbackFailure: string;
         };
       };
       expect(typedFailure.code).toBe('IMPORT-AUTHORITY-004');
-      const recoveryBackup = typedFailure.details.recoveryBackup;
-      expect(typeof recoveryBackup).toBe('string');
+      expect(typedFailure.details.recoveryBackup).toBeNull();
       expect(typedFailure.details).toMatchObject({
         cause: 'Compiler dependency consumer bridge is incompatible',
         causeDetails: { cause: 'injected external replacement' },
@@ -1521,15 +1789,21 @@ describe('compiler dependency installation', () => {
         .toBe('external-owner\n');
       expect((await fs.lstat(displacedLocator)).isSymbolicLink()).toBeTrue();
       expect(await fs.readFile(
-        path.join(recoveryBackup, 'typescript', 'lib', 'typescript.js'),
+        path.join(displacedLocator, 'typescript', 'lib', 'typescript.js'),
         'utf8'
-      )).toBe('candidate-generation-v1:typescript\n');
+      )).toBe('primary-generation-v2:typescript\n');
       await fs.rm(consumerNodeModules, { recursive: true });
       await fs.rename(displacedLocator, consumerNodeModules);
+      expect((await ensureCompilerDepsReady({
+        ...consumerOperation,
+        materialize: async () => {
+          throw new Error('Recovered locator must reuse the physical owner.');
+        }
+      }, consumerRoot)).source).toBe('existing');
     });
 
   effectfulCompilerTest(
-    'repairs critical compiler entry corruption before developer commands load dependencies',
+    'protects sealed compiler entries and repairs mutable corruption before developer commands',
     'engineering-compiler-dev-deps-corruption-',
     async (tempRoot, operation) => {
       await writeCompilerDependencyRoot(tempRoot);
@@ -1544,15 +1818,21 @@ describe('compiler dependency installation', () => {
       };
       await ensureCompilerDepsReady(options, tempRoot);
       const entryPath = path.join(tempRoot, 'node_modules', 'typescript', 'lib', 'typescript.js');
-      await fs.writeFile(entryPath, 'corrupt\n');
-
-      expect((await ensureCompilerDepsReady(options, tempRoot)).source).toBe('installed');
-      expect(installCalls).toBe(2);
-      expect(await fs.readFile(entryPath, 'utf8')).toBe('generation-2:typescript\n');
+      if (process.platform === 'win32') {
+        await expect(fs.writeFile(entryPath, 'corrupt\n')).rejects.toMatchObject({ code: 'EPERM' });
+        expect((await ensureCompilerDepsReady(options, tempRoot)).source).toBe('existing');
+        expect(installCalls).toBe(1);
+        expect(await fs.readFile(entryPath, 'utf8')).toBe('generation-1:typescript\n');
+      } else {
+        await fs.writeFile(entryPath, 'corrupt\n');
+        expect((await ensureCompilerDepsReady(options, tempRoot)).source).toBe('installed');
+        expect(installCalls).toBe(2);
+        expect(await fs.readFile(entryPath, 'utf8')).toBe('generation-2:typescript\n');
+      }
     });
 
   effectfulCompilerTest(
-    'preserves the active generation when materialization or atomic publish fails',
+    'does not publish failed compiler materialization and allows a fresh exact retry',
     'engineering-compiler-dev-deps-rollback-',
     async (tempRoot, operation) => {
       await writeCompilerDependencyRoot(tempRoot);
@@ -1567,9 +1847,6 @@ describe('compiler dependency installation', () => {
       const baseOptions = { ...operation, materialize };
       await ensureCompilerDepsReady(baseOptions, tempRoot);
       const entryPath = path.join(tempRoot, 'node_modules', 'typescript', 'lib', 'typescript.js');
-      const bindingPath = path.join(tempRoot, 'node_modules', '.sec-compiler-deps-binding-v5.json');
-      const originalEntry = await fs.readFile(entryPath);
-      const originalBinding = await fs.readFile(bindingPath);
 
       await fs.writeFile(path.join(tempRoot, 'bun.lock'), 'lock-v2\n');
       let failedInstallRoot: string | null = null;
@@ -1582,18 +1859,12 @@ describe('compiler dependency installation', () => {
       }, tempRoot)).rejects.toMatchObject({ code: 'IMPORT-AUTHORITY-002' });
       expect(failedInstallRoot).not.toBeNull();
       await expect(fs.stat(failedInstallRoot!)).rejects.toMatchObject({ code: 'ENOENT' });
-      expect(await fs.readFile(entryPath)).toEqual(originalEntry);
-      expect(await fs.readFile(bindingPath)).toEqual(originalBinding);
+      await expect(fs.lstat(path.join(tempRoot, 'node_modules')))
+        .rejects.toMatchObject({ code: 'ENOENT' });
 
-      await expect(ensureCompilerDepsReady({
-        ...baseOptions,
-        testCompilerPublishHook: () => {
-          throw new Error('injected publish failure');
-        }
-      }, tempRoot)).rejects.toMatchObject({ code: 'IMPORT-AUTHORITY-004' });
+      expect((await ensureCompilerDepsReady(baseOptions, tempRoot)).source).toBe('installed');
       await expect(fs.stat(stagingRoots.at(-1)!)).rejects.toMatchObject({ code: 'ENOENT' });
-      expect(await fs.readFile(entryPath)).toEqual(originalEntry);
-      expect(await fs.readFile(bindingPath)).toEqual(originalBinding);
+      expect(await fs.readFile(entryPath, 'utf8')).toBe('generation-2:typescript\n');
     });
 
   effectfulCompilerTest(
@@ -1642,7 +1913,6 @@ describe('compiler dependency installation', () => {
       );
       const parkedStageIntentsPath = `${stageIntentsPath}.fixture-parked`;
       await fs.rename(stageIntentsPath, parkedStageIntentsPath);
-      await fs.writeFile(path.join(tempRoot, 'bun.lock'), 'lock-v1\n');
       let recoveryInstalls = 0;
       let recoveryError: unknown;
       try {
@@ -1660,7 +1930,7 @@ describe('compiler dependency installation', () => {
       }
       expect(recoveryError).toMatchObject({ code: 'IMPORT-AUTHORITY-004' });
       expect((recoveryError as { details?: { cause?: string } }).details?.cause)
-        .toMatch(/lifecycle|disposal authority|provenance/u);
+        .toMatch(/lifecycle|disposal authority|provenance|settlement intent/u);
       expect(recoveryInstalls).toBe(0);
       await ensureCompilerDepsReady({
         ...baseOptions,
@@ -1670,6 +1940,8 @@ describe('compiler dependency installation', () => {
       }, tempRoot);
     });
 
+  }
+  if (shard === 'locks') {
   effectfulCompilerTest(
     'retries only bounded Windows transient generation renames and preserves the exact source identity',
     'engineering-compiler-dev-deps-windows-rename-retry-',
@@ -1714,7 +1986,7 @@ describe('compiler dependency installation', () => {
     });
 
   effectfulCompilerTest(
-    'fails closed and restores the active generation when a transient rename changes source identity',
+    'preserves a replaced staging source and recovers after its original identity returns',
     'engineering-compiler-dev-deps-windows-rename-identity-',
     async (tempRoot, operation) => {
       await writeCompilerDependencyRoot(tempRoot);
@@ -1726,10 +1998,9 @@ describe('compiler dependency installation', () => {
       };
       const baseOptions = { ...operation, materialize };
       await ensureCompilerDepsReady(baseOptions, tempRoot);
-      const entryPath = path.join(tempRoot, 'node_modules', 'typescript', 'lib', 'typescript.js');
-      const originalEntry = await fs.readFile(entryPath);
       await fs.writeFile(path.join(tempRoot, 'bun.lock'), 'lock-v2\n');
       let replaced = false;
+      let stagedSource: string | null = null;
 
       await expect(ensureCompilerDepsReady({
         ...baseOptions,
@@ -1740,6 +2011,7 @@ describe('compiler dependency installation', () => {
             path.basename(path.dirname(source)).includes('.staging-');
           if (stagedPublish && !replaced) {
             replaced = true;
+            stagedSource = source;
             await fs.rename(source, `${source}-original`);
             await fs.mkdir(source);
             const error = new Error('injected transient rename with source replacement') as NodeJS.ErrnoException;
@@ -1749,13 +2021,25 @@ describe('compiler dependency installation', () => {
           await fs.rename(source, target);
         }
       }, tempRoot)).rejects.toMatchObject({
-        code: 'IMPORT-AUTHORITY-004',
-        details: {
-          cause: expect.stringContaining('identity changed')
-        }
+        code: 'IMPORT-AUTHORITY-004'
       });
       expect(replaced).toBe(true);
-      expect(await fs.readFile(entryPath)).toEqual(originalEntry);
+      expect(stagedSource).not.toBeNull();
+      expect((await fs.lstat(stagedSource!)).isDirectory()).toBeTrue();
+      expect(await fs.readFile(path.join(
+        `${stagedSource!}-original`, 'typescript', 'lib', 'typescript.js'
+      ), 'utf8')).toBe('generation-2:typescript\n');
+      await fs.rmdir(stagedSource!);
+      await fs.rename(`${stagedSource!}-original`, stagedSource!);
+      expect((await ensureCompilerDepsReady({
+        ...baseOptions,
+        materialize: async () => {
+          throw new Error('Recovered exact stage must not install again.');
+        }
+      }, tempRoot)).source).toBe('existing');
+      expect(await fs.readFile(path.join(
+        tempRoot, 'node_modules', 'typescript', 'lib', 'typescript.js'
+      ), 'utf8')).toBe('generation-2:typescript\n');
     });
 
   effectfulCompilerTest(
@@ -1815,8 +2099,14 @@ describe('compiler dependency installation', () => {
     'engineering-compiler-dev-deps-lock-abort-',
     async (tempRoot, operation) => {
       await writeCompilerDependencyRoot(tempRoot);
-      const lockPath = path.join(tempRoot, '.tmp', 'dependency-installs', 'compiler.lock');
-      await fs.mkdir(path.dirname(lockPath), { recursive: true });
+      await ensureCompilerDepsReady({
+        ...operation,
+        materialize: async (_args, command) => {
+          await installCompilerDependencyFixture(command.cwd, 'preexisting');
+          return { code: 0, stdout: 'ok', stderr: '' };
+        }
+      }, tempRoot);
+      const lockPath = compilerCoordinationLockPath(tempRoot);
       await fs.writeFile(lockPath, `${JSON.stringify({
         createdAt: new Date().toISOString(),
         pid: process.pid,
@@ -1849,16 +2139,22 @@ describe('compiler dependency installation', () => {
     'engineering-compiler-dev-deps-budget-narrowing-',
     async (tempRoot, operation) => {
       await writeCompilerDependencyRoot(tempRoot);
-      const lockPath = path.join(tempRoot, '.tmp', 'dependency-installs', 'compiler.lock');
-      await fs.mkdir(path.dirname(lockPath), { recursive: true });
+      await ensureCompilerDepsReady({
+        ...operation,
+        materialize: async (_args, command) => {
+          await installCompilerDependencyFixture(command.cwd, 'preexisting');
+          return { code: 0, stdout: 'ok', stderr: '' };
+        }
+      }, tempRoot);
+      await fs.writeFile(path.join(tempRoot, 'bun.lock'), 'lock-v2\n');
+      const lockPath = compilerCoordinationLockPath(tempRoot);
       await fs.writeFile(lockPath, `${JSON.stringify({
         createdAt: new Date().toISOString(),
         pid: process.pid,
         token: 'temporary-live-owner'
       })}\n`);
-      const operationBudgetMs = 3_000;
       const lockContentionElapsedMs = 150;
-      let monotonicNowMs = 0;
+      const initialRemainingMs = operation.deadlineAtUnixMs - Date.now();
       let waited = false;
       let observedCommandTimeoutMs: number | undefined;
 
@@ -1869,13 +2165,11 @@ describe('compiler dependency installation', () => {
           await installCompilerDependencyFixture(command.cwd, 'remaining-budget');
           return { code: 0, stdout: 'ok', stderr: '' };
         },
-        lockTimeoutMs: operationBudgetMs,
-        monotonicNowMs: () => monotonicNowMs,
         pollIntervalMs: 1,
         sleep: async () => {
           if (!waited) {
             waited = true;
-            monotonicNowMs = lockContentionElapsedMs;
+            await new Promise<void>(resolve => setTimeout(resolve, lockContentionElapsedMs));
             await fs.rm(lockPath);
           }
         }
@@ -1884,7 +2178,7 @@ describe('compiler dependency installation', () => {
       expect(ready.source).toBe('installed');
       expect(waited).toBe(true);
       expect(observedCommandTimeoutMs).toBeGreaterThan(0);
-      expect(observedCommandTimeoutMs).toBeLessThan(operationBudgetMs - lockContentionElapsedMs);
+      expect(observedCommandTimeoutMs).toBeLessThan(initialRemainingMs - lockContentionElapsedMs);
       await expect(fs.stat(lockPath)).rejects.toMatchObject({ code: 'ENOENT' });
     });
 
@@ -1901,7 +2195,7 @@ describe('compiler dependency installation', () => {
         }
       }, tempRoot);
 
-      const lockPath = path.join(tempRoot, '.tmp', 'dependency-installs', 'compiler.lock');
+      const lockPath = compilerCoordinationLockPath(tempRoot);
       let lifecycleBound = false;
       const lifecycle = Object.freeze({
         ...operation.generatedStateLifecycle,
@@ -1928,7 +2222,16 @@ describe('compiler dependency installation', () => {
     'engineering-compiler-lock-delete-retry-',
     async (tempRoot, operation) => {
       await writeCompilerDependencyRoot(tempRoot);
-      let deleteAttempts = 0;
+      await ensureCompilerDepsReady({
+        ...operation,
+        materialize: async (_args, command) => {
+          await installCompilerDependencyFixture(command.cwd, 'preexisting');
+          return { code: 0, stdout: 'ok', stderr: '' };
+        }
+      }, tempRoot);
+      await fs.writeFile(path.join(tempRoot, 'bun.lock'), 'lock-v2\n');
+      const lockPath = compilerCoordinationLockPath(tempRoot);
+      const deleteAttempts: number[] = [];
       const ready = await ensureCompilerDepsReady({
         ...operation,
         materialize: async (_args, command) => {
@@ -1937,8 +2240,9 @@ describe('compiler dependency installation', () => {
         },
         pollIntervalMs: 1,
         testInstallLockDeletePlatform: 'win32',
-        testInstallLockDelete: async (_filePath, attempt) => {
-          deleteAttempts += 1;
+        testInstallLockDelete: async (filePath, attempt) => {
+          expect(filePath.startsWith('\\\\?\\') ? filePath.slice(4) : filePath).toBe(lockPath);
+          deleteAttempts.push(attempt);
           if (attempt === 1) {
             throw Object.assign(new Error('fixture Windows sharing violation'), { code: 'EBUSY' });
           }
@@ -1946,8 +2250,8 @@ describe('compiler dependency installation', () => {
       }, tempRoot);
 
       expect(ready.source).toBe('installed');
-      expect(deleteAttempts).toBe(2);
-      await expect(fs.stat(path.join(tempRoot, '.tmp', 'dependency-installs', 'compiler.lock')))
+      expect(deleteAttempts).toEqual([1, 2, 1, 2]);
+      await expect(fs.stat(lockPath))
         .rejects.toMatchObject({ code: 'ENOENT' });
     });
 
@@ -1956,7 +2260,15 @@ describe('compiler dependency installation', () => {
     'engineering-compiler-lock-delete-replacement-',
     async (tempRoot, operation) => {
       await writeCompilerDependencyRoot(tempRoot);
-      const lockPath = path.join(tempRoot, '.tmp', 'dependency-installs', 'compiler.lock');
+      await ensureCompilerDepsReady({
+        ...operation,
+        materialize: async (_args, command) => {
+          await installCompilerDependencyFixture(command.cwd, 'preexisting');
+          return { code: 0, stdout: 'ok', stderr: '' };
+        }
+      }, tempRoot);
+      await fs.writeFile(path.join(tempRoot, 'bun.lock'), 'lock-v2\n');
+      const lockPath = compilerCoordinationLockPath(tempRoot);
       let replaced = false;
       await expect(ensureCompilerDepsReady({
         ...operation,
@@ -1992,32 +2304,42 @@ describe('compiler dependency installation', () => {
     'engineering-compiler-lock-delete-deadline-',
     async (tempRoot, operation) => {
       await writeCompilerDependencyRoot(tempRoot);
-      const lockPath = path.join(tempRoot, '.tmp', 'dependency-installs', 'compiler.lock');
-      let monotonicNowMs = 0;
-      await expect(ensureCompilerDepsReady({
+      await ensureCompilerDepsReady({
         ...operation,
         materialize: async (_args, command) => {
-          await installCompilerDependencyFixture(command.cwd, 'windows-lock-delete-deadline');
+          await installCompilerDependencyFixture(command.cwd, 'preexisting');
           return { code: 0, stdout: 'ok', stderr: '' };
-        },
-        lockTimeoutMs: 100,
-        monotonicNowMs: () => monotonicNowMs,
-        pollIntervalMs: 1,
-        testInstallLockDeletePlatform: 'win32',
-        testInstallLockDelete: async () => {
-          monotonicNowMs = 101;
-          throw Object.assign(new Error('fixture Windows sharing violation'), { code: 'EBUSY' });
         }
-      }, tempRoot)).rejects.toMatchObject({
+      }, tempRoot);
+      await fs.writeFile(path.join(tempRoot, 'bun.lock'), 'lock-v2\n');
+      const lockPath = compilerCoordinationLockPath(tempRoot);
+      let monotonicNowMs = performance.now();
+      let failure: unknown;
+      try {
+        await ensureCompilerDepsReady({
+          ...operation,
+          materialize: async (_args, command) => {
+            await installCompilerDependencyFixture(command.cwd, 'windows-lock-delete-deadline');
+            return { code: 0, stdout: 'ok', stderr: '' };
+          },
+          monotonicNowMs: () => monotonicNowMs,
+          pollIntervalMs: 1,
+          testInstallLockDeletePlatform: 'win32',
+          testInstallLockDelete: async () => {
+            monotonicNowMs += 100_000;
+            throw Object.assign(new Error('fixture Windows sharing violation'), { code: 'EBUSY' });
+          }
+        }, tempRoot);
+      } catch (error) {
+        failure = error;
+      } finally {
+        await fs.rm(lockPath, { force: true });
+      }
+      expect(failure).toMatchObject({
         code: 'RUNTIME-DEPS-003',
-        details: {
-          failureOrder: ['primary', 'fence', 'cleanup'],
-          cleanupFailure: { details: { outcome: 'unknown' } }
-        }
+        details: { outcome: 'unknown' }
       });
-
-      expect((await readJson<{ token: string }>(lockPath)).token).toBeTruthy();
-      await fs.rm(lockPath);
+      await expect(fs.stat(lockPath)).rejects.toMatchObject({ code: 'ENOENT' });
     });
 
   effectfulCompilerTest(
@@ -2025,8 +2347,15 @@ describe('compiler dependency installation', () => {
     'engineering-compiler-dev-deps-orphan-',
     async (tempRoot, operation) => {
       await writeCompilerDependencyRoot(tempRoot);
-      const lockPath = path.join(tempRoot, '.tmp', 'dependency-installs', 'compiler.lock');
-      await fs.mkdir(path.dirname(lockPath), { recursive: true });
+      await ensureCompilerDepsReady({
+        ...operation,
+        materialize: async (_args, command) => {
+          await installCompilerDependencyFixture(command.cwd, 'preexisting');
+          return { code: 0, stdout: 'ok', stderr: '' };
+        }
+      }, tempRoot);
+      await fs.writeFile(path.join(tempRoot, 'bun.lock'), 'lock-v2\n');
+      const lockPath = compilerCoordinationLockPath(tempRoot);
       await fs.writeFile(lockPath, `${JSON.stringify({
         createdAt: '2026-01-01T00:00:00.000Z',
         pid: 2_147_483_647,
@@ -2050,7 +2379,7 @@ describe('compiler dependency installation', () => {
     });
 
   effectfulCompilerTest(
-    'migrates an expired legacy reclaim marker only with a dead paired lock owner',
+    'preserves an unissued legacy reclaim marker for explicit architecture migration',
     'engineering-compiler-dev-deps-legacy-reclaim-',
     async (tempRoot, operation) => {
       await writeCompilerDependencyRoot(tempRoot);
@@ -2065,21 +2394,28 @@ describe('compiler dependency installation', () => {
       await fs.writeFile(reclaimPath, '123e4567-e89b-42d3-a456-426614174000\n');
       const expired = new Date('2026-01-01T00:00:00.000Z');
       await fs.utimes(reclaimPath, expired, expired);
-      let installCalls = 0;
-
-      const ready = await ensureCompilerDepsReady({
+      await expect(ensureCompilerDepsReady({
         ...operation,
-        materialize: async (_args, command) => {
-          installCalls += 1;
-          await installCompilerDependencyFixture(command.cwd, 'legacy-reclaim-recovered');
-          return { code: 0, stdout: 'ok', stderr: '' };
+        materialize: async () => {
+          throw new Error('Unissued legacy marker must not start an install.');
         },
         pollIntervalMs: 10
-      }, tempRoot);
-
-      expect(ready.source).toBe('installed');
-      expect(installCalls).toBe(1);
-      await expect(fs.stat(lockPath)).rejects.toMatchObject({ code: 'ENOENT' });
-      await expect(fs.stat(reclaimPath)).rejects.toMatchObject({ code: 'ENOENT' });
+      }, tempRoot)).rejects.toMatchObject({
+        code: 'RUNTIME-DEPS-004',
+        details: { migrationRequired: true }
+      });
+      expect((await readJson<{ token: string }>(lockPath)).token).toBe('dead-legacy-owner');
+      expect(await fs.readFile(reclaimPath, 'utf8')).toBe('123e4567-e89b-42d3-a456-426614174000\n');
+      await fs.rm(reclaimPath);
+      await fs.rm(lockPath);
+      expect((await ensureCompilerDepsReady({
+        ...operation,
+        materialize: async (_args, command) => {
+          await installCompilerDependencyFixture(command.cwd, 'recovered-after-explicit-legacy-settlement');
+          return { code: 0, stdout: 'ok', stderr: '' };
+        }
+      }, tempRoot)).source).toBe('installed');
     });
+  }
 });
+}

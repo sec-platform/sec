@@ -16,12 +16,15 @@ import { renderSemanticContractYamlEdit } from '../../src/adapters/mutation/sema
 import {
   semanticMutationTransactionRoot
 } from '../../src/adapters/mutation/transaction-identity.ts';
+import { hasProvenFastSuiteProcessWideWriteSandbox } from '../../src/adapters/verification/fast-suite-sandbox-capability.ts';
 import {
   SEMANTIC_MUTATION_ISOLATED_VERIFICATION_TIMEOUT_MS
 } from '../../src/adapters/verification/run-semantic-mutation-isolated-child.ts';
+import { resolveWorkspaceLockPath } from '../../src/adapters/workspace-context.ts';
 import { buildWorkspaceSemanticBundle } from '../../src/adapters/workspace/semantic-bundle.ts';
 import { buildSemanticMutationVerificationExecutionRef } from '../../src/assurance/verification/semantic-mutation/execution-ref.ts';
 import {
+  addBlock,
   applySemanticMutation,
   initWorkspace,
   planSemanticMutationTransaction,
@@ -40,6 +43,7 @@ import { semanticMutationRequiredVerificationDigest } from '../../src/compiler/s
 import type { FactDeltaEndpointContext } from '../../src/semantics/engineering-ir/delta-types.ts';
 import type { SemanticMutationApplyInput, SemanticMutationRecoveryState } from '../../src/semantics/mutation/transaction.ts';
 import { type SemanticMutationAuthorizationContext, type SemanticMutationPlan, type SemanticMutationRequest } from '../../src/semantics/mutation/types.ts';
+import { installPrivateBannerBlock } from '../helpers/private-registry-fixtures.ts';
 import { semanticMutationVerificationReportFixture } from '../helpers/semantic-mutation-verification-report.ts';
 import { withTempWorkspace } from '../testkit/workspace.ts';
 
@@ -98,7 +102,7 @@ const AUTHORING_SOURCE = [
 ].join('\n');
 
 async function installSmokeRuntimeTests(workspaceRoot: string): Promise<void> {
-  const unitRoot = path.join(workspaceRoot, 'project', 'tests', 'runtime', 'unit');
+  const unitRoot = path.join(workspaceRoot, 'tests', 'runtime', 'unit');
   await mkdir(unitRoot, { recursive: true });
   await writeFile(
     path.join(unitRoot, 'smoke.test.ts'),
@@ -108,7 +112,7 @@ async function installSmokeRuntimeTests(workspaceRoot: string): Promise<void> {
       "import path from 'node:path';",
       '',
       "test('semantic mutation produced the required item transition', async () => {",
-      "  const stagedSource = path.resolve(process.cwd(), '..', 'source', 'model', 'item.yaml');",
+      "  const stagedSource = path.resolve(process.cwd(), 'model', 'item.yaml');",
       "  const source = await readFile(stagedSource, 'utf8');",
       "  expect(source).toContain('from: open');",
       "  expect(source).toContain('to: closed');",
@@ -138,7 +142,7 @@ function authorization(): SemanticMutationAuthorizationContext {
     allowedOperationKinds: ['add-state-transition'],
     allowedTargetEntityIds: ['state:item:item-status'],
     allowedSourceOwnerIds: ['semantic-contract-owner:item:item-core'],
-    allowedPathPrefixes: ['source/model/'],
+    allowedPathPrefixes: ['model/'],
     requiredPreconditions: [],
     requiredPostconditions: [],
     minimumVerification: []
@@ -205,18 +209,20 @@ async function coordinatorFailureFixture(
 ): Promise<CoordinatorFailureFixture> {
   await mkdir(workspaceRoot, { recursive: true });
   await initWorkspace(workspaceRoot);
+  await installPrivateBannerBlock(workspaceRoot);
+  await addBlock(workspaceRoot, 'private/banner-basic');
   await resolveWorkspace(workspaceRoot);
   await installSmokeRuntimeTests(workspaceRoot);
 
-  const modelRoot = path.join(workspaceRoot, 'source', 'model');
+  const modelRoot = path.join(workspaceRoot, 'model');
   const sourcePath = path.join(modelRoot, 'item.yaml');
   await mkdir(modelRoot, { recursive: true });
   await writeFile(sourcePath, AUTHORING_SOURCE, 'utf8');
   await writeFile(path.join(modelRoot, 'semantic-contracts.yaml'), [
     'formatRevision: authoring-semantic-contract-index-v1',
     'contracts:',
-    '  - blockId: entity/customer-basic',
-    '    path: source/model/item.yaml',
+    '  - blockId: private/banner-basic',
+    '    path: model/item.yaml',
     ''
   ].join('\n'), 'utf8');
 
@@ -314,18 +320,20 @@ function verificationExecution(
 test('SM-3 dry-run/apply share one plan revision, publish atomically, rebuild live derivatives, and replay exactly once', async () => {
   await withTempWorkspace(async (workspaceRoot) => {
     await initWorkspace(workspaceRoot);
+    await installPrivateBannerBlock(workspaceRoot);
+    await addBlock(workspaceRoot, 'private/banner-basic');
     await resolveWorkspace(workspaceRoot);
     await installSmokeRuntimeTests(workspaceRoot);
 
-    const modelRoot = path.join(workspaceRoot, 'source', 'model');
+    const modelRoot = path.join(workspaceRoot, 'model');
     const sourcePath = path.join(modelRoot, 'item.yaml');
     await mkdir(modelRoot, { recursive: true });
     await writeFile(sourcePath, AUTHORING_SOURCE, 'utf8');
     await writeFile(path.join(modelRoot, 'semantic-contracts.yaml'), [
       'formatRevision: authoring-semantic-contract-index-v1',
       'contracts:',
-      '  - blockId: entity/customer-basic',
-      '    path: source/model/item.yaml',
+      '  - blockId: private/banner-basic',
+      '    path: model/item.yaml',
       ''
     ].join('\n'), 'utf8');
 
@@ -369,17 +377,39 @@ test('SM-3 dry-run/apply share one plan revision, publish atomically, rebuild li
       additionalVerification: []
     };
     const input = { request, base, authorization: authorization() };
+    const isolationAvailable = await hasProvenFastSuiteProcessWideWriteSandbox();
     const first = await planSemanticMutationTransaction(workspaceRoot, input);
     const second = await planSemanticMutationTransaction(workspaceRoot, input);
+    expect(second).toEqual(first);
+    if (!isolationAvailable) {
+      expect(first.status).toBe('rejected');
+      if (first.status !== 'rejected') throw new Error(JSON.stringify(first));
+      expect(first.rejectedAt).toBe('impact-verification');
+      expect(first.diagnostics).toContainEqual(expect.objectContaining({
+        code: 'SEMANTIC-MUTATION-010',
+        stage: 'impact-verification',
+        details: expect.objectContaining({
+          requirement: { kind: 'pass', passId: 'verify' },
+          status: 'non-runnable',
+          isolated: false
+        })
+      }));
+      expect(await readFile(sourcePath)).toEqual(Buffer.from(beforeBytes));
+      expect(await querySemanticMutationRequest(workspaceRoot, {
+        graphId: request.graphId,
+        appId: request.appId,
+        requestId: request.requestId
+      })).toBeNull();
+      return;
+    }
     if (first.status !== 'ready') {
       throw new Error(JSON.stringify({
         status: first.status,
         rejectedAt: first.rejectedAt,
-        diagnostics: first.diagnostics.map(({ code, stage }) => ({ code, stage }))
+        diagnostics: first.diagnostics
       }));
     }
     expect(first.status).toBe('ready');
-    expect(second).toEqual(first);
 
     const applied = await applySemanticMutation(workspaceRoot, {
       ...input,
@@ -508,7 +538,7 @@ test('SM-3 coordinator pre-publish failure matrix preserves every live byte and 
       const fixture = await coordinatorFailureFixture(workspaceRoot, `request:${label}`);
       const before = await liveWorkspaceByteSnapshot(workspaceRoot);
       const paths = before.map(({ relativePath }) => relativePath);
-      expect(paths).toContain('control/state/graph.lock.json');
+      expect((await lstat(await resolveWorkspaceLockPath(workspaceRoot))).isFile()).toBe(true);
       expect(paths).toContain('control/provenance/failure-matrix-projection.json');
       expect(paths).toContain('project/generated/failure-matrix-artifact.bin');
       expect(paths).toContain('control/evidence/failure-matrix-note.txt');
@@ -793,7 +823,7 @@ test('SM-3 coordinator post-publish restore and journal failures become durable 
       before: readonly WorkspaceByteEntry[]
     ): Promise<void> => {
       const withoutAuthoringSource = (entries: readonly WorkspaceByteEntry[]) =>
-        entries.filter(({ relativePath }) => relativePath !== 'source/model/item.yaml');
+        entries.filter(({ relativePath }) => relativePath !== 'model/item.yaml');
       expect(withoutAuthoringSource(await liveWorkspaceByteSnapshot(workspaceRoot)))
         .toEqual(withoutAuthoringSource(before));
     };

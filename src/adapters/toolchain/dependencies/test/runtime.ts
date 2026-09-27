@@ -62,12 +62,6 @@ export async function ensureCompilerDepsReady(
   );
 }
 
-export async function ensureSharedDepsReady(
-  options: RuntimeDependencyTestInstallOptions = {}
-): Promise<dependencyRuntime.SharedDepsReadyState> {
-  return dependencyRuntime.ensureSharedDepsReady(testInstallOptions(options));
-}
-
 export async function ensureProjectDependencies(
   projectRoot: string,
   options: RuntimeDependencyTestInstallOptions = {}

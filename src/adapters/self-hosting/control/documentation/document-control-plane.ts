@@ -365,6 +365,13 @@ const DOCUMENT_CONTROL_FREEZE_GIT_READ_BUDGET = Object.freeze({
   ...GIT_READ_OPERATION_BUDGET,
   maxProcesses: 128
 });
+// Status reads the complete index tree twice around its external observations.
+// Immutable scratch generation issues one mktree process per directory depth,
+// plus a Windows stdin worker per process. Keep both fences in one session.
+const DOCUMENT_CONTROL_STATUS_GIT_READ_BUDGET = Object.freeze({
+  ...GIT_READ_OPERATION_BUDGET,
+  maxProcesses: 128
+});
 const ExternalCommandMaxBufferBytes = 8 * 1024 * 1024;
 const CurrentStatePath = 'config/repository/current-state.yaml';
 const ActivePointerPath = 'config/repository/active-work-package.md';
@@ -3837,12 +3844,14 @@ async function preflightFreezeProjectionEntryStates(
   const pointerPath = await resolveRecoverableRepositoryFile(repositoryRoot, ActivePointerPath);
   const rollingPlanPath = await resolveRecoverableRepositoryFile(repositoryRoot, RollingPlanPath);
   const classifiers: PublishTupleClassifierInput[] = [];
-  if (journal.preIndexTreeSha === journal.candidateTreeSha) {
+  if (journal.preIndexTreeSha === journal.candidateTreeSha || journal.phase !== 'prepared') {
     await assertIndexSemanticIdentity({
       repositoryRoot,
       indexPaths,
       expectedTreeSha: journal.candidateTreeSha,
-      label: 'Freeze preflight Git index semantic NOOP'
+      label: journal.phase === 'prepared'
+        ? 'Freeze preflight Git index semantic NOOP'
+        : 'Freeze preflight published Git index semantic readback'
     });
   } else {
     classifiers.push(createPublishTupleClassifierInput({
@@ -4043,12 +4052,13 @@ async function buildNextIndex(input: {
             throw new Error(`Candidate tree retained the retired path ${absentPath}.`);
           }
         }
-        const bytes = await readSafeRegularFile({
-          boundaryRoot: canonicalScratchRoot,
-          filePath: scratchIndex,
-          label: 'External freeze scratch Git index readback'
-        });
-        return Object.freeze({ bytes, treeSha });
+        const index = productionScratch.indexBytes();
+        if (index.status !== 'ready') {
+          throw documentControlCliFailure(
+            'git', 'git-object-index-effect', 'unavailable', index.reason
+          );
+        }
+        return Object.freeze({ bytes: Buffer.from(index.value), treeSha });
       }
       const indexUpdates: string[] = [];
       for (const target of changedTargets) {
@@ -4784,18 +4794,21 @@ async function advanceFreezeJournal(input: {
   journalBytes: Buffer;
   faultAfter?: CodexDevelopmentFreezeFault;
   durability: FreezeDurabilityOptions;
+  deferTerminalRetirement?: () => void;
 }): Promise<CodexDevelopmentFreezeResult> {
   let journal = input.journal;
   let journalBytes = input.journalBytes;
   const indexPaths = await resolveIndexPaths(input.repositoryRoot, true);
   const indexPre = fromBase64(journal.index.pre, 'Freeze journal index PRE');
   const indexNext = fromBase64(journal.index.next, 'Freeze journal index NEXT');
-  if (journal.preIndexTreeSha === journal.candidateTreeSha) {
+  if (journal.preIndexTreeSha === journal.candidateTreeSha || journal.phase !== 'prepared') {
     await assertIndexSemanticIdentity({
       repositoryRoot: input.repositoryRoot,
       indexPaths,
       expectedTreeSha: journal.candidateTreeSha,
-      label: 'Freeze Git index semantic NOOP'
+      label: journal.phase === 'prepared'
+        ? 'Freeze Git index semantic NOOP'
+        : 'Freeze published Git index semantic readback'
     });
   } else {
     await materializeFreezeCandidateObjects({
@@ -4933,7 +4946,16 @@ async function advanceFreezeJournal(input: {
   }
   maybeFault(input.faultAfter, 'after-terminal');
   const terminalSnapshot = await readFreezeJournalSnapshot(input.repositoryRoot);
-  if (terminalSnapshot === null) throw new Error('Terminal freeze journal disappeared before retirement.');
+  if (terminalSnapshot === null || !terminalSnapshot.canonicalPresent
+      || terminalSnapshot.journal.phase !== 'terminal'
+      || terminalSnapshot.journal.operationId !== journal.operationId
+      || (terminalSnapshot.recovery !== null && terminalSnapshot.recovery.completionMode !== 'complete')) {
+    throw new Error('Terminal freeze journal disappeared or changed before retirement.');
+  }
+  if (input.deferTerminalRetirement !== undefined) {
+    input.deferTerminalRetirement();
+    return journal.result;
+  }
   await verifyTerminalFreezeJournal({
     repositoryRoot: input.repositoryRoot,
     snapshot: terminalSnapshot,
@@ -5275,6 +5297,8 @@ type FreezeDocumentControlPlaneInput = {
   /** Author one untrusted tracking:none successor projection without activation authority. */
   proposalOnly?: boolean;
   faultAfter?: CodexDevelopmentFreezeFault;
+  /** Internal test seam after writer settlement and before terminal re-admission. */
+  beforeTerminalRetirement?: () => Promise<void> | void;
   /** Internal deterministic contract-test observer for rename durability ordering. */
   durabilityObserver?: CodexDevelopmentDurabilityObserver;
   /** Internal deterministic contract-test seam for an unsupported directory barrier. */
@@ -5303,7 +5327,11 @@ type FreezeDocumentControlPlaneInput = {
  * composed control-plane operations may supply their own owner-issued scope.
  */
 async function freezeDocumentControlPlaneWithSession(
-  input: FreezeDocumentControlPlaneInput
+  input: FreezeDocumentControlPlaneInput,
+  options: Readonly<{
+    deferTerminalRetirement?: () => void;
+    requiredTerminalOperationId?: string;
+  }> = {}
 ): Promise<CodexDevelopmentFreezeResult> {
   assertCanonicalManifestPath(input.manifestPath);
   assertReviewedOn(input.reviewedOn);
@@ -5324,6 +5352,14 @@ async function freezeDocumentControlPlaneWithSession(
   });
   return withWorkspaceWriteLease(repositoryRoot, undefined, async () => {
     let existingJournalSnapshot = await readFreezeJournalSnapshot(repositoryRoot);
+    if (options.requiredTerminalOperationId !== undefined
+        && (existingJournalSnapshot === null || !existingJournalSnapshot.canonicalPresent
+          || existingJournalSnapshot.journal.phase !== 'terminal'
+          || existingJournalSnapshot.journal.operationId !== options.requiredTerminalOperationId
+          || (existingJournalSnapshot.recovery !== null
+            && existingJournalSnapshot.recovery.completionMode !== 'complete'))) {
+      throw new Error('Terminal freeze continuation lost its exact durable journal.');
+    }
     if (existingJournalSnapshot === null) {
       await retireEmptyFreezeTransactionRootAfterJournalLast({ repositoryRoot, durability });
     }
@@ -5385,10 +5421,17 @@ async function freezeDocumentControlPlaneWithSession(
         journal: existingJournal,
         journalBytes: existingJournalSnapshot!.bytes,
         faultAfter: input.faultAfter,
-        durability
+        durability,
+        deferTerminalRetirement: options.deferTerminalRetirement
       });
     }
     if (existingJournal !== null && existingJournal.phase === 'terminal') {
+      if (options.requiredTerminalOperationId !== undefined
+          && (existingJournal.manifestPath !== input.manifestPath
+            || existingJournal.manifestDigest !== manifestDigest
+            || existingJournal.reviewedOn !== input.reviewedOn)) {
+        throw new Error('Terminal freeze continuation no longer matches the manifest or review date.');
+      }
       const previousResult = await verifyTerminalFreezeJournal({
         repositoryRoot,
         snapshot: existingJournalSnapshot!,
@@ -6030,9 +6073,38 @@ async function freezeDocumentControlPlaneWithSession(
       journal: operation.journal,
       journalBytes,
       faultAfter: input.faultAfter,
-      durability
+      durability,
+      deferTerminalRetirement: options.deferTerminalRetirement
     });
   });
+}
+
+async function completeDeferredTerminalFreeze(
+  input: FreezeDocumentControlPlaneInput,
+  expected: CodexDevelopmentFreezeResult
+): Promise<CodexDevelopmentFreezeResult> {
+  // The terminal journal is a durable boundary. Its retirement has its own
+  // bounded owner session and re-observes all authority under the workspace
+  // lease; no process allowance is silently renewed inside the writer phase.
+  await input.beforeTerminalRetirement?.();
+  const cwd = path.resolve(input.cwd);
+  const deadlineAtUnixMs = Date.now() + ExternalCommandTimeoutMs;
+  const completed = await withAuthorityGitReadSession({
+    cwd,
+    budget: GIT_READ_OPERATION_BUDGET,
+    deadlineAtUnixMs
+  }, (session) => documentControlGitReadScope.run(
+    session,
+    () => freezeDocumentControlPlaneWithSession(input, {
+      requiredTerminalOperationId: expected.operationId
+    })
+  ));
+  if (completed.operationId !== expected.operationId
+      || completed.candidateTreeSha !== expected.candidateTreeSha
+      || completed.manifestDigest !== expected.manifestDigest) {
+    throw new Error('Terminal freeze continuation changed the exact frozen result.');
+  }
+  return completed;
 }
 
 /**
@@ -6051,14 +6123,18 @@ export async function freezeDocumentControlPlane(
   }
   const deadlineAtUnixMs = Date.now() + ExternalCommandTimeoutMs;
   try {
-    return await withAuthorityGitReadSession({
+    let deferred = false;
+    const result = await withAuthorityGitReadSession({
       cwd: path.resolve(input.cwd),
       budget: DOCUMENT_CONTROL_FREEZE_GIT_READ_BUDGET,
       deadlineAtUnixMs
     }, (session) => documentControlGitReadScope.run(
       session,
-      () => freezeDocumentControlPlaneWithSession(input)
+      () => freezeDocumentControlPlaneWithSession(input, {
+        deferTerminalRetirement: () => { deferred = true; }
+      })
     ));
+    return deferred ? await completeDeferredTerminalFreeze(input, result) : result;
   } catch (error) {
     if (error instanceof CodexDevelopmentDocumentControlCliAdmissionError) throw error;
     if (error instanceof GitReadAuthorityError) {
@@ -6366,7 +6442,7 @@ export async function resolveLiveControlPlane(
     const absoluteDeadline = Date.now() + ExternalCommandTimeoutMs;
     return await withAuthorityGitReadSession({
       cwd: path.resolve(cwd),
-      budget: GIT_READ_OPERATION_BUDGET,
+      budget: DOCUMENT_CONTROL_STATUS_GIT_READ_BUDGET,
       deadlineAtUnixMs: absoluteDeadline
     }, (session) => documentControlGitReadScope.run(
       session,
@@ -6631,7 +6707,9 @@ async function resolveLiveControlPlaneWithGitReadSession(
       repositoryRoot,
       resolverGit
     }));
-  } catch {
+  } catch (error) {
+    if (error instanceof CodexDevelopmentDocumentControlCliAdmissionError
+        || error instanceof GitReadAuthorityError) throw error;
     indexTreeReadback = null;
   }
   const headReadbackResult = await resolverGit.run(['rev-parse', 'HEAD'], repositoryRoot);
@@ -6888,6 +6966,7 @@ export async function runDocumentControlPlaneCli(): Promise<void> {
     }));
 
     const requestedWorkspace = realpathSync(path.resolve(workspace));
+    let deferred = false;
     const result = await withAuthorityGitReadSession({
       cwd: requestedWorkspace,
       budget: Object.freeze({
@@ -6920,9 +6999,19 @@ export async function runDocumentControlPlaneCli(): Promise<void> {
         manifestPath,
         reviewedOn,
         proposalOnly: argv.includes('--proposal-only')
+      }, {
+        deferTerminalRetirement: () => { deferred = true; }
       });
     }));
-    process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+    const settled = deferred
+      ? await completeDeferredTerminalFreeze({
+        cwd: requestedWorkspace,
+        manifestPath,
+        reviewedOn,
+        proposalOnly: argv.includes('--proposal-only')
+      }, result)
+      : result;
+    process.stdout.write(`${JSON.stringify(settled, null, 2)}\n`);
     return;
   }
   throw new Error(usage);

@@ -70,7 +70,9 @@ export const WINDOWS_READ_ONLY_TREE_ADMISSION_POLICY = Object.freeze({
   operationLedger: 'shared-monotonic-v1',
   proofBinding: 'physical-object-change-time-acl-digest-v1'
 });
-const NAME_SAM_COMPATIBLE = 2;
+const TOKEN_USER_INFORMATION_CLASS = 1;
+// GetCurrentThreadEffectiveToken is an SDK inline pseudo-handle, not a DLL export.
+const CURRENT_THREAD_EFFECTIVE_TOKEN = BigInt.asUintN(64, -6n);
 const OWNER_SECURITY_INFORMATION = 0x0000_0001;
 const DACL_SECURITY_INFORMATION = 0x0000_0004;
 const UNPROTECTED_DACL_SECURITY_INFORMATION = 0x2000_0000;
@@ -192,16 +194,8 @@ function sidBytesToString(bytes: Buffer): string {
 async function loadWindowsAclAdvapi32() {
   const { dlopen, FFIType } = await import('bun:ffi');
   return dlopen('advapi32.dll', {
-    LookupAccountNameW: {
-      args: [
-        FFIType.ptr,
-        FFIType.ptr,
-        FFIType.ptr,
-        FFIType.ptr,
-        FFIType.ptr,
-        FFIType.ptr,
-        FFIType.ptr
-      ],
+    GetTokenInformation: {
+      args: [FFIType.u64, FFIType.i32, FFIType.ptr, FFIType.u32, FFIType.ptr],
       returns: FFIType.i32
     },
     GetFileSecurityW: {
@@ -225,23 +219,11 @@ async function loadWindowsAclKernel32() {
   } as const);
 }
 
-async function loadWindowsAclSecur32() {
-  const { dlopen, FFIType } = await import('bun:ffi');
-  return dlopen('secur32.dll', {
-    GetUserNameExW: {
-      args: [FFIType.i32, FFIType.ptr, FFIType.ptr],
-      returns: FFIType.i32
-    }
-  } as const);
-}
-
 type WindowsAclAdvapi32 = Awaited<ReturnType<typeof loadWindowsAclAdvapi32>>;
 type WindowsAclKernel32 = Awaited<ReturnType<typeof loadWindowsAclKernel32>>;
-type WindowsAclSecur32 = Awaited<ReturnType<typeof loadWindowsAclSecur32>>;
 type WindowsAclLibraries = Readonly<{
   advapi32: WindowsAclAdvapi32;
   kernel32: WindowsAclKernel32;
-  secur32: WindowsAclSecur32;
 }>;
 
 let windowsAclLibrariesPromise: Promise<WindowsAclLibraries> | undefined;
@@ -252,12 +234,10 @@ let nativeWindowsAclSessionCloseCount = 0;
 function openWindowsAclLibraries(): Promise<WindowsAclLibraries> {
   windowsAclLibrariesPromise ??= Promise.all([
     loadWindowsAclAdvapi32(),
-    loadWindowsAclKernel32(),
-    loadWindowsAclSecur32()
-  ]).then(([advapi32, kernel32, secur32]) => Object.freeze({
+    loadWindowsAclKernel32()
+  ]).then(([advapi32, kernel32]) => Object.freeze({
     advapi32,
-    kernel32,
-    secur32
+    kernel32
   }));
   return windowsAclLibrariesPromise;
 }
@@ -346,67 +326,39 @@ class NativeWindowsAclSession {
       );
     }
     try {
-      const { advapi32, kernel32, secur32 } = await openWindowsAclLibraries();
+      const { advapi32, kernel32 } = await openWindowsAclLibraries();
+      const { ptr } = await import('bun:ffi');
       assertWindowsAclOperationCurrent(operation);
-      const accountLength = Buffer.alloc(4);
-      const firstAccountRead = secur32.symbols.GetUserNameExW(
-        NAME_SAM_COMPATIBLE,
-        null,
-        accountLength
+      // The effective thread token retains impersonation semantics without a
+      // name-to-SID lookup that may synchronously consult a domain controller.
+      // The pseudo-handle needs no CloseHandle and has TOKEN_QUERY access.
+      const token = CURRENT_THREAD_EFFECTIVE_TOKEN;
+      const tokenLength = Buffer.alloc(4);
+      advapi32.symbols.GetTokenInformation(
+        token, TOKEN_USER_INFORMATION_CLASS, null, 0, ptr(tokenLength)
       );
-      const accountCharacters = accountLength.readUInt32LE();
-      // Bun FFI does not promise to preserve the calling thread's Win32 last
-      // error across the JavaScript return boundary. The Windows sizing
-      // contract already gives us the authoritative result in the caller-owned
-      // length buffer, so never make GetLastError part of successful admission.
-      if (firstAccountRead !== 0 || accountCharacters < 2 || accountCharacters > 1024) {
-        throw authorityError(
-          'native-provider-unavailable',
-          'Windows host directory principal name is invalid'
-        );
+      const requiredLength = tokenLength.readUInt32LE();
+      if (requiredLength < 24 || requiredLength > 4_096) {
+        throw authorityError('native-provider-unavailable',
+          'Windows host directory effective token SID length is invalid');
       }
-      const accountName = Buffer.alloc(accountCharacters * 2);
-      if (secur32.symbols.GetUserNameExW(
-        NAME_SAM_COMPATIBLE,
-        accountName,
-        accountLength
+      const tokenUser = Buffer.alloc(requiredLength);
+      const tokenUserPointer = ptr(tokenUser);
+      if (advapi32.symbols.GetTokenInformation(
+        token, TOKEN_USER_INFORMATION_CLASS, tokenUserPointer, tokenUser.length, ptr(tokenLength)
       ) === 0) {
-        throw nativeFailure(kernel32, 'principal-name readback');
+        throw nativeFailure(kernel32, 'effective-token SID readback');
       }
-      const sidLength = Buffer.alloc(4);
-      const domainLength = Buffer.alloc(4);
-      const sidUse = Buffer.alloc(4);
-      const firstSidRead = advapi32.symbols.LookupAccountNameW(
-        null,
-        accountName,
-        null,
-        sidLength,
-        null,
-        domainLength,
-        sidUse
-      );
-      const sidByteLength = sidLength.readUInt32LE();
-      const domainCharacters = domainLength.readUInt32LE();
-      if (firstSidRead !== 0 || sidByteLength < 8 || sidByteLength > 68 ||
-        domainCharacters > 1024) {
-        throw authorityError(
-          'native-provider-unavailable',
-          'Windows host directory principal SID is invalid'
-        );
+      const returnedLength = tokenLength.readUInt32LE();
+      const sidAddress = tokenUser.readBigUInt64LE(0);
+      const offsetAddress = sidAddress - BigInt(tokenUserPointer);
+      if (returnedLength < 24 || returnedLength > tokenUser.length
+          || sidAddress === 0n || offsetAddress < 16n
+          || offsetAddress > BigInt(returnedLength - 8)) {
+        throw authorityError('native-provider-unavailable',
+          'Windows host directory effective token SID pointer is invalid');
       }
-      const sid = Buffer.alloc(sidByteLength);
-      const domain = Buffer.alloc(Math.max(1, domainCharacters) * 2);
-      if (advapi32.symbols.LookupAccountNameW(
-        null,
-        accountName,
-        sid,
-        sidLength,
-        domain,
-        domainLength,
-        sidUse
-      ) === 0) {
-        throw nativeFailure(kernel32, 'principal-SID readback');
-      }
+      const sid = Buffer.from(sidBytesAt(tokenUser, Number(offsetAddress), returnedLength));
       const currentSid = sidBytesToString(sid);
       assertWindowsAclOperationCurrent(operation);
       nativeWindowsAclSessionOpenCount += 1;

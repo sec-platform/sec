@@ -331,7 +331,7 @@ test('dev-runner target projection accepts only a producer-owned member plan and
     authorizedClosure: closure
   })).toMatchObject({
     gateId: 'typecheck',
-    target: { kind: 'bun-package-script', identity: 'typecheck', args: [] }
+    target: { kind: 'bun-package-script', identity: 'typecheck:verified', args: [] }
   });
   const forged = structuredClone(typecheck) as typeof typecheck;
   (forged.action as { actionKey: string }).actionKey = digest('9');

@@ -5715,12 +5715,6 @@ async function installGitHooksInternalWithBudget(options: {
       priorGenerations.map((prior) => prior.evidence.path),
       'managed generation publication admission'
     );
-    assertManagedGenerationCapacity(
-      commonRoot,
-      priorGenerations.map((prior) => prior.evidence.path),
-      isPrimaryWorktree ? 1 : 2,
-      'Managed generation namespace before publication'
-    );
     const preEffectObservation = readHookConfigObservation(
       repoRoot,
       commonGitDir,
@@ -5746,6 +5740,28 @@ async function installGitHooksInternalWithBudget(options: {
         bootstrapSnapshots,
         preferredBootstrap
       );
+    const plannedSlots = new Map<string, Readonly<{
+      path: string;
+      snapshots: readonly ManagedHookSnapshot[];
+    }>>();
+    plannedSlots.set(canonicalPath(plannedGeneration.path), {
+      path: plannedGeneration.path, snapshots
+    });
+    plannedSlots.set(canonicalPath(plannedBootstrapGeneration.path), {
+      path: plannedBootstrapGeneration.path, snapshots: bootstrapSnapshots
+    });
+    let additionalGenerationSlots = 0;
+    for (const planned of plannedSlots.values()) {
+      if ((await inspectManagedGeneration(planned.path, planned.snapshots)).state !== 'ready') {
+        additionalGenerationSlots += 1;
+      }
+    }
+    assertManagedGenerationCapacity(
+      commonRoot,
+      priorGenerations.map((prior) => prior.evidence.path),
+      additionalGenerationSlots,
+      'Managed generation namespace before publication'
+    );
     const generationPlan = makeGenerationPlan(plannedGeneration, snapshots);
     const bootstrapGenerationPlan = isPrimaryWorktree
       ? generationPlan

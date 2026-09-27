@@ -48,7 +48,7 @@ test('recognized portable spellings retain the same isolated resource queue', ()
 });
 
 test('default exclusion cannot be avoided with an already-supported portable spelling', () => {
-  for (const spelling of spellings('tests/integration/semantic-mutation-apply.test.ts')) {
+  for (const spelling of spellings('tests/integration/semantic-mutation-recovery-lifecycle.test.ts')) {
     assert.equal(isDefaultFastTestFile(spelling), false);
   }
   assert.equal(isDefaultFastTestFile('tests/unit/unregistered.test.ts'), true);

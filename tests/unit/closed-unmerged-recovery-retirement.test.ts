@@ -19,8 +19,10 @@ import {
 } from '../../src/adapters/self-hosting/control/branch-lifecycle/branch-closeout.ts';
 import { branchLifecycleDigest } from '../../src/adapters/self-hosting/control/branch-lifecycle/branch-lifecycle-audit.ts';
 import type { BranchLifecycleInventory } from '../../src/adapters/self-hosting/control/branch-lifecycle/branch-lifecycle-types.ts';
+import { createMainAbsorptionRecovery } from '../../src/adapters/self-hosting/control/branch-lifecycle/branch-recovery.ts';
 import {
   compileClosedUnmergedCloseoutOperation,
+  createClosedNativeAbsorptionDispositionEvidence,
   createClosedSupersededDispositionEvidence,
   executeClosedUnmergedCloseoutOperation,
   issueClosedUnmergedCloseoutEffectProvider,
@@ -126,33 +128,40 @@ async function completed(input: ReturnType<typeof fixture>): Promise<Readonly<{
   if (currentMainSha === null) throw new Error('Retirement fixture must observe a main commit.');
   const headTreeSha = git(input.root, ['rev-parse', `${pullRequest.headSha}^{tree}`]);
   const currentMainTreeSha = git(input.root, ['rev-parse', `${currentMainSha}^{tree}`]);
-  const supersession = await observeTestClosedSupersessionEvidence({
-    repositoryRoot: input.root,
-    repository: REPOSITORY,
-    pullRequestNumber: PR_NUMBER,
-    commentId: 5931,
-    headSha: pullRequest.headSha,
-    headTreeSha,
-    currentMainSha,
-    currentMainTreeSha,
-    paths: [{
-      path: 'tracked.txt', disposition: 'superseded',
-      reason: 'Current main replaces the closed branch behavior.'
-    }]
-  });
-  const evidence = createClosedSupersededDispositionEvidence({ repository: REPOSITORY,
-    pullRequestNumber: PR_NUMBER, branch: BRANCH,
-    headSha: pullRequest.headSha, headTreeSha,
-    baseBranch: 'main', baseSha: pullRequest.baseSha,
-    currentMainSha, currentMainTreeSha,
-    durableGoal: { kind: 'evidence', reference: 'closed-superseded-retirement-fixture' },
-    supersession });
+  const recovery = input.prepared.preparation.recovery;
+  const evidence = recovery.kind === 'main-absorption'
+    ? createClosedNativeAbsorptionDispositionEvidence({ prepared: input.prepared,
+        repository: REPOSITORY, pullRequestNumber: PR_NUMBER, branch: BRANCH,
+        headSha: pullRequest.headSha, headTreeSha,
+        baseBranch: 'main', baseSha: pullRequest.baseSha,
+        currentMainSha, currentMainTreeSha,
+        durableGoal: { kind: 'evidence', reference: `main-absorption:${recovery.sha256}` } })
+    : createClosedSupersededDispositionEvidence({ repository: REPOSITORY,
+        pullRequestNumber: PR_NUMBER, branch: BRANCH,
+        headSha: pullRequest.headSha, headTreeSha,
+        baseBranch: 'main', baseSha: pullRequest.baseSha,
+        currentMainSha, currentMainTreeSha,
+        durableGoal: { kind: 'evidence', reference: 'closed-superseded-retirement-fixture' },
+        supersession: await observeTestClosedSupersessionEvidence({
+          repositoryRoot: input.root,
+          repository: REPOSITORY,
+          pullRequestNumber: PR_NUMBER,
+          commentId: 5931,
+          headSha: pullRequest.headSha,
+          headTreeSha,
+          currentMainSha,
+          currentMainTreeSha,
+          paths: [{
+            path: 'tracked.txt', disposition: 'superseded',
+            reason: 'Current main replaces the closed branch behavior.'
+          }]
+        }) });
   const compiled = compileClosedUnmergedCloseoutOperation({ prepared: input.prepared, evidence });
   if (compiled.status !== 'ready') throw new Error(compiled.blockers.join(' | '));
   const starts = new Map<string, Parameters<ClosedUnmergedCloseoutEffectAdapter['publishEffectStart']>[0]>();
   const terminals = new Map<string, ClosedUnmergedTerminal>();
   const adapter: ClosedUnmergedCloseoutEffectAdapter = {
-    localRefDeleteAtomicity: 'supported',
+    localRefDeleteCoordination: 'coordinated',
     providerIdentity: 'fixture-provider', repository: REPOSITORY,
     async observeInventory() { return { status: 'observed', value: structuredClone(input.inventory) }; },
     async observeEffectStart(operationId) { return { status: 'observed', value: starts.get(operationId) ?? null }; },
@@ -234,6 +243,43 @@ test('closed-unmerged terminal retires its exact recovery family and default emp
       recoveryRootRetired: true,
       failure: null
     });
+    expect(existsSync(value.recoveryRoot)).toBe(false);
+  } finally {
+    rmSync(path.dirname(value.root), { recursive: true, force: true });
+  }
+}, 30_000);
+
+test('completed native main absorption retires its proof and preparation without a bundle checksum', async () => {
+  const value = fixture();
+  try {
+    const mainSha = value.inventory.main.remoteSha!;
+    const headSha = value.inventory.pullRequests[0]!.headSha!;
+    git(value.root, ['update-ref', 'refs/remotes/origin/main', mainSha]);
+    const { recovery } = createMainAbsorptionRecovery({
+      inventory: value.inventory, branch: BRANCH, expectedSha: headSha,
+      mainSha, basis: 'native-ancestor', recoveryRoot: value.recoveryRoot
+    });
+    unlinkSync(value.bundlePath);
+    unlinkSync(`${value.bundlePath}.sha256`);
+    unlinkSync(`${value.bundlePath}.preparation.json`);
+    const preparation = createBranchCloseoutPreparation({
+      preparedAt: '2026-09-16T00:01:00.000Z', repository: value.inventory.repository,
+      branch: BRANCH, refState: 'absent', expectedHeadSha: headSha,
+      expectedRemoteSha: headSha, expectedLocalSha: null,
+      expectedPrHeadSha: headSha, pullRequestNumber: PR_NUMBER,
+      pullRequestStateAtPreparation: 'closed', recovery,
+      worktreePathsAtPreparation: []
+    });
+    const payload = { schema: BRANCH_CLOSEOUT_PREPARED_ENVELOPE_SCHEMA, preparation,
+      before: value.inventory, attempts: [], foreignWorktreeObservations: [] };
+    const prepared = { ...payload, envelopeDigest: branchLifecycleDigest(payload) };
+    writeFileSync(`${recovery.path}.preparation.json`, `${JSON.stringify(prepared, null, 2)}\n`, 'utf8');
+    const native = { ...value, prepared };
+    const settlement = await completed(native);
+    const result = await retireWithGitHubObservation(native, settlement);
+    expect(result.status).toBe('completed');
+    expect(result.retired).toEqual([recovery.path, `${recovery.path}.preparation.json`]);
+    expect(existsSync(`${recovery.path}.sha256`)).toBe(false);
     expect(existsSync(value.recoveryRoot)).toBe(false);
   } finally {
     rmSync(path.dirname(value.root), { recursive: true, force: true });

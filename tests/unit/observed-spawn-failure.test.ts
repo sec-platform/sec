@@ -1,6 +1,9 @@
 import { expect, test } from 'bun:test';
 import type { ChildProcess } from 'node:child_process';
+import { randomUUID } from 'node:crypto';
 import { EventEmitter } from 'node:events';
+import os from 'node:os';
+import path from 'node:path';
 import { PassThrough } from 'node:stream';
 import {
   openObservedNativeProcessResourceLedger,
@@ -54,6 +57,65 @@ for (const streams of ['null', 'undefined', 'pipes'] as const) {
     });
   });
 }
+
+test('pre-child native spawn failure retains only phase and system code', async () => {
+  const ledger = openObservedNativeProcessResourceLedger({
+    maximumResources: 1, deadlineAtMonotonicMs: performance.now() + 5_000
+  });
+  const outcome = await runObservedCommand('fixture-not-an-executable', [], {
+    cwd: process.cwd(), maxObservedOutputBytes: 0,
+    timeoutMs: 1_000, terminationGraceMs: 5, terminationDeadlineMs: 30,
+    nativeResourceLedger: ledger,
+    dependencies: {
+      spawnChild: async () => {
+        throw Object.assign(new Error('private native path'), { code: 'EAGAIN' });
+      }
+    }
+  });
+  expect(outcome).toMatchObject({
+    status: 'spawn-failed', started: false,
+    spawnFailure: { phase: 'native-spawn', systemCode: 'EAGAIN' },
+    termination: { childCloseObserved: false, streamsDrained: true, treeClosed: true }
+  });
+  expect(JSON.stringify(outcome)).not.toContain('private native path');
+  expect(ledger.close()).toMatchObject({
+    admittedResourceCount: 1, startedResourceCount: 0, settledResourceCount: 1
+  });
+});
+
+test('before-spawn rejection remains distinct from native spawn failure', async () => {
+  let spawned = false;
+  const outcome = await runObservedCommand('fixture-not-an-executable', [], {
+    cwd: process.cwd(), maxObservedOutputBytes: 0,
+    timeoutMs: 1_000, terminationGraceMs: 5, terminationDeadlineMs: 30,
+    beforeSpawn: () => { throw Object.assign(new Error('private admission'), { code: 'EACCES' }); },
+    dependencies: { spawnChild: async () => {
+      spawned = true;
+      throw new Error('unexpected spawn');
+    } }
+  });
+  expect(spawned).toBe(false);
+  expect(outcome).toMatchObject({
+    status: 'spawn-failed', started: false,
+    spawnFailure: { phase: 'before-spawn', systemCode: 'EACCES' },
+    termination: { childCloseObserved: false, treeClosed: true }
+  });
+});
+
+test('Windows CreateProcess failure reports its native owner phase and code', async () => {
+  if (process.platform !== 'win32') return;
+  const missingExecutable = path.join(os.tmpdir(), `sec-missing-${randomUUID()}`, 'missing.exe');
+  const outcome = await runObservedCommand(missingExecutable, [], {
+    cwd: process.cwd(), maxObservedOutputBytes: 0,
+    timeoutMs: 1_000, terminationGraceMs: 5, terminationDeadlineMs: 30
+  });
+  expect(outcome).toMatchObject({
+    status: 'spawn-failed', started: false,
+    spawnFailure: { phase: 'windows-create-process' },
+    termination: { childCloseObserved: false, streamsDrained: true, treeClosed: true }
+  });
+  expect(outcome.spawnFailure?.systemCode).toMatch(/^WIN32_[1-9][0-9]*$/u);
+});
 
 for (const missing of ['close', 'drain'] as const) {
   test(`spawn error alone does not prove settlement when ${missing} evidence is missing`, async () => {

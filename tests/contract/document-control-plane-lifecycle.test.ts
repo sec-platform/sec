@@ -2452,6 +2452,44 @@ test('recovery entry identity is operation plus closed logical target and contai
   })).toThrow('outside the closed target set');
 });
 
+bunTest('production freeze settles terminal retirement after the writer session', async () => {
+  const { fixture, proposalPath } = await createProposalFreezeFixture();
+  try {
+    const result = await freezeDocumentControlPlane({
+      cwd: fixture.repositoryRoot,
+      manifestPath: proposalPath,
+      reviewedOn: '2026-08-09',
+      proposalOnly: true
+    });
+    expect(result.status).toBe('PROPOSED');
+    expect(runGit(fixture.repositoryRoot, ['write-tree'])).toBe(result.candidateTreeSha);
+    await expectFreezeTransactionRetired(fixture.repositoryRoot);
+  } finally {
+    await fixture.dispose();
+  }
+}, 90_000);
+
+bunTest('terminal retirement preserves its journal when the manifest changes between sessions', async () => {
+  const { fixture, proposalFile, proposalJournalPath, proposalPath } = await createProposalFreezeFixture();
+  try {
+    await expect(freezeDocumentControlPlane({
+      cwd: fixture.repositoryRoot,
+      manifestPath: proposalPath,
+      reviewedOn: '2026-08-09',
+      proposalOnly: true,
+      beforeTerminalRetirement: async () => {
+        await writeFile(proposalFile, Buffer.concat([
+          await readFile(proposalFile), Buffer.from('\nConcurrent manifest change.\n')
+        ]));
+      }
+    })).rejects.toThrow('Terminal freeze continuation no longer matches the manifest or review date.');
+    const journal = JSON.parse(await readFile(proposalJournalPath, 'utf8')) as { phase: string };
+    expect(journal.phase).toBe('terminal');
+  } finally {
+    await fixture.dispose();
+  }
+}, 90_000);
+
 async function readFreezeEffectSnapshot(repositoryRoot: string): Promise<Readonly<{
   transaction: readonly Readonly<{ name: string; bytes: string }>[];
   index: string;
@@ -3742,6 +3780,37 @@ test('same-tree raw index stat drift is a semantic NOOP without effects', async 
   }
 }, 60_000);
 
+test('published freeze index survives Git metadata refresh without replaying index CAS', async () => {
+  const fixture = await createFreezeFixture();
+  try {
+    await expect(freezeDocumentControlPlane({
+      cwd: fixture.repositoryRoot,
+      manifestPath: FREEZE_TARGET_PATH,
+      reviewedOn: '2026-08-09',
+      faultAfter: 'after-rolling-publish'
+    })).rejects.toThrow('after-rolling-publish');
+    const indexPath = repositoryIndexPath(fixture.repositoryRoot);
+    const before = await readFile(indexPath);
+    const expectedTree = runGit(fixture.repositoryRoot, ['write-tree']);
+    const pointerPath = path.join(fixture.repositoryRoot, POINTER_PATH);
+    const future = new Date(Date.now() + 60_000);
+    await utimes(pointerPath, future, future);
+    runGit(fixture.repositoryRoot, ['update-index', '--refresh']);
+    expect((await readFile(indexPath)).equals(before)).toBe(false);
+    expect(runGit(fixture.repositoryRoot, ['write-tree'])).toBe(expectedTree);
+
+    const recovered = await freezeDocumentControlPlane({
+      cwd: fixture.repositoryRoot,
+      manifestPath: FREEZE_TARGET_PATH,
+      reviewedOn: '2026-08-09'
+    });
+    expect(recovered.candidateTreeSha).toBe(expectedTree);
+    await expectFreezeTransactionRetired(fixture.repositoryRoot);
+  } finally {
+    await fixture.dispose();
+  }
+}, 60_000);
+
 test('journal recovery census blocks and preserves an unknown exact PRE recovery entry', async () => {
   const fixture = await createFreezeFixture();
   const unknown = Buffer.from('unknown journal PRE recovery bytes\n', 'utf8');
@@ -4147,6 +4216,25 @@ test('status returns a typed race when the captured index tree changes directly'
     await fixture.dispose();
   }
 }, 30_000);
+
+test('production status settles both immutable tree observations for a deep index', async () => {
+  const fixture = await createFreezeFixture();
+  try {
+    const relativePath = `${Array.from({ length: 13 }, (_, index) => `depth-${index}`).join('/')}/leaf.txt`;
+    const absolutePath = path.join(fixture.repositoryRoot, ...relativePath.split('/'));
+    await mkdir(path.dirname(absolutePath), { recursive: true });
+    await writeFile(absolutePath, 'deep index observation\n', 'utf8');
+    runGit(fixture.repositoryRoot, ['add', '--', relativePath]);
+
+    const status = await resolveLiveControlPlane(fixture.repositoryRoot, { observeGitHub: false });
+    expect(status.schema).toBe('sec-resolved-current-state-v1');
+    expect(status.workspace).toMatchObject({
+      status: expect.stringContaining('leaf.txt')
+    });
+  } finally {
+    await fixture.dispose();
+  }
+}, 60_000);
 
 for (const raceKind of ['local-default-ref', 'live-default-ref'] as const) {
   test(`status returns a typed race when ${raceKind} changes before readback`, async () => {

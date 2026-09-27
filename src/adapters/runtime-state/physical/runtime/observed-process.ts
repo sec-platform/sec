@@ -212,6 +212,8 @@ export function openObservedNativeProcessResourceLedger(input: Readonly<{
 
 export interface ObservedCommandOutcome {
   readonly status: ObservedCommandStatus;
+  /** Bounded owner-issued diagnostic for a failure before a child exists. */
+  readonly spawnFailure?: Readonly<{ phase: string; systemCode: string }>;
   readonly trigger?: ObservedCommandTrigger;
   readonly started: boolean;
   readonly exitCode: number | null;
@@ -256,6 +258,22 @@ class ObservedNativeLifecycleFailure extends Error {
     super(message);
     this.name = 'ObservedNativeLifecycleFailure';
   }
+}
+
+class ObservedNativeSpawnFailure extends Error {
+  constructor(readonly phase: string, readonly systemCode: string) {
+    super('Observed native process creation failed');
+    this.name = 'ObservedNativeSpawnFailure';
+  }
+}
+
+function observedSpawnSystemCode(error: unknown): string {
+  if (error instanceof ObservedNativeSpawnFailure) return error.systemCode;
+  if (error && typeof error === 'object' && 'code' in error && typeof error.code === 'string') {
+    const code = error.code.toUpperCase();
+    if (/^[A-Z][A-Z0-9_]{0,63}$/u.test(code)) return code;
+  }
+  return 'UNKNOWN';
 }
 
 interface ObservedNativeLifecycleFailureVectorForTests {
@@ -570,6 +588,8 @@ async function spawnWindowsJobChild(
   options: ObservedSpawnOptions
 ): Promise<ChildProcess> {
   const kernel32 = await loadObservedKernel32();
+  const nativeFailure = (phase: string): ObservedNativeSpawnFailure =>
+    new ObservedNativeSpawnFailure(phase, `WIN32_${kernel32.symbols.GetLastError()}`);
   const closeHandles = new Set<bigint>();
   const closeHandle = (handle: bigint): void => {
     if (handle === 0n || !closeHandles.delete(handle)) return;
@@ -582,7 +602,7 @@ async function spawnWindowsJobChild(
     const readHandle = Buffer.alloc(8);
     const writeHandle = Buffer.alloc(8);
     if (kernel32.symbols.CreatePipe(readHandle, writeHandle, security, 0) === 0) {
-      throw new Error('Windows observed process pipe creation failed');
+      throw nativeFailure('windows-pipe-create');
     }
     const read = readHandle.readBigUInt64LE(0);
     const write = writeHandle.readBigUInt64LE(0);
@@ -591,7 +611,7 @@ async function spawnWindowsJobChild(
     const parent = parentReads ? read : write;
     const child = parentReads ? write : read;
     if (kernel32.symbols.SetHandleInformation(parent, 1, 0) === 0) {
-      throw new Error('Windows observed process pipe inheritance failed');
+      throw nativeFailure('windows-pipe-inheritance');
     }
     return { parent, child };
   };
@@ -613,12 +633,13 @@ async function spawnWindowsJobChild(
     jobInformation.writeUInt32LE(jobLimitFlags, 16);
     jobHandle = kernel32.symbols.CreateJobObjectW(null, null) as bigint;
     closeHandles.add(jobHandle);
-    if (jobHandle === 0n || kernel32.symbols.SetInformationJobObject(
+    if (jobHandle === 0n) throw nativeFailure('windows-job-create');
+    if (kernel32.symbols.SetInformationJobObject(
       jobHandle,
       WINDOWS_JOB_OBJECT_EXTENDED_LIMIT_INFORMATION,
       jobInformation,
       jobInformation.byteLength
-    ) === 0) throw new Error('Windows observed process Job creation failed');
+    ) === 0) throw nativeFailure('windows-job-configure');
 
     const inheritedHandles = Buffer.alloc(24);
     inheritedHandles.writeBigUInt64LE(stdin.child, 0);
@@ -630,7 +651,7 @@ async function spawnWindowsJobChild(
     const requiredAttributeBytes = Number(attributeListSize.readBigUInt64LE(0));
     if (!Number.isSafeInteger(requiredAttributeBytes) || requiredAttributeBytes <= 0 ||
       requiredAttributeBytes > WINDOWS_MAX_ATTRIBUTE_LIST_BYTES) {
-      throw new Error('Windows observed process attribute-list size is invalid');
+      throw new ObservedNativeSpawnFailure('windows-attribute-size', 'UNKNOWN');
     }
     const attributeList = Buffer.alloc(requiredAttributeBytes);
     let attributeListInitialized = false;
@@ -640,7 +661,7 @@ async function spawnWindowsJobChild(
         2,
         0,
         attributeListSize
-      ) === 0) throw new Error('Windows observed process attribute-list initialization failed');
+      ) === 0) throw nativeFailure('windows-attribute-initialize');
       attributeListInitialized = true;
       if (kernel32.symbols.UpdateProcThreadAttribute(
         attributeList,
@@ -650,7 +671,7 @@ async function spawnWindowsJobChild(
         BigInt(inheritedHandles.byteLength),
         null,
         null
-      ) === 0) throw new Error('Windows observed process handle-list publication failed');
+      ) === 0) throw nativeFailure('windows-handle-list');
       const inheritedJobs = Buffer.alloc(8);
       inheritedJobs.writeBigUInt64LE(jobHandle, 0);
       attributePayloads.push(inheritedJobs);
@@ -662,7 +683,7 @@ async function spawnWindowsJobChild(
         BigInt(inheritedJobs.byteLength),
         null,
         null
-      ) === 0) throw new Error('Windows observed process Job-list publication failed');
+      ) === 0) throw nativeFailure('windows-job-list');
 
       const startupInfo = Buffer.alloc(112);
       startupInfo.writeUInt32LE(112, 0);
@@ -687,7 +708,7 @@ async function spawnWindowsJobChild(
         currentDirectory,
         startupInfo,
         processInformation
-      ) === 0) throw new Error('Windows observed process creation failed');
+      ) === 0) throw nativeFailure('windows-create-process');
       processHandle = processInformation.readBigUInt64LE(0);
       threadHandle = processInformation.readBigUInt64LE(8);
       closeHandles.add(processHandle);
@@ -695,13 +716,13 @@ async function spawnWindowsJobChild(
       const pid = processInformation.readUInt32LE(16);
       processAssignedToJob = true;
       if (processHandle === 0n || threadHandle === 0n || pid === 0) {
-        throw new Error('Windows observed process creation returned invalid handles');
+        throw new ObservedNativeSpawnFailure('windows-process-handles', 'UNKNOWN');
       }
       closeHandle(stdoutPipe.child);
       closeHandle(stderrPipe.child);
       closeHandle(stdin.child);
       if (kernel32.symbols.ResumeThread(threadHandle) === 0xffff_ffff) {
-        throw new Error('Windows observed process resume failed');
+        throw nativeFailure('windows-resume-thread');
       }
       closeHandle(threadHandle);
       threadHandle = 0n;
@@ -1552,8 +1573,12 @@ export async function runObservedCommand(
     spawnChild: dependencies.spawnChild
   });
 
-  const finishWithoutChild = (status: ObservedCommandStatus): ObservedCommandOutcome => Object.freeze({
+  const finishWithoutChild = (
+    status: ObservedCommandStatus,
+    spawnFailure?: Readonly<{ phase: string; systemCode: string }>
+  ): ObservedCommandOutcome => Object.freeze({
     status,
+    ...(spawnFailure === undefined ? {} : { spawnFailure: Object.freeze({ ...spawnFailure }) }),
     ...(trigger ? { trigger } : {}),
     started: false,
     exitCode: null,
@@ -1594,9 +1619,13 @@ export async function runObservedCommand(
     return finishWithoutChild('aborted');
   }
   try {
+    let beforeSpawnFailure: unknown;
     const beforeSpawn = Promise.resolve()
       .then(() => options.beforeSpawn?.())
-      .then(() => true, () => false);
+      .then(() => true, (error) => {
+        beforeSpawnFailure = error;
+        return false;
+      });
     const admitted = operationDeadlineAtMs === null
       ? await beforeSpawn
       : await raceWithDeadline(beforeSpawn, operationDeadlineAtMs, dependencies);
@@ -1604,9 +1633,13 @@ export async function runObservedCommand(
       trigger = 'timed-out';
       return finishWithoutChild('timed-out');
     }
-    if (!admitted) return finishWithoutChild('spawn-failed');
-  } catch {
-    return finishWithoutChild('spawn-failed');
+    if (!admitted) return finishWithoutChild('spawn-failed', {
+      phase: 'before-spawn', systemCode: observedSpawnSystemCode(beforeSpawnFailure)
+    });
+  } catch (error) {
+    return finishWithoutChild('spawn-failed', {
+      phase: 'before-spawn', systemCode: observedSpawnSystemCode(error)
+    });
   }
   if (options.signal?.aborted) {
     trigger = 'aborted';
@@ -1619,6 +1652,7 @@ export async function runObservedCommand(
     ...options.env
   }).filter(([, value]) => value !== undefined)) as NodeJS.ProcessEnv;
 
+  let spawnPhase = 'native-resource-admission';
   try {
     const descendantDisposition = windowsObservedJobDescendantDisposition(
       options.independentProvider
@@ -1628,6 +1662,7 @@ export async function runObservedCommand(
       ? configuredStdio
       : Object.assign([...configuredStdio], { 0: 'pipe' as const })) as SpawnOptions['stdio'];
     rootResource = options.nativeResourceLedger?.admit('root-process');
+    spawnPhase = 'native-spawn';
     child = await dependencies.spawnChild(command, args, {
       cwd: options.cwd,
       env,
@@ -1644,7 +1679,10 @@ export async function runObservedCommand(
     if (error instanceof ObservedNativeLifecycleFailure && error.started) rootResource?.start();
     rootResource?.settle();
     if (error instanceof ObservedNativeLifecycleFailure) return finishLifecycleFailure(error);
-    return finishWithoutChild('spawn-failed');
+    return finishWithoutChild('spawn-failed', {
+      phase: error instanceof ObservedNativeSpawnFailure ? error.phase : spawnPhase,
+      systemCode: observedSpawnSystemCode(error)
+    });
   }
 
   return new Promise<ObservedCommandOutcome>((resolve) => {

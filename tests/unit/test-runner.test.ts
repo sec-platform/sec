@@ -857,7 +857,6 @@ test('fast process resource classes uniquely derive limits and isolate productio
   }
 
   const productionHostAndRuntimeLifecycleFiles = [
-    'tests/integration/semantic-mutation-apply.test.ts',
     'tests/unit/windows-appcontainer-executor.test.ts',
     'tests/unit/windows-appcontainer-host-tool-lifecycle.test.ts'
   ];
@@ -969,7 +968,7 @@ test.serial('targeted fast tests preserve ordinary sequential semantics', async 
   expect(testDependencyBootstrapCalls).toBe(0);
   expect(devCommandEnvironments).toHaveLength(1);
   expect(devCommandEnvironments[0]?.SEC_SKIP_RUNTIME_DEPS_SETUP).toBe('1');
-  expect(devCommandEnvironments[0]?.SEC_TEST_WORKSPACE_NAMESPACE).toMatch(/^fast-[0-9a-f]{64}$/u);
+  expect(devCommandEnvironments[0]?.SEC_TEST_WORKSPACE_NAMESPACE).toMatch(/^fast-[0-9a-f]{32}$/u);
   expect(devCommandEnvironments[0]?.SEC_TEST_WORKSPACE_RUN_CHILD).toBeUndefined();
   expect(devCommandEnvironments[0]?.SEC_STATE_HOME).toMatch(
     /[\\/]invocation-runtime[\\/]parallel-001$/u
@@ -1726,7 +1725,7 @@ test.serial('fast tests preserve the caller namespace and clean only a unique ru
 
     expect(code).toBe(0);
     expect(workspaceEnv[TEST_WORKSPACE_NAMESPACE_ENV]).toBe(parentNamespace);
-    expect(workspaceEnv[TEST_WORKSPACE_RUN_CHILD_ENV]).toMatch(/^fast-[0-9a-f]{64}$/u);
+    expect(workspaceEnv[TEST_WORKSPACE_RUN_CHILD_ENV]).toMatch(/^fast-[0-9a-f]{32}$/u);
     const runtimeRoots = fastInvocationRunRoots(workspaceEnv);
     expect(path.dirname(runtimeRoots.stateRoot)).not.toBe(parentRoot);
     expect(path.resolve(runtimeRoots.stateRoot).startsWith(path.resolve(compilerRoot))).toBe(false);
@@ -1771,7 +1770,7 @@ test.serial('overlapping fast runs sharing one caller namespace own disjoint cle
     );
     expect(childNamespaces).toHaveLength(2);
     expect(new Set(childNamespaces).size).toBe(2);
-    expect(childNamespaces.every((value) => /^fast-[0-9a-f]{64}$/u.test(value ?? ''))).toBe(true);
+    expect(childNamespaces.every((value) => /^fast-[0-9a-f]{32}$/u.test(value ?? ''))).toBe(true);
     expect(devCommandEnvironments.every(
       (env) => env[TEST_WORKSPACE_NAMESPACE_ENV] === parentNamespace
     )).toBe(true);
@@ -1803,7 +1802,7 @@ test.serial('overlapping fast runs sharing one caller namespace own disjoint cle
 
 test.serial('fast tests reject an inherited run child instead of escaping its caller cleanup scope', async () => {
   process.env[TEST_WORKSPACE_NAMESPACE_ENV] = 'test-runner-existing-parent';
-  process.env[TEST_WORKSPACE_RUN_CHILD_ENV] = `fast-${'e'.repeat(64)}`;
+  process.env[TEST_WORKSPACE_RUN_CHILD_ENV] = `fast-${'e'.repeat(32)}`;
 
   await expect(runFastTests(['tests/unit/path-containment.test.ts']))
     .rejects.toThrow('runFastTests cannot start beneath an existing run-owned workspace child');

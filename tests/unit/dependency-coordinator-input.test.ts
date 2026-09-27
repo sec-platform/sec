@@ -70,7 +70,7 @@ for (const field of ['beforeCommit','monotonicNowMs','now','sleep','testCompiler
   });
 }
 
-for (const input of [{ rematerialize: 'false' }, { skipSharedDepsWarmup: 0 }, { installMode: 'maybe' },
+for (const input of [{ rematerialize: 'false' }, { installMode: 'maybe' },
   { sharedDepsRoot: 2 }, { sharedDepsRoot: null }]) {
   test(`invalid request decision ${JSON.stringify(input)} does not reach the environment`, () => {
     assert.throws(() => bind({ ...input, monotonicNowMs() { assert.fail('clock'); } } as never),
@@ -81,7 +81,7 @@ for (const input of [{ rematerialize: 'false' }, { skipSharedDepsWarmup: 0 }, { 
 test('all request decisions and method identities are captured before the clock can change source options', async () => {
   const events: string[]=[];
   const raw = { lockTimeoutMs:1000, installMode:'allow' as 'allow'|'prebound-only', rematerialize:false,
-    skipSharedDepsWarmup:false, sharedDepsRoot:'original', async beforeCommit(){events.push('original');},
+    sharedDepsRoot:'original', async beforeCommit(){events.push('original');},
     monotonicNowMs(){raw.installMode='prebound-only';raw.rematerialize=true;raw.sharedDepsRoot='replaced';raw.beforeCommit=async()=>assert.fail('replacement');return 0;} };
   const bound=bind(raw); assert.equal(bound.installMode,'allow'); assert.equal(bound.rematerialize,false);
   assert.equal(bound.sharedDepsRoot,path.resolve('original')); await fence(bound,'capture'); assert.deepEqual(events,['original']);

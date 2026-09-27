@@ -80,7 +80,7 @@ const TRUSTED_RUNTIME_DEPENDENCY_CACHE_VOLUME_SCHEMA =
 const TRUSTED_RUNTIME_DEPENDENCY_CACHE_MARKER_FILE =
   '.sec-derived-cache.json' as const;
 const TRUSTED_RUNTIME_DEPENDENCY_CACHE_CONTAINER_PATH =
-  '/tmp/sec-hosted-dependency-home/.bun/install/cache' as const;
+  '/tmp/sec-hosted-dependency-home/bun-install' as const;
 const TRUSTED_RUNTIME_CONTAINER_IMAGE = ENVIRONMENT.trustedRuntime.imageName;
 export const TRUSTED_RUNTIME_CONTAINER_IMAGE_ID = ENVIRONMENT.trustedRuntime.imageDigest;
 export const TRUSTED_RUNTIME_CONTAINER_BUN_ARCHIVE_SHA256 =
@@ -1095,9 +1095,7 @@ export const TRUSTED_RUNTIME_WORKSPACE_SETUP_SCRIPT = [
   `[ "$(git -C ${TRUSTED_RUNTIME_WORKSPACE} rev-parse refs/remotes/origin/main)" = "$base" ]`,
   'if [ "$mode" != "lifecycle-canary" ]; then',
   `  cd ${TRUSTED_RUNTIME_TRUSTED_TREE}`,
-  '  mkdir -p .shared-deps',
-  `  ln -s ${TRUSTED_RUNTIME_DEPENDENCY_CACHE_CONTAINER_PATH} .shared-deps/.bun-cache`,
-  `  CI=1 ${TRUSTED_RUNTIME_DEPENDENCY_PACKAGE_COMMAND.join(' ')}`,
+  `  CI=1 SEC_CACHE_HOME=/tmp/sec-hosted-dependency-home ${TRUSTED_RUNTIME_DEPENDENCY_PACKAGE_COMMAND.join(' ')}`,
   '  if [ "$mode" = "full" ]; then',
   `    rm -rf ${TRUSTED_RUNTIME_WORKSPACE}/node_modules`,
   `    ln -s ${TRUSTED_RUNTIME_TRUSTED_TREE}/node_modules ${TRUSTED_RUNTIME_WORKSPACE}/node_modules`,

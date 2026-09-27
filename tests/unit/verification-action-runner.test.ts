@@ -369,7 +369,7 @@ test('closed runner rejects new execution before acquiring runtime resources', a
   const runner = new VerificationActionRunner();
   await runner.close();
   await runner.close();
-  const key = action('closed-runner-admission');
+  const key = preflightAction('closed-runner-admission');
   await expect(runner.execute({
     repositoryRoot: process.cwd(),
     action: key,
@@ -1497,7 +1497,10 @@ test.skipIf(process.platform !== 'win32')(
         testProcessProvider: async (_operation, process) => {
           const first = await runRetainedBunTestProcess(process, candidateRoot);
           try {
-            await runRetainedBunTestProcess(process, candidateRoot);
+            await runRetainedBunTestProcess(process, candidateRoot, {
+              maxStdoutBytes: 0,
+              maxStderrBytes: 0
+            });
           } catch (error) {
             secondStartFailure = error instanceof Error ? error.message : String(error);
           }
@@ -1521,7 +1524,8 @@ test.skipIf(process.platform !== 'win32')(
       const authorityRoot = root();
       const candidateRoot = root();
       try {
-        const fixture = localDagFixture();
+        const modeHeadSha = mode === 'deadline' ? HEAD_SHA : '5'.repeat(40);
+        const fixture = localDagFixture(undefined, { headSha: modeHeadSha });
         const controller = new AbortController();
         const result = await executeLocalVerificationActionDag({
           authorityRoot,
@@ -1531,7 +1535,7 @@ test.skipIf(process.platform !== 'win32')(
           deadlineAtUnixMs: mode === 'deadline' ? Date.now() + 1_000 : undefined,
           signal: controller.signal,
           inspectRepository: (repositoryRoot) => ({
-            headSha: repositoryRoot === candidateRoot ? HEAD_SHA : BASE_SHA,
+            headSha: repositoryRoot === candidateRoot ? modeHeadSha : BASE_SHA,
             headTreeSha: repositoryRoot === candidateRoot ? HEAD_TREE_SHA : BASE_TREE_SHA,
             trackedClean: true,
             gitCommonDirectory: authorityRoot
@@ -1554,9 +1558,10 @@ test.skipIf(process.platform !== 'win32')(
         });
         expect(result.status).toBe('blocked');
         expect(result.actionResults[0]?.terminal).toBeNull();
-        expect(result.actionResults[0]?.reason).toMatch(
-          mode === 'deadline' ? /timed out|deadline|aborted/u : /aborted|cancelled/u
+        expect(result.actionResults[0]?.reason).toContain(
+          'executor ended without an owner-issued terminal; action durably cancelled'
         );
+        expect(result.actionResults[0]?.reason).toMatch(/timed-out|termination-unproven|deadline|aborted/u);
       } finally {
         rmSync(authorityRoot, { recursive: true, force: true });
         rmSync(candidateRoot, { recursive: true, force: true });

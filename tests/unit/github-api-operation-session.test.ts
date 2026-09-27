@@ -873,7 +873,7 @@ test('workflow-scoped Actions principals are confined to their exact workflow ef
     effect: 'merge-write',
     principal: WORKFLOW_PRINCIPAL,
     transport: async () => Response.json({})
-  })).toThrow('workflow principal effect is not authorized');
+  })).toThrow('GitHub API privileged write capability requires maintain/admin user permission');
 
   const maintenance = capability({
     effect: 'branch-closeout-write',
@@ -910,7 +910,7 @@ test('maintenance workflow principal admits read, branch-closeout, and exact com
     effect: 'status-write',
     principal: MAINTENANCE_WORKFLOW_PRINCIPAL,
     transport: async () => Response.json({})
-  })).toThrow('workflow principal effect is not authorized');
+  })).toThrow('GitHub API privileged write capability requires maintain/admin user permission');
 });
 
 test('branch-closeout exact git commit read is SHA-addressed', async () => {

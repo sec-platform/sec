@@ -150,38 +150,42 @@ export async function retireClosedUnmergedRecoveryFamily(input: Readonly<{
     worktreeRoots: input.operation.prepared.before.worktrees.map(({ path: worktreePath }) => worktreePath),
     recoveryRoot
   });
-  const bundleName = path.basename(recoveryPath);
-  if (path.join(store.root.path, bundleName) !== recoveryPath) {
-    throw new Error('Closed-unmerged recovery bundle escapes its exact owner root.');
+  const recoveryName = path.basename(recoveryPath);
+  if (path.join(store.root.path, recoveryName) !== recoveryPath) {
+    throw new Error('Closed-unmerged recovery authority escapes its exact owner root.');
   }
-  const checksumName = `${bundleName}.sha256`;
-  const preparationName = `${bundleName}.preparation.json`;
-  const orderedNames = Object.freeze([bundleName, checksumName, preparationName]);
-  const allowedSidecars = new Set([checksumName, preparationName]);
-  const unexpected = store.listOwnedFiles(`${bundleName}.`)
+  const native = preparation.recovery.kind === 'main-absorption';
+  const checksumName = `${recoveryName}.sha256`;
+  const preparationName = `${recoveryName}.preparation.json`;
+  const orderedNames = Object.freeze(native
+    ? [recoveryName, preparationName] : [recoveryName, checksumName, preparationName]);
+  const allowedSidecars = new Set(native ? [preparationName] : [checksumName, preparationName]);
+  const unexpected = store.listOwnedFiles(`${recoveryName}.`)
     .filter((name) => !allowedSidecars.has(name));
   if (unexpected.length > 0) {
     throw new Error(`Closed-unmerged recovery family has active or unknown consumers: ${unexpected.join(', ')}`);
   }
 
-  const bundle = store.inspectFile(bundleName);
-  const checksum = store.inspectFile(checksumName);
+  const recoveryFile = store.inspectFile(recoveryName);
+  const checksum = native ? null : store.inspectFile(checksumName);
   const prepared = store.inspectFile(preparationName);
   // Preparation remains the durable continuation until the final deletion.
-  if ((bundle !== null && checksum === null) || (checksum !== null && prepared === null)) {
+  if ((native && recoveryFile !== null && prepared === null)
+      || (!native && recoveryFile !== null && checksum === null)
+      || (checksum !== null && prepared === null)) {
     throw new Error('Closed-unmerged recovery family is not one valid ordered retirement state.');
   }
-  if (bundle !== null) {
-    if (bundle.kind !== 'file' || bundle.bytes === null || bundle.linkTarget !== null
-      || `sha256:${createHash('sha256').update(bundle.bytes).digest('hex')}`
+  if (recoveryFile !== null) {
+    if (recoveryFile.kind !== 'file' || recoveryFile.bytes === null || recoveryFile.linkTarget !== null
+      || `sha256:${createHash('sha256').update(recoveryFile.bytes).digest('hex')}`
         !== preparation.recovery.sha256) {
-      throw new Error('Closed-unmerged recovery bundle differs from its prepared digest.');
+      throw new Error('Closed-unmerged recovery authority differs from its prepared digest.');
     }
   }
   if (checksum !== null) {
     if (checksum.kind !== 'file' || checksum.bytes === null || checksum.linkTarget !== null
       || !Buffer.from(checksum.bytes).equals(Buffer.from(
-        `${preparation.recovery.sha256.slice('sha256:'.length)}  ${bundleName}\n`, 'utf8'
+        `${preparation.recovery.sha256.slice('sha256:'.length)}  ${recoveryName}\n`, 'utf8'
       ))) {
       throw new Error('Closed-unmerged recovery checksum differs from its exact bundle identity.');
     }
@@ -196,13 +200,13 @@ export async function retireClosedUnmergedRecoveryFamily(input: Readonly<{
       throw new Error('Closed-unmerged recovery preparation identity differs from the exact issued envelope.');
     }
   }
-  if (bundle !== null && checksum !== null) {
+  if (recoveryFile !== null && (native || checksum !== null)) {
     const verification = verifyRecoveryAuthorityLive({
       inventory: input.operation.prepared.before,
       recovery: preparation.recovery
     });
     if (verification.status !== 'success') {
-      throw new Error(`Closed-unmerged recovery bundle live verification failed: ${verification.detail}`);
+      throw new Error(`Closed-unmerged recovery authority live verification failed: ${verification.detail}`);
     }
   }
 
@@ -214,7 +218,7 @@ export async function retireClosedUnmergedRecoveryFamily(input: Readonly<{
   const retired: string[] = [];
   let failure: string | null = null;
   const admittedEntries = new Map([
-    [bundleName, bundle], [checksumName, checksum], [preparationName, prepared]
+    [recoveryName, recoveryFile], [checksumName, checksum], [preparationName, prepared]
   ] as const);
   for (const name of orderedNames) {
     const observed = admittedEntries.get(name) ?? null;

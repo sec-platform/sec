@@ -288,15 +288,24 @@ test('two direct invocations in one workspace own independent concurrent lifecyc
   const rightEnvironment: NodeJS.ProcessEnv = { SEC_STATE_HOME: stateRoot, SEC_CACHE_HOME: cacheRoot };
   const left = await prepareTestInvocationRuntime({ repositoryRoot, hostTempRoot, environment: leftEnvironment });
   const right = await prepareTestInvocationRuntime({ repositoryRoot, hostTempRoot, environment: rightEnvironment });
+  let third: typeof left | undefined;
   try {
     expect(left.ownership).toBe('direct');
     expect(right.ownership).toBe('direct');
     expect(left.processRoot).not.toBe(right.processRoot);
     expect(existsSync(left.processRoot)).toBe(true);
     expect(existsSync(right.processRoot)).toBe(true);
-    await left.cleanup();
+    const thirdEnvironment: NodeJS.ProcessEnv = { SEC_STATE_HOME: stateRoot, SEC_CACHE_HOME: cacheRoot };
+    const [thirdStart, leftClose] = await Promise.allSettled([
+      prepareTestInvocationRuntime({ repositoryRoot, hostTempRoot, environment: thirdEnvironment }),
+      left.cleanup()
+    ]);
+    if (thirdStart.status === 'fulfilled') third = thirdStart.value;
+    if (leftClose.status === 'rejected') throw leftClose.reason;
+    if (thirdStart.status === 'rejected') throw thirdStart.reason;
     expect(existsSync(right.processRoot)).toBe(true);
   } finally {
+    await third?.cleanup();
     await left.cleanup();
     await right.cleanup();
     rmSync(root, { recursive: true, force: true });

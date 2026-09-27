@@ -799,6 +799,39 @@ type MainHealthWorkflowProvenance = Readonly<{
   workflowRunDisplayTitle: string;
 }>;
 
+function isRegisteredMainHealthCheck(check: GitHubCheckObservation): boolean {
+  const policy = GITHUB_ACTIONS_MAIN_HEALTH_CHECK_PROVIDER_POLICY;
+  return check.name === policy.context
+    && check.appId === policy.app.id
+    && check.appNodeId === policy.app.nodeId
+    && check.appSlug === policy.app.slug;
+}
+
+/** Only the registered MainHealth producer requires workflow provenance. */
+export function attachRegisteredMainHealthWorkflowProvenance(input: Readonly<{
+  checks: readonly GitHubCheckObservation[];
+  workflows: ReadonlyMap<string, MainHealthWorkflowProvenance>;
+  mainSha: string;
+}>): readonly GitHubCheckObservation[] {
+  return Object.freeze(input.checks.map((check) => {
+    if (!isRegisteredMainHealthCheck(check)) return check;
+    if (check.workflowRunId === null) {
+      throw new Error('Registered MainHealth check lacks a workflow run identity');
+    }
+    const workflow = input.workflows.get(check.workflowRunId);
+    if (workflow === undefined) {
+      throw new Error('MainHealth hosted workflow provenance was not observed');
+    }
+    return Object.freeze({
+      ...check,
+      workflowPath: workflow.workflowPath,
+      workflowRef: `${workflow.workflowPath}@${input.mainSha}`,
+      eventName: workflow.eventName,
+      workflowRunDisplayTitle: workflow.workflowRunDisplayTitle
+    });
+  }));
+}
+
 async function observeHostedMainHealthChecks(input: Readonly<{
   repositoryRoot: string;
   repository: string;
@@ -921,20 +954,7 @@ async function observeHostedMainHealthChecks(input: Readonly<{
         const workflowRunId = normalizedDetailsUrl === null
           ? null
           : /\/actions\/runs\/([1-9][0-9]*)/u.exec(normalizedDetailsUrl)?.[1] ?? null;
-        const mayMatchRegisteredProvider = name === GITHUB_ACTIONS_MAIN_HEALTH_CHECK_PROVIDER_POLICY.context
-          && appId === GITHUB_ACTIONS_MAIN_HEALTH_CHECK_PROVIDER_POLICY.app.id
-          && appNodeId === GITHUB_ACTIONS_MAIN_HEALTH_CHECK_PROVIDER_POLICY.app.nodeId
-          && appSlug === GITHUB_ACTIONS_MAIN_HEALTH_CHECK_PROVIDER_POLICY.app.slug;
-        if (mayMatchRegisteredProvider) {
-          matchingProviderCheckCount += 1;
-          if (matchingProviderCheckCount > MAIN_HEALTH_MAX_MATCHING_WORKFLOW_RUNS) {
-            throw new Error(
-              'MainHealth hosted matching provider check count exceeds bounded workflow provenance'
-            );
-          }
-          if (workflowRunId !== null) matchingWorkflowRunIds.add(workflowRunId);
-        }
-        checks.push(Object.freeze({
+        const normalizedCheck = Object.freeze({
           id,
           name,
           status,
@@ -949,7 +969,18 @@ async function observeHostedMainHealthChecks(input: Readonly<{
           eventName: null,
           workflowRunId,
           workflowRunDisplayTitle: null
-        }));
+        });
+        const mayMatchRegisteredProvider = isRegisteredMainHealthCheck(normalizedCheck);
+        if (mayMatchRegisteredProvider) {
+          matchingProviderCheckCount += 1;
+          if (matchingProviderCheckCount > MAIN_HEALTH_MAX_MATCHING_WORKFLOW_RUNS) {
+            throw new Error(
+              'MainHealth hosted matching provider check count exceeds bounded workflow provenance'
+            );
+          }
+          if (workflowRunId !== null) matchingWorkflowRunIds.add(workflowRunId);
+        }
+        checks.push(normalizedCheck);
       }
       if (record.check_runs.length < 100) break;
       if (page === 10) throw new Error('MainHealth hosted check pagination exceeded bound');
@@ -1000,21 +1031,10 @@ async function observeHostedMainHealthChecks(input: Readonly<{
         throw new Error('MainHealth hosted workflow provenance changed during stable readback');
       }
     }
-    const stableChecks = checks.map((check) => {
-      if (check.workflowRunId === null) return check;
-      const workflow = secondWorkflowByRunId.get(check.workflowRunId);
-      if (workflow === undefined) {
-        throw new Error('MainHealth hosted workflow provenance was not observed');
-      }
-      return Object.freeze({
-        ...check,
-        workflowPath: workflow.workflowPath,
-        workflowRef: `${workflow.workflowPath}@${input.mainSha}`,
-        eventName: workflow.eventName,
-        workflowRunDisplayTitle: workflow.workflowRunDisplayTitle
-      });
+    const stableChecks = attachRegisteredMainHealthWorkflowProvenance({
+      checks, workflows: secondWorkflowByRunId, mainSha: input.mainSha
     });
-    return Object.freeze({ kind: 'observed', checks: Object.freeze(stableChecks) });
+    return Object.freeze({ kind: 'observed', checks: stableChecks });
   } catch (error) {
     if (error instanceof MainHealthGitHubProviderError) {
       return Object.freeze({

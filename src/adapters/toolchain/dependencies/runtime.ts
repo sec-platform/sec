@@ -12,8 +12,7 @@ export type {
   CompilerDependencyMaterializationInputProjection, CompilerDependencyReadGenerationRetirementReceipt, CompilerDepsReadyState,
   DependencyAuthorityPaths, RetainedCompilerDependencyExecutionGeneration, RetainedCompilerDependencyReadGeneration, RuntimeDependencySourceGeneration,
   RuntimeDependencyTargetIdentity,
-  RuntimeDepsStamp,
-  SharedDepsReadyState
+  RuntimeDepsStamp
 } from './runtime/project-runtime.ts';
 
 export {
@@ -22,7 +21,6 @@ export {
   projectCompilerDepsReadyState, retainCompilerDependencyExecutionGeneration, retainCompilerDependencyReadGeneration
 } from './runtime/project-runtime.ts';
 
-export { SHARED_DEPENDENCY_FORBIDDEN_AUTHORITY_FILES } from './runtime/project-runtime.ts';
 
 /**
  * Production callers may narrow one dependency operation, but cannot replace
@@ -47,6 +45,17 @@ export async function observeCompilerDependencyExecutionGenerationAuthority(
 export const dependencyAuthorityPaths = runtime.dependencyAuthorityPaths;
 export const compilerDependencyLocatorWorktreeRetirementProvider =
   runtime.compilerDependencyLocatorWorktreeRetirementProvider;
+
+/** Owner-issued closeout for terminal compiler staging journals. */
+export async function retireSettledCompilerDependencyStageIntents(
+  ownerRoot: string,
+  options: RuntimeDependencyInstallOptions = {}
+): Promise<runtime.CompilerDependencyStageIntentRetirementReceipt> {
+  return runtime.retireSettledCompilerDependencyStageIntents(
+    path.resolve(ownerRoot),
+    captureRuntimeDependencyInstallRequest(options)
+  );
+}
 
 const issuedCompilerDependencyGeneratedStatePlans = new WeakSet<object>();
 
@@ -112,12 +121,6 @@ export async function ensureCompilerDepsReady(
 ): Promise<runtime.CompilerDepsReadyState> {
   compilerDependencyRoot = compilerDependencyRoot === undefined ? undefined : path.resolve(compilerDependencyRoot);
   return runtime.ensureCompilerDepsReady(captureRuntimeDependencyInstallRequest(options), compilerDependencyRoot);
-}
-
-export async function ensureSharedDepsReady(
-  options: RuntimeDependencyInstallOptions = {}
-): Promise<runtime.SharedDepsReadyState> {
-  return runtime.ensureSharedDepsReady(captureRuntimeDependencyInstallRequest(options));
 }
 
 export async function ensureProjectDependencies(

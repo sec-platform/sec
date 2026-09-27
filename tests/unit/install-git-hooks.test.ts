@@ -73,15 +73,25 @@ assertCanonicalBunPackageRunner(${JSON.stringify(process.versions.bun)}, undefin
 console.log(JSON.stringify({ args: process.argv.slice(2), active: process.env.SEC_GIT_HOOK_ACTIVE,
   stdin: await Bun.stdin.text() }));
 `);
+    const childEnvironment: NodeJS.ProcessEnv = {
+      ...process.env,
+      PATH: `${path.dirname(process.execPath)}${path.delimiter}${process.env.PATH ?? ''}`
+    };
+    // This fixture is a different package from the managed test runner.
+    for (const name of Object.keys(childEnvironment)) {
+      if (name.toUpperCase() === 'NPM_PACKAGE_JSON') delete childEnvironment[name];
+    }
     for (const event of ['post-checkout', 'post-merge', 'post-rewrite']) {
       const executed = spawnSync('sh', [path.join(repoRoot, '.githooks', event), 'first argument', '0'], {
         cwd: root,
         input: 'old new\n',
         encoding: 'utf8',
-        env: { ...process.env, PATH: `${path.dirname(process.execPath)}${path.delimiter}${process.env.PATH ?? ''}` },
+        env: childEnvironment,
         windowsHide: true
       });
-      expect({ status: executed.status, error: executed.error }).toEqual({ status: 0, error: undefined });
+      if (executed.status !== 0 || executed.error !== undefined) {
+        throw new Error(`hook ${event} failed: ${executed.stderr}`, { cause: executed.error });
+      }
       expect(JSON.parse(executed.stdout)).toEqual({
         args: ['workspace-transition', event, 'first argument', '0'],
         active: '1',

@@ -2822,12 +2822,15 @@ async function exactIgnoredRootPlan(
           deadlineAtMs: performance.now() + CLEANUP_DEADLINE_MS,
           maximumEntries: MAXIMUM_CLEANUP_ENTRIES
         });
-  const coveredRules = new Set(directOwners.map(({ id }) => id));
-  if (directOwners.length === 0 && withoutExcludedOwner(rulesBelowGeneratedPath(relativePath)).length === 0) {
+  const descendantRules = withoutExcludedOwner(rulesBelowGeneratedPath(relativePath));
+  if (directOwners.length === 0 && descendantRules.length === 0) {
     throw new GeneratedStateWorktreeRetirementBlockedError(
       `Generated-state worktree retirement found an unknown ignored root: ${relativePath}.`
     );
   }
+  // An empty ancestor is covered by the registered roots beneath it. Inventory
+  // still checks every present child against those rules before relocation.
+  const coveredRules = new Set([...directOwners, ...descendantRules].map(({ id }) => id));
   for (const entry of inventory) {
     const childPath = `${relativePath}/${entry.relativePath}`;
     const owners = withoutExcludedOwner(rulesOwningGeneratedPath(childPath));
@@ -2937,7 +2940,9 @@ async function worktreeRetirementDomainRegistration(
     );
   }
   if (!samePhysicalIdentity(registration.root, entry.source) ||
-      path.resolve(registration.repositoryRoot) !== intent.repositoryRoot ||
+      path.resolve(registration.repositoryRoot) !== path.resolve(planned.repositoryRoot) ||
+      (path.resolve(registration.repositoryRoot) !== intent.repositoryRoot &&
+        path.resolve(registration.repositoryRoot) !== intent.workspacePath) ||
       !sameIdentity(registration.workspace, intent.workspace) ||
       registration.relativePath !== planned.relativePath ||
       registration.ruleId !== planned.ruleId ||
@@ -3283,7 +3288,12 @@ export async function settleGeneratedStateForWorktreeRetirement(
       }
     }
     const retainedEntries = [] as Array<GeneratedStateWorktreeRetirement['entries'][number]>;
-    for (const entry of intent.entries) {
+    // Domain providers may bind physical inputs inside another ignored root
+    // (for example node_modules -> .tmp/dependency-installs/compiler-backups).
+    // Consume those plans before relocating any preserved ancestor.
+    for (const entry of [...intent.entries].sort((left, right) =>
+      Number(right.action === 'domain-retire') - Number(left.action === 'domain-retire')
+    )) {
       await lease.assertOwned();
       if (entry.action === 'domain-retire') {
         const providers = options.worktreeRetirementProviders?.filter(({ id }) => id === entry.providerId) ?? [];

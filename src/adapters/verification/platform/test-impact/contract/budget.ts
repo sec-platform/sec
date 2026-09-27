@@ -166,7 +166,14 @@ const slowTestSuiteDefinitions: readonly SlowTestSuiteDefinition[] = deepFreeze(
     'unit-branch-local-residue-closeout',
     'tests/unit/branch-local-residue-closeout.test.ts',
     'local-branch-residue-closeout',
-    180_000,
+    240_000,
+    { resourceClass: 'runtime-heavy' }
+  ),
+  slowPathSuite(
+    'integration-semantic-mutation-apply',
+    'tests/integration/semantic-mutation-apply.test.ts',
+    'semantic-mutation-transaction',
+    420_000,
     { resourceClass: 'runtime-heavy' }
   ),
   slowPathSuite(
@@ -214,7 +221,7 @@ const slowTestSuiteDefinitions: readonly SlowTestSuiteDefinition[] = deepFreeze(
     'unit-worktree-closeout-temp-repo',
     'tests/unit/worktree-physical-closeout-temp-repo.test.ts',
     'git-worktree-physical-closeout',
-    180_000,
+    420_000,
     { parallelSafe: true, resourceClass: 'runtime-heavy' }
   ),
   slowFileSuite('e2e-artifacts', 'artifacts', 'compiler-artifacts-e2e', 120_000, {
@@ -247,6 +254,33 @@ const slowTestSuiteDefinitions: readonly SlowTestSuiteDefinition[] = deepFreeze(
   slowFileSuite('e2e-install-git-hooks', 'install-git-hooks', 'managed-git-hooks-e2e', 120_000, {
     parallelSafe: true
   }),
+  ...[
+    'occupied-lineage',
+    'link-boundaries',
+    'source-races',
+    'capacity',
+    'capacity-retirement',
+    'marker-digest',
+    'configured-path',
+    'execution-sources',
+    'transition-interruption',
+    'transition-settlement',
+    'recovery-inventory',
+    'lease-actor',
+    'actor-races',
+    'config-fencing',
+    'ambient-budget',
+    'lifecycle-bootstrap',
+    'bootstrap-lineage',
+    'bootstrap-tracking',
+    'bootstrap-remote-lineage'
+  ].map((part) => slowFileSuite(
+    `e2e-install-git-hooks-${part}`,
+    `install-git-hooks-${part}`,
+    'managed-git-hooks-e2e',
+    120_000,
+    { parallelSafe: true }
+  )),
   slowFileSuite('e2e-lanes', 'lanes', 'compiler-lanes-e2e', 120_000, { parallelSafe: true }),
   slowFileSuite('e2e-manifest', 'manifest', 'compiler-manifest-e2e'),
   slowFileSuite('e2e-pipeline', 'pipeline', 'compiler-pipeline-e2e'),

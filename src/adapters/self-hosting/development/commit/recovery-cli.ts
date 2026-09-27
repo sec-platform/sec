@@ -5,11 +5,19 @@ import {
   acknowledgeDevelopmentCommitResult,
   acknowledgeNotAppliedDevelopmentCommitResult,
   recoverDevelopmentCommit,
-  retireMergedDevelopmentCommitJournals
+  retireMergedDevelopmentCommitJournals,
+  retireSupersededLocalDevelopmentCommitJournals
 } from './operation.ts';
 
 /** CLI recovery consumer; journal reference is observation-only. */
 export async function runDevelopmentCommitRecoveryCommand(args: readonly string[]): Promise<number> {
+  if (args.length === 2 && args[0] === '--retire-superseded-local') {
+    const result = await retireSupersededLocalDevelopmentCommitJournals({
+      repositoryRoot: path.resolve(process.cwd()), ref: args[1]!
+    });
+    console.log(JSON.stringify(result, null, 2));
+    return 0;
+  }
   if (args.length === 3 && args[0] === '--retire-merged-pr' && /^[1-9][0-9]*$/u.test(args[2]!)) {
     const result = await withGitHubApiReadSession({
       repositoryRoot: path.resolve(process.cwd()), repository: args[1]!,

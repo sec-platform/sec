@@ -6,6 +6,7 @@ import {
   inspectNoFollowDirectoryChain,
   inspectNoFollowOrdinaryFileEntry,
   retainNoFollowDirectoryForChildProcess,
+  retainNoFollowFileTransaction,
   retainNoFollowOrdinaryFile
 } from '../../adapters/runtime-state/physical/runtime/physical-no-follow.ts';
 import {
@@ -96,6 +97,8 @@ type BuildMetafile = Readonly<{
 }>;
 
 export interface FrozenReleaseBundleOptions {
+  /** Where the delivered consumer places its one Bun version marker. */
+  readonly runtimeMarkerLocation?: 'artifact-root' | 'package-root';
   /**
    * Package imports that must remain external in the emitted bundle.  Omit to
    * preserve the repository-internal build contract.  An explicit empty
@@ -581,7 +584,10 @@ async function assertFrozenBuildInputs(
   assertSameNoFollowDirectoryIdentity(source, 'Frozen build source root');
   return Object.freeze(inputPaths);
 }
-function frozenEntrypointBannerArgs(source: FrozenReleaseSource): readonly string[] {
+function frozenEntrypointBannerArgs(
+  source: FrozenReleaseSource,
+  runtimeMarkerLocation: 'artifact-root' | 'package-root'
+): readonly string[] {
   const root = inspectNoFollowDirectoryChain(
     path.resolve(source.root),
     'Frozen release entrypoint source root'
@@ -621,7 +627,9 @@ function frozenEntrypointBannerArgs(source: FrozenReleaseSource): readonly strin
     throw new Error(`Release bundle contains a non-Bun interpreter directive: ${firstLine}`);
   }
   const artifactDepth = source.entrypoint.artifact.split('/').length - 1;
-  const versionMarkerRelativePath = `${'../'.repeat(artifactDepth)}.bun-version`;
+  const versionMarkerRelativePath = runtimeMarkerLocation === 'artifact-root'
+    ? './.bun-version'
+    : `${'../'.repeat(artifactDepth)}.bun-version`;
   const expectedMarker = `${source.builder.version}\n`;
   const runtimeGuard = [
     '{',
@@ -696,6 +704,7 @@ export async function buildFrozenReleaseBundle(
   options: FrozenReleaseBundleOptions = {}
 ): Promise<FrozenReleaseBundleReceipt> {
   assertReleaseBunRuntimeRequirement(source.builder);
+  const runtimeMarkerLocation = options.runtimeMarkerLocation ?? 'artifact-root';
   const metafilePath = path.join(source.root, RELEASE_BUILD_META_FILE_NAME);
   const args = [
     'build',
@@ -704,7 +713,7 @@ export async function buildFrozenReleaseBundle(
     `--entry-naming=${path.posix.basename(source.entrypoint.artifact)}`,
     '--target=bun',
     `--metafile=${metafilePath}`,
-    ...frozenEntrypointBannerArgs(source)
+    ...frozenEntrypointBannerArgs(source, runtimeMarkerLocation)
   ];
   for (const external of frozenExternalImports(source.dependencies, options)) {
     args.push('--external', external);
@@ -712,6 +721,30 @@ export async function buildFrozenReleaseBundle(
   await assertBuilderIdentityUnchanged(source.builder, 'before bundle execution');
   await runReleaseBuilderCommand(source.root, args, source.builder, 512 * 1024 * 1024);
   await assertBuilderIdentityUnchanged(source.builder, 'during bundle execution');
+  if (runtimeMarkerLocation === 'artifact-root') {
+    const markerBytes = Buffer.from(`${source.builder.version}\n`, 'utf8');
+    const sourceMarker = inspectNoFollowOrdinaryFileEntry(
+      inspectNoFollowDirectoryChain(source.root, 'Frozen release source root').target,
+      '.bun-version'
+    );
+    if (sourceMarker?.bytes === null || sourceMarker?.bytes === undefined ||
+        !Buffer.from(sourceMarker.bytes).equals(markerBytes)) {
+      throw new Error('Frozen release source Bun version marker differs from the retained builder');
+    }
+    const markerTransaction = retainNoFollowFileTransaction(
+      stagedArtifactRoot, 'Delivered release bundle version marker'
+    );
+    try {
+      const published = await markerTransaction.createExclusive(
+        '.bun-version', markerBytes, 'Delivered release bundle version marker'
+      );
+      if (!Buffer.from(published.bytes).equals(markerBytes)) {
+        throw new Error('Delivered release bundle version marker readback differs');
+      }
+    } finally {
+      markerTransaction.dispose();
+    }
+  }
   const inputPaths = await assertFrozenBuildInputs(source.root, metafilePath);
   return Object.freeze({ inputPaths });
 }

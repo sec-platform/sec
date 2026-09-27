@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { readFileSync } from 'node:fs';
 import { copyFile, mkdir, mkdtemp, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -52,8 +53,28 @@ async function copyBinding(command: 'git' | 'gh', targetRoot: string): Promise<v
 }
 
 const windowsTest = test.skipIf(process.platform !== 'win32' || process.arch !== 'x64');
+function installedProfileMatches(command: 'git' | 'gh'): boolean {
+  if (process.platform !== 'win32' || process.arch !== 'x64') return false;
+  try {
+    const root = installedRoot(command);
+    const binding = getSecWindowsControlCliExecutableBindingV1(
+      SEC_WINDOWS_CONTROL_CLI_ENVIRONMENT_AUTHORITY, command
+    );
+    if (binding === null) return false;
+    for (const entry of [...binding.launcherEntries, binding.effectiveEntry, ...binding.appLocalModules]) {
+      const bytes = readFileSync(path.win32.join(root, entry.relativePath));
+      if (bytes.length !== entry.observedSizeBytes ||
+          createHash('sha256').update(bytes).digest('hex') !== entry.observedSha256) return false;
+    }
+    return true;
+  } catch { return false; }
+}
+const installedProfileTest = test.skipIf(
+  process.platform !== 'win32' || process.arch !== 'x64' ||
+  !installedProfileMatches('git') || !installedProfileMatches('gh')
+);
 
-windowsTest.serial('installed adopter authenticates exact bytes and pins replacement until disposal', async () => {
+installedProfileTest.serial('installed adopter authenticates exact bytes and pins replacement until disposal', async () => {
   const root = await mkdtemp(path.join(tmpdir(), 'sec-windows-control-cli-'));
   const gitRoot = path.win32.join(root, 'Git');
   const ghRoot = path.win32.join(root, 'GitHub CLI');
@@ -126,7 +147,7 @@ windowsTest('installed adopter returns typed unknown without a matching physical
   })).toThrow('installed-executable-capability-unproven');
 });
 
-windowsTest.serial('installed adopter rejects manifest-authenticated bytes without a valid PE loader closure', async () => {
+installedProfileTest.serial('installed adopter rejects manifest-authenticated bytes without a valid PE loader closure', async () => {
   const root = await mkdtemp(path.join(tmpdir(), 'sec-windows-control-cli-loader-'));
   const gitRoot = path.win32.join(root, 'Git');
   const ghRoot = path.win32.join(root, 'GitHub CLI');
@@ -141,6 +162,7 @@ windowsTest.serial('installed adopter rejects manifest-authenticated bytes witho
       SEC_WINDOWS_CONTROL_CLI_ENVIRONMENT_AUTHORITY
     );
     const gh = authority.executableBindings.find(({ id }) => id === 'gh')!;
+    gh.executableEntries[0]!.observedSizeBytes = bytes.length;
     gh.executableEntries[0]!.observedSha256 = createHash('sha256').update(bytes).digest('hex');
     const spec = parseSecWindowsControlCliEnvironmentAuthority(authority);
     expect(() => adoptInstalledWindowsControlCli({
@@ -163,3 +185,34 @@ windowsTest.serial('installed adopter rejects manifest-authenticated bytes witho
     await rm(root, { recursive: true, force: true });
   }
 });
+
+test.skipIf(process.platform !== 'win32' || process.arch !== 'x64' ||
+  !installedProfileMatches('git') || installedProfileMatches('gh'))(
+  'installed adopter rejects a drifted GitHub CLI image against the pinned profile', async () => {
+    const root = await mkdtemp(path.join(tmpdir(), 'sec-windows-control-cli-profile-drift-'));
+    const gitRoot = path.win32.join(root, 'Git');
+    const ghRoot = path.win32.join(root, 'GitHub CLI');
+    try {
+      await copyBinding('git', gitRoot);
+      await copyBinding('gh', ghRoot);
+      expect(() => adoptInstalledWindowsControlCli({
+        spec: SEC_WINDOWS_CONTROL_CLI_ENVIRONMENT_AUTHORITY,
+        workingDirectory: root,
+        deadline: { remainingMs: () => 30_000, assertLive() {} },
+        budget: {
+          maxRootObservedBytes: 128 * 1024 * 1024,
+          maxExecutableObservedBytes: 128 * 1024 * 1024,
+          maxRecords: 64
+        },
+        environment: {
+          PATH: `${path.win32.join(gitRoot, 'bin')};${ghRoot}`,
+          PROGRAMFILES: path.win32.join(root, 'program-files-none'),
+          PROGRAMW6432: path.win32.join(root, 'program-files-none'),
+          LOCALAPPDATA: path.win32.join(root, 'local-app-data-none')
+        }
+      })).toThrow('installed-executable-manifest-mismatch');
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  }
+);

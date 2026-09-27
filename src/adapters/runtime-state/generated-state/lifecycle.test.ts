@@ -217,6 +217,49 @@ test('worktree retirement preserves one covered ignored root outside the target 
   ).toThrow('source reappeared');
 });
 
+test('worktree retirement settles an empty registered ancestor without an exact root rule', async () => {
+  const fixture = await registeredWorktreeFixture();
+  await mkdir(path.join(fixture.workspaceRoot, '.tmp'));
+
+  const receipt = await settleGeneratedStateForWorktreeRetirement({
+    repositoryRoot: fixture.repositoryRoot,
+    workspaceRoot: fixture.workspaceRoot,
+    expectedBranch: 'candidate',
+    expectedHeadSha: fixture.headSha,
+    expectedTreeSha: fixture.treeSha
+  }, fixture.options);
+
+  expect(receipt).toMatchObject({ terminal: 'completed' });
+  expect(receipt!.entries).toEqual([
+    expect.objectContaining({
+      action: 'preserved',
+      relativePath: '.tmp',
+      ruleIds: expect.arrayContaining(['compiler-dependency-staging'])
+    })
+  ]);
+  expect(await absent(path.join(fixture.workspaceRoot, '.tmp'))).toBe(true);
+});
+
+test('worktree retirement rejects unknown content inside a registered ancestor before moving roots', async () => {
+  const fixture = await registeredWorktreeFixture();
+  const foreignPath = path.join(fixture.workspaceRoot, '.tmp', 'dependency-installs', 'foreign', 'keep.txt');
+  const knownPath = path.join(fixture.workspaceRoot, '.shared-deps', 'cache.bin');
+  await mkdir(path.dirname(foreignPath), { recursive: true });
+  await writeFile(foreignPath, 'foreign');
+  await mkdir(path.dirname(knownPath));
+  await writeFile(knownPath, 'known');
+
+  await expect(settleGeneratedStateForWorktreeRetirement({
+    repositoryRoot: fixture.repositoryRoot,
+    workspaceRoot: fixture.workspaceRoot,
+    expectedBranch: 'candidate',
+    expectedHeadSha: fixture.headSha,
+    expectedTreeSha: fixture.treeSha
+  }, fixture.options)).rejects.toThrow('unknown content: .tmp/dependency-installs/foreign');
+  expect(await absent(foreignPath)).toBe(false);
+  expect(await absent(knownPath)).toBe(false);
+});
+
 test('worktree retirement resumes the exact durable intent after interruption between root relocations', async () => {
   const fixture = await registeredWorktreeFixture();
   await mkdir(path.join(fixture.workspaceRoot, '.shared-deps'), { recursive: true });

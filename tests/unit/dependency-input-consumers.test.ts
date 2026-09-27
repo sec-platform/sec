@@ -69,10 +69,9 @@ test('same parent cancellation survives every projection, including a newly supp
 });
 
 test('zero false and omitted request values keep identical meanings at public and coordinator boundaries',()=>{
-  for(const request of [{},{rematerialize:false},{skipSharedDepsWarmup:false},{installMode:'allow' as const}]){
+  for(const request of [{},{rematerialize:false},{installMode:'allow' as const}]){
     const publicValue=capture(request),internal=bind({...controls(),...request});
     assert.equal(internal.rematerialize,publicValue.rematerialize);
-    assert.equal(internal.skipSharedDepsWarmup,publicValue.skipSharedDepsWarmup);
     assert.equal(internal.installMode,publicValue.installMode);
   }
   assert.throws(()=>capture({rematerialize:0 as never}));assert.throws(()=>bind({...controls(),rematerialize:0 as never}));

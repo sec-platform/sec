@@ -1,3 +1,4 @@
+import { FFIType, dlopen } from 'bun:ffi';
 import { expect, test } from 'bun:test';
 import { createHash } from 'node:crypto';
 import { link, lstat, mkdir, open, readFile, readdir, rename, rm, symlink, unlink, writeFile } from 'node:fs/promises';
@@ -16,7 +17,7 @@ import {
 } from '../../src/adapters/filesystem/write-lease.ts';
 import { inspectNoFollowDirectoryChain, scanNoFollowDirectoryTree } from '../../src/adapters/runtime-state/physical/runtime/physical-no-follow.ts';
 import { initWorkspace } from '../../src/bootstrap/engineering/workspace-orchestrator.ts';
-import { sha256 as canonicalSha256 } from '../../src/contracts/canonical.ts';
+import { sha256 as canonicalSha256, digest } from '../../src/contracts/canonical.ts';
 import { withTempWorkspace } from '../testkit/workspace.ts';
 
 test('retirement recovery and physically absent completion ignore an oversized unrelated sibling', async () => {
@@ -1167,6 +1168,86 @@ test('workspace writer lease control-plane quiescence queues heartbeat mutation'
       await handle.release();
     }
   }, 'workspace-write-lease-quiescence-');
+});
+
+test('workspace writer lease heartbeat reports a bounded native failure phase', async () => {
+  await withTempWorkspace(async (workspaceRoot) => {
+    const heartbeatId = 'diagnostic-heartbeat-id';
+    const manager = createWorkspaceWriteLeaseManager({
+      heartbeatIntervalMs: 10_000,
+      staleAfterMs: 30_000,
+      createId: () => heartbeatId
+    });
+    const handle = await manager.acquire(workspaceRoot);
+    const holders = path.join(workspaceRoot, '.sec', 'workspace-write-lease', 'holders');
+    const [activeHolder] = await readdir(holders);
+    const heartbeatCandidate = path.join(
+      holders,
+      activeHolder!,
+      `.heartbeat-${digest(JSON.stringify({ kind: 'heartbeat', id: heartbeatId }))}.candidate`
+    );
+    try {
+      await writeFile(heartbeatCandidate, 'occupied', { flag: 'wx' });
+      await expect(handle.heartbeat()).rejects.toMatchObject({
+        code: 'WORKSPACE-WRITE-LEASE-002',
+        details: { operation: 'heartbeat', phase: 'heartbeat-publish', systemCode: 'EEXIST' }
+      });
+    } finally {
+      await unlink(heartbeatCandidate);
+      await handle.release();
+    }
+  }, 'workspace-write-lease-heartbeat-diagnostic-');
+});
+
+test('Windows heartbeat publication converges after a reader releases replacement sharing', async () => {
+  if (process.platform !== 'win32') return;
+  await withTempWorkspace(async (workspaceRoot) => {
+    const manager = createWorkspaceWriteLeaseManager({
+      heartbeatIntervalMs: 10_000,
+      staleAfterMs: 30_000
+    });
+    const lease = await manager.acquire(workspaceRoot);
+    const holders = path.join(workspaceRoot, '.sec', 'workspace-write-lease', 'holders');
+    const [activeHolder] = await readdir(holders);
+    const heartbeatPath = path.join(holders, activeHolder!, 'heartbeat.json');
+    const kernel32 = dlopen('kernel32.dll', {
+      CreateFileW: {
+        args: [FFIType.ptr, FFIType.u32, FFIType.u32, FFIType.ptr,
+          FFIType.u32, FFIType.u32, FFIType.u64],
+        returns: FFIType.u64
+      },
+      CloseHandle: { args: [FFIType.u64], returns: FFIType.i32 }
+    });
+    let held = kernel32.symbols.CreateFileW(
+      Buffer.from(`${heartbeatPath}\0`, 'utf16le'),
+      0x8000_0000,
+      1,
+      null,
+      3,
+      0x80,
+      0n
+    );
+    try {
+      expect(held).not.toBe(0xffff_ffff_ffff_ffffn);
+      let settled = false;
+      let failure: unknown;
+      const pending = lease.heartbeat().then(
+        () => { settled = true; },
+        (error) => { settled = true; failure = error; }
+      );
+      await new Promise<void>((resolve) => setTimeout(resolve, 100));
+      expect(settled).toBe(false);
+      kernel32.symbols.CloseHandle(held);
+      held = 0n;
+      await pending;
+      expect(failure).toBeUndefined();
+      await lease.assertOwned();
+    } finally {
+      if (held !== 0n && held !== 0xffff_ffff_ffff_ffffn) kernel32.symbols.CloseHandle(held);
+      kernel32.close();
+      await lease.release();
+    }
+  }, 'workspace-write-lease-heartbeat-windows-sharing-');
 });
 
 test('workspace writer lease closeout blocks new heartbeats and drains the admitted heartbeat', async () => {

@@ -368,10 +368,25 @@ export function assertDurableRecoveryAuthority(
   recovery: BranchRecoveryAuthority,
   inventory: BranchLifecycleInventory
 ): void {
-  if (recovery.kind !== 'bundle') throw new Error('Recovery authority must be a bundle.');
-  if (!recovery.verified) throw new Error('Recovery bundle must be verified.');
+  if (recovery.kind !== 'bundle' && recovery.kind !== 'main-absorption') {
+    throw new Error('Recovery authority kind is invalid.');
+  }
+  if (!recovery.verified) throw new Error('Recovery authority must be verified.');
   if (!/^sha256:[0-9a-f]{64}$/u.test(recovery.sha256)) {
-    throw new Error('Recovery bundle digest must be SHA-256.');
+    throw new Error('Recovery authority digest must be SHA-256.');
+  }
+  if (recovery.kind === 'main-absorption') {
+    for (const [label, sha] of [
+      ['source', recovery.sourceSha], ['source tree', recovery.sourceTreeSha],
+      ['main', recovery.mainSha], ['main tree', recovery.mainTreeSha]
+    ] as const) assertGitSha(sha, `Recovery ${label}`);
+    if (recovery.basis !== 'native-ancestor' && recovery.basis !== 'identical-tree') {
+      throw new Error('Main absorption basis is invalid.');
+    }
+    if (typeof recovery.verifyOutput !== 'string' || recovery.verifyOutput.length === 0
+        || recovery.verifyOutput.length > 4096) {
+      throw new Error('Main absorption verification output is invalid.');
+    }
   }
   const recoveryPath = normalizeAbsolutePath(recovery.path);
   const forbiddenRoots = new Set<string>([
@@ -382,7 +397,7 @@ export function assertDurableRecoveryAuthority(
   for (const forbiddenRoot of forbiddenRoots) {
     if (isPathWithin(recoveryPath, forbiddenRoot)) {
       throw new Error(
-        `Recovery bundle must be outside repository/common-dir/worktree roots: ${forbiddenRoot}`
+        `Recovery authority must be outside repository/common-dir/worktree roots: ${forbiddenRoot}`
       );
     }
   }

@@ -40,7 +40,7 @@ test('effectful deadline projection orders operation cleanup Bun and supervisor 
     cleanupSettlementMarginMs: 30_000
   });
   const invocation = compileTestInvocationExecutionPolicy(
-    ['test', 'tests/integration/compiler-dependency-installation.test.ts'],
+    ['test', 'tests/integration/compiler-dependency-generation.test.ts'],
     300_000
   );
 

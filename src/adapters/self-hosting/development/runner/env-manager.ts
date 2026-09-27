@@ -265,7 +265,7 @@ export function resolveTestWorkspaceNamespace(env: NodeJS.ProcessEnv = process.e
 export function resolveTestWorkspaceRunChild(env: NodeJS.ProcessEnv = process.env): string | undefined {
   const runChild = env[TEST_WORKSPACE_RUN_CHILD_ENV]?.trim();
   if (!runChild) return undefined;
-  if (!/^fast-[0-9a-f]{64}$/u.test(runChild)) {
+  if (!/^fast-[0-9a-f]{32}$/u.test(runChild)) {
     throw new Error(`${TEST_WORKSPACE_RUN_CHILD_ENV} must be an exact run-owned child segment`);
   }
   return runChild;
@@ -291,7 +291,9 @@ export function deriveTestWorkspaceRunNamespace(seed: TestWorkspaceRunNamespaceS
     processNonce: seed.processNonce,
     runSequence: seed.runSequence
   })).slice('sha256:'.length);
-  return `fast-${digest}`;
+  // This is a physical directory name, not the authority digest. Two nested
+  // full digests can put a test fixture cwd beyond CreateProcessW's MAX_PATH.
+  return `fast-${digest.slice(0, 32)}`;
 }
 
 export function deriveAssignedTestWorkspaceRunChild(input: {
@@ -314,7 +316,7 @@ export function deriveAssignedTestWorkspaceRunChild(input: {
     nonceDigest: input.nonceDigest,
     issuerProcessId: input.issuerProcessId,
     supervisorLeaseDigest: input.supervisorLeaseDigest
-  })).slice('sha256:'.length)}`;
+  })).slice('sha256:'.length, 'sha256:'.length + 32)}`;
 }
 
 export function createTestWorkspaceRunChildAssignmentV1(input: {
@@ -396,7 +398,7 @@ function parseTestWorkspaceSupervisorChallenge(value: unknown): TestWorkspaceSup
     assignmentDigest: candidate.assignmentDigest
   };
   if (candidate.schema !== TEST_WORKSPACE_SUPERVISOR_CHALLENGE_SCHEMA ||
-    !/^fast-[0-9a-f]{64}$/u.test(String(candidate.name)) ||
+    !/^fast-[0-9a-f]{32}$/u.test(String(candidate.name)) ||
     !/^sha256:[0-9a-f]{64}$/u.test(String(candidate.nonceDigest)) ||
     !/^sha256:[0-9a-f]{64}$/u.test(String(candidate.supervisorLeaseDigest)) ||
     !/^sha256:[0-9a-f]{64}$/u.test(String(candidate.assignmentDigest)) ||
@@ -723,6 +725,13 @@ export function getTestWorkspaceTempRoot(env: NodeJS.ProcessEnv = process.env): 
   const hasBoundGateChild = boundChildLocator !== undefined && namespace !== undefined && runChild !== undefined;
   if (hasBoundGateChild) bindTestWorkspaceChildLocator(boundChildLocator, namespace, runChild);
   const physicalCompilerRoot = realpathSync.native(compilerRoot);
+  const runtimeCacheEnvironment = secRuntimeStateEnvironment(effectiveEnvironment);
+  // The fast runner assigns a deep per-invocation SEC_CACHE_HOME to the child.
+  // Test workspace cleanup has its own retained physical owner; nesting its
+  // process cwd below that cache generation can exceed CreateProcessW MAX_PATH.
+  const workspaceCacheEnvironment = process.platform === 'win32'
+    ? { ...runtimeCacheEnvironment, SEC_CACHE_HOME: undefined }
+    : runtimeCacheEnvironment;
   const root = hasBoundGateChild
     ? path.join(compilerRoot, '.tmp', 'test-workspaces')
     : process.platform === 'darwin'
@@ -735,7 +744,7 @@ export function getTestWorkspaceTempRoot(env: NodeJS.ProcessEnv = process.env): 
     : path.join(
         resolveSecRuntimeCacheRoot({
           platform: currentSecRuntimePlatform(),
-          environment: secRuntimeStateEnvironment(effectiveEnvironment),
+          environment: workspaceCacheEnvironment,
           repositoryRoot: physicalCompilerRoot
         }),
         'test-workspaces',
