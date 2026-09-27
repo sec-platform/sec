@@ -1,6 +1,6 @@
 {
   "schema": "sec.documentation-source-manifest/2",
-  "source_set_sha256": "6316b0d5f38a8d2ff41fa3be8d428cf02ed4435f4174880f2b54111f652610d3",
+  "source_set_sha256": "a86cd789b3e3d49eb7c247c9387b36e16b0720e7e8f5d5fcc7272d9e952bae80",
   "members": [
     {
       "path": ".documentation/README.md",
@@ -169,18 +169,18 @@
     },
     {
       "path": "docs/产品/产品要求与工作约束.md",
-      "bytes": 36472,
-      "sha256": "a0a0f9a35ad3e4544eb5ee66a0af62520bb30c10bc12c492f854dd368ea72380"
+      "bytes": 36714,
+      "sha256": "e997c2e68c6ff005420da45043b321d7c0e202548ec46d251b05e3195bb086a2"
     },
     {
       "path": "docs/产品/全体系能力与边界.md",
-      "bytes": 21502,
-      "sha256": "817b1b53ba14f82e958f6b4b36c33df8c482a00bf267f84a2a79698cadfa9482"
+      "bytes": 21763,
+      "sha256": "8de9206ee9f97f03bc0d701560eee09b9b410c5919c0d3e6223aea4bde9396a2"
     },
     {
       "path": "docs/产品/原则总纲与归属.md",
-      "bytes": 21434,
-      "sha256": "99630331f65cf5a47d0085a1547d0ffd33fbc660e7b153d4bbf713a1dab7751b"
+      "bytes": 21655,
+      "sha256": "07e6625a1f925c3079744e54cec7802e1d87425045941071399c46af6bd1f3b8"
     },
     {
       "path": "docs/产品/术语与质量属性.md",
@@ -204,8 +204,8 @@
     },
     {
       "path": "docs/作者/可替换表示与适用范围.md",
-      "bytes": 40273,
-      "sha256": "36885f7867c3bdbc44c4b11954dea3b9e2887724a2fcbebe74bf1e15e7823e93"
+      "bytes": 40630,
+      "sha256": "0d25d2c6eece822f50dd58c04305d6fb34cd814a8a826cdf08d48022c2b4490b"
     },
     {
       "path": "docs/作者/工程源/README.md",
@@ -464,8 +464,8 @@
     },
     {
       "path": "docs/依据/来源/计算布局与数值.md",
-      "bytes": 4603,
-      "sha256": "ee79f92066ffdb728bf098bcacf2148b9d0bb10d8f0c723729c1c3042757cfd1"
+      "bytes": 17939,
+      "sha256": "e0c2ece28969e085ad5827c4fb5c617b035bb77fce1b261db8a4608b10c3c4d1"
     },
     {
       "path": "docs/依据/来源/设计依据与资料边界.md",
@@ -479,8 +479,8 @@
     },
     {
       "path": "docs/依据/来源/语言编译与目标工具.md",
-      "bytes": 120806,
-      "sha256": "3c8ab483879e60c5599af709d2ea1bf5c48098405477bbf39f817c2594aaec95"
+      "bytes": 122806,
+      "sha256": "f433c75475fee145eaa813fbfce3b68e2b4af4bbdfa0a870ea975be116a691b4"
     },
     {
       "path": "docs/依据/来源/需求文档与协作.md",
@@ -694,8 +694,8 @@
     },
     {
       "path": "docs/架构/实现语言与机制演进.md",
-      "bytes": 12840,
-      "sha256": "88b6956c7d4efbe8a950aa305824c9d6bedcd0515846c79d3583422de3ed2a07"
+      "bytes": 30756,
+      "sha256": "4c264d7c3e44d6adbc87445b8627cb188f456b609432ebf5a58c57158fe07fff"
     },
     {
       "path": "docs/架构/总体设计.md",
@@ -744,8 +744,8 @@
     },
     {
       "path": "docs/演进/实施/主线前沿与准入.md",
-      "bytes": 80311,
-      "sha256": "b3b9551e2958b268ede8b62ef8f0cd9eede51ad22e6dd0b19f48045ddb357ba9"
+      "bytes": 82682,
+      "sha256": "383b6fb43c04670ee6cfed9abea8da7d039bb8d16a0a997a3c687bcfaa77dd69"
     },
     {
       "path": "docs/演进/实施/仓库迁移与自托管.md",
@@ -779,8 +779,8 @@
     },
     {
       "path": "docs/演进/领域组合与扩展条件.md",
-      "bytes": 60675,
-      "sha256": "c9280c00d8f6da29d669e06d46e321fb25119189afe80fd3482b46dfc93da43d"
+      "bytes": 106149,
+      "sha256": "bae353d742b64c9c1ed5e085956e889897f9aa67ebfe46bf5b45029b2f5bd0f3"
     },
     {
       "path": "docs/状态/README.md",
@@ -809,13 +809,13 @@
     },
     {
       "path": "docs/状态/编译与目标.md",
-      "bytes": 42550,
-      "sha256": "c81ef313940ad32bdce64292ed1da3302bf17c3ed2c7c07fa9875ca0fb799364"
+      "bytes": 44202,
+      "sha256": "500d8893352565a47533843a0dccdfbcdc93c51c482e2087d591e40cd868389f"
     },
     {
       "path": "docs/状态/设计剩余全量清单.md",
-      "bytes": 27477,
-      "sha256": "8c7b0a20422bc287da7db734707171f4ada3a3ecd3467deacb1c24209dc0d0c1"
+      "bytes": 28150,
+      "sha256": "f2c9ca3b91708849ba1b9ef5b85225e8cc8bb3c617cb344888df7b3258abba0d"
     },
     {
       "path": "docs/状态/语义与领域.md",
@@ -1334,8 +1334,8 @@
     },
     {
       "path": "docs/领域/计算基础/计算结构与算法.md",
-      "bytes": 71326,
-      "sha256": "905fbddf8c3c63a0c39ed807035e557df32798f133ee8ddab1014c3b622919c7"
+      "bytes": 73687,
+      "sha256": "5290a9de2a9fe5973f5088f004c56ca58e66e61ec617e3afc5f635d538ab28a2"
     },
     {
       "path": "docs/领域/计算基础/调用定制与源语言选择.md",
