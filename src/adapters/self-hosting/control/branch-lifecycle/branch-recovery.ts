@@ -584,3 +584,37 @@ export function verifyRecoveryAuthorityLive(input: {
     };
   }
 }
+
+export function verifyRecoveryAuthorityHeadLive(input: {
+  inventory: BranchLifecycleInventory;
+  recovery: BranchRecoveryAuthority;
+  expectedHeadSha: string;
+}): BranchCloseoutAttempt {
+  assertGitSha(input.expectedHeadSha, 'recovery expected head SHA');
+  const verified = verifyRecoveryAuthorityLive(input);
+  if (verified.status !== 'success') return verified;
+  try {
+    const heads = requireRecoveryGitText(
+      input.inventory.repository.root,
+      ['bundle', 'list-heads', input.recovery.path],
+      'recovery bundle head readback'
+    );
+    if (!heads.split(/\r?\n/u).some((line) => line.startsWith(`${input.expectedHeadSha} `))) {
+      throw new Error(
+        `recovery bundle does not retain expected head ${input.expectedHeadSha}`
+      );
+    }
+    return {
+      operation: 'recovery-verify',
+      status: 'success',
+      detail: `live head-bound revalidation ${input.recovery.sha256}; ${input.expectedHeadSha}`
+    };
+  } catch (error) {
+    return {
+      operation: 'recovery-verify',
+      status: 'failed',
+      detail: error instanceof Error ? error.message : String(error)
+    };
+  }
+}
+

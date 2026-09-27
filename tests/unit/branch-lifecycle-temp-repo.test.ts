@@ -24,6 +24,9 @@ import {
   createBranchLifecycleGitHubCredentialArgs
 } from '../../src/adapters/self-hosting/control/branch-lifecycle/branch-lifecycle-command.ts';
 import {
+  verifyRecoveryAuthorityHeadLive
+} from '../../src/adapters/self-hosting/control/branch-lifecycle/branch-recovery.ts';
+import {
   collectBranchLifecycleCloseoutTargetInventory,
   collectBranchLifecycleInventory
 } from '../../src/adapters/self-hosting/control/branch-lifecycle/branch-lifecycle-inventory.ts';
@@ -326,6 +329,45 @@ test('remote-absent preparation recovers the exact local branch without mutating
     expect(git(fixture.repository, [
       'ls-remote', '--heads', 'origin', `refs/heads/${fixture.branch}`
     ])).toBe('');
+  } finally {
+    restorePath();
+    rmSync(fixture.root, { recursive: true, force: true });
+  }
+}, 180_000);
+
+test('recovery readback revalidates the exact expected head before a ref effect', () => {
+  const fixture = repositoryFixture();
+  const restorePath = installGitHubObservationShim(fixture);
+  try {
+    const prepared = prepareBranchCloseout({
+      repositoryRoot: fixture.repository,
+      repositoryFullName: 'sec-platform/sec',
+      defaultBranch: 'main',
+      activeWorkPackageObservation: activeWorkObservation(fixture),
+      recoveryRoot: path.join(fixture.root, 'recovery')
+    }, {
+      branch: fixture.branch,
+      expectedHeadSha: fixture.headSha
+    });
+    const recovery = prepared.preparation.recovery;
+    if (recovery === null) throw new Error('Expected exact recovery authority.');
+
+    expect(verifyRecoveryAuthorityHeadLive({
+      inventory: prepared.before,
+      recovery,
+      expectedHeadSha: fixture.headSha
+    })).toMatchObject({
+      operation: 'recovery-verify',
+      status: 'success'
+    });
+    expect(verifyRecoveryAuthorityHeadLive({
+      inventory: prepared.before,
+      recovery,
+      expectedHeadSha: fixture.mainSha
+    })).toMatchObject({
+      operation: 'recovery-verify',
+      status: 'failed'
+    });
   } finally {
     restorePath();
     rmSync(fixture.root, { recursive: true, force: true });
