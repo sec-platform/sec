@@ -50,15 +50,17 @@ for (const scenario of ['empty', 'populated', 'narrow-parent'] as const) {
 }
 
 test.skipIf(process.platform !== 'linux')(
-  'production scratch owner rebinds a cold index after write-tree cache mutation',
+  'production scratch owner computes a cold index tree without mutating the retained index',
   () => inGitProtocolRepository(async (root, git) => {
     writeFileSync(path.join(root, 'cold-index.txt'), 'cold index input\n', 'utf8');
     gitProtocolSuccess(git(['add', '--', 'cold-index.txt']));
 
     const scratchRoot = mkdtempSync(path.join(tmpdir(), 'sec-native-cold-write-tree-'));
     await settleWorkspaceCallback(async () => {
-      copyFileSync(path.join(root, '.git', 'index'), path.join(scratchRoot, 'index'));
+      const scratchIndex = path.join(scratchRoot, 'index');
+      copyFileSync(path.join(root, '.git', 'index'), scratchIndex);
       mkdirSync(path.join(scratchRoot, 'objects'));
+      const retainedBytes = readFileSync(scratchIndex);
       // Compute the independent semantic expectation only after copying the
       // cold scratch index, so this does not warm the subject under test.
       const expectedTree = gitProtocolSuccess(git(['write-tree'])).trim();
@@ -89,9 +91,15 @@ test.skipIf(process.platform !== 'linux')(
             assert.match(tree.value, /^[0-9a-f]{40,64}$/u);
             assert.equal(tree.value, expectedTree);
 
+            assert.deepEqual(
+              readFileSync(scratchIndex),
+              retainedBytes,
+              'tree computation must not rewrite cache-tree or replace the retained index generation'
+            );
             const second = await resolution.session.writeTree();
             assert.equal(second.status, 'ready');
             if (second.status === 'ready') assert.equal(second.value, tree.value);
+            assert.deepEqual(readFileSync(scratchIndex), retainedBytes);
           } catch (error) {
             primary = error;
             throw error;
@@ -107,3 +115,75 @@ test.skipIf(process.platform !== 'linux')(
   }),
   { timeout: 30_000 }
 );
+
+
+test('scratch delta returns a Git-readable successor index without replacing its retained source', () =>
+  inGitProtocolRepository(async (root, git, base) => {
+    writeFileSync(path.join(root, 'old'), 'old staged bytes\n', 'utf8');
+    writeFileSync(path.join(root, 'keep'), 'kept staged bytes\n', 'utf8');
+    gitProtocolSuccess(git(['add', '--', 'old', 'keep']));
+
+    const scratchRoot = mkdtempSync(path.join(tmpdir(), 'sec-native-index-generation-'));
+    await settleWorkspaceCallback(async () => {
+      const scratchIndex = path.join(scratchRoot, 'index');
+      const candidateIndex = path.join(scratchRoot, 'candidate-index');
+      copyFileSync(path.join(root, '.git', 'index'), scratchIndex);
+      mkdirSync(path.join(scratchRoot, 'objects'));
+      const retainedBytes = readFileSync(scratchIndex);
+
+      await withAuthorityGitReadSession(
+        { cwd: root, budget: { maxProcesses: 16, maxStdinBytes: 1024 * 1024 } },
+        async session => {
+          const resolution = await createAuthorityGitScratchIndexTreeSession({
+            gitReadSession: session,
+            scratchRoot
+          });
+          assert.equal(resolution.status, 'ready');
+          if (resolution.status !== 'ready') throw new Error('Native scratch generation is required.');
+
+          let primary: unknown;
+          try {
+            const tree = await resolution.session.applyIndexDelta({
+              additions: [{ path: 'nested/new', bytes: Buffer.from('new staged bytes\n') }],
+              removals: ['old']
+            });
+            assert.equal(tree.status, 'ready');
+            if (tree.status !== 'ready') throw new Error(`Scratch delta failed: ${tree.reason}`);
+
+            assert.deepEqual(readFileSync(scratchIndex), retainedBytes);
+            assert.equal(gitProtocolSuccess(git(['show', `${tree.value}:nested/new`], {
+              ...base,
+              GIT_OBJECT_DIRECTORY: path.join(scratchRoot, 'objects'),
+              GIT_ALTERNATE_OBJECT_DIRECTORIES: path.join(root, '.git', 'objects')
+            })), 'new staged bytes\n');
+            assert.notEqual(git(['show', `${tree.value}:old`], {
+              ...base,
+              GIT_OBJECT_DIRECTORY: path.join(scratchRoot, 'objects'),
+              GIT_ALTERNATE_OBJECT_DIRECTORIES: path.join(root, '.git', 'objects')
+            }).status, 0);
+
+            const generated = resolution.session.indexBytes();
+            assert.equal(generated.status, 'ready');
+            if (generated.status !== 'ready') throw new Error(`Successor index unavailable: ${generated.reason}`);
+            writeFileSync(candidateIndex, generated.value);
+            const reconstructedTree = gitProtocolSuccess(git(['write-tree'], {
+              ...base,
+              GIT_INDEX_FILE: candidateIndex,
+              GIT_OBJECT_DIRECTORY: path.join(scratchRoot, 'objects'),
+              GIT_ALTERNATE_OBJECT_DIRECTORIES: path.join(root, '.git', 'objects')
+            })).trim();
+            assert.equal(reconstructedTree, tree.value);
+            assert.deepEqual(readFileSync(scratchIndex), retainedBytes);
+          } catch (error) {
+            primary = error;
+            throw error;
+          } finally {
+            const closeFailure = await resolution.session.close();
+            if (primary === undefined) assert.equal(closeFailure, null);
+          }
+        }
+      );
+    }, async () => {
+      rmSync(scratchRoot, { recursive: true, force: true });
+    });
+  }));

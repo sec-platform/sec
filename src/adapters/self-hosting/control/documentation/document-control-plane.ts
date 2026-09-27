@@ -4043,12 +4043,13 @@ async function buildNextIndex(input: {
             throw new Error(`Candidate tree retained the retired path ${absentPath}.`);
           }
         }
-        const bytes = await readSafeRegularFile({
-          boundaryRoot: canonicalScratchRoot,
-          filePath: scratchIndex,
-          label: 'External freeze scratch Git index readback'
-        });
-        return Object.freeze({ bytes, treeSha });
+        const index = productionScratch.indexBytes();
+        if (index.status !== 'ready') {
+          throw documentControlCliFailure(
+            'git', 'git-object-index-effect', 'unavailable', index.reason
+          );
+        }
+        return Object.freeze({ bytes: Buffer.from(index.value), treeSha });
       }
       const indexUpdates: string[] = [];
       for (const target of changedTargets) {
