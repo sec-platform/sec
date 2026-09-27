@@ -82,6 +82,20 @@ test('maintenance request accepts one exact ref or bounded exact comment batch',
     branches: ['fix/old'],
     expectedHeadSha: 'b'.repeat(40)
   })).toThrow('transport/*');
+  expect(parseExactRefRetirement({
+    classification: 'main-tree-identical',
+    branches: ['fix/process-residue'],
+    expectedHeadSha: 'b'.repeat(40)
+  })).toEqual({
+    classification: 'main-tree-identical',
+    branches: ['fix/process-residue'],
+    expectedHeadSha: 'b'.repeat(40)
+  });
+  expect(() => parseExactRefRetirement({
+    classification: 'main-tree-identical',
+    branches: ['fix/one', 'fix/two'],
+    expectedHeadSha: 'b'.repeat(40)
+  })).toThrow('exactly one branch');
   const multi = JSON.parse(requestSource()) as Record<string, unknown>;
   const operations = multi.operations as unknown[];
   multi.operations = [...operations, ...operations];

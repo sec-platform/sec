@@ -7,6 +7,11 @@ export type ExactRefRetirement =
       expectedHeadSha: string;
     }>
   | Readonly<{
+      classification: 'main-tree-identical';
+      branches: readonly [string];
+      expectedHeadSha: string;
+    }>
+  | Readonly<{
       classification: 'closed-pr-superseded';
       branches: readonly [string];
       expectedHeadSha: string;
@@ -59,15 +64,17 @@ export function parseExactRefRetirement(value: unknown): ExactRefRetirement {
   if (keys.length !== expected.length || keys.some((key, index) => key !== expected[index])) {
     throw new Error('exact ref retirement fields are invalid');
   }
-  if (input.classification !== 'transport-only') {
+  if (input.classification !== 'transport-only'
+      && input.classification !== 'main-tree-identical') {
     throw new Error('exact ref retirement classification is invalid');
   }
   const branches = singleBranch(input.branches);
-  if (!branches[0].startsWith('transport/')) {
+  if (input.classification === 'transport-only'
+      && !branches[0].startsWith('transport/')) {
     throw new Error('transport-only retirement accepts only transport/* branches');
   }
   return Object.freeze({
-    classification: 'transport-only',
+    classification: input.classification,
     branches,
     expectedHeadSha: sha(input.expectedHeadSha, 'expectedHeadSha')
   });
