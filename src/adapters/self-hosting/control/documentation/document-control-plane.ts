@@ -4453,16 +4453,22 @@ async function assertCommittedCandidateReplanAuthority(input: {
           historicalPointer.manifest,
           'config/repository/work-selection.md'
         ];
-        const controlEndpointsPresent = (await Promise.all(unchangedControlPaths.map(
-          async (controlPath) => {
-            const [historical, current] = await Promise.all([
-              readGitBlob(input.repositoryRoot, `${rollingMachine.exactMain}:${controlPath}`),
-              readGitBlob(input.repositoryRoot, `${input.trustedDefaultSha}:${controlPath}`)
-            ]);
-            return historical !== undefined && current !== undefined
-              && historical.equals(current);
+        let controlEndpointsPresent = true;
+        // The retained Git-read session admits one child operation at a time.
+        // Parallel blob reads can fail its process resource settlement before
+        // any control comparison or freeze effect occurs.
+        for (const controlPath of unchangedControlPaths) {
+          const historical = await readGitBlob(
+            input.repositoryRoot, `${rollingMachine.exactMain}:${controlPath}`
+          );
+          const current = await readGitBlob(
+            input.repositoryRoot, `${input.trustedDefaultSha}:${controlPath}`
+          );
+          if (historical === undefined || current === undefined || !historical.equals(current)) {
+            controlEndpointsPresent = false;
+            break;
           }
-        ))).every(Boolean);
+        }
         let controlGenerationUnchanged = controlEndpointsPresent;
         if (controlGenerationUnchanged) {
           const lineage = requireCommand(await run('git', [
