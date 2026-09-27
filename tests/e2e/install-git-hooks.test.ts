@@ -1290,6 +1290,34 @@ test('Git invocation process and output budgets stop before any config effect', 
   });
 });
 
+test('Git read transport rejects an invalid executable fence before any child process', async () => {
+  await withRepository(async (repoRoot) => {
+    const hostSession = createHostGitReadSessionForTests({ cwd: repoRoot });
+    if (hostSession.gitExecutableIdentity === null) {
+      throw new Error('The host test provider did not expose a Git executable identity');
+    }
+    const providerResolution: GitReadSessionResolution = Object.freeze({
+      status: 'ready' as const,
+      route: 'host-local-git-v1' as const,
+      session: Object.freeze({
+        ...hostSession,
+        verifyExecutable: () => false
+      })
+    });
+    const spawnKinds: Array<'git-read' | 'git-config'> = [];
+    const result = await installGitHooks({
+      repoRoot,
+      lifecycle: true,
+      providerResolutionForTest: providerResolution,
+      beforeSpawnForTest: (kind) => spawnKinds.push(kind)
+    });
+    expect(result.status).toBe('conflict');
+    expect(result.message).toContain('canonical Git executable identity changed');
+    expect(spawnKinds).toEqual([]);
+    expect(() => git(repoRoot, ['config', '--get', 'core.hooksPath'])).toThrow();
+  });
+}, { timeout: 30_000 });
+
 test('same-path provider identity mutation is rejected before the config effect', async () => {
   await withRepository(async (repoRoot) => {
     const hostResolution = createHostGitReadSessionForTests({ cwd: repoRoot });
