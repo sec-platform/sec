@@ -279,15 +279,13 @@ type GitScratchIndexTreeResult<T> = Readonly<
 >;
 
 /**
- * Narrow Git effect capability for computing a tree from one immutable set of
- * index entries. Native Git may rewrite physical index metadata/extensions
- * such as cache-tree while preserving those entries; this owner represents
- * that as an explicit scratch-index generation transition rather than
- * weakening the retained-file fence. It intentionally exposes no generic
- * argv, config, ref, or repository-write surface. The typed index delta is
- * applied only inside the retained, repository-external scratch object
- * directory and the resulting tree is read back through the same retained
- * provider.
+ * Narrow Git effect capability for computing a tree from one immutable
+ * retained index generation. The physical index is never released or handed
+ * to a mutating Git command: SEC decodes its dense entry set, applies typed
+ * deltas in memory, emits a deterministic successor index generation, and
+ * delegates object validation/materialization to fixed hash-object/mktree
+ * effects. It intentionally exposes no generic argv, config, ref, or
+ * repository-write surface.
  */
 export type GitScratchIndexTreeSession = Readonly<{
   readonly scratchRoot: string;
@@ -1541,7 +1539,6 @@ export async function createAuthorityGitScratchIndexTreeSession(input: Readonly<
       'Git scratch object directory'
     );
     scratchObjectsCapability = retainedScratchObjectsCapability;
-    const scratchIndexPath = path.join(scratchRoot, scratchIndexEntry.relativePath);
     const retainScratchIndex = (): RetainedNoFollowOrdinaryFile => {
       const currentEntry = inspectNoFollowOrdinaryFileEntry(scratchChain.target, 'index');
       if (currentEntry === null || currentEntry.kind !== 'file') {
@@ -1555,8 +1552,9 @@ export async function createAuthorityGitScratchIndexTreeSession(input: Readonly<
         7
       );
     };
-    scratchIndexCapability = retainScratchIndex();
-    const retainedScratchIndexBytes = scratchIndexCapability.readBytes();
+    const retainedScratchIndexCapability = retainScratchIndex();
+    scratchIndexCapability = retainedScratchIndexCapability;
+    const retainedScratchIndexBytes = retainedScratchIndexCapability.readBytes();
     let currentIndexGeneration = decodeGitIndexGeneration(retainedScratchIndexBytes, objectFormat);
     let currentIndexBytes = Buffer.from(retainedScratchIndexBytes);
     const retainedRepositoryIndexCapability = retainNoFollowOrdinaryFile(
@@ -1570,18 +1568,18 @@ export async function createAuthorityGitScratchIndexTreeSession(input: Readonly<
     const auxiliaryInputs = (): readonly RetainedCommandAuxiliaryInput[] => Object.freeze([
       Object.freeze({ kind: 'directory' as const, capability: retainedRepositoryObjectsCapability }),
       Object.freeze({ kind: 'directory' as const, capability: retainedScratchObjectsCapability }),
-      ...(scratchIndexCapability === null ? [] : [Object.freeze({
+      Object.freeze({
         kind: 'ordinary-file' as const,
-        capability: scratchIndexCapability
-      })])
+        capability: retainedScratchIndexCapability
+      })
     ]);
     const environment = (): Readonly<Record<string, string>> => Object.freeze(isolatedGitReadEnvironment({
-      GIT_INDEX_FILE: scratchIndexCapability?.childPath ?? scratchIndexPath,
+      GIT_INDEX_FILE: retainedScratchIndexCapability.childPath,
       GIT_OBJECT_DIRECTORY: retainedScratchObjectsCapability.childPath,
       GIT_ALTERNATE_OBJECT_DIRECTORIES: retainedRepositoryObjectsCapability.childPath
     }, input.gitReadSession.env));
     const repositoryEnvironment = (): Readonly<Record<string, string>> => Object.freeze(isolatedGitReadEnvironment({
-      GIT_INDEX_FILE: scratchIndexCapability?.childPath ?? scratchIndexPath,
+      GIT_INDEX_FILE: retainedScratchIndexCapability.childPath,
       GIT_OBJECT_DIRECTORY: retainedRepositoryObjectsCapability.childPath,
       GIT_ALTERNATE_OBJECT_DIRECTORIES: retainedRepositoryObjectsCapability.childPath
     }, input.gitReadSession.env));
@@ -1634,7 +1632,7 @@ export async function createAuthorityGitScratchIndexTreeSession(input: Readonly<
           failure: 'scratch-object-directory-changed' as const
         }),
         Object.freeze({
-          capability: scratchIndexCapability,
+          capability: retainedScratchIndexCapability,
           failure: 'scratch-index-changed' as const
         }),
         Object.freeze({
@@ -1883,7 +1881,7 @@ export async function createAuthorityGitScratchIndexTreeSession(input: Readonly<
           const prior = primaryFailure;
           settlePhysicalResources({ primary: prior, cleanup: [
             { label: 'git-repository-index', capability: retainedRepositoryIndexCapability },
-            { label: 'git-scratch-index', capability: scratchIndexCapability },
+            { label: 'git-scratch-index', capability: retainedScratchIndexCapability },
             { label: 'git-scratch-object-directory', capability: retainedScratchObjectsCapability },
             { label: 'git-repository-object-directory', capability: retainedRepositoryObjectsCapability }
           ].filter(entry => entry.capability !== null).map(({ label, capability }) => ({
