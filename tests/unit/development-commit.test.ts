@@ -193,6 +193,35 @@ test('development.commit retires verified applied attempts after a local ref rew
   }
 }, 30_000);
 
+test('development.commit settles completed historical and current journals for one ref', async () => {
+  const { root } = await fixture();
+  try {
+    const firstAdmission = await issueDevelopmentCommitAdmission({
+      repositoryRoot: root, message: 'first staged candidate\n'
+    });
+    const first = await runDevelopmentCommit(firstAdmission.request, firstAdmission.admission);
+    await writeFile(path.join(root, 'later.txt'), 'later\n');
+    git(root, ['add', 'later.txt']);
+    const secondAdmission = await issueDevelopmentCommitAdmission({
+      repositoryRoot: root, message: 'second staged candidate\n'
+    });
+    const second = await runDevelopmentCommit(secondAdmission.request, secondAdmission.admission);
+    expect(git(root, ['rev-list', '--walk-reflogs', second.ref]).split(/\r?\n/u).slice(0, 2))
+      .toEqual([second.target, first.target]);
+    if (process.platform === 'linux') {
+      await expect(settleDevelopmentCommitJournalsForRef({ repositoryRoot: root, ref: second.ref }))
+        .rejects.toThrow('needs a native namespace exclusion on Linux');
+      return;
+    }
+    expect(await settleDevelopmentCommitJournalsForRef({ repositoryRoot: root, ref: second.ref }))
+      .toEqual({ ref: second.ref, observed: 2, retired: 2 });
+    await expect(lstat(first.journalPath)).rejects.toMatchObject({ code: 'ENOENT' });
+    await expect(lstat(second.journalPath)).rejects.toMatchObject({ code: 'ENOENT' });
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+}, 60_000);
+
 test('development.commit reports failed staged normalization without publishing the candidate', async () => {
   const { root, request } = await fixture();
   try {
