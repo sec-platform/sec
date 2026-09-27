@@ -4440,61 +4440,115 @@ async function assertCommittedCandidateReplanAuthority(input: {
         throw new Error('Historical rolling projection base is not an ancestor of the live default.');
       }
       if (!rollingMatchesLiveDefault) {
-        const publicationChain = requireCommand(
-          await run('git', [
-            'rev-list',
-            '--first-parent',
-            '--ancestry-path',
-            '--reverse',
+        const historicalPointerSource = decodeUtf8(await requireGitBlob(
+          input.repositoryRoot,
+          `${rollingMachine.exactMain}:${ActivePointerPath}`,
+          'Historical live-default active pointer'
+        ), 'Historical live-default active pointer');
+        const historicalPointer = CodexDevelopmentParseActivePointer(historicalPointerSource);
+        const unchangedControlPaths = [
+          CurrentStatePath,
+          ActivePointerPath,
+          RollingPlanPath,
+          historicalPointer.manifest,
+          'config/repository/work-selection.md'
+        ];
+        const controlEndpointsPresent = (await Promise.all(unchangedControlPaths.map(
+          async (controlPath) => {
+            const [historical, current] = await Promise.all([
+              readGitBlob(input.repositoryRoot, `${rollingMachine.exactMain}:${controlPath}`),
+              readGitBlob(input.repositoryRoot, `${input.trustedDefaultSha}:${controlPath}`)
+            ]);
+            return historical !== undefined && current !== undefined
+              && historical.equals(current);
+          }
+        ))).every(Boolean);
+        let controlGenerationUnchanged = controlEndpointsPresent;
+        if (controlGenerationUnchanged) {
+          const lineage = requireCommand(await run('git', [
+            'rev-list', '--first-parent', '--parents', '--reverse',
             `${rollingMachine.exactMain}..${input.trustedDefaultSha}`
-          ], input.repositoryRoot),
-          'Published rolling projection ancestry'
-        ).split(/\s+/u);
-        const publicationCommit = publicationChain[0];
-        if (publicationCommit === undefined) {
-          throw new Error('Historical rolling projection has no published live-default generation.');
+          ], input.repositoryRoot), 'Historical live-default first-parent lineage');
+          let previous = rollingMachine.exactMain;
+          for (const line of lineage.trim().split(/\r?\n/u)) {
+            const identities = line.trim().split(/\s+/u);
+            if (identities.length < 2 || identities[1] !== previous) {
+              controlGenerationUnchanged = false;
+              break;
+            }
+            const generation = identities[0]!;
+            const controlDiff = await run('git', [
+              'diff', '--quiet', '--no-ext-diff', '--no-textconv', '--no-renames',
+              rollingMachine.exactMain, generation, '--', ...unchangedControlPaths
+            ], input.repositoryRoot);
+            if (controlDiff.code !== 0) {
+              if (controlDiff.code !== 1) {
+                throw new Error('Historical live-default control generation could not be compared.');
+              }
+              controlGenerationUnchanged = false;
+              break;
+            }
+            previous = generation;
+          }
+          if (previous !== input.trustedDefaultSha) controlGenerationUnchanged = false;
         }
-        const publicationAncestry = requireCommand(
-          await run('git', ['rev-list', '--parents', '-n', '1', publicationCommit], input.repositoryRoot),
-          'Published rolling projection commit ancestry'
-        ).split(/\s+/u);
-        if (publicationAncestry.length !== 2
-            || publicationAncestry[0] !== publicationCommit
-            || publicationAncestry[1] !== rollingMachine.exactMain) {
-          throw new Error(
-            'Published rolling projection must be the sole-parent first live-default generation after its exact base.'
+        if (!controlGenerationUnchanged) {
+          const publicationChain = requireCommand(
+            await run('git', [
+              'rev-list',
+              '--first-parent',
+              '--ancestry-path',
+              '--reverse',
+              `${rollingMachine.exactMain}..${input.trustedDefaultSha}`
+            ], input.repositoryRoot),
+            'Published rolling projection ancestry'
+          ).split(/\s+/u);
+          const publicationCommit = publicationChain[0];
+          if (publicationCommit === undefined) {
+            throw new Error('Historical rolling projection has no published live-default generation.');
+          }
+          const publicationAncestry = requireCommand(
+            await run('git', ['rev-list', '--parents', '-n', '1', publicationCommit], input.repositoryRoot),
+            'Published rolling projection commit ancestry'
+          ).split(/\s+/u);
+          if (publicationAncestry.length !== 2
+              || publicationAncestry[0] !== publicationCommit
+              || publicationAncestry[1] !== rollingMachine.exactMain) {
+            throw new Error(
+              'Published rolling projection must be the sole-parent first live-default generation after its exact base.'
+            );
+          }
+          const publishedRollingBytes = await requireGitBlob(
+            input.repositoryRoot,
+            `${publicationCommit}:${RollingPlanPath}`,
+            'Published rolling projection bytes'
           );
-        }
-        const publishedRollingBytes = await requireGitBlob(
-          input.repositoryRoot,
-          `${publicationCommit}:${RollingPlanPath}`,
-          'Published rolling projection bytes'
-        );
-        if (!publishedRollingBytes.equals(rollingBytes)) {
-          throw new Error('Candidate rolling bytes do not equal the exact published live-default projection.');
-        }
-        const publishedPointerSource = decodeUtf8(await requireGitBlob(
-          input.repositoryRoot,
-          `${publicationCommit}:${ActivePointerPath}`,
-          'Published rolling projection pointer'
-        ), 'Published rolling projection pointer');
-        const publishedPointer = CodexDevelopmentParseActivePointer(publishedPointerSource);
-        const publishedManifestBytes = await requireGitBlob(
-          input.repositoryRoot,
-          `${publicationCommit}:${input.manifestPath}`,
-          'Published rolling projection manifest'
-        );
-        const publishedManifest = CodexDevelopmentParseCurrentWorkPackageManifest(
-          decodeUtf8(publishedManifestBytes, 'Published rolling projection manifest'),
-          input.manifestPath
-        );
-        const publishedManifestDigest = CodexDevelopmentWorkPackageManifestDigest(publishedManifestBytes);
-        if (publishedPointer.manifest !== input.manifestPath
-            || publishedPointer.manifestDigest !== publishedManifestDigest
-            || rollingMachine.active.manifestDigest !== publishedManifestDigest
-            || publishedManifest.id !== rollingMachine.active.packageId
-            || publishedManifest.tracking !== rollingMachine.active.tracking) {
-          throw new Error('Historical rolling authority does not bind the exact published control generation.');
+          if (!publishedRollingBytes.equals(rollingBytes)) {
+            throw new Error('Candidate rolling bytes do not equal the exact published live-default projection.');
+          }
+          const publishedPointerSource = decodeUtf8(await requireGitBlob(
+            input.repositoryRoot,
+            `${publicationCommit}:${ActivePointerPath}`,
+            'Published rolling projection pointer'
+          ), 'Published rolling projection pointer');
+          const publishedPointer = CodexDevelopmentParseActivePointer(publishedPointerSource);
+          const publishedManifestBytes = await requireGitBlob(
+            input.repositoryRoot,
+            `${publicationCommit}:${input.manifestPath}`,
+            'Published rolling projection manifest'
+          );
+          const publishedManifest = CodexDevelopmentParseCurrentWorkPackageManifest(
+            decodeUtf8(publishedManifestBytes, 'Published rolling projection manifest'),
+            input.manifestPath
+          );
+          const publishedManifestDigest = CodexDevelopmentWorkPackageManifestDigest(publishedManifestBytes);
+          if (publishedPointer.manifest !== input.manifestPath
+              || publishedPointer.manifestDigest !== publishedManifestDigest
+              || rollingMachine.active.manifestDigest !== publishedManifestDigest
+              || publishedManifest.id !== rollingMachine.active.packageId
+              || publishedManifest.tracking !== rollingMachine.active.tracking) {
+            throw new Error('Historical rolling authority does not bind the exact published control generation.');
+          }
         }
       }
       const sourceAuthority = rollingMachine.authority;

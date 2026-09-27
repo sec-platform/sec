@@ -1967,6 +1967,118 @@ test('pre-evidence replan replaces one committed candidate generation pending am
   }
 }, 30_000);
 
+test('committed candidate replan rebinds after main advances without changing its control generation', async () => {
+  const fixture = await createFreezeFixture();
+  try {
+    const manifestFile = path.join(fixture.repositoryRoot, ...FREEZE_TARGET_PATH.split('/'));
+    await writeFile(path.join(fixture.repositoryRoot, CURRENT_STATE_PATH), currentStateSource('origin'));
+    runGit(fixture.repositoryRoot, [
+      'reset', '--quiet', 'HEAD', '--', FREEZE_TARGET_PATH, CURRENT_ACTIVE_PATH
+    ]);
+    const oldMainSha = runGit(fixture.repositoryRoot, ['rev-parse', 'HEAD']);
+    const oldMainTree = runGit(fixture.repositoryRoot, ['rev-parse', 'HEAD^{tree}']);
+    const firstManifest = Buffer.from(
+      (await readFile(manifestFile, 'utf8')).replace(`base: ${fixture.baseSha}`, `base: ${oldMainSha}`),
+      'utf8'
+    );
+    await writeFile(manifestFile, firstManifest);
+    const firstProjection = CodexDevelopmentCreateFreezeProjection({
+      spec: CodexDevelopmentParseCurrentStateSpec(currentStateSource('origin')),
+      currentPointerSource: await readFile(path.join(fixture.repositoryRoot, POINTER_PATH), 'utf8'),
+      currentRollingPlanSource: rollingPlanSource(),
+      currentManifestBytes: Buffer.from(currentActiveManifestSource(), 'utf8'),
+      workSelectionProjection: {
+        receipt: workSelectionReceiptFixture({ exactMain: oldMainSha, exactMainTree: oldMainTree })
+      },
+      manifestPath: FREEZE_TARGET_PATH,
+      manifestBytes: firstManifest,
+      baseSha: oldMainSha,
+      baseTreeSha: oldMainTree,
+      reviewedOn: '2026-08-21'
+    });
+    await writeFile(path.join(fixture.repositoryRoot, POINTER_PATH), firstProjection.pointerSource);
+    await writeFile(path.join(fixture.repositoryRoot, 'config/repository/rolling-plan.md'),
+      firstProjection.rollingPlanSource);
+    runGit(fixture.repositoryRoot, ['switch', '--quiet', '-c', 'candidate-old-main']);
+    runGit(fixture.repositoryRoot, ['add', '.']);
+    runGit(fixture.repositoryRoot, ['commit', '--quiet', '-m', 'candidate source generation']);
+    await writeFile(manifestFile, Buffer.concat([firstManifest, Buffer.from('\nCandidate refresh.\n')]));
+    await freezeDocumentControlPlane({
+      cwd: fixture.repositoryRoot,
+      manifestPath: FREEZE_TARGET_PATH,
+      reviewedOn: '2026-08-21'
+    });
+    runGit(fixture.repositoryRoot, ['commit', '--quiet', '--amend', '--no-edit']);
+    const oldCandidateManifest = await readFile(manifestFile, 'utf8');
+    const oldCandidatePointer = await readFile(path.join(fixture.repositoryRoot, POINTER_PATH), 'utf8');
+    const oldCandidateRolling = await readFile(
+      path.join(fixture.repositoryRoot, 'config/repository/rolling-plan.md'), 'utf8'
+    );
+
+    runGit(fixture.repositoryRoot, ['switch', '--quiet', 'main']);
+    await writeFile(path.join(fixture.repositoryRoot, 'unrelated-main.txt'), 'independent main work\n');
+    runGit(fixture.repositoryRoot, ['add', 'unrelated-main.txt']);
+    runGit(fixture.repositoryRoot, ['commit', '--quiet', '-m', 'unrelated main work']);
+    runGit(fixture.repositoryRoot, ['push', '--quiet', 'origin', 'main']);
+    const newMainSha = runGit(fixture.repositoryRoot, ['rev-parse', 'HEAD']);
+    const newMainTree = runGit(fixture.repositoryRoot, ['rev-parse', 'HEAD^{tree}']);
+
+    runGit(fixture.repositoryRoot, ['switch', '--quiet', '-c', 'candidate-new-main']);
+    await writeFile(manifestFile,
+      oldCandidateManifest.replace(`base: ${oldMainSha}`, `base: ${newMainSha}`));
+    await writeFile(path.join(fixture.repositoryRoot, POINTER_PATH), oldCandidatePointer);
+    await writeFile(path.join(fixture.repositoryRoot, 'config/repository/rolling-plan.md'),
+      oldCandidateRolling);
+    runGit(fixture.repositoryRoot, ['rm', '--quiet', CURRENT_ACTIVE_PATH]);
+    runGit(fixture.repositoryRoot, ['add', '.']);
+    runGit(fixture.repositoryRoot, ['commit', '--quiet', '-m', 'rebase candidate control generation']);
+
+    const rebound = await freezeDocumentControlPlane({
+      cwd: fixture.repositoryRoot,
+      manifestPath: FREEZE_TARGET_PATH,
+      reviewedOn: '2026-08-22'
+    });
+    expect(rebound).toMatchObject({
+      status: 'ACTIVATED_INDEX_PENDING_COMMIT',
+      baseSha: newMainSha,
+      baseTreeSha: newMainTree,
+      candidateHeadSha: null
+    });
+    expect(await readFile(path.join(fixture.repositoryRoot, 'config/repository/rolling-plan.md'), 'utf8'))
+      .toContain(`"exactMain": "${newMainSha}"`);
+    await expectFreezeTransactionRetired(fixture.repositoryRoot);
+    runGit(fixture.repositoryRoot, ['commit', '--quiet', '--amend', '--no-edit']);
+
+    runGit(fixture.repositoryRoot, ['switch', '--quiet', 'main']);
+    const selectionPath = path.join(fixture.repositoryRoot, 'config/repository/work-selection.md');
+    const selectionBytes = await readFile(selectionPath);
+    await writeFile(selectionPath, Buffer.concat([selectionBytes, Buffer.from('\nTransient control change.\n')]));
+    runGit(fixture.repositoryRoot, ['add', 'config/repository/work-selection.md']);
+    runGit(fixture.repositoryRoot, ['commit', '--quiet', '-m', 'change work selection']);
+    await writeFile(selectionPath, selectionBytes);
+    runGit(fixture.repositoryRoot, ['add', 'config/repository/work-selection.md']);
+    runGit(fixture.repositoryRoot, ['commit', '--quiet', '-m', 'restore work selection bytes']);
+    runGit(fixture.repositoryRoot, ['push', '--quiet', 'origin', 'main']);
+    const abaMainSha = runGit(fixture.repositoryRoot, ['rev-parse', 'HEAD']);
+    runGit(fixture.repositoryRoot, ['switch', '--quiet', '-c', 'candidate-aba']);
+    await writeFile(manifestFile,
+      oldCandidateManifest.replace(`base: ${oldMainSha}`, `base: ${abaMainSha}`));
+    await writeFile(path.join(fixture.repositoryRoot, POINTER_PATH), oldCandidatePointer);
+    await writeFile(path.join(fixture.repositoryRoot, 'config/repository/rolling-plan.md'),
+      oldCandidateRolling);
+    runGit(fixture.repositoryRoot, ['rm', '--quiet', CURRENT_ACTIVE_PATH]);
+    runGit(fixture.repositoryRoot, ['add', '.']);
+    runGit(fixture.repositoryRoot, ['commit', '--quiet', '-m', 'candidate after control ABA']);
+    await expect(freezeDocumentControlPlane({
+      cwd: fixture.repositoryRoot,
+      manifestPath: FREEZE_TARGET_PATH,
+      reviewedOn: '2026-08-23'
+    })).rejects.toThrow('do not equal the exact published live-default projection');
+  } finally {
+    await fixture.dispose();
+  }
+}, 90_000);
+
 test('committed candidate replan repairs one ancestry-proven published control projection drift', async () => {
   const fixture = await createFreezeFixture();
   try {
