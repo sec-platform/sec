@@ -622,26 +622,32 @@ export async function settleDevelopmentCommitJournalsForRef(input: Readonly<{
       session, ['rev-parse', '--path-format=absolute', '--git-common-dir'], 'resolve journal settlement common directory'
     ));
     const { matching, writer } = observeJournalCensus(commonDirectory, input.ref);
+    const current = await commandText(session,
+      ['rev-parse', '--verify', '--end-of-options', input.ref],
+      'read journal retirement ref').catch(() => '');
+    const reflog = await commandText(session,
+      ['rev-list', '--walk-reflogs', input.ref],
+      'read journal retirement reflog').catch(() => '');
+    const transitions = reflog.length === 0 ? [] : reflog.split(/\r?\n/u);
     for (const candidate of matching) {
       const journal = candidate.journal;
       // A linked worktree may already be retired. Its index is not the index
       // of repositoryRoot, and the ref's committed history does not depend on
-      // any surviving checkout index. Prove the exact active transition from
-      // Git's ref, commit object and reflog before deleting its journal.
-      const current = await commandText(session,
-        ['rev-parse', '--verify', '--end-of-options', journal.ref],
-        'read journal retirement ref').catch(() => '');
+      // any surviving checkout index. Prove each completed transition in the
+      // ref's reflog; the current target must also be its latest transition.
       const objectBytes = await commandText(session,
         ['cat-file', 'commit', journal.target],
         'read journal retirement commit').catch(() => '');
-      const reflog = await commandText(session,
-        ['rev-list', '--walk-reflogs', journal.ref],
-        'read journal retirement reflog').catch(() => '');
-      const transitions = reflog.length === 0 ? [] : reflog.split(/\r?\n/u);
-      if (current !== journal.target
-          || !objectBytes.startsWith(`tree ${journal.tree}\nparent ${journal.preimage}\n`)
-          || transitions[0] !== journal.target
-          || transitions[1] !== journal.preimage) {
+      const active = current === journal.target
+        && transitions[0] === journal.target
+        && transitions[1] === journal.preimage;
+      const superseded = journal.terminal === 'applied'
+        && journal.object === journal.target
+        && journal.target !== current
+        && transitions.some((target, index) => target === journal.target
+          && transitions[index + 1] === journal.preimage);
+      if (!objectBytes.startsWith(`tree ${journal.tree}\nparent ${journal.preimage}\n`)
+          || (!active && !superseded)) {
         throw new Error('Development commit journal settlement requires applied readback, got unknown.');
       }
     }
