@@ -52,6 +52,7 @@ acceptance:
   - Rust单owner切换后具有显式K3R恢复状态旧TS仍合格时只能通过新Binding单owner回绑否则前向修复或回退已验证Rust release且禁止per request fallback和双writer
   - 产品要求原则总纲作者基线与实现语言owner同步使目标语言路线不能遗漏或重决策SEC自身Rust kernel方向
   - 实时媒体Codec Bitrate PlaybackBuffer自适应质量延迟卡顿合同保留且与asset streaming residency分离
+  - 自适应码率representation selector复用反馈控制稳定性owner并声明hysteresis dwell switch rate或等价稳定性条件及紧急降档恢复边界验证覆盖阈值附近噪声交替带宽buffer抖动与无界ping pong反例
   - 游戏实时画像包含input simulation rollback effect commit render GPU present device loss generation rebuild的可检查Mermaid联合时序恢复图
   - rollback进入前必须验证authority generation tick与retained history超窗口或缺历史显式reject resync
   - speculative presentation允许从预测状态重建而真实audio playback payment save achievement network等Effect使用独立commit settlement边界
@@ -77,6 +78,8 @@ acceptance:
   - surface swapchain失效且device仍合格时走独立有界reconfigure验证新surface generation后生成新frame不得仅RetireFrame也不得无条件升级全device重建
   - GPU submit只有Provider明确accepted enqueued且具备qualified completion时才创建Fence loss error unknown进入原attempt settlement不得制造synthetic completion或错误继续Present
   - GPU submit或present的接受结果在bounded authoritative observation后仍unknown时进入GpuProviderQuarantinedUnresolved保留原frame q native resources attempt与未知事实当前recovery graph无自动出边且不得猜失败释放复用改签或自动resubmit rebuild
+  - GPU quarantine进入时必须为exact native use closure建立QuarantineHold并把相交q capability resources从后续frame admission撤销不得因下一frame身份不同继续复用旧q
+  - quarantine后只有Provider对queue device surface resource synchronization与lifetime给出exact非相交证明时才可在新的qualification recovery instance安装q_safe继续不相交工作否则presentation显式unavailable
   - GPU quarantine后的新readback安全teardown isolation或有权协调只可创建新的recovery attempt并引用原证据不回写旧状态伪造当时已可判定
   - once only外部attempt后的authoritative结果必须区分proved occurred proved not occurred terminal rejection与unknown仅occurred可settle明确未发生按冻结policy决定新physical attempt或确定失败不能伪装成功
   - Present已accepted但display observation unsupported unavailable或superseded且无failure证明时只形成unobserved display Claim不得进入device surface frame恢复且资源寿命继续由原accepted attempt Provider合同拥有
