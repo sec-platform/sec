@@ -32,6 +32,7 @@ tasks:
       - docs/状态/作者与接口.md
       - docs/状态/信息约束与验证.md
       - docs/状态/编译与目标.md
+      - docs/演进/实施/安全构建发布与环境.md
       - docs/编译/实现选择与设计搜索.md
       - docs/编译/查询增量与性能.md
       - docs/编译/表示/目标运行与观测.md
@@ -61,7 +62,8 @@ acceptance:
   - 未知内容保全与新解释激活分离且新语义新运行责任和根规则变化沿明确演进路径处理
   - 联合资源约束负依赖自适应政策身份表示迁移恢复和退出边界进入其canonical owner
   - 实现语言与机制按真实责任同口径比较且不保留无依据的性能排名迁移比例或全核重写命令
-  - ProofObligation与VerificationMethodSelection的精确revision进入Action Evidence及所有case-producing TestResponsibility失效
+  - ProofObligation与VerificationMethodSelection的精确revision进入逐义务Evidence接纳且物理ActionKey只按真实执行输入去重
+  - TestResponsibility由既有实施规范唯一拥有且每个义务binding分别解释失败含义观察边界和Oracle独立性
   - 79项条件化场景及6组联合攻击作为验收设计保存且不冒充产品测试已通过
   - 所有修改后的documentation projection与canonical正文保持当前冻结候选一致
   - 本工作包只拥有本清单和所列规范及documentation投影不修改运行代码依赖测试或workflow
