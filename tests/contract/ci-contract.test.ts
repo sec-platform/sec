@@ -153,6 +153,45 @@ test('release verification never loads repository bytes from a caller-selected r
     });
 });
 
+test('release payload expires independently of retained build identity and verification evidence', async () => {
+  const release = parseYaml(await readCompilerFile('.github/workflows/compiler-release-validation.yml')) as Workflow;
+  const job = 'compiler-release-verification';
+  const steps = release.jobs[job]!.steps;
+  const build = step(release, job, 'Build and bind exact-head release set');
+  const manifests = step(release, job, 'Upload exact-head release manifests');
+  const payload = step(release, job, 'Upload exact-head runtime and documentation release set');
+  const evidence = step(release, job, 'Upload compact full verification evidence');
+
+  // All three files must be copied under set -e before the payload can expire.
+  expect(build.run).toContain('set -euo pipefail');
+  expect(build.run).toContain('cp -- build/release-set/release-set-manifest.json');
+  expect(build.run).toContain('build/release-set/runtime/runtime-package-manifest.json');
+  expect(build.run).toContain('build/release-set/documentation/documentation-package-manifest.json');
+  expect(build.run).toContain('manifest_root="$RUNNER_TEMP/sec-release-manifests-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"');
+  expect(manifests.with).toMatchObject({
+    name: 'sec-release-manifests-${{ steps.verification.outputs.sha }}-run-${{ github.run_id }}-attempt-${{ github.run_attempt }}',
+    path: '${{ runner.temp }}/sec-release-manifests-${{ github.run_id }}-${{ github.run_attempt }}',
+    'if-no-files-found': 'error',
+    'retention-days': 90
+  });
+  expect(steps.indexOf(build)).toBeLessThan(steps.indexOf(manifests));
+  expect(steps.indexOf(manifests)).toBeLessThan(steps.indexOf(payload));
+  expect(manifests.if).toBeUndefined();
+  expect(payload.if).toBeUndefined();
+  expect(payload.with).toMatchObject({
+    path: 'build/release-set/',
+    'include-hidden-files': true,
+    'if-no-files-found': 'error',
+    'retention-days': 7
+  });
+  expect(evidence.if).toBe('always()');
+  expect(evidence.with).toMatchObject({
+    path: '.tmp/ci-verification-evidence.json',
+    'if-no-files-found': 'error',
+    'retention-days': 90
+  });
+});
+
 test('coordinators never occupy the sole role of a downstream producer they join', () => {
   const compilerRoles = WORKFLOW_RUNNER_ROLES['.github/workflows/compiler-pr-validation.yml'];
   const sessionCoordinatorRole = compilerRoles['coordinate-verification-session'];
