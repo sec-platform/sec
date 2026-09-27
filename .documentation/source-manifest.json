@@ -1,6 +1,6 @@
 {
   "schema": "sec.documentation-source-manifest/2",
-  "source_set_sha256": "5fd8eea1a94bb14de61d45b3d53dfdd4490856b7e4b23c804e726fbc1b518784",
+  "source_set_sha256": "73c4c69a070b0c6d5227b71c5bd02df775f9a5ff2ca6ee14105b50112c72e4d7",
   "members": [
     {
       "path": ".documentation/README.md",
@@ -1069,8 +1069,8 @@
     },
     {
       "path": "docs/编译/表示/目标运行与观测.md",
-      "bytes": 25789,
-      "sha256": "fcc1baa800d25e0599f94d348df5df04354c1803db3999d45d6ce4ed556b1327"
+      "bytes": 25775,
+      "sha256": "52db4d6b7f712d00c08f53272631f75f9505d6ea01a763082e507f62a50c887f"
     },
     {
       "path": "docs/编译/表示/编辑与受管回源.md",
@@ -1164,8 +1164,8 @@
     },
     {
       "path": "docs/运行/验收/会话集成与结果复用.md",
-      "bytes": 18028,
-      "sha256": "5e7c55e6da3fb2b61ff9facedff660479142b2f353c53045aa77de7bd4a00096"
+      "bytes": 18132,
+      "sha256": "9c5db9ccbf4573becb83aa638d0b309a34da4b0382ab2ee5c7aff3f3d2b88655"
     },
     {
       "path": "docs/运行/验收/作者与组合案例.md",
@@ -1199,8 +1199,8 @@
     },
     {
       "path": "docs/运行/验收/方法与独立证据.md",
-      "bytes": 70487,
-      "sha256": "0b0f280d6c6453a8637ec6aba7abac8d39e3f96cb345a57b89523c48b5bc4fa1"
+      "bytes": 71766,
+      "sha256": "a5e3f39dde3c391d3211071929dd1b60c7c8ece011e5c778bb5b84564e8f61e2"
     },
     {
       "path": "docs/运行/验收/测试生成与形式方法.md",

@@ -64,6 +64,8 @@ acceptance:
   - 实现语言与机制按真实责任同口径比较且不保留无依据的性能排名迁移比例或全核重写命令
   - ProofObligation与VerificationMethodSelection的精确revision进入逐义务Evidence接纳且物理ActionKey只按真实执行输入去重
   - TestResponsibility由既有实施规范唯一拥有且每个义务binding分别解释失败含义观察边界和Oracle独立性
+  - Claim支持accepted Requirement Invariant与显式检查请求三种有类型来源且反向consumer关系不进入Claim身份
+  - Evidence对真实VerificationAction与纯静态DirectEvaluation使用不同producer身份且历史执行结果不因资格失效被改写
   - 79项条件化场景及6组联合攻击作为验收设计保存且不冒充产品测试已通过
   - 所有修改后的documentation projection与canonical正文保持当前冻结候选一致
   - 本工作包只拥有本清单和所列规范及documentation投影不修改运行代码依赖测试或workflow
