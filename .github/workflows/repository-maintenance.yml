@@ -7,6 +7,7 @@ on:
       - created
 
 permissions:
+  actions: read
   contents: write
   issues: write
   pull-requests: read
@@ -46,7 +47,8 @@ jobs:
       - name: Install maintenance dependencies from frozen lock
         run: bun install --frozen-lockfile --ignore-scripts
 
-      - name: Execute exact repository maintenance request
+      - name: Prepare exact recovery before any ref effect
+        id: prepare
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
@@ -57,20 +59,147 @@ jobs:
           SEC_MAINTENANCE_AUTHOR_ASSOCIATION: ${{ github.event.comment.author_association }}
         run: |
           set -euo pipefail
-          printf '%s\n' "$SEC_MAINTENANCE_REQUEST_JSON" > "$RUNNER_TEMP/sec-repository-maintenance-request.json"
+          request_file="$RUNNER_TEMP/sec-repository-maintenance-request.json"
+          printf '%s\n' "$SEC_MAINTENANCE_REQUEST_JSON" > "$request_file"
+          operation_kind="$(bun -e '
+            const value = JSON.parse(process.env.SEC_MAINTENANCE_REQUEST_JSON);
+            if (!Array.isArray(value.operations) || value.operations.length < 1) process.exit(2);
+            process.stdout.write(String(value.operations[0]?.kind ?? ""));
+          ')"
+          if [[ "$operation_kind" != "exact-ref-retirement" ]]; then
+            printf 'ref-operation=false\nrequires-recovery=false\n' >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          carrier_root="/tmp/sec-repository-maintenance-carrier"
+          if [[ -e "$carrier_root" || -L "$carrier_root" ]]; then
+            echo "maintenance carrier root already exists" >&2
+            exit 1
+          fi
+          mkdir -- "$carrier_root"
+          test -d "$carrier_root"
+          test ! -L "$carrier_root"
+          preparation_file="$carrier_root/recovery-preparation.json"
+
+          bun src/adapters/self-hosting/control/repository-maintenance/repository-maintenance.ts prepare-recovery \
+            > "$preparation_file"
+          required="$(bun -e '
+            const value = await Bun.file(process.argv[1]).json();
+            process.stdout.write(value.required === true ? "true" : "false");
+          ' "$preparation_file")"
+          printf 'ref-operation=true\nrequires-recovery=%s\n' "$required" >> "$GITHUB_OUTPUT"
+          if [[ "$required" != "true" ]]; then
+            exit 0
+          fi
+
+          recovery_root="$(dirname "$GITHUB_WORKSPACE")/sec-recovery"
+          artifact_root="$carrier_root/upload"
+          bundle_name="$(bun -e '
+            const value = await Bun.file(process.argv[1]).json();
+            const name = value.refPreparation?.recovery?.bundleName;
+            if (typeof name !== "string" || name.length === 0) process.exit(2);
+            process.stdout.write(name);
+          ' "$preparation_file")"
+          if [[ ! "$bundle_name" =~ ^sec-branch-closeout-[A-Za-z0-9.-]+\.bundle$ ]]; then
+            echo "recovery bundle leaf is invalid" >&2
+            exit 1
+          fi
+          bundle_digest="$(bun -e '
+            const value = await Bun.file(process.argv[1]).json();
+            const digest = value.refPreparation?.recovery?.sha256;
+            if (typeof digest !== "string" || !/^sha256:[0-9a-f]{64}$/.test(digest)) process.exit(2);
+            process.stdout.write(digest.slice(7));
+          ' "$preparation_file")"
+          mkdir -- "$artifact_root"
+          test -d "$artifact_root"
+          test ! -L "$artifact_root"
+          cp -- "$preparation_file" "$artifact_root/recovery-preparation.json"
+          cp -- "$recovery_root/$bundle_name" "$artifact_root/recovery.bundle"
+          printf '%s  recovery.bundle\n' "$bundle_digest" > "$artifact_root/recovery.bundle.sha256"
+
+      - name: Upload exact pre-effect recovery
+        id: upload-recovery
+        if: ${{ steps.prepare.outputs.requires-recovery == 'true' }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: sec-repository-maintenance-recovery-${{ github.run_id }}-${{ github.run_attempt }}
+          path: /tmp/sec-repository-maintenance-carrier/upload
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Read back exact pre-effect recovery identity
+        id: recovery-readback
+        if: ${{ steps.prepare.outputs.requires-recovery == 'true' }}
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        env:
+          ARTIFACT_ID: ${{ steps.upload-recovery.outputs.artifact-id }}
+          EXPECTED_ARTIFACT_NAME: sec-repository-maintenance-recovery-${{ github.run_id }}-${{ github.run_attempt }}
+          EXPECTED_ARTIFACT_DIGEST: sha256:${{ steps.upload-recovery.outputs.artifact-digest }}
+          EXPECTED_RUN_ATTEMPT: ${{ github.run_attempt }}
+        with:
+          script: |
+            const artifactId = Number(process.env.ARTIFACT_ID);
+            const expectedRunAttempt = Number(process.env.EXPECTED_RUN_ATTEMPT);
+            if (!Number.isSafeInteger(artifactId) || artifactId < 1 ||
+                !Number.isSafeInteger(expectedRunAttempt) || expectedRunAttempt < 1) {
+              throw new Error('Repository maintenance recovery artifact identity is invalid.');
+            }
+            const [artifact, run] = await Promise.all([
+              github.rest.actions.getArtifact({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                artifact_id: artifactId
+              }),
+              github.rest.actions.getWorkflowRun({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                run_id: context.runId
+              })
+            ]);
+            if (artifact.data.id !== artifactId ||
+                artifact.data.name !== process.env.EXPECTED_ARTIFACT_NAME ||
+                artifact.data.expired !== false ||
+                !Number.isSafeInteger(artifact.data.size_in_bytes) ||
+                artifact.data.size_in_bytes < 1 ||
+                artifact.data.digest !== process.env.EXPECTED_ARTIFACT_DIGEST ||
+                artifact.data.workflow_run?.id !== context.runId ||
+                run.data.id !== context.runId ||
+                run.data.run_attempt !== expectedRunAttempt) {
+              throw new Error('Repository maintenance recovery artifact readback differs.');
+            }
+
+      - name: Download exact pre-effect recovery
+        if: ${{ steps.prepare.outputs.requires-recovery == 'true' }}
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          artifact-ids: ${{ steps.upload-recovery.outputs.artifact-id }}
+          path: /tmp/sec-repository-maintenance-carrier/readback
+
+      - name: Execute exact repository maintenance request
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SEC_MAINTENANCE_REQUEST_JSON: ${{ github.event.comment.body }}
+          SEC_MAINTENANCE_ISSUE_NUMBER: ${{ github.event.issue.number }}
+          SEC_MAINTENANCE_COMMENT_ID: ${{ github.event.comment.id }}
+          SEC_MAINTENANCE_COMMENT_AUTHOR: ${{ github.event.comment.user.login }}
+          SEC_MAINTENANCE_AUTHOR_ASSOCIATION: ${{ github.event.comment.author_association }}
+          SEC_MAINTENANCE_RECOVERY_ARTIFACT_ID: ${{ steps.upload-recovery.outputs.artifact-id }}
+          SEC_MAINTENANCE_RECOVERY_ARTIFACT_NAME: sec-repository-maintenance-recovery-${{ github.run_id }}-${{ github.run_attempt }}
+          SEC_MAINTENANCE_RECOVERY_ARTIFACT_DIGEST: sha256:${{ steps.upload-recovery.outputs.artifact-digest }}
+          SEC_MAINTENANCE_RECOVERY_RUN_ID: ${{ github.run_id }}
+          SEC_MAINTENANCE_RECOVERY_RUN_ATTEMPT: ${{ github.run_attempt }}
+        run: |
+          set -euo pipefail
           bun src/adapters/self-hosting/control/repository-maintenance/repository-maintenance.ts --json \
             | tee "$RUNNER_TEMP/sec-repository-maintenance-result.json"
 
-      - name: Stage repository maintenance receipt
+      - name: Stage terminal repository maintenance receipt
         if: always()
         shell: bash
         run: |
-          recovery_root="$(dirname "$GITHUB_WORKSPACE")/sec-recovery"
           artifact_root="$RUNNER_TEMP/sec-repository-maintenance-receipt"
           mkdir -p -- "$artifact_root"
-          if [[ -d "$recovery_root" ]]; then
-            cp -a -- "$recovery_root/." "$artifact_root/"
-          fi
           for receipt in \
             "$RUNNER_TEMP/sec-repository-maintenance-request.json" \
             "$RUNNER_TEMP/sec-repository-maintenance-result.json"; do

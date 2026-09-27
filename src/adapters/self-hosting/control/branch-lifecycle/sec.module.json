@@ -76,6 +76,7 @@
     {
       "capability": "branch-lifecycle.exact-ref-retirement",
       "operations": [
+        "prepareExactRemoteRefRecovery",
         "retireExactRemoteRefs"
       ],
       "effectKinds": [
@@ -83,9 +84,17 @@
         "provider"
       ],
       "ownerInternalOperations": [
+        "prepareExactRemoteRefRecovery",
         "retireExactRemoteRefs"
       ],
       "operationRoles": [
+        {
+          "operation": "prepareExactRemoteRefRecovery",
+          "role": "domain-owner",
+          "semanticOperation": "control.branch-lifecycle.exact-ref-retirement.prepare-recovery",
+          "requirementId": null,
+          "recovery": null
+        },
         {
           "operation": "retireExactRemoteRefs",
           "role": "domain-owner",
