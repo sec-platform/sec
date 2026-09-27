@@ -1,6 +1,9 @@
 import { expect, test } from 'bun:test';
 
 import { parseExactRefRetirement } from '../../src/adapters/self-hosting/control/branch-lifecycle/exact-ref-retirement-contract.ts';
+import {
+  parseExactRemoteRefRecoveryPreparation
+} from '../../src/adapters/self-hosting/control/branch-lifecycle/exact-ref-retirement.ts';
 import { parseRepositoryMaintenanceRequest } from '../../src/adapters/self-hosting/control/repository-maintenance/contract.ts';
 import {
   assertHostedRepositoryMaintenanceIdentity,
@@ -180,6 +183,49 @@ test('maintenance request accepts one exact ref or bounded exact comment batch',
       }
     }]
   }))).toThrow('restricted to lifecycle issue #313');
+});
+
+test('exact ref recovery preparation binds request identity, ref state and bundle digest', () => {
+  const retirement = parseExactRefRetirement({
+    classification: 'main-tree-identical',
+    branches: ['fix/process-residue'],
+    expectedHeadSha: 'b'.repeat(40)
+  });
+  const parsed = parseExactRemoteRefRecoveryPreparation({
+    schema: 'sec-exact-ref-retirement-recovery-preparation-v1',
+    repository: 'sec-platform/sec',
+    expectedMainSha: MAIN,
+    retirement,
+    refState: 'present',
+    recovery: {
+      bundleName: 'sec-branch-closeout-1234-99-123e4567-e89b-12d3-a456-426614174000.bundle',
+      sha256: 'sha256:' + 'c'.repeat(64),
+      verifyOutput: 'verified'
+    }
+  });
+  expect(parsed).toEqual({
+    schema: 'sec-exact-ref-retirement-recovery-preparation-v1',
+    repository: 'sec-platform/sec',
+    expectedMainSha: MAIN,
+    retirement,
+    refState: 'present',
+    recovery: {
+      bundleName: 'sec-branch-closeout-1234-99-123e4567-e89b-12d3-a456-426614174000.bundle',
+      sha256: 'sha256:' + 'c'.repeat(64),
+      verifyOutput: 'verified'
+    }
+  });
+  expect(() => parseExactRemoteRefRecoveryPreparation({
+    ...parsed,
+    refState: 'moved'
+  })).toThrow('identity is invalid');
+  expect(() => parseExactRemoteRefRecoveryPreparation({
+    ...parsed,
+    recovery: {
+      ...parsed.recovery,
+      bundleName: '../escape.bundle'
+    }
+  })).toThrow('bundle identity is invalid');
 });
 
 test('hosted maintenance binds exact main workflow, lifecycle issue and maintainer event identity', () => {
