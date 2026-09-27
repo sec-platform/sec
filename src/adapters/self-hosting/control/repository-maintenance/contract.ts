@@ -6,6 +6,8 @@ import {
 export const REPOSITORY_MAINTENANCE_REQUEST_SCHEMA =
   'sec-repository-maintenance-request-v1' as const;
 
+export const REPOSITORY_MAINTENANCE_ISSUE_NUMBER = 313 as const;
+
 export type ExactCommentRetirement = Readonly<{
   issueNumber: number;
   commentId: number;
@@ -80,8 +82,14 @@ function parseExactCommentRetirement(value: unknown): ExactCommentRetirement {
     ['issueNumber', 'commentId', 'expectedBodyDigest'],
     'exact comment retirement'
   );
+  const issueNumber = positiveInteger(input.issueNumber, 'issueNumber');
+  if (issueNumber !== REPOSITORY_MAINTENANCE_ISSUE_NUMBER) {
+    throw new Error(
+      `exact comment retirement is restricted to lifecycle issue #${REPOSITORY_MAINTENANCE_ISSUE_NUMBER}`
+    );
+  }
   return Object.freeze({
-    issueNumber: positiveInteger(input.issueNumber, 'issueNumber'),
+    issueNumber: REPOSITORY_MAINTENANCE_ISSUE_NUMBER,
     commentId: positiveInteger(input.commentId, 'commentId'),
     expectedBodyDigest: digest(input.expectedBodyDigest, 'expectedBodyDigest')
   });

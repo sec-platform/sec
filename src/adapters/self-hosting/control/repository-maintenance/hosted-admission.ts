@@ -1,9 +1,10 @@
 import {
   parseRepositoryMaintenanceRequest,
+  REPOSITORY_MAINTENANCE_ISSUE_NUMBER,
   type MaintenanceRequest
 } from './contract.ts';
 
-export const REPOSITORY_MAINTENANCE_ISSUE_NUMBER = 313 as const;
+export { REPOSITORY_MAINTENANCE_ISSUE_NUMBER } from './contract.ts';
 export const REPOSITORY_MAINTENANCE_WORKFLOW_PATH =
   '.github/workflows/repository-maintenance.yml' as const;
 
