@@ -1,6 +1,6 @@
 {
   "schema": "sec.documentation-source-manifest/2",
-  "source_set_sha256": "5e8c602ae08a57a22215baf52b8a3cf7db55a7521c744aca290d4b88ff7ca41c",
+  "source_set_sha256": "3c29d1254ddd369764787b56bbf5a1828757c5b468259c31a78d44cdf77f0421",
   "members": [
     {
       "path": ".documentation/README.md",
@@ -779,8 +779,8 @@
     },
     {
       "path": "docs/演进/领域组合与扩展条件.md",
-      "bytes": 109639,
-      "sha256": "e56d4041ab84ff21f11264be550737aeabf6c4e7374d75f6c1815720c8d0c7b3"
+      "bytes": 110506,
+      "sha256": "0730e26ae40a86529797a66d0924d4b6ec20c8303989dd78a91e2127200fa424"
     },
     {
       "path": "docs/状态/README.md",
