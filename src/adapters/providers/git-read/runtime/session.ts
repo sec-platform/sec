@@ -271,11 +271,15 @@ type GitScratchIndexTreeResult<T> = Readonly<
 >;
 
 /**
- * Narrow Git effect capability for computing a tree from one immutable index.
- * It intentionally exposes no generic argv, config, ref, or repository-write
- * surface.  The typed index delta is applied only inside the retained,
- * repository-external scratch object directory and the resulting tree is
- * read back through the same retained provider.
+ * Narrow Git effect capability for computing a tree from one immutable set of
+ * index entries. Native Git may rewrite physical index metadata/extensions
+ * such as cache-tree while preserving those entries; this owner represents
+ * that as an explicit scratch-index generation transition rather than
+ * weakening the retained-file fence. It intentionally exposes no generic
+ * argv, config, ref, or repository-write surface. The typed index delta is
+ * applied only inside the retained, repository-external scratch object
+ * directory and the resulting tree is read back through the same retained
+ * provider.
  */
 export type GitScratchIndexTreeSession = Readonly<{
   readonly scratchRoot: string;
@@ -1660,12 +1664,56 @@ export async function createAuthorityGitScratchIndexTreeSession(input: Readonly<
     const run = (args: readonly string[]): Promise<GitReadSessionCommand | null> =>
       runWithInput(args, environment());
     const writeTreeInEnvironment = async (
-      commandEnvironment: Readonly<Record<string, string>>
+      commandEnvironment: () => Readonly<Record<string, string>>
     ): Promise<GitScratchIndexTreeResult<string>> => {
       if (terminalFailure !== null) return unavailable(terminalFailure);
-      const command = await runWithInput(Object.freeze(['write-tree']), commandEnvironment);
+
+      // Native Git may populate or refresh the cache-tree extension during
+      // `write-tree`. That is an owner-authorized scratch-index generation
+      // transition, not evidence that an immutable retained input changed
+      // behind this owner. Keep the low-level file fence strict: release the
+      // exact retained index before this fixed Git effect, then issue a fresh
+      // retained capability for the resulting index generation before the
+      // computed tree can escape.
+      try {
+        releaseScratchIndexForUpdate();
+      } catch (error) {
+        return unavailable(
+          terminalFailure ?? 'scratch-index-changed',
+          failureMessage(error)
+        );
+      }
+
+      let command: GitReadSessionCommand | null = null;
+      let operationError: unknown;
+      try {
+        command = await runWithInput(
+          Object.freeze(['write-tree']),
+          commandEnvironment()
+        );
+      } catch (error) {
+        operationError = error;
+      }
+
+      try {
+        scratchIndexCapability = retainScratchIndex();
+      } catch (error) {
+        return unavailable(
+          terminalFailure ?? 'scratch-index-changed',
+          failureMessage(error)
+        );
+      }
+
+      if (operationError !== undefined) throw operationError;
       if (command === null || command.kind !== 'completed' || command.result.code !== 0) {
-        return unavailable(terminalFailure ?? 'session-failed');
+        return unavailable(
+          terminalFailure ?? 'session-failed',
+          command === null
+            ? 'Git scratch write-tree returned no result.'
+            : command.kind === 'completed'
+              ? command.result.stderr.trim() || `Git scratch write-tree exited ${command.result.code}.`
+              : command.detail
+        );
       }
       const value = parseGitObjectIdReply(command.result.stdout, objectFormat);
       if (value === null) {
@@ -1745,7 +1793,7 @@ export async function createAuthorityGitScratchIndexTreeSession(input: Readonly<
           );
         }
       }
-      return writeTreeInEnvironment(commandEnvironment());
+      return writeTreeInEnvironment(commandEnvironment);
     };
     const applyIndexDelta = async (
       input: GitScratchIndexTreeDelta
@@ -1759,7 +1807,7 @@ export async function createAuthorityGitScratchIndexTreeSession(input: Readonly<
       applyIndexDelta,
       materializeIndexDelta,
       async writeTree(): Promise<GitScratchIndexTreeResult<string>> {
-        return operate(() => writeTreeInEnvironment(environment()));
+        return operate(() => writeTreeInEnvironment(environment));
       },
       async commitTree(commitInput: GitCommitTreeInput): Promise<GitScratchIndexTreeResult<string>> {
         return operate(async () => {

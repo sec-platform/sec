@@ -48,3 +48,62 @@ for (const scenario of ['empty', 'populated', 'narrow-parent'] as const) {
       }, async () => { rmSync(scratchRoot, { recursive: true, force: true }); });
     }));
 }
+
+test.skipIf(process.platform !== 'linux')(
+  'production scratch owner rebinds a cold index after write-tree cache mutation',
+  () => inGitProtocolRepository(async (root, git) => {
+    writeFileSync(path.join(root, 'cold-index.txt'), 'cold index input\n', 'utf8');
+    gitProtocolSuccess(git(['add', '--', 'cold-index.txt']));
+
+    const scratchRoot = mkdtempSync(path.join(tmpdir(), 'sec-native-cold-write-tree-'));
+    await settleWorkspaceCallback(async () => {
+      copyFileSync(path.join(root, '.git', 'index'), path.join(scratchRoot, 'index'));
+      mkdirSync(path.join(scratchRoot, 'objects'));
+      // Compute the independent semantic expectation only after copying the
+      // cold scratch index, so this does not warm the subject under test.
+      const expectedTree = gitProtocolSuccess(git(['write-tree'])).trim();
+
+      await withAuthorityGitReadSession(
+        { cwd: root, budget: { maxProcesses: 8 } },
+        async session => {
+          const resolution = await createAuthorityGitScratchIndexTreeSession({
+            gitReadSession: session,
+            scratchRoot
+          });
+          assert.equal(
+            resolution.status,
+            'ready',
+            'production scratch owner must admit the cold-index fixture'
+          );
+          if (resolution.status !== 'ready') {
+            throw new Error('Production scratch owner is required for the cold-index regression.');
+          }
+
+          let primary: unknown;
+          try {
+            const tree = await resolution.session.writeTree();
+            assert.equal(tree.status, 'ready');
+            if (tree.status !== 'ready') {
+              throw new Error(`Cold scratch write-tree failed: ${tree.reason}`);
+            }
+            assert.match(tree.value, /^[0-9a-f]{40,64}$/u);
+            assert.equal(tree.value, expectedTree);
+
+            const second = await resolution.session.writeTree();
+            assert.equal(second.status, 'ready');
+            if (second.status === 'ready') assert.equal(second.value, tree.value);
+          } catch (error) {
+            primary = error;
+            throw error;
+          } finally {
+            const closeFailure = await resolution.session.close();
+            if (primary === undefined) assert.equal(closeFailure, null);
+          }
+        }
+      );
+    }, async () => {
+      rmSync(scratchRoot, { recursive: true, force: true });
+    });
+  }),
+  { timeout: 30_000 }
+);
