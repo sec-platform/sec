@@ -1,6 +1,6 @@
 {
   "schema": "sec.documentation-source-manifest/2",
-  "source_set_sha256": "ca6b74295a06b66fbdd751e3545483165801b5a794f98c6320e825ba4cea6574",
+  "source_set_sha256": "069a0899e9bff1b5ae2380de3b2a30c51dae52ddb68202525b260e9be82b1d6b",
   "members": [
     {
       "path": ".documentation/README.md",
@@ -754,8 +754,8 @@
     },
     {
       "path": "docs/演进/实施/安全构建发布与环境.md",
-      "bytes": 9949,
-      "sha256": "4672144d777bae1d95d92b1343619d812642837d583311eb7d31c5eedf89eea2"
+      "bytes": 11061,
+      "sha256": "1eb9d4bf2c978b52f7e1cad2e97dce7f35d79db7ca3e487103576388082e92a6"
     },
     {
       "path": "docs/演进/实施/独立能力的实施单元.md",
@@ -1069,8 +1069,8 @@
     },
     {
       "path": "docs/编译/表示/目标运行与观测.md",
-      "bytes": 24914,
-      "sha256": "8488eaaa307f72efed3f602e09c5a427eb4741b0fd2653d6bae0f04326258560"
+      "bytes": 25681,
+      "sha256": "27cb7e6f26f91b356814075fc5635e5976a258e8faf694d737283ef83530bd08"
     },
     {
       "path": "docs/编译/表示/编辑与受管回源.md",
@@ -1164,8 +1164,8 @@
     },
     {
       "path": "docs/运行/验收/会话集成与结果复用.md",
-      "bytes": 17743,
-      "sha256": "d6fa8854dc8cfb5545b7fb15d72c8b920f01ca4bea523037d8574cd6170451b5"
+      "bytes": 18028,
+      "sha256": "5e7c55e6da3fb2b61ff9facedff660479142b2f353c53045aa77de7bd4a00096"
     },
     {
       "path": "docs/运行/验收/作者与组合案例.md",
@@ -1199,13 +1199,13 @@
     },
     {
       "path": "docs/运行/验收/方法与独立证据.md",
-      "bytes": 70120,
-      "sha256": "6ff927936cbc4f4db911fedc2b39a076bb8226393ad590ed52ac1827e30d4194"
+      "bytes": 70487,
+      "sha256": "0b0f280d6c6453a8637ec6aba7abac8d39e3f96cb345a57b89523c48b5bc4fa1"
     },
     {
       "path": "docs/运行/验收/测试生成与形式方法.md",
-      "bytes": 20771,
-      "sha256": "bb49ba68934d477dda529e0966cdfb4134c0fbe426642afbae5d7879e78dab4c"
+      "bytes": 20975,
+      "sha256": "3faa361fad8635335c64e3a55fd81b10e4cefb65c4c6450b7b1251d8c0b780b3"
     },
     {
       "path": "docs/运行/验收/系统组合挑战与反例.md",
