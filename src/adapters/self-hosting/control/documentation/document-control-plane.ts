@@ -4482,22 +4482,23 @@ async function assertCommittedCandidateReplanAuthority(input: {
               controlGenerationUnchanged = false;
               break;
             }
-            const generation = identities[0]!;
-            const controlDiff = await run('git', [
-              'diff', '--exit-code', '--name-only', '-z',
-              '--no-ext-diff', '--no-textconv', '--no-renames',
-              rollingMachine.exactMain, generation, '--', ...unchangedControlPaths
-            ], input.repositoryRoot);
-            if (controlDiff.code !== 0) {
-              if (controlDiff.code !== 1) {
-                throw new Error('Historical live-default control generation could not be compared.');
-              }
-              controlGenerationUnchanged = false;
-              break;
-            }
-            previous = generation;
+            previous = identities[0]!;
           }
           if (previous !== input.trustedDefaultSha) controlGenerationUnchanged = false;
+          if (controlGenerationUnchanged) {
+            // Git's first-parent path walk counts changes at every generation,
+            // including a change later reverted to the original bytes.  The
+            // single native read keeps process use independent of history size.
+            const changedControlCount = requireCommand(await run('git', [
+              'rev-list', '--first-parent', '--full-history', '--show-pulls', '--count',
+              `${rollingMachine.exactMain}..${input.trustedDefaultSha}`,
+              '--', ...unchangedControlPaths
+            ], input.repositoryRoot), 'Historical live-default control path changes').trim();
+            if (!/^(?:0|[1-9][0-9]*)$/u.test(changedControlCount)) {
+              throw new Error('Historical live-default control path count is invalid.');
+            }
+            controlGenerationUnchanged = changedControlCount === '0';
+          }
         }
         if (!controlGenerationUnchanged) {
           const publicationChain = requireCommand(
