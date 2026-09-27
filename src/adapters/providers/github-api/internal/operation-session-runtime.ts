@@ -128,6 +128,7 @@ export type GitHubApiOperation =
   | Readonly<{ kind: 'open-pulls-page'; page: number }>
   | Readonly<{ kind: 'matching-head-refs'; page: number }>
   | Readonly<{ kind: 'git-ref'; branch: string }>
+  | Readonly<{ kind: 'git-commit'; sha: string }>
   | Readonly<{ kind: 'workflow-run'; runId: string }>
   | Readonly<{ kind: 'check-runs'; sha: string; page: number }>
   | Readonly<{ kind: 'code-scanning-alerts'; pullRequestNumber: number; page: number }>
@@ -266,6 +267,7 @@ function compileOperation(
       && kind !== 'repository'
       && kind !== 'pull'
       && kind !== 'git-ref'
+      && kind !== 'git-commit'
       && kind !== 'issue-comments'
       && kind !== 'issue-comment'
       && kind !== 'create-issue-comment'
@@ -356,6 +358,7 @@ function compileOperation(
       return read(`/repos/${repo}/pulls?state=open&per_page=100&page=${page(operation.page)}`);
     case 'matching-head-refs': return read(`/repos/${repo}/git/matching-refs/heads/?per_page=100&page=${page(operation.page)}`);
     case 'git-ref': return read(`/repos/${repo}/git/ref/heads/${encodeURIComponent(boundedText(operation.branch, 'branch', 255))}`);
+    case 'git-commit': return read(`/repos/${repo}/git/commits/${sha(operation.sha)}`);
     case 'workflow-run': {
       const runId = operation.runId;
       if (typeof runId !== 'string' || !/^[1-9][0-9]*$/u.test(runId)) {

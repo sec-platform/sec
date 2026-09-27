@@ -141,6 +141,39 @@ async function assertLiveMain(
   }
 }
 
+async function observeCommitTree(
+  capability: GitHubApiCapability,
+  commitSha: string
+): Promise<string> {
+  const value = record(
+    await executeGitHubApiOperation(capability, { kind: 'git-commit', sha: commitSha }),
+    `GitHub commit ${commitSha}`
+  );
+  const tree = record(value.tree, `GitHub commit ${commitSha} tree`);
+  if (value.sha !== commitSha
+      || typeof tree.sha !== 'string'
+      || !/^[0-9a-f]{40}$/u.test(tree.sha)) {
+    throw new Error(`GitHub commit ${commitSha} tree identity is invalid`);
+  }
+  return tree.sha;
+}
+
+async function assertMainTreeIdentical(
+  capability: GitHubApiCapability,
+  request: Extract<ExactRefRetirement, { classification: 'main-tree-identical' }>,
+  expectedMainSha: string
+): Promise<void> {
+  const [targetTree, mainTree] = await Promise.all([
+    observeCommitTree(capability, request.expectedHeadSha),
+    observeCommitTree(capability, expectedMainSha)
+  ]);
+  if (targetTree !== mainTree) {
+    throw new Error(
+      `branch ${request.branches[0]} tree ${targetTree} differs from live main tree ${mainTree}`
+    );
+  }
+}
+
 async function assertExactClosedPullRequest(
   capability: GitHubApiCapability,
   repository: string,
@@ -204,6 +237,8 @@ async function observeRemoteState(input: Readonly<{
       );
       if (input.request.classification === 'closed-pr-superseded') {
         await assertExactClosedPullRequest(capability, input.repository, input.request);
+      } else if (input.request.classification === 'main-tree-identical') {
+        await assertMainTreeIdentical(capability, input.request, input.expectedMainSha);
       }
       const state = new Map<string, string | null>();
       for (const branch of input.request.branches) {
@@ -297,6 +332,8 @@ export async function retireExactRemoteRefs(input: Readonly<{
         );
         if (request.classification === 'closed-pr-superseded') {
           await assertExactClosedPullRequest(capability, input.repository, request);
+        } else if (request.classification === 'main-tree-identical') {
+          await assertMainTreeIdentical(capability, request, input.expectedMainSha);
         }
         const immediatelyBefore = await observeGitRef(capability, branch);
         if (immediatelyBefore === null) return 'already-absent' as const;

@@ -913,6 +913,33 @@ test('maintenance workflow principal admits read, branch-closeout, and exact com
   })).toThrow('workflow principal effect is not authorized');
 });
 
+test('branch-closeout exact git commit read is SHA-addressed', async () => {
+  const targets: string[] = [];
+  const api = capability({
+    effect: 'branch-closeout-write',
+    transport: async (target) => {
+      targets.push(String(target));
+      return Response.json({
+        sha: 'a'.repeat(40),
+        tree: { sha: 'b'.repeat(40) }
+      });
+    }
+  });
+  expect(await withGitHubApiTestSession({
+    capability: api,
+    operation: () => executeGitHubApiOperation(api, {
+      kind: 'git-commit',
+      sha: 'a'.repeat(40)
+    })
+  })).toEqual({
+    sha: 'a'.repeat(40),
+    tree: { sha: 'b'.repeat(40) }
+  });
+  expect(targets).toEqual([
+    'https://api.github.com/repos/sec-platform/sec/git/commits/' + 'a'.repeat(40)
+  ]);
+});
+
 test('branch-closeout open pull census is bounded and page-addressed', async () => {
   const targets: string[] = [];
   const api = capability({
