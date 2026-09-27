@@ -84,13 +84,13 @@
       "id": "REQ014",
       "path": "docs/产品/产品要求与工作约束.md",
       "fragment": "req014",
-      "body_sha256": "9e997b74bf6de3997d1bfe01e4e802eb8613b1c2402f5ccb841b204b617c41aa"
+      "body_sha256": "d088b6079ca3a074a46a64280e9b869516541ba1ba73ece9c5c6cdcf36280057"
     },
     {
       "id": "REQ015",
       "path": "docs/产品/产品要求与工作约束.md",
       "fragment": "req015",
-      "body_sha256": "6099ea6a3fd59daae9fd61fe551b6ea1f9f8a6aeb88b58f4639b88e444409177"
+      "body_sha256": "f584fd398a042a5ece2fea7a0f5198bc83c5981a3b43e84f847e1c672a38fcbd"
     },
     {
       "id": "REQ016",
@@ -144,7 +144,7 @@
       "id": "REQ024",
       "path": "docs/产品/产品要求与工作约束.md",
       "fragment": "req024",
-      "body_sha256": "990764cb971c423f4f209e6b89385990907bb0c0fbc87549847ec2662a244c42"
+      "body_sha256": "0f284ad83554aaf6dcbcca60106be17c55bbbb4a23ac447b265ec69d9de7ee2c"
     },
     {
       "id": "REQ025",

@@ -1057,6 +1057,14 @@
     {
       "document_id": "urn:uuid:87c3e816-90c7-5197-b092-32f11d53254d",
       "path": "docs/状态/设计剩余全量清单.md"
+    },
+    {
+      "document_id": "urn:uuid:559d2001-4f02-405f-b6ff-a83a6f47b55b",
+      "path": "docs/架构/实现语言与机制演进.md"
+    },
+    {
+      "document_id": "urn:uuid:7044423f-97aa-4421-94b0-126a136b04ef",
+      "path": "docs/运行/验收/控制与演进案例.md"
     }
   ]
 }
