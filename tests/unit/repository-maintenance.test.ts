@@ -153,6 +153,19 @@ test('maintenance request accepts one exact ref or bounded exact comment batch',
       }
     }]
   }))).toThrow('commentId');
+  expect(() => parseRepositoryMaintenanceRequest(JSON.stringify({
+    schema: 'sec-repository-maintenance-request-v1',
+    repository: 'sec-platform/sec',
+    expectedMainSha: MAIN,
+    operations: [{
+      kind: 'exact-comment-retirement',
+      retirement: {
+        issueNumber: 650,
+        commentId: 42,
+        expectedBodyDigest: 'sha256:' + 'c'.repeat(64)
+      }
+    }]
+  }))).toThrow('restricted to lifecycle issue #313');
 });
 
 test('hosted maintenance binds exact main workflow, lifecycle issue and maintainer event identity', () => {

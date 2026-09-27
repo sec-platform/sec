@@ -9,16 +9,15 @@ import {
 } from '../../../providers/github-api/operation-session.ts';
 import {
   parseRepositoryMaintenanceRequest,
+  REPOSITORY_MAINTENANCE_ISSUE_NUMBER,
   type ExactCommentRetirement,
   type MaintenanceRequest
 } from './contract.ts';
-import { REPOSITORY_MAINTENANCE_ISSUE_NUMBER } from './hosted-admission.ts';
 
 type ObservedComment = Readonly<{
   id: number;
   body: string;
   issueUrl: string;
-  authorLogin: string;
 }>;
 
 function record(value: unknown, label: string): Record<string, unknown> {
@@ -30,18 +29,15 @@ function record(value: unknown, label: string): Record<string, unknown> {
 
 function observeComment(value: unknown): ObservedComment {
   const comment = record(value, 'issue comment');
-  const user = record(comment.user, 'issue comment user');
   if (!Number.isSafeInteger(comment.id) || Number(comment.id) < 1
       || typeof comment.body !== 'string'
-      || typeof comment.issue_url !== 'string'
-      || typeof user.login !== 'string' || user.login.length === 0) {
+      || typeof comment.issue_url !== 'string') {
     throw new Error('issue comment observation is invalid');
   }
   return Object.freeze({
     id: Number(comment.id),
     body: comment.body,
-    issueUrl: comment.issue_url,
-    authorLogin: user.login
+    issueUrl: comment.issue_url
   });
 }
 
@@ -72,34 +68,15 @@ function maintenanceRequest(body: string): MaintenanceRequest | null {
 function classifyDisposableComment(
   retirement: ExactCommentRetirement,
   comment: ObservedComment
-): Readonly<
-  | { kind: 'maintenance-trigger'; request: MaintenanceRequest }
-  | { kind: 'codex-command' }
-  | { kind: 'codex-setup-hint' }
-  | { kind: 'codex-summary' }
-  | { kind: 'codex-usage-limit' }
-> {
-  const trimmed = comment.body.trim();
-  if (retirement.issueNumber === REPOSITORY_MAINTENANCE_ISSUE_NUMBER) {
-    const request = maintenanceRequest(trimmed);
-    if (request !== null) return Object.freeze({ kind: 'maintenance-trigger', request });
+): Readonly<{ kind: 'maintenance-trigger'; request: MaintenanceRequest }> {
+  if (retirement.issueNumber !== REPOSITORY_MAINTENANCE_ISSUE_NUMBER) {
+    throw new Error('exact comment retirement escaped the lifecycle issue boundary');
   }
-  if (trimmed === '@codex review' || trimmed === '@codex security review') {
-    return Object.freeze({ kind: 'codex-command' });
+  const request = maintenanceRequest(comment.body.trim());
+  if (request === null) {
+    throw new Error('comment is not one repository-maintenance transport trigger');
   }
-  if (comment.authorLogin === 'chatgpt-codex-connector[bot]'
-      && trimmed.startsWith('<!-- codex-pull-request-review-summary -->')) {
-    return Object.freeze({ kind: 'codex-summary' });
-  }
-  if (comment.authorLogin === 'chatgpt-codex-connector[bot]'
-      && trimmed.startsWith('To use Codex here, [create an environment for this repo](')) {
-    return Object.freeze({ kind: 'codex-setup-hint' });
-  }
-  if (comment.authorLogin === 'chatgpt-codex-connector[bot]'
-      && trimmed.startsWith('You have reached your Codex usage limits for code reviews.')) {
-    return Object.freeze({ kind: 'codex-usage-limit' });
-  }
-  throw new Error('comment is not in the closed disposable maintenance/comment set');
+  return Object.freeze({ kind: 'maintenance-trigger', request });
 }
 
 async function observeIssueComment(
@@ -115,32 +92,6 @@ async function observeIssueComment(
     if (error instanceof GitHubApiProviderError && error.statusCode === 404) return null;
     throw error;
   }
-}
-
-async function assertClosedPullConversation(input: Readonly<{
-  repositoryRoot: string;
-  repository: string;
-  issueNumber: number;
-}>): Promise<void> {
-  await withGitHubApiReadSession({
-    repositoryRoot: input.repositoryRoot,
-    repository: input.repository,
-    operation: async (capability) => {
-      const value = record(
-        await executeGitHubApiOperation(capability, {
-          kind: 'issue',
-          issueNumber: input.issueNumber
-        }),
-        'comment parent issue'
-      );
-      if (value.state !== 'closed'
-          || value.pull_request === null
-          || typeof value.pull_request !== 'object'
-          || Array.isArray(value.pull_request)) {
-        throw new Error('Codex transport comment retirement requires one closed pull request');
-      }
-    }
-  });
 }
 
 async function assertMaintenanceRequestSettled(input: Readonly<{
@@ -184,13 +135,7 @@ export async function retireExactIssueComment(input: Readonly<{
 }>): Promise<Readonly<{
   retired: readonly number[];
   alreadyAbsent: readonly number[];
-  classification:
-    | 'maintenance-trigger'
-    | 'codex-command'
-    | 'codex-setup-hint'
-    | 'codex-summary'
-    | 'codex-usage-limit'
-    | 'already-absent';
+  classification: 'maintenance-trigger' | 'already-absent';
 }>> {
   const repositoryRoot = path.resolve(input.repositoryRoot);
   if (input.retirement.commentId === input.triggeringCommentId) {
@@ -214,21 +159,11 @@ export async function retireExactIssueComment(input: Readonly<{
   }
   assertExactCommentIdentity(input.repository, input.retirement, preflight);
   const classification = classifyDisposableComment(input.retirement, preflight);
-  if (classification.kind === 'maintenance-trigger') {
-    await assertMaintenanceRequestSettled({
-      repositoryRoot,
-      repository: input.repository,
-      request: classification.request
-    });
-  } else if (classification.kind === 'codex-command'
-      || classification.kind === 'codex-setup-hint'
-      || classification.kind === 'codex-summary') {
-    await assertClosedPullConversation({
-      repositoryRoot,
-      repository: input.repository,
-      issueNumber: input.retirement.issueNumber
-    });
-  }
+  await assertMaintenanceRequestSettled({
+    repositoryRoot,
+    repository: input.repository,
+    request: classification.request
+  });
 
   await withGitHubApiIssueCommentWriteSession({
     repositoryRoot,
