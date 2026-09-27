@@ -28,7 +28,7 @@ export function captureGitReadArguments(
 
 const REV_LIST_FLAGS = new Set([
       '--parents', '--walk-reflogs', '-n', '1', '--count', '--not',
-      '--first-parent', '--ancestry-path', '--reverse'
+      '--first-parent', '--ancestry-path', '--reverse', '--full-history', '--show-pulls'
     ]);
 
 const REV_PARSE_FLAGS = new Set([
@@ -76,7 +76,7 @@ const GIT_READ_ONLY_COMMANDS = new Set([
 
 // These commands stop option parsing at --; following tokens are literal
 // pathspecs, even when a tracked filename happens to spell a forbidden flag.
-const GIT_PATHSPEC_COMMANDS = new Set(['status', 'diff', 'diff-files', 'diff-index', 'ls-files', 'ls-tree']);
+const GIT_PATHSPEC_COMMANDS = new Set(['status', 'diff', 'diff-files', 'diff-index', 'ls-files', 'ls-tree', 'rev-list']);
 
 const GIT_READ_FORBIDDEN_HELPER_ARGUMENTS = new Set([
   '--ext-diff',
@@ -290,8 +290,7 @@ export function gitReadCommandIsObservation(args: readonly string[]): boolean {
     // path walk, so keep the allowlist explicit instead of treating every
     // rev-list option as a read capability.
     const allowed = REV_LIST_FLAGS;
-    return commandArgs.every((argument) => allowed.has(argument) || !argument.startsWith('-'));
+    return optionArgs.every((argument) => allowed.has(argument) || !argument.startsWith('-'));
   }
   return false;
 }
-

@@ -5,7 +5,8 @@ import { captureGitReadArguments, gitReadCommandIsObservation } from '../../src/
 const head = 'a'.repeat(40);
 const pathCommands = [
   ['status', '--short'], ['diff', '--name-only', head], ['diff-files', '--name-only'],
-  ['diff-index', '--name-only', head], ['ls-files', '-z'], ['ls-tree', '--name-only', head]
+  ['diff-index', '--name-only', head], ['ls-files', '-z'], ['ls-tree', '--name-only', head],
+  ['rev-list', '--first-parent', '--full-history', '--show-pulls', '--count', `${head}..${head}`]
 ];
 
 test('the first option terminator turns all later values into literal pathspecs', () => {
@@ -21,6 +22,18 @@ test('the same dangerous spelling before option termination remains forbidden', 
   }
   assert.equal(gitReadCommandIsObservation(['diff-files', '--cached', '--', 'file']), false);
   assert.equal(gitReadCommandIsObservation(['diff-files', '--', '--cached']), true);
+});
+
+test('bounded first-parent control history uses only the admitted read grammar', () => {
+  assert.equal(gitReadCommandIsObservation([
+    'rev-list', '--first-parent', '--full-history', '--show-pulls', '--count',
+    `${head}..${head}`, '--', 'config/repository/work-selection.md'
+  ]), true);
+  for (const option of ['--exec=unsafe', '--textconv', '--filter=blob:none', '--upload-pack=x']) {
+    assert.equal(gitReadCommandIsObservation([
+      'rev-list', '--first-parent', option, `${head}..${head}`, '--', 'config/repository/work-selection.md'
+    ]), false);
+  }
 });
 
 test('grep patterns are exactly one -e operand, not recursively parsed helper switches', () => {
