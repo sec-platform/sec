@@ -1,6 +1,6 @@
 {
   "schema": "sec.documentation-source-manifest/2",
-  "source_set_sha256": "3c29d1254ddd369764787b56bbf5a1828757c5b468259c31a78d44cdf77f0421",
+  "source_set_sha256": "5417c4e1e7f615adbd276ac8a3d1b87e9d23279a42d4f2798fd1595acb1af989",
   "members": [
     {
       "path": ".documentation/README.md",
@@ -694,8 +694,8 @@
     },
     {
       "path": "docs/架构/实现语言与机制演进.md",
-      "bytes": 30756,
-      "sha256": "4c264d7c3e44d6adbc87445b8627cb188f456b609432ebf5a58c57158fe07fff"
+      "bytes": 31322,
+      "sha256": "fbd3bd63ddd5278cdac19ea04bf29540b4c19e7f11ebea5ea252ede09a1b8f5e"
     },
     {
       "path": "docs/架构/总体设计.md",
@@ -779,8 +779,8 @@
     },
     {
       "path": "docs/演进/领域组合与扩展条件.md",
-      "bytes": 110506,
-      "sha256": "0730e26ae40a86529797a66d0924d4b6ec20c8303989dd78a91e2127200fa424"
+      "bytes": 111098,
+      "sha256": "69265282d11ce9d25b75a58f524eb6b3992e3e6bad20a6a35bc8e9250ff20914"
     },
     {
       "path": "docs/状态/README.md",
