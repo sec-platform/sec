@@ -67,16 +67,11 @@ export function readVerificationDataRecord(
   if (ownKeys.some((key) => typeof key === 'symbol')) {
     throw new Error(`${label} must not contain symbol fields.`);
   }
-  const snapshot: Record<string, unknown> = {};
-  for (const key of ownKeys as string[]) {
-    Object.defineProperty(snapshot, key, {
-      value: ordinaryDataDescriptor(value, key, `${label}.${key}`).value,
-      enumerable: true,
-      configurable: true,
-      writable: true
-    });
-  }
-  return snapshot;
+  const entries = (ownKeys as string[]).map((key) => [
+    key,
+    ordinaryDataDescriptor(value, key, `${label}.${key}`).value
+  ] as const);
+  return Object.fromEntries(entries);
 }
 
 function snapshotStrictVerificationData(
@@ -136,16 +131,11 @@ function snapshotStrictVerificationData(
       key: key as string,
       descriptor: ordinaryDataDescriptor(value, key, `${label}.${String(key)}`)
     }));
-    const snapshot: { [key: string]: VerificationDataSnapshot } = {};
-    for (const { key, descriptor } of descriptors) {
-      Object.defineProperty(snapshot, key, {
-        value: snapshotStrictVerificationData(descriptor.value, `${label}.${key}`, ancestors),
-        enumerable: true,
-        configurable: true,
-        writable: true
-      });
-    }
-    return snapshot;
+    const entries = descriptors.map(({ key, descriptor }) => [
+      key,
+      snapshotStrictVerificationData(descriptor.value, `${label}.${key}`, ancestors)
+    ] as const);
+    return Object.fromEntries(entries);
   } finally {
     ancestors.delete(value);
   }

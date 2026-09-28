@@ -11,6 +11,11 @@ import {
   createVerificationEvidenceUse,
   type VerificationEvidenceUseInput
 } from '../../src/assurance/verification/evidence-use/contract/use.ts';
+import {
+  readVerificationDataRecord,
+  snapshotVerificationData,
+  verificationDataEqual
+} from '../../src/assurance/verification/contract/data.ts';
 
 const Q = 'sha256:' + '1'.repeat(64);
 const I = 'sha256:' + '2'.repeat(64);
@@ -283,4 +288,24 @@ test('factory rejects Proxy inputs before nested authority inspection', () => {
     proxy as unknown as VerificationEvidenceUseInput
   )).toThrow('Proxy values');
   expect(trapCalls).toBe(0);
+});
+
+
+test('verification data preserves hostile own property names without prototype mutation', () => {
+  const candidate = Object.fromEntries([
+    ['__proto__', { marker: '__proto__' }],
+    ['constructor', { marker: 'constructor' }],
+    ['prototype', { marker: 'prototype' }]
+  ]);
+  const shallow = readVerificationDataRecord(candidate);
+  const deep = snapshotVerificationData(candidate);
+  expect(Object.getPrototypeOf(shallow)).toBe(Object.prototype);
+  expect(Object.getPrototypeOf(deep as object)).toBe(Object.prototype);
+  for (const key of ['__proto__', 'constructor', 'prototype']) {
+    expect(Object.prototype.hasOwnProperty.call(shallow, key)).toBe(true);
+    expect(Object.prototype.hasOwnProperty.call(deep as object, key)).toBe(true);
+  }
+  expect((shallow['__proto__'] as { marker: string }).marker).toBe('__proto__');
+  expect(verificationDataEqual(candidate, deep)).toBe(true);
+  expect(({} as Record<string, unknown>).marker).toBeUndefined();
 });
