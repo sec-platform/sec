@@ -762,7 +762,7 @@ async function normalizeLocalRefRetirementJournals(input: Readonly<{
     ));
     const applied = input.refState === 'present'
       ? exactObject && exactTransition
-      : exactObject && journal.terminal === 'applied';
+      : exactObject && journal.terminal === 'applied' && journal.object === journal.target;
     if (!applied) {
       throw new Error(
         'Development commit local-ref retirement requires applied readback, got unknown.'

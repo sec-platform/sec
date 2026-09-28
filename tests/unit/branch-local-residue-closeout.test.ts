@@ -717,6 +717,36 @@ test('absent local ref recovery retires the applied journal left by a crash afte
   }
 }, 45_000);
 
+
+test('absent local ref recovery refuses a forged applied journal object binding', async () => {
+  const fixture = createEffectFixture('absent-ref-forged-applied-journal');
+  const journalPath = writeDevelopmentCommitJournal(
+    fixture.repositoryRoot,
+    fixture.headSha,
+    'applied'
+  );
+  try {
+    await expect(executeMergedLocalBranchResidueCloseout({
+      repositoryRoot: fixture.repositoryRoot,
+      recoveryRoot: fixture.recoveryRoot,
+      run: fixture.run,
+      faults: { afterDelete: () => { throw new Error('crash-after-ref-effect-before-journal-retirement'); } }
+    })).rejects.toThrow('crash-after-ref-effect-before-journal-retirement');
+    const journal = JSON.parse(readFileSync(journalPath, 'utf8')) as Record<string, unknown>;
+    journal.object = 'e'.repeat(40);
+    writeFileSync(journalPath, `${JSON.stringify(journal)}\n`, 'utf8');
+
+    await expect(executeMergedLocalBranchResidueCloseout({
+      repositoryRoot: fixture.repositoryRoot,
+      recoveryRoot: fixture.recoveryRoot,
+      run: fixture.run
+    })).rejects.toThrow('requires applied readback');
+    expect(existsSync(journalPath)).toBeTrue();
+  } finally {
+    fixture.dispose();
+  }
+}, 45_000);
+
 test('absent local ref recovery refuses a late development journal before terminal receipt', async () => {
   const fixture = createEffectFixture('absent-ref-journal');
   try {
