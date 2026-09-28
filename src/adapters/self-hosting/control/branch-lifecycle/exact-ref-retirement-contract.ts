@@ -16,6 +16,13 @@ export type ExactRefRetirement =
       branches: readonly [string];
       expectedHeadSha: string;
       pullRequestNumber: number;
+    }>
+  | Readonly<{
+      classification: 'reviewed-superseded';
+      branches: readonly [string];
+      expectedHeadSha: string;
+      reviewIssueNumber: number;
+      reviewCommentId: number;
     }>;
 
 function sha(value: unknown, label: string): string {
@@ -56,6 +63,22 @@ export function parseExactRefRetirement(value: unknown): ExactRefRetirement {
       branches: singleBranch(input.branches),
       expectedHeadSha: sha(input.expectedHeadSha, 'expectedHeadSha'),
       pullRequestNumber: positiveInteger(input.pullRequestNumber, 'pullRequestNumber')
+    });
+  }
+  if (input.classification === 'reviewed-superseded') {
+    const keys = Object.keys(input).sort();
+    const expected = [
+      'branches', 'classification', 'expectedHeadSha', 'reviewIssueNumber', 'reviewCommentId'
+    ].sort();
+    if (keys.length !== expected.length || keys.some((key, index) => key !== expected[index])) {
+      throw new Error('reviewed supersession retirement fields are invalid');
+    }
+    return Object.freeze({
+      classification: 'reviewed-superseded',
+      branches: singleBranch(input.branches),
+      expectedHeadSha: sha(input.expectedHeadSha, 'expectedHeadSha'),
+      reviewIssueNumber: positiveInteger(input.reviewIssueNumber, 'reviewIssueNumber'),
+      reviewCommentId: positiveInteger(input.reviewCommentId, 'reviewCommentId')
     });
   }
 

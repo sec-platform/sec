@@ -54,7 +54,8 @@
       "capability": "branch-lifecycle.closed-supersession-review",
       "operations": [
         "observeClosedSupersessionEvidence",
-        "observeProductionClosedSupersessionEvidence"
+        "observeProductionClosedSupersessionEvidence",
+        "observeReviewedRefSupersessionEvidence"
       ],
       "effectKinds": [
         "filesystem",
@@ -63,13 +64,21 @@
       ],
       "ownerInternalOperations": [
         "observeClosedSupersessionEvidence",
-        "observeProductionClosedSupersessionEvidence"
+        "observeProductionClosedSupersessionEvidence",
+        "observeReviewedRefSupersessionEvidence"
       ],
       "operationRoles": [
         {
           "operation": "observeClosedSupersessionEvidence",
           "role": "domain-owner",
           "semanticOperation": "control.branch-lifecycle.closed-supersession-review",
+          "requirementId": null,
+          "recovery": null
+        },
+        {
+          "operation": "observeReviewedRefSupersessionEvidence",
+          "role": "domain-owner",
+          "semanticOperation": "control.branch-lifecycle.reviewed-ref-supersession",
           "requirementId": null,
           "recovery": null
         }

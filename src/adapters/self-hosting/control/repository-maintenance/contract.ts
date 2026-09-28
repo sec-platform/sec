@@ -99,9 +99,16 @@ function parseOperation(value: unknown): MaintenanceOperation {
   const input = record(value, 'maintenance operation');
   exactKeys(input, ['kind', 'retirement'], 'maintenance operation');
   if (input.kind === 'exact-ref-retirement') {
+    const retirement = parseExactRefRetirement(input.retirement);
+    if (retirement.classification === 'reviewed-superseded'
+        && retirement.reviewIssueNumber !== REPOSITORY_MAINTENANCE_ISSUE_NUMBER) {
+      throw new Error(
+        `reviewed ref retirement is restricted to lifecycle issue #${REPOSITORY_MAINTENANCE_ISSUE_NUMBER}`
+      );
+    }
     return Object.freeze({
       kind: 'exact-ref-retirement',
-      retirement: parseExactRefRetirement(input.retirement)
+      retirement
     });
   }
   if (input.kind === 'exact-comment-retirement') {
