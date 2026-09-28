@@ -59,7 +59,7 @@ export function resolveSecRepositoryModuleImportCandidates(
       `${base}/index.ts`, `${base}/index.tsx`, `${base}/index.mts`, `${base}/index.cts`
     ];
   })();
-  return Object.freeze([...new Set(candidates.map(canonicalRepositoryPath))].sort(textOrder));
+  return Object.freeze([...new Set(candidates.map(canonicalRepositoryPath))]);
 }
 
 /** Pure assembly of one module graph from compiler-issued observations. */
