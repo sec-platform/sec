@@ -568,7 +568,7 @@ test('retained native refs require explicit exact targets and leave other refs u
 }, 30_000);
 
 for (const lane of ['merged', 'retained'] as const) {
-  test(`${lane} local ref retires exact applied development journals before ref CAS`, async () => {
+  test(`${lane} local ref keeps exact applied development journals through ref CAS then retires them`, async () => {
     const fixture = createEffectFixture(`journal-before-ref-${lane}`);
     const journalPath = writeDevelopmentCommitJournal(fixture.repositoryRoot, fixture.headSha, 'applied');
     const noMergedPr = ((command: 'gh' | 'git', args: readonly string[], cwd: string, input?: string) => (
@@ -585,11 +585,12 @@ for (const lane of ['merged', 'retained'] as const) {
           retainedTargets: [{ branch: 'fix/example', expectedHeadSha: fixture.headSha }]
         } : {}),
         faults: { afterDelete: () => {
-          expect(existsSync(journalPath)).toBeFalse();
+          expect(existsSync(journalPath)).toBeTrue();
           expect(refExists(fixture.repositoryRoot, 'refs/heads/fix/example')).toBeFalse();
         } }
       });
       expect(settled.settled).toEqual(['fix/example']);
+      expect(existsSync(journalPath)).toBeFalse();
     } finally {
       fixture.dispose();
     }
@@ -680,6 +681,36 @@ test('retiring a worktree branch journal reads its ref history without the calle
       run: noMergedPr
     });
     expect(settled.settled).toEqual(['fix/example']);
+    expect(existsSync(journalPath)).toBeFalse();
+  } finally {
+    fixture.dispose();
+  }
+}, 45_000);
+
+
+test('absent local ref recovery retires the applied journal left by a crash after exact ref CAS', async () => {
+  const fixture = createEffectFixture('absent-ref-applied-journal');
+  const journalPath = writeDevelopmentCommitJournal(
+    fixture.repositoryRoot,
+    fixture.headSha,
+    'applied'
+  );
+  try {
+    await expect(executeMergedLocalBranchResidueCloseout({
+      repositoryRoot: fixture.repositoryRoot,
+      recoveryRoot: fixture.recoveryRoot,
+      run: fixture.run,
+      faults: { afterDelete: () => { throw new Error('crash-after-ref-effect-with-journal'); } }
+    })).rejects.toThrow('crash-after-ref-effect-with-journal');
+    expect(refExists(fixture.repositoryRoot, 'refs/heads/fix/example')).toBeFalse();
+    expect(existsSync(journalPath)).toBeTrue();
+
+    const resumed = await executeMergedLocalBranchResidueCloseout({
+      repositoryRoot: fixture.repositoryRoot,
+      recoveryRoot: fixture.recoveryRoot,
+      run: fixture.run
+    });
+    expect(resumed.settled).toEqual(['fix/example']);
     expect(existsSync(journalPath)).toBeFalse();
   } finally {
     fixture.dispose();

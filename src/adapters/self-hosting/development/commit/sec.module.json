@@ -10,6 +10,8 @@
         "recoverDevelopmentCommit",
         "prepareClosedAbsentDevelopmentCommitJournalRetirement",
         "acknowledgeClosedAbsentDevelopmentCommitJournalRetirement",
+        "prepareDevelopmentCommitJournalsForLocalRefRetirement",
+        "acknowledgeDevelopmentCommitJournalsForLocalRefRetirement",
         "settleDevelopmentCommitJournalsForRef",
         "retireSupersededLocalDevelopmentCommitJournals"
       ],
@@ -50,6 +52,20 @@
           "operation": "acknowledgeClosedAbsentDevelopmentCommitJournalRetirement",
           "role": "domain-owner",
           "semanticOperation": "development.commit-closed-absent-retirement",
+          "requirementId": null,
+          "recovery": null
+        },
+        {
+          "operation": "prepareDevelopmentCommitJournalsForLocalRefRetirement",
+          "role": "domain-owner",
+          "semanticOperation": "development.commit-local-ref-retirement",
+          "requirementId": null,
+          "recovery": null
+        },
+        {
+          "operation": "acknowledgeDevelopmentCommitJournalsForLocalRefRetirement",
+          "role": "domain-owner",
+          "semanticOperation": "development.commit-local-ref-retirement",
           "requirementId": null,
           "recovery": null
         },
@@ -316,6 +332,86 @@
         "condition": "semantic-superset-required"
       }
     },
+    {
+      "operation": {
+        "kind": "capability",
+        "capability": "development.commit",
+        "operation": "prepareDevelopmentCommitJournalsForLocalRefRetirement"
+      },
+      "consumerSupport": {
+        "consumers": [
+          "control.branch-lifecycle"
+        ]
+      },
+      "effect": {
+        "kinds": [
+          "filesystem",
+          "process"
+        ],
+        "failureKinds": [
+          "development.commit.readback-invalid",
+          "development.commit.readback-unknown"
+        ],
+        "recovery": "owner-intervention"
+      },
+      "evolution": {
+        "migration": "not-required",
+        "retirement": "replacement-obligations-satisfied"
+      },
+      "resources": {
+        "aggregateBudgets": [
+          { "resource": "duration-ms", "maximum": 30000 },
+          { "resource": "input-bytes", "maximum": 65536 },
+          { "resource": "output-bytes", "maximum": 67108864 },
+          { "resource": "processes", "maximum": 64 },
+          { "resource": "records", "maximum": 256 }
+        ]
+      },
+      "futureSupport": {
+        "condition": "semantic-superset-required"
+      }
+    },
+
+    {
+      "operation": {
+        "kind": "capability",
+        "capability": "development.commit",
+        "operation": "acknowledgeDevelopmentCommitJournalsForLocalRefRetirement"
+      },
+      "consumerSupport": {
+        "consumers": [
+          "control.branch-lifecycle"
+        ]
+      },
+      "effect": {
+        "kinds": [
+          "filesystem",
+          "process"
+        ],
+        "failureKinds": [
+          "development.commit.readback-invalid",
+          "development.commit.readback-unknown"
+        ],
+        "recovery": "owner-intervention"
+      },
+      "evolution": {
+        "migration": "not-required",
+        "retirement": "replacement-obligations-satisfied"
+      },
+      "resources": {
+        "aggregateBudgets": [
+          { "resource": "duration-ms", "maximum": 30000 },
+          { "resource": "input-bytes", "maximum": 65536 },
+          { "resource": "output-bytes", "maximum": 67108864 },
+          { "resource": "processes", "maximum": 64 },
+          { "resource": "records", "maximum": 256 }
+        ]
+      },
+      "futureSupport": {
+        "condition": "semantic-superset-required"
+      }
+    },
+
     {
       "operation": {
         "kind": "capability",
