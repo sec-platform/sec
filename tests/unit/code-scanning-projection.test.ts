@@ -92,3 +92,62 @@ test('CodeQL projection explicitly represents a clean exact analysis', () => {
   expect(body).toContain('Open findings for this exact analysis: **0**');
   expect(body).toContain('No open CodeQL findings are reported for this exact PR analysis.');
 });
+
+
+test('CodeQL projection is input-order independent and uses code-unit ordering', () => {
+  const high = {
+    ...parseCodeScanningFinding(alert(), REF, HEAD)!,
+    alertNumber: 21,
+    path: 'src/Z.ts',
+    ruleId: 'js/Z-rule',
+    ruleName: 'Z rule'
+  };
+  const sameSeverityLaterCodeUnit = {
+    ...high,
+    alertNumber: 22,
+    path: 'src/a.ts',
+    ruleId: 'js/a-rule',
+    ruleName: 'a rule'
+  };
+  const low = {
+    ...high,
+    alertNumber: 23,
+    severity: 'low',
+    path: 'src/0-low.ts',
+    ruleId: 'js/0-low-rule',
+    ruleName: '0 low rule'
+  };
+  const projection = {
+    repository: 'sec-platform/sec',
+    pullRequestNumber: 636,
+    headSha: HEAD,
+    analysisRef: REF,
+    codeQlCheckId: 108424693203
+  };
+  const first = renderCodeScanningProjection({
+    ...projection,
+    findings: [low, high, sameSeverityLaterCodeUnit]
+  });
+  const reversed = renderCodeScanningProjection({
+    ...projection,
+    findings: [sameSeverityLaterCodeUnit, high, low]
+  });
+  expect(reversed).toBe(first);
+  // UTF-16 code units order "Z" before "a"; locale collation is not authoritative.
+  expect(first.indexOf('src/Z.ts')).toBeLessThan(first.indexOf('src/a.ts'));
+  // Severity remains the primary key even when the lower-severity path sorts earlier.
+  expect(first.indexOf('src/a.ts')).toBeLessThan(first.indexOf('src/0-low.ts'));
+});
+
+test('CodeQL projection states that GitHub Code Scanning remains authoritative', () => {
+  const body = renderCodeScanningProjection({
+    repository: 'sec-platform/sec',
+    pullRequestNumber: 636,
+    headSha: HEAD,
+    analysisRef: REF,
+    codeQlCheckId: 108424693203,
+    findings: [parseCodeScanningFinding(alert(), REF, HEAD)!]
+  });
+  expect(body).toContain('SEC projection only.');
+  expect(body).toContain('GitHub Code Scanning remains the authoritative security evidence.');
+});

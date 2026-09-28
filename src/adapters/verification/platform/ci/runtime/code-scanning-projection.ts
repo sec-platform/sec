@@ -1,3 +1,4 @@
+import { compareCodeUnits } from '../../../../../contracts/canonical.ts';
 import {
   executeGitHubApiOperation,
   inspectGitHubApiCapability,
@@ -119,9 +120,9 @@ export function parseCodeScanningFinding(
 export function renderCodeScanningProjection(projection: CodeScanningProjection): string {
   const findings = [...projection.findings].sort((left, right) =>
     severityRank(left.severity) - severityRank(right.severity)
-    || left.path.localeCompare(right.path)
+    || compareCodeUnits(left.path, right.path)
     || left.startLine - right.startLine
-    || left.ruleId.localeCompare(right.ruleId)
+    || compareCodeUnits(left.ruleId, right.ruleId)
     || left.alertNumber - right.alertNumber);
   const lines = [
     COMMENT_MARKER,
