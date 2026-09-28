@@ -4,8 +4,8 @@ import {
   generatedStateDigest,
   type GeneratedStatePhysicalIdentity
 } from '../../../../runtime-state/generated-state/contract.ts';
-import {
-  type PhysicalDirectoryIdentity
+import type {
+  PhysicalDirectoryIdentity
 } from '../../../../runtime-state/physical/runtime/physical-no-follow.ts';
 
 /**
