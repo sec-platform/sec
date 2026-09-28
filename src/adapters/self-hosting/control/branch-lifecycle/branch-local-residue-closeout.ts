@@ -26,6 +26,7 @@ import {
 import {
   assertGitLocalRefDeleteBatchReceipt,
   deleteExactLocalGitRefs,
+  type GitLocalRefDeleteBatchReceipt,
   MAXIMUM_LOCAL_REF_DELETE_AGGREGATE_INPUT_BYTES,
   MAXIMUM_LOCAL_REF_DELETE_AGGREGATE_OUTPUT_BYTES,
   MAXIMUM_LOCAL_REF_DELETE_PROCESS_COUNT
@@ -36,7 +37,11 @@ import {
   openProcessResourceSession
 } from '../../../runtime-state/physical/runtime/process-resource-session.ts';
 import { runCommandBytes } from '../../../runtime-state/physical/runtime/process.ts';
-import { settleDevelopmentCommitJournalsForRef } from '../../development/commit/operation.ts';
+import {
+  acknowledgeDevelopmentCommitJournalsForLocalRefRetirement,
+  prepareDevelopmentCommitJournalsForLocalRefRetirement,
+  type DevelopmentCommitLocalRefRetirementPlan
+} from '../../development/commit/operation.ts';
 import { GIT_READ_OPERATION_BUDGET, parseNulUtf8 } from '../../development/tooling/git/git-read.ts';
 import {
   parseBranchCloseoutOperationJournal,
@@ -1776,15 +1781,40 @@ async function withOrderedRepositoryLeases<T>(
     }));
 }
 
-async function settleTargetDevelopmentCommitJournals(
+async function prepareTargetDevelopmentCommitJournals(
   repositoryRoot: string,
-  entries: readonly Readonly<{ branch: string }>[]
+  coordinatedLease: WorkspaceWriteLeaseToken,
+  entries: readonly Readonly<{ branch: string; headSha: string }>[]
+): Promise<readonly DevelopmentCommitLocalRefRetirementPlan[]> {
+  const plans: DevelopmentCommitLocalRefRetirementPlan[] = [];
+  for (const { branch, headSha } of entries) {
+    plans.push(await prepareDevelopmentCommitJournalsForLocalRefRetirement({
+      repositoryRoot,
+      ref: `refs/heads/${branch}`,
+      expectedHeadSha: headSha,
+      coordinatedLease
+    }));
+  }
+  return Object.freeze(plans);
+}
+
+async function acknowledgeTargetDevelopmentCommitJournals(
+  coordinatedLease: WorkspaceWriteLeaseToken,
+  plans: readonly DevelopmentCommitLocalRefRetirementPlan[],
+  receipt: GitLocalRefDeleteBatchReceipt | null
 ): Promise<void> {
-  for (const { branch } of entries) {
-    const ref = `refs/heads/${branch}`;
-    const settlement = await settleDevelopmentCommitJournalsForRef({ repositoryRoot, ref });
-    if (settlement.ref !== ref || settlement.retired !== settlement.observed) {
-      throw new Error(`Development commit journal settlement is incomplete for ${ref}.`);
+  for (const plan of plans) {
+    const settlement = await acknowledgeDevelopmentCommitJournalsForLocalRefRetirement(
+      plan,
+      {
+        coordinatedLease,
+        receipt: plan.refState === 'present' ? receipt : null
+      }
+    );
+    if (settlement.ref !== plan.ref || settlement.retired !== settlement.observed) {
+      throw new Error(
+        `Development commit journal local-ref settlement is incomplete for ${plan.ref}.`
+      );
     }
   }
 }
@@ -1795,7 +1825,7 @@ async function deleteExactTransaction(
   coordinatedLease: WorkspaceWriteLeaseToken,
   operationId: Digest,
   entries: readonly Readonly<{ branch: string; headSha: string }>[]
-): Promise<void> {
+): Promise<GitLocalRefDeleteBatchReceipt> {
   const operation = compileLocalRefEffectOperation(operationId);
   const processSession = openProcessResourceSession({
     operation,
@@ -1806,6 +1836,7 @@ async function deleteExactTransaction(
     })
   });
   let primaryError: unknown;
+  let receipt: GitLocalRefDeleteBatchReceipt | undefined;
   try {
     await withAuthorityGitReadSession({
       cwd: repositoryRoot, budget: GIT_READ_OPERATION_BUDGET
@@ -1828,7 +1859,7 @@ async function deleteExactTransaction(
       let effectError: unknown;
       try {
         await assertWorkspaceWriteLease(commonDir, coordinatedLease);
-        const receipt = await deleteExactLocalGitRefs({
+        receipt = await deleteExactLocalGitRefs({
           provider: resolution.capability,
           coordinatedLease,
           entries: entries.map((entry) => ({
@@ -1862,6 +1893,10 @@ async function deleteExactTransaction(
     primaryError ??= error;
   }
   if (primaryError !== undefined) throw primaryError;
+  if (receipt === undefined) {
+    throw new Error('Git local ref batch delete completed without an owner-issued receipt.');
+  }
+  return receipt;
 }
 
 async function retainedTree(run: CommandRunner, root: string, sha: string): Promise<string> {
@@ -2206,12 +2241,26 @@ export async function executeMergedLocalBranchResidueCloseout(input: Readonly<{
         'Git common directory'
       );
       for (const entry of authorization.entries) assertRecoveryBytes(store, entry);
-      await settleTargetDevelopmentCommitJournals(repositoryRoot, authorization.entries);
+      const journalPlans = await prepareTargetDevelopmentCommitJournals(
+        repositoryRoot,
+        coordinatedLease,
+        authorization.entries
+      );
+      const planStates = new Set(journalPlans.map(({ refState }) => refState));
+      if (planStates.size > 1 || (journalPlans.length > 0 && !planStates.has(state))) {
+        throw new Error('Development commit journal ref state changed at the atomic closeout boundary.');
+      }
+      let refReceipt: GitLocalRefDeleteBatchReceipt | null = null;
       if (state === 'present') {
-        await deleteExactTransaction(repositoryRoot, commonDir, coordinatedLease,
+        refReceipt = await deleteExactTransaction(repositoryRoot, commonDir, coordinatedLease,
           authorization.operationId, authorization.entries);
         input.faults?.afterDelete?.();
       }
+      await acknowledgeTargetDevelopmentCommitJournals(
+        coordinatedLease,
+        journalPlans,
+        refReceipt
+      );
       await assertWorkspaceWriteLease(repositoryRoot, lease);
       const localReadback = parseLocalRefs(await requireText(run, 'git', [
         'for-each-ref', '--format=%(refname:lstrip=2)%00%(objectname)%00', 'refs/heads/'
@@ -2353,12 +2402,26 @@ export async function executeMergedLocalBranchResidueCloseout(input: Readonly<{
       assertPhysicalDirectoryBinding(authorization.commonDirPhysical,
         inspectNoFollowDirectoryChain(commonDir, 'Retained common directory'), 'Git common directory');
       for (const entry of authorization.entries) assertRecoveryBytes(store, entry);
-      await settleTargetDevelopmentCommitJournals(repositoryRoot, authorization.entries);
+      const journalPlans = await prepareTargetDevelopmentCommitJournals(
+        repositoryRoot,
+        coordinatedLease,
+        authorization.entries
+      );
+      const planStates = new Set(journalPlans.map(({ refState }) => refState));
+      if (planStates.size > 1 || (journalPlans.length > 0 && !planStates.has(state))) {
+        throw new Error('Development commit journal ref state changed at the atomic closeout boundary.');
+      }
+      let refReceipt: GitLocalRefDeleteBatchReceipt | null = null;
       if (state === 'present') {
-        await deleteExactTransaction(repositoryRoot, commonDir, coordinatedLease,
+        refReceipt = await deleteExactTransaction(repositoryRoot, commonDir, coordinatedLease,
           authorization.operationId, authorization.entries);
         input.faults?.afterDelete?.();
       }
+      await acknowledgeTargetDevelopmentCommitJournals(
+        coordinatedLease,
+        journalPlans,
+        refReceipt
+      );
       await assertWorkspaceWriteLease(repositoryRoot, lease);
       const refs = parseLocalRefs(await requireText(run, 'git', [
         'for-each-ref', '--format=%(refname:lstrip=2)%00%(objectname)%00', 'refs/heads/'
