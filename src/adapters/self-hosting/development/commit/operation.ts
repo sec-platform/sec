@@ -788,7 +788,7 @@ function parseLocalRefRetirementPlan(source: string): DurableLocalRefRetirementP
   if (journals.length > MAXIMUM_REF_JOURNALS
       || new Set(journals.map(({ journalName }) => journalName)).size !== journals.length
       || journals.some((entry, index) => index > 0
-        && journals[index - 1]!.journalName.localeCompare(entry.journalName) >= 0)) {
+        && journals[index - 1]!.journalName >= entry.journalName)) {
     throw new Error('Development commit local-ref retirement journal set is not canonical.');
   }
   const plan = Object.freeze({
@@ -818,7 +818,7 @@ function durablePlanFromJournals(input: Readonly<{
     journals: Object.freeze(input.matching.map((candidate) => Object.freeze({
       journalName: path.basename(candidate.journalPath),
       sourceDigest: journalSourceDigest(candidate.source)
-    })).sort((left, right) => left.journalName.localeCompare(right.journalName)))
+    })).sort((left, right) => left.journalName < right.journalName ? -1 : left.journalName > right.journalName ? 1 : 0))
   });
 }
 
