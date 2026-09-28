@@ -97,6 +97,23 @@ jobs:
             '.schema == "sec-release-set-manifest-v1" and .sourceCommit == $commit and .sourceTree == $tree' \
             build/release-set/release-set-manifest.json > /dev/null
 
+          # Preserve the observed build identity and per-file digests independently
+          # of the short-lived, rebuildable validation payload.
+          manifest_root="$RUNNER_TEMP/sec-release-manifests-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          mkdir -- "$manifest_root"
+          cp -- build/release-set/release-set-manifest.json \
+            build/release-set/runtime/runtime-package-manifest.json \
+            build/release-set/documentation/documentation-package-manifest.json \
+            "$manifest_root/"
+
+      - name: Upload exact-head release manifests
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: sec-release-manifests-${{ steps.verification.outputs.sha }}-run-${{ github.run_id }}-attempt-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/sec-release-manifests-${{ github.run_id }}-${{ github.run_attempt }}
+          if-no-files-found: error
+          retention-days: 90
+
       - name: Upload exact-head runtime and documentation release set
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
@@ -104,7 +121,8 @@ jobs:
           path: build/release-set/
           include-hidden-files: true
           if-no-files-found: error
-          retention-days: 90
+          # Validation payload only; published releases need a durable release owner.
+          retention-days: 7
 
       - name: Upload compact full verification evidence
         id: evidence
