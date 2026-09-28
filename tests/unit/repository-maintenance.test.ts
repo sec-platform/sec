@@ -1,3 +1,6 @@
+import { readFileSync } from 'node:fs';
+import path from 'node:path';
+
 import { expect, test } from 'bun:test';
 
 import { parseExactRefRetirement } from '../../src/adapters/self-hosting/control/branch-lifecycle/exact-ref-retirement-contract.ts';
@@ -267,4 +270,61 @@ test('canonical maintenance request digest changes with exact ref identity', () 
     requestSource().replace('b'.repeat(40), 'c'.repeat(40))
   );
   expect(sha256(left)).not.toBe(sha256(right));
+});
+
+
+test('reviewed superseded ref retirement is single-ref and bound to lifecycle issue evidence', () => {
+  const request = {
+    schema: 'sec-repository-maintenance-request-v1',
+    repository: 'sec-platform/sec',
+    expectedMainSha: MAIN,
+    operations: [{
+      kind: 'exact-ref-retirement',
+      retirement: {
+        classification: 'reviewed-superseded',
+        branches: ['fix/orphan'],
+        expectedHeadSha: 'b'.repeat(40),
+        reviewIssueNumber: 313,
+        reviewCommentId: 9001
+      }
+    }]
+  };
+  expect(parseRepositoryMaintenanceRequest(JSON.stringify(request)).operations[0]).toEqual({
+    kind: 'exact-ref-retirement',
+    retirement: {
+      classification: 'reviewed-superseded',
+      branches: ['fix/orphan'],
+      expectedHeadSha: 'b'.repeat(40),
+      reviewIssueNumber: 313,
+      reviewCommentId: 9001
+    }
+  });
+  const wrongIssue = structuredClone(request);
+  wrongIssue.operations[0]!.retirement.reviewIssueNumber = 312;
+  expect(() => parseRepositoryMaintenanceRequest(JSON.stringify(wrongIssue)))
+    .toThrow('restricted to lifecycle issue #313');
+  const multiple = structuredClone(request);
+  multiple.operations[0]!.retirement.branches = ['fix/orphan', 'fix/other'];
+  expect(() => parseRepositoryMaintenanceRequest(JSON.stringify(multiple)))
+    .toThrow('exactly one branch');
+});
+
+
+test('exact ref CAS reuses one remote-state authority before and after the effect', () => {
+  const source = readFileSync(path.resolve(
+    import.meta.dir,
+    '../../src/adapters/self-hosting/control/branch-lifecycle/exact-ref-retirement.ts'
+  ), 'utf8');
+  const start = source.indexOf('const retired: string[] = [];');
+  const end = source.indexOf('return Object.freeze({', start);
+  expect(start).toBeGreaterThan(-1);
+  expect(end).toBeGreaterThan(start);
+  const effect = source.slice(start, end);
+  expect(effect.match(/observeRemoteStateWithCapability\(capability,/gu)?.length).toBe(2);
+  expect(effect).not.toContain("request.classification === 'closed-pr-superseded'");
+  expect(effect).not.toContain("request.classification === 'main-tree-identical'");
+  expect(effect).not.toContain("request.classification === 'reviewed-superseded'");
+  expect(source).toContain(
+    "request.classification === 'reviewed-superseded' && !present"
+  );
 });

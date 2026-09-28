@@ -13,7 +13,9 @@ import {
 } from '../../src/adapters/providers/github-api/test/operation-session.ts';
 import {
   assertClosedSupersessionEvidence,
+  assertReviewedRefSupersessionEvidence,
   observeClosedSupersessionEvidence,
+  observeReviewedRefSupersessionEvidence,
   summarizeClosedSupersessionPaths
 } from '../../src/adapters/self-hosting/control/branch-lifecycle/closed-supersession-review.ts';
 import { observeClosedSupersessionFromReadCapability } from '../../src/adapters/self-hosting/control/branch-lifecycle/closed-unmerged-closeout-production.ts';
@@ -46,6 +48,16 @@ type ReviewPath = Readonly<{
   reason: string;
 }>;
 
+type DivergedReviewFixture = Readonly<{
+  root: string;
+  mergeBaseSha: string;
+  mergeBaseTreeSha: string;
+  headSha: string;
+  headTreeSha: string;
+  currentMainSha: string;
+  currentMainTreeSha: string;
+}>;
+
 function git(repositoryRoot: string, args: readonly string[]): string {
   const result = spawnSync('git', [...args], {
     cwd: repositoryRoot,
@@ -55,6 +67,46 @@ function git(repositoryRoot: string, args: readonly string[]): string {
   if (result.error) throw result.error;
   if (result.status !== 0) throw new Error(result.stderr.trim() || `git ${args.join(' ')} failed`);
   return result.stdout.trim();
+}
+
+function createDivergedReviewFixture(): DivergedReviewFixture {
+  const root = mkdtempSync(path.join(tmpdir(), 'sec-reviewed-ref-supersession-'));
+  git(root, ['init', '--quiet', '--initial-branch=main']);
+  git(root, ['config', 'user.name', 'SEC Test']);
+  git(root, ['config', 'user.email', 'sec-test@example.invalid']);
+  git(root, ['remote', 'add', 'origin', `https://github.com/${REPOSITORY}.git`]);
+
+  writeFileSync(path.join(root, 'base.txt'), 'shared base\n', 'utf8');
+  git(root, ['add', 'base.txt']);
+  git(root, ['commit', '--quiet', '-m', 'shared base']);
+  const mergeBaseSha = git(root, ['rev-parse', 'HEAD']);
+  const mergeBaseTreeSha = git(root, ['rev-parse', `${mergeBaseSha}^{tree}`]);
+
+  git(root, ['checkout', '--quiet', '-b', 'reviewed-orphan']);
+  writeFileSync(path.join(root, 'retained.txt'), 'orphan behavior\n', 'utf8');
+  writeFileSync(path.join(root, 'superseded.txt'), 'obsolete implementation\n', 'utf8');
+  git(root, ['add', 'retained.txt', 'superseded.txt']);
+  git(root, ['commit', '--quiet', '-m', 'orphan delta']);
+  const headSha = git(root, ['rev-parse', 'HEAD']);
+  const headTreeSha = git(root, ['rev-parse', `${headSha}^{tree}`]);
+
+  git(root, ['checkout', '--quiet', 'main']);
+  writeFileSync(path.join(root, 'retained.txt'), 'current replacement\n', 'utf8');
+  writeFileSync(path.join(root, 'main-only.txt'), 'unrelated later main work\n', 'utf8');
+  git(root, ['add', 'retained.txt', 'main-only.txt']);
+  git(root, ['commit', '--quiet', '-m', 'current main evolution']);
+  const currentMainSha = git(root, ['rev-parse', 'HEAD']);
+  const currentMainTreeSha = git(root, ['rev-parse', `${currentMainSha}^{tree}`]);
+
+  return Object.freeze({
+    root,
+    mergeBaseSha,
+    mergeBaseTreeSha,
+    headSha,
+    headTreeSha,
+    currentMainSha,
+    currentMainTreeSha
+  });
 }
 
 function createRepositoryFixture(): RepositoryFixture {
@@ -322,6 +374,149 @@ test('review issuance rejects a local repository bound to another GitHub origin'
   try {
     git(fixture.root, ['remote', 'set-url', 'origin', 'https://github.com/other/repository.git']);
     await expect(observe({ fixture, source: reviewSource(fixture) })).rejects.toThrow();
+  } finally {
+    rmSync(fixture.root, { recursive: true, force: true });
+  }
+});
+
+
+test('reviewed ref v3 evidence binds the orphan source delta, not unrelated later main changes', async () => {
+  const fixture = createDivergedReviewFixture();
+  const issueNumber = 313;
+  const commentId = COMMENT_ID + 1;
+  const branch = 'fix/reviewed-orphan';
+  const sourcePathSet = summarizeClosedSupersessionPaths(['retained.txt', 'superseded.txt']);
+  const source = REVIEW_MARKER + JSON.stringify({
+    kind: 'branch-supersession-review', version: 3,
+    repository: REPOSITORY, issueNumber, branch,
+    headSha: fixture.headSha, headTreeSha: fixture.headTreeSha,
+    currentMainSha: fixture.currentMainSha, currentMainTreeSha: fixture.currentMainTreeSha,
+    mergeBaseSha: fixture.mergeBaseSha, mergeBaseTreeSha: fixture.mergeBaseTreeSha,
+    reviewer: 'maintainer-reviewed-orphan-delta', verdict: 'approved',
+    sourcePathSet,
+    assessment: 'Current main retains or supersedes every path in the orphan source delta.',
+    unknowns: []
+  });
+  const capability = issueGitHubApiTestCapability({
+    repository: REPOSITORY,
+    token: TOKEN,
+    principal: PRINCIPAL,
+    effect: 'branch-closeout-write',
+    transport: async (target) => {
+      const url = String(target);
+      if (url.endsWith(`/issues/comments/${commentId}`)) {
+        return Response.json({
+          id: commentId,
+          body: source,
+          issue_url: `https://api.github.com/repos/${REPOSITORY}/issues/${issueNumber}`,
+          user: { login: ADOPTING_MAINTAINER }
+        });
+      }
+      if (url.endsWith(`/collaborators/${ADOPTING_MAINTAINER}/permission`)) {
+        return Response.json({ permission: 'maintain' });
+      }
+      throw new Error(`Unexpected GitHub test transport request: ${url}`);
+    }
+  });
+  try {
+    const evidence = await withGitHubApiTestSession({
+      capability,
+      operation: () => observeReviewedRefSupersessionEvidence({
+        repositoryRoot: fixture.root,
+        capability,
+        issueNumber,
+        commentId,
+        branch,
+        expectedHeadSha: fixture.headSha,
+        expectedMainSha: fixture.currentMainSha
+      })
+    });
+    expect(evidence.review).toMatchObject({
+      version: 3,
+      issueNumber,
+      branch,
+      headSha: fixture.headSha,
+      currentMainSha: fixture.currentMainSha,
+      mergeBaseSha: fixture.mergeBaseSha,
+      sourcePathSet
+    });
+    expect(sourcePathSet.count).toBe(2);
+    expect(() => assertReviewedRefSupersessionEvidence(evidence)).not.toThrow();
+    expect(() => assertReviewedRefSupersessionEvidence({ ...evidence })).toThrow();
+  } finally {
+    rmSync(fixture.root, { recursive: true, force: true });
+  }
+});
+
+test('reviewed ref v3 evidence rejects target, main, merge-base, permission or source-delta drift', async () => {
+  const fixture = createDivergedReviewFixture();
+  const issueNumber = 313;
+  const branch = 'fix/reviewed-orphan';
+  const make = (input: Readonly<{
+    issue?: number;
+    permission?: string;
+    reviewBranch?: string;
+    reviewMain?: string;
+    mergeBase?: string;
+    digest?: string;
+  }> = {}) => {
+    const commentId = COMMENT_ID + 2;
+    const sourcePathSet = summarizeClosedSupersessionPaths(['retained.txt', 'superseded.txt']);
+    const source = REVIEW_MARKER + JSON.stringify({
+      kind: 'branch-supersession-review', version: 3,
+      repository: REPOSITORY, issueNumber: input.issue ?? issueNumber,
+      branch: input.reviewBranch ?? branch,
+      headSha: fixture.headSha, headTreeSha: fixture.headTreeSha,
+      currentMainSha: input.reviewMain ?? fixture.currentMainSha,
+      currentMainTreeSha: fixture.currentMainTreeSha,
+      mergeBaseSha: input.mergeBase ?? fixture.mergeBaseSha,
+      mergeBaseTreeSha: fixture.mergeBaseTreeSha,
+      reviewer: 'maintainer-reviewed-orphan-delta', verdict: 'approved',
+      sourcePathSet: { ...sourcePathSet, digest: input.digest ?? sourcePathSet.digest },
+      assessment: 'Complete orphan source delta reviewed.',
+      unknowns: []
+    });
+    const capability = issueGitHubApiTestCapability({
+      repository: REPOSITORY, token: TOKEN, principal: PRINCIPAL,
+      effect: 'branch-closeout-write',
+      transport: async (target) => {
+        const url = String(target);
+        if (url.endsWith(`/issues/comments/${commentId}`)) {
+          return Response.json({
+            id: commentId,
+            body: source,
+            issue_url: `https://api.github.com/repos/${REPOSITORY}/issues/${issueNumber}`,
+            user: { login: ADOPTING_MAINTAINER }
+          });
+        }
+        if (url.endsWith(`/collaborators/${ADOPTING_MAINTAINER}/permission`)) {
+          return Response.json({ permission: input.permission ?? 'maintain' });
+        }
+        throw new Error(`Unexpected GitHub test transport request: ${url}`);
+      }
+    });
+    return withGitHubApiTestSession({
+      capability,
+      operation: () => observeReviewedRefSupersessionEvidence({
+        repositoryRoot: fixture.root,
+        capability,
+        issueNumber,
+        commentId,
+        branch,
+        expectedHeadSha: fixture.headSha,
+        expectedMainSha: fixture.currentMainSha
+      })
+    });
+  };
+  try {
+    await expect(make({ issue: 312 })).rejects.toThrow();
+    await expect(make({ permission: 'write' })).rejects.toThrow();
+    await expect(make({ reviewBranch: 'fix/other' })).rejects.toThrow();
+    await expect(make({ reviewMain: 'f'.repeat(40) })).rejects.toThrow();
+    await expect(make({ mergeBase: fixture.headSha })).rejects.toThrow('merge-base differs');
+    await expect(make({ digest: `sha256:${'0'.repeat(64)}` })).rejects.toThrow(
+      'source path set differs'
+    );
   } finally {
     rmSync(fixture.root, { recursive: true, force: true });
   }
