@@ -11,7 +11,15 @@ import {
   type CodexDevelopmentExactGitTextBlob,
   type CodexDevelopmentExactGitTreeEntry
 } from '../../providers/git-read/exact-blob.ts';
+import {
+  decodeGitIndexGeneration,
+  type GitIndexObjectFormat
+} from '../../providers/git-read/runtime/scratch-index-generation.ts';
 import { type GitReadSession, assertProductionGitReadSession } from '../../providers/git-read/runtime/session.ts';
+import {
+  inspectNoFollowDirectoryChain,
+  inspectNoFollowOrdinaryFileEntry
+} from '../../runtime-state/physical/runtime/physical-no-follow.ts';
 import type { SecRepositoryModuleGraph } from '../architecture/contract.ts';
 import { type SecRepositoryModuleMembership, normalizeSecRepositoryPath, compileSecRepositoryModuleMembershipSnapshot } from '../architecture/contract.ts';
 import { type SourceProgramFileInput, type SourceProgramCompilation, isSourceProgramInputPath, type SourceProgramCompilationMatchInput } from './contract.ts';
@@ -468,6 +476,42 @@ function exactSingleLine(bytes: Uint8Array, label: string): string {
   return value;
 }
 
+function exactGitIndexObjectFormat(bytes: Uint8Array): GitIndexObjectFormat {
+  const value = exactSingleLine(bytes, 'Git object format');
+  if (value !== 'sha1' && value !== 'sha256') {
+    throw new Error(`Staged index object format is unsupported: ${value}`);
+  }
+  return value;
+}
+
+function stagedIndexEntries(
+  indexBytes: Uint8Array,
+  objectFormat: GitIndexObjectFormat
+): readonly StagedIndexEntry[] {
+  const generation = decodeGitIndexGeneration(indexBytes, objectFormat);
+  const entries = generation.entries.map((entry) => {
+    const repositoryPath = exactUtf8(
+      Buffer.from(entry.pathHex, 'hex'),
+      'Staged index path'
+    );
+    const normalized = normalizeSecRepositoryPath(repositoryPath);
+    if (normalized.length === 0 || normalized !== repositoryPath) {
+      throw new Error(`Staged index path is not canonical: ${repositoryPath}`);
+    }
+    return Object.freeze({
+      path: normalized,
+      mode: entry.mode.toString(8).padStart(6, '0'),
+      objectId: entry.objectId
+    });
+  }).sort((left, right) => compareCodeUnits(left.path, right.path));
+  for (let index = 1; index < entries.length; index += 1) {
+    if (entries[index - 1]!.path === entries[index]!.path) {
+      throw new Error(`Staged index contains a duplicate path: ${entries[index]!.path}`);
+    }
+  }
+  return Object.freeze(entries);
+}
+
 async function observeStagedIndex(
   session: GitReadSession
 ): Promise<StagedIndexObservation> {
@@ -476,6 +520,9 @@ async function observeStagedIndex(
   ]);
   const indexPathCommand = await session.run([
     'rev-parse', '--path-format=absolute', '--git-path', 'index'
+  ]);
+  const objectFormatCommand = await session.run([
+    'rev-parse', '--show-object-format'
   ]);
   const repositoryRoot = path.resolve(exactSingleLine(
     exactCompletedGitOutput(repositoryRootCommand, 'resolve the staged repository root'),
@@ -488,36 +535,40 @@ async function observeStagedIndex(
   if (repositoryRoot !== path.resolve(session.cwd)) {
     throw new Error('Staged index repository root differs from the retained Git working directory');
   }
-  const before = await lstat(indexPath);
-  if (!before.isFile() || before.isSymbolicLink()) {
-    throw new Error('Staged index is not one ordinary file');
-  }
-  const indexBytes = await readFile(indexPath);
-  const membershipCommand = await session.run([
-    '--no-pager', '-c', 'core.fsmonitor=false', '-c', 'core.untrackedCache=false',
-    'ls-files', '--stage', '-z'
-  ]);
-  const records = nulSeparatedRepositoryPathsWithIndexMetadata(
-    exactCompletedGitOutput(membershipCommand, 'observe staged index membership')
+
+  const parent = inspectNoFollowDirectoryChain(
+    path.dirname(indexPath),
+    'Staged index retained parent'
+  ).target;
+  const retained = inspectNoFollowOrdinaryFileEntry(
+    parent,
+    path.basename(indexPath),
+    { maximumBytes: SOURCE_SNAPSHOT_MAX_TOTAL_BYTES }
   );
-  const after = await lstat(indexPath);
-  const readbackBytes = await readFile(indexPath);
-  if (!after.isFile() || after.isSymbolicLink()
-      || after.dev !== before.dev || after.ino !== before.ino
-      || after.size !== before.size || after.mtimeMs !== before.mtimeMs
-      || !Buffer.from(indexBytes).equals(Buffer.from(readbackBytes))) {
-    throw new Error('Staged index changed while its membership was observed');
+  if (retained === null || retained.kind !== 'file' || retained.bytes === null) {
+    throw new Error('Staged index is not one retained ordinary file');
   }
+  const indexBytes = retained.bytes;
+  const objectFormat = exactGitIndexObjectFormat(
+    exactCompletedGitOutput(objectFormatCommand, 'resolve the staged object format')
+  );
+  const records = stagedIndexEntries(indexBytes, objectFormat);
   if (session.consumeRecords(records.length) !== null) {
     throw new Error('Staged index membership exceeded the Git session record budget');
   }
+
   const indexDigest = rawSha256(indexBytes);
   const indexPhysicalIdentityDigest = sha256({
+    parent: {
+      path: parent.path,
+      device: parent.device,
+      inode: parent.inode
+    },
     path: indexPath,
-    device: String(before.dev),
-    inode: String(before.ino),
-    size: before.size,
-    mtimeMs: before.mtimeMs
+    device: retained.device,
+    inode: retained.inode,
+    size: retained.size,
+    byteDigest: indexDigest
   }) as `sha256:${string}`;
   const indexTreeDigest = sha256(records.map(({ path: repositoryPath, mode, objectId }) => ({
     repositoryPath,
@@ -536,33 +587,6 @@ async function observeStagedIndex(
     }) as `sha256:${string}`
   });
 }
-
-function nulSeparatedRepositoryPathsWithIndexMetadata(
-  bytes: Uint8Array
-): readonly StagedIndexEntry[] {
-  const source = exactUtf8(bytes, 'Staged index membership');
-  if (source.length > 0 && !source.endsWith('\0')) {
-    throw new Error('Staged index membership is not NUL terminated');
-  }
-  const entries = (source.length === 0 ? [] : source.slice(0, -1).split('\0')).map((record) => {
-    const match = /^([0-7]{6}) ([0-9a-f]{40}(?:[0-9a-f]{24})?) ([0-3])\t([\s\S]+)$/u.exec(record);
-    if (match === null || match[3] !== '0') {
-      throw new Error('Staged index membership contains a noncanonical or unmerged entry');
-    }
-    const repositoryPath = normalizeSecRepositoryPath(match[4]!);
-    if (repositoryPath.length === 0 || repositoryPath !== match[4]) {
-      throw new Error(`Staged index path is not canonical: ${match[4]}`);
-    }
-    return Object.freeze({ path: repositoryPath, mode: match[1]!, objectId: match[2]! });
-  }).sort((left, right) => compareCodeUnits(left.path, right.path));
-  for (let index = 1; index < entries.length; index += 1) {
-    if (entries[index - 1]!.path === entries[index]!.path) {
-      throw new Error(`Staged index contains a duplicate path: ${entries[index]!.path}`);
-    }
-  }
-  return Object.freeze(entries);
-}
-
 async function readStagedSourceBlobs(
   session: GitReadSession,
   entries: readonly StagedIndexEntry[]
