@@ -676,6 +676,24 @@ export async function settleDevelopmentCommitJournalsForRef(input: Readonly<{
 }
 
 
+
+const LOCAL_REF_RETIREMENT_PLAN_SCHEMA =
+  'sec-development-commit-local-ref-retirement-v1' as const;
+const LOCAL_REF_RETIREMENT_DIRECTORY =
+  'sec-development-commit-local-ref-retirement' as const;
+const MAXIMUM_LOCAL_REF_RETIREMENT_PLAN_BYTES = 64 * 1024;
+
+type DurableLocalRefRetirementPlan = Readonly<{
+  schema: typeof LOCAL_REF_RETIREMENT_PLAN_SCHEMA;
+  ref: string;
+  expectedHeadSha: string;
+  preparedRefState: 'present' | 'absent';
+  journals: readonly Readonly<{
+    journalName: string;
+    sourceDigest: SecOperationDigest;
+  }>[];
+}>;
+
 declare const DEVELOPMENT_COMMIT_LOCAL_REF_RETIREMENT_PLAN: unique symbol;
 export type DevelopmentCommitLocalRefRetirementPlan = Readonly<{
   readonly [DEVELOPMENT_COMMIT_LOCAL_REF_RETIREMENT_PLAN]: true;
@@ -689,21 +707,194 @@ type LocalRefRetirementDetails = Readonly<{
   commonDirectory: string;
   ref: string;
   expectedHeadSha: string;
-  refState: 'present' | 'absent';
-  initialCount: number;
-  remaining: readonly ObservedJournal[];
+  currentRefState: 'present' | 'absent';
+  planPath: string;
+  planSource: string;
+  durable: DurableLocalRefRetirementPlan;
 }>;
 
 const ISSUED_LOCAL_REF_RETIREMENT_PLANS =
   new WeakMap<object, LocalRefRetirementDetails>();
 
-function exactObservedJournalIdentity(values: readonly ObservedJournal[]): readonly Readonly<{
-  journalPath: string;
+function journalSourceDigest(source: string): SecOperationDigest {
+  return sha256({
+    domain: 'development.commit.local-ref-retirement.journal-source',
+    source
+  }) as SecOperationDigest;
+}
+
+function localRefRetirementPlanPath(
+  commonDirectory: string,
+  ref: string,
+  expectedHeadSha: string
+): string {
+  const identity = sha256({
+    domain: 'development.commit.local-ref-retirement.plan-path',
+    ref,
+    expectedHeadSha
+  });
+  return path.join(
+    commonDirectory,
+    LOCAL_REF_RETIREMENT_DIRECTORY,
+    `${identity.slice('sha256:'.length)}.json`
+  );
+}
+
+function encodeLocalRefRetirementPlan(plan: DurableLocalRefRetirementPlan): string {
+  const source = `${JSON.stringify(canonicalJson(plan))}\n`;
+  if (Buffer.byteLength(source, 'utf8') > MAXIMUM_LOCAL_REF_RETIREMENT_PLAN_BYTES) {
+    throw new Error('Development commit local-ref retirement plan exceeds its byte ceiling.');
+  }
+  return source;
+}
+
+function parseLocalRefRetirementPlan(source: string): DurableLocalRefRetirementPlan {
+  if (!source.endsWith('\n')
+      || Buffer.byteLength(source, 'utf8') > MAXIMUM_LOCAL_REF_RETIREMENT_PLAN_BYTES) {
+    throw new Error('Development commit local-ref retirement plan is not bounded canonical JSON.');
+  }
+  const value = JSON.parse(source.slice(0, -1)) as Record<string, unknown>;
+  const keys = Object.keys(value).sort();
+  const expectedKeys = [
+    'expectedHeadSha', 'journals', 'preparedRefState', 'ref', 'schema'
+  ].sort();
+  if (JSON.stringify(keys) !== JSON.stringify(expectedKeys)
+      || value.schema !== LOCAL_REF_RETIREMENT_PLAN_SCHEMA
+      || typeof value.ref !== 'string' || !REF.test(value.ref)
+      || typeof value.expectedHeadSha !== 'string' || !OBJECT_ID.test(value.expectedHeadSha)
+      || (value.preparedRefState !== 'present' && value.preparedRefState !== 'absent')
+      || !Array.isArray(value.journals)) {
+    throw new Error('Development commit local-ref retirement plan violates its exact schema.');
+  }
+  const journals = value.journals.map((entry, index) => {
+    if (entry === null || typeof entry !== 'object' || Array.isArray(entry)) {
+      throw new Error(`Development commit local-ref retirement journal ${index} is invalid.`);
+    }
+    const record = entry as Record<string, unknown>;
+    const entryKeys = Object.keys(record).sort();
+    if (JSON.stringify(entryKeys) !== JSON.stringify(['journalName', 'sourceDigest'])) {
+      throw new Error(`Development commit local-ref retirement journal ${index} fields are invalid.`);
+    }
+    if (typeof record.journalName !== 'string' || !JOURNAL_NAME.test(record.journalName)
+        || typeof record.sourceDigest !== 'string'
+        || !/^sha256:[0-9a-f]{64}$/u.test(record.sourceDigest)) {
+      throw new Error(`Development commit local-ref retirement journal ${index} identity is invalid.`);
+    }
+    return Object.freeze({
+      journalName: record.journalName,
+      sourceDigest: record.sourceDigest as SecOperationDigest
+    });
+  });
+  if (journals.length > MAXIMUM_REF_JOURNALS
+      || new Set(journals.map(({ journalName }) => journalName)).size !== journals.length
+      || journals.some((entry, index) => index > 0
+        && journals[index - 1]!.journalName.localeCompare(entry.journalName) >= 0)) {
+    throw new Error('Development commit local-ref retirement journal set is not canonical.');
+  }
+  const plan = Object.freeze({
+    schema: LOCAL_REF_RETIREMENT_PLAN_SCHEMA,
+    ref: value.ref,
+    expectedHeadSha: value.expectedHeadSha,
+    preparedRefState: value.preparedRefState,
+    journals: Object.freeze(journals)
+  }) as DurableLocalRefRetirementPlan;
+  if (encodeLocalRefRetirementPlan(plan) !== source) {
+    throw new Error('Development commit local-ref retirement plan bytes are noncanonical.');
+  }
+  return plan;
+}
+
+function durablePlanFromJournals(input: Readonly<{
+  ref: string;
+  expectedHeadSha: string;
+  preparedRefState: 'present' | 'absent';
+  matching: readonly ObservedJournal[];
+}>): DurableLocalRefRetirementPlan {
+  return Object.freeze({
+    schema: LOCAL_REF_RETIREMENT_PLAN_SCHEMA,
+    ref: input.ref,
+    expectedHeadSha: input.expectedHeadSha,
+    preparedRefState: input.preparedRefState,
+    journals: Object.freeze(input.matching.map((candidate) => Object.freeze({
+      journalName: path.basename(candidate.journalPath),
+      sourceDigest: journalSourceDigest(candidate.source)
+    })).sort((left, right) => left.journalName.localeCompare(right.journalName)))
+  });
+}
+
+function observeDurableLocalRefRetirementPlan(input: Readonly<{
+  commonDirectory: string;
+  ref: string;
+  expectedHeadSha: string;
+}>): Readonly<{
+  planPath: string;
   source: string;
-}>[] {
-  return Object.freeze(values
-    .map(({ journalPath, source }) => Object.freeze({ journalPath, source }))
-    .sort((left, right) => left.journalPath.localeCompare(right.journalPath)));
+  plan: DurableLocalRefRetirementPlan;
+}> | null {
+  const planPath = localRefRetirementPlanPath(
+    input.commonDirectory,
+    input.ref,
+    input.expectedHeadSha
+  );
+  const observed = journalWriter(input.commonDirectory).observeTextRetained(planPath, {
+    deadlineAtMonotonicMs: performance.now() + 5_000,
+    maximumBytes: MAXIMUM_LOCAL_REF_RETIREMENT_PLAN_BYTES
+  });
+  if (observed === null) return null;
+  const plan = parseLocalRefRetirementPlan(observed.text);
+  if (plan.ref !== input.ref || plan.expectedHeadSha !== input.expectedHeadSha) {
+    throw new Error('Development commit local-ref retirement plan identity differs.');
+  }
+  return Object.freeze({ planPath, source: observed.text, plan });
+}
+
+function assertJournalCensusWithinDurablePlan(input: Readonly<{
+  plan: DurableLocalRefRetirementPlan;
+  matching: readonly ObservedJournal[];
+  exact: boolean;
+}>): void {
+  const expected = new Map(input.plan.journals.map((entry) => [
+    entry.journalName,
+    entry.sourceDigest
+  ]));
+  for (const candidate of input.matching) {
+    const name = path.basename(candidate.journalPath);
+    const digest = expected.get(name);
+    if (digest === undefined || digest !== journalSourceDigest(candidate.source)) {
+      throw new Error(
+        'Development commit journal family changed relative to its durable local-ref retirement plan.'
+      );
+    }
+  }
+  if (input.exact && input.matching.length !== input.plan.journals.length) {
+    throw new Error(
+      'Development commit journal family changed relative to its durable local-ref retirement plan.'
+    );
+  }
+}
+
+function retireEmptyLocalRefRetirementDirectory(commonDirectory: string): void {
+  const parent = inspectNoFollowDirectoryChain(
+    commonDirectory,
+    'Commit local-ref retirement parent'
+  ).target;
+  const root = inspectNoFollowDirectoryChild(
+    parent,
+    LOCAL_REF_RETIREMENT_DIRECTORY,
+    'Commit local-ref retirement owner'
+  );
+  if (root === null) return;
+  const deadlineAtMonotonicMs = performance.now() + 5_000;
+  if (scanNoFollowDirectoryDirectMetadata(root, {
+    deadlineAtMs: deadlineAtMonotonicMs,
+    maximumEntries: MAXIMUM_JOURNAL_CENSUS_ENTRIES
+  }).length !== 0) return;
+  retireNoFollowDirectoryTree({
+    parent,
+    root,
+    inventory: [],
+    deadlineAtMonotonicMs
+  });
 }
 
 async function observeExactLocalRefForJournalRetirement(
@@ -728,16 +919,13 @@ async function normalizeLocalRefRetirementJournals(input: Readonly<{
   commonDirectory: string;
   ref: string;
   expectedHeadSha: string;
-  refState: 'present' | 'absent';
   matching: readonly ObservedJournal[];
 }>): Promise<readonly ObservedJournal[]> {
-  const transitions = input.refState === 'present'
-    ? (await commandText(
-        input.session,
-        ['rev-list', '--walk-reflogs', input.ref],
-        'read local-ref retirement reflog'
-      )).split(/\r?\n/u).filter(Boolean)
-    : [];
+  const transitions = (await commandText(
+    input.session,
+    ['rev-list', '--walk-reflogs', input.ref],
+    'read local-ref retirement reflog'
+  )).split(/\r?\n/u).filter(Boolean);
   const writer = journalWriter(input.commonDirectory);
   const normalized: ObservedJournal[] = [];
   for (const candidate of input.matching) {
@@ -760,10 +948,7 @@ async function normalizeLocalRefRetirementJournals(input: Readonly<{
     const exactTransition = transitions.some((target, index) => (
       target === journal.target && transitions[index + 1] === journal.preimage
     ));
-    const applied = input.refState === 'present'
-      ? exactObject && exactTransition
-      : exactObject && journal.terminal === 'applied' && journal.object === journal.target;
-    if (!applied) {
+    if (!exactObject || !exactTransition) {
       throw new Error(
         'Development commit local-ref retirement requires applied readback, got unknown.'
       );
@@ -792,7 +977,7 @@ async function normalizeLocalRefRetirementJournals(input: Readonly<{
 }
 
 // Freeze every journal that could be invalidated by local-ref retirement.
-// Applied identity is made durable before the Git CAS; no journal is deleted here.
+// The durable plan survives a crash between the native ref CAS and journal retirement.
 export async function prepareDevelopmentCommitJournalsForLocalRefRetirement(input: Readonly<{
   repositoryRoot: string;
   ref: string;
@@ -820,46 +1005,107 @@ export async function prepareDevelopmentCommitJournalsForLocalRefRetirement(inpu
           `Development commit local-ref retirement preimage changed: expected ${input.expectedHeadSha}, observed ${current}.`
         );
       }
-      const before = observeJournalCensus(commonDirectory, input.ref);
-      const refState = current === null ? 'absent' as const : 'present' as const;
-      const normalized = await normalizeLocalRefRetirementJournals({
-        session,
+      const currentRefState = current === null ? 'absent' as const : 'present' as const;
+      const census = observeJournalCensus(commonDirectory, input.ref);
+      const existing = observeDurableLocalRefRetirementPlan({
         commonDirectory,
         ref: input.ref,
-        expectedHeadSha: input.expectedHeadSha,
-        refState,
-        matching: before.matching
+        expectedHeadSha: input.expectedHeadSha
       });
-      await assertWorkspaceWriteLease(commonDirectory, input.coordinatedLease);
-      const after = observeJournalCensus(commonDirectory, input.ref).matching;
-      if (JSON.stringify(exactObservedJournalIdentity(after))
-          !== JSON.stringify(exactObservedJournalIdentity(normalized))) {
+      if (existing !== null) {
+        if (existing.plan.preparedRefState === 'absent' && currentRefState === 'present') {
+          throw new Error(
+            'Development commit local-ref retirement ref reappeared after an absent durable plan.'
+          );
+        }
+        assertJournalCensusWithinDurablePlan({
+          plan: existing.plan,
+          matching: census.matching,
+          exact: currentRefState === 'present'
+        });
+        return Object.freeze({
+          repositoryRoot,
+          commonDirectory,
+          ref: input.ref,
+          expectedHeadSha: input.expectedHeadSha,
+          currentRefState,
+          planPath: existing.planPath,
+          planSource: existing.source,
+          durable: existing.plan
+        });
+      }
+
+      if (currentRefState === 'absent' && census.matching.length !== 0) {
         throw new Error(
-          'Development commit journal family changed before local-ref retirement freeze.'
+          'Development commit local-ref retirement found journals after ref disappearance without a durable pre-CAS plan.'
         );
       }
+
+      const normalized = currentRefState === 'present'
+        ? await normalizeLocalRefRetirementJournals({
+            session,
+            commonDirectory,
+            ref: input.ref,
+            expectedHeadSha: input.expectedHeadSha,
+            matching: census.matching
+          })
+        : Object.freeze([] as ObservedJournal[]);
+      const durable = durablePlanFromJournals({
+        ref: input.ref,
+        expectedHeadSha: input.expectedHeadSha,
+        preparedRefState: currentRefState,
+        matching: normalized
+      });
+      const planPath = localRefRetirementPlanPath(
+        commonDirectory,
+        input.ref,
+        input.expectedHeadSha
+      );
+      const planSource = encodeLocalRefRetirementPlan(durable);
+      const writer = journalWriter(commonDirectory);
+      if (!writer.createExclusiveFsync(planPath, planSource)) {
+        throw new Error(
+          'Development commit local-ref retirement durable plan identity is contended.'
+        );
+      }
+      const readback = writer.observeTextRetained(planPath, {
+        deadlineAtMonotonicMs: performance.now() + 5_000,
+        maximumBytes: MAXIMUM_LOCAL_REF_RETIREMENT_PLAN_BYTES
+      });
+      if (readback?.text !== planSource) {
+        throw new Error(
+          'Development commit local-ref retirement durable plan readback differs.'
+        );
+      }
+      await assertWorkspaceWriteLease(commonDirectory, input.coordinatedLease);
+      assertJournalCensusWithinDurablePlan({
+        plan: durable,
+        matching: observeJournalCensus(commonDirectory, input.ref).matching,
+        exact: true
+      });
       return Object.freeze({
         repositoryRoot,
         commonDirectory,
         ref: input.ref,
         expectedHeadSha: input.expectedHeadSha,
-        refState,
-        initialCount: normalized.length,
-        remaining: normalized
+        currentRefState,
+        planPath,
+        planSource,
+        durable
       });
     }
   );
   const plan = Object.freeze({
     ref: details.ref,
     expectedHeadSha: details.expectedHeadSha,
-    refState: details.refState
+    refState: details.currentRefState
   }) as DevelopmentCommitLocalRefRetirementPlan;
   ISSUED_LOCAL_REF_RETIREMENT_PLANS.set(plan, details);
   return plan;
 }
 
-// Retire only bytes frozen by the journal owner after native Git settled the
-// exact ref generation. Late/replaced journals remain blockers.
+// Retire only journal identities recorded by the durable pre-CAS plan.
+// A late journal, even if independently marked applied, blocks terminal closeout.
 export async function acknowledgeDevelopmentCommitJournalsForLocalRefRetirement(
   plan: DevelopmentCommitLocalRefRetirementPlan,
   input: Readonly<{
@@ -873,7 +1119,7 @@ export async function acknowledgeDevelopmentCommitJournalsForLocalRefRetirement(
       'Development commit local-ref retirement requires one owner-issued plan.'
     );
   }
-  if (issued.refState === 'present') {
+  if (issued.currentRefState === 'present') {
     if (input.receipt === null) {
       throw new Error(
         'Development commit local-ref retirement requires the native Git CAS receipt.'
@@ -911,33 +1157,51 @@ export async function acknowledgeDevelopmentCommitJournalsForLocalRefRetirement(
           'Development commit local-ref retirement ref is live after the exact CAS.'
         );
       }
-      const { matching, writer } = observeJournalCensus(commonDirectory, issued.ref);
-      if (JSON.stringify(exactObservedJournalIdentity(matching))
-          !== JSON.stringify(exactObservedJournalIdentity(issued.remaining))) {
+      const writer = journalWriter(commonDirectory);
+      const planReadback = writer.observeTextRetained(issued.planPath, {
+        deadlineAtMonotonicMs: performance.now() + 5_000,
+        maximumBytes: MAXIMUM_LOCAL_REF_RETIREMENT_PLAN_BYTES
+      });
+      if (planReadback?.text !== issued.planSource
+          || encodeLocalRefRetirementPlan(parseLocalRefRetirementPlan(issued.planSource))
+            !== issued.planSource) {
         throw new Error(
-          'Development commit journal family changed after local-ref retirement.'
+          'Development commit local-ref retirement durable plan changed before acknowledgement.'
         );
       }
-      for (const [index, candidate] of matching.entries()) {
+      const census = observeJournalCensus(commonDirectory, issued.ref);
+      assertJournalCensusWithinDurablePlan({
+        plan: issued.durable,
+        matching: census.matching,
+        exact: false
+      });
+      for (const candidate of census.matching) {
         if (!writer.deleteFsyncCas(candidate.journalPath, candidate.source)) {
           throw new Error(
             'Development commit journal changed before post-CAS retirement.'
           );
         }
-        ISSUED_LOCAL_REF_RETIREMENT_PLANS.set(plan, Object.freeze({
-          ...issued,
-          remaining: Object.freeze(matching.slice(index + 1))
-        }));
+      }
+      if (observeJournalCensus(commonDirectory, issued.ref).matching.length !== 0) {
+        throw new Error(
+          'Development commit journal family is not empty after post-CAS retirement.'
+        );
       }
       await assertWorkspaceWriteLease(commonDirectory, input.coordinatedLease);
+      if (!writer.deleteFsyncCas(issued.planPath, issued.planSource)) {
+        throw new Error(
+          'Development commit local-ref retirement durable plan changed before retirement.'
+        );
+      }
     }
   );
   ISSUED_LOCAL_REF_RETIREMENT_PLANS.delete(plan);
   retireEmptyJournalDirectory(issued.commonDirectory);
+  retireEmptyLocalRefRetirementDirectory(issued.commonDirectory);
   return Object.freeze({
     ref: issued.ref,
-    observed: issued.initialCount,
-    retired: issued.initialCount
+    observed: issued.durable.journals.length,
+    retired: issued.durable.journals.length
   });
 }
 
