@@ -1,6 +1,6 @@
 {
   "schema": "sec.documentation-source-manifest/2",
-  "source_set_sha256": "07be8f774e86784cddef7aadadd6a1a0529986077838fd993b380b622563996a",
+  "source_set_sha256": "8ecec53b04b8441304bedb7db51387b92f4b92e1d7bc964cfa484f38297179f3",
   "members": [
     {
       "path": ".documentation/README.md",
@@ -604,8 +604,8 @@
     },
     {
       "path": "docs/开发/原生维护/导入观察与原生资产.md",
-      "bytes": 94107,
-      "sha256": "ddee7d4b1764d6e81ba6573fe3f793ed0e15b160fc7c26fe6c8b16d0f71488f7"
+      "bytes": 94758,
+      "sha256": "cdb1b7a128e9af29b171d8d5855171833de873c47ef158263903baf9c4d69935"
     },
     {
       "path": "docs/开发/工具协议/README.md",
@@ -649,8 +649,8 @@
     },
     {
       "path": "docs/开发/测试发现与执行.md",
-      "bytes": 15024,
-      "sha256": "865370a97a757ed52fbef1092fe8b82f76b35312fbd28b903f44f0c250c6fa16"
+      "bytes": 16234,
+      "sha256": "8c40bcba2fb1bb4dde89e0d5fecdb0b6ef617922316dc8e06cae32e12d7ed03b"
     },
     {
       "path": "docs/开发/用途与任务范围.md",
