@@ -58,14 +58,14 @@
         {
           "operation": "prepareDevelopmentCommitJournalsForLocalRefRetirement",
           "role": "domain-owner",
-          "semanticOperation": "development.commit-local-ref-retirement",
+          "semanticOperation": "development.commit-local-ref-retirement-preparation",
           "requirementId": null,
           "recovery": null
         },
         {
           "operation": "acknowledgeDevelopmentCommitJournalsForLocalRefRetirement",
           "role": "domain-owner",
-          "semanticOperation": "development.commit-local-ref-retirement",
+          "semanticOperation": "development.commit-local-ref-retirement-acknowledgement",
           "requirementId": null,
           "recovery": null
         },
