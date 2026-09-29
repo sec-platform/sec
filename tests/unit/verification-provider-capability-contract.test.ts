@@ -1,8 +1,8 @@
 import { describe, expect, test } from 'bun:test';
 
 import {
-  parseVerificationProviderCapabilityLedger,
-  VERIFICATION_PROVIDER_LEDGER_MAX_INPUT_BYTES
+  EXTERNAL_CAPABILITY_LEDGER_MAX_INPUT_BYTES,
+  parseExternalCapabilityLedger
 } from '../../src/adapters/verification/platform/provider/capability-ledger.ts';
 import { assertProviderCapabilityUsableV1, assertProviderRetryGuard, classifyProviderDiagnosticTextV1, createVerificationProviderAvailabilityEpoch, createVerificationProviderCapability, resolveProviderAvailability } from '../../src/adapters/verification/platform/provider/contract/capability.ts';
 
@@ -47,35 +47,24 @@ describe('verification provider capability contract', () => {
     expect(hosted.availability).toBe('unknown');
   });
 
-  test('ledger parser delegates static positive projection normalization to the canonical contract', () => {
-    const projection = parseVerificationProviderCapabilityLedger(JSON.stringify({
+  test('tracked external capability state rejects runtime provider availability epochs', () => {
+    expect(parseExternalCapabilityLedger(JSON.stringify({
+      schema: 'sec-external-capability-ledger-v4',
+      status: 'active'
+    })).document).toMatchObject({
+      schema: 'sec-external-capability-ledger-v4',
+      status: 'active'
+    });
+    expect(() => parseExternalCapabilityLedger(JSON.stringify({
       schema: 'sec-external-capability-ledger-v4',
       verification: {
         schema: 'sec-verification-provider-availability-ledger-v1',
-        epochId: 'static-positive-projection',
+        epochId: 'forbidden-tracked-epoch',
         observedAt: OBSERVED_AT,
         expiresAt: EXPIRES_AT,
-        diagnosticRetention: {
-          rawProviderProse: 'disposable-after-normalization',
-          positiveClaimsRequireDurableEvidence: true
-        },
-        capabilities: [{
-          capability: 'github-writer',
-          role: 'writer',
-          provider: 'github-api',
-          availability: 'available',
-          reasonCode: null,
-          receiptRef: POSITIVE_EVIDENCE,
-          observedAt: OBSERVED_AT
-        }]
+        capabilities: []
       }
-    }));
-    const epoch = projection.availabilityEpoch;
-    expect(resolveProviderAvailability(epoch, 'github-writer')).toMatchObject({
-      availability: 'unknown',
-      reasonCode: 'provider-receipt-unverified',
-      receiptRef: null
-    });
+    }))).toThrow('runtime provider availability must come from provider observations');
   });
 
   test('raw quota prose is never engineering truth: only reasonCode and a digest are retained', () => {
@@ -208,8 +197,8 @@ describe('verification provider capability contract', () => {
 
 
 test('verification provider capability ledger rejects oversized input and YAML aliases', () => {
-  expect(() => parseVerificationProviderCapabilityLedger(
-    'x'.repeat(VERIFICATION_PROVIDER_LEDGER_MAX_INPUT_BYTES + 1)
+  expect(() => parseExternalCapabilityLedger(
+    'x'.repeat(EXTERNAL_CAPABILITY_LEDGER_MAX_INPUT_BYTES + 1)
   )).toThrow('UTF-8 input byte limit');
 
   const aliased = [
@@ -219,6 +208,6 @@ test('verification provider capability ledger rejects oversized input and YAML a
     'verification: *shared',
     ''
   ].join('\n');
-  expect(() => parseVerificationProviderCapabilityLedger(aliased))
+  expect(() => parseExternalCapabilityLedger(aliased))
     .toThrow();
 });

@@ -6,7 +6,7 @@ import { parse as parseYaml } from 'yaml';
 import { SEC_LINUX_VERIFICATION_ENVIRONMENT_AUTHORITY } from '../../../providers/linux-verification/contract.ts';
 import { SEC_WINDOWS_CONTROL_CLI_ENVIRONMENT_AUTHORITY, SEC_WINDOWS_CONTROL_CLI_ENVIRONMENT_SPEC_PATH, SEC_WINDOWS_CONTROL_CLI_ROOT_CLOSURE_REASON, SEC_WINDOWS_CONTROL_CLI_SESSION_SURFACE, parseSecWindowsControlCliEnvironmentAuthority, type WindowsControlCliEnvironmentSpec } from '../../../providers/windows-control-cli/contract/environment.ts';
 import { inspectNoFollowDirectoryChain, inspectNoFollowOrdinaryFileEntry, scanNoFollowDirectoryTreeMetadata } from '../../../runtime-state/physical/runtime/physical-no-follow.ts';
-import { VERIFICATION_PROVIDER_LEDGER_PATH, parseVerificationProviderCapabilityLedger, type VerificationProviderCapabilityLedgerProjection } from './capability-ledger.ts';
+import { EXTERNAL_CAPABILITY_LEDGER_PATH, parseExternalCapabilityLedger, type ExternalCapabilityLedgerProjection } from './capability-ledger.ts';
 
 export interface CapabilityLedgerIssue {
   readonly level: 'error';
@@ -574,14 +574,14 @@ function validateExecutionTopology(value: unknown): void {
 }
 
 async function validateExternalCapabilityLedger(
-  projection: VerificationProviderCapabilityLedgerProjection,
+  projection: ExternalCapabilityLedgerProjection,
   repositoryRoot: string
 ): Promise<void> {
   const parsed = projection.document;
   exactKeys(
     parsed,
     [
-      'schema', 'status', 'binding', 'policy', 'verification', 'executionTopology',
+      'schema', 'status', 'binding', 'policy', 'executionTopology',
       'providers', 'invariants'
     ],
     'External capability ledger'
@@ -840,13 +840,13 @@ export async function scanMachineLedgers(
   issues: CapabilityLedgerIssue[]
 ): Promise<void> {
   try {
-    const projection = parseVerificationProviderCapabilityLedger(
-      await fs.readFile(path.join(repositoryRoot, VERIFICATION_PROVIDER_LEDGER_PATH), 'utf8')
+    const projection = parseExternalCapabilityLedger(
+      await fs.readFile(path.join(repositoryRoot, EXTERNAL_CAPABILITY_LEDGER_PATH), 'utf8')
     );
     await validateExternalCapabilityLedger(projection, repositoryRoot);
   } catch (error) {
     issues.push({
-      level: 'error', code: 'machine-ledger-invalid', file: VERIFICATION_PROVIDER_LEDGER_PATH,
+      level: 'error', code: 'machine-ledger-invalid', file: EXTERNAL_CAPABILITY_LEDGER_PATH,
       message: error instanceof Error ? error.message : String(error)
     });
   }

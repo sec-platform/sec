@@ -102,25 +102,6 @@ function externalLedger(): Record<string, unknown> {
       repository: 'sec-platform/sec'
     },
     policy: { owner: 'docs/架构/实现供给与替换.md' },
-    verification: {
-      schema: 'sec-verification-provider-availability-ledger-v1',
-      epochId: 'test-epoch-v1',
-      observedAt: '2026-08-11T00:00:00.000Z',
-      expiresAt: '2026-08-12T00:00:00.000Z',
-      diagnosticRetention: {
-        rawProviderProse: 'disposable-after-normalization',
-        positiveClaimsRequireDurableEvidence: true
-      },
-      capabilities: [{
-        capability: 'codex-review',
-        role: 'reviewer',
-        provider: 'codex-code-review',
-        availability: 'unknown',
-        reasonCode: 'provider-not-observed',
-        receiptRef: null,
-        observedAt: '2026-08-11T00:00:00.000Z'
-      }]
-    },
     executionTopology: executionTopology(),
     providers: [
       {
@@ -377,38 +358,25 @@ test('host-command-execution has one exhaustive provider closure with no null or
   });
 });
 
-test('docs doctor uses the hosted capability epoch window for every observation', async () => {
+test('docs doctor rejects tracked runtime provider availability state', async () => {
   await withLedgerFixture(async (root) => {
     const state = fixtureState();
-    const capability = (state.external.verification as Record<string, unknown>).capabilities as Array<Record<string, unknown>>;
-    capability[0]!.observedAt = '2026-08-10T23:59:59.999Z';
-    await expectOneError(root, state, 'config/external-capabilities/ledger.yaml',
-      'VerificationProviderCapability capability codex-review observation must fall within the availability epoch.');
+    state.external.verification = {
+      schema: 'sec-verification-provider-availability-ledger-v1',
+      epochId: 'forbidden-tracked-epoch',
+      observedAt: '2026-08-11T00:00:00.000Z',
+      expiresAt: '2026-08-12T00:00:00.000Z',
+      capabilities: []
+    };
+    await expectOneError(
+      root,
+      state,
+      'config/external-capabilities/ledger.yaml',
+      'External capability ledger.verification is not allowed; '
+        + 'runtime provider availability must come from provider observations.'
+    );
   });
 });
-
-test('docs doctor preserves the verification ledger parser failure reason', async () => {
-  await withLedgerFixture(async (root) => {
-    const state = fixtureState();
-    const verification = state.external.verification as Record<string, unknown>;
-    verification.legacyEpoch = 'v0';
-    await expectOneError(root, state, 'config/external-capabilities/ledger.yaml',
-      'External capability ledger.verification.legacyEpoch is not allowed.');
-  });
-});
-
-test('docs doctor delegates static positive capability projections to the canonical normalizer', async () => {
-  await withLedgerFixture(async (root) => {
-    const state = fixtureState();
-    const capability = (state.external.verification as Record<string, unknown>)
-      .capabilities as Array<Record<string, unknown>>;
-    capability[0]!.availability = 'available';
-    capability[0]!.reasonCode = null;
-    capability[0]!.receiptRef = `sha256:${'a'.repeat(64)}`;
-    await expectZeroErrors(root, state);
-  });
-});
-
 test('external provider schema and cross-field negatives report the exact failing field', async () => {
   await withLedgerFixture(async (root) => {
     const base = fixtureState();
