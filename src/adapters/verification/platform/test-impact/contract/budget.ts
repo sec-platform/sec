@@ -591,7 +591,7 @@ export function buildTestBudgetContract(
     slowSuiteCount: slowSuites.length,
     slowSuites,
     lanes,
-    localDefault: 'bun run check:affected runs affected fast tests and skips broad source fallback unless SEC_AFFECTED_TESTS_FULL_FAST_FALLBACK=1; use test:slow -- --suite <id>, test:full, or check:full for slow runtime gates',
+    localDefault: 'bun run check -- --affected runs affected fast tests and skips broad source fallback unless SEC_AFFECTED_TESTS_FULL_FAST_FALLBACK=1; use test -- --scope slow --suite <id>, test -- --scope full, or check -- --scope full for slow runtime gates',
     fullRuntimeGate: 'affected runtime changes or explicit release/demo verification'
   });
 }const testBudgetLanes: readonly TestBudgetLane[] = deepFreeze([

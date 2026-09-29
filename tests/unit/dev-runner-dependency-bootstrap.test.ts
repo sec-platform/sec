@@ -375,7 +375,7 @@ test('dependency generation transitions require one exact fresh-process handoff'
   })).toThrow('attempted more than one fresh-process transition');
 });
 
-test('check:affected --plan performs zero dependency materialization or fresh-process handoff', async () => {
+test('check --affected --plan performs zero dependency materialization or fresh-process handoff', async () => {
   const calls: string[] = [];
   const exitCode = await runCheckAffectedCommand(['--plan'], {
     runPlan: async () => {
@@ -400,7 +400,7 @@ test('check:affected --plan performs zero dependency materialization or fresh-pr
   expect(calls).toEqual(['plan']);
 });
 
-test.serial('check:affected --plan full call chain is non-persistent and uses the canonical trust exit', async () => {
+test.serial('check --affected --plan full call chain is non-persistent and uses the canonical trust exit', async () => {
   const cachePath = path.join(compilerRoot, '.tmp', 'test-impact-cache.json');
   const cacheBefore = fs.existsSync(cachePath)
     ? Object.freeze({

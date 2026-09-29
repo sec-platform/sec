@@ -1733,12 +1733,12 @@ function trustedRuntimeMainHealthCommandArgv(command: string): readonly string[]
       return Object.freeze(['bun', 'run', 'imports:check', '--all']);
     case 'bun run typecheck:verified':
       return Object.freeze(['bun', 'run', 'typecheck:verified']);
-    case 'bun run audit:static':
-      return Object.freeze(['bun', 'run', 'audit:static']);
+    case 'bun run audit -- --worktree-source-program --enforce':
+      return Object.freeze(['bun', 'run', 'audit', '--', '--worktree-source-program', '--enforce']);
     case 'bun run docs:doctor':
       return Object.freeze(['bun', 'run', 'docs:doctor']);
-    case 'bun run test:fast':
-      return Object.freeze(['bun', 'run', 'test:fast']);
+    case 'bun run test -- --scope fast':
+      return Object.freeze(['bun', 'run', 'test', '--', '--scope', 'fast']);
     default:
       fail(`unsupported trusted MainHealth command: ${command}`);
   }

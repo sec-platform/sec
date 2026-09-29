@@ -556,6 +556,6 @@ export function formatSlowImpactNotice(selection: TestImpactSelection): string {
   return [
     'Changed sources also affect slow e2e coverage:',
     ...selection.slow.map((file) => `- ${file}`),
-    'Run bun run test:slow or bun run test:full before release.'
+    'Run bun run test -- --scope slow or bun run test -- --scope full before release.'
   ].join('\n');
 }

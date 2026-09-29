@@ -53,7 +53,7 @@ test('CI verification plans execute canonical affected Quick and ordered Full wo
     includeDocs: false
   })).toEqual([
     { id: 'typecheck', phase: 'quick', args: ['run', 'typecheck:verified'] },
-    { id: 'affected-tests', phase: 'quick', args: ['run', 'test:affected'] }
+    { id: 'affected-tests', phase: 'quick', args: ['run', 'test', '--', '--affected'] }
   ]);
 
   const full = buildCiFullGatePlan();

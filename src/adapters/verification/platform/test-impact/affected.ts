@@ -228,8 +228,8 @@ const AFFECTED_SELECTION_OWNER = 'affected-selection-worker' as const;
 const AFFECTED_SELECTION_GATE_ID = 'test:affected' as const;
 
 /**
- * Default context for the standard `bun run test:affected` / `--plan` path.
- * Callers with a different gate identity (e.g. `check:affected` umbrella)
+ * Default context for the standard `bun run test -- --affected` / `--plan` path.
+ * Callers with a different gate identity (e.g. `check --affected` umbrella)
  * can override individual fields.
  */
 export function defaultAffectedSelectionProjectionContext(
