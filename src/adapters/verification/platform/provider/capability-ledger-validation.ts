@@ -480,7 +480,6 @@ async function validateExternalCapabilityLedger(
     } else if (lifecycle === 'revalidation-required') {
       stateOptionalKeys.push('unresolved');
     }
-    const hostCommandExecution = capability === 'host-command-execution';
     exactKeys(
       provider,
       [

@@ -48,10 +48,10 @@ export {
   releaseTypeScriptWorkspace as releaseTypeScriptSourceProgramWorkspace
 } from './typescript-workspace.ts';
 export type {
-  RepositoryModuleGraphInput as CompileTypeScriptRepositoryModuleGraphInput
+  SecRepositoryModuleGraphInput as CompileTypeScriptRepositoryModuleGraphInput
 } from './typescript-module-graph.ts';
 export {
-  compileRepositoryModuleGraph as compileSecRepositoryModuleGraph
+  compileSecRepositoryModuleGraph
 } from './typescript-module-graph.ts';
 export {
   compileTypeScriptDiagnosticSnapshot as compileSourceProgramTypeScriptDiagnosticSnapshot

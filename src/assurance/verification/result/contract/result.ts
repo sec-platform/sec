@@ -1,4 +1,5 @@
 import {
+  readVerificationDataRecord,
   snapshotVerificationData,
   verificationDataEqual
 } from '../../contract/data.ts';
@@ -234,9 +235,20 @@ const APPLICABILITIES: readonly VerificationApplicability[] = [
 // Strict verification-data boundary
 // ---------------------------------------------------------------------------
 
-/** Compatibility exports; the verification-domain data boundary is owned by contract/data.ts. */
-export const CodexDevelopmentSnapshotVerificationData = snapshotVerificationData;
-export const CodexDevelopmentVerificationDataEqual = verificationDataEqual;
+/** Compatibility facade; the verification-domain data boundary is owned by contract/data.ts. */
+export function CodexDevelopmentSnapshotVerificationData(
+  value: unknown,
+  label: string = 'verification data'
+): unknown {
+  return snapshotVerificationData(value, label);
+}
+
+export function CodexDevelopmentVerificationDataEqual(
+  left: unknown,
+  right: unknown
+): boolean {
+  return verificationDataEqual(left, right);
+}
 
 // ---------------------------------------------------------------------------
 // Validation helpers (only consume strict snapshots)
@@ -635,16 +647,8 @@ function snapshotVerificationAggregateInput(
   input: VerificationAggregateInput
 ): VerificationAggregateInput {
   const label = 'verification aggregate input';
-  assertNotVerificationProxy(input);
-  if (!input || typeof input !== 'object' || Array.isArray(input)) {
-    throw new Error(`${label} must be an object.`);
-  }
-  assertCanonicalVerificationDataPrototype(input, label, false);
-  const ownKeys = Reflect.ownKeys(input);
-  if (ownKeys.some((key) => typeof key === 'symbol')) {
-    throw new Error(`${label} must not contain symbol fields.`);
-  }
-  const actualKeys = (ownKeys as string[]).slice().sort();
+  const candidate = readVerificationDataRecord(input, label);
+  const actualKeys = Object.keys(candidate).sort();
   const expectedKeys = actualKeys.includes('isCoverageComplete')
     ? ['claims', 'gateResults', 'isCoverageComplete']
     : ['claims', 'gateResults'];
@@ -656,23 +660,19 @@ function snapshotVerificationAggregateInput(
       `expected: ${sortedExpectedKeys.join(', ')}.`
     );
   }
-  const claimsDescriptor = ordinaryDataDescriptor(input, 'claims', `${label}.claims`);
-  const gatesDescriptor = ordinaryDataDescriptor(input, 'gateResults', `${label}.gateResults`);
-  const coverageDescriptor = actualKeys.includes('isCoverageComplete')
-    ? ordinaryDataDescriptor(input, 'isCoverageComplete', `${label}.isCoverageComplete`)
-    : undefined;
-  if (coverageDescriptor) assertNotVerificationProxy(coverageDescriptor.value);
-  if (coverageDescriptor?.value !== undefined && typeof coverageDescriptor.value !== 'function') {
+
+  const coverage = candidate.isCoverageComplete;
+  if (coverage !== undefined && typeof coverage !== 'function') {
     throw new Error(`${label}.isCoverageComplete must be a function when present.`);
   }
 
   const claims = CodexDevelopmentSnapshotVerificationData(
-    claimsDescriptor.value,
+    candidate.claims,
     `${label}.claims`
   );
   if (!Array.isArray(claims)) throw new Error(`${label}.claims must be an array.`);
   const gateResults = CodexDevelopmentSnapshotVerificationData(
-    gatesDescriptor.value,
+    candidate.gateResults,
     `${label}.gateResults`
   );
   if (!Array.isArray(gateResults)) throw new Error(`${label}.gateResults must be an array.`);
@@ -736,17 +736,16 @@ function snapshotVerificationAggregateInput(
   }
 
   const snapshot: VerificationAggregateInput = {
-    claims: claims as VerificationClaimDefinition[],
+    claims: claims as unknown as VerificationClaimDefinition[],
     gateResults: canonicalGates
   };
-  if (coverageDescriptor?.value !== undefined) {
-    snapshot.isCoverageComplete = coverageDescriptor.value as NonNullable<
+  if (coverage !== undefined) {
+    snapshot.isCoverageComplete = coverage as NonNullable<
       VerificationAggregateInput['isCoverageComplete']
     >;
   }
   return snapshot;
 }
-
 function defaultCoverageComplete(
   claim: VerificationClaimDefinition,
   observations: VerificationGateResult[]

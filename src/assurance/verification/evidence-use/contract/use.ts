@@ -74,8 +74,8 @@ const QUALIFICATION_REASONS: Readonly<Record<
   VerificationEvidenceQualificationStatus,
   ReadonlySet<VerificationEvidenceQualificationReason>
 >> = Object.freeze({
-  qualified: new Set(['exact-match']),
-  unqualified: new Set([
+  qualified: new Set<VerificationEvidenceQualificationReason>(['exact-match']),
+  unqualified: new Set<VerificationEvidenceQualificationReason>([
     'subject-mismatch',
     'obligation-mismatch',
     'method-selection-mismatch',
@@ -84,8 +84,8 @@ const QUALIFICATION_REASONS: Readonly<Record<
     'producer-unsettled',
     'cleanup-unclosed'
   ]),
-  unknown: new Set(['qualification-unresolved']),
-  invalidated: new Set(['freshness-stale', 'invalidation-active'])
+  unknown: new Set<VerificationEvidenceQualificationReason>(['qualification-unresolved']),
+  invalidated: new Set<VerificationEvidenceQualificationReason>(['freshness-stale', 'invalidation-active'])
 });
 
 const METHOD_CONCLUSIONS = new Set<VerificationMethodConclusion>([
