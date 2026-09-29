@@ -1,9 +1,9 @@
 ---
-name: sec-test-design
+name: test-design
 description: 用于已有 Claim/acceptance 需要 case/test 证明时，判断现有证据是否充分、oracle 是否独立以及最小 observation boundary；不创建第二套测试状态或删除权限。
 ---
 
-# sec-test-design
+# test-design
 
 ## 触发
 - 已有 canonical Claim/acceptance/invariant，但 case/test proof 尚未闭合，或现有测试疑似同源 oracle、重复证明、假 contract/E2E、成功型 fixture、实现布局锁定。

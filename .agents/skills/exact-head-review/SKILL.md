@@ -1,9 +1,9 @@
 ---
-name: sec-exact-head-review
+name: exact-head-review
 description: 用于 frozen exact head 的独立架构、根因、状态图、证据、权限、冗余和文档闭包审查；不用于边实现边审查或用 PR body 代替 diff。
 ---
 
-# sec-exact-head-review
+# exact-head-review
 
 ## 触发
 - candidate已冻结且需要独立 Review、REQUEST_CHANGES处理或 trust-root审计。

@@ -1,6 +1,6 @@
 {
   "schema": "sec.documentation-source-manifest/2",
-  "source_set_sha256": "dc55abc87b527244bb4a4f8a2ade594f266cc5771e9fe3bb576f5eb1c72d3273",
+  "source_set_sha256": "08ec7a0a7df179ec201802240595230444981334a5a28c4ee28b8027a51471b3",
   "members": [
     {
       "path": ".documentation/README.md",
@@ -1209,8 +1209,8 @@
     },
     {
       "path": "docs/运行/验收/系统组合挑战与反例.md",
-      "bytes": 48864,
-      "sha256": "253fecf740ddfc1c15d85aae6db06fbeb32d1a6576c47413cf29ef7571aba72e"
+      "bytes": 48856,
+      "sha256": "ca070254797794effc51bf85c218a34619efa05898d22484238e61501642818a"
     },
     {
       "path": "docs/运行/验收/覆盖与收益判据.md",

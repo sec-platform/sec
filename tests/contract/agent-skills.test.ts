@@ -96,8 +96,8 @@ test('heuristic registry maps each irreducible behavior to exactly one Skill', (
   expect(SEC_REPOSITORY_HEURISTIC_BEHAVIOR_IDS).toHaveLength(SEC_AGENT_SKILL_IDS.length);
   expect(resolveSecRepositoryHeuristicRoute('task-delegation')).toEqual({
     kind: 'skill',
-    owner: 'sec-task-delegation',
-    authorityRef: '.agents/skills/sec-task-delegation/SKILL.md'
+    owner: 'task-delegation',
+    authorityRef: '.agents/skills/task-delegation/SKILL.md'
   });
   for (const route of routes) {
     expect(route.authorityRef).toBe(`.agents/skills/${route.owner}/SKILL.md`);
@@ -200,19 +200,19 @@ test('registered heuristic runtime surfaces resolve at least one Skill', () => {
   expect(agentsCoverage).toEqual({
     kind: 'agent-projection',
     skills: [
-      'sec-heuristic-governance',
-      'sec-repository-audit',
-      'sec-task-delegation'
+      'heuristic-governance',
+      'repository-audit',
+      'task-delegation'
     ]
   });
   expect(resolveSecRepositoryHeuristicSkills('AGENTS.md')).toEqual(agentsCoverage!.skills);
   expect(resolveSecRepositoryHeuristicSkills('.documentation/documents.json')).toEqual([
-    'sec-heuristic-governance',
-    'sec-repository-audit'
+    'heuristic-governance',
+    'repository-audit'
   ]);
   expect(resolveSecRepositoryHeuristicSkills(
     'config/external-capabilities/ledger.yaml'
-  )).toEqual(['sec-external-capability-governance', 'sec-heuristic-governance']);
+  )).toEqual(['external-capability-governance', 'heuristic-governance']);
   expect(resolveSecRepositoryHeuristicSkills('src/adapters/verification/platform/ci/runtime/ci-orchestration-core.ts')).toEqual([
   ]);
   expect(resolveSecRepositoryHeuristicSkills('package.json')).toEqual([
@@ -223,7 +223,7 @@ test('documentation and Agent trust-root kinds have focused governance ownership
   // Repository-wide selection remains owned by the canonical affected-selection
   // operation; this contract fixes only the stable source-kind ownership relation.
   const skillKind = classifyTestImpactSource(
-    '.agents/skills/sec-worker-development/SKILL.md',
+    '.agents/skills/worker-development/SKILL.md',
     isActiveDocumentationPath
   );
   expect(skillKind).toBe('agent-skill');

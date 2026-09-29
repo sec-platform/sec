@@ -1,14 +1,14 @@
 ---
-name: sec-architecture-evolution
+name: architecture-evolution
 description: 用于 SEC canonical authority、公共合同、identity/revision、状态所有权、pipeline、错误恢复或跨 owner 架构需要设计、重算或迁移时，先冻结机制与不变量再进入实现；不用于 authority 已冻结后的普通 Worker 纵切片。
 ---
 
-# sec-architecture-evolution
+# architecture-evolution
 
 ## 触发
 - 用户要求重新设计、全面优化、修复根架构，或现有实现暴露第二 writer/loader/revision/pipeline、状态所有权不清、恢复不可闭合等系统问题。
 - 需要修改 active canonical authority、公共类型/Schema、identity/revision算法、跨域接口、状态机、错误协议或迁移边界。
-- `sec-repository-audit`、重复 failure或独立 Review证明问题不能在单一 frozen owner seam内解决。
+- `repository-audit`、重复 failure或独立 Review证明问题不能在单一 frozen owner seam内解决。
 
 ## 不触发
 - authority、public contract和migration已经冻结，只需在 Task Envelope 内实现、修复或重构。
@@ -18,7 +18,7 @@ description: 用于 SEC canonical authority、公共合同、identity/revision�
 - latest exact main、长期 Goal和阶段出口、由`.documentation/documents.json`定位的当前文档及其正文责任、当前代码/types/tests、consumer/impact图、状态与写 owner、失败/恢复证据、兼容和迁移约束。文档身份索引只定位，不签发领域或作用权限。
 
 ## 前置门禁
-- 受信 control-plane snapshot 已解析；跨仓/广泛变化先完成 `sec-repository-audit` 或等价的全量影响证据。
+- 受信 control-plane snapshot 已解析；跨仓/广泛变化先完成 `repository-audit` 或等价的全量影响证据。
 - 当前 canonical owner、消费者、写权限、迁移起点和完成定义明确；未知项必须显式。
 
 ## 执行
