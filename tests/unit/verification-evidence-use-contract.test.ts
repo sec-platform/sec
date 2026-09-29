@@ -17,8 +17,12 @@ import {
   verificationDataEqual
 } from '../../src/assurance/verification/contract/data.ts';
 
-const Q = 'sha256:' + '1'.repeat(64);
-const I = 'sha256:' + '2'.repeat(64);
+function digest(hex: string): `sha256:${string}` {
+  return `sha256:${hex.repeat(64)}`;
+}
+
+const Q = digest('1');
+const I = digest('2');
 
 function specification(subjectRevision = 'subject-r1') {
   const claim = createVerificationClaim({
@@ -28,11 +32,11 @@ function specification(subjectRevision = 'subject-r1') {
     ownerRef: 'owner:verification',
     subjectRef: 'subject:candidate',
     subjectRevision,
-    propositionDigest: 'sha256:' + '3'.repeat(64),
-    applicabilityScopeDigest: 'sha256:' + '4'.repeat(64),
-    assumptionsDigest: 'sha256:' + '5'.repeat(64),
-    requiredAssuranceDigest: 'sha256:' + '6'.repeat(64),
-    lifecycleAndInvalidationDigest: 'sha256:' + '7'.repeat(64)
+    propositionDigest: digest('3'),
+    applicabilityScopeDigest: digest('4'),
+    assumptionsDigest: digest('5'),
+    requiredAssuranceDigest: digest('6'),
+    lifecycleAndInvalidationDigest: digest('7')
   });
   const proofObligation = createProofObligation({
     obligationRef: 'obligation:typecheck',
@@ -41,13 +45,13 @@ function specification(subjectRevision = 'subject-r1') {
     claimRevision: claim.claimRevision,
     claimDigest: claim.claimDigest,
     ownerRef: 'owner:verification',
-    requiredObservationOrPredicateDigest: 'sha256:' + '8'.repeat(64),
-    applicabilityScopeDigest: 'sha256:' + '9'.repeat(64),
-    requiredIndependenceDigest: 'sha256:' + 'a'.repeat(64),
+    requiredObservationOrPredicateDigest: digest('8'),
+    applicabilityScopeDigest: digest('9'),
+    requiredIndependenceDigest: digest('a'),
     admissibleMethodFamilies: ['typecheck'],
-    environmentAndCapabilityConstraintsDigest: 'sha256:' + 'b'.repeat(64),
-    coverageAndFailureSpaceDigest: 'sha256:' + 'c'.repeat(64),
-    lifecycleAndInvalidationDigest: 'sha256:' + 'd'.repeat(64)
+    environmentAndCapabilityConstraintsDigest: digest('b'),
+    coverageAndFailureSpaceDigest: digest('c'),
+    lifecycleAndInvalidationDigest: digest('d')
   });
   const methodSelection = createVerificationMethodSelection({
     selectionRef: 'selection:typecheck',
@@ -58,11 +62,11 @@ function specification(subjectRevision = 'subject-r1') {
     methodFamily: 'typecheck',
     methodContractRef: 'method:typecheck',
     methodContractRevision: 'method-r1',
-    environmentAndCapabilityRequirementsDigest: 'sha256:' + 'e'.repeat(64),
+    environmentAndCapabilityRequirementsDigest: digest('e'),
     oracleCheckerOrReferenceRefs: ['checker:tsgo'],
     executionRequired: true,
-    evidenceQualificationDigest: 'sha256:' + 'f'.repeat(64),
-    lifecycleAndInvalidationDigest: 'sha256:' + '1'.repeat(64)
+    evidenceQualificationDigest: digest('f'),
+    lifecycleAndInvalidationDigest: digest('1')
   });
   return createVerificationSpecificationBinding({ claim, proofObligation, methodSelection });
 }

@@ -577,7 +577,6 @@ describe('work-selection live contract', () => {
 
       const prior = transitionCatalog();
       const seedSha = fixtureGitSha(root, 'HEAD');
-      const seedTree = fixtureGitSha(root, 'HEAD^{tree}');
       const packageId = 'git-worktree-physical-closeout-v1';
       const manifestPath = `config/repository/work-packages/${packageId}.md`;
       const manifestSource = `---\n`
@@ -598,7 +597,6 @@ describe('work-selection live contract', () => {
         readFileSync(path.join(process.cwd(), 'config', 'repository', 'current-state.yaml'))
       );
       writeFileSync(path.join(root, manifestPath), manifestSource, 'utf8');
-      const manifestDigest = rawSha256(manifestSource);
       writeFileSync(path.join(root, 'config', 'repository', 'work-selection.md'), prior.source, 'utf8');
       runFixtureGit(root, ['add', '--', 'config/repository']);
       runFixtureGit(root, ['commit', '--quiet', '-m', 'fixture: terminal base']);

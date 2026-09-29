@@ -244,7 +244,11 @@ test('worktree retirement settles an empty registered ancestor without an exact 
 test('legacy shared-deps cannot be born as active generated state', async () => {
   const fixture = await registeredWorktreeFixture();
   await mkdir(path.join(fixture.workspaceRoot, '.shared-deps'), { recursive: true });
-  await expect(fixture.lifecycle.born(
+  const lifecycle = generatedStateProducerHooks({
+    repositoryRoot: fixture.workspaceRoot,
+    workspaceRoot: fixture.workspaceRoot
+  }, fixture.options);
+  await expect(lifecycle.born(
     '.shared-deps',
     'forbidden-legacy-birth'
   )).rejects.toThrow('not registered by active policy');
