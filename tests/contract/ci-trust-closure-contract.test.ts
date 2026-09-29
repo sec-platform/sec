@@ -12,6 +12,7 @@ import {
   matchSecTrustedBootstrapPath,
   parseSecTrustedBootstrapRegistry,
   SEC_TCB_CLOSURE_RUNTIME_PATH,
+  SEC_TRUSTED_BOOTSTRAP_REGISTRY,
   SEC_TRUSTED_BOOTSTRAP_REGISTRY_PATH
 } from '../../src/adapters/verification/platform/trust/contract/root.ts';
 import {
@@ -108,6 +109,10 @@ test('Quick and Full plan topology remains deterministic behind the Action norma
   expect(() => assertCiExpectedHead('head-a', undefined)).toThrow('requires an exact expected head SHA');
   expect(() => assertCiExpectedHead('head-a', 'head-b')).toThrow('expected head-b, actual head-a');
   expect(() => assertCiExpectedHead('head-a', 'head-a')).not.toThrow();
+});
+
+test('retired shared dependency projection is outside static verifier trust', () => {
+  expect(SEC_TRUSTED_BOOTSTRAP_REGISTRY.staticDirectoryPaths).not.toContain('.shared-deps/');
 });
 
 test('trusted bootstrap SUT retains the verified typecheck owner', async () => {
