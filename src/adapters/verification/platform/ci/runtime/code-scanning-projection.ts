@@ -1,15 +1,11 @@
 import { compareCodeUnits } from '../../../../../contracts/canonical.ts';
 import {
   executeGitHubApiOperation,
-  inspectGitHubApiCapability,
-  withGitHubApiIssueCommentWriteSession,
   withGitHubApiReadSession
 } from '../../../../providers/github-api/operation-session.ts';
 
-const COMMENT_MARKER = '<!-- sec-code-scanning-projection:v1 -->' as const;
 const MAX_ALERT_PAGES = 32;
 const MAX_CHECK_PAGES = 32;
-const MAX_COMMENT_PAGES = 64;
 const PAGE_SIZE = 100;
 const TICK = String.fromCharCode(96);
 
@@ -125,7 +121,6 @@ export function renderCodeScanningProjection(projection: CodeScanningProjection)
     || compareCodeUnits(left.ruleId, right.ruleId)
     || left.alertNumber - right.alertNumber);
   const lines = [
-    COMMENT_MARKER,
     '## CodeQL findings',
     '',
     '> SEC projection only. GitHub Code Scanning remains the authoritative security evidence.',
@@ -266,67 +261,6 @@ async function observeProjection(input: Readonly<{
   });
 }
 
-async function publishProjection(input: Readonly<{
-  repositoryRoot: string;
-  projection: CodeScanningProjection;
-}>): Promise<Readonly<{ status: 'created' | 'updated' | 'reused'; commentId: number }>> {
-  const body = renderCodeScanningProjection(input.projection);
-  return await withGitHubApiIssueCommentWriteSession({
-    repositoryRoot: input.repositoryRoot,
-    repository: input.projection.repository,
-    operation: async (capability) => {
-      const principal = inspectGitHubApiCapability(capability).principal.login;
-      const matching: Array<Readonly<{ id: number; body: string }>> = [];
-      for (let page = 1; page <= MAX_COMMENT_PAGES; page += 1) {
-        const comments = await executeGitHubApiOperation(capability, {
-          kind: 'issue-comments', issueNumber: input.projection.pullRequestNumber, page
-        });
-        if (!Array.isArray(comments)) throw new Error('issue comment inventory is invalid');
-        for (const value of comments) {
-          const comment = record(value, 'issue comment');
-          const user = record(comment.user, 'issue comment user');
-          if (user.login === principal && typeof comment.body === 'string'
-              && comment.body.startsWith(COMMENT_MARKER)) {
-            matching.push(Object.freeze({
-              id: positiveInteger(comment.id, 'issue comment id'),
-              body: comment.body
-            }));
-          }
-        }
-        if (comments.length < PAGE_SIZE) break;
-        if (page === MAX_COMMENT_PAGES) throw new Error('issue comment inventory exceeds bounded pagination');
-      }
-      if (matching.length > 1) throw new Error('multiple CodeQL projection comments exist for this pull request');
-      let status: 'created' | 'updated' | 'reused';
-      let commentId: number;
-      if (matching.length === 0) {
-        const created = record(await executeGitHubApiOperation(capability, {
-          kind: 'create-issue-comment', issueNumber: input.projection.pullRequestNumber, body
-        }), 'created CodeQL projection comment');
-        commentId = positiveInteger(created.id, 'created CodeQL projection comment id');
-        status = 'created';
-      } else if (matching[0]!.body === body) {
-        commentId = matching[0]!.id;
-        status = 'reused';
-      } else {
-        commentId = matching[0]!.id;
-        await executeGitHubApiOperation(capability, {
-          kind: 'update-issue-comment', commentId, body
-        });
-        status = 'updated';
-      }
-      const readback = record(await executeGitHubApiOperation(capability, {
-        kind: 'issue-comment', commentId
-      }), 'CodeQL projection comment readback');
-      const user = record(readback.user, 'CodeQL projection comment readback user');
-      if (readback.id !== commentId || readback.body !== body || user.login !== principal) {
-        throw new Error('CodeQL projection comment readback differs from exact publication');
-      }
-      return Object.freeze({ status, commentId });
-    }
-  });
-}
-
 export async function projectCodeScanningPullRequest(input: Readonly<{
   repositoryRoot: string;
   repository: string;
@@ -334,8 +268,7 @@ export async function projectCodeScanningPullRequest(input: Readonly<{
   expectedHeadSha: string;
   expectedCheckId: number;
 }>): Promise<Readonly<{
-  status: 'created' | 'updated' | 'reused';
-  commentId: number;
+  markdown: string;
   pullRequestNumber: number;
   headSha: string;
   analysisRef: string;
@@ -344,9 +277,8 @@ export async function projectCodeScanningPullRequest(input: Readonly<{
 }>> {
   const repository = repositoryName(input.repository);
   const projection = await observeProjection({ ...input, repository });
-  const published = await publishProjection({ repositoryRoot: input.repositoryRoot, projection });
   return Object.freeze({
-    ...published,
+    markdown: renderCodeScanningProjection(projection),
     pullRequestNumber: projection.pullRequestNumber,
     headSha: projection.headSha,
     analysisRef: projection.analysisRef,
@@ -356,8 +288,8 @@ export async function projectCodeScanningPullRequest(input: Readonly<{
 }
 
 export async function codeScanningProjectionCli(argv: readonly string[]): Promise<string> {
-  if (argv.length !== 1 || argv[0] !== 'publish') {
-    throw new Error('usage: code-scanning-projection publish');
+  if (argv.length !== 1 || argv[0] !== 'summary') {
+    throw new Error('usage: code-scanning-projection summary');
   }
   const repository = repositoryName(process.env.GITHUB_REPOSITORY);
   const workflowRef = repository + '/.github/workflows/code-scanning-projection.yml@refs/heads/main';
@@ -368,13 +300,14 @@ export async function codeScanningProjectionCli(argv: readonly string[]): Promis
       || process.env.GITHUB_WORKFLOW_REF !== workflowRef) {
     throw new Error('Code scanning projection must execute from the exact trusted default-branch workflow identity');
   }
-  return JSON.stringify(await projectCodeScanningPullRequest({
+  const projected = await projectCodeScanningPullRequest({
     repositoryRoot: process.cwd(),
     repository,
     pullRequestNumber: positiveIntegerText(process.env.SEC_CODE_SCANNING_PR_NUMBER, 'pull request number'),
     expectedHeadSha: gitSha(process.env.SEC_CODE_SCANNING_HEAD_SHA, 'expected pull request head'),
     expectedCheckId: positiveIntegerText(process.env.SEC_CODE_SCANNING_CHECK_ID, 'CodeQL check id')
-  }), null, 2);
+  });
+  return projected.markdown;
 }
 
 if (import.meta.main) {
