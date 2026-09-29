@@ -310,7 +310,7 @@ function workspaceSnapshotFixture(
   programSource = 'export const checked = true;\n',
   unrelatedSource = 'first projection\n'
 ) {
-  const descriptorPath = 'src/example/sec.module.json';
+  const descriptorPath = 'src/example/module.json';
   const files = Object.freeze([
     Object.freeze({ path: 'tsconfig.json', source: configSource, contentDigest: rawSha256(configSource) }),
     Object.freeze({ path: 'src/example/checked.ts', source: programSource, contentDigest: rawSha256(programSource) }),

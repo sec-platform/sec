@@ -725,7 +725,7 @@ function compileRepositorySourceProgramModelInternal(
   for (const descriptor of input.moduleMembership.descriptors) {
     for (const targetPath of descriptor.externalEntrypoints) {
       entrypoints.push(observedEntrypoint({
-        path: `${descriptor.root}/sec.module.json`,
+        path: `${descriptor.root}/module.json`,
         kind: 'module-entrypoint',
         name: `${descriptor.moduleId}:${targetPath}`,
         command: null,
@@ -1184,7 +1184,7 @@ function compileRepositorySourceProgramModelInternal(
         evidence.intent.symbol.path,
         `${input.moduleMembership.descriptors.find(({ moduleId }) => (
           moduleId === evidence.owner
-        ))!.root}/sec.module.json`
+        ))!.root}/module.json`
       ].sort(compareCodeUnits)),
       reason: `owner-issued ${evidence.intent.relation} relation does not resolve to one exact Source Program symbol`,
       observationClass: 'unknown'
@@ -1289,7 +1289,7 @@ function compileRepositorySourceProgramModelInternal(
         candidates.push(Object.freeze({
           code: 'capability-provider-operation-unresolved',
           subject: `${provider.capability}:${operation}`,
-          paths: Object.freeze([`${descriptor.root}/sec.module.json`]),
+          paths: Object.freeze([`${descriptor.root}/module.json`]),
           reason: `provider ${descriptor.moduleId} declares an operation with no exported implementation in its module`,
           observationClass: 'unknown'
         }));
@@ -1322,7 +1322,7 @@ function compileRepositorySourceProgramModelInternal(
       code: 'operation-issuer-role-outside-owner',
       subject: `${binding.role}:${provider.capability}:${binding.operation}`,
       paths: Object.freeze([
-        `${descriptor.root}/sec.module.json`,
+        `${descriptor.root}/module.json`,
         ...new Set(foreignDeclarations.map(({ path: declarationPath }) => declarationPath))
       ].sort(compareCodeUnits)),
       reason: ownerDeclarations.length === 0
@@ -1344,7 +1344,7 @@ function compileRepositorySourceProgramModelInternal(
     candidates.push(Object.freeze({
       code: 'operation-issuer-role-conflict',
       subject: `${settlement.binding.semanticOperation}:${settlement.binding.requirementId}`,
-      paths: Object.freeze([`${settlement.descriptor.root}/sec.module.json`]),
+      paths: Object.freeze([`${settlement.descriptor.root}/module.json`]),
       reason: 'one module cannot issue provider settlement and independent domain readback for the same semantic operation requirement',
       observationClass: 'derived'
     }));
@@ -1381,7 +1381,7 @@ function compileRepositorySourceProgramModelInternal(
       candidates.push(Object.freeze({
         code: 'operation-critical-role-unresolved',
         subject: `${operation.capability}:${operation.operation}`,
-        paths: Object.freeze([`${descriptor.root}/sec.module.json`]),
+        paths: Object.freeze([`${descriptor.root}/module.json`]),
         reason: exactTerminalIssuers.length === 1
           ? 'effectful terminal operation has no unique domain owner in the same module, capability, and semantic operation'
           : 'effectful public semantic operation has no exact domain-owner role bound to its declared requirement provider operation',
@@ -1409,8 +1409,8 @@ function compileRepositorySourceProgramModelInternal(
         code: 'operation-recovery-binding-unresolved',
         subject: `${provider.capability}:${binding.operation}`,
         paths: Object.freeze([
-          `${descriptor.root}/sec.module.json`,
-          ...recoveryMatches.map(({ descriptor: owner }) => `${owner.root}/sec.module.json`)
+          `${descriptor.root}/module.json`,
+          ...recoveryMatches.map(({ descriptor: owner }) => `${owner.root}/module.json`)
         ].sort(compareCodeUnits)),
         reason: recovery === null
           ? 'durable worker has no recovery issuer binding'
@@ -1494,7 +1494,7 @@ function compileRepositorySourceProgramModelInternal(
   if ((nativeProcessProviders.length > 0 || observesNativeProcessTransport)
       && (nativeProcessProviders.length !== 1 || publicProcessOperations.length !== 1)) {
     const boundaryPaths = nativeProcessProviders.length > 0
-      ? nativeProcessProviders.map(({ descriptor }) => `${descriptor.root}/sec.module.json`)
+      ? nativeProcessProviders.map(({ descriptor }) => `${descriptor.root}/module.json`)
       : capabilities.flatMap((capability) => (
           capability.capability === 'process' && capability.transport === 'native-runtime'
             ? [capability.path]

@@ -89,8 +89,8 @@ function descriptorRoots(records: readonly { path: string; previousPath?: string
   return uniqueSorted([...records.flatMap(({ path, previousPath }) => [path, previousPath]), ...untracked]
     .flatMap((candidate) => {
       if (candidate === undefined) return [];
-      if (candidate === 'sec.module.json') return [''];
-      const suffix = '/sec.module.json';
+      if (candidate === 'module.json') return [''];
+      const suffix = '/module.json';
       return candidate.endsWith(suffix) ? [candidate.slice(0, -suffix.length)] : [];
     }));
 }

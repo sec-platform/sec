@@ -7,7 +7,7 @@ import { compileVirtualRepositorySourceProgramCompilation } from './repository-c
 import { compileVirtualWorkspaceSourceSnapshot } from './workspace-source-snapshot.ts';
 
 function compileFixture(sources: Readonly<Record<string, string>>) {
-  const descriptorPath = 'src/example/sec.module.json';
+  const descriptorPath = 'src/example/module.json';
   const files = Object.entries(sources).map(([repositoryPath, source]) => ({
     path: repositoryPath,
     source,

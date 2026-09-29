@@ -1190,7 +1190,7 @@ async function compileWorkingTreeModuleTopology(
     async (session) => {
       const workspaceSnapshot = await acquireWorkingTreeWorkspaceSourceSnapshot({ session });
       if (workspaceSnapshot.moduleMembership.descriptors.length === 0) {
-        throw new Error('Working-tree module topology requires at least one sec.module.json descriptor');
+        throw new Error('Working-tree module topology requires at least one module.json descriptor');
       }
       const graph = workspaceSnapshot.moduleGraph;
       return Object.freeze({
@@ -1454,7 +1454,7 @@ async function compileWorkingTreeSourceProgramWithSession(
     unknowns.push(Object.freeze({
       code: 'working-tree-module-ownership-unavailable',
       path: '.',
-      detail: 'no sec.module.json descriptor is present',
+      detail: 'no module.json descriptor is present',
       span: null
     }));
   }
@@ -2573,7 +2573,7 @@ async function auditRepositoryWithSession(
   const textByPath = new Map(initialTextByPath);
   const moduleMembership = workspaceSnapshot.moduleMembership;
   if (moduleMembership.descriptors.length === 0) {
-    unknowns.push('source program module ownership is unavailable: exact snapshot has no sec.module.json descriptors');
+    unknowns.push('source program module ownership is unavailable: exact snapshot has no module.json descriptors');
   }
   const projectInput = compileWorkspaceTypeScriptProjectInput(
     workspaceSnapshot,

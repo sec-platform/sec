@@ -82,7 +82,7 @@ function compileOperationProducerClosure(
 
   const owner = owners[0]!;
   const fileByPath = new Map(snapshot.files.map((file) => [file.path, file]));
-  const descriptorPath = `${owner.root}/sec.module.json`;
+  const descriptorPath = `${owner.root}/module.json`;
   const moduleExports = resolveSourceProgramTypeScriptModuleExport(
     typeScriptModel,
     owner.externalEntrypoints,

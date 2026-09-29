@@ -64,7 +64,7 @@ test('sealed Knip provider binds source, config and dependencies and signs only 
       compilerOptions: { strict: true },
       include: ['src/**/*.ts']
     }, null, 2)}\n`),
-    writeFile(path.join(repositoryRoot, 'src', 'example', 'sec.module.json'), `${JSON.stringify({
+    writeFile(path.join(repositoryRoot, 'src', 'example', 'module.json'), `${JSON.stringify({
       importGraph: 'runtime',
       externalEntrypoints: ['src/example/index.ts'],
       capabilityProviders: [],

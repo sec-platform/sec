@@ -32,7 +32,7 @@ function compileFixture(
     contentDigest: rawSha256(source)
   }));
   const descriptorSources = descriptors.map(({ root, source }) => Object.freeze({
-    descriptorPath: `${root}/sec.module.json`,
+    descriptorPath: `${root}/module.json`,
     source: JSON.stringify({
       importGraph: 'runtime',
       externalEntrypoints: [],

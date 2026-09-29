@@ -384,7 +384,7 @@ function encodeExactLocalGitRefDeleteBatchTranscript(
   ].join('\n')) };
 }
 
-/** Product ceiling for one atomic local-ref transaction, declared by this capability in sec.module.json. */
+/** Product ceiling for one atomic local-ref transaction, declared by this capability in module.json. */
 export const MAXIMUM_LOCAL_REF_DELETE_INPUT_BYTES = 1024 * 1024;
 export const MAXIMUM_LOCAL_REF_DELETE_AGGREGATE_INPUT_BYTES = 3 * MAXIMUM_LOCAL_REF_DELETE_INPUT_BYTES;
 

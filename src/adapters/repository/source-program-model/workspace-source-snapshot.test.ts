@@ -53,7 +53,7 @@ async function createRepository(): Promise<Readonly<{ commitSha: string; reposit
   git(repositoryRoot, ['config', 'core.autocrlf', 'false']);
   await mkdir(path.join(repositoryRoot, 'src', 'example'), { recursive: true });
   await writeFile(
-    path.join(repositoryRoot, 'src', 'example', 'sec.module.json'),
+    path.join(repositoryRoot, 'src', 'example', 'module.json'),
     `${JSON.stringify({
       importGraph: 'runtime',
       externalEntrypoints: [],

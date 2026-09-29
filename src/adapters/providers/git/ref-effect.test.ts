@@ -250,7 +250,7 @@ test('GitRefEffect exact local observation ignores unrelated refs beyond the old
 });
 
 test('GitRefEffect batch budget measures the exact validated native stdin', () => {
-  const descriptor = JSON.parse(readFileSync(new URL('./sec.module.json', import.meta.url), 'utf8')) as {
+  const descriptor = JSON.parse(readFileSync(new URL('./module.json', import.meta.url), 'utf8')) as {
     operationObligations: readonly { operation: { operation: string }; resources: {
       aggregateBudgets: readonly { resource: string; maximum: number }[]
     } }[]

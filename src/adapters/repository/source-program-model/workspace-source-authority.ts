@@ -764,7 +764,7 @@ export async function acquireWorkingTreeSnapshot(
   const files = observedEntries.map(({ file }) => file);
   const physicalFileObservations = observedEntries.map(({ physical }) => physical);
   const descriptorSources = files
-    .filter(({ path: repositoryPath }) => repositoryPath.endsWith('/sec.module.json'))
+    .filter(({ path: repositoryPath }) => repositoryPath.endsWith('/module.json'))
     .map(({ path: descriptorPath, source }) => ({ descriptorPath, source }));
   const moduleMembership = descriptorSources.length === 0
     ? emptyModuleMembership()
@@ -837,7 +837,7 @@ export async function acquireStagedIndexSnapshot(
     throw new Error('Staged workspace source snapshot exceeds its aggregate byte ceiling');
   }
   const descriptorSources = files
-    .filter(({ path: repositoryPath }) => repositoryPath.endsWith('/sec.module.json'))
+    .filter(({ path: repositoryPath }) => repositoryPath.endsWith('/module.json'))
     .map(({ path: descriptorPath, source }) => ({ descriptorPath, source }));
   const moduleMembership = descriptorSources.length === 0
     ? emptyModuleMembership()
@@ -986,7 +986,7 @@ function issueExactGitTreeWorkspaceSourceSnapshot(input: Readonly<{
   ));
   const unsafeDescriptor = treeEntries.find(({ repositoryPath, mode, type }) => (
     isSourceProgramInputPath(repositoryPath)
-      && repositoryPath.endsWith('/sec.module.json')
+      && repositoryPath.endsWith('/module.json')
       && ((mode !== '100644' && mode !== '100755') || type !== 'blob')
   ));
   if (unsafeDescriptor !== undefined) {
@@ -1008,7 +1008,7 @@ function issueExactGitTreeWorkspaceSourceSnapshot(input: Readonly<{
   const sourceByPath = new Map(sourceBlobs.map(({ repositoryPath, source }) => [repositoryPath, source]));
   const sourceEntryByPath = new Map(sourceEntries.map((entry) => [entry.repositoryPath, entry]));
   const descriptorSources = sourceEntries
-    .filter(({ repositoryPath }) => repositoryPath.endsWith('/sec.module.json'))
+    .filter(({ repositoryPath }) => repositoryPath.endsWith('/module.json'))
     .map(({ repositoryPath: descriptorPath }) => ({
       descriptorPath,
       source: sourceByPath.get(descriptorPath)!
