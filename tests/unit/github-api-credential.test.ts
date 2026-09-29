@@ -4,7 +4,6 @@ import os from 'node:os';
 import path from 'node:path';
 
 import {
-  inspectGitHubActionsProjectionCredentialIdentity,
   inspectGitHubActionsRepositoryMaintenanceCredentialIdentity,
   readGitHubToken
 } from '../../src/adapters/providers/github-api/credential.ts';
@@ -94,31 +93,6 @@ test.serial('acquires one token through the retained fixed command and scrubs am
   }
 });
 
-test.serial('recognizes only the exact code-scanning projection workflow as the Actions credential source', () => {
-  const source: NodeJS.ProcessEnv = {
-    GITHUB_ACTIONS: 'true',
-    GITHUB_SERVER_URL: 'https://github.com',
-    GITHUB_API_URL: 'https://api.github.com',
-    GITHUB_REPOSITORY: 'sec-platform/sec',
-    GITHUB_EVENT_NAME: 'pull_request_target',
-    GITHUB_REF: 'refs/heads/main',
-    GITHUB_SHA: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
-    GITHUB_WORKFLOW_SHA: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
-    GITHUB_WORKFLOW_REF:
-      'sec-platform/sec/.github/workflows/code-scanning-projection.yml@refs/heads/main',
-    GH_TOKEN: 'ghs_actions-token-0123456789'
-  };
-  expect(inspectGitHubActionsProjectionCredentialIdentity(source, 'sec-platform/sec')).toEqual({
-    repository: 'sec-platform/sec',
-    workflowRef: 'sec-platform/sec/.github/workflows/code-scanning-projection.yml@refs/heads/main',
-    workflowSha: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
-  });
-  expect(inspectGitHubActionsProjectionCredentialIdentity(
-    { ...source, GITHUB_WORKFLOW_REF: 'sec-platform/sec/.github/workflows/other.yml@refs/heads/main' },
-    'sec-platform/sec'
-  )).toBeNull();
-});
-
 test.serial('recognizes only the exact repository-maintenance dispatch workflow identity', () => {
   const source: NodeJS.ProcessEnv = {
     GITHUB_ACTIONS: 'true',
@@ -150,7 +124,6 @@ test.serial('recognizes only the exact repository-maintenance dispatch workflow 
     commentId: 42,
     actor: 'maintainer'
   });
-  expect(inspectGitHubActionsProjectionCredentialIdentity(source, 'sec-platform/sec')).toBeNull();
   for (const changed of [
     { GITHUB_EVENT_NAME: 'issue_comment' },
     { GITHUB_WORKFLOW_REF: 'sec-platform/sec/.github/workflows/other.yml@refs/heads/main' },
@@ -174,12 +147,17 @@ test.serial('forwards only the explicit GitHub Actions token to the fixed creden
     process.env.GITHUB_SERVER_URL = 'https://github.com';
     process.env.GITHUB_API_URL = 'https://api.github.com';
     process.env.GITHUB_REPOSITORY = 'sec-platform/sec';
-    process.env.GITHUB_EVENT_NAME = 'pull_request_target';
+    process.env.GITHUB_EVENT_NAME = 'repository_dispatch';
     process.env.GITHUB_REF = 'refs/heads/main';
     process.env.GITHUB_SHA = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
     process.env.GITHUB_WORKFLOW_SHA = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
     process.env.GITHUB_WORKFLOW_REF =
-      'sec-platform/sec/.github/workflows/code-scanning-projection.yml@refs/heads/main';
+      'sec-platform/sec/.github/workflows/repository-maintenance.yml@refs/heads/main';
+    process.env.SEC_MAINTENANCE_ISSUE_NUMBER = '313';
+    process.env.SEC_MAINTENANCE_COMMENT_ID = '42';
+    process.env.SEC_MAINTENANCE_COMMENT_AUTHOR = 'maintainer';
+    process.env.SEC_MAINTENANCE_AUTHOR_ASSOCIATION = 'OWNER';
+    process.env.GITHUB_ACTOR = 'maintainer';
     process.env.GH_TOKEN = 'ghs_actions-token-0123456789';
     process.env.GITHUB_TOKEN = 'must-not-forward';
     process.env.GH_HOST = 'evil.example';

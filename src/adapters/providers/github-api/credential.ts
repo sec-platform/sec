@@ -68,12 +68,6 @@ export type GitHubCredentialInput = Readonly<{
   deadlineAtUnixMs: number;
 }>;
 
-export type GitHubActionsProjectionCredentialIdentity = Readonly<{
-  repository: string;
-  workflowRef: string;
-  workflowSha: string;
-}>;
-
 export type GitHubActionsRepositoryMaintenanceCredentialIdentity = Readonly<{
   repository: string;
   workflowRef: string;
@@ -94,35 +88,6 @@ type GitHubCredentialProcessEnvironment = Readonly<{
 function environmentValue(source: Readonly<NodeJS.ProcessEnv>, key: string): string | undefined {
   const actual = Object.keys(source).find((candidate) => candidate.toLowerCase() === key.toLowerCase());
   return actual === undefined ? undefined : source[actual];
-}
-
-export function inspectGitHubActionsProjectionCredentialIdentity(
-  source: Readonly<NodeJS.ProcessEnv>,
-  repository: string
-): GitHubActionsProjectionCredentialIdentity | null {
-  const workflowRef = `${repository}/.github/workflows/code-scanning-projection.yml@refs/heads/main`;
-  const workflowSha = environmentValue(source, 'GITHUB_WORKFLOW_SHA');
-  const token = environmentValue(source, 'GH_TOKEN');
-  if (!/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/u.test(repository)
-      || environmentValue(source, 'GITHUB_ACTIONS') !== 'true'
-      || environmentValue(source, 'GITHUB_SERVER_URL') !== 'https://github.com'
-      || environmentValue(source, 'GITHUB_API_URL') !== 'https://api.github.com'
-      || environmentValue(source, 'GITHUB_REPOSITORY') !== repository
-      || environmentValue(source, 'GITHUB_EVENT_NAME') !== 'pull_request_target'
-      || environmentValue(source, 'GITHUB_REF') !== 'refs/heads/main'
-      || environmentValue(source, 'GITHUB_WORKFLOW_REF') !== workflowRef
-      || typeof workflowSha !== 'string'
-      || !/^[0-9a-f]{40}$/u.test(workflowSha)
-      || environmentValue(source, 'GITHUB_SHA') !== workflowSha
-      || token === undefined) {
-    return null;
-  }
-  if (token.length === 0 || token !== token.trim()
-      || Buffer.byteLength(token, 'utf8') > MAX_TOKEN_BYTES
-      || !/^[^\s\u0000-\u001f\u007f-\u009f]+$/u.test(token)) {
-    throw new GitHubCredentialUnavailableError('token');
-  }
-  return Object.freeze({ repository, workflowRef, workflowSha });
 }
 
 export function inspectGitHubActionsRepositoryMaintenanceCredentialIdentity(
@@ -177,9 +142,8 @@ function githubActionsCredentialToken(
   source: Readonly<NodeJS.ProcessEnv>,
   repository: string
 ): string | undefined {
-  const projection = inspectGitHubActionsProjectionCredentialIdentity(source, repository);
   const maintenance = inspectGitHubActionsRepositoryMaintenanceCredentialIdentity(source, repository);
-  if (projection === null && maintenance === null) return undefined;
+  if (maintenance === null) return undefined;
   return environmentValue(source, 'GH_TOKEN');
 }
 
