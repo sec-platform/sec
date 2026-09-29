@@ -496,22 +496,16 @@ test('trusted current-base gate authorizes exact candidate facts without executi
   expect(CodexDevelopmentParseMergeGateResult(JSON.stringify(result))).toEqual(result);
 });
 
-test('explicit maintainer-rooted policy preserves unavailable enforcement without claiming no-bypass', () => {
+test('missing platform enforcement is a hard merge blocker', () => {
   const base = fixture();
-  const result = CodexDevelopmentEvaluateMergeGate({
+  expect(() => CodexDevelopmentEvaluateMergeGate({
     ...base,
     platformObservation: {
       status: 'platform-enforcement-unavailable',
       rulesetDigest: RULESET,
-      reason: 'ruleset readback unavailable'
+      reason: 'canonical main-authority ruleset readback unavailable'
     }
-  });
-  expect(result.platformObservation).toEqual({
-    status: 'platform-enforcement-unavailable',
-    rulesetDigest: RULESET,
-    reason: 'ruleset readback unavailable'
-  });
-  expect(result.authorization.rulesetDigest).toBe(RULESET);
+  })).toThrow('unavailable enforcement is not admitted');
   expect(() => CodexDevelopmentEvaluateMergeGate({
     ...base,
     platformObservation: {

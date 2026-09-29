@@ -14,7 +14,7 @@ type IntegrationPlatformDigest = `sha256:${string}`;
 export const SEC_INTEGRATION_PLATFORM_POLICY = Object.freeze({
   schema: 'sec-integration-platform-policy-v1' as const,
   physicalMerge: 'github-pr-squash-exact-head-cas-no-admin' as const,
-  allowPlatformEnforcementUnavailable: true as const,
+  allowPlatformEnforcementUnavailable: false as const,
   claimsNoBypassEnforcement: false as const
 });
 
@@ -53,7 +53,7 @@ function reason(value: unknown): string {
  * Canonicalizes the provider observation without manufacturing protection.
  * Unknown/unreadable transport never reaches this function; callers keep that
  * as a hard blocker.  A stable provider-level "feature unavailable" result is
- * accepted only by the explicit maintainer-rooted policy above.
+ * never accepted by the active policy. A provider-unavailable observation stays evidence of missing platform authority, not a merge permit.
  */
 export function canonicalizeIntegrationPlatformObservation(
   value: IntegrationPlatformObservation
