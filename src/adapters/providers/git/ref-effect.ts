@@ -124,7 +124,7 @@ async function observeLocalRefSet(
   patterns: Uint8Array
 ) {
   const command = await runGitPhysicalCommandInternal(provider,
-    ['for-each-ref', '--stdin', '--format=%(refname)%00%(symref)%00%(objectname)%00'],
+    ['for-each-ref', '--stdin', `--count=${refs.length + 1}`, '--format=%(refname)%00%(symref)%00%(objectname)%00'],
     { ...commandOptions(provider, LOCAL_REF_STDOUT_BYTES), input: patterns, maxStdinBytes: patterns.byteLength });
   if (command.result.code !== 0 || command.result.stderr.length !== 0) {
     throw new Error(`Git local ref inventory is unavailable: ${childError(command.result.stderr)}`);
@@ -205,7 +205,9 @@ function parseExactRefSetObservation(source: Uint8Array, refs: readonly string[]
     }
     const [ref, symbolicTarget, sha] = fields as [string, string, string, string];
     if (!OBJECT_ID.test(sha)) throw new Error('Git ref observation contains a noncanonical object identity.');
-    if (!observations.has(ref)) continue;
+    if (!observations.has(ref)) {
+      throw new Error(`Git local ref observation expanded beyond its exact request set: ${ref}.`);
+    }
     if (observations.get(ref) !== null) throw new Error('Git ref observation contains a duplicate exact target.');
     observations.set(ref, Object.freeze({ sha, symbolicTarget: symbolicTarget.length === 0 ? null : symbolicTarget }));
   }
