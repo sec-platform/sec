@@ -14,6 +14,16 @@ function assertNotVerificationProxy(value: unknown, label: string): void {
   if (isProxy(value)) throw new Error(`${label} must not contain Proxy values.`);
 }
 
+export function assertVerificationDataCallable(
+  value: unknown,
+  label: string = 'Verification data callable'
+): asserts value is (...args: never[]) => unknown {
+  assertNotVerificationProxy(value, label);
+  if (typeof value !== 'function') {
+    throw new Error(`${label} must be a function.`);
+  }
+}
+
 function assertCanonicalVerificationDataPrototype(
   value: object,
   label: string,
