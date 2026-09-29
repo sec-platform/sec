@@ -1,0 +1,44 @@
+name: verification-session-truncation-validation-probe
+
+on:
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    steps:
+      - name: Checkout exact PR head
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Setup repository-pinned Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version-file: .bun-version
+
+      - name: Install exact dependency closure without lifecycle effects
+        run: bun install --frozen-lockfile --ignore-scripts
+
+      - name: Typecheck exact repair head
+        run: bun run typecheck
+
+      - name: Run VerificationSession regression closure
+        if: ${{ always() }}
+        run: >-
+          bun test
+          tests/unit/verification-session-runtime.test.ts
+          tests/unit/verification-session-hosted-local-ref.test.ts
+          tests/e2e/verification-session-closeout-cli.test.ts
+
+      - name: Check repair diff hygiene
+        if: ${{ always() }}
+        run: git diff --check origin/main...HEAD
