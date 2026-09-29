@@ -35,7 +35,7 @@
     "sec:runtime-canary": "\"$npm_execpath\" src/adapters/self-hosting/control/composition/trusted-runtime-closeout.ts --runtime-canary",
     "build": "\"$npm_execpath\" ./src/bootstrap/release/build.ts",
     "release:build": "\"$npm_execpath\" ./src/bootstrap/release/build-release-set.ts",
-    "typecheck": "\"$npm_execpath\" ./tools/native-typecheck.ts",
+    "typecheck": "\"$npm_execpath\" ./src/adapters/self-hosting/development/runner/typecheck-feedback.ts",
     "typecheck:verified": "\"$npm_execpath\" ./src/adapters/self-hosting/development/runner/cli.ts typecheck",
     "reference:refresh": "\"$npm_execpath\" ./src/bootstrap/reference/compile-workspace.ts",
     "reference:check": "\"$npm_execpath\" run sec -- reference check",
