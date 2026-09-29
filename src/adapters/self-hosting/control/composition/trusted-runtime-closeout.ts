@@ -13,6 +13,7 @@ import {
   withGitHubApiStatusWriteSession,
   type GitHubApiCapability
 } from '../../../providers/github-api/operation-session.ts';
+import { acquirePhysicalMutationLease } from '../../../runtime-state/physical/runtime/mutation-lease.ts';
 import { publishExclusiveDurableCanonicalFile, readNoFollowOrdinaryFile, type PhysicalDirectoryIdentity } from '../../../runtime-state/physical/runtime/physical-no-follow.ts';
 import { resolveSecRuntimeStateForRepository } from '../../../runtime-state/workspace-state/paths.ts';
 import { acquireSecRuntimeStatePhysicalAuthority, type SecRuntimeStatePhysicalAuthority } from '../../../runtime-state/workspace-state/physical-authority.ts';
@@ -43,7 +44,14 @@ import {
   readExactCommitMarker
 } from '../../../verification/platform/ci/runtime/verification-session.ts';
 import { renderIndependentReviewTrailer } from '../../../verification/platform/review/contract/stability.ts';
-import { executeTrustedRuntimeContainerVerification, executeTrustedRuntimeWorkspaceCanary, parseTrustedRuntimeContainerReceipt, TRUSTED_RUNTIME_CONTAINER_EXECUTION_ENVIRONMENT, type TrustedRuntimeContainerReceipt } from '../../../verification/platform/trusted-runtime/trusted-runtime-container.ts';
+import {
+  executeTrustedRuntimeContainerVerification,
+  executeTrustedRuntimeMainHealth,
+  executeTrustedRuntimeWorkspaceCanary,
+  parseTrustedRuntimeContainerReceipt,
+  TRUSTED_RUNTIME_CONTAINER_EXECUTION_ENVIRONMENT,
+  type TrustedRuntimeContainerReceipt
+} from '../../../verification/platform/trusted-runtime/trusted-runtime-container.ts';
 import { GIT_READ_OPERATION_BUDGET, gitReadText } from '../../development/tooling/git/git-read.ts';
 import {
   integrationAuthorizationStatusMergeMarkers,
@@ -58,6 +66,11 @@ import {
 import {
   parseGitHubClosingKeywordOccurrences
 } from '../issues/disposition.ts';
+import {
+  parseTrustedRuntimeMainHealthReceipt,
+  trustedRuntimeMainHealthReceiptLocator,
+  type TrustedRuntimeMainHealthReceipt
+} from '../main-health/main-health-observation.ts';
 import {
   assertMainHealthGitHubReadOperationBudgetCurrent,
   observeCanonicalMainHealthForPublication,
@@ -148,7 +161,8 @@ function canonicalBytes(value: unknown): Uint8Array {
 
 type TrustedRuntimeOperatorArgs =
   | Readonly<{ mode: 'closeout'; repository: string; prNumber: number }>
-  | Readonly<{ mode: 'runtime-canary'; repository: string; dependencies: boolean }>;
+  | Readonly<{ mode: 'runtime-canary'; repository: string; dependencies: boolean }>
+  | Readonly<{ mode: 'main-health'; repository: string }>;
 
 function parseArgs(argv: readonly string[]): TrustedRuntimeOperatorArgs {
   const { values, tokens } = parseNativeArgs({
@@ -158,6 +172,7 @@ function parseArgs(argv: readonly string[]): TrustedRuntimeOperatorArgs {
     tokens: true,
     options: {
       'runtime-canary': { type: 'boolean' },
+      'main-health': { type: 'boolean' },
       dependencies: { type: 'boolean' },
       pr: { type: 'string' },
       repository: { type: 'string' }
@@ -173,12 +188,21 @@ function parseArgs(argv: readonly string[]): TrustedRuntimeOperatorArgs {
   if (values.dependencies && !values['runtime-canary']) {
     fail('trusted runtime operator mode must appear exactly once');
   }
+  if (values['runtime-canary'] && values['main-health']) {
+    fail('trusted runtime operator mode must appear exactly once');
+  }
   const rawPr = values.pr;
   const repository = values.repository ?? 'sec-platform/sec';
   if (!/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/u.test(repository)) fail('--repository is invalid');
   if (values['runtime-canary']) {
     if (rawPr !== undefined) fail('standalone trusted runtime mode cannot be combined with --pr');
     return Object.freeze({ mode: 'runtime-canary', repository, dependencies: values.dependencies === true });
+  }
+  if (values['main-health']) {
+    if (rawPr !== undefined || values.dependencies) {
+      fail('MainHealth mode cannot be combined with --pr or --dependencies');
+    }
+    return Object.freeze({ mode: 'main-health', repository });
   }
   if (rawPr === undefined || !/^[1-9][0-9]*$/u.test(rawPr)) fail('--pr must be positive');
   return Object.freeze({ mode: 'closeout', repository, prNumber: Number(rawPr) });
@@ -347,6 +371,161 @@ export async function runCurrentTrustedRuntimeWorkspaceCanary(input: Readonly<{
     headSha,
     headTreeSha,
     dependencies: input.dependencies === true
+  });
+}
+
+function parseCanonicalTrustedRuntimeMainHealthReceipt(bytes: Uint8Array):
+TrustedRuntimeMainHealthReceipt {
+  const source = new TextDecoder('utf-8', { fatal: true }).decode(bytes);
+  if (!Buffer.from(source, 'utf8').equals(Buffer.from(bytes))) {
+    fail('MainHealth durable receipt is not exact UTF-8');
+  }
+  const receipt = parseTrustedRuntimeMainHealthReceipt(source);
+  if (!Buffer.from(bytes).equals(Buffer.from(canonicalBytes(receipt)))) {
+    fail('MainHealth durable receipt bytes are not canonical');
+  }
+  return receipt;
+}
+
+async function assertCurrentTrustedRuntimeMainHealthSubject(input: Readonly<{
+  repositoryRoot: string;
+  repository: string;
+  expectedHeadSha: string;
+  expectedTreeSha: string;
+  expectedOriginUrl: string;
+}>): Promise<void> {
+  const fence = await observeTrustedRuntimeGitFence(input.repositoryRoot);
+  const liveMain = await observeMainHealthGitHubDefaultBranchSha({
+    repositoryRoot: input.repositoryRoot,
+    repository: input.repository,
+    defaultBranch: 'main'
+  });
+  if (fence.branch !== 'main' || fence.status !== ''
+      || fence.headSha !== input.expectedHeadSha
+      || fence.treeSha !== input.expectedTreeSha
+      || fence.originUrl !== input.expectedOriginUrl
+      || liveMain !== input.expectedHeadSha) {
+    fail('MainHealth exact-main subject drifted during current readback');
+  }
+}
+
+export async function runCurrentTrustedRuntimeMainHealth(input: Readonly<{
+  repositoryRoot: string;
+  repository: string;
+}>): Promise<Readonly<{
+  reused: boolean;
+  receipt: TrustedRuntimeMainHealthReceipt;
+}>> {
+  const repositoryRoot = path.resolve(input.repositoryRoot);
+  const firstFence = await observeTrustedRuntimeGitFence(repositoryRoot);
+  assertOriginMatchesRepository(firstFence.originUrl, input.repository);
+  if (firstFence.branch !== 'main' || firstFence.status !== ''
+      || !/^[0-9a-f]{40}$/u.test(firstFence.headSha)
+      || !/^[0-9a-f]{40}$/u.test(firstFence.treeSha)) {
+    fail('MainHealth producer requires one clean attached exact main');
+  }
+  const liveMainBefore = await observeMainHealthGitHubDefaultBranchSha({
+    repositoryRoot,
+    repository: input.repository,
+    defaultBranch: 'main'
+  });
+  if (liveMainBefore !== firstFence.headSha) {
+    fail('MainHealth producer local main differs from the live default branch');
+  }
+
+  const runtimeLayout = resolveSecRuntimeStateForRepository({
+    repository: input.repository,
+    repositoryRoot
+  });
+  const locator = trustedRuntimeMainHealthReceiptLocator({
+    repositoryStateRoot: runtimeLayout.repositoryStateRoot,
+    mainSha: firstFence.headSha
+  });
+  return await withTrustedRuntimeStateAuthority({
+    repositoryRoot,
+    stateRoot: runtimeLayout.stateRoot,
+    cacheRoot: runtimeLayout.cacheRoot,
+    sessionRoot: locator.directory
+  }, async (authority) => {
+    const stateDirectory = authority.directory(locator.directory);
+    const generationLease = acquirePhysicalMutationLease(
+      stateDirectory,
+      `main-health-${firstFence.headSha}.lock`
+    );
+    if (generationLease === null) {
+      fail('MainHealth receipt generation is already active or its owner liveness is unknown');
+    }
+    try {
+      const existing = readNoFollowOrdinaryFile(stateDirectory, locator.fileName);
+      if (existing !== null) {
+        const receipt = parseCanonicalTrustedRuntimeMainHealthReceipt(existing);
+        if (receipt.repository !== input.repository
+            || receipt.mainSha !== firstFence.headSha
+            || receipt.mainTreeSha !== firstFence.treeSha) {
+          fail('existing MainHealth receipt belongs to another exact subject');
+        }
+        // Re-enter the immutable publication owner with the exact same bytes.
+        // An interrupted predecessor may have completed the no-replace rename
+        // before its parent-directory durability boundary. This call validates
+        // the same physical final value and re-establishes durable readback.
+        const recovered = publishCanonical({
+          parent: stateDirectory,
+          name: locator.fileName,
+          value: receipt,
+          parse: parseCanonicalTrustedRuntimeMainHealthReceipt
+        });
+        if (generationLease.recoveryPending) {
+          generationLease.acknowledgeReclaimedRecovery();
+        }
+        await assertCurrentTrustedRuntimeMainHealthSubject({
+          repositoryRoot,
+          repository: input.repository,
+          expectedHeadSha: firstFence.headSha,
+          expectedTreeSha: firstFence.treeSha,
+          expectedOriginUrl: firstFence.originUrl
+        });
+        return Object.freeze({ reused: true, receipt: recovered });
+      }
+      // Final-name absence proves an interrupted predecessor never published
+      // an adopted receipt. Any private random candidate was never authority;
+      // after this exact readback the successor may clear predecessor lineage
+      // and execute the same exact-main generation.
+      if (generationLease.recoveryPending) {
+        generationLease.acknowledgeReclaimedRecovery();
+      }
+
+      const receipt = await executeTrustedRuntimeMainHealth({
+        repositoryRoot,
+        repository: input.repository,
+        mainSha: firstFence.headSha,
+        mainTreeSha: firstFence.treeSha
+      });
+
+      await assertCurrentTrustedRuntimeMainHealthSubject({
+        repositoryRoot,
+        repository: input.repository,
+        expectedHeadSha: firstFence.headSha,
+        expectedTreeSha: firstFence.treeSha,
+        expectedOriginUrl: firstFence.originUrl
+      });
+      const published = publishCanonical({
+        parent: stateDirectory,
+        name: locator.fileName,
+        value: receipt,
+        parse: parseCanonicalTrustedRuntimeMainHealthReceipt
+      });
+      await assertCurrentTrustedRuntimeMainHealthSubject({
+        repositoryRoot,
+        repository: input.repository,
+        expectedHeadSha: firstFence.headSha,
+        expectedTreeSha: firstFence.treeSha,
+        expectedOriginUrl: firstFence.originUrl
+      });
+      return Object.freeze({ reused: false, receipt: published });
+    } finally {
+      if (generationLease.recoveryPending) generationLease.restoreReclaimedOwner();
+      else generationLease.release();
+    }
   });
 }
 
@@ -638,6 +817,7 @@ async function closeoutOpenCandidateWithTrustedRuntime(args: Readonly<{
     mainTreeSha: candidate.baseTreeSha
   });
   if (mainHealthObservation.ledger === null
+      || mainHealthObservation.ledger.producer.sourceTransport !== 'github-api'
       || mainHealthObservation.projection.state !== 'healthy'
       || mainHealthObservation.repairDecision.routingState !== 'ordinary-only') {
     fail(
@@ -774,6 +954,7 @@ async function closeoutOpenCandidateWithTrustedRuntime(args: Readonly<{
       mainTreeSha: candidate.baseTreeSha
     });
     if (freshMainHealthObservation.ledger === null
+        || freshMainHealthObservation.ledger.producer.sourceTransport !== 'github-api'
         || freshMainHealthObservation.projection.state !== 'healthy'
         || freshMainHealthObservation.repairDecision.routingState !== 'ordinary-only') {
       fail(
@@ -1003,11 +1184,16 @@ async function main(): Promise<void> {
           repository: args.repository,
           dependencies: args.dependencies
         })
-      : await closeoutWithTrustedRuntime({
-          repositoryRoot: process.cwd(),
-          repository: args.repository,
-          prNumber: args.prNumber
-        });
+      : args.mode === 'main-health'
+        ? await runCurrentTrustedRuntimeMainHealth({
+            repositoryRoot: process.cwd(),
+            repository: args.repository
+          })
+        : await closeoutWithTrustedRuntime({
+            repositoryRoot: process.cwd(),
+            repository: args.repository,
+            prNumber: args.prNumber
+          });
   process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
 }
 

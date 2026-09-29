@@ -61,6 +61,12 @@ import { resolveSecRuntimeStateForRepository } from '../../../runtime-state/work
 import { acquireSecRuntimeStatePhysicalAuthority } from '../../../runtime-state/workspace-state/physical-authority.ts';
 import { compilerRuntimeLayout } from '../../../toolchain/runtime/layout.ts';
 import { TYPECHECK_PROVIDER_CANARY_ENTRYPOINT_PATH } from '../../../toolchain/typescript/canary.ts';
+import {
+  createTrustedRuntimeMainHealthReceipt,
+  TRUSTED_RUNTIME_MAIN_HEALTH_CHECK_COMMANDS,
+  TRUSTED_RUNTIME_MAIN_HEALTH_PLAN_DIGEST,
+  type TrustedRuntimeMainHealthReceipt
+} from '../../../self-hosting/control/main-health/main-health-observation.ts';
 import { encodeVerificationActionData } from '../action/contract/action.ts';
 import { createCiVerificationLocalExecutionEnvironment, type CiVerificationExecutionEnvironment } from '../action/contract/ci.ts';
 import { type CodexDevelopmentVerificationEvidenceV4 } from '../ci/contract/evidence.ts';
@@ -1715,6 +1721,148 @@ export async function executeTrustedRuntimeContainerVerification(input: Readonly
       producerSourceDigest: digest(parsed.producer.sourceDigest, 'producer.sourceDigest')
     });
     return Object.freeze({ evidence: parsed, canonicalEvidenceBytes, receipt });
+        }
+      });
+    }
+  });
+}
+
+function trustedRuntimeMainHealthCommandArgv(command: string): readonly string[] {
+  switch (command) {
+    case 'bun run imports:check --all':
+      return Object.freeze(['bun', 'run', 'imports:check', '--all']);
+    case 'bun run typecheck:verified':
+      return Object.freeze(['bun', 'run', 'typecheck:verified']);
+    case 'bun run audit:static':
+      return Object.freeze(['bun', 'run', 'audit:static']);
+    case 'bun run docs:doctor':
+      return Object.freeze(['bun', 'run', 'docs:doctor']);
+    case 'bun run test:fast':
+      return Object.freeze(['bun', 'run', 'test:fast']);
+    default:
+      fail(`unsupported trusted MainHealth command: ${command}`);
+  }
+}
+
+export async function executeTrustedRuntimeMainHealth(input: Readonly<{
+  repositoryRoot: string;
+  repository: string;
+  mainSha: string;
+  mainTreeSha: string;
+  now?: () => Date;
+}>): Promise<TrustedRuntimeMainHealthReceipt> {
+  const repositoryRoot = path.resolve(input.repositoryRoot);
+  const repositoryIdentity = repository(input.repository);
+  const mainSha = sha(input.mainSha, 'MainHealth mainSha');
+  const mainTreeSha = sha(input.mainTreeSha, 'MainHealth mainTreeSha');
+  return await withTrustedRuntimeWorkspace({
+    repositoryRoot,
+    repository: repositoryIdentity,
+    baseSha: mainSha,
+    headSha: mainSha,
+    operationKey: `main-health-${mainSha.slice(0, 24)}`,
+    setupMode: 'full',
+    execute: async ({
+      containerName,
+      image,
+      containerEngineSession,
+      dockerEndpoint,
+      dependencyCacheKey
+    }) => {
+      if (dependencyCacheKey === null) {
+        fail('MainHealth full workspace did not bind the dependency cache generation');
+      }
+      return await executeTrustedRuntimeContainerEngineOwnerOperation({
+        session: containerEngineSession,
+        repositoryRoot,
+        repository: repositoryIdentity,
+        baseSha: mainSha,
+        headSha: mainSha,
+        operationKey: `main-health-${mainSha.slice(0, 16)}-execute`,
+        setupMode: 'full',
+        execute: async () => {
+          const environmentArgs = createTrustedRuntimeCommandEnvironmentArgs({
+            CI: '1',
+            HOME: '/home/ubuntu',
+            LANG: 'C',
+            LC_ALL: 'C',
+            TZ: 'UTC',
+            GIT_CONFIG_NOSYSTEM: '1',
+            GIT_CONFIG_GLOBAL: '/dev/null',
+            GIT_TERMINAL_PROMPT: '0'
+          });
+          const observeIdentity = async () => Object.freeze({
+            head: await containerEngineOutput(containerEngineSession, {
+              kind: 'container-exec',
+              arguments: ['--user', '1000:1000', '--workdir', TRUSTED_RUNTIME_WORKSPACE,
+                containerName, 'git', 'rev-parse', 'HEAD']
+            }),
+            tree: await containerEngineOutput(containerEngineSession, {
+              kind: 'container-exec',
+              arguments: ['--user', '1000:1000', '--workdir', TRUSTED_RUNTIME_WORKSPACE,
+                containerName, 'git', 'rev-parse', 'HEAD^{tree}']
+            }),
+            status: await containerEngineOutput(containerEngineSession, {
+              kind: 'container-exec',
+              arguments: ['--user', '1000:1000', '--workdir', TRUSTED_RUNTIME_WORKSPACE,
+                containerName, 'git', 'status', '--porcelain=v1', '--untracked-files=all']
+            })
+          });
+          const before = await observeIdentity();
+          if (before.head !== mainSha || before.tree !== mainTreeSha || before.status !== '') {
+            fail('MainHealth exact-main workspace identity differs before execution');
+          }
+
+          const actionResults: Array<Readonly<{ command: string; resultDigest: Digest }>> = [];
+          for (const command of TRUSTED_RUNTIME_MAIN_HEALTH_CHECK_COMMANDS) {
+            const argv = trustedRuntimeMainHealthCommandArgv(command);
+            const result = await containerEngineOperationResult(containerEngineSession, {
+              kind: 'container-exec',
+              arguments: ['--user', '1000:1000', '--workdir', TRUSTED_RUNTIME_WORKSPACE,
+                ...environmentArgs, containerName, ...argv]
+            }, {
+              maxStdoutBytes: 16 * 1024 * 1024,
+              maxStderrBytes: 16 * 1024 * 1024
+            });
+            actionResults.push(Object.freeze({
+              command,
+              resultDigest: digestValue(Object.freeze({
+                command,
+                exitCode: result.code,
+                stdoutDigest: digestBytes(result.stdout),
+                stderrDigest: digestBytes(result.stderr)
+              }))
+            }));
+          }
+
+          const after = await observeIdentity();
+          if (after.head !== mainSha || after.tree !== mainTreeSha || after.status !== '') {
+            fail('MainHealth exact-main workspace identity changed during execution');
+          }
+          const endpointReadback = await containerEngineSession.observeEndpoint();
+          if (encodeVerificationActionData(endpointReadback)
+              !== encodeVerificationActionData(dockerEndpoint)) {
+            fail('MainHealth Docker endpoint drifted during execution');
+          }
+          const executionId = `trusted-main-health-${digestValue(Object.freeze({
+            repository: repositoryIdentity,
+            mainSha,
+            mainTreeSha,
+            imageId: image.imageId,
+            dockerEndpoint,
+            dependencyCacheKey,
+            planDigest: TRUSTED_RUNTIME_MAIN_HEALTH_PLAN_DIGEST
+          })).slice(7, 31)}`;
+          return createTrustedRuntimeMainHealthReceipt({
+            repository: repositoryIdentity,
+            mainSha,
+            mainTreeSha,
+            executionId,
+            dockerEndpoint,
+            dependencyCacheKey,
+            actionResults,
+            observedAt: (input.now ?? (() => new Date()))().toISOString()
+          });
         }
       });
     }

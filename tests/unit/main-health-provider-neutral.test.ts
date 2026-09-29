@@ -1,9 +1,11 @@
 import { expect, test } from 'bun:test';
 
 import type { GitHubCheckObservation } from '../../src/adapters/providers/github-api/contract.ts';
+import { createMainHealthLedger } from '../../src/adapters/self-hosting/control/main-health/contract.ts';
 import {
   createObservedMainHealthInputWithPolicy,
   createRegisteredHostedMainHealthInputs,
+  createTrustedRuntimeMainHealthInput,
   createTrustedRuntimeMainHealthCheckProviderPolicyV1,
   GITHUB_ACTIONS_MAIN_HEALTH_CHECK_PROVIDER_POLICY
 } from '../../src/adapters/self-hosting/control/main-health/main-health-observation.ts';
@@ -87,6 +89,53 @@ function observe(checks: readonly GitHubCheckObservation[], sourceRunId = '77') 
     policy
   });
 }
+
+test('trusted runtime durable readback compiles the same healthy semantic revision as hosted MainHealth', () => {
+  const observedAt = '2026-09-29T00:00:00.000Z';
+  const expiresAt = '2026-09-29T00:10:00.000Z';
+  const local = createMainHealthLedger(createTrustedRuntimeMainHealthInput({
+    schema: 'sec-trusted-runtime-main-health-observation-v1',
+    repository: 'sec-platform/sec',
+    mainSha: MAIN,
+    mainTreeSha: MAIN_TREE,
+    trustRevision: MAIN,
+    runtimeRef: `runtime-state:trusted-main-health/v1/main-${MAIN}.json`,
+    executionId: 'trusted-main-health-run',
+    verificationReceiptDigest: `sha256:${'e'.repeat(64)}`,
+    observedAt,
+    expiresAt
+  }));
+  const hosted = createMainHealthLedger(createObservedMainHealthInputWithPolicy({
+    repository: 'sec-platform/sec',
+    mainSha: MAIN,
+    mainTreeSha: MAIN_TREE,
+    trustRevision: MAIN,
+    observedAt,
+    expiresAt,
+    sourceRunId: '77',
+    sourceRef: RUNTIME_REF,
+    checks: [check()],
+    policy
+  }));
+  expect(local.healthRevision).toBe(hosted.healthRevision);
+  expect(local.ledgerDigest).not.toBe(hosted.ledgerDigest);
+  expect(local.producer).toMatchObject({
+    sourceTransport: 'trusted-runtime-durable-readback',
+    sourceRunId: 'trusted-main-health-run'
+  });
+  expect(() => createTrustedRuntimeMainHealthInput({
+    schema: 'sec-trusted-runtime-main-health-observation-v1',
+    repository: 'sec-platform/sec',
+    mainSha: MAIN,
+    mainTreeSha: MAIN_TREE,
+    trustRevision: '3'.repeat(40),
+    runtimeRef: 'runtime-state:trusted-main-health/v1/foreign.json',
+    executionId: 'trusted-main-health-run',
+    verificationReceiptDigest: `sha256:${'e'.repeat(64)}`,
+    observedAt,
+    expiresAt
+  })).toThrow('not exact or fresh');
+});
 
 test('dedicated Integration App can produce healthy MainHealth without GitHub Actions workflow provenance', () => {
   const ledger = observe([check()]);

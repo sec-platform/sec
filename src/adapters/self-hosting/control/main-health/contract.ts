@@ -17,7 +17,7 @@ export const DEFAULT_BRANCH_REVISION_HEALTH_PRODUCER_IDENTITY =
 interface MainHealthProducer {
   readonly identity: string;
   readonly trustRevision: string;
-  readonly sourceTransport: 'github-api';
+  readonly sourceTransport: 'github-api' | 'trusted-runtime-durable-readback';
   readonly sourceRunId: string;
   readonly sourceRef: string;
   readonly sourceDigest: MainHealthDigest;
@@ -187,7 +187,10 @@ export function createMainHealthLedger(input: MainHealthLedgerInput): MainHealth
   const producerKeys = Object.keys(producer).sort();
   const expectedProducerKeys = ['identity', 'trustRevision', 'sourceTransport', 'sourceRunId', 'sourceRef', 'sourceDigest'].sort();
   if (producerKeys.length !== expectedProducerKeys.length || producerKeys.some((key, index) => key !== expectedProducerKeys[index])) fail('producer keys are invalid.');
-  if (producer.sourceTransport !== 'github-api') fail('producer.sourceTransport is invalid.');
+  if (producer.sourceTransport !== 'github-api'
+      && producer.sourceTransport !== 'trusted-runtime-durable-readback') {
+    fail('producer.sourceTransport is invalid.');
+  }
   const semantic = normalizeMainHealthSemanticInput(input);
   const normalized = Object.freeze({
     ...semantic,
