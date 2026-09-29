@@ -437,7 +437,8 @@ export function createRecoveryBundle(input: {
         'fetch',
         '--no-tags',
         inventory.repository.remoteUrl,
-        `+${sourceSpec}:refs/heads/recovery`
+        `+${sourceSpec}:refs/heads/recovery`,
+        `+refs/heads/${inventory.repository.defaultBranch}:refs/heads/recovery-main`
       ]);
       if (fetch.status !== 0) {
         throw new Error(
@@ -458,10 +459,61 @@ export function createRecoveryBundle(input: {
       );
     }
 
+    const mainSha = inventory.main.remoteSha;
+    if (mainSha === null) {
+      throw new Error('Recovery compaction requires one exact remote default-branch SHA.');
+    }
+    assertGitSha(mainSha, 'recovery main SHA');
+    const bundleMainRef = refSource.kind === 'local-branch'
+      ? mainSha
+      : 'refs/heads/recovery-main';
+    const resolvedMainSha = requireRecoveryGitText(
+      bundleSourceRoot,
+      ['rev-parse', '--verify', '--end-of-options', `${bundleMainRef}^{commit}`],
+      'recovery main resolution'
+    );
+    if (resolvedMainSha !== mainSha) {
+      throw new Error(
+        `recovery main SHA raced during recovery preparation: expected ${mainSha}, resolved ${resolvedMainSha}`
+      );
+    }
+
+    const uniqueCommitCountSource = requireRecoveryGitText(
+      bundleSourceRoot,
+      ['rev-list', '--count', bundleSourceRef, `^${bundleMainRef}`],
+      'recovery unique commit census'
+    );
+    const uniqueCommitCount = Number(uniqueCommitCountSource);
+    if (!Number.isSafeInteger(uniqueCommitCount) || uniqueCommitCount < 0) {
+      throw new Error('Recovery unique commit census is invalid.');
+    }
+    let exclusions: string[];
+    if (uniqueCommitCount > 0) {
+      // The durable main ref is the prerequisite. Git bundle records the
+      // exact boundary OIDs it actually needs; bundle verify revalidates them
+      // in every recovery environment.
+      exclusions = [`^${bundleMainRef}`];
+    } else {
+      // The source is already reachable from main. Keep only the exact source
+      // commit generation instead of copying main history. All source parents
+      // are durable prerequisites because the source itself is main-reachable.
+      const sourceLine = requireRecoveryGitText(
+        bundleSourceRoot,
+        ['rev-list', '--parents', '-n', '1', bundleSourceRef],
+        'recovery absorbed-source parent census'
+      );
+      const [sourceCommit, ...parents] = sourceLine.split(/\s+/u);
+      if (sourceCommit !== expectedSha
+          || parents.some((parent) => !/^[0-9a-f]{40}$/u.test(parent))) {
+        throw new Error('Recovery absorbed-source parent census is invalid.');
+      }
+      exclusions = parents.map((parent) => `^${parent}`);
+    }
+
     const partialBundlePath = `${bundlePath}.${process.pid}.partial`;
     const create = runRecoveryGit(
       bundleSourceRoot,
-      ['bundle', 'create', partialBundlePath, bundleSourceRef]
+      ['bundle', 'create', partialBundlePath, bundleSourceRef, ...exclusions]
     );
     if (create.status !== 0) {
       try { unlinkSync(partialBundlePath); } catch { /* no residue */ }
@@ -490,7 +542,7 @@ export function createRecoveryBundle(input: {
     attempts.push({
       operation: 'recovery-create',
       status: 'success',
-      detail: `${bundlePath} (source ${sourceLabel})`
+      detail: `${bundlePath} (source ${sourceLabel}; unique commits ${uniqueCommitCount}; prerequisite main ${mainSha})`
     });
 
     const verify = runRecoveryGit(repositoryRoot, ['bundle', 'verify', bundlePath]);
