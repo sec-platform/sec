@@ -92,11 +92,13 @@ import type { VerificationSessionHostedRequest } from '../../src/adapters/verifi
 import {
   assertGitHubReviewAuthorityObservation,
   classifyGitHubGraphQLSchemaFailure,
+  createReviewProviderRevalidationCommentBody,
   createVerificationSessionGitHubClient,
   evaluateGitHubRepositoryActionsArtifactInventory,
   evaluateHostedReviewLocatorObservation,
   evaluateMaintainerReviewWakeupObservation,
   evaluatePlatformEnforcementObservation,
+  evaluateReviewProviderAvailabilityObservation,
   evaluateVerificationSessionChangedPaths,
   evaluateVerificationSessionReviewObservation,
   evaluateVerificationSessionWorkflowJoin,
@@ -351,6 +353,169 @@ test('hosted Review locator is exact, non-triggering, and reuses only its matchi
     .toThrow('payload keys/schema are invalid');
 });
 
+test('Review provider quota creates one repository-scoped deny-only availability epoch', () => {
+  const transport = new FakeTransport();
+  const quota = 'You have reached your Codex usage limits for code reviews. Upgrade or add credits to continue.';
+  transport.repositoryIssueComments = [[botIssueComment(quota, {
+    id: '301',
+    createdAt: '2026-08-09T13:50:00.000Z'
+  })]];
+  const unavailable = evaluateReviewProviderAvailabilityObservation(transport, {
+    repository: 'sec-platform/sec',
+    observedAt: '2026-08-09T14:01:00.000Z'
+  });
+  expect(unavailable).toMatchObject({
+    status: 'unavailable',
+    reasonCode: 'provider-quota-unavailable',
+    sourceCommentId: '301',
+    sourceObservedAt: '2026-08-09T13:50:00.000Z'
+  });
+  if (unavailable.status !== 'unavailable') throw new Error('expected quota unavailable');
+  expect(unavailable.receiptRef).toMatch(/^sha256:[0-9a-f]{64}$/u);
+
+  transport.repositoryIssueComments = [[botIssueComment(
+    '<!-- retired: codex code-review quota transport noise -->',
+    { id: '302', createdAt: '2026-08-09T13:55:00.000Z' }
+  )]];
+  expect(evaluateReviewProviderAvailabilityObservation(transport, {
+    repository: 'sec-platform/sec',
+    observedAt: '2026-08-09T14:01:00.000Z'
+  })).toMatchObject({ status: 'unavailable', sourceCommentId: '302' });
+
+  transport.repositoryIssueComments = [[botIssueComment(quota, {
+    id: '303',
+    createdAt: '2026-08-08T13:59:00.000Z'
+  })]];
+  expect(evaluateReviewProviderAvailabilityObservation(transport, {
+    repository: 'sec-platform/sec',
+    observedAt: '2026-08-09T14:01:00.000Z'
+  })).toMatchObject({ status: 'unavailable', sourceCommentId: '303' });
+
+  transport.repositoryIssueComments = [[botIssueComment(quota, {
+    id: '304',
+    authorNodeId: 'FOREIGN_BOT',
+    performedViaGitHubApp: { id: 999, nodeId: 'FOREIGN_APP', slug: 'foreign-app' }
+  })]];
+  expect(evaluateReviewProviderAvailabilityObservation(transport, {
+    repository: 'sec-platform/sec',
+    observedAt: '2026-08-09T14:01:00.000Z'
+  })).toMatchObject({ status: 'no-current-negative' });
+
+  transport.collaboratorPermissions.set('maintainer', 'maintain');
+  const target = {
+    repository: 'sec-platform/sec',
+    prNumber: 42,
+    headSha: HEAD,
+    headTreeSha: HEAD
+  } as const;
+  const revalidation = createReviewProviderRevalidationCommentBody({
+    ...target,
+    publisherNodeId: 'MAINTAINER_NODE'
+  });
+  transport.repositoryIssueComments = [[
+    maintainerIssueComment(revalidation.body, '305', {
+      createdAt: '2026-08-09T14:00:00.000Z'
+    }),
+    botIssueComment(quota, {
+      id: '306',
+      createdAt: '2026-08-09T13:50:00.000Z'
+    })
+  ]];
+  expect(evaluateReviewProviderAvailabilityObservation(transport, {
+    ...target,
+    observedAt: '2026-08-09T14:01:00.000Z'
+  })).toMatchObject({
+    status: 'no-current-negative',
+    revalidationCommentId: '305',
+    revalidationObservedAt: '2026-08-09T14:00:00.000Z',
+    revalidationDigest: revalidation.revalidationDigest
+  });
+  expect(evaluateReviewProviderAvailabilityObservation(transport, {
+    repository: 'sec-platform/sec',
+    observedAt: '2026-08-09T14:01:00.000Z'
+  })).toMatchObject({ status: 'unavailable', sourceCommentId: '306' });
+
+  transport.repositoryIssueComments = [[
+    maintainerIssueComment(defaultReviewWakeupBody(), '308', {
+      createdAt: '2026-08-09T14:00:30.000Z'
+    }),
+    maintainerIssueComment(revalidation.body, '305', {
+      createdAt: '2026-08-09T14:00:00.000Z'
+    })
+  ]];
+  expect(evaluateReviewProviderAvailabilityObservation(transport, {
+    ...target,
+    observedAt: '2026-08-09T14:01:00.000Z'
+  })).toMatchObject({
+    status: 'unavailable',
+    reasonCode: 'provider-revalidation-consumed',
+    sourceCommentId: '308'
+  });
+
+  transport.repositoryIssueComments = [[
+    maintainerIssueComment('<!-- retired: codex review trigger transport noise -->', '308', {
+      createdAt: '2026-08-09T14:00:30.000Z'
+    }),
+    maintainerIssueComment(revalidation.body, '305', {
+      createdAt: '2026-08-09T14:00:00.000Z'
+    })
+  ]];
+  expect(evaluateReviewProviderAvailabilityObservation(transport, {
+    ...target,
+    observedAt: '2026-08-09T14:01:00.000Z'
+  })).toMatchObject({
+    status: 'unavailable',
+    reasonCode: 'provider-revalidation-consumed',
+    sourceCommentId: '308'
+  });
+
+  transport.repositoryIssueComments = [[
+    botIssueComment(quota, {
+      id: '307',
+      createdAt: '2026-08-09T14:00:30.000Z'
+    }),
+    maintainerIssueComment(revalidation.body, '305', {
+      createdAt: '2026-08-09T14:00:00.000Z'
+    })
+  ]];
+  expect(evaluateReviewProviderAvailabilityObservation(transport, {
+    ...target,
+    observedAt: '2026-08-09T14:01:00.000Z'
+  })).toMatchObject({ status: 'unavailable', sourceCommentId: '307' });
+});
+
+test('Review provider availability fails closed on bounded-census exhaustion and visited-page drift', () => {
+  const exhausted = new FakeTransport();
+  exhausted.repositoryIssueComments = Array.from({ length: 65 }, (_, index) => [
+    botIssueComment('ordinary Codex provider prose', {
+      id: String(400 + index),
+      createdAt: '2026-08-09T13:59:00.000Z'
+    })
+  ]);
+  expect(evaluateReviewProviderAvailabilityObservation(exhausted, {
+    repository: 'sec-platform/sec',
+    observedAt: '2026-08-09T14:01:00.000Z'
+  })).toMatchObject({ status: 'unresolved', reason: 'pagination-budget-exhausted' });
+
+  let firstPageReads = 0;
+  const drifting = {
+    repositoryIssueCommentPage(_repository: string, after: string | null): GitHubPage<GitHubIssueCommentObservation> {
+      if (after !== null) throw new Error('unexpected second page');
+      firstPageReads += 1;
+      return {
+        nodes: [],
+        hasNextPage: false,
+        endCursor: null,
+        pageDigest: `sha256:${(firstPageReads === 1 ? 'a' : 'b').repeat(64)}`
+      };
+    }
+  };
+  expect(evaluateReviewProviderAvailabilityObservation(drifting, {
+    repository: 'sec-platform/sec',
+    observedAt: '2026-08-09T14:01:00.000Z'
+  })).toMatchObject({ status: 'unresolved', reason: 'provider-comment-page-drift' });
+});
+
 test('maintainer Review wake-up is exact, user-authored, and at-most-once per session operation', () => {
   expect(shouldPublishMaintainerReviewWakeup({ reviewBarrierStatus: 'waiting',
     localVerificationStatus: 'passed', hostedArtifactPresent: false })).toBe(true);
@@ -473,6 +638,188 @@ test('maintainer Review wake-up is exact, user-authored, and at-most-once per se
     .toThrow('maintainer Review wake-up comment shape is invalid');
 });
 
+test('trusted Codex Review authority requires one earlier exact maintainer wake-up', () => {
+  const unbound = new FakeTransport();
+  unbound.issueComments = [[botIssueComment()]];
+  expect(observe(unbound)).toMatchObject({
+    status: 'blocked',
+    reason: 'review-provider-unbound-activation'
+  });
+
+  const wakeupInput = {
+    repository: 'sec-platform/sec',
+    sessionRevision: `sha256:${'1'.repeat(64)}` as SessionDigest,
+    operationId: `sha256:${'2'.repeat(64)}` as SessionDigest,
+    requestOperationId: `sha256:${'3'.repeat(64)}` as SessionDigest,
+    prNumber: 42,
+    headSha: HEAD,
+    headTreeSha: HEAD,
+    publisherLogin: 'maintainer',
+    publisherNodeId: 'MAINTAINER_NODE'
+  } as const;
+  const wakeupSource = new FakeTransport();
+  const wakeup = evaluateMaintainerReviewWakeupObservation(wakeupSource, wakeupInput);
+
+  const bound = new FakeTransport();
+  bound.issueComments = [[
+    botIssueComment(undefined, { id: '301', createdAt: '2026-08-09T14:00:00.000Z' }),
+    maintainerIssueComment(wakeup.body, '300', { createdAt: '2026-08-09T13:59:00.000Z' })
+  ]];
+  expect(observe(bound)).toMatchObject({
+    status: 'clear',
+    principal: { kind: 'github-app', actorNodeId: BOT }
+  });
+
+  const lateWakeup = new FakeTransport();
+  lateWakeup.issueComments = [[
+    maintainerIssueComment(wakeup.body, '302', { createdAt: '2026-08-09T14:00:30.000Z' }),
+    botIssueComment(undefined, { id: '301', createdAt: '2026-08-09T14:00:00.000Z' })
+  ]];
+  expect(observe(lateWakeup)).toMatchObject({
+    status: 'blocked',
+    reason: 'review-provider-unbound-activation'
+  });
+});
+
+test('repository-wide Codex quota negative is trusted, bounded, stable, and fail-closed', () => {
+  const observedAt = '2026-08-09T14:01:00.000Z';
+  const quotaBody = 'You have reached your Codex usage limits for code reviews. Upgrade or add credits.';
+  const recentQuota = botIssueComment(quotaBody, {
+    id: '401',
+    createdAt: '2026-08-09T14:00:00.000Z'
+  });
+
+  const unavailable = new FakeTransport();
+  unavailable.repositoryIssueComments = [[recentQuota]];
+  expect(evaluateReviewProviderAvailabilityObservation(unavailable, {
+    repository: 'sec-platform/sec',
+    observedAt
+  })).toMatchObject({
+    status: 'unavailable',
+    reasonCode: 'provider-quota-unavailable',
+    sourceCommentId: '401',
+    sourceObservedAt: '2026-08-09T14:00:00.000Z'
+  });
+
+  const tombstoned = new FakeTransport();
+  tombstoned.repositoryIssueComments = [[botIssueComment(
+    '<!-- retired: codex code-review quota transport noise -->',
+    { id: '406', createdAt: '2026-08-09T14:00:00.000Z' }
+  )]];
+  expect(evaluateReviewProviderAvailabilityObservation(tombstoned, {
+    repository: 'sec-platform/sec',
+    observedAt
+  })).toMatchObject({
+    status: 'unavailable',
+    reasonCode: 'provider-quota-unavailable',
+    sourceCommentId: '406',
+    sourceObservedAt: '2026-08-09T14:00:00.000Z'
+  });
+
+  const humanDiagnostic = new FakeTransport();
+  humanDiagnostic.repositoryIssueComments = [[maintainerIssueComment(quotaBody, '402', {
+    createdAt: '2026-08-09T14:00:00.000Z'
+  })]];
+  expect(evaluateReviewProviderAvailabilityObservation(humanDiagnostic, {
+    repository: 'sec-platform/sec',
+    observedAt
+  }).status).toBe('no-current-negative');
+
+  const historicalNegative = new FakeTransport();
+  historicalNegative.repositoryIssueComments = [[botIssueComment(quotaBody, {
+    id: '403',
+    createdAt: '2026-08-08T13:59:00.000Z'
+  })]];
+  expect(evaluateReviewProviderAvailabilityObservation(historicalNegative, {
+    repository: 'sec-platform/sec',
+    observedAt
+  })).toMatchObject({ status: 'unavailable', sourceCommentId: '403' });
+
+  const outOfOrder = new FakeTransport();
+  outOfOrder.repositoryIssueComments = [[
+    botIssueComment('first', { id: '404', createdAt: '2026-08-09T13:00:00.000Z' }),
+    botIssueComment('second', { id: '405', createdAt: '2026-08-09T13:30:00.000Z' })
+  ]];
+  expect(evaluateReviewProviderAvailabilityObservation(outOfOrder, {
+    repository: 'sec-platform/sec',
+    observedAt
+  })).toMatchObject({
+    status: 'unresolved',
+    reason: 'provider-comment-ordering-invalid'
+  });
+
+  const exhausted = new FakeTransport();
+  exhausted.repositoryIssueComments = Array.from({ length: 65 }, () => []);
+  expect(evaluateReviewProviderAvailabilityObservation(exhausted, {
+    repository: 'sec-platform/sec',
+    observedAt
+  })).toMatchObject({
+    status: 'unresolved',
+    reason: 'pagination-budget-exhausted'
+  });
+
+  let firstPageReads = 0;
+  const drifting = {
+    repositoryIssueCommentPage(
+      _repository: string,
+      _after: string | null
+    ): GitHubPage<GitHubIssueCommentObservation> {
+      firstPageReads += 1;
+      return {
+        nodes: [],
+        hasNextPage: false,
+        endCursor: null,
+        pageDigest: `sha256:${(firstPageReads === 1 ? 'a' : 'b').repeat(64)}` as SessionDigest
+      };
+    }
+  };
+  expect(evaluateReviewProviderAvailabilityObservation(drifting, {
+    repository: 'sec-platform/sec',
+    observedAt
+  })).toMatchObject({
+    status: 'unresolved',
+    reason: 'provider-comment-page-drift'
+  });
+
+  const visited: Array<string | null> = [];
+  let secondPageReads = 0;
+  const secondPageDrift = {
+    repositoryIssueCommentPage(
+      _repository: string,
+      after: string | null
+    ): GitHubPage<GitHubIssueCommentObservation> {
+      visited.push(after);
+      if (after === null) {
+        return {
+          nodes: [botIssueComment('ordinary Codex summary', {
+            id: '500',
+            createdAt: '2026-08-09T14:00:30.000Z'
+          })],
+          hasNextPage: true,
+          endCursor: '2',
+          pageDigest: `sha256:${'c'.repeat(64)}` as SessionDigest
+        };
+      }
+      if (after !== '2') throw new Error(`unexpected test cursor: ${after}`);
+      secondPageReads += 1;
+      return {
+        nodes: [],
+        hasNextPage: false,
+        endCursor: null,
+        pageDigest: `sha256:${(secondPageReads === 1 ? 'd' : 'e').repeat(64)}` as SessionDigest
+      };
+    }
+  };
+  expect(evaluateReviewProviderAvailabilityObservation(secondPageDrift, {
+    repository: 'sec-platform/sec',
+    observedAt
+  })).toMatchObject({
+    status: 'unresolved',
+    reason: 'provider-comment-page-drift'
+  });
+  expect(visited).toEqual([null, '2', null, '2']);
+});
+
 test('provider recovery artifact binds exact envelope and bundle bytes', () => {
   const artifact = createBranchCloseoutRecoveryArtifact({
     repository: 'sec-platform/sec',
@@ -516,6 +863,7 @@ class FakeTransport implements VerificationSessionReviewObservationTransaction,
   requests: GitHubReviewRequestObservation[][] = [[]];
   comments: GitHubAppReviewCommentObservation[][] = [[]];
   issueComments: GitHubIssueCommentObservation[][] = [[]];
+  repositoryIssueComments: GitHubIssueCommentObservation[][] = [[]];
   workflowRuns: GitHubWorkflowRunObservation[][] = [[]];
   resolutions = new Map<string, GitHubCommitResolutionObservation>();
   reviewRequests = 0;
@@ -544,6 +892,9 @@ class FakeTransport implements VerificationSessionReviewObservationTransaction,
   reviewRequestPage(_r: string, _p: number, after: string | null): GitHubPage<GitHubReviewRequestObservation> { return this.at(this.requests, after, 'c'); }
   appCommentPage(_r: string, _p: number, after: string | null): GitHubPage<GitHubAppReviewCommentObservation> { return this.at(this.comments, after, 'd'); }
   issueCommentPage(_r: string, _p: number, after: string | null): GitHubPage<GitHubIssueCommentObservation> { return this.at(this.issueComments, after, 'e'); }
+  repositoryIssueCommentPage(_r: string, after: string | null): GitHubPage<GitHubIssueCommentObservation> {
+    return this.at(this.repositoryIssueComments, after, '9');
+  }
   resolveCommitOid(repository: string, locator: string): GitHubCommitResolutionObservation {
     const configured = this.resolutions.get(locator);
     if (configured !== undefined) return configured;
@@ -630,7 +981,38 @@ function maintainerIssueComment(body: string, id = '201', overrides: Partial<
   });
 }
 
+let defaultReviewWakeupBodyCache = '';
+
+function defaultReviewWakeupBody(): string {
+  if (defaultReviewWakeupBodyCache !== '') return defaultReviewWakeupBodyCache;
+  const transport = new FakeTransport();
+  transport.issueComments = [[]];
+  defaultReviewWakeupBodyCache = evaluateMaintainerReviewWakeupObservation(transport, {
+    repository: 'sec-platform/sec',
+    sessionRevision: `sha256:${'1'.repeat(64)}`,
+    operationId: `sha256:${'2'.repeat(64)}`,
+    requestOperationId: `sha256:${'3'.repeat(64)}`,
+    prNumber: 42,
+    headSha: HEAD,
+    headTreeSha: HEAD,
+    publisherLogin: 'maintainer',
+    publisherNodeId: 'MAINTAINER_NODE'
+  }).body;
+  return defaultReviewWakeupBodyCache;
+}
+
+function ensureBoundReviewWakeup(transport: FakeTransport): void {
+  if (transport.issueComments.flat().some(({ body }) =>
+    body.includes(VERIFICATION_SESSION_REVIEW_WAKEUP_COMMENT_MARKER))) return;
+  const first = transport.issueComments[0] ?? [];
+  transport.issueComments[0] = [
+    maintainerIssueComment(defaultReviewWakeupBody(), '99'),
+    ...first
+  ];
+}
+
 function observe(transport: FakeTransport) {
+  ensureBoundReviewWakeup(transport);
   return evaluateVerificationSessionReviewObservation(transport, {
     repository: 'sec-platform/sec', prNumber: 42, headSha: HEAD,
     excludedPrincipalNodeIds: new Set(['AUTHOR', 'INTEGRATOR']),
@@ -829,11 +1211,14 @@ function fakeGitHubClient(
   observePrivateBarrier?: (input: Parameters<VerificationSessionGitHubClient['observeReviewBarrier']>[0]) => GitHubReviewBarrierObservation
 ): VerificationSessionGitHubClient {
   const client: Pick<VerificationSessionGitHubClient,
-    'observeCandidate' | 'observeReviewBarrier' | 'observePrincipalByNodeId'
-    | 'observePlatformEnforcement' | 'observeComparison' | 'ensureVerificationSessionWakeup'> = {
+    'observeCandidate' | 'observeReviewBarrier' | 'observeReviewProviderAvailability'
+    | 'observePrincipalByNodeId' | 'observePlatformEnforcement' | 'observeComparison'
+    | 'ensureVerificationSessionWakeup'> = {
     observeCandidate: () => transport.candidate(),
     observeReviewBarrier: (input) => observePrivateBarrier?.(input)
       ?? evaluateVerificationSessionReviewObservation(transport, input),
+    observeReviewProviderAvailability: (input) =>
+      evaluateReviewProviderAvailabilityObservation(transport, input),
     observePrincipalByNodeId: (repository, nodeId) => transport.principalByNodeId(repository, nodeId),
     observePlatformEnforcement: (repository) => evaluatePlatformEnforcementObservation({
       repository,
@@ -1400,6 +1785,38 @@ test('formal trusted App COMMENTED suggestion cannot clear without an explicit c
     commitSha: HEAD, state: 'COMMENTED', submittedAt: '2026-08-09T14:00:00.000Z' }]];
   expect(observe(transport)).toMatchObject({ status: 'waiting',
     reason: 'exact-head-independent-review-missing' });
+});
+
+test('trusted Codex App activity is not Review authority without a prior exact-head SEC wake-up', () => {
+  const transport = new FakeTransport();
+  transport.reviews = [[{ id: 'R-app', authorNodeId: BOT, authorLogin: 'codex-review[bot]',
+    authorType: 'Bot',
+    appId: 1144995, appNodeId: 'A_kwHOAOQ6Gs4AEXij', appSlug: 'chatgpt-codex-connector',
+    commitSha: HEAD, state: 'APPROVED', submittedAt: '2026-08-09T14:00:00.000Z' }]];
+  const unbound = evaluateVerificationSessionReviewObservation(transport, {
+    repository: 'sec-platform/sec', prNumber: 42, headSha: HEAD,
+    excludedPrincipalNodeIds: new Set(['AUTHOR', 'INTEGRATOR']),
+    observedAt: '2026-08-09T14:01:00.000Z'
+  });
+  expect(unbound).toMatchObject({ status: 'blocked', reason: 'review-provider-unbound-activation' });
+
+  transport.issueComments = [[maintainerIssueComment(defaultReviewWakeupBody(), '98', {
+    createdAt: '2026-08-09T13:59:59.000Z'
+  })]];
+  expect(evaluateVerificationSessionReviewObservation(transport, {
+    repository: 'sec-platform/sec', prNumber: 42, headSha: HEAD,
+    excludedPrincipalNodeIds: new Set(['AUTHOR', 'INTEGRATOR']),
+    observedAt: '2026-08-09T14:01:00.000Z'
+  }).status).toBe('clear');
+
+  transport.issueComments = [[maintainerIssueComment(defaultReviewWakeupBody(), '97', {
+    createdAt: '2026-08-09T14:00:01.000Z'
+  })]];
+  expect(evaluateVerificationSessionReviewObservation(transport, {
+    repository: 'sec-platform/sec', prNumber: 42, headSha: HEAD,
+    excludedPrincipalNodeIds: new Set(['AUTHOR', 'INTEGRATOR']),
+    observedAt: '2026-08-09T14:01:00.000Z'
+  })).toMatchObject({ status: 'blocked', reason: 'review-provider-unbound-activation' });
 });
 
 test('formal trusted App APPROVED binds GraphQL authority and excluded principals never clear', () => {
