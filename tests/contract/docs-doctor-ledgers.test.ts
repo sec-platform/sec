@@ -89,8 +89,6 @@ function externalLedger(): Record<string, unknown> {
     capability,
     decision: 'use-as-development-tool',
     lifecycle: 'active',
-    observedVersion: null,
-    versionAuthority: null,
     activeRoutingProfile: profile,
     surfaces: { cli: profile ? ['query'] : [], standingMcp },
     forbiddenAuthority: [...FORBIDDEN_AUTHORITY]
@@ -110,8 +108,6 @@ function externalLedger(): Record<string, unknown> {
         capability: 'source-context',
         decision: 'watch-with-trigger',
         lifecycle: 'discovered',
-        observedVersion: null,
-        versionAuthority: null,
         activeRoutingProfile: null,
         surfaces: { cli: [], standingMcp: [] },
         forbiddenAuthority: [...FORBIDDEN_AUTHORITY],
@@ -133,8 +129,6 @@ function externalLedger(): Record<string, unknown> {
         capability: 'source-context',
         decision: 'reject-with-rationale',
         lifecycle: 'retired',
-        observedVersion: null,
-        versionAuthority: null,
         activeRoutingProfile: null,
         surfaces: { cli: [], standingMcp: [] },
         forbiddenAuthority: [...FORBIDDEN_AUTHORITY],
@@ -640,209 +634,68 @@ test('ledger schemas reject missing, unknown, nested, and legacy alias fields', 
   });
 });
 
-test('external runner release authority binds exact primary-source archive and base image digests', async () => {
+test('workflow runtime catalog binds canonical Linux environment authority without copying runtime identity', async () => {
   await withLedgerFixture(async (root) => {
-    const base = fixtureState();
+    const state = fixtureState();
     const environment = SEC_LINUX_VERIFICATION_ENVIRONMENT_AUTHORITY;
-    const localRunner = {
+    (state.external.providers as Array<Record<string, unknown>>).push({
       id: 'github-actions-local-runner',
       category: 'workflow-runtime',
       capability: 'workflow-execution',
       decision: 'integrate-adapter',
       lifecycle: 'active',
-      observedVersion: environment.archives.runner.version,
-      versionAuthority: {
-        kind: 'external-release',
-        release: `https://github.com/actions/runner/releases/tag/v${environment.archives.runner.version}`,
-        artifact: environment.archives.runner.url,
-        artifactSha256: environment.archives.runner.digest.slice(7),
-        baseImage: environment.ubuntu.baseReference,
-        imageId: environment.image.dockerProjectionDigest,
-        imageBuildRevision: environment.image.buildRevision,
-        nodeVersion: environment.archives.node.version,
-        nodeArtifact: environment.archives.node.url,
-        nodeArtifactSha256: environment.archives.node.digest.slice(7),
-        githubCliVersion: environment.archives.githubCli.version,
-        githubCliArtifact: environment.archives.githubCli.url,
-        githubCliArtifactSha256: environment.archives.githubCli.digest.slice(7),
-        pythonVersion: environment.runtime.pythonVersion,
-        zipExtractionCapability: 'info-zip-unzip-6.00',
-        containerInitCapability: environment.runtime.containerInitCapability,
-        sandboxRevision: 'sandbox-v4',
-        outerSutContainerCapabilities: [
-          'CHOWN', 'SETGID', 'SETPCAP', 'SETUID', 'SYS_ADMIN', 'SYS_CHROOT'
-        ],
-        sutResources: {
-          cpus: 2,
-          wallSeconds: 3_600,
-          aggregateCpuSeconds: 7_200,
-          perProcessCpuSeconds: 7_200,
-          memoryBytes: 4_294_967_296,
-          pids: 256
-        },
-        roleProfiles: Object.values(environment.runtime.roleLabels).sort(),
-        destructiveIdentityAuthority: {
-          endpointBinding: [
-            'github-api-host-principal-repository', 'docker-context-endpoint-daemon'
-          ],
-          immutableEffects: ['exact-image-id', 'exact-container-id', 'exact-runner-id'],
-          mutableLocators: ['image-tag', 'container-name', 'runner-name', 'labels']
-        },
-        imageRetirement: {
-          ordinaryStopAuthority: 'none',
-          superseded: structuredClone(environment.image.retirements),
-          requires: [
-            'canonical-superseded-decision',
-            'exact-daemon-zero-reference-readback',
-            'immutable-image-id-effect-and-readback'
-          ]
-        },
-        license: 'MIT'
-      },
-      activeRoutingProfile: 'sec-linux-verification-v1',
+      activeRoutingProfile: environment.environmentId,
       surfaces: {
         cli: ['src/adapters/verification/platform/ci/runtime/local-github-actions-runner.ts'],
         standingMcp: []
       },
       forbiddenAuthority: [...FORBIDDEN_AUTHORITY]
-    };
-    (base.external.providers as Array<Record<string, unknown>>).push(localRunner);
-    await expectZeroErrors(root, base);
+    });
+    await expectZeroErrors(root, state);
 
-    const digestDrift = structuredClone(base);
-    const drifted = provider(digestDrift.external, 'github-actions-local-runner');
-    (drifted.versionAuthority as Record<string, unknown>).artifactSha256 = 'bad';
+    const copiedVersion = structuredClone(state);
+    provider(copiedVersion.external, 'github-actions-local-runner').observedVersion =
+      environment.archives.runner.version;
     await expectOneError(
       root,
-      digestDrift,
+      copiedVersion,
       'config/external-capabilities/ledger.yaml',
-      'External capability provider github-actions-local-runner.versionAuthority.artifactSha256 '
-        + 'must be an exact SHA-256 digest.'
+      'External capability provider github-actions-local-runner.observedVersion is not allowed.'
     );
 
-    const capabilityDrift = structuredClone(base);
-    const capabilityProvider = provider(capabilityDrift.external, 'github-actions-local-runner');
-    (capabilityProvider.versionAuthority as Record<string, unknown>).outerSutContainerCapabilities = [
-      'SYS_ADMIN', 'SYS_CHROOT'
+    const copiedAuthority = structuredClone(state);
+    provider(copiedAuthority.external, 'github-actions-local-runner').versionAuthority = {
+      kind: 'external-release'
+    };
+    await expectOneError(
+      root,
+      copiedAuthority,
+      'config/external-capabilities/ledger.yaml',
+      'External capability provider github-actions-local-runner.versionAuthority is not allowed.'
+    );
+
+    const wrongProfile = structuredClone(state);
+    provider(wrongProfile.external, 'github-actions-local-runner').activeRoutingProfile =
+      'sec-linux-verification-other';
+    await expectOneError(
+      root,
+      wrongProfile,
+      'config/external-capabilities/ledger.yaml',
+      'External capability provider github-actions-local-runner.capability workflow-execution '
+        + 'does not permit routing profile sec-linux-verification-other.'
+    );
+
+    const wrongSurface = structuredClone(state);
+    fixtureRecord(provider(wrongSurface.external, 'github-actions-local-runner').surfaces).cli = [
+      'src/adapters/verification/platform/ci/runtime/verification-session.ts'
     ];
     await expectOneError(
       root,
-      capabilityDrift,
+      wrongSurface,
       'config/external-capabilities/ledger.yaml',
-      'External capability provider github-actions-local-runner.versionAuthority.'
-        + 'outerSutContainerCapabilities must bind the exact constructor boundary.'
-    );
-
-    const releaseDrift = structuredClone(base);
-    const release = provider(releaseDrift.external, 'github-actions-local-runner');
-    (release.versionAuthority as Record<string, unknown>).release =
-      'https://github.com/actions/runner/releases/tag/v2.335.0';
-    await expectOneError(
-      root,
-      releaseDrift,
-      'config/external-capabilities/ledger.yaml',
-      'External capability provider github-actions-local-runner.versionAuthority '
-        + 'GitHub Actions runner release identity is invalid.'
-    );
-
-    const nodeDigestDrift = structuredClone(base);
-    const nodeAuthority = provider(nodeDigestDrift.external, 'github-actions-local-runner')
-      .versionAuthority as Record<string, unknown>;
-    nodeAuthority.nodeArtifactSha256 = '0'.repeat(64);
-    await expectOneError(
-      root,
-      nodeDigestDrift,
-      'config/external-capabilities/ledger.yaml',
-      'External capability provider github-actions-local-runner.versionAuthority.nodeArtifactSha256 '
-        + 'must bind the exact Node.js binary.'
-    );
-
-    const githubCliDigestDrift = structuredClone(base);
-    const githubCliAuthority = provider(
-      githubCliDigestDrift.external,
-      'github-actions-local-runner'
-    ).versionAuthority as Record<string, unknown>;
-    githubCliAuthority.githubCliArtifactSha256 = '0'.repeat(64);
-    await expectOneError(
-      root,
-      githubCliDigestDrift,
-      'config/external-capabilities/ledger.yaml',
-      'External capability provider github-actions-local-runner.versionAuthority '
-        + 'GitHub CLI identity is invalid.'
-    );
-
-    const pythonDrift = structuredClone(base);
-    const pythonAuthority = provider(pythonDrift.external, 'github-actions-local-runner')
-      .versionAuthority as Record<string, unknown>;
-    pythonAuthority.pythonVersion = '3.12.2';
-    await expectOneError(
-      root,
-      pythonDrift,
-      'config/external-capabilities/ledger.yaml',
-      'External capability provider github-actions-local-runner.versionAuthority.pythonVersion '
-        + 'must bind the archive-inspection runtime.'
-    );
-
-    const zipDrift = structuredClone(base);
-    const zipAuthority = provider(zipDrift.external, 'github-actions-local-runner')
-      .versionAuthority as Record<string, unknown>;
-    zipAuthority.zipExtractionCapability = 'missing';
-    await expectOneError(
-      root,
-      zipDrift,
-      'config/external-capabilities/ledger.yaml',
-      'External capability provider github-actions-local-runner.versionAuthority.'
-        + 'zipExtractionCapability must bind setup archive extraction.'
-    );
-
-    const imageDrift = structuredClone(base);
-    const imageAuthority = provider(imageDrift.external, 'github-actions-local-runner')
-      .versionAuthority as Record<string, unknown>;
-    imageAuthority.imageId = `sha256:${'f'.repeat(64)}`;
-    await expectOneError(
-      root,
-      imageDrift,
-      'config/external-capabilities/ledger.yaml',
-      'External capability provider github-actions-local-runner.versionAuthority.imageId '
-        + 'must be an exact built image digest.'
-    );
-
-    const initDrift = structuredClone(base);
-    const initAuthority = provider(initDrift.external, 'github-actions-local-runner')
-      .versionAuthority as Record<string, unknown>;
-    initAuthority.containerInitCapability = 'ambient-pid1';
-    await expectOneError(
-      root,
-      initDrift,
-      'config/external-capabilities/ledger.yaml',
-      'External capability provider github-actions-local-runner.versionAuthority.containerInitCapability '
-        + 'must bind persistent child reaping.'
-    );
-
-    const roleDrift = structuredClone(base);
-    const roleAuthority = provider(roleDrift.external, 'github-actions-local-runner')
-      .versionAuthority as Record<string, unknown>;
-    roleAuthority.roleProfiles = ['sec-linux-verification-sut-v1'];
-    await expectOneError(
-      root,
-      roleDrift,
-      'config/external-capabilities/ledger.yaml',
-      'External capability provider github-actions-local-runner.versionAuthority.roleProfiles '
-        + 'must bind the exact trust-domain roles.'
-    );
-
-    const authorityKindEscape = structuredClone(base);
-    const escaped = provider(authorityKindEscape.external, 'github-actions-local-runner');
-    escaped.observedVersion = '1.6.3';
-    escaped.versionAuthority = {
-      kind: 'package'
-    };
-    await expectOneError(
-      root,
-      authorityKindEscape,
-      'config/external-capabilities/ledger.yaml',
-      'External capability provider github-actions-local-runner.versionAuthority.kind '
-        + 'must be external-release for the workflow-execution capability.'
+      'External capability provider github-actions-local-runner '
+        + 'workflow-execution provider surfaces are invalid.'
     );
   });
 });
+
