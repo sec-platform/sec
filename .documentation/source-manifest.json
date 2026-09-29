@@ -1,6 +1,6 @@
 {
   "schema": "sec.documentation-source-manifest/2",
-  "source_set_sha256": "c47dede8f58c003b088578237f4feaa0d16ab67e8c4cebbaf6fe35baa8fb9696",
+  "source_set_sha256": "dc55abc87b527244bb4a4f8a2ade594f266cc5771e9fe3bb576f5eb1c72d3273",
   "members": [
     {
       "path": ".documentation/README.md",
@@ -1966,11 +1966,6 @@
       "path": "tools/html-requirements.txt",
       "bytes": 108,
       "sha256": "3130d1d1617e4e39acf6761b73f0bb3d3cd0eee11852c51f19c65d6238c216f8"
-    },
-    {
-      "path": "tools/native-typecheck.ts",
-      "bytes": 2949,
-      "sha256": "10b445c0ef90008fb0c04ca9ca187707b853e94bcde36088b1fd62e947bb430e"
     },
     {
       "path": "tools/source_inventory.py",

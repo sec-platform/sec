@@ -71,21 +71,13 @@ test('canonical source roots and the 33 static dependency edges are the exact SE
   }
 });
 
-test('the tracked source tree has ten canonical responsibilities and one zero-authority CLI address', () => {
+test('the tracked source tree has exactly the ten canonical responsibilities', () => {
   const repositoryRoot = nodePath.resolve(import.meta.dir, '../../../..');
   const actual = readdirSync(nodePath.join(repositoryRoot, 'src'), { withFileTypes: true })
     .filter((entry) => entry.isDirectory())
     .map((entry) => entry.name)
     .sort();
-  expect(actual).toEqual([...SEC_CANONICAL_SOURCE_MODULES, 'control'].sort());
-  const facade = compileSecRepositoryModuleMembership(repositoryRoot)
-    .moduleForPath('src/control/documentation/document-control-plane.ts');
-  expect(facade).toMatchObject({
-    root: 'src/control/documentation',
-    externalEntrypoints: ['src/control/documentation/document-control-plane.ts'],
-    capabilityProviders: [],
-    operationObligations: []
-  });
+  expect(actual).toEqual([...SEC_CANONICAL_SOURCE_MODULES].sort());
 });
 
 test('the actual current source graph has no forbidden canonical-module edge', () => {

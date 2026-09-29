@@ -3,11 +3,11 @@ import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { enableExecutionProgress, reportExecutionProgress } from '../src/execution/execution-progress.ts';
+import { enableExecutionProgress, reportExecutionProgress } from '../../../../execution/execution-progress.ts';
 
-// Temporary editing feedback only. check:full keeps the authority-bound typecheck owner.
+// Temporary editing feedback only. typecheck:verified keeps the authority-bound typecheck owner.
 async function runNativeTypecheck(): Promise<number> {
-  const repositoryRoot = path.resolve(import.meta.dirname, '..');
+  const repositoryRoot = path.resolve(import.meta.dirname, '../../../../..');
   const nativePackage = path.join(repositoryRoot, 'node_modules', '@typescript', 'native');
   const nativeVersion = (JSON.parse(readFileSync(path.join(nativePackage, 'package.json'), 'utf8')) as {
     version?: unknown;

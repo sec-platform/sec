@@ -114,7 +114,7 @@ test('trusted bootstrap SUT retains the verified typecheck owner', async () => {
   const packageScripts = (JSON.parse(await readCompilerFile('package.json')) as {
     scripts: Record<string, string>;
   }).scripts;
-  expect(packageScripts.typecheck).toContain('native-typecheck.ts');
+  expect(packageScripts.typecheck).toContain('runner/typecheck-feedback.ts');
   expect(packageScripts['typecheck:verified']).toContain('runner/cli.ts typecheck');
   expect(CodexDevelopmentTrustedBootstrapSutHarness).toContain(
     '  await execute("typecheck", ["bun", "run", "typecheck:verified"]);'
