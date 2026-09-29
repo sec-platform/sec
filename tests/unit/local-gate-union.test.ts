@@ -104,10 +104,10 @@ test('local affected plan forms one ordered union for mixed TypeScript and docs 
     'bun run imports:check',
     'bun run typecheck',
     'bun run docs:doctor',
-    'bun run test:affected'
+    'bun run test -- --affected'
   ]);
   expect(new Set(plan.subsumedStandaloneCommands).size).toBe(plan.subsumedStandaloneCommands.length);
-  expect(plan.umbrellaCommand).toBe('bun run check:affected');
+  expect(plan.umbrellaCommand).toBe('bun run check -- --affected');
 });
 
 test('local affected plan keeps non-TypeScript contracts narrow', () => {

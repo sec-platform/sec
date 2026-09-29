@@ -82,9 +82,9 @@ describe('provider-neutral trusted runtime container', () => {
     expect(TRUSTED_RUNTIME_MAIN_HEALTH_CHECK_COMMANDS).toEqual([
       'bun run imports:check --all',
       'bun run typecheck:verified',
-      'bun run audit:static',
+      'bun run audit -- --worktree-source-program --enforce',
       'bun run docs:doctor',
-      'bun run test:fast'
+      'bun run test -- --scope fast'
     ]);
     expect(TRUSTED_RUNTIME_MAIN_HEALTH_PLAN_DIGEST).toMatch(/^sha256:[0-9a-f]{64}$/u);
     const receipt = createTrustedRuntimeMainHealthReceipt({

@@ -100,7 +100,7 @@ export interface LocalAffectedCheckPlan {
   readonly changedPaths: string[];
   readonly affectedPlan: AffectedTestPlan;
   readonly gates: LocalAffectedGateStep[];
-  readonly umbrellaCommand: 'bun run check:affected';
+  readonly umbrellaCommand: 'bun run check -- --affected';
   readonly subsumedStandaloneCommands: string[];
 }
 
@@ -112,7 +112,8 @@ const TYPECHECK_AUTHORITY_PATHS = new Set([
 ]);
 
 function gate(id: LocalAffectedGateId): LocalAffectedGateStep {
-  return { id, command: `bun run ${id}` };
+  const command = id === 'test:affected' ? 'bun run test -- --affected' : `bun run ${id}`;
+  return { id, command };
 }
 
 /** Git-issued paths only; semantic selection still owns every other input. */
@@ -155,7 +156,7 @@ export function buildLocalAffectedCheckPlan(
     changedPaths,
     affectedPlan,
     gates,
-    umbrellaCommand: 'bun run check:affected',
+    umbrellaCommand: 'bun run check -- --affected',
     subsumedStandaloneCommands: gates.map(({ command }) => command)
   };
 }

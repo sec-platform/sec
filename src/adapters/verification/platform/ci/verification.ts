@@ -2213,8 +2213,8 @@ export const CodexDevelopmentTrustedBootstrapSutHarness = [
     'bun', 'test', '--timeout', '180000', ...TRUSTED_BOOTSTRAP_SUT_FOCUSED_TESTS
   ])});`,
   '  await execute("repository-audit", ["bun", "src/adapters/repository/repository-audit/cli.ts", "--json"]);',
-  '  await execute("affected-plan", ["bun", "run", "check:affected", "--plan"]);',
-  '  await execute("affected-tests", ["bun", "run", "test:affected"]);',
+  '  await execute("affected-plan", ["bun", "run", "check", "--", "--affected", "--plan"]);',
+  '  await execute("affected-tests", ["bun", "run", "test", "--", "--affected"]);',
   '  const worktree = await execute("worktree-readback", ["git", "status", "--porcelain=v1"]);',
   '  if (worktree.stdoutTail.length !== 0) throw new Error("tracked-worktree-not-clean");',
   '} catch (error) { status = "failed"; diagnostic = error instanceof Error ? error.message : String(error); }',

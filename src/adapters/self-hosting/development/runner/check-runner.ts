@@ -198,11 +198,11 @@ export async function runFastCheck(options: FastCheckExecutionOptions = {}): Pro
 
   const compilerDependencies = await options.prepareCompilerDependencies();
 
-  console.log('Running fast check: imports:check -> docs:doctor + typecheck (parallel) -> test:fast');
+  console.log('Running check: imports:check -> docs:doctor + typecheck (parallel) -> fast tests');
 
   return executeFastCheckStages({
     imports: async () => {
-      return runObservedReadOnlyStage('check:fast:imports', async () => {
+      return runObservedReadOnlyStage('check:imports', async () => {
         const { runImportCheck } = await import('./import-organizer.ts');
         const outcome = await runImportCheck({});
         if (outcome.status === 'canonical') return 0;
@@ -214,13 +214,13 @@ export async function runFastCheck(options: FastCheckExecutionOptions = {}): Pro
       });
     },
     documentation: async () => {
-      return runObservedReadOnlyStage('check:fast:docs:doctor', async () => {
+      return runObservedReadOnlyStage('check:docs:doctor', async () => {
         const { runDevCommand } = await import('./command-runner.ts');
         return runDevCommand('bun', ['run', 'docs:doctor'], {});
       });
     },
     types: async () => {
-      return runObservedReadOnlyStage('check:fast:typecheck', async () => {
+      return runObservedReadOnlyStage('check:typecheck', async () => {
         const { runTypecheckWithDependencyRoot } = await import('./typecheck-runner.ts');
         return runTypecheckWithDependencyRoot(compilerDependencies);
       });
@@ -235,3 +235,28 @@ export async function runFastCheck(options: FastCheckExecutionOptions = {}): Pro
     }
   });
 }
+
+export async function runFullCheck(): Promise<number> {
+  const { runDevCommand } = await import('./command-runner.ts');
+  const steps: ReadonlyArray<Readonly<{ id: string; args: readonly string[] }>> = [
+    { id: 'imports', args: ['run', 'imports:check', '--all'] },
+    {
+      id: 'source-program-audit',
+      args: ['run', 'audit', '--', '--worktree-source-program', '--enforce']
+    },
+    { id: 'unused', args: ['run', 'unused'] },
+    { id: 'duplication', args: ['run', 'duplicates:check'] },
+    { id: 'typecheck', args: ['run', 'typecheck:verified'] },
+    { id: 'documentation', args: ['run', 'docs:doctor'] },
+    { id: 'tests', args: ['run', 'test', '--', '--scope', 'full'] }
+  ];
+  for (const step of steps) {
+    const exitCode = await runDevCommand('bun', [...step.args], {});
+    if (exitCode !== 0) {
+      console.error(`Full check stopped at ${step.id} with exit code ${exitCode}.`);
+      return exitCode;
+    }
+  }
+  return 0;
+}
+
