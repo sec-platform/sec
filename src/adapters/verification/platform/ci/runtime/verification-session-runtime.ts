@@ -423,7 +423,7 @@ export interface TrustedIntegrationAuthorizationArtifact {
   artifactId: string;
   artifactName: string;
   canonicalByteDigest: Digest;
-  workflowPath: '.github/workflows/sec-merge-gate.yml';
+  workflowPath: '.github/workflows/merge-gate.yml';
   workflowRef: string;
   workflowSha: string;
   runId: string;
@@ -559,13 +559,13 @@ export function createTrustedIntegrationAuthorizationArtifact(input: {
   observation: GitHubActionsArtifactObservation;
 }): TrustedIntegrationAuthorizationArtifact {
   const result = CodexDevelopmentParseMergeGateResult(input.resultJson);
-  if (input.observation.workflowPath !== '.github/workflows/sec-merge-gate.yml'
+  if (input.observation.workflowPath !== '.github/workflows/merge-gate.yml'
     || input.observation.eventName !== 'workflow_run') {
     throw new Error('Integration authorization artifact is not bound to the completed-source workflow.');
   }
   return Object.freeze({ resultJson: input.resultJson, artifactId: input.observation.artifactId,
     artifactName: input.observation.artifactName, canonicalByteDigest: hash(result),
-    workflowPath: input.observation.workflowPath as '.github/workflows/sec-merge-gate.yml',
+    workflowPath: input.observation.workflowPath as '.github/workflows/merge-gate.yml',
     workflowRef: input.observation.workflowRef, workflowSha: input.observation.workflowSha,
     runId: input.observation.runId, runAttempt: input.observation.runAttempt,
     eventName: input.observation.eventName as 'workflow_run', actorNodeId: input.observation.actorNodeId,
@@ -1468,11 +1468,11 @@ function verifyIntegrationArtifact(input: {
     || artifact.actorPermission !== 'none'
     || artifact.downloadTransport !== 'github-actions-artifact-api')
     || provenance.workflowSha !== session.trustRevision
-    || provenance.workflowRef !== `.github/workflows/sec-merge-gate.yml@${session.trustRevision}`
+    || provenance.workflowRef !== `.github/workflows/merge-gate.yml@${session.trustRevision}`
     || authorization.issuer.producerIdentity !== CodexDevelopmentMergeGateProducerIdentity
     || authorization.issuer.sourceTransport !== 'github-actions'
     || authorization.issuer.trustedRevision !== session.trustRevision
-    || authorization.issuer.sourceRef !== `.github/workflows/sec-merge-gate.yml@${session.trustRevision}`
+    || authorization.issuer.sourceRef !== `.github/workflows/merge-gate.yml@${session.trustRevision}`
     || authorization.issuer.sourceDigest !== provenance.sourceDigest
   ) {
     throw new Error('IntegrationAuthorization trusted workflow/artifact provenance mismatch.');

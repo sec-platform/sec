@@ -44,7 +44,7 @@ export const CodexDevelopmentMergeGateTerminalStatusContext =
 type MergeGateDigest = `sha256:${string}`;
 
 export interface CodexDevelopmentMergeGateProvenance {
-  readonly workflowPath: '.github/workflows/sec-merge-gate.yml';
+  readonly workflowPath: '.github/workflows/merge-gate.yml';
   readonly workflowRef: string;
   readonly workflowSha: string;
   readonly eventName: 'workflow_run';
@@ -227,9 +227,9 @@ export function createMergeGateProvenance(input: Omit<
   CodexDevelopmentMergeGateProvenance,
   'sourceDigest'
 >): CodexDevelopmentMergeGateProvenance {
-  if (input.workflowPath !== '.github/workflows/sec-merge-gate.yml') fail('workflowPath is not canonical.');
+  if (input.workflowPath !== '.github/workflows/merge-gate.yml') fail('workflowPath is not canonical.');
   const workflowSha = sha(input.workflowSha, 'provenance.workflowSha');
-  const expectedRef = `.github/workflows/sec-merge-gate.yml@${workflowSha}`;
+  const expectedRef = `.github/workflows/merge-gate.yml@${workflowSha}`;
   if (input.workflowRef !== expectedRef) fail('workflowRef must bind the exact trusted workflow blob revision.');
   if (input.eventName !== 'workflow_run') {
     fail('authorization can only originate from the completed compiler workflow wakeup.');

@@ -2131,7 +2131,7 @@ const TRUSTED_BOOTSTRAP_SUT_FOCUSED_TESTS = Object.freeze([
   'tests/unit/tcb-trust-root-contract.test.ts',
   'tests/unit/test-runner.test.ts',
   'tests/contract/ci-contract.test.ts',
-  'tests/contract/sec-merge-gate.test.ts',
+  'tests/contract/merge-gate.test.ts',
   'tests/contract/tcb-closure-lock.test.ts',
   'tests/contract/repository-audit.test.ts',
   'tests/contract/documentation-authority.test.ts',

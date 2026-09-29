@@ -164,7 +164,7 @@ test('exact-main health policy binds one stable GitHub Actions app and terminal 
 
 
 test('trusted base candidate root bootstrap checker is disjoint and candidate remains data', async () => {
-  const source = await readCompilerFile('.github/workflows/sec-trusted-bootstrap.yml');
+  const source = await readCompilerFile('.github/workflows/trusted-bootstrap.yml');
   const workflow = parseYaml(source) as Workflow;
   const checkerSource = embeddedTrustedBootstrapChecker(source);
   expect(() => new Bun.Transpiler({ loader: 'js', target: 'bun' }).transformSync(checkerSource))
@@ -233,7 +233,7 @@ test('trusted base candidate root bootstrap checker is disjoint and candidate re
     SEC_BOOTSTRAP_BASE_TREE: '${{ needs.resolve.outputs.base-tree }}'
   });
   const r2ChangedPaths = [
-    '.github/workflows/sec-trusted-bootstrap.yml',
+    '.github/workflows/trusted-bootstrap.yml',
     'config/repository/work-packages/trusted-bootstrap-base-first-repair-v1.md',
     'config/repository/work-packages/verification-action-kernel-finalization-v1.md',
     'config/repository/active-work-package.md',
@@ -248,7 +248,7 @@ test('trusted base candidate root bootstrap checker is disjoint and candidate re
       matchSecTrustedBootstrapPath(repositoryPath, TCB_TRUST_ROOT) !== null
     )
     .sort()).toEqual([
-    '.github/workflows/sec-trusted-bootstrap.yml',
+    '.github/workflows/trusted-bootstrap.yml',
     SEC_TCB_CLOSURE_RUNTIME_PATH
   ]);
   const sutSteps = workflow.jobs['candidate-sut']?.steps ?? [];

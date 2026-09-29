@@ -1367,7 +1367,7 @@ function reducerFixture(options: {
     mergeRunId: '200',
     freshMainHealthRunId: '7',
     verificationWorkflowPath: '.github/workflows/compiler-pr-validation.yml',
-    mergeWorkflowPath: '.github/workflows/sec-merge-gate.yml',
+    mergeWorkflowPath: '.github/workflows/merge-gate.yml',
     mainHealthSourceRef: `github-check-runs:${repository}@${BASE}`
   });
   const verificationWorkflowRef = `${identity.verificationWorkflowPath}@${BASE}`;
@@ -2541,7 +2541,7 @@ test('IssueDisposition post-main readback consumes the canonical exact MainHealt
   const common = {
     repository: 'sec-platform/sec', newMainSha: BASE, newMainTreeSha: HEAD,
     observedAt: '2026-08-09T14:00:00.000Z', sourceRunId: '7',
-    sourceRef: `.github/workflows/sec-merge-gate.yml@${BASE}`
+    sourceRef: `.github/workflows/merge-gate.yml@${BASE}`
   };
   const dispatched = mainHealthCheck({ id: 8 });
   const single = compilePostMainIssueDispositionHealthReadback({ ...common, checks: [dispatched] });
@@ -3786,7 +3786,7 @@ if (endpoint.includes('/actions/runs?head_sha=')) {
   out([{ workflow_runs: [{ id: 200,
     name: 'integrate compiler session run 100 attempt 1',
     display_title: 'integrate compiler session run 100 attempt 1',
-    path: '.github/workflows/sec-merge-gate.yml', event: 'workflow_run',
+    path: '.github/workflows/merge-gate.yml', event: 'workflow_run',
     status: 'in_progress', conclusion: null, head_sha: state.baseSha,
     run_attempt: currentRun.run_attempt, updated_at: '2026-08-09T14:05:00.000Z' }] }]);
 }
@@ -4054,14 +4054,14 @@ function createCloseoutCliScenario(input: {
         triggering_actor: { login: 'integrator', node_id: 'INTEGRATOR' },
         repository: { id: 123 } },
       199: { id: 199, run_attempt: 1, event: 'workflow_run',
-        path: '.github/workflows/sec-merge-gate.yml', head_sha: BASE,
+        path: '.github/workflows/merge-gate.yml', head_sha: BASE,
         actor: { login: CI_GITHUB_ACTIONS_IDENTITY_POLICY.bot.login,
           id: CI_GITHUB_ACTIONS_IDENTITY_POLICY.bot.id,
           node_id: CI_GITHUB_ACTIONS_IDENTITY_POLICY.bot.nodeId,
           type: CI_GITHUB_ACTIONS_IDENTITY_POLICY.bot.type },
         triggering_actor: { login: 'integrator', node_id: 'INTEGRATOR' }, repository: { id: 123 } },
       200: { id: 200, run_attempt: currentRunAttempt, event: 'workflow_run',
-        path: '.github/workflows/sec-merge-gate.yml', head_sha: BASE,
+        path: '.github/workflows/merge-gate.yml', head_sha: BASE,
         actor: { login: CI_GITHUB_ACTIONS_IDENTITY_POLICY.bot.login,
           id: CI_GITHUB_ACTIONS_IDENTITY_POLICY.bot.id,
           node_id: CI_GITHUB_ACTIONS_IDENTITY_POLICY.bot.nodeId,
@@ -4130,8 +4130,8 @@ process.stdout.write(JSON.stringify(state.activeWorkPackageSelected
   });
   const canonicalCommentProvenance = (runId: string) => createHostedWorkflowCommentProvenance({
     repositoryId: '123',
-    workflowPath: '.github/workflows/sec-merge-gate.yml',
-    workflowRef: `.github/workflows/sec-merge-gate.yml@${BASE}`,
+    workflowPath: '.github/workflows/merge-gate.yml',
+    workflowRef: `.github/workflows/merge-gate.yml@${BASE}`,
     workflowSha: BASE,
     runId,
     runAttempt: 1,
@@ -4462,7 +4462,7 @@ function closeoutCliProcessEnvironment(
     GITHUB_SHA: BASE,
     GITHUB_REF: 'refs/heads/main',
     GITHUB_WORKFLOW_REF:
-      'sec-platform/sec/.github/workflows/sec-merge-gate.yml@refs/heads/main',
+      'sec-platform/sec/.github/workflows/merge-gate.yml@refs/heads/main',
     GITHUB_WORKFLOW_SHA: BASE,
     GITHUB_RUN_ID: '200',
     GITHUB_RUN_ATTEMPT: String(state.runs['200'].run_attempt),
