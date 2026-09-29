@@ -1,11 +1,11 @@
 {
   "schema": "sec.documentation-source-manifest/2",
-  "source_set_sha256": "08ec7a0a7df179ec201802240595230444981334a5a28c4ee28b8027a51471b3",
+  "source_set_sha256": "ac83de1af12e0331972a6c012eeb13e855136c99f4fb7b455534727e7e2e71bb",
   "members": [
     {
       "path": ".documentation/README.md",
-      "bytes": 3309,
-      "sha256": "051513c7e23d037b8b35f4f3254665025ab4e1f562d38e66634cd54dcc0602a5"
+      "bytes": 3342,
+      "sha256": "974b66e6081c3940da14560e83adfc638418577bab690ca3e5349537fe7c2008"
     },
     {
       "path": ".documentation/baseline.json",
@@ -829,8 +829,8 @@
     },
     {
       "path": "docs/维护/交付材料与归档.md",
-      "bytes": 8777,
-      "sha256": "ab81fad9c59ee89797f007acc060f3e1b555cf9ace8c379215ed72e01efeb843"
+      "bytes": 8791,
+      "sha256": "6c07c72215f1c04ce6e635e6ad41aeac08ea12e988d002c93297dbb66cf6f57a"
     },
     {
       "path": "docs/维护/原则问题与交付边界.md",
@@ -854,8 +854,8 @@
     },
     {
       "path": "docs/维护/文档身份与重组协议.md",
-      "bytes": 21326,
-      "sha256": "87b21b9fed957520766feb61efd139b879b2131ea4d79852bda9886c8b6cbede"
+      "bytes": 21354,
+      "sha256": "d4f277e4b162e369d0bd158f7f61c19bd600ae0ada284c8bd41474039b4855dc"
     },
     {
       "path": "docs/维护/组织修改与来源保全.md",
@@ -874,8 +874,8 @@
     },
     {
       "path": "docs/维护/阅读构建.md",
-      "bytes": 10693,
-      "sha256": "e828cfb6a181f23e5a13abf9dacb398c7f4387e88ff55d49d102c8c87f9adb90"
+      "bytes": 10861,
+      "sha256": "ac3af8a00d367391268e5c52bf66c996ac99d37f0edd7e098d8c87c457435a4e"
     },
     {
       "path": "docs/编译/README.md",
@@ -1938,69 +1938,74 @@
       "sha256": "28127259b2c7569a4441bfa471159d2c231bd443313d59e9f711fbc0e92636d9"
     },
     {
-      "path": "tools/browser_diagrams.js",
+      "path": "tools/documentation/browser_diagrams.js",
       "bytes": 10745,
       "sha256": "82f06b0c7d9bfecad65c96dadc9fee3d6f326d792d899bea9929864031628ec6"
     },
     {
-      "path": "tools/build_html.py",
-      "bytes": 43303,
-      "sha256": "017ef25cc09e2346aadd95eb182c862caa02bcfd79bdaf4e8daef7d5b7b38454"
+      "path": "tools/documentation/build_html.py",
+      "bytes": 43300,
+      "sha256": "2e225956e37c447aa0a039c193c2c1cb3833537056b15433c45a650bedc0fb27"
     },
     {
-      "path": "tools/check_design.py",
-      "bytes": 11624,
-      "sha256": "73bc319bf599c2e78469cd4cb375eed08f1f06e4c7c327d6313a36857118e1aa"
+      "path": "tools/documentation/check_design.py",
+      "bytes": 11621,
+      "sha256": "2f1f2ae5895a3135c47c253ada8441309af906daff9462b197851d12b7110931"
     },
     {
-      "path": "tools/check_docs.py",
-      "bytes": 11397,
-      "sha256": "f78396da17cb275e14cb0cdb61e8fb782e9c19c5a3e29c6679ad240491872d87"
+      "path": "tools/documentation/check_docs.py",
+      "bytes": 11394,
+      "sha256": "aac9d4ac6b4cbbdf6b3f23dc834cd07713ffe63409efc291f2382da9c9f668d7"
     },
     {
-      "path": "tools/html-export-requirements.txt",
+      "path": "tools/documentation/html-export-requirements.txt",
       "bytes": 89,
       "sha256": "3fbcb879c1c2671eef9260a241d68506e1da02448b892940438fdbe231aaf227"
     },
     {
-      "path": "tools/html-requirements.txt",
+      "path": "tools/documentation/html-requirements.txt",
       "bytes": 108,
       "sha256": "3130d1d1617e4e39acf6761b73f0bb3d3cd0eee11852c51f19c65d6238c216f8"
     },
     {
-      "path": "tools/source_inventory.py",
-      "bytes": 22268,
-      "sha256": "f53f48867330b6fb195e2b550019f3d8d1d432130a0cfa921a8ee7ff97f532a9"
+      "path": "tools/documentation/source_inventory.py",
+      "bytes": 22482,
+      "sha256": "35894ecffc240af74a8578f9a35a7320824a1837107a0a50962423f3c3cc8524"
     },
     {
-      "path": "tools/test_build_html.py",
-      "bytes": 10679,
-      "sha256": "8a3394c965218fea0f26acb1cfd858496c3071c778a314636d43c2c4803ff1af"
+      "path": "tools/documentation/tests/__init__.py",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
     },
     {
-      "path": "tools/test_check_design.py",
-      "bytes": 2436,
-      "sha256": "32a66516e718879bff4e3672609b10899bfa4366938c9e0265ca2839c156e176"
+      "path": "tools/documentation/tests/test_build_html.py",
+      "bytes": 10680,
+      "sha256": "741b5230816d2e7d030ffdd5ac6cd05c4032322e24726b6123a911ee33254aa2"
     },
     {
-      "path": "tools/test_check_documentation_identity.py",
+      "path": "tools/documentation/tests/test_check_design.py",
+      "bytes": 2427,
+      "sha256": "d174256723125fea74e445d604c350383ccbf83219994bab58b7d28e23c51f86"
+    },
+    {
+      "path": "tools/documentation/tests/test_check_documentation_identity.py",
       "bytes": 11476,
       "sha256": "894c939e4599796cf73b36184d2d310567d06a73f5f2be8410b5f5df2fe8e101"
     },
     {
-      "path": "tools/test_check_source_capture_resources.py",
-      "bytes": 8111,
-      "sha256": "b39d4faf8231b550bcc764c93548053c9204011f528b8f9502229e2484a0ec44"
+      "path": "tools/documentation/tests/test_check_source_capture_resources.py",
+      "bytes": 8112,
+      "sha256": "0fcf4dabf809cdd92247419016197628a9735c281585cca6716b815236cbc58c"
     },
     {
-      "path": "tools/test_check_source_inventory.py",
-      "bytes": 5162,
-      "sha256": "0139c1b9c1d934a03aa7a3be12ae8e47637895be9c96e51fccd409ea6208304e"
+      "path": "tools/documentation/tests/test_check_source_inventory.py",
+      "bytes": 5163,
+      "sha256": "668f685ba86983e5cfbc7b95384cd7ef680a4efd737afb85057a660f95f3e35b"
     },
     {
-      "path": "tools/test_reading_modes.py",
-      "bytes": 7250,
-      "sha256": "8858f0b679c1decd420401ef830746d07a83cd881bb760ed4a33f40e0517ba5f"
+      "path": "tools/documentation/tests/test_reading_modes.py",
+      "bytes": 7251,
+      "sha256": "21a0e0f79e4740ce568fd5e885aa0688a6359206d83127876a0836fbd316d8dd"
     }
   ]
 }
