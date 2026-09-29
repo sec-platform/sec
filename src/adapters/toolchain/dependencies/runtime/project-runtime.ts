@@ -542,6 +542,14 @@ export async function disposeCanonicalSharedDependencies(
   const expectation = legacySharedDependencyRetirementExpectation(
     generatedStatePhysicalIdentity(observedRoot)
   );
+  // A legacy v1 registration may still reside in the predecessor registration
+  // store. Bind is read-only with respect to the dependency root; it migrates
+  // only the durable registration ledger, then proves the exact physical
+  // identity before any dependency Effect is admitted.
+  await bindExistingLegacySharedDependencyRoot(
+    lifecycleOptions,
+    generatedStatePhysicalIdentity(observedRoot)
+  );
   const preLeaseObservation = await observeRetirement('.shared-deps', expectation);
   const { assertGeneratedStateRetirementObservation } = await import(
     '../../../runtime-state/generated-state/lifecycle.ts'

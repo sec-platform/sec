@@ -3,7 +3,13 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 
+import {
+  generatedStateDigest,
+  generatedStateLegacyRetirementRuleForPath
+} from '../../src/adapters/runtime-state/generated-state/contract.ts';
 import { generatedStateProducerHooks } from '../../src/adapters/runtime-state/generated-state/lifecycle.ts';
+import { inspectNoFollowDirectoryChain } from '../../src/adapters/runtime-state/physical/runtime/physical-no-follow.ts';
+import { resolveSecWorkspaceRuntimeRoots } from '../../src/adapters/runtime-state/workspace-state/paths.ts';
 import {
   cleanDependencyEnvironment,
   getDoctorReport
@@ -22,6 +28,7 @@ async function withDependencyRetirementFixture(
     lifecycle: ReturnType<typeof generatedStateProducerHooks>;
     repositoryRoot: string;
     sharedDepsRoot: string;
+    environment: NodeJS.ProcessEnv;
   }>) => Promise<void>
 ): Promise<void> {
   const hostRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'sec-shared-dependency-retirement-'));
@@ -34,20 +41,101 @@ async function withDependencyRetirementFixture(
       path.join(sharedDepsRoot, '.bun-cache', 'legacy-package', 'content.bin'),
       'legacy dependency bytes\n'
     );
+    const environment = {
+      ...process.env,
+      SEC_CACHE_HOME: path.join(hostRoot, 'cache'),
+      SEC_STATE_HOME: path.join(hostRoot, 'state')
+    };
     const lifecycle = generatedStateProducerHooks(
       { repositoryRoot },
-      {
-        environment: {
-          ...process.env,
-          SEC_CACHE_HOME: path.join(hostRoot, 'cache'),
-          SEC_STATE_HOME: path.join(hostRoot, 'state')
-        }
-      }
+      { environment }
     );
-    await callback(Object.freeze({ lifecycle, repositoryRoot, sharedDepsRoot }));
+    await callback(Object.freeze({ lifecycle, repositoryRoot, sharedDepsRoot, environment }));
   } finally {
     await fs.rm(hostRoot, { force: true, recursive: true });
   }
+}
+
+async function seedHistoricalSharedDependencyRegistration(input: Readonly<{
+  repositoryRoot: string;
+  sharedDepsRoot: string;
+  environment: NodeJS.ProcessEnv;
+}>): Promise<void> {
+  const relativePath = '.shared-deps';
+  const rule = generatedStateLegacyRetirementRuleForPath(relativePath);
+  if (rule === null) throw new Error('legacy shared-deps retirement rule is unavailable');
+  const workspace = inspectNoFollowDirectoryChain(
+    input.repositoryRoot,
+    'legacy shared-deps fixture workspace'
+  ).target;
+  const generated = inspectNoFollowDirectoryChain(
+    input.sharedDepsRoot,
+    'legacy shared-deps fixture generation'
+  ).target;
+  const physical = (value: typeof workspace) => Object.freeze({
+    device: value.device,
+    inode: value.inode,
+    objectId: value.objectId
+  });
+  const repositoryRoot = path.resolve(input.repositoryRoot);
+  const workspaceIdentity = physical(workspace);
+  const rootIdentity = physical(generated);
+  const operationId = 'historical-shared-deps-generation';
+  const registrationId = generatedStateDigest(Object.freeze({
+    schema: 'sec-generated-state-registration-v1',
+    repositoryRoot,
+    workspace: workspaceIdentity,
+    ruleId: rule.id,
+    relativePath,
+    root: rootIdentity,
+    owner: rule.owner,
+    producer: rule.producer,
+    operationId
+  }));
+  const material = Object.freeze({
+    schema: 'sec-generated-state-registration-v1' as const,
+    registrationId,
+    repositoryRoot,
+    workspace: workspaceIdentity,
+    ruleId: rule.id,
+    relativePath,
+    root: rootIdentity,
+    owner: rule.owner,
+    producer: rule.producer,
+    operationId,
+    phase: 'active' as const,
+    retirementRef: null,
+    generatedAt: '2026-08-29T00:00:00.000Z'
+  });
+  const registration = Object.freeze({
+    ...material,
+    registrationDigest: generatedStateDigest(material)
+  });
+  const roots = resolveSecWorkspaceRuntimeRoots({
+    repositoryRoot,
+    environment: input.environment
+  });
+  const registrationsRoot = path.join(
+    roots.workspaceStateRoot,
+    'generated-state',
+    'v1',
+    'registrations'
+  );
+  await fs.mkdir(registrationsRoot, { recursive: true });
+  const bytes = `${JSON.stringify(registration, null, 2)}\n`;
+  await fs.writeFile(
+    path.join(
+      registrationsRoot,
+      `registration-${registration.registrationDigest.slice('sha256:'.length)}.json`
+    ),
+    bytes,
+    'utf8'
+  );
+  const pointerKey = generatedStateDigest(Object.freeze({
+    schema: 'sec-generated-state-registration-key-v1',
+    relativePath
+  })).slice('sha256:'.length);
+  await fs.writeFile(path.join(registrationsRoot, `${pointerKey}.json`), bytes, 'utf8');
 }
 
 test('dependency doctor projects the canonical dependency state without an external runtime probe', async () => {
@@ -125,9 +213,20 @@ test('unregistered legacy shared dependencies remain physically intact with a ty
   });
 });
 
-test('registered shared dependencies retire through one profile-bound durable owner receipt', async () => {
-  await withDependencyRetirementFixture(async ({ lifecycle, repositoryRoot, sharedDepsRoot }) => {
-    await lifecycle.born('.shared-deps', 'shared-dependency-retirement-fixture');
+test('historically registered shared dependencies retire through the legacy-only recognizer', async () => {
+  await withDependencyRetirementFixture(async ({
+    lifecycle,
+    repositoryRoot,
+    sharedDepsRoot,
+    environment
+  }) => {
+    await seedHistoricalSharedDependencyRegistration({
+      repositoryRoot,
+      sharedDepsRoot,
+      environment
+    });
+    await expect(lifecycle.born('.shared-deps', 'forbidden-new-shared-deps-generation'))
+      .rejects.toThrow('not registered by active policy');
     const options = { generatedStateLifecycle: lifecycle, lockTimeoutMs: 5_000 };
     await migrateDependencyTransitionJournal(repositoryRoot, options);
     expect(await disposeCanonicalSharedDependencies(
