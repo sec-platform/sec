@@ -17,6 +17,7 @@ import {
   type GitHubIssueReference,
   type GitHubPullRequestClosingFacts
 } from '../../../../self-hosting/control/issues/disposition.ts';
+import { createMainAuthorityRulesetReceipt } from '../../../../self-hosting/control/main-health/authority-ruleset.ts';
 import { encodeVerificationActionData } from '../../action/contract/action.ts';
 import { CI_GITHUB_ACTIONS_IDENTITY_POLICY, matchesCiCompilerWorkflowRunIdentity } from '../../action/contract/provider.ts';
 import type { ReviewPrincipal, ReviewSnapshot } from '../../review/contract/stability.ts';
@@ -2316,8 +2317,31 @@ class VerificationSessionGitHubAdapter {
 
   observePlatformEnforcement(repository: string): PlatformEnforcementObservation {
     try {
-      const rulesets = this.#transport.repositoryRulesets(repository);
-      return Object.freeze({ status: 'available', rulesetDigest: hash(rulesets), reason: null });
+      const source = this.#transport.repositoryRulesets(repository);
+      if (source === null || typeof source !== 'object' || Array.isArray(source)) {
+        fail('platform enforcement readback must be one canonical ruleset bundle.');
+      }
+      const bundle = source as Record<string, unknown>;
+      const keys = Object.keys(bundle).sort();
+      if (keys.length !== 3
+          || keys[0] !== 'defaultBranch'
+          || keys[1] !== 'detailedRulesets'
+          || keys[2] !== 'effectiveRules'
+          || typeof bundle.defaultBranch !== 'string') {
+        fail('platform enforcement readback fields are invalid.');
+      }
+      const receipt = createMainAuthorityRulesetReceipt({
+        repository,
+        defaultBranch: bundle.defaultBranch,
+        effectiveRules: bundle.effectiveRules,
+        detailedRulesets: bundle.detailedRulesets,
+        expectedIntegrationId: CI_GITHUB_ACTIONS_IDENTITY_POLICY.app.id
+      });
+      return Object.freeze({
+        status: 'available',
+        rulesetDigest: receipt.rulesetDigest,
+        reason: null
+      });
     } catch (error) {
       const statusCode = error && typeof error === 'object' && 'statusCode' in error
         ? Number((error as { statusCode?: number }).statusCode)
@@ -2327,10 +2351,17 @@ class VerificationSessionGitHubAdapter {
         return Object.freeze({
           status: 'platform-enforcement-unavailable',
           rulesetDigest: hash({ status: 'platform-enforcement-unavailable', statusCode: 403 }),
-          reason: 'GitHub ruleset/branch-protection readback unavailable for this repository plan'
+          reason: 'GitHub canonical main-authority ruleset readback is unavailable'
         });
       }
-      return Object.freeze({ status: 'unknown', rulesetDigest: hash({ status: 'unknown', message }), reason: message });
+      return Object.freeze({
+        status: 'unknown',
+        rulesetDigest: hash({
+          status: 'unknown',
+          reasonCode: 'main-authority-ruleset-not-proven'
+        }),
+        reason: `Canonical MainAuthority ruleset proof failed: ${message}`
+      });
     }
   }
 
@@ -3557,7 +3588,48 @@ class GhVerificationSessionTransport implements VerificationSessionGitHubTranspo
   }
 
   repositoryRulesets(repository: string): unknown {
-    return parseJson(this.gh(['api', `/repos/${repository}/rulesets?per_page=100`, '--paginate', '--slurp'], 'ruleset readback'), 'ruleset readback');
+    const repositorySource = parseJson(this.gh([
+      'api',
+      `/repos/${repository}`
+    ], 'repository metadata readback'), 'repository metadata readback');
+    if (repositorySource === null || typeof repositorySource !== 'object'
+        || Array.isArray(repositorySource)
+        || typeof (repositorySource as Record<string, unknown>).default_branch !== 'string') {
+      fail('repository metadata has no canonical default branch.');
+    }
+    const defaultBranch = (repositorySource as Record<string, unknown>).default_branch as string;
+    const pages = parseJson<unknown>(this.gh([
+      'api',
+      '--method', 'GET',
+      `/repos/${repository}/rules/branches/${encodeURIComponent(defaultBranch)}?per_page=100`,
+      '--paginate',
+      '--slurp'
+    ], 'effective branch rules readback'), 'effective branch rules readback');
+    if (!Array.isArray(pages) || pages.some((page) => !Array.isArray(page))) {
+      fail('effective branch rules pagination is not a complete page array.');
+    }
+    const effectiveRules = pages.flatMap((page) => page as readonly unknown[]);
+    const rulesetIds = new Set<number>();
+    for (const [index, entry] of effectiveRules.entries()) {
+      if (entry === null || typeof entry !== 'object' || Array.isArray(entry)
+          || !Number.isSafeInteger((entry as Record<string, unknown>).ruleset_id)
+          || Number((entry as Record<string, unknown>).ruleset_id) < 1) {
+        fail(`effective branch rule ${index} has no exact ruleset id.`);
+      }
+      rulesetIds.add(Number((entry as Record<string, unknown>).ruleset_id));
+    }
+    const detailedRulesets = [...rulesetIds]
+      .sort((left, right) => left - right)
+      .map((rulesetId) => parseJson(this.gh([
+        'api',
+        '--method', 'GET',
+        `/repos/${repository}/rulesets/${rulesetId}?includes_parents=true`
+      ], `ruleset ${rulesetId} detail readback`), `ruleset ${rulesetId} detail readback`));
+    return Object.freeze({
+      defaultBranch,
+      effectiveRules: Object.freeze([...effectiveRules]),
+      detailedRulesets: Object.freeze(detailedRulesets)
+    });
   }
 
   dispatchVerificationSession(repository: string, request: VerificationSessionHostedRequest): void {
