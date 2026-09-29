@@ -350,6 +350,12 @@ export interface RetainedNoFollowFileTransaction {
   observe(relativePath: string, label: string): RetainedNoFollowFileObservation | null;
   observeTuple(entries: readonly Readonly<{ key: string; relativePath: string; label: string }>[]): Readonly<Record<string, RetainedNoFollowFileObservation | null>>;
   createExclusive(relativePath: string, bytes: Uint8Array, label: string, creationMode?: number): Promise<RetainedNoFollowFileObservation>;
+  /**
+   * Replace the exact observed canonical name by physical CAS. The preimage
+   * inode is never mutated in place: this prevents a concurrent hard-link
+   * alias from observing replacement bytes. The returned observation owns the
+   * successor physical identity and the supplied source observation is stale.
+   */
   rewriteExact(relativePath: string, source: RetainedNoFollowFileObservation, bytes: Uint8Array, label: string): Promise<RetainedNoFollowFileObservation>;
   renameNoReplace(sourceRelativePath: string, targetRelativePath: string, source: RetainedNoFollowFileObservation, label: string): Promise<RetainedNoFollowFileObservation>;
   linkExactNoReplace(sourceRelativePath: string, targetRelativePath: string, source: RetainedNoFollowFileObservation, label: string): Promise<RetainedNoFollowFileObservation>;

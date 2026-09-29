@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto';
 import {
-  closeSync, fchmodSync, fstatSync, fsyncSync, ftruncateSync, readSync, writeFileSync
+  closeSync, fchmodSync, fstatSync, fsyncSync, readSync, writeFileSync
 } from 'node:fs';
 import path from 'node:path';
 
@@ -40,7 +40,7 @@ import {
   windowsOpenDirectory, windowsOpenRelativeDirectory, windowsOpenRelativeLeaf,
   windowsReadRelativeOrdinaryLeaf, windowsRenameRetainedOrdinaryFile,
   windowsRetainedLeafIdentity, windowsRetainedOrdinaryFileLinkCount,
-  windowsRewindRetainedFile, windowsTruncateRetainedOrdinaryFile,
+  windowsRewindRetainedFile,
   windowsWriteRetainedChunk, windowsWriteRetainedFile
 } from './physical-no-follow-native.ts';
 import {
@@ -484,65 +484,74 @@ export function retainNoFollowFileTransaction(
       if (expected.byteLength > NO_FOLLOW_FILE_READ_LIMIT_BYTES) {
         throw physicalError('PHYSICAL_NO_FOLLOW_UNSAFE_PATH', `${operation} replacement bytes exceed the retained ordinary-file bound.`);
       }
+      // Never mutate the retained preimage inode in place. A concurrent hard-link
+      // can be created after any link-count check, so an in-place write can leak
+      // replacement bytes through an attacker-created alias before post-write
+      // validation notices the race. Replace the exact observed name by physical
+      // CAS instead; the preimage remains byte-immutable throughout the race.
+      const replacement = replaceDurableCanonicalFile({
+        parent: record.parent,
+        name: record.name,
+        bytes: expected,
+        validate: (candidate) => {
+          if (!Buffer.from(candidate).equals(expected)) {
+            throw physicalError('PHYSICAL_NO_FOLLOW_DURABILITY_FAILED', `${operation} replacement validation differs.`);
+          }
+        },
+        expectedExisting: source.identity,
+        expectedExistingPermissionMode: source.permissionMode,
+        rejectExistingHardLinks: true
+      });
+
       if (process.platform === 'win32') {
-        const current = windowsRetainedLeafIdentity(record.windowsHandle!, source.path, 'file', operation);
-        if (current.device !== source.identity.device || current.inode !== source.identity.inode) {
-          throw physicalError('PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED', `${operation} retained source identity changed before rewrite.`);
-        }
-        if (windowsRetainedOrdinaryFileLinkCount(record.windowsHandle!, operation) !== 1) {
-          throw physicalError('PHYSICAL_NO_FOLLOW_UNSAFE_PATH', `${operation} refuses a hard-linked target.`);
-        }
-        windowsRewindRetainedFile(record.windowsHandle!, operation);
-        windowsTruncateRetainedOrdinaryFile(record.windowsHandle!, 0, operation);
-        windowsWriteRetainedFile(record.windowsHandle!, expected, operation);
-        windowsRewindRetainedFile(record.windowsHandle!, operation);
-        const readback = Buffer.from(readWindowsRetainedFile(record.windowsHandle!, operation));
-        if (!readback.equals(expected)) {
-          throw physicalError('PHYSICAL_NO_FOLLOW_DURABILITY_FAILED', `${operation} retained rewrite readback differs.`);
-        }
-      } else if (process.platform === 'linux') {
-        const fd = requireLinuxLibc().symbols.openat(
-          record.linuxParentFd!, Buffer.from(`${record.name}\0`, 'utf8'),
-          LINUX_O_RDWR | LINUX_O_NOFOLLOW | LINUX_O_CLOEXEC, 0
+        const next = windowsOpenRelativeLeaf(
+          record.windowsParentHandle!, record.parent, record.name, source.path,
+          WINDOWS_GENERIC_READ + WINDOWS_GENERIC_WRITE + WINDOWS_DELETE + WINDOWS_FILE_WRITE_ATTRIBUTES + WINDOWS_SYNCHRONIZE,
+          WINDOWS_FILE_OPEN, `${operation} replacement`, true
         );
-        if (fd < 0) {
-          throw physicalError('PHYSICAL_NO_FOLLOW_UNSAFE_PATH', `${operation} cannot open the retained target for rewrite (errno ${linuxErrno()}).`);
+        if (next === null) {
+          throw physicalError('PHYSICAL_NO_FOLLOW_DURABILITY_FAILED', `${operation} replacement disappeared before retention.`);
         }
         try {
-          const before = fstatSync(fd, { bigint: true });
-          if (!before.isFile() || String(before.dev) !== source.identity.device || String(before.ino) !== source.identity.inode) {
-            throw physicalError('PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED', `${operation} retained source identity changed before rewrite.`);
+          const current = windowsRetainedLeafIdentity(next, source.path, 'file', `${operation} replacement`);
+          if (current.device !== replacement.physical.device || current.inode !== replacement.physical.inode ||
+              windowsRetainedOrdinaryFileLinkCount(next, `${operation} replacement`) !== 1) {
+            throw physicalError('PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED', `${operation} replacement identity changed before retention.`);
           }
-          if (source.permissionMode === null || Number(before.mode & 0o7777n) !== source.permissionMode) {
-            throw physicalError('PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED', `${operation} permission mode changed before rewrite.`);
+          windowsRewindRetainedFile(next, `${operation} replacement`);
+          if (!Buffer.from(readWindowsRetainedFile(next, `${operation} replacement`)).equals(expected)) {
+            throw physicalError('PHYSICAL_NO_FOLLOW_DURABILITY_FAILED', `${operation} replacement readback differs.`);
           }
-          if (before.nlink !== 1n) {
-            throw physicalError('PHYSICAL_NO_FOLLOW_UNSAFE_PATH', `${operation} refuses a hard-linked target.`);
-          }
-          ftruncateSync(fd, 0);
-          writeFileSync(fd, expected);
-          fsyncSync(fd);
-          const after = fstatSync(fd, { bigint: true });
-          if (!after.isFile() || String(after.dev) !== source.identity.device || String(after.ino) !== source.identity.inode ||
-              after.size !== BigInt(expected.byteLength) || after.mode !== before.mode ||
-              after.uid !== before.uid || after.gid !== before.gid || after.nlink !== 1n) {
-            throw physicalError('PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED', `${operation} retained target identity changed during rewrite.`);
-          }
-          const readback = readLinuxRecordBytes(fd, operation);
-          if (!readback.equals(expected)) {
-            throw physicalError('PHYSICAL_NO_FOLLOW_DURABILITY_FAILED', `${operation} retained rewrite readback differs.`);
-          }
-        } finally {
-          closeSync(fd);
+        } catch (error) {
+          closeWindowsHandle(next);
+          throw error;
         }
+        closeWindowsHandle(record.windowsHandle!);
+        record.windowsHandle = next;
+      } else if (process.platform === 'linux') {
+        const next = linuxOpenReadableLeafAt(record.linuxParentFd!, record.name, `${operation} replacement`);
+        try {
+          const current = fstatSync(next, { bigint: true });
+          if (!current.isFile() || String(current.dev) !== replacement.physical.device ||
+              String(current.ino) !== replacement.physical.inode || current.nlink !== 1n ||
+              source.permissionMode === null || Number(current.mode & 0o7777n) !== source.permissionMode ||
+              !readLinuxRecordBytes(next, `${operation} replacement`).equals(expected)) {
+            throw physicalError('PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED', `${operation} replacement identity, mode, links or bytes changed before retention.`);
+          }
+        } catch (error) {
+          closeSync(next);
+          throw error;
+        }
+        closeSync(record.linuxFd!);
+        record.linuxFd = next;
       } else {
         throw physicalError('PHYSICAL_NO_FOLLOW_CAPABILITY_UNAVAILABLE', `${operation} rewrite is unavailable on ${process.platform}.`);
       }
-      verifyCurrentName(relativePath, record, `${operation} readback`);
+
       const successor = Object.freeze({
         path: source.path,
         bytes: Buffer.from(expected),
-        identity: source.identity,
+        identity: replacement.physical,
         permissionMode: source.permissionMode
       });
       retainedFileObservations.delete(source);
@@ -1060,6 +1069,10 @@ type DurableCanonicalFileReplacementInput = {
    * publication.  A foreign writer is never overwritten.
    */
   readonly expectedExisting?: Readonly<{ device: string; inode: string }> | null;
+  /** Expected POSIX permission surface for an exact replacement preimage. */
+  readonly expectedExistingPermissionMode?: number | null;
+  /** Reject a preimage that acquires any additional hard-link name before publication. */
+  readonly rejectExistingHardLinks?: boolean;
   /** Owner-issued interruption seam for native recovery tests only. */
   readonly windowsInterruptionActor?: WindowsDurableCanonicalFileReplacementInterruptionActor;
 };
@@ -1402,6 +1415,14 @@ function replaceDurableCanonicalFileWithExpectedIdentity(
     let exchanged = false;
     try {
       candidateFd = linuxCreateCandidateAt(retained.parentFd, temporaryName, expected, 'Durable CAS');
+      if (input.expectedExistingPermissionMode !== undefined && input.expectedExistingPermissionMode !== null) {
+        if (!Number.isSafeInteger(input.expectedExistingPermissionMode) ||
+            input.expectedExistingPermissionMode < 0 || input.expectedExistingPermissionMode > 0o7777) {
+          throw physicalError('PHYSICAL_NO_FOLLOW_UNSAFE_PATH', 'Durable pointer CAS expected permission mode is invalid.');
+        }
+        fchmodSync(candidateFd, input.expectedExistingPermissionMode);
+        fsyncSync(candidateFd);
+      }
       const candidateStat = fstatSync(candidateFd, { bigint: true });
       candidatePhysical = Object.freeze({ device: String(candidateStat.dev), inode: String(candidateStat.ino) });
       const currentFd = linuxOpenLeafAt(retained.parentFd, input.name, 'Durable CAS current');
@@ -1409,6 +1430,13 @@ function replaceDurableCanonicalFileWithExpectedIdentity(
         const current = fstatSync(currentFd, { bigint: true });
         if (!current.isFile() || String(current.dev) !== expectedCurrent.device || String(current.ino) !== expectedCurrent.inode) {
           throw physicalError('PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED', 'Durable pointer CAS current identity changed.');
+        }
+        if (input.expectedExistingPermissionMode !== undefined && input.expectedExistingPermissionMode !== null &&
+            Number(current.mode & 0o7777n) !== input.expectedExistingPermissionMode) {
+          throw physicalError('PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED', 'Durable pointer CAS current permission mode changed.');
+        }
+        if (input.rejectExistingHardLinks === true && current.nlink !== 1n) {
+          throw physicalError('PHYSICAL_NO_FOLLOW_UNSAFE_PATH', 'Durable pointer CAS refuses a hard-linked current file.');
         }
       } finally {
         closeSync(currentFd);
@@ -1431,7 +1459,10 @@ function replaceDurableCanonicalFileWithExpectedIdentity(
       const oldFd = linuxOpenLeafAt(retained.parentFd, temporaryName, 'Durable CAS old current');
       try {
         const old = fstatSync(oldFd, { bigint: true });
-        if (!old.isFile() || String(old.dev) !== expectedCurrent.device || String(old.ino) !== expectedCurrent.inode) {
+        if (!old.isFile() || String(old.dev) !== expectedCurrent.device || String(old.ino) !== expectedCurrent.inode ||
+            (input.expectedExistingPermissionMode !== undefined && input.expectedExistingPermissionMode !== null &&
+              Number(old.mode & 0o7777n) !== input.expectedExistingPermissionMode) ||
+            (input.rejectExistingHardLinks === true && old.nlink !== 1n)) {
           if (requireLinuxLibc().symbols.renameat2(
             retained.parentFd,
             Buffer.from(`${temporaryName}\0`, 'utf8'),
@@ -1536,6 +1567,10 @@ function replaceDurableCanonicalFileWithExpectedIdentity(
     const currentIdentity = windowsRetainedLeafIdentity(oldCurrent, finalPath, 'file', 'Durable CAS current');
     if (currentIdentity.device !== expectedCurrent.device || currentIdentity.inode !== expectedCurrent.inode) {
       throw physicalError('PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED', 'Durable pointer CAS current identity changed.');
+    }
+    if (input.rejectExistingHardLinks === true &&
+        windowsRetainedOrdinaryFileLinkCount(oldCurrent, 'Durable CAS current') !== 1) {
+      throw physicalError('PHYSICAL_NO_FOLLOW_UNSAFE_PATH', 'Durable pointer CAS refuses a hard-linked current file.');
     }
     const staleCandidate = windowsOpenDurableReplacementLeaf(
       parentHandle, parent, candidateName, 'Durable CAS unbound candidate', WINDOWS_SHARE_READ

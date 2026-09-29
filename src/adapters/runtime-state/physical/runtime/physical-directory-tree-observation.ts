@@ -1,10 +1,8 @@
 import {
   closeSync,
-  constants as fsConstants,
   fstatSync,
   lstatSync,
   opendirSync,
-  openSync,
   readlinkSync
 } from 'node:fs';
 import path from 'node:path';
@@ -457,40 +455,22 @@ export function scanNoFollowDirectoryTreeInternal(
       }
       if (metadata.isFile()) {
         const identity = { device: String(metadata.dev), inode: String(metadata.ino) };
-        if (fileMode === 'metadata-only') {
-          entries.push(Object.freeze({
-            relativePath, kind: 'file', ...identity, size,
-            bytes: null, contentDigest: null, linkTarget: null,
-            ...projectedPermissionMode(metadata.mode, 'file', boundedMetadata.includePermissionMode, metadata)
-          }));
-          continue;
+        reserveFileBytes(size);
+        if (fileMode !== 'metadata-only') {
+          // Linux and Windows use retained descriptor/handle traversal above.
+          // On other hosts a pathname reopen after lstat would recreate a
+          // check/use race even if a later fstat detected the substitution;
+          // fail closed instead of reading through a lexical path.
+          throw physicalError(
+            'PHYSICAL_NO_FOLLOW_CAPABILITY_UNAVAILABLE',
+            `No-follow retained file-content observation is unavailable on ${process.platform}.`
+          );
         }
-        const fd = openSync(
-          absolute,
-          fsConstants.O_RDONLY | (fsConstants.O_NOFOLLOW ?? 0) | (fsConstants.O_NONBLOCK ?? 0)
-        );
-        try {
-          const retained = fstatSync(fd, { bigint: true });
-          if (!retained.isFile() || String(retained.dev) !== identity.device || String(retained.ino) !== identity.inode) {
-            throw physicalError('PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED', `No-follow scan file changed before retained read: ${relativePath}.`);
-          }
-          if (fileMode === 'bounded-bytes') {
-            entries.push(Object.freeze({
-              relativePath, kind: 'file', ...identity, size,
-              bytes: readLinuxRetainedFile(fd, 'No-follow scan file', undefined, assertReadCurrent), contentDigest: null, linkTarget: null,
-              ...projectedPermissionMode(retained.mode, 'file', boundedMetadata.includePermissionMode, retained)
-            }));
-          } else {
-            const streamed = digestRetainedOrdinaryFileFd(fd, identity, 'No-follow scan file', assertReadCurrent);
-            entries.push(Object.freeze({
-              relativePath, kind: 'file', ...identity, size: streamed.size,
-              bytes: null, contentDigest: streamed.contentDigest, byteDigest: streamed.byteDigest, linkTarget: null,
-              ...projectedPermissionMode(retained.mode, 'file', boundedMetadata.includePermissionMode, retained)
-            }));
-          }
-        } finally {
-          closeSync(fd);
-        }
+        entries.push(Object.freeze({
+          relativePath, kind: 'file', ...identity, size,
+          bytes: null, contentDigest: null, linkTarget: null,
+          ...projectedPermissionMode(metadata.mode, 'file', boundedMetadata.includePermissionMode, metadata)
+        }));
         continue;
       }
       throw physicalError('PHYSICAL_NO_FOLLOW_UNSAFE_PATH', `Unsupported no-follow directory entry: ${relativePath}.`);
