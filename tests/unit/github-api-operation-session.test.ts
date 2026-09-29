@@ -23,15 +23,6 @@ const PRINCIPAL: GitHubApiPrincipal = Object.freeze({
   userId: 900001,
   permission: 'maintain'
 });
-const WORKFLOW_PRINCIPAL: GitHubApiPrincipal = Object.freeze({
-  transport: 'github-actions-token',
-  login: 'github-actions[bot]',
-  nodeId: 'MDM6Qm90NDE4OTgyODI=',
-  userId: 41898282,
-  permission: 'workflow',
-  workflowRef: 'sec-platform/sec/.github/workflows/code-scanning-projection.yml@refs/heads/main',
-  workflowSha: SHA
-});
 const MAINTENANCE_WORKFLOW_PRINCIPAL: GitHubApiPrincipal = Object.freeze({
   transport: 'github-actions-token',
   login: 'github-actions[bot]',
@@ -834,71 +825,6 @@ test('request grammar rejects coercible identifiers and unsupported status state
   expect(requests).toBe(0);
 });
 
-
-test('code scanning alert inventory is one bounded fixed read', async () => {
-  const urls: string[] = [];
-  const api = capability({
-    effect: 'read',
-    transport: async (target) => {
-      urls.push(String(target));
-      return Response.json([]);
-    }
-  });
-  expect(await withGitHubApiTestSession({
-    capability: api,
-    operation: () => executeGitHubApiOperation(api, {
-      kind: 'code-scanning-alerts', pullRequestNumber: 636, page: 2
-    })
-  })).toEqual([]);
-  expect(urls).toEqual([
-    'https://api.github.com/repos/sec-platform/sec/code-scanning/alerts?state=open&tool_name=CodeQL&ref=refs%2Fpull%2F636%2Fhead&per_page=100&page=2'
-  ]);
-});
-
-test('workflow-scoped Actions principals are confined to their exact workflow effects', async () => {
-  const api = capability({
-    effect: 'issue-comment-write',
-    principal: WORKFLOW_PRINCIPAL,
-    transport: async (target, init) => Response.json({
-      id: 91,
-      body: init?.body === undefined ? null : JSON.parse(String(init.body)).body,
-      target: String(target)
-    })
-  });
-  await expect(withGitHubApiTestSession({
-    capability: api,
-    operation: () => executeGitHubApiOperation(api, { kind: 'repository' })
-  })).resolves.toMatchObject({ id: 91 });
-  expect(() => capability({
-    effect: 'merge-write',
-    principal: WORKFLOW_PRINCIPAL,
-    transport: async () => Response.json({})
-  })).toThrow('GitHub API privileged write capability requires maintain/admin user permission');
-
-  const maintenance = capability({
-    effect: 'branch-closeout-write',
-    principal: MAINTENANCE_WORKFLOW_PRINCIPAL,
-    transport: async () => Response.json({})
-  });
-  expect(inspectGitHubApiCapability(maintenance)).toMatchObject({
-    effect: 'branch-closeout-write',
-    principal: { workflowRef: MAINTENANCE_WORKFLOW_PRINCIPAL.workflowRef }
-  });
-  const maintenanceComments = capability({
-    effect: 'issue-comment-write',
-    principal: MAINTENANCE_WORKFLOW_PRINCIPAL,
-    transport: async () => Response.json({})
-  });
-  expect(inspectGitHubApiCapability(maintenanceComments)).toMatchObject({
-    effect: 'issue-comment-write',
-    principal: { workflowRef: MAINTENANCE_WORKFLOW_PRINCIPAL.workflowRef }
-  });
-  expect(() => capability({
-    effect: 'branch-closeout-write',
-    principal: WORKFLOW_PRINCIPAL,
-    transport: async () => Response.json({})
-  })).toThrow('branch-closeout capability requires');
-});
 
 test('maintenance workflow principal admits read, branch-closeout, and exact comment writes only', () => {
   expect(() => capability({

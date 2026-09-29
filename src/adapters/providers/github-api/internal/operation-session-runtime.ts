@@ -9,7 +9,6 @@ import { withOwnedByteStreamReader } from '../../../../execution/stream-reader.t
 import { GITHUB_API_BASE_URL, GITHUB_HOST } from '../contract.ts';
 import {
   GitHubCredentialUnavailableError,
-  inspectGitHubActionsProjectionCredentialIdentity,
   inspectGitHubActionsRepositoryMaintenanceCredentialIdentity,
   readGitHubToken
 } from '../credential.ts';
@@ -131,7 +130,6 @@ export type GitHubApiOperation =
   | Readonly<{ kind: 'git-commit'; sha: string }>
   | Readonly<{ kind: 'workflow-run'; runId: string }>
   | Readonly<{ kind: 'check-runs'; sha: string; page: number }>
-  | Readonly<{ kind: 'code-scanning-alerts'; pullRequestNumber: number; page: number }>
   | Readonly<{ kind: 'repository-runners'; page: number }>
   | Readonly<{ kind: 'create-runner-registration-token' }>
   | Readonly<{ kind: 'delete-repository-runner'; runnerId: number }>
@@ -367,8 +365,6 @@ function compileOperation(
       return read(`/repos/${repo}/actions/runs/${runId}`);
     }
     case 'check-runs': return read(`/repos/${repo}/commits/${sha(operation.sha)}/check-runs?per_page=100&page=${page(operation.page)}`);
-    case 'code-scanning-alerts':
-      return read(`/repos/${repo}/code-scanning/alerts?state=open&tool_name=CodeQL&ref=${encodeURIComponent(`refs/pull/${positiveInteger(operation.pullRequestNumber, 'pull request number')}/head`)}&per_page=100&page=${page(operation.page)}`);
     case 'repository-runners':
       return read(`/repos/${repo}/actions/runners?per_page=100&page=${page(operation.page)}`);
     case 'create-runner-registration-token':
@@ -488,10 +484,8 @@ export function assertGitHubApiCapability(
   const workflowCommentPrincipal = requiredEffect === 'issue-comment-write'
     && value.principal.transport === 'github-actions-token'
     && value.principal.permission === 'workflow'
-    && (value.principal.workflowRef
-        === `${repositoryName}/.github/workflows/code-scanning-projection.yml@refs/heads/main`
-      || value.principal.workflowRef
-        === `${repositoryName}/.github/workflows/repository-maintenance.yml@refs/heads/main`);
+    && value.principal.workflowRef
+      === `${repositoryName}/.github/workflows/repository-maintenance.yml@refs/heads/main`;
   const workflowBranchCloseoutPrincipal = requiredEffect === 'branch-closeout-write'
     && value.principal.transport === 'github-actions-token'
     && value.principal.permission === 'workflow'
@@ -536,10 +530,8 @@ function issueCapability(input: Readonly<{
     && input.principal.nodeId === 'MDM6Qm90NDE4OTgyODI='
     && input.principal.userId === 41898282
     && input.principal.permission === 'workflow'
-    && (input.principal.workflowRef
-        === `${input.repository}/.github/workflows/code-scanning-projection.yml@refs/heads/main`
-      || input.principal.workflowRef
-        === `${input.repository}/.github/workflows/repository-maintenance.yml@refs/heads/main`)
+    && input.principal.workflowRef
+      === `${input.repository}/.github/workflows/repository-maintenance.yml@refs/heads/main`
     && /^[0-9a-f]{40}$/u.test(input.principal.workflowSha);
   if (!/^[^\s\u0000-\u001f\u007f-\u009f]{20,1024}$/u.test(input.token)
       || (!userPrincipalValid && !workflowPrincipalValid)
@@ -574,16 +566,12 @@ function issueCapability(input: Readonly<{
     throw new GitHubApiProviderError('GitHub API user comment write capability requires maintain/admin permission');
   }
   if (input.principal.transport === 'github-actions-token') {
-    const projectionWorkflow = input.principal.workflowRef
-      === `${input.repository}/.github/workflows/code-scanning-projection.yml@refs/heads/main`;
     const maintenanceWorkflow = input.principal.workflowRef
       === `${input.repository}/.github/workflows/repository-maintenance.yml@refs/heads/main`;
-    const projectionEffect = input.effect === 'read' || input.effect === 'issue-comment-write';
     const maintenanceEffect = input.effect === 'read'
       || input.effect === 'branch-closeout-write'
       || input.effect === 'issue-comment-write';
-    if ((!projectionWorkflow || !projectionEffect)
-        && (!maintenanceWorkflow || !maintenanceEffect)) {
+    if (!maintenanceWorkflow || !maintenanceEffect) {
       throw new GitHubApiProviderError(
         'GitHub Actions workflow principal effect is not authorized by its exact workflow identity'
       );
@@ -994,22 +982,12 @@ async function enroll(input: Readonly<{
   }
   if (session.capability !== undefined) return session.capability;
   const token = await input.readToken(input.repositoryRoot, session);
-  const projectionWorkflowIdentity = input.origin === 'production'
-    ? inspectGitHubActionsProjectionCredentialIdentity(process.env, input.repository)
-    : null;
   const maintenanceWorkflowIdentity = input.origin === 'production'
     ? inspectGitHubActionsRepositoryMaintenanceCredentialIdentity(process.env, input.repository)
     : null;
-  const workflowIdentity = projectionWorkflowIdentity ?? maintenanceWorkflowIdentity;
+  const workflowIdentity = maintenanceWorkflowIdentity;
   if (workflowIdentity !== null) {
-    if (projectionWorkflowIdentity !== null
-        && input.effect !== 'read' && input.effect !== 'issue-comment-write') {
-      throw new GitHubApiProviderError(
-        'GitHub Actions projection credential cannot enroll a privileged repository effect'
-      );
-    }
-    if (maintenanceWorkflowIdentity !== null
-        && input.effect !== 'read'
+    if (input.effect !== 'read'
         && input.effect !== 'branch-closeout-write'
         && input.effect !== 'issue-comment-write') {
       throw new GitHubApiProviderError(

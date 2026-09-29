@@ -17,6 +17,7 @@ venv/
 Thumbs.db
 
 # Build
+.documentation/figures.json
 dist/
 build/
 .next/
