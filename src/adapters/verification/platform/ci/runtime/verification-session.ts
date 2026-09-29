@@ -4435,7 +4435,7 @@ export async function verificationSessionCli(argv: string[]): Promise<string> {
     CodexDevelopmentAssertWorkPackageOwnership(manifest, [...changedPaths]);
     const dependencyBlobs = observeVerificationSessionActionDependencyBlobs({ github, repository,
       baseSha: candidate.baseSha, headSha: candidate.headSha });
-    const principal = github.observeViewerPrincipal(input.repository);
+    const principal = github.observeViewerPrincipal(repository);
     if (principal.permission !== 'admin' && principal.permission !== 'maintain') {
       throw new Error('prepare viewer lacks maintain/admin permission.');
     }
