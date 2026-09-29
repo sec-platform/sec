@@ -31,6 +31,13 @@ import {
   parseTrustedRuntimeContainerIdentity,
   renderTrustedRuntimeCommandFailureDetail
 } from '../../src/adapters/verification/platform/trusted-runtime/trusted-runtime-container.ts';
+import {
+  createTrustedRuntimeMainHealthReceipt,
+  parseTrustedRuntimeMainHealthReceipt,
+  trustedRuntimeMainHealthReceiptLocator,
+  TRUSTED_RUNTIME_MAIN_HEALTH_CHECK_COMMANDS,
+  TRUSTED_RUNTIME_MAIN_HEALTH_PLAN_DIGEST
+} from '../../src/adapters/self-hosting/control/main-health/main-health-observation.ts';
 import { sha256 } from '../../src/contracts/canonical.ts';
 import {
   bindSecSemanticOperation,
@@ -71,6 +78,56 @@ function imageInspect(overrides: Record<string, unknown> = {}): string {
 }
 
 describe('provider-neutral trusted runtime container', () => {
+  test('MainHealth receipt binds exact subject environment plan and canonical command closure', () => {
+    expect(TRUSTED_RUNTIME_MAIN_HEALTH_CHECK_COMMANDS).toEqual([
+      'bun run imports:check --all',
+      'bun run typecheck:verified',
+      'bun run audit:static',
+      'bun run docs:doctor',
+      'bun run test:fast'
+    ]);
+    expect(TRUSTED_RUNTIME_MAIN_HEALTH_PLAN_DIGEST).toMatch(/^sha256:[0-9a-f]{64}$/u);
+    const receipt = createTrustedRuntimeMainHealthReceipt({
+      repository: 'sec-platform/sec',
+      mainSha: '1'.repeat(40),
+      mainTreeSha: '2'.repeat(40),
+      executionId: 'trusted-main-health-fixture',
+      dockerEndpoint,
+      dependencyCacheKey: `sha256:${'3'.repeat(64)}`,
+      actionResults: TRUSTED_RUNTIME_MAIN_HEALTH_CHECK_COMMANDS.map((command, index) => ({
+        command,
+        resultDigest: `sha256:${String(index + 4).repeat(64)}` as `sha256:${string}`
+      })),
+      observedAt: '2026-09-29T00:00:00.000Z'
+    });
+    expect(parseTrustedRuntimeMainHealthReceipt(JSON.stringify(receipt))).toEqual(receipt);
+    expect(trustedRuntimeMainHealthReceiptLocator({
+      repositoryStateRoot: path.resolve('state'),
+      mainSha: receipt.mainSha
+    })).toEqual({
+      directory: path.join(path.resolve('state'), 'trusted-main-health', 'v1'),
+      fileName: `main-${receipt.mainSha}.json`,
+      sourceRef: `runtime-state:trusted-main-health/v1/main-${receipt.mainSha}.json`
+    });
+    expect(() => parseTrustedRuntimeMainHealthReceipt({
+      ...receipt,
+      planDigest: `sha256:${'f'.repeat(64)}`
+    })).toThrow('shape or fixed identity');
+    expect(() => createTrustedRuntimeMainHealthReceipt({
+      repository: receipt.repository,
+      mainSha: receipt.mainSha,
+      mainTreeSha: receipt.mainTreeSha,
+      executionId: receipt.executionId,
+      dockerEndpoint,
+      dependencyCacheKey: receipt.dependencyCacheKey,
+      actionResults: receipt.actionResults.map((entry, index) => index === 0
+        ? { ...entry, command: 'bun run imports:check' }
+        : entry),
+      observedAt: receipt.observedAt
+    })).toThrow('differs from the canonical plan');
+  });
+
+
   test('joins only one provider-issued exact requirement settlement with independent endpoint readback', () => {
     const contractDigest = sha256({ contract: 'container-engine-test' }) as SecOperationDigest;
     const providerIdentityDigest = sha256({ provider: 'container-engine-test' }) as SecOperationDigest;

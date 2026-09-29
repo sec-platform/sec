@@ -212,9 +212,16 @@ test('MainHealth observation provenance changes receipt digest but not health re
     expect(candidate.healthRevision, label).toBe(base.healthRevision);
     expect(candidate.ledgerDigest, label).not.toBe(base.ledgerDigest);
   }
-  expect(() => createMainHealthLedger(healthyInput({
-    producer: { ...producer(), sourceTransport: 'trusted-local-readback' as never }
-  }))).toThrow('producer.sourceTransport is invalid');
+  const local = createMainHealthLedger(healthyInput({
+    producer: {
+      ...producer(),
+      sourceTransport: 'trusted-runtime-durable-readback',
+      sourceRunId: 'trusted-main-health-run',
+      sourceRef: 'runtime-state:trusted-main-health/v1/main'
+    }
+  }));
+  expect(local.healthRevision).toBe(base.healthRevision);
+  expect(local.ledgerDigest).not.toBe(base.ledgerDigest);
 });
 
 test('MainHealth canonicalizes set ordering and rejects duplicate/unknown members', () => {
