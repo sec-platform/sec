@@ -9,6 +9,10 @@ import {
 } from '../../src/adapters/self-hosting/control/branch-lifecycle/exact-ref-retirement.ts';
 import { parseRepositoryMaintenanceRequest } from '../../src/adapters/self-hosting/control/repository-maintenance/contract.ts';
 import {
+  assertRepositoryMaintenanceDispatcherPermission,
+  createRepositoryMaintenanceDispatchPayload
+} from '../../src/adapters/self-hosting/control/repository-maintenance/dispatch.ts';
+import {
   assertHostedRepositoryMaintenanceIdentity,
   parseHostedRepositoryMaintenanceRequest
 } from '../../src/adapters/self-hosting/control/repository-maintenance/hosted-admission.ts';
@@ -39,7 +43,7 @@ function environment(source = requestSource()): NodeJS.ProcessEnv {
     GITHUB_SERVER_URL: 'https://github.com',
     GITHUB_API_URL: 'https://api.github.com',
     GITHUB_REPOSITORY: 'sec-platform/sec',
-    GITHUB_EVENT_NAME: 'issue_comment',
+    GITHUB_EVENT_NAME: 'repository_dispatch',
     GITHUB_REF: 'refs/heads/main',
     GITHUB_SHA: MAIN,
     GITHUB_WORKFLOW_SHA: MAIN,
@@ -53,6 +57,45 @@ function environment(source = requestSource()): NodeJS.ProcessEnv {
     SEC_MAINTENANCE_AUTHOR_ASSOCIATION: 'MEMBER'
   };
 }
+
+test('maintenance dispatcher requires current maintain/admin before creating a workflow signal', () => {
+  expect(assertRepositoryMaintenanceDispatcherPermission({ permission: 'admin' })).toBe('admin');
+  expect(assertRepositoryMaintenanceDispatcherPermission({ permission: 'maintain' })).toBe('maintain');
+  for (const value of [
+    { permission: 'write' },
+    { permission: 'triage' },
+    { permission: 'read' },
+    { permission: 'none' },
+    {},
+    null
+  ]) {
+    expect(() => assertRepositoryMaintenanceDispatcherPermission(value))
+      .toThrow(/maintain\/admin permission|must be one object/u);
+  }
+});
+
+test('maintenance dispatch payload carries only exact lifecycle comment locator and raw digest', () => {
+  const payload = createRepositoryMaintenanceDispatchPayload({
+    issueNumber: 313,
+    commentId: 42,
+    commentBody: requestSource()
+  });
+  expect(payload).toEqual({
+    event_type: 'sec-repository-maintenance-v2',
+    client_payload: {
+      schema: 'sec-repository-maintenance-dispatch-v1',
+      issue_number: 313,
+      comment_id: 42,
+      comment_body_sha256: expect.stringMatching(/^sha256:[0-9a-f]{64}$/u)
+    }
+  });
+  expect(JSON.stringify(payload)).not.toContain('expectedMainSha');
+  expect(() => createRepositoryMaintenanceDispatchPayload({
+    issueNumber: 312,
+    commentId: 42,
+    commentBody: requestSource()
+  })).toThrow('identity is invalid');
+});
 
 test('maintenance request accepts one exact ref or bounded exact comment batch', () => {
   const parsed = parseRepositoryMaintenanceRequest(requestSource());
@@ -235,7 +278,7 @@ test('hosted maintenance binds exact main workflow, lifecycle issue and maintain
   const request = parseRepositoryMaintenanceRequest(requestSource());
   expect(() => assertHostedRepositoryMaintenanceIdentity(request, environment())).not.toThrow();
   for (const changed of [
-    { GITHUB_EVENT_NAME: 'workflow_dispatch' },
+    { GITHUB_EVENT_NAME: 'issue_comment' },
     { GITHUB_REF: 'refs/heads/other' },
     { GITHUB_SHA: 'c'.repeat(40) },
     { GITHUB_WORKFLOW_SHA: 'c'.repeat(40) },
