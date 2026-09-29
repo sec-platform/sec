@@ -238,7 +238,7 @@ const APPLICABILITIES: readonly VerificationApplicability[] = [
 /** Compatibility facade; the verification-domain data boundary is owned by contract/data.ts. */
 export function CodexDevelopmentSnapshotVerificationData(
   value: unknown,
-  label: string = 'verification data'
+  label: string = 'Verification data'
 ): unknown {
   return snapshotVerificationData(value, label);
 }
@@ -647,7 +647,7 @@ function snapshotVerificationAggregateInput(
   input: VerificationAggregateInput
 ): VerificationAggregateInput {
   const label = 'verification aggregate input';
-  const candidate = readVerificationDataRecord(input, label);
+  const candidate = readVerificationDataRecord(input, 'Verification data');
   const actualKeys = Object.keys(candidate).sort();
   const expectedKeys = actualKeys.includes('isCoverageComplete')
     ? ['claims', 'gateResults', 'isCoverageComplete']
