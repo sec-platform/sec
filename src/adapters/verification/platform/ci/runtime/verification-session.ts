@@ -200,6 +200,7 @@ import {
   CodexDevelopmentTestImpactSourceProviderFromSnapshot
 } from './ci-orchestration-core.ts';
 import {
+  createReviewProviderRevalidationCommentBody,
   createVerificationSessionGitHubClient,
   shouldPublishMaintainerReviewWakeup,
   type GitHubActionsArtifactObservation,
@@ -3905,16 +3906,87 @@ function ensureMaintainerReviewWakeup(
     return Object.freeze({ status: 'reused' as const, commentId: observed.commentId,
       wakeupDigest: observed.wakeupDigest });
   }
+  const providerNow = new Date().toISOString();
+  const providerAvailability = github.observeReviewProviderAvailability({
+    repository: input.repository,
+    prNumber: input.prNumber,
+    headSha: input.headSha,
+    headTreeSha: input.headTreeSha,
+    observedAt: providerNow
+  });
+  if (providerAvailability.status === 'unavailable') {
+    throw new CompilerError(
+      'PROVIDER-UNAVAILABLE-NOT-RETRIED',
+      'Provider codex-review is unavailable and must not be retried without an exact target-bound revalidation receipt.',
+      {
+        capability: 'codex-review',
+        reasonCode: providerAvailability.reasonCode,
+        receiptRef: providerAvailability.receiptRef,
+        sourceCommentId: providerAvailability.sourceCommentId,
+        sourceObservedAt: providerAvailability.sourceObservedAt,
+        censusDigest: providerAvailability.censusDigest
+      }
+    );
+  }
+  if (providerAvailability.status === 'unresolved') {
+    throw new CompilerError(
+      'PROVIDER-AVAILABILITY-UNRESOLVED',
+      `Provider codex-review availability census is unresolved: ${providerAvailability.reason}.`,
+      {
+        capability: 'codex-review',
+        reason: providerAvailability.reason,
+        censusDigest: providerAvailability.censusDigest
+      }
+    );
+  }
   assertUnavailableProviderCircuitBreakerInvariant({
     ctx,
     capability: 'codex-review',
-    now: new Date().toISOString()
+    now: providerNow
   });
   assertUnavailableProviderCircuitBreakerInvariant({
     ctx,
     capability: 'github-writer',
-    now: new Date().toISOString()
+    now: providerNow
   });
+  const effectBoundaryNow = new Date().toISOString();
+  const effectBoundaryAvailability = github.observeReviewProviderAvailability({
+    repository: input.repository,
+    prNumber: input.prNumber,
+    headSha: input.headSha,
+    headTreeSha: input.headTreeSha,
+    observedAt: effectBoundaryNow
+  });
+  if (effectBoundaryAvailability.status === 'unavailable') {
+    throw new CompilerError(
+      'PROVIDER-UNAVAILABLE-NOT-RETRIED',
+      'Provider codex-review became unavailable before wake-up publication; a new target-bound revalidation receipt is required.',
+      {
+        capability: 'codex-review',
+        reasonCode: effectBoundaryAvailability.reasonCode,
+        receiptRef: effectBoundaryAvailability.receiptRef,
+        sourceCommentId: effectBoundaryAvailability.sourceCommentId,
+        sourceObservedAt: effectBoundaryAvailability.sourceObservedAt,
+        censusDigest: effectBoundaryAvailability.censusDigest
+      }
+    );
+  }
+  if (effectBoundaryAvailability.status === 'unresolved'
+      || effectBoundaryAvailability.censusDigest !== providerAvailability.censusDigest) {
+    throw new CompilerError(
+      'PROVIDER-AVAILABILITY-UNRESOLVED',
+      'Provider codex-review availability changed before wake-up publication.',
+      {
+        capability: 'codex-review',
+        initialCensusDigest: providerAvailability.censusDigest,
+        effectBoundaryCensusDigest: effectBoundaryAvailability.censusDigest,
+        effectBoundaryStatus: effectBoundaryAvailability.status,
+        ...(effectBoundaryAvailability.status === 'unresolved'
+          ? { reason: effectBoundaryAvailability.reason }
+          : {})
+      }
+    );
+  }
   const posted = runVerificationSessionCommand(ctx, 'gh', [
     'api',
     '-X',
@@ -4082,9 +4154,105 @@ function executeHostedSquashMerge(input: {
   return parseHostedSynchronousSquashMergeResponse(decodeBranchLifecycleChildStdout(result));
 }
 
+/**
+ * Authority-bearing Review-provider revalidation operation.
+ *
+ * CLI command selection is deliberately outside this function. The operation
+ * re-derives live PR identity, viewer authority, provider negative state,
+ * exact comment publication/readback, candidate stability, and the selected
+ * provider epoch before it returns a revalidation receipt.
+ */
+function executeReviewProviderRevalidation(input: Readonly<{
+  ctx: VerificationSessionScope;
+  github: VerificationSessionGitHubClient;
+  repository: string;
+  prNumber: number;
+  now: () => string;
+}>): string {
+  const prNumber = Number(String(input.prNumber));
+  if (!Number.isSafeInteger(prNumber) || prNumber < 1) throw new Error('--pr must be a positive integer.');
+  const github = input.github;
+  const candidate = github.observeCandidate(input.repository, prNumber);
+  if (candidate.state !== 'OPEN' || candidate.isDraft || candidate.isCrossRepository) {
+    throw new Error('Review provider revalidation requires one open same-repository non-draft PR.');
+  }
+  const viewer = github.observeViewerPrincipal(input.repository);
+  if (viewer.permission !== 'admin' && viewer.permission !== 'maintain') {
+    throw new Error('Review provider revalidation requires current maintain/admin authority.');
+  }
+  const target = {
+    repository: input.repository,
+    prNumber,
+    headSha: candidate.headSha,
+    headTreeSha: candidate.headTreeSha
+  } as const;
+  const before = github.observeReviewProviderAvailability({ ...target, observedAt: input.now() });
+  if (before.status === 'unresolved') {
+    throw new CompilerError('PROVIDER-AVAILABILITY-UNRESOLVED',
+      `Provider codex-review availability census is unresolved: ${before.reason}.`,
+      { capability: 'codex-review', reason: before.reason, censusDigest: before.censusDigest });
+  }
+  if (before.status === 'no-current-negative') {
+    return JSON.stringify({ status: 'revalidation-not-required', ...target,
+      availabilityCensusDigest: before.censusDigest }, null, 2);
+  }
+  assertUnavailableProviderCircuitBreakerInvariant({
+    ctx: input.ctx,
+    capability: 'github-writer',
+    now: input.now()
+  });
+  const rendered = createReviewProviderRevalidationCommentBody({
+    ...target,
+    publisherNodeId: viewer.nodeId
+  });
+  const posted = runVerificationSessionCommand(input.ctx, 'gh', [
+    'api', '-X', 'POST',
+    `/repos/${input.repository}/issues/${prNumber}/comments`,
+    '-f', `body=${rendered.body}`
+  ]);
+  if (posted.status !== 0) {
+    throw new Error(`AMBIGUOUS_SIDE_EFFECT: Review provider revalidation POST outcome is unknown: ${decodeBranchLifecycleChildError(posted)}`);
+  }
+  const response: unknown = JSON.parse(decodeBranchLifecycleChildStdout(posted));
+  if (!response || typeof response !== 'object' || Array.isArray(response)
+      || !Number.isSafeInteger((response as Record<string, unknown>).id)
+      || Number((response as Record<string, unknown>).id) < 1) {
+    throw new Error('AMBIGUOUS_SIDE_EFFECT: Review provider revalidation POST returned no exact comment identity.');
+  }
+  const commentId = String((response as Record<string, unknown>).id);
+  const exact = runVerificationSessionCommand(input.ctx, 'gh', [
+    'api', `/repos/${input.repository}/issues/comments/${commentId}`
+  ]);
+  if (exact.status !== 0) {
+    throw new Error('AMBIGUOUS_SIDE_EFFECT: Review provider revalidation exact readback failed.');
+  }
+  const readback: unknown = JSON.parse(decodeBranchLifecycleChildStdout(exact));
+  if (!readback || typeof readback !== 'object' || Array.isArray(readback)
+      || String((readback as Record<string, unknown>).id) !== commentId
+      || (readback as Record<string, unknown>).body !== rendered.body) {
+    throw new Error('AMBIGUOUS_SIDE_EFFECT: Review provider revalidation exact readback differs.');
+  }
+  const candidateAfter = github.observeCandidate(input.repository, prNumber);
+  if (candidateAfter.state !== 'OPEN' || candidateAfter.headSha !== target.headSha
+      || candidateAfter.headTreeSha !== target.headTreeSha) {
+    throw new Error('Review provider revalidation target drifted during publication.');
+  }
+  const after = github.observeReviewProviderAvailability({ ...target, observedAt: input.now() });
+  if (after.status !== 'no-current-negative'
+      || after.revalidationCommentId !== commentId
+      || after.revalidationDigest !== rendered.revalidationDigest) {
+    throw new Error('Review provider revalidation was not durably selected as the current target epoch.');
+  }
+  return JSON.stringify({ status: 'revalidated-for-single-probe', ...target,
+    commentId, revalidationDigest: rendered.revalidationDigest,
+    availabilityCensusDigest: after.censusDigest }, null, 2);
+  
+}
+
 const USAGE = `Usage:
   bun src/adapters/verification/platform/ci/runtime/verification-session.ts project --default-ref <ref> [--open-prs true] [--repository <owner/name>] [--json]
   bun src/adapters/verification/platform/ci/runtime/verification-session.ts prepare --pr <n> --request-output <request.json> [--repository <owner/name>] [--json]
+  bun src/adapters/verification/platform/ci/runtime/verification-session.ts revalidate-review-provider --pr <n> [--repository <owner/name>] [--json]
   bun src/adapters/verification/platform/ci/runtime/verification-session.ts observe-hosted --request <request.json> --output <facts.json> [--json]
   bun src/adapters/verification/platform/ci/runtime/verification-session.ts prepare-hosted --request <request.json> --facts <facts.json> --output <envelope.json> [--json]
   bun src/adapters/verification/platform/ci/runtime/verification-session.ts artifact-status --artifact <artifact.json> [--json]
@@ -4103,6 +4271,7 @@ const USAGE = `Usage:
 const COMMAND_FLAGS: Readonly<Record<string, ReadonlySet<string>>> = Object.freeze({
   project: new Set(['--default-ref', '--open-prs', '--repository']),
   prepare: new Set(['--pr', '--request-output', '--repository']),
+  'revalidate-review-provider': new Set(['--pr', '--repository']),
   'observe-hosted': new Set(['--request', '--output', '--repository']),
   'prepare-hosted': new Set(['--request', '--facts', '--output']),
   'artifact-status': new Set(['--artifact']),
@@ -4158,6 +4327,22 @@ export async function verificationSessionCli(argv: string[]): Promise<string> {
   };
   const githubAdapter = () => createVerificationSessionGitHubClient(repositoryRoot);
   const event = () => githubEvent(environment);
+  // CLI command routing selects one closed operation only. The selected
+  // operation revalidates every authority/target/effect precondition internally.
+  // codeql[js/user-controlled-bypass]
+  if (command === 'revalidate-review-provider') {
+    const prNumber = Number(required(args, '--pr'));
+    if (!Number.isSafeInteger(prNumber) || prNumber < 1) {
+      throw new Error('--pr must be a positive integer.');
+    }
+    return executeReviewProviderRevalidation({
+      ctx,
+      github: githubAdapter(),
+      repository,
+      prNumber,
+      now
+    });
+  }
   // CLI command routing selects a closed operation; each branch parses and validates its own exact authority.
   // codeql[js/user-controlled-bypass]
   if (command === 'local-main-closeout') {
@@ -4309,7 +4494,7 @@ export async function verificationSessionCli(argv: string[]): Promise<string> {
     CodexDevelopmentAssertWorkPackageOwnership(manifest, [...changedPaths]);
     const dependencyBlobs = observeVerificationSessionActionDependencyBlobs({ github, repository,
       baseSha: candidate.baseSha, headSha: candidate.headSha });
-    const principal = github.observeViewerPrincipal(repository);
+    const principal = github.observeViewerPrincipal(input.repository);
     if (principal.permission !== 'admin' && principal.permission !== 'maintain') {
       throw new Error('prepare viewer lacks maintain/admin permission.');
     }

@@ -21,6 +21,7 @@ import { encodeVerificationActionData } from '../../action/contract/action.ts';
 import { CI_GITHUB_ACTIONS_IDENTITY_POLICY, matchesCiCompilerWorkflowRunIdentity } from '../../action/contract/provider.ts';
 import type { ReviewPrincipal, ReviewSnapshot } from '../../review/contract/stability.ts';
 import { createReviewSnapshotDigest, isCodexCleanReviewAboutBlock, isCodexCleanReviewVerdict, REVIEW_OBSERVER_READ_ONLY_CAPABILITY_RECEIPT, SEC_REVIEW_STABILITY_POLICY } from '../../review/contract/stability.ts';
+import { classifyProviderDiagnosticTextV1 } from '../../provider/contract/capability.ts';
 import {
   CI_VERIFICATION_SESSION_ARTIFACT_PREFIX,
   CI_VERIFICATION_SESSION_DISPATCH_TYPE
@@ -107,6 +108,28 @@ export interface GitHubIssueCommentObservation {
   performedViaGitHubApp: { id: number; nodeId: string; slug: string } | null;
   createdAt: string;
 }
+
+export type GitHubReviewProviderAvailabilityObservation = Readonly<{
+  status: 'unavailable';
+  reasonCode: 'provider-quota-unavailable' | 'provider-revalidation-consumed';
+  receiptRef: SessionDigest;
+  sourceCommentId: string;
+  sourceObservedAt: string;
+  censusDigest: SessionDigest;
+  observedAt: string;
+}> | Readonly<{
+  status: 'no-current-negative';
+  revalidationCommentId: string | null;
+  revalidationObservedAt: string | null;
+  revalidationDigest: SessionDigest | null;
+  censusDigest: SessionDigest;
+  observedAt: string;
+}> | Readonly<{
+  status: 'unresolved';
+  reason: 'pagination-budget-exhausted' | 'provider-comment-page-drift' | 'provider-comment-ordering-invalid';
+  censusDigest: SessionDigest;
+  observedAt: string;
+}>;
 
 export type GitHubCommitResolutionObservation = Readonly<{
   repository: string;
@@ -212,6 +235,7 @@ interface VerificationSessionGitHubTransport {
   reviewRequestPage(repository: string, prNumber: number, after: string | null): GitHubPage<GitHubReviewRequestObservation>;
   appCommentPage(repository: string, prNumber: number, after: string | null): GitHubPage<GitHubAppReviewCommentObservation>;
   issueCommentPage(repository: string, prNumber: number, after: string | null): GitHubPage<GitHubIssueCommentObservation>;
+  repositoryIssueCommentPage(repository: string, after: string | null): GitHubPage<GitHubIssueCommentObservation>;
   resolveCommitOid(repository: string, locator: string): GitHubCommitResolutionObservation;
   collaboratorPermission(repository: string, login: string): 'admin' | 'maintain' | 'write' | 'triage' | 'read' | 'none';
   checkPage(repository: string, headSha: string, after: string | null): GitHubPage<GitHubCheckObservation>;
@@ -274,8 +298,15 @@ const VERIFICATION_SESSION_REVIEW_WAKEUP_COMMENT_SCHEMA =
   'sec-verification-session-review-wakeup-comment-v1' as const;
 export const VERIFICATION_SESSION_REVIEW_WAKEUP_COMMENT_MARKER =
   '<!-- sec-verification-session-review-wakeup-v1 -->' as const;
+const VERIFICATION_SESSION_REVIEW_PROVIDER_REVALIDATION_SCHEMA =
+  'sec-review-provider-revalidation-v1' as const;
+export const VERIFICATION_SESSION_REVIEW_PROVIDER_REVALIDATION_MARKER =
+  '<!-- sec-review-provider-revalidation-v1 -->' as const;
 
 export const PROVIDER_SCHEMA_UNSUPPORTED_STATUS = 'provider-schema-unsupported' as const;
+const RETIRED_REVIEW_WAKEUP_TOMBSTONE =
+  '<!-- retired: codex review trigger transport noise -->' as const;
+const REVIEW_PROVIDER_COMMENT_MAXIMUM_PAGES = 64;
 
 /** Pure signal routing only; returning true never grants Review or mutation authority. */
 export function shouldPublishMaintainerReviewWakeup(input: Readonly<{
@@ -561,6 +592,96 @@ function parseReviewWakeupComment(source: string): VerificationSessionReviewWake
   return rebuilt;
 }
 
+interface VerificationSessionReviewProviderRevalidationComment {
+  schema: typeof VERIFICATION_SESSION_REVIEW_PROVIDER_REVALIDATION_SCHEMA;
+  repository: string;
+  capability: 'codex-review';
+  prNumber: number;
+  headSha: string;
+  headTreeSha: string;
+  publisherNodeId: string;
+  revalidationDigest: SessionDigest;
+}
+
+function createReviewProviderRevalidationComment(input: Omit<
+  VerificationSessionReviewProviderRevalidationComment,
+  'schema' | 'capability' | 'revalidationDigest'
+>): VerificationSessionReviewProviderRevalidationComment {
+  if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,99}\\/[A-Za-z0-9][A-Za-z0-9._-]{0,99}$/u.test(input.repository)
+    || !Number.isSafeInteger(input.prNumber) || input.prNumber < 1
+    || !/^[0-9a-f]{40}$/u.test(input.headSha)
+    || !/^[0-9a-f]{40}$/u.test(input.headTreeSha)
+    || input.publisherNodeId.length === 0 || input.publisherNodeId.length > 256
+    || !/^[\\x21-\\x7e]+$/u.test(input.publisherNodeId)) {
+    fail('Review provider revalidation identity is invalid.');
+  }
+  const payload = Object.freeze({
+    schema: VERIFICATION_SESSION_REVIEW_PROVIDER_REVALIDATION_SCHEMA,
+    repository: input.repository,
+    capability: 'codex-review' as const,
+    prNumber: input.prNumber,
+    headSha: input.headSha,
+    headTreeSha: input.headTreeSha,
+    publisherNodeId: input.publisherNodeId
+  });
+  return Object.freeze({ ...payload, revalidationDigest: hash(payload) });
+}
+
+function renderReviewProviderRevalidationComment(
+  value: VerificationSessionReviewProviderRevalidationComment
+): string {
+  return `${VERIFICATION_SESSION_REVIEW_PROVIDER_REVALIDATION_MARKER}\n${encodeVerificationActionData(value)}`;
+}
+
+function parseReviewProviderRevalidationComment(
+  source: string
+): VerificationSessionReviewProviderRevalidationComment | null {
+  if (!source.includes(VERIFICATION_SESSION_REVIEW_PROVIDER_REVALIDATION_MARKER)) return null;
+  const prefix = `${VERIFICATION_SESSION_REVIEW_PROVIDER_REVALIDATION_MARKER}\n`;
+  if (!source.startsWith(prefix) || source.includes('\r')) {
+    fail('Review provider revalidation comment shape is invalid.');
+  }
+  const value: unknown = JSON.parse(source.slice(prefix.length));
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    fail('Review provider revalidation payload must be an object.');
+  }
+  const record = value as Record<string, unknown>;
+  const expected = [
+    'schema', 'repository', 'capability', 'prNumber', 'headSha', 'headTreeSha',
+    'publisherNodeId', 'revalidationDigest'
+  ].sort();
+  if (Object.keys(record).sort().join('\0') !== expected.join('\0')
+      || record.schema !== VERIFICATION_SESSION_REVIEW_PROVIDER_REVALIDATION_SCHEMA
+      || record.capability !== 'codex-review') {
+    fail('Review provider revalidation payload keys/schema are invalid.');
+  }
+  const rebuilt = createReviewProviderRevalidationComment({
+    repository: record.repository as string,
+    prNumber: record.prNumber as number,
+    headSha: record.headSha as string,
+    headTreeSha: record.headTreeSha as string,
+    publisherNodeId: record.publisherNodeId as string
+  });
+  if (rebuilt.revalidationDigest !== record.revalidationDigest
+      || source !== renderReviewProviderRevalidationComment(rebuilt)) {
+    fail('Review provider revalidation comment bytes/digest mismatch.');
+  }
+  return rebuilt;
+}
+
+export function createReviewProviderRevalidationCommentBody(input: Readonly<{
+  repository: string;
+  prNumber: number;
+  headSha: string;
+  headTreeSha: string;
+  publisherNodeId: string;
+}>): Readonly<{ body: string; revalidationDigest: SessionDigest }> {
+  const receipt = createReviewProviderRevalidationComment(input);
+  return Object.freeze({
+    body: renderReviewProviderRevalidationComment(receipt),
+    revalidationDigest: receipt.revalidationDigest
+  });
+}
 function trustedHostedPublisher(comment: GitHubIssueCommentObservation): boolean {
   const policy = CI_GITHUB_ACTIONS_IDENTITY_POLICY;
   if (comment.authorLogin !== policy.bot.login || comment.authorId !== policy.bot.id
@@ -1403,6 +1524,24 @@ class VerificationSessionGitHubAdapter {
     const unresolved = threads.filter((thread) => !thread.isResolved);
     const decisions = reviewDecisionsByPrincipal(reviews, input.headSha);
     const requestChanges = blockingReviewPrincipals(decisions);
+    const exactWakeups = issueComments.flatMap((comment) => {
+      if (!comment.body.includes(VERIFICATION_SESSION_REVIEW_WAKEUP_COMMENT_MARKER)
+          || comment.authorType !== 'User' || comment.performedViaGitHubApp !== null) return [];
+      const permission = this.#transport.collaboratorPermission(input.repository, comment.authorLogin);
+      if (permission !== 'admin' && permission !== 'maintain') return [];
+      const wakeup = parseReviewWakeupComment(comment.body);
+      if (wakeup === null
+          || wakeup.repository !== input.repository
+          || wakeup.prNumber !== input.prNumber
+          || wakeup.headSha !== input.headSha
+          || wakeup.headTreeSha !== candidateBefore.headTreeSha
+          || wakeup.publisherNodeId !== comment.authorNodeId) return [];
+      return [Object.freeze({ comment, wakeup })];
+    });
+    const hasBoundWakeupBefore = (providerObservedAt: string): boolean => exactWakeups.some(({ comment }) => (
+      comment.createdAt <= providerObservedAt
+    ));
+    let unboundTrustedAppActivation = false;
     const resolverRecords: Array<Readonly<{
       comment: GitHubIssueCommentObservation;
       trustedApp: { actorNodeId: string; appId: number; appNodeId: string; appSlug: string };
@@ -1541,6 +1680,10 @@ class VerificationSessionGitHubAdapter {
         && trustedReview.appSlug === trustedApp.appSlug
         && trustedReview.state === 'APPROVED'
         && !input.excludedPrincipalNodeIds.has(trustedReview.authorNodeId)) {
+        if (!hasBoundWakeupBefore(trustedReview.submittedAt)) {
+          unboundTrustedAppActivation = true;
+          continue;
+        }
         return clear(Object.freeze({ kind: 'github-app', actorNodeId: trustedReview.authorNodeId,
           appId: trustedReview.appId, appNodeId: trustedReview.appNodeId,
           appSlug: trustedReview.appSlug, reviewState: 'APPROVED' }), 'github-graphql', {
@@ -1568,6 +1711,10 @@ class VerificationSessionGitHubAdapter {
       const trustedComment = latestRestByApp.get(`${trustedApp.appId}:${trustedApp.actorNodeId}:` +
         `${trustedApp.appNodeId}:${trustedApp.appSlug}`);
       if (trustedComment?.clean === true) {
+        if (!hasBoundWakeupBefore(trustedComment.comment.createdAt)) {
+          unboundTrustedAppActivation = true;
+          continue;
+        }
         return clear(Object.freeze({ kind: 'github-app', actorNodeId: trustedApp.actorNodeId,
           appId: trustedApp.appId, appNodeId: trustedApp.appNodeId, appSlug: trustedApp.appSlug,
           reviewState: 'COMMENTED' }), 'github-rest', {
@@ -1599,6 +1746,19 @@ class VerificationSessionGitHubAdapter {
       }
     }
 
+    for (const trustedApp of SEC_REVIEW_STABILITY_POLICY.trustedApps) {
+      const appReview = decisions.get(trustedApp.actorNodeId);
+      if (appReview !== undefined
+          && appReview.authorType === 'Bot'
+          && appReview.appId === trustedApp.appId
+          && appReview.appNodeId === trustedApp.appNodeId
+          && appReview.appSlug === trustedApp.appSlug
+          && !input.excludedPrincipalNodeIds.has(appReview.authorNodeId)
+          && !hasBoundWakeupBefore(appReview.submittedAt)) {
+        unboundTrustedAppActivation = true;
+      }
+    }
+
     const humans = [...decisions.values()]
       .filter((review) => (
         review.state === 'APPROVED'
@@ -1625,10 +1785,232 @@ class VerificationSessionGitHubAdapter {
     }
     const waitingSnapshotDigest = createReviewSnapshotDigest({ ...snapshotBase,
       unresolvedBlockingThreadCount: 0, requestChangesPrincipalIds: emptyRequestChanges });
+    if (unboundTrustedAppActivation) {
+      return Object.freeze({ status: 'blocked', reason: 'review-provider-unbound-activation',
+        snapshotDigest: waitingSnapshotDigest, observedAt });
+    }
     return Object.freeze({ status: 'waiting', reason: 'exact-head-independent-review-missing',
       snapshotDigest: waitingSnapshotDigest, observedAt });
   }
 
+  observeReviewProviderAvailability(input: {
+    repository: string;
+    prNumber?: number;
+    headSha?: string;
+    headTreeSha?: string;
+    observedAt?: string;
+  }): GitHubReviewProviderAvailabilityObservation {
+    const observedAt = input.observedAt ?? new Date().toISOString();
+    canonicalInstant(observedAt, 'Review provider observedAt');
+    const observedAtMs = new Date(observedAt).getTime();
+    const targetFields = [input.prNumber, input.headSha, input.headTreeSha];
+    const targetPresent = targetFields.every((value) => value !== undefined);
+    if (targetFields.some((value) => value !== undefined) && !targetPresent) {
+      fail('Review provider availability target identity is partial.');
+    }
+    if (targetPresent && (
+      !Number.isSafeInteger(input.prNumber) || (input.prNumber as number) < 1
+      || !/^[0-9a-f]{40}$/u.test(input.headSha as string)
+      || !/^[0-9a-f]{40}$/u.test(input.headTreeSha as string)
+    )) {
+      fail('Review provider availability target identity is invalid.');
+    }
+    let cursor: string | null = null;
+    let previousCreatedAtMs = Number.POSITIVE_INFINITY;
+    let complete = false;
+    const visitedPages: Array<Readonly<{ cursor: string | null; digest: SessionDigest }>> = [];
+    let latestEvent: Readonly<{
+      kind: 'quota';
+      comment: GitHubIssueCommentObservation;
+      receiptRef: SessionDigest;
+    }> | Readonly<{
+      kind: 'probe-consumed';
+      comment: GitHubIssueCommentObservation;
+      receiptRef: SessionDigest;
+    }> | Readonly<{
+      kind: 'revalidation';
+      comment: GitHubIssueCommentObservation;
+      revalidationDigest: SessionDigest;
+    }> | null = null;
+
+    for (let pageNumber = 0; pageNumber < REVIEW_PROVIDER_COMMENT_MAXIMUM_PAGES; pageNumber += 1) {
+      const pageCursor = cursor;
+      const page = this.#transport.repositoryIssueCommentPage(input.repository, pageCursor);
+      if (!/^sha256:[0-9a-f]{64}$/u.test(page.pageDigest)) {
+        fail('Review provider comment page digest is invalid.');
+      }
+      visitedPages.push(Object.freeze({ cursor: pageCursor, digest: page.pageDigest }));
+      const comments = normalizeIssueComments(page.nodes);
+      for (const comment of comments) {
+        const createdAtMs = new Date(comment.createdAt).getTime();
+        if (createdAtMs > previousCreatedAtMs) {
+          return Object.freeze({
+            status: 'unresolved' as const,
+            reason: 'provider-comment-ordering-invalid' as const,
+            censusDigest: hash({ visitedPages, commentId: comment.id }),
+            observedAt
+          });
+        }
+        previousCreatedAtMs = createdAtMs;
+        if (createdAtMs > observedAtMs) continue;
+
+        const performedApp = comment.performedViaGitHubApp;
+        const trustedApp = performedApp === null ? undefined
+          : SEC_REVIEW_STABILITY_POLICY.trustedApps.find((app) => (
+              app.actorNodeId === comment.authorNodeId
+              && performedApp.id === app.appId
+              && performedApp.nodeId === app.appNodeId
+              && performedApp.slug === app.appSlug
+              && comment.authorType === 'Bot'
+            ));
+        if (trustedApp !== undefined) {
+          const diagnostic = classifyProviderDiagnosticTextV1(comment.body);
+          if (diagnostic.reasonCode === 'provider-quota-unavailable') {
+            latestEvent = Object.freeze({
+              kind: 'quota' as const,
+              comment,
+              receiptRef: diagnostic.receiptRef
+            });
+            break;
+          }
+        }
+
+        if (comment.authorType === 'User' && comment.performedViaGitHubApp === null
+            && (comment.body.includes(VERIFICATION_SESSION_REVIEW_WAKEUP_COMMENT_MARKER)
+              || comment.body === RETIRED_REVIEW_WAKEUP_TOMBSTONE)) {
+          const permission = this.#transport.collaboratorPermission(
+            input.repository,
+            comment.authorLogin
+          );
+          if (permission === 'admin' || permission === 'maintain') {
+            if (comment.body.includes(VERIFICATION_SESSION_REVIEW_WAKEUP_COMMENT_MARKER)) {
+              const wakeup = parseReviewWakeupComment(comment.body);
+              if (wakeup === null || wakeup.publisherNodeId !== comment.authorNodeId) {
+                fail(`Review wake-up comment ${comment.id} marker did not bind its publisher.`);
+              }
+            }
+            latestEvent = Object.freeze({
+              kind: 'probe-consumed' as const,
+              comment,
+              receiptRef: hash({
+                schema: 'sec-review-provider-probe-consumed-v1',
+                repository: input.repository,
+                commentId: comment.id,
+                commentCreatedAt: comment.createdAt,
+                commentBodyDigest: hash(comment.body),
+                authorNodeId: comment.authorNodeId
+              })
+            });
+            break;
+          }
+        }
+
+        if (targetPresent
+            && comment.authorType === 'User' && comment.performedViaGitHubApp === null
+            && comment.body.includes(VERIFICATION_SESSION_REVIEW_PROVIDER_REVALIDATION_MARKER)) {
+          const permission = this.#transport.collaboratorPermission(
+            input.repository,
+            comment.authorLogin
+          );
+          if (permission !== 'admin' && permission !== 'maintain') continue;
+          const revalidation = parseReviewProviderRevalidationComment(comment.body);
+          if (revalidation === null) {
+            fail(`Review provider revalidation comment ${comment.id} marker did not parse.`);
+          }
+          if (revalidation.publisherNodeId !== comment.authorNodeId) continue;
+          if (revalidation.repository !== input.repository
+              || revalidation.prNumber !== input.prNumber
+              || revalidation.headSha !== input.headSha
+              || revalidation.headTreeSha !== input.headTreeSha) {
+            continue;
+          }
+          latestEvent = Object.freeze({
+            kind: 'revalidation' as const,
+            comment,
+            revalidationDigest: revalidation.revalidationDigest
+          });
+          break;
+        }
+      }
+
+      const next = assertCursorProgress(cursor, page, 'Review provider repository comments');
+      if (latestEvent !== null || next === null) {
+        complete = true;
+        break;
+      }
+      cursor = next;
+    }
+
+    const censusDigest = hash({
+      schema: 'sec-review-provider-availability-census-v2',
+      target: targetPresent ? {
+        repository: input.repository,
+        prNumber: input.prNumber,
+        headSha: input.headSha,
+        headTreeSha: input.headTreeSha
+      } : null,
+      pages: visitedPages
+    });
+    if (!complete) {
+      return Object.freeze({
+        status: 'unresolved' as const,
+        reason: 'pagination-budget-exhausted' as const,
+        censusDigest,
+        observedAt
+      });
+    }
+    for (const visited of visitedPages) {
+      const readback = this.#transport.repositoryIssueCommentPage(
+        input.repository,
+        visited.cursor
+      );
+      if (readback.pageDigest !== visited.digest) {
+        return Object.freeze({
+          status: 'unresolved' as const,
+          reason: 'provider-comment-page-drift' as const,
+          censusDigest: hash({
+            censusDigest,
+            cursor: visited.cursor,
+            expected: visited.digest,
+            readback: readback.pageDigest
+          }),
+          observedAt
+        });
+      }
+    }
+
+    if (latestEvent === null) {
+      return Object.freeze({
+        status: 'no-current-negative' as const,
+        revalidationCommentId: null,
+        revalidationObservedAt: null,
+        revalidationDigest: null,
+        censusDigest,
+        observedAt
+      });
+    }
+    if (latestEvent.kind === 'revalidation') {
+      return Object.freeze({
+        status: 'no-current-negative' as const,
+        revalidationCommentId: latestEvent.comment.id,
+        revalidationObservedAt: latestEvent.comment.createdAt,
+        revalidationDigest: latestEvent.revalidationDigest,
+        censusDigest,
+        observedAt
+      });
+    }
+    return Object.freeze({
+      status: 'unavailable' as const,
+      reasonCode: latestEvent.kind === 'quota'
+        ? 'provider-quota-unavailable' as const
+        : 'provider-revalidation-consumed' as const,
+      receiptRef: latestEvent.receiptRef,
+      sourceCommentId: latestEvent.comment.id,
+      sourceObservedAt: latestEvent.comment.createdAt,
+      censusDigest,
+      observedAt
+    });
+  }
   observeReviewBarrier(input: {
     repository: string;
     prNumber: number;
@@ -2086,6 +2468,7 @@ export type VerificationSessionGitHubClient = Readonly<Pick<
   | 'observeActionsArtifacts'
   | 'downloadArtifactText'
   | 'observePlatformEnforcement'
+  | 'observeReviewProviderAvailability'
   | 'observeHostedReviewLocator'
   | 'observeMaintainerReviewWakeup'
   | 'ensureVerificationSessionWakeup'
@@ -2109,8 +2492,20 @@ export interface VerificationSessionReviewObservationTransaction {
   reviewRequestPage(repository: string, prNumber: number, after: string | null): GitHubPage<GitHubReviewRequestObservation>;
   appCommentPage(repository: string, prNumber: number, after: string | null): GitHubPage<GitHubAppReviewCommentObservation>;
   issueCommentPage(repository: string, prNumber: number, after: string | null): GitHubPage<GitHubIssueCommentObservation>;
+  repositoryIssueCommentPage(repository: string, after: string | null): GitHubPage<GitHubIssueCommentObservation>;
   resolveCommitOid(repository: string, locator: string): GitHubCommitResolutionObservation;
   collaboratorPermission(repository: string, login: string): 'admin' | 'maintain' | 'write' | 'triage' | 'read' | 'none';
+}
+
+export function evaluateReviewProviderAvailabilityObservation(
+  transaction: Pick<VerificationSessionReviewObservationTransaction, 'repositoryIssueCommentPage'>
+    & Partial<Pick<VerificationSessionReviewObservationTransaction, 'collaboratorPermission'>>,
+  input: Parameters<VerificationSessionGitHubAdapter['observeReviewProviderAvailability']>[0]
+): ReturnType<VerificationSessionGitHubAdapter['observeReviewProviderAvailability']> {
+  return new VerificationSessionGitHubAdapter({
+    ...transaction,
+    collaboratorPermission: transaction.collaboratorPermission ?? (() => 'none')
+  } as unknown as VerificationSessionGitHubTransport).observeReviewProviderAvailability(input);
 }
 
 export function evaluateVerificationSessionReviewObservation(
@@ -3046,6 +3441,34 @@ class GhVerificationSessionTransport implements VerificationSessionGitHubTranspo
     } catch (error) {
       return rethrowProviderResponseShape(error, 'github-rest-issue-comment-pages',
         Object.freeze({ repository, prNumber, source }));
+    }
+  }
+
+  repositoryIssueCommentPage(repository: string, after: string | null): GitHubPage<GitHubIssueCommentObservation> {
+    const pageNumber = after === null ? 1 : Number(after);
+    if (!Number.isSafeInteger(pageNumber) || pageNumber < 1) {
+      fail('repository issue-comment page cursor is invalid.');
+    }
+    const source = this.gh(['api',
+      `/repos/${repository}/issues/comments?per_page=100&sort=created&direction=desc&page=${pageNumber}`],
+    'repository issue comment page');
+    try {
+      const page = parseJson<unknown>(source, 'repository issue comment page');
+      if (!Array.isArray(page) || page.length > 100) {
+        fail('repository issue comment response must be one bounded REST page.');
+      }
+      const nodes = page.map((value, index) => issueCommentObservation(value,
+        `repository issue comment ${index}`));
+      const hasNextPage = page.length === 100;
+      return bindProviderShapeSource(Object.freeze({
+        nodes,
+        hasNextPage,
+        endCursor: hasNextPage ? String(pageNumber + 1) : null,
+        pageDigest: hash(page)
+      }), Object.freeze({ repository, pageNumber, source, parsedValue: page }));
+    } catch (error) {
+      return rethrowProviderResponseShape(error, 'github-rest-repository-issue-comment-page',
+        Object.freeze({ repository, pageNumber, source }));
     }
   }
 
