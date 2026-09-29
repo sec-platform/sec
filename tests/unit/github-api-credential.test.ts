@@ -119,13 +119,13 @@ test.serial('recognizes only the exact code-scanning projection workflow as the 
   )).toBeNull();
 });
 
-test.serial('recognizes only the exact repository-maintenance issue-comment workflow identity', () => {
+test.serial('recognizes only the exact repository-maintenance dispatch workflow identity', () => {
   const source: NodeJS.ProcessEnv = {
     GITHUB_ACTIONS: 'true',
     GITHUB_SERVER_URL: 'https://github.com',
     GITHUB_API_URL: 'https://api.github.com',
     GITHUB_REPOSITORY: 'sec-platform/sec',
-    GITHUB_EVENT_NAME: 'issue_comment',
+    GITHUB_EVENT_NAME: 'repository_dispatch',
     GITHUB_REF: 'refs/heads/main',
     GITHUB_SHA: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
     GITHUB_WORKFLOW_SHA: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
@@ -152,7 +152,7 @@ test.serial('recognizes only the exact repository-maintenance issue-comment work
   });
   expect(inspectGitHubActionsProjectionCredentialIdentity(source, 'sec-platform/sec')).toBeNull();
   for (const changed of [
-    { GITHUB_EVENT_NAME: 'pull_request_target' },
+    { GITHUB_EVENT_NAME: 'issue_comment' },
     { GITHUB_WORKFLOW_REF: 'sec-platform/sec/.github/workflows/other.yml@refs/heads/main' },
     { SEC_MAINTENANCE_ISSUE_NUMBER: '312' },
     { SEC_MAINTENANCE_AUTHOR_ASSOCIATION: 'CONTRIBUTOR' },

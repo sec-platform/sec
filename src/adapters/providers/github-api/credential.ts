@@ -143,7 +143,7 @@ export function inspectGitHubActionsRepositoryMaintenanceCredentialIdentity(
       || environmentValue(source, 'GITHUB_SERVER_URL') !== 'https://github.com'
       || environmentValue(source, 'GITHUB_API_URL') !== 'https://api.github.com'
       || environmentValue(source, 'GITHUB_REPOSITORY') !== repository
-      || environmentValue(source, 'GITHUB_EVENT_NAME') !== 'issue_comment'
+      || environmentValue(source, 'GITHUB_EVENT_NAME') !== 'repository_dispatch'
       || environmentValue(source, 'GITHUB_REF') !== 'refs/heads/main'
       || environmentValue(source, 'GITHUB_WORKFLOW_REF') !== workflowRef
       || typeof workflowSha !== 'string'
