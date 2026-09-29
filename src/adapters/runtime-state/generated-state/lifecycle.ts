@@ -26,6 +26,7 @@ import {
   generatedStateCleanupAllowed,
   generatedStateDigest,
   generatedStateDomainProviderMaterialDigest,
+  generatedStateLegacyRetirementRuleForPath,
   generatedStateRuleForPath,
   normalizeGeneratedStateRelativePath,
   parseGeneratedStatePhysicalIdentity,
@@ -1842,8 +1843,26 @@ async function ensureGeneratedStateRegistrationLedger(input: Readonly<{
 
 function requireRule(relativePath: string): GeneratedStateRule {
   const rule = generatedStateRuleForPath(relativePath);
-  if (rule === null) throw new Error(`Generated-state path is not registered by policy: ${relativePath}`);
+  if (rule === null) {
+    throw new Error(`Generated-state path is not registered by active policy: ${relativePath}`);
+  }
   return rule;
+}
+
+function requireRetirementRule(
+  relativePath: string,
+  expected?: GeneratedStateProducerBindingExpectation
+): GeneratedStateRule {
+  const active = generatedStateRuleForPath(relativePath);
+  if (active !== null) return active;
+  const legacy = generatedStateLegacyRetirementRuleForPath(relativePath);
+  if (legacy === null || expected?.ruleId === undefined || expected.ruleId !== legacy.id
+      || expected.owner !== legacy.owner || expected.producer !== legacy.producer) {
+    throw new GeneratedStateProducerBindingBlockedError(
+      `Generated-state path is not admitted by active or explicit legacy-retirement policy: ${relativePath}.`
+    );
+  }
+  return legacy;
 }
 
 async function registerGeneratedStateBirth(input: Readonly<{
@@ -2206,7 +2225,7 @@ async function observeGeneratedStateRetirement(input: Readonly<{
   const repositoryRoot = path.resolve(input.repositoryRoot);
   const workspaceRoot = path.resolve(input.workspaceRoot ?? input.repositoryRoot);
   const relativePath = normalizeGeneratedStateRelativePath(input.relativePath);
-  const rule = requireRule(relativePath);
+  const rule = requireRetirementRule(relativePath, input.expected);
   const store = openRuntimeStoreReadOnly(workspaceRoot, options);
   const observed = observeRoot(workspaceRoot, relativePath);
   let status: GeneratedStateRetirementObservationStatus = 'absent';
@@ -2506,7 +2525,7 @@ async function bindGeneratedStateRegistration(input: Readonly<{
   const repositoryRoot = path.resolve(input.repositoryRoot);
   const workspaceRoot = path.resolve(input.workspaceRoot ?? input.repositoryRoot);
   const relativePath = normalizeGeneratedStateRelativePath(input.relativePath);
-  const rule = requireRule(relativePath);
+  const rule = requireRetirementRule(relativePath, input.expected);
   if (rule.registration !== 'required-at-birth') {
     throw new GeneratedStateProducerBindingBlockedError(
       `Generated-state producer binding is only valid for required-at-birth state: ${relativePath}.`
@@ -3443,7 +3462,27 @@ export async function inspectGeneratedState(input: Readonly<{
     : Object.freeze([...new Set(input.relativePaths.map(normalizeGeneratedStateRelativePath))].sort());
   for (const relativePath of relativePaths) {
     const observed = observeRoot(workspaceRoot, relativePath);
-    const rule = generatedStateRuleForPath(relativePath);
+    const activeRule = generatedStateRuleForPath(relativePath);
+    const legacyRule = activeRule === null
+      ? generatedStateLegacyRetirementRuleForPath(relativePath)
+      : null;
+    let legacyRegistration: GeneratedStateRegistration | null = null;
+    let legacyRegistrationInvalid = false;
+    if (activeRule === null && legacyRule !== null && store !== null) {
+      try {
+        legacyRegistration = loadRegistration(store, relativePath);
+      } catch {
+        legacyRegistrationInvalid = true;
+      }
+    }
+    const rule = activeRule ?? (
+      legacyRule !== null && legacyRegistration !== null
+        && legacyRegistration.ruleId === legacyRule.id
+        && legacyRegistration.owner === legacyRule.owner
+        && legacyRegistration.producer === legacyRule.producer
+        ? legacyRule
+        : null
+    );
     if (rule === null) {
       entries.push(Object.freeze({
         relativePath,
@@ -3454,7 +3493,9 @@ export async function inspectGeneratedState(input: Readonly<{
         registrationState: 'missing',
         cleanupProfiles: Object.freeze([]),
         settlement: 'blocked',
-        blockers: Object.freeze(['unknown-generated-state']),
+        blockers: Object.freeze([legacyRegistrationInvalid
+          ? 'legacy-registration-invalid'
+          : 'unknown-generated-state']),
         physicalIdentity: observed.identity,
         registrationDigest: null
       }));
@@ -3968,7 +4009,13 @@ async function prepareGeneratedStateDisposal(input: Readonly<{
   const repositoryRoot = path.resolve(input.repositoryRoot);
   const workspaceRoot = path.resolve(input.workspaceRoot ?? input.repositoryRoot);
   const relativePath = normalizeGeneratedStateRelativePath(input.relativePath);
-  const rule = requireRule(relativePath);
+  const rule = generatedStateRuleForPath(relativePath)
+    ?? generatedStateLegacyRetirementRuleForPath(relativePath);
+  if (rule === null) {
+    throw new GeneratedStateProducerBindingBlockedError(
+      `Generated-state disposal path has no active or legacy-retirement rule: ${relativePath}.`
+    );
+  }
   if (!rule.cleanupProfiles.includes(input.profile)) {
     throw new GeneratedStateProducerBindingBlockedError(
       `Generated-state disposal profile is not owned by ${relativePath}: ${input.profile}.`

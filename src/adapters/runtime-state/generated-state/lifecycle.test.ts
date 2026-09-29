@@ -240,6 +240,16 @@ test('worktree retirement settles an empty registered ancestor without an exact 
   expect(await absent(path.join(fixture.workspaceRoot, '.tmp'))).toBe(true);
 });
 
+
+test('legacy shared-deps cannot be born as active generated state', async () => {
+  const fixture = await registeredWorktreeFixture();
+  await mkdir(path.join(fixture.workspaceRoot, '.shared-deps'), { recursive: true });
+  await expect(fixture.lifecycle.born(
+    '.shared-deps',
+    'forbidden-legacy-birth'
+  )).rejects.toThrow('not registered by active policy');
+});
+
 test('worktree retirement rejects unknown content inside a registered ancestor before moving roots', async () => {
   const fixture = await registeredWorktreeFixture();
   const foreignPath = path.join(fixture.workspaceRoot, '.tmp', 'dependency-installs', 'foreign', 'keep.txt');
