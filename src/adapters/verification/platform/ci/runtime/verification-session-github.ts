@@ -607,12 +607,12 @@ function createReviewProviderRevalidationComment(input: Omit<
   VerificationSessionReviewProviderRevalidationComment,
   'schema' | 'capability' | 'revalidationDigest'
 >): VerificationSessionReviewProviderRevalidationComment {
-  if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,99}\\/[A-Za-z0-9][A-Za-z0-9._-]{0,99}$/u.test(input.repository)
+  if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,99}\/[A-Za-z0-9][A-Za-z0-9._-]{0,99}$/u.test(input.repository)
     || !Number.isSafeInteger(input.prNumber) || input.prNumber < 1
     || !/^[0-9a-f]{40}$/u.test(input.headSha)
     || !/^[0-9a-f]{40}$/u.test(input.headTreeSha)
     || input.publisherNodeId.length === 0 || input.publisherNodeId.length > 256
-    || !/^[\\x21-\\x7e]+$/u.test(input.publisherNodeId)) {
+    || !/^[\x21-\x7e]+$/u.test(input.publisherNodeId)) {
     fail('Review provider revalidation identity is invalid.');
   }
   const payload = Object.freeze({
