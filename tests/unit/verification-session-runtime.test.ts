@@ -80,6 +80,7 @@ import {
   type CodexDevelopmentMergeGateResult
 } from '../../src/adapters/self-hosting/control/integration/merge-gate.ts';
 import { createObservedMainHealthInput } from '../../src/adapters/self-hosting/control/main-health/main-health-observation.ts';
+import { INTEGRATION_AUTHORIZATION_STATUS_CONTEXT } from '../../src/adapters/self-hosting/control/main-health/authority-ruleset.ts';
 import { CI_MAIN_HEALTH_POLICY, createCiMainHealthRequestOperationId } from '../../src/adapters/self-hosting/control/main-health/provider-policy.ts';
 import { CI_VERIFICATION_ACTION_DEPENDENCY_INPUT_PATHS } from '../../src/adapters/verification/platform/action/contract/environment.ts';
 import { CI_GITHUB_ACTIONS_IDENTITY_POLICY } from '../../src/adapters/verification/platform/action/contract/provider.ts';
@@ -915,7 +916,56 @@ class FakeTransport implements VerificationSessionReviewObservationTransaction,
   }
   repositoryRulesets(): unknown {
     if (this.rulesetError) throw this.rulesetError;
-    return [{ id: 1, enforcement: 'active' }];
+    const authorityId = 42;
+    const principalId = 43;
+    const requiredStatus = {
+      required_status_checks: [{
+        context: INTEGRATION_AUTHORIZATION_STATUS_CONTEXT,
+        integration_id: CI_GITHUB_ACTIONS_IDENTITY_POLICY.app.id
+      }],
+      strict_required_status_checks_policy: true
+    };
+    const update = { update_allows_fetch_and_merge: false };
+    return {
+      defaultBranch: 'main',
+      effectiveRules: [
+        { type: 'pull_request', ruleset_id: authorityId },
+        { type: 'deletion', ruleset_id: authorityId },
+        { type: 'non_fast_forward', ruleset_id: authorityId },
+        { type: 'required_status_checks', ruleset_id: authorityId, parameters: requiredStatus },
+        { type: 'update', ruleset_id: principalId, parameters: update }
+      ],
+      detailedRulesets: [{
+        id: authorityId,
+        name: 'SEC main authority',
+        target: 'branch',
+        source_type: 'Repository',
+        source: 'sec-platform/sec',
+        enforcement: 'active',
+        bypass_actors: [],
+        conditions: { ref_name: { include: ['~DEFAULT_BRANCH'], exclude: [] } },
+        rules: [
+          { type: 'pull_request' },
+          { type: 'deletion' },
+          { type: 'non_fast_forward' },
+          { type: 'required_status_checks', parameters: requiredStatus }
+        ]
+      }, {
+        id: principalId,
+        name: 'SEC integration principal',
+        target: 'branch',
+        source_type: 'Repository',
+        source: 'sec-platform/sec',
+        enforcement: 'active',
+        bypass_actors: [{
+          actor_id: CI_GITHUB_ACTIONS_IDENTITY_POLICY.app.id,
+          actor_type: 'Integration',
+          bypass_mode: 'pull_request'
+        }],
+        conditions: { ref_name: { include: ['~DEFAULT_BRANCH'], exclude: [] } },
+        rules: [{ type: 'update', parameters: update }]
+      }]
+    };
   }
   comparison(_repository: string, _baseSha: string, _headSha: string): GitHubComparisonObservation {
     return { status: 'ahead', behindBy: 0 };
@@ -2395,6 +2445,39 @@ test('V9 repository artifact census hydrates only live canonical Session-family 
       runId: entry.expectedRunId!, runAttempt: entry.sessionRunAttempt!,
       eventName: 'repository_dispatch', actorNodeId: BOT, actorPermission: 'write', expired: false })
   })).toThrow(/hydration differs from its selected summary identity/i);
+});
+
+test('readable but noncanonical rulesets never become platform enforcement authority', () => {
+  const observation = evaluatePlatformEnforcementObservation({
+    repository: 'sec-platform/sec',
+    readRulesets: () => ({
+      defaultBranch: 'main',
+      effectiveRules: [{
+        type: 'required_status_checks',
+        ruleset_id: 18533093,
+        parameters: {
+          required_status_checks: [{ context: 'CodeQL', integration_id: 57789 }],
+          strict_required_status_checks_policy: false
+        }
+      }],
+      detailedRulesets: [{
+        id: 18533093,
+        name: 'main-code-scanning',
+        target: 'branch',
+        source_type: 'Repository',
+        source: 'sec-platform/sec',
+        enforcement: 'active',
+        bypass_actors: [],
+        conditions: { ref_name: { include: ['~DEFAULT_BRANCH'], exclude: [] } },
+        rules: [{ type: 'required_code_scanning', parameters: {} }]
+      }]
+    })
+  });
+  expect(observation).toMatchObject({
+    status: 'unknown',
+    reason: expect.stringContaining('Canonical MainAuthority ruleset proof failed')
+  });
+  expect(observation.rulesetDigest).toMatch(/^sha256:[0-9a-f]{64}$/u);
 });
 
 test('platform 403 is recorded as unavailable and never as no-bypass proof', () => {
