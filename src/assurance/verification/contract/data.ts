@@ -18,7 +18,7 @@ export function assertVerificationDataCallable(
   value: unknown,
   label: string = 'Verification data callable'
 ): asserts value is (...args: never[]) => unknown {
-  assertNotVerificationProxy(value, label);
+  assertNotVerificationProxy(value, 'Verification data');
   if (typeof value !== 'function') {
     throw new Error(`${label} must be a function.`);
   }
