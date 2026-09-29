@@ -11,8 +11,7 @@ test('CodeQL finding projection runs trusted default code after same-repository 
   expect(workflow.permissions).toEqual({
     checks: 'read',
     contents: 'read',
-    issues: 'read',
-    'pull-requests': 'write',
+    'pull-requests': 'read',
     'security-events': 'read'
   });
   expect(workflow.concurrency).toEqual({
@@ -34,8 +33,21 @@ test('CodeQL finding projection runs trusted default code after same-repository 
   expect(join.uses).toBe('actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3');
   expect(join.with.script).toContain("run.app?.slug === 'github-advanced-security'");
   expect(join.with.script).toContain("run.conclusion === 'success' || run.conclusion === 'failure'");
-  const publish = job.steps.find((step: any) => step.name === 'Project exact CodeQL findings to the pull request');
-  expect(publish.run).toBe('bun src/adapters/verification/platform/ci/runtime/code-scanning-projection.ts publish');
+  const publish = job.steps.find((step: any) => step.name === 'Project exact CodeQL findings to the job summary');
+  expect(publish.shell).toBe('bash');
+  expect(publish.run).toContain('set -euo pipefail');
+  expect(publish.run).toContain('code-scanning-projection.ts summary >> "$GITHUB_STEP_SUMMARY"');
   expect(publish.env.GH_TOKEN).toBe('${{ github.token }}');
   expect(publish.env.SEC_CODE_SCANNING_CHECK_ID).toBe('${{ steps.codeql.outputs.check-id }}');
+  expect(JSON.stringify(workflow)).not.toContain('create-issue-comment');
+  expect(JSON.stringify(workflow)).not.toContain('update-issue-comment');
+
+  const runtime = await readCompilerFile(
+    'src/adapters/verification/platform/ci/runtime/code-scanning-projection.ts'
+  );
+  expect(runtime).not.toContain('withGitHubApiIssueCommentWriteSession');
+  expect(runtime).not.toContain("'create-issue-comment'");
+  expect(runtime).not.toContain("'update-issue-comment'");
+  expect(runtime).not.toContain("'issue-comments'");
+  expect(runtime).toContain('usage: code-scanning-projection summary');
 });

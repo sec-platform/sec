@@ -12,8 +12,7 @@ on:
 permissions:
   checks: read
   contents: read
-  issues: read
-  pull-requests: write
+  pull-requests: read
   security-events: read
 
 concurrency:
@@ -90,10 +89,13 @@ jobs:
               await new Promise((resolve) => setTimeout(resolve, 15000));
             }
 
-      - name: Project exact CodeQL findings to the pull request
+      - name: Project exact CodeQL findings to the job summary
+        shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
           SEC_CODE_SCANNING_PR_NUMBER: ${{ github.event.pull_request.number }}
           SEC_CODE_SCANNING_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           SEC_CODE_SCANNING_CHECK_ID: ${{ steps.codeql.outputs.check-id }}
-        run: bun src/adapters/verification/platform/ci/runtime/code-scanning-projection.ts publish
+        run: |
+          set -euo pipefail
+          bun src/adapters/verification/platform/ci/runtime/code-scanning-projection.ts summary >> "$GITHUB_STEP_SUMMARY"
