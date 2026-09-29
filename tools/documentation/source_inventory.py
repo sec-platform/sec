@@ -9,8 +9,13 @@ import json
 import os
 import re
 import stat
+import sys
 import tempfile
 import unicodedata
+
+# This module is itself inside the documentation authority. Importing it must
+# not create __pycache__ inside that authority before or during a source capture.
+sys.dont_write_bytecode = True
 
 BASELINE_PATH = '.documentation/baseline.json'
 MANIFEST_PATH = '.documentation/source-manifest.json'
@@ -466,7 +471,7 @@ def refresh_source_manifest(root: Path) -> dict[str, object]:
 
 def repository_root() -> Path:
     """The writer is repository-local; callers cannot redirect it to another tree."""
-    return _root(Path(__file__).absolute().parent.parent)
+    return _root(Path(__file__).absolute().parents[2])
 
 
 if __name__ == '__main__':
@@ -474,5 +479,5 @@ if __name__ == '__main__':
     parser.add_argument('--write', action='store_true', help='refresh this repository projections, never authority')
     args = parser.parse_args()
     if not args.write:
-        parser.error('--write is required; ordinary verification uses tools/check_docs.py')
+        parser.error('--write is required; ordinary verification uses tools/documentation/check_docs.py')
     print(json.dumps(refresh_source_manifest(repository_root()), ensure_ascii=False, indent=2))

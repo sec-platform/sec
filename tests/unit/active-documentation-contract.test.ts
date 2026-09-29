@@ -98,7 +98,7 @@ test('documentation gate inputs are derived from the baseline without expanding 
     'docs/产品/new.md',
     'docs/unregistered-legacy.md',
     'examples/sample.ts',
-    'tools/check_docs.py'
+    'tools/documentation/check_docs.py'
   ]) {
     expect(isDocumentationVerificationInputPath(file, baseline)).toBe(true);
   }
@@ -113,7 +113,7 @@ test('documentation gate inputs are derived from the baseline without expanding 
     expect(isDocumentationVerificationInputPath(file, baseline)).toBe(false);
   }
   expect(isActiveDocumentationPath('examples/sample.ts')).toBe(false);
-  expect(isActiveDocumentationPath('tools/check_docs.py')).toBe(false);
+  expect(isActiveDocumentationPath('tools/documentation/check_docs.py')).toBe(false);
 });
 
 test('documentation verification baseline rejects ambiguous or competing roots', () => {

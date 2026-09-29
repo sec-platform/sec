@@ -465,7 +465,7 @@ class Book:
 
 def main(argv=None):
     parser=argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--root',type=Path,default=Path(__file__).resolve().parent.parent)
+    parser.add_argument('--root',type=Path,default=Path(__file__).resolve().parents[2])
     parser.add_argument('--output',type=Path,default=None)
     parser.add_argument('--replace',action='store_true',help='Replace the chosen output only after a successful full build')
     parser.add_argument('--sealed',action='store_true',help='Require the source package to match its frozen baseline')

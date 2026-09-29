@@ -78,7 +78,7 @@ test('docs-only pre-compilation admission excludes Source Program roots and tool
   expect(isDocumentationOnlyAffectedSelection([])).toBe(false);
   expect(isDocumentationOnlyAffectedSelection(['.documentation/documents.json'])).toBe(false);
   expect(isDocumentationOnlyAffectedSelection(['.documentation/baseline.json'])).toBe(false);
-  expect(isDocumentationOnlyAffectedSelection(['tools/check_docs.py'])).toBe(false);
+  expect(isDocumentationOnlyAffectedSelection(['tools/documentation/check_docs.py'])).toBe(false);
   expect(isDocumentationOnlyAffectedSelection(['docs/运行/保证/要求证据与裁决.md', 'src/index.ts'])).toBe(false);
 });
 
@@ -144,7 +144,7 @@ test('documentation support assets trigger docs doctor without becoming product 
     'examples/documentation-example.ts'
   ])))).toEqual(['docs:doctor']);
   expect(gateIds(buildLocalAffectedCheckPlan(affectedPlan(
-    ['tools/check_docs.py'],
+    ['tools/documentation/check_docs.py'],
     ['tests/unit/active-documentation-contract.test.ts']
   )))).toEqual(['docs:doctor', 'test:affected']);
   expect(gateIds(buildLocalAffectedCheckPlan(affectedPlan([
