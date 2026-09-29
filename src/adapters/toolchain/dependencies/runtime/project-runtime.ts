@@ -108,7 +108,7 @@ import { sameHostPath } from './host-path.ts';
 import {
   bindAndRetireCompilerDependencyPreimage,
   bindExistingCompilerDependencyGeneration,
-  bindExistingSharedDependencyRoot,
+  bindExistingLegacySharedDependencyRoot,
   birthAndBindCompilerDependencyGeneration,
   COMPILER_NODE_MODULES_LIFECYCLE_OWNER,
   COMPILER_NODE_MODULES_LIFECYCLE_PRODUCER,
@@ -119,7 +119,7 @@ import {
   compilerDependencyStagingLifecycleExpectation,
   ensureCompilerDependencyPreimageRetiredForRecovery,
   settleRetiredCompilerDependencyGeneration,
-  sharedDependencyLifecycleExpectation
+  legacySharedDependencyRetirementExpectation
 } from './lifecycle-registration.ts';
 import {
   MAX_DEPENDENCY_OPERATION_TIMEOUT_MS,
@@ -539,7 +539,7 @@ export async function disposeCanonicalSharedDependencies(
     lifecycleOptions,
     'Shared dependency retirement pre-lease inventory'
   );
-  const expectation = sharedDependencyLifecycleExpectation(
+  const expectation = legacySharedDependencyRetirementExpectation(
     generatedStatePhysicalIdentity(observedRoot)
   );
   const preLeaseObservation = await observeRetirement('.shared-deps', expectation);
@@ -550,7 +550,7 @@ export async function disposeCanonicalSharedDependencies(
   if (preLeaseObservation.status !== 'active') {
     throw new SecError(
       'IMPORT-AUTHORITY-004',
-      'Legacy shared dependency root has no exact active owner registration; physical root is preserved',
+      'Legacy shared dependency root has no exact historical retirement registration; physical root is preserved',
       {
         inventoryDigest: preLeaseInventory.treeDigest,
         membership: preLeaseInventory.membership,
@@ -584,7 +584,7 @@ export async function disposeCanonicalSharedDependencies(
         'Shared dependency root changed before lifecycle disposal; current state is preserved'
       );
     }
-    await bindExistingSharedDependencyRoot(leaseOptions, generatedStatePhysicalIdentity(current));
+    await bindExistingLegacySharedDependencyRoot(leaseOptions, generatedStatePhysicalIdentity(current));
     await runtimeDependencyOperationEffectFence(leaseOptions, 'Shared dependency retirement');
     const receipt = await lifecycle.disposed('.shared-deps', {
       outcome,
