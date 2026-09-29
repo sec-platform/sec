@@ -77,7 +77,7 @@ async function registeredWorktreeFixture() {
   const cacheRoot = path.join(hostRoot, 'cache');
   await mkdir(repositoryRoot);
   await git(repositoryRoot, ['init', '-b', 'main']);
-  await writeFile(path.join(repositoryRoot, '.gitignore'), '.sec/\n.shared-deps/\n.tmp/\nnode_modules/\n');
+  await writeFile(path.join(repositoryRoot, '.gitignore'), '.sec/\n.shared-deps/\n.tmp/\nnode_modules\n');
   await writeFile(path.join(repositoryRoot, 'tracked.txt'), 'tracked\n');
   await git(repositoryRoot, ['add', '.gitignore', 'tracked.txt']);
   await git(repositoryRoot, [
@@ -174,8 +174,8 @@ test('producer inventory and retirement readback stay bound to their creation-ti
 
 test('worktree retirement preserves one covered ignored root outside the target and binds Effect-start identity', async () => {
   const fixture = await registeredWorktreeFixture();
-  await mkdir(path.join(fixture.workspaceRoot, '.shared-deps'), { recursive: true });
-  await writeFile(path.join(fixture.workspaceRoot, '.shared-deps', 'cache.bin'), 'cache');
+  await mkdir(path.join(fixture.workspaceRoot, 'node_modules'), { recursive: true });
+  await writeFile(path.join(fixture.workspaceRoot, 'node_modules', 'cache.bin'), 'cache');
 
   const receipt = await settleGeneratedStateForWorktreeRetirement(
     {
@@ -190,9 +190,9 @@ test('worktree retirement preserves one covered ignored root outside the target 
 
   expect(receipt).not.toBeNull();
   expect(receipt).toMatchObject({ terminal: 'completed' });
-  expect(receipt!.entries.map(({ relativePath }) => relativePath)).toEqual(['.shared-deps']);
+  expect(receipt!.entries.map(({ relativePath }) => relativePath)).toEqual(['node_modules']);
   const persistedReceipt = JSON.parse(JSON.stringify(canonicalJson(receipt))) as NonNullable<typeof receipt>;
-  expect(await absent(path.join(fixture.workspaceRoot, '.shared-deps'))).toBe(true);
+  expect(await absent(path.join(fixture.workspaceRoot, 'node_modules'))).toBe(true);
   expect(() =>
     assertGeneratedStateWorktreeRetirementEffectStart({
       receipt: persistedReceipt,
@@ -204,7 +204,7 @@ test('worktree retirement preserves one covered ignored root outside the target 
     })
   ).not.toThrow();
 
-  await mkdir(path.join(fixture.workspaceRoot, '.shared-deps'));
+  await mkdir(path.join(fixture.workspaceRoot, 'node_modules'));
   expect(() =>
     assertGeneratedStateWorktreeRetirementEffectStart({
       receipt: persistedReceipt,
@@ -257,7 +257,7 @@ test('legacy shared-deps cannot be born as active generated state', async () => 
 test('worktree retirement rejects unknown content inside a registered ancestor before moving roots', async () => {
   const fixture = await registeredWorktreeFixture();
   const foreignPath = path.join(fixture.workspaceRoot, '.tmp', 'dependency-installs', 'foreign', 'keep.txt');
-  const knownPath = path.join(fixture.workspaceRoot, '.shared-deps', 'cache.bin');
+  const knownPath = path.join(fixture.workspaceRoot, 'node_modules', 'cache.bin');
   await mkdir(path.dirname(foreignPath), { recursive: true });
   await writeFile(foreignPath, 'foreign');
   await mkdir(path.dirname(knownPath));
@@ -276,8 +276,8 @@ test('worktree retirement rejects unknown content inside a registered ancestor b
 
 test('worktree retirement resumes the exact durable intent after interruption between root relocations', async () => {
   const fixture = await registeredWorktreeFixture();
-  await mkdir(path.join(fixture.workspaceRoot, '.shared-deps'), { recursive: true });
-  await writeFile(path.join(fixture.workspaceRoot, '.shared-deps', 'cache.bin'), 'cache');
+  await mkdir(path.join(fixture.workspaceRoot, 'node_modules'), { recursive: true });
+  await writeFile(path.join(fixture.workspaceRoot, 'node_modules', 'cache.bin'), 'cache');
   const input = {
     repositoryRoot: fixture.repositoryRoot,
     workspaceRoot: fixture.workspaceRoot,
@@ -299,8 +299,8 @@ test('worktree retirement resumes the exact durable intent after interruption be
 
   const receipt = await settleGeneratedStateForWorktreeRetirement(input, fixture.options);
   expect(receipt).toMatchObject({ terminal: 'completed' });
-  expect(receipt!.entries.map(({ relativePath }) => relativePath)).toEqual(['.shared-deps']);
-  expect(await absent(path.join(fixture.workspaceRoot, '.shared-deps'))).toBe(true);
+  expect(receipt!.entries.map(({ relativePath }) => relativePath)).toEqual(['node_modules']);
+  expect(await absent(path.join(fixture.workspaceRoot, 'node_modules'))).toBe(true);
 });
 
 test('worktree retirement delegates an exact locator to its domain provider and preserves the external generation', async () => {
