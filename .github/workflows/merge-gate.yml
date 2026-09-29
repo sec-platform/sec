@@ -1,4 +1,4 @@
-name: sec-merge-gate
+name: merge-gate
 run-name: "${{ format('integrate compiler session run {0} attempt {1}', github.event.workflow_run.id, github.event.workflow_run.run_attempt) }}"
 
 on:

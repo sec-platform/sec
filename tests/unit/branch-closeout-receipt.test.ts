@@ -164,8 +164,8 @@ function operationReceipt(generatedAt = '2026-08-09T00:01:00.000Z', writerId = '
 function provenance() {
   return createHostedWorkflowCommentProvenance({
     repositoryId: '123',
-    workflowPath: '.github/workflows/sec-merge-gate.yml',
-    workflowRef: `.github/workflows/sec-merge-gate.yml@${MAIN_SHA}`,
+    workflowPath: '.github/workflows/merge-gate.yml',
+    workflowRef: `.github/workflows/merge-gate.yml@${MAIN_SHA}`,
     workflowSha: MAIN_SHA,
     runId: '200',
     runAttempt: 1,

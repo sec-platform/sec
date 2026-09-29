@@ -1,4 +1,4 @@
-name: sec-trusted-bootstrap
+name: trusted-bootstrap
 run-name: 'trusted bootstrap PR #${{ github.event.client_payload.pull_request }} @ ${{ github.event.client_payload.expected_head }} base ${{ github.event.client_payload.expected_base }}'
 
 on:
@@ -643,9 +643,9 @@ jobs:
                 candidateModuleCount: candidateAction?.identity.moduleCount ?? null,
                 checkerProgramDigest: digest(readFileSync(import.meta.path)),
                 checkerToolBlob: blob(trustedRoot, "src/adapters/verification/platform/trust/runtime/closure-lock.ts"),
-                checkerWorkflowBlob: blob(trustedRoot, ".github/workflows/sec-trusted-bootstrap.yml"),
+                checkerWorkflowBlob: blob(trustedRoot, ".github/workflows/trusted-bootstrap.yml"),
                 candidateToolBlob: blob(candidateRoot, "src/adapters/verification/platform/trust/runtime/closure-lock.ts"),
-                candidateWorkflowBlob: blob(candidateRoot, ".github/workflows/sec-trusted-bootstrap.yml"),
+                candidateWorkflowBlob: blob(candidateRoot, ".github/workflows/trusted-bootstrap.yml"),
                 authorityVerdict,
                 authorityReason,
                 baseUndecidablePaths,
@@ -678,7 +678,7 @@ jobs:
       - name: Upload bounded checker PRE artifact
         uses: &upload_artifact_action actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: sec-trusted-bootstrap-pre-${{ needs.resolve.outputs.head }}-run-${{ github.run_id }}-attempt-${{ github.run_attempt }}
+          name: trusted-bootstrap-pre-${{ needs.resolve.outputs.head }}-run-${{ github.run_id }}-attempt-${{ github.run_attempt }}
           path: ${{ runner.temp }}/sec-trusted-bootstrap-pre-${{ github.run_id }}-${{ github.run_attempt }}
           if-no-files-found: error
           retention-days: 1
@@ -774,7 +774,7 @@ jobs:
         if: always()
         uses: *upload_artifact_action
         with:
-          name: sec-trusted-bootstrap-sut-${{ needs.resolve.outputs.head }}-run-${{ github.run_id }}-attempt-${{ github.run_attempt }}
+          name: trusted-bootstrap-sut-${{ needs.resolve.outputs.head }}-run-${{ github.run_id }}-attempt-${{ github.run_attempt }}
           path: |
             ${{ runner.temp }}/sec-trusted-bootstrap-sut-${{ github.run_id }}-${{ github.run_attempt }}/tcb-lock-pre.json
             ${{ runner.temp }}/sec-trusted-bootstrap-sut-${{ github.run_id }}-${{ github.run_attempt }}/imports.log
@@ -941,7 +941,7 @@ jobs:
         continue-on-error: true
         uses: &download_artifact_action actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
-          name: sec-trusted-bootstrap-pre-${{ needs.resolve.outputs.head }}-run-${{ github.run_id }}-attempt-${{ github.run_attempt }}
+          name: trusted-bootstrap-pre-${{ needs.resolve.outputs.head }}-run-${{ github.run_id }}-attempt-${{ github.run_attempt }}
           path: ${{ runner.temp }}/sec-trusted-bootstrap-pre-${{ github.run_id }}-${{ github.run_attempt }}
 
       - name: Download bounded candidate SUT artifact
@@ -949,7 +949,7 @@ jobs:
         continue-on-error: true
         uses: *download_artifact_action
         with:
-          name: sec-trusted-bootstrap-sut-${{ needs.resolve.outputs.head }}-run-${{ github.run_id }}-attempt-${{ github.run_attempt }}
+          name: trusted-bootstrap-sut-${{ needs.resolve.outputs.head }}-run-${{ github.run_id }}-attempt-${{ github.run_attempt }}
           path: ${{ runner.temp }}/sec-trusted-bootstrap-sut-${{ github.run_id }}-${{ github.run_attempt }}
 
       - name: Reuse PRE Actions and reduce exact bootstrap evidence
@@ -1066,7 +1066,7 @@ jobs:
         if: always()
         uses: *upload_artifact_action
         with:
-          name: sec-trusted-bootstrap-v1-pr-${{ needs.resolve.outputs.pull-request }}-base-${{ needs.resolve.outputs.base }}-head-${{ needs.resolve.outputs.head }}-run-${{ github.run_id }}-attempt-${{ github.run_attempt }}
+          name: trusted-bootstrap-v1-pr-${{ needs.resolve.outputs.pull-request }}-base-${{ needs.resolve.outputs.base }}-head-${{ needs.resolve.outputs.head }}-run-${{ github.run_id }}-attempt-${{ github.run_attempt }}
           path: |
             ${{ runner.temp }}/sec-trusted-bootstrap-final-${{ github.run_id }}-${{ github.run_attempt }}/final-envelope.json
             ${{ runner.temp }}/sec-trusted-bootstrap-final-${{ github.run_id }}-${{ github.run_attempt }}/SHA256SUMS

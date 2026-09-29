@@ -45,7 +45,7 @@ import {
 } from '../contract/root.ts';
 
 // ---------------------------------------------------------------------------
-// TCB closure constants (canonical source — moved from sec-merge-gate.test.ts)
+// TCB closure constants (canonical source — moved from merge-gate.test.ts)
 // ---------------------------------------------------------------------------
 
 const TCB_RUNTIME_ENTRYPOINTS = SEC_TRUSTED_BOOTSTRAP_REGISTRY.runtimeEntrypoints;
@@ -190,7 +190,7 @@ const TCB_PROCESS_SAFE_MEMBERS = new Set([
 ]);
 
 // ---------------------------------------------------------------------------
-// TCB closure logic (canonical source — moved from sec-merge-gate.test.ts)
+// TCB closure logic (canonical source — moved from merge-gate.test.ts)
 // ---------------------------------------------------------------------------
 
 export function runtimeRelativeImportsFromSource(

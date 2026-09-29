@@ -331,8 +331,8 @@ function fixture(resultStatus: 'passed' | 'failed' = 'passed'): CodexDevelopment
   const hostedArtifactOrigin = hostedObservation('1000', producer.runId, producer.runAttempt);
   const hostedArtifactTransport = hostedObservation('1001', 'verify-101', 1);
   const provenance = createMergeGateProvenance({
-    workflowPath: '.github/workflows/sec-merge-gate.yml',
-    workflowRef: `.github/workflows/sec-merge-gate.yml@${BASE}`,
+    workflowPath: '.github/workflows/merge-gate.yml',
+    workflowRef: `.github/workflows/merge-gate.yml@${BASE}`,
     workflowSha: BASE,
     eventName: 'workflow_run',
     sourceRunId: 'merge-200',
@@ -483,7 +483,7 @@ test('trusted current-base gate authorizes exact candidate facts without executi
   expect(result.authorization.issuer).toMatchObject({
     producerIdentity: CodexDevelopmentMergeGateProducerIdentity,
     trustedRevision: BASE,
-    sourceRef: `.github/workflows/sec-merge-gate.yml@${BASE}`,
+    sourceRef: `.github/workflows/merge-gate.yml@${BASE}`,
     sourceRunId: 'merge-200:1'
   });
   expect(result.reviewReceipt.receiptDigest).toBe(result.authorization.reviewReceiptDigest);
@@ -776,7 +776,7 @@ type MergeWorkflow = Readonly<{
 
 async function readMergeWorkflow(): Promise<MergeWorkflow> {
   const source = await Bun.file(
-    new URL('../../.github/workflows/sec-merge-gate.yml', import.meta.url)
+    new URL('../../.github/workflows/merge-gate.yml', import.meta.url)
   ).text();
   return parseYaml(source) as MergeWorkflow;
 }

@@ -1168,8 +1168,8 @@ function loadProviderBranchCloseoutRecoveryArtifact(input: {
   }
   const metadata = matches[0]!;
   if (metadata.expired || metadata.runId !== input.runId || metadata.runAttempt !== input.runAttempt
-    || metadata.workflowPath !== '.github/workflows/sec-merge-gate.yml'
-    || metadata.workflowRef !== `.github/workflows/sec-merge-gate.yml@${input.session.baseSha}`
+    || metadata.workflowPath !== '.github/workflows/merge-gate.yml'
+    || metadata.workflowRef !== `.github/workflows/merge-gate.yml@${input.session.baseSha}`
     || metadata.workflowSha !== input.session.baseSha || metadata.eventName !== 'repository_dispatch'
     || metadata.actorNodeId !== CI_GITHUB_ACTIONS_IDENTITY_POLICY.bot.nodeId
     || metadata.actorPermission !== 'none') {
@@ -1955,7 +1955,7 @@ function assertHostedIntegrationIdentity(input: {
     throw new Error('integrate-hosted environment is not the exact provider main revision.');
   }
   const workflowRef = environment.GITHUB_WORKFLOW_REF ?? '';
-  const expectedWorkflowRef = `${repository}/.github/workflows/sec-merge-gate.yml@refs/heads/main`;
+  const expectedWorkflowRef = `${repository}/.github/workflows/merge-gate.yml@refs/heads/main`;
   if (workflowRef !== expectedWorkflowRef || environment.GITHUB_WORKFLOW_SHA !== workflowSha) {
     throw new Error('integrate-hosted is not running from the canonical merge workflow.');
   }
@@ -1973,7 +1973,7 @@ function assertHostedIntegrationIdentity(input: {
   const wakeup = hostedMergeWakeupLocator(event);
   if (String(currentRun.id ?? '') !== runId || currentRun.run_attempt !== runAttempt
     || currentRun.event !== wakeup.eventName
-    || currentRun.path !== '.github/workflows/sec-merge-gate.yml'
+    || currentRun.path !== '.github/workflows/merge-gate.yml'
     || currentRun.head_sha !== workflowSha
     || String(currentRun.repository?.id ?? '') !== repositoryId) {
     throw new Error('integrate-hosted current workflow run provenance mismatch.');
@@ -2026,8 +2026,8 @@ function assertHostedIntegrationIdentity(input: {
     assertTrustedExactRevisionRuntime(proof, baseSha);
   }
   const provenance = createHostedWorkflowCommentProvenance({ repositoryId,
-    workflowPath: '.github/workflows/sec-merge-gate.yml',
-    workflowRef: `.github/workflows/sec-merge-gate.yml@${workflowSha}`, workflowSha,
+    workflowPath: '.github/workflows/merge-gate.yml',
+    workflowRef: `.github/workflows/merge-gate.yml@${workflowSha}`, workflowSha,
     runId, runAttempt, eventName: 'workflow_run', sourceRunId, sourceRunAttempt,
     actorLogin: sourceTriggeringActorLogin, actorNodeId: sourceTriggeringActorNodeId,
     actorPermission: sourceTriggeringActor.permission,
@@ -3632,7 +3632,7 @@ function evaluateFreshHostedIntegration(input: {
     throw new Error('Hosted integration candidate ancestry or same-head PR identity is not mergeable.');
   }
   const issuedAt = barrier.observedAt;
-  const workflowRef = `.github/workflows/sec-merge-gate.yml@${artifact.session.baseSha}`;
+  const workflowRef = `.github/workflows/merge-gate.yml@${artifact.session.baseSha}`;
   const freshMainHealth = createMainHealthLedger(createObservedMainHealthInput({
     repository, mainSha: candidate.baseSha, mainTreeSha: candidate.baseTreeSha,
     trustRevision: artifact.session.trustRevision, observedAt: issuedAt,
@@ -3649,7 +3649,7 @@ function evaluateFreshHostedIntegration(input: {
       headTreeSha: candidate.headTreeSha, baseIsAncestor: true, behindBy: 0,
       manifestPath: artifact.session.manifestPath, manifestDigest: artifact.session.manifestDigest,
       changedPaths },
-    provenance: { workflowPath: '.github/workflows/sec-merge-gate.yml', workflowRef,
+    provenance: { workflowPath: '.github/workflows/merge-gate.yml', workflowRef,
       workflowSha: artifact.session.baseSha, eventName: 'workflow_run',
       sourceRunId: provenance.runId, sourceRunAttempt: provenance.runAttempt,
       actorNodeId: integrationPrincipalNodeId, actorPermission: provenance.actorPermission },
