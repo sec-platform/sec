@@ -1398,7 +1398,7 @@ jobs:
 
       - name: Reject import organization drift
         id: imports-check
-        run: bun run imports:check
+        run: bun run imports:check --all
 
       - name: Run exact-main TypeScript checks
         id: typecheck

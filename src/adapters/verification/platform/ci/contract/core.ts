@@ -54,7 +54,7 @@ export const CI_MAIN_HEALTH_STEP_ORDER = [
 ] as const;
 export const CI_MAIN_HEALTH_COMMANDS = [
   'bun install --frozen-lockfile',
-  'bun run imports:check',
+  'bun run imports:check --all',
   'bun run typecheck:verified',
   'bun run audit:static',
   'bun run docs:doctor',

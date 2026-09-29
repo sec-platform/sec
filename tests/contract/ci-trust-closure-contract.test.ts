@@ -135,6 +135,8 @@ test('exact-main health policy binds one stable GitHub Actions app and terminal 
   expect(contract.mainHealthPolicyDigest).toBe(CI_MAIN_HEALTH_POLICY_DIGEST);
   expect(contract.mainHealthStepOrder).toEqual([...CI_MAIN_HEALTH_STEP_ORDER]);
   expect(contract.mainHealthCommands).toEqual([...CI_MAIN_HEALTH_COMMANDS]);
+  expect(contract.mainHealthCommands).toContain('bun run imports:check --all');
+  expect(contract.mainHealthCommands).not.toContain('bun run imports:check');
   expect(contract.mainHealthCommands).toContain('bun run typecheck:verified');
   expect(contract.mainHealthCommands).not.toContain('bun run typecheck');
   const workflow = parseYaml(await readCompilerFile('.github/workflows/compiler-pr-validation.yml')) as Workflow;
