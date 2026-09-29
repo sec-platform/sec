@@ -15,11 +15,7 @@ import {
   createBranchLifecycleGitHubRemoteObservation
 } from '../branch-lifecycle/branch-lifecycle-command.ts';
 import {
-  CodexDevelopmentAssertControlPlaneBinding,
-  CodexDevelopmentParseActivePointer,
-  CodexDevelopmentParseCurrentStateSpec,
-  CodexDevelopmentParseRollingMachineProjection,
-  CodexDevelopmentParseRollingPlan
+  CodexDevelopmentParseCurrentStateSpec
 } from '../documentation/document-control-plane-contract.ts';
 import { buildGitHubDefaultBranchOpenPullRequestsArgs } from '../documentation/document-control-plane-github-observation.ts';
 import {
@@ -34,7 +30,6 @@ import {
   type WorkSelectionMainHealthProjection,
   type WorkSelectionMainHealthSnapshot
 } from '../main-health/work-selection-main-health.ts';
-import { CodexDevelopmentWorkPackageManifestDigest } from '../task/contract/work-package.ts';
 import type {
   SecCurrentWorkLifecycle,
   SecWorkDigest
@@ -781,41 +776,35 @@ async function observeCanonicalBranchLifecycle(input: {
   return Object.freeze({ projection, selectedPullRequest, currentCheckout });
 }
 
-function observeCanonicalControl(input: {
-  spec: ReturnType<typeof CodexDevelopmentParseCurrentStateSpec>;
-  pointerSource: string;
-  rollingPlanSource: string;
-  manifestPath: string;
-  manifestBytes: Buffer;
-}): Readonly<{
+function observeLiveControl(input: Readonly<{
+  exactMain: string;
+  exactMainTree: string;
+  registry: SecWorkRegistryObservation;
+  branchLifecycle: ReturnType<typeof projectBranchLifecycleForWorkSelection>;
+  currentSpecs: readonly SecWorkCurrentSpecObservation[];
+}>): Readonly<{
   state: SecCurrentWorkLifecycle['controlState'];
   ref: SecWorkDigest;
 }> {
-  const pointer = CodexDevelopmentParseActivePointer(input.pointerSource);
-  CodexDevelopmentAssertControlPlaneBinding({ spec: input.spec, pointer });
-  const rolling = CodexDevelopmentParseRollingPlan(input.rollingPlanSource);
-  const rollingMachine = CodexDevelopmentParseRollingMachineProjection(input.rollingPlanSource);
-  const manifestDigest = CodexDevelopmentWorkPackageManifestDigest(input.manifestBytes);
-  const packageId = path.posix.basename(input.manifestPath, '.md');
-  const machineBindingMatches = rollingMachine === null
-    || (rollingMachine.active.packageId === packageId
-      && (rollingMachine.schema !== 'sec-work-rolling-transition-projection-v1'
-        || (rollingMachine.active.manifestPath === input.manifestPath
-          && rollingMachine.active.manifestDigest === manifestDigest)));
-  const ref = sha256({ pointer, rolling, manifest: {
-    path: input.manifestPath,
-    id: packageId,
-    tracking: rollingMachine?.active.tracking ?? null,
-    digest: manifestDigest
-  } }) as SecWorkDigest;
+  const currentSpecs = [...input.currentSpecs]
+    .map(({ workId, currentSpecRef, currentSpecRevision, providerState }) => ({
+      workId,
+      currentSpecRef,
+      currentSpecRevision,
+      providerState
+    }))
+    .sort((left, right) => left.workId.localeCompare(right.workId)
+      || left.currentSpecRef.localeCompare(right.currentSpecRef));
   return Object.freeze({
-    state: pointer.manifest === input.manifestPath
-        && pointer.manifestDigest === manifestDigest
-        && rolling.activePackageId === packageId
-        && machineBindingMatches
-      ? 'consistent'
-      : 'conflict',
-    ref
+    state: 'consistent' as const,
+    ref: sha256({
+      schema: 'sec-work-selection-live-control-v1',
+      exactMain: input.exactMain,
+      exactMainTree: input.exactMainTree,
+      registryDigest: input.registry.registryDigest,
+      branchLifecycleDigest: input.branchLifecycle.projectionDigest,
+      currentSpecs
+    }) as SecWorkDigest
   });
 }
 
@@ -826,7 +815,7 @@ function currentLifecycle(input: {
   branchLifecycle: ReturnType<typeof projectBranchLifecycleForWorkSelection>;
   selectedPullRequest: ReturnType<typeof parseOpenPullRequestList>[number] | null;
   mainHealth: WorkSelectionMainHealthProjection;
-  control: ReturnType<typeof observeCanonicalControl>;
+  control: ReturnType<typeof observeLiveControl>;
   terminalCandidate: SecRoadmapTerminalCompactionCandidate | null;
 }): SecCurrentWorkLifecycle {
   if (input.terminalCandidate !== null) {
@@ -1106,28 +1095,12 @@ async function observeSecWorkSelectionWithinHostedSession(
         })
       );
     }
-    const pointerBytes = await readGitBlob(run, root, `${exactMain}:config/repository/active-work-package.md`,
-      'active-pointer-unresolved');
-    const pointerSource = decodeUtf8(pointerBytes, 'active-pointer-invalid-utf8');
-    const pointer = CodexDevelopmentParseActivePointer(pointerSource);
-    const rollingPlanSource = decodeUtf8(await readGitBlob(
-      run,
-      root,
-      `${exactMain}:config/repository/rolling-plan.md`,
-      'rolling-plan-unresolved'
-    ), 'rolling-plan-invalid-utf8');
-    const activeManifestBytes = await readGitBlob(
-      run,
-      root,
-      `${exactMain}:${pointer.manifest}`,
-      'active-manifest-unresolved'
-    );
-    const control = observeCanonicalControl({
-      spec: state,
-      pointerSource,
-      rollingPlanSource,
-      manifestPath: pointer.manifest,
-      manifestBytes: activeManifestBytes
+    const control = observeLiveControl({
+      exactMain,
+      exactMainTree,
+      registry,
+      branchLifecycle: branchObservation.projection,
+      currentSpecs
     });
     const current = currentLifecycle({
       registry,
