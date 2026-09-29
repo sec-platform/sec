@@ -20,7 +20,7 @@ function snapshot(label: string) {
   };
   const files = Object.entries(sources).sort(([left], [right]) => left < right ? -1 : left > right ? 1 : 0)
     .map(([path, source]) => ({ path, source, contentDigest: rawSha256(source) }));
-  const descriptorPath = 'src/example/sec.module.json';
+  const descriptorPath = 'src/example/module.json';
   const moduleMembership = compileSecRepositoryModuleMembershipSnapshot({
     repositoryFiles: [...files.map(file => file.path), descriptorPath],
     descriptorSources: [{ descriptorPath, source: JSON.stringify({

@@ -32,7 +32,7 @@ import {
 } from './workspace-source-snapshot.ts';
 
 function fixture(value: number) {
-  const descriptorPath = 'src/example/sec.module.json';
+  const descriptorPath = 'src/example/module.json';
   const sources = Object.freeze({
     'src/example/operation.ts': `export const value = ${value};\n`,
     'tsconfig.json': `${JSON.stringify({

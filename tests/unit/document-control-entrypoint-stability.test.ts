@@ -29,7 +29,7 @@ test('stable document-control entrypoint is a zero-authority facade', () => {
   assert.equal(facade.includes('export *'), false);
   assert.equal(facade.includes('capability'), false);
   const descriptor = JSON.parse(readFileSync(
-    path.join(root, 'src/control/documentation/sec.module.json'),
+    path.join(root, 'src/control/documentation/module.json'),
     'utf8'
   )) as Record<string, unknown>;
   assert.deepEqual(descriptor, {

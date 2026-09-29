@@ -20,7 +20,7 @@ function compileFixture(
       ''
     ].join('\n')
   });
-  const descriptorPath = 'src/example/sec.module.json';
+  const descriptorPath = 'src/example/module.json';
   const descriptorSource = JSON.stringify({
     importGraph: 'runtime',
     externalEntrypoints: [],
@@ -410,7 +410,7 @@ test('compiler provenance binds registrar wrappers, reachable Effects, terminals
     contentDigest: rawSha256(source)
   }));
   const descriptors = [{
-    descriptorPath: 'src/runtime/sec.module.json',
+    descriptorPath: 'src/runtime/module.json',
     source: JSON.stringify({
       importGraph: 'runtime',
       externalEntrypoints: [],
@@ -427,7 +427,7 @@ test('compiler provenance binds registrar wrappers, reachable Effects, terminals
       preDependencyBootstrap: false
     })
   }, {
-    descriptorPath: 'tests/sec.module.json',
+    descriptorPath: 'tests/module.json',
     source: JSON.stringify({
       importGraph: 'runtime',
       externalEntrypoints: [],

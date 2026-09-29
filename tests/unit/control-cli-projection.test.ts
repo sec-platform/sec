@@ -28,7 +28,7 @@ import { shouldReportDevRunnerSuccess } from '../../src/adapters/self-hosting/de
 import { rawSha256 } from '../../src/contracts/canonical.ts';
 
 function declarationTopologyFixture() {
-  const descriptorPath = 'src/projection-owner/sec.module.json';
+  const descriptorPath = 'src/projection-owner/module.json';
   const sourcePath = 'src/projection-owner/runtime.ts';
   const source = 'export const projection = true;';
   const sourceRevision = rawSha256(source);
@@ -66,11 +66,11 @@ function declarationTopologyFixture() {
 function architectureProjectionFixture(topology: 'acyclic' | 'cyclic') {
   const contract = parseSecModuleDescriptor(
     { importGraph: 'runtime', externalEntrypoints: [] },
-    'src/contract-owner/sec.module.json'
+    'src/contract-owner/module.json'
   );
   const runtime = parseSecModuleDescriptor(
     { importGraph: 'runtime', externalEntrypoints: [] },
-    'src/runtime-owner/sec.module.json'
+    'src/runtime-owner/module.json'
   );
   const descriptors = Object.freeze([contract, runtime]);
   const membership: SecRepositoryModuleMembership = Object.freeze({

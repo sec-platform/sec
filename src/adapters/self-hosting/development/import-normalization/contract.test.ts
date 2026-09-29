@@ -60,7 +60,7 @@ async function commitFixture(
       "import { normalize } from './kernel.ts';\nexport const verifyCandidateImportNormalization = normalize;\n"
     ),
     writeFile(
-      path.join(root, 'src', 'adapters', 'self-hosting', 'development', 'import-normalization', 'sec.module.json'),
+      path.join(root, 'src', 'adapters', 'self-hosting', 'development', 'import-normalization', 'module.json'),
       `${JSON.stringify({
         importGraph: 'runtime',
         externalEntrypoints: ['src/adapters/self-hosting/development/import-normalization/runtime.ts'],

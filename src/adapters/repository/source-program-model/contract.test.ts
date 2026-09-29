@@ -62,7 +62,7 @@ test('source program classifies catalog-installed code as a resource surface', (
 test('source program input closure excludes target workspaces and generated artifacts', () => {
   expect(isSourceProgramInputPath('src/example.ts')).toBe(true);
   expect(isSourceProgramInputPath('tests/unit/example.test.ts')).toBe(true);
-  expect(isSourceProgramInputPath('src/example/sec.module.json')).toBe(true);
+  expect(isSourceProgramInputPath('src/example/module.json')).toBe(true);
   expect(isSourceProgramInputPath('.github/workflows/ci.yml')).toBe(true);
   expect(isSourceProgramInputPath('.documentation/documents.json')).toBe(true);
   expect(isSourceProgramInputPath('.documentation/baseline.json')).toBe(true);
@@ -301,7 +301,7 @@ test('unbound Source Program facts remain unknown responsibility evidence', () =
     }
   ];
   const descriptorSources = descriptors.map(({ root, descriptor }) => ({
-    descriptorPath: `${root}/sec.module.json`,
+    descriptorPath: `${root}/module.json`,
     source: JSON.stringify(descriptor)
   }));
   const membership = compileSecRepositoryModuleMembershipSnapshot({
@@ -358,7 +358,7 @@ test('unbound Source Program facts remain unknown responsibility evidence', () =
 test('Source Program binds validated semantic intent to one exact exported declaration', () => {
   const sourcePath = 'src/example/run.ts';
   const source = 'export function run(): string { return \'ok\'; }\n';
-  const descriptorPath = 'src/example/sec.module.json';
+  const descriptorPath = 'src/example/module.json';
   const membership = compileSecRepositoryModuleMembershipSnapshot({
     repositoryFiles: [sourcePath, descriptorPath],
     descriptorSources: [{
@@ -612,13 +612,13 @@ test('source program model finds capability producers, consumers, literals, and 
   const packageSource = JSON.stringify(packageManifest);
   const repositoryFiles = [
     'package.json',
-    'src/example/sec.module.json',
+    'src/example/module.json',
     ...sources.keys()
   ];
   const moduleMembership = compileSecRepositoryModuleMembershipSnapshot({
     repositoryFiles,
     descriptorSources: [{
-      descriptorPath: 'src/example/sec.module.json',
+      descriptorPath: 'src/example/module.json',
       source: JSON.stringify({
         importGraph: 'runtime',
         externalEntrypoints: [],
@@ -938,7 +938,7 @@ test('source program model finds capability producers, consumers, literals, and 
 test('source program blocks owner-internal process primitives at repository provider boundaries', () => {
   const providerPath = 'src/physical-provider/process.ts';
   const consumerPath = 'src/consumer/run.ts';
-  const descriptorPath = 'src/physical-provider/sec.module.json';
+  const descriptorPath = 'src/physical-provider/module.json';
   const files = [
     {
       path: providerPath,
@@ -950,7 +950,7 @@ test('source program blocks owner-internal process primitives at repository prov
     }
   ].map(({ path, source }) => ({ path, source, contentDigest: rawSha256(source) }));
   const moduleMembership = compileSecRepositoryModuleMembershipSnapshot({
-    repositoryFiles: [descriptorPath, 'src/consumer/sec.module.json', ...files.map(({ path }) => path)],
+    repositoryFiles: [descriptorPath, 'src/consumer/module.json', ...files.map(({ path }) => path)],
     descriptorSources: [
       {
         descriptorPath,
@@ -966,7 +966,7 @@ test('source program blocks owner-internal process primitives at repository prov
         })
       },
       {
-        descriptorPath: 'src/consumer/sec.module.json',
+        descriptorPath: 'src/consumer/module.json',
         source: JSON.stringify({ importGraph: 'runtime', externalEntrypoints: [] })
       }
     ]
@@ -1002,7 +1002,7 @@ test('source program blocks owner-internal process primitives at repository prov
 test('source program blocks raw process primitives imported only as a production test seam', () => {
   const providerPath = 'src/physical-provider/process.ts';
   const consumerPath = 'src/consumer/options.ts';
-  const descriptorPath = 'src/physical-provider/sec.module.json';
+  const descriptorPath = 'src/physical-provider/module.json';
   const files = [
     {
       path: providerPath,
@@ -1015,7 +1015,7 @@ test('source program blocks raw process primitives imported only as a production
     }
   ].map(({ path, source }) => ({ path, source, contentDigest: rawSha256(source) }));
   const moduleMembership = compileSecRepositoryModuleMembershipSnapshot({
-    repositoryFiles: [descriptorPath, 'src/consumer/sec.module.json', ...files.map(({ path }) => path)],
+    repositoryFiles: [descriptorPath, 'src/consumer/module.json', ...files.map(({ path }) => path)],
     descriptorSources: [
       {
         descriptorPath,
@@ -1031,7 +1031,7 @@ test('source program blocks raw process primitives imported only as a production
         })
       },
       {
-        descriptorPath: 'src/consumer/sec.module.json',
+        descriptorPath: 'src/consumer/module.json',
         source: JSON.stringify({ importGraph: 'runtime', externalEntrypoints: [] })
       }
     ]
@@ -1064,9 +1064,9 @@ test('source program classifies worker-thread construction as native process tra
     + "export function start(): Worker { return new Worker('./worker.ts'); }\n";
   const files = [{ path: consumerPath, source, contentDigest: rawSha256(source) }];
   const moduleMembership = compileSecRepositoryModuleMembershipSnapshot({
-    repositoryFiles: ['src/consumer/sec.module.json', consumerPath],
+    repositoryFiles: ['src/consumer/module.json', consumerPath],
     descriptorSources: [{
-      descriptorPath: 'src/consumer/sec.module.json',
+      descriptorPath: 'src/consumer/module.json',
       source: JSON.stringify({ importGraph: 'runtime', externalEntrypoints: [] })
     }]
   });
@@ -1191,7 +1191,7 @@ test('reduction compiler resolves pure aggregate modules to declaration owners',
     ['src/consumer/use.ts', "import { execute } from '../provider/facade.ts';\nexport const result = execute();\n"]
   ]);
   const descriptorSources = ['src/provider', 'src/consumer'].map((root) => ({
-    descriptorPath: `${root}/sec.module.json`,
+    descriptorPath: `${root}/module.json`,
     source: JSON.stringify({ importGraph: 'runtime', externalEntrypoints: [] })
   }));
   const repositoryFiles = [...sources.keys(), ...descriptorSources.map(({ descriptorPath }) => descriptorPath)];
@@ -1301,7 +1301,7 @@ function compileGraphCutFixture(
   sources: Readonly<Record<string, string>>,
   descriptorOverrides: Readonly<Record<string, unknown>> = Object.freeze({})
 ) {
-  const descriptorPath = 'src/example/sec.module.json';
+  const descriptorPath = 'src/example/module.json';
   const descriptorSource = JSON.stringify({
     importGraph: 'runtime',
     externalEntrypoints: [],
@@ -1654,7 +1654,7 @@ function compileSupersessionFixture(
       : [],
     preDependencyBootstrap: false
   });
-  const descriptorPath = 'src/example/sec.module.json';
+  const descriptorPath = 'src/example/module.json';
   const files = Object.entries(sources)
     .sort(([left], [right]) => left.localeCompare(right, 'en-US'))
     .map(([path, source]) => Object.freeze({
@@ -2601,7 +2601,7 @@ function compileIssuerRoleFixture(input: Readonly<{
     contentDigest: rawSha256(source)
   }));
   const descriptorSources = Object.entries(input.descriptors).map(([root, capabilityProviders]) => ({
-    descriptorPath: `${root}/sec.module.json`,
+    descriptorPath: `${root}/module.json`,
     source: JSON.stringify({
       importGraph: 'runtime',
       externalEntrypoints: [],
@@ -2959,7 +2959,7 @@ function compileCausalReaderFixture(
     ...additionalSources
   };
   const descriptorSources = [{
-    descriptorPath: 'src/semantics/repair/sec.module.json',
+    descriptorPath: 'src/semantics/repair/module.json',
     source: JSON.stringify({
       importGraph: 'runtime',
       externalEntrypoints: [],
@@ -2976,10 +2976,10 @@ function compileCausalReaderFixture(
       }]
     })
   }, {
-    descriptorPath: 'src/adapters/filesystem/sec.module.json',
+    descriptorPath: 'src/adapters/filesystem/module.json',
     source: JSON.stringify({ importGraph: 'runtime', externalEntrypoints: [] })
   }, {
-    descriptorPath: 'src/adapters/workspace/sec.module.json',
+    descriptorPath: 'src/adapters/workspace/module.json',
     source: JSON.stringify({
       importGraph: 'runtime',
       externalEntrypoints: [],

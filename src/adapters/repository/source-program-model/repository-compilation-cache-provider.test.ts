@@ -228,7 +228,7 @@ function fixture(
   const cacheRoot = path.join(root, 'cache');
   mkdirSync(repositoryRoot);
   process.env.SEC_CACHE_HOME = cacheRoot;
-  const descriptorPath = 'src/example/sec.module.json';
+  const descriptorPath = 'src/example/module.json';
   const source = `export const value = ${value};\n`;
   const secondSource = 'export const SECOND = true;\n';
   const projectConfigSource = '{"compilerOptions":{"strict":true}}\n';
@@ -318,7 +318,7 @@ function causalFixture() {
   const cacheRoot = path.join(root, 'cache');
   mkdirSync(repositoryRoot);
   process.env.SEC_CACHE_HOME = cacheRoot;
-  const descriptorPath = 'src/example/sec.module.json';
+  const descriptorPath = 'src/example/module.json';
   const parserSource = [
     'export interface Value { readonly status: string; }',
     'export function parseValue(source: string): Value { return JSON.parse(source) as Value; }'

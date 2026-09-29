@@ -368,7 +368,7 @@ test('reviewed dispatcher census remains non-authorizing source observation', ()
   });
   const sources = [
     ['package.json', packageSource],
-    ['src/example/sec.module.json', descriptorSource],
+    ['src/example/module.json', descriptorSource],
     [
       'src/example/cli.ts',
       "import { spawnSync } from 'node:child_process';\n"
@@ -386,7 +386,7 @@ test('reviewed dispatcher census remains non-authorizing source observation', ()
   const moduleMembership = compileSecRepositoryModuleMembershipSnapshot({
     repositoryFiles: files.map(({ path: repositoryPath }) => repositoryPath),
     descriptorSources: [{
-      descriptorPath: 'src/example/sec.module.json',
+      descriptorPath: 'src/example/module.json',
       source: descriptorSource
     }]
   });

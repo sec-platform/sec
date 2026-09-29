@@ -157,7 +157,7 @@ function moduleIdForPath(
   // A containing module root is not proof that an arbitrary, absent path is
   // owned. Only paths present in the exact source projection and the module
   // descriptor itself may use the structural owner fallback.
-  if (!index.moduleIds.has(repositoryPath) && !repositoryPath.endsWith('/sec.module.json')) {
+  if (!index.moduleIds.has(repositoryPath) && !repositoryPath.endsWith('/module.json')) {
     return null;
   }
   const containingOwners = provider.projection.moduleOwners

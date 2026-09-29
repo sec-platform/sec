@@ -123,10 +123,10 @@ test('heterogeneous owned inputs form one resolved union', () => {
 
 test('module descriptors and owned sources resolve even when no runnable test consumes them', () => {
   for (const path of [
-    'src/adapters/self-hosting/control/branch-lifecycle/sec.module.json',
-    'src/adapters/self-hosting/control/composition/sec.module.json',
+    'src/adapters/self-hosting/control/branch-lifecycle/module.json',
+    'src/adapters/self-hosting/control/composition/module.json',
     'src/adapters/self-hosting/control/composition/trusted-runtime-closeout.ts',
-    'src/adapters/self-hosting/development/commit/sec.module.json'
+    'src/adapters/self-hosting/development/commit/module.json'
   ]) {
     expect(selectSlowTestRiskClosure([path])).toMatchObject({
       resolved: true,

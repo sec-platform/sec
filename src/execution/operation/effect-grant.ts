@@ -136,7 +136,7 @@ function requireCanonicalIntent(operation: SecSemanticOperationIntent): void {
  * Creates one process-local issuer/consumer pair for exactly one semantic
  * operation.  This factory does not itself grant an Effect: a domain module
  * must keep `issuer` behind its exported operation classified as
- * `grant-issuer` in `sec.module.json`, while the Effect owner receives only
+ * `grant-issuer` in `module.json`, while the Effect owner receives only
  * `consumer`.
  */
 export function createSecOperationEffectGrantAuthority(input: Readonly<{

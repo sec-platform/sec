@@ -174,7 +174,7 @@ test('self-consistent forged return hints cannot replace current exact Program p
       'export function readValue(source: string): Value { parseValue(source); return source as unknown as Value; }'
     ].join('\n')
   };
-  const descriptorPath = 'src/example/sec.module.json';
+  const descriptorPath = 'src/example/module.json';
   const descriptorSource = JSON.stringify({
     importGraph: 'runtime',
     externalEntrypoints: [],

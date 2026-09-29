@@ -18,7 +18,7 @@ import {
 const descriptor = parseSecModuleDescriptor({
   importGraph: 'runtime',
   externalEntrypoints: []
-}, 'src/policy-observation/sec.module.json');
+}, 'src/policy-observation/module.json');
 
 const membership: SecRepositoryModuleMembership = {
   descriptors: [descriptor],
@@ -165,7 +165,7 @@ test('fine-grained descriptor cycles stay diagnostic inside one canonical packag
   const makeDescriptor = (root: string) => parseSecModuleDescriptor({
     importGraph: 'runtime',
     externalEntrypoints: []
-  }, `${root}/sec.module.json`);
+  }, `${root}/module.json`);
   const first = makeDescriptor('src/adapters/first');
   const second = makeDescriptor('src/adapters/second');
   const membership = {
