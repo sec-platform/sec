@@ -1,4 +1,5 @@
 import {
+  assertVerificationDataCallable,
   readVerificationDataRecord,
   snapshotVerificationData,
   verificationDataEqual
@@ -669,8 +670,8 @@ function snapshotVerificationAggregateInput(
   }
 
   const coverage = candidate.isCoverageComplete;
-  if (coverage !== undefined && typeof coverage !== 'function') {
-    throw new Error(`${label}.isCoverageComplete must be a function when present.`);
+  if (coverage !== undefined) {
+    assertVerificationDataCallable(coverage, `${label}.isCoverageComplete`);
   }
 
   const claims = CodexDevelopmentSnapshotVerificationData(
