@@ -2,7 +2,7 @@ import registrySource from './registry.json' with { type: 'json' };
 
 import { canonicalEquals, rawSha256 } from '../../../contracts/canonical.ts';
 
-const GENERATED_STATE_REGISTRY_SCHEMA = 'sec-generated-state-registry-v1' as const;
+const GENERATED_STATE_REGISTRY_SCHEMA = 'sec-generated-state-registry-v2' as const;
 const GENERATED_STATE_REGISTRATION_SCHEMA = 'sec-generated-state-registration-v1' as const;
 const GENERATED_STATE_INVENTORY_SCHEMA = 'sec-generated-state-inventory-v1' as const;
 const GENERATED_STATE_SETTLEMENT_SCHEMA = 'sec-generated-state-settlement-v1' as const;
@@ -72,7 +72,13 @@ export interface GeneratedStateRule {
 
 export interface GeneratedStateRegistry {
   readonly schema: typeof GENERATED_STATE_REGISTRY_SCHEMA;
+  /** Active producer/runtime surfaces only. */
   readonly rules: readonly GeneratedStateRule[];
+  /**
+   * Historical rule shapes retained only for verification and retirement of
+   * already-issued registrations. They are never birth/reconstruction rules.
+   */
+  readonly legacyRetirementRules: readonly GeneratedStateRule[];
   readonly registryDigest: `sha256:${string}`;
 }
 
@@ -323,13 +329,16 @@ function parseSelector(value: unknown, label: string): GeneratedStateSelector {
 
 export function parseGeneratedStateRegistry(value: unknown): GeneratedStateRegistry {
   const root = plainRecord(value, 'registry');
-  exactKeys(root, ['schema', 'rules'], 'registry');
-  if (root.schema !== GENERATED_STATE_REGISTRY_SCHEMA || !Array.isArray(root.rules)) {
-    fail('registry schema or rules are invalid.');
+  exactKeys(root, ['schema', 'rules', 'legacyRetirementRules'], 'registry');
+  if (root.schema !== GENERATED_STATE_REGISTRY_SCHEMA || !Array.isArray(root.rules)
+      || !Array.isArray(root.legacyRetirementRules)) {
+    fail('registry schema or rule sets are invalid.');
   }
+  const activeRuleCount = root.rules.length;
   const ids = new Set<string>();
   const selectors = new Set<string>();
-  const rules = root.rules.map((candidate, index): GeneratedStateRule => {
+  const rules = [...root.rules, ...root.legacyRetirementRules]
+    .map((candidate, index): GeneratedStateRule => {
     const rule = plainRecord(candidate, `rules[${index}]`);
     exactKeys(rule, [
       'id', 'selector', 'stateClass', 'owner', 'producer', 'registration',
@@ -433,24 +442,69 @@ export function parseGeneratedStateRegistry(value: unknown): GeneratedStateRegis
       retirement: 'domain-receipt-required'
     });
   });
-  const material = Object.freeze({ schema: GENERATED_STATE_REGISTRY_SCHEMA, rules: Object.freeze(rules) });
+  const material = Object.freeze({
+    schema: GENERATED_STATE_REGISTRY_SCHEMA,
+    rules: Object.freeze(rules.slice(0, activeRuleCount)),
+    legacyRetirementRules: Object.freeze(rules.slice(activeRuleCount))
+  });
   return Object.freeze({ ...material, registryDigest: rawSha256(JSON.stringify(material)) });
 }
 
 export const GENERATED_STATE_REGISTRY = parseGeneratedStateRegistry(registrySource);
 
+function generatedStateRuleMatchesPath(
+  rule: GeneratedStateRule,
+  normalized: string
+): boolean {
+  const { selector } = rule;
+  if (selector.kind === 'exact') return normalized === selector.path;
+  const parent = normalized.slice(0, normalized.lastIndexOf('/'));
+  const name = normalized.slice(normalized.lastIndexOf('/') + 1);
+  return parent === selector.parent && name.startsWith(selector.prefix);
+}
+
+function uniqueRuleMatch(
+  rules: readonly GeneratedStateRule[],
+  normalized: string,
+  label: string
+): GeneratedStateRule | null {
+  const matches = rules.filter((rule) => generatedStateRuleMatchesPath(rule, normalized));
+  if (matches.length > 1) fail(`${label} path ${normalized} matches multiple rules.`);
+  return matches[0] ?? null;
+}
+
+/** Active producer/runtime lookup. Legacy retirement rules are deliberately invisible. */
 export function generatedStateRuleForPath(
   relativePath: string,
   registry: GeneratedStateRegistry = GENERATED_STATE_REGISTRY
 ): GeneratedStateRule | null {
-  const normalized = normalizeGeneratedStateRelativePath(relativePath);
-  const matches = registry.rules.filter(({ selector }) => {
-    if (selector.kind === 'exact') return normalized === selector.path;
-    const parent = normalized.slice(0, normalized.lastIndexOf('/'));
-    const name = normalized.slice(normalized.lastIndexOf('/') + 1);
-    return parent === selector.parent && name.startsWith(selector.prefix);
-  });
-  if (matches.length > 1) fail(`path ${normalized} matches multiple rules.`);
+  return uniqueRuleMatch(
+    registry.rules,
+    normalizeGeneratedStateRelativePath(relativePath),
+    'active'
+  );
+}
+
+/** Explicit historical-retirement recognizer; never used by active birth/census. */
+export function generatedStateLegacyRetirementRuleForPath(
+  relativePath: string,
+  registry: GeneratedStateRegistry = GENERATED_STATE_REGISTRY
+): GeneratedStateRule | null {
+  return uniqueRuleMatch(
+    registry.legacyRetirementRules,
+    normalizeGeneratedStateRelativePath(relativePath),
+    'legacy retirement'
+  );
+}
+
+export function generatedStateRuleByIdIncludingLegacy(
+  ruleId: string,
+  registry: GeneratedStateRegistry = GENERATED_STATE_REGISTRY
+): GeneratedStateRule | null {
+  const normalizedId = stringValue(ruleId, 'generated-state rule id');
+  const matches = [...registry.rules, ...registry.legacyRetirementRules]
+    .filter(({ id }) => id === normalizedId);
+  if (matches.length > 1) fail(`generated-state rule id ${normalizedId} is ambiguous.`);
   return matches[0] ?? null;
 }
 
@@ -576,8 +630,10 @@ export function parseGeneratedStateRegistration(value: unknown): GeneratedStateR
   ], 'registration');
   if (record.schema !== GENERATED_STATE_REGISTRATION_SCHEMA) fail('registration schema is invalid.');
   const ruleId = stringValue(record.ruleId, 'registration.ruleId');
-  const rule = GENERATED_STATE_REGISTRY.rules.find(({ id }) => id === ruleId);
-  if (rule === undefined) fail('registration rule is absent from the current registry.');
+  const rule = generatedStateRuleByIdIncludingLegacy(ruleId);
+  if (rule === null) {
+    fail('registration rule is absent from the current or legacy-retirement registry.');
+  }
   const phase = record.phase;
   if (phase !== 'active' && phase !== 'retired') fail('registration phase is invalid.');
   const retirementRef = record.retirementRef === null
@@ -601,7 +657,7 @@ export function parseGeneratedStateRegistration(value: unknown): GeneratedStateR
   });
   if (!Number.isFinite(Date.parse(material.generatedAt))) fail('registration.generatedAt is invalid.');
   if (material.owner !== rule.owner || material.producer !== rule.producer
-      || generatedStateRuleForPath(material.relativePath)?.id !== rule.id) {
+      || !generatedStateRuleMatchesPath(rule, material.relativePath)) {
     fail('registration owner, producer or path differs from the current rule.');
   }
   const expected = Object.freeze({ ...material, registrationDigest: generatedStateDigest(material) });
