@@ -1,9 +1,9 @@
 ---
-name: sec-failure-recovery
+name: failure-recovery
 description: 用于测试、Gate、Review、candidate、进程或控制面失败后分类根因、约束recovery制品生命周期、最小重跑、proof reset和设计回退；不用于无分类重复尝试或把recovery当备份。
 ---
 
-# sec-failure-recovery
+# failure-recovery
 
 ## 触发
 - focused/Gate失败、Review changes、candidate invalidation、capsule损坏、remote stale或基础设施故障。

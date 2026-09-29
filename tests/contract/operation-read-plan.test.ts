@@ -73,7 +73,7 @@ function input(): SecOperationReadPlanInput {
         revision: 'v1',
         reasonCode: 'public-contract-change'
       }],
-      skillCandidateIds: ['sec-worker-development']
+      skillCandidateIds: ['worker-development']
     }),
     requiredRefs: [{
       id: 'development-governance',

@@ -1,9 +1,9 @@
 ---
-name: sec-repository-audit
+name: repository-audit
 description: 用于用户要求全面分析 SEC 仓库、重大架构变更前、重复系统性缺陷或 authority/code/test/CI 漂移时，对 exact revision 执行全量 tracked-path census、行为与约束审计并给出证据化优化；不用于普通叶节点开发或用抽样搜索冒充全仓覆盖。
 ---
 
-# sec-repository-audit
+# repository-audit
 
 ## 触发
 - 用户明确要求全面、极致或全仓库分析、审计和优化。
@@ -28,7 +28,7 @@ description: 用于用户要求全面分析 SEC 仓库、重大架构变更前�
 3. 对齐长期 Goal、阶段 DAG、相交正文的责任、当前代码、测试、CI/Gate、PR/Issue/Review和真实产物；冲突时按当前规范裁决与现实反证追踪 canonical owner，不让身份索引签发权限，也不以代码存在反向覆盖目标设计。
 4. 主动寻找第二 writer/loader/revision/pipeline、隐式状态、循环依赖、孤儿入口、重复规则、宽泛 catch-all、无消费者配置、过期当前事实、弱测试、错误成功声明和不可恢复路径。
 5. 对每项 finding 绑定 exact path/line/symbol、机制、影响、证据、最强反例、未知和反转条件，并区分事实、机制推导、现实推断和候选优化。
-6. 将 Agent 启发式缺口交给 `sec-heuristic-governance`，跨 owner 架构缺口交给 `sec-architecture-evolution`，产品实现交给受信 work selector/Work Package owner；全仓审计本身不扩张为无限修改包。
+6. 将 Agent 启发式缺口交给 `heuristic-governance`，跨 owner 架构缺口交给 `architecture-evolution`，产品实现交给受信 work selector/Work Package owner；全仓审计本身不扩张为无限修改包。
 7. 保留每个行为候选的 path/line/text/deterministic-or-Skill route ledger；unowned候选与unknown在默认执行中fail closed。只有显式diagnostic模式可以保留unknown而不作为Evidence退出失败。
 8. 输出按严重度、控制半径、不可逆风险、依赖顺序和修复收益排序的机器可读报告及有限候选闭包。
 

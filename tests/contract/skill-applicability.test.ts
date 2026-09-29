@@ -82,7 +82,7 @@ function planInput(overrides: {
 } = {}): SecOperationReadPlanInput {
   const head = overrides.head ?? gitOutput(['rev-parse', 'HEAD']);
   const base = overrides.base ?? head;
-  const candidates = overrides.candidates ?? ['sec-worker-development'];
+  const candidates = overrides.candidates ?? ['worker-development'];
   const observedChangedPaths = changedPaths(base, head);
   return {
     schema: SEC_OPERATION_READ_PLAN_INPUT_SCHEMA,
@@ -166,7 +166,7 @@ function evaluatePlan(input: SecOperationReadPlanInput): SecSkillApplicabilityDe
 test('verified Read Plan selects the single trusted Skill', () => {
   const decision = evaluatePlan(planInput());
   expect(decision.status).toBe('applicable');
-  expect(decision.selectedSkillId).toBe('sec-worker-development');
+  expect(decision.selectedSkillId).toBe('worker-development');
 });
 
 test('zero candidates and zero body budget resolve none-required', () => {
@@ -179,7 +179,7 @@ test('multiple surviving metadata candidates resolve ambiguous before any body r
   const decision = evaluatePlan(planInput({
     role: 'a0',
     operationKind: 'design',
-    candidates: ['sec-architecture-evolution', 'sec-heuristic-governance'],
+    candidates: ['architecture-evolution', 'heuristic-governance'],
     writePaths: []
   }));
   expect(decision.status).toBe('ambiguous');
@@ -190,14 +190,14 @@ test('Skill selection remains orthogonal to Task Capsule write and resource auth
   const decision = evaluatePlan(planInput({
     role: 'a0',
     operationKind: 'design',
-    candidates: ['sec-architecture-evolution'],
+    candidates: ['architecture-evolution'],
     writePaths: [],
     forbiddenPaths: ['docs/'],
     authorizedResources: ['github-api'],
     authorizedGates: ['hosted-gate']
   }));
   expect(decision.status).toBe('applicable');
-  expect(decision.selectedSkillId).toBe('sec-architecture-evolution');
+  expect(decision.selectedSkillId).toBe('architecture-evolution');
   expect('scopeConflicts' in decision).toBeFalse();
 });
 

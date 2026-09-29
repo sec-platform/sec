@@ -1,9 +1,9 @@
 ---
-name: sec-external-capability-governance
+name: external-capability-governance
 description: 用于引入、升级、调用、替换或退役外部工具、Provider、MCP、CLI/API/SDK，或准备手写、扩写、修补通用机制（含测试、fixture、helper和验证工具），或新增 wrapper/Adapter、安装/物化能力时，验证真实缺口、唯一 owner、最小 Effect 闭包和退役路径；不用于把外部输出或安装成功当作 SEC authority。
 ---
 
-# sec-external-capability-governance
+# external-capability-governance
 
 ## 触发
 - 新外部能力、Provider、CLI/API/SDK、wrapper/Adapter 或能力退役。

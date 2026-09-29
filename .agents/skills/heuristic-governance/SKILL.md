@@ -1,9 +1,9 @@
 ---
-name: sec-heuristic-governance
+name: heuristic-governance
 description: 用于新的 Agent 行为选择、重复系统性偏航、维护者纠错或 Skill/Work Package/计划被事实证伪时，从用户终局结果反向重算因果图、删除错误前提并把确定性事实收回唯一 owner；不用于复制产品事实、默认增加机器门禁或把每个反例追加成提示词。
 ---
 
-# sec-heuristic-governance
+# heuristic-governance
 
 ## 触发
 - 新增或改变 Agent 的选择、回退、停止、委派或恢复行为。

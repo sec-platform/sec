@@ -18,15 +18,15 @@ export {
 } from './task-capsule.ts';
 
 export const SEC_AGENT_SKILL_IDS = [
-  'sec-architecture-evolution',
-  'sec-exact-head-review',
-  'sec-external-capability-governance',
-  'sec-failure-recovery',
-  'sec-heuristic-governance',
-  'sec-repository-audit',
-  'sec-task-delegation',
-  'sec-test-design',
-  'sec-worker-development'
+  'architecture-evolution',
+  'exact-head-review',
+  'external-capability-governance',
+  'failure-recovery',
+  'heuristic-governance',
+  'repository-audit',
+  'task-delegation',
+  'test-design',
+  'worker-development'
 ] as const;
 
 export type SecAgentSkillId = (typeof SEC_AGENT_SKILL_IDS)[number];
@@ -66,15 +66,15 @@ const skillRoute = <SkillId extends SecAgentSkillId>(
  * plans; copying them into the Skill registry would create a second graph.
  */
 export const SEC_REPOSITORY_HEURISTIC_ROUTES = Object.freeze({
-  'architecture-evolution': skillRoute('sec-architecture-evolution'),
-  'exact-head-review': skillRoute('sec-exact-head-review'),
-  'external-capability-governance': skillRoute('sec-external-capability-governance'),
-  'failure-recovery': skillRoute('sec-failure-recovery'),
-  'governance-self-correction': skillRoute('sec-heuristic-governance'),
-  'repository-audit': skillRoute('sec-repository-audit'),
-  'task-delegation': skillRoute('sec-task-delegation'),
-  'test-design': skillRoute('sec-test-design'),
-  'worker-development': skillRoute('sec-worker-development')
+  'architecture-evolution': skillRoute('architecture-evolution'),
+  'exact-head-review': skillRoute('exact-head-review'),
+  'external-capability-governance': skillRoute('external-capability-governance'),
+  'failure-recovery': skillRoute('failure-recovery'),
+  'governance-self-correction': skillRoute('heuristic-governance'),
+  'repository-audit': skillRoute('repository-audit'),
+  'task-delegation': skillRoute('task-delegation'),
+  'test-design': skillRoute('test-design'),
+  'worker-development': skillRoute('worker-development')
 } satisfies Record<SecRepositoryHeuristicBehaviorId, SecRepositorySkillBehaviorRoute>);
 
 type SecMarkdownSurfaceKind =
@@ -123,9 +123,9 @@ export function resolveSecMarkdownSkillCoverage(path: string): SecMarkdownSkillC
     return {
       kind: 'agent-projection',
       skills: skills(
-        'sec-repository-audit',
-        'sec-task-delegation',
-        'sec-heuristic-governance'
+        'repository-audit',
+        'task-delegation',
+        'heuristic-governance'
       )
     };
   }
@@ -182,14 +182,14 @@ export function resolveSecMarkdownSkillCoverage(path: string): SecMarkdownSkillC
     return {
       kind: 'active-authority',
       skills: skills(
-        'sec-architecture-evolution',
-        'sec-exact-head-review',
-        'sec-failure-recovery',
-        'sec-heuristic-governance',
-        'sec-repository-audit',
-        'sec-task-delegation',
-        'sec-test-design',
-        'sec-worker-development'
+        'architecture-evolution',
+        'exact-head-review',
+        'failure-recovery',
+        'heuristic-governance',
+        'repository-audit',
+        'task-delegation',
+        'test-design',
+        'worker-development'
       )
     };
   }
@@ -197,10 +197,10 @@ export function resolveSecMarkdownSkillCoverage(path: string): SecMarkdownSkillC
     return {
       kind: 'active-authority',
       skills: skills(
-        'sec-exact-head-review',
-        'sec-failure-recovery',
-        'sec-repository-audit',
-        'sec-test-design'
+        'exact-head-review',
+        'failure-recovery',
+        'repository-audit',
+        'test-design'
       )
     };
   }
@@ -208,9 +208,9 @@ export function resolveSecMarkdownSkillCoverage(path: string): SecMarkdownSkillC
     return {
       kind: 'active-authority',
       skills: skills(
-        'sec-architecture-evolution',
-        'sec-repository-audit',
-        'sec-test-design'
+        'architecture-evolution',
+        'repository-audit',
+        'test-design'
       )
     };
   }
@@ -219,9 +219,9 @@ export function resolveSecMarkdownSkillCoverage(path: string): SecMarkdownSkillC
     return {
       kind: 'active-authority',
       skills: skills(
-        'sec-external-capability-governance',
-        'sec-repository-audit',
-        'sec-heuristic-governance'
+        'external-capability-governance',
+        'repository-audit',
+        'heuristic-governance'
       )
     };
   }
@@ -229,8 +229,8 @@ export function resolveSecMarkdownSkillCoverage(path: string): SecMarkdownSkillC
     return {
       kind: 'active-authority',
       skills: skills(
-        'sec-architecture-evolution',
-        'sec-repository-audit'
+        'architecture-evolution',
+        'repository-audit'
       )
     };
   }
@@ -238,8 +238,8 @@ export function resolveSecMarkdownSkillCoverage(path: string): SecMarkdownSkillC
     return {
       kind: 'active-proposal',
       skills: skills(
-        'sec-architecture-evolution',
-        'sec-repository-audit'
+        'architecture-evolution',
+        'repository-audit'
       )
     };
   }
@@ -265,26 +265,26 @@ export function resolveSecRepositoryHeuristicSkills(path: string): SecAgentSkill
   const skillId = skillIdFromPath(path);
   if (skillId) return [skillId];
   if (path === 'AGENTS.md') {
-    return skills('sec-heuristic-governance', 'sec-repository-audit', 'sec-task-delegation');
+    return skills('heuristic-governance', 'repository-audit', 'task-delegation');
   }
   if (path.startsWith('.documentation/')
     || path === 'tools/check_docs.py'
     || path === 'tools/check_design.py'
     || path === 'tools/source_inventory.py'
     || path.startsWith('src/adapters/self-hosting/control/documentation/')) {
-    return skills('sec-heuristic-governance', 'sec-repository-audit');
+    return skills('heuristic-governance', 'repository-audit');
   }
   if (path === 'config/external-capabilities/ledger.yaml') {
-    return skills('sec-external-capability-governance', 'sec-heuristic-governance');
+    return skills('external-capability-governance', 'heuristic-governance');
   }
   if (path.startsWith('src/adapters/self-hosting/control/agent/')) {
-    return skills('sec-architecture-evolution', 'sec-heuristic-governance', 'sec-repository-audit');
+    return skills('architecture-evolution', 'heuristic-governance', 'repository-audit');
   }
   if (/^\.codex\//u.test(path)) {
-    return skills('sec-exact-head-review', 'sec-heuristic-governance', 'sec-task-delegation');
+    return skills('exact-head-review', 'heuristic-governance', 'task-delegation');
   }
   if (path === REPOSITORY_AUDIT_ENTRYPOINT_PATH) {
-    return skills('sec-repository-audit', 'sec-heuristic-governance');
+    return skills('repository-audit', 'heuristic-governance');
   }
   return [];
 }
@@ -349,48 +349,48 @@ export interface SecAgentSkillMetadata {
 }
 
 export const SEC_AGENT_SKILL_METADATA = {
-  'sec-architecture-evolution': {
-    id: 'sec-architecture-evolution',
+  'architecture-evolution': {
+    id: 'architecture-evolution',
     roles: ['a0', 'auditor', 'maintainer'],
     operationKinds: ['design']
   },
-  'sec-exact-head-review': {
-    id: 'sec-exact-head-review',
+  'exact-head-review': {
+    id: 'exact-head-review',
     roles: ['reviewer'],
     operationKinds: ['review']
   },
-  'sec-external-capability-governance': {
-    id: 'sec-external-capability-governance',
+  'external-capability-governance': {
+    id: 'external-capability-governance',
     roles: ['a0', 'maintainer'],
     operationKinds: ['govern']
   },
-  'sec-failure-recovery': {
-    id: 'sec-failure-recovery',
+  'failure-recovery': {
+    id: 'failure-recovery',
     roles: ['a0', 'worker', 'maintainer'],
     operationKinds: ['diagnose']
   },
-  'sec-heuristic-governance': {
-    id: 'sec-heuristic-governance',
+  'heuristic-governance': {
+    id: 'heuristic-governance',
     roles: ['a0', 'auditor', 'maintainer'],
     operationKinds: ['govern', 'design']
   },
-  'sec-repository-audit': {
-    id: 'sec-repository-audit',
+  'repository-audit': {
+    id: 'repository-audit',
     roles: ['auditor'],
     operationKinds: ['audit']
   },
-  'sec-task-delegation': {
-    id: 'sec-task-delegation',
+  'task-delegation': {
+    id: 'task-delegation',
     roles: ['a0'],
     operationKinds: ['govern', 'orient']
   },
-  'sec-test-design': {
-    id: 'sec-test-design',
+  'test-design': {
+    id: 'test-design',
     roles: ['a0'],
     operationKinds: ['design']
   },
-  'sec-worker-development': {
-    id: 'sec-worker-development',
+  'worker-development': {
+    id: 'worker-development',
     roles: ['worker'],
     operationKinds: ['implement']
   }

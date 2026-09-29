@@ -284,7 +284,7 @@ test('heuristic context propagation is bounded by paragraph, code, heading, fenc
 });
 
 test.serial('repository audit reads one immutable HEAD tree and fails closed on dirty state', async () => {
-  const repositoryRoot = await mkdtemp(path.join(tmpdir(), 'sec-repository-audit-'));
+  const repositoryRoot = await mkdtemp(path.join(tmpdir(), 'repository-audit-'));
   try {
     git(repositoryRoot, ['init', '--quiet', '--initial-branch=main']);
     git(repositoryRoot, ['config', 'user.name', 'SEC Test']);
@@ -557,7 +557,7 @@ async function createTempRepo(prefix: string): Promise<{ root: string; headSha: 
 }
 
 test.serial('exact SHA default-ref resolves without remote-tracking ref', async () => {
-  const { root, headSha: parentSha } = await createTempRepo('sec-repository-audit-default-ref-sha-');
+  const { root, headSha: parentSha } = await createTempRepo('repository-audit-default-ref-sha-');
   try {
     await writeFile(path.join(root, 'SECOND.md'), '# Second\n', 'utf8');
     git(root, ['add', 'SECOND.md']);
@@ -576,7 +576,7 @@ test.serial('exact SHA default-ref resolves without remote-tracking ref', async 
 });
 
 test.serial('missing default-ref without remote-tracking ref fails closed', async () => {
-  const { root } = await createTempRepo('sec-repository-audit-default-ref-missing-');
+  const { root } = await createTempRepo('repository-audit-default-ref-missing-');
   const savedEnv = process.env.SEC_REPOSITORY_AUDIT_DEFAULT_REF;
   try {
     delete process.env.SEC_REPOSITORY_AUDIT_DEFAULT_REF;
@@ -597,7 +597,7 @@ test.serial('missing default-ref without remote-tracking ref fails closed', asyn
 });
 
 test.serial('nonexistent SHA default-ref reports unknown', async () => {
-  const { root } = await createTempRepo('sec-repository-audit-default-ref-ghost-');
+  const { root } = await createTempRepo('repository-audit-default-ref-ghost-');
   try {
     const ghostSha = '0'.repeat(40);
     const report = await auditRepository(root, { defaultRef: ghostSha });
@@ -611,7 +611,7 @@ test.serial('nonexistent SHA default-ref reports unknown', async () => {
 });
 
 test.serial('ref default-ref resolves when remote-tracking ref exists', async () => {
-  const { root, headSha } = await createTempRepo('sec-repository-audit-default-ref-remote-');
+  const { root, headSha } = await createTempRepo('repository-audit-default-ref-remote-');
   const savedEnv = process.env.SEC_REPOSITORY_AUDIT_DEFAULT_REF;
   try {
     delete process.env.SEC_REPOSITORY_AUDIT_DEFAULT_REF;
@@ -634,7 +634,7 @@ test.serial('ref default-ref resolves when remote-tracking ref exists', async ()
 });
 
 test.serial('CLI --default-ref takes precedence over env', async () => {
-  const { root, headSha } = await createTempRepo('sec-repository-audit-default-ref-cli-');
+  const { root, headSha } = await createTempRepo('repository-audit-default-ref-cli-');
   const savedEnv = process.env.SEC_REPOSITORY_AUDIT_DEFAULT_REF;
   try {
     process.env.SEC_REPOSITORY_AUDIT_DEFAULT_REF = '0'.repeat(40);
@@ -655,7 +655,7 @@ test.serial('CLI --default-ref takes precedence over env', async () => {
 });
 
 test.serial('env SEC_REPOSITORY_AUDIT_DEFAULT_REF is read when options absent', async () => {
-  const { root, headSha } = await createTempRepo('sec-repository-audit-default-ref-env-');
+  const { root, headSha } = await createTempRepo('repository-audit-default-ref-env-');
   const savedEnv = process.env.SEC_REPOSITORY_AUDIT_DEFAULT_REF;
   try {
     process.env.SEC_REPOSITORY_AUDIT_DEFAULT_REF = headSha;

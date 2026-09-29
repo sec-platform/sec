@@ -1,9 +1,9 @@
 ---
-name: sec-worker-development
+name: worker-development
 description: 用于在 frozen Task Envelope 内实现一个 SEC 产品、修复或重构纵切片，提交 Reconciliation Delta，并把已明确授权的仓库终态推进到 settlement/readback；不用于 DAG、凭空取得 hosted Gate/merge 权限或跨 owner 改动。
 ---
 
-# sec-worker-development
+# worker-development
 
 ## 触发
 - 已收到 exact base、branch、owned/forbidden paths、acceptance、focused verification closure，且需要的测试语义已经冻结。

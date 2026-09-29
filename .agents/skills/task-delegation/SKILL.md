@@ -1,9 +1,9 @@
 ---
-name: sec-task-delegation
+name: task-delegation
 description: 用于判断 frozen Work Package 是否值得拆成互不重叠的角色任务，并约束 Worker、Reviewer 与 A0 的责任边界；不用于单一纵切片或同一 authority 的并发写入。
 ---
 
-# sec-task-delegation
+# task-delegation
 
 ## 触发
 - frozen Work Package 存在两个以上真正独立、并行收益大于协调成本的 seam，或必须隔离独立 Reviewer。

@@ -55,7 +55,7 @@ function planningContext(): SecTaskCapsulePlanningContext {
       revision: 'v1',
       reasonCode: 'public-contract-change'
     }],
-    skillCandidateIds: ['sec-worker-development']
+    skillCandidateIds: ['worker-development']
   };
 }
 
