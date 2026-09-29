@@ -3,7 +3,7 @@ import type {
   PhysicalDirectoryIdentity,
   RetainedNoFollowProvenDirectoryGeneration,
   RetainedNoFollowSealedDirectoryGeneration
-} from './physical-no-follow.ts';
+} from './physical-no-follow-contract.ts';
 import {
   materializeRetainedSealedPhysicalExecutionTreeGeneration,
   SealedPhysicalExecutionTreeResidueError,
