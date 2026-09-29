@@ -240,7 +240,14 @@ export function CodexDevelopmentSnapshotVerificationData(
   value: unknown,
   label: string = 'Verification data'
 ): unknown {
-  return snapshotVerificationData(value, label);
+  try {
+    return snapshotVerificationData(value, label);
+  } catch (error) {
+    if (error instanceof Error && error.message.endsWith('must not contain Proxy values.')) {
+      throw new Error('Verification data must not contain Proxy values.', { cause: error });
+    }
+    throw error;
+  }
 }
 
 export function CodexDevelopmentVerificationDataEqual(
