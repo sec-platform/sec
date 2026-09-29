@@ -2480,19 +2480,20 @@ async function auditControlPlane(
 
   const liveManifests = tracked.filter((file) => /^config\/repository\/work-packages\/[^/]+\.md$/u.test(file));
   try {
-    const entries = await Promise.all(liveManifests.map(async (packagePath) => {
+    const entries = [];
+    for (const packagePath of liveManifests) {
       const candidateBytes = bytesByPath.get(packagePath);
       if (candidateBytes === undefined) {
         throw new Error(`candidate Git bytes are unavailable for ${packagePath}`);
       }
-      return {
+      entries.push({
         path: packagePath,
         candidateBytes,
         defaultBytes: packagePath === manifestPath
           ? null
           : await runGitBytes(session, ['show', `${defaultRef}:${packagePath}`], { allowFailure: true })
-      };
-    }));
+      });
+    }
     const roadmapSource = textByPath.get('config/repository/work-selection.md');
     const census = CodexDevelopmentClassifyWorkPackageCensus({
       selectedManifestPath: manifestPath,
@@ -2767,8 +2768,8 @@ async function auditRepositoryWithSession(
     contentCoverage,
     findings: Object.freeze(findings),
     optimizations: Object.freeze([
-      '把未覆盖的 Agent 行为交给 heuristic-governance，不在原文件追加孤立指令。',
-      '把跨 owner 的架构 finding 交给 architecture-evolution，冻结 authority/contract 后再实现。',
+      '把未覆盖的 Agent 行为交给 sec-heuristic-governance，不在原文件追加孤立指令。',
+      '把跨 owner 的架构 finding 交给 sec-architecture-evolution，冻结 authority/contract 后再实现。',
       '把产品 finding 拆为依赖明确的最小 Work Package；审计报告只作 exact-revision Evidence。',
       '删除无消费者配置、已退役路径 owner 和重复权威；保留机器可验证 registry，而不是新增叙述文档。'
     ]),
