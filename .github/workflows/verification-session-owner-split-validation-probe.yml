@@ -38,6 +38,17 @@ jobs:
       - name: Run native typecheck
         run: bun run typecheck
 
-      - name: Run focused VerificationSession regressions
+      - name: Run focused VerificationSession regressions in isolated Bun processes
+        shell: bash
         run: |
-          bun test             tests/unit/verification-session-runtime.test.ts             tests/unit/verification-session-hosted-local-ref.test.ts             tests/unit/verification-action-github-provider.test.ts             tests/unit/branch-lifecycle-contract.test.ts             tests/contract/merge-gate.test.ts
+          set -euo pipefail
+          tests=(
+            tests/unit/verification-session-runtime.test.ts
+            tests/unit/verification-session-hosted-local-ref.test.ts
+            tests/unit/verification-action-github-provider.test.ts
+            tests/unit/branch-lifecycle-contract.test.ts
+            tests/contract/merge-gate.test.ts
+          )
+          for test_file in "${tests[@]}"; do
+            bun test "$test_file"
+          done
