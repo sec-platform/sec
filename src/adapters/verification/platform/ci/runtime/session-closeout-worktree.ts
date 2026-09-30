@@ -1,5 +1,10 @@
 /** VerificationSession physical owner recovered from current-main semantics. */
 import { assertWorkspaceWriteLease, type WorkspaceWriteLeaseToken } from '../../../../filesystem/write-lease.ts';
+import {
+  PhysicalNoFollowError,
+  inspectNoFollowDirectoryChain,
+  retainNoFollowOrdinaryFile
+} from '../../../../runtime-state/physical/runtime/physical-no-follow.ts';
 import { authorizeBranchCloseout } from '../../../../self-hosting/control/branch-lifecycle/branch-closeout-authorization.ts';
 import { BRANCH_CLOSEOUT_RECOVERY_ARTIFACT_FILE_NAME, createBranchCloseoutOperationBinding, parseBranchCloseoutRecoveryArtifact } from '../../../../self-hosting/control/branch-lifecycle/branch-closeout-contract.ts';
 import { parsePreparedBranchCloseoutEnvelope, type PreparedBranchCloseoutEnvelope } from '../../../../self-hosting/control/branch-lifecycle/branch-closeout.ts';
@@ -11,7 +16,6 @@ import { encodeVerificationActionData } from '../../action/contract/action.ts';
 import type { VerificationSessionScope } from '../contract/session-scope.ts';
 import { loadProviderBranchCloseoutRecoveryArtifact } from './session-hosted-artifacts.ts';
 import { requireCommand } from './session-local-repository.ts';
-import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 
 export async function evaluateHostedCloseoutEffectPreconditionsUnderLease(input: Readonly<{
@@ -95,12 +99,34 @@ export function loadOriginalHostPreparedCloseout(input: Readonly<{
   outputPath: string;
   providerRecovery: ReturnType<typeof loadProviderBranchCloseoutRecoveryArtifact>;
 }>): PreparedBranchCloseoutEnvelope {
-  const artifactPath = path.join(path.dirname(path.resolve(input.outputPath)),
-    BRANCH_CLOSEOUT_RECOVERY_ARTIFACT_FILE_NAME);
-  if (!existsSync(artifactPath)) {
-    throw new Error('external-maintainer-disposition-required: original-host recovery artifact is unavailable.');
+  const artifactParent = inspectNoFollowDirectoryChain(
+    path.dirname(path.resolve(input.outputPath)),
+    'original-host recovery artifact parent'
+  );
+  let retainedArtifact;
+  try {
+    retainedArtifact = retainNoFollowOrdinaryFile(
+      artifactParent,
+      BRANCH_CLOSEOUT_RECOVERY_ARTIFACT_FILE_NAME,
+      undefined,
+      'original-host recovery artifact'
+    );
+  } catch (error) {
+    if (error instanceof PhysicalNoFollowError
+        && error.code === 'PHYSICAL_NO_FOLLOW_ABSENT') {
+      throw new Error(
+        'external-maintainer-disposition-required: original-host recovery artifact is unavailable.'
+      );
+    }
+    throw error;
   }
-  const source = readFileSync(artifactPath, 'utf8');
+  let source: string;
+  try {
+    source = new TextDecoder('utf-8', { fatal: true }).decode(retainedArtifact.readBytes());
+    retainedArtifact.assertCurrent();
+  } finally {
+    retainedArtifact.dispose();
+  }
   const localArtifact = parseBranchCloseoutRecoveryArtifact(source);
   if (`${encodeVerificationActionData(localArtifact)}\n` !== source
     || encodeVerificationActionData(localArtifact) !== encodeVerificationActionData(input.providerRecovery.artifact)) {
