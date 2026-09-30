@@ -43,7 +43,7 @@ import {
 } from './physical-no-follow-native.ts';
 import {
   REPOSITORY_CHANGE_OBSERVER_MAXIMUM_EVENTS,
-  REPOSITORY_CHANGE_OBSERVER_MAXIMUM_OBSERVATION_MS,
+  REPOSITORY_CHANGE_OBSERVER_DIRECT_MAXIMUM_OBSERVATION_MS,
   REPOSITORY_CHANGE_OBSERVER_MAXIMUM_ROOTS,
   REPOSITORY_CHANGE_OBSERVER_MAXIMUM_WATCHES,
   RETAINED_REPOSITORY_CHANGE_OBSERVER_CONTRACT_DIGEST,
@@ -315,12 +315,14 @@ function watchDirectoryTree(input: Readonly<{
 
 function armRetainedState(
   state: PreparedObserverState,
-  deadlineAtUnixMs: number
+  deadlineAtUnixMs: number,
+  operationBound: boolean
 ): LinuxRepositoryChangeObserverResolution {
   if (process.platform !== 'linux') return unavailable('unsupported-platform');
   const now = Date.now();
   if (!Number.isSafeInteger(deadlineAtUnixMs) || deadlineAtUnixMs <= now
-      || deadlineAtUnixMs - now > REPOSITORY_CHANGE_OBSERVER_MAXIMUM_OBSERVATION_MS) {
+      || (!operationBound
+        && deadlineAtUnixMs - now > REPOSITORY_CHANGE_OBSERVER_DIRECT_MAXIMUM_OBSERVATION_MS)) {
     return unavailable('invalid-input');
   }
   let witnessFd: number | null = null;
@@ -604,7 +606,7 @@ export async function armPreparedLinuxRepositoryChangeObserver(input: Readonly<{
     return unavailable('invalid-input');
   }
   preparedObservers.delete(input.prepared);
-  const resolution = armRetainedState(state, deadlineAtUnixMs);
+  const resolution = armRetainedState(state, deadlineAtUnixMs, true);
   if (resolution.status === 'ready') {
     activatedPreparedObservers.set(input.prepared, resolution.observer);
   }
@@ -649,7 +651,7 @@ export async function armLinuxRepositoryChangeObserver(input: Readonly<{
   } catch {
     return unavailable('root-unavailable');
   }
-  return armRetainedState(state, input.deadlineAtUnixMs);
+  return armRetainedState(state, input.deadlineAtUnixMs, false);
 }
 
 export async function settleLinuxRepositoryChangeObserver(
