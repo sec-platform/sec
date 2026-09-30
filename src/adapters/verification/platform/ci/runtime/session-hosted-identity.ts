@@ -27,11 +27,29 @@ export function hostedActorHandle(event: Record<string, any>): string {
   return login;
 }
 
+type PositiveEnvironmentIntegerKey =
+  | 'GITHUB_RUN_ATTEMPT'
+  | 'MAIN_HEALTH_RUNNER_QUEUE_ALLOWANCE_MINUTES'
+  | 'MAIN_HEALTH_PRODUCER_TIMEOUT_MINUTES'
+  | 'MAIN_HEALTH_JOIN_POLL_INTERVAL_SECONDS';
+
 export function positiveEnvironmentInteger(
-  name: 'GITHUB_RUN_ATTEMPT',
+  name: PositiveEnvironmentIntegerKey,
   environment: Readonly<Record<string, string | undefined>>
 ): number {
-  const value = Number(environment.GITHUB_RUN_ATTEMPT);
+  const raw = (() => {
+    switch (name) {
+      case 'GITHUB_RUN_ATTEMPT':
+        return environment.GITHUB_RUN_ATTEMPT;
+      case 'MAIN_HEALTH_RUNNER_QUEUE_ALLOWANCE_MINUTES':
+        return environment.MAIN_HEALTH_RUNNER_QUEUE_ALLOWANCE_MINUTES;
+      case 'MAIN_HEALTH_PRODUCER_TIMEOUT_MINUTES':
+        return environment.MAIN_HEALTH_PRODUCER_TIMEOUT_MINUTES;
+      case 'MAIN_HEALTH_JOIN_POLL_INTERVAL_SECONDS':
+        return environment.MAIN_HEALTH_JOIN_POLL_INTERVAL_SECONDS;
+    }
+  })();
+  const value = Number(raw);
   if (!Number.isSafeInteger(value) || value < 1) throw new Error(`${name} must be a positive integer.`);
   return value;
 }
