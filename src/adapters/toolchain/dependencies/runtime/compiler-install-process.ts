@@ -16,6 +16,7 @@ import { generatedStateDigest } from '../../../runtime-state/generated-state/con
 import {
   assertRetainedNoFollowCapability,
   inspectNoFollowDirectoryChain,
+  retainCurrentLinuxSealedExecutable,
   retainNoFollowDirectoryForChildProcess,
   retainNoFollowOrdinaryFile
 } from '../../../runtime-state/physical/runtime/physical-no-follow.ts';
@@ -229,18 +230,26 @@ export async function runBunInstall(
       }
       const expected = capturedExecutable ?? captureExpectedExecutable(await currentRuntimeExecutableIdentity(true));
       return withCompilerInstallResources(async resources => {
-        const executableParent = inspectNoFollowDirectoryChain(
-          path.dirname(expected.path),
-          'Bun executable retained parent'
+        const executable = resources.executable(
+          process.platform === 'linux'
+            && expected.path === `/proc/self/fd/${RETAINED_EXECUTABLE_CHILD_DESCRIPTOR}`
+            ? retainCurrentLinuxSealedExecutable(
+                RETAINED_EXECUTABLE_CHILD_DESCRIPTOR,
+                RETAINED_EXECUTABLE_CHILD_DESCRIPTOR,
+                'Bun inherited sealed executable capability'
+              )
+            : retainNoFollowOrdinaryFile(
+                inspectNoFollowDirectoryChain(
+                  path.dirname(expected.path),
+                  'Bun executable retained parent'
+                ),
+                path.basename(expected.path),
+                undefined,
+                'Bun executable retained capability',
+                RETAINED_EXECUTABLE_CHILD_DESCRIPTOR,
+                'executable'
+              )
         );
-        const executable = resources.executable(retainNoFollowOrdinaryFile(
-          executableParent,
-          path.basename(expected.path),
-          undefined,
-          'Bun executable retained capability',
-          RETAINED_EXECUTABLE_CHILD_DESCRIPTOR,
-          'executable'
-        ));
         const workingDirectoryChain = inspectNoFollowDirectoryChain(
           workingDirectory,
           'Bun retained working directory'
