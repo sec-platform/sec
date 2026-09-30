@@ -85,31 +85,31 @@ export const LINUX_RENAME_NOREPLACE = 1;
 
 export const LINUX_RENAME_EXCHANGE = 2;
 
-const LINUX_IN_CREATE = 0x0000_0100;
+export const LINUX_IN_CREATE = 0x0000_0100;
 
-const LINUX_IN_MODIFY = 0x0000_0002;
+export const LINUX_IN_MODIFY = 0x0000_0002;
 
-const LINUX_IN_ATTRIB = 0x0000_0004;
+export const LINUX_IN_ATTRIB = 0x0000_0004;
 
-const LINUX_IN_CLOSE_WRITE = 0x0000_0008;
+export const LINUX_IN_CLOSE_WRITE = 0x0000_0008;
 
-const LINUX_IN_DELETE = 0x0000_0200;
+export const LINUX_IN_DELETE = 0x0000_0200;
 
-const LINUX_IN_MOVED_FROM = 0x0000_0040;
+export const LINUX_IN_MOVED_FROM = 0x0000_0040;
 
-const LINUX_IN_MOVED_TO = 0x0000_0080;
+export const LINUX_IN_MOVED_TO = 0x0000_0080;
 
-const LINUX_IN_DELETE_SELF = 0x0000_0400;
+export const LINUX_IN_DELETE_SELF = 0x0000_0400;
 
-const LINUX_IN_MOVE_SELF = 0x0000_0800;
+export const LINUX_IN_MOVE_SELF = 0x0000_0800;
 
-const LINUX_IN_Q_OVERFLOW = 0x0000_4000;
+export const LINUX_IN_Q_OVERFLOW = 0x0000_4000;
 
-const LINUX_IN_IGNORED = 0x0000_8000;
+export const LINUX_IN_IGNORED = 0x0000_8000;
 
-const LINUX_IN_ONLYDIR = 0x0100_0000;
+export const LINUX_IN_ONLYDIR = 0x0100_0000;
 
-const LINUX_IN_ISDIR = 0x4000_0000;
+export const LINUX_IN_ISDIR = 0x4000_0000;
 
 const LINUX_DIRECTORY_CREATE_WATCH_MASK = LINUX_IN_CREATE | LINUX_IN_DELETE |
   LINUX_IN_MOVED_FROM | LINUX_IN_MOVED_TO | LINUX_IN_DELETE_SELF |
@@ -499,13 +499,13 @@ export function linuxIdentity(fd: number, absolutePath: string): PhysicalDirecto
   return identityFromStats({ absolutePath, finalPath: absolutePath, device: stats.dev, inode: stats.ino, objectId });
 }
 
-interface LinuxDirectoryMutationEvent {
+export interface LinuxDirectoryMutationEvent {
   readonly watchDescriptor: number;
   readonly mask: number;
   readonly name: string;
 }
 
-interface LinuxDirectoryCreateWitness {
+export interface LinuxDirectoryCreateWitness {
   readonly fd: number;
   readonly watchDescriptor: number;
   readonly ancestorEdges: ReadonlyMap<number, string>;
@@ -520,7 +520,7 @@ interface LinuxDirectoryCreateTransaction {
   readonly ancestorEdges: Map<number, string>;
 }
 
-function linuxOpenDirectoryMutationWitness(label: string): number {
+export function linuxOpenDirectoryMutationWitness(label: string): number {
   const symbols = requireLinuxLibc().symbols;
   const fd = symbols.inotify_init1(LINUX_O_NONBLOCK | LINUX_O_CLOEXEC);
   if (fd < 0) {
@@ -532,13 +532,21 @@ function linuxOpenDirectoryMutationWitness(label: string): number {
   return fd;
 }
 
-function linuxAddDirectoryMutationWatch(witnessFd: number, directoryFd: number, label: string): number {
+export function linuxAddDirectoryMutationWatch(
+  witnessFd: number,
+  directoryFd: number,
+  label: string,
+  mask = LINUX_DIRECTORY_CREATE_WATCH_MASK
+): number {
+  if (!Number.isSafeInteger(mask) || mask <= 0 || mask > 0xffff_ffff) {
+    throw physicalError('PHYSICAL_NO_FOLLOW_UNSAFE_PATH', `${label} Linux mutation watch mask is invalid.`);
+  }
   // /proc/self/fd is a kernel-owned spelling of the already-retained
   // directory, not a second lookup of the caller's lexical path.
   const watchDescriptor = requireLinuxLibc().symbols.inotify_add_watch(
     witnessFd,
     Buffer.from(`/proc/self/fd/${directoryFd}\0`, 'utf8'),
-    LINUX_DIRECTORY_CREATE_WATCH_MASK
+    mask
   );
   if (watchDescriptor < 0) {
     throw physicalError(
