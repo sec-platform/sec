@@ -15,7 +15,8 @@ import {
   assertSameNoFollowDirectoryIdentity,
   inspectNoFollowDirectoryChain,
   inspectNoFollowOrdinaryFileEntry,
-  readNoFollowOrdinaryFile
+  readNoFollowOrdinaryFile,
+  retainCurrentLinuxSealedExecutable
 } from '../../../runtime-state/physical/runtime/physical-no-follow.ts';
 import { compilerRoot } from "../../../workspace-context.ts";
 import { loadCanonicalBunRuntimeVersion } from '../../runtime.ts';
@@ -98,6 +99,35 @@ export async function currentRuntimeExecutableIdentity(
     return runtimeExecutableIdentityInFlight;
   }
   const observation = (async (): Promise<RuntimeExecutableIdentity> => {
+    if (process.platform === 'linux'
+        && process.execPath.startsWith('/memfd:sec-retained-executable')) {
+      const executable = retainCurrentLinuxSealedExecutable(
+        3,
+        3,
+        'Compiler runtime sealed executable identity'
+      );
+      try {
+        const observed = executable.digest();
+        if (!observed.byteDigest.startsWith('sha256:')) {
+          throw new SecError(
+            'IMPORT-AUTHORITY-001',
+            'Sealed Bun runtime executable did not produce a canonical byte digest'
+          );
+        }
+        return Object.freeze({
+          path: executable.path,
+          sha256: observed.byteDigest.slice('sha256:'.length),
+          signature: [
+            'linux-sealed-runtime-v1',
+            executable.path,
+            executable.size,
+            observed.byteDigest
+          ].join(':')
+        });
+      } finally {
+        executable.dispose();
+      }
+    }
     const executablePath = await fs.realpath(process.execPath);
     const handle = await fs.open(executablePath, 'r');
     try {
