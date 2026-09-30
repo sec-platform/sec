@@ -12,7 +12,7 @@ import {
   type WorkspaceSourceSnapshot
 } from '../../src/adapters/repository/source-program-model/workspace-source-snapshot.ts';
 import { inspectNoFollowDirectoryChain } from '../../src/adapters/runtime-state/physical/runtime/physical-no-follow.ts';
-import type { PreparedWindowsRepositoryChangeObserver } from '../../src/adapters/runtime-state/physical/runtime/windows-repository-change-observer.ts';
+import type { PreparedRepositoryChangeObserver } from '../../src/adapters/runtime-state/physical/runtime/repository-change-observer.ts';
 import { AFFECTED_SELECTION_OPERATION_DURATION_MS, compileAffectedTestSelectionSemanticOperation } from '../../src/adapters/self-hosting/development/runner/affected-plan-contract.ts';
 import type {
   DevCommandObservation,
@@ -445,7 +445,7 @@ mock.module('../../src/adapters/self-hosting/development/runner/repository-mutat
       processSession?: undefined,
       executionContext?: Readonly<{
         testSuiteAdmission: TestSuiteExecutionAdmission;
-        testSuiteObserver: PreparedWindowsRepositoryChangeObserver;
+        testSuiteObserver: PreparedRepositoryChangeObserver;
       }>
     ) => Promise<number>,
     options: Readonly<{
@@ -470,7 +470,7 @@ mock.module('../../src/adapters/self-hosting/development/runner/repository-mutat
     assertIssuedTestSuiteExecutionAdmission(options.testSuiteAdmission);
     return operation(undefined, Object.freeze({
       testSuiteAdmission: options.testSuiteAdmission,
-      testSuiteObserver: Object.freeze({}) as PreparedWindowsRepositoryChangeObserver
+      testSuiteObserver: Object.freeze({}) as PreparedRepositoryChangeObserver
     }));
   }
 }));
