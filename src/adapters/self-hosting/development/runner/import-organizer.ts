@@ -794,8 +794,8 @@ async function prepareStagedIndexPublication(
       }
     }
     if (indexHandle === null) throw new Error('Git index handle is not live');
-    const pathMetadata = await fs.lstat(indexPath);
-    if (!pathMetadata.isFile() || pathMetadata.isSymbolicLink()
+    const pathMetadata = await fs.stat(indexPath);
+    if (!pathMetadata.isFile()
       || pathMetadata.dev !== metadata.dev || pathMetadata.ino !== metadata.ino
       || pathMetadata.mode !== metadata.mode || pathMetadata.size !== metadata.size
       || pathMetadata.mtimeMs !== metadata.mtimeMs || pathMetadata.ctimeMs !== metadata.ctimeMs) {
@@ -804,7 +804,7 @@ async function prepareStagedIndexPublication(
     const seed = await indexHandle.readFile();
     const [afterHandle, afterPath] = await Promise.all([
       indexHandle.stat(),
-      fs.lstat(indexPath)
+      fs.stat(indexPath)
     ]);
     if (afterHandle.dev !== metadata.dev || afterHandle.ino !== metadata.ino
       || afterHandle.mode !== metadata.mode || afterHandle.size !== metadata.size
