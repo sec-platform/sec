@@ -608,22 +608,30 @@ export function createRegisteredHostedMainHealthInputs(input: {
   const presentPolicies = HOSTED_MAIN_HEALTH_PROVIDER_POLICIES.filter((policy) => (
     input.checks.some((check) => matchesHostedMainHealthProvider(check, policy, input.mainSha))
   ));
-  return Object.freeze(presentPolicies.map((policy) => {
-    const exactProviderChecks = input.checks
-      .filter((check) => matchesHostedMainHealthProvider(check, policy, input.mainSha));
-    return createObservedMainHealthInputWithPolicy({
-      ...input,
-      sourceRunId: exactProviderChecks.length === 1
-        ? policy.producer.kind === 'github-app-check'
-          ? String(exactProviderChecks[0]!.id)
-          : exactProviderChecks[0]!.workflowRunId!
-        : 'ambiguous-hosted-provider',
-      policy
-    });
-  }));
+  return Object.freeze(presentPolicies.map((policy) =>
+    createProviderObservedMainHealthInput({ ...input, policy })));
 }
 
-/** Direct Actions adapter used by hosted verification consumers. */
+function createProviderObservedMainHealthInput(
+  input: Omit<Parameters<typeof createObservedMainHealthInputWithPolicy>[0], 'sourceRunId'>
+): MainHealthLedgerInput {
+  const exactProviderChecks = input.checks
+    .filter((check) => matchesHostedMainHealthProvider(check, input.policy, input.mainSha));
+  return createObservedMainHealthInputWithPolicy({
+    ...input,
+    sourceRunId: exactProviderChecks.length === 1
+      ? input.policy.producer.kind === 'github-app-check'
+        ? String(exactProviderChecks[0]!.id)
+        : exactProviderChecks[0]!.workflowRunId!
+      : 'ambiguous-hosted-provider'
+  });
+}
+
+/**
+ * Direct Actions adapter used by hosted verification consumers. Producer
+ * provenance comes from the matched provider check, never the observing
+ * Session, merge workflow, or local preparation operation.
+ */
 export function createObservedMainHealthInput(input: {
   repository: string;
   mainSha: string;
@@ -631,12 +639,11 @@ export function createObservedMainHealthInput(input: {
   trustRevision: string;
   observedAt: string;
   expiresAt: string;
-  sourceRunId: string;
-  sourceRef: string;
   checks: readonly GitHubCheckObservation[];
 }): MainHealthLedgerInput {
-  return createObservedMainHealthInputWithPolicy({
+  return createProviderObservedMainHealthInput({
     ...input,
+    sourceRef: `github-check-runs:${input.repository}@${input.mainSha}`,
     policy: GITHUB_ACTIONS_MAIN_HEALTH_CHECK_PROVIDER_POLICY
   });
 }

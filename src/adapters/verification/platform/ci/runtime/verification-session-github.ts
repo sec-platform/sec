@@ -8,6 +8,7 @@ import {
   GitHubApiProviderError,
   inspectGitHubApiCapability, withGitHubApiVerificationSession, type GitHubApiOperation
 } from '../../../../providers/github-api/operation-session.ts';
+import { normalizeGitHubRepositoryPermission } from '../../../../providers/github-api/repository-permission.ts';
 import {
   GITHUB_PRINCIPAL_NODE_QUERY,
   GITHUB_PULL_REQUEST_CLOSING_QUERY,
@@ -24,6 +25,7 @@ import {
   type GitHubIssueReference,
   type GitHubPullRequestClosingFacts
 } from '../../../../self-hosting/control/issues/disposition.ts';
+import { createMainAuthorityRulesetReceipt } from '../../../../self-hosting/control/main-health/authority-ruleset.ts';
 import { encodeVerificationActionData } from '../../action/contract/action.ts';
 import { CI_GITHUB_ACTIONS_IDENTITY_POLICY, matchesCiCompilerWorkflowRunIdentity } from '../../action/contract/provider.ts';
 import { classifyProviderDiagnosticTextV1 } from '../../provider/contract/capability.ts';
@@ -2316,8 +2318,31 @@ class VerificationSessionGitHubAdapter {
 
   async observePlatformEnforcement(repository: string): Promise<PlatformEnforcementObservation> {
     try {
-      const rulesets = (await this.#transport.repositoryRulesets(repository));
-      return Object.freeze({ status: 'available', rulesetDigest: hash(rulesets), reason: null });
+      const source = await this.#transport.repositoryRulesets(repository);
+      if (source === null || typeof source !== 'object' || Array.isArray(source)) {
+        fail('platform enforcement readback must be one canonical ruleset bundle.');
+      }
+      const bundle = source as Record<string, unknown>;
+      const keys = Object.keys(bundle).sort();
+      if (keys.length !== 3
+          || keys[0] !== 'defaultBranch'
+          || keys[1] !== 'detailedRulesets'
+          || keys[2] !== 'effectiveRules'
+          || typeof bundle.defaultBranch !== 'string') {
+        fail('platform enforcement readback fields are invalid.');
+      }
+      const receipt = createMainAuthorityRulesetReceipt({
+        repository,
+        defaultBranch: bundle.defaultBranch,
+        effectiveRules: bundle.effectiveRules,
+        detailedRulesets: bundle.detailedRulesets,
+        expectedIntegrationId: CI_GITHUB_ACTIONS_IDENTITY_POLICY.app.id
+      });
+      return Object.freeze({
+        status: 'available',
+        rulesetDigest: receipt.rulesetDigest,
+        reason: null
+      });
     } catch (error) {
       const statusCode = error && typeof error === 'object' && 'statusCode' in error
         ? Number((error as { statusCode?: number }).statusCode)
@@ -2327,10 +2352,17 @@ class VerificationSessionGitHubAdapter {
         return Object.freeze({
           status: 'platform-enforcement-unavailable',
           rulesetDigest: hash({ status: 'platform-enforcement-unavailable', statusCode: 403 }),
-          reason: 'GitHub ruleset/branch-protection readback unavailable for this repository plan'
+          reason: 'GitHub canonical main-authority ruleset readback is unavailable'
         });
       }
-      return Object.freeze({ status: 'unknown', rulesetDigest: hash({ status: 'unknown', message }), reason: message });
+      return Object.freeze({
+        status: 'unknown',
+        rulesetDigest: hash({
+          status: 'unknown',
+          reasonCode: 'main-authority-ruleset-not-proven'
+        }),
+        reason: `Canonical MainAuthority ruleset proof failed: ${message}`
+      });
     }
   }
 
@@ -3035,9 +3067,9 @@ class HttpVerificationSessionTransport implements VerificationSessionGitHubTrans
     }
   }
 
-  private async scalar(operation: GitHubApiOperation, field: 'tree' | 'permission'): Promise<string> {
+  private async commitTreeSha(operation: GitHubApiOperation): Promise<string> {
     const value = parseJson<any>(await this.request(operation), 'GitHub scalar observation');
-    return String(field === 'tree' ? value?.tree?.sha : value?.permission);
+    return String(value?.tree?.sha);
   }
 
   private async pagesText(operation: (page: number) => GitHubApiOperation, field?: string): Promise<string> {
@@ -3161,8 +3193,8 @@ class HttpVerificationSessionTransport implements VerificationSessionGitHubTrans
           'github-pr-readback-not-object', Object.freeze({ source: prSource, parsedValue: parsedPrValue }));
       }
       prValue = parsedPrValue as Record<string, any>;
-      baseTreeSource = (await this.scalar({kind:'git-commit',sha:prValue.baseRefOid}, 'tree'));
-      headTreeSource = (await this.scalar({kind:'git-commit',sha:prValue.headRefOid}, 'tree'));
+      baseTreeSource = (await this.commitTreeSha({kind:'git-commit',sha:prValue.baseRefOid}));
+      headTreeSource = (await this.commitTreeSha({kind:'git-commit',sha:prValue.headRefOid}));
       const mergeCommitSha = prValue.mergeCommit?.oid ?? null;
       if (mergeCommitSha !== null) {
         mergeCommitSource = (await this.request({kind:'git-commit',sha:mergeCommitSha}));
@@ -3559,13 +3591,14 @@ class HttpVerificationSessionTransport implements VerificationSessionGitHubTrans
 
   async collaboratorPermission(repository: string, login: string): Promise<'admin' | 'maintain' | 'write' | 'triage' | 'read' | 'none'> {
     this.bindRepository(repository);
-    const source = (await this.scalar({kind:'collaborator-permission',login},'permission'));
-    const permission = source.trim();
-    if (!['admin', 'maintain', 'write', 'triage', 'read', 'none'].includes(permission)) {
+    const source = await this.request({kind:'collaborator-permission',login});
+    const parsedValue = parseJson<unknown>(source, 'GitHub collaborator permission');
+    const permission = normalizeGitHubRepositoryPermission(parsedValue);
+    if (permission === null) {
       throw new GitHubProviderResponseShapeError('VerificationSession GitHub adapter permission value is unknown.',
-        'github-rest-collaborator-permission', Object.freeze({ repository, login, source }));
+        'github-rest-collaborator-permission', Object.freeze({ repository, login, source, parsedValue }));
     }
-    return permission as ReturnType<VerificationSessionGitHubTransport['collaboratorPermission']>;
+    return permission;
   }
 
   async checkPage(repository: string, headSha: string, after: string | null): Promise<GitHubPage<GitHubCheckObservation>> {
@@ -3620,7 +3653,40 @@ class HttpVerificationSessionTransport implements VerificationSessionGitHubTrans
 
   async repositoryRulesets(repository: string): Promise<unknown> {
     this.bindRepository(repository);
-    return parseJson((await this.pagesText(page => ({kind:'verification-rulesets',page}))), 'ruleset readback');
+    const repositorySource = parseJson(await this.request({ kind: 'repository' }),
+      'repository metadata readback');
+    if (repositorySource === null || typeof repositorySource !== 'object'
+        || Array.isArray(repositorySource)
+        || typeof (repositorySource as Record<string, unknown>).default_branch !== 'string') {
+      fail('repository metadata has no canonical default branch.');
+    }
+    const defaultBranch = (repositorySource as Record<string, unknown>).default_branch as string;
+    const pages = parseJson<unknown>(await this.pagesText(page => ({
+      kind: 'effective-branch-rules', branch: defaultBranch, page
+    })), 'effective branch rules readback');
+    if (!Array.isArray(pages) || pages.some((page) => !Array.isArray(page))) {
+      fail('effective branch rules pagination is not a complete page array.');
+    }
+    const effectiveRules = pages.flatMap((page) => page as readonly unknown[]);
+    const rulesetIds = new Set<number>();
+    for (const [index, entry] of effectiveRules.entries()) {
+      if (entry === null || typeof entry !== 'object' || Array.isArray(entry)
+          || !Number.isSafeInteger((entry as Record<string, unknown>).ruleset_id)
+          || Number((entry as Record<string, unknown>).ruleset_id) < 1) {
+        fail(`effective branch rule ${index} has no exact ruleset id.`);
+      }
+      rulesetIds.add(Number((entry as Record<string, unknown>).ruleset_id));
+    }
+    const detailedRulesets: unknown[] = [];
+    for (const rulesetId of [...rulesetIds].sort((left, right) => left - right)) {
+      detailedRulesets.push(parseJson(await this.request({ kind: 'ruleset', rulesetId }),
+        `ruleset ${rulesetId} detail readback`));
+    }
+    return Object.freeze({
+      defaultBranch,
+      effectiveRules: Object.freeze([...effectiveRules]),
+      detailedRulesets: Object.freeze(detailedRulesets)
+    });
   }
 
   async dispatchVerificationSession(repository: string, request: VerificationSessionHostedRequest): Promise<void> {

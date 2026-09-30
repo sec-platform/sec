@@ -104,8 +104,6 @@ export function compilePostMainIssueDispositionHealthReadback(input: Readonly<{
   newMainSha: string;
   newMainTreeSha: string;
   observedAt: string;
-  sourceRunId: string;
-  sourceRef: string;
   checks: readonly GitHubCheckObservation[];
 }>): MainHealthLedger {
   const expiresAt = new Date(new Date(input.observedAt).getTime() + 300_000).toISOString();
@@ -116,8 +114,6 @@ export function compilePostMainIssueDispositionHealthReadback(input: Readonly<{
     trustRevision: input.newMainSha,
     observedAt: input.observedAt,
     expiresAt,
-    sourceRunId: input.sourceRunId,
-    sourceRef: input.sourceRef,
     checks: input.checks
   }));
   const lane = resolveOrdinaryMainHealthLane({
@@ -326,7 +322,7 @@ export function reconstructVerificationSessionHostedFacts(input: {
   const mainHealthInput = createObservedMainHealthInput({ repository: input.repository,
     mainSha: request.expectedBaseSha, mainTreeSha: request.expectedBaseTreeSha, trustRevision: request.expectedBaseSha,
     observedAt: input.observedAt, expiresAt: new Date(new Date(input.observedAt).getTime() + 600_000).toISOString(),
-    sourceRunId: input.sourceRunId, sourceRef: input.sourceRef, checks: input.mainHealthChecks });
+    checks: input.mainHealthChecks });
   const mainHealth = createMainHealthLedger(mainHealthInput);
   const sessionRevision = createVerificationSessionRevision({
     repository: input.repository, prNumber: request.prNumber,
@@ -849,8 +845,8 @@ export function prepareTrustedMainVerificationSession(input: {
   const mainHealthInput = input.mainHealthInput ?? createObservedMainHealthInput({
     repository: input.repository, mainSha: candidate.baseSha,
     mainTreeSha: candidate.baseTreeSha, trustRevision: candidate.baseSha, observedAt: input.observedAt,
-    expiresAt: new Date(new Date(input.observedAt).getTime() + 600_000).toISOString(), sourceRunId: input.sourceRunId,
-    sourceRef: input.sourceRef, checks: input.mainHealthChecks
+    expiresAt: new Date(new Date(input.observedAt).getTime() + 600_000).toISOString(),
+    checks: input.mainHealthChecks
   });
   const mainHealth = createMainHealthLedger(mainHealthInput);
   const sessionRevision = createVerificationSessionRevision({ repository: input.repository, prNumber: candidate.number,

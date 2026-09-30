@@ -425,10 +425,16 @@ export async function readGitHubToken(input: GitHubCredentialInput): Promise<Uin
   }
 }
 
-/** Credential-source admission only; existing CI owners still verify live run and Effect authority. */
-export function inspectGitHubActionsVerificationCredentialIdentity(
+type TrustedGitHubActionsWorkflowIdentity = Readonly<{
+  workflowRef: string;
+  workflowSha: string;
+  runId: string;
+  runAttempt: number;
+}>;
+
+function inspectTrustedGitHubActionsWorkflowIdentity(
   source: Readonly<NodeJS.ProcessEnv>, repository: string
-): Readonly<{ workflowRef: string; workflowSha: string; runId: string; runAttempt: number }> | null {
+): TrustedGitHubActionsWorkflowIdentity | null {
   const get = (key: string) => environmentValue(source, key);
   const workflowSha = get('GITHUB_WORKFLOW_SHA');
   const workflowRef = get('GITHUB_WORKFLOW_REF');
@@ -444,9 +450,45 @@ export function inspectGitHubActionsVerificationCredentialIdentity(
       typeof workflowSha !== 'string' || !/^[0-9a-f]{40}$/u.test(workflowSha) ||
       get('GITHUB_SHA') !== workflowSha || typeof runId !== 'string' || !/^[1-9][0-9]*$/u.test(runId) ||
       typeof runAttempt !== 'string' || !/^[1-9][0-9]*$/u.test(runAttempt) || !Number.isSafeInteger(Number(runAttempt))) return null;
-  const token = get('GH_TOKEN');
+  return Object.freeze({ workflowRef: workflowRef!, workflowSha, runId, runAttempt: Number(runAttempt) });
+}
+
+/** Credential-source admission only; existing CI owners still verify live run and Effect authority. */
+export function inspectGitHubActionsVerificationCredentialIdentity(
+  source: Readonly<NodeJS.ProcessEnv>, repository: string
+): TrustedGitHubActionsWorkflowIdentity | null {
+  const identity = inspectTrustedGitHubActionsWorkflowIdentity(source, repository);
+  if (identity === null) return null;
+  const token = environmentValue(source, 'GH_TOKEN');
   if (token === undefined) return null;
   if (token.length === 0 || Buffer.byteLength(token, 'utf8') > MAX_TOKEN_BYTES ||
       !/^[\x21-\x7e]+$/u.test(token)) throw new GitHubCredentialUnavailableError('token');
-  return Object.freeze({ workflowRef: workflowRef!, workflowSha, runId, runAttempt: Number(runAttempt) });
+  return identity;
+}
+
+/**
+ * The separately provisioned auditor secret is never a generic GH_TOKEN
+ * fallback. Invalid hosted context fails closed before stored auth is read.
+ * This context is not a principal or capability; the API owner authenticates
+ * the actual principal and live workflow run before issuing ruleset-read.
+ */
+export function inspectGitHubActionsRulesetAuditorCredentialIdentity(
+  source: Readonly<NodeJS.ProcessEnv>, repository: string
+): TrustedGitHubActionsWorkflowIdentity | null {
+  const secretKeys = Object.keys(source).filter((key) =>
+    key.toLowerCase() === 'sec_github_ruleset_auditor_token');
+  const hosted = ['GITHUB_ACTIONS', 'GITHUB_SERVER_URL', 'GITHUB_API_URL', 'GITHUB_REPOSITORY',
+    'GITHUB_EVENT_NAME', 'GITHUB_REF', 'GITHUB_SHA', 'GITHUB_WORKFLOW_REF', 'GITHUB_WORKFLOW_SHA',
+    'GITHUB_RUN_ID', 'GITHUB_RUN_ATTEMPT'].some((key) => environmentValue(source, key) !== undefined);
+  if (!hosted && secretKeys.length === 0) return null;
+  const identity = inspectTrustedGitHubActionsWorkflowIdentity(source, repository);
+  if (identity === null || secretKeys.length !== 1) {
+    throw new GitHubCredentialUnavailableError('admission');
+  }
+  const token = source[secretKeys[0]!];
+  if (token === undefined || token.length === 0 || Buffer.byteLength(token, 'utf8') > MAX_TOKEN_BYTES
+      || !/^[\x21-\x7e]+$/u.test(token)) {
+    throw new GitHubCredentialUnavailableError('token');
+  }
+  return identity;
 }

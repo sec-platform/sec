@@ -12,7 +12,7 @@ export {
   currentGitHubApiCapability,
   executeGitHubApiOperation,
   inspectGitHubApiCapability, withGitHubApiBranchCloseoutWriteSession, withGitHubApiIssueCommentWriteSession, withGitHubApiMergeWriteSession, withGitHubApiReadOperationBudget,
-  withGitHubApiReadSession, withGitHubApiRunnerAdminSession,
+  withGitHubApiReadSession, withGitHubApiRulesetReadSession, withGitHubApiRunnerAdminSession,
   withGitHubApiStatusWriteSession, withGitHubApiVerificationSession, type GitHubApiCapability,
   type GitHubApiEffect,
   type GitHubApiOperation,

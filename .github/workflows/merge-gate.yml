@@ -297,12 +297,12 @@ jobs:
         id: platform-authority
         if: ${{ steps.prepare-integration.outputs.integration-lane == 'open-first-effect' }}
         env:
-          GH_TOKEN: ${{ secrets.SEC_GITHUB_RULESET_AUDITOR_TOKEN }}
+          SEC_GITHUB_RULESET_AUDITOR_TOKEN: ${{ secrets.SEC_GITHUB_RULESET_AUDITOR_TOKEN }}
           RULESET_FILE: ${{ env.SEC_INTEGRATION_DURABLE_DIRECTORY }}/main-authority-ruleset.json
         shell: bash
         run: |
           set -euo pipefail
-          if [ -z "${GH_TOKEN:-}" ]; then
+          if [ -z "${SEC_GITHUB_RULESET_AUDITOR_TOKEN:-}" ]; then
             echo 'SEC_GITHUB_RULESET_AUDITOR_TOKEN is required to prove bypass actors and main ruleset semantics.' >&2
             exit 1
           fi
@@ -516,13 +516,13 @@ jobs:
       - name: Re-prove exact main authority rulesets before integration effect
         if: ${{ needs.authorize.outputs.integration-lane == 'open-first-effect' }}
         env:
-          GH_TOKEN: ${{ secrets.SEC_GITHUB_RULESET_AUDITOR_TOKEN }}
+          SEC_GITHUB_RULESET_AUDITOR_TOKEN: ${{ secrets.SEC_GITHUB_RULESET_AUDITOR_TOKEN }}
           RULESET_FILE: ${{ env.SEC_INTEGRATION_DURABLE_DIRECTORY }}/main-authority-ruleset-effect.json
           EXPECTED_RULESET_DIGEST: ${{ needs.authorize.outputs.ruleset-digest }}
         shell: bash
         run: |
           set -euo pipefail
-          if [ -z "${GH_TOKEN:-}" ]; then
+          if [ -z "${SEC_GITHUB_RULESET_AUDITOR_TOKEN:-}" ]; then
             echo 'SEC_GITHUB_RULESET_AUDITOR_TOKEN is required at the effect boundary.' >&2
             exit 1
           fi
