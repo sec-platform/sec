@@ -27,14 +27,30 @@ jobs:
       - name: Initialize exact JavaScript/TypeScript CodeQL
         uses: github/codeql-action/init@2892aa5e19bbd11bc0cff5427e3b750a04d9e3c2 # v4
         with:
+          analysis-kinds: code-scanning
           languages: javascript-typescript
           build-mode: none
-          config-file: .github/codeql/codeql-config.yml
-          queries: security-extended
           dependency-caching: true
+          config: |
+            name: SEC CodeQL
+            paths-ignore:
+              - tests/**
+              - '**/*.test.ts'
+              - '**/*.test.js'
+              - '**/*.test.mjs'
+            default-setup:
+              org:
+                model-packs: []
+            threat-models:
+              - local
+            queries:
+              - uses: security-extended
+            query-filters:
+              - exclude:
+                  tags: exclude-from-incremental
           matrix: '{"language":"javascript-typescript","category":"/language:javascript-typescript","build-mode":"none","runner":["ubuntu-latest"]}'
 
-      - name: Produce Default-Setup-equivalent post-processed SARIF
+      - name: Produce exact Default Setup post-processed SARIF
         id: analyze
         uses: github/codeql-action/analyze@2892aa5e19bbd11bc0cff5427e3b750a04d9e3c2 # v4
         with:
@@ -46,10 +62,10 @@ jobs:
           ref: refs/pull/${{ github.event.pull_request.number }}/head
           sha: ${{ github.event.pull_request.head.sha }}
 
-      - name: Upload exact Default-Setup-equivalent SARIF
+      - name: Upload exact Default Setup SARIF
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: sec-pr-727-codeql-default-context-${{ github.event.pull_request.head.sha }}
+          name: sec-pr-727-codeql-default-exact-${{ github.event.pull_request.head.sha }}
           path: ${{ runner.temp }}/sec-codeql-post
           if-no-files-found: error
           retention-days: 1
