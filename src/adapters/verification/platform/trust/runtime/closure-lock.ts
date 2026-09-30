@@ -1204,36 +1204,28 @@ function readTcbClosureCandidateOrdinaryFile(
   repositoryPath: string,
   absolutePath: string
 ): Exclude<TcbClosureCandidateFileObservation, { kind: 'missing' }> | null {
-  let metadata: ReturnType<typeof lstatSync>;
-  try {
-    metadata = lstatSync(absolutePath);
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null;
-    throw new Error(`TCB candidate module metadata is unavailable: ${repositoryPath}.`, { cause: error });
-  }
-  if (!metadata.isFile() || metadata.isSymbolicLink() || metadata.nlink !== 1) {
-    throw new Error(`TCB candidate module must be one physical single-link regular file: ${repositoryPath}.`);
-  }
-  let physicalPathBefore: string;
-  try {
-    physicalPathBefore = realpathSync.native(absolutePath);
-  } catch (error) {
-    throw new Error(`TCB candidate module realpath is unavailable: ${repositoryPath}.`, { cause: error });
-  }
-  if (physicalPathBefore !== absolutePath) {
-    throw new Error(`TCB candidate module path is not canonical: ${repositoryPath}.`);
-  }
   let descriptor: number | null = null;
-  let bytes: Uint8Array;
-  let descriptorBefore: ReturnType<typeof fstatSync>;
-  let descriptorAfter: ReturnType<typeof fstatSync>;
   try {
     descriptor = openSync(
       absolutePath,
       fsConstants.O_RDONLY | (fsConstants.O_NOFOLLOW ?? 0)
     );
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null;
+    throw new Error(`TCB candidate module could not be opened safely: ${repositoryPath}.`, { cause: error });
+  }
+  let metadata: ReturnType<typeof lstatSync>;
+  let physicalPathBefore: string;
+  let bytes: Uint8Array;
+  let descriptorBefore: ReturnType<typeof fstatSync>;
+  let descriptorAfter: ReturnType<typeof fstatSync>;
+  try {
     descriptorBefore = fstatSync(descriptor);
-    if (!descriptorBefore.isFile() || descriptorBefore.nlink !== 1 || metadata.nlink !== 1 ||
+    metadata = lstatSync(absolutePath);
+    physicalPathBefore = realpathSync.native(absolutePath);
+    if (!descriptorBefore.isFile() || descriptorBefore.nlink !== 1 ||
+        !metadata.isFile() || metadata.isSymbolicLink() || metadata.nlink !== 1 ||
+        physicalPathBefore !== absolutePath ||
         descriptorBefore.nlink !== metadata.nlink || descriptorBefore.dev !== metadata.dev ||
         descriptorBefore.ino !== metadata.ino || descriptorBefore.size !== metadata.size ||
         descriptorBefore.mtimeMs !== metadata.mtimeMs || descriptorBefore.ctimeMs !== metadata.ctimeMs) {
@@ -1244,7 +1236,7 @@ function readTcbClosureCandidateOrdinaryFile(
   } catch (error) {
     throw new Error(`TCB candidate module bounded read failed: ${repositoryPath}.`, { cause: error });
   } finally {
-    if (descriptor !== null) closeSync(descriptor);
+    closeSync(descriptor);
   }
   let metadataAfter: ReturnType<typeof lstatSync>;
   let physicalPathAfter: string;

@@ -27,15 +27,14 @@ async function updateFileDigest(
   projectRoot: string,
   filePath: string
 ): Promise<void> {
-  const beforePath = await lstat(filePath);
-  if (!beforePath.isFile() || beforePath.isSymbolicLink() || beforePath.nlink !== 1) {
-    throw new Error('Staged Verification proof input must be one host-owned regular file');
-  }
   const handle = await open(filePath, 'r');
   try {
     const beforeHandle = await handle.stat();
-    if (metadataIdentity(beforeHandle) !== metadataIdentity(beforePath)) {
-      throw new Error('Staged Verification proof input identity changed before read');
+    const beforePath = await lstat(filePath);
+    if (!beforeHandle.isFile() || !beforePath.isFile() || beforePath.isSymbolicLink()
+      || beforePath.nlink !== 1
+      || metadataIdentity(beforeHandle) !== metadataIdentity(beforePath)) {
+      throw new Error('Staged Verification proof input must be one stable host-owned regular file');
     }
     const relativePath = path.relative(projectRoot, filePath).split(path.sep).join('/');
     if (!relativePath || relativePath.startsWith('../') || path.isAbsolute(relativePath)) {
