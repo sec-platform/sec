@@ -69,7 +69,7 @@ function branchCloseoutStore(
     replace: (filePath, expectedBytes, nextBytes) => {
       const name = fileName(filePath);
       const retained = retainNoFollowOrdinaryFile(
-        physical.root,
+        physical.rootChain,
         name,
         undefined,
         'Branch closeout operation store CAS preimage'

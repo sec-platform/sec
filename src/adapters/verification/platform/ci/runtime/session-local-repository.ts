@@ -113,10 +113,14 @@ export function runVerificationSessionCommand(
   if (args.some((arg) => arg.includes('\0'))) {
     throw new Error('VerificationSession command argument contains NUL.');
   }
-  const ownedWorkingDirectory = typeof cwd === 'string'
-    ? retainVerificationSessionCommandWorkingDirectory(cwd)
-    : null;
-  const workingDirectory = ownedWorkingDirectory ?? cwd;
+  let workingDirectory: RetainedNoFollowChildProcessDirectory;
+  let ownsWorkingDirectory = false;
+  if (typeof cwd === 'string') {
+    workingDirectory = retainVerificationSessionCommandWorkingDirectory(cwd);
+    ownsWorkingDirectory = true;
+  } else {
+    workingDirectory = cwd;
+  }
   try {
     const boundary = retainedVerificationSessionSpawnBoundary(
       workingDirectory,
@@ -154,7 +158,7 @@ export function runVerificationSessionCommand(
         : Buffer.from(String(spawned.stderr ?? spawned.error?.message ?? ''))
     };
   } finally {
-    ownedWorkingDirectory?.dispose();
+    if (ownsWorkingDirectory) workingDirectory.dispose();
   }
 }
 
