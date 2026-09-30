@@ -17,7 +17,7 @@ import {
 import { RETAINED_WORKING_DIRECTORY_CHILD_DESCRIPTOR } from '../../../../runtime-state/physical/runtime/process.ts';
 import type { CiVerificationActionPlanClosure } from '../../action/contract/ci.ts';
 import type { VerificationSessionScope } from '../contract/session-scope.ts';
-import { commonGitDirectory, comparableFileSystemPath, exactRealPath, gitText, runVerificationSessionCommand } from './session-local-repository.ts';
+import { commonGitDirectory, comparableFileSystemPath, gitText, runVerificationSessionCommand, type VerificationSessionCommandWorkingDirectory } from './session-local-repository.ts';
 import type { GitHubCandidateObservation } from './verification-session-github.ts';
 import { createHash } from 'node:crypto';
 import path from 'node:path';
@@ -172,8 +172,11 @@ function publishExclusiveCanonicalOwnerMarker(
   return receipt.created;
 }
 
-function worktreeRegistration(ctx: VerificationSessionScope, authorityRoot: string, candidateRoot: string):
-Readonly<{ headSha: string; detached: boolean }> | null {
+function worktreeRegistration(
+  ctx: VerificationSessionScope,
+  authorityRoot: VerificationSessionCommandWorkingDirectory,
+  candidateRoot: string
+): Readonly<{ headSha: string; detached: boolean }> | null {
   const result = runVerificationSessionCommand(ctx, 'git', ['worktree', 'list', '--porcelain', '-z'], authorityRoot);
   if (result.status !== 0) {
     throw new Error(`Cannot read Git worktree registration: ${decodeBranchLifecycleChildError(result)}`);
@@ -243,7 +246,7 @@ function assertLocalCandidateWorktreeExact(input: {
       ['rev-parse', 'HEAD^{tree}'], 'candidate worktree tree readback');
     const trackedStatus = gitText(ctx, retainedCandidate,
       ['status', '--porcelain=v1', '--untracked-files=no'], 'candidate worktree tracked status');
-    const registration = worktreeRegistration(ctx, owner.authorityRoot, owner.candidateRoot);
+    const registration = worktreeRegistration(ctx, retainedCandidate, owner.candidateRoot);
     if (headSha !== owner.headSha || headTreeSha !== owner.headTreeSha
       || (!input.allowTrackedChanges && trackedStatus !== '')
       || registration === null || registration.headSha !== owner.headSha || !registration.detached) {
@@ -267,28 +270,36 @@ export function acquireLocalCandidateWorktree(input: {
       || !/^[0-9a-f]{40}$/u.test(input.candidate.headTreeSha)) {
     throw new Error('local candidate worktree requires canonical Git object identities.');
   }
-  const authorityRoot = exactRealPath(input.authorityRoot, 'trusted authority root');
-  const authorityIdentity = inspectNoFollowDirectoryChain(
-    authorityRoot,
+  const authorityChain = inspectNoFollowDirectoryChain(
+    path.resolve(input.authorityRoot),
     'trusted authority root'
-  ).target;
-  const commonDirectory = commonGitDirectory(input.ctx, authorityRoot);
-  const trackedStatus = gitText(input.ctx, authorityRoot,
-    ['status', '--porcelain=v1', '--untracked-files=no'], 'trusted authority tracked status');
-  if (trackedStatus !== '') throw new Error('trusted authority root must remain tracked-clean.');
-  const resolvedHead = gitText(input.ctx, authorityRoot,
-    ['rev-parse', `${input.candidate.headSha}^{commit}`], 'candidate commit readback');
-  const resolvedTree = gitText(input.ctx, authorityRoot,
-    ['rev-parse', `${input.candidate.headSha}^{tree}`], 'candidate tree readback');
-  if (resolvedHead !== input.candidate.headSha || resolvedTree !== input.candidate.headTreeSha) {
-    throw new Error('trusted authority object database does not contain the exact candidate head and tree.');
-  }
-  const parent = ensureOrdinaryDirectoryChain(
-    assertSameNoFollowDirectoryIdentity(
-      authorityIdentity,
-      'trusted authority root before candidate namespace creation'
-    ).target
   );
+  const authorityRoot = authorityChain.target.path;
+  const retainedAuthority = retainNoFollowDirectoryForChildProcess(
+    authorityChain,
+    RETAINED_WORKING_DIRECTORY_CHILD_DESCRIPTOR,
+    'trusted authority root transaction'
+  );
+  try {
+    const authorityIdentity = authorityChain.target;
+    const commonDirectory = commonGitDirectory(input.ctx, retainedAuthority);
+    const trackedStatus = gitText(input.ctx, retainedAuthority,
+      ['status', '--porcelain=v1', '--untracked-files=no'], 'trusted authority tracked status');
+    if (trackedStatus !== '') throw new Error('trusted authority root must remain tracked-clean.');
+    const resolvedHead = gitText(input.ctx, retainedAuthority,
+      ['rev-parse', `${input.candidate.headSha}^{commit}`], 'candidate commit readback');
+    const resolvedTree = gitText(input.ctx, retainedAuthority,
+      ['rev-parse', `${input.candidate.headSha}^{tree}`], 'candidate tree readback');
+    if (resolvedHead !== input.candidate.headSha || resolvedTree !== input.candidate.headTreeSha) {
+      throw new Error('trusted authority object database does not contain the exact candidate head and tree.');
+    }
+    retainedAuthority.assertCurrent();
+    const parent = ensureOrdinaryDirectoryChain(
+      assertSameNoFollowDirectoryIdentity(
+        authorityIdentity,
+        'trusted authority root before candidate namespace creation'
+      ).target
+    );
   const candidateRoot = path.join(parent.path, input.candidate.headSha);
   const markerName = `${input.candidate.headSha}.owner.json`;
   const markerPath = path.join(parent.path, markerName);
@@ -311,7 +322,7 @@ export function acquireLocalCandidateWorktree(input: {
     'local candidate worktree namespace parent'
   );
   try {
-    const registration = worktreeRegistration(input.ctx, authorityRoot, candidateRoot);
+    const registration = worktreeRegistration(input.ctx, retainedAuthority, candidateRoot);
     if (registration !== null) {
       const registeredPresence = inspectNoFollowDirectoryChild(
         parent,
@@ -348,13 +359,13 @@ export function acquireLocalCandidateWorktree(input: {
       input.ctx,
       'git',
       ['worktree', 'add', '--detach', physicalCandidateTarget, input.candidate.headSha],
-      authorityRoot,
+      retainedAuthority,
       undefined,
       [candidateNamespace]
     );
     candidateNamespace.assertCurrent();
     if (add.status !== 0) {
-      const afterFailure = worktreeRegistration(input.ctx, authorityRoot, candidateRoot);
+      const afterFailure = worktreeRegistration(input.ctx, retainedAuthority, candidateRoot);
       const afterFailurePresence = inspectNoFollowDirectoryChild(
         parent,
         input.candidate.headSha,
@@ -386,8 +397,11 @@ export function acquireLocalCandidateWorktree(input: {
       markerPath,
       reused: false
     });
+    } finally {
+      candidateNamespace.dispose();
+    }
   } finally {
-    candidateNamespace.dispose();
+    retainedAuthority.dispose();
   }
 }
 
