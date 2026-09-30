@@ -15,27 +15,32 @@ import {
 } from '../../../../execution/operation/semantic.ts';
 import {
   armPreparedRepositoryChangeObserver,
+  armRepositoryChangeObserver,
   disposePreparedRepositoryChangeObserver,
   prepareRepositoryChangeObserver,
   RETAINED_REPOSITORY_CHANGE_OBSERVER_CONTRACT_DIGEST,
   RETAINED_REPOSITORY_CHANGE_OBSERVER_REQUIREMENT_ID,
   settlePreparedRepositoryChangeObserver
 } from './repository-change-observer.ts';
+import {
+  REPOSITORY_CHANGE_OBSERVER_DIRECT_MAXIMUM_OBSERVATION_MS
+} from './repository-change-observer-contract.ts';
 
 function digest(value: string): SecOperationDigest {
   return `sha256:${createHash('sha256').update(value).digest('hex')}`;
 }
 
 function observerOperation(
-  prepared: ReturnType<typeof prepareRepositoryChangeObserver>
+  prepared: ReturnType<typeof prepareRepositoryChangeObserver>,
+  durationMs = 30_000
 ) {
-  const deadlineAtUnixMs = Date.now() + 30_000;
+  const deadlineAtUnixMs = Date.now() + durationMs;
   const plan = compileSecSemanticOperationPlan({
     operation: 'development.runner.test-suite',
     intentDigest: digest('repository-observer-prepared-test-intent'),
     decisionDigest: RETAINED_REPOSITORY_CHANGE_OBSERVER_CONTRACT_DIGEST,
     deadlineAtUnixMs,
-    aggregateBudgets: [{ resource: 'duration-ms', maximum: 30_000 }],
+    aggregateBudgets: [{ resource: 'duration-ms', maximum: durationMs }],
     requirements: [{
       id: RETAINED_REPOSITORY_CHANGE_OBSERVER_REQUIREMENT_ID,
       contractDigest: RETAINED_REPOSITORY_CHANGE_OBSERVER_CONTRACT_DIGEST,
@@ -65,8 +70,8 @@ async function withFixture(
   }
 }
 
-test.skipIf(process.platform !== 'linux')(
-  'prepared repository observer binds the generic semantic requirement on Linux',
+test.skipIf(process.platform !== 'linux' && process.platform !== 'win32')(
+  'prepared repository observer binds the generic semantic requirement on supported hosts',
   async () => withFixture(async (root) => {
     const prepared = prepareRepositoryChangeObserver({ roots: [root] });
     const operation = observerOperation(prepared);
@@ -96,8 +101,8 @@ test.skipIf(process.platform !== 'linux')(
   })
 );
 
-test.skipIf(process.platform !== 'linux')(
-  'prepared repository observer settles an unchanged Linux root with zero events',
+test.skipIf(process.platform !== 'linux' && process.platform !== 'win32')(
+  'prepared repository observer settles an unchanged supported-host root with zero events',
   async () => withFixture(async (root) => {
     const prepared = prepareRepositoryChangeObserver({ roots: [root] });
     const operation = observerOperation(prepared);
@@ -117,6 +122,39 @@ test.skipIf(process.platform !== 'linux')(
     }
     const settlement = await settlePreparedRepositoryChangeObserver(prepared);
     expect(settlement.status).toBe('zero-events');
+    disposePreparedRepositoryChangeObserver(prepared);
+  })
+);
+
+
+test.skipIf(process.platform !== 'linux' && process.platform !== 'win32')(
+  'prepared observer consumes an owner-bound deadline beyond the direct observation ceiling',
+  async () => withFixture(async (root) => {
+    const durationMs = REPOSITORY_CHANGE_OBSERVER_DIRECT_MAXIMUM_OBSERVATION_MS + 60_000;
+    const direct = await armRepositoryChangeObserver({
+      roots: [root],
+      deadlineAtUnixMs: Date.now() + durationMs
+    });
+    expect(direct).toEqual({ status: 'unavailable', reason: 'invalid-input' });
+
+    const prepared = prepareRepositoryChangeObserver({ roots: [root] });
+    const operation = observerOperation(prepared, durationMs);
+    const resolution = await armPreparedRepositoryChangeObserver({
+      prepared,
+      operation,
+      requirementBindingContext: issueSecOperationRequirementBindingContext({
+        operation,
+        requirementId: RETAINED_REPOSITORY_CHANGE_OBSERVER_REQUIREMENT_ID,
+        resourceCeilings: [{ resource: 'duration-ms', maximum: durationMs }]
+      })
+    });
+    expect(resolution.status).toBe('ready');
+    if (resolution.status !== 'ready') {
+      disposePreparedRepositoryChangeObserver(prepared);
+      return;
+    }
+    expect((await settlePreparedRepositoryChangeObserver(prepared)).status)
+      .toBe('zero-events');
     disposePreparedRepositoryChangeObserver(prepared);
   })
 );
