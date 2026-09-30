@@ -130,8 +130,11 @@ function samePhysicalPath(left: string, right: string): boolean {
 
 type StableOrdinaryFileSnapshot = Readonly<{
   bytes: Buffer;
+  device: number;
+  inode: number;
   mode: number;
   physicalPath: string;
+  size: number;
 }>;
 
 function sameOrdinaryFileIdentity(
@@ -185,8 +188,11 @@ async function readStableOrdinaryFileSnapshot(
     }
     return Object.freeze({
       bytes: Buffer.from(bytes),
+      device: opened.dev,
+      inode: opened.ino,
       mode: opened.mode & 0o777,
-      physicalPath
+      physicalPath,
+      size: opened.size
     });
   } finally {
     await handle.close();
@@ -682,29 +688,34 @@ async function appendCompactJournal(
   });
   validateCompactJournalTransition(previous, entry, fileCount);
   await testHooks.beforeJournalAppend?.(state);
-  const encoded = `${JSON.stringify(canonicalJson(entry))}\n`;
-  let existingBytes = 0;
-  try {
-    const metadata = await fs.lstat(journalPath);
-    if (!metadata.isFile() || metadata.isSymbolicLink()) {
-      recoveryFailure('Import transform journal is not an ordinary file.');
-    }
-    existingBytes = metadata.size;
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code !== 'ENOENT' || !create) throw error;
+  const encoded = Buffer.from(`${JSON.stringify(canonicalJson(entry))}\n`, 'utf8');
+  if (encoded.byteLength > IMPORT_TRANSFORM_JOURNAL_MAX_BYTES) {
+    recoveryFailure('Import transform journal entry exceeds the bounded byte limit.');
   }
-  if (existingBytes + Buffer.byteLength(encoded, 'utf8') > IMPORT_TRANSFORM_JOURNAL_MAX_BYTES) {
-    recoveryFailure('Import transform journal exceeds the bounded byte limit.');
-  }
-  const handle = await fs.open(journalPath, create ? 'wx' : 'a');
+  const handle = await fs.open(journalPath, create ? 'wx' : 'r+');
   try {
     const opened = await handle.stat();
-    if (opened.size !== existingBytes
-      || opened.size + Buffer.byteLength(encoded, 'utf8') > IMPORT_TRANSFORM_JOURNAL_MAX_BYTES) {
+    const current = await fs.lstat(journalPath);
+    if (!opened.isFile() || opened.nlink !== 1
+      || !current.isFile() || current.isSymbolicLink() || current.nlink !== 1
+      || !sameOrdinaryFileIdentity(opened, current)
+      || opened.size + encoded.byteLength > IMPORT_TRANSFORM_JOURNAL_MAX_BYTES) {
       recoveryFailure('Import transform journal changed before append.');
     }
-    await handle.writeFile(encoded, 'utf8');
+    const written = await handle.write(encoded, 0, encoded.byteLength, opened.size);
+    if (written.bytesWritten !== encoded.byteLength) {
+      recoveryFailure('Import transform journal append was incomplete.');
+    }
     await handle.sync();
+    const [afterHandle, afterPath] = await Promise.all([
+      handle.stat(),
+      fs.lstat(journalPath)
+    ]);
+    if (!sameOrdinaryFileIdentity(afterHandle, afterPath)
+      || afterHandle.dev !== opened.dev || afterHandle.ino !== opened.ino
+      || afterHandle.size !== opened.size + encoded.byteLength) {
+      recoveryFailure('Import transform journal changed during append.');
+    }
   } finally {
     await handle.close();
   }
@@ -1158,10 +1169,17 @@ async function readUnfinishedTransaction(
   let journalIdentity: { readonly dev: number; readonly ino: number; readonly size: number } | undefined;
   try {
     await assertOrdinaryContainedTargetChain(workspaceRoot, journalPath);
-    const metadata = await fs.lstat(journalPath);
-    journalIdentity = { dev: metadata.dev, ino: metadata.ino, size: metadata.size };
-    journalBytes = await readRegularTransactionArtifact(journalPath, 'Import transform transaction journal',
-      IMPORT_TRANSFORM_LEGACY_TERMINAL_MAX_BYTES);
+    const journalSnapshot = await readStableOrdinaryFileSnapshot(
+      journalPath,
+      'Import transform transaction journal',
+      IMPORT_TRANSFORM_LEGACY_TERMINAL_MAX_BYTES
+    );
+    journalIdentity = {
+      dev: journalSnapshot.device,
+      ino: journalSnapshot.inode,
+      size: journalSnapshot.size
+    };
+    journalBytes = journalSnapshot.bytes;
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === 'ENOENT') journalWasMissing = true;
     else throw error;
@@ -1665,7 +1683,12 @@ export async function publishImportTransformTransaction(
         published.push(file);
         await testHooks.afterPublish?.(file.relativePath, index);
         await assertOrdinaryContainedTargetChain(root, file.absolutePath);
-        if (!(await fs.readFile(file.absolutePath)).equals(file.replacementBytes)) {
+        const publicationReadback = await readStableOrdinaryFileSnapshot(
+          file.absolutePath,
+          `Import transform publication readback ${file.relativePath}`
+        );
+        if (publicationReadback.mode !== file.mode
+          || !publicationReadback.bytes.equals(file.replacementBytes)) {
           throw new ImportTransformTransactionFailure(
             'readback-failed',
             `Import transform readback failed for ${file.relativePath}`
