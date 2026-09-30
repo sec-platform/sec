@@ -4,6 +4,7 @@ import { executeDetachedScratchWorktreePhysicalCloseout, prepareDetachedScratchW
 import { encodeVerificationActionData } from '../../action/contract/action.ts';
 import {
   assertSameNoFollowDirectoryIdentity,
+  createNoFollowOrdinaryDirectoryChain,
   inspectExactNoFollowDirectoryPresence,
   inspectNoFollowDirectoryChain,
   inspectNoFollowOrdinaryFileEntry,
@@ -15,15 +16,15 @@ import type { VerificationSessionScope } from '../contract/session-scope.ts';
 import { commonGitDirectory, comparableFileSystemPath, exactRealPath, gitText, runVerificationSessionCommand } from './session-local-repository.ts';
 import type { GitHubCandidateObservation } from './verification-session-github.ts';
 import { createHash } from 'node:crypto';
-import { closeSync, existsSync, fsyncSync, lstatSync, mkdirSync, openSync, realpathSync, unlinkSync, writeFileSync } from 'node:fs';
+import { closeSync, fsyncSync, openSync, unlinkSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 
 const LOCAL_CANDIDATE_WORKTREE_OWNER_SCHEMA =
   'sec-verification-session-local-candidate-worktree-owner-v1' as const;
 
-const LOCAL_CANDIDATE_WORKTREE_DIRECTORY = path.join(
+const LOCAL_CANDIDATE_WORKTREE_DIRECTORY = Object.freeze([
   '.tmp', 'codex', 'verification-session-candidates'
-);
+] as const);
 
 type LocalCandidateWorktreeOwner = Readonly<{
   schema: typeof LOCAL_CANDIDATE_WORKTREE_OWNER_SCHEMA;
@@ -54,23 +55,13 @@ function assertContainedPath(root: string, candidate: string, label: string): vo
   }
 }
 
-function ensureOrdinaryDirectoryChain(authorityRoot: string): string {
-  let current = authorityRoot;
-  for (const segment of LOCAL_CANDIDATE_WORKTREE_DIRECTORY.split(/[\\/]+/u)) {
-    const next = path.join(current, segment);
-    assertContainedPath(authorityRoot, next, 'local candidate worktree directory');
-    if (!existsSync(next)) mkdirSync(next);
-    const metadata = lstatSync(next);
-    if (!metadata.isDirectory() || metadata.isSymbolicLink()) {
-      throw new Error('local candidate worktree directory must be an ordinary directory.');
-    }
-    const real = realpathSync.native(next);
-    if (comparableFileSystemPath(real) !== comparableFileSystemPath(next)) {
-      throw new Error('local candidate worktree directory crossed a symlink or reparse boundary.');
-    }
-    current = real;
-  }
-  return current;
+function ensureOrdinaryDirectoryChain(
+  authorityRoot: PhysicalDirectoryIdentity
+): PhysicalDirectoryIdentity {
+  return createNoFollowOrdinaryDirectoryChain(
+    authorityRoot,
+    LOCAL_CANDIDATE_WORKTREE_DIRECTORY
+  );
 }
 
 function createLocalCandidateWorktreeOwner(input: {
@@ -257,8 +248,10 @@ export function acquireLocalCandidateWorktree(input: {
   actionPlanClosure: CiVerificationActionPlanClosure;
 }): LocalCandidateWorktreeLease {
   const authorityRoot = exactRealPath(input.authorityRoot, 'trusted authority root');
-  const authorityMetadata = lstatSync(authorityRoot);
-  if (!authorityMetadata.isDirectory()) throw new Error('trusted authority root must be a directory.');
+  const authorityIdentity = inspectNoFollowDirectoryChain(
+    authorityRoot,
+    'trusted authority root'
+  ).target;
   const commonDirectory = commonGitDirectory(input.ctx, authorityRoot);
   const trackedStatus = gitText(input.ctx, authorityRoot,
     ['status', '--porcelain=v1', '--untracked-files=no'], 'trusted authority tracked status');
@@ -270,8 +263,13 @@ export function acquireLocalCandidateWorktree(input: {
   if (resolvedHead !== input.candidate.headSha || resolvedTree !== input.candidate.headTreeSha) {
     throw new Error('trusted authority object database does not contain the exact candidate head and tree.');
   }
-  const parent = ensureOrdinaryDirectoryChain(authorityRoot);
-  const candidateRoot = path.join(parent, input.candidate.headSha);
+  const parent = ensureOrdinaryDirectoryChain(
+    assertSameNoFollowDirectoryIdentity(
+      authorityIdentity,
+      'trusted authority root before candidate namespace creation'
+    ).target
+  );
+  const candidateRoot = path.join(parent.path, input.candidate.headSha);
   const markerPath = `${candidateRoot}.owner.json`;
   assertContainedPath(authorityRoot, candidateRoot, 'local candidate worktree');
   const owner = createLocalCandidateWorktreeOwner({ authorityRoot, commonGitDirectory: commonDirectory,
