@@ -37,7 +37,9 @@ import {
   type GitReadSessionCommand
 } from '../../providers/git-read/runtime/session.ts';
 import {
-  inspectNoFollowDirectoryChain, retainNoFollowOrdinaryFile, type RetainedNoFollowOrdinaryFile,
+  inspectNoFollowDirectoryChain,
+  retainCurrentProcessExecutable,
+  type RetainedNoFollowOrdinaryFile,
   type RetainedNoFollowProvenDirectoryGeneration
 } from '../../runtime-state/physical/runtime/physical-no-follow.ts';
 import {
@@ -3217,7 +3219,6 @@ async function executeAdmittedWorkingTreeSourceProgramAudit(
       `Repository Audit normalized operation exceeds its canonical input budget: ${JSON.stringify(projectionFieldBytes)}`
     );
   }
-  const executablePath = path.resolve(process.execPath);
   let executable: RetainedNoFollowOrdinaryFile | null = null;
   let dependency: RetainedCompilerDependencyReadGeneration | null = null;
   let dependencyRetirement: CompilerDependencyReadGenerationRetirementReceipt | null = null;
@@ -3285,14 +3286,7 @@ async function executeAdmittedWorkingTreeSourceProgramAudit(
     });
 
     stage = 'executable-admission';
-    executable = retainNoFollowOrdinaryFile(
-      inspectNoFollowDirectoryChain(path.dirname(executablePath), 'Source Program Bun parent'),
-      path.basename(executablePath),
-      undefined,
-      'Source Program Bun executable',
-      RETAINED_EXECUTABLE_CHILD_DESCRIPTOR,
-      'executable'
-    );
+    executable = retainCurrentProcessExecutable(RETAINED_EXECUTABLE_CHILD_DESCRIPTOR, 'Source Program Bun executable');
     stage = 'operation-compilation';
     const implementationDigest = deriveRepositoryAuditImplementationDigest(
       producerClosure,

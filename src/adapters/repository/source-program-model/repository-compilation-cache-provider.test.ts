@@ -16,8 +16,8 @@ import {
 import { withAuthorityGitReadSession } from '../../providers/git-read/authority.ts';
 import {
   inspectNoFollowDirectoryChain,
+  retainCurrentProcessExecutable,
   retainNoFollowDirectoryForChildProcess,
-  retainNoFollowOrdinaryFile
 } from '../../runtime-state/physical/runtime/physical-no-follow.ts';
 import { openProcessResourceSession } from '../../runtime-state/physical/runtime/process-resource-session.ts';
 import {
@@ -73,13 +73,8 @@ async function runGenerationChild(
   payloadPath: string,
   mode: 'load' | 'publish'
 ): Promise<Readonly<{ pid: number; result: ReturnType<RepositoryCompilationCacheHint['loadExact']> }>> {
-  const executablePath = path.resolve(process.execPath);
   const workerPath = fileURLToPath(new URL('../../../../tests/fixtures/repository-compilation-cache-worker.ts', import.meta.url));
-  const executable = retainNoFollowOrdinaryFile(
-    inspectNoFollowDirectoryChain(path.dirname(executablePath), 'cache worker executable parent'),
-    path.basename(executablePath), undefined, 'cache worker executable',
-    RETAINED_EXECUTABLE_CHILD_DESCRIPTOR, 'executable'
-  );
+  const executable = retainCurrentProcessExecutable(RETAINED_EXECUTABLE_CHILD_DESCRIPTOR, 'cache worker executable');
   const workingDirectory = retainNoFollowDirectoryForChildProcess(
     inspectNoFollowDirectoryChain(process.cwd(), 'cache worker cwd'),
     RETAINED_WORKING_DIRECTORY_CHILD_DESCRIPTOR,

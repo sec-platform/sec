@@ -6,6 +6,7 @@ import {
   isSecOperationKind,
   SEC_AGENT_SKILL_IDS,
   SEC_AGENT_SKILL_METADATA,
+  selectSecOperationAuthoritySourceRevision,
   type SecSkillApplicabilityEnvelope
 } from '../../src/adapters/self-hosting/control/agent/skill.ts';
 import { SEC_TASK_CAPSULE_REVISION } from '../../src/adapters/self-hosting/control/agent/task-capsule.ts';
@@ -219,4 +220,38 @@ test('unknown candidate IDs are ignored without breaking the decision', () => {
   expect(decision.selectedSkillId).toBe('worker-development');
   expect(decision.candidateSkillIds).toEqual(['worker-development']);
   expect(decision.reasonCodes).toContain('unknown-candidate-ignored');
+});
+
+test('provider instruction candidates are quarantined without selecting a broader Skill', () => {
+  for (const instruction of ['.codex/config.toml', '.codex/agents/implementation-worker.toml',
+    '.codex/agents/custom-reviewer.toml', '.codex/custom-role.toml', '.codex/notes.txt']) {
+    const decision = evaluateSecSkillApplicability(envelope({
+      changedPaths: [instruction], candidates: ['worker-development'],
+      trustedSkillRevisions: { [instruction]: 'trusted-role-blob' },
+      candidateSkillRevisions: { [instruction]: 'candidate-role-blob' }
+    }));
+    expect(decision.quarantinePaths).toEqual([instruction]);
+    expect(decision.trustedSkillRevision).toBe('trusted-role-blob');
+    expect(decision.selectedSkillId).toBe('worker-development');
+  }
+  for (const unrelated of ['config/application.toml', '.codex-other/config.toml']) {
+    expect(evaluateSecSkillApplicability(envelope({ changedPaths: [unrelated] })).quarantinePaths).toEqual([]);
+  }
+});
+
+test('operation authority source selection keeps changed guidance trusted without freezing changed product specs', () => {
+  const trustedRevision = '1'.repeat(40);
+  const targetCandidate = '2'.repeat(40);
+  const changedPaths = ['AGENTS.md', 'docs/开发/AI协作/规则装载与任务恢复.md',
+    'docs/运行/权限与资源管理.md'];
+  for (const [repositoryPath, expectedRevision] of [
+    ['AGENTS.md', trustedRevision],
+    ['docs/开发/AI协作/规则装载与任务恢复.md', trustedRevision],
+    ['docs/运行/权限与资源管理.md', targetCandidate],
+    ['docs/产品/产品要求与工作约束.md', trustedRevision]
+  ] as const) {
+    expect(selectSecOperationAuthoritySourceRevision({
+      repositoryPath, changedPaths, trustedRevision, targetCandidate
+    })).toBe(expectedRevision);
+  }
 });

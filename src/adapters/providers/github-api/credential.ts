@@ -11,6 +11,7 @@ import {
   type SecOperationDigest
 } from '../../../execution/operation/semantic.ts';
 import { withAcquiredResource } from '../../../execution/resource-settlement.ts';
+import { resolveLinuxEffectiveUserHome } from '../../runtime-state/physical/runtime/linux-user-home.ts';
 import {
   inspectNoFollowDirectoryChain,
   retainNoFollowDirectoryForChildProcess,
@@ -29,6 +30,7 @@ import {
   resolveExecutableLocator
 } from '../../runtime-state/physical/runtime/process.ts';
 import { GITHUB_HOST } from './contract.ts';
+import { currentGitHubCredentialStore } from './credential-store.ts';
 
 const MAX_CREDENTIAL_LIFETIME_MS = 30_000;
 const MAX_TOKEN_BYTES = 4_096;
@@ -38,7 +40,8 @@ const GITHUB_CREDENTIAL_REQUIREMENT = 'github-api.credential-process';
 const GITHUB_CREDENTIAL_CONTRACT_DIGEST = sha256({
   operation: GITHUB_CREDENTIAL_OPERATION,
   provider: 'github-cli',
-  credentialSources: ['stored-gh-auth', 'github-actions-token'],
+  credentialSources: ['stored-gh-auth', 'explicit-private-gh-config', 'github-actions-token'],
+  linuxStoredAuthHome: 'effective-user-database',
   githubActionsTokenEnvironment: {
     token: 'GH_TOKEN',
     actions: 'true',
@@ -66,6 +69,7 @@ export type GitHubCredentialInput = Readonly<{
   repository: string;
   hostname: typeof GITHUB_HOST;
   deadlineAtUnixMs: number;
+  signal?: AbortSignal;
 }>;
 
 export type GitHubActionsRepositoryMaintenanceCredentialIdentity = Readonly<{
@@ -77,7 +81,7 @@ export type GitHubActionsRepositoryMaintenanceCredentialIdentity = Readonly<{
   actor: string;
 }>;
 
-type GitHubCredentialSource = 'stored-gh-auth' | 'github-actions-token';
+type GitHubCredentialSource = 'stored-gh-auth' | 'explicit-private-gh-config' | 'github-actions-token';
 
 type GitHubCredentialProcessEnvironment = Readonly<{
   child: NodeJS.ProcessEnv;
@@ -149,13 +153,16 @@ function githubActionsCredentialToken(
 
 /**
  * The credential child never inherits PATH, host, config, HOME or XDG selectors.
+ * Linux stored auth receives HOME from the effective OS account instead; an
+ * absent HOME makes gh resolve its config relative to the candidate directory.
  * A GitHub Actions token is forwarded only as GH_TOKEN from an exact github.com
  * Actions environment; the secret is excluded from the semantic operation digest.
  */
-function githubCredentialEnvironment(
+async function githubCredentialEnvironment(
   source: Readonly<NodeJS.ProcessEnv>,
-  repository: string
-): GitHubCredentialProcessEnvironment {
+  repository: string,
+  store: ReturnType<typeof currentGitHubCredentialStore>
+): Promise<GitHubCredentialProcessEnvironment> {
   const child: NodeJS.ProcessEnv = {
     GH_PROMPT_DISABLED: '1',
     NO_COLOR: '1'
@@ -172,9 +179,20 @@ function githubCredentialEnvironment(
     }
   }
   const actionsToken = githubActionsCredentialToken(source, repository);
+  if (actionsToken !== undefined && store !== undefined) {
+    throw new GitHubCredentialUnavailableError('admission');
+  }
   const credentialSource: GitHubCredentialSource = actionsToken === undefined
-    ? 'stored-gh-auth'
+    ? store === undefined ? 'stored-gh-auth' : 'explicit-private-gh-config'
     : 'github-actions-token';
+  if (store !== undefined) {
+    child.GH_CONFIG_DIR = store.directory.childPath;
+    identity.GH_CONFIG_DIR = store.directory.childPath;
+  } else if (actionsToken === undefined && process.platform === 'linux') {
+    const home = await resolveLinuxEffectiveUserHome();
+    child.HOME = home;
+    identity.HOME = home;
+  }
   if (actionsToken !== undefined) child.GH_TOKEN = actionsToken;
   return Object.freeze({
     child,
@@ -314,19 +332,23 @@ export async function readGitHubToken(input: GitHubCredentialInput): Promise<Uin
         'executable'
       ),
       async use(executable) {
-        const workingDirectoryChain = inspectNoFollowDirectoryChain(cwd, 'GitHub credential working directory');
+        const store = currentGitHubCredentialStore(cwd);
+        const workingDirectoryChain = store?.chain ??
+          inspectNoFollowDirectoryChain(cwd, 'GitHub credential working directory');
         return withAcquiredResource({
           operationLabel: 'github-credential-execution',
           resourceLabel: 'github-credential-working-directory',
-          acquire: () => retainNoFollowDirectoryForChildProcess(
-            workingDirectoryChain,
-            RETAINED_WORKING_DIRECTORY_CHILD_DESCRIPTOR,
-            'GitHub credential working directory'
-          ),
+          acquire: () => store?.directory ?? retainNoFollowDirectoryForChildProcess(
+              workingDirectoryChain,
+              RETAINED_WORKING_DIRECTORY_CHILD_DESCRIPTOR,
+              'GitHub credential working directory'
+            ),
           async use(workingDirectory) {
             if (remainingMs() < 1) throw new GitHubCredentialUnavailableError('deadline');
             const boundary = issueRetainedCommandBoundary({ executable, workingDirectory });
-            const environment = githubCredentialEnvironment(process.env, repository);
+            store?.assertCurrent();
+            const environment = await githubCredentialEnvironment(process.env, repository, store);
+            if (remainingMs() < 1) throw new GitHubCredentialUnavailableError('deadline');
             const providerIdentityDigest = sha256({
               provider: 'github-cli',
               hostname: GITHUB_HOST,
@@ -337,7 +359,8 @@ export async function readGitHubToken(input: GitHubCredentialInput): Promise<Uin
                 size: executable.size,
                 digest: executable.digest()
               },
-              workingDirectory: workingDirectoryChain.target
+              workingDirectory: workingDirectoryChain.target,
+              credentialStoreIdentity: store?.identityDigest ?? null
             }) as SecOperationDigest;
             const operation = compileGitHubCredentialOperation({
               cwd,
@@ -352,6 +375,7 @@ export async function readGitHubToken(input: GitHubCredentialInput): Promise<Uin
               acquire() {
                 const session = openProcessResourceSession({
                   operation,
+                  ...(input.signal === undefined ? {} : { signal: input.signal }),
                   requirementBindingContext: issueSecOperationRequirementBindingContext({
                     operation,
                     requirementId: GITHUB_CREDENTIAL_REQUIREMENT,
@@ -369,6 +393,7 @@ export async function readGitHubToken(input: GitHubCredentialInput): Promise<Uin
                   maxStdoutBytes: MAX_TOKEN_BYTES
                 });
                 output.value = completed;
+                store?.assertCurrent();
                 return completed;
               },
               release(session) {
@@ -376,7 +401,10 @@ export async function readGitHubToken(input: GitHubCredentialInput): Promise<Uin
               }
             });
           },
-          release: (workingDirectory) => workingDirectory.dispose()
+          release: (workingDirectory) => {
+            // The bootstrap owns the explicitly selected directory lifecycle.
+            if (store === undefined) workingDirectory.dispose();
+          }
         });
       },
       release: (executable) => executable.dispose()
@@ -395,4 +423,30 @@ export async function readGitHubToken(input: GitHubCredentialInput): Promise<Uin
   } finally {
     output.value?.result.stdout.fill(0);
   }
+}
+
+/** Credential-source admission only; existing CI owners still verify live run and Effect authority. */
+export function inspectGitHubActionsVerificationCredentialIdentity(
+  source: Readonly<NodeJS.ProcessEnv>, repository: string
+): Readonly<{ workflowRef: string; workflowSha: string; runId: string; runAttempt: number }> | null {
+  const get = (key: string) => environmentValue(source, key);
+  const workflowSha = get('GITHUB_WORKFLOW_SHA');
+  const workflowRef = get('GITHUB_WORKFLOW_REF');
+  const runId = get('GITHUB_RUN_ID');
+  const runAttempt = get('GITHUB_RUN_ATTEMPT');
+  const workflow = workflowRef === `${repository}/.github/workflows/compiler-pr-validation.yml@refs/heads/main`
+    ? 'repository_dispatch'
+    : workflowRef === `${repository}/.github/workflows/merge-gate.yml@refs/heads/main` ? 'workflow_run' : null;
+  if (!/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/u.test(repository) || workflow === null ||
+      get('GITHUB_ACTIONS') !== 'true' || get('GITHUB_SERVER_URL') !== 'https://github.com' ||
+      get('GITHUB_API_URL') !== 'https://api.github.com' || get('GITHUB_REPOSITORY') !== repository ||
+      get('GITHUB_EVENT_NAME') !== workflow || get('GITHUB_REF') !== 'refs/heads/main' ||
+      typeof workflowSha !== 'string' || !/^[0-9a-f]{40}$/u.test(workflowSha) ||
+      get('GITHUB_SHA') !== workflowSha || typeof runId !== 'string' || !/^[1-9][0-9]*$/u.test(runId) ||
+      typeof runAttempt !== 'string' || !/^[1-9][0-9]*$/u.test(runAttempt) || !Number.isSafeInteger(Number(runAttempt))) return null;
+  const token = get('GH_TOKEN');
+  if (token === undefined) return null;
+  if (token.length === 0 || Buffer.byteLength(token, 'utf8') > MAX_TOKEN_BYTES ||
+      !/^[\x21-\x7e]+$/u.test(token)) throw new GitHubCredentialUnavailableError('token');
+  return Object.freeze({ workflowRef: workflowRef!, workflowSha, runId, runAttempt: Number(runAttempt) });
 }

@@ -1,5 +1,7 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
 import path from 'node:path';
+import { rawSha256 } from '../../../../contracts/canonical.ts';
+import { readArtifactMember } from './artifact-member.ts';
 
 import { assertGitBranchName } from '../../../../contracts/git-reference.ts';
 import { isNativeAborted, linkNativeAbortSignals } from '../../../../contracts/native-abort.ts';
@@ -7,14 +9,17 @@ import { ResourceCompositeSettlementError } from '../../../../execution/resource
 import { withOwnedByteStreamReader } from '../../../../execution/stream-reader.ts';
 
 import { GITHUB_API_BASE_URL, GITHUB_HOST } from '../contract.ts';
+import { currentGitHubCredentialStore } from '../credential-store.ts';
 import {
   GitHubCredentialUnavailableError,
-  inspectGitHubActionsRepositoryMaintenanceCredentialIdentity,
-  readGitHubToken
+  inspectGitHubActionsRepositoryMaintenanceCredentialIdentity, inspectGitHubActionsVerificationCredentialIdentity, readGitHubToken
 } from '../credential.ts';
+import { GITHUB_VERIFICATION_READ_QUERIES, isGitHubGraphQLSchemaFailure } from '../verification-queries.ts';
 
 export type GitHubApiEffect =
   | 'read'
+  | 'verification-read'
+  | 'verification-dispatch'
   | 'status-write'
   | 'issue-comment-write'
   | 'merge-write'
@@ -98,6 +103,23 @@ type GitHubApiRequestSession = {
 };
 
 export type GitHubApiOperation =
+  | Readonly<{ kind: 'verification-artifact-text'; artifactId: string; artifactName: string; runId: string; archiveDigest: string | null; fileName: string }>
+  | Readonly<{ kind: 'verification-artifact-archive'; artifactId: string }>
+  | Readonly<{ kind: 'verification-query'; document: string; variables: Readonly<Record<string, unknown>> }>
+  | Readonly<{ kind: 'verification-pull-files'; pullRequestNumber: number; page: number }>
+  | Readonly<{ kind: 'verification-user'; login: string }>
+  | Readonly<{ kind: 'verification-app'; slug: string }>
+  | Readonly<{ kind: 'verification-blob'; ref: string; path: string }>
+  | Readonly<{ kind: 'verification-compare'; baseSha: string; headSha: string }>
+  | Readonly<{ kind: 'verification-open-pulls'; page: number }>
+  | Readonly<{ kind: 'verification-commit-locator'; locator: string }>
+  | Readonly<{ kind: 'verification-artifact'; artifactId: string }>
+  | Readonly<{ kind: 'verification-artifacts'; runId?: string; page: number }>
+  | Readonly<{ kind: 'verification-workflow-runs'; headSha: string; page: number }>
+  | Readonly<{ kind: 'verification-workflow-jobs'; runId: string; runAttempt: number; page: number }>
+  | Readonly<{ kind: 'verification-rulesets'; page: number }>
+  | Readonly<{ kind: 'verification-repository-comments'; page: number }>
+  | Readonly<{ kind: 'verification-dispatch'; request: Readonly<Record<string, unknown>> }>
   | Readonly<{ kind: 'current-user' }>
   | Readonly<{ kind: 'repository' }>
   | Readonly<{ kind: 'pull'; pullRequestNumber: number }>
@@ -181,6 +203,19 @@ export class GitHubApiProviderError extends Error {
   constructor(message: string, readonly statusCode: number | null = null) {
     super(message);
     this.name = 'GitHubApiProviderError';
+  }
+}
+
+export class GitHubApiGraphqlResponseError extends GitHubApiProviderError {
+  readonly responseDigest: `sha256:${string}`;
+  readonly schemaUnsupported: boolean;
+  constructor(source: string, errors: unknown) {
+    super('GitHub GraphQL response contains errors; partial data is not admissible',200);
+    this.name = 'GitHubApiGraphqlResponseError';
+    this.responseDigest = rawSha256(source);
+    this.schemaUnsupported = Array.isArray(errors) && errors.some(error =>
+      error !== null && typeof error === 'object' && typeof error.message === 'string' &&
+      isGitHubGraphQLSchemaFailure(error.message));
   }
 }
 
@@ -290,7 +325,65 @@ function compileOperation(
   }
   const read = (path: string, body?: unknown): CompiledGitHubApiRequest =>
     Object.freeze({ kind, method: body === undefined ? 'GET' as const : 'POST' as const, path, body });
+  if (kind.startsWith('verification-') && effect !== 'verification-read' && effect !== 'verification-dispatch') {
+    throw new GitHubApiProviderError('Verification operations require a verification session');
+  }
+  if (effect === 'verification-dispatch' && !['current-user', 'repository', 'collaborator-permission', 'verification-dispatch'].includes(kind)) {
+    throw new GitHubApiProviderError('Verification dispatch permits only enrollment and exact dispatch');
+  }
+  const positiveId = (value: string): string => {
+    if (!/^[1-9][0-9]*$/u.test(value)) throw new GitHubApiProviderError('GitHub numeric identity is invalid');
+    return value;
+  };
   switch (kind) {
+    case 'verification-query': {
+      const document = operation.document;
+      if (!GITHUB_VERIFICATION_READ_QUERIES.includes(document)) throw new GitHubApiProviderError('Unknown verification GraphQL document');
+      const declared = new Set([...document.matchAll(/\$([A-Za-z]+):/gu)].map(match => match[1]!));
+      const variables: Record<string, unknown> = {};
+      for (const [key, value] of Object.entries(operation.variables)) {
+        if (!declared.has(key) || (value !== null && typeof value !== 'string' && typeof value !== 'number')) {
+          throw new GitHubApiProviderError('Verification GraphQL variable is invalid');
+        }
+        variables[key] = key === 'number' ? positiveInteger(value as number, 'pull request number')
+          : value === null ? null : boundedText(String(value), 'GraphQL variable', 1024);
+      }
+      const parts = repositoryParts(repo);
+      if (declared.has('owner')) {
+        if ((variables.owner !== undefined && variables.owner !== parts.owner) ||
+            (variables.name !== undefined && variables.name !== parts.name)) throw new GitHubApiProviderError('Verification GraphQL repository mismatch');
+        Object.assign(variables, parts);
+      }
+      for (const match of document.matchAll(/\$([A-Za-z]+):[A-Za-z]+!/gu)) {
+        if (variables[match[1]!] === undefined || variables[match[1]!] === null) throw new GitHubApiProviderError('Verification GraphQL required variable is absent');
+      }
+      return read('/graphql', { query:document, variables });
+    }
+    case 'verification-pull-files': return read(`/repos/${repo}/pulls/${positiveInteger(operation.pullRequestNumber,'pull request number')}/files?per_page=100&page=${page(operation.page)}`);
+    case 'verification-user': return read(`/users/${encodeURIComponent(boundedText(operation.login, 'user login', 64))}`);
+    case 'verification-app': return read(`/apps/${encodeURIComponent(boundedText(operation.slug, 'app slug', 128))}`);
+    case 'verification-blob': {
+      const blobPath = boundedText(operation.path, 'blob path', 4096);
+      if (blobPath.startsWith('/') || blobPath.includes('\\') || blobPath.split('/').some(part => part === '' || part === '.' || part === '..')) throw new GitHubApiProviderError('Blob path is not relative');
+      return read(`/repos/${repo}/contents/${blobPath.split('/').map(encodeURIComponent).join('/')}?ref=${sha(operation.ref)}`);
+    }
+    case 'verification-compare': return read(`/repos/${repo}/compare/${sha(operation.baseSha)}...${sha(operation.headSha)}`);
+    case 'verification-open-pulls': return read(`/repos/${repo}/pulls?state=open&sort=created&direction=asc&per_page=100&page=${page(operation.page)}`);
+    case 'verification-commit-locator': {
+      if (!/^(?:[0-9a-f]{10}|[0-9a-f]{40})$/u.test(operation.locator)) throw new GitHubApiProviderError('Commit locator is invalid');
+      return read(`/repos/${repo}/commits/${operation.locator}`);
+    }
+    case 'verification-artifact-archive': return read(`/repos/${repo}/actions/artifacts/${positiveId(operation.artifactId)}/zip`);
+    case 'verification-artifact': return read(`/repos/${repo}/actions/artifacts/${positiveId(operation.artifactId)}`);
+    case 'verification-artifacts': return read(`/repos/${repo}/actions/${operation.runId === undefined ? '' : `runs/${positiveId(operation.runId)}/`}artifacts?per_page=100&page=${page(operation.page)}`);
+    case 'verification-workflow-runs': return read(`/repos/${repo}/actions/runs?head_sha=${sha(operation.headSha)}&per_page=100&page=${page(operation.page)}`);
+    case 'verification-workflow-jobs': return read(`/repos/${repo}/actions/runs/${positiveId(operation.runId)}/attempts/${positiveInteger(operation.runAttempt, 'run attempt')}/jobs?per_page=100&page=${page(operation.page)}`);
+    case 'verification-rulesets': return read(`/repos/${repo}/rulesets?per_page=100&page=${page(operation.page)}`);
+    case 'verification-repository-comments': return read(`/repos/${repo}/issues/comments?per_page=100&sort=created&direction=desc&page=${page(operation.page)}`);
+    case 'verification-dispatch': {
+      if (effect !== 'verification-dispatch') throw new GitHubApiProviderError('Dispatch requires exact write authority');
+      return read(`/repos/${repo}/dispatches`, { event_type:'sec-verify-session-v2', client_payload:{ payload:operation.request } });
+    }
     case 'current-user': return read('/user');
     case 'repository': return read(`/repos/${repo}`);
     case 'pull': return read(`/repos/${repo}/pulls/${positiveInteger(operation.pullRequestNumber, 'pull request number')}`);
@@ -530,8 +623,9 @@ function issueCapability(input: Readonly<{
     && input.principal.nodeId === 'MDM6Qm90NDE4OTgyODI='
     && input.principal.userId === 41898282
     && input.principal.permission === 'workflow'
-    && input.principal.workflowRef
-      === `${input.repository}/.github/workflows/repository-maintenance.yml@refs/heads/main`
+    && (input.principal.workflowRef === `${input.repository}/.github/workflows/repository-maintenance.yml@refs/heads/main` ||
+      (input.effect === 'verification-read' && [`${input.repository}/.github/workflows/compiler-pr-validation.yml@refs/heads/main`,
+        `${input.repository}/.github/workflows/merge-gate.yml@refs/heads/main`].includes(input.principal.workflowRef)))
     && /^[0-9a-f]{40}$/u.test(input.principal.workflowSha);
   if (!/^[^\s\u0000-\u001f\u007f-\u009f]{20,1024}$/u.test(input.token)
       || (!userPrincipalValid && !workflowPrincipalValid)
@@ -571,7 +665,11 @@ function issueCapability(input: Readonly<{
     const maintenanceEffect = input.effect === 'read'
       || input.effect === 'branch-closeout-write'
       || input.effect === 'issue-comment-write';
-    if (!maintenanceWorkflow || !maintenanceEffect) {
+    const verificationRead = input.effect === 'verification-read' &&
+      [`${input.repository}/.github/workflows/compiler-pr-validation.yml@refs/heads/main`,
+        `${input.repository}/.github/workflows/merge-gate.yml@refs/heads/main`,
+        `${input.repository}/.github/workflows/repository-maintenance.yml@refs/heads/main`].includes(input.principal.workflowRef);
+    if ((!maintenanceWorkflow || !maintenanceEffect) && !verificationRead) {
       throw new GitHubApiProviderError(
         'GitHub Actions workflow principal effect is not authorized by its exact workflow identity'
       );
@@ -707,7 +805,7 @@ async function executeWithToken<T>(
     const failure = error instanceof GitHubApiProviderError || error instanceof ResourceCompositeSettlementError
       ? error
       : new GitHubApiProviderError(
-        `GitHub API ${compiled.kind} transport unavailable: ${isNativeAborted(session.abortController.signal) ? 'operation deadline exceeded' : error instanceof Error ? error.message : String(error)}`
+        `GitHub API ${compiled.kind} transport unavailable: ${isNativeAborted(session.abortController.signal) ? 'operation deadline exceeded' : compiled.kind.startsWith('verification-artifact') ? 'artifact resource unavailable' : error instanceof Error ? error.message : String(error)}`
       );
     firstFailure ??= { error: failure };
     return failure;
@@ -716,9 +814,9 @@ async function executeWithToken<T>(
   // them. A deadline may reject its observer but must not debit inFlight early.
   const request = (async (): Promise<T> => {
     try {
-      const response = await transport(canonicalTarget(compiled.path), {
+      let response = await transport(canonicalTarget(compiled.path), {
         method: compiled.method,
-        redirect: 'error',
+        redirect: compiled.kind === 'verification-artifact-archive' ? 'manual' : 'error',
         headers: {
           Accept: 'application/vnd.github+json',
           Authorization: `Bearer ${token}`,
@@ -729,11 +827,29 @@ async function executeWithToken<T>(
         signal: transportSignal,
         ...(body === undefined ? {} : { body })
       });
+      if (compiled.kind === 'verification-artifact-archive') {
+        const location = response.headers.get('location');
+        const status = response.status;
+        if (response.body !== null) await withOwnedByteStreamReader(response.body, async () => undefined, session.abortController.signal);
+        if (status !== 302 || location === null || location.length > 8192) throw new GitHubApiProviderError('Artifact API did not issue one download redirect', status);
+        let target: URL;
+        try { target = new URL(location); } catch { throw new GitHubApiProviderError('Artifact download redirect is invalid'); }
+        if (target.protocol !== 'https:' || target.username || target.password || target.hash ||
+            (target.port !== '' && target.port !== '443') ||
+            (target.hostname !== 'results-receiver.actions.githubusercontent.com' &&
+              !target.hostname.endsWith('.blob.core.windows.net'))) {
+          throw new GitHubApiProviderError('Artifact download redirect origin is not admitted');
+        }
+        reserve(session, 0);
+        try {
+          response = await transport(target, {method:'GET', redirect:'error', credentials:'omit',
+            headers:{Accept:'application/zip'}, signal:transportSignal});
+        } catch { throw new GitHubApiProviderError('Artifact download transport unavailable'); }
+      }
       const acceptsDeleteNoContent = response.status === 204
         && response.ok
-        && compiled.method === 'DELETE'
-        && (compiled.kind === 'delete-repository-runner'
-          || compiled.kind === 'delete-issue-comment');
+        && ((compiled.method === 'DELETE' && (compiled.kind === 'delete-repository-runner'
+          || compiled.kind === 'delete-issue-comment')) || compiled.kind === 'verification-dispatch');
       if (response.body === null) {
         remaining(session);
         if (acceptsDeleteNoContent) return null as T;
@@ -770,6 +886,20 @@ async function executeWithToken<T>(
             );
             return null as T;
           }
+          if (compiled.kind === 'verification-artifact-archive') {
+            if (response.status !== 200) throw new GitHubApiProviderError('Artifact download returned an invalid status', response.status);
+            const chunks: Uint8Array[] = [];
+            let length = 0;
+            for (;;) {
+              const chunk = await read();
+              if (chunk.done) break;
+              length += chunk.value.byteLength;
+              recordResponseBytes(session, chunk.value.byteLength);
+              remaining(session); chunks.push(new Uint8Array(chunk.value));
+            }
+            if (length === 0) throw new GitHubApiProviderError('Artifact download is empty');
+            return Buffer.concat(chunks,length) as T;
+          }
           const decoder = new TextDecoder('utf-8', { fatal: true });
           const chunks: string[] = [];
           for (;;) {
@@ -782,15 +912,30 @@ async function executeWithToken<T>(
           chunks.push(decoder.decode());
           const source = chunks.join('');
           if (!response.ok) throw new GitHubApiProviderError(
-            `GitHub API ${compiled.kind} failed with HTTP ${response.status}: ${source.slice(-2048)}`, response.status
+            `GitHub API ${compiled.kind} failed with HTTP ${response.status}${compiled.kind.startsWith('verification-artifact') ? '' : `: ${source.slice(-2048)}`}`, response.status
           );
-          try { return JSON.parse(source) as T; }
+          let value: unknown;
+          try { value = JSON.parse(source); }
           catch (error) { throw new GitHubApiProviderError(
             `GitHub API ${compiled.kind} returned invalid JSON: ${error instanceof Error ? error.message : String(error)}`, response.status
           ); }
+          if (compiled.kind === 'verification-query') {
+            const record = value !== null && typeof value === 'object' && !Array.isArray(value)
+              ? value as Record<string, unknown> : null;
+            if (record === null || (record.errors !== undefined &&
+                (!Array.isArray(record.errors) || record.errors.length !== 0))) {
+              throw new GitHubApiGraphqlResponseError(source,record?.errors);
+            }
+          }
+          return value as T;
         } catch (error) { throw captureFailure(error); }
       }, session.abortController.signal);
     } catch (error) {
+      if (error instanceof ResourceCompositeSettlementError && compiled.kind.startsWith('verification-artifact')) {
+        const safe = new ResourceCompositeSettlementError(error.failures.map(failure => ({label:failure.label,
+          error:new GitHubApiProviderError('Artifact response settlement unavailable')})));
+        session.responseSettlementFailures.push(safe); throw captureFailure(safe);
+      }
       if (error instanceof ResourceCompositeSettlementError) session.responseSettlementFailures.push(error);
       throw captureFailure(error);
     } finally {
@@ -823,6 +968,11 @@ export async function executeGitHubApiOperation(
     throw new GitHubApiProviderError('GitHub API request requires the active exact operation session');
   }
   const kind = operation.kind;
+  if (kind === 'verification-artifact-text') {
+    const input = operation as Extract<GitHubApiOperation,{kind:'verification-artifact-text'}>;
+    return await readGitHubArtifactText(capability,{artifactId:input.artifactId,artifactName:input.artifactName,
+      runId:input.runId,archiveDigest:input.archiveDigest,fileName:input.fileName});
+  }
   if (kind !== 'delete-ref-cas') {
     const capturedOperation = Object.create(operation) as GitHubApiOperation;
     Object.defineProperty(capturedOperation, 'kind', { value: kind });
@@ -894,6 +1044,31 @@ export async function executeGitHubApiOperation(
   return mutation;
 }
 
+async function readGitHubArtifactText(capability: GitHubApiCapability, input: Readonly<{
+  artifactId: string; artifactName: string; runId: string;
+  archiveDigest: string | null; fileName: string;
+}>): Promise<string> {
+  input = Object.freeze({...input});
+  const value = binding(capability);
+  const session = requestSession.getStore();
+  if (session?.capability !== capability || value.effect !== 'verification-read') throw new GitHubApiProviderError('Artifact read requires its live verification session');
+  const raw = await executeGitHubApiOperation(capability,{kind:'verification-artifact',artifactId:input.artifactId});
+  if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) throw new GitHubApiProviderError('Artifact metadata is invalid');
+  const metadata = raw as Record<string, any>;
+  if (String(metadata.id) !== input.artifactId || metadata.name !== input.artifactName ||
+      String(metadata.workflow_run?.id) !== input.runId || metadata.expired !== false ||
+      !Number.isSafeInteger(metadata.size_in_bytes) || metadata.size_in_bytes < 1 || metadata.size_in_bytes > MAX_RESPONSE_BYTES ||
+      (input.archiveDigest !== null && metadata.digest !== input.archiveDigest) ||
+      (metadata.digest !== null && metadata.digest !== undefined && !/^sha256:[0-9a-f]{64}$/u.test(metadata.digest))) {
+    throw new GitHubApiProviderError('Artifact metadata drifted from the selected identity');
+  }
+  const archive = await executeGitHubApiOperation(capability,{kind:'verification-artifact-archive',artifactId:input.artifactId});
+  if (!(archive instanceof Uint8Array) || archive.byteLength !== metadata.size_in_bytes ||
+      (metadata.digest != null && rawSha256(archive) !== metadata.digest)) throw new GitHubApiProviderError('Artifact archive identity does not match metadata');
+  return await readArtifactMember({archive,fileName:input.fileName,signal:session.abortController.signal,
+    assertCurrent:() => { remaining(session); }});
+}
+
 export function currentGitHubApiCapability(
   repositoryName: string,
   effect: GitHubApiEffect
@@ -947,7 +1122,8 @@ async function readProductionToken(repositoryRoot: string, session: GitHubApiReq
       cwd: path.resolve(repositoryRoot),
       repository: session.repository,
       hostname: GITHUB_HOST,
-      deadlineAtUnixMs: Math.min(session.deadlineAt, Date.now() + remaining(session))
+      deadlineAtUnixMs: Math.min(session.deadlineAt, Date.now() + remaining(session)),
+      signal: session.abortController.signal
     });
     remaining(session);
     recordResponseBytes(session, bytes.byteLength);
@@ -960,6 +1136,15 @@ async function readProductionToken(repositoryRoot: string, session: GitHubApiReq
   } finally {
     bytes?.fill(0);
   }
+}
+
+async function readVerificationProductionToken(repositoryRoot: string, session: GitHubApiRequestSession): Promise<string> {
+  const identity = inspectGitHubActionsVerificationCredentialIdentity(process.env, session.repository);
+  if (identity === null) return await readProductionToken(repositoryRoot, session);
+  if (currentGitHubCredentialStore(repositoryRoot) !== undefined) throw new GitHubApiProviderError('Multiple credential sources are selected');
+  reserve(session, 0);
+  const key = Object.keys(process.env).find(key => key.toLowerCase() === 'gh_token');
+  return key === undefined ? '' : process.env[key]!;
 }
 
 type TokenReader = (
@@ -985,9 +1170,12 @@ async function enroll(input: Readonly<{
   const maintenanceWorkflowIdentity = input.origin === 'production'
     ? inspectGitHubActionsRepositoryMaintenanceCredentialIdentity(process.env, input.repository)
     : null;
-  const workflowIdentity = maintenanceWorkflowIdentity;
+  const verificationWorkflowIdentity = input.origin === 'production' &&
+    (input.effect === 'verification-read' || input.effect === 'verification-dispatch')
+    ? inspectGitHubActionsVerificationCredentialIdentity(process.env, input.repository) : null;
+  const workflowIdentity = verificationWorkflowIdentity ?? maintenanceWorkflowIdentity;
   if (workflowIdentity !== null) {
-    if (input.effect !== 'read'
+    if (input.effect !== 'read' && input.effect !== 'verification-read'
         && input.effect !== 'branch-closeout-write'
         && input.effect !== 'issue-comment-write') {
       throw new GitHubApiProviderError(
@@ -1021,6 +1209,7 @@ async function enroll(input: Readonly<{
         );
       }
     }
+    if (verificationWorkflowIdentity !== null && input.effect !== 'verification-read') throw new GitHubApiProviderError('Verification workflow credentials are read-only');
     const capability = issueCapability({
       repository: input.repository,
       token,
@@ -1102,6 +1291,7 @@ async function runSession<T>(input: Readonly<{
   budget?: GitHubApiOperationBudget;
   now?: () => number;
   timeoutMs?: number;
+  signal?: AbortSignal;
 }>): Promise<T> {
   const current = requestSession.getStore();
   if (current !== undefined) {
@@ -1139,7 +1329,10 @@ async function runSession<T>(input: Readonly<{
         : Math.max(1, Math.ceil(input.budget.deadlineAt - input.budget.now()))
     )
   });
-  return await requestSession.run(session, async () => await settleSession(session, async () => {
+  const abort = () => session.abortController.abort();
+  input.signal?.addEventListener('abort', abort);
+  if (input.signal !== undefined && isNativeAborted(input.signal)) abort();
+  try { return await requestSession.run(session, async () => await settleSession(session, async () => {
     const capability = await enroll({
       repositoryRoot: input.repositoryRoot,
       repository: input.repository,
@@ -1149,22 +1342,40 @@ async function runSession<T>(input: Readonly<{
       readToken: input.readToken
     });
     return await input.operation(capability);
-  }));
+  })); } finally { input.signal?.removeEventListener('abort', abort); }
 }
 
 async function withProductionSession<T>(input: Readonly<{
   repositoryRoot: string;
   repository: string;
   effect: GitHubApiEffect;
+  deadlineAtUnixMs?: number;
+  signal?: AbortSignal;
   operation: (capability: GitHubApiCapability) => Promise<T>;
 }>): Promise<T> {
+  const verification = input.effect === 'verification-read' || input.effect === 'verification-dispatch';
   return await runSession({
     ...input,
     origin: 'production',
     transport: async (target, init) => await globalThis.fetch(target, init),
-    readToken: readProductionToken,
-    budget: operationBudget.getStore()
+    readToken: verification ? readVerificationProductionToken : readProductionToken,
+    // Verification owns its bounded session; ordinary operation budgets remain unchanged.
+    ...(verification
+      ? { timeoutMs: Math.min(60_000, (input.deadlineAtUnixMs ?? Date.now() + 60_000) - Date.now()) }
+      : { budget: operationBudget.getStore() })
   });
+}
+
+export async function withGitHubApiVerificationSession<T>(input: Readonly<{
+  repositoryRoot: string;
+  repository: string;
+  effect: 'verification-read' | 'verification-dispatch';
+  deadlineAtUnixMs?: number;
+  signal?: AbortSignal;
+  operation: (capability: GitHubApiCapability) => Promise<T>;
+}>): Promise<T> {
+  if (input.effect !== 'verification-read' && input.effect !== 'verification-dispatch') throw new GitHubApiProviderError('Verification session effect is invalid');
+  return await withProductionSession(input);
 }
 
 export async function withGitHubApiReadSession<T>(input: Readonly<{

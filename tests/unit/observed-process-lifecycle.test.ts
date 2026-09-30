@@ -4,6 +4,7 @@ import { EventEmitter } from 'node:events';
 import { PassThrough } from 'node:stream';
 
 import { expect, test } from 'bun:test';
+import { createRawTestExecutableFixture } from '../testkit/raw-process.ts';
 
 import { runObservedCommand, type ObservedCommandDependencies } from '../../src/adapters/runtime-state/physical/runtime/observed-process-stdin.ts';
 
@@ -33,8 +34,10 @@ function fakeChild(pid = 42_424): FakeChild {
 
 test('observed command writes bounded stdin and settles the real child process', async () => {
   const input = Buffer.alloc(128 * 1024 + 7, 0x61);
+  const executable = createRawTestExecutableFixture();
+  try {
   const outcome = await runObservedCommand(
-    process.execPath,
+    executable.command,
     ['-e', 'process.stdin.pipe(process.stdout)'],
     {
       cwd: process.cwd(),
@@ -61,6 +64,7 @@ test('observed command writes bounded stdin and settles the real child process',
       treeClosed: true
     }
   });
+  } finally { executable.dispose(); }
 });
 
 function closeChild(child: FakeChild, code = 0): void {
@@ -329,4 +333,28 @@ test('observed command absolute deadline covers beforeSpawn and prevents a late 
     started: false,
     termination: { treeClosed: true }
   });
+});
+
+
+test('observed command rejects synchronous admission after its original deadline without spawning', async () => {
+  let now = 0;
+  let spawnCalls = 0;
+  const child = fakeChild();
+  const outcome = await runObservedCommand('host-tool.exe', [], {
+    beforeSpawn: async () => { now = 25; },
+    cwd: process.cwd(),
+    timeoutMs: 5,
+    dependencies: {
+      ...dependencies(child, async () => ({gracefulAttempted: false, forcedAttempted: false, treeClosed: true})),
+      monotonicNowMs: () => now,
+      spawnChild: () => {
+        spawnCalls += 1;
+        queueMicrotask(() => closeChild(child));
+        return child as unknown as ChildProcess;
+      }
+    }
+  });
+  expect(spawnCalls).toBe(0);
+  expect(outcome).toMatchObject({status: 'timed-out', trigger: 'timed-out', started: false,
+    termination: {treeClosed: true}});
 });

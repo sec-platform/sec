@@ -1,5 +1,4 @@
 import { randomBytes } from 'node:crypto';
-import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 
@@ -30,6 +29,7 @@ import {
   assertSameNoFollowDirectoryIdentity,
   createExclusiveNoFollowRandomDirectory,
   inspectNoFollowDirectoryChain,
+  retainCurrentProcessExecutable,
   retainNoFollowDirectoryForChildProcess,
   retainNoFollowOrdinaryFile,
   retireNoFollowDirectoryTree,
@@ -464,25 +464,14 @@ export async function runSuiteProcesses(
   const files = captureSuites(workspaceRoot, suiteRoot, input.files);
   await commitFence?.();
 
-  const executablePath = path.resolve(await fs.realpath(process.execPath));
   let executable: ReturnType<typeof retainNoFollowOrdinaryFile> | undefined;
   let liveWorkingDirectory: ReturnType<typeof retainNoFollowDirectoryForChildProcess> | undefined;
   let exactGeneration: FastSuiteExecutionGeneration | undefined;
   let boundary: ReturnType<typeof issueRetainedCommandBoundary> | undefined;
   let primaryFailure: Readonly<{ error: unknown }> | undefined;
   try {
-    const executableParent = inspectNoFollowDirectoryChain(
-      path.dirname(executablePath),
-      'Fast suite Bun executable parent'
-    );
-    executable = retainNoFollowOrdinaryFile(
-      executableParent,
-      path.basename(executablePath),
-      undefined,
-      'Fast suite Bun executable',
-      RETAINED_EXECUTABLE_CHILD_DESCRIPTOR,
-      'executable'
-    );
+
+    executable = retainCurrentProcessExecutable(RETAINED_EXECUTABLE_CHILD_DESCRIPTOR, 'Fast suite Bun executable');
     const workspaceChain = inspectNoFollowDirectoryChain(
       workspaceRoot,
       'Fast suite workspace root'

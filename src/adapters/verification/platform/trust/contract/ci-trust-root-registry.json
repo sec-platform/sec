@@ -64,9 +64,11 @@
   "reviewedBoundaryEdges": [],
   "reviewedExternalImports": [
     "src/adapters/providers/docker/contract/windows-installation-profile.ts -> zod",
+    "src/adapters/providers/github-api/internal/artifact-member.ts -> yauzl",
     "src/adapters/providers/linux-verification/contract.ts -> zod",
     "src/adapters/providers/windows-control-cli/contract/environment.ts -> zod",
     "src/adapters/repository/source-program-model/test-impact-projection.ts -> zod",
+    "src/adapters/runtime-state/physical/runtime/linux-user-home.ts -> bun:ffi",
     "src/adapters/runtime-state/physical/runtime/observed-process.ts -> bun:ffi",
     "src/adapters/runtime-state/physical/runtime/physical-no-follow-native.ts -> bun:ffi",
     "src/adapters/runtime-state/physical/runtime/process.ts -> node:string_decoder",

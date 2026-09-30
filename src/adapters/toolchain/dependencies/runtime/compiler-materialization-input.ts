@@ -15,8 +15,11 @@ import {
   assertSameNoFollowDirectoryIdentity,
   inspectNoFollowDirectoryChain,
   inspectNoFollowOrdinaryFileEntry,
-  readNoFollowOrdinaryFile
+  observeAdoptedExecutableSource,
+  readNoFollowOrdinaryFile,
+  retainCurrentProcessExecutable
 } from '../../../runtime-state/physical/runtime/physical-no-follow.ts';
+import { RETAINED_EXECUTABLE_SOURCE_PATH_ENV_KEY } from '../../../runtime-state/physical/runtime/process.ts';
 import { compilerRoot } from "../../../workspace-context.ts";
 import { loadCanonicalBunRuntimeVersion } from '../../runtime.ts';
 import { sameHostPath } from './host-path.ts';
@@ -90,6 +93,60 @@ export function compilerInstallConfigSha256(bytes: Uint8Array | null): string {
 // every later operation re-proves the physical file and its bytes.
 let runtimeExecutableIdentityInFlight: Promise<RuntimeExecutableIdentity> | null = null;
 
+async function observeStableRuntimeExecutablePath(
+  executableInputPath: string
+): Promise<RuntimeExecutableIdentity> {
+  if (!path.isAbsolute(executableInputPath) || executableInputPath.includes('\0')) {
+    throw new SecError(
+      'IMPORT-AUTHORITY-001',
+      'Bun runtime executable source path must be one absolute NUL-free path'
+    );
+  }
+  const executablePath = await fs.realpath(executableInputPath);
+  const handle = await fs.open(executablePath, 'r');
+  try {
+    const metadata = await handle.stat({ bigint: true });
+    const pathBefore = await fs.lstat(executablePath, { bigint: true });
+    if (!metadata.isFile() || !pathBefore.isFile() || pathBefore.isSymbolicLink()
+      || metadata.dev !== pathBefore.dev || metadata.ino !== pathBefore.ino
+      || metadata.mode !== pathBefore.mode || metadata.size !== pathBefore.size
+      || metadata.mtimeNs !== pathBefore.mtimeNs) {
+      throw new SecError('IMPORT-AUTHORITY-001', 'Bun runtime executable must be one stable physical file');
+    }
+    const signature = [
+      executablePath,
+      metadata.dev,
+      metadata.ino,
+      metadata.mode,
+      metadata.size,
+      metadata.mtimeNs
+    ].join(':');
+    const executableBytes = await handle.readFile();
+    const [after, pathAfter, physicalPathAfter, inputPathAfter] = await Promise.all([
+      handle.stat({ bigint: true }),
+      fs.lstat(executablePath, { bigint: true }),
+      fs.realpath(executablePath),
+      fs.realpath(executableInputPath)
+    ]);
+    if (metadata.dev !== after.dev || metadata.ino !== after.ino || metadata.mode !== after.mode ||
+      metadata.size !== after.size || metadata.mtimeNs !== after.mtimeNs ||
+      pathAfter.dev !== metadata.dev || pathAfter.ino !== metadata.ino ||
+      pathAfter.mode !== metadata.mode || pathAfter.size !== metadata.size ||
+      pathAfter.mtimeNs !== metadata.mtimeNs ||
+      !sameHostPath(physicalPathAfter, executablePath) ||
+      !sameHostPath(inputPathAfter, executablePath)) {
+      throw new SecError('IMPORT-AUTHORITY-001', 'Bun runtime executable changed during observation');
+    }
+    return Object.freeze({
+      path: executablePath,
+      sha256: digest(executableBytes),
+      signature
+    });
+  } finally {
+    await handle.close();
+  }
+}
+
 export async function currentRuntimeExecutableIdentity(
   refresh = false
 ): Promise<RuntimeExecutableIdentity> {
@@ -98,48 +155,29 @@ export async function currentRuntimeExecutableIdentity(
     return runtimeExecutableIdentityInFlight;
   }
   const observation = (async (): Promise<RuntimeExecutableIdentity> => {
-    const executablePath = await fs.realpath(process.execPath);
-    const handle = await fs.open(executablePath, 'r');
-    try {
-      const metadata = await handle.stat({ bigint: true });
-      const pathBefore = await fs.lstat(executablePath, { bigint: true });
-      if (!metadata.isFile() || !pathBefore.isFile() || pathBefore.isSymbolicLink()
-        || metadata.dev !== pathBefore.dev || metadata.ino !== pathBefore.ino
-        || metadata.mode !== pathBefore.mode || metadata.size !== pathBefore.size
-        || metadata.mtimeNs !== pathBefore.mtimeNs) {
-        throw new SecError('IMPORT-AUTHORITY-001', 'Bun runtime executable must be one stable physical file');
+    if (process.platform === 'linux'
+        && process.execPath.startsWith('/memfd:sec-retained-executable')) {
+      const sourcePath = process.env[RETAINED_EXECUTABLE_SOURCE_PATH_ENV_KEY];
+      if (sourcePath === undefined) {
+        throw new SecError(
+          'IMPORT-AUTHORITY-001',
+          'Sealed Bun runtime is missing its owner-issued executable source provenance'
+        );
       }
-      const signature = [
-        executablePath,
-        metadata.dev,
-        metadata.ino,
-        metadata.mode,
-        metadata.size,
-        metadata.mtimeNs
-      ].join(':');
-      const executableBytes = await handle.readFile();
-      const [after, pathAfter, physicalPathAfter] = await Promise.all([
-        handle.stat({ bigint: true }),
-        fs.lstat(executablePath, { bigint: true }),
-        fs.realpath(executablePath)
-      ]);
-      if (metadata.dev !== after.dev || metadata.ino !== after.ino || metadata.mode !== after.mode ||
-        metadata.size !== after.size || metadata.mtimeNs !== after.mtimeNs ||
-        pathAfter.dev !== metadata.dev || pathAfter.ino !== metadata.ino ||
-        pathAfter.mode !== metadata.mode || pathAfter.size !== metadata.size ||
-        pathAfter.mtimeNs !== metadata.mtimeNs ||
-        !sameHostPath(physicalPathAfter, executablePath) ||
-        !sameHostPath(await fs.realpath(process.execPath), executablePath)) {
-        throw new SecError('IMPORT-AUTHORITY-001', 'Bun runtime executable changed during observation');
+      const executable = retainCurrentProcessExecutable(3, 'Compiler runtime sealed executable identity');
+      try {
+        const source = observeAdoptedExecutableSource(executable, sourcePath);
+        return Object.freeze({
+          path: source.path,
+          sha256: source.byteDigest.slice('sha256:'.length),
+          signature: [source.path, source.device, source.inode, source.mode,
+            source.size, source.modifiedAtNanoseconds].join(':')
+        });
+      } finally {
+        executable.dispose();
       }
-      return Object.freeze({
-        path: executablePath,
-        sha256: digest(executableBytes),
-        signature
-      });
-    } finally {
-      await handle.close();
     }
+    return observeStableRuntimeExecutablePath(process.execPath);
   })();
   if (refresh) return observation;
   runtimeExecutableIdentityInFlight = observation;

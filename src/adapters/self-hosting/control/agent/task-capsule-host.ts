@@ -2,6 +2,7 @@
 
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
+import { resolveAgentRuntimeRepositoryRoot } from './runtime-root.ts';
 
 import { compareCodeUnits, sha256 } from '../../../../contracts/canonical.ts';
 import { DOCUMENTATION_IDENTITY_PATH } from '../documentation/active.ts';
@@ -10,7 +11,8 @@ import {
   SEC_AGENT_OPERATION_ACTIVATION_REASON_CODES,
   SecAgentOperationActivationUnavailableError,
   type SecAgentOperationActivationReasonCode,
-  type SecOperationAuthorityOwnerObservation
+  type SecOperationAuthorityOwnerObservation,
+  type SecResolvedAgentOperationActivation
 } from './agent-operation-activation.ts';
 import { SEC_AGENT_SKILL_IDS } from './skill.ts';
 import {
@@ -102,6 +104,22 @@ export async function resolveTrustedWorkerTaskCapsule(
     }
     throw error;
   }
+  return projectWorkerTaskCapsuleObservation(activation);
+}
+
+type WorkerTaskCapsuleProjectionInput = Pick<SecResolvedAgentOperationActivation,
+  'manifest' | 'manifestPath' | 'manifestRevision' | 'manifestDigest' | 'authorityOwners' |
+  'activationDigest' | 'targetCandidate' | 'trustedRevision' | 'changedPaths' |
+  'runtimeRoot' | 'candidateRoot' | 'phase'> & Readonly<{
+    preparation: Pick<SecResolvedAgentOperationActivation['preparation'],
+      'operationId' | 'role' | 'operationKind' | 'currentSpecRevision' | 'trustedBaseSha' |
+      'proposal' | 'controlDigests'>;
+  }>;
+
+/** Pure projection of already resolved inputs; its Capsule remains unbound planning content. */
+export function projectWorkerTaskCapsuleObservation(
+  activation: WorkerTaskCapsuleProjectionInput
+): SecTrustedWorkerTaskCapsuleObservation {
   const { preparation } = activation;
   const ownerFacts = [
     ...activation.manifest.tasks.map((task) => Object.freeze({
@@ -223,7 +241,7 @@ async function main(): Promise<void> {
     options[key] = value;
     index += 1;
   }
-  const runtimeRoot = path.resolve(import.meta.dir, '../..');
+  const runtimeRoot = await resolveAgentRuntimeRepositoryRoot();
   if (command === 'compile') {
     if (options.input === undefined || options.capsule !== undefined || options.candidateRoot === undefined) {
       fail('compile requires --input <inline-json|file> --candidate-root <path> and rejects --capsule.');

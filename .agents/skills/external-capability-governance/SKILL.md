@@ -40,7 +40,7 @@ description: 用于引入、升级、调用、替换或退役外部工具、Prov
 ## 执行
 1. 冻结当前 Effect 和 owner DAG；外部机制只提供 capability，不取得 SEC 语义 authority。
 2. 只证明 Effect 窗口内可能漂移并决定结果的最小对象；无因果关系的安装树、catalog、cache 和历史状态排除。
-3. 跨入新的 provisioning/installation/credential/cache/semantic/Effect owner 时停止当前实现，交由独立授权 work；不得用更小 artifact、cache 或 timeout 掩盖扩权。
+3. 跨入 provisioning/installation/credential/cache/semantic/Effect owner 时核现有任务授权与相交准入：已包含的依赖由原owner继续，不为每次跨模块另造work；需要新增作用权限或超出scope时只阻断该效果并交主线程取得相应授权。不得用更小 artifact、cache 或 timeout 掩盖扩权。
 4. 选择最窄稳定 machine interface；shell 只传 argv，显式绑定 executable、cwd、env、deadline、output 和 settlement。
 5. 外部输出经 canonical validator/semantic owner 投影；退出码、Provider success 和 presentation 文本不能签发完成。
 6. 迁移 consumer 后删除旧 wrapper、materializer、installer、cache、配置和文档；无真实 failover contract 不保留双实现。

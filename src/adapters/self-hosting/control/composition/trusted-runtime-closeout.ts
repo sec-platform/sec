@@ -133,7 +133,7 @@ type TrustedRuntimeCloseoutPreMerge = Readonly<{
   message: string;
   manifestPath: string;
   manifestDigest: Digest;
-  disposition: ReturnType<typeof observeExactIssueDispositionPlan>;
+  disposition: Awaited<ReturnType<typeof observeExactIssueDispositionPlan>>;
 }>;
 
 type TrustedRuntimeCloseoutOpenResult =
@@ -575,11 +575,11 @@ async function finalizeMergedTrustedRuntime(input: Readonly<{
       || actionBundle.sessionRevision !== artifact.session.sessionRevision) {
     fail('merged candidate differs from its durable trusted-runtime Session');
   }
-  const manifestSource = input.github.readBlobText(
+  const manifestSource = (await input.github.readBlobText(
     input.repository,
     candidate.headSha,
     artifact.session.manifestPath
-  );
+  ));
   if (CodexDevelopmentWorkPackageManifestDigest(manifestSource)
       !== artifact.session.manifestDigest) {
     fail('merged candidate Work Package bytes differ from the durable Session');
@@ -588,14 +588,14 @@ async function finalizeMergedTrustedRuntime(input: Readonly<{
     manifestSource,
     artifact.session.manifestPath
   );
-  const disposition = observeExactIssueDispositionPlan({
+  const disposition = (await observeExactIssueDispositionPlan({
     github: input.github,
     repository: input.repository,
     candidate,
     manifestPath: artifact.session.manifestPath,
     manifestDigest: artifact.session.manifestDigest,
     tracking: manifest.tracking
-  });
+  }));
   const authorizationMarkers = integrationAuthorizationStatusMergeMarkers({
     result: gateReadback,
     publication: statusReadback
@@ -721,14 +721,14 @@ async function recoverMergedTrustedRuntime(input: Readonly<{
         || statusReadback.publicationDigest !== statusPublicationDigest) {
       fail('merged recovery locators differ from the durable canonical artifacts');
     }
-    return finalizeMergedTrustedRuntime({
+    return (await finalizeMergedTrustedRuntime({
       ...input,
       actionBundle,
       gateReadback,
       statusReadback,
       providerMergeCommitSha: null,
       actionEvidenceReused: true
-    });
+    }));
   });
 }
 
@@ -738,8 +738,8 @@ export async function closeoutWithTrustedRuntime(input: Readonly<{
   prNumber: number;
 }>): Promise<unknown> {
   const repositoryRoot = path.resolve(input.repositoryRoot);
-  const github = createVerificationSessionGitHubClient(repositoryRoot);
-  const candidate = github.observeCandidate(input.repository, input.prNumber);
+  const github = createVerificationSessionGitHubClient(repositoryRoot, input.repository);
+  const candidate = (await github.observeCandidate(input.repository, input.prNumber));
   if (candidate.state === 'MERGED') {
     return recoverMergedTrustedRuntime({
       repositoryRoot,
@@ -781,28 +781,28 @@ async function closeoutOpenCandidateWithTrustedRuntime(args: Readonly<{
     fail('candidate changed before trusted-runtime closeout admission');
   }
   await assertTrustedBaseRuntime(repositoryRoot, candidate);
-  const comparison = github.observeComparison(input.repository, candidate.baseSha, candidate.headSha);
-  const openCount = github.observeOpenPullRequestCountForHead(input.repository, candidate.headSha);
+  const comparison = (await github.observeComparison(input.repository, candidate.baseSha, candidate.headSha));
+  const openCount = (await github.observeOpenPullRequestCountForHead(input.repository, candidate.headSha));
   if (comparison.status !== 'ahead' || comparison.behindBy !== 0 || openCount !== 1) {
     fail('candidate ancestry or same-head PR identity is not exact');
   }
   const manifestPath = CodexDevelopmentParseWorkPackageLocator(candidate.body);
-  const manifestSource = github.readBlobText(input.repository, candidate.headSha, manifestPath);
+  const manifestSource = (await github.readBlobText(input.repository, candidate.headSha, manifestPath));
   const manifestDigest = CodexDevelopmentWorkPackageManifestDigest(manifestSource) as Digest;
   const manifest = CodexDevelopmentParseCurrentWorkPackageManifest(manifestSource, manifestPath);
   const changed = await observeVerificationSessionChangedSelection({ repositoryRoot,
     repository: input.repository, prNumber: input.prNumber, candidate, github });
   CodexDevelopmentAssertWorkPackageOwnership(manifest, [...changed.changedPaths]);
-  const dependencyBlobs = observeVerificationSessionActionDependencyBlobs({ github,
-    repository: input.repository, baseSha: candidate.baseSha, headSha: candidate.headSha });
-  const principal = github.observeViewerPrincipal(input.repository);
+  const dependencyBlobs = (await observeVerificationSessionActionDependencyBlobs({ github,
+    repository: input.repository, baseSha: candidate.baseSha, headSha: candidate.headSha }));
+  const principal = (await github.observeViewerPrincipal(input.repository));
   if (principal.permission !== 'admin' && principal.permission !== 'maintain') {
     fail('current principal lacks maintain/admin permission');
   }
   const integrationPermission: 'admin' | 'maintain' = principal.permission;
-  const reviewBarrier = github.observeReviewBarrier({ repository: input.repository,
+  const reviewBarrier = (await github.observeReviewBarrier({ repository: input.repository,
     prNumber: input.prNumber, headSha: candidate.headSha,
-    excludedPrincipalNodeIds: new Set([candidate.authorNodeId, principal.nodeId]) });
+    excludedPrincipalNodeIds: new Set([candidate.authorNodeId, principal.nodeId]) }));
   const observedAt = new Date().toISOString();
   const runtimeRef = `${CodexDevelopmentMergeGateProducerIdentity}@${candidate.baseSha}`;
   const runtimeLayout = resolveSecRuntimeStateForRepository({
@@ -913,12 +913,12 @@ async function closeoutOpenCandidateWithTrustedRuntime(args: Readonly<{
         Buffer.from(bytes).toString('utf8')
       )
     });
-    const freshCandidate = github.observeCandidate(input.repository, input.prNumber);
+    const freshCandidate = (await github.observeCandidate(input.repository, input.prNumber));
     if (freshCandidate.headSha !== candidate.headSha || freshCandidate.baseSha !== candidate.baseSha
         || freshCandidate.state !== 'OPEN') fail('candidate drifted after durable Verification');
-    const preMergeBarrier = github.observeReviewBarrier({ repository: input.repository,
+    const preMergeBarrier = (await github.observeReviewBarrier({ repository: input.repository,
       prNumber: input.prNumber, headSha: candidate.headSha,
-      excludedPrincipalNodeIds: new Set([candidate.authorNodeId, principal.nodeId]) });
+      excludedPrincipalNodeIds: new Set([candidate.authorNodeId, principal.nodeId]) }));
     if (preMergeBarrier.status !== 'clear') {
       return Object.freeze({
         kind: 'waiting' as const,
@@ -977,7 +977,7 @@ async function closeoutOpenCandidateWithTrustedRuntime(args: Readonly<{
       headSha: candidate.headSha,
       actionPlanDigest: artifact.evidence.actionPlan.actionPlanDigest
     });
-    const platform = github.observePlatformEnforcement(input.repository);
+    const platform = (await github.observePlatformEnforcement(input.repository));
     const gateInput = prepareVerificationSessionTrustedRuntimeMergeInput({
       artifact,
       preMergeReview,
@@ -1045,14 +1045,14 @@ async function closeoutOpenCandidateWithTrustedRuntime(args: Readonly<{
         Buffer.from(bytes).toString('utf8')
       )
     });
-    const disposition = observeExactIssueDispositionPlan({
+    const disposition = (await observeExactIssueDispositionPlan({
       github,
       repository: input.repository,
       candidate,
       manifestPath,
       manifestDigest,
       tracking: manifest.tracking
-    });
+    }));
     const authorizationMarkers = integrationAuthorizationStatusMergeMarkers({
       result: gateReadback,
       publication: statusReadback
@@ -1069,8 +1069,8 @@ async function closeoutOpenCandidateWithTrustedRuntime(args: Readonly<{
     if (parseGitHubClosingKeywordOccurrences(`${title}\n${message}`, input.repository).length > 0) {
       fail('canonical merge message contains a forbidden closing keyword');
     }
-    const platformBeforeMerge = github.observePlatformEnforcement(input.repository);
-    const liveBeforeMerge = github.observeCandidate(input.repository, input.prNumber);
+    const platformBeforeMerge = (await github.observePlatformEnforcement(input.repository));
+    const liveBeforeMerge = (await github.observeCandidate(input.repository, input.prNumber));
     if (platformBeforeMerge.status !== gateReadback.platformObservation.status
         || platformBeforeMerge.rulesetDigest !== gateReadback.platformObservation.rulesetDigest
         || platformBeforeMerge.reason !== gateReadback.platformObservation.reason
@@ -1081,14 +1081,14 @@ async function closeoutOpenCandidateWithTrustedRuntime(args: Readonly<{
         || liveBeforeMerge.isDraft || liveBeforeMerge.isCrossRepository) {
       fail('candidate or platform observation drifted immediately before merge');
     }
-    const immediateDisposition = observeExactIssueDispositionPlan({
+    const immediateDisposition = (await observeExactIssueDispositionPlan({
       github,
       repository: input.repository,
       candidate: liveBeforeMerge,
       manifestPath,
       manifestDigest,
       tracking: manifest.tracking
-    });
+    }));
     if (immediateDisposition.planDigest !== disposition.planDigest) {
       fail('IssueDisposition plan drifted immediately before merge');
     }
@@ -1150,7 +1150,7 @@ async function executeTrustedRuntimeCloseoutMergeEffect(
   }
   let readback: GitHubCandidateObservation;
   try {
-    readback = preMerge.github.observeCandidate(preMerge.repository, preMerge.prNumber);
+    readback = (await preMerge.github.observeCandidate(preMerge.repository, preMerge.prNumber));
   } catch (error) {
     const providerReason = mergeFailure instanceof Error
       ? mergeFailure.message
@@ -1162,7 +1162,7 @@ async function executeTrustedRuntimeCloseoutMergeEffect(
   if (readback.state !== 'MERGED') {
     fail('AMBIGUOUS_SIDE_EFFECT: provider reported merge success without a merged readback');
   }
-  return finalizeMergedTrustedRuntime({
+  return (await finalizeMergedTrustedRuntime({
     repositoryRoot: preMerge.repositoryRoot,
     repository: preMerge.repository,
     prNumber: preMerge.prNumber,
@@ -1173,11 +1173,16 @@ async function executeTrustedRuntimeCloseoutMergeEffect(
     statusReadback: preMerge.statusReadback,
     providerMergeCommitSha,
     actionEvidenceReused: preMerge.actionEvidenceReused
-  });
+  }));
 }
 
 async function main(): Promise<void> {
-  const args = parseArgs(process.argv.slice(2));
+  const { withGitHubCredentialBootstrap } = await import('../../../providers/github-api/credential-bootstrap.ts');
+  return withGitHubCredentialBootstrap(process.argv.slice(2), runWithCredentialBootstrap);
+}
+
+async function runWithCredentialBootstrap(argv: string[]): Promise<void> {
+  const args = parseArgs(argv);
   const result = args.mode === 'runtime-canary'
       ? await runCurrentTrustedRuntimeWorkspaceCanary({
           repositoryRoot: process.cwd(),

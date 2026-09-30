@@ -268,9 +268,9 @@ export function resolveSecRepositoryHeuristicSkills(path: string): SecAgentSkill
     return skills('heuristic-governance', 'repository-audit', 'task-delegation');
   }
   if (path.startsWith('.documentation/')
-    || path === 'tools/check_docs.py'
-    || path === 'tools/check_design.py'
-    || path === 'tools/source_inventory.py'
+    || path === 'tools/documentation/check_docs.py'
+    || path === 'tools/documentation/check_design.py'
+    || path === 'tools/documentation/source_inventory.py'
     || path.startsWith('src/adapters/self-hosting/control/documentation/')) {
     return skills('heuristic-governance', 'repository-audit');
   }
@@ -280,7 +280,7 @@ export function resolveSecRepositoryHeuristicSkills(path: string): SecAgentSkill
   if (path.startsWith('src/adapters/self-hosting/control/agent/')) {
     return skills('architecture-evolution', 'heuristic-governance', 'repository-audit');
   }
-  if (/^\.codex\//u.test(path)) {
+  if (isSecAgentProviderGuidancePath(path)) {
     return skills('exact-head-review', 'heuristic-governance', 'task-delegation');
   }
   if (path === REPOSITORY_AUDIT_ENTRYPOINT_PATH) {
@@ -413,10 +413,31 @@ const SEC_SKILL_QUARANTINE_PATH_PREFIXES = [
   'scripts/codex/'
 ] as const;
 
+/** Path-only classification cannot prove provider files are instruction-free.
+ * Config may contain developer instructions or reference other role files.
+ * Keep the entire existing provider namespace conservative; this does not
+ * parse config or prove a referenced source was loaded. */
+export function isSecAgentProviderGuidancePath(path: string): boolean {
+  return path.startsWith('.codex/');
+}
+
 export function isSecSkillQuarantinePath(path: string): boolean {
   return SEC_SKILL_QUARANTINE_EXACT_PATHS.includes(
     path as (typeof SEC_SKILL_QUARANTINE_EXACT_PATHS)[number]
-  ) || SEC_SKILL_QUARANTINE_PATH_PREFIXES.some((prefix) => path.startsWith(prefix));
+  ) || isSecAgentProviderGuidancePath(path)
+    || SEC_SKILL_QUARANTINE_PATH_PREFIXES.some((prefix) => path.startsWith(prefix));
+}
+
+/** Choose bytes for operation guidance; candidate product specifications remain review subjects. */
+export function selectSecOperationAuthoritySourceRevision(input: Readonly<{
+  repositoryPath: string;
+  changedPaths: readonly string[];
+  trustedRevision: string;
+  targetCandidate: string;
+}>): string {
+  return !isSecSkillQuarantinePath(input.repositoryPath) && input.changedPaths.includes(input.repositoryPath)
+    ? input.targetCandidate
+    : input.trustedRevision;
 }
 
 interface SecSkillApplicabilityTriggerEvidence {

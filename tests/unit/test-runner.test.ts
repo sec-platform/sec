@@ -142,7 +142,6 @@ const devCommandSettlements: Array<Promise<void> | undefined> = [];
 const devCommandStartObservers: Array<(() => void) | undefined> = [];
 const devCommandCompletionObservers: Array<(() => void) | undefined> = [];
 const DEFAULT_MANAGED_INNER_ARGS = ['--no-orphans', '--max-concurrency', String(DEFAULT_FAST_TEST_MAX_CONCURRENCY)] as const;
-const DEFAULT_NATIVE_PARALLEL_ARGS = [`--parallel=${DEFAULT_FAST_TEST_CONCURRENCY_BUDGET.concurrentProcessLimit}`, '--isolate'] as const;
 let fastDependencyBootstrapCalls = 0;
 let testDependencyBootstrapCalls = 0;
 const gitReadSessionDeadlineRequests: Array<number | undefined> = [];
@@ -897,6 +896,19 @@ test('fast process resource classes uniquely derive limits and isolate productio
   expect(resourcePlan.resourceLimits).toEqual(DEFAULT_FAST_TEST_RESOURCE_CLASS_LIMITS);
 });
 
+test('per-file execution rejects shared reporter and coverage output without an aggregate owner', () => {
+  const testInventory = testImpactFixture.provider.testInventory;
+  const budgetProjection = compileTestBudgetProjection(testInventory);
+  const selectedFiles = budgetProjection.fastTestFiles.slice(0, 2);
+  for (const bunOptions of [['--reporter-outfile', 'results.xml'], ['--reporter=junit'],
+    ['--coverage'], ['--coverage-dir=coverage'], ['--coverage-reporter', 'lcov']]) {
+    expect(() => issueFastTestBatchExecutionPolicy({testInventory, budgetProjection, selectedFiles, bunOptions}))
+      .toThrow('aggregate output owner');
+    expect(() => issueFastTestBatchExecutionPolicy({testInventory, budgetProjection,
+      selectedFiles: selectedFiles.slice(0, 1), bunOptions})).not.toThrow();
+  }
+});
+
 test('fast batch policy derives supervisor ceilings and waves from its canonical planner', () => {
   const testInventory = testImpactFixture.provider.testInventory;
   const budgetProjection = compileTestBudgetProjection(testInventory);
@@ -927,6 +939,13 @@ test('fast batch policy derives supervisor ceilings and waves from its canonical
   expect(policy.executionWaves).not.toEqual(forgedCallerFields.executionWaves);
   expect(policy.workingDirectory).toBe(compilerRoot);
   expect(policy.executionWaves.flat()).toEqual(policy.invocations.map(({ id }) => id));
+  expect(policy.invocations).toHaveLength(selectedFiles.length);
+  expect(policy.invocations.every(({ files }) => files.length === 1)).toBe(true);
+  expect(policy.invocations.flatMap(({ files }) => files).sort()).toEqual([...selectedFiles].sort());
+  for (const wave of policy.executionWaves) {
+    const parallel = wave.filter((id) => id.startsWith('parallel:'));
+    expect(parallel.length).toBeLessThanOrEqual(policy.concurrentProcessLimit);
+  }
   expect(policy.logicalRunTimeoutMs).toBe(
     AFFECTED_SELECTION_OPERATION_DURATION_MS
       + policy.executionWaves.length * canonicalSupervisorTimeoutMs
@@ -982,7 +1001,6 @@ test.serial('targeted fast tests preserve ordinary sequential semantics', async 
       args: [
         'test',
         './tests/unit/path-containment.test.ts',
-        ...DEFAULT_NATIVE_PARALLEL_ARGS,
         ...DEFAULT_MANAGED_INNER_ARGS,
         '--timeout',
         String(DEFAULT_TEST_TIMEOUT_MS)
@@ -1007,15 +1025,15 @@ test.serial('fast tests preserve options across process shards and isolated invo
   const defaultFastTestFiles = getFastTestFilesSync().filter(isDefaultFastTestFile);
 
   expect(code).toBe(0);
-  const shardCalls = devCommandCalls.filter(({ args }) => invocationTestFiles(args).length > 1);
-  expect(shardCalls.length).toBe(1);
-  for (const call of shardCalls) {
+  expect(devCommandCalls.length).toBe(defaultFastTestFiles.length);
+  for (const call of devCommandCalls) {
+    expect(invocationTestFiles(call.args)).toHaveLength(1);
     expect(call.command).toBe('bun');
     expect(call.args[0]).toBe('test');
     expect(call.args).not.toContain('--concurrent');
-    expect(call.args).toEqual(expect.arrayContaining([...DEFAULT_NATIVE_PARALLEL_ARGS]));
+    expect(call.args.some((arg) => arg.startsWith('--parallel'))).toBe(false);
+    expect(call.args).not.toContain('--isolate');
     expect(call.args.slice(-2)).toEqual(['--timeout', '30000']);
-    expect(call.args.some((arg) => isolatedFastTestFileSet.has(arg))).toBe(false);
     expect(call.args.some((arg) => arg.startsWith('tests/e2e/'))).toBe(false);
   }
   for (const file of FAST_TEST_PROCESS_ISOLATION_REGISTRY
@@ -1061,7 +1079,6 @@ test.serial('fast tests preserve equals-form timeout overrides without adding th
     args: [
       'test',
       './tests/unit/path-containment.test.ts',
-      ...DEFAULT_NATIVE_PARALLEL_ARGS,
       ...DEFAULT_MANAGED_INNER_ARGS,
       `--timeout=${caseTimeoutMs}`
     ]
@@ -1627,7 +1644,6 @@ test.serial('explicit fast test files skip dependency bootstrap entirely', async
     args: [
       'test',
       './tests/unit/path-containment.test.ts',
-      ...DEFAULT_NATIVE_PARALLEL_ARGS,
       ...DEFAULT_MANAGED_INNER_ARGS,
       '--timeout',
       '10000'

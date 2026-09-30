@@ -7,6 +7,7 @@ import {
   windowsRetainBulkDirectoryChain
 } from './physical-directory-tree.ts';
 import {
+  assertRetainedNoFollowCapability,
   assertRetainedNoFollowProvenDirectoryGeneration,
   issueRetainedNoFollowCapability
 } from './physical-no-follow-authority.ts';
@@ -32,6 +33,7 @@ import {
   linuxOpenReadableLeafAt,
   linuxOpenRetainedExecutableWitness,
   linuxRaiseDescriptorFloor,
+  linuxRetainCurrentSealedExecutableImage,
   readWindowsRetainedFile,
   windowsOpenRelativeLeaf,
   windowsRetainedFileSnapshot,
@@ -61,7 +63,85 @@ export type RetainedNoFollowPosixMetadataForInternal = Readonly<{
   ownerGroupId: bigint | null;
   ownerUserId: bigint | null;
 }>;
+const adoptedCurrentLinuxExecutables = new WeakSet<object>();
 const retainedNoFollowOrdinaryFilePosixMetadata = new WeakMap<object, RetainedNoFollowPosixMetadataForInternal>();
+
+/** Retain the current runtime through its actual physical execution mode. */
+export function retainCurrentProcessExecutable(
+  childDescriptor = 3,
+  label = 'current process executable'
+): RetainedNoFollowOrdinaryFile {
+  if (process.platform === 'linux' && process.execPath.startsWith('/memfd:sec-retained-executable')) {
+    return retainCurrentLinuxSealedExecutable(3, childDescriptor, label);
+  }
+  const executablePath = path.resolve(process.execPath);
+  return retainNoFollowOrdinaryFile(
+    inspectNoFollowDirectoryChain(path.dirname(executablePath), `${label} parent`),
+    path.basename(executablePath), undefined, label, childDescriptor, 'executable'
+  );
+}
+
+/** Revalidate the transported source using the same no-follow physical owner. */
+export function observeAdoptedExecutableSource(
+  executable: RetainedNoFollowOrdinaryFile,
+  inheritedSourcePath: string | undefined
+): Readonly<{
+  path: string;
+  device: string;
+  inode: string;
+  mode: string;
+  size: number;
+  modifiedAtNanoseconds: string;
+  byteDigest: `sha256:${string}`;
+}> {
+  assertRetainedNoFollowCapability(executable, 'executable', 'executable source provenance');
+  executable.assertCurrent();
+  if (process.platform !== 'linux' || !adoptedCurrentLinuxExecutables.has(executable)) {
+    throw physicalError('PHYSICAL_NO_FOLLOW_CAPABILITY_UNAVAILABLE',
+      'Source provenance observation requires an adopted current sealed executable.');
+  }
+  if (inheritedSourcePath === undefined || !path.isAbsolute(inheritedSourcePath)
+      || inheritedSourcePath.includes('\0') || path.resolve(inheritedSourcePath) !== inheritedSourcePath) {
+    throw physicalError('PHYSICAL_NO_FOLLOW_UNSAFE_PATH',
+      'Adopted executable requires a canonical source locator.');
+  }
+  const expected = executable.digest();
+  const source = retainNoFollowOrdinaryFile(
+    inspectNoFollowDirectoryChain(path.dirname(inheritedSourcePath), 'executable source parent'),
+    path.basename(inheritedSourcePath), undefined, 'executable source provenance'
+  );
+  try {
+    if (source.size !== expected.size) {
+      throw physicalError('PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED',
+        'Executable source size does not match the retained sealed image.');
+    }
+    const metadata = fstatSync(source.stdioSourceDescriptor!, {bigint: true});
+    const observed = source.digest();
+    if (observed.size !== expected.size || observed.byteDigest !== expected.byteDigest) {
+      throw physicalError('PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED',
+        'Executable source provenance does not match the retained sealed image.');
+    }
+    source.assertCurrent();
+    executable.assertCurrent();
+    return Object.freeze({path: source.path, device: String(metadata.dev), inode: String(metadata.ino),
+      mode: String(metadata.mode), size: observed.size, modifiedAtNanoseconds: String(metadata.mtimeNs),
+      byteDigest: observed.byteDigest});
+  } finally {
+    source.dispose();
+  }
+}
+
+/** A locator is transported only after its retained source bytes are proven. */
+export function retainedExecutableSourcePath(
+  executable: RetainedNoFollowOrdinaryFile,
+  inheritedSourcePath: string | undefined
+): string {
+  assertRetainedNoFollowCapability(executable, 'executable', 'executable source provenance');
+  executable.assertCurrent();
+  return adoptedCurrentLinuxExecutables.has(executable)
+    ? observeAdoptedExecutableSource(executable, inheritedSourcePath).path
+    : executable.path;
+}
 
 /**
  * Keep an executable's native package location when its resource lookup depends
@@ -116,6 +196,104 @@ export function retainNoFollowOrdinaryFile(
   role: 'ordinary-file' | 'executable' = 'ordinary-file'
 ): RetainedNoFollowOrdinaryFile {
   return retainNoFollowFile(expectedParent, name, expectedPhysical, label, childDescriptor, role);
+}
+
+
+/**
+ * Adopts the SEC-sealed executable image already running this Linux process
+ * into a fresh owned executable capability.  This is the nested-process path:
+ * it never reopens a mutable source pathname and it owns a duplicate of the
+ * inherited sealed descriptor.
+ */
+export function retainCurrentLinuxSealedExecutable(
+  sourceDescriptor = 3,
+  childDescriptor = 3,
+  label = 'current sealed Linux executable'
+): RetainedNoFollowOrdinaryFile {
+  if (process.platform !== 'linux'
+      || !Number.isSafeInteger(childDescriptor)
+      || childDescriptor < 3 || childDescriptor > 64) {
+    throw physicalError(
+      'PHYSICAL_NO_FOLLOW_CAPABILITY_UNAVAILABLE',
+      `${label} requires Linux and one bounded child descriptor.`
+    );
+  }
+  const image = linuxRetainCurrentSealedExecutableImage(sourceDescriptor, label);
+  let disposed = false;
+  try {
+    const procFdParent = inspectNoFollowDirectoryChain(
+      `/proc/${process.pid}/fd`,
+      `${label} proc descriptor parent`
+    ).target;
+    const assertCurrent = (): void => {
+      if (disposed) {
+        throw physicalError(
+          'PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED',
+          `${label} capability is disposed.`
+        );
+      }
+      linuxAssertSealedExecutableImage(image, label);
+    };
+    const readBytes = (): Uint8Array => {
+      assertCurrent();
+      if (image.size > BigInt(NO_FOLLOW_FILE_READ_LIMIT_BYTES)) {
+        throw physicalError(
+          'PHYSICAL_NO_FOLLOW_READ_LIMIT_EXCEEDED',
+          `${label} exceeds the bounded retained byte-read domain.`
+        );
+      }
+      const size = Number(image.size);
+      const bytes = Buffer.alloc(size);
+      let offset = 0;
+      while (offset < size) {
+        const count = readSync(image.fd, bytes, offset, size - offset, offset);
+        if (count < 1) {
+          throw physicalError(
+            'PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED',
+            `${label} stopped making progress during retained byte read.`
+          );
+        }
+        offset += count;
+      }
+      assertCurrent();
+      return bytes;
+    };
+    const capability = Object.freeze({
+      path: `/proc/self/fd/${sourceDescriptor}`,
+      parent: procFdParent,
+      name: String(sourceDescriptor),
+      physical: image.physical,
+      size: Number(image.size),
+      linkCount: Number(image.linkCount),
+      childPath: `/proc/self/fd/${childDescriptor}`,
+      stdioSourceDescriptor: image.fd,
+      assertCurrent,
+      readBytes,
+      digest: () => {
+        assertCurrent();
+        return image.digest;
+      },
+      dispose: () => {
+        if (disposed) return;
+        disposed = true;
+        closeSync(image.fd);
+      }
+    });
+    retainedNoFollowOrdinaryFilePosixMetadata.set(capability, Object.freeze({
+      mode: Number(image.mode & 0o7777n),
+      ownerGroupId: null,
+      ownerUserId: null
+    }));
+    const issued = issueRetainedNoFollowCapability(capability, 'executable');
+    adoptedCurrentLinuxExecutables.add(issued);
+    return issued;
+  } catch (error) {
+    if (!disposed) {
+      disposed = true;
+      try { closeSync(image.fd); } catch { /* preserve primary capability error */ }
+    }
+    throw error;
+  }
 }
 
 function retainNoFollowFile(

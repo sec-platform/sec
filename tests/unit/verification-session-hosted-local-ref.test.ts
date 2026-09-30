@@ -49,8 +49,8 @@ test('hosted local ref consumer admits the native Git delete transaction', async
     });
     const attempts: BranchCloseoutAttempt[] = [];
     const operationId = branchLifecycleDigest({ kind: 'hosted-native-ref-delete', headSha }) as SecOperationDigest;
-    const result = await withWorkspaceWriteLease(commonDir, undefined, (lease) =>
-      deleteHostedLocalRefCas(preparation, attempts, lease, operationId));
+    const result = await withWorkspaceWriteLease(commonDir, undefined, async (lease) =>
+      (await deleteHostedLocalRefCas(preparation, attempts, lease, operationId)));
     expect(result).toMatchObject({ operation: 'local-delete', status: 'success' });
     expect(attempts).toHaveLength(1);
     expect(spawnSync('git', ['show-ref', '--verify', '--quiet', 'refs/heads/feat/example'], {

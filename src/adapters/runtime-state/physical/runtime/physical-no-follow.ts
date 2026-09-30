@@ -42,9 +42,9 @@ export {
   retainWindowsHostNamespaceDirectoryById
 } from './physical-no-follow-native.ts';
 export {
-  retainNoFollowGenerationExecutable,
+  observeAdoptedExecutableSource, retainCurrentLinuxSealedExecutable, retainCurrentProcessExecutable, retainNoFollowGenerationExecutable,
   retainNoFollowOrdinaryFile,
-  retainNoFollowOrdinaryFileForChildProcess
+  retainNoFollowOrdinaryFileForChildProcess, retainedExecutableSourcePath
 } from './physical-retained-file.ts';
 
 export {
