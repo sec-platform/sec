@@ -141,7 +141,6 @@ export async function armPreparedRepositoryChangeObserver(input: Readonly<{
     if (result.status !== 'ready') return result;
     live = Object.freeze({ platform: 'win32' as const, observer: result.observer });
   }
-  preparedBackends.delete(input.prepared);
   const observer = wrapLive(live);
   activatedPrepared.set(input.prepared, observer);
   return Object.freeze({ status: 'ready', observer });
@@ -150,11 +149,6 @@ export async function armPreparedRepositoryChangeObserver(input: Readonly<{
 export async function settlePreparedRepositoryChangeObserver(
   prepared: PreparedRepositoryChangeObserver
 ): Promise<RepositoryChangeObserverSettlement> {
-  const activated = activatedPrepared.get(prepared);
-  if (activated !== undefined) {
-    activatedPrepared.delete(prepared);
-    return settleRepositoryChangeObserver(activated);
-  }
   const backend = preparedBackends.get(prepared);
   if (backend === undefined) {
     return Object.freeze({
@@ -162,10 +156,16 @@ export async function settlePreparedRepositoryChangeObserver(
       rootIdentityDigest: prepared.rootIdentityDigest
     });
   }
-  preparedBackends.delete(prepared);
-  return backend.platform === 'linux'
-    ? settlePreparedLinuxRepositoryChangeObserver(backend.observer)
-    : settlePreparedWindowsRepositoryChangeObserver(backend.observer);
+  const activated = activatedPrepared.get(prepared);
+  const settlement = backend.platform === 'linux'
+    ? await settlePreparedLinuxRepositoryChangeObserver(backend.observer)
+    : await settlePreparedWindowsRepositoryChangeObserver(backend.observer);
+  if (activated !== undefined) {
+    activatedPrepared.delete(prepared);
+    liveBackends.delete(activated);
+    preparedBackends.delete(prepared);
+  }
+  return settlement;
 }
 
 export function disposePreparedRepositoryChangeObserver(
