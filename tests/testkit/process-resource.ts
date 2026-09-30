@@ -2,6 +2,7 @@ import path from 'node:path';
 
 import {
   inspectNoFollowDirectoryChain,
+  retainCurrentLinuxSealedExecutable,
   retainNoFollowDirectoryForChildProcess,
   retainNoFollowOrdinaryFile
 } from '../../src/adapters/runtime-state/physical/runtime/physical-no-follow.ts';
@@ -24,14 +25,21 @@ export async function runRetainedBunTestProcess(
   }> = {}
 ): Promise<ProcessResourceRunResult> {
   const executablePath = path.resolve(process.execPath);
-  const executable = retainNoFollowOrdinaryFile(
-    inspectNoFollowDirectoryChain(path.dirname(executablePath), 'Test executable parent'),
-    path.basename(executablePath),
-    undefined,
-    'Test executable',
-    RETAINED_EXECUTABLE_CHILD_DESCRIPTOR,
-    'executable'
-  );
+  const executable = process.platform === 'linux'
+      && process.execPath.startsWith('/memfd:sec-retained-executable')
+    ? retainCurrentLinuxSealedExecutable(
+        RETAINED_EXECUTABLE_CHILD_DESCRIPTOR,
+        RETAINED_EXECUTABLE_CHILD_DESCRIPTOR,
+        'Test sealed executable'
+      )
+    : retainNoFollowOrdinaryFile(
+        inspectNoFollowDirectoryChain(path.dirname(executablePath), 'Test executable parent'),
+        path.basename(executablePath),
+        undefined,
+        'Test executable',
+        RETAINED_EXECUTABLE_CHILD_DESCRIPTOR,
+        'executable'
+      );
   const cwd = retainNoFollowDirectoryForChildProcess(
     inspectNoFollowDirectoryChain(workingDirectory, 'Test working directory'),
     RETAINED_WORKING_DIRECTORY_CHILD_DESCRIPTOR,
