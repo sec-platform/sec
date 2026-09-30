@@ -12,11 +12,15 @@ jobs:
   javascript-typescript-sarif:
     if: ${{ github.event.pull_request.number == 727 }}
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [head, base]
     steps:
-      - name: Checkout exact PR head
+      - name: Checkout exact A/B tree
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ github.event.pull_request.base.sha }}
+          ref: ${{ matrix.target == 'head' && github.event.pull_request.head.sha || github.event.pull_request.base.sha }}
           fetch-depth: 2
 
       - name: Initialize exact JavaScript/TypeScript CodeQL
@@ -29,19 +33,20 @@ jobs:
           dependency-caching: true
           matrix: '{"language":"javascript-typescript","category":"/language:javascript-typescript","build-mode":"none","runner":["ubuntu-latest"]}'
 
-      - name: Produce local SARIF without Code Scanning upload
+      - name: Produce post-processed SARIF without Code Scanning upload
         id: analyze
         uses: github/codeql-action/analyze@2892aa5e19bbd11bc0cff5427e3b750a04d9e3c2 # v4
         with:
           upload: never
           upload-database: false
-          output: ${{ runner.temp }}/sec-codeql-diagnostic
+          output: ${{ runner.temp }}/sec-codeql-raw-${{ matrix.target }}
+          post-processed-sarif-path: ${{ runner.temp }}/sec-codeql-post-${{ matrix.target }}
           category: /language:javascript-typescript
 
-      - name: Upload exact diagnostic SARIF
+      - name: Upload exact post-processed SARIF
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: sec-pr-727-codeql-exact-base-${{ github.event.pull_request.base.sha }}
-          path: ${{ steps.analyze.outputs.sarif-output }}
+          name: sec-pr-727-codeql-post-${{ matrix.target }}-${{ github.event.pull_request.head.sha }}
+          path: ${{ runner.temp }}/sec-codeql-post-${{ matrix.target }}
           if-no-files-found: error
           retention-days: 1
