@@ -149,7 +149,7 @@ function selectedForestLiteralChildren(
 function metadataScanNames(
   directory: string,
   observedEntries: number,
-  options: Required<Omit<NoFollowDirectoryTreeMetadataOptions, 'signal'>> &
+  options: Required<Omit<NoFollowDirectoryTreeMetadataOptions, 'signal' | 'excludeRelativePaths'>> &
     Pick<NoFollowDirectoryTreeMetadataOptions, 'signal'>,
   consumeEntry?: () => void
 ): readonly string[] {
@@ -175,6 +175,21 @@ function metadataScanNames(
   return Object.freeze(names.sort((left, right) => left.localeCompare(right)));
 }
 
+function normalizedObservationExcludePaths(
+  values: readonly string[] | undefined
+): ReadonlySet<string> | undefined {
+  if (values === undefined) return undefined;
+  const normalized = values.map((value) => value.replaceAll('\\', '/'));
+  if (normalized.some((value) => value.length === 0 || path.isAbsolute(value)
+    || value.split('/').some((segment) => segment.length === 0 || segment === '.' || segment === '..'))) {
+    throw physicalError(
+      'PHYSICAL_NO_FOLLOW_UNSAFE_PATH',
+      'No-follow observation exclude paths are not canonical safe relative paths.'
+    );
+  }
+  return new Set(normalized);
+}
+
 export function scanNoFollowDirectoryTreeInternal(
   root: PhysicalDirectoryIdentity,
   fileMode: NoFollowDirectoryTreeFileMode,
@@ -193,6 +208,8 @@ export function scanNoFollowDirectoryTreeInternal(
     includePermissionMode: metadataOptions.includePermissionMode ?? false,
     signal: metadataOptions.signal
   });
+  const observationExcludedRelativePaths = excludedRelativePaths
+    ?? normalizedObservationExcludePaths(metadataOptions.excludeRelativePaths);
   boundedMetadata.signal?.throwIfAborted();
   if (!Number.isFinite(boundedMetadata.deadlineAtMs) && boundedMetadata.deadlineAtMs !== Number.POSITIVE_INFINITY) {
     throw physicalError('PHYSICAL_NO_FOLLOW_UNSAFE_PATH', 'No-follow metadata inventory deadline is invalid.');
@@ -259,7 +276,7 @@ export function scanNoFollowDirectoryTreeInternal(
           }
           if (name.includes('\0')) throw physicalError('PHYSICAL_NO_FOLLOW_UNSAFE_PATH', 'Directory entry contains NUL.');
           const relativePath = prefix.length === 0 ? name : `${prefix}/${name}`;
-          if (copyInventoryRelativePathExcluded(relativePath, excludedRelativePaths)) continue;
+          if (copyInventoryRelativePathExcluded(relativePath, observationExcludedRelativePaths)) continue;
           const selectedRole = selectedPatterns === null
             ? 'selected'
             : selectedForestPathRole(relativePath, selectedPatterns);
@@ -350,7 +367,7 @@ export function scanNoFollowDirectoryTreeInternal(
       if (name.includes('\0')) throw physicalError('PHYSICAL_NO_FOLLOW_UNSAFE_PATH', 'Directory entry contains NUL.');
       const absolute = path.join(directory, name);
       const relativePath = prefix.length === 0 ? name : `${prefix}/${name}`;
-      if (copyInventoryRelativePathExcluded(relativePath, excludedRelativePaths)) continue;
+      if (copyInventoryRelativePathExcluded(relativePath, observationExcludedRelativePaths)) continue;
       const selectedRole = selectedPatterns === null
         ? 'selected'
         : selectedForestPathRole(relativePath, selectedPatterns);

@@ -759,8 +759,16 @@ async function prepareStagedIndexPublication(
   const lockPath = `${indexPath}.lock`;
   const alternateIndexPath = `${indexPath}.imports-staged-${process.pid}-${randomUUID()}`;
   const alternateLockPath = `${alternateIndexPath}.lock`;
-  const metadata = await fs.stat(indexPath);
-  if (!metadata.isFile()) throw new Error('Git index is not a regular file');
+  let indexHandle: Awaited<ReturnType<typeof fs.open>> | null = await fs.open(indexPath, 'r');
+  let metadata: Awaited<ReturnType<typeof fs.stat>>;
+  try {
+    metadata = await indexHandle.stat();
+    if (!metadata.isFile()) throw new Error('Git index is not a regular file');
+  } catch (error) {
+    await indexHandle.close().catch(() => undefined);
+    indexHandle = null;
+    throw error;
+  }
 
   let lock: Awaited<ReturnType<typeof fs.open>> | null = null;
   let ownsLock = false;
@@ -789,7 +797,29 @@ async function prepareStagedIndexPublication(
         throw new Error(`Published Git object identity changed for ${update.entry.path}`);
       }
     }
-    const seed = await fs.readFile(indexPath);
+    if (indexHandle === null) throw new Error('Git index handle is not live');
+    const pathMetadata = await fs.stat(indexPath);
+    if (!pathMetadata.isFile()
+      || pathMetadata.dev !== metadata.dev || pathMetadata.ino !== metadata.ino
+      || pathMetadata.mode !== metadata.mode || pathMetadata.size !== metadata.size
+      || pathMetadata.mtimeMs !== metadata.mtimeMs || pathMetadata.ctimeMs !== metadata.ctimeMs) {
+      throw new Error('Git index path changed after the publication lock was acquired');
+    }
+    const seed = await indexHandle.readFile();
+    const [afterHandle, afterPath] = await Promise.all([
+      indexHandle.stat(),
+      fs.stat(indexPath)
+    ]);
+    if (afterHandle.dev !== metadata.dev || afterHandle.ino !== metadata.ino
+      || afterHandle.mode !== metadata.mode || afterHandle.size !== metadata.size
+      || afterHandle.mtimeMs !== metadata.mtimeMs || afterHandle.ctimeMs !== metadata.ctimeMs
+      || afterPath.dev !== metadata.dev || afterPath.ino !== metadata.ino
+      || afterPath.mode !== metadata.mode || afterPath.size !== metadata.size
+      || afterPath.mtimeMs !== metadata.mtimeMs || afterPath.ctimeMs !== metadata.ctimeMs) {
+      throw new Error('Git index changed during retained seed read');
+    }
+    await indexHandle.close();
+    indexHandle = null;
     await fs.writeFile(alternateIndexPath, seed, {
       flag: 'wx',
       mode: metadata.mode & 0o777
@@ -832,6 +862,7 @@ async function prepareStagedIndexPublication(
       isPublished: () => published
     });
   } catch (error) {
+    if (indexHandle !== null) await indexHandle.close().catch(() => undefined);
     if (lock !== null) await lock.close().catch(() => undefined);
     await fs.rm(alternateLockPath, { force: true }).catch(() => undefined);
     await fs.rm(alternateIndexPath, { force: true }).catch(() => undefined);
@@ -1003,24 +1034,39 @@ async function assertSynchronizedWorktreePreimages(
 ): Promise<void> {
   for (const update of updates) {
     const absolutePath = absoluteRepositoryPath(projectRoot, update.entry.path);
-    let metadata: Awaited<ReturnType<typeof fs.lstat>>;
-    let bytes: Buffer;
+    let handle: Awaited<ReturnType<typeof fs.open>> | null = null;
     try {
-      metadata = await fs.lstat(absolutePath);
-      bytes = await fs.readFile(absolutePath);
+      handle = await fs.open(absolutePath, 'r');
+      const opened = await handle.stat();
+      const metadata = await fs.lstat(absolutePath);
+      if (!opened.isFile() || !metadata.isFile() || metadata.isSymbolicLink()
+        || opened.dev !== metadata.dev || opened.ino !== metadata.ino
+        || opened.mode !== metadata.mode || opened.size !== metadata.size
+        || opened.mtimeMs !== metadata.mtimeMs || opened.ctimeMs !== metadata.ctimeMs) {
+        throw new Error('worktree preimage path does not bind the opened file');
+      }
+      const bytes = await handle.readFile();
+      const [afterHandle, afterPath] = await Promise.all([
+        handle.stat(),
+        fs.lstat(absolutePath)
+      ]);
+      if (afterHandle.dev !== opened.dev || afterHandle.ino !== opened.ino
+        || afterHandle.mode !== opened.mode || afterHandle.size !== opened.size
+        || afterHandle.mtimeMs !== opened.mtimeMs || afterHandle.ctimeMs !== opened.ctimeMs
+        || afterPath.dev !== opened.dev || afterPath.ino !== opened.ino
+        || afterPath.mode !== opened.mode || afterPath.size !== opened.size
+        || afterPath.mtimeMs !== opened.mtimeMs || afterPath.ctimeMs !== opened.ctimeMs
+        || !bytes.equals(update.expectedBytes)) {
+        throw new Error('worktree preimage changed during retained read');
+      }
     } catch (error) {
       throw new CompilerError(
         'IMPORT-STAGED-WORKTREE-DIVERGED',
-        `Cannot synchronize staged imports because the worktree preimage is unavailable: ${update.entry.path}`,
+        `Cannot synchronize staged imports because the worktree preimage is unavailable or changed: ${update.entry.path}`,
         { path: update.entry.path, cause: String(error) }
       );
-    }
-    if (!metadata.isFile() || metadata.isSymbolicLink() || !bytes.equals(update.expectedBytes)) {
-      throw new CompilerError(
-        'IMPORT-STAGED-WORKTREE-DIVERGED',
-        `Cannot synchronize staged imports because index and worktree bytes differ: ${update.entry.path}`,
-        { path: update.entry.path }
-      );
+    } finally {
+      await handle?.close();
     }
   }
 }
