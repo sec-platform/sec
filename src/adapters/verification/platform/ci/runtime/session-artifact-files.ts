@@ -64,11 +64,19 @@ function writeSessionArtifactBytes(
     });
     return;
   }
+  if (current.kind !== 'file') {
+    throw new Error(`${label} replacement target must remain an ordinary file.`);
+  }
   replaceDurableCanonicalFile({
     parent: target.parent,
     name: target.name,
     bytes: expected,
-    validate
+    validate,
+    expectedExisting: Object.freeze({
+      device: current.device,
+      inode: current.inode
+    }),
+    rejectExistingHardLinks: true
   });
 }
 
