@@ -37,30 +37,63 @@ function retainVerificationSessionCommandWorkingDirectory(
 }
 
 function retainedVerificationSessionSpawnBoundary(
-  workingDirectory: RetainedNoFollowChildProcessDirectory
+  workingDirectory: RetainedNoFollowChildProcessDirectory,
+  auxiliaryDirectories: readonly RetainedNoFollowChildProcessDirectory[]
 ): Readonly<{ cwd: string; stdio: Array<'pipe' | 'ignore' | number> }> {
   workingDirectory.assertCurrent();
+  for (const directory of auxiliaryDirectories) directory.assertCurrent();
   const stdio: Array<'pipe' | 'ignore' | number> = ['pipe', 'pipe', 'pipe'];
   if (process.platform === 'linux') {
-    const sourceDescriptor = workingDirectory.stdioSourceDescriptor;
-    if (workingDirectory.childPath
-        !== `/proc/self/fd/${RETAINED_WORKING_DIRECTORY_CHILD_DESCRIPTOR}`
-        || sourceDescriptor === null
-        || !Number.isSafeInteger(sourceDescriptor)
-        || sourceDescriptor < 5) {
-      throw new Error('VerificationSession retained Linux cwd capability is malformed.');
+    const parseDescriptor = (
+      directory: RetainedNoFollowChildProcessDirectory,
+      label: string,
+      expectedChildDescriptor?: number
+    ): Readonly<{ childDescriptor: number; sourceDescriptor: number }> => {
+      const match = /^\/proc\/self\/fd\/([0-9]+)$/u.exec(directory.childPath);
+      const childDescriptor = match === null ? Number.NaN : Number(match[1]);
+      const sourceDescriptor = directory.stdioSourceDescriptor;
+      if (!Number.isSafeInteger(childDescriptor) || childDescriptor < 3 || childDescriptor > 64
+          || (expectedChildDescriptor !== undefined && childDescriptor !== expectedChildDescriptor)
+          || sourceDescriptor === null || !Number.isSafeInteger(sourceDescriptor)
+          || sourceDescriptor < 5) {
+        throw new Error(`VerificationSession retained Linux ${label} capability is malformed.`);
+      }
+      return Object.freeze({ childDescriptor, sourceDescriptor });
+    };
+    const cwdDescriptor = parseDescriptor(
+      workingDirectory,
+      'cwd',
+      RETAINED_WORKING_DIRECTORY_CHILD_DESCRIPTOR
+    );
+    const auxiliary = auxiliaryDirectories.map((directory, index) =>
+      parseDescriptor(directory, `auxiliary cwd[${index}]`));
+    const childDescriptors = [
+      cwdDescriptor.childDescriptor,
+      ...auxiliary.map(({ childDescriptor }) => childDescriptor)
+    ];
+    const sourceDescriptors = [
+      cwdDescriptor.sourceDescriptor,
+      ...auxiliary.map(({ sourceDescriptor }) => sourceDescriptor)
+    ];
+    if (new Set(childDescriptors).size !== childDescriptors.length
+        || new Set(sourceDescriptors).size !== sourceDescriptors.length) {
+      throw new Error('VerificationSession retained directory descriptors must be unique.');
     }
-    while (stdio.length <= RETAINED_WORKING_DIRECTORY_CHILD_DESCRIPTOR) stdio.push('ignore');
-    stdio[RETAINED_WORKING_DIRECTORY_CHILD_DESCRIPTOR] = sourceDescriptor;
+    for (const { childDescriptor, sourceDescriptor } of [cwdDescriptor, ...auxiliary]) {
+      while (stdio.length <= childDescriptor) stdio.push('ignore');
+      stdio[childDescriptor] = sourceDescriptor;
+    }
     return Object.freeze({
-      cwd: `/proc/self/fd/${sourceDescriptor}`,
+      cwd: `/proc/self/fd/${cwdDescriptor.sourceDescriptor}`,
       stdio
     });
   }
   if (process.platform === 'win32') {
     if (workingDirectory.stdioSourceDescriptor !== null
-        || !path.isAbsolute(workingDirectory.childPath)) {
-      throw new Error('VerificationSession retained Windows cwd capability is malformed.');
+        || !path.isAbsolute(workingDirectory.childPath)
+        || auxiliaryDirectories.some((directory) =>
+          directory.stdioSourceDescriptor !== null || !path.isAbsolute(directory.childPath))) {
+      throw new Error('VerificationSession retained Windows directory capability is malformed.');
     }
     return Object.freeze({ cwd: workingDirectory.childPath, stdio });
   }
@@ -74,7 +107,8 @@ export function runVerificationSessionCommand(
   command: 'bun' | 'gh' | 'git',
   args: readonly string[],
   cwd: VerificationSessionCommandWorkingDirectory = ctx.repositoryRoot,
-  stdin?: string | Uint8Array
+  stdin?: string | Uint8Array,
+  auxiliaryDirectories: readonly RetainedNoFollowChildProcessDirectory[] = []
 ) {
   if (args.some((arg) => arg.includes('\0'))) {
     throw new Error('VerificationSession command argument contains NUL.');
@@ -84,7 +118,10 @@ export function runVerificationSessionCommand(
     : null;
   const workingDirectory = ownedWorkingDirectory ?? cwd;
   try {
-    const boundary = retainedVerificationSessionSpawnBoundary(workingDirectory);
+    const boundary = retainedVerificationSessionSpawnBoundary(
+      workingDirectory,
+      auxiliaryDirectories
+    );
     const spawned = spawnSync(command, [...args], {
       cwd: boundary.cwd,
       stdio: boundary.stdio,
@@ -106,6 +143,7 @@ export function runVerificationSessionCommand(
       }
     });
     workingDirectory.assertCurrent();
+    for (const directory of auxiliaryDirectories) directory.assertCurrent();
     return {
       status: spawned.status,
       stdout: Buffer.isBuffer(spawned.stdout)
