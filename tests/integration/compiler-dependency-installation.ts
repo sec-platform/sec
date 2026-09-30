@@ -20,9 +20,9 @@ import {
 } from '../../src/adapters/runtime-state/physical/runtime/physical-no-follow.ts';
 import { runCommand } from '../../src/adapters/runtime-state/physical/runtime/process.ts';
 import {
-  armWindowsRepositoryChangeObserver,
-  settleWindowsRepositoryChangeObserver
-} from '../../src/adapters/runtime-state/physical/runtime/windows-repository-change-observer.ts';
+  armRepositoryChangeObserver,
+  settleRepositoryChangeObserver
+} from '../../src/adapters/runtime-state/physical/runtime/repository-change-observer.ts';
 import { resolveSecWorkspaceRuntimeRoots } from '../../src/adapters/runtime-state/workspace-state/paths.ts';
 import { loadRuntimeDependencySpec, RUNTIME_DEPENDENCY_PACKAGE_NAMES } from '../../src/adapters/toolchain/dependencies/contract/runtime-dependency-spec.ts';
 import { transitionRecordName } from '../../src/adapters/toolchain/dependencies/runtime/dependency-transition/codec.ts';
@@ -493,7 +493,7 @@ describe('compiler dependency installation', () => {
         }
       };
       expect((await ensureCompilerDepsReady(options, tempRoot)).source).toBe('installed');
-      const resolution = await armWindowsRepositoryChangeObserver({
+      const resolution = await armRepositoryChangeObserver({
         roots: [path.join(tempRoot, '.tmp', 'dependency-installs')],
         deadlineAtUnixMs: operation.deadlineAtUnixMs
       });
@@ -502,7 +502,7 @@ describe('compiler dependency installation', () => {
       try {
         expect((await ensureCompilerDepsReady(options, tempRoot)).source).toBe('existing');
       } finally {
-        const settlement = await settleWindowsRepositoryChangeObserver(resolution.observer);
+        const settlement = await settleRepositoryChangeObserver(resolution.observer);
         if (settlement.status !== 'zero-events') {
           throw new Error(`Existing compiler locator read mutated its coordination namespace: ${JSON.stringify({
             status: settlement.status,

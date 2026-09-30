@@ -32,6 +32,7 @@ import {
 import { resolveWindowsKnownFolderPath } from './windows-known-folders.ts';
 
 export const ISOLATED_VERIFICATION_ENV_KEY = 'SEC_ISOLATED_VERIFICATION' as const;
+export const RETAINED_EXECUTABLE_SOURCE_PATH_ENV_KEY = 'SEC_RETAINED_EXECUTABLE_SOURCE_PATH' as const;
 
 export function pathEnvKey(): string {
   return Object.keys(process.env).find((key) => key.toLowerCase() === 'path') ?? 'PATH';
@@ -778,6 +779,10 @@ async function runRetainedCommandCaptureV1(
   options.signal?.addEventListener('abort', onCallerAbort, { once: true });
   if (callerAborted) controller.abort();
 
+  const transportEnvironment = Object.freeze({
+    ...(options.env ?? {}),
+    [RETAINED_EXECUTABLE_SOURCE_PATH_ENV_KEY]: boundary.executable.path
+  });
   let outcome: ObservedCommandOutcome;
   try {
     outcome = await runObservedCommand(command, args, {
@@ -790,7 +795,7 @@ async function runRetainedCommandCaptureV1(
         armStallTimer();
       },
       cwd: spawnBoundary.cwd,
-      env: options.env,
+      env: transportEnvironment,
       envMode: options.envMode,
       ...(commandInput === null ? {} : { input: commandInput, maxStdinBytes: options.maxStdinBytes }),
       maxObservedOutputBytes: Math.max(options.maxStdoutBytes, options.maxStderrBytes),

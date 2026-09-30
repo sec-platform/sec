@@ -35,10 +35,10 @@ import {
 } from '../../../runtime-state/physical/runtime/process.ts';
 import type { RetainedCommandBoundary } from '../../../runtime-state/physical/runtime/retained-command-boundary.ts';
 import {
-  armPreparedWindowsRepositoryChangeObserver,
-  RETAINED_WINDOWS_REPOSITORY_CHANGE_OBSERVER_CONTRACT_DIGEST,
-  RETAINED_WINDOWS_REPOSITORY_CHANGE_OBSERVER_REQUIREMENT_ID
-} from '../../../runtime-state/physical/runtime/windows-repository-change-observer.ts';
+  armPreparedRepositoryChangeObserver,
+  RETAINED_REPOSITORY_CHANGE_OBSERVER_CONTRACT_DIGEST,
+  RETAINED_REPOSITORY_CHANGE_OBSERVER_REQUIREMENT_ID
+} from '../../../runtime-state/physical/runtime/repository-change-observer.ts';
 import { compilerRoot } from "../../../workspace-context.ts";
 import {
   captureDevCommandInput,
@@ -243,8 +243,8 @@ function compileDevCommandOperation(input: Readonly<{
         'development.runner.termination-unproven'
       ]
     }, ...(suite === undefined ? [] : [{
-      id: RETAINED_WINDOWS_REPOSITORY_CHANGE_OBSERVER_REQUIREMENT_ID,
-      contractDigest: RETAINED_WINDOWS_REPOSITORY_CHANGE_OBSERVER_CONTRACT_DIGEST,
+      id: RETAINED_REPOSITORY_CHANGE_OBSERVER_REQUIREMENT_ID,
+      contractDigest: RETAINED_REPOSITORY_CHANGE_OBSERVER_CONTRACT_DIGEST,
       effectKinds: ['filesystem' as const],
       failureKinds: [
         'development.runner.deadline-exhausted',
@@ -257,8 +257,8 @@ function compileDevCommandOperation(input: Readonly<{
     contractDigest: commandContractDigest,
     providerIdentityDigest: input.providerIdentityDigest
   }), ...(suite === undefined ? [] : [compileSecCapabilityBinding({
-    requirementId: RETAINED_WINDOWS_REPOSITORY_CHANGE_OBSERVER_REQUIREMENT_ID,
-    contractDigest: RETAINED_WINDOWS_REPOSITORY_CHANGE_OBSERVER_CONTRACT_DIGEST,
+    requirementId: RETAINED_REPOSITORY_CHANGE_OBSERVER_REQUIREMENT_ID,
+    contractDigest: RETAINED_REPOSITORY_CHANGE_OBSERVER_CONTRACT_DIGEST,
     providerIdentityDigest: input.observerProviderIdentityDigest!
   })])]);
 }
@@ -495,12 +495,12 @@ export function runDevCommand<TOptions extends DevCommandOptions | undefined = u
         if (!Number.isSafeInteger(observerDurationMs) || observerDurationMs < 1) {
           throw new Error('Test suite observer deadline was exhausted during physical admission.');
         }
-        const observerResolution = await armPreparedWindowsRepositoryChangeObserver({
+        const observerResolution = await armPreparedRepositoryChangeObserver({
           prepared: testSuiteObserver,
           operation,
           requirementBindingContext: issueSecOperationRequirementBindingContext({
             operation,
-            requirementId: RETAINED_WINDOWS_REPOSITORY_CHANGE_OBSERVER_REQUIREMENT_ID,
+            requirementId: RETAINED_REPOSITORY_CHANGE_OBSERVER_REQUIREMENT_ID,
             resourceCeilings: [{ resource: 'duration-ms', maximum: observerDurationMs }]
           })
         });

@@ -212,7 +212,11 @@ test('canonical Session dispatch is preserved as bounded child-process bytes', (
     event_type: CI_VERIFICATION_SESSION_DISPATCH_TYPE,
     client_payload: { payload: JOIN_REQUEST }
   })}\n`, 'utf8');
-  const probe = spawnSync(process.execPath, ['-e', 'process.stdin.pipe(process.stdout)'], {
+  const executablePath = process.platform === 'linux'
+      && process.execPath.startsWith('/memfd:sec-retained-executable')
+    ? '/proc/self/exe'
+    : process.execPath;
+  const probe = spawnSync(executablePath, ['-e', 'process.stdin.pipe(process.stdout)'], {
     encoding: 'buffer', input: body, windowsHide: true, maxBuffer: 1024 * 1024
   });
   expect(probe.status).toBe(0);
@@ -641,7 +645,7 @@ test('maintainer Review wake-up is exact, user-authored, and at-most-once per se
 test('trusted Codex Review authority requires one earlier exact maintainer wake-up', () => {
   const unbound = new FakeTransport();
   unbound.issueComments = [[botIssueComment()]];
-  expect(observe(unbound)).toMatchObject({
+  expect(observe(unbound, false)).toMatchObject({
     status: 'blocked',
     reason: 'review-provider-unbound-activation'
   });
@@ -675,7 +679,7 @@ test('trusted Codex Review authority requires one earlier exact maintainer wake-
     maintainerIssueComment(wakeup.body, '302', { createdAt: '2026-08-09T14:00:30.000Z' }),
     botIssueComment(undefined, { id: '301', createdAt: '2026-08-09T14:00:00.000Z' })
   ]];
-  expect(observe(lateWakeup)).toMatchObject({
+  expect(observe(lateWakeup, false)).toMatchObject({
     status: 'blocked',
     reason: 'review-provider-unbound-activation'
   });
@@ -1011,8 +1015,8 @@ function ensureBoundReviewWakeup(transport: FakeTransport): void {
   ];
 }
 
-function observe(transport: FakeTransport) {
-  ensureBoundReviewWakeup(transport);
+function observe(transport: FakeTransport, bindWakeup = true) {
+  if (bindWakeup) ensureBoundReviewWakeup(transport);
   return evaluateVerificationSessionReviewObservation(transport, {
     repository: 'sec-platform/sec', prNumber: 42, headSha: HEAD,
     excludedPrincipalNodeIds: new Set(['AUTHOR', 'INTEGRATOR']),

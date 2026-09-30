@@ -2,7 +2,7 @@ import { dlopen, FFIType, ptr, read } from 'bun:ffi';
 
 import { createHash } from 'node:crypto';
 
-import { closeSync, fchmodSync, fstatSync, lstatSync, mkdirSync, readSync, renameSync, writeSync } from 'node:fs';
+import { closeSync, fchmodSync, fstatSync, lstatSync, mkdirSync, openSync, readSync, renameSync, writeSync } from 'node:fs';
 
 import path from 'node:path';
 
@@ -103,6 +103,8 @@ const LINUX_IN_DELETE_SELF = 0x0000_0400;
 
 const LINUX_IN_MOVE_SELF = 0x0000_0800;
 
+const LINUX_IN_UNMOUNT = 0x0000_2000;
+
 const LINUX_IN_Q_OVERFLOW = 0x0000_4000;
 
 const LINUX_IN_IGNORED = 0x0000_8000;
@@ -118,6 +120,8 @@ const LINUX_DIRECTORY_CREATE_WATCH_MASK = LINUX_IN_CREATE | LINUX_IN_DELETE |
 const LINUX_RETAINED_EXECUTABLE_WATCH_MASK = LINUX_IN_MODIFY | LINUX_IN_ATTRIB |
   LINUX_IN_CLOSE_WRITE | LINUX_IN_CREATE | LINUX_IN_DELETE | LINUX_IN_MOVED_FROM |
   LINUX_IN_MOVED_TO | LINUX_IN_DELETE_SELF | LINUX_IN_MOVE_SELF | LINUX_IN_ONLYDIR;
+
+const LINUX_REPOSITORY_MUTATION_WATCH_MASK = LINUX_RETAINED_EXECUTABLE_WATCH_MASK | LINUX_IN_UNMOUNT;
 
 const LINUX_INOTIFY_EVENT_HEADER_BYTES = 16;
 
@@ -149,6 +153,7 @@ function loadLinuxLibc() {
       renameat2: { args: [FFIType.i32, FFIType.ptr, FFIType.i32, FFIType.ptr, FFIType.u32], returns: FFIType.i32 },
       inotify_init1: { args: [FFIType.i32], returns: FFIType.i32 },
       inotify_add_watch: { args: [FFIType.i32, FFIType.ptr, FFIType.u32], returns: FFIType.i32 },
+      inotify_rm_watch: { args: [FFIType.i32, FFIType.i32], returns: FFIType.i32 },
       fsync: { args: [FFIType.i32], returns: FFIType.i32 },
       close: { args: [FFIType.i32], returns: FFIType.i32 },
       __errno_location: { args: [], returns: FFIType.ptr }
@@ -381,6 +386,122 @@ export function linuxAssertSealedExecutableImage(
   }
 }
 
+
+export interface LinuxCurrentSealedExecutableImage {
+  readonly fd: number;
+  readonly physical: Readonly<{ device: string; inode: string }>;
+  readonly mode: bigint;
+  readonly size: bigint;
+  readonly linkCount: bigint;
+  readonly sealMask: number;
+  readonly digest: Readonly<{
+    size: number;
+    contentDigest: `sha256:${string}`;
+    byteDigest: `sha256:${string}`;
+  }>;
+}
+
+/**
+ * Retains the executable image of the current Linux process when that image is
+ * one SEC-compatible sealed memfd.  The inherited descriptor and
+ * /proc/self/exe must name the same kernel object; the returned duplicate owns
+ * its lifetime independently of the inherited transport descriptor.
+ */
+export function linuxRetainCurrentSealedExecutableImage(
+  sourceFd: number,
+  label: string
+): LinuxCurrentSealedExecutableImage {
+  if (process.platform !== 'linux' || !Number.isSafeInteger(sourceFd)
+      || sourceFd < 3 || sourceFd > 64) {
+    throw physicalError(
+      'PHYSICAL_NO_FOLLOW_CAPABILITY_UNAVAILABLE',
+      `${label} requires one bounded Linux inherited executable descriptor.`
+    );
+  }
+  const duplicate = requireLinuxLibc().symbols.fcntl(
+    sourceFd,
+    LINUX_F_DUPFD_CLOEXEC,
+    LINUX_RETAINED_DESCRIPTOR_MIN
+  );
+  if (duplicate < LINUX_RETAINED_DESCRIPTOR_MIN) {
+    throw physicalError(
+      'PHYSICAL_NO_FOLLOW_CAPABILITY_UNAVAILABLE',
+      `${label} cannot duplicate the inherited executable descriptor (errno ${linuxErrno()}).`
+    );
+  }
+  let currentExecutableFd: number | null = null;
+  try {
+    currentExecutableFd = openSync('/proc/self/exe', 'r');
+    const retained = fstatSync(duplicate, { bigint: true });
+    const current = fstatSync(currentExecutableFd, { bigint: true });
+    if (!retained.isFile() || !current.isFile()
+        || retained.dev !== current.dev || retained.ino !== current.ino
+        || retained.mode !== current.mode || retained.size !== current.size) {
+      throw physicalError(
+        'PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED',
+        `${label} inherited descriptor does not name the current executable image.`
+      );
+    }
+    const seals = requireLinuxLibc().symbols.fcntl(duplicate, LINUX_F_GET_SEALS, 0);
+    if (seals < 0 || (seals & LINUX_EXECUTABLE_SEALS) !== LINUX_EXECUTABLE_SEALS) {
+      throw physicalError(
+        'PHYSICAL_NO_FOLLOW_CAPABILITY_UNAVAILABLE',
+        `${label} current executable image is not fully sealed.`
+      );
+    }
+    const physical = Object.freeze({
+      device: String(retained.dev),
+      inode: String(retained.ino)
+    });
+    const imageDigest = digestRetainedOrdinaryFileFd(
+      duplicate,
+      physical,
+      `${label} content`,
+      () => {
+        const sealReadback = requireLinuxLibc().symbols.fcntl(
+          duplicate,
+          LINUX_F_GET_SEALS,
+          0
+        );
+        if (sealReadback < 0
+            || (sealReadback & LINUX_EXECUTABLE_SEALS) !== LINUX_EXECUTABLE_SEALS) {
+          throw physicalError(
+            'PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED',
+            `${label} executable seals changed during observation.`
+          );
+        }
+      }
+    );
+    const after = fstatSync(duplicate, { bigint: true });
+    const currentAfter = fstatSync(currentExecutableFd, { bigint: true });
+    if (after.dev !== retained.dev || after.ino !== retained.ino
+        || after.mode !== retained.mode || after.size !== retained.size
+        || currentAfter.dev !== retained.dev || currentAfter.ino !== retained.ino
+        || currentAfter.mode !== retained.mode || currentAfter.size !== retained.size) {
+      throw physicalError(
+        'PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED',
+        `${label} current executable image changed during observation.`
+      );
+    }
+    return Object.freeze({
+      fd: duplicate,
+      physical,
+      mode: retained.mode,
+      size: retained.size,
+      linkCount: retained.nlink,
+      sealMask: seals,
+      digest: imageDigest
+    });
+  } catch (error) {
+    try { closeSync(duplicate); } catch { /* preserve the primary retained-image error */ }
+    throw error;
+  } finally {
+    if (currentExecutableFd !== null) {
+      try { closeSync(currentExecutableFd); } catch { /* read-only witness cleanup */ }
+    }
+  }
+}
+
 export function linuxOpenAt(parentFd: number, component: string, label: string): number {
   if (component.length === 0 || component === '.' || component === '..' || component.includes('/') || component.includes('\0')) {
     throw physicalError('PHYSICAL_NO_FOLLOW_UNSAFE_PATH', `${label} has an invalid no-follow component.`);
@@ -598,6 +719,80 @@ export function linuxReadDirectoryMutationEvents(
     }
   }
   return Object.freeze(events);
+}
+
+
+export type LinuxRepositoryMutationEventClassification =
+  | 'added'
+  | 'removed'
+  | 'modified'
+  | 'renamed-from'
+  | 'renamed-to'
+  | 'overflow'
+  | 'ignored'
+  | 'discontinuous';
+
+export function linuxOpenRepositoryMutationWitness(label: string): number {
+  return linuxOpenDirectoryMutationWitness(label);
+}
+
+export function linuxAddRepositoryMutationWatch(
+  witnessFd: number,
+  directoryFd: number,
+  label: string
+): number {
+  const watchDescriptor = requireLinuxLibc().symbols.inotify_add_watch(
+    witnessFd,
+    Buffer.from(`/proc/self/fd/${directoryFd}\0`, 'utf8'),
+    LINUX_REPOSITORY_MUTATION_WATCH_MASK
+  );
+  if (watchDescriptor < 0) {
+    throw physicalError(
+      'PHYSICAL_NO_FOLLOW_CAPABILITY_UNAVAILABLE',
+      `${label} cannot bind the retained Linux repository mutation witness (errno ${linuxErrno()}).`
+    );
+  }
+  return watchDescriptor;
+}
+
+export function linuxRemoveRepositoryMutationWatch(
+  witnessFd: number,
+  watchDescriptor: number,
+  label: string
+): void {
+  if (requireLinuxLibc().symbols.inotify_rm_watch(witnessFd, watchDescriptor) !== 0) {
+    throw physicalError(
+      'PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED',
+      `${label} could not terminate its exact Linux mutation watch (errno ${linuxErrno()}).`
+    );
+  }
+}
+
+export function linuxReadRepositoryMutationEvents(
+  witnessFd: number,
+  label: string
+): readonly LinuxDirectoryMutationEvent[] {
+  return linuxReadDirectoryMutationEvents(Object.freeze({
+    fd: witnessFd,
+    watchDescriptor: -1,
+    ancestorEdges: new Map<number, string>()
+  }), label);
+}
+
+export function linuxClassifyRepositoryMutationEvent(
+  mask: number
+): LinuxRepositoryMutationEventClassification {
+  if (!Number.isSafeInteger(mask) || mask < 0) return 'discontinuous';
+  if ((mask & LINUX_IN_Q_OVERFLOW) !== 0) return 'overflow';
+  if ((mask & LINUX_IN_UNMOUNT) !== 0) return 'discontinuous';
+  if ((mask & LINUX_IN_IGNORED) !== 0) return 'ignored';
+  if ((mask & (LINUX_IN_DELETE_SELF | LINUX_IN_MOVE_SELF)) !== 0) return 'discontinuous';
+  if ((mask & LINUX_IN_MOVED_FROM) !== 0) return 'renamed-from';
+  if ((mask & LINUX_IN_MOVED_TO) !== 0) return 'renamed-to';
+  if ((mask & LINUX_IN_CREATE) !== 0) return 'added';
+  if ((mask & LINUX_IN_DELETE) !== 0) return 'removed';
+  if ((mask & (LINUX_IN_MODIFY | LINUX_IN_ATTRIB | LINUX_IN_CLOSE_WRITE)) !== 0) return 'modified';
+  return 'discontinuous';
 }
 
 export interface LinuxRetainedExecutableWitness {
