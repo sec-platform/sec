@@ -99,30 +99,35 @@ export async function currentRuntimeExecutableIdentity(
   }
   const observation = (async (): Promise<RuntimeExecutableIdentity> => {
     const executablePath = await fs.realpath(process.execPath);
-    const metadata = await fs.lstat(executablePath, { bigint: true });
-    if (!metadata.isFile() || metadata.isSymbolicLink()) {
-      throw new SecError('IMPORT-AUTHORITY-001', 'Bun runtime executable must be one physical file');
+    const handle = await fs.open(executablePath, 'r');
+    try {
+      const metadata = await handle.stat({ bigint: true });
+      if (!metadata.isFile()) {
+        throw new SecError('IMPORT-AUTHORITY-001', 'Bun runtime executable must be one physical file');
+      }
+      const signature = [
+        executablePath,
+        metadata.dev,
+        metadata.ino,
+        metadata.mode,
+        metadata.size,
+        metadata.mtimeNs
+      ].join(':');
+      const executableBytes = await handle.readFile();
+      const after = await handle.stat({ bigint: true });
+      if (metadata.dev !== after.dev || metadata.ino !== after.ino || metadata.mode !== after.mode ||
+        metadata.size !== after.size || metadata.mtimeNs !== after.mtimeNs ||
+        !sameHostPath(await fs.realpath(process.execPath), executablePath)) {
+        throw new SecError('IMPORT-AUTHORITY-001', 'Bun runtime executable changed during observation');
+      }
+      return Object.freeze({
+        path: executablePath,
+        sha256: digest(executableBytes),
+        signature
+      });
+    } finally {
+      await handle.close();
     }
-    const signature = [
-      executablePath,
-      metadata.dev,
-      metadata.ino,
-      metadata.mode,
-      metadata.size,
-      metadata.mtimeNs
-    ].join(':');
-    const executableBytes = await fs.readFile(executablePath);
-    const after = await fs.lstat(executablePath, { bigint: true });
-    if (metadata.dev !== after.dev || metadata.ino !== after.ino || metadata.mode !== after.mode ||
-      metadata.size !== after.size || metadata.mtimeNs !== after.mtimeNs ||
-      !sameHostPath(await fs.realpath(process.execPath), executablePath)) {
-      throw new SecError('IMPORT-AUTHORITY-001', 'Bun runtime executable changed during observation');
-    }
-    return Object.freeze({
-      path: executablePath,
-      sha256: digest(executableBytes),
-      signature
-    });
   })();
   if (refresh) return observation;
   runtimeExecutableIdentityInFlight = observation;
