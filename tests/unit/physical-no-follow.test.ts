@@ -1741,3 +1741,33 @@ test.skipIf(process.platform !== 'linux' && process.platform !== 'win32')(
     }
   }
 );
+
+test('no-follow tree observation prunes canonical excluded subtrees before traversal', () => {
+  const root = fixtureRoot();
+  try {
+    mkdirSync(path.join(root, 'excluded', 'deep'), { recursive: true });
+    for (let index = 0; index < 8; index += 1) {
+      writeFileSync(path.join(root, 'excluded', 'deep', `ignored-${index}.txt`), 'ignored');
+    }
+    writeFileSync(path.join(root, 'included.txt'), 'included');
+    const physicalRoot = inspectNoFollowDirectoryChain(root, 'excluded observation root').target;
+    const observed = scanNoFollowDirectoryTree(physicalRoot, {
+      maximumEntries: 2,
+      maximumBytes: 1024,
+      excludeRelativePaths: ['excluded']
+    });
+    expect(observed.map(({ relativePath }) => relativePath)).toEqual(['included.txt']);
+    expect(Buffer.from(observed[0]!.bytes ?? []).toString('utf8')).toBe('included');
+    expectPhysicalCode(
+      () => scanNoFollowDirectoryTree(physicalRoot, {
+        maximumEntries: 2,
+        maximumBytes: 1024,
+        excludeRelativePaths: ['../escape']
+      }),
+      'PHYSICAL_NO_FOLLOW_UNSAFE_PATH'
+    );
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+

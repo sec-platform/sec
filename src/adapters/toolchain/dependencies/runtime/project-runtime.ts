@@ -1101,37 +1101,54 @@ async function observeRuntimePackageManifest(
   packageRoot: string
 ): Promise<RuntimePackageManifestObservation> {
   const packageJsonPath = path.join(packageRoot, 'package.json');
-  const metadata = await fs.lstat(packageJsonPath, { bigint: true });
-  if (!metadata.isFile() || metadata.isSymbolicLink() ||
-    !sameHostPath(await fs.realpath(packageJsonPath), packageJsonPath)) {
-    throw new SecError('RUNTIME-DEPS-002', 'Runtime dependency package manifest is not one physical file');
+  const handle = await fs.open(packageJsonPath, 'r');
+  try {
+    const opened = await handle.stat({ bigint: true });
+    const metadata = await fs.lstat(packageJsonPath, { bigint: true });
+    const physicalPath = await fs.realpath(packageJsonPath);
+    if (!opened.isFile() || !metadata.isFile() || metadata.isSymbolicLink()
+      || opened.dev !== metadata.dev || opened.ino !== metadata.ino
+      || opened.mode !== metadata.mode
+      || !sameHostPath(physicalPath, packageJsonPath)) {
+      throw new SecError('RUNTIME-DEPS-002', 'Runtime dependency package manifest is not one stable physical file');
+    }
+    const bytes = await handle.readFile();
+    const [afterHandle, afterPath] = await Promise.all([
+      handle.stat({ bigint: true }),
+      fs.lstat(packageJsonPath, { bigint: true })
+    ]);
+    if (opened.dev !== afterHandle.dev || opened.ino !== afterHandle.ino
+      || opened.mode !== afterHandle.mode || opened.size !== afterHandle.size
+      || opened.mtimeNs !== afterHandle.mtimeNs
+      || afterPath.dev !== opened.dev || afterPath.ino !== opened.ino
+      || afterPath.mode !== opened.mode || afterPath.size !== opened.size
+      || afterPath.mtimeNs !== opened.mtimeNs) {
+      throw new SecError('RUNTIME-DEPS-002', 'Runtime dependency package manifest changed during observation');
+    }
+    const parsed = JSON.parse(bytes.toString('utf8')) as Record<string, unknown>;
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed) ||
+      !isRuntimeDependencyPackageName(parsed.name) ||
+      typeof parsed.version !== 'string' || !parsed.version) {
+      throw new SecError('RUNTIME-DEPS-002', 'Runtime dependency package manifest is invalid');
+    }
+    return Object.freeze({
+      dependencies: dependencyRecord(parsed.dependencies, 'Runtime dependency dependencies'),
+      manifestSha256: digest(bytes),
+      name: parsed.name,
+      optionalDependencies: dependencyRecord(
+        parsed.optionalDependencies,
+        'Runtime dependency optionalDependencies'
+      ),
+      optionalPeers: optionalPeerNames(parsed.peerDependenciesMeta),
+      peerDependencies: dependencyRecord(
+        parsed.peerDependencies,
+        'Runtime dependency peerDependencies'
+      ),
+      version: parsed.version
+    });
+  } finally {
+    await handle.close();
   }
-  const bytes = await fs.readFile(packageJsonPath);
-  const after = await fs.lstat(packageJsonPath, { bigint: true });
-  if (metadata.dev !== after.dev || metadata.ino !== after.ino || metadata.mode !== after.mode) {
-    throw new SecError('RUNTIME-DEPS-002', 'Runtime dependency package manifest changed during observation');
-  }
-  const parsed = JSON.parse(bytes.toString('utf8')) as Record<string, unknown>;
-  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed) ||
-    !isRuntimeDependencyPackageName(parsed.name) ||
-    typeof parsed.version !== 'string' || !parsed.version) {
-    throw new SecError('RUNTIME-DEPS-002', 'Runtime dependency package manifest is invalid');
-  }
-  return Object.freeze({
-    dependencies: dependencyRecord(parsed.dependencies, 'Runtime dependency dependencies'),
-    manifestSha256: digest(bytes),
-    name: parsed.name,
-    optionalDependencies: dependencyRecord(
-      parsed.optionalDependencies,
-      'Runtime dependency optionalDependencies'
-    ),
-    optionalPeers: optionalPeerNames(parsed.peerDependenciesMeta),
-    peerDependencies: dependencyRecord(
-      parsed.peerDependencies,
-      'Runtime dependency peerDependencies'
-    ),
-    version: parsed.version
-  });
 }
 
 function runtimePackageRelativePath(nodeModulesPath: string, packageRoot: string): string {
@@ -9202,15 +9219,50 @@ async function compilerDependencyGeneratedPreimageAuthority(
       ...packageBinding.name.split('/'),
       'package.json'
     );
-    const manifestMetadata = await fs.lstat(packageManifestPath).catch(() => null);
-    if (manifestMetadata === null || !manifestMetadata.isFile() || manifestMetadata.isSymbolicLink()) {
-      throw new SecError('IMPORT-AUTHORITY-004', 'Compiler dependency preimage package manifest is not physical');
+    let manifestHandle: Awaited<ReturnType<typeof fs.open>>;
+    try {
+      manifestHandle = await fs.open(packageManifestPath, 'r');
+    } catch (error) {
+      throw new SecError(
+        'IMPORT-AUTHORITY-004',
+        'Compiler dependency preimage package manifest cannot be opened safely',
+        { cause: error instanceof Error ? error.message : String(error) }
+      );
     }
-    const physicalManifestPath = await fs.realpath(packageManifestPath);
-    if (!isPathInside(nodeModulesPath, physicalManifestPath)) {
-      throw new SecError('IMPORT-AUTHORITY-004', 'Compiler dependency preimage package manifest escapes its generation');
+    let manifestBytes: Buffer;
+    try {
+      const opened = await manifestHandle.stat();
+      const manifestMetadata = await fs.lstat(packageManifestPath);
+      const physicalManifestPath = await fs.realpath(packageManifestPath);
+      if (!opened.isFile() || !manifestMetadata.isFile() || manifestMetadata.isSymbolicLink()
+        || opened.dev !== manifestMetadata.dev || opened.ino !== manifestMetadata.ino
+        || opened.mode !== manifestMetadata.mode || opened.size !== manifestMetadata.size
+        || opened.mtimeMs !== manifestMetadata.mtimeMs
+        || !isPathInside(nodeModulesPath, physicalManifestPath)) {
+        throw new SecError(
+          'IMPORT-AUTHORITY-004',
+          'Compiler dependency preimage package manifest is not one stable physical file'
+        );
+      }
+      manifestBytes = await manifestHandle.readFile();
+      const [afterHandle, afterPath] = await Promise.all([
+        manifestHandle.stat(),
+        fs.lstat(packageManifestPath)
+      ]);
+      if (afterHandle.dev !== opened.dev || afterHandle.ino !== opened.ino
+        || afterHandle.mode !== opened.mode || afterHandle.size !== opened.size
+        || afterHandle.mtimeMs !== opened.mtimeMs
+        || afterPath.dev !== opened.dev || afterPath.ino !== opened.ino
+        || afterPath.mode !== opened.mode || afterPath.size !== opened.size
+        || afterPath.mtimeMs !== opened.mtimeMs) {
+        throw new SecError(
+          'IMPORT-AUTHORITY-004',
+          'Compiler dependency preimage package manifest changed during retained read'
+        );
+      }
+    } finally {
+      await manifestHandle.close();
     }
-    const manifestBytes = await fs.readFile(packageManifestPath);
     const manifest = JSON.parse(manifestBytes.toString('utf8')) as Record<string, unknown>;
     // `packageBinding.name` is the dependency locator under node_modules, not
     // necessarily the package's declared name: npm aliases deliberately make

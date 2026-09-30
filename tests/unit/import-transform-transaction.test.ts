@@ -1,5 +1,5 @@
 import { expect, test } from 'bun:test';
-import { chmod, mkdir, mkdtemp, readFile, readdir, rm, stat, symlink, writeFile } from 'node:fs/promises';
+import { chmod, link, mkdir, mkdtemp, readFile, readdir, rm, stat, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
@@ -307,6 +307,23 @@ test('candidate publication restores the captured target mode despite creation d
     ]);
     expect(outcome.status).toBe('accepted');
     expect((await stat(target)).mode & 0o777).toBe(originalMode);
+  });
+});
+
+test('handle-bound reads preserve hard-linked target semantics', async () => {
+  await withWorkspace(async (root) => {
+    const target = path.join(root, 'a.ts');
+    const alias = path.join(root, 'alias.ts');
+    await writeFile(target, 'a0\n');
+    await link(target, alias);
+    const outcome = await publishImportTransformTransaction(root, [{
+      relativePath: 'a.ts',
+      expectedBytes: Buffer.from('a0\n'),
+      replacementBytes: Buffer.from('a1\n')
+    }]);
+    expect(outcome.status).toBe('accepted');
+    expect(await readFile(target, 'utf8')).toBe('a1\n');
+    expect(await readFile(alias, 'utf8')).toBe('a0\n');
   });
 });
 
