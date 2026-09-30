@@ -50,6 +50,7 @@ jobs:
             tests/unit/verification-session-hosted-local-ref.test.ts
             tests/unit/verification-action-github-provider.test.ts
             tests/unit/branch-lifecycle-contract.test.ts
+            src/adapters/runtime-state/physical/runtime/linux-repository-change-observer.test.ts
             tests/contract/merge-gate.test.ts
           )
           for test_file in "${tests[@]}"; do

@@ -10,9 +10,9 @@ import {
   type SecSemanticOperationPlan
 } from '../../../../execution/operation/semantic.ts';
 import {
-  RETAINED_WINDOWS_REPOSITORY_CHANGE_OBSERVER_CONTRACT_DIGEST,
-  RETAINED_WINDOWS_REPOSITORY_CHANGE_OBSERVER_REQUIREMENT_ID
-} from '../../../runtime-state/physical/runtime/windows-repository-change-observer.ts';
+  RETAINED_REPOSITORY_CHANGE_OBSERVER_CONTRACT_DIGEST,
+  RETAINED_REPOSITORY_CHANGE_OBSERVER_REQUIREMENT_ID
+} from '../../../runtime-state/physical/runtime/repository-change-observer-contract.ts';
 import {
   assertTestBudgetExecutionProvenance,
   type IssuedTestInventoryProjection,
@@ -270,8 +270,8 @@ export function admitFastTestBatchExecutionPolicy(
     attempt: issueSecSemanticOperationAttemptContext({ authorityGrantDigest: policy.policyDigest as SecOperationDigest }),
     aggregateBudgets: [{ resource: 'duration-ms', maximum: policy.logicalRunTimeoutMs }],
     requirements: [{
-      id: RETAINED_WINDOWS_REPOSITORY_CHANGE_OBSERVER_REQUIREMENT_ID,
-      contractDigest: RETAINED_WINDOWS_REPOSITORY_CHANGE_OBSERVER_CONTRACT_DIGEST,
+      id: RETAINED_REPOSITORY_CHANGE_OBSERVER_REQUIREMENT_ID,
+      contractDigest: RETAINED_REPOSITORY_CHANGE_OBSERVER_CONTRACT_DIGEST,
       effectKinds: ['filesystem'],
       failureKinds: ['provider.deadline-exhausted', 'provider.unavailable', 'provider.unverified']
     }]
@@ -296,8 +296,8 @@ export function bindFastTestBatchExecutionAdmission(
   if (boundFastTestBatchExecutionAdmissions.has(admission)) {
     throw new Error('Fast test batch execution admission was already bound.');
   }
-  if (providerBinding.requirementId !== RETAINED_WINDOWS_REPOSITORY_CHANGE_OBSERVER_REQUIREMENT_ID
-      || providerBinding.contractDigest !== RETAINED_WINDOWS_REPOSITORY_CHANGE_OBSERVER_CONTRACT_DIGEST) {
+  if (providerBinding.requirementId !== RETAINED_REPOSITORY_CHANGE_OBSERVER_REQUIREMENT_ID
+      || providerBinding.contractDigest !== RETAINED_REPOSITORY_CHANGE_OBSERVER_CONTRACT_DIGEST) {
     throw new Error('Fast test batch observer provider binding is invalid.');
   }
   boundFastTestBatchExecutionAdmissions.add(admission);

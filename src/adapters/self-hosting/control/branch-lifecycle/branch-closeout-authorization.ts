@@ -205,20 +205,24 @@ export function authorizeBranchCloseout(input: {
   }
 
   const classification = resolveClassification(current, preparation.branch);
-  const dispositionClassifications: Record<
-    BranchCloseoutDisposition,
-    readonly BranchLifecycleClassification[]
-  > = {
-    merged: [
-      'active-candidate',
-      'open-pr-candidate',
-      'merged-closeout',
-      'protected-pending'
-    ],
-    'closed-superseded': ['closed-superseded', 'protected-pending'],
-    'completed-spike': ['completed-spike', 'orphan-unknown', 'protected-pending']
+  const dispositionClassifications = (
+    disposition: BranchCloseoutDisposition
+  ): readonly BranchLifecycleClassification[] => {
+    switch (disposition) {
+      case 'merged':
+        return [
+          'active-candidate',
+          'open-pr-candidate',
+          'merged-closeout',
+          'protected-pending'
+        ];
+      case 'closed-superseded':
+        return ['closed-superseded', 'protected-pending'];
+      case 'completed-spike':
+        return ['completed-spike', 'orphan-unknown', 'protected-pending'];
+    }
   };
-  if (!dispositionClassifications[request.disposition].includes(classification.classification)) {
+  if (!dispositionClassifications(request.disposition).includes(classification.classification)) {
     blockers.push(
       `disposition ${request.disposition} cannot close out ${classification.classification}`
     );
