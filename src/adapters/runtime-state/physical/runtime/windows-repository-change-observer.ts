@@ -19,7 +19,7 @@ import {
 } from './physical-no-follow.ts';
 import {
   REPOSITORY_CHANGE_OBSERVER_MAXIMUM_EVENTS,
-  REPOSITORY_CHANGE_OBSERVER_MAXIMUM_OBSERVATION_MS,
+  REPOSITORY_CHANGE_OBSERVER_DIRECT_MAXIMUM_OBSERVATION_MS,
   REPOSITORY_CHANGE_OBSERVER_MAXIMUM_ROOTS,
   RETAINED_REPOSITORY_CHANGE_OBSERVER_CONTRACT_DIGEST,
   RETAINED_REPOSITORY_CHANGE_OBSERVER_REQUIREMENT_ID
@@ -27,7 +27,7 @@ import {
 
 const MAXIMUM_ROOTS = REPOSITORY_CHANGE_OBSERVER_MAXIMUM_ROOTS;
 const MAXIMUM_EVENTS = REPOSITORY_CHANGE_OBSERVER_MAXIMUM_EVENTS;
-const MAXIMUM_OBSERVATION_MS = REPOSITORY_CHANGE_OBSERVER_MAXIMUM_OBSERVATION_MS;
+const DIRECT_MAXIMUM_OBSERVATION_MS = REPOSITORY_CHANGE_OBSERVER_DIRECT_MAXIMUM_OBSERVATION_MS;
 
 /** @deprecated Import the platform-neutral repository observer contract. */
 export const RETAINED_WINDOWS_REPOSITORY_CHANGE_OBSERVER_REQUIREMENT_ID =
@@ -565,7 +565,7 @@ export async function armWindowsRepositoryChangeObserver(input: Readonly<{
   const now = Date.now();
   if (roots === null || !Number.isSafeInteger(input.deadlineAtUnixMs)
       || input.deadlineAtUnixMs <= now
-      || input.deadlineAtUnixMs - now > MAXIMUM_OBSERVATION_MS) {
+      || input.deadlineAtUnixMs - now > DIRECT_MAXIMUM_OBSERVATION_MS) {
     return unavailable('invalid-input');
   }
   const retainedRoots: RetainedNoFollowChildProcessDirectory[] = [];
