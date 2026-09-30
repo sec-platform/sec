@@ -922,29 +922,39 @@ async function digestRegularTransactionArtifact(
   label: string,
   maximumBytes: number
 ): Promise<Readonly<{ digest: string; bytes: number }>> {
-  const metadata = await fs.lstat(filePath);
-  if (!metadata.isFile() || metadata.isSymbolicLink()) recoveryFailure(label + ' is not an ordinary file.');
-  if (metadata.size > maximumBytes) recoveryFailure(label + ' exceeds its bounded byte limit.');
   const handle = await fs.open(filePath, 'r');
   const hash = createHash('sha256');
   let offset = 0;
   try {
     const opened = await handle.stat();
-    if (!opened.isFile() || opened.dev !== metadata.dev || opened.ino !== metadata.ino
-      || opened.size !== metadata.size) {
+    const current = await fs.lstat(filePath);
+    if (!opened.isFile() || opened.nlink !== 1
+      || !current.isFile() || current.isSymbolicLink() || current.nlink !== 1
+      || !sameOrdinaryFileIdentity(opened, current)) {
       recoveryFailure(label + ' changed before retained digest readback.');
     }
+    if (opened.size > maximumBytes) recoveryFailure(label + ' exceeds its bounded byte limit.');
     const buffer = Buffer.allocUnsafe(1024 * 1024);
     while (offset < opened.size) {
-      const { bytesRead } = await handle.read(buffer, 0, Math.min(buffer.length, opened.size - offset), offset);
+      const { bytesRead } = await handle.read(
+        buffer,
+        0,
+        Math.min(buffer.length, opened.size - offset),
+        offset
+      );
       if (bytesRead === 0) recoveryFailure(label + ' ended before its retained byte count.');
       hash.update(buffer.subarray(0, bytesRead));
       offset += bytesRead;
     }
-    const after = await handle.stat();
-    const current = await fs.lstat(filePath);
-    if (after.dev !== opened.dev || after.ino !== opened.ino || after.size !== opened.size
-      || current.dev !== opened.dev || current.ino !== opened.ino || current.size !== opened.size) {
+    const [afterHandle, afterPath] = await Promise.all([
+      handle.stat(),
+      fs.lstat(filePath)
+    ]);
+    if (!sameOrdinaryFileIdentity(afterHandle, afterPath)
+      || afterHandle.dev !== opened.dev || afterHandle.ino !== opened.ino
+      || afterHandle.mode !== opened.mode || afterHandle.nlink !== opened.nlink
+      || afterHandle.size !== opened.size || afterHandle.mtimeMs !== opened.mtimeMs
+      || afterHandle.ctimeMs !== opened.ctimeMs || offset !== opened.size) {
       recoveryFailure(label + ' changed during retained digest readback.');
     }
   } finally {
@@ -1270,10 +1280,23 @@ async function observePublishedPrefixAfterFailure(
     else if (strictUnpublished && state === 'other') {
       throw new ImportTransformTransactionFailure('preimage-conflict',
         `Import transform unpublished target drifted: ${possibleUnjournaled.relativePath}`);
-    } else if (state === 'other'
-      && (await fs.readFile(possibleUnjournaled.absolutePath)).equals(possibleUnjournaled.replacementBytes)) {
-      throw new ImportTransformTransactionFailure('preimage-conflict',
-        `Import transform unjournaled replacement metadata drifted: ${possibleUnjournaled.relativePath}`);
+    } else if (state === 'other') {
+      let snapshot: StableOrdinaryFileSnapshot;
+      try {
+        snapshot = await readStableOrdinaryFileSnapshot(
+          possibleUnjournaled.absolutePath,
+          `Import transform unjournaled target ${possibleUnjournaled.relativePath}`
+        );
+      } catch (error) {
+        throw new ImportTransformTransactionFailure(
+          'preimage-conflict',
+          error instanceof Error ? error.message : String(error)
+        );
+      }
+      if (snapshot.bytes.equals(possibleUnjournaled.replacementBytes)) {
+        throw new ImportTransformTransactionFailure('preimage-conflict',
+          `Import transform unjournaled replacement metadata drifted: ${possibleUnjournaled.relativePath}`);
+      }
     }
   }
   if (strictUnpublished) {
@@ -1710,10 +1733,11 @@ export async function publishImportTransformTransaction(
           await assertWorkspaceWriteLease(root, lease);
           await testHooks.beforeRollback?.(file.relativePath, index);
           await assertOrdinaryContainedTargetChain(root, file.absolutePath);
-          const metadata = await fs.lstat(file.absolutePath);
-          const current = await fs.readFile(file.absolutePath);
-          if (!metadata.isFile() || metadata.isSymbolicLink() || (metadata.mode & 0o777) !== file.mode
-            || !current.equals(file.replacementBytes)) {
+          const current = await readStableOrdinaryFileSnapshot(
+            file.absolutePath,
+            `Import transform rollback target ${file.relativePath}`
+          );
+          if (current.mode !== file.mode || !current.bytes.equals(file.replacementBytes)) {
             recoveryReason = 'rollback-conflict';
             break;
           }
@@ -1728,7 +1752,12 @@ export async function publishImportTransformTransaction(
             testHooks
           );
           await assertOrdinaryContainedTargetChain(root, file.absolutePath);
-          if (!(await fs.readFile(file.absolutePath)).equals(file.expectedBytes)) {
+          const rollbackReadback = await readStableOrdinaryFileSnapshot(
+            file.absolutePath,
+            `Import transform rollback readback ${file.relativePath}`
+          );
+          if (rollbackReadback.mode !== file.mode
+            || !rollbackReadback.bytes.equals(file.expectedBytes)) {
             recoveryReason = 'rollback-failed';
             break;
           }
