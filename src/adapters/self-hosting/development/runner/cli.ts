@@ -1,4 +1,8 @@
 import path from 'node:path';
+import {
+  githubCredentialBootstrapHandoffArguments,
+  withGitHubCredentialBootstrap
+} from '../../../providers/github-api/credential-bootstrap.ts';
 
 import type { SecBoundSemanticOperation } from '../../../../execution/operation/semantic.ts';
 import type { ProcessResourceSession } from '../../../runtime-state/physical/runtime/process-resource-session.ts';
@@ -40,7 +44,7 @@ export async function handoffDevRunnerToFreshProcess(
     throw new Error('Dev runner fresh-process handoff has no exact entrypoint identity.');
   }
   const { runDevCommand } = await import('./command-runner.ts');
-  return runDevCommand('bun', [entrypoint, ...process.argv.slice(2)], {
+  return runDevCommand('bun', [entrypoint, ...githubCredentialBootstrapHandoffArguments(process.argv.slice(2))], {
       [DEV_RUNNER_FRESH_PROCESS_TRANSITION_ENV]: handoff.transitionDigest,
       ...(workspaceTransitionDeadlineAtUnixMs === undefined ? {} : {
         [WORKSPACE_TRANSITION_DEADLINE_ENV]:
@@ -171,6 +175,7 @@ export async function runTypecheckCommand(args: readonly string[]): Promise<numb
 }
 
 function usage(): never {
+  console.error('Optional: --github-credential-store <absolute-private-directory> (Linux only; outside the operation checkout).');
   console.error('Usage: bun ./src/adapters/self-hosting/development/runner/cli.ts <commit <message>|commit:recover <absolute-journal-path>|commit:recover --retire-superseded-local <exact-ref>|workspace-transition <post-checkout|post-merge|post-rewrite> [hook-args...]|deps:ensure|typecheck|check [--affected [--plan]|--scope <fast|full>]|test [--affected [--plan]|--scope <fast|slow|full>] [test-args...]|imports:check [--all|--candidate-base <sha>] [--remove-unused]|imports:check --staged [--candidate-base <sha>]|imports:apply [--all|--candidate-base <sha>] [--remove-unused]|imports:apply --staged [--candidate-base <sha>]|imports:freeze|generated-state:inspect|generated-state:plan|generated-state:cleanup|environment:workspace-settle> [args...]');
   process.exit(1);
 }
@@ -245,7 +250,11 @@ function parseImportOperationArgs(
 }
 
 async function main(): Promise<void> {
-  const [target, ...args] = process.argv.slice(2);
+  return withGitHubCredentialBootstrap(process.argv.slice(2), runWithCredentialBootstrap);
+}
+
+async function runWithCredentialBootstrap(argv: string[]): Promise<void> {
+  const [target, ...args] = argv;
   if (!target) {
     usage();
   }

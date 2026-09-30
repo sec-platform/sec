@@ -1177,7 +1177,12 @@ async function executeTrustedRuntimeCloseoutMergeEffect(
 }
 
 async function main(): Promise<void> {
-  const args = parseArgs(process.argv.slice(2));
+  const { withGitHubCredentialBootstrap } = await import('../../../providers/github-api/credential-bootstrap.ts');
+  return withGitHubCredentialBootstrap(process.argv.slice(2), runWithCredentialBootstrap);
+}
+
+async function runWithCredentialBootstrap(argv: string[]): Promise<void> {
+  const args = parseArgs(argv);
   const result = args.mode === 'runtime-canary'
       ? await runCurrentTrustedRuntimeWorkspaceCanary({
           repositoryRoot: process.cwd(),
