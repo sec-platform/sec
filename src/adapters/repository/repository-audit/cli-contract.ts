@@ -31,7 +31,10 @@ const CLI_OPTIONS = {
   query: { type: 'string' },
   'fail-on': { type: 'string' },
   'default-ref': { type: 'string' },
-  'supersession-baseline': { type: 'string' }
+  'supersession-baseline': { type: 'string' },
+  'transition-candidate-root': { type: 'string' },
+  'transition-expected-head': { type: 'string' },
+  'test-author-input': { type: 'string' }
 } as const;
 
 export type RepositoryAuditCliOptions = Readonly<{
@@ -51,6 +54,9 @@ export type RepositoryAuditCliOptions = Readonly<{
   query: string | null;
   reductionMode: 'aggregate-import' | 'graph-cut' | 'none' | 'version';
   supersessionBaseline: string;
+  transitionCandidateRoot: string | null;
+  transitionExpectedHead: string | null;
+  testAuthorInput: string | null;
 }>;
 export type WorkingTreeSourceProgramAuditOptions = Pick<RepositoryAuditCliOptions,
   'blockingDetails' | 'blockingDetailsDomain' | 'blockingDetailsPage' | 'enforce' | 'full' | 'includeCandidates' | 'outputPath' | 'query' |
@@ -139,7 +145,8 @@ export function parseRepositoryAuditCliOptions(
   };
   onlyIn('repository', ['diagnostic', 'fail-on', 'default-ref']);
   onlyIn('source-program', ['blocking-details', 'blocking-details-domain', 'blocking-details-page', 'candidates', 'aggregate-import-reductions',
-    'graph-cuts', 'version-reductions', 'supersession-baseline']);
+    'graph-cuts', 'version-reductions', 'supersession-baseline',
+    'transition-candidate-root', 'transition-expected-head', 'test-author-input']);
   if (mode === 'module-topology' && supplied.has('query')) {
     throw new Error('--query is not supported by module-topology audit');
   }
@@ -157,6 +164,15 @@ export function parseRepositoryAuditCliOptions(
   }
   const supersessionBaseline = values['supersession-baseline'] ?? 'HEAD';
   if (supersessionBaseline.startsWith('-')) throw new Error('--supersession-baseline requires one Git revision');
+  const transitionRoot = values['transition-candidate-root'];
+  const transitionHead = values['transition-expected-head'];
+  if (transitionRoot !== undefined || transitionHead !== undefined || values['test-author-input'] !== undefined) {
+    if (transitionRoot === undefined || transitionHead === undefined || !/^[0-9a-f]{40}$/u.test(transitionHead)
+        || !supplied.has('supersession-baseline') || !/^[0-9a-f]{40}$/u.test(supersessionBaseline)
+        || reductionMode !== 'none' || values.enforce || values.query || values.output || values['blocking-details']) {
+      throw new Error('Transition assessment requires exact candidate/base/head without mutation or ordinary enforcement options');
+    }
+  }
   if (values['default-ref']?.startsWith('-')) throw new Error('--default-ref requires one Git revision');
   return Object.freeze({
     mode,
@@ -172,7 +188,10 @@ export function parseRepositoryAuditCliOptions(
     outputPath: values.output === undefined ? null : path.resolve(values.output),
     query: values.query ?? null,
     reductionMode,
-    supersessionBaseline
+    supersessionBaseline,
+    transitionCandidateRoot: transitionRoot === undefined ? null : path.resolve(transitionRoot),
+    transitionExpectedHead: transitionHead ?? null,
+    testAuthorInput: values['test-author-input'] === undefined ? null : path.resolve(values['test-author-input'])
   });
 }
 

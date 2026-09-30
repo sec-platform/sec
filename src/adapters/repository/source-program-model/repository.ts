@@ -32,7 +32,7 @@ import type {
   SourceProgramTopologySummary,
   SourceProgramUnknown
 } from './contract.ts';
-import { sourceProgramSurfaceForPath } from './contract.ts';
+import { isSourceProgramRuntimeBuiltinModuleSpecifier, sourceProgramSurfaceForPath } from './contract.ts';
 import {
   compileSourceProgramEmbeddedWorkflowPrograms,
   observeSourceProgramEmbeddedTypeScriptLiteral,
@@ -1060,9 +1060,7 @@ function compileRepositorySourceProgramModelInternal(
     const unknown = unknowns[index]!;
     if (unknown.code !== 'external-module-opaque') continue;
     const packageName = dependencyPackageName(unknown.detail);
-    const runtimeBuiltin = unknown.detail === 'bun'
-      || unknown.detail.startsWith('bun:')
-      || unknown.detail.startsWith('node:');
+    const runtimeBuiltin = isSourceProgramRuntimeBuiltinModuleSpecifier(unknown.detail);
     if (runtimeBuiltin || declaredDependencyNames.has(packageName)) {
       unknowns.splice(index, 1);
     }

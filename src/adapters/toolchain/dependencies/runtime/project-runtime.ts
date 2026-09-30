@@ -118,8 +118,8 @@ import {
   COMPILER_STAGING_LIFECYCLE_RULE,
   compilerDependencyStagingLifecycleExpectation,
   ensureCompilerDependencyPreimageRetiredForRecovery,
-  settleRetiredCompilerDependencyGeneration,
-  legacySharedDependencyRetirementExpectation
+  legacySharedDependencyRetirementExpectation,
+  settleRetiredCompilerDependencyGeneration
 } from './lifecycle-registration.ts';
 import {
   MAX_DEPENDENCY_OPERATION_TIMEOUT_MS,
@@ -11142,10 +11142,14 @@ export async function retainCompilerDependencyExecutionGeneration(
   ));
   let pendingGeneration: RetainedNoFollowProvenDirectoryGeneration | undefined;
   const admitted = await withCompilerDependencyCoordinationLease(
-    record.root,
+    record.sourceGeneration.ownerRoot,
     { deadlineAtUnixMs: input.deadlineAtUnixMs, lockTimeoutMs, signal: input.signal },
     async (options) => {
       runtimeDependencyOperationRemainingMs(options, 'Compiler dependency execution generation admission');
+      await assertCompilerDependencyReadTransitionTerminal(record.sourceGeneration.ownerRoot, options);
+      if (!sameHostPath(record.root, record.sourceGeneration.ownerRoot)) {
+        await assertCompilerDependencyReadTransitionTerminal(record.root, options);
+      }
       const sealed = await ensureCompilerDependencyGenerationReadOnlyProof(
         record.root,
         record.sourceGeneration,
@@ -11193,7 +11197,7 @@ export async function retainCompilerDependencyExecutionGeneration(
   } catch (error) {
     try {
       const physicalReceipt = await materialized.generation.retire();
-      await releaseCompilerDependencyConsumer(record.root, admitted.acquired, physicalReceipt);
+      await releaseCompilerDependencyConsumer(record.sourceGeneration.ownerRoot, admitted.acquired, physicalReceipt);
     } catch { /* durable acquisition residue preserves the authority failure */ }
     throw error;
   }
@@ -11215,13 +11219,13 @@ export async function retainCompilerDependencyExecutionGeneration(
         let released: CompilerDependencyConsumerRecord;
         if (durableRelease === null) {
           released = await releaseCompilerDependencyConsumer(
-            record.root,
+            record.sourceGeneration.ownerRoot,
             admitted.acquired,
             physicalReceipt,
             (terminal) => { durableRelease = terminal; }
           );
         } else {
-          await withCompilerDependencyCoordinationLease(record.root, { lockTimeoutMs: 30_000 }, async () => {});
+          await withCompilerDependencyCoordinationLease(record.sourceGeneration.ownerRoot, { lockTimeoutMs: 30_000 }, async () => {});
           released = durableRelease;
         }
         const receipt: CompilerDependencyExecutionRetirementReceipt = Object.freeze({
@@ -11292,9 +11296,15 @@ export async function retainCompilerDependencyReadGeneration(
   }>;
   try {
     admitted = await withCompilerDependencyCoordinationLease(
-      expected.root,
+      expected.sourceGeneration.ownerRoot,
       operationOptions,
       async (lockedOptions) => {
+        // A prior opaque observation cannot authorize a read after the physical
+        // owner has entered recovery. Recheck under that owner's GC/writer lease.
+        await assertCompilerDependencyReadTransitionTerminal(expected.sourceGeneration.ownerRoot, lockedOptions);
+        if (!sameHostPath(expected.root, expected.sourceGeneration.ownerRoot)) {
+          await assertCompilerDependencyReadTransitionTerminal(expected.root, lockedOptions);
+        }
         const sourceRoot = inspectNoFollowDirectoryChain(
           expected.sourceGeneration.sourcePath,
           'Compiler dependency read generation root'
@@ -11411,13 +11421,13 @@ export async function retainCompilerDependencyReadGeneration(
         physicalRetirement = physicalReceipt;
         if (durableRelease === null) {
           await releaseCompilerDependencyConsumer(
-            expected.root,
+            expected.sourceGeneration.ownerRoot,
             admitted.acquired,
             physicalReceipt,
             (terminal) => { durableRelease = terminal; }
           );
         } else {
-          await withCompilerDependencyCoordinationLease(expected.root, { lockTimeoutMs: 30_000 }, async () => {});
+          await withCompilerDependencyCoordinationLease(expected.sourceGeneration.ownerRoot, { lockTimeoutMs: 30_000 }, async () => {});
         }
         const receipt: CompilerDependencyReadGenerationRetirementReceipt = Object.freeze({
           generationDigest: expected.sourceGeneration.epoch,
@@ -11865,6 +11875,20 @@ async function observeCompilerDependencyReadyFromPublishedProof(
   return result!;
 }
 
+async function assertCompilerDependencyReadTransitionTerminal(
+  root: string,
+  options: RuntimeDependencyOperationOptions
+): Promise<void> {
+  const pendingTransition = (await readDependencyTransitionLedger(root, options))?.tip ?? null;
+  if (pendingTransition !== null && pendingTransition.phase !== 'complete' &&
+      pendingTransition.phase !== 'rolled-back') {
+    throw new SecError(
+      'RUNTIME-DEPS-004',
+      'Compiler dependency generation observation is blocked by nonterminal recovery state'
+    );
+  }
+}
+
 /**
  * Observe only an already-published compiler dependency generation and issue
  * the same opaque authority consumed by the retained execution owner. This
@@ -11890,15 +11914,7 @@ export async function observeCompilerDependencyExecutionGenerationAuthority(
     operationOptions,
     'Compiler dependency generation observation source admission'
   );
-  const transitionLedger = await readDependencyTransitionLedger(root, operationOptions);
-  const pendingTransition = transitionLedger?.tip ?? null;
-  if (pendingTransition !== null && pendingTransition.phase !== 'complete' &&
-      pendingTransition.phase !== 'rolled-back') {
-    throw new SecError(
-      'RUNTIME-DEPS-004',
-      'Compiler dependency generation observation is blocked by nonterminal recovery state'
-    );
-  }
+  await assertCompilerDependencyReadTransitionTerminal(root, operationOptions);
   const identity = await observeCompilerDependencyIdentity(root, operationOptions);
   const retainedProof = await observeCompilerDependencyReadyFromRetainedProof(
     root,
@@ -11964,7 +11980,8 @@ export async function observeCompilerDependencyExecutionGenerationAuthority(
 
 async function ensureCompilerDepsReadyInternal(
   options: RuntimeDependencyInstallOptions = {},
-  compilerDependencyRoot = compilerRoot
+  compilerDependencyRoot = compilerRoot,
+  admittedSource?: CompilerDependencyExecutionGenerationAuthorityRecord
 ): Promise<CompilerDepsReadyState> {
   const operationOptions = runtimeDependencyOperationOptions(options);
   const root = path.resolve(compilerDependencyRoot);
@@ -12173,11 +12190,17 @@ async function ensureCompilerDepsReadyInternal(
       return readyState;
     }
 
-    const sharedWorktreeGeneration = await resolveLinkedWorktreeDependencyGeneration({
-      consumerRoot: root,
-      consumerIdentity: identity,
-      options: lockedOptions
-    });
+    const sharedWorktreeGeneration = admittedSource === undefined
+      ? await resolveLinkedWorktreeDependencyGeneration({
+          consumerRoot: root,
+          consumerIdentity: identity,
+          options: lockedOptions
+        })
+      : Object.freeze({
+          binding: admittedSource.binding,
+          nodeModulesPath: admittedSource.sourceGeneration.sourcePath,
+          sourceGeneration: admittedSource.sourceGeneration
+        });
     if (sharedWorktreeGeneration !== null) {
       let createdLocator = false;
       let createdLocatorIdentity: Readonly<{
@@ -12392,6 +12415,69 @@ async function ensureCompilerDepsReadyInternal(
     });
     return readyState;
   });
+}
+
+/**
+ * Keep an already-compatible target, otherwise reuse one explicitly admitted
+ * live compiler generation through the existing locator transition. The source
+ * is an exact fallback, not a request to replace a compatible target. It selects
+ * no mutable project link and authorizes no install, recovery or sibling search.
+ */
+export async function ensureCompilerDepsReadyFromGeneration(
+  authority: CompilerDependencyExecutionGenerationAuthority,
+  options: RuntimeDependencyInstallOptions = {},
+  compilerDependencyRoot = compilerRoot
+): Promise<CompilerDepsReadyState> {
+  assertCompilerDependencyExecutionGenerationAuthority(authority);
+  const source = compilerDependencyExecutionGenerationAuthorities.get(authority)!;
+  const operationOptions = runtimeDependencyOperationOptions(options);
+  const root = path.resolve(compilerDependencyRoot);
+  const identity = await observeCompilerDependencyIdentity(root, operationOptions);
+  if (!canonicalEquals(identity, source.identity)) {
+    throw new SecError('RUNTIME-DEPS-004', 'Explicit compiler dependency source has incompatible canonical inputs');
+  }
+  const current = await observeCompilerDependencyExecutionGenerationAuthority(operationOptions, source.root);
+  const currentSource = current === null ? null : compilerDependencyExecutionGenerationAuthorities.get(current)!;
+  if (currentSource === null || !canonicalEquals(currentSource.identity, source.identity) ||
+      !canonicalEquals(currentSource.binding, source.binding) ||
+      !canonicalEquals(currentSource.sourceGeneration, source.sourceGeneration)) {
+    throw new SecError('RUNTIME-DEPS-004', 'Explicit compiler dependency source authority is no longer current');
+  }
+  const context = runtimeDependencyOperationContext(operationOptions);
+  const retained = await retainCompilerDependencyReadGeneration(authority, {
+    deadlineAtUnixMs: context.deadlineAtUnixMs,
+    signal: context.signal
+  });
+  let ready: CompilerDepsReadyState | undefined;
+  let primary: RuntimeDependencyCapturedFailure | undefined;
+  try {
+    await retained.assertAuthorityCurrent();
+    // The fresh observation owns transition-capable source provenance; the
+    // caller authority can contain a serialized publication projection.
+    ready = await ensureCompilerDepsReadyInternal(operationOptions, root, currentSource);
+    await retained.assertAuthorityCurrent();
+    await assertCompilerDependencyReadTransitionTerminal(source.sourceGeneration.ownerRoot, operationOptions);
+    if (!sameHostPath(source.root, source.sourceGeneration.ownerRoot)) {
+      await assertCompilerDependencyReadTransitionTerminal(source.root, operationOptions);
+    }
+    assertCompilerDependencyInputsCurrent(root, identity);
+  } catch (error) {
+    primary = Object.freeze({ error });
+  }
+  let retirementFailure: RuntimeDependencyCapturedFailure | undefined;
+  try {
+    const receipt = await retained.retire();
+    assertCompilerDependencyReadGenerationRetirementReceipt(receipt, authority.generationDigest);
+  } catch (error) {
+    retirementFailure = Object.freeze({ error });
+  }
+  if (primary !== undefined && retirementFailure !== undefined) {
+    throw new AggregateError([primary.error, retirementFailure.error],
+      'Compiler dependency source reuse and retained-consumer settlement both failed');
+  }
+  if (primary !== undefined) throw primary.error;
+  if (retirementFailure !== undefined) throw retirementFailure.error;
+  return ready!;
 }
 
 function compilerDependencyReadyInFlightKey(

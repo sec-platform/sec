@@ -1,3 +1,4 @@
+import { SEC_REPOSITORY_TEST_EXECUTION_INPUT_PATHS } from '../../../../../contracts/repository-test-path.ts';
 import {
   SEC_LINUX_VERIFICATION_ENVIRONMENT_AUTHORITY,
   type SecLinuxVerificationEnvironmentAuthority
@@ -6,12 +7,7 @@ import {
 export const CI_VERIFICATION_ACTION_ENVIRONMENT_CONTRACT_REVISION =
   'sec-ci-verification-action-environment-v2' as const;
 
-export const CI_VERIFICATION_ACTION_DEPENDENCY_INPUT_PATHS = Object.freeze([
-  '.bun-version',
-  'bun.lock',
-  'bunfig.toml',
-  'package.json'
-] as const);
+export const CI_VERIFICATION_ACTION_DEPENDENCY_INPUT_PATHS = SEC_REPOSITORY_TEST_EXECUTION_INPUT_PATHS;
 
 export function createCiVerificationHostedToolchainRevision(
   authority: SecLinuxVerificationEnvironmentAuthority
@@ -29,7 +25,7 @@ export function createCiVerificationHostedProviderRevision(
     + `gh-${authority.archives.githubCli.version}:`
     + `gh-archive-sha256-${authority.archives.githubCli.digest.slice(7)}:`
     + `image-sha256-${authority.image.dockerProjectionDigest.slice(7)}:`
-    + `container-init-v1:bun-${authority.trustedRuntime.bunVersion}:action-producer-v2:sandbox-v6`;
+    + `container-init-v1:bun-${authority.trustedRuntime.bunVersion}:action-producer-v2:sandbox-v7`;
 }
 
 export const CI_VERIFICATION_HOSTED_PROVIDER_REVISION =

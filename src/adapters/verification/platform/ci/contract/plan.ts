@@ -7,7 +7,7 @@ import {
   isDocumentationVerificationInputPath,
   type DocumentationVerificationBaseline
 } from '../../../../self-hosting/control/documentation/active.ts';
-import type { CiVerificationGatePhase, CiVerificationGateStep } from '../../action/contract/ci.ts';
+import { sourceProgramTransitionGate, type CiSourceProgramTransitionBinding, type CiVerificationGatePhase, type CiVerificationGateStep } from '../../action/contract/ci.ts';
 import { isKnownSlowTestSuiteId, isSlowTestFile, slowTestSuiteIds, slowTestSuiteIdsForFile } from '../../test-impact/contract/budget.ts';
 import type { CodexDevelopmentTestImpactSourceProvider } from '../../test-impact/runtime/impact.ts';
 import type { CodexDevelopmentTestImpactTransitionObservation } from '../../test-impact/runtime/transition.ts';
@@ -175,7 +175,8 @@ export function CodexDevelopmentBuildVerificationPlan(
   profile: CodexDevelopmentVerificationPlanProfile,
   rawChangedFiles: readonly string[] | null,
   testImpactSourceProvider: CodexDevelopmentTestImpactSourceProvider | null,
-  transition?: CodexDevelopmentTestImpactTransitionObservation
+  transition?: CodexDevelopmentTestImpactTransitionObservation,
+  sourceProgramTransition?: CiSourceProgramTransitionBinding
 ): CodexDevelopmentVerificationPlan {
   const changedFiles = rawChangedFiles === null ? null : CodexDevelopmentCanonicalChangedFiles(rawChangedFiles);
   if (profile === 'full') {
@@ -186,7 +187,7 @@ export function CodexDevelopmentBuildVerificationPlan(
       selectionReasons: ['full-inventory'],
       affectedOwners: [],
       affectedSlowTests: [],
-      gates: buildCiFullGatePlan()
+      gates: [...buildCiFullGatePlan(), ...(sourceProgramTransition === undefined ? [] : [sourceProgramTransitionGate(sourceProgramTransition)])]
     };
   }
   if (testImpactSourceProvider === null) {
@@ -210,6 +211,6 @@ export function CodexDevelopmentBuildVerificationPlan(
     selectionReasons: [...selection.reasons],
     affectedOwners: [...selection.owners],
     affectedSlowTests: [...selection.affectedSlowTests],
-    gates
+    gates: [...gates, ...(sourceProgramTransition === undefined ? [] : [sourceProgramTransitionGate(sourceProgramTransition)])]
   };
 }

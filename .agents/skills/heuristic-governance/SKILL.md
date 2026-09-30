@@ -5,6 +5,9 @@ description: 用于新的 Agent 行为选择、重复系统性偏航、维护者
 
 # heuristic-governance
 
+## 当前归属
+规则、Skill与客户端的责任方向归[工程行为路由](../../../docs/开发/AI协作/规则装载与任务恢复.md#engineering-behavior-routing)；根约束及保证强度归[原则](../../../docs/产品/原则总纲与归属.md)；必要边界和真实消费者归[约束强制](../../../docs/架构/约束强制与整体一致性.md#semantic-boundary-adequacy)。
+
 ## 触发
 - 新增或改变 Agent 的选择、回退、停止、委派或恢复行为。
 - 同类偏航重复发生，或 maintainer 指出前提、owner、Skill、Work Package、计划或执行路线错误。
@@ -19,7 +22,7 @@ description: 用于新的 Agent 行为选择、重复系统性偏航、维护者
 - 当前事实、被证伪前提、依赖该前提的 action/plan/code/test/Evidence 闭包。
 - canonical owner、现有 behavior/Skill identity、当前权限与 exact revision。
 - 能在未来无需再次提醒便阻断同类偏航的可观察条件。
-- 性能或资源问题还必须拥有绑定同一revision、workload与environment的fresh端到端阶段账本、重复工作/等待/cleanup归属和删除反事实；已有fresh账本直接复用，缺失或stale时才重新采集。局部热点、单函数耗时或某次优化收益不能单独决定实现路线。
+- 性能或资源收益声明复用绑定revision、workload与environment的已有测量及真实等待/cleanup归属；缺失时先作有范围的因果判断，只有会改变当前决定且获准时补测。配置上限、计划并行数与实际启动/join/峰值分别判断，不为每次治理建立阶段账本或先跑全链。局部热点不足以证明端到端收益。
 
 ## 前置门禁
 - 先对准备保留、新增、修改或验证的对象做彻底删除反事实；无法说明删除后哪个终局结果变差时，不得把对象当作需求。
@@ -36,14 +39,14 @@ description: 用于新的 Agent 行为选择、重复系统性偏航、维护者
    “先修架构”只授权修复已被证据否定且支配当前终局结果的最小因果闭包。当前consumer不是存在资格：owner-issued的accepted future obligation、替换/迁移责任、外部或历史状态、不可替代能力与明确activation/retirement路线都能证明`future-required | required-unmaterialized`；它们必须进入同一因果图并受保护。只有这些价值证据与unknown都为零时才可判为speculative/orphan；不能因暂未接线就删除，也不能靠未被owner接受的“以后可能用”无限延期业务闭包。
 5. 确定性事实进入唯一领域 owner；只有确实需要长期自动拒绝且比类型/派生/删除更小的边界才增加机器拒绝。仅剩判断部分进入唯一 Skill 的触发、停止和恢复路由。
 6. 反向重算全部依赖节点，删除被替代路径、假版本、兼容壳、镜像测试和第二 owner；未证明不受影响的节点保持 stale/unknown。
-7. 用代表性正向、负向、边界场景验证无需 maintainer 再提醒即可发现并纠正同类偏航。
+7. 检查真实发现与消费链：description是否把任务路由到相交Skill，typed selector是否实际选择，read-plan是否绑定正确来源，客户端是否取得正文，执行边界是否接通。适用时用独立的有界正向、负向与边界决策探针检查修改；有限探针只证明本次表现，不保证任意后续模型无需提醒。
 
 ## 完成证据
-- 被证伪前提、反向影响面、canonical owner、机器拒绝点、唯一 Skill 路由、删除路径和 typed residue。
+- 被证伪前提、反向影响面、canonical owner、适用的实际拒绝点或尚未接通的消费边、唯一Skill路由、删除路径和typed residue。
 - 错误路径已 consumer-zero 或 fail-closed；不是一句“同意/已记录”。
 
 ## 停止与恢复
-- 只有错误前提的下游闭包已重算、确定性规则已机器化、重复 prose/Skill/WP 路径已删除后恢复。
+- 相交错误前提及下游决定重算后恢复有资格的动作；需要机器化而尚未接通的义务交其领域owner，不能把修改Skill声明成已强制执行，也不阻断不依赖该缺口的工作。
 - 新反例证明分类错误时重新分界，不在 Skill 末尾追加例外。
 
 ## 禁止捷径

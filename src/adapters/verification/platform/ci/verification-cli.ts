@@ -1,11 +1,12 @@
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import path from 'node:path';
+import { CI_VERIFICATION_CONTRACT_REVISION, CI_VERIFICATION_WORKFLOW_PATH } from '../../../../assurance/verification/contract/revision.ts';
 import { uniqueSorted } from '../../../../contracts/canonical.ts';
 import {
   observeExecutionProgressPhase
 } from '../../../../execution/execution-progress.ts';
-import { CI_VERIFICATION_CONTRACT_REVISION, CI_VERIFICATION_WORKFLOW_PATH } from '../../../../assurance/verification/contract/revision.ts';
+import { withAcquiredResource } from '../../../../execution/resource-settlement.ts';
 import {
   withAuthorityGitReadOperation,
   type AuthorityGitReadOperation
@@ -18,6 +19,9 @@ import type { PhysicalWorkspaceSourceSnapshot } from '../../../repository/source
 import {
   assertSameNoFollowDirectoryIdentity,
   inspectNoFollowDirectoryChain,
+  PhysicalNoFollowError,
+  publishExclusiveDurableCanonicalFile,
+  retainNoFollowFileTransaction,
   retainNoFollowOrdinaryFile
 } from '../../../runtime-state/physical/runtime/physical-no-follow.ts';
 import {
@@ -25,8 +29,9 @@ import {
   CodexDevelopmentWorkPackageManifestDigest, type CodexDevelopmentWorkPackageManifest
 } from '../../../self-hosting/control/task/contract/work-package.ts';
 import { DEV_RUNNER_ENTRYPOINT_PATH } from '../../../self-hosting/development/runner/contract.ts';
+import { compilerRuntimeLayout } from '../../../toolchain/runtime/layout.ts';
 import { encodeVerificationActionData, type VerificationActionKeyDigest } from '../action/contract/action.ts';
-import { buildCiVerificationActionPlanClosure, CI_VERIFICATION_HOSTED_EXECUTION_ENVIRONMENT, ciVerificationActionParentDispatchPlanArtifactName, ciVerificationActionParentDispatchPlanPayloadDigest, ciVerificationGateStep, createCiVerificationActionParentDispatchPlan, createCiVerificationActionProposal, createCiVerificationActionProviderEnvelope, createCiVerificationLocalExecutionEnvironment, parseCiVerificationActionParentDispatchPlan, parseCiVerificationActionProviderEnvelope, type CiVerificationActionCandidate, type CiVerificationActionParentActor, type CiVerificationActionParentDispatchPlan, type CiVerificationActionPlanClosure, type CiVerificationActionProviderEnvelope, type CiVerificationExecutionEnvironment, type CiVerificationGateStep, type CiVerificationProducerGate } from '../action/contract/ci.ts';
+import { buildCiVerificationActionPlanClosure, CI_VERIFICATION_HOSTED_EXECUTION_ENVIRONMENT, ciVerificationActionParentDispatchPlanArtifactName, ciVerificationActionParentDispatchPlanPayloadDigest, ciVerificationGateStep, createCiVerificationActionParentDispatchPlan, createCiVerificationActionProposal, createCiVerificationActionProviderEnvelope, createCiVerificationLocalExecutionEnvironment, parseCiSourceProgramTransitionBinding, parseCiVerificationActionParentDispatchPlan, parseCiVerificationActionProviderEnvelope, SOURCE_PROGRAM_TRANSITION_CANDIDATE_ROOT, SOURCE_PROGRAM_TRANSITION_ENTRYPOINT, SOURCE_PROGRAM_TRANSITION_GATE_ID, SOURCE_PROGRAM_TRANSITION_OUTPUT_FILE, type CiSourceProgramTransitionBinding, type CiVerificationActionCandidate, type CiVerificationActionParentActor, type CiVerificationActionParentDispatchPlan, type CiVerificationActionPlanClosure, type CiVerificationActionProviderEnvelope, type CiVerificationExecutionEnvironment, type CiVerificationGateStep, type CiVerificationProducerGate } from '../action/contract/ci.ts';
 import { CI_VERIFICATION_ACTION_DEPENDENCY_INPUT_PATHS, CI_VERIFICATION_HOSTED_PROVIDER_REVISION } from '../action/contract/environment.ts';
 import { createVerificationActionProviderStartMarker as createVerificationActionStartMarkerV2, createVerificationActionProviderTerminalAnchor as createVerificationActionTerminalStatusAnchorV2, parseVerificationActionProviderStartMarker as parseVerificationActionStartMarkerV2, verificationActionProviderTerminalAnchorName, verificationActionProviderTerminalArtifactName, verificationActionProviderStartArtifactName as verificationActionStartMarkerNameV2, type VerificationActionProviderDecision, type VerificationActionProviderStartObservation, type VerificationActionProviderStatusReadback, type VerificationActionProviderTerminalAnchorObservation } from '../action/contract/provider.ts';
 import {
@@ -69,11 +74,11 @@ import {
 import {
   parseVerificationSessionHostedRequest, type VerificationSessionHostedEnvelope
 } from './runtime/verification-session-runtime.ts';
-import { CodexDevelopmentExecuteCiActionClosure } from './verification-action-effect.ts';
 import type { CodexDevelopmentCiVerificationTestOptions } from './verification-action-effect.ts';
+import { CodexDevelopmentExecuteCiActionClosure } from './verification-action-effect.ts';
 import { CodexDevelopmentAssembleHostedActionTerminal, CodexDevelopmentComposeHostedEvidence, CodexDevelopmentCoordinateHostedActions, CodexDevelopmentParseHostedActionRawResult } from './verification-coordination.ts';
-import { CI_VERIFICATION_ACTION_ARTIFACT_INDEX_SCHEMA, CodexDevelopmentCreateHostedActionExecutionTicket, CodexDevelopmentParseHostedActionExecutionTicket, CodexDevelopmentParseHostedActionRequest, CodexDevelopmentParseHostedActionResolution, CodexDevelopmentReadHostedActionArtifactIndex, CodexDevelopmentReduceHostedActionProviderIndex, CodexDevelopmentResolveHostedAction, FORMAL_HOSTED_ONLY_ENV_KEYS, FORMAL_TRUSTED_RUNTIME_ONLY_ENV_KEYS, FORMAL_VERIFICATION_ENV_KEYS, INVALIDATION_RULES, VERIFICATION_EVIDENCE_PATH, ciActionDigest, hostedActionProviderIndexFromSnapshot, parseHostedEnvelope } from './verification-hosted-action-contract.ts';
 import type { CodexDevelopmentHostedActionArtifactObservation, CodexDevelopmentHostedActionCoordination, CodexDevelopmentHostedActionProviderIndex, CodexDevelopmentHostedActionResolution } from './verification-hosted-action-contract.ts';
+import { CI_VERIFICATION_ACTION_ARTIFACT_INDEX_SCHEMA, ciActionDigest, CodexDevelopmentCreateHostedActionExecutionTicket, CodexDevelopmentParseHostedActionExecutionTicket, CodexDevelopmentParseHostedActionRequest, CodexDevelopmentParseHostedActionResolution, CodexDevelopmentReadHostedActionArtifactIndex, CodexDevelopmentReduceHostedActionProviderIndex, CodexDevelopmentResolveHostedAction, FORMAL_HOSTED_ONLY_ENV_KEYS, FORMAL_TRUSTED_RUNTIME_ONLY_ENV_KEYS, FORMAL_VERIFICATION_ENV_KEYS, hostedActionProviderIndexFromSnapshot, INVALIDATION_RULES, parseHostedEnvelope, VERIFICATION_EVIDENCE_PATH } from './verification-hosted-action-contract.ts';
 import { CodexDevelopmentInspectHostedActionArchive, CodexDevelopmentMaterializeHostedActionCandidate, CodexDevelopmentPrepareHostedActionInputs, currentHostedActionProducer, hostedActionRepositoryIdentity } from './verification-materialization.ts';
 import { positiveEnvironmentInteger, writeHostedActionJson } from './verification-shared.ts';
 import { CodexDevelopmentExecuteHostedActionSut, CodexDevelopmentExecuteTrustedBootstrapSut, CodexDevelopmentProbeHostedSutSandboxCapability, hostedSutInventoryClosureFromTicket } from './verification-sut.ts';
@@ -92,6 +97,7 @@ function formalVerificationBinding(env: NodeJS.ProcessEnv): Readonly<{
   actionPlanDigest: `sha256:${string}`;
   executionEnvironment: CiVerificationExecutionEnvironment;
   requiredBlobs: readonly { path: string; digest: `sha256:${string}` }[];
+  sourceProgramTransition?: CiSourceProgramTransitionBinding;
 }> | null {
   const hosted = env.SEC_FORMAL_HOSTED_MODE === '1';
   const trustedRuntime = env.SEC_FORMAL_TRUSTED_RUNTIME_MODE === '1';
@@ -162,7 +168,12 @@ function formalVerificationBinding(env: NodeJS.ProcessEnv): Readonly<{
     baseTreeSha: sha(env.SEC_BASE_TREE_SHA!, 'SEC_BASE_TREE_SHA'),
     actionPlanDigest: digest(env.SEC_ACTION_PLAN_DIGEST!, 'SEC_ACTION_PLAN_DIGEST'),
     executionEnvironment,
-    requiredBlobs: Object.freeze(requiredBlobs)
+    requiredBlobs: Object.freeze(requiredBlobs),
+    ...(env.SEC_SOURCE_PROGRAM_TRANSITION_BINDING === undefined ? {} : {
+      sourceProgramTransition: mode !== 'trusted-runtime'
+        ? (() => { throw new Error('Source Program transition requires the isolated adopted-base runtime.'); })()
+        : parseCiSourceProgramTransitionBinding(JSON.parse(env.SEC_SOURCE_PROGRAM_TRANSITION_BINDING))
+    })
   });
 }
 
@@ -228,14 +239,17 @@ async function runCodexDevelopmentCiVerification(
   const argv = options.argv ?? process.argv.slice(2);
   const env = options.env ?? process.env;
   const now = options.now ?? (() => new Date());
-  const repositoryRoot = path.resolve(options.repositoryRoot ?? process.cwd());
+  const repositoryRoot = path.resolve(options.repositoryRoot
+    ?? ((options.env ?? process.env).SEC_FORMAL_TRUSTED_RUNTIME_MODE === '1'
+      ? SOURCE_PROGRAM_TRANSITION_CANDIDATE_ROOT : process.cwd()));
   const gitRevision = options.gitRevision;
   const trackedTreeIsClean = options.trackedTreeIsClean;
   const changedFileResolver = options.changedFiles;
   const changedRecordResolver = options.changedRecords;
   const readGitBlob = options.readGitBlob;
   const runGate = options.runGate
-    ?? ((step, execution) => CodexDevelopmentRunGateProcess(repositoryRoot, step, execution));
+    ?? ((step, execution) => CodexDevelopmentRunGateProcess(
+      step.id === SOURCE_PROGRAM_TRANSITION_GATE_ID ? compilerRuntimeLayout.packageRoot : repositoryRoot, step, execution));
   const writeEvidence = options.writeEvidence;
   const evidencePath = path.resolve(env.SEC_CI_VERIFICATION_EVIDENCE_PATH ?? VERIFICATION_EVIDENCE_PATH);
   let started = new Date();
@@ -472,7 +486,8 @@ async function runCodexDevelopmentCiVerification(
         profile,
         rawChangedFiles,
         testImpactProvider,
-        transitionObservation
+        transitionObservation,
+        formalBinding?.sourceProgramTransition
       );
     })();
     files = plan.changedFiles;
@@ -570,7 +585,59 @@ async function runCodexDevelopmentCiVerification(
       runGate: async (descriptor, execution) => {
         console.log(`::group::SEC verification: ${descriptor.id}`);
         try {
-          return await runGate(descriptor, execution);
+          if (descriptor.id !== SOURCE_PROGRAM_TRANSITION_GATE_ID) {
+            return await runGate(descriptor, execution);
+          }
+          if (formalBinding?.mode !== 'trusted-runtime'
+              || formalBinding.sourceProgramTransition?.baseSha !== prBaseSha
+              || formalBinding.sourceProgramTransition.headSha !== headSha
+              || descriptor.argv[1] !== SOURCE_PROGRAM_TRANSITION_ENTRYPOINT) {
+            throw new Error('Source Program transition requires the exact adopted-base runtime binding.');
+          }
+          // Keep the configured parent alive across execution and publication;
+          // neither a new directory nor recycled inode may inherit this binding.
+          return await withAcquiredResource({
+            operationLabel: 'Source Program transition output publication',
+            resourceLabel: 'Source Program transition output parent',
+            acquire: () => retainNoFollowFileTransaction(
+              path.dirname(evidencePath), 'Source Program transition output'
+            ),
+            use: async (transitionOutput) => {
+              const settled = await runGate({
+                ...descriptor,
+                argv: [descriptor.argv[0]!, '--no-env-file', '--config',
+                  path.join(compilerRuntimeLayout.packageRoot, 'bunfig.toml'),
+                  path.join(compilerRuntimeLayout.packageRoot, SOURCE_PROGRAM_TRANSITION_ENTRYPOINT), ...descriptor.argv.slice(2)]
+              }, execution);
+              if (settled.result.stdout === undefined) {
+                throw new Error('Source Program transition producer did not return exact stdout bytes.');
+              }
+              // A copy of the captured process bytes, bound in this Action's evidenceRefs.
+              // Neither this file nor the JSON it contains is an author capability.
+              transitionOutput.assertCurrent();
+              const stdout = Buffer.from(settled.result.stdout);
+              const publication = publishExclusiveDurableCanonicalFile({
+                parent: transitionOutput.rootIdentity,
+                name: SOURCE_PROGRAM_TRANSITION_OUTPUT_FILE,
+                bytes: stdout,
+                permissionMode: 0o400,
+                validate: (bytes) => {
+                  if (!Buffer.from(bytes).equals(stdout)) {
+                    throw new Error('Source Program transition output differs from the captured stdout bytes.');
+                  }
+                }
+              });
+              // Physical permits idempotent reuse; this producer's wx contract does not.
+              if (!publication.created) {
+                throw new PhysicalNoFollowError(
+                  'PHYSICAL_NO_FOLLOW_EXCLUSIVE_CONFLICT',
+                  'Source Program transition output already exists.'
+                );
+              }
+              return settled;
+            },
+            release: (transitionOutput) => transitionOutput.dispose()
+          });
         } finally {
           console.log('::endgroup::');
         }
@@ -752,7 +819,9 @@ async function runCodexDevelopmentCiVerification(
 async function executeCodexDevelopmentCiVerification(
   options: CodexDevelopmentCiVerificationTestOptions
 ): Promise<number> {
-  const repositoryRoot = path.resolve(options.repositoryRoot ?? process.cwd());
+  const repositoryRoot = path.resolve(options.repositoryRoot
+    ?? ((options.env ?? process.env).SEC_FORMAL_TRUSTED_RUNTIME_MODE === '1'
+      ? SOURCE_PROGRAM_TRANSITION_CANDIDATE_ROOT : process.cwd()));
   const deadlineAtUnixMs = Date.now()
     + CI_VERIFICATION_HOSTED_SANDBOX_POLICY.limits.wallSeconds * 1_000;
   return withAuthorityGitReadOperation({
@@ -1677,14 +1746,13 @@ export async function CodexDevelopmentCiVerificationHostedActionCli(argv: string
         observation.diagnostic ?? 'no diagnostic'
       }`);
     }
+    const { state, ...physicalObservation } = observation;
     return JSON.stringify({
-      status: observation.state,
+      schema: 'sec-verification-action-sut-capability-v2',
+      status: state,
       actionKey: resolution.actionPlan.action.actionKey,
       policyDigest: CI_VERIFICATION_HOSTED_SANDBOX_POLICY_DIGEST,
-      commandPlanDigest: observation.commandPlanDigest,
-      outputDigest: observation.outputDigest,
-      residueReadbackDigest: observation.residueReadbackDigest,
-      diagnostic: observation.diagnostic
+      observation: physicalObservation
     });
   }
   if (command === 'resolve-hosted-action') {

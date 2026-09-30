@@ -1,3 +1,5 @@
+import { createHash } from 'node:crypto';
+import { CodexDevelopmentBuildVerificationGateResult, type VerificationGateResult } from '../../../../assurance/verification/result/contract/result.ts';
 import {
   bindSecSemanticOperation,
   compileSecCapabilityBinding,
@@ -10,7 +12,6 @@ import {
   type SecBoundSemanticOperation,
   type SecOperationDigest
 } from '../../../../execution/operation/semantic.ts';
-import { CodexDevelopmentBuildVerificationGateResult, type VerificationGateResult } from '../../../../assurance/verification/result/contract/result.ts';
 import {
   type CodexDevelopmentExactGitBlobReadOptions
 } from '../../../providers/git-read/exact-blob.ts';
@@ -19,7 +20,7 @@ import {
 } from '../../../providers/git-read/runtime/session.ts';
 import { assertProcessResourceSessionReceipt } from '../../../runtime-state/physical/runtime/process-resource-session.ts';
 import { encodeVerificationActionData, issueProcessVerificationActionTerminalSettlement, issueVerificationActionOwnerTerminalReceipt, type VerificationActionKeyDigest, type VerificationActionPlan } from '../action/contract/action.ts';
-import { ciVerificationNormalizedOperationArgv, parseCiVerificationActionPlanClosure, type CiVerificationActionPlanClosure, type CiVerificationProducerGate } from '../action/contract/ci.ts';
+import { ciVerificationNormalizedOperationArgv, parseCiVerificationActionPlanClosure, SOURCE_PROGRAM_TRANSITION_GATE_ID, SOURCE_PROGRAM_TRANSITION_STDOUT_BYTE_LIMIT, type CiVerificationActionPlanClosure, type CiVerificationProducerGate } from '../action/contract/ci.ts';
 import {
   createVerificationActionRunner,
   type VerificationActionRunner,
@@ -116,7 +117,9 @@ function bindCiActionEffect(
     aggregateBudgets: [
       { resource: 'duration-ms', maximum: CI_ACTION_EFFECT_RESOURCE_BUDGET.maximumDurationMs },
       { resource: 'input-bytes', maximum: CI_ACTION_EFFECT_RESOURCE_BUDGET.maximumInputBytes },
-      { resource: 'output-bytes', maximum: CI_ACTION_EFFECT_RESOURCE_BUDGET.maximumOutputBytes },
+      { resource: 'output-bytes', maximum: operation.gateId === SOURCE_PROGRAM_TRANSITION_GATE_ID
+        ? SOURCE_PROGRAM_TRANSITION_STDOUT_BYTE_LIMIT + CODEX_DEVELOPMENT_GATE_STDERR_BYTE_LIMIT
+        : CI_ACTION_EFFECT_RESOURCE_BUDGET.maximumOutputBytes },
       { resource: 'processes', maximum: CI_ACTION_EFFECT_RESOURCE_BUDGET.maximumProcesses }
     ],
     requirements: [{
@@ -422,7 +425,11 @@ export async function CodexDevelopmentExecuteCiActionClosure(options: {
           outputDigest: processResult.rawOutputDigest,
           failureFingerprint: processResult.code === 0 ? null : processResult.rawOutputDigest
         },
-        evidenceRefs: [],
+        evidenceRefs: descriptor.gate.id === SOURCE_PROGRAM_TRANSITION_GATE_ID
+          ? processResult.stdout === undefined
+            ? (() => { throw new Error('Source Program assessment requires exact captured producer stdout.'); })()
+            : [`sha256:${createHash('sha256').update(processResult.stdout).digest('hex')}`]
+          : [],
         invalidationRules: ['ActionKey, session, scope, review, main health, or trust revision changes'],
         diagnostic: processResult.code === 0
           ? null

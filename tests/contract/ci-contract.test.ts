@@ -378,10 +378,10 @@ test('active PR contract has one V2 Session dispatch and no legacy verification 
   expect(step(workflow, 'assemble-verification-action-terminal',
     'Assemble canonical five-state terminal artifact').name)
     .toBe('Assemble canonical five-state terminal artifact');
-  expect(CI_VERIFICATION_HOSTED_PROVIDER_REVISION).toContain(':sandbox-v6');
+  expect(CI_VERIFICATION_HOSTED_PROVIDER_REVISION).toContain(':sandbox-v7');
   expect(CI_VERIFICATION_HOSTED_PROVIDER_REVISION).not.toContain(':sandbox-v5');
   expect(CI_VERIFICATION_HOSTED_SANDBOX_POLICY).toMatchObject({
-    policyRevision: 'sandbox-v6',
+    policyRevision: 'sandbox-v7',
     rootIsolation: 'private-tmpfs-chroot-retained-archive-fd-closed-before-candidate',
     toolClosure: 'private-explicit-runtime-binaries-python-stdlib-and-dynamic-libraries-v3',
     network: 'none',

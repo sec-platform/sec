@@ -1,10 +1,11 @@
 import { createHash } from 'node:crypto';
 import { readFileSync, writeFileSync } from 'node:fs';
+import { assertSourceProgramTransitionQualification, sourceProgramTransitionEvidenceForQualification, type SourceProgramTransitionQualification } from '../../../verification/platform/trusted-runtime/trusted-runtime-container.ts';
 
 import { CI_VERIFICATION_WORKFLOW_PATH } from '../../../../assurance/verification/contract/revision.ts';
 import { encodeVerificationActionData } from '../../../verification/platform/action/contract/action.ts';
 import { parseCiVerificationActionPlanClosure, type CiVerificationActionPlanClosure } from '../../../verification/platform/action/contract/ci.ts';
-import { CodexDevelopmentAssertVerificationEvidenceV4, CodexDevelopmentAssertVerificationSessionArtifact, type CodexDevelopmentVerificationSessionArtifact } from '../../../verification/platform/ci/contract/evidence.ts';
+import { CodexDevelopmentAssertVerificationEvidenceV4, CodexDevelopmentAssertVerificationSessionArtifact, parseSourceProgramTransitionAcceptanceRecord, type CodexDevelopmentVerificationSessionArtifact, type SourceProgramTransitionAcceptanceRecord } from '../../../verification/platform/ci/contract/evidence.ts';
 import { CI_VERIFICATION_SESSION_ARTIFACT_PREFIX } from '../../../verification/platform/ci/contract/revision.ts';
 import { assertReviewStabilityReceiptCurrent, parseReviewStabilityReceipt, renderIndependentReviewTrailer, REVIEW_OBSERVER_PRODUCER_IDENTITY, type ReviewStabilityReceipt } from '../../../verification/platform/review/contract/stability.ts';
 import type { VerificationSession } from '../../../verification/platform/session/contract/session.ts';
@@ -188,6 +189,35 @@ export interface CodexDevelopmentTrustedRuntimeMergeGateResult {
   readonly provenance: CodexDevelopmentTrustedRuntimeMergeGateProvenance;
   readonly terminalStatusContext: typeof CodexDevelopmentMergeGateTerminalStatusContext;
   readonly resultDigest: MergeGateDigest;
+  readonly sourceProgramTransitionAcceptance?: SourceProgramTransitionAcceptanceRecord;
+}
+
+const issuedIntegrationGateResults = new WeakMap<object, Readonly<{
+  resultDigest: MergeGateDigest;
+  transitionQualification: SourceProgramTransitionQualification;
+}>>();
+
+export function requireIssuedIntegrationGateResult(
+  result: CodexDevelopmentMergeGateResult | CodexDevelopmentTrustedRuntimeMergeGateResult
+): SourceProgramTransitionQualification {
+  const issued = issuedIntegrationGateResults.get(result);
+  const { resultDigest, ...canonical } = result;
+  if (issued === undefined || issued.resultDigest !== resultDigest || hash(canonical) !== resultDigest) {
+    fail('direct status publication requires the actual trusted-runtime transition producer; pure evaluation and saved JSON are historical. Non-transition publication uses the existing hosted workflow reconstruction.');
+  }
+  assertSourceProgramTransitionQualification(issued.transitionQualification);
+  const subject = sourceProgramTransitionEvidenceForQualification(issued.transitionQualification).observation;
+  if (result.schema !== CodexDevelopmentTrustedRuntimeMergeGateResultSchema
+      || result.sourceProgramTransitionAcceptance?.qualificationDigest !== issued.transitionQualification.qualificationDigest
+      || subject.repository !== result.authorization.repository
+      || subject.pullRequestNumber !== result.authorization.prNumber
+      || subject.baseSha !== result.authorization.baseSha
+      || subject.headSha !== result.authorization.headSha
+      || subject.headTreeSha !== result.authorization.headTreeSha
+      || subject.sessionRevision !== result.authorization.sessionRevision) {
+    fail('status publication subject differs from the actual live transition producer');
+  }
+  return issued.transitionQualification;
 }
 
 function fail(message: string): never { throw new Error(`MergeGate ${message}`); }
@@ -808,6 +838,10 @@ export function CodexDevelopmentEvaluateMergeGate(
   input = CodexDevelopmentCreateMergeGateInput(
     fields as unknown as CodexDevelopmentMergeGateInputFields
   );
+  if (input.artifact.sourceProgramTransitionAcceptance !== undefined
+      || input.artifact.evidence.gates.some(({ action }) => action.operation.identity === 'source-program-transition-assessment')) {
+    fail('the hosted merge route does not qualify trusted-runtime test transitions');
+  }
   const provenance = assertProvenance(input.provenance, input.candidate.currentBaseSha);
   const hostedArtifactOrigin = CodexDevelopmentCreateHostedArtifactObservation(input.hostedArtifactOrigin);
   const hostedArtifactTransport = CodexDevelopmentCreateHostedArtifactObservation(input.hostedArtifactTransport);
@@ -858,11 +892,13 @@ export function CodexDevelopmentEvaluateMergeGate(
     provenance,
     terminalStatusContext: CodexDevelopmentMergeGateTerminalStatusContext
   });
-  return Object.freeze({ ...withoutDigest, resultDigest: hash(withoutDigest) });
+  const result = Object.freeze({ ...withoutDigest, resultDigest: hash(withoutDigest) });
+  return result;
 }
 
 export function CodexDevelopmentEvaluateTrustedRuntimeMergeGate(
-  input: CodexDevelopmentTrustedRuntimeMergeGateInput
+  input: CodexDevelopmentTrustedRuntimeMergeGateInput,
+  transitionQualification?: SourceProgramTransitionQualification
 ): CodexDevelopmentTrustedRuntimeMergeGateResult {
   const record = exact(input, [
     'schema', 'provenance', 'candidate', 'artifact', 'artifactObservation', 'expectedActionPlan',
@@ -876,6 +912,15 @@ export function CodexDevelopmentEvaluateTrustedRuntimeMergeGate(
   input = CodexDevelopmentCreateTrustedRuntimeMergeGateInput(
     fields as unknown as CodexDevelopmentTrustedRuntimeMergeGateInputFields
   );
+  const acceptance = input.artifact.sourceProgramTransitionAcceptance;
+  if (acceptance !== undefined) {
+    if (transitionQualification === undefined) fail('serialized transition input cannot authorize a gate without live qualification');
+    assertSourceProgramTransitionQualification(transitionQualification);
+    if (transitionQualification.qualificationDigest !== acceptance.qualificationDigest
+        || transitionQualification.sessionRevision !== input.artifact.session.sessionRevision) {
+      fail('live transition qualification differs from the exact accepted artifact');
+    }
+  } else if (transitionQualification !== undefined) fail('unselected test transition cannot qualify this gate');
   const provenance = assertTrustedRuntimeProvenance(input.provenance, input.candidate.currentBaseSha);
   const artifactObservation = createTrustedRuntimeArtifactObservation(input.artifactObservation);
   assertTrustedRuntimeArtifactClosure(
@@ -914,10 +959,27 @@ export function CodexDevelopmentEvaluateTrustedRuntimeMergeGate(
     mainHealth: core.mainHealth,
     platformObservation: core.platformObservation,
     artifactObservation,
+    ...(acceptance === undefined ? {} : { sourceProgramTransitionAcceptance: acceptance }),
     provenance,
     terminalStatusContext: CodexDevelopmentMergeGateTerminalStatusContext
   });
-  return Object.freeze({ ...withoutDigest, resultDigest: hash(withoutDigest) });
+  const result = Object.freeze({ ...withoutDigest, resultDigest: hash(withoutDigest) });
+  // Only an actual physical-owner qualification can issue direct publication
+  // provenance. Pure evaluation of either schema must remain historical data.
+  if (transitionQualification !== undefined) {
+    const observed = sourceProgramTransitionEvidenceForQualification(transitionQualification).observation;
+    if (observed.repository !== core.authorization.repository
+        || observed.pullRequestNumber !== core.authorization.prNumber
+        || observed.baseSha !== core.authorization.baseSha
+        || observed.headSha !== core.authorization.headSha
+        || observed.headTreeSha !== core.authorization.headTreeSha
+        || observed.sessionRevision !== core.authorization.sessionRevision
+        || !input.expectedActionPlan.actions.some(({ action }) => action.actionKey === observed.actionKey)) {
+      fail('direct publication qualification belongs to another subject or Action');
+    }
+    issuedIntegrationGateResults.set(result, Object.freeze({ resultDigest: result.resultDigest, transitionQualification }));
+  }
+  return result;
 }
 
 export function CodexDevelopmentParseMergeGateResult(
@@ -988,9 +1050,11 @@ export function CodexDevelopmentParseMergeGateResult(
 export function CodexDevelopmentParseTrustedRuntimeMergeGateResult(
   source: string
 ): CodexDevelopmentTrustedRuntimeMergeGateResult {
-  const value = exact(JSON.parse(source), [
+  const parsed = JSON.parse(source);
+  const value = exact(parsed, [
     'schema', 'status', 'authorization', 'reviewReceipt', 'mainHealth',
-    'platformObservation', 'artifactObservation', 'provenance', 'terminalStatusContext', 'resultDigest'
+    'platformObservation', 'artifactObservation', 'provenance', 'terminalStatusContext', 'resultDigest',
+    ...(parsed?.sourceProgramTransitionAcceptance === undefined ? [] : ['sourceProgramTransitionAcceptance'])
   ], 'trusted runtime merge-gate result');
   if (value.schema !== CodexDevelopmentTrustedRuntimeMergeGateResultSchema || value.status !== 'authorized' ||
       value.terminalStatusContext !== CodexDevelopmentMergeGateTerminalStatusContext) {
@@ -1038,6 +1102,9 @@ export function CodexDevelopmentParseTrustedRuntimeMergeGateResult(
     mainHealth,
     platformObservation,
     artifactObservation,
+    ...(value.sourceProgramTransitionAcceptance === undefined ? {} : {
+      sourceProgramTransitionAcceptance: parseSourceProgramTransitionAcceptanceRecord(value.sourceProgramTransitionAcceptance)
+    }),
     provenance,
     terminalStatusContext: CodexDevelopmentMergeGateTerminalStatusContext
   });

@@ -35,7 +35,7 @@ import {
   closeLinuxDescriptorsBestEffort, closeWindowsHandle, closeWindowsHandlesBestEffort,
   inspectLinuxDirectoryChain, linuxErrno, linuxIdentity, linuxOpenAt, linuxOpenLeafAt,
   linuxOpenReadableLeafAt, linuxOpenRetainedAbsoluteDirectory, linuxOpenRoot,
-  readWindowsRetainedFile, requireLinuxLibc, requireWindowsKernel32,
+  readLinuxRetainedFile, readWindowsRetainedFile, requireLinuxLibc, requireWindowsKernel32,
   windowsFlushRetainedDirectory, windowsIdentity, windowsMarkRetainedLeafForDelete,
   windowsOpenDirectory, windowsOpenRelativeDirectory, windowsOpenRelativeLeaf,
   windowsReadRelativeOrdinaryLeaf, windowsRenameRetainedOrdinaryFile,
@@ -1063,12 +1063,17 @@ type DurableCanonicalFileReplacementInput = {
   readonly bytes: Uint8Array;
   readonly validate: (bytes: Uint8Array) => void;
   /**
-   * Optional expected current file identity.  When supplied, publication is
-   * a physical CAS: `null` means the final name must still be absent; a file
-   * identity is moved aside through a retained handle before a no-replace
-   * publication.  A foreign writer is never overwritten.
+   * Optional expected current file identity. `null` means the final name must
+   * still be absent; an existing identity is checked around the native
+   * namespace transition. This alone is not a content precondition.
    */
   readonly expectedExisting?: Readonly<{ device: string; inode: string }> | null;
+  /**
+   * Exact preimage bytes checked by Physical through the retained file handles.
+   * Requires an existing identity and caller-held write serialization. These
+   * checks detect observed content drift, not every non-cooperating write race.
+   */
+  readonly expectedExistingBytes?: Uint8Array;
   /** Expected POSIX permission surface for an exact replacement preimage. */
   readonly expectedExistingPermissionMode?: number | null;
   /** Reject a preimage that acquires any additional hard-link name before publication. */
@@ -1107,10 +1112,12 @@ function interruptWindowsDurableReplacementForTests(
 }
 
 type WindowsDurableCanonicalFileReplacementRecord = Readonly<{
-  schema: 'sec-windows-durable-canonical-file-replacement-v1';
+  schema: 'sec-windows-durable-canonical-file-replacement-v1' | 'sec-windows-durable-canonical-file-replacement-v2';
   targetName: string;
   parent: Readonly<{ device: string; inode: string; objectId: string }>;
   expectedExisting: Readonly<{ device: string; inode: string }>;
+  /** Present only in v2; v1 identity-only recovery retains its original contract. */
+  expectedExistingByteDigest?: string;
   candidateIdentity: Readonly<{ device: string; inode: string }>;
   candidateDigest: string;
   candidateName: string;
@@ -1131,6 +1138,7 @@ function windowsWindowsDurableCanonicalFileReplacementRecordUnsigned(
     targetName: record.targetName,
     parent: record.parent,
     expectedExisting: record.expectedExisting,
+    ...(record.expectedExistingByteDigest === undefined ? {} : { expectedExistingByteDigest: record.expectedExistingByteDigest }),
     candidateIdentity: record.candidateIdentity,
     candidateDigest: record.candidateDigest,
     candidateName: record.candidateName,
@@ -1144,22 +1152,29 @@ function windowsCreateWindowsDurableCanonicalFileReplacementRecord(
   name: string,
   expectedExisting: Readonly<{ device: string; inode: string }>,
   candidateDigest: string,
-  candidateIdentity: Readonly<{ device: string; inode: string }>
+  candidateIdentity: Readonly<{ device: string; inode: string }>,
+  expectedExistingByteDigest?: string
 ): WindowsDurableCanonicalFileReplacementRecord {
-  const candidateName = windowsDurableReplacementCandidateName(parent, name, expectedExisting, candidateDigest);
+  const candidateName = windowsDurableReplacementCandidateName(parent, name, expectedExisting, candidateDigest, expectedExistingByteDigest);
   const transactionIdentity = bytesDigest(Buffer.from(JSON.stringify({
-    schema: 'sec-windows-durable-canonical-file-replacement-identity-v1',
+    schema: expectedExistingByteDigest === undefined
+      ? 'sec-windows-durable-canonical-file-replacement-identity-v1'
+      : 'sec-windows-durable-canonical-file-replacement-identity-v2',
     targetName: name,
     parent: { device: parent.device, inode: parent.inode, objectId: parent.objectId },
     expectedExisting,
+    ...(expectedExistingByteDigest === undefined ? {} : { expectedExistingByteDigest }),
     candidateIdentity,
     candidateDigest
   }), 'utf8'));
   const unsigned = Object.freeze({
-    schema: 'sec-windows-durable-canonical-file-replacement-v1' as const,
+    schema: expectedExistingByteDigest === undefined
+      ? 'sec-windows-durable-canonical-file-replacement-v1' as const
+      : 'sec-windows-durable-canonical-file-replacement-v2' as const,
     targetName: name,
     parent: Object.freeze({ device: parent.device, inode: parent.inode, objectId: parent.objectId }),
     expectedExisting: Object.freeze({ ...expectedExisting }),
+    ...(expectedExistingByteDigest === undefined ? {} : { expectedExistingByteDigest }),
     candidateIdentity: Object.freeze({ ...candidateIdentity }),
     candidateDigest,
     candidateName,
@@ -1176,13 +1191,17 @@ function windowsDurableReplacementCandidateName(
   parent: PhysicalDirectoryIdentity,
   name: string,
   expectedExisting: Readonly<{ device: string; inode: string }>,
-  candidateDigest: string
+  candidateDigest: string,
+  expectedExistingByteDigest?: string
 ): string {
   const candidateNameKey = createHash('sha256').update(JSON.stringify({
-    schema: 'sec-windows-durable-canonical-file-replacement-candidate-v1',
+    schema: expectedExistingByteDigest === undefined
+      ? 'sec-windows-durable-canonical-file-replacement-candidate-v1'
+      : 'sec-windows-durable-canonical-file-replacement-candidate-v2',
     targetName: name,
     parent: { device: parent.device, inode: parent.inode, objectId: parent.objectId },
     expectedExisting,
+    ...(expectedExistingByteDigest === undefined ? {} : { expectedExistingByteDigest }),
     candidateDigest
   })).digest('hex').slice(0, 32);
   return `.sec-cas-${candidateNameKey}.new`;
@@ -1205,8 +1224,12 @@ function windowsParseWindowsDurableCanonicalFileReplacementRecord(
     JSON.stringify(Object.keys(candidate).sort()) === JSON.stringify([...keys].sort());
   if (!exactKeys(record, [
     'schema', 'targetName', 'parent', 'expectedExisting', 'candidateIdentity', 'candidateDigest',
-    'candidateName', 'quarantineName', 'transactionIdentity', 'recordDigest'
-  ]) || record.schema !== 'sec-windows-durable-canonical-file-replacement-v1' ||
+    'candidateName', 'quarantineName', 'transactionIdentity', 'recordDigest',
+    ...(record.schema === 'sec-windows-durable-canonical-file-replacement-v2' ? ['expectedExistingByteDigest'] : [])
+  ]) || (record.schema !== 'sec-windows-durable-canonical-file-replacement-v1' &&
+      record.schema !== 'sec-windows-durable-canonical-file-replacement-v2') ||
+      (record.schema === 'sec-windows-durable-canonical-file-replacement-v2' &&
+        (typeof record.expectedExistingByteDigest !== 'string' || !/^sha256:[0-9a-f]{64}$/u.test(record.expectedExistingByteDigest))) ||
       record.targetName !== targetName || record.parent === null || typeof record.parent !== 'object' ||
       record.expectedExisting === null || typeof record.expectedExisting !== 'object' ||
       record.candidateIdentity === null || typeof record.candidateIdentity !== 'object' ||
@@ -1223,7 +1246,8 @@ function windowsParseWindowsDurableCanonicalFileReplacementRecord(
   ensureLeafName(record.candidateName);
   ensureLeafName(record.quarantineName);
   const expected = windowsCreateWindowsDurableCanonicalFileReplacementRecord(
-    parent, targetName, record.expectedExisting, record.candidateDigest, record.candidateIdentity
+    parent, targetName, record.expectedExisting, record.candidateDigest, record.candidateIdentity,
+    record.expectedExistingByteDigest
   );
   if (JSON.stringify(record) !== JSON.stringify(expected)) {
     throw physicalError('PHYSICAL_NO_FOLLOW_DURABILITY_FAILED', 'Durable CAS transaction record digest or derived names differ.');
@@ -1290,8 +1314,16 @@ function windowsDeleteDurableReplacementLeaf(
 export function recoverDurableCanonicalFileReplacement(input: Readonly<{
   parent: PhysicalDirectoryIdentity;
   name: string;
+  /** When requesting a byte preimage, its identity and bytes are one condition. */
+  expectedExisting?: Readonly<{ device: string; inode: string }>;
+  /** A new byte-conditional request cannot adopt an identity-only transaction. */
+  expectedExistingBytes?: Uint8Array;
 }>): DurableCanonicalFileReplacementRecovery {
   ensureLeafName(input.name);
+  const requestedPreimageDigest = input.expectedExistingBytes === undefined ? undefined : bytesDigest(input.expectedExistingBytes);
+  if (requestedPreimageDigest !== undefined && input.expectedExisting == null) {
+    throw physicalError('PHYSICAL_NO_FOLLOW_UNSAFE_PATH', 'Durable byte-preimage recovery requires its existing file identity.');
+  }
   if (process.platform !== 'win32') return Object.freeze({ status: 'none', digest: null, physical: null });
   const parent = assertSameNoFollowDirectoryIdentity(input.parent, 'Durable CAS recovery parent').target;
   const parentHandle = windowsRetainedPublicationParent(parent, 'Durable CAS recovery');
@@ -1308,6 +1340,17 @@ export function recoverDurableCanonicalFileReplacement(input: Readonly<{
     );
     if (anchor === null) return Object.freeze({ status: 'none', digest: null, physical: null });
     const record = windowsParseWindowsDurableCanonicalFileReplacementRecord(anchor.bytes, parent, input.name);
+    if (input.expectedExisting !== undefined &&
+        (record.expectedExisting.device !== input.expectedExisting.device ||
+          record.expectedExisting.inode !== input.expectedExisting.inode)) {
+      throw physicalError('PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED', 'Durable CAS recovery transaction does not bind the requested preimage identity.');
+    }
+    if (requestedPreimageDigest !== undefined && record.expectedExistingByteDigest !== requestedPreimageDigest) {
+      throw physicalError(
+        record.expectedExistingByteDigest === undefined ? 'PHYSICAL_NO_FOLLOW_CAPABILITY_UNAVAILABLE' : 'PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED',
+        'Durable CAS recovery transaction does not bind the requested byte preimage.'
+      );
+    }
     candidate = windowsOpenDurableReplacementLeaf(parentHandle, parent, record.candidateName, 'Durable CAS recovery candidate');
     quarantine = windowsOpenDurableReplacementLeaf(parentHandle, parent, record.quarantineName, 'Durable CAS recovery quarantine');
     current = windowsOpenDurableReplacementLeaf(parentHandle, parent, input.name, 'Durable CAS recovery current');
@@ -1317,11 +1360,13 @@ export function recoverDurableCanonicalFileReplacement(input: Readonly<{
       throw physicalError('PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED', 'Durable CAS recovery candidate identity or bytes changed.');
     }
     if (quarantine !== null && (quarantine.identity.device !== record.expectedExisting.device ||
-        quarantine.identity.inode !== record.expectedExisting.inode)) {
-      throw physicalError('PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED', 'Durable CAS recovery quarantine identity changed.');
+        quarantine.identity.inode !== record.expectedExisting.inode ||
+        (record.expectedExistingByteDigest !== undefined && bytesDigest(quarantine.bytes) !== record.expectedExistingByteDigest))) {
+      throw physicalError('PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED', 'Durable CAS recovery quarantine identity or bytes changed.');
     }
     const currentIsPreimage = current !== null && current.identity.device === record.expectedExisting.device &&
-      current.identity.inode === record.expectedExisting.inode;
+      current.identity.inode === record.expectedExisting.inode &&
+      (record.expectedExistingByteDigest === undefined || bytesDigest(current.bytes) === record.expectedExistingByteDigest);
     const currentIsCandidate = current !== null && bytesDigest(current.bytes) === record.candidateDigest &&
       current.identity.device === record.candidateIdentity.device &&
       current.identity.inode === record.candidateIdentity.inode;
@@ -1385,6 +1430,7 @@ function replaceDurableCanonicalFileWithExpectedIdentity(
   input: DurableCanonicalFileReplacementInput
 ): DurableCanonicalFileIdentityReceipt {
   const expectedExisting = input.expectedExisting;
+  const expectedPreimage = input.expectedExistingBytes === undefined ? undefined : Buffer.from(input.expectedExistingBytes);
   if (expectedExisting === null) {
     const published = publishExclusiveDurableCanonicalFile({
       parent: input.parent,
@@ -1425,7 +1471,9 @@ function replaceDurableCanonicalFileWithExpectedIdentity(
       }
       const candidateStat = fstatSync(candidateFd, { bigint: true });
       candidatePhysical = Object.freeze({ device: String(candidateStat.dev), inode: String(candidateStat.ino) });
-      const currentFd = linuxOpenLeafAt(retained.parentFd, input.name, 'Durable CAS current');
+      const currentFd = expectedPreimage === undefined
+        ? linuxOpenLeafAt(retained.parentFd, input.name, 'Durable CAS current')
+        : linuxOpenReadableLeafAt(retained.parentFd, input.name, 'Durable CAS current');
       try {
         const current = fstatSync(currentFd, { bigint: true });
         if (!current.isFile() || String(current.dev) !== expectedCurrent.device || String(current.ino) !== expectedCurrent.inode) {
@@ -1437,6 +1485,9 @@ function replaceDurableCanonicalFileWithExpectedIdentity(
         }
         if (input.rejectExistingHardLinks === true && current.nlink !== 1n) {
           throw physicalError('PHYSICAL_NO_FOLLOW_UNSAFE_PATH', 'Durable pointer CAS refuses a hard-linked current file.');
+        }
+        if (expectedPreimage !== undefined && !Buffer.from(readLinuxRetainedFile(currentFd, 'Durable CAS current')).equals(expectedPreimage)) {
+          throw physicalError('PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED', 'Durable pointer CAS current bytes changed.');
         }
       } finally {
         closeSync(currentFd);
@@ -1456,13 +1507,16 @@ function replaceDurableCanonicalFileWithExpectedIdentity(
         );
       }
       exchanged = true;
-      const oldFd = linuxOpenLeafAt(retained.parentFd, temporaryName, 'Durable CAS old current');
+      const oldFd = expectedPreimage === undefined
+        ? linuxOpenLeafAt(retained.parentFd, temporaryName, 'Durable CAS old current')
+        : linuxOpenReadableLeafAt(retained.parentFd, temporaryName, 'Durable CAS old current');
       try {
         const old = fstatSync(oldFd, { bigint: true });
         if (!old.isFile() || String(old.dev) !== expectedCurrent.device || String(old.ino) !== expectedCurrent.inode ||
             (input.expectedExistingPermissionMode !== undefined && input.expectedExistingPermissionMode !== null &&
               Number(old.mode & 0o7777n) !== input.expectedExistingPermissionMode) ||
-            (input.rejectExistingHardLinks === true && old.nlink !== 1n)) {
+            (input.rejectExistingHardLinks === true && old.nlink !== 1n) ||
+            (expectedPreimage !== undefined && !Buffer.from(readLinuxRetainedFile(oldFd, 'Durable CAS old current')).equals(expectedPreimage))) {
           if (requireLinuxLibc().symbols.renameat2(
             retained.parentFd,
             Buffer.from(`${temporaryName}\0`, 'utf8'),
@@ -1473,7 +1527,7 @@ function replaceDurableCanonicalFileWithExpectedIdentity(
             throw physicalError('PHYSICAL_NO_FOLLOW_DURABILITY_FAILED', `Durable pointer CAS rollback exchange failed (errno ${linuxErrno()}).`);
           }
           exchanged = false;
-          throw physicalError('PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED', 'Durable pointer CAS observed a foreign current identity.');
+          throw physicalError('PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED', 'Durable pointer CAS observed a changed current identity or preimage.');
         }
       } finally {
         closeSync(oldFd);
@@ -1527,7 +1581,10 @@ function replaceDurableCanonicalFileWithExpectedIdentity(
   if (process.platform !== 'win32') {
     throw physicalError('PHYSICAL_NO_FOLLOW_CAPABILITY_UNAVAILABLE', 'Durable pointer CAS backend is unavailable on this platform.');
   }
-  const recovered = recoverDurableCanonicalFileReplacement({ parent, name: input.name });
+  const recovered = recoverDurableCanonicalFileReplacement({
+    parent, name: input.name,
+    ...(expectedPreimage === undefined ? {} : { expectedExisting: expectedCurrent, expectedExistingBytes: expectedPreimage })
+  });
   if (recovered.status === 'completed') {
     if (recovered.digest !== bytesDigest(expected)) {
       throw physicalError('PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED', 'Durable pointer CAS recovered another completed transaction.');
@@ -1546,7 +1603,8 @@ function replaceDurableCanonicalFileWithExpectedIdentity(
   }
   const parentHandle = windowsRetainedPublicationParent(parent, 'Durable CAS');
   const candidateDigest = bytesDigest(expected);
-  const candidateName = windowsDurableReplacementCandidateName(parent, input.name, expectedCurrent, candidateDigest);
+  const expectedExistingByteDigest = expectedPreimage === undefined ? undefined : bytesDigest(expectedPreimage);
+  const candidateName = windowsDurableReplacementCandidateName(parent, input.name, expectedCurrent, candidateDigest, expectedExistingByteDigest);
   const anchorName = windowsDurableReplacementAnchorName(input.name);
   const anchorPath = path.join(parent.path, anchorName);
   const candidatePath = path.join(parent.path, candidateName);
@@ -1572,6 +1630,9 @@ function replaceDurableCanonicalFileWithExpectedIdentity(
         windowsRetainedOrdinaryFileLinkCount(oldCurrent, 'Durable CAS current') !== 1) {
       throw physicalError('PHYSICAL_NO_FOLLOW_UNSAFE_PATH', 'Durable pointer CAS refuses a hard-linked current file.');
     }
+    if (expectedPreimage !== undefined && !Buffer.from(readWindowsRetainedFile(oldCurrent, 'Durable CAS current')).equals(expectedPreimage)) {
+      throw physicalError('PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED', 'Durable pointer CAS current bytes changed.');
+    }
     const staleCandidate = windowsOpenDurableReplacementLeaf(
       parentHandle, parent, candidateName, 'Durable CAS unbound candidate', WINDOWS_SHARE_READ
     );
@@ -1593,7 +1654,7 @@ function replaceDurableCanonicalFileWithExpectedIdentity(
     const candidateIdentity = windowsRetainedLeafIdentity(candidate, candidatePath, 'file', 'Durable CAS candidate');
     windowsWriteRetainedFile(candidate, expected, 'Durable CAS candidate');
     record = windowsCreateWindowsDurableCanonicalFileReplacementRecord(
-      parent, input.name, expectedCurrent, candidateDigest, candidateIdentity
+      parent, input.name, expectedCurrent, candidateDigest, candidateIdentity, expectedExistingByteDigest
     );
     anchor = windowsOpenRelativeLeaf(
       parentHandle, parent, anchorName, anchorPath,
@@ -1605,6 +1666,12 @@ function replaceDurableCanonicalFileWithExpectedIdentity(
     }
     windowsWriteRetainedFile(anchor, Buffer.from(JSON.stringify(record), 'utf8'), 'Durable CAS transaction');
     interruptWindowsDurableReplacementForTests(input.windowsInterruptionActor, 'after-transaction-record');
+    if (expectedPreimage !== undefined) {
+      windowsRewindRetainedFile(oldCurrent, 'Durable CAS preimage');
+      if (!Buffer.from(readWindowsRetainedFile(oldCurrent, 'Durable CAS preimage')).equals(expectedPreimage)) {
+        throw physicalError('PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED', 'Durable pointer CAS preimage bytes changed before publication.');
+      }
+    }
     windowsRenameRetainedOrdinaryFile(
       oldCurrent, finalPath, expectedCurrent, parentHandle, record.quarantineName, false, 'Durable CAS old current'
     );
@@ -1615,6 +1682,12 @@ function replaceDurableCanonicalFileWithExpectedIdentity(
     interruptWindowsDurableReplacementForTests(input.windowsInterruptionActor, 'after-candidate-publication');
     const current = windowsReadRenamedCandidate(candidate, parentHandle, parent, input.name, expected, 'Durable CAS');
     input.validate(current);
+    if (expectedPreimage !== undefined) {
+      windowsRewindRetainedFile(oldCurrent, 'Durable CAS displaced preimage');
+      if (!Buffer.from(readWindowsRetainedFile(oldCurrent, 'Durable CAS displaced preimage')).equals(expectedPreimage)) {
+        throw physicalError('PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED', 'Durable pointer CAS displaced preimage bytes changed.');
+      }
+    }
     windowsMarkRetainedLeafForDelete(oldCurrent, 'Durable CAS old current cleanup');
     closeWindowsHandle(oldCurrent);
     oldCurrent = null;
@@ -1643,12 +1716,16 @@ function replaceDurableCanonicalFileWithExpectedIdentity(
 
 export function replaceDurableCanonicalFile(input: DurableCanonicalFileReplacementInput): DurableCanonicalFileIdentityReceipt {
   ensureLeafName(input.name);
+  const expectedPreimage = input.expectedExistingBytes === undefined ? undefined : Buffer.from(input.expectedExistingBytes);
+  if (expectedPreimage !== undefined && (input.expectedExisting === undefined || input.expectedExisting === null)) {
+    throw physicalError('PHYSICAL_NO_FOLLOW_UNSAFE_PATH', 'Durable byte preimage requires an existing file identity.');
+  }
   const parent = assertSameNoFollowDirectoryIdentity(input.parent, 'Durable replacement parent').target;
   const finalPath = path.join(parent.path, input.name);
   const expected = Buffer.from(input.bytes);
   input.validate(expected);
   if (input.expectedExisting !== undefined) {
-    return replaceDurableCanonicalFileWithExpectedIdentity(input);
+    return replaceDurableCanonicalFileWithExpectedIdentity({ ...input, bytes: expected, expectedExistingBytes: expectedPreimage });
   }
   if (process.platform === 'linux') {
     const retained = linuxRetainedPublicationParent(parent, 'Durable replacement');

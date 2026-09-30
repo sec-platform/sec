@@ -25,6 +25,7 @@
       "capability": "github-api.operation-session",
       "operations": [
         "executeGitHubApiOperation",
+        "observeGitHubRepositoryComment",
         "issueGitHubApiCapabilityForTestSupport",
         "withGitHubApiEnrollmentSessionForTestSupport",
         "withGitHubApiReadOperationBudgetForTestSupport",
@@ -44,6 +45,7 @@
       ],
       "ownerInternalOperations": [
         "executeGitHubApiOperation",
+        "observeGitHubRepositoryComment",
         "issueGitHubApiCapabilityForTestSupport",
         "withGitHubApiEnrollmentSessionForTestSupport",
         "withGitHubApiReadOperationBudgetForTestSupport",

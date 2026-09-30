@@ -115,6 +115,20 @@ export async function observeCompilerDependencyMaterializationInput(
   return runtime.observeCompilerDependencyMaterializationInput(compilerDependencyRoot);
 }
 
+/** Keep a compatible target, otherwise reuse this exact owner-admitted source generation. */
+export async function ensureCompilerDepsReadyFromGeneration(
+  authority: runtime.CompilerDependencyExecutionGenerationAuthority,
+  options: RuntimeDependencyInstallOptions = {},
+  compilerDependencyRoot?: string
+): Promise<runtime.CompilerDepsReadyState> {
+  compilerDependencyRoot = compilerDependencyRoot === undefined ? undefined : path.resolve(compilerDependencyRoot);
+  return runtime.ensureCompilerDepsReadyFromGeneration(
+    authority,
+    captureRuntimeDependencyInstallRequest(options),
+    compilerDependencyRoot
+  );
+}
+
 export async function ensureCompilerDepsReady(
   options: RuntimeDependencyInstallOptions = {},
   compilerDependencyRoot?: string

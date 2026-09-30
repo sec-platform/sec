@@ -569,15 +569,23 @@ jobs:
                       "schema", "baseSha", "headSha", "treeSha", "parentSha", "auxiliaryStatus",
                       "evidenceSetDigest", "bootstrapDigest", "sandboxPolicyDigest", "commandPlanDigest",
                       "archiveDigest", "archiveInventoryDigest", "executionOutputDigest",
-                      "residueReadbackDigest", "receiptDigest"
+                      "capability", "executionLifecycle", "cleanup", "receiptDigest"
                     ], "trusted bootstrap SUT receipt");
                     const { receiptDigest: sutReceiptDigest, ...sutSemantic } = sutReceipt;
                     const digestFields = [
                       sutReceipt.evidenceSetDigest, sutReceipt.bootstrapDigest, sutReceipt.sandboxPolicyDigest,
                       sutReceipt.archiveDigest, sutReceipt.archiveInventoryDigest,
-                      sutReceipt.executionOutputDigest, sutReceipt.residueReadbackDigest
+                      sutReceipt.executionOutputDigest
                     ];
-                    if (sutReceipt.schema !== "sec-trusted-bootstrap-sut-receipt-v2" ||
+                    const sutContract = await importFromTrustedBase("src/adapters/verification/platform/ci/contract/hosted-sut-observation.ts");
+                    const sandboxPolicy = await importFromTrustedBase("src/adapters/verification/platform/ci/contract/revision.ts");
+                    const capabilityObservation = sutContract.parseHostedSutCapabilityObservation(sutReceipt.capability);
+                    const executionLifecycle = sutContract.parseHostedSutLifecycle(sutReceipt.executionLifecycle);
+                    const cleanupObservation = sutContract.parseHostedSutCleanup(sutReceipt.cleanup);
+                    const physicalComplete = sutContract.hostedSutCapabilityComplete(capabilityObservation) &&
+                      sutContract.hostedSutLifecycleComplete(executionLifecycle) &&
+                      sutContract.hostedSutCleanupComplete(cleanupObservation);
+                    if (sutReceipt.schema !== "sec-trusted-bootstrap-sut-receipt-v3" ||
                         sutReceipt.baseSha !== expectedBase || sutReceipt.headSha !== expectedHead ||
                         sutReceipt.treeSha !== expectedTree || sutReceipt.parentSha !== expectedBase ||
                         (sutReceipt.auxiliaryStatus !== "passed" && sutReceipt.auxiliaryStatus !== "failed") ||
@@ -585,7 +593,8 @@ jobs:
                         (sutReceipt.commandPlanDigest !== null &&
                           (typeof sutReceipt.commandPlanDigest !== "string" ||
                             !/^sha256:[0-9a-f]{64}$/.test(sutReceipt.commandPlanDigest))) ||
-                        (sutReceipt.auxiliaryStatus === "passed" && sutReceipt.commandPlanDigest === null) ||
+                        sutReceipt.sandboxPolicyDigest !== sandboxPolicy.CI_VERIFICATION_HOSTED_SANDBOX_POLICY_DIGEST ||
+                        (sutReceipt.auxiliaryStatus === "passed" && (sutReceipt.commandPlanDigest === null || !physicalComplete)) ||
                         sutReceipt.evidenceSetDigest !== digest(Buffer.from(sumsSource, "utf8")) ||
                         sutReceiptDigest !== digest(Buffer.from(JSON.stringify(sutSemantic), "utf8")) ||
                         (sutReceipt.auxiliaryStatus === "passed") !== (sutJobResult === "success")) {

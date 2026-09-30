@@ -25,12 +25,13 @@ import {
   openSync,
   readFileSync,
   realpathSync,
-  renameSync,
   unlinkSync,
   writeFileSync
 } from 'node:fs';
 import path from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
+
+import { readJson, readSessionArtifactBytes, readSessionArtifactText, writeCanonicalDurable, writeDurable } from './session-artifact-files.ts';
 
 import { CompilerError } from '../../../../../compiler/errors.ts';
 import { sha256 } from '../../../../../contracts/canonical.ts';
@@ -76,7 +77,6 @@ import {
   type BranchCloseoutEffect,
   type BranchCloseoutOperationJournal,
   type BranchCloseoutOperationReceipt,
-  type BranchCloseoutOperationStore,
   type BranchCloseoutRecoveryArtifact
 } from '../../../../self-hosting/control/branch-lifecycle/branch-closeout-contract.ts';
 import {
@@ -197,6 +197,7 @@ import {
   CodexDevelopmentExactGitWorkspaceSourceSnapshot,
   CodexDevelopmentTestImpactSourceProviderFromSnapshot
 } from './ci-orchestration-core.ts';
+import { createBranchCloseoutOperationStore } from './session-branch-closeout-store.ts';
 import {
   createReviewProviderRevalidationCommentBody,
   createVerificationSessionGitHubClient,
@@ -583,51 +584,6 @@ export async function observeVerificationSessionActionDependencyBlobs(input: {
     }));
   }
   return Object.freeze(blobs);
-}
-
-function readJson<T>(filePath: string): T {
-  return JSON.parse(readFileSync(path.resolve(filePath), 'utf8')) as T;
-}
-
-function writeDurable(filePath: string, value: unknown): void {
-  const target = path.resolve(filePath);
-  const temporary = `${target}.tmp-${process.pid}`;
-  const handle = openSync(temporary, 'w');
-  try {
-    writeFileSync(handle, `${JSON.stringify(value, null, 2)}\n`, 'utf8');
-    fsyncSync(handle);
-  } finally {
-    closeSync(handle);
-  }
-  renameSync(temporary, target);
-  let directory: number | undefined;
-  try {
-    directory = openSync(path.dirname(target), 'r');
-    fsyncSync(directory);
-  } catch (error) {
-    const code = (error as NodeJS.ErrnoException).code;
-    // Bun and Node do not expose directory fsync on Windows. This narrowly
-    // preserves protected closeout there; file fsync and rename failures stay
-    // fail-closed, as do all other directory-sync failures.
-    if (process.platform !== 'win32' || !['EINVAL', 'EPERM', 'EACCES', 'EBADF'].includes(code ?? '')) {
-      throw error;
-    }
-  } finally {
-    if (directory !== undefined) closeSync(directory);
-  }
-}
-
-function writeCanonicalDurable(filePath: string, value: unknown): void {
-  const target = path.resolve(filePath);
-  const temporary = `${target}.tmp-${process.pid}`;
-  const handle = openSync(temporary, 'w');
-  try {
-    writeFileSync(handle, `${encodeVerificationActionData(value)}\n`, 'utf8');
-    fsyncSync(handle);
-  } finally {
-    closeSync(handle);
-  }
-  renameSync(temporary, target);
 }
 
 const LOCAL_CANDIDATE_WORKTREE_OWNER_SCHEMA =
@@ -1030,26 +986,6 @@ async function executePreparedLocalQuickDag(input: {
     worktreeDisposition: lease.reused ? 'reused-and-removed' : 'created-and-removed' });
 }
 
-function branchCloseoutStore(): BranchCloseoutOperationStore {
-  return {
-    read: (filePath) => existsSync(filePath) ? readFileSync(filePath, 'utf8') : null,
-    createExclusive: (filePath, bytes) => {
-      try {
-        const handle = openSync(filePath, 'wx');
-        try { writeFileSync(handle, bytes, 'utf8'); fsyncSync(handle); } finally { closeSync(handle); }
-        return true;
-      } catch (error) {
-        if (error && typeof error === 'object' && 'code' in error && error.code === 'EEXIST') return false;
-        throw error;
-      }
-    },
-    replace: (filePath, expectedBytes, nextBytes) => {
-      if (readFileSync(filePath, 'utf8') !== expectedBytes) throw new Error('closeout store CAS mismatch.');
-      writeDurable(filePath, JSON.parse(nextBytes));
-    }
-  };
-}
-
 function required(args: ReadonlyMap<string, string>, name: string): string {
   const value = args.get(name);
   if (value === undefined) throw new Error(`${name} is required.\n${USAGE}`);
@@ -1145,7 +1081,7 @@ function materializeBranchCloseoutRecoveryArtifact(input: {
   artifactName: string;
   artifactFilePath: string;
 }> {
-  const bundleBytes = readFileSync(input.prepared.preparation.recovery.path);
+  const bundleBytes = readSessionArtifactBytes(input.prepared.preparation.recovery.path);
   const preparedBytes = `${JSON.stringify(input.prepared, null, 2)}\n`;
   const artifact = createBranchCloseoutRecoveryArtifact({ repository: input.repository,
     pullRequestNumber: input.session.prNumber, sessionRevision: input.session.sessionRevision,
@@ -2428,7 +2364,7 @@ function loadOriginalHostPreparedCloseout(input: Readonly<{
   if (!existsSync(artifactPath)) {
     throw new Error('external-maintainer-disposition-required: original-host recovery artifact is unavailable.');
   }
-  const source = readFileSync(artifactPath, 'utf8');
+  const source = readSessionArtifactText(artifactPath);
   const localArtifact = parseBranchCloseoutRecoveryArtifact(source);
   if (`${encodeVerificationActionData(localArtifact)}\n` !== source
     || encodeVerificationActionData(localArtifact) !== encodeVerificationActionData(input.providerRecovery.artifact)) {
@@ -2607,12 +2543,20 @@ async function finalizeHostedBranchCloseout(input: Readonly<{
   // The host-local journal is deliberately opened only after the remote effect
   // has either completed under a newly-created marker or been provider-read back
   // as already absent under the exact existing marker.
-  const store = branchCloseoutStore();
   const terminalPath = operationReceiptFilePath(
     preparation,
     input.binding.closeoutOperationId
   );
-  const existingTerminal = store.read(terminalPath);
+  const journalPath = operationJournalFilePath(preparation, input.binding.closeoutOperationId);
+  const store = createBranchCloseoutOperationStore({
+    repositoryRoot: preparation.repository.root,
+    commonGitDirectory: preparation.repository.commonDir,
+    repositoryLease: input.lease,
+    commonGitLease: input.coordinatedLease,
+    journalPath,
+    receiptPath: terminalPath
+  });
+  const existingTerminal = await store.read(terminalPath);
   if (existingTerminal !== null) {
     const terminal = parseBranchCloseoutOperationReceipt(existingTerminal);
     if (terminal.binding.closeoutOperationId !== input.binding.closeoutOperationId) {
@@ -2620,10 +2564,6 @@ async function finalizeHostedBranchCloseout(input: Readonly<{
     }
     return terminal;
   }
-  const journalPath = operationJournalFilePath(
-    preparation,
-    input.binding.closeoutOperationId
-  );
   const initial = createBranchCloseoutOperationJournal({
     binding: input.binding,
     writerId: input.writerId,
@@ -2633,11 +2573,11 @@ async function finalizeHostedBranchCloseout(input: Readonly<{
     terminalReceiptDigest: null
   });
   const canonicalBytes = (value: unknown): string => `${JSON.stringify(value, null, 2)}\n`;
-  let journalBytes = store.read(journalPath);
+  let journalBytes = await store.read(journalPath);
   if (journalBytes === null) {
     const initialBytes = canonicalBytes(initial);
-    if (!store.createExclusive(journalPath, initialBytes)) {
-      journalBytes = store.read(journalPath);
+    if (!await store.createExclusive(journalPath, initialBytes)) {
+      journalBytes = await store.read(journalPath);
       if (journalBytes === null) {
         throw new Error('Branch closeout operation journal raced without durable readback.');
       }
@@ -2650,10 +2590,10 @@ async function finalizeHostedBranchCloseout(input: Readonly<{
     || journal.writerId !== input.writerId) {
     throw new Error('Branch closeout operation journal identity or owner conflicts.');
   }
-  const updateJournal = (updates: Partial<Pick<
+  const updateJournal = async (updates: Partial<Pick<
     BranchCloseoutOperationJournal,
     'remote' | 'local' | 'prune' | 'terminalReceiptDigest'
-  >>): void => {
+  >>): Promise<void> => {
     const next = createBranchCloseoutOperationJournal({
       binding: journal.binding,
       writerId: journal.writerId,
@@ -2663,12 +2603,12 @@ async function finalizeHostedBranchCloseout(input: Readonly<{
       terminalReceiptDigest: updates.terminalReceiptDigest ?? journal.terminalReceiptDigest
     });
     const nextBytes = canonicalBytes(next);
-    store.replace(journalPath, journalBytes!, nextBytes);
+    await store.replace(journalPath, journalBytes!, nextBytes);
     journal = next;
     journalBytes = nextBytes;
   };
   if (journal.remote.state === 'not-started') {
-    updateJournal({ remote: remoteEffect });
+    await updateJournal({ remote: remoteEffect });
   } else if (journal.remote.state !== remoteEffect.state
     && !(journal.remote.state === 'applied' && remoteEffect.state === 'observed-absent')) {
     throw new Error('Host-local journal conflicts with the provider-observed remote effect.');
@@ -2695,7 +2635,7 @@ async function finalizeHostedBranchCloseout(input: Readonly<{
     // must stop the remaining local effects rather than reusing remote proof.
     if (currentLocal === undefined) {
       closeoutAttempt(attempts, 'local-delete', 'skipped', 'observed-absent');
-      updateJournal({ local: {
+      await updateJournal({ local: {
         state: 'observed-absent',
         detailDigest: branchLifecycleDigest({ detail: 'local ref absent at pre-effect readback' })
       } });
@@ -2705,7 +2645,7 @@ async function finalizeHostedBranchCloseout(input: Readonly<{
       await assertWorkspaceWriteLease(preparation.repository.commonDir, input.coordinatedLease);
       const localAttempt = await deleteHostedLocalRefCas(preparation, attempts,
         input.coordinatedLease, input.binding.closeoutOperationId as SecOperationDigest);
-      updateJournal({ local: closeoutEffect(localAttempt) });
+      await updateJournal({ local: closeoutEffect(localAttempt) });
     } else {
       closeoutAttempt(
         attempts,
@@ -2736,7 +2676,7 @@ async function finalizeHostedBranchCloseout(input: Readonly<{
     if (pruneGuard.authorization.blockers.length === 0) {
       await assertWorkspaceWriteLease(preparation.repository.root, input.lease);
       const pruneAttempt = pruneHostedRemote(input.ctx, preparation, attempts);
-      updateJournal({ prune: closeoutEffect(pruneAttempt) });
+      await updateJournal({ prune: closeoutEffect(pruneAttempt) });
     } else {
       closeoutAttempt(attempts, 'prune', 'skipped', 'closeout authorization blocked');
     }
@@ -2774,14 +2714,14 @@ async function finalizeHostedBranchCloseout(input: Readonly<{
     receipt
   });
   const terminalBytes = canonicalBytes(terminal);
-  if (!store.createExclusive(terminalPath, terminalBytes)) {
-    const raced = store.read(terminalPath);
+  if (!await store.createExclusive(terminalPath, terminalBytes)) {
+    const raced = await store.read(terminalPath);
     if (raced === null || raced !== terminalBytes) {
       throw new Error('Same closeout operation produced different terminal receipt bytes.');
     }
     return parseBranchCloseoutOperationReceipt(raced);
   }
-  updateJournal({ terminalReceiptDigest: terminal.operationReceiptDigest });
+  await updateJournal({ terminalReceiptDigest: terminal.operationReceiptDigest });
   return terminal;
 }
 
@@ -4405,7 +4345,7 @@ export async function verificationSessionCli(argv: string[]): Promise<string> {
   }
   if (command === 'freeze') {
     const artifact = CodexDevelopmentParseVerificationSessionArtifact(
-      readFileSync(path.resolve(required(args, '--artifact')), 'utf8')
+      readSessionArtifactText(required(args, '--artifact'))
     );
     writeDurable(required(args, '--session-output'), artifact.session);
     writeDurable(required(args, '--scope-output'), artifact.scopeAuthorization);
@@ -4414,7 +4354,7 @@ export async function verificationSessionCli(argv: string[]): Promise<string> {
       scopeOutput: path.resolve(required(args, '--scope-output')) }, null, 2);
   }
   if (command === 'status-offline') {
-    const session = parseVerificationSession(readFileSync(path.resolve(required(args, '--session-file')), 'utf8'));
+    const session = parseVerificationSession(readSessionArtifactText(required(args, '--session-file')));
     const journal = readVerificationSessionJournal({
       sessionRevision: session.sessionRevision,
       fs: durableJournalFs()
@@ -4425,7 +4365,7 @@ export async function verificationSessionCli(argv: string[]): Promise<string> {
   // codeql[js/user-controlled-bypass]
   if (command === 'status') {
     const request = parseVerificationSessionHostedRequest(
-      readFileSync(path.resolve(required(args, '--request')), 'utf8')
+      readSessionArtifactText(required(args, '--request'))
     );
     const github = githubAdapter();
     const candidate = (await github.observeCandidate(repository, request.prNumber));
@@ -4457,7 +4397,7 @@ export async function verificationSessionCli(argv: string[]): Promise<string> {
   // CLI command routing selects a closed operation; each branch parses and validates its own exact authority.
   // codeql[js/user-controlled-bypass]
   if (command === 'observe-hosted') {
-    const request = parseVerificationSessionHostedRequest(readFileSync(path.resolve(required(args, '--request')), 'utf8'));
+    const request = parseVerificationSessionHostedRequest(readSessionArtifactText(required(args, '--request')));
     const github = githubAdapter();
     const eventPayload = event();
     const compilerIdentity = (await assertHostedCompilerIdentity({ ctx, github, repository,
@@ -4525,7 +4465,7 @@ export async function verificationSessionCli(argv: string[]): Promise<string> {
     return JSON.stringify({ status: 'observed', output: path.resolve(required(args, '--output')) }, null, 2);
   }
   if (command === 'prepare-hosted') {
-    const request = parseVerificationSessionHostedRequest(readFileSync(path.resolve(required(args, '--request')), 'utf8'));
+    const request = parseVerificationSessionHostedRequest(readSessionArtifactText(required(args, '--request')));
     const facts = readJson<VerificationSessionHostedFacts>(required(args, '--facts'));
     const github = githubAdapter();
     const candidate = (await github.observeCandidate(facts.repository, request.prNumber));
@@ -4542,7 +4482,7 @@ export async function verificationSessionCli(argv: string[]): Promise<string> {
   }
   if (command === 'artifact-status') {
     const artifact = CodexDevelopmentParseVerificationSessionArtifact(
-      readFileSync(path.resolve(required(args, '--artifact')), 'utf8')
+      readSessionArtifactText(required(args, '--artifact'))
     );
     return JSON.stringify(classifyVerificationSessionArtifactReuse(artifact, now()), null, 2);
   }
@@ -4558,7 +4498,7 @@ export async function verificationSessionCli(argv: string[]): Promise<string> {
           evidence: readJson<Parameters<typeof finalizeVerificationSessionHostedArtifact>[0]['evidence']>(evidencePath) })
       : await (async () => {
           const previousArtifact = CodexDevelopmentParseVerificationSessionArtifact(
-            readFileSync(path.resolve(previousArtifactPath!), 'utf8')
+            readSessionArtifactText(previousArtifactPath!)
           );
           const eventPayload = event();
           const github = githubAdapter();
@@ -4584,7 +4524,7 @@ export async function verificationSessionCli(argv: string[]): Promise<string> {
   // codeql[js/user-controlled-bypass]
   if (command === 'resume') {
     const request = parseVerificationSessionHostedRequest(
-      readFileSync(path.resolve(required(args, '--request')), 'utf8')
+      readSessionArtifactText(required(args, '--request'))
     );
     const github = githubAdapter();
     const candidate = (await github.observeCandidate(repository, request.prNumber));
@@ -4779,9 +4719,8 @@ export async function verificationSessionCli(argv: string[]): Promise<string> {
       const evaluation = (await evaluateFreshHostedIntegration({ github, repository, hosted, candidate,
         provenance: hostedProvenance, observedAt: integrationNow }));
       issueDispositionPlan = evaluation.issueDispositionPlan;
-      const frozenPreflight = CodexDevelopmentParseMergeGateResult(readFileSync(
-        hostedIntegrationPreflightResultPath(ctx.repositoryRoot),
-        'utf8'
+      const frozenPreflight = CodexDevelopmentParseMergeGateResult(readSessionArtifactText(
+        hostedIntegrationPreflightResultPath(ctx.repositoryRoot)
       ));
       const expectedPreflightDigest = environment.EXPECTED_PREFLIGHT_RESULT_DIGEST;
       if (expectedPreflightDigest === undefined

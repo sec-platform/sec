@@ -31,6 +31,7 @@ afterAll(() => { rawExecutable.dispose(); });
 
 import { runRetainedGitWriteTreeProbeV1 } from '../helpers/retained-git-write-tree-probe.ts';
 
+import { assertWorkspaceWriteLease, withWorkspaceWriteLease } from '../../src/adapters/filesystem/write-lease.ts';
 import type { LinuxNoFollowDirectoryCreateRaceActor, LinuxNoFollowDirectoryCreateRacePoint } from '../../src/adapters/runtime-state/physical/runtime/physical-no-follow.ts';
 import { assertRetainedNoFollowCapability, assertSameNoFollowDirectoryIdentity, copyNoFollowDirectoryTreesBulk, createExclusiveNoFollowDirectory, createLinuxNoFollowDirectoryCreateRaceActorForTests, createNoFollowDirectoryChain, createWindowsDurableCanonicalFileReplacementInterruptionActorForTests, deleteRetainedNoFollowEntry, inspectExactNoFollowDirectoryPresence, inspectNoFollowDirectoryChain, inspectNoFollowDirectoryChild, inspectNoFollowDirectoryLeaf, inspectNoFollowLinkEntry, inspectNoFollowOrdinaryFileDigest, inspectNoFollowOrdinaryFileEntry, PhysicalNoFollowError, publishExclusiveDurableCanonicalFile, readNoFollowOrdinaryFile, recoverDurableCanonicalFileReplacement, relocateRetainedNoFollowDirectory, replaceDurableCanonicalFile, retainNoFollowDirectoryForChildProcess, retainNoFollowOrdinaryFile, retainNoFollowOrdinaryFileForChildProcess, retainNoFollowSealedDirectoryGeneration, retireNoFollowDirectoryTree, scanNoFollowDirectoryTree, scanNoFollowDirectoryTreeInventory, scanNoFollowDirectoryTreeMetadata, scanNoFollowDirectoryTreeSelectedForest } from '../../src/adapters/runtime-state/physical/runtime/physical-no-follow.ts';
 import { sealExistingWindowsReadOnlyTreeAuthority } from '../../src/adapters/runtime-state/physical/runtime/windows-host-filesystem-authority.ts';
@@ -1442,13 +1443,53 @@ test('durable canonical replacement uses retained-parent publication and exact f
   }
 });
 
-test('Windows durable identity CAS recovers every persisted interruption state before absence is observable', () => {
+test.skipIf(process.platform !== 'linux' && process.platform !== 'win32')('cooperative durable replacement rejects same-inode byte drift and accepts the exact preimage under held leases', async () => {
+  const root = fixtureRoot();
+  try {
+    const repository = path.join(root, 'repository');
+    const commonGit = path.join(root, 'common-git');
+    const parentPath = path.join(root, 'recovery');
+    for (const directory of [repository, commonGit, parentPath]) mkdirSync(directory);
+    const target = path.join(parentPath, 'journal.json');
+    writeFileSync(target, 'old\n');
+    await withWorkspaceWriteLease(commonGit, undefined, (commonLease) => (
+      withWorkspaceWriteLease(repository, undefined, async (repositoryLease) => {
+        await assertWorkspaceWriteLease(commonGit, commonLease);
+        await assertWorkspaceWriteLease(repository, repositoryLease);
+        const parent = inspectNoFollowDirectoryChain(parentPath, 'cooperative byte preimage').target;
+        const original = statSync(target, { bigint: true });
+        const originalBytes = readFileSync(target);
+        const writer = openSync(target, 'r+');
+        try { writeSync(writer, Buffer.from('bad\n'), 0, 4, 0); }
+        finally { closeSync(writer); }
+        expect(statSync(target, { bigint: true }).ino).toBe(original.ino);
+        const input = {
+          parent, name: 'journal.json', bytes: Buffer.from('next\n'),
+          expectedExisting: { device: String(original.dev), inode: String(original.ino) },
+          validate: () => undefined
+        };
+        expectPhysicalCode(() => replaceDurableCanonicalFile({ ...input, expectedExistingBytes: originalBytes }),
+          'PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED');
+        expect(readFileSync(target, 'utf8')).toBe('bad\n');
+        expect(statSync(target, { bigint: true }).ino).toBe(original.ino);
+        expect(readdirSync(parentPath)).toEqual(['journal.json']);
+        await assertWorkspaceWriteLease(commonGit, commonLease);
+        await assertWorkspaceWriteLease(repository, repositoryLease);
+        replaceDurableCanonicalFile({ ...input, expectedExistingBytes: Buffer.from('bad\n') });
+        expect(readFileSync(target, 'utf8')).toBe('next\n');
+        expect(readdirSync(parentPath)).toEqual(['journal.json']);
+      })
+    ));
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test('Windows durable identity and byte-preimage replacement recover every persisted interruption state', () => {
   if (process.platform !== 'win32') return;
   for (const scenario of [
     { point: 'after-transaction-record' as const, status: 'rolled-back' as const, expected: 'old\n' },
     { point: 'after-preimage-quarantine' as const, status: 'rolled-back' as const, expected: 'old\n' },
     { point: 'after-candidate-publication' as const, status: 'completed' as const, expected: 'new\n' }
-  ]) {
+  ].flatMap(scenario => [false, true].map(bytePreimage => ({ ...scenario, bytePreimage })))) {
     const root = fixtureRoot();
     try {
       const parentPath = path.join(root, 'cas');
@@ -1475,6 +1516,7 @@ test('Windows durable identity CAS recovers every persisted interruption state b
         name: 'owner.json',
         bytes: Buffer.from('new\n', 'utf8'),
         expectedExisting: { device: current.device, inode: current.inode },
+        ...(scenario.bytePreimage ? { expectedExistingBytes: Buffer.from('old\n') } : {}),
         validate: () => undefined,
         windowsInterruptionActor: actor
       }), 'PHYSICAL_NO_FOLLOW_DURABILITY_FAILED');
@@ -1488,6 +1530,83 @@ test('Windows durable identity CAS recovers every persisted interruption state b
       rmSync(root, { recursive: true, force: true });
     }
   }
+});
+
+test.skipIf(process.platform !== 'win32')('Windows byte-preimage recovery binds requested identity before adopting a completed transaction', async () => {
+  const root = fixtureRoot();
+  try {
+    const repository = path.join(root, 'repository');
+    const parentPath = path.join(root, 'recovery');
+    mkdirSync(repository); mkdirSync(parentPath);
+    const target = path.join(parentPath, 'journal.json');
+    writeFileSync(target, 'old\n');
+    await withWorkspaceWriteLease(repository, undefined, async (lease) => {
+      await assertWorkspaceWriteLease(repository, lease);
+      const parent = inspectNoFollowDirectoryChain(parentPath, 'byte recovery identity').target;
+      const original = statSync(target, { bigint: true });
+      const request = {
+        parent, name: 'journal.json', bytes: Buffer.from('new\n'),
+        expectedExisting: { device: String(original.dev), inode: String(original.ino) },
+        expectedExistingBytes: Buffer.from('old\n'), validate: () => undefined
+      };
+      expectPhysicalCode(() => replaceDurableCanonicalFile({
+        ...request,
+        windowsInterruptionActor: createWindowsDurableCanonicalFileReplacementInterruptionActorForTests('after-candidate-publication')
+      }), 'PHYSICAL_NO_FOLLOW_DURABILITY_FAILED');
+      const installed = statSync(target, { bigint: true });
+      expect(installed.ino).not.toBe(original.ino);
+      const names = readdirSync(parentPath).sort();
+      const before = names.map(name => ({ name, bytes: readFileSync(path.join(parentPath, name)),
+        inode: statSync(path.join(parentPath, name), { bigint: true }).ino }));
+      // The new inode has never held the requested old bytes. Matching only
+      // the saved old-byte and successor digests would adopt another request.
+      expectPhysicalCode(() => replaceDurableCanonicalFile({
+        ...request, expectedExisting: { device: String(installed.dev), inode: String(installed.ino) }
+      }), 'PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED');
+      expect(readdirSync(parentPath).sort()).toEqual(names);
+      for (const entry of before) {
+        expect(readFileSync(path.join(parentPath, entry.name))).toEqual(entry.bytes);
+        expect(statSync(path.join(parentPath, entry.name), { bigint: true }).ino).toBe(entry.inode);
+      }
+      const recovered = replaceDurableCanonicalFile(request);
+      expect(recovered.physical).toEqual({ device: String(installed.dev), inode: String(installed.ino) });
+      expect(readFileSync(target, 'utf8')).toBe('new\n');
+      expect(readdirSync(parentPath)).toEqual(['journal.json']);
+    });
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test.skipIf(process.platform !== 'win32')('Windows cooperative byte-preimage recovery preserves a tampered quarantined inode', async () => {
+  const root = fixtureRoot();
+  try {
+    const repository = path.join(root, 'repository');
+    const parentPath = path.join(root, 'recovery');
+    mkdirSync(repository); mkdirSync(parentPath);
+    const target = path.join(parentPath, 'journal.json');
+    writeFileSync(target, 'old\n');
+    await withWorkspaceWriteLease(repository, undefined, async (lease) => {
+      await assertWorkspaceWriteLease(repository, lease);
+      const parent = inspectNoFollowDirectoryChain(parentPath, 'byte recovery').target;
+      const original = statSync(target, { bigint: true });
+      expectPhysicalCode(() => replaceDurableCanonicalFile({
+        parent, name: 'journal.json', bytes: Buffer.from('new\n'),
+        expectedExisting: { device: String(original.dev), inode: String(original.ino) },
+        expectedExistingBytes: Buffer.from('old\n'), validate: () => undefined,
+        windowsInterruptionActor: createWindowsDurableCanonicalFileReplacementInterruptionActorForTests('after-preimage-quarantine')
+      }), 'PHYSICAL_NO_FOLLOW_DURABILITY_FAILED');
+      const names = readdirSync(parentPath).sort();
+      const oldName = names.find(name => name.endsWith('.old'))!;
+      const quarantined = path.join(parentPath, oldName);
+      expect(statSync(quarantined, { bigint: true }).ino).toBe(original.ino);
+      writeFileSync(quarantined, 'bad\n');
+      expectPhysicalCode(() => recoverDurableCanonicalFileReplacement({ parent, name: 'journal.json' }),
+        'PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED');
+      expect(readFileSync(quarantined, 'utf8')).toBe('bad\n');
+      expect(statSync(quarantined, { bigint: true }).ino).toBe(original.ino);
+      expect(existsSync(target)).toBe(false);
+      expect(readdirSync(parentPath).sort()).toEqual(names);
+    });
+  } finally { rmSync(root, { recursive: true, force: true }); }
 });
 
 test('Windows durable CAS rejects a same-byte foreign final by FileId and preserves recovery residue', () => {
@@ -1776,4 +1895,3 @@ test('no-follow tree observation prunes canonical excluded subtrees before trave
     rmSync(root, { recursive: true, force: true });
   }
 });
-

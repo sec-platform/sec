@@ -1,5 +1,6 @@
-import { spawnSync } from 'node:child_process';
+import { spawnSync, type ChildProcess } from 'node:child_process';
 import { createHash } from 'node:crypto';
+import { EventEmitter } from 'node:events';
 import {
   closeSync,
   existsSync,
@@ -19,6 +20,8 @@ import path from 'node:path';
 
 import { expect, test } from 'bun:test';
 
+import { BASE, BASE_TREE, baseOptions, clock, executeSentinelGate, HEAD, MANIFEST_PATH, revisions, TREE } from '../helpers/ci-verification-fixtures.ts';
+
 import { encodeVerificationActionData, type VerificationActionKeyDigest } from '../../src/adapters/verification/platform/action/contract/action.ts';
 import { buildCiVerificationActionPlan, buildCiVerificationActionPlanClosure, CI_VERIFICATION_HOSTED_EXECUTION_ENVIRONMENT, ciVerificationGateStep, type CiVerificationActionCandidate, type CiVerificationActionPlanClosure, type CiVerificationProducerGate } from '../../src/adapters/verification/platform/action/contract/ci.ts';
 import { CI_VERIFICATION_ACTION_DEPENDENCY_INPUT_PATHS } from '../../src/adapters/verification/platform/action/contract/environment.ts';
@@ -28,10 +31,10 @@ import { CodexDevelopmentCreateHostedSutExecutionAuthorization, CodexDevelopment
 import { buildCiQuickGatePlan } from '../../src/adapters/verification/platform/ci/contract/plan.ts';
 import { CI_VERIFICATION_HOSTED_SANDBOX_POLICY, CI_VERIFICATION_HOSTED_SANDBOX_POLICY_DIGEST, CI_VERIFICATION_SESSION_DISPATCH_TYPE } from '../../src/adapters/verification/platform/ci/contract/revision.ts';
 import type { VerificationSessionHostedRequest } from '../../src/adapters/verification/platform/ci/contract/session-request.ts';
-import { CodexDevelopmentRunGateProcess, type CodexDevelopmentGateProcessSettlement } from '../../src/adapters/verification/platform/ci/runtime/ci-orchestration-core.ts';
 import {
   VERIFICATION_SESSION_HOSTED_ENVELOPE_SCHEMA
 } from '../../src/adapters/verification/platform/ci/runtime/verification-session-runtime.ts';
+import { observeHostedSutSandboxChild } from '../../src/adapters/verification/platform/ci/verification-sut.ts';
 import {
   CI_VERIFICATION_ACTION_EXECUTION_TICKET_SCHEMA,
   CI_VERIFICATION_ACTION_RESOLUTION_SCHEMA,
@@ -70,11 +73,6 @@ import {
 import { CodexDevelopmentCreateTestImpactTransitionObservation } from '../../src/adapters/verification/platform/test-impact/runtime/transition.ts';
 import type { VerificationResultStatus } from '../../src/assurance/verification/result/contract/result.ts';
 
-const HEAD = '1'.repeat(40);
-const TREE = '2'.repeat(40);
-const BASE = '3'.repeat(40);
-const BASE_TREE = '4'.repeat(40);
-const MANIFEST_PATH = 'config/repository/work-packages/exact-verification-v1.md';
 const RAW = `sha256:${'a'.repeat(64)}` as const;
 
 function gitFixture(root: string, args: readonly string[]): string {
@@ -100,7 +98,7 @@ function bytesDigest(value: string | Buffer): VerificationActionKeyDigest {
 function sandboxObservation(
   code: number,
   failureTail: string,
-  options: Readonly<{ truncated?: boolean; started?: boolean }> = {}
+  options: Readonly<{ truncated?: boolean; started?: boolean; lifecycle?: Partial<CodexDevelopmentHostedSutSandboxProcessObservation['lifecycle']> }> = {}
 ): CodexDevelopmentHostedSutSandboxProcessObservation {
   const stdoutDigest = bytesDigest(failureTail);
   const stderrDigest = bytesDigest('');
@@ -115,7 +113,13 @@ function sandboxObservation(
     stdoutBytesObserved: Buffer.byteLength(failureTail),
     stderrBytesObserved: 0,
     outputTruncated: options.truncated ?? false,
-    commandStarted: options.started ?? true
+    lifecycle: Object.freeze({
+      supervisorSpawned: options.started ?? true, supervisorClosed: true,
+      supervisorCloseCode: code, supervisorSignal: null,
+      namespaceEstablished: options.started ?? true, candidateStarted: options.started ?? true,
+      candidateUnitSettled: true, observationGap: null,
+      ...options.lifecycle
+    })
   });
 }
 
@@ -135,15 +139,19 @@ function sandboxReceipt(
     actionKey,
     capability: Object.freeze({
       commandPlanDigest: executed ? authorization!.physicalCommand.projectionDigest : digest('8'),
-      commandStarted: status !== 'invalidated',
+      lifecycle: Object.freeze({
+        supervisorSpawned: status !== 'invalidated', supervisorClosed: settled,
+        supervisorCloseCode: executed ? 0 : 1, supervisorSignal: null,
+        namespaceEstablished: executed, candidateStarted: executed, candidateUnitSettled: settled,
+        observationGap: null
+      }),
       exitCode: executed ? 0 : status === 'unsupported' ? 1 : null,
       markerObserved: executed,
       outputDigest: digest('8'),
-      teardownCommandStarted: status !== 'invalidated',
-      teardownExitCode: status === 'invalidated' ? null : 0,
-      residueMarkerObserved: status !== 'invalidated',
-      cgroupEmpty: settled,
-      residueReadbackDigest: digest('0'),
+      cleanup: Object.freeze({
+        supervisorSpawned: status !== 'invalidated', supervisorClosed: settled,
+        exitCode: settled ? 0 : null, outputDigest: digest('0')
+      }),
       diagnostic: status === 'passed' || status === 'failed' ? null
         : status === 'unsupported' ? 'unshare: operation not permitted' : 'capability observation lost'
     }),
@@ -168,7 +176,12 @@ function sandboxReceipt(
       ) : Object.freeze([])
     }),
     execution: Object.freeze({
-      started: executed, commandStarted: executed,
+      lifecycle: Object.freeze({
+        supervisorSpawned: executed, supervisorClosed: executed && settled,
+        supervisorCloseCode: executed ? (status === 'passed' ? 0 : 1) : null, supervisorSignal: null,
+        namespaceEstablished: executed, candidateStarted: executed, candidateUnitSettled: executed ? settled : null,
+        observationGap: null
+      }),
       unitName: executed ? authorization!.physicalCommand.unitName : null,
       exitCode: executed ? (status === 'passed' ? 0 : 1) : null,
       authenticatedInputDigest: executed ? digest('9') : null, stdoutStderrDigest: RAW,
@@ -178,10 +191,10 @@ function sandboxReceipt(
       stderrBytesObserved: 0, outputTruncated: false,
       boundedFailureTailDigest: digest('0')
     }),
-    reap: Object.freeze({
-      namespacePid1Exited: executed, killChildEnabled: true, unshareProcessClosed: settled
+    cleanup: Object.freeze({
+      supervisorSpawned: executed, supervisorClosed: executed && settled,
+      exitCode: executed && settled ? 0 : null, outputDigest: digest('0')
     }),
-    residue: Object.freeze({ cgroupEmpty: settled, hostReadbackDigest: digest('0') }),
     diagnostic: status === 'passed' ? null : status
   });
   return Object.freeze({
@@ -202,108 +215,6 @@ const hostedProducer: VerificationActionProviderOrigin = Object.freeze({
   appNodeId: 'MDM6QXBwMTUzNjg=',
   sourceEvent: 'repository_dispatch'
 });
-
-function manifestSource(): string {
-  return `---
-schema: codex-development-work-package-v1
-id: exact-verification-v1
-tracking: none
-base: "${BASE}"
-manifestState: frozen
-requiredProfile: quick
-ciRevision: ci-verification-v19
-tasks:
-  - id: exact-verification
-    owner: verification-writer
-    ownedPaths:
-      - src/adapters/verification/platform/ci/verification.ts
-forbiddenPaths:
-  - src/compiler/
-acceptance:
-  - exact-verification
-tests:
-  - tests/unit/ci-verification-execution.test.ts
----
-
-# Exact Verification
-`;
-}
-
-function exactManifest(testIdentity: string) {
-  const source = `${manifestSource()}\n<!-- test-run:${bytesDigest(testIdentity)} -->\n`;
-  return {
-    blobSha: createHash('sha1').update(source).digest('hex'),
-    bytes: new TextEncoder().encode(source),
-    mode: '100644' as const, type: 'blob' as const
-  };
-}
-
-function clock(): () => Date {
-  let time = Date.parse('2026-08-09T00:00:00.000Z');
-  return () => new Date(time += 10);
-}
-
-function revisions(ref: string): string | null {
-  if (ref === 'HEAD') return HEAD;
-  if (ref === 'HEAD^{tree}') return TREE;
-  if (ref === BASE || ref === 'HEAD^1') return BASE;
-  if (ref === `${BASE}^{tree}`) return BASE_TREE;
-  return null;
-}
-
-function baseOptions(root: string) {
-  const changedFiles = ['docs/product.md'];
-  const manifest = exactManifest(root);
-  const docsGate = buildCiQuickGatePlan({
-    includeImports: false,
-    includeDocs: true,
-    selectedSlowSuites: [],
-    selectedSlowTests: []
-  }).find(({ id }) => id === 'docs-doctor');
-  if (docsGate === undefined) throw new Error('CI test plan requires its documentation gate.');
-  return {
-    argv: ['--profile', 'quick', '--expected-head', HEAD],
-    env: {
-      SEC_CHANGED_BASE: BASE,
-      SEC_AFFECTED_TESTS_BASE: BASE,
-      SEC_WORK_PACKAGE_MANIFEST_PATH: MANIFEST_PATH
-    },
-    now: clock(),
-    repositoryRoot: root,
-    gitRevision: revisions,
-    trackedTreeIsClean: () => true,
-    // Injected changed-path tests have no immutable source receipt. Use one
-    // owner-resolved documentation path; source graph selection is exercised
-    // only through the exact Git provider route.
-    changedFiles: () => changedFiles,
-    readExactGitBlob: () => manifest,
-    readGitBlob: () => manifest,
-    testVerificationPlan: {
-      profile: 'quick' as const,
-      changedFiles,
-      selectionResolved: true,
-      selectionReasons: [],
-      affectedOwners: ['product'],
-      affectedSlowTests: [],
-      gates: [docsGate]
-    },
-    runGate: executeSentinelGate(root, 0)
-  };
-}
-
-function executeSentinelGate(repositoryRoot: string, code: number, output = '') {
-  return async (
-    gate: Readonly<{ id: string; argv: string[]; env: NodeJS.ProcessEnv }>,
-    execution: Parameters<typeof CodexDevelopmentRunGateProcess>[2]
-  ): Promise<CodexDevelopmentGateProcessSettlement> => CodexDevelopmentRunGateProcess(
-    repositoryRoot,
-    {
-      ...gate,
-      argv: [process.execPath, '-e', `${output.length > 0 ? `console.error(${JSON.stringify(output)});` : ''}process.exit(${code});`]
-    },
-    execution
-  );
-}
 
 function hostedGates(): readonly CiVerificationProducerGate[] {
   return buildCiQuickGatePlan({ includeImports: true, includeDocs: true })
@@ -1003,7 +914,7 @@ test('hosted SUT executes only through the isolated command plan and terminalize
           return sandboxObservation(0, '__SEC_HOSTED_SANDBOX_CAPABILITY_V1__');
         }
         if (plan.phase === 'teardown') {
-          return sandboxObservation(0, '__SEC_HOSTED_SANDBOX_RESIDUE_EMPTY_V1__:direct-process-closed');
+          return sandboxObservation(0, '');
         }
         executionPlan = plan;
         expect(retainedArchive).toBeDefined();
@@ -1063,7 +974,7 @@ test('hosted SUT executes only through the isolated command plan and terminalize
           return sandboxObservation(0, '__SEC_HOSTED_SANDBOX_CAPABILITY_V1__');
         }
         if (plan.phase === 'teardown') {
-          return sandboxObservation(0, '__SEC_HOSTED_SANDBOX_RESIDUE_EMPTY_V1__:direct-process-closed');
+          return sandboxObservation(0, '');
         }
         writeFileSync(dirtyArchive, 'substituted archive bytes');
         return sandboxObservation(0, 'candidate could not write host input');
@@ -1257,6 +1168,83 @@ test('parent event binds the canonical one-key Session request wrapper', () => {
   )).toThrow('exact Session request wrapper');
 });
 
+test('supervisor errors do not settle the hosted process before close or attest inner execution', async () => {
+  const child = Object.assign(new EventEmitter(), {
+    stdout: null, stderr: null, kill: () => true
+  }) as unknown as ChildProcess;
+  let resolved = false;
+  const pending = observeHostedSutSandboxChild(child).then((observation) => {
+    resolved = true;
+    return observation;
+  });
+  child.emit('spawn');
+  child.emit('error', new Error('unshare: Operation not permitted'));
+  await Promise.resolve();
+  expect(resolved).toBe(false);
+  child.emit('close', 1, null);
+  const observation = await pending;
+  expect(observation.lifecycle).toEqual({
+    supervisorSpawned: true, supervisorClosed: true, supervisorCloseCode: 1, supervisorSignal: null,
+    namespaceEstablished: null, candidateStarted: null, candidateUnitSettled: null,
+    observationGap: 'unsupported-source'
+  });
+  expect(observation.code).toBe(1);
+});
+
+test('capability success and directory cleanup cannot promote a pre-namespace supervisor failure to executed', async () => {
+  const resolution = hostedResolution();
+  const root = mkdtempSync(path.join(tmpdir(), 'sec-hosted-pre-namespace-'));
+  const archive = path.join(root, 'prepared-candidate.tar');
+  writeFileSync(archive, 'pre-namespace-fixture');
+  const archiveInventory = {
+    archiveDigest: bytesDigest('pre-namespace-fixture'), inventoryDigest: digest('0'),
+    entryCount: 4, totalFileBytes: 100,
+    dependencyClosureDigest: DEPENDENCY_CLOSURE, gitBundleDigest: GIT_CLOSURE
+  };
+  const ticket = hostedTicket(resolution, archiveInventory);
+  try {
+    const unsupported = await CodexDevelopmentExecuteHostedActionSut({
+      resolution, ticket, candidateArchive: path.join(root, 'absent.tar'), archiveInventory,
+      platform: 'linux', unitNonce: 'default-source', now: clock()
+    });
+    expect(unsupported.sandboxReceipt.capability.lifecycle).toMatchObject({
+      supervisorSpawned: false, candidateStarted: false, observationGap: 'unsupported-source'
+    });
+    const unsupportedTerminal = CodexDevelopmentAssembleHostedActionTerminal({
+      resolution, ticket, rawResult: unsupported,
+      expectedRawResultDigest: unsupported.rawResultDigest, producer: hostedProducer
+    });
+    expect(unsupportedTerminal.result).toMatchObject({ status: 'unsupported', disposition: 'not-executed' });
+
+    const rawResult = await CodexDevelopmentExecuteHostedActionSut({
+      resolution, ticket, candidateArchive: archive, archiveInventory,
+      platform: 'linux', unitNonce: 'pre-namespace', now: clock(),
+      runSandboxProcess: async (plan) => {
+        if (plan.phase === 'capability-self-test') {
+          return sandboxObservation(0, '__SEC_HOSTED_SANDBOX_CAPABILITY_V1__');
+        }
+        if (plan.phase === 'teardown') {
+          // The retired claim in stdout cannot replace the absent physical facts.
+          return sandboxObservation(0, '__SEC_HOSTED_SANDBOX_RESIDUE_EMPTY_V1__:direct-process-closed');
+        }
+        return sandboxObservation(1, 'unshare: Operation not permitted', { lifecycle: {
+          namespaceEstablished: null, candidateStarted: null, candidateUnitSettled: null,
+          observationGap: 'unsupported-source'
+        } });
+      }
+    });
+    const terminal = CodexDevelopmentAssembleHostedActionTerminal({
+      resolution, ticket, rawResult,
+      expectedRawResultDigest: rawResult.rawResultDigest, producer: hostedProducer
+    });
+    expect(terminal.result).toMatchObject({ status: 'invalidated', disposition: 'not-executed' });
+    expect(rawResult.sandboxReceipt.execution.lifecycle.candidateStarted).toBeNull();
+    expect(rawResult.sandboxReceipt.cleanup.exitCode).toBe(0);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test('capability requires the post-runtime marker and rejects a missing Python executable', async () => {
   const supported = await CodexDevelopmentProbeHostedSutSandboxCapability({
     actionKey: digest('a'),
@@ -1266,10 +1254,10 @@ test('capability requires the post-runtime marker and rejects a missing Python e
       if (plan.phase === 'capability-self-test') {
         return sandboxObservation(0, '__SEC_HOSTED_SANDBOX_CAPABILITY_V1__');
       }
-      return sandboxObservation(0, '__SEC_HOSTED_SANDBOX_RESIDUE_EMPTY_V1__:direct-process-closed');
+      return sandboxObservation(0, '');
     }
   });
-  expect(supported).toMatchObject({ state: 'supported', markerObserved: true, cgroupEmpty: true });
+  expect(supported).toMatchObject({ state: 'supported', markerObserved: true, lifecycle: { candidateUnitSettled: true } });
 
   const missingPython = await CodexDevelopmentProbeHostedSutSandboxCapability({
     actionKey: digest('b'),
@@ -1277,13 +1265,54 @@ test('capability requires the post-runtime marker and rejects a missing Python e
     unitNonce: 'missing-python',
     runSandboxProcess: async (plan) => plan.phase === 'capability-self-test'
       ? sandboxObservation(127, '/usr/bin/python3: No such file or directory')
-      : sandboxObservation(0, '__SEC_HOSTED_SANDBOX_RESIDUE_EMPTY_V1__:direct-process-closed')
+      : sandboxObservation(0, '')
   });
   expect(missingPython).toMatchObject({
     state: 'unsupported',
     markerObserved: false,
-    cgroupEmpty: true
+    lifecycle: { candidateUnitSettled: true }
   });
+});
+
+test.each([
+  ['forbidden target', '/workspace/secret', null, 'inherited-fd:3'],
+  ['disappearing descriptor', null, 'ENOENT', null],
+  ['unreadable descriptor', null, 'EACCES', 'fd-readlink:EACCES'],
+  ['failed descriptor read', null, 'EIO', 'fd-readlink:EIO'],
+  ['allowed descriptor', '/dev/null', null, null]
+] as const)('capability inherited descriptor assertion: %s', (_case, target, errorCode, expectedFailure) => {
+  const assertion = CodexDevelopmentHostedSutCapabilityAssertion;
+  const start = assertion.indexOf('for (const descriptor of fs.readdirSync("/proc/self/fd"))');
+  const end = assertion.indexOf('const cgroup =', start);
+  expect(start).toBeGreaterThanOrEqual(0);
+  expect(end).toBeGreaterThan(start);
+  // Execute the shipped assertion block, not a second checker. These controlled
+  // readlink outcomes qualify its rejection logic, not actual provider isolation.
+  const check = new Function('fs', 'fail', assertion.slice(start, end));
+  const observed: string[] = [];
+  const execute = () => check({
+    readdirSync(directory: string) {
+      expect(directory).toBe('/proc/self/fd');
+      return ['3', '4'];
+    },
+    readlinkSync(descriptorPath: string) {
+      observed.push(descriptorPath);
+      if (descriptorPath === '/proc/self/fd/3') {
+        if (errorCode !== null) {
+          throw Object.assign(new Error(`fd-readlink:${errorCode}`), { code: errorCode });
+        }
+        return target;
+      }
+      return '/dev/null';
+    }
+  }, (message: string) => { throw new Error(message); });
+  if (expectedFailure === null) {
+    expect(execute).not.toThrow();
+    expect(observed).toEqual(['/proc/self/fd/3', '/proc/self/fd/4']);
+  } else {
+    expect(execute).toThrow(expectedFailure);
+    expect(observed).toEqual(['/proc/self/fd/3']);
+  }
 });
 
 test('capability probe detaches its deliberate residue child for trusted teardown', async () => {
@@ -1295,10 +1324,10 @@ test('capability probe detaches its deliberate residue child for trusted teardow
       if (plan.phase === 'capability-self-test') {
         return sandboxObservation(0, '__SEC_HOSTED_SANDBOX_CAPABILITY_V1__');
       }
-      return sandboxObservation(0, '__SEC_HOSTED_SANDBOX_RESIDUE_EMPTY_V1__:direct-process-closed');
+      return sandboxObservation(0, '');
     }
   });
-  expect(observation).toMatchObject({ state: 'supported', cgroupEmpty: true });
+  expect(observation).toMatchObject({ state: 'supported', lifecycle: { candidateUnitSettled: true } });
 
   const assertion = CodexDevelopmentHostedSutCapabilityAssertion;
   const spawnOffset = assertion.indexOf('const descendant = spawn');
@@ -1377,7 +1406,7 @@ test('capability unsupported or ambiguous terminalizes without invoking the cand
       runSandboxProcess: async (plan) => {
         if (plan.phase === 'execute') executions += 1;
         if (plan.phase === 'teardown') {
-          return sandboxObservation(0, '__SEC_HOSTED_SANDBOX_RESIDUE_EMPTY_V1__:direct-process-closed');
+          return sandboxObservation(0, '');
         }
         capabilityPlan = plan.argv.join('\n');
         return sandboxObservation(1, 'unshare: Operation not permitted');
@@ -1388,7 +1417,7 @@ test('capability unsupported or ambiguous terminalizes without invoking the cand
       expectedRawResultDigest: unsupported.rawResultDigest, producer: hostedProducer
     });
     expect(unsupportedTerminal.result).toMatchObject({ status: 'unsupported', disposition: 'not-executed' });
-    expect(unsupported.sandboxReceipt.execution.started).toBe(false);
+    expect(unsupported.sandboxReceipt.execution.lifecycle.candidateStarted).toBe(false);
     expect(executions).toBe(0);
     for (const invariant of [
       'SEC_HOST_SANDBOX_SENTINEL', '/proc/1/environ', '/proc/net/route',
@@ -1414,7 +1443,7 @@ test('capability unsupported or ambiguous terminalizes without invoking the cand
       runSandboxProcess: async (plan) => {
         if (plan.phase === 'execute') executions += 1;
         if (plan.phase === 'teardown') {
-          return sandboxObservation(0, '__SEC_HOSTED_SANDBOX_RESIDUE_EMPTY_V1__:direct-process-closed');
+          return sandboxObservation(0, '');
         }
         throw new Error('supervisor channel disappeared before process start');
       }
@@ -1424,7 +1453,7 @@ test('capability unsupported or ambiguous terminalizes without invoking the cand
       expectedRawResultDigest: ambiguous.rawResultDigest, producer: hostedProducer
     });
     expect(ambiguousTerminal.result).toMatchObject({ status: 'invalidated', disposition: 'not-executed' });
-    expect(ambiguous.sandboxReceipt.residue.cgroupEmpty).toBe(false);
+    expect(ambiguous.sandboxReceipt.capability.lifecycle.candidateUnitSettled).toBeNull();
     expect(executions).toBe(0);
   } finally {
     rmSync(root, { recursive: true, force: true });
@@ -1462,7 +1491,7 @@ test('hostile command-channel output is bounded into the raw receipt without mut
           return sandboxObservation(0, '__SEC_HOSTED_SANDBOX_CAPABILITY_V1__');
         }
         if (plan.phase === 'teardown') {
-          return sandboxObservation(0, '__SEC_HOSTED_SANDBOX_RESIDUE_EMPTY_V1__:direct-process-closed');
+          return sandboxObservation(0, '');
         }
         return sandboxObservation(
           125,

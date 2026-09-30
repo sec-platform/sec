@@ -2,7 +2,8 @@ import { createHash, randomUUID } from 'node:crypto';
 import {
   mkdtempSync,
   readFileSync,
-  rmSync
+  rmSync,
+  writeFileSync
 } from 'node:fs';
 import { hostname, tmpdir } from 'node:os';
 import path from 'node:path';
@@ -47,28 +48,32 @@ import {
 } from '../../../providers/git-bundle/runtime.ts';
 import { withAuthorityGitReadSession } from '../../../providers/git-read/authority.ts';
 import { isolatedGitChildEnvironment } from '../../../providers/git-read/runtime/session.ts';
+import { withGitHubApiReadSession } from '../../../providers/github-api/operation-session.ts';
+import { observeGitHubRepositoryComment } from '../../../providers/github-api/repository-comment.ts';
 import {
   SEC_LINUX_VERIFICATION_ENVIRONMENT_AUTHORITY,
   SEC_LINUX_VERIFICATION_TRUSTED_BUN_EXECUTABLE_DIGEST,
   SEC_LINUX_VERIFICATION_TRUSTED_BUN_EXECUTABLE_PATH,
   SEC_LINUX_VERIFICATION_TRUSTED_RUNTIME_DOCKERFILE_PATH
 } from '../../../providers/linux-verification/contract.ts';
+import { compileSourceProgramTransitionAdoption, parseSourceProgramTransitionAssessment, type SourceProgramTransitionAssessment } from '../../../repository/repository-audit/transition.ts';
+import { adoptSourceProgramTestAuthorDecision, assertSourceProgramTestAuthorApproval, type SourceProgramTestAuthorApproval } from '../../../repository/source-program-model/test-disposition-decisions.ts';
 import {
   parseGitObjectIdReply
 } from '../../../runtime-state/physical/contract/git-worktree-observation.ts';
 import { acquirePhysicalMutationLease } from '../../../runtime-state/physical/runtime/mutation-lease.ts';
 import { resolveSecRuntimeStateForRepository } from '../../../runtime-state/workspace-state/paths.ts';
 import { acquireSecRuntimeStatePhysicalAuthority } from '../../../runtime-state/workspace-state/physical-authority.ts';
-import { compilerRuntimeLayout } from '../../../toolchain/runtime/layout.ts';
-import { TYPECHECK_PROVIDER_CANARY_ENTRYPOINT_PATH } from '../../../toolchain/typescript/canary.ts';
 import {
   createTrustedRuntimeMainHealthReceipt,
   TRUSTED_RUNTIME_MAIN_HEALTH_CHECK_COMMANDS,
   TRUSTED_RUNTIME_MAIN_HEALTH_PLAN_DIGEST,
   type TrustedRuntimeMainHealthReceipt
 } from '../../../self-hosting/control/main-health/main-health-observation.ts';
+import { compilerRuntimeLayout } from '../../../toolchain/runtime/layout.ts';
+import { TYPECHECK_PROVIDER_CANARY_ENTRYPOINT_PATH } from '../../../toolchain/typescript/canary.ts';
 import { encodeVerificationActionData } from '../action/contract/action.ts';
-import { createCiVerificationLocalExecutionEnvironment, type CiVerificationExecutionEnvironment } from '../action/contract/ci.ts';
+import { ciVerificationGateStep, ciVerificationNormalizedOperationArgv, createCiVerificationLocalExecutionEnvironment, parseCiSourceProgramTransitionBinding, SOURCE_PROGRAM_TRANSITION_AUTHOR_INPUT, SOURCE_PROGRAM_TRANSITION_ENTRYPOINT, SOURCE_PROGRAM_TRANSITION_GATE_ID, SOURCE_PROGRAM_TRANSITION_OUTPUT_FILE, SOURCE_PROGRAM_TRANSITION_STDOUT_BYTE_LIMIT, sourceProgramTransitionGate, type CiSourceProgramTransitionBinding, type CiVerificationExecutionEnvironment } from '../action/contract/ci.ts';
 import { type CodexDevelopmentVerificationEvidenceV4 } from '../ci/contract/evidence.ts';
 import {
   createBuildxRawJsonProgressAdmission,
@@ -191,6 +196,145 @@ export interface TrustedRuntimeContainerImageObservation {
   readonly labels: Readonly<Record<string, string>>;
 }
 
+/** Issued only after a fresh no-candidate-execution container readback. JSON cannot restore it. */
+export interface TrustedRuntimeSourceProgramTransitionObservation {
+  readonly repository: string;
+  readonly pullRequestNumber: number;
+  readonly assessmentDigest: string;
+  readonly predecessorActionOutputDigest: Digest;
+  readonly baseSha: string;
+  readonly headSha: string;
+  readonly headTreeSha: string;
+  readonly executionId: string;
+  readonly producerSourceDigest: Digest;
+  readonly actionKey: string;
+  readonly sessionRevision: string;
+  readonly payloadDigest: string | null;
+  readonly approvalObservationDigest: string | null;
+  readonly approvalDigest: string | null;
+  readonly observationDigest: Digest;
+  readonly settlementDigest: Digest;
+  readonly producerExecutionEvidenceDigest: string;
+}
+const issuedSourceProgramTransitionObservations = new WeakSet<object>();
+
+export function assertTrustedRuntimeSourceProgramTransitionObservation(
+  observation: TrustedRuntimeSourceProgramTransitionObservation
+): void {
+  if (!issuedSourceProgramTransitionObservations.has(observation)) {
+    fail('Source Program transition requires an exact live isolated producer observation');
+  }
+}
+
+/** Host acceptance binds an actual isolated producer and optional live author adoption. */
+export interface SourceProgramTransitionQualification {
+  readonly status: 'accepted';
+  readonly assessmentDigest: string;
+  readonly predecessorActionOutputDigest: Digest;
+  readonly predecessorDisposition: 'superseded-nonterminal';
+  readonly attemptId: string;
+  readonly actionKey: string;
+  readonly sessionRevision: string;
+  readonly observationDigest: string;
+  readonly approvalDigest: string | null;
+  readonly auditResultDigest: string;
+  readonly adoptionDigest: string;
+  readonly qualificationDigest: Digest;
+  readonly attemptEvidenceDigest: Digest;
+}
+const issuedSourceProgramTransitionQualifications = new WeakSet<object>();
+const sourceProgramQualificationRecords = new WeakMap<object, Readonly<{
+  attemptEvidence: TrustedRuntimeSourceProgramAttemptEvidence;
+  approval: SourceProgramTestAuthorApproval | null;
+  repositoryRoot: string;
+}>>();
+
+export function qualifySourceProgramTransitionAssessment(input: Readonly<{
+  assessment: SourceProgramTransitionAssessment;
+  observation: TrustedRuntimeSourceProgramTransitionObservation;
+  approval?: SourceProgramTestAuthorApproval;
+}>): SourceProgramTransitionQualification {
+  assertTrustedRuntimeSourceProgramTransitionObservation(input.observation);
+  const assessment = parseSourceProgramTransitionAssessment(input.assessment);
+  const observation = input.observation;
+  const attemptEvidence = transitionAttemptEvidence.get(observation);
+  if (attemptEvidence === undefined) fail('fresh transition attempt evidence is unavailable');
+  if (observation.assessmentDigest !== assessment.assessmentDigest
+      || observation.baseSha !== assessment.baseSha || observation.headSha !== assessment.headSha
+      || observation.headTreeSha !== assessment.headTreeSha || assessment.runtimeSha !== observation.baseSha) {
+    fail('Source Program facts are not the exact isolated producer output');
+  }
+  if (input.approval === undefined) {
+    if (observation.payloadDigest !== null || observation.approvalDigest !== null
+        || observation.approvalObservationDigest !== null) fail('live author adoption is missing');
+  } else {
+    assertSourceProgramTestAuthorApproval(input.approval);
+    const payload = input.approval.payload;
+    if (payload.repository !== observation.repository || payload.pullRequestNumber !== observation.pullRequestNumber
+        || payload.trustedRevision !== assessment.runtimeSha
+        || payload.baseline.commitSha !== assessment.baseSha || payload.baseline.treeSha !== assessment.baseTreeSha
+        || payload.current.commitSha !== assessment.headSha || payload.current.treeSha !== assessment.headTreeSha
+        || observation.payloadDigest !== payload.payloadDigest
+        || observation.approvalDigest !== input.approval.approvalDigest
+        || observation.approvalObservationDigest !== input.approval.providerObservationDigest) {
+      fail('author audience, source revisions or live approval differs from isolated producer binding');
+    }
+  }
+  // This owner authenticates transport only. The repository audit owner reruns
+  // the actual author assessment, supersession/reconciliation and audit decision.
+  const adopted = compileSourceProgramTransitionAdoption({ assessment,
+    ...(input.approval === undefined ? {} : { approval: input.approval }) });
+  const canonical = Object.freeze({ ...adopted, actionKey: observation.actionKey,
+    predecessorActionOutputDigest: observation.predecessorActionOutputDigest,
+    predecessorDisposition: 'superseded-nonterminal' as const, attemptId: observation.executionId,
+    attemptEvidenceDigest: attemptEvidence.evidenceDigest,
+    sessionRevision: observation.sessionRevision, observationDigest: observation.observationDigest });
+  const qualification = Object.freeze({ ...canonical, qualificationDigest: digestValue(canonical) });
+  issuedSourceProgramTransitionQualifications.add(qualification);
+  const repositoryRoot = transitionAttemptRoots.get(observation);
+  if (repositoryRoot === undefined) fail('fresh transition has no admitted runtime root');
+  sourceProgramQualificationRecords.set(qualification, Object.freeze({ attemptEvidence, approval: input.approval ?? null, repositoryRoot }));
+  return qualification;
+}
+
+export function assertSourceProgramTransitionQualification(value: SourceProgramTransitionQualification): void {
+  if (!issuedSourceProgramTransitionQualifications.has(value)) {
+    fail('Source Program acceptance requires a live isolated host qualification');
+  }
+}
+
+/** Preserve the actual fresh producer history; this does not deserialize authority. */
+export function sourceProgramTransitionEvidenceForQualification(
+  qualification: SourceProgramTransitionQualification
+): TrustedRuntimeSourceProgramAttemptEvidence {
+  assertSourceProgramTransitionQualification(qualification);
+  const record = sourceProgramQualificationRecords.get(qualification);
+  if (record === undefined || record.attemptEvidence.evidenceDigest !== qualification.attemptEvidenceDigest) {
+    fail('fresh qualified attempt evidence is unavailable');
+  }
+  return record.attemptEvidence;
+}
+
+/** Called by the effect owner immediately before publication, never by a JSON decoder. */
+export async function reobserveSourceProgramTransitionQualificationForEffect(
+  qualification: SourceProgramTransitionQualification
+): Promise<void> {
+  assertSourceProgramTransitionQualification(qualification);
+  const record = sourceProgramQualificationRecords.get(qualification);
+  if (record === undefined) fail('source transition effect requires its live producer record');
+  if (record.approval === null) return;
+  const prior = record.approval;
+  const current = await withGitHubApiReadSession({ repositoryRoot: record.repositoryRoot,
+    repository: prior.payload.repository,
+    operation: async capability => adoptSourceProgramTestAuthorDecision(await observeGitHubRepositoryComment({
+      capability, issueNumber: prior.payload.pullRequestNumber, commentId: prior.commentId
+    })) });
+  if (current.approvalDigest !== prior.approvalDigest
+      || current.providerObservationDigest !== prior.providerObservationDigest) {
+    fail('source transition author statement or current permission changed before the effect');
+  }
+}
+
 export interface TrustedRuntimeContainerReceipt {
   readonly schema: typeof TRUSTED_RUNTIME_CONTAINER_SCHEMA;
   readonly executionId: string;
@@ -205,6 +349,7 @@ export interface TrustedRuntimeContainerReceipt {
   readonly evidenceByteLength: number;
   readonly evidenceDigest: Digest;
   readonly producerSourceDigest: Digest;
+  readonly sourceProgramTransition?: Readonly<{ assessmentDigest: string; outputByteDigest: Digest; actionKey: string }>;
   readonly receiptDigest: Digest;
 }
 
@@ -367,18 +512,24 @@ export function issueTrustedRuntimeContainerEngineOwnerTerminalJoin(input: Reado
   }).ownerTerminalProjection;
 }
 
+type TrustedRuntimeContainerEngineSettlement = Readonly<{
+  operation: SecBoundSemanticOperation;
+  ownerTerminalReference: Readonly<Record<string, unknown>>;
+  endpointReadback: DockerEndpointIdentity;
+}> & ReturnType<typeof issueTrustedRuntimeContainerEngineTerminalJoinWithSettlements>;
+
 async function settleTrustedRuntimeContainerEngineOperation(input: Readonly<{
   session: ContainerEngineSession;
   operation: SecBoundSemanticOperation;
   scope: ContainerEngineOperationScope;
   ownerTerminalReference: Readonly<Record<string, unknown>>;
-}>): Promise<SecOwnerTerminalJoinReceipt> {
+  observeSettlement?: (settlement: TrustedRuntimeContainerEngineSettlement) => void;
+}>): Promise<TrustedRuntimeContainerEngineSettlement> {
   const providerSettlement = input.scope.settle();
   const endpointReadback = await input.session.observeEndpoint();
-  return issueTrustedRuntimeContainerEngineOwnerTerminalJoin({
-    operation: input.operation,
-    providerSettlement,
-    endpointReadback,
+  const joined = issueTrustedRuntimeContainerEngineTerminalJoinWithSettlements({
+    operation: input.operation, primaryProviderSettlement: providerSettlement,
+    providerSettlements: [providerSettlement], endpointReadback,
     ownerTerminalContractDigest: digestValue(Object.freeze({
       schema: 'sec-trusted-runtime-container-engine-owner-terminal-contract-v1',
       operation: input.operation.plan.identity.operation
@@ -388,6 +539,10 @@ async function settleTrustedRuntimeContainerEngineOperation(input: Readonly<{
       ...input.ownerTerminalReference
     })) as SecOperationDigest
   });
+  const settlement = Object.freeze({ operation: input.operation,
+    ownerTerminalReference: input.ownerTerminalReference, endpointReadback, ...joined });
+  input.observeSettlement?.(settlement);
+  return settlement;
 }
 
 async function executeTrustedRuntimeContainerEngineOwnerOperation<T>(input: Readonly<{
@@ -399,6 +554,7 @@ async function executeTrustedRuntimeContainerEngineOwnerOperation<T>(input: Read
   operationKey: string;
   setupMode: 'full' | 'lifecycle-canary' | 'dependency-canary';
   execute: () => Promise<T>;
+  observeSettlement?: (settlement: TrustedRuntimeContainerEngineSettlement) => void;
 }>): Promise<T> {
   const operation = bindTrustedRuntimeContainerEngineOperation({
     repositoryRoot: input.repositoryRoot,
@@ -418,6 +574,7 @@ async function executeTrustedRuntimeContainerEngineOwnerOperation<T>(input: Read
     return await input.execute();
   } finally {
     await settleTrustedRuntimeContainerEngineOperation({
+      observeSettlement: input.observeSettlement,
       session: input.session,
       operation,
       scope,
@@ -1117,6 +1274,7 @@ function formalEnvironment(input: Readonly<{
   executionId: string;
   actorNodeId: string;
   requiredBlobs: readonly Readonly<{ path: string; digest: Digest }>[];
+  sourceProgramTransition?: CiSourceProgramTransitionBinding;
 }>): readonly string[] {
   const { envelope } = input;
   const values: Readonly<Record<string, string>> = Object.freeze({
@@ -1129,6 +1287,9 @@ function formalEnvironment(input: Readonly<{
     GIT_CONFIG_GLOBAL: '/dev/null',
     GIT_TERMINAL_PROMPT: '0',
     SEC_FORMAL_TRUSTED_RUNTIME_MODE: '1',
+    ...(input.sourceProgramTransition === undefined ? {} : {
+      SEC_SOURCE_PROGRAM_TRANSITION_BINDING: encodeVerificationActionData(input.sourceProgramTransition)
+    }),
     SEC_SESSION_REVISION: envelope.session.sessionRevision,
     SEC_SESSION_PROPOSAL_DIGEST: envelope.session.sessionProposalDigest,
     SEC_SCOPE_AUTHORIZATION_REVISION: envelope.scopeAuthorization.authorizationRevision,
@@ -1168,7 +1329,8 @@ export function parseTrustedRuntimeContainerReceipt(
   const expected = [
     'schema', 'executionId', 'sessionRevision', 'baseSha', 'headSha', 'headTreeSha',
     'imageId', 'dockerEndpoint', 'networkIsolatedBeforeSut', 'evidenceByteDigest',
-    'evidenceByteLength', 'evidenceDigest', 'producerSourceDigest', 'receiptDigest'
+    'evidenceByteLength', 'evidenceDigest', 'producerSourceDigest', 'receiptDigest',
+    ...(record.sourceProgramTransition === undefined ? [] : ['sourceProgramTransition'])
   ].sort();
   const actual = Object.keys(record).sort();
   if (actual.length !== expected.length || actual.some((key, index) => key !== expected[index])
@@ -1191,7 +1353,10 @@ export function parseTrustedRuntimeContainerReceipt(
     evidenceByteDigest: digest(record.evidenceByteDigest, 'receipt.evidenceByteDigest'),
     evidenceByteLength: Number(record.evidenceByteLength),
     evidenceDigest: digest(record.evidenceDigest, 'receipt.evidenceDigest'),
-    producerSourceDigest: digest(record.producerSourceDigest, 'receipt.producerSourceDigest')
+    producerSourceDigest: digest(record.producerSourceDigest, 'receipt.producerSourceDigest'),
+    ...(record.sourceProgramTransition === undefined ? {} : {
+      sourceProgramTransition: parseTransitionReceipt(record.sourceProgramTransition)
+    })
   });
   if (rebuilt.receiptDigest !== digest(record.receiptDigest, 'receipt.receiptDigest')) {
     fail('receipt digest mismatch');
@@ -1215,6 +1380,9 @@ async function withTrustedRuntimeWorkspace<T>(input: Readonly<{
   headSha: string;
   operationKey: string;
   setupMode: 'full' | 'lifecycle-canary' | 'dependency-canary';
+  /** Fresh authority consumers never mount a cache writable by candidate execution. */
+  dependencyCachePolicy?: 'shared-sut' | 'private-authority';
+  observeSettlement?: (settlement: TrustedRuntimeContainerEngineSettlement) => void;
   execute: (workspace: TrustedRuntimeWorkspace) => Promise<T>;
 }>): Promise<T> {
   const repositoryRoot = path.resolve(input.repositoryRoot);
@@ -1331,7 +1499,7 @@ async function withTrustedRuntimeWorkspace<T>(input: Readonly<{
     let setupSettled = false;
     const image = await ensureImage(repositoryRoot, session);
     const endpointDigest = digestValue(dockerEndpoint);
-    const dependencyCacheMarker = bunLockBlobSha === null
+    const dependencyCacheMarker = input.dependencyCachePolicy === 'private-authority' || bunLockBlobSha === null
       ? null
       : createTrustedRuntimeDependencyCacheMarker({
           repository: repositoryIdentity,
@@ -1495,6 +1663,7 @@ async function withTrustedRuntimeWorkspace<T>(input: Readonly<{
         fail('network isolation readback is not empty before trusted execution');
       }
       await settleTrustedRuntimeContainerEngineOperation({
+        observeSettlement: input.observeSettlement,
         session,
         operation: setupOperation,
         scope: setupScope,
@@ -1525,6 +1694,7 @@ async function withTrustedRuntimeWorkspace<T>(input: Readonly<{
           settle: async () => {
             if (setupSettled) return;
           await settleTrustedRuntimeContainerEngineOperation({
+        observeSettlement: input.observeSettlement,
             session,
             operation: setupOperation,
             scope: setupScope,
@@ -1569,6 +1739,7 @@ async function withTrustedRuntimeWorkspace<T>(input: Readonly<{
                 label: 'trusted-runtime-container-cleanup-operation',
                 settle: async () => {
                   await settleTrustedRuntimeContainerEngineOperation({
+        observeSettlement: input.observeSettlement,
                   session,
                   operation: cleanupOperation,
                   scope: cleanupScope,
@@ -1634,11 +1805,224 @@ async function withTrustedRuntimeWorkspace<T>(input: Readonly<{
   }
 }
 
+function parseTransitionReceipt(value: unknown): NonNullable<TrustedRuntimeContainerReceipt['sourceProgramTransition']> {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)
+      || Object.keys(value).sort().join(',') !== 'actionKey,assessmentDigest,outputByteDigest') {
+    fail('transition receipt shape is invalid');
+  }
+  const record = value as Record<string, unknown>;
+  return Object.freeze({
+    actionKey: digest(record.actionKey, 'transition actionKey'),
+    assessmentDigest: digest(record.assessmentDigest, 'transition assessmentDigest'),
+    outputByteDigest: digest(record.outputByteDigest, 'transition outputByteDigest')
+  });
+}
+
+function assertTransitionInput(input: Readonly<{
+  envelope: VerificationSessionHostedEnvelope;
+  sourceProgramTransition?: CiSourceProgramTransitionBinding;
+  authorApproval?: SourceProgramTestAuthorApproval;
+}>): CiSourceProgramTransitionBinding | null {
+  const action = input.envelope.actionPlanClosure.actions.find(
+    ({ action }) => action.operation.identity === SOURCE_PROGRAM_TRANSITION_GATE_ID);
+  if (input.sourceProgramTransition === undefined) {
+    if (action !== undefined || input.authorApproval !== undefined) fail('transition input is incomplete');
+    return null;
+  }
+  const binding = parseCiSourceProgramTransitionBinding(input.sourceProgramTransition);
+  const session = input.envelope.session;
+  if (action === undefined || binding.baseSha !== session.baseSha || binding.headSha !== session.headSha) {
+    fail('transition input differs from exact prepared Session');
+  }
+  const expected = ciVerificationGateStep(sourceProgramTransitionGate(binding));
+  const normalized = input.envelope.actionPlanClosure.normalizedOperations.filter(
+    ({ gateId }) => gateId === SOURCE_PROGRAM_TRANSITION_GATE_ID);
+  if (normalized.length !== 1
+      || encodeVerificationActionData(ciVerificationNormalizedOperationArgv(normalized[0]!))
+        !== encodeVerificationActionData(expected.argv)) {
+    fail('transition Action command differs from the adopted-base comparison');
+  }
+  if (!action.action.operation.declaredEnvironment.some(({ name, digest }) =>
+    name === 'SEC_SOURCE_PROGRAM_TRANSITION_BINDING' && digest === expected.environment[name])) {
+    fail('transition Action does not bind the exact author observation');
+  }
+  if (input.authorApproval === undefined) {
+    if (binding.payloadDigest !== null) fail('transition author approval is missing');
+  } else {
+    assertSourceProgramTestAuthorApproval(input.authorApproval);
+    const approval = input.authorApproval;
+    if (approval.providerOrigin !== 'production'
+        || approval.payload.repository !== session.repository
+        || approval.payload.pullRequestNumber !== session.prNumber
+        || approval.payload.trustedRevision !== session.baseSha
+        || approval.payload.baseline.commitSha !== session.baseSha
+        || approval.payload.baseline.treeSha !== session.baseTreeSha
+        || approval.payload.current.commitSha !== session.headSha
+        || approval.payload.current.treeSha !== session.headTreeSha
+        || approval.payload.payloadDigest !== binding.payloadDigest
+        || approval.providerObservationDigest !== binding.approvalObservationDigest
+        || approval.approvalDigest !== binding.approvalDigest) fail('transition author approval differs from exact Session');
+  }
+  return binding;
+}
+
+async function materializeSourceProgramAuthorInput(input: Readonly<{
+  envelope: VerificationSessionHostedEnvelope;
+  sourceProgramTransition?: CiSourceProgramTransitionBinding;
+  authorApproval?: SourceProgramTestAuthorApproval;
+  containerName: string;
+  temporaryRoot: string;
+  containerEngineSession: ContainerEngineSession;
+}>): Promise<void> {
+  assertTransitionInput(input);
+  if (input.authorApproval === undefined) return;
+  const file = path.join(input.temporaryRoot, 'test-author-input.json');
+  const bytes = `${encodeVerificationActionData(input.authorApproval.payload)}\n`;
+  writeFileSync(file, bytes, { flag: 'wx', mode: 0o400 });
+  await containerEngineOutput(input.containerEngineSession, {
+    kind: 'container-copy', arguments: [file, `${input.containerName}:${SOURCE_PROGRAM_TRANSITION_AUTHOR_INPUT}`]
+  });
+  await containerEngineOutput(input.containerEngineSession, {
+    kind: 'container-exec', arguments: ['--user', '0:0', input.containerName, '/bin/chmod', '0444', SOURCE_PROGRAM_TRANSITION_AUTHOR_INPUT]
+  });
+}
+
+export interface TrustedRuntimeSourceProgramAttemptEvidence {
+  readonly schema: 'source-program-isolated-attempt-evidence-v1';
+  readonly authority: 'historical-evidence-only';
+  readonly assessment: SourceProgramTransitionAssessment;
+  readonly observation: TrustedRuntimeSourceProgramTransitionObservation;
+  readonly physicalEvidence: Readonly<{
+    settlements: readonly TrustedRuntimeContainerEngineSettlement[];
+    invocation: ContainerEngineOperation;
+    image: TrustedRuntimeContainerImageObservation;
+    dockerEndpoint: DockerEndpointIdentity;
+    dependencyCache: 'private-ephemeral';
+    workspaceTerminal: 'retired';
+  }>;
+  readonly evidenceDigest: Digest;
+}
+const transitionAttemptEvidence = new WeakMap<object, TrustedRuntimeSourceProgramAttemptEvidence>();
+const transitionAttemptRoots = new WeakMap<object, string>();
+
+/** Historical bytes are inspectable but never recreate a live observation. */
+export function parseTrustedRuntimeSourceProgramAttemptEvidence(value: unknown): TrustedRuntimeSourceProgramAttemptEvidence {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) fail('transition attempt evidence is not data');
+  const evidence = value as TrustedRuntimeSourceProgramAttemptEvidence;
+  if (Object.keys(evidence).sort().join(',') !== 'assessment,authority,evidenceDigest,observation,physicalEvidence,schema') {
+    fail('transition attempt evidence fields are invalid');
+  }
+  const { evidenceDigest, ...canonical } = evidence;
+  const { observationDigest, ...observed } = evidence.observation;
+  if (evidence.schema !== 'source-program-isolated-attempt-evidence-v1' || evidence.authority !== 'historical-evidence-only'
+      || evidenceDigest !== digestValue(canonical) || observationDigest !== digestValue(observed)
+      || evidence.observation.assessmentDigest !== evidence.assessment.assessmentDigest
+      || evidence.observation.settlementDigest !== digestValue(evidence.physicalEvidence.settlements)
+      || evidence.physicalEvidence.dependencyCache !== 'private-ephemeral'
+      || evidence.physicalEvidence.workspaceTerminal !== 'retired') fail('transition attempt historical join is invalid');
+  parseSourceProgramTransitionAssessment(evidence.assessment);
+  return Object.freeze(evidence);
+}
+
+export async function observeTrustedRuntimeSourceProgramTransition(input: Readonly<{
+  repositoryRoot: string;
+  envelope: VerificationSessionHostedEnvelope;
+  evidence: CodexDevelopmentVerificationEvidenceV4;
+  receipt: TrustedRuntimeContainerReceipt;
+  sourceProgramTransition: CiSourceProgramTransitionBinding;
+  authorApproval?: SourceProgramTestAuthorApproval;
+}>): Promise<Readonly<{
+  assessment: SourceProgramTransitionAssessment;
+  observation: TrustedRuntimeSourceProgramTransitionObservation;
+  attemptEvidence: TrustedRuntimeSourceProgramAttemptEvidence;
+}>> {
+  const binding = assertTransitionInput(input)!;
+  const receipt = parseTrustedRuntimeContainerReceipt(input.receipt);
+  const session = input.envelope.session;
+  const action = input.envelope.actionPlanClosure.actions.find(
+    ({ action }) => action.operation.identity === SOURCE_PROGRAM_TRANSITION_GATE_ID)!;
+  const gate = input.evidence.gates.find(({ action: observed }) => observed.actionKey === action.action.actionKey);
+  if (input.evidence.actionPlan.actionPlanDigest !== input.envelope.actionPlanClosure.actionPlanDigest
+      || input.evidence.sessionRevision !== session.sessionRevision
+      || input.evidence.producer.workflowSha !== session.baseSha
+      || input.evidence.producer.workflowPath !== CI_VERIFICATION_WORKFLOW_PATH
+      || receipt.sessionRevision !== session.sessionRevision
+      || receipt.evidenceDigest !== input.evidence.evidenceDigest
+      || receipt.sourceProgramTransition?.actionKey !== action.action.actionKey
+      || gate?.result.status !== 'passed' || gate.result.evidenceRefs.length !== 1
+      || receipt.sourceProgramTransition.outputByteDigest !== gate.result.evidenceRefs[0]) {
+    fail('assessment-completion Action is not exact accepted producer evidence');
+  }
+  const settlements: TrustedRuntimeContainerEngineSettlement[] = [];
+  const observeSettlement = (settlement: TrustedRuntimeContainerEngineSettlement): void => { settlements.push(settlement); };
+  const completed = await withTrustedRuntimeWorkspace({
+    repositoryRoot: path.resolve(input.repositoryRoot), repository: session.repository,
+    baseSha: session.baseSha, headSha: session.headSha,
+    operationKey: `transition-${session.sessionRevision.slice(7, 27)}`, setupMode: 'full',
+    dependencyCachePolicy: 'private-authority', observeSettlement,
+    execute: async (workspace) => await executeTrustedRuntimeContainerEngineOwnerOperation({
+      session: workspace.containerEngineSession, repositoryRoot: path.resolve(input.repositoryRoot),
+      repository: session.repository, baseSha: session.baseSha, headSha: session.headSha,
+      operationKey: `transition-${session.sessionRevision.slice(7, 23)}-assessment`, setupMode: 'full', observeSettlement,
+      execute: async () => {
+        await materializeSourceProgramAuthorInput({ ...input, ...workspace });
+        const executionId = `source-program-transition-${randomUUID()}`;
+        if (workspace.dependencyCacheKey !== null) fail('fresh authority workspace consumed a shared dependency cache');
+        const invocation: ContainerEngineOperation = {
+          kind: 'container-exec', arguments: ['--user', '1000:1000', '--workdir', TRUSTED_RUNTIME_TRUSTED_TREE,
+            ...createTrustedRuntimeCommandEnvironmentArgs({ CI: '1', HOME: '/home/ubuntu', LANG: 'C', LC_ALL: 'C', TZ: 'UTC' }),
+            workspace.containerName, 'bun', '--no-env-file', '--config', `${TRUSTED_RUNTIME_TRUSTED_TREE}/bunfig.toml`,
+            `${TRUSTED_RUNTIME_TRUSTED_TREE}/${SOURCE_PROGRAM_TRANSITION_ENTRYPOINT}`,
+            ...sourceProgramTransitionGate(binding).args.slice(1)]
+        };
+        const result = await containerEngineOperationResult(workspace.containerEngineSession, invocation,
+          { maxStdoutBytes: SOURCE_PROGRAM_TRANSITION_STDOUT_BYTE_LIMIT, maxStderrBytes: 8 * 1024 * 1024 });
+        const assessment = parseSourceProgramTransitionAssessment(JSON.parse(result.stdout));
+        if (result.stdout !== `${encodeVerificationActionData(assessment)}\n`
+            || assessment.baseSha !== session.baseSha || assessment.baseTreeSha !== session.baseTreeSha
+            || assessment.headSha !== session.headSha || assessment.headTreeSha !== session.headTreeSha
+            || assessment.runtimeSha !== session.baseSha
+            || digestValue(assessment.changedPaths) !== digestValue(input.envelope.scopeAuthorization.authorizedPaths)) {
+          fail('fresh isolated Source Program assessment differs from bound Action output or exact source pins');
+        }
+        const canonical = Object.freeze({
+          repository: session.repository, pullRequestNumber: session.prNumber,
+          assessmentDigest: assessment.assessmentDigest, predecessorActionOutputDigest: receipt.sourceProgramTransition!.outputByteDigest,
+          baseSha: session.baseSha, headSha: session.headSha,
+          headTreeSha: session.headTreeSha, executionId,
+          producerSourceDigest: assessment.producerExecution.observation.implementationDigest,
+          producerExecutionEvidenceDigest: assessment.producerExecution.evidenceDigest,
+          actionKey: action.action.actionKey, sessionRevision: session.sessionRevision,
+          payloadDigest: binding.payloadDigest, approvalObservationDigest: binding.approvalObservationDigest,
+          approvalDigest: binding.approvalDigest
+        });
+        return Object.freeze({ assessment, canonical, invocation, image: workspace.image, dockerEndpoint: workspace.dockerEndpoint });
+      }
+    })
+  });
+  if (settlements.length !== 3 || settlements.map(({ ownerTerminalReference }) => ownerTerminalReference.phase).join(',')
+      !== 'setup,owner-operation,cleanup') fail('fresh Source Program workspace has no complete settled physical history');
+  const observationFields = Object.freeze({ ...completed.canonical, settlementDigest: digestValue(settlements) });
+  const observation = Object.freeze({ ...observationFields, observationDigest: digestValue(observationFields) });
+  const carrier = Object.freeze({ schema: 'source-program-isolated-attempt-evidence-v1' as const,
+    authority: 'historical-evidence-only' as const, assessment: completed.assessment, observation,
+    physicalEvidence: Object.freeze({ settlements: Object.freeze(settlements), invocation: completed.invocation,
+      image: completed.image, dockerEndpoint: completed.dockerEndpoint,
+      dependencyCache: 'private-ephemeral' as const, workspaceTerminal: 'retired' as const }) });
+  const attemptEvidence = Object.freeze({ ...carrier, evidenceDigest: digestValue(carrier) });
+  issuedSourceProgramTransitionObservations.add(observation);
+  transitionAttemptEvidence.set(observation, attemptEvidence);
+  transitionAttemptRoots.set(observation, path.resolve(input.repositoryRoot));
+  return Object.freeze({ assessment: completed.assessment, observation, attemptEvidence });
+}
+
 export async function executeTrustedRuntimeContainerVerification(input: Readonly<{
   repositoryRoot: string;
   envelope: VerificationSessionHostedEnvelope;
   actorNodeId: string;
   requiredBlobs: readonly Readonly<{ path: string; digest: Digest }>[];
+  sourceProgramTransition?: CiSourceProgramTransitionBinding;
+  authorApproval?: SourceProgramTestAuthorApproval;
 }>): Promise<Readonly<{
   evidence: CodexDevelopmentVerificationEvidenceV4;
   canonicalEvidenceBytes: string;
@@ -1672,6 +2056,7 @@ export async function executeTrustedRuntimeContainerVerification(input: Readonly
         operationKey: `session-${session.sessionRevision.slice(7, 23)}-verification`,
         setupMode: 'full',
         execute: async () => {
+      await materializeSourceProgramAuthorInput({ ...input, containerName, temporaryRoot, containerEngineSession });
       const outputPath = path.join(temporaryRoot, 'verification-evidence.json');
       const executionId = `trusted-runtime-${digestValue(Object.freeze({
         sessionRevision: session.sessionRevision,
@@ -1679,11 +2064,13 @@ export async function executeTrustedRuntimeContainerVerification(input: Readonly
         dockerEndpoint
       })).slice(7, 31)}`;
     await containerEngineOutput(containerEngineSession, {
-      kind: 'container-exec', arguments: ['--user', '1000:1000', '--workdir', TRUSTED_RUNTIME_WORKSPACE,
+      kind: 'container-exec', arguments: ['--user', '1000:1000', '--workdir', TRUSTED_RUNTIME_TRUSTED_TREE,
       ...formalEnvironment({ envelope: input.envelope, executionId,
-        actorNodeId: input.actorNodeId, requiredBlobs: input.requiredBlobs }),
+        actorNodeId: input.actorNodeId, requiredBlobs: input.requiredBlobs,
+        sourceProgramTransition: input.sourceProgramTransition }),
       containerName,
-      'bun', `${TRUSTED_RUNTIME_TRUSTED_TREE}/${CI_VERIFICATION_WORKFLOW_PATH}`,
+      'bun', '--no-env-file', '--config', `${TRUSTED_RUNTIME_TRUSTED_TREE}/bunfig.toml`,
+      `${TRUSTED_RUNTIME_TRUSTED_TREE}/${CI_VERIFICATION_WORKFLOW_PATH}`,
       '--profile', session.profile, '--expected-head', session.headSha]
     });
     await containerEngineOutput(containerEngineSession, {
@@ -1706,8 +2093,29 @@ export async function executeTrustedRuntimeContainerVerification(input: Readonly
         || parsed.producer.actorNodeId !== input.actorNodeId) {
       fail('verification Evidence does not bind the trusted runtime Session');
     }
+    let sourceProgramTransition: TrustedRuntimeContainerReceipt['sourceProgramTransition'];
+    if (input.sourceProgramTransition !== undefined) {
+      const transitionPath = path.join(temporaryRoot, SOURCE_PROGRAM_TRANSITION_OUTPUT_FILE);
+      await containerEngineOutput(containerEngineSession, { kind: 'container-copy',
+        arguments: [`${containerName}:${TRUSTED_RUNTIME_OUTPUT}/${SOURCE_PROGRAM_TRANSITION_OUTPUT_FILE}`, transitionPath] });
+      const transitionBytes = readFileSync(transitionPath, 'utf8');
+      const assessment = parseSourceProgramTransitionAssessment(JSON.parse(transitionBytes));
+      const gate = parsed.gates.find(({ action }) => action.operation.identity === SOURCE_PROGRAM_TRANSITION_GATE_ID);
+      if (transitionBytes !== `${encodeVerificationActionData(assessment)}\n`
+          || gate?.result.status !== 'passed' || gate.result.evidenceRefs.length !== 1
+          || gate.result.evidenceRefs[0] !== digestBytes(transitionBytes)
+          || assessment.baseSha !== session.baseSha || assessment.headSha !== session.headSha
+          || assessment.baseTreeSha !== session.baseTreeSha || assessment.headTreeSha !== session.headTreeSha
+          || assessment.runtimeSha !== session.baseSha) {
+        fail('assessment completion bytes differ from the exact Action producer output');
+      }
+      sourceProgramTransition = Object.freeze({ assessmentDigest: assessment.assessmentDigest,
+        outputByteDigest: digestBytes(transitionBytes),
+        actionKey: gate.action.actionKey });
+    }
     const receipt = createReceipt({
       executionId,
+      ...(sourceProgramTransition === undefined ? {} : { sourceProgramTransition }),
       sessionRevision: digest(session.sessionRevision, 'sessionRevision'),
       baseSha: session.baseSha,
       headSha: session.headSha,

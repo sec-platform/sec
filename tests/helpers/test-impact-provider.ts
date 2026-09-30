@@ -529,6 +529,7 @@ async function createExactRepositoryTestImpactProviderFixture(
           deadlineAtUnixMs: operationDeadlineAtUnixMs
         }),
         projectInput,
+        cacheAccess: 'read-only',
         repositoryRoot: normalizedSourceRoot
       });
       observeFixturePhase(options, deadlineAtUnixMs, 'settlement');

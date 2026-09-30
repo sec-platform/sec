@@ -1,9 +1,12 @@
 ---
 name: external-capability-governance
-description: 用于引入、升级、调用、替换或退役外部工具、Provider、MCP、CLI/API/SDK，或准备手写、扩写、修补通用机制（含测试、fixture、helper和验证工具），或新增 wrapper/Adapter、安装/物化能力时，验证真实缺口、唯一 owner、最小 Effect 闭包和退役路径；不用于把外部输出或安装成功当作 SEC authority。
+description: 选择、引入、升级、替换或退役外部能力、通用自研机制及其适配，或决定安装/物化方式时，判断复用差额、作用边界与退出；不用于身份和权限未变的已批准直接调用。
 ---
 
 # external-capability-governance
+
+## 当前归属
+采用与接合归[实现供给](../../../docs/架构/实现供给与替换.md)；版本、共享代际和locator寿命归[宿主生态](../../../docs/运行/宿主生态与技术约束.md#依赖解析物化与垃圾回收)；继承及剩余证明归[证据复用](../../../docs/运行/保证/要求证据与裁决.md#成熟成果复用与剩余验证责任)，替换退出归[兼容迁移](../../../docs/演进/兼容迁移与退役.md)。只展开本次会改变选择的部分。
 
 ## 触发
 - 新外部能力、Provider、CLI/API/SDK、wrapper/Adapter 或能力退役。
@@ -39,10 +42,10 @@ description: 用于引入、升级、调用、替换或退役外部工具、Prov
 
 ## 执行
 1. 冻结当前 Effect 和 owner DAG；外部机制只提供 capability，不取得 SEC 语义 authority。
-2. 只证明 Effect 窗口内可能漂移并决定结果的最小对象；无因果关系的安装树、catalog、cache 和历史状态排除。
+2. 先查原owner的有效绑定、terminal结果与authenticated in-flight，再决定是否有物化缺口；相同Action/代际可复用或join时不先下载、解压或复制依赖。共享不可变字节不合并工程绑定或运行权限；direct read、受保留locator、私有可写projection和隔离物化按真实消费者合同选择，不能互相暗中降级。只核Effect窗口内会漂移并决定结果的最小对象，排除无关安装树与历史状态。
 3. 跨入 provisioning/installation/credential/cache/semantic/Effect owner 时核现有任务授权与相交准入：已包含的依赖由原owner继续，不为每次跨模块另造work；需要新增作用权限或超出scope时只阻断该效果并交主线程取得相应授权。不得用更小 artifact、cache 或 timeout 掩盖扩权。
 4. 选择最窄稳定 machine interface；shell 只传 argv，显式绑定 executable、cwd、env、deadline、output 和 settlement。
-5. 外部输出经 canonical validator/semantic owner 投影；退出码、Provider success 和 presentation 文本不能签发完成。
+5. 外部输出经 canonical validator/semantic owner 投影；退出码、Provider success 和 presentation 文本不能签发完成。返回给后续消费者的路径须有覆盖其使用期的原owner保留关系；可随时淘汰的cache只适合可重建内容，不能作为唯一发布制品或未结算恢复事实。
 6. 迁移 consumer 后删除旧 wrapper、materializer、installer、cache、配置和文档；无真实 failover contract 不保留双实现。
 
 ## 测试与验证工具同样适用
@@ -54,13 +57,13 @@ description: 用于引入、升级、调用、替换或退役外部工具、Prov
 
 ## 完成证据
 - reuse/interface decision、owner DAG、最小因果闭包、Effect/credential/readback/recovery 和资源上界。
-- unavailable 路径证明零未授权 network/download/install/cache/spawn；旧 owner 达到 consumer-zero。
+- 对实际调用边界说明unavailable在何处阻止未授权作用及其检查依据；未观察的物理范围保持unknown。只有被替换的旧owner要求consumer-zero，并保留仍有效的恢复与兼容责任。
 - 明确保留的行为、强反例、数据/摘要兼容、被替换实现及其生产和测试消费者；测试次数、文件数或压缩包大小不能代替这些退出条件。
-- 本Skill是触发与操作路由，不签发机器准入或采用状态。采用与接合规则归`docs/架构/实现供给与替换.md`及`docs/运行/宿主生态与技术约束.md`，证据归`docs/运行/保证/要求证据与裁决.md`，退役归`docs/演进/兼容迁移与退役.md`；不建立新台账。
+- 返回原能力台账/采用决定的准确引用及剩余资格；不建立新台账，也不把Skill阅读当成机器准入或实际采用。
 
 ## 停止与恢复
 - capability 不可证明或 unavailable 时保持 typed unknown/unsupported，不自动安装或切换第二 provider。
-- 仅在扩张 owner 已删除或由独立授权 work 接管、旧旁路已退役后恢复。
+- 缺失能力、越界作用或未结算资源返回其原owner；相交动作取得资格或责任被合法移交后恢复，独立合法分析继续。
 
 ## 禁止捷径
 - 不建一对一镜像 wrapper，不解析 presentation 代替 JSON/porcelain/NUL/explicit format。

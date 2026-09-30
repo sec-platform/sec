@@ -9,7 +9,7 @@ import {
   type CodexDevelopmentVerificationActionTerminalArtifact
 } from './contract/evidence.ts';
 import {
-  type CodexDevelopmentHostedSutInventoryClosure
+  type CodexDevelopmentHostedSutInventoryClosure, type CodexDevelopmentHostedSutProcessLifecycle
 } from './contract/hosted-sut-observation.ts';
 import {
   CI_VERIFICATION_HOSTED_SANDBOX_POLICY_DIGEST
@@ -74,9 +74,6 @@ export const CI_VERIFICATION_ACTION_SANDBOX_COMMAND_PLAN_SCHEMA =
 export const CI_VERIFICATION_ACTION_SANDBOX_CAPABILITY_MARKER =
   '__SEC_HOSTED_SANDBOX_CAPABILITY_V1__';
 
-export const CI_VERIFICATION_ACTION_SANDBOX_RESIDUE_MARKER =
-  '__SEC_HOSTED_SANDBOX_RESIDUE_EMPTY_V1__';
-
 const HOSTED_SUT_RETAINED_ARCHIVE_CHILD_FD = 3;
 
 export const HOSTED_SUT_RETAINED_ARCHIVE_CHILD_PATH =
@@ -97,7 +94,7 @@ export type CodexDevelopmentHostedSutSandboxCommandPlan = Readonly<{
 
 export type CodexDevelopmentHostedSutSandboxProcessObservation =
   CodexDevelopmentGateProcessResult & Readonly<{
-    commandStarted: boolean;
+    lifecycle: CodexDevelopmentHostedSutProcessLifecycle;
     stdoutDigest: VerificationActionKeyDigest;
     stderrDigest: VerificationActionKeyDigest;
     stdoutBytesObserved: number;

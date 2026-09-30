@@ -13,6 +13,7 @@ import {
   CodexDevelopmentParseMergeGateResult,
   assertCanonicalMergeMessage,
   createMergeGateProvenance,
+  requireIssuedIntegrationGateResult,
   type CodexDevelopmentMergeGateInput
 } from '../../src/adapters/self-hosting/control/integration/merge-gate.ts';
 import { createMainHealthLedger } from '../../src/adapters/self-hosting/control/main-health/contract.ts';
@@ -973,4 +974,15 @@ test('hosted integration splits read-only authorization, terminal status, and me
     .toBeLessThan(integrateNames.indexOf('Integrate exact hosted Session and publish live readback status'));
   expect(integrateNames.indexOf('Download exact integration preflight and recovery artifact'))
     .toBeLessThan(integrateNames.indexOf('Integrate exact hosted Session and publish live readback status'));
+});
+
+
+test('valid pure Gate evaluation and parsing cannot mint direct status authority', () => {
+  const evaluated = CodexDevelopmentEvaluateMergeGate(fixture());
+  const parsed = CodexDevelopmentParseMergeGateResult(encodeVerificationActionData(evaluated));
+  expect(parsed.status).toBe('authorized');
+  for (const candidate of [evaluated, parsed]) {
+    expect(() => requireIssuedIntegrationGateResult(candidate))
+      .toThrow('actual trusted-runtime transition producer');
+  }
 });

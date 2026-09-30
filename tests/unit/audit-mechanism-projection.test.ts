@@ -15,6 +15,7 @@ import type { SourceProgramModel } from '../../src/adapters/repository/source-pr
 import { compileSourceProgramFindingDelta } from '../../src/adapters/repository/source-program-model/reconciliation-findings.ts';
 import { captureRepositoryAnalysisPolicy } from '../../src/adapters/repository/source-program-model/repository-analysis-policy.ts';
 import { rawSha256, sha256 } from '../../src/contracts/canonical.ts';
+import { syntheticTestFindingComparison } from '../testkit/source-program-test-finding-fixture.ts';
 
 const digest = (value: unknown): `sha256:${string}` => sha256(value) as `sha256:${string}`;
 
@@ -64,7 +65,7 @@ function input(full = false): CompileSourceProgramAuditOperationInput {
     findingSnapshot(sourceRevision, modelDigest)
   );
   const cost = { productionUnits: 0, testUnits: 0, owners: 0, unresolvedObservations: 0, unobservedTestRisk: 0 };
-  return {
+  const facts: CompileSourceProgramAuditOperationInput = {
     sourceProgram: compileSourceProgramAuditSourceProgramProjection(source, sourceFileIdentities, false),
     sourceFileIdentities,
     moduleArchitecture: {
@@ -82,7 +83,7 @@ function input(full = false): CompileSourceProgramAuditOperationInput {
       after: { ...after, architectureDigest: digest('architecture') },
       reconciliationProjectionDigest: digest('reconciliation'), changes: [], changedPaths: [], consumerPaths: [],
       retirementPaths: [], graphDelta: {}, blockers: [], referenceDigest: digest('evolution') },
-    testValue: { sourceRevision, baselineTestPaths: [], baselineDigest, baselineEvidenceDigest, compilationDigest: testCompilationDigest,
+    testValue: { sourceRevision, baselineTestPaths: [], baselineDigest, baselineEvidenceDigest, compilationDigest: testCompilationDigest, findingsDigest: digest([]),
       candidateRegistrationCensus: { count: 0, digest: digest('census'), paths: [] }, recordsWithUnknownSemantics: 0, semanticClasses: {} },
     testDisposition: { sourceRevision, baselineTestPaths: [], baselineDigest, baselineEvidenceDigest, dispositions: [], findings: [],
       observationCompilationDigest: testCompilationDigest, supersessionReceiptDigest: null, projectionDigest: digest('disposition') },
@@ -90,7 +91,7 @@ function input(full = false): CompileSourceProgramAuditOperationInput {
     topology: { packages: 0, dependencyScopes: {}, entrypointKinds: {}, entrypointRoles: {}, entrypointHandlerModules: {}, entrypointObservationClasses: {},
       capabilityKinds: {}, capabilityTransports: {}, capabilityAuthorityClasses: { 'repository-provider': 0, 'runtime-built-in-api': 0, 'external-package-api': 0, 'unresolved-transport': 0 },
       providerModules: {}, candidateCodes: {}, unknownCodes: {}, directProcessTransportPaths: 0 },
-    supersession: { status: 'equivalent', baseline: { ...before, testCompilationDigest: digest('before-tests'), intentEvidenceDigest: digest('before-intent') },
+    supersession: { authorityScope: 'whole-program', status: 'equivalent', baseline: { ...before, testCompilationDigest: digest('before-tests'), intentEvidenceDigest: digest('before-intent') },
       current: { sourceRevision, modelDigest, testCompilationDigest, intentEvidenceDigest: digest('intent') },
       lifecycleCost: { baseline: cost, current: cost }, replacements: [], findings: [], receiptDigest: supersessionReceiptDigest },
     testRetirement: { baselineSourceRevision: before.sourceRevision, currentSourceRevision: sourceRevision,
@@ -102,6 +103,7 @@ function input(full = false): CompileSourceProgramAuditOperationInput {
       includeCandidates: false, queryProjection: null, outputPath: null
     }
   };
+  return { ...facts, ...syntheticTestFindingComparison(facts) };
 }
 
 test('actual source projection joins mechanism findings to the exact file identities', () => {

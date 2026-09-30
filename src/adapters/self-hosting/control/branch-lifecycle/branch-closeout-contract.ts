@@ -123,9 +123,10 @@ export interface BranchCloseoutRecoveryArtifact {
 }
 
 export interface BranchCloseoutOperationStore {
-  read(filePath: string): string | null;
-  createExclusive(filePath: string, bytes: string): boolean;
-  replace(filePath: string, expectedBytes: string, nextBytes: string): void;
+  read(filePath: string): Promise<string | null>;
+  createExclusive(filePath: string, bytes: string): Promise<boolean>;
+  /** Exact-byte precondition under the closeout operation's cooperative writer leases. */
+  replace(filePath: string, expectedBytes: string, nextBytes: string): Promise<void>;
 }
 
 /**
