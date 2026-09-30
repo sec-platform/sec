@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, expect, test } from 'bun:test';
+import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import { spawn, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import {
@@ -38,6 +38,7 @@ import { createReviewSnapshotDigest, createReviewStabilityReceipt, renderIndepen
 import { CodexDevelopmentCreateTestImpactTransitionObservation, CodexDevelopmentTestImpactTransitionDigest, type CodexDevelopmentTestImpactTransitionObservation } from '../../src/adapters/verification/platform/test-impact/runtime/transition.ts';
 import { CodexDevelopmentBuildVerificationGateResult } from '../../src/assurance/verification/result/contract/result.ts';
 
+import { inspectWorkspaceWriteLease } from '../../src/adapters/filesystem/write-lease.ts';
 import type {
   GitHubCheckObservation, GitHubWorkflowJobObservation,
   GitHubWorkflowRunObservation
@@ -59,9 +60,7 @@ import {
 import {
   BRANCH_CLOSEOUT_PREPARED_ENVELOPE_SCHEMA,
   parsePreparedBranchCloseoutEnvelope,
-  prepareBranchCloseout,
-  rehydratePreparedBranchCloseoutEnvelope,
-  rehydratePreparedBranchCloseoutRecoveryArtifact
+  rehydratePreparedBranchCloseoutEnvelope
 } from '../../src/adapters/self-hosting/control/branch-lifecycle/branch-closeout.ts';
 import { branchLifecycleDigest } from '../../src/adapters/self-hosting/control/branch-lifecycle/branch-lifecycle-audit.ts';
 import { createBranchLifecycleGitChildEnvironment } from '../../src/adapters/self-hosting/control/branch-lifecycle/branch-lifecycle-command.ts';
@@ -72,7 +71,6 @@ import {
 import type { IntegrationAuthorizationOperationPublication } from '../../src/adapters/self-hosting/control/integration/integration-authorization-publication.ts';
 import {
   createIntegrationAuthorizationOperationPublication,
-  HOSTED_INTEGRATION_PHASE_STEP_NAMES,
   renderIntegrationAuthorizationOperationPublicationComment
 } from '../../src/adapters/self-hosting/control/integration/integration-authorization-publication.ts';
 import {
@@ -81,6 +79,7 @@ import {
 } from '../../src/adapters/self-hosting/control/integration/merge-gate.ts';
 import { createObservedMainHealthInput } from '../../src/adapters/self-hosting/control/main-health/main-health-observation.ts';
 import { CI_MAIN_HEALTH_POLICY, createCiMainHealthRequestOperationId } from '../../src/adapters/self-hosting/control/main-health/provider-policy.ts';
+import { DEFAULT_TEST_TIMEOUT_MS } from '../../src/adapters/self-hosting/development/runner/test-execution-policy.ts';
 import { CI_VERIFICATION_ACTION_DEPENDENCY_INPUT_PATHS } from '../../src/adapters/verification/platform/action/contract/environment.ts';
 import { CI_GITHUB_ACTIONS_IDENTITY_POLICY } from '../../src/adapters/verification/platform/action/contract/provider.ts';
 import {
@@ -166,10 +165,11 @@ import {
   verificationSessionCli
 } from '../../src/adapters/verification/platform/ci/runtime/verification-session.ts';
 import { createVerificationSession, type VerificationSession } from '../../src/adapters/verification/platform/session/contract/session.ts';
-import { compileTcbClosureIdentity } from '../../src/adapters/verification/platform/trust/compiler.ts';
-import { SEC_TRUSTED_BOOTSTRAP_REGISTRY } from '../../src/adapters/verification/platform/trust/contract/root.ts';
+import { settleResources, withAcquiredResource } from '../../src/execution/resource-settlement.ts';
+import { compileCloseoutCliProviderShims, prepareCloseoutCliScenario, readCloseoutCliHarnessState, writeCloseoutCliHarnessState, type CloseoutCliHarnessState } from '../helpers/closeout-cli/provider.ts';
 import { acquireExactRepositoryTestImpactProviderFixture } from '../helpers/test-impact-provider.ts';
 import { runRetainedBunTestProcess } from '../testkit/process-resource.ts';
+import { createRawTestExecutableFixture } from '../testkit/raw-process.ts';
 
 const HEAD = '2222222222222222222222222222222222222222';
 const BASE = '1111111111111111111111111111111111111111';
@@ -177,11 +177,8 @@ const BOT = 'BOT_kgDOC98s_g';
 const PAGE = `sha256:${'a'.repeat(64)}` as const;
 const JOIN_SESSION = `sha256:${'6'.repeat(64)}` as const;
 const JOIN_ACTION = `sha256:${'7'.repeat(64)}` as const;
-const testImpactFixture = await acquireExactRepositoryTestImpactProviderFixture();
-const TEST_IMPACT_SOURCE_PROVIDER = bindDocumentationVerificationGateInput(
-  testImpactFixture.provider,
-  currentDocumentationVerificationBaseline()
-);
+let testImpactFixture: Awaited<ReturnType<typeof acquireExactRepositoryTestImpactProviderFixture>> | undefined;
+let TEST_IMPACT_SOURCE_PROVIDER: ReturnType<typeof bindDocumentationVerificationGateInput>;
 
 function changedTransition(
   changedPaths: readonly string[],
@@ -1037,9 +1034,12 @@ function privateGhProxyRoot(): string {
   const source = path.join(privateGhProxySuiteRoot, 'credential.ts');
   const output = path.join(privateGhProxySuiteRoot, process.platform === 'win32' ? 'gh.exe' : 'gh');
   writeFileSync(source, `if (process.argv.slice(-4).join(' ') !== 'auth token --hostname github.com') process.exit(1); process.stdout.write('ghp_private_fixture_token_000000000000');`, 'utf8');
-  const compiled = spawnSync(process.execPath, ['build','--compile',source,'--outfile',output],
-    {cwd:privateGhProxySuiteRoot,encoding:'utf8',windowsHide:true});
-  if (compiled.status !== 0) throw new Error('Private credential fixture compilation failed');
+  const runtime = createRawTestExecutableFixture();
+  try {
+    const compiled = spawnSync(runtime.command, ['build','--compile',`--compile-executable-path=${runtime.command}`,source,'--outfile',output],
+      {cwd:privateGhProxySuiteRoot,encoding:'utf8',windowsHide:true,timeout:30_000});
+    if (compiled.status !== 0) throw new Error('Private credential fixture compilation failed');
+  } finally { runtime.dispose(); }
   return privateGhProxySuiteRoot;
 }
 
@@ -1305,6 +1305,7 @@ async function reducerFixture(options: {
   const verificationWorkflowRef = `${identity.verificationWorkflowPath}@${BASE}`;
   const mergeWorkflowRef = `${identity.mergeWorkflowPath}@${BASE}`;
   const repositoryRoot = mkdtempSync(path.join(tmpdir(), 'sec-verification-session-'));
+  try {
   const journalFs = createEphemeralVerificationSessionJournalFs(
     path.join(repositoryRoot, 'runtime-state')
   );
@@ -1511,6 +1512,12 @@ async function reducerFixture(options: {
             resultJson: encodeVerificationActionData(next), observation: authorizationMetadata });
     },
     dispose: () => rmSync(repositoryRoot, { recursive: true, force: true }) };
+  } catch (error) {
+    settleResources({ primary: { label: 'reducer-fixture-construction', error },
+      cleanup: [{ label: 'reducer-fixture-root',
+        settle: () => rmSync(repositoryRoot, { recursive: true, force: true }) }] });
+    throw error;
+  }
 }
 
 async function runReducer(fixture: Awaited<ReturnType<typeof reducerFixture>>) {
@@ -2503,310 +2510,13 @@ test('IssueDisposition post-main readback consumes the canonical exact MainHealt
   }
 });
 
-test('trusted-main proposal and hosted sole issuer reconstruct the same stable Session revision', async () => {
-  const transport = new FakeTransport();
-  transport.issueComments = [[botIssueComment()]];
-  const barrier = (await observe(transport));
-  if (barrier.status !== 'clear') throw new Error('expected clear review');
-  const candidate = transport.candidate();
-  const changedPaths = ['src/adapters/verification/platform/ci/runtime/verification-session.ts'];
-  const testImpactTransition = changedTransition(changedPaths);
-  const manifestDigest = `sha256:${'b'.repeat(64)}` as const;
-  const local = prepareTrustedMainVerificationSession({ repository: candidate.repository, candidate,
-    manifestPath: 'config/repository/work-packages/example.md', manifestDigest, changedPaths, testImpactTransition,
-    testImpactSourceProvider: TEST_IMPACT_SOURCE_PROVIDER, profile: 'quick',
-    integrationPrincipalNodeId: 'INTEGRATOR', producerPrincipalNodeId: 'INTEGRATOR', sourceRunId: '7',
-    sourceRef: `refs/heads/main@${BASE}`, observedAt: barrier.observedAt, reviewBarrier: barrier,
-    mainHealthChecks: [mainHealthCheck()], dependencyBlobs: actionDependencyBlobs() });
-  const facts = reconstructVerificationSessionHostedFacts({ request: local.request,
-    repository: candidate.repository, candidate, changedPaths, testImpactTransition,
-    testImpactSourceProvider: TEST_IMPACT_SOURCE_PROVIDER,
-    integrationPrincipalNodeId: 'INTEGRATOR',
-    producerPrincipalNodeId: 'INTEGRATOR', sourceRunId: '7',
-    sourceRef: `.github/workflows/compiler-pr-validation.yml@${BASE}`, observedAt: barrier.observedAt,
-    reviewBarrier: barrier, mainHealthChecks: [mainHealthCheck()],
-    dependencyBlobs: actionDependencyBlobs() });
-  const pureHosted = createPureHostedEnvelopeFixture({ request: local.request, facts });
-  expect(pureHosted.session.sessionRevision).toBe(local.sessionRevision);
-  expect(pureHosted.scopeAuthorization.authorizationRevision).toBe(local.scopeAuthorizationRevision);
-  expect(pureHosted.actionPlanClosure.actionPlanDigest).toBe(local.actionPlanClosure.actionPlanDigest);
-  expect(() => prepareVerificationSessionHosted({ request: local.request,
-    facts: JSON.parse(JSON.stringify(facts)) })).toThrow('live observation produced by the private GitHub adapter');
-  const dependencyPaths = new Set<string>(CI_VERIFICATION_ACTION_DEPENDENCY_INPUT_PATHS);
-  for (const action of pureHosted.actionPlanClosure.actions) {
-    expect(action.action.inputClosure.filter(({ path: inputPath }) =>
-      dependencyPaths.has(inputPath))).toHaveLength(4);
-  }
-  expect(() => prepareTrustedMainVerificationSession({ repository: candidate.repository, candidate,
-    manifestPath: 'config/repository/work-packages/example.md', manifestDigest, changedPaths, testImpactTransition,
-    testImpactSourceProvider: TEST_IMPACT_SOURCE_PROVIDER, profile: 'quick',
-    integrationPrincipalNodeId: 'INTEGRATOR', producerPrincipalNodeId: 'INTEGRATOR', sourceRunId: '7',
-    sourceRef: `refs/heads/main@${BASE}`, observedAt: barrier.observedAt, reviewBarrier: barrier,
-    mainHealthChecks: [mainHealthCheck()], dependencyBlobs: actionDependencyBlobs('bun.lock') }))
-    .toThrow(/bun\.lock drifted from the trusted base/i);
-  expect(() => reconstructVerificationSessionHostedFacts({ request: local.request,
-    repository: candidate.repository, candidate, changedPaths, testImpactTransition,
-    testImpactSourceProvider: TEST_IMPACT_SOURCE_PROVIDER,
-    integrationPrincipalNodeId: 'INTEGRATOR',
-    producerPrincipalNodeId: 'INTEGRATOR', sourceRunId: '7',
-    sourceRef: `.github/workflows/compiler-pr-validation.yml@${BASE}`, observedAt: barrier.observedAt,
-    reviewBarrier: barrier, mainHealthChecks: [mainHealthCheck()],
-    dependencyBlobs: actionDependencyBlobs('package.json') }))
-    .toThrow(/package\.json drifted from the trusted base/i);
-});
 
-test('VerificationSession binds the exact deletion transition through Scope, Action, Session, and hosted reconstruction', async () => {
-  const baseSha = '9ed0291a0b51b4f3f6769ab317c4cc1a2753cb4b';
-  const headSha = 'b'.repeat(40);
-  const retiredPath = 'src/adapters/verification/platform/ci/runtime/verification-session-github.ts';
-  const unownedRetiredPath =
-    'docs/evidence/v0-4-semantic-mutation-single-job-owner-production-pass-2026-07-18.json';
-  const changedPaths = [retiredPath, 'src/adapters/verification/platform/ci/runtime/verification-session.ts'];
-  const records = [
-    { status: 'changed' as const, path: 'src/adapters/verification/platform/ci/runtime/verification-session.ts' },
-    { status: 'removed' as const, path: retiredPath }
-  ];
-  const readPathBlob = (revision: string, repositoryPath: string) => (
-    revision === baseSha && repositoryPath === retiredPath
-      ? { mode: '100644' as const, blobSha: '3fbfa041119f70429b5f6cc4440816b50ab3a0ef' }
-      : null
-  );
-  const testImpactTransition = CodexDevelopmentCreateTestImpactTransitionObservation({
-    baseSha, headSha, records, readPathBlob
-  });
-  const reordered = CodexDevelopmentCreateTestImpactTransitionObservation({
-    baseSha, headSha, records: [...records].reverse(), readPathBlob
-  });
-  expect(CodexDevelopmentTestImpactTransitionDigest(reordered))
-    .toBe(CodexDevelopmentTestImpactTransitionDigest(testImpactTransition));
 
-  const transport = new FakeTransport();
-  transport.issueComments = [[botIssueComment()]];
-  const github = fakeGitHubClient(transport, async (input) => (await observePrivateClearReviewBarrier(
-    input.observedAt ?? VERIFIED_AT
-  )));
-  const candidate = Object.freeze({
-    ...transport.candidate(),
-    baseSha,
-    baseTreeSha: 'c'.repeat(40),
-    headSha,
-    headTreeSha: 'd'.repeat(40)
-  });
-  const barrier = (await github.observeReviewBarrier({
-    repository: candidate.repository,
-    prNumber: candidate.number,
-    headSha,
-    excludedPrincipalNodeIds: new Set(['AUTHOR', 'INTEGRATOR']),
-    observedAt: VERIFIED_AT
-  }));
-  if (barrier.status !== 'clear') throw new Error('expected clear review');
-  const mainHealthChecks = [mainHealthCheck({
-    headSha: baseSha,
-    workflowRef: `${CI_MAIN_HEALTH_POLICY.producer.workflowPath}@${baseSha}`
-  })];
-  const manifestDigest = `sha256:${'e'.repeat(64)}` as const;
-  const unownedTransition = CodexDevelopmentCreateTestImpactTransitionObservation({
-    baseSha,
-    headSha,
-    records: [{ status: 'removed', path: unownedRetiredPath }],
-    readPathBlob: (revision, repositoryPath) => (
-      revision === baseSha && repositoryPath === unownedRetiredPath
-        ? { mode: '100644', blobSha: '4'.repeat(40) }
-        : null
-    )
-  });
-  expect(() => prepareTrustedMainVerificationSession({
-    repository: candidate.repository, candidate,
-    manifestPath: 'config/repository/work-packages/example.md', manifestDigest,
-    changedPaths: [unownedRetiredPath], testImpactTransition: unownedTransition,
-    testImpactSourceProvider: TEST_IMPACT_SOURCE_PROVIDER,
-    profile: 'quick',
-    integrationPrincipalNodeId: 'INTEGRATOR', producerPrincipalNodeId: 'INTEGRATOR',
-    sourceRunId: 'unowned-deletion-prepare', sourceRef: `refs/heads/main@${baseSha}`,
-    observedAt: VERIFIED_AT, reviewBarrier: barrier, mainHealthChecks,
-    dependencyBlobs: actionDependencyBlobs()
-  })).toThrow(/verification plan is unresolved/i);
-  const prepared = prepareTrustedMainVerificationSession({
-    repository: candidate.repository, candidate,
-    manifestPath: 'config/repository/work-packages/example.md', manifestDigest,
-    changedPaths, testImpactTransition, testImpactSourceProvider: TEST_IMPACT_SOURCE_PROVIDER,
-    profile: 'quick',
-    integrationPrincipalNodeId: 'INTEGRATOR', producerPrincipalNodeId: 'INTEGRATOR',
-    sourceRunId: 'deletion-prepare', sourceRef: `refs/heads/main@${baseSha}`,
-    observedAt: VERIFIED_AT, reviewBarrier: barrier, mainHealthChecks,
-    dependencyBlobs: actionDependencyBlobs()
-  });
-  const facts = reconstructVerificationSessionHostedFacts({
-    request: prepared.request, repository: candidate.repository, candidate, changedPaths,
-    testImpactTransition: reordered, testImpactSourceProvider: TEST_IMPACT_SOURCE_PROVIDER,
-    integrationPrincipalNodeId: 'INTEGRATOR',
-    producerPrincipalNodeId: 'INTEGRATOR', sourceRunId: 'deletion-hosted',
-    sourceRef: `.github/workflows/compiler-pr-validation.yml@${baseSha}`,
-    observedAt: VERIFIED_AT, reviewBarrier: barrier, mainHealthChecks,
-    dependencyBlobs: actionDependencyBlobs()
-  });
-  expect(facts.testImpactTransitionDigest).toBe(prepared.testImpactTransitionDigest);
-  expect(facts.sessionProposalDigest).toBe(prepared.sessionProposalDigest);
-  expect(facts.actionPlanClosure.actionPlanDigest).toBe(prepared.actionPlanClosure.actionPlanDigest);
-  const localQuick = prepareLocalQuickVerificationActionPlan({
-    candidate,
-    manifestPath: 'config/repository/work-packages/example.md',
-    manifestDigest,
-    changedPaths,
-    testImpactTransition,
-    testImpactSourceProvider: TEST_IMPACT_SOURCE_PROVIDER,
-    expectedTestImpactTransitionDigest: prepared.testImpactTransitionDigest,
-    scopeAuthorizationRevision: prepared.scopeAuthorizationRevision,
-    executionEnvironment: createCiVerificationLocalExecutionEnvironment({
-      os: process.platform, arch: process.arch, bunVersion: Bun.version
-    }),
-    dependencyBlobs: actionDependencyBlobs()
-  });
-  expect(localQuick.actions.length).toBeGreaterThan(0);
-  expect(() => reconstructVerificationSessionHostedFacts({
-    request: prepared.request, repository: candidate.repository, candidate, changedPaths,
-    testImpactTransition: { ...testImpactTransition, headSha: 'f'.repeat(40) },
-    testImpactSourceProvider: TEST_IMPACT_SOURCE_PROVIDER,
-    integrationPrincipalNodeId: 'INTEGRATOR', producerPrincipalNodeId: 'INTEGRATOR',
-    sourceRunId: 'deletion-hosted',
-    sourceRef: `.github/workflows/compiler-pr-validation.yml@${baseSha}`,
-    observedAt: VERIFIED_AT, reviewBarrier: barrier, mainHealthChecks,
-    dependencyBlobs: actionDependencyBlobs()
-  })).toThrow(/exact candidate selection input/i);
-}, PHYSICAL_RUNTIME_AUTHORITY_TEST_TIMEOUT_MS);
 
-test('same paths with a different Git transition change the complete VerificationSession identity chain', async () => {
-  const transport = new FakeTransport();
-  transport.issueComments = [[botIssueComment()]];
-  const barrier = (await observe(transport));
-  if (barrier.status !== 'clear') throw new Error('expected clear review');
-  const candidate = transport.candidate();
-  const changedPaths = ['src/adapters/verification/platform/ci/runtime/verification-session.ts'];
-  const prepare = (status: 'added' | 'changed') => prepareTrustedMainVerificationSession({
-    repository: candidate.repository, candidate,
-    manifestPath: 'config/repository/work-packages/example.md', manifestDigest: `sha256:${'e'.repeat(64)}`,
-    changedPaths,
-    testImpactTransition: CodexDevelopmentCreateTestImpactTransitionObservation({
-      baseSha: candidate.baseSha, headSha: candidate.headSha,
-      records: [{ status, path: changedPaths[0]! }], readPathBlob: () => null
-    }),
-    testImpactSourceProvider: TEST_IMPACT_SOURCE_PROVIDER,
-    profile: 'quick', integrationPrincipalNodeId: 'INTEGRATOR',
-    producerPrincipalNodeId: 'INTEGRATOR', sourceRunId: '7',
-    sourceRef: `refs/heads/main@${candidate.baseSha}`, observedAt: VERIFIED_AT,
-    reviewBarrier: barrier, mainHealthChecks: [mainHealthCheck()],
-    dependencyBlobs: actionDependencyBlobs()
-  });
-  const added = prepare('added');
-  const changed = prepare('changed');
-  expect(added.testImpactTransitionDigest).not.toBe(changed.testImpactTransitionDigest);
-  expect(added.scopeAuthorizationRevision).not.toBe(changed.scopeAuthorizationRevision);
-  expect(added.actionPlanClosure.actionPlanDigest).not.toBe(changed.actionPlanClosure.actionPlanDigest);
-  expect(added.sessionRevision).not.toBe(changed.sessionRevision);
-  expect(added.request.requestOperationId).not.toBe(changed.request.requestOperationId);
-});
 
-test('Session local quick DAG keeps durable journals in external Runtime State and executes exact detached candidate', async () => {
-  const authorityRoot = mkdtempSync(path.join(tmpdir(), 'sec-session-authority-'));
-  const runtimeRoot = mkdtempSync(path.join(tmpdir(), 'sec-session-runtime-'));
-  const runtimeStateRoot = path.join(runtimeRoot, 'state');
-  const runtimeCacheRoot = path.join(runtimeRoot, 'cache');
-  const priorStateHome = process.env.SEC_STATE_HOME;
-  const priorCacheHome = process.env.SEC_CACHE_HOME;
-  process.env.SEC_STATE_HOME = runtimeStateRoot;
-  process.env.SEC_CACHE_HOME = runtimeCacheRoot;
-  const runGit = (cwd: string, args: readonly string[]): string => {
-    const result = spawnSync('git', [...args], {
-      cwd,
-      encoding: 'utf8',
-      env: createBranchLifecycleGitChildEnvironment(process.env),
-      windowsHide: true
-    });
-    if (result.status !== 0) throw new Error(`git ${args.join(' ')} failed: ${result.stderr}`);
-    return result.stdout.trim();
-  };
-  const inspectRepository = (repositoryRoot: string) => ({
-    headSha: runGit(repositoryRoot, ['rev-parse', 'HEAD']),
-    headTreeSha: runGit(repositoryRoot, ['rev-parse', 'HEAD^{tree}']),
-    trackedClean:
-      runGit(repositoryRoot, ['diff', '--name-only', '--ignore-cr-at-eol']) === ''
-      && runGit(repositoryRoot, ['diff', '--cached', '--name-only', '--ignore-cr-at-eol']) === ''
-      && runGit(repositoryRoot, ['ls-files', '--others', '--exclude-standard']) === '',
-    gitCommonDirectory: realpathSync.native(runGit(repositoryRoot, [
-      'rev-parse', '--path-format=absolute', '--git-common-dir'
-    ]))
-  });
-  try {
-    runGit(authorityRoot, ['init', '-b', 'main']);
-    runGit(authorityRoot, ['config', 'user.name', 'Session Test']);
-    runGit(authorityRoot, ['config', 'user.email', 'session-test@example.invalid']);
-    writeFileSync(path.join(authorityRoot, 'tracked.txt'), 'base\n', 'utf8');
-    writeFileSync(path.join(authorityRoot, '.gitignore'), '.tmp/\n', 'utf8');
-    runGit(authorityRoot, ['add', 'tracked.txt', '.gitignore']);
-    runGit(authorityRoot, ['commit', '-m', 'base']);
-    const baseSha = runGit(authorityRoot, ['rev-parse', 'HEAD']);
-    const baseTreeSha = runGit(authorityRoot, ['rev-parse', 'HEAD^{tree}']);
-    writeFileSync(path.join(authorityRoot, 'tracked.txt'), 'exact candidate\n', 'utf8');
-    runGit(authorityRoot, ['add', 'tracked.txt']);
-    runGit(authorityRoot, ['commit', '-m', 'exact candidate']);
-    const headSha = runGit(authorityRoot, ['rev-parse', 'HEAD']);
-    const headTreeSha = runGit(authorityRoot, ['rev-parse', 'HEAD^{tree}']);
-    const candidateRoot = path.join(authorityRoot, '.tmp', 'codex',
-      'verification-session-candidates', headSha);
-    mkdirSync(path.dirname(candidateRoot), { recursive: true });
-    runGit(authorityRoot, ['worktree', 'add', '--detach', candidateRoot, headSha]);
-    const candidate = Object.freeze({ ...new FakeTransport().candidate(),
-      baseSha, baseTreeSha, headSha, headTreeSha });
-    const executionEnvironment = createCiVerificationLocalExecutionEnvironment({
-      os: process.platform, arch: process.arch, bunVersion: Bun.version
-    });
-    const testImpactTransition = changedTransition(
-      ['src/adapters/verification/platform/ci/runtime/verification-session.ts'],
-      baseSha,
-      headSha
-    );
-    const testImpactTransitionDigest = CodexDevelopmentTestImpactTransitionDigest(testImpactTransition);
-    const closure = prepareLocalQuickVerificationActionPlan({ candidate,
-      manifestPath: 'config/repository/work-packages/verification-action-trusted-cutover-v6.md',
-      manifestDigest: `sha256:${'9'.repeat(64)}`, changedPaths: ['src/adapters/verification/platform/ci/runtime/verification-session.ts'],
-      testImpactTransition,
-      testImpactSourceProvider: TEST_IMPACT_SOURCE_PROVIDER,
-      expectedTestImpactTransitionDigest: testImpactTransitionDigest,
-      scopeAuthorizationRevision: `sha256:${'8'.repeat(64)}`, executionEnvironment,
-      dependencyBlobs: actionDependencyBlobs() });
-    expect(() => prepareLocalQuickVerificationActionPlan({ candidate,
-      manifestPath: 'config/repository/work-packages/verification-action-trusted-cutover-v6.md',
-      manifestDigest: `sha256:${'9'.repeat(64)}`, changedPaths: ['src/adapters/verification/platform/ci/runtime/verification-session.ts'],
-      testImpactTransition,
-      testImpactSourceProvider: TEST_IMPACT_SOURCE_PROVIDER,
-      expectedTestImpactTransitionDigest: testImpactTransitionDigest,
-      scopeAuthorizationRevision: `sha256:${'8'.repeat(64)}`, executionEnvironment,
-      dependencyBlobs: actionDependencyBlobs('.bun-version') }))
-      .toThrow(/\.bun-version drifted from the trusted base/i);
-    const result = await executeLocalVerificationActionDag({ authorityRoot, candidateRoot,
-      actionPlanClosure: closure, executionEnvironment,
-      inspectRepository,
-      testProcessIssuer: VERIFICATION_ACTION_TEST_PROCESS_ISSUER,
-      testProcessProvider: (_operation, process) =>
-        runRetainedBunTestProcess(process, candidateRoot) });
-    expect(result.status).toBe('passed');
-    expect(result.actionPlanDigest).toBe(closure.actionPlanDigest);
-    expect(result.actionResults.every((entry) => entry.terminal?.status === 'passed')).toBe(true);
-    expect(existsSync(path.join(runtimeStateRoot, 'workspaces', 'v1'))).toBe(true);
-    expect(existsSync(path.join(authorityRoot, '.tmp', 'codex', 'verification-actions', 'v2'))).toBe(false);
-    expect(existsSync(path.join(candidateRoot, '.tmp', 'codex', 'verification-actions', 'v2'))).toBe(false);
-    expect(runGit(candidateRoot, ['rev-parse', 'HEAD'])).toBe(headSha);
-    expect(runGit(candidateRoot, ['rev-parse', 'HEAD^{tree}'])).toBe(headTreeSha);
-    expect(runGit(candidateRoot, ['status', '--porcelain=v1', '--untracked-files=no'])).toBe('');
-  } finally {
-    if (priorStateHome === undefined) delete process.env.SEC_STATE_HOME;
-    else process.env.SEC_STATE_HOME = priorStateHome;
-    if (priorCacheHome === undefined) delete process.env.SEC_CACHE_HOME;
-    else process.env.SEC_CACHE_HOME = priorCacheHome;
-    rmSync(authorityRoot, { recursive: true, force: true });
-    rmSync(runtimeRoot, { recursive: true, force: true });
-  }
-}, PHYSICAL_RUNTIME_AUTHORITY_TEST_TIMEOUT_MS);
+
+
+
 
 test('trusted-main preparation rejects candidate/dirty/boundary runtime proof', () => {
   const proof = { currentHeadSha: BASE, currentBranch: 'main', localDefaultSha: BASE, remoteDefaultSha: BASE,
@@ -2982,58 +2692,9 @@ test('expired hosted authority permits only independently revalidated Action Evi
   }
 });
 
-test('actual reducer recovers a crash after remote merge without a second merge or publication', async () => {
-  const fixture = (await reducerFixture());
-  try {
-    expect((await runReducer(fixture))).toMatchObject({ status: 'READY_TO_INTEGRATE',
-      operationId: fixture.result.authorization.consumptionOperationId });
-    // Models process loss after the remote merge but before any local journal
-    // transition. The reducer adopts the exact remote marker and never owns a
-    // raw merge capability that could repeat the effect.
-    fixture.transport.adoptMerged(fixture.markers, fixture.result.reviewReceipt,
-      fixture.artifact.session.sessionRevision);
-    expect((await runReducer(fixture))).toMatchObject({ status: 'COMPLETED', completedStage: 'closeout-terminal' });
-    const observed = fixture.counters.closeoutObserve;
-    expect((await runReducer(fixture))).toMatchObject({ status: 'COMPLETED' });
-    expect(fixture.counters.closeoutObserve).toBeGreaterThanOrEqual(observed);
-  } finally {
-    fixture.dispose();
-  }
-}, PHYSICAL_RUNTIME_AUTHORITY_TEST_TIMEOUT_MS);
 
-test('durable comment and merge markers reconstruct terminal status without an Actions artifact', async () => {
-  const fixture = (await reducerFixture());
-  try {
-    const publication = durablePublication(fixture);
-    const exactOpen = classifyDurableVerificationSessionProjection({
-      repository: 'sec-platform/sec', request: fixture.request,
-      candidate: fixture.transport.candidate(), publications: []
-    });
-    expect(exactOpen).toBeNull();
-    expect(classifyDurableVerificationSessionProjection({
-      repository: 'sec-platform/sec', request: fixture.request,
-      candidate: fixture.transport.candidate(), publications: [publication]
-    })).toMatchObject({ status: 'BLOCKED_AMBIGUOUS_SIDE_EFFECT' });
 
-    fixture.transport.adoptMerged(fixture.markers, fixture.result.reviewReceipt,
-      fixture.artifact.session.sessionRevision);
-    const ready = classifyDurableVerificationSessionProjection({
-      repository: 'sec-platform/sec', request: fixture.request,
-      candidate: fixture.transport.candidate(), publications: [publication]
-    });
-    expect(ready).toMatchObject({ status: 'READY_TO_CLOSEOUT', candidateState: 'MERGED' });
-    const closeoutOperationId = ready?.closeoutOperationId;
-    if (typeof closeoutOperationId !== 'string') throw new Error('closeout operation id missing');
-    expect(classifyDurableVerificationSessionProjection({
-      repository: 'sec-platform/sec', request: fixture.request,
-      candidate: fixture.transport.candidate(), publications: [publication],
-      closeout: { closeoutOperationId: closeoutOperationId as `sha256:${string}`,
-        commentId: 700, status: 'completed' }
-    })).toMatchObject({ status: 'COMPLETED', closeoutCommentId: 700 });
-  } finally {
-    fixture.dispose();
-  }
-}, PHYSICAL_RUNTIME_AUTHORITY_TEST_TIMEOUT_MS);
+
 
 test('durable remote projection blocks closed PR and OPEN candidate identity drift', () => {
   for (const candidate of [
@@ -3048,166 +2709,21 @@ test('durable remote projection blocks closed PR and OPEN candidate identity dri
   }
 });
 
-test('MERGED recovery permits advanced main only when the marker commit remains reachable', async () => {
-  const advancedMain = '8'.repeat(40);
-  const reachable = (await reducerFixture({ remoteDefaultSha: advancedMain,
-    mergeToDefault: { status: 'ahead', behindBy: 0 } }));
-  try {
-    reachable.transport.adoptMerged(reachable.markers, reachable.result.reviewReceipt,
-      reachable.artifact.session.sessionRevision);
-    expect((await runReducer(reachable))).toMatchObject({ status: 'COMPLETED' });
-  } finally {
-    reachable.dispose();
-  }
 
-  for (const comparison of [
-    { status: 'diverged', behindBy: 1 },
-    { status: 'behind', behindBy: 1 }
-  ] satisfies GitHubComparisonObservation[]) {
-    const blocked = (await reducerFixture({ remoteDefaultSha: advancedMain, mergeToDefault: comparison }));
-    try {
-      blocked.transport.adoptMerged(blocked.markers, blocked.result.reviewReceipt,
-        blocked.artifact.session.sessionRevision);
-      await expect((async () => (await runReducer(blocked)))()).rejects.toThrow(/ancestor|reachability/i);
-    } finally {
-      blocked.dispose();
-    }
-  }
-  const invalidBase = (await reducerFixture({ baseToMerge: { status: 'diverged', behindBy: 1 } }));
-  try {
-    invalidBase.transport.adoptMerged(invalidBase.markers, invalidBase.result.reviewReceipt,
-      invalidBase.artifact.session.sessionRevision);
-    await expect((async () => (await runReducer(invalidBase)))()).rejects.toThrow(/old base ancestry/i);
-  } finally {
-    invalidBase.dispose();
-  }
-}, PHYSICAL_RUNTIME_AUTHORITY_TEST_TIMEOUT_MS);
 
-test('MERGED reachability permits detached old-base only with synchronized post-merge default', async () => {
-  const advancedMain = '8'.repeat(40);
-  const fixture = (await reducerFixture({ remoteDefaultSha: advancedMain,
-    mergeToDefault: { status: 'ahead', behindBy: 0 } }));
-  try {
-    fixture.transport.adoptMerged(fixture.markers, fixture.result.reviewReceipt,
-      fixture.artifact.session.sessionRevision);
-    const candidate = fixture.transport.candidate();
-    const proof = { currentHeadSha: BASE, currentBranch: '', localDefaultSha: advancedMain,
-      remoteDefaultSha: advancedMain, workingTreeClean: true,
-      runtimeEntrypointBlobMatched: true, boundaryTargetsMatched: true };
-    const input = { proof, repository: fixture.artifact.session.repository,
-      prNumber: fixture.artifact.session.prNumber, baseSha: fixture.artifact.session.baseSha,
-      headSha: fixture.artifact.session.headSha, headTreeSha: fixture.artifact.session.headTreeSha,
-      candidate, github: fixture.github };
-    expect(async () => (await assertTrustedMergedRequestRuntimeReachability(input))).not.toThrow();
-    await expect((async () => (await assertTrustedMergedRequestRuntimeReachability({ ...input,
-      proof: { ...proof, localDefaultSha: BASE } })))()).rejects.toThrow(/synchronized local\/live default/i);
-    await expect((async () => (await assertTrustedMergedRequestRuntimeReachability({ ...input,
-      proof: { ...proof, localDefaultSha: 'f'.repeat(40) } })))()).rejects.toThrow(/synchronized local\/live default/i);
-    await expect((async () => (await assertTrustedMergedRequestRuntimeReachability({ ...input,
-      proof: { ...proof, currentBranch: 'feature/foreign' } })))()).rejects.toThrow(/old-base trusted TCB/i);
-    await expect((async () => (await assertTrustedMergedRequestRuntimeReachability({ ...input,
-      proof: { ...proof, currentHeadSha: HEAD } })))()).rejects.toThrow(/old-base trusted TCB/i);
-  } finally {
-    fixture.dispose();
-  }
-}, PHYSICAL_RUNTIME_AUTHORITY_TEST_TIMEOUT_MS);
 
-test('actual reducer rejects OPEN base/head drift before any merge claim or effect', async () => {
-  for (const [field, value] of [
-    ['baseSha', 'f'.repeat(40)],
-    ['headSha', 'e'.repeat(40)]
-  ] as const) {
-    const fixture = (await reducerFixture());
-    try {
-      fixture.transport.observation = { ...fixture.transport.observation, [field]: value };
-      await expect((async () => (await runReducer(fixture)))()).rejects.toThrow(/live .* drifted/i);
-    } finally {
-      fixture.dispose();
-    }
-  }
-}, PHYSICAL_RUNTIME_AUTHORITY_TEST_TIMEOUT_MS);
 
-test('actual reducer rejects expired or already-consumed authorization before merge', async () => {
-  for (const fixture of [
-    (await reducerFixture({ authorizationExpiresAt: '2026-08-09T14:06:00.000Z', now: '2026-08-09T14:07:00.000Z' })),
-    (await reducerFixture({ consumed: true }))
-  ]) {
-    try {
-      await expect((async () => (await runReducer(fixture)))()).rejects.toThrow(/expired|already consumed/i);
-    } finally {
-      fixture.dispose();
-    }
-  }
-}, PHYSICAL_RUNTIME_AUTHORITY_TEST_TIMEOUT_MS);
 
-test('actual reducer binds IntegrationAuthorization to trusted live repository and PR', async () => {
-  for (const identity of [
-    { repository: 'attacker/fork' },
-    { prNumber: 99 }
-  ]) {
-    const fixture = (await reducerFixture());
-    try {
-      fixture.setAuthorizationResult(substituteAuthorizationLiveIdentity(fixture, identity));
-      await expect((async () => (await runReducer(fixture)))()).rejects.toThrow(/repository|prNumber/i);
-    } finally {
-      fixture.dispose();
-    }
-  }
-}, PHYSICAL_RUNTIME_AUTHORITY_TEST_TIMEOUT_MS);
 
-test('actual reducer rejects downloaded merge-result digest or provenance substitution', async () => {
-  for (const mutate of [
-    (value: Record<string, any>) => { value.resultDigest = `sha256:${'f'.repeat(64)}`; },
-    (value: Record<string, any>) => { value.provenance.sourceRunId = 'forged-run'; }
-  ]) {
-    const fixture = (await reducerFixture());
-    try {
-      const value = JSON.parse(encodeVerificationActionData(fixture.result)) as Record<string, any>;
-      mutate(value);
-      fixture.setAuthorizationResult(JSON.stringify(value));
-      await expect((async () => (await runReducer(fixture)))()).rejects.toThrow(/digest|provenance|issuer/i);
-    } finally {
-      fixture.dispose();
-    }
-  }
-}, PHYSICAL_RUNTIME_AUTHORITY_TEST_TIMEOUT_MS);
 
-test('actual reducer blocks merged-tree mismatch and blocked/residue closeout terminals', async () => {
-  const mismatch = (await reducerFixture());
-  try {
-    mismatch.transport.mergedTreeSha = 'd'.repeat(40);
-    expect((await runReducer(mismatch))).toMatchObject({ status: 'READY_TO_INTEGRATE' });
-    mismatch.transport.adoptMerged(mismatch.markers, mismatch.result.reviewReceipt,
-      mismatch.artifact.session.sessionRevision);
-    await expect((async () => (await runReducer(mismatch)))()).rejects.toThrow(/marker-bound candidate\/tree identity/i);
-  } finally {
-    mismatch.dispose();
-  }
-  for (const terminal of ['blocked', 'residue'] as const) {
-    const fixture = (await reducerFixture({ closeout: terminal }));
-    try {
-      expect((await runReducer(fixture))).toMatchObject({ status: 'READY_TO_INTEGRATE' });
-      fixture.transport.adoptMerged(fixture.markers, fixture.result.reviewReceipt,
-        fixture.artifact.session.sessionRevision);
-      expect((await runReducer(fixture))).toMatchObject({ status: 'BLOCKED', reason: `branch closeout terminal ${terminal}` });
-    } finally {
-      fixture.dispose();
-    }
-  }
-}, PHYSICAL_RUNTIME_AUTHORITY_TEST_TIMEOUT_MS);
 
-test('reducer emits one stable integration intent and never executes a physical merge', async () => {
-  const fixture = (await reducerFixture());
-  try {
-    const first = (await runReducer(fixture));
-    const replay = (await runReducer(fixture));
-    expect(first).toMatchObject({ status: 'READY_TO_INTEGRATE',
-      operationId: fixture.result.authorization.consumptionOperationId });
-    expect(replay).toMatchObject({ status: 'READY_TO_INTEGRATE', operationId: first.operationId });
-  } finally {
-    fixture.dispose();
-  }
-}, PHYSICAL_RUNTIME_AUTHORITY_TEST_TIMEOUT_MS);
+
+
+
+
+
+
+
 
 test('incomplete GitHub pagination fails closed before Review can clear', async () => {
   class IncompletePaginationTransport extends FakeTransport {
@@ -3444,388 +2960,11 @@ test('Session workflow join uses complete pages and rejects duplicate/conflictin
   )))()).rejects.toThrow(/pagination.*did not advance/i);
 });
 
-type CloseoutCliHarnessState = Record<string, any> & {
-  activeWorkPackageSelected: boolean;
-};
+let closeoutRawRuntime: ReturnType<typeof createRawTestExecutableFixture> | undefined;
 
-function readCloseoutCliHarnessState(statePath: string): CloseoutCliHarnessState {
-  return JSON.parse(readFileSync(statePath, 'utf8')) as CloseoutCliHarnessState;
-}
-
-function writeCloseoutCliHarnessState(statePath: string, state: CloseoutCliHarnessState): void {
-  writeFileSync(statePath, `${JSON.stringify(state, null, 2)}\n`, 'utf8');
-}
-
-function compileCloseoutCliProviderShims(root: string): string {
-  const shimRoot = path.join(root, 'provider-shims');
-  mkdirSync(shimRoot, { recursive: true });
-  const gitProgram = path.join(shimRoot, 'git-shim.ts');
-  const ghProgram = path.join(shimRoot, 'gh-shim.ts');
-  writeFileSync(gitProgram, `
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
-import path from 'node:path';
-const statePath = process.env.SEC_CLOSEOUT_TEST_STATE;
-if (!statePath) throw new Error('SEC_CLOSEOUT_TEST_STATE is required');
-const read = () => JSON.parse(readFileSync(statePath, 'utf8'));
-const save = (value) => writeFileSync(statePath, JSON.stringify(value, null, 2) + '\\n', 'utf8');
-const state = read();
-const args = process.argv.slice(2);
-const out = (value = '') => { process.stdout.write(String(value)); process.exit(0); };
-const fail = (value) => { process.stderr.write(String(value)); process.exit(1); };
-const branchRef = 'refs/heads/' + state.branch;
-if (args[0] === 'init' && args[1] === '--bare' && args[2] === '.') out('');
-if (args[0] === 'rev-parse' && args[1] === '--show-toplevel') out(state.repositoryRoot);
-if (args[0] === 'rev-parse' && args[1] === '--git-common-dir') out(state.commonDir);
-if (args[0] === 'rev-parse' && args[1] === 'HEAD') {
-  state.headReadValues = [...(state.headReadValues || []), state.baseSha];
-  save(state);
-  out(state.baseSha);
-}
-if (args[0] === 'rev-parse' && args[1] === 'refs/remotes/origin/main') out(state.localDefaultSha);
-if (args[0] === 'rev-parse' && args[1] === '--verify') out(state.headSha);
-if (args[0] === 'rev-parse' && args[1] === state.headSha + '^{tree}') out(state.headTreeSha);
-if (args[0] === 'rev-parse' && typeof args[1] === 'string' && args[1].includes(':')) {
-  const file = args[1].slice(args[1].indexOf(':') + 1);
-  out(state.tcbBlobs[file] || state.runtimeBlob);
-}
-if (args[0] === 'hash-object') {
-  const file = args[args.length - 1];
-  out(state.tcbBlobs[file] || state.runtimeBlob);
-}
-if (args[0] === 'branch' && args[1] === '--show-current') out('main');
-if (args[0] === 'status') out('');
-if (args[0] === '-C' && args.includes('status')) out('');
-if (args[0] === 'remote' && args[1] === 'get-url') out('https://github.com/' + state.repository + '.git');
-if (args[0] === 'symbolic-ref') out('origin/main');
-if (args[0] === 'for-each-ref') {
-  let value = 'main\\0' + state.baseSha + '\\0\\n';
-  if (state.localPresent) value += state.branch + '\\0' + state.headSha + '\\0\\n';
-  out(value);
-}
-if (args[0] === 'ls-remote') fail('plain ls-remote is forbidden');
-if (args[0] === '-c'
-  && args[1] === 'http.extraHeader='
-  && args[2] === '-c'
-  && args[3] === 'http.https://github.com/.extraheader='
-  && args[4] === '-c'
-  && args[5] === 'credential.helper='
-  && args[6] === '-c'
-  && args[7] === 'credential.helper=!gh auth git-credential'
-  && args[8] === 'ls-remote') {
-  const inventoryExpected = ['-c', 'http.extraHeader=', '-c',
-    'http.https://github.com/.extraheader=', '-c', 'credential.helper=', '-c',
-    'credential.helper=!gh auth git-credential', 'ls-remote', '--heads', 'origin'];
-  if (JSON.stringify(args) === JSON.stringify(inventoryExpected)) {
-    let value = state.liveDefaultSha + '\\trefs/heads/main\\n';
-    if (state.remotePresent) value += state.headSha + '\\t' + branchRef + '\\n';
-    out(value);
-  }
-  const requested = args[args.length - 1];
-  const expected = ['-c', 'http.extraHeader=', '-c', 'http.https://github.com/.extraheader=',
-    '-c', 'credential.helper=', '-c', 'credential.helper=!gh auth git-credential',
-    'ls-remote', '--exit-code', 'origin', requested];
-  if (JSON.stringify(args) !== JSON.stringify(expected)) fail('non-canonical remote default readback');
-  if (requested === 'refs/heads/main') {
-    state.liveDefaultReadCount = Number(state.liveDefaultReadCount || 0) + 1;
-    if (state.raceAfterRefOnlyFetch === true && Number(state.refOnlyFetchCount || 0) > 0) {
-      state.liveDefaultSha = state.racedDefaultSha;
-    }
-    save(state);
-    out(state.liveDefaultSha + '\\trefs/heads/main\\n');
-  }
-  if (requested === branchRef) {
-    state.credentialBoundBranchReadCount = Number(state.credentialBoundBranchReadCount || 0) + 1;
-    save(state);
-    if (state.remotePresent) out(state.headSha + '\\t' + branchRef + '\\n');
-    process.exit(2);
-  }
-  fail('unexpected credential-bound remote ref');
-}
-if (args[0] === 'worktree' && args[1] === 'list') {
-  out('worktree ' + state.repositoryRoot + '\\0HEAD ' + state.baseSha + '\\0branch refs/heads/main\\0\\0');
-}
-if (args[0] === 'config') out('true');
-if (args[0] === 'fetch') out('');
-if (args[0] === '-c'
-  && args[1] === 'http.extraHeader='
-  && args[2] === '-c'
-  && args[3] === 'http.https://github.com/.extraheader='
-  && args[4] === '-c'
-  && args[5] === 'credential.helper='
-  && args[6] === '-c'
-  && args[7] === 'credential.helper=!gh auth git-credential'
-  && args[8] === 'fetch') {
-  const expected = ['-c', 'http.extraHeader=', '-c', 'http.https://github.com/.extraheader=',
-    '-c', 'credential.helper=', '-c', 'credential.helper=!gh auth git-credential',
-    'fetch', '--no-tags', '--no-recurse-submodules', 'origin',
-    '+refs/heads/main:refs/remotes/origin/main'];
-  if (JSON.stringify(args) !== JSON.stringify(expected)) fail('non-canonical ref-only fetch');
-  state.refOnlyFetchCount = Number(state.refOnlyFetchCount || 0) + 1;
-  save(state);
-  if (state.refOnlyFetchFailure === true) fail('simulated ref-only fetch failure');
-  state.localDefaultSha = state.liveDefaultSha;
-  save(state);
-  out('');
-}
-if (args[0] === 'bundle' && args[1] === 'create') {
-  mkdirSync(path.dirname(args[2]), { recursive: true });
-  writeFileSync(args[2], Buffer.from('canonical V6 recovery bundle bytes'));
-  out('');
-}
-if (args[0] === 'bundle' && args[1] === 'verify') out('verified V6 recovery bundle');
-if (args[0] === 'cat-file' && args[1] === '-e') {
-  if (String(args[2]).includes('src/adapters/self-hosting/control/branch-lifecycle/branch-closeout-receipt.ts')) fail('missing enforcement marker');
-  out('');
-}
-if (args[0] === 'update-ref' && args[1] === '-d') {
-  if (args[2] === branchRef) {
-    state.localPresent = false;
-    state.localDeleteCount += 1;
-    save(state);
-  }
-  out('');
-}
-if (args[0] === '-c'
-  && args[1] === 'http.extraHeader='
-  && args[2] === '-c'
-  && args[3] === 'http.https://github.com/.extraheader='
-  && args[4] === '-c'
-  && args[5] === 'credential.helper='
-  && args[6] === '-c'
-  && args[7] === 'credential.helper=!gh auth git-credential'
-  && args[8] === 'push'
-  && args.includes(':' + branchRef)) {
-  state.remoteDeleteCount += 1;
-  state.remotePresent = false;
-  const crash = state.crashAfterDelete === true && state.crashInjected !== true;
-  if (crash) {
-    state.crashInjected = true;
-    state.crashShimPid = process.pid;
-  }
-  save(state);
-  if (crash) {
-    if (typeof state.crashReleasePath !== 'string' || state.crashReleasePath.length === 0) {
-      fail('crashReleasePath is required for the closeout crash barrier');
-    }
-    while (!existsSync(state.crashReleasePath)) {
-      await new Promise((resolve) => setTimeout(resolve, 10));
-    }
-    process.exit(0);
-  }
-  out('deleted ' + branchRef);
-}
-if (args[0] === 'remote' && args[1] === 'prune') {
-  state.pruneCount += 1;
-  save(state);
-  out('');
-}
-fail('unsupported test git command: ' + args.join(' '));
-`, 'utf8');
-  writeFileSync(ghProgram, `
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
-import path from 'node:path';
-const statePath = process.env.SEC_CLOSEOUT_TEST_STATE;
-if (!statePath) throw new Error('SEC_CLOSEOUT_TEST_STATE is required');
-const read = () => JSON.parse(readFileSync(statePath, 'utf8'));
-const save = (value) => writeFileSync(statePath, JSON.stringify(value, null, 2) + '\\n', 'utf8');
-const state = read();
-const args = process.argv.slice(2);
-const out = (value) => { process.stdout.write(typeof value === 'string' ? value : JSON.stringify(value)); process.exit(0); };
-const fail = (value) => { process.stderr.write(String(value)); process.exit(1); };
-const endpoint = args.find((arg) => typeof arg === 'string'
-  && (arg.startsWith('/repos/') || arg.startsWith('/users/'))) || '';
-const run = (id) => state.runs[String(id)];
-const actionsComment = (id, body, appMode = 'canonical') => ({
-  id,
-  body,
-  created_at: '2026-08-09T14:05:00.000Z',
-  author_association: 'MEMBER',
-  user: { login: state.publisher.bot.login, id: state.publisher.bot.id,
-    node_id: state.publisher.bot.nodeId, type: state.publisher.bot.type },
-  performed_via_github_app: appMode === 'null' ? null : {
-    id: appMode === 'wrong' ? state.publisher.app.id + 1 : state.publisher.app.id,
-    node_id: state.publisher.app.nodeId,
-    slug: state.publisher.app.slug
-  }
-});
-if (args[0] === 'api' && args[1] === 'graphql') {
-  const idArgument = args.find((arg) => typeof arg === 'string' && arg.startsWith('id='));
-  const nodeId = idArgument?.slice(3) || '';
-  const principal = Object.entries(state.principals)
-    .find(([, value]) => value.nodeId === nodeId);
-  if (!principal) fail('unknown principal node: ' + nodeId);
-  out({ data: { node: { id: nodeId, login: principal[0] } } });
-}
-if (args[0] === 'run' && args[1] === 'download') {
-  const name = args[args.indexOf('--name') + 1];
-  const directory = args[args.indexOf('--dir') + 1];
-  const files = state.artifactFiles[name];
-  if (!files) fail('artifact not found: ' + name);
-  mkdirSync(directory, { recursive: true });
-  for (const [fileName, source] of Object.entries(files)) {
-    writeFileSync(path.join(directory, fileName), String(source), 'utf8');
-  }
-  out('');
-}
-if (args[0] === 'pr' && args[1] === 'view') {
-  out({ number: 42, state: 'MERGED', isDraft: false, isCrossRepository: false,
-    author: { id: 'AUTHOR' }, baseRefName: 'main', baseRefOid: state.baseSha,
-    headRefName: state.branch, headRefOid: state.headSha,
-    title: 'Legacy marker-bound closeout candidate', body: '',
-    mergeCommit: { oid: state.mergeCommitSha } });
-}
-if (args[0] === 'pr' && args[1] === 'list') {
-  out([{ number: 42, headRefName: state.branch, headRefOid: state.headSha,
-    baseRefName: 'main', baseRefOid: state.baseSha, state: state.inventoryPrState,
-    isDraft: false, isCrossRepository: false, url: 'https://github.example/pull/42' }]);
-}
-if (endpoint.includes('/contents/src/adapters/self-hosting/control/branch-lifecycle/branch-closeout-receipt.ts')) fail('HTTP 404 Not Found');
-if (endpoint === '/repos/' + state.repository && args.includes('.delete_branch_on_merge')) out('true');
-if (endpoint === '/repos/' + state.repository) {
-  out({ id: Number(state.repositoryId), full_name: state.repository,
-    default_branch: 'main', delete_branch_on_merge: true });
-}
-if (endpoint.startsWith('/repos/' + state.repository + '/collaborators/')) {
-  const login = endpoint.split('/').at(-2);
-  const principal = state.principals[login];
-  if (!principal) fail('unknown collaborator: ' + login);
-  state.principalPermissionLookups.push(login);
-  save(state);
-  out(principal.permission);
-}
-if (endpoint.startsWith('/users/')) {
-  const login = endpoint.split('/').at(-1);
-  const principal = state.principals[login];
-  if (!principal) fail('unknown user: ' + login);
-  state.principalUserLookups.push(login);
-  save(state);
-  out({ login, node_id: principal.nodeId });
-}
-if (endpoint === '/repos/' + state.repository + '/git/commits/' + state.baseSha) out(state.baseTreeSha);
-if (endpoint === '/repos/' + state.repository + '/git/commits/' + state.headSha) out(state.headTreeSha);
-if (endpoint === '/repos/' + state.repository + '/git/commits/' + state.mergeCommitSha) {
-  out({ tree: { sha: state.headTreeSha }, message: state.mergeMessage });
-}
-if (endpoint.startsWith('/repos/' + state.repository + '/compare/')) out({
-  status: state.liveDefaultSha === state.mergeCommitSha ? 'identical' : 'ahead',
-  ahead_by: state.liveDefaultSha === state.mergeCommitSha ? 0 : 1,
-  behind_by: 0,
-  base_commit: { sha: state.mergeCommitSha },
-  merge_base_commit: { sha: state.mergeCommitSha }
-});
-if (endpoint.includes('/actions/runs?head_sha=')) {
-  const currentRun = run(200);
-  out([{ workflow_runs: [{ id: 200,
-    name: 'integrate compiler session run 100 attempt 1',
-    display_title: 'integrate compiler session run 100 attempt 1',
-    path: '.github/workflows/merge-gate.yml', event: 'workflow_run',
-    status: 'in_progress', conclusion: null, head_sha: state.baseSha,
-    run_attempt: currentRun.run_attempt, updated_at: '2026-08-09T14:05:00.000Z' }] }]);
-}
-const endpointParts = endpoint.split('/');
-const jobInventoryPrefix = '/repos/' + state.repository + '/actions/runs/';
-const jobInventorySuffix = '/jobs?per_page=100';
-const jobInventoryIdentity = endpoint.startsWith(jobInventoryPrefix)
-  && endpoint.endsWith(jobInventorySuffix)
-  ? endpoint.slice(jobInventoryPrefix.length, -jobInventorySuffix.length).split('/attempts/')
-  : [];
-if (args[0] === 'api' && args.length === 4 && args[2] === '--paginate'
-  && args[3] === '--slurp' && jobInventoryIdentity.length === 2
-  && /^[1-9][0-9]*$/.test(jobInventoryIdentity[0])
-  && /^[1-9][0-9]*$/.test(jobInventoryIdentity[1])) {
-  const [jobRunId, jobRunAttempt] = jobInventoryIdentity;
-  const phaseNames = state.phaseStepNames;
-  const current = state.currentPhase;
-  const currentRunAttempt = Number(run(jobRunId).run_attempt);
-  const isCurrentAttempt = Number(jobRunAttempt) === currentRunAttempt;
-  const order = ['recoveryPreparation', 'integration', 'closeoutMutation', 'closeoutPublication'];
-  const currentIndex = order.indexOf(current);
-  const steps = order.map((phase, index) => !isCurrentAttempt
-    ? index < currentIndex
-      ? { name: phaseNames[phase], number: index + 1, status: 'completed', conclusion: 'success',
-          started_at: '2026-08-09T14:00:00.000Z', completed_at: '2026-08-09T14:04:00.000Z' }
-      : { name: phaseNames[phase], number: index + 1, status: 'completed', conclusion: 'skipped',
-          started_at: null, completed_at: '2026-08-09T14:04:00.000Z' }
-    : index < currentIndex
-    ? { name: phaseNames[phase], number: index + 1, status: 'completed', conclusion: 'success',
-        started_at: '2026-08-09T14:00:00.000Z', completed_at: '2026-08-09T14:04:00.000Z' }
-    : index === currentIndex
-      ? { name: phaseNames[phase], number: index + 1, status: 'in_progress', conclusion: null,
-          started_at: '2026-08-09T14:05:00.000Z', completed_at: null }
-      : { name: phaseNames[phase], number: index + 1, status: 'queued', conclusion: null,
-          started_at: null, completed_at: null });
-  out([{ jobs: [{ id: 300 + Number(jobRunAttempt), run_id: Number(jobRunId), run_attempt: Number(jobRunAttempt),
-    name: 'integrate', status: isCurrentAttempt ? 'in_progress' : 'completed',
-    conclusion: isCurrentAttempt ? null : 'success', head_sha: state.baseSha,
-    started_at: '2026-08-09T14:00:00.000Z', completed_at: null, steps }] }]);
-}
-const runArtifactInventoryPrefix = '/repos/' + state.repository + '/actions/runs/';
-const runArtifactInventorySuffix = '/artifacts?per_page=100';
-const runArtifactInventoryId = endpoint.startsWith(runArtifactInventoryPrefix)
-  && endpoint.endsWith(runArtifactInventorySuffix)
-  ? endpoint.slice(runArtifactInventoryPrefix.length, -runArtifactInventorySuffix.length)
-  : '';
-if (args[0] === 'api' && args.length === 4 && args[2] === '--paginate'
-  && args[3] === '--slurp' && /^[1-9][0-9]*$/.test(runArtifactInventoryId)) {
-  const artifacts = state.artifactsByRun[runArtifactInventoryId] || [];
-  out([{ total_count: artifacts.length, artifacts }]);
-}
-const exactRunAttemptPattern = new RegExp('^/repos/' + state.repository.replace('/', '\\/')
-  + '/actions/runs/([1-9][0-9]*)/attempts/([1-9][0-9]*)$');
-const exactRunAttempt = exactRunAttemptPattern.exec(endpoint);
-if (exactRunAttempt) {
-  const historical = run(exactRunAttempt[1]);
-  const requestedAttempt = Number(exactRunAttempt[2]);
-  if (!historical || requestedAttempt > Number(historical.run_attempt)) {
-    fail('historical workflow run attempt not found');
-  }
-  out({ ...historical, run_attempt: state.historicalAttemptMismatch === true
-    && exactRunAttempt[1] === '200' ? requestedAttempt + 1 : requestedAttempt });
-}
-if (endpoint.includes('/actions/artifacts/')) out(state.artifactDetails[endpointParts.at(-1)]);
-if (endpoint.includes('/actions/runs/') && !endpoint.includes('?')
-  && !endpoint.includes('/attempts/') && !endpoint.endsWith('/artifacts')) {
-  out(run(endpointParts.at(-1)));
-}
-const commentsEndpoint = '/repos/' + state.repository + '/issues/42/comments';
-if (args.includes('-X') && args.includes('POST') && endpoint === commentsEndpoint) {
-  const bodyArg = args.find((arg) => typeof arg === 'string' && arg.startsWith('body='));
-  if (!bodyArg) fail('missing comment body');
-  const created = actionsComment(state.nextCommentId++, bodyArg.slice(5), state.nextPostAppMode || 'canonical');
-  state.commentPostCount = Number(state.commentPostCount || 0) + 1;
-  state.comments.push(created);
-  const lost = state.nextPostDisposition === 'lost';
-  state.nextPostDisposition = 'success';
-  state.nextPostAppMode = 'canonical';
-  save(state);
-  if (lost) fail('simulated lost POST response');
-  out(created);
-}
-if (endpoint === commentsEndpoint + '?per_page=100') out([state.comments]);
-if (endpoint.includes('/issues/comments/')) {
-  const comment = state.comments.find((entry) => entry.id === Number(endpointParts.at(-1)));
-  if (!comment) fail('HTTP 404 comment missing');
-  out(comment);
-}
-fail('unsupported test gh command: ' + args.join(' '));
-`, 'utf8');
-  if (process.platform === 'win32') {
-    for (const [source, output] of [[gitProgram, 'git.exe'], [ghProgram, 'gh.exe']] as const) {
-      const compiled = spawnSync(process.execPath, ['build', '--compile', source,
-        '--outfile', path.join(shimRoot, output)], { cwd: shimRoot, encoding: 'utf8', windowsHide: true });
-      if (compiled.status !== 0) {
-        throw new Error(`cannot compile ${output}: ${compiled.stderr || compiled.stdout}`);
-      }
-    }
-  } else {
-    for (const [name, source] of [['git', gitProgram], ['gh', ghProgram]] as const) {
-      const executable = path.join(shimRoot, name);
-      writeFileSync(executable,
-        `#!/usr/bin/env sh\nexec "${process.execPath}" "${source}" "$@"\n`, 'utf8');
-      chmodSync(executable, 0o755);
-    }
-  }
-  return shimRoot;
+function closeoutRuntimeCommand(): string {
+  if (closeoutRawRuntime === undefined) throw new Error('Closeout runtime fixture is not acquired');
+  return closeoutRawRuntime.command;
 }
 
 function closeoutHarnessActionsComment(
@@ -3849,39 +2988,6 @@ function closeoutHarnessActionsComment(
   };
 }
 
-function withCloseoutHarnessCommands<T>(
-  shimRoot: string,
-  statePath: string,
-  recoveryRoot: string,
-  run: () => T
-): T {
-  const previous = {
-    path: process.env.PATH,
-    state: process.env.SEC_CLOSEOUT_TEST_STATE,
-    recovery: process.env.SEC_BRANCH_RECOVERY_ROOT
-  };
-  process.env.PATH = `${shimRoot}${path.delimiter}${previous.path ?? ''}`;
-  process.env.SEC_CLOSEOUT_TEST_STATE = statePath;
-  process.env.SEC_BRANCH_RECOVERY_ROOT = recoveryRoot;
-  try {
-    return run();
-  } finally {
-    if (previous.path === undefined) delete process.env.PATH;
-    else process.env.PATH = previous.path;
-    if (previous.state === undefined) delete process.env.SEC_CLOSEOUT_TEST_STATE;
-    else process.env.SEC_CLOSEOUT_TEST_STATE = previous.state;
-    if (previous.recovery === undefined) delete process.env.SEC_BRANCH_RECOVERY_ROOT;
-    else process.env.SEC_BRANCH_RECOVERY_ROOT = previous.recovery;
-  }
-}
-
-let closeoutTcbClosureIdentity: ReturnType<typeof compileTcbClosureIdentity> | null = null;
-
-function closeoutTcbModuleBlobs(): Readonly<Record<string, string>> {
-  closeoutTcbClosureIdentity ??= compileTcbClosureIdentity();
-  return closeoutTcbClosureIdentity.moduleBlobs;
-}
-
 function createCloseoutCliScenario(input: {
   harnessRoot: string;
   recoveryHarnessRoot: string;
@@ -3901,134 +3007,8 @@ function createCloseoutCliScenario(input: {
     permission: 'admin' | 'maintain' | 'write';
   }>;
 }) {
-  const root = path.join(input.harnessRoot, input.name);
-  const commonDir = path.join(root, '.git');
-  const providerRecoveryRoot = path.join(input.recoveryHarnessRoot, input.name, 'provider');
-  const recoveryRoot = path.join(input.recoveryHarnessRoot, input.name, 'rehydrated');
-  mkdirSync(path.join(root, 'scripts', 'codex'), { recursive: true });
-  mkdirSync(path.join(root, 'config', 'external-capabilities'), { recursive: true });
-  writeFileSync(path.join(root, 'config', 'external-capabilities', 'ledger.yaml'),
-    readFileSync(path.resolve(import.meta.dir,
-      '../../config/external-capabilities/ledger.yaml')));
-  mkdirSync(commonDir, { recursive: true });
-  const statePath = path.join(root, 'provider-state.json');
-  const tcbBlobs: Record<string, string> = { ...closeoutTcbModuleBlobs() };
-  for (const edge of SEC_TRUSTED_BOOTSTRAP_REGISTRY.reviewedBoundaryEdges) {
-    const target = edge.split(' -> ')[1];
-    if (target !== undefined && tcbBlobs[target] === undefined) tcbBlobs[target] = 'd'.repeat(40);
-  }
-  const currentRunAttempt = input.currentRunAttempt ?? 1;
-  const triggeringPrincipal = input.triggeringPrincipal ?? {
-    login: 'integrator', nodeId: 'INTEGRATOR', permission: 'maintain' as const
-  };
-  const baseState: CloseoutCliHarnessState = {
-    repositoryRoot: root,
-    commonDir,
-    recoveryRoot,
-    repository: 'sec-platform/sec',
-    repositoryId: '123',
-    branch: 'feat/example',
-    baseSha: BASE,
-    baseTreeSha: BASE,
-    headSha: HEAD,
-    headTreeSha: HEAD,
-    mergeCommitSha: '9'.repeat(40),
-    liveDefaultSha: BASE,
-    localDefaultSha: BASE,
-    racedDefaultSha: '8'.repeat(40),
-    liveDefaultReadCount: 0,
-    refOnlyFetchCount: 0,
-    credentialBoundBranchReadCount: 0,
-    refOnlyFetchFailure: false,
-    raceAfterRefOnlyFetch: false,
-    headReadValues: [],
-    mergeMessage: '',
-    localPresent: true,
-    remotePresent: true,
-    activeWorkPackageSelected: true,
-    inventoryPrState: 'OPEN',
-    remoteDeleteCount: 0,
-    mergeRequestCount: 0,
-    commentPostCount: 0,
-    localDeleteCount: 0,
-    pruneCount: 0,
-    crashAfterDelete: input.crashAfterDelete === true,
-    crashInjected: false,
-    crashReleasePath: path.join(root, 'crash-shim.release'),
-    crashShimPid: null,
-    tcbBlobs,
-    runtimeBlob: tcbBlobs['src/adapters/verification/platform/ci/runtime/verification-session-runtime.ts'] ?? 'e'.repeat(40),
-    publisher: CI_GITHUB_ACTIONS_IDENTITY_POLICY,
-    phaseStepNames: HOSTED_INTEGRATION_PHASE_STEP_NAMES,
-    currentPhase: 'closeoutMutation',
-    nextCommentId: 1000,
-    nextPostDisposition: input.postDisposition ?? 'success',
-    nextPostAppMode: 'canonical',
-    historicalAttemptMismatch: input.historicalAttemptMismatch === true,
-    principals: {
-      integrator: { nodeId: 'INTEGRATOR', permission: 'maintain' },
-      [triggeringPrincipal.login]: {
-        nodeId: triggeringPrincipal.nodeId,
-        permission: triggeringPrincipal.permission
-      }
-    },
-    principalUserLookups: [],
-    principalPermissionLookups: [],
-    comments: [],
-    artifactsByRun: {},
-    artifactDetails: {},
-    artifactFiles: {},
-    runs: {
-      100: { id: 100, run_attempt: 1, status: 'completed', conclusion: 'success',
-        workflow_id: 307443415, event: 'repository_dispatch',
-        path: '.github/workflows/compiler-pr-validation.yml', head_sha: BASE,
-        actor: { login: 'integrator', node_id: 'INTEGRATOR' },
-        triggering_actor: { login: 'integrator', node_id: 'INTEGRATOR' },
-        repository: { id: 123 } },
-      199: { id: 199, run_attempt: 1, event: 'workflow_run',
-        path: '.github/workflows/merge-gate.yml', head_sha: BASE,
-        actor: { login: CI_GITHUB_ACTIONS_IDENTITY_POLICY.bot.login,
-          id: CI_GITHUB_ACTIONS_IDENTITY_POLICY.bot.id,
-          node_id: CI_GITHUB_ACTIONS_IDENTITY_POLICY.bot.nodeId,
-          type: CI_GITHUB_ACTIONS_IDENTITY_POLICY.bot.type },
-        triggering_actor: { login: 'integrator', node_id: 'INTEGRATOR' }, repository: { id: 123 } },
-      200: { id: 200, run_attempt: currentRunAttempt, event: 'workflow_run',
-        path: '.github/workflows/merge-gate.yml', head_sha: BASE,
-        actor: { login: CI_GITHUB_ACTIONS_IDENTITY_POLICY.bot.login,
-          id: CI_GITHUB_ACTIONS_IDENTITY_POLICY.bot.id,
-          node_id: CI_GITHUB_ACTIONS_IDENTITY_POLICY.bot.nodeId,
-          type: CI_GITHUB_ACTIONS_IDENTITY_POLICY.bot.type }, triggering_actor: {
-          login: triggeringPrincipal.login, node_id: triggeringPrincipal.nodeId
-        }, repository: { id: 123 } }
-    }
-  };
-  writeCloseoutCliHarnessState(statePath, baseState);
-  writeFileSync(path.join(root, 'scripts', 'codex', 'document-control-plane.ts'), `
-import { readFileSync } from 'node:fs';
-const state = JSON.parse(readFileSync(process.env.SEC_CLOSEOUT_TEST_STATE, 'utf8'));
-process.stdout.write(JSON.stringify(state.activeWorkPackageSelected
-  ? { activeWorkPackage: { state: 'active', manifest: '${V6_MANIFEST_PATH}' },
-      workspace: { branch: state.branch } }
-  : { activeWorkPackage: { state: 'none', manifest: null }, workspace: { branch: null } }));
-`, 'utf8');
-  const prepared = withCloseoutHarnessCommands(input.shimRoot, statePath, providerRecoveryRoot, () => (
-    prepareBranchCloseout({ repositoryRoot: root }, {
-      branch: 'feat/example', expectedHeadSha: HEAD, pullRequestNumber: 42
-    })
-  ));
-  const recoveryBundleBytes = readFileSync(prepared.preparation.recovery.path);
-  const state = readCloseoutCliHarnessState(statePath);
-  state.inventoryPrState = 'MERGED';
-  state.activeWorkPackageSelected = false;
-  state.liveDefaultSha = state.mergeCommitSha;
-  state.localDefaultSha = state.mergeCommitSha;
-  writeCloseoutCliHarnessState(statePath, state);
-  const rehydratedPrepared = withCloseoutHarnessCommands(input.shimRoot, statePath, recoveryRoot,
-    () => rehydratePreparedBranchCloseoutRecoveryArtifact({
-      scope: { repositoryRoot: root },
-      remote: prepared,
-      recoveryBundleBytes
-    }));
+  const { root, statePath, recoveryRoot, prepared, rehydratedPrepared, recoveryBundleBytes, state, baseState } =
+    prepareCloseoutCliScenario({ ...input, baseSha: BASE, headSha: HEAD, manifestPath: V6_MANIFEST_PATH });
   const recoveryArtifact = createBranchCloseoutRecoveryArtifact({
     repository: 'sec-platform/sec',
     pullRequestNumber: 42,
@@ -4198,7 +3178,8 @@ function runCloseoutCliProcess(
   const environment = closeoutCliProcessEnvironment(shimRoot, scenario);
   const ghResolution = resolveCloseoutCliGh(environment);
   const startedAt = Date.now();
-  const result = spawnSync(process.execPath, [
+  const result = spawnSync(closeoutRuntimeCommand(), [
+    '--preload', path.resolve(import.meta.dir, '../helpers/closeout-cli/http-preload.ts'),
     path.resolve(import.meta.dir, '../../src/adapters/verification/platform/ci/runtime/verification-session.ts'),
     command,
     '--repository', 'sec-platform/sec',
@@ -4226,7 +3207,8 @@ function startCloseoutCliProcess(
   const output = path.join(scenario.root, `${command}-${state.invocationCount}.json`);
   const environment = closeoutCliProcessEnvironment(shimRoot, scenario);
   const ghResolution = resolveCloseoutCliGh(environment);
-  const child = spawn(process.execPath, [
+  const child = spawn(closeoutRuntimeCommand(), [
+    '--preload', path.resolve(import.meta.dir, '../helpers/closeout-cli/http-preload.ts'),
     path.resolve(import.meta.dir, '../../src/adapters/verification/platform/ci/runtime/verification-session.ts'),
     command,
     '--repository', 'sec-platform/sec',
@@ -4385,9 +3367,14 @@ function closeoutCliProcessEnvironment(
 ): NodeJS.ProcessEnv {
   const state = readCloseoutCliHarnessState(scenario.statePath);
   const environment: NodeJS.ProcessEnv = {
-    ...process.env,
+    ...Object.fromEntries(Object.entries(process.env).filter(([key]) =>
+      !/^(?:GH_|GITHUB_|GIT_|BUN_OPTIONS$|NODE_OPTIONS$)/iu.test(key))),
+    GH_TOKEN: 'ghp_closeout_fixture_token_000000000000',
+    GITHUB_ACTIONS: 'true',
+    GITHUB_SERVER_URL: 'https://github.com',
+    GITHUB_API_URL: 'https://api.github.com',
+    GITHUB_EVENT_NAME: 'workflow_run',
     SEC_CLOSEOUT_TEST_STATE: scenario.statePath,
-    SEC_BRANCH_RECOVERY_ROOT: scenario.recoveryRoot,
     GITHUB_EVENT_PATH: scenario.eventPath,
     GITHUB_REPOSITORY: 'sec-platform/sec',
     GITHUB_REPOSITORY_ID: '123',
@@ -4497,22 +3484,21 @@ function assertCloseoutCliProcessSucceeded(
 let sharedCloseoutCliShimSuiteRoot = '';
 let sharedCloseoutCliShimRoot = '';
 
-beforeAll(() => {
-  if (!CLOSEOUT_CLI_E2E_ENABLED) return;
-  sharedCloseoutCliShimSuiteRoot = mkdtempSync(
-    path.join(tmpdir(), 'sec-verification-session-v6-shims-')
-  );
-  sharedCloseoutCliShimRoot = compileCloseoutCliProviderShims(sharedCloseoutCliShimSuiteRoot);
-});
+
 
 afterAll(() => {
-  testImpactFixture.dispose();
-  if (sharedCloseoutCliShimSuiteRoot !== '') {
-    rmSync(sharedCloseoutCliShimSuiteRoot, { recursive: true, force: true });
-  }
-  if (privateGhProxySuiteRoot !== '') {
-    rmSync(privateGhProxySuiteRoot, { recursive: true, force: true });
-  }
+  settleResources({ cleanup: [
+    { label: 'exact-test-impact-fixture', settle: () => testImpactFixture?.dispose() },
+    { label: 'closeout-shim-root', settle: () => {
+      if (sharedCloseoutCliShimSuiteRoot !== '') rmSync(sharedCloseoutCliShimSuiteRoot, { recursive: true, force: true });
+    } },
+    { label: 'private-credential-shim-root', settle: () => {
+      if (privateGhProxySuiteRoot !== '') rmSync(privateGhProxySuiteRoot, { recursive: true, force: true });
+    } },
+    { label: 'closeout-held-runtime', settle: () => {
+      try { closeoutRawRuntime?.dispose(); } finally { closeoutRawRuntime = undefined; }
+    } }
+  ] });
 });
 
 async function withCloseoutCliPartition<T>(run: (input: Readonly<{
@@ -4520,17 +3506,24 @@ async function withCloseoutCliPartition<T>(run: (input: Readonly<{
   recoveryHarnessRoot: string;
   shimRoot: string;
   fixture: Awaited<ReturnType<typeof reducerFixture>>;
-}>) => T): Promise<T> {
-  const harnessRoot = mkdtempSync(path.join(tmpdir(), 'sec-verification-session-v6-cli-'));
-  const recoveryHarnessRoot = mkdtempSync(path.join(tmpdir(), 'sec-verification-session-v6-recovery-'));
-  const fixture = (await reducerFixture());
-  try {
-    return run({ harnessRoot, recoveryHarnessRoot, shimRoot: sharedCloseoutCliShimRoot, fixture });
-  } finally {
-    fixture.dispose();
-    rmSync(harnessRoot, { recursive: true, force: true });
-    rmSync(recoveryHarnessRoot, { recursive: true, force: true });
-  }
+}>) => T | Promise<T>): Promise<T> {
+  return await withAcquiredResource({
+    operationLabel: 'closeout-fixture-partition', resourceLabel: 'closeout-fixture-harness',
+    acquire: () => mkdtempSync(path.join(tmpdir(), 'sec-verification-session-v6-cli-')),
+    use: async harnessRoot => await withAcquiredResource({
+      operationLabel: 'closeout-fixture-recovery-partition', resourceLabel: 'closeout-fixture-recovery-root',
+      acquire: () => mkdtempSync(path.join(tmpdir(), 'sec-verification-session-v6-recovery-')),
+      use: async recoveryHarnessRoot => await withAcquiredResource({
+        operationLabel: 'closeout-fixture-case', resourceLabel: 'closeout-reducer-fixture',
+        acquire: () => reducerFixture(),
+        use: async fixture => await run({ harnessRoot, recoveryHarnessRoot,
+          shimRoot: sharedCloseoutCliShimRoot, fixture }),
+        release: fixture => fixture.dispose()
+      }),
+      release: recoveryHarnessRoot => rmSync(recoveryHarnessRoot, { recursive: true, force: true })
+    }),
+    release: harnessRoot => rmSync(harnessRoot, { recursive: true, force: true })
+  });
 }
 
 async function withCloseoutCliPartitionSettled<T>(run: (input: Readonly<{
@@ -4539,17 +3532,7 @@ async function withCloseoutCliPartitionSettled<T>(run: (input: Readonly<{
   shimRoot: string;
   fixture: Awaited<ReturnType<typeof reducerFixture>>;
 }>) => Promise<T>): Promise<T> {
-  const harnessRoot = mkdtempSync(path.join(tmpdir(), 'sec-verification-session-v6-cli-'));
-  const recoveryHarnessRoot = mkdtempSync(path.join(tmpdir(), 'sec-verification-session-v6-recovery-'));
-  const fixture = (await reducerFixture());
-  try {
-    return await run({ harnessRoot, recoveryHarnessRoot, shimRoot: sharedCloseoutCliShimRoot,
-      fixture });
-  } finally {
-    fixture.dispose();
-    rmSync(harnessRoot, { recursive: true, force: true });
-    rmSync(recoveryHarnessRoot, { recursive: true, force: true });
-  }
+  return await withCloseoutCliPartition(run);
 }
 
 test('prepared cleanup route never calls a local consumer for foreign observations', async () => {
@@ -4596,316 +3579,21 @@ test('prepared cleanup route invokes the local sequence once for the exact targe
   })).rejects.toThrow('same-host-worktree-closeout-required');
 });
 
-closeoutCliE2eTest('trusted remote default ref synchronization closes ordinary merge and merged recovery safely', async () => {
-  (await withCloseoutCliPartition(({ harnessRoot, recoveryHarnessRoot, shimRoot, fixture }) => {
-    const runRecovery = (name: string, configure?: (state: CloseoutCliHarnessState) => void) => {
-      const scenario = createCloseoutCliScenario({ harnessRoot, recoveryHarnessRoot, shimRoot,
-        name, fixture });
-      const state = readCloseoutCliHarnessState(scenario.statePath);
-      state.currentPhase = 'closeoutMutation';
-      state.localDefaultSha = BASE;
-      state.liveDefaultReadCount = 0;
-      state.refOnlyFetchCount = 0;
-      state.headReadValues = [];
-      configure?.(state);
-      writeCloseoutCliHarnessState(scenario.statePath, state);
-      return { scenario, result: runCloseoutCliProcess(shimRoot, scenario, 'integrate-hosted') };
-    };
 
-    const exact = runRecovery('ref-sync-exact');
-    assertCloseoutCliProcessSucceeded('integrate-hosted merged recovery ref synchronization',
-      exact.result);
-    expect(JSON.parse(readFileSync(exact.result.output, 'utf8'))).toMatchObject({
-      lane: 'merged-recovery'
-    });
-    expect(readCloseoutCliHarnessState(exact.scenario.statePath)).toMatchObject({
-      localDefaultSha: '9'.repeat(40),
-      liveDefaultSha: '9'.repeat(40),
-      refOnlyFetchCount: 1,
-      mergeRequestCount: 0,
-      commentPostCount: 0,
-      remoteDeleteCount: 0
-    });
-    expect(new Set(readCloseoutCliHarnessState(exact.scenario.statePath).headReadValues))
-      .toEqual(new Set([BASE]));
 
-    const failed = runRecovery('ref-sync-fetch-failure', (state) => {
-      state.refOnlyFetchFailure = true;
-    });
-    expect(failed.result.result.status).not.toBe(0);
-    expect(readCloseoutCliHarnessState(failed.scenario.statePath)).toMatchObject({
-      localDefaultSha: BASE,
-      refOnlyFetchCount: 1,
-      mergeRequestCount: 0,
-      commentPostCount: 0,
-      remoteDeleteCount: 0
-    });
 
-    const raced = runRecovery('ref-sync-race', (state) => {
-      state.raceAfterRefOnlyFetch = true;
-    });
-    expect(raced.result.result.status).not.toBe(0);
-    expect(raced.result.result.stderr).toMatch(/changed during synchronized ref-only fetch/i);
-    expect(readCloseoutCliHarnessState(raced.scenario.statePath)).toMatchObject({
-      localDefaultSha: '9'.repeat(40),
-      liveDefaultSha: '8'.repeat(40),
-      refOnlyFetchCount: 1,
-      mergeRequestCount: 0,
-      commentPostCount: 0,
-      remoteDeleteCount: 0
-    });
-    expect(new Set(readCloseoutCliHarnessState(raced.scenario.statePath).headReadValues))
-      .toEqual(new Set([BASE]));
-  }));
-}, 180_000);
 
-closeoutCliE2eTest('public Session closeout CLI partition A exact delete, publish, and reuse', async () => {
-  (await withCloseoutCliPartition(({ harnessRoot, recoveryHarnessRoot, shimRoot, fixture }) => {
-    const exact = createCloseoutCliScenario({ harnessRoot, recoveryHarnessRoot, shimRoot,
-      name: 'exact', fixture });
-    expect(encodeVerificationActionData(exact.providerPrepared))
-      .not.toBe(encodeVerificationActionData(exact.rehydratedPrepared));
-    expect(exact.providerPrepared.preparation.recovery.path)
-      .not.toBe(exact.rehydratedPrepared.preparation.recovery.path);
-    expect(exact.providerPrepared.preparation.preparationDigest)
-      .toBe(exact.rehydratedPrepared.preparation.preparationDigest);
-    expect(encodeVerificationActionData(exact.providerPrepared.before))
-      .toBe(encodeVerificationActionData(exact.rehydratedPrepared.before));
-    expect(exact.providerPrepared.before.pullRequests.find(({ number }) => number === 42))
-      .toMatchObject({ state: 'open', headSha: HEAD });
-    expect(exact.rehydratedPrepared.before.pullRequests.find(({ number }) => number === 42))
-      .toMatchObject({ state: 'open', headSha: HEAD });
-    expect(readCloseoutCliHarnessState(exact.statePath)).toMatchObject({
-      inventoryPrState: 'MERGED', activeWorkPackageSelected: false
-    });
-    assertCloseoutCliProviderShim(shimRoot, exact);
-    const first = runCloseoutCliProcess(shimRoot, exact, 'closeout-mutate-hosted');
-    assertCloseoutCliProcessSucceeded('closeout-mutate-hosted', first);
-    const firstMutationState = readCloseoutCliHarnessState(exact.statePath);
-    expect(firstMutationState).toMatchObject({ remoteDeleteCount: 1, remotePresent: false });
-    expect(firstMutationState.credentialBoundBranchReadCount).toBeGreaterThan(0);
-    expect(JSON.parse(readFileSync(first.output, 'utf8'))).toMatchObject({
-      disposition: 'executed', closeoutOperationId: exact.binding.closeoutOperationId
-    });
-    let exactState = readCloseoutCliHarnessState(exact.statePath);
-    exactState.currentPhase = 'closeoutPublication';
-    writeCloseoutCliHarnessState(exact.statePath, exactState);
-    const published = runCloseoutCliProcess(shimRoot, exact, 'closeout-publish-hosted');
-    assertCloseoutCliProcessSucceeded('closeout-publish-hosted', published);
-    exactState = readCloseoutCliHarnessState(exact.statePath);
-    expect(exactState.remoteDeleteCount).toBe(1);
-    exactState.currentPhase = 'closeoutMutation';
-    writeCloseoutCliHarnessState(exact.statePath, exactState);
-    const reusedMutation = runCloseoutCliProcess(shimRoot, exact, 'closeout-mutate-hosted');
-    assertCloseoutCliProcessSucceeded('closeout-mutate-hosted', reusedMutation);
-    expect(JSON.parse(readFileSync(reusedMutation.output, 'utf8')))
-      .toMatchObject({ disposition: 'reused-terminal' });
-    exactState = readCloseoutCliHarnessState(exact.statePath);
-    exactState.currentPhase = 'closeoutPublication';
-    writeCloseoutCliHarnessState(exact.statePath, exactState);
-    const reusedPublication = runCloseoutCliProcess(shimRoot, exact, 'closeout-publish-hosted');
-    assertCloseoutCliProcessSucceeded('closeout-publish-hosted', reusedPublication);
-    expect(JSON.parse(readFileSync(reusedPublication.output, 'utf8')))
-      .toMatchObject({ disposition: 'reused' });
-    expect(readCloseoutCliHarnessState(exact.statePath).remoteDeleteCount).toBe(1);
-  }));
-}, 180_000);
 
-closeoutCliE2eTest('public Session closeout CLI partition B crash recovery performs zero second delete', async () => {
-  await withCloseoutCliPartitionSettled(async ({ harnessRoot, recoveryHarnessRoot, shimRoot,
-    fixture }) => {
-    const crash = createCloseoutCliScenario({ harnessRoot, recoveryHarnessRoot, shimRoot,
-      name: 'crash', fixture, crashAfterDelete: true });
-    const crashed = startCloseoutCliProcess(shimRoot, crash, 'closeout-mutate-hosted');
-    let killCount = 0;
-    let released = false;
-    try {
-      const barrierState = await waitForCloseoutCliBarrier(crash.statePath, crashed);
-      const crashShimPid = barrierState.crashShimPid as number;
-      expect(barrierState).toMatchObject({ remoteDeleteCount: 1, remotePresent: false,
-        crashInjected: true, crashShimPid });
-      expect(barrierState.credentialBoundBranchReadCount).toBeGreaterThan(0);
-      expect(Number.isInteger(crashed.child.pid) && (crashed.child.pid ?? 0) > 0).toBe(true);
-      expect(isProcessAlive(crashShimPid)).toBe(true);
 
-      killCount += 1;
-      expect(crashed.child.kill('SIGKILL')).toBe(true);
-      const exit = await boundedCloseoutWait(crashed.exit, 'owned closeout CLI exit');
-      expect(exit.code).not.toBe(0);
-      expect(crashed.lifecycle.exit).toBe(true);
 
-      writeFileSync(crash.crashReleasePath, 'release\n', 'utf8');
-      released = true;
-      await boundedCloseoutWait(Promise.all([
-        crashed.close,
-        crashed.stdoutEof,
-        crashed.stderrEof
-      ]), 'owned closeout CLI close and stdio EOF');
-      expect(killCount).toBe(1);
-      expect(crashed.lifecycle).toMatchObject({
-        exit: true,
-        close: true,
-        stdoutEof: true,
-        stderrEof: true
-      });
-      await waitForCloseoutCliState(crash.statePath,
-        () => !isProcessAlive(crashShimPid), 'crash shim termination');
-      expect(isProcessAlive(crashShimPid)).toBe(false);
 
-      let crashState = readCloseoutCliHarnessState(crash.statePath);
-      crashState.crashAfterDelete = false;
-      writeCloseoutCliHarnessState(crash.statePath, crashState);
-      const recovered = runCloseoutCliProcess(shimRoot, crash, 'closeout-mutate-hosted');
-      assertCloseoutCliProcessSucceeded('closeout-mutate-hosted', recovered);
-      expect(JSON.parse(readFileSync(recovered.output, 'utf8')))
-        .toMatchObject({ disposition: 'recovered-after-effect-start' });
-      crashState = readCloseoutCliHarnessState(crash.statePath);
-      expect(crashState.remoteDeleteCount).toBe(1);
-      expect(crashState.credentialBoundBranchReadCount)
-        .toBeGreaterThan(barrierState.credentialBoundBranchReadCount);
-      expect(isProcessAlive(crashShimPid)).toBe(false);
-      expect(killCount).toBe(1);
-      expect(crashed.lifecycle).toMatchObject({
-        exit: true,
-        close: true,
-        stdoutEof: true,
-        stderrEof: true
-      });
-    } finally {
-      if (!released) {
-        writeFileSync(crash.crashReleasePath, 'release\n', 'utf8');
-      }
-      if (!crashed.lifecycle.exit && killCount === 0) {
-        killCount += 1;
-        crashed.child.kill('SIGKILL');
-      }
-      await Promise.allSettled([
-        boundedCloseoutWait(crashed.exit, 'owned closeout CLI cleanup exit'),
-        boundedCloseoutWait(crashed.close, 'owned closeout CLI cleanup close'),
-        boundedCloseoutWait(crashed.stdoutEof, 'owned closeout CLI cleanup stdout EOF'),
-        boundedCloseoutWait(crashed.stderrEof, 'owned closeout CLI cleanup stderr EOF')
-      ]);
-    }
-  });
-}, 120_000);
 
-closeoutCliE2eTest('public Session closeout CLI partition C rejects invalid existing markers without delete', async () => {
-  (await withCloseoutCliPartition(({ harnessRoot, recoveryHarnessRoot, shimRoot, fixture }) => {
-    for (const seed of ['null-app', 'wrong-app', 'duplicate', 'old'] as const) {
-      const blocked = createCloseoutCliScenario({ harnessRoot, recoveryHarnessRoot, shimRoot,
-        name: seed, fixture, seed });
-      const result = runCloseoutCliProcess(shimRoot, blocked, 'closeout-mutate-hosted');
-      expect(result.result.status).not.toBe(0);
-      expect(readCloseoutCliHarnessState(blocked.statePath)).toMatchObject({
-        remoteDeleteCount: 0, remotePresent: true
-      });
-    }
-  }));
-}, 180_000);
 
-closeoutCliE2eTest('public Session closeout CLI partition D rejects authority tamper without delete', async () => {
-  (await withCloseoutCliPartition(({ harnessRoot, recoveryHarnessRoot, shimRoot, fixture }) => {
-    for (const tamper of ['original', 'artifact', 'stable-digest'] as const) {
-      const blocked = createCloseoutCliScenario({ harnessRoot, recoveryHarnessRoot, shimRoot,
-        name: `tampered-${tamper}`, fixture, tamper });
-      const result = runCloseoutCliProcess(shimRoot, blocked, 'closeout-mutate-hosted');
-      expect(result.result.status).not.toBe(0);
-      expect(readCloseoutCliHarnessState(blocked.statePath)).toMatchObject({
-        remoteDeleteCount: 0, remotePresent: true
-      });
-    }
-  }));
-}, 180_000);
 
-closeoutCliE2eTest('public Session closeout CLI partition E lost marker POST and replay perform zero delete', async () => {
-  (await withCloseoutCliPartition(({ harnessRoot, recoveryHarnessRoot, shimRoot, fixture }) => {
-    const lost = createCloseoutCliScenario({ harnessRoot, recoveryHarnessRoot, shimRoot,
-      name: 'lost', fixture, postDisposition: 'lost' });
-    const uncertain = runCloseoutCliProcess(shimRoot, lost, 'closeout-mutate-hosted');
-    expect(uncertain.result.status).not.toBe(0);
-    expect(readCloseoutCliHarnessState(lost.statePath)).toMatchObject({
-      remoteDeleteCount: 0, remotePresent: true
-    });
-    const replay = runCloseoutCliProcess(shimRoot, lost, 'closeout-mutate-hosted');
-    expect(replay.result.status).not.toBe(0);
-    const lostState = readCloseoutCliHarnessState(lost.statePath);
-    expect(lostState).toMatchObject({ remoteDeleteCount: 0, remotePresent: true });
-    expect(lostState.comments).toHaveLength(2);
-  }));
-}, 120_000);
 
-test('V9 expired pre-gate authority requires a fresh integration while retaining exact Action Evidence', async () => {
-  const stalePreGateAt = '2026-08-09T14:07:00.000Z';
-  const stalePreGate = (await reducerFixture({ mergeAt: stalePreGateAt }));
-  try {
-    expect(classifyVerificationSessionArtifactReuse(stalePreGate.artifact, stalePreGateAt))
-      .toMatchObject({ status: 'fresh-authority-required', actionEvidenceCandidate: true });
-    expect(stalePreGate.result.authorization).toMatchObject({
-      sessionRevision: stalePreGate.artifact.session.sessionRevision,
-      baseSha: BASE,
-      headSha: HEAD,
-      issuedAt: stalePreGateAt
-    });
-    expect(stalePreGate.result.authorization.reviewReceiptDigest)
-      .not.toBe(stalePreGate.artifact.preGateReview.receiptDigest);
-    expect(stalePreGate.result.authorization.mainHealthReceiptDigest)
-      .not.toBe(stalePreGate.artifact.mainHealth.ledgerDigest);
-  } finally {
-    stalePreGate.dispose();
-  }
-}, PHYSICAL_RUNTIME_AUTHORITY_TEST_TIMEOUT_MS);
 
-closeoutCliE2eTest('V9 integration reruns retain producing attempts and authorize fresh integration after pre-gate expiry', async () => {
-  (await withCloseoutCliPartition(({ harnessRoot, recoveryHarnessRoot, shimRoot, fixture }) => {
-    const samePrincipal = createCloseoutCliScenario({ harnessRoot, recoveryHarnessRoot, shimRoot,
-      name: 'rerun-same-principal', fixture, currentRunAttempt: 2,
-      includeStableArtifact: true });
-    const sameResult = runCloseoutCliProcess(shimRoot, samePrincipal, 'closeout-mutate-hosted');
-    assertCloseoutCliProcessSucceeded('closeout-mutate-hosted same-principal rerun', sameResult);
-    expect(readCloseoutCliHarnessState(samePrincipal.statePath)).toMatchObject({
-      remoteDeleteCount: 1,
-      principalUserLookups: ['integrator', 'integrator'],
-      artifactsByRun: { 200: [
-        { name: `sec-verification-action-start-v2-${'c'.repeat(64)}` },
-        { name: expect.stringContaining('sec-branch-closeout-recovery-v1-') }
-      ] }
-    });
 
-    const delegatedMaintainer = createCloseoutCliScenario({ harnessRoot, recoveryHarnessRoot,
-      shimRoot, name: 'rerun-delegated-maintainer', fixture, currentRunAttempt: 2,
-      triggeringPrincipal: { login: 'release-manager', nodeId: 'RELEASE_MANAGER',
-        permission: 'maintain' } });
-    const delegatedResult = runCloseoutCliProcess(shimRoot, delegatedMaintainer,
-      'closeout-mutate-hosted');
-    assertCloseoutCliProcessSucceeded('closeout-mutate-hosted delegated rerun', delegatedResult);
-    expect(readCloseoutCliHarnessState(delegatedMaintainer.statePath)).toMatchObject({
-      remoteDeleteCount: 1,
-      principalUserLookups: ['integrator', 'release-manager']
-    });
 
-    const writeOnly = createCloseoutCliScenario({ harnessRoot, recoveryHarnessRoot, shimRoot,
-      name: 'rerun-write-only', fixture, currentRunAttempt: 2,
-      triggeringPrincipal: { login: 'write-only', nodeId: 'WRITE_ONLY', permission: 'write' } });
-    const blocked = runCloseoutCliProcess(shimRoot, writeOnly, 'closeout-mutate-hosted');
-    expect(blocked.result.status).not.toBe(0);
-    expect(blocked.result.stderr).toContain(
-      'integrate-hosted triggering actor stable identity/live permission mismatch.');
-    expect(readCloseoutCliHarnessState(writeOnly.statePath)).toMatchObject({
-      remoteDeleteCount: 0,
-      principalUserLookups: ['integrator', 'write-only']
-    });
-
-    const historicalAttemptMismatch = createCloseoutCliScenario({ harnessRoot,
-      recoveryHarnessRoot, shimRoot, name: 'rerun-historical-attempt-mismatch', fixture,
-      currentRunAttempt: 2, historicalAttemptMismatch: true });
-    const mismatched = runCloseoutCliProcess(shimRoot, historicalAttemptMismatch,
-      'closeout-mutate-hosted');
-    expect(mismatched.result.status).not.toBe(0);
-    expect(mismatched.result.stderr).toContain('hosted comment workflow run provenance drifted');
-    expect(readCloseoutCliHarnessState(historicalAttemptMismatch.statePath))
-      .toMatchObject({ remoteDeleteCount: 0 });
-  }));
-}, 180_000);
 
 test('rehydrated prepared envelope preserves remote history and composes with closeout authorization', () => {
   const inventory = (root: string, state: 'open' | 'merged'): BranchLifecycleInventory => ({
@@ -5064,4 +3752,869 @@ test('the implementation session cannot issue an independent Review receipt', as
       }
     }))
     .toThrow('canonical independent read-only observer execution');
+});
+
+
+// Only these registrations consume the exact repository TestImpact provider.
+// Keep its canonical setup/settlement budget outside each 30s case body.
+describe('qualified exact-repository Session consumers', () => {
+  beforeAll(async () => {
+    testImpactFixture = await acquireExactRepositoryTestImpactProviderFixture();
+    TEST_IMPACT_SOURCE_PROVIDER = bindDocumentationVerificationGateInput(
+      testImpactFixture.provider, currentDocumentationVerificationBaseline());
+  }, DEFAULT_TEST_TIMEOUT_MS);
+
+  test('trusted-main proposal and hosted sole issuer reconstruct the same stable Session revision', async () => {
+  const transport = new FakeTransport();
+  transport.issueComments = [[botIssueComment()]];
+  const barrier = (await observe(transport));
+  if (barrier.status !== 'clear') throw new Error('expected clear review');
+  const candidate = transport.candidate();
+  const changedPaths = ['src/adapters/verification/platform/ci/runtime/verification-session.ts'];
+  const testImpactTransition = changedTransition(changedPaths);
+  const manifestDigest = `sha256:${'b'.repeat(64)}` as const;
+  const local = prepareTrustedMainVerificationSession({ repository: candidate.repository, candidate,
+    manifestPath: 'config/repository/work-packages/example.md', manifestDigest, changedPaths, testImpactTransition,
+    testImpactSourceProvider: TEST_IMPACT_SOURCE_PROVIDER, profile: 'quick',
+    integrationPrincipalNodeId: 'INTEGRATOR', producerPrincipalNodeId: 'INTEGRATOR', sourceRunId: '7',
+    sourceRef: `refs/heads/main@${BASE}`, observedAt: barrier.observedAt, reviewBarrier: barrier,
+    mainHealthChecks: [mainHealthCheck()], dependencyBlobs: actionDependencyBlobs() });
+  const facts = reconstructVerificationSessionHostedFacts({ request: local.request,
+    repository: candidate.repository, candidate, changedPaths, testImpactTransition,
+    testImpactSourceProvider: TEST_IMPACT_SOURCE_PROVIDER,
+    integrationPrincipalNodeId: 'INTEGRATOR',
+    producerPrincipalNodeId: 'INTEGRATOR', sourceRunId: '7',
+    sourceRef: `.github/workflows/compiler-pr-validation.yml@${BASE}`, observedAt: barrier.observedAt,
+    reviewBarrier: barrier, mainHealthChecks: [mainHealthCheck()],
+    dependencyBlobs: actionDependencyBlobs() });
+  const pureHosted = createPureHostedEnvelopeFixture({ request: local.request, facts });
+  expect(pureHosted.session.sessionRevision).toBe(local.sessionRevision);
+  expect(pureHosted.scopeAuthorization.authorizationRevision).toBe(local.scopeAuthorizationRevision);
+  expect(pureHosted.actionPlanClosure.actionPlanDigest).toBe(local.actionPlanClosure.actionPlanDigest);
+  expect(() => prepareVerificationSessionHosted({ request: local.request,
+    facts: JSON.parse(JSON.stringify(facts)) })).toThrow('live observation produced by the private GitHub adapter');
+  const dependencyPaths = new Set<string>(CI_VERIFICATION_ACTION_DEPENDENCY_INPUT_PATHS);
+  for (const action of pureHosted.actionPlanClosure.actions) {
+    expect(action.action.inputClosure.filter(({ path: inputPath }) =>
+      dependencyPaths.has(inputPath))).toHaveLength(4);
+  }
+  expect(() => prepareTrustedMainVerificationSession({ repository: candidate.repository, candidate,
+    manifestPath: 'config/repository/work-packages/example.md', manifestDigest, changedPaths, testImpactTransition,
+    testImpactSourceProvider: TEST_IMPACT_SOURCE_PROVIDER, profile: 'quick',
+    integrationPrincipalNodeId: 'INTEGRATOR', producerPrincipalNodeId: 'INTEGRATOR', sourceRunId: '7',
+    sourceRef: `refs/heads/main@${BASE}`, observedAt: barrier.observedAt, reviewBarrier: barrier,
+    mainHealthChecks: [mainHealthCheck()], dependencyBlobs: actionDependencyBlobs('bun.lock') }))
+    .toThrow(/bun\.lock drifted from the trusted base/i);
+  expect(() => reconstructVerificationSessionHostedFacts({ request: local.request,
+    repository: candidate.repository, candidate, changedPaths, testImpactTransition,
+    testImpactSourceProvider: TEST_IMPACT_SOURCE_PROVIDER,
+    integrationPrincipalNodeId: 'INTEGRATOR',
+    producerPrincipalNodeId: 'INTEGRATOR', sourceRunId: '7',
+    sourceRef: `.github/workflows/compiler-pr-validation.yml@${BASE}`, observedAt: barrier.observedAt,
+    reviewBarrier: barrier, mainHealthChecks: [mainHealthCheck()],
+    dependencyBlobs: actionDependencyBlobs('package.json') }))
+    .toThrow(/package\.json drifted from the trusted base/i);
+});
+
+  test('VerificationSession binds the exact deletion transition through Scope, Action, Session, and hosted reconstruction', async () => {
+  const baseSha = '9ed0291a0b51b4f3f6769ab317c4cc1a2753cb4b';
+  const headSha = 'b'.repeat(40);
+  const retiredPath = 'src/adapters/verification/platform/ci/runtime/verification-session-github.ts';
+  const unownedRetiredPath =
+    'docs/evidence/v0-4-semantic-mutation-single-job-owner-production-pass-2026-07-18.json';
+  const changedPaths = [retiredPath, 'src/adapters/verification/platform/ci/runtime/verification-session.ts'];
+  const records = [
+    { status: 'changed' as const, path: 'src/adapters/verification/platform/ci/runtime/verification-session.ts' },
+    { status: 'removed' as const, path: retiredPath }
+  ];
+  const readPathBlob = (revision: string, repositoryPath: string) => (
+    revision === baseSha && repositoryPath === retiredPath
+      ? { mode: '100644' as const, blobSha: '3fbfa041119f70429b5f6cc4440816b50ab3a0ef' }
+      : null
+  );
+  const testImpactTransition = CodexDevelopmentCreateTestImpactTransitionObservation({
+    baseSha, headSha, records, readPathBlob
+  });
+  const reordered = CodexDevelopmentCreateTestImpactTransitionObservation({
+    baseSha, headSha, records: [...records].reverse(), readPathBlob
+  });
+  expect(CodexDevelopmentTestImpactTransitionDigest(reordered))
+    .toBe(CodexDevelopmentTestImpactTransitionDigest(testImpactTransition));
+
+  const transport = new FakeTransport();
+  transport.issueComments = [[botIssueComment()]];
+  const github = fakeGitHubClient(transport, async (input) => (await observePrivateClearReviewBarrier(
+    input.observedAt ?? VERIFIED_AT
+  )));
+  const candidate = Object.freeze({
+    ...transport.candidate(),
+    baseSha,
+    baseTreeSha: 'c'.repeat(40),
+    headSha,
+    headTreeSha: 'd'.repeat(40)
+  });
+  const barrier = (await github.observeReviewBarrier({
+    repository: candidate.repository,
+    prNumber: candidate.number,
+    headSha,
+    excludedPrincipalNodeIds: new Set(['AUTHOR', 'INTEGRATOR']),
+    observedAt: VERIFIED_AT
+  }));
+  if (barrier.status !== 'clear') throw new Error('expected clear review');
+  const mainHealthChecks = [mainHealthCheck({
+    headSha: baseSha,
+    workflowRef: `${CI_MAIN_HEALTH_POLICY.producer.workflowPath}@${baseSha}`
+  })];
+  const manifestDigest = `sha256:${'e'.repeat(64)}` as const;
+  const unownedTransition = CodexDevelopmentCreateTestImpactTransitionObservation({
+    baseSha,
+    headSha,
+    records: [{ status: 'removed', path: unownedRetiredPath }],
+    readPathBlob: (revision, repositoryPath) => (
+      revision === baseSha && repositoryPath === unownedRetiredPath
+        ? { mode: '100644', blobSha: '4'.repeat(40) }
+        : null
+    )
+  });
+  expect(() => prepareTrustedMainVerificationSession({
+    repository: candidate.repository, candidate,
+    manifestPath: 'config/repository/work-packages/example.md', manifestDigest,
+    changedPaths: [unownedRetiredPath], testImpactTransition: unownedTransition,
+    testImpactSourceProvider: TEST_IMPACT_SOURCE_PROVIDER,
+    profile: 'quick',
+    integrationPrincipalNodeId: 'INTEGRATOR', producerPrincipalNodeId: 'INTEGRATOR',
+    sourceRunId: 'unowned-deletion-prepare', sourceRef: `refs/heads/main@${baseSha}`,
+    observedAt: VERIFIED_AT, reviewBarrier: barrier, mainHealthChecks,
+    dependencyBlobs: actionDependencyBlobs()
+  })).toThrow(/verification plan is unresolved/i);
+  const prepared = prepareTrustedMainVerificationSession({
+    repository: candidate.repository, candidate,
+    manifestPath: 'config/repository/work-packages/example.md', manifestDigest,
+    changedPaths, testImpactTransition, testImpactSourceProvider: TEST_IMPACT_SOURCE_PROVIDER,
+    profile: 'quick',
+    integrationPrincipalNodeId: 'INTEGRATOR', producerPrincipalNodeId: 'INTEGRATOR',
+    sourceRunId: 'deletion-prepare', sourceRef: `refs/heads/main@${baseSha}`,
+    observedAt: VERIFIED_AT, reviewBarrier: barrier, mainHealthChecks,
+    dependencyBlobs: actionDependencyBlobs()
+  });
+  const facts = reconstructVerificationSessionHostedFacts({
+    request: prepared.request, repository: candidate.repository, candidate, changedPaths,
+    testImpactTransition: reordered, testImpactSourceProvider: TEST_IMPACT_SOURCE_PROVIDER,
+    integrationPrincipalNodeId: 'INTEGRATOR',
+    producerPrincipalNodeId: 'INTEGRATOR', sourceRunId: 'deletion-hosted',
+    sourceRef: `.github/workflows/compiler-pr-validation.yml@${baseSha}`,
+    observedAt: VERIFIED_AT, reviewBarrier: barrier, mainHealthChecks,
+    dependencyBlobs: actionDependencyBlobs()
+  });
+  expect(facts.testImpactTransitionDigest).toBe(prepared.testImpactTransitionDigest);
+  expect(facts.sessionProposalDigest).toBe(prepared.sessionProposalDigest);
+  expect(facts.actionPlanClosure.actionPlanDigest).toBe(prepared.actionPlanClosure.actionPlanDigest);
+  const localQuick = prepareLocalQuickVerificationActionPlan({
+    candidate,
+    manifestPath: 'config/repository/work-packages/example.md',
+    manifestDigest,
+    changedPaths,
+    testImpactTransition,
+    testImpactSourceProvider: TEST_IMPACT_SOURCE_PROVIDER,
+    expectedTestImpactTransitionDigest: prepared.testImpactTransitionDigest,
+    scopeAuthorizationRevision: prepared.scopeAuthorizationRevision,
+    executionEnvironment: createCiVerificationLocalExecutionEnvironment({
+      os: process.platform, arch: process.arch, bunVersion: Bun.version
+    }),
+    dependencyBlobs: actionDependencyBlobs()
+  });
+  expect(localQuick.actions.length).toBeGreaterThan(0);
+  expect(() => reconstructVerificationSessionHostedFacts({
+    request: prepared.request, repository: candidate.repository, candidate, changedPaths,
+    testImpactTransition: { ...testImpactTransition, headSha: 'f'.repeat(40) },
+    testImpactSourceProvider: TEST_IMPACT_SOURCE_PROVIDER,
+    integrationPrincipalNodeId: 'INTEGRATOR', producerPrincipalNodeId: 'INTEGRATOR',
+    sourceRunId: 'deletion-hosted',
+    sourceRef: `.github/workflows/compiler-pr-validation.yml@${baseSha}`,
+    observedAt: VERIFIED_AT, reviewBarrier: barrier, mainHealthChecks,
+    dependencyBlobs: actionDependencyBlobs()
+  })).toThrow(/exact candidate selection input/i);
+}, PHYSICAL_RUNTIME_AUTHORITY_TEST_TIMEOUT_MS);
+
+  test('same paths with a different Git transition change the complete VerificationSession identity chain', async () => {
+  const transport = new FakeTransport();
+  transport.issueComments = [[botIssueComment()]];
+  const barrier = (await observe(transport));
+  if (barrier.status !== 'clear') throw new Error('expected clear review');
+  const candidate = transport.candidate();
+  const changedPaths = ['src/adapters/verification/platform/ci/runtime/verification-session.ts'];
+  const prepare = (status: 'added' | 'changed') => prepareTrustedMainVerificationSession({
+    repository: candidate.repository, candidate,
+    manifestPath: 'config/repository/work-packages/example.md', manifestDigest: `sha256:${'e'.repeat(64)}`,
+    changedPaths,
+    testImpactTransition: CodexDevelopmentCreateTestImpactTransitionObservation({
+      baseSha: candidate.baseSha, headSha: candidate.headSha,
+      records: [{ status, path: changedPaths[0]! }], readPathBlob: () => null
+    }),
+    testImpactSourceProvider: TEST_IMPACT_SOURCE_PROVIDER,
+    profile: 'quick', integrationPrincipalNodeId: 'INTEGRATOR',
+    producerPrincipalNodeId: 'INTEGRATOR', sourceRunId: '7',
+    sourceRef: `refs/heads/main@${candidate.baseSha}`, observedAt: VERIFIED_AT,
+    reviewBarrier: barrier, mainHealthChecks: [mainHealthCheck()],
+    dependencyBlobs: actionDependencyBlobs()
+  });
+  const added = prepare('added');
+  const changed = prepare('changed');
+  expect(added.testImpactTransitionDigest).not.toBe(changed.testImpactTransitionDigest);
+  expect(added.scopeAuthorizationRevision).not.toBe(changed.scopeAuthorizationRevision);
+  expect(added.actionPlanClosure.actionPlanDigest).not.toBe(changed.actionPlanClosure.actionPlanDigest);
+  expect(added.sessionRevision).not.toBe(changed.sessionRevision);
+  expect(added.request.requestOperationId).not.toBe(changed.request.requestOperationId);
+});
+
+  test('Session local quick DAG keeps durable journals in external Runtime State and executes exact detached candidate', async () => {
+  const authorityRoot = mkdtempSync(path.join(tmpdir(), 'sec-session-authority-'));
+  const runtimeRoot = mkdtempSync(path.join(tmpdir(), 'sec-session-runtime-'));
+  const runtimeStateRoot = path.join(runtimeRoot, 'state');
+  const runtimeCacheRoot = path.join(runtimeRoot, 'cache');
+  const priorStateHome = process.env.SEC_STATE_HOME;
+  const priorCacheHome = process.env.SEC_CACHE_HOME;
+  process.env.SEC_STATE_HOME = runtimeStateRoot;
+  process.env.SEC_CACHE_HOME = runtimeCacheRoot;
+  const runGit = (cwd: string, args: readonly string[]): string => {
+    const result = spawnSync('git', [...args], {
+      cwd,
+      encoding: 'utf8',
+      env: createBranchLifecycleGitChildEnvironment(process.env),
+      windowsHide: true
+    });
+    if (result.status !== 0) throw new Error(`git ${args.join(' ')} failed: ${result.stderr}`);
+    return result.stdout.trim();
+  };
+  const inspectRepository = (repositoryRoot: string) => ({
+    headSha: runGit(repositoryRoot, ['rev-parse', 'HEAD']),
+    headTreeSha: runGit(repositoryRoot, ['rev-parse', 'HEAD^{tree}']),
+    trackedClean:
+      runGit(repositoryRoot, ['diff', '--name-only', '--ignore-cr-at-eol']) === ''
+      && runGit(repositoryRoot, ['diff', '--cached', '--name-only', '--ignore-cr-at-eol']) === ''
+      && runGit(repositoryRoot, ['ls-files', '--others', '--exclude-standard']) === '',
+    gitCommonDirectory: realpathSync.native(runGit(repositoryRoot, [
+      'rev-parse', '--path-format=absolute', '--git-common-dir'
+    ]))
+  });
+  try {
+    runGit(authorityRoot, ['init', '-b', 'main']);
+    runGit(authorityRoot, ['config', 'user.name', 'Session Test']);
+    runGit(authorityRoot, ['config', 'user.email', 'session-test@example.invalid']);
+    writeFileSync(path.join(authorityRoot, 'tracked.txt'), 'base\n', 'utf8');
+    writeFileSync(path.join(authorityRoot, '.gitignore'), '.tmp/\n', 'utf8');
+    runGit(authorityRoot, ['add', 'tracked.txt', '.gitignore']);
+    runGit(authorityRoot, ['commit', '-m', 'base']);
+    const baseSha = runGit(authorityRoot, ['rev-parse', 'HEAD']);
+    const baseTreeSha = runGit(authorityRoot, ['rev-parse', 'HEAD^{tree}']);
+    writeFileSync(path.join(authorityRoot, 'tracked.txt'), 'exact candidate\n', 'utf8');
+    runGit(authorityRoot, ['add', 'tracked.txt']);
+    runGit(authorityRoot, ['commit', '-m', 'exact candidate']);
+    const headSha = runGit(authorityRoot, ['rev-parse', 'HEAD']);
+    const headTreeSha = runGit(authorityRoot, ['rev-parse', 'HEAD^{tree}']);
+    const candidateRoot = path.join(authorityRoot, '.tmp', 'codex',
+      'verification-session-candidates', headSha);
+    mkdirSync(path.dirname(candidateRoot), { recursive: true });
+    runGit(authorityRoot, ['worktree', 'add', '--detach', candidateRoot, headSha]);
+    const candidate = Object.freeze({ ...new FakeTransport().candidate(),
+      baseSha, baseTreeSha, headSha, headTreeSha });
+    const executionEnvironment = createCiVerificationLocalExecutionEnvironment({
+      os: process.platform, arch: process.arch, bunVersion: Bun.version
+    });
+    const testImpactTransition = changedTransition(
+      ['src/adapters/verification/platform/ci/runtime/verification-session.ts'],
+      baseSha,
+      headSha
+    );
+    const testImpactTransitionDigest = CodexDevelopmentTestImpactTransitionDigest(testImpactTransition);
+    const closure = prepareLocalQuickVerificationActionPlan({ candidate,
+      manifestPath: 'config/repository/work-packages/verification-action-trusted-cutover-v6.md',
+      manifestDigest: `sha256:${'9'.repeat(64)}`, changedPaths: ['src/adapters/verification/platform/ci/runtime/verification-session.ts'],
+      testImpactTransition,
+      testImpactSourceProvider: TEST_IMPACT_SOURCE_PROVIDER,
+      expectedTestImpactTransitionDigest: testImpactTransitionDigest,
+      scopeAuthorizationRevision: `sha256:${'8'.repeat(64)}`, executionEnvironment,
+      dependencyBlobs: actionDependencyBlobs() });
+    expect(() => prepareLocalQuickVerificationActionPlan({ candidate,
+      manifestPath: 'config/repository/work-packages/verification-action-trusted-cutover-v6.md',
+      manifestDigest: `sha256:${'9'.repeat(64)}`, changedPaths: ['src/adapters/verification/platform/ci/runtime/verification-session.ts'],
+      testImpactTransition,
+      testImpactSourceProvider: TEST_IMPACT_SOURCE_PROVIDER,
+      expectedTestImpactTransitionDigest: testImpactTransitionDigest,
+      scopeAuthorizationRevision: `sha256:${'8'.repeat(64)}`, executionEnvironment,
+      dependencyBlobs: actionDependencyBlobs('.bun-version') }))
+      .toThrow(/\.bun-version drifted from the trusted base/i);
+    const result = await executeLocalVerificationActionDag({ authorityRoot, candidateRoot,
+      actionPlanClosure: closure, executionEnvironment,
+      inspectRepository,
+      testProcessIssuer: VERIFICATION_ACTION_TEST_PROCESS_ISSUER,
+      testProcessProvider: (_operation, process) =>
+        runRetainedBunTestProcess(process, candidateRoot) });
+    expect(result.status).toBe('passed');
+    expect(result.actionPlanDigest).toBe(closure.actionPlanDigest);
+    expect(result.actionResults.every((entry) => entry.terminal?.status === 'passed')).toBe(true);
+    expect(existsSync(path.join(runtimeStateRoot, 'workspaces', 'v1'))).toBe(true);
+    expect(existsSync(path.join(authorityRoot, '.tmp', 'codex', 'verification-actions', 'v2'))).toBe(false);
+    expect(existsSync(path.join(candidateRoot, '.tmp', 'codex', 'verification-actions', 'v2'))).toBe(false);
+    expect(runGit(candidateRoot, ['rev-parse', 'HEAD'])).toBe(headSha);
+    expect(runGit(candidateRoot, ['rev-parse', 'HEAD^{tree}'])).toBe(headTreeSha);
+    expect(runGit(candidateRoot, ['status', '--porcelain=v1', '--untracked-files=no'])).toBe('');
+  } finally {
+    if (priorStateHome === undefined) delete process.env.SEC_STATE_HOME;
+    else process.env.SEC_STATE_HOME = priorStateHome;
+    if (priorCacheHome === undefined) delete process.env.SEC_CACHE_HOME;
+    else process.env.SEC_CACHE_HOME = priorCacheHome;
+    rmSync(authorityRoot, { recursive: true, force: true });
+    rmSync(runtimeRoot, { recursive: true, force: true });
+  }
+}, PHYSICAL_RUNTIME_AUTHORITY_TEST_TIMEOUT_MS);
+
+  test('actual reducer recovers a crash after remote merge without a second merge or publication', async () => {
+  const fixture = (await reducerFixture());
+  try {
+    expect((await runReducer(fixture))).toMatchObject({ status: 'READY_TO_INTEGRATE',
+      operationId: fixture.result.authorization.consumptionOperationId });
+    // Models process loss after the remote merge but before any local journal
+    // transition. The reducer adopts the exact remote marker and never owns a
+    // raw merge capability that could repeat the effect.
+    fixture.transport.adoptMerged(fixture.markers, fixture.result.reviewReceipt,
+      fixture.artifact.session.sessionRevision);
+    expect((await runReducer(fixture))).toMatchObject({ status: 'COMPLETED', completedStage: 'closeout-terminal' });
+    const observed = fixture.counters.closeoutObserve;
+    expect((await runReducer(fixture))).toMatchObject({ status: 'COMPLETED' });
+    expect(fixture.counters.closeoutObserve).toBeGreaterThanOrEqual(observed);
+  } finally {
+    fixture.dispose();
+  }
+}, PHYSICAL_RUNTIME_AUTHORITY_TEST_TIMEOUT_MS);
+
+  test('durable comment and merge markers reconstruct terminal status without an Actions artifact', async () => {
+  const fixture = (await reducerFixture());
+  try {
+    const publication = durablePublication(fixture);
+    const exactOpen = classifyDurableVerificationSessionProjection({
+      repository: 'sec-platform/sec', request: fixture.request,
+      candidate: fixture.transport.candidate(), publications: []
+    });
+    expect(exactOpen).toBeNull();
+    expect(classifyDurableVerificationSessionProjection({
+      repository: 'sec-platform/sec', request: fixture.request,
+      candidate: fixture.transport.candidate(), publications: [publication]
+    })).toMatchObject({ status: 'BLOCKED_AMBIGUOUS_SIDE_EFFECT' });
+
+    fixture.transport.adoptMerged(fixture.markers, fixture.result.reviewReceipt,
+      fixture.artifact.session.sessionRevision);
+    const ready = classifyDurableVerificationSessionProjection({
+      repository: 'sec-platform/sec', request: fixture.request,
+      candidate: fixture.transport.candidate(), publications: [publication]
+    });
+    expect(ready).toMatchObject({ status: 'READY_TO_CLOSEOUT', candidateState: 'MERGED' });
+    const closeoutOperationId = ready?.closeoutOperationId;
+    if (typeof closeoutOperationId !== 'string') throw new Error('closeout operation id missing');
+    expect(classifyDurableVerificationSessionProjection({
+      repository: 'sec-platform/sec', request: fixture.request,
+      candidate: fixture.transport.candidate(), publications: [publication],
+      closeout: { closeoutOperationId: closeoutOperationId as `sha256:${string}`,
+        commentId: 700, status: 'completed' }
+    })).toMatchObject({ status: 'COMPLETED', closeoutCommentId: 700 });
+  } finally {
+    fixture.dispose();
+  }
+}, PHYSICAL_RUNTIME_AUTHORITY_TEST_TIMEOUT_MS);
+
+  test('MERGED recovery permits advanced main only when the marker commit remains reachable', async () => {
+  const advancedMain = '8'.repeat(40);
+  const reachable = (await reducerFixture({ remoteDefaultSha: advancedMain,
+    mergeToDefault: { status: 'ahead', behindBy: 0 } }));
+  try {
+    reachable.transport.adoptMerged(reachable.markers, reachable.result.reviewReceipt,
+      reachable.artifact.session.sessionRevision);
+    expect((await runReducer(reachable))).toMatchObject({ status: 'COMPLETED' });
+  } finally {
+    reachable.dispose();
+  }
+
+  for (const comparison of [
+    { status: 'diverged', behindBy: 1 },
+    { status: 'behind', behindBy: 1 }
+  ] satisfies GitHubComparisonObservation[]) {
+    const blocked = (await reducerFixture({ remoteDefaultSha: advancedMain, mergeToDefault: comparison }));
+    try {
+      blocked.transport.adoptMerged(blocked.markers, blocked.result.reviewReceipt,
+        blocked.artifact.session.sessionRevision);
+      await expect((async () => (await runReducer(blocked)))()).rejects.toThrow(/ancestor|reachability/i);
+    } finally {
+      blocked.dispose();
+    }
+  }
+  const invalidBase = (await reducerFixture({ baseToMerge: { status: 'diverged', behindBy: 1 } }));
+  try {
+    invalidBase.transport.adoptMerged(invalidBase.markers, invalidBase.result.reviewReceipt,
+      invalidBase.artifact.session.sessionRevision);
+    await expect((async () => (await runReducer(invalidBase)))()).rejects.toThrow(/old base ancestry/i);
+  } finally {
+    invalidBase.dispose();
+  }
+}, PHYSICAL_RUNTIME_AUTHORITY_TEST_TIMEOUT_MS);
+
+  test('MERGED reachability permits detached old-base only with synchronized post-merge default', async () => {
+  const advancedMain = '8'.repeat(40);
+  const fixture = (await reducerFixture({ remoteDefaultSha: advancedMain,
+    mergeToDefault: { status: 'ahead', behindBy: 0 } }));
+  try {
+    fixture.transport.adoptMerged(fixture.markers, fixture.result.reviewReceipt,
+      fixture.artifact.session.sessionRevision);
+    const candidate = fixture.transport.candidate();
+    const proof = { currentHeadSha: BASE, currentBranch: '', localDefaultSha: advancedMain,
+      remoteDefaultSha: advancedMain, workingTreeClean: true,
+      runtimeEntrypointBlobMatched: true, boundaryTargetsMatched: true };
+    const input = { proof, repository: fixture.artifact.session.repository,
+      prNumber: fixture.artifact.session.prNumber, baseSha: fixture.artifact.session.baseSha,
+      headSha: fixture.artifact.session.headSha, headTreeSha: fixture.artifact.session.headTreeSha,
+      candidate, github: fixture.github };
+    expect(async () => (await assertTrustedMergedRequestRuntimeReachability(input))).not.toThrow();
+    await expect((async () => (await assertTrustedMergedRequestRuntimeReachability({ ...input,
+      proof: { ...proof, localDefaultSha: BASE } })))()).rejects.toThrow(/synchronized local\/live default/i);
+    await expect((async () => (await assertTrustedMergedRequestRuntimeReachability({ ...input,
+      proof: { ...proof, localDefaultSha: 'f'.repeat(40) } })))()).rejects.toThrow(/synchronized local\/live default/i);
+    await expect((async () => (await assertTrustedMergedRequestRuntimeReachability({ ...input,
+      proof: { ...proof, currentBranch: 'feature/foreign' } })))()).rejects.toThrow(/old-base trusted TCB/i);
+    await expect((async () => (await assertTrustedMergedRequestRuntimeReachability({ ...input,
+      proof: { ...proof, currentHeadSha: HEAD } })))()).rejects.toThrow(/old-base trusted TCB/i);
+  } finally {
+    fixture.dispose();
+  }
+}, PHYSICAL_RUNTIME_AUTHORITY_TEST_TIMEOUT_MS);
+
+  test('actual reducer rejects OPEN base/head drift before any merge claim or effect', async () => {
+  for (const [field, value] of [
+    ['baseSha', 'f'.repeat(40)],
+    ['headSha', 'e'.repeat(40)]
+  ] as const) {
+    const fixture = (await reducerFixture());
+    try {
+      fixture.transport.observation = { ...fixture.transport.observation, [field]: value };
+      await expect((async () => (await runReducer(fixture)))()).rejects.toThrow(/live .* drifted/i);
+    } finally {
+      fixture.dispose();
+    }
+  }
+}, PHYSICAL_RUNTIME_AUTHORITY_TEST_TIMEOUT_MS);
+
+  test('actual reducer rejects expired or already-consumed authorization before merge', async () => {
+  for (const fixture of [
+    (await reducerFixture({ authorizationExpiresAt: '2026-08-09T14:06:00.000Z', now: '2026-08-09T14:07:00.000Z' })),
+    (await reducerFixture({ consumed: true }))
+  ]) {
+    try {
+      await expect((async () => (await runReducer(fixture)))()).rejects.toThrow(/expired|already consumed/i);
+    } finally {
+      fixture.dispose();
+    }
+  }
+}, PHYSICAL_RUNTIME_AUTHORITY_TEST_TIMEOUT_MS);
+
+  test('actual reducer binds IntegrationAuthorization to trusted live repository and PR', async () => {
+  for (const identity of [
+    { repository: 'attacker/fork' },
+    { prNumber: 99 }
+  ]) {
+    const fixture = (await reducerFixture());
+    try {
+      fixture.setAuthorizationResult(substituteAuthorizationLiveIdentity(fixture, identity));
+      await expect((async () => (await runReducer(fixture)))()).rejects.toThrow(/repository|prNumber/i);
+    } finally {
+      fixture.dispose();
+    }
+  }
+}, PHYSICAL_RUNTIME_AUTHORITY_TEST_TIMEOUT_MS);
+
+  test('actual reducer rejects downloaded merge-result digest or provenance substitution', async () => {
+  for (const mutate of [
+    (value: Record<string, any>) => { value.resultDigest = `sha256:${'f'.repeat(64)}`; },
+    (value: Record<string, any>) => { value.provenance.sourceRunId = 'forged-run'; }
+  ]) {
+    const fixture = (await reducerFixture());
+    try {
+      const value = JSON.parse(encodeVerificationActionData(fixture.result)) as Record<string, any>;
+      mutate(value);
+      fixture.setAuthorizationResult(JSON.stringify(value));
+      await expect((async () => (await runReducer(fixture)))()).rejects.toThrow(/digest|provenance|issuer/i);
+    } finally {
+      fixture.dispose();
+    }
+  }
+}, PHYSICAL_RUNTIME_AUTHORITY_TEST_TIMEOUT_MS);
+
+  test('actual reducer blocks merged-tree mismatch and blocked/residue closeout terminals', async () => {
+  const mismatch = (await reducerFixture());
+  try {
+    mismatch.transport.mergedTreeSha = 'd'.repeat(40);
+    expect((await runReducer(mismatch))).toMatchObject({ status: 'READY_TO_INTEGRATE' });
+    mismatch.transport.adoptMerged(mismatch.markers, mismatch.result.reviewReceipt,
+      mismatch.artifact.session.sessionRevision);
+    await expect((async () => (await runReducer(mismatch)))()).rejects.toThrow(/marker-bound candidate\/tree identity/i);
+  } finally {
+    mismatch.dispose();
+  }
+  for (const terminal of ['blocked', 'residue'] as const) {
+    const fixture = (await reducerFixture({ closeout: terminal }));
+    try {
+      expect((await runReducer(fixture))).toMatchObject({ status: 'READY_TO_INTEGRATE' });
+      fixture.transport.adoptMerged(fixture.markers, fixture.result.reviewReceipt,
+        fixture.artifact.session.sessionRevision);
+      expect((await runReducer(fixture))).toMatchObject({ status: 'BLOCKED', reason: `branch closeout terminal ${terminal}` });
+    } finally {
+      fixture.dispose();
+    }
+  }
+}, PHYSICAL_RUNTIME_AUTHORITY_TEST_TIMEOUT_MS);
+
+  test('reducer emits one stable integration intent and never executes a physical merge', async () => {
+  const fixture = (await reducerFixture());
+  try {
+    const first = (await runReducer(fixture));
+    const replay = (await runReducer(fixture));
+    expect(first).toMatchObject({ status: 'READY_TO_INTEGRATE',
+      operationId: fixture.result.authorization.consumptionOperationId });
+    expect(replay).toMatchObject({ status: 'READY_TO_INTEGRATE', operationId: first.operationId });
+  } finally {
+    fixture.dispose();
+  }
+}, PHYSICAL_RUNTIME_AUTHORITY_TEST_TIMEOUT_MS);
+
+  test('V9 expired pre-gate authority requires a fresh integration while retaining exact Action Evidence', async () => {
+  const stalePreGateAt = '2026-08-09T14:07:00.000Z';
+  const stalePreGate = (await reducerFixture({ mergeAt: stalePreGateAt }));
+  try {
+    expect(classifyVerificationSessionArtifactReuse(stalePreGate.artifact, stalePreGateAt))
+      .toMatchObject({ status: 'fresh-authority-required', actionEvidenceCandidate: true });
+    expect(stalePreGate.result.authorization).toMatchObject({
+      sessionRevision: stalePreGate.artifact.session.sessionRevision,
+      baseSha: BASE,
+      headSha: HEAD,
+      issuedAt: stalePreGateAt
+    });
+    expect(stalePreGate.result.authorization.reviewReceiptDigest)
+      .not.toBe(stalePreGate.artifact.preGateReview.receiptDigest);
+    expect(stalePreGate.result.authorization.mainHealthReceiptDigest)
+      .not.toBe(stalePreGate.artifact.mainHealth.ledgerDigest);
+  } finally {
+    stalePreGate.dispose();
+  }
+}, PHYSICAL_RUNTIME_AUTHORITY_TEST_TIMEOUT_MS);
+
+  describe('hosted closeout consumer integrations', () => {
+    beforeAll(() => {
+      if (!CLOSEOUT_CLI_E2E_ENABLED) return;
+      closeoutRawRuntime = createRawTestExecutableFixture();
+      sharedCloseoutCliShimSuiteRoot = mkdtempSync(
+        path.join(tmpdir(), 'sec-verification-session-v6-shims-')
+      );
+      sharedCloseoutCliShimRoot = compileCloseoutCliProviderShims(sharedCloseoutCliShimSuiteRoot, closeoutRuntimeCommand());
+    }, 65_000);
+
+    closeoutCliE2eTest('trusted remote default ref synchronization closes ordinary merge and merged recovery safely', async () => {
+  (await withCloseoutCliPartition(({ harnessRoot, recoveryHarnessRoot, shimRoot, fixture }) => {
+    const runRecovery = (name: string, configure?: (state: CloseoutCliHarnessState) => void) => {
+      const scenario = createCloseoutCliScenario({ harnessRoot, recoveryHarnessRoot, shimRoot,
+        name, fixture });
+      const state = readCloseoutCliHarnessState(scenario.statePath);
+      state.currentPhase = 'closeoutMutation';
+      state.localDefaultSha = BASE;
+      state.liveDefaultReadCount = 0;
+      state.refOnlyFetchCount = 0;
+      state.headReadValues = [];
+      configure?.(state);
+      writeCloseoutCliHarnessState(scenario.statePath, state);
+      return { scenario, result: runCloseoutCliProcess(shimRoot, scenario, 'integrate-hosted') };
+    };
+
+    const exact = runRecovery('ref-sync-exact');
+    assertCloseoutCliProcessSucceeded('integrate-hosted merged recovery ref synchronization',
+      exact.result);
+    expect(JSON.parse(readFileSync(exact.result.output, 'utf8'))).toMatchObject({
+      lane: 'merged-recovery'
+    });
+    expect(readCloseoutCliHarnessState(exact.scenario.statePath)).toMatchObject({
+      localDefaultSha: '9'.repeat(40),
+      liveDefaultSha: '9'.repeat(40),
+      refOnlyFetchCount: 1,
+      mergeRequestCount: 0,
+      commentPostCount: 0,
+      remoteDeleteCount: 0
+    });
+    expect(new Set(readCloseoutCliHarnessState(exact.scenario.statePath).headReadValues))
+      .toEqual(new Set([BASE]));
+
+    const failed = runRecovery('ref-sync-fetch-failure', (state) => {
+      state.refOnlyFetchFailure = true;
+    });
+    expect(failed.result.result.status).not.toBe(0);
+    expect(readCloseoutCliHarnessState(failed.scenario.statePath)).toMatchObject({
+      localDefaultSha: BASE,
+      refOnlyFetchCount: 1,
+      mergeRequestCount: 0,
+      commentPostCount: 0,
+      remoteDeleteCount: 0
+    });
+
+    const raced = runRecovery('ref-sync-race', (state) => {
+      state.raceAfterRefOnlyFetch = true;
+    });
+    expect(raced.result.result.status).not.toBe(0);
+    expect(raced.result.result.stderr).toMatch(/changed during synchronized ref-only fetch/i);
+    expect(readCloseoutCliHarnessState(raced.scenario.statePath)).toMatchObject({
+      localDefaultSha: '9'.repeat(40),
+      liveDefaultSha: '8'.repeat(40),
+      refOnlyFetchCount: 1,
+      mergeRequestCount: 0,
+      commentPostCount: 0,
+      remoteDeleteCount: 0
+    });
+    expect(new Set(readCloseoutCliHarnessState(raced.scenario.statePath).headReadValues))
+      .toEqual(new Set([BASE]));
+  }));
+}, 180_000);
+
+    closeoutCliE2eTest('public Session closeout CLI partition A exact delete, publish, and reuse', async () => {
+  (await withCloseoutCliPartition(({ harnessRoot, recoveryHarnessRoot, shimRoot, fixture }) => {
+    const exact = createCloseoutCliScenario({ harnessRoot, recoveryHarnessRoot, shimRoot,
+      name: 'exact', fixture });
+    expect(encodeVerificationActionData(exact.providerPrepared))
+      .not.toBe(encodeVerificationActionData(exact.rehydratedPrepared));
+    expect(exact.providerPrepared.preparation.recovery.path)
+      .not.toBe(exact.rehydratedPrepared.preparation.recovery.path);
+    expect(exact.providerPrepared.preparation.preparationDigest)
+      .toBe(exact.rehydratedPrepared.preparation.preparationDigest);
+    expect(encodeVerificationActionData(exact.providerPrepared.before))
+      .toBe(encodeVerificationActionData(exact.rehydratedPrepared.before));
+    expect(exact.providerPrepared.before.pullRequests.find(({ number }) => number === 42))
+      .toMatchObject({ state: 'open', headSha: HEAD });
+    expect(exact.rehydratedPrepared.before.pullRequests.find(({ number }) => number === 42))
+      .toMatchObject({ state: 'open', headSha: HEAD });
+    expect(readCloseoutCliHarnessState(exact.statePath)).toMatchObject({
+      inventoryPrState: 'MERGED', activeWorkPackageSelected: false
+    });
+    assertCloseoutCliProviderShim(shimRoot, exact);
+    const first = runCloseoutCliProcess(shimRoot, exact, 'closeout-mutate-hosted');
+    assertCloseoutCliProcessSucceeded('closeout-mutate-hosted', first);
+    const firstMutationState = readCloseoutCliHarnessState(exact.statePath);
+    expect(firstMutationState).toMatchObject({ remoteDeleteCount: 1, remotePresent: false });
+    expect(firstMutationState.credentialBoundBranchReadCount).toBeGreaterThan(0);
+    expect(firstMutationState.httpReadCount).toBeGreaterThan(0);
+    expect(firstMutationState.httpArtifactDownloadCount).toBeGreaterThan(0);
+    expect(JSON.parse(readFileSync(first.output, 'utf8'))).toMatchObject({
+      disposition: 'executed', closeoutOperationId: exact.binding.closeoutOperationId
+    });
+    let exactState = readCloseoutCliHarnessState(exact.statePath);
+    exactState.currentPhase = 'closeoutPublication';
+    writeCloseoutCliHarnessState(exact.statePath, exactState);
+    const published = runCloseoutCliProcess(shimRoot, exact, 'closeout-publish-hosted');
+    assertCloseoutCliProcessSucceeded('closeout-publish-hosted', published);
+    exactState = readCloseoutCliHarnessState(exact.statePath);
+    expect(exactState.remoteDeleteCount).toBe(1);
+    exactState.currentPhase = 'closeoutMutation';
+    writeCloseoutCliHarnessState(exact.statePath, exactState);
+    const reusedMutation = runCloseoutCliProcess(shimRoot, exact, 'closeout-mutate-hosted');
+    assertCloseoutCliProcessSucceeded('closeout-mutate-hosted', reusedMutation);
+    expect(JSON.parse(readFileSync(reusedMutation.output, 'utf8')))
+      .toMatchObject({ disposition: 'reused-terminal' });
+    exactState = readCloseoutCliHarnessState(exact.statePath);
+    exactState.currentPhase = 'closeoutPublication';
+    writeCloseoutCliHarnessState(exact.statePath, exactState);
+    const reusedPublication = runCloseoutCliProcess(shimRoot, exact, 'closeout-publish-hosted');
+    assertCloseoutCliProcessSucceeded('closeout-publish-hosted', reusedPublication);
+    expect(JSON.parse(readFileSync(reusedPublication.output, 'utf8')))
+      .toMatchObject({ disposition: 'reused' });
+    expect(readCloseoutCliHarnessState(exact.statePath).remoteDeleteCount).toBe(1);
+  }));
+}, 180_000);
+
+    closeoutCliE2eTest('public Session closeout CLI partition B crash recovery performs zero second delete', async () => {
+  await withCloseoutCliPartitionSettled(async ({ harnessRoot, recoveryHarnessRoot, shimRoot,
+    fixture }) => {
+    const crash = createCloseoutCliScenario({ harnessRoot, recoveryHarnessRoot, shimRoot,
+      name: 'crash', fixture, crashAfterDelete: true });
+    const crashed = startCloseoutCliProcess(shimRoot, crash, 'closeout-mutate-hosted');
+    let killCount = 0;
+    let released = false;
+    try {
+      const barrierState = await waitForCloseoutCliBarrier(crash.statePath, crashed);
+      const crashShimPid = barrierState.crashShimPid as number;
+      expect(barrierState).toMatchObject({ remoteDeleteCount: 1, remotePresent: false,
+        crashInjected: true, crashShimPid });
+      expect(barrierState.credentialBoundBranchReadCount).toBeGreaterThan(0);
+      expect(Number.isInteger(crashed.child.pid) && (crashed.child.pid ?? 0) > 0).toBe(true);
+      expect(isProcessAlive(crashShimPid)).toBe(true);
+
+      killCount += 1;
+      expect(crashed.child.kill('SIGKILL')).toBe(true);
+      const exit = await boundedCloseoutWait(crashed.exit, 'owned closeout CLI exit');
+      expect(exit.code).not.toBe(0);
+      expect(crashed.lifecycle.exit).toBe(true);
+
+      writeFileSync(crash.crashReleasePath, 'release\n', 'utf8');
+      released = true;
+      await boundedCloseoutWait(Promise.all([
+        crashed.close,
+        crashed.stdoutEof,
+        crashed.stderrEof
+      ]), 'owned closeout CLI close and stdio EOF');
+      expect(killCount).toBe(1);
+      expect(crashed.lifecycle).toMatchObject({
+        exit: true,
+        close: true,
+        stdoutEof: true,
+        stderrEof: true
+      });
+      await waitForCloseoutCliState(crash.statePath,
+        () => !isProcessAlive(crashShimPid), 'crash shim termination');
+      expect(isProcessAlive(crashShimPid)).toBe(false);
+
+      const leaseRoots = [crash.rehydratedPrepared.preparation.repository.commonDir, crash.root];
+      const abandoned = await Promise.all(leaseRoots.map(root => inspectWorkspaceWriteLease(root)));
+      expect(abandoned.every(lease => lease.state === 'active')).toBe(true);
+      // The real owner requires heartbeat age >30s as well as a dead process.
+      // Both children are joined, so 31s of real time makes this one fresh CLI
+      // retry causally eligible without altering a lease, clock or policy.
+      await new Promise(resolve => setTimeout(resolve, 31_000));
+      const afterStaleness = await Promise.all(leaseRoots.map(root => inspectWorkspaceWriteLease(root)));
+      expect(afterStaleness.map(lease => lease.stateDigest))
+        .toEqual(abandoned.map(lease => lease.stateDigest));
+
+      let crashState = readCloseoutCliHarnessState(crash.statePath);
+      crashState.crashAfterDelete = false;
+      writeCloseoutCliHarnessState(crash.statePath, crashState);
+      const recovered = runCloseoutCliProcess(shimRoot, crash, 'closeout-mutate-hosted');
+      assertCloseoutCliProcessSucceeded('closeout-mutate-hosted', recovered);
+      expect(JSON.parse(readFileSync(recovered.output, 'utf8')))
+        .toMatchObject({ disposition: 'recovered-after-effect-start' });
+      crashState = readCloseoutCliHarnessState(crash.statePath);
+      expect(crashState.remoteDeleteCount).toBe(1);
+      expect(crashState.credentialBoundBranchReadCount)
+        .toBeGreaterThan(barrierState.credentialBoundBranchReadCount);
+      expect(isProcessAlive(crashShimPid)).toBe(false);
+      expect(killCount).toBe(1);
+      expect(crashed.lifecycle).toMatchObject({
+        exit: true,
+        close: true,
+        stdoutEof: true,
+        stderrEof: true
+      });
+    } finally {
+      if (!released) {
+        writeFileSync(crash.crashReleasePath, 'release\n', 'utf8');
+      }
+      if (!crashed.lifecycle.exit && killCount === 0) {
+        killCount += 1;
+        crashed.child.kill('SIGKILL');
+      }
+      await Promise.allSettled([
+        boundedCloseoutWait(crashed.exit, 'owned closeout CLI cleanup exit'),
+        boundedCloseoutWait(crashed.close, 'owned closeout CLI cleanup close'),
+        boundedCloseoutWait(crashed.stdoutEof, 'owned closeout CLI cleanup stdout EOF'),
+        boundedCloseoutWait(crashed.stderrEof, 'owned closeout CLI cleanup stderr EOF')
+      ]);
+    }
+  });
+}, 120_000);
+
+    closeoutCliE2eTest('public Session closeout CLI partition C rejects invalid existing markers without delete', async () => {
+  (await withCloseoutCliPartition(({ harnessRoot, recoveryHarnessRoot, shimRoot, fixture }) => {
+    for (const seed of ['null-app', 'wrong-app', 'duplicate', 'old'] as const) {
+      const blocked = createCloseoutCliScenario({ harnessRoot, recoveryHarnessRoot, shimRoot,
+        name: seed, fixture, seed });
+      const result = runCloseoutCliProcess(shimRoot, blocked, 'closeout-mutate-hosted');
+      expect(result.result.status).not.toBe(0);
+      expect(readCloseoutCliHarnessState(blocked.statePath)).toMatchObject({
+        remoteDeleteCount: 0, remotePresent: true
+      });
+    }
+  }));
+}, 180_000);
+
+    closeoutCliE2eTest('public Session closeout CLI partition D rejects authority tamper without delete', async () => {
+  (await withCloseoutCliPartition(({ harnessRoot, recoveryHarnessRoot, shimRoot, fixture }) => {
+    for (const tamper of ['original', 'artifact', 'stable-digest'] as const) {
+      const blocked = createCloseoutCliScenario({ harnessRoot, recoveryHarnessRoot, shimRoot,
+        name: `tampered-${tamper}`, fixture, tamper });
+      const result = runCloseoutCliProcess(shimRoot, blocked, 'closeout-mutate-hosted');
+      expect(result.result.status).not.toBe(0);
+      expect(readCloseoutCliHarnessState(blocked.statePath)).toMatchObject({
+        remoteDeleteCount: 0, remotePresent: true
+      });
+    }
+  }));
+}, 180_000);
+
+    closeoutCliE2eTest('public Session closeout CLI partition E lost marker POST and replay perform zero delete', async () => {
+  (await withCloseoutCliPartition(({ harnessRoot, recoveryHarnessRoot, shimRoot, fixture }) => {
+    const lost = createCloseoutCliScenario({ harnessRoot, recoveryHarnessRoot, shimRoot,
+      name: 'lost', fixture, postDisposition: 'lost' });
+    const uncertain = runCloseoutCliProcess(shimRoot, lost, 'closeout-mutate-hosted');
+    expect(uncertain.result.status).not.toBe(0);
+    expect(readCloseoutCliHarnessState(lost.statePath)).toMatchObject({
+      remoteDeleteCount: 0, remotePresent: true
+    });
+    const replay = runCloseoutCliProcess(shimRoot, lost, 'closeout-mutate-hosted');
+    expect(replay.result.status).not.toBe(0);
+    const lostState = readCloseoutCliHarnessState(lost.statePath);
+    expect(lostState).toMatchObject({ remoteDeleteCount: 0, remotePresent: true });
+    expect(lostState.comments).toHaveLength(2);
+  }));
+}, 120_000);
+
+    closeoutCliE2eTest('V9 integration reruns retain producing attempts and authorize fresh integration after pre-gate expiry', async () => {
+  (await withCloseoutCliPartition(({ harnessRoot, recoveryHarnessRoot, shimRoot, fixture }) => {
+    const samePrincipal = createCloseoutCliScenario({ harnessRoot, recoveryHarnessRoot, shimRoot,
+      name: 'rerun-same-principal', fixture, currentRunAttempt: 2,
+      includeStableArtifact: true });
+    const sameResult = runCloseoutCliProcess(shimRoot, samePrincipal, 'closeout-mutate-hosted');
+    assertCloseoutCliProcessSucceeded('closeout-mutate-hosted same-principal rerun', sameResult);
+    expect(readCloseoutCliHarnessState(samePrincipal.statePath)).toMatchObject({
+      remoteDeleteCount: 1,
+      principalUserLookups: ['integrator', 'integrator'],
+      artifactsByRun: { 200: [
+        { name: `sec-verification-action-start-v2-${'c'.repeat(64)}` },
+        { name: expect.stringContaining('sec-branch-closeout-recovery-v1-') }
+      ] }
+    });
+
+    const delegatedMaintainer = createCloseoutCliScenario({ harnessRoot, recoveryHarnessRoot,
+      shimRoot, name: 'rerun-delegated-maintainer', fixture, currentRunAttempt: 2,
+      triggeringPrincipal: { login: 'release-manager', nodeId: 'RELEASE_MANAGER',
+        permission: 'maintain' } });
+    const delegatedResult = runCloseoutCliProcess(shimRoot, delegatedMaintainer,
+      'closeout-mutate-hosted');
+    assertCloseoutCliProcessSucceeded('closeout-mutate-hosted delegated rerun', delegatedResult);
+    expect(readCloseoutCliHarnessState(delegatedMaintainer.statePath)).toMatchObject({
+      remoteDeleteCount: 1,
+      principalUserLookups: ['integrator', 'release-manager']
+    });
+
+    const writeOnly = createCloseoutCliScenario({ harnessRoot, recoveryHarnessRoot, shimRoot,
+      name: 'rerun-write-only', fixture, currentRunAttempt: 2,
+      triggeringPrincipal: { login: 'write-only', nodeId: 'WRITE_ONLY', permission: 'write' } });
+    const blocked = runCloseoutCliProcess(shimRoot, writeOnly, 'closeout-mutate-hosted');
+    expect(blocked.result.status).not.toBe(0);
+    expect(blocked.result.stderr).toContain(
+      'integrate-hosted triggering actor stable identity/live permission mismatch.');
+    expect(readCloseoutCliHarnessState(writeOnly.statePath)).toMatchObject({
+      remoteDeleteCount: 0,
+      principalUserLookups: ['integrator', 'write-only']
+    });
+
+    const historicalAttemptMismatch = createCloseoutCliScenario({ harnessRoot,
+      recoveryHarnessRoot, shimRoot, name: 'rerun-historical-attempt-mismatch', fixture,
+      currentRunAttempt: 2, historicalAttemptMismatch: true });
+    const mismatched = runCloseoutCliProcess(shimRoot, historicalAttemptMismatch,
+      'closeout-mutate-hosted');
+    expect(mismatched.result.status).not.toBe(0);
+    expect(mismatched.result.stderr).toContain('hosted comment workflow run provenance drifted');
+    expect(readCloseoutCliHarnessState(historicalAttemptMismatch.statePath))
+      .toMatchObject({ remoteDeleteCount: 0 });
+  }));
+}, 180_000);
+  });
 });

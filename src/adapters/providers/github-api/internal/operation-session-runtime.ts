@@ -1349,14 +1349,20 @@ async function withProductionSession<T>(input: Readonly<{
   repositoryRoot: string;
   repository: string;
   effect: GitHubApiEffect;
+  deadlineAtUnixMs?: number;
+  signal?: AbortSignal;
   operation: (capability: GitHubApiCapability) => Promise<T>;
 }>): Promise<T> {
+  const verification = input.effect === 'verification-read' || input.effect === 'verification-dispatch';
   return await runSession({
     ...input,
     origin: 'production',
     transport: async (target, init) => await globalThis.fetch(target, init),
-    readToken: readProductionToken,
-    budget: operationBudget.getStore()
+    readToken: verification ? readVerificationProductionToken : readProductionToken,
+    // Verification owns its bounded session; ordinary operation budgets remain unchanged.
+    ...(verification
+      ? { timeoutMs: Math.min(60_000, (input.deadlineAtUnixMs ?? Date.now() + 60_000) - Date.now()) }
+      : { budget: operationBudget.getStore() })
   });
 }
 
@@ -1369,11 +1375,7 @@ export async function withGitHubApiVerificationSession<T>(input: Readonly<{
   operation: (capability: GitHubApiCapability) => Promise<T>;
 }>): Promise<T> {
   if (input.effect !== 'verification-read' && input.effect !== 'verification-dispatch') throw new GitHubApiProviderError('Verification session effect is invalid');
-  return await runSession({ ...input, origin:'production',
-    transport: async (target, init) => await globalThis.fetch(target, init),
-    readToken: readVerificationProductionToken,
-    timeoutMs: Math.min(60_000, (input.deadlineAtUnixMs ?? Date.now()+60_000)-Date.now())
-  });
+  return await withProductionSession(input);
 }
 
 export async function withGitHubApiReadSession<T>(input: Readonly<{

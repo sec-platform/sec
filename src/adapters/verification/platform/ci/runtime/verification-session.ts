@@ -1146,6 +1146,30 @@ function materializeBranchCloseoutRecoveryArtifact(input: {
   return Object.freeze({ artifact, artifactName, artifactFilePath });
 }
 
+/** Validate the artifact against its exact producing workflow attempt, not the comment App identity. */
+export function assertHostedRecoveryArtifactProvenance(input: Readonly<{
+  metadata: GitHubActionsArtifactObservation;
+  producingRun: Readonly<Record<string, any>>;
+  baseSha: string;
+  runId: string;
+  runAttempt: number;
+}>): void {
+  const { metadata, producingRun, baseSha, runId, runAttempt } = input;
+  if (metadata.expired || metadata.runId !== runId || metadata.runAttempt !== runAttempt
+    || metadata.workflowPath !== '.github/workflows/merge-gate.yml'
+    || metadata.workflowRef !== `.github/workflows/merge-gate.yml@${baseSha}`
+    || metadata.workflowSha !== baseSha || metadata.eventName !== 'workflow_run'
+    || String(producingRun.id ?? '') !== runId || producingRun.run_attempt !== runAttempt
+    || producingRun.event !== 'workflow_run' || producingRun.path !== metadata.workflowPath
+    || producingRun.head_sha !== baseSha || typeof producingRun.actor?.login !== 'string'
+    || typeof producingRun.actor?.node_id !== 'string'
+    || producingRun.actor.login.length === 0 || producingRun.actor.node_id.length === 0
+    || metadata.actorNodeId !== producingRun.actor.node_id
+    || (metadata.actorPermission !== 'maintain' && metadata.actorPermission !== 'admin')) {
+    throw new Error('Closeout recovery provider artifact provenance drifted.');
+  }
+}
+
 async function loadProviderBranchCloseoutRecoveryArtifact(input: {
   ctx: VerificationSessionScope;
   github: VerificationSessionGitHubClient;
@@ -1167,14 +1191,11 @@ async function loadProviderBranchCloseoutRecoveryArtifact(input: {
     throw new Error('Closeout recovery requires exactly one provider artifact for the authorization run/attempt.');
   }
   const metadata = matches[0]!;
-  if (metadata.expired || metadata.runId !== input.runId || metadata.runAttempt !== input.runAttempt
-    || metadata.workflowPath !== '.github/workflows/merge-gate.yml'
-    || metadata.workflowRef !== `.github/workflows/merge-gate.yml@${input.session.baseSha}`
-    || metadata.workflowSha !== input.session.baseSha || metadata.eventName !== 'repository_dispatch'
-    || metadata.actorNodeId !== CI_GITHUB_ACTIONS_IDENTITY_POLICY.bot.nodeId
-    || metadata.actorPermission !== 'none') {
-    throw new Error('Closeout recovery provider artifact provenance drifted.');
-  }
+  const producingRun = apiRecord(input.ctx,
+    `/repos/${input.repository}/actions/runs/${input.runId}/attempts/${input.runAttempt}`,
+    'closeout recovery producing run attempt readback');
+  assertHostedRecoveryArtifactProvenance({ metadata, producingRun, baseSha: input.session.baseSha,
+    runId: input.runId, runAttempt: input.runAttempt });
   const source = (await input.github.downloadArtifactText(input.repository, metadata,
     BRANCH_CLOSEOUT_RECOVERY_ARTIFACT_FILE_NAME));
   const artifact = parseBranchCloseoutRecoveryArtifact(source);
@@ -1898,6 +1919,51 @@ function assertBoundPostMergeMain(input: Readonly<{
   return input.liveMainSha;
 }
 
+/** Keep compiler initiators, current rerun principals and the Actions publisher distinct. */
+export async function observeHostedIntegrationPrincipals(input: Readonly<{
+  github: Pick<VerificationSessionGitHubClient, 'observePrincipal'>;
+  repository: string;
+  sourceRun: Readonly<Record<string, any>>;
+  currentRun: Readonly<Record<string, any>>;
+  environment: Readonly<Record<string, string | undefined>>;
+}>) {
+  type TrustedPrincipal = Readonly<{ login: string; nodeId: string; permission: 'maintain' | 'admin' }>;
+  const observations = new Map<string, Promise<TrustedPrincipal>>();
+  const observe = async (record: unknown, label: string, fresh = false): Promise<TrustedPrincipal> => {
+    if (record === null || typeof record !== 'object') throw new Error(`${label} identity is incomplete.`);
+    const { login, node_id: nodeId } = record as Record<string, unknown>;
+    if (typeof login !== 'string' || typeof nodeId !== 'string' || login.length === 0 || nodeId.length === 0) {
+      throw new Error(`${label} identity is incomplete.`);
+    }
+    const key = JSON.stringify([login, nodeId]);
+    let pending = fresh ? undefined : observations.get(key);
+    if (pending === undefined) {
+      pending = (async () => {
+        const observed = await input.github.observePrincipal(input.repository, login);
+        if (observed.login !== login || observed.nodeId !== nodeId
+            || (observed.permission !== 'maintain' && observed.permission !== 'admin')) {
+          throw new Error(`${label} stable identity/live permission mismatch.`);
+        }
+        return Object.freeze({ login: observed.login, nodeId: observed.nodeId, permission: observed.permission });
+      })();
+      if (!fresh) observations.set(key, pending);
+    }
+    return await pending;
+  };
+  await observe(input.sourceRun.actor, 'integrate-hosted source actor');
+  const sourceTriggeringActor = await observe(input.sourceRun.triggering_actor, 'integrate-hosted source triggering actor');
+  if (input.currentRun.actor?.login !== input.environment.GITHUB_ACTOR
+      || input.currentRun.triggering_actor?.login !== input.environment.GITHUB_TRIGGERING_ACTOR
+      || typeof input.environment.GITHUB_ACTOR !== 'string'
+      || typeof input.environment.GITHUB_TRIGGERING_ACTOR !== 'string') {
+    throw new Error('integrate-hosted current actor environment/API identity mismatch.');
+  }
+  await observe(input.currentRun.actor, 'integrate-hosted actor');
+  // A rerun is a separate initiation even when the username is unchanged.
+  await observe(input.currentRun.triggering_actor, 'integrate-hosted triggering actor', true);
+  return Object.freeze({ sourceTriggeringActor });
+}
+
 async function assertHostedIntegrationIdentity(input: {
   ctx: VerificationSessionScope;
   github: VerificationSessionGitHubClient;
@@ -1975,22 +2041,9 @@ async function assertHostedIntegrationIdentity(input: {
     || sourceRun.head_sha !== baseSha) {
     throw new Error('integrate-hosted terminal Session source provenance mismatch.');
   }
-  const sourceActorLogin = sourceRun.actor?.login;
-  const sourceActorNodeId = sourceRun.actor?.node_id;
-  const sourceTriggeringActorLogin = sourceRun.triggering_actor?.login;
-  const sourceTriggeringActorNodeId = sourceRun.triggering_actor?.node_id;
-  if (typeof sourceActorLogin !== 'string' || typeof sourceActorNodeId !== 'string'
-    || typeof sourceTriggeringActorLogin !== 'string' || typeof sourceTriggeringActorNodeId !== 'string') {
-    throw new Error('integrate-hosted source actor/triggering principal identity is incomplete.');
-  }
-  const sourceActor = (await github.observePrincipal(repository, sourceActorLogin));
-  const sourceTriggeringActor = (await github.observePrincipal(repository, sourceTriggeringActorLogin));
-  if (sourceActor.nodeId !== sourceActorNodeId
-    || (sourceActor.permission !== 'maintain' && sourceActor.permission !== 'admin')
-    || sourceTriggeringActor.nodeId !== sourceTriggeringActorNodeId
-    || (sourceTriggeringActor.permission !== 'maintain' && sourceTriggeringActor.permission !== 'admin')) {
-    throw new Error('integrate-hosted source actor/triggering principal live identity is not trusted.');
-  }
+  const { sourceTriggeringActor } = await observeHostedIntegrationPrincipals({
+    github, repository, sourceRun, currentRun, environment
+  });
   selectCanonicalIntegrationRunOwner({
     runs: (await github.observeWorkflowRuns(repository, workflowSha)), currentRunId: runId,
     currentRunAttempt: runAttempt, sourceRunId, sourceRunAttempt, baseSha: workflowSha
@@ -2013,7 +2066,7 @@ async function assertHostedIntegrationIdentity(input: {
     workflowPath: '.github/workflows/merge-gate.yml',
     workflowRef: `.github/workflows/merge-gate.yml@${workflowSha}`, workflowSha,
     runId, runAttempt, eventName: 'workflow_run', sourceRunId, sourceRunAttempt,
-    actorLogin: sourceTriggeringActorLogin, actorNodeId: sourceTriggeringActorNodeId,
+    actorLogin: sourceTriggeringActor.login, actorNodeId: sourceTriggeringActor.nodeId,
     actorPermission: sourceTriggeringActor.permission,
     app: CI_GITHUB_ACTIONS_IDENTITY_POLICY.app });
   return Object.freeze({ provenance, phase });
@@ -2559,6 +2612,16 @@ function pruneHostedRemote(
  * later ref effect.  Every marker/ref/prune boundary therefore obtains this
  * under the canonical repository lease immediately before its effect.
  */
+function mergedCloseoutInventoryScope(ctx: VerificationSessionScope, preparation: BranchCloseoutPreparation) {
+  if (preparation.pullRequestNumber === null) throw new Error('Merged closeout requires its exact prepared PR.');
+  return { ...ctx, mergedCloseoutTarget: Object.freeze({
+    number: preparation.pullRequestNumber,
+    headBranch: preparation.branch,
+    headSha: preparation.expectedHeadSha,
+    baseBranch: preparation.repository.defaultBranch
+  }) };
+}
+
 async function evaluateHostedCloseoutEffectPreconditionsUnderLease(input: Readonly<{
   ctx: VerificationSessionScope;
   prepared: PreparedBranchCloseoutEnvelope;
@@ -2572,7 +2635,7 @@ async function evaluateHostedCloseoutEffectPreconditionsUnderLease(input: Readon
 }>> {
   const preparation = input.prepared.preparation;
   await assertWorkspaceWriteLease(preparation.repository.root, input.lease);
-  const observedCurrent = collectBranchLifecycleInventory(input.ctx);
+  const observedCurrent = collectBranchLifecycleInventory(mergedCloseoutInventoryScope(input.ctx, preparation));
   const recoveryReadback = verifyRecoveryAuthorityLive({
     inventory: observedCurrent,
     recovery: preparation.recovery
@@ -2960,7 +3023,7 @@ async function finalizeHostedBranchCloseout(input: Readonly<{
   }
 
   await assertWorkspaceWriteLease(preparation.repository.root, input.lease);
-  const after = collectBranchLifecycleInventory(input.ctx);
+  const after = collectBranchLifecycleInventory(mergedCloseoutInventoryScope(input.ctx, preparation));
   await assertWorkspaceWriteLease(preparation.repository.root, input.lease);
   closeoutAttempt(
     attempts,

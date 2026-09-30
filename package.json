@@ -83,6 +83,7 @@
     "jscpd": "5.1.1",
     "knip": "6.34.0",
     "prettier": "^3.9.6",
-    "typescript": "6.0.3"
+    "typescript": "6.0.3",
+    "yazl": "3.3.1"
   }
 }
