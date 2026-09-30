@@ -206,7 +206,10 @@ export function gitText(
   return requireVerificationSessionCommandText(ctx, 'git', args, label, cwd).trim();
 }
 
-export function commonGitDirectory(ctx: VerificationSessionScope, repositoryRoot: string): string {
+export function commonGitDirectory(
+  ctx: VerificationSessionScope,
+  repositoryRoot: VerificationSessionCommandWorkingDirectory
+): string {
   const source = gitText(ctx, repositoryRoot,
     ['rev-parse', '--path-format=absolute', '--git-common-dir'], 'Git common directory readback');
   return exactRealPath(source, 'Git common directory');
