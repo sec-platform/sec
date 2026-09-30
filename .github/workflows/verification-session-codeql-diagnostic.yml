@@ -1,0 +1,41 @@
+name: Verification Session CodeQL Diagnostic
+
+on:
+  pull_request:
+    types: [synchronize]
+
+permissions:
+  contents: read
+
+jobs:
+  javascript-typescript-sarif:
+    if: ${{ github.event.pull_request.number == 727 }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout exact PR head
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 2
+
+      - name: Initialize exact JavaScript/TypeScript CodeQL
+        uses: github/codeql-action/init@2892aa5e19bbd11bc0cff5427e3b750a04d9e3c2 # v4
+        with:
+          languages: javascript-typescript
+          build-mode: none
+
+      - name: Produce local SARIF without Code Scanning upload
+        id: analyze
+        uses: github/codeql-action/analyze@2892aa5e19bbd11bc0cff5427e3b750a04d9e3c2 # v4
+        with:
+          upload: never
+          upload-database: false
+          output: ${{ runner.temp }}/sec-codeql-diagnostic
+
+      - name: Upload exact diagnostic SARIF
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: sec-pr-727-codeql-sarif-${{ github.event.pull_request.head.sha }}
+          path: ${{ steps.analyze.outputs.sarif-output }}
+          if-no-files-found: error
+          retention-days: 1
