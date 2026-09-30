@@ -123,7 +123,7 @@ const LINUX_INOTIFY_EVENT_HEADER_BYTES = 16;
 
 const LINUX_INOTIFY_READ_BYTES = 64 * 1024;
 
-const LINUX_INOTIFY_MAX_EVENTS = 1024;
+const LINUX_INOTIFY_MAX_EVENTS = 100_000;
 
 type LinuxLibc = ReturnType<typeof loadLinuxLibc>;
 
