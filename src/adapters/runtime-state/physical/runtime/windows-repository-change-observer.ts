@@ -17,19 +17,24 @@ import {
   retainNoFollowDirectoryForChildProcess,
   type RetainedNoFollowChildProcessDirectory
 } from './physical-no-follow.ts';
+import {
+  REPOSITORY_CHANGE_OBSERVER_MAXIMUM_EVENTS,
+  REPOSITORY_CHANGE_OBSERVER_MAXIMUM_OBSERVATION_MS,
+  REPOSITORY_CHANGE_OBSERVER_MAXIMUM_ROOTS,
+  RETAINED_REPOSITORY_CHANGE_OBSERVER_CONTRACT_DIGEST,
+  RETAINED_REPOSITORY_CHANGE_OBSERVER_REQUIREMENT_ID
+} from './repository-change-observer-contract.ts';
 
-const MAXIMUM_ROOTS = 8;
-const MAXIMUM_EVENTS = 100_000;
-const MAXIMUM_OBSERVATION_MS = 5 * 60_000;
+const MAXIMUM_ROOTS = REPOSITORY_CHANGE_OBSERVER_MAXIMUM_ROOTS;
+const MAXIMUM_EVENTS = REPOSITORY_CHANGE_OBSERVER_MAXIMUM_EVENTS;
+const MAXIMUM_OBSERVATION_MS = REPOSITORY_CHANGE_OBSERVER_MAXIMUM_OBSERVATION_MS;
+
+/** @deprecated Import the platform-neutral repository observer contract. */
 export const RETAINED_WINDOWS_REPOSITORY_CHANGE_OBSERVER_REQUIREMENT_ID =
-  'runtime-state.windows-repository-change-observer.retained' as const;
-export const RETAINED_WINDOWS_REPOSITORY_CHANGE_OBSERVER_CONTRACT_DIGEST = sha256({
-  domain: 'runtime-state.windows-repository-change-observer.retained',
-  provider: 'windows-read-directory-changes',
-  duration: 'operation-bound-duration',
-  maximumRoots: MAXIMUM_ROOTS,
-  maximumEvents: MAXIMUM_EVENTS
-}) as SecOperationDigest;
+  RETAINED_REPOSITORY_CHANGE_OBSERVER_REQUIREMENT_ID;
+/** @deprecated Import the platform-neutral repository observer contract. */
+export const RETAINED_WINDOWS_REPOSITORY_CHANGE_OBSERVER_CONTRACT_DIGEST =
+  RETAINED_REPOSITORY_CHANGE_OBSERVER_CONTRACT_DIGEST;
 
 const observerBrand: unique symbol = Symbol('windows-repository-change-observer');
 const preparedObserverBrand: unique symbol = Symbol('prepared-windows-repository-change-observer');
