@@ -1,9 +1,7 @@
 name: verification-session-owner-split-validation-probe
 
 on:
-  push:
-    branches:
-      - refactor/verification-session-owner-split-v3
+  workflow_dispatch:
 
 permissions:
   contents: read
