@@ -11,11 +11,14 @@ import type {
   SourceProgramSpan,
   SourceProgramSupersessionReceipt
 } from './contract.ts';
+import { assertSourceProgramSupersessionReceipt } from './reduction.ts';
 import {
   observeSourceProgramTestContractCensus,
   SOURCE_PROGRAM_TEST_CONTRACT_CENSUS_UNRESOLVED_REASONS,
   sourceProgramTestObservationsForFiles,
   type SourceProgramTestContractCensusUnresolvedReason,
+  type SourceProgramTestDefinitionContext,
+  type SourceProgramTestDefinitionInputs,
   type SourceProgramTestSemanticClass
 } from './test-observations.ts';
 
@@ -145,14 +148,17 @@ export interface SourceProgramTestFinding {
 export interface SourceProgramTestRegistration {
   readonly testId: string;
   readonly path: string;
+  readonly owner: string | null;
   readonly kind: string;
   readonly title: string | null;
   readonly span: SourceProgramSpan;
+  readonly registrationContentDigest: string;
   readonly semanticClasses: readonly SourceProgramTestSemanticClass[];
   readonly observedProductionPaths: readonly string[];
   readonly capabilityOperations: readonly string[];
   readonly assertionCount: number;
   readonly unknowns: readonly string[];
+  readonly definitionInputDigest: string;
 }
 
 export interface SourceProgramTestValueCompilation {
@@ -162,6 +168,8 @@ export interface SourceProgramTestValueCompilation {
   readonly baselineEvidenceDigest: string;
   readonly dispositions: readonly SourceProgramTestDisposition[];
   readonly records: readonly SourceProgramTestRegistration[];
+  readonly definitionInputs: readonly SourceProgramTestDefinitionInputs[];
+  readonly definitionContext: SourceProgramTestDefinitionContext | null;
   readonly findings: readonly SourceProgramTestFinding[];
   readonly compilationDigest: string;
 }
@@ -487,9 +495,9 @@ function supersessionReceiptIsBound(
  * observation compilation digest, and this projection records that receipt
  * without feeding the derived disposition back into its proof preimage.
  *
- * The current receipt grammar can prove only strict observation supersets for
- * a missing test module.  Consumer-zero retirement is intentionally not
- * reconstructed from the baseline syntax census; until the supersession owner
+ * Only the existing owner-issued receipt can discharge a missing module:
+ * author REWRITE remains a judgment, never semantic equivalence. Consumer-zero
+ * retirement is not reconstructed from syntax census; until its actual owner
  * emits that proof per baseline test, DELETE remains UNKNOWN.
  */
 export function reconcileSourceProgramTestValueWithSupersession(
@@ -516,11 +524,16 @@ export function reconcileSourceProgramTestValueWithSupersession(
       projectionDigest: sha256(canonicalProjection)
     });
   };
-  if (receipt.status !== 'superseded'
+  if ((receipt.status !== 'superseded' && receipt.status !== 'author-approved-change')
       || !supersessionReceiptIsBound(receipt, compilation)) {
     return project(compilation.dispositions, compilation.findings, null);
   }
 
+  assertSourceProgramSupersessionReceipt(receipt);
+  const authorRewrite = receipt.status === 'author-approved-change';
+  if (authorRewrite) {
+    if (receipt.authorDecisionDigest === null) throw new Error('Author REWRITE requires the adopted decision identity');
+  }
   const recordPathById = new Map(compilation.records.map(({ testId, path: testPath }) =>
     [testId, testPath] as const));
   const replacementsByBaselinePath = new Map<string, SourceProgramSupersessionReceipt['replacements']>();
@@ -536,7 +549,7 @@ export function reconcileSourceProgramTestValueWithSupersession(
     if (disposition.disposition !== 'unknown') return disposition;
     const replacements = replacementsByBaselinePath.get(disposition.path) ?? [];
     if (replacements.length === 0
-        || replacements.some(({ proof }) => proof !== 'strict-observation-superset')) {
+        || replacements.some(({ proof }) => proof !== (authorRewrite ? 'owner-rewrite-judgment' : 'strict-observation-superset'))) {
       return disposition;
     }
     const baselineIds = replacements.map(({ baselineId }) => baselineId);
@@ -553,6 +566,22 @@ export function reconcileSourceProgramTestValueWithSupersession(
         || sha256(replacementPaths) !== sha256(receiptPaths)
         || new Set(baselineIds).size !== baselineIds.length) return disposition;
     resolvedPaths.add(disposition.path);
+    if (authorRewrite) {
+      const owners = [...new Set(replacements.map(({ owner }) => owner))];
+      if (owners.length !== 1 || owners[0] === null) throw new Error('Author REWRITE has inconsistent baseline ownership');
+      const canonical = Object.freeze({
+        path: disposition.path,
+        disposition: 'rewrite' as const,
+        evidence: Object.freeze({
+          owner: owners[0]!, sourceRevision: compilation.sourceRevision,
+          replacementTestIds: Object.freeze(replacementIds),
+          census: disposition.evidence.census, supersession: null,
+          ownerDecisionDigest: receipt.authorDecisionDigest
+        }),
+        baselineDigest: disposition.baselineDigest
+      });
+      return Object.freeze({ ...canonical, evidenceDigest: sha256(canonical) });
+    }
     return dispositionFromEvidence(
       disposition.path,
       'merge',
@@ -854,6 +883,7 @@ export function compileSourceProgramTestValue(
     dispositionsByPath.set(disposition.path, disposition);
   }
   const records: SourceProgramTestRegistration[] = [];
+  const ownerByPath = new Map(input.model.files.map(({ path, moduleId }) => [path, moduleId] as const));
   const findings: SourceProgramTestFinding[] = [];
   const observations = sourceProgramTestObservationsForFiles(
     input.files,
@@ -870,6 +900,7 @@ export function compileSourceProgramTestValue(
       ));
     }
   } else {
+    const definitionInputsByPath = new Map(observations.definitionInputs.map((inputs) => [inputs.path, inputs] as const));
     const registrationsByPath = new Map<string, number>();
     for (const registration of observations.registrations) {
       sourceProgramCompilationCheckpoint(operation, 'test-value');
@@ -938,14 +969,17 @@ export function compileSourceProgramTestValue(
           span: registration.span
         }),
         path: registration.path,
+        owner: ownerByPath.get(registration.path) ?? null,
         kind: registration.kind,
         title: registration.title,
         span: registration.span,
+        registrationContentDigest: registration.registrationContentDigest,
         semanticClasses: registration.semanticClasses,
         observedProductionPaths: registration.observedProductionPaths,
         capabilityOperations: registration.capabilityOperations,
         assertionCount: registration.assertions.length,
-        unknowns: registration.unknowns
+        unknowns: registration.unknowns,
+        definitionInputDigest: definitionInputsByPath.get(registration.path)!.inputDigest
       }));
     }
     for (const testPath of observations.testPaths) {
@@ -1089,6 +1123,8 @@ export function compileSourceProgramTestValue(
     baselineEvidenceDigest,
     dispositions,
     records,
+    definitionInputs: observations?.definitionInputs ?? [],
+    definitionContext: observations?.definitionContext ?? null,
     findings
   });
   sourceProgramCompilationCheckpoint(operation, 'test-value', 'complete');
@@ -1099,6 +1135,8 @@ export function compileSourceProgramTestValue(
     baselineEvidenceDigest,
     dispositions,
     records: Object.freeze(records),
+    definitionInputs: observations?.definitionInputs ?? Object.freeze([]),
+    definitionContext: observations?.definitionContext ?? null,
     findings: Object.freeze(findings),
     compilationDigest
   });

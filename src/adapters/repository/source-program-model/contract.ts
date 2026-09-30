@@ -1,4 +1,4 @@
-import { isSecRepositoryTestModulePath } from '../../../contracts/repository-test-path.ts';
+import { isSecRepositoryTestModulePath, SEC_REPOSITORY_TEST_EXECUTION_INPUT_PATHS } from '../../../contracts/repository-test-path.ts';
 import type { SemanticResponsibilityTargetKind } from '../../../semantics/definitions/types.ts';
 import type {
   SecModuleCausalRelation,
@@ -29,12 +29,11 @@ const SOURCE_PROGRAM_CATALOG_RESOURCE_PATH =
   /^catalog\/registry\/[^/]+\/.+\/files\//iu;
 const SOURCE_PROGRAM_GRAPH_EXTENSION = /\.(?:[cm]?[jt]sx?|json|ya?ml|toml)$/iu;
 const SOURCE_PROGRAM_ROOT_INPUT = new Set([
+  ...SEC_REPOSITORY_TEST_EXECUTION_INPUT_PATHS,
   '.documentation/documents.json',
   '.documentation/baseline.json',
-  'bunfig.toml',
   '.gitignore',
   'knip.json',
-  'package.json',
   'tsconfig.json'
 ]);
 
@@ -49,6 +48,13 @@ export function isSourceProgramInputPath(repositoryPath: string): boolean {
   if (/^\.github\/workflows\/[^/]+\.ya?ml$/iu.test(repositoryPath)) return true;
   if (!SOURCE_PROGRAM_GRAPH_EXTENSION.test(repositoryPath)) return false;
   return repositoryPath.startsWith('src/') || repositoryPath.startsWith('tests/');
+}
+
+/** Native runtime namespaces already interpreted by the repository owner.
+ * This removes module opacity only: it proves neither call purity nor complete
+ * environment/resource inputs, which retain their independent observations. */
+export function isSourceProgramRuntimeBuiltinModuleSpecifier(specifier: string): boolean {
+  return specifier === 'bun' || specifier.startsWith('bun:') || specifier.startsWith('node:');
 }
 
 export function sourceProgramSurfaceForPath(repositoryPath: string): SourceProgramSurface {
@@ -99,6 +105,9 @@ export interface SourceProgramCompilation {
 export type SourceProgramSupersessionStatus =
   | 'equivalent'
   | 'superseded'
+  | 'retained-unassessed'
+  | 'author-approved-change'
+  | 'author-decision-conditional'
   | 'owner-decision-required';
 
 export type SourceProgramSupersessionFindingCode =
@@ -131,7 +140,8 @@ export interface SourceProgramSupersessionReplacement {
   readonly owner: string | null;
   readonly baselinePaths: readonly string[];
   readonly currentPaths: readonly string[];
-  readonly proof: 'exact-semantic-obligation' | 'strict-observation-superset';
+  readonly proof: 'exact-semantic-obligation' | 'strict-observation-superset'
+    | 'retained-unassessed' | 'owner-rewrite-judgment';
 }
 
 export interface SourceProgramSupersessionLifecycleCost {
@@ -143,6 +153,7 @@ export interface SourceProgramSupersessionLifecycleCost {
 }
 
 export interface SourceProgramSupersessionReceipt {
+  readonly authorityScope: 'whole-program' | 'test-obligations';
   readonly status: SourceProgramSupersessionStatus;
   readonly baseline: Readonly<{
     readonly sourceRevision: string;
@@ -162,6 +173,11 @@ export interface SourceProgramSupersessionReceipt {
   }>;
   readonly replacements: readonly SourceProgramSupersessionReplacement[];
   readonly findings: readonly SourceProgramSupersessionFinding[];
+  readonly authorDecisionDigest: string | null;
+  /** Exact fully assessed current modules; continuation of unknown debt only. */
+  readonly authorAssessedCurrentPaths: readonly string[];
+  /** Exact retained unknown frontier identities; these grant no proof or reuse. */
+  readonly retainedUnknowns: readonly string[];
   readonly receiptDigest: string;
 }
 

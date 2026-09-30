@@ -1,6 +1,8 @@
 import { describe, test } from 'bun:test';
 import assert from 'node:assert/strict';
 
+import { syntheticTestFindingComparison } from '../../../../tests/testkit/source-program-test-finding-fixture.ts';
+
 import { canonicalJson, rawSha256, sha256 } from '../../../contracts/canonical.ts';
 import type { SourceProgramModel } from '../source-program-model/contract.ts';
 import {
@@ -106,9 +108,11 @@ function input(
     dispositions: Object.freeze([]),
     records: Object.freeze([]),
     findings: Object.freeze([]),
+    definitionInputs: Object.freeze([]),
+    definitionContext: null,
     compilationDigest: testCompilationDigest
   });
-  return Object.freeze({
+  const facts: CompileSourceProgramAuditOperationInput = Object.freeze({
     sourceProgram: compileSourceProgramAuditSourceProgramProjection(
       model,
       sourceFileIdentities,
@@ -253,6 +257,7 @@ function input(
       directProcessTransportPaths: 0
     }),
     supersession: Object.freeze({
+      authorityScope: 'whole-program' as const,
       status: 'equivalent',
       baseline: Object.freeze({
         sourceRevision: digest('before-source'),
@@ -311,6 +316,7 @@ function input(
       outputPath: null
     })
   });
+  return Object.freeze({ ...facts, ...syntheticTestFindingComparison(facts) });
 }
 
 function sourceProgramWithOneUnknown(
@@ -521,6 +527,14 @@ describe('Source Program audit domain operation', () => {
     assert.equal(compileSourceProgramAuditOperation(request).exitCode, 1);
   });
 
+  test('missing test finding comparison cannot inherit synthetic codec success', () => {
+    const { testFindingDelta: omitted, ...facts } = input();
+    assert.ok(omitted !== undefined);
+    const request = compileSourceProgramAuditOperationInput(facts);
+    assert.deepEqual(request.blockingReasons, ['test-finding-reconciliation-unavailable']);
+    assert.equal(compileSourceProgramAuditOperation(request).exitCode, 1);
+  });
+
   test('byte pages bind the complete retirement set and survive canonical wire readback', () => {
     const facts = input();
     const proofs = Object.freeze(Array.from({ length: 50 }, (_, index) => Object.freeze({
@@ -595,6 +609,7 @@ describe('Source Program audit domain operation', () => {
     });
     const compiled = compileSourceProgramAuditOperationInput(Object.freeze({
       ...facts,
+      ...syntheticTestFindingComparison(facts, [finding]),
       sourceProgram,
       blockingCandidates: Object.freeze([blocker]),
       testDisposition: Object.freeze({
@@ -679,6 +694,7 @@ describe('Source Program audit domain operation', () => {
     });
     const common = Object.freeze({
       ...facts,
+      ...syntheticTestFindingComparison(facts, [finding]),
       sourceProgram,
       blockingCandidates: blockers,
       testDisposition: Object.freeze({ ...facts.testDisposition, findings: Object.freeze([finding]) }),

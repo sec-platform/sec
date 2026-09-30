@@ -920,7 +920,7 @@ jobs:
       - name: Upload exact SUT capability observation
         uses: *upload_artifact_action
         with:
-          name: sec-verification-action-sut-capability-v1-${{ needs.resolve-verification-action.outputs.action-key-hex }}-run-${{ github.run_id }}-attempt-${{ github.run_attempt }}
+          name: sec-verification-action-sut-capability-v2-${{ needs.resolve-verification-action.outputs.action-key-hex }}-run-${{ github.run_id }}-attempt-${{ github.run_attempt }}
           path: .tmp/codex/hosted-sut-capability.json
           if-no-files-found: error
           retention-days: 1
@@ -991,7 +991,7 @@ jobs:
       - name: Download exact SUT capability observation
         uses: *download_artifact_action
         with:
-          name: sec-verification-action-sut-capability-v1-${{ needs.resolve-verification-action.outputs.action-key-hex }}-run-${{ github.run_id }}-attempt-${{ github.run_attempt }}
+          name: sec-verification-action-sut-capability-v2-${{ needs.resolve-verification-action.outputs.action-key-hex }}-run-${{ github.run_id }}-attempt-${{ github.run_attempt }}
           path: .tmp/codex/sut-capability
 
       - name: Verify exact SUT capability before candidate materialization
@@ -999,16 +999,17 @@ jobs:
           set -euo pipefail
           bun -e '
             import { CI_VERIFICATION_HOSTED_SANDBOX_POLICY_DIGEST } from "./src/adapters/verification/platform/ci/contract/revision.ts";
+            import { parseHostedSutCapabilityObservation, hostedSutCapabilityComplete } from "./src/adapters/verification/platform/ci/contract/hosted-sut-observation.ts";
             const capability = JSON.parse(await Bun.file(".tmp/codex/sut-capability/hosted-sut-capability.json").text());
             const resolution = JSON.parse(await Bun.file(".tmp/codex/hosted-action-resolution.json").text());
             const keys = Object.keys(capability).sort();
-            const expectedKeys = ["actionKey", "commandPlanDigest", "diagnostic", "outputDigest", "policyDigest", "residueReadbackDigest", "status"].sort();
-            const digest = (value) => typeof value === "string" && /^sha256:[0-9a-f]{64}$/.test(value);
-            if (JSON.stringify(keys) !== JSON.stringify(expectedKeys) || capability.status !== "supported" ||
+            const expectedKeys = ["actionKey", "observation", "policyDigest", "schema", "status"].sort();
+            const physicalObservation = parseHostedSutCapabilityObservation(capability.observation);
+            if (JSON.stringify(keys) !== JSON.stringify(expectedKeys) ||
+                capability.schema !== "sec-verification-action-sut-capability-v2" || capability.status !== "supported" ||
                 capability.actionKey !== resolution.actionPlan?.action?.actionKey ||
                 capability.policyDigest !== CI_VERIFICATION_HOSTED_SANDBOX_POLICY_DIGEST ||
-                !digest(capability.commandPlanDigest) || !digest(capability.outputDigest) ||
-                !digest(capability.residueReadbackDigest) || capability.diagnostic !== null) {
+                !hostedSutCapabilityComplete(physicalObservation)) {
               throw new Error("SUT capability observation is not the exact supported trusted artifact.");
             }
           '

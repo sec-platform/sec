@@ -1,9 +1,11 @@
-import { spawn } from 'node:child_process';
+import { spawn, type ChildProcess } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import {
   closeSync,
-  existsSync, mkdirSync, readdirSync,
-  readFileSync, realpathSync,
+  existsSync, mkdirSync,
+  readFileSync,
+  readdirSync,
+  realpathSync,
   rmSync, writeFileSync
 } from 'node:fs';
 import path from 'node:path';
@@ -18,9 +20,11 @@ import {
   CodexDevelopmentCreateHostedSutExecutionAuthorization,
   CodexDevelopmentFinalizeHostedActionRawResult,
   CodexDevelopmentHostedSutCandidateEnvironment,
-  CodexDevelopmentParseHostedSutSandboxReceipt, type CodexDevelopmentHostedActionRawResult,
+  CodexDevelopmentParseHostedSutSandboxReceipt,
+  hostedSutCleanupComplete, hostedSutLifecycleComplete,
+  type CodexDevelopmentHostedActionRawResult,
   type CodexDevelopmentHostedSutExecutionAuthorization,
-  type CodexDevelopmentHostedSutInventoryClosure,
+  type CodexDevelopmentHostedSutInventoryClosure, type CodexDevelopmentHostedSutProcessLifecycle,
   type CodexDevelopmentHostedSutSandboxReceipt
 } from './contract/hosted-sut-observation.ts';
 import {
@@ -30,10 +34,10 @@ import {
 import {
   CodexDevelopmentFailureTail
 } from './runtime/ci-orchestration-core.ts';
-import { CI_VERIFICATION_ACTION_SANDBOX_CAPABILITY_MARKER, CI_VERIFICATION_ACTION_SANDBOX_COMMAND_PLAN_SCHEMA, CI_VERIFICATION_ACTION_SANDBOX_RESIDUE_MARKER, CodexDevelopmentParseHostedActionExecutionTicket, CodexDevelopmentParseHostedActionResolution, HOSTED_SUT_RETAINED_ARCHIVE_CHILD_PATH, ciActionDigest, exactObject } from './verification-hosted-action-contract.ts';
 import type { CodexDevelopmentHostedActionExecutionTicket, CodexDevelopmentHostedActionResolution, CodexDevelopmentHostedSutSandboxCommandPlan, CodexDevelopmentHostedSutSandboxProcess, CodexDevelopmentHostedSutSandboxProcessObservation } from './verification-hosted-action-contract.ts';
-import { CodexDevelopmentPrepareTrustedBootstrapSutInputs, assertRetainedHostedSutArchive, hostedActionFileDigest, retainHostedSutArchive } from './verification-materialization.ts';
+import { CI_VERIFICATION_ACTION_SANDBOX_CAPABILITY_MARKER, CI_VERIFICATION_ACTION_SANDBOX_COMMAND_PLAN_SCHEMA, CodexDevelopmentParseHostedActionExecutionTicket, CodexDevelopmentParseHostedActionResolution, HOSTED_SUT_RETAINED_ARCHIVE_CHILD_PATH, ciActionDigest, exactObject } from './verification-hosted-action-contract.ts';
 import type { CodexDevelopmentHostedActionArchiveInventory, CodexDevelopmentPreparedTrustedBootstrapSutInputs, CodexDevelopmentRetainedHostedSutArchive } from './verification-materialization.ts';
+import { CodexDevelopmentPrepareTrustedBootstrapSutInputs, assertRetainedHostedSutArchive, hostedActionFileDigest, retainHostedSutArchive } from './verification-materialization.ts';
 import { writeHostedActionJson } from './verification-shared.ts';
 
 const HOSTED_SUT_SEMANTIC_ENVIRONMENT_NAMES = Object.freeze([
@@ -345,7 +349,14 @@ export const CodexDevelopmentHostedSutCapabilityAssertion = [
   `if (!fs.statSync(${JSON.stringify(CI_VERIFICATION_HOSTED_SANDBOX_POLICY.python.stdlibDirectory)}).isDirectory()) fail("python-stdlib-closure");`,
   `const pythonVersion = execFileSync(${JSON.stringify(CI_VERIFICATION_HOSTED_SANDBOX_POLICY.python.executablePath)}, ["-B", "-c", ${JSON.stringify(HOSTED_SUT_PYTHON_CAPABILITY_SCRIPT)}], { encoding: "utf8" }).trim();`,
   `if (pythonVersion !== ${JSON.stringify(CI_VERIFICATION_HOSTED_SANDBOX_POLICY.python.version)}) fail("python-runtime-closure");`,
-  'for (const descriptor of fs.readdirSync("/proc/self/fd")) { try { const target = fs.readlinkSync(`/proc/self/fd/${descriptor}`); if (/\\/(?:actions-runner|home\\/runner|runner\\/_work|run|var\\/run|workspace)|\\.oldroot|prepared-candidate\\.tar/u.test(target)) fail(`inherited-fd:${descriptor}`); } catch {} }',
+  'for (const descriptor of fs.readdirSync("/proc/self/fd")) {',
+  '  let target;',
+  '  try { target = fs.readlinkSync(`/proc/self/fd/${descriptor}`); }',
+  // The directory scan can include a descriptor closed before readlink. Only
+  // that ENOENT race is ignorable; read failures and forbidden targets reject.
+  '  catch (error) { if (error?.code === "ENOENT") continue; throw error; }',
+  '  if (/\\/(?:actions-runner|home\\/runner|runner\\/_work|run|var\\/run|workspace)|\\.oldroot|prepared-candidate\\.tar/u.test(target)) fail(`inherited-fd:${descriptor}`);',
+  '}',
   'const cgroup = JSON.parse(fs.readFileSync("/capability/cgroup.json", "utf8"));',
   'if (cgroup.memoryMax !== "4294967296" || cgroup.pidsMax !== "256" || cgroup.cpuMax !== "200000 100000") fail("cgroup-limits");',
   'const softLimit = (name) => execFileSync("/usr/bin/prlimit", ["--pid", String(process.pid), `--${name}`, "--noheadings", "--output", "SOFT"], { encoding: "utf8" }).trim();',
@@ -402,8 +413,7 @@ const HOSTED_SUT_TEARDOWN_SCRIPT = [
   'root="/tmp/$unit_name"',
   'if [ -e "$root" ]; then [ -d "$root" ] && [ ! -L "$root" ]; rmdir -- "$root"; fi',
   '[ ! -e "$root" ]',
-  'rm -f -- /tmp/sec-host-sentinel',
-  `printf \u0027${CI_VERIFICATION_ACTION_SANDBOX_RESIDUE_MARKER}:direct-process-closed\\n\u0027`
+  'rm -f -- /tmp/sec-host-sentinel'
 ].join('\n');
 
 function hostedSutSandboxUnitName(actionKey: VerificationActionKeyDigest, nonce: string): string {
@@ -686,24 +696,32 @@ function defaultHostedSutSandboxProcess(
       throw new Error('Hosted SUT process plan differs from its retained archive binding.');
     }
   }
+  const child = spawn(plan.command, plan.argv, {
+    cwd: process.cwd(),
+    env: { PATH: '/usr/bin:/bin', LANG: 'C.UTF-8' },
+    stdio: retainedArchive === undefined
+      ? ['ignore', 'pipe', 'pipe']
+      : ['ignore', 'pipe', 'pipe', retainedArchive.fileDescriptor],
+    windowsHide: true
+  });
+  return observeHostedSutSandboxChild(child);
+}
+
+/** Observes only child_process events. It cannot attest inner namespace or candidate facts. */
+export function observeHostedSutSandboxChild(
+  child: ChildProcess
+): Promise<CodexDevelopmentHostedSutSandboxProcessObservation> {
   const outputByteLimit = CI_VERIFICATION_HOSTED_SUT_OUTPUT_BYTE_LIMIT;
   const tailByteLimit = 64 * 1024;
   return new Promise((resolve) => {
-    const child = spawn(plan.command, plan.argv, {
-      cwd: process.cwd(),
-      env: { PATH: '/usr/bin:/bin', LANG: 'C.UTF-8' },
-      stdio: retainedArchive === undefined
-        ? ['ignore', 'pipe', 'pipe']
-        : ['ignore', 'pipe', 'pipe', retainedArchive.fileDescriptor],
-      windowsHide: true
-    });
     const streams = {
       stdout: { hash: createHash('sha256'), bytes: 0, hashed: 0, tail: Buffer.alloc(0) },
       stderr: { hash: createHash('sha256'), bytes: 0, hashed: 0, tail: Buffer.alloc(0) }
     };
     let outputTruncated = false;
     let wallTimedOut = false;
-    let commandStarted = false;
+    let supervisorSpawned = false;
+    let processError = false;
     let settled = false;
     let wallTimer: ReturnType<typeof setTimeout> | null = null;
     const observe = (kind: 'stdout' | 'stderr', chunk: Buffer): void => {
@@ -724,7 +742,7 @@ function defaultHostedSutSandboxProcess(
     };
     child.stdout?.on('data', (chunk: Buffer) => observe('stdout', chunk));
     child.stderr?.on('data', (chunk: Buffer) => observe('stderr', chunk));
-    const finish = (code: number): void => {
+    const finish = (code: number | null, signal: NodeJS.Signals | null): void => {
       if (settled) return;
       settled = true;
       if (wallTimer !== null) clearTimeout(wallTimer);
@@ -733,7 +751,7 @@ function defaultHostedSutSandboxProcess(
       const failureTail = wallTimedOut
         ? 'Hosted SUT exceeded the trusted wall-clock bound and the unshare process was terminated.'
         : outputTruncated
-        ? 'Hosted SUT stdout/stderr exceeded the trusted capture bound and the whole unit was terminated.'
+        ? 'Hosted SUT stdout/stderr exceeded the trusted capture bound; SIGKILL was requested for the supervisor.'
         : [streams.stdout.tail.toString('utf8'), streams.stderr.tail.toString('utf8')]
             .filter((entry) => entry.length > 0).join('\n').trim();
       const outputProjection = Object.freeze({
@@ -741,21 +759,27 @@ function defaultHostedSutSandboxProcess(
         stdoutBytesObserved: streams.stdout.bytes,
         stderrBytesObserved: streams.stderr.bytes,
         outputTruncated,
-        commandStarted
+        lifecycle: Object.freeze({
+          supervisorSpawned, supervisorClosed: true,
+          supervisorCloseCode: code, supervisorSignal: signal,
+          namespaceEstablished: null, candidateStarted: null, candidateUnitSettled: null,
+          observationGap: 'unsupported-source' as const
+        })
       });
       resolve(Object.freeze({
-        code: wallTimedOut ? 124 : outputTruncated ? 125 : code,
+        code: wallTimedOut ? 124 : outputTruncated ? 125 : processError ? 1 : code ?? 1,
         rawOutputDigest: ciActionDigest({ ...outputProjection, wallTimedOut }),
         failureTail,
         ...outputProjection
       }));
     };
-    child.on('spawn', () => { commandStarted = true; });
+    child.on('spawn', () => { supervisorSpawned = true; });
     child.on('error', (error) => {
       observe('stderr', Buffer.from(error instanceof Error ? error.message : String(error)));
-      finish(1);
+      processError = true;
+      // An error event is not process/pipe settlement. Only close resolves this owner.
     });
-    child.on('close', (code) => finish(code ?? 1));
+    child.on('close', (code, signal) => finish(code, signal));
     wallTimer = setTimeout(() => {
       if (settled) return;
       wallTimedOut = true;
@@ -780,9 +804,41 @@ function syntheticHostedSutSandboxProcessObservation(
     stdoutBytesObserved: 0,
     stderrBytesObserved: Buffer.byteLength(diagnostic, 'utf8'),
     outputTruncated: false,
-    commandStarted: false
+    lifecycle: Object.freeze({
+      supervisorSpawned: null, supervisorClosed: null, supervisorCloseCode: null, supervisorSignal: null,
+      namespaceEstablished: null, candidateStarted: null, candidateUnitSettled: null,
+      observationGap: 'observation-lost'
+    })
   });
 }
+
+const HOSTED_SUT_NOT_ATTEMPTED_LIFECYCLE: CodexDevelopmentHostedSutProcessLifecycle = Object.freeze({
+  supervisorSpawned: false, supervisorClosed: false, supervisorCloseCode: null, supervisorSignal: null,
+  namespaceEstablished: false, candidateStarted: false, candidateUnitSettled: null,
+  observationGap: null
+});
+
+function hostedSutDirectoryCleanup(observed: CodexDevelopmentHostedSutSandboxProcessObservation):
+CodexDevelopmentHostedSutSandboxReceipt['cleanup'] {
+  return Object.freeze({
+    supervisorSpawned: observed.lifecycle.supervisorSpawned,
+    supervisorClosed: observed.lifecycle.supervisorClosed,
+    exitCode: observed.lifecycle.supervisorClosed === true &&
+      observed.lifecycle.supervisorCloseCode !== null && observed.lifecycle.supervisorCloseCode >= 0
+      ? observed.lifecycle.supervisorCloseCode : null,
+    outputDigest: observed.rawOutputDigest as VerificationActionKeyDigest
+  });
+}
+
+function hostedSutCleanupNotAttempted(): CodexDevelopmentHostedSutSandboxReceipt['cleanup'] {
+  return Object.freeze({
+    supervisorSpawned: false, supervisorClosed: false, exitCode: null,
+    outputDigest: ciActionDigest('directory-cleanup-not-attempted')
+  });
+}
+
+const HOSTED_SUT_UNSUPPORTED_SOURCE_DIAGNOSTIC =
+  'Hosted SUT unsupported observation source: child_process events cannot attest namespace establishment, candidate start, or candidate-unit settlement.';
 
 const TRUSTED_BOOTSTRAP_SUT_EVIDENCE_FILES = Object.freeze([
   ['tcb-lock-pre.json', 'tcb-lock-pre'],
@@ -812,6 +868,15 @@ export async function CodexDevelopmentExecuteTrustedBootstrapSut(input: Readonly
 }>> {
   if (!/^(?!\/)(?!.*(?:^|\/)\.\.(?:\/|$))[A-Za-z0-9_./-]{1,1024}$/u.test(input.manifestPath)) {
     throw new Error('Trusted bootstrap SUT manifest path is invalid.');
+  }
+  const capability = await CodexDevelopmentProbeHostedSutSandboxCapability({
+    actionKey: ciActionDigest({
+      baseSha: input.baseSha, headSha: input.headSha, treeSha: input.treeSha,
+      manifestPath: input.manifestPath, sandboxPolicyDigest: CI_VERIFICATION_HOSTED_SANDBOX_POLICY_DIGEST
+    })
+  });
+  if (capability.state !== 'supported') {
+    throw new Error(`Trusted bootstrap SUT cannot start: ${capability.diagnostic ?? capability.state}`);
   }
   const outputDirectory = path.resolve(input.outputDirectory);
   if (existsSync(outputDirectory) && readdirSync(outputDirectory).length !== 0) {
@@ -851,9 +916,6 @@ export async function CodexDevelopmentExecuteTrustedBootstrapSut(input: Readonly
       SEC_AFFECTED_TESTS_BASE: input.baseSha,
       SEC_REPOSITORY_AUDIT_DEFAULT_REF: input.baseSha,
       SEC_WORK_PACKAGE_MANIFEST_PATH: input.manifestPath
-    });
-    const capability = await CodexDevelopmentProbeHostedSutSandboxCapability({
-      actionKey: bootstrapDigest
     });
     let commandPlan: CodexDevelopmentHostedSutSandboxCommandPlan | null = null;
     let execution = syntheticHostedSutSandboxProcessObservation(
@@ -921,18 +983,17 @@ export async function CodexDevelopmentExecuteTrustedBootstrapSut(input: Readonly
       `${createHash('sha256').update(readFileSync(path.resolve(outputDirectory, fileName))).digest('hex')}  ${fileName}`
     ).join('\n')}\n`;
     writeFileSync(path.resolve(outputDirectory, 'SHA256SUMS'), sumsSource, { encoding: 'utf8', flag: 'wx' });
-    const residuePassed = teardown.commandStarted && teardown.code === 0 &&
-      teardown.failureTail.includes(`${CI_VERIFICATION_ACTION_SANDBOX_RESIDUE_MARKER}:direct-process-closed`);
+    const cleanup = hostedSutDirectoryCleanup(teardown);
     const archiveStable = retainedArchiveStable;
     const summaryIdentityPassed = summary?.schema === 'sec-trusted-bootstrap-sandbox-summary-v1' &&
       summary.baseSha === input.baseSha && summary.headSha === input.headSha &&
       summary.treeSha === input.treeSha && summary.parentSha === input.baseSha;
-    const status = capability.state === 'supported' && commandPlan !== null && execution.commandStarted &&
-      execution.code === 0 && !execution.outputTruncated && residuePassed && archiveStable &&
+    const status = capability.state === 'supported' && commandPlan !== null && hostedSutLifecycleComplete(execution.lifecycle) &&
+      execution.code === 0 && !execution.outputTruncated && hostedSutCleanupComplete(cleanup) && archiveStable &&
       summaryIdentityPassed && summary?.status === 'passed'
       ? 'passed' as const : 'failed' as const;
     const semantic = Object.freeze({
-      schema: 'sec-trusted-bootstrap-sut-receipt-v2' as const,
+      schema: 'sec-trusted-bootstrap-sut-receipt-v3' as const,
       baseSha: input.baseSha,
       headSha: input.headSha,
       treeSha: input.treeSha,
@@ -945,7 +1006,9 @@ export async function CodexDevelopmentExecuteTrustedBootstrapSut(input: Readonly
       archiveDigest: prepared.archiveDigest,
       archiveInventoryDigest: prepared.archiveInventoryDigest,
       executionOutputDigest: execution.rawOutputDigest,
-      residueReadbackDigest: teardown.rawOutputDigest
+      capability: hostedSutCapabilityReceipt(capability),
+      executionLifecycle: execution.lifecycle,
+      cleanup
     });
     const receiptDigest = (`sha256:${createHash('sha256').update(JSON.stringify(semantic)).digest('hex')}`) as VerificationActionKeyDigest;
     writeFileSync(
@@ -978,19 +1041,8 @@ function hostedSutDiagnostic(value: string, fallback: string): string {
   return CodexDevelopmentFailureTail(escaped, fallback);
 }
 
-type HostedSutSandboxCapabilityObservation = Readonly<{
+type HostedSutSandboxCapabilityObservation = CodexDevelopmentHostedSutSandboxReceipt['capability'] & Readonly<{
   state: 'supported' | 'unsupported' | 'invalidated' | 'unknown';
-  commandPlanDigest: VerificationActionKeyDigest | null;
-  commandStarted: boolean;
-  exitCode: number | null;
-  markerObserved: boolean;
-  outputDigest: VerificationActionKeyDigest;
-  teardownCommandStarted: boolean;
-  teardownExitCode: number | null;
-  residueMarkerObserved: boolean;
-  residueReadbackDigest: VerificationActionKeyDigest;
-  cgroupEmpty: boolean;
-  diagnostic: string | null;
 }>;
 
 export async function CodexDevelopmentProbeHostedSutSandboxCapability(input: Readonly<{
@@ -999,19 +1051,23 @@ export async function CodexDevelopmentProbeHostedSutSandboxCapability(input: Rea
   bunExecutable?: string;
   unitNonce?: string;
   platform?: NodeJS.Platform;
+  /** In-process test seam; production selects only its installed physical owner. */
   runSandboxProcess?: CodexDevelopmentHostedSutSandboxProcess;
 }>): Promise<HostedSutSandboxCapabilityObservation> {
-  if ((input.platform ?? process.platform) !== 'linux') {
-    const diagnostic = 'Hosted SUT sandbox requires the native ubuntu-24.04 Linux runner.';
+  if ((input.platform ?? process.platform) !== 'linux' || input.runSandboxProcess === undefined) {
+    const diagnostic = (input.platform ?? process.platform) !== 'linux'
+      ? 'Hosted SUT sandbox requires the native ubuntu-24.04 Linux runner.'
+      : HOSTED_SUT_UNSUPPORTED_SOURCE_DIAGNOSTIC;
+    // Reject before creating a namespace or candidate: the installed owner cannot
+    // supply the required facts. A capability stdout marker cannot fill this gap.
     return Object.freeze({
       state: 'unsupported', commandPlanDigest: null,
-      commandStarted: false, exitCode: null, markerObserved: false,
-      outputDigest: ciActionDigest(diagnostic),
-      teardownCommandStarted: false, teardownExitCode: null, residueMarkerObserved: false,
-      residueReadbackDigest: ciActionDigest('no-unshare-process'), cgroupEmpty: true, diagnostic
+      lifecycle: Object.freeze({ ...HOSTED_SUT_NOT_ATTEMPTED_LIFECYCLE, observationGap: 'unsupported-source' }),
+      exitCode: null, markerObserved: false, outputDigest: ciActionDigest(diagnostic),
+      cleanup: hostedSutCleanupNotAttempted(), diagnostic
     });
   }
-  const run = input.runSandboxProcess ?? defaultHostedSutSandboxProcess;
+  const run = input.runSandboxProcess;
   const plan = hostedSutCapabilityCommandPlan({
     actionKey: input.actionKey,
     bunExecutable: input.bunExecutable ?? process.execPath,
@@ -1035,44 +1091,28 @@ export async function CodexDevelopmentProbeHostedSutSandboxCapability(input: Rea
       1, error instanceof Error ? error.message : String(error)
     );
   }
-  const selfTestPassed = observed.commandStarted && observed.code === 0 &&
-    observed.failureTail.includes(CI_VERIFICATION_ACTION_SANDBOX_CAPABILITY_MARKER);
-  const directProcessClosed = teardown.failureTail.includes(
-    `${CI_VERIFICATION_ACTION_SANDBOX_RESIDUE_MARKER}:direct-process-closed`
-  );
-  const residuePassed = teardown.commandStarted && teardown.code === 0 &&
-    directProcessClosed && observed.commandStarted;
-  if (selfTestPassed && residuePassed) {
-    return Object.freeze({
-      state: 'supported',
-      commandPlanDigest: plan.physicalCommandProjectionDigest ?? plan.planDigest,
-      commandStarted: observed.commandStarted, exitCode: observed.code,
-      markerObserved: observed.failureTail.includes(CI_VERIFICATION_ACTION_SANDBOX_CAPABILITY_MARKER),
-      outputDigest: observed.rawOutputDigest as VerificationActionKeyDigest,
-      teardownCommandStarted: teardown.commandStarted, teardownExitCode: teardown.code,
-      residueMarkerObserved: teardown.failureTail.includes(CI_VERIFICATION_ACTION_SANDBOX_RESIDUE_MARKER),
-      residueReadbackDigest: teardown.rawOutputDigest as VerificationActionKeyDigest,
-      cgroupEmpty: true, diagnostic: null
-    });
-  }
+  const cleanup = hostedSutDirectoryCleanup(teardown);
+  const selfTestPassed = hostedSutLifecycleComplete(observed.lifecycle) && observed.code === 0 &&
+    !observed.outputTruncated && observed.failureTail.includes(CI_VERIFICATION_ACTION_SANDBOX_CAPABILITY_MARKER);
+  const supported = selfTestPassed && hostedSutCleanupComplete(cleanup);
   const failure = `${observed.failureTail}\n${teardown.failureTail}`.trim();
-  const unsupported = /not found|no such file|operation not permitted|failed to connect to bus|unshare failed|unknown option/iu
+  const settled = observed.lifecycle.supervisorClosed === true && observed.lifecycle.candidateUnitSettled === true &&
+    hostedSutCleanupComplete(cleanup);
+  const unsupported = settled && /not found|no such file|operation not permitted|failed to connect to bus|unshare failed|unknown option/iu
     .test(failure);
-  const unknown = !observed.commandStarted || !teardown.commandStarted;
+  const unknown = observed.lifecycle.supervisorClosed !== true || cleanup.supervisorClosed !== true;
   return Object.freeze({
-    state: unknown ? 'unknown' : unsupported ? 'unsupported' : 'invalidated',
+    state: supported ? 'supported' : unknown ? 'unknown' : unsupported ? 'unsupported' : 'invalidated',
     commandPlanDigest: plan.physicalCommandProjectionDigest ?? plan.planDigest,
-    commandStarted: observed.commandStarted, exitCode: observed.code,
+    lifecycle: observed.lifecycle,
+    exitCode: observed.lifecycle.supervisorClosed === true ? observed.code : null,
     markerObserved: observed.failureTail.includes(CI_VERIFICATION_ACTION_SANDBOX_CAPABILITY_MARKER),
     outputDigest: observed.rawOutputDigest as VerificationActionKeyDigest,
-    teardownCommandStarted: teardown.commandStarted, teardownExitCode: teardown.code,
-    residueMarkerObserved: teardown.failureTail.includes(CI_VERIFICATION_ACTION_SANDBOX_RESIDUE_MARKER),
-    residueReadbackDigest: teardown.rawOutputDigest as VerificationActionKeyDigest,
-    cgroupEmpty: residuePassed,
-    diagnostic: failure.length > 0 ? hostedSutDiagnostic(
-      failure,
-      'Hosted SUT sandbox capability self-test failed.'
-    ) : 'Hosted SUT sandbox capability self-test failed without a diagnostic.'
+    cleanup,
+    diagnostic: supported ? null : hostedSutDiagnostic([
+      observed.lifecycle.observationGap === 'unsupported-source' ? HOSTED_SUT_UNSUPPORTED_SOURCE_DIAGNOSTIC : '',
+      failure
+    ].filter(Boolean).join('\n'), 'Hosted SUT capability or physical settlement was not observed.')
   });
 }
 
@@ -1090,8 +1130,7 @@ function finalizeHostedSutSandboxReceipt(input: Omit<
     authenticatedArchive: input.authenticatedArchive,
     rootIsolation: input.rootIsolation,
     execution: input.execution,
-    reap: input.reap,
-    residue: input.residue,
+    cleanup: input.cleanup,
     diagnostic: input.diagnostic
   });
   return CodexDevelopmentParseHostedSutSandboxReceipt(Object.freeze({
@@ -1118,19 +1157,9 @@ CodexDevelopmentHostedSutSandboxReceipt['rootIsolation'] {
 function hostedSutCapabilityReceipt(
   capability: HostedSutSandboxCapabilityObservation
 ): CodexDevelopmentHostedSutSandboxReceipt['capability'] {
-  return Object.freeze({
-    commandPlanDigest: capability.commandPlanDigest,
-    commandStarted: capability.commandStarted,
-    exitCode: capability.exitCode,
-    markerObserved: capability.markerObserved,
-    outputDigest: capability.outputDigest,
-    teardownCommandStarted: capability.teardownCommandStarted,
-    teardownExitCode: capability.teardownExitCode,
-    residueMarkerObserved: capability.residueMarkerObserved,
-    cgroupEmpty: capability.cgroupEmpty,
-    residueReadbackDigest: capability.residueReadbackDigest,
-    diagnostic: capability.diagnostic
-  });
+  const { state: ignoredState, ...receipt } = capability;
+  void ignoredState;
+  return Object.freeze(receipt);
 }
 
 export function hostedSutInventoryClosureFromTicket(
@@ -1208,7 +1237,7 @@ export async function CodexDevelopmentExecuteHostedActionSut(input: Readonly<{
     bunExecutable: input.bunExecutable,
     unitNonce: `cap-${unitNonce}`.slice(0, 32),
     platform: input.platform,
-    runSandboxProcess
+    runSandboxProcess: input.runSandboxProcess
   });
   if (capability.state !== 'supported') {
     const finishedAt = now();
@@ -1227,8 +1256,7 @@ export async function CodexDevelopmentExecuteHostedActionSut(input: Readonly<{
       }),
       rootIsolation: hostedSutRootIsolationReceipt(Object.keys(env)),
       execution: Object.freeze({
-        started: false, unitName: null, exitCode: null,
-        commandStarted: false,
+        lifecycle: HOSTED_SUT_NOT_ATTEMPTED_LIFECYCLE, unitName: null, exitCode: null,
         authenticatedInputDigest: null,
         postExecutionInputDigest: null,
         postExecutionReadbackErrorDigest: null,
@@ -1240,14 +1268,7 @@ export async function CodexDevelopmentExecuteHostedActionSut(input: Readonly<{
         outputTruncated: false,
         boundedFailureTailDigest: ciActionDigest(capability.diagnostic ?? '')
       }),
-      reap: Object.freeze({
-        namespacePid1Exited: false, killChildEnabled: true,
-        unshareProcessClosed: capability.cgroupEmpty
-      }),
-      residue: Object.freeze({
-        cgroupEmpty: capability.cgroupEmpty,
-        hostReadbackDigest: capability.residueReadbackDigest
-      }),
+      cleanup: hostedSutCleanupNotAttempted(),
       diagnostic: capability.diagnostic
     });
     return CodexDevelopmentFinalizeHostedActionRawResult({
@@ -1308,11 +1329,9 @@ export async function CodexDevelopmentExecuteHostedActionSut(input: Readonly<{
       1, error instanceof Error ? error.message : String(error)
     );
   }
-  const directProcessClosed = teardown.failureTail.includes(
-    `${CI_VERIFICATION_ACTION_SANDBOX_RESIDUE_MARKER}:direct-process-closed`
-  );
-  const residuePassed = teardown.commandStarted && teardown.code === 0 &&
-    directProcessClosed && processResult.commandStarted;
+  const cleanup = hostedSutDirectoryCleanup(teardown);
+  const lifecycleComplete = hostedSutLifecycleComplete(processResult.lifecycle);
+  const cleanupComplete = hostedSutCleanupComplete(cleanup);
   let postExecutionArchiveDigest: VerificationActionKeyDigest | null = null;
   let archiveReadbackDiagnostic: string | null = null;
   try {
@@ -1324,11 +1343,11 @@ export async function CodexDevelopmentExecuteHostedActionSut(input: Readonly<{
     archiveReadbackDiagnostic = error instanceof Error ? error.message : String(error);
   }
   const archiveStable = postExecutionArchiveDigest === preExecutionArchiveDigest;
-  const sandboxInvalidated = executionObservationLost || !processResult.commandStarted ||
+  const sandboxInvalidated = executionObservationLost || !lifecycleComplete ||
     processResult.outputTruncated ||
     processResult.stdoutBytesObserved > CI_VERIFICATION_HOSTED_SUT_OUTPUT_BYTE_LIMIT ||
     processResult.stderrBytesObserved > CI_VERIFICATION_HOSTED_SUT_OUTPUT_BYTE_LIMIT ||
-    !residuePassed || !archiveStable;
+    !cleanupComplete || !archiveStable;
   const finishedAt = now();
   const diagnostic = sandboxInvalidated
     ? hostedSutDiagnostic([
@@ -1338,7 +1357,8 @@ export async function CodexDevelopmentExecuteHostedActionSut(input: Readonly<{
           ? 'Hosted SUT stdout exceeded its observed byte bound.' : '',
         processResult.stderrBytesObserved > CI_VERIFICATION_HOSTED_SUT_OUTPUT_BYTE_LIMIT
           ? 'Hosted SUT stderr exceeded its observed byte bound.' : '',
-        residuePassed ? '' : `Hosted SUT residue readback failed: ${teardown.failureTail}`,
+        lifecycleComplete ? '' : 'Hosted SUT namespace, candidate start, or candidate-unit settlement was not observed.',
+        cleanupComplete ? '' : `Hosted SUT directory cleanup failed: ${teardown.failureTail}`,
         archiveStable ? '' : `Hosted SUT authenticated archive readback failed: ${archiveReadbackDiagnostic ?? 'digest changed'}`
       ].filter(Boolean).join('\n'), 'Hosted SUT sandbox was invalidated.')
     : processResult.code === 0 ? null
@@ -1357,8 +1377,7 @@ export async function CodexDevelopmentExecuteHostedActionSut(input: Readonly<{
     }),
     rootIsolation: hostedSutRootIsolationReceipt(Object.keys(env)),
     execution: Object.freeze({
-      started: processResult.commandStarted,
-      commandStarted: processResult.commandStarted,
+      lifecycle: processResult.lifecycle,
       unitName: commandPlan.unitName,
       exitCode: processResult.code,
       authenticatedInputDigest: preExecutionArchiveDigest,
@@ -1373,15 +1392,7 @@ export async function CodexDevelopmentExecuteHostedActionSut(input: Readonly<{
       outputTruncated: processResult.outputTruncated,
       boundedFailureTailDigest: ciActionDigest(processResult.failureTail)
     }),
-    reap: Object.freeze({
-      namespacePid1Exited: processResult.commandStarted,
-      killChildEnabled: true,
-      unshareProcessClosed: residuePassed
-    }),
-    residue: Object.freeze({
-      cgroupEmpty: residuePassed,
-      hostReadbackDigest: teardown.rawOutputDigest as VerificationActionKeyDigest
-    }),
+    cleanup,
     diagnostic
   });
   return CodexDevelopmentFinalizeHostedActionRawResult({

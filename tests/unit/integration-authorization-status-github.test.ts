@@ -1,4 +1,5 @@
 import { expect, test } from 'bun:test';
+import { sha256 } from '../../src/contracts/canonical.ts';
 
 import {
   issueGitHubApiTestCapability,
@@ -170,7 +171,8 @@ function githubProviderFetch(defaultBranches: readonly string[]): Readonly<{
 }
 
 async function publishWithProvider(
-  provider: ReturnType<typeof githubProviderFetch>
+  provider: ReturnType<typeof githubProviderFetch>,
+  gateResult: IntegrationAuthorizationGateResult = result()
 ): Promise<Awaited<ReturnType<typeof publishIntegrationAuthorizationStatus>>> {
   const capability = issueGitHubApiTestCapability({
     repository: 'sec-platform/sec',
@@ -188,29 +190,49 @@ async function publishWithProvider(
   return await withGitHubApiTestSession({
     capability,
     operation: async () => await publishIntegrationAuthorizationStatus({
-      result: result(),
+      result: gateResult,
       targetUrl: 'https://github.com/sec-platform/sec/pull/496',
       capability
     })
   });
 }
 
-test('terminal publisher binds both readbacks to the observed repository default branch', async () => {
+// Saved results are historical data. The previous mock's successful provider
+// readbacks never established an actual producer qualification; those live
+// post-qualification obligations require the real integration fixture.
+test('terminal publisher rejects caller Gate data before any provider request', async () => {
   const provider = githubProviderFetch(['release/next', 'release/next']);
-  const publication = await publishWithProvider(provider);
-  expect(publication.statusId).toBe(123);
-  expect(provider.calls.filter((call) => call.includes('/branches/release%2Fnext'))).toHaveLength(2);
-  expect(provider.calls.some((call) => call.includes('/branches/main'))).toBe(false);
+  const { resultDigest: _oldDigest, ...data } = result();
+  const rehashed = { ...data, resultDigest: sha256(data) as `sha256:${string}` };
+  await expect(publishWithProvider(provider, rehashed))
+    .rejects.toThrow('actual trusted-runtime transition producer');
+  expect(provider.calls).toEqual([]);
 });
 
-test('terminal publisher rejects a default-branch change across the publication effect', async () => {
-  const provider = githubProviderFetch(['release/next', 'other-default']);
-  await expect(publishWithProvider(provider))
-    .rejects.toThrow('authorization subject drifted at terminal status boundary');
+test('terminal publisher rejects omitted or relabelled transition JSON before provider effects', async () => {
+  const original = JSON.parse(JSON.stringify(result())) as Record<string, unknown>;
+  const variants: readonly Record<string, unknown>[] = [
+    { ...original, sourceProgramTransitionAcceptance: { qualificationDigest: D('b') } },
+    { ...original },
+    { ...original, schema: 'codex-development-merge-gate-result-v2' }
+  ];
+  for (const fields of variants) {
+    const { resultDigest: _oldDigest, ...data } = fields;
+    const callerResult = { ...data, resultDigest: sha256(data) } as unknown as IntegrationAuthorizationGateResult;
+    const provider = githubProviderFetch(['release/next', 'other-default']);
+    await expect(publishWithProvider(provider, callerResult))
+      .rejects.toThrow('actual trusted-runtime transition producer');
+    expect(provider.calls).toEqual([]);
+  }
 });
 
-test('terminal publisher domain parser rejects malformed external repository output', async () => {
-  const provider = githubProviderFetch(['']);
-  await expect(publishWithProvider(provider))
-    .rejects.toThrow('repository default branch must be bounded canonical text');
+test('historical publication decoder rejects malformed repository identity after rehashing', () => {
+  const { publicationDigest: _oldDigest, ...history } = createIntegrationAuthorizationStatusPublication({
+    result: result(), targetUrl: 'https://github.com/sec-platform/sec/pull/496', statusId: 123,
+    principal: { creatorLogin: 'sec-integrator[bot]', creatorId: 900001 }
+  });
+  const malformed = { ...history, repository: '' };
+  expect(() => parseIntegrationAuthorizationStatusPublication(encodeVerificationActionData({
+    ...malformed, publicationDigest: sha256(malformed)
+  }))).toThrow('repository');
 });

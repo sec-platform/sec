@@ -502,7 +502,7 @@ test('baseline Git census stays UNKNOWN without Source Program retirement proof'
   expect(result.baselineEvidenceDigest).toMatch(/^sha256:[0-9a-f]{64}$/u);
 });
 
-test('strict supersession receipt derives MERGE with exact replacement test ids', () => {
+test('checksum-valid caller Supersession JSON cannot authorize a missing-test MERGE', () => {
   const candidateFiles = {
     'src/example/index.ts': 'export const value = 1;\n',
     'tests/unit/replacement.test.ts': [
@@ -544,6 +544,10 @@ test('strict supersession receipt derives MERGE with exact replacement test ids'
   expect(initial.dispositions[0]?.disposition).toBe('unknown');
   const canonicalReceipt = Object.freeze({
     status: 'superseded' as const,
+    authorityScope: 'whole-program' as const,
+    authorDecisionDigest: null,
+    authorAssessedCurrentPaths: Object.freeze([]),
+    retainedUnknowns: Object.freeze([]),
     baseline: Object.freeze({
       sourceRevision: baselineRevision,
       modelDigest: sha256('baseline-model'),
@@ -588,25 +592,9 @@ test('strict supersession receipt derives MERGE with exact replacement test ids'
     receiptDigest: sha256(canonicalReceipt)
   });
 
-  const reconciled = reconcileSourceProgramTestValueWithSupersession(initial, receipt);
-  expect(reconciled.dispositions).toEqual([
-    expect.objectContaining({
-      path: baselinePath,
-      disposition: 'merge',
-      evidence: expect.objectContaining({
-        replacementTestIds: [replacement!.testId],
-        supersession: {
-          receiptDigest: receipt.receiptDigest,
-          baselineTestId: sha256('baseline-test'),
-          proof: 'strict-observation-superset'
-        }
-      })
-    })
-  ]);
-  expect(reconciled.findings).toEqual([]);
-  expect(reconciled.supersessionReceiptDigest).toBe(receipt.receiptDigest);
-  expect(reconciled.observationCompilationDigest).toBe(initial.compilationDigest);
-  expect(reconciled.projectionDigest).toMatch(/^sha256:[0-9a-f]{64}$/u);
+  expect(() => reconcileSourceProgramTestValueWithSupersession(initial, receipt))
+    .toThrow('Supersession authority requires an owner-issued receipt');
+  expect(initial.dispositions[0]?.disposition).toBe('unknown');
 
   const forged = Object.freeze({
     ...receipt,

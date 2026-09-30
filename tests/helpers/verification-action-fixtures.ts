@@ -66,15 +66,16 @@ export function buildUnsupportedVerificationActionTerminalArtifactV2(input: Read
     actionKey: input.actionPlan.action.actionKey,
     capability: Object.freeze({
       commandPlanDigest: authorization.physicalCommand.projectionDigest,
-      commandStarted: true,
+      lifecycle: Object.freeze({
+        supervisorSpawned: true, supervisorClosed: true, supervisorCloseCode: 1, supervisorSignal: null,
+        namespaceEstablished: false, candidateStarted: false, candidateUnitSettled: true, observationGap: null
+      }),
       exitCode: 1,
       markerObserved: false,
       outputDigest,
-      teardownCommandStarted: true,
-      teardownExitCode: 0,
-      residueMarkerObserved: true,
-      cgroupEmpty: true,
-      residueReadbackDigest: residueDigest,
+      cleanup: Object.freeze({
+        supervisorSpawned: true, supervisorClosed: true, exitCode: 0, outputDigest: residueDigest
+      }),
       diagnostic: unsupportedDiagnostic
     }),
     commandPlanDigest: null,
@@ -99,7 +100,10 @@ export function buildUnsupportedVerificationActionTerminalArtifactV2(input: Read
       candidateEnvironmentNames: Object.freeze([])
     }),
     execution: Object.freeze({
-      started: false,
+      lifecycle: Object.freeze({
+        supervisorSpawned: false, supervisorClosed: false, supervisorCloseCode: null, supervisorSignal: null,
+        namespaceEstablished: false, candidateStarted: false, candidateUnitSettled: null, observationGap: null
+      }),
       unitName: null,
       exitCode: null,
       authenticatedInputDigest: null,
@@ -111,17 +115,10 @@ export function buildUnsupportedVerificationActionTerminalArtifactV2(input: Read
       stdoutBytesObserved: 0,
       stderrBytesObserved: 0,
       outputTruncated: false,
-      commandStarted: false,
       boundedFailureTailDigest: outputDigest
     }),
-    reap: Object.freeze({
-      namespacePid1Exited: false,
-      killChildEnabled: true,
-      unshareProcessClosed: true
-    }),
-    residue: Object.freeze({
-      cgroupEmpty: true,
-      hostReadbackDigest: residueDigest
+    cleanup: Object.freeze({
+      supervisorSpawned: false, supervisorClosed: false, exitCode: null, outputDigest: residueDigest
     }),
     diagnostic: unsupportedDiagnostic
   });

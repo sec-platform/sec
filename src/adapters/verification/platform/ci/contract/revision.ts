@@ -28,7 +28,7 @@ export const CI_VERIFICATION_SESSION_ARTIFACT_PREFIX = VERIFICATION_SESSION_SCHE
  */
 export const CI_VERIFICATION_HOSTED_SANDBOX_POLICY = Object.freeze({
   schema: 'sec-ci-verification-hosted-sandbox-policy-v1' as const,
-  policyRevision: 'sandbox-v6' as const,
+  policyRevision: 'sandbox-v7' as const,
   runnerImage: 'ubuntu-24.04' as const,
   substrate: 'util-linux-unshare' as const,
   namespaces: Object.freeze(['mount', 'pid', 'network'] as const),
@@ -135,7 +135,7 @@ export const CI_VERIFICATION_HOSTED_SANDBOX_POLICY = Object.freeze({
   }),
   resourceController: 'two-cpu-outer-cgroup-times-wall-aggregate-plus-per-process-prlimit' as const,
   capabilitySelfTest: 'dedicated-pre-start-sut-role' as const,
-  teardown: 'unshare-kill-child-process-close-readback' as const
+  teardown: 'physical-candidate-unit-settlement-and-independent-directory-cleanup' as const
 });
 
 export const CI_VERIFICATION_HOSTED_SANDBOX_POLICY_DIGEST = `sha256:${createHash('sha256')

@@ -1,6 +1,7 @@
 /** Canonical VerificationSession V2 operator reducer and trusted runtime guards. */
 
 import { createHash } from 'node:crypto';
+import { assertSourceProgramTransitionQualification, sourceProgramTransitionEvidenceForQualification, type SourceProgramTransitionQualification } from '../../trusted-runtime/trusted-runtime-container.ts';
 
 import { CI_VERIFICATION_CONTRACT_REVISION, CI_VERIFICATION_WORKFLOW_PATH } from '../../../../../assurance/verification/contract/revision.ts';
 import type { GitHubCheckObservation } from '../../../../providers/github-api/contract.ts';
@@ -55,7 +56,7 @@ import {
   type ScopeAuthorizationInput
 } from '../../../../self-hosting/control/scope/authorization.ts';
 import { encodeVerificationActionData, type VerificationActionInputRef } from '../../action/contract/action.ts';
-import { buildCiVerificationActionPlanClosure, CI_VERIFICATION_HOSTED_EXECUTION_ENVIRONMENT, ciVerificationGateStep, parseCiVerificationActionPlanClosure, type CiVerificationActionPlanClosure, type CiVerificationExecutionEnvironment } from '../../action/contract/ci.ts';
+import { buildCiVerificationActionPlanClosure, CI_VERIFICATION_HOSTED_EXECUTION_ENVIRONMENT, ciVerificationGateStep, parseCiVerificationActionPlanClosure, SOURCE_PROGRAM_TRANSITION_GATE_ID, type CiSourceProgramTransitionBinding, type CiVerificationActionPlanClosure, type CiVerificationExecutionEnvironment } from '../../action/contract/ci.ts';
 import { CI_VERIFICATION_ACTION_DEPENDENCY_INPUT_PATHS } from '../../action/contract/environment.ts';
 import { CI_GITHUB_ACTIONS_IDENTITY_POLICY } from '../../action/contract/provider.ts';
 import { assertReviewStabilityReceiptCurrent, createReviewStabilityReceipt, REVIEW_OBSERVER_PRODUCER_IDENTITY, SEC_REVIEW_STABILITY_POLICY, type ReviewStabilityReceipt } from '../../review/contract/stability.ts';
@@ -782,6 +783,7 @@ export function prepareTrustedMainVerificationSession(input: {
   executionEnvironment?: CiVerificationExecutionEnvironment;
   mainHealthInput?: MainHealthLedgerInput;
   scopeSourceTransport?: ScopeAuthorizationInput['issuer']['sourceTransport'];
+  sourceProgramTransition?: CiSourceProgramTransitionBinding;
 }): Readonly<{
   request: VerificationSessionHostedRequest;
   sessionRevision: Digest;
@@ -824,7 +826,8 @@ export function prepareTrustedMainVerificationSession(input: {
     input.profile,
     input.changedPaths,
     input.testImpactSourceProvider,
-    transition.observation
+    transition.observation,
+    input.sourceProgramTransition
   );
   if (!plan.selectionResolved) throw new Error('trusted-main preparation verification plan is unresolved.');
   const actionPlan = buildCiVerificationActionPlanClosure({ candidate: { baseSha: candidate.baseSha,
@@ -1269,11 +1272,39 @@ export function prepareVerificationSessionHosted(input: {
   return Object.freeze({ ...withoutDigest, envelopeDigest: hash(withoutDigest) });
 }
 
+function assertSourceProgramTransitionQualified(input: Readonly<{
+  actionPlan: CiVerificationActionPlanClosure;
+  evidence: CodexDevelopmentVerificationEvidenceV4;
+  sessionRevision: string;
+  qualification?: SourceProgramTransitionQualification;
+}>): void {
+  const selected = input.actionPlan.actions.filter(
+    ({ action }) => action.operation.identity === SOURCE_PROGRAM_TRANSITION_GATE_ID);
+  if (selected.length === 0) {
+    if (input.qualification !== undefined) throw new Error('Unselected Source Program transition cannot qualify this Session.');
+    return;
+  }
+  if (selected.length !== 1 || input.qualification === undefined) {
+    throw new Error('Conditional Source Program completion requires live host qualification before Session acceptance.');
+  }
+  assertSourceProgramTransitionQualification(input.qualification);
+  const completion = input.evidence.gates.find(({ action }) => action.actionKey === selected[0]!.action.actionKey);
+  if (input.qualification.actionKey !== selected[0]!.action.actionKey
+      || input.qualification.sessionRevision !== input.sessionRevision
+      || completion?.result.status !== 'passed' || completion.result.evidenceRefs.length !== 1
+      || completion.result.evidenceRefs[0] !== input.qualification.predecessorActionOutputDigest) {
+    throw new Error('Source Program qualification belongs to another Action or Session.');
+  }
+}
+
 export function finalizeVerificationSessionHostedArtifact(input: {
   envelope: VerificationSessionHostedEnvelope;
   evidence: CodexDevelopmentVerificationEvidenceV4;
+  sourceProgramTransitionQualification?: SourceProgramTransitionQualification;
 }): CodexDevelopmentVerificationSessionArtifact {
   const envelope = input.envelope;
+  assertSourceProgramTransitionQualified({ actionPlan: envelope.actionPlanClosure, evidence: input.evidence,
+    sessionRevision: envelope.session.sessionRevision, qualification: input.sourceProgramTransitionQualification });
   const { envelopeDigest, ...withoutDigest } = envelope;
   if (envelope.schema !== VERIFICATION_SESSION_HOSTED_ENVELOPE_SCHEMA || hash(withoutDigest) !== envelopeDigest) {
     throw new Error('prepare-hosted envelope digest mismatch.');
@@ -1287,7 +1318,11 @@ export function finalizeVerificationSessionHostedArtifact(input: {
     preGateReview: envelope.preGateReview,
     mainHealth: envelope.mainHealth,
     evidence: input.evidence,
-    producer: input.evidence.producer
+    producer: input.evidence.producer,
+    ...(input.sourceProgramTransitionQualification === undefined ? {} : {
+      sourceProgramTransitionAcceptance: input.sourceProgramTransitionQualification,
+      sourceProgramTransitionEvidence: sourceProgramTransitionEvidenceForQualification(input.sourceProgramTransitionQualification)
+    })
   });
 }
 
@@ -1296,7 +1331,10 @@ export function refreshVerificationSessionHostedArtifact(input: {
   previousArtifact: CodexDevelopmentVerificationSessionArtifact;
   producer: CodexDevelopmentVerificationEvidenceProducer;
   refreshedAt: string;
+  sourceProgramTransitionQualification?: SourceProgramTransitionQualification;
 }): CodexDevelopmentVerificationSessionArtifact {
+  assertSourceProgramTransitionQualified({ actionPlan: input.envelope.actionPlanClosure, evidence: input.previousArtifact.evidence,
+    sessionRevision: input.envelope.session.sessionRevision, qualification: input.sourceProgramTransitionQualification });
   const { envelopeDigest, ...withoutDigest } = input.envelope;
   if (input.envelope.schema !== VERIFICATION_SESSION_HOSTED_ENVELOPE_SCHEMA
     || hash(withoutDigest) !== envelopeDigest) {
@@ -1309,6 +1347,10 @@ export function refreshVerificationSessionHostedArtifact(input: {
     preGateReview: input.envelope.preGateReview,
     mainHealth: input.envelope.mainHealth,
     producer: input.producer,
+    ...(input.sourceProgramTransitionQualification === undefined ? {} : {
+      sourceProgramTransitionAcceptance: input.sourceProgramTransitionQualification,
+      sourceProgramTransitionEvidence: sourceProgramTransitionEvidenceForQualification(input.sourceProgramTransitionQualification)
+    }),
     refreshedAt: input.refreshedAt
   });
 }
@@ -1395,7 +1437,14 @@ export function prepareVerificationSessionTrustedRuntimeMergeInput(input: {
   consumptionOperationId: Digest;
   issuedAt: string;
   expiresAt: string;
+  sourceProgramTransitionQualification?: SourceProgramTransitionQualification;
 }): CodexDevelopmentTrustedRuntimeMergeGateInput {
+  assertSourceProgramTransitionQualified({ actionPlan: input.artifact.evidence.actionPlan, evidence: input.artifact.evidence,
+    sessionRevision: input.artifact.session.sessionRevision, qualification: input.sourceProgramTransitionQualification });
+  if (input.artifact.sourceProgramTransitionAcceptance?.qualificationDigest
+      !== input.sourceProgramTransitionQualification?.qualificationDigest) {
+    throw new Error('Accepted artifact does not identify the current live Source Program adoption attempt.');
+  }
   if (input.platform.status === 'unknown') {
     throw new Error('Unknown platform enforcement blocks trusted runtime merge input.');
   }
