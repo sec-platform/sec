@@ -103,6 +103,8 @@ const LINUX_IN_DELETE_SELF = 0x0000_0400;
 
 const LINUX_IN_MOVE_SELF = 0x0000_0800;
 
+const LINUX_IN_UNMOUNT = 0x0000_2000;
+
 const LINUX_IN_Q_OVERFLOW = 0x0000_4000;
 
 const LINUX_IN_IGNORED = 0x0000_8000;
@@ -118,6 +120,8 @@ const LINUX_DIRECTORY_CREATE_WATCH_MASK = LINUX_IN_CREATE | LINUX_IN_DELETE |
 const LINUX_RETAINED_EXECUTABLE_WATCH_MASK = LINUX_IN_MODIFY | LINUX_IN_ATTRIB |
   LINUX_IN_CLOSE_WRITE | LINUX_IN_CREATE | LINUX_IN_DELETE | LINUX_IN_MOVED_FROM |
   LINUX_IN_MOVED_TO | LINUX_IN_DELETE_SELF | LINUX_IN_MOVE_SELF | LINUX_IN_ONLYDIR;
+
+const LINUX_REPOSITORY_MUTATION_WATCH_MASK = LINUX_RETAINED_EXECUTABLE_WATCH_MASK | LINUX_IN_UNMOUNT;
 
 const LINUX_INOTIFY_EVENT_HEADER_BYTES = 16;
 
@@ -149,6 +153,7 @@ function loadLinuxLibc() {
       renameat2: { args: [FFIType.i32, FFIType.ptr, FFIType.i32, FFIType.ptr, FFIType.u32], returns: FFIType.i32 },
       inotify_init1: { args: [FFIType.i32], returns: FFIType.i32 },
       inotify_add_watch: { args: [FFIType.i32, FFIType.ptr, FFIType.u32], returns: FFIType.i32 },
+      inotify_rm_watch: { args: [FFIType.i32, FFIType.i32], returns: FFIType.i32 },
       fsync: { args: [FFIType.i32], returns: FFIType.i32 },
       close: { args: [FFIType.i32], returns: FFIType.i32 },
       __errno_location: { args: [], returns: FFIType.ptr }
@@ -598,6 +603,80 @@ export function linuxReadDirectoryMutationEvents(
     }
   }
   return Object.freeze(events);
+}
+
+
+export type LinuxRepositoryMutationEventClassification =
+  | 'added'
+  | 'removed'
+  | 'modified'
+  | 'renamed-from'
+  | 'renamed-to'
+  | 'overflow'
+  | 'ignored'
+  | 'discontinuous';
+
+export function linuxOpenRepositoryMutationWitness(label: string): number {
+  return linuxOpenDirectoryMutationWitness(label);
+}
+
+export function linuxAddRepositoryMutationWatch(
+  witnessFd: number,
+  directoryFd: number,
+  label: string
+): number {
+  const watchDescriptor = requireLinuxLibc().symbols.inotify_add_watch(
+    witnessFd,
+    Buffer.from(`/proc/self/fd/${directoryFd}\0`, 'utf8'),
+    LINUX_REPOSITORY_MUTATION_WATCH_MASK
+  );
+  if (watchDescriptor < 0) {
+    throw physicalError(
+      'PHYSICAL_NO_FOLLOW_CAPABILITY_UNAVAILABLE',
+      `${label} cannot bind the retained Linux repository mutation witness (errno ${linuxErrno()}).`
+    );
+  }
+  return watchDescriptor;
+}
+
+export function linuxRemoveRepositoryMutationWatch(
+  witnessFd: number,
+  watchDescriptor: number,
+  label: string
+): void {
+  if (requireLinuxLibc().symbols.inotify_rm_watch(witnessFd, watchDescriptor) !== 0) {
+    throw physicalError(
+      'PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED',
+      `${label} could not terminate its exact Linux mutation watch (errno ${linuxErrno()}).`
+    );
+  }
+}
+
+export function linuxReadRepositoryMutationEvents(
+  witnessFd: number,
+  label: string
+): readonly LinuxDirectoryMutationEvent[] {
+  return linuxReadDirectoryMutationEvents(Object.freeze({
+    fd: witnessFd,
+    watchDescriptor: -1,
+    ancestorEdges: new Map<number, string>()
+  }), label);
+}
+
+export function linuxClassifyRepositoryMutationEvent(
+  mask: number
+): LinuxRepositoryMutationEventClassification {
+  if (!Number.isSafeInteger(mask) || mask < 0) return 'discontinuous';
+  if ((mask & LINUX_IN_Q_OVERFLOW) !== 0) return 'overflow';
+  if ((mask & LINUX_IN_UNMOUNT) !== 0) return 'discontinuous';
+  if ((mask & LINUX_IN_IGNORED) !== 0) return 'ignored';
+  if ((mask & (LINUX_IN_DELETE_SELF | LINUX_IN_MOVE_SELF)) !== 0) return 'discontinuous';
+  if ((mask & LINUX_IN_MOVED_FROM) !== 0) return 'renamed-from';
+  if ((mask & LINUX_IN_MOVED_TO) !== 0) return 'renamed-to';
+  if ((mask & LINUX_IN_CREATE) !== 0) return 'added';
+  if ((mask & LINUX_IN_DELETE) !== 0) return 'removed';
+  if ((mask & (LINUX_IN_MODIFY | LINUX_IN_ATTRIB | LINUX_IN_CLOSE_WRITE)) !== 0) return 'modified';
+  return 'discontinuous';
 }
 
 export interface LinuxRetainedExecutableWitness {
