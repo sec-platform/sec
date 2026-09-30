@@ -12,7 +12,6 @@ import { createBranchLifecycleGitChildEnvironment, decodeBranchLifecycleChildErr
 import type { VerificationSessionScope } from '../contract/session-scope.ts';
 import type { VerificationSessionJournalFileSystem } from './verification-session-journal.ts';
 import { spawnSync } from 'node:child_process';
-import { lstatSync, realpathSync } from 'node:fs';
 import path from 'node:path';
 
 const SESSION_COMMAND_TIMEOUT_MS = 60_000;
@@ -153,13 +152,11 @@ export function comparableFileSystemPath(filePath: string): string {
 
 export function exactRealPath(filePath: string, label: string): string {
   const resolved = path.resolve(filePath);
-  const metadata = lstatSync(resolved);
-  if (metadata.isSymbolicLink()) throw new Error(`${label} must not be a symlink or reparse point.`);
-  const real = realpathSync.native(resolved);
-  if (comparableFileSystemPath(real) !== comparableFileSystemPath(resolved)) {
+  const observed = inspectNoFollowDirectoryChain(resolved, label).target;
+  if (comparableFileSystemPath(observed.path) !== comparableFileSystemPath(resolved)) {
     throw new Error(`${label} must resolve without filesystem indirection.`);
   }
-  return real;
+  return observed.path;
 }
 
 export function gitText(
