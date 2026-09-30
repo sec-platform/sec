@@ -1,40 +1,103 @@
 /** VerificationSession physical owner recovered from current-main semantics. */
 import type { SecOperationDigest } from '../../../../../execution/operation/semantic.ts';
 import { assertWorkspaceWriteLease, withWorkspaceWriteLease, type WorkspaceWriteLeaseToken } from '../../../../filesystem/write-lease.ts';
+import {
+  replaceDurableCanonicalFile,
+  retainNoFollowOrdinaryFile
+} from '../../../../runtime-state/physical/runtime/physical-no-follow.ts';
 import { type BranchCloseoutEffect, type BranchCloseoutOperationJournal, type BranchCloseoutOperationReceipt, type BranchCloseoutOperationStore, createBranchCloseoutOperationBinding, createBranchCloseoutOperationJournal, createBranchCloseoutOperationReceipt, createBranchCloseoutReceipt, parseBranchCloseoutOperationJournal, parseBranchCloseoutOperationReceipt } from '../../../../self-hosting/control/branch-lifecycle/branch-closeout-contract.ts';
 import { BRANCH_CLOSEOUT_MUTATION_PHASE_STEP_NAME, createBranchCloseoutEffectStartPublication, type HostedWorkflowCommentProvenance, observeBranchCloseoutOperationPublication } from '../../../../self-hosting/control/branch-lifecycle/branch-closeout-receipt.ts';
 import { operationJournalFilePath, operationReceiptFilePath, type PreparedBranchCloseoutEnvelope } from '../../../../self-hosting/control/branch-lifecycle/branch-closeout.ts';
 import { branchLifecycleDigest } from '../../../../self-hosting/control/branch-lifecycle/branch-lifecycle-audit.ts';
 import { collectBranchLifecycleInventory } from '../../../../self-hosting/control/branch-lifecycle/branch-lifecycle-inventory.ts';
 import { BRANCH_REF_CLOSEOUT_CAPABILITY } from '../../../../self-hosting/control/branch-lifecycle/branch-lifecycle-types.ts';
+import { acquireBranchRecoveryStore } from '../../../../self-hosting/control/branch-lifecycle/branch-recovery.ts';
 import type { WorktreePhysicalCloseoutConsumptionToken } from '../../../../self-hosting/control/branch-lifecycle/worktree-physical-closeout.ts';
 import type { HostedIntegrationPhaseOwnership, IntegrationAuthorizationOperationPublication } from '../../../../self-hosting/control/integration/integration-authorization-publication.ts';
 import { encodeVerificationActionData } from '../../action/contract/action.ts';
 import type { VerificationSessionScope } from '../contract/session-scope.ts';
-import { writeDurable } from './session-artifact-files.ts';
 import { publishHostedCloseoutEffectStart } from './session-closeout-publication.ts';
 import { closeoutAttempt, closeoutEffect, deleteHostedLocalRefCas, deleteHostedRemoteRefCas, pruneHostedRemote } from './session-closeout-ref-provider.ts';
 import { evaluateHostedCloseoutEffectPreconditionsUnderLease } from './session-closeout-worktree.ts';
 import { loadProviderBranchCloseoutRecoveryArtifact } from './session-hosted-artifacts.ts';
 import { commonGitDirectory, comparableFileSystemPath } from './session-local-repository.ts';
-import { closeSync, existsSync, fsyncSync, openSync, readFileSync, writeFileSync } from 'node:fs';
+import path from 'node:path';
 
-function branchCloseoutStore(): BranchCloseoutOperationStore {
+function branchCloseoutStore(
+  preparation: PreparedBranchCloseoutEnvelope['preparation']
+): BranchCloseoutOperationStore {
+  const recoveryPath = path.resolve(preparation.recovery.path);
+  const recoveryRoot = path.dirname(recoveryPath);
+  const physical = acquireBranchRecoveryStore({
+    repositoryRoot: preparation.repository.root,
+    commonDir: preparation.repository.commonDir,
+    worktreeRoots: preparation.worktreePathsAtPreparation,
+    recoveryRoot
+  });
+  if (path.resolve(physical.root.path) !== recoveryRoot) {
+    throw new Error('Branch closeout operation store recovery root drifted.');
+  }
+  const fileName = (filePath: string): string => {
+    const absolute = path.resolve(filePath);
+    if (path.dirname(absolute) !== recoveryRoot) {
+      throw new Error('Branch closeout operation store path escaped the recovery root.');
+    }
+    const name = path.basename(absolute);
+    if (!/^[A-Za-z0-9._-]+$/u.test(name) || name === '.' || name === '..') {
+      throw new Error('Branch closeout operation store file name is invalid.');
+    }
+    return name;
+  };
+  const exactBytes = (expected: Buffer) => (observed: Uint8Array): void => {
+    if (!Buffer.from(observed).equals(expected)) {
+      throw new Error('Branch closeout operation store durable readback differs.');
+    }
+  };
   return {
-    read: (filePath) => existsSync(filePath) ? readFileSync(filePath, 'utf8') : null,
+    read: (filePath) => {
+      const observed = physical.read(fileName(filePath));
+      return observed === null ? null : Buffer.from(observed).toString('utf8');
+    },
     createExclusive: (filePath, bytes) => {
-      try {
-        const handle = openSync(filePath, 'wx');
-        try { writeFileSync(handle, bytes, 'utf8'); fsyncSync(handle); } finally { closeSync(handle); }
-        return true;
-      } catch (error) {
-        if (error && typeof error === 'object' && 'code' in error && error.code === 'EEXIST') return false;
-        throw error;
-      }
+      const expected = Buffer.from(bytes, 'utf8');
+      return physical.publishExclusive({
+        name: fileName(filePath),
+        bytes: expected,
+        validate: exactBytes(expected)
+      }).created;
     },
     replace: (filePath, expectedBytes, nextBytes) => {
-      if (readFileSync(filePath, 'utf8') !== expectedBytes) throw new Error('closeout store CAS mismatch.');
-      writeDurable(filePath, JSON.parse(nextBytes));
+      const name = fileName(filePath);
+      const retained = retainNoFollowOrdinaryFile(
+        physical.root,
+        name,
+        undefined,
+        'Branch closeout operation store CAS preimage'
+      );
+      let expectedIdentity: Readonly<{ device: string; inode: string }>;
+      try {
+        const expected = Buffer.from(expectedBytes, 'utf8');
+        if (!Buffer.from(retained.readBytes()).equals(expected)) {
+          throw new Error('closeout store CAS mismatch.');
+        }
+        retained.assertCurrent();
+        if (retained.linkCount !== 1) {
+          throw new Error('closeout store CAS preimage has unexpected hard links.');
+        }
+        expectedIdentity = retained.physical;
+      } finally {
+        retained.dispose();
+      }
+      const next = Buffer.from(nextBytes, 'utf8');
+      replaceDurableCanonicalFile({
+        parent: physical.root,
+        name,
+        bytes: next,
+        validate: exactBytes(next),
+        expectedExisting: expectedIdentity,
+        rejectExistingHardLinks: true
+      });
+      physical.assertCurrent();
     }
   };
 }
@@ -131,7 +194,7 @@ export async function finalizeHostedBranchCloseout(input: Readonly<{
   // The host-local journal is deliberately opened only after the remote effect
   // has either completed under a newly-created marker or been provider-read back
   // as already absent under the exact existing marker.
-  const store = branchCloseoutStore();
+  const store = branchCloseoutStore(preparation);
   const terminalPath = operationReceiptFilePath(
     preparation,
     input.binding.closeoutOperationId
