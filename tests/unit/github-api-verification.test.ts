@@ -39,6 +39,7 @@ for (const explicit of [false,true]) test.serial.skipIf(process.platform !== 'li
     const {repository,store,binaryRoot} = await fixture();
     const previous = {...process.env}, priorFetch = globalThis.fetch;
     const requests: string[] = [];
+    const customPermission = { permission: 'write', role_name: 'custom-maintainer' };
     try {
       Object.assign(process.env,{PATH:binaryRoot,GH_TOKEN:'poisoned-token',GH_CONFIG_DIR:'/poisoned-config',
         HOME:'/poisoned-home',GH_HOST:'wrong.invalid',HTTPS_PROXY:'http://managed-route-fixture'});
@@ -49,8 +50,11 @@ for (const explicit of [false,true]) test.serial.skipIf(process.platform !== 'li
         expect(new Headers(init?.headers).get('authorization')).toBe('Bearer ghp_synthetic_credential_000000000000');
         const value = url.pathname === '/graphql' ? {data:{repository:{pullRequest:{reviews:{nodes:[],pageInfo:{hasNextPage:false,endCursor:null}}}}},
           errors:[{message:"Cannot query field 'privateField' on type 'PullRequest'. PRIVATE_CONTEXT"}]}
-          : url.pathname === '/user' ? {login:'fixture',node_id:'FIXTURE',id:1}
-          : url.pathname.endsWith('/permission') ? {permission:'maintain'}
+          : url.pathname === '/user' || url.pathname === '/users/fixture' ? {login:'fixture',node_id:'FIXTURE',id:1}
+          : url.pathname.startsWith('/users/') ? {login:url.pathname.split('/').at(-1),node_id:'OBSERVED',id:2}
+          : url.pathname.endsWith('/collaborators/custom/permission') ? customPermission
+          : url.pathname.endsWith('/collaborators/writer/permission') ? {permission:'write',role_name:'write'}
+          : url.pathname.endsWith('/permission') ? {permission:'write',role_name:'maintain'}
           : url.pathname.endsWith('/pulls/42') ? {number:42,state:'open',merged:false,draft:false,user:{node_id:'AUTHOR'},
             base:{ref:'main',sha:'1'.repeat(40),repo:{full_name:'sec-platform/sec'}},
             head:{ref:'feature',sha:'2'.repeat(40),repo:{full_name:'sec-platform/sec'}},title:'Fixture',body:'',merge_commit_sha:null}
@@ -61,6 +65,12 @@ for (const explicit of [false,true]) test.serial.skipIf(process.platform !== 'li
       const observe = async () => {
         const client = createVerificationSessionGitHubClient(repository,'sec-platform/sec'); escaped = client;
         expect(await client.observeViewerPrincipal('sec-platform/sec')).toEqual({login:'fixture',nodeId:'FIXTURE',permission:'maintain'});
+        expect(await client.observePrincipal('sec-platform/sec','fixture')).toEqual({login:'fixture',nodeId:'FIXTURE',permission:'maintain'});
+        expect(await client.observePrincipal('sec-platform/sec','writer')).toEqual({login:'writer',nodeId:'OBSERVED',permission:'write'});
+        let permissionError: unknown;
+        try { await client.observePrincipal('sec-platform/sec','custom'); } catch (error) { permissionError = error; }
+        expect(permissionError).toMatchObject({ classification:'github-rest-collaborator-permission',
+          source:{repository:'sec-platform/sec',login:'custom',source:JSON.stringify(customPermission),parsedValue:customPermission} });
         expect((await client.observeCandidate('sec-platform/sec',42)).headSha).toBe('2'.repeat(40));
         const barrier = await client.observeReviewBarrier({repository:'sec-platform/sec',prNumber:42,headSha:'2'.repeat(40),excludedPrincipalNodeIds:new Set()});
         expect(barrier).toMatchObject({status:'provider-schema-unsupported',reasonCode:'github-graphql-schema-unsupported'});

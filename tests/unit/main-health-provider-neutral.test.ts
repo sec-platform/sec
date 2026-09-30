@@ -3,10 +3,11 @@ import { expect, test } from 'bun:test';
 import type { GitHubCheckObservation } from '../../src/adapters/providers/github-api/contract.ts';
 import { createMainHealthLedger } from '../../src/adapters/self-hosting/control/main-health/contract.ts';
 import {
+  createObservedMainHealthInput,
   createObservedMainHealthInputWithPolicy,
   createRegisteredHostedMainHealthInputs,
-  createTrustedRuntimeMainHealthInput,
   createTrustedRuntimeMainHealthCheckProviderPolicyV1,
+  createTrustedRuntimeMainHealthInput,
   GITHUB_ACTIONS_MAIN_HEALTH_CHECK_PROVIDER_POLICY
 } from '../../src/adapters/self-hosting/control/main-health/main-health-observation.ts';
 import { CI_MAIN_HEALTH_POLICY, createCiMainHealthRequestOperationId } from '../../src/adapters/self-hosting/control/main-health/provider-policy.ts';
@@ -185,6 +186,40 @@ test('hosted registry accepts the exact Actions principal and ignores an unregis
     allowedLanes: ['ordinary'],
     producer: { sourceRunId: '123' }
   }]);
+});
+
+test('direct Actions MainHealth derives producer identity independently of the observing caller', () => {
+  const input = {
+    repository: 'sec-platform/sec',
+    mainSha: MAIN,
+    mainTreeSha: MAIN_TREE,
+    trustRevision: MAIN,
+    observedAt: '2026-08-19T00:00:00.000Z',
+    expiresAt: '2026-08-19T00:10:00.000Z',
+    // Overspecified legacy callers cannot replace the observed producer.
+    sourceRunId: '999',
+    sourceRef: `.github/workflows/merge-gate.yml@${MAIN}`
+  };
+  const producer = actionsCheck({ id: 77, workflowRunId: '123' });
+  expect(createObservedMainHealthInput({ ...input, checks: [producer] })).toMatchObject({
+    status: 'healthy',
+    allowedLanes: ['ordinary'],
+    producer: {
+      sourceRunId: '123',
+      sourceRef: `github-check-runs:sec-platform/sec@${MAIN}`,
+      trustRevision: MAIN
+    }
+  });
+  for (const checks of [
+    [],
+    [actionsCheck({ workflowRunId: null })],
+    [producer, actionsCheck({ id: 78, workflowRunId: '124' })]
+  ]) {
+    expect(createObservedMainHealthInput({ ...input, checks })).toMatchObject({
+      status: 'locked',
+      allowedLanes: []
+    });
+  }
 });
 
 test('Actions sourceRunId must bind the exact observed workflow run id', () => {

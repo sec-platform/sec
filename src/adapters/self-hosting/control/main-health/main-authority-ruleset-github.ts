@@ -1,14 +1,12 @@
 import { writeFileSync } from 'node:fs';
 
+import { withGitHubApiRulesetReadSession } from '../../../providers/github-api/operation-session.ts';
 import { encodeVerificationActionData } from '../../../verification/platform/action/contract/action.ts';
 import {
   createMainAuthorityRulesetReceipt,
   type MainAuthorityRulesetReceipt
 } from './authority-ruleset.ts';
-import {
-  observeMainAuthorityRulesetGitHubFacts,
-  withMainHealthGitHubReadSession
-} from './work-selection-main-health.ts';
+import { observeMainAuthorityRulesetGitHubFacts } from './work-selection-main-health.ts';
 
 export interface MainAuthorityRulesetGitHubTransport {
   readonly effectiveBranchRules: (repository: string, branch: string) => unknown;
@@ -132,7 +130,7 @@ export async function observeMainAuthorityRulesetLive(input: Readonly<{
   const repository = repositoryName(input.repository);
   const defaultBranch = branchName(input.defaultBranch);
   const expectedIntegrationId = integrationId(input.expectedIntegrationId);
-  return withMainHealthGitHubReadSession({
+  return withGitHubApiRulesetReadSession({
     repositoryRoot: input.repositoryRoot,
     repository,
     operation: async () => {

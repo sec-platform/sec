@@ -12,12 +12,16 @@ import { GITHUB_API_BASE_URL, GITHUB_HOST } from '../contract.ts';
 import { currentGitHubCredentialStore } from '../credential-store.ts';
 import {
   GitHubCredentialUnavailableError,
-  inspectGitHubActionsRepositoryMaintenanceCredentialIdentity, inspectGitHubActionsVerificationCredentialIdentity, readGitHubToken
+  inspectGitHubActionsRepositoryMaintenanceCredentialIdentity,
+  inspectGitHubActionsRulesetAuditorCredentialIdentity,
+  inspectGitHubActionsVerificationCredentialIdentity, readGitHubToken
 } from '../credential.ts';
+import { normalizeGitHubRepositoryPermission } from '../repository-permission.ts';
 import { GITHUB_VERIFICATION_READ_QUERIES, isGitHubGraphQLSchemaFailure } from '../verification-queries.ts';
 
 export type GitHubApiEffect =
   | 'read'
+  | 'ruleset-read'
   | 'verification-read'
   | 'verification-dispatch'
   | 'status-write'
@@ -86,6 +90,7 @@ type GitHubApiOperationBudget = {
 
 type GitHubApiRequestSession = {
   capability: GitHubApiCapability | undefined;
+  rulesetAuditorWorkflowIdentity?: NonNullable<ReturnType<typeof inspectGitHubActionsRulesetAuditorCredentialIdentity>>;
   readonly repository: string;
   readonly effect: GitHubApiEffect;
   readonly origin: 'production' | 'test';
@@ -117,7 +122,6 @@ export type GitHubApiOperation =
   | Readonly<{ kind: 'verification-artifacts'; runId?: string; page: number }>
   | Readonly<{ kind: 'verification-workflow-runs'; headSha: string; page: number }>
   | Readonly<{ kind: 'verification-workflow-jobs'; runId: string; runAttempt: number; page: number }>
-  | Readonly<{ kind: 'verification-rulesets'; page: number }>
   | Readonly<{ kind: 'verification-repository-comments'; page: number }>
   | Readonly<{ kind: 'verification-dispatch'; request: Readonly<Record<string, unknown>> }>
   | Readonly<{ kind: 'current-user' }>
@@ -285,6 +289,10 @@ function compileOperation(
 ): CompiledGitHubApiRequest {
   const kind = operation.kind;
   const repo = repository(repositoryName);
+  if (effect === 'ruleset-read' && !['current-user', 'repository', 'collaborator-permission',
+    'workflow-run', 'effective-branch-rules', 'ruleset'].includes(kind)) {
+    throw new GitHubApiProviderError('GitHub API ruleset-read permits only fixed auditor enrollment and ruleset observations');
+  }
   if (effect === 'runner-admin'
       && kind !== 'current-user'
       && kind !== 'collaborator-permission'
@@ -378,7 +386,6 @@ function compileOperation(
     case 'verification-artifacts': return read(`/repos/${repo}/actions/${operation.runId === undefined ? '' : `runs/${positiveId(operation.runId)}/`}artifacts?per_page=100&page=${page(operation.page)}`);
     case 'verification-workflow-runs': return read(`/repos/${repo}/actions/runs?head_sha=${sha(operation.headSha)}&per_page=100&page=${page(operation.page)}`);
     case 'verification-workflow-jobs': return read(`/repos/${repo}/actions/runs/${positiveId(operation.runId)}/attempts/${positiveInteger(operation.runAttempt, 'run attempt')}/jobs?per_page=100&page=${page(operation.page)}`);
-    case 'verification-rulesets': return read(`/repos/${repo}/rulesets?per_page=100&page=${page(operation.page)}`);
     case 'verification-repository-comments': return read(`/repos/${repo}/issues/comments?per_page=100&sort=created&direction=desc&page=${page(operation.page)}`);
     case 'verification-dispatch': {
       if (effect !== 'verification-dispatch') throw new GitHubApiProviderError('Dispatch requires exact write authority');
@@ -636,6 +643,11 @@ function issueCapability(input: Readonly<{
       && (input.principal.transport !== 'github-rest-token'
         || input.principal.permission !== 'admin')) {
     throw new GitHubApiProviderError('GitHub API runner-admin capability requires admin permission');
+  }
+  if (input.effect === 'ruleset-read'
+      && (input.principal.transport !== 'github-rest-token'
+        || (input.principal.permission !== 'admin' && input.principal.permission !== 'maintain'))) {
+    throw new GitHubApiProviderError('GitHub API ruleset-read requires an authenticated maintain/admin principal');
   }
   if ((input.effect === 'status-write' || input.effect === 'merge-write')
       && (input.principal.transport !== 'github-rest-token'
@@ -968,6 +980,10 @@ export async function executeGitHubApiOperation(
     throw new GitHubApiProviderError('GitHub API request requires the active exact operation session');
   }
   const kind = operation.kind;
+  if (value.effect === 'ruleset-read'
+      && kind !== 'effective-branch-rules' && kind !== 'ruleset') {
+    throw new GitHubApiProviderError('GitHub API ruleset-read permits only ruleset observations after enrollment');
+  }
   if (kind === 'verification-artifact-text') {
     const input = operation as Extract<GitHubApiOperation,{kind:'verification-artifact-text'}>;
     return await readGitHubArtifactText(capability,{artifactId:input.artifactId,artifactName:input.artifactName,
@@ -1147,6 +1163,52 @@ async function readVerificationProductionToken(repositoryRoot: string, session: 
   return key === undefined ? '' : process.env[key]!;
 }
 
+async function readRulesetProductionToken(repositoryRoot: string, session: GitHubApiRequestSession): Promise<string> {
+  const identity = inspectGitHubActionsRulesetAuditorCredentialIdentity(process.env, session.repository);
+  if (identity === null) return await readProductionToken(repositoryRoot, session);
+  if (currentGitHubCredentialStore(repositoryRoot) !== undefined) {
+    throw new GitHubApiProviderError('Multiple credential sources are selected');
+  }
+  reserve(session, 0);
+  session.rulesetAuditorWorkflowIdentity = identity;
+  const key = Object.keys(process.env).find((name) =>
+    name.toLowerCase() === 'sec_github_ruleset_auditor_token');
+  return key === undefined ? '' : process.env[key]!;
+}
+
+async function assertRulesetAuditorWorkflowRun(
+  session: GitHubApiRequestSession,
+  token: string,
+  transport: GitHubApiTransport
+): Promise<void> {
+  const identity = session.rulesetAuditorWorkflowIdentity;
+  if (identity === undefined) return;
+  const repositoryValue = await executeWithToken<unknown>(session, token, transport, { kind: 'repository' });
+  const runValue = await executeWithToken<unknown>(session, token, transport,
+    { kind: 'workflow-run', runId: identity.runId });
+  const workflowPath = identity.workflowRef.slice(session.repository.length + 1).split('@')[0];
+  const event = workflowPath === '.github/workflows/merge-gate.yml' ? 'workflow_run' : 'repository_dispatch';
+  if (repositoryValue === null || typeof repositoryValue !== 'object' || Array.isArray(repositoryValue)
+      || (repositoryValue as Record<string, unknown>).full_name !== session.repository
+      || (repositoryValue as Record<string, unknown>).default_branch !== 'main'
+      || runValue === null || typeof runValue !== 'object' || Array.isArray(runValue)) {
+    throw new GitHubApiProviderError('Ruleset auditor repository or workflow run binding is invalid');
+  }
+  const run = runValue as Record<string, unknown>;
+  const runRepository = run.repository;
+  const headRepository = run.head_repository;
+  if (!Number.isSafeInteger(run.id) || Number(run.id) < 1
+      || String(run.id) !== identity.runId || run.run_attempt !== identity.runAttempt
+      || run.path !== workflowPath || run.event !== event || run.status !== 'in_progress'
+      || run.head_sha !== identity.workflowSha || run.head_branch !== 'main'
+      || runRepository === null || typeof runRepository !== 'object' || Array.isArray(runRepository)
+      || (runRepository as Record<string, unknown>).full_name !== session.repository
+      || headRepository === null || typeof headRepository !== 'object' || Array.isArray(headRepository)
+      || (headRepository as Record<string, unknown>).full_name !== session.repository) {
+    throw new GitHubApiProviderError('Ruleset auditor live workflow run differs from its trusted context');
+  }
+}
+
 type TokenReader = (
   repositoryRoot: string,
   session: GitHubApiRequestSession
@@ -1199,10 +1261,7 @@ async function enroll(input: Readonly<{
         input.transport,
         { kind: 'collaborator-permission', login: maintenanceWorkflowIdentity.actor }
       );
-      const permission = permissionValue !== null && typeof permissionValue === 'object'
-        && !Array.isArray(permissionValue)
-        ? (permissionValue as Record<string, unknown>).permission
-        : null;
+      const permission = normalizeGitHubRepositoryPermission(permissionValue);
       if (permission !== 'admin' && permission !== 'maintain') {
         throw new GitHubApiProviderError(
           'GitHub Actions repository-maintenance actor requires maintain/admin permission'
@@ -1247,10 +1306,7 @@ async function enroll(input: Readonly<{
     kind: 'collaborator-permission',
     login
   });
-  const permission = permissionValue !== null && typeof permissionValue === 'object'
-      && !Array.isArray(permissionValue)
-    ? (permissionValue as Record<string, unknown>).permission
-    : null;
+  const permission = normalizeGitHubRepositoryPermission(permissionValue);
   if (typeof permission !== 'string'
       || !['admin', 'maintain', 'write', 'triage', 'read', 'none'].includes(permission)) {
     throw new GitHubApiProviderError('GitHub API token repository permission is invalid');
@@ -1260,6 +1316,9 @@ async function enroll(input: Readonly<{
   }
   if (input.origin === 'production' && permission !== 'admin' && permission !== 'maintain') {
     throw new GitHubApiProviderError('GitHub API production credential requires maintain/admin permission');
+  }
+  if (input.effect === 'ruleset-read') {
+    await assertRulesetAuditorWorkflowRun(session, token, input.transport);
   }
   const capability = issueCapability({
     repository: input.repository,
@@ -1358,7 +1417,9 @@ async function withProductionSession<T>(input: Readonly<{
     ...input,
     origin: 'production',
     transport: async (target, init) => await globalThis.fetch(target, init),
-    readToken: verification ? readVerificationProductionToken : readProductionToken,
+    readToken: verification
+      ? readVerificationProductionToken
+      : input.effect === 'ruleset-read' ? readRulesetProductionToken : readProductionToken,
     // Verification owns its bounded session; ordinary operation budgets remain unchanged.
     ...(verification
       ? { timeoutMs: Math.min(60_000, (input.deadlineAtUnixMs ?? Date.now() + 60_000) - Date.now()) }
@@ -1384,6 +1445,15 @@ export async function withGitHubApiReadSession<T>(input: Readonly<{
   operation: (capability: GitHubApiCapability) => Promise<T>;
 }>): Promise<T> {
   return await withProductionSession({ ...input, effect: 'read' });
+}
+
+/** One read-only ruleset observation; no write or general verification capability is issued. */
+export async function withGitHubApiRulesetReadSession<T>(input: Readonly<{
+  repositoryRoot: string;
+  repository: string;
+  operation: (capability: GitHubApiCapability) => Promise<T>;
+}>): Promise<T> {
+  return await withProductionSession({ ...input, effect: 'ruleset-read' });
 }
 
 export async function withGitHubApiStatusWriteSession<T>(input: Readonly<{

@@ -28,10 +28,10 @@ import {
 import {
   createRegisteredHostedMainHealthInputs,
   createTrustedRuntimeMainHealthInput,
-  parseTrustedRuntimeMainHealthReceipt,
-  trustedRuntimeMainHealthReceiptLocator,
   GITHUB_ACTIONS_MAIN_HEALTH_CHECK_PROVIDER_POLICY,
-  HOSTED_MAIN_HEALTH_FRESHNESS_MS
+  HOSTED_MAIN_HEALTH_FRESHNESS_MS,
+  parseTrustedRuntimeMainHealthReceipt,
+  trustedRuntimeMainHealthReceiptLocator
 } from './main-health-observation.ts';
 import {
   compileMainHealthRepairDecision,
@@ -223,7 +223,7 @@ function currentMainHealthGitHubReadCapability(repository: string): GitHubApiCap
 
 /**
  * Repository-bound MainAuthority ruleset facts from the active MainHealth
- * GitHub read session.  Callers receive semantic JSON only; credential,
+ * GitHub ruleset-read session. Callers receive semantic JSON only; credential,
  * endpoint, transport and request-budget authority remain in this owner.
  */
 export async function observeMainAuthorityRulesetGitHubFacts(input: Readonly<{
@@ -233,7 +233,7 @@ export async function observeMainAuthorityRulesetGitHubFacts(input: Readonly<{
   effectiveRules: readonly unknown[];
   detailedRulesets: readonly unknown[];
 }>> {
-  const capability = currentMainHealthGitHubReadCapability(input.repository);
+  const capability = currentGitHubApiCapability(input.repository, 'ruleset-read');
   const effectiveRules: unknown[] = [];
   const pageSize = 100;
   for (let page = 1; page <= 100; page += 1) {
