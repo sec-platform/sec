@@ -4,7 +4,7 @@ import type { SecOperationDigest } from '../../../../execution/operation/semanti
 export const REPOSITORY_CHANGE_OBSERVER_MAXIMUM_ROOTS = 8;
 export const REPOSITORY_CHANGE_OBSERVER_MAXIMUM_EVENTS = 100_000;
 export const REPOSITORY_CHANGE_OBSERVER_MAXIMUM_WATCHES = 100_000;
-export const REPOSITORY_CHANGE_OBSERVER_MAXIMUM_OBSERVATION_MS = 5 * 60_000;
+export const REPOSITORY_CHANGE_OBSERVER_DIRECT_MAXIMUM_OBSERVATION_MS = 5 * 60_000;
 
 export const RETAINED_REPOSITORY_CHANGE_OBSERVER_REQUIREMENT_ID =
   'runtime-state.repository-change-observer.retained' as const;
@@ -16,7 +16,8 @@ export const RETAINED_REPOSITORY_CHANGE_OBSERVER_CONTRACT_DIGEST = sha256({
     'linux-inotify',
     'windows-read-directory-changes'
   ]),
-  duration: 'operation-bound-duration',
+  preparedDuration: 'semantic-operation-bound',
+  directMaximumObservationMs: REPOSITORY_CHANGE_OBSERVER_DIRECT_MAXIMUM_OBSERVATION_MS,
   maximumRoots: REPOSITORY_CHANGE_OBSERVER_MAXIMUM_ROOTS,
   maximumEvents: REPOSITORY_CHANGE_OBSERVER_MAXIMUM_EVENTS,
   maximumWatches: REPOSITORY_CHANGE_OBSERVER_MAXIMUM_WATCHES
