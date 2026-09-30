@@ -9219,15 +9219,50 @@ async function compilerDependencyGeneratedPreimageAuthority(
       ...packageBinding.name.split('/'),
       'package.json'
     );
-    const manifestMetadata = await fs.lstat(packageManifestPath).catch(() => null);
-    if (manifestMetadata === null || !manifestMetadata.isFile() || manifestMetadata.isSymbolicLink()) {
-      throw new SecError('IMPORT-AUTHORITY-004', 'Compiler dependency preimage package manifest is not physical');
+    let manifestHandle: Awaited<ReturnType<typeof fs.open>>;
+    try {
+      manifestHandle = await fs.open(packageManifestPath, 'r');
+    } catch (error) {
+      throw new SecError(
+        'IMPORT-AUTHORITY-004',
+        'Compiler dependency preimage package manifest cannot be opened safely',
+        { cause: error instanceof Error ? error.message : String(error) }
+      );
     }
-    const physicalManifestPath = await fs.realpath(packageManifestPath);
-    if (!isPathInside(nodeModulesPath, physicalManifestPath)) {
-      throw new SecError('IMPORT-AUTHORITY-004', 'Compiler dependency preimage package manifest escapes its generation');
+    let manifestBytes: Buffer;
+    try {
+      const opened = await manifestHandle.stat();
+      const manifestMetadata = await fs.lstat(packageManifestPath);
+      const physicalManifestPath = await fs.realpath(packageManifestPath);
+      if (!opened.isFile() || !manifestMetadata.isFile() || manifestMetadata.isSymbolicLink()
+        || opened.dev !== manifestMetadata.dev || opened.ino !== manifestMetadata.ino
+        || opened.mode !== manifestMetadata.mode || opened.size !== manifestMetadata.size
+        || opened.mtimeMs !== manifestMetadata.mtimeMs
+        || !isPathInside(nodeModulesPath, physicalManifestPath)) {
+        throw new SecError(
+          'IMPORT-AUTHORITY-004',
+          'Compiler dependency preimage package manifest is not one stable physical file'
+        );
+      }
+      manifestBytes = await manifestHandle.readFile();
+      const [afterHandle, afterPath] = await Promise.all([
+        manifestHandle.stat(),
+        fs.lstat(packageManifestPath)
+      ]);
+      if (afterHandle.dev !== opened.dev || afterHandle.ino !== opened.ino
+        || afterHandle.mode !== opened.mode || afterHandle.size !== opened.size
+        || afterHandle.mtimeMs !== opened.mtimeMs
+        || afterPath.dev !== opened.dev || afterPath.ino !== opened.ino
+        || afterPath.mode !== opened.mode || afterPath.size !== opened.size
+        || afterPath.mtimeMs !== opened.mtimeMs) {
+        throw new SecError(
+          'IMPORT-AUTHORITY-004',
+          'Compiler dependency preimage package manifest changed during retained read'
+        );
+      }
+    } finally {
+      await manifestHandle.close();
     }
-    const manifestBytes = await fs.readFile(packageManifestPath);
     const manifest = JSON.parse(manifestBytes.toString('utf8')) as Record<string, unknown>;
     // `packageBinding.name` is the dependency locator under node_modules, not
     // necessarily the package's declared name: npm aliases deliberately make
