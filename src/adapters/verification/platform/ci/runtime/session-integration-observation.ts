@@ -31,14 +31,29 @@ export function assertHostedIntegrationPreflightStillControls(input: Readonly<{
   frozen: ReturnType<typeof CodexDevelopmentParseMergeGateResult>;
   fresh: ReturnType<typeof CodexDevelopmentEvaluateMergeGate>;
 }>): void {
-  const stableFields = [
-    'consumptionOperationId', 'repository', 'prNumber', 'sessionRevision',
-    'baseSha', 'baseTreeSha', 'headSha', 'headTreeSha', 'manifestDigest',
-    'scopeAuthorizationRevision', 'scopeAuthorizationReceiptDigest',
-    'actionClosureDigest', 'evidenceDigest', 'trustRevision', 'rulesetDigest'
-  ] as const;
-  for (const field of stableFields) {
-    if (input.frozen.authorization[field] !== input.fresh.authorization[field]) {
+  const stableFields: readonly Readonly<[unknown, unknown, string]>[] = [
+    [input.frozen.authorization.consumptionOperationId,
+      input.fresh.authorization.consumptionOperationId, 'consumptionOperationId'],
+    [input.frozen.authorization.repository, input.fresh.authorization.repository, 'repository'],
+    [input.frozen.authorization.prNumber, input.fresh.authorization.prNumber, 'prNumber'],
+    [input.frozen.authorization.sessionRevision, input.fresh.authorization.sessionRevision, 'sessionRevision'],
+    [input.frozen.authorization.baseSha, input.fresh.authorization.baseSha, 'baseSha'],
+    [input.frozen.authorization.baseTreeSha, input.fresh.authorization.baseTreeSha, 'baseTreeSha'],
+    [input.frozen.authorization.headSha, input.fresh.authorization.headSha, 'headSha'],
+    [input.frozen.authorization.headTreeSha, input.fresh.authorization.headTreeSha, 'headTreeSha'],
+    [input.frozen.authorization.manifestDigest, input.fresh.authorization.manifestDigest, 'manifestDigest'],
+    [input.frozen.authorization.scopeAuthorizationRevision,
+      input.fresh.authorization.scopeAuthorizationRevision, 'scopeAuthorizationRevision'],
+    [input.frozen.authorization.scopeAuthorizationReceiptDigest,
+      input.fresh.authorization.scopeAuthorizationReceiptDigest, 'scopeAuthorizationReceiptDigest'],
+    [input.frozen.authorization.actionClosureDigest,
+      input.fresh.authorization.actionClosureDigest, 'actionClosureDigest'],
+    [input.frozen.authorization.evidenceDigest, input.fresh.authorization.evidenceDigest, 'evidenceDigest'],
+    [input.frozen.authorization.trustRevision, input.fresh.authorization.trustRevision, 'trustRevision'],
+    [input.frozen.authorization.rulesetDigest, input.fresh.authorization.rulesetDigest, 'rulesetDigest']
+  ];
+  for (const [frozen, fresh, field] of stableFields) {
+    if (frozen !== fresh) {
       throw new Error(`integrate-hosted frozen preflight ${field} drifted before effect.`);
     }
   }
