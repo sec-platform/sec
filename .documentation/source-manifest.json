@@ -1,6 +1,6 @@
 {
   "schema": "sec.documentation-source-manifest/2",
-  "source_set_sha256": "9ddabe9f02a16355a88baf8a1c747c786946962e8975a87b7e16a3d42db1a46e",
+  "source_set_sha256": "96b02fa900c6e73cbfa89c80a0a89905697c79655d90facd77ee8548852f54d4",
   "members": [
     {
       "path": ".documentation/README.md",
@@ -354,8 +354,8 @@
     },
     {
       "path": "docs/作者/组合/结构编辑与身份保持.md",
-      "bytes": 90701,
-      "sha256": "ea3375272c3e53b1db3cae209c844b4b2992ffe1ca6b8c55222cde2b701d2390"
+      "bytes": 90779,
+      "sha256": "2013318f3cea4f733c8bbc8bec3a3381c8e7a8379b372b23c274b3c49732c801"
     },
     {
       "path": "docs/作者/组合/访问投影与不完整类型.md",
@@ -744,8 +744,8 @@
     },
     {
       "path": "docs/演进/实施/主线前沿与准入.md",
-      "bytes": 82682,
-      "sha256": "383b6fb43c04670ee6cfed9abea8da7d039bb8d16a0a997a3c687bcfaa77dd69"
+      "bytes": 85168,
+      "sha256": "d1e8c888951bc933c052ac2cf70590eb96b4be7ab04da628209cbeb584c2cc50"
     },
     {
       "path": "docs/演进/实施/仓库迁移与自托管.md",
@@ -899,8 +899,8 @@
     },
     {
       "path": "docs/编译/内核/生成规则与产物链接.md",
-      "bytes": 13508,
-      "sha256": "da10d93a86675dfa5170bdb8b0579f7c65041cf16a0334ce73b63cb6fec403fb"
+      "bytes": 18861,
+      "sha256": "0b07113365feab38aefad328f1b9bc5b3eb5be237b7257df1fba9d1596b8d205"
     },
     {
       "path": "docs/编译/内核/确定性与自举.md",
@@ -909,8 +909,8 @@
     },
     {
       "path": "docs/编译/内核/编译值服务.md",
-      "bytes": 48463,
-      "sha256": "f5d36fdff64df0a7dfdc39ef496937ac31b89177fbe4e720d527539927651846"
+      "bytes": 50708,
+      "sha256": "c9a99fc79b473e80b9d85165dc4579545cd5f5ec16d6d58615460444fcb13ba4"
     },
     {
       "path": "docs/编译/内核/诊断与追踪.md",
@@ -924,8 +924,8 @@
     },
     {
       "path": "docs/编译/内核/运行准备与最小实现.md",
-      "bytes": 31997,
-      "sha256": "9149c77ace927b3b78ea638a6cc3c048acb692430f2cf29c1161323a97f3eff8"
+      "bytes": 32382,
+      "sha256": "69e2451351c58c5ca2a5ac76c249cd0bcb9e3468d18efccdf31d7b6e306ddb10"
     },
     {
       "path": "docs/编译/内核/遍管理与插件.md",
@@ -1024,8 +1024,8 @@
     },
     {
       "path": "docs/编译/目标/具体降低与领域输出.md",
-      "bytes": 34226,
-      "sha256": "356212b0cc16e79af12d5347d874fa747b23a938fc9645b603e1817726dd84dd"
+      "bytes": 36744,
+      "sha256": "a2d6b1d2826072b5d24985733408d51813196a80367322b93af2c09e75139c3a"
     },
     {
       "path": "docs/编译/目标/布局与设备访问.md",
@@ -1034,8 +1034,8 @@
     },
     {
       "path": "docs/编译/目标/成员布局与完整产物.md",
-      "bytes": 51546,
-      "sha256": "cbca6ae38f75bf8e7fe76dad9efa47bb2f4f9216895bbd4bf00869aea90facb4"
+      "bytes": 54885,
+      "sha256": "9ba5a359b16dfb45c0972548de7ffcc879d284af46a77fcb0d6fbdc0542d1f7c"
     },
     {
       "path": "docs/编译/目标/成品消费合同与发射.md",
@@ -1139,8 +1139,8 @@
     },
     {
       "path": "docs/运行/宿主生态与技术约束.md",
-      "bytes": 141109,
-      "sha256": "b647ba6aafdb42cf3325b54b74e385d97452d9ddf0d1e998809e2af4091389c3"
+      "bytes": 141704,
+      "sha256": "16f4ff592e451d4f0b10da389fa17e07e407d2bc4965c1ddc19f53f10f300ad2"
     },
     {
       "path": "docs/运行/持久化提交与恢复.md",
