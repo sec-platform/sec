@@ -1,0 +1,50 @@
+name: linux-repository-observer-validation
+
+on:
+  push:
+    branches:
+      - fix/linux-repository-change-observer
+
+permissions:
+  contents: read
+
+concurrency:
+  group: linux-repository-observer-validation-${{ github.sha }}
+  cancel-in-progress: true
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
+  CI: '1'
+  SEC_CACHE_HOME: /tmp/sec-hosted-dependency-home
+
+jobs:
+  validate:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Checkout exact validation head
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 2
+          persist-credentials: false
+
+      - name: Setup repository-pinned Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version-file: .bun-version
+
+      - name: Materialize SEC-owned dependencies
+        run: bun run deps:ensure
+
+      - name: Run owner-verified typecheck
+        run: bun run typecheck:verified
+
+      - name: Run Linux observer native regressions
+        run: bun test src/adapters/runtime-state/physical/runtime/linux-repository-change-observer.test.ts
+
+      - name: Run development runner regressions through SEC owner
+        run: bun run test -- tests/unit/test-runner.test.ts
+
+      - name: Re-run the previously blocked VerificationSession suite
+        run: bun run test -- tests/unit/verification-session-runtime.test.ts
