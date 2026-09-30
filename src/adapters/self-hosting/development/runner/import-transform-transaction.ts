@@ -159,8 +159,8 @@ async function readStableOrdinaryFileSnapshot(
       fs.lstat(filePath),
       fs.realpath(filePath)
     ]);
-    if (!opened.isFile() || opened.nlink !== 1
-      || !pathMetadata.isFile() || pathMetadata.isSymbolicLink() || pathMetadata.nlink !== 1
+    if (!opened.isFile()
+      || !pathMetadata.isFile() || pathMetadata.isSymbolicLink()
       || !sameOrdinaryFileIdentity(opened, pathMetadata)
       || !samePhysicalPath(physicalPath, filePath)) {
       throw new Error(`${label} is not one stable ordinary file.`);
@@ -957,8 +957,8 @@ async function digestRegularTransactionArtifact(
   try {
     const opened = await handle.stat();
     const current = await fs.lstat(filePath);
-    if (!opened.isFile() || opened.nlink !== 1
-      || !current.isFile() || current.isSymbolicLink() || current.nlink !== 1
+    if (!opened.isFile()
+      || !current.isFile() || current.isSymbolicLink()
       || !sameOrdinaryFileIdentity(opened, current)) {
       recoveryFailure(label + ' changed before retained digest readback.');
     }
