@@ -1,108 +1,87 @@
 import { createHash } from 'node:crypto';
-import { lstat, open, readdir, realpath } from 'node:fs/promises';
 import path from 'node:path';
 
 import { compareCodeUnits } from '../../contracts/canonical.ts';
+import {
+  inspectNoFollowDirectoryChain,
+  retainNoFollowOrdinaryFile,
+  scanNoFollowDirectoryTreeInventory
+} from '../runtime-state/physical/runtime/physical-no-follow.ts';
 
-const PROJECT_ROOT_EXCLUSIONS = new Set([
+const PROJECT_ROOT_EXCLUSIONS = Object.freeze([
   '.runtime-deps.stamp.json',
   'coverage',
   'node_modules',
   'test-results'
-]);
+] as const);
 
-function metadataIdentity(metadata: Awaited<ReturnType<typeof lstat>>): string {
-  return [
-    metadata.dev,
-    metadata.ino,
-    metadata.mode,
-    metadata.nlink,
-    metadata.size,
-    metadata.mtimeMs
-  ].join(':');
-}
-
-async function updateFileDigest(
-  digest: ReturnType<typeof createHash>,
-  projectRoot: string,
-  filePath: string
-): Promise<void> {
-  const handle = await open(filePath, 'r');
-  try {
-    const beforeHandle = await handle.stat();
-    const beforePath = await lstat(filePath);
-    if (!beforeHandle.isFile() || !beforePath.isFile() || beforePath.isSymbolicLink()
-      || beforePath.nlink !== 1
-      || metadataIdentity(beforeHandle) !== metadataIdentity(beforePath)) {
-      throw new Error('Staged Verification proof input must be one stable host-owned regular file');
-    }
-    const relativePath = path.relative(projectRoot, filePath).split(path.sep).join('/');
-    if (!relativePath || relativePath.startsWith('../') || path.isAbsolute(relativePath)) {
-      throw new Error('Staged Verification proof input escaped the project root');
-    }
-    digest.update(`file\0${relativePath}\0${beforeHandle.size}\0`);
-    const buffer = Buffer.allocUnsafe(64 * 1024);
-    let position = 0;
-    while (position < beforeHandle.size) {
-      const length = Math.min(buffer.byteLength, beforeHandle.size - position);
-      const { bytesRead } = await handle.read(buffer, 0, length, position);
-      if (bytesRead <= 0) throw new Error('Staged Verification proof input ended during read');
-      digest.update(buffer.subarray(0, bytesRead));
-      position += bytesRead;
-    }
-    const [afterHandle, afterPath] = await Promise.all([handle.stat(), lstat(filePath)]);
-    if (position !== beforeHandle.size ||
-      metadataIdentity(afterHandle) !== metadataIdentity(beforeHandle) ||
-      metadataIdentity(afterPath) !== metadataIdentity(beforeHandle)) {
-      throw new Error('Staged Verification proof input changed during read');
-    }
-    digest.update('\0');
-  } finally {
-    await handle.close();
-  }
-}
-
-async function updateDirectoryDigest(
-  digest: ReturnType<typeof createHash>,
-  projectRoot: string,
-  directory: string,
-  root: boolean
-): Promise<void> {
-  const before = await lstat(directory);
-  if (!before.isDirectory() || before.isSymbolicLink()) {
-    throw new Error('Staged Verification proof input directory changed identity');
-  }
-  const entries = (await readdir(directory, { withFileTypes: true }))
-    .filter((entry) => !(root && PROJECT_ROOT_EXCLUSIONS.has(entry.name)))
-    .sort((left, right) => compareCodeUnits(left.name, right.name));
-  for (const entry of entries) {
-    const target = path.join(directory, entry.name);
-    if (entry.isSymbolicLink()) {
-      throw new Error('Staged Verification proof input contains an alias');
-    }
-    if (entry.isDirectory()) {
-      await updateDirectoryDigest(digest, projectRoot, target, false);
-    } else if (entry.isFile()) {
-      await updateFileDigest(digest, projectRoot, target);
-    } else {
-      throw new Error('Staged Verification proof input contains an unsupported entry');
-    }
-  }
-  const after = await lstat(directory);
-  if (metadataIdentity(after) !== metadataIdentity(before)) {
-    throw new Error('Staged Verification proof input directory changed during capture');
-  }
+function rawByteDigest(bytes: Uint8Array): `sha256:${string}` {
+  return `sha256:${createHash('sha256').update(bytes).digest('hex')}`;
 }
 
 export async function stagedVerificationProjectInputDigest(
   projectRoot: string
 ): Promise<`sha256:${string}`> {
-  const canonicalRoot = await realpath(projectRoot);
-  if (path.resolve(canonicalRoot) !== path.resolve(projectRoot)) {
+  const resolvedRoot = path.resolve(projectRoot);
+  const root = inspectNoFollowDirectoryChain(
+    resolvedRoot,
+    'Staged Verification proof project root'
+  );
+  if (root.target.path !== resolvedRoot) {
     throw new Error('Staged Verification proof project root must be canonical');
   }
+
+  const inventory = scanNoFollowDirectoryTreeInventory(root.target, {
+    maximumEntries: Number.MAX_SAFE_INTEGER,
+    maximumBytes: Number.MAX_SAFE_INTEGER,
+    includeByteDigest: true,
+    excludeRelativePaths: PROJECT_ROOT_EXCLUSIONS
+  });
+  if (inventory.some((entry) => entry.kind === 'link')) {
+    throw new Error('Staged Verification proof input contains an alias');
+  }
+
+  const files = inventory
+    .filter((entry) => entry.kind === 'file')
+    .sort((left, right) => compareCodeUnits(left.relativePath, right.relativePath));
+
   const digest = createHash('sha256');
   digest.update('staged-verification-project-input-v1\0');
-  await updateDirectoryDigest(digest, projectRoot, projectRoot, true);
+  for (const entry of files) {
+    if (entry.byteDigest === undefined || entry.byteDigest === null) {
+      throw new Error('Staged Verification proof input file has no retained byte digest');
+    }
+    if (!entry.relativePath || entry.relativePath.includes('\\')
+      || entry.relativePath.split('/').some((segment) =>
+        segment.length === 0 || segment === '.' || segment === '..')) {
+      throw new Error('Staged Verification proof input contains a non-canonical relative path');
+    }
+    const absolutePath = path.join(resolvedRoot, ...entry.relativePath.split('/'));
+    const parent = inspectNoFollowDirectoryChain(
+      path.dirname(absolutePath),
+      `Staged Verification proof input parent ${entry.relativePath}`
+    );
+    const retained = retainNoFollowOrdinaryFile(
+      parent,
+      path.basename(absolutePath),
+      Object.freeze({ device: entry.device, inode: entry.inode }),
+      `Staged Verification proof input ${entry.relativePath}`
+    );
+    try {
+      if (retained.linkCount !== 1) {
+        throw new Error('Staged Verification proof input must be one host-owned regular file');
+      }
+      const bytes = Buffer.from(retained.readBytes());
+      retained.assertCurrent();
+      if (bytes.byteLength !== entry.size || rawByteDigest(bytes) !== entry.byteDigest) {
+        throw new Error('Staged Verification proof input changed after retained tree observation');
+      }
+      digest.update(`file\0${entry.relativePath}\0${entry.size}\0`);
+      digest.update(bytes);
+      digest.update('\0');
+    } finally {
+      retained.dispose();
+    }
+  }
   return `sha256:${digest.digest('hex')}`;
 }

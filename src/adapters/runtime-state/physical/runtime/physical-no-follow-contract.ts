@@ -248,6 +248,12 @@ export interface NoFollowDirectoryTreeMetadataOptions {
   readonly maximumEntries: number;
   /** Aggregate ordinary-file byte ceiling, checked before every retained read. */
   readonly maximumBytes?: number;
+  /**
+   * Canonical relative subtrees intentionally outside this observation.
+   * Excluded roots are pruned before descendant traversal; they are not read
+   * and cannot contribute bytes or semantic evidence.
+   */
+  readonly excludeRelativePaths?: readonly string[];
   /** Include POSIX permission bits without changing the default inventory schema. */
   readonly includePermissionMode?: boolean;
   /** Operation-scoped cancellation observed throughout retained traversal. */
