@@ -32,6 +32,9 @@ jobs:
         with:
           bun-version-file: .bun-version
 
+      - name: Materialize exact repository dependencies
+        run: bun install --frozen-lockfile --ignore-scripts
+
       - name: Run owner-verified typecheck
         run: bun run typecheck:verified
 
