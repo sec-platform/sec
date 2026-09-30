@@ -759,8 +759,12 @@ async function prepareStagedIndexPublication(
   const lockPath = `${indexPath}.lock`;
   const alternateIndexPath = `${indexPath}.imports-staged-${process.pid}-${randomUUID()}`;
   const alternateLockPath = `${alternateIndexPath}.lock`;
-  const metadata = await fs.stat(indexPath);
-  if (!metadata.isFile()) throw new Error('Git index is not a regular file');
+  let indexHandle: Awaited<ReturnType<typeof fs.open>> | null = await fs.open(indexPath, 'r');
+  const metadata = await indexHandle.stat();
+  if (!metadata.isFile()) {
+    await indexHandle.close();
+    throw new Error('Git index is not a regular file');
+  }
 
   let lock: Awaited<ReturnType<typeof fs.open>> | null = null;
   let ownsLock = false;
@@ -789,7 +793,29 @@ async function prepareStagedIndexPublication(
         throw new Error(`Published Git object identity changed for ${update.entry.path}`);
       }
     }
-    const seed = await fs.readFile(indexPath);
+    if (indexHandle === null) throw new Error('Git index handle is not live');
+    const pathMetadata = await fs.lstat(indexPath);
+    if (!pathMetadata.isFile() || pathMetadata.isSymbolicLink()
+      || pathMetadata.dev !== metadata.dev || pathMetadata.ino !== metadata.ino
+      || pathMetadata.mode !== metadata.mode || pathMetadata.size !== metadata.size
+      || pathMetadata.mtimeMs !== metadata.mtimeMs || pathMetadata.ctimeMs !== metadata.ctimeMs) {
+      throw new Error('Git index path changed after the publication lock was acquired');
+    }
+    const seed = await indexHandle.readFile();
+    const [afterHandle, afterPath] = await Promise.all([
+      indexHandle.stat(),
+      fs.lstat(indexPath)
+    ]);
+    if (afterHandle.dev !== metadata.dev || afterHandle.ino !== metadata.ino
+      || afterHandle.mode !== metadata.mode || afterHandle.size !== metadata.size
+      || afterHandle.mtimeMs !== metadata.mtimeMs || afterHandle.ctimeMs !== metadata.ctimeMs
+      || afterPath.dev !== metadata.dev || afterPath.ino !== metadata.ino
+      || afterPath.mode !== metadata.mode || afterPath.size !== metadata.size
+      || afterPath.mtimeMs !== metadata.mtimeMs || afterPath.ctimeMs !== metadata.ctimeMs) {
+      throw new Error('Git index changed during retained seed read');
+    }
+    await indexHandle.close();
+    indexHandle = null;
     await fs.writeFile(alternateIndexPath, seed, {
       flag: 'wx',
       mode: metadata.mode & 0o777
@@ -832,6 +858,7 @@ async function prepareStagedIndexPublication(
       isPublished: () => published
     });
   } catch (error) {
+    if (indexHandle !== null) await indexHandle.close().catch(() => undefined);
     if (lock !== null) await lock.close().catch(() => undefined);
     await fs.rm(alternateLockPath, { force: true }).catch(() => undefined);
     await fs.rm(alternateIndexPath, { force: true }).catch(() => undefined);
