@@ -85,6 +85,7 @@ type LiveObserver = {
   readonly retainedRoots: readonly RetainedNoFollowChildProcessDirectory[];
   readonly witnesses: readonly RootWitness[];
   readonly rootIdentityDigest: `sha256:${string}`;
+  readonly deadlineAtUnixMs: number;
   settled: boolean;
 };
 
@@ -238,13 +239,10 @@ function armRootWitness(
       witnessFd,
       `Linux repository observer root[${rootIndex}] pre-barrier`
     );
-    if (preBarrierEvents.some((event) => {
-      const classification = linuxClassifyRepositoryMutationEvent(event.mask);
-      return classification === 'overflow'
-        || classification === 'discontinuous'
-        || classification === 'ignored';
-    })) {
-      throw new Error('Linux repository observer continuity was lost while establishing its barrier.');
+    if (preBarrierEvents.length > 0) {
+      throw new Error(
+        'Linux repository observer observed a mutation while establishing its readiness barrier.'
+      );
     }
 
     const barrierReadback = directoryProjection(rootPath, deadlineAtUnixMs);
@@ -452,6 +450,7 @@ export async function armPreparedLinuxRepositoryChangeObserver(input: Readonly<{
       retainedRoots: state.retainedRoots,
       witnesses: Object.freeze(witnesses),
       rootIdentityDigest: state.rootIdentityDigest,
+      deadlineAtUnixMs,
       settled: false
     });
     preparedObservers.delete(input.prepared);
@@ -503,6 +502,12 @@ export async function settleLinuxRepositoryChangeObserver(
   if (identityChanged) {
     return Object.freeze({
       status: 'identity-changed',
+      rootIdentityDigest: live.rootIdentityDigest
+    });
+  }
+  if (Date.now() >= live.deadlineAtUnixMs) {
+    return Object.freeze({
+      status: 'deadline-exhausted',
       rootIdentityDigest: live.rootIdentityDigest
     });
   }
@@ -603,6 +608,7 @@ export async function armLinuxRepositoryChangeObserver(input: Readonly<{
       retainedRoots: state.retainedRoots,
       witnesses: Object.freeze(witnesses),
       rootIdentityDigest: state.rootIdentityDigest,
+      deadlineAtUnixMs: input.deadlineAtUnixMs,
       settled: false
     });
     preparedObservers.delete(prepared);
