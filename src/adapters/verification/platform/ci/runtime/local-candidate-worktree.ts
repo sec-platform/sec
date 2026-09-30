@@ -1,5 +1,5 @@
 /** VerificationSession physical owner recovered from current-main semantics. */
-import { decodeBranchLifecycleChildError } from '../../../../self-hosting/control/branch-lifecycle/branch-lifecycle-command.ts';
+import { decodeBranchLifecycleChildError, decodeBranchLifecycleChildStdout } from '../../../../self-hosting/control/branch-lifecycle/branch-lifecycle-command.ts';
 import { executeDetachedScratchWorktreePhysicalCloseout, prepareDetachedScratchWorktreePhysicalCloseout } from '../../../../self-hosting/control/branch-lifecycle/worktree-physical-closeout.ts';
 import { encodeVerificationActionData } from '../../action/contract/action.ts';
 import {
@@ -12,7 +12,9 @@ import {
   publishExclusiveDurableCanonicalFile,
   retainNoFollowDirectoryForChildProcess,
   retainNoFollowOrdinaryFile,
-  type PhysicalDirectoryIdentity
+  type PhysicalDirectoryIdentity,
+  type RetainedNoFollowChildProcessDirectory,
+  type RetainedNoFollowOrdinaryFile
 } from '../../../../runtime-state/physical/runtime/physical-no-follow.ts';
 import { RETAINED_WORKING_DIRECTORY_CHILD_DESCRIPTOR } from '../../../../runtime-state/physical/runtime/process.ts';
 import type { CiVerificationActionPlanClosure } from '../../action/contract/ci.ts';
@@ -172,19 +174,13 @@ function publishExclusiveCanonicalOwnerMarker(
   return receipt.created;
 }
 
-function worktreeRegistration(
-  ctx: VerificationSessionScope,
-  authorityRoot: VerificationSessionCommandWorkingDirectory,
+function parseWorktreeRegistration(
+  source: string,
   candidateRoot: string
 ): Readonly<{ headSha: string; detached: boolean }> | null {
-  const result = runVerificationSessionCommand(ctx, 'git', ['worktree', 'list', '--porcelain', '-z'], authorityRoot);
-  if (result.status !== 0) {
-    throw new Error(`Cannot read Git worktree registration: ${decodeBranchLifecycleChildError(result)}`);
-  }
   const records: Array<{ root: string; headSha: string | null; detached: boolean }> = [];
   let current: { root: string; headSha: string | null; detached: boolean } | null = null;
-  const stdout = typeof result.stdout === 'string' ? result.stdout : result.stdout.toString('utf8');
-  for (const field of stdout.split('\0')) {
+  for (const field of source.split('\0')) {
     if (field.startsWith('worktree ')) {
       if (current !== null) records.push(current);
       current = { root: field.slice('worktree '.length), headSha: null, detached: false };
@@ -206,6 +202,73 @@ function worktreeRegistration(
   return Object.freeze({ headSha: selected.headSha, detached: selected.detached });
 }
 
+function worktreeRegistration(
+  ctx: VerificationSessionScope,
+  authorityRoot: VerificationSessionCommandWorkingDirectory,
+  candidateRoot: string
+): Readonly<{ headSha: string; detached: boolean }> | null {
+  const result = runVerificationSessionCommand(
+    ctx,
+    'git',
+    ['worktree', 'list', '--porcelain', '-z'],
+    authorityRoot
+  );
+  if (result.status !== 0) {
+    throw new Error(`Cannot read Git worktree registration: ${decodeBranchLifecycleChildError(result)}`);
+  }
+  return parseWorktreeRegistration(decodeBranchLifecycleChildStdout(result), candidateRoot);
+}
+
+function candidateGitDirectoryFromMarker(
+  marker: RetainedNoFollowOrdinaryFile,
+  owner: LocalCandidateWorktreeOwner
+): string {
+  const source = new TextDecoder('utf-8', { fatal: true }).decode(marker.readBytes());
+  marker.assertCurrent();
+  const match = /^gitdir: ([^\r\n]+)\r?\n?$/u.exec(source);
+  if (match === null || !path.isAbsolute(match[1]!)) {
+    throw new Error('local candidate worktree .git marker must name one absolute Git directory.');
+  }
+  const gitDirectory = path.normalize(match[1]!);
+  const relative = path.relative(owner.commonGitDirectory, gitDirectory);
+  const segments = relative.split(path.sep);
+  if (relative.startsWith(`..${path.sep}`) || relative === '..' || path.isAbsolute(relative)
+      || segments.length !== 2 || segments[0] !== 'worktrees'
+      || segments[1]!.length === 0 || segments[1] === '.' || segments[1] === '..') {
+    throw new Error('local candidate worktree .git marker must remain inside the owned common Git worktrees namespace.');
+  }
+  return gitDirectory;
+}
+
+function runBoundCandidateGit(input: {
+  ctx: VerificationSessionScope;
+  candidate: RetainedNoFollowChildProcessDirectory;
+  gitDirectory: RetainedNoFollowChildProcessDirectory;
+  args: readonly string[];
+  label: string;
+}): string {
+  input.candidate.assertCurrent();
+  input.gitDirectory.assertCurrent();
+  const result = runVerificationSessionCommand(
+    input.ctx,
+    'git',
+    [
+      `--git-dir=${input.gitDirectory.childPath}`,
+      `--work-tree=${input.candidate.childPath}`,
+      ...input.args
+    ],
+    input.candidate,
+    undefined,
+    [input.gitDirectory]
+  );
+  if (result.status !== 0) {
+    throw new Error(`${input.label} failed: ${decodeBranchLifecycleChildError(result)}`);
+  }
+  input.candidate.assertCurrent();
+  input.gitDirectory.assertCurrent();
+  return decodeBranchLifecycleChildStdout(result);
+}
+
 function assertLocalCandidateWorktreeExact(input: {
   ctx: VerificationSessionScope;
   owner: LocalCandidateWorktreeOwner;
@@ -218,44 +281,87 @@ function assertLocalCandidateWorktreeExact(input: {
     'local candidate worktree expected root'
   );
   const candidateIdentity = candidateChain.target;
-  const gitMarker = inspectNoFollowOrdinaryFileEntry(
-    candidateIdentity,
-    '.git',
-    { maximumBytes: 1024 * 1024 }
-  );
-  if (gitMarker === null || gitMarker.kind !== 'file') {
-    throw new Error('local candidate worktree .git marker must be an ordinary file.');
-  }
-  const retainedCandidate = retainNoFollowDirectoryForChildProcess(
+  const retainedGitMarker = retainNoFollowOrdinaryFile(
     candidateChain,
-    RETAINED_WORKING_DIRECTORY_CHILD_DESCRIPTOR,
-    'local candidate worktree Git readback'
+    '.git',
+    undefined,
+    'local candidate worktree .git marker'
   );
+  let retainedCandidate: RetainedNoFollowChildProcessDirectory | null = null;
+  let retainedGitDirectory: RetainedNoFollowChildProcessDirectory | null = null;
   try {
-    if (commonGitDirectory(ctx, retainedCandidate) !== owner.commonGitDirectory) {
+    const gitDirectoryPath = candidateGitDirectoryFromMarker(retainedGitMarker, owner);
+    const gitDirectoryChain = inspectNoFollowDirectoryChain(
+      gitDirectoryPath,
+      'local candidate worktree Git directory'
+    );
+    retainedCandidate = retainNoFollowDirectoryForChildProcess(
+      candidateChain,
+      RETAINED_WORKING_DIRECTORY_CHILD_DESCRIPTOR,
+      'local candidate worktree Git readback'
+    );
+    retainedGitDirectory = retainNoFollowDirectoryForChildProcess(
+      gitDirectoryChain,
+      RETAINED_WORKING_DIRECTORY_CHILD_DESCRIPTOR + 1,
+      'local candidate worktree Git directory'
+    );
+    const run = (args: readonly string[], label: string): string =>
+      runBoundCandidateGit({
+        ctx,
+        candidate: retainedCandidate!,
+        gitDirectory: retainedGitDirectory!,
+        args,
+        label
+      }).trim();
+    const commonDirectory = run(
+      ['rev-parse', '--path-format=absolute', '--git-common-dir'],
+      'candidate Git common directory readback'
+    );
+    if (comparableFileSystemPath(commonDirectory)
+        !== comparableFileSystemPath(owner.commonGitDirectory)) {
       throw new Error('local candidate worktree belongs to another Git common directory.');
     }
-    const root = gitText(ctx, retainedCandidate,
-      ['rev-parse', '--path-format=absolute', '--show-toplevel'], 'candidate worktree root readback');
+    const root = run(
+      ['rev-parse', '--path-format=absolute', '--show-toplevel'],
+      'candidate worktree root readback'
+    );
     if (comparableFileSystemPath(root) !== comparableFileSystemPath(owner.candidateRoot)) {
       throw new Error('local candidate worktree root readback differs from its owner marker.');
     }
-    const headSha = gitText(ctx, retainedCandidate,
-      ['rev-parse', 'HEAD'], 'candidate worktree HEAD readback');
-    const headTreeSha = gitText(ctx, retainedCandidate,
-      ['rev-parse', 'HEAD^{tree}'], 'candidate worktree tree readback');
-    const trackedStatus = gitText(ctx, retainedCandidate,
-      ['status', '--porcelain=v1', '--untracked-files=no'], 'candidate worktree tracked status');
-    const registration = worktreeRegistration(ctx, retainedCandidate, owner.candidateRoot);
+    const headSha = run(['rev-parse', 'HEAD'], 'candidate worktree HEAD readback');
+    const headTreeSha = run(['rev-parse', 'HEAD^{tree}'], 'candidate worktree tree readback');
+    const trackedStatus = run(
+      ['status', '--porcelain=v1', '--untracked-files=no'],
+      'candidate worktree tracked status'
+    );
+    const registrationSource = runBoundCandidateGit({
+      ctx,
+      candidate: retainedCandidate,
+      gitDirectory: retainedGitDirectory,
+      args: ['worktree', 'list', '--porcelain', '-z'],
+      label: 'candidate worktree registration readback'
+    });
+    const registration = parseWorktreeRegistration(registrationSource, owner.candidateRoot);
+    retainedGitMarker.assertCurrent();
     if (headSha !== owner.headSha || headTreeSha !== owner.headTreeSha
       || (!input.allowTrackedChanges && trackedStatus !== '')
       || registration === null || registration.headSha !== owner.headSha || !registration.detached) {
       throw new Error('local candidate worktree is not the exact clean detached candidate.');
     }
     retainedCandidate.assertCurrent();
+    retainedGitDirectory.assertCurrent();
+    retainedGitMarker.assertCurrent();
     assertSameNoFollowDirectoryIdentity(candidateIdentity, 'local candidate worktree final root');
   } finally {
-    retainedCandidate.dispose();
+    try {
+      retainedGitDirectory?.dispose();
+    } finally {
+      try {
+        retainedCandidate?.dispose();
+      } finally {
+        retainedGitMarker.dispose();
+      }
+    }
   }
 }
 
