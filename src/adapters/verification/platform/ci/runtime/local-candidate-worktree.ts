@@ -300,103 +300,103 @@ export function acquireLocalCandidateWorktree(input: {
         'trusted authority root before candidate namespace creation'
       ).target
     );
-  const candidateRoot = path.join(parent.path, input.candidate.headSha);
-  const markerName = `${input.candidate.headSha}.owner.json`;
-  const markerPath = path.join(parent.path, markerName);
-  assertContainedPath(authorityRoot, candidateRoot, 'local candidate worktree');
-  const owner = createLocalCandidateWorktreeOwner({ authorityRoot, commonGitDirectory: commonDirectory,
-    candidateRoot, headSha: input.candidate.headSha, headTreeSha: input.candidate.headTreeSha,
-    sessionRevision: input.sessionRevision,
-    actionPlanDigest: input.actionPlanClosure.actionPlanDigest as `sha256:${string}` });
-  const createdMarker = publishExclusiveCanonicalOwnerMarker(parent, markerName, owner);
-  if (!createdMarker) {
-    const observed = readLocalCandidateWorktreeOwnerMarker(parent, markerName);
-    if (encodeVerificationActionData(observed) !== encodeVerificationActionData(owner)) {
-      throw new Error('local candidate worktree is owned by a different Session or Action plan.');
+    const candidateRoot = path.join(parent.path, input.candidate.headSha);
+    const markerName = `${input.candidate.headSha}.owner.json`;
+    const markerPath = path.join(parent.path, markerName);
+    assertContainedPath(authorityRoot, candidateRoot, 'local candidate worktree');
+    const owner = createLocalCandidateWorktreeOwner({ authorityRoot, commonGitDirectory: commonDirectory,
+      candidateRoot, headSha: input.candidate.headSha, headTreeSha: input.candidate.headTreeSha,
+      sessionRevision: input.sessionRevision,
+      actionPlanDigest: input.actionPlanClosure.actionPlanDigest as `sha256:${string}` });
+    const createdMarker = publishExclusiveCanonicalOwnerMarker(parent, markerName, owner);
+    if (!createdMarker) {
+      const observed = readLocalCandidateWorktreeOwnerMarker(parent, markerName);
+      if (encodeVerificationActionData(observed) !== encodeVerificationActionData(owner)) {
+        throw new Error('local candidate worktree is owned by a different Session or Action plan.');
+      }
     }
-  }
-
-  const candidateNamespace = retainNoFollowDirectoryForChildProcess(
-    assertSameNoFollowDirectoryIdentity(parent, 'local candidate worktree namespace parent'),
-    RETAINED_WORKING_DIRECTORY_CHILD_DESCRIPTOR + 1,
-    'local candidate worktree namespace parent'
-  );
-  try {
-    const registration = worktreeRegistration(input.ctx, retainedAuthority, candidateRoot);
-    if (registration !== null) {
-      const registeredPresence = inspectNoFollowDirectoryChild(
+  
+    const candidateNamespace = retainNoFollowDirectoryForChildProcess(
+      assertSameNoFollowDirectoryIdentity(parent, 'local candidate worktree namespace parent'),
+      RETAINED_WORKING_DIRECTORY_CHILD_DESCRIPTOR + 1,
+      'local candidate worktree namespace parent'
+    );
+    try {
+      const registration = worktreeRegistration(input.ctx, retainedAuthority, candidateRoot);
+      if (registration !== null) {
+        const registeredPresence = inspectNoFollowDirectoryChild(
+          parent,
+          input.candidate.headSha,
+          'registered local candidate worktree'
+        );
+        if (registeredPresence === null) {
+          throw new Error('local candidate worktree Git registration has no physical directory.');
+        }
+        assertLocalCandidateWorktreeExact({
+          ctx: input.ctx,
+          owner,
+          expectedRoot: registeredPresence
+        });
+        return Object.freeze({
+          owner,
+          markerParent: parent,
+          markerName,
+          markerPath,
+          reused: true
+        });
+      }
+  
+      // Do not check candidateRoot before creation. The retained parent namespace
+      // and Git's exclusive worktree materialization are the admission effect.
+      // A pre-existing unregistered entry makes Git fail; only exact post-effect
+      // registration + physical identity can recover that outcome.
+      candidateNamespace.assertCurrent();
+      const physicalCandidateTarget = path.join(
+        candidateNamespace.childPath,
+        input.candidate.headSha
+      );
+      const add = runVerificationSessionCommand(
+        input.ctx,
+        'git',
+        ['worktree', 'add', '--detach', physicalCandidateTarget, input.candidate.headSha],
+        retainedAuthority,
+        undefined,
+        [candidateNamespace]
+      );
+      candidateNamespace.assertCurrent();
+      if (add.status !== 0) {
+        const afterFailure = worktreeRegistration(input.ctx, retainedAuthority, candidateRoot);
+        const afterFailurePresence = inspectNoFollowDirectoryChild(
+          parent,
+          input.candidate.headSha,
+          'local candidate worktree after failed materialization'
+        );
+        if (afterFailure === null || afterFailurePresence === null) {
+          throw new Error(
+            `Cannot materialize exact local candidate worktree: ${decodeBranchLifecycleChildError(add)}`
+          );
+        }
+      }
+      const materializedPresence = inspectNoFollowDirectoryChild(
         parent,
         input.candidate.headSha,
-        'registered local candidate worktree'
+        'local candidate worktree materialization readback'
       );
-      if (registeredPresence === null) {
-        throw new Error('local candidate worktree Git registration has no physical directory.');
+      if (materializedPresence === null) {
+        throw new Error('local candidate worktree disappeared after Git materialization.');
       }
       assertLocalCandidateWorktreeExact({
         ctx: input.ctx,
         owner,
-        expectedRoot: registeredPresence
+        expectedRoot: materializedPresence
       });
       return Object.freeze({
         owner,
         markerParent: parent,
         markerName,
         markerPath,
-        reused: true
+        reused: false
       });
-    }
-
-    // Do not check candidateRoot before creation. The retained parent namespace
-    // and Git's exclusive worktree materialization are the admission effect.
-    // A pre-existing unregistered entry makes Git fail; only exact post-effect
-    // registration + physical identity can recover that outcome.
-    candidateNamespace.assertCurrent();
-    const physicalCandidateTarget = path.join(
-      candidateNamespace.childPath,
-      input.candidate.headSha
-    );
-    const add = runVerificationSessionCommand(
-      input.ctx,
-      'git',
-      ['worktree', 'add', '--detach', physicalCandidateTarget, input.candidate.headSha],
-      retainedAuthority,
-      undefined,
-      [candidateNamespace]
-    );
-    candidateNamespace.assertCurrent();
-    if (add.status !== 0) {
-      const afterFailure = worktreeRegistration(input.ctx, retainedAuthority, candidateRoot);
-      const afterFailurePresence = inspectNoFollowDirectoryChild(
-        parent,
-        input.candidate.headSha,
-        'local candidate worktree after failed materialization'
-      );
-      if (afterFailure === null || afterFailurePresence === null) {
-        throw new Error(
-          `Cannot materialize exact local candidate worktree: ${decodeBranchLifecycleChildError(add)}`
-        );
-      }
-    }
-    const materializedPresence = inspectNoFollowDirectoryChild(
-      parent,
-      input.candidate.headSha,
-      'local candidate worktree materialization readback'
-    );
-    if (materializedPresence === null) {
-      throw new Error('local candidate worktree disappeared after Git materialization.');
-    }
-    assertLocalCandidateWorktreeExact({
-      ctx: input.ctx,
-      owner,
-      expectedRoot: materializedPresence
-    });
-    return Object.freeze({
-      owner,
-      markerParent: parent,
-      markerName,
-      markerPath,
-      reused: false
-    });
     } finally {
       candidateNamespace.dispose();
     }
