@@ -168,7 +168,27 @@ async function readStableOrdinaryFileSnapshot(
     if (maximumBytes !== undefined && opened.size > maximumBytes) {
       throw new Error(`${label} exceeds its bounded byte limit.`);
     }
-    const bytes = await handle.readFile();
+    let bytes: Buffer;
+    if (maximumBytes === undefined) {
+      bytes = await handle.readFile();
+    } else {
+      const buffer = Buffer.alloc(maximumBytes + 1);
+      let offset = 0;
+      while (offset < buffer.byteLength) {
+        const { bytesRead } = await handle.read(
+          buffer,
+          offset,
+          buffer.byteLength - offset,
+          offset
+        );
+        if (bytesRead === 0) break;
+        offset += bytesRead;
+      }
+      if (offset > maximumBytes) {
+        throw new Error(`${label} exceeds its bounded byte limit.`);
+      }
+      bytes = Buffer.from(buffer.subarray(0, offset));
+    }
     const [afterHandle, afterPath] = await Promise.all([
       handle.stat(),
       fs.lstat(filePath)
