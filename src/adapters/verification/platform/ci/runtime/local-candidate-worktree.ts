@@ -312,19 +312,19 @@ export function acquireLocalCandidateWorktree(input: {
   );
   try {
     const registration = worktreeRegistration(input.ctx, authorityRoot, candidateRoot);
-    const candidatePresence = inspectNoFollowDirectoryChild(
-      parent,
-      input.candidate.headSha,
-      'local candidate worktree'
-    );
-    if (registration !== null || candidatePresence !== null) {
-      if (registration === null || candidatePresence === null) {
-        throw new Error('local candidate worktree filesystem and Git registration disagree.');
+    if (registration !== null) {
+      const registeredPresence = inspectNoFollowDirectoryChild(
+        parent,
+        input.candidate.headSha,
+        'registered local candidate worktree'
+      );
+      if (registeredPresence === null) {
+        throw new Error('local candidate worktree Git registration has no physical directory.');
       }
       assertLocalCandidateWorktreeExact({
         ctx: input.ctx,
         owner,
-        expectedRoot: candidatePresence
+        expectedRoot: registeredPresence
       });
       return Object.freeze({
         owner,
@@ -335,6 +335,10 @@ export function acquireLocalCandidateWorktree(input: {
       });
     }
 
+    // Do not check candidateRoot before creation. The retained parent namespace
+    // and Git's exclusive worktree materialization are the admission effect.
+    // A pre-existing unregistered entry makes Git fail; only exact post-effect
+    // registration + physical identity can recover that outcome.
     candidateNamespace.assertCurrent();
     const physicalCandidateTarget = path.join(
       candidateNamespace.childPath,
