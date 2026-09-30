@@ -2502,10 +2502,15 @@ export function evaluateReviewProviderAvailabilityObservation(
     & Partial<Pick<VerificationSessionReviewObservationTransaction, 'collaboratorPermission'>>,
   input: Parameters<VerificationSessionGitHubAdapter['observeReviewProviderAvailability']>[0]
 ): ReturnType<VerificationSessionGitHubAdapter['observeReviewProviderAvailability']> {
-  return new VerificationSessionGitHubAdapter({
-    ...transaction,
-    collaboratorPermission: transaction.collaboratorPermission ?? (() => 'none')
-  } as unknown as VerificationSessionGitHubTransport).observeReviewProviderAvailability(input);
+  const transport = Object.freeze({
+    repositoryIssueCommentPage: (repository: string, after: string | null) =>
+      transaction.repositoryIssueCommentPage(repository, after),
+    collaboratorPermission: (repository: string, login: string) =>
+      transaction.collaboratorPermission?.(repository, login) ?? 'none'
+  });
+  return new VerificationSessionGitHubAdapter(
+    transport as unknown as VerificationSessionGitHubTransport
+  ).observeReviewProviderAvailability(input);
 }
 
 export function evaluateVerificationSessionReviewObservation(
