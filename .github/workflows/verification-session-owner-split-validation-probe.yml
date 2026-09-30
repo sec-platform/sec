@@ -32,13 +32,10 @@ jobs:
         with:
           bun-version-file: .bun-version
 
-      - name: Install exact dependencies
-        run: bun install --frozen-lockfile
+      - name: Run owner-verified typecheck
+        run: bun run typecheck:verified
 
-      - name: Run native typecheck
-        run: bun run typecheck
-
-      - name: Run focused VerificationSession regressions in isolated Bun processes
+      - name: Run focused regressions through the SEC test owner
         shell: bash
         run: |
           set -euo pipefail
@@ -50,5 +47,5 @@ jobs:
             tests/contract/merge-gate.test.ts
           )
           for test_file in "${tests[@]}"; do
-            bun test "$test_file"
+            bun run test -- "$test_file"
           done
