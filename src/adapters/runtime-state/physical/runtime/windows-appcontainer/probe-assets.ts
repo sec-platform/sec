@@ -126,20 +126,18 @@ async function readBoundedCanonicalFile(
 }>> {
   let handle: Awaited<ReturnType<typeof open>> | undefined;
   try {
-    const beforePath = await lstat(filePath, { bigint: true });
-    const physicalPath = await realpath(filePath);
-    if (!beforePath.isFile() || beforePath.isSymbolicLink() || beforePath.nlink !== 1n ||
-      !samePath(physicalPath, filePath) || beforePath.size < 0n ||
-      beforePath.size > BigInt(MAXIMUM_PROBE_ASSET_BYTES)) {
-      throw new WindowsAppContainerProbeAssetError(invalidFailure);
-    }
     handle = await open(filePath, 'r');
     const beforeHandle = await handle.stat({ bigint: true });
-    const beforeIdentity = physicalIdentity(beforePath);
-    if (!beforeHandle.isFile() || !sameIdentity(
-      beforeIdentity,
-      physicalIdentity(beforeHandle)
-    )) {
+    const [beforePath, physicalPath] = await Promise.all([
+      lstat(filePath, { bigint: true }),
+      realpath(filePath)
+    ]);
+    const beforeIdentity = physicalIdentity(beforeHandle);
+    if (!beforeHandle.isFile() || beforeHandle.nlink !== 1n
+      || !beforePath.isFile() || beforePath.isSymbolicLink() || beforePath.nlink !== 1n
+      || !sameIdentity(beforeIdentity, physicalIdentity(beforePath))
+      || !samePath(physicalPath, filePath) || beforeHandle.size < 0n
+      || beforeHandle.size > BigInt(MAXIMUM_PROBE_ASSET_BYTES)) {
       throw new WindowsAppContainerProbeAssetError(invalidFailure);
     }
     const expectedBytes = Number(beforeHandle.size);
