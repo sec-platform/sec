@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto';
-import type { Dirent } from 'node:fs';
+import type { Dirent, Stats } from 'node:fs';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 
@@ -137,10 +137,7 @@ type StableOrdinaryFileSnapshot = Readonly<{
   size: number;
 }>;
 
-function sameOrdinaryFileIdentity(
-  left: Awaited<ReturnType<Awaited<ReturnType<typeof fs.open>>['stat']>>,
-  right: Awaited<ReturnType<typeof fs.lstat>>
-): boolean {
+function sameOrdinaryFileIdentity(left: Stats, right: Stats): boolean {
   return left.dev === right.dev
     && left.ino === right.ino
     && left.mode === right.mode
