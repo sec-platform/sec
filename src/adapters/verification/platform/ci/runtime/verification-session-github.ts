@@ -392,7 +392,17 @@ function assertSuccessfulGraphqlReviewConnection(
   }
   const seenCursors = new Set<string>();
   for (const [index, page] of pages.entries()) {
-    const connection = (page as any)?.data?.repository?.pullRequest?.[field];
+    const pullRequest = (page as any)?.data?.repository?.pullRequest;
+    const connection = (() => {
+      switch (field) {
+        case 'reviews':
+          return pullRequest?.reviews;
+        case 'reviewThreads':
+          return pullRequest?.reviewThreads;
+        case 'reviewRequests':
+          return pullRequest?.reviewRequests;
+      }
+    })();
     if (connection === null || typeof connection !== 'object' || Array.isArray(connection)
       || !Array.isArray(connection.nodes) || connection.pageInfo === null
       || typeof connection.pageInfo !== 'object' || Array.isArray(connection.pageInfo)
