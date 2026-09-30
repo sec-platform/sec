@@ -27,17 +27,22 @@ export function hostedActorHandle(event: Record<string, any>): string {
   return login;
 }
 
-export function positiveEnvironmentInteger(name: string, environment: Readonly<Record<string, string | undefined>>): number {
-  const value = Number(environment[name]);
+export function positiveEnvironmentInteger(
+  name: 'GITHUB_RUN_ATTEMPT',
+  environment: Readonly<Record<string, string | undefined>>
+): number {
+  const value = Number(environment.GITHUB_RUN_ATTEMPT);
   if (!Number.isSafeInteger(value) || value < 1) throw new Error(`${name} must be a positive integer.`);
   return value;
 }
 
 function requiredEnvironmentGitSha(
   environment: Readonly<Record<string, string | undefined>>,
-  name: string
+  name: 'PRE_MERGE_MAIN_SHA' | 'PLANNED_CURRENT_MAIN_SHA'
 ): string {
-  const value = environment[name] ?? '';
+  const value = name === 'PRE_MERGE_MAIN_SHA'
+    ? environment.PRE_MERGE_MAIN_SHA ?? ''
+    : environment.PLANNED_CURRENT_MAIN_SHA ?? '';
   if (!/^[0-9a-f]{40}$/u.test(value)) throw new Error(`${name} must be one lowercase Git SHA.`);
   return value;
 }
