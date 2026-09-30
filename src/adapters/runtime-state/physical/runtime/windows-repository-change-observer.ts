@@ -1,5 +1,4 @@
 import path from 'node:path';
-import { watch, type FSWatcher } from 'node:fs';
 
 import { sha256 } from '../../../../contracts/canonical.ts';
 import {
@@ -150,22 +149,6 @@ interface LiveObserver {
 }
 
 const liveObservers = new WeakMap<object, LiveObserver>();
-
-interface LinuxWatcherLease {
-  readonly watcher: FSWatcher;
-  readonly closed: Promise<void>;
-}
-
-interface LinuxLiveObserver {
-  readonly retainedRoots: readonly RetainedNoFollowChildProcessDirectory[];
-  readonly watchers: readonly LinuxWatcherLease[];
-  readonly events: WindowsRepositoryChangeEvent[];
-  readonly rootIdentityDigest: `sha256:${string}`;
-  readonly deadlineAtUnixMs: number;
-  status: 'ready' | 'overflow' | 'discontinuous';
-}
-
-const linuxLiveObservers = new WeakMap<object, LinuxLiveObserver>();
 type PreparedObserverState = Readonly<{
   retainedRoots: readonly RetainedNoFollowChildProcessDirectory[];
   roots: readonly string[];
@@ -198,9 +181,7 @@ function canonicalRootPaths(values: readonly string[]): readonly string[] | null
   if (canonical.some((value) => value === null)) return null;
   const roots = canonical as string[];
   roots.sort((left, right) => left.localeCompare(right, 'en-US', { sensitivity: 'base' }));
-  const identities = roots.map((value) => process.platform === 'win32'
-    ? value.toLocaleLowerCase('en-US')
-    : value);
+  const identities = roots.map((value) => value.toLocaleLowerCase('en-US'));
   if (new Set(identities).size !== identities.length) return null;
   return Object.freeze(roots);
 }
@@ -296,128 +277,6 @@ function watchRequest(root: string, rootIndex: number): readonly WatchRequest[] 
       maxEvents: MAXIMUM_EVENTS
     })
   ]);
-}
-
-function startLinuxRepositoryWatchers(
-  roots: readonly string[],
-  retainedRoots: readonly RetainedNoFollowChildProcessDirectory[],
-  rootIdentityDigest: `sha256:${string}`,
-  deadlineAtUnixMs: number
-): Readonly<{ observer: WindowsRepositoryChangeObserver; live: LinuxLiveObserver }> | null {
-  if (process.platform !== 'linux') return null;
-  const events: WindowsRepositoryChangeEvent[] = [];
-  const leases: LinuxWatcherLease[] = [];
-  const live: LinuxLiveObserver = {
-    retainedRoots,
-    watchers: leases,
-    events,
-    rootIdentityDigest,
-    deadlineAtUnixMs,
-    status: 'ready'
-  };
-  try {
-    for (const [rootIndex, root] of roots.entries()) {
-      for (const request of watchRequest(root, rootIndex)) {
-        const watcher = watch(request.watchPath, {
-          encoding: 'utf8',
-          persistent: false,
-          recursive: request.subtree
-        }, (eventType, filename) => {
-          if (live.status !== 'ready') return;
-          if (typeof filename !== 'string' || filename.length === 0 || filename.includes('\0')) {
-            live.status = 'discontinuous';
-            return;
-          }
-          const normalized = filename.replace(/\\/gu, '/').normalize('NFC');
-          if (normalized.startsWith('/') || normalized.split('/').some((part) => (
-            part.length === 0 || part === '.' || part === '..'
-          ))) {
-            live.status = 'discontinuous';
-            return;
-          }
-          let eventPath = normalized;
-          if (request.scope === 'root-entry') {
-            const left = normalized.toLocaleLowerCase('en-US');
-            const right = request.filterName!.toLocaleLowerCase('en-US');
-            if (left !== right) return;
-            eventPath = '.';
-          }
-          events.push(Object.freeze({
-            rootIndex: request.rootIndex,
-            path: eventPath,
-            action: eventType === 'change' ? 'modified' : 'renamed-to'
-          }));
-          if (events.length > request.maxEvents) live.status = 'overflow';
-        });
-        let close!: () => void;
-        const closed = new Promise<void>((resolve) => { close = resolve; });
-        watcher.once('close', close);
-        watcher.on('error', () => { live.status = 'discontinuous'; });
-        leases.push(Object.freeze({ watcher, closed }));
-      }
-    }
-    for (const retained of retainedRoots) retained.assertCurrent();
-    const observer = Object.freeze({
-      [observerBrand]: undefined as never,
-      rootIdentityDigest
-    }) as WindowsRepositoryChangeObserver;
-    linuxLiveObservers.set(observer, live);
-    return Object.freeze({ observer, live });
-  } catch {
-    for (const lease of leases) {
-      try { lease.watcher.close(); } catch { /* settlement reports admission failure */ }
-    }
-    return null;
-  }
-}
-
-async function settleLinuxRepositoryChangeObserver(
-  observer: WindowsRepositoryChangeObserver,
-  live: LinuxLiveObserver
-): Promise<WindowsRepositoryChangeObserverSettlement> {
-  linuxLiveObservers.delete(observer);
-  for (const lease of live.watchers) {
-    try { lease.watcher.close(); } catch { live.status = 'discontinuous'; }
-  }
-  const closed = await beforeDeadline(
-    Promise.all(live.watchers.map(({ closed }) => closed)),
-    live.deadlineAtUnixMs
-  );
-  let identityCurrent = true;
-  try {
-    for (const root of live.retainedRoots) root.assertCurrent();
-  } catch {
-    identityCurrent = false;
-  }
-  if (!disposeRoots(live.retainedRoots)) identityCurrent = false;
-  if (closed === null || Date.now() >= live.deadlineAtUnixMs) {
-    return Object.freeze({ status: 'deadline-exhausted', rootIdentityDigest: live.rootIdentityDigest });
-  }
-  if (!identityCurrent) {
-    return Object.freeze({ status: 'identity-changed', rootIdentityDigest: live.rootIdentityDigest });
-  }
-  if (live.status !== 'ready') {
-    return Object.freeze({ status: live.status, rootIdentityDigest: live.rootIdentityDigest });
-  }
-  if (live.events.length === 0) {
-    const canonical = Object.freeze({
-      status: 'zero-events' as const,
-      rootIdentityDigest: live.rootIdentityDigest
-    });
-    return Object.freeze({
-      ...canonical,
-      observationDigest: sha256(canonical) as `sha256:${string}`
-    });
-  }
-  const canonical = Object.freeze({
-    status: 'events' as const,
-    rootIdentityDigest: live.rootIdentityDigest,
-    events: Object.freeze([...live.events])
-  });
-  return Object.freeze({
-    ...canonical,
-    observationDigest: sha256(canonical) as `sha256:${string}`
-  });
 }
 
 function beforeDeadline<T>(promise: Promise<T>, deadlineAtUnixMs: number): Promise<T | null> {
@@ -531,7 +390,7 @@ export function prepareWindowsRepositoryChangeObserver(input: Readonly<{
   roots: readonly string[];
 }>): PreparedWindowsRepositoryChangeObserver {
   const roots = canonicalRootPaths(input.roots);
-  if ((process.platform !== 'win32' && process.platform !== 'linux') || roots === null) {
+  if (process.platform !== 'win32' || roots === null) {
     throw new Error('Test suite repository observer preparation is unavailable.');
   }
   const retainedRoots: RetainedNoFollowChildProcessDirectory[] = [];
@@ -548,9 +407,7 @@ export function prepareWindowsRepositoryChangeObserver(input: Readonly<{
     }
     const rootIdentityDigest = sha256(Object.freeze(projections)) as `sha256:${string}`;
     const providerIdentityDigest = sha256({
-      domain: 'repository-change-observer.physical-provider',
-      platform: process.platform,
-      provider: process.platform === 'win32' ? 'read-directory-changes' : 'inotify-recursive-watch',
+      domain: 'windows-repository-change-observer.physical-provider',
       rootIdentityDigest
     }) as SecOperationDigest;
     const prepared = Object.freeze({
@@ -617,18 +474,6 @@ export async function armPreparedWindowsRepositoryChangeObserver(input: Readonly
   const watchers: WatcherLease[] = [];
   const unsettledWorkers: UnsettledWatcher[] = [];
   try {
-    if (process.platform === 'linux') {
-      const linux = startLinuxRepositoryWatchers(
-        state.roots,
-        state.retainedRoots,
-        state.rootIdentityDigest,
-        deadlineAtUnixMs
-      );
-      if (linux === null) throw new Error('linux observer arm failed');
-      preparedObservers.delete(input.prepared);
-      activatedPreparedObservers.set(input.prepared, linux.observer);
-      return Object.freeze({ status: 'ready', observer: linux.observer });
-    }
     for (const [rootIndex, root] of state.roots.entries()) {
       for (const request of watchRequest(root, rootIndex)) {
         const watcher = await startWatcher(request, deadlineAtUnixMs);
@@ -710,8 +555,8 @@ export async function armWindowsRepositoryChangeObserver(input: Readonly<{
   roots: readonly string[];
   deadlineAtUnixMs: number;
 }>): Promise<WindowsRepositoryChangeObserverResolution> {
-  if (process.platform !== 'win32' && process.platform !== 'linux') return unavailable('unsupported-platform');
-  if (process.platform === 'win32' && process.arch !== 'x64' && process.arch !== 'arm64') {
+  if (process.platform !== 'win32') return unavailable('unsupported-platform');
+  if (process.arch !== 'x64' && process.arch !== 'arm64') {
     return unavailable('unsupported-architecture');
   }
   const roots = canonicalRootPaths(input.roots);
@@ -736,16 +581,6 @@ export async function armWindowsRepositoryChangeObserver(input: Readonly<{
       ));
     }
     const rootIdentityDigest = sha256(Object.freeze(projections)) as `sha256:${string}`;
-    if (process.platform === 'linux') {
-      const linux = startLinuxRepositoryWatchers(
-        roots,
-        Object.freeze(retainedRoots),
-        rootIdentityDigest,
-        input.deadlineAtUnixMs
-      );
-      if (linux === null) throw new Error('linux observer arm failed');
-      return Object.freeze({ status: 'ready', observer: linux.observer });
-    }
     for (const [rootIndex, root] of roots.entries()) {
       for (const request of watchRequest(root, rootIndex)) {
         const watcher = await startWatcher(request, input.deadlineAtUnixMs);
@@ -785,10 +620,6 @@ export async function armWindowsRepositoryChangeObserver(input: Readonly<{
 export async function settleWindowsRepositoryChangeObserver(
   observer: WindowsRepositoryChangeObserver
 ): Promise<WindowsRepositoryChangeObserverSettlement> {
-  const linux = linuxLiveObservers.get(observer);
-  if (linux !== undefined) {
-    return settleLinuxRepositoryChangeObserver(observer, linux);
-  }
   const live = liveObservers.get(observer);
   if (live === undefined || live.settled) {
     return Object.freeze({
