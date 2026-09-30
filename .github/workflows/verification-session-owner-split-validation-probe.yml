@@ -32,8 +32,11 @@ jobs:
         with:
           bun-version-file: .bun-version
 
-      - name: Materialize exact repository dependencies
-        run: bun install --frozen-lockfile --ignore-scripts
+      - name: Materialize SEC-owned compiler dependency generation
+        env:
+          CI: '1'
+          SEC_CACHE_HOME: /tmp/sec-hosted-dependency-home
+        run: bun run deps:ensure
 
       - name: Run owner-verified typecheck
         run: bun run typecheck:verified
