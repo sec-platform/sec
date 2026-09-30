@@ -16,6 +16,8 @@ import {
 import {
   inspectNoFollowDirectoryChain,
   retainNoFollowDirectoryForChildProcess,
+  type PhysicalDirectoryChain,
+  type PhysicalDirectoryIdentity,
   type RetainedNoFollowChildProcessDirectory
 } from './physical-no-follow.ts';
 import {
@@ -97,11 +99,16 @@ type WatchBinding =
 type PreparedObserverState = Readonly<{
   retainedRoots: readonly RetainedNoFollowChildProcessDirectory[];
   roots: readonly string[];
+  rootChains: readonly PhysicalDirectoryChain[];
+  parentChains: readonly PhysicalDirectoryChain[];
   rootIdentityDigest: `sha256:${string}`;
 }>;
 
 type LiveObserverState = Readonly<{
   retainedRoots: readonly RetainedNoFollowChildProcessDirectory[];
+  roots: readonly string[];
+  rootChains: readonly PhysicalDirectoryChain[];
+  parentChains: readonly PhysicalDirectoryChain[];
   witnessFd: number;
   bindings: ReadonlyMap<number, readonly WatchBinding[]>;
   rootIdentityDigest: `sha256:${string}`;
@@ -153,6 +160,44 @@ function rootIdentityProjection(root: ReturnType<typeof inspectNoFollowDirectory
   });
 }
 
+function sameDirectoryIdentity(
+  left: PhysicalDirectoryIdentity,
+  right: PhysicalDirectoryIdentity
+): boolean {
+  return left.path === right.path
+    && left.finalPath === right.finalPath
+    && left.device === right.device
+    && left.inode === right.inode
+    && left.objectId === right.objectId;
+}
+
+function sameDirectoryChain(
+  left: PhysicalDirectoryChain,
+  right: PhysicalDirectoryChain
+): boolean {
+  return sameDirectoryIdentity(left.target, right.target)
+    && left.ancestors.length === right.ancestors.length
+    && left.ancestors.every((entry, index) =>
+      sameDirectoryIdentity(entry, right.ancestors[index]!));
+}
+
+function assertPreparedRootChainsCurrent(
+  state: PreparedObserverState,
+  label: string
+): void {
+  for (const [index, rootPath] of state.roots.entries()) {
+    const root = inspectNoFollowDirectoryChain(rootPath, `${label} root[${index}]`);
+    const parent = inspectNoFollowDirectoryChain(
+      path.dirname(rootPath),
+      `${label} root parent[${index}]`
+    );
+    if (!sameDirectoryChain(root, state.rootChains[index]!)
+        || !sameDirectoryChain(parent, state.parentChains[index]!)) {
+      throw new Error(`${label} repository root lexical identity changed.`);
+    }
+  }
+}
+
 function disposeRoots(roots: readonly RetainedNoFollowChildProcessDirectory[]): boolean {
   let success = true;
   for (const root of [...roots].reverse()) {
@@ -163,10 +208,18 @@ function disposeRoots(roots: readonly RetainedNoFollowChildProcessDirectory[]): 
 
 function retainRoots(roots: readonly string[]): PreparedObserverState {
   const retainedRoots: RetainedNoFollowChildProcessDirectory[] = [];
+  const rootChains: PhysicalDirectoryChain[] = [];
+  const parentChains: PhysicalDirectoryChain[] = [];
   const projections = [];
   try {
     for (const [index, root] of roots.entries()) {
       const chain = inspectNoFollowDirectoryChain(root, `repository change root[${index}]`);
+      const parentChain = inspectNoFollowDirectoryChain(
+        path.dirname(root),
+        `repository change root parent[${index}]`
+      );
+      rootChains.push(chain);
+      parentChains.push(parentChain);
       projections.push(rootIdentityProjection(chain));
       retainedRoots.push(retainNoFollowDirectoryForChildProcess(
         chain,
@@ -177,6 +230,8 @@ function retainRoots(roots: readonly string[]): PreparedObserverState {
     return Object.freeze({
       retainedRoots: Object.freeze(retainedRoots),
       roots,
+      rootChains: Object.freeze(rootChains),
+      parentChains: Object.freeze(parentChains),
       rootIdentityDigest: sha256(Object.freeze(projections)) as `sha256:${string}`
     });
   } catch (error) {
@@ -270,6 +325,7 @@ function armRetainedState(
   }
   let witnessFd: number | null = null;
   try {
+    assertPreparedRootChainsCurrent(state, 'Linux repository observer arm preflight');
     witnessFd = linuxOpenDirectoryMutationWitness('Linux repository change observer');
     const bindings = new Map<number, WatchBinding[]>();
     const visited = new Set<string>();
@@ -282,12 +338,15 @@ function armRetainedState(
       }
 
       const parentPath = path.dirname(state.roots[rootIndex]!);
-      const parentChain = inspectNoFollowDirectoryChain(
+      const currentParentChain = inspectNoFollowDirectoryChain(
         parentPath,
         `repository change root parent[${rootIndex}]`
       );
+      if (!sameDirectoryChain(currentParentChain, state.parentChains[rootIndex]!)) {
+        throw new Error('Linux repository observer root parent changed before watch admission.');
+      }
       const retainedParent = retainNoFollowDirectoryForChildProcess(
-        parentChain,
+        currentParentChain,
         60,
         `repository change root parent[${rootIndex}]`
       );
@@ -314,6 +373,14 @@ function armRetainedState(
         retainedParent.assertCurrent();
       } finally {
         retainedParent.dispose();
+      }
+
+      const currentRootChain = inspectNoFollowDirectoryChain(
+        state.roots[rootIndex]!,
+        `repository change root post-parent-watch[${rootIndex}]`
+      );
+      if (!sameDirectoryChain(currentRootChain, state.rootChains[rootIndex]!)) {
+        throw new Error('Linux repository observer root changed before recursive watch admission.');
       }
 
       watchDirectoryTree({
@@ -344,6 +411,7 @@ function armRetainedState(
       return unavailable('arm-failed');
     }
     for (const root of state.retainedRoots) root.assertCurrent();
+    assertPreparedRootChainsCurrent(state, 'Linux repository observer arm readback');
 
     const observer = Object.freeze({
       [observerBrand]: undefined as never,
@@ -351,6 +419,9 @@ function armRetainedState(
     }) as LinuxRepositoryChangeObserver;
     liveObservers.set(observer, {
       retainedRoots: state.retainedRoots,
+      roots: state.roots,
+      rootChains: state.rootChains,
+      parentChains: state.parentChains,
       witnessFd,
       bindings: new Map([...bindings].map(([key, values]) => [
         key,
@@ -383,7 +454,10 @@ function eventAction(mask: number): RepositoryChangeAction | null {
 
 function eventPath(binding: WatchBinding, event: LinuxDirectoryMutationEvent): string | null {
   if (binding.scope === 'root-entry') {
-    return event.name === binding.filterName ? '.' : null;
+    if (event.name === binding.filterName) return '.';
+    if (event.name.length === 0
+        && (event.mask & (LINUX_IN_DELETE_SELF | LINUX_IN_MOVE_SELF)) !== 0) return '.';
+    return null;
   }
   if (event.name.length === 0) return binding.relativeDirectory || '.';
   return binding.relativeDirectory.length === 0
@@ -592,6 +666,7 @@ export async function settleLinuxRepositoryChangeObserver(
   let identityCurrent = true;
   try {
     for (const root of live.retainedRoots) root.assertCurrent();
+    assertPreparedRootChainsCurrent(live, 'Linux repository observer settle preflight');
   } catch {
     identityCurrent = false;
   }
@@ -605,6 +680,7 @@ export async function settleLinuxRepositoryChangeObserver(
   try { closeSync(live.witnessFd); } catch { identityCurrent = false; }
   try {
     for (const root of live.retainedRoots) root.assertCurrent();
+    assertPreparedRootChainsCurrent(live, 'Linux repository observer settle readback');
   } catch {
     identityCurrent = false;
   }
