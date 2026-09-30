@@ -20,6 +20,8 @@ import path from 'node:path';
 
 import { expect, test } from 'bun:test';
 
+import { BASE, BASE_TREE, baseOptions, clock, executeSentinelGate, HEAD, MANIFEST_PATH, revisions, TREE } from '../helpers/ci-verification-fixtures.ts';
+
 import { encodeVerificationActionData, type VerificationActionKeyDigest } from '../../src/adapters/verification/platform/action/contract/action.ts';
 import { buildCiVerificationActionPlan, buildCiVerificationActionPlanClosure, CI_VERIFICATION_HOSTED_EXECUTION_ENVIRONMENT, ciVerificationGateStep, type CiVerificationActionCandidate, type CiVerificationActionPlanClosure, type CiVerificationProducerGate } from '../../src/adapters/verification/platform/action/contract/ci.ts';
 import { CI_VERIFICATION_ACTION_DEPENDENCY_INPUT_PATHS } from '../../src/adapters/verification/platform/action/contract/environment.ts';
@@ -29,7 +31,6 @@ import { CodexDevelopmentCreateHostedSutExecutionAuthorization, CodexDevelopment
 import { buildCiQuickGatePlan } from '../../src/adapters/verification/platform/ci/contract/plan.ts';
 import { CI_VERIFICATION_HOSTED_SANDBOX_POLICY, CI_VERIFICATION_HOSTED_SANDBOX_POLICY_DIGEST, CI_VERIFICATION_SESSION_DISPATCH_TYPE } from '../../src/adapters/verification/platform/ci/contract/revision.ts';
 import type { VerificationSessionHostedRequest } from '../../src/adapters/verification/platform/ci/contract/session-request.ts';
-import { CodexDevelopmentRunGateProcess, type CodexDevelopmentGateProcessSettlement } from '../../src/adapters/verification/platform/ci/runtime/ci-orchestration-core.ts';
 import {
   VERIFICATION_SESSION_HOSTED_ENVELOPE_SCHEMA
 } from '../../src/adapters/verification/platform/ci/runtime/verification-session-runtime.ts';
@@ -72,11 +73,6 @@ import {
 import { CodexDevelopmentCreateTestImpactTransitionObservation } from '../../src/adapters/verification/platform/test-impact/runtime/transition.ts';
 import type { VerificationResultStatus } from '../../src/assurance/verification/result/contract/result.ts';
 
-const HEAD = '1'.repeat(40);
-const TREE = '2'.repeat(40);
-const BASE = '3'.repeat(40);
-const BASE_TREE = '4'.repeat(40);
-const MANIFEST_PATH = 'config/repository/work-packages/exact-verification-v1.md';
 const RAW = `sha256:${'a'.repeat(64)}` as const;
 
 function gitFixture(root: string, args: readonly string[]): string {
@@ -219,108 +215,6 @@ const hostedProducer: VerificationActionProviderOrigin = Object.freeze({
   appNodeId: 'MDM6QXBwMTUzNjg=',
   sourceEvent: 'repository_dispatch'
 });
-
-function manifestSource(): string {
-  return `---
-schema: codex-development-work-package-v1
-id: exact-verification-v1
-tracking: none
-base: "${BASE}"
-manifestState: frozen
-requiredProfile: quick
-ciRevision: ci-verification-v19
-tasks:
-  - id: exact-verification
-    owner: verification-writer
-    ownedPaths:
-      - src/adapters/verification/platform/ci/verification.ts
-forbiddenPaths:
-  - src/compiler/
-acceptance:
-  - exact-verification
-tests:
-  - tests/unit/ci-verification-execution.test.ts
----
-
-# Exact Verification
-`;
-}
-
-function exactManifest(testIdentity: string) {
-  const source = `${manifestSource()}\n<!-- test-run:${bytesDigest(testIdentity)} -->\n`;
-  return {
-    blobSha: createHash('sha1').update(source).digest('hex'),
-    bytes: new TextEncoder().encode(source),
-    mode: '100644' as const, type: 'blob' as const
-  };
-}
-
-function clock(): () => Date {
-  let time = Date.parse('2026-08-09T00:00:00.000Z');
-  return () => new Date(time += 10);
-}
-
-function revisions(ref: string): string | null {
-  if (ref === 'HEAD') return HEAD;
-  if (ref === 'HEAD^{tree}') return TREE;
-  if (ref === BASE || ref === 'HEAD^1') return BASE;
-  if (ref === `${BASE}^{tree}`) return BASE_TREE;
-  return null;
-}
-
-function baseOptions(root: string) {
-  const changedFiles = ['docs/product.md'];
-  const manifest = exactManifest(root);
-  const docsGate = buildCiQuickGatePlan({
-    includeImports: false,
-    includeDocs: true,
-    selectedSlowSuites: [],
-    selectedSlowTests: []
-  }).find(({ id }) => id === 'docs-doctor');
-  if (docsGate === undefined) throw new Error('CI test plan requires its documentation gate.');
-  return {
-    argv: ['--profile', 'quick', '--expected-head', HEAD],
-    env: {
-      SEC_CHANGED_BASE: BASE,
-      SEC_AFFECTED_TESTS_BASE: BASE,
-      SEC_WORK_PACKAGE_MANIFEST_PATH: MANIFEST_PATH
-    },
-    now: clock(),
-    repositoryRoot: root,
-    gitRevision: revisions,
-    trackedTreeIsClean: () => true,
-    // Injected changed-path tests have no immutable source receipt. Use one
-    // owner-resolved documentation path; source graph selection is exercised
-    // only through the exact Git provider route.
-    changedFiles: () => changedFiles,
-    readExactGitBlob: () => manifest,
-    readGitBlob: () => manifest,
-    testVerificationPlan: {
-      profile: 'quick' as const,
-      changedFiles,
-      selectionResolved: true,
-      selectionReasons: [],
-      affectedOwners: ['product'],
-      affectedSlowTests: [],
-      gates: [docsGate]
-    },
-    runGate: executeSentinelGate(root, 0)
-  };
-}
-
-function executeSentinelGate(repositoryRoot: string, code: number, output = '') {
-  return async (
-    gate: Readonly<{ id: string; argv: string[]; env: NodeJS.ProcessEnv }>,
-    execution: Parameters<typeof CodexDevelopmentRunGateProcess>[2]
-  ): Promise<CodexDevelopmentGateProcessSettlement> => CodexDevelopmentRunGateProcess(
-    repositoryRoot,
-    {
-      ...gate,
-      argv: [process.execPath, '-e', `${output.length > 0 ? `console.error(${JSON.stringify(output)});` : ''}process.exit(${code});`]
-    },
-    execution
-  );
-}
 
 function hostedGates(): readonly CiVerificationProducerGate[] {
   return buildCiQuickGatePlan({ includeImports: true, includeDocs: true })

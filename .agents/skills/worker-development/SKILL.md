@@ -5,6 +5,9 @@ description: 用于在 frozen Task Envelope 内实现一个 SEC 产品、修复�
 
 # worker-development
 
+## 当前归属
+准入、读取和角色回交归[仓库行为路由](../../../docs/开发/AI协作/规则装载与任务恢复.md#engineering-behavior-routing)；验证与证据复用归[测试发现与执行](../../../docs/开发/测试发现与执行.md#developer-check-loop)，提交/未知效果归[持久化恢复](../../../docs/运行/持久化提交与恢复.md)，依赖代际与路径保留归[宿主生态](../../../docs/运行/宿主生态与技术约束.md#依赖解析物化与垃圾回收)。只消费与本Envelope相交的合同。
+
 ## 触发
 - 已收到 exact base、branch、owned/forbidden paths、acceptance、focused verification closure，且需要的测试语义已经冻结。
 
@@ -23,9 +26,9 @@ description: 用于在 frozen Task Envelope 内实现一个 SEC 产品、修复�
 2. 实现最小完整纵切片；检查与变换保持不同 effect owner，检查不得隐式改写 source/index。
 3. 可以 materialize 已冻结的 test body/fixture/adapter；若出现新的 proof 缺口或必须改变测试语义，向主线程 A0 回交 `test-design-required` 及最小反例。A0 在已有授权内补齐设计后续交同一任务，这不是用户审批点；Worker 不在 implement 中自行改变 Claim/oracle。
 4. 开发中只执行会改变当前实现选择的 failing/focused sentinel；即将被后续编辑失效的 Action 不启动。
-5. candidate 稳定后消费 selector 的 `RequiredClosure ∩ MissingOrStale`，每个 ActionKey 最多一次 physical start；fresh PASS、unchanged FAIL 与 authenticated in-flight 分别 reuse、stop、join。
+5. candidate稳定后消费selector的`RequiredClosure ∩ MissingOrStale`；在取得新依赖projection或启动进程前先查fresh PASS、unchanged FAIL与authenticated in-flight，分别reuse、stop、join。重试资格由原owner按attempt/错误分类决定；不得把“每个ActionKey一次”扩大为禁止合同允许的瞬态恢复。新物理开始由真实资源owner准入，配置worker数不是已执行并发证明。
 6. 经真实提交准入只 stage Envelope owned paths，materialize 同一 logical run 的新 generation；finding 在同一 worktree/ref 修复，不创建 successor worktree。
-7. 返回 exact base/head/tree、changed symbols、Action/Evidence delta、blocker 与 next seam。
+7. 返回exact base/head/tree、changed symbols、Action/Evidence delta、blocker与next seam；分开源码检查、fixture/隔离运行、真实平台作用及未验证范围。冻结patch/manifest等交付保存在有明确保留责任的任务制品位置并回读，不能只交指向可淘汰cache的路径；这不授权归档整套依赖或另建恢复owner。
 
 ## 已授权提交与中断续接
 

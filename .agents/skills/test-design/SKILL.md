@@ -1,9 +1,12 @@
 ---
 name: test-design
-description: 用于已有 Claim/acceptance 需要 case/test 证明时，判断现有证据是否充分、oracle 是否独立以及最小 observation boundary；不创建第二套测试状态或删除权限。
+description: 已有 Claim/acceptance 需要新 case、oracle、测试语义修订或测试价值判断时，选择最小充分且独立的观察；仅选择、执行或复跑已定测试交原 selector/runner。
 ---
 
 # test-design
+
+## 当前归属
+Claim与方法选择归[要求证据](../../../docs/运行/保证/要求证据与裁决.md#要求含义与验收方法不互相定义)；测试输入、REWRITE/退役、执行及重跑归[测试发现与执行](../../../docs/开发/测试发现与执行.md#developer-test-selection)。输入是准确Claim、现有cases/proof、待区分错误与作用范围；输出回原CasePlan/casesRef或测试作者，不新增状态载体。
 
 ## 触发
 - 已有 canonical Claim/acceptance/invariant，但 case/test proof 尚未闭合，或现有测试疑似同源 oracle、重复证明、假 contract/E2E、成功型 fixture、实现布局锁定。
@@ -22,7 +25,7 @@ description: 用于已有 Claim/acceptance 需要 case/test 证明时，判断�
 4. 测试必须有可区分错误实现的 **failure witness**，但不强制专门造 counterexample。真实 regression、counterexample、mutation、differential/metamorphic case、boundary violation 或外部 readback mismatch 均可；property 已给出充分区分条件时不重复造 case。
 5. 按最小 observation boundary 选层级：纯算法/codec/property 用 unit；跨 owner/storage/effect/recovery 用 integration；稳定外部 bytes/schema/config 用 contract；真实入口/进程/Git/宿主链才用 E2E。目录名本身没有证明力。
 6. Fixture 只建立前置状态，不能先执行待证明 transition 或由同一 SUT 制造 postcondition。platform/env/clock/cwd/random/provider 必须绑定实际环境与隔离；skip/未运行不是 PASS，retry 不抹掉首次 failure。
-7. 性能 Claim 必须有 workload、环境、baseline、measurement method 与 observed result；catalog 只是 plan。Golden/snapshot 只能因 Claim/公共合同变化由作者显式更新，不能由 actual 自动批准。
+7. 性能Claim的运行结论绑定workload、环境、baseline、measurement method与observed result；catalog只是plan。Golden/snapshot的语义预期由原作者依据Claim/公共合同明确裁决，不能由actual自动批准。若失败只锁定已变化的私有名称、路径、措辞或布局，先确认这些不是公共合同；Claim未变且有独立判错依据时，可在已有授权与Q4 REWRITE范围内修复过时断言，不要求先改变需求，也不能借“cosmetic”删除真实反例。
 8. 输出最小可实施语义：复用哪个 proof，或需要哪个 test/case、输入、oracle/property、observation boundary、环境和 failure witness；已有 write scope 时由 Worker materialize。
 
 ## 完成

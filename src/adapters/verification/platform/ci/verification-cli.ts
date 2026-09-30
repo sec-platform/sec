@@ -1,12 +1,12 @@
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { CI_VERIFICATION_CONTRACT_REVISION, CI_VERIFICATION_WORKFLOW_PATH } from '../../../../assurance/verification/contract/revision.ts';
 import { uniqueSorted } from '../../../../contracts/canonical.ts';
 import {
   observeExecutionProgressPhase
 } from '../../../../execution/execution-progress.ts';
+import { withAcquiredResource } from '../../../../execution/resource-settlement.ts';
 import {
   withAuthorityGitReadOperation,
   type AuthorityGitReadOperation
@@ -19,6 +19,9 @@ import type { PhysicalWorkspaceSourceSnapshot } from '../../../repository/source
 import {
   assertSameNoFollowDirectoryIdentity,
   inspectNoFollowDirectoryChain,
+  PhysicalNoFollowError,
+  publishExclusiveDurableCanonicalFile,
+  retainNoFollowFileTransaction,
   retainNoFollowOrdinaryFile
 } from '../../../runtime-state/physical/runtime/physical-no-follow.ts';
 import {
@@ -591,20 +594,50 @@ async function runCodexDevelopmentCiVerification(
               || descriptor.argv[1] !== SOURCE_PROGRAM_TRANSITION_ENTRYPOINT) {
             throw new Error('Source Program transition requires the exact adopted-base runtime binding.');
           }
-          const settled = await runGate({
-            ...descriptor,
-            argv: [descriptor.argv[0]!, '--no-env-file', '--config',
-              path.join(compilerRuntimeLayout.packageRoot, 'bunfig.toml'),
-              path.join(compilerRuntimeLayout.packageRoot, SOURCE_PROGRAM_TRANSITION_ENTRYPOINT), ...descriptor.argv.slice(2)]
-          }, execution);
-          if (settled.result.stdout === undefined) {
-            throw new Error('Source Program transition producer did not return exact stdout bytes.');
-          }
-          // A copy of the captured process bytes, bound in this Action's evidenceRefs.
-          // Neither this file nor the JSON it contains is an author capability.
-          writeFileSync(path.join(path.dirname(evidencePath), SOURCE_PROGRAM_TRANSITION_OUTPUT_FILE),
-            settled.result.stdout, { flag: 'wx', mode: 0o400 });
-          return settled;
+          // Keep the configured parent alive across execution and publication;
+          // neither a new directory nor recycled inode may inherit this binding.
+          return await withAcquiredResource({
+            operationLabel: 'Source Program transition output publication',
+            resourceLabel: 'Source Program transition output parent',
+            acquire: () => retainNoFollowFileTransaction(
+              path.dirname(evidencePath), 'Source Program transition output'
+            ),
+            use: async (transitionOutput) => {
+              const settled = await runGate({
+                ...descriptor,
+                argv: [descriptor.argv[0]!, '--no-env-file', '--config',
+                  path.join(compilerRuntimeLayout.packageRoot, 'bunfig.toml'),
+                  path.join(compilerRuntimeLayout.packageRoot, SOURCE_PROGRAM_TRANSITION_ENTRYPOINT), ...descriptor.argv.slice(2)]
+              }, execution);
+              if (settled.result.stdout === undefined) {
+                throw new Error('Source Program transition producer did not return exact stdout bytes.');
+              }
+              // A copy of the captured process bytes, bound in this Action's evidenceRefs.
+              // Neither this file nor the JSON it contains is an author capability.
+              transitionOutput.assertCurrent();
+              const stdout = Buffer.from(settled.result.stdout);
+              const publication = publishExclusiveDurableCanonicalFile({
+                parent: transitionOutput.rootIdentity,
+                name: SOURCE_PROGRAM_TRANSITION_OUTPUT_FILE,
+                bytes: stdout,
+                permissionMode: 0o400,
+                validate: (bytes) => {
+                  if (!Buffer.from(bytes).equals(stdout)) {
+                    throw new Error('Source Program transition output differs from the captured stdout bytes.');
+                  }
+                }
+              });
+              // Physical permits idempotent reuse; this producer's wx contract does not.
+              if (!publication.created) {
+                throw new PhysicalNoFollowError(
+                  'PHYSICAL_NO_FOLLOW_EXCLUSIVE_CONFLICT',
+                  'Source Program transition output already exists.'
+                );
+              }
+              return settled;
+            },
+            release: (transitionOutput) => transitionOutput.dispose()
+          });
         } finally {
           console.log('::endgroup::');
         }
