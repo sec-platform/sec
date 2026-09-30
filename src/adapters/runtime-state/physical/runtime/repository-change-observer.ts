@@ -25,11 +25,9 @@ import {
   type PreparedWindowsRepositoryChangeObserver,
   type WindowsRepositoryChangeObserver
 } from './windows-repository-change-observer.ts';
-import {
-  RETAINED_REPOSITORY_CHANGE_OBSERVER_CONTRACT_DIGEST,
-  RETAINED_REPOSITORY_CHANGE_OBSERVER_REQUIREMENT_ID,
-  type RepositoryChangeObserverSettlement,
-  type RepositoryChangeObserverUnavailableReason
+import type {
+  RepositoryChangeObserverSettlement,
+  RepositoryChangeObserverUnavailableReason
 } from './repository-change-observer-contract.ts';
 
 export {
@@ -125,23 +123,26 @@ export async function armPreparedRepositoryChangeObserver(input: Readonly<{
   if (backend === undefined) {
     return Object.freeze({ status: 'unavailable', reason: 'invalid-input' });
   }
-  const result = backend.platform === 'linux'
-    ? await armPreparedLinuxRepositoryChangeObserver({
-        prepared: backend.observer,
-        operation: input.operation,
-        requirementBindingContext: input.requirementBindingContext
-      })
-    : await armPreparedWindowsRepositoryChangeObserver({
-        prepared: backend.observer,
-        operation: input.operation,
-        requirementBindingContext: input.requirementBindingContext
-      });
-  if (result.status !== 'ready') return result;
+  let live: LiveBackend;
+  if (backend.platform === 'linux') {
+    const result = await armPreparedLinuxRepositoryChangeObserver({
+      prepared: backend.observer,
+      operation: input.operation,
+      requirementBindingContext: input.requirementBindingContext
+    });
+    if (result.status !== 'ready') return result;
+    live = Object.freeze({ platform: 'linux' as const, observer: result.observer });
+  } else {
+    const result = await armPreparedWindowsRepositoryChangeObserver({
+      prepared: backend.observer,
+      operation: input.operation,
+      requirementBindingContext: input.requirementBindingContext
+    });
+    if (result.status !== 'ready') return result;
+    live = Object.freeze({ platform: 'win32' as const, observer: result.observer });
+  }
   preparedBackends.delete(input.prepared);
-  const observer = wrapLive(Object.freeze({
-    platform: backend.platform,
-    observer: result.observer
-  }) as LiveBackend);
+  const observer = wrapLive(live);
   activatedPrepared.set(input.prepared, observer);
   return Object.freeze({ status: 'ready', observer });
 }
@@ -216,8 +217,3 @@ export async function settleRepositoryChangeObserver(
     : settleWindowsRepositoryChangeObserver(backend.observer);
 }
 
-// The generic requirement identity is intentionally platform-independent.
-// A backend's providerIdentityDigest still proves which native provider was
-// retained, while the semantic operation binds this shared zero-write contract.
-void RETAINED_REPOSITORY_CHANGE_OBSERVER_REQUIREMENT_ID;
-void RETAINED_REPOSITORY_CHANGE_OBSERVER_CONTRACT_DIGEST;
