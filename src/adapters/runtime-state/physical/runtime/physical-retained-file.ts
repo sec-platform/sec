@@ -29,6 +29,7 @@ import {
   linuxAssertRetainedExecutableWitness,
   linuxAssertSealedExecutableImage,
   linuxCreateSealedExecutableImage,
+  linuxRetainCurrentSealedExecutableImage,
   linuxOpenReadableLeafAt,
   linuxOpenRetainedExecutableWitness,
   linuxRaiseDescriptorFloor,
@@ -116,6 +117,102 @@ export function retainNoFollowOrdinaryFile(
   role: 'ordinary-file' | 'executable' = 'ordinary-file'
 ): RetainedNoFollowOrdinaryFile {
   return retainNoFollowFile(expectedParent, name, expectedPhysical, label, childDescriptor, role);
+}
+
+
+/**
+ * Adopts the SEC-sealed executable image already running this Linux process
+ * into a fresh owned executable capability.  This is the nested-process path:
+ * it never reopens a mutable source pathname and it owns a duplicate of the
+ * inherited sealed descriptor.
+ */
+export function retainCurrentLinuxSealedExecutable(
+  sourceDescriptor = 3,
+  childDescriptor = 3,
+  label = 'current sealed Linux executable'
+): RetainedNoFollowOrdinaryFile {
+  if (process.platform !== 'linux'
+      || !Number.isSafeInteger(childDescriptor)
+      || childDescriptor < 3 || childDescriptor > 64) {
+    throw physicalError(
+      'PHYSICAL_NO_FOLLOW_CAPABILITY_UNAVAILABLE',
+      `${label} requires Linux and one bounded child descriptor.`
+    );
+  }
+  const image = linuxRetainCurrentSealedExecutableImage(sourceDescriptor, label);
+  let disposed = false;
+  try {
+    const procFdParent = inspectNoFollowDirectoryChain(
+      `/proc/${process.pid}/fd`,
+      `${label} proc descriptor parent`
+    ).target;
+    const assertCurrent = (): void => {
+      if (disposed) {
+        throw physicalError(
+          'PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED',
+          `${label} capability is disposed.`
+        );
+      }
+      linuxAssertSealedExecutableImage(image, label);
+    };
+    const readBytes = (): Uint8Array => {
+      assertCurrent();
+      if (image.size > BigInt(NO_FOLLOW_FILE_READ_LIMIT_BYTES)) {
+        throw physicalError(
+          'PHYSICAL_NO_FOLLOW_READ_LIMIT_EXCEEDED',
+          `${label} exceeds the bounded retained byte-read domain.`
+        );
+      }
+      const size = Number(image.size);
+      const bytes = Buffer.alloc(size);
+      let offset = 0;
+      while (offset < size) {
+        const count = readSync(image.fd, bytes, offset, size - offset, offset);
+        if (count < 1) {
+          throw physicalError(
+            'PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED',
+            `${label} stopped making progress during retained byte read.`
+          );
+        }
+        offset += count;
+      }
+      assertCurrent();
+      return bytes;
+    };
+    const capability = Object.freeze({
+      path: `/proc/self/fd/${sourceDescriptor}`,
+      parent: procFdParent,
+      name: String(sourceDescriptor),
+      physical: image.physical,
+      size: Number(image.size),
+      linkCount: Number(image.linkCount),
+      childPath: `/proc/self/fd/${childDescriptor}`,
+      stdioSourceDescriptor: image.fd,
+      assertCurrent,
+      readBytes,
+      digest: () => {
+        assertCurrent();
+        return image.digest;
+      },
+      dispose: () => {
+        if (disposed) return;
+        disposed = true;
+        closeSync(image.fd);
+      }
+    });
+    retainedNoFollowOrdinaryFilePosixMetadata.set(capability, Object.freeze({
+      mode: Number(image.mode & 0o7777n),
+      ownerGroupId: null,
+      ownerUserId: null
+    }));
+    return issueRetainedNoFollowCapability(capability, 'executable');
+  } catch (error) {
+    if (!disposed) {
+      disposed = true;
+      try { closeSync(image.fd); } catch { /* preserve primary capability error */ }
+    }
+    throw error;
+  }
 }
 
 function retainNoFollowFile(
