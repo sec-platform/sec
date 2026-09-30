@@ -391,46 +391,36 @@ function eventPath(binding: WatchBinding, event: LinuxDirectoryMutationEvent): s
     : `${binding.relativeDirectory}/${event.name}`;
 }
 
+type LinuxRepositoryEventClassification =
+  | Readonly<{ status: 'zero-events' }>
+  | Readonly<{ status: 'events'; events: readonly RepositoryChangeEvent[] }>
+  | Readonly<{ status: 'overflow' | 'discontinuous' }>;
+
 function classifyEvents(
   witness: LinuxDirectoryCreateWitness,
   bindings: ReadonlyMap<number, readonly WatchBinding[]>
-): RepositoryChangeObserverSettlement {
+): LinuxRepositoryEventClassification {
   let raw: readonly LinuxDirectoryMutationEvent[];
   try {
     raw = linuxReadDirectoryMutationEvents(witness, 'Linux repository change observer');
   } catch {
-    return Object.freeze({
-      status: 'discontinuous' as const,
-      rootIdentityDigest: 'sha256:' + '0'.repeat(64) as `sha256:${string}`
-    });
+    return Object.freeze({ status: 'discontinuous' as const });
   }
   if (raw.some((event) => (event.mask & LINUX_IN_Q_OVERFLOW) !== 0)) {
-    return Object.freeze({
-      status: 'overflow' as const,
-      rootIdentityDigest: 'sha256:' + '0'.repeat(64) as `sha256:${string}`
-    });
+    return Object.freeze({ status: 'overflow' as const });
   }
   if (raw.some((event) => (event.mask & LINUX_IN_IGNORED) !== 0)) {
-    return Object.freeze({
-      status: 'discontinuous' as const,
-      rootIdentityDigest: 'sha256:' + '0'.repeat(64) as `sha256:${string}`
-    });
+    return Object.freeze({ status: 'discontinuous' as const });
   }
   const events: RepositoryChangeEvent[] = [];
   for (const event of raw) {
     const logicalBindings = bindings.get(event.watchDescriptor);
     if (logicalBindings === undefined || logicalBindings.length === 0) {
-      return Object.freeze({
-        status: 'discontinuous' as const,
-        rootIdentityDigest: 'sha256:' + '0'.repeat(64) as `sha256:${string}`
-      });
+      return Object.freeze({ status: 'discontinuous' as const });
     }
     const action = eventAction(event.mask);
     if (action === null) {
-      return Object.freeze({
-        status: 'discontinuous' as const,
-        rootIdentityDigest: 'sha256:' + '0'.repeat(64) as `sha256:${string}`
-      });
+      return Object.freeze({ status: 'discontinuous' as const });
     }
     for (const binding of logicalBindings) {
       const observedPath = eventPath(binding, event);
@@ -441,55 +431,38 @@ function classifyEvents(
         action
       }));
       if (events.length > REPOSITORY_CHANGE_OBSERVER_MAXIMUM_EVENTS) {
-        return Object.freeze({
-          status: 'overflow' as const,
-          rootIdentityDigest: 'sha256:' + '0'.repeat(64) as `sha256:${string}`
-        });
+        return Object.freeze({ status: 'overflow' as const });
       }
     }
   }
-  if (events.length === 0) {
-    const canonical = Object.freeze({ status: 'zero-events' as const });
-    return Object.freeze({
-      ...canonical,
-      rootIdentityDigest: 'sha256:' + '0'.repeat(64) as `sha256:${string}`,
-      observationDigest: sha256(canonical) as `sha256:${string}`
-    });
-  }
-  const canonical = Object.freeze({
-    status: 'events' as const,
-    events: Object.freeze(events)
-  });
-  return Object.freeze({
-    ...canonical,
-    rootIdentityDigest: 'sha256:' + '0'.repeat(64) as `sha256:${string}`,
-    observationDigest: sha256(canonical) as `sha256:${string}`
-  });
+  return events.length === 0
+    ? Object.freeze({ status: 'zero-events' as const })
+    : Object.freeze({ status: 'events' as const, events: Object.freeze(events) });
 }
 
 function bindRootDigest(
-  settlement: RepositoryChangeObserverSettlement,
+  classification: LinuxRepositoryEventClassification,
   rootIdentityDigest: `sha256:${string}`
 ): RepositoryChangeObserverSettlement {
-  if (settlement.status === 'zero-events') {
-    const canonical = Object.freeze({ status: settlement.status, rootIdentityDigest });
+  if (classification.status === 'zero-events') {
+    const canonical = Object.freeze({ status: classification.status, rootIdentityDigest });
     return Object.freeze({
       ...canonical,
       observationDigest: sha256(canonical) as `sha256:${string}`
     });
   }
-  if (settlement.status === 'events') {
+  if (classification.status === 'events') {
     const canonical = Object.freeze({
-      status: settlement.status,
+      status: classification.status,
       rootIdentityDigest,
-      events: settlement.events
+      events: classification.events
     });
     return Object.freeze({
       ...canonical,
       observationDigest: sha256(canonical) as `sha256:${string}`
     });
   }
-  return Object.freeze({ status: settlement.status, rootIdentityDigest });
+  return Object.freeze({ status: classification.status, rootIdentityDigest });
 }
 
 export function prepareLinuxRepositoryChangeObserver(input: Readonly<{
