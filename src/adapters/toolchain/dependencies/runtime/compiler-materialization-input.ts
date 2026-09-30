@@ -102,8 +102,12 @@ export async function currentRuntimeExecutableIdentity(
     const handle = await fs.open(executablePath, 'r');
     try {
       const metadata = await handle.stat({ bigint: true });
-      if (!metadata.isFile()) {
-        throw new SecError('IMPORT-AUTHORITY-001', 'Bun runtime executable must be one physical file');
+      const pathBefore = await fs.lstat(executablePath, { bigint: true });
+      if (!metadata.isFile() || !pathBefore.isFile() || pathBefore.isSymbolicLink()
+        || metadata.dev !== pathBefore.dev || metadata.ino !== pathBefore.ino
+        || metadata.mode !== pathBefore.mode || metadata.size !== pathBefore.size
+        || metadata.mtimeNs !== pathBefore.mtimeNs) {
+        throw new SecError('IMPORT-AUTHORITY-001', 'Bun runtime executable must be one stable physical file');
       }
       const signature = [
         executablePath,
@@ -114,9 +118,17 @@ export async function currentRuntimeExecutableIdentity(
         metadata.mtimeNs
       ].join(':');
       const executableBytes = await handle.readFile();
-      const after = await handle.stat({ bigint: true });
+      const [after, pathAfter, physicalPathAfter] = await Promise.all([
+        handle.stat({ bigint: true }),
+        fs.lstat(executablePath, { bigint: true }),
+        fs.realpath(executablePath)
+      ]);
       if (metadata.dev !== after.dev || metadata.ino !== after.ino || metadata.mode !== after.mode ||
         metadata.size !== after.size || metadata.mtimeNs !== after.mtimeNs ||
+        pathAfter.dev !== metadata.dev || pathAfter.ino !== metadata.ino ||
+        pathAfter.mode !== metadata.mode || pathAfter.size !== metadata.size ||
+        pathAfter.mtimeNs !== metadata.mtimeNs ||
+        !sameHostPath(physicalPathAfter, executablePath) ||
         !sameHostPath(await fs.realpath(process.execPath), executablePath)) {
         throw new SecError('IMPORT-AUTHORITY-001', 'Bun runtime executable changed during observation');
       }
