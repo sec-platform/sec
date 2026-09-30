@@ -2,7 +2,7 @@ import { dlopen, FFIType, ptr, read } from 'bun:ffi';
 
 import { createHash } from 'node:crypto';
 
-import { closeSync, fchmodSync, fstatSync, lstatSync, mkdirSync, readSync, renameSync, writeSync } from 'node:fs';
+import { closeSync, fchmodSync, fstatSync, lstatSync, mkdirSync, openSync, readSync, renameSync, writeSync } from 'node:fs';
 
 import path from 'node:path';
 
@@ -383,6 +383,122 @@ export function linuxAssertSealedExecutableImage(
       'PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED',
       `${label} immutable executable image identity changed.`
     );
+  }
+}
+
+
+export interface LinuxCurrentSealedExecutableImage {
+  readonly fd: number;
+  readonly physical: Readonly<{ device: string; inode: string }>;
+  readonly mode: bigint;
+  readonly size: bigint;
+  readonly linkCount: bigint;
+  readonly sealMask: number;
+  readonly digest: Readonly<{
+    size: number;
+    contentDigest: `sha256:${string}`;
+    byteDigest: `sha256:${string}`;
+  }>;
+}
+
+/**
+ * Retains the executable image of the current Linux process when that image is
+ * one SEC-compatible sealed memfd.  The inherited descriptor and
+ * /proc/self/exe must name the same kernel object; the returned duplicate owns
+ * its lifetime independently of the inherited transport descriptor.
+ */
+export function linuxRetainCurrentSealedExecutableImage(
+  sourceFd: number,
+  label: string
+): LinuxCurrentSealedExecutableImage {
+  if (process.platform !== 'linux' || !Number.isSafeInteger(sourceFd)
+      || sourceFd < 3 || sourceFd > 64) {
+    throw physicalError(
+      'PHYSICAL_NO_FOLLOW_CAPABILITY_UNAVAILABLE',
+      `${label} requires one bounded Linux inherited executable descriptor.`
+    );
+  }
+  const duplicate = requireLinuxLibc().symbols.fcntl(
+    sourceFd,
+    LINUX_F_DUPFD_CLOEXEC,
+    LINUX_RETAINED_DESCRIPTOR_MIN
+  );
+  if (duplicate < LINUX_RETAINED_DESCRIPTOR_MIN) {
+    throw physicalError(
+      'PHYSICAL_NO_FOLLOW_CAPABILITY_UNAVAILABLE',
+      `${label} cannot duplicate the inherited executable descriptor (errno ${linuxErrno()}).`
+    );
+  }
+  let currentExecutableFd: number | null = null;
+  try {
+    currentExecutableFd = openSync('/proc/self/exe', 'r');
+    const retained = fstatSync(duplicate, { bigint: true });
+    const current = fstatSync(currentExecutableFd, { bigint: true });
+    if (!retained.isFile() || !current.isFile()
+        || retained.dev !== current.dev || retained.ino !== current.ino
+        || retained.mode !== current.mode || retained.size !== current.size) {
+      throw physicalError(
+        'PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED',
+        `${label} inherited descriptor does not name the current executable image.`
+      );
+    }
+    const seals = requireLinuxLibc().symbols.fcntl(duplicate, LINUX_F_GET_SEALS, 0);
+    if (seals < 0 || (seals & LINUX_EXECUTABLE_SEALS) !== LINUX_EXECUTABLE_SEALS) {
+      throw physicalError(
+        'PHYSICAL_NO_FOLLOW_CAPABILITY_UNAVAILABLE',
+        `${label} current executable image is not fully sealed.`
+      );
+    }
+    const physical = Object.freeze({
+      device: String(retained.dev),
+      inode: String(retained.ino)
+    });
+    const imageDigest = digestRetainedOrdinaryFileFd(
+      duplicate,
+      physical,
+      `${label} content`,
+      () => {
+        const sealReadback = requireLinuxLibc().symbols.fcntl(
+          duplicate,
+          LINUX_F_GET_SEALS,
+          0
+        );
+        if (sealReadback < 0
+            || (sealReadback & LINUX_EXECUTABLE_SEALS) !== LINUX_EXECUTABLE_SEALS) {
+          throw physicalError(
+            'PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED',
+            `${label} executable seals changed during observation.`
+          );
+        }
+      }
+    );
+    const after = fstatSync(duplicate, { bigint: true });
+    const currentAfter = fstatSync(currentExecutableFd, { bigint: true });
+    if (after.dev !== retained.dev || after.ino !== retained.ino
+        || after.mode !== retained.mode || after.size !== retained.size
+        || currentAfter.dev !== retained.dev || currentAfter.ino !== retained.ino
+        || currentAfter.mode !== retained.mode || currentAfter.size !== retained.size) {
+      throw physicalError(
+        'PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED',
+        `${label} current executable image changed during observation.`
+      );
+    }
+    return Object.freeze({
+      fd: duplicate,
+      physical,
+      mode: retained.mode,
+      size: retained.size,
+      linkCount: retained.nlink,
+      sealMask: seals,
+      digest: imageDigest
+    });
+  } catch (error) {
+    try { closeSync(duplicate); } catch { /* preserve the primary retained-image error */ }
+    throw error;
+  } finally {
+    if (currentExecutableFd !== null) {
+      try { closeSync(currentExecutableFd); } catch { /* read-only witness cleanup */ }
+    }
   }
 }
 
