@@ -42,7 +42,9 @@ jobs:
         run: bun run typecheck:verified
 
       - name: Run Linux observer native regressions
-        run: bun test src/adapters/runtime-state/physical/runtime/linux-repository-change-observer.test.ts
+        run: |
+          bun test src/adapters/runtime-state/physical/runtime/linux-repository-change-observer.test.ts
+          bun test src/adapters/runtime-state/physical/runtime/repository-change-observer.test.ts
 
       - name: Run development runner regressions through SEC owner
         run: bun run test -- tests/unit/test-runner.test.ts
