@@ -1003,24 +1003,39 @@ async function assertSynchronizedWorktreePreimages(
 ): Promise<void> {
   for (const update of updates) {
     const absolutePath = absoluteRepositoryPath(projectRoot, update.entry.path);
-    let metadata: Awaited<ReturnType<typeof fs.lstat>>;
-    let bytes: Buffer;
+    let handle: Awaited<ReturnType<typeof fs.open>> | null = null;
     try {
-      metadata = await fs.lstat(absolutePath);
-      bytes = await fs.readFile(absolutePath);
+      handle = await fs.open(absolutePath, 'r');
+      const opened = await handle.stat();
+      const metadata = await fs.lstat(absolutePath);
+      if (!opened.isFile() || !metadata.isFile() || metadata.isSymbolicLink()
+        || opened.dev !== metadata.dev || opened.ino !== metadata.ino
+        || opened.mode !== metadata.mode || opened.size !== metadata.size
+        || opened.mtimeMs !== metadata.mtimeMs || opened.ctimeMs !== metadata.ctimeMs) {
+        throw new Error('worktree preimage path does not bind the opened file');
+      }
+      const bytes = await handle.readFile();
+      const [afterHandle, afterPath] = await Promise.all([
+        handle.stat(),
+        fs.lstat(absolutePath)
+      ]);
+      if (afterHandle.dev !== opened.dev || afterHandle.ino !== opened.ino
+        || afterHandle.mode !== opened.mode || afterHandle.size !== opened.size
+        || afterHandle.mtimeMs !== opened.mtimeMs || afterHandle.ctimeMs !== opened.ctimeMs
+        || afterPath.dev !== opened.dev || afterPath.ino !== opened.ino
+        || afterPath.mode !== opened.mode || afterPath.size !== opened.size
+        || afterPath.mtimeMs !== opened.mtimeMs || afterPath.ctimeMs !== opened.ctimeMs
+        || !bytes.equals(update.expectedBytes)) {
+        throw new Error('worktree preimage changed during retained read');
+      }
     } catch (error) {
       throw new CompilerError(
         'IMPORT-STAGED-WORKTREE-DIVERGED',
-        `Cannot synchronize staged imports because the worktree preimage is unavailable: ${update.entry.path}`,
+        `Cannot synchronize staged imports because the worktree preimage is unavailable or changed: ${update.entry.path}`,
         { path: update.entry.path, cause: String(error) }
       );
-    }
-    if (!metadata.isFile() || metadata.isSymbolicLink() || !bytes.equals(update.expectedBytes)) {
-      throw new CompilerError(
-        'IMPORT-STAGED-WORKTREE-DIVERGED',
-        `Cannot synchronize staged imports because index and worktree bytes differ: ${update.entry.path}`,
-        { path: update.entry.path }
-      );
+    } finally {
+      await handle?.close();
     }
   }
 }
