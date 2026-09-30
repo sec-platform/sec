@@ -155,10 +155,16 @@ async function readStableOrdinaryFileSnapshot(
   const handle = await fs.open(filePath, 'r');
   try {
     const opened = await handle.stat();
-    const [pathMetadata, physicalPath] = await Promise.all([
-      fs.lstat(filePath),
-      fs.realpath(filePath)
-    ]);
+    let pathMetadata: Stats;
+    let physicalPath: string;
+    try {
+      [pathMetadata, physicalPath] = await Promise.all([
+        fs.lstat(filePath),
+        fs.realpath(filePath)
+      ]);
+    } catch (error) {
+      throw new Error(`${label} path changed after its file was retained.`, { cause: error });
+    }
     if (!opened.isFile()
       || !pathMetadata.isFile() || pathMetadata.isSymbolicLink()
       || !sameOrdinaryFileIdentity(opened, pathMetadata)
@@ -189,10 +195,16 @@ async function readStableOrdinaryFileSnapshot(
       }
       bytes = Buffer.from(buffer.subarray(0, offset));
     }
-    const [afterHandle, afterPath] = await Promise.all([
-      handle.stat(),
-      fs.lstat(filePath)
-    ]);
+    let afterHandle: Stats;
+    let afterPath: Stats;
+    try {
+      [afterHandle, afterPath] = await Promise.all([
+        handle.stat(),
+        fs.lstat(filePath)
+      ]);
+    } catch (error) {
+      throw new Error(`${label} path changed during retained read.`, { cause: error });
+    }
     if (!sameOrdinaryFileIdentity(afterHandle, afterPath)
       || afterHandle.dev !== opened.dev || afterHandle.ino !== opened.ino
       || afterHandle.mode !== opened.mode || afterHandle.nlink !== opened.nlink
@@ -719,9 +731,18 @@ async function appendCompactJournal(
       || opened.size + encoded.byteLength > IMPORT_TRANSFORM_JOURNAL_MAX_BYTES) {
       recoveryFailure('Import transform journal changed before append.');
     }
-    const written = await handle.write(encoded, 0, encoded.byteLength, opened.size);
-    if (written.bytesWritten !== encoded.byteLength) {
-      recoveryFailure('Import transform journal append was incomplete.');
+    let writtenBytes = 0;
+    while (writtenBytes < encoded.byteLength) {
+      const written = await handle.write(
+        encoded,
+        writtenBytes,
+        encoded.byteLength - writtenBytes,
+        opened.size + writtenBytes
+      );
+      if (written.bytesWritten === 0) {
+        recoveryFailure('Import transform journal append made no progress.');
+      }
+      writtenBytes += written.bytesWritten;
     }
     await handle.sync();
     const [afterHandle, afterPath] = await Promise.all([
