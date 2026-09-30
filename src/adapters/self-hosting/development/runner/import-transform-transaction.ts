@@ -128,6 +128,71 @@ function samePhysicalPath(left: string, right: string): boolean {
   return normalize(left) === normalize(right);
 }
 
+type StableOrdinaryFileSnapshot = Readonly<{
+  bytes: Buffer;
+  mode: number;
+  physicalPath: string;
+}>;
+
+function sameOrdinaryFileIdentity(
+  left: Awaited<ReturnType<Awaited<ReturnType<typeof fs.open>>['stat']>>,
+  right: Awaited<ReturnType<typeof fs.lstat>>
+): boolean {
+  return left.dev === right.dev
+    && left.ino === right.ino
+    && left.mode === right.mode
+    && left.nlink === right.nlink
+    && left.size === right.size
+    && left.mtimeMs === right.mtimeMs
+    && left.ctimeMs === right.ctimeMs;
+}
+
+async function readStableOrdinaryFileSnapshot(
+  filePath: string,
+  label: string,
+  maximumBytes?: number
+): Promise<StableOrdinaryFileSnapshot> {
+  const handle = await fs.open(filePath, 'r');
+  try {
+    const opened = await handle.stat();
+    const [pathMetadata, physicalPath] = await Promise.all([
+      fs.lstat(filePath),
+      fs.realpath(filePath)
+    ]);
+    if (!opened.isFile() || opened.nlink !== 1
+      || !pathMetadata.isFile() || pathMetadata.isSymbolicLink() || pathMetadata.nlink !== 1
+      || !sameOrdinaryFileIdentity(opened, pathMetadata)
+      || !samePhysicalPath(physicalPath, filePath)) {
+      throw new Error(`${label} is not one stable ordinary file.`);
+    }
+    if (maximumBytes !== undefined && opened.size > maximumBytes) {
+      throw new Error(`${label} exceeds its bounded byte limit.`);
+    }
+    const bytes = await handle.readFile();
+    const [afterHandle, afterPath] = await Promise.all([
+      handle.stat(),
+      fs.lstat(filePath)
+    ]);
+    if (!sameOrdinaryFileIdentity(afterHandle, afterPath)
+      || afterHandle.dev !== opened.dev || afterHandle.ino !== opened.ino
+      || afterHandle.mode !== opened.mode || afterHandle.nlink !== opened.nlink
+      || afterHandle.size !== opened.size || afterHandle.mtimeMs !== opened.mtimeMs
+      || afterHandle.ctimeMs !== opened.ctimeMs || bytes.byteLength !== opened.size) {
+      throw new Error(`${label} changed during retained read.`);
+    }
+    if (maximumBytes !== undefined && bytes.byteLength > maximumBytes) {
+      throw new Error(`${label} exceeds its bounded byte limit.`);
+    }
+    return Object.freeze({
+      bytes: Buffer.from(bytes),
+      mode: opened.mode & 0o777,
+      physicalPath
+    });
+  } finally {
+    await handle.close();
+  }
+}
+
 async function assertOrdinaryContainedTargetChain(workspaceRoot: string, absolutePath: string): Promise<void> {
   const root = path.resolve(workspaceRoot);
   const relative = path.relative(root, absolutePath);
@@ -196,16 +261,18 @@ async function readOptionalOrdinaryCandidate(
     }
   }
   try {
-    const metadata = await fs.lstat(candidatePath);
-    if (!metadata.isFile() || metadata.isSymbolicLink()
-      || !samePhysicalPath(await fs.realpath(candidatePath), candidatePath)) {
-      throw new ImportTransformTransactionFailure('preimage-conflict',
-        `Import transform candidate is not one ordinary file: ${relative}`);
-    }
-    return Object.freeze({ bytes: await fs.readFile(candidatePath), mode: metadata.mode & 0o777 });
+    const snapshot = await readStableOrdinaryFileSnapshot(
+      candidatePath,
+      `Import transform candidate ${relative}`
+    );
+    return Object.freeze({ bytes: snapshot.bytes, mode: snapshot.mode });
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null;
-    throw error;
+    if (error instanceof ImportTransformTransactionFailure) throw error;
+    throw new ImportTransformTransactionFailure(
+      'preimage-conflict',
+      error instanceof Error ? error.message : String(error)
+    );
   }
 }
 
@@ -307,10 +374,19 @@ async function assertExpectedCurrentTarget(
   mode: number
 ): Promise<void> {
   await assertOrdinaryContainedTargetChain(workspaceRoot, filePath);
-  const metadata = await fs.lstat(filePath);
-  const current = await fs.readFile(filePath);
-  if (!metadata.isFile() || metadata.isSymbolicLink() || (metadata.mode & 0o777) !== mode
-    || !current.equals(expectedBytes)) {
+  let snapshot: StableOrdinaryFileSnapshot;
+  try {
+    snapshot = await readStableOrdinaryFileSnapshot(
+      filePath,
+      'Import transform target before durable rename'
+    );
+  } catch (error) {
+    throw new ImportTransformTransactionFailure(
+      'preimage-conflict',
+      error instanceof Error ? error.message : String(error)
+    );
+  }
+  if (snapshot.mode !== mode || !snapshot.bytes.equals(expectedBytes)) {
     throw new ImportTransformTransactionFailure('preimage-conflict',
       `Import transform target drifted before durable rename: ${filePath}`);
   }
@@ -833,16 +909,12 @@ async function readRegularTransactionArtifact(
   label: string,
   maximumBytes?: number
 ): Promise<Buffer> {
-  const metadata = await fs.lstat(filePath);
-  if (!metadata.isFile() || metadata.isSymbolicLink()) recoveryFailure(label + ' is not an ordinary file.');
-  if (maximumBytes !== undefined && metadata.size > maximumBytes) {
-    recoveryFailure(label + ' exceeds its bounded byte limit.');
+  try {
+    return (await readStableOrdinaryFileSnapshot(filePath, label, maximumBytes)).bytes;
+  } catch (error) {
+    if (error instanceof ImportTransformTransactionFailure) throw error;
+    recoveryFailure(error instanceof Error ? error.message : String(error));
   }
-  const bytes = await fs.readFile(filePath);
-  if (maximumBytes !== undefined && bytes.byteLength > maximumBytes) {
-    recoveryFailure(label + ' exceeds its bounded byte limit.');
-  }
-  return bytes;
 }
 
 async function digestRegularTransactionArtifact(
@@ -1146,11 +1218,18 @@ async function readUnfinishedTransaction(
 }
 
 async function currentTransactionFileState(file: PreparedWrite): Promise<'preimage' | 'replacement' | 'other'> {
-  const metadata = await fs.lstat(file.absolutePath);
-  if (!metadata.isFile() || metadata.isSymbolicLink() || (metadata.mode & 0o777) !== file.mode) return 'other';
-  const bytes = await fs.readFile(file.absolutePath);
-  if (bytes.equals(file.expectedBytes)) return 'preimage';
-  if (bytes.equals(file.replacementBytes)) return 'replacement';
+  let snapshot: StableOrdinaryFileSnapshot;
+  try {
+    snapshot = await readStableOrdinaryFileSnapshot(
+      file.absolutePath,
+      `Import transform transaction target ${file.relativePath}`
+    );
+  } catch {
+    return 'other';
+  }
+  if (snapshot.mode !== file.mode) return 'other';
+  if (snapshot.bytes.equals(file.expectedBytes)) return 'preimage';
+  if (snapshot.bytes.equals(file.replacementBytes)) return 'replacement';
   return 'other';
 }
 
@@ -1411,10 +1490,19 @@ async function assertPreimages(
 ): Promise<void> {
   for (const file of files) {
     await assertOrdinaryContainedTargetChain(workspaceRoot, file.absolutePath);
-    const metadata = await fs.lstat(file.absolutePath);
-    const current = await fs.readFile(file.absolutePath);
-    if (!metadata.isFile() || metadata.isSymbolicLink() || (metadata.mode & 0o777) !== file.mode
-      || !current.equals(file.expectedBytes)) {
+    let snapshot: StableOrdinaryFileSnapshot;
+    try {
+      snapshot = await readStableOrdinaryFileSnapshot(
+        file.absolutePath,
+        `Import transform preimage ${file.relativePath}`
+      );
+    } catch (error) {
+      throw new ImportTransformTransactionFailure(
+        'preimage-conflict',
+        error instanceof Error ? error.message : String(error)
+      );
+    }
+    if (snapshot.mode !== file.mode || !snapshot.bytes.equals(file.expectedBytes)) {
       throw new ImportTransformTransactionFailure(
         'preimage-conflict',
         `Import transform preimage changed before publication: ${file.relativePath}`
@@ -1427,13 +1515,22 @@ async function assertFinalWriteSet(workspaceRoot: string, files: readonly Prepar
   const rootRealPath = await fs.realpath(workspaceRoot);
   for (const file of files) {
     await assertOrdinaryContainedTargetChain(workspaceRoot, file.absolutePath);
-    const metadata = await fs.lstat(file.absolutePath);
-    const targetRealPath = await fs.realpath(file.absolutePath);
-    const relativeToRoot = path.relative(rootRealPath, targetRealPath);
-    if (!metadata.isFile() || metadata.isSymbolicLink()
-      || relativeToRoot === '..' || relativeToRoot.startsWith(`..${path.sep}`)
-      || path.isAbsolute(relativeToRoot) || (metadata.mode & 0o777) !== file.mode
-      || !(await fs.readFile(file.absolutePath)).equals(file.replacementBytes)) {
+    let snapshot: StableOrdinaryFileSnapshot;
+    try {
+      snapshot = await readStableOrdinaryFileSnapshot(
+        file.absolutePath,
+        `Import transform final write-set ${file.relativePath}`
+      );
+    } catch (error) {
+      throw new ImportTransformTransactionFailure(
+        'readback-failed',
+        error instanceof Error ? error.message : String(error)
+      );
+    }
+    const relativeToRoot = path.relative(rootRealPath, snapshot.physicalPath);
+    if (relativeToRoot === '..' || relativeToRoot.startsWith(`..${path.sep}`)
+      || path.isAbsolute(relativeToRoot) || snapshot.mode !== file.mode
+      || !snapshot.bytes.equals(file.replacementBytes)) {
       throw new ImportTransformTransactionFailure(
         'readback-failed',
         `Import transform final write-set readback failed for ${file.relativePath}`
