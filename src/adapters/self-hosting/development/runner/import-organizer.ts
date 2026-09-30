@@ -760,10 +760,14 @@ async function prepareStagedIndexPublication(
   const alternateIndexPath = `${indexPath}.imports-staged-${process.pid}-${randomUUID()}`;
   const alternateLockPath = `${alternateIndexPath}.lock`;
   let indexHandle: Awaited<ReturnType<typeof fs.open>> | null = await fs.open(indexPath, 'r');
-  const metadata = await indexHandle.stat();
-  if (!metadata.isFile()) {
-    await indexHandle.close();
-    throw new Error('Git index is not a regular file');
+  let metadata: Awaited<ReturnType<typeof fs.stat>>;
+  try {
+    metadata = await indexHandle.stat();
+    if (!metadata.isFile()) throw new Error('Git index is not a regular file');
+  } catch (error) {
+    await indexHandle.close().catch(() => undefined);
+    indexHandle = null;
+    throw error;
   }
 
   let lock: Awaited<ReturnType<typeof fs.open>> | null = null;
