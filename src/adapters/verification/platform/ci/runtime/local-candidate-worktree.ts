@@ -5,19 +5,21 @@ import { encodeVerificationActionData } from '../../action/contract/action.ts';
 import {
   assertSameNoFollowDirectoryIdentity,
   createNoFollowOrdinaryDirectoryChain,
-  inspectExactNoFollowDirectoryPresence,
+  deleteRetainedNoFollowEntry,
+  inspectNoFollowDirectoryChild,
   inspectNoFollowDirectoryChain,
   inspectNoFollowOrdinaryFileEntry,
   publishExclusiveDurableCanonicalFile,
+  retainNoFollowDirectoryForChildProcess,
   retainNoFollowOrdinaryFile,
   type PhysicalDirectoryIdentity
 } from '../../../../runtime-state/physical/runtime/physical-no-follow.ts';
+import { RETAINED_WORKING_DIRECTORY_CHILD_DESCRIPTOR } from '../../../../runtime-state/physical/runtime/process.ts';
 import type { CiVerificationActionPlanClosure } from '../../action/contract/ci.ts';
 import type { VerificationSessionScope } from '../contract/session-scope.ts';
 import { commonGitDirectory, comparableFileSystemPath, exactRealPath, gitText, runVerificationSessionCommand } from './session-local-repository.ts';
 import type { GitHubCandidateObservation } from './verification-session-github.ts';
 import { createHash } from 'node:crypto';
-import { unlinkSync } from 'node:fs';
 import path from 'node:path';
 
 const LOCAL_CANDIDATE_WORKTREE_OWNER_SCHEMA =
@@ -41,6 +43,8 @@ type LocalCandidateWorktreeOwner = Readonly<{
 
 type LocalCandidateWorktreeLease = Readonly<{
   owner: LocalCandidateWorktreeOwner;
+  markerParent: PhysicalDirectoryIdentity;
+  markerName: string;
   markerPath: string;
   reused: boolean;
 }>;
@@ -125,14 +129,16 @@ function parseLocalCandidateWorktreeOwner(source: unknown): LocalCandidateWorktr
 }
 
 
-function readLocalCandidateWorktreeOwnerMarker(markerPath: string): LocalCandidateWorktreeOwner {
-  const absolute = path.resolve(markerPath);
+function readLocalCandidateWorktreeOwnerMarker(
+  parent: PhysicalDirectoryIdentity,
+  name: string
+): LocalCandidateWorktreeOwner {
   const retained = retainNoFollowOrdinaryFile(
-    inspectNoFollowDirectoryChain(
-      path.dirname(absolute),
+    assertSameNoFollowDirectoryIdentity(
+      parent,
       'local candidate worktree owner marker parent'
     ),
-    path.basename(absolute),
+    name,
     undefined,
     'local candidate worktree owner marker'
   );
@@ -201,20 +207,14 @@ function assertLocalCandidateWorktreeExact(input: {
   ctx: VerificationSessionScope;
   owner: LocalCandidateWorktreeOwner;
   allowTrackedChanges?: boolean;
-  expectedRoot?: PhysicalDirectoryIdentity;
+  expectedRoot: PhysicalDirectoryIdentity;
 }): void {
   const { ctx, owner } = input;
-  const candidateIdentity = inspectNoFollowDirectoryChain(
-    owner.candidateRoot,
-    'local candidate worktree root'
-  ).target;
-  if (input.expectedRoot !== undefined) {
-    if (candidateIdentity.device !== input.expectedRoot.device
-      || candidateIdentity.inode !== input.expectedRoot.inode) {
-      throw new Error('local candidate worktree physical identity changed before verification.');
-    }
-    assertSameNoFollowDirectoryIdentity(input.expectedRoot, 'local candidate worktree expected root');
-  }
+  const candidateChain = assertSameNoFollowDirectoryIdentity(
+    input.expectedRoot,
+    'local candidate worktree expected root'
+  );
+  const candidateIdentity = candidateChain.target;
   const gitMarker = inspectNoFollowOrdinaryFileEntry(
     candidateIdentity,
     '.git',
@@ -223,26 +223,37 @@ function assertLocalCandidateWorktreeExact(input: {
   if (gitMarker === null || gitMarker.kind !== 'file') {
     throw new Error('local candidate worktree .git marker must be an ordinary file.');
   }
-  if (commonGitDirectory(ctx, owner.candidateRoot) !== owner.commonGitDirectory) {
-    throw new Error('local candidate worktree belongs to another Git common directory.');
+  const retainedCandidate = retainNoFollowDirectoryForChildProcess(
+    candidateChain,
+    RETAINED_WORKING_DIRECTORY_CHILD_DESCRIPTOR,
+    'local candidate worktree Git readback'
+  );
+  try {
+    if (commonGitDirectory(ctx, retainedCandidate) !== owner.commonGitDirectory) {
+      throw new Error('local candidate worktree belongs to another Git common directory.');
+    }
+    const root = gitText(ctx, retainedCandidate,
+      ['rev-parse', '--path-format=absolute', '--show-toplevel'], 'candidate worktree root readback');
+    if (comparableFileSystemPath(root) !== comparableFileSystemPath(owner.candidateRoot)) {
+      throw new Error('local candidate worktree root readback differs from its owner marker.');
+    }
+    const headSha = gitText(ctx, retainedCandidate,
+      ['rev-parse', 'HEAD'], 'candidate worktree HEAD readback');
+    const headTreeSha = gitText(ctx, retainedCandidate,
+      ['rev-parse', 'HEAD^{tree}'], 'candidate worktree tree readback');
+    const trackedStatus = gitText(ctx, retainedCandidate,
+      ['status', '--porcelain=v1', '--untracked-files=no'], 'candidate worktree tracked status');
+    const registration = worktreeRegistration(ctx, owner.authorityRoot, owner.candidateRoot);
+    if (headSha !== owner.headSha || headTreeSha !== owner.headTreeSha
+      || (!input.allowTrackedChanges && trackedStatus !== '')
+      || registration === null || registration.headSha !== owner.headSha || !registration.detached) {
+      throw new Error('local candidate worktree is not the exact clean detached candidate.');
+    }
+    retainedCandidate.assertCurrent();
+    assertSameNoFollowDirectoryIdentity(candidateIdentity, 'local candidate worktree final root');
+  } finally {
+    retainedCandidate.dispose();
   }
-  const root = gitText(ctx, owner.candidateRoot,
-    ['rev-parse', '--path-format=absolute', '--show-toplevel'], 'candidate worktree root readback');
-  if (comparableFileSystemPath(root) !== comparableFileSystemPath(owner.candidateRoot)) {
-    throw new Error('local candidate worktree root readback differs from its owner marker.');
-  }
-  const headSha = gitText(ctx, owner.candidateRoot, ['rev-parse', 'HEAD'], 'candidate worktree HEAD readback');
-  const headTreeSha = gitText(ctx, owner.candidateRoot,
-    ['rev-parse', 'HEAD^{tree}'], 'candidate worktree tree readback');
-  const trackedStatus = gitText(ctx, owner.candidateRoot,
-    ['status', '--porcelain=v1', '--untracked-files=no'], 'candidate worktree tracked status');
-  const registration = worktreeRegistration(ctx, owner.authorityRoot, owner.candidateRoot);
-  if (headSha !== owner.headSha || headTreeSha !== owner.headTreeSha
-    || (!input.allowTrackedChanges && trackedStatus !== '')
-    || registration === null || registration.headSha !== owner.headSha || !registration.detached) {
-    throw new Error('local candidate worktree is not the exact clean detached candidate.');
-  }
-  assertSameNoFollowDirectoryIdentity(candidateIdentity, 'local candidate worktree final root');
 }
 
 export function acquireLocalCandidateWorktree(input: {
@@ -252,6 +263,10 @@ export function acquireLocalCandidateWorktree(input: {
   sessionRevision: `sha256:${string}`;
   actionPlanClosure: CiVerificationActionPlanClosure;
 }): LocalCandidateWorktreeLease {
+  if (!/^[0-9a-f]{40}$/u.test(input.candidate.headSha)
+      || !/^[0-9a-f]{40}$/u.test(input.candidate.headTreeSha)) {
+    throw new Error('local candidate worktree requires canonical Git object identities.');
+  }
   const authorityRoot = exactRealPath(input.authorityRoot, 'trusted authority root');
   const authorityIdentity = inspectNoFollowDirectoryChain(
     authorityRoot,
@@ -284,50 +299,102 @@ export function acquireLocalCandidateWorktree(input: {
     actionPlanDigest: input.actionPlanClosure.actionPlanDigest as `sha256:${string}` });
   const createdMarker = publishExclusiveCanonicalOwnerMarker(parent, markerName, owner);
   if (!createdMarker) {
-    const observed = readLocalCandidateWorktreeOwnerMarker(markerPath);
+    const observed = readLocalCandidateWorktreeOwnerMarker(parent, markerName);
     if (encodeVerificationActionData(observed) !== encodeVerificationActionData(owner)) {
       throw new Error('local candidate worktree is owned by a different Session or Action plan.');
     }
   }
-  const registration = worktreeRegistration(input.ctx, authorityRoot, candidateRoot);
-  const candidatePresence = inspectExactNoFollowDirectoryPresence(candidateRoot);
-  if (registration !== null || candidatePresence.state === 'present') {
-    if (registration === null || candidatePresence.state !== 'present') {
-      throw new Error('local candidate worktree filesystem and Git registration disagree.');
+
+  const candidateNamespace = retainNoFollowDirectoryForChildProcess(
+    assertSameNoFollowDirectoryIdentity(parent, 'local candidate worktree namespace parent'),
+    RETAINED_WORKING_DIRECTORY_CHILD_DESCRIPTOR + 1,
+    'local candidate worktree namespace parent'
+  );
+  try {
+    const registration = worktreeRegistration(input.ctx, authorityRoot, candidateRoot);
+    const candidatePresence = inspectNoFollowDirectoryChild(
+      parent,
+      input.candidate.headSha,
+      'local candidate worktree'
+    );
+    if (registration !== null || candidatePresence !== null) {
+      if (registration === null || candidatePresence === null) {
+        throw new Error('local candidate worktree filesystem and Git registration disagree.');
+      }
+      assertLocalCandidateWorktreeExact({
+        ctx: input.ctx,
+        owner,
+        expectedRoot: candidatePresence
+      });
+      return Object.freeze({
+        owner,
+        markerParent: parent,
+        markerName,
+        markerPath,
+        reused: true
+      });
+    }
+
+    candidateNamespace.assertCurrent();
+    const physicalCandidateTarget = path.join(
+      candidateNamespace.childPath,
+      input.candidate.headSha
+    );
+    const add = runVerificationSessionCommand(
+      input.ctx,
+      'git',
+      ['worktree', 'add', '--detach', physicalCandidateTarget, input.candidate.headSha],
+      authorityRoot,
+      undefined,
+      [candidateNamespace]
+    );
+    candidateNamespace.assertCurrent();
+    if (add.status !== 0) {
+      const afterFailure = worktreeRegistration(input.ctx, authorityRoot, candidateRoot);
+      const afterFailurePresence = inspectNoFollowDirectoryChild(
+        parent,
+        input.candidate.headSha,
+        'local candidate worktree after failed materialization'
+      );
+      if (afterFailure === null || afterFailurePresence === null) {
+        throw new Error(
+          `Cannot materialize exact local candidate worktree: ${decodeBranchLifecycleChildError(add)}`
+        );
+      }
+    }
+    const materializedPresence = inspectNoFollowDirectoryChild(
+      parent,
+      input.candidate.headSha,
+      'local candidate worktree materialization readback'
+    );
+    if (materializedPresence === null) {
+      throw new Error('local candidate worktree disappeared after Git materialization.');
     }
     assertLocalCandidateWorktreeExact({
       ctx: input.ctx,
       owner,
-      expectedRoot: candidatePresence.directory.target
+      expectedRoot: materializedPresence
     });
-    return Object.freeze({ owner, markerPath, reused: true });
+    return Object.freeze({
+      owner,
+      markerParent: parent,
+      markerName,
+      markerPath,
+      reused: false
+    });
+  } finally {
+    candidateNamespace.dispose();
   }
-  const add = runVerificationSessionCommand(input.ctx, 'git',
-    ['worktree', 'add', '--detach', candidateRoot, input.candidate.headSha], authorityRoot);
-  if (add.status !== 0) {
-    const afterFailure = worktreeRegistration(input.ctx, authorityRoot, candidateRoot);
-    const afterFailurePresence = inspectExactNoFollowDirectoryPresence(candidateRoot);
-    if (afterFailure === null || afterFailurePresence.state !== 'present') {
-      throw new Error(`Cannot materialize exact local candidate worktree: ${decodeBranchLifecycleChildError(add)}`);
-    }
-  }
-  const materializedPresence = inspectExactNoFollowDirectoryPresence(candidateRoot);
-  if (materializedPresence.state !== 'present') {
-    throw new Error('local candidate worktree disappeared after Git materialization.');
-  }
-  assertLocalCandidateWorktreeExact({
-    ctx: input.ctx,
-    owner,
-    expectedRoot: materializedPresence.directory.target
-  });
-  return Object.freeze({ owner, markerPath, reused: false });
 }
 
 export async function removeLocalCandidateWorktree(input: {
   ctx: VerificationSessionScope;
   lease: LocalCandidateWorktreeLease;
 }): Promise<'removed' | 'retained-physical-closeout-blocked'> {
-  const observed = readLocalCandidateWorktreeOwnerMarker(input.lease.markerPath);
+  const observed = readLocalCandidateWorktreeOwnerMarker(
+    input.lease.markerParent,
+    input.lease.markerName
+  );
   if (encodeVerificationActionData(observed) !== encodeVerificationActionData(input.lease.owner)) {
     throw new Error('local candidate worktree cleanup owner marker drifted.');
   }
@@ -362,7 +429,41 @@ export async function removeLocalCandidateWorktree(input: {
       || receipt.target.recoveryAuthorityDigest !== observed.ownerDigest) {
       return 'retained-physical-closeout-blocked';
     }
-    unlinkSync(input.lease.markerPath);
+    const currentMarker = readLocalCandidateWorktreeOwnerMarker(
+      input.lease.markerParent,
+      input.lease.markerName
+    );
+    if (encodeVerificationActionData(currentMarker)
+        !== encodeVerificationActionData(input.lease.owner)) {
+      return 'retained-physical-closeout-blocked';
+    }
+    const markerParent = assertSameNoFollowDirectoryIdentity(
+      input.lease.markerParent,
+      'local candidate worktree marker cleanup parent'
+    ).target;
+    const markerEntry = inspectNoFollowOrdinaryFileEntry(
+      markerParent,
+      input.lease.markerName,
+      { maximumBytes: 64 * 1024 }
+    );
+    if (markerEntry === null || markerEntry.kind !== 'file') {
+      return 'retained-physical-closeout-blocked';
+    }
+    deleteRetainedNoFollowEntry({
+      root: markerParent,
+      relativePath: input.lease.markerName,
+      kind: 'file',
+      device: markerEntry.device,
+      inode: markerEntry.inode,
+      ancestorDirectories: Object.freeze([])
+    });
+    if (inspectNoFollowOrdinaryFileEntry(
+      markerParent,
+      input.lease.markerName,
+      { maximumBytes: 64 * 1024 }
+    ) !== null) {
+      return 'retained-physical-closeout-blocked';
+    }
     return 'removed';
   } catch {
     return 'retained-physical-closeout-blocked';
