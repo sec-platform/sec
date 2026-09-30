@@ -920,6 +920,7 @@ async function readRegularTransactionArtifact(
   try {
     return (await readStableOrdinaryFileSnapshot(filePath, label, maximumBytes)).bytes;
   } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') throw error;
     if (error instanceof ImportTransformTransactionFailure) throw error;
     recoveryFailure(error instanceof Error ? error.message : String(error));
   }
