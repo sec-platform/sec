@@ -1,6 +1,10 @@
 /** VerificationSession physical owner recovered from current-main semantics. */
 import { BRANCH_CLOSEOUT_RECOVERY_ARTIFACT_FILE_NAME, type BranchCloseoutRecoveryArtifact, createBranchCloseoutRecoveryArtifact, parseBranchCloseoutRecoveryArtifact } from '../../../../self-hosting/control/branch-lifecycle/branch-closeout-contract.ts';
 import { parsePreparedBranchCloseoutEnvelope, rehydratePreparedBranchCloseoutRecoveryArtifact } from '../../../../self-hosting/control/branch-lifecycle/branch-closeout.ts';
+import {
+  inspectNoFollowDirectoryChain,
+  retainNoFollowOrdinaryFile
+} from '../../../../runtime-state/physical/runtime/physical-no-follow.ts';
 import { encodeVerificationActionData } from '../../action/contract/action.ts';
 import { CI_GITHUB_ACTIONS_IDENTITY_POLICY } from '../../action/contract/provider.ts';
 import type { VerificationSession } from '../../session/contract/session.ts';
@@ -9,7 +13,6 @@ import type { VerificationSessionScope } from '../contract/session-scope.ts';
 import { writeCanonicalDurable } from './session-artifact-files.ts';
 import type { GitHubActionsArtifactObservation, VerificationSessionGitHubClient } from './verification-session-github.ts';
 import { createHostedArtifactObservation, parseVerificationSessionHostedRequest } from './verification-session-runtime.ts';
-import { readFileSync } from 'node:fs';
 import path from 'node:path';
 
 function comparePositiveDecimalDescending(left: string, right: string): number {
@@ -53,7 +56,24 @@ export function materializeBranchCloseoutRecoveryArtifact(input: {
   artifactName: string;
   artifactFilePath: string;
 }> {
-  const bundleBytes = readFileSync(input.prepared.preparation.recovery.path);
+  const recoveryPath = path.resolve(input.prepared.preparation.recovery.path);
+  const recoveryParent = inspectNoFollowDirectoryChain(
+    path.dirname(recoveryPath),
+    'Branch closeout recovery bundle parent'
+  );
+  const retainedBundle = retainNoFollowOrdinaryFile(
+    recoveryParent,
+    path.basename(recoveryPath),
+    undefined,
+    'Branch closeout recovery bundle'
+  );
+  let bundleBytes: Buffer;
+  try {
+    bundleBytes = Buffer.from(retainedBundle.readBytes());
+    retainedBundle.assertCurrent();
+  } finally {
+    retainedBundle.dispose();
+  }
   const preparedBytes = `${JSON.stringify(input.prepared, null, 2)}\n`;
   const artifact = createBranchCloseoutRecoveryArtifact({ repository: input.repository,
     pullRequestNumber: input.session.prNumber, sessionRevision: input.session.sessionRevision,
