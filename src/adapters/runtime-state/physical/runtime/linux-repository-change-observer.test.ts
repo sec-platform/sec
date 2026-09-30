@@ -96,3 +96,19 @@ test.skipIf(process.platform !== 'linux')(
     ))).toBeTrue();
   })
 );
+
+
+test.skipIf(process.platform !== 'linux')(
+  'Linux repository observer reports deadline exhaustion instead of a clean zero-event receipt',
+  async () => withFixture(async (root) => {
+    const resolution = await armLinuxRepositoryChangeObserver({
+      roots: [root],
+      deadlineAtUnixMs: Date.now() + 500
+    });
+    expect(resolution.status).toBe('ready');
+    if (resolution.status !== 'ready') return;
+    await new Promise((resolve) => setTimeout(resolve, 600));
+    const settlement = await settleLinuxRepositoryChangeObserver(resolution.observer);
+    expect(settlement.status).toBe('deadline-exhausted');
+  })
+);
