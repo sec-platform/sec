@@ -2,8 +2,8 @@ import path from 'node:path';
 
 import {
   inspectNoFollowDirectoryChain,
+  retainCurrentProcessExecutable,
   retainNoFollowDirectoryForChildProcess,
-  retainNoFollowOrdinaryFile
 } from '../../../runtime-state/physical/runtime/physical-no-follow.ts';
 import type { ProcessResourceRunResult } from '../../../runtime-state/physical/runtime/process-resource-session.ts';
 import {
@@ -36,18 +36,7 @@ export async function executeVerifiedCiActionPlan(options: Readonly<{
   if (repositoryRoot !== options.repositoryRoot) {
     throw new Error('Verification Action repository root must be canonical.');
   }
-  const executablePath = path.resolve(process.execPath);
-  const executable = retainNoFollowOrdinaryFile(
-    inspectNoFollowDirectoryChain(
-      path.dirname(executablePath),
-      'Verification Action executable parent'
-    ),
-    path.basename(executablePath),
-    undefined,
-    'Verification Action executable',
-    RETAINED_EXECUTABLE_CHILD_DESCRIPTOR,
-    'executable'
-  );
+  const executable = retainCurrentProcessExecutable(RETAINED_EXECUTABLE_CHILD_DESCRIPTOR, 'Verification Action executable');
   const workingDirectory = retainNoFollowDirectoryForChildProcess(
     inspectNoFollowDirectoryChain(
       repositoryRoot,

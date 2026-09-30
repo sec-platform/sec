@@ -23,6 +23,7 @@ import {
   type GitScratchIndexTreeFailureReason,
   type GitScratchIndexTreeSession
 } from '../../../providers/git-read/runtime/session.ts';
+import { withGitHubCredentialBootstrap } from '../../../providers/github-api/credential-bootstrap.ts';
 import type { GitHubApiCapability } from '../../../providers/github-api/operation-session.ts';
 import { compileSecRepositoryModuleMembership } from '../../../repository/architecture/contract.ts';
 import {
@@ -6854,12 +6855,16 @@ export function projectDocumentControlPlaneStatusCli(
 }
 
 export async function runDocumentControlPlaneCli(): Promise<void> {
-  const argv = process.argv.slice(2);
+  return withGitHubCredentialBootstrap(process.argv.slice(2), runDocumentControlPlaneCliArguments);
+}
+
+async function runDocumentControlPlaneCliArguments(argv: string[]): Promise<void> {
   const command = argv.shift();
   const usage = 'Usage:\n'
     + '  bun src/adapters/self-hosting/control/documentation/document-control-plane.ts status [--workspace <path>] [--json] [--full]\n'
     + '  bun src/adapters/self-hosting/control/documentation/document-control-plane.ts freeze --workspace <candidate-path> '
-    + '--manifest <path> --reviewed-on <YYYY-MM-DD> [--proposal-only] [--json]';
+    + '--manifest <path> --reviewed-on <YYYY-MM-DD> [--proposal-only] [--json]\n'
+    + '  Optional: --github-credential-store <absolute-private-directory> (Linux only; outside the operation checkout)';
   if (command === 'status') {
     let workspace = process.cwd();
     for (let index = 0; index < argv.length; index += 1) {

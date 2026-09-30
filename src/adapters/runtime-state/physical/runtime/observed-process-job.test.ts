@@ -17,8 +17,8 @@ import {
 } from './observed-process.ts';
 import {
   inspectNoFollowDirectoryChain,
+  retainCurrentProcessExecutable,
   retainNoFollowDirectoryForChildProcess,
-  retainNoFollowOrdinaryFile
 } from './physical-no-follow.ts';
 import {
   issueRetainedCommandBoundary,
@@ -53,15 +53,7 @@ function providerCapability(effectKinds: readonly SecOperationEffectKind[]) {
     contractDigest: digest('contract'),
     providerIdentityDigest: digest('provider')
   })]);
-  const executablePath = path.resolve(process.execPath);
-  const executable = retainNoFollowOrdinaryFile(
-    inspectNoFollowDirectoryChain(path.dirname(executablePath), 'provider job test executable parent'),
-    path.basename(executablePath),
-    undefined,
-    'provider job test executable',
-    RETAINED_EXECUTABLE_CHILD_DESCRIPTOR,
-    'executable'
-  );
+  const executable = retainCurrentProcessExecutable(RETAINED_EXECUTABLE_CHILD_DESCRIPTOR, 'provider job test executable');
   const workingDirectory = retainNoFollowDirectoryForChildProcess(
     inspectNoFollowDirectoryChain(path.resolve(import.meta.dir, '../../../..'), 'provider job test cwd'),
     RETAINED_WORKING_DIRECTORY_CHILD_DESCRIPTOR,

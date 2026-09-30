@@ -28,6 +28,7 @@ import {
 } from './observed-process-stdin.ts';
 import {
   inspectNoFollowDirectoryChain,
+  retainCurrentProcessExecutable,
   retainNoFollowDirectoryForChildProcess,
   retainNoFollowOrdinaryFile
 } from './physical-no-follow.ts';
@@ -113,15 +114,7 @@ function retainTestBoundary(auxiliaryPath?: string): Readonly<{
   boundary: RetainedCommandBoundary;
   dispose(): void;
 }> {
-  const executablePath = path.resolve(process.execPath);
-  const executable = retainNoFollowOrdinaryFile(
-    inspectNoFollowDirectoryChain(path.dirname(executablePath), 'session test executable parent'),
-    path.basename(executablePath),
-    undefined,
-    'session test executable',
-    RETAINED_EXECUTABLE_CHILD_DESCRIPTOR,
-    'executable'
-  );
+  const executable = retainCurrentProcessExecutable(RETAINED_EXECUTABLE_CHILD_DESCRIPTOR, 'session test executable');
   const workingDirectory = retainNoFollowDirectoryForChildProcess(
     inspectNoFollowDirectoryChain(compilerRoot, 'session test cwd'),
     RETAINED_WORKING_DIRECTORY_CHILD_DESCRIPTOR,

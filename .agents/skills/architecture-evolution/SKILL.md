@@ -25,11 +25,11 @@ description: 用于 SEC canonical authority、公共合同、identity/revision�
 1. 从用户 Goal 和不可绕过约束重建对象边界、状态、身份、数据所有权、写权限、接口、生命周期、失败/恢复与确定性要求，不从现有易改代码反推降低目标。
 2. 建立当前机制链和最强竞争方案，主动攻击反向因果、共同原因、兼容破坏、并发/崩溃、极端输入、第二事实源和不可逆迁移风险。
 3. 选择唯一 canonical owner，明确哪些旧 owner/adapter/pipeline被吸收、迁移或退役；禁止平行长期双写。
-4. authority first：先更新唯一领域owner和稳定合同，再定义公共类型/Schema、迁移与rollback/recovery计划。验证方法按当前声明选择：静态检查能成立的源码关系直接检查；行为、性能与物理作用保留其运行证据义务。不能把negative/compatibility/property tests固定成每次架构分析、编辑和交接的开工前置。
+4. authority first：先定位并读取唯一领域owner和稳定合同；确有规范语义变化或原文缺陷时按[文档写入准入](../../../docs/维护/规格写作与完整性.md#documentation-write-admission)修改，否则保留正确正文。再同步实际改变的公共类型/Schema、迁移与rollback/recovery计划。验证方法按当前声明选择：静态检查能成立的源码关系直接检查；行为、性能与物理作用保留其运行证据义务。不能把negative/compatibility/property tests固定成每次架构分析、编辑和交接的开工前置。
 5. 将实现拆成依赖明确的最小纵向 Work Package；每片标明本次要改变的产品结果、必要消费者和下一未闭合接口。proof/spike只有在缺口确实影响当前选择且获准运行时才启动，不默认生成临时工作流、依赖副本或恢复归档；成立后提炼为feat/refactor/fix。
    仓库执行中的Hosted CI/Actions预算必须遵守根入口 `AGENTS.md` 的 Hosted evidence budget：架构探索、定位和试错不得靠托管运行循环完成；先静态/本地收敛并冻结tree，再请求不可替代的最终hosted证据。
 6. 每个候选方案给出适用边界、失效/反转条件、未知和决定性证据；证据推翻根假设时返回上游重算而不是追加例外。
-7. authority与contract冻结后交给A0/Worker执行；实现结果必须回读并统一修正代码、测试、文档和迁移面。A0保留原任务及未闭合前沿，子片完成或回交不终止已授权的实现任务；取下一个前提已满足的相交片，不要求用户再说“继续”。
+7. authority与contract冻结后交给A0/Worker执行；实现结果必须回读，并同步确有变化的代码、测试、规范与迁移消费者；实现符合既有设计不要求额外改文档。A0保留原任务及未闭合前沿，子片完成或回交不终止已授权的实现任务；取下一个前提已满足的相交片，不要求用户再说“继续”。
 
 ## 完成证据
 - 唯一owner、机制与状态图、public contract/invariants、consumer/impact、替代方案裁决、迁移/退役、适用验证方法和分阶段实现闭包。验证计划、静态检查与已运行的negative/compatibility/recovery tests分别报告。
@@ -40,6 +40,6 @@ description: 用于 SEC canonical authority、公共合同、identity/revision�
 - 新 evidence 改变对象边界、owner或第一性约束时整套受影响模型回退重算。
 
 ## 禁止捷径
-- 不先改实现再补文档，不用新术语包装旧问题，不创建第二pipeline/loader/writer/revision算法。
+- 不在已改变稳定合同却未裁决其owner时先改实现；也不为纯实现修复制造文档变化。不用新术语包装旧问题，不创建第二pipeline/loader/writer/revision算法。
 - 不把spike、示例通过、PR body或局部测试写成架构完成。治理也接受删除反事实：新增检查须有真实消费者、会改变的决定和退出条件；不能为证明治理自身而递归创建另一套验证项目。
 - 不为兼容无限保留旧路径；每条迁移必须有退出和删除条件。

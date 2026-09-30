@@ -584,7 +584,7 @@ export interface VerificationSessionRuntimeExternal {
   saveReviewReceipt(stage: 'pre-expensive' | 'pre-merge', receipt: ReviewStabilityReceipt): void;
   integrationAuthorizationArtifact(): TrustedIntegrationAuthorizationSource | null;
   integrationAuthorizationPublication(): IntegrationAuthorizationPublicationObservation | null;
-  consumedAuthorizationIds(): ReadonlySet<string>;
+  consumedAuthorizationIds(): ReadonlySet<string> | Promise<ReadonlySet<string>>;
   observeCloseoutPreparation(
     operationId: Digest,
     authorization: IntegrationAuthorization,
@@ -718,19 +718,19 @@ export function assertTrustedMainRuntime(proof: TrustedRuntimeProof, expectedMai
   assertTrustedExactRevisionRuntime(proof, expectedMainSha);
 }
 
-export function assertTrustedMergedRuntimeReachability(input: {
+export async function assertTrustedMergedRuntimeReachability(input: {
   proof: TrustedRuntimeProof;
   session: VerificationSession;
   candidate: GitHubCandidateObservation;
   github: VerificationSessionGitHubClient;
-}): void {
+}): Promise<void> {
   const { proof, session, candidate, github } = input;
-  assertTrustedMergedRequestRuntimeReachability({ proof, repository: session.repository,
+  (await assertTrustedMergedRequestRuntimeReachability({ proof, repository: session.repository,
     prNumber: session.prNumber, baseSha: session.baseSha, headSha: session.headSha,
-    headTreeSha: session.headTreeSha, candidate, github });
+    headTreeSha: session.headTreeSha, candidate, github }));
 }
 
-export function assertTrustedMergedRequestRuntimeReachability(input: {
+export async function assertTrustedMergedRequestRuntimeReachability(input: {
   proof: TrustedRuntimeProof;
   repository: string;
   prNumber: number;
@@ -739,7 +739,7 @@ export function assertTrustedMergedRequestRuntimeReachability(input: {
   headTreeSha: string;
   candidate: GitHubCandidateObservation;
   github: VerificationSessionGitHubClient;
-}): void {
+}): Promise<void> {
   const { proof, repository, prNumber, baseSha, headSha, headTreeSha, candidate, github } = input;
   if ((proof.currentBranch !== '' && proof.currentBranch !== 'main') || proof.currentHeadSha !== baseSha
     || proof.localDefaultSha !== proof.remoteDefaultSha || !proof.workingTreeClean
@@ -753,13 +753,13 @@ export function assertTrustedMergedRequestRuntimeReachability(input: {
     || candidate.mergeCommitMessage === null) {
     throw new Error('VerificationSession MERGED recovery lacks exact marker-bound candidate/tree identity.');
   }
-  const baseToMerge = github.observeComparison(repository, baseSha, candidate.mergeCommitSha);
+  const baseToMerge = (await github.observeComparison(repository, baseSha, candidate.mergeCommitSha));
   if (baseToMerge.behindBy !== 0
     || baseToMerge.status !== 'ahead' && baseToMerge.status !== 'identical') {
     throw new Error('VerificationSession MERGED recovery cannot prove old base ancestry to the merge commit.');
   }
-  const mergeToDefault = github.observeComparison(repository, candidate.mergeCommitSha,
-    proof.remoteDefaultSha);
+  const mergeToDefault = (await github.observeComparison(repository, candidate.mergeCommitSha,
+    proof.remoteDefaultSha));
   if (mergeToDefault.behindBy !== 0
     || mergeToDefault.status !== 'ahead' && mergeToDefault.status !== 'identical') {
     throw new Error('VerificationSession MERGED recovery merge commit is not equal to or an ancestor of live default.');
@@ -1483,7 +1483,7 @@ function verifyIntegrationArtifact(input: {
  * Advances until the next external wait or terminal state. It never polls and
  * every mutation is preceded by one durable stable-operation claim.
  */
-export function resumeVerificationSession(input: {
+export async function resumeVerificationSession(input: {
   repositoryRoot: string;
   session: VerificationSession;
   scopeAuthorization: ScopeAuthorization;
@@ -1493,17 +1493,17 @@ export function resumeVerificationSession(input: {
   github: VerificationSessionGitHubClient;
   external: VerificationSessionRuntimeExternal;
   journalFs: VerificationSessionJournalFileSystem;
-}): VerificationSessionRuntimeOutcome {
+}): Promise<VerificationSessionRuntimeOutcome> {
   const session = parseVerificationSession(encodeVerificationActionData(input.session));
   const scope = parseScopeAuthorization(encodeVerificationActionData(input.scopeAuthorization));
   const fs = input.journalFs;
   let journal = readVerificationSessionJournal({ sessionRevision: session.sessionRevision, fs });
-  const candidate = input.github.observeCandidate(session.repository, session.prNumber);
+  const candidate = (await input.github.observeCandidate(session.repository, session.prNumber));
   const liveMerged = candidate.state === 'MERGED';
   const trustedRuntimeProof = input.external.trustedRuntimeProof(session);
   if (liveMerged) {
-    assertTrustedMergedRuntimeReachability({ proof: trustedRuntimeProof, session, candidate,
-      github: input.github });
+    (await assertTrustedMergedRuntimeReachability({ proof: trustedRuntimeProof, session, candidate,
+      github: input.github }));
   } else {
     assertTrustedRuntime(trustedRuntimeProof, session, false);
   }
@@ -1550,8 +1550,8 @@ export function resumeVerificationSession(input: {
         reason: 'trusted hosted artifact is required for merged recovery', receiptDigest: null, completedStage: journal.completedStage });
       append('pre-gate-review-clear', hosted.artifact.preGateReview.receiptDigest as Digest, preGateOperation);
     } else {
-      const barrier = input.github.observeReviewBarrier({ repository: session.repository, prNumber: session.prNumber,
-        headSha: session.headSha, excludedPrincipalNodeIds: new Set([candidate.authorNodeId, input.integrationPrincipalNodeId]) });
+      const barrier = (await input.github.observeReviewBarrier({ repository: session.repository, prNumber: session.prNumber,
+        headSha: session.headSha, excludedPrincipalNodeIds: new Set([candidate.authorNodeId, input.integrationPrincipalNodeId]) }));
       if (barrier.status !== 'clear') {
         if (barrier.status === 'provider-schema-unsupported') return outcome({ status: 'BLOCKED',
           sessionRevision: session.sessionRevision, reason: barrier.reasonCode,
@@ -1586,7 +1586,7 @@ export function resumeVerificationSession(input: {
       });
       const claim = claimVerificationSessionOperation({ sessionRevision: session.sessionRevision,
         operationId: request.requestOperationId, operationKind: 'hosted-dispatch', fs });
-      if (claim.claimed) input.github.ensureVerificationSessionWakeup(session.repository, request);
+      if (claim.claimed) (await input.github.ensureVerificationSessionWakeup(session.repository, request));
       appendVerificationSessionJournalEvent({ sessionRevision: session.sessionRevision,
         targetStage: 'hosted-verification-terminal', kind: 'waiting', operationId: request.requestOperationId,
         receiptDigest: null, note: claim.claimed ? 'hosted verification dispatched' : 'hosted dispatch already claimed', fs });
@@ -1613,8 +1613,8 @@ export function resumeVerificationSession(input: {
     : integrationSource.publication.result;
   verifyIntegrationArtifact({ source: integrationSource, result: integrationResult,
     hosted: hosted.provenance, session });
-  const authorizationPrincipal = input.github.observePrincipalByNodeId(session.repository,
-    integrationResult.provenance.actorNodeId);
+  const authorizationPrincipal = (await input.github.observePrincipalByNodeId(session.repository,
+    integrationResult.provenance.actorNodeId));
   if (authorizationPrincipal.permission !== 'admin' && authorizationPrincipal.permission !== 'maintain') {
     throw new Error('IntegrationAuthorization actor no longer has maintain/admin permission.');
   }
@@ -1644,16 +1644,16 @@ export function resumeVerificationSession(input: {
   if (liveMerged && !matchingMergedConsumption) return outcome({ status: 'BLOCKED', sessionRevision: session.sessionRevision,
     reason: 'merged commit lacks the exact IntegrationAuthorization consumption marker',
     receiptDigest: authorization.receiptDigest as Digest, completedStage: journal.completedStage });
-  const barrier = liveMerged ? null : input.github.observeReviewBarrier({ repository: session.repository,
+  const barrier = liveMerged ? null : (await input.github.observeReviewBarrier({ repository: session.repository,
     prNumber: session.prNumber, headSha: session.headSha,
-    excludedPrincipalNodeIds: new Set([candidate.authorNodeId, input.integrationPrincipalNodeId]) });
+    excludedPrincipalNodeIds: new Set([candidate.authorNodeId, input.integrationPrincipalNodeId]) }));
   if (barrier !== null && barrier.status !== 'clear') return outcome({ status: barrier.status === 'waiting' ? 'WAITING_REVIEW' : 'BLOCKED',
     sessionRevision: session.sessionRevision,
     reason: barrier.status === 'provider-schema-unsupported' ? barrier.reasonCode : barrier.reason,
     receiptDigest: barrier.status === 'provider-schema-unsupported' ? barrier.responseDigest : barrier.snapshotDigest,
     completedStage: journal.completedStage });
   const enforcement = liveMerged ? integrationResult.platformObservation
-    : input.github.observePlatformEnforcement(session.repository);
+    : (await input.github.observePlatformEnforcement(session.repository));
   if (enforcement.status === 'unknown') return outcome({ status: 'BLOCKED', sessionRevision: session.sessionRevision,
     reason: enforcement.reason ?? 'platform enforcement unknown', receiptDigest: enforcement.rulesetDigest, completedStage: journal.completedStage });
   assertReviewStabilityReceiptCurrent(preMergeReceipt, { stage: 'pre-merge',
@@ -1679,7 +1679,7 @@ export function resumeVerificationSession(input: {
   if (journal.completedStageIndex < 4) append('pre-merge-review-clear', preMergeReceipt.receiptDigest,
     createVerificationSessionOperationId({ sessionRevision: session.sessionRevision, operationKind: 'pre-merge-review',
       semanticInputDigest: preMergeReceipt.reviewRevision }));
-  const durableConsumed = input.external.consumedAuthorizationIds();
+  const durableConsumed = await input.external.consumedAuthorizationIds();
   const effectiveConsumed = matchingMergedConsumption
     ? new Set([...durableConsumed].filter((id) => id !== authorization.authorizationId))
     : durableConsumed;
@@ -1738,7 +1738,7 @@ export function resumeVerificationSession(input: {
   }
   if (journal.completedStageIndex < 6) append('merge-attempted', authorization.receiptDigest as Digest, mergeOperationId);
 
-  const merged = input.github.observeCandidate(session.repository, session.prNumber);
+  const merged = (await input.github.observeCandidate(session.repository, session.prNumber));
   if (merged.state !== 'MERGED' || merged.mergeCommitSha === null || merged.mergeCommitTreeSha === null || merged.mergeCommitMessage === null) {
     return outcome({ status: 'WAITING_MERGE_READBACK', sessionRevision: session.sessionRevision,
       reason: 'exact merge readback is not terminal', receiptDigest: authorization.receiptDigest as Digest, completedStage: journal.completedStage });

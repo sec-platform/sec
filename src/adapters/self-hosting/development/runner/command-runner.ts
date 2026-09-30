@@ -15,8 +15,8 @@ import {
 import { settleResources as settlePhysicalResources } from '../../../../execution/resource-settlement.ts';
 import {
   inspectNoFollowDirectoryChain,
+  retainCurrentProcessExecutable,
   retainNoFollowDirectoryForChildProcess,
-  retainNoFollowOrdinaryFile,
   type RetainedNoFollowChildProcessDirectory,
   type RetainedNoFollowOrdinaryFile
 } from '../../../runtime-state/physical/runtime/physical-no-follow.ts';
@@ -305,18 +305,7 @@ function issueDevCommandPhysicalCapability(input: Readonly<{
   let executable: RetainedNoFollowOrdinaryFile | undefined;
   let workingDirectory: RetainedNoFollowChildProcessDirectory | undefined;
   try {
-    const executablePath = path.resolve(process.execPath);
-    executable = retainNoFollowOrdinaryFile(
-      inspectNoFollowDirectoryChain(
-        path.dirname(executablePath),
-        'Dev command executable parent'
-      ),
-      path.basename(executablePath),
-      undefined,
-      'Dev command executable',
-      RETAINED_EXECUTABLE_CHILD_DESCRIPTOR,
-      'executable'
-    );
+    executable = retainCurrentProcessExecutable(RETAINED_EXECUTABLE_CHILD_DESCRIPTOR, 'Dev command executable');
     const workingDirectoryChain = inspectNoFollowDirectoryChain(
       input.workingDirectory,
       'Dev command working directory'

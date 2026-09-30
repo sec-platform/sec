@@ -19,12 +19,12 @@ description: 用于在 frozen Task Envelope 内实现一个 SEC 产品、修复�
 - Envelope完整、base未漂移、用户修正已reconcile。
 
 ## 执行
-1. 只读 Capsule 指定的 authority/types/source 与 unresolved frontier；禁止默认全仓扫描。
+1. 读取 Capsule 指定的 authority/types/source 与 unresolved frontier，并核AGENTS要求的同版相交产品/原则/设计是否已取得；缺必要依赖时向原read-plan owner补闭包，不以Capsule省略推定不适用。禁止默认全仓扫描。
 2. 实现最小完整纵切片；检查与变换保持不同 effect owner，检查不得隐式改写 source/index。
 3. 可以 materialize 已冻结的 test body/fixture/adapter；若出现新的 proof 缺口或必须改变测试语义，向主线程 A0 回交 `test-design-required` 及最小反例。A0 在已有授权内补齐设计后续交同一任务，这不是用户审批点；Worker 不在 implement 中自行改变 Claim/oracle。
 4. 开发中只执行会改变当前实现选择的 failing/focused sentinel；即将被后续编辑失效的 Action 不启动。
 5. candidate 稳定后消费 selector 的 `RequiredClosure ∩ MissingOrStale`，每个 ActionKey 最多一次 physical start；fresh PASS、unchanged FAIL 与 authenticated in-flight 分别 reuse、stop、join。
-6. 只 stage Envelope owned paths，materialize 同一 logical run 的新 generation；finding 在同一 worktree/ref 修复，不创建 successor worktree。
+6. 经真实提交准入只 stage Envelope owned paths，materialize 同一 logical run 的新 generation；finding 在同一 worktree/ref 修复，不创建 successor worktree。
 7. 返回 exact base/head/tree、changed symbols、Action/Evidence delta、blocker 与 next seam。
 
 ## 已授权提交与中断续接
@@ -45,7 +45,7 @@ description: 用于在 frozen Task Envelope 内实现一个 SEC 产品、修复�
 
 ## 停止与恢复
 - acceptance满足并提交 Reconciliation Delta；或触发 proof reset/authority blocker/`test-design-required`。
-- 已授权`target-ref-updated`且仍有合法下一动作时不得在本地验证、commit、push、PR创建或传输路径拒绝后停止；按原候选和授权终态恢复。只有外部authority不可得、需要扩大效果或typed控制面阻塞时才返回用户。
+- 已授权`target-ref-updated`且仍有合法下一动作时不得在本地验证、commit、push、PR创建或传输路径拒绝后停止；按原候选和授权终态恢复。发现blocker先交还主线程／对应owner并继续独立合法工作；只有缺用户才能提供的授权或决定时才要求用户介入。
 - 普通失败回实现；重复 frozen root-cause invalidation 交给 failure owner 产生 typed proof-reset decision。
 
 ## 禁止捷径

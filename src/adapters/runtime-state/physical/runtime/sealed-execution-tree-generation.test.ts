@@ -8,6 +8,7 @@ import { setTimeout as delay } from 'node:timers/promises';
 import {
   inspectNoFollowDirectoryChain,
   materializeRetainedNoFollowProvenDirectoryGeneration,
+  retainCurrentProcessExecutable,
   retainNoFollowSealedDirectoryGeneration,
   scanNoFollowDirectoryTreeInventory,
   type PhysicalDirectoryIdentity,
@@ -679,10 +680,12 @@ test('setup residue without a returned recovery capability is owner-reconciliati
   let injectedPath: string | null = null;
   const returned: { generation?: RetainedSealedPhysicalExecutionTreeGeneration } = {};
   let stopActor = async (): Promise<void> => {};
+  let actorExecutable: ReturnType<typeof retainCurrentProcessExecutable> | undefined;
   try {
     // Publication uses synchronous filesystem operations. A timer on this same
     // event loop cannot race them; start an independent actor and await readiness.
-    const actor = Bun.spawn([process.execPath, '-e', String.raw`
+    actorExecutable = retainCurrentProcessExecutable(3, 'setup-residue actor');
+    const actor = Bun.spawn([actorExecutable.childPath, '-e', String.raw`
       const fs = require('node:fs');
       const path = require('node:path');
       const parent = process.argv[1];
@@ -700,7 +703,7 @@ test('setup residue without a returned recovery capability is owner-reconciliati
         Atomics.wait(pause, 0, 0, 1);
       }
       throw new Error('Setup-residue actor did not observe the bounded generation');
-    `, fixture.generationParent.path], { stdout: 'pipe', stderr: 'pipe' });
+    `, fixture.generationParent.path], { stdio: ['ignore', 'pipe', 'pipe', actorExecutable.stdioSourceDescriptor ?? 'ignore'] });
     const stderr = new Response(actor.stderr).text();
     const guard = setTimeout(() => actor.kill(), 5_000);
     stopActor = async () => {
@@ -748,6 +751,7 @@ test('setup residue without a returned recovery capability is owner-reconciliati
     await fixture.dependency.assertAuthorityCurrent();
   } finally {
     await stopActor();
+    actorExecutable?.dispose();
     if (injectedPath !== null) await rm(injectedPath, { force: true });
     // A late actor must fail the assertion without leaking a returned capability.
     await returned.generation?.retire();

@@ -38,7 +38,7 @@ description: 用于用户要求全面分析 SEC 仓库、重大架构变更前�
 
 ## 停止与恢复
 - 全部 tracked paths已分类，决定性 authority/owner/入口/状态/验证面已覆盖，攻击轮不再产生新的决定性轴；或准确返回不可访问边界和unknown。
-- repository/default/authority发生变化时旧报告立即失效，从新 exact revision重跑；不得在旧审计末尾追加例外维持旧模型。
+- 报告始终只证明其绑定的exact revision；需要评价新revision时由变化闭包决定哪些观察失效并补齐新census，保留可复用的固定对象证据。无关default前进不销毁旧报告，也不能将旧报告冒称新revision；根假设变化须重算相交模型。
 
 ## 禁止捷径
 - 不以 `rg`、GitHub Search、单一代码图、README、PR body、历史报告或少量代表文件宣称全仓分析。

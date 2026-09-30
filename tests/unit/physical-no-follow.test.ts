@@ -1,4 +1,4 @@
-import { expect, test } from 'bun:test';
+import { afterAll, beforeAll, expect, test } from 'bun:test';
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import {
@@ -22,6 +22,12 @@ import {
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+
+import { createRawTestExecutableFixture } from '../testkit/raw-process.ts';
+
+let rawExecutable: ReturnType<typeof createRawTestExecutableFixture>;
+beforeAll(() => { rawExecutable = createRawTestExecutableFixture(); });
+afterAll(() => { rawExecutable.dispose(); });
 
 import { runRetainedGitWriteTreeProbeV1 } from '../helpers/retained-git-write-tree-probe.ts';
 
@@ -383,7 +389,7 @@ test('retained child-process directory reads the authorized inode after lexical 
         'pipe',
         capability.stdioSourceDescriptor ?? 'ignore'
       ];
-      const child = spawnSync(process.execPath, [
+      const child = spawnSync(rawExecutable.command, [
         '-e',
         'process.stdout.write(require("node:fs").readFileSync(process.argv[1], "utf8"))',
         path.join(capability.childPath, 'value.txt')
@@ -443,7 +449,7 @@ test('sealed directory generation excludes membership and byte writers for its c
       expect(() => renameSync(path.join(generation, 'src'), path.join(generation, 'moved')))
         .toThrow();
       capability.assertCurrent();
-      const child = spawnSync(process.execPath, [
+      const child = spawnSync(rawExecutable.command, [
         '-e',
         'process.stdout.write(require("node:fs").readFileSync(require("node:path").join(process.argv[1], "src", "value.ts"), "utf8"))',
         capability.childPath
@@ -569,7 +575,7 @@ test('retained child-process file reads the observed inode after leaf replacemen
       } else if (process.platform === 'win32') {
         expect(() => renameSync(filePath, displaced)).toThrow();
       }
-      const child = spawnSync(process.execPath, [
+      const child = spawnSync(rawExecutable.command, [
         '-e',
         'process.stdout.write(require("node:fs").readFileSync(process.argv[1], "utf8"))',
         capability.childPath
@@ -671,7 +677,7 @@ test('Linux exact ordinary leaf rejects a FIFO without a blocking open', async (
     expect(created.exitCode).toBe(0);
     const moduleUrl = new URL('../../src/adapters/runtime-state/physical/runtime/physical-no-follow.ts', import.meta.url).href;
     const child = Bun.spawn({
-      cmd: [process.execPath, '-e', `
+      cmd: [rawExecutable.command, '-e', `
         import { inspectNoFollowDirectoryChain, inspectNoFollowOrdinaryFileEntry } from ${JSON.stringify(moduleUrl)};
         const parent = inspectNoFollowDirectoryChain(${JSON.stringify(root)}, 'fifo parent').target;
         try {

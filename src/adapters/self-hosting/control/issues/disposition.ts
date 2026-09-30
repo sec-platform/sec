@@ -186,7 +186,7 @@ export function parseGitHubClosingKeywordOccurrences(
   return Object.freeze(occurrences);
 }
 
-export const GITHUB_PULL_REQUEST_CLOSING_QUERY = 'query($owner:String!,$name:String!,$number:Int!,$cursor:String){repository(owner:$owner,name:$name){pullRequest(number:$number){number title body state mergeCommit{oid} closingIssuesReferences(first:100,after:$cursor){totalCount nodes{number repository{nameWithOwner}} pageInfo{hasNextPage endCursor}}}}}';
+export { GITHUB_PULL_REQUEST_CLOSING_QUERY } from '../../../providers/github-api/verification-queries.ts';
 
 export function parseGitHubPullRequestClosingFactsPage(input: Readonly<{
   source: string;

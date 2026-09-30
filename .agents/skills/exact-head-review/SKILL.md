@@ -26,7 +26,7 @@ description: 用于 frozen exact head 的独立架构、根因、状态图、证
 3. 对每个finding追到唯一根因：给出`symptom -> enabling mechanism -> failed invariant -> canonical owner -> root repair`因果链。retry、catch、alias、兼容旁路、额外prompt或文档提醒不能冒充根修。
 4. 为受影响owner closure画一张统一状态/转换图，最少覆盖`admission/current/invalid-or-unknown/effect/failure/recovery/terminal-or-retirement`；每个节点/边标注owner、authority input、Effect principal和receipt/readback。状态或架构变化时同时显示before/after，并指出非法边由哪个type/Schema/validator/test拒绝。
 5. 做`redundancy / competing-owner census`：主动寻找第二truth、第二状态机、重复Adapter/wrapper、observer/retry/cleanup/cache、重复字段表/文档/图和无真实consumer的compatibility surface。每个保留项必须绑定唯一consumer和retirement条件；目标为一个语义写入点、零竞争owner、零无证据冗余。
-6. 审查文档与图闭包：代码、machine contract、canonical文档和投影使用同一identity/state vocabulary。架构/状态迁移变化必须更新唯一canonical owner中的Mermaid或等价可核验图并删除/收窄stale duplicate；Skill、PR body和Review报告只引用，不成为第二产品架构。
+6. 审查文档与图闭包：代码、machine contract、canonical文档和投影使用同一identity/state vocabulary。先按文档写入准入核实稳定语义和图解缺口；架构/状态迁移改变规范时更新唯一canonical owner中的Mermaid或等价可核验图并删除/收窄stale duplicate，既有图准确覆盖时引用复用；Skill、PR body和Review报告只引用，不成为第二产品架构。
 7. 主动寻找反向因果、遗漏consumer、弱化断言、临时probe、生成物漂移、自证路径、effect-before-authority、receipt无界增长和无法恢复路径。
 8. 建立`unknown / residual ledger`：未覆盖surface、不可用provider、未验证platform/Effect、retained migration与未满足retirement obligation全部显式列出。unknown不能被“未发现”吞掉。
 9. 叶节点只有在diff、authority/consumer closure和状态census共同证明不改变状态、Effect、recovery、公共contract或canonical文档时，才可把新图标记为not-applicable；仍须引用复用的canonical graph并给出不变性证据。
@@ -50,7 +50,7 @@ Reviewer报告必须按以下顺序给出；任一required section缺失或只�
 
 ## 停止与恢复
 - 给出P0/P1/P2 finding、`incomplete/unresolved/stale`或证据完备的无finding；不得替代物理Gate。
-- head变化Review立即STALE；finding交还实现或A0，不直接改码。
+- 被ReviewSubject绑定的head/tree或required owner revision变化时Review为STALE；无关main前进不机械失效。finding交还实现或A0，不直接改码。
 
 ## 禁止捷径
 - 不把作者自评、PR body、旧 Review或旧 head Evidence当成当前通过。

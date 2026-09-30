@@ -1661,6 +1661,12 @@ export async function runObservedCommand(
     const stdio = (commandInput === null
       ? configuredStdio
       : Object.assign([...configuredStdio], { 0: 'pipe' as const })) as SpawnOptions['stdio'];
+    // Synchronous admission can outlive a timer before the event loop dispatches it.
+    // Recheck the original deadline at the last pre-native admission boundary.
+    if (operationDeadlineAtMs !== null && dependencies.monotonicNowMs() >= operationDeadlineAtMs) {
+      trigger = 'timed-out';
+      return finishWithoutChild('timed-out');
+    }
     rootResource = options.nativeResourceLedger?.admit('root-process');
     spawnPhase = 'native-spawn';
     child = await dependencies.spawnChild(command, args, {

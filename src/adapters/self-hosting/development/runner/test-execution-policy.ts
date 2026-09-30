@@ -134,6 +134,10 @@ export function issueFastTestBatchExecutionPolicy(input: Readonly<{
   const bunOptions = canonicalBunTestOptions(input.bunOptions);
   for (const option of bunOptions) {
     const name = option.split('=', 1)[0]!;
+    if (files.length > 1 && ['--reporter', '--reporter-outfile', '--coverage',
+      '--coverage-reporter', '--coverage-dir'].includes(name)) {
+      throw new Error('Multi-file retained test execution requires an aggregate output owner for reporter/coverage options.');
+    }
     if (['--parallel', '--isolate', '--no-isolate', '--no-orphans'].includes(name)) {
       throw new Error(`Bun ${name} is owned by the fast test execution policy.`);
     }
@@ -153,9 +157,6 @@ export function issueFastTestBatchExecutionPolicy(input: Readonly<{
       : bunOptions;
     const args = [
       'test', ...invocationFiles.map((file) => `./${file}`),
-      ...(queue === 'parallel'
-        ? [`--parallel=${managedConcurrency.outerProcessConcurrency}`, '--isolate']
-        : []),
       '--no-orphans', ...withDefaultTestTimeout(boundedOptions)
     ];
     const executionPolicy = compileTestInvocationExecutionPolicy(args, DEV_COMMAND_MAX_DURATION_MS);
@@ -167,9 +168,11 @@ export function issueFastTestBatchExecutionPolicy(input: Readonly<{
       supervisorTimeoutMs: executionPolicy.supervisorTimeoutMs
     });
   };
-  const concurrentInvocations = processPlan.parallelFiles.length === 0
-    ? []
-    : [invocation('parallel', processPlan.parallelFiles, 0)];
+  // SEC owns each physical child: one test file per retained process preserves
+  // isolation without asking Bun to reopen an anonymous sealed executable.
+  const concurrentInvocations = processPlan.parallelFiles.map(
+    (file, index) => invocation('parallel', [file], index)
+  );
   const resourceInvocations = Object.fromEntries(FAST_TEST_PROCESS_RESOURCE_CLASS_ORDER.map(
     (resourceClass) => [resourceClass, processPlan.resourceQueues[resourceClass].map(
       (file, index) => invocation(resourceClass, [file], index)

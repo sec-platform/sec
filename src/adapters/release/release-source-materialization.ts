@@ -1,10 +1,10 @@
-import fs from 'node:fs/promises';
 import path from 'node:path';
 
 import {
   assertSameNoFollowDirectoryIdentity,
   inspectNoFollowDirectoryChain,
   inspectNoFollowOrdinaryFileEntry,
+  retainCurrentProcessExecutable,
   retainNoFollowDirectoryForChildProcess,
   retainNoFollowFileTransaction,
   retainNoFollowOrdinaryFile
@@ -229,7 +229,6 @@ async function runReleaseBuilderCommand(
   }
   const deadlineAtUnixMs = Date.now() + RELEASE_BUILDER_MAX_DURATION_MS;
   const absoluteCwd = path.resolve(cwd);
-  const executablePath = path.resolve(await fs.realpath(process.execPath));
   let executable: ReturnType<typeof retainNoFollowOrdinaryFile> | undefined;
   let workingDirectory: ReturnType<typeof retainNoFollowDirectoryForChildProcess> | undefined;
   let session: ProcessResourceSession | undefined;
@@ -238,18 +237,7 @@ async function runReleaseBuilderCommand(
   let executionError: unknown | undefined;
   let result: Awaited<ReturnType<ProcessResourceSession['run']>> | undefined;
   try {
-    const executableParent = inspectNoFollowDirectoryChain(
-      path.dirname(executablePath),
-      'release builder executable parent'
-    );
-    executable = retainNoFollowOrdinaryFile(
-      executableParent,
-      path.basename(executablePath),
-      undefined,
-      'release builder executable',
-      RETAINED_EXECUTABLE_CHILD_DESCRIPTOR,
-      'executable'
-    );
+    executable = retainCurrentProcessExecutable(RETAINED_EXECUTABLE_CHILD_DESCRIPTOR, 'release builder executable');
     const workingDirectoryChain = inspectNoFollowDirectoryChain(
       absoluteCwd,
       'release builder working directory'
@@ -350,26 +338,10 @@ async function runReleaseBuilderCommand(
 }
 
 async function observeReleaseBuilderIdentity(): Promise<ReleaseBuilderIdentity> {
-  const executablePath = path.resolve(await fs.realpath(process.execPath));
-  const parent = inspectNoFollowDirectoryChain(
-    path.dirname(executablePath),
-    'Release Bun executable identity parent'
-  );
-  const retained = retainNoFollowOrdinaryFile(
-    parent,
-    path.basename(executablePath),
-    undefined,
-    'Release Bun executable identity',
-    RETAINED_EXECUTABLE_CHILD_DESCRIPTOR,
-    'executable'
-  );
+  const retained = retainCurrentProcessExecutable(RETAINED_EXECUTABLE_CHILD_DESCRIPTOR, 'Release Bun executable identity');
   try {
     const observed = retained.digest();
     retained.assertCurrent();
-    const afterPath = path.resolve(await fs.realpath(process.execPath));
-    if (afterPath !== retained.path) {
-      throw new Error('Release Bun executable locator changed during identity observation');
-    }
     return Object.freeze({
       schema: 'sec-release-builder-identity-v1' as const,
       runtime: 'bun' as const,

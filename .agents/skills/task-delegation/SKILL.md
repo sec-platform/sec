@@ -35,9 +35,9 @@ description: 用于判断 frozen Work Package 是否值得拆成互不重叠的�
 
 ## 停止与恢复
 - 出现 owner 重叠、依赖未闭合、授权不明或独立性不成立时停止委派并返回 typed blocker。
-- 角色完成、明确 blocker 或用户改变优先级后停止；不以轮询维持虚假进度。
+- 角色完成或明确 blocker 后交还主线程；主线程继续原授权任务。确有在途结果时按原owner的join/观察协议等待，不把无变化轮询当进度，也不将合法等待一概禁止。
 
 ## 禁止捷径
 - 禁止同一文件或 authority 的多个写者。
-- 禁止递归分派、主动轮询、为 finding 创建 successor worktree，或把 Agent 输出当作自动 merge 授权。
+- 禁止子角色未经委派递归扩权、无新条件反复轮询、为 finding 创建 successor worktree，或把 Agent 输出当作自动 merge 授权。
 - 禁止在真实 production Task Capsule compiler 和 consumer cutover 之前仅凭目标架构删除本 Skill。

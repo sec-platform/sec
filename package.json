@@ -72,11 +72,13 @@
     "p-limit": "^7.3.2",
     "picocolors": "^1.1.1",
     "yaml": "2.9.0",
+    "yauzl": "3.4.0",
     "zod": "^4.5.4"
   },
   "devDependencies": {
     "@types/bun": "1.4.0",
     "@types/node": "26.4.0",
+    "@types/yauzl": "3.4.0",
     "@typescript/native": "npm:typescript@7.0.2",
     "jscpd": "5.1.1",
     "knip": "6.34.0",

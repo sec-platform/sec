@@ -10,6 +10,8 @@ import {
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+import { resolveAgentRuntimeRepositoryRoot } from './runtime-root.ts';
+import { selectSecOperationAuthoritySourceRevision } from './skill.ts';
 
 import { canonicalJson, compareCodeUnits, rawSha256, sha256 } from '../../../../contracts/canonical.ts';
 import { parseGitChangedRecordsOutput, type CodexDevelopmentGitChangedRecord } from '../../../verification/platform/test-impact/runtime/transition.ts';
@@ -438,7 +440,8 @@ export interface SecOperationAuthorityOwnerObservation {
   readonly projection: null;
 }
 
-function observeOperationAuthorityOwners(
+/** Read-only owner facts; neither this observation nor its consumers grant Effect authority. */
+export function observeOperationAuthorityOwners(
   candidateRoot: string,
   trustedRevision: string,
   targetCandidate: string,
@@ -492,9 +495,9 @@ function observeOperationAuthorityOwners(
     contentDigest: rawSha256(identityBlob.bytes),
     projection: null
   }), ...records.map((entry) => {
-    const revision = paths.includes(entry.path)
-      ? targetCandidate
-      : trustedRevision;
+    const revision = selectSecOperationAuthoritySourceRevision({
+      repositoryPath: entry.path, changedPaths: paths, trustedRevision, targetCandidate
+    });
     const blob = readGitBlob(candidateRoot, `${revision}:${entry.path}`);
     return Object.freeze({
       id: entry.documentId,
@@ -1710,7 +1713,7 @@ async function main(): Promise<void> {
       'phase', 'candidate-root',
       ...(options.json === true ? ['json'] : [])
     ]);
-    const runtimeRoot = repositoryRoot(path.resolve(import.meta.dir, '../..'));
+    const runtimeRoot = repositoryRoot(await resolveAgentRuntimeRepositoryRoot());
     const candidateRoot = repositoryRoot(requiredOption(options, 'candidate-root'));
     assertSameRepository(runtimeRoot, candidateRoot);
     assertCleanExactRoot(candidateRoot, gitHead(candidateRoot));
@@ -1763,7 +1766,7 @@ async function main(): Promise<void> {
     assertExactOptionKeys(options, [
       'candidate-root', 'request-id', ...(options.json === true ? ['json'] : [])
     ]);
-    const runtimeRoot = repositoryRoot(path.resolve(import.meta.dir, '../..'));
+    const runtimeRoot = repositoryRoot(await resolveAgentRuntimeRepositoryRoot());
     const candidateRoot = repositoryRoot(requiredOption(options, 'candidate-root'));
     assertSameRepository(runtimeRoot, candidateRoot);
     assertCleanExactRoot(candidateRoot, gitHead(candidateRoot));

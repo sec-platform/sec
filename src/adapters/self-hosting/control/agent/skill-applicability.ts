@@ -2,19 +2,17 @@
 
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
+import { resolveAgentRuntimeRepositoryRoot } from './runtime-root.ts';
 
-import { canonicalJson } from '../../../../contracts/canonical.ts';
 import { GitReadAuthorityError, withAuthorityGitReadSession } from '../../../providers/git-read/authority.ts';
 import {
   GIT_READ_DEFAULT_OPERATION_BUDGET,
   type GitReadSession
 } from '../../../providers/git-read/runtime/session.ts';
-import { resolveProspectiveWorkerOperation } from './operation-read-plan.ts';
+import { assertWorkerOperationReadPlanMatches, resolveProspectiveWorkerOperation } from './operation-read-plan.ts';
 import {
-  compileSecOperationReadPlan,
   parseSecOperationReadPlan,
   projectSecSkillEnvelopeFromOperationReadPlan,
-  SEC_OPERATION_READ_PLAN_INPUT_SCHEMA,
   type SecOperationReadPlan
 } from './read-plan.ts';
 import {
@@ -115,7 +113,7 @@ async function main(): Promise<void> {
   }
   if (options.readPlan === undefined) fail('--read-plan <inline-json|file> is required.');
   if (options.candidateRoot === undefined) fail('--candidate-root <path> is required.');
-  const runtimeRoot = path.resolve(import.meta.dir, '../..');
+  const runtimeRoot = await resolveAgentRuntimeRepositoryRoot();
   const invokedRoot = await withAuthorityGitReadSession(
     { cwd: path.resolve(process.cwd()), budget: GIT_READ_DEFAULT_OPERATION_BUDGET },
     (session) => requireGitOutput(session, ['rev-parse', '--show-toplevel'], 'runtime repository discovery')
@@ -130,14 +128,7 @@ async function main(): Promise<void> {
     fail(`Read Plan verification failed: ${error instanceof Error ? error.message : String(error)}`);
   }
   const observation = await resolveProspectiveWorkerOperation(runtimeRoot, options.candidateRoot);
-  const expectedPlan = compileSecOperationReadPlan({
-    ...observation.readClosure,
-    schema: SEC_OPERATION_READ_PLAN_INPUT_SCHEMA,
-    taskCapsule: observation.taskCapsule
-  });
-  if (JSON.stringify(canonicalJson(expectedPlan)) !== JSON.stringify(canonicalJson(plan))) {
-    fail('Read Plan was not fully produced by the exact trusted-resolver worker/implement projection.');
-  }
+  assertWorkerOperationReadPlanMatches(plan, observation);
   const envelope = projectSecSkillEnvelopeFromOperationReadPlan(plan);
   const quarantined = observation.changedPaths.filter(isSecSkillQuarantinePath);
   const { trustedSkillRevisions, candidateSkillRevisions } = await withAuthorityGitReadSession(

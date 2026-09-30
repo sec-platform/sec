@@ -1,9 +1,7 @@
-import path from 'node:path';
-
 import {
   inspectNoFollowDirectoryChain,
+  retainCurrentProcessExecutable,
   retainNoFollowDirectoryForChildProcess,
-  retainNoFollowOrdinaryFile
 } from '../../src/adapters/runtime-state/physical/runtime/physical-no-follow.ts';
 import type { ProcessResourceRunResult } from '../../src/adapters/runtime-state/physical/runtime/process-resource-session.ts';
 import {
@@ -23,14 +21,8 @@ export async function runRetainedBunTestProcess(
     maxStdoutBytes?: number;
   }> = {}
 ): Promise<ProcessResourceRunResult> {
-  const executablePath = path.resolve(process.execPath);
-  const executable = retainNoFollowOrdinaryFile(
-    inspectNoFollowDirectoryChain(path.dirname(executablePath), 'Test executable parent'),
-    path.basename(executablePath),
-    undefined,
-    'Test executable',
-    RETAINED_EXECUTABLE_CHILD_DESCRIPTOR,
-    'executable'
+  const executable = retainCurrentProcessExecutable(
+    RETAINED_EXECUTABLE_CHILD_DESCRIPTOR, 'Test executable'
   );
   const cwd = retainNoFollowDirectoryForChildProcess(
     inspectNoFollowDirectoryChain(workingDirectory, 'Test working directory'),

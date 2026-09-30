@@ -293,7 +293,7 @@ test('hosted integration router separates first effect, merged recovery, and blo
     });
 });
 
-test('hosted Review locator is exact, non-triggering, and reuses only its matching locator', () => {
+test('hosted Review locator is exact, non-triggering, and reuses only its matching locator', async () => {
   const input = {
     repository: 'sec-platform/sec',
     sessionRevision: `sha256:${'1'.repeat(64)}` as SessionDigest,
@@ -307,24 +307,24 @@ test('hosted Review locator is exact, non-triggering, and reuses only its matchi
   } as const;
   const transport = new FakeTransport();
   transport.issueComments = [[]];
-  const produced = evaluateHostedReviewLocatorObservation(transport, input);
+  const produced = (await evaluateHostedReviewLocatorObservation(transport, input));
   expect(produced).toMatchObject({ status: 'absent', commentId: null });
   expect(produced.body).toContain(VERIFICATION_SESSION_REVIEW_LOCATOR_COMMENT_MARKER);
   expect(produced.body).not.toContain('@codex review');
 
   transport.issueComments = [[actionsIssueComment(produced.body, '104')]];
-  expect(evaluateHostedReviewLocatorObservation(transport, input)).toMatchObject({
+  expect((await evaluateHostedReviewLocatorObservation(transport, input))).toMatchObject({
     status: 'reused',
     commentId: '104'
   });
 
   transport.issueComments = [[]];
-  const foreign = evaluateHostedReviewLocatorObservation(transport, {
+  const foreign = (await evaluateHostedReviewLocatorObservation(transport, {
     ...input,
     repository: 'foreign/repository'
-  });
+  }));
   transport.issueComments = [[actionsIssueComment(foreign.body)]];
-  expect(() => evaluateHostedReviewLocatorObservation(transport, input))
+  await expect((async () => (await evaluateHostedReviewLocatorObservation(transport, input)))()).rejects
     .toThrow('conflicting semantic bytes');
 
   for (const drifted of [
@@ -336,9 +336,9 @@ test('hosted Review locator is exact, non-triggering, and reuses only its matchi
     { ...input, workflowRef: `.github/workflows/compiler-pr-validation.yml@${HEAD}` }
   ]) {
     transport.issueComments = [[]];
-    const drift = evaluateHostedReviewLocatorObservation(transport, drifted);
+    const drift = (await evaluateHostedReviewLocatorObservation(transport, drifted));
     transport.issueComments = [[actionsIssueComment(drift.body)]];
-    expect(() => evaluateHostedReviewLocatorObservation(transport, input))
+    await expect((async () => (await evaluateHostedReviewLocatorObservation(transport, input)))()).rejects
       .toThrow('conflicting semantic bytes');
   }
 
@@ -349,21 +349,21 @@ test('hosted Review locator is exact, non-triggering, and reuses only its matchi
     extraField: 'forbidden'
   }));
   transport.issueComments = [[actionsIssueComment(extraFieldBody)]];
-  expect(() => evaluateHostedReviewLocatorObservation(transport, input))
+  await expect((async () => (await evaluateHostedReviewLocatorObservation(transport, input)))()).rejects
     .toThrow('payload keys/schema are invalid');
 });
 
-test('Review provider quota creates one repository-scoped deny-only availability epoch', () => {
+test('Review provider quota creates one repository-scoped deny-only availability epoch', async () => {
   const transport = new FakeTransport();
   const quota = 'You have reached your Codex usage limits for code reviews. Upgrade or add credits to continue.';
   transport.repositoryIssueComments = [[botIssueComment(quota, {
     id: '301',
     createdAt: '2026-08-09T13:50:00.000Z'
   })]];
-  const unavailable = evaluateReviewProviderAvailabilityObservation(transport, {
+  const unavailable = (await evaluateReviewProviderAvailabilityObservation(transport, {
     repository: 'sec-platform/sec',
     observedAt: '2026-08-09T14:01:00.000Z'
-  });
+  }));
   expect(unavailable).toMatchObject({
     status: 'unavailable',
     reasonCode: 'provider-quota-unavailable',
@@ -377,29 +377,29 @@ test('Review provider quota creates one repository-scoped deny-only availability
     '<!-- retired: codex code-review quota transport noise -->',
     { id: '302', createdAt: '2026-08-09T13:55:00.000Z' }
   )]];
-  expect(evaluateReviewProviderAvailabilityObservation(transport, {
+  expect((await evaluateReviewProviderAvailabilityObservation(transport, {
     repository: 'sec-platform/sec',
     observedAt: '2026-08-09T14:01:00.000Z'
-  })).toMatchObject({ status: 'unavailable', sourceCommentId: '302' });
+  }))).toMatchObject({ status: 'unavailable', sourceCommentId: '302' });
 
   transport.repositoryIssueComments = [[botIssueComment(quota, {
     id: '303',
     createdAt: '2026-08-08T13:59:00.000Z'
   })]];
-  expect(evaluateReviewProviderAvailabilityObservation(transport, {
+  expect((await evaluateReviewProviderAvailabilityObservation(transport, {
     repository: 'sec-platform/sec',
     observedAt: '2026-08-09T14:01:00.000Z'
-  })).toMatchObject({ status: 'unavailable', sourceCommentId: '303' });
+  }))).toMatchObject({ status: 'unavailable', sourceCommentId: '303' });
 
   transport.repositoryIssueComments = [[botIssueComment(quota, {
     id: '304',
     authorNodeId: 'FOREIGN_BOT',
     performedViaGitHubApp: { id: 999, nodeId: 'FOREIGN_APP', slug: 'foreign-app' }
   })]];
-  expect(evaluateReviewProviderAvailabilityObservation(transport, {
+  expect((await evaluateReviewProviderAvailabilityObservation(transport, {
     repository: 'sec-platform/sec',
     observedAt: '2026-08-09T14:01:00.000Z'
-  })).toMatchObject({ status: 'no-current-negative' });
+  }))).toMatchObject({ status: 'no-current-negative' });
 
   transport.collaboratorPermissions.set('maintainer', 'maintain');
   const target = {
@@ -421,32 +421,32 @@ test('Review provider quota creates one repository-scoped deny-only availability
       createdAt: '2026-08-09T13:50:00.000Z'
     })
   ]];
-  expect(evaluateReviewProviderAvailabilityObservation(transport, {
+  expect((await evaluateReviewProviderAvailabilityObservation(transport, {
     ...target,
     observedAt: '2026-08-09T14:01:00.000Z'
-  })).toMatchObject({
+  }))).toMatchObject({
     status: 'no-current-negative',
     revalidationCommentId: '305',
     revalidationObservedAt: '2026-08-09T14:00:00.000Z',
     revalidationDigest: revalidation.revalidationDigest
   });
-  expect(evaluateReviewProviderAvailabilityObservation(transport, {
+  expect((await evaluateReviewProviderAvailabilityObservation(transport, {
     repository: 'sec-platform/sec',
     observedAt: '2026-08-09T14:01:00.000Z'
-  })).toMatchObject({ status: 'unavailable', sourceCommentId: '306' });
+  }))).toMatchObject({ status: 'unavailable', sourceCommentId: '306' });
 
   transport.repositoryIssueComments = [[
-    maintainerIssueComment(defaultReviewWakeupBody(), '308', {
+    maintainerIssueComment((await defaultReviewWakeupBody()), '308', {
       createdAt: '2026-08-09T14:00:30.000Z'
     }),
     maintainerIssueComment(revalidation.body, '305', {
       createdAt: '2026-08-09T14:00:00.000Z'
     })
   ]];
-  expect(evaluateReviewProviderAvailabilityObservation(transport, {
+  expect((await evaluateReviewProviderAvailabilityObservation(transport, {
     ...target,
     observedAt: '2026-08-09T14:01:00.000Z'
-  })).toMatchObject({
+  }))).toMatchObject({
     status: 'unavailable',
     reasonCode: 'provider-revalidation-consumed',
     sourceCommentId: '308'
@@ -460,10 +460,10 @@ test('Review provider quota creates one repository-scoped deny-only availability
       createdAt: '2026-08-09T14:00:00.000Z'
     })
   ]];
-  expect(evaluateReviewProviderAvailabilityObservation(transport, {
+  expect((await evaluateReviewProviderAvailabilityObservation(transport, {
     ...target,
     observedAt: '2026-08-09T14:01:00.000Z'
-  })).toMatchObject({
+  }))).toMatchObject({
     status: 'unavailable',
     reasonCode: 'provider-revalidation-consumed',
     sourceCommentId: '308'
@@ -478,13 +478,13 @@ test('Review provider quota creates one repository-scoped deny-only availability
       createdAt: '2026-08-09T14:00:00.000Z'
     })
   ]];
-  expect(evaluateReviewProviderAvailabilityObservation(transport, {
+  expect((await evaluateReviewProviderAvailabilityObservation(transport, {
     ...target,
     observedAt: '2026-08-09T14:01:00.000Z'
-  })).toMatchObject({ status: 'unavailable', sourceCommentId: '307' });
+  }))).toMatchObject({ status: 'unavailable', sourceCommentId: '307' });
 });
 
-test('Review provider availability fails closed on bounded-census exhaustion and visited-page drift', () => {
+test('Review provider availability fails closed on bounded-census exhaustion and visited-page drift', async () => {
   const exhausted = new FakeTransport();
   exhausted.repositoryIssueComments = Array.from({ length: 65 }, (_, index) => [
     botIssueComment('ordinary Codex provider prose', {
@@ -492,10 +492,10 @@ test('Review provider availability fails closed on bounded-census exhaustion and
       createdAt: '2026-08-09T13:59:00.000Z'
     })
   ]);
-  expect(evaluateReviewProviderAvailabilityObservation(exhausted, {
+  expect((await evaluateReviewProviderAvailabilityObservation(exhausted, {
     repository: 'sec-platform/sec',
     observedAt: '2026-08-09T14:01:00.000Z'
-  })).toMatchObject({ status: 'unresolved', reason: 'pagination-budget-exhausted' });
+  }))).toMatchObject({ status: 'unresolved', reason: 'pagination-budget-exhausted' });
 
   let firstPageReads = 0;
   const drifting = {
@@ -510,13 +510,13 @@ test('Review provider availability fails closed on bounded-census exhaustion and
       };
     }
   };
-  expect(evaluateReviewProviderAvailabilityObservation(drifting, {
+  expect((await evaluateReviewProviderAvailabilityObservation(drifting, {
     repository: 'sec-platform/sec',
     observedAt: '2026-08-09T14:01:00.000Z'
-  })).toMatchObject({ status: 'unresolved', reason: 'provider-comment-page-drift' });
+  }))).toMatchObject({ status: 'unresolved', reason: 'provider-comment-page-drift' });
 });
 
-test('maintainer Review wake-up is exact, user-authored, and at-most-once per session operation', () => {
+test('maintainer Review wake-up is exact, user-authored, and at-most-once per session operation', async () => {
   expect(shouldPublishMaintainerReviewWakeup({ reviewBarrierStatus: 'waiting',
     localVerificationStatus: 'passed', hostedArtifactPresent: false })).toBe(true);
   for (const state of [
@@ -561,7 +561,7 @@ test('maintainer Review wake-up is exact, user-authored, and at-most-once per se
     });
   }
   transport.issueComments = [[]];
-  const produced = evaluateMaintainerReviewWakeupObservation(transport, input);
+  const produced = (await evaluateMaintainerReviewWakeupObservation(transport, input));
   expect(produced).toMatchObject({ status: 'absent', commentId: null });
   expect(produced.body.startsWith('@codex review\n\n')).toBe(true);
   expect(produced.body).toContain(VERIFICATION_SESSION_REVIEW_WAKEUP_COMMENT_MARKER);
@@ -570,7 +570,7 @@ test('maintainer Review wake-up is exact, user-authored, and at-most-once per se
     id: '200', authorLogin: 'outsider', authorId: 502, authorNodeId: 'OUTSIDER',
     authorType: 'User', performedViaGitHubApp: null
   })]];
-  expect(evaluateMaintainerReviewWakeupObservation(transport, input)).toMatchObject({
+  expect((await evaluateMaintainerReviewWakeupObservation(transport, input))).toMatchObject({
     status: 'absent', commentId: null
   });
 
@@ -579,69 +579,69 @@ test('maintainer Review wake-up is exact, user-authored, and at-most-once per se
     { id: '204', authorLogin: 'outsider', authorId: 502, authorNodeId: 'OUTSIDER',
       authorType: 'User', performedViaGitHubApp: null }
   )]];
-  expect(evaluateMaintainerReviewWakeupObservation(transport, input)).toMatchObject({
+  expect((await evaluateMaintainerReviewWakeupObservation(transport, input))).toMatchObject({
     status: 'absent', commentId: null
   });
 
   transport.issueComments = [[maintainerIssueComment(produced.body)]];
-  expect(evaluateMaintainerReviewWakeupObservation(transport, input)).toMatchObject({
+  expect((await evaluateMaintainerReviewWakeupObservation(transport, input))).toMatchObject({
     status: 'reused', commentId: '201', wakeupDigest: produced.wakeupDigest
   });
 
   transport.issueComments = [[maintainerIssueComment(produced.body, '205', {
     authorLogin: 'renamed-maintainer'
   })]];
-  expect(evaluateMaintainerReviewWakeupObservation(transport, input)).toMatchObject({
+  expect((await evaluateMaintainerReviewWakeupObservation(transport, input))).toMatchObject({
     status: 'reused', commentId: '205', wakeupDigest: produced.wakeupDigest
   });
 
   transport.issueComments = [[]];
-  const otherMaintainer = evaluateMaintainerReviewWakeupObservation(transport, {
+  const otherMaintainer = (await evaluateMaintainerReviewWakeupObservation(transport, {
     ...input,
     publisherLogin: 'other-maintainer',
     publisherNodeId: 'OTHER_MAINTAINER_NODE'
-  });
+  }));
   transport.issueComments = [[botIssueComment(otherMaintainer.body, {
     id: '203', authorLogin: 'other-maintainer', authorId: 503,
     authorNodeId: 'OTHER_MAINTAINER_NODE', authorType: 'User', performedViaGitHubApp: null
   })]];
-  expect(evaluateMaintainerReviewWakeupObservation(transport, input)).toMatchObject({
+  expect((await evaluateMaintainerReviewWakeupObservation(transport, input))).toMatchObject({
     status: 'reused', commentId: '203', wakeupDigest: otherMaintainer.wakeupDigest
   });
 
   transport.issueComments = [[maintainerIssueComment(produced.body, '201'),
     maintainerIssueComment(produced.body, '202')]];
-  expect(() => evaluateMaintainerReviewWakeupObservation(transport, input))
+  await expect((async () => (await evaluateMaintainerReviewWakeupObservation(transport, input)))()).rejects
     .toThrow('duplicate maintainer Review wake-up comments');
 
   transport.issueComments = [[]];
-  const drifted = evaluateMaintainerReviewWakeupObservation(transport, {
+  const drifted = (await evaluateMaintainerReviewWakeupObservation(transport, {
     ...input,
     headTreeSha: BASE
-  });
+  }));
   transport.issueComments = [[maintainerIssueComment(drifted.body)]];
-  expect(() => evaluateMaintainerReviewWakeupObservation(transport, input))
+  await expect((async () => (await evaluateMaintainerReviewWakeupObservation(transport, input)))()).rejects
     .toThrow('conflicting semantic bytes');
 
   transport.issueComments = [[maintainerIssueComment(produced.body, '201', {
     authorType: 'Bot',
     performedViaGitHubApp: CI_GITHUB_ACTIONS_IDENTITY_POLICY.app
   })]];
-  expect(evaluateMaintainerReviewWakeupObservation(transport, input)).toMatchObject({
+  expect((await evaluateMaintainerReviewWakeupObservation(transport, input))).toMatchObject({
     status: 'absent', commentId: null
   });
 
   transport.issueComments = [[maintainerIssueComment(
     `@codex review\n\n${VERIFICATION_SESSION_REVIEW_WAKEUP_COMMENT_MARKER}\n{not-json}`
   )]];
-  expect(() => evaluateMaintainerReviewWakeupObservation(transport, input))
+  await expect((async () => (await evaluateMaintainerReviewWakeupObservation(transport, input)))()).rejects
     .toThrow('maintainer Review wake-up comment shape is invalid');
 });
 
-test('trusted Codex Review authority requires one earlier exact maintainer wake-up', () => {
+test('trusted Codex Review authority requires one earlier exact maintainer wake-up', async () => {
   const unbound = new FakeTransport();
   unbound.issueComments = [[botIssueComment()]];
-  expect(observe(unbound)).toMatchObject({
+  expect((await observe(unbound, false))).toMatchObject({
     status: 'blocked',
     reason: 'review-provider-unbound-activation'
   });
@@ -658,14 +658,14 @@ test('trusted Codex Review authority requires one earlier exact maintainer wake-
     publisherNodeId: 'MAINTAINER_NODE'
   } as const;
   const wakeupSource = new FakeTransport();
-  const wakeup = evaluateMaintainerReviewWakeupObservation(wakeupSource, wakeupInput);
+  const wakeup = (await evaluateMaintainerReviewWakeupObservation(wakeupSource, wakeupInput));
 
   const bound = new FakeTransport();
   bound.issueComments = [[
     botIssueComment(undefined, { id: '301', createdAt: '2026-08-09T14:00:00.000Z' }),
     maintainerIssueComment(wakeup.body, '300', { createdAt: '2026-08-09T13:59:00.000Z' })
   ]];
-  expect(observe(bound)).toMatchObject({
+  expect((await observe(bound))).toMatchObject({
     status: 'clear',
     principal: { kind: 'github-app', actorNodeId: BOT }
   });
@@ -675,13 +675,13 @@ test('trusted Codex Review authority requires one earlier exact maintainer wake-
     maintainerIssueComment(wakeup.body, '302', { createdAt: '2026-08-09T14:00:30.000Z' }),
     botIssueComment(undefined, { id: '301', createdAt: '2026-08-09T14:00:00.000Z' })
   ]];
-  expect(observe(lateWakeup)).toMatchObject({
+  expect((await observe(lateWakeup, false))).toMatchObject({
     status: 'blocked',
     reason: 'review-provider-unbound-activation'
   });
 });
 
-test('repository-wide Codex quota negative is trusted, bounded, stable, and fail-closed', () => {
+test('repository-wide Codex quota negative is trusted, bounded, stable, and fail-closed', async () => {
   const observedAt = '2026-08-09T14:01:00.000Z';
   const quotaBody = 'You have reached your Codex usage limits for code reviews. Upgrade or add credits.';
   const recentQuota = botIssueComment(quotaBody, {
@@ -691,10 +691,10 @@ test('repository-wide Codex quota negative is trusted, bounded, stable, and fail
 
   const unavailable = new FakeTransport();
   unavailable.repositoryIssueComments = [[recentQuota]];
-  expect(evaluateReviewProviderAvailabilityObservation(unavailable, {
+  expect((await evaluateReviewProviderAvailabilityObservation(unavailable, {
     repository: 'sec-platform/sec',
     observedAt
-  })).toMatchObject({
+  }))).toMatchObject({
     status: 'unavailable',
     reasonCode: 'provider-quota-unavailable',
     sourceCommentId: '401',
@@ -706,10 +706,10 @@ test('repository-wide Codex quota negative is trusted, bounded, stable, and fail
     '<!-- retired: codex code-review quota transport noise -->',
     { id: '406', createdAt: '2026-08-09T14:00:00.000Z' }
   )]];
-  expect(evaluateReviewProviderAvailabilityObservation(tombstoned, {
+  expect((await evaluateReviewProviderAvailabilityObservation(tombstoned, {
     repository: 'sec-platform/sec',
     observedAt
-  })).toMatchObject({
+  }))).toMatchObject({
     status: 'unavailable',
     reasonCode: 'provider-quota-unavailable',
     sourceCommentId: '406',
@@ -720,40 +720,40 @@ test('repository-wide Codex quota negative is trusted, bounded, stable, and fail
   humanDiagnostic.repositoryIssueComments = [[maintainerIssueComment(quotaBody, '402', {
     createdAt: '2026-08-09T14:00:00.000Z'
   })]];
-  expect(evaluateReviewProviderAvailabilityObservation(humanDiagnostic, {
+  expect((await evaluateReviewProviderAvailabilityObservation(humanDiagnostic, {
     repository: 'sec-platform/sec',
     observedAt
-  }).status).toBe('no-current-negative');
+  })).status).toBe('no-current-negative');
 
   const historicalNegative = new FakeTransport();
   historicalNegative.repositoryIssueComments = [[botIssueComment(quotaBody, {
     id: '403',
     createdAt: '2026-08-08T13:59:00.000Z'
   })]];
-  expect(evaluateReviewProviderAvailabilityObservation(historicalNegative, {
+  expect((await evaluateReviewProviderAvailabilityObservation(historicalNegative, {
     repository: 'sec-platform/sec',
     observedAt
-  })).toMatchObject({ status: 'unavailable', sourceCommentId: '403' });
+  }))).toMatchObject({ status: 'unavailable', sourceCommentId: '403' });
 
   const outOfOrder = new FakeTransport();
   outOfOrder.repositoryIssueComments = [[
     botIssueComment('first', { id: '404', createdAt: '2026-08-09T13:00:00.000Z' }),
     botIssueComment('second', { id: '405', createdAt: '2026-08-09T13:30:00.000Z' })
   ]];
-  expect(evaluateReviewProviderAvailabilityObservation(outOfOrder, {
+  expect((await evaluateReviewProviderAvailabilityObservation(outOfOrder, {
     repository: 'sec-platform/sec',
     observedAt
-  })).toMatchObject({
+  }))).toMatchObject({
     status: 'unresolved',
     reason: 'provider-comment-ordering-invalid'
   });
 
   const exhausted = new FakeTransport();
   exhausted.repositoryIssueComments = Array.from({ length: 65 }, () => []);
-  expect(evaluateReviewProviderAvailabilityObservation(exhausted, {
+  expect((await evaluateReviewProviderAvailabilityObservation(exhausted, {
     repository: 'sec-platform/sec',
     observedAt
-  })).toMatchObject({
+  }))).toMatchObject({
     status: 'unresolved',
     reason: 'pagination-budget-exhausted'
   });
@@ -773,10 +773,10 @@ test('repository-wide Codex quota negative is trusted, bounded, stable, and fail
       };
     }
   };
-  expect(evaluateReviewProviderAvailabilityObservation(drifting, {
+  expect((await evaluateReviewProviderAvailabilityObservation(drifting, {
     repository: 'sec-platform/sec',
     observedAt
-  })).toMatchObject({
+  }))).toMatchObject({
     status: 'unresolved',
     reason: 'provider-comment-page-drift'
   });
@@ -810,10 +810,10 @@ test('repository-wide Codex quota negative is trusted, bounded, stable, and fail
       };
     }
   };
-  expect(evaluateReviewProviderAvailabilityObservation(secondPageDrift, {
+  expect((await evaluateReviewProviderAvailabilityObservation(secondPageDrift, {
     repository: 'sec-platform/sec',
     observedAt
-  })).toMatchObject({
+  }))).toMatchObject({
     status: 'unresolved',
     reason: 'provider-comment-page-drift'
   });
@@ -983,11 +983,11 @@ function maintainerIssueComment(body: string, id = '201', overrides: Partial<
 
 let defaultReviewWakeupBodyCache = '';
 
-function defaultReviewWakeupBody(): string {
+async function defaultReviewWakeupBody(): Promise<string> {
   if (defaultReviewWakeupBodyCache !== '') return defaultReviewWakeupBodyCache;
   const transport = new FakeTransport();
   transport.issueComments = [[]];
-  defaultReviewWakeupBodyCache = evaluateMaintainerReviewWakeupObservation(transport, {
+  defaultReviewWakeupBodyCache = (await evaluateMaintainerReviewWakeupObservation(transport, {
     repository: 'sec-platform/sec',
     sessionRevision: `sha256:${'1'.repeat(64)}`,
     operationId: `sha256:${'2'.repeat(64)}`,
@@ -997,27 +997,27 @@ function defaultReviewWakeupBody(): string {
     headTreeSha: HEAD,
     publisherLogin: 'maintainer',
     publisherNodeId: 'MAINTAINER_NODE'
-  }).body;
+  })).body;
   return defaultReviewWakeupBodyCache;
 }
 
-function ensureBoundReviewWakeup(transport: FakeTransport): void {
+async function ensureBoundReviewWakeup(transport: FakeTransport): Promise<void> {
   if (transport.issueComments.flat().some(({ body }) =>
     body.includes(VERIFICATION_SESSION_REVIEW_WAKEUP_COMMENT_MARKER))) return;
   const first = transport.issueComments[0] ?? [];
   transport.issueComments[0] = [
-    maintainerIssueComment(defaultReviewWakeupBody(), '99'),
+    maintainerIssueComment((await defaultReviewWakeupBody()), '99'),
     ...first
   ];
 }
 
-function observe(transport: FakeTransport) {
-  ensureBoundReviewWakeup(transport);
-  return evaluateVerificationSessionReviewObservation(transport, {
+async function observe(transport: FakeTransport, bindWakeup = true) {
+  if (bindWakeup) await ensureBoundReviewWakeup(transport);
+  return (await evaluateVerificationSessionReviewObservation(transport, {
     repository: 'sec-platform/sec', prNumber: 42, headSha: HEAD,
     excludedPrincipalNodeIds: new Set(['AUTHOR', 'INTEGRATOR']),
     observedAt: '2026-08-09T14:01:00.000Z'
-  });
+  }));
 }
 
 function expectTypedProviderSchemaUnsupported(observation: GitHubReviewBarrierObservation): void {
@@ -1033,174 +1033,106 @@ let privateGhProxySuiteRoot = '';
 
 function privateGhProxyRoot(): string {
   if (privateGhProxySuiteRoot !== '') return privateGhProxySuiteRoot;
-  privateGhProxySuiteRoot = mkdtempSync(path.join(tmpdir(), 'sec-private-gh-proxy-'));
+  privateGhProxySuiteRoot = mkdtempSync(path.join(tmpdir(), 'sec-private-gh-token-'));
+  const source = path.join(privateGhProxySuiteRoot, 'credential.ts');
   const output = path.join(privateGhProxySuiteRoot, process.platform === 'win32' ? 'gh.exe' : 'gh');
-  const sourceText = `
-import { pathToFileURL } from 'node:url';
-const runner = process.env.SEC_VERIFICATION_SESSION_TEST_GH_RUNNER;
-if (!runner) throw new Error('SEC_VERIFICATION_SESSION_TEST_GH_RUNNER is required');
-await import(pathToFileURL(runner).href);
-`;
-  if (process.platform === 'win32') {
-    const source = path.join(privateGhProxySuiteRoot, 'gh-proxy.ts');
-    writeFileSync(source, sourceText, 'utf8');
-    const compiled = spawnSync(process.execPath, [
-      'build', '--compile', source, '--outfile', output
-    ], { cwd: privateGhProxySuiteRoot, encoding: 'utf8', windowsHide: true });
-    if (compiled.status !== 0) {
-      throw new Error(`cannot compile private gh proxy: ${compiled.stderr || compiled.stdout}`);
-    }
-  } else {
-    writeFileSync(output, `#!/usr/bin/env bun\n${sourceText}`, { encoding: 'utf8', mode: 0o700 });
-    chmodSync(output, 0o700);
-  }
+  writeFileSync(source, `if (process.argv.slice(-4).join(' ') !== 'auth token --hostname github.com') process.exit(1); process.stdout.write('ghp_private_fixture_token_000000000000');`, 'utf8');
+  const compiled = spawnSync(process.execPath, ['build','--compile',source,'--outfile',output],
+    {cwd:privateGhProxySuiteRoot,encoding:'utf8',windowsHide:true});
+  if (compiled.status !== 0) throw new Error('Private credential fixture compilation failed');
   return privateGhProxySuiteRoot;
 }
 
-function observePrivateGhProviderBarrier(
+async function withPrivateGitHubHttp<T>(
+  respond: (url: URL, init: RequestInit | undefined) => unknown,
+  operation: (root: string) => Promise<T>
+): Promise<T> {
+  const root = mkdtempSync(path.join(tmpdir(), 'sec-private-github-http-'));
+  const previousPath = process.env.PATH;
+  const previousFetch = globalThis.fetch;
+  process.env.PATH = `${privateGhProxyRoot()}${path.delimiter}${previousPath ?? ''}`;
+  globalThis.fetch = (async (target: string | URL | Request, init?: RequestInit) => {
+    const url = new URL(typeof target === 'string' || target instanceof URL ? target : target.url);
+    if (url.origin !== 'https://api.github.com') throw new Error('Fixture received a foreign host');
+    const value = url.pathname === '/user'
+      ? {login:'enrollment',node_id:'ENROLLMENT',id:1}
+      : url.pathname.endsWith('/collaborators/enrollment/permission') ? {permission:'maintain'}
+      : respond(url, init);
+    return new Response(typeof value === 'string' ? value : JSON.stringify(value),
+      {status:200,headers:{'content-type':'application/json'}});
+  }) as typeof fetch;
+  try { return await operation(root); }
+  finally {
+    globalThis.fetch = previousFetch;
+    if (previousPath === undefined) delete process.env.PATH; else process.env.PATH = previousPath;
+    rmSync(root,{recursive:true,force:true});
+  }
+}
+
+async function observePrivateGhProviderBarrier(
   mode: 'clear' | 'candidate' | 'permission' | 'trusted-app' | 'review-post-normalization'
     | 'thread-post-normalization' | 'request-post-normalization' | 'issue-post-normalization',
   malformedSource: string,
   observedAt = '2026-08-09T14:01:00.000Z'
 ) {
-  const root = mkdtempSync(path.join(tmpdir(), 'sec-provider-shape-gh-'));
-  const runner = path.join(root, 'gh-provider-shape.mjs');
-  const candidate = {
-    number: 42, state: 'OPEN', isDraft: false, isCrossRepository: false,
-    author: { id: 'AUTHOR' }, baseRefName: 'main', baseRefOid: BASE,
-    headRefName: 'feature/provider-shape', headRefOid: HEAD,
-    title: 'Safe provider shape candidate', body: '', mergeCommit: null
-  };
-  const reviewAuthor = mode === 'trusted-app'
-    ? { __typename: 'Bot', id: BOT, login: 'codex-review[bot]',
-      resourcePath: '/apps/chatgpt-codex-connector' }
-    : { __typename: 'User', id: 'REVIEWER', login: 'reviewer', resourcePath: '/reviewer' };
-  writeFileSync(runner, `
-const args = process.argv.slice(2);
-const mode = ${JSON.stringify(mode)};
-const malformedSource = ${JSON.stringify(malformedSource)};
-const candidate = ${JSON.stringify(candidate)};
-const base = ${JSON.stringify(BASE)};
-const head = ${JSON.stringify(HEAD)};
-const reviewAuthor = ${JSON.stringify(reviewAuthor)};
-const out = (value) => { process.stdout.write(typeof value === 'string' ? value : JSON.stringify(value)); process.exit(0); };
-const endpoint = args[0] === 'api' ? args[1] : '';
-if (args[0] === 'pr' && args[1] === 'view') out(candidate);
-if (endpoint.includes('/git/commits/')) {
-  if (endpoint.endsWith('/' + base)) out(mode === 'candidate' ? malformedSource : base + '\\n');
-  if (endpoint.endsWith('/' + head)) out(head + '\\n');
-}
-if (endpoint === 'graphql') {
-  const query = args.find((argument) => argument.startsWith('query=')) || '';
-  const page = (connection) => [{ data: { repository: { pullRequest: connection } } }];
-  const terminal = { hasNextPage: false, endCursor: null };
-  if (query.includes('closingIssuesReferences(first:100')) {
-    out({ data: { repository: { pullRequest: { number: candidate.number,
-      title: candidate.title, body: candidate.body, state: candidate.state,
-      mergeCommit: candidate.mergeCommit,
-      closingIssuesReferences: { totalCount: 0, nodes: [], pageInfo: terminal } } } } });
-  }
-  if (query.includes('reviews(first')) {
-    out(page({ reviews: { nodes: [{ id: 'R1',
-      state: mode === 'review-post-normalization' ? malformedSource : 'APPROVED',
-      submittedAt: '2026-08-09T14:00:00.000Z', commit: { oid: head }, author: reviewAuthor
-    }], pageInfo: terminal } }));
-  }
-  if (query.includes('reviewThreads(first')) {
-    const nodes = mode === 'thread-post-normalization' ? [{ id: 'T1', isResolved: malformedSource,
-      isOutdated: false, path: 'src/example.ts', comments: { nodes: [], pageInfo: terminal } }] : [];
-    out(page({ reviewThreads: { nodes, pageInfo: terminal } }));
-  }
-  if (query.includes('reviewRequests(first')) {
-    const nodes = mode === 'request-post-normalization'
-      ? [{ requestedReviewer: { id: 'USER_request', login: malformedSource } }]
-      : [];
-    out(page({ reviewRequests: { nodes, pageInfo: terminal } }));
-  }
-}
-if (endpoint === '/apps/chatgpt-codex-connector') {
-  out(mode === 'trusted-app' ? malformedSource : { id: 1144995, node_id: 'A_kwHOAOQ6Gs4AEXij', slug: 'chatgpt-codex-connector' });
-}
-if (endpoint.endsWith('/permission')) out(mode === 'permission' ? malformedSource : 'maintain\\n');
-if (endpoint.endsWith('/issues/42/comments?per_page=100')) {
-  const nodes = mode === 'issue-post-normalization' ? [
-    { id: 101, body: malformedSource, created_at: '2026-08-09T14:00:00.000Z', user: { login: 'reviewer', id: 7, node_id: 'USER_reviewer', type: 'User' }, performed_via_github_app: null },
-    { id: 101, body: 'duplicate', created_at: '2026-08-09T14:00:01.000Z', user: { login: 'reviewer', id: 7, node_id: 'USER_reviewer', type: 'User' }, performed_via_github_app: null }
-  ] : [];
-  out([nodes]);
-}
-process.stderr.write('unsupported private provider fixture command: ' + args.join(' '));
-process.exit(1);
-`, 'utf8');
-  const proxyRoot = privateGhProxyRoot();
-  const previousPath = process.env.PATH;
-  const previousRunner = process.env.SEC_VERIFICATION_SESSION_TEST_GH_RUNNER;
-  process.env.PATH = `${proxyRoot}${path.delimiter}${previousPath ?? ''}`;
-  process.env.SEC_VERIFICATION_SESSION_TEST_GH_RUNNER = runner;
-  try {
-    return createVerificationSessionGitHubClient(root).observeReviewBarrier({
-      repository: 'sec-platform/sec', prNumber: 42, headSha: HEAD,
-      excludedPrincipalNodeIds: new Set(['AUTHOR', 'INTEGRATOR']),
-      observedAt
-    });
-  } finally {
-    if (previousPath === undefined) delete process.env.PATH;
-    else process.env.PATH = previousPath;
-    if (previousRunner === undefined) delete process.env.SEC_VERIFICATION_SESSION_TEST_GH_RUNNER;
-    else process.env.SEC_VERIFICATION_SESSION_TEST_GH_RUNNER = previousRunner;
-    rmSync(root, { recursive: true, force: true });
-  }
+  const terminal = {hasNextPage:false,endCursor:null};
+  const candidate = {number:42,state:'open',merged:false,draft:false,
+    user:{node_id:'AUTHOR'}, base:{ref:'main',sha:BASE,repo:{full_name:'sec-platform/sec'}},
+    head:{ref:'feature/provider-shape',sha:HEAD,repo:{full_name:'sec-platform/sec'}},
+    title:'Safe provider shape candidate',body:'',merge_commit_sha:null};
+  return await withPrivateGitHubHttp((url,init) => {
+    const endpoint = url.pathname;
+    if (endpoint === '/repos/sec-platform/sec/pulls/42') return candidate;
+    if (endpoint.includes('/git/commits/')) return {tree:{sha:endpoint.endsWith(BASE)
+      ? mode === 'candidate' ? malformedSource : BASE : HEAD}};
+    if (endpoint === '/graphql') {
+      const query = JSON.parse(String(init?.body)).query as string;
+      const page = (connection: unknown) => ({data:{repository:{pullRequest:connection}}});
+      if (query.includes('closingIssuesReferences(first:100')) return page({number:42,title:candidate.title,
+        body:'',state:'OPEN',mergeCommit:null,closingIssuesReferences:{totalCount:0,nodes:[],pageInfo:terminal}});
+      if (query.includes('reviews(first')) return page({reviews:{nodes:[{id:'R1',
+        state:mode === 'review-post-normalization' ? malformedSource : 'APPROVED',
+        submittedAt:'2026-08-09T14:00:00.000Z',commit:{oid:HEAD},
+        author:mode === 'trusted-app' ? {__typename:'Bot',id:BOT,login:'codex-review[bot]',resourcePath:'/apps/chatgpt-codex-connector'}
+          : {__typename:'User',id:'REVIEWER',login:'reviewer',resourcePath:'/reviewer'}}],pageInfo:terminal}});
+      if (query.includes('reviewThreads(first')) return page({reviewThreads:{nodes:mode === 'thread-post-normalization'
+        ? [{id:'T1',isResolved:malformedSource,isOutdated:false,path:'src/example.ts',comments:{nodes:[],pageInfo:terminal}}] : [],pageInfo:terminal}});
+      if (query.includes('reviewRequests(first')) return page({reviewRequests:{nodes:mode === 'request-post-normalization'
+        ? [{requestedReviewer:{id:'USER_request',login:malformedSource}}] : [],pageInfo:terminal}});
+    }
+    if (endpoint === '/apps/chatgpt-codex-connector') return mode === 'trusted-app' ? malformedSource
+      : {id:1144995,node_id:'A_kwHOAOQ6Gs4AEXij',slug:'chatgpt-codex-connector'};
+    if (endpoint.endsWith('/permission')) return {permission:mode === 'permission' ? malformedSource : 'maintain'};
+    if (endpoint.endsWith('/issues/42/comments')) return mode === 'issue-post-normalization' ? [
+      {id:101,body:malformedSource,created_at:'2026-08-09T14:00:00.000Z',user:{login:'reviewer',id:7,node_id:'USER_reviewer',type:'User'},performed_via_github_app:null},
+      {id:101,body:'duplicate',created_at:'2026-08-09T14:00:01.000Z',user:{login:'reviewer',id:7,node_id:'USER_reviewer',type:'User'},performed_via_github_app:null}
+    ] : [];
+    throw new Error('Unsupported private HTTP fixture operation');
+  }, async root => await createVerificationSessionGitHubClient(root,'sec-platform/sec').observeReviewBarrier({
+    repository:'sec-platform/sec',prNumber:42,headSha:HEAD,
+    excludedPrincipalNodeIds:new Set(['AUTHOR','INTEGRATOR']),observedAt
+  }));
 }
 
-function observePrivateMergedCandidate(parentShas: readonly string[]): GitHubCandidateObservation {
-  const root = mkdtempSync(path.join(tmpdir(), 'sec-merged-candidate-gh-'));
-  const runner = path.join(root, 'gh-merged-candidate.mjs');
+async function observePrivateMergedCandidate(parentShas: readonly string[]): Promise<GitHubCandidateObservation> {
   const mergeCommitSha = '9'.repeat(40);
-  writeFileSync(runner, `
-const args = process.argv.slice(2);
-const base = ${JSON.stringify(BASE)};
-const head = ${JSON.stringify(HEAD)};
-const mergeCommitSha = ${JSON.stringify(mergeCommitSha)};
-const parentShas = ${JSON.stringify(parentShas)};
-const out = (value) => { process.stdout.write(typeof value === 'string' ? value : JSON.stringify(value)); process.exit(0); };
-const endpoint = args[0] === 'api' ? args[1] : '';
-if (args[0] === 'pr' && args[1] === 'view') out({
-  number: 42, state: 'MERGED', isDraft: false, isCrossRepository: false,
-  author: { id: 'AUTHOR' }, baseRefName: 'main', baseRefOid: base,
-  headRefName: 'feature/provider-shape', headRefOid: head,
-  title: 'Merged candidate', body: '', mergeCommit: { oid: mergeCommitSha }
-});
-if (endpoint.endsWith('/' + base)) out(base + '\\n');
-if (endpoint.endsWith('/' + head)) out(head + '\\n');
-if (endpoint.endsWith('/' + mergeCommitSha)) out({ sha: mergeCommitSha,
-  tree: { sha: head }, message: 'provider-observed merge',
-  parents: parentShas.map((sha) => ({ sha })) });
-process.stderr.write('unsupported private merged candidate command: ' + args.join(' '));
-process.exit(1);
-`, 'utf8');
-  const proxyRoot = privateGhProxyRoot();
-  const previousPath = process.env.PATH;
-  const previousRunner = process.env.SEC_VERIFICATION_SESSION_TEST_GH_RUNNER;
-  process.env.PATH = `${proxyRoot}${path.delimiter}${previousPath ?? ''}`;
-  process.env.SEC_VERIFICATION_SESSION_TEST_GH_RUNNER = runner;
-  try {
-    return createVerificationSessionGitHubClient(root).observeCandidate('sec-platform/sec', 42);
-  } finally {
-    if (previousPath === undefined) delete process.env.PATH;
-    else process.env.PATH = previousPath;
-    if (previousRunner === undefined) delete process.env.SEC_VERIFICATION_SESSION_TEST_GH_RUNNER;
-    else process.env.SEC_VERIFICATION_SESSION_TEST_GH_RUNNER = previousRunner;
-    rmSync(root, { recursive: true, force: true });
-  }
+  return await withPrivateGitHubHttp(url => {
+    if (url.pathname.endsWith('/pulls/42')) return {number:42,state:'closed',merged:true,draft:false,
+      user:{node_id:'AUTHOR'},base:{ref:'main',sha:BASE,repo:{full_name:'sec-platform/sec'}},
+      head:{ref:'feature',sha:HEAD,repo:{full_name:'sec-platform/sec'}},title:'Merged',body:'',merge_commit_sha:mergeCommitSha};
+    if (url.pathname.endsWith(mergeCommitSha)) return {tree:{sha:HEAD},message:'merge',parents:parentShas.map(sha=>({sha}))};
+    if (url.pathname.includes('/git/commits/')) return {tree:{sha:url.pathname.endsWith(BASE) ? BASE : HEAD}};
+    throw new Error('Unsupported merged HTTP fixture operation');
+  }, async root => await createVerificationSessionGitHubClient(root,'sec-platform/sec').observeCandidate('sec-platform/sec',42));
 }
 
 const privateClearReviewBarriers = new Map<string,
   Extract<GitHubReviewBarrierObservation, { status: 'clear' }>>();
 
-function observePrivateClearReviewBarrier(observedAt: string): Extract<GitHubReviewBarrierObservation, { status: 'clear' }> {
+async function observePrivateClearReviewBarrier(observedAt: string): Promise<Extract<GitHubReviewBarrierObservation, { status: 'clear' }>> {
   const cached = privateClearReviewBarriers.get(observedAt);
   if (cached !== undefined) return cached;
-  const barrier = observePrivateGhProviderBarrier('clear', '', observedAt);
+  const barrier = (await observePrivateGhProviderBarrier('clear', '', observedAt));
   if (barrier.status !== 'clear') throw new Error('production private adapter fixture Review must be clear');
   privateClearReviewBarriers.set(observedAt, barrier);
   return barrier;
@@ -1208,24 +1140,24 @@ function observePrivateClearReviewBarrier(observedAt: string): Extract<GitHubRev
 
 function fakeGitHubClient(
   transport: FakeTransport,
-  observePrivateBarrier?: (input: Parameters<VerificationSessionGitHubClient['observeReviewBarrier']>[0]) => GitHubReviewBarrierObservation
+  observePrivateBarrier?: (input: Parameters<VerificationSessionGitHubClient['observeReviewBarrier']>[0]) => GitHubReviewBarrierObservation | Promise<GitHubReviewBarrierObservation>
 ): VerificationSessionGitHubClient {
   const client: Pick<VerificationSessionGitHubClient,
     'observeCandidate' | 'observeReviewBarrier' | 'observeReviewProviderAvailability'
     | 'observePrincipalByNodeId' | 'observePlatformEnforcement' | 'observeComparison'
     | 'ensureVerificationSessionWakeup'> = {
-    observeCandidate: () => transport.candidate(),
-    observeReviewBarrier: (input) => observePrivateBarrier?.(input)
-      ?? evaluateVerificationSessionReviewObservation(transport, input),
-    observeReviewProviderAvailability: (input) =>
-      evaluateReviewProviderAvailabilityObservation(transport, input),
-    observePrincipalByNodeId: (repository, nodeId) => transport.principalByNodeId(repository, nodeId),
-    observePlatformEnforcement: (repository) => evaluatePlatformEnforcementObservation({
+    observeCandidate: async () => transport.candidate(),
+    observeReviewBarrier: async (input) => observePrivateBarrier?.(input)
+      ?? (await evaluateVerificationSessionReviewObservation(transport, input)),
+    observeReviewProviderAvailability: async (input) =>
+      (await evaluateReviewProviderAvailabilityObservation(transport, input)),
+    observePrincipalByNodeId: async (repository, nodeId) => transport.principalByNodeId(repository, nodeId),
+    observePlatformEnforcement: async (repository) => (await evaluatePlatformEnforcementObservation({
       repository,
       readRulesets: () => transport.repositoryRulesets()
-    }),
-    observeComparison: (repository, baseSha, headSha) => transport.comparison(repository, baseSha, headSha),
-    ensureVerificationSessionWakeup: () => transport.ensureVerificationSessionWakeup()
+    })),
+    observeComparison: async (repository, baseSha, headSha) => transport.comparison(repository, baseSha, headSha),
+    ensureVerificationSessionWakeup: async () => transport.ensureVerificationSessionWakeup()
   };
   return client as unknown as VerificationSessionGitHubClient;
 }
@@ -1347,7 +1279,7 @@ function createPureHostedEnvelopeFixture(input: {
   return Object.freeze({ ...withoutDigest, envelopeDigest });
 }
 
-function reducerFixture(options: {
+async function reducerFixture(options: {
   now?: string;
   mergeAt?: string;
   authorizationExpiresAt?: string;
@@ -1378,12 +1310,12 @@ function reducerFixture(options: {
   );
   const transport = new ReducerTransport();
   transport.issueComments = [[botIssueComment()]];
-  const github = fakeGitHubClient(transport, (input) => observePrivateClearReviewBarrier(
+  const github = fakeGitHubClient(transport, async (input) => (await observePrivateClearReviewBarrier(
     input.observedAt ?? VERIFIED_AT
-  ));
+  )));
   const candidate = transport.candidate();
-  const barrier = github.observeReviewBarrier({ repository: identity.repository, prNumber: identity.prNumber,
-    headSha: HEAD, excludedPrincipalNodeIds: new Set(['AUTHOR', 'INTEGRATOR']), observedAt: VERIFIED_AT });
+  const barrier = (await github.observeReviewBarrier({ repository: identity.repository, prNumber: identity.prNumber,
+    headSha: HEAD, excludedPrincipalNodeIds: new Set(['AUTHOR', 'INTEGRATOR']), observedAt: VERIFIED_AT }));
   if (barrier.status !== 'clear') throw new Error('fixture Review must be clear');
   const changedPaths = ['src/adapters/verification/platform/ci/runtime/verification-session.ts'];
   const testImpactTransition = changedTransition(changedPaths);
@@ -1458,8 +1390,8 @@ function reducerFixture(options: {
   };
   const hostedObservation = createHostedArtifactObservation({ artifact, artifactText,
     observation: hostedMetadata });
-  const preMergeBarrier = github.observeReviewBarrier({ repository: identity.repository, prNumber: identity.prNumber,
-    headSha: HEAD, excludedPrincipalNodeIds: new Set(['AUTHOR', 'INTEGRATOR']), observedAt: mergeAt });
+  const preMergeBarrier = (await github.observeReviewBarrier({ repository: identity.repository, prNumber: identity.prNumber,
+    headSha: HEAD, excludedPrincipalNodeIds: new Set(['AUTHOR', 'INTEGRATOR']), observedAt: mergeAt }));
   if (preMergeBarrier.status !== 'clear') throw new Error('fixture pre-merge Review must be clear');
   const preMergeReview = createPureReviewFixture({ stage: 'pre-merge',
     session: artifact.session, scope: artifact.scopeAuthorization, barrier: preMergeBarrier,
@@ -1471,7 +1403,7 @@ function reducerFixture(options: {
     sourceRef: identity.mainHealthSourceRef,
     checks: [mainHealthCheck({ workflowRunId: identity.freshMainHealthRunId })]
   }));
-  const platform = github.observePlatformEnforcement('sec-platform/sec');
+  const platform = (await github.observePlatformEnforcement('sec-platform/sec'));
   if (platform.status === 'unknown') throw new Error('fixture platform observation must be known');
   const consumptionOperationId = createVerificationSessionMergeOperationId({
     sessionRevision: artifact.session.sessionRevision, headSha: HEAD,
@@ -1581,15 +1513,15 @@ function reducerFixture(options: {
     dispose: () => rmSync(repositoryRoot, { recursive: true, force: true }) };
 }
 
-function runReducer(fixture: ReturnType<typeof reducerFixture>) {
-  return resumeVerificationSession({ repositoryRoot: fixture.repositoryRoot,
+async function runReducer(fixture: Awaited<ReturnType<typeof reducerFixture>>) {
+  return (await resumeVerificationSession({ repositoryRoot: fixture.repositoryRoot,
     session: fixture.artifact.session, scopeAuthorization: fixture.artifact.scopeAuthorization,
     changedPaths: fixture.changedPaths, testImpactTransition: fixture.testImpactTransition,
     integrationPrincipalNodeId: 'INTEGRATOR',
-    github: fixture.github, external: fixture.external, journalFs: fixture.journalFs });
+    github: fixture.github, external: fixture.external, journalFs: fixture.journalFs }));
 }
 
-function durablePublication(fixture: ReturnType<typeof reducerFixture>): Readonly<{
+function durablePublication(fixture: Awaited<ReturnType<typeof reducerFixture>>): Readonly<{
   commentId: number;
   publication: IntegrationAuthorizationOperationPublication;
 }> {
@@ -1614,7 +1546,7 @@ function durablePublication(fixture: ReturnType<typeof reducerFixture>): Readonl
 }
 
 function substituteAuthorizationLiveIdentity(
-  fixture: ReturnType<typeof reducerFixture>,
+  fixture: Awaited<ReturnType<typeof reducerFixture>>,
   identity: { repository?: string; prNumber?: number }
 ): CodexDevelopmentMergeGateResult {
   const previous = fixture.result.authorization;
@@ -1644,12 +1576,12 @@ function substituteAuthorizationLiveIdentity(
   return Object.freeze({ ...withoutDigest, resultDigest });
 }
 
-test('trusted app review binds stable app/node and exact reviewed head', () => {
+test('trusted app review binds stable app/node and exact reviewed head', async () => {
   const transport = new FakeTransport();
   transport.issueComments = [[botIssueComment(
     `Codex Review: Didn't find any major issues. Delightful!\n\n**Reviewed commit:** \`${HEAD.slice(0, 10)}\``
   )]];
-  const result = observe(transport);
+  const result = (await observe(transport));
   expect(result.status).toBe('clear');
   if (result.status !== 'clear') throw new Error('expected clear review');
   expect(result.principal).toEqual({ kind: 'github-app', actorNodeId: BOT, appId: 1144995,
@@ -1659,7 +1591,7 @@ test('trusted app review binds stable app/node and exact reviewed head', () => {
   expect(result.snapshot.reviewPageDigests).toContain(result.authority.sourceDigest);
 });
 
-test('REST clean verdict accepts stable prefix variants only with provider-resolved exact 10/full locator', () => {
+test('REST clean verdict accepts stable prefix variants only with provider-resolved exact 10/full locator', async () => {
   const providerAbout = new FakeTransport();
   providerAbout.issueComments = [[botIssueComment(
     `Codex Review: Didn't find any major issues. What shall we build next?\n\n` +
@@ -1672,7 +1604,7 @@ test('REST clean verdict accepts stable prefix variants only with provider-resol
     'Codex can also answer questions or update the PR. Try commenting ' +
     '"@codex address that feedback".\n</details>'
   )]];
-  expect(observe(providerAbout).status).toBe('clear');
+  expect((await observe(providerAbout)).status).toBe('clear');
 
   for (const body of [
     `Codex Review: Didn't find any major issues. Swish!\n\n` +
@@ -1688,7 +1620,7 @@ test('REST clean verdict accepts stable prefix variants only with provider-resol
   ]) {
     const contradictory = new FakeTransport();
     contradictory.issueComments = [[botIssueComment(body)]];
-    expect(observe(contradictory)).toMatchObject({ status: 'waiting',
+    expect((await observe(contradictory))).toMatchObject({ status: 'waiting',
       reason: 'exact-head-independent-review-missing' });
   }
 
@@ -1697,7 +1629,7 @@ test('REST clean verdict accepts stable prefix variants only with provider-resol
     transport.issueComments = [[botIssueComment(
       `Codex Review: Didn't find any major issues. Bravo.\n\n**Reviewed commit:** \`${locator}\``
     )]];
-    expect(observe(transport)).toMatchObject({ status: 'waiting',
+    expect((await observe(transport))).toMatchObject({ status: 'waiting',
       reason: 'exact-head-independent-review-missing' });
   }
   const ambiguous = new FakeTransport();
@@ -1705,7 +1637,7 @@ test('REST clean verdict accepts stable prefix variants only with provider-resol
   ambiguous.resolutions.set(HEAD.slice(0, 10), { repository: 'sec-platform/sec',
     locator: HEAD.slice(0, 10), status: 'ambiguous', commitSha: null, treeSha: null,
     responseDigest: `sha256:${'9'.repeat(64)}` });
-  expect(observe(ambiguous)).toMatchObject({ status: 'waiting',
+  expect((await observe(ambiguous))).toMatchObject({ status: 'waiting',
     reason: 'exact-head-independent-review-missing' });
 
   const wrongTree = new FakeTransport();
@@ -1713,40 +1645,40 @@ test('REST clean verdict accepts stable prefix variants only with provider-resol
   wrongTree.resolutions.set(HEAD.slice(0, 10), { repository: 'sec-platform/sec',
     locator: HEAD.slice(0, 10), status: 'resolved', commitSha: HEAD, treeSha: BASE,
     responseDigest: `sha256:${'8'.repeat(64)}` });
-  expect(observe(wrongTree)).toMatchObject({ status: 'waiting',
+  expect((await observe(wrongTree))).toMatchObject({ status: 'waiting',
     reason: 'exact-head-independent-review-missing' });
 
   const suggestion = new FakeTransport();
   suggestion.issueComments = [[botIssueComment(
     `### 💡 Codex Review\n\nHere are some automated review suggestions.\n\n**Reviewed commit:** \`${HEAD.slice(0, 10)}\``
   )]];
-  expect(observe(suggestion)).toMatchObject({ status: 'waiting',
+  expect((await observe(suggestion))).toMatchObject({ status: 'waiting',
     reason: 'exact-head-independent-review-missing' });
 
   const wrongAppNode = new FakeTransport();
   wrongAppNode.issueComments = [[botIssueComment(undefined, {
     performedViaGitHubApp: { id: 1144995, nodeId: 'A_wrong', slug: 'chatgpt-codex-connector' }
   })]];
-  expect(observe(wrongAppNode)).toMatchObject({ status: 'waiting',
+  expect((await observe(wrongAppNode))).toMatchObject({ status: 'waiting',
     reason: 'exact-head-independent-review-missing' });
 });
 
-test('second-page unresolved thread fails closed', () => {
+test('second-page unresolved thread fails closed', async () => {
   const transport = new FakeTransport();
   transport.issueComments = [[botIssueComment()]];
   transport.threads = [[], [{ id: 'T2', isResolved: false, isOutdated: false, path: 'x.ts', authorNodeIds: ['R'] }]];
-  expect(observe(transport)).toMatchObject({ status: 'blocked', reason: 'unresolved-review-thread' });
+  expect((await observe(transport))).toMatchObject({ status: 'blocked', reason: 'unresolved-review-thread' });
 });
 
-test('an unresolved outdated thread remains blocking', () => {
+test('an unresolved outdated thread remains blocking', async () => {
   const transport = new FakeTransport();
   transport.issueComments = [[botIssueComment()]];
   transport.threads = [[{ id: 'T-outdated', isResolved: false, isOutdated: true,
     path: 'old.ts', authorNodeIds: ['REVIEWER'] }]];
-  expect(observe(transport)).toMatchObject({ status: 'blocked', reason: 'unresolved-review-thread' });
+  expect((await observe(transport))).toMatchObject({ status: 'blocked', reason: 'unresolved-review-thread' });
 });
 
-test('current exact-head REQUEST_CHANGES blocks even with a trusted app comment', () => {
+test('current exact-head REQUEST_CHANGES blocks even with a trusted app comment', async () => {
   const transport = new FakeTransport();
   transport.issueComments = [[botIssueComment()]];
   transport.reviews = [[{
@@ -1754,10 +1686,10 @@ test('current exact-head REQUEST_CHANGES blocks even with a trusted app comment'
     appId: null, appNodeId: null, appSlug: null,
     commitSha: HEAD, state: 'CHANGES_REQUESTED', submittedAt: '2026-08-09T14:00:00.000Z'
   }]];
-  expect(observe(transport)).toMatchObject({ status: 'blocked', reason: 'request-changes-current' });
+  expect((await observe(transport))).toMatchObject({ status: 'blocked', reason: 'request-changes-current' });
 });
 
-test('old-head REQUEST_CHANGES survives a new-head COMMENTED review and clean app verdict', () => {
+test('old-head REQUEST_CHANGES survives a new-head COMMENTED review and clean app verdict', async () => {
   const transport = new FakeTransport();
   transport.issueComments = [[botIssueComment()]];
   transport.reviews = [[
@@ -1768,64 +1700,64 @@ test('old-head REQUEST_CHANGES survives a new-head COMMENTED review and clean ap
       appId: null, appNodeId: null, appSlug: null,
       commitSha: HEAD, state: 'COMMENTED', submittedAt: '2026-08-09T13:59:00.000Z' }
   ]];
-  expect(observe(transport)).toMatchObject({ status: 'blocked', reason: 'request-changes-current' });
+  expect((await observe(transport))).toMatchObject({ status: 'blocked', reason: 'request-changes-current' });
 
   transport.reviews[0]!.push({ id: 'R3', authorNodeId: 'REVIEWER', authorLogin: 'reviewer',
     authorType: 'User', appId: null,
     appNodeId: null, appSlug: null,
     commitSha: HEAD, state: 'APPROVED', submittedAt: '2026-08-09T14:00:30.000Z' });
-  expect(observe(transport).status).toBe('clear');
+  expect((await observe(transport)).status).toBe('clear');
 });
 
-test('formal trusted App COMMENTED suggestion cannot clear without an explicit clean REST verdict', () => {
+test('formal trusted App COMMENTED suggestion cannot clear without an explicit clean REST verdict', async () => {
   const transport = new FakeTransport();
   transport.reviews = [[{ id: 'R-app', authorNodeId: BOT, authorLogin: 'codex-review[bot]',
     authorType: 'Bot',
     appId: 1144995, appNodeId: 'A_kwHOAOQ6Gs4AEXij', appSlug: 'chatgpt-codex-connector',
     commitSha: HEAD, state: 'COMMENTED', submittedAt: '2026-08-09T14:00:00.000Z' }]];
-  expect(observe(transport)).toMatchObject({ status: 'waiting',
+  expect((await observe(transport))).toMatchObject({ status: 'waiting',
     reason: 'exact-head-independent-review-missing' });
 });
 
-test('trusted Codex App activity is not Review authority without a prior exact-head SEC wake-up', () => {
+test('trusted Codex App activity is not Review authority without a prior exact-head SEC wake-up', async () => {
   const transport = new FakeTransport();
   transport.reviews = [[{ id: 'R-app', authorNodeId: BOT, authorLogin: 'codex-review[bot]',
     authorType: 'Bot',
     appId: 1144995, appNodeId: 'A_kwHOAOQ6Gs4AEXij', appSlug: 'chatgpt-codex-connector',
     commitSha: HEAD, state: 'APPROVED', submittedAt: '2026-08-09T14:00:00.000Z' }]];
-  const unbound = evaluateVerificationSessionReviewObservation(transport, {
+  const unbound = (await evaluateVerificationSessionReviewObservation(transport, {
     repository: 'sec-platform/sec', prNumber: 42, headSha: HEAD,
     excludedPrincipalNodeIds: new Set(['AUTHOR', 'INTEGRATOR']),
     observedAt: '2026-08-09T14:01:00.000Z'
-  });
+  }));
   expect(unbound).toMatchObject({ status: 'blocked', reason: 'review-provider-unbound-activation' });
 
-  transport.issueComments = [[maintainerIssueComment(defaultReviewWakeupBody(), '98', {
+  transport.issueComments = [[maintainerIssueComment((await defaultReviewWakeupBody()), '98', {
     createdAt: '2026-08-09T13:59:59.000Z'
   })]];
-  expect(evaluateVerificationSessionReviewObservation(transport, {
+  expect((await evaluateVerificationSessionReviewObservation(transport, {
     repository: 'sec-platform/sec', prNumber: 42, headSha: HEAD,
     excludedPrincipalNodeIds: new Set(['AUTHOR', 'INTEGRATOR']),
     observedAt: '2026-08-09T14:01:00.000Z'
-  }).status).toBe('clear');
+  })).status).toBe('clear');
 
-  transport.issueComments = [[maintainerIssueComment(defaultReviewWakeupBody(), '97', {
+  transport.issueComments = [[maintainerIssueComment((await defaultReviewWakeupBody()), '97', {
     createdAt: '2026-08-09T14:00:01.000Z'
   })]];
-  expect(evaluateVerificationSessionReviewObservation(transport, {
+  expect((await evaluateVerificationSessionReviewObservation(transport, {
     repository: 'sec-platform/sec', prNumber: 42, headSha: HEAD,
     excludedPrincipalNodeIds: new Set(['AUTHOR', 'INTEGRATOR']),
     observedAt: '2026-08-09T14:01:00.000Z'
-  })).toMatchObject({ status: 'blocked', reason: 'review-provider-unbound-activation' });
+  }))).toMatchObject({ status: 'blocked', reason: 'review-provider-unbound-activation' });
 });
 
-test('formal trusted App APPROVED binds GraphQL authority and excluded principals never clear', () => {
+test('formal trusted App APPROVED binds GraphQL authority and excluded principals never clear', async () => {
   const approved = new FakeTransport();
   approved.reviews = [[{ id: 'R-app', authorNodeId: BOT, authorLogin: 'codex-review[bot]',
     authorType: 'Bot',
     appId: 1144995, appNodeId: 'A_kwHOAOQ6Gs4AEXij', appSlug: 'chatgpt-codex-connector',
     commitSha: HEAD, state: 'APPROVED', submittedAt: '2026-08-09T14:00:00.000Z' }]];
-  const clear = observe(approved);
+  const clear = (await observe(approved));
   expect(clear.status).toBe('clear');
   if (clear.status !== 'clear') throw new Error('expected formal App approval');
   expect(clear.authority.sourceTransport).toBe('github-graphql');
@@ -1833,26 +1765,26 @@ test('formal trusted App APPROVED binds GraphQL authority and excluded principal
     'Review receipt authority must be a live observation produced by the private GitHub adapter.'
   );
 
-  const excluded = evaluateVerificationSessionReviewObservation(approved, {
+  const excluded = (await evaluateVerificationSessionReviewObservation(approved, {
     repository: 'sec-platform/sec', prNumber: 42, headSha: HEAD,
     excludedPrincipalNodeIds: new Set([BOT]), observedAt: '2026-08-09T14:01:00.000Z'
-  });
+  }));
   expect(excluded.status).toBe('waiting');
 });
 
 test('production Review authority adapter cannot have its private transport reflectively replaced', () => {
-  const client = createVerificationSessionGitHubClient(process.cwd());
+  const client = createVerificationSessionGitHubClient(process.cwd(), 'sec-platform/sec');
   expect(Reflect.set(client as object, 'transport', new FakeTransport())).toBe(false);
   expect(Object.getOwnPropertyNames(client)).not.toContain('transport');
 });
 
-test('private GitHub candidate projects immutable parents from the existing merge commit response', () => {
+test('private GitHub candidate projects immutable parents from the existing merge commit response', async () => {
   const parentShas = Object.freeze([BASE, '8'.repeat(40)]);
-  const candidate = observePrivateMergedCandidate(parentShas);
+  const candidate = (await observePrivateMergedCandidate(parentShas));
   expect(candidate.mergeCommitParentShas).toEqual(parentShas);
   expect(Object.isFrozen(candidate.mergeCommitParentShas)).toBe(true);
   expect(Object.isFrozen(candidate)).toBe(true);
-});
+}, PHYSICAL_RUNTIME_AUTHORITY_TEST_TIMEOUT_MS);
 
 const privateGhProviderBoundaryCases = [
   ['candidate', 'not-a-candidate-tree-one\\n', 'not-a-candidate-tree-two\\n'],
@@ -1869,9 +1801,9 @@ const privateGhProviderBoundaryCases = [
 ] as const;
 
 for (const [mode, first, second] of privateGhProviderBoundaryCases) {
-  test(`private gh ${mode} boundary binds distinct raw pages only into typed digests`, () => {
-    const left = observePrivateGhProviderBarrier(mode, first);
-    const right = observePrivateGhProviderBarrier(mode, second);
+  test(`private HTTP ${mode} boundary binds distinct raw pages only into typed digests`, async () => {
+    const left = (await observePrivateGhProviderBarrier(mode, first));
+    const right = (await observePrivateGhProviderBarrier(mode, second));
     expect(left).toMatchObject({ status: PROVIDER_SCHEMA_UNSUPPORTED_STATUS,
       reasonCode: 'github-provider-response-shape-unsupported' });
     expect(right).toMatchObject({ status: PROVIDER_SCHEMA_UNSUPPORTED_STATUS,
@@ -1881,10 +1813,10 @@ for (const [mode, first, second] of privateGhProviderBoundaryCases) {
     expect(left.responseDigest).not.toBe(right.responseDigest);
     expect(JSON.stringify(left)).not.toContain(first);
     expect(JSON.stringify(right)).not.toContain(second);
-  });
+  }, PHYSICAL_RUNTIME_AUTHORITY_TEST_TIMEOUT_MS);
 }
 
-test('V9 final Review semantics filter marker quotes, resolve formal App identity, and retain decisive opinions', () => {
+test('V9 final Review semantics filter marker quotes, resolve formal App identity, and retain decisive opinions', async () => {
   const reviewRequestMarker = '<!-- sec-verification-session-review-request-v1 -->';
   const quotedMarker = new FakeTransport();
   quotedMarker.issueComments = [[
@@ -1894,7 +1826,7 @@ test('V9 final Review semantics filter marker quotes, resolve formal App identit
     }),
     botIssueComment()
   ]];
-  expect(observe(quotedMarker).status).toBe('clear');
+  expect((await observe(quotedMarker)).status).toBe('clear');
 
   const retiredTrustedMarker = new FakeTransport();
   retiredTrustedMarker.issueComments = [[botIssueComment(reviewRequestMarker, {
@@ -1908,7 +1840,7 @@ test('V9 final Review semantics filter marker quotes, resolve formal App identit
       slug: CI_GITHUB_ACTIONS_IDENTITY_POLICY.app.slug
     }
   })]];
-  expect(observe(retiredTrustedMarker)).toMatchObject({ status: 'waiting',
+  expect((await observe(retiredTrustedMarker))).toMatchObject({ status: 'waiting',
     reason: 'exact-head-independent-review-missing' });
 
   const graphQlPage = (author: Record<string, unknown>) => [{ data: { repository: { pullRequest: {
@@ -1940,7 +1872,7 @@ test('V9 final Review semantics filter marker quotes, resolve formal App identit
   expect(resolvedWithDifferentRawBytes.pageDigest).not.toBe(parsedApp.pageDigest);
   const formalApp = new FakeTransport();
   formalApp.reviews = [[...parsedApp.nodes]];
-  const formalAuthority = observe(formalApp);
+  const formalAuthority = (await observe(formalApp));
   expect(formalAuthority).toMatchObject({ status: 'clear',
     authority: { sourceTransport: 'github-graphql' } });
 
@@ -1977,7 +1909,7 @@ test('V9 final Review semantics filter marker quotes, resolve formal App identit
       appId: null, appNodeId: null, appSlug: null, commitSha: HEAD, state: 'COMMENTED',
       submittedAt: '2026-08-09T14:00:30.000Z' }
   ]];
-  expect(observe(approvalThenComment).status).toBe('clear');
+  expect((await observe(approvalThenComment)).status).toBe('clear');
 
   const changesThenComment = new FakeTransport();
   changesThenComment.issueComments = [[botIssueComment()]];
@@ -1989,7 +1921,7 @@ test('V9 final Review semantics filter marker quotes, resolve formal App identit
       appId: null, appNodeId: null, appSlug: null, commitSha: HEAD, state: 'COMMENTED',
       submittedAt: '2026-08-09T14:00:30.000Z' }
   ]];
-  expect(observe(changesThenComment)).toMatchObject({ status: 'blocked',
+  expect((await observe(changesThenComment))).toMatchObject({ status: 'blocked',
     reason: 'request-changes-current' });
 
   const dismissedApprovalDoesNotEraseEarlierChanges = new FakeTransport();
@@ -2002,17 +1934,17 @@ test('V9 final Review semantics filter marker quotes, resolve formal App identit
       appId: null, appNodeId: null, appSlug: null, commitSha: HEAD, state: 'DISMISSED',
       submittedAt: '2026-08-09T14:00:30.000Z' }
   ]];
-  expect(observe(dismissedApprovalDoesNotEraseEarlierChanges)).toMatchObject({ status: 'blocked',
+  expect((await observe(dismissedApprovalDoesNotEraseEarlierChanges))).toMatchObject({ status: 'blocked',
     reason: 'request-changes-current' });
 });
 
-test('review observation rejects unknown state and detects provider head drift', () => {
+test('review observation rejects unknown state and detects provider head drift', async () => {
   const malformed = new FakeTransport();
   malformed.reviews = [[{ id: 'R-bad', authorNodeId: 'REVIEWER', authorLogin: 'reviewer',
     authorType: 'User',
     appId: null, appNodeId: null, appSlug: null, commitSha: HEAD, state: 'PENDING' as never,
     submittedAt: '2026-08-09T14:00:00.000Z' }]];
-  expectTypedProviderSchemaUnsupported(observe(malformed));
+  expectTypedProviderSchemaUnsupported((await observe(malformed)));
 
   class DriftingTransport extends FakeTransport {
     reads = 0;
@@ -2024,10 +1956,10 @@ test('review observation rejects unknown state and detects provider head drift',
   }
   const drift = new DriftingTransport();
   drift.issueComments = [[botIssueComment()]];
-  expect(observe(drift)).toMatchObject({ status: 'blocked', reason: 'review-observation-head-drift' });
+  expect((await observe(drift))).toMatchObject({ status: 'blocked', reason: 'review-observation-head-drift' });
 });
 
-test('candidate merge-parent observation rejects partial or malformed identity without imposing squash policy', () => {
+test('candidate merge-parent observation rejects partial or malformed identity without imposing squash policy', async () => {
   class CandidateTransport extends FakeTransport {
     constructor(readonly observation: GitHubCandidateObservation) { super(); }
     override candidate(): GitHubCandidateObservation { return this.observation; }
@@ -2041,21 +1973,21 @@ test('candidate merge-parent observation rejects partial or malformed identity w
     mergeCommitMessage: 'provider-observed merge',
     mergeCommitParentShas: Object.freeze([BASE, '8'.repeat(40)])
   });
-  expect(() => observe(new CandidateTransport(merged))).not.toThrow();
+  expect(async () => (await observe(new CandidateTransport(merged)))).not.toThrow();
 
   for (const mergeCommitParentShas of [
     null,
     Object.freeze([BASE, BASE]),
     Object.freeze(['A'.repeat(40)])
   ] as const) {
-    expectTypedProviderSchemaUnsupported(observe(new CandidateTransport({
+    expectTypedProviderSchemaUnsupported((await observe(new CandidateTransport({
       ...merged,
       mergeCommitParentShas
-    })));
+    }))));
   }
 });
 
-test('same-principal same-timestamp conflicting reviews fail closed instead of opaque-id ordering', () => {
+test('same-principal same-timestamp conflicting reviews fail closed instead of opaque-id ordering', async () => {
   const transport = new FakeTransport();
   transport.issueComments = [[botIssueComment()]];
   transport.reviews = [[
@@ -2066,17 +1998,17 @@ test('same-principal same-timestamp conflicting reviews fail closed instead of o
       appNodeId: null, appSlug: null, commitSha: HEAD, state: 'APPROVED',
       submittedAt: '2026-08-09T14:00:00.000Z' }
   ]];
-  expectTypedProviderSchemaUnsupported(observe(transport));
+  expectTypedProviderSchemaUnsupported((await observe(transport)));
 });
 
-test('V8 GitHub observation regressions normalize timestamps, thread authors, reads, renames, titles, and shim resolution', () => {
+test('V8 GitHub observation regressions normalize timestamps, thread authors, reads, renames, titles, and shim resolution', async () => {
   const review = new FakeTransport();
   review.reviews = [[{
     id: 'R-rfc3339', authorNodeId: 'REVIEWER', authorLogin: 'reviewer', authorType: 'User',
     appId: null, appNodeId: null, appSlug: null, commitSha: HEAD,
     state: 'APPROVED', submittedAt: '2026-08-09T14:00:00Z'
   }]];
-  expect(observe(review).status).toBe('clear');
+  expect((await observe(review)).status).toBe('clear');
 
   const repeatedAuthor = new FakeTransport();
   repeatedAuthor.issueComments = [[botIssueComment(undefined, {
@@ -2086,14 +2018,14 @@ test('V8 GitHub observation regressions normalize timestamps, thread authors, re
     id: 'T-repeated-author', isResolved: true, isOutdated: false, path: 'renamed.ts',
     authorNodeIds: ['REVIEWER', 'REVIEWER']
   }]];
-  expect(observe(repeatedAuthor).status).toBe('clear');
+  expect((await observe(repeatedAuthor)).status).toBe('clear');
 
   const workflow = new FakeTransport();
   workflow.workflowRuns = [[workflowRun({ updatedAt: '2026-08-09T14:00:00.1Z' })]];
-  expect(evaluateVerificationSessionWorkflowJoin(workflow, {
+  expect((await evaluateVerificationSessionWorkflowJoin(workflow, {
     repository: 'sec-platform/sec', prNumber: 42, sessionRevision: JOIN_SESSION,
     actionPlanDigest: JOIN_ACTION, baseSha: BASE, now: '2026-08-09T14:05:00Z'
-  })).toMatchObject({ status: 'joined', reason: 'active-run' });
+  }))).toMatchObject({ status: 'joined', reason: 'active-run' });
   expect(resolveCloseoutCliGh.toString()).not.toContain('which');
 
   const shimRoot = mkdtempSync(path.join(tmpdir(), 'sec-node-native-gh-resolution-'));
@@ -2112,24 +2044,24 @@ test('V8 GitHub observation regressions normalize timestamps, thread authors, re
   }
 });
 
-test('V8 final Review P2 regressions preserve dotted paths and bind complete nested thread pagination', () => {
-  const changedPaths = (paths: readonly string[]) => {
+test('V8 final Review P2 regressions preserve dotted paths and bind complete nested thread pagination', async () => {
+  const changedPaths = async (paths: readonly string[]) => {
     const metadata = JSON.stringify({ number: 42, changed_files: paths.length,
       state: 'open', draft: false, base: { sha: BASE }, head: { sha: HEAD } });
     const inventory = parseGitHubPullRequestFileInventory({ repository: 'sec-platform/sec', prNumber: 42,
       beforeSource: metadata,
       pagesSource: JSON.stringify([paths.map((filename) => ({ filename, status: 'modified' }))]),
       afterSource: metadata });
-    return evaluateVerificationSessionChangedPaths(
+    return (await evaluateVerificationSessionChangedPaths(
       { pullRequestFileInventory: () => inventory },
       { repository: 'sec-platform/sec', prNumber: 42, state: 'OPEN', draft: false,
         baseSha: BASE, headSha: HEAD }
-    ).paths;
+    )).paths;
   };
-  expect(changedPaths(['docs/v1..v2.md', 'src/review...fixture.ts']))
+  expect((await changedPaths(['docs/v1..v2.md', 'src/review...fixture.ts'])))
     .toEqual(['docs/v1..v2.md', 'src/review...fixture.ts']);
   for (const traversal of ['..', '../escape.ts', 'src/../escape.ts', 'src/a/../../escape.ts']) {
-    expect(() => changedPaths([traversal]), traversal).toThrow(/changed-path observation is invalid/i);
+    expect(async () => (await changedPaths([traversal])), traversal).toThrow(/changed-path observation is invalid/i);
   }
 
   const firstCommentPage = Array.from({ length: 100 }, () => ({ author: { id: 'REVIEWER' } }));
@@ -2175,7 +2107,7 @@ test('V8 final Review P2 regressions preserve dotted paths and bind complete nes
   })).toThrow(/thread pagination is incomplete/i);
 });
 
-test('V9 PR file inventory binds changed_files and fails closed at cap, incompleteness, or drift', () => {
+test('V9 PR file inventory binds changed_files and fails closed at cap, incompleteness, or drift', async () => {
   const metadata = (changedFiles: number, baseSha = BASE, headSha = HEAD,
     state: 'open' | 'closed' = 'open', draft = false) => JSON.stringify({
     number: 42,
@@ -2206,22 +2138,22 @@ test('V9 PR file inventory binds changed_files and fails closed at cap, incomple
   expect(complete.inventoryDigest).toMatch(/^sha256:[0-9a-f]{64}$/u);
   const expected = { repository: 'sec-platform/sec', prNumber: 42, state: 'OPEN' as const,
     draft: false as const, baseSha: BASE, headSha: HEAD };
-  expect(evaluateVerificationSessionChangedPaths(
+  expect((await evaluateVerificationSessionChangedPaths(
     { pullRequestFileInventory: () => complete }, expected
-  )).toEqual(complete);
+  ))).toEqual(complete);
 
-  const expectIdentityMismatchBeforeEffect = (
+  const expectIdentityMismatchBeforeEffect = async (
     inventory: ReturnType<typeof parseGitHubPullRequestFileInventory>
   ) => {
     let authorizationReached = false;
     let physicalMergeReached = false;
-    expect(() => {
-      const observed = evaluateVerificationSessionChangedPaths(
+    await expect((async () => {
+      const observed = (await evaluateVerificationSessionChangedPaths(
         { pullRequestFileInventory: () => inventory }, expected
-      );
+      ));
       authorizationReached = observed.paths.length > 0;
       physicalMergeReached = authorizationReached;
-    }).toThrow(/differs from the expected open candidate identity/i);
+    })()).rejects.toThrow(/differs from the expected open candidate identity/i);
     expect(authorizationReached).toBe(false);
     expect(physicalMergeReached).toBe(false);
   };
@@ -2317,7 +2249,7 @@ test('V9 GitHub observation exhausts stable same-head census and pairs copied pa
   expect(() => files({ filename: 'src/file.ts', previous_filename: 'src/old.ts', status: 'modified' }))
 });
 
-test('V9 repository artifact census hydrates only live canonical Session-family summaries', () => {
+test('V9 repository artifact census hydrates only live canonical Session-family summaries', async () => {
   const sessionName = (runId: number, runAttempt: number, sessionByte: string) =>
     `${CI_VERIFICATION_SESSION_ARTIFACT_PREFIX}-pr-42-session-${sessionByte.repeat(64)}` +
       `-run-${runId}-attempt-${runAttempt}`;
@@ -2335,7 +2267,7 @@ test('V9 repository artifact census hydrates only live canonical Session-family 
       summary(1003, 'release Notes — opaque')] }
   ];
   const hydrationCalls: string[] = [];
-  const hydrated = evaluateGitHubRepositoryActionsArtifactInventory({
+  const hydrated = (await evaluateGitHubRepositoryActionsArtifactInventory({
     repository: 'sec-platform/sec',
     source,
     observeArtifact: (entry) => {
@@ -2346,7 +2278,7 @@ test('V9 repository artifact census hydrates only live canonical Session-family 
         runId: entry.expectedRunId!, runAttempt: entry.sessionRunAttempt!,
         eventName: 'repository_dispatch', actorNodeId: BOT, actorPermission: 'write', expired: false };
     }
-  });
+  }));
   expect(hydrated.inventory).toMatchObject({ repository: 'sec-platform/sec', totalCount: 103,
     perPage: 100, paginationComplete: true, sessionArtifactIds: ['1001', '1002'] });
   expect(hydrated.inventory.pageDigests).toHaveLength(2);
@@ -2363,21 +2295,21 @@ test('V9 repository artifact census hydrates only live canonical Session-family 
     })
   }));
   let unrelatedHydrationCalls = 0;
-  const unrelatedOnly = evaluateGitHubRepositoryActionsArtifactInventory({
+  const unrelatedOnly = (await evaluateGitHubRepositoryActionsArtifactInventory({
     repository: 'sec-platform/sec', source: thousandUnrelated,
     observeArtifact: () => { unrelatedHydrationCalls += 1; throw new Error('must not hydrate unrelated'); }
-  });
+  }));
   expect(unrelatedOnly.artifacts).toEqual([]);
   expect(unrelatedHydrationCalls).toBe(0);
 
-  const expectPreHydrationFailure = (mutate: (pages: any[]) => void, message: RegExp) => {
+  const expectPreHydrationFailure = async (mutate: (pages: any[]) => void, message: RegExp) => {
     const pages = structuredClone(source);
     mutate(pages);
     let calls = 0;
-    expect(() => evaluateGitHubRepositoryActionsArtifactInventory({
+    await expect((async () => (await evaluateGitHubRepositoryActionsArtifactInventory({
       repository: 'sec-platform/sec', source: pages,
       observeArtifact: () => { calls += 1; throw new Error('hydration must not start'); }
-    })).toThrow(message);
+    })))()).rejects.toThrow(message);
     expect(calls).toBe(0);
   };
   expectPreHydrationFailure((pages) => { pages[1].artifacts[1].id = 1001; }, /duplicate id/i);
@@ -2387,24 +2319,24 @@ test('V9 repository artifact census hydrates only live canonical Session-family 
     pages[1].artifacts[1].name = `${CI_VERIFICATION_SESSION_ARTIFACT_PREFIX}-confusable`;
   }, /malformed Session-family name/i);
 
-  expect(() => evaluateGitHubRepositoryActionsArtifactInventory({
+  await expect((async () => (await evaluateGitHubRepositoryActionsArtifactInventory({
     repository: 'sec-platform/sec', source,
     observeArtifact: (entry) => ({ artifactId: entry.artifactId, artifactName: entry.artifactName,
       archiveDigest: null, workflowPath: '.github/workflows/compiler-pr-validation.yml',
       workflowRef: `.github/workflows/compiler-pr-validation.yml@${BASE}`, workflowSha: BASE,
       runId: entry.expectedRunId!, runAttempt: entry.sessionRunAttempt!,
       eventName: 'repository_dispatch', actorNodeId: BOT, actorPermission: 'write', expired: false })
-  })).toThrow(/hydration differs from its selected summary identity/i);
+  })))()).rejects.toThrow(/hydration differs from its selected summary identity/i);
 });
 
-test('platform 403 is recorded as unavailable and never as no-bypass proof', () => {
+test('platform 403 is recorded as unavailable and never as no-bypass proof', async () => {
   const transport = new FakeTransport();
   const error = new Error('upgrade plan') as Error & { statusCode?: number };
   error.statusCode = 403;
   transport.rulesetError = error;
-  const observation = evaluatePlatformEnforcementObservation({
+  const observation = (await evaluatePlatformEnforcementObservation({
     repository: 'sec-platform/sec', readRulesets: () => transport.repositoryRulesets()
-  });
+  }));
   expect(observation.status).toBe('platform-enforcement-unavailable');
   expect(observation.reason).toContain('unavailable');
   expect(observation.rulesetDigest as SessionDigest).toMatch(/^sha256:/);
@@ -2571,10 +2503,10 @@ test('IssueDisposition post-main readback consumes the canonical exact MainHealt
   }
 });
 
-test('trusted-main proposal and hosted sole issuer reconstruct the same stable Session revision', () => {
+test('trusted-main proposal and hosted sole issuer reconstruct the same stable Session revision', async () => {
   const transport = new FakeTransport();
   transport.issueComments = [[botIssueComment()]];
-  const barrier = observe(transport);
+  const barrier = (await observe(transport));
   if (barrier.status !== 'clear') throw new Error('expected clear review');
   const candidate = transport.candidate();
   const changedPaths = ['src/adapters/verification/platform/ci/runtime/verification-session.ts'];
@@ -2623,7 +2555,7 @@ test('trusted-main proposal and hosted sole issuer reconstruct the same stable S
     .toThrow(/package\.json drifted from the trusted base/i);
 });
 
-test('VerificationSession binds the exact deletion transition through Scope, Action, Session, and hosted reconstruction', () => {
+test('VerificationSession binds the exact deletion transition through Scope, Action, Session, and hosted reconstruction', async () => {
   const baseSha = '9ed0291a0b51b4f3f6769ab317c4cc1a2753cb4b';
   const headSha = 'b'.repeat(40);
   const retiredPath = 'src/adapters/verification/platform/ci/runtime/verification-session-github.ts';
@@ -2650,9 +2582,9 @@ test('VerificationSession binds the exact deletion transition through Scope, Act
 
   const transport = new FakeTransport();
   transport.issueComments = [[botIssueComment()]];
-  const github = fakeGitHubClient(transport, (input) => observePrivateClearReviewBarrier(
+  const github = fakeGitHubClient(transport, async (input) => (await observePrivateClearReviewBarrier(
     input.observedAt ?? VERIFIED_AT
-  ));
+  )));
   const candidate = Object.freeze({
     ...transport.candidate(),
     baseSha,
@@ -2660,13 +2592,13 @@ test('VerificationSession binds the exact deletion transition through Scope, Act
     headSha,
     headTreeSha: 'd'.repeat(40)
   });
-  const barrier = github.observeReviewBarrier({
+  const barrier = (await github.observeReviewBarrier({
     repository: candidate.repository,
     prNumber: candidate.number,
     headSha,
     excludedPrincipalNodeIds: new Set(['AUTHOR', 'INTEGRATOR']),
     observedAt: VERIFIED_AT
-  });
+  }));
   if (barrier.status !== 'clear') throw new Error('expected clear review');
   const mainHealthChecks = [mainHealthCheck({
     headSha: baseSha,
@@ -2741,12 +2673,12 @@ test('VerificationSession binds the exact deletion transition through Scope, Act
     observedAt: VERIFIED_AT, reviewBarrier: barrier, mainHealthChecks,
     dependencyBlobs: actionDependencyBlobs()
   })).toThrow(/exact candidate selection input/i);
-});
+}, PHYSICAL_RUNTIME_AUTHORITY_TEST_TIMEOUT_MS);
 
-test('same paths with a different Git transition change the complete VerificationSession identity chain', () => {
+test('same paths with a different Git transition change the complete VerificationSession identity chain', async () => {
   const transport = new FakeTransport();
   transport.issueComments = [[botIssueComment()]];
-  const barrier = observe(transport);
+  const barrier = (await observe(transport));
   if (barrier.status !== 'clear') throw new Error('expected clear review');
   const candidate = transport.candidate();
   const changedPaths = ['src/adapters/verification/platform/ci/runtime/verification-session.ts'];
@@ -3050,27 +2982,27 @@ test('expired hosted authority permits only independently revalidated Action Evi
   }
 });
 
-test('actual reducer recovers a crash after remote merge without a second merge or publication', () => {
-  const fixture = reducerFixture();
+test('actual reducer recovers a crash after remote merge without a second merge or publication', async () => {
+  const fixture = (await reducerFixture());
   try {
-    expect(runReducer(fixture)).toMatchObject({ status: 'READY_TO_INTEGRATE',
+    expect((await runReducer(fixture))).toMatchObject({ status: 'READY_TO_INTEGRATE',
       operationId: fixture.result.authorization.consumptionOperationId });
     // Models process loss after the remote merge but before any local journal
     // transition. The reducer adopts the exact remote marker and never owns a
     // raw merge capability that could repeat the effect.
     fixture.transport.adoptMerged(fixture.markers, fixture.result.reviewReceipt,
       fixture.artifact.session.sessionRevision);
-    expect(runReducer(fixture)).toMatchObject({ status: 'COMPLETED', completedStage: 'closeout-terminal' });
+    expect((await runReducer(fixture))).toMatchObject({ status: 'COMPLETED', completedStage: 'closeout-terminal' });
     const observed = fixture.counters.closeoutObserve;
-    expect(runReducer(fixture)).toMatchObject({ status: 'COMPLETED' });
+    expect((await runReducer(fixture))).toMatchObject({ status: 'COMPLETED' });
     expect(fixture.counters.closeoutObserve).toBeGreaterThanOrEqual(observed);
   } finally {
     fixture.dispose();
   }
-});
+}, PHYSICAL_RUNTIME_AUTHORITY_TEST_TIMEOUT_MS);
 
-test('durable comment and merge markers reconstruct terminal status without an Actions artifact', () => {
-  const fixture = reducerFixture();
+test('durable comment and merge markers reconstruct terminal status without an Actions artifact', async () => {
+  const fixture = (await reducerFixture());
   try {
     const publication = durablePublication(fixture);
     const exactOpen = classifyDurableVerificationSessionProjection({
@@ -3101,7 +3033,7 @@ test('durable comment and merge markers reconstruct terminal status without an A
   } finally {
     fixture.dispose();
   }
-});
+}, PHYSICAL_RUNTIME_AUTHORITY_TEST_TIMEOUT_MS);
 
 test('durable remote projection blocks closed PR and OPEN candidate identity drift', () => {
   for (const candidate of [
@@ -3116,14 +3048,14 @@ test('durable remote projection blocks closed PR and OPEN candidate identity dri
   }
 });
 
-test('MERGED recovery permits advanced main only when the marker commit remains reachable', () => {
+test('MERGED recovery permits advanced main only when the marker commit remains reachable', async () => {
   const advancedMain = '8'.repeat(40);
-  const reachable = reducerFixture({ remoteDefaultSha: advancedMain,
-    mergeToDefault: { status: 'ahead', behindBy: 0 } });
+  const reachable = (await reducerFixture({ remoteDefaultSha: advancedMain,
+    mergeToDefault: { status: 'ahead', behindBy: 0 } }));
   try {
     reachable.transport.adoptMerged(reachable.markers, reachable.result.reviewReceipt,
       reachable.artifact.session.sessionRevision);
-    expect(runReducer(reachable)).toMatchObject({ status: 'COMPLETED' });
+    expect((await runReducer(reachable))).toMatchObject({ status: 'COMPLETED' });
   } finally {
     reachable.dispose();
   }
@@ -3132,29 +3064,29 @@ test('MERGED recovery permits advanced main only when the marker commit remains 
     { status: 'diverged', behindBy: 1 },
     { status: 'behind', behindBy: 1 }
   ] satisfies GitHubComparisonObservation[]) {
-    const blocked = reducerFixture({ remoteDefaultSha: advancedMain, mergeToDefault: comparison });
+    const blocked = (await reducerFixture({ remoteDefaultSha: advancedMain, mergeToDefault: comparison }));
     try {
       blocked.transport.adoptMerged(blocked.markers, blocked.result.reviewReceipt,
         blocked.artifact.session.sessionRevision);
-      expect(() => runReducer(blocked)).toThrow(/ancestor|reachability/i);
+      await expect((async () => (await runReducer(blocked)))()).rejects.toThrow(/ancestor|reachability/i);
     } finally {
       blocked.dispose();
     }
   }
-  const invalidBase = reducerFixture({ baseToMerge: { status: 'diverged', behindBy: 1 } });
+  const invalidBase = (await reducerFixture({ baseToMerge: { status: 'diverged', behindBy: 1 } }));
   try {
     invalidBase.transport.adoptMerged(invalidBase.markers, invalidBase.result.reviewReceipt,
       invalidBase.artifact.session.sessionRevision);
-    expect(() => runReducer(invalidBase)).toThrow(/old base ancestry/i);
+    await expect((async () => (await runReducer(invalidBase)))()).rejects.toThrow(/old base ancestry/i);
   } finally {
     invalidBase.dispose();
   }
-});
+}, PHYSICAL_RUNTIME_AUTHORITY_TEST_TIMEOUT_MS);
 
-test('MERGED reachability permits detached old-base only with synchronized post-merge default', () => {
+test('MERGED reachability permits detached old-base only with synchronized post-merge default', async () => {
   const advancedMain = '8'.repeat(40);
-  const fixture = reducerFixture({ remoteDefaultSha: advancedMain,
-    mergeToDefault: { status: 'ahead', behindBy: 0 } });
+  const fixture = (await reducerFixture({ remoteDefaultSha: advancedMain,
+    mergeToDefault: { status: 'ahead', behindBy: 0 } }));
   try {
     fixture.transport.adoptMerged(fixture.markers, fixture.result.reviewReceipt,
       fixture.artifact.session.sessionRevision);
@@ -3166,118 +3098,118 @@ test('MERGED reachability permits detached old-base only with synchronized post-
       prNumber: fixture.artifact.session.prNumber, baseSha: fixture.artifact.session.baseSha,
       headSha: fixture.artifact.session.headSha, headTreeSha: fixture.artifact.session.headTreeSha,
       candidate, github: fixture.github };
-    expect(() => assertTrustedMergedRequestRuntimeReachability(input)).not.toThrow();
-    expect(() => assertTrustedMergedRequestRuntimeReachability({ ...input,
-      proof: { ...proof, localDefaultSha: BASE } })).toThrow(/synchronized local\/live default/i);
-    expect(() => assertTrustedMergedRequestRuntimeReachability({ ...input,
-      proof: { ...proof, localDefaultSha: 'f'.repeat(40) } })).toThrow(/synchronized local\/live default/i);
-    expect(() => assertTrustedMergedRequestRuntimeReachability({ ...input,
-      proof: { ...proof, currentBranch: 'feature/foreign' } })).toThrow(/old-base trusted TCB/i);
-    expect(() => assertTrustedMergedRequestRuntimeReachability({ ...input,
-      proof: { ...proof, currentHeadSha: HEAD } })).toThrow(/old-base trusted TCB/i);
+    expect(async () => (await assertTrustedMergedRequestRuntimeReachability(input))).not.toThrow();
+    await expect((async () => (await assertTrustedMergedRequestRuntimeReachability({ ...input,
+      proof: { ...proof, localDefaultSha: BASE } })))()).rejects.toThrow(/synchronized local\/live default/i);
+    await expect((async () => (await assertTrustedMergedRequestRuntimeReachability({ ...input,
+      proof: { ...proof, localDefaultSha: 'f'.repeat(40) } })))()).rejects.toThrow(/synchronized local\/live default/i);
+    await expect((async () => (await assertTrustedMergedRequestRuntimeReachability({ ...input,
+      proof: { ...proof, currentBranch: 'feature/foreign' } })))()).rejects.toThrow(/old-base trusted TCB/i);
+    await expect((async () => (await assertTrustedMergedRequestRuntimeReachability({ ...input,
+      proof: { ...proof, currentHeadSha: HEAD } })))()).rejects.toThrow(/old-base trusted TCB/i);
   } finally {
     fixture.dispose();
   }
-});
+}, PHYSICAL_RUNTIME_AUTHORITY_TEST_TIMEOUT_MS);
 
-test('actual reducer rejects OPEN base/head drift before any merge claim or effect', () => {
+test('actual reducer rejects OPEN base/head drift before any merge claim or effect', async () => {
   for (const [field, value] of [
     ['baseSha', 'f'.repeat(40)],
     ['headSha', 'e'.repeat(40)]
   ] as const) {
-    const fixture = reducerFixture();
+    const fixture = (await reducerFixture());
     try {
       fixture.transport.observation = { ...fixture.transport.observation, [field]: value };
-      expect(() => runReducer(fixture)).toThrow(/live .* drifted/i);
+      await expect((async () => (await runReducer(fixture)))()).rejects.toThrow(/live .* drifted/i);
     } finally {
       fixture.dispose();
     }
   }
-});
+}, PHYSICAL_RUNTIME_AUTHORITY_TEST_TIMEOUT_MS);
 
-test('actual reducer rejects expired or already-consumed authorization before merge', () => {
+test('actual reducer rejects expired or already-consumed authorization before merge', async () => {
   for (const fixture of [
-    reducerFixture({ authorizationExpiresAt: '2026-08-09T14:06:00.000Z', now: '2026-08-09T14:07:00.000Z' }),
-    reducerFixture({ consumed: true })
+    (await reducerFixture({ authorizationExpiresAt: '2026-08-09T14:06:00.000Z', now: '2026-08-09T14:07:00.000Z' })),
+    (await reducerFixture({ consumed: true }))
   ]) {
     try {
-      expect(() => runReducer(fixture)).toThrow(/expired|already consumed/i);
+      await expect((async () => (await runReducer(fixture)))()).rejects.toThrow(/expired|already consumed/i);
     } finally {
       fixture.dispose();
     }
   }
-});
+}, PHYSICAL_RUNTIME_AUTHORITY_TEST_TIMEOUT_MS);
 
-test('actual reducer binds IntegrationAuthorization to trusted live repository and PR', () => {
+test('actual reducer binds IntegrationAuthorization to trusted live repository and PR', async () => {
   for (const identity of [
     { repository: 'attacker/fork' },
     { prNumber: 99 }
   ]) {
-    const fixture = reducerFixture();
+    const fixture = (await reducerFixture());
     try {
       fixture.setAuthorizationResult(substituteAuthorizationLiveIdentity(fixture, identity));
-      expect(() => runReducer(fixture)).toThrow(/repository|prNumber/i);
+      await expect((async () => (await runReducer(fixture)))()).rejects.toThrow(/repository|prNumber/i);
     } finally {
       fixture.dispose();
     }
   }
-});
+}, PHYSICAL_RUNTIME_AUTHORITY_TEST_TIMEOUT_MS);
 
-test('actual reducer rejects downloaded merge-result digest or provenance substitution', () => {
+test('actual reducer rejects downloaded merge-result digest or provenance substitution', async () => {
   for (const mutate of [
     (value: Record<string, any>) => { value.resultDigest = `sha256:${'f'.repeat(64)}`; },
     (value: Record<string, any>) => { value.provenance.sourceRunId = 'forged-run'; }
   ]) {
-    const fixture = reducerFixture();
+    const fixture = (await reducerFixture());
     try {
       const value = JSON.parse(encodeVerificationActionData(fixture.result)) as Record<string, any>;
       mutate(value);
       fixture.setAuthorizationResult(JSON.stringify(value));
-      expect(() => runReducer(fixture)).toThrow(/digest|provenance|issuer/i);
+      await expect((async () => (await runReducer(fixture)))()).rejects.toThrow(/digest|provenance|issuer/i);
     } finally {
       fixture.dispose();
     }
   }
-});
+}, PHYSICAL_RUNTIME_AUTHORITY_TEST_TIMEOUT_MS);
 
-test('actual reducer blocks merged-tree mismatch and blocked/residue closeout terminals', () => {
-  const mismatch = reducerFixture();
+test('actual reducer blocks merged-tree mismatch and blocked/residue closeout terminals', async () => {
+  const mismatch = (await reducerFixture());
   try {
     mismatch.transport.mergedTreeSha = 'd'.repeat(40);
-    expect(runReducer(mismatch)).toMatchObject({ status: 'READY_TO_INTEGRATE' });
+    expect((await runReducer(mismatch))).toMatchObject({ status: 'READY_TO_INTEGRATE' });
     mismatch.transport.adoptMerged(mismatch.markers, mismatch.result.reviewReceipt,
       mismatch.artifact.session.sessionRevision);
-    expect(() => runReducer(mismatch)).toThrow(/marker-bound candidate\/tree identity/i);
+    await expect((async () => (await runReducer(mismatch)))()).rejects.toThrow(/marker-bound candidate\/tree identity/i);
   } finally {
     mismatch.dispose();
   }
   for (const terminal of ['blocked', 'residue'] as const) {
-    const fixture = reducerFixture({ closeout: terminal });
+    const fixture = (await reducerFixture({ closeout: terminal }));
     try {
-      expect(runReducer(fixture)).toMatchObject({ status: 'READY_TO_INTEGRATE' });
+      expect((await runReducer(fixture))).toMatchObject({ status: 'READY_TO_INTEGRATE' });
       fixture.transport.adoptMerged(fixture.markers, fixture.result.reviewReceipt,
         fixture.artifact.session.sessionRevision);
-      expect(runReducer(fixture)).toMatchObject({ status: 'BLOCKED', reason: `branch closeout terminal ${terminal}` });
+      expect((await runReducer(fixture))).toMatchObject({ status: 'BLOCKED', reason: `branch closeout terminal ${terminal}` });
     } finally {
       fixture.dispose();
     }
   }
-});
+}, PHYSICAL_RUNTIME_AUTHORITY_TEST_TIMEOUT_MS);
 
-test('reducer emits one stable integration intent and never executes a physical merge', () => {
-  const fixture = reducerFixture();
+test('reducer emits one stable integration intent and never executes a physical merge', async () => {
+  const fixture = (await reducerFixture());
   try {
-    const first = runReducer(fixture);
-    const replay = runReducer(fixture);
+    const first = (await runReducer(fixture));
+    const replay = (await runReducer(fixture));
     expect(first).toMatchObject({ status: 'READY_TO_INTEGRATE',
       operationId: fixture.result.authorization.consumptionOperationId });
     expect(replay).toMatchObject({ status: 'READY_TO_INTEGRATE', operationId: first.operationId });
   } finally {
     fixture.dispose();
   }
-});
+}, PHYSICAL_RUNTIME_AUTHORITY_TEST_TIMEOUT_MS);
 
-test('incomplete GitHub pagination fails closed before Review can clear', () => {
+test('incomplete GitHub pagination fails closed before Review can clear', async () => {
   class IncompletePaginationTransport extends FakeTransport {
     override reviewPage(): GitHubPage<GitHubReviewObservation> {
       return page([], true, null);
@@ -3285,30 +3217,30 @@ test('incomplete GitHub pagination fails closed before Review can clear', () => 
   }
   const transport = new IncompletePaginationTransport();
   transport.issueComments = [[botIssueComment()]];
-  expectTypedProviderSchemaUnsupported(observe(transport));
+  expectTypedProviderSchemaUnsupported((await observe(transport)));
 });
 
-test('remote Session workflow join covers active and artifact-publication states without redispatch', () => {
-  const joined = (transport: FakeTransport, now = '2026-08-09T14:05:00.000Z') =>
-    evaluateVerificationSessionWorkflowJoin(transport, {
+test('remote Session workflow join covers active and artifact-publication states without redispatch', async () => {
+  const joined = async (transport: FakeTransport, now = '2026-08-09T14:05:00.000Z') =>
+    (await evaluateVerificationSessionWorkflowJoin(transport, {
       repository: 'sec-platform/sec', prNumber: 42, sessionRevision: JOIN_SESSION,
       actionPlanDigest: JOIN_ACTION, baseSha: BASE, now
-    });
+    }));
   for (const status of ['queued', 'in_progress', 'waiting'] as const) {
     const transport = new FakeTransport();
     transport.workflowRuns = [[workflowRun({ status })]];
-    expect(joined(transport)).toMatchObject({ status: 'joined', reason: 'active-run' });
+    expect((await joined(transport))).toMatchObject({ status: 'joined', reason: 'active-run' });
   }
   const completed = new FakeTransport();
   completed.workflowRuns = [[workflowRun({ status: 'completed', conclusion: 'success' })]];
-  expect(joined(completed)).toMatchObject({ status: 'joined', reason: 'artifact-publication-window' });
+  expect((await joined(completed))).toMatchObject({ status: 'joined', reason: 'artifact-publication-window' });
 
   for (const conclusion of ['failure', 'cancelled'] as const) {
     const terminal = new FakeTransport();
     terminal.workflowRuns = [[workflowRun({ status: 'completed', conclusion })]];
-    expect(joined(terminal)).toMatchObject({ status: 'redispatch-eligible', reason: 'terminal-run' });
+    expect((await joined(terminal))).toMatchObject({ status: 'redispatch-eligible', reason: 'terminal-run' });
   }
-  expect(joined(completed, '2026-08-09T14:11:00.001Z')).toMatchObject({
+  expect((await joined(completed, '2026-08-09T14:11:00.001Z'))).toMatchObject({
     status: 'redispatch-eligible', reason: 'artifact-publication-window-expired'
   });
 });
@@ -3455,51 +3387,51 @@ test('internal Action child binds Actions bot/App and exact parent run/artifact/
   }
 });
 
-test('two independent local coordinators join one provider run and send only one wake-up signal', () => {
+test('two independent local coordinators join one provider run and send only one wake-up signal', async () => {
   const transport = new FakeTransport();
-  const coordinate = () => {
-    const join = evaluateVerificationSessionWorkflowJoin(transport, { repository: 'sec-platform/sec',
+  const coordinate = async () => {
+    const join = (await evaluateVerificationSessionWorkflowJoin(transport, { repository: 'sec-platform/sec',
       prNumber: 42, sessionRevision: JOIN_SESSION, actionPlanDigest: JOIN_ACTION,
-      baseSha: BASE, now: '2026-08-09T14:05:00.000Z' });
+      baseSha: BASE, now: '2026-08-09T14:05:00.000Z' }));
     if (join.status === 'redispatch-eligible') {
       transport.ensureVerificationSessionWakeup();
       transport.workflowRuns = [[workflowRun()]];
     }
     return join;
   };
-  expect(coordinate().status).toBe('redispatch-eligible');
-  expect(coordinate().status).toBe('joined');
+  expect((await coordinate()).status).toBe('redispatch-eligible');
+  expect((await coordinate()).status).toBe('joined');
   expect(transport.dispatches).toBe(1);
 });
 
-test('Session workflow join uses complete pages and rejects duplicate/conflicting inventory', () => {
+test('Session workflow join uses complete pages and rejects duplicate/conflicting inventory', async () => {
   const adapterInput = { repository: 'sec-platform/sec', prNumber: 42,
     sessionRevision: JOIN_SESSION, actionPlanDigest: JOIN_ACTION, baseSha: BASE,
     now: '2026-08-09T14:05:00.000Z' } as const;
   const paged = new FakeTransport();
   paged.workflowRuns = [[], [workflowRun({ id: '9' })]];
-  expect(evaluateVerificationSessionWorkflowJoin(paged, adapterInput))
+  expect((await evaluateVerificationSessionWorkflowJoin(paged, adapterInput)))
     .toMatchObject({ status: 'joined', runIds: ['9:1'] });
 
   const providerPresentationName = new FakeTransport();
   providerPresentationName.workflowRuns = [[workflowRun({ name: 'mutable provider presentation' })]];
-  expect(evaluateVerificationSessionWorkflowJoin(providerPresentationName, adapterInput))
+  expect((await evaluateVerificationSessionWorkflowJoin(providerPresentationName, adapterInput)))
     .toMatchObject({ status: 'joined', runIds: ['10:1'] });
 
   const duplicate = new FakeTransport();
   duplicate.workflowRuns = [[workflowRun()], [workflowRun({ status: 'waiting' })]];
-  expect(() => evaluateVerificationSessionWorkflowJoin(duplicate, adapterInput))
+  await expect((async () => (await evaluateVerificationSessionWorkflowJoin(duplicate, adapterInput)))()).rejects
     .toThrow(/duplicate run\/attempt/i);
 
   const conflict = new FakeTransport();
   conflict.workflowRuns = [[workflowRun({ displayTitle:
     `verify session PR #42 session ${JOIN_SESSION} action sha256:${'8'.repeat(64)}` })]];
-  expect(() => evaluateVerificationSessionWorkflowJoin(conflict, adapterInput))
+  await expect((async () => (await evaluateVerificationSessionWorkflowJoin(conflict, adapterInput)))()).rejects
     .toThrow(/conflicting run identity/i);
 
   const wrongWorkflow = new FakeTransport();
   wrongWorkflow.workflowRuns = [[workflowRun({ workflowPath: '.github/workflows/foreign.yml' })]];
-  expect(() => evaluateVerificationSessionWorkflowJoin(wrongWorkflow, adapterInput))
+  await expect((async () => (await evaluateVerificationSessionWorkflowJoin(wrongWorkflow, adapterInput)))()).rejects
     .toThrow(/conflicting run identity/i);
 
   class IncompleteWorkflowPaginationTransport extends FakeTransport {
@@ -3507,9 +3439,9 @@ test('Session workflow join uses complete pages and rejects duplicate/conflictin
       return page([], true, null);
     }
   }
-  expect(() => evaluateVerificationSessionWorkflowJoin(
+  await expect((async () => (await evaluateVerificationSessionWorkflowJoin(
     new IncompleteWorkflowPaginationTransport(), adapterInput
-  )).toThrow(/pagination.*did not advance/i);
+  )))()).rejects.toThrow(/pagination.*did not advance/i);
 });
 
 type CloseoutCliHarnessState = Record<string, any> & {
@@ -3955,7 +3887,7 @@ function createCloseoutCliScenario(input: {
   recoveryHarnessRoot: string;
   shimRoot: string;
   name: string;
-  fixture: ReturnType<typeof reducerFixture>;
+  fixture: Awaited<ReturnType<typeof reducerFixture>>;
   seed?: 'none' | 'null-app' | 'wrong-app' | 'duplicate' | 'old';
   tamper?: 'original' | 'artifact' | 'stable-digest';
   postDisposition?: 'success' | 'lost';
@@ -4423,10 +4355,10 @@ async function waitForCloseoutCliBarrier(
     } catch (error) {
       lastReadError = error;
     }
-    if (crashed.lifecycle.exit) return throwEarlyExit();
+    if (crashed.lifecycle.exit) return (await throwEarlyExit());
     await new Promise((resolve) => setTimeout(resolve, 10));
   }
-  if (crashed.lifecycle.exit) return throwEarlyExit();
+  if (crashed.lifecycle.exit) return (await throwEarlyExit());
   throw new Error(`Timed out while the closeout CLI remained live before the durable delete barrier: ${JSON.stringify({
     pid: crashed.child.pid ?? null,
     lifecycle: crashed.lifecycle,
@@ -4583,15 +4515,15 @@ afterAll(() => {
   }
 });
 
-function withCloseoutCliPartition<T>(run: (input: Readonly<{
+async function withCloseoutCliPartition<T>(run: (input: Readonly<{
   harnessRoot: string;
   recoveryHarnessRoot: string;
   shimRoot: string;
-  fixture: ReturnType<typeof reducerFixture>;
-}>) => T): T {
+  fixture: Awaited<ReturnType<typeof reducerFixture>>;
+}>) => T): Promise<T> {
   const harnessRoot = mkdtempSync(path.join(tmpdir(), 'sec-verification-session-v6-cli-'));
   const recoveryHarnessRoot = mkdtempSync(path.join(tmpdir(), 'sec-verification-session-v6-recovery-'));
-  const fixture = reducerFixture();
+  const fixture = (await reducerFixture());
   try {
     return run({ harnessRoot, recoveryHarnessRoot, shimRoot: sharedCloseoutCliShimRoot, fixture });
   } finally {
@@ -4605,11 +4537,11 @@ async function withCloseoutCliPartitionSettled<T>(run: (input: Readonly<{
   harnessRoot: string;
   recoveryHarnessRoot: string;
   shimRoot: string;
-  fixture: ReturnType<typeof reducerFixture>;
+  fixture: Awaited<ReturnType<typeof reducerFixture>>;
 }>) => Promise<T>): Promise<T> {
   const harnessRoot = mkdtempSync(path.join(tmpdir(), 'sec-verification-session-v6-cli-'));
   const recoveryHarnessRoot = mkdtempSync(path.join(tmpdir(), 'sec-verification-session-v6-recovery-'));
-  const fixture = reducerFixture();
+  const fixture = (await reducerFixture());
   try {
     return await run({ harnessRoot, recoveryHarnessRoot, shimRoot: sharedCloseoutCliShimRoot,
       fixture });
@@ -4664,8 +4596,8 @@ test('prepared cleanup route invokes the local sequence once for the exact targe
   })).rejects.toThrow('same-host-worktree-closeout-required');
 });
 
-closeoutCliE2eTest('trusted remote default ref synchronization closes ordinary merge and merged recovery safely', () => {
-  withCloseoutCliPartition(({ harnessRoot, recoveryHarnessRoot, shimRoot, fixture }) => {
+closeoutCliE2eTest('trusted remote default ref synchronization closes ordinary merge and merged recovery safely', async () => {
+  (await withCloseoutCliPartition(({ harnessRoot, recoveryHarnessRoot, shimRoot, fixture }) => {
     const runRecovery = (name: string, configure?: (state: CloseoutCliHarnessState) => void) => {
       const scenario = createCloseoutCliScenario({ harnessRoot, recoveryHarnessRoot, shimRoot,
         name, fixture });
@@ -4724,11 +4656,11 @@ closeoutCliE2eTest('trusted remote default ref synchronization closes ordinary m
     });
     expect(new Set(readCloseoutCliHarnessState(raced.scenario.statePath).headReadValues))
       .toEqual(new Set([BASE]));
-  });
+  }));
 }, 180_000);
 
-closeoutCliE2eTest('public Session closeout CLI partition A exact delete, publish, and reuse', () => {
-  withCloseoutCliPartition(({ harnessRoot, recoveryHarnessRoot, shimRoot, fixture }) => {
+closeoutCliE2eTest('public Session closeout CLI partition A exact delete, publish, and reuse', async () => {
+  (await withCloseoutCliPartition(({ harnessRoot, recoveryHarnessRoot, shimRoot, fixture }) => {
     const exact = createCloseoutCliScenario({ harnessRoot, recoveryHarnessRoot, shimRoot,
       name: 'exact', fixture });
     expect(encodeVerificationActionData(exact.providerPrepared))
@@ -4776,7 +4708,7 @@ closeoutCliE2eTest('public Session closeout CLI partition A exact delete, publis
     expect(JSON.parse(readFileSync(reusedPublication.output, 'utf8')))
       .toMatchObject({ disposition: 'reused' });
     expect(readCloseoutCliHarnessState(exact.statePath).remoteDeleteCount).toBe(1);
-  });
+  }));
 }, 180_000);
 
 closeoutCliE2eTest('public Session closeout CLI partition B crash recovery performs zero second delete', async () => {
@@ -4857,8 +4789,8 @@ closeoutCliE2eTest('public Session closeout CLI partition B crash recovery perfo
   });
 }, 120_000);
 
-closeoutCliE2eTest('public Session closeout CLI partition C rejects invalid existing markers without delete', () => {
-  withCloseoutCliPartition(({ harnessRoot, recoveryHarnessRoot, shimRoot, fixture }) => {
+closeoutCliE2eTest('public Session closeout CLI partition C rejects invalid existing markers without delete', async () => {
+  (await withCloseoutCliPartition(({ harnessRoot, recoveryHarnessRoot, shimRoot, fixture }) => {
     for (const seed of ['null-app', 'wrong-app', 'duplicate', 'old'] as const) {
       const blocked = createCloseoutCliScenario({ harnessRoot, recoveryHarnessRoot, shimRoot,
         name: seed, fixture, seed });
@@ -4868,11 +4800,11 @@ closeoutCliE2eTest('public Session closeout CLI partition C rejects invalid exis
         remoteDeleteCount: 0, remotePresent: true
       });
     }
-  });
+  }));
 }, 180_000);
 
-closeoutCliE2eTest('public Session closeout CLI partition D rejects authority tamper without delete', () => {
-  withCloseoutCliPartition(({ harnessRoot, recoveryHarnessRoot, shimRoot, fixture }) => {
+closeoutCliE2eTest('public Session closeout CLI partition D rejects authority tamper without delete', async () => {
+  (await withCloseoutCliPartition(({ harnessRoot, recoveryHarnessRoot, shimRoot, fixture }) => {
     for (const tamper of ['original', 'artifact', 'stable-digest'] as const) {
       const blocked = createCloseoutCliScenario({ harnessRoot, recoveryHarnessRoot, shimRoot,
         name: `tampered-${tamper}`, fixture, tamper });
@@ -4882,11 +4814,11 @@ closeoutCliE2eTest('public Session closeout CLI partition D rejects authority ta
         remoteDeleteCount: 0, remotePresent: true
       });
     }
-  });
+  }));
 }, 180_000);
 
-closeoutCliE2eTest('public Session closeout CLI partition E lost marker POST and replay perform zero delete', () => {
-  withCloseoutCliPartition(({ harnessRoot, recoveryHarnessRoot, shimRoot, fixture }) => {
+closeoutCliE2eTest('public Session closeout CLI partition E lost marker POST and replay perform zero delete', async () => {
+  (await withCloseoutCliPartition(({ harnessRoot, recoveryHarnessRoot, shimRoot, fixture }) => {
     const lost = createCloseoutCliScenario({ harnessRoot, recoveryHarnessRoot, shimRoot,
       name: 'lost', fixture, postDisposition: 'lost' });
     const uncertain = runCloseoutCliProcess(shimRoot, lost, 'closeout-mutate-hosted');
@@ -4899,12 +4831,12 @@ closeoutCliE2eTest('public Session closeout CLI partition E lost marker POST and
     const lostState = readCloseoutCliHarnessState(lost.statePath);
     expect(lostState).toMatchObject({ remoteDeleteCount: 0, remotePresent: true });
     expect(lostState.comments).toHaveLength(2);
-  });
+  }));
 }, 120_000);
 
-test('V9 expired pre-gate authority requires a fresh integration while retaining exact Action Evidence', () => {
+test('V9 expired pre-gate authority requires a fresh integration while retaining exact Action Evidence', async () => {
   const stalePreGateAt = '2026-08-09T14:07:00.000Z';
-  const stalePreGate = reducerFixture({ mergeAt: stalePreGateAt });
+  const stalePreGate = (await reducerFixture({ mergeAt: stalePreGateAt }));
   try {
     expect(classifyVerificationSessionArtifactReuse(stalePreGate.artifact, stalePreGateAt))
       .toMatchObject({ status: 'fresh-authority-required', actionEvidenceCandidate: true });
@@ -4921,10 +4853,10 @@ test('V9 expired pre-gate authority requires a fresh integration while retaining
   } finally {
     stalePreGate.dispose();
   }
-});
+}, PHYSICAL_RUNTIME_AUTHORITY_TEST_TIMEOUT_MS);
 
-closeoutCliE2eTest('V9 integration reruns retain producing attempts and authorize fresh integration after pre-gate expiry', () => {
-  withCloseoutCliPartition(({ harnessRoot, recoveryHarnessRoot, shimRoot, fixture }) => {
+closeoutCliE2eTest('V9 integration reruns retain producing attempts and authorize fresh integration after pre-gate expiry', async () => {
+  (await withCloseoutCliPartition(({ harnessRoot, recoveryHarnessRoot, shimRoot, fixture }) => {
     const samePrincipal = createCloseoutCliScenario({ harnessRoot, recoveryHarnessRoot, shimRoot,
       name: 'rerun-same-principal', fixture, currentRunAttempt: 2,
       includeStableArtifact: true });
@@ -4972,7 +4904,7 @@ closeoutCliE2eTest('V9 integration reruns retain producing attempts and authoriz
     expect(mismatched.result.stderr).toContain('hosted comment workflow run provenance drifted');
     expect(readCloseoutCliHarnessState(historicalAttemptMismatch.statePath))
       .toMatchObject({ remoteDeleteCount: 0 });
-  });
+  }));
 }, 180_000);
 
 test('rehydrated prepared envelope preserves remote history and composes with closeout authorization', () => {

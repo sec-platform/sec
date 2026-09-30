@@ -20,8 +20,8 @@ import {
 } from '../../../../repository/source-program-model/workspace-source-snapshot.ts';
 import {
   inspectNoFollowDirectoryChain,
+  retainCurrentProcessExecutable,
   retainNoFollowDirectoryForChildProcess,
-  retainNoFollowOrdinaryFile,
   type RetainedNoFollowChildProcessDirectory,
   type RetainedNoFollowOrdinaryFile
 } from '../../../../runtime-state/physical/runtime/physical-no-follow.ts';
@@ -385,14 +385,7 @@ export async function CodexDevelopmentRunGateProcess(
   let result: CodexDevelopmentGateProcessResult | null = null;
   const failures: unknown[] = [];
   try {
-    executable = retainNoFollowOrdinaryFile(
-      inspectNoFollowDirectoryChain(path.dirname(executablePath), 'CI gate Bun executable parent'),
-      path.basename(executablePath),
-      undefined,
-      'CI gate Bun executable',
-      RETAINED_EXECUTABLE_CHILD_DESCRIPTOR,
-      'executable'
-    );
+    executable = retainCurrentProcessExecutable(RETAINED_EXECUTABLE_CHILD_DESCRIPTOR, 'CI gate Bun executable');
     workingDirectory = retainNoFollowDirectoryForChildProcess(
       inspectNoFollowDirectoryChain(path.resolve(repositoryRoot), 'CI gate repository root'),
       RETAINED_WORKING_DIRECTORY_CHILD_DESCRIPTOR,

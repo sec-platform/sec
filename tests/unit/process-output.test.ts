@@ -1,11 +1,17 @@
-import { expect, test } from 'bun:test';
+import { afterAll, beforeAll, expect, test } from 'bun:test';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
-import { inspectNoFollowDirectoryChain, PhysicalNoFollowError, retainNoFollowDirectoryForChildProcess, retainNoFollowOrdinaryFile } from '../../src/adapters/runtime-state/physical/runtime/physical-no-follow.ts';
+import { inspectNoFollowDirectoryChain, PhysicalNoFollowError, retainCurrentProcessExecutable, retainNoFollowDirectoryForChildProcess, retainNoFollowOrdinaryFile } from '../../src/adapters/runtime-state/physical/runtime/physical-no-follow.ts';
 import { issueRetainedCommandBoundary, RETAINED_EXECUTABLE_CHILD_DESCRIPTOR, RETAINED_WORKING_DIRECTORY_CHILD_DESCRIPTOR, RetainedCommandTransportError, runCommand, runCommandBytes, runRetainedCommand, runRetainedCommandBytes } from '../../src/adapters/runtime-state/physical/runtime/process.ts';
 import { compilerRoot } from "../../src/adapters/workspace-context.ts";
+
+import { createRawTestExecutableFixture } from '../testkit/raw-process.ts';
+
+let rawExecutable: ReturnType<typeof createRawTestExecutableFixture>;
+beforeAll(() => { rawExecutable = createRawTestExecutableFixture(); });
+afterAll(() => { rawExecutable.dispose(); });
 
 const splitUtf8Script = [
   "const chunks = [Buffer.from('docs/'), Buffer.from([0xe4]), Buffer.from([0xb8]), Buffer.from([0xad]), Buffer.from('.md\\0')];",
@@ -18,7 +24,7 @@ const splitUtf8Script = [
 ].join('\n');
 
 test('runCommandBytes preserves a UTF-8 code point split across child stdout writes', async () => {
-  const result = await runCommandBytes(process.execPath, ['--no-env-file', '--eval', splitUtf8Script], {
+  const result = await runCommandBytes(rawExecutable.command, ['--no-env-file', '--eval', splitUtf8Script], {
     cwd: compilerRoot,
     timeoutMs: 5_000
   });
@@ -42,7 +48,7 @@ test('runCommand streams split UTF-8 stdout and stderr through stateful decoders
     'writeNext();'
   ].join('\n');
 
-  const result = await runCommand(process.execPath, ['--no-env-file', '--eval', script], {
+  const result = await runCommand(rawExecutable.command, ['--no-env-file', '--eval', script], {
     cwd: compilerRoot,
     timeoutMs: 5_000
   });
@@ -51,7 +57,7 @@ test('runCommand streams split UTF-8 stdout and stderr through stateful decoders
 });
 
 test('runCommand keeps the default stdout contract textual', async () => {
-  const result = await runCommand(process.execPath, [
+  const result = await runCommand(rawExecutable.command, [
     '--no-env-file',
     '--eval',
     "process.stdout.write('text-output')"
@@ -62,7 +68,7 @@ test('runCommand keeps the default stdout contract textual', async () => {
 
 test('command stdin is exact and rejected before spawn when it exceeds its bound', async () => {
   const input = new Uint8Array([0, 1, 2, 10, 255]);
-  const result = await runCommandBytes(process.execPath, [
+  const result = await runCommandBytes(rawExecutable.command, [
     '--no-env-file',
     '--eval',
     'process.stdin.pipe(process.stdout)'
@@ -83,21 +89,21 @@ test('command stdin is exact and rejected before spawn when it exceeds its bound
 });
 
 test('runCommandBytes enforces stdout and stderr byte limits before accumulation', async () => {
-  const stdout = runCommandBytes(process.execPath, [
+  const stdout = runCommandBytes(rawExecutable.command, [
     '--no-env-file',
     '--eval',
     "process.stdout.write('12345')"
   ], { cwd: compilerRoot, maxStdoutBytes: 4, timeoutMs: 5_000 });
   await expect(stdout).rejects.toThrow('stdout exceeded 4 bytes');
 
-  const stderr = runCommandBytes(process.execPath, [
+  const stderr = runCommandBytes(rawExecutable.command, [
     '--no-env-file',
     '--eval',
     "process.stderr.write('12345')"
   ], { cwd: compilerRoot, maxStderrBytes: 4, timeoutMs: 5_000 });
   await expect(stderr).rejects.toThrow('stderr exceeded 4 bytes');
 
-  const exact = await runCommandBytes(process.execPath, [
+  const exact = await runCommandBytes(rawExecutable.command, [
     '--no-env-file',
     '--eval',
     "process.stdout.write('1234'); process.stderr.write('5678')"
@@ -106,7 +112,7 @@ test('runCommandBytes enforces stdout and stderr byte limits before accumulation
 });
 
 test('runCommand stall deadline advances only on admitted semantic progress', async () => {
-  const chatter = runCommand(process.execPath, [
+  const chatter = runCommand(rawExecutable.command, [
     '--no-env-file',
     '--eval',
     "setInterval(() => process.stdout.write('chatter\\n'), 15)"
@@ -118,7 +124,7 @@ test('runCommand stall deadline advances only on admitted semantic progress', as
   });
   await expect(chatter).rejects.toThrow('made no admitted progress for 500ms');
 
-  const progress = await runCommand(process.execPath, [
+  const progress = await runCommand(rawExecutable.command, [
     '--no-env-file',
     '--eval',
     "let n=0; const t=setInterval(() => { process.stdout.write(String(++n)); if(n===4){clearInterval(t)} }, 100)"
@@ -132,7 +138,7 @@ test('runCommand stall deadline advances only on admitted semantic progress', as
 });
 
 test('runCommand rejects a stall deadline without a stricter absolute deadline and admission rule', async () => {
-  await expect(runCommand(process.execPath, ['--version'], {
+  await expect(runCommand(rawExecutable.command, ['--version'], {
     cwd: compilerRoot,
     stallTimeoutMs: 100
   })).rejects.toThrow('stallTimeoutMs requires');
@@ -148,15 +154,7 @@ test.skipIf(process.platform !== 'linux')(
   'retained command preserves owner-advertised auxiliary descriptor slots',
   async () => {
     const root = mkdtempSync(path.join(tmpdir(), 'sec-retained-aux-slots-'));
-    const executablePath = path.resolve(process.execPath);
-    const executable = retainNoFollowOrdinaryFile(
-      inspectNoFollowDirectoryChain(path.dirname(executablePath), 'aux-slot executable parent'),
-      path.basename(executablePath),
-      undefined,
-      'aux-slot executable',
-      RETAINED_EXECUTABLE_CHILD_DESCRIPTOR,
-      'executable'
-    );
+    const executable = retainCurrentProcessExecutable(RETAINED_EXECUTABLE_CHILD_DESCRIPTOR, 'aux-slot executable');
     const workingDirectory = retainNoFollowDirectoryForChildProcess(
       inspectNoFollowDirectoryChain(compilerRoot, 'aux-slot cwd'),
       RETAINED_WORKING_DIRECTORY_CHILD_DESCRIPTOR,
@@ -210,16 +208,7 @@ test.skipIf(process.platform !== 'linux')(
 test.skipIf(process.platform !== 'win32' && process.platform !== 'linux')(
   'retained byte transport executes and revalidates one immutable executable image',
   async () => {
-  const executablePath = path.resolve(process.execPath);
-  const parent = inspectNoFollowDirectoryChain(path.dirname(executablePath), 'test executable parent');
-  const retained = retainNoFollowOrdinaryFile(
-    parent,
-    path.basename(executablePath),
-    undefined,
-    'test executable',
-    RETAINED_EXECUTABLE_CHILD_DESCRIPTOR,
-    'executable'
-  );
+  const retained = retainCurrentProcessExecutable(RETAINED_EXECUTABLE_CHILD_DESCRIPTOR, 'test executable');
   const retainedWorkingDirectory = retainNoFollowDirectoryForChildProcess(
     inspectNoFollowDirectoryChain(compilerRoot, 'test command cwd'),
     RETAINED_WORKING_DIRECTORY_CHILD_DESCRIPTOR,
@@ -335,7 +324,7 @@ test.skipIf(process.platform !== 'win32')(
 );
 
 test('retained command issuer rejects a physical file not issued for executable use', () => {
-  const executablePath = path.resolve(process.execPath);
+  const executablePath = import.meta.path;
   const ordinaryFile = retainNoFollowOrdinaryFile(
     inspectNoFollowDirectoryChain(path.dirname(executablePath), 'ordinary file parent'),
     path.basename(executablePath),
@@ -393,3 +382,12 @@ test.skipIf(process.platform !== 'win32')(
   }
   }
 );
+
+
+test('raw spawn fixture refuses locator reuse after its retained capability is disposed', () => {
+  const fixture = createRawTestExecutableFixture();
+  expect(fixture.command).toBeTruthy();
+  fixture.dispose();
+  expect(() => fixture.command).toThrow();
+  expect(() => fixture.assertCurrent()).toThrow();
+});
