@@ -8,6 +8,7 @@ import {
   inspectExactNoFollowDirectoryPresence,
   inspectNoFollowDirectoryChain,
   inspectNoFollowOrdinaryFileEntry,
+  publishExclusiveDurableCanonicalFile,
   retainNoFollowOrdinaryFile,
   type PhysicalDirectoryIdentity
 } from '../../../../runtime-state/physical/runtime/physical-no-follow.ts';
@@ -16,7 +17,7 @@ import type { VerificationSessionScope } from '../contract/session-scope.ts';
 import { commonGitDirectory, comparableFileSystemPath, exactRealPath, gitText, runVerificationSessionCommand } from './session-local-repository.ts';
 import type { GitHubCandidateObservation } from './verification-session-github.ts';
 import { createHash } from 'node:crypto';
-import { closeSync, fsyncSync, openSync, unlinkSync, writeFileSync } from 'node:fs';
+import { unlinkSync } from 'node:fs';
 import path from 'node:path';
 
 const LOCAL_CANDIDATE_WORKTREE_OWNER_SCHEMA =
@@ -144,21 +145,25 @@ function readLocalCandidateWorktreeOwnerMarker(markerPath: string): LocalCandida
   }
 }
 
-function createExclusiveCanonicalFile(filePath: string, value: unknown): boolean {
-  let handle: number;
-  try {
-    handle = openSync(filePath, 'wx');
-  } catch (error) {
-    if (error && typeof error === 'object' && 'code' in error && error.code === 'EEXIST') return false;
-    throw error;
-  }
-  try {
-    writeFileSync(handle, `${encodeVerificationActionData(value)}\n`, 'utf8');
-    fsyncSync(handle);
-  } finally {
-    closeSync(handle);
-  }
-  return true;
+function publishExclusiveCanonicalOwnerMarker(
+  parent: PhysicalDirectoryIdentity,
+  name: string,
+  value: LocalCandidateWorktreeOwner
+): boolean {
+  const expected = Buffer.from(`${encodeVerificationActionData(value)}\n`, 'utf8');
+  const receipt = publishExclusiveDurableCanonicalFile({
+    parent,
+    name,
+    bytes: expected,
+    validate: (bytes) => {
+      const source = new TextDecoder('utf-8', { fatal: true }).decode(bytes);
+      const parsed = parseLocalCandidateWorktreeOwner(source);
+      if (encodeVerificationActionData(parsed) !== encodeVerificationActionData(value)) {
+        throw new Error('local candidate worktree owner marker differs from the exact owner.');
+      }
+    }
+  });
+  return receipt.created;
 }
 
 function worktreeRegistration(ctx: VerificationSessionScope, authorityRoot: string, candidateRoot: string):
@@ -270,13 +275,14 @@ export function acquireLocalCandidateWorktree(input: {
     ).target
   );
   const candidateRoot = path.join(parent.path, input.candidate.headSha);
-  const markerPath = `${candidateRoot}.owner.json`;
+  const markerName = `${input.candidate.headSha}.owner.json`;
+  const markerPath = path.join(parent.path, markerName);
   assertContainedPath(authorityRoot, candidateRoot, 'local candidate worktree');
   const owner = createLocalCandidateWorktreeOwner({ authorityRoot, commonGitDirectory: commonDirectory,
     candidateRoot, headSha: input.candidate.headSha, headTreeSha: input.candidate.headTreeSha,
     sessionRevision: input.sessionRevision,
     actionPlanDigest: input.actionPlanClosure.actionPlanDigest as `sha256:${string}` });
-  const createdMarker = createExclusiveCanonicalFile(markerPath, owner);
+  const createdMarker = publishExclusiveCanonicalOwnerMarker(parent, markerName, owner);
   if (!createdMarker) {
     const observed = readLocalCandidateWorktreeOwnerMarker(markerPath);
     if (encodeVerificationActionData(observed) !== encodeVerificationActionData(owner)) {
