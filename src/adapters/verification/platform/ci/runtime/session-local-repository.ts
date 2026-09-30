@@ -79,13 +79,22 @@ function retainedVerificationSessionSpawnBoundary(
         || new Set(sourceDescriptors).size !== sourceDescriptors.length) {
       throw new Error('VerificationSession retained directory descriptors must be unique.');
     }
-    for (const { childDescriptor, sourceDescriptor } of [cwdDescriptor, ...auxiliary]) {
-      while (stdio.length <= childDescriptor) stdio.push('ignore');
-      stdio[childDescriptor] = sourceDescriptor;
-    }
+    const sourceByChildDescriptor = new Map(
+      [cwdDescriptor, ...auxiliary].map(({ childDescriptor, sourceDescriptor }) => (
+        [childDescriptor, sourceDescriptor] as const
+      ))
+    );
+    const maximumChildDescriptor = Math.max(2, ...childDescriptors);
+    const linuxStdio: Array<'pipe' | 'ignore' | number> = Array.from(
+      { length: maximumChildDescriptor + 1 },
+      (_unused, descriptor) => {
+        if (descriptor < 3) return 'pipe';
+        return sourceByChildDescriptor.get(descriptor) ?? 'ignore';
+      }
+    );
     return Object.freeze({
       cwd: `/proc/self/fd/${cwdDescriptor.sourceDescriptor}`,
-      stdio
+      stdio: linuxStdio
     });
   }
   if (process.platform === 'win32') {
