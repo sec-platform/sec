@@ -15,7 +15,8 @@ concurrency:
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
   CI: '1'
-  SEC_CACHE_HOME: /tmp/sec-hosted-dependency-home
+  SEC_STATE_HOME: ${{ runner.temp }}/sec-validation-state
+  SEC_CACHE_HOME: ${{ runner.temp }}/sec-validation-cache
 
 jobs:
   validate:
