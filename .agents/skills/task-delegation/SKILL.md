@@ -29,15 +29,16 @@ description: 判断 frozen Work Package 是否值得分成独立并行结果，�
 1. 先比较并行节省与协调、上下文、冲突和复核成本；收益不明确时不委派。
 2. 每个角色接收bounded outcome、同一exact base、必要owner引用与更窄权限；明确交回证据和停止条件，不复制所有Skill正文。启动前核当前在途任务、共享fixture/依赖与可用资源，按真实scheduler准入。角色数或max_threads配置不证明实际并发上限，嵌套进程与测试worker同样消耗共同预算。
 3. 同一 canonical type、revision、builder、pipeline order 或 authority 段落保持单写者。
-4. Worker 不 merge、不触发 hosted Gate、不递归扩权；Reviewer 保持 read-only，只返回 exact path、symbol 与 invariant。
-5. 主线程核结果与frozen package、输入身份及实际完成边界后集成；冲突或越界结果交还原owner。收到报告、发出取消和物理结束分别观察，已启动的任务由原owner join或合法移交，不能一报完成就复用仍占用的写者/资源。
+4. Worker 不从角色名取得 hosted Gate 或 merge 权限；Envelope 已明确委派目标 branch/ref 及发布终态时，按 [worker-development](../worker-development/SKILL.md) 与原 Effect owner 完成该分支的发布闭包，并遵守 AGENTS 的 hosted evidence budget。默认分支集成仍归原 integration owner，不递归扩权；Reviewer 保持 read-only，只返回 exact path、symbol 与 invariant。
+5. 角色在已委派的目标、写集与作用上限内自主推进，主动向原owner回读尚未满足的前置；前置成立且资源与作用准入有效时及时接续同一任务，不等待重复口头许可。观察按真实责任和变化条件取得，不靠重跑未失效的检查制造进度。
+6. 主线程核结果与frozen package、输入身份及实际完成边界后集成；冲突或越界结果交还原owner。收到报告、发出取消和物理结束分别观察，已启动的任务由原owner join或合法移交，不能一报完成就复用仍占用的写者/资源。
 
 ## 完成证据
 - role projection、owner/path独立依据、实际启动/交回/在途或已结算状态、角色结果与Reconciliation Delta；沿原任务结果保留，不另造调度账本。
 - 若没有实际并行收益，`no-delegation` 是合法且优先的结果。
 
 ## 停止与恢复
-- 出现 owner 重叠、依赖未闭合、授权不明或独立性不成立时停止委派并返回 typed blocker。
+- 出现真实owner／写集冲突、独立性不成立、作用拒绝或超出当前授权的必要决定时，只停止并交回受影响动作的typed blocker。可由原owner回读或已有授权内的修复解决的前置由角色主动推进；其余独立合法工作继续，不把普通等待或可恢复失败升级为重复授权请求。
 - 角色完成或明确 blocker 后交还主线程；主线程继续原授权任务。确有在途结果时按原owner的join/观察协议等待，不把无变化轮询当进度，也不将合法等待一概禁止。
 
 ## 禁止捷径

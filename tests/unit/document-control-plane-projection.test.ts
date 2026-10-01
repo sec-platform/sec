@@ -9,6 +9,7 @@ import {
   CodexDevelopmentParseCurrentStateSpec,
   CodexDevelopmentParseRollingMachineProjection,
   CodexDevelopmentParseRollingPlan,
+  CodexDevelopmentProjectStatusContinuation,
   CodexDevelopmentPromoteRollingPlan,
   CodexDevelopmentRenderActivePointer,
   CodexDevelopmentRenderCommittedCandidateReplanRollingPlan,
@@ -644,4 +645,95 @@ test('heading drift is rejected against the digest-bound machine topology', () =
     `### 1. ${candidates[0]}`,
     '### 1. drifted-candidate-v1'
   ))).toThrow('headings do not equal the digest-bound machine projection');
+});
+
+
+function statusContinuationFixture() {
+  return {
+    repositoryRoot: '/candidate/worktree',
+    headSha: exactMain,
+    candidateTreeSha: exactMainTree,
+    defaultRefState: 'fresh' as const,
+    activeWorkPackage: { state: 'none' as const, reason: 'matching-default-blob' as const },
+    pointerManifest: 'config/repository/work-packages/prior.md',
+    changes: [],
+    journal: null
+  };
+}
+
+test('status continuation retains unknown owner admission across ordinary Git states', () => {
+  const clean = CodexDevelopmentProjectStatusContinuation(statusContinuationFixture());
+  expect(clean.next).toEqual({
+    owner: 'work-selection', action: 'observe-work-decision', reason: 'matching-default-blob',
+    requiredInputs: ['current-work-decision', 'operation-intent']
+  });
+  const dirty = CodexDevelopmentProjectStatusContinuation({
+    ...statusContinuationFixture(),
+    changes: [
+      { index: 'A', worktree: 'M', path: 'src/changed.ts', originalPath: null },
+      { index: 'R', worktree: ' ', path: 'src/new.ts', originalPath: 'src/old.ts' }
+    ],
+    activeWorkPackage: {
+      state: 'active', manifest: 'config/repository/work-packages/current.md',
+      manifestDigest: `sha256:${'c'.repeat(64)}`
+    }
+  });
+  expect(dirty.next).toMatchObject({ owner: 'operation-admission', action: 'resolve-active-operation' });
+  expect(dirty.subject).toMatchObject({ repositoryRoot: '/candidate/worktree', candidateTreeSha: exactMainTree });
+  expect(dirty.changes).toEqual({ state: 'observed', records: [
+    { index: 'A', worktree: 'M', path: 'src/changed.ts', originalPath: null },
+    { index: 'R', worktree: ' ', path: 'src/new.ts', originalPath: 'src/old.ts' }
+  ] });
+  for (const value of [clean, dirty]) {
+    expect(value.authority).toBe('observation-only');
+    expect(value.unobservedOwners).toContain('development-commit-journal-census');
+    expect(value.unobservedOwners).toContain('compiler-dependency-admission');
+    expect(value.unobservedOwners).toContain('work-package-changed-path-ownership');
+    expect(value).not.toHaveProperty('ready');
+  }
+});
+
+test('status continuation preserves journal request and prioritizes races over recovery', () => {
+  const journal = {
+    operationId: `sha256:${'d'.repeat(64)}` as const,
+    manifestPath: 'config/repository/work-packages/recovery.md', reviewedOn: '2026-10-01',
+    baseSha: exactMain, candidateTreeSha: exactMainTree, proposalOnly: true, phase: 'terminal'
+  };
+  const recovery = CodexDevelopmentProjectStatusContinuation({
+    ...statusContinuationFixture(), changes: null, journal
+  });
+  expect(recovery.next).toMatchObject({
+    owner: 'document-control', action: 'resume-freeze', operationId: journal.operationId,
+    executionRoot: 'required-clean-trusted-default-worktree', admission: 'required-by-original-owner',
+    arguments: [
+      'freeze', '--workspace', '/candidate/worktree', '--manifest', journal.manifestPath,
+      '--reviewed-on', '2026-10-01', '--proposal-only', '--json'
+    ]
+  });
+  expect(recovery.changes).toEqual({ state: 'unobserved', records: null });
+  const raced = CodexDevelopmentProjectStatusContinuation({
+    ...statusContinuationFixture(), journal,
+    activeWorkPackage: { state: 'unresolved', reason: 'activation-observation-raced' }
+  });
+  expect(raced.next).toEqual({
+    owner: 'repository-orientation', action: 'refresh-observation', reason: 'activation-observation-raced'
+  });
+  expect(raced.next).not.toHaveProperty('arguments');
+});
+
+test('status continuation routes stale and invalid control facts to their existing owners', () => {
+  for (const defaultRefState of ['stale', 'unavailable'] as const) {
+    const result = CodexDevelopmentProjectStatusContinuation({ ...statusContinuationFixture(), defaultRefState });
+    expect(result.next).toEqual({
+      owner: 'repository-orientation', action: 'refresh-observation', reason: `default-ref-${defaultRefState}`
+    });
+  }
+  const invalid = CodexDevelopmentProjectStatusContinuation({
+    ...statusContinuationFixture(),
+    activeWorkPackage: { state: 'invalid', reason: 'candidate-manifest-absent' }
+  });
+  expect(invalid.next).toEqual({
+    owner: 'document-control', action: 'repair-active-binding', reason: 'candidate-manifest-absent',
+    pointerManifest: 'config/repository/work-packages/prior.md'
+  });
 });

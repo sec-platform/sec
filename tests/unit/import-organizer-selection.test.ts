@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 import { spawnSync } from 'node:child_process';
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import ts from 'typescript';
@@ -11,7 +11,9 @@ import {
 } from '../../src/adapters/self-hosting/development/import-normalization/kernel.ts';
 import {
   compileImportOperationPlan,
-  resolveCandidateImportBase
+  resolveCandidateImportBase,
+  runImportCheck,
+  runImportCheckWithPlan
 } from '../../src/adapters/self-hosting/development/runner/import-organizer.ts';
 
 function organizeFixtureImports(source: string, roots: 'full' | 'focused' = 'full'): string {
@@ -108,11 +110,31 @@ test('candidate and full scopes compile different immutable exact plans', async 
       expect(candidate.targets).toEqual([]);
       expect(candidate.writePaths).toEqual([]);
 
+      const fixturePath = path.join(repoRoot, 'fixture.ts');
+      const originalBytes = await readFile(fixturePath);
+      const originalStat = await stat(fixturePath);
+      const observed = await runImportCheckWithPlan({}, repoRoot, {});
+      expect(observed.plan.candidateBase).toBe(head);
+      expect(observed.plan.scope).toBe('candidate');
+      expect(observed.plan.intent).toBe('sort-and-combine');
+      expect(observed.outcome.status).toBe('canonical');
+      expect(await runImportCheck({}, repoRoot, {})).toEqual(observed.outcome);
+      expect(await readFile(fixturePath)).toEqual(originalBytes);
+      expect((await stat(fixturePath)).mtimeMs).toBe(originalStat.mtimeMs);
+
       const full = await compileImportOperationPlan({ scope: 'all' }, repoRoot, {});
       expect(full.scope).toBe('all');
       expect(full.candidateBase).toBeNull();
       expect(full.writePaths).toEqual(['fixture.ts']);
       expect(full.planDigest).toMatch(/^sha256:[0-9a-f]{64}$/u);
+      const fullCheck = await runImportCheckWithPlan({ scope: 'all', intent: 'remove-unused' }, repoRoot, {});
+      expect(fullCheck.plan.candidateBase).toBeNull();
+      expect(fullCheck.plan.scope).toBe('all');
+      expect(fullCheck.plan.intent).toBe('remove-unused');
+      // Every import is used: remove-unused does not also sort/combine.
+      expect(fullCheck.outcome.status).toBe('canonical');
+      expect(await readFile(fixturePath)).toEqual(originalBytes);
+      expect((await stat(fixturePath)).mtimeMs).toBe(originalStat.mtimeMs);
 
       await writeFile(path.join(repoRoot, 'fixture.ts'), [
         "import { beta, alpha } from './values.ts';",

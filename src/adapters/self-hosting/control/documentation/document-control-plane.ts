@@ -32,6 +32,10 @@ import { withGitHubCredentialBootstrap } from '../../../providers/github-api/cre
 import type { GitHubApiCapability } from '../../../providers/github-api/operation-session.ts';
 import { compileSecRepositoryModuleMembership } from '../../../repository/architecture/contract.ts';
 import {
+  parseWorktreeStatusPorcelainZ,
+  type WorktreeStatusPorcelainRecord
+} from '../../../runtime-state/physical/contract/git-worktree-observation.ts';
+import {
   createNoFollowDirectoryCreateTestActorForTests,
   createNoFollowOrdinaryDirectoryChain,
   createRetainedNoFollowFileTransactionTestActorForTests,
@@ -91,6 +95,7 @@ import {
   CodexDevelopmentParseRollingMachineProjection,
   CodexDevelopmentParseRollingPlan,
   CodexDevelopmentParseRollingPlanHeadings,
+  CodexDevelopmentProjectStatusContinuation,
   CodexDevelopmentRequiresCommittedCandidateProjectionRefresh,
   CodexDevelopmentResolveActiveWorkPackage,
   CodexDevelopmentResolveWorkSelectionProjectionMode,
@@ -103,6 +108,7 @@ import {
   type CodexDevelopmentInitiallyAbsentTuplePlatform,
   type CodexDevelopmentInitiallyAbsentTupleState,
   type CodexDevelopmentMainHealthRepairProjection,
+  type CodexDevelopmentStatusContinuationInput,
   type CodexDevelopmentWorkSelectionProjection
 } from './document-control-plane-contract.ts';
 import {
@@ -204,6 +210,7 @@ export async function observeDocumentControlWorkRouting(input: Readonly<{
 type CommandResult = {
   code: number;
   stdout: string;
+  stdoutBytes?: Uint8Array;
   stderr: string;
 };
 
@@ -609,6 +616,7 @@ interface ControlIndexSnapshot {
   readonly indexPaths: readonly string[];
   readonly stagedPaths: readonly string[];
   readonly worktreeStatus: string;
+  readonly machineStatus: readonly WorktreeStatusPorcelainRecord[] | null;
 }
 
 function systemErrorCode(error: unknown): string | undefined {
@@ -1353,6 +1361,7 @@ async function run(
   return Object.freeze({
     code: result.code,
     stdout: Buffer.from(result.stdout).toString('utf8'),
+    ...(args[0] === 'status' && args.includes('-z') ? { stdoutBytes: Buffer.from(result.stdout) } : {}),
     stderr: Buffer.from(result.stderr).toString('utf8')
   });
 }
@@ -1836,6 +1845,7 @@ async function withRepositoryIndexTreeThroughExternalScratch<T>(
         return Object.freeze({
           code: result.value.code,
           stdout: Buffer.from(result.value.stdout).toString('utf8'),
+          ...(args[0] === 'status' && args.includes('-z') ? { stdoutBytes: Buffer.from(result.value.stdout) } : {}),
           stderr: Buffer.from(result.value.stderr).toString('utf8')
         });
       };
@@ -1948,6 +1958,7 @@ async function captureControlIndexSnapshot(
   options: Readonly<{
     resolverGit?: ReadOnlyResolverGit;
     targetManifestPath?: string;
+    observeMachineStatus?: boolean;
     stagedBaseSha?: string;
     requiredStageZeroPaths?: readonly string[];
   }> = {}
@@ -2024,6 +2035,19 @@ async function captureControlIndexSnapshot(
         await runScratch(['status', '--short', '--branch']),
         'Worktree status through external index snapshot'
       );
+      let machineStatus: readonly WorktreeStatusPorcelainRecord[] | null = null;
+      if (options.observeMachineStatus === true) {
+        const result = await runScratch([
+          'status', '--porcelain=v1', '-z', '--untracked-files=all', '--ignored=no'
+        ]);
+        requireCommandOutput(result, 'Machine worktree status through external index snapshot');
+        if (result.stdoutBytes === undefined) {
+          throw new Error('Machine worktree status lost its original byte observation.');
+        }
+        machineStatus = Object.freeze(parseWorktreeStatusPorcelainZ(
+          result.stdoutBytes, { allowDirectoryEntries: false }
+        ));
+      }
       return Object.freeze({
         treeSha: shaValue(treeSha, 'Git index tree snapshot'),
         index,
@@ -2038,7 +2062,8 @@ async function captureControlIndexSnapshot(
         roadmapBlob,
         indexPaths,
         stagedPaths,
-        worktreeStatus
+        worktreeStatus,
+        machineStatus
       });
     }
   );
@@ -6607,6 +6632,25 @@ async function observeGitHubControlFacts(
   }
 }
 
+function projectObservedStatusContinuation(
+  input: Omit<CodexDevelopmentStatusContinuationInput, 'journal'> & Readonly<{
+    journal: FreezeJournal | null;
+  }>
+) {
+  return CodexDevelopmentProjectStatusContinuation({
+    ...input,
+    journal: input.journal === null ? null : Object.freeze({
+      operationId: input.journal.operationId,
+      manifestPath: input.journal.manifestPath,
+      reviewedOn: input.journal.reviewedOn,
+      baseSha: input.journal.baseSha,
+      candidateTreeSha: input.journal.candidateTreeSha,
+      proposalOnly: input.journal.authoringDisposition === 'proposal-only',
+      phase: input.journal.phase
+    })
+  });
+}
+
 async function resolveActivationBlockedStatus(input: {
   repositoryRoot: string;
   resolverGit: ReadOnlyResolverGit;
@@ -6674,6 +6718,16 @@ async function resolveActivationBlockedStatus(input: {
         : 'GitHub observation skipped because activation changed during status resolution'
     },
     activeWorkPackage: { state: 'unresolved', reason: input.reason },
+    continuation: projectObservedStatusContinuation({
+      repositoryRoot: input.repositoryRoot,
+      headSha,
+      candidateTreeSha: null,
+      defaultRefState,
+      activeWorkPackage: { state: 'unresolved', reason: input.reason },
+      pointerManifest: null,
+      changes: null,
+      journal: input.journal
+    }),
     activation: input.journal === null ? null : {
       operationId: input.journal.operationId,
       phase: input.journal.phase,
@@ -6866,7 +6920,7 @@ async function resolveLiveControlPlaneWithGitReadSession(
   }
   let snapshot: ControlIndexSnapshot;
   try {
-    snapshot = await captureControlIndexSnapshot(repositoryRoot, { resolverGit });
+    snapshot = await captureControlIndexSnapshot(repositoryRoot, { resolverGit, observeMachineStatus: true });
   } catch (error) {
     const racedJournalSnapshot = await readFreezeJournalSnapshot(
       repositoryRoot,
@@ -7082,6 +7136,16 @@ async function resolveLiveControlPlaneWithGitReadSession(
     },
     github: githubState,
     activeWorkPackage,
+    continuation: projectObservedStatusContinuation({
+      repositoryRoot,
+      headSha,
+      candidateTreeSha: snapshot.treeSha,
+      defaultRefState,
+      activeWorkPackage,
+      pointerManifest: pointer.manifest,
+      changes: snapshot.machineStatus,
+      journal: activationJournalReadback
+    }),
     activation: activationJournalReadback === null ? null : {
       operationId: activationJournalReadback.operationId,
       phase: activationJournalReadback.phase,
@@ -7105,6 +7169,7 @@ export interface DocumentControlPlaneStatusCliProjection {
   }>;
   readonly activeWorkPackage: unknown;
   readonly activation: unknown;
+  readonly continuation: unknown;
 }
 
 export function projectDocumentControlPlaneStatusCli(
@@ -7145,7 +7210,8 @@ export function projectDocumentControlPlaneStatusCli(
       ...(reviewThreadPullRequestCount === undefined ? {} : { reviewThreadPullRequestCount })
     }),
     activeWorkPackage: resolved.activeWorkPackage,
-    activation: resolved.activation
+    activation: resolved.activation,
+    continuation: resolved.continuation
   });
 }
 

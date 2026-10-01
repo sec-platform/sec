@@ -1324,12 +1324,23 @@ export async function runImportCheck(
   projectRoot = compilerRoot,
   env: ImportSelectionEnvironment = process.env
 ): Promise<ImportCheckOutcome> {
+  return (await runImportCheckWithPlan(options, projectRoot, env)).outcome;
+}
+
+/** Retain the already-compiled selection for a bounded recovery hint. The plan
+ * is data only; applying still requires fresh publication admission. */
+export async function runImportCheckWithPlan(
+  options: ImportOperationOptions = {},
+  projectRoot = compilerRoot,
+  env: ImportSelectionEnvironment = process.env
+): Promise<Readonly<{ outcome: ImportCheckOutcome; plan: ImportOperationPlan }>> {
   const { plan } = await compileImportOperationExecution(options, projectRoot, env);
-  return plan.writePaths.length === 0
+  const outcome: ImportCheckOutcome = plan.writePaths.length === 0
     ? Object.freeze({ schema: 'sec-import-check-outcome-v1' as const,
       status: 'canonical' as const, files: Object.freeze([]) })
     : Object.freeze({ schema: 'sec-import-check-outcome-v1' as const,
       status: 'needs-import-transform' as const, files: plan.writePaths });
+  return Object.freeze({ outcome, plan });
 }
 
 export async function runImportApply(

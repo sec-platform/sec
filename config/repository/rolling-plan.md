@@ -12,9 +12,9 @@ last-reviewed: 2026-10-01
 ```json
 {
   "active": {
-    "manifestDigest": "sha256:d6df801389db9e4c2048e3e50359fa79b87a2b6e0c68fba9a8d9597fb2b008d3",
-    "manifestPath": "config/repository/work-packages/native-git-freeze-owner-20261001.md",
-    "packageId": "native-git-freeze-owner-20261001",
+    "manifestDigest": "sha256:1fc19f1d2174b16bcde7791f999c2bd50e4203b41c9e407457f203d8e1482738",
+    "manifestPath": "config/repository/work-packages/development-entry-continuation-20261001.md",
+    "packageId": "development-entry-continuation-20261001",
     "tracking": "none"
   },
   "authority": "none",
@@ -25,18 +25,18 @@ last-reviewed: 2026-10-01
     "candidate-control-transaction-v1",
     "typescript-7-checker-acceleration-v1"
   ],
-  "exactMain": "02cf10b1978e3505152f9adbb10558251963b261",
-  "exactMainTree": "1896dd1313f0207808c284cc3a30e62dc86a408a",
-  "projectionDigest": "sha256:a1c2d316accd4a634cc36021a39d75f6797a054e63f62372a3106b3cc0214cf0",
+  "exactMain": "ba02bc866ad2c0cb999ad5e4c95a050dde687600",
+  "exactMainTree": "ed9040ddce18b426cc2f0914a439876a957d4982",
+  "projectionDigest": "sha256:0668483b9ae5138c51ed03076f5bd777bab912866e45fbdbb9693adbbf7dc7bf",
   "schema": "sec-work-rolling-proposal-projection-v1"
 }
 ```
 
 ## 当前唯一 Work Package
 
-### native-git-freeze-owner-20261001
+### development-entry-continuation-20261001
 
-Proposal-only target manifest `config/repository/work-packages/native-git-freeze-owner-20261001.md` at `sha256:d6df801389db9e4c2048e3e50359fa79b87a2b6e0c68fba9a8d9597fb2b008d3`, based on exact main `02cf10b1978e3505152f9adbb10558251963b261` and tree `1896dd1313f0207808c284cc3a30e62dc86a408a`.
+Proposal-only target manifest `config/repository/work-packages/development-entry-continuation-20261001.md` at `sha256:1fc19f1d2174b16bcde7791f999c2bd50e4203b41c9e407457f203d8e1482738`, based on exact main `ba02bc866ad2c0cb999ad5e4c95a050dde687600` and tree `ed9040ddce18b426cc2f0914a439876a957d4982`.
 
 ## 候选 Work Package
 

@@ -1,18 +1,21 @@
 import { test } from 'bun:test';
 import assert from 'node:assert/strict';
+import type { PreparedLocalAffectedCheck } from '../../src/adapters/self-hosting/development/runner/check-runner.ts';
 import { runCheckAffectedCommand, type CheckAffectedCommandOperations } from '../../src/adapters/self-hosting/development/runner/cli.ts';
 import type { MaterializedOperationDependencyBootstrapResult } from '../../src/adapters/self-hosting/development/runner/dependency-bootstrap.ts';
 
 // This sentinel passes only between explicitly supplied callbacks. It is never
 // presented to a production materialization/session owner as an issued grant.
 const dependencies = Object.freeze({ fixture: 'callback-passthrough' }) as unknown as MaterializedOperationDependencyBootstrapResult;
+const preparation = Object.freeze({ needsDependencies: true }) as PreparedLocalAffectedCheck;
 function callbacks(patch: Partial<CheckAffectedCommandOperations> = {}): CheckAffectedCommandOperations {
-  return { runPlan: async () => 0, ensureDependencies: async () => dependencies,
+  return { runPlan: async () => 0, prepareExecution: async () => preparation, ensureDependencies: async () => dependencies,
     handoff: async () => null, runExecution: async () => 0, ...patch };
 }
 
 test('plan-only admission does not inspect unused installation or handoff capabilities', async () => {
   const input = { async runPlan() { return 7; },
+    get prepareExecution(): never { assert.fail('selection executed'); throw new Error('unreachable'); },
     get ensureDependencies(): never { assert.fail('installation selected'); throw new Error('unreachable'); },
     get handoff(): never { assert.fail('handoff selected'); throw new Error('unreachable'); },
     get runExecution(): never { assert.fail('execution selected'); throw new Error('unreachable'); }
@@ -31,6 +34,7 @@ test('execution methods remain selected and keep private receiver state across w
   class Operations implements CheckAffectedCommandOperations {
     #prepared = false;
     runPlan = async () => assert.fail('plan selected');
+    prepareExecution = async () => preparation;
     async ensureDependencies() {
       this.#prepared = true;
       this.handoff = async () => assert.fail('replacement handoff');
@@ -40,7 +44,7 @@ test('execution methods remain selected and keep private receiver state across w
     async handoff(value: MaterializedOperationDependencyBootstrapResult) {
       assert.equal(this.#prepared,true); assert.equal(value,dependencies); return null;
     }
-    async runExecution(value: MaterializedOperationDependencyBootstrapResult) {
+    async runExecution(value: MaterializedOperationDependencyBootstrapResult | undefined) {
       assert.equal(this.#prepared,true); assert.equal(value,dependencies); return 9;
     }
   }
@@ -83,4 +87,33 @@ test('missing required execution methods reject before preparing dependencies', 
   await assert.rejects(runCheckAffectedCommand([],callbacks({ensureDependencies:async()=>{started=true;return dependencies;},
     handoff:undefined})),TypeError);
   assert.equal(started,false);
+});
+
+
+test('Git-only preparation executes without reading dependency or handoff callbacks', async () => {
+  const prepared = Object.freeze({ needsDependencies: false }) as PreparedLocalAffectedCheck;
+  const input = { runPlan: async () => assert.fail('plan selected'),
+    prepareExecution: async () => prepared,
+    get ensureDependencies(): never { assert.fail('unneeded dependency admission'); throw new Error('unreachable'); },
+    get handoff(): never { assert.fail('unneeded fresh process'); throw new Error('unreachable'); },
+    runExecution: async (dependency: unknown, demand: unknown, selected: unknown) => {
+      assert.equal(dependency, undefined); assert.equal(demand, undefined); assert.equal(selected, prepared); return 0;
+    }
+  };
+  assert.equal(await runCheckAffectedCommand([], input), 0);
+});
+
+test('source preparation precedes dependency admission and failed selection has no successor effect', async () => {
+  const order: string[] = [];
+  assert.equal(await runCheckAffectedCommand([], callbacks({
+    prepareExecution: async () => { order.push('git'); return preparation; },
+    ensureDependencies: async (_demand, selected) => { assert.equal(selected, preparation); order.push('dependencies'); return dependencies; },
+    handoff: async (_dependencies, selected) => { assert.equal(selected, preparation); order.push('handoff'); return null; },
+    runExecution: async (_dependencies, _demand, selected) => { assert.equal(selected, preparation); order.push('execute'); return 0; }
+  })), 0);
+  assert.deepEqual(order, ['git', 'dependencies', 'handoff', 'execute']);
+  assert.equal(await runCheckAffectedCommand([], callbacks({ prepareExecution: async () => null,
+    ensureDependencies: async () => assert.fail('dependency admission after unavailable selection'),
+    runExecution: async () => assert.fail('execution after unavailable selection')
+  })), 1);
 });

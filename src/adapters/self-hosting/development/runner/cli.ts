@@ -3,6 +3,7 @@ import {
   githubCredentialBootstrapHandoffArguments,
   withGitHubCredentialBootstrap
 } from '../../../providers/github-api/credential-bootstrap.ts';
+import type { PreparedLocalAffectedCheck } from './check-runner.ts';
 
 import type { SecBoundSemanticOperation } from '../../../../execution/operation/semantic.ts';
 import type { ProcessResourceSession } from '../../../runtime-state/physical/runtime/process-resource-session.ts';
@@ -30,10 +31,22 @@ export function shouldReportDevRunnerSuccess(
   return environment.SEC_GIT_HOOK_ACTIVE !== '1';
 }
 
+const AFFECTED_HANDOFF_SELECTION_ENV = 'SEC_AFFECTED_HANDOFF_SELECTION';
+const AFFECTED_HANDOFF_DEADLINE_ENV = 'SEC_AFFECTED_HANDOFF_DEADLINE';
+
 export async function handoffDevRunnerToFreshProcess(
   dependencies: MaterializedOperationDependencyBootstrapResult,
   standardInput?: Uint8Array,
   workspaceTransitionDeadlineAtUnixMs?: number
+): Promise<number | null> {
+  return handoffDevRunnerWithAffectedExpectation(dependencies, standardInput, workspaceTransitionDeadlineAtUnixMs);
+}
+
+async function handoffDevRunnerWithAffectedExpectation(
+  dependencies: MaterializedOperationDependencyBootstrapResult,
+  standardInput?: Uint8Array,
+  workspaceTransitionDeadlineAtUnixMs?: number,
+  affectedHandoff?: Readonly<{ selectionDigest: `sha256:${string}`; deadlineAtUnixMs: number }>
 ): Promise<number | null> {
   assertMaterializedOperationDependencyBootstrapResult(dependencies);
   const handoff = createDependencyFreshProcessHandoff(dependencies);
@@ -43,18 +56,26 @@ export async function handoffDevRunnerToFreshProcess(
   if (entrypoint === undefined || path.relative(canonicalEntrypoint, path.resolve(entrypoint)) !== '') {
     throw new Error('Dev runner fresh-process handoff has no exact entrypoint identity.');
   }
+  if (affectedHandoff !== undefined && (!/^sha256:[0-9a-f]{64}$/u.test(affectedHandoff.selectionDigest)
+      || !Number.isSafeInteger(affectedHandoff.deadlineAtUnixMs) || affectedHandoff.deadlineAtUnixMs <= Date.now())) {
+    throw new Error('Affected dependency handoff has an invalid identity or exhausted deadline');
+  }
+  const deadlineAtUnixMs = affectedHandoff === undefined ? workspaceTransitionDeadlineAtUnixMs
+    : Math.min(affectedHandoff.deadlineAtUnixMs, workspaceTransitionDeadlineAtUnixMs ?? Number.MAX_SAFE_INTEGER);
   const { runDevCommand } = await import('./command-runner.ts');
   return runDevCommand('bun', [entrypoint, ...githubCredentialBootstrapHandoffArguments(process.argv.slice(2))], {
       [DEV_RUNNER_FRESH_PROCESS_TRANSITION_ENV]: handoff.transitionDigest,
+    ...(affectedHandoff === undefined ? {} : {
+      [AFFECTED_HANDOFF_SELECTION_ENV]: affectedHandoff.selectionDigest,
+      [AFFECTED_HANDOFF_DEADLINE_ENV]: String(affectedHandoff.deadlineAtUnixMs)
+    }),
       ...(workspaceTransitionDeadlineAtUnixMs === undefined ? {} : {
         [WORKSPACE_TRANSITION_DEADLINE_ENV]:
           String(workspaceTransitionDeadlineAtUnixMs)
       })
   }, {
     workingDirectory: process.cwd(),
-    ...(workspaceTransitionDeadlineAtUnixMs === undefined ? {} : {
-      deadlineAtUnixMs: workspaceTransitionDeadlineAtUnixMs
-    }),
+    ...(deadlineAtUnixMs === undefined ? {} : { deadlineAtUnixMs }),
     ...(standardInput === undefined ? {} : {
       input: standardInput
     })
@@ -65,15 +86,20 @@ type CheckAffectedDemand = ReturnType<typeof compileSecOperationDemandGraph>;
 
 export interface CheckAffectedCommandOperations {
   readonly runPlan: () => Promise<number>;
+  /** Required only by execution; --plan never observes this callback. */
+  readonly prepareExecution?: () => Promise<PreparedLocalAffectedCheck | null>;
   readonly ensureDependencies: (
-    demand: CheckAffectedDemand
+    demand: CheckAffectedDemand,
+    preparation: PreparedLocalAffectedCheck
   ) => Promise<MaterializedOperationDependencyBootstrapResult>;
   readonly handoff: (
-    dependencies: MaterializedOperationDependencyBootstrapResult
+    dependencies: MaterializedOperationDependencyBootstrapResult,
+    preparation: PreparedLocalAffectedCheck
   ) => Promise<number | null>;
   readonly runExecution: (
-    dependencies: MaterializedOperationDependencyBootstrapResult,
-    demand: CheckAffectedDemand
+    dependencies: MaterializedOperationDependencyBootstrapResult | undefined,
+    demand: CheckAffectedDemand | undefined,
+    preparation: PreparedLocalAffectedCheck
   ) => Promise<number>;
 }
 
@@ -103,9 +129,25 @@ export async function runCheckAffectedCommand(
     });
     return exitCode;
   }
-  const { ensureDependencies, handoff, runExecution } = operations;
-  if ([ensureDependencies, handoff, runExecution].some(action => typeof action !== 'function')) {
-    throw new TypeError('Affected execution requires its dependency, handoff and execution callbacks');
+  const { prepareExecution, runExecution } = operations;
+  if (typeof prepareExecution !== 'function' || typeof runExecution !== 'function') {
+    throw new TypeError('Affected execution requires preparation and execution callbacks');
+  }
+  reportDevExecutionProgress({ command: 'check', phase: 'git-selection', state: 'start' });
+  const preparation = await Reflect.apply(prepareExecution, operations, []);
+  reportDevExecutionProgress({ command: 'check', phase: 'git-selection', state: 'complete' });
+  if (preparation === null) return 1;
+  const needsDependencies = preparation.needsDependencies;
+  if (needsDependencies !== true && needsDependencies !== false) {
+    throw new TypeError('Affected preparation must state its runtime dependency need');
+  }
+  if (!needsDependencies) {
+    return requireCommandExitCode(await Reflect.apply(runExecution, operations, [undefined, undefined, preparation]),
+      'Affected Git-only execution');
+  }
+  const { ensureDependencies, handoff } = operations;
+  if (typeof ensureDependencies !== 'function' || typeof handoff !== 'function') {
+    throw new TypeError('Selected affected Gates require dependency and handoff callbacks');
   }
   const demand = compileSecOperationDemandGraph({
     operation: 'check-affected',
@@ -114,13 +156,13 @@ export async function runCheckAffectedCommand(
   reportDevExecutionProgress({
     command: 'check', phase: 'dependency-admission', state: 'start'
   });
-  const dependencies = await Reflect.apply(ensureDependencies, operations, [demand]);
+  const dependencies = await Reflect.apply(ensureDependencies, operations, [demand, preparation]);
   reportDevExecutionProgress({
     command: 'check', phase: 'dependency-admission', state: 'complete',
     detail: { source: dependencies.source }
   });
   reportDevExecutionProgress({ command: 'check', phase: 'fresh-process-handoff', state: 'start' });
-  const handoffExitCode = await Reflect.apply(handoff, operations, [dependencies]);
+  const handoffExitCode = await Reflect.apply(handoff, operations, [dependencies, preparation]);
   if (handoffExitCode !== null) {
     reportDevExecutionProgress({
       command: 'check', phase: 'fresh-process-handoff', state: 'complete',
@@ -134,7 +176,7 @@ export async function runCheckAffectedCommand(
   });
   reportDevExecutionProgress({ command: 'check', phase: 'gates', state: 'start' });
   const exitCode = requireCommandExitCode(
-    await Reflect.apply(runExecution, operations, [dependencies, demand]),
+    await Reflect.apply(runExecution, operations, [dependencies, demand, preparation]),
     'Affected execution'
   );
   reportDevExecutionProgress({
@@ -249,6 +291,31 @@ function parseImportOperationArgs(
   return Object.freeze({ scope, ...(candidateBase === undefined ? {} : { candidateBase }), intent, staged });
 }
 
+/** Presentation from an observed selection, not transform admission. Every
+ * candidate hint carries the resolved base even when the check used a default. */
+export function formatImportRecoveryCommand(selection: Readonly<{
+  scope: 'candidate' | 'all';
+  candidateBase: string | null;
+  intent: 'sort-and-combine' | 'remove-unused';
+  staged: boolean;
+}>): string {
+  if ((selection.scope !== 'candidate' && selection.scope !== 'all')
+      || (selection.intent !== 'sort-and-combine' && selection.intent !== 'remove-unused')
+      || typeof selection.staged !== 'boolean'
+      || (selection.scope === 'candidate'
+        ? typeof selection.candidateBase !== 'string' || !/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/u.test(selection.candidateBase)
+        : selection.candidateBase !== null)
+      || (selection.staged && (selection.scope !== 'candidate' || selection.intent !== 'sort-and-combine'))) {
+    throw new Error('Import recovery requires one exact compatible observed selection');
+  }
+  return [
+    'bun run imports:apply',
+    selection.staged ? '--staged' : undefined,
+    selection.scope === 'all' ? '--all' : `--candidate-base ${selection.candidateBase}`,
+    selection.intent === 'remove-unused' ? '--remove-unused' : undefined
+  ].filter(Boolean).join(' ');
+}
+
 async function main(): Promise<void> {
   return withGitHubCredentialBootstrap(process.argv.slice(2), runWithCredentialBootstrap);
 }
@@ -320,6 +387,19 @@ async function runWithCredentialBootstrap(argv: string[]): Promise<void> {
   if (target === 'check' && args[0] === '--affected') {
     const affectedArgs = args.slice(1);
     if (affectedArgs.length > 0 && (affectedArgs.length !== 1 || affectedArgs[0] !== '--plan')) usage();
+    const expectedSelection = process.env[AFFECTED_HANDOFF_SELECTION_ENV];
+    const deadlineText = process.env[AFFECTED_HANDOFF_DEADLINE_ENV];
+    const inheritedDeadline = deadlineText === undefined ? undefined : Number(deadlineText);
+    if ((expectedSelection === undefined) !== (deadlineText === undefined)
+        || (expectedSelection !== undefined && (!/^sha256:[0-9a-f]{64}$/u.test(expectedSelection)
+          || process.env[DEV_RUNNER_FRESH_PROCESS_TRANSITION_ENV] === undefined
+          || !Number.isSafeInteger(inheritedDeadline) || inheritedDeadline! <= Date.now()))) {
+      throw new Error('Affected fresh-process expectation is incomplete, invalid or expired');
+    }
+    // This expectation belongs to this successor invocation. Keep its captured
+    // values here, but do not constrain independent commands spawned by Gates.
+    delete process.env[AFFECTED_HANDOFF_SELECTION_ENV];
+    delete process.env[AFFECTED_HANDOFF_DEADLINE_ENV];
     process.exitCode = await runCheckAffectedCommand(affectedArgs, {
       runPlan: async () => {
         const { runLocalAffectedCheck } = await import('./check-runner.ts');
@@ -333,18 +413,26 @@ async function runWithCredentialBootstrap(argv: string[]): Promise<void> {
           operation
         );
       },
-      ensureDependencies: ensureOperationDependencies,
-      handoff: handoffDevRunnerToFreshProcess,
-      runExecution: async (dependencies, demand) => {
-        const { runLocalAffectedCheck } = await import('./check-runner.ts');
+      prepareExecution: async () => {
+        const { prepareLocalAffectedCheck } = await import('./check-runner.ts');
         const { compileAffectedTestSelectionSemanticOperation } = await import('./affected-plan-contract.ts');
         const operation = compileAffectedTestSelectionSemanticOperation({
-          purpose: 'check-affected'
+          purpose: 'check-affected', deadlineAtUnixMs: inheritedDeadline
         });
-        return runLocalAffectedCheck([], {
-          operation,
-          prepareCompilerDependencies: async () => reuseOperationDependencies(dependencies, demand)
-        });
+        return prepareLocalAffectedCheck({ operation,
+          expectedSelectionDigest: expectedSelection as `sha256:${string}` | undefined });
+      },
+      ensureDependencies: (demand, preparation) => ensureOperationDependencies(demand, {
+        deadlineAtUnixMs: preparation.operation.plan.attempt.deadlineAtUnixMs
+      }),
+      handoff: (dependencies, preparation) => handoffDevRunnerWithAffectedExpectation(dependencies, undefined, undefined, {
+        selectionDigest: preparation.selectionDigest,
+        deadlineAtUnixMs: preparation.operation.plan.attempt.deadlineAtUnixMs
+      }),
+      runExecution: async (dependencies, demand, preparation) => {
+        const { runPreparedLocalAffectedCheck } = await import('./check-runner.ts');
+        return runPreparedLocalAffectedCheck(preparation, dependencies === undefined ? undefined
+          : reuseOperationDependencies(dependencies, demand!));
       }
     });
     return;
@@ -462,7 +550,7 @@ async function runWithCredentialBootstrap(argv: string[]): Promise<void> {
     }
     const checkStagedImports = async (candidateBase?: string) => {
       const [{ withAuthorityGitReadSession }, { GIT_READ_EXACT_TREE_OPERATION_BUDGET }, {
-        checkStagedCandidateImportNormalization
+        checkStagedCandidateImportNormalizationWithSelection
       }] = await Promise.all([
         import('../../../providers/git-read/authority.ts'),
         import('../../../providers/git-read/runtime/session.ts'),
@@ -473,14 +561,14 @@ async function runWithCredentialBootstrap(argv: string[]): Promise<void> {
         // Staged normalization reads and rechecks the complete Source Program
         // snapshot, so it must use that owner's exact-tree envelope.
         budget: GIT_READ_EXACT_TREE_OPERATION_BUDGET
-      }, (session) => checkStagedCandidateImportNormalization({
+      }, (session) => checkStagedCandidateImportNormalizationWithSelection({
         session,
         progressCommand: target === 'imports:freeze' ? 'imports:freeze' : 'imports:check',
         ...(candidateBase === undefined ? {} : { candidateBase })
       }));
     };
     if (target === 'imports:freeze') {
-      const outcome = await checkStagedImports(process.env.SEC_CHANGED_BASE);
+      const { outcome, candidateBase } = await checkStagedImports(process.env.SEC_CHANGED_BASE);
       if (outcome.status === 'canonical') {
         if (shouldReportDevRunnerSuccess()) {
           console.log('Candidate imports identity sealed (canonical).');
@@ -490,14 +578,15 @@ async function runWithCredentialBootstrap(argv: string[]): Promise<void> {
         console.error(
           `Candidate imports are non-canonical (needs-import-transform) in ${outcome.files.length} file(s):\n`
           + `${outcome.files.map((file) => `- ${file}`).join('\n')}\n`
-          + 'Run bun run imports:apply, stage the exact files, rebuild the exact candidate, then rerun bun run imports:freeze.'
+          + `Run ${formatImportRecoveryCommand({ scope: 'candidate', candidateBase, intent: 'sort-and-combine', staged: true })}, `
+          + `rebuild the exact candidate, then rerun the original imports:freeze invocation with the same observed candidate base ${candidateBase}.`
         );
         process.exitCode = 1;
       }
       return;
     }
     const {
-      runImportCheck,
+      runImportCheckWithPlan,
       runImportApply,
       runSynchronizedStagedImportOrganizer
     } = await import('./import-organizer.ts');
@@ -508,14 +597,14 @@ async function runWithCredentialBootstrap(argv: string[]): Promise<void> {
           ? {}
           : { candidateBase: operation.candidateBase };
         if (target === 'imports:check') {
-          const outcome = await checkStagedImports(operation.candidateBase);
+          const { outcome, candidateBase } = await checkStagedImports(operation.candidateBase);
           if (outcome.status === 'canonical') {
             process.exitCode = 0;
           } else {
             console.error(
               `Staged imports need apply (needs-import-transform) in ${outcome.files.length} file(s):\n`
               + `${outcome.files.map((file) => `- ${file}`).join('\n')}\n`
-              + 'Run bun run imports:apply --staged before committing.'
+              + `Run ${formatImportRecoveryCommand({ scope: 'candidate', candidateBase, intent: 'sort-and-combine', staged: true })} before committing.`
             );
             process.exitCode = 1;
           }
@@ -525,17 +614,12 @@ async function runWithCredentialBootstrap(argv: string[]): Promise<void> {
         return;
       }
       if (target === 'imports:check') {
-        const outcome = await runImportCheck(operation);
+        const { outcome, plan } = await runImportCheckWithPlan(operation);
         if (outcome.status === 'canonical') {
           console.log('Imports are canonical (zero writes).');
           process.exitCode = 0;
         } else {
-          const recoveryCommand = [
-            'bun run imports:apply',
-            operation.scope === 'all' ? '--all' : undefined,
-            operation.candidateBase === undefined ? undefined : `--candidate-base ${operation.candidateBase}`,
-            operation.intent === 'remove-unused' ? '--remove-unused' : undefined
-          ].filter(Boolean).join(' ');
+          const recoveryCommand = formatImportRecoveryCommand({ ...plan, staged: false });
           console.error(
             `Imports need apply (needs-import-transform) in ${outcome.files.length} file(s):\n`
             + `${outcome.files.map((file) => `- ${file}`).join('\n')}\nRun ${recoveryCommand}.`
