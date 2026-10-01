@@ -12,9 +12,9 @@ last-reviewed: 2026-10-01
 ```json
 {
   "active": {
-    "manifestDigest": "sha256:2601adc37bb9777b0f1ea8fe58579b186105ac414e59be342347beb05b59f3e0",
-    "manifestPath": "config/repository/work-packages/hook-recovery-owner-boundaries-20261001.md",
-    "packageId": "hook-recovery-owner-boundaries-20261001",
+    "manifestDigest": "sha256:08db3a28934f316c15e8e454df1b5a6ca59495e01661427f9764e000d02bfa0b",
+    "manifestPath": "config/repository/work-packages/document-control-roles-20261001.md",
+    "packageId": "document-control-roles-20261001",
     "tracking": "none"
   },
   "authority": "none",
@@ -25,18 +25,18 @@ last-reviewed: 2026-10-01
     "candidate-control-transaction-v1",
     "typescript-7-checker-acceleration-v1"
   ],
-  "exactMain": "95725b00abc26fbee4457254e811634fa6f8e4cb",
-  "exactMainTree": "f9c2b151441cb775ffeedab24ae8c69740cb4164",
-  "projectionDigest": "sha256:75c166f82973ae3617ffe10e43396f5bd9d265fbbb9b9a1253e363f8993fe1c6",
+  "exactMain": "f400359d0b59acfe434ba59373ca7732b2cc2938",
+  "exactMainTree": "6a2203d61fefd2453f227fc02562a8cfff58e95b",
+  "projectionDigest": "sha256:3cd5e1f6eebe74b6dbc62adca9aef7baa14e91d7dc41c83b7b13bb80ee43fd1f",
   "schema": "sec-work-rolling-proposal-projection-v1"
 }
 ```
 
 ## 当前唯一 Work Package
 
-### hook-recovery-owner-boundaries-20261001
+### document-control-roles-20261001
 
-Proposal-only target manifest `config/repository/work-packages/hook-recovery-owner-boundaries-20261001.md` at `sha256:2601adc37bb9777b0f1ea8fe58579b186105ac414e59be342347beb05b59f3e0`, based on exact main `95725b00abc26fbee4457254e811634fa6f8e4cb` and tree `f9c2b151441cb775ffeedab24ae8c69740cb4164`.
+Proposal-only target manifest `config/repository/work-packages/document-control-roles-20261001.md` at `sha256:08db3a28934f316c15e8e454df1b5a6ca59495e01661427f9764e000d02bfa0b`, based on exact main `f400359d0b59acfe434ba59373ca7732b2cc2938` and tree `6a2203d61fefd2453f227fc02562a8cfff58e95b`.
 
 ## 候选 Work Package
 

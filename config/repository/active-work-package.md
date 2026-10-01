@@ -10,8 +10,8 @@ last-reviewed: 2026-10-01
 selectionMode: exact-manifest-not-on-default-branch-v1
 defaultBranchRef: refs/remotes/origin/main
 defaultRefFreshness: live-platform-match-required
-manifest: config/repository/work-packages/hook-recovery-owner-boundaries-20261001.md
-manifestDigest: sha256:2601adc37bb9777b0f1ea8fe58579b186105ac414e59be342347beb05b59f3e0
+manifest: config/repository/work-packages/document-control-roles-20261001.md
+manifestDigest: sha256:08db3a28934f316c15e8e454df1b5a6ca59495e01661427f9764e000d02bfa0b
 digestBytes: git-blob
 unavailableDefaultRef: unresolved
 matchingDefaultBlob: none
