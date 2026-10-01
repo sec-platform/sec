@@ -2,7 +2,7 @@
 
 本目录服务当前设计库，不是目标工程必须复制的一套平台。准确责任、格式、算法、失败边界和迁移由[身份域合同](../docs/维护/文档身份与重组协议.md#documentation-identity-domains)唯一拥有；[写入准入](../docs/维护/规格写作与完整性.md#documentation-write-admission)决定哪些变化需要进入规范。
 
-`baseline.json`是纯输入边界声明，使用`sec.documentation-baseline/2`，自身进入源身份，不再保存生成摘要。`documents.json`保存已接受的稳定文档ID与当前位置；`known-regressions.json`保存人工选择的有限检查条件；它们不是可随意丢弃的缓存。`.documentation/README.md`是普通说明输入。未知元数据先分类，不自动取得权威。
+`baseline.json`是纯输入边界声明，使用`sec.documentation-baseline/2`，自身进入源身份，不再保存生成摘要。其中`delivery_number`和`archive_name`只标识当前文档交付载体/归档约定，**不是设计版本、latest选择器或规范权威**；当前目标设计始终由live `main`中`documents.json`定位的现行正文共同承担。`documents.json`保存已接受的稳定文档ID与当前位置；`known-regressions.json`保存人工选择的有限检查条件；它们不是可随意丢弃的缓存。`.documentation/README.md`是普通说明输入。未知元数据先分类，不自动取得权威。
 
 `source-manifest.json`是`sec.documentation-source-manifest/2`的源快照；`requirements.json`由已取得REQ正文机械派生；`figures.json`是可选图缓存。三个文件均不进入源摘要。声明根内的其他源完整枚举，不靠隐藏、后缀或缓存目录名省略。边界改变也必须改变源身份；摘要只核字节，不是签名、批准、全部语义正确或模型已阅读证明。
 
