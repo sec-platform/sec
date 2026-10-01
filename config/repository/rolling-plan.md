@@ -12,9 +12,9 @@ last-reviewed: 2026-10-01
 ```json
 {
   "active": {
-    "manifestDigest": "sha256:277af9bf94f6855a8ad3d70987e174529cd0b8967d08bb9240c30a61a888875c",
-    "manifestPath": "config/repository/work-packages/trusted-checker-provider-repair-20261001.md",
-    "packageId": "trusted-checker-provider-repair-20261001",
+    "manifestDigest": "sha256:69eb9d6f616732706442bb6ae655a05a7d1ebe578808d108f827421bd2d2e14e",
+    "manifestPath": "config/repository/work-packages/git-operation-isolation-repair-20261001.md",
+    "packageId": "git-operation-isolation-repair-20261001",
     "tracking": "none"
   },
   "authority": "none",
@@ -25,18 +25,18 @@ last-reviewed: 2026-10-01
     "candidate-control-transaction-v1",
     "typescript-7-checker-acceleration-v1"
   ],
-  "exactMain": "313684988605d299cade1ff9d4e71b61bb6682bd",
-  "exactMainTree": "42a77dde3f05084f5aa8368c8a488d6a6bfa64f1",
-  "projectionDigest": "sha256:e2521423872a29d23db2a92dbaa3998eb8355445e0525a48bddc06d64082363d",
+  "exactMain": "7c8a841b9d1fb12395922bde47b32fc1ec6500c2",
+  "exactMainTree": "9393f3002039694472aa439a86531b167c4e50f9",
+  "projectionDigest": "sha256:e956a379aba4e1c4736504bfcb3509ba46676c6bd5c2161c90c4f7b4c8854151",
   "schema": "sec-work-rolling-proposal-projection-v1"
 }
 ```
 
 ## 当前唯一 Work Package
 
-### trusted-checker-provider-repair-20261001
+### git-operation-isolation-repair-20261001
 
-Proposal-only target manifest `config/repository/work-packages/trusted-checker-provider-repair-20261001.md` at `sha256:277af9bf94f6855a8ad3d70987e174529cd0b8967d08bb9240c30a61a888875c`, based on exact main `313684988605d299cade1ff9d4e71b61bb6682bd` and tree `42a77dde3f05084f5aa8368c8a488d6a6bfa64f1`.
+Proposal-only target manifest `config/repository/work-packages/git-operation-isolation-repair-20261001.md` at `sha256:69eb9d6f616732706442bb6ae655a05a7d1ebe578808d108f827421bd2d2e14e`, based on exact main `7c8a841b9d1fb12395922bde47b32fc1ec6500c2` and tree `9393f3002039694472aa439a86531b167c4e50f9`.
 
 ## 候选 Work Package
 
