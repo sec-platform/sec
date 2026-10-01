@@ -10,8 +10,8 @@ last-reviewed: 2026-10-01
 selectionMode: exact-manifest-not-on-default-branch-v1
 defaultBranchRef: refs/remotes/origin/main
 defaultRefFreshness: live-platform-match-required
-manifest: config/repository/work-packages/q4-candidate-analysis-scope-20261001.md
-manifestDigest: sha256:8e95afdf1e4715ea0ad3e1a0b02adce100426a6cfb6d1a0e57caee19d94d92a0
+manifest: config/repository/work-packages/task-progress-constraints-20261001.md
+manifestDigest: sha256:9da9708ecb7dff6ae25996d6863cca315e8df4ecc2af9d773a8e46c1c2f0d39e
 digestBytes: git-blob
 unavailableDefaultRef: unresolved
 matchingDefaultBlob: none

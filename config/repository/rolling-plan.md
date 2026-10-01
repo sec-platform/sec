@@ -12,9 +12,9 @@ last-reviewed: 2026-10-01
 ```json
 {
   "active": {
-    "manifestDigest": "sha256:8e95afdf1e4715ea0ad3e1a0b02adce100426a6cfb6d1a0e57caee19d94d92a0",
-    "manifestPath": "config/repository/work-packages/q4-candidate-analysis-scope-20261001.md",
-    "packageId": "q4-candidate-analysis-scope-20261001",
+    "manifestDigest": "sha256:9da9708ecb7dff6ae25996d6863cca315e8df4ecc2af9d773a8e46c1c2f0d39e",
+    "manifestPath": "config/repository/work-packages/task-progress-constraints-20261001.md",
+    "packageId": "task-progress-constraints-20261001",
     "tracking": "none"
   },
   "authority": "none",
@@ -25,18 +25,18 @@ last-reviewed: 2026-10-01
     "candidate-control-transaction-v1",
     "typescript-7-checker-acceleration-v1"
   ],
-  "exactMain": "48c24108ac7c1669685790bdb1e5e13bab24783c",
-  "exactMainTree": "73d6061aa2ecbddf8fabf29e0c52dd1adfa68c74",
-  "projectionDigest": "sha256:2b7ee1848e18109fee07a9abf71e428dd3b508596036ec03ada583a81fb7d59e",
+  "exactMain": "4b469dbaa7965db76fc3f3dc4978c43457e335d4",
+  "exactMainTree": "f8615e316f30a80d0d7270eebc2c7865862a0298",
+  "projectionDigest": "sha256:d9d48e02bae5663fe03521f2751ca27baf645c99284c9532606c0f9878a9e49b",
   "schema": "sec-work-rolling-proposal-projection-v1"
 }
 ```
 
 ## 当前唯一 Work Package
 
-### q4-candidate-analysis-scope-20261001
+### task-progress-constraints-20261001
 
-Proposal-only target manifest `config/repository/work-packages/q4-candidate-analysis-scope-20261001.md` at `sha256:8e95afdf1e4715ea0ad3e1a0b02adce100426a6cfb6d1a0e57caee19d94d92a0`, based on exact main `48c24108ac7c1669685790bdb1e5e13bab24783c` and tree `73d6061aa2ecbddf8fabf29e0c52dd1adfa68c74`.
+Proposal-only target manifest `config/repository/work-packages/task-progress-constraints-20261001.md` at `sha256:9da9708ecb7dff6ae25996d6863cca315e8df4ecc2af9d773a8e46c1c2f0d39e`, based on exact main `4b469dbaa7965db76fc3f3dc4978c43457e335d4` and tree `f8615e316f30a80d0d7270eebc2c7865862a0298`.
 
 ## 候选 Work Package
 
