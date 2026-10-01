@@ -5,6 +5,7 @@ import type {
   SecBoundSemanticOperation,
   SecOperationDigest
 } from '../../../execution/operation/semantic.ts';
+import { settleResources } from '../../../execution/resource-settlement.ts';
 import {
   inspectNoFollowDirectoryChain,
   retainNoFollowDirectoryForChildProcess,
@@ -226,6 +227,29 @@ export function openGitPhysicalProvider(input: Readonly<{
   }
 }
 
+/** @internal Borrowing preserves the exact operation, physical ledger and environment. */
+export function assertGitPhysicalProviderBindingInternal(
+  capability: GitPhysicalProviderCapability,
+  input: Readonly<{
+    operation: SecBoundSemanticOperation;
+    processSession: ProcessResourceSession;
+    cwd: string;
+    environment: Readonly<Record<string, string>>;
+  }>
+): void {
+  const state = GIT_PHYSICAL_PROVIDER_STATES.get(capability);
+  if (state === undefined || state.closed || state.active
+      || state.processSession !== input.processSession
+      || capability.operationIdentityDigest !== input.operation.plan.identity.identityDigest
+      || capability.boundAttemptDigest !== input.operation.boundAttemptDigest
+      || capability.requirementId !== input.processSession.requirementId
+      || capability.cwd !== input.cwd
+      || capability.identity.environmentDigest !== sha256(input.environment)) {
+    throw new Error('Git physical provider rejected a borrowed binding transplant.');
+  }
+  assertGitPhysicalProviderCurrentInternal(capability);
+}
+
 /** @internal Exact pre-effect admission for a semantic adapter command sequence. */
 export function assertGitPhysicalResourceAdmissionInternal(
   capability: GitPhysicalProviderCapability,
@@ -306,11 +330,17 @@ export function closeGitPhysicalProvider(
     throw new Error('Git physical close requires one owner-issued capability.');
   }
   if (state.receipt !== null) return state.receipt;
+  if (state.closed) throw new Error('Git physical provider closed without a terminal receipt.');
   if (state.active) throw new Error('Git physical provider cannot close during execution.');
-  state.boundary.executable.assertCurrent();
-  state.boundary.workingDirectory.assertCurrent();
-  state.boundary.workingDirectory.dispose();
-  state.boundary.executable.dispose();
+  // Closing invalidates borrowing even when a fence or release fails. Every
+  // owned resource must still be released; drift cannot strand the executable.
+  state.closed = true;
+  settleResources({ cleanup: [
+    { label: 'git-executable-current', settle: () => state.boundary.executable.assertCurrent() },
+    { label: 'git-working-directory-current', settle: () => state.boundary.workingDirectory.assertCurrent() },
+    { label: 'git-working-directory-release', settle: () => state.boundary.workingDirectory.dispose() },
+    { label: 'git-executable-release', settle: () => state.boundary.executable.dispose() }
+  ] });
   const withoutDigest = Object.freeze({
     providerIdentityDigest: capability.identity.identityDigest,
     operationIdentityDigest: capability.operationIdentityDigest,

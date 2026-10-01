@@ -225,6 +225,11 @@ const FAST_TEST_PROCESS_ISOLATION_DEFINITIONS = [
     resourceClass: 'independent-process'
   },
   {
+    file: 'tests/unit/verification-session-closeout-fixture.test.ts',
+    reason: 'process-global-environment-and-synthetic-closeout-processes',
+    resourceClass: 'independent-process'
+  },
+  {
     file: 'tests/unit/ci-verification-execution.test.ts',
     reason: 'copied-tcb-cli-and-child-process-recovery',
     resourceClass: 'independent-process'
@@ -342,6 +347,16 @@ const FAST_TEST_PROCESS_ISOLATION_DEFINITIONS = [
   {
     file: 'tests/unit/github-api-credential.test.ts',
     reason: 'process-global-environment-and-child-process',
+    resourceClass: 'independent-process'
+  },
+  {
+    file: 'tests/unit/github-api-ruleset-auditor.test.ts',
+    reason: 'process-global-environment-and-fetch',
+    resourceClass: 'independent-process'
+  },
+  {
+    file: 'tests/unit/github-api-verification.test.ts',
+    reason: 'process-global-environment-fetch-and-synthetic-credential-process',
     resourceClass: 'independent-process'
   },
   {

@@ -44,6 +44,7 @@ import { RetainedCommandTransportError, resolveExecutableLocator, type ByteComma
 import type { RetainedCommandAuxiliaryInput } from '../../../runtime-state/physical/runtime/retained-command-boundary.ts';
 import { canonicalGitChildEnvironment, gitEnvironmentValue } from '../../git/environment.ts';
 import {
+  assertGitPhysicalProviderBindingInternal,
   assertGitPhysicalProviderCurrentInternal,
   closeGitPhysicalProvider,
   openGitPhysicalProvider,
@@ -379,6 +380,18 @@ function authorizedDevelopmentCommitOwner(
  */
 const PRODUCTION_GIT_READ_SESSIONS = new WeakSet<object>();
 const TEST_GIT_READ_SESSIONS = new WeakSet<object>();
+const GIT_READ_PHYSICAL_PROVIDER_TRANSFERS = new WeakMap<object, () => GitPhysicalProviderCapability>();
+
+/** @internal Transfer an admitted session's existing physical resource to its operation owner. */
+export function retainGitReadPhysicalProviderInternal(session: GitReadSession): GitPhysicalProviderCapability {
+  const transfer = GIT_READ_PHYSICAL_PROVIDER_TRANSFERS.get(session);
+  if (transfer === undefined || !isProductionGitReadSession(session)) {
+    throw new Error('Git physical ownership transfer requires one live production owner.');
+  }
+  const provider = transfer();
+  GIT_READ_PHYSICAL_PROVIDER_TRANSFERS.delete(session);
+  return provider;
+}
 
 export function isProductionGitReadSession(session: GitReadSession): boolean {
   return typeof session === 'object'
@@ -509,6 +522,8 @@ type GitReadHostSessionInput =
       operation: SecBoundSemanticOperation;
       /** Optional caller-owned parent process ledger; Git borrows but never closes it. */
       processSession?: ProcessResourceSession;
+      /** Internal operation-owned resource; borrowing never conveys close authority. */
+      physicalProvider?: GitPhysicalProviderCapability;
     }>)
   | (GitReadHostSessionCommonInput & Readonly<{
       origin: 'test';
@@ -684,13 +699,29 @@ function createHostGitReadSession(input: GitReadHostSessionInput): GitReadSessio
   // Do not even perform executable/PATH discovery when the cwd observation
   // cannot be proved. This keeps an unsafe or unavailable cwd from becoming a
   // transport authority through a later child-process check.
+  const borrowedPhysicalProvider = input.origin === 'production' ? input.physicalProvider : undefined;
+  let ownsGitPhysicalProvider = borrowedPhysicalProvider === undefined;
+  let gitPhysicalProvider: GitPhysicalProviderCapability | null = null;
+  let retainedAdmissionFailure: string | null = null;
   let gitExecutable: string | null = null;
   let executableDiscoveryFailure: string | null = null;
   if (!operationAdmissionUnavailable && !admissionCancelled && !admissionDeadlineExpired && workingDirectoryIdentity !== null) {
     try {
-      gitExecutable = resolveExecutableLocator('git', {
-        pathValue: gitEnvironmentValue(env, 'PATH') ?? '', cwd: workingDirectoryPath
-      });
+      if (borrowedPhysicalProvider !== undefined) {
+        if (processOperation === null || processResourceSession === null) {
+          throw new Error('Borrowed Git provider requires its live process operation.');
+        }
+        assertGitPhysicalProviderBindingInternal(borrowedPhysicalProvider, {
+          operation: processOperation, processSession: processResourceSession,
+          cwd: workingDirectoryPath, environment: env
+        });
+        gitPhysicalProvider = borrowedPhysicalProvider;
+        gitExecutable = borrowedPhysicalProvider.identity.executablePath;
+      } else {
+        gitExecutable = resolveExecutableLocator('git', {
+          pathValue: gitEnvironmentValue(env, 'PATH') ?? '', cwd: workingDirectoryPath
+        });
+      }
     } catch (error) { executableDiscoveryFailure = failureMessage(error); }
   }
 
@@ -703,10 +734,27 @@ function createHostGitReadSession(input: GitReadHostSessionInput): GitReadSessio
   const initialExecutableObservation = operationAdmissionUnavailable || admissionCancelled
       || admissionDeadlineExpired || gitExecutable === null
     ? null
-    : inspectGitExecutable(gitExecutable, {
-      deadlineAtMs: deadlineMonotonicAt,
-      maxBytes: budget.maxExecutableBytes
-    });
+    : borrowedPhysicalProvider === undefined
+      ? inspectGitExecutable(gitExecutable, {
+          deadlineAtMs: deadlineMonotonicAt,
+          maxBytes: budget.maxExecutableBytes
+        })
+      : (() => {
+          try {
+            const retained = borrowedPhysicalProvider.identity;
+            const parent = inspectNoFollowDirectoryChain(path.dirname(gitExecutable), 'Borrowed Git executable parent');
+            assertGitPhysicalProviderCurrentInternal(borrowedPhysicalProvider);
+            return Object.freeze({ identity: Object.freeze({
+              path: gitExecutable, realPath: path.join(parent.target.finalPath, path.basename(gitExecutable)),
+              device: retained.executablePhysical.device, inode: retained.executablePhysical.inode,
+              size: retained.executableSize, mtimeMs: 0, ctimeMs: 0, birthtimeMs: 0,
+              digest: retained.executableDigest,
+              ancestorChain: Object.freeze(parent.ancestors.map(executableAncestor))
+            }), bytes: 0 });
+          } catch {
+            return { kind: 'unavailable', reason: 'identity' } as const;
+          }
+        })();
   if (!admissionCancelled && !admissionDeadlineExpired && (
     Date.now() >= deadlineAt || performance.now() >= deadlineMonotonicAt
   )) {
@@ -717,9 +765,7 @@ function createHostGitReadSession(input: GitReadHostSessionInput): GitReadSessio
       && 'identity' in initialExecutableObservation
     ? initialExecutableObservation.identity
     : null;
-  let gitPhysicalProvider: GitPhysicalProviderCapability | null = null;
-  let retainedAdmissionFailure: string | null = null;
-  if (!operationAdmissionUnavailable
+  if (borrowedPhysicalProvider === undefined && !operationAdmissionUnavailable
       && !admissionCancelled
       && !admissionDeadlineExpired
       && workingDirectoryIdentity !== null
@@ -835,7 +881,9 @@ function createHostGitReadSession(input: GitReadHostSessionInput): GitReadSessio
   } else if (gitExecutableIdentity === null) {
     failure = Object.freeze({
       kind: 'unresolved-git-read-session',
-      reason: 'command-error',
+      reason: initialExecutableObservation !== null && 'reason' in initialExecutableObservation
+          && initialExecutableObservation.reason === 'budget'
+        ? 'executable-budget-exhausted' : 'command-error',
       detail: initialExecutableObservation !== null
           && 'reason' in initialExecutableObservation
           && initialExecutableObservation.reason === 'budget'
@@ -859,7 +907,8 @@ function createHostGitReadSession(input: GitReadHostSessionInput): GitReadSessio
     const physical = gitPhysicalProvider, processes = processResourceSession;
     settlePhysicalResources({ primary, cleanup: [
       ...(physical === null ? [] : [{ label: 'git-physical-provider', settle() {
-        closeGitPhysicalProvider(physical);
+        if (ownsGitPhysicalProvider) closeGitPhysicalProvider(physical);
+        else if (checkBorrowed) assertGitPhysicalProviderCurrentInternal(physical);
         gitPhysicalProvider = null;
       } }]),
       ...(processes === null ? [] : [{ label: ownsProcessResourceSession ? 'git-owned-process-session' : 'git-borrowed-process-observation', settle() {
@@ -1302,6 +1351,15 @@ function createHostGitReadSession(input: GitReadHostSessionInput): GitReadSessio
       && gitPhysicalProvider !== null
       && issuedSession.providerIdentity !== null) {
     PRODUCTION_GIT_READ_SESSIONS.add(issuedSession);
+    if (ownsGitPhysicalProvider) GIT_READ_PHYSICAL_PROVIDER_TRANSFERS.set(issuedSession, () => {
+      if (ownsProcessResourceSession || closed || closing || activeProcesses !== 0
+          || failure !== null || gitPhysicalProvider === null) {
+        throw new Error('Git physical ownership transfer requires an idle live session.');
+      }
+      assertGitPhysicalProviderCurrentInternal(gitPhysicalProvider);
+      ownsGitPhysicalProvider = false;
+      return gitPhysicalProvider;
+    });
   } else if (input.origin === 'test') {
     TEST_GIT_READ_SESSIONS.add(issuedSession);
   }
@@ -1444,6 +1502,8 @@ export function createAuthorityGitReadSession(input: Readonly<{
    * operation/attempt/requirement binding and borrows it without closing it.
    */
   processSession?: ProcessResourceSession;
+  /** Internal operation-owned physical provider; exact binding is checked before borrowing. */
+  physicalProvider?: GitPhysicalProviderCapability;
   /** Production callers must name their operation envelope; no implicit local budget is authority. */
   budget: Partial<GitReadSessionBudget>;
   source?: NodeJS.ProcessEnv;
