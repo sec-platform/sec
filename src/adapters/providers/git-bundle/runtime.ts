@@ -1,6 +1,7 @@
 import path from 'node:path';
 
 import { sha256 } from '../../../contracts/canonical.ts';
+import { linkNativeAbortSignals, throwIfNativeAborted } from '../../../contracts/native-abort.ts';
 import { issueSecOperationRequirementBindingContext } from '../../../execution/operation/requirement-binding-context.ts';
 import {
   bindSecSemanticOperation,
@@ -252,6 +253,7 @@ async function materializeCandidateBundle(input: Readonly<{
   operation: SecBoundSemanticOperation;
   processSession: ReturnType<typeof openProcessResourceSession>;
   temporaryRootIdentity: PhysicalDirectoryChain;
+  signal?: AbortSignal;
 }>): Promise<Readonly<{
   retainedBundle: RetainedNoFollowOrdinaryFile;
   objectFormat: 'sha1' | 'sha256';
@@ -267,6 +269,7 @@ async function materializeCandidateBundle(input: Readonly<{
       processSession: input.processSession,
       budget: GIT_READ_BUDGET,
       deadlineAtUnixMs: input.operation.plan.attempt.deadlineAtUnixMs,
+      signal: input.signal,
       source: process.env
     }, async (session: GitReadSession) => {
     const identityLines = parseGitLineReply(completed(await session.run([
@@ -506,7 +509,25 @@ export async function createGitCandidateBundle(input: Readonly<{
   readonly temporaryRoot: string;
   readonly baseSha: string;
   readonly headSha: string;
+  readonly deadlineAtUnixMs?: number;
+  readonly signal?: AbortSignal;
 }>): Promise<GitCandidateBundle> {
+  // Fix the child bound before preparation. The local cap may shorten the
+  // inherited deadline, but no provider/readback phase may renew that pool.
+  const startedAtUnixMs = Date.now();
+  const inheritedDeadline = input.deadlineAtUnixMs;
+  if (inheritedDeadline !== undefined && (!Number.isSafeInteger(inheritedDeadline)
+      || inheritedDeadline <= startedAtUnixMs)) {
+    throw new Error('Git candidate bundle inherited deadline is exhausted or invalid.');
+  }
+  const deadlineAtUnixMs = Math.min(inheritedDeadline ?? Number.MAX_SAFE_INTEGER,
+    startedAtUnixMs + CANDIDATE_BUNDLE_DURATION_MS);
+  const signal = linkNativeAbortSignals(input.signal);
+  const assertWithinBound = (): void => {
+    throwIfNativeAborted(signal);
+    if (Date.now() >= deadlineAtUnixMs) throw new Error('Git candidate bundle deadline is exhausted.');
+  };
+  assertWithinBound();
   const sourceRoot = path.resolve(input.sourceRoot);
   const temporaryRoot = path.resolve(input.temporaryRoot);
   if (!path.isAbsolute(input.sourceRoot) || sourceRoot !== input.sourceRoot
@@ -523,7 +544,6 @@ export async function createGitCandidateBundle(input: Readonly<{
     throw new Error('Git candidate bundle temporary root must be independent of its source.');
   }
   requireAbsentTargets(temporaryRootIdentity);
-  const deadlineAtUnixMs = Date.now() + CANDIDATE_BUNDLE_DURATION_MS;
   const operation = compileCandidateBundleOperation({
     sourceRoot,
     temporaryRoot,
@@ -537,7 +557,8 @@ export async function createGitCandidateBundle(input: Readonly<{
       operation,
       requirementId: CANDIDATE_BUNDLE_REQUIREMENT,
       resourceCeilings: operation.plan.execution.aggregateBudgets
-    })
+    }),
+    signal
   });
   let materialized: Awaited<ReturnType<typeof materializeCandidateBundle>> | null = null;
   let processReceipt: ProcessResourceSessionReceipt | null = null;
@@ -551,7 +572,8 @@ export async function createGitCandidateBundle(input: Readonly<{
       headSha: input.headSha,
       operation,
       processSession,
-      temporaryRootIdentity
+      temporaryRootIdentity,
+      signal
     });
   } catch (error) {
     primary = { label: 'git-candidate-bundle-operation', error };
@@ -591,6 +613,7 @@ export async function createGitCandidateBundle(input: Readonly<{
     throw new Error('Git candidate bundle operation completed without exact settlement.');
   }
   try {
+    assertWithinBound();
     materialized.retainedBundle.assertCurrent();
     const digest = materialized.retainedBundle.digest();
     const withoutIdentity = Object.freeze({
@@ -618,6 +641,7 @@ export async function createGitCandidateBundle(input: Readonly<{
         materialization: withoutIdentity
       }) as SecOperationDigest
     });
+    assertWithinBound();
     GIT_CANDIDATE_BUNDLE_STATES.set(bundle, {
       retainedBundle: materialized.retainedBundle,
       receipt: null,

@@ -8,6 +8,8 @@ import { hostname, tmpdir } from 'node:os';
 import path from 'node:path';
 
 import { CI_VERIFICATION_WORKFLOW_PATH } from '../../../../assurance/verification/contract/revision.ts';
+import { CodexDevelopmentBuildVerificationGateResult } from '../../../../assurance/verification/result/contract/result.ts';
+import { throwIfNativeAborted } from '../../../../contracts/native-abort.ts';
 import {
   bindSecSemanticOperation,
   compileSecCapabilityBinding,
@@ -55,6 +57,7 @@ import {
   SEC_LINUX_VERIFICATION_TRUSTED_BUN_EXECUTABLE_PATH,
   SEC_LINUX_VERIFICATION_TRUSTED_RUNTIME_DOCKERFILE_PATH
 } from '../../../providers/linux-verification/contract.ts';
+import { repositoryAuditInheritedDeadline, SOURCE_PROGRAM_TRANSITION_DEADLINE_ENV } from '../../../repository/repository-audit/cli-contract.ts';
 import { compileSourceProgramTransitionAdoption, parseSourceProgramTransitionAssessment, type SourceProgramTransitionAssessment } from '../../../repository/repository-audit/transition.ts';
 import { adoptSourceProgramTestAuthorDecision, assertSourceProgramTestAuthorApproval, type SourceProgramTestAuthorApproval } from '../../../repository/source-program-model/test-disposition-decisions.ts';
 import {
@@ -73,7 +76,7 @@ import { compilerRuntimeLayout } from '../../../toolchain/runtime/layout.ts';
 import { TYPECHECK_PROVIDER_CANARY_ENTRYPOINT_PATH } from '../../../toolchain/typescript/canary.ts';
 import { encodeVerificationActionData } from '../action/contract/action.ts';
 import { ciVerificationGateStep, ciVerificationNormalizedOperationArgv, createCiVerificationLocalExecutionEnvironment, parseCiSourceProgramTransitionBinding, SOURCE_PROGRAM_TRANSITION_ENTRYPOINT, SOURCE_PROGRAM_TRANSITION_GATE_ID, SOURCE_PROGRAM_TRANSITION_OUTPUT_FILE, SOURCE_PROGRAM_TRANSITION_STDOUT_BYTE_LIMIT, sourceProgramAnalysisBinding, sourceProgramTransitionGate, type CiSourceProgramTransitionBinding, type CiVerificationExecutionEnvironment } from '../action/contract/ci.ts';
-import { type CodexDevelopmentVerificationEvidenceV4 } from '../ci/contract/evidence.ts';
+import { parseTrustedRuntimeSourceProgramActionRecord, type CodexDevelopmentVerificationEvidenceV4, type CodexDevelopmentVerificationGateEvidenceV4, type TrustedRuntimeSourceProgramActionRecord } from '../ci/contract/evidence.ts';
 import {
   createBuildxRawJsonProgressAdmission,
   ensureLocalGitHubActionsRunnerToolchainMaterialization,
@@ -196,11 +199,10 @@ export interface TrustedRuntimeContainerImageObservation {
 }
 
 /** Issued only after a fresh no-candidate-execution container readback. JSON cannot restore it. */
-export interface TrustedRuntimeSourceProgramTransitionObservation {
+interface SourceProgramTransitionObservationFields {
   readonly repository: string;
   readonly pullRequestNumber: number;
   readonly assessmentDigest: string;
-  readonly predecessorActionOutputDigest: Digest;
   readonly baseSha: string;
   readonly headSha: string;
   readonly headTreeSha: string;
@@ -215,6 +217,10 @@ export interface TrustedRuntimeSourceProgramTransitionObservation {
   readonly settlementDigest: Digest;
   readonly producerExecutionEvidenceDigest: string;
 }
+export type TrustedRuntimeSourceProgramTransitionObservation = SourceProgramTransitionObservationFields & (
+  | Readonly<{ schema?: never; origin?: never; predecessorActionOutputDigest: Digest }>
+  | Readonly<{ schema: 'source-program-transition-observation-v2'; origin: 'first-qualified'; sourceActionOutputDigest: Digest }>
+);
 const issuedSourceProgramTransitionObservations = new WeakSet<object>();
 
 export function assertTrustedRuntimeSourceProgramTransitionObservation(
@@ -226,11 +232,9 @@ export function assertTrustedRuntimeSourceProgramTransitionObservation(
 }
 
 /** Host acceptance binds an actual isolated producer and optional live author adoption. */
-export interface SourceProgramTransitionQualification {
+interface SourceProgramTransitionQualificationFields {
   readonly status: 'accepted';
   readonly assessmentDigest: string;
-  readonly predecessorActionOutputDigest: Digest;
-  readonly predecessorDisposition: 'superseded-nonterminal';
   readonly attemptId: string;
   readonly actionKey: string;
   readonly sessionRevision: string;
@@ -241,6 +245,49 @@ export interface SourceProgramTransitionQualification {
   readonly qualificationDigest: Digest;
   readonly attemptEvidenceDigest: Digest;
 }
+export type SourceProgramTransitionQualification = SourceProgramTransitionQualificationFields & (
+  | Readonly<{ schema?: never; origin?: never; predecessorActionOutputDigest: Digest; predecessorDisposition: 'superseded-nonterminal' }>
+  | Readonly<{ schema: 'source-program-transition-qualification-v2'; origin: 'first-qualified';
+      sourceActionOutputDigest: Digest; sourceActionDigest: string }>
+);
+
+/** Only this producer's retained object identity is a live handoff. */
+export type TrustedRuntimeSourceProgramAction = TrustedRuntimeSourceProgramActionRecord;
+const issuedSourceProgramActions = new WeakMap<object, TrustedRuntimeSourceProgramTransitionObservation>();
+const sourceProgramObservationActions = new WeakMap<object, TrustedRuntimeSourceProgramAction>();
+
+export function assertTrustedRuntimeSourceProgramAction(
+  sourceAction: TrustedRuntimeSourceProgramAction,
+  expected: Readonly<{ envelope?: VerificationSessionHostedEnvelope }> = {}
+): void {
+  const observation = issuedSourceProgramActions.get(sourceAction);
+  if (observation === undefined || observation.origin !== 'first-qualified') {
+    fail('Source Program Action requires its exact live isolated producer handoff');
+  }
+  assertTrustedRuntimeSourceProgramTransitionObservation(observation);
+  parseTrustedRuntimeSourceProgramActionRecord(sourceAction);
+  const attempt = transitionAttemptEvidence.get(observation);
+  if (attempt === undefined || sourceAction.attemptEvidenceDigest !== attempt.evidenceDigest
+      || sourceAction.observationDigest !== observation.observationDigest
+      || sourceAction.outputByteDigest !== observation.sourceActionOutputDigest
+      || sourceAction.gate.action.actionKey !== observation.actionKey
+      || sourceAction.sessionRevision !== observation.sessionRevision
+      || sourceAction.gate.result.subjectRevision !== observation.headSha) {
+    fail('Source Program Action lost its exact live observation and physical attempt');
+  }
+  if (expected.envelope !== undefined) {
+    const { session, actionPlanClosure } = expected.envelope;
+    const selected = actionPlanClosure.actions.filter(({ action }) => action.operation.identity === SOURCE_PROGRAM_TRANSITION_GATE_ID);
+    if (selected.length !== 1 || sourceAction.sessionRevision !== session.sessionRevision
+        || observation.repository !== session.repository || observation.pullRequestNumber !== session.prNumber
+        || observation.baseSha !== session.baseSha || observation.headSha !== session.headSha
+        || observation.headTreeSha !== session.headTreeSha
+        || encodeVerificationActionData(selected[0]!.action) !== encodeVerificationActionData(sourceAction.gate.action)) {
+      fail('Source Program Action belongs to another exact Session');
+    }
+  }
+}
+
 const issuedSourceProgramTransitionQualifications = new WeakSet<object>();
 const sourceProgramQualificationRecords = new WeakMap<object, Readonly<{
   attemptEvidence: TrustedRuntimeSourceProgramAttemptEvidence;
@@ -285,9 +332,19 @@ export function qualifySourceProgramTransitionAssessment(input: Readonly<{
   // the actual author assessment, supersession/reconciliation and audit decision.
   const adopted = compileSourceProgramTransitionAdoption({ assessment,
     ...(input.approval === undefined ? {} : { approval: input.approval }) });
+  const sourceAction = observation.origin === 'first-qualified' ? sourceProgramObservationActions.get(observation) : undefined;
+  if (observation.origin === 'first-qualified') {
+    if (sourceAction === undefined) fail('first-qualified observation has no live source Action');
+    assertTrustedRuntimeSourceProgramAction(sourceAction);
+  }
   const canonical = Object.freeze({ ...adopted, actionKey: observation.actionKey,
-    predecessorActionOutputDigest: observation.predecessorActionOutputDigest,
-    predecessorDisposition: 'superseded-nonterminal' as const, attemptId: observation.executionId,
+    ...(observation.origin === 'first-qualified' ? {
+      schema: 'source-program-transition-qualification-v2' as const, origin: 'first-qualified' as const,
+      sourceActionOutputDigest: observation.sourceActionOutputDigest, sourceActionDigest: sourceAction!.sourceActionDigest
+    } : {
+      predecessorActionOutputDigest: observation.predecessorActionOutputDigest,
+      predecessorDisposition: 'superseded-nonterminal' as const
+    }), attemptId: observation.executionId,
     attemptEvidenceDigest: attemptEvidence.evidenceDigest,
     sessionRevision: observation.sessionRevision, observationDigest: observation.observationDigest });
   const qualification = Object.freeze({ ...canonical, qualificationDigest: digestValue(canonical) });
@@ -298,9 +355,25 @@ export function qualifySourceProgramTransitionAssessment(input: Readonly<{
   return qualification;
 }
 
-export function assertSourceProgramTransitionQualification(value: SourceProgramTransitionQualification): void {
+export function assertSourceProgramTransitionQualification(
+  value: SourceProgramTransitionQualification,
+  completion?: CodexDevelopmentVerificationGateEvidenceV4
+): void {
   if (!issuedSourceProgramTransitionQualifications.has(value)) {
     fail('Source Program acceptance requires a live isolated host qualification');
+  }
+  const record = sourceProgramQualificationRecords.get(value);
+  if (record === undefined) fail('Source Program acceptance lost its live producer record');
+  assertTrustedRuntimeSourceProgramTransitionObservation(record.attemptEvidence.observation);
+  if (value.origin === 'first-qualified') {
+    const sourceAction = sourceProgramObservationActions.get(record.attemptEvidence.observation);
+    if (sourceAction === undefined || sourceAction.sourceActionDigest !== value.sourceActionDigest) {
+      fail('Source Program acceptance lost its live first-qualified Action');
+    }
+    assertTrustedRuntimeSourceProgramAction(sourceAction);
+    if (completion !== undefined && encodeVerificationActionData(completion) !== encodeVerificationActionData(sourceAction.gate)) {
+      fail('Source Program acceptance differs from the exact first-qualified Action output');
+    }
   }
 }
 
@@ -1276,6 +1349,7 @@ function formalEnvironment(input: Readonly<{
   actorNodeId: string;
   requiredBlobs: readonly Readonly<{ path: string; digest: Digest }>[];
   sourceProgramTransition?: CiSourceProgramTransitionBinding;
+  sourceAction?: TrustedRuntimeSourceProgramAction;
 }>): readonly string[] {
   const { envelope } = input;
   const values: Readonly<Record<string, string>> = Object.freeze({
@@ -1290,6 +1364,9 @@ function formalEnvironment(input: Readonly<{
     SEC_FORMAL_TRUSTED_RUNTIME_MODE: '1',
     ...(input.sourceProgramTransition === undefined ? {} : {
       SEC_SOURCE_PROGRAM_TRANSITION_BINDING: encodeVerificationActionData(sourceProgramAnalysisBinding(input.sourceProgramTransition))
+    }),
+    ...(input.sourceAction === undefined ? {} : {
+      SEC_SOURCE_PROGRAM_ACTION_HANDOFF: encodeVerificationActionData(input.sourceAction)
     }),
     SEC_SESSION_REVISION: envelope.session.sessionRevision,
     SEC_SESSION_PROPOSAL_DIGEST: envelope.session.sessionProposalDigest,
@@ -1381,11 +1458,25 @@ async function withTrustedRuntimeWorkspace<T>(input: Readonly<{
   headSha: string;
   operationKey: string;
   setupMode: 'full' | 'lifecycle-canary' | 'dependency-canary';
+  deadlineAtUnixMs?: number;
+  signal?: AbortSignal;
   /** Fresh authority consumers never mount a cache writable by candidate execution. */
   dependencyCachePolicy?: 'shared-sut' | 'private-authority';
   observeSettlement?: (settlement: TrustedRuntimeContainerEngineSettlement) => void;
   execute: (workspace: TrustedRuntimeWorkspace) => Promise<T>;
 }>): Promise<T> {
+  if (input.deadlineAtUnixMs !== undefined && !Number.isSafeInteger(input.deadlineAtUnixMs)) {
+    fail('workspace inherited deadline is not a finite safe timestamp');
+  }
+  const deadlineAtUnixMs = Math.min(input.deadlineAtUnixMs ?? Number.MAX_SAFE_INTEGER,
+    Date.now() + TRUSTED_RUNTIME_CONTAINER_OPERATION_BUDGET.durationMs);
+  const remainingMs = (): number => {
+    throwIfNativeAborted(input.signal);
+    const remaining = deadlineAtUnixMs - Date.now();
+    if (!Number.isSafeInteger(deadlineAtUnixMs) || remaining <= 0) fail('workspace inherited deadline is exhausted or invalid');
+    return remaining;
+  };
+  remainingMs();
   const repositoryRoot = path.resolve(input.repositoryRoot);
   if (!path.isAbsolute(input.repositoryRoot) || repositoryRoot !== input.repositoryRoot) {
     fail('workspace repository root is noncanonical');
@@ -1434,7 +1525,7 @@ async function withTrustedRuntimeWorkspace<T>(input: Readonly<{
           cwd: repositoryRoot,
           source: process.env,
           budget: {
-            deadlineMs: 30_000,
+            deadlineMs: Math.min(30_000, remainingMs()),
             maxProcesses: 1,
             maxTotalArgumentBytes: 2 * 1024,
             maxStdinBytes: 1,
@@ -1461,6 +1552,7 @@ async function withTrustedRuntimeWorkspace<T>(input: Readonly<{
           if (objectId === null) fail('trusted runtime bun.lock blob observation is invalid');
           return objectId;
         });
+    remainingMs();
     commandProvider = await openWindowsDockerCommandProvider({
       workingDirectory: repositoryRoot
     });
@@ -1471,13 +1563,15 @@ async function withTrustedRuntimeWorkspace<T>(input: Readonly<{
       headSha,
       operationKey: input.operationKey,
       setupMode: input.setupMode,
-      providerIdentityDigest: commandProvider.providerIdentityDigest
+      providerIdentityDigest: commandProvider.providerIdentityDigest,
+      deadlineAtUnixMs
     });
     const openingSession = openContainerEngineSession({
       operation,
       provider: commandProvider,
       cwd: repositoryRoot,
-      availability: 'ensure-started'
+      availability: 'ensure-started',
+      signal: input.signal
     });
     commandProviderTransferred = true;
     containerEngineSession = await openingSession;
@@ -1555,7 +1649,9 @@ async function withTrustedRuntimeWorkspace<T>(input: Readonly<{
         sourceRoot: repositoryRoot,
         temporaryRoot,
         baseSha,
-        headSha
+        headSha,
+        deadlineAtUnixMs,
+        signal: input.signal
       });
       const dependencyCacheMarkerBytes = dependencyCacheMarker === null
         ? null
@@ -1868,7 +1964,7 @@ function assertTransitionInput(input: Readonly<{
 }
 
 export interface TrustedRuntimeSourceProgramAttemptEvidence {
-  readonly schema: 'source-program-isolated-attempt-evidence-v1';
+  readonly schema: 'source-program-isolated-attempt-evidence-v1' | 'source-program-isolated-attempt-evidence-v2';
   readonly authority: 'historical-evidence-only';
   readonly assessment: SourceProgramTransitionAssessment;
   readonly observation: TrustedRuntimeSourceProgramTransitionObservation;
@@ -1894,13 +1990,32 @@ export function parseTrustedRuntimeSourceProgramAttemptEvidence(value: unknown):
   }
   const { evidenceDigest, ...canonical } = evidence;
   const { observationDigest, ...observed } = evidence.observation;
-  if (evidence.schema !== 'source-program-isolated-attempt-evidence-v1' || evidence.authority !== 'historical-evidence-only'
+  if (evidence.schema !== (evidence.observation.origin === 'first-qualified' ? 'source-program-isolated-attempt-evidence-v2' : 'source-program-isolated-attempt-evidence-v1') || evidence.authority !== 'historical-evidence-only'
       || evidenceDigest !== digestValue(canonical) || observationDigest !== digestValue(observed)
       || evidence.observation.assessmentDigest !== evidence.assessment.assessmentDigest
       || evidence.observation.settlementDigest !== digestValue(evidence.physicalEvidence.settlements)
       || evidence.physicalEvidence.dependencyCache !== 'private-ephemeral'
       || evidence.physicalEvidence.workspaceTerminal !== 'retired') fail('transition attempt historical join is invalid');
   parseSourceProgramTransitionAssessment(evidence.assessment);
+  if (evidence.observation.origin === 'first-qualified') {
+    if (evidence.observation.schema !== 'source-program-transition-observation-v2'
+        || 'predecessorActionOutputDigest' in evidence.observation
+        || evidence.observation.sourceActionOutputDigest !== digestBytes(`${encodeVerificationActionData(evidence.assessment)}\n`)
+        || evidence.observation.baseSha !== evidence.assessment.baseSha
+        || evidence.observation.headSha !== evidence.assessment.headSha
+        || evidence.observation.headTreeSha !== evidence.assessment.headTreeSha
+        || evidence.observation.baseSha !== evidence.assessment.runtimeSha
+        || evidence.observation.producerSourceDigest !== evidence.assessment.producerExecution.observation.implementationDigest
+        || evidence.observation.producerExecutionEvidenceDigest !== evidence.assessment.producerExecution.evidenceDigest
+        || evidence.physicalEvidence.settlements.length !== 3
+        || evidence.physicalEvidence.settlements.map(({ ownerTerminalReference }) => ownerTerminalReference.phase).join(',')
+          !== 'setup,owner-operation,cleanup') {
+      fail('first-qualified Source Program attempt lost its exact physical/output joins');
+    }
+  } else if (evidence.observation.schema !== undefined
+      || !/^sha256:[0-9a-f]{64}$/u.test(evidence.observation.predecessorActionOutputDigest)) {
+    fail('legacy Source Program attempt must retain its genuine predecessor');
+  }
   return Object.freeze(evidence);
 }
 
@@ -1911,6 +2026,8 @@ export async function observeTrustedRuntimeSourceProgramTransition(input: Readon
   receipt: TrustedRuntimeContainerReceipt;
   sourceProgramTransition: CiSourceProgramTransitionBinding;
   authorApproval?: SourceProgramTestAuthorApproval;
+  deadlineAtUnixMs?: number;
+  signal?: AbortSignal;
 }>): Promise<Readonly<{
   assessment: SourceProgramTransitionAssessment;
   observation: TrustedRuntimeSourceProgramTransitionObservation;
@@ -1933,6 +2050,31 @@ export async function observeTrustedRuntimeSourceProgramTransition(input: Readon
       || receipt.sourceProgramTransition.outputByteDigest !== gate.result.evidenceRefs[0]) {
     fail('assessment-completion Action is not exact accepted producer evidence');
   }
+  const produced = await executeIsolatedSourceProgramTransition({ ...input, binding,
+    predecessorActionOutputDigest: receipt.sourceProgramTransition!.outputByteDigest });
+  return Object.freeze({ assessment: produced.assessment, observation: produced.observation, attemptEvidence: produced.attemptEvidence });
+}
+
+async function executeIsolatedSourceProgramTransition(input: Readonly<{
+  repositoryRoot: string;
+  envelope: VerificationSessionHostedEnvelope;
+  binding: CiSourceProgramTransitionBinding;
+  predecessorActionOutputDigest?: Digest;
+  deadlineAtUnixMs?: number;
+  signal?: AbortSignal;
+}>): Promise<Readonly<{
+  assessment: SourceProgramTransitionAssessment;
+  observation: TrustedRuntimeSourceProgramTransitionObservation;
+  attemptEvidence: TrustedRuntimeSourceProgramAttemptEvidence;
+  startedAt: string;
+  finishedAt: string;
+}>> {
+  const { binding } = input;
+  const deadlineAtUnixMs = repositoryAuditInheritedDeadline(input.deadlineAtUnixMs?.toString());
+  const session = input.envelope.session;
+  const action = input.envelope.actionPlanClosure.actions.find(
+    ({ action }) => action.operation.identity === SOURCE_PROGRAM_TRANSITION_GATE_ID)!;
+  const startedAt = new Date().toISOString();
   const settlements: TrustedRuntimeContainerEngineSettlement[] = [];
   const observeSettlement = (settlement: TrustedRuntimeContainerEngineSettlement): void => { settlements.push(settlement); };
   const completed = await withTrustedRuntimeWorkspace({
@@ -1940,6 +2082,7 @@ export async function observeTrustedRuntimeSourceProgramTransition(input: Readon
     baseSha: session.baseSha, headSha: session.headSha,
     operationKey: `transition-${session.sessionRevision.slice(7, 27)}`, setupMode: 'full',
     dependencyCachePolicy: 'private-authority', observeSettlement,
+    deadlineAtUnixMs, signal: input.signal,
     execute: async (workspace) => await executeTrustedRuntimeContainerEngineOwnerOperation({
       session: workspace.containerEngineSession, repositoryRoot: path.resolve(input.repositoryRoot),
       repository: session.repository, baseSha: session.baseSha, headSha: session.headSha,
@@ -1949,8 +2092,9 @@ export async function observeTrustedRuntimeSourceProgramTransition(input: Readon
         if (workspace.dependencyCacheKey !== null) fail('fresh authority workspace consumed a shared dependency cache');
         const invocation: ContainerEngineOperation = {
           kind: 'container-exec', arguments: ['--user', '1000:1000', '--workdir', TRUSTED_RUNTIME_TRUSTED_TREE,
-            ...createTrustedRuntimeCommandEnvironmentArgs({ CI: '1', HOME: '/home/ubuntu', LANG: 'C', LC_ALL: 'C', TZ: 'UTC' }),
-            workspace.containerName, 'bun', '--no-env-file', '--config', `${TRUSTED_RUNTIME_TRUSTED_TREE}/bunfig.toml`,
+            ...createTrustedRuntimeCommandEnvironmentArgs({ CI: '1', HOME: '/home/ubuntu', LANG: 'C', LC_ALL: 'C', TZ: 'UTC',
+              [SOURCE_PROGRAM_TRANSITION_DEADLINE_ENV]: String(workspace.containerEngineSession.deadlineAtUnixMs) }),
+            workspace.containerName, 'bun', 'run', '--no-env-file', `--config=${TRUSTED_RUNTIME_TRUSTED_TREE}/bunfig.toml`,
             `${TRUSTED_RUNTIME_TRUSTED_TREE}/${SOURCE_PROGRAM_TRANSITION_ENTRYPOINT}`,
             ...sourceProgramTransitionGate(binding).args.slice(1)]
         };
@@ -1966,7 +2110,11 @@ export async function observeTrustedRuntimeSourceProgramTransition(input: Readon
         }
         const canonical = Object.freeze({
           repository: session.repository, pullRequestNumber: session.prNumber,
-          assessmentDigest: assessment.assessmentDigest, predecessorActionOutputDigest: receipt.sourceProgramTransition!.outputByteDigest,
+          assessmentDigest: assessment.assessmentDigest,
+          ...(input.predecessorActionOutputDigest === undefined ? {
+            schema: 'source-program-transition-observation-v2' as const, origin: 'first-qualified' as const,
+            sourceActionOutputDigest: digestBytes(result.stdout)
+          } : { predecessorActionOutputDigest: input.predecessorActionOutputDigest }),
           baseSha: session.baseSha, headSha: session.headSha,
           headTreeSha: session.headTreeSha, executionId,
           producerSourceDigest: assessment.producerExecution.observation.implementationDigest,
@@ -1982,17 +2130,77 @@ export async function observeTrustedRuntimeSourceProgramTransition(input: Readon
   if (settlements.length !== 3 || settlements.map(({ ownerTerminalReference }) => ownerTerminalReference.phase).join(',')
       !== 'setup,owner-operation,cleanup') fail('fresh Source Program workspace has no complete settled physical history');
   const observationFields = Object.freeze({ ...completed.canonical, settlementDigest: digestValue(settlements) });
-  const observation = Object.freeze({ ...observationFields, observationDigest: digestValue(observationFields) });
-  const carrier = Object.freeze({ schema: 'source-program-isolated-attempt-evidence-v1' as const,
+  const observation: TrustedRuntimeSourceProgramTransitionObservation = Object.freeze({ ...observationFields, observationDigest: digestValue(observationFields) });
+  const carrier = Object.freeze({ schema: observation.origin === 'first-qualified'
+    ? 'source-program-isolated-attempt-evidence-v2' as const : 'source-program-isolated-attempt-evidence-v1' as const,
     authority: 'historical-evidence-only' as const, assessment: completed.assessment, observation,
     physicalEvidence: Object.freeze({ settlements: Object.freeze(settlements), invocation: completed.invocation,
       image: completed.image, dockerEndpoint: completed.dockerEndpoint,
       dependencyCache: 'private-ephemeral' as const, workspaceTerminal: 'retired' as const }) });
   const attemptEvidence = Object.freeze({ ...carrier, evidenceDigest: digestValue(carrier) });
+  throwIfNativeAborted(input.signal);
+  if (Date.now() >= deadlineAtUnixMs) {
+    fail('settled Source Program output arrived after its inherited deadline');
+  }
   issuedSourceProgramTransitionObservations.add(observation);
   transitionAttemptEvidence.set(observation, attemptEvidence);
   transitionAttemptRoots.set(observation, path.resolve(input.repositoryRoot));
-  return Object.freeze({ assessment: completed.assessment, observation, attemptEvidence });
+  return Object.freeze({ assessment: completed.assessment, observation, attemptEvidence, startedAt, finishedAt: new Date().toISOString() });
+}
+
+/** The private no-SUT producer is the first physical execution of this Action.
+ * Semantic author adoption deliberately happens after complete source production. */
+export async function produceTrustedRuntimeSourceProgramTransition(input: Readonly<{
+  repositoryRoot: string;
+  envelope: VerificationSessionHostedEnvelope;
+  sourceProgramTransition: CiSourceProgramTransitionBinding;
+  deadlineAtUnixMs?: number;
+  signal?: AbortSignal;
+}>): Promise<Readonly<{
+  assessment: SourceProgramTransitionAssessment;
+  observation: TrustedRuntimeSourceProgramTransitionObservation;
+  attemptEvidence: TrustedRuntimeSourceProgramAttemptEvidence;
+  sourceAction: TrustedRuntimeSourceProgramAction;
+}>> {
+  if ('authorApproval' in input || input.sourceProgramTransition.payloadDigest !== null
+      || input.sourceProgramTransition.approvalObservationDigest !== null
+      || input.sourceProgramTransition.approvalDigest !== null) {
+    fail('first-qualified source production cannot consume author approval');
+  }
+  const binding = assertTransitionInput(input)!;
+  const produced = await executeIsolatedSourceProgramTransition({ ...input, binding });
+  const observation = produced.observation;
+  if (observation.origin !== 'first-qualified') fail('first source Action has a predecessor');
+  const plan = input.envelope.actionPlanClosure.actions.find(
+    ({ action }) => action.actionKey === observation.actionKey)!;
+  const operation = input.envelope.actionPlanClosure.normalizedOperations.find(
+    ({ gateId }) => gateId === SOURCE_PROGRAM_TRANSITION_GATE_ID)!;
+  const gate = Object.freeze({ action: plan.action, result: CodexDevelopmentBuildVerificationGateResult({
+    gateId: SOURCE_PROGRAM_TRANSITION_GATE_ID, gateRevision: plan.action.operation.revision,
+    owner: 'ci-verification-maintainer', requirementKey: `gate:${SOURCE_PROGRAM_TRANSITION_GATE_ID}`,
+    subjectRevision: observation.headSha, inputDigest: observation.actionKey,
+    applicability: 'required', status: 'passed', disposition: 'executed', reasonCode: 'executed-success',
+    requiredForClaims: [`gate:${SOURCE_PROGRAM_TRANSITION_GATE_ID}`], supportedClaims: [`gate:${SOURCE_PROGRAM_TRANSITION_GATE_ID}`],
+    environment: { runtime: operation.runtime, os: 'linux', arch: 'x64', filesystem: null,
+      capabilities: [], toolchainRevision: plan.action.environment.toolchainRevision,
+      providerRevisions: [plan.action.environment.providerRevision] },
+    execution: { argv: [...ciVerificationNormalizedOperationArgv(operation)], startedAt: produced.startedAt,
+      finishedAt: produced.finishedAt, durationMs: Date.parse(produced.finishedAt) - Date.parse(produced.startedAt),
+      exitCode: 0, outputDigest: observation.sourceActionOutputDigest, failureFingerprint: null },
+    evidenceRefs: [observation.sourceActionOutputDigest],
+    invalidationRules: ['ActionKey, source, compiler, dependency, session, or isolation changes'], diagnostic: null
+  }), cleanup: Object.freeze({ status: 'passed' as const,
+    evidenceRefs: [produced.attemptEvidence.evidenceDigest], diagnostic: null }) });
+  const canonical = Object.freeze({ schema: 'source-program-qualified-action-v1' as const,
+    authority: 'historical-evidence-only' as const, sessionRevision: observation.sessionRevision,
+    observationDigest: observation.observationDigest, attemptEvidenceDigest: produced.attemptEvidence.evidenceDigest,
+    outputByteDigest: observation.sourceActionOutputDigest, gate });
+  const sourceAction = Object.freeze({ ...canonical, sourceActionDigest: digestValue(canonical) });
+  issuedSourceProgramActions.set(sourceAction, observation);
+  sourceProgramObservationActions.set(observation, sourceAction);
+  assertTrustedRuntimeSourceProgramAction(sourceAction, { envelope: input.envelope });
+  return Object.freeze({ assessment: produced.assessment, observation,
+    attemptEvidence: produced.attemptEvidence, sourceAction });
 }
 
 export async function executeTrustedRuntimeContainerVerification(input: Readonly<{
@@ -2002,24 +2210,31 @@ export async function executeTrustedRuntimeContainerVerification(input: Readonly
   requiredBlobs: readonly Readonly<{ path: string; digest: Digest }>[];
   sourceProgramTransition?: CiSourceProgramTransitionBinding;
   authorApproval?: SourceProgramTestAuthorApproval;
+  sourceAction?: TrustedRuntimeSourceProgramAction;
+  deadlineAtUnixMs?: number;
+  signal?: AbortSignal;
 }>): Promise<Readonly<{
   evidence: CodexDevelopmentVerificationEvidenceV4;
   canonicalEvidenceBytes: string;
   receipt: TrustedRuntimeContainerReceipt;
 }>> {
   assertTransitionInput(input);
+  if (input.sourceAction !== undefined) {
+    assertTrustedRuntimeSourceProgramAction(input.sourceAction, { envelope: input.envelope });
+  }
   const repositoryRoot = path.resolve(input.repositoryRoot);
   const session = input.envelope.session;
   sha(session.baseSha, 'baseSha');
   sha(session.headSha, 'headSha');
   sha(session.headTreeSha, 'headTreeSha');
-  return await withTrustedRuntimeWorkspace({
+  const completed = await withTrustedRuntimeWorkspace({
     repositoryRoot,
     repository: session.repository,
     baseSha: session.baseSha,
     headSha: session.headSha,
     operationKey: `session-${session.sessionRevision.slice(7, 31)}`,
     setupMode: 'full',
+    deadlineAtUnixMs: input.deadlineAtUnixMs, signal: input.signal,
     execute: async ({
       containerName,
       temporaryRoot,
@@ -2046,9 +2261,9 @@ export async function executeTrustedRuntimeContainerVerification(input: Readonly
       kind: 'container-exec', arguments: ['--user', '1000:1000', '--workdir', TRUSTED_RUNTIME_TRUSTED_TREE,
       ...formalEnvironment({ envelope: input.envelope, executionId,
         actorNodeId: input.actorNodeId, requiredBlobs: input.requiredBlobs,
-        sourceProgramTransition: input.sourceProgramTransition }),
+        sourceProgramTransition: input.sourceProgramTransition, sourceAction: input.sourceAction }),
       containerName,
-      'bun', '--no-env-file', '--config', `${TRUSTED_RUNTIME_TRUSTED_TREE}/bunfig.toml`,
+      'bun', 'run', '--no-env-file', `--config=${TRUSTED_RUNTIME_TRUSTED_TREE}/bunfig.toml`,
       `${TRUSTED_RUNTIME_TRUSTED_TREE}/${CI_VERIFICATION_WORKFLOW_PATH}`,
       '--profile', session.profile, '--expected-head', session.headSha]
     });
@@ -2073,7 +2288,17 @@ export async function executeTrustedRuntimeContainerVerification(input: Readonly
       fail('verification Evidence does not bind the trusted runtime Session');
     }
     let sourceProgramTransition: TrustedRuntimeContainerReceipt['sourceProgramTransition'];
-    if (input.sourceProgramTransition !== undefined) {
+    if (input.sourceAction !== undefined) {
+      assertTrustedRuntimeSourceProgramAction(input.sourceAction, { envelope: input.envelope });
+      const actual = parsed.gates.filter(({ action }) => action.operation.identity === SOURCE_PROGRAM_TRANSITION_GATE_ID);
+      if (actual.length !== 1 || encodeVerificationActionData(actual[0]) !== encodeVerificationActionData(input.sourceAction.gate)) {
+        fail('ordinary verification did not retain the exact first-qualified source Action');
+      }
+      const observed = issuedSourceProgramActions.get(input.sourceAction)!;
+      sourceProgramTransition = Object.freeze({ assessmentDigest: observed.assessmentDigest,
+        outputByteDigest: digest(input.sourceAction.outputByteDigest, 'source Action output'),
+        actionKey: input.sourceAction.gate.action.actionKey });
+    } else if (input.sourceProgramTransition !== undefined) {
       const transitionPath = path.join(temporaryRoot, SOURCE_PROGRAM_TRANSITION_OUTPUT_FILE);
       await containerEngineOutput(containerEngineSession, { kind: 'container-copy',
         arguments: [`${containerName}:${TRUSTED_RUNTIME_OUTPUT}/${SOURCE_PROGRAM_TRANSITION_OUTPUT_FILE}`, transitionPath] });
@@ -2112,6 +2337,14 @@ export async function executeTrustedRuntimeContainerVerification(input: Readonly
       });
     }
   });
+  // Container transport cannot restore authority. Rejoin the retained host
+  // object only after the ordinary workspace has physically settled as well.
+  if (input.sourceAction !== undefined) {
+    assertTrustedRuntimeSourceProgramAction(input.sourceAction, { envelope: input.envelope });
+  }
+  throwIfNativeAborted(input.signal);
+  if (input.deadlineAtUnixMs !== undefined && Date.now() >= input.deadlineAtUnixMs) fail('verification completed after its inherited deadline');
+  return completed;
 }
 
 function trustedRuntimeMainHealthCommandArgv(command: string): readonly string[] {

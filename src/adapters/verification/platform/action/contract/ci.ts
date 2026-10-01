@@ -58,7 +58,8 @@ export type CiVerificationActionDigest = `sha256:${string}`;
 
 export const SOURCE_PROGRAM_TRANSITION_STDOUT_BYTE_LIMIT = 32 * 1024 * 1024;
 export const SOURCE_PROGRAM_TRANSITION_GATE_ID = 'source-program-transition-assessment' as const;
-export const SOURCE_PROGRAM_TRANSITION_ENTRYPOINT = 'src/adapters/repository/repository-audit/cli.ts' as const;
+export const SOURCE_PROGRAM_TRANSITION_ENTRYPOINT = 'src/bootstrap/engineering/source-program-transition.ts' as const;
+const HISTORICAL_SOURCE_PROGRAM_TRANSITION_ENTRYPOINT = 'src/adapters/repository/repository-audit/cli.ts' as const;
 export const SOURCE_PROGRAM_TRANSITION_CANDIDATE_ROOT = '/sec-runtime/workspace' as const;
 export const SOURCE_PROGRAM_TRANSITION_AUTHOR_INPUT = '/sec-runtime/test-author-input.json' as const;
 export const SOURCE_PROGRAM_TRANSITION_OUTPUT_FILE = 'source-program-transition.json' as const;
@@ -816,7 +817,7 @@ export function ciVerificationGateStep(step: CiVerificationGateStep): CiVerifica
   });
 }
 
-function normalizedTarget(argv: readonly string[]): CiVerificationNormalizedTarget {
+function normalizedTarget(argv: readonly string[], historicalTransition = false): CiVerificationNormalizedTarget {
   if (argv.length < 2 || argv[0] !== 'bun') fail('gate.argv must be a producer-owned Bun invocation.');
   if (argv[1] === 'run') {
     const identity = text(argv[2], 'gate package script');
@@ -836,6 +837,7 @@ function normalizedTarget(argv: readonly string[]): CiVerificationNormalizedTarg
   }
   const identity = text(argv[1], 'gate TypeScript entrypoint');
   if (identity !== SOURCE_PROGRAM_TRANSITION_ENTRYPOINT
+      && !(historicalTransition && identity === HISTORICAL_SOURCE_PROGRAM_TRANSITION_ENTRYPOINT)
       && (!/^scripts\/[a-z0-9][a-z0-9._/-]*\.[cm]?ts$/u.test(identity) || identity.includes('..'))) {
     fail('gate TypeScript entrypoint is not a canonical producer-owned script path.');
   }
@@ -949,7 +951,9 @@ export function parseCiVerificationNormalizedOperation(value: unknown): CiVerifi
     : targetRecord.kind === 'bun-typescript-entrypoint'
       ? ['bun', targetIdentity, ...targetRecord.args as string[]]
       : fail('normalized operation target kind is invalid.');
-  const target = normalizedTarget(canonicalGateArgv(targetArgv, 'normalized target argv'));
+  const historicalTransition = candidate.gateId === SOURCE_PROGRAM_TRANSITION_GATE_ID
+    && targetIdentity === HISTORICAL_SOURCE_PROGRAM_TRANSITION_ENTRYPOINT;
+  const target = normalizedTarget(canonicalGateArgv(targetArgv, 'normalized target argv'), historicalTransition);
   if (!Array.isArray(candidate.environmentBindings) || !Array.isArray(candidate.coveredScopeIds)) {
     fail('normalized operation bindings or scopes are invalid.');
   }
@@ -996,10 +1000,31 @@ export function parseCiVerificationNormalizedOperation(value: unknown): CiVerifi
       )
     })
   });
+  if (historicalTransition) {
+    const expected = ['--worktree-source-program', '--transition-candidate-root', SOURCE_PROGRAM_TRANSITION_CANDIDATE_ROOT,
+      '--supersession-baseline', withoutDigest.candidate.baseSha, '--transition-expected-head', withoutDigest.candidate.headSha];
+    if (withoutDigest.phase !== 'workspace' || withoutDigest.candidate.baseSha === withoutDigest.candidate.headSha
+        || (target.args.length !== expected.length && target.args.length !== expected.length + 2)
+        || expected.some((value, index) => target.args[index] !== value)
+        || target.args.length > expected.length && (target.args[expected.length] !== '--test-author-input'
+          || target.args[expected.length + 1] !== SOURCE_PROGRAM_TRANSITION_AUTHOR_INPUT)
+        || environmentBindings.map(({ name }) => name).join(',')
+          !== 'SEC_EXECUTION_ENVIRONMENT_REVISION,SEC_SOURCE_PROGRAM_TRANSITION_BINDING') {
+      fail('historical transition is outside its exact read-only grammar.');
+    }
+  }
   if (digest(candidate.semanticDigest, 'normalized semanticDigest') !== hash(withoutDigest)) {
     fail('normalized operation semantic digest mismatch.');
   }
   return Object.freeze({ ...withoutDigest, semanticDigest: candidate.semanticDigest as CiVerificationActionDigest });
+}
+
+/** Historical decoding never admits the retired executable route. */
+export function assertCiVerificationCurrentOperation(operation: CiVerificationNormalizedOperation): void {
+  if (operation.target.kind === 'bun-typescript-entrypoint'
+      && operation.target.identity === HISTORICAL_SOURCE_PROGRAM_TRANSITION_ENTRYPOINT) {
+    fail('historical transition is read-only and cannot be newly executed.');
+  }
 }
 
 export function buildCiVerificationActionPlan(options: {
@@ -1231,5 +1256,6 @@ export function resolveCiVerificationDevRunnerTarget(options: {
       operation.semanticDigest !== plan.action.operation.semanticDigest) {
     fail('dev-runner rejected a missing or competing normalized operation.');
   }
+  assertCiVerificationCurrentOperation(operation);
   return operation;
 }

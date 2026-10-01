@@ -73,7 +73,7 @@
         "aggregateBudgets": [
           {
             "resource": "duration-ms",
-            "maximum": 180000
+            "maximum": 300000
           },
           {
             "resource": "input-bytes",

@@ -1289,10 +1289,12 @@ function assertSourceProgramTransitionQualified(input: Readonly<{
   }
   assertSourceProgramTransitionQualification(input.qualification);
   const completion = input.evidence.gates.find(({ action }) => action.actionKey === selected[0]!.action.actionKey);
+  if (completion !== undefined) assertSourceProgramTransitionQualification(input.qualification, completion);
   if (input.qualification.actionKey !== selected[0]!.action.actionKey
       || input.qualification.sessionRevision !== input.sessionRevision
       || completion?.result.status !== 'passed' || completion.result.evidenceRefs.length !== 1
-      || completion.result.evidenceRefs[0] !== input.qualification.predecessorActionOutputDigest) {
+      || completion.result.evidenceRefs[0] !== (input.qualification.origin === 'first-qualified'
+        ? input.qualification.sourceActionOutputDigest : input.qualification.predecessorActionOutputDigest)) {
     throw new Error('Source Program qualification belongs to another Action or Session.');
   }
 }

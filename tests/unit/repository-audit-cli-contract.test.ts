@@ -3,6 +3,10 @@ import assert from 'node:assert/strict';
 import path from 'node:path';
 import {
   parseRepositoryAuditCliOptions as parse,
+  repositoryAuditDeadline,
+  repositoryAuditInheritedDeadline,
+  repositoryAuditRemainingDuration,
+  repositoryAuditWorkerDeadline,
   repositoryAuditShouldFail as shouldFail,
   repositoryModuleTopologyShouldFail as topologyFails,
   type RepositoryAuditSeverity
@@ -310,4 +314,38 @@ test('diagnostic mode does not suppress an independent severe finding in a detai
 test('the legacy narrowed findings/unknowns contract remains valid without detailed fields', () => {
   assert.equal(shouldFail({ findings: [], unknowns: [] }), false);
   assert.equal(shouldFail({ findings: [], unknowns: ['known-gap'] }), true);
+});
+
+
+test('audit aggregate deadline follows its declared capacity and preserves shorter admission', () => {
+  assert.equal(repositoryAuditDeadline(undefined, 1_000), 301_000);
+  const deadline = repositoryAuditDeadline(2_000, 1_000);
+  assert.equal(deadline, 3_000);
+  assert.equal(repositoryAuditRemainingDuration(deadline, 1_500), 1_500);
+  assert.equal(repositoryAuditRemainingDuration(deadline, 2_900), 100);
+  for (const duration of [0, -1, 300_001, Infinity, NaN, 1.5]) {
+    assert.throws(() => repositoryAuditDeadline(duration, 1_000), /canonical bound/);
+  }
+  assert.throws(() => repositoryAuditRemainingDuration(deadline, 3_000), /exhausted/);
+});
+
+test('audit worker deadline is clipped to the same remaining parent without consuming settlement reserve', () => {
+  const parent = repositoryAuditDeadline(undefined, 1_000);
+  const workDeadline = parent - 5_000;
+  assert.equal(repositoryAuditWorkerDeadline(workDeadline, 1_000), 181_000);
+  assert.equal(repositoryAuditWorkerDeadline(workDeadline, 201_000), 296_000);
+  assert.ok(repositoryAuditWorkerDeadline(workDeadline, 295_999) < parent);
+  assert.throws(() => repositoryAuditWorkerDeadline(workDeadline, workDeadline), /exhausted/);
+  const shortParent = repositoryAuditDeadline(2_000, 1_000);
+  assert.equal(repositoryAuditWorkerDeadline(shortParent - 100, 1_500), 2_900);
+});
+
+
+test('source inherited deadline is a clipped cap and never renews an exhausted attempt', () => {
+  assert.equal(repositoryAuditInheritedDeadline(undefined, 1_000), 301_000);
+  assert.equal(repositoryAuditInheritedDeadline('1500', 1_000), 1_500);
+  assert.equal(repositoryAuditInheritedDeadline('900000', 1_000), 301_000);
+  for (const value of ['0', '999', '1000', '001500', '-1', '1.2', 'NaN']) {
+    assert.throws(() => repositoryAuditInheritedDeadline(value, 1_000));
+  }
 });

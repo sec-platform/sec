@@ -44,7 +44,10 @@ import { CodexDevelopmentAssertTestImpactTransitionSelection } from '../test-imp
 import {
   CodexDevelopmentCreateVerificationEvidenceProducer, CodexDevelopmentFinalizeVerificationEvidenceV4, CodexDevelopmentPrepareVerificationEvidenceTarget, CodexDevelopmentVerificationDigest,
   CodexDevelopmentWriteVerificationActionTerminalArtifactV2Atomic,
-  CodexDevelopmentWriteVerificationEvidenceV4Atomic, type CodexDevelopmentVerificationGateEvidenceV4
+  CodexDevelopmentWriteVerificationEvidenceV4Atomic,
+  parseTrustedRuntimeSourceProgramActionRecord,
+  type CodexDevelopmentVerificationGateEvidenceV4,
+  type TrustedRuntimeSourceProgramActionRecord
 } from './contract/evidence.ts';
 import {
   assertCiExpectedHead,
@@ -99,6 +102,7 @@ function formalVerificationBinding(env: NodeJS.ProcessEnv): Readonly<{
   executionEnvironment: CiVerificationExecutionEnvironment;
   requiredBlobs: readonly { path: string; digest: `sha256:${string}` }[];
   sourceProgramTransition?: CiSourceProgramTransitionBinding;
+  sourceAction?: TrustedRuntimeSourceProgramActionRecord;
 }> | null {
   const hosted = env.SEC_FORMAL_HOSTED_MODE === '1';
   const trustedRuntime = env.SEC_FORMAL_TRUSTED_RUNTIME_MODE === '1';
@@ -170,6 +174,11 @@ function formalVerificationBinding(env: NodeJS.ProcessEnv): Readonly<{
     actionPlanDigest: digest(env.SEC_ACTION_PLAN_DIGEST!, 'SEC_ACTION_PLAN_DIGEST'),
     executionEnvironment,
     requiredBlobs: Object.freeze(requiredBlobs),
+    ...(env.SEC_SOURCE_PROGRAM_ACTION_HANDOFF === undefined ? {} : {
+      sourceAction: mode !== 'trusted-runtime'
+        ? (() => { throw new Error('Source Program Action handoff requires the trusted runtime transport.'); })()
+        : parseTrustedRuntimeSourceProgramActionRecord(JSON.parse(env.SEC_SOURCE_PROGRAM_ACTION_HANDOFF))
+    }),
     ...(env.SEC_SOURCE_PROGRAM_TRANSITION_BINDING === undefined ? {} : {
       sourceProgramTransition: mode !== 'trusted-runtime'
         ? (() => { throw new Error('Source Program transition requires the isolated adopted-base runtime.'); })()
@@ -643,6 +652,10 @@ async function runCodexDevelopmentCiVerification(
           console.log('::endgroup::');
         }
       },
+      ...(formalBinding?.sourceAction === undefined ? {} : {
+        sourceAction: formalBinding.sourceAction,
+        sessionRevision: formalBinding.sessionRevision
+      }),
       actionRunner: options.actionRunner,
       readDurableActionResult: options.readDurableActionResult
     });

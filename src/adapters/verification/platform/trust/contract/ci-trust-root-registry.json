@@ -58,6 +58,7 @@
     "src/adapters/verification/platform/test-impact/runtime/transition.ts",
     "src/adapters/verification/platform/trust/contract/root.ts",
     "src/assurance/verification/result/contract/result.ts",
+    "src/bootstrap/engineering/trusted-runtime-closeout.ts",
     "tests/setup/test-runtime.setup.ts"
   ],
   "reviewedSutEdges": [],

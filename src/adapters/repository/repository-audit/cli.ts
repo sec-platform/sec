@@ -8,8 +8,13 @@ import {
   DEFAULT_REPOSITORY_AUDIT_REF,
   parseRepositoryAuditCliOptions,
   REPOSITORY_AUDIT_SEVERITY_RANK,
+  repositoryAuditDeadline,
+  repositoryAuditRemainingDuration,
   repositoryAuditShouldFail,
+  repositoryAuditWorkerDeadline,
   repositoryModuleTopologyShouldFail,
+  SOURCE_PROGRAM_AUDIT_MAX_DURATION_MS,
+  SOURCE_PROGRAM_AUDIT_WORKER_MAX_DURATION_MS,
   type RepositoryAuditCliOptions,
   type RepositoryAuditSeverity,
   type WorkingTreeSourceProgramAuditOptions
@@ -170,7 +175,6 @@ const DEFAULT_REPOSITORY_ROOT = compilerRuntimeLayout.packageRoot;
 const MAX_TEXT_FILE_BYTES = 2_000_000;
 const GIT_BATCH_BYTE_BUDGET = 16 * 1024 * 1024;
 const GIT_BATCH_OUTPUT_OVERHEAD = 2 * 1024 * 1024;
-const SOURCE_PROGRAM_AUDIT_DEADLINE_MS = 180_000;
 const SOURCE_PROGRAM_AUDIT_INPUT_BUDGET_BYTES =
   REPOSITORY_AUDIT_WORKER_PROTOCOL_LIMITS.maximumRequestBytes;
 const SOURCE_PROGRAM_AUDIT_STREAM_BUDGET_BYTES =
@@ -2913,6 +2917,22 @@ export async function runRepositoryAuditCli(
   return runRepositoryAuditInput(parseRepositoryAuditCliOptions(args), execution);
 }
 
+/** External inspection input is data; live adoption still belongs to its
+ * GitHub observation and Test Value owners. Preserve the existing path bound. */
+export async function readSourceProgramTransitionAuthorInput(input: Readonly<{
+  candidateRoot: string;
+  authorInputPath: string | null;
+}>): Promise<SourceProgramTestAuthorDecisionPayload | undefined> {
+  if (input.authorInputPath === null) return undefined;
+  const relative = path.relative(input.candidateRoot, input.authorInputPath);
+  if (relative === '' || !relative.startsWith('..' + path.sep) && !path.isAbsolute(relative)) {
+    throw new Error('Test author input must live outside candidate-controlled source');
+  }
+  const bytes = await readFile(input.authorInputPath);
+  if (bytes.byteLength > 131_072) throw new Error('Test author input exceeds its external comment byte bound');
+  return parseSourceProgramTestAuthorDecisionPayload(parseExactJson(bytes.toString('utf8'), 'Test author input'));
+}
+
 async function runRepositoryAuditInput(
   input: RepositoryAuditCliOptions,
   execution: Readonly<{ deadlineAtUnixMs?: number }> = {}
@@ -2961,31 +2981,14 @@ async function runRepositoryAuditInput(
 
   if (input.mode === 'source-program') {
     if (input.transitionCandidateRoot !== null) {
-      let authorPayload: SourceProgramTestAuthorDecisionPayload | undefined;
-      if (input.testAuthorInput !== null) {
-        const relative = path.relative(input.transitionCandidateRoot, input.testAuthorInput);
-        if (relative === '' || !relative.startsWith('..' + path.sep) && !path.isAbsolute(relative)) {
-          throw new Error('Test author input must live outside candidate-controlled source');
-        }
-        const bytes = await readFile(input.testAuthorInput);
-        if (bytes.byteLength > 131_072) throw new Error('Test author input exceeds its external comment byte bound');
-        authorPayload = parseSourceProgramTestAuthorDecisionPayload(parseExactJson(bytes.toString('utf8'), 'Test author input'));
-      }
-      const assessment = await assessSourceProgramTransition({
-        candidateRoot: input.transitionCandidateRoot, baseSha: input.supersessionBaseline,
-        headSha: input.transitionExpectedHead!, ...(authorPayload === undefined ? {} : { authorPayload })
-      }, execution.deadlineAtUnixMs === undefined ? SOURCE_PROGRAM_AUDIT_DEADLINE_MS
-        : Math.max(1, execution.deadlineAtUnixMs - Date.now()));
-      process.stdout.write(`${JSON.stringify(canonicalJson(assessment))}\n`);
-      if (assessment.status === 'blocked') process.exitCode = 1;
-      return;
+      throw new Error('Source transition requires the assembled src/bootstrap/engineering/source-program-transition.ts entry.');
     }
     const deadline = execution.deadlineAtUnixMs;
     const now = Date.now();
     if (!Number.isSafeInteger(deadline) || (deadline as number) <= now) {
       throw new Error('Working-tree Source Program audit requires one inherited absolute deadline.');
     }
-    await runSupervisedWorkingTreeSourceProgramAudit(input, (deadline as number) - now);
+    await runSupervisedWorkingTreeSourceProgramAudit(input, deadline as number);
     return;
   }
 
@@ -3116,7 +3119,7 @@ function compileSourceProgramAuditWorkerOperation(input: Readonly<{
 }>): SecBoundSemanticOperation {
   const durationMs = input.deadlineAtUnixMs - Date.now();
   if (!Number.isSafeInteger(durationMs) || durationMs < 1
-      || durationMs > SOURCE_PROGRAM_AUDIT_DEADLINE_MS) {
+      || durationMs > SOURCE_PROGRAM_AUDIT_WORKER_MAX_DURATION_MS) {
     throw new Error('Repository audit worker deadline is outside its canonical bound.');
   }
   const contractDigest = sha256({
@@ -3263,7 +3266,7 @@ export function compileRepositoryAuditWorkerDiagnostic(
 
 export async function executeSupervisedWorkingTreeSourceProgramAudit(
   args: readonly string[],
-  maximumDurationMs = SOURCE_PROGRAM_AUDIT_DEADLINE_MS
+  maximumDurationMs = SOURCE_PROGRAM_AUDIT_MAX_DURATION_MS
 ): Promise<RepositoryAuditWorkerExecution> {
   const options = parseRepositoryAuditCliOptions(args, 'source-program');
   if (options.mode !== 'source-program') {
@@ -3272,29 +3275,24 @@ export async function executeSupervisedWorkingTreeSourceProgramAudit(
   if (options.transitionCandidateRoot !== null) {
     throw new Error('Programmatic transition callers must use assessSourceProgramTransition with exact subject pins');
   }
-  return executeAdmittedWorkingTreeSourceProgramAudit(options, maximumDurationMs);
+  return executeAdmittedWorkingTreeSourceProgramAudit(options, repositoryAuditDeadline(maximumDurationMs));
 }
 
 async function executeAdmittedWorkingTreeSourceProgramAudit(
   options: WorkingTreeSourceProgramAuditOptions,
-  maximumDurationMs: number,
+  deadlineAtUnixMs: number,
   transition?: Readonly<{ candidateRoot: string; baseSha: string; headSha: string; authorPayload?: SourceProgramTestAuthorDecisionPayload }>
 ): Promise<RepositoryAuditWorkerExecution & Readonly<{ transitionAssessment?: SourceProgramTransitionAssessment }>> {
-  if (!Number.isSafeInteger(maximumDurationMs)
-      || maximumDurationMs < 1
-      || maximumDurationMs > SOURCE_PROGRAM_AUDIT_DEADLINE_MS) {
-    throw new Error('Repository audit worker duration is outside its canonical bound.');
-  }
-  const deadlineAtUnixMs = Date.now() + maximumDurationMs;
+  const remainingDurationMs = repositoryAuditRemainingDuration(deadlineAtUnixMs);
   const settlementReserveMs = Math.max(
     1,
-    Math.min(SOURCE_PROGRAM_AUDIT_MAX_SETTLEMENT_RESERVE_MS, Math.floor(maximumDurationMs / 20))
+    Math.min(SOURCE_PROGRAM_AUDIT_MAX_SETTLEMENT_RESERVE_MS, Math.floor(remainingDurationMs / 20))
   );
-  const workerDeadlineAtUnixMs = deadlineAtUnixMs - settlementReserveMs;
+  const workDeadlineAtUnixMs = deadlineAtUnixMs - settlementReserveMs;
   reportExecutionProgress({
     command: 'audit:source-program', phase: 'preparation', state: 'start'
   });
-  const prepared = await prepareWorkingTreeSourceProgramAudit(options, workerDeadlineAtUnixMs, transition);
+  const prepared = await prepareWorkingTreeSourceProgramAudit(options, workDeadlineAtUnixMs, transition);
   reportExecutionProgress({
     command: 'audit:source-program', phase: 'preparation', state: 'complete',
     detail: { cache: prepared.operationInput.projection.cache }
@@ -3326,6 +3324,7 @@ async function executeAdmittedWorkingTreeSourceProgramAudit(
       `Repository Audit normalized operation exceeds its canonical input budget: ${JSON.stringify(projectionFieldBytes)}`
     );
   }
+  const workerDeadlineAtUnixMs = repositoryAuditWorkerDeadline(workDeadlineAtUnixMs);
   let executable: RetainedNoFollowOrdinaryFile | null = null;
   let dependency: RetainedCompilerDependencyReadGeneration | null = null;
   let dependencyRetirement: CompilerDependencyReadGenerationRetirementReceipt | null = null;
@@ -3656,9 +3655,16 @@ async function assertSourceProgramTransitionRoots(
 /** Execute adopted compiler code against separately pinned candidate data. */
 export async function assessSourceProgramTransition(
   input: Readonly<{ candidateRoot: string; baseSha: string; headSha: string; authorPayload?: SourceProgramTestAuthorDecisionPayload }>,
-  maximumDurationMs = SOURCE_PROGRAM_AUDIT_DEADLINE_MS
+  maximumDurationMs = SOURCE_PROGRAM_AUDIT_MAX_DURATION_MS
 ): Promise<SourceProgramTransitionAssessment> {
-  const deadlineAtUnixMs = Date.now() + maximumDurationMs;
+  return assessSourceProgramTransitionWithinDeadline(input, repositoryAuditDeadline(maximumDurationMs));
+}
+
+export async function assessSourceProgramTransitionWithinDeadline(
+  input: Readonly<{ candidateRoot: string; baseSha: string; headSha: string; authorPayload?: SourceProgramTestAuthorDecisionPayload }>,
+  deadlineAtUnixMs: number
+): Promise<SourceProgramTransitionAssessment> {
+  repositoryAuditRemainingDuration(deadlineAtUnixMs);
   await assertSourceProgramTransitionRoots(input, deadlineAtUnixMs);
   const transition = Object.freeze({ ...input, candidateRoot: path.resolve(input.candidateRoot),
     ...(input.authorPayload === undefined ? {} : { authorPayload: parseSourceProgramTestAuthorDecisionPayload(input.authorPayload) }) });
@@ -3670,7 +3676,7 @@ export async function assessSourceProgramTransition(
     blockingDetails: false, blockingDetailsDomain: 'priority', blockingDetailsPage: 0,
     enforce: true, full: false, includeCandidates: false, outputPath: null, query: null,
     reductionMode: 'none', supersessionBaseline: input.baseSha
-  }, Math.max(1, deadlineAtUnixMs - Date.now()), transition);
+  }, deadlineAtUnixMs, transition);
   return requireSettledSourceProgramTransitionAssessment(result);
 }
 
@@ -3704,9 +3710,9 @@ export function requireSettledSourceProgramTransitionAssessment(result:
 
 async function runSupervisedWorkingTreeSourceProgramAudit(
   input: WorkingTreeSourceProgramAuditOptions,
-  maximumDurationMs = SOURCE_PROGRAM_AUDIT_DEADLINE_MS
+  deadlineAtUnixMs: number
 ): Promise<void> {
-  const execution = await executeAdmittedWorkingTreeSourceProgramAudit(input, maximumDurationMs);
+  const execution = await executeAdmittedWorkingTreeSourceProgramAudit(input, deadlineAtUnixMs);
   if (execution.status === 'denied') {
     process.exitCode = 1;
     process.stderr.write(`${JSON.stringify(execution.diagnostic)}\n`);
@@ -3730,7 +3736,7 @@ if (import.meta.main) {
   reportExecutionProgress({ command, phase: 'command', state: 'start' });
   try {
     await runRepositoryAuditInput(input, input.mode === 'source-program'
-      ? { deadlineAtUnixMs: Date.now() + SOURCE_PROGRAM_AUDIT_DEADLINE_MS }
+      ? { deadlineAtUnixMs: repositoryAuditDeadline() }
       : {});
     reportExecutionProgress({
       command,

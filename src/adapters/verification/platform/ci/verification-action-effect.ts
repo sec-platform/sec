@@ -20,7 +20,7 @@ import {
 } from '../../../providers/git-read/runtime/session.ts';
 import { assertProcessResourceSessionReceipt } from '../../../runtime-state/physical/runtime/process-resource-session.ts';
 import { encodeVerificationActionData, issueProcessVerificationActionTerminalSettlement, issueVerificationActionOwnerTerminalReceipt, type VerificationActionKeyDigest, type VerificationActionPlan } from '../action/contract/action.ts';
-import { ciVerificationNormalizedOperationArgv, parseCiVerificationActionPlanClosure, SOURCE_PROGRAM_TRANSITION_GATE_ID, SOURCE_PROGRAM_TRANSITION_STDOUT_BYTE_LIMIT, type CiVerificationActionPlanClosure, type CiVerificationProducerGate } from '../action/contract/ci.ts';
+import { assertCiVerificationCurrentOperation, ciVerificationNormalizedOperationArgv, parseCiVerificationActionPlanClosure, SOURCE_PROGRAM_TRANSITION_GATE_ID, SOURCE_PROGRAM_TRANSITION_STDOUT_BYTE_LIMIT, type CiVerificationActionPlanClosure, type CiVerificationProducerGate } from '../action/contract/ci.ts';
 import {
   createVerificationActionRunner,
   type VerificationActionRunner,
@@ -29,8 +29,11 @@ import {
 import type { CodexDevelopmentTestImpactSourceProvider } from '../test-impact/runtime/impact.ts';
 import type { CodexDevelopmentGitChangedRecord, CodexDevelopmentTestImpactTransitionObservation } from '../test-impact/runtime/transition.ts';
 import {
-  CodexDevelopmentVerificationDigest, type CodexDevelopmentVerificationEvidenceV4,
-  type CodexDevelopmentVerificationGateEvidenceV4
+  CodexDevelopmentVerificationDigest,
+  parseTrustedRuntimeSourceProgramActionRecord,
+  type CodexDevelopmentVerificationEvidenceV4,
+  type CodexDevelopmentVerificationGateEvidenceV4,
+  type TrustedRuntimeSourceProgramActionRecord
 } from './contract/evidence.ts';
 import {
   type CodexDevelopmentVerificationPlan
@@ -285,6 +288,9 @@ export async function CodexDevelopmentExecuteCiActionClosure(options: {
       requirementId: string;
     }>
   ) => Promise<CodexDevelopmentGateProcessSettlement>;
+  /** Transported exact result; the host must rejoin the retained live issuer. */
+  readonly sourceAction?: TrustedRuntimeSourceProgramActionRecord;
+  readonly sessionRevision?: string;
   readonly actionRunner?: VerificationActionRunner;
   readonly readDurableActionResult?: CodexDevelopmentCiVerificationTestOptions['readDurableActionResult'];
 }): Promise<CodexDevelopmentCiActionExecution> {
@@ -294,12 +300,20 @@ export async function CodexDevelopmentExecuteCiActionClosure(options: {
   if (options.gates.length !== actionPlan.actions.length) {
     throw new Error('CI Action executor gate/plan cardinality mismatch.');
   }
+  const sourceAction = options.sourceAction === undefined ? undefined
+    : parseTrustedRuntimeSourceProgramActionRecord(options.sourceAction);
+  if (sourceAction !== undefined && (sourceAction.sessionRevision !== options.sessionRevision
+      || sourceAction.gate.result.subjectRevision !== options.headSha
+      || !actionPlan.actions.some(({ action }) => action.actionKey === sourceAction.gate.action.actionKey))) {
+    throw new Error('Source Program Action handoff belongs to another exact Session or Action.');
+  }
   const runner = options.actionRunner ?? createVerificationActionRunner();
   const evidence: CodexDevelopmentVerificationGateEvidenceV4[] = [];
   let failed = false;
   for (let index = 0; index < actionPlan.actions.length; index += 1) {
     const plan = actionPlan.actions[index]!;
     const operation = actionPlan.normalizedOperations[index]!;
+    assertCiVerificationCurrentOperation(operation);
     const descriptor = options.gates[index]!;
     const authorizedArgv = ciVerificationNormalizedOperationArgv(operation);
     if (operation.gateId !== plan.action.operation.identity ||
@@ -320,6 +334,15 @@ export async function CodexDevelopmentExecuteCiActionClosure(options: {
         encodeVerificationActionData(descriptorBindings) !==
           encodeVerificationActionData(operationBindings)) {
       throw new Error(`CI Action executor descriptor for ${operation.gateId} differs from its authorized operation.`);
+    }
+    if (sourceAction !== undefined && operation.gateId === SOURCE_PROGRAM_TRANSITION_GATE_ID) {
+      if (encodeVerificationActionData(sourceAction.gate.action) !== encodeVerificationActionData(plan.action)) {
+        throw new Error('Source Program Action handoff differs from the selected Action.');
+      }
+      // This result has already physically run, even if another independent
+      // Action failed. Never mint a replacement journal terminal or rerun it.
+      evidence.push(sourceAction.gate);
+      continue;
     }
     if (failed) {
       evidence.push({
