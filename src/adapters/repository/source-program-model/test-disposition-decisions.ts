@@ -234,7 +234,9 @@ export interface SourceProgramTestAuthorAssessment {
 }
 
 const issuedAuthorApprovals = new WeakSet<object>();
-const issuedAuthorAssessments = new WeakSet<object>();
+// Relocated targets belong to this exact, privately issued assessment. They
+// are neither a persisted identity registry nor a reusable approval.
+const issuedAuthorAssessments = new WeakMap<object, ReadonlyMap<string, string>>();
 const COMMIT = /^[0-9a-f]{40}$/u;
 
 function authorRecord(value: unknown, keys: readonly string[], label: string): Record<string, unknown> {
@@ -469,6 +471,21 @@ export function assessSourceProgramTestAuthorDecision(input: Readonly<{
   const owners = new Set([...input.baseline.intentEvidence, ...input.current.intentEvidence].map(({ owner }) => owner));
   const seen = new Set<string>();
   const currentDecisionCounts = new Map<string, number>();
+  const relocatedTargets = new Map<string, string>();
+  const retentionKey = (test: SourceProgramSupersessionEvidence['tests'][number]): string =>
+    JSON.stringify([test.owner, test.path, test.registrationContentDigest]);
+  const uniqueRetentions = (tests: SourceProgramSupersessionEvidence['tests']) => {
+    const targets = new Map<string, string | null>();
+    for (const test of tests) {
+      const key = retentionKey(test);
+      targets.set(key, targets.has(key) ? null : test.testId);
+    }
+    return targets;
+  };
+  // Build these only for an explicitly authored relocation, never to discover
+  // automatic retention or to change historical same-occurrence decisions.
+  let uniqueBefore: ReturnType<typeof uniqueRetentions> | undefined;
+  let uniqueAfter: ReturnType<typeof uniqueRetentions> | undefined;
   for (const decision of payload.decisions) {
     for (const id of decision.currentTestIds) currentDecisionCounts.set(id, (currentDecisionCounts.get(id) ?? 0) + 1);
   }
@@ -525,15 +542,32 @@ export function assessSourceProgramTestAuthorDecision(input: Readonly<{
       return decisionError('author scope', 'does not name the complete changed observed definition-input boundary');
     }
     if (decision.disposition === 'retain-unassessed') {
-      if (sha256(decision.baselineTestIds) !== sha256(decision.currentTestIds)
-          || sha256(decision.replacementOwners) !== sha256([decision.owner])
-          || decision.baselineResponsibilities.length !== 0 || decision.currentResponsibilities.length !== 0
-          || decision.baselineTestIds.some((testId) => {
+      if (sha256(decision.replacementOwners) !== sha256([decision.owner])
+          || decision.baselineResponsibilities.length !== 0 || decision.currentResponsibilities.length !== 0) {
+        return decisionError('author retention', 'unassessed retention cannot rewrite or certify a registration');
+      }
+      if (sha256(decision.baselineTestIds) === sha256(decision.currentTestIds)) {
+        if (decision.baselineTestIds.some((testId) => {
             const old = before.get(testId)!;
             const next = after.get(testId)!;
             return old.path !== next.path || old.registrationContentDigest !== next.registrationContentDigest;
-          })) {
-        return decisionError('author retention', 'unassessed retention cannot rewrite or certify a registration');
+          })) return decisionError('author retention', 'unassessed retention cannot rewrite or certify a registration');
+      } else {
+        uniqueBefore ??= uniqueRetentions(input.baseline.tests);
+        uniqueAfter ??= uniqueRetentions(input.current.tests);
+        const selected = new Set(decision.currentTestIds);
+        if (decision.baselineTestIds.length !== selected.size) {
+          return decisionError('author retention', 'relocation requires one-to-one current registrations');
+        }
+        for (const testId of decision.baselineTestIds) {
+          const key = retentionKey(before.get(testId)!);
+          const target = uniqueAfter.get(key);
+          if (uniqueBefore.get(key) !== testId || target === undefined || target === null
+              || !selected.delete(target) || currentDecisionCounts.get(target) !== 1) {
+            return decisionError('author retention', 'relocation requires unique same-owner path and registration content');
+          }
+          relocatedTargets.set(testId, target);
+        }
       }
     } else {
       for (const [ids, responsibilities, occurrences] of [
@@ -564,12 +598,21 @@ export function assessSourceProgramTestAuthorDecision(input: Readonly<{
     decisions: payload.decisions
   });
   const assessment = deepFreeze({ ...canonical, assessmentDigest: sha256(canonical) });
-  issuedAuthorAssessments.add(assessment);
+  issuedAuthorAssessments.set(assessment, relocatedTargets);
   return assessment;
 }
 
 export function assertSourceProgramTestAuthorAssessment(value: SourceProgramTestAuthorAssessment): void {
   if (!issuedAuthorAssessments.has(value)) return decisionError('author assessment', 'exact compiler assessment required');
+}
+
+/** A data handoff from the existing author assessment, never an approval. */
+export function sourceProgramTestAuthorRelocatedTarget(
+  assessment: SourceProgramTestAuthorAssessment,
+  baselineTestId: string
+): string | undefined {
+  assertSourceProgramTestAuthorAssessment(assessment);
+  return issuedAuthorAssessments.get(assessment)!.get(baselineTestId);
 }
 
 export function qualifySourceProgramTestAuthorAssessment(input: Readonly<{

@@ -10,8 +10,8 @@ last-reviewed: 2026-10-01
 selectionMode: exact-manifest-not-on-default-branch-v1
 defaultBranchRef: refs/remotes/origin/main
 defaultRefFreshness: live-platform-match-required
-manifest: config/repository/work-packages/native-git-freeze-owner-20261001.md
-manifestDigest: sha256:d6df801389db9e4c2048e3e50359fa79b87a2b6e0c68fba9a8d9597fb2b008d3
+manifest: config/repository/work-packages/source-transition-reuse-20261001.md
+manifestDigest: sha256:0d402e71c74c4a6c19643e568adb973aa42059d5b763cef493b9ea149c2c8673
 digestBytes: git-blob
 unavailableDefaultRef: unresolved
 matchingDefaultBlob: none

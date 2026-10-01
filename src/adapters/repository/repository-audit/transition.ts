@@ -9,9 +9,11 @@ import {
 } from '../source-program-model/reduction.ts';
 import {
   assessSourceProgramTestAuthorDecision,
+  parseSourceProgramTestAuthorDecisionPayload,
   qualifySourceProgramTestAuthorAssessment,
   type SourceProgramTestAuthorApproval,
-  type SourceProgramTestAuthorAssessment
+  type SourceProgramTestAuthorAssessment,
+  type SourceProgramTestAuthorDecisionPayload
 } from '../source-program-model/test-disposition-decisions.ts';
 import {
   reconcileSourceProgramTestValueWithSupersession,
@@ -170,6 +172,32 @@ export function parseSourceProgramTransitionAssessment(value: unknown): SourcePr
   return parsed;
 }
 
+/** Interpret later author input over exact source facts; this issues no adoption authority. */
+export function assessSourceProgramTransitionAuthorInput(input: Readonly<{
+  assessment: Pick<SourceProgramTransitionAssessment,
+    'runtimeSha' | 'baseSha' | 'baseTreeSha' | 'headSha' | 'headTreeSha'
+    | 'baseline' | 'current' | 'changedPaths' | 'authorAssessment'>;
+  payload: SourceProgramTestAuthorDecisionPayload;
+}>): SourceProgramTestAuthorAssessment {
+  const payload = parseSourceProgramTestAuthorDecisionPayload(input.payload);
+  const assessment = input.assessment;
+  if (payload.trustedRevision !== assessment.runtimeSha
+      || payload.baseline.commitSha !== assessment.baseSha || payload.baseline.treeSha !== assessment.baseTreeSha
+      || payload.current.commitSha !== assessment.headSha || payload.current.treeSha !== assessment.headTreeSha) {
+    throw new Error('Test author decision audience, revisions or live observation drifted');
+  }
+  const authorAssessment = assessSourceProgramTestAuthorDecision({
+    payload, baseline: assessment.baseline, current: assessment.current, changedPaths: assessment.changedPaths
+  });
+  // Historical conditional assessments retain their exact interpretation. An
+  // author-free source assessment remains immutable while a new judgment is issued.
+  if (assessment.authorAssessment !== null
+      && sha256(authorAssessment) !== sha256(assessment.authorAssessment)) {
+    throw new Error('Test author assessment differs from the observed conditional interpretation');
+  }
+  return authorAssessment;
+}
+
 /** Recompute adopted Test Value policy over supplied facts. The result does not
  * authenticate those facts or grant a Gate capability; that join belongs to
  * the existing trusted-runtime producer observation owner. */
@@ -180,17 +208,8 @@ export function compileSourceProgramTransitionAdoption(input: Readonly<{
   const assessment = parseSourceProgramTransitionAssessment(input.assessment);
   let authorAssessment: SourceProgramTestAuthorAssessment | undefined;
   if (input.approval !== undefined) {
-    const payload = input.approval.payload;
-    if (payload.trustedRevision !== assessment.runtimeSha
-        || payload.baseline.commitSha !== assessment.baseSha || payload.baseline.treeSha !== assessment.baseTreeSha
-        || payload.current.commitSha !== assessment.headSha || payload.current.treeSha !== assessment.headTreeSha) {
-      throw new Error('Test author decision audience, revisions or live observation drifted');
-    }
-    authorAssessment = assessSourceProgramTestAuthorDecision({
-      payload, baseline: assessment.baseline, current: assessment.current, changedPaths: assessment.changedPaths
-    });
-    if (qualifySourceProgramTestAuthorAssessment({ approval: input.approval, assessment: authorAssessment }) !== 'qualified'
-        || sha256(authorAssessment) !== sha256(assessment.authorAssessment)) {
+    authorAssessment = assessSourceProgramTransitionAuthorInput({ assessment, payload: input.approval.payload });
+    if (qualifySourceProgramTestAuthorAssessment({ approval: input.approval, assessment: authorAssessment }) !== 'qualified') {
       throw new Error('Test author assessment differs from the observed conditional interpretation');
     }
   } else if (assessment.authorAssessment !== null) {

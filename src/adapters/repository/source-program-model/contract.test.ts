@@ -14,6 +14,7 @@ import {
   compileSecRepositoryModuleArchitectureProjection,
   compileSecRepositoryModuleMembershipSnapshot
 } from '../architecture/contract.ts';
+import { assessSourceProgramTransitionAuthorInput } from '../repository-audit/transition.ts';
 import { createSourceProgramCompilationOperation } from './compilation-operation.ts';
 import { isSourceProgramInputPath, sourceProgramSurfaceForPath } from './contract.ts';
 import {
@@ -3349,4 +3350,156 @@ test('causal readback provenance rejects non-return calls, bypass branches, muta
     '  if (source.length > 0) return parseRepairPlanJson(source);',
     '}'
   ].join('\n'));
+});
+
+
+function lateTransitionAuthorFixture() {
+  const testPath = 'src/example/behavior.test.ts';
+  const source = "import { expect, test } from 'bun:test';\nimport { execute } from './operation.ts';\ntest('executes', () => expect(execute()).toBe('ok'));\n";
+  const baseline = compileSupersessionSnapshot({
+    'src/example/operation.ts': "export function execute() { return 'ok'; }\n", [testPath]: source
+  });
+  const current = compileSupersessionSnapshot({
+    'src/example/operation.ts': "export function execute() { const result = 'ok'; return result; }\n", [testPath]: source
+  });
+  const changedPaths = ['src/example/operation.ts'];
+  const decision: SourceProgramTestAuthorDecision = { owner: 'example', replacementOwners: ['example'],
+    disposition: 'retain-unassessed', baselineTestIds: [baseline.tests[0]!.testId],
+    currentTestIds: [current.tests[0]!.testId], changedInputPaths: changedPaths,
+    baselineResponsibilities: [], currentResponsibilities: [],
+    reason: 'Retain the unchanged test definition; changed SUT inputs still require their own verification.' };
+  const payload = testAuthorPayload(baseline, current, [decision]);
+  const assessment = Object.freeze({ runtimeSha: 'a'.repeat(40), baseSha: 'a'.repeat(40),
+    baseTreeSha: 'b'.repeat(40), headSha: 'c'.repeat(40), headTreeSha: 'd'.repeat(40),
+    baseline, current, changedPaths, authorAssessment: null });
+  return { assessment, payload, decision };
+}
+
+test('late transition author input reuses immutable source facts without issuing adoption authority', async () => {
+  const { assessment, payload, decision } = lateTransitionAuthorFixture();
+  const original = JSON.stringify(assessment);
+  const proposed = assessSourceProgramTransitionAuthorInput({ assessment, payload });
+  expect(proposed.authority).toBe('conditional-author-input');
+  expect(proposed.decisions[0]).toMatchObject({ baselineTestIds: decision.baselineTestIds,
+    currentTestIds: decision.currentTestIds, disposition: 'retain-unassessed' });
+  expect(assessment.authorAssessment).toBeNull();
+  expect(JSON.stringify(assessment)).toBe(original);
+  const approval = await observeTestAuthor(payload);
+  expect(qualifySourceProgramTestAuthorAssessment({ approval, assessment: proposed })).toBe('test-only-simulation');
+  expect(() => qualifySourceProgramTestAuthorAssessment({ approval, assessment: { ...proposed } }))
+    .toThrow('exact compiler assessment required');
+});
+
+test('late transition author input rejects source drift and preserves historical conditional interpretation', () => {
+  const { assessment, payload, decision } = lateTransitionAuthorFixture();
+  const prior = assessSourceProgramTransitionAuthorInput({ assessment, payload });
+  const historical = { ...assessment, authorAssessment: prior };
+  const renewed = assessSourceProgramTransitionAuthorInput({ assessment: historical, payload });
+  expect(renewed).toEqual(prior);
+  expect(renewed).not.toBe(prior);
+  expect(() => assessSourceProgramTransitionAuthorInput({
+    assessment: { ...assessment, headSha: 'e'.repeat(40) }, payload
+  })).toThrow('revisions');
+  const sourceDrift = createSourceProgramTestAuthorDecisionPayload({ ...payload,
+    current: { ...payload.current, modelDigest: sha256('foreign model') } });
+  expect(() => assessSourceProgramTransitionAuthorInput({ assessment, payload: sourceDrift }))
+    .toThrow('compilation drift');
+  const laterPayload = testAuthorPayload(assessment.baseline, assessment.current,
+    [{ ...decision, reason: 'A different later author statement retains the same test.' }]);
+  expect(() => assessSourceProgramTransitionAuthorInput({ assessment: historical, payload: laterPayload }))
+    .toThrow('conditional interpretation');
+  expect(assessSourceProgramTransitionAuthorInput({ assessment, payload: laterPayload }).payloadDigest)
+    .toBe(laterPayload.payloadDigest);
+});
+
+test('authored relocation retains exact counterpart pairs without reusing approval or input evidence', async () => {
+  const testPath = 'src/example/behavior.test.ts';
+  const operationPath = 'src/example/operation.ts';
+  const bodies = [
+    "test('first', () => expect(execute()).toBe('ok'))",
+    "test('second', () => expect(execute()).toEqual('ok'))"
+  ];
+  const source = "import { expect, test } from 'bun:test';\nimport { execute } from './operation.ts';\n"
+    + bodies.join(';\n') + ';\n';
+  const baseline = compileSupersessionSnapshot({
+    [operationPath]: "export function execute() { return 'ok'; }\n", [testPath]: source
+  });
+  const current = compileSupersessionSnapshot({
+    [operationPath]: "export function execute() { const result = 'ok'; return result; }\n",
+    [testPath]: '// shifted source location\n' + source
+  });
+  const pairs = bodies.map(body => {
+    const digest = rawSha256(body);
+    const before = baseline.tests.find(test => test.registrationContentDigest === digest)!;
+    const after = current.tests.find(test => test.registrationContentDigest === digest)!;
+    expect(before.testId).not.toBe(after.testId);
+    expect(before.definitionInputDigest).not.toBe(after.definitionInputDigest);
+    return { before: before.testId, after: after.testId };
+  });
+  const changedPaths = [operationPath, testPath];
+  const decision: SourceProgramTestAuthorDecision = {
+    owner: 'example', replacementOwners: ['example'], disposition: 'retain-unassessed',
+    baselineTestIds: pairs.map(pair => pair.before), currentTestIds: pairs.map(pair => pair.after),
+    changedInputPaths: changedPaths, baselineResponsibilities: [], currentResponsibilities: [],
+    reason: 'Retain these exact definitions after a reviewed location shift; changed inputs still require verification.'
+  };
+  const payload = testAuthorPayload(baseline, current, [decision]);
+  const assessment = assessSourceProgramTestAuthorDecision({ payload, baseline, current, changedPaths });
+  const approval = await observeTestAuthor(payload);
+  expect(qualifySourceProgramTestAuthorAssessment({ assessment, approval })).toBe('test-only-simulation');
+  const receipt = compileSourceProgramSupersessionReceipt({ authorityScope: 'test-obligations',
+    baseline, current, changedPaths, authorAssessment: assessment, authorApproval: approval });
+  expect(receipt.status).toBe('author-decision-conditional');
+  expect(receipt.findings).toEqual([]);
+  expect(receipt.authorAssessedCurrentPaths).toEqual([]);
+  for (const pair of pairs) {
+    expect(receipt.replacements.find(({ baselineId }) => baselineId === pair.before))
+      .toMatchObject({ currentIds: [pair.after], proof: 'retained-unassessed' });
+  }
+  const automatic = compileSourceProgramSupersessionReceipt({ authorityScope: 'test-obligations',
+    baseline, current, changedPaths });
+  expect(automatic.status).toBe('owner-decision-required');
+  expect(automatic.replacements).toEqual([]);
+  const missingInput = testAuthorPayload(baseline, current, [{ ...decision, changedInputPaths: [testPath] }]);
+  expect(() => assessSourceProgramTestAuthorDecision({ payload: missingInput, baseline, current, changedPaths })).toThrow();
+  const priorPayload = testAuthorPayload(baseline, baseline, [{
+    ...decision, currentTestIds: decision.baselineTestIds, changedInputPaths: []
+  }]);
+  const priorApproval = await observeTestAuthor(priorPayload);
+  expect(() => qualifySourceProgramTestAuthorAssessment({ assessment, approval: priorApproval })).toThrow();
+});
+
+test('authored relocation rejects ambiguous identical registrations rather than using source order', () => {
+  const testPath = 'src/example/behavior.test.ts';
+  const production = { 'src/example/operation.ts': "export function execute() { return 'ok'; }\n" };
+  const body = "test('same', () => expect(execute()).toBe('ok'));\n";
+  const source = "import { expect, test } from 'bun:test';\nimport { execute } from './operation.ts';\n" + body + body;
+  const baseline = compileSupersessionSnapshot({ ...production, [testPath]: source });
+  const current = compileSupersessionSnapshot({ ...production, [testPath]: '\n' + source });
+  expect(baseline.tests).toHaveLength(2);
+  expect(current.tests).toHaveLength(2);
+  const payload = testAuthorPayload(baseline, current, [{
+    owner: 'example', replacementOwners: ['example'], disposition: 'retain-unassessed',
+    baselineTestIds: baseline.tests.map(test => test.testId), currentTestIds: current.tests.map(test => test.testId),
+    changedInputPaths: [testPath], baselineResponsibilities: [], currentResponsibilities: [],
+    reason: 'The duplicate definitions do not identify a unique counterpart.'
+  }]);
+  expect(() => assessSourceProgramTestAuthorDecision({ payload, baseline, current, changedPaths: [testPath] })).toThrow();
+});
+
+test('authored relocation cannot retain a changed oracle under the same title', () => {
+  const testPath = 'src/example/behavior.test.ts';
+  const production = { 'src/example/operation.ts': "export function execute() { return 'ok'; }\n" };
+  const source = "import { expect, test } from 'bun:test';\nimport { execute } from './operation.ts';\ntest('same', () => expect(execute()).toBe('ok'));\n";
+  const baseline = compileSupersessionSnapshot({ ...production, [testPath]: source });
+  const current = compileSupersessionSnapshot({ ...production,
+    [testPath]: '\n' + source.replace("toBe('ok')", "toBe('changed')") });
+  expect(baseline.tests[0]!.registrationContentDigest).not.toBe(current.tests[0]!.registrationContentDigest);
+  const payload = testAuthorPayload(baseline, current, [{
+    owner: 'example', replacementOwners: ['example'], disposition: 'retain-unassessed',
+    baselineTestIds: [baseline.tests[0]!.testId], currentTestIds: [current.tests[0]!.testId],
+    changedInputPaths: [testPath], baselineResponsibilities: [], currentResponsibilities: [],
+    reason: 'A title is only a locator and cannot authorize a changed oracle.'
+  }]);
+  expect(() => assessSourceProgramTestAuthorDecision({ payload, baseline, current, changedPaths: [testPath] })).toThrow();
 });
