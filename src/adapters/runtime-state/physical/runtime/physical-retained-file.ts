@@ -64,6 +64,7 @@ export type RetainedNoFollowPosixMetadataForInternal = Readonly<{
   ownerUserId: bigint | null;
 }>;
 const adoptedCurrentLinuxExecutables = new WeakSet<object>();
+const retainedOrdinaryFileMtimes = new WeakMap<object, bigint>();
 const retainedNoFollowOrdinaryFilePosixMetadata = new WeakMap<object, RetainedNoFollowPosixMetadataForInternal>();
 
 /** Retain the current runtime through its actual physical execution mode. */
@@ -495,6 +496,7 @@ function retainNoFollowFile(
           if (closeError !== null) throw closeError;
         }
       });
+      if (role === 'ordinary-file') retainedOrdinaryFileMtimes.set(capability, initialMtimeNs);
       retainedNoFollowOrdinaryFilePosixMetadata.set(capability, Object.freeze({
         mode: Number(initialMode & 0o7777n),
         ownerGroupId: initialOwnerGroupId,
@@ -640,6 +642,12 @@ function retainNoFollowFile(
           if (closeError !== null) throw closeError;
         }
       });
+      if (role === 'ordinary-file') {
+        // stableBasic omits access time: retained last-write FILETIME is its
+        // second 8-byte field. FILETIME is 100ns ticks since 1601-01-01.
+        const lastWrite = Buffer.from(initial.basic, 'hex').readBigInt64LE(8);
+        retainedOrdinaryFileMtimes.set(capability, (lastWrite - 116444736000000000n) * 100n);
+      }
       retainedNoFollowOrdinaryFilePosixMetadata.set(capability, Object.freeze({
         mode: null,
         ownerGroupId: null,
@@ -694,4 +702,14 @@ export function retainedNoFollowOrdinaryFilePosixMetadataForInternal(
   capability: RetainedNoFollowOrdinaryFile
 ): RetainedNoFollowPosixMetadataForInternal | undefined {
   return retainedNoFollowOrdinaryFilePosixMetadata.get(capability);
+}
+
+/** Immutable metadata of this live retained ordinary file, never path-based
+ * authority. Both native backends fence this timestamp for the full lifetime. */
+export function retainedNoFollowOrdinaryFileMtimeForInternal(capability: RetainedNoFollowOrdinaryFile): bigint {
+  assertRetainedNoFollowCapability(capability, 'ordinary-file', 'Retained file timestamp');
+  capability.assertCurrent();
+  const timestamp = retainedOrdinaryFileMtimes.get(capability);
+  if (timestamp === undefined) throw physicalError('PHYSICAL_NO_FOLLOW_CAPABILITY_UNAVAILABLE', 'Retained file timestamp is unavailable.');
+  return timestamp;
 }

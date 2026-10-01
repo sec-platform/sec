@@ -1,6 +1,10 @@
 import { createHash } from 'node:crypto';
 
+import { borrowByteView } from '../../../../contracts/byte-snapshot.ts';
 import { CodexDevelopmentIsCanonicalRepositoryPath } from '../../../../contracts/repository-path.ts';
+import { admitGitIndexPlanningTotal as admittedTotal, resolveGitIndexPlanningBudget, type GitIndexPlanningBudget } from './budget.ts';
+
+export { GitIndexPlanningBudgetError } from './budget.ts';
 
 export type GitIndexObjectFormat = 'sha1' | 'sha256';
 
@@ -16,6 +20,8 @@ type GitIndexGenerationEntry = Readonly<{
 export type GitIndexGeneration = Readonly<{
   readonly objectFormat: GitIndexObjectFormat;
   readonly entries: readonly GitIndexGenerationEntry[];
+  /** Protected conflict recovery metadata; never treated as a disposable cache. */
+  readonly resolveUndoHex?: string;
 }>;
 
 export type GitIndexObjectDelta = Readonly<{
@@ -23,36 +29,17 @@ export type GitIndexObjectDelta = Readonly<{
   readonly removals: readonly string[];
 }>;
 
-type MutableTreeNode = {
-  key: string;
-  depth: number;
-  nameHex: string | null;
-  leaves: Map<string, GitIndexGenerationEntry>;
-  children: Map<string, MutableTreeNode>;
-};
-
-export type GitMktreeDirectoryPlan = Readonly<{
-  readonly key: string;
-  readonly leaves: readonly Readonly<{
-    readonly mode: number;
-    readonly objectId: string;
-    readonly nameHex: string;
-  }>[];
-  readonly children: readonly Readonly<{
-    readonly key: string;
-    readonly nameHex: string;
-  }>[];
-}>;
-
-export type GitMktreePlan = Readonly<{
-  readonly levels: readonly (readonly GitMktreeDirectoryPlan[])[];
-  readonly rootKey: string;
-}>;
+function ownIndexArrayEntry<T>(entries: readonly T[], index: number): T {
+  const entry = Object.getOwnPropertyDescriptor(entries, String(index));
+  if (entry === undefined || !('value' in entry)) throw new Error('Git index planning requires own data entries.');
+  return entry.value;
+}
 
 const DISCARDABLE_INDEX_EXTENSIONS = new Set(['TREE', 'UNTR', 'FSMN', 'EOIE', 'IEOT']);
 const SUPPORTED_MODES = new Set([0o100644, 0o100755, 0o120000, 0o160000]);
 
 function objectIdBytes(format: GitIndexObjectFormat): number {
+  if (format !== 'sha1' && format !== 'sha256') throw new Error('Git index object format is unsupported.');
   return format === 'sha1' ? 20 : 32;
 }
 
@@ -78,65 +65,157 @@ function readV4RemoveCount(bytes: Buffer, offset: number, limit: number): Readon
   return Object.freeze({ value, offset });
 }
 
-function splitPathBytes(pathBytes: Buffer): readonly Buffer[] {
+function* splitPathBytes(pathBytes: Buffer): Generator<Readonly<{ part: Buffer; last: boolean }>> {
   if (pathBytes.byteLength === 0 || pathBytes[0] === 0x2f || pathBytes.at(-1) === 0x2f) {
     throw new Error('Git index path is empty or has a leading/trailing separator.');
   }
-  const parts: Buffer[] = [];
   let start = 0;
   for (let offset = 0; offset <= pathBytes.byteLength; offset += 1) {
     if (offset !== pathBytes.byteLength && pathBytes[offset] !== 0x2f) continue;
     if (offset === start) throw new Error('Git index path contains an empty component.');
-    const part = Buffer.from(pathBytes.subarray(start, offset));
+    const part = pathBytes.subarray(start, offset);
     if ((part.byteLength === 1 && part[0] === 0x2e)
         || (part.byteLength === 2 && part[0] === 0x2e && part[1] === 0x2e)
         || part.equals(Buffer.from('.git', 'ascii'))) {
       throw new Error('Git index path contains a forbidden component.');
     }
-    parts.push(part);
+    yield { part, last: offset === pathBytes.byteLength };
     start = offset + 1;
   }
-  return Object.freeze(parts);
 }
 
 function validateDenseEntry(entry: GitIndexGenerationEntry, format: GitIndexObjectFormat): void {
-  if (entry.statHex.length !== 80 || !/^[0-9a-f]{80}$/u.test(entry.statHex)
+  if (typeof entry.statHex !== 'string' || entry.statHex.length !== 80 || !/^[0-9a-f]{80}$/u.test(entry.statHex)
       || !SUPPORTED_MODES.has(entry.mode)
       || !objectIdPattern(format).test(entry.objectId)
-      || !/^(?:[0-9a-f]{2})+$/u.test(entry.pathHex)
-      || entry.pathHex.length === 0
+      || typeof entry.pathHex !== 'string' || entry.pathHex.length === 0
+      || entry.pathHex.length % 2 !== 0 || !/^[0-9a-f]+$/u.test(entry.pathHex)
       || !Number.isSafeInteger(entry.extendedFlags)
       || entry.extendedFlags < 0
       || (entry.extendedFlags & ~0x6000) !== 0) {
     throw new Error('Git index entry is outside the supported dense generation domain.');
   }
-  splitPathBytes(Buffer.from(entry.pathHex, 'hex'));
+  for (const _part of splitPathBytes(Buffer.from(entry.pathHex, 'hex'))) { /* Validate without retaining a parts array. */ }
+}
+
+function validateResolveUndo(
+  bytes: Buffer, format: GitIndexObjectFormat, budget: GitIndexPlanningBudget,
+  entryCount: number, pathBytes: number
+): Readonly<{ entryCount: number; pathBytes: number }> {
+  const oidWidth = objectIdBytes(format);
+  let offset = 0;
+  let previousPath: Buffer | undefined;
+  while (offset < bytes.length) {
+    entryCount = admittedTotal(entryCount, 1, budget.maxEntries, 'maxEntries');
+    const end = bytes.indexOf(0, offset);
+    if (end < 0) throw new Error('Git resolve-undo path is unterminated.');
+    pathBytes = admittedTotal(pathBytes, end - offset, budget.maxExpandedPathBytes, 'maxExpandedPathBytes');
+    const name = bytes.subarray(offset, end);
+    for (const _part of splitPathBytes(name)) { /* Same raw pathname domain as index entries. */ }
+    if (previousPath !== undefined && Buffer.compare(previousPath, name) >= 0) {
+      throw new Error('Git resolve-undo paths must be unique and byte-sorted.');
+    }
+    previousPath = name;
+    offset = end + 1;
+    let objectCount = 0;
+    for (let stage = 0; stage < 3; stage++) {
+      const modeEnd = bytes.indexOf(0, offset);
+      if (modeEnd < 0 || modeEnd - offset > 6) throw new Error('Git resolve-undo mode is truncated.');
+      const mode = bytes.subarray(offset, modeEnd).toString('latin1');
+      if (!/^(?:0|100644|100755|120000|160000)$/u.test(mode)) throw new Error('Git resolve-undo mode is unsupported.');
+      if (mode !== '0') objectCount++;
+      offset = modeEnd + 1;
+    }
+    if (objectCount === 0 || offset + objectCount * oidWidth > bytes.length) {
+      throw new Error('Git resolve-undo stage identities are absent or truncated.');
+    }
+    for (let stage = 0; stage < objectCount; stage++) {
+      if (bytes.subarray(offset, offset + oidWidth).every(value => value === 0)) {
+        throw new Error('Git resolve-undo stage identity is null.');
+      }
+      offset += oidWidth;
+    }
+  }
+  return { entryCount, pathBytes };
 }
 
 function sortEntries(entries: readonly GitIndexGenerationEntry[]): readonly GitIndexGenerationEntry[] {
-  const sorted = [...entries].sort((left, right) => {
-    const paths = Buffer.compare(Buffer.from(left.pathHex, 'hex'), Buffer.from(right.pathHex, 'hex'));
-    return paths;
-  });
-  for (let index = 1; index < sorted.length; index += 1) {
-    const previous = Buffer.from(sorted[index - 1]!.pathHex, 'hex');
-    const current = Buffer.from(sorted[index]!.pathHex, 'hex');
-    if (previous.equals(current)) throw new Error('Git index contains duplicate stage-zero paths.');
-    if (current.byteLength > previous.byteLength
-        && current.subarray(0, previous.byteLength).equals(previous)
-        && current[previous.byteLength] === 0x2f) {
-      throw new Error('Git index contains a file/directory path conflict.');
+  // Hex preserves byte ordering; compare immutable strings instead of copying
+  // both pathname buffers on every comparison.
+  const sorted = [...entries].sort((left, right) => left.pathHex < right.pathHex ? -1
+    : left.pathHex > right.pathHex ? 1 : 0);
+  // Slash-first comparison places a file beside any descendant even when
+  // an ordinary byte such as '-' sorts before '/' in native pathname order.
+  const conflictOrder = sorted.map(entry => ({ path: entry.pathHex,
+    key: entry.pathHex.replace(/../gu, octet => octet === '2f' ? '!' : octet) }))
+    .sort((left, right) => left.key < right.key ? -1 : left.key > right.key ? 1 : 0);
+  for (let index = 1; index < conflictOrder.length; index++) {
+    const previous = conflictOrder[index - 1]!.path, current = conflictOrder[index]!.path;
+    if (previous === current || current.startsWith(`${previous}2f`)) {
+      throw new Error('Git index contains a duplicate or file/directory path conflict.');
     }
   }
   return Object.freeze(sorted.map((entry) => Object.freeze({ ...entry })));
 }
 
+function captureGeneration(
+  input: GitIndexGeneration,
+  budget: GitIndexPlanningBudget
+): Readonly<{ generation: GitIndexGeneration; expandedPathBytes: number; resolveUndoEntries: number }> {
+  const objectFormat = input.objectFormat;
+  objectIdBytes(objectFormat);
+  const resolveUndoHex = input.resolveUndoHex;
+  const sourceEntries = input.entries;
+  if (!Array.isArray(sourceEntries)) throw new Error('Git index generation entries must be an array.');
+  const entryCount = admittedTotal(0, sourceEntries.length, budget.maxEntries, 'maxEntries');
+  let expandedPathBytes = 0;
+  const entries: GitIndexGenerationEntry[] = [];
+  for (let index = 0; index < entryCount; index += 1) {
+    const source = ownIndexArrayEntry(sourceEntries, index);
+    const { pathHex, statHex, mode, objectId, assumeValid, extendedFlags } = source;
+    if (typeof pathHex !== 'string' || pathHex.length % 2 !== 0) {
+      throw new Error('Git index path must be complete hexadecimal bytes.');
+    }
+    expandedPathBytes = admittedTotal(
+      expandedPathBytes, pathHex.length / 2, budget.maxExpandedPathBytes, 'maxExpandedPathBytes'
+    );
+    const entry = Object.freeze({ pathHex, statHex, mode, objectId, assumeValid, extendedFlags });
+    if (typeof objectId !== 'string' || typeof assumeValid !== 'boolean') {
+      throw new Error('Git index entry has invalid object identity or flags.');
+    }
+    validateDenseEntry(entry, objectFormat);
+    entries.push(entry);
+  }
+  let resolveUndoEntries = 0;
+  if (resolveUndoHex !== undefined) {
+    if (typeof resolveUndoHex !== 'string' || resolveUndoHex.length % 2 !== 0) throw new Error('Git resolve-undo payload must be hexadecimal bytes.');
+    admittedTotal(8, resolveUndoHex.length / 2, budget.maxRawBytes, 'maxRawBytes');
+    if (!/^[0-9a-f]*$/u.test(resolveUndoHex)) throw new Error('Git resolve-undo payload must be hexadecimal bytes.');
+    const totals = validateResolveUndo(Buffer.from(resolveUndoHex, 'hex'), objectFormat, budget, entryCount, expandedPathBytes);
+    resolveUndoEntries = totals.entryCount - entryCount;
+    expandedPathBytes = totals.pathBytes;
+  }
+  return Object.freeze({
+    generation: Object.freeze({ objectFormat, entries: Object.freeze(entries),
+      ...(resolveUndoHex === undefined ? {} : { resolveUndoHex }) }), expandedPathBytes, resolveUndoEntries
+  });
+}
+
 export function decodeGitIndexGeneration(
   input: Uint8Array,
-  objectFormat: GitIndexObjectFormat
+  objectFormat: GitIndexObjectFormat,
+  limits?: Partial<GitIndexPlanningBudget>
 ): GitIndexGeneration {
-  const bytes = Buffer.from(input);
+  const budget = resolveGitIndexPlanningBudget(limits);
+  const source = borrowByteView(input, 'Git index generation');
+  admittedTotal(0, source.byteLength, budget.maxRawBytes, 'maxRawBytes');
   const hashBytes = objectIdBytes(objectFormat);
+  // Inspect the fixed header through an ordinary borrowed view before the
+  // full-input copy or any entry-sized allocation.
+  if (source.byteLength < 12 + hashBytes) throw new Error('Git index header is absent or truncated.');
+  const header = Buffer.from(source.buffer, source.byteOffset, source.byteLength);
+  admittedTotal(0, header.readUInt32BE(8), budget.maxEntries, 'maxEntries');
+  const bytes = Buffer.from(source);
   if (bytes.byteLength < 12 + hashBytes
       || bytes.subarray(0, 4).toString('ascii') !== 'DIRC') {
     throw new Error('Git index header is absent or truncated.');
@@ -156,6 +235,7 @@ export function decodeGitIndexGeneration(
   const entries: GitIndexGenerationEntry[] = [];
   let offset = 12;
   let previousPath: Buffer = Buffer.alloc(0);
+  let expandedPathBytes = 0;
   const oidBytes = objectIdBytes(objectFormat);
   for (let index = 0; index < entryCount; index += 1) {
     const entryStart = offset;
@@ -191,6 +271,13 @@ export function decodeGitIndexGeneration(
         throw new Error('Git index v4 pathname encoding is invalid.');
       }
       const suffix = bytes.subarray(offset, terminator);
+      const expandedLength = admittedTotal(
+        previousPath.byteLength - prefix.value, suffix.byteLength,
+        budget.maxExpandedPathBytes, 'maxExpandedPathBytes'
+      );
+      expandedPathBytes = admittedTotal(
+        expandedPathBytes, expandedLength, budget.maxExpandedPathBytes, 'maxExpandedPathBytes'
+      );
       pathBytes = Buffer.concat([
         previousPath.subarray(0, previousPath.byteLength - prefix.value),
         suffix
@@ -199,6 +286,9 @@ export function decodeGitIndexGeneration(
     } else {
       const terminator = bytes.indexOf(0, offset);
       if (terminator < 0 || terminator >= contentEnd) throw new Error('Git index pathname is unterminated.');
+      expandedPathBytes = admittedTotal(
+        expandedPathBytes, terminator - offset, budget.maxExpandedPathBytes, 'maxExpandedPathBytes'
+      );
       pathBytes = Buffer.from(bytes.subarray(offset, terminator));
       offset = terminator + 1;
       const consumed = offset - entryStart;
@@ -223,17 +313,23 @@ export function decodeGitIndexGeneration(
     }));
   }
 
+  let resolveUndoHex: string | undefined;
   while (offset < contentEnd) {
     if (offset + 8 > contentEnd) throw new Error('Git index extension header is truncated.');
     const signatureBytes = bytes.subarray(offset, offset + 4);
-    const signature = signatureBytes.toString('ascii');
+    const signature = signatureBytes.toString('latin1');
     const size = bytes.readUInt32BE(offset + 4);
     offset += 8;
     if (offset + size > contentEnd) throw new Error('Git index extension payload is truncated.');
     if (signatureBytes[0]! < 0x41 || signatureBytes[0]! > 0x5a) {
       throw new Error(`Git index mandatory extension ${signature} is unsupported.`);
     }
-    if (!DISCARDABLE_INDEX_EXTENSIONS.has(signature)) {
+    if (signature === 'REUC') {
+      if (resolveUndoHex !== undefined) throw new Error('Git index contains duplicate resolve-undo extensions.');
+      const payload = bytes.subarray(offset, offset + size);
+      validateResolveUndo(payload, objectFormat, budget, entryCount, expandedPathBytes);
+      resolveUndoHex = payload.toString('hex');
+    } else if (!DISCARDABLE_INDEX_EXTENSIONS.has(signature)) {
       throw new Error(`Git index optional extension ${signature} has semantics this owner does not discard.`);
     }
     offset += size;
@@ -243,7 +339,8 @@ export function decodeGitIndexGeneration(
   for (const entry of entries) validateDenseEntry(entry, objectFormat);
   return Object.freeze({
     objectFormat,
-    entries: sortEntries(entries)
+    entries: sortEntries(entries),
+    ...(resolveUndoHex === undefined ? {} : { resolveUndoHex })
   });
 }
 
@@ -254,10 +351,30 @@ function canonicalEntryFlags(entry: GitIndexGenerationEntry): number {
     | Math.min(pathLength, 0x0fff);
 }
 
-export function encodeGitIndexGeneration(generation: GitIndexGeneration): Buffer {
+function measureEncodedIndexGeneration(generation: GitIndexGeneration, budget: GitIndexPlanningBudget): number {
+  const oidBytes = objectIdBytes(generation.objectFormat);
+  let encodedBytes = admittedTotal(12, oidBytes, budget.maxRawBytes, 'maxRawBytes');
+  for (const entry of generation.entries) {
+    const bodyBytes = 40 + oidBytes + (entry.extendedFlags === 0 ? 2 : 4) + entry.pathHex.length / 2 + 1;
+    encodedBytes = admittedTotal(
+      encodedBytes, bodyBytes + (8 - bodyBytes % 8) % 8, budget.maxRawBytes, 'maxRawBytes'
+    );
+  }
+  if (generation.resolveUndoHex !== undefined) {
+    encodedBytes = admittedTotal(encodedBytes, 8 + generation.resolveUndoHex.length / 2, budget.maxRawBytes, 'maxRawBytes');
+  }
+  return encodedBytes;
+}
+
+export function encodeGitIndexGeneration(
+  generation: GitIndexGeneration,
+  limits?: Partial<GitIndexPlanningBudget>
+): Buffer {
+  const budget = resolveGitIndexPlanningBudget(limits);
+  generation = captureGeneration(generation, budget).generation;
+  measureEncodedIndexGeneration(generation, budget);
   const { objectFormat } = generation;
   const entries = sortEntries(generation.entries);
-  for (const entry of entries) validateDenseEntry(entry, objectFormat);
   const oidBytes = objectIdBytes(objectFormat);
   const header = Buffer.alloc(12);
   header.write('DIRC', 0, 4, 'ascii');
@@ -275,6 +392,11 @@ export function encodeGitIndexGeneration(generation: GitIndexGeneration): Buffer
     const body = Buffer.concat([stat, oid, flags, pathBytes, Buffer.from([0])]);
     const padding = (8 - (body.byteLength % 8)) % 8;
     chunks.push(padding === 0 ? body : Buffer.concat([body, Buffer.alloc(padding)]));
+  }
+  if (generation.resolveUndoHex !== undefined) {
+    const payload = Buffer.from(generation.resolveUndoHex, 'hex');
+    const extension = Buffer.alloc(8); extension.write('REUC'); extension.writeUInt32BE(payload.length, 4);
+    chunks.push(extension, payload);
   }
   const content = Buffer.concat(chunks);
   const checksum = createHash(objectFormat).update(content).digest();
@@ -299,153 +421,88 @@ function newRegularEntry(path: string, objectId: string, objectFormat: GitIndexO
 
 export function applyGitIndexObjectDelta(
   generation: GitIndexGeneration,
-  delta: GitIndexObjectDelta
+  delta: GitIndexObjectDelta,
+  limits?: Partial<GitIndexPlanningBudget>
 ): GitIndexGeneration {
-  if (generation.objectFormat !== 'sha1' && generation.objectFormat !== 'sha256') {
-    throw new Error('Git index generation object format is invalid.');
+  const budget = resolveGitIndexPlanningBudget(limits);
+  const captured = captureGeneration(generation, budget);
+  generation = captured.generation;
+  const { additions, removals } = delta;
+  if (!Array.isArray(additions) || !Array.isArray(removals)) {
+    throw new Error('Git index delta additions and removals must be arrays.');
   }
+  const additionCount = admittedTotal(0, additions.length, budget.maxEntries, 'maxEntries');
+  const removalCount = admittedTotal(0, removals.length, budget.maxEntries, 'maxEntries');
+  let expandedPathBytes = captured.expandedPathBytes;
+  let deltaPathBytes = 0;
   const entries = new Map(generation.entries.map((entry) => [entry.pathHex, entry] as const));
-  for (const path of delta.removals) {
+  for (let index = 0; index < removalCount; index += 1) {
+    const path = ownIndexArrayEntry(removals, index);
+    if (typeof path !== 'string') throw new Error('Git index delta removal path must be a string.');
+    deltaPathBytes = admittedTotal(
+      deltaPathBytes, Buffer.byteLength(path, 'utf8'), budget.maxExpandedPathBytes, 'maxExpandedPathBytes'
+    );
     if (!CodexDevelopmentIsCanonicalRepositoryPath(path)) throw new Error('Git index delta removal path is invalid.');
-    entries.delete(Buffer.from(path, 'utf8').toString('hex'));
+    const key = Buffer.from(path, 'utf8').toString('hex');
+    const previous = entries.get(key);
+    if (previous !== undefined) expandedPathBytes -= previous.pathHex.length / 2;
+    entries.delete(key);
   }
-  for (const addition of delta.additions) {
-    const entry = newRegularEntry(addition.path, addition.objectId, generation.objectFormat);
+  for (let index = 0; index < additionCount; index += 1) {
+    const addition = ownIndexArrayEntry(additions, index);
+    const { path, objectId } = addition;
+    if (typeof path !== 'string') throw new Error('Git index delta addition path must be a string.');
+    const pathBytes = Buffer.byteLength(path, 'utf8');
+    deltaPathBytes = admittedTotal(
+      deltaPathBytes, pathBytes, budget.maxExpandedPathBytes, 'maxExpandedPathBytes'
+    );
+    const key = Buffer.from(path, 'utf8').toString('hex');
+    const previous = entries.get(key);
+    admittedTotal(entries.size + captured.resolveUndoEntries, previous === undefined ? 1 : 0, budget.maxEntries, 'maxEntries');
+    expandedPathBytes = admittedTotal(
+      expandedPathBytes - (previous?.pathHex.length ?? 0) / 2,
+      pathBytes, budget.maxExpandedPathBytes, 'maxExpandedPathBytes'
+    );
+    const entry = newRegularEntry(path, objectId, generation.objectFormat);
     entries.set(entry.pathHex, entry);
   }
   return Object.freeze({
     objectFormat: generation.objectFormat,
-    entries: sortEntries([...entries.values()])
+    entries: sortEntries([...entries.values()]),
+    ...(generation.resolveUndoHex === undefined ? {} : { resolveUndoHex: generation.resolveUndoHex })
   });
 }
 
-function modeText(mode: number): string {
-  if (mode === 0o100644) return '100644';
-  if (mode === 0o100755) return '100755';
-  if (mode === 0o120000) return '120000';
-  if (mode === 0o160000) return '160000';
-  throw new Error('Git tree entry mode is unsupported.');
-}
-
-function objectType(mode: number): 'blob' | 'commit' {
-  return mode === 0o160000 ? 'commit' : 'blob';
-}
-
-export function compileGitMktreePlan(generation: GitIndexGeneration): GitMktreePlan {
-  const root: MutableTreeNode = {
-    key: '',
-    depth: 0,
-    nameHex: null,
-    leaves: new Map(),
-    children: new Map()
-  };
-  const nodes = new Map<string, MutableTreeNode>([['', root]]);
+/** Native write-tree omits intent-to-add and can trust cached trees. Only the
+ * dense, non-null stage-zero domain is admitted before preparing its private
+ * cache-free index with protected resolve-undo metadata. */
+export function assertGitIndexTreeGeneration(generation: GitIndexGeneration): void {
   for (const entry of generation.entries) {
     validateDenseEntry(entry, generation.objectFormat);
-    if (/^0+$/u.test(entry.objectId)) {
+    if (/^0+$/u.test(entry.objectId) || (entry.extendedFlags & 0x2000) !== 0) {
       throw new Error('Git tree generation rejects intent-to-add or null object identities.');
     }
-    const parts = splitPathBytes(Buffer.from(entry.pathHex, 'hex'));
-    let node = root;
-    const directoryParts: Buffer[] = [];
-    for (const part of parts.slice(0, -1)) {
-      const partHex = part.toString('hex');
-      if (node.leaves.has(partHex)) throw new Error('Git tree generation found a file/directory conflict.');
-      directoryParts.push(part);
-      const key = Buffer.concat(directoryParts.flatMap((value, index) => (
-        index === 0 ? [value] : [Buffer.from('/'), value]
-      ))).toString('hex');
-      let child = node.children.get(partHex);
-      if (child === undefined) {
-        child = {
-          key,
-          depth: node.depth + 1,
-          nameHex: partHex,
-          leaves: new Map(),
-          children: new Map()
-        };
-        node.children.set(partHex, child);
-        nodes.set(key, child);
-      }
-      node = child;
-    }
-    const leaf = parts.at(-1)!;
-    const leafHex = leaf.toString('hex');
-    if (node.children.has(leafHex) || node.leaves.has(leafHex)) {
-      throw new Error('Git tree generation found a duplicate or file/directory conflict.');
-    }
-    node.leaves.set(leafHex, entry);
   }
-  const maximumDepth = Math.max(...[...nodes.values()].map((node) => node.depth));
-  const levels: (readonly GitMktreeDirectoryPlan[])[] = [];
-  for (let depth = maximumDepth; depth >= 0; depth -= 1) {
-    const level = [...nodes.values()]
-      .filter((node) => node.depth === depth)
-      .sort((left, right) => left.key.localeCompare(right.key))
-      .map((node) => Object.freeze({
-        key: node.key,
-        leaves: Object.freeze([...node.leaves.entries()].map(([nameHex, entry]) => Object.freeze({
-          mode: entry.mode,
-          objectId: entry.objectId,
-          nameHex
-        }))),
-        children: Object.freeze([...node.children.values()].map((child) => Object.freeze({
-          key: child.key,
-          nameHex: child.nameHex!
-        })))
-      }));
-    levels.push(Object.freeze(level));
-  }
-  return Object.freeze({ levels: Object.freeze(levels), rootKey: '' });
 }
 
-function mktreeRecord(prefix: string, nameHex: string): Buffer {
-  return Buffer.concat([
-    Buffer.from(prefix, 'ascii'),
-    Buffer.from(nameHex, 'hex'),
-    Buffer.from([0])
-  ]);
-}
-
-export function encodeGitMktreeBatch(
-  directories: readonly GitMktreeDirectoryPlan[],
-  resolvedTrees: ReadonlyMap<string, string>,
-  objectFormat: GitIndexObjectFormat
-): Buffer {
-  const chunks: Buffer[] = [];
-  for (const directory of directories) {
-    for (const leaf of directory.leaves) {
-      if (!objectIdPattern(objectFormat).test(leaf.objectId)) throw new Error('Git mktree leaf object id is invalid.');
-      chunks.push(mktreeRecord(
-        `${modeText(leaf.mode)} ${objectType(leaf.mode)} ${leaf.objectId}\t`,
-        leaf.nameHex
-      ));
+/** Exact native cat-file metadata, including Git's missing-gitlink exception.
+ * This validates types; write-tree alone only checks ordinary object existence. */
+export function assertGitIndexObjectInfoBatch(
+  entries: readonly Readonly<{ objectId: string; mode: number }>[], output: Uint8Array
+): void {
+  const bytes = Buffer.from(output);
+  let offset = 0;
+  for (const entry of entries) {
+    const end = bytes.indexOf(0x0a, offset);
+    if (end < 0) throw new Error('Git index object metadata is incomplete.');
+    const line = bytes.subarray(offset, end).toString('utf8');
+    offset = end + 1;
+    if (entry.mode === 0o160000 && line === `${entry.objectId} missing`) continue;
+    const match = /^([0-9a-f]{40}|[0-9a-f]{64}) (blob|commit) (0|[1-9][0-9]{0,19})$/u.exec(line);
+    if (match === null || match[1] !== entry.objectId
+        || match[2] !== (entry.mode === 0o160000 ? 'commit' : 'blob')) {
+      throw new Error('Git index object metadata has a missing or wrong-type entry.');
     }
-    for (const child of directory.children) {
-      const objectId = resolvedTrees.get(child.key);
-      if (objectId === undefined || !objectIdPattern(objectFormat).test(objectId)) {
-        throw new Error('Git mktree child tree identity is unresolved.');
-      }
-      chunks.push(mktreeRecord(`040000 tree ${objectId}\t`, child.nameHex));
-    }
-    chunks.push(Buffer.from([0]));
   }
-  return Buffer.concat(chunks);
-}
-
-export function parseGitMktreeBatchOutput(
-  bytes: Uint8Array,
-  expectedCount: number,
-  objectFormat: GitIndexObjectFormat
-): readonly string[] {
-  const source = Buffer.from(bytes).toString('ascii');
-  const lines = source.endsWith('\n') ? source.slice(0, -1).split('\n') : source.split('\n');
-  if (expectedCount === 0) {
-    if (source.length !== 0) throw new Error('Git mktree returned unexpected output for an empty batch.');
-    return Object.freeze([]);
-  }
-  if (lines.length !== expectedCount || lines.some((value) => !objectIdPattern(objectFormat).test(value))) {
-    throw new Error('Git mktree batch output does not match the requested directory count.');
-  }
-  return Object.freeze(lines);
+  if (offset !== bytes.length) throw new Error('Git index object metadata has trailing output.');
 }

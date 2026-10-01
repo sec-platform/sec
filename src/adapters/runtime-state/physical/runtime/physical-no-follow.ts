@@ -43,8 +43,7 @@ export {
 } from './physical-no-follow-native.ts';
 export {
   observeAdoptedExecutableSource, retainCurrentLinuxSealedExecutable, retainCurrentProcessExecutable, retainNoFollowGenerationExecutable,
-  retainNoFollowOrdinaryFile,
-  retainNoFollowOrdinaryFileForChildProcess, retainedExecutableSourcePath
+  retainNoFollowOrdinaryFile, retainNoFollowOrdinaryFileForChildProcess, retainedExecutableSourcePath, retainedNoFollowOrdinaryFileMtimeForInternal
 } from './physical-retained-file.ts';
 
 export {
