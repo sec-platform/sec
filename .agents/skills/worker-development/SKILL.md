@@ -12,14 +12,16 @@ description: 用于在 frozen Task Envelope 内实现一个 SEC 产品、修复�
 - 已收到 exact base、branch、owned/forbidden paths、acceptance、focused verification closure，且需要的测试语义已经冻结。
 
 ## 不触发
-- active pointer unresolved；需要改 Work Package、authority、跨 owner 设计，或必须改变 Claim/oracle/测试退役判断；后一类返回 `test-design-required`。
+- 需要改 Work Package、authority、跨 owner 设计，或必须改变 Claim/oracle/测试退役判断；后一类返回 `test-design-required`。active pointer unresolved阻断依赖它的正式实施／作用准入；已有明确授权的有界源码提案按下述前置条件判断，不凭Skill补发operation。
 
 ## 输入
 - Task Capsule/Operation Envelope、相关 owner/types/source、当前 failing reproduction 与已选择的 Action closure。
 - 当前用户授权的可观察仓库终态，以及该授权是否只到本地候选、分支检查点、目标远端/default ref 或产品发布。
 
 ## 前置门禁
-- Envelope完整、base未漂移、用户修正已reconcile。
+- Envelope完整、固定base与必要前像可核、用户修正已reconcile；原Capsule能定位[完整变化闭包](../../../docs/维护/规格写作与完整性.md#complete-change-closure)。设计引用缺失或不能解释相交消费者／失败恢复时，先回原owner补齐，不能边改局部代码边默认架构已闭合。
+- 区分固定提案主体与当前集成资格：main前进不自动改变旧base、owned前像或已有Evidence。若已经明确授权在隔离写集中继续源码提案，先核main delta是否与必需owner、输入闭包或读写前像相交；只重算相交部分，保持原patch和有效证据。正式activation、freeze、commit、push／merge仍须当前owner重新绑定并通过实际准入，源码提案不携带这些资格。
+- status因rolling/live-main不匹配而未能给出continuation时，保留准确失败交原resolver／Work Package owner；未取得上述独立提案授权或无法界定交集时不继续依赖该准入的写入。不得手改控制投影、重放旧grant或以相同源码冒称新main已验证；缺失的机器continuation属于原owner实现缺口，修改Skill不等于该路径已接通。
 
 ## 执行
 1. 读取 Capsule 指定的 authority/types/source 与 unresolved frontier，并核AGENTS要求的同版相交产品/原则/设计是否已取得；缺必要依赖时向原read-plan owner补闭包，不以Capsule省略推定不适用。禁止默认全仓扫描。
