@@ -42,7 +42,8 @@ const digest = (value: unknown): `sha256:${string}` => sha256(value) as `sha256:
 
 function input(
   currentCandidates: SourceProgramModel['candidates'] = Object.freeze([]),
-  baselineCandidates: SourceProgramModel['candidates'] = Object.freeze([])
+  baselineCandidates: SourceProgramModel['candidates'] = Object.freeze([]),
+  includeMechanismReview = true
 ): CompileWholeSourceProgramAuditOperationInput {
   const sourceRevision = digest('source');
   const modelDigest = digest('model');
@@ -130,7 +131,9 @@ function input(
     sourceProgram: compileSourceProgramAuditSourceProgramProjection(
       model,
       sourceFileIdentities,
-      false
+      false,
+      false,
+      includeMechanismReview
     ),
     sourceFileIdentities,
     moduleArchitecture: Object.freeze({
@@ -1028,6 +1031,26 @@ function historicalTransition(facts: CompileSourceProgramAuditOperationInput): P
 }
 
 describe('test-obligations scoped audit facts', () => {
+  test('omits optional mechanism diagnostics without changing test-obligation decisions', () => {
+    const fullFacts = legacyTestFacts();
+    const leanFacts = { ...fullFacts, sourceProgram: input([], [], false).sourceProgram };
+    const { mechanismReview, ...requiredSourceFacts } = fullFacts.sourceProgram;
+    assert.ok(mechanismReview !== undefined);
+    assert.deepEqual(leanFacts.sourceProgram, requiredSourceFacts);
+    const full = compileSourceProgramAuditOperationInput(scopedTestFacts(fullFacts));
+    const lean = compileSourceProgramAuditOperationInput(scopedTestFacts(leanFacts));
+    const { mechanisms, ...requiredProjection } = full.projection;
+    assert.ok(mechanisms !== undefined);
+    assert.deepEqual(lean.projection, requiredProjection);
+    assert.deepEqual(lean.blockingReasons, full.blockingReasons);
+    assert.equal(compileSourceProgramAuditOperation(lean).exitCode,
+      compileSourceProgramAuditOperation(full).exitCode);
+    // Existing historical facts still retain and replay the complete diagnostic.
+    assert.deepEqual(parseSourceProgramTransitionAssessment(
+      createSourceProgramTransitionAssessment(historicalTransition(scopedTestFacts(fullFacts))))
+      .auditFacts.sourceProgram.mechanismReview, mechanismReview);
+  });
+
   test('omits general producer calls and reports unrequested analyses without zero success counts', () => {
     const full = legacyTestFacts();
     let calls = 0;

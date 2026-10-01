@@ -49,9 +49,9 @@ const LINUX_O_NONBLOCK = 0x800;
 export const LINUX_AT_FDCWD = -100;
 
 // F_DUPFD_CLOEXEC is the Linux command shared by the supported architectures.
-// Retained descriptors are kept above the child transport's fixed 3/4 slots;
-// this remains true even when a host has closed stdin/stdout/stderr before the
-// capability is created.
+// Retained descriptors are kept above every admitted child slot (3 through 64),
+// including auxiliary inputs and ignored gaps. Spawn file actions must not close
+// a retained source before a later child slot duplicates it.
 const LINUX_F_DUPFD_CLOEXEC = 1_030;
 
 const LINUX_F_ADD_SEALS = 1_033;
@@ -73,7 +73,7 @@ const LINUX_MFD_CLOEXEC = 0x0001;
 
 const LINUX_MFD_ALLOW_SEALING = 0x0002;
 
-const LINUX_RETAINED_DESCRIPTOR_MIN = 5;
+const LINUX_RETAINED_DESCRIPTOR_MIN = 65;
 
 export const LINUX_AT_REMOVEDIR = 0x0200;
 
@@ -277,7 +277,8 @@ export function linuxCreateSealedExecutableImage(
         `${label} cannot create an immutable retained executable image (errno ${linuxErrno()}).`
       );
     }
-    imageFd = linuxRaiseDescriptorFloor(created, `${label} immutable image`);
+    imageFd = created;
+    imageFd = linuxRaiseDescriptorFloor(imageFd, `${label} immutable image`);
     const maximumBytes = Number(sourceSize);
     let offset = 0;
     const buffer = Buffer.allocUnsafe(1024 * 1024);

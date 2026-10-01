@@ -582,7 +582,8 @@ export function compileSourceProgramAuditSourceProgramProjection(
   model: SourceProgramModel,
   sourceFileIdentities: readonly Readonly<{ readonly path: string; readonly contentDigest: string }>[],
   includeCandidates: boolean,
-  includeUnknowns = false
+  includeUnknowns = false,
+  includeMechanismReview = true
 ): CompileSourceProgramAuditOperationInput['sourceProgram'] {
   assertSourceFileIdentities(sourceFileIdentities);
   const modelFileDigestByPath = new Map(model.files.map(({ path, contentDigest }) =>
@@ -596,7 +597,9 @@ export function compileSourceProgramAuditSourceProgramProjection(
     sourceRevision: model.sourceRevision,
     modelDigest: model.modelDigest,
     sourceFileSetDigest: sha256(sourceFileIdentities),
-    mechanismReview: compileSourceProgramMechanismReview(model),
+    // This diagnostic is not a test-obligation input. Branch before its scan;
+    // omitted optional data preserves the historical full-audit representation.
+    ...(includeMechanismReview ? { mechanismReview: compileSourceProgramMechanismReview(model) } : {}),
     candidateDigests: Object.freeze(model.candidates.map((candidate) => sha256(candidate))),
     unknownDigests: Object.freeze(model.unknowns.map((unknown) => sha256(unknown))),
     unknownsDigest: sha256(model.unknowns),
