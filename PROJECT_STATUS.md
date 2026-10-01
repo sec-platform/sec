@@ -6,7 +6,7 @@ This project is in an **active development preview**. The repository retains the
 
 The repository contains:
 
-- an integrated SEC-086 design corpus with product, authoring, compilation, runtime, assurance, evolution, information, and domain specifications;
+- the current integrated design corpus on `main`, with product, authoring, compilation, runtime, assurance, evolution, information, and domain specifications;
 - a TypeScript implementation organized around explicit contracts, workspace state, semantic interpretation, compilation, assurance, application coordination, execution, adapters, entry points, and composition;
 - tests, repository audits, documentation checks, development-control machinery, and GitHub workflows;
 - authoring examples and reference/demo entry points.
