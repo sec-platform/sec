@@ -12,9 +12,9 @@ last-reviewed: 2026-10-01
 ```json
 {
   "active": {
-    "manifestDigest": "sha256:22f12a0c4f23e7547dda9f3fc16e4e0ed1e9053327d0596e6f2ce0a9104a7306",
-    "manifestPath": "config/repository/work-packages/windows-executor-observation-boundary-20261001.md",
-    "packageId": "windows-executor-observation-boundary-20261001",
+    "manifestDigest": "sha256:6f0045c974c738ce49db1e058ddf2a85c8c73a8a629a4c99f83094a47f984aae",
+    "manifestPath": "config/repository/work-packages/generated-store-adoption-20261001.md",
+    "packageId": "generated-store-adoption-20261001",
     "tracking": "none"
   },
   "authority": "none",
@@ -25,18 +25,18 @@ last-reviewed: 2026-10-01
     "candidate-control-transaction-v1",
     "typescript-7-checker-acceleration-v1"
   ],
-  "exactMain": "edcdd184af5c61a3da3b851e141efe5588e64ce3",
-  "exactMainTree": "3c153c08b5583c12d3e0ba55d4a8a13209933557",
-  "projectionDigest": "sha256:3ba7ed9156ea2d54be687a35ffa3ffd44e62adb7b9a981a4e4a9aae83ba3613d",
+  "exactMain": "b5993734073a4aa23ca637bd1b6649bedb4d0c2e",
+  "exactMainTree": "d321ccfd3ed9ed52cb1596128f8700c5cca31c6e",
+  "projectionDigest": "sha256:c61cdd121c75cd4f449d3d393444ad833d12741483a420237aadc3bb989833e3",
   "schema": "sec-work-rolling-proposal-projection-v1"
 }
 ```
 
 ## 当前唯一 Work Package
 
-### windows-executor-observation-boundary-20261001
+### generated-store-adoption-20261001
 
-Proposal-only target manifest `config/repository/work-packages/windows-executor-observation-boundary-20261001.md` at `sha256:22f12a0c4f23e7547dda9f3fc16e4e0ed1e9053327d0596e6f2ce0a9104a7306`, based on exact main `edcdd184af5c61a3da3b851e141efe5588e64ce3` and tree `3c153c08b5583c12d3e0ba55d4a8a13209933557`.
+Proposal-only target manifest `config/repository/work-packages/generated-store-adoption-20261001.md` at `sha256:6f0045c974c738ce49db1e058ddf2a85c8c73a8a629a4c99f83094a47f984aae`, based on exact main `b5993734073a4aa23ca637bd1b6649bedb4d0c2e` and tree `d321ccfd3ed9ed52cb1596128f8700c5cca31c6e`.
 
 ## 候选 Work Package
 
