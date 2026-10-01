@@ -1,6 +1,6 @@
 {
   "schema": "sec.documentation-source-manifest/2",
-  "source_set_sha256": "a9d7fe2f043aa47500417a40cad0d13ba266adcb1ba08a11a2bcd77df09f2947",
+  "source_set_sha256": "de9bdfaa1e59c5cdbd04cdecb972df51762d070caf8c578f03e50b667fcd75f4",
   "members": [
     {
       "path": ".documentation/README.md",
@@ -449,8 +449,8 @@
     },
     {
       "path": "docs/依据/来源/构建分发与迁移.md",
-      "bytes": 26278,
-      "sha256": "d5e459f94441df4fc4af0c08ab2741af3df8725c89b4ed65cc539fc69d7a0902"
+      "bytes": 30834,
+      "sha256": "7734a091bf45dbb0b5e9170b0680e618f846f8ac07814fd4bb009c324674fba4"
     },
     {
       "path": "docs/依据/来源/状态规则与约束.md",
@@ -574,8 +574,8 @@
     },
     {
       "path": "docs/决策/设计理由-约束与演进.md",
-      "bytes": 49924,
-      "sha256": "36c895e53d4487a6eb55b5a5c9651853253d5f4e30b5d9ca9f6a9cfa38b8b624"
+      "bytes": 53703,
+      "sha256": "290fe5335efac94322e6922f8027b38945b61fcacedf97b69c917be816eeb467"
     },
     {
       "path": "docs/开发/AI协作/README.md",
@@ -694,8 +694,8 @@
     },
     {
       "path": "docs/架构/实现供给与替换.md",
-      "bytes": 14487,
-      "sha256": "e1d79591866f1e72dc03e020af953833ab2446f3c4a5dbd88ab4cb47a7ef7ae3"
+      "bytes": 16820,
+      "sha256": "b97fe4849e8f78661a14847a54199571583565ed517abb5d5fae90df3c8f7450"
     },
     {
       "path": "docs/架构/实现语言与机制演进.md",

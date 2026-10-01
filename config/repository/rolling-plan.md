@@ -12,9 +12,9 @@ last-reviewed: 2026-10-01
 ```json
 {
   "active": {
-    "manifestDigest": "sha256:ebb0f0766787841f4753189f0712bc0478e33bedbfde06ed95aa7e6d4fb72f50",
-    "manifestPath": "config/repository/work-packages/codeql-advanced-cadence-20261001.md",
-    "packageId": "codeql-advanced-cadence-20261001",
+    "manifestDigest": "sha256:e3ca6f57d75ff72c15bea61cd58d6a1e630fcdb6105bc15fbf28162c03e5fe0b",
+    "manifestPath": "config/repository/work-packages/workflow-provider-decisions-20261001.md",
+    "packageId": "workflow-provider-decisions-20261001",
     "tracking": "none"
   },
   "authority": "none",
@@ -25,18 +25,18 @@ last-reviewed: 2026-10-01
     "candidate-control-transaction-v1",
     "typescript-7-checker-acceleration-v1"
   ],
-  "exactMain": "529a2f1f1ea802d71135de7aba5b8f77d2923924",
-  "exactMainTree": "d3c0874f271ba4a1facc6c35db4b9adba7859878",
-  "projectionDigest": "sha256:2fa5bf2c4fb0c7dde25856a126265e66656adb43429f2ce6ce833952c6d56560",
+  "exactMain": "22ba5398065a5e9bd620545699cc28f392ad9f36",
+  "exactMainTree": "9fad52903df0e0abe098351cf8d99b78f41b6410",
+  "projectionDigest": "sha256:0d70aaa9b05482e6b56a58f07e7cc9fe969bbe633288f570bc798a6813a3e8c4",
   "schema": "sec-work-rolling-proposal-projection-v1"
 }
 ```
 
 ## 当前唯一 Work Package
 
-### codeql-advanced-cadence-20261001
+### workflow-provider-decisions-20261001
 
-Proposal-only target manifest `config/repository/work-packages/codeql-advanced-cadence-20261001.md` at `sha256:ebb0f0766787841f4753189f0712bc0478e33bedbfde06ed95aa7e6d4fb72f50`, based on exact main `529a2f1f1ea802d71135de7aba5b8f77d2923924` and tree `d3c0874f271ba4a1facc6c35db4b9adba7859878`.
+Proposal-only target manifest `config/repository/work-packages/workflow-provider-decisions-20261001.md` at `sha256:e3ca6f57d75ff72c15bea61cd58d6a1e630fcdb6105bc15fbf28162c03e5fe0b`, based on exact main `22ba5398065a5e9bd620545699cc28f392ad9f36` and tree `9fad52903df0e0abe098351cf8d99b78f41b6410`.
 
 ## 候选 Work Package
 
