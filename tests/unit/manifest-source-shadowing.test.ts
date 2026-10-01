@@ -201,6 +201,12 @@ test('duplicate selected identity compares manifest authority rather than invoca
   const reordered = loadManifestById('cache/probe', { ...f,
     registrySources: [f.registrySources[0]!, f.registrySources[2]!, f.registrySources[1]!] });
   expect(resolveManifestGraph([selected, reordered], []).entries).toEqual([selected]);
+  const otherSource = { ...selected, registrySourceId: 'other-source' };
+  const otherContent = { ...selected, manifest: { ...selected.manifest, provides: ['changed/capability'] } };
+  for (const incompatible of [otherSource, otherContent]) {
+    expect(() => resolveManifestGraph([selected, incompatible], []))
+      .toThrow(expect.objectContaining({ code: 'RESOLVE-CONFLICT-004' }));
+  }
   f.write(0, '1.0.1');
   const changed = loadManifestById('cache/probe', f);
   expect(() => resolveManifestGraph([selected, changed], [])).toThrow(expect.objectContaining({ code: 'RESOLVE-CONFLICT-004' }));
