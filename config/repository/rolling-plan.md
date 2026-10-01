@@ -12,9 +12,9 @@ last-reviewed: 2026-10-01
 ```json
 {
   "active": {
-    "manifestDigest": "sha256:25345744129c09a8671c867e127767ab38d294c558a70509d5fa246f957af505",
-    "manifestPath": "config/repository/work-packages/engineering-decision-skills-20261001.md",
-    "packageId": "engineering-decision-skills-20261001",
+    "manifestDigest": "sha256:1901730287d15a1ee3b17fbae7da304fc5f9c812ed189a3a6d09365af67c04d1",
+    "manifestPath": "config/repository/work-packages/owner-execution-prerequisites-20261001.md",
+    "packageId": "owner-execution-prerequisites-20261001",
     "tracking": "none"
   },
   "authority": "none",
@@ -25,18 +25,18 @@ last-reviewed: 2026-10-01
     "candidate-control-transaction-v1",
     "typescript-7-checker-acceleration-v1"
   ],
-  "exactMain": "37600af0efe43914a9438b432e258c4b268bbdee",
-  "exactMainTree": "0397e4d13981788998759cd9f79f9f201c49cba3",
-  "projectionDigest": "sha256:3c464300d30503c23b3fb51df357965aa7309e5c2478fc17bb379b6f149d5040",
+  "exactMain": "096b2405530a32e2aafb3421b87d8d882fa0c321",
+  "exactMainTree": "a4defca55fa6c6e593e35d9244b0da38a6c545af",
+  "projectionDigest": "sha256:fb9516de6ae5d6ed7a098bd7c9887cdf549636a0384125b3490711c1f3bc833d",
   "schema": "sec-work-rolling-proposal-projection-v1"
 }
 ```
 
 ## 当前唯一 Work Package
 
-### engineering-decision-skills-20261001
+### owner-execution-prerequisites-20261001
 
-Proposal-only target manifest `config/repository/work-packages/engineering-decision-skills-20261001.md` at `sha256:25345744129c09a8671c867e127767ab38d294c558a70509d5fa246f957af505`, based on exact main `37600af0efe43914a9438b432e258c4b268bbdee` and tree `0397e4d13981788998759cd9f79f9f201c49cba3`.
+Proposal-only target manifest `config/repository/work-packages/owner-execution-prerequisites-20261001.md` at `sha256:1901730287d15a1ee3b17fbae7da304fc5f9c812ed189a3a6d09365af67c04d1`, based on exact main `096b2405530a32e2aafb3421b87d8d882fa0c321` and tree `a4defca55fa6c6e593e35d9244b0da38a6c545af`.
 
 ## 候选 Work Package
 

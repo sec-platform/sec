@@ -338,6 +338,22 @@ test('ProjectInput preserves TypeScript requested path identity on Windows', () 
   ]);
 });
 
+test('ProjectInput emits one config fact when TypeScript imports its own project configuration', () => {
+  const config = JSON.stringify({
+    compilerOptions: { module: 'ESNext', moduleResolution: 'Bundler', resolveJsonModule: true, noLib: true, types: [] },
+    files: ['src/example/value.ts']
+  });
+  const source = "import config from '../../tsconfig.json'; export const value = config.compilerOptions;\n";
+  const snapshot = virtualProjectSnapshot({ 'tsconfig.json': config, 'src/example/value.ts': source });
+  const projectInput = compileWorkspaceTypeScriptProjectInput(snapshot, 'tsconfig.json');
+
+  expect(projectInput.sourceFacts.map(({ path: sourcePath, contentDigest }) => ({ path: sourcePath, contentDigest })))
+    .toEqual([
+      { path: 'src/example/value.ts', contentDigest: rawSha256(source) },
+      { path: 'tsconfig.json', contentDigest: rawSha256(config) }
+    ]);
+});
+
 test('ProjectInput represents a valid config with no matched TypeScript inputs as an empty generation', () => {
   const snapshot = virtualProjectSnapshot({
     'src/example/value.ts': 'export const value = true;\n',

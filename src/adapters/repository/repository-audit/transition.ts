@@ -25,7 +25,9 @@ import {
   compileSourceProgramAuditOperationInput,
   encodeSourceProgramAuditOperationInput,
   encodeSourceProgramAuditOperationResult,
-  type CompileSourceProgramAuditOperationInput,
+  isTestObligationsAuditFacts,
+  type CompileTestObligationsAuditOperationInput,
+  type CompileWholeSourceProgramAuditOperationInput,
   type SourceProgramAuditOperationResult
 } from './source-program-audit-operation.ts';
 import {
@@ -36,8 +38,7 @@ import {
 } from './worker-protocol.ts';
 
 /** Serializable facts, not approval. The candidate and runtime are separate subjects. */
-export interface SourceProgramTransitionAssessment {
-  readonly schema: 'source-program-transition-assessment-v1';
+interface SourceProgramTransitionAssessmentFields {
   readonly runtimeSha: string;
   readonly baseSha: string;
   readonly baseTreeSha: string;
@@ -49,12 +50,16 @@ export interface SourceProgramTransitionAssessment {
   readonly authorAssessment: SourceProgramTestAuthorAssessment | null;
   readonly currentTestValue: SourceProgramTestValueCompilation;
   readonly testRetirement: SourceProgramTestRetirementReceipt;
-  readonly auditFacts: CompileSourceProgramAuditOperationInput;
   readonly producerExecution: RepositoryAuditLoadedImplementationEvidence;
   readonly auditResult: SourceProgramAuditOperationResult;
   readonly status: 'accepted' | 'conditional-author-input' | 'blocked';
   readonly assessmentDigest: string;
 }
+
+export type SourceProgramTransitionAssessment = SourceProgramTransitionAssessmentFields & (
+  | Readonly<{ schema: 'source-program-transition-assessment-v1'; auditFacts: CompileWholeSourceProgramAuditOperationInput }>
+  | Readonly<{ schema: 'source-program-transition-assessment-v2'; auditFacts: CompileTestObligationsAuditOperationInput }>
+);
 
 /** Semantic judgment facts only; the physical producer owner qualifies them. */
 export interface SourceProgramTransitionAdoption {
@@ -91,6 +96,14 @@ export function createSourceProgramTransitionAssessment(input: AssessmentInput):
   if (input.auditFacts.options.authorityScope !== 'test-obligations'
       || input.auditFacts.supersession.authorityScope !== 'test-obligations') {
     throw new Error('Test transition assessment cannot stand in for whole-program equivalence');
+  }
+  if (isTestObligationsAuditFacts(input.auditFacts) && (
+    input.auditFacts.baselineCompilation.sourceRevision !== input.baseline.identity.sourceRevision
+    || input.auditFacts.baselineCompilation.modelDigest !== input.baseline.source.modelDigest
+    || input.auditFacts.sourceProgram.sourceRevision !== input.current.identity.sourceRevision
+    || input.auditFacts.sourceProgram.modelDigest !== input.current.source.modelDigest
+  )) {
+    throw new Error('Scoped test facts differ from the actual compared source evidence');
   }
   if (input.auditFacts.testFindingDelta === undefined
       || sha256(input.auditFacts.testFindingDelta.changedSharedInputPaths) !== sha256(sourceProgramTestChangedSharedInputPaths(
@@ -134,10 +147,10 @@ export function createSourceProgramTransitionAssessment(input: AssessmentInput):
   const status = operation.blockingReasons.length === 0 ? 'accepted' as const
     : input.authorAssessment !== null && operation.blockingReasons.every(reason => conditionalReasons.has(reason))
       ? 'conditional-author-input' as const : 'blocked' as const;
-  const canonical = deepFreeze({
-    schema: 'source-program-transition-assessment-v1' as const,
-    ...input, auditResult, status
-  });
+  const fields = { ...input, auditResult, status };
+  const canonical = isTestObligationsAuditFacts(input.auditFacts)
+    ? deepFreeze({ ...fields, schema: 'source-program-transition-assessment-v2' as const, auditFacts: input.auditFacts })
+    : deepFreeze({ ...fields, schema: 'source-program-transition-assessment-v1' as const, auditFacts: input.auditFacts });
   return deepFreeze({ ...canonical, assessmentDigest: sha256(canonical) });
 }
 

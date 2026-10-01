@@ -3,7 +3,8 @@ import { expect, test } from 'bun:test';
 import { ResourceCompositeSettlementError as PhysicalResourceCompositeSettlementError } from '../../../execution/resource-settlement.ts';
 import { RetainedCommandTransportError } from '../../runtime-state/physical/runtime/process.ts';
 import {
-  compileRepositoryAuditWorkerDiagnostic
+  compileRepositoryAuditWorkerDiagnostic,
+  requireSettledSourceProgramTransitionAssessment
 } from './cli.ts';
 import { RepositoryAuditWorkerProtocolError } from './worker-protocol.ts';
 
@@ -86,4 +87,25 @@ test('repository audit diagnostic preserves primary failure plus cleanup residue
   const compositeDiagnostic = compileRepositoryAuditWorkerDiagnostic(settlementError, null);
   expect(compositeDiagnostic.reason).toBe('physical-boundary-unsettled');
   expect(compositeDiagnostic.detailDigest).not.toBe(primaryDiagnostic.detailDigest);
+});
+
+
+test('source transition wrapper preserves safe owner denial details without raw error bytes', () => {
+  const diagnostic = compileRepositoryAuditWorkerDiagnostic(
+    new RepositoryAuditWorkerProtocolError('foreign-subject', 'secret raw stdout or source content'), null);
+  let caught: unknown;
+  try { requireSettledSourceProgramTransitionAssessment({ status: 'denied', diagnostic }); }
+  catch (error) { caught = error; }
+  expect(caught).toBeInstanceOf(Error);
+  const message = (caught as Error).message;
+  const fields = JSON.parse(message.slice(message.indexOf('{')));
+  expect(fields).toEqual(expect.objectContaining({ status: 'denied', reason: 'protocol-invalid',
+    failureKind: 'protocol-admission', protocolErrorCode: 'foreign-subject', detailDigest: diagnostic.detailDigest }));
+  expect(message).not.toContain('secret raw');
+  expect(message).not.toContain('resources');
+});
+
+test('source transition wrapper distinguishes missing assessment from a worker denial', () => {
+  expect(() => requireSettledSourceProgramTransitionAssessment({ status: 'completed' }))
+    .toThrow('completed without a transition assessment');
 });
