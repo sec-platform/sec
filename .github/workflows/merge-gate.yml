@@ -210,7 +210,7 @@ jobs:
       pull-requests: read
       statuses: read
     outputs:
-      integration-lane: ${{ steps.prepare-integration.outputs.integration-lane }}
+      integration-lane: ${{ steps.projection.outputs.integration-lane }}
       head-sha: ${{ steps.candidate-before.outputs.head-sha }}
       preflight-result-digest: ${{ steps.projection.outputs.preflight-result-digest }}
       ruleset-digest: ${{ steps.platform-authority.outputs.ruleset-digest }}
@@ -272,7 +272,6 @@ jobs:
             core.setOutput('head-sha', pull.data.head.sha);
 
       - name: Prepare exact integration recovery artifact
-        id: prepare-integration
         env:
           GH_TOKEN: ${{ github.token }}
         run: >-
@@ -284,16 +283,15 @@ jobs:
       - name: Validate exact hosted authorization projection
         id: projection
         env:
-          INTEGRATION_LANE: ${{ steps.prepare-integration.outputs.integration-lane }}
           ROUTE_FILE: ${{ env.SEC_INTEGRATION_DURABLE_DIRECTORY }}/integration-projection.json
         shell: bash
         run: |
           set -euo pipefail
-          digest="$(bun -e '
+          outputs="$(bun -e '
             const route = await Bun.file(process.env.ROUTE_FILE).json();
             const lanes = new Set(["open-first-effect", "merged-recovery", "blocked"]);
             if (route.schema !== "sec-verification-session-hosted-integration-route-v1"
-                || route.lane !== process.env.INTEGRATION_LANE || !lanes.has(route.lane)) {
+                || !lanes.has(route.lane)) {
               throw new Error("Hosted authorization lane projection is not canonical.");
             }
             if (route.lane === "open-first-effect") {
@@ -301,20 +299,21 @@ jobs:
                   || !/^sha256:[0-9a-f]{64}$/u.test(route.preflightResultDigest)) {
                 throw new Error("Hosted authorization projection lacks exact MergeGate result digest.");
               }
-              console.log(route.preflightResultDigest);
             }
+            console.log(`integration-lane=${route.lane}`);
+            console.log(`preflight-result-digest=${route.lane === "open-first-effect" ? route.preflightResultDigest : ""}`);
           ')"
-          printf 'preflight-result-digest=%s\n' "$digest" >> "$GITHUB_OUTPUT"
+          printf '%s\n' "$outputs" >> "$GITHUB_OUTPUT"
 
       - name: Reject blocked hosted integration lane
-        if: ${{ steps.prepare-integration.outputs.integration-lane == 'blocked' }}
+        if: ${{ steps.projection.outputs.integration-lane == 'blocked' }}
         run: |
           echo 'Hosted integration is blocked; no authorization status or integration effect was attempted.' >&2
           exit 1
 
       - name: Prove exact main authority rulesets before terminal authorization
         id: platform-authority
-        if: ${{ steps.prepare-integration.outputs.integration-lane == 'open-first-effect' }}
+        if: ${{ steps.projection.outputs.integration-lane == 'open-first-effect' }}
         env:
           SEC_GITHUB_RULESET_AUDITOR_TOKEN: ${{ secrets.SEC_GITHUB_RULESET_AUDITOR_TOKEN }}
           RULESET_FILE: ${{ env.SEC_INTEGRATION_DURABLE_DIRECTORY }}/main-authority-ruleset.json
@@ -342,7 +341,7 @@ jobs:
           printf 'ruleset-digest=%s\n' "$digest" >> "$GITHUB_OUTPUT"
 
       - name: Read back exact authorized candidate identity
-        if: ${{ steps.prepare-integration.outputs.integration-lane == 'open-first-effect' }}
+        if: ${{ steps.projection.outputs.integration-lane == 'open-first-effect' }}
         uses: *github_script_action
         env:
           PR_NUMBER: ${{ needs.plan.outputs.pr-number }}
@@ -370,7 +369,7 @@ jobs:
 
       - name: Upload exact branch closeout recovery artifact
         id: upload-branch-closeout-recovery
-        if: ${{ steps.prepare-integration.outputs.integration-lane == 'open-first-effect' }}
+        if: ${{ steps.projection.outputs.integration-lane == 'open-first-effect' }}
         uses: &upload_artifact_action actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: sec-branch-closeout-recovery-v1-pr-${{ needs.plan.outputs.pr-number }}-session-${{ needs.plan.outputs.session-revision }}-run-${{ github.run_id }}-attempt-${{ github.run_attempt }}
@@ -381,7 +380,7 @@ jobs:
           if-no-files-found: error
 
       - name: Read back exact branch closeout recovery artifact
-        if: ${{ steps.prepare-integration.outputs.integration-lane == 'open-first-effect' }}
+        if: ${{ steps.projection.outputs.integration-lane == 'open-first-effect' }}
         env:
           ARTIFACT_ID: ${{ steps.upload-branch-closeout-recovery.outputs.artifact-id }}
           EXPECTED_ARTIFACT_NAME: sec-branch-closeout-recovery-v1-pr-${{ needs.plan.outputs.pr-number }}-session-${{ needs.plan.outputs.session-revision }}-run-${{ github.run_id }}-attempt-${{ github.run_attempt }}
