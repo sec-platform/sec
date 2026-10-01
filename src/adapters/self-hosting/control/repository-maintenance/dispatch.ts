@@ -3,6 +3,7 @@
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 
+import { normalizeGitHubRepositoryPermission } from '../../../providers/github-api/repository-permission.ts';
 import {
   parseRepositoryMaintenanceRequest,
   REPOSITORY_MAINTENANCE_ISSUE_NUMBER
@@ -66,7 +67,9 @@ function record(value: unknown, label: string): Record<string, any> {
 }
 
 export function assertRepositoryMaintenanceDispatcherPermission(value: unknown): 'admin' | 'maintain' {
-  const permission = record(value, 'repository maintenance dispatcher permission').permission;
+  const permission = normalizeGitHubRepositoryPermission(
+    record(value, 'repository maintenance dispatcher permission')
+  );
   if (permission !== 'admin' && permission !== 'maintain') {
     throw new Error('repository maintenance dispatcher lacks current maintain/admin permission');
   }

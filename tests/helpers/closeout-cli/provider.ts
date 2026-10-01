@@ -302,7 +302,7 @@ if (endpoint.startsWith('/repos/' + state.repository + '/collaborators/')) {
   if (!principal) fail('unknown collaborator: ' + login);
   state.principalPermissionLookups.push(login);
   save(state);
-  out(principal.permission);
+  out(args.includes('--jq') ? principal.permission : { permission: principal.permission });
 }
 if (endpoint.startsWith('/users/')) {
   const login = endpoint.split('/').at(-1);

@@ -47,6 +47,25 @@ jobs:
           WORKFLOW_SHA: ${{ github.workflow_sha }}
         with:
           script: |
+            // BEGIN GENERATED repository-permission.ts
+            function normalizeGitHubRepositoryPermission(value) {
+                if (value === null || typeof value !== 'object' || Array.isArray(value))
+                    return null;
+                const source = value;
+                const permission = source.permission;
+                if (permission !== 'admin' && permission !== 'maintain' && permission !== 'write'
+                    && permission !== 'triage' && permission !== 'read' && permission !== 'none')
+                    return null;
+                const role = source.role_name;
+                if (role === undefined)
+                    return permission;
+                if (permission === 'write' && role === 'maintain')
+                    return 'maintain';
+                if (permission === 'read' && role === 'triage')
+                    return 'triage';
+                return role === permission ? permission : null;
+            }
+            // END GENERATED repository-permission.ts
             const wakeup = JSON.parse(process.env.WORKFLOW_RUN_JSON);
             if (context.payload.action !== 'completed' ||
                 !Number.isSafeInteger(wakeup?.id) || wakeup.id < 1 ||
@@ -121,7 +140,7 @@ jobs:
                 actorIdentity.data.login !== run.actor.login || actorIdentity.data.node_id !== run.actor.node_id ||
                 triggeringIdentity.data.login !== run.triggering_actor.login ||
                 triggeringIdentity.data.node_id !== run.triggering_actor.node_id ||
-                !trusted(actorPermission.data.permission) || !trusted(triggeringPermission.data.permission)) {
+                !trusted(normalizeGitHubRepositoryPermission(actorPermission.data)) || !trusted(normalizeGitHubRepositoryPermission(triggeringPermission.data))) {
               throw new Error('Compiler workflow path or dispatch principal is not trusted.');
             }
             const base = await github.rest.repos.getBranch({

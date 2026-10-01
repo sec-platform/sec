@@ -43,6 +43,25 @@ jobs:
           TRIGGERING_ACTOR: ${{ github.triggering_actor }}
         with:
           script: |
+            // BEGIN GENERATED repository-permission.ts
+            function normalizeGitHubRepositoryPermission(value) {
+                if (value === null || typeof value !== 'object' || Array.isArray(value))
+                    return null;
+                const source = value;
+                const permission = source.permission;
+                if (permission !== 'admin' && permission !== 'maintain' && permission !== 'write'
+                    && permission !== 'triage' && permission !== 'read' && permission !== 'none')
+                    return null;
+                const role = source.role_name;
+                if (role === undefined)
+                    return permission;
+                if (permission === 'write' && role === 'maintain')
+                    return 'maintain';
+                if (permission === 'read' && role === 'triage')
+                    return 'triage';
+                return role === permission ? permission : null;
+            }
+            // END GENERATED repository-permission.ts
             const crypto = require('crypto');
             const payload = JSON.parse(process.env.PAYLOAD_JSON);
             if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
@@ -95,7 +114,7 @@ jobs:
               })
             ]);
             const trusted = (permission) => permission === 'maintain' || permission === 'admin';
-            if (!trusted(actorPermission.data.permission) || !trusted(triggeringPermission.data.permission)) {
+            if (!trusted(normalizeGitHubRepositoryPermission(actorPermission.data)) || !trusted(normalizeGitHubRepositoryPermission(triggeringPermission.data))) {
               throw new Error('Trusted bootstrap requires maintain/admin actor and triggering actor.');
             }
 

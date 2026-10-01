@@ -99,6 +99,25 @@
           "recovery": null
         }
       ]
+    },
+    {
+      "capability": "git.local-worktree",
+      "operations": [
+        "retainLocalGitRepository"
+      ],
+      "effectKinds": [
+        "filesystem",
+        "process"
+      ],
+      "operationRoles": [
+        {
+          "operation": "retainLocalGitRepository",
+          "role": "domain-owner",
+          "semanticOperation": "verification-session.local-worktree.git",
+          "requirementId": null,
+          "recovery": null
+        }
+      ]
     }
   ],
   "operationObligations": [
@@ -112,7 +131,8 @@
         "consumers": [
           "control.branch-lifecycle",
           "external-capabilities.git-bundle",
-          "external-capabilities.git-read"
+          "external-capabilities.git-read",
+          "verification.ci"
         ]
       },
       "effect": {
@@ -151,7 +171,8 @@
         "consumers": [
           "control.branch-lifecycle",
           "external-capabilities.git-bundle",
-          "external-capabilities.git-read"
+          "external-capabilities.git-read",
+          "verification.ci"
         ]
       },
       "effect": {
@@ -415,6 +436,49 @@
           {
             "resource": "processes",
             "maximum": 9
+          }
+        ]
+      },
+      "futureSupport": {
+        "condition": "semantic-superset-required"
+      }
+    },
+    {
+      "operation": {
+        "kind": "capability",
+        "capability": "git.local-worktree",
+        "operation": "retainLocalGitRepository"
+      },
+      "consumerSupport": {
+        "consumers": [
+          "verification.ci"
+        ]
+      },
+      "effect": {
+        "kinds": [
+          "filesystem",
+          "process"
+        ],
+        "failureKinds": [
+          "filesystem.identity-drift",
+          "filesystem.unavailable",
+          "process.cancelled",
+          "process.deadline-exhausted",
+          "process.output-budget-exhausted",
+          "process.settlement-unproven",
+          "process.unavailable"
+        ],
+        "recovery": "owner-intervention"
+      },
+      "evolution": {
+        "migration": "not-required",
+        "retirement": "replacement-obligations-satisfied"
+      },
+      "resources": {
+        "aggregateBudgets": [
+          {
+            "resource": "duration-ms",
+            "maximum": 3600000
           }
         ]
       },

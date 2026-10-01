@@ -177,6 +177,8 @@ class FakeGh {
   currentSuiteOverrides: Record<string, unknown> = {};
   exactRunOverrides: Record<string, Record<string, unknown>> = {};
   exactSuiteOverrides: Record<string, Record<string, unknown>> = {};
+  parentPermission: Record<string, unknown> = { permission: 'write', role_name: 'maintain' };
+  parentPermissionUser: { login: string; id: number; node_id: string; type: string } = { login: parentActor.login, id: parentActor.id, node_id: parentActor.nodeId, type: 'User' };
   exactRunFailures = new Set<string>();
   latestRunAttempts: Record<string, number> = {};
   latestRunCalls: string[] = [];
@@ -221,8 +223,8 @@ class FakeGh {
     }
     if (endpoint.includes('/collaborators/maintainer/permission')) {
       return this.success(JSON.stringify({
-        permission: 'maintain',
-        user: { login: parentActor.login, id: parentActor.id, node_id: parentActor.nodeId, type: 'User' }
+        ...this.parentPermission,
+        user: this.parentPermissionUser
       }));
     }
     if (endpoint.includes('/attempts/1/jobs?')) {
@@ -467,6 +469,12 @@ describe('VerificationAction GitHub provider authenticated transaction', () => {
     });
     expect(result.disposition).toBe('observed');
     expect(result.actionKey).toBe(ACTION);
+    expect(fakeGh.createCalls).toBe(0);
+    fakeGh.parentPermissionUser.node_id = 'different-node';
+    await expect(ensureTransaction({
+      authority: { envelope, actionPlanClosure: closure },
+      intent: { kind: 'coordinate-parent' }
+    })).rejects.toThrow('parent actor live identity');
     expect(fakeGh.createCalls).toBe(0);
   });
 

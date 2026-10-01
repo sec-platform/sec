@@ -13,6 +13,7 @@ import {
   assertGitHubRepositoryCommentObservation,
   type GitHubRepositoryCommentObservation
 } from '../../providers/github-api/repository-comment.ts';
+import { normalizeGitHubRepositoryPermission } from '../../providers/github-api/repository-permission.ts';
 import type { SourceProgramSupersessionEvidence } from './reduction.ts';
 import type {
   SourceProgramTestBaselineEvidence,
@@ -405,9 +406,12 @@ export function adoptSourceProgramTestAuthorDecision(
   observation: GitHubRepositoryCommentObservation
 ): SourceProgramTestAuthorApproval {
   assertGitHubRepositoryCommentObservation(observation);
-  const authorHasAdoptionRole = (observation.author.permission === 'admin'
-      && observation.author.roleName === 'admin')
-    || (observation.author.permission === 'write' && observation.author.roleName === 'maintain');
+  const permission = normalizeGitHubRepositoryPermission({
+    permission: observation.author.permission,
+    // This adoption policy requires an explicit role; absent observations retain null.
+    role_name: observation.author.roleName
+  });
+  const authorHasAdoptionRole = permission === 'admin' || permission === 'maintain';
   if (observation.author.kind !== 'User'
       || !authorHasAdoptionRole
       || !observation.body.startsWith(SOURCE_PROGRAM_TEST_AUTHOR_DECISION_MARKER)) {

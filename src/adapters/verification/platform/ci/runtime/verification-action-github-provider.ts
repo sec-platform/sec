@@ -4,6 +4,7 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
+import { normalizeGitHubRepositoryPermission } from '../../../../providers/github-api/repository-permission.ts';
 import { encodeVerificationActionData, type VerificationActionKeyDigest } from '../../action/contract/action.ts';
 import { assertCiVerificationActionProviderEnvelopeMember, CI_VERIFICATION_ACTION_DISPATCH_TYPE, CI_VERIFICATION_ACTION_PARENT_DISPATCH_PLAN_FILE, ciVerificationActionParentDispatchPlanPayloadDigest, parseCiVerificationActionParentDispatchPlan, parseCiVerificationActionPlanClosure, parseCiVerificationActionProviderEnvelope, type CiVerificationActionPlanClosure, type CiVerificationActionProviderEnvelope } from '../../action/contract/ci.ts';
 import { CI_VERIFICATION_HOSTED_PROVIDER_REVISION } from '../../action/contract/environment.ts';
@@ -1255,7 +1256,7 @@ async function authenticateVerificationActionAuthority(
     login: parentPlan.parentActor.login
   }), 'parent actor live permission');
   identityRecord(permission.user, parentPlan.parentActor, 'parent actor live identity');
-  if (permission.permission !== parentPlan.parentActor.permission) {
+  if (normalizeGitHubRepositoryPermission(permission) !== parentPlan.parentActor.permission) {
     fail('parent actor live permission differs from the dispatch plan.');
   }
   const jobs = await readCompleteParentJobs(

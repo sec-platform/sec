@@ -3,6 +3,7 @@ import { realpathSync } from 'node:fs';
 import path from 'node:path';
 
 import { parseGitHubRepositoryIdentityFromRemoteUrl } from '../../../../contracts/git-reference.ts';
+import { normalizeGitHubRepositoryPermission } from '../../../providers/github-api/repository-permission.ts';
 
 import {
   requireActiveWorkPackageOwnerObservation,
@@ -445,9 +446,7 @@ function collaboratorPermission(
   if (cached) return cached;
   const result = runInventoryCommand(ctx, 'gh', [
     'api',
-    `/repos/${repositoryFullName}/collaborators/${author}/permission`,
-    '--jq',
-    '.role_name // .permission'
+    `/repos/${repositoryFullName}/collaborators/${author}/permission`
   ], repositoryRoot);
   if (result.status !== 0) {
     const observation = {
@@ -457,7 +456,18 @@ function collaboratorPermission(
     cache.set(author, observation);
     return observation;
   }
-  const role = decodeBranchLifecycleChildStdout(result).toLowerCase();
+  let response: unknown;
+  try {
+    response = JSON.parse(decodeBranchLifecycleChildStdout(result));
+  } catch {
+    const observation = {
+      permission: 'unknown' as const,
+      reason: `collaborator permission for ${author} returned invalid JSON`
+    };
+    cache.set(author, observation);
+    return observation;
+  }
+  const role = normalizeGitHubRepositoryPermission(response);
   const observation = {
     permission: role === 'admin' || role === 'maintain'
       ? 'trusted' as const
