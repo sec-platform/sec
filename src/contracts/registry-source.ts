@@ -19,3 +19,10 @@ export interface RegistrySourceResolution {
   policy: 'source-order';
   shadowed: RegistryManifestIdentity[];
 }
+
+/** Invocation output for diagnostics; it is not part of the binding lock. */
+export interface RegistryManifestResolution {
+  blockId: string;
+  selected: RegistryManifestIdentity;
+  resolution: RegistrySourceResolution;
+}

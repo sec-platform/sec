@@ -1,4 +1,4 @@
-import type { RegistryKind, RegistryLocation, RegistrySourceResolution } from '../../contracts/registry-source.ts';
+import type { RegistryKind, RegistryLocation } from '../../contracts/registry-source.ts';
 import type { SemanticGeneratorTask as SemanticLoweringTask } from '../../semantics/generation/types.ts';
 import type { SemanticViewSet } from '../../semantics/projection/types.ts';
 import type { PassStatus } from './pass-status.ts';
@@ -11,8 +11,6 @@ export const LOCK_FILE_FORMAT_VERSION = '1' as const;
 export const LOCK_APP_TARGETS = ['monolith', 'microservices'] as const;
 
 export interface ResolvedBlock {
-  /** Diagnostic observation only; the selected identity remains in the entry fields. */
-  registryResolution?: RegistrySourceResolution;
   id: string;
   version: string;
   kind: ManifestKind;

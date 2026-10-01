@@ -283,14 +283,7 @@ export function buildExplainGraphFromEvidence(
       g.edge(`block:${blockCoverage.id}`, `acceptance:${acceptanceId}`, 'verified_by');
     }
   }
-  const registryResolutions = lock.resolvedBlocks.flatMap(block => block.registryResolution ? [{
-    blockId: block.id,
-    selected: { version: block.version, registrySourceId: block.registrySourceId,
-      registryKind: block.registryKind, registryLocation: block.registryLocation, registryPath: block.registryPath },
-    resolution: structuredClone(block.registryResolution)
-  }] : []);
   return g.build(semanticViews, {
-    ...(registryResolutions.length > 0 ? { registryResolutions } : {}),
     provenance: provenance.artifacts,
     coverage: {
       blocks: coverage.blocks.map((entry) => ({ id: entry.id, coveredBy: [...entry.coveredBy] }))

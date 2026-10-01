@@ -1,4 +1,5 @@
 import { portableLogicalPathCollisionKey } from '../../contracts/logical-path.ts';
+import type { RegistryManifestResolution } from '../../contracts/registry-source.ts';
 import { relativePosixPath } from '../../contracts/relative-path.ts';
 import { assertManifestStackCompatibility } from '../align/align-interfaces.ts';
 import type { LockFile, ManifestEntry, PlanFile } from '../contract.ts';
@@ -67,13 +68,18 @@ export function prepareManifestResolution(
     registrySourceId: entry.registrySourceId,
     registryKind: entry.registryKind,
     registryLocation: entry.registryLocation,
-    registryPath: entry.registryPath,
-    ...(entry.registryResolution ? { registryResolution: structuredClone(entry.registryResolution) } : {})
+    registryPath: entry.registryPath
   }));
   const installDescriptors = graph.entries.flatMap(block =>
     block.manifest.installs.map(install => ({ block, blockId: block.manifest.id,
       action: install.kind, from: install.from, to: install.to }))
   );
   assertInstallTargetOwnership(installDescriptors);
-  return { resolvedBlocks, resolvedCapabilities: [...graph.capabilities], installDescriptors };
+  const registryResolutions: RegistryManifestResolution[] = graph.entries.flatMap(entry => entry.registryResolution ? [{
+    blockId: entry.manifest.id,
+    selected: { version: entry.manifest.version, registrySourceId: entry.registrySourceId,
+      registryKind: entry.registryKind, registryLocation: entry.registryLocation, registryPath: entry.registryPath },
+    resolution: structuredClone(entry.registryResolution)
+  }] : []);
+  return { resolvedBlocks, resolvedCapabilities: [...graph.capabilities], installDescriptors, registryResolutions };
 }

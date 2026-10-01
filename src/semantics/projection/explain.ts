@@ -1,4 +1,3 @@
-import type { RegistryManifestIdentity, RegistrySourceResolution } from '../../contracts/registry-source.ts';
 import type { SemanticEntityKind } from '../engineering-ir/entity-types.ts';
 import { type SemanticPredicate } from '../engineering-ir/fact-types.ts';
 import type { ProvenanceArtifact } from '../provenance/types.ts';
@@ -43,11 +42,6 @@ export interface ExplainGraph {
   nodes: ExplainGraphNode[];
   edges: ExplainGraphEdge[];
   overlays: {
-    registryResolutions?: Array<{
-      blockId: string;
-      selected: RegistryManifestIdentity;
-      resolution: RegistrySourceResolution;
-    }>;
     provenance: ProvenanceArtifact[];
     coverage: CoverageOverlay;
   };

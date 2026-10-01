@@ -1,11 +1,9 @@
 import { summarizeCounts } from '../contracts/collections.ts';
-import type { ExplainGraph } from '../semantics/projection/explain.ts';
 
 export type ExplainGraphInspectProjectionSource = Readonly<{
   nodes: readonly Readonly<{ type: string }>[];
   edges: readonly Readonly<{ type: string }>[];
   overlays: Readonly<{
-    registryResolutions?: ExplainGraph['overlays']['registryResolutions'];
     coverage: Readonly<{ blocks: readonly unknown[] }>;
     provenance: readonly unknown[];
   }>;
@@ -17,7 +15,6 @@ export type ExplainGraphInspectCountEntry = Readonly<{
 }>;
 
 export type ExplainGraphInspectView = Readonly<{
-  registryResolutions?: ExplainGraph['overlays']['registryResolutions'];
   nodeCount: number;
   edgeCount: number;
   nodeTypeCounts: readonly ExplainGraphInspectCountEntry[];
@@ -28,7 +25,6 @@ export type ExplainGraphInspectView = Readonly<{
 
 export function projectExplainGraphInspect(source: ExplainGraphInspectProjectionSource): ExplainGraphInspectView {
   return {
-    ...(source.overlays.registryResolutions ? { registryResolutions: structuredClone(source.overlays.registryResolutions) } : {}),
     nodeCount: source.nodes.length,
     edgeCount: source.edges.length,
     nodeTypeCounts: summarizeCounts(source.nodes.map((node) => node.type)),
