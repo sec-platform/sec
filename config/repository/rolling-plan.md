@@ -12,9 +12,9 @@ last-reviewed: 2026-10-01
 ```json
 {
   "active": {
-    "manifestDigest": "sha256:a22b65202ff5792f5034cc88128ee0ca84e0a84d01345d3f7f4d1d3aade6468e",
-    "manifestPath": "config/repository/work-packages/engineering-decision-records-20261001.md",
-    "packageId": "engineering-decision-records-20261001",
+    "manifestDigest": "sha256:bdadd1a5636b5cbb978cbf905d1581fde204e5e875367d4ff016596b12795725",
+    "manifestPath": "config/repository/work-packages/cli-machine-failure-304-isolated-20261001.md",
+    "packageId": "cli-machine-failure-304-isolated-20261001",
     "tracking": "none"
   },
   "authority": "none",
@@ -25,18 +25,18 @@ last-reviewed: 2026-10-01
     "candidate-control-transaction-v1",
     "typescript-7-checker-acceleration-v1"
   ],
-  "exactMain": "0bc45ed385dea6ea54a029ed27d377798708d548",
-  "exactMainTree": "7340ed8719427c4bcbc6648173456e900d63cebe",
-  "projectionDigest": "sha256:8424e7655dcfdd2b3da58570ae0235f4cd96377ab2fdeb8a8422642cafd6ea05",
+  "exactMain": "48c24108ac7c1669685790bdb1e5e13bab24783c",
+  "exactMainTree": "73d6061aa2ecbddf8fabf29e0c52dd1adfa68c74",
+  "projectionDigest": "sha256:f1b5ee60579007f9ca6439020706913e5e851aad3d0a3ab7c2fed8c1a099c696",
   "schema": "sec-work-rolling-proposal-projection-v1"
 }
 ```
 
 ## 当前唯一 Work Package
 
-### engineering-decision-records-20261001
+### cli-machine-failure-304-isolated-20261001
 
-Proposal-only target manifest `config/repository/work-packages/engineering-decision-records-20261001.md` at `sha256:a22b65202ff5792f5034cc88128ee0ca84e0a84d01345d3f7f4d1d3aade6468e`, based on exact main `0bc45ed385dea6ea54a029ed27d377798708d548` and tree `7340ed8719427c4bcbc6648173456e900d63cebe`.
+Proposal-only target manifest `config/repository/work-packages/cli-machine-failure-304-isolated-20261001.md` at `sha256:bdadd1a5636b5cbb978cbf905d1581fde204e5e875367d4ff016596b12795725`, based on exact main `48c24108ac7c1669685790bdb1e5e13bab24783c` and tree `73d6061aa2ecbddf8fabf29e0c52dd1adfa68c74`.
 
 ## 候选 Work Package
 

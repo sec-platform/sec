@@ -10,8 +10,8 @@ last-reviewed: 2026-10-01
 selectionMode: exact-manifest-not-on-default-branch-v1
 defaultBranchRef: refs/remotes/origin/main
 defaultRefFreshness: live-platform-match-required
-manifest: config/repository/work-packages/engineering-decision-records-20261001.md
-manifestDigest: sha256:a22b65202ff5792f5034cc88128ee0ca84e0a84d01345d3f7f4d1d3aade6468e
+manifest: config/repository/work-packages/cli-machine-failure-304-isolated-20261001.md
+manifestDigest: sha256:bdadd1a5636b5cbb978cbf905d1581fde204e5e875367d4ff016596b12795725
 digestBytes: git-blob
 unavailableDefaultRef: unresolved
 matchingDefaultBlob: none
