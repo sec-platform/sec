@@ -2,7 +2,7 @@ import { expect, test } from 'bun:test';
 import { createHash } from 'node:crypto';
 
 import { encodeVerificationActionData } from '../../src/adapters/verification/platform/action/contract/action.ts';
-import { assertCiVerificationActionPlanClosureEqual, assertCiVerificationActionProviderEnvelopeMember, buildCiVerificationActionPlanClosure, ciVerificationActionParentDispatchPlanArtifactName, ciVerificationActionParentDispatchPlanPayloadDigest, ciVerificationGateStep, ciVerificationNormalizedOperationArgv, createCiVerificationActionParentDispatchPlan, createCiVerificationActionProposal, createCiVerificationActionProviderEnvelope, parseCiVerificationActionParentDispatchPlan, parseCiVerificationActionPlanClosure, parseCiVerificationActionProviderEnvelope, resolveCiVerificationDevRunnerTarget, type CiVerificationActionCandidate } from '../../src/adapters/verification/platform/action/contract/ci.ts';
+import { assertCiVerificationActionPlanClosureEqual, assertCiVerificationActionProviderEnvelopeMember, buildCiVerificationActionPlanClosure, ciVerificationActionParentDispatchPlanArtifactName, ciVerificationActionParentDispatchPlanPayloadDigest, ciVerificationGateStep, ciVerificationNormalizedOperationArgv, createCiVerificationActionParentDispatchPlan, createCiVerificationActionProposal, createCiVerificationActionProviderEnvelope, parseCiVerificationActionParentDispatchPlan, parseCiVerificationActionPlanClosure, parseCiVerificationActionProviderEnvelope, resolveCiVerificationDevRunnerTarget, sourceProgramTransitionGate, type CiVerificationActionCandidate } from '../../src/adapters/verification/platform/action/contract/ci.ts';
 import { buildCiFullGatePlan, buildCiQuickGatePlan } from '../../src/adapters/verification/platform/ci/contract/plan.ts';
 import { createVerificationSession, createVerificationSessionProposalDigest } from '../../src/adapters/verification/platform/session/contract/session.ts';
 
@@ -440,4 +440,40 @@ test('internal Action provider envelope rejects rerun, substitution, extra field
     parentDispatchPlanDigest: plan.parentDispatchPlanDigest
   };
   expect(() => parseCiVerificationActionParentDispatchPlan(forgedPlan)).toThrow('digest');
+});
+
+
+test('source analysis action identity excludes later author input but preserves source and compiler inputs', () => {
+  const source = { baseSha: candidate.baseSha, headSha: candidate.headSha,
+    payloadDigest: null, approvalObservationDigest: null, approvalDigest: null };
+  const firstAuthor = { ...source, payloadDigest: digest('1'),
+    approvalObservationDigest: digest('2'), approvalDigest: digest('3') };
+  const laterAuthor = { ...source, payloadDigest: digest('4'),
+    approvalObservationDigest: digest('5'), approvalDigest: digest('6') };
+  const compile = (binding: typeof source | typeof firstAuthor, subject = candidate) =>
+    buildCiVerificationActionPlanClosure({ candidate: subject,
+      gates: [
+        ...buildCiQuickGatePlan({ includeImports: false, includeDocs: false }).map(ciVerificationGateStep),
+        ciVerificationGateStep(sourceProgramTransitionGate(binding))
+      ] });
+  const initial = compile(source);
+  for (const binding of [firstAuthor, laterAuthor]) {
+    const gate = sourceProgramTransitionGate(binding);
+    expect(gate.args).not.toContain('--test-author-input');
+    expect(gate.inputs).toEqual([]);
+    expect(compile(binding).actionPlanDigest).toBe(initial.actionPlanDigest);
+    expect(compile(binding).actions.map(({ action }) => action.actionKey))
+      .toEqual(initial.actions.map(({ action }) => action.actionKey));
+  }
+  for (const subject of [
+    { ...candidate, headTreeSha: '5'.repeat(40) },
+    { ...candidate, toolchainRevision: 'bun@9.9.9' },
+    { ...candidate, requiredBlobs: candidate.requiredBlobs.map(blob =>
+      blob.path === 'bun.lock' ? { ...blob, digest: digest('9') } : blob) }
+  ]) expect(compile(source, subject).actionPlanDigest).not.toBe(initial.actionPlanDigest);
+  const changedHead = '6'.repeat(40);
+  expect(compile({ ...source, headSha: changedHead }, { ...candidate, headSha: changedHead }).actionPlanDigest)
+    .not.toBe(initial.actionPlanDigest);
+  expect(() => sourceProgramTransitionGate({ ...source, payloadDigest: digest('1') }))
+    .toThrow('transition author binding is incomplete');
 });

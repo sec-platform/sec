@@ -90,19 +90,31 @@ export function parseCiSourceProgramTransitionBinding(value: unknown): CiSourceP
   return binding;
 }
 
+/** Source derivation does not depend on the later live author decision. */
+export function sourceProgramAnalysisBinding(
+  input: CiSourceProgramTransitionBinding
+): CiSourceProgramTransitionBinding {
+  const binding = parseCiSourceProgramTransitionBinding(input);
+  return Object.freeze({
+    baseSha: binding.baseSha,
+    headSha: binding.headSha,
+    payloadDigest: null,
+    approvalObservationDigest: null,
+    approvalDigest: null
+  });
+}
+
+/** Completion produces source facts; only host adoption can discharge obligations. */
 export function sourceProgramTransitionGate(bindingInput: CiSourceProgramTransitionBinding): CiVerificationGateStep {
-  const binding = parseCiSourceProgramTransitionBinding(bindingInput);
+  const binding = sourceProgramAnalysisBinding(bindingInput);
   return Object.freeze({
     id: SOURCE_PROGRAM_TRANSITION_GATE_ID,
     phase: 'workspace' as const,
     args: [SOURCE_PROGRAM_TRANSITION_ENTRYPOINT, '--worktree-source-program',
       '--transition-candidate-root', SOURCE_PROGRAM_TRANSITION_CANDIDATE_ROOT, '--supersession-baseline', binding.baseSha,
-      '--transition-expected-head', binding.headSha,
-      ...(binding.payloadDigest === null ? [] : ['--test-author-input', SOURCE_PROGRAM_TRANSITION_AUTHOR_INPUT])],
+      '--transition-expected-head', binding.headSha],
     environment: Object.freeze({ SEC_SOURCE_PROGRAM_TRANSITION_BINDING: hash(binding) }),
-    inputs: binding.payloadDigest === null ? Object.freeze([]) : Object.freeze([
-      Object.freeze({ path: 'external-author-input/source-program-test-decision.json', digest: binding.payloadDigest })
-    ])
+    inputs: Object.freeze([])
   });
 }
 

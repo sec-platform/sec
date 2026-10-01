@@ -12,9 +12,9 @@ last-reviewed: 2026-10-01
 ```json
 {
   "active": {
-    "manifestDigest": "sha256:1fc19f1d2174b16bcde7791f999c2bd50e4203b41c9e407457f203d8e1482738",
-    "manifestPath": "config/repository/work-packages/development-entry-continuation-20261001.md",
-    "packageId": "development-entry-continuation-20261001",
+    "manifestDigest": "sha256:502a9d8b817fe32b554d19d2aa3955cdc4750f4d6886862768439778a399fccb",
+    "manifestPath": "config/repository/work-packages/source-transition-reuse-20261001.md",
+    "packageId": "source-transition-reuse-20261001",
     "tracking": "none"
   },
   "authority": "none",
@@ -25,18 +25,18 @@ last-reviewed: 2026-10-01
     "candidate-control-transaction-v1",
     "typescript-7-checker-acceleration-v1"
   ],
-  "exactMain": "ba02bc866ad2c0cb999ad5e4c95a050dde687600",
-  "exactMainTree": "ed9040ddce18b426cc2f0914a439876a957d4982",
-  "projectionDigest": "sha256:0668483b9ae5138c51ed03076f5bd777bab912866e45fbdbb9693adbbf7dc7bf",
+  "exactMain": "1584056f8a4614b0395e6c39c7747107750da5f1",
+  "exactMainTree": "b0538515e4cce6cbc827fc25cc2d344b416fe457",
+  "projectionDigest": "sha256:3fde7ef332a6fe0d98a2a2abf923a51ec383ba9816c898b24468f53f7d52c154",
   "schema": "sec-work-rolling-proposal-projection-v1"
 }
 ```
 
 ## 当前唯一 Work Package
 
-### development-entry-continuation-20261001
+### source-transition-reuse-20261001
 
-Proposal-only target manifest `config/repository/work-packages/development-entry-continuation-20261001.md` at `sha256:1fc19f1d2174b16bcde7791f999c2bd50e4203b41c9e407457f203d8e1482738`, based on exact main `ba02bc866ad2c0cb999ad5e4c95a050dde687600` and tree `ed9040ddce18b426cc2f0914a439876a957d4982`.
+Proposal-only target manifest `config/repository/work-packages/source-transition-reuse-20261001.md` at `sha256:502a9d8b817fe32b554d19d2aa3955cdc4750f4d6886862768439778a399fccb`, based on exact main `1584056f8a4614b0395e6c39c7747107750da5f1` and tree `b0538515e4cce6cbc827fc25cc2d344b416fe457`.
 
 ## 候选 Work Package
 
