@@ -6,18 +6,21 @@ import { canonicalEquals } from '../../../../../contracts/canonical.ts';
 import {
   createWindowsAppContainerProfileForNativeHelper,
   deriveWindowsAppContainerSidForNativeHelper,
-  encodeWindowsAppContainerNativeDerivedSid,
-  encodeWindowsAppContainerNativeFailure,
-  encodeWindowsAppContainerNativeOk,
   remainingWindowsAppContainerNativeHelperTimeout,
   runWindowsAppContainerNativeChild,
   runWindowsAppContainerNativeSuspendedCreateForHelper,
   superviseWindowsAppContainerNativeWorkerForHelper,
   WINDOWS_APPCONTAINER_RECOVERY_CONTRACT,
-  type WindowsAppContainerNativeExecutionRequest,
+  type WindowsAppContainerNativeExecutionRequest
+} from './executor.ts';
+
+import {
+  encodeWindowsAppContainerNativeDerivedSid,
+  encodeWindowsAppContainerNativeFailure,
+  encodeWindowsAppContainerNativeOk,
   type WindowsAppContainerNativeHelperWirePayload,
   type WindowsAppContainerNativeWorkerProgressStage
-} from './executor.ts';
+} from './native-helper-observation.ts';
 
 type NativeHelperEnvelope =
   | Readonly<{ mode: 'derive'; request: Readonly<{ appContainerName: string }> }>
