@@ -67,7 +67,8 @@ export function prepareManifestResolution(
     registrySourceId: entry.registrySourceId,
     registryKind: entry.registryKind,
     registryLocation: entry.registryLocation,
-    registryPath: entry.registryPath
+    registryPath: entry.registryPath,
+    ...(entry.registryResolution ? { registryResolution: structuredClone(entry.registryResolution) } : {})
   }));
   const installDescriptors = graph.entries.flatMap(block =>
     block.manifest.installs.map(install => ({ block, blockId: block.manifest.id,

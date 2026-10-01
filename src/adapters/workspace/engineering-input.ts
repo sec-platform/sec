@@ -74,8 +74,10 @@ async function captureWorkspaceEngineeringIRBuildInput(
   const resolvedSelection = prepareManifestResolution(workspaceRoot, explicitEntries, manifestEntries);
   // A cloned workspace may retain the producer's workspace-relative manifestPath;
   // the loader validates the current registry source instead of consuming that field.
+  // Shadow observations explain the original resolution, not the pinned selection:
+  // a selected-source reload neither consults nor grants access to lower sources.
   const comparableBlocks = (blocks: LockFile['resolvedBlocks']) => blocks.map(
-    ({ manifestPath: _manifestPath, ...identity }) => identity
+    ({ manifestPath: _manifestPath, registryResolution: _registryResolution, ...identity }) => identity
   );
   if (!canonicalEquals(comparableBlocks(resolvedSelection.resolvedBlocks), comparableBlocks(lock.resolvedBlocks))
       || !canonicalEquals(resolvedSelection.resolvedCapabilities, lock.resolvedCapabilities)) {

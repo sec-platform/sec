@@ -151,6 +151,10 @@ const lockFileSchema = z.strictObject({
     kind: z.enum(MANIFEST_KINDS),
     installOrder: z.number().int().nonnegative(),
     manifestPath: z.string(),
+    registryResolution: z.strictObject({
+      policy: z.literal('source-order'),
+      shadowed: z.array(z.strictObject({ version: z.string(), ...registryIdentitySchema })).min(1)
+    }).optional(),
     ...registryIdentitySchema
   })),
   resolvedCapabilities: stringArraySchema,

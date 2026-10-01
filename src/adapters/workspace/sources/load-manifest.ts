@@ -7,8 +7,8 @@ import { parseYamlValue } from '../../formats/yaml.ts';
 import type { BlockManifest, ManifestEntry, PlanRegistrySource, ResolvedBlock } from '../../../compiler/contract.ts';
 import { validateManifest, validateRegistrySource } from '../../../compiler/contract/manifest-validation.ts';
 import { CompilerError } from '../../../compiler/errors.ts';
-import { compareCodeUnits, rawSha256 } from '../../../contracts/canonical.ts';
-import type { RegistryKind, RegistryLocation } from '../../../contracts/registry-source.ts';
+import { compareCodeUnits, deepFreeze, rawSha256 } from '../../../contracts/canonical.ts';
+import type { RegistryKind, RegistryLocation, RegistryManifestIdentity } from '../../../contracts/registry-source.ts';
 import { posixPath, resolvePathInside } from "../../../contracts/relative-path.ts";
 import { isCanonicalBlockId, isCanonicalRegistryVersion } from '../../../semantics/identity/block.ts';
 import { pathExists } from "../../filesystem/files.ts";
@@ -204,61 +204,94 @@ export async function resolveManifestResource(
   return { root, path: candidate };
 }
 
-/** Retained Manifest lookup is synchronous. `loadAllManifests` stays async because registry enumeration uses fs.readdir. */
+interface ManifestSelection {
+  selected: ManifestEntry;
+  shadowed: RegistryManifestIdentity[];
+}
+
+function selectBySourceOrder(selections: Map<string, ManifestSelection>, entry: ManifestEntry): void {
+  const prior = selections.get(entry.manifest.id);
+  if (prior === undefined) {
+    selections.set(entry.manifest.id, { selected: entry, shadowed: [] });
+    return;
+  }
+  prior.shadowed.push({ version: entry.manifest.version,
+    registrySourceId: entry.registrySourceId, registryKind: entry.registryKind,
+    registryLocation: entry.registryLocation, registryPath: entry.registryPath });
+}
+
+function selectedManifest({ selected, shadowed }: ManifestSelection): ManifestEntry {
+  return shadowed.length === 0 ? selected : {
+    ...selected, registryResolution: { policy: 'source-order', shadowed }
+  };
+}
+
+function loadManifestFromSource(
+  workspaceRoot: string,
+  registrySource: ResolvedRegistrySource,
+  blockId: string,
+  version: string | undefined
+): ManifestEntry | null {
+  const rootPath = rootManifestPath(registrySource.root, blockId);
+  let rootSource: ManifestSourceBytes | null | undefined;
+
+  if (version) {
+    const manifestPath = versionedManifestPath(registrySource.root, blockId, version);
+    const versionedSource = tryReadManifestSource(manifestPath);
+    if (versionedSource) {
+      rootSource = tryReadManifestSource(rootPath);
+      const sourceDigest = mergedManifestSourceDigest(rootSource, versionedSource);
+      const cacheKey = manifestCacheKey(workspaceRoot, registrySource, blockId, version, sourceDigest);
+      const cached = manifestCache.get(cacheKey);
+      if (cached) return cached;
+
+      const versionedManifest = parseManifestSource(versionedSource);
+      const rootManifest = rootSource ? parseManifestSource(rootSource) : null;
+      const manifest = mergeVersionedManifest(rootManifest, versionedManifest);
+      validateManifest(manifest);
+      assertRequestedManifestIdentity(manifest, blockId, manifestPath);
+      if (manifest.version !== version) {
+        throw new CompilerError(
+          'MANIFEST-SCHEMA-022',
+          `Versioned manifest at "${manifestPath}" declares version "${manifest.version}" but was addressed as "${version}"`
+        );
+      }
+      const versionRoot = path.dirname(manifestPath);
+      const resourceRoots = rootManifest ? [versionRoot, path.dirname(rootPath)] : [versionRoot];
+      const entry = manifestEntryFromPath(registrySource, manifest, manifestPath, resourceRoots);
+      manifestCache.set(cacheKey, entry);
+      return entry;
+    }
+  }
+
+  rootSource ??= tryReadManifestSource(rootPath);
+  if (!rootSource) return null;
+  const cacheKey = manifestCacheKey(workspaceRoot, registrySource, blockId, version, rootSource.digest);
+  const cached = manifestCache.get(cacheKey);
+  if (cached) return cached;
+
+  const manifest = parseManifestSource(rootSource);
+  validateManifest(manifest);
+  assertRequestedManifestIdentity(manifest, blockId, rootPath);
+  if (version && manifest.version !== version) return null;
+  const entry = manifestEntryFromPath(registrySource, manifest, rootPath);
+  manifestCache.set(cacheKey, entry);
+  return entry;
+}
+
+/** Retained Manifest lookup is synchronous. Per-source caches retain parsed
+ * authority only; source-order diagnostics are rebuilt from current reads. */
 export function loadManifestById(blockId: string, options: ManifestLoadOptions = {}): ManifestEntry {
   const version = options.version;
   assertRequestedManifestLocator(blockId, version);
   const workspaceRoot = path.resolve(options.workspaceRoot ?? process.cwd());
-  const registrySources = resolveRegistrySources(workspaceRoot, options.registrySources ?? []);
-
-  for (const registrySource of registrySources) {
-    const rootPath = rootManifestPath(registrySource.root, blockId);
-    let rootSource: ManifestSourceBytes | null | undefined;
-
-    if (version) {
-      const manifestPath = versionedManifestPath(registrySource.root, blockId, version);
-      const versionedSource = tryReadManifestSource(manifestPath);
-      if (versionedSource) {
-        rootSource = tryReadManifestSource(rootPath);
-        const sourceDigest = mergedManifestSourceDigest(rootSource, versionedSource);
-        const cacheKey = manifestCacheKey(workspaceRoot, registrySource, blockId, version, sourceDigest);
-        const cached = manifestCache.get(cacheKey);
-        if (cached) return cached;
-
-        const versionedManifest = parseManifestSource(versionedSource);
-        const rootManifest = rootSource ? parseManifestSource(rootSource) : null;
-        const manifest = mergeVersionedManifest(rootManifest, versionedManifest);
-        validateManifest(manifest);
-        assertRequestedManifestIdentity(manifest, blockId, manifestPath);
-        if (manifest.version !== version) {
-          throw new CompilerError(
-            'MANIFEST-SCHEMA-022',
-            `Versioned manifest at "${manifestPath}" declares version "${manifest.version}" but was addressed as "${version}"`
-          );
-        }
-        const versionRoot = path.dirname(manifestPath);
-        const resourceRoots = rootManifest ? [versionRoot, path.dirname(rootPath)] : [versionRoot];
-        const entry = manifestEntryFromPath(registrySource, manifest, manifestPath, resourceRoots);
-        manifestCache.set(cacheKey, entry);
-        return entry;
-      }
-    }
-
-    rootSource ??= tryReadManifestSource(rootPath);
-    if (!rootSource) continue;
-    const cacheKey = manifestCacheKey(workspaceRoot, registrySource, blockId, version, rootSource.digest);
-    const cached = manifestCache.get(cacheKey);
-    if (cached) return cached;
-
-    const manifest = parseManifestSource(rootSource);
-    validateManifest(manifest);
-    assertRequestedManifestIdentity(manifest, blockId, rootPath);
-    if (version && manifest.version !== version) continue;
-    const entry = manifestEntryFromPath(registrySource, manifest, rootPath);
-    manifestCache.set(cacheKey, entry);
-    return entry;
+  const selections = new Map<string, ManifestSelection>();
+  for (const source of resolveRegistrySources(workspaceRoot, options.registrySources ?? [])) {
+    const entry = loadManifestFromSource(workspaceRoot, source, blockId, version);
+    if (entry !== null) selectBySourceOrder(selections, entry);
   }
-
+  const selection = selections.get(blockId);
+  if (selection !== undefined) return deepFreeze(selectedManifest(selection));
   throw new CompilerError(
     'MANIFEST-SCHEMA-004',
     version ? `Unknown block "${blockId}" version "${version}"` : `Unknown block "${blockId}"`
@@ -282,8 +315,7 @@ export function loadManifestForResolvedBlock(
 }
 
 export async function loadAllManifests(options: ManifestLoadOptions = {}): Promise<ManifestEntry[]> {
-  const manifests: ManifestEntry[] = [];
-  const selectedIds = new Set<string>();
+  const selections = new Map<string, ManifestSelection>();
   const workspaceRoot = path.resolve(options.workspaceRoot ?? process.cwd());
 
   for (const registrySource of resolveRegistrySources(workspaceRoot, options.registrySources ?? [])) {
@@ -333,12 +365,8 @@ export async function loadAllManifests(options: ManifestLoadOptions = {}): Promi
     });
 
     assertSameNoFollowDirectoryIdentity(registryRoot, `Registry ${registrySource.id} root`);
-    for (const entry of sourceEntries) {
-      if (selectedIds.has(entry.manifest.id)) continue;
-      selectedIds.add(entry.manifest.id);
-      manifests.push(entry);
-    }
+    for (const entry of sourceEntries) selectBySourceOrder(selections, entry);
   }
 
-  return manifests;
+  return [...selections.values()].map(selectedManifest);
 }
