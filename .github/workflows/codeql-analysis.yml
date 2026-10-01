@@ -1,8 +1,12 @@
 name: CodeQL
 
-# Migration stage: merge under the existing Default CodeQL protection, then
-# obtain approval to switch setup and run the first advanced main baseline.
+# PR findings protect merges. The scheduled full scan maintains main's alert
+# inventory; it intentionally does not run again on every merged push.
 on:
+  pull_request:
+    branches: [main]
+  schedule:
+    - cron: '17 3 * * 1'
   workflow_dispatch:
 
 permissions:
