@@ -69,21 +69,21 @@
     "commander": "^15.0.0",
     "diff": "^9.0.0",
     "ora": "^9.4.1",
-    "p-limit": "^7.3.2",
+    "p-limit": "^7.3.3",
     "picocolors": "^1.1.1",
-    "yaml": "2.9.0",
+    "yaml": "2.9.1",
     "yauzl": "3.4.0",
-    "zod": "^4.5.4"
+    "zod": "^4.6.5"
   },
   "devDependencies": {
-    "@types/bun": "1.4.0",
-    "@types/node": "26.4.0",
+    "@types/bun": "1.4.2",
+    "@types/node": "26.6.3",
     "@types/yauzl": "3.4.0",
     "@typescript/native": "npm:typescript@7.0.2",
-    "jscpd": "5.1.1",
-    "knip": "6.34.0",
-    "prettier": "^3.9.6",
-    "typescript": "6.0.3",
+    "jscpd": "5.3.2",
+    "knip": "6.38.0",
+    "prettier": "^3.9.9",
+    "typescript": "7.0.2",
     "yazl": "3.3.1"
   }
 }
