@@ -10,8 +10,8 @@ last-reviewed: 2026-10-01
 selectionMode: exact-manifest-not-on-default-branch-v1
 defaultBranchRef: refs/remotes/origin/main
 defaultRefFreshness: live-platform-match-required
-manifest: config/repository/work-packages/codeql-advanced-cadence-20261001.md
-manifestDigest: sha256:ebb0f0766787841f4753189f0712bc0478e33bedbfde06ed95aa7e6d4fb72f50
+manifest: config/repository/work-packages/hook-recovery-owner-boundaries-20261001.md
+manifestDigest: sha256:3e31af0d427636c011231e17223f4ff8281b64b35fdb92b67ef02a1e796b5c23
 digestBytes: git-blob
 unavailableDefaultRef: unresolved
 matchingDefaultBlob: none

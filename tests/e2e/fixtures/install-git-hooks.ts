@@ -45,11 +45,12 @@ export async function installGitHooks(options: {
   readonly leaseOwnerHost?: string;
   readonly leaseOwnerPid?: number;
 }): ReturnType<typeof installGitHooksImplementation> {
-  // The production authority resolver intentionally remains unknown on the
-  // current Windows host until its retained root closure is proven.  These
-  // isolated test repositories opt into the explicit host-only test seam.
+  // Every isolated repository uses the explicit host-only test seam. Production
+  // admission is exercised separately; no platform may fall back to an ambient
+  // executable in installGitHooksForTest. Keep this borrowed session alive until
+  // the complete installation/recovery attempt has settled.
   const fixtureProvider = options.providerResolutionForTest
-    ?? (process.platform === 'win32' ? hostProviderResolutionForTest(options.repoRoot) : undefined);
+    ?? hostProviderResolutionForTest(options.repoRoot);
   try {
     return await installGitHooksImplementation({
       ...options,
