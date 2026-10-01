@@ -50,7 +50,8 @@ export function readSessionArtifactBytes(filePath: string): Buffer {
 }
 
 export function readSessionArtifactText(filePath: string): string {
-  return readSessionArtifactBytes(filePath).toString('utf8');
+  // Preserve a leading BOM so JSON/canonical consumers retain their format checks.
+  return new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(readSessionArtifactBytes(filePath));
 }
 
 export function readJson<T>(filePath: string): T {

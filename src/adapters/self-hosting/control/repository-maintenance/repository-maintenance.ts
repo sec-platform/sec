@@ -9,6 +9,7 @@ import {
   inspectGitHubApiCapability,
   withGitHubApiReadSession
 } from '../../../providers/github-api/operation-session.ts';
+import { normalizeGitHubRepositoryPermission } from '../../../providers/github-api/repository-permission.ts';
 import type { BranchRecoveryAuthority } from '../branch-lifecycle/branch-lifecycle-contract.ts';
 import {
   parseExactRemoteRefRecoveryPreparation,
@@ -299,9 +300,7 @@ async function assertRepositoryMaintenancePreflight(input: Readonly<{
         kind: 'collaborator-permission',
         login: actor
       });
-      const role = permission !== null && typeof permission === 'object' && !Array.isArray(permission)
-        ? (permission as Record<string, unknown>).permission
-        : null;
+      const role = normalizeGitHubRepositoryPermission(permission);
       if (role !== 'admin' && role !== 'maintain') {
         throw new Error(`repository maintenance actor ${actor} lacks maintain/admin permission`);
       }

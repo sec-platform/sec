@@ -41,6 +41,25 @@ jobs:
           EVENT_SHA: ${{ github.sha }}
         with:
           script: |
+            // BEGIN GENERATED repository-permission.ts
+            function normalizeGitHubRepositoryPermission(value) {
+                if (value === null || typeof value !== 'object' || Array.isArray(value))
+                    return null;
+                const source = value;
+                const permission = source.permission;
+                if (permission !== 'admin' && permission !== 'maintain' && permission !== 'write'
+                    && permission !== 'triage' && permission !== 'read' && permission !== 'none')
+                    return null;
+                const role = source.role_name;
+                if (role === undefined)
+                    return permission;
+                if (permission === 'write' && role === 'maintain')
+                    return 'maintain';
+                if (permission === 'read' && role === 'triage')
+                    return 'triage';
+                return role === permission ? permission : null;
+            }
+            // END GENERATED repository-permission.ts
             const crypto = require('crypto');
             const payload = JSON.parse(process.env.PAYLOAD_JSON);
             const expectedKeys = ['comment_body_sha256', 'comment_id', 'issue_number', 'schema'];
@@ -72,6 +91,7 @@ jobs:
                 username: context.actor
               })
             ]);
+            const role = normalizeGitHubRepositoryPermission(permission.data);
             const body = comment.data.body;
             const bodyDigest = typeof body === 'string'
               ? 'sha256:' + crypto.createHash('sha256').update(body, 'utf8').digest('hex')
@@ -82,7 +102,7 @@ jobs:
                 comment.data.user?.type !== 'User' ||
                 comment.data.performed_via_github_app !== null ||
                 (comment.data.author_association !== 'OWNER' && comment.data.author_association !== 'MEMBER') ||
-                (permission.data.permission !== 'admin' && permission.data.permission !== 'maintain') ||
+                (role !== 'admin' && role !== 'maintain') ||
                 bodyDigest !== payload.comment_body_sha256) {
               throw new Error('Repository maintenance trigger comment or dispatcher authority differs.');
             }

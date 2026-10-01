@@ -1881,7 +1881,10 @@ function testAuthorPayload(
   });
 }
 
-async function observeTestAuthor(payload: SourceProgramTestAuthorDecisionPayload) {
+async function observeTestAuthor(
+  payload: SourceProgramTestAuthorDecisionPayload,
+  permission: { permission: 'admin' | 'maintain' | 'write'; role_name?: string } = { permission: 'write', role_name: 'maintain' }
+) {
   const user = { login: 'maintainer', node_id: 'maintainer-node', id: 900001, type: 'User' };
   const comment = { id: 77, issue_url: 'https://api.github.com/repos/sec-platform/sec/issues/7', user,
     body: SOURCE_PROGRAM_TEST_AUTHOR_DECISION_MARKER + JSON.stringify(payload), updated_at: '2026-09-30T00:00:00Z' };
@@ -1893,13 +1896,17 @@ async function observeTestAuthor(payload: SourceProgramTestAuthorDecisionPayload
       const pathname = new URL(String(target)).pathname;
       if (pathname === '/repos/sec-platform/sec/issues/comments/77') return Response.json(comment);
       if (pathname === '/repos/sec-platform/sec/collaborators/maintainer/permission') {
-        return Response.json({ user, permission: 'write', role_name: 'maintain' });
+        return Response.json({ user, ...permission });
       }
       return new Response('unexpected fixture operation', { status: 404 });
     }
   });
-  return withGitHubApiTestSession({ capability, operation: async () =>
-    adoptSourceProgramTestAuthorDecision(await observeGitHubRepositoryComment({ capability, issueNumber: 7, commentId: 77 })) });
+  return withGitHubApiTestSession({ capability, operation: async () => {
+    const observation = await observeGitHubRepositoryComment({ capability, issueNumber: 7, commentId: 77 });
+    expect(observation.author.permission).toBe(permission.permission);
+    expect(observation.author.roleName).toBe(permission.role_name ?? null);
+    return adoptSourceProgramTestAuthorDecision(observation);
+  } });
 }
 
 function constantResultResponsibility(testId: string, owner: string) {
@@ -1943,6 +1950,10 @@ test('exact owner retention accepts simulated SUT input assessment without issui
   const payload = testAuthorPayload(baseline, current, [decision]);
   const assessment = assessSourceProgramTestAuthorDecision({ payload, baseline, current, changedPaths });
   const approval = await observeTestAuthor(payload);
+  await expect(observeTestAuthor(payload, { permission: 'maintain', role_name: 'maintain' }))
+    .resolves.toBeDefined();
+  await expect(observeTestAuthor(payload, { permission: 'maintain' }))
+    .rejects.toThrow('current maintainer');
   expect(qualifySourceProgramTestAuthorAssessment({ assessment, approval })).toBe('test-only-simulation');
   const receipt = compileSourceProgramSupersessionReceipt({ authorityScope: 'test-obligations', baseline, current,
     changedPaths, authorAssessment: assessment, authorApproval: approval });

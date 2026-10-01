@@ -7,6 +7,7 @@ import * as leafObservation from '../../src/adapters/runtime-state/physical/runt
 import * as physical from '../../src/adapters/runtime-state/physical/runtime/physical-no-follow.ts';
 import {
   readJson,
+  readSessionArtifactBytes,
   readSessionArtifactText,
   writeCanonicalDurable,
   writeDurable
@@ -29,12 +30,32 @@ afterEach(() => {
 
 test('VerificationSession artifact consumer preserves exact pretty and canonical bytes through create and replace', () => {
   const { target } = fixture();
-  writeDurable(target, { z: '雪', a: 1 });
-  expect(readFileSync(target, 'utf8')).toBe('{\n  "z": "雪",\n  "a": 1\n}\n');
-  expect(readJson<{ z: string; a: number }>(target)).toEqual({ z: '雪', a: 1 });
-  writeCanonicalDurable(target, { z: '雪', a: 2 });
-  expect(readFileSync(target, 'utf8')).toBe('{"a":2,"z":"雪"}\n');
-  expect(readSessionArtifactText(target)).toBe('{"a":2,"z":"雪"}\n');
+  writeDurable(target, { z: '雪😀e\u0301\uFFFD', a: 1 });
+  expect(readFileSync(target, 'utf8')).toBe('{\n  "z": "雪😀e\u0301\uFFFD",\n  "a": 1\n}\n');
+  expect(readJson<{ z: string; a: number }>(target)).toEqual({ z: '雪😀e\u0301\uFFFD', a: 1 });
+  writeCanonicalDurable(target, { z: '雪😀e\u0301\uFFFD', a: 2 });
+  expect(readFileSync(target, 'utf8')).toBe('{"a":2,"z":"雪😀e\u0301\uFFFD"}\n');
+  expect(readSessionArtifactText(target)).toBe('{"a":2,"z":"雪😀e\u0301\uFFFD"}\n');
+});
+
+test('VerificationSession artifact JSON consumers reject malformed UTF-8 before parsing', async () => {
+  const { target } = fixture();
+  const bytes = Buffer.concat([Buffer.from('{"value":"'), Buffer.from([0xc3, 0x28]), Buffer.from('"}\n')]);
+  writeFileSync(target, bytes);
+  // Replacement decoding would turn this into parseable JSON with a changed value.
+  expect(JSON.parse(bytes.toString('utf8'))).toEqual({ value: '\uFFFD(' });
+  expect(readSessionArtifactBytes(target)).toEqual(bytes);
+  expect(() => readSessionArtifactText(target)).toThrow(TypeError);
+  expect(() => readJson(target)).toThrow(TypeError);
+  await expect(verificationSessionCli(['artifact-status', '--artifact', target])).rejects.toBeInstanceOf(TypeError);
+});
+
+test('VerificationSession artifact text preserves a BOM and JSON still rejects it', () => {
+  const { target } = fixture();
+  const source = '\uFEFF{"value":"雪"}\n';
+  writeFileSync(target, source, 'utf8');
+  expect(readSessionArtifactText(target)).toBe(source);
+  expect(() => readJson(target)).toThrow(SyntaxError);
 });
 
 test('VerificationSession artifact consumer rejects a parent substituted after its physical observation', () => {

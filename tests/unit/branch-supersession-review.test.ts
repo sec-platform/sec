@@ -161,6 +161,7 @@ async function observe(input: Readonly<{
   fixture: RepositoryFixture;
   source: string;
   permission?: 'admin' | 'maintain' | 'write' | 'read';
+  roleName?: string;
   commentPullRequestNumber?: number;
 }>) {
   const transport: GitHubApiTransport = async (target) => {
@@ -174,7 +175,7 @@ async function observe(input: Readonly<{
       });
     }
     if (url.endsWith(`/collaborators/${ADOPTING_MAINTAINER}/permission`)) {
-      return Response.json({ permission: input.permission ?? 'maintain' });
+      return Response.json({ permission: input.permission ?? 'maintain', role_name: input.roleName });
     }
     throw new Error(`Unexpected GitHub test transport request: ${url}`);
   };
@@ -356,6 +357,8 @@ test('review issuance requires maintainer adoption and exact comment-to-PR ident
   try {
     const source = reviewSource(fixture);
     await expect(observe({ fixture, source, permission: 'admin' }))
+      .resolves.toMatchObject({ author: ADOPTING_MAINTAINER });
+    await expect(observe({ fixture, source, permission: 'write', roleName: 'maintain' }))
       .resolves.toMatchObject({ author: ADOPTING_MAINTAINER });
     await expect(observe({ fixture, source, permission: 'write' }))
       .rejects.toThrow();

@@ -21,11 +21,9 @@ import {
   existsSync,
   fsyncSync,
   lstatSync,
-  mkdirSync,
   openSync,
   readFileSync,
   realpathSync,
-  unlinkSync,
   writeFileSync
 } from 'node:fs';
 import path from 'node:path';
@@ -127,9 +125,7 @@ import {
 } from '../../../../self-hosting/control/branch-lifecycle/local-main-closeout.ts';
 import {
   assertTrustedCompletedWorktreePhysicalCloseout,
-  executeDetachedScratchWorktreePhysicalCloseout,
   executeWorktreePhysicalCloseout,
-  prepareDetachedScratchWorktreePhysicalCloseout,
   prepareTrustedWorktreePhysicalCloseout,
   type WorktreePhysicalCloseoutConsumptionToken
 } from '../../../../self-hosting/control/branch-lifecycle/worktree-physical-closeout.ts';
@@ -197,6 +193,7 @@ import {
   CodexDevelopmentExactGitWorkspaceSourceSnapshot,
   CodexDevelopmentTestImpactSourceProviderFromSnapshot
 } from './ci-orchestration-core.ts';
+import { acquireLocalCandidateWorktree } from './local-candidate-worktree.ts';
 import { createBranchCloseoutOperationStore } from './session-branch-closeout-store.ts';
 import {
   createReviewProviderRevalidationCommentBody,
@@ -586,34 +583,6 @@ export async function observeVerificationSessionActionDependencyBlobs(input: {
   return Object.freeze(blobs);
 }
 
-const LOCAL_CANDIDATE_WORKTREE_OWNER_SCHEMA =
-  'sec-verification-session-local-candidate-worktree-owner-v1' as const;
-const LOCAL_CANDIDATE_WORKTREE_DIRECTORY = path.join(
-  '.tmp', 'codex', 'verification-session-candidates'
-);
-
-type LocalCandidateWorktreeOwner = Readonly<{
-  schema: typeof LOCAL_CANDIDATE_WORKTREE_OWNER_SCHEMA;
-  authorityRoot: string;
-  commonGitDirectory: string;
-  candidateRoot: string;
-  headSha: string;
-  headTreeSha: string;
-  sessionRevision: `sha256:${string}`;
-  actionPlanDigest: `sha256:${string}`;
-  ownerDigest: `sha256:${string}`;
-}>;
-
-type LocalCandidateWorktreeLease = Readonly<{
-  owner: LocalCandidateWorktreeOwner;
-  markerPath: string;
-  reused: boolean;
-}>;
-
-function verificationSessionDigest(value: unknown): `sha256:${string}` {
-  return `sha256:${createHash('sha256').update(encodeVerificationActionData(value)).digest('hex')}`;
-}
-
 function comparableFileSystemPath(filePath: string): string {
   const absolute = path.resolve(filePath);
   return process.platform === 'win32' ? absolute.toLowerCase() : absolute;
@@ -630,108 +599,6 @@ function exactRealPath(filePath: string, label: string): string {
   return real;
 }
 
-function assertContainedPath(root: string, candidate: string, label: string): void {
-  const relative = path.relative(root, candidate);
-  if (relative === '' || relative.startsWith(`..${path.sep}`) || relative === '..' || path.isAbsolute(relative)) {
-    throw new Error(`${label} must be a strict descendant of the trusted authority root.`);
-  }
-}
-
-function ensureOrdinaryDirectoryChain(authorityRoot: string): string {
-  let current = authorityRoot;
-  for (const segment of LOCAL_CANDIDATE_WORKTREE_DIRECTORY.split(/[\\/]+/u)) {
-    const next = path.join(current, segment);
-    assertContainedPath(authorityRoot, next, 'local candidate worktree directory');
-    if (!existsSync(next)) mkdirSync(next);
-    const metadata = lstatSync(next);
-    if (!metadata.isDirectory() || metadata.isSymbolicLink()) {
-      throw new Error('local candidate worktree directory must be an ordinary directory.');
-    }
-    const real = realpathSync.native(next);
-    if (comparableFileSystemPath(real) !== comparableFileSystemPath(next)) {
-      throw new Error('local candidate worktree directory crossed a symlink or reparse boundary.');
-    }
-    current = real;
-  }
-  return current;
-}
-
-function createLocalCandidateWorktreeOwner(input: {
-  authorityRoot: string;
-  commonGitDirectory: string;
-  candidateRoot: string;
-  headSha: string;
-  headTreeSha: string;
-  sessionRevision: `sha256:${string}`;
-  actionPlanDigest: `sha256:${string}`;
-}): LocalCandidateWorktreeOwner {
-  const withoutDigest = Object.freeze({
-    schema: LOCAL_CANDIDATE_WORKTREE_OWNER_SCHEMA,
-    authorityRoot: input.authorityRoot,
-    commonGitDirectory: input.commonGitDirectory,
-    candidateRoot: input.candidateRoot,
-    headSha: input.headSha,
-    headTreeSha: input.headTreeSha,
-    sessionRevision: input.sessionRevision,
-    actionPlanDigest: input.actionPlanDigest
-  });
-  return Object.freeze({ ...withoutDigest, ownerDigest: verificationSessionDigest(withoutDigest) });
-}
-
-function parseLocalCandidateWorktreeOwner(source: unknown): LocalCandidateWorktreeOwner {
-  const value: unknown = typeof source === 'string' ? JSON.parse(source) : source;
-  if (!value || typeof value !== 'object' || Array.isArray(value)) {
-    throw new Error('local candidate worktree owner marker must be an object.');
-  }
-  const record = value as Record<string, unknown>;
-  const keys = Object.keys(record).sort().join(',');
-  const expectedKeys = [
-    'actionPlanDigest', 'authorityRoot', 'candidateRoot', 'commonGitDirectory',
-    'headSha', 'headTreeSha', 'ownerDigest', 'schema', 'sessionRevision'
-  ].sort().join(',');
-  if (keys !== expectedKeys || record.schema !== LOCAL_CANDIDATE_WORKTREE_OWNER_SCHEMA
-    || typeof record.authorityRoot !== 'string' || !path.isAbsolute(record.authorityRoot)
-    || typeof record.commonGitDirectory !== 'string' || !path.isAbsolute(record.commonGitDirectory)
-    || typeof record.candidateRoot !== 'string' || !path.isAbsolute(record.candidateRoot)
-    || typeof record.headSha !== 'string' || !/^[0-9a-f]{40}$/u.test(record.headSha)
-    || typeof record.headTreeSha !== 'string' || !/^[0-9a-f]{40}$/u.test(record.headTreeSha)
-    || typeof record.sessionRevision !== 'string' || !/^sha256:[0-9a-f]{64}$/u.test(record.sessionRevision)
-    || typeof record.actionPlanDigest !== 'string' || !/^sha256:[0-9a-f]{64}$/u.test(record.actionPlanDigest)
-    || typeof record.ownerDigest !== 'string' || !/^sha256:[0-9a-f]{64}$/u.test(record.ownerDigest)) {
-    throw new Error('local candidate worktree owner marker identity is invalid.');
-  }
-  const parsed = createLocalCandidateWorktreeOwner({
-    authorityRoot: record.authorityRoot,
-    commonGitDirectory: record.commonGitDirectory,
-    candidateRoot: record.candidateRoot,
-    headSha: record.headSha,
-    headTreeSha: record.headTreeSha,
-    sessionRevision: record.sessionRevision as `sha256:${string}`,
-    actionPlanDigest: record.actionPlanDigest as `sha256:${string}`
-  });
-  if (parsed.ownerDigest !== record.ownerDigest) {
-    throw new Error('local candidate worktree owner marker digest mismatch.');
-  }
-  return parsed;
-}
-
-function createExclusiveCanonicalFile(filePath: string, value: unknown): boolean {
-  let handle: number;
-  try {
-    handle = openSync(filePath, 'wx');
-  } catch (error) {
-    if (error && typeof error === 'object' && 'code' in error && error.code === 'EEXIST') return false;
-    throw error;
-  }
-  try {
-    writeFileSync(handle, `${encodeVerificationActionData(value)}\n`, 'utf8');
-    fsyncSync(handle);
-  } finally {
-    closeSync(handle);
-  }
-  return true;
-}
-
 function gitText(ctx: VerificationSessionScope, cwd: string, args: readonly string[], label: string): string {
   return requireVerificationSessionCommandText(ctx, 'git', args, label, cwd).trim();
 }
@@ -742,213 +609,7 @@ function commonGitDirectory(ctx: VerificationSessionScope, repositoryRoot: strin
   return exactRealPath(source, 'Git common directory');
 }
 
-function inspectLocalVerificationActionRepositoryWithScope(
-  ctx: VerificationSessionScope,
-  repositoryRoot: string
-) {
-  const read = (args: readonly string[], label: string): string => (
-    gitText(ctx, repositoryRoot, args, label)
-  );
-  return Object.freeze({
-    headSha: read(['rev-parse', 'HEAD'], 'local VerificationAction HEAD readback'),
-    headTreeSha: read(['rev-parse', 'HEAD^{tree}'], 'local VerificationAction tree readback'),
-    trackedClean:
-      read(
-        ['diff', '--name-only', '--ignore-cr-at-eol'],
-        'local VerificationAction unstaged tracked-state readback'
-      ) === ''
-      && read(
-        ['diff', '--cached', '--name-only', '--ignore-cr-at-eol'],
-        'local VerificationAction staged tracked-state readback'
-      ) === ''
-      && read(
-        ['ls-files', '--others', '--exclude-standard'],
-        'local VerificationAction untracked-state readback'
-      ) === '',
-    gitCommonDirectory: commonGitDirectory(ctx, repositoryRoot)
-  });
-}
-
-function worktreeRegistration(ctx: VerificationSessionScope, authorityRoot: string, candidateRoot: string):
-Readonly<{ headSha: string; detached: boolean }> | null {
-  const result = runVerificationSessionCommand(ctx, 'git', ['worktree', 'list', '--porcelain', '-z'], authorityRoot);
-  if (result.status !== 0) {
-    throw new Error(`Cannot read Git worktree registration: ${decodeBranchLifecycleChildError(result)}`);
-  }
-  const records: Array<{ root: string; headSha: string | null; detached: boolean }> = [];
-  let current: { root: string; headSha: string | null; detached: boolean } | null = null;
-  const stdout = typeof result.stdout === 'string' ? result.stdout : result.stdout.toString('utf8');
-  for (const field of stdout.split('\0')) {
-    if (field.startsWith('worktree ')) {
-      if (current !== null) records.push(current);
-      current = { root: field.slice('worktree '.length), headSha: null, detached: false };
-    } else if (current !== null && field.startsWith('HEAD ')) {
-      current.headSha = field.slice('HEAD '.length);
-    } else if (current !== null && field === 'detached') {
-      current.detached = true;
-    }
-  }
-  if (current !== null) records.push(current);
-  const matching = records.filter((record) =>
-    comparableFileSystemPath(record.root) === comparableFileSystemPath(candidateRoot));
-  if (matching.length > 1) throw new Error('local candidate worktree has duplicate Git registrations.');
-  const selected = matching[0];
-  if (selected === undefined) return null;
-  if (selected.headSha === null || !/^[0-9a-f]{40}$/u.test(selected.headSha)) {
-    throw new Error('local candidate worktree Git registration has an invalid HEAD.');
-  }
-  return Object.freeze({ headSha: selected.headSha, detached: selected.detached });
-}
-
-function assertLocalCandidateWorktreeExact(input: {
-  ctx: VerificationSessionScope;
-  owner: LocalCandidateWorktreeOwner;
-  allowTrackedChanges?: boolean;
-}): void {
-  const { ctx, owner } = input;
-  const candidateMetadata = lstatSync(owner.candidateRoot);
-  if (!candidateMetadata.isDirectory() || candidateMetadata.isSymbolicLink()) {
-    throw new Error('local candidate worktree root must be an ordinary directory.');
-  }
-  if (comparableFileSystemPath(realpathSync.native(owner.candidateRoot))
-      !== comparableFileSystemPath(owner.candidateRoot)) {
-    throw new Error('local candidate worktree root crossed a symlink or reparse boundary.');
-  }
-  const gitFile = path.join(owner.candidateRoot, '.git');
-  const gitMetadata = lstatSync(gitFile);
-  if (!gitMetadata.isFile() || gitMetadata.isSymbolicLink()) {
-    throw new Error('local candidate worktree .git marker must be an ordinary file.');
-  }
-  if (commonGitDirectory(ctx, owner.candidateRoot) !== owner.commonGitDirectory) {
-    throw new Error('local candidate worktree belongs to another Git common directory.');
-  }
-  const root = gitText(ctx, owner.candidateRoot,
-    ['rev-parse', '--path-format=absolute', '--show-toplevel'], 'candidate worktree root readback');
-  if (comparableFileSystemPath(root) !== comparableFileSystemPath(owner.candidateRoot)) {
-    throw new Error('local candidate worktree root readback differs from its owner marker.');
-  }
-  const headSha = gitText(ctx, owner.candidateRoot, ['rev-parse', 'HEAD'], 'candidate worktree HEAD readback');
-  const headTreeSha = gitText(ctx, owner.candidateRoot,
-    ['rev-parse', 'HEAD^{tree}'], 'candidate worktree tree readback');
-  const trackedStatus = gitText(ctx, owner.candidateRoot,
-    ['status', '--porcelain=v1', '--untracked-files=no'], 'candidate worktree tracked status');
-  const registration = worktreeRegistration(ctx, owner.authorityRoot, owner.candidateRoot);
-  if (headSha !== owner.headSha || headTreeSha !== owner.headTreeSha
-    || (!input.allowTrackedChanges && trackedStatus !== '')
-    || registration === null || registration.headSha !== owner.headSha || !registration.detached) {
-    throw new Error('local candidate worktree is not the exact clean detached candidate.');
-  }
-}
-
-function acquireLocalCandidateWorktree(input: {
-  ctx: VerificationSessionScope;
-  authorityRoot: string;
-  candidate: GitHubCandidateObservation;
-  sessionRevision: `sha256:${string}`;
-  actionPlanClosure: CiVerificationActionPlanClosure;
-}): LocalCandidateWorktreeLease {
-  const authorityRoot = exactRealPath(input.authorityRoot, 'trusted authority root');
-  const authorityMetadata = lstatSync(authorityRoot);
-  if (!authorityMetadata.isDirectory()) throw new Error('trusted authority root must be a directory.');
-  const commonDirectory = commonGitDirectory(input.ctx, authorityRoot);
-  const trackedStatus = gitText(input.ctx, authorityRoot,
-    ['status', '--porcelain=v1', '--untracked-files=no'], 'trusted authority tracked status');
-  if (trackedStatus !== '') throw new Error('trusted authority root must remain tracked-clean.');
-  const resolvedHead = gitText(input.ctx, authorityRoot,
-    ['rev-parse', `${input.candidate.headSha}^{commit}`], 'candidate commit readback');
-  const resolvedTree = gitText(input.ctx, authorityRoot,
-    ['rev-parse', `${input.candidate.headSha}^{tree}`], 'candidate tree readback');
-  if (resolvedHead !== input.candidate.headSha || resolvedTree !== input.candidate.headTreeSha) {
-    throw new Error('trusted authority object database does not contain the exact candidate head and tree.');
-  }
-  const parent = ensureOrdinaryDirectoryChain(authorityRoot);
-  const candidateRoot = path.join(parent, input.candidate.headSha);
-  const markerPath = `${candidateRoot}.owner.json`;
-  assertContainedPath(authorityRoot, candidateRoot, 'local candidate worktree');
-  const owner = createLocalCandidateWorktreeOwner({ authorityRoot, commonGitDirectory: commonDirectory,
-    candidateRoot, headSha: input.candidate.headSha, headTreeSha: input.candidate.headTreeSha,
-    sessionRevision: input.sessionRevision,
-    actionPlanDigest: input.actionPlanClosure.actionPlanDigest as `sha256:${string}` });
-  const createdMarker = createExclusiveCanonicalFile(markerPath, owner);
-  if (!createdMarker) {
-    const markerMetadata = lstatSync(markerPath);
-    if (!markerMetadata.isFile() || markerMetadata.isSymbolicLink()) {
-      throw new Error('local candidate worktree owner marker must be an ordinary file.');
-    }
-    const observed = parseLocalCandidateWorktreeOwner(readFileSync(markerPath, 'utf8'));
-    if (encodeVerificationActionData(observed) !== encodeVerificationActionData(owner)) {
-      throw new Error('local candidate worktree is owned by a different Session or Action plan.');
-    }
-  }
-  const registration = worktreeRegistration(input.ctx, authorityRoot, candidateRoot);
-  const candidateExists = existsSync(candidateRoot);
-  if (registration !== null || candidateExists) {
-    if (registration === null || !candidateExists) {
-      throw new Error('local candidate worktree filesystem and Git registration disagree.');
-    }
-    assertLocalCandidateWorktreeExact({ ctx: input.ctx, owner });
-    return Object.freeze({ owner, markerPath, reused: true });
-  }
-  const add = runVerificationSessionCommand(input.ctx, 'git',
-    ['worktree', 'add', '--detach', candidateRoot, input.candidate.headSha], authorityRoot);
-  if (add.status !== 0) {
-    const afterFailure = worktreeRegistration(input.ctx, authorityRoot, candidateRoot);
-    if (afterFailure === null || !existsSync(candidateRoot)) {
-      throw new Error(`Cannot materialize exact local candidate worktree: ${decodeBranchLifecycleChildError(add)}`);
-    }
-  }
-  assertLocalCandidateWorktreeExact({ ctx: input.ctx, owner });
-  return Object.freeze({ owner, markerPath, reused: false });
-}
-
-async function removeLocalCandidateWorktree(input: {
-  ctx: VerificationSessionScope;
-  lease: LocalCandidateWorktreeLease;
-}): Promise<'removed' | 'retained-physical-closeout-blocked'> {
-  const observed = parseLocalCandidateWorktreeOwner(readFileSync(input.lease.markerPath, 'utf8'));
-  if (encodeVerificationActionData(observed) !== encodeVerificationActionData(input.lease.owner)) {
-    throw new Error('local candidate worktree cleanup owner marker drifted.');
-  }
-  // Local quick verification uses a detached scratch worktree.  It belongs to
-  // Issue #186's physical owner but cannot mint a branch/ref-closeout token:
-  // the opaque branch-consumption path explicitly rejects detached-scratch
-  // authorizations.  Dirty or identity-drifted scratch state is retained for
-  // inspection; never fall back to a path-based Git worktree effect.
-  try {
-    const authorization = await prepareDetachedScratchWorktreePhysicalCloseout({
-      repositoryRoot: observed.authorityRoot,
-      targetPath: observed.candidateRoot,
-      expectedHeadSha: observed.headSha,
-      expectedTreeSha: observed.headTreeSha,
-      expectedRecoveryAuthorityDigest: observed.ownerDigest
-    });
-    const receipt = await executeDetachedScratchWorktreePhysicalCloseout({
-      repositoryRoot: observed.authorityRoot,
-      targetPath: observed.candidateRoot,
-      expectedHeadSha: observed.headSha,
-      expectedTreeSha: observed.headTreeSha,
-      expectedRecoveryAuthorityDigest: observed.ownerDigest,
-      authorizationPath: authorization.authorizationPath
-    });
-    if (receipt.terminal !== 'completed'
-      || receipt.readback.registryPresent || receipt.readback.physicalPresent
-      || !receipt.readback.authorizationValid
-      || comparableFileSystemPath(receipt.repository.root) !== comparableFileSystemPath(observed.authorityRoot)
-      || comparableFileSystemPath(receipt.target.path) !== comparableFileSystemPath(observed.candidateRoot)
-      || receipt.target.headSha !== observed.headSha
-      || receipt.target.treeSha !== observed.headTreeSha
-      || receipt.target.recoveryAuthorityDigest !== observed.ownerDigest) {
-      return 'retained-physical-closeout-blocked';
-    }
-    unlinkSync(input.lease.markerPath);
-    return 'removed';
-  } catch {
-    return 'retained-physical-closeout-blocked';
-  }
-}
-
 async function executePreparedLocalQuickDag(input: {
-  ctx: VerificationSessionScope;
   authorityRoot: string;
   candidate: GitHubCandidateObservation;
   sessionRevision: `sha256:${string}`;
@@ -957,33 +618,37 @@ async function executePreparedLocalQuickDag(input: {
   environment: NodeJS.ProcessEnv;
 }): Promise<Readonly<{
   result: LocalVerificationActionDagResult;
-  worktreeDisposition: 'created-and-removed' | 'reused-and-removed' | 'retained-blocked' | 'retained-physical-closeout-blocked';
+  worktreeDisposition: 'created-and-removed' | 'reused-and-removed' | 'retained-blocked'
+    | 'retained-physical-closeout-blocked' | 'physical-closeout-unsettled' | 'worktree-closed-marker-unsettled';
 }>> {
-  const commonDir = commonGitDirectory(input.ctx, input.authorityRoot);
-  const lease = await withWorkspaceWriteLease(commonDir, undefined, async (coordinatedLease) => {
-    await assertWorkspaceWriteLease(commonDir, coordinatedLease);
-    return acquireLocalCandidateWorktree(input);
+  const lease = await acquireLocalCandidateWorktree({
+    authorityRoot: input.authorityRoot, candidate: input.candidate,
+    sessionRevision: input.sessionRevision,
+    actionPlanDigest: input.actionPlanClosure.actionPlanDigest as `sha256:${string}`,
+    maximumRepositoryObservations: input.actionPlanClosure.actions.length + 2
   });
-  const result = await executeLocalVerificationActionDag({
-    authorityRoot: lease.owner.authorityRoot,
-    candidateRoot: lease.owner.candidateRoot,
-    actionPlanClosure: input.actionPlanClosure,
-    executionEnvironment: input.executionEnvironment,
-    environment: input.environment,
-    executeActionPlan: (providerInput) => executeVerifiedCiActionPlan(providerInput),
-    inspectRepository: (repositoryRoot) => (
-      inspectLocalVerificationActionRepositoryWithScope(input.ctx, repositoryRoot)
-    )
-  });
-  if (result.status === 'blocked') {
-    return Object.freeze({ result, worktreeDisposition: 'retained-blocked' });
+  try {
+    const result = await executeLocalVerificationActionDag({
+      authorityRoot: lease.owner.authorityRoot,
+      candidateRoot: lease.owner.candidateRoot,
+      actionPlanClosure: input.actionPlanClosure,
+      executionEnvironment: input.executionEnvironment,
+      environment: input.environment,
+      executeActionPlan: (providerInput) => executeVerifiedCiActionPlan(providerInput),
+      inspectRepository: lease.inspectRepository
+    });
+    if (result.status === 'blocked') {
+      return Object.freeze({ result, worktreeDisposition: 'retained-blocked' });
+    }
+    const scratchCloseout = await lease.closeout();
+    if (scratchCloseout !== 'removed') {
+      return Object.freeze({ result, worktreeDisposition: scratchCloseout });
+    }
+    return Object.freeze({ result,
+      worktreeDisposition: lease.reused ? 'reused-and-removed' : 'created-and-removed' });
+  } finally {
+    await lease.release();
   }
-  const scratchCloseout = await removeLocalCandidateWorktree({ ctx: input.ctx, lease });
-  if (scratchCloseout === 'retained-physical-closeout-blocked') {
-    return Object.freeze({ result, worktreeDisposition: scratchCloseout });
-  }
-  return Object.freeze({ result,
-    worktreeDisposition: lease.reused ? 'reused-and-removed' : 'created-and-removed' });
 }
 
 function required(args: ReadonlyMap<string, string>, name: string): string {
@@ -4206,7 +3871,6 @@ export async function verificationSessionCli(argv: string[]): Promise<string> {
     });
     const localVerification = hosted === null && reviewBarrierAllowsExecution
       ? await executePreparedLocalQuickDag({
-          ctx,
           authorityRoot: repositoryRoot,
           candidate,
           sessionRevision: prepared.sessionRevision,

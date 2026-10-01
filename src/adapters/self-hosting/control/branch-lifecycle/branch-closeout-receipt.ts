@@ -1,5 +1,6 @@
 import { spawnSync } from 'node:child_process';
 
+import { normalizeGitHubRepositoryPermission } from '../../../providers/github-api/repository-permission.ts';
 import { encodeVerificationActionData } from '../../../verification/platform/action/contract/action.ts';
 import { CI_GITHUB_ACTIONS_IDENTITY_POLICY } from '../../../verification/platform/action/contract/provider.ts';
 import {
@@ -974,9 +975,7 @@ function collaboratorCanPublishReceipt(
 ): { trusted: boolean; reason: string | null } {
   const result = runCloseoutObservationGh(repositoryRoot, [
     'api',
-    `/repos/${repository}/collaborators/${author}/permission`,
-    '--jq',
-    '.role_name // .permission'
+    `/repos/${repository}/collaborators/${author}/permission`
   ]);
   if (result.status !== 0) {
     return {
@@ -984,7 +983,16 @@ function collaboratorCanPublishReceipt(
       reason: `collaborator permission for ${author} failed: ${decodeBranchLifecycleChildError(result)}`
     };
   }
-  const role = decodeBranchLifecycleChildStdout(result).toLowerCase();
+  let response: unknown;
+  try {
+    response = JSON.parse(decodeBranchLifecycleChildStdout(result));
+  } catch {
+    return {
+      trusted: false,
+      reason: `collaborator permission for ${author} returned invalid JSON`
+    };
+  }
+  const role = normalizeGitHubRepositoryPermission(response);
   return {
     trusted: role === 'admin' || role === 'maintain',
     reason: role === 'admin' || role === 'maintain'

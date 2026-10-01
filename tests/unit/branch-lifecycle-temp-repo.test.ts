@@ -169,13 +169,21 @@ function noActiveWorkObservation(
 
 function installGitHubObservationShim(
   fixture: ReturnType<typeof repositoryFixture>,
-  pullRequests: readonly Readonly<Record<string, unknown>>[] = []
+  pullRequests: readonly Readonly<Record<string, unknown>>[] = [],
+  apiResponses: Readonly<Record<string, string>> = {}
 ): () => void {
   const shimRoot = path.join(fixture.root, 'command-shims');
   mkdirSync(shimRoot, { recursive: true });
   const program = path.join(shimRoot, 'gh-shim.ts');
   writeFileSync(program, `
 const args = process.argv.slice(2);
+const apiResponses = ${JSON.stringify(apiResponses)};
+const endpoint = args.find(arg => arg.startsWith('/repos/'));
+if (args[0] === 'api' && Object.hasOwn(apiResponses, endpoint)) {
+  if (args.includes('--jq')) throw new Error('paired permission response must remain intact');
+  process.stdout.write(apiResponses[endpoint]);
+  process.exit(0);
+}
 if (args[0] === 'pr' && args[1] === 'list') {
   process.stdout.write(${JSON.stringify(JSON.stringify(pullRequests))});
   process.exit(0);
@@ -529,3 +537,33 @@ test('missing documentation-owner observation is typed unresolved and blocks bef
     rmSync(fixture.root, { recursive: true, force: true });
   }
 }, 180_000);
+
+
+test('receipt inventory consumes paired permission JSON and preserves unreadable-provider uncertainty', () => {
+  const fixture = repositoryFixture();
+  const baseSha = 'a'.repeat(40);
+  const pullRequests = [{ number: 42, headRefName: fixture.branch, headRefOid: fixture.headSha,
+    baseRefName: 'main', baseRefOid: baseSha, state: 'CLOSED', isDraft: false, isCrossRepository: false }];
+  const responses = {
+    [`/repos/sec-platform/sec/contents/src/adapters/self-hosting/control/branch-lifecycle/branch-closeout-receipt.ts?ref=${baseSha}`]: '',
+    '/repos/sec-platform/sec/issues/42/comments?per_page=100': JSON.stringify([[{
+      body: '<!-- sec-branch-closeout-receipt-v1 -->\n{invalid-receipt', user: { login: 'maintainer' }
+    }]]),
+    '/repos/sec-platform/sec/collaborators/maintainer/permission': JSON.stringify({ permission: 'write', role_name: 'maintain' })
+  };
+  let restorePath = installGitHubObservationShim(fixture, pullRequests, responses);
+  const observe = () => collectBranchLifecycleInventory({ repositoryRoot: fixture.repository,
+    repositoryFullName: 'sec-platform/sec', defaultBranch: 'main', activeWorkPackageObservation: noActiveWorkObservation(fixture) });
+  try {
+    const paired = observe().pullRequests.find(pr => pr.number === 42)!;
+    expect(paired.invalidCloseoutReceiptComments).toHaveLength(1);
+    restorePath();
+    responses['/repos/sec-platform/sec/collaborators/maintainer/permission'] = '{unreadable';
+    restorePath = installGitHubObservationShim(fixture, pullRequests, responses);
+    expect(observe().pullRequests.find(pr => pr.number === 42)!.closeoutReceipt)
+      .toMatchObject({ status: 'unknown', reason: expect.stringContaining('invalid JSON') });
+  } finally {
+    restorePath();
+    rmSync(fixture.root, { recursive: true, force: true });
+  }
+});

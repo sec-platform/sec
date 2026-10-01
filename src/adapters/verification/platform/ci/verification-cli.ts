@@ -15,6 +15,7 @@ import {
   GIT_READ_EXACT_TREE_OPERATION_BUDGET,
   type GitBlobBytes
 } from '../../../providers/git-read/runtime/session.ts';
+import { normalizeGitHubRepositoryPermission } from '../../../providers/github-api/repository-permission.ts';
 import type { PhysicalWorkspaceSourceSnapshot } from '../../../repository/source-program-model/workspace-source-snapshot.ts';
 import {
   assertSameNoFollowDirectoryIdentity,
@@ -936,7 +937,7 @@ function hostedActionParentActor(repository: string): CiVerificationActionParent
     `/repos/${repository}/collaborators/${login}/permission`
   ], 'parent actor permission'), 'parent actor permission');
   const user = hostedActionRecord(permissionReadback.user, 'parent actor permission user');
-  const permission = permissionReadback.permission;
+  const permission = normalizeGitHubRepositoryPermission(permissionReadback);
   const id = user.id;
   const nodeId = user.node_id;
   if ((permission !== 'maintain' && permission !== 'admin') || user.login !== login ||

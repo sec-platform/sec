@@ -789,6 +789,8 @@ function githubScript(step: WorkflowStep | undefined): string {
 }
 
 async function executeMergePlan(options: Readonly<{
+    actorPermission?: Readonly<{ permission: string; role_name?: string }>;
+    actorNodeId?: string;
     sourceStatus?: string;
     sourceConclusion?: string | null;
     sourceRunAttempt?: number;
@@ -820,7 +822,7 @@ async function executeMergePlan(options: Readonly<{
       },
       repos: {
         get: async () => ({ data: { id: 123, full_name: 'sec-platform/sec', default_branch: 'main' } }),
-        getCollaboratorPermissionLevel: async () => ({ data: { permission: 'maintain' } }),
+        getCollaboratorPermissionLevel: async () => ({ data: options.actorPermission ?? { permission: 'write', role_name: 'maintain' } }),
         getBranch: async () => ({ data: { commit: { sha: BASE } } }),
         compareCommitsWithBasehead: async () => ({ data: {
           status: 'identical', base_commit: { sha: BASE }, merge_base_commit: { sha: BASE }, behind_by: 0
@@ -834,7 +836,7 @@ async function executeMergePlan(options: Readonly<{
         } })
       },
       users: {
-        getByUsername: async () => ({ data: { login: 'integrator', node_id: 'USER_integrator' } })
+        getByUsername: async () => ({ data: { login: 'integrator', node_id: options.actorNodeId ?? 'USER_integrator' } })
       }
     },
     paginate: async () => [{
@@ -874,6 +876,10 @@ test('merge plan derives terminal identity from completed source-run API readbac
     'pr-number': String(PR),
     'session-revision': D('9').slice(7)
   });
+  await expect(executeMergePlan({ actorPermission: { permission: 'admin', role_name: 'custom-admin' } }))
+    .rejects.toThrow('dispatch principal is not trusted');
+  await expect(executeMergePlan({ actorNodeId: 'OTHER_USER' }))
+    .rejects.toThrow('dispatch principal is not trusted');
   await expect(executeMergePlan({ artifactRunId: 101 }))
     .rejects.toThrow('exactly one live provenance-bound terminal Session artifact');
 });

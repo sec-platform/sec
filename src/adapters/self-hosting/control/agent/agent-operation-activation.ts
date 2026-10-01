@@ -10,6 +10,7 @@ import {
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+import { normalizeGitHubRepositoryPermission } from '../../../providers/github-api/repository-permission.ts';
 import { resolveAgentRuntimeRepositoryRoot } from './runtime-root.ts';
 import { selectSecOperationAuthoritySourceRevision } from './skill.ts';
 
@@ -933,7 +934,7 @@ function assertProviderLive(
   const permissionObservation = apiRecord(root,
     `/repos/${repository}/collaborators/${provider.actorLogin}/permission`);
   const permission = permissionObservation.value;
-  const role = String(permission.permission ?? '').toLowerCase();
+  const role = normalizeGitHubRepositoryPermission(permission);
   if (role !== provider.actorPermission || (role !== 'admin' && role !== 'maintain')) {
     unavailable('activation-provider-readback-conflict', permissionObservation.bytes);
   }

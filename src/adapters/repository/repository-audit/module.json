@@ -2,6 +2,7 @@
   "importGraph": "runtime",
   "externalEntrypoints": [
     "src/adapters/repository/repository-audit/cli.ts",
+    "src/adapters/repository/repository-audit/permission-bootstrap-projection.ts",
     "src/adapters/repository/repository-audit/worker.ts"
   ],
   "capabilityProviders": [

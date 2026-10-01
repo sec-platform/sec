@@ -61,8 +61,11 @@ function environment(source = requestSource()): NodeJS.ProcessEnv {
 test('maintenance dispatcher requires current maintain/admin before creating a workflow signal', () => {
   expect(assertRepositoryMaintenanceDispatcherPermission({ permission: 'admin' })).toBe('admin');
   expect(assertRepositoryMaintenanceDispatcherPermission({ permission: 'maintain' })).toBe('maintain');
+  expect(assertRepositoryMaintenanceDispatcherPermission({ permission: 'write', role_name: 'maintain' }))
+    .toBe('maintain');
   for (const value of [
     { permission: 'write' },
+    { permission: 'admin', role_name: 'custom-maintainer' },
     { permission: 'triage' },
     { permission: 'read' },
     { permission: 'none' },

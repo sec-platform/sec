@@ -136,3 +136,22 @@ test('embedded frontend never becomes a second ordinary TypeScript scanner', () 
     "import { value } from './value.ts';\nexport { value };\n"
   )).toEqual([]);
 });
+
+test('aliased pinned GitHub action uses retain their real script identity and source span', () => {
+  const source = workflowSource.replace('uses: actions/', 'uses: &github_script actions/') + `
+  activation:
+    steps:
+      - uses: *github_script
+        with:
+          script: |
+            core.setOutput('ready', 'true');
+`;
+  const units = compileSourceProgramEmbeddedWorkflowPrograms({ path: workflowPath, source, contentDigest: rawSha256(source) });
+  const activation = units.find(({ address }) => address === 'jobs/activation/steps/0/github-script');
+  expect(activation?.provider).toBe('actions/github-script@0123456789012345678901234567890123456789');
+  expect(activation?.source).toBe("core.setOutput('ready', 'true');\n");
+  expect(source.slice(activation!.span.start, activation!.span.end)).toContain("core.setOutput('ready', 'true')");
+  const unresolved = source.replace('*github_script', '*missing_provider');
+  expect(() => compileSourceProgramEmbeddedWorkflowPrograms({ path: workflowPath, source: unresolved,
+    contentDigest: rawSha256(unresolved) })).toThrow();
+});

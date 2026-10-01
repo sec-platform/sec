@@ -5,6 +5,7 @@ import {
   inspectGitHubApiCapability,
   type GitHubApiCapability
 } from '../../../providers/github-api/operation-session.ts';
+import { normalizeGitHubRepositoryPermission } from '../../../providers/github-api/repository-permission.ts';
 import {
   GIT_READ_OPERATION_BUDGET,
   parseNulUtf8
@@ -331,8 +332,9 @@ async function observeMaintainerSupersessionComment(input: Readonly<{
   const permission = await executeGitHubApiOperation(input.capability, {
     kind: 'collaborator-permission',
     login: user.login
-  }) as Record<string, unknown>;
-  if (permission.permission !== 'admin' && permission.permission !== 'maintain') {
+  });
+  const role = normalizeGitHubRepositoryPermission(permission);
+  if (role !== 'admin' && role !== 'maintain') {
     throw new Error('Supersession review has not been adopted by a repository maintainer.');
   }
   return Object.freeze({
