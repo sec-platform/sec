@@ -35,20 +35,10 @@ Review身份、失效与集成归[Review稳定性](../../../docs/运行/持久�
 9. 叶节点只有在diff、authority/consumer closure和状态census共同证明不改变状态、Effect、recovery、公共contract或canonical文档时，才可把新图标记为not-applicable；引用适用的canonical graph或原合同，并给出不变性证据；纯值或文本叶节点没有相关状态图时不凭空造图。
 10. 将Review绑定exact head、ReviewSubject内required owner revisions和本次review method revision；只有该subject的head/tree或已绑定required owner revision变化才标记STALE。Reviewer环境中的无关dirty、新main或后来发布但未进入ReviewSubject的Skill/owner revision不能污染已冻结candidate，也不能制造机械重审。区分COMMENT、APPROVE、CHANGES_REQUESTED和未解决thread。
 
-Reviewer报告覆盖以下相交问题，可复用精确绑定的已有记录并合并相关项；不要求新建九份表、固定标题或第二套持久ledger。某项不适用须说明其依据。实际required surface缺证据或只靠作者prose自证时，terminal为`incomplete`或`unresolved`：
-
-1. exact binding与独立性；
-2. scope/authority/consumer closure；
-3. 相关既有约束及其处置；
-4. unique root-cause chains；
-5. affected-system state graph（含before/after、failure/recovery/retirement）；
-6. redundancy/competing-owner census；
-7. documentation/diagram closure；
-8. 未知与残留；
-9. P0/P1/P2/advisory findings、threads和terminal verdict。
+Reviewer报告覆盖上述程序涉及的相交问题，可复用精确绑定的已有记录并合并相关项；不要求固定表数、固定标题或第二套持久ledger。某项不适用须说明其依据。实际required surface缺证据或只靠作者prose自证时，terminal为`incomplete`或`unresolved`。
 
 ## 完成证据
-- 绑定exact base/head/tree、ReviewSubject required owner revisions和review method revision的Review state、findings、threads、REQUEST_CHANGES。
+- 绑定exact base/head/tree、ReviewSubject required owner revisions和review method revision的Review state、P0/P1/P2/advisory findings、threads、REQUEST_CHANGES。
 - 相交审查面已有可复核结论或显式unknown；状态关系可追溯到canonical owner及适用依据，相关既有约束有处置，保留/退役理由明确，文档/图无竞争authority。报告格式与图数量本身不证明闭合。
 
 ## 停止与恢复
