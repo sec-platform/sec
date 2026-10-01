@@ -479,6 +479,18 @@
           {
             "resource": "duration-ms",
             "maximum": 3600000
+          },
+          {
+            "resource": "input-bytes",
+            "maximum": 0
+          },
+          {
+            "resource": "output-bytes",
+            "maximum": 17516462080
+          },
+          {
+            "resource": "processes",
+            "maximum": 4112
           }
         ]
       },
