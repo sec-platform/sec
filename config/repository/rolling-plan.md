@@ -12,9 +12,9 @@ last-reviewed: 2026-10-01
 ```json
 {
   "active": {
-    "manifestDigest": "sha256:a1a81b222be3168d7f576884c09eef0e784f896660941e75677780dd9d99c6c9",
-    "manifestPath": "config/repository/work-packages/source-transition-first-qualified-20261001.md",
-    "packageId": "source-transition-first-qualified-20261001",
+    "manifestDigest": "sha256:578e1e98ffb2e5a01d929f2efc4ffb729da838984430e1d395c122a2b4d1a350",
+    "manifestPath": "config/repository/work-packages/dependency-runtime-owner-boundaries-20261001.md",
+    "packageId": "dependency-runtime-owner-boundaries-20261001",
     "tracking": "none"
   },
   "authority": "none",
@@ -25,18 +25,18 @@ last-reviewed: 2026-10-01
     "candidate-control-transaction-v1",
     "typescript-7-checker-acceleration-v1"
   ],
-  "exactMain": "22ba5398065a5e9bd620545699cc28f392ad9f36",
-  "exactMainTree": "9fad52903df0e0abe098351cf8d99b78f41b6410",
-  "projectionDigest": "sha256:64d8f4e019df5e5db72018178520f605dcfdc045b90a990e09969a1446e46773",
+  "exactMain": "ace0b734551c250ef0da83071562bd985e53433a",
+  "exactMainTree": "83830729b532059d98a232e6cf3de9785abc9e63",
+  "projectionDigest": "sha256:af3ca1ad09c1e71e020f5506d7b58c863c4e214c9873bbf93acdd593dc73faa2",
   "schema": "sec-work-rolling-proposal-projection-v1"
 }
 ```
 
 ## 当前唯一 Work Package
 
-### source-transition-first-qualified-20261001
+### dependency-runtime-owner-boundaries-20261001
 
-Proposal-only target manifest `config/repository/work-packages/source-transition-first-qualified-20261001.md` at `sha256:a1a81b222be3168d7f576884c09eef0e784f896660941e75677780dd9d99c6c9`, based on exact main `22ba5398065a5e9bd620545699cc28f392ad9f36` and tree `9fad52903df0e0abe098351cf8d99b78f41b6410`.
+Proposal-only target manifest `config/repository/work-packages/dependency-runtime-owner-boundaries-20261001.md` at `sha256:578e1e98ffb2e5a01d929f2efc4ffb729da838984430e1d395c122a2b4d1a350`, based on exact main `ace0b734551c250ef0da83071562bd985e53433a` and tree `83830729b532059d98a232e6cf3de9785abc9e63`.
 
 ## 候选 Work Package
 
