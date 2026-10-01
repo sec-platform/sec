@@ -1402,6 +1402,50 @@ function compileTestDefinitionInputs(input: Readonly<{
       && /read|open|scan|glob|stat|exists|access/iu.test(capability.operation)
       && !boundedReads.has(`${capability.path}\0${capability.span.start}\0${capability.span.end}`))
   )).map(({ path: sourcePath }) => sourcePath));
+  // One immutable compilation owns these indexes. Overlapping test closures
+  // still walk every edge and retain their own unknown/read boundary, but do
+  // not repeatedly hash the same module descriptor or read envelope.
+  const ownersByPath = new Map<string, ReturnType<SecRepositoryModuleMembership['moduleForPath']>>();
+  const moduleDigestsByOwner = new Map<ReturnType<SecRepositoryModuleMembership['moduleForPath']>, string>();
+  const observedInputsByPath = new Map<string, SourceProgramTestDefinitionInputs['inputs'][number]>();
+  const dependenciesByPath = new Map<string, readonly string[]>();
+  const envelopesByRead = new Map<SourceProgramTestDefinitionRead, Readonly<{
+    key: string; value: Readonly<{ root: string; descendants: boolean }>;
+  }>>();
+  const ownerForPath = (sourcePath: string) => {
+    if (!ownersByPath.has(sourcePath)) {
+      ownersByPath.set(sourcePath, input.moduleMembership.moduleForPath(sourcePath));
+    }
+    return ownersByPath.get(sourcePath)!;
+  };
+  const dependenciesForPath = (sourcePath: string): readonly string[] => {
+    const cached = dependenciesByPath.get(sourcePath);
+    if (cached !== undefined) return cached;
+    const owner = ownerForPath(sourcePath);
+    const descriptorPath = owner === null ? null : `${owner.root}/module.json`;
+    const dependencies = Object.freeze([
+      ...input.graph.directDependencies(sourcePath),
+      ...(resourceTargets.get(sourcePath) ?? []),
+      ...(descriptorPath !== null && files.has(descriptorPath) ? [descriptorPath] : [])
+    ]);
+    dependenciesByPath.set(sourcePath, dependencies);
+    return dependencies;
+  };
+  const observedInputForPath = (sourcePath: string): SourceProgramTestDefinitionInputs['inputs'][number] => {
+    const cached = observedInputsByPath.get(sourcePath);
+    if (cached !== undefined) return cached;
+    const owner = ownerForPath(sourcePath);
+    let moduleDigest = moduleDigestsByOwner.get(owner);
+    if (moduleDigest === undefined) {
+      moduleDigest = sha256(owner);
+      moduleDigestsByOwner.set(owner, moduleDigest);
+    }
+    const observed = Object.freeze({
+      path: sourcePath, contentDigest: files.get(sourcePath)?.contentDigest ?? null, moduleDigest
+    });
+    observedInputsByPath.set(sourcePath, observed);
+    return observed;
+  };
   const walk = (roots: readonly string[], excluded: ReadonlySet<string> = new Set()) => {
     const closure = new Set(roots.filter((root) => !excluded.has(root)));
     const queue = [...closure];
@@ -1428,17 +1472,16 @@ function compileTestDefinitionInputs(input: Readonly<{
           unresolved.add(`${read.path}:${read.span.start}:${read.span.end}:unresolved-read:${read.operandDigest}`);
           hasUnknownReadScope = true;
         } else {
-          const envelope = Object.freeze({ root: read.target, descendants: read.coverage === 'descendants' });
-          envelopes.set(sha256(envelope), envelope);
+          let envelope = envelopesByRead.get(read);
+          if (envelope === undefined) {
+            const value = Object.freeze({ root: read.target, descendants: read.coverage === 'descendants' });
+            envelope = Object.freeze({ key: sha256(value), value });
+            envelopesByRead.set(read, envelope);
+          }
+          envelopes.set(envelope.key, envelope.value);
         }
       }
-      const owner = input.moduleMembership.moduleForPath(sourcePath);
-      const descriptorPath = owner === null ? null : `${owner.root}/module.json`;
-      for (const dependency of [
-        ...input.graph.directDependencies(sourcePath),
-        ...(resourceTargets.get(sourcePath) ?? []),
-        ...(descriptorPath !== null && files.has(descriptorPath) ? [descriptorPath] : [])
-      ]) {
+      for (const dependency of dependenciesForPath(sourcePath)) {
         if (!closure.has(dependency) && !excluded.has(dependency)) {
           closure.add(dependency);
           queue.push(dependency);
@@ -1446,16 +1489,12 @@ function compileTestDefinitionInputs(input: Readonly<{
       }
     }
     const observedInputs = Object.freeze([...closure].sort(compareCodeUnits).map((sourcePath) => {
-      const contentDigest = files.get(sourcePath)?.contentDigest ?? null;
-      if (contentDigest === null && !SEC_REPOSITORY_TEST_EXECUTION_INPUT_PATHS
+      const observed = observedInputForPath(sourcePath);
+      if (observed.contentDigest === null && !SEC_REPOSITORY_TEST_EXECUTION_INPUT_PATHS
         .some((configPath) => configPath === sourcePath) && sourcePath !== 'tsconfig.json') {
         unresolved.add(`${sourcePath}:input-bytes-outside-source-snapshot`);
       }
-      return Object.freeze({
-        path: sourcePath,
-        contentDigest,
-        moduleDigest: sha256(input.moduleMembership.moduleForPath(sourcePath))
-      });
+      return observed;
     }));
     return {
       closure, observedInputs, unresolved, hasUnknownReadScope,

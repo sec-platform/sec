@@ -10,8 +10,8 @@ last-reviewed: 2026-10-01
 selectionMode: exact-manifest-not-on-default-branch-v1
 defaultBranchRef: refs/remotes/origin/main
 defaultRefFreshness: live-platform-match-required
-manifest: config/repository/work-packages/git-operation-isolation-repair-20261001.md
-manifestDigest: sha256:69eb9d6f616732706442bb6ae655a05a7d1ebe578808d108f827421bd2d2e14e
+manifest: config/repository/work-packages/source-analysis-index-repair-20261001.md
+manifestDigest: sha256:e065d334805b3eae6f2ba7bc79ad7d20a6e3431009c3936001e0cf4f84f2cef6
 digestBytes: git-blob
 unavailableDefaultRef: unresolved
 matchingDefaultBlob: none

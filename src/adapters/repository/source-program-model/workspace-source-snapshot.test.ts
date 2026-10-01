@@ -142,6 +142,13 @@ test('working tree and exact Git tree issue one transport-neutral source generat
   const { commitSha, repositoryRoot } = await createRepository();
   const exact = await exactSnapshot(repositoryRoot, commitSha);
   const working = await workingSnapshot(repositoryRoot);
+  for (const snapshot of [working, exact]) {
+    expect(() => snapshot.assertMatches({
+      sourceRevision: snapshot.sourceRevision,
+      files: snapshot.files,
+      moduleMembership: snapshot.moduleMembership
+    })).not.toThrow();
+  }
 
   expect(working.sourceRevision).toBe(exact.sourceRevision);
   expect(working.files.map(({ path: repositoryPath, mode, contentDigest }) => ({

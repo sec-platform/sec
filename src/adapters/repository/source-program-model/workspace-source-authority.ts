@@ -1,6 +1,6 @@
 import { lstat, readFile } from 'node:fs/promises';
 import path from 'node:path';
-import { sha256, compareCodeUnits, rawSha256 } from '../../../contracts/canonical.ts';
+import { compareCodeUnits, rawSha256, sha256 } from '../../../contracts/canonical.ts';
 import { throwIfNativeAborted } from '../../../contracts/native-abort.ts';
 import { mapTaskGroup } from '../../../execution/task-group.ts';
 import {
@@ -15,14 +15,14 @@ import {
   decodeGitIndexGeneration,
   type GitIndexObjectFormat
 } from '../../providers/git-read/runtime/scratch-index-generation.ts';
-import { type GitReadSession, assertProductionGitReadSession } from '../../providers/git-read/runtime/session.ts';
+import { assertProductionGitReadSession, type GitReadSession } from '../../providers/git-read/runtime/session.ts';
 import {
   inspectNoFollowDirectoryChain,
   inspectNoFollowOrdinaryFileEntry
 } from '../../runtime-state/physical/runtime/physical-no-follow.ts';
 import type { SecRepositoryModuleGraph } from '../architecture/contract.ts';
-import { type SecRepositoryModuleMembership, normalizeSecRepositoryPath, compileSecRepositoryModuleMembershipSnapshot } from '../architecture/contract.ts';
-import { type SourceProgramFileInput, type SourceProgramCompilation, isSourceProgramInputPath, type SourceProgramCompilationMatchInput } from './contract.ts';
+import { compileSecRepositoryModuleMembershipSnapshot, normalizeSecRepositoryPath, type SecRepositoryModuleMembership } from '../architecture/contract.ts';
+import { isSourceProgramInputPath, type SourceProgramCompilation, type SourceProgramCompilationMatchInput, type SourceProgramFileInput } from './contract.ts';
 import { sourceProgramModuleImports } from './embedded-programs.ts';
 import { compileSecRepositoryModuleGraph } from './typescript.ts';
 import { canonicalFiles, sourceGeneration, type WorkspaceSourceFile, type WorkspaceSourceFileMode } from './workspace-source-content.ts';
@@ -36,6 +36,14 @@ const SOURCE_SNAPSHOT_MAX_TOTAL_BYTES = 128 * 1024 * 1024;
 const workspaceSourceSnapshotBrand: unique symbol = Symbol('workspace-source-snapshot');
 
 const issuedWorkspaceSourceSnapshots = new WeakSet<object>();
+// Canonical membership snapshots own deeply immutable descriptors and lookup closures.
+const canonicalSnapshotMemberships = new WeakSet<object>();
+function canonicalSnapshotMembership(input: Parameters<typeof compileSecRepositoryModuleMembershipSnapshot>[0]): SecRepositoryModuleMembership {
+  const membership = compileSecRepositoryModuleMembershipSnapshot(input);
+  canonicalSnapshotMemberships.add(membership);
+  return membership;
+}
+
 
 const stagedWorkspaceSourceSelectionBrand: unique symbol = Symbol(
   'staged-workspace-source-selection'
@@ -249,12 +257,14 @@ function graphDigest(graph: SecRepositoryModuleGraph): `sha256:${string}` {
 }
 
 function emptyModuleMembership(): SecRepositoryModuleMembership {
-  return Object.freeze({
+  const membership = Object.freeze({
     descriptors: Object.freeze([]),
     graphRoots: Object.freeze([]),
     moduleRoots: Object.freeze([]),
     moduleForPath: () => null
   });
+  canonicalSnapshotMemberships.add(membership);
+  return membership;
 }
 
 function issueWorkspaceSourceSnapshot(
@@ -304,12 +314,19 @@ function issueWorkspaceSourceSnapshot(
     return semanticProjection;
   };
   const assertMatches = (candidate: SourceProgramCompilationMatchInput): void => {
-    const candidateFiles = canonicalFiles(candidate.files);
+    const suppliedFiles = candidate.files;
+    const suppliedMembership = candidate.moduleMembership;
     const candidateRevision = candidate.sourceRevision ?? candidate.productionModel?.sourceRevision;
+    if (candidateRevision === sourceRevision && suppliedFiles === files
+        && suppliedMembership === input.moduleMembership && canonicalSnapshotMemberships.has(suppliedMembership)) {
+      requireSemanticProjection();
+      return;
+    }
+    const candidateFiles = canonicalFiles(suppliedFiles);
     const projection = requireSemanticProjection();
     if (candidateRevision !== sourceRevision
         || sourceGeneration(candidateFiles) !== sourceRevision
-        || membershipDigest(candidateFiles, candidate.moduleMembership) !== exactMembershipDigest
+        || membershipDigest(candidateFiles, suppliedMembership) !== exactMembershipDigest
         || graphDigest(projection.moduleGraph) !== projection.moduleGraphDigest) {
       throw new Error('Workspace source snapshot does not bind the supplied exact input');
     }
@@ -768,7 +785,7 @@ export async function acquireWorkingTreeSnapshot(
     .map(({ path: descriptorPath, source }) => ({ descriptorPath, source }));
   const moduleMembership = descriptorSources.length === 0
     ? emptyModuleMembership()
-    : compileSecRepositoryModuleMembershipSnapshot({
+    : canonicalSnapshotMembership({
         repositoryFiles: files.map(({ path: repositoryPath }) => repositoryPath),
         descriptorSources
       });
@@ -841,7 +858,7 @@ export async function acquireStagedIndexSnapshot(
     .map(({ path: descriptorPath, source }) => ({ descriptorPath, source }));
   const moduleMembership = descriptorSources.length === 0
     ? emptyModuleMembership()
-    : compileSecRepositoryModuleMembershipSnapshot({
+    : canonicalSnapshotMembership({
         repositoryFiles: before.entries.map(({ path: repositoryPath }) => repositoryPath),
         descriptorSources
       });
@@ -1018,7 +1035,7 @@ function issueExactGitTreeWorkspaceSourceSnapshot(input: Readonly<{
   }
   const moduleMembership = descriptorSources.length === 0
     ? emptyModuleMembership()
-    : compileSecRepositoryModuleMembershipSnapshot({
+    : canonicalSnapshotMembership({
         repositoryFiles: sourceEntries.map(({ repositoryPath }) => repositoryPath),
         descriptorSources
       });

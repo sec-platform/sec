@@ -567,17 +567,20 @@ function compileRepositorySourceProgramModelInternal(
         !== input.repositoryCompilation.identityDigest) {
     throw new Error('Repository Source Program Model cannot mix test facts from another compilation');
   }
+  // Compiler-issued spans contain finite source offsets or are absent. The
+  // tuple is the existing equality predicate, not the full observation: end
+  // positions matter, line metadata does not, and output order stays intact.
+  const unknownIdentity = (unknown: SourceProgramUnknown): string => JSON.stringify([
+    unknown.code, unknown.path, unknown.detail, unknown.span?.start, unknown.span?.end
+  ]);
+  const typeScriptUnknownIdentities = new Set(typescriptModel.unknowns.map(unknownIdentity));
   const semanticModel = Object.freeze({
     ...typescriptModel,
     unknowns: Object.freeze([
       ...typescriptModel.unknowns,
-      ...testObservations.unknowns.filter((unknown) => !typescriptModel.unknowns.some((existing) => (
-        existing.code === unknown.code
-        && existing.path === unknown.path
-        && existing.detail === unknown.detail
-        && existing.span?.start === unknown.span?.start
-        && existing.span?.end === unknown.span?.end
-      )))
+      // Do not add test-only identities to the index: duplicates among test
+      // observations were preserved by the original baseline-membership test.
+      ...testObservations.unknowns.filter((unknown) => !typeScriptUnknownIdentities.has(unknownIdentity(unknown)))
     ])
   });
   const entrypoints: SourceProgramEntrypoint[] = [...typescriptModel.entrypoints];
