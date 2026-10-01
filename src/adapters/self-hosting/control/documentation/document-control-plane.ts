@@ -14,7 +14,12 @@ import path from 'node:path';
 import { digest, rawSha256, sha256 } from '../../../../contracts/canonical.ts';
 import { withWorkspaceWriteLease } from '../../../filesystem/write-lease.ts';
 import { GitReadAuthorityError, withAuthorityGitReadSession } from '../../../providers/git-read/authority.ts';
+import { CodexDevelopmentReadExactGitBlobBytesBatchFromSession, parseExactGitBlobInfoBatch, parseExactGitBlobsBatch, parseExactGitTreeEntries, type CodexDevelopmentExactGitTreeEntry } from '../../../providers/git-read/exact-blob.ts';
+import { GIT_INDEX_PLANNING_BUDGET_CEILING } from '../../../providers/git-read/runtime/budget.ts';
+import { decodeGitIndexGeneration, type GitIndexGeneration } from '../../../providers/git-read/runtime/scratch-index-generation.ts';
 import {
+  assertGitReadSessionReceipt,
+  assertProductionGitReadSession,
   createAuthorityGitScratchIndexTreeSession,
   isolatedGitReadEnvironment,
   type GitReadHostProviderResolutionReason,
@@ -258,6 +263,13 @@ export class CodexDevelopmentDocumentControlCliAdmissionError extends Error {
 const documentControlHostCliTestScope = new AsyncLocalStorage<symbol>();
 const documentControlHostCliTestIssuer = Symbol('sec-document-control-host-cli-test-issuer-v1');
 const documentControlGitReadScope = new AsyncLocalStorage<GitReadSession>();
+const GIT_FREEZE_CONTROL_BATCH_RECORD_LIMIT = 4;
+// Each writer/terminal Git owner gets a separate lifetime. Immutable
+// bytes never stand in for a mutable ref/index fence or a new object-store cut.
+const freezeReadScope = new AsyncLocalStorage<{
+  blobs: Map<string, Buffer>;
+  index?: Readonly<{ repositoryRoot: string; paths: GitIndexPaths; routing: string }>;
+}>();
 export interface DocumentControlRoutingTestActor {
   readonly githubCapability: (repositoryRoot: string) => GitHubApiCapability;
   readonly withGitHubCapability: <T>(
@@ -367,8 +379,8 @@ const DOCUMENT_CONTROL_FREEZE_GIT_READ_BUDGET = Object.freeze({
   maxProcesses: 128
 });
 // Status reads the complete index tree twice around its external observations.
-// Immutable scratch generation issues one mktree process per directory depth,
-// plus a Windows stdin worker per process. Keep both fences in one session.
+// Native private-index computation is independent of directory depth.
+// Keep both current object/index fences in one session.
 const DOCUMENT_CONTROL_STATUS_GIT_READ_BUDGET = Object.freeze({
   ...GIT_READ_OPERATION_BUDGET,
   maxProcesses: 128
@@ -1133,7 +1145,8 @@ function toBase64(bytes: Uint8Array): string {
 }
 
 function fromBase64(source: string, label: string): Buffer {
-  if (typeof source !== 'string' || !/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/u.test(source)) {
+  if (typeof source !== 'string' || source.length > GIT_INDEX_PLANNING_BUDGET_CEILING.maxRawBytes
+      || !/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/u.test(source)) {
     throw new Error(`${label} must be canonical base64.`);
   }
   const bytes = Buffer.from(source, 'base64');
@@ -1432,22 +1445,182 @@ function requireCommandOutput(result: CommandResult, label: string): string {
   return result.stdout;
 }
 
+function assertFreezeReadOwnerCurrent(): void {
+  const session = documentControlGitReadScope.getStore();
+  if (session === undefined || session.failure !== null || !session.verifyExecutable()
+      || session.verifyWorkingDirectory?.() !== true) {
+    throw new Error('Retained freeze observation has no current Git owner.');
+  }
+}
+
 async function readGitBlob(
   cwd: string,
   spec: string,
   environment: Readonly<Record<string, string>> = {}
 ): Promise<Buffer | undefined> {
+  const retained = Object.keys(environment).length === 0 && /^(?:[0-9a-f]{40}|[0-9a-f]{64})(?::|$)/u.test(spec)
+    ? freezeReadScope.getStore()?.blobs : undefined;
+  const key = `${cwd}\0${spec}`;
+  const prior = retained?.get(key);
+  if (prior !== undefined) {
+    assertFreezeReadOwnerCurrent();
+    return Buffer.from(prior);
+  }
   const result = await runDocumentControlGitReadBytes(
     ['show', spec],
     cwd,
     Object.keys(environment).length === 0 ? {} : { environment }
   );
-  return result.code === 0 ? Buffer.from(result.stdout) : undefined;
+  if (result.code !== 0) return undefined;
+  const bytes = Buffer.from(result.stdout);
+  retained?.set(key, Buffer.from(bytes));
+  return bytes;
+}
+
+/** Bounded control batches reuse the existing strict native protocol reader.
+ * The caller supplies path membership from a captured index or exact ls-tree;
+ * caller-provided journal bytes never supply the native result. */
+async function readControlBlobEntries(
+  repositoryRoot: string,
+  entries: readonly CodexDevelopmentExactGitTreeEntry[],
+  observeCommand?: (args: readonly string[]) => void
+): Promise<ReadonlyMap<string, Buffer>> {
+  if (entries.length > GIT_FREEZE_CONTROL_BATCH_RECORD_LIMIT) throw new Error('Control blob batch exceeds its closed path inventory.');
+  if (entries.some(entry => entry.type !== 'blob' || (entry.mode !== '100644' && entry.mode !== '100755'))) {
+    throw new Error('Control tree entry is not an ordinary blob.');
+  }
+  if (entries.length === 0) return new Map();
+  const testTransport = documentControlHostCliTestScope.getStore() === documentControlHostCliTestIssuer;
+  const session = testTransport ? undefined : documentControlGitReadScope.getStore();
+  if (!testTransport) {
+    if (session === undefined) throw new Error('Control blob batch requires its live Git owner.');
+    assertProductionGitReadSession(session);
+    if (path.resolve(session.cwd) !== path.resolve(repositoryRoot)) throw new Error('Control blob batch changed repository owner.');
+    const roots = entries.length === 1 ? 1 : 1 + entries.length;
+    const stdinWorkers = entries.length === 1 ? 0 : 1 + Math.floor(entries.length / 2);
+    const stdinBytes = entries.length === 1 ? 0 : 2 * entries.reduce((total, entry) => total + entry.blobSha.length + 1, 0);
+    if ((session.stdinBytes ?? 0) + stdinBytes > session.budget.maxStdinBytes) {
+      throw new Error('Control blob batch exceeds its remaining aggregate stdin admission.');
+    }
+    if (session.processCount + roots > session.budget.maxProcesses
+        || (session.observeNativeResourceCapacity()?.remaining ?? 0) < roots + (process.platform === 'win32' ? stdinWorkers : 0)) {
+      throw new Error('Control blob batch exceeds its remaining root/native process admission.');
+    }
+  }
+  const outputLimit = session?.budget.maxCommandStdoutBytes ?? ExternalCommandMaxBufferBytes;
+  const execute = async (args: readonly string[], input?: Buffer): Promise<Buffer> => {
+    observeCommand?.(args);
+    if (session === undefined) {
+      const result = await runDocumentControlGitReadBytes(args, repositoryRoot, input === undefined ? {} : { input });
+      if (result.code !== 0) throw new Error('Control blob observation did not complete.');
+      return Buffer.from(result.stdout);
+    }
+    const outcome = await session.run(args, input === undefined ? {} : { input });
+    if (outcome.kind !== 'completed' || outcome.result.code !== 0) throw new Error('Control blob observation did not complete.');
+    return Buffer.from(outcome.result.stdout);
+  };
+  const chargeRecords = (count: number) => {
+    if (session?.consumeRecords(count) != null) throw new Error('Control blob record budget is exhausted.');
+  };
+  const readRaw = async (entry: CodexDevelopmentExactGitTreeEntry, expectedBytes?: number): Promise<Buffer> => {
+    // Raw blob output preserves the old per-blob ceiling, including a blob
+    // which exactly fills it and cannot accommodate batch protocol framing.
+    const bytes = await execute(['cat-file', 'blob', entry.blobSha]);
+    if (expectedBytes !== undefined && bytes.byteLength !== expectedBytes) throw new Error('Control blob size changed from its exact native metadata.');
+    chargeRecords(1);
+    return bytes;
+  };
+  if (entries.length === 1) return new Map([[entries[0]!.repositoryPath, await readRaw(entries[0]!)]]);
+  const request = (selected: readonly CodexDevelopmentExactGitTreeEntry[]) =>
+    Buffer.from(`${selected.map(entry => entry.blobSha).join('\n')}\n`, 'ascii');
+  const info = parseExactGitBlobInfoBatch(entries, await execute(['cat-file', '--batch-check'], request(entries)));
+  chargeRecords(info.length);
+  // Compute every partition before reading any payload. A failed/truncated
+  // batch is never retried; all commands share the original owner budgets.
+  const chunks: Array<{ entries: CodexDevelopmentExactGitTreeEntry[]; framedBytes: number }> = [];
+  const sizes = new Map(info.map(entry => [entry.repositoryPath, entry.byteLength]));
+  for (const entry of entries) {
+    const size = sizes.get(entry.repositoryPath)!;
+    if (size > outputLimit) throw new Error('Control blob exceeds the existing per-blob output ceiling.');
+    const framedBytes = size + entry.blobSha.length + 8 + String(size).length;
+    const last = chunks.at(-1);
+    if (last !== undefined && last.framedBytes <= outputLimit && last.framedBytes + framedBytes <= outputLimit) {
+      last.entries.push(entry); last.framedBytes += framedBytes;
+    } else chunks.push({ entries: [entry], framedBytes });
+  }
+  const payloadBytes = chunks.reduce((total, chunk) => total + (chunk.entries.length === 1
+    ? sizes.get(chunk.entries[0]!.repositoryPath)! : chunk.framedBytes), 0);
+  if (session !== undefined && payloadBytes > session.budget.maxStdoutBytes - (session.stdoutBytes ?? 0)) {
+    throw new Error('Control blob payloads exceed the original aggregate output admission.');
+  }
+  const result = new Map<string, Buffer>();
+  for (const chunk of chunks) {
+    if (chunk.entries.length === 1) {
+      const entry = chunk.entries[0]!;
+      result.set(entry.repositoryPath, await readRaw(entry, sizes.get(entry.repositoryPath)));
+      continue;
+    }
+    if (session !== undefined) observeCommand?.(['cat-file', '--batch']);
+    const blobs = session === undefined
+      ? parseExactGitBlobsBatch(chunk.entries, await execute(['cat-file', '--batch'], request(chunk.entries)), outputLimit)
+      : await CodexDevelopmentReadExactGitBlobBytesBatchFromSession(session, { entries: chunk.entries, maxTotalBytes: outputLimit });
+    for (const blob of blobs) {
+      if (blob.byteLength !== sizes.get(blob.repositoryPath)) throw new Error('Control blob batch size changed from its exact native metadata.');
+      result.set(blob.repositoryPath, Buffer.from(blob.bytes));
+    }
+  }
+  return result;
+}
+
+async function readControlTreeBlobs(
+  repositoryRoot: string, treeSha: string, paths: readonly string[]
+): Promise<ReadonlyMap<string, Buffer>> {
+  if (freezeReadScope.getStore() === undefined) {
+    const blobs = new Map<string, Buffer>();
+    for (const repositoryPath of paths) {
+      const bytes = await readGitBlob(repositoryRoot, `${treeSha}:${repositoryPath}`);
+      if (bytes !== undefined) blobs.set(repositoryPath, bytes);
+    }
+    return blobs;
+  }
+  shaValue(treeSha, 'Control blob tree');
+  const selected = [...new Set(paths)];
+  if (selected.length > GIT_FREEZE_CONTROL_BATCH_RECORD_LIMIT) throw new Error('Control tree batch exceeds its closed path inventory.');
+  const result = await runDocumentControlGitReadBytes([
+    'ls-tree', '-z', '--full-tree', treeSha, '--', ...selected
+  ], repositoryRoot);
+  if (result.code !== 0) throw new Error('Control tree membership observation did not complete.');
+  const entries = parseExactGitTreeEntries(Buffer.from(result.stdout));
+  if (entries.some(entry => !selected.includes(entry.repositoryPath))) throw new Error('Control tree batch returned a foreign path.');
+  const session = documentControlGitReadScope.getStore();
+  if (session?.consumeRecords(entries.length) != null) throw new Error('Control tree membership record budget is exhausted.');
+  const blobs = await readControlBlobEntries(repositoryRoot, entries);
+  const retained = freezeReadScope.getStore()?.blobs;
+  for (const [repositoryPath, bytes] of blobs) retained?.set(`${repositoryRoot}\0${treeSha}:${repositoryPath}`, Buffer.from(bytes));
+  return blobs;
+}
+
+function controlIndexEntries(generation: GitIndexGeneration, paths: readonly string[]): readonly CodexDevelopmentExactGitTreeEntry[] {
+  const selected = new Map([...new Set(paths)].map(repositoryPath => [Buffer.from(repositoryPath).toString('hex'), repositoryPath]));
+  if (selected.size > GIT_FREEZE_CONTROL_BATCH_RECORD_LIMIT) throw new Error('Control index batch exceeds its closed path inventory.');
+  return generation.entries.flatMap(entry => {
+    const repositoryPath = selected.get(entry.pathHex);
+    if (repositoryPath === undefined) return [];
+    if (entry.mode !== 0o100644 && entry.mode !== 0o100755) throw new Error('Control index entry is not a stage-zero regular blob.');
+    return [{ repositoryPath, blobSha: entry.objectId, mode: entry.mode.toString(8), type: 'blob' }];
+  });
+}
+
+function requireControlBlob(blobs: ReadonlyMap<string, Buffer>, repositoryPath: string, label: string): Buffer {
+  const bytes = blobs.get(repositoryPath);
+  if (bytes === undefined) throw new Error(`${label} is absent from the immutable Git snapshot.`);
+  return bytes;
 }
 
 interface ReadOnlyResolverGit {
   run(args: readonly string[], cwd: string, options?: CommandOptions): Promise<CommandResult>;
   readBlob(cwd: string, spec: string, options?: CommandOptions): Promise<Buffer | undefined>;
+  readBlobs(cwd: string, entries: readonly CodexDevelopmentExactGitTreeEntry[]): Promise<ReadonlyMap<string, Buffer>>;
 }
 
 type ReadOnlyResolverGitObserver = (event: Readonly<{
@@ -1476,6 +1649,9 @@ function createReadOnlyResolverGit(
           ? { environment }
           : {})
       });
+    },
+    readBlobs(cwd: string, entries: readonly CodexDevelopmentExactGitTreeEntry[]) {
+      return readControlBlobEntries(cwd, entries, args => { observeEnvironment(args, undefined); });
     },
     async readBlob(cwd: string, spec: string, options: CommandOptions = {}) {
       const args = ['show', spec] as const;
@@ -1563,6 +1739,7 @@ async function withRepositoryIndexTreeThroughExternalScratch<T>(
 ): Promise<T> {
   const indexPaths = await resolveIndexPaths(input.repositoryRoot);
   const scratchRoot = await mkdtemp(path.join(tmpdir(), 'sec-document-control-index-'));
+  let observed: T;
   try {
     const canonicalScratchRoot = await realpath(scratchRoot);
     const canonicalRepositoryRoot = await realpath(input.repositoryRoot);
@@ -1668,7 +1845,7 @@ async function withRepositoryIndexTreeThroughExternalScratch<T>(
           await runScratch(['write-tree']),
           'Repository index tree through external scratch'
         ), 'Repository index tree through external scratch');
-        return await observe(Object.freeze({
+        observed = await observe(Object.freeze({
           treeSha,
           index: before,
           run: runScratch,
@@ -1754,6 +1931,7 @@ async function withRepositoryIndexTreeThroughExternalScratch<T>(
     (error: unknown) => (error as NodeJS.ErrnoException).code === 'ENOENT'
   );
   if (!removed) throw new Error('External scratch Git index root remained after cleanup.');
+  return observed;
 }
 
 async function captureRepositoryIndexTreeThroughExternalScratch(input: Readonly<{
@@ -1780,23 +1958,37 @@ async function captureControlIndexSnapshot(
       ...(options.resolverGit === undefined ? {} : { resolverGit: options.resolverGit })
     },
     async ({ treeSha, index, run: runScratch, readBlob }) => {
-      const requireSnapshotBlob = async (repositoryPath: string, label: string): Promise<Buffer> => {
-        const blob = await readBlob(`:${repositoryPath}`);
-        if (blob === undefined) throw new Error(`${label} is absent from the immutable Git index snapshot.`);
-        return blob;
+      const generation = freezeReadScope.getStore() === undefined ? undefined
+        : decodeGitIndexGeneration(index.bytes, treeSha.length === 40 ? 'sha1' : 'sha256');
+      const readBlobs = async (paths: readonly string[]) => {
+        if (generation === undefined) {
+          const blobs = new Map<string, Buffer>();
+          for (const repositoryPath of paths) {
+            const bytes = await readBlob(`:${repositoryPath}`);
+            if (bytes !== undefined) blobs.set(repositoryPath, bytes);
+          }
+          return blobs;
+        }
+        const entries = controlIndexEntries(generation, paths);
+        return options.resolverGit === undefined ? readControlBlobEntries(repositoryRoot, entries)
+          : options.resolverGit.readBlobs(repositoryRoot, entries);
       };
-      const stateBytes = await requireSnapshotBlob(CurrentStatePath, 'Current-state spec');
-      const pointerBytes = await requireSnapshotBlob(ActivePointerPath, 'Active pointer');
-      const rollingPlanBytes = await requireSnapshotBlob(RollingPlanPath, 'Rolling plan');
+      const controls = await readBlobs([
+        CurrentStatePath, ActivePointerPath, RollingPlanPath, 'config/repository/work-selection.md'
+      ]);
+      const stateBytes = requireControlBlob(controls, CurrentStatePath, 'Current-state spec');
+      const pointerBytes = requireControlBlob(controls, ActivePointerPath, 'Active pointer');
+      const rollingPlanBytes = requireControlBlob(controls, RollingPlanPath, 'Rolling plan');
       const stateSource = decodeUtf8(stateBytes, 'Current-state spec');
       const pointerSource = decodeUtf8(pointerBytes, 'Active pointer');
       const rollingPlanSource = decodeUtf8(rollingPlanBytes, 'Rolling plan');
       const pointer = CodexDevelopmentParseActivePointer(pointerSource);
-      const candidateManifestBlob = await readBlob(`:${pointer.manifest}`);
-      const targetManifestBlob = options.targetManifestPath === undefined
-        ? undefined
-        : await readBlob(`:${options.targetManifestPath}`);
-      const roadmapBlob = await readBlob(':config/repository/work-selection.md');
+      const manifests = await readBlobs([
+        pointer.manifest, ...(options.targetManifestPath === undefined ? [] : [options.targetManifestPath])
+      ]);
+      const candidateManifestBlob = manifests.get(pointer.manifest);
+      const targetManifestBlob = options.targetManifestPath === undefined ? undefined : manifests.get(options.targetManifestPath);
+      const roadmapBlob = controls.get('config/repository/work-selection.md');
       const indexPaths = Object.freeze(parseNulList(requireCommandOutput(
         await runScratch(['ls-files', '--cached', '-z']),
         'External index snapshot path inventory'
@@ -3799,20 +3991,55 @@ interface GitIndexPaths {
   readonly lockPath: string;
 }
 
+async function observeIndexRouting(repositoryRoot: string, gitDirectory?: string): Promise<string> {
+  const locator = path.join(repositoryRoot, '.git');
+  const metadata = await lstat(locator);
+  let relation: unknown;
+  if (metadata.isDirectory()) relation = inspectNoFollowDirectoryChain(locator, 'Freeze Git directory locator');
+  else {
+    const file = await observeOptionalSafeRegularFile({ boundaryRoot: repositoryRoot, filePath: locator, label: 'Freeze Git file locator' });
+    if (file === null) throw new Error('Freeze Git file locator disappeared during observation.');
+    relation = { identity: file.identity, bytesDigest: rawSha256(file.bytes) };
+  }
+  return sha256({ relation, directory: gitDirectory === undefined ? null
+    : inspectNoFollowDirectoryChain(gitDirectory, 'Freeze Git directory binding') });
+}
+
 async function resolveIndexPaths(
   repositoryRoot: string,
   allowMissingIndex = false
 ): Promise<GitIndexPaths> {
-  const gitDirectoryCandidate = requireCommand(
-    await run('git', ['rev-parse', '--absolute-git-dir'], repositoryRoot),
-    'Git directory path'
-  );
-  const gitDirectory = await canonicalDirectoryBoundary(gitDirectoryCandidate, 'Git directory');
-  const candidate = requireCommand(
-    await run('git', ['rev-parse', '--git-path', 'index'], repositoryRoot),
-    'Git index path'
-  );
-  const resolved = path.isAbsolute(candidate) ? candidate : path.resolve(repositoryRoot, candidate);
+  const custody = freezeReadScope.getStore();
+  let retained = custody?.index;
+  const reusedRouting = retained !== undefined;
+  if (retained !== undefined && path.resolve(retained.repositoryRoot) !== path.resolve(repositoryRoot)) throw new Error('Freeze index routing changed repository.');
+  let gitDirectory: string, resolved: string;
+  if (retained !== undefined) {
+    if (await observeIndexRouting(repositoryRoot, retained.paths.gitDirectory) !== retained.routing) {
+      throw new Error('Freeze Git index routing changed within its owner lifetime.');
+    }
+    ({ gitDirectory, indexPath: resolved } = retained.paths);
+  } else {
+    const before = custody === undefined ? undefined : await observeIndexRouting(repositoryRoot);
+    const gitDirectoryCandidate = requireCommand(
+      await run('git', ['rev-parse', '--absolute-git-dir'], repositoryRoot), 'Git directory path'
+    );
+    gitDirectory = await canonicalDirectoryBoundary(gitDirectoryCandidate, 'Git directory');
+    const candidate = requireCommand(
+      await run('git', ['rev-parse', '--git-path', 'index'], repositoryRoot), 'Git index path'
+    );
+    resolved = path.isAbsolute(candidate) ? candidate : path.resolve(repositoryRoot, candidate);
+    if (custody !== undefined) {
+      const session = documentControlGitReadScope.getStore();
+      if (session === undefined || path.resolve(session.cwd) !== path.resolve(repositoryRoot)) {
+        throw new Error('Freeze index routing differs from its current repository owner.');
+      }
+      assertFreezeReadOwnerCurrent();
+      const routing = await observeIndexRouting(repositoryRoot, gitDirectory);
+      if (await observeIndexRouting(repositoryRoot) !== before) throw new Error('Freeze Git locator changed during resolution.');
+      retained = Object.freeze({ repositoryRoot, paths: Object.freeze({ gitDirectory, indexPath: resolved, lockPath: `${resolved}.lock` }), routing });
+    }
+  }
   const indexPath = await inspectSafePath({
     boundaryRoot: gitDirectory,
     candidatePath: resolved,
@@ -3829,7 +4056,10 @@ async function resolveIndexPaths(
     finalKind: 'file',
     allowMissing: true
   });
-  return Object.freeze({ gitDirectory, indexPath: resolvedIndexPath, lockPath });
+  const paths = Object.freeze({ gitDirectory, indexPath: resolvedIndexPath, lockPath });
+  if (reusedRouting) assertFreezeReadOwnerCurrent();
+  if (custody !== undefined) custody.index = retained;
+  return paths;
 }
 
 async function preflightFreezeProjectionEntryStates(
@@ -3956,6 +4186,7 @@ async function buildNextIndex(input: {
   const scratchRoot = await mkdtemp(path.join(tmpdir(), 'sec-document-control-freeze-index-'));
   let productionScratch: GitScratchIndexTreeSession | null = null;
   let primaryFailure: Readonly<{ error: unknown }> | undefined;
+  let built: Readonly<{ bytes: Buffer; treeSha: string }>;
   try {
     try {
       const canonicalScratchRoot = await realpath(scratchRoot);
@@ -4022,9 +4253,12 @@ async function buildNextIndex(input: {
           removals: Object.freeze([...input.absentPaths])
         });
         if (tree.status !== 'ready') {
-          throw documentControlCliFailure(
-            'git', 'git-object-index-effect', 'unavailable', tree.reason
+          const failure = documentControlCliFailure(
+            'git', 'git-object-index-effect', 'unavailable', tree.reason,
+            tree.detail === undefined ? undefined : rawSha256(tree.detail)
           );
+          if (tree.detail !== undefined) failure.cause = new Error(tree.detail);
+          throw failure;
         }
         const treeSha = shaValue(tree.value, 'Candidate tree');
         for (const target of input.targets) {
@@ -4059,58 +4293,59 @@ async function buildNextIndex(input: {
             'git', 'git-object-index-effect', 'unavailable', index.reason
           );
         }
-        return Object.freeze({ bytes: Buffer.from(index.value), treeSha });
-      }
-      const indexUpdates: string[] = [];
-      for (const target of changedTargets) {
-        const blobSha = requireCommand(
-          await run('git', ['hash-object', '-w', '--stdin'], input.repositoryRoot, {
-            environment,
-            input: target.bytes
-          }),
-          `Scratch Git blob materialization for ${target.path}`
-        );
-        indexUpdates.push(`100644 ${blobSha}\t${target.path}\0`);
-      }
-      if (indexUpdates.length > 0) {
-        requireCommand(await run(
-          'git',
-          ['update-index', '-z', '--index-info'],
-          input.repositoryRoot,
-          { environment, input: Buffer.from(indexUpdates.join(''), 'utf8') }
-        ), 'Batched temporary Git index update');
-      }
-      if (input.absentPaths.length > 0) {
-        requireCommand(await run(
-          'git',
-          ['update-index', '--remove', '-z', '--stdin'],
-          input.repositoryRoot,
-          { environment, input: Buffer.from(`${input.absentPaths.join('\0')}\0`, 'utf8') }
-        ), 'Batched temporary Git index removal');
-      }
-      const treeSha = shaValue(
-        requireCommand(
-          await run('git', ['write-tree'], input.repositoryRoot, { environment }),
-          'Candidate tree write'
-        ),
-        'Candidate tree'
-      );
-      for (const target of input.targets) {
-        const treeBytes = await readGitBlob(input.repositoryRoot, `${treeSha}:${target.path}`, environment);
-        if (treeBytes === undefined) throw new Error(`Candidate ${target.path} is absent from the scratch tree.`);
-        if (!treeBytes.equals(target.bytes)) throw new Error(`Candidate tree bytes drifted for ${target.path}.`);
-      }
-      for (const absentPath of input.absentPaths) {
-        if (await readGitBlob(input.repositoryRoot, `${treeSha}:${absentPath}`, environment) !== undefined) {
-          throw new Error(`Candidate tree retained the retired path ${absentPath}.`);
+        built = Object.freeze({ bytes: Buffer.from(index.value), treeSha });
+      } else {
+        const indexUpdates: string[] = [];
+        for (const target of changedTargets) {
+          const blobSha = requireCommand(
+            await run('git', ['hash-object', '-w', '--stdin'], input.repositoryRoot, {
+              environment,
+              input: target.bytes
+            }),
+            `Scratch Git blob materialization for ${target.path}`
+          );
+          indexUpdates.push(`100644 ${blobSha}\t${target.path}\0`);
         }
+        if (indexUpdates.length > 0) {
+          requireCommand(await run(
+            'git',
+            ['update-index', '-z', '--index-info'],
+            input.repositoryRoot,
+            { environment, input: Buffer.from(indexUpdates.join(''), 'utf8') }
+          ), 'Batched temporary Git index update');
+        }
+        if (input.absentPaths.length > 0) {
+          requireCommand(await run(
+            'git',
+            ['update-index', '--remove', '-z', '--stdin'],
+            input.repositoryRoot,
+            { environment, input: Buffer.from(`${input.absentPaths.join('\0')}\0`, 'utf8') }
+          ), 'Batched temporary Git index removal');
+        }
+        const treeSha = shaValue(
+          requireCommand(
+            await run('git', ['write-tree'], input.repositoryRoot, { environment }),
+            'Candidate tree write'
+          ),
+          'Candidate tree'
+        );
+        for (const target of input.targets) {
+          const treeBytes = await readGitBlob(input.repositoryRoot, `${treeSha}:${target.path}`, environment);
+          if (treeBytes === undefined) throw new Error(`Candidate ${target.path} is absent from the scratch tree.`);
+          if (!treeBytes.equals(target.bytes)) throw new Error(`Candidate tree bytes drifted for ${target.path}.`);
+        }
+        for (const absentPath of input.absentPaths) {
+          if (await readGitBlob(input.repositoryRoot, `${treeSha}:${absentPath}`, environment) !== undefined) {
+            throw new Error(`Candidate tree retained the retired path ${absentPath}.`);
+          }
+        }
+        const bytes = await readSafeRegularFile({
+          boundaryRoot: canonicalScratchRoot,
+          filePath: scratchIndex,
+          label: 'External freeze scratch Git index readback'
+        });
+        built = Object.freeze({ bytes, treeSha });
       }
-      const bytes = await readSafeRegularFile({
-        boundaryRoot: canonicalScratchRoot,
-        filePath: scratchIndex,
-        label: 'External freeze scratch Git index readback'
-      });
-      return Object.freeze({ bytes, treeSha });
     } catch (error) {
       primaryFailure = Object.freeze({ error });
       throw error;
@@ -4163,6 +4398,7 @@ async function buildNextIndex(input: {
     (error: unknown) => (error as NodeJS.ErrnoException).code === 'ENOENT'
   );
   if (!removed) throw new Error('External freeze scratch Git index root remained after cleanup.');
+  return built;
 }
 
 async function materializeFreezeCandidateObjects(input: Readonly<{
@@ -4233,9 +4469,11 @@ async function materializeFreezeCandidateObjects(input: Readonly<{
       if (materializedTreeSha !== input.journal.candidateTreeSha) {
         throw new Error('Materialized freeze candidate tree does not equal the journal candidate tree.');
       }
+      const materializedBlobs = await readControlTreeBlobs(input.repositoryRoot, materializedTreeSha,
+        nextFiles.map(([repositoryPath]) => repositoryPath));
       for (const [repositoryPath, encodedBytes] of nextFiles) {
         const expected = fromBase64(encodedBytes, `Freeze ${repositoryPath} NEXT object readback`);
-        const actual = await readGitBlob(input.repositoryRoot, `${materializedTreeSha}:${repositoryPath}`);
+        const actual = materializedBlobs.get(repositoryPath);
         if (actual === undefined || !actual.equals(expected)) {
           throw new Error(`Materialized freeze candidate ${repositoryPath} does not equal the journal NEXT image.`);
         }
@@ -4267,9 +4505,11 @@ async function materializeFreezeCandidateObjects(input: Readonly<{
     if (materializedTreeSha !== input.journal.candidateTreeSha) {
       throw new Error('Materialized freeze candidate tree does not equal the journal candidate tree.');
     }
+    const materializedBlobs = await readControlTreeBlobs(input.repositoryRoot, materializedTreeSha,
+      nextFiles.map(([repositoryPath]) => repositoryPath));
     for (const [repositoryPath, encodedBytes] of nextFiles) {
       const expected = fromBase64(encodedBytes, `Freeze ${repositoryPath} NEXT object readback`);
-      const actual = await readGitBlob(input.repositoryRoot, `${materializedTreeSha}:${repositoryPath}`);
+      const actual = materializedBlobs.get(repositoryPath);
       if (actual === undefined || !actual.equals(expected)) {
         throw new Error(`Materialized freeze candidate ${repositoryPath} does not equal the journal NEXT image.`);
       }
@@ -4901,18 +5141,15 @@ async function advanceFreezeJournal(input: {
     );
   }
 
-  const readback = await captureControlIndexSnapshot(input.repositoryRoot);
+  const readback = await captureControlIndexSnapshot(input.repositoryRoot, { targetManifestPath: journal.manifestPath });
   if (readback.treeSha !== journal.candidateTreeSha) {
     throw new Error('Candidate index tree drifted before freeze terminal readback.');
   }
   const pointerBytes = fromBase64(journal.files.pointer.next, 'Freeze pointer NEXT');
   const rollingBytes = fromBase64(journal.files.rollingPlan.next, 'Freeze rolling-plan NEXT');
-  if (!(await requireGitBlob(input.repositoryRoot, `${readback.treeSha}:${journal.manifestPath}`, 'Frozen manifest'))
-      .equals(manifestNext)
-      || !(await requireGitBlob(input.repositoryRoot, `${readback.treeSha}:${ActivePointerPath}`, 'Frozen pointer'))
-        .equals(pointerBytes)
-      || !(await requireGitBlob(input.repositoryRoot, `${readback.treeSha}:${RollingPlanPath}`, 'Frozen rolling plan'))
-        .equals(rollingBytes)) {
+  if (readback.targetManifestBlob === undefined || !readback.targetManifestBlob.equals(manifestNext)
+      || !readback.pointerBytes.equals(pointerBytes)
+      || !readback.rollingPlanBytes.equals(rollingBytes)) {
     throw new Error('Candidate tree control bytes do not match the freeze NEXT images.');
   }
   const retiredManifestPath = await freezeRetiredManifestPath(input.repositoryRoot, journal);
@@ -4946,16 +5183,19 @@ async function advanceFreezeJournal(input: {
     );
   }
   maybeFault(input.faultAfter, 'after-terminal');
+  if (input.deferTerminalRetirement !== undefined) {
+    // writeFreezeJournal already acknowledged the durable exact terminal NEXT.
+    // The fresh terminal owner performs the full journal/index residue census;
+    // do not spend the writer's remaining allowance on that duplicate census.
+    input.deferTerminalRetirement();
+    return journal.result;
+  }
   const terminalSnapshot = await readFreezeJournalSnapshot(input.repositoryRoot);
   if (terminalSnapshot === null || !terminalSnapshot.canonicalPresent
       || terminalSnapshot.journal.phase !== 'terminal'
       || terminalSnapshot.journal.operationId !== journal.operationId
       || (terminalSnapshot.recovery !== null && terminalSnapshot.recovery.completionMode !== 'complete')) {
     throw new Error('Terminal freeze journal disappeared or changed before retirement.');
-  }
-  if (input.deferTerminalRetirement !== undefined) {
-    input.deferTerminalRetirement();
-    return journal.result;
   }
   await verifyTerminalFreezeJournal({
     repositoryRoot: input.repositoryRoot,
@@ -5016,12 +5256,14 @@ async function verifyTerminalFreezeJournal(input: {
   const manifestNext = fromBase64(journal.files.manifest.next, 'Terminal freeze manifest NEXT');
   const pointerNext = fromBase64(journal.files.pointer.next, 'Terminal freeze pointer NEXT');
   const rollingNext = fromBase64(journal.files.rollingPlan.next, 'Terminal freeze rolling-plan NEXT');
+  const terminalBlobs = await readControlTreeBlobs(input.repositoryRoot, treeSha,
+    [journal.manifestPath, ActivePointerPath, RollingPlanPath, CurrentStatePath]);
   const requireTerminalTreeBlob = async (
     repositoryPath: string,
     expected: Buffer,
     label: string
   ): Promise<Buffer> => {
-    const bytes = await terminalGit.readBlob(input.repositoryRoot, `${treeSha}:${repositoryPath}`);
+    const bytes = terminalBlobs.get(repositoryPath);
     if (bytes === undefined || !bytes.equals(expected)) {
       throw new Error(`${label} does not equal the exact journal NEXT image in the terminal tree.`);
     }
@@ -5064,7 +5306,7 @@ async function verifyTerminalFreezeJournal(input: {
     throw new Error('Terminal freeze worktree bytes do not equal all exact journal NEXT images.');
   }
 
-  const stateSource = await terminalGit.readBlob(input.repositoryRoot, `${treeSha}:${CurrentStatePath}`);
+  const stateSource = terminalBlobs.get(CurrentStatePath);
   if (stateSource === undefined) throw new Error('Terminal freeze current-state spec is absent from the candidate tree.');
   const pointer = CodexDevelopmentParseActivePointer(decodeUtf8(pointerNext, 'Terminal freeze pointer NEXT'));
   const rolling = CodexDevelopmentParseRollingPlan(decodeUtf8(rollingNext, 'Terminal freeze rolling-plan NEXT'));
@@ -5291,6 +5533,16 @@ async function retireEmptyFreezeTransactionRootAfterJournalLast(input: {
   });
 }
 
+type FreezeWriterSettlementObservation = Readonly<{
+  freezeOperationId: string;
+  gitOperationIdentityDigest: string;
+  gitAttemptDigest: string;
+  gitReceiptDigest: string;
+  processCount: number;
+  admittedRootProcesses: number;
+  admittedNativeProcesses: number;
+}>;
+
 type FreezeDocumentControlPlaneInput = {
   cwd: string;
   manifestPath: string;
@@ -5299,7 +5551,7 @@ type FreezeDocumentControlPlaneInput = {
   proposalOnly?: boolean;
   faultAfter?: CodexDevelopmentFreezeFault;
   /** Internal test seam after writer settlement and before terminal re-admission. */
-  beforeTerminalRetirement?: () => Promise<void> | void;
+  beforeTerminalRetirement?: (writer: FreezeWriterSettlementObservation) => Promise<void> | void;
   /** Internal deterministic contract-test observer for rename durability ordering. */
   durabilityObserver?: CodexDevelopmentDurabilityObserver;
   /** Internal deterministic contract-test seam for an unsupported directory barrier. */
@@ -5327,11 +5579,66 @@ type FreezeDocumentControlPlaneInput = {
  * public entrypoint below opens this session for production callers; tests and
  * composed control-plane operations may supply their own owner-issued scope.
  */
+async function runFreezeOwner(input: FreezeDocumentControlPlaneInput, options: Readonly<{
+  deadlineAtUnixMs: number;
+  entry?: 'api' | 'cli';
+  requiredTerminalOperationId?: string;
+  beforeWriter?: () => Promise<void>;
+}>): Promise<Readonly<{ result: CodexDevelopmentFreezeResult; deferred: boolean; writer: FreezeWriterSettlementObservation }>> {
+  input = Object.freeze({ ...input });
+  const cwd = path.resolve(input.cwd);
+  // A distinct old terminal responsibility may finish before this new request.
+  // Only successful retirement AND provider settlement allow the second owner;
+  // both retain the original wall deadline. A pending/failed writer never does.
+  for (let pass = 0; pass < 2; pass++) {
+    let deferred = false, retiredPrior = false;
+    let writerSession: GitReadSession | undefined;
+    const result = await withAuthorityGitReadSession({ cwd,
+      budget: options.requiredTerminalOperationId === undefined
+        ? DOCUMENT_CONTROL_FREEZE_GIT_READ_BUDGET : GIT_READ_OPERATION_BUDGET,
+      deadlineAtUnixMs: options.deadlineAtUnixMs }, session => documentControlGitReadScope.run(session,
+      () => freezeReadScope.run({ blobs: new Map() }, async () => {
+        writerSession = session;
+        await options.beforeWriter?.();
+        return freezeDocumentControlPlaneWithSession(input, {
+          requiredTerminalOperationId: options.requiredTerminalOperationId,
+          priorTerminalRetired: pass === 0 ? () => { retiredPrior = true; } : undefined,
+          forbidAnotherPriorTerminal: pass !== 0,
+          ...(options.requiredTerminalOperationId === undefined ? { deferTerminalRetirement: () => { deferred = true; } } : {})
+        });
+      })));
+    // withAuthority... has already joined and successfully settled this exact
+    // writer owner. close() only retrieves its original cached immutable receipt;
+    // no new close, command, allowance or provider is started by this observation.
+    const receipt = await writerSession?.close?.();
+    if (writerSession === undefined || receipt === undefined) throw new Error('Freeze writer settlement receipt is unavailable.');
+    assertGitReadSessionReceipt(receipt);
+    if (receipt.operationIdentityDigest === null || receipt.boundAttemptDigest === null
+        || receipt.failureDetailDigest !== null || receipt.processSessionOwnership !== 'owned') {
+      throw new Error('Freeze writer diagnostic requires its successful owned terminal receipt.');
+    }
+    const writer: FreezeWriterSettlementObservation = Object.freeze({
+      freezeOperationId: result.operationId, gitOperationIdentityDigest: receipt.operationIdentityDigest,
+      gitAttemptDigest: receipt.boundAttemptDigest, gitReceiptDigest: receipt.receiptDigest,
+      processCount: receipt.processCount, admittedRootProcesses: writerSession.budget.maxProcesses,
+      admittedNativeProcesses: writerSession.budget.maxProcesses
+    });
+    if (retiredPrior) {
+      if (pass !== 0) throw new Error('A competing prior freeze appeared after its retirement boundary.');
+      continue;
+    }
+    return Object.freeze({ result, deferred, writer });
+  }
+  throw new Error('Freeze owner did not settle its bounded request.');
+}
+
 async function freezeDocumentControlPlaneWithSession(
   input: FreezeDocumentControlPlaneInput,
   options: Readonly<{
     deferTerminalRetirement?: () => void;
     requiredTerminalOperationId?: string;
+    priorTerminalRetired?: () => void;
+    forbidAnotherPriorTerminal?: boolean;
   }> = {}
 ): Promise<CodexDevelopmentFreezeResult> {
   assertCanonicalManifestPath(input.manifestPath);
@@ -5353,6 +5660,7 @@ async function freezeDocumentControlPlaneWithSession(
   });
   return withWorkspaceWriteLease(repositoryRoot, undefined, async () => {
     let existingJournalSnapshot = await readFreezeJournalSnapshot(repositoryRoot);
+    if (documentControlGitReadScope.getStore() !== undefined) assertFreezeReadOwnerCurrent();
     if (options.requiredTerminalOperationId !== undefined
         && (existingJournalSnapshot === null || !existingJournalSnapshot.canonicalPresent
           || existingJournalSnapshot.journal.phase !== 'terminal'
@@ -5361,6 +5669,20 @@ async function freezeDocumentControlPlaneWithSession(
             && existingJournalSnapshot.recovery.completionMode !== 'complete'))) {
       throw new Error('Terminal freeze continuation lost its exact durable journal.');
     }
+    const manifestFile = await assertRegularRepositoryFile(repositoryRoot, input.manifestPath);
+    const manifestBytes = await readSafeRegularFile({
+      boundaryRoot: repositoryRoot,
+      filePath: manifestFile,
+      label: 'Work Package manifest'
+    });
+    const manifestDigest = CodexDevelopmentWorkPackageManifestDigest(manifestBytes) as `sha256:${string}`;
+    const pendingJournal = effectiveFreezeJournal(existingJournalSnapshot);
+    if (pendingJournal !== null && pendingJournal.phase !== 'terminal'
+        && (pendingJournal.manifestPath !== input.manifestPath || pendingJournal.manifestDigest !== manifestDigest
+          || pendingJournal.reviewedOn !== input.reviewedOn)) {
+      throw new Error('A competing nonterminal document control freeze journal exists.');
+    }
+    if (documentControlGitReadScope.getStore() !== undefined) assertFreezeReadOwnerCurrent();
     if (existingJournalSnapshot === null) {
       await retireEmptyFreezeTransactionRootAfterJournalLast({ repositoryRoot, durability });
     }
@@ -5377,7 +5699,7 @@ async function freezeDocumentControlPlaneWithSession(
     }
     if (existingJournalSnapshot !== null
         && (existingJournalSnapshot.journal.phase !== 'terminal' || existingRecoveryIncomplete)) {
-      await preflightFreezeProjectionEntryStates(repositoryRoot, existingJournalSnapshot);
+      await preflightFreezeProjectionEntryStates(repositoryRoot, existingJournalSnapshot!);
       await restoreFreezeJournalDurability(repositoryRoot, durability, existingJournalSnapshot);
     }
     if (existingJournalSnapshot?.recovery !== undefined
@@ -5403,13 +5725,6 @@ async function freezeDocumentControlPlaneWithSession(
       await preflightFreezeProjectionEntryStates(repositoryRoot, recoveredSnapshot);
       await restoreFreezeJournalDurability(repositoryRoot, durability, recoveredSnapshot);
     }
-    const manifestFile = await assertRegularRepositoryFile(repositoryRoot, input.manifestPath);
-    const manifestBytes = await readSafeRegularFile({
-      boundaryRoot: repositoryRoot,
-      filePath: manifestFile,
-      label: 'Work Package manifest'
-    });
-    const manifestDigest = CodexDevelopmentWorkPackageManifestDigest(manifestBytes) as `sha256:${string}`;
     const existingJournal = existingJournalSnapshot?.journal ?? null;
     if (existingJournal !== null && existingJournal.phase !== 'terminal') {
       if (existingJournal.manifestPath !== input.manifestPath
@@ -5427,6 +5742,11 @@ async function freezeDocumentControlPlaneWithSession(
       });
     }
     if (existingJournal !== null && existingJournal.phase === 'terminal') {
+      const sameRequest = existingJournal.manifestPath === input.manifestPath
+        && existingJournal.manifestDigest === manifestDigest && existingJournal.reviewedOn === input.reviewedOn;
+      if (!sameRequest && options.forbidAnotherPriorTerminal === true) {
+        throw new Error('A competing prior freeze appeared after its retirement boundary.');
+      }
       if (options.requiredTerminalOperationId !== undefined
           && (existingJournal.manifestPath !== input.manifestPath
             || existingJournal.manifestDigest !== manifestDigest
@@ -5451,17 +5771,18 @@ async function freezeDocumentControlPlaneWithSession(
           && existingJournal.reviewedOn === input.reviewedOn) {
         return previousResult;
       }
+      if (options.priorTerminalRetired !== undefined) {
+        options.priorTerminalRetired();
+        return previousResult;
+      }
     }
 
     const headSha = shaValue(
       requireCommand(await run('git', ['rev-parse', 'HEAD'], repositoryRoot), 'Candidate HEAD'),
       'Candidate HEAD'
     );
-    const headStateBytes = await requireGitBlob(
-      repositoryRoot,
-      `${headSha}:${CurrentStatePath}`,
-      'Immutable candidate current-state authority'
-    );
+    const headControls = await readControlTreeBlobs(repositoryRoot, headSha, [CurrentStatePath, ActivePointerPath, RollingPlanPath]);
+    const headStateBytes = requireControlBlob(headControls, CurrentStatePath, 'Immutable candidate current-state authority');
     const spec = CodexDevelopmentParseCurrentStateSpec(
       decodeUtf8(headStateBytes, 'Immutable candidate current-state authority')
     );
@@ -5485,7 +5806,7 @@ async function freezeDocumentControlPlaneWithSession(
         trustedDefaultTree: baseTreeSha,
         manifestPath: input.manifestPath
       });
-    const defaultStateBytes = await requireGitBlob(
+    const defaultStateBytes = headSha === localDefaultSha ? headStateBytes : await requireGitBlob(
       repositoryRoot,
       `${localDefaultSha}:${CurrentStatePath}`,
       'Trusted default current-state authority'
@@ -5500,11 +5821,8 @@ async function freezeDocumentControlPlaneWithSession(
     // This complete local authority preflight uses an external object directory;
     // no repository object, index, journal, or control publication is permitted
     // before both it and the sole live-default admission have succeeded.
-    const headPointerSource = decodeUtf8(await requireGitBlob(
-      repositoryRoot,
-      `${headSha}:${ActivePointerPath}`,
-      'Immutable candidate active pointer preflight'
-    ), 'Immutable candidate active pointer preflight');
+    const headPointerSource = decodeUtf8(requireControlBlob(headControls, ActivePointerPath,
+      'Immutable candidate active pointer preflight'), 'Immutable candidate active pointer preflight');
     const headPointer = CodexDevelopmentParseActivePointer(headPointerSource);
     const targets = Object.freeze([...new Set([
       input.manifestPath,
@@ -5528,16 +5846,9 @@ async function freezeDocumentControlPlaneWithSession(
     if (rolling.activePackageId !== path.posix.basename(pointer.manifest, '.md')) {
       throw new Error('The immutable index pointer and rolling plan select different Work Packages.');
     }
-    const immutablePointerSource = decodeUtf8(await requireGitBlob(
-      repositoryRoot,
-      `${headSha}:${ActivePointerPath}`,
-      'Immutable candidate active pointer'
-    ), 'Immutable candidate active pointer');
-    const immutableRollingPlanSource = decodeUtf8(await requireGitBlob(
-      repositoryRoot,
-      `${headSha}:${RollingPlanPath}`,
-      'Immutable candidate rolling plan'
-    ), 'Immutable candidate rolling plan');
+    const immutablePointerSource = headPointerSource;
+    const immutableRollingPlanSource = decodeUtf8(requireControlBlob(headControls, RollingPlanPath,
+      'Immutable candidate rolling plan'), 'Immutable candidate rolling plan');
     const immutablePointer = CodexDevelopmentParseActivePointer(immutablePointerSource);
     CodexDevelopmentAssertControlPlaneBinding({ spec, pointer: immutablePointer });
     const immutableRolling = committedCandidateReplanAuthority !== undefined
@@ -5614,10 +5925,9 @@ async function freezeDocumentControlPlaneWithSession(
       throw new Error('Active pointer worktree bytes differ from the immutable index PRE image.');
     }
     const indexedTargetManifest = snapshot.targetManifestBlob;
-    const defaultTargetManifest = await readGitBlob(
-      repositoryRoot,
-      `${localDefaultSha}:${input.manifestPath}`
-    );
+    const defaultTargetManifest = input.manifestPath === pointer.manifest
+      ? currentDefaultManifestBlob ?? undefined
+      : await readGitBlob(repositoryRoot, `${localDefaultSha}:${input.manifestPath}`);
     const immutableRollingMachine = CodexDevelopmentParseRollingMachineProjection(
       immutableRollingPlanSource
     );
@@ -6082,24 +6392,17 @@ async function freezeDocumentControlPlaneWithSession(
 
 async function completeDeferredTerminalFreeze(
   input: FreezeDocumentControlPlaneInput,
-  expected: CodexDevelopmentFreezeResult
+  expected: CodexDevelopmentFreezeResult,
+  deadlineAtUnixMs: number,
+  writer: FreezeWriterSettlementObservation
 ): Promise<CodexDevelopmentFreezeResult> {
   // The terminal journal is a durable boundary. Its retirement has its own
   // bounded owner session and re-observes all authority under the workspace
   // lease; no process allowance is silently renewed inside the writer phase.
-  await input.beforeTerminalRetirement?.();
-  const cwd = path.resolve(input.cwd);
-  const deadlineAtUnixMs = Date.now() + ExternalCommandTimeoutMs;
-  const completed = await withAuthorityGitReadSession({
-    cwd,
-    budget: GIT_READ_OPERATION_BUDGET,
-    deadlineAtUnixMs
-  }, (session) => documentControlGitReadScope.run(
-    session,
-    () => freezeDocumentControlPlaneWithSession(input, {
-      requiredTerminalOperationId: expected.operationId
-    })
-  ));
+  await input.beforeTerminalRetirement?.(writer);
+  const { result: completed } = await runFreezeOwner(input, {
+    deadlineAtUnixMs, requiredTerminalOperationId: expected.operationId
+  });
   if (completed.operationId !== expected.operationId
       || completed.candidateTreeSha !== expected.candidateTreeSha
       || completed.manifestDigest !== expected.manifestDigest) {
@@ -6124,18 +6427,8 @@ export async function freezeDocumentControlPlane(
   }
   const deadlineAtUnixMs = Date.now() + ExternalCommandTimeoutMs;
   try {
-    let deferred = false;
-    const result = await withAuthorityGitReadSession({
-      cwd: path.resolve(input.cwd),
-      budget: DOCUMENT_CONTROL_FREEZE_GIT_READ_BUDGET,
-      deadlineAtUnixMs
-    }, (session) => documentControlGitReadScope.run(
-      session,
-      () => freezeDocumentControlPlaneWithSession(input, {
-        deferTerminalRetirement: () => { deferred = true; }
-      })
-    ));
-    return deferred ? await completeDeferredTerminalFreeze(input, result) : result;
+    const { result, deferred, writer } = await runFreezeOwner(input, { deadlineAtUnixMs });
+    return deferred ? await completeDeferredTerminalFreeze(input, result, deadlineAtUnixMs, writer) : result;
   } catch (error) {
     if (error instanceof CodexDevelopmentDocumentControlCliAdmissionError) throw error;
     if (error instanceof GitReadAuthorityError) {
@@ -6169,12 +6462,14 @@ async function observeLiveDefaultSha(input: Readonly<{
   remote: string;
   defaultBranch: string;
   resolverGit: ReadOnlyResolverGit;
+  observedRemote?: (url: string) => void;
 }>): Promise<string | undefined> {
   const remoteUrl = await input.resolverGit.run(
     ['remote', 'get-url', input.remote],
     input.repositoryRoot
   );
   if (remoteUrl.code !== 0) return undefined;
+  input.observedRemote?.(remoteUrl.stdout.trim());
   const githubRepository = parseGitHubRepositoryIdentityFromRemoteUrl(remoteUrl.stdout);
   if (githubRepository !== null) {
     if (githubRepository.toLowerCase() !== input.repository.toLowerCase()) return undefined;
@@ -6971,15 +7266,10 @@ async function runDocumentControlPlaneCliArguments(argv: string[]): Promise<void
     }));
 
     const requestedWorkspace = realpathSync(path.resolve(workspace));
-    let deferred = false;
-    const result = await withAuthorityGitReadSession({
-      cwd: requestedWorkspace,
-      budget: Object.freeze({
-        ...DOCUMENT_CONTROL_FREEZE_GIT_READ_BUDGET,
-        deadlineMs: remainingFreezeBudget()
-      }),
-      deadlineAtUnixMs: freezeDeadlineAtUnixMs
-    }, (session) => documentControlGitReadScope.run(session, async () => {
+    const freezeInput = { cwd: requestedWorkspace, manifestPath, reviewedOn,
+      proposalOnly: argv.includes('--proposal-only') };
+    const { result, deferred, writer } = await runFreezeOwner(freezeInput, {
+      deadlineAtUnixMs: freezeDeadlineAtUnixMs, entry: 'cli', beforeWriter: async () => {
       const candidateRoot = path.resolve(requireCommand(
         await run('git', ['rev-parse', '--show-toplevel'], requestedWorkspace),
         'Document-control candidate root'
@@ -6999,22 +7289,10 @@ async function runDocumentControlPlaneCliArguments(argv: string[]): Promise<void
           'Document-control freeze target must be one distinct isolated non-default candidate worktree.'
         );
       }
-      return freezeDocumentControlPlaneWithSession({
-        cwd: candidateRoot,
-        manifestPath,
-        reviewedOn,
-        proposalOnly: argv.includes('--proposal-only')
-      }, {
-        deferTerminalRetirement: () => { deferred = true; }
-      });
-    }));
+      }
+    });
     const settled = deferred
-      ? await completeDeferredTerminalFreeze({
-        cwd: requestedWorkspace,
-        manifestPath,
-        reviewedOn,
-        proposalOnly: argv.includes('--proposal-only')
-      }, result)
+      ? await completeDeferredTerminalFreeze(freezeInput, result, freezeDeadlineAtUnixMs, writer)
       : result;
     process.stdout.write(`${JSON.stringify(settled, null, 2)}\n`);
     return;

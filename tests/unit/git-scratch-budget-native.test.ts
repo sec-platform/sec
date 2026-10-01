@@ -1,9 +1,11 @@
 import { test } from 'bun:test';
 import assert from 'node:assert/strict';
-import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import { chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { issueGitReadAuthorityOperation, withAuthorityGitReadSession } from '../../src/adapters/providers/git-read/authority.ts';
+import { decodeGitIndexGeneration } from '../../src/adapters/providers/git-read/runtime/scratch-index-generation.ts';
 import { createAuthorityGitScratchIndexTreeSession } from '../../src/adapters/providers/git-read/runtime/session.ts';
 import { gitProtocolSuccess, inGitProtocolRepository } from '../testkit/git-protocol.ts';
 import { settleWorkspaceCallback } from '../testkit/workspace-cleanup.ts';
@@ -13,8 +15,8 @@ import { settleWorkspaceCallback } from '../testkit/workspace-cleanup.ts';
 // command substituted for the actual public scratch operation. Ordinary Git
 // is used only to establish an independent temporary repository fixture.
 const scenarios = process.platform === 'win32'
-  ? ['empty', 'populated', 'narrow-parent', 'stdin-worker'] as const
-  : ['empty', 'populated', 'narrow-parent'] as const;
+  ? ['empty', 'populated', 'narrow-parent', 'narrow-record-parent', 'stdin-worker'] as const
+  : ['empty', 'populated', 'narrow-parent', 'narrow-record-parent'] as const;
 for (const scenario of scenarios) {
   const populated = scenario !== 'empty';
   test(`an unaffordable ${scenario} scratch batch performs no partial effect`, () =>
@@ -28,9 +30,11 @@ for (const scenario of scenarios) {
         mkdirSync(path.join(scratchRoot, 'objects'));
         const beforeIndex = readFileSync(indexPath);
         const binding = scenario === 'narrow-parent'
-          ? { operation: issueGitReadAuthorityOperation({ cwd: root, budget: { maxProcesses: 2 } }) } : {};
+          ? { operation: issueGitReadAuthorityOperation({ cwd: root, budget: { maxProcesses: 2 } }) }
+          : scenario === 'narrow-record-parent'
+            ? { operation: issueGitReadAuthorityOperation({ cwd: root, budget: { maxProcesses: 32, maxRecords: 1 } }) } : {};
         await withAuthorityGitReadSession({ cwd: root, ...binding,
-          budget: { maxProcesses: scenario === 'narrow-parent' ? 32
+          budget: { maxProcesses: scenario === 'narrow-parent' || scenario === 'narrow-record-parent' ? 32
             : scenario === 'stdin-worker' ? 4 : populated ? 2 : 1 } }, async session => {
           const resolution = await createAuthorityGitScratchIndexTreeSession({ gitReadSession: session, scratchRoot });
           assert.equal(resolution.status, 'ready', 'the real scratch provider must have admitted the fixture');
@@ -54,23 +58,45 @@ for (const scenario of scenarios) {
 }
 
 test.skipIf(process.platform !== 'linux')(
-  'production scratch owner computes a cold index tree without mutating the retained index',
-  () => inGitProtocolRepository(async (root, git) => {
-    writeFileSync(path.join(root, 'cold-index.txt'), 'cold index input\n', 'utf8');
-    gitProtocolSuccess(git(['add', '--', 'cold-index.txt']));
+  'production scratch owner reconstructs an untrusted cache without mutating inputs or invoking index helpers',
+  () => inGitProtocolRepository(async (root, git, base) => {
+    const inputPath = path.join(root, 'cold-index.txt');
+    writeFileSync(inputPath, 'cold index input\n', 'utf8');
+    writeFileSync(path.join(root, '.gitattributes'), 'cold-index.txt filter=tripwire\n');
+    // Future mtime makes any retained native stat cache racy deterministically,
+    // without sleeps; the clean helper is installed only after fixture setup.
+    const future = new Date(Date.now() + 60_000); utimesSync(inputPath, future, future);
+    gitProtocolSuccess(git(['add', '--', 'cold-index.txt', '.gitattributes']));
 
     const scratchRoot = mkdtempSync(path.join(tmpdir(), 'sec-native-cold-write-tree-'));
     await settleWorkspaceCallback(async () => {
       const scratchIndex = path.join(scratchRoot, 'index');
       copyFileSync(path.join(root, '.git', 'index'), scratchIndex);
       mkdirSync(path.join(scratchRoot, 'objects'));
-      const retainedBytes = readFileSync(scratchIndex);
-      // Compute the independent semantic expectation only after copying the
-      // cold scratch index, so this does not warm the subject under test.
+      const coldBytes = readFileSync(scratchIndex);
+      // Fixture's ordinary Git computes the semantic expectation before the
+      // subject receives a deliberately false but validly checksummed TREE.
       const expectedTree = gitProtocolSuccess(git(['write-tree'])).trim();
+      const wrongTree = gitProtocolSuccess(git(['mktree'], undefined, '')).trim();
+      assert.notEqual(wrongTree, expectedTree);
+      const payload = Buffer.concat([Buffer.from('\0' + '2 0\n'), Buffer.from(wrongTree, 'hex')]);
+      const extension = Buffer.alloc(8); extension.write('TREE'); extension.writeUInt32BE(payload.length, 4);
+      const content = Buffer.concat([coldBytes.subarray(0, -20), extension, payload]);
+      const retainedBytes = Buffer.concat([content, createHash('sha1').update(content).digest()]);
+      writeFileSync(scratchIndex, retainedBytes);
+      const hookDirectory = path.join(root, 'fixture-hooks'); mkdirSync(hookDirectory);
+      const marker = path.join(root, 'unadmitted-index-helper');
+      const hook = path.join(hookDirectory, 'post-index-change');
+      writeFileSync(hook, `#!/bin/sh\nprintf invoked > '${marker}'\ncat\n`); chmodSync(hook, 0o700);
+      gitProtocolSuccess(git(['config', 'core.hooksPath', hookDirectory]));
+      gitProtocolSuccess(git(['config', 'core.fsmonitor', hook]));
+      gitProtocolSuccess(git(['config', 'core.splitIndex', 'true']));
+      gitProtocolSuccess(git(['config', 'filter.tripwire.clean', hook]));
+      const repositoryIndex = readFileSync(path.join(root, '.git', 'index'));
+      const repositoryConfig = readFileSync(path.join(root, '.git', 'config'));
 
       await withAuthorityGitReadSession(
-        { cwd: root, budget: { maxProcesses: 8 } },
+        { cwd: root, budget: { maxProcesses: 8 }, environment: { GIT_TEST_SPARSE_INDEX: '1' } },
         async session => {
           const resolution = await createAuthorityGitScratchIndexTreeSession({
             gitReadSession: session,
@@ -104,6 +130,18 @@ test.skipIf(process.platform !== 'linux')(
             assert.equal(second.status, 'ready');
             if (second.status === 'ready') assert.equal(second.value, tree.value);
             assert.deepEqual(readFileSync(scratchIndex), retainedBytes);
+            const published = resolution.session.indexBytes();
+            assert.equal(published.status, 'ready');
+            if (published.status !== 'ready') throw new Error('Published index bytes are required.');
+            const publishedPath = path.join(scratchRoot, 'published-index');
+            writeFileSync(publishedPath, published.value);
+            assert.match(gitProtocolSuccess(git(['-c', 'core.fsmonitor=false', 'ls-files', '--debug', '--', 'cold-index.txt'],
+              { ...base, GIT_INDEX_FILE: publishedPath })), /mtime: 0:0/u,
+              'originally racy cache data must stay invalidated in the publication index');
+            assert.deepEqual(readFileSync(path.join(root, '.git', 'index')), repositoryIndex);
+            assert.deepEqual(readFileSync(path.join(root, '.git', 'config')), repositoryConfig);
+            assert.equal(existsSync(marker), false);
+            assert.equal(readdirSync(path.join(root, '.git')).some(name => name.startsWith('sharedindex.')), false);
           } catch (error) {
             primary = error;
             throw error;
@@ -126,9 +164,23 @@ for (const format of ['sha1', 'sha256'] as const) {
     inGitProtocolRepository(async (root, git, base) => {
       writeFileSync(path.join(root, 'old'), 'old staged bytes\n', 'utf8');
       writeFileSync(path.join(root, 'keep'), 'kept staged bytes\n', 'utf8');
+      const oldTimestamp = new Date('2000-01-01T00:00:00Z');
+      utimesSync(path.join(root, 'keep'), oldTimestamp, oldTimestamp);
       gitProtocolSuccess(git(['add', '--', 'old', 'keep']));
       gitProtocolSuccess(git(['update-index', '--skip-worktree', 'keep']));
       gitProtocolSuccess(git(['update-index', '--index-version', '4']));
+      // One existing ordinary case covers native conflict-undo preservation;
+      // SHA-256 framing is covered by the pure codec case, without a second fixture.
+      let resolveUndo: string | undefined;
+      if (format === 'sha1') {
+        const oldOid = gitProtocolSuccess(git(['rev-parse', ':old'])).trim();
+        gitProtocolSuccess(git(['update-index', '--index-info'], undefined,
+          `0 ${'0'.repeat(oldOid.length)}\told\n`
+          + [1, 2, 3].map(stage => `100644 ${oldOid} ${stage}\told\n`).join('')));
+        gitProtocolSuccess(git(['add', '--', 'old']));
+        resolveUndo = gitProtocolSuccess(git(['ls-files', '--resolve-undo']));
+        assert.equal(resolveUndo.trim().split('\n').length, 3);
+      }
 
       const scratchRoot = mkdtempSync(path.join(tmpdir(), 'sec-native-index-generation-'));
       await settleWorkspaceCallback(async () => {
@@ -179,15 +231,23 @@ for (const format of ['sha1', 'sha256'] as const) {
                 GIT_OBJECT_DIRECTORY: path.join(scratchRoot, 'objects'),
                 GIT_ALTERNATE_OBJECT_DIRECTORIES: path.join(root, '.git', 'objects')
               };
+              if (resolveUndo !== undefined) {
+                assert.equal(decodeGitIndexGeneration(generated.value, format).resolveUndoHex,
+                  decodeGitIndexGeneration(retainedBytes, format).resolveUndoHex);
+                assert.equal(gitProtocolSuccess(git(['ls-files', '--resolve-undo'], candidateEnvironment)), resolveUndo);
+              }
               const reconstructedTree = gitProtocolSuccess(
                 git(['write-tree'], candidateEnvironment)
               ).trim();
               assert.equal(reconstructedTree, tree.value);
+              const keptDebug = gitProtocolSuccess(git(['ls-files', '-v', '--debug', '--', 'keep'], candidateEnvironment));
               assert.match(
-                gitProtocolSuccess(git(['ls-files', '-v', '--', 'keep'], candidateEnvironment)),
-                /^S keep\r?\n$/u,
+                keptDebug.split(/\r?\n/u, 1)[0]!,
+                /^S keep$/u,
                 'unchanged extended index flags must survive deterministic successor encoding'
               );
+              assert.match(keptDebug, /mtime: 946684800:0/u,
+                'unchanged non-racy entries retain their original stat cache rather than forcing a full refresh');
               assert.deepEqual(readFileSync(scratchIndex), retainedBytes);
             } catch (error) {
               primary = error;

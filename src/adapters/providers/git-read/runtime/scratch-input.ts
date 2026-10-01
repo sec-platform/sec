@@ -1,4 +1,4 @@
-import { snapshotByteView } from '../../../../contracts/byte-snapshot.ts';
+import { borrowByteView, snapshotByteView } from '../../../../contracts/byte-snapshot.ts';
 import { CodexDevelopmentIsCanonicalRepositoryPath } from '../../../../contracts/repository-path.ts';
 
 export type GitScratchIndexTreeDelta = Readonly<{
@@ -59,6 +59,11 @@ export function captureGitScratchIndexDelta(
   }
   const seen = new Set<string>();
   const selectPath = (value: unknown): string => {
+    if (typeof value !== 'string') throw new TypeError('Git scratch delta path must be a string');
+    const bytes = Buffer.byteLength(value, 'utf8');
+    // Admit bytes before normalization, component splitting or retaining the
+    // path. Metadata rejection must not first clone unrelated blob inputs.
+    consume(bytes);
     if (!CodexDevelopmentIsCanonicalRepositoryPath(value) || seen.has(value)) {
       throw new TypeError('Git scratch delta path is invalid or repeated');
     }
@@ -78,37 +83,50 @@ export function captureGitScratchIndexDelta(
     }
     remaining -= bytes;
   };
-  const selectedAdditions: Array<{ path: string; bytes: Uint8Array }> = [];
+  const selectedAdditions: Array<{ path: string; source: GitScratchIndexTreeDelta['additions'][number] }> = [];
   const additionPaths = new Set<string>();
   for (let index = 0; index < additionCount; index++) {
     const addition = ownEntry(additions, index);
     if (addition === null || typeof addition !== 'object' || Array.isArray(addition)) {
       throw new TypeError('Git scratch addition must be a record');
     }
-    const { path: requestedPath, bytes } = addition;
+    const requestedPath = addition.path;
+    consume(indexRecordOverhead);
     const path = selectPath(requestedPath);
-    consume(indexRecordOverhead + Buffer.byteLength(path, 'utf8'));
-    selectedAdditions.push({ path, bytes });
+    selectedAdditions.push({ path, source: addition });
     additionPaths.add(path);
   }
   const capturedRemovals: string[] = [];
   for (let index = 0; index < removalCount; index++) {
+    consume(removalRecordOverhead);
     const path = selectPath(ownEntry(removals, index));
-    consume(removalRecordOverhead + Buffer.byteLength(path, 'utf8'));
     capturedRemovals.push(path);
   }
   // Two additions cannot simultaneously describe a file and its descendant.
   // Removal of an old parent while adding a child remains a separate legal case.
-  for (const path of additionPaths) {
-    for (let slash = path.indexOf('/'); slash !== -1; slash = path.indexOf('/', slash + 1)) {
-      if (additionPaths.has(path.slice(0, slash))) {
-        throw new TypeError('Git scratch additions contain a file/directory conflict');
-      }
+  // NUL is forbidden by the canonical path grammar. Ordering separators before
+  // all component bytes makes a file adjacent to its first descendant, even
+  // with intervening ordinary names such as a, a-, a/b in ordinary sort order.
+  // Build one linear-sized key per path, never one full prefix per separator.
+  const ordered = [...additionPaths].map(path => ({ path, key: path.replaceAll('/', '\0') }))
+    .sort((left, right) => left.key < right.key ? -1 : left.key > right.key ? 1 : 0);
+  for (let index = 1; index < ordered.length; index += 1) {
+    if (ordered[index]!.path.startsWith(`${ordered[index - 1]!.path}/`)) {
+      throw new TypeError('Git scratch additions contain a file/directory conflict');
     }
   }
-  const capturedAdditions = selectedAdditions.map(({ path, bytes: requestedBytes }) => {
-    const bytes = snapshotByteView(requestedBytes, 'Git scratch addition', remaining);
-    consume(bytes.byteLength);
+  const selectedBytes: Array<{ path: string; view: Uint8Array; length: number }> = [];
+  for (const { path, source } of selectedAdditions) {
+    const view = borrowByteView(source.bytes, 'Git scratch addition');
+    const length = view.byteLength;
+    consume(length);
+    selectedBytes.push({ path, view, length });
+  }
+  // All blob lengths fit before the first clone. Borrowed views never leave
+  // this synchronous capture; the result owns independent bytes.
+  const capturedAdditions = selectedBytes.map(({ path, view, length }) => {
+    const bytes = snapshotByteView(view, 'Git scratch addition', length);
+    if (bytes.byteLength !== length) throw new TypeError('Git scratch addition changed during capture');
     return Object.freeze({ path, bytes });
   });
   return Object.freeze({ additions: Object.freeze(capturedAdditions), removals: Object.freeze(capturedRemovals) });

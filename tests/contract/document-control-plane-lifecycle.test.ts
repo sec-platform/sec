@@ -2452,17 +2452,74 @@ test('recovery entry identity is operation plus closed logical target and contai
   })).toThrow('outside the closed target set');
 });
 
-bunTest('production freeze settles terminal retirement after the writer session', async () => {
-  const { fixture, proposalPath } = await createProposalFreezeFixture();
+
+bunTest.skipIf(process.platform !== 'linux')('production recovery refuses changed source without effects then resumes its exact journal operation', async () => {
+  const { fixture, proposalPath, proposalFile, proposalJournalPath } = await createProposalFreezeFixture();
   try {
-    const result = await freezeDocumentControlPlane({
+    await expect(freezeDocumentControlPlane({ cwd: fixture.repositoryRoot, manifestPath: proposalPath,
+      reviewedOn: '2026-08-09', proposalOnly: true, faultAfter: 'after-pointer-publish' }))
+      .rejects.toThrow('Injected document control freeze fault: after-pointer-publish.');
+    const journal = JSON.parse(await readFile(proposalJournalPath, 'utf8')) as { operationId: `sha256:${string}`; candidateTreeSha: string };
+    const originalManifest = await readFile(proposalFile);
+    await writeFile(proposalFile, Buffer.concat([originalManifest, Buffer.from('\nCompeting request source.\n')]));
+    const before = await readFreezeEffectSnapshot(fixture.repositoryRoot);
+    const objectCensus = runGit(fixture.repositoryRoot, ['count-objects', '-v']);
+    const changedManifest = await readFile(proposalFile);
+    await expect(freezeDocumentControlPlane({ cwd: fixture.repositoryRoot, manifestPath: proposalPath,
+      reviewedOn: '2026-08-09', proposalOnly: true })).rejects.toThrow('competing nonterminal');
+    expect(await readFreezeEffectSnapshot(fixture.repositoryRoot)).toEqual(before);
+    expect(runGit(fixture.repositoryRoot, ['count-objects', '-v'])).toBe(objectCensus);
+    expect(await readFile(proposalFile)).toEqual(changedManifest);
+    // This is explicit fixture restoration after proved refusal, never cleanup
+    // that masks an unknown writer effect or replaces the interrupted journal.
+    await writeFile(proposalFile, originalManifest);
+    const recovered = await freezeDocumentControlPlane({ cwd: fixture.repositoryRoot, manifestPath: proposalPath,
+      reviewedOn: '2026-08-09', proposalOnly: true });
+    expect(recovered.operationId).toBe(journal.operationId);
+    expect(recovered.candidateTreeSha).toBe(journal.candidateTreeSha);
+    expect(runGit(fixture.repositoryRoot, ['write-tree'])).toBe(journal.candidateTreeSha);
+    await expectFreezeTransactionRetired(fixture.repositoryRoot);
+  } finally { await fixture.dispose(); }
+}, 90_000);
+
+bunTest('production first and revised proposals settle terminal retirement after their writer sessions', async () => {
+  const { fixture, proposalPath, proposalFile } = await createProposalFreezeFixture();
+  try {
+    const first = await freezeDocumentControlPlane({
       cwd: fixture.repositoryRoot,
       manifestPath: proposalPath,
       reviewedOn: '2026-08-09',
-      proposalOnly: true
+      proposalOnly: true,
+      beforeTerminalRetirement: async receipt => {
+        console.log(JSON.stringify({ observation: 'ordinary-freeze-writer', ...receipt }));
+      }
     });
-    expect(result.status).toBe('PROPOSED');
-    expect(runGit(fixture.repositoryRoot, ['write-tree'])).toBe(result.candidateTreeSha);
+    expect(first.status).toBe('PROPOSED');
+    expect(runGit(fixture.repositoryRoot, ['write-tree'])).toBe(first.candidateTreeSha);
+    await expectFreezeTransactionRetired(fixture.repositoryRoot);
+
+    const revisedBytes = Buffer.concat([
+      await readFile(proposalFile), Buffer.from('\nRevised production proposal.\n')
+    ]);
+    await writeFile(proposalFile, revisedBytes);
+    const revised = await freezeDocumentControlPlane({
+      cwd: fixture.repositoryRoot,
+      manifestPath: proposalPath,
+      reviewedOn: '2026-08-09',
+      proposalOnly: true,
+      beforeTerminalRetirement: async receipt => {
+        console.log(JSON.stringify({ observation: 'ordinary-freeze-writer', ...receipt }));
+      }
+    });
+    expect(revised.status).toBe('PROPOSED');
+    expect(revised.operationId).not.toBe(first.operationId);
+    expect(revised.manifestPath).toBe(proposalPath);
+    expect(revised.manifestDigest).not.toBe(first.manifestDigest);
+    expect(runGit(fixture.repositoryRoot, ['write-tree'])).toBe(revised.candidateTreeSha);
+    expect(readGitBlob(fixture.repositoryRoot, `:${proposalPath}`)).toEqual(revisedBytes);
+    expect(CodexDevelopmentParseActivePointer(
+      await readFile(path.join(fixture.repositoryRoot, POINTER_PATH), 'utf8')
+    )).toMatchObject({ manifest: proposalPath, manifestDigest: revised.manifestDigest });
     await expectFreezeTransactionRetired(fixture.repositoryRoot);
   } finally {
     await fixture.dispose();

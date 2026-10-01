@@ -79,6 +79,74 @@ const CANONICAL_GIT_READ_BUDGET_CEILING: GitReadSessionBudget = Object.freeze({
   maxExecutableBytes: 64 * 1024 * 1024
 });
 
+/**
+ * Index decoding and encoding are bounded before allocating their inventory. These
+ * are explicit inventory limits, not aliases for already-consumed transport
+ * counters. In particular, a v4 index can expand far beyond its raw bytes.
+ * The existing provider byte/record ceilings bound this new admission domain;
+ * no process capacity or effect authority is issued by selecting these limits.
+ */
+export type GitIndexPlanningBudget = Readonly<{
+  maxRawBytes: number;
+  maxEntries: number;
+  maxExpandedPathBytes: number;
+}>;
+
+export class GitIndexPlanningBudgetError extends Error {
+  constructor(readonly resource: keyof GitIndexPlanningBudget) {
+    super(`Git index planning exceeds ${resource}.`);
+    this.name = 'GitIndexPlanningBudgetError';
+  }
+}
+
+/** Checked prospective inventory charge, before the corresponding allocation. */
+export function admitGitIndexPlanningTotal(
+  current: number,
+  added: number,
+  maximum: number,
+  resource: keyof GitIndexPlanningBudget
+): number {
+  const total = current + added;
+  if (!Number.isSafeInteger(current) || current < 0
+      || !Number.isSafeInteger(added) || added < 0
+      || !Number.isSafeInteger(total) || total > maximum) {
+    throw new GitIndexPlanningBudgetError(resource);
+  }
+  return total;
+}
+
+export const GIT_INDEX_PLANNING_BUDGET_CEILING: GitIndexPlanningBudget = Object.freeze({
+  maxRawBytes: CANONICAL_GIT_READ_BUDGET_CEILING.maxStdinBytes,
+  maxEntries: CANONICAL_GIT_READ_BUDGET_CEILING.maxRecords,
+  maxExpandedPathBytes: CANONICAL_GIT_READ_BUDGET_CEILING.maxStdinBytes
+});
+
+export function resolveGitIndexPlanningBudget(
+  input?: Partial<GitIndexPlanningBudget>
+): GitIndexPlanningBudget {
+  if (input !== undefined && (input === null || typeof input !== 'object' || Array.isArray(input))) {
+    throw new GitReadBudgetError('invalid-value', '<root>', 'Git index planning budget must be a record');
+  }
+  const budget = { ...GIT_INDEX_PLANNING_BUDGET_CEILING };
+  for (const label of Object.keys(input ?? {})) {
+    if (!Object.hasOwn(GIT_INDEX_PLANNING_BUDGET_CEILING, label)) {
+      throw new GitReadBudgetError('unknown-field', label, `Git index planning budget field ${label} is not canonical.`);
+    }
+    const field = label as keyof GitIndexPlanningBudget;
+    const value = input![field];
+    if (!Number.isSafeInteger(value) || value! < 0) {
+      throw new GitReadBudgetError('invalid-value', label,
+        `Git index planning ${label} must be a non-negative safe integer.`);
+    }
+    if (value! > GIT_INDEX_PLANNING_BUDGET_CEILING[field]) {
+      throw new GitReadBudgetError('canonical-ceiling-exceeded', label,
+        `Git index planning ${label} exceeds its canonical ceiling.`);
+    }
+    budget[field] = value!;
+  }
+  return Object.freeze(budget);
+}
+
 export class GitReadBudgetError extends Error {
   readonly kind = 'git-read-budget-error' as const;
 
