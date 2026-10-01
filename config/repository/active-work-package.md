@@ -10,8 +10,8 @@ last-reviewed: 2026-10-01
 selectionMode: exact-manifest-not-on-default-branch-v1
 defaultBranchRef: refs/remotes/origin/main
 defaultRefFreshness: live-platform-match-required
-manifest: config/repository/work-packages/dependency-runtime-owner-boundaries-20261001.md
-manifestDigest: sha256:578e1e98ffb2e5a01d929f2efc4ffb729da838984430e1d395c122a2b4d1a350
+manifest: config/repository/work-packages/write-lease-owner-boundaries-20261001.md
+manifestDigest: sha256:bda267a2f8b83356c1615f1bc1afdb1d34214e93a96b0405099d693e49e9882e
 digestBytes: git-blob
 unavailableDefaultRef: unresolved
 matchingDefaultBlob: none
