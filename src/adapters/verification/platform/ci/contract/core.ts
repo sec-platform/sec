@@ -31,12 +31,14 @@ export const CI_VERIFICATION_PR_STEP_ORDER = [
 const CI_VERIFICATION_RELEASE_STEP_ORDER = [
   'Resolve trusted release request, exact head, and verifier boundary',
   'Checkout exact release head',
-  'Fetch release base for exact tree comparison',
+  'Verify checked-out release parent and tree',
   'Setup Bun',
   'Cache bun install',
-  'Cache tsc incremental build info',
   'Install dependencies once',
   'Run exact-head full verification',
+  'Build and bind exact-head release set',
+  'Upload exact-head release manifests',
+  'Upload exact-head runtime and documentation release set',
   'Upload compact full verification evidence'
 ] as const;
 export const CI_MAIN_HEALTH_JOB_NAME = CI_MAIN_HEALTH_POLICY.context;

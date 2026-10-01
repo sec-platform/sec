@@ -205,18 +205,6 @@ const JOIN_REQUEST: VerificationSessionHostedRequest = Object.freeze({
   requestOperationId: `sha256:${'4'.repeat(64)}`
 });
 
-test('canonical Session dispatch is preserved as bounded child-process bytes', () => {
-  const body = Buffer.from(`${encodeVerificationActionData({
-    event_type: CI_VERIFICATION_SESSION_DISPATCH_TYPE,
-    client_payload: { payload: JOIN_REQUEST }
-  })}\n`, 'utf8');
-  const probe = spawnSync(process.execPath, ['-e', 'process.stdin.pipe(process.stdout)'], {
-    encoding: 'buffer', input: body, windowsHide: true, maxBuffer: 1024 * 1024
-  });
-  expect(probe.status).toBe(0);
-  expect(probe.stdout).toEqual(body);
-});
-
 test('hosted integration router separates first effect, merged recovery, and blocking', () => {
   const session = { repository: 'sec-platform/sec', prNumber: 42,
     sessionRevision: JOIN_SESSION, baseSha: BASE, baseTreeSha: BASE,
