@@ -23,7 +23,7 @@ description: 用于测试、Gate、Review、candidate、进程或控制面失败
 ## 执行
 1. 分类为产品、合同、Review、用户scope、authority、环境瞬态、基础设施、stale remote或unknown。缺依赖、制品丢失和观察器不可用不自动计为产品断言失败；先问旧attempt是否可能仍写入或已提交，取消请求与超时不等于物理终结。
 2. 只重跑被delta失效的最小sentinel；确定性失败在输入未变时复用失败证据并停止该执行路径；环境瞬态、远端结果未知或原合同要求再次观察时，按原owner的错误分类、预算、退避和重复效果安全规则受限重试／读回，不要求先证明不可见环境已经改变，不停止仍有其他合法下一动作的长期任务。
-3. transient failure不生成新candidate；用户scope变化先reconcile。
+3. 接续同类动作前，消费原任务中已验证路径及其环境、目标、授权和结果边界。当前条件未变且已有合格成功路径时直接复用，不先重走已确定失败的默认路径；环境或权限变化时只重核失效部分。成功路径不扩大作用授权，明确安全／权限拒绝仍停止相交动作，不能借替代路径绕过。transient failure不生成新candidate；用户scope变化先reconcile。
 4. 创建任何recovery制品前做删除反事实：只有真实恢复消费者无法从canonical source重建、且稍后仍必须继续同一Effect时才创建。测试seam、人工保险、展示、日志、旧分支名或“可能有用”都不是消费者。
 5. 先区分可从固定输入重建的cache、必须继续原作用的recovery与已交付且仍有消费者的artifact。一次性cache丢失时由原producer重建；若发布引用错误依赖该cache，则修发布/保留接缝，不把整份cache转成永久备份。recovery的创建、读取、终态和退役必须属于一个canonical lifecycle owner。制品绑定exact subject、operation/generation、恢复入口和终态；不得手工移动到`.tmp`、复制第二份、另建兼容owner或用recovery反向签发authority。
 6. owner按原合同在settlement和恢复入口核本operation及其保留资源的完整census：terminal receipt成立、目标已由canonical readback结算、live ref/operation/consumer均消失时，同一动作自动退役制品及空owner目录；prepared、residue、live consumer和typed unknown保留并返回明确原因。不能让调用者自行猜测或清理。

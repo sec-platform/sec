@@ -52,7 +52,7 @@ description: 用于在 frozen Task Envelope 内实现一个 SEC 产品、修复�
 
 ## 停止与恢复
 - acceptance满足并提交 Reconciliation Delta；或触发 proof reset/authority blocker/`test-design-required`。
-- 已授权`target-ref-updated`且仍有合法下一动作时不得在本地验证、commit、push、PR创建或传输路径拒绝后停止；按原候选和授权终态恢复。发现blocker先交还主线程／对应owner并继续独立合法工作；只有缺用户才能提供的授权或决定时才要求用户介入。
+- 已授权`target-ref-updated`且仍有合法下一动作时不得在本地验证、commit、push、PR创建或传输路径拒绝后停止；按原候选和授权终态恢复。发现blocker先交还主线程／对应owner并继续独立合法工作；只有缺用户才能提供的授权或决定时才要求用户介入。 回交时把blocker绑定到具体被阻断动作、所缺owner结果和恢复条件，并指出仍可推进的已授权动作；不能仅报“等验证／等合入”后把整个任务挂起。分支检查点可独立准入不等于验收通过，缺验收也不自动撤销已成立的检查点准入；Hosted evidence budget和未知作用的结算义务保持不变。
 - 普通失败回实现；重复 frozen root-cause invalidation 交给 failure owner 产生 typed proof-reset decision。
 
 ## 禁止捷径
