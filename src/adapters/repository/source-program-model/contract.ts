@@ -504,7 +504,46 @@ export interface SourceProgramCandidate {
   readonly observationClass: 'derived' | 'unknown';
 }
 
-export interface SourceProgramModel {
+export type SourceProgramAnalysisScope = 'whole-program' | 'test-obligations';
+
+export type SourceProgramAnalysisNotRequested = Readonly<{
+  status: 'not-requested';
+  reason: 'outside-test-obligations';
+}>;
+
+export const SOURCE_PROGRAM_TEST_OBLIGATIONS_NOT_REQUESTED: SourceProgramAnalysisNotRequested =
+  Object.freeze({ status: 'not-requested', reason: 'outside-test-obligations' });
+
+export type SourceProgramCandidateAnalysis =
+  | readonly SourceProgramCandidate[]
+  | SourceProgramAnalysisNotRequested;
+
+export function sourceProgramCandidateAnalysisIsComplete(
+  value: SourceProgramCandidateAnalysis
+): value is readonly SourceProgramCandidate[] {
+  return Array.isArray(value);
+}
+
+/** Ordinary candidate consumers must not turn an omitted analysis into no findings. */
+export function requireSourceProgramCandidateAnalysis(
+  value: SourceProgramCandidateAnalysis
+): readonly SourceProgramCandidate[] {
+  if (!sourceProgramCandidateAnalysisIsComplete(value)) {
+    throw new Error('Source Program candidate analysis was not requested');
+  }
+  return value;
+}
+
+export function requireCompleteSourceProgramModel(
+  model: SourceProgramModel<SourceProgramCandidateAnalysis>
+): SourceProgramModel {
+  requireSourceProgramCandidateAnalysis(model.candidates);
+  return model as SourceProgramModel;
+}
+
+export interface SourceProgramModel<
+  Candidates extends SourceProgramCandidateAnalysis = readonly SourceProgramCandidate[]
+> {
   readonly sourceRevision: string;
   readonly providers: readonly Readonly<{
     readonly id: string;
@@ -520,7 +559,7 @@ export interface SourceProgramModel {
   readonly packages: readonly SourceProgramPackage[];
   readonly dependencies: readonly SourceProgramDependency[];
   readonly capabilities: readonly SourceProgramCapabilityInvocation[];
-  readonly candidates: readonly SourceProgramCandidate[];
+  readonly candidates: Candidates;
   readonly unknowns: readonly SourceProgramUnknown[];
   readonly modelDigest: string;
 }
@@ -591,7 +630,10 @@ export interface SourceProgramOperationObligationEvidence {
   readonly evidenceDigest: string;
 }
 
-export interface SourceProgramTopologySummary {
+export interface SourceProgramTopologySummary<
+  CandidateCodes extends Readonly<Record<string, number>> | SourceProgramAnalysisNotRequested = Readonly<Record<string, number>>,
+  ProcessPaths extends number | SourceProgramAnalysisNotRequested = number
+> {
   readonly packages: number;
   readonly dependencyScopes: Readonly<Record<string, number>>;
   readonly entrypointKinds: Readonly<Record<string, number>>;
@@ -604,9 +646,9 @@ export interface SourceProgramTopologySummary {
   /** Distinguishes repository providers, mature package APIs and unresolved transports. */
   readonly capabilityAuthorityClasses: Readonly<Record<SourceProgramCapabilityAuthorityClass, number>>;
   readonly providerModules: Readonly<Record<string, number>>;
-  readonly candidateCodes: Readonly<Record<string, number>>;
+  readonly candidateCodes: CandidateCodes;
   readonly unknownCodes: Readonly<Record<string, number>>;
-  readonly directProcessTransportPaths: number;
+  readonly directProcessTransportPaths: ProcessPaths;
 }
 
 export interface SourceProgramQueryResult {

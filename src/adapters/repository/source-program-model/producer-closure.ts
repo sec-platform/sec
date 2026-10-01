@@ -4,7 +4,7 @@ import {
   sha256
 } from '../../../contracts/canonical.ts';
 import type {
-  SourceProgramEntrypointAddress,
+  SourceProgramCandidateAnalysis, SourceProgramEntrypointAddress,
   SourceProgramModel,
   SourceProgramOperationIdentity,
   SourceProgramOperationProducerClosure,
@@ -209,7 +209,7 @@ function compileOperationProducerClosure(
 
 /** Compile the exact descriptor entrypoint and its reachable file graph for one operation. */
 export function compileSourceProgramOperationProducerClosure(
-  compilation: RepositorySourceProgramCompilationReceipt,
+  compilation: RepositorySourceProgramCompilationReceipt<SourceProgramCandidateAnalysis>,
   operation: SourceProgramOperationIdentity
 ): SourceProgramOperationProducerClosure {
   assertRepositorySourceProgramCompilationReceipt(compilation);

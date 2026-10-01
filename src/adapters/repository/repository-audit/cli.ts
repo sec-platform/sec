@@ -101,7 +101,7 @@ import {
   SourceProgramCompilationInterruptedError,
   type SourceProgramCompilationOperation
 } from '../source-program-model/compilation-operation.ts';
-import { SOURCE_PROGRAM_BLOCKING_CANDIDATE_CODES, sourceProgramSurfaceForPath, type SourceProgramCandidate, type SourceProgramFileInput, type SourceProgramModel, type SourceProgramOwnerIntentEvidence, type SourceProgramSupersessionReceipt } from '../source-program-model/contract.ts';
+import { requireCompleteSourceProgramModel, requireSourceProgramCandidateAnalysis, SOURCE_PROGRAM_BLOCKING_CANDIDATE_CODES, SOURCE_PROGRAM_TEST_OBLIGATIONS_NOT_REQUESTED, sourceProgramSurfaceForPath, type SourceProgramAnalysisNotRequested, type SourceProgramAnalysisScope, type SourceProgramCandidate, type SourceProgramCandidateAnalysis, type SourceProgramFileInput, type SourceProgramModel, type SourceProgramOwnerIntentEvidence, type SourceProgramSupersessionReceipt } from '../source-program-model/contract.ts';
 import {
   compileSourceProgramDeclarationTopology,
   type SourceProgramDeclarationTopology
@@ -114,9 +114,9 @@ import {
   compileSourceProgramReconciliationProjection
 } from '../source-program-model/reconciliation-projection.ts';
 import { buildSourceProgramAggregateImportReductionPatch, compileSourceProgramAggregateImportReductionPlan, compileSourceProgramGraphCutReductionPlan, compileSourceProgramSupersessionEvidence, compileSourceProgramSupersessionEvidenceIdentity, compileSourceProgramSupersessionReceipt, compileSourceProgramTestRetirementReceipt, compileSourceProgramVersionSuffixReductionPlan, parseSourceProgramSupersessionEvidence, projectSourceProgramTestRetirementDispositions, renderSourceProgramGraphCutReductionPatch, renderSourceProgramVersionSuffixReductionPatch, type SourceProgramSupersessionEvidence, type SourceProgramSupersessionEvidenceIdentity } from '../source-program-model/reduction.ts';
-import { compileRepositorySourceProgramWithCache } from '../source-program-model/repository-compilation-cache-session.ts';
-import { compileRepositorySourceProgramCompilation } from '../source-program-model/repository-compilation.ts';
-import { compileSourceProgramOwnerIntentEvidence, summarizeSourceProgramTopology } from '../source-program-model/repository.ts';
+import { compileRepositorySourceProgramTestObligationsWithCache, compileRepositorySourceProgramWithCache } from '../source-program-model/repository-compilation-cache-session.ts';
+import { compileRepositorySourceProgramCompilation, requireCompleteRepositorySourceProgramCompilation, type RepositorySourceProgramCompilationReceipt } from '../source-program-model/repository-compilation.ts';
+import { compileSourceProgramOwnerIntentEvidence, summarizeSourceProgramTestObligationsTopology, summarizeSourceProgramTopology } from '../source-program-model/repository.ts';
 import { assessSourceProgramTestAuthorDecision, parseSourceProgramTestAuthorDecisionPayload, type SourceProgramTestAuthorAssessment, type SourceProgramTestAuthorDecisionPayload } from '../source-program-model/test-disposition-decisions.ts';
 import { compileSourceProgramTestBaselineEvidence, compileSourceProgramTestValue, reconcileSourceProgramTestValueWithSupersession, SOURCE_PROGRAM_BLOCKING_TEST_FINDING_CODES, summarizeSourceProgramTestUnknownDispositionClusters, type SourceProgramTestBaselineEvidence, type SourceProgramTestFinding, type SourceProgramTestValueCompilation } from '../source-program-model/test-value.ts';
 import {
@@ -145,6 +145,7 @@ import {
   compileSourceProgramAuditAnalyses,
   compileSourceProgramAuditOperationInput,
   compileSourceProgramAuditSourceProgramProjection,
+  compileSourceProgramAuditTestObligationsSourceProgramProjection,
   compileSourceProgramAuditTestValueProjection,
   encodeSourceProgramAuditOperationInput,
   parseSourceProgramAuditOperationResult,
@@ -1109,9 +1110,10 @@ async function compileRevisionSupersessionEvidence(
   dependencyGenerationDigest: `sha256:${string}`,
   operation: SourceProgramCompilationOperation,
   cachedEvidence: SourceProgramSupersessionEvidence | null,
-  cacheAccess: 'read-only' | 'read-write'
+  cacheAccess: 'read-only' | 'read-write',
+  authorityScope: SourceProgramAnalysisScope
 ): Promise<Readonly<{
-  compilation: ReturnType<typeof compileRepositorySourceProgramCompilation>;
+  compilation: RepositorySourceProgramCompilationReceipt<SourceProgramCandidateAnalysis>;
   evidence: SourceProgramSupersessionEvidence;
   tests: SourceProgramTestValueCompilation;
   membership: SecRepositoryModuleMembership;
@@ -1139,7 +1141,9 @@ async function compileRevisionSupersessionEvidence(
     tsconfigRelativePath,
     { dependencyGeneration, dependencyGenerationDigest }
   );
-  const compilation = compileRepositorySourceProgramWithCache({
+  const compilation = (authorityScope === 'test-obligations'
+    ? compileRepositorySourceProgramTestObligationsWithCache
+    : compileRepositorySourceProgramWithCache)({
     cacheAccess,
     workspaceSnapshot,
     projectInput,
@@ -1218,7 +1222,7 @@ async function compileWorkingTreeModuleTopology(
 function compileRepositoryModuleArchitectureAdmission(
   graph: SecRepositoryModuleGraph,
   membership: SecRepositoryModuleMembership,
-  model: SourceProgramModel,
+  model: SourceProgramModel<SourceProgramCandidateAnalysis>,
   sourceFiles: readonly WorkspaceSourceFile[]
 ): RepositoryModuleArchitectureWithPlacement {
   const sourceLinesByPath = new Map(sourceFiles.map(({ path: repositoryPath, source }) => (
@@ -1265,6 +1269,7 @@ async function compileWorkingTreeSourceProgram(
   allowSupersessionEvidenceCache: boolean,
   cacheAccess: 'read-only' | 'read-write',
   observeKnip: boolean,
+  authorityScope: SourceProgramAnalysisScope,
   exactHead?: string
 ): Promise<Readonly<{
   cache: 'hit' | 'incremental' | 'miss';
@@ -1275,15 +1280,15 @@ async function compileWorkingTreeSourceProgram(
     receiptDigest: `sha256:${string}`;
   }>;
   dependencyGenerationDigest: `sha256:${string}`;
-  currentSourceProgramCompilation: ReturnType<typeof compileRepositorySourceProgramCompilation>;
+  currentSourceProgramCompilation: RepositorySourceProgramCompilationReceipt<SourceProgramCandidateAnalysis>;
   invalidatedTypeScriptPaths: readonly string[];
   declarationTopology: SourceProgramDeclarationTopology;
-  model: SourceProgramModel;
+  model: SourceProgramModel<SourceProgramCandidateAnalysis>;
   moduleArchitecture: RepositoryModuleArchitectureWithPlacement;
   baselineTestPaths: readonly string[];
   baselineTestEvidence: readonly SourceProgramTestBaselineEvidence[];
   baselineSourceFiles: readonly WorkspaceSourceFile[];
-  baselineSourceProgramCompilation: ReturnType<typeof compileRepositorySourceProgramCompilation>;
+  baselineSourceProgramCompilation: RepositorySourceProgramCompilationReceipt<SourceProgramCandidateAnalysis>;
   baselineTestValue: SourceProgramTestValueCompilation;
   changedPaths: readonly string[];
   baselineSha: string;
@@ -1326,6 +1331,7 @@ async function compileWorkingTreeSourceProgram(
         retained.generationDigest,
         allowSupersessionEvidenceCache,
         cacheAccess,
+        authorityScope,
         exactHead
       )
     );
@@ -1339,7 +1345,7 @@ async function compileWorkingTreeSourceProgram(
     await mkdir(generationParentPath, { recursive: true });
     const knipProvider = await executeKnipUnusedSymbolProvider({
       workspaceSnapshot: compilation.workspaceSnapshot,
-      model: compilation.model,
+      model: requireCompleteSourceProgramModel(compilation.model),
       dependencyGeneration: retained,
       generationParent: inspectNoFollowDirectoryChain(
         generationParentPath,
@@ -1362,6 +1368,7 @@ async function compileWorkingTreeSourceProgramWithSession(
   dependencyGenerationDigest: `sha256:${string}`,
   allowSupersessionEvidenceCache: boolean,
   cacheAccess: 'read-only' | 'read-write',
+  authorityScope: SourceProgramAnalysisScope,
   exactHead?: string
 ): Promise<Readonly<{
   cache: 'hit' | 'incremental' | 'miss';
@@ -1372,15 +1379,15 @@ async function compileWorkingTreeSourceProgramWithSession(
     receiptDigest: `sha256:${string}`;
   }>;
   dependencyGenerationDigest: `sha256:${string}`;
-  currentSourceProgramCompilation: ReturnType<typeof compileRepositorySourceProgramCompilation>;
+  currentSourceProgramCompilation: RepositorySourceProgramCompilationReceipt<SourceProgramCandidateAnalysis>;
   invalidatedTypeScriptPaths: readonly string[];
   declarationTopology: SourceProgramDeclarationTopology;
-  model: SourceProgramModel;
+  model: SourceProgramModel<SourceProgramCandidateAnalysis>;
   moduleArchitecture: RepositoryModuleArchitectureWithPlacement;
   baselineTestPaths: readonly string[];
   baselineTestEvidence: readonly SourceProgramTestBaselineEvidence[];
   baselineSourceFiles: readonly WorkspaceSourceFile[];
-  baselineSourceProgramCompilation: ReturnType<typeof compileRepositorySourceProgramCompilation>;
+  baselineSourceProgramCompilation: RepositorySourceProgramCompilationReceipt<SourceProgramCandidateAnalysis>;
   baselineTestValue: SourceProgramTestValueCompilation;
   changedPaths: readonly string[];
   baselineSha: string;
@@ -1516,7 +1523,9 @@ async function compileWorkingTreeSourceProgramWithSession(
     tsconfigRelativePath,
     { dependencyGeneration, dependencyGenerationDigest }
   );
-  const compilation = compileRepositorySourceProgramWithCache({
+  const compilation = (authorityScope === 'test-obligations'
+    ? compileRepositorySourceProgramTestObligationsWithCache
+    : compileRepositorySourceProgramWithCache)({
     cacheAccess,
     workspaceSnapshot,
     projectInput,
@@ -1538,7 +1547,8 @@ async function compileWorkingTreeSourceProgramWithSession(
         dependencyGenerationDigest,
         compilationOperation,
         cachedBaselineSupersessionEvidence,
-        cacheAccess
+        cacheAccess,
+        authorityScope
       );
     }
     // The Source Program revision binds the complete admitted file bytes,
@@ -1638,7 +1648,7 @@ type PreparedWorkingTreeSourceProgramAudit = Readonly<{
   operationInput: SourceProgramAuditOperationInput;
   auditFacts: CompileSourceProgramAuditOperationInput;
   subjectRoot: string;
-  subjectCompilation: ReturnType<typeof compileRepositorySourceProgramCompilation>;
+  subjectCompilation: RepositorySourceProgramCompilationReceipt<SourceProgramCandidateAnalysis>;
   baselineSupersessionEvidence: SourceProgramSupersessionEvidence;
   currentSupersessionEvidence: SourceProgramSupersessionEvidence;
   changedPaths: readonly string[];
@@ -1646,7 +1656,7 @@ type PreparedWorkingTreeSourceProgramAudit = Readonly<{
   currentTestValue: SourceProgramTestValueCompilation;
   authorAssessment: SourceProgramTestAuthorAssessment | null;
   testRetirement: ReturnType<typeof compileSourceProgramTestRetirementReceipt>;
-  producerCompilation: ReturnType<typeof compileRepositorySourceProgramCompilation>;
+  producerCompilation: RepositorySourceProgramCompilationReceipt<SourceProgramCandidateAnalysis>;
 }>;
 
 function compileRepositoryAuditPreparationPhase<T>(
@@ -1682,6 +1692,7 @@ async function prepareWorkingTreeSourceProgramAudit(
         !options.enforce,
         options.enforce ? 'read-only' : 'read-write',
         options.reductionMode === 'graph-cut',
+        transition === undefined ? 'whole-program' : 'test-obligations',
         transition?.headSha
       );
     } finally {
@@ -1703,15 +1714,15 @@ async function prepareWorkingTreeSourceProgramAudit(
       const implementationDominance = compileRepositoryAuditPreparationPhase(
         'source-program.implementation-dominance',
         () => compileSourceProgramImplementationDominance({
-          model,
+          model: requireCompleteSourceProgramModel(model),
           ownerIntents: worktreeAudit.currentIntentEvidence
         })
       );
       const reconciliation = compileRepositoryAuditPreparationPhase(
         'source-program.reconciliation',
         () => compileSourceProgramReconciliationProjection({
-          before: worktreeAudit.baselineSourceProgramCompilation,
-          after: worktreeAudit.currentSourceProgramCompilation,
+          before: requireCompleteRepositorySourceProgramCompilation(worktreeAudit.baselineSourceProgramCompilation),
+          after: requireCompleteRepositorySourceProgramCompilation(worktreeAudit.currentSourceProgramCompilation),
           ...(options.reductionMode === 'graph-cut' ? {
             providerEvidence: [knipReceipt === null
               ? Object.freeze({
@@ -1805,7 +1816,6 @@ async function prepareWorkingTreeSourceProgramAudit(
     tests: testValue
   }, worktreeAudit.changedPaths);
   const blockingTestFindings = sourceProgramBlockingTestFindings(testDisposition.findings);
-  const blockingCandidates = sourceProgramBlockingCandidates(model);
   const unknownDispositionClusters = summarizeSourceProgramTestUnknownDispositionClusters(
     testDisposition.dispositions,
     testDisposition.findings
@@ -1820,7 +1830,7 @@ async function prepareWorkingTreeSourceProgramAudit(
   let reduction: SourceProgramAuditReduction = Object.freeze({ mode: 'none' });
   if (options.reductionMode === 'version') {
     const plan = compileSourceProgramVersionSuffixReductionPlan(
-      model,
+      requireCompleteSourceProgramModel(model),
       worktreeAudit.sourceFiles,
       reductionCompilerContext
     );
@@ -1830,7 +1840,7 @@ async function prepareWorkingTreeSourceProgramAudit(
     reduction = Object.freeze({ mode: 'version', plan, patch });
   } else if (options.reductionMode === 'aggregate-import') {
     const plan = compileSourceProgramAggregateImportReductionPlan(
-      model,
+      requireCompleteSourceProgramModel(model),
       worktreeAudit.sourceFiles,
       Object.freeze({
         sourceRevision: model.sourceRevision,
@@ -1844,7 +1854,7 @@ async function prepareWorkingTreeSourceProgramAudit(
     reduction = Object.freeze({ mode: 'aggregate-import', plan, patch });
   } else if (options.reductionMode === 'graph-cut' && knipReceipt !== null) {
     const plan = compileSourceProgramGraphCutReductionPlan(
-      model,
+      requireCompleteSourceProgramModel(model),
       worktreeAudit.sourceFiles,
       knipReceipt,
       reductionCompilerContext
@@ -1868,18 +1878,10 @@ async function prepareWorkingTreeSourceProgramAudit(
     Object.freeze({ path: repositoryPath, contentDigest })));
 
   const sharedFacts = {
-      blockingCandidates,
       blockingTestFindings,
       cache: worktreeAudit.cache,
       declarationTopology: worktreeAudit.declarationTopology,
       invalidatedTypeScriptPaths: worktreeAudit.invalidatedTypeScriptPaths,
-      sourceProgram: compileSourceProgramAuditSourceProgramProjection(
-        model,
-        sourceFileIdentities,
-        options.includeCandidates,
-        options.blockingDetails && options.blockingDetailsDomain === 'source-program',
-        transition === undefined
-      ),
       moduleArchitecture: worktreeAudit.moduleArchitecture,
       options: Object.freeze({
         blockingDetails: options.blockingDetails,
@@ -1889,7 +1891,7 @@ async function prepareWorkingTreeSourceProgramAudit(
         full: options.full,
         includeCandidates: options.includeCandidates,
         outputPath: options.outputPath,
-        queryProjection: options.query === null ? null : querySourceProgramModel(model, options.query)
+        queryProjection: options.query === null ? null : querySourceProgramModel(requireCompleteSourceProgramModel(model), options.query)
       }),
       sourceFileIdentities,
       sourceProgramCompilation: worktreeAudit.sourceProgramCompilation,
@@ -1898,13 +1900,24 @@ async function prepareWorkingTreeSourceProgramAudit(
       testFindingDelta,
       testRetirement,
       testValue: compileSourceProgramAuditTestValueProjection(testValue, options.full),
-      topology: summarizeSourceProgramTopology(model),
       unknownDispositionClusters
   };
   const auditFacts: CompileSourceProgramAuditOperationInput = analyses.schema === undefined
     ? Object.freeze({ ...sharedFacts, ...analyses, reduction,
+        blockingCandidates: sourceProgramBlockingCandidates(requireCompleteSourceProgramModel(model)),
+        sourceProgram: compileSourceProgramAuditSourceProgramProjection(
+          requireCompleteSourceProgramModel(model), sourceFileIdentities, options.includeCandidates,
+          options.blockingDetails && options.blockingDetailsDomain === 'source-program'),
+        topology: summarizeSourceProgramTopology(requireCompleteSourceProgramModel(model)),
         options: Object.freeze({ ...sharedFacts.options, authorityScope: 'whole-program' }) })
-    : Object.freeze({ ...sharedFacts, ...analyses, reduction: Object.freeze({ mode: 'none' }),
+    : Object.freeze({ ...sharedFacts, ...analyses,
+        schema: 'source-program-test-obligations-audit-facts-v2',
+        blockingCandidates: SOURCE_PROGRAM_TEST_OBLIGATIONS_NOT_REQUESTED,
+        sourceProgram: compileSourceProgramAuditTestObligationsSourceProgramProjection(
+          model as SourceProgramModel<SourceProgramAnalysisNotRequested>, sourceFileIdentities,
+          options.blockingDetails && options.blockingDetailsDomain === 'source-program'),
+        topology: summarizeSourceProgramTestObligationsTopology(model as SourceProgramModel<SourceProgramAnalysisNotRequested>),
+        reduction: Object.freeze({ mode: 'none' }),
         options: Object.freeze({ ...sharedFacts.options, authorityScope: 'test-obligations' }) });
   return Object.freeze({
     dependencyGenerationDigest: worktreeAudit.dependencyGenerationDigest,
@@ -2178,7 +2191,7 @@ const SOURCE_PROGRAM_BLOCKING_TEST_FINDING_CODE_SET = new Set<string>(
 export function sourceProgramBlockingCandidates(
   model: Pick<SourceProgramModel, 'candidates'>
 ): readonly SourceProgramCandidate[] {
-  return Object.freeze(model.candidates.filter(({ code }) =>
+  return Object.freeze(requireSourceProgramCandidateAnalysis(model.candidates).filter(({ code }) =>
     SOURCE_PROGRAM_BLOCKING_CANDIDATE_CODE_SET.has(code)));
 }
 

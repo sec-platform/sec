@@ -2,12 +2,14 @@ import type {
   SourceProgramModel,
   SourceProgramQueryResult
 } from './contract.ts';
+import { requireSourceProgramCandidateAnalysis } from './contract.ts';
 
 /** Read-only semantic queries over an already-issued Source Program model. */
 export function querySourceProgramModel(
   model: SourceProgramModel,
   query: string
 ): SourceProgramQueryResult {
+  requireSourceProgramCandidateAnalysis(model.candidates);
   const normalized = query.trim().toLocaleLowerCase('en-US');
   if (normalized.length === 0) throw new Error('Source Program Model query cannot be blank');
   const includes = (value: string): boolean => value.toLocaleLowerCase('en-US').includes(normalized);

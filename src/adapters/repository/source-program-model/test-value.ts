@@ -6,6 +6,7 @@ import {
   type SourceProgramCompilationOperation
 } from './compilation-operation.ts';
 import type {
+  SourceProgramCandidateAnalysis,
   SourceProgramFileInput,
   SourceProgramModel,
   SourceProgramSpan,
@@ -195,7 +196,7 @@ export interface SourceProgramTestDispositionProjection {
 export interface CompileSourceProgramTestValueInput {
   readonly repositoryRoot: string;
   readonly files: readonly SourceProgramFileInput[];
-  readonly model: SourceProgramModel;
+  readonly model: SourceProgramModel<SourceProgramCandidateAnalysis>;
   readonly operation?: SourceProgramCompilationOperation;
   /** Tracked test paths from the baseline; callers should derive this from Git. */
   readonly baselineTestPaths?: readonly string[];

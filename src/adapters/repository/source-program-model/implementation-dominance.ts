@@ -5,6 +5,7 @@ import type {
   SourceProgramOperationObligationEvidence,
   SourceProgramOwnerIntentEvidence
 } from './contract.ts';
+import { requireSourceProgramCandidateAnalysis } from './contract.ts';
 import { isCompiledRepositorySourceProgramModel } from './repository.ts';
 
 type SourceProgramImplementationUnitKind =
@@ -483,7 +484,7 @@ function compileSourceProgramImplementationCandidatesWithIndex(input: Readonly<{
     }
   }
 
-  for (const sourceCandidate of input.model.candidates) {
+  for (const sourceCandidate of requireSourceProgramCandidateAnalysis(input.model.candidates)) {
     const mapping = sourceCandidate.code === 'production-mirrors-source-path'
         || sourceCandidate.code === 'duplicate-production-source-path-owner'
       ? Object.freeze({ kind: 'relation-projection' as const, identity: `relation:${sourceCandidate.subject}` })

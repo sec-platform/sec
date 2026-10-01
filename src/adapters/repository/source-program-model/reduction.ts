@@ -1,6 +1,7 @@
 import { createTwoFilesPatch } from 'diff';
 import nodePath from 'node:path';
 import ts from 'typescript';
+import { requireSourceProgramCandidateAnalysis } from './contract.ts';
 
 import { compareCodeUnits, rawSha256, sha256 } from '../../../contracts/canonical.ts';
 import { isSecRepositoryTestModulePath } from '../../../contracts/repository-test-path.ts';
@@ -15,6 +16,7 @@ import {
   type SourceProgramCompilationOperation
 } from './compilation-operation.ts';
 import type {
+  SourceProgramCandidateAnalysis,
   SourceProgramCapabilityInvocation,
   SourceProgramDeclaration,
   SourceProgramFileInput,
@@ -390,7 +392,7 @@ export interface SourceProgramSupersessionEvidence {
 }
 
 export interface CompileSourceProgramSupersessionEvidenceInput {
-  readonly model: SourceProgramModel;
+  readonly model: SourceProgramModel<SourceProgramCandidateAnalysis>;
   readonly tests: SourceProgramTestValueCompilation;
   readonly intentEvidence: readonly SourceProgramOwnerIntentEvidence[];
   readonly identity: SourceProgramSupersessionEvidenceIdentity;
@@ -427,7 +429,7 @@ function pathSemanticUnitOccurrenceId(
   return sha256({ kind, path });
 }
 
-function sourceProgramModelEvidenceIsExact(model: SourceProgramModel): boolean {
+function sourceProgramModelEvidenceIsExact(model: SourceProgramModel<SourceProgramCandidateAnalysis>): boolean {
   return DIGEST.test(model.modelDigest)
     && DIGEST.test(model.sourceRevision)
     && isCompiledRepositorySourceProgramModel(model);
@@ -749,7 +751,7 @@ function capabilitySemanticAddress(
 }
 
 function sourceProgramRequiredProductionPaths(
-  model: SourceProgramModel,
+  model: SourceProgramModel<SourceProgramCandidateAnalysis>,
   operation: SourceProgramCompilationOperation
 ): ReadonlySet<string> {
   const required = new Set<string>();
@@ -780,7 +782,7 @@ function sourceProgramRequiredProductionPaths(
 }
 
 function compileSourceProgramSemanticUnits(
-  model: SourceProgramModel,
+  model: SourceProgramModel<SourceProgramCandidateAnalysis>,
   operation: SourceProgramCompilationOperation
 ): readonly SourceProgramSemanticUnit[] {
   const moduleIdByPath = new Map<string, string | null>();
@@ -850,7 +852,7 @@ function compileSourceProgramSemanticUnits(
 }
 
 function compileSourceProgramResourceUnits(
-  model: SourceProgramModel,
+  model: SourceProgramModel<SourceProgramCandidateAnalysis>,
   operation: SourceProgramCompilationOperation
 ): readonly SourceProgramSemanticUnit[] {
   return Object.freeze(model.files
@@ -876,7 +878,7 @@ function compileSourceProgramResourceUnits(
 }
 
 function compileSourceProgramEntrypointUnits(
-  model: SourceProgramModel,
+  model: SourceProgramModel<SourceProgramCandidateAnalysis>,
   productionUnitByPath: ReadonlyMap<string, SourceProgramSemanticUnit>,
   operation: SourceProgramCompilationOperation
 ): readonly SourceProgramSemanticUnit[] {
@@ -1981,7 +1983,7 @@ export interface CompileSourceProgramTestRetirementReceiptInput {
   readonly baseline: SourceProgramSupersessionEvidence;
   readonly current: SourceProgramSupersessionEvidence;
   readonly supersession: SourceProgramSupersessionReceipt;
-  readonly currentModel: SourceProgramModel;
+  readonly currentModel: SourceProgramModel<SourceProgramCandidateAnalysis>;
   readonly currentTestCompilation: SourceProgramTestValueCompilation;
   /** Exact tracked baseline bytes, not a caller-authored zero census. */
   readonly baselineFiles: readonly WorkspaceSourceFile[];
@@ -2017,7 +2019,7 @@ function supersessionReceiptBindsEvidence(
 }
 
 function sourceProgramTestPathConsumerIndex(
-  model: SourceProgramModel,
+  model: SourceProgramModel<SourceProgramCandidateAnalysis>,
   testPaths: readonly string[],
   knownPaths: ReadonlySet<string>,
   operation: SourceProgramCompilationOperation
@@ -2875,10 +2877,11 @@ export function compileSourceProgramGraphCutReductionPlan(
     'production-declaration-without-consumer',
     'identity-token-without-consumer'
   ]);
-  const candidateKeys = new Set(model.candidates
+  const completeCandidates = requireSourceProgramCandidateAnalysis(model.candidates);
+  const candidateKeys = new Set(completeCandidates
     .filter(({ code }) => candidateCodes.has(code))
     .flatMap((candidate) => candidate.paths.map((path) => `${path}\0${candidate.subject}`)));
-  const unknownCandidateKeys = new Set(model.candidates
+  const unknownCandidateKeys = new Set(completeCandidates
     .filter(({ code, observationClass }) => candidateCodes.has(code)
       && observationClass === 'unknown')
     .flatMap((candidate) => candidate.paths.map((path) => `${path}\0${candidate.subject}`)));
