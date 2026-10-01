@@ -10,10 +10,13 @@ import {
 } from '../../../contracts/exact-json.ts';
 import type { SecRepositoryModuleArchitectureProjection } from '../architecture/contract.ts';
 import type {
+  SourceProgramAnalysisNotRequested,
   SourceProgramCandidate,
+  SourceProgramCandidateAnalysis,
   SourceProgramModel,
   SourceProgramTopologySummary
 } from '../source-program-model/contract.ts';
+import { SOURCE_PROGRAM_TEST_OBLIGATIONS_NOT_REQUESTED, requireSourceProgramCandidateAnalysis } from '../source-program-model/contract.ts';
 import type {
   SourceProgramTestDispositionProjection,
   SourceProgramTestFinding,
@@ -340,10 +343,7 @@ export interface CompileWholeSourceProgramAuditOperationInput {
   }>;
 }
 
-export type SourceProgramAuditAnalysisNotRequested = Readonly<{
-  status: 'not-requested';
-  reason: 'outside-test-obligations';
-}>;
+export type SourceProgramAuditAnalysisNotRequested = SourceProgramAnalysisNotRequested;
 
 type WholeProgramAnalyses = Pick<CompileWholeSourceProgramAuditOperationInput,
   'schema' | 'baselineCompilation' | 'implementationDominance' | 'reconciliation' | 'architectureEvolution'>;
@@ -356,7 +356,7 @@ type TestObligationAnalyses = Readonly<{
   architectureEvolution: SourceProgramAuditAnalysisNotRequested;
 }>;
 
-export type CompileTestObligationsAuditOperationInput =
+export type CompileLegacyTestObligationsAuditOperationInput =
   Omit<CompileWholeSourceProgramAuditOperationInput,
     keyof WholeProgramAnalyses | 'options' | 'reduction' | 'testFindingDelta'>
   & TestObligationAnalyses & Readonly<{
@@ -364,6 +364,28 @@ export type CompileTestObligationsAuditOperationInput =
     reduction: Readonly<{ mode: 'none' }>;
     testFindingDelta: SourceProgramTestFindingDelta;
   }>;
+
+type TestObligationsSourceProgramProjection = Omit<
+  CompileWholeSourceProgramAuditOperationInput['sourceProgram'], 'candidateDigests' | 'candidates' | 'counts'
+> & Readonly<{
+  candidateDigests: SourceProgramAnalysisNotRequested;
+  candidates: SourceProgramAnalysisNotRequested;
+  counts: Omit<CompileWholeSourceProgramAuditOperationInput['sourceProgram']['counts'], 'candidates'>
+    & Readonly<{ candidates: SourceProgramAnalysisNotRequested }>;
+}>;
+
+export type CompileScopedCandidateTestObligationsAuditOperationInput = Omit<
+  CompileLegacyTestObligationsAuditOperationInput, 'schema' | 'sourceProgram' | 'blockingCandidates' | 'topology'
+> & Readonly<{
+  schema: 'source-program-test-obligations-audit-facts-v2';
+  sourceProgram: TestObligationsSourceProgramProjection;
+  blockingCandidates: SourceProgramAnalysisNotRequested;
+  topology: SourceProgramTopologySummary<SourceProgramAnalysisNotRequested, SourceProgramAnalysisNotRequested>;
+}>;
+
+export type CompileTestObligationsAuditOperationInput =
+  | CompileLegacyTestObligationsAuditOperationInput
+  | CompileScopedCandidateTestObligationsAuditOperationInput;
 
 export type CompileSourceProgramAuditOperationInput =
   | CompileWholeSourceProgramAuditOperationInput
@@ -393,7 +415,8 @@ export function compileSourceProgramAuditAnalyses(input: Readonly<{
 export function isTestObligationsAuditFacts(
   input: CompileSourceProgramAuditOperationInput
 ): input is CompileTestObligationsAuditOperationInput {
-  return input.schema === 'source-program-test-obligations-audit-facts-v1';
+  return input.schema === 'source-program-test-obligations-audit-facts-v1'
+    || input.schema === 'source-program-test-obligations-audit-facts-v2';
 }
 
 export interface SourceProgramAuditOperationResult {
@@ -518,6 +541,19 @@ function pagedRecordSet<T>(
 
 type BlockingDetailRecord = Readonly<{ readonly category: string; readonly record: unknown }>;
 
+function isScopedCandidateTestFacts(
+  input: CompileSourceProgramAuditOperationInput
+): input is CompileScopedCandidateTestObligationsAuditOperationInput {
+  return input.schema === 'source-program-test-obligations-audit-facts-v2';
+}
+
+function assertAnalysisNotRequested(value: unknown): void {
+  if (!isPlainObject(value) || Object.keys(value).length !== 2
+      || value.status !== 'not-requested' || value.reason !== 'outside-test-obligations') {
+    throw new Error('Scoped test analysis must be explicitly not requested');
+  }
+}
+
 function blockingDetailRecords(
   input: CompileSourceProgramAuditOperationInput,
   domain: CompileSourceProgramAuditOperationInput['options']['blockingDetailsDomain']
@@ -527,7 +563,9 @@ function blockingDetailRecords(
   switch (domain) {
     case 'priority':
       return Object.freeze([
-        ...tagged('blocking-candidate', input.blockingCandidates),
+        ...(isScopedCandidateTestFacts(input)
+          ? tagged('candidate-analysis-not-requested', [input.blockingCandidates])
+          : tagged('blocking-candidate', input.blockingCandidates)),
         ...tagged('blocking-test-finding', input.blockingTestFindings)
       ]);
     case 'source-program': return tagged('source-program-unknown', input.sourceProgram.unknowns);
@@ -578,13 +616,10 @@ function assertReductionPatch(
   }
 }
 
-export function compileSourceProgramAuditSourceProgramProjection(
-  model: SourceProgramModel,
-  sourceFileIdentities: readonly Readonly<{ readonly path: string; readonly contentDigest: string }>[],
-  includeCandidates: boolean,
-  includeUnknowns = false,
-  includeMechanismReview = true
-): CompileSourceProgramAuditOperationInput['sourceProgram'] {
+function assertSourceProgramProjectionInputs(
+  model: SourceProgramModel<SourceProgramCandidateAnalysis>,
+  sourceFileIdentities: readonly Readonly<{ readonly path: string; readonly contentDigest: string }>[]
+): void {
   assertSourceFileIdentities(sourceFileIdentities);
   const modelFileDigestByPath = new Map(model.files.map(({ path, contentDigest }) =>
     [path, contentDigest] as const));
@@ -593,6 +628,17 @@ export function compileSourceProgramAuditSourceProgramProjection(
         modelFileDigestByPath.get(path) !== contentDigest)) {
     throw new Error('Source bytes are not the exact Source Program file set');
   }
+}
+
+export function compileSourceProgramAuditSourceProgramProjection(
+  model: SourceProgramModel,
+  sourceFileIdentities: readonly Readonly<{ readonly path: string; readonly contentDigest: string }>[],
+  includeCandidates: boolean,
+  includeUnknowns = false,
+  includeMechanismReview = true
+): CompileWholeSourceProgramAuditOperationInput['sourceProgram'] {
+  assertSourceProgramProjectionInputs(model, sourceFileIdentities);
+  requireSourceProgramCandidateAnalysis(model.candidates);
   return Object.freeze({
     sourceRevision: model.sourceRevision,
     modelDigest: model.modelDigest,
@@ -608,6 +654,39 @@ export function compileSourceProgramAuditSourceProgramProjection(
     counts: Object.freeze({
       capabilities: model.capabilities.length,
       candidates: model.candidates.length,
+      declarations: model.declarations.length,
+      dependencies: model.dependencies.length,
+      entrypoints: model.entrypoints.length,
+      entrypointClosures: model.entrypointClosures.length,
+      files: model.files.length,
+      literals: model.literals.length,
+      packages: model.packages.length,
+      references: model.references.length,
+      unknowns: model.unknowns.length
+    })
+  });
+}
+
+/** The v2 source projection reports omitted candidate work without empty findings. */
+export function compileSourceProgramAuditTestObligationsSourceProgramProjection(
+  model: SourceProgramModel<SourceProgramAnalysisNotRequested>,
+  sourceFileIdentities: readonly Readonly<{ readonly path: string; readonly contentDigest: string }>[],
+  includeUnknowns = false
+): TestObligationsSourceProgramProjection {
+  assertSourceProgramProjectionInputs(model, sourceFileIdentities);
+  assertAnalysisNotRequested(model.candidates);
+  return Object.freeze({
+    sourceRevision: model.sourceRevision,
+    modelDigest: model.modelDigest,
+    sourceFileSetDigest: sha256(sourceFileIdentities),
+    candidateDigests: SOURCE_PROGRAM_TEST_OBLIGATIONS_NOT_REQUESTED,
+    unknownDigests: Object.freeze(model.unknowns.map((unknown) => sha256(unknown))),
+    unknownsDigest: sha256(model.unknowns),
+    candidates: SOURCE_PROGRAM_TEST_OBLIGATIONS_NOT_REQUESTED,
+    unknowns: includeUnknowns ? model.unknowns : Object.freeze([]),
+    counts: Object.freeze({
+      capabilities: model.capabilities.length,
+      candidates: SOURCE_PROGRAM_TEST_OBLIGATIONS_NOT_REQUESTED,
       declarations: model.declarations.length,
       dependencies: model.dependencies.length,
       entrypoints: model.entrypoints.length,
@@ -664,10 +743,7 @@ function assertFacts(input: CompileSourceProgramAuditOperationInput): void {
       throw new Error('Scoped test facts require test obligations, comparison and no reduction');
     }
     for (const analysis of [input.implementationDominance, input.reconciliation, input.architectureEvolution]) {
-      if (!isPlainObject(analysis) || Object.keys(analysis).length !== 2
-          || analysis.status !== 'not-requested' || analysis.reason !== 'outside-test-obligations') {
-        throw new Error('Scoped test analysis must be explicitly not requested');
-      }
+      assertAnalysisNotRequested(analysis);
     }
     const baseline = input.baselineCompilation;
     if (!isPlainObject(baseline) || Object.keys(baseline).length !== 3
@@ -681,12 +757,19 @@ function assertFacts(input: CompileSourceProgramAuditOperationInput): void {
   assertSourceFileIdentities(input.sourceFileIdentities);
   if (input.sourceProgram.sourceFileSetDigest !== sha256(input.sourceFileIdentities)
       || input.sourceProgram.counts.files !== input.sourceFileIdentities.length
-      || input.sourceProgram.candidateDigests.length !== input.sourceProgram.counts.candidates
-      || input.sourceProgram.unknownDigests.length !== input.sourceProgram.counts.unknowns
-      || input.sourceProgram.candidates.length !== (
-        input.options.includeCandidates ? input.sourceProgram.counts.candidates : 0
-      )) {
+      || input.sourceProgram.unknownDigests.length !== input.sourceProgram.counts.unknowns) {
     throw new Error('Source Program projection is not bound to its exact fact set');
+  }
+  if (isScopedCandidateTestFacts(input)) {
+    for (const analysis of [input.sourceProgram.candidates, input.sourceProgram.candidateDigests,
+      input.sourceProgram.counts.candidates, input.blockingCandidates,
+      input.topology.candidateCodes, input.topology.directProcessTransportPaths]) {
+      assertAnalysisNotRequested(analysis);
+    }
+  } else if (input.sourceProgram.candidateDigests.length !== input.sourceProgram.counts.candidates
+      || input.sourceProgram.candidates.length !== (
+        input.options.includeCandidates ? input.sourceProgram.counts.candidates : 0)) {
+    throw new Error('Source Program candidate projection is not bound to its exact fact set');
   }
   const mechanisms = input.sourceProgram.mechanismReview;
   if (mechanisms !== undefined && (
@@ -785,9 +868,11 @@ function assertFacts(input: CompileSourceProgramAuditOperationInput): void {
       `Test and supersession projections are not bound to one observation: ${testBindingFailures.join(', ')}`
     );
   }
-  const candidateDigests = new Set(input.sourceProgram.candidateDigests);
-  if (input.blockingCandidates.some((candidate) => !candidateDigests.has(sha256(candidate)))) {
-    throw new Error('Blocking candidate projection is not a subset of the Source Program model');
+  if (!isScopedCandidateTestFacts(input)) {
+    const candidateDigests = new Set(input.sourceProgram.candidateDigests);
+    if (input.blockingCandidates.some((candidate) => !candidateDigests.has(sha256(candidate)))) {
+      throw new Error('Blocking candidate projection is not a subset of the Source Program model');
+    }
   }
   const unknownDigests = new Set(input.sourceProgram.unknownDigests);
   if (input.options.blockingDetails
@@ -1065,7 +1150,7 @@ export function compileSourceProgramAuditOperationInput(
         blockingDetailsPage
       )
     : null;
-  const candidates = input.blockingCandidates;
+  const candidates = isScopedCandidateTestFacts(input) ? null : input.blockingCandidates;
   const testFindings = input.blockingTestFindings;
   const unknownDispositionClusters = input.unknownDispositionClusters;
   const compactBlockingTestFindings = testFindings.filter(({ disposition }) =>
@@ -1215,7 +1300,8 @@ export function compileSourceProgramAuditOperationInput(
       count: input.sourceProgram.counts.unknowns,
       digest: input.sourceProgram.unknownsDigest
     }),
-    blockingCandidates: full ? candidates : compactRecordSet(candidates),
+    blockingCandidates: candidates === null ? SOURCE_PROGRAM_TEST_OBLIGATIONS_NOT_REQUESTED
+      : full ? candidates : compactRecordSet(candidates),
     blockingTestFindings: full
       ? testFindings
       : compactRecordSet(compactBlockingTestFindings),
@@ -1280,7 +1366,7 @@ export function compileSourceProgramAuditOperationInput(
       semanticClasses: input.testValue.semanticClasses
     }),
     summary: Object.freeze({
-      blockingCandidates: candidates.length,
+      blockingCandidates: candidates === null ? SOURCE_PROGRAM_TEST_OBLIGATIONS_NOT_REQUESTED : candidates.length,
       ...(isTestObligationsAuditFacts(input) ? {
         implementationDominance: input.implementationDominance,
         reconciliation: input.reconciliation,

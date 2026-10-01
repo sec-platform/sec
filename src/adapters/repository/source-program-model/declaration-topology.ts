@@ -1,7 +1,7 @@
 import { sha256 } from '../../../contracts/canonical.ts';
 import { compileClosedDirectedGraphStrongComponents } from '../../../contracts/directed-graph.ts';
 import type {
-  SourceProgramDeclaration,
+  SourceProgramCandidateAnalysis, SourceProgramDeclaration,
   SourceProgramReferenceKind
 } from './contract.ts';
 import {
@@ -75,7 +75,7 @@ function declarationStrongComponents(
  * classify owners, or authorize physical placement.
  */
 export function compileSourceProgramDeclarationTopology(
-  compilation: RepositorySourceProgramCompilationReceipt
+  compilation: RepositorySourceProgramCompilationReceipt<SourceProgramCandidateAnalysis>
 ): SourceProgramDeclarationTopology {
   assertRepositorySourceProgramCompilationReceipt(compilation);
   const model = compilation.model;

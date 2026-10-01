@@ -1,5 +1,5 @@
 import { compareCodeUnits, deepFreeze, isPlainObject, sha256 } from '../../../contracts/canonical.ts';
-import type { SourceProgramCandidate } from './contract.ts';
+import { requireSourceProgramCandidateAnalysis, type SourceProgramCandidate, type SourceProgramCandidateAnalysis } from './contract.ts';
 import { repositoryAnalysisPolicyDigest } from './repository-analysis-policy.ts';
 import {
   assertRepositorySourceProgramCompilationReceipt,
@@ -11,7 +11,7 @@ import {
 } from './test-value.ts';
 
 type Digest = `sha256:${string}`;
-type Snapshot = Pick<RepositorySourceProgramCompilationReceipt,
+type Snapshot = Pick<RepositorySourceProgramCompilationReceipt<SourceProgramCandidateAnalysis>,
   'sourceRevision' | 'model' | 'projectGeneration' | 'moduleMembershipDigest' | 'workspaceSnapshot'>
   & Partial<Pick<RepositorySourceProgramCompilationReceipt, 'analysisPolicy'>>;
 
@@ -156,7 +156,7 @@ export function compileSourceProgramFindingDelta(before: Snapshot, after: Snapsh
     && afterCoverage.incompleteContextFields.length === 0;
   const beforePaths = new Set(beforeCoverage.selectedPaths), afterPaths = new Set(afterCoverage.selectedPaths);
   const beforeUnknown = new Set(beforeCoverage.unobservedPaths), afterUnknown = new Set(afterCoverage.unobservedPaths);
-  const beforeGroups = groups(before.model.candidates), afterGroups = groups(after.model.candidates);
+  const beforeGroups = groups(requireSourceProgramCandidateAnalysis(before.model.candidates)), afterGroups = groups(requireSourceProgramCandidateAnalysis(after.model.candidates));
   const entries: SourceProgramFindingDeltaEntry[] = [];
   const counts: Record<SourceProgramFindingDeltaStatus, number> = {
     introduced: 0, persistent: 0, changed: 0, absent: 0, 'out-of-scope': 0, unobserved: 0
@@ -223,7 +223,7 @@ export function sourceProgramFindingDeltaIsUnresolved(delta: SourceProgramFindin
 
 
 type TestFindingSnapshot = Readonly<{
-  sourceProgram: RepositorySourceProgramCompilationReceipt;
+  sourceProgram: RepositorySourceProgramCompilationReceipt<SourceProgramCandidateAnalysis>;
   tests: SourceProgramTestValueCompilation;
 }>;
 

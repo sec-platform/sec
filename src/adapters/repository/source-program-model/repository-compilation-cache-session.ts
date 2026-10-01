@@ -19,9 +19,11 @@ import {
   sourceProgramCompilationCheckpoint,
   type SourceProgramCompilationOperation
 } from './compilation-operation.ts';
+import type { SourceProgramAnalysisNotRequested, SourceProgramCandidateAnalysis } from './contract.ts';
 import { createRepositoryCompilationCacheProvider } from './repository-compilation-cache-provider.ts';
 import {
   compileRepositorySourceProgramCompilation,
+  compileRepositorySourceProgramTestObligationsCompilation,
   type CompileRepositorySourceProgramCompilationInput,
   type RepositorySourceProgramCompilationReceipt
 } from './repository-compilation.ts';
@@ -137,9 +139,10 @@ export type CompileRepositorySourceProgramWithCacheInput = Omit<
  * without publication, and every opened session is settled. Cache access can
  * never replace or certify the compiler's semantic result.
  */
-export function compileRepositorySourceProgramWithCache(
-  input: CompileRepositorySourceProgramWithCacheInput
-): RepositorySourceProgramCompilationReceipt {
+function compileRepositoryWithCache<Receipt extends RepositorySourceProgramCompilationReceipt<SourceProgramCandidateAnalysis>>(
+  input: CompileRepositorySourceProgramWithCacheInput,
+  compile: (input: CompileRepositorySourceProgramCompilationInput) => Receipt
+): Receipt {
   const { workspaceSnapshot, operation, repositoryRoot, projectInput,
     reviewedProcessDispatchers, unknowns, cacheAccess = 'read-write' } = input;
   assertPhysicalWorkspaceSourceSnapshot(workspaceSnapshot);
@@ -176,11 +179,11 @@ export function compileRepositorySourceProgramWithCache(
     }
   }
 
-  let compilation: RepositorySourceProgramCompilationReceipt | undefined;
+  let compilation: Receipt | undefined;
   let compilationFailed = false;
   let primary: unknown;
   try {
-    compilation = compileRepositorySourceProgramCompilation({
+    compilation = compile({
       workspaceSnapshot, operation, repositoryRoot, projectInput,
       reviewedProcessDispatchers, unknowns, cacheAccess,
       ...(cacheProvider === undefined ? {} : { cacheProvider })
@@ -199,4 +202,16 @@ export function compileRepositorySourceProgramWithCache(
     }]
   });
   return compilation!;
+}
+
+export function compileRepositorySourceProgramWithCache(
+  input: CompileRepositorySourceProgramWithCacheInput
+): RepositorySourceProgramCompilationReceipt {
+  return compileRepositoryWithCache(input, compileRepositorySourceProgramCompilation);
+}
+
+export function compileRepositorySourceProgramTestObligationsWithCache(
+  input: CompileRepositorySourceProgramWithCacheInput
+): RepositorySourceProgramCompilationReceipt<SourceProgramAnalysisNotRequested> {
+  return compileRepositoryWithCache(input, compileRepositorySourceProgramTestObligationsCompilation);
 }

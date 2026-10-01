@@ -5,7 +5,11 @@ import { syntheticTestFindingComparison } from '../../../../tests/testkit/source
 
 import { canonicalJson, rawSha256, sha256 } from '../../../contracts/canonical.ts';
 import { bindSecSemanticOperation, compileSecCapabilityBinding, compileSecSemanticOperationPlan, issueSecSemanticOperationAttemptContext } from '../../../execution/operation/semantic.ts';
-import type { SourceProgramModel } from '../source-program-model/contract.ts';
+import { compileSecRepositoryModuleMembershipSnapshot } from '../architecture/contract.ts';
+import { SOURCE_PROGRAM_TEST_OBLIGATIONS_NOT_REQUESTED, type SourceProgramModel } from '../source-program-model/contract.ts';
+import { compileVirtualRepositorySourceProgramCompilation, compileVirtualRepositorySourceProgramTestObligationsCompilation } from '../source-program-model/repository-compilation.ts';
+import { querySourceProgramModel } from '../source-program-model/typescript.ts';
+import { compileVirtualWorkspaceSourceSnapshot } from '../source-program-model/workspace-source-snapshot.ts';
 import type { RepositoryAuditLoadedImplementationEvidence } from './loaded-implementation.ts';
 import {
   BLOCKING_DETAILS_PAGE_MAXIMUM_BYTES,
@@ -13,6 +17,7 @@ import {
   compileSourceProgramAuditOperation,
   compileSourceProgramAuditOperationInput,
   compileSourceProgramAuditSourceProgramProjection,
+  compileSourceProgramAuditTestObligationsSourceProgramProjection,
   compileSourceProgramAuditTestValueProjection,
   encodeSourceProgramAuditOperationInput,
   encodeSourceProgramAuditOperationResult,
@@ -20,6 +25,7 @@ import {
   parseSourceProgramAuditOperationInput,
   parseSourceProgramAuditOperationResult,
   SourceProgramAuditBlockingDetailError,
+  type CompileScopedCandidateTestObligationsAuditOperationInput,
   type CompileSourceProgramAuditOperationInput,
   type CompileTestObligationsAuditOperationInput,
   type CompileWholeSourceProgramAuditOperationInput,
@@ -337,8 +343,8 @@ function input(
 }
 
 function sourceProgramWithOneUnknown(
-  sourceProgram: CompileSourceProgramAuditOperationInput['sourceProgram']
-): CompileSourceProgramAuditOperationInput['sourceProgram'] {
+  sourceProgram: CompileWholeSourceProgramAuditOperationInput['sourceProgram']
+): CompileWholeSourceProgramAuditOperationInput['sourceProgram'] {
   const observation = Object.freeze({ reason: 'unresolved-observation' });
   return Object.freeze({
     ...sourceProgram,
@@ -1182,4 +1188,84 @@ describe('test-obligations scoped audit facts', () => {
         ...scopedTestFacts().baselineCompilation, sourceRevision: digest('wrong-baseline')
       } } }), /compared source evidence/);
   });
+});
+
+
+test('test-obligations candidate scope preserves source facts and refuses ordinary candidate queries', () => {
+  const descriptorPath = 'src/example/module.json';
+  const descriptorSource = JSON.stringify({ importGraph: 'runtime', externalEntrypoints: [],
+    capabilityProviders: [], preDependencyBootstrap: false });
+  const sources = {
+    [descriptorPath]: descriptorSource,
+    'src/example/operation.ts': 'export const value = 1;\n',
+    'package.json': JSON.stringify({ name: 'fixture', scripts: { first: 'echo sample', second: 'echo sample' } })
+  };
+  const files = Object.entries(sources).map(([path, source]) => ({ path, source, contentDigest: rawSha256(source) }));
+  const sourceRevision = digest(files);
+  const workspaceSnapshot = compileVirtualWorkspaceSourceSnapshot({
+    subject: { kind: 'virtual-mutation', provenance: { kind: 'source-program-virtual-mutation',
+      baseSnapshotDigest: digest('candidate-scope-fixture'), mutationDigest: sourceRevision } },
+    files,
+    moduleMembership: compileSecRepositoryModuleMembershipSnapshot({
+      repositoryFiles: files.map(({ path }) => path),
+      descriptorSources: [{ descriptorPath, source: descriptorSource }]
+    })
+  });
+  const complete = compileVirtualRepositorySourceProgramCompilation({ workspaceSnapshot });
+  const scoped = compileVirtualRepositorySourceProgramTestObligationsCompilation({ workspaceSnapshot });
+  assert.ok(complete.model.candidates.some(({ code }) => code === 'duplicate-entrypoint-command'));
+  assert.deepEqual(scoped.model.candidates, { status: 'not-requested', reason: 'outside-test-obligations' });
+  const { candidates: _completeCandidates, modelDigest: _completeDigest, ...completeFacts } = complete.model;
+  const { candidates: _scopedCandidates, modelDigest: _scopedDigest, ...scopedFacts } = scoped.model;
+  assert.deepEqual(scopedFacts, completeFacts);
+  assert.notEqual(scoped.model.modelDigest, complete.model.modelDigest);
+  assert.notEqual(scoped.receiptDigest, complete.receiptDigest);
+  assert.equal(scoped.typeScriptCompilation.model.modelDigest, complete.typeScriptCompilation.model.modelDigest);
+  assert.equal(scoped.testObservations.observationDigest, complete.testObservations.observationDigest);
+  const identities = scoped.model.files.map(({ path, contentDigest }) => ({ path, contentDigest }));
+  const projected = compileSourceProgramAuditTestObligationsSourceProgramProjection(scoped.model, identities);
+  assert.deepEqual(projected.counts.candidates, scoped.model.candidates);
+  assert.deepEqual(projected.candidateDigests, scoped.model.candidates);
+  assert.throws(() => compileSourceProgramAuditSourceProgramProjection(
+    scoped.model as unknown as SourceProgramModel, identities, false), /candidate analysis was not requested/);
+  assert.throws(() => querySourceProgramModel(scoped.model as unknown as SourceProgramModel, 'value'),
+    /candidate analysis was not requested/);
+});
+
+test('test-obligations candidate scope v2 preserves omission and legacy v1 replay', () => {
+  const legacy = scopedTestFacts();
+  assert.equal(legacy.schema, 'source-program-test-obligations-audit-facts-v1');
+  if (legacy.schema !== 'source-program-test-obligations-audit-facts-v1') throw new Error('Expected historical v1');
+  const omitted = SOURCE_PROGRAM_TEST_OBLIGATIONS_NOT_REQUESTED;
+  const scoped: CompileScopedCandidateTestObligationsAuditOperationInput = {
+    ...legacy, schema: 'source-program-test-obligations-audit-facts-v2',
+    blockingCandidates: omitted,
+    sourceProgram: { ...legacy.sourceProgram, candidates: omitted, candidateDigests: omitted,
+      counts: { ...legacy.sourceProgram.counts, candidates: omitted } },
+    topology: { ...legacy.topology, candidateCodes: omitted, directProcessTransportPaths: omitted }
+  };
+  const prior = compileSourceProgramAuditOperationInput(legacy);
+  const priorBytes = encodeSourceProgramAuditOperationInput(prior);
+  const compiled = compileSourceProgramAuditOperationInput(scoped);
+  const summary = compiled.projection.summary as Record<string, unknown>;
+  assert.deepEqual(compiled.blockingReasons, prior.blockingReasons);
+  assert.deepEqual(compiled.projection.blockingCandidates, omitted);
+  assert.deepEqual(summary.blockingCandidates, omitted);
+  assert.deepEqual(summary.candidates, omitted);
+  const encoded = encodeSourceProgramAuditOperationInput(compiled);
+  assert.deepEqual(parseSourceProgramAuditOperationInput(encoded, encoded.byteLength), compiled);
+  assert.deepEqual(encodeSourceProgramAuditOperationInput(compileSourceProgramAuditOperationInput(legacy)), priorBytes);
+  const replay = parseSourceProgramTransitionAssessment(
+    createSourceProgramTransitionAssessment(historicalTransition(scoped)));
+  assert.equal(replay.auditFacts.schema, 'source-program-test-obligations-audit-facts-v2');
+  assert.deepEqual(replay.auditFacts.sourceProgram.candidates, omitted);
+  const priorReplay = parseSourceProgramTransitionAssessment(
+    createSourceProgramTransitionAssessment(historicalTransition(legacy)));
+  assert.equal(priorReplay.auditFacts.schema, 'source-program-test-obligations-audit-facts-v1');
+  assert.deepEqual(priorReplay.auditFacts.sourceProgram.candidates, legacy.sourceProgram.candidates);
+  assert.throws(() => compileSourceProgramAuditOperationInput({ ...scoped,
+    blockingCandidates: [] } as unknown as CompileSourceProgramAuditOperationInput), /explicitly not requested/);
+  assert.throws(() => compileSourceProgramAuditOperationInput({ ...scoped,
+    sourceProgram: { ...scoped.sourceProgram, counts: { ...scoped.sourceProgram.counts, candidates: 0 } }
+  } as unknown as CompileSourceProgramAuditOperationInput), /explicitly not requested/);
 });
