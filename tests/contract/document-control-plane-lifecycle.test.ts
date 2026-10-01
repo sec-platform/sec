@@ -41,6 +41,7 @@ import {
   createDocumentControlRoutingTestActorForTests,
   freezeDocumentControlPlane,
   observeActiveWorkPackage,
+  projectDocumentControlPlaneStatusCli,
   resolveLiveControlPlane,
   withDocumentControlHostCliTestSessionV1,
   type CodexDevelopmentDurabilityEvent,
@@ -3092,6 +3093,20 @@ test('journal recovery census accepts the exact installed NEXT boundary and resu
       phase: 'index-published',
       terminal: false
     });
+    expect(status.continuation).toMatchObject({
+      authority: 'observation-only',
+      subject: { repositoryRoot: fixture.repositoryRoot, candidateTreeSha: null },
+      changes: { state: 'unobserved', records: null },
+      next: {
+        owner: 'document-control', action: 'resume-freeze', operationId: installed.operationId,
+        arguments: [
+          'freeze', '--workspace', fixture.repositoryRoot, '--manifest', FREEZE_TARGET_PATH,
+          '--reviewed-on', '2026-08-09', '--json'
+        ]
+      }
+    });
+    expect(projectDocumentControlPlaneStatusCli(status).continuation).toBe(status.continuation);
+    expect(await readFile(journalPath)).toEqual(installedBytes);
     const recovered = await freezeDocumentControlPlane({
       cwd: fixture.repositoryRoot,
       manifestPath: FREEZE_TARGET_PATH,
@@ -3108,6 +3123,10 @@ test('journal recovery census accepts the exact installed NEXT boundary and resu
     const indexBeforeStatus = await readFile(indexPath);
     const terminalStatus = await resolveLiveControlPlane(fixture.repositoryRoot, { observeGitHub: false });
     expect(terminalStatus.activation).toBeNull();
+    expect(terminalStatus.continuation).toMatchObject({
+      unobservedOwners: expect.arrayContaining(['development-commit-journal-census'])
+    });
+    expect(terminalStatus.continuation).not.toHaveProperty('next.arguments');
     expect(await readFile(indexPath)).toEqual(indexBeforeStatus);
     expect(runGit(fixture.repositoryRoot, ['write-tree'])).toBe(treeBeforeStatus);
     const indexBeforeSecondFreeze = await readFile(indexPath);
@@ -4282,9 +4301,22 @@ test('production status settles both immutable tree observations for a deep inde
     await mkdir(path.dirname(absolutePath), { recursive: true });
     await writeFile(absolutePath, 'deep index observation\n', 'utf8');
     runGit(fixture.repositoryRoot, ['add', '--', relativePath]);
+    await writeFile(absolutePath, 'unstaged successor bytes\n', 'utf8');
+    await writeFile(path.join(fixture.repositoryRoot, 'untracked with spaces.txt'), 'untracked\n', 'utf8');
+    const indexBefore = await readFile(repositoryIndexPath(fixture.repositoryRoot));
 
     const status = await resolveLiveControlPlane(fixture.repositoryRoot, { observeGitHub: false });
     expect(status.schema).toBe('sec-resolved-current-state-v1');
+    expect(status.continuation).toMatchObject({
+      authority: 'observation-only',
+      subject: { repositoryRoot: fixture.repositoryRoot },
+      changes: { state: 'observed', records: expect.arrayContaining([
+        { index: 'A', worktree: 'M', path: relativePath, originalPath: null },
+        { index: '?', worktree: '?', path: 'untracked with spaces.txt', originalPath: null }
+      ]) }
+    });
+    expect(projectDocumentControlPlaneStatusCli(status).continuation).toBe(status.continuation);
+    expect(await readFile(repositoryIndexPath(fixture.repositoryRoot))).toEqual(indexBefore);
     expect(status.workspace).toMatchObject({
       status: expect.stringContaining('leaf.txt')
     });

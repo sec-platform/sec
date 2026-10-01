@@ -63,6 +63,125 @@ export type CodexDevelopmentActiveWorkPackageResolution =
         | 'activation-observation-raced';
     };
 
+/** Status routes are observations for the next owner, never effect admission. */
+export interface CodexDevelopmentStatusContinuationInput {
+  readonly repositoryRoot: string;
+  readonly headSha: string;
+  readonly candidateTreeSha: string | null;
+  readonly defaultRefState: CodexDevelopmentDefaultRefState;
+  readonly activeWorkPackage: CodexDevelopmentActiveWorkPackageResolution;
+  readonly pointerManifest: string | null;
+  readonly changes: readonly Readonly<{
+    index: string;
+    worktree: string;
+    path: string;
+    originalPath: string | null;
+  }>[] | null;
+  readonly journal: Readonly<{
+    operationId: `sha256:${string}`;
+    manifestPath: string;
+    reviewedOn: string;
+    baseSha: string;
+    candidateTreeSha: string;
+    proposalOnly: boolean;
+    phase: string;
+  }> | null;
+}
+
+export function CodexDevelopmentProjectStatusContinuation(
+  input: CodexDevelopmentStatusContinuationInput
+) {
+  const { activeWorkPackage: active } = input;
+  const subject = Object.freeze({
+    repositoryRoot: input.repositoryRoot,
+    headSha: input.headSha,
+    candidateTreeSha: input.candidateTreeSha,
+    pointerManifest: input.pointerManifest
+  });
+  const unobservedOwners = Object.freeze([
+    'operation-admission',
+    'work-package-changed-path-ownership',
+    'development-commit-journal-census',
+    'compiler-dependency-admission'
+  ] as const);
+  const changes = input.changes === null
+    ? Object.freeze({ state: 'unobserved' as const, records: null })
+    : Object.freeze({
+        state: 'observed' as const,
+        records: Object.freeze(input.changes.map((record) => Object.freeze({ ...record })))
+      });
+  const next = (() => {
+    // A raced snapshot cannot select even a previously observed journal.
+    if (active.state === 'unresolved' && active.reason === 'activation-observation-raced') {
+      return Object.freeze({
+        owner: 'repository-orientation' as const,
+        action: 'refresh-observation' as const,
+        reason: active.reason
+      });
+    }
+    if (input.journal !== null) {
+      const journal = input.journal;
+      return Object.freeze({
+        owner: 'document-control' as const,
+        action: 'resume-freeze' as const,
+        operationId: journal.operationId,
+        phase: journal.phase,
+        expectedBaseSha: journal.baseSha,
+        expectedCandidateTreeSha: journal.candidateTreeSha,
+        entrypoint: DOCUMENT_CONTROL_PLANE_ENTRYPOINT_PATH,
+        arguments: Object.freeze([
+          'freeze', '--workspace', input.repositoryRoot,
+          '--manifest', journal.manifestPath, '--reviewed-on', journal.reviewedOn,
+          ...(journal.proposalOnly ? ['--proposal-only'] : []), '--json'
+        ]),
+        executionRoot: 'required-clean-trusted-default-worktree' as const,
+        admission: 'required-by-original-owner' as const
+      });
+    }
+    if (input.defaultRefState !== 'fresh' || active.state === 'unresolved') {
+      return Object.freeze({
+        owner: 'repository-orientation' as const,
+        action: 'refresh-observation' as const,
+        reason: active.state === 'unresolved' ? active.reason : `default-ref-${input.defaultRefState}`
+      });
+    }
+    if (active.state === 'invalid') {
+      return Object.freeze({
+        owner: 'document-control' as const,
+        action: 'repair-active-binding' as const,
+        reason: active.reason,
+        pointerManifest: input.pointerManifest
+      });
+    }
+    if (active.state === 'none') {
+      return Object.freeze({
+        owner: 'work-selection' as const,
+        action: 'observe-work-decision' as const,
+        reason: active.reason,
+        requiredInputs: Object.freeze(['current-work-decision', 'operation-intent'] as const)
+      });
+    }
+    return Object.freeze({
+      owner: 'operation-admission' as const,
+      action: 'resolve-active-operation' as const,
+      manifest: active.manifest,
+      manifestDigest: active.manifestDigest,
+      requiredInputs: Object.freeze(['operation-intent', 'current-operation-admission'] as const)
+    });
+  })();
+  return Object.freeze({
+    schema: 'sec-development-status-continuation-v1' as const,
+    authority: 'observation-only' as const,
+    subject,
+    changes,
+    next,
+    unobservedOwners
+  });
+}
+
+export type CodexDevelopmentStatusContinuation =
+  ReturnType<typeof CodexDevelopmentProjectStatusContinuation>;
+
 export interface CodexDevelopmentCurrentStateSpec {
   schema: typeof CodexDevelopmentCurrentStateSchema;
   resolver: {

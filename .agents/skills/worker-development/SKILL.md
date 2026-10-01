@@ -30,7 +30,8 @@ description: 用于在 frozen Task Envelope 内实现一个 SEC 产品、修复�
 4. 开发中只执行会改变当前实现选择的 failing/focused sentinel；即将被后续编辑失效的 Action 不启动。
 5. candidate稳定后消费selector的`RequiredClosure ∩ MissingOrStale`；在取得新依赖projection或启动进程前先查fresh PASS、unchanged FAIL与authenticated in-flight，分别reuse、stop、join。重试资格由原owner按attempt/错误分类决定；不得把“每个ActionKey一次”扩大为禁止合同允许的瞬态恢复。新物理开始由真实资源owner准入，配置worker数不是已执行并发证明。
 6. 经真实提交准入只 stage Envelope owned paths，materialize 同一 logical run 的新 generation；finding 在同一 worktree/ref 修复，不创建 successor worktree。
-7. 返回exact base/head/tree、changed symbols、Action/Evidence delta、blocker与next seam；分开源码检查、fixture/隔离运行、真实平台作用及未验证范围。冻结patch/manifest等交付保存在有明确保留责任的任务制品位置并回读，不能只交指向可淘汰cache的路径；这不授权归档整套依赖或另建恢复owner。
+7. 完成前检查本次维护者修正或行为变化是否触发[heuristic-governance](../heuristic-governance/SKILL.md)；相交时调用该既有owner并消费其完成证据，不在Worker中重建纠错算法。核对相交规则、唯一owner入口、实际消费者与持久决策的一致性，并在各自原owner同步真实变化；已有规则已覆盖反例时修复执行或接合，不另写重复规则或操作规程。规范语义未变时遵守AGENTS的docs写入准入；未闭合项保留owner、影响与恢复条件，不能仅在聊天中确认后宣称完成。
+8. 返回exact base/head/tree、changed symbols、Action/Evidence delta、blocker与next seam；分开源码检查、fixture/隔离运行、真实平台作用及未验证范围。冻结patch/manifest等交付保存在有明确保留责任的任务制品位置并回读，不能只交指向可淘汰cache的路径；这不授权归档整套依赖或另建恢复owner。
 
 ## 已授权提交与中断续接
 
@@ -45,6 +46,7 @@ description: 用于在 frozen Task Envelope 内实现一个 SEC 产品、修复�
 - 分支检查点、目标ref更新和产品发布是不同效果，分别授权和记录。授权只有`branch-checkpoint`时不得自行合并；授权已明确覆盖`target-ref-updated`时，Provider强制的最小branch→PR→required Gate→仓库允许的merge method只是同一效果的传输闭包，不是要求用户重复授权的新增效果，必须持续到远端ref与内容readback。路径不得扩大候选内容、目标ref、受众、权限或发布范围；若需要force、修改保护规则、绕过Gate或额外发布，则只阻断该新增效果。开发检查点的验证缺口必须显式保留，不因推送成功标绿，也不因PR为Draft就把已推送源码重新说成未入库。
 
 ## 完成证据
+- 在原任务的Reconciliation Delta中记录相交规则、owner入口、消费者与持久决策的同步结论及准确修订；无需修改的给出已有覆盖依据，缺失执行的定位修复，仍未闭合的保留责任和恢复条件。
 - `local-candidate`或`branch-checkpoint`授权：Reconciliation Delta、exact base/head/tree、changed symbols、Action results与Evidence delta。
 - `target-ref-updated`授权：上述证据，加远端目标ref与内容readback、必需Gate结果、集成身份及本任务branch/worktree residue结算；commit、push或PR任一中间状态都不是完成。
 

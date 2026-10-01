@@ -23,9 +23,6 @@ import { requireCommandExitCode } from './command-outcome.ts';
 import { DEV_COMMAND_MAX_DURATION_MS } from './contract.ts';
 import { RepositoryObservationError, resolveRepositoryObservationRoots } from './repository-observation.ts';
 import {
-  assertIssuedFastTestBatchExecutionAdmission,
-  assertIssuedTestSuiteExecutionAdmission,
-  bindFastTestBatchExecutionAdmission,
   type FastTestBatchExecutionAdmission,
   type TestSuiteExecutionAdmission
 } from './test-execution-policy.ts';
@@ -153,14 +150,18 @@ export async function runRepositoryZeroWriteOperation(
   const cwd = process.cwd();
   const startedAt = Date.now();
   const { operation: semanticOperation, repositoryRoot: requestedRoot, report: suppliedReport } = options;
+  const requestedObserverDeadline = options.observerDeadlineAtUnixMs;
+  const retainProcessSession = options.retainProcessSession;
   const testSuiteAdmission = options.testSuiteAdmission;
   const fastTestBatchAdmission = options.fastTestBatchAdmission;
   if (testSuiteAdmission !== undefined && fastTestBatchAdmission !== undefined) {
     throw new Error('Repository observation accepts one test execution admission.');
   }
-  if (testSuiteAdmission !== undefined) assertIssuedTestSuiteExecutionAdmission(testSuiteAdmission);
+  const testExecutionPolicy = testSuiteAdmission === undefined && fastTestBatchAdmission === undefined
+    ? null : await import('./test-execution-policy.ts');
+  if (testSuiteAdmission !== undefined) testExecutionPolicy!.assertIssuedTestSuiteExecutionAdmission(testSuiteAdmission);
   if (fastTestBatchAdmission !== undefined) {
-    assertIssuedFastTestBatchExecutionAdmission(fastTestBatchAdmission);
+    testExecutionPolicy!.assertIssuedFastTestBatchExecutionAdmission(fastTestBatchAdmission);
   }
   if (typeof operation !== 'function' || (suppliedReport !== undefined && typeof suppliedReport !== 'function')) {
     throw new TypeError('Repository observation operation and reporter must be callable');
@@ -169,7 +170,6 @@ export async function runRepositoryZeroWriteOperation(
   const parentDeadline = semanticOperation.plan.attempt.deadlineAtUnixMs;
   if (!Number.isSafeInteger(parentDeadline)) throw new TypeError('Repository observation requires a finite parent deadline');
   // Root discovery consumes this window; arming cannot open a fresh deadline.
-  const requestedObserverDeadline = options.observerDeadlineAtUnixMs;
   if (requestedObserverDeadline !== undefined
       && (!Number.isSafeInteger(requestedObserverDeadline) || requestedObserverDeadline <= startedAt)) {
     throw new TypeError('Repository observation deadline must be a future absolute timestamp.');
@@ -179,7 +179,7 @@ export async function runRepositoryZeroWriteOperation(
   // short root-discovery ledger before the callback; their command owner may
   // supply the already-canonical managed-command deadline for native
   // observation without extending any retained process capability.
-  const effectiveObserverParentDeadline = options.retainProcessSession === false
+  const effectiveObserverParentDeadline = retainProcessSession === false
     && requestedObserverDeadline !== undefined
     ? requestedObserverDeadline
     : parentDeadline;
@@ -220,7 +220,7 @@ export async function runRepositoryZeroWriteOperation(
     });
     throw new Error('Unreachable repository root discovery settlement state.');
   }
-  if (options.retainProcessSession === false) {
+  if (retainProcessSession === false) {
     closeRepositoryProcessResourceSession(processSession, semanticOperation);
     processSession = undefined;
   }
@@ -266,7 +266,7 @@ export async function runRepositoryZeroWriteOperation(
   if (fastTestBatchAdmission !== undefined) {
     let batchObserverResolution: Awaited<ReturnType<typeof armPreparedWindowsRepositoryChangeObserver>>;
     try {
-      const batchOperation = bindFastTestBatchExecutionAdmission(
+      const batchOperation = testExecutionPolicy!.bindFastTestBatchExecutionAdmission(
         fastTestBatchAdmission,
         preparedObserver!.providerBinding
       );
