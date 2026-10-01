@@ -10,8 +10,8 @@ last-reviewed: 2026-10-01
 selectionMode: exact-manifest-not-on-default-branch-v1
 defaultBranchRef: refs/remotes/origin/main
 defaultRefFreshness: live-platform-match-required
-manifest: config/repository/work-packages/owner-execution-prerequisites-20261001.md
-manifestDigest: sha256:1901730287d15a1ee3b17fbae7da304fc5f9c812ed189a3a6d09365af67c04d1
+manifest: config/repository/work-packages/audit-worker-startup-20261001.md
+manifestDigest: sha256:5ad0539322ab65e067e7de918a4cd0ed5da1e5b20b9e23ceaff768792e082121
 digestBytes: git-blob
 unavailableDefaultRef: unresolved
 matchingDefaultBlob: none

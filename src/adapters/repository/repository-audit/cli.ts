@@ -1877,7 +1877,8 @@ async function prepareWorkingTreeSourceProgramAudit(
         model,
         sourceFileIdentities,
         options.includeCandidates,
-        options.blockingDetails && options.blockingDetailsDomain === 'source-program'
+        options.blockingDetails && options.blockingDetailsDomain === 'source-program',
+        transition === undefined
       ),
       moduleArchitecture: worktreeAudit.moduleArchitecture,
       options: Object.freeze({
@@ -3438,9 +3439,10 @@ async function executeAdmittedWorkingTreeSourceProgramAudit(
     stage = 'boundary-admission';
     boundary = issueRetainedCommandBoundary({
       executable,
-      workingDirectory: generation.workingDirectory
+      workingDirectory: generation.workingDirectory,
+      auxiliaryInputs: [{ capability: dependency.physicalGeneration, kind: 'directory' }]
     });
-    processArgs = Object.freeze(['--no-env-file', producerClosure.entrypoint.path]);
+    processArgs = Object.freeze(['--no-env-file', '--no-install', producerClosure.entrypoint.path]);
     stage = 'process-execution';
     reportExecutionProgress({
       command: 'audit:source-program', phase: 'worker-process', state: 'start'
