@@ -159,6 +159,7 @@ export type GitHubApiOperation =
   | Readonly<{ kind: 'repository-runners'; page: number }>
   | Readonly<{ kind: 'create-runner-registration-token' }>
   | Readonly<{ kind: 'delete-repository-runner'; runnerId: number }>
+  | Readonly<{ kind: 'add-repository-runner-labels'; runnerId: number; labels: readonly string[] }>
   | Readonly<{ kind: 'control-inventory-open-counts' }>
   | Readonly<{
       kind: 'control-inventory-review-threads';
@@ -297,7 +298,8 @@ function compileOperation(
       && kind !== 'current-user'
       && kind !== 'collaborator-permission'
       && kind !== 'create-runner-registration-token'
-      && kind !== 'delete-repository-runner') {
+      && kind !== 'delete-repository-runner'
+      && kind !== 'add-repository-runner-labels') {
     throw new GitHubApiProviderError(
       'GitHub API runner-admin authority permits only fixed runner lifecycle effects'
     );
@@ -476,6 +478,34 @@ function compileOperation(
         method: 'POST',
         path: `/repos/${repo}/actions/runners/registration-token`
       });
+    case 'add-repository-runner-labels': {
+      if (effect !== 'runner-admin') {
+        throw new GitHubApiProviderError('GitHub API runner labels require runner-admin authority');
+      }
+      const runnerId = positiveInteger(operation.runnerId, 'runner id');
+      const suppliedLabels = operation.labels;
+      if (!Array.isArray(suppliedLabels) || suppliedLabels.length < 1 || suppliedLabels.length > 100) {
+        throw new GitHubApiProviderError('GitHub API runner labels are invalid');
+      }
+      const labels: string[] = [];
+      const length = suppliedLabels.length;
+      for (let index = 0; index < length; index += 1) {
+        const slot = Object.getOwnPropertyDescriptor(suppliedLabels, index);
+        if (slot === undefined || !('value' in slot)) {
+          throw new GitHubApiProviderError('GitHub API runner labels must contain dense own data slots');
+        }
+        labels.push(boundedText(slot.value, 'runner label', 256));
+      }
+      if (new Set(labels.map((label) => label.toLowerCase())).size !== labels.length) {
+        throw new GitHubApiProviderError('GitHub API runner labels are duplicated');
+      }
+      return Object.freeze({
+        kind,
+        method: 'POST',
+        path: `/repos/${repo}/actions/runners/${runnerId}/labels`,
+        body: Object.freeze({ labels: Object.freeze(labels) })
+      });
+    }
     case 'delete-repository-runner':
       if (effect !== 'runner-admin') {
         throw new GitHubApiProviderError('GitHub API runner deletion requires runner-admin authority');

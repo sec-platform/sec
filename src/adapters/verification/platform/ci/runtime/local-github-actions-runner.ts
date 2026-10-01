@@ -53,7 +53,7 @@ import {
   createEnvironmentMaterializationSpec
 } from '../../../../providers/linux-verification/materialization.ts';
 import { acquirePhysicalMutationLease, type PhysicalMutationLeaseHandle, type PhysicalMutationLeaseOwner } from '../../../../runtime-state/physical/runtime/mutation-lease.ts';
-import { createNoFollowDirectoryChain, deleteRetainedNoFollowEntry, inspectExactNoFollowDirectoryPresence, inspectNoFollowDirectoryChain, inspectNoFollowDirectoryChild, inspectNoFollowOrdinaryFileDigest, inspectNoFollowOrdinaryFileEntry, publishExclusiveDurableCanonicalFile, readNoFollowOrdinaryFile, replaceDurableCanonicalFile, scanNoFollowDirectoryTreeMetadata, type PhysicalDirectoryIdentity } from '../../../../runtime-state/physical/runtime/physical-no-follow.ts';
+import { createNoFollowDirectoryChain, deleteRetainedNoFollowEntry, inspectExactNoFollowDirectoryPresence, inspectNoFollowDirectoryChain, inspectNoFollowDirectoryChild, inspectNoFollowOrdinaryFileDigest, inspectNoFollowOrdinaryFileEntry, publishExclusiveDurableCanonicalFile, readNoFollowOrdinaryFile, recoverDurableCanonicalFileReplacement, replaceDurableCanonicalFile, scanNoFollowDirectoryTreeMetadata, type PhysicalDirectoryIdentity } from '../../../../runtime-state/physical/runtime/physical-no-follow.ts';
 import { resolveSecWorkspaceRuntimeRoots } from '../../../../runtime-state/workspace-state/paths.ts';
 import { acquireSecRuntimeCachePhysicalAuthority } from '../../../../runtime-state/workspace-state/physical-authority.ts';
 import {
@@ -63,6 +63,8 @@ import {
 import { CI_VERIFICATION_HOSTED_SANDBOX_POLICY } from '../contract/revision.ts';
 
 export const LOCAL_GITHUB_ACTIONS_RUNNER_STATE_SCHEMA =
+  'sec-local-github-actions-provider-state-v5' as const;
+const LEGACY_LOCAL_GITHUB_ACTIONS_RUNNER_STATE_SCHEMA =
   'sec-local-github-actions-provider-state-v4' as const;
 // The frozen image is an execution artifact, not a provider-state projection.
 // Keep its immutable lineage label independent from later state/ledger schema
@@ -352,6 +354,7 @@ export interface GitHubEndpointIdentity {
 
 type LocalGitHubActionsProviderLifecycle =
   | 'provisioning'
+  | 'routing'
   | 'active'
   | 'teardown'
   | 'terminal';
@@ -369,7 +372,10 @@ interface LocalGitHubActionsProviderStateInstance {
 }
 
 export interface LocalGitHubActionsRunnerState {
-  readonly schema: typeof LOCAL_GITHUB_ACTIONS_RUNNER_STATE_SCHEMA;
+  readonly schema: typeof LOCAL_GITHUB_ACTIONS_RUNNER_STATE_SCHEMA
+    | typeof LEGACY_LOCAL_GITHUB_ACTIONS_RUNNER_STATE_SCHEMA;
+  // Absent only in retained v4 states, which cannot resume activation.
+  readonly resources?: Readonly<{ cpus: number; memory: string }>;
   readonly repository: string;
   readonly repositoryRoot: string;
   readonly commonDirectory: string;
@@ -656,14 +662,34 @@ function stateInstance(
   });
 }
 
+type LocalRunnerStateInput = Omit<LocalGitHubActionsRunnerState,
+  'schema' | 'image' | 'imageId' | 'runnerVersion' | 'runnerArchiveSha256'
+  | 'baseImage' | 'nodeVersion' | 'nodeArchiveSha256' | 'labels' | 'roleLabels' | 'stateDigest'>;
+
+function providerResources(input: Readonly<{ cpus: number; memory: string }>) {
+  if (input === null || typeof input !== 'object' || Array.isArray(input)) fail('provider resources are invalid');
+  exactKeys(input as unknown as Record<string, unknown>, ['cpus', 'memory'], 'provider resources');
+  if (!Number.isSafeInteger(input.cpus) || input.cpus < 1 || input.cpus > 64) fail('cpus is invalid');
+  if (typeof input.memory !== 'string' || !/^[1-9][0-9]{0,2}[gm]$/u.test(input.memory)) fail('memory is invalid');
+  return Object.freeze({ cpus: input.cpus, memory: input.memory });
+}
+
 export function createLocalGitHubActionsRunnerState(
-  input: Omit<LocalGitHubActionsRunnerState, 'schema' | 'image' | 'imageId' | 'runnerVersion'
-    | 'runnerArchiveSha256' | 'baseImage' | 'nodeVersion' | 'nodeArchiveSha256'
-    | 'labels' | 'roleLabels' | 'stateDigest'>
+  input: LocalRunnerStateInput
+): LocalGitHubActionsRunnerState {
+  return createRunnerState(input, LOCAL_GITHUB_ACTIONS_RUNNER_STATE_SCHEMA);
+}
+
+function createRunnerState(
+  input: LocalRunnerStateInput,
+  schema: LocalGitHubActionsRunnerState['schema']
 ): LocalGitHubActionsRunnerState {
   const startedAt = new Date(input.startedAt).toISOString();
   if (startedAt !== input.startedAt) fail('startedAt must be a canonical ISO instant');
   const lifecycle = providerLifecycle(input.lifecycle);
+  const legacy = schema === LEGACY_LOCAL_GITHUB_ACTIONS_RUNNER_STATE_SCHEMA;
+  if (legacy && (input.resources !== undefined || lifecycle === 'routing')) fail('legacy runner state cannot acquire routing intent');
+  const resources = legacy ? undefined : providerResources(input.resources!);
   const retainedProviderName = providerBaseName(input.providerName);
   const instances = input.instances.map((instance) => stateInstance(instance, retainedProviderName));
   if (instances.length !== LOCAL_GITHUB_ACTIONS_RUNNER_ROLES.length
@@ -675,12 +701,13 @@ export function createLocalGitHubActionsRunnerState(
         !== instances.filter(({ containerId }) => containerId !== null).length) {
     fail('runner state must retain one ordered unique instance per trust role');
   }
-  if (lifecycle === 'active' && instances.some(({ containerState, runnerState }) =>
-    containerState !== 'present' || runnerState !== 'present')) fail('active runner state is incomplete');
+  if ((lifecycle === 'active' || lifecycle === 'routing') && instances.some(({ containerState, runnerState }) =>
+    containerState !== 'present' || runnerState !== 'present')) fail(`${lifecycle} runner state is incomplete`);
   if (lifecycle === 'terminal' && instances.some(({ containerState, runnerState }) =>
     containerState !== 'absent' || runnerState !== 'absent')) fail('terminal runner state retains resources');
   const material = stateMaterial({
-    schema: LOCAL_GITHUB_ACTIONS_RUNNER_STATE_SCHEMA,
+    schema,
+    ...(resources === undefined ? {} : { resources }),
     repository: repositoryName(input.repository),
     repositoryRoot: path.resolve(boundedText(input.repositoryRoot, 'repositoryRoot', 4096)),
     commonDirectory: path.resolve(boundedText(input.commonDirectory, 'commonDirectory', 4096)),
@@ -711,14 +738,16 @@ export function parseLocalGitHubActionsRunnerState(source: string): LocalGitHubA
   const parsed = JSON.parse(source) as unknown;
   if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) fail('state must be an object');
   const value = parsed as Record<string, unknown>;
+  const legacy = value.schema === LEGACY_LOCAL_GITHUB_ACTIONS_RUNNER_STATE_SCHEMA;
   exactKeys(value, [
+    ...(legacy ? [] : ['resources']),
     'schema', 'repository', 'repositoryRoot', 'commonDirectory', 'providerName', 'operationLabel',
     'lifecycle',
     'dockerEndpoint', 'githubEndpoint', 'image', 'imageId', 'runnerVersion',
     'runnerArchiveSha256', 'baseImage', 'nodeVersion', 'nodeArchiveSha256',
     'labels', 'roleLabels', 'instances', 'startedAt', 'stateDigest'
   ], 'state');
-  if (value.schema !== LOCAL_GITHUB_ACTIONS_RUNNER_STATE_SCHEMA
+  if ((!legacy && value.schema !== LOCAL_GITHUB_ACTIONS_RUNNER_STATE_SCHEMA)
       || value.image !== LOCAL_GITHUB_ACTIONS_RUNNER_IMAGE
       || value.imageId !== LOCAL_GITHUB_ACTIONS_RUNNER_EXPECTED_IMAGE_ID
       || value.runnerVersion !== LOCAL_GITHUB_ACTIONS_RUNNER_VERSION
@@ -733,7 +762,8 @@ export function parseLocalGitHubActionsRunnerState(source: string): LocalGitHubA
       || !Array.isArray(value.instances)) {
     fail('state capability identity is invalid');
   }
-  const recreated = createLocalGitHubActionsRunnerState({
+  const recreated = createRunnerState({
+    ...(legacy ? {} : { resources: value.resources as Readonly<{ cpus: number; memory: string }> }),
     repository: value.repository as string,
     repositoryRoot: value.repositoryRoot as string,
     commonDirectory: value.commonDirectory as string,
@@ -744,7 +774,7 @@ export function parseLocalGitHubActionsRunnerState(source: string): LocalGitHubA
     githubEndpoint: value.githubEndpoint as GitHubEndpointIdentity,
     instances: value.instances as LocalGitHubActionsProviderStateInstance[],
     startedAt: value.startedAt as string
-  });
+  }, value.schema as LocalGitHubActionsRunnerState['schema']);
   if (recreated.stateDigest !== value.stateDigest) fail('state digest mismatch');
   return recreated;
 }
@@ -1147,6 +1177,7 @@ function replaceState(
     name: 'state.json',
     bytes,
     expectedExisting: Object.freeze({ device: entry.device, inode: entry.inode }),
+    expectedExistingBytes: observed.bytes,
     validate: (candidate) => {
       const parsed = parseLocalGitHubActionsRunnerState(Buffer.from(candidate).toString('utf8'));
       if (parsed.stateDigest !== next.stateDigest || !Buffer.from(candidate).equals(bytes)) {
@@ -1169,6 +1200,10 @@ async function withRunnerLifecycleLease<T>(
   let primary: unknown;
   try {
     lease.acknowledgeReclaimedRecovery();
+    // Windows CAS can temporarily quarantine state.json or leave a completed
+    // candidate with pending transaction cleanup. Settle that original slot
+    // under the lifecycle writer lease before any caller interprets absence.
+    recoverDurableCanonicalFileReplacement({ parent: directory, name: 'state.json' });
     result = await operation();
   } catch (error) {
     primary = error;
@@ -1359,6 +1394,8 @@ function assertOwnedContainer(
     containerId?: string;
     operationLabel?: string;
     allowLegacyDetachedRunnerDuringTeardown?: true;
+    stateSchema?: LocalGitHubActionsRunnerState['schema'];
+    resources?: LocalGitHubActionsRunnerState['resources'];
   }>
 ): string {
   const config = value.Config;
@@ -1366,7 +1403,7 @@ function assertOwnedContainer(
   const labels = (config as Record<string, unknown>).Labels;
   if (labels === null || typeof labels !== 'object' || Array.isArray(labels)) fail('container labels are invalid');
   const record = labels as Record<string, unknown>;
-  if (record['sec.local-runner.schema'] !== LOCAL_GITHUB_ACTIONS_RUNNER_STATE_SCHEMA
+  if (record['sec.local-runner.schema'] !== (input.stateSchema ?? LOCAL_GITHUB_ACTIONS_RUNNER_STATE_SCHEMA)
       || record['sec.local-runner.repository'] !== input.repository
       || record['sec.local-runner.provider-name'] !== input.providerName
       || record['sec.local-runner.instance-name'] !== input.instanceName
@@ -1432,6 +1469,15 @@ function assertOwnedContainer(
         host.NanoCpus !== SUT_CPUS * 1_000_000_000)) {
     fail('SUT container resource boundary changed and is preserved');
   }
+  if (input.role !== 'sut' && input.resources !== undefined) {
+    const resources = providerResources(input.resources);
+    const memoryBytes = Number(resources.memory.slice(0, -1))
+      * (resources.memory.endsWith('g') ? 1024 ** 3 : 1024 ** 2);
+    if (host.PidsLimit !== ENVIRONMENT.runtime.resources[input.role].pids
+        || host.Memory !== memoryBytes || host.NanoCpus !== resources.cpus * 1_000_000_000) {
+      fail('container retained resource boundary changed and is preserved');
+    }
+  }
   if (input.containerId !== undefined && value.Id !== input.containerId) {
     fail('container identity changed and is preserved');
   }
@@ -1448,6 +1494,8 @@ export function assertExactLocalGitHubActionsRunnerProfileContainers(input: Read
   repository: string;
   providerName: string;
   operationLabel: string;
+  stateSchema?: LocalGitHubActionsRunnerState['schema'];
+  resources?: LocalGitHubActionsRunnerState['resources'];
 }>): void {
   const retainedProviderName = providerBaseName(input.providerName);
   const retainedOperationLabel = operationLabel(input.operationLabel);
@@ -1481,7 +1529,9 @@ export function assertExactLocalGitHubActionsRunnerProfileContainers(input: Read
       instanceName: name,
       role: byName.role,
       containerId: byName.containerId,
-      operationLabel: retainedOperationLabel
+      operationLabel: retainedOperationLabel,
+      stateSchema: input.stateSchema,
+      resources: input.resources
     });
     const state = container.State;
     if (state === null || typeof state !== 'object' || Array.isArray(state)
@@ -1530,6 +1580,7 @@ export function assertOwnedLocalGitHubActionsRunner(
     operationLabel: string;
     runnerId?: number;
     requireIdleForRemoval?: true;
+    routing?: 'staged' | 'published' | 'either';
   }>
 ): number {
   const id = value.id;
@@ -1540,12 +1591,14 @@ export function assertOwnedLocalGitHubActionsRunner(
     fail('GitHub runner id changed and is preserved');
   }
   const labels = runnerLabelKeys(value);
-  const expectedLabels = new Set([
-    ...LOCAL_GITHUB_ACTIONS_RUNNER_LABELS,
-    LOCAL_GITHUB_ACTIONS_RUNNER_ROLE_LABELS[input.role],
-    input.operationLabel
-  ].map((label) => label.toLowerCase()));
-  if (labels.size !== expectedLabels.size || [...expectedLabels].some((label) => !labels.has(label))) {
+  const staged = [...LOCAL_GITHUB_ACTIONS_RUNNER_LABELS.filter((label) =>
+    label !== LOCAL_GITHUB_ACTIONS_RUNNER_CUSTOM_LABEL), input.operationLabel];
+  const published = [...LOCAL_GITHUB_ACTIONS_RUNNER_LABELS,
+    LOCAL_GITHUB_ACTIONS_RUNNER_ROLE_LABELS[input.role], input.operationLabel];
+  const accepted = input.routing === 'staged' ? [staged]
+    : input.routing === 'either' ? [staged, published] : [published];
+  if (!accepted.some((expected) => labels.size === expected.length
+      && expected.every((label) => labels.has(label.toLowerCase())))) {
     fail('GitHub runner complete effective labels changed and it is preserved');
   }
   if (value.os !== 'Linux') {
@@ -1561,6 +1614,8 @@ function assertContainedLocalGitHubActionsRunnerProfileInventory(input: Readonly
   runners: readonly Record<string, unknown>[];
   instances: readonly LocalGitHubActionsRunnerInstance[];
   operationLabel: string;
+  routing?: 'staged' | 'published' | 'either';
+  readiness?: 'registered' | 'online';
 }>): void {
   const retainedOperationLabel = operationLabel(input.operationLabel);
   const expectedByName = new Map(input.instances.map((instance) => [instance.name, instance] as const));
@@ -1581,7 +1636,8 @@ function assertContainedLocalGitHubActionsRunnerProfileInventory(input: Readonly
       name: byName.name,
       role: byName.role,
       operationLabel: retainedOperationLabel,
-      runnerId: byName.runnerId
+      runnerId: byName.runnerId,
+      routing: input.routing
     });
   }
 }
@@ -1590,6 +1646,8 @@ export function assertExactLocalGitHubActionsRunnerProfileInventory(input: Reado
   runners: readonly Record<string, unknown>[];
   instances: readonly LocalGitHubActionsRunnerInstance[];
   operationLabel: string;
+  routing?: 'staged' | 'published' | 'either';
+  readiness?: 'registered' | 'online';
 }>): void {
   if (input.instances.length !== LOCAL_GITHUB_ACTIONS_RUNNER_ROLES.length
       || new Set(input.instances.map(({ name }) => name)).size !== 3
@@ -1613,10 +1671,13 @@ export function assertExactLocalGitHubActionsRunnerProfileInventory(input: Reado
       fail('GitHub runner exact retained name and ID set differs');
     }
     // `busy` is transient provider scheduling state: an exact runner can be
-    // claimed immediately after registration, before this census is read.
+    // claimed after the routing generation commits, before this census is read.
     // Readiness owns identity plus online eligibility; cleanup separately
     // refuses a busy runner before any destructive effect.
-    if (exact[0]!.status !== 'online') {
+    if (input.routing === 'staged' && (exact[0]!.status !== 'offline' || exact[0]!.busy !== false)) {
+      fail('staged runner listener is not offline and idle before commit');
+    }
+    if (input.readiness !== 'registered' && exact[0]!.status !== 'online') {
       fail('GitHub runner final readiness census is not online');
     }
   }
@@ -1647,15 +1708,16 @@ function advanceLocalRunnerState(
   const nextLifecycle = update.lifecycle ?? cursor.state.lifecycle;
   const lifecycleAllowed = nextLifecycle === cursor.state.lifecycle
     || (cursor.state.lifecycle === 'provisioning'
-      && (nextLifecycle === 'active' || nextLifecycle === 'teardown'))
+      && (nextLifecycle === 'routing' || nextLifecycle === 'teardown'))
+    || (cursor.state.lifecycle === 'routing' && (nextLifecycle === 'active' || nextLifecycle === 'teardown'))
     || (cursor.state.lifecycle === 'active' && nextLifecycle === 'teardown')
     || (cursor.state.lifecycle === 'teardown' && nextLifecycle === 'terminal');
   if (!lifecycleAllowed) fail('local runner lifecycle transition is invalid');
-  const next = createLocalGitHubActionsRunnerState({
+  const next = createRunnerState({
     ...cursor.state,
     lifecycle: nextLifecycle,
     instances: update.instances ?? cursor.state.instances
-  });
+  }, cursor.state.schema);
   replaceState(cursor.commonDirectory, cursor.state, next);
   cursor.state = next;
 }
@@ -1688,7 +1750,8 @@ async function cleanupStateInstance(
         role,
         operationLabel: cursor.state.operationLabel,
         runnerId: retained.runnerId,
-        requireIdleForRemoval: true
+        requireIdleForRemoval: true,
+        routing: cursor.state.schema === LOCAL_GITHUB_ACTIONS_RUNNER_STATE_SCHEMA ? 'either' : 'published'
       });
       await deleteRepositoryRunner(cursor.state.repository, cwd, retained.runnerId);
     }
@@ -1727,7 +1790,9 @@ async function cleanupStateInstance(
         role,
         containerId: retained.containerId,
         operationLabel: cursor.state.operationLabel,
-        allowLegacyDetachedRunnerDuringTeardown: true
+        allowLegacyDetachedRunnerDuringTeardown: true,
+        stateSchema: cursor.state.schema,
+        resources: cursor.state.resources
       });
       await runContainerEngineOperation(session, {
         kind: 'container-remove', arguments: ['--force', retained.containerId]
@@ -2461,7 +2526,7 @@ function providerResourceState(value: unknown): LocalGitHubActionsProviderResour
 }
 
 function providerLifecycle(value: unknown): LocalGitHubActionsProviderLifecycle {
-  if (value !== 'provisioning' && value !== 'active' && value !== 'teardown' && value !== 'terminal') {
+  if (value !== 'provisioning' && value !== 'routing' && value !== 'active' && value !== 'teardown' && value !== 'terminal') {
     fail('provider lifecycle is invalid');
   }
   return value;
@@ -2475,13 +2540,14 @@ async function waitForRunner(
   repository: string,
   name: string,
   cwd: string,
-  maximumAttempts = 30
+  maximumAttempts = 30,
+  readiness: 'registered' | 'online' = 'online'
 ): Promise<Record<string, unknown>> {
   for (let attempt = 1; attempt <= maximumAttempts; attempt += 1) {
     const matches = (await listRepositoryRunners(repository, cwd))
       .filter((runner) => runner.name === name);
     if (matches.length > 1) fail('multiple GitHub runners have the exact operation name');
-    if (matches.length === 1 && matches[0]!.status === 'online') return matches[0]!;
+    if (matches.length === 1 && (readiness === 'registered' || matches[0]!.status === 'online')) return matches[0]!;
     if (attempt < maximumAttempts) {
       await new Promise((resolve) => setTimeout(resolve, 1_000));
     }
@@ -2494,11 +2560,10 @@ async function startRunnerInstance(input: Readonly<{
   cursor: LocalRunnerStateCursor;
   containerEngineSession: ContainerEngineSession;
   role: LocalGitHubActionsRunnerRole;
-  cpus: number;
-  memory: string;
 }>): Promise<LocalGitHubActionsRunnerInstance> {
   const retained = input.cursor.state.instances.find((instance) => instance.role === input.role)!;
   const name = retained.name;
+  const resources = providerResources(input.cursor.state.resources!);
   if (retained.containerState !== 'uncreated' || retained.runnerState !== 'uncreated') {
     fail(`runner state role ${input.role} is not at its initial generation`);
   }
@@ -2517,8 +2582,8 @@ async function startRunnerInstance(input: Readonly<{
       : []),
     '--security-opt', 'no-new-privileges:true',
     '--pids-limit', String(ENVIRONMENT.runtime.resources[input.role].pids),
-    '--memory', input.role === 'sut' ? SUT_MEMORY : input.memory,
-    '--cpus', String(input.role === 'sut' ? SUT_CPUS : input.cpus),
+    '--memory', input.role === 'sut' ? SUT_MEMORY : resources.memory,
+    '--cpus', String(input.role === 'sut' ? SUT_CPUS : resources.cpus),
     '--label', `sec.local-runner.schema=${LOCAL_GITHUB_ACTIONS_RUNNER_STATE_SCHEMA}`,
     '--label', `sec.local-runner.repository=${input.cursor.state.repository}`,
     '--label', `sec.local-runner.provider-name=${input.cursor.state.providerName}`,
@@ -2547,7 +2612,8 @@ async function startRunnerInstance(input: Readonly<{
     instanceName: name,
     role: input.role,
     containerId,
-    operationLabel: input.cursor.state.operationLabel
+    operationLabel: input.cursor.state.operationLabel,
+    resources
   });
   advanceLocalRunnerState(input.cursor, {
     instances: withStateInstance(input.cursor.state, input.role, {
@@ -2561,8 +2627,7 @@ async function startRunnerInstance(input: Readonly<{
     'RUNNER_TOKEN="$(printf \'%s\' "$RUNNER_TOKEN" | tr -d \'\\r\\n\')"',
     `./config.sh --url https://${LOCAL_GITHUB_ACTIONS_GITHUB_HOST}/${input.cursor.state.repository} --token "$RUNNER_TOKEN" `
       + '--unattended --name "$RUNNER_NAME" '
-      + `--labels ${LOCAL_GITHUB_ACTIONS_RUNNER_CUSTOM_LABEL},`
-      + `${LOCAL_GITHUB_ACTIONS_RUNNER_ROLE_LABELS[input.role]},${input.cursor.state.operationLabel} --work _work`,
+      + `--labels ${input.cursor.state.operationLabel} --work _work`,
     'unset RUNNER_TOKEN'
   ].join('\n');
   await runContainerEngineOperation(input.containerEngineSession, {
@@ -2571,24 +2636,15 @@ async function startRunnerInstance(input: Readonly<{
   }, {
     input: Buffer.from(`${token}\n`, 'utf8')
   });
-  const configuredMarkerScript = [
-    'set -euo pipefail',
-    `marker=${JSON.stringify(LOCAL_GITHUB_ACTIONS_RUNNER_CONFIGURED_MARKER)}`,
-    'temporary="${marker}.new-$$"',
-    'trap \'rm -f -- "$temporary"\' EXIT',
-    '(umask 077; set -C; printf \'configured\\n\' > "$temporary")',
-    'mv -T -- "$temporary" "$marker"',
-    'trap - EXIT',
-    '[ -f "$marker" ] && [ ! -L "$marker" ]'
-  ].join('\n');
-  await runContainerEngineOperation(input.containerEngineSession, {
-    kind: 'container-exec', arguments: [containerId, 'bash', '-ceu', configuredMarkerScript]
-  }, {});
-  const runner = await waitForRunner(input.cursor.state.repository, name, input.cwd, 60);
+  // The listener is still blocked on its marker. A runner with default labels
+  // cannot claim even a generic self-hosted job before durable generation commit.
+  const runner = await waitForRunner(input.cursor.state.repository, name, input.cwd, 60, 'registered');
   const runnerId = assertOwnedLocalGitHubActionsRunner(runner, {
     name,
     role: input.role,
-    operationLabel: input.cursor.state.operationLabel
+    operationLabel: input.cursor.state.operationLabel,
+    routing: 'staged',
+    requireIdleForRemoval: true
   });
   advanceLocalRunnerState(input.cursor, {
     instances: withStateInstance(input.cursor.state, input.role, {
@@ -2606,7 +2662,112 @@ async function startRunnerInstance(input: Readonly<{
   });
 }
 
-async function startLocalGitHubActionsProvider(input: Readonly<{
+async function releaseRunnerListener(
+  instance: LocalGitHubActionsRunnerInstance,
+  session: ContainerEngineSession
+): Promise<void> {
+  const configuredMarkerScript = [
+    'set -euo pipefail',
+    `marker=${JSON.stringify(LOCAL_GITHUB_ACTIONS_RUNNER_CONFIGURED_MARKER)}`,
+    'if [ -e "$marker" ] || [ -L "$marker" ]; then',
+    '  [ -f "$marker" ] && [ ! -L "$marker" ] && [ "$(cat -- "$marker")" = configured ]',
+    '  exit',
+    'fi',
+    'temporary="${marker}.new-$$"',
+    'trap \'rm -f -- "$temporary"\' EXIT',
+    '(umask 077; set -C; printf \'configured\\n\' > "$temporary")',
+    'mv -T -- "$temporary" "$marker"',
+    'trap - EXIT',
+    '[ -f "$marker" ] && [ ! -L "$marker" ]'
+  ].join('\n');
+  await runContainerEngineOperation(session, {
+    kind: 'container-exec', arguments: [instance.containerId, 'bash', '-ceu', configuredMarkerScript]
+  }, {});
+}
+
+async function publishRunnerRoutingLabels(
+  state: LocalGitHubActionsRunnerState,
+  instance: LocalGitHubActionsRunnerInstance,
+  cwd: string
+): Promise<void> {
+  await withGitHubApiRunnerAdminSession({
+    repositoryRoot: cwd,
+    repository: state.repository,
+    operation: async (api) => {
+      await executeGitHubApiOperation(api, {
+        kind: 'add-repository-runner-labels',
+        runnerId: instance.runnerId,
+        labels: [LOCAL_GITHUB_ACTIONS_RUNNER_CUSTOM_LABEL, instance.roleLabel]
+      });
+    }
+  });
+}
+
+async function convergeCommittedRunnerRouting(
+  cursor: LocalRunnerStateCursor,
+  cwd: string,
+  session: ContainerEngineSession
+): Promise<void> {
+  if (cursor.state.schema !== LOCAL_GITHUB_ACTIONS_RUNNER_STATE_SCHEMA
+      || (cursor.state.lifecycle !== 'routing' && cursor.state.lifecycle !== 'active')) {
+    fail('runner routing requires a committed current generation');
+  }
+  const state = cursor.state;
+  const instances = completeInstancesFromState(state);
+  await assertGitHubEndpointIdentity(state.githubEndpoint, cwd);
+  await assertNoForeignStateInventory(state, cwd, session);
+  assertExactLocalGitHubActionsRunnerProfileContainers({
+    containers: await listProviderProfileContainers(state.repository, session),
+    instances,
+    repository: state.repository,
+    providerName: state.providerName,
+    operationLabel: state.operationLabel,
+    stateSchema: state.schema,
+    resources: state.resources
+  });
+  assertExactLocalGitHubActionsRunnerProfileInventory({
+    runners: await listRepositoryRunners(state.repository, cwd),
+    instances,
+    operationLabel: state.operationLabel,
+    routing: state.lifecycle === 'routing' ? 'either' : 'published',
+    readiness: 'registered'
+  });
+  for (const instance of instances) {
+    if (state.lifecycle === 'routing') await releaseRunnerListener(instance, session);
+    await waitForRunner(state.repository, instance.name, cwd, 60);
+    // Re-read the whole bounded census before each effect. A timed-out prior
+    // publication is recognized by its exact effective labels and is not replayed.
+    const runners = await listRepositoryRunners(state.repository, cwd);
+    assertExactLocalGitHubActionsRunnerProfileInventory({
+      runners, instances, operationLabel: state.operationLabel,
+      routing: state.lifecycle === 'routing' ? 'either' : 'published',
+      readiness: 'registered'
+    });
+    const runner = runners.find((candidate) => candidate.id === instance.runnerId)!;
+    if (!runnerHasLabel(runner, LOCAL_GITHUB_ACTIONS_RUNNER_CUSTOM_LABEL)) {
+      await publishRunnerRoutingLabels(state, instance, cwd);
+      const readback = (await listRepositoryRunners(state.repository, cwd)).filter((candidate) =>
+        candidate.id === instance.runnerId || candidate.name === instance.name);
+      if (readback.length !== 1) fail('runner routing exact ID/name readback differs');
+      assertOwnedLocalGitHubActionsRunner(readback[0]!, {
+        name: instance.name, role: instance.role, runnerId: instance.runnerId,
+        operationLabel: state.operationLabel
+      });
+    }
+  }
+  assertExactLocalGitHubActionsRunnerProfileInventory({
+    runners: await listRepositoryRunners(state.repository, cwd), instances,
+    operationLabel: state.operationLabel
+  });
+  assertExactLocalGitHubActionsRunnerProfileContainers({
+    containers: await listProviderProfileContainers(state.repository, session),
+    instances, repository: state.repository, providerName: state.providerName,
+    operationLabel: state.operationLabel, stateSchema: state.schema, resources: state.resources
+  });
+  if (cursor.state.lifecycle === 'routing') advanceLocalRunnerState(cursor, { lifecycle: 'active' });
+}
+
+export async function startLocalGitHubActionsProvider(input: Readonly<{
   cwd: string;
   repository: string;
   name: string;
@@ -2616,7 +2777,7 @@ async function startLocalGitHubActionsProvider(input: Readonly<{
   const repository = repositoryName(input.repository);
   const providerName = providerBaseName(input.name);
   const cpus = input.cpus ?? DEFAULT_CPUS;
-  const memory = input.memory ?? DEFAULT_MEMORY;
+  const memory = (input.memory ?? DEFAULT_MEMORY).toLowerCase();
   if (!Number.isSafeInteger(cpus) || cpus < 1 || cpus > 64) fail('cpus is invalid');
   if (!/^[1-9][0-9]{0,2}[gGmM]$/u.test(memory)) fail('memory is invalid');
   const context = await resolveRepositoryContext(input.cwd);
@@ -2663,6 +2824,7 @@ async function startLocalGitHubActionsProvider(input: Readonly<{
         providerName,
         operationLabel: retainedOperationLabel,
         lifecycle: 'provisioning',
+        resources: providerResources({ cpus, memory }),
         dockerEndpoint,
         githubEndpoint,
         instances: LOCAL_GITHUB_ACTIONS_RUNNER_ROLES.map((role) => ({
@@ -2687,27 +2849,27 @@ async function startLocalGitHubActionsProvider(input: Readonly<{
             cwd: context.repositoryRoot,
             cursor,
             containerEngineSession,
-            role,
-            cpus,
-            memory
+            role
           });
         }
-        advanceLocalRunnerState(cursor, { lifecycle: 'active' });
-        const instances = activeInstancesFromState(cursor.state);
+        const instances = completeInstancesFromState(cursor.state);
         assertExactLocalGitHubActionsRunnerProfileInventory({
           runners: await listRepositoryRunners(repository, context.repositoryRoot),
-          instances,
-          operationLabel: retainedOperationLabel
+          instances, operationLabel: retainedOperationLabel,
+          routing: 'staged', readiness: 'registered'
         });
         assertExactLocalGitHubActionsRunnerProfileContainers({
           containers: await listProviderProfileContainers(repository, containerEngineSession),
-          instances,
-          repository,
-          providerName,
-          operationLabel: retainedOperationLabel
+          instances, repository, providerName, operationLabel: retainedOperationLabel,
+          resources: cursor.state.resources
         });
+        advanceLocalRunnerState(cursor, { lifecycle: 'routing' });
+        await convergeCommittedRunnerRouting(cursor, context.repositoryRoot, containerEngineSession);
         return cursor.state;
       } catch (error) {
+        // Once publication can have begun, rollback would destroy already claimed
+        // capacity. The original generation remains the sole recovery authority.
+        if (cursor.state.lifecycle === 'routing' || cursor.state.lifecycle === 'active') throw error;
         const cleanupErrors: unknown[] = [];
         try {
           await assertGitHubEndpointIdentity(cursor.state.githubEndpoint, context.repositoryRoot);
@@ -2758,10 +2920,9 @@ async function startLocalGitHubActionsProvider(input: Readonly<{
     fail('provider start did not produce a terminal result');
   });
 }
-function activeInstancesFromState(
+function completeInstancesFromState(
   state: LocalGitHubActionsRunnerState
 ): readonly LocalGitHubActionsRunnerInstance[] {
-  if (state.lifecycle !== 'active') fail('runner lifecycle is not active');
   return Object.freeze(state.instances.map((instance) => {
     if (instance.containerState !== 'present' || instance.runnerState !== 'present'
         || instance.containerId === null || instance.runnerId === null) {
@@ -2800,7 +2961,9 @@ async function assertNoForeignStateInventory(
       name: retained.name,
       role: retained.role,
       operationLabel: state.operationLabel,
-      runnerId: retained.runnerId
+      runnerId: retained.runnerId,
+      routing: state.schema === LOCAL_GITHUB_ACTIONS_RUNNER_STATE_SCHEMA
+        && state.lifecycle !== 'active' ? 'either' : 'published'
     });
   }
 
@@ -2821,6 +2984,8 @@ async function assertNoForeignStateInventory(
       role: retained.role,
       containerId: retained.containerId,
       operationLabel: state.operationLabel,
+      stateSchema: state.schema,
+      resources: state.resources,
       ...(allowLegacyDetachedRunnerDuringTeardown
         ? { allowLegacyDetachedRunnerDuringTeardown: true as const }
         : {})
@@ -2853,7 +3018,7 @@ async function convergeStateToTerminal(
   advanceLocalRunnerState(cursor, { lifecycle: 'terminal' });
 }
 
-async function stopLocalGitHubActionsProvider(input: Readonly<{
+export async function stopLocalGitHubActionsProvider(input: Readonly<{
   cwd: string;
 }>): Promise<Readonly<{
   schema: 'sec-local-github-actions-provider-stop-v4';
@@ -2909,7 +3074,7 @@ async function stopLocalGitHubActionsProvider(input: Readonly<{
   });
 }
 
-async function recoverLocalGitHubActionsProvider(input: Readonly<{
+export async function recoverLocalGitHubActionsProvider(input: Readonly<{
   cwd: string;
   repository: string;
   name: string;
@@ -2920,6 +3085,9 @@ async function recoverLocalGitHubActionsProvider(input: Readonly<{
   runnersAbsent: true;
   containersAbsent: true;
   localStateAbsent: true;
+}> | Readonly<{
+  schema: 'sec-local-github-actions-provider-routing-recovery-v1';
+  state: LocalGitHubActionsRunnerState;
 }>> {
   const repository = repositoryName(input.repository);
   const providerName = providerBaseName(input.name);
@@ -2969,6 +3137,14 @@ async function recoverLocalGitHubActionsProvider(input: Readonly<{
           state,
           commonDirectory: context.commonDirectory
         };
+        if (state.schema === LOCAL_GITHUB_ACTIONS_RUNNER_STATE_SCHEMA
+            && (state.lifecycle === 'routing' || state.lifecycle === 'active')) {
+          await convergeCommittedRunnerRouting(cursor, context.repositoryRoot, containerEngineOperation.session);
+          return Object.freeze({
+            schema: 'sec-local-github-actions-provider-routing-recovery-v1' as const,
+            state: cursor.state
+          });
+        }
         await convergeStateToTerminal(cursor, context.repositoryRoot, containerEngineOperation.session);
         deleteStateProjection(context.commonDirectory, cursor.state);
       }
@@ -2999,11 +3175,30 @@ async function recoverLocalGitHubActionsProvider(input: Readonly<{
   });
 }
 
-async function observeLocalGitHubActionsProvider(input: Readonly<{
+export async function observeLocalGitHubActionsProvider(input: Readonly<{
   cwd: string;
 }>) {
   const context = await resolveRepositoryContext(input.cwd);
   const repository = await assertOriginRepositoryIdentity(context.repositoryRoot);
+  const directory = stateDirectory(context.commonDirectory, false);
+  if (directory !== null) {
+    const inventory = scanNoFollowDirectoryTreeMetadata(directory, {
+      maximumEntries: 32,
+      deadlineAtMs: performance.now() + 1_000
+    });
+    if (inventory.some((entry) => entry.relativePath !== 'state.json'
+        && entry.relativePath !== 'lifecycle-lease.json')) {
+      // Status never settles a writer transaction. Unknown extra objects may
+      // include a quarantined preimage or an installed-but-unsettled candidate;
+      // neither their names nor canonical-file absence can prove completion.
+      return Object.freeze({
+        status: 'residue' as const,
+        statePath: statePath(context.commonDirectory),
+        repository,
+        reason: 'lifecycle-state-recovery-required' as const
+      });
+    }
+  }
   const projection = readStateProjection(context.commonDirectory);
   const containerEngineOperation = await openLocalContainerEngineSession({
     cwd: context.repositoryRoot,
@@ -3060,7 +3255,7 @@ async function observeLocalGitHubActionsProvider(input: Readonly<{
       stateDigest: state.stateDigest
     });
   }
-  const instances = activeInstancesFromState(state);
+  const instances = completeInstancesFromState(state);
   const runners = await listRepositoryRunners(repository, context.repositoryRoot);
   assertExactLocalGitHubActionsRunnerProfileInventory({
     runners,
@@ -3075,7 +3270,9 @@ async function observeLocalGitHubActionsProvider(input: Readonly<{
     instances,
     repository,
     providerName: state.providerName,
-    operationLabel: state.operationLabel
+    operationLabel: state.operationLabel,
+    stateSchema: state.schema,
+    resources: state.resources
   });
   const image = await inspectImage(containerEngineSession);
   if (image !== null) assertLocalGitHubActionsRunnerImageIdentity(image);

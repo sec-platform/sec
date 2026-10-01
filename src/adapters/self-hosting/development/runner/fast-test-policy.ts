@@ -345,6 +345,11 @@ const FAST_TEST_PROCESS_ISOLATION_DEFINITIONS = [
     resourceClass: 'independent-process'
   },
   {
+    file: 'tests/unit/local-github-actions-runner-lifecycle.test.ts',
+    reason: 'process-global-provider-and-durable-state-mocks',
+    resourceClass: 'independent-process'
+  },
+  {
     file: 'tests/unit/local-github-actions-runner.test.ts',
     reason: 'process-global-environment-and-child-process',
     resourceClass: 'independent-process'

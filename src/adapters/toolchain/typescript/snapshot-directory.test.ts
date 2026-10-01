@@ -88,3 +88,40 @@ test('noncanonical inventories and file-directory collisions fail before interpr
     assert.throws(() => createTypeScriptSnapshotDirectoryReader(collision, root), /collision/);
   }
 });
+
+test('directory lookup preserves sealed prefix existence and immediate-child inventory order', () => {
+  const root = path.resolve('virtual-snapshot');
+  const read = createTypeScriptSnapshotDirectoryReader([
+    'other/z.ts', 'src/deep/nested/value.ts', 'src/zeta/file.ts',
+    'src/deep/sibling.ts', 'src/direct.ts', 'src/.hidden/item.ts',
+    '..cache/entry.ts', 'src/Case/value.ts'
+  ], root);
+  assert.deepEqual(read.getDirectories(root), ['other', 'src', '..cache'].map((entry) => path.join(root, entry)));
+  assert.deepEqual(read.getDirectories(path.join(root, 'src')), ['deep', 'zeta', '.hidden', 'Case'].map((entry) => path.join(root, 'src', entry)));
+  assert.deepEqual(read.getDirectories(path.join(root, 'src', 'deep')), [path.join(root, 'src', 'deep', 'nested')]);
+  for (const directory of [root, `${root}${path.sep}`, path.join(root, 'src'), path.join(root, 'src', 'deep', '..'), path.join(root, '..cache')]) {
+    assert.equal(read.directoryExists(directory), true, directory);
+  }
+  const relativeDirectory = path.relative(process.cwd(), path.join(root, 'src'));
+  assert.equal(read.directoryExists(relativeDirectory), true);
+  assert.deepEqual(read.getDirectories(relativeDirectory), read.getDirectories(path.join(root, 'src')));
+  for (const absent of [path.dirname(root), `${root}-sibling`, path.join(root, 'src', 'missing'), path.join(root, 'src', 'direct.ts'), path.join(root, 'src', 'case')]) {
+    assert.equal(read.directoryExists(absent), false, absent);
+    assert.deepEqual(read.getDirectories(absent), [], absent);
+  }
+});
+
+test('directory lookup cannot acquire uncaptured or caller-mutated directory entries', () => {
+  const root = path.resolve('virtual-snapshot');
+  const inventory = ['src/owned/value.ts'];
+  const read = createTypeScriptSnapshotDirectoryReader(inventory, root);
+  inventory.push('src/foreign/value.ts');
+  const observed = read.getDirectories(path.join(root, 'src'));
+  observed.push(path.join(root, 'src', 'injected'));
+  assert.deepEqual(read.getDirectories(path.join(root, 'src')), [path.join(root, 'src', 'owned')]);
+  assert.equal(read.directoryExists(path.join(root, 'src', 'foreign')), false);
+  assert.equal(read.directoryExists(path.join(root, 'src', 'injected')), false);
+  const empty = createTypeScriptSnapshotDirectoryReader([], root);
+  assert.equal(empty.directoryExists(root), false);
+  assert.deepEqual(empty.getDirectories(root), []);
+});

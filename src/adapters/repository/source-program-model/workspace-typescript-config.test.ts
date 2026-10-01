@@ -14,7 +14,11 @@ const inventory = new Map([
   ['packages/b/src/b.ts', 'export const b = true;']
 ]);
 
-function parse(source: string, configPath = 'packages/a/tsconfig.json') {
+function parse(
+  source: string,
+  configPath = 'packages/a/tsconfig.json',
+  filenameKind: 'absolute' | 'relative' = 'absolute'
+) {
   const root = path.resolve('snapshot-config-fixture');
   const config = parseContainedTypeScriptProjectConfig(source, configPath);
   const absolute = path.join(root, configPath);
@@ -24,7 +28,9 @@ function parse(source: string, configPath = 'packages/a/tsconfig.json') {
     readFile: filename => inventory.get(path.relative(root, filename).split(path.sep).join('/')),
     fileExists: filename => inventory.has(path.relative(root, filename).split(path.sep).join('/'))
   };
-  const result = parseTypeScriptProjectConfiguration(absolute, source, config, host, root);
+  const result = parseTypeScriptProjectConfiguration(
+    filenameKind === 'absolute' ? absolute : configPath, source, config, host, root
+  );
   return { root, result, files: result.fileNames.map(file => path.relative(root, file).split(path.sep).join('/')) };
 }
 
@@ -46,9 +52,10 @@ test('explicit files and relative compiler options retain their config-local int
 });
 
 test('root configuration still resolves from the root', () => {
-  const actual = parse('{"include":["src"]}', 'tsconfig.json');
+  const actual = parse('{"compilerOptions":{"rootDir":"src"},"include":["src"]}', 'tsconfig.json');
   assert.equal(actual.result.errors.length, 0);
   assert.deepEqual(actual.files, ['src/root.ts']);
+  assert.equal(actual.result.options.rootDir, path.join(actual.root, 'src').replaceAll('\\', '/'));
 });
 
 test('empty include-based project is valid but invalid options remain errors', () => {
@@ -57,6 +64,30 @@ test('empty include-based project is valid but invalid options remain errors', (
   assert.deepEqual(empty.files, []);
   const invalid = parse('{"compilerOptions":{"target":"invalid-target"},"include":["unmatched"]}');
   assert.ok(invalid.result.errors.length > 0);
+});
+
+test('empty nested projects retain config-local compiler paths after no-input validation', () => {
+  for (const filenameKind of ['absolute', 'relative'] as const) {
+    const actual = parse(JSON.stringify({
+      compilerOptions: {
+        baseUrl: '.', rootDir: 'src', outDir: 'dist', declarationDir: 'declarations',
+        rootDirs: ['src', 'generated'], typeRoots: ['types']
+      },
+      include: ['unmatched']
+    }), 'packages/a/tsconfig.json', filenameKind);
+    assert.equal(actual.result.errors.length, 0);
+    assert.deepEqual(actual.files, []);
+    assert.equal(actual.result.options.configFilePath, path.join(actual.root, 'packages/a/tsconfig.json').replaceAll('\\', '/'));
+    assert.equal(actual.result.options.baseUrl, path.join(actual.root, 'packages/a').replaceAll('\\', '/'));
+    assert.equal(actual.result.options.rootDir, path.join(actual.root, 'packages/a/src').replaceAll('\\', '/'));
+    assert.equal(actual.result.options.outDir, path.join(actual.root, 'packages/a/dist').replaceAll('\\', '/'));
+    assert.equal(actual.result.options.declarationDir, path.join(actual.root, 'packages/a/declarations').replaceAll('\\', '/'));
+    assert.deepEqual(actual.result.options.rootDirs, [
+      path.join(actual.root, 'packages/a/src').replaceAll('\\', '/'),
+      path.join(actual.root, 'packages/a/generated').replaceAll('\\', '/')
+    ]);
+    assert.deepEqual(actual.result.options.typeRoots, [path.join(actual.root, 'packages/a/types').replaceAll('\\', '/')]);
+  }
 });
 
 test('configuration containment still rejects external lookup and plugin execution before parsing', () => {
