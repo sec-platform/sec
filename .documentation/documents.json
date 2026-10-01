@@ -159,6 +159,10 @@
       "path": "docs/作者/组合/README.md"
     },
     {
+      "document_id": "urn:uuid:d56b9e3b-a498-58f5-805b-fa2775f45d9f",
+      "path": "docs/作者/组合/参数包与类型级值.md"
+    },
+    {
       "document_id": "urn:uuid:b8d0b8a0-1802-5f22-9b24-30733c4e8d51",
       "path": "docs/作者/组合/定义与接口.md"
     },
@@ -177,6 +181,10 @@
     {
       "document_id": "urn:uuid:ab4b3409-5cfc-4531-a70e-cb7e83e00865",
       "path": "docs/作者/组合/结构编辑与身份保持.md"
+    },
+    {
+      "document_id": "urn:uuid:17288670-f0ed-5c0c-935e-ed62a785835d",
+      "path": "docs/作者/组合/访问投影与不完整类型.md"
     },
     {
       "document_id": "urn:uuid:56bd5a94-3535-58ae-9561-073e9edec04b",
@@ -209,6 +217,18 @@
     {
       "document_id": "urn:uuid:379dafa8-f22d-5b62-8f39-cae176e6c027",
       "path": "docs/依据/来源/README.md"
+    },
+    {
+      "document_id": "urn:uuid:988326d1-b9a4-4626-b146-fe0e464670f4",
+      "path": "docs/依据/来源/Rust与C++映射依据.md"
+    },
+    {
+      "document_id": "urn:uuid:cda6c04f-1d1c-56ab-9c21-3de6db542edb",
+      "path": "docs/依据/来源/Rust与C++能力比较.md"
+    },
+    {
+      "document_id": "urn:uuid:70fcd3d9-0a5b-5764-a44f-5143c30ab4d6",
+      "path": "docs/依据/来源/全域组合与仿真依据.md"
     },
     {
       "document_id": "urn:uuid:4a56cc4f-86f4-4a80-b7d6-b7fe7670ff50",
@@ -415,6 +435,10 @@
       "path": "docs/开发/编辑检查与失败继续.md"
     },
     {
+      "document_id": "urn:uuid:fd006e2c-485e-5234-b979-26e4905d5fb1",
+      "path": "docs/开发/跨语言开发面接合.md"
+    },
+    {
       "document_id": "urn:uuid:d357a71c-77ac-5a44-9860-fd22ab289b41",
       "path": "docs/开发/需求到交付主链.md"
     },
@@ -429,6 +453,10 @@
     {
       "document_id": "urn:uuid:897d0c13-6e96-5e0b-9b7b-849624628b28",
       "path": "docs/架构/实现供给与替换.md"
+    },
+    {
+      "document_id": "urn:uuid:559d2001-4f02-405f-b6ff-a83a6f47b55b",
+      "path": "docs/架构/实现语言与机制演进.md"
     },
     {
       "document_id": "urn:uuid:de151f45-288f-58b1-9dab-8ab6fcb668be",
@@ -491,6 +519,70 @@
       "path": "docs/演进/开源协作与支持.md"
     },
     {
+      "document_id": "urn:uuid:e9f100b1-d8db-5239-a65f-9506921e471f",
+      "path": "docs/演进/覆盖场景/README.md"
+    },
+    {
+      "document_id": "urn:uuid:444c260d-2f29-5d60-95d6-08d9268a49d6",
+      "path": "docs/演进/覆盖场景/业务生命周期.md"
+    },
+    {
+      "document_id": "urn:uuid:e7729ba1-ecc1-5d17-a84c-575a7b2c0524",
+      "path": "docs/演进/覆盖场景/健康研究与公共责任.md"
+    },
+    {
+      "document_id": "urn:uuid:c20a9fae-56ca-5ba2-a9f4-1281bc52a453",
+      "path": "docs/演进/覆盖场景/商业价值与组织流程.md"
+    },
+    {
+      "document_id": "urn:uuid:e8d9f20b-3ebb-5477-967f-398a06b6e445",
+      "path": "docs/演进/覆盖场景/工业能源与环境.md"
+    },
+    {
+      "document_id": "urn:uuid:a7aca39c-d0a7-523b-95e6-92174866be29",
+      "path": "docs/演进/覆盖场景/应用交互与内容.md"
+    },
+    {
+      "document_id": "urn:uuid:349b7571-581f-5152-ae15-d1e4fd079cec",
+      "path": "docs/演进/覆盖场景/接合检查.md"
+    },
+    {
+      "document_id": "urn:uuid:cbd64fa5-3707-5dce-a847-5f270d9ff114",
+      "path": "docs/演进/覆盖场景/数据智能与安全.md"
+    },
+    {
+      "document_id": "urn:uuid:15770553-a2e6-5d90-b7d9-7202996b6bd5",
+      "path": "docs/演进/覆盖场景/机制适用性.md"
+    },
+    {
+      "document_id": "urn:uuid:b04cbd18-3058-5dda-9c70-832c41333351",
+      "path": "docs/演进/覆盖场景/游戏沉浸与在线平台.md"
+    },
+    {
+      "document_id": "urn:uuid:18679df2-f3aa-560f-98e9-9ac82d78a684",
+      "path": "docs/演进/覆盖场景/物流交通与自主设备.md"
+    },
+    {
+      "document_id": "urn:uuid:57e7a7be-5970-556b-88f3-2f037b1a6df2",
+      "path": "docs/演进/覆盖场景/科学仿真与开放系统.md"
+    },
+    {
+      "document_id": "urn:uuid:38826a5c-83e3-5716-9c06-43c8cf1a8ea7",
+      "path": "docs/演进/覆盖场景/空间设施与个人服务.md"
+    },
+    {
+      "document_id": "urn:uuid:69e40f76-268b-5fd0-ae93-5b6e09a911fa",
+      "path": "docs/演进/覆盖场景/组合工程.md"
+    },
+    {
+      "document_id": "urn:uuid:6f15fbaf-94f6-5a19-9b79-3220b265f949",
+      "path": "docs/演进/覆盖场景/语言工具与系统基础.md"
+    },
+    {
+      "document_id": "urn:uuid:d2eeabfa-3cfc-5054-842b-bc27579fdb52",
+      "path": "docs/演进/覆盖场景/需求坐标.md"
+    },
+    {
       "document_id": "urn:uuid:c29bfa6f-2d22-4380-a742-21b82eac80c0",
       "path": "docs/演进/适用性与能力协商.md"
     },
@@ -521,6 +613,10 @@
     {
       "document_id": "urn:uuid:83433e43-3785-53bd-b6b9-52318bb026f1",
       "path": "docs/状态/编译与目标.md"
+    },
+    {
+      "document_id": "urn:uuid:87c3e816-90c7-5197-b092-32f11d53254d",
+      "path": "docs/状态/设计剩余全量清单.md"
     },
     {
       "document_id": "urn:uuid:9492dfdf-b431-5777-a750-d28ebf897462",
@@ -615,12 +711,44 @@
       "path": "docs/编译/内核/遍管理与插件.md"
     },
     {
+      "document_id": "urn:uuid:01411187-01ec-5ed1-9026-7108bdede12f",
+      "path": "docs/编译/内核/阶段求值与反射生成.md"
+    },
+    {
       "document_id": "urn:uuid:58a44c1f-bfcc-54d4-a790-8679ac787957",
       "path": "docs/编译/内核/降低与源码映射.md"
     },
     {
       "document_id": "urn:uuid:8b3c0046-8813-50e1-a5d9-a9cd182db129",
       "path": "docs/编译/内核/领域方法与整体根.md"
+    },
+    {
+      "document_id": "urn:uuid:9243655a-ebdf-4fc4-be5e-6451e9d4cba0",
+      "path": "docs/编译/原生映射/README.md"
+    },
+    {
+      "document_id": "urn:uuid:7f49353b-4a4e-4e4f-bbdc-eb9d7541dc3c",
+      "path": "docs/编译/原生映射/外部调用与原子.md"
+    },
+    {
+      "document_id": "urn:uuid:09e64fd3-d254-4de5-8c00-dfb96d0cd8a0",
+      "path": "docs/编译/原生映射/存储与资源.md"
+    },
+    {
+      "document_id": "urn:uuid:48976805-3ffc-48b3-b9e9-b9edb93f0f47",
+      "path": "docs/编译/原生映射/对象与调用.md"
+    },
+    {
+      "document_id": "urn:uuid:3f76942c-8ba1-467c-9b85-a53c9d8bb0e3",
+      "path": "docs/编译/原生映射/数值与控制流.md"
+    },
+    {
+      "document_id": "urn:uuid:7f0adade-f6cb-4085-a762-122c7de18169",
+      "path": "docs/编译/原生映射/泛型与编译期.md"
+    },
+    {
+      "document_id": "urn:uuid:0ade7c78-4cdf-4ae8-9b1e-74839fb5d5f8",
+      "path": "docs/编译/原生映射/采用与导出边界.md"
     },
     {
       "document_id": "urn:uuid:5262aa6e-6e31-425a-9f5a-4394aed425ac",
@@ -635,16 +763,32 @@
       "path": "docs/编译/有条件实现与公共行为保持.md"
     },
     {
+      "document_id": "urn:uuid:8ea2ab2b-440a-4d2a-8ad9-4b967851a0f3",
+      "path": "docs/编译/有限抽象与观察策略.md"
+    },
+    {
       "document_id": "urn:uuid:8ec08b56-8de0-44e6-a136-9335f04d5d8a",
       "path": "docs/编译/查询增量与性能.md"
+    },
+    {
+      "document_id": "urn:uuid:e9fc9206-9ba8-5bb3-8768-d8da25e1a8e6",
+      "path": "docs/编译/特化与结构查询.md"
     },
     {
       "document_id": "urn:uuid:992f9d20-be75-571e-be47-d6ed98a340aa",
       "path": "docs/编译/目标/README.md"
     },
     {
+      "document_id": "urn:uuid:ceef93d3-7c17-54b0-a1b8-f9d77449090f",
+      "path": "docs/编译/目标/Rust目标画像与降低.md"
+    },
+    {
       "document_id": "urn:uuid:2137d3a1-c2b6-5ef6-a58c-ad9eb379fca6",
       "path": "docs/编译/目标/具体降低与领域输出.md"
+    },
+    {
+      "document_id": "urn:uuid:461dc983-c452-5169-91b6-fcc44407f8aa",
+      "path": "docs/编译/目标/布局与设备访问.md"
     },
     {
       "document_id": "urn:uuid:3536cdcb-6c34-4e77-a8e9-d3d9976c96d6",
@@ -655,8 +799,16 @@
       "path": "docs/编译/目标/成品消费合同与发射.md"
     },
     {
+      "document_id": "urn:uuid:c670211e-1b9f-5241-8b1f-1d8ac2abf3f3",
+      "path": "docs/编译/目标/泛型分发与实例归属.md"
+    },
+    {
       "document_id": "urn:uuid:c87176df-ebef-5981-b22f-cf6aa22360e3",
       "path": "docs/编译/目标/结构稳定与作者回源.md"
+    },
+    {
+      "document_id": "urn:uuid:c2b34dd7-2393-5869-926c-7e2e27263a13",
+      "path": "docs/编译/目标/能力履行与接口差额.md"
     },
     {
       "document_id": "urn:uuid:a8dc3140-9acb-4d7b-a327-1bfcb928b5c4",
@@ -691,6 +843,10 @@
       "path": "docs/运行/README.md"
     },
     {
+      "document_id": "urn:uuid:963e51fd-10f5-5c38-97d8-b744463882e4",
+      "path": "docs/运行/人类任务与责任交接.md"
+    },
+    {
       "document_id": "urn:uuid:5cbaf1c2-7ce4-5b9f-b5ea-2e274bdb813b",
       "path": "docs/运行/保证/README.md"
     },
@@ -709,6 +865,14 @@
     {
       "document_id": "urn:uuid:da2638fb-304c-54c3-9341-ecaf2b64090b",
       "path": "docs/运行/保证/解释与证据接纳.md"
+    },
+    {
+      "document_id": "urn:uuid:bd5414dc-7155-59ba-a69a-2268b73eb81d",
+      "path": "docs/运行/分配域与退出责任.md"
+    },
+    {
+      "document_id": "urn:uuid:58b86cd3-d23c-51bb-a9f4-e329ca6fa562",
+      "path": "docs/运行/原生边界与模块驻留.md"
     },
     {
       "document_id": "urn:uuid:28580f83-9b76-4417-896a-47f8610f2948",
@@ -747,12 +911,40 @@
       "path": "docs/运行/验收/信息与完成边界案例.md"
     },
     {
+      "document_id": "urn:uuid:df991765-a6c3-580e-974f-f81b23fc37e2",
+      "path": "docs/运行/验收/全域挑战/仿真数值与现实.md"
+    },
+    {
+      "document_id": "urn:uuid:d1660d59-68fc-5572-a199-7b2c5207fd4f",
+      "path": "docs/运行/验收/全域挑战/作用隔离与恢复.md"
+    },
+    {
+      "document_id": "urn:uuid:4a5ed5f9-0c18-514c-863e-4017d0abfe1e",
+      "path": "docs/运行/验收/全域挑战/解释绑定与生成.md"
+    },
+    {
+      "document_id": "urn:uuid:afd6a83d-af88-5750-a78f-2c4f4479deef",
+      "path": "docs/运行/验收/全域挑战/证据发行与演进.md"
+    },
+    {
+      "document_id": "urn:uuid:be183061-508f-56eb-9ed8-ee2ae649d4c9",
+      "path": "docs/运行/验收/全域接合检查.md"
+    },
+    {
+      "document_id": "urn:uuid:79537576-936c-47c9-bcc6-413025fc077e",
+      "path": "docs/运行/验收/原生映射与组合.md"
+    },
+    {
       "document_id": "urn:uuid:4dd36065-fb03-5786-b323-3eac6712712d",
       "path": "docs/运行/验收/实现与运行案例.md"
     },
     {
       "document_id": "urn:uuid:f43e83e4-bfdd-5bc2-a7d1-dc58e32c9c6f",
       "path": "docs/运行/验收/开发面案例.md"
+    },
+    {
+      "document_id": "urn:uuid:7044423f-97aa-4421-94b0-126a136b04ef",
+      "path": "docs/运行/验收/控制与演进案例.md"
     },
     {
       "document_id": "urn:uuid:c361fbf8-4350-4b80-a94f-64f0f9198269",
@@ -763,8 +955,16 @@
       "path": "docs/运行/验收/测试生成与形式方法.md"
     },
     {
+      "document_id": "urn:uuid:f27872e7-9132-5c2f-a278-b56e6a52d649",
+      "path": "docs/运行/验收/系统组合挑战与反例.md"
+    },
+    {
       "document_id": "urn:uuid:e7a5331f-2408-5d28-aaf0-e622d0c6e601",
       "path": "docs/运行/验收/覆盖与收益判据.md"
+    },
+    {
+      "document_id": "urn:uuid:5c0b7f0d-8286-5e7e-b4a5-beaa4efb9c1f",
+      "path": "docs/运行/验收/跨语言控制与组合案例.md"
     },
     {
       "document_id": "urn:uuid:5c390fad-38e9-5289-a0da-d3c4eece88f5",
@@ -773,6 +973,42 @@
     {
       "document_id": "urn:uuid:fbcd3212-6bf9-531e-b7e2-c9a24cab49c4",
       "path": "docs/领域/README.md"
+    },
+    {
+      "document_id": "urn:uuid:9d75f70a-69a1-5fd3-abbe-bbd32af5c1ea",
+      "path": "docs/领域/仿真/README.md"
+    },
+    {
+      "document_id": "urn:uuid:d974a317-3d5c-5989-8a22-6d3a0e04397d",
+      "path": "docs/领域/仿真/历史接触与拓扑演进.md"
+    },
+    {
+      "document_id": "urn:uuid:64c477ca-89df-58b8-ab55-c52f72cd89cf",
+      "path": "docs/领域/仿真/时间推进与状态恢复.md"
+    },
+    {
+      "document_id": "urn:uuid:6382732d-7053-582a-9b75-104f9271b48f",
+      "path": "docs/领域/仿真/模型族与适用边界.md"
+    },
+    {
+      "document_id": "urn:uuid:6eb2be34-5567-5460-84d1-79e07e2a3908",
+      "path": "docs/领域/仿真/测量校准与实验.md"
+    },
+    {
+      "document_id": "urn:uuid:f7307fe7-514f-52ec-9fbd-74dc35b5a6e6",
+      "path": "docs/领域/仿真/联合仿真与现实控制.md"
+    },
+    {
+      "document_id": "urn:uuid:7b0a3935-eefb-5ff4-9422-aa4429d13cf7",
+      "path": "docs/领域/对象与控制/位置初始化与转移.md"
+    },
+    {
+      "document_id": "urn:uuid:8aa5c3ef-165b-5d41-920f-e68c841515a2",
+      "path": "docs/领域/对象与控制/协程帧与控制流降低.md"
+    },
+    {
+      "document_id": "urn:uuid:58c40331-5d36-5c66-99bf-d00a468b5cbe",
+      "path": "docs/领域/对象与控制/子对象视图与兼容构造.md"
     },
     {
       "document_id": "urn:uuid:9eea4ded-ce9b-4c77-a0db-9b8c57c215a1",
@@ -787,8 +1023,16 @@
       "path": "docs/领域/扩展语义与适配合同.md"
     },
     {
+      "document_id": "urn:uuid:729b3e97-31e8-5ebb-acf7-c4e332a17e9e",
+      "path": "docs/领域/数值/格式环境与向量控制.md"
+    },
+    {
       "document_id": "urn:uuid:e920e16b-7fea-4e37-a94d-0213b707299c",
       "path": "docs/领域/数值/自动微分与线性化.md"
+    },
+    {
+      "document_id": "urn:uuid:6a12377e-8e89-5e62-b488-ac2a155fb391",
+      "path": "docs/领域/物理对象制造与寿命.md"
     },
     {
       "document_id": "urn:uuid:a1ebdd2f-c0cc-5c32-85bc-4915f7cb1375",
@@ -819,8 +1063,16 @@
       "path": "docs/领域/计算基础/作者表示与实现分工.md"
     },
     {
+      "document_id": "urn:uuid:c9f95ecc-194f-5281-8515-5afeca040f2a",
+      "path": "docs/领域/计算基础/原子存储与进展条件.md"
+    },
+    {
       "document_id": "urn:uuid:6c057e0f-6916-5dd1-b35c-b68e006eb9f1",
       "path": "docs/领域/计算基础/名称导入与契约.md"
+    },
+    {
+      "document_id": "urn:uuid:84f539ec-6a74-5e1b-bfc2-752ecc3660bf",
+      "path": "docs/领域/计算基础/定量合同与误差传播.md"
     },
     {
       "document_id": "urn:uuid:c1e10ab3-4973-5070-9294-bec08404fa08",
@@ -839,8 +1091,16 @@
       "path": "docs/领域/计算基础/计算结构与算法.md"
     },
     {
+      "document_id": "urn:uuid:ee9cdb8b-f62c-545d-b317-656d220ccb1a",
+      "path": "docs/领域/计算基础/调用定制与源语言选择.md"
+    },
+    {
       "document_id": "urn:uuid:5840a9a3-4f5b-509f-9b5c-21d832470dee",
       "path": "docs/领域/计算基础/通用计算与任务语义.md"
+    },
+    {
+      "document_id": "urn:uuid:8260404e-bf13-5103-9a88-fc2573f8c148",
+      "path": "docs/领域/计算基础/错误传播与契约保持.md"
     },
     {
       "document_id": "urn:uuid:4faf38be-bed0-5250-9144-0964a5e72c6b",
@@ -919,152 +1179,16 @@
       "path": "examples/连续开发/组合结构与任务轨迹.md"
     },
     {
+      "document_id": "urn:uuid:f0eb1dff-4d3f-5182-985f-77f277fd6617",
+      "path": "examples/连续开发/跨语言能力连续开发.md"
+    },
+    {
       "document_id": "urn:uuid:05e7e2d4-1fe2-44b7-918e-7c2cfb55713d",
       "path": "examples/领域组合/状态关系流与数值.md"
     },
     {
       "document_id": "urn:uuid:ff91d628-5de0-44a7-ae70-185f4ca9f8f6",
       "path": "examples/领域组合/领域应用与算法.md"
-    },
-    {
-      "document_id": "urn:uuid:988326d1-b9a4-4626-b146-fe0e464670f4",
-      "path": "docs/依据/来源/Rust与C++映射依据.md"
-    },
-    {
-      "document_id": "urn:uuid:9243655a-ebdf-4fc4-be5e-6451e9d4cba0",
-      "path": "docs/编译/原生映射/README.md"
-    },
-    {
-      "document_id": "urn:uuid:7f49353b-4a4e-4e4f-bbdc-eb9d7541dc3c",
-      "path": "docs/编译/原生映射/外部调用与原子.md"
-    },
-    {
-      "document_id": "urn:uuid:09e64fd3-d254-4de5-8c00-dfb96d0cd8a0",
-      "path": "docs/编译/原生映射/存储与资源.md"
-    },
-    {
-      "document_id": "urn:uuid:48976805-3ffc-48b3-b9e9-b9edb93f0f47",
-      "path": "docs/编译/原生映射/对象与调用.md"
-    },
-    {
-      "document_id": "urn:uuid:3f76942c-8ba1-467c-9b85-a53c9d8bb0e3",
-      "path": "docs/编译/原生映射/数值与控制流.md"
-    },
-    {
-      "document_id": "urn:uuid:7f0adade-f6cb-4085-a762-122c7de18169",
-      "path": "docs/编译/原生映射/泛型与编译期.md"
-    },
-    {
-      "document_id": "urn:uuid:0ade7c78-4cdf-4ae8-9b1e-74839fb5d5f8",
-      "path": "docs/编译/原生映射/采用与导出边界.md"
-    },
-    {
-      "document_id": "urn:uuid:8ea2ab2b-440a-4d2a-8ad9-4b967851a0f3",
-      "path": "docs/编译/有限抽象与观察策略.md"
-    },
-    {
-      "document_id": "urn:uuid:79537576-936c-47c9-bcc6-413025fc077e",
-      "path": "docs/运行/验收/原生映射与组合.md"
-    },
-    {
-      "document_id": "urn:uuid:58c40331-5d36-5c66-99bf-d00a468b5cbe",
-      "path": "docs/领域/对象与控制/子对象视图与兼容构造.md"
-    },
-    {
-      "document_id": "urn:uuid:17288670-f0ed-5c0c-935e-ed62a785835d",
-      "path": "docs/作者/组合/访问投影与不完整类型.md"
-    },
-    {
-      "document_id": "urn:uuid:ee9cdb8b-f62c-545d-b317-656d220ccb1a",
-      "path": "docs/领域/计算基础/调用定制与源语言选择.md"
-    },
-    {
-      "document_id": "urn:uuid:d56b9e3b-a498-58f5-805b-fa2775f45d9f",
-      "path": "docs/作者/组合/参数包与类型级值.md"
-    },
-    {
-      "document_id": "urn:uuid:e9fc9206-9ba8-5bb3-8768-d8da25e1a8e6",
-      "path": "docs/编译/特化与结构查询.md"
-    },
-    {
-      "document_id": "urn:uuid:01411187-01ec-5ed1-9026-7108bdede12f",
-      "path": "docs/编译/内核/阶段求值与反射生成.md"
-    },
-    {
-      "document_id": "urn:uuid:c670211e-1b9f-5241-8b1f-1d8ac2abf3f3",
-      "path": "docs/编译/目标/泛型分发与实例归属.md"
-    },
-    {
-      "document_id": "urn:uuid:7b0a3935-eefb-5ff4-9422-aa4429d13cf7",
-      "path": "docs/领域/对象与控制/位置初始化与转移.md"
-    },
-    {
-      "document_id": "urn:uuid:bd5414dc-7155-59ba-a69a-2268b73eb81d",
-      "path": "docs/运行/分配域与退出责任.md"
-    },
-    {
-      "document_id": "urn:uuid:461dc983-c452-5169-91b6-fcc44407f8aa",
-      "path": "docs/编译/目标/布局与设备访问.md"
-    },
-    {
-      "document_id": "urn:uuid:729b3e97-31e8-5ebb-acf7-c4e332a17e9e",
-      "path": "docs/领域/数值/格式环境与向量控制.md"
-    },
-    {
-      "document_id": "urn:uuid:8260404e-bf13-5103-9a88-fc2573f8c148",
-      "path": "docs/领域/计算基础/错误传播与契约保持.md"
-    },
-    {
-      "document_id": "urn:uuid:8aa5c3ef-165b-5d41-920f-e68c841515a2",
-      "path": "docs/领域/对象与控制/协程帧与控制流降低.md"
-    },
-    {
-      "document_id": "urn:uuid:58b86cd3-d23c-51bb-a9f4-e329ca6fa562",
-      "path": "docs/运行/原生边界与模块驻留.md"
-    },
-    {
-      "document_id": "urn:uuid:c9f95ecc-194f-5281-8515-5afeca040f2a",
-      "path": "docs/领域/计算基础/原子存储与进展条件.md"
-    },
-    {
-      "document_id": "urn:uuid:c2b34dd7-2393-5869-926c-7e2e27263a13",
-      "path": "docs/编译/目标/能力履行与接口差额.md"
-    },
-    {
-      "document_id": "urn:uuid:cda6c04f-1d1c-56ab-9c21-3de6db542edb",
-      "path": "docs/依据/来源/Rust与C++能力比较.md"
-    },
-    {
-      "document_id": "urn:uuid:5c0b7f0d-8286-5e7e-b4a5-beaa4efb9c1f",
-      "path": "docs/运行/验收/跨语言控制与组合案例.md"
-    },
-    {
-      "document_id": "urn:uuid:f0eb1dff-4d3f-5182-985f-77f277fd6617",
-      "path": "examples/连续开发/跨语言能力连续开发.md"
-    },
-    {
-      "document_id": "urn:uuid:f27872e7-9132-5c2f-a278-b56e6a52d649",
-      "path": "docs/运行/验收/系统组合挑战与反例.md"
-    },
-    {
-      "document_id": "urn:uuid:fd006e2c-485e-5234-b979-26e4905d5fb1",
-      "path": "docs/开发/跨语言开发面接合.md"
-    },
-    {
-      "document_id": "urn:uuid:ceef93d3-7c17-54b0-a1b8-f9d77449090f",
-      "path": "docs/编译/目标/Rust目标画像与降低.md"
-    },
-    {
-      "document_id": "urn:uuid:87c3e816-90c7-5197-b092-32f11d53254d",
-      "path": "docs/状态/设计剩余全量清单.md"
-    },
-    {
-      "document_id": "urn:uuid:559d2001-4f02-405f-b6ff-a83a6f47b55b",
-      "path": "docs/架构/实现语言与机制演进.md"
-    },
-    {
-      "document_id": "urn:uuid:7044423f-97aa-4421-94b0-126a136b04ef",
-      "path": "docs/运行/验收/控制与演进案例.md"
     }
   ]
 }
