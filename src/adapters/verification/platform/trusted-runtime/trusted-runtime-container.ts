@@ -2,8 +2,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import {
   mkdtempSync,
   readFileSync,
-  rmSync,
-  writeFileSync
+  rmSync
 } from 'node:fs';
 import { hostname, tmpdir } from 'node:os';
 import path from 'node:path';
@@ -73,7 +72,7 @@ import {
 import { compilerRuntimeLayout } from '../../../toolchain/runtime/layout.ts';
 import { TYPECHECK_PROVIDER_CANARY_ENTRYPOINT_PATH } from '../../../toolchain/typescript/canary.ts';
 import { encodeVerificationActionData } from '../action/contract/action.ts';
-import { ciVerificationGateStep, ciVerificationNormalizedOperationArgv, createCiVerificationLocalExecutionEnvironment, parseCiSourceProgramTransitionBinding, SOURCE_PROGRAM_TRANSITION_AUTHOR_INPUT, SOURCE_PROGRAM_TRANSITION_ENTRYPOINT, SOURCE_PROGRAM_TRANSITION_GATE_ID, SOURCE_PROGRAM_TRANSITION_OUTPUT_FILE, SOURCE_PROGRAM_TRANSITION_STDOUT_BYTE_LIMIT, sourceProgramTransitionGate, type CiSourceProgramTransitionBinding, type CiVerificationExecutionEnvironment } from '../action/contract/ci.ts';
+import { ciVerificationGateStep, ciVerificationNormalizedOperationArgv, createCiVerificationLocalExecutionEnvironment, parseCiSourceProgramTransitionBinding, SOURCE_PROGRAM_TRANSITION_ENTRYPOINT, SOURCE_PROGRAM_TRANSITION_GATE_ID, SOURCE_PROGRAM_TRANSITION_OUTPUT_FILE, SOURCE_PROGRAM_TRANSITION_STDOUT_BYTE_LIMIT, sourceProgramAnalysisBinding, sourceProgramTransitionGate, type CiSourceProgramTransitionBinding, type CiVerificationExecutionEnvironment } from '../action/contract/ci.ts';
 import { type CodexDevelopmentVerificationEvidenceV4 } from '../ci/contract/evidence.ts';
 import {
   createBuildxRawJsonProgressAdmission,
@@ -270,13 +269,15 @@ export function qualifySourceProgramTransitionAssessment(input: Readonly<{
   } else {
     assertSourceProgramTestAuthorApproval(input.approval);
     const payload = input.approval.payload;
+    const sourceOnlyObservation = observation.payloadDigest === null
+      && observation.approvalDigest === null && observation.approvalObservationDigest === null;
     if (payload.repository !== observation.repository || payload.pullRequestNumber !== observation.pullRequestNumber
         || payload.trustedRevision !== assessment.runtimeSha
         || payload.baseline.commitSha !== assessment.baseSha || payload.baseline.treeSha !== assessment.baseTreeSha
         || payload.current.commitSha !== assessment.headSha || payload.current.treeSha !== assessment.headTreeSha
-        || observation.payloadDigest !== payload.payloadDigest
-        || observation.approvalDigest !== input.approval.approvalDigest
-        || observation.approvalObservationDigest !== input.approval.providerObservationDigest) {
+        || !sourceOnlyObservation && (observation.payloadDigest !== payload.payloadDigest
+          || observation.approvalDigest !== input.approval.approvalDigest
+          || observation.approvalObservationDigest !== input.approval.providerObservationDigest)) {
       fail('author audience, source revisions or live approval differs from isolated producer binding');
     }
   }
@@ -1288,7 +1289,7 @@ function formalEnvironment(input: Readonly<{
     GIT_TERMINAL_PROMPT: '0',
     SEC_FORMAL_TRUSTED_RUNTIME_MODE: '1',
     ...(input.sourceProgramTransition === undefined ? {} : {
-      SEC_SOURCE_PROGRAM_TRANSITION_BINDING: encodeVerificationActionData(input.sourceProgramTransition)
+      SEC_SOURCE_PROGRAM_TRANSITION_BINDING: encodeVerificationActionData(sourceProgramAnalysisBinding(input.sourceProgramTransition))
     }),
     SEC_SESSION_REVISION: envelope.session.sessionRevision,
     SEC_SESSION_PROPOSAL_DIGEST: envelope.session.sessionProposalDigest,
@@ -1844,7 +1845,7 @@ function assertTransitionInput(input: Readonly<{
   }
   if (!action.action.operation.declaredEnvironment.some(({ name, digest }) =>
     name === 'SEC_SOURCE_PROGRAM_TRANSITION_BINDING' && digest === expected.environment[name])) {
-    fail('transition Action does not bind the exact author observation');
+    fail('transition Action does not bind the exact source analysis');
   }
   if (input.authorApproval === undefined) {
     if (binding.payloadDigest !== null) fail('transition author approval is missing');
@@ -1863,28 +1864,7 @@ function assertTransitionInput(input: Readonly<{
         || approval.providerObservationDigest !== binding.approvalObservationDigest
         || approval.approvalDigest !== binding.approvalDigest) fail('transition author approval differs from exact Session');
   }
-  return binding;
-}
-
-async function materializeSourceProgramAuthorInput(input: Readonly<{
-  envelope: VerificationSessionHostedEnvelope;
-  sourceProgramTransition?: CiSourceProgramTransitionBinding;
-  authorApproval?: SourceProgramTestAuthorApproval;
-  containerName: string;
-  temporaryRoot: string;
-  containerEngineSession: ContainerEngineSession;
-}>): Promise<void> {
-  assertTransitionInput(input);
-  if (input.authorApproval === undefined) return;
-  const file = path.join(input.temporaryRoot, 'test-author-input.json');
-  const bytes = `${encodeVerificationActionData(input.authorApproval.payload)}\n`;
-  writeFileSync(file, bytes, { flag: 'wx', mode: 0o400 });
-  await containerEngineOutput(input.containerEngineSession, {
-    kind: 'container-copy', arguments: [file, `${input.containerName}:${SOURCE_PROGRAM_TRANSITION_AUTHOR_INPUT}`]
-  });
-  await containerEngineOutput(input.containerEngineSession, {
-    kind: 'container-exec', arguments: ['--user', '0:0', input.containerName, '/bin/chmod', '0444', SOURCE_PROGRAM_TRANSITION_AUTHOR_INPUT]
-  });
+  return sourceProgramAnalysisBinding(binding);
 }
 
 export interface TrustedRuntimeSourceProgramAttemptEvidence {
@@ -1965,7 +1945,6 @@ export async function observeTrustedRuntimeSourceProgramTransition(input: Readon
       repository: session.repository, baseSha: session.baseSha, headSha: session.headSha,
       operationKey: `transition-${session.sessionRevision.slice(7, 23)}-assessment`, setupMode: 'full', observeSettlement,
       execute: async () => {
-        await materializeSourceProgramAuthorInput({ ...input, ...workspace });
         const executionId = `source-program-transition-${randomUUID()}`;
         if (workspace.dependencyCacheKey !== null) fail('fresh authority workspace consumed a shared dependency cache');
         const invocation: ContainerEngineOperation = {
@@ -2028,6 +2007,7 @@ export async function executeTrustedRuntimeContainerVerification(input: Readonly
   canonicalEvidenceBytes: string;
   receipt: TrustedRuntimeContainerReceipt;
 }>> {
+  assertTransitionInput(input);
   const repositoryRoot = path.resolve(input.repositoryRoot);
   const session = input.envelope.session;
   sha(session.baseSha, 'baseSha');
@@ -2056,7 +2036,6 @@ export async function executeTrustedRuntimeContainerVerification(input: Readonly
         operationKey: `session-${session.sessionRevision.slice(7, 23)}-verification`,
         setupMode: 'full',
         execute: async () => {
-      await materializeSourceProgramAuthorInput({ ...input, containerName, temporaryRoot, containerEngineSession });
       const outputPath = path.join(temporaryRoot, 'verification-evidence.json');
       const executionId = `trusted-runtime-${digestValue(Object.freeze({
         sessionRevision: session.sessionRevision,

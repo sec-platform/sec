@@ -21,6 +21,7 @@ import {
   type SourceProgramTestDefinitionInputs,
   type SourceProgramTestSemanticClass
 } from './test-observations.ts';
+import { isCompiledTypeScriptSourceProgramModel } from './typescript.ts';
 
 export type { SourceProgramTestSemanticClass } from './test-observations.ts';
 
@@ -713,7 +714,14 @@ export function compileSourceProgramTestBaselineEvidence(
     return dispositionError('baselineRevision', 'expected a sha256 digest');
   }
   const canonicalPaths = canonicalBaselinePaths(input.baselineTestPaths);
-  const evidence = Object.freeze(canonicalPaths.map((repositoryPath) => {
+  // Census is retirement evidence for missing modules. Retained modules keep
+  // their baseline inventory entry without requesting an unused census.
+  const candidatePaths = isCompiledTypeScriptSourceProgramModel(input.candidateModel)
+    ? new Set(input.candidateModel.files.map(({ path }) => path))
+    : null;
+  const missingPaths = canonicalPaths.filter((repositoryPath) =>
+    candidatePaths === null || !candidatePaths.has(repositoryPath));
+  const evidence = Object.freeze(missingPaths.map((repositoryPath) => {
     sourceProgramCompilationCheckpoint(operation, 'baseline-test-evidence');
     const observation = observeSourceProgramTestContractCensus(
       input.baselineModel,

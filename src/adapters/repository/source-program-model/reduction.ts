@@ -42,6 +42,7 @@ import {
 import {
   assertSourceProgramTestAuthorAssessment,
   qualifySourceProgramTestAuthorAssessment,
+  sourceProgramTestAuthorRelocatedTarget,
   type SourceProgramTestAuthorApproval,
   type SourceProgramTestAuthorAssessment
 } from './test-disposition-decisions.ts';
@@ -1817,11 +1818,15 @@ export function compileSourceProgramSupersessionReceipt(
     const baselineInputs = baselineDefinitionInputs.get(baselineTest.definitionInputDigest)!;
     const authorDecision = authorDecisionByBaselineId.get(baselineTest.testId);
     if (authorDecision !== undefined) {
-      const currentPaths = [...new Set(authorDecision.currentTestIds
+      const relocatedTarget = sourceProgramTestAuthorRelocatedTarget(input.authorAssessment!, baselineTest.testId);
+      // Historical same-ID batches keep their exact receipt representation.
+      const currentIds = relocatedTarget === undefined
+        ? authorDecision.currentTestIds : Object.freeze([relocatedTarget]);
+      const currentPaths = [...new Set(currentIds
         .map((testId) => currentTestById.get(testId)!.path))].sort(compareCodeUnits);
       replacements.push(Object.freeze({
         kind: 'test', baselineId: baselineTest.testId,
-        currentIds: authorDecision.currentTestIds, owner: authorDecision.owner,
+        currentIds, owner: authorDecision.owner,
         baselinePaths: Object.freeze([baselineTest.path]), currentPaths: Object.freeze(currentPaths),
         proof: authorDecision.disposition === 'rewrite' ? 'owner-rewrite-judgment' : 'retained-unassessed'
       }));
