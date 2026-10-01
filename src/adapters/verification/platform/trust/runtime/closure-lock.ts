@@ -122,7 +122,7 @@ export const TCB_REVIEWED_PROCESS_DISPATCHERS = new Set([
   'src/adapters/verification/platform/ci/runtime/verification-action-github-provider.ts::function-declaration:dispatchVerificationActionRepositoryWakeup::spawnSync#1',
   'src/adapters/verification/platform/ci/runtime/verification-action-github-provider.ts::function-declaration:ghBytes::spawnSync#1',
   'src/adapters/verification/platform/ci/runtime/verification-action-github-provider.ts::function-declaration:runProcessText::spawnSync#1',
-  'src/adapters/verification/platform/ci/runtime/verification-session.ts::function-declaration:runVerificationSessionCommand::spawnSync#1',
+  'src/adapters/verification/platform/ci/runtime/session-command.ts::function-declaration:runVerificationSessionCommand::spawnSync#1',
   'src/adapters/self-hosting/development/hooks/install.ts::function-declaration:gitText::spawnSync#1'
 ]);
 
