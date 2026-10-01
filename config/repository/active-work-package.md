@@ -10,8 +10,8 @@ last-reviewed: 2026-10-01
 selectionMode: exact-manifest-not-on-default-branch-v1
 defaultBranchRef: refs/remotes/origin/main
 defaultRefFreshness: live-platform-match-required
-manifest: config/repository/work-packages/workflow-provider-decisions-20261001.md
-manifestDigest: sha256:e8922b86c3f23f39030e9250fb05b7c70f8be1cdc64cfac3d3c7e16d3ed4d731
+manifest: config/repository/work-packages/parallel-checkpoint-guidance-20261001.md
+manifestDigest: sha256:5d99f5ed79667f3385e1eb75147eb992a45afb2d54e2d67149dc0d81b62bd183
 digestBytes: git-blob
 unavailableDefaultRef: unresolved
 matchingDefaultBlob: none

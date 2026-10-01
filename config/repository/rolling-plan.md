@@ -12,9 +12,9 @@ last-reviewed: 2026-10-01
 ```json
 {
   "active": {
-    "manifestDigest": "sha256:e8922b86c3f23f39030e9250fb05b7c70f8be1cdc64cfac3d3c7e16d3ed4d731",
-    "manifestPath": "config/repository/work-packages/workflow-provider-decisions-20261001.md",
-    "packageId": "workflow-provider-decisions-20261001",
+    "manifestDigest": "sha256:5d99f5ed79667f3385e1eb75147eb992a45afb2d54e2d67149dc0d81b62bd183",
+    "manifestPath": "config/repository/work-packages/parallel-checkpoint-guidance-20261001.md",
+    "packageId": "parallel-checkpoint-guidance-20261001",
     "tracking": "none"
   },
   "authority": "none",
@@ -25,18 +25,18 @@ last-reviewed: 2026-10-01
     "candidate-control-transaction-v1",
     "typescript-7-checker-acceleration-v1"
   ],
-  "exactMain": "f389347ecd68002537ac6781f6209bb69cd97e1b",
-  "exactMainTree": "7f7c6e685213c8d16edd2c7cc608c77b7f64c388",
-  "projectionDigest": "sha256:ef16ebbf41175453f9dfc0feeb66c3d3b6ba7528cab9e19ac08207840955f9d4",
+  "exactMain": "c0d2cf29a7ce57fbabc36766549af341d80c72b1",
+  "exactMainTree": "743ae305dc45b184ad132a1860b81ef39dfe50ed",
+  "projectionDigest": "sha256:6f23cef1d5b4a947263ce52575ff227d389b024ae6a5022459065a3535939d1e",
   "schema": "sec-work-rolling-proposal-projection-v1"
 }
 ```
 
 ## 当前唯一 Work Package
 
-### workflow-provider-decisions-20261001
+### parallel-checkpoint-guidance-20261001
 
-Proposal-only target manifest `config/repository/work-packages/workflow-provider-decisions-20261001.md` at `sha256:e8922b86c3f23f39030e9250fb05b7c70f8be1cdc64cfac3d3c7e16d3ed4d731`, based on exact main `f389347ecd68002537ac6781f6209bb69cd97e1b` and tree `7f7c6e685213c8d16edd2c7cc608c77b7f64c388`.
+Proposal-only target manifest `config/repository/work-packages/parallel-checkpoint-guidance-20261001.md` at `sha256:5d99f5ed79667f3385e1eb75147eb992a45afb2d54e2d67149dc0d81b62bd183`, based on exact main `c0d2cf29a7ce57fbabc36766549af341d80c72b1` and tree `743ae305dc45b184ad132a1860b81ef39dfe50ed`.
 
 ## 候选 Work Package
 
