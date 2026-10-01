@@ -4,6 +4,7 @@ import path from 'node:path';
 import { readJson, writeJson } from "../../src/adapters/filesystem/files.ts";
 import { resolveWorkspaceArtifactPath } from "../../src/adapters/workspace-context.ts";
 import type { AcceptanceCoverageReport } from '../../src/assurance/acceptance/coverage.ts';
+import { snapshotVerificationPublicationArtifacts } from '../../src/assurance/verification/artifact/publication.ts';
 import { CI_ARTIFACT_FILES } from '../../src/assurance/verification/ci-artifacts/contract/manifest.ts';
 import type { VerificationReport } from '../../src/assurance/verification/contract/types.ts';
 import {
@@ -25,6 +26,8 @@ export function emptyVerificationLogs(): VerificationReport['logs'] {
 type VerificationArtifactFixtureOptions = {
   policyReport?: PolicyReport;
   acceptanceCoverage?: AcceptanceCoverageReport;
+  subjectRevision?: string;
+  lane?: VerificationReport['summary']['requestedLane'];
 };
 
 function emptyPolicyReport(): PolicyReport {
@@ -50,9 +53,10 @@ function emptyAcceptanceCoverage(status: VerificationReport['runtime']['status']
 
 export function productVerificationObservationsFixture(
   lane: VerificationReport['summary']['requestedLane'] = 'all',
-  runtimeMode: ProductVerificationRuntimeMode = 'full'
+  runtimeMode: ProductVerificationRuntimeMode = 'full',
+  subjectRevision: string = sha256({ fixture: 'product-verification-subject' })
 ): ProductVerificationObservations {
-  const bindings = buildProductVerificationObservationBindings(sha256({ fixture: 'product-verification-subject' }), lane, runtimeMode);
+  const bindings = buildProductVerificationObservationBindings(subjectRevision, lane, runtimeMode);
   const executed = (binding: ProductVerificationGateObservation, label: string): ProductVerificationGateObservation => ({
     ...binding,
     environment: {
@@ -86,6 +90,7 @@ export async function writeCanonicalVerificationArtifactSetFixture(
   input: VerificationReport,
   options: VerificationArtifactFixtureOptions = {}
 ): Promise<VerificationReport> {
+  const lane = options.lane ?? 'all';
   const policyReport = structuredClone(options.policyReport ?? emptyPolicyReport());
   const runtime = structuredClone(input.runtime);
   const acceptanceCoverage = structuredClone(options.acceptanceCoverage ?? emptyAcceptanceCoverage(runtime.status));
@@ -98,13 +103,13 @@ export async function writeCanonicalVerificationArtifactSetFixture(
     policyReport: structuredClone(policyReport)
   };
   const claimSummary = buildExpectedProductVerificationClaimSummary(
-    'all',
+    lane,
     structuredClone(fast),
     structuredClone(runtime),
-    inferProductVerificationRuntimeMode(runtime, 'all'),
+    inferProductVerificationRuntimeMode(runtime, lane),
     structuredClone(policyReport),
     structuredClone(acceptanceCoverage),
-    productVerificationObservationsFixture('all', inferProductVerificationRuntimeMode(runtime, 'all'))
+    productVerificationObservationsFixture(lane, inferProductVerificationRuntimeMode(runtime, lane), options.subjectRevision)
   );
   const failedLanes = [
     ...(fast.status === 'failed' ? ['fast' as const] : []),
@@ -119,7 +124,7 @@ export async function writeCanonicalVerificationArtifactSetFixture(
     runtime,
     summary: {
       status: claimSummary.overall.overallStatus === 'passed' ? 'passed' : 'failed',
-      requestedLane: 'all',
+      requestedLane: lane,
       failedLanes,
       claimSummary
     },
@@ -128,6 +133,7 @@ export async function writeCanonicalVerificationArtifactSetFixture(
       stderr: [fast.logs.stderr, runtime.logs.stderr].filter(Boolean).join('\n')
     }
   };
+  snapshotVerificationPublicationArtifacts({ verificationReport: report, runtimeReport: runtime, policyReport, acceptanceCoverage });
   const paths = {
     runtimeReportPath: resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.runtimeReport),
     policyReportPath: resolveWorkspaceArtifactPath(workspaceRoot, CI_ARTIFACT_FILES.policyReport),

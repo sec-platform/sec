@@ -1,4 +1,4 @@
-import { compareCodeUnits, uniqueSorted } from '../../contracts/canonical.ts';
+import { canonicalEquals, compareCodeUnits, uniqueSorted } from '../../contracts/canonical.ts';
 import { PolicySpecSchema } from './source-schema.ts';
 import type {
   PolicyRule,
@@ -60,7 +60,7 @@ export function buildLoadedPolicyScope(
   const reports: PolicySourceFileReport[] = [];
   const definitions: LoadedPolicyDefinition[] = [];
 
-  for (const source of sources) {
+  for (const source of [...sources].sort((left, right) => compareCodeUnits(left.sourcePath, right.sourcePath))) {
     const policyIds = uniqueSorted(source.spec.policies.map(policy => policy.id));
     for (const policy of source.spec.policies) {
       declaredPolicyIds.add(policy.id);
@@ -80,13 +80,21 @@ export function buildLoadedPolicyScope(
   };
 }
 
-/** Merge source scopes in precedence order: project declarations override official ones. */
+/** Coalesce equal declarations while preserving all sources. Source precedence
+ * chooses attribution only; it never authorizes a different policy value. */
 export function mergeLoadedPolicyDeclarations(
   official: LoadedPolicyScope,
   project: LoadedPolicyScope
 ): LoadedPolicyDeclarations {
   const definitions = new Map<string, LoadedPolicyDefinition>();
   for (const definition of [...official.definitions, ...project.definitions]) {
+    const previous = definitions.get(definition.policy.id);
+    if (previous !== undefined && !canonicalEquals(previous.policy, definition.policy)) {
+      throw new Error(
+        `Conflicting policy declarations for ${definition.policy.id}: `
+        + `${previous.sourceScope}:${previous.sourcePath} and ${definition.sourceScope}:${definition.sourcePath}`
+      );
+    }
     definitions.set(definition.policy.id, definition);
   }
   const policies = [...definitions.values()]
