@@ -1,7 +1,7 @@
 ---
 schema: sec-active-work-package-pointer-v2
 status: conditional
-last-reviewed: 2026-09-27
+last-reviewed: 2026-10-01
 ---
 
 # 当前唯一 Active Work Package
@@ -10,8 +10,8 @@ last-reviewed: 2026-09-27
 selectionMode: exact-manifest-not-on-default-branch-v1
 defaultBranchRef: refs/remotes/origin/main
 defaultRefFreshness: live-platform-match-required
-manifest: config/repository/work-packages/repository-closeout-20260927-v1.md
-manifestDigest: sha256:aec125353728dc47fe48ce8da1a20f5cb5f0d0b934e0b61ec5f0a9e97310dae5
+manifest: config/repository/work-packages/trusted-checker-provider-repair-20261001.md
+manifestDigest: sha256:277af9bf94f6855a8ad3d70987e174529cd0b8967d08bb9240c30a61a888875c
 digestBytes: git-blob
 unavailableDefaultRef: unresolved
 matchingDefaultBlob: none

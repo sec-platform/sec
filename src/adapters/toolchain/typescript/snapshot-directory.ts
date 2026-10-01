@@ -8,17 +8,20 @@ import { isPathInside } from '../../../contracts/relative-path.ts';
 export const TYPESCRIPT_SNAPSHOT_DIRECTORY_SEMANTICS = Object.freeze({
   matcher: 'typescript-match-files',
   entries: 'sealed-canonical-path-inventory',
-  configBase: 'containing-directory',
+  configBase: 'normalized-absolute-config-directory-v2',
   caseSensitive: true
 });
 
-export type TypeScriptSnapshotDirectoryReader = (
+export type TypeScriptSnapshotDirectoryReader = ((
   rootDir: string,
   extensions: readonly string[] | undefined,
   excludes: readonly string[] | undefined,
   includes: readonly string[] | undefined,
   depth?: number
-) => string[];
+) => string[]) & Readonly<{
+  directoryExists(directoryName: string): boolean;
+  getDirectories(directoryName: string): string[];
+}>;
 
 type DirectoryEntries = { files: string[]; directories: string[] };
 type MatchFiles = (
@@ -78,18 +81,27 @@ export function createTypeScriptSnapshotDirectoryReader(
       if (!isFile) directory(parent);
     }
   }
-  const getEntries = (candidate: string): DirectoryEntries => {
+  const indexedDirectory = (candidate: string) => {
     const absolute = path.resolve(root, candidate);
-    if (!isPathInside(root, absolute)) return { files: [], directories: [] };
+    if (!isPathInside(root, absolute)) return undefined;
     const key = path.relative(root, absolute).split(path.sep).join('/');
-    const entries = index.get(key);
+    return index.get(key);
+  };
+  const getEntries = (candidate: string): DirectoryEntries => {
+    const entries = indexedDirectory(candidate);
     // 不向 compiler 暴露可修改索引，也不接受未捕获目录的宿主回退。
     return entries === undefined ? { files: [], directories: [] } : {
       files: [...entries.files],
       directories: [...entries.directories]
     };
   };
-  return (rootDir, extensions, excludes, includes, depth) => {
+  const readDirectory = (
+    rootDir: string,
+    extensions: readonly string[] | undefined,
+    excludes: readonly string[] | undefined,
+    includes: readonly string[] | undefined,
+    depth?: number
+  ): string[] => {
     const absolute = path.resolve(root, rootDir);
     if (!isPathInside(root, absolute)) return [];
     return matchFiles(
@@ -97,4 +109,19 @@ export function createTypeScriptSnapshotDirectoryReader(
       getEntries, (candidate) => path.resolve(root, candidate)
     ).sort(compareCodeUnits);
   };
+  return Object.freeze(Object.assign(readDirectory, {
+    directoryExists: (directoryName: string): boolean => {
+      const entries = indexedDirectory(path.resolve(directoryName));
+      // A sealed file inventory observes no empty directories, including an
+      // empty virtual root. Preserve the hosts' former file-prefix semantics.
+      return entries !== undefined && (entries.files.size > 0 || entries.directories.size > 0);
+    },
+    getDirectories: (directoryName: string): string[] => {
+      const entries = indexedDirectory(path.resolve(directoryName));
+      // Preserve immediate-child inventory order and return an owned array.
+      return entries === undefined ? [] : [...entries.directories].map((entry) => (
+        path.resolve(directoryName, entry)
+      ));
+    }
+  }));
 }

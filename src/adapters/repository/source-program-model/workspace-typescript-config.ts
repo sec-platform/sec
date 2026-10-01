@@ -68,13 +68,15 @@ export function parseTypeScriptProjectConfiguration(
   host: ts.ParseConfigHost,
   virtualRoot: string
 ): ts.ParsedCommandLine {
-  const sourceFile = ts.parseJsonText(configPath, configSource);
+  const absoluteConfigPath = path.resolve(virtualRoot, configPath);
+  const configDirectory = path.dirname(absoluteConfigPath);
+  const sourceFile = ts.parseJsonText(absoluteConfigPath, configSource);
   const parsed = ts.parseJsonSourceFileConfigFileContent(
     sourceFile,
     host,
-    virtualRoot,
+    configDirectory,
     { noEmit: true },
-    configPath
+    absoluteConfigPath
   );
   if (parsed.fileNames.length > 0 || parsed.errors.length === 0) return parsed;
 
@@ -86,9 +88,9 @@ export function parseTypeScriptProjectConfiguration(
         : {})
     }),
     host,
-    virtualRoot,
+    configDirectory,
     { noEmit: true },
-    configPath
+    absoluteConfigPath
   );
   return emptyProjectValidation.fileNames.length === 0
     && emptyProjectValidation.errors.length === 0

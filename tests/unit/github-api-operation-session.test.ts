@@ -964,3 +964,46 @@ test('terminal delete 204 rejects unexpected response bytes', async () => {
     })
   })).rejects.toThrow('returned bytes with a terminal 204 response');
 });
+
+
+test('runner routing adds only requested labels to the exact ID under runner-admin', async () => {
+  const observed: Array<{ url: string; method: string | undefined; body: string | null }> = [];
+  const api = capability({ effect: 'runner-admin', principal: { ...PRINCIPAL, permission: 'admin' },
+    transport: async (url, init) => {
+      observed.push({ url: String(url), method: init?.method, body: init?.body === undefined ? null : String(init.body) });
+      return Response.json({ total_count: 5, labels: [] });
+    }
+  });
+  await withGitHubApiTestSession({ capability: api, operation: async () => {
+    await executeGitHubApiOperation(api, {
+      kind: 'add-repository-runner-labels', runnerId: 42, labels: ['sec-profile', 'sec-role-control']
+    });
+  } });
+  expect(observed).toEqual([{
+    url: 'https://api.github.com/repos/sec-platform/sec/actions/runners/42/labels',
+    method: 'POST', body: '{"labels":["sec-profile","sec-role-control"]}'
+  }]);
+});
+
+test('runner label mutation rejects read capability and malformed requests before transport', async () => {
+  let calls = 0;
+  const api = capability({ effect: 'read', transport: async () => { calls++; return Response.json({}); } });
+  await expect(withGitHubApiTestSession({ capability: api, operation: () => executeGitHubApiOperation(api, {
+    kind: 'add-repository-runner-labels', runnerId: 42, labels: ['sec-profile']
+  }) })).rejects.toThrow('require runner-admin authority');
+  const admin = capability({ effect: 'runner-admin', principal: { ...PRINCIPAL, permission: 'admin' },
+    transport: async () => { calls++; return Response.json({}); }
+  });
+  for (const request of [
+    { runnerId: 0, labels: ['sec-profile'] },
+    { runnerId: 42, labels: [] },
+    { runnerId: 42, labels: new Array<string>(1) },
+    { runnerId: 42, labels: Object.defineProperty(['profile'], 0, { get: () => 'profile' }) },
+    { runnerId: 42, labels: ['sec-profile', 'SEC-PROFILE'] }
+  ]) {
+    await expect(withGitHubApiTestSession({ capability: admin, operation: () => executeGitHubApiOperation(admin, {
+      kind: 'add-repository-runner-labels', ...request
+    }) })).rejects.toThrow();
+  }
+  expect(calls).toBe(0);
+});

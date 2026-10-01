@@ -2,29 +2,22 @@
 title: SEC 滚动近期计划
 status: active
 domain: current-control
-last-reviewed: 2026-09-27
+last-reviewed: 2026-10-01
 ---
 
 # SEC 滚动近期计划
 
-本文件由唯一rolling projection compiler生成。普通选择与非普通transition使用同一机器拓扑和同一全文renderer；digest只证明规范化内容完整性，effectful owner仍必须在发布前重验其WorkDecision、committed-candidate或MainHealth authority。禁止单独修改标题、prose、JSON字段或digest。
+本文件由唯一rolling projection compiler生成，是未获activation authority的proposal-only候选投影。authority固定为none；projection digest只保护规范化表示，不能产生WorkDecision、Effect、merge或完成权限。
 
 ```json
 {
   "active": {
-    "manifestDigest": "sha256:aec125353728dc47fe48ce8da1a20f5cb5f0d0b934e0b61ec5f0a9e97310dae5",
-    "manifestPath": "config/repository/work-packages/repository-closeout-20260927-v1.md",
-    "packageId": "repository-closeout-20260927-v1",
+    "manifestDigest": "sha256:277af9bf94f6855a8ad3d70987e174529cd0b8967d08bb9240c30a61a888875c",
+    "manifestPath": "config/repository/work-packages/trusted-checker-provider-repair-20261001.md",
+    "packageId": "trusted-checker-provider-repair-20261001",
     "tracking": "none"
   },
-  "authority": {
-    "kind": "committed-candidate-replan",
-    "sourceHead": "a863f1bc5cad4d31a249a967a09bdbf3af9eafae",
-    "sourceManifestDigest": "sha256:aec125353728dc47fe48ce8da1a20f5cb5f0d0b934e0b61ec5f0a9e97310dae5",
-    "sourcePointerRevision": "sha256:dd2df94d86a8d5061671a210f3574917e42943fd3f7f66bd5e98833a5a612fe7",
-    "sourceRollingRevision": "sha256:8664c4ed9f3a626584d502e98a4a03bc562d6e38a5107472b459b8415f718ae3",
-    "sourceTree": "05049eda8fecb5d6498042a540f37bb8342c17e7"
-  },
+  "authority": "none",
   "candidates": [
     "development-critical-path-spine-v1",
     "operation-read-plan-authority-canary-v1",
@@ -32,40 +25,40 @@ last-reviewed: 2026-09-27
     "candidate-control-transaction-v1",
     "typescript-7-checker-acceleration-v1"
   ],
-  "exactMain": "263878d40ee4b92485ee07d14185fe6f606aee8d",
-  "exactMainTree": "fe1b293837a211b2981b3bcd3edb09d9904e3cb3",
-  "projectionDigest": "sha256:1460a1d526a932cf69c705ad4e7caea9156c28a5fbfb58087ffa8db1138c886c",
-  "schema": "sec-work-rolling-transition-projection-v1"
+  "exactMain": "313684988605d299cade1ff9d4e71b61bb6682bd",
+  "exactMainTree": "42a77dde3f05084f5aa8368c8a488d6a6bfa64f1",
+  "projectionDigest": "sha256:e2521423872a29d23db2a92dbaa3998eb8355445e0525a48bddc06d64082363d",
+  "schema": "sec-work-rolling-proposal-projection-v1"
 }
 ```
 
 ## 当前唯一 Work Package
 
-### repository-closeout-20260927-v1
+### trusted-checker-provider-repair-20261001
 
-Existing active package replan bound to exact source head `a863f1bc5cad4d31a249a967a09bdbf3af9eafae`, source tree `05049eda8fecb5d6498042a540f37bb8342c17e7`, manifest `sha256:aec125353728dc47fe48ce8da1a20f5cb5f0d0b934e0b61ec5f0a9e97310dae5`, and authority `sha256:021a75165502c85dabdaaafd6045a87971292685650d8d46d2d47e4f2e015198`.
+Proposal-only target manifest `config/repository/work-packages/trusted-checker-provider-repair-20261001.md` at `sha256:277af9bf94f6855a8ad3d70987e174529cd0b8967d08bb9240c30a61a888875c`, based on exact main `313684988605d299cade1ff9d4e71b61bb6682bd` and tree `42a77dde3f05084f5aa8368c8a488d6a6bfa64f1`.
 
 ## 候选 Work Package
 
 ### 1. development-critical-path-spine-v1
 
-Retained ordered candidate from transition authority `sha256:021a75165502c85dabdaaafd6045a87971292685650d8d46d2d47e4f2e015198`.
+Retained ordered candidate identity from the published baseline; no selection authority is implied.
 
 ### 2. operation-read-plan-authority-canary-v1
 
-Retained ordered candidate from transition authority `sha256:021a75165502c85dabdaaafd6045a87971292685650d8d46d2d47e4f2e015198`.
+Retained ordered candidate identity from the published baseline; no selection authority is implied.
 
 ### 3. sec-static-convergence-v1
 
-Retained ordered candidate from transition authority `sha256:021a75165502c85dabdaaafd6045a87971292685650d8d46d2d47e4f2e015198`.
+Retained ordered candidate identity from the published baseline; no selection authority is implied.
 
 ### 4. candidate-control-transaction-v1
 
-Retained ordered candidate from transition authority `sha256:021a75165502c85dabdaaafd6045a87971292685650d8d46d2d47e4f2e015198`.
+Retained ordered candidate identity from the published baseline; no selection authority is implied.
 
 ### 5. typescript-7-checker-acceleration-v1
 
-Retained ordered candidate from transition authority `sha256:021a75165502c85dabdaaafd6045a87971292685650d8d46d2d47e4f2e015198`.
+Retained ordered candidate identity from the published baseline; no selection authority is implied.
 
 ## 重新规划硬触发器
 

@@ -167,27 +167,11 @@ export function compileTypeScriptProjectFactIdentity(
     const repositoryPath = pathInside(virtualRoot, fileName);
     return repositoryPath === null ? null : snapshot.file(repositoryPath);
   };
-  const repositoryDirectoryExists = (directoryName: string): boolean => {
-    const repositoryPath = pathInside(virtualRoot, directoryName);
-    if (repositoryPath === null) return false;
-    const prefix = repositoryPath.length === 0 ? '' : `${repositoryPath}/`;
-    return snapshot.files.some(({ path: sourcePath }) => sourcePath.startsWith(prefix));
-  };
   const moduleResolutionHost: ts.ModuleResolutionHost = {
-    directoryExists: repositoryDirectoryExists,
+    directoryExists: readSnapshotDirectory.directoryExists,
     fileExists: (fileName) => repositoryFile(fileName) !== null,
     getCurrentDirectory: () => virtualRoot,
-    getDirectories: (directoryName) => {
-      const repositoryPath = pathInside(virtualRoot, directoryName);
-      if (repositoryPath === null) return [];
-      const prefix = repositoryPath.length === 0 ? '' : `${repositoryPath}/`;
-      return [...new Set(snapshot.files.flatMap(({ path: sourcePath }) => {
-        if (!sourcePath.startsWith(prefix)) return [];
-        const remainder = sourcePath.slice(prefix.length);
-        const separator = remainder.indexOf('/');
-        return separator === -1 ? [] : [remainder.slice(0, separator)];
-      }))].map((entry) => path.resolve(directoryName, entry));
-    },
+    getDirectories: readSnapshotDirectory.getDirectories,
     readFile: (fileName) => repositoryFile(fileName)?.source,
     realpath: (fileName) => fileName,
     useCaseSensitiveFileNames: true
@@ -530,13 +514,7 @@ export function compileTypeScriptProjectInput(
       if (externalDirectory !== null) {
         return baseHost.directoryExists?.(externalDirectory) ?? false;
       }
-      const repositoryPath = pathInside(virtualRoot, directoryName);
-      if (repositoryPath !== null) {
-        return snapshot.files.some(({ path: sourcePath }) => (
-          repositoryPath === '' || sourcePath.startsWith(`${repositoryPath}/`)
-        ));
-      }
-      return false;
+      return readSnapshotDirectory.directoryExists(directoryName);
     },
     fileExists: (fileName) => {
       if (snapshotFileForAbsolute(fileName) !== null) return true;
