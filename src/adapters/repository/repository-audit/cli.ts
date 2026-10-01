@@ -142,6 +142,7 @@ import {
   type RepositoryAuditLoadedImplementationObservation
 } from './loaded-implementation.ts';
 import {
+  compileSourceProgramAuditAnalyses,
   compileSourceProgramAuditOperationInput,
   compileSourceProgramAuditSourceProgramProjection,
   compileSourceProgramAuditTestValueProjection,
@@ -1668,6 +1669,9 @@ async function prepareWorkingTreeSourceProgramAudit(
   deadlineAtUnixMs: number,
   transition?: Readonly<{ candidateRoot: string; baseSha: string; headSha: string; authorPayload?: SourceProgramTestAuthorDecisionPayload }>
 ): Promise<PreparedWorkingTreeSourceProgramAudit> {
+  if (transition !== undefined && options.reductionMode !== 'none') {
+    throw new Error('Test transition preparation cannot request whole-program reduction');
+  }
   const subjectRoot = transition?.candidateRoot ?? DEFAULT_REPOSITORY_ROOT;
   const worktreeAudit = await (async () => {
     try {
@@ -1685,41 +1689,52 @@ async function prepareWorkingTreeSourceProgramAudit(
     }
   })();
   const { model } = worktreeAudit;
-  const implementationDominance = compileRepositoryAuditPreparationPhase(
-    'source-program.implementation-dominance',
-    () => compileSourceProgramImplementationDominance({
-      model,
-      ownerIntents: worktreeAudit.currentIntentEvidence
-    })
-  );
   const knipReceipt = worktreeAudit.knipProvider?.status === 'completed'
     ? worktreeAudit.knipProvider.receipt
     : null;
-  const reconciliation = compileRepositoryAuditPreparationPhase(
-    'source-program.reconciliation',
-    () => compileSourceProgramReconciliationProjection({
-      before: worktreeAudit.baselineSourceProgramCompilation,
-      after: worktreeAudit.currentSourceProgramCompilation,
-      ...(options.reductionMode === 'graph-cut' ? {
-        providerEvidence: [knipReceipt === null
-          ? Object.freeze({
-              provider: 'knip', status: 'unresolved' as const,
-              providerRevision: null, configDigest: null, inputDigest: null, candidateDigest: null
-            })
-          : Object.freeze({
-              provider: 'knip', status: 'observed' as const,
-              providerRevision: knipReceipt.providerRevision,
-              configDigest: knipReceipt.configurationDigest as `sha256:${string}`,
-              inputDigest: knipReceipt.inputDigest as `sha256:${string}`,
-              candidateDigest: knipReceipt.candidateDigest as `sha256:${string}`
-            })]
-      } : {})
-    })
-  );
-  const architectureEvolution = compileRepositoryAuditPreparationPhase(
-    'source-program.architecture-evolution',
-    () => compileSourceProgramArchitectureEvolutionReference({ reconciliation })
-  );
+  const analyses = compileSourceProgramAuditAnalyses({
+    authorityScope: transition === undefined ? 'whole-program' : 'test-obligations',
+    baselineCompilation: {
+      sourceRevision: worktreeAudit.baselineSourceProgramCompilation.sourceRevision,
+      modelDigest: worktreeAudit.baselineSourceProgramCompilation.model.modelDigest,
+      compilationReceiptDigest: worktreeAudit.baselineSourceProgramCompilation.receiptDigest
+    },
+    compileWholeProgram: () => {
+      const implementationDominance = compileRepositoryAuditPreparationPhase(
+        'source-program.implementation-dominance',
+        () => compileSourceProgramImplementationDominance({
+          model,
+          ownerIntents: worktreeAudit.currentIntentEvidence
+        })
+      );
+      const reconciliation = compileRepositoryAuditPreparationPhase(
+        'source-program.reconciliation',
+        () => compileSourceProgramReconciliationProjection({
+          before: worktreeAudit.baselineSourceProgramCompilation,
+          after: worktreeAudit.currentSourceProgramCompilation,
+          ...(options.reductionMode === 'graph-cut' ? {
+            providerEvidence: [knipReceipt === null
+              ? Object.freeze({
+                  provider: 'knip', status: 'unresolved' as const,
+                  providerRevision: null, configDigest: null, inputDigest: null, candidateDigest: null
+                })
+              : Object.freeze({
+                  provider: 'knip', status: 'observed' as const,
+                  providerRevision: knipReceipt.providerRevision,
+                  configDigest: knipReceipt.configurationDigest as `sha256:${string}`,
+                  inputDigest: knipReceipt.inputDigest as `sha256:${string}`,
+                  candidateDigest: knipReceipt.candidateDigest as `sha256:${string}`
+                })]
+          } : {})
+        })
+      );
+      const architectureEvolution = compileRepositoryAuditPreparationPhase(
+        'source-program.architecture-evolution',
+        () => compileSourceProgramArchitectureEvolutionReference({ reconciliation })
+      );
+      return Object.freeze({ implementationDominance, reconciliation, architectureEvolution });
+    }
+  });
   const observedTestValue = compileSourceProgramTestValue({
     repositoryRoot: subjectRoot,
     files: worktreeAudit.sourceFiles,
@@ -1852,13 +1867,11 @@ async function prepareWorkingTreeSourceProgramAudit(
   const sourceFileIdentities = Object.freeze(model.files.map(({ path: repositoryPath, contentDigest }) =>
     Object.freeze({ path: repositoryPath, contentDigest })));
 
-  const auditFacts: CompileSourceProgramAuditOperationInput = Object.freeze({
-      architectureEvolution,
+  const sharedFacts = {
       blockingCandidates,
       blockingTestFindings,
       cache: worktreeAudit.cache,
       declarationTopology: worktreeAudit.declarationTopology,
-      implementationDominance,
       invalidatedTypeScriptPaths: worktreeAudit.invalidatedTypeScriptPaths,
       sourceProgram: compileSourceProgramAuditSourceProgramProjection(
         model,
@@ -1868,7 +1881,6 @@ async function prepareWorkingTreeSourceProgramAudit(
       ),
       moduleArchitecture: worktreeAudit.moduleArchitecture,
       options: Object.freeze({
-        authorityScope: transition === undefined ? 'whole-program' : 'test-obligations',
         blockingDetails: options.blockingDetails,
         blockingDetailsDomain: options.blockingDetailsDomain,
         blockingDetailsPage: options.blockingDetailsPage,
@@ -1878,8 +1890,6 @@ async function prepareWorkingTreeSourceProgramAudit(
         outputPath: options.outputPath,
         queryProjection: options.query === null ? null : querySourceProgramModel(model, options.query)
       }),
-      reconciliation,
-      reduction,
       sourceFileIdentities,
       sourceProgramCompilation: worktreeAudit.sourceProgramCompilation,
       supersession,
@@ -1889,7 +1899,12 @@ async function prepareWorkingTreeSourceProgramAudit(
       testValue: compileSourceProgramAuditTestValueProjection(testValue, options.full),
       topology: summarizeSourceProgramTopology(model),
       unknownDispositionClusters
-  });
+  };
+  const auditFacts: CompileSourceProgramAuditOperationInput = analyses.schema === undefined
+    ? Object.freeze({ ...sharedFacts, ...analyses, reduction,
+        options: Object.freeze({ ...sharedFacts.options, authorityScope: 'whole-program' }) })
+    : Object.freeze({ ...sharedFacts, ...analyses, reduction: Object.freeze({ mode: 'none' }),
+        options: Object.freeze({ ...sharedFacts.options, authorityScope: 'test-obligations' }) });
   return Object.freeze({
     dependencyGenerationDigest: worktreeAudit.dependencyGenerationDigest,
     supersessionEvidenceCacheCandidates: Object.freeze([
@@ -3641,8 +3656,33 @@ export async function assessSourceProgramTransition(
     enforce: true, full: false, includeCandidates: false, outputPath: null, query: null,
     reductionMode: 'none', supersessionBaseline: input.baseSha
   }, Math.max(1, deadlineAtUnixMs - Date.now()), transition);
-  if (result.status !== 'completed' || result.transitionAssessment === undefined) {
-    throw new Error('Adopted Source transition operation did not produce complete settled evidence');
+  return requireSettledSourceProgramTransitionAssessment(result);
+}
+
+/** Preserve the owner's bounded diagnostic at the transition wrapper. This
+ * projects no raw exception/output bytes and issues no adoption authority. */
+export function requireSettledSourceProgramTransitionAssessment(result:
+  | Readonly<{ status: 'denied'; diagnostic: RepositoryAuditWorkerDiagnostic }>
+  | Readonly<{ status: 'completed'; transitionAssessment?: SourceProgramTransitionAssessment }>
+): SourceProgramTransitionAssessment {
+  if (result.status === 'denied') {
+    const diagnostic = result.diagnostic;
+    const process = diagnostic.process;
+    throw new Error(`Adopted Source transition denied: ${JSON.stringify({
+      authority: 'none-diagnostic-only', status: diagnostic.status,
+      stage: diagnostic.stage, reason: diagnostic.reason,
+      failureKind: diagnostic.failureKind, protocolErrorCode: diagnostic.protocolErrorCode,
+      detailDigest: diagnostic.detailDigest,
+      process: process === null ? null : {
+        status: process.status, started: process.started, exitCode: process.exitCode,
+        stdoutBytes: process.stdoutBytes, stderrBytes: process.stderrBytes,
+        childCloseObserved: process.childCloseObserved,
+        streamsDrained: process.streamsDrained, treeClosed: process.treeClosed
+      }
+    })}`);
+  }
+  if (result.transitionAssessment === undefined) {
+    throw new Error('Adopted Source transition completed without a transition assessment');
   }
   return result.transitionAssessment;
 }

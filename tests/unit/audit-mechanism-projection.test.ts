@@ -9,7 +9,7 @@ import {
   encodeSourceProgramAuditOperationResult,
   parseSourceProgramAuditOperationInput,
   parseSourceProgramAuditOperationResult,
-  type CompileSourceProgramAuditOperationInput
+  type CompileWholeSourceProgramAuditOperationInput
 } from '../../src/adapters/repository/repository-audit/source-program-audit-operation.ts';
 import type { SourceProgramModel } from '../../src/adapters/repository/source-program-model/contract.ts';
 import { compileSourceProgramFindingDelta } from '../../src/adapters/repository/source-program-model/reconciliation-findings.ts';
@@ -35,7 +35,7 @@ function model(): SourceProgramModel {
   };
 }
 
-function input(full = false): CompileSourceProgramAuditOperationInput {
+function input(full = false): CompileWholeSourceProgramAuditOperationInput {
   const source = model();
   const sourceRevision = source.sourceRevision;
   const modelDigest = source.modelDigest;
@@ -65,7 +65,7 @@ function input(full = false): CompileSourceProgramAuditOperationInput {
     findingSnapshot(sourceRevision, modelDigest)
   );
   const cost = { productionUnits: 0, testUnits: 0, owners: 0, unresolvedObservations: 0, unobservedTestRisk: 0 };
-  const facts: CompileSourceProgramAuditOperationInput = {
+  const facts: CompileWholeSourceProgramAuditOperationInput = {
     sourceProgram: compileSourceProgramAuditSourceProgramProjection(source, sourceFileIdentities, false),
     sourceFileIdentities,
     moduleArchitecture: {

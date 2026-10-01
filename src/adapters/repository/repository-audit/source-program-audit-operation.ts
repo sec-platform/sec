@@ -236,7 +236,10 @@ export type SourceProgramAuditReduction =
       }>;
     }>;
 
-export interface CompileSourceProgramAuditOperationInput {
+/** Historical complete facts retain their original wire representation. */
+export interface CompileWholeSourceProgramAuditOperationInput {
+  readonly schema?: never;
+  readonly baselineCompilation?: never;
   readonly sourceProgram: Readonly<{
     readonly sourceRevision: string;
     readonly modelDigest: string;
@@ -335,6 +338,62 @@ export interface CompileSourceProgramAuditOperationInput {
     /** Parent-normalized presentation only; the operation never writes it. */
     readonly outputPath: string | null;
   }>;
+}
+
+export type SourceProgramAuditAnalysisNotRequested = Readonly<{
+  status: 'not-requested';
+  reason: 'outside-test-obligations';
+}>;
+
+type WholeProgramAnalyses = Pick<CompileWholeSourceProgramAuditOperationInput,
+  'schema' | 'baselineCompilation' | 'implementationDominance' | 'reconciliation' | 'architectureEvolution'>;
+
+type TestObligationAnalyses = Readonly<{
+  schema: 'source-program-test-obligations-audit-facts-v1';
+  baselineCompilation: SourceProgramAuditReconciliationProjection['before'];
+  implementationDominance: SourceProgramAuditAnalysisNotRequested;
+  reconciliation: SourceProgramAuditAnalysisNotRequested;
+  architectureEvolution: SourceProgramAuditAnalysisNotRequested;
+}>;
+
+export type CompileTestObligationsAuditOperationInput =
+  Omit<CompileWholeSourceProgramAuditOperationInput,
+    keyof WholeProgramAnalyses | 'options' | 'reduction' | 'testFindingDelta'>
+  & TestObligationAnalyses & Readonly<{
+    options: CompileWholeSourceProgramAuditOperationInput['options'] & Readonly<{ authorityScope: 'test-obligations' }>;
+    reduction: Readonly<{ mode: 'none' }>;
+    testFindingDelta: SourceProgramTestFindingDelta;
+  }>;
+
+export type CompileSourceProgramAuditOperationInput =
+  | CompileWholeSourceProgramAuditOperationInput
+  | CompileTestObligationsAuditOperationInput;
+
+/** Select before invoking expensive whole-program producers. The baseline
+ * anchor is a parent projection of its actual compilation, not a receipt issuer. */
+export function compileSourceProgramAuditAnalyses(input: Readonly<{
+  authorityScope: 'whole-program' | 'test-obligations';
+  baselineCompilation: SourceProgramAuditReconciliationProjection['before'];
+  compileWholeProgram: () => WholeProgramAnalyses;
+}>): WholeProgramAnalyses | TestObligationAnalyses {
+  if (input.authorityScope === 'whole-program') return input.compileWholeProgram();
+  if (input.authorityScope !== 'test-obligations') throw new Error('Unsupported Source Program analysis scope');
+  const notRequested: SourceProgramAuditAnalysisNotRequested = Object.freeze({
+    status: 'not-requested', reason: 'outside-test-obligations'
+  });
+  return Object.freeze({
+    schema: 'source-program-test-obligations-audit-facts-v1',
+    baselineCompilation: Object.freeze({ ...input.baselineCompilation }),
+    implementationDominance: notRequested,
+    reconciliation: notRequested,
+    architectureEvolution: notRequested
+  });
+}
+
+export function isTestObligationsAuditFacts(
+  input: CompileSourceProgramAuditOperationInput
+): input is CompileTestObligationsAuditOperationInput {
+  return input.schema === 'source-program-test-obligations-audit-facts-v1';
 }
 
 export interface SourceProgramAuditOperationResult {
@@ -478,6 +537,9 @@ function blockingDetailRecords(
       return tagged('blocked-test-retirement-proof', input.testRetirement.proofs
         .filter(({ status }) => status === 'blocked'));
     case 'implementation-dominance':
+      if (isTestObligationsAuditFacts(input)) {
+        throw new Error('Implementation dominance was not requested for test obligations');
+      }
       return tagged('implementation-dominance-finding', input.implementationDominance.findings);
     case 'test-value':
       return Object.freeze([
@@ -590,6 +652,29 @@ export function compileSourceProgramAuditTestValueProjection(
 }
 
 function assertFacts(input: CompileSourceProgramAuditOperationInput): void {
+  if (Object.hasOwn(input, 'schema') && !isTestObligationsAuditFacts(input)) {
+    throw new Error('Unsupported Source Program audit facts schema');
+  }
+  if (isTestObligationsAuditFacts(input)) {
+    if (input.options.authorityScope !== 'test-obligations' || input.reduction.mode !== 'none'
+        || input.testFindingDelta === undefined) {
+      throw new Error('Scoped test facts require test obligations, comparison and no reduction');
+    }
+    for (const analysis of [input.implementationDominance, input.reconciliation, input.architectureEvolution]) {
+      if (!isPlainObject(analysis) || Object.keys(analysis).length !== 2
+          || analysis.status !== 'not-requested' || analysis.reason !== 'outside-test-obligations') {
+        throw new Error('Scoped test analysis must be explicitly not requested');
+      }
+    }
+    const baseline = input.baselineCompilation;
+    if (!isPlainObject(baseline) || Object.keys(baseline).length !== 3
+        || ![baseline.sourceRevision, baseline.modelDigest, baseline.compilationReceiptDigest]
+          .every(value => typeof value === 'string' && /^sha256:[a-f0-9]{64}$/u.test(value))) {
+      throw new Error('Scoped test facts require an exact baseline compilation anchor');
+    }
+  } else if (Object.hasOwn(input, 'baselineCompilation')) {
+    throw new Error('Legacy full facts cannot substitute a scoped compilation anchor');
+  }
   assertSourceFileIdentities(input.sourceFileIdentities);
   if (input.sourceProgram.sourceFileSetDigest !== sha256(input.sourceFileIdentities)
       || input.sourceProgram.counts.files !== input.sourceFileIdentities.length
@@ -608,40 +693,45 @@ function assertFacts(input: CompileSourceProgramAuditOperationInput): void {
   )) {
     throw new Error('Mechanism review is not bound to the Source Program projection');
   }
-  if (input.implementationDominance.sourceRevision !== input.sourceProgram.sourceRevision
-      || input.implementationDominance.sourceProgramModelDigest !== input.sourceProgram.modelDigest) {
-    throw new Error('Implementation dominance is not bound to the Source Program model');
-  }
-  if (input.reconciliation.after.sourceRevision !== input.sourceProgram.sourceRevision
-      || input.reconciliation.after.modelDigest !== input.sourceProgram.modelDigest
-      || input.reconciliation.after.compilationReceiptDigest
-        !== input.sourceProgramCompilation.receiptDigest
-      || input.declarationTopology.sourceRevision !== input.sourceProgram.sourceRevision
+  if (input.declarationTopology.sourceRevision !== input.sourceProgram.sourceRevision
       || input.declarationTopology.modelDigest !== input.sourceProgram.modelDigest
-      || input.declarationTopology.compilationReceiptDigest
-        !== input.sourceProgramCompilation.receiptDigest
-      || input.architectureEvolution.after.sourceRevision !== input.sourceProgram.sourceRevision
-      || input.architectureEvolution.after.modelDigest !== input.sourceProgram.modelDigest
-      || input.architectureEvolution.reconciliationProjectionDigest
-        !== input.reconciliation.projectionDigest) {
-    throw new Error('Architecture projections are not bound to the Source Program model');
+      || input.declarationTopology.compilationReceiptDigest !== input.sourceProgramCompilation.receiptDigest) {
+    throw new Error('Declaration topology is not bound to the Source Program model');
   }
-  const delta = input.reconciliation.findingDelta;
-  if (delta !== undefined && (
-    delta.before.sourceRevision !== input.reconciliation.before.sourceRevision
-    || delta.before.modelDigest !== input.reconciliation.before.modelDigest
-    || delta.after.sourceRevision !== input.reconciliation.after.sourceRevision
-    || delta.after.modelDigest !== input.reconciliation.after.modelDigest
-    || (sourceProgramFindingDeltaIsUnresolved(delta) && input.reconciliation.status !== 'unresolved')
-  )) {
-    throw new Error('Finding reconciliation is not bound to the compared models or unresolved state');
+  if (!isTestObligationsAuditFacts(input)) {
+    if (input.implementationDominance.sourceRevision !== input.sourceProgram.sourceRevision
+        || input.implementationDominance.sourceProgramModelDigest !== input.sourceProgram.modelDigest) {
+      throw new Error('Implementation dominance is not bound to the Source Program model');
+    }
+    if (input.reconciliation.after.sourceRevision !== input.sourceProgram.sourceRevision
+        || input.reconciliation.after.modelDigest !== input.sourceProgram.modelDigest
+        || input.reconciliation.after.compilationReceiptDigest
+          !== input.sourceProgramCompilation.receiptDigest
+        || input.architectureEvolution.after.sourceRevision !== input.sourceProgram.sourceRevision
+        || input.architectureEvolution.after.modelDigest !== input.sourceProgram.modelDigest
+        || input.architectureEvolution.reconciliationProjectionDigest
+          !== input.reconciliation.projectionDigest) {
+      throw new Error('Architecture projections are not bound to the Source Program model');
+    }
+    const delta = input.reconciliation.findingDelta;
+    if (delta !== undefined && (
+      delta.before.sourceRevision !== input.reconciliation.before.sourceRevision
+      || delta.before.modelDigest !== input.reconciliation.before.modelDigest
+      || delta.after.sourceRevision !== input.reconciliation.after.sourceRevision
+      || delta.after.modelDigest !== input.reconciliation.after.modelDigest
+      || (sourceProgramFindingDeltaIsUnresolved(delta) && input.reconciliation.status !== 'unresolved')
+    )) {
+      throw new Error('Finding reconciliation is not bound to the compared models or unresolved state');
+    }
   }
+  const baselineCompilation = isTestObligationsAuditFacts(input)
+    ? input.baselineCompilation : input.reconciliation.before;
   const testDelta = input.testFindingDelta;
   if (testDelta !== undefined) {
     assertSourceProgramTestFindingDelta(testDelta, input.testDisposition.findings);
-    if (testDelta.before.sourceRevision !== input.reconciliation.before.sourceRevision
-        || testDelta.before.modelDigest !== input.reconciliation.before.modelDigest
-        || testDelta.before.compilationReceiptDigest !== input.reconciliation.before.compilationReceiptDigest
+    if (testDelta.before.sourceRevision !== baselineCompilation.sourceRevision
+        || testDelta.before.modelDigest !== baselineCompilation.modelDigest
+        || testDelta.before.compilationReceiptDigest !== baselineCompilation.compilationReceiptDigest
         || testDelta.before.sourceRevision !== input.supersession.baseline.sourceRevision
         || testDelta.before.modelDigest !== input.supersession.baseline.modelDigest
         || testDelta.before.testCompilationDigest !== input.supersession.baseline.testCompilationDigest
@@ -990,7 +1080,7 @@ export function compileSourceProgramAuditOperationInput(
   // A missing comparison is not permission: current producers always issue a
   // finding delta, so its absence remains a fail-closed protocol boundary.
   const authorityScope = input.options.authorityScope ?? 'whole-program';
-  const findingDelta = input.reconciliation.findingDelta;
+  const findingDelta = isTestObligationsAuditFacts(input) ? undefined : input.reconciliation.findingDelta;
   const findingRegression = findingDelta !== undefined
     && (findingDelta.counts.introduced > 0 || findingDelta.counts.changed > 0);
   const testFindingDelta = input.testFindingDelta;
@@ -1004,8 +1094,8 @@ export function compileSourceProgramAuditOperationInput(
       ? ['test-retirement-blocked'] : []),
     ...(authorityScope === 'whole-program' && findingDelta === undefined ? ['finding-reconciliation-unavailable'] : []),
     ...(authorityScope === 'whole-program' && findingRegression ? ['source-program-finding-regression'] : []),
-    ...(authorityScope === 'whole-program' && input.reconciliation.status === 'unresolved' ? ['reconciliation-unresolved'] : []),
-    ...(authorityScope === 'whole-program' && input.architectureEvolution.status === 'blocked' ? ['architecture-evolution'] : []),
+    ...(!isTestObligationsAuditFacts(input) && authorityScope === 'whole-program' && input.reconciliation.status === 'unresolved' ? ['reconciliation-unresolved'] : []),
+    ...(!isTestObligationsAuditFacts(input) && authorityScope === 'whole-program' && input.architectureEvolution.status === 'blocked' ? ['architecture-evolution'] : []),
     ...(testFindingDelta === undefined ? ['test-finding-reconciliation-unavailable'] : []),
     ...(testFindingRegression ? ['test-value-finding-regression'] : []),
     ...(testFindingDelta !== undefined && sourceProgramTestFindingDeltaIsUnresolved(testFindingDelta, authorAssessedCurrentPaths)
@@ -1017,6 +1107,9 @@ export function compileSourceProgramAuditOperationInput(
   ].sort(compareCodeUnits));
   const projection = Object.freeze({
     authorityScope,
+    ...(isTestObligationsAuditFacts(input) ? {
+      factsSchema: input.schema, baselineCompilation: input.baselineCompilation
+    } : {}),
     architecture: full ? Object.freeze({
       feedbackProjections: input.moduleArchitecture.feedbackCuts,
       reciprocalPairs: input.moduleArchitecture.reciprocalPairs,
@@ -1071,7 +1164,7 @@ export function compileSourceProgramAuditOperationInput(
     invalidatedTypeScriptPaths: full
       ? input.invalidatedTypeScriptPaths
       : compactRecordSet(input.invalidatedTypeScriptPaths),
-    implementationDominance: full
+    implementationDominance: isTestObligationsAuditFacts(input) ? input.implementationDominance : full
       ? input.implementationDominance
       : Object.freeze({
           compilationDigest: input.implementationDominance.compilationDigest,
@@ -1087,7 +1180,7 @@ export function compileSourceProgramAuditOperationInput(
               ])
           )
         }),
-    reconciliation: full ? input.reconciliation : Object.freeze({
+    reconciliation: isTestObligationsAuditFacts(input) ? input.reconciliation : full ? input.reconciliation : Object.freeze({
       status: input.reconciliation.status,
       projectionDigest: input.reconciliation.projectionDigest,
       before: input.reconciliation.before,
@@ -1100,7 +1193,7 @@ export function compileSourceProgramAuditOperationInput(
         findingDelta: summarizeSourceProgramFindingDelta(input.reconciliation.findingDelta)
       })
     }),
-    architectureEvolution: full ? input.architectureEvolution : Object.freeze({
+    architectureEvolution: isTestObligationsAuditFacts(input) ? input.architectureEvolution : full ? input.architectureEvolution : Object.freeze({
       status: input.architectureEvolution.status,
       direction: input.architectureEvolution.direction,
       referenceDigest: input.architectureEvolution.referenceDigest,
@@ -1185,6 +1278,11 @@ export function compileSourceProgramAuditOperationInput(
     }),
     summary: Object.freeze({
       blockingCandidates: candidates.length,
+      ...(isTestObligationsAuditFacts(input) ? {
+        implementationDominance: input.implementationDominance,
+        reconciliation: input.reconciliation,
+        architectureEvolution: input.architectureEvolution
+      } : {
       implementationDominanceFindings: input.implementationDominance.findings.length,
       implementationDominanceUnits: input.implementationDominance.units.length,
       reconciliationStatus: input.reconciliation.status,
@@ -1194,6 +1292,7 @@ export function compileSourceProgramAuditOperationInput(
       architectureEvolutionStatus: input.architectureEvolution.status,
       architectureEvolutionDirection: input.architectureEvolution.direction,
       architectureEvolutionBlockers: input.architectureEvolution.blockers.length,
+      }),
       blockingTestFindings: testFindings.length,
       reportedBlockingTestFindings: full
         ? testFindings.length

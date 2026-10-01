@@ -1,12 +1,12 @@
 import path from 'node:path';
 import ts from 'typescript';
-import { parseContainedTypeScriptProjectConfig, parseTypeScriptProjectConfiguration } from './workspace-typescript-config.ts';
-import { createTypeScriptSnapshotDirectoryReader, TYPESCRIPT_SNAPSHOT_DIRECTORY_SEMANTICS } from '../../toolchain/typescript/snapshot-directory.ts';
-import { sha256, compareCodeUnits, rawSha256 } from '../../../contracts/canonical.ts';
+import { compareCodeUnits, rawSha256, sha256 } from '../../../contracts/canonical.ts';
 import type { RetainedNoFollowProvenDirectoryGeneration } from '../../runtime-state/physical/runtime/physical-no-follow.ts';
+import { createTypeScriptSnapshotDirectoryReader, TYPESCRIPT_SNAPSHOT_DIRECTORY_SEMANTICS } from '../../toolchain/typescript/snapshot-directory.ts';
 import { normalizeSecRepositoryPath } from '../architecture/contract.ts';
 import { assertPhysicalWorkspaceSourceSnapshot, assertWorkspaceSourceSnapshot, type PhysicalWorkspaceSourceSnapshot, type WorkspaceSourceSnapshot } from './workspace-source-authority.ts';
 import type { WorkspaceSourceFile } from './workspace-source-content.ts';
+import { parseContainedTypeScriptProjectConfig, parseTypeScriptProjectConfiguration } from './workspace-typescript-config.ts';
 
 const workspaceTypeScriptProjectInputBrand: unique symbol = Symbol('workspace-typescript-project-input');
 
@@ -663,12 +663,9 @@ export function compileTypeScriptProjectInput(
       contentDigest: rawSha256(sourceFile.text)
     }));
   }
-  const sourceFacts = Object.freeze([
-    projectConfig,
-    ...repositorySources.values()
-  ].filter((source, index, values) => values.findIndex(({ path: sourcePath }) => (
-    sourcePath === source.path
-  )) === index).sort((left, right) => compareCodeUnits(left.path, right.path)).map(({
+  repositorySources.set(projectConfig.path, projectConfig);
+  const sourceFacts = Object.freeze([...repositorySources.values()]
+    .sort((left, right) => compareCodeUnits(left.path, right.path)).map(({
     path: repositoryPath,
     contentDigest
   }) => Object.freeze({

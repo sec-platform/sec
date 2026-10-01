@@ -1,4 +1,4 @@
-import type { CompileSourceProgramAuditOperationInput } from '../../src/adapters/repository/repository-audit/source-program-audit-operation.ts';
+import { isTestObligationsAuditFacts, type CompileSourceProgramAuditOperationInput } from '../../src/adapters/repository/repository-audit/source-program-audit-operation.ts';
 import type { SourceProgramTestFindingDelta } from '../../src/adapters/repository/source-program-model/reconciliation-findings.ts';
 import { sha256 } from '../../src/contracts/canonical.ts';
 
@@ -38,7 +38,7 @@ export function syntheticTestFindingComparison(
   }));
   const findingsDigest = digest(findings.map(digest).sort());
   const unsigned: Omit<SourceProgramTestFindingDelta, 'deltaDigest'> = {
-    before: { ...common, ...facts.reconciliation.before,
+    before: { ...common, ...(isTestObligationsAuditFacts(facts) ? facts.baselineCompilation : facts.reconciliation.before),
       testCompilationDigest: facts.supersession.baseline.testCompilationDigest, findingsDigest: digest([]) },
     after: { ...common, sourceRevision: facts.sourceProgram.sourceRevision,
       modelDigest: facts.sourceProgram.modelDigest,
