@@ -43,7 +43,7 @@ test('repository-common hook generation runs when an older worktree creates the 
     // Both revisions supply the package entry invoked by the managed hook.
     // The fixture observes dispatch; package metadata is verified separately.
     await writeFile(path.join(repoRoot, 'package.json'), JSON.stringify({
-      scripts: { dev: '"$npm_execpath" -e "process.exit(0)"' }
+      scripts: { 'workspace:transition': '"$npm_execpath" -e "process.exit(0)"' }
     }));
     git(repoRoot, ['add', 'README.md', 'package.json']);
     git(repoRoot, ['commit', '--quiet', '-m', 'older checkout without managed hooks']);

@@ -10,8 +10,8 @@ last-reviewed: 2026-10-01
 selectionMode: exact-manifest-not-on-default-branch-v1
 defaultBranchRef: refs/remotes/origin/main
 defaultRefFreshness: live-platform-match-required
-manifest: config/repository/work-packages/write-lease-owner-boundaries-20261001.md
-manifestDigest: sha256:bda267a2f8b83356c1615f1bc1afdb1d34214e93a96b0405099d693e49e9882e
+manifest: config/repository/work-packages/hook-recovery-owner-boundaries-20261001.md
+manifestDigest: sha256:2601adc37bb9777b0f1ea8fe58579b186105ac414e59be342347beb05b59f3e0
 digestBytes: git-blob
 unavailableDefaultRef: unresolved
 matchingDefaultBlob: none
