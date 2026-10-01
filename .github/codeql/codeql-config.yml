@@ -8,3 +8,10 @@ paths-ignore:
   - "**/*.test.ts"
   - "**/*.test.js"
   - "**/*.test.mjs"
+
+# Preserve the repository's existing default-setup analysis policy when this
+# configuration is consumed by the advanced workflow.
+queries:
+  - uses: security-extended
+threat-models:
+  - local

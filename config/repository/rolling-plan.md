@@ -12,9 +12,9 @@ last-reviewed: 2026-10-01
 ```json
 {
   "active": {
-    "manifestDigest": "sha256:9da9708ecb7dff6ae25996d6863cca315e8df4ecc2af9d773a8e46c1c2f0d39e",
-    "manifestPath": "config/repository/work-packages/task-progress-constraints-20261001.md",
-    "packageId": "task-progress-constraints-20261001",
+    "manifestDigest": "sha256:8fe26a36fbb5ddd56a8efe8712acde30d495e930392694d68b4383c164c184c0",
+    "manifestPath": "config/repository/work-packages/codeql-advanced-bootstrap-20261001.md",
+    "packageId": "codeql-advanced-bootstrap-20261001",
     "tracking": "none"
   },
   "authority": "none",
@@ -25,18 +25,18 @@ last-reviewed: 2026-10-01
     "candidate-control-transaction-v1",
     "typescript-7-checker-acceleration-v1"
   ],
-  "exactMain": "4b469dbaa7965db76fc3f3dc4978c43457e335d4",
-  "exactMainTree": "f8615e316f30a80d0d7270eebc2c7865862a0298",
-  "projectionDigest": "sha256:d9d48e02bae5663fe03521f2751ca27baf645c99284c9532606c0f9878a9e49b",
+  "exactMain": "af772fa26b304f1d484011de88e6536160d1dbc4",
+  "exactMainTree": "8ad23445247b2574c607d57a6824935abc643828",
+  "projectionDigest": "sha256:a05813d173a81ca56a74fdf242e1064b6d9a170472d55f900834aad8f06a985c",
   "schema": "sec-work-rolling-proposal-projection-v1"
 }
 ```
 
 ## 当前唯一 Work Package
 
-### task-progress-constraints-20261001
+### codeql-advanced-bootstrap-20261001
 
-Proposal-only target manifest `config/repository/work-packages/task-progress-constraints-20261001.md` at `sha256:9da9708ecb7dff6ae25996d6863cca315e8df4ecc2af9d773a8e46c1c2f0d39e`, based on exact main `4b469dbaa7965db76fc3f3dc4978c43457e335d4` and tree `f8615e316f30a80d0d7270eebc2c7865862a0298`.
+Proposal-only target manifest `config/repository/work-packages/codeql-advanced-bootstrap-20261001.md` at `sha256:8fe26a36fbb5ddd56a8efe8712acde30d495e930392694d68b4383c164c184c0`, based on exact main `af772fa26b304f1d484011de88e6536160d1dbc4` and tree `8ad23445247b2574c607d57a6824935abc643828`.
 
 ## 候选 Work Package
 
