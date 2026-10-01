@@ -41,6 +41,11 @@
 
 - [GitHub 凭证与异步传输的方案、替代与测试入口](开发/AI协作/规则装载与任务恢复.md#github-credential-transport-decision)
 - [严格零写观察与测试进程的反例、采用边界和待验证方案](开发/AI协作/规则装载与任务恢复.md#repository-observation-runtime-decisions)
+- [受信原生检查复用的暂缓理由与较小接合条件](开发/AI协作/规则装载与任务恢复.md#repository-native-typecheck-reuse-decision)
+- [文档冻结的原生 Git 采用与手工树框架退出](开发/AI协作/规则装载与任务恢复.md#repository-freeze-native-index-decision)
+- [基线事实缓存的消费者、权威与成本裁决](开发/测试发现与执行.md#source-transition-baseline-cache-decision)
+- [已保存测试条件评估的查询边界与待资格接合](开发/测试发现与执行.md#source-transition-artifact-query-decision)
+- [仓库设计查看的入口选择、暂缓与关系缺口](开发/AI协作/上下文取得与任务投影.md#repository-design-view-decision)
 
 “采用”是设计决定，“候选／待验证”不是已具备能力；运行证据与发布状态按准确对象另查。
 工程执行中的设计、实现、验证、审查、提交／集成与恢复怎样选择规则和Skill，见[工程行为路由及实际接合边界](开发/AI协作/规则装载与任务恢复.md#engineering-behavior-routing)；客户端角色配置不自行签发权限或证明规则已装载。
