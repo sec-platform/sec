@@ -12,9 +12,9 @@ last-reviewed: 2026-10-01
 ```json
 {
   "active": {
-    "manifestDigest": "sha256:e065d334805b3eae6f2ba7bc79ad7d20a6e3431009c3936001e0cf4f84f2cef6",
-    "manifestPath": "config/repository/work-packages/source-analysis-index-repair-20261001.md",
-    "packageId": "source-analysis-index-repair-20261001",
+    "manifestDigest": "sha256:25345744129c09a8671c867e127767ab38d294c558a70509d5fa246f957af505",
+    "manifestPath": "config/repository/work-packages/engineering-decision-skills-20261001.md",
+    "packageId": "engineering-decision-skills-20261001",
     "tracking": "none"
   },
   "authority": "none",
@@ -25,18 +25,18 @@ last-reviewed: 2026-10-01
     "candidate-control-transaction-v1",
     "typescript-7-checker-acceleration-v1"
   ],
-  "exactMain": "7c034ba11f76ad17e67ef118da27b443762dc31f",
-  "exactMainTree": "caf9498d709a670480a7f8ee222cef9d955e5e23",
-  "projectionDigest": "sha256:d83f258e604381907f91d36289728ddcf6c249b050d32c331cdecd4017e02e05",
+  "exactMain": "37600af0efe43914a9438b432e258c4b268bbdee",
+  "exactMainTree": "0397e4d13981788998759cd9f79f9f201c49cba3",
+  "projectionDigest": "sha256:3c464300d30503c23b3fb51df357965aa7309e5c2478fc17bb379b6f149d5040",
   "schema": "sec-work-rolling-proposal-projection-v1"
 }
 ```
 
 ## 当前唯一 Work Package
 
-### source-analysis-index-repair-20261001
+### engineering-decision-skills-20261001
 
-Proposal-only target manifest `config/repository/work-packages/source-analysis-index-repair-20261001.md` at `sha256:e065d334805b3eae6f2ba7bc79ad7d20a6e3431009c3936001e0cf4f84f2cef6`, based on exact main `7c034ba11f76ad17e67ef118da27b443762dc31f` and tree `caf9498d709a670480a7f8ee222cef9d955e5e23`.
+Proposal-only target manifest `config/repository/work-packages/engineering-decision-skills-20261001.md` at `sha256:25345744129c09a8671c867e127767ab38d294c558a70509d5fa246f957af505`, based on exact main `37600af0efe43914a9438b432e258c4b268bbdee` and tree `0397e4d13981788998759cd9f79f9f201c49cba3`.
 
 ## 候选 Work Package
 

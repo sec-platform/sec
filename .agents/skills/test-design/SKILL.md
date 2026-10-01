@@ -26,7 +26,8 @@ Claim与方法选择归[要求证据](../../../docs/运行/保证/要求证据�
 5. 按最小 observation boundary 选层级：纯算法/codec/property 用 unit；跨 owner/storage/effect/recovery 用 integration；稳定外部 bytes/schema/config 用 contract；真实入口/进程/Git/宿主链才用 E2E。目录名本身没有证明力。
 6. Fixture 只建立前置状态，不能先执行待证明 transition 或由同一 SUT 制造 postcondition。platform/env/clock/cwd/random/provider 必须绑定实际环境与隔离；skip/未运行不是 PASS，retry 不抹掉首次 failure。
 7. 性能Claim的运行结论绑定workload、环境、baseline、measurement method与observed result；catalog只是plan。Golden/snapshot的语义预期由原作者依据Claim/公共合同明确裁决，不能由actual自动批准。若失败只锁定已变化的私有名称、路径、措辞或布局，先确认这些不是公共合同；Claim未变且有独立判错依据时，可在已有授权与Q4 REWRITE范围内修复过时断言，不要求先改变需求，也不能借“cosmetic”删除真实反例。
-8. 输出最小可实施语义：复用哪个 proof，或需要哪个 test/case、输入、oracle/property、observation boundary、环境和 failure witness；已有 write scope 时由 Worker materialize。
+8. 在原CasePlan／casesRef或测试源中确定放置与执行频率：这项必要观察应在编辑哨兵、受影响回归、集成／发布还是一次性资格核验中取得；比较fixture准备、真实进程／宿主、等待与cleanup的总成本。真实边界必须由真实证据证明，但一次需要深层／大规模原生观察不自动使它成为默认fast每次重跑的前置；仅为覆盖算法规模的部分优先用能独立判错的纯层case，物理边界保留最小充分原生case，按原selector的失效条件复用资格证据。不能用降低频率或更便宜的替身删去仍必需的观察，也不新建第二套测试目录或执行台账。
+9. 输出最小可实施语义：复用哪个 proof，或需要哪个 test/case、输入、oracle/property、observation boundary、环境、failure witness及放置／频率理由；已有 write scope 时由 Worker materialize。
 
 ## 完成
 - 必须能回答：**新增了哪项现有 evidence 尚未充分覆盖的必要 observation？判错依据是否独立于待证明行为？** 两项任一答不出，不新增测试。
