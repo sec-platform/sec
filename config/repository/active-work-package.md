@@ -10,8 +10,8 @@ last-reviewed: 2026-10-01
 selectionMode: exact-manifest-not-on-default-branch-v1
 defaultBranchRef: refs/remotes/origin/main
 defaultRefFreshness: live-platform-match-required
-manifest: config/repository/work-packages/source-transition-reuse-20261001.md
-manifestDigest: sha256:502a9d8b817fe32b554d19d2aa3955cdc4750f4d6886862768439778a399fccb
+manifest: config/repository/work-packages/engineering-guidance-closure-decision-20261001.md
+manifestDigest: sha256:851c4297950df18e45a59fa35cd0a6739d42285eed2acbd31e964ed67ed6fb72
 digestBytes: git-blob
 unavailableDefaultRef: unresolved
 matchingDefaultBlob: none
