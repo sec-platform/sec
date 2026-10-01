@@ -27,6 +27,11 @@ test('init creates the minimal workspace on an empty root', async () => {
   expect(plan.acceptance).toEqual([]);
   expect(await fs.readFile(result.lockPath, 'utf8')).not.toContain('customer-admin');
   await expect(fs.lstat(paths.srcRoot)).resolves.toMatchObject({});
+  if (process.platform === 'linux') {
+    expect((await fs.stat(paths.srcRoot)).mode & 0o777).toBe(0o777 & ~process.umask());
+    expect((await fs.stat(result.planPath)).mode & 0o777).toBe(0o666 & ~process.umask());
+    expect((await fs.stat(result.lockPath)).mode & 0o777).toBe(0o600 & ~process.umask());
+  }
   // The initial pending report is intentionally not a complete Verification
   // artifact set. Remove that optional observation so this assertion reaches
   // the first real provenance publication without fabricating Verification.
@@ -135,4 +140,140 @@ test('supplied lease authority is proven before the workspace create surface is 
   expect((failure as WorkspaceWriteLeaseError).code).toMatch(/^WORKSPACE-WRITE-LEASE-/u);
   expect((failure as WorkspaceWriteLeaseError).code).not.toBe('WORKSPACE-INIT-001');
   expect(await fs.readFile(foreignPath)).toEqual(foreignBytes);
+});
+
+// The generation owner is tested at its physical boundary with independent,
+// exact fixture bytes; the existing cases above cover both real templates.
+const fixtureFiles: Readonly<Record<string, string>> = Object.freeze({
+  'sec.yaml': 'app: generation-fixture\n',
+  'package.json': '{"name":"generation-fixture"}\n',
+  [CI_ARTIFACT_FILES.graphLock]: '{"fixture":"lock"}\n',
+  [CI_ARTIFACT_FILES.verificationReport]: '{"summary":{"status":"pending"}}\n'
+});
+async function createFixtureGeneration(
+  workspaceRoot: string,
+  actor?: import('../../src/adapters/runtime-state/physical/runtime/physical-no-follow.ts').RetainedNoFollowFileTransactionTestActor
+): Promise<void> {
+  const { withWorkspaceWriteLease } = await import('../../src/adapters/filesystem/write-lease.ts');
+  const { publishWorkspaceCreateGeneration } = await import('../../src/adapters/workspace/create-generation.ts');
+  const { createRetainedNoFollowFileTransactionTestActorForTests } = await import('../../src/adapters/runtime-state/physical/runtime/physical-no-follow.ts');
+  await withWorkspaceWriteLease(workspaceRoot, undefined, token => publishWorkspaceCreateGeneration({
+    workspaceRoot, token, template: 'minimal',
+    blueprint: { directories: ['.sec/cache', '.sec/workspace-write-lease', 'src'],
+      files: Object.entries(fixtureFiles).map(([relativePath, bytes]) => ({ relativePath, bytes: Buffer.from(bytes), creationMode: relativePath === CI_ARTIFACT_FILES.graphLock ? 0o600 : 0o666 })) },
+    ...(actor === undefined ? {} : { testOnlyActor: createRetainedNoFollowFileTransactionTestActorForTests(actor) })
+  }));
+}
+
+test('external create between observation and publication preserves the foreign object and journal', async () => {
+  const workspaceRoot = await createWorkspace('engineering-compiler-init-create-race-');
+  const external = Buffer.from('external author plan\n');
+  await expect(createFixtureGeneration(workspaceRoot, {
+    beforeRename: async ({ targetPath }) => {
+      if (targetPath === path.join(workspaceRoot, 'sec.yaml')) await fs.writeFile(targetPath, external, { flag: 'wx' });
+    }
+  })).rejects.toMatchObject({ code: 'PHYSICAL_NO_FOLLOW_DURABILITY_FAILED' });
+  expect(await fs.readFile(path.join(workspaceRoot, 'sec.yaml'))).toEqual(external);
+  const journal = await fs.readFile(path.join(workspaceRoot, '.sec/workspace-create.json'));
+  await expect(createFixtureGeneration(workspaceRoot)).rejects.toMatchObject({ code: 'WORKSPACE-INIT-003' });
+  expect(await fs.readFile(path.join(workspaceRoot, 'sec.yaml'))).toEqual(external);
+  expect(await fs.readFile(path.join(workspaceRoot, '.sec/workspace-create.json'))).toEqual(journal);
+  await expect(fs.lstat(path.join(workspaceRoot, '.sec/workspace-created.json'))).rejects.toMatchObject({ code: 'ENOENT' });
+});
+
+test('a terminated writer resumes the prepared generation from physical readback without re-materialization', async () => {
+  const workspaceRoot = await createWorkspace('engineering-compiler-init-process-resume-');
+  const { spawnSync } = await import('node:child_process');
+  const leaseModule = new URL('../../src/adapters/filesystem/write-lease.ts', import.meta.url).href;
+  const physicalModule = new URL('../../src/adapters/runtime-state/physical/runtime/physical-no-follow.ts', import.meta.url).href;
+  const generationModule = new URL('../../src/adapters/workspace/create-generation.ts', import.meta.url).href;
+  const script = `
+    import fs from 'node:fs/promises';
+    import path from 'node:path';
+    import { createWorkspaceWriteLeaseManager } from ${JSON.stringify(leaseModule)};
+    import { publishWorkspaceCreateGeneration } from ${JSON.stringify(generationModule)};
+    import { createRetainedNoFollowFileTransactionTestActorForTests } from ${JSON.stringify(physicalModule)};
+    const workspaceRoot = ${JSON.stringify(workspaceRoot)};
+    const lease = await createWorkspaceWriteLeaseManager({ now: () => 0, heartbeatIntervalMs: 1000000, staleAfterMs: 1000001 }).acquire(workspaceRoot);
+    await publishWorkspaceCreateGeneration({ workspaceRoot, token: lease.token, template: 'minimal',
+      blueprint: { directories: ['.sec/cache', '.sec/workspace-write-lease', 'src'], files: Object.entries(${JSON.stringify(fixtureFiles)}).map(([relativePath, bytes]) => ({ relativePath, bytes: Buffer.from(bytes), creationMode: relativePath === ${JSON.stringify(CI_ARTIFACT_FILES.graphLock)} ? 0o600 : 0o666 })) },
+      testOnlyActor: createRetainedNoFollowFileTransactionTestActorForTests({ afterNamespaceMutationBeforeFlush: ({ targetPath }) => { if (targetPath === path.join(workspaceRoot, 'sec.yaml')) process.exit(71); } })
+    });
+  `;
+  const child = spawnSync(process.execPath, ['--no-env-file', '-e', script], { encoding: 'utf8', timeout: 10_000 });
+  expect({ status: child.status, signal: child.signal, stderr: child.stderr }).toEqual({ status: 71, signal: null, stderr: '' });
+  const lockPath = path.join(workspaceRoot, CI_ARTIFACT_FILES.graphLock);
+  const before = await fs.stat(lockPath);
+  expect(await fs.readFile(path.join(workspaceRoot, 'sec.yaml'), 'utf8')).toBe(fixtureFiles['sec.yaml']!);
+  const recoveredPlanBarriers: string[] = [];
+  await createFixtureGeneration(workspaceRoot, {
+    durabilityObserver: event => {
+      if (event.label === 'Workspace recovered file barrier' && event.targetPath === path.join(workspaceRoot, 'sec.yaml')) recoveredPlanBarriers.push(event.stage);
+    },
+    beforeCreate: ({ targetPath }) => {
+      if (targetPath === path.join(workspaceRoot, '.sec/workspace-created.json')) {
+        expect(recoveredPlanBarriers).toEqual(['file-flushed', 'parent-barrier']);
+      }
+    }
+  });
+  expect(recoveredPlanBarriers).toEqual(['file-flushed', 'parent-barrier']);
+  for (const [relative, bytes] of Object.entries(fixtureFiles)) expect(await fs.readFile(path.join(workspaceRoot, relative), 'utf8')).toBe(bytes);
+  expect((await fs.stat(lockPath)).ino).toBe(before.ino);
+  expect((await fs.readdir(path.join(workspaceRoot, '.sec'))).filter(name => name.startsWith('.workspace-create-'))).toEqual([]);
+  await expect(createFixtureGeneration(workspaceRoot)).rejects.toMatchObject({ code: 'WORKSPACE-INIT-001' });
+});
+
+test('recovery rejects a same-byte replacement instead of treating bytes as ownership', async () => {
+  const container = await createWorkspace('engineering-compiler-init-identity-race-');
+  const workspaceRoot = path.join(container, 'work');
+  await fs.mkdir(workspaceRoot);
+  await expect(createFixtureGeneration(workspaceRoot, {
+    afterNamespaceMutationBeforeFlush: ({ targetPath }) => { if (targetPath === path.join(workspaceRoot, 'package.json')) throw new Error('interrupted'); }
+  })).rejects.toThrow('interrupted');
+  const target = path.join(workspaceRoot, 'package.json');
+  const preserved = path.join(container, 'external-original.json');
+  const old = await fs.readFile(target);
+  await fs.rename(target, preserved);
+  await fs.writeFile(target, old);
+  const replacement = await fs.stat(target);
+  await expect(createFixtureGeneration(workspaceRoot)).rejects.toMatchObject({ code: 'WORKSPACE-INIT-003' });
+  expect(await fs.readFile(target)).toEqual(old);
+  expect((await fs.stat(target)).ino).toBe(replacement.ino);
+  expect(await fs.readFile(preserved)).toEqual(old);
+  await expect(fs.lstat(path.join(workspaceRoot, 'sec.yaml'))).rejects.toMatchObject({ code: 'ENOENT' });
+});
+
+test('unfinished create binds both selected template and the physical workspace root', async () => {
+  const container = await createWorkspace('engineering-compiler-init-root-binding-');
+  const workspaceRoot = path.join(container, 'work');
+  await fs.mkdir(workspaceRoot);
+  await expect(createFixtureGeneration(workspaceRoot, { durabilityObserver: ({ targetPath, stage }) => { if (targetPath === path.join(workspaceRoot, '.sec/workspace-create.json') && stage === 'parent-barrier') throw new Error('prepared-only'); } })).rejects.toMatchObject({ code: 'WORKSPACE-INIT-003' });
+  await expect(initWorkspace(workspaceRoot, { template: 'reference-customer' })).rejects.toMatchObject({ code: 'WORKSPACE-INIT-003', details: { reason: 'template-mismatch' } });
+  const original = path.join(container, 'original');
+  await fs.rename(workspaceRoot, original);
+  await fs.mkdir(path.join(workspaceRoot, '.sec'), { recursive: true });
+  await fs.copyFile(path.join(original, '.sec/workspace-create.json'), path.join(workspaceRoot, '.sec/workspace-create.json'));
+  const lease = await acquireWorkspaceWriteLease(workspaceRoot);
+  try {
+    await expect(initWorkspace(workspaceRoot, {}, lease.token)).rejects.toMatchObject({ code: 'WORKSPACE-INIT-003', details: { reason: 'changed-root' } });
+  } finally { await lease.release(); }
+  await expect(fs.lstat(path.join(workspaceRoot, 'sec.yaml'))).rejects.toMatchObject({ code: 'ENOENT' });
+  expect(await fs.readFile(path.join(original, '.sec/workspace-create.json'))).toEqual(await fs.readFile(path.join(workspaceRoot, '.sec/workspace-create.json')));
+});
+
+test('unjournaled preparation residue is preserved and ordinary retry cannot adopt it', async () => {
+  const workspaceRoot = await createWorkspace('engineering-compiler-init-preparation-residue-');
+  await expect(createFixtureGeneration(workspaceRoot, {
+    beforeCreate: async ({ targetPath }) => {
+      if (targetPath.includes('.workspace-create-') && path.basename(targetPath) === 'sec.yaml') {
+        await fs.writeFile(path.join(path.dirname(targetPath), 'foreign-or-partial.txt'), 'preserve me');
+        throw new Error('preparation interrupted');
+      }
+    }
+  })).rejects.toMatchObject({ code: 'WORKSPACE-INIT-003', details: { reason: 'preparation-residue' } });
+  const stageName = (await fs.readdir(path.join(workspaceRoot, '.sec'))).find(name => name.startsWith('.workspace-create-'))!;
+  await expect(initWorkspace(workspaceRoot)).rejects.toMatchObject({ code: 'WORKSPACE-INIT-003', details: { reason: 'preparation-residue' } });
+  expect(await fs.readFile(path.join(workspaceRoot, '.sec', stageName, 'foreign-or-partial.txt'), 'utf8')).toBe('preserve me');
+  await expect(fs.lstat(path.join(workspaceRoot, '.sec/workspace-create.json'))).rejects.toMatchObject({ code: 'ENOENT' });
+  await expect(fs.lstat(path.join(workspaceRoot, 'sec.yaml'))).rejects.toMatchObject({ code: 'ENOENT' });
 });
