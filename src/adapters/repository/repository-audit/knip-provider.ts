@@ -351,7 +351,13 @@ export async function executeKnipUnusedSymbolProvider(
         ]
       })
     });
-    boundary = issueRetainedCommandBoundary({ executable, workingDirectory: generation.workingDirectory });
+    boundary = issueRetainedCommandBoundary({
+      executable,
+      workingDirectory: generation.workingDirectory,
+      auxiliaryInputs: [
+        { capability: input.dependencyGeneration.physicalGeneration, kind: 'directory' }
+      ]
+    });
     run = await session.run(boundary, KNIP_COMMAND, {
       env: environment,
       envMode: 'replace',
