@@ -12,9 +12,9 @@ last-reviewed: 2026-10-01
 ```json
 {
   "active": {
-    "manifestDigest": "sha256:bda267a2f8b83356c1615f1bc1afdb1d34214e93a96b0405099d693e49e9882e",
-    "manifestPath": "config/repository/work-packages/write-lease-owner-boundaries-20261001.md",
-    "packageId": "write-lease-owner-boundaries-20261001",
+    "manifestDigest": "sha256:2601adc37bb9777b0f1ea8fe58579b186105ac414e59be342347beb05b59f3e0",
+    "manifestPath": "config/repository/work-packages/hook-recovery-owner-boundaries-20261001.md",
+    "packageId": "hook-recovery-owner-boundaries-20261001",
     "tracking": "none"
   },
   "authority": "none",
@@ -25,18 +25,18 @@ last-reviewed: 2026-10-01
     "candidate-control-transaction-v1",
     "typescript-7-checker-acceleration-v1"
   ],
-  "exactMain": "3a9631274d8d31321b5d390a799748ac470af221",
-  "exactMainTree": "f05f4164f5199812ea30d809f019faea05b7d103",
-  "projectionDigest": "sha256:4283dc76ef85794118c1ff156ef8b9d01d9e19c06b89182c0fbef672c7647c35",
+  "exactMain": "95725b00abc26fbee4457254e811634fa6f8e4cb",
+  "exactMainTree": "f9c2b151441cb775ffeedab24ae8c69740cb4164",
+  "projectionDigest": "sha256:75c166f82973ae3617ffe10e43396f5bd9d265fbbb9b9a1253e363f8993fe1c6",
   "schema": "sec-work-rolling-proposal-projection-v1"
 }
 ```
 
 ## 当前唯一 Work Package
 
-### write-lease-owner-boundaries-20261001
+### hook-recovery-owner-boundaries-20261001
 
-Proposal-only target manifest `config/repository/work-packages/write-lease-owner-boundaries-20261001.md` at `sha256:bda267a2f8b83356c1615f1bc1afdb1d34214e93a96b0405099d693e49e9882e`, based on exact main `3a9631274d8d31321b5d390a799748ac470af221` and tree `f05f4164f5199812ea30d809f019faea05b7d103`.
+Proposal-only target manifest `config/repository/work-packages/hook-recovery-owner-boundaries-20261001.md` at `sha256:2601adc37bb9777b0f1ea8fe58579b186105ac414e59be342347beb05b59f3e0`, based on exact main `95725b00abc26fbee4457254e811634fa6f8e4cb` and tree `f9c2b151441cb775ffeedab24ae8c69740cb4164`.
 
 ## 候选 Work Package
 
