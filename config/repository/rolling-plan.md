@@ -12,9 +12,9 @@ last-reviewed: 2026-10-01
 ```json
 {
   "active": {
-    "manifestDigest": "sha256:ebb0f0766787841f4753189f0712bc0478e33bedbfde06ed95aa7e6d4fb72f50",
-    "manifestPath": "config/repository/work-packages/codeql-advanced-cadence-20261001.md",
-    "packageId": "codeql-advanced-cadence-20261001",
+    "manifestDigest": "sha256:c6bb8b2a2736a70221b93a32e1ffac8f3d39f8a65ecb6972e411076d9315be67",
+    "manifestPath": "config/repository/work-packages/write-lease-owner-boundaries-20261001.md",
+    "packageId": "write-lease-owner-boundaries-20261001",
     "tracking": "none"
   },
   "authority": "none",
@@ -25,18 +25,18 @@ last-reviewed: 2026-10-01
     "candidate-control-transaction-v1",
     "typescript-7-checker-acceleration-v1"
   ],
-  "exactMain": "529a2f1f1ea802d71135de7aba5b8f77d2923924",
-  "exactMainTree": "d3c0874f271ba4a1facc6c35db4b9adba7859878",
-  "projectionDigest": "sha256:2fa5bf2c4fb0c7dde25856a126265e66656adb43429f2ce6ce833952c6d56560",
+  "exactMain": "22ba5398065a5e9bd620545699cc28f392ad9f36",
+  "exactMainTree": "9fad52903df0e0abe098351cf8d99b78f41b6410",
+  "projectionDigest": "sha256:dc4c5215ff66a4492609692b18112a2e879b0036e90a1c2161eb302fd475882a",
   "schema": "sec-work-rolling-proposal-projection-v1"
 }
 ```
 
 ## 当前唯一 Work Package
 
-### codeql-advanced-cadence-20261001
+### write-lease-owner-boundaries-20261001
 
-Proposal-only target manifest `config/repository/work-packages/codeql-advanced-cadence-20261001.md` at `sha256:ebb0f0766787841f4753189f0712bc0478e33bedbfde06ed95aa7e6d4fb72f50`, based on exact main `529a2f1f1ea802d71135de7aba5b8f77d2923924` and tree `d3c0874f271ba4a1facc6c35db4b9adba7859878`.
+Proposal-only target manifest `config/repository/work-packages/write-lease-owner-boundaries-20261001.md` at `sha256:c6bb8b2a2736a70221b93a32e1ffac8f3d39f8a65ecb6972e411076d9315be67`, based on exact main `22ba5398065a5e9bd620545699cc28f392ad9f36` and tree `9fad52903df0e0abe098351cf8d99b78f41b6410`.
 
 ## 候选 Work Package
 
