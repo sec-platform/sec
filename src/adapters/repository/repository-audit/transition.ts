@@ -72,6 +72,19 @@ export interface SourceProgramTransitionAdoption {
   readonly adoptionDigest: string;
 }
 
+/** A complete source result can still require a separate business decision. */
+export class SourceProgramTransitionAdoptionBlockedError extends Error {
+  readonly blockingReasons: readonly string[];
+  readonly authorInputRequired: boolean;
+
+  constructor(blockingReasons: readonly string[], authorInputRequired: boolean) {
+    super(`Source transition remains blocked: ${blockingReasons.join(', ')}`);
+    this.name = 'SourceProgramTransitionAdoptionBlockedError';
+    this.blockingReasons = Object.freeze([...blockingReasons]);
+    this.authorInputRequired = authorInputRequired;
+  }
+}
+
 const SHA = /^[a-f0-9]{40}$/u;
 const ASSESSMENT_KEYS = [
   'schema', 'runtimeSha', 'baseSha', 'baseTreeSha', 'headSha', 'headTreeSha',
@@ -250,7 +263,10 @@ export function compileSourceProgramTransitionAdoption(input: Readonly<{
   }
   const operation = compileSourceProgramAuditOperationInput(facts);
   if (operation.blockingReasons.length !== 0) {
-    throw new Error(`Source transition remains blocked: ${operation.blockingReasons.join(', ')}`);
+    throw new SourceProgramTransitionAdoptionBlockedError(operation.blockingReasons,
+      input.approval === undefined && operation.blockingReasons.some(reason => (
+        reason === 'supersession-owner-decision' || reason === 'test-author-qualification-required'
+      )));
   }
   const canonical = deepFreeze({
     status: 'accepted' as const, assessmentDigest: assessment.assessmentDigest,

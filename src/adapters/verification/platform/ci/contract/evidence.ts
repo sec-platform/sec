@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import {
   closeSync,
   fsyncSync,
@@ -103,6 +103,52 @@ export type CodexDevelopmentVerificationGateEvidenceV4 = Readonly<{
   result: VerificationGateResult;
   cleanup: CodexDevelopmentVerificationCleanup;
 }>;
+
+/** Exact first-qualified Action transport. Decoding is historical data only;
+ * only the retained host issuer can authorize its use at Session finalization. */
+export interface TrustedRuntimeSourceProgramActionRecord {
+  readonly schema: 'source-program-qualified-action-v1';
+  readonly authority: 'historical-evidence-only';
+  readonly sessionRevision: string;
+  readonly observationDigest: string;
+  readonly attemptEvidenceDigest: string;
+  readonly outputByteDigest: string;
+  readonly gate: CodexDevelopmentVerificationGateEvidenceV4;
+  readonly sourceActionDigest: string;
+}
+
+export function parseTrustedRuntimeSourceProgramActionRecord(value: unknown): TrustedRuntimeSourceProgramActionRecord {
+  assertObject(value, 'Source Program Action handoff');
+  assertExactKeys(value, ['schema', 'authority', 'sessionRevision', 'observationDigest',
+    'attemptEvidenceDigest', 'outputByteDigest', 'gate', 'sourceActionDigest'], 'Source Program Action handoff');
+  if (value.schema !== 'source-program-qualified-action-v1' || value.authority !== 'historical-evidence-only') {
+    throw new Error('Source Program Action handoff is not versioned historical evidence.');
+  }
+  for (const key of ['sessionRevision', 'observationDigest', 'attemptEvidenceDigest', 'outputByteDigest', 'sourceActionDigest']) {
+    assertDigest(value[key], key);
+  }
+  assertObject(value.gate, 'Source Program Action gate');
+  assertExactKeys(value.gate, ['action', 'result', 'cleanup'], 'Source Program Action gate');
+  const action = parseVerificationActionKey(encodeVerificationActionData(value.gate.action));
+  CodexDevelopmentAssertVerificationGateResult(value.gate.result);
+  assertV4Cleanup(value.gate.cleanup, 'Source Program Action cleanup');
+  const result = value.gate.result as VerificationGateResult;
+  if (action.operation.identity !== SOURCE_PROGRAM_TRANSITION_GATE_ID
+      || result.gateId !== action.operation.identity || result.inputDigest !== action.actionKey
+      || result.status !== 'passed' || result.disposition !== 'executed'
+      || result.execution === null || result.execution.exitCode !== 0
+      || result.execution.outputDigest !== value.outputByteDigest
+      || result.evidenceRefs.length !== 1 || result.evidenceRefs[0] !== value.outputByteDigest
+      || (value.gate.cleanup as CodexDevelopmentVerificationCleanup).status !== 'passed'
+      || !canonicalEquals((value.gate.cleanup as CodexDevelopmentVerificationCleanup).evidenceRefs, [value.attemptEvidenceDigest])) {
+    throw new Error('Source Program Action handoff lost its complete physical result.');
+  }
+  const { sourceActionDigest, ...canonical } = value;
+  if (sourceActionDigest !== CodexDevelopmentVerificationDigest(canonical)) {
+    throw new Error('Source Program Action handoff digest mismatch.');
+  }
+  return Object.freeze(value) as unknown as TrustedRuntimeSourceProgramActionRecord;
+}
 
 export type CodexDevelopmentVerificationEvidenceProducer = Readonly<{
   sourceTransport: 'github-actions' | 'local-dev-runner';
@@ -593,14 +639,19 @@ export type SourceProgramTransitionAcceptanceRecord = Readonly<SourceProgramTran
 
 export function parseSourceProgramTransitionAcceptanceRecord(value: unknown): SourceProgramTransitionAcceptanceRecord {
   assertObject(value, 'Source Program transition acceptance record');
-  assertExactKeys(value, ['status', 'assessmentDigest', 'predecessorActionOutputDigest',
-    'predecessorDisposition', 'attemptId', 'actionKey', 'sessionRevision', 'observationDigest',
+  const first = value.schema === 'source-program-transition-qualification-v2';
+  const originKeys = first ? ['schema', 'origin', 'sourceActionOutputDigest', 'sourceActionDigest']
+    : ['predecessorActionOutputDigest', 'predecessorDisposition'];
+  assertExactKeys(value, ['status', 'assessmentDigest', ...originKeys,
+    'attemptId', 'actionKey', 'sessionRevision', 'observationDigest',
     'approvalDigest', 'auditResultDigest', 'adoptionDigest', 'attemptEvidenceDigest', 'qualificationDigest'], 'Source Program transition acceptance record');
-  if (value.status !== 'accepted' || value.predecessorDisposition !== 'superseded-nonterminal') {
-    throw new Error('Source Program transition record must supersede a computation-only attempt.');
+  if (value.status !== 'accepted' || (first ? value.origin !== 'first-qualified'
+    : value.predecessorDisposition !== 'superseded-nonterminal')) {
+    throw new Error('Source Program transition record has an invalid qualified origin.');
   }
-  for (const key of ['assessmentDigest', 'predecessorActionOutputDigest', 'actionKey', 'sessionRevision',
-    'observationDigest', 'auditResultDigest', 'adoptionDigest', 'attemptEvidenceDigest', 'qualificationDigest']) assertDigest(value[key], key);
+  for (const key of ['assessmentDigest', 'actionKey', 'sessionRevision',
+    'observationDigest', 'auditResultDigest', 'adoptionDigest', 'attemptEvidenceDigest', 'qualificationDigest',
+    ...(first ? ['sourceActionOutputDigest', 'sourceActionDigest'] : ['predecessorActionOutputDigest'])]) assertDigest(value[key], key);
   if (value.approvalDigest !== null) assertDigest(value.approvalDigest, 'approvalDigest');
   assertText(value.attemptId, 'Source Program transition attemptId');
   const { qualificationDigest, ...canonical } = value;
@@ -683,7 +734,7 @@ export function CodexDevelopmentAssertVerificationSessionArtifact(
     assertObject(value.sourceProgramTransitionEvidence, 'Source Program fresh attempt evidence');
     const attempt = value.sourceProgramTransitionEvidence as unknown as TrustedRuntimeSourceProgramAttemptEvidence;
     const { evidenceDigest: attemptEvidenceDigest, ...attemptFields } = attempt;
-    if (attempt.schema !== 'source-program-isolated-attempt-evidence-v1' || attempt.authority !== 'historical-evidence-only'
+    if (attempt.schema !== (acceptance.origin === 'first-qualified' ? 'source-program-isolated-attempt-evidence-v2' : 'source-program-isolated-attempt-evidence-v1') || attempt.authority !== 'historical-evidence-only'
         || attemptEvidenceDigest !== CodexDevelopmentVerificationDigest(attemptFields)
         || attemptEvidenceDigest !== acceptance.attemptEvidenceDigest
         || attempt.observation.assessmentDigest !== acceptance.assessmentDigest
@@ -693,11 +744,47 @@ export function CodexDevelopmentAssertVerificationSessionArtifact(
         || attempt.observation.sessionRevision !== acceptance.sessionRevision) {
       throw new Error('Source Program accepted terminal lost its exact fresh producer/physical evidence');
     }
+    if (acceptance.origin === 'first-qualified') {
+      const sourceAction = parseTrustedRuntimeSourceProgramActionRecord({
+        schema: 'source-program-qualified-action-v1', authority: 'historical-evidence-only',
+        sessionRevision: acceptance.sessionRevision, observationDigest: acceptance.observationDigest,
+        attemptEvidenceDigest: acceptance.attemptEvidenceDigest, outputByteDigest: acceptance.sourceActionOutputDigest,
+        gate: transitions[0], sourceActionDigest: acceptance.sourceActionDigest
+      });
+      const { observationDigest, ...observed } = attempt.observation;
+      if (attempt.observation.origin !== 'first-qualified'
+          || attempt.observation.schema !== 'source-program-transition-observation-v2'
+          || 'predecessorActionOutputDigest' in attempt.observation
+          || observationDigest !== CodexDevelopmentVerificationDigest(observed)
+          || attempt.observation.settlementDigest !== CodexDevelopmentVerificationDigest(attempt.physicalEvidence.settlements)
+          || attempt.physicalEvidence.dependencyCache !== 'private-ephemeral'
+          || attempt.physicalEvidence.workspaceTerminal !== 'retired'
+          || attempt.physicalEvidence.settlements.length !== 3
+          || attempt.physicalEvidence.settlements.map(({ ownerTerminalReference }) => ownerTerminalReference.phase).join(',')
+            !== 'setup,owner-operation,cleanup'
+          || attempt.observation.baseSha !== session.baseSha || attempt.observation.headSha !== session.headSha
+          || attempt.observation.headTreeSha !== session.headTreeSha
+          || attempt.assessment.baseSha !== session.baseSha || attempt.assessment.baseTreeSha !== session.baseTreeSha
+          || attempt.assessment.headSha !== session.headSha || attempt.assessment.headTreeSha !== session.headTreeSha
+          || attempt.assessment.runtimeSha !== session.baseSha
+          || attempt.observation.sourceActionOutputDigest !== acceptance.sourceActionOutputDigest
+          || acceptance.sourceActionOutputDigest !== `sha256:${createHash('sha256').update(`${encodeVerificationActionData(attempt.assessment)}\n`).digest('hex')}`
+          || sourceAction.sourceActionDigest !== acceptance.sourceActionDigest
+          || sourceAction.observationDigest !== acceptance.observationDigest
+          || sourceAction.sessionRevision !== acceptance.sessionRevision
+          || sourceAction.outputByteDigest !== acceptance.sourceActionOutputDigest
+          || !canonicalEquals(sourceAction.gate, transitions[0])) {
+        throw new Error('Source Program first-qualified Action lost its exact origin/output join.');
+      }
+    } else if (attempt.observation.origin !== undefined) {
+      throw new Error('Legacy Source Program acceptance cannot adopt a first-qualified attempt.');
+    }
     const transition = transitions[0]!;
     if (transitions.length !== 1 || acceptance.sessionRevision !== session.sessionRevision
         || acceptance.actionKey !== transition.action.actionKey || transition.result.status !== 'passed'
         || transition.result.evidenceRefs.length !== 1
-        || transition.result.evidenceRefs[0] !== acceptance.predecessorActionOutputDigest) {
+        || transition.result.evidenceRefs[0] !== (acceptance.origin === 'first-qualified'
+          ? acceptance.sourceActionOutputDigest : acceptance.predecessorActionOutputDigest)) {
       throw new Error('Source Program acceptance record does not bind the exact superseded computation.');
     }
   }

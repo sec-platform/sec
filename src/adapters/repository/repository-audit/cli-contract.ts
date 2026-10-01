@@ -1,5 +1,67 @@
 import path from 'node:path';
 import { parseArgs } from 'node:util';
+import { parseSecModuleDescriptor } from '../architecture/contract.ts';
+import descriptorSource from './module.json' with { type: 'json' };
+
+// Current and baseline derivation share one aggregate audit budget. Its
+// capacity belongs to the existing operation descriptor, rather than a second
+// hardcoded copy of the physical worker's separate ceiling.
+const auditDescriptor = parseSecModuleDescriptor(
+  descriptorSource, 'src/adapters/repository/repository-audit/module.json'
+);
+const auditDuration = auditDescriptor.operationObligations.find(({ operation }) => (
+  operation.kind === 'capability' && operation.capability === 'repository-audit.worker'
+    && operation.operation === 'executeSupervisedWorkingTreeSourceProgramAudit'
+))?.resources.aggregateBudgets.find(({ resource }) => resource === 'duration-ms');
+if (auditDuration === undefined) throw new Error('Repository audit has no declared aggregate duration budget.');
+export const SOURCE_PROGRAM_AUDIT_MAX_DURATION_MS = auditDuration.maximum;
+export const SOURCE_PROGRAM_AUDIT_WORKER_MAX_DURATION_MS = 180_000;
+export const SOURCE_PROGRAM_TRANSITION_DEADLINE_ENV = 'SEC_SOURCE_PROGRAM_TRANSITION_DEADLINE_AT_UNIX_MS';
+
+/** Process boundaries may inherit a stricter enclosing deadline, never renew it. */
+export function repositoryAuditInheritedDeadline(value: string | undefined, nowUnixMs = Date.now()): number {
+  const ownDeadline = repositoryAuditDeadline(undefined, nowUnixMs);
+  if (value === undefined) return ownDeadline;
+  if (!/^[1-9][0-9]*$/u.test(value)) throw new Error('Repository audit inherited deadline is not canonical.');
+  const inherited = Number(value);
+  if (!Number.isSafeInteger(inherited) || inherited <= nowUnixMs) {
+    throw new Error('Repository audit inherited deadline is exhausted or invalid.');
+  }
+  return Math.min(ownDeadline, inherited);
+}
+
+/** Choose the single aggregate deadline before any audit work. */
+export function repositoryAuditDeadline(
+  maximumDurationMs = SOURCE_PROGRAM_AUDIT_MAX_DURATION_MS,
+  nowUnixMs = Date.now()
+): number {
+  if (!Number.isSafeInteger(maximumDurationMs) || maximumDurationMs < 1
+      || maximumDurationMs > SOURCE_PROGRAM_AUDIT_MAX_DURATION_MS
+      || !Number.isSafeInteger(nowUnixMs) || nowUnixMs < 0
+      || !Number.isSafeInteger(nowUnixMs + maximumDurationMs)) {
+    throw new Error('Repository audit duration is outside its canonical bound.');
+  }
+  return nowUnixMs + maximumDurationMs;
+}
+
+/** Reading the remaining pool never creates a replacement deadline. */
+export function repositoryAuditRemainingDuration(deadlineAtUnixMs: number, nowUnixMs = Date.now()): number {
+  const durationMs = deadlineAtUnixMs - nowUnixMs;
+  if (!Number.isSafeInteger(deadlineAtUnixMs) || !Number.isSafeInteger(nowUnixMs)
+      || !Number.isSafeInteger(durationMs) || durationMs < 1
+      || durationMs > SOURCE_PROGRAM_AUDIT_MAX_DURATION_MS) {
+    throw new Error('Repository audit deadline is exhausted or outside its canonical bound.');
+  }
+  return durationMs;
+}
+
+/** The worker receives only remaining parent work and its own finite ceiling. */
+export function repositoryAuditWorkerDeadline(workDeadlineAtUnixMs: number, nowUnixMs = Date.now()): number {
+  return nowUnixMs + Math.min(
+    repositoryAuditRemainingDuration(workDeadlineAtUnixMs, nowUnixMs),
+    SOURCE_PROGRAM_AUDIT_WORKER_MAX_DURATION_MS
+  );
+}
 
 /** CLI policy only: neither parsing a command nor reporting its outcome issues
  * a Source Program, provider, mutation or successful-verification capability. */

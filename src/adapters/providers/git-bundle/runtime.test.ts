@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from 'bun:test';
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
@@ -150,4 +150,19 @@ describe('Git candidate bundle effect', () => {
       materializationIdentityDigest: `sha256:${'1'.repeat(64)}`
     }))).toThrow('owner-issued retained capability');
   });
+});
+
+
+test('inherited bundle expiry and cancellation reject before source reads or output effects', async () => {
+  const outputRoot = temporaryRoot('inherited-bound');
+  const input = { sourceRoot: path.join(outputRoot, 'unread-source'), temporaryRoot: outputRoot,
+    baseSha: '1'.repeat(40), headSha: '2'.repeat(40) };
+  await expect(createGitCandidateBundle({ ...input, deadlineAtUnixMs: Date.now() - 1 }))
+    .rejects.toThrow('inherited deadline is exhausted');
+  expect(readdirSync(outputRoot)).toEqual([]);
+  const controller = new AbortController();
+  const reason = new Error('parent source cancelled'); controller.abort(reason);
+  await expect(createGitCandidateBundle({ ...input, deadlineAtUnixMs: Date.now() + 2_000, signal: controller.signal }))
+    .rejects.toBe(reason);
+  expect(readdirSync(outputRoot)).toEqual([]);
 });

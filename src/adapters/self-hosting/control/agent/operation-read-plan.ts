@@ -4,6 +4,7 @@ import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { canonicalJson } from '../../../../contracts/canonical.ts';
 import { resolveAgentRuntimeRepositoryRoot } from './runtime-root.ts';
+import { observeSourceTransitionReadView } from './source-transition-read-view.ts';
 
 import { DOCUMENTATION_IDENTITY_PATH } from '../documentation/active.ts';
 import {
@@ -190,6 +191,15 @@ async function main(): Promise<void> {
     options[key] = value;
     index += 1;
   }
+  if (command === 'source-transition') {
+    if (options.input !== undefined || options.candidateRoot === undefined) {
+      fail('source-transition requires --candidate-root <path> and accepts optional --plan <file>.');
+    }
+    const plan = options.plan === undefined ? undefined
+      : parseSecOperationReadPlan(await readJsonArgument(options.plan, process.cwd(), '--plan'));
+    process.stdout.write(`${JSON.stringify(await observeSourceTransitionReadView(options.candidateRoot, plan), null, 2)}\n`);
+    return;
+  }
   const runtimeRoot = await resolveAgentRuntimeRepositoryRoot();
   if (command === 'compile') {
     if (options.input === undefined || options.plan !== undefined || options.candidateRoot === undefined) {
@@ -233,7 +243,7 @@ async function main(): Promise<void> {
     }, null, 2)}\n`);
     return;
   }
-  fail('usage: operation-read-plan <compile --input ... --candidate-root ... | verify --plan ...>');
+  fail('usage: operation-read-plan <compile --input ... --candidate-root ... | verify --plan ... | source-transition --candidate-root ... [--plan ...]>');
 }
 
 if (import.meta.main) {

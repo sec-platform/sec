@@ -1,6 +1,9 @@
 {
   "importGraph": "runtime",
   "externalEntrypoints": [
-    "src/bootstrap/engineering/cli.ts"
+    "src/bootstrap/engineering/cli.ts",
+    "src/bootstrap/engineering/source-program-transition.ts",
+    "src/bootstrap/engineering/repository-audit.ts",
+    "src/bootstrap/engineering/trusted-runtime-closeout.ts"
   ]
 }

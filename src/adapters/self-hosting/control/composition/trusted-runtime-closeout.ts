@@ -52,10 +52,8 @@ import {
   executeTrustedRuntimeContainerVerification,
   executeTrustedRuntimeMainHealth,
   executeTrustedRuntimeWorkspaceCanary,
-  observeTrustedRuntimeSourceProgramTransition,
   parseTrustedRuntimeContainerReceipt,
   parseTrustedRuntimeSourceProgramAttemptEvidence,
-  qualifySourceProgramTransitionAssessment,
   TRUSTED_RUNTIME_CONTAINER_EXECUTION_ENVIRONMENT,
   type SourceProgramTransitionQualification,
   type TrustedRuntimeContainerReceipt
@@ -124,6 +122,36 @@ interface TrustedRuntimeActionBundle {
   readonly containerReceipt: TrustedRuntimeContainerReceipt;
   readonly bundleDigest: Digest;
 }
+
+/** Borrowed data and owner operations for the application use case. The
+ * enclosing retained state/lease scope remains owned here until return. */
+export interface TrustedRuntimeSourceTransitionContext {
+  readonly repositoryRoot: string;
+  readonly envelope: Parameters<typeof executeTrustedRuntimeContainerVerification>[0]['envelope'];
+  readonly sourceProgramTransition: NonNullable<Parameters<typeof executeTrustedRuntimeContainerVerification>[0]['sourceProgramTransition']>;
+  readonly actorNodeId: string;
+  readonly requiredBlobs: readonly Readonly<{ path: string; digest: Digest }>[];
+  readonly previousVerification: Readonly<{
+    evidence: TrustedRuntimeActionBundle['artifact']['evidence'];
+    receipt: TrustedRuntimeContainerReceipt;
+  }> | null;
+  observeAuthorApproval(): Promise<SourceProgramTestAuthorApproval | undefined>;
+  assertCurrentSubject(): Promise<void>;
+  publishAttempt(evidence: ReturnType<typeof parseTrustedRuntimeSourceProgramAttemptEvidence>): void;
+  publishVerification(result: Readonly<{
+    evidence: TrustedRuntimeActionBundle['artifact']['evidence'];
+    receipt: TrustedRuntimeContainerReceipt;
+  }>): void;
+  publishAdoption(qualification: SourceProgramTransitionQualification): void;
+}
+
+export type TrustedRuntimeSourceTransitionUseCaseResult =
+  | Readonly<{ kind: 'accepted'; qualification: SourceProgramTransitionQualification;
+      verification: Readonly<{ evidence: TrustedRuntimeActionBundle['artifact']['evidence']; receipt: TrustedRuntimeContainerReceipt }> }>
+  | Readonly<{ kind: 'waiting'; value: unknown }>;
+
+export type TrustedRuntimeSourceTransitionUseCase =
+  (context: TrustedRuntimeSourceTransitionContext) => Promise<TrustedRuntimeSourceTransitionUseCaseResult>;
 
 type TrustedRuntimeCloseoutPreMerge = Readonly<{
   kind: 'ready';
@@ -794,7 +822,10 @@ export async function closeoutWithTrustedRuntime(input: Readonly<{
   repository: string;
   prNumber: number;
   testAuthorCommentId?: number;
-}>): Promise<unknown> {
+}>, sourceTransitionUseCase?: TrustedRuntimeSourceTransitionUseCase): Promise<unknown> {
+  if (sourceTransitionUseCase === undefined) {
+    fail('cold-source use case must be assembled by the canonical bootstrap entry');
+  }
   const repositoryRoot = path.resolve(input.repositoryRoot);
   const github = createVerificationSessionGitHubClient(repositoryRoot, input.repository);
   const candidate = (await github.observeCandidate(input.repository, input.prNumber));
@@ -831,7 +862,7 @@ export async function closeoutWithTrustedRuntime(input: Readonly<{
         repositoryRoot,
         repository: input.repository,
         operation: async () => await closeoutOpenCandidateWithTrustedRuntime({
-          input, repositoryRoot, github, candidate: current
+          input, repositoryRoot, github, candidate: current, sourceTransitionUseCase
         })
       });
       // All predecessor evidence was read and a fresh isolated assessment was
@@ -860,8 +891,9 @@ async function closeoutOpenCandidateWithTrustedRuntime(args: Readonly<{
   repositoryRoot: string;
   github: VerificationSessionGitHubClient;
   candidate: GitHubCandidateObservation;
+  sourceTransitionUseCase: TrustedRuntimeSourceTransitionUseCase;
 }>): Promise<TrustedRuntimeCloseoutOpenResult> {
-  const { input, repositoryRoot, github, candidate } = args;
+  const { input, repositoryRoot, github, candidate, sourceTransitionUseCase } = args;
   if (candidate.state !== 'OPEN' || candidate.isDraft || candidate.isCrossRepository) {
     fail('candidate changed before trusted-runtime closeout admission');
   }
@@ -982,69 +1014,54 @@ async function closeoutOpenCandidateWithTrustedRuntime(args: Readonly<{
     const existingAction = readNoFollowOrdinaryFile(stateDirectory, actionFile);
     const pendingFile = 'verification-pending-qualification.json';
     const pendingBytes = existingAction === null ? readNoFollowOrdinaryFile(stateDirectory, pendingFile) : null;
-    let actionBundle: TrustedRuntimeActionBundle;
-    let sourceProgramTransitionQualification: SourceProgramTransitionQualification;
-    const qualifyTransition = async (evidence: TrustedRuntimeActionBundle['artifact']['evidence'], receipt: TrustedRuntimeContainerReceipt) => {
-      const observed = await observeTrustedRuntimeSourceProgramTransition({ repositoryRoot, envelope, evidence, receipt,
-        sourceProgramTransition, ...(authorApproval === undefined ? {} : { authorApproval }) });
-      // Preserve this attempt even if its proposed adoption has gone stale.
-      publishCanonical({ parent: stateDirectory,
-        name: `source-program-attempt-${observed.attemptEvidence.evidenceDigest.slice(7)}.json`,
-        value: observed.attemptEvidence,
-        parse: (bytes) => parseTrustedRuntimeSourceProgramAttemptEvidence(JSON.parse(Buffer.from(bytes).toString('utf8'))) });
-      const currentAuthorApproval = await observeAuthorApproval();
-      const currentSubject = await github.observeCandidate(input.repository, input.prNumber);
-      if (currentAuthorApproval?.approvalDigest !== authorApproval?.approvalDigest
-          || currentAuthorApproval?.providerObservationDigest !== authorApproval?.providerObservationDigest
-          || currentSubject.state !== 'OPEN' || currentSubject.isDraft || currentSubject.isCrossRepository
-          || currentSubject.baseSha !== candidate.baseSha || currentSubject.baseTreeSha !== candidate.baseTreeSha
-          || currentSubject.headSha !== candidate.headSha || currentSubject.headTreeSha !== candidate.headTreeSha) {
-        fail('source transition author or exact PR subject drifted before accepted publication');
+    let actionBundle: TrustedRuntimeActionBundle | null = existingAction === null
+      ? null : parseActionBundle(existingAction);
+    const previousVerification = actionBundle === null
+      ? pendingBytes === null ? null : parsePendingTrustedRuntimeEvidence(pendingBytes)
+      : Object.freeze({ evidence: actionBundle.artifact.evidence, receipt: actionBundle.containerReceipt });
+    if (previousVerification !== null && (
+      previousVerification.evidence.sessionRevision !== envelope.session.sessionRevision
+      || previousVerification.evidence.actionPlan.actionPlanDigest !== envelope.actionPlanClosure.actionPlanDigest
+    )) fail('prior computation belongs to another Session or Action plan');
+    const transitionResult = await sourceTransitionUseCase({
+      repositoryRoot, envelope, sourceProgramTransition, actorNodeId: principal.nodeId,
+      requiredBlobs: dependencyBlobs.map(({ path: dependencyPath, candidateSource }) => Object.freeze({
+        path: dependencyPath, digest: `sha256:${createHash('sha256').update(candidateSource).digest('hex')}` as Digest
+      })),
+      previousVerification,
+      observeAuthorApproval,
+      assertCurrentSubject: async () => {
+        const current = await github.observeCandidate(input.repository, input.prNumber);
+        if (current.state !== 'OPEN' || current.isDraft || current.isCrossRepository
+            || current.baseSha !== candidate.baseSha || current.baseTreeSha !== candidate.baseTreeSha
+            || current.headSha !== candidate.headSha || current.headTreeSha !== candidate.headTreeSha) {
+          fail('exact PR subject drifted before accepted publication');
+        }
+      },
+      publishAttempt: (evidence) => {
+        publishCanonical({ parent: stateDirectory,
+          name: `source-program-attempt-${evidence.evidenceDigest.slice(7)}.json`, value: evidence,
+          parse: (bytes) => parseTrustedRuntimeSourceProgramAttemptEvidence(JSON.parse(Buffer.from(bytes).toString('utf8'))) });
+      },
+      publishVerification: (result) => {
+        publishCanonical({ parent: stateDirectory, name: pendingFile,
+          value: createPendingTrustedRuntimeEvidence(result), parse: parsePendingTrustedRuntimeEvidence });
+      },
+      publishAdoption: (qualification) => {
+        publishCanonical({ parent: stateDirectory,
+          name: `source-program-adoption-${qualification.qualificationDigest.slice(7)}.json`, value: qualification,
+          parse: (bytes) => parseSourceProgramTransitionAcceptanceRecord(JSON.parse(Buffer.from(bytes).toString('utf8'))) });
       }
-      const qualification = qualifySourceProgramTransitionAssessment({ ...observed,
-        ...(currentAuthorApproval === undefined ? {} : { approval: currentAuthorApproval }) });
-      publishCanonical({ parent: stateDirectory,
-        name: `source-program-adoption-${qualification.qualificationDigest.slice(7)}.json`,
-        value: qualification,
-        parse: (bytes) => parseSourceProgramTransitionAcceptanceRecord(JSON.parse(Buffer.from(bytes).toString('utf8'))) });
-      // Return the original live capability, never the historical decoder output.
-      return qualification;
-    };
-    if (existingAction === null) {
-      const executed = pendingBytes === null
-        ? await (async () => {
-          const requiredBlobs = dependencyBlobs.map(({ path: dependencyPath, candidateSource }) => Object.freeze({
-            path: dependencyPath,
-            digest: `sha256:${createHash('sha256').update(candidateSource).digest('hex')}` as Digest
-          }));
-          const produced = await executeTrustedRuntimeContainerVerification({
-            repositoryRoot, envelope, actorNodeId: principal.nodeId, requiredBlobs,
-            sourceProgramTransition, ...(authorApproval === undefined ? {} : { authorApproval })
-          });
-          return publishCanonical({ parent: stateDirectory, name: pendingFile,
-            value: createPendingTrustedRuntimeEvidence(produced), parse: parsePendingTrustedRuntimeEvidence });
-        })()
-        : parsePendingTrustedRuntimeEvidence(pendingBytes);
-      if (executed.evidence.sessionRevision !== envelope.session.sessionRevision
-          || executed.evidence.actionPlan.actionPlanDigest !== envelope.actionPlanClosure.actionPlanDigest) {
-        fail('pending computation belongs to another Session or Action plan');
-      }
-      sourceProgramTransitionQualification = await qualifyTransition(executed.evidence, executed.receipt);
+    });
+    if (transitionResult.kind === 'waiting') return transitionResult;
+    const sourceProgramTransitionQualification = transitionResult.qualification;
+    if (actionBundle === null) {
       const artifact = finalizeVerificationSessionHostedArtifact({
-        envelope,
-        sourceProgramTransitionQualification,
-        evidence: executed.evidence
+        envelope, sourceProgramTransitionQualification, evidence: transitionResult.verification.evidence
       });
       actionBundle = publishCanonical({ parent: stateDirectory, name: actionFile,
-        value: createActionBundle({ artifact, containerReceipt: executed.receipt }),
+        value: createActionBundle({ artifact, containerReceipt: transitionResult.verification.receipt }),
         parse: parseActionBundle });
-    } else {
-      actionBundle = parseActionBundle(existingAction);
-      if (actionBundle.sessionRevision !== envelope.session.sessionRevision
-          || actionBundle.actionPlanDigest !== envelope.actionPlanClosure.actionPlanDigest) {
-        fail('durable Action evidence belongs to another Session or Action plan');
-      }
-      sourceProgramTransitionQualification = await qualifyTransition(actionBundle.artifact.evidence, actionBundle.containerReceipt);
     }
     const artifact = existingAction === null ? actionBundle.artifact : refreshVerificationSessionHostedArtifact({
       envelope,
@@ -1334,10 +1351,10 @@ async function executeTrustedRuntimeCloseoutMergeEffect(
 
 async function main(): Promise<void> {
   const { withGitHubCredentialBootstrap } = await import('../../../providers/github-api/credential-bootstrap.ts');
-  return withGitHubCredentialBootstrap(process.argv.slice(2), runWithCredentialBootstrap);
+  return withGitHubCredentialBootstrap(process.argv.slice(2), runTrustedRuntimeOperatorCli);
 }
 
-async function runWithCredentialBootstrap(argv: string[]): Promise<void> {
+export async function runTrustedRuntimeOperatorCli(argv: readonly string[], sourceTransitionUseCase?: TrustedRuntimeSourceTransitionUseCase): Promise<void> {
   const args = parseArgs(argv);
   const result = args.mode === 'runtime-canary'
       ? await runCurrentTrustedRuntimeWorkspaceCanary({
@@ -1355,7 +1372,7 @@ async function runWithCredentialBootstrap(argv: string[]): Promise<void> {
             repository: args.repository,
             prNumber: args.prNumber,
             ...(args.testAuthorCommentId === undefined ? {} : { testAuthorCommentId: args.testAuthorCommentId })
-          });
+          }, sourceTransitionUseCase);
   process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
 }
 

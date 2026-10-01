@@ -31,8 +31,8 @@
     "dev": "\"$npm_execpath\" ./src/adapters/self-hosting/development/runner/cli.ts",
     "dev:status": "\"$npm_execpath\" src/adapters/self-hosting/control/documentation/document-control-plane.ts status",
     "dev:continue": "\"$npm_execpath\" src/adapters/self-hosting/control/continuation/local-continuation.ts continue",
-    "sec:closeout": "\"$npm_execpath\" src/adapters/self-hosting/control/composition/trusted-runtime-closeout.ts",
-    "sec:runtime-canary": "\"$npm_execpath\" src/adapters/self-hosting/control/composition/trusted-runtime-closeout.ts --runtime-canary",
+    "sec:closeout": "\"$npm_execpath\" src/bootstrap/engineering/trusted-runtime-closeout.ts",
+    "sec:runtime-canary": "\"$npm_execpath\" src/bootstrap/engineering/trusted-runtime-closeout.ts --runtime-canary",
     "build": "\"$npm_execpath\" ./src/bootstrap/release/build.ts",
     "release:build": "\"$npm_execpath\" ./src/bootstrap/release/build-release-set.ts",
     "typecheck": "\"$npm_execpath\" ./src/adapters/self-hosting/development/runner/typecheck-feedback.ts",
@@ -62,7 +62,7 @@
     "check": "\"$npm_execpath\" ./src/adapters/self-hosting/development/runner/cli.ts check",
     "workspace:transition": "\"$npm_execpath\" ./src/adapters/self-hosting/development/runner/cli.ts workspace-transition",
     "duplicates:check": "\"$npm_execpath\" ./node_modules/jscpd/run-jscpd.js src/ tests/ --reporters console --format typescript,tsx,javascript,jsx --cross-formats js-ts --ignore \"**/node_modules/**,**/dist/**,.tmp/**\" --max-lines 100000 --max-size 2mb --min-lines 5 --min-tokens 50 --absolute",
-    "audit": "\"$npm_execpath\" src/adapters/repository/repository-audit/cli.ts"
+    "audit": "\"$npm_execpath\" src/bootstrap/engineering/repository-audit.ts"
   },
   "dependencies": {
     "@awasm/noble": "0.1.4",

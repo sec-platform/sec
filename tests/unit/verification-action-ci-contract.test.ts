@@ -1,8 +1,9 @@
 import { expect, test } from 'bun:test';
 import { createHash } from 'node:crypto';
+import historicalSourcePlan from '../fixtures/ci-source-transition-legacy-plan.json' with { type: 'json' };
 
 import { encodeVerificationActionData } from '../../src/adapters/verification/platform/action/contract/action.ts';
-import { assertCiVerificationActionPlanClosureEqual, assertCiVerificationActionProviderEnvelopeMember, buildCiVerificationActionPlanClosure, ciVerificationActionParentDispatchPlanArtifactName, ciVerificationActionParentDispatchPlanPayloadDigest, ciVerificationGateStep, ciVerificationNormalizedOperationArgv, createCiVerificationActionParentDispatchPlan, createCiVerificationActionProposal, createCiVerificationActionProviderEnvelope, parseCiVerificationActionParentDispatchPlan, parseCiVerificationActionPlanClosure, parseCiVerificationActionProviderEnvelope, resolveCiVerificationDevRunnerTarget, sourceProgramTransitionGate, type CiVerificationActionCandidate } from '../../src/adapters/verification/platform/action/contract/ci.ts';
+import { assertCiVerificationActionPlanClosureEqual, assertCiVerificationActionProviderEnvelopeMember, assertCiVerificationCurrentOperation, buildCiVerificationActionPlanClosure, ciVerificationActionParentDispatchPlanArtifactName, ciVerificationActionParentDispatchPlanPayloadDigest, ciVerificationGateStep, ciVerificationNormalizedOperationArgv, createCiVerificationActionParentDispatchPlan, createCiVerificationActionProposal, createCiVerificationActionProviderEnvelope, parseCiVerificationActionParentDispatchPlan, parseCiVerificationActionPlanClosure, parseCiVerificationActionProviderEnvelope, parseCiVerificationNormalizedOperation, resolveCiVerificationDevRunnerTarget, sourceProgramTransitionGate, type CiVerificationActionCandidate } from '../../src/adapters/verification/platform/action/contract/ci.ts';
 import { buildCiFullGatePlan, buildCiQuickGatePlan } from '../../src/adapters/verification/platform/ci/contract/plan.ts';
 import { createVerificationSession, createVerificationSessionProposalDigest } from '../../src/adapters/verification/platform/session/contract/session.ts';
 
@@ -476,4 +477,26 @@ test('source analysis action identity excludes later author input but preserves 
     .not.toBe(initial.actionPlanDigest);
   expect(() => sourceProgramTransitionGate({ ...source, payloadDigest: digest('1') }))
     .toThrow('transition author binding is incomplete');
+});
+
+
+test('historical source Action bytes decode unchanged but cannot issue new execution', () => {
+  // Frozen output of the adopted22ba producer, before the bootstrap entry change.
+  const bytes = encodeVerificationActionData(historicalSourcePlan);
+  const parsed = parseCiVerificationActionPlanClosure(bytes);
+  expect(encodeVerificationActionData(parsed)).toBe(bytes);
+  expect(parsed.actionPlanDigest).toBe('sha256:4c1876c1a9c57f9c062be9756f397d96428544f94674ae17a6e56dba9f26ccb2');
+  const operation = parsed.normalizedOperations[1]!;
+  const oldEntry = 'src/adapters/repository/repository-audit/cli.ts';
+  expect(operation.target.identity).toBe(oldEntry);
+  expect(ciVerificationNormalizedOperationArgv(operation)[1]).toBe(oldEntry);
+  expect(() => assertCiVerificationCurrentOperation(operation)).toThrow('read-only');
+  expect(() => resolveCiVerificationDevRunnerTarget({ plan: parsed.actions[1]!, authorizedClosure: parsed })).toThrow('read-only');
+  const current = sourceProgramTransitionGate({ baseSha: candidate.baseSha, headSha: candidate.headSha,
+    payloadDigest: null, approvalObservationDigest: null, approvalDigest: null });
+  expect(() => buildCiVerificationActionPlanClosure({ candidate, gates: [ciVerificationGateStep({
+    ...current, args: [oldEntry, ...current.args.slice(1)]
+  })] })).toThrow('exact adopted-base comparison grammar');
+  expect(() => parseCiVerificationNormalizedOperation({ ...operation,
+    target: { ...operation.target, args: ['--arbitrary-old-command'] } })).toThrow('read-only grammar');
 });
