@@ -1,3 +1,10 @@
+import ts from 'typescript';
+import {
+  sha256
+} from '../../../contracts/canonical.ts';
+import {
+  sourceProgramCompilationCheckpoint
+} from './compilation-operation.ts';
 import type {
   SourceProgramCapabilityInvocation,
   SourceProgramCompilation,
@@ -14,20 +21,18 @@ import type {
 import {
   sourceProgramSurfaceForPath
 } from './contract.ts';
-import type {
-  TypeScriptSourceProgramFactShard
-} from './typescript-fact-shards.ts';
-import ts from 'typescript';
-import { createTypeScriptModuleLoadObserver } from './typescript-module-loader.ts';
-import {
-  sourceProgramCompilationCheckpoint
-} from './compilation-operation.ts';
-import {
-  sha256
-} from '../../../contracts/canonical.ts';
 import {
   resolveSecRepositoryModuleImportCandidates
 } from './module-graph.ts';
+import {
+  compileTypeScriptRequiredApiClosure
+} from './typescript-api-closure.ts';
+import {
+  issueTypeScriptExactFactGeneration
+} from './typescript-exact-facts.ts';
+import type {
+  TypeScriptSourceProgramFactShard
+} from './typescript-fact-shards.ts';
 import type {
   TypeScriptModelInput,
   TypeScriptModelInternalInput
@@ -36,11 +41,16 @@ import {
   prepareTypeScriptSourceProgramInput
 } from './typescript-input.ts';
 import {
-  compileExactTypeScriptProgram
-} from './typescript-workspace.ts';
+  bindTypeScriptModelToRepositoryCompilation,
+  canonicalTypeScriptModel
+} from './typescript-model-assembly.ts';
+import { createTypeScriptModuleLoadObserver } from './typescript-module-loader.ts';
 import {
-  compileTypeScriptRequiredApiClosure
-} from './typescript-api-closure.ts';
+  recordTypeScriptPerformance
+} from './typescript-performance.ts';
+import {
+  compileSourceProgramReturnProvenance
+} from './typescript-return-provenance.ts';
 import {
   declarationName,
   executionScopeName,
@@ -54,18 +64,8 @@ import {
   typeScriptSemanticDependencyScopeFromSourceFile
 } from './typescript-syntax.ts';
 import {
-  recordTypeScriptPerformance
-} from './typescript-performance.ts';
-import {
-  compileSourceProgramReturnProvenance
-} from './typescript-return-provenance.ts';
-import {
-  issueTypeScriptExactFactGeneration
-} from './typescript-exact-facts.ts';
-import {
-  bindTypeScriptModelToRepositoryCompilation,
-  canonicalTypeScriptModel
-} from './typescript-model-assembly.ts';
+  compileExactTypeScriptProgram
+} from './typescript-workspace.ts';
 
 /** Full semantic model lowering from one exact compiler program; other operations use their owning modules. */
 export function compileTypeScriptModelInternal(
@@ -165,13 +165,9 @@ export function compileTypeScriptModelInternal(
           semanticDeclarationCandidateNames.add(node.propertyName.text);
         }
       }
-      const declarationSpan = spanFor(sourceFile, node);
-      const name = declarationName(node) ?? (
-        sourceSurface === 'test' && ts.isFunctionLike(node)
-          ? executionScopeName(declarationSpan)
-          : null
-      );
-      if (name !== null) {
+      const explicitName = declarationName(node);
+      const isTestExecutionScope = sourceSurface === 'test' && ts.isFunctionLike(node);
+      if (explicitName !== null || isTestExecutionScope) {
         let topLevel: ts.Node | undefined = node;
         while (topLevel && !ts.isSourceFile(topLevel.parent)) topLevel = topLevel.parent;
         const independentlyAddressable = sourceSurface === 'test'
@@ -184,7 +180,8 @@ export function compileTypeScriptModelInternal(
           ts.forEachChild(node, visit);
           return;
         }
-        const span = declarationSpan;
+        const span = spanFor(sourceFile, node);
+        const name = explicitName ?? executionScopeName(span);
         const declarationDigest = sha256({
           kind: ts.SyntaxKind[node.kind],
           name,

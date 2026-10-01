@@ -1,6 +1,6 @@
 {
   "schema": "sec.documentation-source-manifest/2",
-  "source_set_sha256": "550b4d7f4fcca59a789c91322a7e7a1c98384b3eae89f7c14770adc1091f335e",
+  "source_set_sha256": "a9d7fe2f043aa47500417a40cad0d13ba266adcb1ba08a11a2bcd77df09f2947",
   "members": [
     {
       "path": ".documentation/README.md",
@@ -159,8 +159,8 @@
     },
     {
       "path": "docs/README.md",
-      "bytes": 3472,
-      "sha256": "f74b4fa19c572356d07de6edf37ef60e9d93aec7205dbf70bcaccc159dfbca29"
+      "bytes": 4196,
+      "sha256": "299e671addc89f2661fdccc914562ca700b79cf0fa8d69fb88beaed8a5fee699"
     },
     {
       "path": "docs/产品/README.md",
@@ -584,8 +584,8 @@
     },
     {
       "path": "docs/开发/AI协作/上下文取得与任务投影.md",
-      "bytes": 22072,
-      "sha256": "59ec1c6bf783276fdd5e750343fddf461e7694ab3270f5a44962d7097853fa55"
+      "bytes": 24007,
+      "sha256": "f85a026ffc8e866ead5cd58e6a862ffd149f2be2866b86b6c26059b024b08106"
     },
     {
       "path": "docs/开发/AI协作/委派安全与持续交接.md",
@@ -594,8 +594,8 @@
     },
     {
       "path": "docs/开发/AI协作/规则装载与任务恢复.md",
-      "bytes": 72515,
-      "sha256": "d0c5c318cbaf7613b22099b1e1acdbab59575a37505c04be797af4d6094c597f"
+      "bytes": 75914,
+      "sha256": "124f053231eee0b37903cafcb5523d7865763286719eb7dcdbe40e80fec03b63"
     },
     {
       "path": "docs/开发/AI协作/需求与作者上下文.md",
@@ -654,8 +654,8 @@
     },
     {
       "path": "docs/开发/测试发现与执行.md",
-      "bytes": 25400,
-      "sha256": "b682be56dfb517044c91b2f24ab5e483705adb9839d9e311dc8935b3ac44465f"
+      "bytes": 26425,
+      "sha256": "863f368efb194940637799aac506d55a8e483eea6291002c658f14c130118488"
     },
     {
       "path": "docs/开发/用途与任务范围.md",

@@ -12,9 +12,9 @@ last-reviewed: 2026-10-01
 ```json
 {
   "active": {
-    "manifestDigest": "sha256:851c4297950df18e45a59fa35cd0a6739d42285eed2acbd31e964ed67ed6fb72",
-    "manifestPath": "config/repository/work-packages/engineering-guidance-closure-decision-20261001.md",
-    "packageId": "engineering-guidance-closure-decision-20261001",
+    "manifestDigest": "sha256:a22b65202ff5792f5034cc88128ee0ca84e0a84d01345d3f7f4d1d3aade6468e",
+    "manifestPath": "config/repository/work-packages/engineering-decision-records-20261001.md",
+    "packageId": "engineering-decision-records-20261001",
     "tracking": "none"
   },
   "authority": "none",
@@ -25,18 +25,18 @@ last-reviewed: 2026-10-01
     "candidate-control-transaction-v1",
     "typescript-7-checker-acceleration-v1"
   ],
-  "exactMain": "d132c123bdffa0854b5252a2da058d893f60dd47",
-  "exactMainTree": "f9b51e27c5bf604c57f935d65a1d7a98e736743c",
-  "projectionDigest": "sha256:77a488080c2f371daa43396abbbc92f7412c4646ae8be596eacdb31980f68cde",
+  "exactMain": "0bc45ed385dea6ea54a029ed27d377798708d548",
+  "exactMainTree": "7340ed8719427c4bcbc6648173456e900d63cebe",
+  "projectionDigest": "sha256:8424e7655dcfdd2b3da58570ae0235f4cd96377ab2fdeb8a8422642cafd6ea05",
   "schema": "sec-work-rolling-proposal-projection-v1"
 }
 ```
 
 ## 当前唯一 Work Package
 
-### engineering-guidance-closure-decision-20261001
+### engineering-decision-records-20261001
 
-Proposal-only target manifest `config/repository/work-packages/engineering-guidance-closure-decision-20261001.md` at `sha256:851c4297950df18e45a59fa35cd0a6739d42285eed2acbd31e964ed67ed6fb72`, based on exact main `d132c123bdffa0854b5252a2da058d893f60dd47` and tree `f9b51e27c5bf604c57f935d65a1d7a98e736743c`.
+Proposal-only target manifest `config/repository/work-packages/engineering-decision-records-20261001.md` at `sha256:a22b65202ff5792f5034cc88128ee0ca84e0a84d01345d3f7f4d1d3aade6468e`, based on exact main `0bc45ed385dea6ea54a029ed27d377798708d548` and tree `7340ed8719427c4bcbc6648173456e900d63cebe`.
 
 ## 候选 Work Package
 
