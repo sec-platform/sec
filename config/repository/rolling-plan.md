@@ -12,9 +12,9 @@ last-reviewed: 2026-10-02
 ```json
 {
   "active": {
-    "manifestDigest": "sha256:07caf2047b50031b5e4198d7c879cac091c00f310b3fc83c7aa0b12686cd4ad2",
-    "manifestPath": "config/repository/work-packages/maintenance-diagnostic-adoption-20261002.md",
-    "packageId": "maintenance-diagnostic-adoption-20261002",
+    "manifestDigest": "sha256:ab305cd3fd9811d3b82f1d83ca9483db3ebcbd5fa21769f5d8af7c10146f8502",
+    "manifestPath": "config/repository/work-packages/source-program-incremental-adoption-20261002.md",
+    "packageId": "source-program-incremental-adoption-20261002",
     "tracking": "none"
   },
   "authority": "none",
@@ -25,18 +25,18 @@ last-reviewed: 2026-10-02
     "candidate-control-transaction-v1",
     "typescript-7-checker-acceleration-v1"
   ],
-  "exactMain": "a005513b5a1f60fac0d6163e49144c4a17148f89",
-  "exactMainTree": "548a5e913c13560ad1ad9ffe46b6e9fb5e2c94aa",
-  "projectionDigest": "sha256:ff5c9524cce0bb5123ba2d23e68be942c58a1eb8901d30005f6b4232cf40e08a",
+  "exactMain": "193842996ec2835f89136d20384adad0c79ff262",
+  "exactMainTree": "f61184d14b56e35cc8cfaa4143ed755f62290f5f",
+  "projectionDigest": "sha256:4c1d8f1c61ca5ab7ea5b200799a4afb5ce40649c0cd77e4f3def552068f48800",
   "schema": "sec-work-rolling-proposal-projection-v1"
 }
 ```
 
 ## 当前唯一 Work Package
 
-### maintenance-diagnostic-adoption-20261002
+### source-program-incremental-adoption-20261002
 
-Proposal-only target manifest `config/repository/work-packages/maintenance-diagnostic-adoption-20261002.md` at `sha256:07caf2047b50031b5e4198d7c879cac091c00f310b3fc83c7aa0b12686cd4ad2`, based on exact main `a005513b5a1f60fac0d6163e49144c4a17148f89` and tree `548a5e913c13560ad1ad9ffe46b6e9fb5e2c94aa`.
+Proposal-only target manifest `config/repository/work-packages/source-program-incremental-adoption-20261002.md` at `sha256:ab305cd3fd9811d3b82f1d83ca9483db3ebcbd5fa21769f5d8af7c10146f8502`, based on exact main `193842996ec2835f89136d20384adad0c79ff262` and tree `f61184d14b56e35cc8cfaa4143ed755f62290f5f`.
 
 ## 候选 Work Package
 

@@ -1307,6 +1307,22 @@ async function compileWorkingTreeSourceProgramWithSession(
       span: null
     }));
   }
+  // Produce the true baseline once before the current generation. Its live
+  // receipt can accelerate facts only after the compilation owner rechecks
+  // complete non-source inputs; it does not carry current qualification.
+  const distinctBaselineReconciliation = baselineSnapshot.sourceRevision !== workspaceSnapshot.sourceRevision
+    ? await compileRevisionSupersessionEvidence(
+      repositoryRoot,
+      baselineSnapshot,
+      baselineIdentity,
+      dependencyGeneration,
+      dependencyGenerationDigest,
+      compilationOperation,
+      cachedBaselineSupersessionEvidence,
+      cacheAccess,
+      authorityScope
+    )
+    : null;
   const projectInput = compileWorkspaceTypeScriptProjectInput(
     workspaceSnapshot,
     tsconfigRelativePath,
@@ -1321,25 +1337,16 @@ async function compileWorkingTreeSourceProgramWithSession(
     operation: compilationOperation,
     repositoryRoot,
     reviewedProcessDispatchers,
-    unknowns
+    unknowns,
+    ...(distinctBaselineReconciliation === null ? {} : {
+      previousCompilation: distinctBaselineReconciliation.compilation
+    })
   });
   const moduleGraph = compilation.workspaceSnapshot.moduleGraph;
   const incrementalCompilation = compilation.typeScriptCompilation;
   const model = compilation.model;
   const baselineReconciliation = await (async () => {
-    if (baselineSnapshot.sourceRevision !== workspaceSnapshot.sourceRevision) {
-      return compileRevisionSupersessionEvidence(
-        repositoryRoot,
-        baselineSnapshot,
-        baselineIdentity,
-        dependencyGeneration,
-        dependencyGenerationDigest,
-        compilationOperation,
-        cachedBaselineSupersessionEvidence,
-        cacheAccess,
-        authorityScope
-      );
-    }
+    if (distinctBaselineReconciliation !== null) return distinctBaselineReconciliation;
     // The Source Program revision binds the complete admitted file bytes,
     // module membership and semantic graph. Observation route (working tree
     // versus exact Git blobs) cannot create a second semantic compilation for

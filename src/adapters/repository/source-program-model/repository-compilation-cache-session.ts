@@ -144,7 +144,7 @@ function compileRepositoryWithCache<Receipt extends RepositorySourceProgramCompi
   compile: (input: CompileRepositorySourceProgramCompilationInput) => Receipt
 ): Receipt {
   const { workspaceSnapshot, operation, repositoryRoot, projectInput,
-    reviewedProcessDispatchers, unknowns, cacheAccess = 'read-write' } = input;
+    reviewedProcessDispatchers, unknowns, cacheAccess = 'read-write', previousCompilation } = input;
   assertPhysicalWorkspaceSourceSnapshot(workspaceSnapshot);
   // Reject forged, cancelled or exhausted operations before opening optional
   // cache resources. This failure is not a cache miss and must not fall back.
@@ -186,6 +186,7 @@ function compileRepositoryWithCache<Receipt extends RepositorySourceProgramCompi
     compilation = compile({
       workspaceSnapshot, operation, repositoryRoot, projectInput,
       reviewedProcessDispatchers, unknowns, cacheAccess,
+      ...(previousCompilation === undefined ? {} : { previousCompilation }),
       ...(cacheProvider === undefined ? {} : { cacheProvider })
     });
   } catch (error) {
