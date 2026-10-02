@@ -104,6 +104,20 @@ jobs:
                 (comment.data.author_association !== 'OWNER' && comment.data.author_association !== 'MEMBER') ||
                 (role !== 'admin' && role !== 'maintain') ||
                 bodyDigest !== payload.comment_body_sha256) {
+              core.info(JSON.stringify({
+                schema: 'sec-maintenance-carrier-rejection-diagnostic-v1',
+                commentIdMatches: comment.data.id === payload.comment_id,
+                issueUrlMatches: comment.data.issue_url === `https://api.github.com/repos/${context.repo.owner}/${context.repo.repo}/issues/313`,
+                authorMatchesActor: comment.data.user?.login === context.actor,
+                authorIsUser: comment.data.user?.type === 'User',
+                performedViaAppFieldPresent: Object.prototype.hasOwnProperty.call(comment.data, 'performed_via_github_app'),
+                performedViaAppIsNull: comment.data.performed_via_github_app === null,
+                associationAccepted: comment.data.author_association === 'OWNER' || comment.data.author_association === 'MEMBER',
+                permissionShape: ['admin', 'maintain', 'write', 'triage', 'read', 'none'].includes(permission.data?.permission) ? permission.data.permission : 'unrecognized',
+                roleShape: ['admin', 'maintain', 'write', 'triage', 'read', 'none'].includes(permission.data?.role_name) ? permission.data.role_name : 'absent-or-unrecognized',
+                normalizedRoleAccepted: role === 'admin' || role === 'maintain',
+                bodyDigestMatches: bodyDigest === payload.comment_body_sha256
+              }));
               throw new Error('Repository maintenance trigger comment or dispatcher authority differs.');
             }
             let request;
