@@ -10,8 +10,8 @@ last-reviewed: 2026-10-02
 selectionMode: exact-manifest-not-on-default-branch-v1
 defaultBranchRef: refs/remotes/origin/main
 defaultRefFreshness: live-platform-match-required
-manifest: config/repository/work-packages/runner-build-adoption-20261002.md
-manifestDigest: sha256:089f793453491728f2f9f731167322e6ea0971b79fc7b0953d02d438abd14950
+manifest: config/repository/work-packages/source-publication-boundary-adoption-20261002.md
+manifestDigest: sha256:1305d2c24c9bc605dd200e79bd09441774f9212bf47181a82e442073f64a465f
 digestBytes: git-blob
 unavailableDefaultRef: unresolved
 matchingDefaultBlob: none

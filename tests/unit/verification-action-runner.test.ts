@@ -4,6 +4,7 @@ import {
   existsSync,
   mkdirSync,
   mkdtempSync,
+  readdirSync,
   readFileSync,
   realpathSync,
   rmSync,
@@ -1871,3 +1872,52 @@ test('cheap actions can be scheduled without an ActionKey cost field', async () 
     rmSync(repositoryRoot, { recursive: true, force: true });
   }
 });
+
+
+for (const state of ['invalidated', 'cancelled'] as const) {
+  for (const residue of [false, true]) {
+    test(`closed ${state} Action is observed without claiming or changing ${residue ? 'retained' : 'absent'} claim resources`, async () => {
+      const repositoryRoot = root();
+      const runner = new VerificationActionRunner();
+      const key = preflightAction(`closed-${state}-${residue}.ts`);
+      let invocations = 0;
+      const input = {
+        repositoryRoot,
+        action: key,
+        plan: cheapPlan(key),
+        executor: () => { invocations += 1; return issuedSettlement(key); }
+      };
+      try {
+        expect((await runner.execute(input)).disposition).toBe('executed');
+        if (state === 'invalidated') runner.invalidate(repositoryRoot, key, 'closed-state fixture');
+        else runner.cancel(repositoryRoot, key, 'closed-state fixture');
+        const journalRoot = path.join(resolveSecWorkspaceRuntimeRoots({ repositoryRoot }).stateRoot,
+          VERIFICATION_ACTION_JOURNAL_DIRECTORY);
+        const journalPath = path.join(journalRoot, `${key.actionKey.slice('sha256:'.length)}.jsonl`);
+        if (residue) {
+          writeFileSync(`${journalPath}.claim.json`, 'unknown prior claim bytes\n');
+          writeFileSync(`${journalPath}.claim-recovery.lock`, 'unknown prior recovery bytes\n');
+        }
+        const snapshot = () => readdirSync(journalRoot).sort().map(name => {
+          const file = path.join(journalRoot, name);
+          const identity = statSync(file, { bigint: true });
+          return { name, device: String(identity.dev), inode: String(identity.ino),
+            modified: String(identity.mtimeNs), changed: String(identity.ctimeNs),
+            bytes: readFileSync(file).toString('hex') };
+        });
+        const before = snapshot();
+        for (let attempt = 0; attempt < 2; attempt += 1) {
+          const result = await runner.execute(input);
+          expect(result).toMatchObject({ disposition: 'blocked', state, terminal: null,
+            physicalExecution: false,
+            reason: `action is already ${state}; delete the disposable V2 journal to execute cleanly` });
+          expect(invocations).toBe(1);
+          expect(snapshot()).toEqual(before);
+        }
+      } finally {
+        await runner.close();
+        rmSync(repositoryRoot, { recursive: true, force: true });
+      }
+    });
+  }
+}
