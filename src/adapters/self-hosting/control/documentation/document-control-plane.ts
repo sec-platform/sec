@@ -69,6 +69,7 @@ import {
   verifyTerminalFreezeJournal,
   writeFreezeJournal
 } from './document-control-recovery.ts';
+import { resolveSourceCheckpointStatus } from './document-control-source-checkpoint.ts';
 import { resolveLiveControlPlane } from './document-control-status.ts';
 
 /**
@@ -587,6 +588,12 @@ export async function runDocumentControlPlaneCli(): Promise<void> {
 
 async function runDocumentControlPlaneCliArguments(argv: string[]): Promise<void> {
   const request = decodeDocumentControlCommand(argv, process.cwd());
+  if (request.command === 'source-checkpoint-status') {
+    const output = await resolveSourceCheckpointStatus(request.workspace, request.request);
+    process.stdout.write(`${JSON.stringify(output, null, 2)}\n`);
+    if (output.blockers.length !== 0) process.exitCode = 1;
+    return;
+  }
   if (request.command === 'status') {
     const resolved = await resolveLiveControlPlane(request.workspace);
     const output = request.full

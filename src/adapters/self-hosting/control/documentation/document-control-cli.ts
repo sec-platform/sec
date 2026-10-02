@@ -1,7 +1,28 @@
 import path from 'node:path';
+
 import { rawSha256 } from '../../../../contracts/canonical.ts';
 
 /** Request decoding and bounded output projection only; no provider or effect access. */
+
+/** Scope is a request, never an authorization or a replacement Work Package. */
+export interface SourceCheckpointStatusRequest {
+  readonly base: string;
+  readonly expectedHead: string;
+  readonly ownedPaths: readonly string[];
+}
+
+export function validateSourceCheckpointStatusRequest(input: SourceCheckpointStatusRequest): SourceCheckpointStatusRequest {
+  if (![input.base, input.expectedHead].every((value) => /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/u.test(value))) {
+    throw new Error('Source checkpoint status requires exact base and expected-head object IDs.');
+  }
+  if (input.ownedPaths.length === 0 || input.ownedPaths.length > 1024
+      || new Set(input.ownedPaths).size !== input.ownedPaths.length
+      || input.ownedPaths.some((value) => value.length === 0 || value.length > 4096
+        || /[\\\0\r\n*?\[\]]/u.test(value) || value.split('/').some((part) => ['', '.', '..', '.git'].includes(part)))) {
+    throw new Error('Source checkpoint status requires unique exact repository-relative owned paths.');
+  }
+  return Object.freeze({ ...input, ownedPaths: Object.freeze([...input.ownedPaths].sort()) });
+}
 
 export interface DocumentControlPlaneStatusCliProjection {
   readonly schema: 'sec-document-control-plane-status-cli-projection-v1';
@@ -65,6 +86,7 @@ export function projectDocumentControlPlaneStatusCli(
 
 export type DocumentControlCommand =
   | Readonly<{ command: 'status'; workspace: string; full: boolean }>
+  | Readonly<{ command: 'source-checkpoint-status'; workspace: string; request: SourceCheckpointStatusRequest }>
   | Readonly<{ command: 'freeze'; workspace: string; manifestPath: string; reviewedOn: string; proposalOnly: boolean }>;
 
 /** Decode request syntax only. The operation owner must bind exact authority. */
@@ -72,9 +94,32 @@ export function decodeDocumentControlCommand(argv: readonly string[], cwd: strin
   const [command, ...args] = argv;
   const usage = 'Usage:\n'
     + '  bun src/adapters/self-hosting/control/documentation/document-control-plane.ts status [--workspace <path>] [--json] [--full]\n'
+    + '  bun run dev:status -- --source-checkpoint --base <exact-sha> --expected-head <exact-sha> --owned-path <exact-path> [--owned-path <exact-path> ...] [--workspace <path>] [--json]\n'
     + '  bun src/adapters/self-hosting/control/documentation/document-control-plane.ts freeze --workspace <candidate-path> '
     + '--manifest <path> --reviewed-on <YYYY-MM-DD> [--proposal-only] [--json]\n'
     + '  Optional: --github-credential-store <absolute-private-directory> (Linux only; outside the operation checkout)';
+  if (command === 'status' && args.includes('--source-checkpoint')) {
+    const values = new Map<string, string>();
+    const ownedPaths: string[] = [];
+    for (let index = 0; index < args.length; index += 1) {
+      const argument = args[index]!;
+      if (argument === '--source-checkpoint' || argument === '--json') continue;
+      if (!['--workspace', '--base', '--expected-head', '--owned-path'].includes(argument)) throw new Error(usage);
+      const value = args[++index];
+      if (value === undefined || value.startsWith('--')) throw new Error(usage);
+      if (argument === '--owned-path') ownedPaths.push(value);
+      else {
+        if (values.has(argument)) throw new Error(`Duplicate source checkpoint option: ${argument}.`);
+        values.set(argument, value);
+      }
+    }
+    if (args.filter((value) => value === '--source-checkpoint').length !== 1
+        || args.filter((value) => value === '--json').length > 1) throw new Error(usage);
+    const request = validateSourceCheckpointStatusRequest({
+      base: values.get('--base') ?? '', expectedHead: values.get('--expected-head') ?? '', ownedPaths
+    });
+    return Object.freeze({ command: 'source-checkpoint-status', workspace: path.resolve(cwd, values.get('--workspace') ?? '.'), request });
+  }
   if (command === 'status') {
     let workspace = cwd;
     for (let index = 0; index < args.length; index += 1) {

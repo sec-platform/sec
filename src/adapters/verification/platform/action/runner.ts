@@ -1091,6 +1091,16 @@ export class VerificationActionRunner {
       );
     }
 
+    // These states have no outgoing transitions for this ActionKey. Observe
+    // them before creating a claim: a closed Action must not acquire/release
+    // mutation resources merely to rediscover that execution is forbidden.
+    const beforeClaim = readVerificationActionJournal(journalFs, action.actionKey);
+    if (beforeClaim.recoveryDisposition === null &&
+        (beforeClaim.latestState === 'invalidated' || beforeClaim.latestState === 'cancelled')) {
+      return outcome(action.actionKey, 'blocked', beforeClaim.latestState, null, false,
+        `action is already ${beforeClaim.latestState}; delete the disposable V2 journal to execute cleanly`);
+    }
+
     const claim = acquireVerificationActionClaim({
       fs: journalFs,
       action,
