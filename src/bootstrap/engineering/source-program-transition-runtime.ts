@@ -124,7 +124,9 @@ export function createTrustedSourceProgramTransitionUseCase(): TrustedRuntimeSou
        * The provider owns network admission; drift invalidates this adoption. */
       reobserve: async (_facts, approval) => {
         const current = (await context.observeAuthorApproval()) ?? null;
-        if (current?.approvalDigest !== approval?.approvalDigest
+        if (current?.requirementPolicyDigest !== approval?.requirementPolicyDigest
+            || current?.requirementSourcesDigest !== approval?.requirementSourcesDigest
+            || current?.approvalDigest !== approval?.approvalDigest
             || current?.providerObservationDigest !== approval?.providerObservationDigest) {
           throw new Error('Source transition author statement or current permission drifted');
         }

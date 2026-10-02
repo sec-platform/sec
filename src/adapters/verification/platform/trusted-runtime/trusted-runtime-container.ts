@@ -6,6 +6,10 @@ import {
 } from 'node:fs';
 import { hostname, tmpdir } from 'node:os';
 import path from 'node:path';
+import { readVerificationDataRecord } from '../../../../assurance/verification/contract/data.ts';
+import { parseExactJson } from '../../../../contracts/exact-json.ts';
+import { executeGitHubApiOperation, type GitHubApiCapability } from '../../../providers/github-api/operation-session.ts';
+import { observeGitHubRepositoryComment } from '../../../providers/github-api/repository-comment.ts';
 
 import { CI_VERIFICATION_WORKFLOW_PATH } from '../../../../assurance/verification/contract/revision.ts';
 import { CodexDevelopmentBuildVerificationGateResult } from '../../../../assurance/verification/result/contract/result.ts';
@@ -50,7 +54,6 @@ import {
 import { withAuthorityGitReadSession } from '../../../providers/git-read/authority.ts';
 import { isolatedGitChildEnvironment } from '../../../providers/git-read/runtime/session.ts';
 import { withGitHubApiReadSession } from '../../../providers/github-api/operation-session.ts';
-import { observeGitHubRepositoryComment } from '../../../providers/github-api/repository-comment.ts';
 import {
   SEC_LINUX_VERIFICATION_ENVIRONMENT_AUTHORITY,
   SEC_LINUX_VERIFICATION_TRUSTED_BUN_EXECUTABLE_DIGEST,
@@ -59,7 +62,7 @@ import {
 } from '../../../providers/linux-verification/contract.ts';
 import { repositoryAuditInheritedDeadline, SOURCE_PROGRAM_TRANSITION_DEADLINE_ENV } from '../../../repository/repository-audit/cli-contract.ts';
 import { compileSourceProgramTransitionAdoption, parseSourceProgramTransitionAssessment, type SourceProgramTransitionAssessment } from '../../../repository/repository-audit/transition.ts';
-import { adoptSourceProgramTestAuthorDecision, assertSourceProgramTestAuthorApproval, type SourceProgramTestAuthorApproval } from '../../../repository/source-program-model/test-disposition-decisions.ts';
+import { adoptSourceProgramTestAuthorDecision, assertSourceProgramTestAuthorApproval, parseSourceProgramTestAuthorDecisionPayload, SOURCE_PROGRAM_TEST_AUTHOR_DECISION_V2_MARKER, sourceProgramRequirementSourceRequests, type SourceProgramTestAuthorApproval } from '../../../repository/source-program-model/test-disposition-decisions.ts';
 import {
   parseGitObjectIdReply
 } from '../../../runtime-state/physical/contract/git-worktree-observation.ts';
@@ -400,10 +403,12 @@ export async function reobserveSourceProgramTransitionQualificationForEffect(
   const prior = record.approval;
   const current = await withGitHubApiReadSession({ repositoryRoot: record.repositoryRoot,
     repository: prior.payload.repository,
-    operation: async capability => adoptSourceProgramTestAuthorDecision(await observeGitHubRepositoryComment({
+    operation: async capability => observeTrustedSourceProgramTestAuthorDecision({
       capability, issueNumber: prior.payload.pullRequestNumber, commentId: prior.commentId
-    })) });
-  if (current.approvalDigest !== prior.approvalDigest
+    }) });
+  if (current.requirementPolicyDigest !== prior.requirementPolicyDigest
+      || current.requirementSourcesDigest !== prior.requirementSourcesDigest
+      || current.approvalDigest !== prior.approvalDigest
       || current.providerObservationDigest !== prior.providerObservationDigest) {
     fail('source transition author statement or current permission changed before the effect');
   }
@@ -2588,4 +2593,33 @@ export async function executeTrustedRuntimeWorkspaceCanary(input: Readonly<{
       });
     }
   });
+}
+
+/** One existing PR batch supplies both roles only under the adopted policy.
+ * The initial read discovers the bounded refs; the second observation binds
+ * their actual bytes to the unchanged comment and fresh actor permission. */
+export async function observeTrustedSourceProgramTestAuthorDecision(input: Readonly<{
+  capability: GitHubApiCapability; issueNumber: number; commentId: number;
+}>): Promise<SourceProgramTestAuthorApproval> {
+  const first = await observeGitHubRepositoryComment(input);
+  if (!first.body.startsWith(SOURCE_PROGRAM_TEST_AUTHOR_DECISION_V2_MARKER)) return adoptSourceProgramTestAuthorDecision(first);
+  const payload = parseSourceProgramTestAuthorDecisionPayload(parseExactJson(
+    first.body.slice(SOURCE_PROGRAM_TEST_AUTHOR_DECISION_V2_MARKER.length), 'test requirement author decision', undefined, 32));
+  const observed = await observeGitHubRepositoryComment({ ...input, sourceRequests: sourceProgramRequirementSourceRequests(payload) });
+  if (observed.bodyDigest !== first.bodyDigest || observed.author.nodeId !== first.author.nodeId) {
+    return fail('requirement adoption statement changed while resolving its exact sources');
+  }
+  const candidate = readVerificationDataRecord(await executeGitHubApiOperation(input.capability, {
+    kind: 'pull', pullRequestNumber: input.issueNumber
+  }), 'Requirement adoption candidate');
+  const base = readVerificationDataRecord(candidate.base, 'Requirement adoption base');
+  const head = readVerificationDataRecord(candidate.head, 'Requirement adoption head');
+  const baseRepository = readVerificationDataRecord(base.repo, 'Requirement adoption base repository');
+  const headRepository = readVerificationDataRecord(head.repo, 'Requirement adoption head repository');
+  if (candidate.state !== 'open' || base.sha !== payload.trustedRevision || base.sha !== payload.baseline.commitSha
+      || head.sha !== payload.current.commitSha || baseRepository.full_name !== payload.repository
+      || headRepository.full_name !== payload.repository) {
+    return fail('requirement adoption live candidate or adopted policy revision drifted');
+  }
+  return adoptSourceProgramTestAuthorDecision(observed);
 }

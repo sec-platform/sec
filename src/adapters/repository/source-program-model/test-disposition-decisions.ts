@@ -1,6 +1,10 @@
 import { readVerificationDataRecord, snapshotVerificationData } from '../../../assurance/verification/contract/data.ts';
 import {
+  evaluateVerificationTestRetirement,
+  parseVerificationRequirementDisposition,
   parseVerificationTestResponsibility,
+  REPOSITORY_TEST_REQUIREMENT_OWNER_POLICY,
+  type VerificationRequirementDisposition,
   type VerificationTestResponsibility
 } from '../../../assurance/verification/contract/test-responsibility.ts';
 import { compareCodeUnits, deepFreeze, sha256 } from '../../../contracts/canonical.ts';
@@ -11,7 +15,8 @@ import {
 } from '../../../contracts/repository-test-path.ts';
 import {
   assertGitHubRepositoryCommentObservation,
-  type GitHubRepositoryCommentObservation
+  type GitHubRepositoryCommentObservation,
+  type GitHubRepositoryRequirementSource
 } from '../../providers/github-api/repository-comment.ts';
 import { normalizeGitHubRepositoryPermission } from '../../providers/github-api/repository-permission.ts';
 import type { SourceProgramSupersessionEvidence } from './reduction.ts';
@@ -167,6 +172,7 @@ export function compileSourceProgramTestRewriteDispositions(input: Readonly<{
 }
 
 export const SOURCE_PROGRAM_TEST_AUTHOR_DECISION_MARKER = '<!-- sec-test-author-decision-v1 -->\n';
+export const SOURCE_PROGRAM_TEST_AUTHOR_DECISION_V2_MARKER = '<!-- sec-test-author-decision-v2 -->\n';
 
 interface TestDecisionSubject {
   readonly commitSha: string;
@@ -181,11 +187,47 @@ interface TestDecisionResponsibility {
   readonly responsibility: VerificationTestResponsibility;
 }
 
+/** Data extracted from an explicitly accepted literal in the independently
+ * adopted baseline. Digest validity alone is not producer provenance. */
+export interface SourceProgramAcceptedTestResponsibility {
+  readonly schema: 'source-program-accepted-test-responsibility-v1';
+  readonly role: 'accepted-baseline-test-responsibility';
+  readonly testId: string;
+  readonly registrationContentDigest: string;
+  readonly responsibility: VerificationTestResponsibility;
+  readonly path: string;
+  readonly sourceRevision: string;
+  readonly sourceContentDigest: string;
+  readonly definitionInputDigest: string;
+  readonly acceptanceDigest: string;
+}
+
+export function parseSourceProgramAcceptedTestResponsibility(value: unknown): SourceProgramAcceptedTestResponsibility {
+  const record = authorRecord(snapshotVerificationData(value, 'accepted baseline responsibility'), [
+    'schema', 'role', 'testId', 'registrationContentDigest', 'responsibility', 'path',
+    'sourceRevision', 'sourceContentDigest', 'definitionInputDigest', 'acceptanceDigest'
+  ], 'accepted baseline responsibility');
+  if (record.schema !== 'source-program-accepted-test-responsibility-v1'
+      || record.role !== 'accepted-baseline-test-responsibility') return decisionError('accepted baseline responsibility', 'explicit accepted role required');
+  const canonical = { schema: 'source-program-accepted-test-responsibility-v1' as const, role: 'accepted-baseline-test-responsibility' as const,
+    testId: authorText(record.testId, 'accepted registration', DIGEST),
+    registrationContentDigest: authorText(record.registrationContentDigest, 'accepted content', DIGEST),
+    responsibility: parseVerificationTestResponsibility(record.responsibility),
+    path: canonicalDecisionPath(String(record.path), 'accepted source path'),
+    sourceRevision: authorText(record.sourceRevision, 'accepted source revision', DIGEST),
+    sourceContentDigest: authorText(record.sourceContentDigest, 'accepted source content', DIGEST),
+    definitionInputDigest: authorText(record.definitionInputDigest, 'accepted definition inputs', DIGEST) };
+  if (record.acceptanceDigest !== sha256(canonical)) return decisionError('accepted baseline responsibility', 'digest mismatch');
+  return deepFreeze({ ...canonical, acceptanceDigest: String(record.acceptanceDigest) });
+}
+
 export interface SourceProgramTestAuthorDecision {
   readonly owner: string;
   /** Explicit author adoption of any current test-owner transition. */
   readonly replacementOwners: readonly string[];
-  readonly disposition: 'retain-unassessed' | 'rewrite' | 'introduce';
+  readonly disposition: 'retain-unassessed' | 'rewrite' | 'introduce' | 'retire';
+  readonly retirementDecisionIds?: readonly string[];
+  readonly baselineResponsibilityRefs?: readonly Readonly<{ testId: string; acceptanceDigest: string }>[];
   readonly baselineTestIds: readonly string[];
   readonly currentTestIds: readonly string[];
   readonly changedInputPaths: readonly string[];
@@ -196,7 +238,9 @@ export interface SourceProgramTestAuthorDecision {
 
 /** Pure content transported outside the candidate. These fields confer no authority. */
 export interface SourceProgramTestAuthorDecisionPayload {
-  readonly schema: 'source-program-test-author-decision-v1';
+  readonly schema: 'source-program-test-author-decision-v1' | 'source-program-test-author-decision-v2';
+  readonly requirementPolicyDigest?: string;
+  readonly requirementDecisions?: readonly VerificationRequirementDisposition[];
   readonly repository: string;
   readonly pullRequestNumber: number;
   readonly operationId: string;
@@ -216,6 +260,8 @@ export interface SourceProgramTestAuthorApproval {
   readonly bodyDigest: string;
   readonly providerObservationDigest: string;
   readonly approvalDigest: string;
+  readonly requirementPolicyDigest?: string;
+  readonly requirementSourcesDigest?: string;
 }
 
 /** A pure interpretation for the exact candidate, conditional until the host qualifies it. */
@@ -294,7 +340,7 @@ function authorResponsibilities(value: unknown): readonly TestDecisionResponsibi
   return Object.freeze(entries);
 }
 
-function assertResponsibilityIdentities(decisions: readonly SourceProgramTestAuthorDecision[]): void {
+function assertResponsibilityIdentities(decisions: readonly SourceProgramTestAuthorDecision[], requirements: readonly VerificationRequirementDisposition[] = []): void {
   const identities = new Map<string, string>();
   const bind = (kind: string, ref: string, revision: string, digest: string): void => {
     const identity = JSON.stringify([kind, ref, revision]);
@@ -315,24 +361,38 @@ function assertResponsibilityIdentities(decisions: readonly SourceProgramTestAut
       }
     }
   }
+  for (const { currentClaim } of requirements) bind('claim', currentClaim.claimRef, currentClaim.claimRevision, currentClaim.claimDigest);
 }
 
 function compileAuthorPayload(value: unknown, checkDigests: boolean): SourceProgramTestAuthorDecisionPayload {
-  const record = authorRecord(snapshotVerificationData(value, 'test author payload'), [
+  const snapshot = readVerificationDataRecord(snapshotVerificationData(value, 'test author payload'), 'test author payload');
+  const version2 = snapshot.schema === 'source-program-test-author-decision-v2';
+  const record = authorRecord(snapshot, [
     'schema', 'repository', 'pullRequestNumber', 'operationId', 'trustedRevision',
-    'baseline', 'current', 'decisions', 'payloadDigest'
+    'baseline', 'current', 'decisions', 'payloadDigest',
+    ...(version2 ? ['requirementPolicyDigest', 'requirementDecisions'] : [])
   ], 'test author payload');
-  if (record.schema !== 'source-program-test-author-decision-v1'
+  if ((!version2 && record.schema !== 'source-program-test-author-decision-v1')
       || !Number.isSafeInteger(record.pullRequestNumber) || Number(record.pullRequestNumber) < 1
       || !Array.isArray(record.decisions) || record.decisions.length === 0 || record.decisions.length > 128) {
     return decisionError('author payload', 'invalid schema, PR or bounded decision set');
   }
+  const requirementDecisions = version2 ? (() => {
+    if (record.requirementPolicyDigest !== REPOSITORY_TEST_REQUIREMENT_OWNER_POLICY.policyDigest
+        || !Array.isArray(record.requirementDecisions) || record.requirementDecisions.length === 0
+        || record.requirementDecisions.length > 128) return decisionError('requirement policy', 'adopted policy and bounded semantic decisions required');
+    const parsed = record.requirementDecisions.map(parseVerificationRequirementDisposition);
+    if (new Set(parsed.map(({ decisionId }) => decisionId)).size !== parsed.length) return decisionError('requirement decisions', 'duplicate decision');
+    return Object.freeze(parsed);
+  })() : undefined;
   const decisions = record.decisions.map((item): SourceProgramTestAuthorDecision => {
-    const decision = authorRecord(item, [
+    const entry = readVerificationDataRecord(item, 'author decision');
+    const retiring = version2 && entry.disposition === 'retire';
+    const decision = authorRecord(entry, [
       'owner', 'replacementOwners', 'disposition', 'baselineTestIds', 'currentTestIds', 'changedInputPaths',
-      'baselineResponsibilities', 'currentResponsibilities', 'reason'
+      'baselineResponsibilities', 'currentResponsibilities', 'reason', ...(retiring ? ['retirementDecisionIds', 'baselineResponsibilityRefs'] : [])
     ], 'author decision');
-    if (decision.disposition !== 'retain-unassessed' && decision.disposition !== 'rewrite' && decision.disposition !== 'introduce') {
+    if (decision.disposition !== 'retain-unassessed' && decision.disposition !== 'rewrite' && decision.disposition !== 'introduce' && !retiring) {
       return decisionError('author disposition', 'only retention assessment, REWRITE and explicit introduction are supported');
     }
     const changedInputPaths = authorArray(decision.changedInputPaths, 'changed input paths');
@@ -342,14 +402,27 @@ function compileAuthorPayload(value: unknown, checkDigests: boolean): SourceProg
     }
     const baselineTestIds = authorArray(decision.baselineTestIds, 'baseline test ids', DIGEST);
     const currentTestIds = authorArray(decision.currentTestIds, 'current test ids', DIGEST);
-    if (currentTestIds.length === 0 || (decision.disposition === 'introduce'
-      ? baselineTestIds.length !== 0 : baselineTestIds.length === 0)) {
+    if (retiring ? currentTestIds.length !== 0 || baselineTestIds.length === 0
+      : currentTestIds.length === 0 || (decision.disposition === 'introduce'
+        ? baselineTestIds.length !== 0 : baselineTestIds.length === 0)) {
       return decisionError('author decision', 'introduction requires no baseline; retention/rewrite require one; all require current registrations');
     }
     return deepFreeze({
       owner: authorText(decision.owner, 'author owner', OWNER_ID),
       replacementOwners: authorArray(decision.replacementOwners, 'replacement owners', OWNER_ID),
-      disposition: decision.disposition,
+      disposition: decision.disposition as SourceProgramTestAuthorDecision['disposition'],
+      ...(retiring ? { retirementDecisionIds: authorArray(decision.retirementDecisionIds, 'retirement decisions', DIGEST),
+        baselineResponsibilityRefs: (() => {
+          if (!Array.isArray(decision.baselineResponsibilityRefs) || decision.baselineResponsibilityRefs.length > 512
+              || !Array.isArray(decision.baselineResponsibilities) || decision.baselineResponsibilities.length !== 0) {
+            return decisionError('author retirement', 'only independently accepted baseline locators are permitted');
+          }
+          return Object.freeze(decision.baselineResponsibilityRefs.map(value => {
+            const ref = authorRecord(value, ['testId', 'acceptanceDigest'], 'accepted baseline locator');
+            return Object.freeze({ testId: authorText(ref.testId, 'accepted test id', DIGEST),
+              acceptanceDigest: authorText(ref.acceptanceDigest, 'accepted digest', DIGEST) });
+          }).sort((left, right) => compareCodeUnits(left.testId, right.testId)));
+        })() } : {}),
       baselineTestIds,
       currentTestIds,
       changedInputPaths,
@@ -358,9 +431,10 @@ function compileAuthorPayload(value: unknown, checkDigests: boolean): SourceProg
       reason: authorText(decision.reason, 'author reason')
     });
   });
-  assertResponsibilityIdentities(decisions);
+  assertResponsibilityIdentities(decisions, requirementDecisions);
   const canonical = deepFreeze({
-    schema: 'source-program-test-author-decision-v1' as const,
+    schema: version2 ? 'source-program-test-author-decision-v2' as const : 'source-program-test-author-decision-v1' as const,
+    ...(version2 ? { requirementPolicyDigest: REPOSITORY_TEST_REQUIREMENT_OWNER_POLICY.policyDigest, requirementDecisions: requirementDecisions! } : {}),
     repository: authorText(record.repository, 'author repository', /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/u),
     pullRequestNumber: Number(record.pullRequestNumber),
     operationId: authorText(record.operationId, 'author operationId', DIGEST),
@@ -370,7 +444,7 @@ function compileAuthorPayload(value: unknown, checkDigests: boolean): SourceProg
     decisions
   });
   const operationId = sha256({
-    schema: 'source-program-test-author-operation-v1',
+    schema: version2 ? 'source-program-test-author-operation-v2' : 'source-program-test-author-operation-v1',
     repository: canonical.repository,
     pullRequestNumber: canonical.pullRequestNumber,
     trustedRevision: canonical.trustedRevision,
@@ -397,7 +471,8 @@ export function createSourceProgramTestAuthorDecisionPayload(input: Omit<
 >): SourceProgramTestAuthorDecisionPayload {
   return compileAuthorPayload({
     ...readVerificationDataRecord(input, 'author decision proposal'),
-    schema: 'source-program-test-author-decision-v1',
+    schema: input.requirementDecisions === undefined ? 'source-program-test-author-decision-v1' : 'source-program-test-author-decision-v2',
+    ...(input.requirementDecisions === undefined ? {} : { requirementPolicyDigest: input.requirementPolicyDigest ?? REPOSITORY_TEST_REQUIREMENT_OWNER_POLICY.policyDigest }),
     operationId: `sha256:${'0'.repeat(64)}`,
     payloadDigest: `sha256:${'0'.repeat(64)}`
   }, false);
@@ -416,18 +491,32 @@ export function adoptSourceProgramTestAuthorDecision(
   const authorHasAdoptionRole = permission === 'admin' || permission === 'maintain';
   if (observation.author.kind !== 'User'
       || !authorHasAdoptionRole
-      || !observation.body.startsWith(SOURCE_PROGRAM_TEST_AUTHOR_DECISION_MARKER)) {
+      || (!observation.body.startsWith(SOURCE_PROGRAM_TEST_AUTHOR_DECISION_MARKER)
+        && !observation.body.startsWith(SOURCE_PROGRAM_TEST_AUTHOR_DECISION_V2_MARKER))) {
     return decisionError('author observation', 'requires an explicit test decision adopted by a current maintainer');
   }
   const payload = parseSourceProgramTestAuthorDecisionPayload(parseExactJson(
-    observation.body.slice(SOURCE_PROGRAM_TEST_AUTHOR_DECISION_MARKER.length),
+    observation.body.slice(observation.body.startsWith(SOURCE_PROGRAM_TEST_AUTHOR_DECISION_V2_MARKER)
+      ? SOURCE_PROGRAM_TEST_AUTHOR_DECISION_V2_MARKER.length : SOURCE_PROGRAM_TEST_AUTHOR_DECISION_MARKER.length),
     'test author decision', undefined, 32
   ));
   if (payload.repository !== observation.repository || payload.pullRequestNumber !== observation.issueNumber) {
     return decisionError('author observation', 'repository or PR mismatch');
   }
+  if (payload.schema === 'source-program-test-author-decision-v2') {
+    if (!observation.body.startsWith(SOURCE_PROGRAM_TEST_AUTHOR_DECISION_V2_MARKER)
+        || !REPOSITORY_TEST_REQUIREMENT_OWNER_POLICY.allowJointTestAuthorship
+        || !REPOSITORY_TEST_REQUIREMENT_OWNER_POLICY.roles.some(role => role === permission)
+        || sha256(observation.sourceBlobs) !== sha256(sourceProgramRequirementSourceRequests(payload))) {
+      return decisionError('requirement adoption', 'current policy, actor and exact independently observed requirement sources required');
+    }
+  }
   const canonical = deepFreeze({
     providerOrigin: observation.origin,
+    ...(payload.schema === 'source-program-test-author-decision-v2' ? {
+      requirementPolicyDigest: REPOSITORY_TEST_REQUIREMENT_OWNER_POLICY.policyDigest,
+      requirementSourcesDigest: sha256(observation.sourceBlobs)
+    } : {}),
     payload,
     commentId: observation.commentId,
     authorNodeId: observation.author.nodeId,
@@ -569,6 +658,39 @@ export function assessSourceProgramTestAuthorDecision(input: Readonly<{
           relocatedTargets.set(testId, target);
         }
       }
+    } else if (decision.disposition === 'retire') {
+      const refs = decision.baselineResponsibilityRefs ?? [];
+      if (decision.baselineResponsibilities.length !== 0 || decision.currentResponsibilities.length !== 0
+          || decision.currentTestIds.length !== 0
+          || sha256(decision.baselineTestIds) !== sha256(refs.map(({ testId }) => testId))
+          || decision.baselineTestIds.some(testId => after.has(testId))) {
+        return decisionError('author retirement', 'requires locators for every exact removed registration, never new baseline contents');
+      }
+      const accepted = refs.map(({ testId, acceptanceDigest }) => {
+        const original = before.get(testId)!;
+        const artifact = original.acceptedResponsibility;
+        if (artifact === undefined || artifact.acceptanceDigest !== acceptanceDigest
+            || artifact.testId !== testId || artifact.path !== original.path
+            || artifact.sourceRevision !== input.baseline.identity.sourceRevision
+            || artifact.definitionInputDigest !== original.definitionInputDigest
+            || artifact.registrationContentDigest !== original.registrationContentDigest
+            || artifact.responsibility.ownerRef !== original.owner) {
+          return decisionError('author retirement', 'independently accepted baseline responsibility missing or mismatched');
+        }
+        return parseSourceProgramAcceptedTestResponsibility(artifact);
+      });
+      const selected = (payload.requirementDecisions ?? []).filter(({ decisionId }) => decision.retirementDecisionIds?.includes(decisionId));
+      if (selected.length !== decision.retirementDecisionIds?.length) return decisionError('author retirement', 'unknown requirement disposition');
+      const covered = new Set<string>();
+      for (const { responsibility } of accepted) {
+        const bindings = new Set(responsibility.bindings.map(({ specification }) => specification.bindingDigest));
+        const scoped = selected.filter(({ baselineBindingDigest }) => bindings.has(baselineBindingDigest));
+        for (const { decisionId } of scoped) covered.add(decisionId);
+        const evaluation = evaluateVerificationTestRetirement({ responsibility, decisions: scoped,
+          currentSourceRevision: payload.current.sourceRevision });
+        if (evaluation.status !== 'eligible') return decisionError('author retirement', evaluation.blockers.join(', '));
+      }
+      if (covered.size !== selected.length) return decisionError('author retirement', 'requirement decisions outside exact baseline bindings');
     } else {
       for (const [ids, responsibilities, occurrences] of [
         [decision.baselineTestIds, decision.baselineResponsibilities, before],
@@ -583,6 +705,13 @@ export function assessSourceProgramTestAuthorDecision(input: Readonly<{
           return decisionError('author rewrite', 'each exact occurrence requires its canonical responsibility and owner');
         }
       }
+    }
+  }
+  if (payload.requirementDecisions !== undefined) {
+    const used = new Set(payload.decisions.flatMap(decision => decision.retirementDecisionIds ?? []));
+    if (used.size !== payload.requirementDecisions.length
+        || payload.requirementDecisions.some(({ decisionId }) => !used.has(decisionId))) {
+      return decisionError('author retirement', 'unconsumed semantic adoption is outside this operation');
     }
   }
   const canonical = deepFreeze({
@@ -645,4 +774,20 @@ export function qualifySourceProgramTestAuthorAssessment(input: Readonly<{
     return decisionError('author assessment', 'does not bind the authenticated adoption');
   }
   return input.approval.providerOrigin === 'production' ? 'qualified' : 'test-only-simulation';
+}
+
+/** Exact immutable sources are reobserved with the same current comment/actor. */
+export function sourceProgramRequirementSourceRequests(payload: SourceProgramTestAuthorDecisionPayload): readonly GitHubRepositoryRequirementSource[] {
+  const entries = new Map<string, GitHubRepositoryRequirementSource>();
+  for (const decision of payload.requirementDecisions ?? []) {
+    for (const [source, commitSha] of [[decision.priorSource, payload.baseline.commitSha],
+      [decision.currentSource, payload.current.commitSha]] as const) {
+      const value = Object.freeze({ commitSha, path: source.path, blobSha: source.blobSha, contentDigest: source.contentDigest });
+      const key = JSON.stringify([commitSha, source.path]);
+      const previous = entries.get(key);
+      if (previous !== undefined && sha256(previous) !== sha256(value)) return decisionError('requirement source', 'conflicting exact source binding');
+      entries.set(key, value);
+    }
+  }
+  return Object.freeze([...entries].sort(([left], [right]) => compareCodeUnits(left, right)).map(([, value]) => value));
 }

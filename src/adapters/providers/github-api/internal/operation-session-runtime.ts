@@ -115,6 +115,7 @@ export type GitHubApiOperation =
   | Readonly<{ kind: 'verification-user'; login: string }>
   | Readonly<{ kind: 'verification-app'; slug: string }>
   | Readonly<{ kind: 'verification-blob'; ref: string; path: string }>
+  | Readonly<{ kind: 'requirement-source-blob'; ref: string; path: string }>
   | Readonly<{ kind: 'verification-compare'; baseSha: string; headSha: string }>
   | Readonly<{ kind: 'verification-open-pulls'; page: number }>
   | Readonly<{ kind: 'verification-commit-locator'; locator: string }>
@@ -372,6 +373,15 @@ function compileOperation(
     case 'verification-pull-files': return read(`/repos/${repo}/pulls/${positiveInteger(operation.pullRequestNumber,'pull request number')}/files?per_page=100&page=${page(operation.page)}`);
     case 'verification-user': return read(`/users/${encodeURIComponent(boundedText(operation.login, 'user login', 64))}`);
     case 'verification-app': return read(`/apps/${encodeURIComponent(boundedText(operation.slug, 'app slug', 128))}`);
+    case 'requirement-source-blob': {
+      if (effect !== 'read') throw new GitHubApiProviderError('Requirement source observation requires ordinary read authority');
+      const blobPath = boundedText(operation.path, 'requirement source path', 4096);
+      if (!blobPath.startsWith('docs/') || !blobPath.endsWith('.md') || blobPath.includes('\\')
+          || blobPath.split('/').some(part => part === '' || part === '.' || part === '..')) {
+        throw new GitHubApiProviderError('Requirement source must be one canonical document path');
+      }
+      return read(`/repos/${repo}/contents/${blobPath.split('/').map(encodeURIComponent).join('/')}?ref=${sha(operation.ref)}`);
+    }
     case 'verification-blob': {
       const blobPath = boundedText(operation.path, 'blob path', 4096);
       if (blobPath.startsWith('/') || blobPath.includes('\\') || blobPath.split('/').some(part => part === '' || part === '.' || part === '..')) throw new GitHubApiProviderError('Blob path is not relative');

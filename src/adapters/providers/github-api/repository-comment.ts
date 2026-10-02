@@ -23,7 +23,15 @@ export interface GitHubRepositoryCommentObservation {
   readonly body: string;
   readonly bodyDigest: string;
   readonly updatedAt: string;
+  readonly sourceBlobs?: readonly GitHubRepositoryRequirementSource[];
   readonly observationDigest: string;
+}
+
+export interface GitHubRepositoryRequirementSource {
+  readonly commitSha: string;
+  readonly path: string;
+  readonly blobSha: string;
+  readonly contentDigest: string;
 }
 
 const issued = new WeakSet<object>();
@@ -71,6 +79,7 @@ export async function observeGitHubRepositoryComment(input: Readonly<{
   capability: GitHubApiCapability;
   issueNumber: number;
   commentId: number;
+  sourceRequests?: readonly GitHubRepositoryRequirementSource[];
 }>): Promise<GitHubRepositoryCommentObservation> {
   if (!Number.isSafeInteger(input.issueNumber) || input.issueNumber < 1
       || !Number.isSafeInteger(input.commentId) || input.commentId < 1) {
@@ -82,6 +91,36 @@ export async function observeGitHubRepositoryComment(input: Readonly<{
   const before = normalizedComment(await executeGitHubApiOperation(input.capability, {
     kind: 'issue-comment', commentId: input.commentId
   }), locator);
+  const sourceBlobs: GitHubRepositoryRequirementSource[] = [];
+  if (input.sourceRequests !== undefined) {
+    if (input.sourceRequests.length === 0 || input.sourceRequests.length > 256) {
+      throw new Error('Requirement source observation requires a bounded nonempty set');
+    }
+    const seen = new Set<string>();
+    for (const source of input.sourceRequests) {
+      const key = JSON.stringify([source.commitSha, source.path]);
+      if (seen.has(key) || !/^[a-f0-9]{40}$/u.test(source.commitSha) || !/^[a-f0-9]{40}$/u.test(source.blobSha)
+          || !/^sha256:[a-f0-9]{64}$/u.test(source.contentDigest) || !source.path.startsWith('docs/')
+          || source.path.includes('\\') || source.path.split('/').some(part => part === '' || part === '.' || part === '..')) {
+        throw new Error('Requirement source observation has an invalid exact locator');
+      }
+      seen.add(key);
+      const response = record(await executeGitHubApiOperation(input.capability, {
+        kind: 'requirement-source-blob', ref: source.commitSha, path: source.path
+      }), 'requirement source');
+      if (response.type !== 'file' || response.path !== source.path || response.sha !== source.blobSha
+          || response.encoding !== 'base64' || typeof response.content !== 'string') {
+        throw new Error('Requirement source readback does not bind the exact requested blob');
+      }
+      const encoded = response.content.replaceAll('\n', '');
+      const content = Buffer.from(encoded, 'base64');
+      if (content.toString('base64') !== encoded
+          || rawSha256(content) !== source.contentDigest) {
+        throw new Error('Requirement source bytes are invalid, drifted or exceed the bounded observation');
+      }
+      sourceBlobs.push(Object.freeze({ ...source }));
+    }
+  }
   const permission = record(await executeGitHubApiOperation(input.capability, {
     kind: 'collaborator-permission', login: before.author.login
   }), 'permission');
@@ -102,6 +141,7 @@ export async function observeGitHubRepositoryComment(input: Readonly<{
   const canonical = deepFreeze({
     origin,
     ...after,
+    ...(input.sourceRequests === undefined ? {} : { sourceBlobs: Object.freeze(sourceBlobs) }),
     author: {
       ...after.author,
       permission: permission.permission as GitHubRepositoryCommentObservation['author']['permission'],

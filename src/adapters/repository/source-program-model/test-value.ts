@@ -85,7 +85,7 @@ interface SourceProgramTestDispositionEvidence {
   readonly supersession: Readonly<{
     readonly receiptDigest: string;
     readonly baselineTestId: string;
-    readonly proof: 'consumer-zero' | 'strict-observation-superset';
+    readonly proof: 'consumer-zero' | 'strict-observation-superset' | 'owner-obligation-retirement';
   }> | null;
   /** Exact digest of a repository-owner REWRITE decision, otherwise null. */
   readonly ownerDecisionDigest: string | null;
