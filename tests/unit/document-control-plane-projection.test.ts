@@ -4,6 +4,7 @@ import {
   CodexDevelopmentActivateMainHealthRepairRollingPlan,
   CodexDevelopmentAssertPriorFreezeProjection,
   CodexDevelopmentAssertRollingMachineBaseBinding,
+  CodexDevelopmentAssertStablePlanRollingBinding,
   CodexDevelopmentCreateFreezeProjection,
   CodexDevelopmentParseActivePointer,
   CodexDevelopmentParseCurrentStateSpec,
@@ -15,12 +16,18 @@ import {
   CodexDevelopmentRenderCommittedCandidateReplanRollingPlan,
   CodexDevelopmentRequiresCommittedCandidateProjectionRefresh
 } from '../../src/adapters/self-hosting/control/documentation/document-control-plane-contract.ts';
-import { CodexDevelopmentWorkPackageManifestDigest } from '../../src/adapters/self-hosting/control/task/contract/work-package.ts';
 import {
+  CodexDevelopmentParseCurrentWorkPackageManifest,
+  CodexDevelopmentWorkPackageAcceptsObservedBase,
+  CodexDevelopmentWorkPackageManifestDigest
+} from '../../src/adapters/self-hosting/control/task/contract/work-package.ts';
+import {
+  compileSecWorkRollingProposalProjection,
   compileSecWorkRollingTransitionProjection,
+  parseSecWorkRollingMachineProjection,
   renderSecWorkRollingTransitionPlan
 } from '../../src/adapters/self-hosting/control/work-selection/live-contract.ts';
-import { rawSha256 } from '../../src/contracts/canonical.ts';
+import { rawSha256, sha256 } from '../../src/contracts/canonical.ts';
 
 const exactMain = 'a'.repeat(40);
 const exactMainTree = 'b'.repeat(40);
@@ -80,6 +87,116 @@ Legacy candidate prose.
 Legacy candidate prose.
 `;
 }
+
+function stablePlanBindingFixture(tracking = 'issue-1') {
+  const bytes = Buffer.from(proposalManifest(activePackageId, tracking).toString('utf8')
+    .replace('codex-development-work-package-v1', 'codex-development-work-package-v3')
+    .replace(`base: '${exactMain}'\n`, ''));
+  const manifest = CodexDevelopmentParseCurrentWorkPackageManifest(bytes.toString('utf8'));
+  const manifestPath = `config/repository/work-packages/${activePackageId}.md`;
+  const manifestDigest = CodexDevelopmentWorkPackageManifestDigest(bytes) as `sha256:${string}`;
+  const projectionInput = {
+    exactMain,
+    exactMainTree,
+    authority: {
+      kind: 'committed-candidate-replan' as const,
+      sourceHead: 'c'.repeat(40),
+      sourceTree: 'd'.repeat(40),
+      sourceManifestDigest: manifestDigest,
+      sourcePointerRevision: rawSha256('prior pointer'),
+      sourceRollingRevision: rawSha256('prior rolling')
+    },
+    active: { packageId: activePackageId, tracking, manifestPath, manifestDigest },
+    candidates: [...candidates]
+  };
+  return {
+    bytes,
+    projectionInput,
+    binding: { manifest, manifestPath, manifestDigest, exactMain, exactMainTree,
+      projection: compileSecWorkRollingTransitionProjection(projectionInput) }
+  };
+}
+
+test('stable plan bytes bind independently to each exact candidate base without minting authority', () => {
+  const { bytes, projectionInput, binding } = stablePlanBindingFixture();
+  for (const [main, tree] of [[exactMain, exactMainTree], ['e'.repeat(40), 'f'.repeat(40)]]) {
+    const projection = compileSecWorkRollingTransitionProjection({
+      ...projectionInput, exactMain: main!, exactMainTree: tree!
+    });
+    expect(CodexDevelopmentAssertStablePlanRollingBinding({
+      ...binding, projection, exactMain: main!, exactMainTree: tree!
+    })).toBeUndefined();
+    expect(String(binding.manifestDigest)).toBe(CodexDevelopmentWorkPackageManifestDigest(bytes));
+  }
+  const proposal = stablePlanBindingFixture('none');
+  expect(CodexDevelopmentAssertStablePlanRollingBinding({
+    ...proposal.binding,
+    projection: compileSecWorkRollingProposalProjection({
+      ...proposal.projectionInput,
+      active: { ...proposal.projectionInput.active, tracking: 'none' }
+    })
+  })).toBeUndefined();
+});
+
+test('stable plan binding rejects absent projections and stale base, tree, manifest or scope identity', () => {
+  const { bytes, binding, projectionInput } = stablePlanBindingFixture();
+  expect(() => CodexDevelopmentAssertStablePlanRollingBinding({ ...binding, projection: null }))
+    .toThrow('requires a digest-bound rolling machine projection');
+  expect(() => CodexDevelopmentAssertStablePlanRollingBinding({ ...binding, exactMain: 'e'.repeat(40) }))
+    .toThrow('exact live default revision');
+  expect(() => CodexDevelopmentAssertStablePlanRollingBinding({ ...binding, exactMainTree: 'f'.repeat(40) }))
+    .toThrow('exact live default tree');
+  for (const active of [
+    { ...projectionInput.active, packageId: 'other-v3', manifestPath: 'config/repository/work-packages/other-v3.md' },
+    { ...projectionInput.active, tracking: 'issue-2' }
+  ]) {
+    expect(() => CodexDevelopmentAssertStablePlanRollingBinding({
+      ...binding, projection: compileSecWorkRollingTransitionProjection({ ...projectionInput, active })
+    })).toThrow('rolling machine active identity');
+  }
+  expect(() => CodexDevelopmentAssertStablePlanRollingBinding({
+    ...binding, manifestPath: 'config/repository/work-packages/other-v3.md'
+  })).toThrow('rolling machine manifest binding');
+  const changedBytes = Buffer.concat([bytes, Buffer.from('\nAcceptance clarification.\n')]);
+  expect(() => CodexDevelopmentAssertStablePlanRollingBinding({
+    ...binding,
+    manifest: CodexDevelopmentParseCurrentWorkPackageManifest(changedBytes.toString('utf8')),
+    manifestDigest: CodexDevelopmentWorkPackageManifestDigest(changedBytes) as `sha256:${string}`
+  })).toThrow('rolling machine manifest binding');
+});
+
+test('ordinary selection projection binds stable plan base and active identity; v1 keeps its prior base contract', () => {
+  const { binding } = stablePlanBindingFixture();
+  const selected = {
+    schema: 'sec-work-rolling-projection-v1', exactMain,
+    roadmapRevision: rawSha256('roadmap'), catalogDigest: rawSha256('catalog'),
+    receiptDigest: rawSha256('receipt'), decisionDigest: rawSha256('decision'),
+    active: { packageId: activePackageId, tracking: 'issue-1', workId: 'issue-1',
+      currentSpecRef: 'github:issue/1', currentSpecRevision: rawSha256('spec'), decisionStatus: 'selected' },
+    candidates: candidates.map((packageId, index) => ({
+      packageId, tracking: `issue-${index + 2}`, workId: `issue-${index + 2}`,
+      currentSpecRef: `github:issue/${index + 2}`, currentSpecRevision: rawSha256(`spec-${index}`),
+      decisionStatus: 'eligible'
+    }))
+  };
+  const projection = parseSecWorkRollingMachineProjection(JSON.stringify({
+    ...selected, projectionDigest: sha256(selected)
+  }));
+  expect(CodexDevelopmentAssertStablePlanRollingBinding({ ...binding, projection })).toBeUndefined();
+  expect(() => CodexDevelopmentAssertStablePlanRollingBinding({
+    ...binding, projection, exactMain: 'e'.repeat(40)
+  })).toThrow('exact live default revision');
+  const manifest = CodexDevelopmentParseCurrentWorkPackageManifest(
+    proposalManifest(activePackageId, 'issue-1').toString('utf8')
+  );
+  expect(CodexDevelopmentAssertStablePlanRollingBinding({ ...binding, manifest, projection: null }))
+    .toBeUndefined();
+  expect(CodexDevelopmentAssertStablePlanRollingBinding({
+    ...binding, manifest, projection, exactMain: 'e'.repeat(40)
+  })).toBeUndefined();
+  expect(CodexDevelopmentWorkPackageAcceptsObservedBase(manifest, exactMain)).toBe(true);
+  expect(CodexDevelopmentWorkPackageAcceptsObservedBase(manifest, 'e'.repeat(40))).toBe(false);
+});
 
 test('proposal-only freeze renders one authority-free tracking:none successor', () => {
   const proposalPackageId = 'private-sandbox-python-runtime-transition';
