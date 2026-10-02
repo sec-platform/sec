@@ -149,8 +149,77 @@ test('release verification never loads repository bytes from a caller-selected r
   expect(step(release, 'compiler-release-verification', 'Checkout exact release head').with)
     .toMatchObject({
       ref: '${{ steps.verification.outputs.sha }}',
+      'fetch-depth': 2,
       'persist-credentials': false
     });
+});
+
+test('release verification resolves exactly one parent from the trusted default head', async () => {
+  const release = parseYaml(await readCompilerFile('.github/workflows/compiler-release-validation.yml')) as Workflow;
+  const script = step(release, 'compiler-release-verification',
+    'Resolve trusted release request, exact head, and verifier boundary').with?.script;
+  if (typeof script !== 'string') throw new Error('Missing release resolution script.');
+  const AsyncFunction = Object.getPrototypeOf(async function () {}).constructor as new (
+    ...args: string[]
+  ) => (...values: unknown[]) => Promise<void>;
+  const head = 'a'.repeat(40);
+  const base = 'b'.repeat(40);
+  const other = 'c'.repeat(40);
+  const execute = async (input: Readonly<{
+    parents: readonly string[]; commitSha?: string; defaultSha?: string; ref?: string;
+  }>, outputs: Map<string, string>) => {
+    await new AsyncFunction('github', 'context', 'core', script)({ rest: { repos: {
+      getCommit: async (request: { ref: string }) => {
+        expect(request.ref).toBe(head);
+        return { data: { sha: input.commitSha ?? head, parents: input.parents.map((sha) => ({ sha })) } };
+      },
+      get: async () => ({ data: { default_branch: 'main' } }),
+      getBranch: async () => ({ data: { commit: { sha: input.defaultSha ?? head } } })
+    } } }, { sha: head, ref: input.ref ?? 'refs/heads/main', repo: { owner: 'sec-platform', repo: 'sec' } },
+    { setOutput: (name: string, value: string) => outputs.set(name, value) });
+  };
+  const outputs = new Map<string, string>();
+  await execute({ parents: [base] }, outputs);
+  expect(Object.fromEntries(outputs)).toEqual({ sha: head, base });
+  for (const input of [
+    { parents: [] },
+    { parents: [base, other] },
+    { parents: ['main'] },
+    { parents: [base], commitSha: other },
+    { parents: [base], defaultSha: other },
+    { parents: [base], ref: 'refs/heads/other' }
+  ]) {
+    const rejectedOutputs = new Map<string, string>();
+    await expect(execute(input, rejectedOutputs)).rejects.toThrow();
+    expect(rejectedOutputs.size).toBe(0);
+  }
+});
+
+test('release verification binds local parent checks before the Linux executor', async () => {
+  const release = parseYaml(await readCompilerFile('.github/workflows/compiler-release-validation.yml')) as Workflow;
+  const job = 'compiler-release-verification';
+  const steps = release.jobs[job]!.steps;
+  const verifyParent = step(release, job, 'Verify checked-out release parent and tree');
+  const verify = step(release, job, 'Run exact-head full verification');
+  const contract = buildCiContract();
+  expect(release.permissions).toEqual({ contents: 'read' });
+  expect(steps.map(({ name }) => name)).toEqual(contract.releaseWorkflowStepOrder);
+  expect(contract.releaseWorkflowStepCount).toBe(steps.length);
+  expect(verifyParent.env).toEqual({
+    SEC_EXPECTED_HEAD_SHA: '${{ steps.verification.outputs.sha }}',
+    SEC_CHANGED_BASE: '${{ steps.verification.outputs.base }}'
+  });
+  expect(verify.env).toMatchObject({
+    SEC_CHANGED_BASE: '${{ steps.verification.outputs.base }}',
+    SEC_AFFECTED_TESTS_BASE: '${{ steps.verification.outputs.base }}'
+  });
+  expect(steps.flatMap(({ run }) => run ?? []).join('\n')).not.toMatch(/\bgit\s+fetch\b/u);
+  expect(release.jobs[job]!['runs-on']).toEqual([
+    ...LOCAL_LINUX_RUNNER_LABELS, LOCAL_LINUX_RUNNER_ROLE_LABELS.sut
+  ]);
+  expect(verifyParent.if).toBeUndefined();
+  expect(steps.indexOf(verifyParent)).toBeGreaterThan(steps.indexOf(step(release, job, 'Checkout exact release head')));
+  expect(steps.indexOf(verifyParent)).toBeLessThan(steps.indexOf(verify));
 });
 
 test('release payload expires independently of retained build identity and verification evidence', async () => {
