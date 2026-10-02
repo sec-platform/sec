@@ -113,6 +113,8 @@ jobs:
                 performedViaAppFieldPresent: Object.prototype.hasOwnProperty.call(comment.data, 'performed_via_github_app'),
                 performedViaAppIsNull: comment.data.performed_via_github_app === null,
                 associationAccepted: comment.data.author_association === 'OWNER' || comment.data.author_association === 'MEMBER',
+                associationFieldPresent: Object.prototype.hasOwnProperty.call(comment.data, 'author_association'),
+                associationShape: ['COLLABORATOR', 'CONTRIBUTOR', 'FIRST_TIMER', 'FIRST_TIME_CONTRIBUTOR', 'MANNEQUIN', 'MEMBER', 'NONE', 'OWNER'].includes(comment.data.author_association) ? comment.data.author_association : 'unknown',
                 permissionShape: ['admin', 'maintain', 'write', 'triage', 'read', 'none'].includes(permission.data?.permission) ? permission.data.permission : 'unrecognized',
                 roleShape: ['admin', 'maintain', 'write', 'triage', 'read', 'none'].includes(permission.data?.role_name) ? permission.data.role_name : 'absent-or-unrecognized',
                 normalizedRoleAccepted: role === 'admin' || role === 'maintain',
