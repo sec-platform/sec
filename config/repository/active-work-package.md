@@ -10,8 +10,8 @@ last-reviewed: 2026-10-02
 selectionMode: exact-manifest-not-on-default-branch-v1
 defaultBranchRef: refs/remotes/origin/main
 defaultRefFreshness: live-platform-match-required
-manifest: config/repository/work-packages/maintenance-association-diagnostic-adoption-20261002.md
-manifestDigest: sha256:d0420330d4c21774d1bb2651c175f450d43de5344b2962af7bfc8f1170d3220a
+manifest: config/repository/work-packages/task-group-cancellation-adoption-20261002.md
+manifestDigest: sha256:2a35922aa12791ff255e4f65c02664faddfef34cf939a4b45ec8c31204c270c0
 digestBytes: git-blob
 unavailableDefaultRef: unresolved
 matchingDefaultBlob: none
