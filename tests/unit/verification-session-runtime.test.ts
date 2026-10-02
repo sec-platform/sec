@@ -31,7 +31,7 @@ import {
 } from '../../src/adapters/self-hosting/control/main-health/contract.ts';
 import { createScopeAuthorization, type ScopeAuthorization } from '../../src/adapters/self-hosting/control/scope/authorization.ts';
 import { encodeVerificationActionData } from '../../src/adapters/verification/platform/action/contract/action.ts';
-import { ciVerificationActionParentDispatchPlanPayloadDigest, createCiVerificationActionParentDispatchPlan, createCiVerificationActionProposal, createCiVerificationActionProviderEnvelope, createCiVerificationLocalExecutionEnvironment } from '../../src/adapters/verification/platform/action/contract/ci.ts';
+import { CI_VERIFICATION_HOSTED_EXECUTION_ENVIRONMENT, ciVerificationActionParentDispatchPlanPayloadDigest, createCiVerificationActionParentDispatchPlan, createCiVerificationActionProposal, createCiVerificationActionProviderEnvelope, createCiVerificationLocalExecutionEnvironment } from '../../src/adapters/verification/platform/action/contract/ci.ts';
 import { CodexDevelopmentCreateVerificationEvidenceProducer, CodexDevelopmentFinalizeVerificationEvidenceV4, CodexDevelopmentFinalizeVerificationSessionArtifact } from '../../src/adapters/verification/platform/ci/contract/evidence.ts';
 import { bindDocumentationVerificationGateInput } from '../../src/adapters/verification/platform/ci/contract/plan.ts';
 import { createReviewSnapshotDigest, createReviewStabilityReceipt, renderIndependentReviewTrailer, REVIEW_OBSERVER_READ_ONLY_CAPABILITY_RECEIPT, SEC_REVIEW_STABILITY_POLICY } from '../../src/adapters/verification/platform/review/contract/stability.ts';
@@ -140,8 +140,10 @@ import {
   createHostedArtifactObservation,
   createTrustedHostedArtifactProvenance,
   createTrustedIntegrationAuthorizationArtifact,
+  createVerificationSessionLocalPreparationRequest,
   createVerificationSessionMergeOperationId,
   integrationAuthorizationMergeMarkers,
+  parseVerificationSessionHostedRequest,
   prepareLocalQuickVerificationActionPlan,
   prepareTrustedMainVerificationSession,
   prepareVerificationSessionHosted,
@@ -163,7 +165,8 @@ import {
   planHostedIntegrationEffects,
   routeHostedIntegration,
   routePreparedWorktreeCleanupAttempt,
-  verificationSessionCli
+  verificationSessionCli,
+  verificationSessionExecutionPlacement
 } from '../../src/adapters/verification/platform/ci/runtime/verification-session.ts';
 import { createVerificationSession, type VerificationSession } from '../../src/adapters/verification/platform/session/contract/session.ts';
 import { settleResources, withAcquiredResource } from '../../src/execution/resource-settlement.ts';
@@ -1371,7 +1374,7 @@ async function reducerFixture(options: {
   const changedPaths = ['src/adapters/verification/platform/ci/runtime/verification-session.ts'];
   const testImpactTransition = changedTransition(changedPaths);
   const initialMainHealthCheck = mainHealthCheck({ workflowRunId: identity.verificationRunId });
-  const local = prepareTrustedMainVerificationSession({ repository: identity.repository,
+  const local = prepareTrustedMainVerificationSession({ executionEnvironment: CI_VERIFICATION_HOSTED_EXECUTION_ENVIRONMENT, repository: identity.repository,
     candidate, manifestPath: V6_MANIFEST_PATH, manifestDigest: V6_MANIFEST_DIGEST,
     changedPaths, testImpactTransition, testImpactSourceProvider: TEST_IMPACT_SOURCE_PROVIDER,
     profile: 'quick', integrationPrincipalNodeId: 'INTEGRATOR',
@@ -2735,6 +2738,53 @@ test('OPEN candidate execution rejects remote-main drift even after authorizatio
   expect(() => assertTrustedRuntime({ ...proof, remoteDefaultSha: BASE }, session, false)).not.toThrow();
 });
 
+test('VerificationSession preparation never infers a hosted execution environment', () => {
+  expect(() => prepareTrustedMainVerificationSession({} as never))
+    .toThrow('VerificationSession preparation requires an explicit execution environment.');
+});
+
+test('VerificationSession placement defaults local and rejects implicit hosted selection', async () => {
+  expect(verificationSessionExecutionPlacement(undefined)).toBe('local');
+  expect(verificationSessionExecutionPlacement('local')).toBe('local');
+  expect(verificationSessionExecutionPlacement('hosted')).toBe('hosted');
+  expect(() => verificationSessionExecutionPlacement('automatic')).toThrow(/local or hosted/);
+  await expect(verificationSessionCli(['prepare', '--pr', '1', '--request-output', 'not-written.json',
+    '--execution', 'automatic'])).rejects.toThrow(/local or hosted/);
+  await expect(verificationSessionCli(['prepare', '--pr', '1', '--request-output', 'not-written.json',
+    '--execution', 'hosted', '--test-author-comment', '1'])).rejects.toThrow(/requires local preparation/);
+});
+
+test('local preparation request cannot enter any hosted consumer or runtime state', () => {
+  const root = mkdtempSync(path.join(tmpdir(), 'sec-local-request-placement-'));
+  const localRequest = createVerificationSessionLocalPreparationRequest(JOIN_REQUEST);
+  try {
+    expect(localRequest.executionPlacement).toBe('local');
+    expect(localRequest.authorityStage).toBe('preparation-only');
+    expect(localRequest.request).toEqual(JOIN_REQUEST);
+    expect(() => parseVerificationSessionHostedRequest(JSON.stringify(localRequest)))
+      .toThrow('Local preparation-only request cannot be consumed by a hosted operation.');
+    // The old wire format remains an explicit hosted-only recovery format.
+    expect(parseVerificationSessionHostedRequest(JSON.stringify(JOIN_REQUEST))).toEqual(JOIN_REQUEST);
+    const requestPath = path.join(root, 'local-request.json');
+    writeFileSync(requestPath, JSON.stringify(localRequest));
+    const cliPath = path.resolve('src/adapters/verification/platform/ci/runtime/verification-session.ts');
+    for (const command of ['status', 'resume', 'observe-hosted', 'prepare-hosted']) {
+      const state = path.join(root, `${command}-state`);
+      const cache = path.join(root, `${command}-cache`);
+      const result = spawnSync(process.execPath, [cliPath, command, '--request', requestPath,
+        ...(['status', 'resume'].includes(command) ? ['--execution', 'hosted'] : [])], {
+        cwd: root,
+        env: { ...process.env, SEC_STATE_HOME: state, SEC_CACHE_HOME: cache },
+        encoding: 'utf8', timeout: 15_000, maxBuffer: 1024 * 1024
+      });
+      expect(result.status).toBe(1);
+      expect(result.stderr).toContain('Local preparation-only request cannot be consumed by a hosted operation.');
+      expect(existsSync(state)).toBe(false);
+      expect(existsSync(cache)).toBe(false);
+    }
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
 test('CLI rejects caller-provided authority artifacts', async () => {
   await expect(verificationSessionCli(['resume', '--request', 'request.json',
     '--artifact', 'forged.json'])).rejects.toThrow(/Unknown argument for resume: --artifact/);
@@ -3855,7 +3905,7 @@ describe('qualified exact-repository Session consumers', () => {
   const changedPaths = ['src/adapters/verification/platform/ci/runtime/verification-session.ts'];
   const testImpactTransition = changedTransition(changedPaths);
   const manifestDigest = `sha256:${'b'.repeat(64)}` as const;
-  const local = prepareTrustedMainVerificationSession({ repository: candidate.repository, candidate,
+  const local = prepareTrustedMainVerificationSession({ executionEnvironment: CI_VERIFICATION_HOSTED_EXECUTION_ENVIRONMENT, repository: candidate.repository, candidate,
     manifestPath: 'config/repository/work-packages/example.md', manifestDigest, changedPaths, testImpactTransition,
     testImpactSourceProvider: TEST_IMPACT_SOURCE_PROVIDER, profile: 'quick',
     integrationPrincipalNodeId: 'INTEGRATOR', producerPrincipalNodeId: 'INTEGRATOR', sourceRunId: 'local-preparation',
@@ -3887,7 +3937,7 @@ describe('qualified exact-repository Session consumers', () => {
     expect(action.action.inputClosure.filter(({ path: inputPath }) =>
       dependencyPaths.has(inputPath))).toHaveLength(4);
   }
-  expect(() => prepareTrustedMainVerificationSession({ repository: candidate.repository, candidate,
+  expect(() => prepareTrustedMainVerificationSession({ executionEnvironment: CI_VERIFICATION_HOSTED_EXECUTION_ENVIRONMENT, repository: candidate.repository, candidate,
     manifestPath: 'config/repository/work-packages/example.md', manifestDigest, changedPaths, testImpactTransition,
     testImpactSourceProvider: TEST_IMPACT_SOURCE_PROVIDER, profile: 'quick',
     integrationPrincipalNodeId: 'INTEGRATOR', producerPrincipalNodeId: 'INTEGRATOR', sourceRunId: 'local-preparation',
@@ -3965,7 +4015,7 @@ describe('qualified exact-repository Session consumers', () => {
         : null
     )
   });
-  expect(() => prepareTrustedMainVerificationSession({
+  expect(() => prepareTrustedMainVerificationSession({ executionEnvironment: CI_VERIFICATION_HOSTED_EXECUTION_ENVIRONMENT,
     repository: candidate.repository, candidate,
     manifestPath: 'config/repository/work-packages/example.md', manifestDigest,
     changedPaths: [unownedRetiredPath], testImpactTransition: unownedTransition,
@@ -3976,7 +4026,7 @@ describe('qualified exact-repository Session consumers', () => {
     observedAt: VERIFIED_AT, reviewBarrier: barrier, mainHealthChecks,
     dependencyBlobs: actionDependencyBlobs()
   })).toThrow(/verification plan is unresolved/i);
-  const prepared = prepareTrustedMainVerificationSession({
+  const prepared = prepareTrustedMainVerificationSession({ executionEnvironment: CI_VERIFICATION_HOSTED_EXECUTION_ENVIRONMENT,
     repository: candidate.repository, candidate,
     manifestPath: 'config/repository/work-packages/example.md', manifestDigest,
     changedPaths, testImpactTransition, testImpactSourceProvider: TEST_IMPACT_SOURCE_PROVIDER,
@@ -4032,7 +4082,7 @@ describe('qualified exact-repository Session consumers', () => {
   if (barrier.status !== 'clear') throw new Error('expected clear review');
   const candidate = transport.candidate();
   const changedPaths = ['src/adapters/verification/platform/ci/runtime/verification-session.ts'];
-  const prepare = (status: 'added' | 'changed') => prepareTrustedMainVerificationSession({
+  const prepare = (status: 'added' | 'changed') => prepareTrustedMainVerificationSession({ executionEnvironment: CI_VERIFICATION_HOSTED_EXECUTION_ENVIRONMENT,
     repository: candidate.repository, candidate,
     manifestPath: 'config/repository/work-packages/example.md', manifestDigest: `sha256:${'e'.repeat(64)}`,
     changedPaths,

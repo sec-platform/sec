@@ -8,7 +8,7 @@ import { ResourceCompositeSettlementError, withAcquiredResource } from '../../ex
 import { issueWindowsAppContainerExecutionCapability as issuePhysicalWindowsAppContainerExecutionCapability, type WindowsAppContainerExecutionCapability } from '../runtime-state/physical/contract/windows-appcontainer-execution-capability.ts';
 import { assertSameNoFollowDirectoryIdentity, deleteRetainedNoFollowEntry, inspectExactNoFollowDirectoryPresence, inspectNoFollowDirectoryChain, inspectNoFollowOrdinaryFileEntry, publishExclusiveDurableCanonicalFile, readNoFollowOrdinaryFile, relocateRetainedNoFollowDirectoryAcrossParents, scanNoFollowDirectoryTree, type PhysicalDirectoryIdentity } from '../runtime-state/physical/runtime/physical-no-follow.ts';
 import { ensureDir } from "./files.ts";
-import { HEARTBEAT_FILE, HOLDERS_DIRECTORY, isExistsError, isMissingError, nonEmpty, OWNER_FILE, OWNER_GENERATION_PATTERN, PROTOCOL_FILE, safeInteger, sameHeartbeat, sameToken, systemErrorCode, TERMINAL_GENERATION_PATTERN, tokenFromOwner, tokenLooksValid, WORKSPACE_WRITE_LEASE_HEARTBEAT_VERSION, WORKSPACE_WRITE_LEASE_PROTOCOL_VERSION, WORKSPACE_WRITE_LEASE_TERMINAL_VERSION, WORKSPACE_WRITE_LEASE_TOKEN_VERSION, WorkspaceWriteLeaseError, type WorkspaceWriteLeaseAcquireOptions, type WorkspaceWriteLeaseHandle, type WorkspaceWriteLeaseHeartbeat, type WorkspaceWriteLeaseInventory, type WorkspaceWriteLeaseManager, type WorkspaceWriteLeaseManagerOptions, type WorkspaceWriteLeaseOwner, type WorkspaceWriteLeasePaths, type WorkspaceWriteLeaseRetirementReceipt, type WorkspaceWriteLeaseTerminal, type WorkspaceWriteLeaseToken } from './write-lease-contract.ts';
+import { HEARTBEAT_FILE, HOLDERS_DIRECTORY, isExistsError, isMissingError, nonEmpty, OWNER_FILE, OWNER_GENERATION_PATTERN, PROTOCOL_FILE, safeInteger, sameToken, systemErrorCode, TERMINAL_GENERATION_PATTERN, tokenFromOwner, tokenLooksValid, WORKSPACE_WRITE_LEASE_HEARTBEAT_VERSION, WORKSPACE_WRITE_LEASE_PROTOCOL_VERSION, WORKSPACE_WRITE_LEASE_TERMINAL_VERSION, WORKSPACE_WRITE_LEASE_TOKEN_VERSION, WorkspaceWriteLeaseError, type WorkspaceWriteLeaseAcquireOptions, type WorkspaceWriteLeaseHandle, type WorkspaceWriteLeaseHeartbeat, type WorkspaceWriteLeaseInventory, type WorkspaceWriteLeaseManager, type WorkspaceWriteLeaseManagerOptions, type WorkspaceWriteLeaseOwner, type WorkspaceWriteLeasePaths, type WorkspaceWriteLeaseRetirementReceipt, type WorkspaceWriteLeaseTerminal, type WorkspaceWriteLeaseToken } from './write-lease-contract.ts';
 import { assertLeaseParent, assertNoLegacyOwner, assertProtocolDirectory, assertProtocolMarker, generationOwnerPath, generationTerminalPath, holderDirectory, inspectProtocolMarkerAlias, ownerFileIdentity, physicalWorkspaceIdentityDigest, readBoundHeartbeat, readBoundHeartbeatUnlessTerminalized, readGenerationState, readInventory, readOptionalTerminal, readProtocolMarkerMetadata, sameFileIdentity, verifyProtocolRoot, workspaceIdentity, workspaceIdentityFailureReason, workspaceWriteLeasePathsFor } from './write-lease-observation.ts';
 import { assertRetirementLedgerNamespace, assertWorkspaceWriteLeaseRetirement, createRetirementTransition, namespaceTombstoneName, readPreterminalRetirementReceipt, readRetirementTransitionProof, retirementFenceName, retirementFenceParent, retirementTerminalTokenDigest, retirementTransitionName, snapshotRetirementRecoveryInput, transitionEntries, validateRetirementReceipt, validateRetirementTransition, type WorkspaceWriteLeaseRetirementRecoveryInput, type WorkspaceWriteLeaseRetirementTransition } from './write-lease-retirement-proof.ts';
 export { WORKSPACE_WRITE_LEASE_DIRECTORY_NAME, WORKSPACE_WRITE_LEASE_INSPECTION_VERSION, WORKSPACE_WRITE_LEASE_TOKEN_VERSION, WorkspaceWriteLeaseError, type WorkspaceWriteLeaseAcquireOptions, type WorkspaceWriteLeaseErrorCode, type WorkspaceWriteLeaseHandle, type WorkspaceWriteLeaseInspection, type WorkspaceWriteLeaseManager, type WorkspaceWriteLeaseManagerOptions, type WorkspaceWriteLeaseRetirementReceipt, type WorkspaceWriteLeaseToken } from './write-lease-contract.ts';
@@ -63,24 +63,8 @@ type ImmutablePublicationOutcome =
     }>
   | Readonly<{ state: 'durability-unknown'; systemCode: string }>;
 
-/**
- * Legacy V3 probe: the token does not bind an OS process-start identity or PID
- * observation namespace. The same hostname can therefore expose a different
- * process for this number. This structural separation preserves the existing
- * protocol; it does not prove cross-namespace death or authorize old-holder
- * reclamation. Fixing that boundary requires the producer/migration contract
- * tracked in #190, not an extra boolean check in either recovery consumer.
- */
-function defaultProcessAlive(pid: number): 'alive' | 'dead' | 'unknown' {
-  try {
-    process.kill(pid, 0);
-    return 'alive';
-  } catch (error) {
-    if (error instanceof Error && 'code' in error && error.code === 'ESRCH') return 'dead';
-    if (error instanceof Error && 'code' in error && error.code === 'EPERM') return 'alive';
-    return 'unknown';
-  }
-}
+/** Legacy V3 process metadata is diagnostic. Neither PID absence, namespace
+ * mismatch nor heartbeat age can authorize predecessor recovery. */
 
 function acquisitionSystemCode(error: unknown): string | undefined {
   if (error instanceof WorkspaceWriteLeaseError) {
@@ -756,7 +740,6 @@ export function createWorkspaceWriteLeaseManager(
   const processNonce = options.processNonce ?? PROCESS_NONCE;
   const nowCapability = options.now ?? Date.now;
   const createIdCapability = options.createId ?? randomUUID;
-  const processAliveCapability = options.processAlive ?? defaultProcessAlive;
   const createId = (): string => {
     let value: unknown;
     try {
@@ -775,16 +758,6 @@ export function createWorkspaceWriteLeaseManager(
       );
     }
     return value;
-  };
-  const processAlive = (observedPid: number): 'alive' | 'dead' | 'unknown' => {
-    try {
-      const observed = processAliveCapability(observedPid);
-      return observed === 'alive' || observed === 'dead' || observed === 'unknown'
-        ? observed
-        : 'unknown';
-    } catch {
-      return 'unknown';
-    }
   };
   const ownerPublicationDirectorySync =
     options.ownerPublicationDirectorySync ?? fsyncDirectory;
@@ -1040,7 +1013,13 @@ export function createWorkspaceWriteLeaseManager(
         await assertCanonicalControlPlane(workspaceRoot, token);
         return result;
       } catch (error) {
-        await assertCanonicalControlPlane(workspaceRoot, token);
+        try { await assertCanonicalControlPlane(workspaceRoot, token); }
+        catch (settlement) {
+          throw new ResourceCompositeSettlementError([
+            { label: 'workspace-write-lease-quiesced-operation', error },
+            { label: 'workspace-write-lease-control-plane-readback', error: settlement }
+          ]);
+        }
         throw error;
       }
     });
@@ -1099,37 +1078,11 @@ export function createWorkspaceWriteLeaseManager(
     }
     const age = currentTime() - initialHeartbeat.heartbeatAtMs;
     if (age <= staleAfterMs) return false;
-    const initialLiveness = processAlive(initialState.owner.pid);
-    if (initialLiveness === 'alive') return false;
-    if (initialLiveness !== 'dead') {
-      throw new WorkspaceWriteLeaseError(
-        'WORKSPACE-WRITE-LEASE-003',
-        'Workspace writer lease holder liveness is unknown'
-      );
-    }
-
-    const finalInventory = await readInventory(paths.root);
-    if (finalInventory.highestGeneration !== generation) return true;
-    if (finalInventory.terminalGenerations.has(generation)) return true;
-    const finalState = await readGenerationState(paths.root, generation);
-    if (finalState.terminal) return true;
-    const finalHeartbeat = await readBoundHeartbeatUnlessTerminalized(paths, finalState);
-    if (!finalHeartbeat) return true;
-    if (!sameToken(tokenFromOwner(initialState.owner), tokenFromOwner(finalState.owner)) ||
-      initialState.ownerFileIdentityDigest !== finalState.ownerFileIdentityDigest ||
-      !sameHeartbeat(initialHeartbeat, finalHeartbeat)) {
-      return false;
-    }
-    const finalLiveness = processAlive(finalState.owner.pid);
-    if (finalLiveness === 'alive') return false;
-    if (finalLiveness !== 'dead') {
-      throw new WorkspaceWriteLeaseError(
-        'WORKSPACE-WRITE-LEASE-003',
-        'Workspace writer lease holder liveness changed to unknown'
-      );
-    }
-    await publishTerminal(paths, tokenFromOwner(finalState.owner), 'recovered');
-    return true;
+    throw new WorkspaceWriteLeaseError(
+      'WORKSPACE-WRITE-LEASE-003',
+      'Workspace writer lease predecessor process/effect settlement is unproven; legacy state is preserved',
+      { phase: 'legacy-recovery', reason: 'effect-quiescence-unproven' }
+    );
   };
 
   const reclaimTerminalHolderResidue = async (
@@ -1169,44 +1122,12 @@ export function createWorkspaceWriteLeaseManager(
         'Foreign workspace writer lease terminal holder cannot be reclaimed automatically'
       );
     }
-    const initialLiveness = processAlive(initialState.owner.pid);
-    if (currentTime() - initialHeartbeat.heartbeatAtMs <= staleAfterMs || initialLiveness === 'alive') return false;
-    if (initialLiveness !== 'dead') {
-      throw new WorkspaceWriteLeaseError(
-        'WORKSPACE-WRITE-LEASE-003',
-        'Workspace writer lease terminal holder liveness is unknown'
-      );
-    }
-
-    const finalInventory = await readInventory(paths.root);
-    if (finalInventory.highestGeneration !== generation ||
-      !finalInventory.terminalGenerations.has(generation)) return false;
-    const finalState = await readGenerationState(paths.root, generation);
-    if (finalState.terminal === null || !sameToken(tokenFromOwner(finalState.owner), token) ||
-      finalState.ownerFileIdentityDigest !== initialState.ownerFileIdentityDigest) return false;
-    let finalHeartbeat: WorkspaceWriteLeaseHeartbeat;
-    try {
-      finalHeartbeat = await readBoundHeartbeat(paths, finalState);
-    } catch (error) {
-      try { await fs.lstat(holder); } catch (presenceError) {
-        if (isMissingError(presenceError)) return true;
-        throw presenceError;
-      }
-      throw error;
-    }
-    const finalLiveness = processAlive(finalState.owner.pid);
-    if (!sameHeartbeat(initialHeartbeat, finalHeartbeat) || finalLiveness === 'alive') return false;
-    if (finalLiveness !== 'dead') {
-      throw new WorkspaceWriteLeaseError(
-        'WORKSPACE-WRITE-LEASE-003',
-        'Workspace writer lease terminal holder liveness changed to unknown'
-      );
-    }
-    // `publishTerminal` revalidates the existing terminal's exact token before
-    // deleting the holder.  A public same-token terminal therefore cannot
-    // reclaim a live or fresh owner; only the canonical stale/dead path can.
-    await publishTerminal(paths, token, 'recovered');
-    return true;
+    if (currentTime() - initialHeartbeat.heartbeatAtMs <= staleAfterMs) return false;
+    throw new WorkspaceWriteLeaseError(
+      'WORKSPACE-WRITE-LEASE-003',
+      'Workspace writer lease terminal holder has no qualified process/effect settlement; residue is preserved',
+      { phase: 'terminal-holder-recovery', reason: 'effect-quiescence-unproven' }
+    );
   };
 
   const acquireNative = async (

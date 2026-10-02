@@ -5,14 +5,13 @@ import {
   compileSecSemanticOperationPlan,
   issueSecSemanticOperationAttemptContext,
   type SecBoundSemanticOperation,
-  type SecCapabilityBinding,
   type SecOperationDigest,
-  type SecSemanticOperationPlan
+  type SecSemanticOperationAttemptContext
 } from '../../../../execution/operation/semantic.ts';
 import {
-  RETAINED_WINDOWS_REPOSITORY_CHANGE_OBSERVER_CONTRACT_DIGEST,
-  RETAINED_WINDOWS_REPOSITORY_CHANGE_OBSERVER_REQUIREMENT_ID
-} from '../../../runtime-state/physical/runtime/windows-repository-change-observer.ts';
+  repositoryChangeObserverBinding,
+  type PreparedRepositoryChangeObserver
+} from '../../../runtime-state/physical/runtime/repository-change-observer.ts';
 import {
   assertTestBudgetExecutionProvenance,
   type IssuedTestInventoryProjection,
@@ -100,7 +99,7 @@ export type FastTestBatchExecutionAdmission = Readonly<{
   logicalDeadlineAtUnixMs: number;
   revalidationDeadlineAtUnixMs: number;
   childDeadlineAtUnixMs: number;
-  operationPlan: SecSemanticOperationPlan;
+  attempt: SecSemanticOperationAttemptContext;
 }>;
 
 const issuedTestSuiteExecutionPolicies = new WeakSet<object>();
@@ -265,27 +264,13 @@ export function admitFastTestBatchExecutionPolicy(
     throw new Error('Fast test batch execution admission deadline is invalid.');
   }
   consumedFastTestBatchExecutionPolicies.add(policy);
-  const operationPlan = compileSecSemanticOperationPlan({
-    operation: FAST_TEST_BATCH_EXECUTION_OPERATION,
-    intentDigest: policy.policyDigest as SecOperationDigest,
-    decisionDigest: policy.policyDigest as SecOperationDigest,
-    deadlineAtUnixMs: logicalDeadlineAtUnixMs,
-    attempt: issueSecSemanticOperationAttemptContext({ authorityGrantDigest: policy.policyDigest as SecOperationDigest }),
-    aggregateBudgets: [{ resource: 'duration-ms', maximum: policy.logicalRunTimeoutMs }],
-    requirements: [{
-      id: RETAINED_WINDOWS_REPOSITORY_CHANGE_OBSERVER_REQUIREMENT_ID,
-      contractDigest: RETAINED_WINDOWS_REPOSITORY_CHANGE_OBSERVER_CONTRACT_DIGEST,
-      effectKinds: ['filesystem'],
-      failureKinds: ['provider.deadline-exhausted', 'provider.unavailable', 'provider.unverified']
-    }]
-  });
   const admission = deepFreeze({
     policy,
     admittedAtUnixMs,
     logicalDeadlineAtUnixMs,
     revalidationDeadlineAtUnixMs,
     childDeadlineAtUnixMs,
-    operationPlan
+    attempt: issueSecSemanticOperationAttemptContext({ authorityGrantDigest: policy.policyDigest as SecOperationDigest })
   });
   issuedFastTestBatchExecutionAdmissions.add(admission);
   return admission;
@@ -293,18 +278,29 @@ export function admitFastTestBatchExecutionPolicy(
 
 export function bindFastTestBatchExecutionAdmission(
   admission: FastTestBatchExecutionAdmission,
-  providerBinding: SecCapabilityBinding
+  observer: PreparedRepositoryChangeObserver
 ): SecBoundSemanticOperation {
   assertIssuedFastTestBatchExecutionAdmission(admission);
   if (boundFastTestBatchExecutionAdmissions.has(admission)) {
     throw new Error('Fast test batch execution admission was already bound.');
   }
-  if (providerBinding.requirementId !== RETAINED_WINDOWS_REPOSITORY_CHANGE_OBSERVER_REQUIREMENT_ID
-      || providerBinding.contractDigest !== RETAINED_WINDOWS_REPOSITORY_CHANGE_OBSERVER_CONTRACT_DIGEST) {
-    throw new Error('Fast test batch observer provider binding is invalid.');
-  }
+  const providerBinding = repositoryChangeObserverBinding(observer);
+  const operationPlan = compileSecSemanticOperationPlan({
+    operation: FAST_TEST_BATCH_EXECUTION_OPERATION,
+    intentDigest: admission.policy.policyDigest as SecOperationDigest,
+    decisionDigest: admission.policy.policyDigest as SecOperationDigest,
+    deadlineAtUnixMs: admission.logicalDeadlineAtUnixMs,
+    attempt: admission.attempt,
+    aggregateBudgets: [{ resource: 'duration-ms', maximum: admission.policy.logicalRunTimeoutMs }],
+    requirements: [{
+      id: providerBinding.requirementId,
+      contractDigest: providerBinding.contractDigest,
+      effectKinds: ['filesystem'],
+      failureKinds: ['provider.deadline-exhausted', 'provider.unavailable', 'provider.unverified']
+    }]
+  });
   boundFastTestBatchExecutionAdmissions.add(admission);
-  return bindSecSemanticOperation(admission.operationPlan, [providerBinding]);
+  return bindSecSemanticOperation(operationPlan, [providerBinding]);
 }
 
 export function issueTestSuiteExecutionPolicy(input: Readonly<{

@@ -15,6 +15,14 @@ import {
   inspectGeneratedState
 } from './lifecycle.ts';
 
+import {
+  ensureGeneratedStateRegistrationLedger,
+  inspectRegistrationPointer,
+  readRegistrationLedgerObservation,
+  registrationPath,
+  withGeneratedStateMutationLease
+} from './registration-store.ts';
+
 const roots: string[] = [];
 const relativePath = '.tmp/dependency-installs/c.staging-registration-migration';
 
@@ -177,4 +185,30 @@ test('a completed migration re-censuses the target before allowing another mutat
     { environment: fixture.environment }
   );
   await expect(resumed.bind(relativePath)).rejects.toThrow('unknown residue');
+});
+
+
+test('migrated registration pointers retain admitted guarded updates and strict residue census', async () => {
+  const fixture = await legacyFixture();
+  const { repositoryRoot, environment, current, registrationsRoot, registrationsV2Root } = fixture;
+  const legacyNames = await readdir(registrationsRoot);
+  const legacyBytes = await Promise.all(legacyNames.map(name => readFile(path.join(registrationsRoot, name))));
+  await ensureGeneratedStateRegistrationLedger({ repositoryRoot }, { environment });
+  await withGeneratedStateMutationLease(repositoryRoot, { environment }, async store => {
+    const pointer = inspectRegistrationPointer(store, relativePath).snapshot;
+    expect(pointer.bytes).not.toBeNull();
+    // Same bytes still exercise ordinary post-migration guarded mutation.
+    store.fs.replaceFsync(registrationPath(store, relativePath), pointer.bytes!.toString('utf8'));
+    expect(readRegistrationLedgerObservation(store, relativePath).registration?.registrationDigest)
+      .toBe(current.registrationDigest);
+  });
+  expect(await readdir(registrationsRoot)).toEqual(legacyNames);
+  for (let i = 0; i < legacyNames.length; i += 1) {
+    expect(await readFile(path.join(registrationsRoot, legacyNames[i]!))).toEqual(legacyBytes[i]);
+  }
+  const foreign = path.join(registrationsV2Root, `.sec-journal-guard-${'f'.repeat(64)}.lock`);
+  await writeFile(foreign, '{}');
+  await expect(withGeneratedStateMutationLease(repositoryRoot, { environment }, async () => undefined))
+    .rejects.toThrow('guard is unqualified or active');
+  expect(await readFile(foreign, 'utf8')).toBe('{}');
 });

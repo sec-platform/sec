@@ -72,7 +72,7 @@ test('heavy verification gate rejects a second live owner and releases exact own
   });
 });
 
-test.skipIf(process.platform === 'win32')('heavy verification gate atomically reclaims a dead owner', async () => {
+test.skipIf(process.platform === 'win32')('heavy verification gate preserves an unverified dead coordinator and child resources', async () => {
   await withLockRoot(async (lockPath) => {
     await mkdir(lockPath);
     await writeFile(path.join(lockPath, 'owner.json'), `${JSON.stringify({
@@ -83,16 +83,18 @@ test.skipIf(process.platform === 'win32')('heavy verification gate atomically re
       startedAt: '2026-07-26T00:00:00.000Z',
       token: TOKEN_A
     })}\n`);
-    const lease = await acquireHeavyVerificationGateLease({
+    const before = await readFile(path.join(lockPath, 'owner.json'));
+    await writeFile(path.join(lockPath, 'child-resource'), 'retained');
+    await expect(acquireHeavyVerificationGateLease({
       gateId: 'ci:risk',
       isProcessAlive: () => false,
       lockPath,
       ownerHost: 'test-host',
       ownerPid: 202,
       token: TOKEN_B
-    });
-    expect(lease.owner.gateId).toBe('ci:risk');
-    await lease.release();
+    })).rejects.toThrow('original execution-domain recovery');
+    expect(await readFile(path.join(lockPath, 'owner.json'))).toEqual(before);
+    expect(await readFile(path.join(lockPath, 'child-resource'), 'utf8')).toBe('retained');
   });
 });
 

@@ -1,6 +1,6 @@
 import path from 'node:path';
 import { snapshotByteView } from '../../../../contracts/byte-snapshot.ts';
-import type { PreparedWindowsRepositoryChangeObserver } from '../../../runtime-state/physical/runtime/windows-repository-change-observer.ts';
+import type { PreparedRepositoryChangeObserver } from '../../../runtime-state/physical/runtime/repository-change-observer.ts';
 import { DEV_COMMAND_MAX_DURATION_MS, DEV_COMMAND_MAX_STDIN_BYTES } from './contract.ts';
 import {
   assertIssuedTestSuiteExecutionAdmission,
@@ -18,7 +18,7 @@ interface DevCommandInputOptions {
   readonly workingDirectory?: string;
   /** Exact long-running suite admission; ordinary numeric timeouts never widen. */
   readonly testSuiteAdmission?: TestSuiteExecutionAdmission;
-  readonly testSuiteObserver?: PreparedWindowsRepositoryChangeObserver;
+  readonly testSuiteObserver?: PreparedRepositoryChangeObserver;
 }
 export interface ObserveDevCommandOptions extends DevCommandInputOptions { readonly observe: true; }
 interface ExecuteDevCommandOptions extends DevCommandInputOptions { readonly observe?: false; }

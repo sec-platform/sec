@@ -322,6 +322,13 @@ export interface DurableCanonicalFileIdentityReceipt {
   readonly physical: Readonly<{ device: string; inode: string }>;
 }
 
+/** Same-file-object exclusion for cooperating admitted writers, not process death. */
+export interface RetainedExclusiveFileGuard {
+  readonly physical: Readonly<{ device: string; inode: string }>;
+  assertCurrent(): void;
+  dispose(): void;
+}
+
 export interface DurableCanonicalFilePublicationReceipt extends DurableCanonicalFileIdentityReceipt {
   readonly created: boolean;
 }

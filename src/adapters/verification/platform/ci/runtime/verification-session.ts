@@ -122,7 +122,7 @@ import {
 } from '../../../../self-hosting/control/task/contract/work-package.ts';
 import { executeVerifiedCiActionPlan } from '../../../../self-hosting/development/runner/verification-action-executor.ts';
 import { encodeVerificationActionData } from '../../action/contract/action.ts';
-import { ciVerificationActionParentDispatchPlanFile, createCiVerificationLocalExecutionEnvironment, parseCiVerificationActionParentDispatchPlan, type CiVerificationActionPlanClosure, type CiVerificationExecutionEnvironment } from '../../action/contract/ci.ts';
+import { CI_VERIFICATION_HOSTED_EXECUTION_ENVIRONMENT, ciVerificationActionParentDispatchPlanFile, createCiVerificationLocalExecutionEnvironment, parseCiVerificationActionParentDispatchPlan, type CiVerificationActionPlanClosure, type CiVerificationExecutionEnvironment } from '../../action/contract/ci.ts';
 import { CI_VERIFICATION_ACTION_DEPENDENCY_INPUT_PATHS } from '../../action/contract/environment.ts';
 import { CI_GITHUB_ACTIONS_IDENTITY_POLICY, matchesCiCompilerWorkflowRunIdentity } from '../../action/contract/provider.ts';
 import {
@@ -175,6 +175,7 @@ import {
   finalizeVerificationSessionHostedArtifact,
   integrationMergeMarkers,
   parseVerificationSessionHostedRequest,
+  parseVerificationSessionLocalPreparationRequest,
   prepareLocalQuickVerificationActionPlan,
   prepareTrustedMainVerificationSession,
   prepareVerificationSessionHosted,
@@ -2758,7 +2759,7 @@ async function executeReviewProviderRevalidation(input: Readonly<{
 
 const USAGE = `Usage:
   bun src/adapters/verification/platform/ci/runtime/verification-session.ts project --default-ref <ref> [--open-prs true] [--repository <owner/name>] [--json]
-  bun src/adapters/verification/platform/ci/runtime/verification-session.ts prepare --pr <n> --request-output <request.json> [--repository <owner/name>] [--json]
+  bun src/adapters/verification/platform/ci/runtime/verification-session.ts prepare --pr <n> --request-output <request.json> [--execution <local|hosted>] [--test-author-comment <id>] [--repository <owner/name>] [--json]
   bun src/adapters/verification/platform/ci/runtime/verification-session.ts revalidate-review-provider --pr <n> [--repository <owner/name>] [--json]
   bun src/adapters/verification/platform/ci/runtime/verification-session.ts observe-hosted --request <request.json> --output <facts.json> [--json]
   bun src/adapters/verification/platform/ci/runtime/verification-session.ts prepare-hosted --request <request.json> --facts <facts.json> --output <envelope.json> [--json]
@@ -2769,15 +2770,17 @@ const USAGE = `Usage:
   bun src/adapters/verification/platform/ci/runtime/verification-session.ts local-main-closeout --repository <owner/name> --pr <n> --protected-root <path> --expected-local-head <sha> [--json]
   bun src/adapters/verification/platform/ci/runtime/verification-session.ts closeout-mutate-hosted --repository <owner/name> --output <projection.json> [--json]
   bun src/adapters/verification/platform/ci/runtime/verification-session.ts closeout-publish-hosted --repository <owner/name> --output <projection.json> [--json]
-  bun src/adapters/verification/platform/ci/runtime/verification-session.ts resume --request <request.json> [--repository <owner/name>] [--json]
+  bun src/adapters/verification/platform/ci/runtime/verification-session.ts resume --request <request.json> [--execution <local|hosted>] [--repository <owner/name>] [--json]
   bun src/adapters/verification/platform/ci/runtime/verification-session.ts freeze --artifact <artifact.json> --session-output <session.json> --scope-output <scope.json> [--json]
-  bun src/adapters/verification/platform/ci/runtime/verification-session.ts status --request <request.json> [--repository <owner/name>] [--json]
+  bun src/adapters/verification/platform/ci/runtime/verification-session.ts status --request <request.json> [--execution <local|hosted>] [--repository <owner/name>] [--json]
   bun src/adapters/verification/platform/ci/runtime/verification-session.ts status-offline --session-file <session.json> [--json]
+  Local status/resume are read-only projections. To execute only local verification:
+  bun run sec:closeout --verification-only --request <request.json> [--test-author-comment <id>] [--repository <owner/name>]
 `;
 
 const COMMAND_FLAGS: Readonly<Record<string, ReadonlySet<string>>> = Object.freeze({
   project: new Set(['--default-ref', '--open-prs', '--repository']),
-  prepare: new Set(['--pr', '--request-output', '--repository']),
+  prepare: new Set(['--pr', '--request-output', '--repository', '--execution', '--test-author-comment']),
   'revalidate-review-provider': new Set(['--pr', '--repository']),
   'observe-hosted': new Set(['--request', '--output', '--repository']),
   'prepare-hosted': new Set(['--request', '--facts', '--output']),
@@ -2788,11 +2791,18 @@ const COMMAND_FLAGS: Readonly<Record<string, ReadonlySet<string>>> = Object.free
   'local-main-closeout': new Set(['--repository', '--pr', '--protected-root', '--expected-local-head']),
   'closeout-mutate-hosted': new Set(['--output', '--repository']),
   'closeout-publish-hosted': new Set(['--output', '--repository']),
-  resume: new Set(['--request', '--repository']),
+  resume: new Set(['--request', '--repository', '--execution']),
   freeze: new Set(['--artifact', '--session-output', '--scope-output']),
-  status: new Set(['--request', '--repository']),
+  status: new Set(['--request', '--repository', '--execution']),
   'status-offline': new Set(['--session-file'])
 });
+
+/** Placement selects an existing owner; it grants no execution or integration authority. */
+export function verificationSessionExecutionPlacement(value: string | undefined): 'local' | 'hosted' {
+  if (value === undefined || value === 'local') return 'local';
+  if (value === 'hosted') return 'hosted';
+  throw new Error('--execution must be local or hosted.');
+}
 
 export async function verificationSessionCli(argv: string[]): Promise<string> {
   const command = argv[0];
@@ -2813,6 +2823,47 @@ export async function verificationSessionCli(argv: string[]): Promise<string> {
   const repositoryRoot = process.cwd();
   const environment = process.env;
   const now = () => new Date().toISOString();
+  const execution = new Set(['prepare', 'status', 'resume']).has(command)
+    ? verificationSessionExecutionPlacement(args.get('--execution')) : null;
+  if ((command === 'status' || command === 'resume') && execution === 'local') {
+    // Parse exactly once before any Runtime State, Git, credentials or provider.
+    const requestPath = path.resolve(required(args, '--request'));
+    const request = parseVerificationSessionLocalPreparationRequest(readSessionArtifactText(requestPath));
+    const { readLocalVerificationStatusWithTrustedRuntime } =
+      await import('../../../../self-hosting/control/composition/trusted-runtime-closeout.ts');
+    const projection = readLocalVerificationStatusWithTrustedRuntime({ repositoryRoot, repository, request });
+    return JSON.stringify({ ...projection,
+      operation: command === 'resume' ? 'resume-projection' : 'status',
+      nextVerification: { entrypoint: 'sec:closeout', arguments: [
+        '--verification-only', '--request', requestPath, '--repository', repository
+      ], requiresSeparateExecutionAdmission: true }
+    }, null, 2);
+  }
+  if (command === 'prepare') {
+    const prNumber = Number(required(args, '--pr'));
+    if (!Number.isSafeInteger(prNumber) || prNumber < 1) throw new Error('--pr must be a positive integer.');
+    const output = required(args, '--request-output');
+    const rawAuthorComment = args.get('--test-author-comment');
+    if (rawAuthorComment !== undefined && (execution !== 'local' || !/^[1-9][0-9]*$/u.test(rawAuthorComment)
+        || !Number.isSafeInteger(Number(rawAuthorComment)))) {
+      throw new Error('--test-author-comment requires local preparation and one exact positive comment id.');
+    }
+    if (execution === 'local') {
+      const { prepareWithTrustedRuntime } = await import('../../../../self-hosting/control/composition/trusted-runtime-closeout.ts');
+      const prepared = await prepareWithTrustedRuntime({ repositoryRoot, repository, prNumber,
+        ...(rawAuthorComment === undefined ? {} : { testAuthorCommentId: Number(rawAuthorComment) }) });
+      writeDurable(output, prepared.request);
+      return JSON.stringify({ ...prepared, requestOutput: path.resolve(output) }, null, 2);
+    }
+  }
+  // Decode placement before opening runtime state, Git, credentials or providers.
+  // Retain this one decoded value so replacing the file cannot change admission.
+  const selectedHostedRequest = new Set(['status', 'resume', 'observe-hosted', 'prepare-hosted']).has(command)
+    ? parseVerificationSessionHostedRequest(readSessionArtifactText(required(args, '--request'))) : null;
+  const hostedRequest = () => {
+    if (selectedHostedRequest === null) throw new Error(`${command} did not select a hosted request.`);
+    return selectedHostedRequest;
+  };
   let ctx = createVerificationSessionScope({ repositoryRoot });
   if (new Set([
     'prepare-integration-hosted',
@@ -3009,6 +3060,7 @@ export async function verificationSessionCli(argv: string[]): Promise<string> {
       excludedPrincipalNodeIds: new Set([candidate.authorNodeId, principal.nodeId]) }));
     const observedAt = now();
     const prepared = prepareTrustedMainVerificationSession({ repository, candidate, manifestPath, manifestDigest,
+      executionEnvironment: CI_VERIFICATION_HOSTED_EXECUTION_ENVIRONMENT,
       changedPaths, testImpactTransition: changedSelection.testImpactTransition,
       testImpactSourceProvider: changedSelection.testImpactSourceProvider,
       profile: manifest.requiredProfile, integrationPrincipalNodeId: principal.nodeId,
@@ -3201,9 +3253,7 @@ export async function verificationSessionCli(argv: string[]): Promise<string> {
   // CLI command routing selects a closed operation; each branch parses and validates its own exact authority.
   // codeql[js/user-controlled-bypass]
   if (command === 'status') {
-    const request = parseVerificationSessionHostedRequest(
-      readSessionArtifactText(required(args, '--request'))
-    );
+    const request = hostedRequest();
     const github = githubAdapter();
     const candidate = (await github.observeCandidate(repository, request.prNumber));
     const publications = observeIntegrationAuthorizationOperationPublications(ctx.repositoryRoot, { repository,
@@ -3234,7 +3284,7 @@ export async function verificationSessionCli(argv: string[]): Promise<string> {
   // CLI command routing selects a closed operation; each branch parses and validates its own exact authority.
   // codeql[js/user-controlled-bypass]
   if (command === 'observe-hosted') {
-    const request = parseVerificationSessionHostedRequest(readSessionArtifactText(required(args, '--request')));
+    const request = hostedRequest();
     const github = githubAdapter();
     const eventPayload = event();
     const compilerIdentity = (await assertHostedCompilerIdentity({ ctx, github, repository,
@@ -3302,7 +3352,7 @@ export async function verificationSessionCli(argv: string[]): Promise<string> {
     return JSON.stringify({ status: 'observed', output: path.resolve(required(args, '--output')) }, null, 2);
   }
   if (command === 'prepare-hosted') {
-    const request = parseVerificationSessionHostedRequest(readSessionArtifactText(required(args, '--request')));
+    const request = hostedRequest();
     const facts = readJson<VerificationSessionHostedFacts>(required(args, '--facts'));
     const github = githubAdapter();
     const candidate = (await github.observeCandidate(facts.repository, request.prNumber));
@@ -3360,9 +3410,7 @@ export async function verificationSessionCli(argv: string[]): Promise<string> {
   // CLI command routing selects a closed operation; each branch parses and validates its own exact authority.
   // codeql[js/user-controlled-bypass]
   if (command === 'resume') {
-    const request = parseVerificationSessionHostedRequest(
-      readSessionArtifactText(required(args, '--request'))
-    );
+    const request = hostedRequest();
     const github = githubAdapter();
     const candidate = (await github.observeCandidate(repository, request.prNumber));
     const authorizationPublications = observeIntegrationAuthorizationOperationPublications(ctx.repositoryRoot, {

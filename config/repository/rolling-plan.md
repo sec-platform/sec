@@ -12,9 +12,9 @@ last-reviewed: 2026-10-02
 ```json
 {
   "active": {
-    "manifestDigest": "sha256:9da8e0d4d4a94051063ae71d406db20dd3dbed43e9a6dc291fb936149a7d1363",
-    "manifestPath": "config/repository/work-packages/maintenance-effective-authority-adoption-20261002.md",
-    "packageId": "maintenance-effective-authority-adoption-20261002",
+    "manifestDigest": "sha256:70cdaf6c982e05e5b75678734d3b76c4067850648ef87094832bc3cee056e0e3",
+    "manifestPath": "config/repository/work-packages/local-validation-lease-batch-adoption-20261002.md",
+    "packageId": "local-validation-lease-batch-adoption-20261002",
     "tracking": "none"
   },
   "authority": "none",
@@ -25,18 +25,18 @@ last-reviewed: 2026-10-02
     "candidate-control-transaction-v1",
     "typescript-7-checker-acceleration-v1"
   ],
-  "exactMain": "180188155a14f0578a6941e72b4f3cf74dcc18a2",
-  "exactMainTree": "8428d1db6a9c9945c360260674b5c4cf9bc4a0a8",
-  "projectionDigest": "sha256:b148c148ae875e757b35e018e6aa4334f820e41ef8f60652624e559037300c86",
+  "exactMain": "683e78ccf679619319254c3f43ba12f37a83f2ef",
+  "exactMainTree": "328c039833fcb495cfd60fdeb0c4a9a9f7167a14",
+  "projectionDigest": "sha256:47f5c5b08d2629d51998be46e3d855dc70c19ed5d6613b76d4b0e92e1149b7cc",
   "schema": "sec-work-rolling-proposal-projection-v1"
 }
 ```
 
 ## 当前唯一 Work Package
 
-### maintenance-effective-authority-adoption-20261002
+### local-validation-lease-batch-adoption-20261002
 
-Proposal-only target manifest `config/repository/work-packages/maintenance-effective-authority-adoption-20261002.md` at `sha256:9da8e0d4d4a94051063ae71d406db20dd3dbed43e9a6dc291fb936149a7d1363`, based on exact main `180188155a14f0578a6941e72b4f3cf74dcc18a2` and tree `8428d1db6a9c9945c360260674b5c4cf9bc4a0a8`.
+Proposal-only target manifest `config/repository/work-packages/local-validation-lease-batch-adoption-20261002.md` at `sha256:70cdaf6c982e05e5b75678734d3b76c4067850648ef87094832bc3cee056e0e3`, based on exact main `683e78ccf679619319254c3f43ba12f37a83f2ef` and tree `328c039833fcb495cfd60fdeb0c4a9a9f7167a14`.
 
 ## 候选 Work Package
 
