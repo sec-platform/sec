@@ -86,9 +86,7 @@ import { resolveLiveControlPlane } from './document-control-status.ts';
  * Do not add a registry or a second tree builder to reconnect these roles.
  */
 
-export {
-  CodexDevelopmentDocumentControlCliAdmissionError, createDocumentControlRoutingTestActorForTests, observeDocumentControlWorkRouting, withDocumentControlHostCliTestSessionV1, type CodexDevelopmentDocumentControlCliAdmissionReason, type CodexDevelopmentDocumentControlCliAdmissionStatus, type CodexDevelopmentDocumentControlCliOperation, type DocumentControlRoutingTestActor
-} from './document-control-observation.ts';
+export { CodexDevelopmentDocumentControlCliAdmissionError, createDocumentControlRoutingTestActorForTests, observeDocumentControlWorkRouting, projectDocumentControlGitHubFailure, withDocumentControlHostCliTestSessionV1, type CodexDevelopmentDocumentControlCliAdmissionReason, type CodexDevelopmentDocumentControlCliAdmissionStatus, type CodexDevelopmentDocumentControlCliOperation, type DocumentControlRoutingTestActor } from './document-control-observation.ts';
 
 export {
   type CodexDevelopmentDurabilityEvent, type CodexDevelopmentDurabilityStage, type CodexDevelopmentFreezeFault, type CodexDevelopmentFreezeResult

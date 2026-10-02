@@ -1,8 +1,7 @@
 import path from 'node:path';
 import { assertWorkspaceWriteLease, withWorkspaceWriteLease, type WorkspaceWriteLeaseToken } from '../../adapters/filesystem/write-lease.ts';
-import { readOptionalRetainedJson } from '../../adapters/runtime-state/physical/runtime/retained-file-read.ts';
+import { readOptionalCurrentVerificationPublication } from '../../adapters/verification/platform/artifact/runtime/authority.ts';
 import { writeRepairPlan } from '../../adapters/verification/repair/write-repair-plan.ts';
-import { resolveWorkspaceArtifactPath } from '../../adapters/workspace-context.ts';
 import { readLockFile, saveLock } from '../../adapters/workspace/lock.ts';
 import { buildRepairPlan } from '../../application/repair-plan.ts';
 import {
@@ -11,8 +10,7 @@ import {
   repairWorkspaceResult,
   type RepairWorkspaceOperations
 } from '../../application/repair-workspace.ts';
-import { CI_ARTIFACT_FILES } from '../../assurance/verification/ci-artifacts/contract/manifest.ts';
-import type { VerificationReport } from '../../assurance/verification/contract/types.ts';
+import type { LockFile } from '../../compiler/contract.ts';
 
 export async function repairWorkspace(
   workspaceRoot = process.cwd(),
@@ -21,16 +19,11 @@ export async function repairWorkspace(
 ) {
   workspaceRoot = path.resolve(workspaceRoot);
   const request = prepareRepairWorkspaceRequest(options);
-  const verificationReportPath = resolveWorkspaceArtifactPath(
-    workspaceRoot,
-    CI_ARTIFACT_FILES.verificationReport
-  );
   const baseOperations = {
     readLock: () => readLockFile(workspaceRoot),
-    readVerification: () => readOptionalRetainedJson<VerificationReport>(
-      verificationReportPath,
-      'Repair Verification report'
-    ),
+    readVerification: (lock: LockFile) => readOptionalCurrentVerificationPublication(
+      workspaceRoot, lock, 'Repair Verification artifact set'
+    )?.verificationReport ?? null,
     buildPlan: buildRepairPlan
   };
   return executeRepairWorkspaceAdmission(request, {

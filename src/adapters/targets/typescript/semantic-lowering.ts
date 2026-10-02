@@ -8,6 +8,7 @@ import { type CommitFence } from "../../../contracts/commit-fence.ts";
 import { resolvePathInside } from "../../../contracts/relative-path.ts";
 import type { SemanticGeneratorTask } from '../../../semantics/generation/types.ts';
 import { writeText } from "../../filesystem/files.ts";
+import { inspectNoFollowDirectoryChain, PhysicalNoFollowError, retainNoFollowOrdinaryFile } from '../../runtime-state/physical/runtime/physical-no-follow.ts';
 import { isCanonicalWorkspaceArtifactPath, resolveWorkspaceArtifactPath } from "../../workspace-context.ts";
 import { renderTypeScriptSemanticTask } from './state-transition-source.ts';
 export { renderStateTransitionMapSource } from './state-transition-source.ts';
@@ -15,6 +16,36 @@ export { renderStateTransitionMapSource } from './state-transition-source.ts';
 export interface SemanticLoweringResult {
   generatedPaths: string[];
   tasks: SemanticGeneratorTask[];
+}
+
+async function retainUnchangedSemanticTarget(targetPath: string, source: string, fence: CommitFence): Promise<boolean> {
+  let target: ReturnType<typeof retainNoFollowOrdinaryFile>;
+  try {
+    target = retainNoFollowOrdinaryFile(
+      inspectNoFollowDirectoryChain(path.dirname(targetPath), 'Semantic lowering target parent'),
+      path.basename(targetPath), undefined, 'Semantic lowering target'
+    );
+  } catch (error) {
+    if (error instanceof PhysicalNoFollowError && error.code === 'PHYSICAL_NO_FOLLOW_ABSENT') return false;
+    throw error;
+  }
+  let unchanged = false;
+  try {
+    // Equal bytes do not discharge writeText's foreign hard-link detachment.
+    if (target.linkCount === 1 && target.size === Buffer.byteLength(source, 'utf8')
+        && Buffer.from(target.readBytes()).equals(Buffer.from(source, 'utf8'))) {
+      await fence();
+      target.assertCurrent();
+      unchanged = true;
+    }
+  } catch (error) {
+    try { target.dispose(); } catch (cleanupError) {
+      throw new AggregateError([error, cleanupError], 'Semantic lowering no-op and retained target cleanup failed', { cause: error });
+    }
+    throw error;
+  }
+  target.dispose();
+  return unchanged;
 }
 
 export async function lowerSemanticTasks(
@@ -45,7 +76,10 @@ export async function lowerSemanticTasks(
     assertSemanticLoweringCurrent(lowering);
   };
   for (const { task, targetPath } of prepared) {
-    await writeText(targetPath, renderTypeScriptSemanticTask(task), fence);
+    const source = renderTypeScriptSemanticTask(task);
+    if (!await retainUnchangedSemanticTarget(targetPath, source, fence)) {
+      await writeText(targetPath, source, fence);
+    }
     generatedPaths.push(path.relative(workspaceRoot, targetPath).replaceAll(path.sep, '/'));
     tasks.push({
       ...structuredClone(task),

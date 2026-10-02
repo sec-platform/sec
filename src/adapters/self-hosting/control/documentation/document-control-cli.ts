@@ -11,6 +11,8 @@ export interface DocumentControlPlaneStatusCliProjection {
   readonly github: Readonly<{
     status: unknown;
     reason?: unknown;
+    httpStatus?: unknown;
+    detailDigest?: unknown;
     openPullRequestNumbers?: readonly number[];
     openIssueCount?: number;
     reviewThreadPullRequestCount?: number;
@@ -46,6 +48,8 @@ export function projectDocumentControlPlaneStatusCli(
     github: Object.freeze({
       status: github.status,
       ...(github.reason === undefined ? {} : { reason: github.reason }),
+      ...(github.httpStatus === undefined ? {} : { httpStatus: github.httpStatus }),
+      ...(github.detailDigest === undefined ? {} : { detailDigest: github.detailDigest }),
       ...(openPullRequests === undefined ? {} : {
         openPullRequestNumbers: Object.freeze(openPullRequests.flatMap((item) => (
           item !== null && typeof item === 'object' && !Array.isArray(item)

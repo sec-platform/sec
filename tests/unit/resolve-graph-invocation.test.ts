@@ -1,6 +1,6 @@
 import { test } from 'bun:test';
 import assert from 'node:assert/strict';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { resolveGraph } from '../../src/adapters/workspace/resolve-graph.ts';
@@ -33,6 +33,64 @@ test('real resolver preserves provider-before-consumer order and stable global i
     assert.deepEqual(lock.installPlan.map(step => step.stepId), ['block/base:1', 'block/app:2']);
     assert.deepEqual(lock.resolvedCapabilities, ['block/app', 'cap/base']);
     assert.equal(lock.passStatus.resolve, 'succeeded');
+  } finally { f.cleanup(); }
+});
+
+test('stack qualification automatically selects the sole compatible provider regardless of catalog order', async () => {
+  for (const reversed of [false, true]) {
+    const f = fixture(); try {
+      f.manifest('block/app', ['cap/base']); f.plan.blocks = [{ id: 'block/app' }];
+      const compatibleId = reversed ? 'block/z' : 'block/a';
+      const unsupportedId = reversed ? 'block/a' : 'block/z';
+      f.manifest(compatibleId, [], ['cap/base']);
+      const unsupported = f.manifest(unsupportedId, [], ['cap/base']);
+      unsupported.source.stackProfiles = ['other-stack'];
+      writeFileSync(path.join(unsupported.folder, 'block.manifest.yaml'), JSON.stringify(unsupported.source));
+      const lock = await resolveGraph(f.root, f.plan);
+      assert.deepEqual(lock.resolvedBlocks.map(block => block.id), [compatibleId, 'block/app']);
+      assert.deepEqual(lock.installPlan.map(step => step.blockId), [compatibleId, 'block/app']);
+      assert.deepEqual(lock.resolvedCapabilities, ['block/app', 'cap/base']);
+      assert.equal(lock.resolvedBlocks[0]!.registrySourceId, 'local');
+      assert.equal(existsSync(path.join(f.root, 'src')), false);
+    } finally { f.cleanup(); }
+  }
+});
+
+test('stack qualification reports no compatible provider without claiming the raw catalog is empty', async () => {
+  const f = fixture(); try {
+    f.manifest('block/app', ['cap/base']); f.plan.blocks = [{ id: 'block/app' }];
+    const unsupported = f.manifest('block/base', [], ['cap/base']);
+    unsupported.source.stackProfiles = ['other-stack'];
+    writeFileSync(path.join(unsupported.folder, 'block.manifest.yaml'), JSON.stringify(unsupported.source));
+    await assert.rejects(resolveGraph(f.root, f.plan), error => {
+      const failure = error as { code?: string; message?: string; details?: { candidateDomain?: string; stack?: string }; cause?: unknown };
+      assert.equal(failure.code, 'RESOLVE-MISSING-001');
+      assert.match(failure.message ?? '', /cap\/base.*stack-compatible catalog/);
+      assert.equal(failure.details?.candidateDomain, 'stack-compatible');
+      assert.equal(failure.details?.stack, 'typescript-library');
+      assert.ok(failure.cause instanceof Error);
+      return true;
+    });
+    assert.equal(existsSync(path.join(f.root, 'src')), false);
+  } finally { f.cleanup(); }
+});
+
+test('stack qualification still rejects an explicitly selected unsupported block', async () => {
+  const f = fixture(); try {
+    const unsupported = f.manifest('block/app'); f.plan.blocks = [{ id: 'block/app' }];
+    unsupported.source.stackProfiles = ['other-stack'];
+    writeFileSync(path.join(unsupported.folder, 'block.manifest.yaml'), JSON.stringify(unsupported.source));
+    await assert.rejects(resolveGraph(f.root, f.plan), error => (error as { code?: string }).code === 'ALIGN-STACK-001');
+    assert.equal(existsSync(path.join(f.root, 'src')), false);
+  } finally { f.cleanup(); }
+});
+
+test('stack qualification preserves genuine ambiguity between compatible providers', async () => {
+  const f = fixture(); try {
+    f.manifest('block/app', ['cap/base']); f.plan.blocks = [{ id: 'block/app' }];
+    f.manifest('block/a', [], ['cap/base']); f.manifest('block/b', [], ['cap/base']);
+    await assert.rejects(resolveGraph(f.root, f.plan), error => (error as { code?: string }).code === 'RESOLVE-CONFLICT-004');
+    assert.equal(existsSync(path.join(f.root, 'src')), false);
   } finally { f.cleanup(); }
 });
 
