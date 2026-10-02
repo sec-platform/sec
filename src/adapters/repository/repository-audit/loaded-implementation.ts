@@ -172,6 +172,7 @@ export function joinRepositoryAuditLoadedImplementationObservation(
   }
   const expectedArgs = Object.freeze([
     '--no-env-file',
+    '--no-install',
     producerClosure.entrypoint.path
   ]);
   if (input.processArgs.length !== expectedArgs.length
