@@ -10,8 +10,8 @@ last-reviewed: 2026-10-02
 selectionMode: exact-manifest-not-on-default-branch-v1
 defaultBranchRef: refs/remotes/origin/main
 defaultRefFreshness: live-platform-match-required
-manifest: config/repository/work-packages/dependency-diagnostics-adoption-20261002.md
-manifestDigest: sha256:dda5a64a72618d40af9120ab772c27853fa97b75ea64aeb925fb104c197b29a7
+manifest: config/repository/work-packages/import-config-cache-adoption-20261002.md
+manifestDigest: sha256:d42d000af3d09ed2cddb2191ee278aefacff0c61e99ba4abf7515f857d261a14
 digestBytes: git-blob
 unavailableDefaultRef: unresolved
 matchingDefaultBlob: none
