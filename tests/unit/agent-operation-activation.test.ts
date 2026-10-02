@@ -1,8 +1,12 @@
 import { expect, test } from 'bun:test';
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+
+import { observeOperationAuthorityOwners } from '../../src/adapters/self-hosting/control/agent/agent-operation-activation.ts';
+import { CodexDevelopmentParseCurrentWorkPackageManifest } from '../../src/adapters/self-hosting/control/task/contract/work-package.ts';
+import { gitProtocolSuccess, inGitProtocolRepository } from '../testkit/git-protocol.ts';
 
 import {
   assertAgentOperationActivationTestCensus,
@@ -332,4 +336,49 @@ test.skipIf(process.platform !== 'win32')('Windows activation fails closed befor
   } finally {
     rmSync(binHome, { recursive: true, force: true });
   }
+});
+
+test('V3 activation reader observes the trusted document owner and preserves missing-ref rejection', async () => {
+  const guidance = 'docs/开发/AI协作/规则装载与任务恢复.md';
+  const authorityId = 'urn:uuid:00000000-0000-4000-8000-000000000002';
+  const source = workPackageManifest('reader-v3', 'issue-311').toString('utf8')
+    .replace('codex-development-work-package-v1', 'codex-development-work-package-v3')
+    .replace(`base: "${sha('a')}"\n`, '');
+  const absentRefs = CodexDevelopmentParseCurrentWorkPackageManifest(source);
+  const manifest = CodexDevelopmentParseCurrentWorkPackageManifest(source.replace(
+    'tasks:', `authorityRefs:\n  - ${authorityId}\ntasks:`
+  ));
+  expect(assertAgentOperationActivationWorkPackageCensus({
+    selectedManifestPath: 'config/repository/work-packages/reader-v3.md',
+    candidateEntries: [{ path: 'config/repository/work-packages/reader-v3.md',
+      candidateBytes: Buffer.from(source), defaultBytes: null }],
+    defaultPackagePaths: ['config/repository/work-packages/old-v1.md']
+  })).toEqual(['config/repository/work-packages/old-v1.md']);
+  await inGitProtocolRepository(async (root, git) => {
+    mkdirSync(path.join(root, '.documentation'), { recursive: true });
+    mkdirSync(path.dirname(path.join(root, guidance)), { recursive: true });
+    writeFileSync(path.join(root, '.documentation/documents.json'), JSON.stringify({
+      schema: 'sec.documentation-identity/1', scope: 'Reader fixture', documents: [
+        { document_id: 'urn:uuid:00000000-0000-4000-8000-000000000001', path: 'AGENTS.md' },
+        { document_id: authorityId, path: guidance }
+      ]
+    }));
+    writeFileSync(path.join(root, 'AGENTS.md'), 'Trusted entry\n');
+    writeFileSync(path.join(root, guidance), 'Trusted owner\n');
+    gitProtocolSuccess(git(['add', '.']));
+    gitProtocolSuccess(git(['commit', '--quiet', '-m', 'trusted reader fixture']));
+    const trusted = gitProtocolSuccess(git(['rev-parse', 'HEAD'])).trim();
+    writeFileSync(path.join(root, guidance), 'Candidate owner\n');
+    gitProtocolSuccess(git(['add', '.']));
+    gitProtocolSuccess(git(['commit', '--quiet', '-m', 'candidate reader fixture']));
+    const candidate = gitProtocolSuccess(git(['rev-parse', 'HEAD'])).trim();
+    expect(() => observeOperationAuthorityOwners(root, trusted, candidate, absentRefs, [guidance]))
+      .toThrow('activation-scope-conflict');
+    const owners = observeOperationAuthorityOwners(root, trusted, candidate, manifest, [guidance]);
+    const trustedBlob = gitProtocolSuccess(git(['rev-parse', `${trusted}:${guidance}`])).trim();
+    const candidateBlob = gitProtocolSuccess(git(['rev-parse', `${candidate}:${guidance}`])).trim();
+    expect(trustedBlob).not.toBe(candidateBlob);
+    expect(owners.find(owner => owner.ref === guidance)).toMatchObject({ id: authorityId,
+      owner: authorityId, revision: trustedBlob, projection: null });
+  });
 });

@@ -6,6 +6,7 @@ import { compileSecRepositoryModuleMembership } from '../../../repository/archit
 import { GIT_READ_OPERATION_BUDGET } from '../../development/tooling/git/git-read.ts';
 import {
   CodexDevelopmentParseCurrentWorkPackageManifest,
+  CodexDevelopmentWorkPackageAcceptsObservedBase,
   CodexDevelopmentWorkPackageManifestDigest
 } from '../task/contract/work-package.ts';
 import {
@@ -126,7 +127,7 @@ export async function assertCommittedCandidateReplanAuthority(input: {
   );
   if (pointer.manifest !== input.manifestPath
       || rolling.activePackageId !== manifest.id
-      || manifest.base !== input.trustedDefaultSha) {
+      || !CodexDevelopmentWorkPackageAcceptsObservedBase(manifest, input.trustedDefaultSha)) {
     throw new Error(
       'Committed candidate replan requires the exact active pointer, rolling plan, manifest path, and base binding.'
     );

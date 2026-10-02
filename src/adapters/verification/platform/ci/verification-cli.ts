@@ -27,7 +27,9 @@ import {
 } from '../../../runtime-state/physical/runtime/physical-no-follow.ts';
 import {
   CodexDevelopmentParseCurrentWorkPackageManifest,
-  CodexDevelopmentWorkPackageManifestDigest, type CodexDevelopmentWorkPackageManifest
+  CodexDevelopmentWorkPackageAcceptsObservedBase,
+  CodexDevelopmentWorkPackageManifestDigest,
+  type CodexDevelopmentWorkPackageManifest
 } from '../../../self-hosting/control/task/contract/work-package.ts';
 import { DEV_RUNNER_ENTRYPOINT_PATH } from '../../../self-hosting/development/runner/contract.ts';
 import { compilerRuntimeLayout } from '../../../toolchain/runtime/layout.ts';
@@ -432,7 +434,7 @@ async function runCodexDevelopmentCiVerification(
         : exactCandidateBlobs.get(configuredManifestPath) ?? null;
     binding = manifestBinding(env, manifestBlob);
     stage = 'preflight';
-    if (binding.manifest !== null && binding.manifest.base !== prBaseSha) {
+    if (binding.manifest !== null && !CodexDevelopmentWorkPackageAcceptsObservedBase(binding.manifest, prBaseSha)) {
       throw new Error('Work Package manifest base does not match the exact PR base.');
     }
     if (binding.manifestPath !== null && prBaseSha !== affectedBaseSha) {

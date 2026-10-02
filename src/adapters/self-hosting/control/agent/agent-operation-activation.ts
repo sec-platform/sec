@@ -42,6 +42,7 @@ import {
 import {
   CodexDevelopmentAssertWorkPackageChangedRecords,
   CodexDevelopmentParseCurrentWorkPackageManifest,
+  CodexDevelopmentWorkPackageAcceptsObservedBase,
   CodexDevelopmentWorkPackageManifestDigest,
   type CodexDevelopmentWorkPackageManifest
 } from '../task/contract/work-package.ts';
@@ -449,8 +450,7 @@ export function observeOperationAuthorityOwners(
   manifest: CodexDevelopmentWorkPackageManifest,
   paths: readonly string[]
 ): readonly SecOperationAuthorityOwnerObservation[] {
-  if (manifest.schema !== 'codex-development-work-package-v1'
-      || manifest.authorityRefs === undefined) {
+  if (manifest.authorityRefs === undefined) {
     unavailable('activation-scope-conflict', 'work-package-authority-refs-missing');
   }
   let records: readonly DocumentationIdentityRecord[];
@@ -673,7 +673,7 @@ function readCandidateControl(
   assertManifestTestBlobsExist(candidateRoot, revision, manifest);
   const manifestDigest = CodexDevelopmentWorkPackageManifestDigest(manifestBytes) as `sha256:${string}`;
   if (pointer.manifestDigest !== manifestDigest || rolling.activePackageId !== manifest.id
-      || manifest.base !== receipt.exactMain
+      || !CodexDevelopmentWorkPackageAcceptsObservedBase(manifest, receipt.exactMain)
       || gitObjectExists(candidateRoot, `${receipt.exactMain}:${pointer.manifest}`)) {
     unavailable('activation-stale', 'candidate-control-binding-invalid');
   }

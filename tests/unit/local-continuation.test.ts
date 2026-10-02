@@ -28,7 +28,7 @@ function checkpoint() {
   });
 }
 
-function observation(): LocalContinuationObservation {
+function observation(): Extract<LocalContinuationObservation, { manifestBaseSha: string }> {
   return Object.freeze({
     repositoryRoot: '/repo',
     branch: 'integration/sec-static-convergence-20260818',
@@ -92,7 +92,7 @@ test('checkpoint tamper and local identity/scope admission drift fail closed', (
   expect(() => parseLocalContinuationCheckpoint(JSON.stringify(serialized)))
     .toThrow('checkpoint digest mismatch');
 
-  const driftCases: Array<Partial<LocalContinuationObservation>> = [
+  const driftCases: Array<Partial<ReturnType<typeof observation>>> = [
     { branch: 'other' },
     { headSha: '5'.repeat(40) },
     { headTreeSha: '6'.repeat(40) },
@@ -135,4 +135,27 @@ test('admission requires one-parent child of the frozen base', () => {
     checkpoint: checkpoint(),
     observation: Object.freeze({ ...observation(), parentShas: Object.freeze(['9'.repeat(40)]) })
   })).toThrow('one-parent child');
+});
+
+test('V3 continuation derives exact base from native parent and rejects missing or hybrid observations', () => {
+  const { manifestBaseSha: _manifestBaseSha, manifestSchema: _manifestSchema, ...common } = observation();
+  const v3: LocalContinuationObservation = { ...common, manifestSchema: 'codex-development-work-package-v3' };
+  const admitted = admitLocalContinuation({ checkpoint: checkpoint(), observation: v3 });
+  expect(admitted.baseSha).toBe(BASE);
+  expect(admitted.baseTreeSha).toBe(BASE_TREE);
+  expect(admitted.authority).toBe('context-compression-only');
+  for (const invalid of [
+    common,
+    { ...v3, manifestBaseSha: BASE },
+    { ...v3, manifestBaseSha: undefined },
+    { ...common, manifestSchema: 'codex-development-work-package-v2' },
+    { ...v3, parentShas: ['9'.repeat(40)] },
+    { ...v3, parentShas: [BASE, '9'.repeat(40)] },
+    { ...v3, baseTreeSha: '9'.repeat(40) },
+    { ...v3, headSha: '9'.repeat(40) },
+    { ...v3, worktreeClean: false }
+  ]) {
+    expect(() => admitLocalContinuation({ checkpoint: checkpoint(), observation: invalid as LocalContinuationObservation }))
+      .toThrow();
+  }
 });

@@ -6,6 +6,7 @@ import {
   CodexDevelopmentDecodeWorkPackageManifest,
   CodexDevelopmentParseWorkPackageLocator,
   CodexDevelopmentParseWorkPackageManifest,
+  CodexDevelopmentWorkPackageAcceptsObservedBase,
   CodexDevelopmentWorkPackageManifestDigest
 } from '../../src/adapters/self-hosting/control/task/contract/work-package.ts';
 
@@ -326,4 +327,51 @@ test('changed records reject case-insensitive flattened path collisions', () => 
     { status: 'changed', path: 'src/Foo.ts' },
     { status: 'changed', path: 'src/foo.ts' }
   ])).toThrow('Windows-colliding');
+});
+
+function manifestV3(): string {
+  return manifest()
+    .replace('codex-development-work-package-v1', 'codex-development-work-package-v3')
+    .replace(`base: "${BASE}"\n`, '');
+}
+
+test('Work Package V3 keeps strict plan bytes while the observed operation owns its base', () => {
+  const source = manifestV3();
+  const parsed = CodexDevelopmentParseWorkPackageManifest(source);
+  expect(parsed.schema).toBe('codex-development-work-package-v3');
+  expect(Object.hasOwn(parsed, 'base')).toBe(false);
+  expect(parsed.requiredProfile).toBe('quick');
+  expect(CodexDevelopmentAssertWorkPackageOwnership(parsed, ['scripts/codex/example.ts'])
+    .changedPathOwners[0]?.owner).toBe('b0-writer');
+  for (const base of [BASE, '2'.repeat(40)]) {
+    expect(CodexDevelopmentWorkPackageAcceptsObservedBase(parsed, base)).toBe(true);
+  }
+  expect(CodexDevelopmentWorkPackageAcceptsObservedBase(parsed, 'main')).toBe(false);
+  const v1 = CodexDevelopmentParseWorkPackageManifest(manifest());
+  expect(CodexDevelopmentWorkPackageAcceptsObservedBase(v1, BASE)).toBe(true);
+  expect(CodexDevelopmentWorkPackageAcceptsObservedBase(v1, '2'.repeat(40))).toBe(false);
+  for (const changed of [source + '\nprose', source.replace('exact-head-evidence', 'changed-acceptance'),
+    source.replaceAll('\n', '\r\n')]) {
+    expect(CodexDevelopmentWorkPackageManifestDigest(changed))
+      .not.toBe(CodexDevelopmentWorkPackageManifestDigest(source));
+  }
+});
+
+test('Work Package V3 rejects embedded base, extra keys, retired V2 and stale CI revisions', () => {
+  const source = manifestV3();
+  for (const extra of [`base: "${BASE}"`, 'unknownField: true']) {
+    expect(() => CodexDevelopmentParseWorkPackageManifest(source.replace('manifestState:', `${extra}\nmanifestState:`)))
+      .toThrow('must contain exactly');
+  }
+  expect(() => CodexDevelopmentParseWorkPackageManifest(
+    source.replace('codex-development-work-package-v3', 'codex-development-work-package-v2')
+  )).toThrow('schema is unsupported');
+  expect(() => CodexDevelopmentParseWorkPackageManifest(retiredManifestV2())).toThrow('schema is unsupported');
+  expect(() => CodexDevelopmentParseWorkPackageManifest(
+    source.replace('ci-verification-v19', 'ci-verification-v18')
+  )).toThrow('current CI verification revision');
+  expect(() => CodexDevelopmentParseWorkPackageManifest(manifest().replace(`base: "${BASE}"\n`, '')))
+    .toThrow('must contain exactly');
+  expect(() => CodexDevelopmentParseWorkPackageManifest(source.replace('owner: b0-writer', 'owner: b0-writer\n    owner: duplicate')))
+    .toThrow('duplicate mapping key');
 });

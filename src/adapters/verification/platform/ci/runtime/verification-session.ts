@@ -117,6 +117,7 @@ import {
   CodexDevelopmentParseCurrentWorkPackageManifest,
   CodexDevelopmentParseWorkPackageLocator,
   CodexDevelopmentParseWorkPackageManifest,
+  CodexDevelopmentWorkPackageAcceptsObservedBase,
   CodexDevelopmentWorkPackageManifestDigest
 } from '../../../../self-hosting/control/task/contract/work-package.ts';
 import { executeVerifiedCiActionPlan } from '../../../../self-hosting/development/runner/verification-action-executor.ts';
@@ -2986,8 +2987,8 @@ export async function verificationSessionCli(argv: string[]): Promise<string> {
     const manifestSource = (await github.readBlobText(repository, candidate.headSha, manifestPath));
     const manifestDigest = CodexDevelopmentWorkPackageManifestDigest(manifestSource) as `sha256:${string}`;
     const manifest = CodexDevelopmentParseCurrentWorkPackageManifest(manifestSource);
-    if (manifest.schema !== 'codex-development-work-package-v1') {
-      throw new Error('prepare currently requires the canonical V1 Work Package requiredProfile field.');
+    if (!CodexDevelopmentWorkPackageAcceptsObservedBase(manifest, candidate.baseSha)) {
+      throw new Error('Work Package manifest base does not match the exact PR base.');
     }
     const changedSelection = await observeVerificationSessionChangedSelection({
       repositoryRoot,

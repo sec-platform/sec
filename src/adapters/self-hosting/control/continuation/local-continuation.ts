@@ -243,7 +243,9 @@ async function observeLocalContinuationWithSession(
     manifestDigest,
     workPackageId: manifest.id,
     tracking: manifest.tracking,
-    manifestBaseSha: manifest.base,
+    ...(manifest.schema === 'codex-development-work-package-v1'
+      ? { manifestSchema: manifest.schema, manifestBaseSha: manifest.base }
+      : { manifestSchema: manifest.schema }),
     requiredProfile: manifest.requiredProfile,
     ciRevision: manifest.ciRevision,
     changedPathCount: ownership.changedPathOwners.length,

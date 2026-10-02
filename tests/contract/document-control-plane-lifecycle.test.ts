@@ -5471,3 +5471,32 @@ test('repository controls use the shared live resolver and preserve one bounded 
   expect(parsedRollingPlan.candidatePackageIds.length).toBeGreaterThanOrEqual(2);
   expect(parsedRollingPlan.candidatePackageIds.length).toBeLessThanOrEqual(5);
 });
+
+for (const faultAfter of ['after-journal-prepare', 'after-journal-index-published-next-install'] as const) {
+  test(`V3 reader resumes the existing freeze tuple after ${faultAfter} and retires its journal`, async () => {
+    const fixture = await createFreezeFixture();
+    try {
+      const manifestFile = path.join(fixture.repositoryRoot, FREEZE_TARGET_PATH);
+      const source = (await readFile(manifestFile, 'utf8'))
+        .replace('codex-development-work-package-v1', 'codex-development-work-package-v3')
+        .replace(`base: ${fixture.baseSha}\n`, '');
+      await writeFile(manifestFile, source, 'utf8');
+      runGit(fixture.repositoryRoot, ['add', FREEZE_TARGET_PATH]);
+      await expect(freezeDocumentControlPlane({ cwd: fixture.repositoryRoot,
+        manifestPath: FREEZE_TARGET_PATH, reviewedOn: '2026-08-09', faultAfter })).rejects.toThrow(faultAfter);
+      const journalPath = path.join(fixture.repositoryRoot, JOURNAL_TRANSACTION_RELATIVE, 'journal.json');
+      const journal = JSON.parse(await readFile(journalPath, 'utf8')) as RecoveryJournalViewV4;
+      expect(journal.phase).toBe(faultAfter === 'after-journal-prepare' ? 'prepared' : 'index-published');
+      const recovered = await freezeDocumentControlPlane({ cwd: fixture.repositoryRoot,
+        manifestPath: FREEZE_TARGET_PATH, reviewedOn: '2026-08-09' });
+      expect(recovered.operationId).toBe(journal.operationId);
+      expect(recovered.candidateTreeSha).toBe(journal.candidateTreeSha);
+      expect(runGit(fixture.repositoryRoot, ['write-tree'])).toBe(journal.candidateTreeSha);
+      expect(await readFile(manifestFile, 'utf8')).toBe(source);
+      expect(runGit(fixture.repositoryRoot, ['ls-files', '--', CURRENT_ACTIVE_PATH])).toBe('');
+      await expectFreezeTransactionRetired(fixture.repositoryRoot);
+    } finally {
+      await fixture.dispose();
+    }
+  }, 60_000);
+}
