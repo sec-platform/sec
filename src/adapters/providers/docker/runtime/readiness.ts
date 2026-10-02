@@ -29,6 +29,7 @@ import { createRuntimeStateJournalFileSystem } from '../../../runtime-state/work
 import { resolveSecWorkspaceRuntimeRoots } from '../../../runtime-state/workspace-state/paths.ts';
 import { acquireSecRuntimeJournalAuthority } from '../../../runtime-state/workspace-state/physical-authority.ts';
 import { DockerCommandProviderUnavailableError } from '../contract/command-provider.ts';
+import type { ContainerEngineOperation } from '../contract/container-engine-session.ts';
 import {
   DockerDaemonAvailabilityFailure,
   type DockerDaemonAvailabilityFailurePhase,
@@ -39,14 +40,14 @@ import type { DockerDesktopLoginStart } from '../contract/login-start.ts';
 import { disposeUnclaimedDockerCommandProviderCapability } from './command-provider.ts';
 import { openContainerEngineSession } from './container-engine-session.ts';
 import type { DockerDaemonLauncherResult } from './daemon-algorithm.ts';
-import { openWindowsDockerCommandProvider } from './windows-command-provider.ts';
+import { openDockerCommandProvider } from './installed-command-provider.ts';
 import {
   observeWindowsDockerDesktopLoginStart,
   unavailableDockerDesktopLoginStart
 } from './windows-login-start.ts';
 
 export const LOCAL_CONTAINER_ENGINE_READINESS_SCHEMA =
-  'sec-local-container-engine-readiness-v2' as const;
+  'sec-local-container-engine-readiness-v3' as const;
 
 export type LocalContainerEngineReadinessMode = 'observe' | 'ensure-started';
 
@@ -54,6 +55,8 @@ export type LocalContainerEngineReadiness =
   | Readonly<{
     schema: typeof LOCAL_CONTAINER_ENGINE_READINESS_SCHEMA;
     status: 'ready';
+    claim: 'daemon-observation';
+    supportedOperations: readonly ContainerEngineOperation['kind'][];
     mode: LocalContainerEngineReadinessMode;
     endpoint: DockerEndpointIdentity;
     loginStart: DockerDesktopLoginStart;
@@ -157,14 +160,15 @@ function unavailable(input: Readonly<{
   });
 }
 
-type WindowsDockerProvider = Awaited<ReturnType<typeof openWindowsDockerCommandProvider>>;
+type InstalledDockerProvider = Awaited<ReturnType<typeof openDockerCommandProvider>>;
 type ReadySessionObservation = Readonly<{
+  supportedOperations: readonly ContainerEngineOperation['kind'][];
   endpoint: DockerEndpointIdentity;
   providerIdentityDigest: SecOperationDigest;
 }>;
 
 async function observeWithOwnedProvider(input: Readonly<{
-  provider: WindowsDockerProvider;
+  provider: InstalledDockerProvider;
   operation: SecBoundSemanticOperation;
   cwd: string;
   availability: LocalContainerEngineReadinessMode;
@@ -189,9 +193,10 @@ async function observeWithOwnedProvider(input: Readonly<{
     });
     const endpoint = await session.observeEndpoint();
     const providerIdentityDigest = session.providerIdentityDigest;
+    const supportedOperations = session.supportedOperations;
     session.close();
     session = null;
-    return Object.freeze({ endpoint, providerIdentityDigest });
+    return Object.freeze({ endpoint, providerIdentityDigest, supportedOperations });
   } catch (error) {
     if (session !== null) {
       try {
@@ -290,9 +295,9 @@ export async function observeLocalContainerEngineReadiness(input: Readonly<{
     });
   }
   const loginStart = await observeWindowsDockerDesktopLoginStart();
-  let provider: Awaited<ReturnType<typeof openWindowsDockerCommandProvider>>;
+  let provider: Awaited<ReturnType<typeof openDockerCommandProvider>>;
   try {
-    provider = await openWindowsDockerCommandProvider({ workingDirectory: cwd });
+    provider = await openDockerCommandProvider({ workingDirectory: cwd });
   } catch (error) {
     return unavailable({
       mode,
@@ -312,7 +317,7 @@ export async function observeLocalContainerEngineReadiness(input: Readonly<{
     try {
     let writer: SecDurableExecutionWriter | null = null;
     let retryAlreadyClaimed = false;
-    if (mode === 'ensure-started') {
+    if (mode === 'ensure-started' && process.platform === 'win32') {
       journalAuthority = await acquireSecRuntimeJournalAuthority({ repositoryRoot: cwd });
       writer = durableWriter({ authority: journalAuthority, repositoryRoot: cwd });
       const prior = writer.read(durableExecutionJournalIdentity(operation));
@@ -362,6 +367,8 @@ export async function observeLocalContainerEngineReadiness(input: Readonly<{
             schema: LOCAL_CONTAINER_ENGINE_READINESS_SCHEMA,
             status: 'ready',
             mode,
+            claim: 'daemon-observation',
+            supportedOperations: recoveredReady.supportedOperations,
             endpoint: recoveredReady.endpoint,
             loginStart,
             providerIdentityDigest: recoveredReady.providerIdentityDigest
@@ -390,7 +397,7 @@ export async function observeLocalContainerEngineReadiness(input: Readonly<{
               ownerTerminalReferenceDigest: error.detailDigest
             });
             writer.appendOwnerTerminalResolution(recovery, terminal);
-            const successorProvider = await openWindowsDockerCommandProvider({ workingDirectory: cwd });
+            const successorProvider = await openDockerCommandProvider({ workingDirectory: cwd });
             if (successorProvider.providerIdentityDigest !== provider.providerIdentityDigest) {
               disposeUnclaimedDockerCommandProviderCapability(successorProvider);
               throw new DockerCommandProviderUnavailableError(
@@ -414,7 +421,7 @@ export async function observeLocalContainerEngineReadiness(input: Readonly<{
             retryAlreadyClaimed = false;
           } else {
             const retryAdmission = issueSecRecoveredRetryAdmission(recovery, recoveredReadback);
-            const successorProvider = await openWindowsDockerCommandProvider({ workingDirectory: cwd });
+            const successorProvider = await openDockerCommandProvider({ workingDirectory: cwd });
             if (successorProvider.providerIdentityDigest !== provider.providerIdentityDigest) {
               disposeUnclaimedDockerCommandProviderCapability(successorProvider);
               throw new DockerCommandProviderUnavailableError(
@@ -453,6 +460,8 @@ export async function observeLocalContainerEngineReadiness(input: Readonly<{
           schema: LOCAL_CONTAINER_ENGINE_READINESS_SCHEMA,
           status: 'ready',
           mode,
+          claim: 'daemon-observation',
+          supportedOperations: currentReady.supportedOperations,
           endpoint: currentReady.endpoint,
           loginStart,
           providerIdentityDigest: currentReady.providerIdentityDigest
@@ -542,6 +551,8 @@ export async function observeLocalContainerEngineReadiness(input: Readonly<{
       schema: LOCAL_CONTAINER_ENGINE_READINESS_SCHEMA,
       status: 'ready',
       mode,
+      claim: 'daemon-observation',
+      supportedOperations: ready.supportedOperations,
       endpoint: ready.endpoint,
       loginStart,
       providerIdentityDigest: ready.providerIdentityDigest

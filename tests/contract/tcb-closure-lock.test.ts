@@ -346,6 +346,19 @@ test('TCB closure lock is the sole causal-runtime identity consumed by the trust
   expect(TCB_CLOSURE_LOCK.reviewedBoundaryEdges).toEqual([]);
 });
 
+test('TCB closure keeps Linux endpoint native effects in the reviewed physical owner', () => {
+  const adapter = 'src/adapters/providers/docker/runtime/linux-endpoint.ts';
+  const native = 'src/adapters/runtime-state/physical/runtime/physical-no-follow-native.ts';
+  expect(TCB_CLOSURE_LOCK.modules).toContain(adapter);
+  expect(TCB_CLOSURE_LOCK.modules).toContain(native);
+  expect(TCB_CLOSURE_LOCK.reviewedExternalImports).toContain(`${native} -> bun:ffi`);
+  expect(TCB_CLOSURE_LOCK.reviewedExternalImports).not.toContain(`${adapter} -> bun:ffi`);
+  expect(() => runtimeRelativeImportsFromSource(adapter, "import { dlopen } from 'bun:ffi';"))
+    .toThrow('outside the approved relative/external policy');
+  expect(() => runtimeRelativeImportsFromSource(native, "import { dlopen } from 'bun:ffi';"))
+    .not.toThrow();
+});
+
 test('TCB closure lock binds Git blobs and content digests for every module', () => {
   for (const module of TCB_CLOSURE_LOCK.modules) {
     expect(TCB_CLOSURE_LOCK.moduleBlobs[module]).toMatch(/^[0-9a-f]{40}$/);

@@ -6,6 +6,7 @@ import { closeSync, fchmodSync, fstatSync, lstatSync, mkdirSync, openSync, readS
 
 import path from 'node:path';
 
+import { settleResources } from '../../../../execution/resource-settlement.ts';
 
 
 import { PhysicalNoFollowError, type LinuxNoFollowDirectoryCreateRaceActor, type LinuxNoFollowDirectoryCreateRacePoint, type NoFollowDirectoryCreateTestActor, type NoFollowDirectoryTreeEntry, type NoFollowDirectoryTreeEntryKind, type NoFollowDirectoryTreeInventoryEntry, type PhysicalDirectoryChain, type PhysicalDirectoryIdentity, type RetainedWindowsHostNamespaceDirectory } from './physical-no-follow-contract.ts';
@@ -235,6 +236,121 @@ export function linuxErrno(): number {
     throw physicalError('PHYSICAL_NO_FOLLOW_CAPABILITY_UNAVAILABLE', 'Linux errno location is unavailable.');
   }
   return read.i32(location as never);
+}
+
+export interface LinuxUnixPeerCredentials {
+  readonly pid: number;
+  readonly uid: number;
+  readonly gid: number;
+}
+
+export interface RetainedLinuxUnixSocketPeer {
+  readonly credentials: LinuxUnixPeerCredentials;
+  assertCurrent(): void;
+  close(): void;
+}
+
+let linuxUnixSocketLibc: ReturnType<typeof loadLinuxUnixSocketLibc> | undefined;
+
+function loadLinuxUnixSocketLibc() {
+  try {
+    return dlopen('libc.so.6', {
+      socket: { args: [FFIType.i32, FFIType.i32, FFIType.i32], returns: FFIType.i32 },
+      connect: { args: [FFIType.i32, FFIType.ptr, FFIType.u32], returns: FFIType.i32 },
+      getsockopt: { args: [FFIType.i32, FFIType.i32, FFIType.i32, FFIType.ptr, FFIType.ptr], returns: FFIType.i32 }
+    } as const);
+  } catch (error) {
+    throw physicalError('PHYSICAL_NO_FOLLOW_CAPABILITY_UNAVAILABLE', 'Linux retained Unix peer backend is unavailable.', error);
+  }
+}
+
+/**
+ * Borrow a retained socket inode and own one nonblocking peer connection. The
+ * caller retains the inode until this capability closes and owns endpoint
+ * policy (including the admitted UID). No native descriptor escapes here.
+ */
+export function linuxRetainUnixSocketPeer(socketFd: number, label: string): RetainedLinuxUnixSocketPeer {
+  if (process.platform !== 'linux' || process.arch !== 'x64') {
+    throw physicalError('PHYSICAL_NO_FOLLOW_CAPABILITY_UNAVAILABLE', `${label} requires the supported Linux Unix-socket ABI.`);
+  }
+  if (!Number.isSafeInteger(socketFd) || socketFd < LINUX_RETAINED_DESCRIPTOR_MIN
+      || !fstatSync(socketFd).isSocket()) {
+    throw physicalError('PHYSICAL_NO_FOLLOW_UNSAFE_PATH', `${label} requires a retained socket inode.`);
+  }
+  const address = Buffer.alloc(110);
+  address.writeUInt16LE(1, 0); // AF_UNIX
+  const addressBytes = Buffer.from(`/proc/${process.pid}/fd/${socketFd}`, 'utf8');
+  if (addressBytes.byteLength >= 108) {
+    throw physicalError('PHYSICAL_NO_FOLLOW_UNSAFE_PATH', `${label} retained socket path is too long.`);
+  }
+  addressBytes.copy(address, 2);
+  const symbols = (linuxUnixSocketLibc ??= loadLinuxUnixSocketLibc()).symbols;
+  let peerFd: number | undefined;
+  let closed = false;
+  let closeFailure: unknown;
+  const close = (): void => {
+    if (closed) {
+      if (closeFailure !== undefined) throw closeFailure;
+      return;
+    }
+    closed = true;
+    try {
+      if (peerFd !== undefined) closeSync(peerFd);
+    } catch (error) {
+      closeFailure = error;
+      throw error;
+    }
+  };
+  try {
+    const connection = symbols.socket(1, 1 | LINUX_O_NONBLOCK | LINUX_O_CLOEXEC, 0);
+    if (connection < 0) {
+      throw physicalError('PHYSICAL_NO_FOLLOW_CAPABILITY_UNAVAILABLE', `${label} socket creation failed (errno ${linuxErrno()}).`);
+    }
+    peerFd = connection;
+    if (connection < LINUX_RETAINED_DESCRIPTOR_MIN) {
+      const duplicate = requireLinuxLibc().symbols.fcntl(connection, LINUX_F_DUPFD_CLOEXEC, LINUX_RETAINED_DESCRIPTOR_MIN);
+      if (duplicate < LINUX_RETAINED_DESCRIPTOR_MIN) {
+        throw physicalError('PHYSICAL_NO_FOLLOW_CAPABILITY_UNAVAILABLE', `${label} could not allocate a retained descriptor (errno ${linuxErrno()}).`);
+      }
+      // Transfer cleanup before closing the old descriptor. A failed close
+      // must never cause another close against that potentially reused slot.
+      peerFd = duplicate;
+      try { closeSync(connection); }
+      catch (error) {
+        throw physicalError('PHYSICAL_NO_FOLLOW_DURABILITY_FAILED', `${label} could not close the pre-floor descriptor.`, error);
+      }
+    }
+    // The kernel resolves this descriptor path to the borrowed socket inode;
+    // the caller's lexical endpoint is never reopened for the connection.
+    if (symbols.connect(peerFd, address, addressBytes.byteLength + 3) !== 0) {
+      throw physicalError('PHYSICAL_NO_FOLLOW_CAPABILITY_UNAVAILABLE', `${label} retained socket connect did not complete (errno ${linuxErrno()}).`);
+    }
+    const observe = (): LinuxUnixPeerCredentials => {
+      const credentials = Buffer.alloc(12);
+      const size = Buffer.alloc(4);
+      size.writeUInt32LE(12);
+      if (symbols.getsockopt(peerFd!, 1, 17, credentials, size) !== 0
+          || size.readUInt32LE() !== 12) { // SOL_SOCKET / SO_PEERCRED
+        throw physicalError('PHYSICAL_NO_FOLLOW_CAPABILITY_UNAVAILABLE', `${label} peer credentials are unavailable.`);
+      }
+      return Object.freeze({ pid: credentials.readInt32LE(0), uid: credentials.readUInt32LE(4), gid: credentials.readUInt32LE(8) });
+    };
+    const credentials = observe();
+    return Object.freeze({
+      credentials,
+      assertCurrent(): void {
+        if (closed) throw physicalError('PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED', `${label} retained peer is closed.`);
+        const current = observe();
+        if (current.pid !== credentials.pid || current.uid !== credentials.uid || current.gid !== credentials.gid) {
+          throw physicalError('PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED', `${label} retained peer credentials changed.`);
+        }
+      },
+      close
+    });
+  } catch (error) {
+    settleResources({ primary: { label: 'linux-unix-peer-admission', error }, cleanup: [{ label: 'linux-unix-peer-close', settle: close }] });
+    throw error;
+  }
 }
 
 export interface LinuxSealedExecutableImage {

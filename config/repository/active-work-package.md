@@ -10,8 +10,8 @@ last-reviewed: 2026-10-02
 selectionMode: exact-manifest-not-on-default-branch-v1
 defaultBranchRef: refs/remotes/origin/main
 defaultRefFreshness: live-platform-match-required
-manifest: config/repository/work-packages/local-validation-lease-batch-adoption-20261002.md
-manifestDigest: sha256:70cdaf6c982e05e5b75678734d3b76c4067850648ef87094832bc3cee056e0e3
+manifest: config/repository/work-packages/linux-provider-native-owner-adoption-20261002.md
+manifestDigest: sha256:46312052d197504c4c0bd70cf58b0c02430389737cd7470efa8c97f78da629be
 digestBytes: git-blob
 unavailableDefaultRef: unresolved
 matchingDefaultBlob: none
