@@ -50,6 +50,7 @@ async function runCapturedGroup<Input, Output>(
   const results: Output[] = new Array(items.length);
   const failures: Array<{ index: number; reason: unknown }> = [];
   let primary: { reason: unknown } | undefined;
+  let parentCancellation: { reason: unknown } | undefined;
   let next = 0;
   const worker = async (): Promise<void> => {
     while (primary === undefined && !isNativeAborted(signal) && next < items.length) {
@@ -57,11 +58,27 @@ async function runCapturedGroup<Input, Output>(
       try { results[index] = await execute(items[index]!, index, signal); }
       catch (reason) {
         failures.push({ index, reason });
-        if (primary === undefined) { primary = { reason }; controller.abort(reason); }
+        if (primary === undefined) {
+          // A parent may already have closed admission while this callback
+          // was draining. Its native cancellation remains the primary exit.
+          try { throwIfNativeAborted(signal); }
+          catch (cancelled) { parentCancellation = { reason: cancelled }; }
+          primary = parentCancellation ?? { reason };
+          controller.abort(primary.reason);
+        }
       }
     }
   };
   await Promise.all(Array.from({ length: Math.min(options.concurrency, items.length) }, worker));
+  if (parentCancellation !== undefined &&
+      !failures.some(({ reason }) => Object.is(reason, parentCancellation!.reason))) {
+    failures.sort((a, b) => a.index - b.index);
+    throw new AggregateError(
+      [parentCancellation.reason, ...failures.map(f => f.reason)],
+      'Task group failed after joining all started work',
+      { cause: parentCancellation.reason }
+    );
+  }
   if (failures.length === 1) throw failures[0]!.reason;
   if (failures.length > 1) {
     failures.sort((a, b) => a.index - b.index);

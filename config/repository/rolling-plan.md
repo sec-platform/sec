@@ -12,9 +12,9 @@ last-reviewed: 2026-10-02
 ```json
 {
   "active": {
-    "manifestDigest": "sha256:d0420330d4c21774d1bb2651c175f450d43de5344b2962af7bfc8f1170d3220a",
-    "manifestPath": "config/repository/work-packages/maintenance-association-diagnostic-adoption-20261002.md",
-    "packageId": "maintenance-association-diagnostic-adoption-20261002",
+    "manifestDigest": "sha256:2a35922aa12791ff255e4f65c02664faddfef34cf939a4b45ec8c31204c270c0",
+    "manifestPath": "config/repository/work-packages/task-group-cancellation-adoption-20261002.md",
+    "packageId": "task-group-cancellation-adoption-20261002",
     "tracking": "none"
   },
   "authority": "none",
@@ -25,18 +25,18 @@ last-reviewed: 2026-10-02
     "candidate-control-transaction-v1",
     "typescript-7-checker-acceleration-v1"
   ],
-  "exactMain": "35545c0a35ee5b42ff88e18f40898ba2165ae920",
-  "exactMainTree": "8e556b023992e8f7775d6167edc0cc66631c4777",
-  "projectionDigest": "sha256:ab5fe76c81b246f09d2a086bc9f86c5c1030d844945b5ca8368a52fd60d6b824",
+  "exactMain": "122414c1c20d786be37f70cab87abba101f625b1",
+  "exactMainTree": "10ce8394555cdfb525196069e890053ed7fa428e",
+  "projectionDigest": "sha256:328e384ace2bc02a955e589a9029cf11c04f7f5272efb0d2da82a943b2f48d07",
   "schema": "sec-work-rolling-proposal-projection-v1"
 }
 ```
 
 ## 当前唯一 Work Package
 
-### maintenance-association-diagnostic-adoption-20261002
+### task-group-cancellation-adoption-20261002
 
-Proposal-only target manifest `config/repository/work-packages/maintenance-association-diagnostic-adoption-20261002.md` at `sha256:d0420330d4c21774d1bb2651c175f450d43de5344b2962af7bfc8f1170d3220a`, based on exact main `35545c0a35ee5b42ff88e18f40898ba2165ae920` and tree `8e556b023992e8f7775d6167edc0cc66631c4777`.
+Proposal-only target manifest `config/repository/work-packages/task-group-cancellation-adoption-20261002.md` at `sha256:2a35922aa12791ff255e4f65c02664faddfef34cf939a4b45ec8c31204c270c0`, based on exact main `122414c1c20d786be37f70cab87abba101f625b1` and tree `10ce8394555cdfb525196069e890053ed7fa428e`.
 
 ## 候选 Work Package
 
