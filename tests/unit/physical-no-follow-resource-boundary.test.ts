@@ -1,7 +1,8 @@
 import { expect, spyOn, test } from 'bun:test';
-import { mkdirSync, mkdtempSync, readdirSync, readFileSync, readlinkSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, readlinkSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+import * as treeObservation from '../../src/adapters/runtime-state/physical/runtime/physical-directory-tree-observation.ts';
 
 import {
   copyNoFollowDirectoryTreesBulk,
@@ -191,6 +192,116 @@ test('bulk-copy entry accounting includes excluded names across all three invent
     expect(readFileSync(path.join(f.source, 'excluded', 'not-traversed'), 'utf8')).toBe('not copied');
   } finally { f.cleanup(); }
 });
+
+// The original test preload owns this Cache generation and TMP independently.
+// Keep the cross-filesystem source outside the repository observation boundary.
+const bulkCopyCacheRoot = process.env.SEC_CACHE_HOME;
+if (process.platform === 'linux' && bulkCopyCacheRoot === undefined) {
+  throw new Error('Bulk-copy cross-filesystem fixture requires the test runtime Cache root.');
+}
+
+test.skipIf(process.platform !== 'linux' || statSync(bulkCopyCacheRoot!).dev === statSync(tmpdir()).dev)(
+  'bulk-copy accepts ordinary directories across filesystems',
+  async () => {
+    const f = fixture();
+    const source = mkdtempSync(path.join(bulkCopyCacheRoot!, 'bulk-copy-source-'));
+    try {
+      mkdirSync(path.join(source, 'nested'));
+      writeFileSync(path.join(source, 'nested', 'keep'), 'exact');
+      const target = path.join(f.workspace, 'target');
+      await copyNoFollowDirectoryTreesBulk([{
+        source: inspectNoFollowDirectoryChain(source).target, target
+      }], { preservePermissionMode: true, maximumEntries: 16, maximumBytes: 1024 });
+      expect(readdirSync(target)).toEqual(['nested']);
+      expect(readdirSync(path.join(target, 'nested'))).toEqual(['keep']);
+      expect(readFileSync(path.join(target, 'nested', 'keep'), 'utf8')).toBe('exact');
+      expect(statSync(path.join(target, 'nested')).mode & 0o7777)
+        .toBe(statSync(path.join(source, 'nested')).mode & 0o7777);
+    } finally {
+      rmSync(source, { recursive: true, force: true });
+      f.cleanup();
+    }
+  }
+);
+
+for (const difference of [
+  'directory-size', 'file-size', 'file-digest', 'directory-mode', 'file-mode',
+  'kind', 'link-target', 'missing-member', 'excluded-residue', 'ownership', 'source-directory-size'
+] as const) {
+  test.skipIf(process.platform !== 'linux')(`bulk-copy readback distinguishes ${difference}`, async () => {
+    const f = fixture();
+    const scan = treeObservation.scanNoFollowDirectoryTreeInternal;
+    let sourceScans = 0;
+    let altered = false;
+    let observer: ReturnType<typeof spyOn> | undefined;
+    try {
+      mkdirSync(path.join(f.source, 'nested'));
+      writeFileSync(path.join(f.source, 'nested', 'keep'), 'exact');
+      const target = path.join(f.workspace, 'target');
+      const root = inspectNoFollowDirectoryChain(f.source).target;
+      observer = spyOn(treeObservation, 'scanNoFollowDirectoryTreeInternal').mockImplementation((...args) => {
+        const isSource = args[0].path === f.source;
+        if (isSource) sourceScans += 1;
+        const alterSource = difference === 'source-directory-size' && isSource && sourceScans === 2;
+        const alterTarget = difference !== 'source-directory-size' && args[0].path === target;
+        // Inject actual excluded-name residue before the unfiltered target scan.
+        if (alterTarget && difference === 'excluded-residue') {
+          mkdirSync(path.join(target, 'excluded'));
+          writeFileSync(path.join(target, 'excluded', 'foreign'), 'residue');
+          altered = true;
+        }
+        const inventory = scan(...args);
+        if (!alterSource && !alterTarget) return inventory;
+        if (difference === 'missing-member') {
+          altered = true;
+          return inventory.filter(entry => entry.kind !== 'file');
+        }
+        return inventory.map(entry => {
+          const directory = entry.kind === 'directory';
+          if ((difference === 'directory-size' || alterSource) && directory) {
+            altered = true;
+            return { ...entry, size: entry.size + 4096 };
+          }
+          if ((difference === 'directory-mode' && directory) || (difference === 'file-mode' && !directory)) {
+            altered = true;
+            return { ...entry, permissionMode: entry.permissionMode! ^ 0o100 };
+          }
+          if (directory) return entry;
+          if (difference === 'directory-size' || difference === 'directory-mode' ||
+              difference === 'source-directory-size' || difference === 'excluded-residue') return entry;
+          altered = true;
+          switch (difference) {
+            case 'file-size': return { ...entry, size: entry.size + 1 };
+            case 'file-digest': return { ...entry, contentDigest: `sha256:${'0'.repeat(64)}` as const };
+            case 'kind': return { ...entry, kind: 'directory' as const };
+            case 'link-target': return { ...entry, linkTarget: 'foreign' };
+            case 'ownership': return { ...entry, ownerUserId: entry.ownerUserId! + 1n };
+            default: return entry;
+          }
+        });
+      });
+      if (difference === 'ownership') {
+        const { chmodSync } = await import('node:fs');
+        chmodSync(path.join(f.source, 'nested', 'keep'), 0o4700);
+      }
+      const copying = copyNoFollowDirectoryTreesBulk([{ source: root, target }], {
+        preservePermissionMode: true, maximumEntries: 32, maximumBytes: 1024,
+        excludeRelativePaths: ['excluded']
+      });
+      if (difference === 'directory-size') {
+        await copying;
+        expect(readFileSync(path.join(target, 'nested', 'keep'), 'utf8')).toBe('exact');
+      } else {
+        await expect(copying).rejects.toThrow(difference === 'source-directory-size'
+          ? 'source changed during effect' : 'target readback differs');
+      }
+      expect(altered).toBe(true);
+    } finally {
+      observer?.mockRestore();
+      f.cleanup();
+    }
+  });
+}
 
 test.skipIf(process.platform !== 'linux')('streaming inventory checks its deadline during a large ordinary leaf, not only between files', () => {
   const f = fixture();

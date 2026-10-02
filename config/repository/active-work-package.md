@@ -10,8 +10,8 @@ last-reviewed: 2026-10-02
 selectionMode: exact-manifest-not-on-default-branch-v1
 defaultBranchRef: refs/remotes/origin/main
 defaultRefFreshness: live-platform-match-required
-manifest: config/repository/work-packages/task-group-cancellation-adoption-20261002.md
-manifestDigest: sha256:2a35922aa12791ff255e4f65c02664faddfef34cf939a4b45ec8c31204c270c0
+manifest: config/repository/work-packages/native-copy-directory-adoption-20261002.md
+manifestDigest: sha256:9e3dd805e5d9b520f6bbf222b635bf05a83db0b9b0a5f8757a82348e2baffa51
 digestBytes: git-blob
 unavailableDefaultRef: unresolved
 matchingDefaultBlob: none
