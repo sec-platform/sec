@@ -122,7 +122,8 @@ type CopyPermissionComparison = 'none' | 'files' | 'all';
 function sameCopyInventory(
   left: readonly NoFollowDirectoryTreeInventoryEntry[],
   right: readonly NoFollowDirectoryTreeInventoryEntry[],
-  permissionComparison: CopyPermissionComparison
+  permissionComparison: CopyPermissionComparison,
+  comparison: 'materialized-target' | 'source-reobservation'
 ): boolean {
   if (left.length !== right.length) return false;
   for (let index = 0; index < left.length; index += 1) {
@@ -130,7 +131,11 @@ function sameCopyInventory(
     const b = right[index]!;
     const comparePermission = permissionComparison === 'all' ||
       (permissionComparison === 'files' && a.kind === 'file');
-    if (a.relativePath !== b.relativePath || a.kind !== b.kind || a.size !== b.size ||
+    // Directory st_size describes filesystem storage, not copied contents.
+    // Keep it in the same-source drift fence, but compare a new directory by
+    // its complete membership and requested metadata instead.
+    const compareSize = comparison === 'source-reobservation' || a.kind !== 'directory';
+    if (a.relativePath !== b.relativePath || a.kind !== b.kind || (compareSize && a.size !== b.size) ||
         a.contentDigest !== b.contentDigest || a.linkTarget !== b.linkTarget ||
         (comparePermission && a.permissionMode !== b.permissionMode)) return false;
     if (comparePermission && ((a.permissionMode ?? 0) & 0o7000) !== 0) {
@@ -1294,7 +1299,7 @@ export async function copyNoFollowDirectoryTreesBulk(
       : preserveFilePermissionMode
         ? 'files'
         : 'none';
-    if (!sameCopyInventory(snapshot.sourceInventory, targetInventory, targetPermissionComparison)) {
+    if (!sameCopyInventory(snapshot.sourceInventory, targetInventory, targetPermissionComparison, 'materialized-target')) {
       throw physicalError('PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED', 'No-follow bulk copy target readback differs.');
     }
     const sourceAfterChain = assertSameNoFollowDirectoryIdentity(
@@ -1310,7 +1315,8 @@ export async function copyNoFollowDirectoryTreesBulk(
     if (!sameCopyInventory(
       snapshot.sourceInventory,
       sourceAfterInventory,
-      preserveFilePermissionMode ? 'all' : 'none'
+      preserveFilePermissionMode ? 'all' : 'none',
+      'source-reobservation'
     )) {
       throw physicalError('PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED', 'No-follow bulk copy source changed during effect.');
     }

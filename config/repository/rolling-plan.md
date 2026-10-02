@@ -12,9 +12,9 @@ last-reviewed: 2026-10-02
 ```json
 {
   "active": {
-    "manifestDigest": "sha256:2a35922aa12791ff255e4f65c02664faddfef34cf939a4b45ec8c31204c270c0",
-    "manifestPath": "config/repository/work-packages/task-group-cancellation-adoption-20261002.md",
-    "packageId": "task-group-cancellation-adoption-20261002",
+    "manifestDigest": "sha256:9e3dd805e5d9b520f6bbf222b635bf05a83db0b9b0a5f8757a82348e2baffa51",
+    "manifestPath": "config/repository/work-packages/native-copy-directory-adoption-20261002.md",
+    "packageId": "native-copy-directory-adoption-20261002",
     "tracking": "none"
   },
   "authority": "none",
@@ -25,18 +25,18 @@ last-reviewed: 2026-10-02
     "candidate-control-transaction-v1",
     "typescript-7-checker-acceleration-v1"
   ],
-  "exactMain": "122414c1c20d786be37f70cab87abba101f625b1",
-  "exactMainTree": "10ce8394555cdfb525196069e890053ed7fa428e",
-  "projectionDigest": "sha256:328e384ace2bc02a955e589a9029cf11c04f7f5272efb0d2da82a943b2f48d07",
+  "exactMain": "ff7a8707fdde08953a578bba89ec4637ce3a53ef",
+  "exactMainTree": "ab531c61e771b9194ca958afd50791b54c3a00f0",
+  "projectionDigest": "sha256:43ed28e3db9da019544769662103bc9d89dbe68a501b59c3cc5e003eb9ff83eb",
   "schema": "sec-work-rolling-proposal-projection-v1"
 }
 ```
 
 ## 当前唯一 Work Package
 
-### task-group-cancellation-adoption-20261002
+### native-copy-directory-adoption-20261002
 
-Proposal-only target manifest `config/repository/work-packages/task-group-cancellation-adoption-20261002.md` at `sha256:2a35922aa12791ff255e4f65c02664faddfef34cf939a4b45ec8c31204c270c0`, based on exact main `122414c1c20d786be37f70cab87abba101f625b1` and tree `10ce8394555cdfb525196069e890053ed7fa428e`.
+Proposal-only target manifest `config/repository/work-packages/native-copy-directory-adoption-20261002.md` at `sha256:9e3dd805e5d9b520f6bbf222b635bf05a83db0b9b0a5f8757a82348e2baffa51`, based on exact main `ff7a8707fdde08953a578bba89ec4637ce3a53ef` and tree `ab531c61e771b9194ca958afd50791b54c3a00f0`.
 
 ## 候选 Work Package
 
