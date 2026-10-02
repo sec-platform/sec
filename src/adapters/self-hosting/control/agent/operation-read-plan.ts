@@ -186,7 +186,7 @@ async function main(): Promise<void> {
     if (value === undefined || value.startsWith('--')) fail(`${argument} requires a value.`);
     const key = argument === '--candidate-root'
       ? 'candidateRoot'
-      : argument.slice(2) as 'input' | 'plan';
+      : argument === '--input' ? 'input' : 'plan';
     if (options[key] !== undefined) fail(`duplicate argument: ${argument}`);
     options[key] = value;
     index += 1;
