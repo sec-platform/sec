@@ -1,6 +1,6 @@
 {
   "schema": "sec.documentation-source-manifest/2",
-  "source_set_sha256": "ac03e5f5da441d38422211b5641fdc914dc6b19c145a62f6662c39212405bbdd",
+  "source_set_sha256": "1cc8facdac16d4055d8d31d716d9c779940e4a5f3918ee9a96918296052b9f73",
   "members": [
     {
       "path": ".documentation/README.md",
@@ -1234,8 +1234,8 @@
     },
     {
       "path": "docs/运行/持久化提交与恢复.md",
-      "bytes": 98569,
-      "sha256": "bacac22d08106408543518c5945d4280b4ddefa44c7806c46b910a7921e68700"
+      "bytes": 101105,
+      "sha256": "6bf0c30f50813da3cec3a249a3e6c2524f3fa51c60ad331b679d2fead3ce22f6"
     },
     {
       "path": "docs/运行/权限与资源管理.md",

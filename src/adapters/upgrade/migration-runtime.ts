@@ -1,5 +1,6 @@
 import type { Stats } from 'node:fs';
 import fs from 'node:fs/promises';
+import { markUpgradeRecoveryUnknown, type UpgradeRecoveryIntent } from './recovery-intent.ts';
 
 import type { UpgradeMigration } from '../../compiler/contract.ts';
 import { CompilerError } from '../../compiler/errors.ts';
@@ -208,20 +209,22 @@ async function removeFileMigrationTarget(
   workspaceRoot: string,
   targetPath: string,
   target: string,
-  commitFence: CommitFence
+  commitFence: CommitFence,
+  recoveryIntent?: UpgradeRecoveryIntent
 ): Promise<void> {
   await statFileMigrationTarget(targetPath, target);
-  await removeNoFollowMigrationFile({ root: workspaceRoot, targetPath, label: `Delete-file ${target}`, commitFence });
+  await removeNoFollowMigrationFile({ root: workspaceRoot, targetPath, label: `Delete-file ${target}`, commitFence, recoveryIntent });
 }
 
 async function removeDirectoryMigrationTarget(
   workspaceRoot: string,
   targetPath: string,
   target: string,
-  commitFence: CommitFence
+  commitFence: CommitFence,
+  recoveryIntent?: UpgradeRecoveryIntent
 ): Promise<void> {
   await statDirectoryMigrationTarget(targetPath, target);
-  await deleteNoFollowMigrationDirectory({ root: workspaceRoot, targetPath, label: `Delete-directory ${target}`, commitFence });
+  await deleteNoFollowMigrationDirectory({ root: workspaceRoot, targetPath, label: `Delete-directory ${target}`, commitFence, recoveryIntent });
 }
 
 function migrationErrorDetails(entry: UpgradeMigrationEntry): Record<string, unknown> {
@@ -261,6 +264,7 @@ type BaseMigrationOperationContext = {
   workspaceRoot: string;
   targetManifestRoot: string;
   targetPath: string;
+  recoveryIntent?: UpgradeRecoveryIntent;
 };
 
 type MigrationApplyContext<K extends UpgradeMigrationEntry['kind'] = UpgradeMigrationEntry['kind']> =
@@ -353,7 +357,7 @@ function ensureMigrationImpacts(impacts: string[], entry: UpgradeMigrationEntry)
 }
 
 async function applyManifestFileMigration(context: ManifestFileMigrationContext): Promise<void> {
-  const { commitFence, entry, targetManifestRoot, targetPath, workspaceRoot } = context;
+  const { commitFence, recoveryIntent, entry, targetManifestRoot, targetPath, workspaceRoot } = context;
   const sourcePath = resolveManifestMigrationSource(targetManifestRoot, entry);
   await statManifestFileMigrationSource(sourcePath, entry.source, entry.kind);
   await statFileMigrationTarget(targetPath, entry.target, entry.kind, { allowMissing: true });
@@ -364,6 +368,7 @@ async function applyManifestFileMigration(context: ManifestFileMigrationContext)
     targetPath,
     label: `${entry.kind} target ${entry.target}`,
     commitFence,
+    recoveryIntent,
     createParents: true,
     creationMode: source.permissionMode ?? 0o666,
     update: () => source.bytes
@@ -371,13 +376,14 @@ async function applyManifestFileMigration(context: ManifestFileMigrationContext)
 }
 
 async function applyTextReplaceMigration(context: TextReplaceMigrationContext): Promise<void> {
-  const { commitFence, entry, targetPath, workspaceRoot } = context;
+  const { commitFence, recoveryIntent, entry, targetPath, workspaceRoot } = context;
   await statFileMigrationTarget(targetPath, entry.target, entry.kind);
   await updateNoFollowMigrationFile({
     root: workspaceRoot,
     targetPath,
     label: `text-replace target ${entry.target}`,
     commitFence,
+    recoveryIntent,
     createParents: false,
     update: (current) => {
       if (current === null) throw new CompilerError('UPGRADE-MIGRATION-016', `text-replace target "${entry.target}" is missing`);
@@ -425,7 +431,7 @@ function assertDbExpandContractCopyJobPreimage(
 }
 
 async function applyDbExpandContractMigration(context: MigrationApplyContext<'db-expand-contract'>): Promise<void> {
-  const { commitFence, entry, targetPath, workspaceRoot } = context;
+  const { commitFence, recoveryIntent, entry, targetPath, workspaceRoot } = context;
   const job = dbExpandContractCopyJobTarget(workspaceRoot, entry);
   if (job !== null) assertDbExpandContractCopyJobPreimage(workspaceRoot, entry, job);
   await statFileMigrationTarget(targetPath, entry.target, entry.kind);
@@ -434,6 +440,7 @@ async function applyDbExpandContractMigration(context: MigrationApplyContext<'db
     targetPath,
     label: `db-expand-contract target ${entry.target}`,
     commitFence,
+    recoveryIntent,
     createParents: false,
     update: (current) => {
       if (current === null) throw new CompilerError('UPGRADE-MIGRATION-016', `db-expand-contract target "${entry.target}" is missing`);
@@ -463,6 +470,7 @@ async function applyDbExpandContractMigration(context: MigrationApplyContext<'db
       targetPath: job.path,
       label: `db-expand-contract job ${entry.id}`,
       commitFence,
+      recoveryIntent,
       createParents: true,
       update: (current) => {
         if (current !== null && !Buffer.from(current.bytes).equals(job.bytes)) {
@@ -480,7 +488,8 @@ async function applyMigrationEntry(
   targetManifestRoot: string,
   impacts: string[],
   entry: UpgradeMigrationEntry,
-  commitFence: CommitFence
+  commitFence: CommitFence,
+  recoveryIntent?: UpgradeRecoveryIntent
 ): Promise<void> {
   ensureMigrationImpacts(impacts, entry);
   const targetPath = resolveWorkspaceMigrationTarget(workspaceRoot, entry);
@@ -488,7 +497,7 @@ async function applyMigrationEntry(
   if (!spec) {
     throw unsupportedMigrationKindError(entry as { kind: string });
   }
-  await spec.apply({ commitFence, entry, workspaceRoot, targetManifestRoot, targetPath });
+  await spec.apply({ commitFence, recoveryIntent, entry, workspaceRoot, targetManifestRoot, targetPath });
 }
 
 export async function applyMigrationEntries(
@@ -496,11 +505,12 @@ export async function applyMigrationEntries(
   targetManifestRoot: string,
   impacts: string[],
   entries: UpgradeMigrationEntry[],
-  commitFence: CommitFence
+  commitFence: CommitFence,
+  recoveryIntent?: UpgradeRecoveryIntent
 ): Promise<void> {
   for (const entry of entries) {
     try {
-      await applyMigrationEntry(workspaceRoot, targetManifestRoot, impacts, entry, commitFence);
+      await applyMigrationEntry(workspaceRoot, targetManifestRoot, impacts, entry, commitFence, recoveryIntent);
     } catch (error) {
       if (error instanceof CompilerError) {
         throw withMigrationErrorDetails(entry, error);
@@ -585,7 +595,8 @@ async function appendTextMigrationTarget(
   targetPath: string,
   target: string,
   content: string,
-  commitFence: CommitFence
+  commitFence: CommitFence,
+  recoveryIntent?: UpgradeRecoveryIntent
 ): Promise<void> {
   await statFileMigrationTarget(targetPath, target, 'text-append', { allowMissing: true });
   await updateNoFollowMigrationFile({
@@ -593,6 +604,7 @@ async function appendTextMigrationTarget(
     targetPath,
     label: `text-append target ${target}`,
     commitFence,
+    recoveryIntent,
     createParents: true,
     update: (current) => Buffer.concat([
       current === null ? Buffer.alloc(0) : Buffer.from(current.bytes),
@@ -690,12 +702,12 @@ function createManifestFileMigrationSpec<K extends ManifestFileMigrationKind>():
 
 function createDeleteMigrationSpec<K extends 'delete-file' | 'delete-directory'>(
   role: 'file' | 'directory',
-  remove: (workspaceRoot: string, targetPath: string, target: string, commitFence: CommitFence) => Promise<void>,
+  remove: (workspaceRoot: string, targetPath: string, target: string, commitFence: CommitFence, recoveryIntent?: UpgradeRecoveryIntent) => Promise<void>,
   stat: (targetPath: string, target: string) => Promise<unknown>
 ): MigrationOperationSpec<K> {
   return {
-    apply: async ({ commitFence, entry, targetPath, workspaceRoot }: MigrationApplyContext<'delete-file' | 'delete-directory'>) => {
-      await remove(workspaceRoot, targetPath, entry.target, commitFence);
+    apply: async ({ commitFence, recoveryIntent, entry, targetPath, workspaceRoot }: MigrationApplyContext<'delete-file' | 'delete-directory'>) => {
+      await remove(workspaceRoot, targetPath, entry.target, commitFence, recoveryIntent);
     },
     collectFileEvidence: async ({ entry, targetPath }: FileOperationEvidenceContext<'delete-file' | 'delete-directory'>) => {
       await stat(targetPath, entry.target);
@@ -726,12 +738,12 @@ function createRenameMigrationSpec<K extends ProjectSourceMigrationEntry['kind']
 ): MigrationOperationSpec<K> {
   return {
     validate: validateSourceMigrationEntry,
-    apply: async ({ commitFence, entry, workspaceRoot, targetPath }: MigrationApplyContext<ProjectSourceMigrationEntry['kind']>) => {
+    apply: async ({ commitFence, recoveryIntent, entry, workspaceRoot, targetPath }: MigrationApplyContext<ProjectSourceMigrationEntry['kind']>) => {
       const sourcePath = await prepareRenameMigrationTarget(entry, workspaceRoot, targetPath, label, statSource);
       if (role === 'file') {
-        await renameNoFollowMigrationFile({ root: workspaceRoot, sourcePath, targetPath, label: `${label} ${entry.id}`, commitFence });
+        await renameNoFollowMigrationFile({ root: workspaceRoot, sourcePath, targetPath, label: `${label} ${entry.id}`, commitFence, recoveryIntent });
       } else {
-        await renameNoFollowMigrationDirectory({ root: workspaceRoot, sourcePath, targetPath, label: `${label} ${entry.id}`, commitFence });
+        await renameNoFollowMigrationDirectory({ root: workspaceRoot, sourcePath, targetPath, label: `${label} ${entry.id}`, commitFence, recoveryIntent });
       }
     },
     collectFileEvidence: async ({ entry, workspaceRoot, targetPath }: FileOperationEvidenceContext<ProjectSourceMigrationEntry['kind']>) => {
@@ -755,7 +767,8 @@ async function applyJsonTargetMigration(
   targetPath: string,
   update: (config: unknown) => unknown,
   createMissing: boolean,
-  commitFence: CommitFence
+  commitFence: CommitFence,
+  recoveryIntent?: UpgradeRecoveryIntent
 ): Promise<void> {
   const targetStatus = await statFileMigrationTarget(targetPath, entry.target, entry.kind, { allowMissing: true });
   if (targetStatus === 'missing' && !createMissing) return;
@@ -764,6 +777,7 @@ async function applyJsonTargetMigration(
     targetPath,
     label: `${entry.kind} target ${entry.target}`,
     commitFence,
+    recoveryIntent,
     createParents: createMissing,
     update: (current) => {
       if (current === null && !createMissing) throw new CompilerError('UPGRADE-MIGRATION-016', `${entry.kind} target "${entry.target}" is missing`);
@@ -779,6 +793,8 @@ const migrationOperationSpecs = {
   'copy-directory': {
     validate: validateSourceMigrationEntry,
     apply: async (context) => {
+      await context.commitFence();
+      markUpgradeRecoveryUnknown(context.recoveryIntent, 'untracked-directory-copy');
       await copyRecursive(
         await prepareCopyDirectoryMigration(context),
         context.targetPath,
@@ -792,13 +808,14 @@ const migrationOperationSpecs = {
   },
   'config-rewrite': {
     validate: validateConfigRewriteMigrationEntry,
-    apply: async ({ commitFence, entry, targetPath, workspaceRoot }) => {
+    apply: async ({ commitFence, recoveryIntent, entry, targetPath, workspaceRoot }) => {
       await statFileMigrationTarget(targetPath, entry.target, entry.kind);
       await updateNoFollowMigrationFile({
         root: workspaceRoot,
         targetPath,
         label: `config-rewrite target ${entry.target}`,
         commitFence,
+        recoveryIntent,
         createParents: false,
         update: (current) => {
           if (current === null) throw new CompilerError('UPGRADE-MIGRATION-016', `config-rewrite target "${entry.target}" is missing`);
@@ -809,40 +826,40 @@ const migrationOperationSpecs = {
   },
   'json-array-append': {
     validate: validateJsonArrayMigrationEntry,
-    apply: async ({ commitFence, entry, targetPath, workspaceRoot }) => {
+    apply: async ({ commitFence, recoveryIntent, entry, targetPath, workspaceRoot }) => {
       await applyJsonTargetMigration(
         workspaceRoot,
         entry,
         targetPath,
         (config) => applyJsonArrayAppend(config, entry),
         true,
-        commitFence
+        commitFence, recoveryIntent
       );
     },
   },
   'json-array-remove': {
     validate: validateJsonArrayMigrationEntry,
-    apply: async ({ commitFence, entry, targetPath, workspaceRoot }) => {
+    apply: async ({ commitFence, recoveryIntent, entry, targetPath, workspaceRoot }) => {
       await applyJsonTargetMigration(
         workspaceRoot,
         entry,
         targetPath,
         (config) => applyJsonArrayRemove(config, entry),
         false,
-        commitFence
+        commitFence, recoveryIntent
       );
     },
   },
   'json-object-merge': {
     validate: validateJsonObjectMergeMigrationEntry,
-    apply: async ({ commitFence, entry, targetPath, workspaceRoot }) => {
+    apply: async ({ commitFence, recoveryIntent, entry, targetPath, workspaceRoot }) => {
       await applyJsonTargetMigration(
         workspaceRoot,
         entry,
         targetPath,
         (config) => applyJsonObjectMerge(config, entry),
         true,
-        commitFence
+        commitFence, recoveryIntent
       );
     },
   },
@@ -850,8 +867,8 @@ const migrationOperationSpecs = {
     validate: ({ entry, entryPath }) => {
       ensureMigrationString(entry.content, 'content', entryPath);
     },
-    apply: async ({ commitFence, entry, targetPath, workspaceRoot }) => {
-      await appendTextMigrationTarget(workspaceRoot, targetPath, entry.target, entry.content, commitFence);
+    apply: async ({ commitFence, recoveryIntent, entry, targetPath, workspaceRoot }) => {
+      await appendTextMigrationTarget(workspaceRoot, targetPath, entry.target, entry.content, commitFence, recoveryIntent);
     },
     collectFileEvidence: async ({ entry, targetPath }) => [
       `${entry.id}:target:${await statFileMigrationTarget(targetPath, entry.target, entry.kind, { allowMissing: true })}`
@@ -865,9 +882,9 @@ const migrationOperationSpecs = {
     apply: applyTextReplaceMigration,
   },
   'create-directory': {
-    apply: async ({ commitFence, entry, targetPath, workspaceRoot }) => {
+    apply: async ({ commitFence, recoveryIntent, entry, targetPath, workspaceRoot }) => {
       await statCreateDirectoryMigrationTarget(targetPath, entry.target);
-      await createNoFollowMigrationDirectory({ root: workspaceRoot, targetPath, label: `Create-directory ${entry.target}`, commitFence });
+      await createNoFollowMigrationDirectory({ root: workspaceRoot, targetPath, label: `Create-directory ${entry.target}`, commitFence, recoveryIntent });
     },
     collectFileEvidence: async ({ entry, targetPath }) => {
       await statCreateDirectoryMigrationTarget(targetPath, entry.target);

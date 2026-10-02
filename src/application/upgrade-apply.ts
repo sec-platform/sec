@@ -333,7 +333,7 @@ export interface UpgradeApplyLifecycleOperations<TBackup> {
   clearExecutionTerminal(): Promise<void>;
   clearDiagnostics(): Promise<void>;
   publishPlan(plan: UpgradePlan): Promise<unknown>;
-  apply(): Promise<LockFile>;
+  apply(backup: TBackup): Promise<LockFile>;
   readonly terminalReadback: UpgradeExecutionTerminalReadbackOperations;
   readonly terminalPublication: AppliedUpgradeTerminalPublicationOperations;
   recordGeneratedArtifacts(lock: LockFile): Promise<void>;
@@ -440,7 +440,7 @@ export async function executeUpgradeApplyLifecycle<TBackup>(
     await operations.clearExecutionTerminal.call(operations);
     await operations.clearDiagnostics.call(operations);
     await operations.publishPlan.call(operations, input.upgradePlan);
-    const lock = await operations.apply.call(operations);
+    const lock = await operations.apply.call(operations, backup);
     const expectedTerminal = await buildUpgradeExecutionTerminal({
       plan: input.upgradePlan,
       attempt: input.attempt,
