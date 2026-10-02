@@ -9,10 +9,6 @@ import {
   writeSemanticMutationTransactionArtifacts
 } from '../../adapters/mutation/atomic-source-publish.ts';
 import {
-  deriveStagedSemanticMutation,
-  type DerivedSemanticMutationTransaction
-} from '../../adapters/mutation/derive-staged-mutation.ts';
-import {
   appendSemanticMutationRecoveryRecord,
   pruneSemanticMutationTerminalRecords,
   querySemanticMutationRequestRecord
@@ -91,6 +87,10 @@ import type { FactDeltaEndpointContext } from '../../semantics/engineering-ir/de
 import { type SemanticMutationApplyInput, type SemanticMutationApplyOutcome, type SemanticMutationInternalRecoveryOutcome, type SemanticMutationRecoveryOutcome, type SemanticMutationRecoveryRecord, type SemanticMutationRequestIdentity, type SemanticMutationRequestRecordView, type SemanticMutationTransactionInput } from '../../semantics/mutation/transaction.ts';
 import type { SemanticMutationBase, SemanticMutationPlan, SemanticMutationResult, SemanticMutationVerificationExecutionRef } from '../../semantics/mutation/types.ts';
 import { compileWorkspace } from './pipeline-orchestrator.ts';
+import {
+  deriveStagedSemanticMutation,
+  type DerivedSemanticMutationTransaction
+} from './semantic-mutation-derivation.ts';
 
 type ReadyPlan = ReadySemanticMutationPlan;
 
