@@ -155,3 +155,83 @@ test('aliased pinned GitHub action uses retain their real script identity and so
   expect(() => compileSourceProgramEmbeddedWorkflowPrograms({ path: workflowPath, source: unresolved,
     contentDigest: rawSha256(unresolved) })).toThrow();
 });
+
+const aliasedRunSource = `name: aliased-run
+on: workflow_dispatch
+jobs:
+  setup:
+    steps:
+      - name: install dependencies
+        run: &install_dependencies |
+          set -euo pipefail
+          bun install --frozen-lockfile --ignore-scripts
+  consumer:
+    steps:
+      - name: install consumer dependencies
+        shell: bash
+        run: *install_dependencies
+`;
+
+test('aliased workflow runs retain each occurrence and anchored command provenance in the repository model', () => {
+  const file = { path: workflowPath, source: aliasedRunSource, contentDigest: rawSha256(aliasedRunSource) };
+  const units = compileSourceProgramEmbeddedWorkflowPrograms(file);
+  const addresses = ['jobs/consumer/steps/0/workflow-run', 'jobs/setup/steps/0/workflow-run'];
+  const command = 'set -euo pipefail\nbun install --frozen-lockfile --ignore-scripts\n';
+  expect(units.map(({ address }) => address)).toEqual(addresses);
+  expect(units.map(({ name, provider }) => ({ name, provider }))).toEqual([
+    { name: 'install consumer dependencies', provider: 'bash' },
+    { name: 'install dependencies', provider: 'runner-default-shell' }
+  ]);
+  for (const unit of units) {
+    expect(unit.source).toBe(command);
+    expect(unit.contentDigest).toBe(rawSha256(command));
+    expect(aliasedRunSource.slice(unit.span.start, unit.span.end)).toContain(
+      'bun install --frozen-lockfile --ignore-scripts'
+    );
+  }
+  expect(units[0]!.span).toEqual(units[1]!.span);
+  const plainSource = aliasedRunSource.replace(
+    '*install_dependencies', '|\n          set -euo pipefail\n          bun install --frozen-lockfile --ignore-scripts'
+  );
+  const plainUnits = compileSourceProgramEmbeddedWorkflowPrograms({
+    path: workflowPath, source: plainSource, contentDigest: rawSha256(plainSource)
+  });
+  expect(units.map(({ span: _span, ...unit }) => unit))
+    .toEqual(plainUnits.map(({ span: _span, ...unit }) => unit));
+  const model = compileRepositorySourceProgramModel({
+    sourceRevision: sha256([{ path: file.path, contentDigest: file.contentDigest }]),
+    files: [file],
+    moduleMembership: {
+      descriptors: [], graphRoots: [], moduleRoots: [], moduleForPath: () => null
+    }
+  });
+  for (const address of addresses) {
+    expect(model.entrypoints).toContainEqual(expect.objectContaining({
+      path: workflowPath, kind: 'workflow', name: address, observationClass: 'unknown'
+    }));
+    expect(model.capabilities).toContainEqual(expect.objectContaining({
+      path: workflowPath, capability: 'process', operation: 'workflow-run', subject: address
+    }));
+    expect(model.unknowns).toContainEqual(expect.objectContaining({
+      path: workflowPath, code: 'embedded-shell-import-closure-unresolved',
+      detail: expect.stringContaining(`${address}:`)
+    }));
+  }
+});
+
+test('workflow run aliases reject missing or non-string commands and uses conflicts', () => {
+  const compile = (source: string) => compileSourceProgramEmbeddedWorkflowPrograms({
+    path: workflowPath, source, contentDigest: rawSha256(source)
+  });
+  expect(() => compile(aliasedRunSource.replace('*install_dependencies', '*missing_command')))
+    .toThrow(/alias does not resolve to one scalar command/u);
+  for (const value of ['{ command: unsafe }', '[unsafe]', '42', 'true', 'null']) {
+    const source = aliasedRunSource.replace(
+      '|\n          set -euo pipefail\n          bun install --frozen-lockfile --ignore-scripts', value
+    );
+    expect(() => compile(source)).toThrow(/alias does not resolve to one scalar command/u);
+  }
+  expect(() => compile(aliasedRunSource.replace(
+    '        shell: bash', '        uses: actions/github-script@0123456789012345678901234567890123456789'
+  ))).toThrow(/cannot contain both uses and run/u);
+});
