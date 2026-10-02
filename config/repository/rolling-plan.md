@@ -12,9 +12,9 @@ last-reviewed: 2026-10-02
 ```json
 {
   "active": {
-    "manifestDigest": "sha256:1c8697c19c17c9f552aa62e409cff4ebe4371479a0c24fd45bc07877ef760e1f",
-    "manifestPath": "config/repository/work-packages/agent-literal-options-adoption-20261002.md",
-    "packageId": "agent-literal-options-adoption-20261002",
+    "manifestDigest": "sha256:dda5a64a72618d40af9120ab772c27853fa97b75ea64aeb925fb104c197b29a7",
+    "manifestPath": "config/repository/work-packages/dependency-diagnostics-adoption-20261002.md",
+    "packageId": "dependency-diagnostics-adoption-20261002",
     "tracking": "none"
   },
   "authority": "none",
@@ -25,18 +25,18 @@ last-reviewed: 2026-10-02
     "candidate-control-transaction-v1",
     "typescript-7-checker-acceleration-v1"
   ],
-  "exactMain": "8ae14bee8a7f8958bc02d30bc2678b1fe855428e",
-  "exactMainTree": "3a498701f7c48ae03e3f1ecab3220f6d3d208a93",
-  "projectionDigest": "sha256:70afe906260db96437fdd7fc6d2069507006514a891e80310ac84c0ccd9a68e1",
+  "exactMain": "27a21faa8288cb80b674ad7153e4a46274e902f9",
+  "exactMainTree": "cebb06e0f416e1c99499a53857d0da9a7283769e",
+  "projectionDigest": "sha256:d355d3536425cc2d58383e8d1739fc9f6147e272f1d5743c68cd7cd9d7a99245",
   "schema": "sec-work-rolling-proposal-projection-v1"
 }
 ```
 
 ## 当前唯一 Work Package
 
-### agent-literal-options-adoption-20261002
+### dependency-diagnostics-adoption-20261002
 
-Proposal-only target manifest `config/repository/work-packages/agent-literal-options-adoption-20261002.md` at `sha256:1c8697c19c17c9f552aa62e409cff4ebe4371479a0c24fd45bc07877ef760e1f`, based on exact main `8ae14bee8a7f8958bc02d30bc2678b1fe855428e` and tree `3a498701f7c48ae03e3f1ecab3220f6d3d208a93`.
+Proposal-only target manifest `config/repository/work-packages/dependency-diagnostics-adoption-20261002.md` at `sha256:dda5a64a72618d40af9120ab772c27853fa97b75ea64aeb925fb104c197b29a7`, based on exact main `27a21faa8288cb80b674ad7153e4a46274e902f9` and tree `cebb06e0f416e1c99499a53857d0da9a7283769e`.
 
 ## 候选 Work Package
 
