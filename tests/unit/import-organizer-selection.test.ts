@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 import { spawnSync } from 'node:child_process';
-import { mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, stat, utimes, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import ts from 'typescript';
@@ -52,6 +52,54 @@ function organizeFixtureImports(source: string, roots: 'full' | 'focused' = 'ful
 }
 
 describe('import organizer selection', () => {
+  test('exact config content controls plans across same-stat rewrites, errors and workspace switches', async () => {
+    const root = await mkdtemp(path.join(tmpdir(), 'sec-import-config-'));
+    try {
+      const otherRoot = path.join(root, 'other');
+      await mkdir(otherRoot);
+      const firstConfig = '{"files":["alpha.ts"],"compilerOptions":{"noLib":true}}\n';
+      const secondConfig = '{"files":["bravo.ts"],"compilerOptions":{"noLib":true}}\n';
+      for (const workspace of [root, otherRoot]) {
+        await writeFile(path.join(workspace, 'alpha.ts'), 'export const alpha = 1;\n');
+        await writeFile(path.join(workspace, 'bravo.ts'), 'export const bravo = 2;\n');
+      }
+      const configPath = path.join(root, 'tsconfig.json');
+      const fixedTime = new Date('2020-01-01T00:00:00.000Z');
+      await writeFile(configPath, firstConfig);
+      await utimes(configPath, fixedTime, fixedTime);
+      const initialStat = await stat(configPath);
+      const replaceSameStat = async (text: string): Promise<void> => {
+        expect(Buffer.byteLength(text)).toBe(initialStat.size);
+        await writeFile(configPath, text);
+        await utimes(configPath, fixedTime, fixedTime);
+        const observed = await stat(configPath);
+        expect({ size: observed.size, mtimeMs: observed.mtimeMs })
+          .toEqual({ size: initialStat.size, mtimeMs: initialStat.mtimeMs });
+      };
+      const plan = () => compileImportOperationPlan({ scope: 'all' }, root, {});
+      const cold = await plan();
+      expect(cold.targets.map((target) => target.relativePath)).toEqual(['alpha.ts']);
+      expect(await plan()).toEqual(cold);
+
+      await replaceSameStat(secondConfig);
+      const changed = await plan();
+      expect(changed.targets.map((target) => target.relativePath)).toEqual(['bravo.ts']);
+      expect(changed.projectConfigDigest).not.toBe(cold.projectConfigDigest);
+
+      await replaceSameStat(`!${firstConfig.slice(1)}`);
+      await expect(plan()).rejects.toThrow();
+      await expect(plan()).rejects.toThrow();
+      await replaceSameStat(firstConfig);
+      expect(await plan()).toEqual(cold);
+
+      await writeFile(path.join(otherRoot, 'tsconfig.json'), secondConfig);
+      expect(await compileImportOperationPlan({ scope: 'all' }, otherRoot, {})).toEqual(changed);
+      expect(await plan()).toEqual(cold);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   test('language service roots contain only selected targets and project declarations', () => {
     const projectRoot = path.resolve(import.meta.dir, 'import-organizer-root-fixture');
     const target = path.join(projectRoot, 'target.ts');
@@ -70,6 +118,44 @@ describe('import organizer selection', () => {
       fileNames: [unrelated, declaration, moduleDeclaration, target]
     }, [target])).toEqual([target]);
 
+  });
+
+  test('inherited config inputs stay current while root config bytes remain unchanged', async () => {
+    const root = await mkdtemp(path.join(tmpdir(), 'sec-import-extends-'));
+    try {
+      const rootConfig = '{"extends":"./base.json"}\n';
+      const baseConfig = '{"files":["alpha.ts"],"compilerOptions":{"target":"ES2021","noLib":true}}\n';
+      const configPath = path.join(root, 'tsconfig.json');
+      const basePath = path.join(root, 'base.json');
+      const fixedTime = new Date('2020-01-01T00:00:00.000Z');
+      await writeFile(configPath, rootConfig);
+      await writeFile(basePath, baseConfig);
+      await utimes(basePath, fixedTime, fixedTime);
+      await writeFile(path.join(root, 'alpha.ts'), 'export const alpha = 1;\n');
+      await writeFile(path.join(root, 'bravo.ts'), 'export const bravo = 2;\n');
+      const initialStat = await stat(basePath);
+      const replaceBase = async (text: string): Promise<void> => {
+        await writeFile(basePath, text);
+        await utimes(basePath, fixedTime, fixedTime);
+        const observed = await stat(basePath);
+        expect({ size: observed.size, mtimeMs: observed.mtimeMs })
+          .toEqual({ size: initialStat.size, mtimeMs: initialStat.mtimeMs });
+        expect(await readFile(configPath, 'utf8')).toBe(rootConfig);
+      };
+      const plan = () => compileImportOperationPlan({ scope: 'all' }, root, {});
+      const cold = await plan();
+      expect(cold.targets.map((target) => target.relativePath)).toEqual(['alpha.ts']);
+      await replaceBase(baseConfig.replace('alpha.ts', 'bravo.ts'));
+      const changed = await plan();
+      expect(changed.targets.map((target) => target.relativePath)).toEqual(['bravo.ts']);
+      expect(changed.projectConfigDigest).not.toBe(cold.projectConfigDigest);
+      await replaceBase(baseConfig.replace('alpha.ts', 'bravo.ts').replace('ES2021', 'ES2022'));
+      const optionsChanged = await plan();
+      expect(optionsChanged.targets).toEqual(changed.targets);
+      expect(optionsChanged.projectConfigDigest).not.toBe(changed.projectConfigDigest);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
   });
 
 test('candidate and full scopes compile different immutable exact plans', async () => {

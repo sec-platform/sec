@@ -24,17 +24,22 @@ import {
   type ImportTransformTransactionTestHooks
 } from './import-transform-transaction.ts';
 
-// Inline sync parse cache. Exact config bytes are the reuse identity; metadata
-// is not correctness evidence because mtime/size can collide across rewrites.
-const tsconfigCache = new Map<string, { digest: `sha256:${string}`; value: { config?: unknown; error?: ts.Diagnostic } }>();
-function cachedParseConfigFile(configPath: string): { config?: unknown; error?: ts.Diagnostic } {
+// One process-local slot retains only the most recently parsed config. A
+// different workspace/config replaces the prior entry; the parser revision is
+// fixed by this process. Exact bytes, never mtime/size, authorize reuse.
+let tsconfigCache: {
+  configPath: string;
+  digest: `sha256:${string}`;
+  value: { config?: unknown; error?: ts.Diagnostic };
+} | undefined;
+function cachedParseConfigFile(configPath: string): { config?: unknown; error?: ts.Diagnostic; digest: `sha256:${string}` } {
   const text = readFileSync(configPath, 'utf8');
   const digest = rawSha256(text);
-  const existing = tsconfigCache.get(configPath);
-  if (existing !== undefined && existing.digest === digest) return existing.value;
+  const existing = tsconfigCache;
+  if (existing?.configPath === configPath && existing.digest === digest) return { ...existing.value, digest };
   const value = ts.parseConfigFileTextToJson(configPath, text);
-  tsconfigCache.set(configPath, { digest, value });
-  return value;
+  tsconfigCache = { configPath, digest, value };
+  return { ...value, digest };
 }
 
 type ImportSelectionEnvironment = Record<string, string | undefined>;
@@ -148,7 +153,10 @@ function formatDiagnostic(diagnostic: ts.Diagnostic, projectRoot = compilerRoot)
   return `${relativePosixPath(projectRoot, diagnostic.file.fileName)}:${position.line + 1}:${position.character + 1} ${message}`;
 }
 
-function loadProjectConfig(projectRoot = compilerRoot): ts.ParsedCommandLine {
+function loadProjectConfig(projectRoot = compilerRoot): {
+  config: ts.ParsedCommandLine;
+  inputs: readonly Readonly<{ path: string; digest: `sha256:${string}` | null }>[];
+} {
   const configPath = ts.findConfigFile(projectRoot, ts.sys.fileExists, 'tsconfig.json');
   if (!configPath) {
     throw new Error('tsconfig.json not found');
@@ -159,12 +167,28 @@ function loadProjectConfig(projectRoot = compilerRoot): ts.ParsedCommandLine {
     throw new Error(formatDiagnostic(configFile.error, projectRoot));
   }
 
-  const parsed = ts.parseJsonConfigFileContent(configFile.config, ts.sys, projectRoot, undefined, configPath);
+  const inputs: Array<{ path: string; digest: `sha256:${string}` | null }> = [{
+    path: relativePosixPath(projectRoot, configPath), digest: configFile.digest
+  }];
+  const host: ts.ParseConfigHost = {
+    ...ts.sys,
+    readFile(fileName) {
+      const text = ts.sys.readFile(fileName);
+      inputs.push({
+        path: relativePosixPath(projectRoot, fileName),
+        digest: text === undefined ? null : rawSha256(text)
+      });
+      return text;
+    }
+  };
+  // TypeScript mutates raw config while resolving extends. Keep the cached
+  // parse result independent so later reads re-observe inherited config.
+  const parsed = ts.parseJsonConfigFileContent(structuredClone(configFile.config), host, projectRoot, undefined, configPath);
   if (parsed.errors.length > 0) {
     throw new Error(parsed.errors.map((diagnostic) => formatDiagnostic(diagnostic, projectRoot)).join('\n'));
   }
 
-  return parsed;
+  return { config: parsed, inputs };
 }
 
 function gitError(args: readonly string[], stderr: Buffer | string | null): Error {
@@ -910,7 +934,7 @@ async function computeStagedImportUpdates(
     : await candidateContext(projectRoot, testHooks);
   const contextRoot = context.root;
   try {
-    const config = loadProjectConfig(contextRoot);
+    const { config } = loadProjectConfig(contextRoot);
     const blobs = readStagedBlobs(projectRoot, selectedEntries);
     const sources = selectedEntries.map((entry): ImportSourceSnapshot => {
       const bytes = blobs.get(entry.path);
@@ -1228,7 +1252,7 @@ async function compileImportOperationExecution(
     throw new Error('Full-repository import scope cannot also select a candidate base');
   }
 
-  const config = loadProjectConfig(projectRoot);
+  const { config, inputs: configInputs } = loadProjectConfig(projectRoot);
   const candidateBase = scope === 'candidate'
     ? resolveCandidateImportBase(projectRoot, options.candidateBase, env)
     : null;
@@ -1292,7 +1316,8 @@ async function compileImportOperationExecution(
   }
 
   const projectConfigDigest = sha256({
-    rawProjectConfig: JSON.parse(JSON.stringify(config.raw ?? {})) as unknown
+    providerRevision: `typescript@${ts.version}`,
+    inputs: configInputs
   }) as `sha256:${string}`;
   const identity = Object.freeze({
     schema: 'sec-import-operation-plan-v1' as const,
