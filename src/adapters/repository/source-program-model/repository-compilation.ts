@@ -7,7 +7,7 @@ import {
   type SourceProgramCompilationOperation,
   type SourceProgramCompilationPhaseEvent
 } from './compilation-operation.ts';
-import { requireSourceProgramCandidateAnalysis, type SourceProgramAnalysisNotRequested, type SourceProgramCandidate, type SourceProgramCandidateAnalysis, type SourceProgramModel, type SourceProgramUnknown } from './contract.ts';
+import { requireSourceProgramCandidateAnalysis, sourceProgramSurfaceForPath, type SourceProgramAnalysisNotRequested, type SourceProgramCandidate, type SourceProgramCandidateAnalysis, type SourceProgramModel, type SourceProgramUnknown } from './contract.ts';
 import {
   captureRepositoryAnalysisPolicy,
   repositoryAnalysisPolicyDigest,
@@ -35,6 +35,7 @@ import {
   compileSourceProgramTestObservationsFromWorkspaceSnapshot,
   type SourceProgramTestObservations
 } from './test-observations.ts';
+import { SOURCE_EXTENSION } from './typescript-input.ts';
 import {
   adoptTypeScriptSourceProgramFactShardsFromWorkspaceSnapshot,
   compileTypeScriptSourceProgramModelIncrementalFromWorkspaceSnapshot,
@@ -64,6 +65,7 @@ export type CompileRepositorySourceProgramCompilationInput = Readonly<{
   reviewedProcessDispatchers?: readonly string[];
   unknowns?: readonly SourceProgramUnknown[];
   operation?: SourceProgramCompilationOperation;
+  previousCompilation?: RepositorySourceProgramCompilationReceipt<SourceProgramCandidateAnalysis>;
 }>;
 
 export type CompileVirtualRepositorySourceProgramCompilationInput = Omit<
@@ -104,6 +106,33 @@ export interface RepositoryCompilationDiagnostics {
 
 const diagnosticsByContext = new WeakMap<object, RepositoryCompilationDiagnostics>();
 const issuedRepositorySourceProgramCompilationReceipts = new WeakSet<object>();
+// Only this producer can bind a live receipt to the original non-source inputs.
+// These process-local facts are never serialized as cache or qualification authority.
+const reuseContextByReceipt = new WeakMap<object, `sha256:${string}`>();
+
+function compilationReuseContext(
+  snapshot: WorkspaceSourceSnapshot,
+  projectInput: WorkspaceTypeScriptProjectInput,
+  generation: RepositoryCompilationGenerationReceipt
+): `sha256:${string}` {
+  return sha256({
+    compilerRevision: generation.compilerRevision,
+    providerRevision: generation.providerRevision,
+    compilerConfigDigest: generation.compilerConfigDigest,
+    dependencyGenerationDigest: generation.dependencyGenerationDigest,
+    environmentDigest: generation.environmentDigest,
+    project: {
+      projectConfigPath: projectInput.projectConfigPath,
+      projectConfigDigest: projectInput.projectConfigDigest,
+      dependencyGenerationDigest: projectInput.dependencyGenerationDigest,
+      externalSourceFacts: projectInput.externalSourceFacts
+    },
+    nonTypeScriptFiles: snapshot.files.filter(({ path }) => {
+      const surface = sourceProgramSurfaceForPath(path);
+      return !SOURCE_EXTENSION.test(path) || (surface !== 'production' && surface !== 'test');
+    }).map(({ path, mode, contentDigest }) => ({ path, mode, contentDigest }))
+  }) as `sha256:${string}`;
+}
 
 export function assertRepositorySourceProgramCompilationReceipt<Candidates extends SourceProgramCandidateAnalysis>(
   receipt: RepositorySourceProgramCompilationReceipt<Candidates>
@@ -172,7 +201,7 @@ function compileRepositorySourceProgramCompilationCore<Candidates extends Source
     }
   }
   const { projectInput, cacheProvider, repositoryRoot, reviewedProcessDispatchers,
-    unknowns: requestedUnknowns, operation: requestedOperation, cacheAccess = 'read-write' } = input;
+    unknowns: requestedUnknowns, operation: requestedOperation, cacheAccess = 'read-write', previousCompilation } = input;
   // Bind the effect mode before compiler telemetry or cache providers execute.
   // The direct physical and virtual entrypoints must not treat malformed input
   // as write permission, even when the physical cache wrapper is not used.
@@ -199,6 +228,16 @@ function compileRepositorySourceProgramCompilationCore<Candidates extends Source
     moduleGraphDigest: workspaceSnapshot.moduleGraphDigest,
     compiler
   });
+  const reuseContext = projectInput === undefined ? null
+    : compilationReuseContext(workspaceSnapshot, projectInput, projectGeneration);
+  let previousState: TypeScriptSourceProgramIncrementalState | null = null;
+  if (reuseContext !== null && previousCompilation !== undefined
+      && issuedRepositorySourceProgramCompilationReceipts.has(previousCompilation)
+      && reuseContextByReceipt.get(previousCompilation) === reuseContext) {
+    assertRepositorySourceProgramCompilationReceipt(previousCompilation);
+    previousState = previousCompilation.typeScriptCompilation.state;
+  }
+  const rejectedPreviousContext = previousCompilation !== undefined && previousState === null;
   let cacheHint: RepositoryCompilationCacheHint | null = null;
   let exactLoaded: RepositoryCompilationCacheLoad | null = null;
   let loaded: RepositoryCompilationCacheLoad | null = null;
@@ -212,7 +251,8 @@ function compileRepositorySourceProgramCompilationCore<Candidates extends Source
       }
       exactLoaded = cacheHint.loadExact();
       assertExactRepositoryCompilationCacheLoad(exactLoaded, projectGeneration);
-      loaded = exactLoaded.status === 'hit' ? exactLoaded : cacheHint.loadPredecessor();
+      loaded = exactLoaded.status === 'hit' || rejectedPreviousContext || previousState !== null
+        ? exactLoaded : cacheHint.loadPredecessor();
       if (loaded.status === 'hit') assertRepositoryCompilationGenerationReceipt(loaded.generation);
       cacheReceipt = exactLoaded.status === 'hit' ? exactLoaded.cacheReceipt : null;
     } catch {
@@ -233,11 +273,11 @@ function compileRepositorySourceProgramCompilationCore<Candidates extends Source
     moduleMembership: workspaceSnapshot.moduleMembership,
     operation
   });
-  let cachedState: TypeScriptSourceProgramIncrementalState | null = null;
-  if (loaded?.status === 'hit') {
+  let cachedState: TypeScriptSourceProgramIncrementalState | null = previousState;
+  if (exactLoaded?.status === 'hit' || (cachedState === null && loaded?.status === 'hit')) {
     sourceProgramCompilationCheckpoint(operation, 'fact-shard-assembly', 'start');
     try {
-      cachedState = loadedTypeScriptState(workspaceSnapshot, typeScriptInput, loaded);
+      cachedState = loadedTypeScriptState(workspaceSnapshot, typeScriptInput, loaded as Extract<RepositoryCompilationCacheLoad, { status: 'hit' }>);
     } catch {
       // Runtime Cache may return bytes that passed its physical grammar but do
       // not belong to this semantic input. Source Program rejects the hint and
@@ -364,6 +404,7 @@ function compileRepositorySourceProgramCompilationCore<Candidates extends Source
     workspaceSnapshot
   });
   issuedRepositorySourceProgramCompilationReceipts.add(receipt);
+  if (reuseContext !== null) reuseContextByReceipt.set(receipt, reuseContext);
   sourceProgramCompilationCheckpoint(operation, 'settlement', 'complete');
   diagnosticsByContext.set(workspaceSnapshot, Object.freeze({
     cache: loaded?.status === 'hit'

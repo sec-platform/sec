@@ -1,15 +1,21 @@
-import type {
-  TypeScriptSourceProgramFactShard
-} from './typescript-fact-shards.ts';
-import type {
-  SourceProgramCompilation,
-  SourceProgramModel
-} from './contract.ts';
+import ts from 'typescript';
 import {
   compareCodeUnits,
   rawSha256,
   sha256
 } from '../../../contracts/canonical.ts';
+import type { SecRepositoryModuleGraph } from '../architecture/contract.ts';
+import { sourceProgramCompilationCheckpoint } from './compilation-operation.ts';
+import type {
+  SourceProgramCompilation,
+  SourceProgramModel
+} from './contract.ts';
+import {
+  bindCurrentExactReturnProvenances
+} from './typescript-exact-facts.ts';
+import type {
+  TypeScriptSourceProgramFactShard
+} from './typescript-fact-shards.ts';
 import type {
   PreparedTypeScriptModelInput,
   TypeScriptModelInput,
@@ -20,15 +26,17 @@ import {
   prepareTypeScriptSourceProgramInput
 } from './typescript-input.ts';
 import {
+  compileTypeScriptModelInternal
+} from './typescript-lowering.ts';
+import {
   assembleCanonicalTypeScriptModel,
   bindTypeScriptModelToRepositoryCompilation,
   readTypeScriptFactShards,
   workspaceSnapshotIdentityForTypeScriptModel
 } from './typescript-model-assembly.ts';
 import {
-  semanticSourceText,
-  typeScriptSemanticDependencyScope
-} from './typescript-syntax.ts';
+  compileSecRepositoryModuleGraph
+} from './typescript-module-graph.ts';
 import {
   recordTypeScriptPerformance
 } from './typescript-performance.ts';
@@ -36,14 +44,9 @@ import {
   TYPESCRIPT_SOURCE_PROGRAM_COMPILER_REVISION
 } from './typescript-profile.ts';
 import {
-  bindCurrentExactReturnProvenances
-} from './typescript-exact-facts.ts';
-import {
-  compileSecRepositoryModuleGraph
-} from './typescript-module-graph.ts';
-import {
-  compileTypeScriptModelInternal
-} from './typescript-lowering.ts';
+  semanticSourceText,
+  typeScriptSemanticDependencyScope
+} from './typescript-syntax.ts';
 
 /** Incremental invalidation and state issuance; full compilation is an explicitly selected dependency. */
 export interface TypeScriptIncrementalState {
@@ -74,6 +77,62 @@ export interface TypeScriptIncrementalResult {
 const typeScriptIncrementalStateBrand: unique symbol = Symbol('typescript-source-program-incremental-state');
 
 const issuedTypeScriptIncrementalStates = new WeakSet<object>();
+const structuralReuseContexts = new WeakMap<object, Readonly<{
+  graph: SecRepositoryModuleGraph;
+  hasGlobalInputs: boolean;
+}>>();
+
+function hasTypeScriptReferenceDirectives(source: string): boolean {
+  // References can change the entire Program even inside an external module.
+  const references = ts.preProcessFile(source, false, true);
+  return references.referencedFiles.length > 0 || references.typeReferenceDirectives.length > 0
+    || references.libReferenceDirectives.length > 0;
+}
+
+function rememberStructuralReuseContext(
+  state: TypeScriptIncrementalState,
+  input: PreparedTypeScriptModelInput,
+  graph: SecRepositoryModuleGraph
+): TypeScriptIncrementalState {
+  let hasGlobalInputs = state.factShards.some(({ semanticDependencyScope }) =>
+    semanticDependencyScope !== 'module-scoped');
+  if (!hasGlobalInputs) {
+    for (const { file } of input.sourceFileIdentities.values()) {
+      sourceProgramCompilationCheckpoint(input.operation, 'file-semantics');
+      if (hasTypeScriptReferenceDirectives(file.source)) {
+        hasGlobalInputs = true;
+        break;
+      }
+    }
+  }
+  structuralReuseContexts.set(state, Object.freeze({ graph, hasGlobalInputs }));
+  return state;
+}
+
+function canReuseAddedModules(
+  state: TypeScriptIncrementalState,
+  input: PreparedTypeScriptModelInput,
+  graph: SecRepositoryModuleGraph,
+  currentPaths: readonly string[]
+): boolean {
+  const previous = structuralReuseContexts.get(state);
+  if (previous === undefined || previous.hasGlobalInputs
+      || previous.graph.unresolvedFiles.length > 0 || graph.unresolvedFiles.length > 0) return false;
+  const previousPaths = new Set(Object.keys(state.fileDigests));
+  const current = new Set(currentPaths);
+  if ([...previousPaths].some(path => !current.has(path))
+      || !currentPaths.some(path => !previousPaths.has(path))) return false;
+  // Compare all retained resolution observations, including negative candidates,
+  // type-only edges and star exports; adjacency alone loses resolver changes.
+  if (sha256(previous.graph.references) !== sha256(graph.references.filter(({ from }) =>
+    !current.has(from) || previousPaths.has(from)))) return false;
+  for (const { file } of input.sourceFileIdentities.values()) {
+    sourceProgramCompilationCheckpoint(input.operation, 'file-semantics');
+    if (typeScriptSemanticDependencyScope(file) !== 'module-scoped') return false;
+    if (hasTypeScriptReferenceDirectives(file.source)) return false;
+  }
+  return true;
+}
 
 function assertReusableTypeScriptState(
   state: TypeScriptIncrementalState,
@@ -255,18 +314,18 @@ function compileTypeScriptModelIncrementalInternal(
         input,
         reusableState.model
       );
+      const state = buildIncrementalState(
+        input, model, reusableState.reverseConsumers, compilerRevision,
+        input.repositoryCompilation?.moduleGraphDigest
+          ?? sha256(reusableState.reverseConsumers) as `sha256:${string}`
+      );
+      const previousContext = structuralReuseContexts.get(reusableState);
+      if (previousContext !== undefined) {
+        rememberStructuralReuseContext(state, input,
+          input.repositoryCompilation?.moduleGraph ?? previousContext.graph);
+      }
       return Object.freeze({
-        mode: 'exact',
-        invalidatedPaths: Object.freeze([]),
-        model,
-        state: buildIncrementalState(
-          input,
-          model,
-          reusableState.reverseConsumers,
-          compilerRevision,
-          input.repositoryCompilation?.moduleGraphDigest
-            ?? sha256(reusableState.reverseConsumers) as `sha256:${string}`
-        )
+        mode: 'exact', invalidatedPaths: Object.freeze([]), model, state
       });
     }
   }
@@ -294,23 +353,34 @@ function compileTypeScriptModelIncrementalInternal(
       mode: 'full',
       invalidatedPaths: currentPaths,
       model,
-      state: buildIncrementalState(
+      state: rememberStructuralReuseContext(buildIncrementalState(
         input,
         model,
         reverseConsumers,
         compilerRevision,
         input.repositoryCompilation?.moduleGraphDigest
           ?? sha256(reverseConsumers) as `sha256:${string}`
-      )
+      ), input, graph)
     });
   };
   if (reusableState === null || changed === null) return compileFull();
+  const previousContext = structuralReuseContexts.get(reusableState);
+  if (previousContext?.hasGlobalInputs === true
+      || reusableState.factShards.some(({ semanticDependencyScope }) => semanticDependencyScope !== 'module-scoped')
+      || (previousContext?.graph.unresolvedFiles.length ?? 0) > 0
+      || graph.unresolvedFiles.length > 0
+      || (previousContext === undefined ? currentPaths : changed).some(path => {
+        sourceProgramCompilationCheckpoint(input.operation, 'file-semantics');
+        const file = currentFileByPath.get(path);
+        return file !== undefined && hasTypeScriptReferenceDirectives(file.source);
+      })) return compileFull();
   const fileSetChanged = Object.keys(reusableState.fileDigests).length !== currentPaths.length
     || currentPaths.some((repositoryPathValue) => reusableState.fileDigests[repositoryPathValue] === undefined);
   const currentModuleGraphDigest = input.repositoryCompilation?.moduleGraphDigest
     ?? sha256(reverseConsumers) as `sha256:${string}`;
   const graphChanged = reusableState.moduleGraphDigest !== currentModuleGraphDigest;
-  if (fileSetChanged || graphChanged) return compileFull();
+  if ((fileSetChanged || graphChanged)
+      && !canReuseAddedModules(reusableState, input, graph, currentPaths)) return compileFull();
   const currentSemanticDependencyScopes = new Map(changed.map((repositoryPathValue) => {
     const file = currentFileByPath.get(repositoryPathValue);
     return [
@@ -319,7 +389,8 @@ function compileTypeScriptModelIncrementalInternal(
     ] as const;
   }));
   const globallyCoupledChange = changed.some((repositoryPathValue) => (
-    reusableState.semanticDependencyScopes[repositoryPathValue] !== 'module-scoped'
+    (reusableState.fileDigests[repositoryPathValue] !== undefined
+      && reusableState.semanticDependencyScopes[repositoryPathValue] !== 'module-scoped')
     || currentSemanticDependencyScopes.get(repositoryPathValue) !== 'module-scoped'
   ));
   if (globallyCoupledChange) return compileFull();
@@ -386,18 +457,17 @@ function compileTypeScriptModelIncrementalInternal(
     ),
     input
   );
+  const state = buildIncrementalState(
+    input, model, reverseConsumers, compilerRevision,
+    input.repositoryCompilation?.moduleGraphDigest
+      ?? sha256(reverseConsumers) as `sha256:${string}`
+  );
+  if (previousContext !== undefined) rememberStructuralReuseContext(state, input, graph);
   return Object.freeze({
     mode: 'incremental',
     invalidatedPaths: Object.freeze([...invalidatedCurrent].sort(compareCodeUnits)),
     model,
-    state: buildIncrementalState(
-      input,
-      model,
-      reverseConsumers,
-      compilerRevision,
-      input.repositoryCompilation?.moduleGraphDigest
-        ?? sha256(reverseConsumers) as `sha256:${string}`
-    )
+    state
   });
 }
 
