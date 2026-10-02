@@ -12,9 +12,9 @@ last-reviewed: 2026-10-02
 ```json
 {
   "active": {
-    "manifestDigest": "sha256:76459fb5b3f5c6ce1d7825ea47474140006214a7dc431026daa6851f0db93180",
-    "manifestPath": "config/repository/work-packages/github-response-adoption-20261002.md",
-    "packageId": "github-response-adoption-20261002",
+    "manifestDigest": "sha256:70e977c27de1fa2efe34e28ae722211bca70f19e92c5b83eb4ad08dcb5f3c4f1",
+    "manifestPath": "config/repository/work-packages/compiler-locator-adoption-20261002.md",
+    "packageId": "compiler-locator-adoption-20261002",
     "tracking": "none"
   },
   "authority": "none",
@@ -25,18 +25,18 @@ last-reviewed: 2026-10-02
     "candidate-control-transaction-v1",
     "typescript-7-checker-acceleration-v1"
   ],
-  "exactMain": "4dfd07fc6a2b3a7fa781d74e4d2424614807042a",
-  "exactMainTree": "c3cb467880962cbd6eebf4b87267e0712138881a",
-  "projectionDigest": "sha256:b613fbf4c40a80d29f6f334e2a9f2afd6ec94408fd9278b8979c5df87518549f",
+  "exactMain": "b058d210e4605555f0ee666cec92288d6a744b97",
+  "exactMainTree": "a3154fa7b504034640914e3d4adf809e3de593e0",
+  "projectionDigest": "sha256:dea83a5e55bffb82e7a4b6f88074955b063ec344c746bb3e93c3718aa931e433",
   "schema": "sec-work-rolling-proposal-projection-v1"
 }
 ```
 
 ## 当前唯一 Work Package
 
-### github-response-adoption-20261002
+### compiler-locator-adoption-20261002
 
-Proposal-only target manifest `config/repository/work-packages/github-response-adoption-20261002.md` at `sha256:76459fb5b3f5c6ce1d7825ea47474140006214a7dc431026daa6851f0db93180`, based on exact main `4dfd07fc6a2b3a7fa781d74e4d2424614807042a` and tree `c3cb467880962cbd6eebf4b87267e0712138881a`.
+Proposal-only target manifest `config/repository/work-packages/compiler-locator-adoption-20261002.md` at `sha256:70e977c27de1fa2efe34e28ae722211bca70f19e92c5b83eb4ad08dcb5f3c4f1`, based on exact main `b058d210e4605555f0ee666cec92288d6a744b97` and tree `a3154fa7b504034640914e3d4adf809e3de593e0`.
 
 ## 候选 Work Package
 
