@@ -35,7 +35,8 @@ function invoke(cwd: string, env: NodeJS.ProcessEnv, ...args: string[]) {
   return result;
 }
 
-test('one upstream handoff becomes managed local continuation until explicit external boundaries', () => {
+test.each(['codex-development-work-package-v1', 'codex-development-work-package-v3'] as const)(
+  '%s upstream handoff becomes managed local continuation until explicit external boundaries', (schema) => {
   const fixtureRoot = mkdtempSync(path.join(tmpdir(), 'sec-managed-continuation-'));
   const repositoryRoot = path.join(fixtureRoot, 'repo');
   const stateRoot = path.join(fixtureRoot, 'state');
@@ -61,11 +62,10 @@ test('one upstream handoff becomes managed local continuation until explicit ext
 
     const manifestPath = 'config/repository/work-packages/continuation-fixture-v1.md';
     writeFileSync(path.join(repositoryRoot, manifestPath), `---
-schema: codex-development-work-package-v1
+schema: ${schema}
 id: continuation-fixture-v1
 tracking: none
-base: ${baseSha}
-manifestState: frozen
+${schema === 'codex-development-work-package-v1' ? `base: ${baseSha}\n` : ''}manifestState: frozen
 requiredProfile: quick
 ciRevision: ci-verification-v19
 tasks:

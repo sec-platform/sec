@@ -4,6 +4,7 @@ import { rawSha256, sha256 } from '../../../../contracts/canonical.ts';
 import type { MainHealthRepairDecision } from '../main-health/repair.ts';
 import {
   CodexDevelopmentParseCurrentWorkPackageManifest,
+  CodexDevelopmentWorkPackageAcceptsObservedBase,
   CodexDevelopmentWorkPackageManifestDigest,
   type CodexDevelopmentWorkPackageManifest
 } from '../task/contract/work-package.ts';
@@ -1370,7 +1371,7 @@ export function CodexDevelopmentCreateFreezeProjection(input: {
     throw new Error('Work Package manifest bytes must be valid UTF-8.', { cause: error });
   }
   const manifest = CodexDevelopmentParseCurrentWorkPackageManifest(manifestSource, manifestPath);
-  if (manifest.base !== input.baseSha) {
+  if (!CodexDevelopmentWorkPackageAcceptsObservedBase(manifest, input.baseSha)) {
     throw new Error('Work Package manifest base must equal the exact live default revision.');
   }
   const currentPointer = CodexDevelopmentParseActivePointer(input.currentPointerSource);

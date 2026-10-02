@@ -35,7 +35,7 @@ export type LocalContinuationCheckpointInput = Omit<
   'schema' | 'checkpointDigest'
 >;
 
-export interface LocalContinuationObservation {
+interface LocalContinuationObservationFields {
   readonly repositoryRoot: string;
   readonly branch: string;
   readonly headSha: string;
@@ -47,12 +47,16 @@ export interface LocalContinuationObservation {
   readonly manifestDigest: LocalContinuationDigest;
   readonly workPackageId: string;
   readonly tracking: string;
-  readonly manifestBaseSha: string;
   readonly requiredProfile: 'quick' | 'full';
   readonly ciRevision: `ci-verification-v${number}`;
   readonly changedPathCount: number;
   readonly ownershipChecked: true;
 }
+
+export type LocalContinuationObservation = LocalContinuationObservationFields & (
+  | { readonly manifestSchema?: 'codex-development-work-package-v1'; readonly manifestBaseSha: string }
+  | { readonly manifestSchema: 'codex-development-work-package-v3'; readonly manifestBaseSha?: never }
+);
 
 export interface LocalContinuationAdmission {
   readonly schema: typeof LOCAL_CONTINUATION_ADMISSION_SCHEMA;
@@ -163,11 +167,19 @@ export function admitLocalContinuation(input: Readonly<{
     [observation.headSha, checkpoint.headSha, 'headSha'],
     [observation.headTreeSha, checkpoint.headTreeSha, 'headTreeSha'],
     [observation.baseTreeSha, checkpoint.baseTreeSha, 'baseTreeSha'],
-    [observation.manifestPath, checkpoint.manifestPath, 'manifestPath'],
-    [observation.manifestBaseSha, checkpoint.baseSha, 'manifestBaseSha']
+    [observation.manifestPath, checkpoint.manifestPath, 'manifestPath']
   ];
   for (const [actual, expected, label] of checks) {
     if (actual !== expected) fail(`${label} drifted; refresh external facts before continuing.`);
+  }
+  if (observation.manifestSchema === 'codex-development-work-package-v3') {
+    if (Object.hasOwn(observation, 'manifestBaseSha')) fail('V3 observation must not contain manifestBaseSha.');
+  } else if (observation.manifestSchema === undefined || observation.manifestSchema === 'codex-development-work-package-v1') {
+    if (observation.manifestBaseSha !== checkpoint.baseSha) {
+      fail('manifestBaseSha drifted; refresh external facts before continuing.');
+    }
+  } else {
+    fail('unsupported manifest observation schema.');
   }
   if (observation.parentShas.length !== 1 || observation.parentShas[0] !== checkpoint.baseSha) {
     fail('candidate is no longer the canonical one-parent child of the frozen base.');

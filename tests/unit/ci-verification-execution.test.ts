@@ -2145,3 +2145,40 @@ test('credential sanitizer never treats provider environment identity as a writa
     TMPDIR: '/tmp'
   });
 });
+
+test('CI V3 reader binds exact raw plan bytes and preserves observed base checks before execution', async () => {
+  const root = mkdtempSync(path.join(tmpdir(), 'sec-ci-v3-reader-'));
+  try {
+    const options = baseOptions(root);
+    const legacy = new TextDecoder().decode(options.readExactGitBlob().bytes);
+    const v3 = legacy.replace('codex-development-work-package-v1', 'codex-development-work-package-v3')
+      .replace(`base: "${BASE}"\n`, '');
+    const blob = (source: string) => ({ ...options.readExactGitBlob(), bytes: Buffer.from(source),
+      blobSha: createHash('sha1').update(source).digest('hex') });
+    let starts = 0;
+    let evidence: CodexDevelopmentVerificationEvidenceV4 | null = null;
+    const runGate: typeof options.runGate = async (gate, execution) => {
+      starts += 1;
+      return executeSentinelGate(root, 0)(gate, execution);
+    };
+    for (const source of [legacy.replace(BASE, '9'.repeat(40)), v3.replace('manifestState:', `base: "${BASE}"\nmanifestState:`)]) {
+      expect(await CodexDevelopmentCiVerificationMainForTests({ ...options, runGate,
+        readExactGitBlob: () => blob(source), readGitBlob: () => blob(source), writeEvidence: () => undefined })).toBe(1);
+      expect(starts).toBe(0);
+    }
+    expect(await CodexDevelopmentCiVerificationMainForTests({ ...options, runGate,
+      env: { ...options.env, SEC_AFFECTED_TESTS_BASE: '9'.repeat(40) },
+      gitRevision: ref => ref === '9'.repeat(40) ? ref
+        : ref === `${'9'.repeat(40)}^{tree}` ? '8'.repeat(40) : revisions(ref),
+      readExactGitBlob: () => blob(v3), readGitBlob: () => blob(v3), writeEvidence: () => undefined })).toBe(1);
+    expect(starts).toBe(0);
+    expect(await CodexDevelopmentCiVerificationMainForTests({ ...options, runGate,
+      readExactGitBlob: () => blob(v3), readGitBlob: () => blob(v3),
+      writeEvidence: (_file, value) => { evidence = value; } })).toBe(0);
+    expect(starts).toBeGreaterThan(0);
+    expect(evidence).not.toBeNull();
+    expect(JSON.stringify(evidence)).toContain(bytesDigest(v3));
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});

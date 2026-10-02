@@ -120,6 +120,23 @@ stableFacts:
     defaultManifestBytes: currentManifest
   };
   const projection = CodexDevelopmentCreateFreezeProjection({ ...common, proposalOnly });
+  const stableV3Bytes = Buffer.from(targetManifest.toString('utf8')
+    .replace('codex-development-work-package-v1', 'codex-development-work-package-v3')
+    .replace(`base: '${exactMain}'\n`, ''), 'utf8');
+  for (const [baseSha, baseTreeSha] of [[exactMain, exactMainTree], ['c'.repeat(40), 'd'.repeat(40)]]) {
+    const v3 = CodexDevelopmentCreateFreezeProjection({
+      ...common, proposalOnly, manifestBytes: stableV3Bytes, baseSha: baseSha!, baseTreeSha: baseTreeSha!
+    });
+    expect(v3.manifestDigest).toBe(CodexDevelopmentWorkPackageManifestDigest(stableV3Bytes) as `sha256:${string}`);
+    expect(CodexDevelopmentParseRollingMachineProjection(v3.rollingPlanSource)).toMatchObject({
+      exactMain: baseSha, exactMainTree: baseTreeSha, authority: 'none'
+    });
+    expect(() => CodexDevelopmentAssertRollingMachineBaseBinding({
+      projection: CodexDevelopmentParseRollingMachineProjection(v3.rollingPlanSource)!,
+      exactMain: baseSha!, exactMainTree: 'e'.repeat(40)
+    })).toThrow('does not bind the exact live default tree');
+  }
+
   expect(projection.authoringDisposition).toBe('proposal-only');
   expect(projection.retiredManifestPath).toBe(`config/repository/work-packages/${activePackageId}.md`);
   expect(CodexDevelopmentParseRollingPlan(projection.rollingPlanSource).activePackageId)
