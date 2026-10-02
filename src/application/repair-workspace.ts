@@ -70,5 +70,9 @@ export async function repairWorkspaceResult(
   if (typeof publish !== 'function' || typeof recordFailure !== 'function') {
     throw new TypeError('Workspace repair publication operations must be callable');
   }
-  return publishRepairPlanResult({ lock, repairPlan }, { publish, recordFailure });
+  // The publication port table is a forwarding view, not the provider receiver.
+  return publishRepairPlanResult({ lock, repairPlan }, {
+    publish: (plan, currentLock) => publish.call(operations, plan, currentLock),
+    recordFailure: currentLock => recordFailure.call(operations, currentLock)
+  });
 }
