@@ -52,7 +52,7 @@
 
 ## 最终作者面与完整控制的快速入口
 
-需要回答“开发者最终编辑什么、哪些细节可以省略但不能丢、自动选择如何解释、原生配置由谁维护”时，按同一事实链读取：[结构化作者面的同源投影](作者/结构化源码.md#author-surface-projection) → [作者信息完整性](作者/需求关系与能力边界.md#author-information-completeness) → [有效控制投影](作者/组合/稀疏控制与目标限定.md#effective-control-projection) → [配置所有权与生态适配](作者/工程源/资产与非源码.md#configuration-ownership-and-adapters) → [开发客户端的完整下钻](开发/编辑审查与客户端.md#developer-effective-view)。这些页面分别拥有持久作者结构、能力落位、控制合成、原生配置和客户端投影；本入口不复制字段表，也不建立另一套“最终UX规范”。
+需要回答“开发者最终编辑什么、**到底可以设置哪些工程事实**、哪些细节可以省略但不能丢、自动选择如何解释、原生配置由谁维护”时，按同一事实链读取：[结构化作者面的同源投影](作者/结构化源码.md#author-surface-projection) → [完整开发设定面](作者/需求关系与能力边界.md#developer-decision-surface) → [作者信息完整性](作者/需求关系与能力边界.md#author-information-completeness) → [Auto/Pin/Forbid/Profile与scope](作者/组合/稀疏控制与目标限定.md#developer-control-ux) → [有效控制投影](作者/组合/稀疏控制与目标限定.md#effective-control-projection) → [配置所有权与生态适配](作者/工程源/资产与非源码.md#configuration-ownership-and-adapters) → [DeveloperDecisionView](开发/编辑审查与客户端.md#developer-decision-view) → [All Decisions](作者/成品/工作台交互与共同状态.md#workbench-all-decisions)。这些页面分别拥有持久作者结构、决策目录、信息保全、控制合成、原生配置和客户端投影；本入口不复制字段表，也不建立另一套Property IR、UniversalConfig或“最终UX真源”。
 
 ## 全域工程的发现入口
 
