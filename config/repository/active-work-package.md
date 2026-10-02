@@ -10,8 +10,8 @@ last-reviewed: 2026-10-02
 selectionMode: exact-manifest-not-on-default-branch-v1
 defaultBranchRef: refs/remotes/origin/main
 defaultRefFreshness: live-platform-match-required
-manifest: config/repository/work-packages/audit-worker-argv-adoption-20261002.md
-manifestDigest: sha256:aad8c25ebd09419e6cd7872bc01ffd533c87a736ba0ca947640c623f51673ef3
+manifest: config/repository/work-packages/trusted-source-publication-adoption-20261002.md
+manifestDigest: sha256:baa6159c7bc0250adf7f17fa81e6a5dd5b153411777c3bb4ce79b65490fc86a6
 digestBytes: git-blob
 unavailableDefaultRef: unresolved
 matchingDefaultBlob: none

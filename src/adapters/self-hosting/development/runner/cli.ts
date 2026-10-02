@@ -218,6 +218,7 @@ export async function runTypecheckCommand(args: readonly string[]): Promise<numb
 
 function usage(): never {
   console.error('Optional: --github-credential-store <absolute-private-directory> (Linux only; outside the operation checkout).');
+  console.error('Source checkpoint, from the trusted main package: bun run dev commit <message> --source-checkpoint --workspace <candidate> --trusted-main <exact-sha> --base <exact-sha> --expected-head <exact-sha> --expected-ref <refs/heads/topic> --expected-tree <exact-staged-tree> --expected-index <sha256:digest> --owned-path <exact-path> [--owned-path <exact-path> ...].');
   console.error('Usage: bun ./src/adapters/self-hosting/development/runner/cli.ts <commit <message>|commit:recover <absolute-journal-path>|commit:recover --retire-superseded-local <exact-ref>|workspace-transition <post-checkout|post-merge|post-rewrite> [hook-args...]|deps:ensure|typecheck|check [--affected [--plan]|--scope <fast|full>]|test [--affected [--plan]|--scope <fast|slow|full>] [test-args...]|imports:check [--all|--candidate-base <sha>] [--remove-unused]|imports:check --staged [--candidate-base <sha>]|imports:apply [--all|--candidate-base <sha>] [--remove-unused]|imports:apply --staged [--candidate-base <sha>]|imports:freeze|generated-state:inspect|generated-state:plan|generated-state:cleanup|environment:workspace-settle> [args...]');
   process.exit(1);
 }

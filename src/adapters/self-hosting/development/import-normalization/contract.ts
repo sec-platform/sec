@@ -4,10 +4,15 @@ import {
   type SourceProgramOperationProducerClosure
 } from '../../../repository/source-program-model/contract.ts';
 import {
+  compileSourceProgramOperationProducerClosureFromWorkspaceSnapshot,
+  requireSourceProgramOperationProducerClosure
+} from '../../../repository/source-program-model/producer-closure.ts';
+import {
   assertPhysicalWorkspaceSourceSnapshot,
   requireStagedWorkspaceSourceSelection,
   type PhysicalWorkspaceSourceSnapshot,
-  type StagedWorkspaceSourceSelection
+  type StagedWorkspaceSourceSelection,
+  type WorkspaceSourceSnapshot
 } from '../../../repository/source-program-model/workspace-source-snapshot.ts';
 import {
   createVerificationActionKey,
@@ -23,6 +28,12 @@ export const IMPORT_NORMALIZATION_OPERATION = Object.freeze({
   capability: 'development.import-normalization',
   operation: 'verifyCandidateImportNormalization'
 });
+
+/** Source evidence only. The execution owner chooses its observed tool source;
+ * candidate source is independently bound by compileCandidateNormalizationSubject. */
+export function compileCandidateNormalizationProducer(snapshot: WorkspaceSourceSnapshot): SourceProgramOperationProducerClosure {
+  return compileSourceProgramOperationProducerClosureFromWorkspaceSnapshot(snapshot, IMPORT_NORMALIZATION_OPERATION);
+}
 
 const ACTION_KIND = 'development.import-normalization';
 const PRODUCER_IDENTITY = 'development.import-normalization';
@@ -105,7 +116,7 @@ export function compileCandidateNormalizationSubject(input: Readonly<{
   if (input.baseSnapshot !== undefined) {
     assertPhysicalWorkspaceSourceSnapshot(input.baseSnapshot);
   }
-  const producerClosure = input.producerClosure;
+  const producerClosure = requireSourceProgramOperationProducerClosure(input.producerClosure);
   if (producerClosure.operation.capability !== IMPORT_NORMALIZATION_OPERATION.capability
       || producerClosure.operation.operation !== IMPORT_NORMALIZATION_OPERATION.operation) {
     throw new Error('Candidate normalization producer closure does not bind the exact snapshot operation');

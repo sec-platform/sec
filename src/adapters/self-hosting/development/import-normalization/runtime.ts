@@ -32,6 +32,7 @@ import {
 import {
   acquireExactGitTreeWorkspaceSourceSnapshotFromSession,
   acquireStagedIndexWorkspaceSourceSnapshot,
+  assertPhysicalWorkspaceSourceSnapshot,
   readBackStagedIndexWorkspaceSourceSnapshot,
   selectStagedWorkspaceSourceSnapshot,
   type PhysicalWorkspaceSourceSnapshot
@@ -49,6 +50,7 @@ import {
 import {
   CANDIDATE_NORMALIZATION_DURATION_MS,
   compileCandidateNormalizationActionKey,
+  compileCandidateNormalizationProducer,
   compileCandidateNormalizationSubject,
   IMPORT_NORMALIZATION_OPERATION,
   isCandidateNormalizationPath,
@@ -323,6 +325,9 @@ async function executeCandidateNormalization(input: Readonly<{
 export async function verifyStagedCandidateImportNormalization(input: Readonly<{
   gitOperation: AuthorityGitReadOperation;
   candidateBase?: string;
+  /** Exact tool source observed by commit admission. Candidate bytes remain
+   * the input subject and are never imported to execute this operation. */
+  producerSnapshot?: PhysicalWorkspaceSourceSnapshot;
 }>): Promise<Readonly<{
   outcome: VerificationActionRunOutcome;
   admission: CandidateNormalizationAdmissionReceipt | null;
@@ -340,10 +345,9 @@ export async function verifyStagedCandidateImportNormalization(input: Readonly<{
       return { snapshot, stagedSelection, repositoryRoot: session.cwd };
     }
   );
-  const producerClosure = compileSourceProgramOperationProducerClosureFromWorkspaceSnapshot(
-    snapshot,
-    IMPORT_NORMALIZATION_OPERATION
-  );
+  const producerSnapshot = input.producerSnapshot ?? snapshot;
+  assertPhysicalWorkspaceSourceSnapshot(producerSnapshot);
+  const producerClosure = compileCandidateNormalizationProducer(producerSnapshot);
   requireSourceProgramOperationProducerClosure(producerClosure);
   const compilerIdentity = sourceProgramTypeScriptCompilerIdentity();
   assertSourceProgramTypeScriptCompilerIdentity(compilerIdentity);

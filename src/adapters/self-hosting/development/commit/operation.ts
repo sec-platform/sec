@@ -20,10 +20,6 @@ import {
   type WorkspaceWriteLeaseToken
 } from '../../../filesystem/write-lease.ts';
 import { withAuthorityGitReadSession } from '../../../providers/git-read/authority.ts';
-import {
-  assertGitLocalRefDeleteBatchReceipt,
-  type GitLocalRefDeleteBatchReceipt
-} from '../../../providers/git/ref-effect.ts';
 import { assertGitHubRepositoryBinding } from '../../../providers/git-read/repository-binding.ts';
 import {
   compareAndSwapAuthorityDevelopmentCommitRef,
@@ -33,6 +29,10 @@ import {
   settleGitDevelopmentCommitOperation,
   type GitReadSession
 } from '../../../providers/git-read/runtime/session.ts';
+import {
+  assertGitLocalRefDeleteBatchReceipt,
+  type GitLocalRefDeleteBatchReceipt
+} from '../../../providers/git/ref-effect.ts';
 import {
   executeGitHubApiOperation,
   GitHubApiProviderError,
@@ -53,6 +53,7 @@ import {
   type DevelopmentCommitAdmission,
   type DevelopmentCommitRequest
 } from '../commit-admission/operation.ts';
+import { SOURCE_CHECKPOINT_COMMIT_IDENTITY_PROCESS_COUNT } from '../commit-admission/source-checkpoint-contract.ts';
 import { GIT_READ_OPERATION_BUDGET } from '../tooling/git/git-read.ts';
 
 const JOURNAL_SCHEMA = 'sec-development-commit-journal-v1';
@@ -419,7 +420,8 @@ async function execute(
     operation,
     budget: {
       ...GIT_READ_OPERATION_BUDGET,
-      maxProcesses: DEVELOPMENT_COMMIT_EXECUTION_PROCESS_COUNT,
+      maxProcesses: DEVELOPMENT_COMMIT_EXECUTION_PROCESS_COUNT
+        + (request.sourceCheckpoint === undefined ? 0 : SOURCE_CHECKPOINT_COMMIT_IDENTITY_PROCESS_COUNT),
       maxStdinBytes: 64 * 1024,
       maxStdoutBytes: 12 * 1024,
       maxStderrBytes: 192 * 1024,

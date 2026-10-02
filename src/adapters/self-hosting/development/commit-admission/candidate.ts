@@ -14,6 +14,16 @@ import {
   inspectNoFollowDirectoryLeaf,
   inspectNoFollowOrdinaryFileEntry
 } from '../../../runtime-state/physical/runtime/physical-no-follow.ts';
+import {
+  assertDevelopmentSourceCheckpointCandidateIdentity,
+  assertDevelopmentSourceCheckpointIndexDigest
+} from './source-checkpoint-contract.ts';
+import {
+  assertDevelopmentSourceCheckpointRepository,
+  observeDevelopmentSourceCheckpointScope,
+  requireDevelopmentSourceCheckpointBinding,
+  type DevelopmentSourceCheckpointBinding
+} from './source-checkpoint.ts';
 
 const OBJECT_ID = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/u;
 const REF = /^refs\/heads\/[A-Za-z0-9][A-Za-z0-9._\/-]*$/u;
@@ -23,6 +33,7 @@ export type DevelopmentCommitRequest = Readonly<{
   readonly message: string;
   readonly author: GitCommitIdentity;
   readonly committer: GitCommitIdentity;
+  readonly sourceCheckpoint?: DevelopmentSourceCheckpointBinding;
 }>;
 
 export type DevelopmentCommitCandidate = Readonly<{
@@ -64,7 +75,10 @@ function requestDigest(request: DevelopmentCommitRequest): SecOperationDigest {
     repositoryRoot,
     message: request.message,
     author: request.author,
-    committer: request.committer
+    committer: request.committer,
+    ...(request.sourceCheckpoint === undefined ? {} : {
+      sourceCheckpoint: requireDevelopmentSourceCheckpointBinding(request.sourceCheckpoint, repositoryRoot).digest
+    })
   }) as SecOperationDigest;
 }
 
@@ -126,7 +140,7 @@ function observeIndex(indexPath: string): Readonly<{
 
 function sameIndexObservation(
   current: ReturnType<typeof observeIndex>,
-  expected: DevelopmentCommitCandidateDetails
+  expected: Pick<DevelopmentCommitCandidateDetails, 'indexParent' | 'indexEntry'>
 ): boolean {
   return current.parent.path === expected.indexParent.path
     && current.parent.device === expected.indexParent.device
@@ -185,6 +199,17 @@ export async function freezeDevelopmentCommitCandidate(input: Readonly<{
     throw new Error('Development commit candidate repository/ref preflight is not canonical.');
   }
   const beforeIndex = observeIndex(indexPath);
+  if (input.request.sourceCheckpoint !== undefined) {
+    const checkpoint = requireDevelopmentSourceCheckpointBinding(input.request.sourceCheckpoint, repositoryRoot);
+    assertDevelopmentSourceCheckpointIndexDigest(checkpoint.request.expectedIndex, beforeIndex.entry.byteDigest);
+    await observeDevelopmentSourceCheckpointScope(input.request.sourceCheckpoint, repositoryRoot, session);
+    if (!sameIndexObservation(observeIndex(indexPath), {
+      indexParent: beforeIndex.parent, indexEntry: beforeIndex.entry
+    })) {
+      throw new Error('Source checkpoint index changed during ownership observation.');
+    }
+    await assertDevelopmentSourceCheckpointRepository(input.request.sourceCheckpoint, repositoryRoot, session);
+  }
   const scratchRoot = await mkdtemp(path.join(tmpdir(), 'sec-development-commit-candidate-'));
   try {
     await mkdir(path.join(scratchRoot, 'objects'));
@@ -203,6 +228,12 @@ export async function freezeDevelopmentCommitCandidate(input: Readonly<{
       }
       if (treeResult.value === preimageTree) {
         throw new Error('Development commit candidate has no staged tree delta.');
+      }
+      if (input.request.sourceCheckpoint !== undefined) {
+        assertDevelopmentSourceCheckpointCandidateIdentity(
+          requireDevelopmentSourceCheckpointBinding(input.request.sourceCheckpoint, repositoryRoot).request,
+          { ref, head: preimage, tree: treeResult.value, index: beforeIndex.entry.byteDigest }
+        );
       }
       const commitResult = await resolution.session.commitTree({
         tree: treeResult.value,
@@ -302,6 +333,11 @@ export async function assertDevelopmentCommitCandidateCurrent(input: Readonly<{
       || sha256(session.providerIdentity) !== details.providerIdentityDigest
       || !session.verifyExecutable() || session.verifyWorkingDirectory?.() !== true) {
     throw new Error('Development commit candidate provider identity changed before Effect admission.');
+  }
+  if (input.request.sourceCheckpoint !== undefined) {
+    await assertDevelopmentSourceCheckpointRepository(
+      input.request.sourceCheckpoint, details.candidate.repositoryRoot, session
+    );
   }
   const ref = await commandText(session, ['symbolic-ref', '--quiet', 'HEAD'], 'read back HEAD ref');
   const preimage = await commandText(
