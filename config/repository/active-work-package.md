@@ -10,8 +10,8 @@ last-reviewed: 2026-10-02
 selectionMode: exact-manifest-not-on-default-branch-v1
 defaultBranchRef: refs/remotes/origin/main
 defaultRefFreshness: live-platform-match-required
-manifest: config/repository/work-packages/source-run-alias-adoption-20261002.md
-manifestDigest: sha256:5fa616416a152974cd402c8b3f7a106bd8762e0915707913069e2206a6a73e4e
+manifest: config/repository/work-packages/agent-literal-options-adoption-20261002.md
+manifestDigest: sha256:1c8697c19c17c9f552aa62e409cff4ebe4371479a0c24fd45bc07877ef760e1f
 digestBytes: git-blob
 unavailableDefaultRef: unresolved
 matchingDefaultBlob: none
