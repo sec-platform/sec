@@ -10,8 +10,8 @@ last-reviewed: 2026-10-02
 selectionMode: exact-manifest-not-on-default-branch-v1
 defaultBranchRef: refs/remotes/origin/main
 defaultRefFreshness: live-platform-match-required
-manifest: config/repository/work-packages/compiler-locator-adoption-20261002.md
-manifestDigest: sha256:70e977c27de1fa2efe34e28ae722211bca70f19e92c5b83eb4ad08dcb5f3c4f1
+manifest: config/repository/work-packages/action-journal-adoption-20261002.md
+manifestDigest: sha256:140525cb60d19c4ac69dc00e014bf8a546abb53019397a1d9078ac14bac8dca0
 digestBytes: git-blob
 unavailableDefaultRef: unresolved
 matchingDefaultBlob: none
