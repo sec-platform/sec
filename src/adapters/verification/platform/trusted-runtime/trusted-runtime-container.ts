@@ -39,8 +39,8 @@ import {
   openContainerEngineSession
 } from '../../../providers/docker/runtime/container-engine-session.ts';
 import {
-  openWindowsDockerCommandProvider
-} from '../../../providers/docker/runtime/windows-command-provider.ts';
+  openDockerCommandProvider
+} from '../../../providers/docker/runtime/installed-command-provider.ts';
 import {
   assertGitCandidateBundleReceipt,
   closeGitCandidateBundle,
@@ -1499,7 +1499,7 @@ async function withTrustedRuntimeWorkspace<T>(input: Readonly<{
   let operationLeaseAuthority:
     Awaited<ReturnType<typeof acquireSecRuntimeStatePhysicalAuthority>> | null = null;
   let operationLease: ReturnType<typeof acquirePhysicalMutationLease> = null;
-  let commandProvider: Awaited<ReturnType<typeof openWindowsDockerCommandProvider>> | null = null;
+  let commandProvider: Awaited<ReturnType<typeof openDockerCommandProvider>> | null = null;
   let commandProviderTransferred = false;
   let containerEngineSession: ContainerEngineSession | null = null;
   let primaryFailure: unknown;
@@ -1553,7 +1553,7 @@ async function withTrustedRuntimeWorkspace<T>(input: Readonly<{
           return objectId;
         });
     remainingMs();
-    commandProvider = await openWindowsDockerCommandProvider({
+    commandProvider = await openDockerCommandProvider({
       workingDirectory: repositoryRoot
     });
     const operation = bindTrustedRuntimeContainerEngineOperation({

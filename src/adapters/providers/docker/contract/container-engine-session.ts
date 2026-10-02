@@ -42,7 +42,7 @@ export interface ContainerEngineOperationOptions {
 }
 
 /**
- * One retained Docker executable/cwd/endpoint transport. It owns only the
+ * One retained platform command/cwd/endpoint transport. It owns only the
  * external Container Engine effect; its result cannot sign Verification
  * terminal state or evidence.
  */
@@ -50,6 +50,9 @@ export interface ContainerEngineSession {
   readonly endpoint: DockerEndpointIdentity;
   readonly cwd: string;
   readonly executable: string;
+  readonly commandProtocol: 'docker-cli' | 'engine-http';
+  /** Admitted command families; readiness alone does not grant every family. */
+  readonly supportedOperations: readonly ContainerEngineOperation['kind'][];
   readonly deadlineAtUnixMs: number;
   /** Runtime-issued identity of the retained executable/cwd/endpoint provider. */
   readonly providerIdentityDigest: SecOperationDigest;
