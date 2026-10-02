@@ -333,6 +333,34 @@ test('repository mutation fence preserves dirty candidates and detects tracked, 
   }
 });
 
+test.skipIf(process.platform === 'win32')(
+  'repository mutation fence rejects an unavailable physical observer before the workload',
+  async () => {
+    const root = await createRepository('sec-dev-observer-unavailable-');
+    const diagnostics: string[] = [];
+    let called = false;
+    try {
+      const result = await runRepositoryZeroWriteOperation('test:unsupported', async () => {
+        called = true;
+        return 0;
+      }, {
+        operation: gitReadOperation(),
+        repositoryRoot: root,
+        report: (message) => diagnostics.push(message)
+      });
+      expect(result).toBe(1);
+      expect(called).toBe(false);
+      expect(diagnostics).toHaveLength(1);
+      expect(diagnostics[0]).toContain('strict-zero-write-unproven');
+      expect(diagnostics[0]).toContain('unsupported-platform');
+      expect(await fs.readFile(path.join(root, 'committed.ts'), 'utf8'))
+        .toBe('export const committed = true;\n');
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  }
+);
+
 test('repository mutation operation fence turns a child write into one diagnostic failure', async () => {
   const root = await createRepository('sec-dev-mutation-operation-');
   const diagnostics: string[] = [];

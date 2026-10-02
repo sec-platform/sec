@@ -12,15 +12,18 @@ import {
   parseExactJson
 } from '../../../../contracts/exact-json.ts';
 import {
+  observePhysicalJournalMutationEntry,
   PHYSICAL_MUTATION_LEASE_SCHEMA
 } from '../../../runtime-state/physical/runtime/mutation-lease.ts';
 import {
   inspectExactNoFollowDirectoryPresence,
+  inspectNoFollowDirectoryChain,
   type NoFollowDirectoryTreeEntry,
   scanNoFollowDirectoryTree,
   scanNoFollowDirectoryTreeSelectedForest
 } from '../../../runtime-state/physical/runtime/physical-no-follow.ts';
 import {
+  hasOwnedRuntimeJournalMutation,
   type RuntimeStateJournalFileSystem,
   runtimeStateJournalMutationLeaseName
 } from '../../../runtime-state/workspace-state/journal-filesystem.ts';
@@ -682,6 +685,20 @@ function classifyMachineCutoverFile(input: Readonly<{
   allowIncompleteReceiptPublication: boolean;
   global: boolean;
 }>): void {
+  if (/^\.sec-journal-guard-[0-9a-f]{64}\.lock$/u.test(input.fileName)
+    || MUTATION_LEASE_NAME_PATTERN.test(input.fileName)) {
+    const parent = inspectNoFollowDirectoryChain(path.dirname(input.absolutePath), 'Journal guard census parent').target;
+    const guarded = observePhysicalJournalMutationEntry(parent, input.fileName);
+    if (guarded !== null) {
+      if (guarded.state === 'idle'
+        || (input.global && guarded.leaseName === input.machineReceiptLockName
+          && hasOwnedRuntimeJournalMutation(input.fs, guarded.leaseName))) return;
+      fail(`machine cutover found an active guarded journal mutation at ${input.inventoryPath}.`, 'recovery-required');
+    }
+    if (input.fileName.startsWith('.sec-journal-guard-')) {
+      fail(`machine cutover found an unqualified journal anchor at ${input.inventoryPath}.`, 'recovery-required');
+    }
+  }
   if (input.global && input.domain === 'terminal-bound') {
     if (input.fileName === VERIFICATION_ACTION_MACHINE_CUTOVER_FILE) return;
     if (input.fileName === input.machineReceiptLockName) return;

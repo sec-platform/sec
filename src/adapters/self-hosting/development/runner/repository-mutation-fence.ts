@@ -9,15 +9,15 @@ import {
   type ProcessResourceSession
 } from '../../../runtime-state/physical/runtime/process-resource-session.ts';
 import {
-  armPreparedWindowsRepositoryChangeObserver,
-  armWindowsRepositoryChangeObserver,
-  disposePreparedWindowsRepositoryChangeObserver,
-  prepareWindowsRepositoryChangeObserver,
-  settlePreparedWindowsRepositoryChangeObserver,
-  settleWindowsRepositoryChangeObserver,
-  type PreparedWindowsRepositoryChangeObserver,
-  type WindowsRepositoryChangeObserverSettlement
-} from '../../../runtime-state/physical/runtime/windows-repository-change-observer.ts';
+  armPreparedRepositoryChangeObserver,
+  armRepositoryChangeObserver,
+  disposePreparedRepositoryChangeObserver,
+  prepareRepositoryChangeObserver,
+  settlePreparedRepositoryChangeObserver,
+  settleRepositoryChangeObserver,
+  type PreparedRepositoryChangeObserver,
+  type RepositoryChangeObserverSettlement
+} from '../../../runtime-state/physical/runtime/repository-change-observer.ts';
 import { compilerRoot } from "../../../workspace-context.ts";
 import { requireCommandExitCode } from './command-outcome.ts';
 import { DEV_COMMAND_MAX_DURATION_MS } from './contract.ts';
@@ -29,7 +29,7 @@ import {
 
 export type RepositoryMutationFenceExecutionContext = Readonly<{
   testSuiteAdmission: TestSuiteExecutionAdmission;
-  testSuiteObserver: PreparedWindowsRepositoryChangeObserver;
+  testSuiteObserver: PreparedRepositoryChangeObserver;
 }>;
 
 export interface RepositoryMutationFenceOptions {
@@ -48,7 +48,7 @@ export interface RepositoryMutationFenceOptions {
 
 export type RepositoryObserverFailureDiagnostic = Readonly<{
   schema: 'sec-repository-observer-failure-diagnostic-v1';
-  status: Exclude<WindowsRepositoryChangeObserverSettlement['status'], 'zero-events'>;
+  status: Exclude<RepositoryChangeObserverSettlement['status'], 'zero-events'>;
   rootIdentityDigest: `sha256:${string}`;
   eventCount?: number;
   observationDigest?: `sha256:${string}`;
@@ -62,7 +62,7 @@ export type RepositoryObserverFailureDiagnostic = Readonly<{
 
 /** Bounded diagnostic projection only; it cannot authorize or excuse a write. */
 export function projectRepositoryObserverFailureDiagnostic(
-  settlement: Exclude<WindowsRepositoryChangeObserverSettlement, { status: 'zero-events' }>,
+  settlement: Exclude<RepositoryChangeObserverSettlement, { status: 'zero-events' }>,
   roots: readonly string[]
 ): RepositoryObserverFailureDiagnostic {
   if (settlement.status !== 'events') {
@@ -224,13 +224,15 @@ export async function runRepositoryZeroWriteOperation(
     closeRepositoryProcessResourceSession(processSession, semanticOperation);
     processSession = undefined;
   }
-  let preparedObserver: PreparedWindowsRepositoryChangeObserver | undefined;
-  let observerResolution: Awaited<ReturnType<typeof armWindowsRepositoryChangeObserver>> | undefined;
+  let preparedObserver: PreparedRepositoryChangeObserver | undefined;
+  let observerResolution: Awaited<ReturnType<typeof armRepositoryChangeObserver>> | undefined;
+  let preparedResolution: ReturnType<typeof prepareRepositoryChangeObserver> | undefined;
   try {
     if (testSuiteAdmission === undefined && fastTestBatchAdmission === undefined) {
-      observerResolution = await armWindowsRepositoryChangeObserver({ roots, deadlineAtUnixMs });
+      observerResolution = await armRepositoryChangeObserver({ roots, deadlineAtUnixMs });
     } else {
-      preparedObserver = prepareWindowsRepositoryChangeObserver({ roots });
+      preparedResolution = prepareRepositoryChangeObserver({ roots });
+      if (preparedResolution.status === 'ready') preparedObserver = preparedResolution.prepared;
     }
   } catch (error) {
     await settlePhysicalResourcesAsync({
@@ -244,8 +246,10 @@ export async function runRepositoryZeroWriteOperation(
     });
     throw new Error('Unreachable repository native observer settlement state.');
   }
-  if (testSuiteAdmission === undefined && fastTestBatchAdmission === undefined
-      && observerResolution!.status !== 'ready') {
+  const unavailableObserver = observerResolution?.status === 'unavailable'
+    ? observerResolution
+    : preparedResolution?.status === 'unavailable' ? preparedResolution : undefined;
+  if (unavailableObserver !== undefined) {
     if (processSession !== undefined) {
       await settlePhysicalResourcesAsync({
         cleanup: [{
@@ -256,7 +260,7 @@ export async function runRepositoryZeroWriteOperation(
     }
     observeOptionalDiagnostic(() => report(
       `${commandId} strict-zero-write-unproven: native repository observation is unavailable `
-      + `(${observerResolution!.status === 'unavailable' ? observerResolution!.reason : 'invalid-input'}).`
+      + `(${unavailableObserver.reason}).`
     ));
     return 1;
   }
@@ -264,17 +268,17 @@ export async function runRepositoryZeroWriteOperation(
     ? observerResolution.observer
     : undefined;
   if (fastTestBatchAdmission !== undefined) {
-    let batchObserverResolution: Awaited<ReturnType<typeof armPreparedWindowsRepositoryChangeObserver>>;
+    let batchObserverResolution: Awaited<ReturnType<typeof armPreparedRepositoryChangeObserver>>;
     try {
       const batchOperation = testExecutionPolicy!.bindFastTestBatchExecutionAdmission(
         fastTestBatchAdmission,
-        preparedObserver!.providerBinding
+        preparedObserver!
       );
       const remainingDurationMs = fastTestBatchAdmission.logicalDeadlineAtUnixMs - Date.now();
       if (!Number.isSafeInteger(remainingDurationMs) || remainingDurationMs < 1) {
         throw new Error('Fast test batch deadline exhausted before observer arm.');
       }
-      batchObserverResolution = await armPreparedWindowsRepositoryChangeObserver({
+      batchObserverResolution = await armPreparedRepositoryChangeObserver({
         prepared: preparedObserver!,
         operation: batchOperation,
         requirementBindingContext: issueSecOperationRequirementBindingContext({
@@ -289,8 +293,8 @@ export async function runRepositoryZeroWriteOperation(
         primary: { label: 'fast-test-batch-observer-admission', error },
         cleanup: [
           { label: 'fast-test-batch-prepared-observer', settle: async () => {
-            await settlePreparedWindowsRepositoryChangeObserver(preparedObserver!);
-            disposePreparedWindowsRepositoryChangeObserver(preparedObserver!);
+            await settlePreparedRepositoryChangeObserver(preparedObserver!);
+            disposePreparedRepositoryChangeObserver(preparedObserver!);
           } },
           ...(processSession === undefined ? [] : [{
             label: 'repository-process-resource-session',
@@ -303,8 +307,8 @@ export async function runRepositoryZeroWriteOperation(
     if (batchObserverResolution.status !== 'ready') {
       await settlePhysicalResourcesAsync({ cleanup: [
         { label: 'fast-test-batch-prepared-observer', settle: async () => {
-          await settlePreparedWindowsRepositoryChangeObserver(preparedObserver!);
-          disposePreparedWindowsRepositoryChangeObserver(preparedObserver!);
+          await settlePreparedRepositoryChangeObserver(preparedObserver!);
+          disposePreparedRepositoryChangeObserver(preparedObserver!);
         } },
         ...(processSession === undefined ? [] : [{
           label: 'repository-process-resource-session',
@@ -330,19 +334,19 @@ export async function runRepositoryZeroWriteOperation(
   } catch (error) {
     primary = { label: 'repository-observed-command', error };
   }
-  let settlement: WindowsRepositoryChangeObserverSettlement | undefined;
+  let settlement: RepositoryChangeObserverSettlement | undefined;
   await settlePhysicalResourcesAsync({
     primary,
     cleanup: [
       { label: 'repository-native-change-observer', settle: async () => {
         if (preparedObserver !== undefined) {
-          settlement = await settlePreparedWindowsRepositoryChangeObserver(preparedObserver);
-          disposePreparedWindowsRepositoryChangeObserver(preparedObserver);
+          settlement = await settlePreparedRepositoryChangeObserver(preparedObserver);
+          disposePreparedRepositoryChangeObserver(preparedObserver);
         } else {
           if (readyObserver === undefined) {
             throw new Error('Repository observer was not armed.');
           }
-          settlement = await settleWindowsRepositoryChangeObserver(readyObserver);
+          settlement = await settleRepositoryChangeObserver(readyObserver);
         }
         // A failed command does not erase a second loss-of-observation result.
         // Keep the native settlement as cause; display text is not the evidence.

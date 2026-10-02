@@ -56,7 +56,7 @@ import {
   type ScopeAuthorizationInput
 } from '../../../../self-hosting/control/scope/authorization.ts';
 import { encodeVerificationActionData, type VerificationActionInputRef } from '../../action/contract/action.ts';
-import { buildCiVerificationActionPlanClosure, CI_VERIFICATION_HOSTED_EXECUTION_ENVIRONMENT, ciVerificationGateStep, parseCiVerificationActionPlanClosure, SOURCE_PROGRAM_TRANSITION_GATE_ID, type CiSourceProgramTransitionBinding, type CiVerificationActionPlanClosure, type CiVerificationExecutionEnvironment } from '../../action/contract/ci.ts';
+import { buildCiVerificationActionPlanClosure, ciVerificationGateStep, parseCiVerificationActionPlanClosure, SOURCE_PROGRAM_TRANSITION_GATE_ID, type CiSourceProgramTransitionBinding, type CiVerificationActionPlanClosure, type CiVerificationExecutionEnvironment } from '../../action/contract/ci.ts';
 import { CI_VERIFICATION_ACTION_DEPENDENCY_INPUT_PATHS } from '../../action/contract/environment.ts';
 import { CI_GITHUB_ACTIONS_IDENTITY_POLICY } from '../../action/contract/provider.ts';
 import { assertReviewStabilityReceiptCurrent, createReviewStabilityReceipt, REVIEW_OBSERVER_PRODUCER_IDENTITY, SEC_REVIEW_STABILITY_POLICY, type ReviewStabilityReceipt } from '../../review/contract/stability.ts';
@@ -78,7 +78,10 @@ import {
 import {
   CI_VERIFICATION_SESSION_REQUEST_SCHEMA
 } from '../contract/revision.ts';
-import type { VerificationSessionHostedRequest } from '../contract/session-request.ts';
+import {
+  CI_VERIFICATION_SESSION_LOCAL_PREPARATION_SCHEMA, type VerificationSessionHostedRequest,
+  type VerificationSessionLocalPreparationRequest
+} from '../contract/session-request.ts';
 import {
   assertGitHubReviewAuthorityObservation,
   type GitHubActionsArtifactObservation,
@@ -780,7 +783,7 @@ export function prepareTrustedMainVerificationSession(input: {
   reviewBarrier: GitHubReviewBarrierObservation;
   mainHealthChecks: readonly GitHubCheckObservation[];
   dependencyBlobs: readonly VerificationSessionActionDependencyBlobObservation[];
-  executionEnvironment?: CiVerificationExecutionEnvironment;
+  executionEnvironment: CiVerificationExecutionEnvironment;
   mainHealthInput?: MainHealthLedgerInput;
   scopeSourceTransport?: ScopeAuthorizationInput['issuer']['sourceTransport'];
   sourceProgramTransition?: CiSourceProgramTransitionBinding;
@@ -795,8 +798,10 @@ export function prepareTrustedMainVerificationSession(input: {
   facts: VerificationSessionHostedFacts | null;
 }> {
   const candidate = input.candidate;
-  const executionEnvironment = input.executionEnvironment
-    ?? CI_VERIFICATION_HOSTED_EXECUTION_ENVIRONMENT;
+  const executionEnvironment = input.executionEnvironment;
+  if (executionEnvironment === undefined) {
+    throw new Error('VerificationSession preparation requires an explicit execution environment.');
+  }
   const providerRevision = executionEnvironment.kind === 'hosted'
     ? 'github-actions@trusted-default'
     : executionEnvironment.executionEnvironmentRevision;
@@ -1101,16 +1106,67 @@ function createVerificationSessionHostedRequest(input: {
   return Object.freeze({ ...semanticRequest, requestOperationId });
 }
 
+export function createVerificationSessionLocalPreparationRequest(
+  request: VerificationSessionHostedRequest
+): VerificationSessionLocalPreparationRequest {
+  return Object.freeze({
+    schema: CI_VERIFICATION_SESSION_LOCAL_PREPARATION_SCHEMA,
+    executionPlacement: 'local',
+    authorityStage: 'preparation-only',
+    request: parseVerificationSessionHostedRequest(JSON.stringify(request))
+  });
+}
+
+/** Decode once at the local entry; the saved input grants no execution authority. */
+export function parseVerificationSessionLocalPreparationRequest(
+  source: string
+): VerificationSessionLocalPreparationRequest {
+  const value: unknown = JSON.parse(source);
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) {
+    throw new Error('Local preparation request must be an object.');
+  }
+  const record = value as Record<string, unknown>;
+  if (Object.keys(record).sort().join(',') !== 'authorityStage,executionPlacement,request,schema'
+      || record.schema !== CI_VERIFICATION_SESSION_LOCAL_PREPARATION_SCHEMA
+      || record.executionPlacement !== 'local' || record.authorityStage !== 'preparation-only') {
+    throw new Error('Local preparation request requires the exact local preparation-only envelope.');
+  }
+  return createVerificationSessionLocalPreparationRequest(
+    parseVerificationSessionHostedRequest(JSON.stringify(record.request))
+  );
+}
+
+/** Re-preparation binds the actual environment into Session and Action identities.
+ * Compare every saved pin before invoking any SourceTransition execution. */
+export function assertVerificationSessionLocalPreparationCurrent(
+  saved: VerificationSessionLocalPreparationRequest,
+  current: VerificationSessionHostedRequest
+): void {
+  const parsed = parseVerificationSessionLocalPreparationRequest(JSON.stringify(saved));
+  const prepared = parseVerificationSessionHostedRequest(JSON.stringify(current));
+  if (encodeVerificationActionData(parsed.request) !== encodeVerificationActionData(prepared)) {
+    throw new Error('Local preparation request differs from current exact candidate, Session or Action environment. Prepare again.');
+  }
+}
+
 export function parseVerificationSessionHostedRequest(
   source: string
 ): VerificationSessionHostedRequest {
   const value = JSON.parse(source) as Record<string, unknown>;
+  if (value?.schema === CI_VERIFICATION_SESSION_LOCAL_PREPARATION_SCHEMA) {
+    throw new Error('Local preparation-only request cannot be consumed by a hosted operation.');
+  }
+  // The exact legacy schema is hosted-only. It is accepted only at an explicitly
+  // selected hosted entry; absence of placement never selects that entry.
   const expected = [
     'schema', 'prNumber', 'expectedBaseSha', 'expectedBaseTreeSha', 'expectedHeadSha',
     'expectedHeadTreeSha', 'manifestPath', 'manifestDigest', 'profile',
     'expectedScopeProposalDigest', 'expectedActionPlanDigest', 'expectedSessionRevision',
     'reviewPolicyDigest', 'requestOperationId'
   ].sort();
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) {
+    throw new Error('Hosted request must be an object.');
+  }
   const actual = Object.keys(value).sort();
   if (actual.length !== expected.length || actual.some((key, index) => key !== expected[index])) {
     throw new Error(`Hosted request must contain exactly: ${expected.join(', ')}.`);

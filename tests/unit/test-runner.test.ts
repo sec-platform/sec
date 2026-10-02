@@ -12,7 +12,12 @@ import {
   type WorkspaceSourceSnapshot
 } from '../../src/adapters/repository/source-program-model/workspace-source-snapshot.ts';
 import { inspectNoFollowDirectoryChain } from '../../src/adapters/runtime-state/physical/runtime/physical-no-follow.ts';
-import type { PreparedWindowsRepositoryChangeObserver } from '../../src/adapters/runtime-state/physical/runtime/windows-repository-change-observer.ts';
+import {
+  disposePreparedRepositoryChangeObserver,
+  prepareRepositoryChangeObserver,
+  repositoryChangeObserverBinding,
+  type PreparedRepositoryChangeObserver
+} from '../../src/adapters/runtime-state/physical/runtime/repository-change-observer.ts';
 import { AFFECTED_SELECTION_OPERATION_DURATION_MS, compileAffectedTestSelectionSemanticOperation } from '../../src/adapters/self-hosting/development/runner/affected-plan-contract.ts';
 import type {
   DevCommandObservation,
@@ -38,6 +43,7 @@ import {
   admitFastTestBatchExecutionPolicy,
   assertIssuedFastTestBatchExecutionAdmission,
   assertIssuedTestSuiteExecutionAdmission,
+  bindFastTestBatchExecutionAdmission,
   compileTestInvocationExecutionPolicy,
   DEFAULT_TEST_TIMEOUT_MS,
   issueFastTestBatchExecutionPolicy,
@@ -444,7 +450,7 @@ mock.module('../../src/adapters/self-hosting/development/runner/repository-mutat
       processSession?: undefined,
       executionContext?: Readonly<{
         testSuiteAdmission: TestSuiteExecutionAdmission;
-        testSuiteObserver: PreparedWindowsRepositoryChangeObserver;
+        testSuiteObserver: PreparedRepositoryChangeObserver;
       }>
     ) => Promise<number>,
     options: Readonly<{
@@ -469,7 +475,7 @@ mock.module('../../src/adapters/self-hosting/development/runner/repository-mutat
     assertIssuedTestSuiteExecutionAdmission(options.testSuiteAdmission);
     return operation(undefined, Object.freeze({
       testSuiteAdmission: options.testSuiteAdmission,
-      testSuiteObserver: Object.freeze({}) as PreparedWindowsRepositoryChangeObserver
+      testSuiteObserver: Object.freeze({}) as PreparedRepositoryChangeObserver
     }));
   }
 }));
@@ -965,7 +971,43 @@ test('fast batch policy derives supervisor ceilings and waves from its canonical
   expect(() => admitFastTestBatchExecutionPolicy(policy)).toThrow('single-use');
   expect(() => assertIssuedFastTestBatchExecutionAdmission({ ...admission }))
     .toThrow('owner-issued admission');
+  expect(() => bindFastTestBatchExecutionAdmission(
+    admission, Object.freeze({}) as PreparedRepositoryChangeObserver
+  )).toThrow('live owner-issued prepared capability');
+  expect(admission.attempt.authorityGrantDigest).toBe(policy.policyDigest);
+  expect(Object.isFrozen(admission.attempt)).toBe(true);
 });
+
+test.skipIf(process.platform !== 'win32')(
+  'fast batch binds the selected physical observer once without replacing admission identity or deadline',
+  () => {
+    const testInventory = testImpactFixture.provider.testInventory;
+    const budgetProjection = compileTestBudgetProjection(testInventory);
+    const policy = issueFastTestBatchExecutionPolicy({
+      testInventory,
+      budgetProjection,
+      selectedFiles: budgetProjection.fastTestFiles.slice(0, 1),
+      bunOptions: []
+    });
+    const admission = admitFastTestBatchExecutionPolicy(policy);
+    const resolution = prepareRepositoryChangeObserver({ roots: [testImpactFixture.repositoryRoot] });
+    expect(resolution.status).toBe('ready');
+    if (resolution.status !== 'ready') throw new Error('Windows observer preparation failed.');
+    try {
+      const binding = repositoryChangeObserverBinding(resolution.prepared);
+      const operation = bindFastTestBatchExecutionAdmission(admission, resolution.prepared);
+      expect(operation.bindings).toEqual([binding]);
+      expect(operation.plan.execution.requirements[0]!.id).toBe(binding.requirementId);
+      expect(operation.plan.execution.requirements[0]!.contractDigest).toBe(binding.contractDigest);
+      expect(operation.plan.attempt.attemptNonceDigest).toBe(admission.attempt.attemptNonceDigest);
+      expect(operation.plan.attempt.deadlineAtUnixMs).toBe(admission.logicalDeadlineAtUnixMs);
+      expect(() => bindFastTestBatchExecutionAdmission(admission, resolution.prepared))
+        .toThrow('already bound');
+    } finally {
+      disposePreparedRepositoryChangeObserver(resolution.prepared);
+    }
+  }
+);
 
 test.serial('direct fast execution rejects unavailable inventory reobservation before child execution', async () => {
   testBudgetSnapshotOverrides.push(

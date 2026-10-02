@@ -1,6 +1,6 @@
 {
   "schema": "sec.documentation-source-manifest/2",
-  "source_set_sha256": "18868fd5014e672b1d3a0a51dfccf615a6ba19643d8484ba2a12956a316b48c7",
+  "source_set_sha256": "2c83104db7a13d2b01e1fa97a9e4b8fe5e073708c3d52fceeaf059ad7500329e",
   "members": [
     {
       "path": ".documentation/README.md",
@@ -594,8 +594,8 @@
     },
     {
       "path": "docs/开发/AI协作/规则装载与任务恢复.md",
-      "bytes": 84732,
-      "sha256": "d5d9f5f8edc78c29fb8e04f5242cf11412688693934855a073a71a93b00b1fd2"
+      "bytes": 93252,
+      "sha256": "c12cd07b5174c8f1ffec687113966fcd67fb3f44d67f58b1357522b15f3f3cb7"
     },
     {
       "path": "docs/开发/AI协作/需求与作者上下文.md",
@@ -1254,8 +1254,8 @@
     },
     {
       "path": "docs/运行/验收/会话集成与结果复用.md",
-      "bytes": 24977,
-      "sha256": "456d5d8048ed35a985b6e012b70a9028b96247ea85159cf23028e7d26ce27b24"
+      "bytes": 27442,
+      "sha256": "26a868f26684d899eb32327cbce5d37f5d1c174cf13028bb2112c3d4d4a9c229"
     },
     {
       "path": "docs/运行/验收/作者与组合案例.md",

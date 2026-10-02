@@ -140,6 +140,8 @@ function loadLinuxLibc() {
     return dlopen('libc.so.6', {
       openat: { args: [FFIType.i32, FFIType.ptr, FFIType.i32, FFIType.u32], returns: FFIType.i32 },
       fcntl: { args: [FFIType.i32, FFIType.i32, FFIType.i32], returns: FFIType.i32 },
+      flock: { args: [FFIType.i32, FFIType.i32], returns: FFIType.i32 },
+      fstatfs: { args: [FFIType.i32, FFIType.ptr], returns: FFIType.i32 },
       readlinkat: { args: [FFIType.i32, FFIType.ptr, FFIType.ptr, FFIType.u64], returns: FFIType.i64 },
       symlinkat: { args: [FFIType.ptr, FFIType.i32, FFIType.ptr], returns: FFIType.i32 },
       mkdirat: { args: [FFIType.i32, FFIType.ptr, FFIType.u32], returns: FFIType.i32 },
@@ -1211,6 +1213,10 @@ function loadWindowsKernel32() {
       WriteFile: { args: [FFIType.u64, FFIType.ptr, FFIType.u32, FFIType.ptr, FFIType.ptr], returns: FFIType.i32 },
       SetFilePointerEx: { args: [FFIType.u64, FFIType.i64, FFIType.ptr, FFIType.u32], returns: FFIType.i32 },
       FlushFileBuffers: { args: [FFIType.u64], returns: FFIType.i32 },
+      LockFileEx: { args: [FFIType.u64, FFIType.u32, FFIType.u32, FFIType.u32, FFIType.u32, FFIType.ptr], returns: FFIType.i32 },
+      UnlockFileEx: { args: [FFIType.u64, FFIType.u32, FFIType.u32, FFIType.u32, FFIType.ptr], returns: FFIType.i32 },
+      GetVolumeInformationByHandleW: { args: [FFIType.u64, FFIType.ptr, FFIType.u32, FFIType.ptr, FFIType.ptr, FFIType.ptr, FFIType.ptr, FFIType.u32], returns: FFIType.i32 },
+      GetDriveTypeW: { args: [FFIType.ptr], returns: FFIType.u32 },
       CloseHandle: { args: [FFIType.u64], returns: FFIType.i32 },
       GetLastError: { args: [], returns: FFIType.u32 }
     } as const);
@@ -2817,4 +2823,66 @@ function linuxInvokeNoFollowDirectoryCreateRaceActor(
 
 export function isLinuxNoFollowDirectoryCreateRaceActorForTests(value: unknown): value is LinuxNoFollowDirectoryCreateRaceActor {
   return value !== null && typeof value === 'object' && linuxNoFollowDirectoryCreateRaceActors.has(value);
+}
+
+/** Lock state belongs to a retained file object, never to a diagnostic PID. */
+export function linuxTryExclusiveFileGuard(fd: number, label: string): boolean {
+  if (process.arch !== 'x64' && process.arch !== 'arm64') {
+    throw physicalError('PHYSICAL_NO_FOLLOW_CAPABILITY_UNAVAILABLE', `${label} filesystem ABI is unsupported.`);
+  }
+  const filesystem = Buffer.alloc(256);
+  if (requireLinuxLibc().symbols.fstatfs(fd, ptr(filesystem)) !== 0) {
+    throw physicalError('PHYSICAL_NO_FOLLOW_CAPABILITY_UNAVAILABLE', `${label} filesystem observation failed (errno ${linuxErrno()}).`);
+  }
+  // Same-kernel, cooperative file-object exclusion only. Overlay anchors must
+  // have been created by this resource owner, not adopted from a lower layer.
+  // This does not certify persistence through a machine/volatile-mount crash.
+  const localTypes = new Set([0xef53n, 0x58465342n, 0x9123683en, 0x01021994n, 0x794c7630n]);
+  if (!localTypes.has(filesystem.readBigUInt64LE(0))) {
+    throw physicalError('PHYSICAL_NO_FOLLOW_CAPABILITY_UNAVAILABLE', `${label} filesystem has no admitted local lock semantics.`);
+  }
+  if (requireLinuxLibc().symbols.flock(fd, 2 | 4) === 0) return true;
+  const code = linuxErrno();
+  if (code === 11) return false;
+  throw physicalError('PHYSICAL_NO_FOLLOW_CAPABILITY_UNAVAILABLE', `${label} exclusive lock failed (errno ${code}).`);
+}
+
+export function linuxReleaseExclusiveFileGuard(fd: number, label: string): void {
+  if (requireLinuxLibc().symbols.flock(fd, 8) !== 0) {
+    throw physicalError('PHYSICAL_NO_FOLLOW_DURABILITY_FAILED', `${label} unlock failed (errno ${linuxErrno()}).`);
+  }
+}
+
+function windowsGuardRange(): Buffer {
+  const range = Buffer.alloc(32);
+  // A fixed reserved byte above the bounded anchor payload leaves ordinary
+  // read-only status inspection available while ownership is held.
+  range.writeUInt32LE(0x4000_0000, 16);
+  return range;
+}
+
+export function windowsTryExclusiveFileGuard(handle: bigint, finalPath: string, label: string): boolean {
+  const library = requireWindowsKernel32();
+  const root = path.win32.parse(finalPath).root;
+  const driveType = library.symbols.GetDriveTypeW(Buffer.from(`${root}\0`, 'utf16le'));
+  const filesystem = Buffer.alloc(128);
+  if ((driveType !== 3 && driveType !== 6) || library.symbols.GetVolumeInformationByHandleW(
+    handle, null, 0, null, null, null, ptr(filesystem), 64
+  ) === 0) {
+    throw physicalError('PHYSICAL_NO_FOLLOW_CAPABILITY_UNAVAILABLE', `${label} has no admitted local volume binding.`);
+  }
+  const name = filesystem.toString('utf16le').split('\0', 1)[0];
+  if (name !== 'NTFS' && name !== 'ReFS') {
+    throw physicalError('PHYSICAL_NO_FOLLOW_CAPABILITY_UNAVAILABLE', `${label} filesystem has no admitted local lock semantics.`);
+  }
+  if (library.symbols.LockFileEx(handle, 3, 0, 1, 0, ptr(windowsGuardRange())) !== 0) return true;
+  const code = library.symbols.GetLastError();
+  if (code === 33) return false;
+  throw physicalError('PHYSICAL_NO_FOLLOW_CAPABILITY_UNAVAILABLE', `${label} exclusive lock failed (Win32 ${code}).`);
+}
+
+export function windowsReleaseExclusiveFileGuard(handle: bigint, label: string): void {
+  if (requireWindowsKernel32().symbols.UnlockFileEx(handle, 0, 1, 0, ptr(windowsGuardRange())) === 0) {
+    throw physicalError('PHYSICAL_NO_FOLLOW_DURABILITY_FAILED', `${label} unlock failed (Win32 ${requireWindowsKernel32().symbols.GetLastError()}).`);
+  }
 }

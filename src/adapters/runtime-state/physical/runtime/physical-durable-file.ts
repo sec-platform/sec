@@ -1311,6 +1311,22 @@ function windowsDeleteDurableReplacementLeaf(
  * A quarantined preimage is restored before `rolled-back` is returned; a
  * byte-proven installed candidate is completed before `completed` is returned.
  */
+/** Read-only admission observation; an absent canonical name is not a clean slot. */
+export function observeDurableCanonicalFileReplacement(input: Readonly<{
+  parent: PhysicalDirectoryIdentity;
+  name: string;
+}>): 'none' | 'pending' {
+  ensureLeafName(input.name);
+  const parent = assertSameNoFollowDirectoryIdentity(input.parent, 'Replacement observation parent').target;
+  if (process.platform === 'linux') return 'none';
+  if (process.platform !== 'win32') {
+    throw physicalError('PHYSICAL_NO_FOLLOW_CAPABILITY_UNAVAILABLE', 'Replacement observation backend is unavailable.');
+  }
+  const anchor = inspectNoFollowOrdinaryFileEntry(parent, windowsDurableReplacementAnchorName(input.name));
+  assertSameNoFollowDirectoryIdentity(parent, 'Replacement observation parent readback');
+  return anchor === null ? 'none' : 'pending';
+}
+
 export function recoverDurableCanonicalFileReplacement(input: Readonly<{
   parent: PhysicalDirectoryIdentity;
   name: string;

@@ -36,7 +36,7 @@ export async function runDevelopmentCommitRecoveryCommand(args: readonly string[
     journalPath: path.resolve(args[0]!)
   });
   console.log(JSON.stringify(recovery.result, null, 2));
-  if (recovery.result.disposition === 'applied') acknowledgeDevelopmentCommitResult(recovery.result);
+  if (recovery.result.disposition === 'applied') await acknowledgeDevelopmentCommitResult(recovery.result);
   if (recovery.result.disposition === 'not-applied') {
     await acknowledgeNotAppliedDevelopmentCommitResult(recovery.result);
   }

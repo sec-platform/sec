@@ -17,22 +17,27 @@ import {
 import { observeGitHubRepositoryComment } from '../../../providers/github-api/repository-comment.ts';
 import { adoptSourceProgramTestAuthorDecision, type SourceProgramTestAuthorApproval } from '../../../repository/source-program-model/test-disposition-decisions.ts';
 import { acquirePhysicalMutationLease } from '../../../runtime-state/physical/runtime/mutation-lease.ts';
-import { publishExclusiveDurableCanonicalFile, readNoFollowOrdinaryFile, type PhysicalDirectoryIdentity } from '../../../runtime-state/physical/runtime/physical-no-follow.ts';
+import { inspectExactNoFollowDirectoryPresence, publishExclusiveDurableCanonicalFile, readNoFollowOrdinaryFile, type PhysicalDirectoryIdentity } from '../../../runtime-state/physical/runtime/physical-no-follow.ts';
 import { resolveSecRuntimeStateForRepository } from '../../../runtime-state/workspace-state/paths.ts';
 import { acquireSecRuntimeStatePhysicalAuthority, type SecRuntimeStatePhysicalAuthority } from '../../../runtime-state/workspace-state/physical-authority.ts';
 import { encodeVerificationActionData } from '../../../verification/platform/action/contract/action.ts';
 import { parseCiSourceProgramTransitionBinding } from '../../../verification/platform/action/contract/ci.ts';
 import { CodexDevelopmentAssertVerificationEvidenceV4, CodexDevelopmentParseVerificationSessionArtifact, parseSourceProgramTransitionAcceptanceRecord, type CodexDevelopmentVerificationSessionArtifact } from '../../../verification/platform/ci/contract/evidence.ts';
+import type { VerificationSessionLocalPreparationRequest } from '../../../verification/platform/ci/contract/session-request.ts';
+import { readSessionArtifactText } from '../../../verification/platform/ci/runtime/session-artifact-files.ts';
 import {
   createVerificationSessionGitHubClient,
   type GitHubCandidateObservation,
   type VerificationSessionGitHubClient
 } from '../../../verification/platform/ci/runtime/verification-session-github.ts';
 import {
+  assertVerificationSessionLocalPreparationCurrent,
   createTrustedRuntimeArtifactObservationFromDurableFile,
+  createVerificationSessionLocalPreparationRequest,
   createVerificationSessionMergeOperationId,
   createVerificationSessionReviewReceipt,
   finalizeVerificationSessionHostedArtifact,
+  parseVerificationSessionLocalPreparationRequest,
   prepareTrustedMainVerificationSession,
   prepareTrustedRuntimeVerificationSession,
   prepareVerificationSessionTrustedRuntimeMergeInput,
@@ -174,6 +179,7 @@ type TrustedRuntimeCloseoutPreMerge = Readonly<{
 
 type TrustedRuntimeCloseoutOpenResult =
   | TrustedRuntimeCloseoutPreMerge
+  | Readonly<{ kind: 'verified'; value: unknown }>
   | Readonly<{ kind: 'waiting'; value: unknown }>;
 
 function fail(message: string): never {
@@ -197,6 +203,7 @@ function canonicalBytes(value: unknown): Uint8Array {
 
 type TrustedRuntimeOperatorArgs =
   | Readonly<{ mode: 'closeout'; repository: string; prNumber: number; testAuthorCommentId?: number }>
+  | Readonly<{ mode: 'verification-only'; repository: string; request: VerificationSessionLocalPreparationRequest; testAuthorCommentId?: number }>
   | Readonly<{ mode: 'runtime-canary'; repository: string; dependencies: boolean }>
   | Readonly<{ mode: 'main-health'; repository: string }>;
 
@@ -208,6 +215,8 @@ function parseArgs(argv: readonly string[]): TrustedRuntimeOperatorArgs {
     tokens: true,
     options: {
       'runtime-canary': { type: 'boolean' },
+      'verification-only': { type: 'boolean' },
+      request: { type: 'string' },
       'main-health': { type: 'boolean' },
       dependencies: { type: 'boolean' },
       pr: { type: 'string' },
@@ -225,7 +234,7 @@ function parseArgs(argv: readonly string[]): TrustedRuntimeOperatorArgs {
   if (values.dependencies && !values['runtime-canary']) {
     fail('trusted runtime operator mode must appear exactly once');
   }
-  if (values['runtime-canary'] && values['main-health']) {
+  if ([values['runtime-canary'], values['main-health'], values['verification-only']].filter(Boolean).length > 1) {
     fail('trusted runtime operator mode must appear exactly once');
   }
   const rawAuthorComment = values['test-author-comment'];
@@ -236,6 +245,17 @@ function parseArgs(argv: readonly string[]): TrustedRuntimeOperatorArgs {
   const rawPr = values.pr;
   const repository = values.repository ?? 'sec-platform/sec';
   if (!/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/u.test(repository)) fail('--repository is invalid');
+  if (values.request !== undefined && !values['verification-only']) {
+    fail('--request requires --verification-only; it cannot select full closeout');
+  }
+  if (values['verification-only']) {
+    if (rawPr !== undefined || values.request === undefined || values.dependencies) {
+      fail('--verification-only requires --request and cannot be combined with --pr or --dependencies');
+    }
+    const request = parseVerificationSessionLocalPreparationRequest(readSessionArtifactText(values.request));
+    return Object.freeze({ mode: 'verification-only', repository, request,
+      ...(rawAuthorComment === undefined ? {} : { testAuthorCommentId: Number(rawAuthorComment) }) });
+  }
   if (values['runtime-canary']) {
     if (rawPr !== undefined) fail('standalone trusted runtime mode cannot be combined with --pr');
     return Object.freeze({ mode: 'runtime-canary', repository, dependencies: values.dependencies === true });
@@ -349,6 +369,9 @@ function createPendingTrustedRuntimeEvidence(input: Readonly<{
   const receipt = parseTrustedRuntimeContainerReceipt(input.receipt);
   const bytes = `${encodeVerificationActionData(input.evidence)}\n`;
   if (receipt.evidenceDigest !== input.evidence.evidenceDigest
+      || receipt.baseSha !== input.evidence.baseSha
+      || receipt.headSha !== input.evidence.headSha
+      || receipt.headTreeSha !== input.evidence.headTreeSha
       || receipt.sessionRevision !== input.evidence.sessionRevision
       || receipt.producerSourceDigest !== input.evidence.producer.sourceDigest
       || receipt.evidenceByteLength !== Buffer.byteLength(bytes, 'utf8')
@@ -823,12 +846,45 @@ export async function closeoutWithTrustedRuntime(input: Readonly<{
   prNumber: number;
   testAuthorCommentId?: number;
 }>, sourceTransitionUseCase?: TrustedRuntimeSourceTransitionUseCase): Promise<unknown> {
+  return executeTrustedRuntimeCandidateStage(input, { kind: 'closeout' }, sourceTransitionUseCase);
+}
+
+/** Execute the original source/verification owners, stopping before integration. */
+export async function verifyWithTrustedRuntime(input: Readonly<{
+  repositoryRoot: string;
+  repository: string;
+  request: VerificationSessionLocalPreparationRequest;
+  testAuthorCommentId?: number;
+}>, sourceTransitionUseCase?: TrustedRuntimeSourceTransitionUseCase): Promise<unknown> {
+  const request = parseVerificationSessionLocalPreparationRequest(JSON.stringify(input.request));
+  return executeTrustedRuntimeCandidateStage({ ...input, prNumber: request.request.prNumber },
+    { kind: 'verification-only', request }, sourceTransitionUseCase);
+}
+
+type TrustedRuntimeCandidateStage =
+  | Readonly<{ kind: 'closeout' }>
+  | Readonly<{ kind: 'verification-only'; request: VerificationSessionLocalPreparationRequest }>;
+
+async function executeTrustedRuntimeCandidateStage(
+  input: TrustedRuntimeCandidatePreparationInput,
+  stage: TrustedRuntimeCandidateStage,
+  sourceTransitionUseCase?: TrustedRuntimeSourceTransitionUseCase
+): Promise<unknown> {
   if (sourceTransitionUseCase === undefined) {
     fail('cold-source use case must be assembled by the canonical bootstrap entry');
   }
   const repositoryRoot = path.resolve(input.repositoryRoot);
   const github = createVerificationSessionGitHubClient(repositoryRoot, input.repository);
   const candidate = (await github.observeCandidate(input.repository, input.prNumber));
+  if (stage.kind === 'verification-only') {
+    const expected = stage.request.request;
+    if (candidate.state !== 'OPEN' || candidate.baseSha !== expected.expectedBaseSha
+        || candidate.baseTreeSha !== expected.expectedBaseTreeSha
+        || candidate.headSha !== expected.expectedHeadSha
+        || candidate.headTreeSha !== expected.expectedHeadTreeSha) {
+      fail('local verification requires the exact saved open candidate; it cannot recover merged integration');
+    }
+  }
   if (candidate.state !== 'MERGED'
       && (candidate.state !== 'OPEN' || candidate.isDraft || candidate.isCrossRepository)) {
     fail('candidate must be one open same-repository non-draft PR or its exact merged recovery');
@@ -849,6 +905,7 @@ export async function closeoutWithTrustedRuntime(input: Readonly<{
         fail('PR candidate drifted before serialized closeout admission');
       }
       if (current.state === 'MERGED') {
+        if (stage.kind !== 'closeout') fail('local verification cannot enter merged closeout recovery');
         const settled = await recoverMergedTrustedRuntime({ repositoryRoot, repository: input.repository,
           prNumber: input.prNumber, github, candidate: current });
         if (lease.recoveryPending) lease.acknowledgeReclaimedRecovery();
@@ -862,13 +919,13 @@ export async function closeoutWithTrustedRuntime(input: Readonly<{
         repositoryRoot,
         repository: input.repository,
         operation: async () => await closeoutOpenCandidateWithTrustedRuntime({
-          input, repositoryRoot, github, candidate: current, sourceTransitionUseCase
+          input, repositoryRoot, github, candidate: current, sourceTransitionUseCase, stage
         })
       });
       // All predecessor evidence was read and a fresh isolated assessment was
       // adopted, or the live review barrier deliberately held this attempt.
       if (lease.recoveryPending) lease.acknowledgeReclaimedRecovery();
-      if (preMerge.kind === 'waiting') return preMerge.value;
+      if (preMerge.kind !== 'ready') return preMerge.value;
       return await executeTrustedRuntimeCloseoutMergeEffect(preMerge);
     } finally {
       try {
@@ -881,21 +938,25 @@ export async function closeoutWithTrustedRuntime(input: Readonly<{
   });
 }
 
-async function closeoutOpenCandidateWithTrustedRuntime(args: Readonly<{
-  input: Readonly<{
-    repositoryRoot: string;
-    repository: string;
-    prNumber: number;
-    testAuthorCommentId?: number;
-  }>;
+type TrustedRuntimeCandidatePreparationInput = Readonly<{
+  repositoryRoot: string;
+  repository: string;
+  prNumber: number;
+  testAuthorCommentId?: number;
+}>;
+
+/** Preparation observes and binds inputs; it does not execute candidate code or
+ * produce verification evidence, publish status, or merge. Full closeout uses
+ * this same preparation under its original effect lease and budget. */
+async function prepareOpenCandidateWithTrustedRuntime(args: Readonly<{
+  input: TrustedRuntimeCandidatePreparationInput;
   repositoryRoot: string;
   github: VerificationSessionGitHubClient;
   candidate: GitHubCandidateObservation;
-  sourceTransitionUseCase: TrustedRuntimeSourceTransitionUseCase;
-}>): Promise<TrustedRuntimeCloseoutOpenResult> {
-  const { input, repositoryRoot, github, candidate, sourceTransitionUseCase } = args;
+}>) {
+  const { input, repositoryRoot, github, candidate } = args;
   if (candidate.state !== 'OPEN' || candidate.isDraft || candidate.isCrossRepository) {
-    fail('candidate changed before trusted-runtime closeout admission');
+    fail('candidate changed before trusted-runtime verification preparation');
   }
   await assertTrustedBaseRuntime(repositoryRoot, candidate);
   const observeAuthorApproval = async (): Promise<SourceProgramTestAuthorApproval | undefined> => {
@@ -944,10 +1005,6 @@ async function closeoutOpenCandidateWithTrustedRuntime(args: Readonly<{
     excludedPrincipalNodeIds: new Set([candidate.authorNodeId, principal.nodeId]) }));
   const observedAt = new Date().toISOString();
   const runtimeRef = `${CodexDevelopmentMergeGateProducerIdentity}@${candidate.baseSha}`;
-  const runtimeLayout = resolveSecRuntimeStateForRepository({
-    repository: input.repository,
-    repositoryRoot
-  });
   const mainHealthObservation = await observeCanonicalMainHealthForPublication({
     repositoryRoot,
     repository: input.repository,
@@ -960,7 +1017,7 @@ async function closeoutOpenCandidateWithTrustedRuntime(args: Readonly<{
       || mainHealthObservation.projection.state !== 'healthy'
       || mainHealthObservation.repairDecision.routingState !== 'ordinary-only') {
     fail(
-      `canonical MainHealth is not healthy and ordinary-only at closeout admission: `
+      `canonical MainHealth is not healthy and ordinary-only at verification preparation: `
       + `${mainHealthObservation.repairDecision.reasonCode}`
     );
   }
@@ -990,6 +1047,7 @@ async function closeoutOpenCandidateWithTrustedRuntime(args: Readonly<{
   if (reviewBarrier.status !== 'clear') {
     return Object.freeze({
       kind: 'waiting' as const,
+      request: planning.request,
       value: Object.freeze({
         status: 'WAITING_REVIEW',
         sessionRevision: planning.sessionRevision,
@@ -1000,7 +1058,147 @@ async function closeoutOpenCandidateWithTrustedRuntime(args: Readonly<{
     });
   }
   const prepared = prepareTrustedRuntimeVerificationSession(preparationInput);
+  return Object.freeze({
+    kind: 'prepared' as const, prepared, principal, integrationPermission,
+    observedAt, runtimeRef, sourceProgramTransition, dependencyBlobs,
+    observeAuthorApproval, authorApproval, manifestPath, manifestDigest,
+    manifest, changed, mainHealthObservation
+  });
+}
+
+/** Read only the original owner's durable records. Their presence is historical
+ * computation evidence, never a live qualification, current candidate or grant. */
+export function readLocalVerificationStatusWithTrustedRuntime(input: Readonly<{
+  repositoryRoot: string;
+  repository: string;
+  request: VerificationSessionLocalPreparationRequest;
+}>) {
+  const saved = parseVerificationSessionLocalPreparationRequest(JSON.stringify(input.request));
+  const request = saved.request;
+  const layout = resolveSecRuntimeStateForRepository({
+    repositoryRoot: path.resolve(input.repositoryRoot), repository: input.repository
+  });
+  const sessionRoot = path.join(layout.repositoryStateRoot, 'trusted-runtime', 'v1',
+    request.expectedSessionRevision.slice(7));
+  const presence = inspectExactNoFollowDirectoryPresence(sessionRoot, 'Local verification record directory');
+  const actionBytes = presence.state === 'absent' ? null
+    : readNoFollowOrdinaryFile(presence.directory.target, 'verification-action.json');
+  const pendingBytes = actionBytes !== null || presence.state === 'absent' ? null
+    : readNoFollowOrdinaryFile(presence.directory.target, 'verification-pending-qualification.json');
+  const action = actionBytes === null ? null : parseActionBundle(actionBytes);
+  const pending = pendingBytes === null ? null : parsePendingTrustedRuntimeEvidence(pendingBytes);
+  const evidence = action?.artifact.evidence ?? pending?.evidence ?? null;
+  if (evidence !== null) {
+    // Both completed and pending records must agree with every saved scalar
+    // pin available in Evidence V4. Matching digest labels alone is insufficient.
+    CodexDevelopmentAssertVerificationEvidenceV4(evidence, {
+      sessionRevision: request.expectedSessionRevision,
+      baseSha: request.expectedBaseSha, baseTreeSha: request.expectedBaseTreeSha,
+      headSha: request.expectedHeadSha, headTreeSha: request.expectedHeadTreeSha,
+      manifestPath: request.manifestPath, manifestDigest: request.manifestDigest,
+      profile: request.profile as 'quick' | 'full'
+    });
+    if (evidence.actionPlan.actionPlanDigest !== request.expectedActionPlanDigest) {
+      fail('saved local evidence differs from the requested Action plan');
+    }
+  }
+  if (action !== null) {
+    const { session, scopeAuthorization } = action.artifact;
+    if (session.repository !== input.repository || session.prNumber !== request.prNumber
+        || session.baseSha !== request.expectedBaseSha || session.baseTreeSha !== request.expectedBaseTreeSha
+        || session.headSha !== request.expectedHeadSha || session.headTreeSha !== request.expectedHeadTreeSha
+        || session.manifestPath !== request.manifestPath || session.manifestDigest !== request.manifestDigest
+        || session.profile !== request.profile || session.reviewPolicyDigest !== request.reviewPolicyDigest
+        || scopeAuthorization.proposalDigest !== request.expectedScopeProposalDigest) {
+      fail('saved local artifact differs from exact preparation inputs');
+    }
+  }
+  return Object.freeze({
+    status: evidence === null ? 'LOCAL_REQUEST_OBSERVED' as const : 'LOCAL_EVIDENCE_RECORDED' as const,
+    execution: 'local' as const,
+    stage: 'read-only-projection' as const,
+    observationScope: 'saved-local-request-and-durable-records' as const,
+    savedRequest: saved,
+    sessionRevision: request.expectedSessionRevision,
+    verificationStatus: evidence?.status ?? 'not-observed',
+    evidenceDigest: evidence?.evidenceDigest ?? null,
+    evidenceRecord: action !== null ? 'verification-action' as const
+      : pending !== null ? 'pending-qualification' as const : 'not-observed' as const,
+    artifactDigest: action?.artifact.artifactDigest ?? null,
+    // Pending evidence has no Session/scope/review carrier. Expose precisely
+    // which associations the available records cannot independently establish.
+    unverifiedRequestFields: Object.freeze(evidence === null
+      ? ['repository', ...Object.keys(request).filter((key) => key !== 'schema')]
+      : action === null
+        ? ['repository', 'prNumber', 'expectedScopeProposalDigest', 'reviewPolicyDigest', 'requestOperationId']
+        : ['requestOperationId']),
+    currentSubject: 'not-observed' as const,
+    sourceQualification: 'not-revalidated' as const,
+    integrationAuthorization: 'not-evaluated' as const,
+    executionStarted: false as const
+  });
+}
+
+export async function prepareWithTrustedRuntime(input: TrustedRuntimeCandidatePreparationInput) {
+  const repositoryRoot = path.resolve(input.repositoryRoot);
+  const github = createVerificationSessionGitHubClient(repositoryRoot, input.repository);
+  return await withMainHealthGitHubReadOperationBudget({
+    repositoryRoot,
+    repository: input.repository,
+    operation: async () => {
+      const candidate = await github.observeCandidate(input.repository, input.prNumber);
+      const preparation = await prepareOpenCandidateWithTrustedRuntime({
+        input, repositoryRoot, github, candidate
+      });
+      if (preparation.kind === 'waiting') {
+        return Object.freeze({ ...preparation.value, execution: 'local' as const,
+          stage: 'preparation-only' as const,
+          request: createVerificationSessionLocalPreparationRequest(preparation.request) });
+      }
+      return Object.freeze({
+        status: 'LOCAL_PREPARED' as const,
+        execution: 'local' as const,
+        stage: 'preparation-only' as const,
+        sessionRevision: preparation.prepared.envelope.session.sessionRevision,
+        request: createVerificationSessionLocalPreparationRequest(preparation.prepared.request),
+        verificationStatus: 'not-run' as const,
+        sourceQualification: 'not-run' as const,
+        integrationAuthorization: 'not-issued' as const
+      });
+    }
+  });
+}
+
+async function closeoutOpenCandidateWithTrustedRuntime(args: Readonly<{
+  input: Readonly<{
+    repositoryRoot: string;
+    repository: string;
+    prNumber: number;
+    testAuthorCommentId?: number;
+  }>;
+  repositoryRoot: string;
+  github: VerificationSessionGitHubClient;
+  candidate: GitHubCandidateObservation;
+  sourceTransitionUseCase: TrustedRuntimeSourceTransitionUseCase;
+  stage: TrustedRuntimeCandidateStage;
+}>): Promise<TrustedRuntimeCloseoutOpenResult> {
+  const { input, repositoryRoot, github, candidate, sourceTransitionUseCase } = args;
+  const preparation = await prepareOpenCandidateWithTrustedRuntime({
+    input, repositoryRoot, github, candidate
+  });
+  if (args.stage.kind === 'verification-only') {
+    assertVerificationSessionLocalPreparationCurrent(args.stage.request,
+      preparation.kind === 'waiting' ? preparation.request : preparation.prepared.request);
+  }
+  if (preparation.kind === 'waiting') return preparation;
+  const { prepared, principal, integrationPermission, observedAt, runtimeRef,
+    sourceProgramTransition, dependencyBlobs, observeAuthorApproval, authorApproval,
+    manifestPath, manifestDigest, manifest, changed, mainHealthObservation } = preparation;
   const envelope = prepared.envelope;
+  const runtimeLayout = resolveSecRuntimeStateForRepository({
+    repository: input.repository,
+    repositoryRoot
+  });
   const sessionRoot = path.join(runtimeLayout.repositoryStateRoot, 'trusted-runtime', 'v1',
     envelope.session.sessionRevision.slice(7));
   return withTrustedRuntimeStateAuthority({
@@ -1081,7 +1279,26 @@ async function closeoutOpenCandidateWithTrustedRuntime(args: Readonly<{
     });
     const freshCandidate = (await github.observeCandidate(input.repository, input.prNumber));
     if (freshCandidate.headSha !== candidate.headSha || freshCandidate.baseSha !== candidate.baseSha
-        || freshCandidate.state !== 'OPEN') fail('candidate drifted after durable Verification');
+        || freshCandidate.headTreeSha !== candidate.headTreeSha || freshCandidate.baseTreeSha !== candidate.baseTreeSha
+        || freshCandidate.state !== 'OPEN' || freshCandidate.isDraft || freshCandidate.isCrossRepository) {
+      fail('candidate drifted after durable Verification');
+    }
+    // The explicit verification stage ends at the original durable artifact
+    // boundary. No pre-merge review, grant, remote status or merge is acquired.
+    if (args.stage.kind === 'verification-only') {
+      return Object.freeze({ kind: 'verified' as const, value: Object.freeze({
+        status: artifact.evidence.status === 'passed' ? 'LOCAL_VERIFIED' as const : 'LOCAL_VERIFICATION_RECORDED' as const,
+        execution: 'local' as const,
+        stage: 'verification-only' as const,
+        sessionRevision: artifact.session.sessionRevision,
+        actionPlanDigest: artifact.evidence.actionPlan.actionPlanDigest,
+        artifactDigest: artifact.artifactDigest,
+        verificationStatus: artifact.evidence.status,
+        sourceQualificationDigest: sourceProgramTransitionQualification.qualificationDigest,
+        actionEvidenceReused: existingAction !== null || pendingBytes !== null,
+        integrationAuthorization: 'not-issued-by-this-operation' as const
+      }) });
+    }
     const preMergeBarrier = (await github.observeReviewBarrier({ repository: input.repository,
       prNumber: input.prNumber, headSha: candidate.headSha,
       excludedPrincipalNodeIds: new Set([candidate.authorNodeId, principal.nodeId]) }));
@@ -1367,7 +1584,12 @@ export async function runTrustedRuntimeOperatorCli(argv: readonly string[], sour
             repositoryRoot: process.cwd(),
             repository: args.repository
           })
-        : await closeoutWithTrustedRuntime({
+        : args.mode === 'verification-only'
+          ? await verifyWithTrustedRuntime({ repositoryRoot: process.cwd(), repository: args.repository,
+              request: args.request,
+              ...(args.testAuthorCommentId === undefined ? {} : { testAuthorCommentId: args.testAuthorCommentId })
+            }, sourceTransitionUseCase)
+          : await closeoutWithTrustedRuntime({
             repositoryRoot: process.cwd(),
             repository: args.repository,
             prNumber: args.prNumber,

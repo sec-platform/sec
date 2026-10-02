@@ -4,12 +4,14 @@ import path from 'node:path';
 import { assertSameNoFollowDirectoryIdentity } from './physical-directory-chain.ts';
 import { inspectNoFollowDirectoryLeaf } from './physical-directory-entry.ts';
 import { directoryTreeEntryPosixOwnership } from './physical-directory-tree.ts';
+import { assertExclusiveFileGuardResource } from './physical-exclusive-guard.ts';
 import {
   PhysicalNoFollowError,
   type NoFollowDirectoryTreeInventoryEntry,
   type NoFollowDirectoryTreeRetirementReceipt,
   type PhysicalDirectoryIdentity,
-  type PhysicalNoFollowEntryAccessFailureObservation
+  type PhysicalNoFollowEntryAccessFailureObservation,
+  type RetainedExclusiveFileGuard
 } from './physical-no-follow-contract.ts';
 import {
   LINUX_AT_REMOVEDIR,
@@ -27,9 +29,11 @@ import {
   linuxIdentity,
   linuxOpenAt,
   linuxOpenLeafAt,
+  linuxOpenReadableLeafAt,
   linuxOpenRetainedAbsoluteDirectory,
   linuxOpenRoot,
   linuxReadRetainedLinkTarget,
+  readLinuxRetainedFile,
   readWindowsRetainedFile,
   requireLinuxLibc,
   windowsAssertParentWithinRetainedRoot,
@@ -62,6 +66,8 @@ export function deleteRetainedNoFollowEntry(input: {
   readonly expectedLinkTarget?: string;
   /** Exact file bytes, compared through a retained native handle immediately before deletion. */
   readonly expectedFileBytes?: Uint8Array;
+  /** Live same-resource native exclusion; only cooperative namespace effects are covered. */
+  readonly resourceGuard?: RetainedExclusiveFileGuard;
   readonly ancestorDirectories: readonly Readonly<{
     relativePath: string;
     device: string;
@@ -83,6 +89,12 @@ export function deleteRetainedNoFollowEntry(input: {
     entry.relativePath !== parts.slice(0, index + 1).join('/')
   )) {
     throw physicalError('PHYSICAL_NO_FOLLOW_UNSAFE_PATH', 'Retained deletion ancestor inventory is incomplete or noncanonical.');
+  }
+  if (input.resourceGuard !== undefined) {
+    if (parts.length !== 0 || input.kind !== 'file' || input.expectedFileBytes === undefined) {
+      throw physicalError('PHYSICAL_NO_FOLLOW_CAPABILITY_UNAVAILABLE', 'Guarded byte-CAS requires one exact direct resource leaf.');
+    }
+    assertExclusiveFileGuardResource(input.resourceGuard, root, leaf);
   }
   if (process.platform === 'win32') {
     const rootHandle = windowsOpenDirectory(root.path, 'Retained deletion root');
@@ -282,7 +294,7 @@ export function deleteRetainedNoFollowEntry(input: {
   if (process.platform !== 'linux') {
     throw physicalError('PHYSICAL_NO_FOLLOW_CAPABILITY_UNAVAILABLE', 'Retained destructive deletion backend is unavailable on this platform.');
   }
-  if (input.expectedFileBytes !== undefined) {
+  if (input.expectedFileBytes !== undefined && input.resourceGuard === undefined) {
     // POSIX unlinkat removes a name, not the inspected file descriptor.
     // Without an owner-issued namespace exclusion, read-then-unlink cannot
     // promise byte-CAS against an uncooperative rename or in-place writer.
@@ -295,6 +307,7 @@ export function deleteRetainedNoFollowEntry(input: {
   let retainedRootFd = filesystemRootFd;
   let parentFd: number | null = null;
   let leafFd: number | null = null;
+  let primaryFailure: unknown;
   try {
     const rootSegments = root.path.slice(path.parse(root.path).root.length).split('/').filter(Boolean);
     for (const segment of rootSegments) {
@@ -321,7 +334,9 @@ export function deleteRetainedNoFollowEntry(input: {
         throw physicalError('PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED', 'Retained deletion ancestor identity changed.');
       }
     }
-    leafFd = linuxOpenLeafAt(parentFd, leaf, 'Retained deletion leaf');
+    leafFd = input.expectedFileBytes === undefined
+      ? linuxOpenLeafAt(parentFd, leaf, 'Retained deletion leaf')
+      : linuxOpenReadableLeafAt(parentFd, leaf, 'Retained guarded deletion leaf');
     const stat = fstatSync(leafFd, { bigint: true });
     const kindMatches = input.kind === 'directory' ? stat.isDirectory() : input.kind === 'file' ? stat.isFile() : stat.isSymbolicLink();
     if (String(stat.dev) !== input.device || String(stat.ino) !== input.inode || !kindMatches) {
@@ -330,6 +345,23 @@ export function deleteRetainedNoFollowEntry(input: {
     if (input.kind === 'link' && input.expectedLinkTarget !== undefined
         && linuxReadRetainedLinkTarget(leafFd, 'Retained deletion leaf') !== input.expectedLinkTarget) {
       throw physicalError('PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED', 'Retained deletion link target changed.');
+    }
+    if (input.expectedFileBytes !== undefined) {
+      assertExclusiveFileGuardResource(input.resourceGuard!, root, leaf);
+      const bytes = readLinuxRetainedFile(leafFd, 'Retained guarded deletion exact bytes', input.expectedFileBytes.byteLength);
+      if (!Buffer.from(bytes).equals(input.expectedFileBytes)) {
+        throw physicalError('PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED', 'Retained guarded deletion bytes changed.');
+      }
+      // The retained fd is evidence; the held resource guard provides the
+      // cooperative exclusion around the following native name effect.
+      const namedFd = linuxOpenReadableLeafAt(parentFd, leaf, 'Retained guarded deletion named preimage');
+      try {
+        const named = fstatSync(namedFd, { bigint: true });
+        if (String(named.dev) !== input.device || String(named.ino) !== input.inode) {
+          throw physicalError('PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED', 'Retained guarded deletion named identity changed.');
+        }
+      } finally { closeSync(namedFd); }
+      assertExclusiveFileGuardResource(input.resourceGuard!, root, leaf);
     }
     if (requireLinuxLibc().symbols.unlinkat(parentFd, Buffer.from(`${leaf}\0`, 'utf8'), input.kind === 'directory' ? LINUX_AT_REMOVEDIR : 0) !== 0) {
       throw physicalError('PHYSICAL_NO_FOLLOW_DURABILITY_FAILED', `Retained unlinkat failed (errno ${linuxErrno()}).`);
@@ -344,15 +376,24 @@ export function deleteRetainedNoFollowEntry(input: {
     } catch (error) {
       if (!(error instanceof PhysicalNoFollowError) || error.code !== 'PHYSICAL_NO_FOLLOW_ABSENT') throw error;
     }
+    if (input.resourceGuard !== undefined) assertExclusiveFileGuardResource(input.resourceGuard, root, leaf);
     const retainedRootAfter = linuxIdentity(retainedRootFd, root.path);
     if (!sameIdentity(root, retainedRootAfter)) {
       throw physicalError('PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED', 'Retained deletion root changed during unlinkat.');
     }
+  } catch (error) {
+    primaryFailure = error;
+    throw error;
   } finally {
-    if (leafFd !== null) closeSync(leafFd);
-    if (parentFd !== null && parentFd !== retainedRootFd) closeSync(parentFd);
-    if (retainedRootFd !== filesystemRootFd) closeSync(retainedRootFd);
-    closeSync(filesystemRootFd);
+    const failures: unknown[] = [];
+    for (const fd of [leafFd, parentFd !== retainedRootFd ? parentFd : null,
+      retainedRootFd !== filesystemRootFd ? retainedRootFd : null, filesystemRootFd]) {
+      if (fd !== null) try { closeSync(fd); } catch (error) { failures.push(error); }
+    }
+    if (failures.length > 0) {
+      throw new AggregateError(primaryFailure === undefined ? failures : [primaryFailure, ...failures],
+        'Retained deletion descriptor settlement failed.');
+    }
   }
 }
 

@@ -10,8 +10,8 @@ last-reviewed: 2026-10-02
 selectionMode: exact-manifest-not-on-default-branch-v1
 defaultBranchRef: refs/remotes/origin/main
 defaultRefFreshness: live-platform-match-required
-manifest: config/repository/work-packages/maintenance-effective-authority-adoption-20261002.md
-manifestDigest: sha256:9da8e0d4d4a94051063ae71d406db20dd3dbed43e9a6dc291fb936149a7d1363
+manifest: config/repository/work-packages/local-validation-lease-batch-adoption-20261002.md
+manifestDigest: sha256:70cdaf6c982e05e5b75678734d3b76c4067850648ef87094832bc3cee056e0e3
 digestBytes: git-blob
 unavailableDefaultRef: unresolved
 matchingDefaultBlob: none

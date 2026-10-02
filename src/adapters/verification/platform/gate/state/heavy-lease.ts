@@ -175,21 +175,6 @@ async function publishCandidate(
   }
 }
 
-async function reclaimStaleLock(lockPath: string, token: string): Promise<boolean> {
-  const reclaimPath = `${lockPath}.reclaim-${token}`;
-  try {
-    await rename(lockPath, reclaimPath);
-  } catch (error) {
-    if (error && typeof error === 'object' && 'code' in error &&
-      (error.code === 'ENOENT' || error.code === 'EEXIST' || error.code === 'EPERM' || error.code === 'ENOTEMPTY')) {
-      return false;
-    }
-    throw error;
-  }
-  await rm(reclaimPath, { recursive: true, force: false });
-  return true;
-}
-
 async function acquireWindowsHeavyVerificationGateLease(
   owner: HeavyVerificationGateOwner,
   mutexIdentity: string,
@@ -353,7 +338,10 @@ export async function acquireHeavyVerificationGateLease(
       }
       throw new Error('Heavy verification gate owner publication is invalid and requires recovery.');
     }
-    await reclaimStaleLock(lockPath, owner.token);
+    // A stale-looking coordinator does not prove its detached verification
+    // children have stopped. Different cache profiles also do not establish
+    // one worktree-global exclusion domain. Preserve the original rendezvous.
+    throw new Error('Heavy verification gate requires original execution-domain recovery; retained owner is unverified.');
   }
   throw new Error('Heavy verification gate could not acquire its worktree-local lease.');
 }

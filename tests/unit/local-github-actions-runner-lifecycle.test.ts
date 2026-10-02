@@ -3,11 +3,12 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, u
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
-import { sha256 } from '../../src/contracts/canonical.ts';
 import { createDockerEndpointIdentity } from '../../src/adapters/providers/docker/contract/daemon.ts';
 import { SEC_LINUX_VERIFICATION_ENVIRONMENT_AUTHORITY as environment } from '../../src/adapters/providers/linux-verification/contract.ts';
+import { CI_VERIFICATION_HOSTED_SANDBOX_POLICY } from '../../src/adapters/verification/platform/ci/contract/revision.ts';
+import { sha256 } from '../../src/contracts/canonical.ts';
 
-// Exercise the real start/recover/stop control flow and physical durable state.
+// Exercise retired-start rejection plus real legacy recovery/stop and durable state.
 // Provider transport and capability settlement are deterministic boundaries here;
 // these tests do not issue credentials, operate Docker, or prove real API effects.
 const semantic = await import('../../src/execution/operation/semantic.ts');
@@ -48,10 +49,6 @@ mock.module('../../src/adapters/runtime-state/physical/runtime/physical-no-follo
     replaceDurableFile(input);
     const state = JSON.parse(Buffer.from(input.bytes).toString('utf8')) as { lifecycle?: string };
     if (state.lifecycle !== undefined) events.push(`durable:${state.lifecycle}`);
-    if (state.lifecycle === 'routing' && loseCommitAcknowledgement) {
-      loseCommitAcknowledgement = false;
-      throw new Error('routing commit acknowledgement lost');
-    }
   }
 }));
 
@@ -62,8 +59,7 @@ const endpoint = createDockerEndpointIdentity({
 const digest = `sha256:${'a'.repeat(64)}`;
 let root: string;
 let events: string[];
-let loseCommitAcknowledgement: boolean;
-let failRegistration: string | null;
+let boundaryEntries: string[];
 let failRelease: string | null;
 let loseReleaseResponse: string | null;
 let pendingState: 'quarantined' | 'installed' | null;
@@ -106,11 +102,12 @@ const durableState = () => JSON.parse(readFileSync(statePath(), 'utf8')) as {
 const stdout = (value: unknown) => ({
   code: 0, stdout: Buffer.from(typeof value === 'string' ? value : JSON.stringify(value)), stderr: Buffer.alloc(0)
 });
-const flag = (args: readonly string[], name: string) => args[args.indexOf(name) + 1]!;
-const values = (args: readonly string[], name: string) => args.flatMap((value, index) => value === name ? [args[index + 1]!] : []);
 
 mock.module('../../src/adapters/providers/git-read/authority.ts', () => ({
-  withAuthorityGitReadSession: async (_input: unknown, operation: (session: object) => unknown) => await operation({})
+  withAuthorityGitReadSession: async (_input: unknown, operation: (session: object) => unknown) => {
+    boundaryEntries.push('git-read-session');
+    return await operation({});
+  }
 }));
 mock.module('../../src/adapters/self-hosting/development/tooling/git/git-read.ts', () => ({
   GIT_READ_OPERATION_BUDGET: {},
@@ -118,10 +115,15 @@ mock.module('../../src/adapters/self-hosting/development/tooling/git/git-read.ts
     : args.includes('--git-common-dir') ? path.join(root, '.git') : 'https://github.com/sec-platform/sec.git'
 }));
 mock.module('../../src/adapters/providers/docker/runtime/windows-command-provider.ts', () => ({
-  openWindowsDockerCommandProvider: async () => ({ providerIdentityDigest: digest })
+  openWindowsDockerCommandProvider: async () => {
+    boundaryEntries.push('docker-provider');
+    return { providerIdentityDigest: digest };
+  }
 }));
 mock.module('../../src/adapters/providers/docker/runtime/container-engine-session.ts', () => ({
-  openContainerEngineSession: async () => ({
+  openContainerEngineSession: async () => {
+    boundaryEntries.push('docker-session');
+    return ({
     endpoint, providerIdentityDigest: digest, deadlineAtUnixMs: Date.now() + 60_000,
     openOperationScope: () => ({ settle: () => ({ physicalDisposition: 'settled' }) }),
     observeEndpoint: async () => endpoint, close: () => undefined,
@@ -147,39 +149,12 @@ mock.module('../../src/adapters/providers/docker/runtime/container-engine-sessio
         }]);
         case 'container-list': return stdout(containers.map((container) => `${container.Id}\t${container.Name.slice(1)}`).join('\n'));
         case 'container-inspect': return stdout(containers.filter((container) => container.Id === args[0]));
-        case 'container-run': {
-          const id = String.fromCharCode(97 + containers.length).repeat(64);
-          const labels = Object.fromEntries(values(args, '--label').map((label) => {
-            const split = label.indexOf('='); return [label.slice(0, split), label.slice(split + 1)];
-          }));
-          const memory = flag(args, '--memory');
-          containers.push({
-            Id: id, Name: '/' + flag(args, '--name'), Image: environment.image.dockerProjectionDigest,
-            Config: { Entrypoint: [flag(args, '--entrypoint')], Cmd: args.slice(-2), Labels: labels },
-            HostConfig: {
-              RestartPolicy: { Name: flag(args, '--restart'), MaximumRetryCount: 0 },
-              Init: args.includes('--init'), CapAdd: values(args, '--cap-add').map((value) => `CAP_${value}`),
-              CapDrop: values(args, '--cap-drop'), SecurityOpt: values(args, '--security-opt'),
-              Privileged: false, Binds: null, PidsLimit: Number(flag(args, '--pids-limit')),
-              Memory: Number(memory.slice(0, -1)) * (memory.endsWith('g') ? 1024 ** 3 : 1024 ** 2),
-              NanoCpus: Number(flag(args, '--cpus')) * 1_000_000_000
-            }, State: { Running: true }
-          });
-          events.push(`create:${flag(args, '--name')}`);
-          return stdout(id);
-        }
         case 'container-exec': {
           const container = containers.find((entry) => args.includes(entry.Id))!;
           const role = container.Config.Labels['sec.local-runner.role']!;
           const script = args.at(-1)!;
-          if (script.includes('./config.sh')) {
-            if (failRegistration === role) throw new Error('registration unavailable before effect');
-            const labels = /--labels ([^ ]+) --work/u.exec(script)![1]!.split(',');
-            runners.push({ id: 21 + runners.length, name: container.Name.slice(1), os: 'Linux',
-              status: 'offline', busy: false,
-              labels: ['self-hosted', 'Linux', 'X64', ...labels].map((name) => ({ name })) });
-            events.push(`register:${role}`);
-          } else {
+          if (script.includes('./config.sh')) throw new Error('Legacy recovery must never register a runner');
+          {
             if (failRelease === role) { failRelease = null; throw new Error('listener release response unavailable'); }
             const lifecycle = durableState().lifecycle;
             events.push(`listener:${role}:${lifecycle}`);
@@ -204,16 +179,18 @@ mock.module('../../src/adapters/providers/docker/runtime/container-engine-sessio
         default: throw new Error(`Unexpected container operation ${operation.kind}`);
       }
     }
-  })
+  }); }
 }));
-const apiSession = async (input: { operation: (api: object) => unknown }) => await input.operation({});
+const apiSession = async (input: { operation: (api: object) => unknown }) => {
+  boundaryEntries.push('github-api-session');
+  return await input.operation({});
+};
 mock.module('../../src/adapters/providers/github-api/operation-session.ts', () => ({
   withGitHubApiReadSession: apiSession, withGitHubApiRunnerAdminSession: apiSession,
   inspectGitHubApiCapability: () => ({ principal: { login: 'maintainer' } }),
   executeGitHubApiOperation: async (_api: unknown, operation: { kind: string; runnerId?: number; labels?: string[] }) => {
     if (operation.kind === 'repository') return { full_name: 'sec-platform/sec' };
     if (operation.kind === 'repository-runners') return { runners: structuredClone(runners) };
-    if (operation.kind === 'create-runner-registration-token') return { token: 'fixture-only-registration-token' };
     if (operation.kind === 'delete-repository-runner') {
       events.push('delete-runner:' + operation.runnerId);
       runners = runners.filter((runner) => runner.id !== operation.runnerId);
@@ -237,23 +214,101 @@ mock.module('../../src/adapters/providers/github-api/operation-session.ts', () =
     throw new Error(`Unexpected GitHub operation ${operation.kind}`);
   }
 }));
-const { startLocalGitHubActionsProvider, recoverLocalGitHubActionsProvider, stopLocalGitHubActionsProvider, observeLocalGitHubActionsProvider } =
+const { startLocalGitHubActionsProvider, recoverLocalGitHubActionsProvider, stopLocalGitHubActionsProvider, observeLocalGitHubActionsProvider, createLocalGitHubActionsRunnerState } =
   await import('../../src/adapters/verification/platform/ci/runtime/local-github-actions-runner.ts');
 const start = () => startLocalGitHubActionsProvider({ cwd: root, repository: 'sec-platform/sec', name: 'fixture', cpus: 3, memory: '768m' });
 const recover = () => recoverLocalGitHubActionsProvider({ cwd: root, repository: 'sec-platform/sec', name: 'fixture' });
 beforeEach(() => {
   root = mkdtempSync(path.join(tmpdir(), 'sec-provider-routing-'));
   mkdirSync(path.join(root, '.git'));
-  events = []; runners = []; containers = []; released = new Set();
-  pendingState = null; loseCommitAcknowledgement = false; failRegistration = null; failRelease = null; loseReleaseResponse = null; loseLabelResponse = null;
+  events = []; boundaryEntries = []; runners = []; containers = []; released = new Set();
+  pendingState = null; failRelease = null; loseReleaseResponse = null; loseLabelResponse = null;
 });
 afterEach(() => { rmSync(root, { recursive: true, force: true }); });
 
-test('all registrations precede durable routing commit, listener release, and exact-ID publication', async () => {
-  await start();
-  expect(events.filter((event) => !event.startsWith('durable:provisioning') && !event.startsWith('create:'))).toEqual([
-    'recover-state', 'register:control', 'register:trusted', 'register:sut', 'durable:routing',
-    'listener:control:routing', 'publish:control:routing',
+// Historical fixture material is data, not new provisioning. The state encoder
+// is used only for canonical input framing; assertions use independent fixed
+// effects, IDs and terminal observations. No transport can create/register.
+function seedRetainedGeneration(lifecycle: 'provisioning' | 'routing' | 'active' = 'routing', registered = 3) {
+  const roles = ['control', 'trusted', 'sut'] as const;
+  const operationLabel = `sec-operation-${'b'.repeat(64)}`;
+  const resources = { cpus: 3, memory: '768m' };
+  const active = lifecycle === 'active';
+  for (const [index, role] of roles.entries()) {
+    const name = `fixture-${role}`;
+    const id = String.fromCharCode(97 + index).repeat(64);
+    containers.push({
+      Id: id, Name: '/' + name, Image: environment.image.dockerProjectionDigest,
+      Config: {
+        Entrypoint: ['/bin/bash'], Cmd: ['-ceu', [
+          'set -euo pipefail', 'cd /actions-runner',
+          'marker="/actions-runner/.sec-runner-configured-v1"',
+          'while [ ! -f "$marker" ]; do sleep 1; done', 'exec ./run.sh'
+        ].join('\n')],
+        Labels: {
+          'sec.local-runner.schema': 'sec-local-github-actions-provider-state-v5',
+          'sec.local-runner.repository': 'sec-platform/sec',
+          'sec.local-runner.provider-name': 'fixture',
+          'sec.local-runner.instance-name': name,
+          'sec.local-runner.role': role,
+          'sec.local-runner.operation-label': operationLabel,
+          'sec.local-runner.container-init': environment.runtime.containerInitCapability,
+          'sec.local-runner.image-id': environment.image.dockerProjectionDigest
+        }
+      },
+      HostConfig: {
+        RestartPolicy: { Name: 'unless-stopped', MaximumRetryCount: 0 }, Init: true,
+        CapAdd: role === 'sut' ? CI_VERIFICATION_HOSTED_SANDBOX_POLICY.outerSutContainerCapabilities.map(value => `CAP_${value}`) : [],
+        CapDrop: ['ALL'], SecurityOpt: ['no-new-privileges:true'], Privileged: false, Binds: null,
+        PidsLimit: environment.runtime.resources[role].pids,
+        Memory: role === 'sut' ? environment.runtime.resources.sut.memoryGiB * 1024 ** 3 : 768 * 1024 ** 2,
+        NanoCpus: (role === 'sut' ? environment.runtime.resources.sut.cpus : 3) * 1_000_000_000
+      }, State: { Running: true }
+    });
+    if (index < registered) {
+      const labels = active
+        ? [...environment.runtime.labels, environment.runtime.roleLabels[role], operationLabel]
+        : ['self-hosted', 'Linux', 'X64', operationLabel];
+      runners.push({ id: 21 + index, name, os: 'Linux', status: active ? 'online' : 'offline', busy: false,
+        labels: labels.map(name => ({ name })) });
+      if (active) released.add(role);
+    }
+  }
+  const state = createLocalGitHubActionsRunnerState({
+    repository: 'sec-platform/sec', repositoryRoot: root, commonDirectory: path.join(root, '.git'),
+    providerName: 'fixture', operationLabel, lifecycle, resources, dockerEndpoint: endpoint,
+    githubEndpoint: { schema: 'sec-github-api-endpoint-identity-v1', host: 'github.com', repository: 'sec-platform/sec', principal: 'maintainer' },
+    instances: roles.map((role, index) => ({
+      role, roleLabel: environment.runtime.roleLabels[role], name: `fixture-${role}`,
+      containerId: String.fromCharCode(97 + index).repeat(64), containerState: 'present',
+      runnerId: index < registered ? 21 + index : null,
+      runnerState: index < registered ? 'present' : 'uncreated'
+    })), startedAt: '2026-09-01T00:00:00.000Z'
+  });
+  mkdirSync(path.dirname(statePath()), { recursive: true });
+  writeFileSync(statePath(), JSON.stringify(state, null, 2) + '\n');
+}
+
+test('retired provisioning rejects before Git, credential, Docker or durable-state effects', async () => {
+  await expect(start()).rejects.toMatchObject({ name: 'LocalRunnerTopologyRetiredError', code: 'runner-topology-retired' });
+  expect(boundaryEntries).toEqual([]);
+  expect(events).toEqual([]); expect(runners).toEqual([]); expect(containers).toEqual([]);
+  expect(existsSync(statePath())).toBe(false);
+});
+
+test('retired start leaves an interrupted legacy generation for its recovery owner', async () => {
+  seedRetainedGeneration('active'); interruptReplacement('quarantined');
+  await expect(start()).rejects.toMatchObject({ code: 'runner-topology-retired' });
+  expect(boundaryEntries).toEqual([]);
+  expect(events).toEqual([]); expect(pendingState).toBe('quarantined');
+  expect(existsSync(pendingPath())).toBe(true); expect(runners).toHaveLength(3); expect(containers).toHaveLength(3);
+});
+
+test('committed legacy routing resumes exact IDs without provisioning and can be stopped', async () => {
+  seedRetainedGeneration();
+  await recover();
+  expect(events).toEqual([
+    'recover-state', 'listener:control:routing', 'publish:control:routing',
     'listener:trusted:routing', 'publish:trusted:routing',
     'listener:sut:routing', 'publish:sut:routing', 'durable:active'
   ]);
@@ -263,130 +318,100 @@ test('all registrations precede durable routing commit, listener release, and ex
 });
 
 test('unknown partial publication resumes from readback without registration or destructive rollback', async () => {
-  loseLabelResponse = 'trusted';
-  await expect(start()).rejects.toThrow('label publication response lost');
+  seedRetainedGeneration(); loseLabelResponse = 'trusted';
+  await expect(recover()).rejects.toThrow('label publication response lost');
   expect(durableState().lifecycle).toBe('routing');
-  expect(events.some((event) => event.startsWith('delete-'))).toBe(false);
-  const ids = runners.map(({ id }) => id);
-  runners[0]!.busy = true;
+  expect(events.some(event => event.startsWith('delete-'))).toBe(false);
+  const ids = runners.map(({ id }) => id); runners[0]!.busy = true;
   await recover();
-  expect(events.filter((event) => event.startsWith('register:'))).toEqual(['register:control', 'register:trusted', 'register:sut']);
-  expect(events.filter((event) => event.startsWith('publish:'))).toEqual(['publish:control:routing', 'publish:trusted:routing', 'publish:sut:routing']);
-  expect(runners.map(({ id }) => id)).toEqual(ids);
-  expect(durableState().lifecycle).toBe('active');
+  expect(events.filter(event => event.startsWith('publish:'))).toEqual(['publish:control:routing', 'publish:trusted:routing', 'publish:sut:routing']);
+  expect(runners.map(({ id }) => id)).toEqual(ids); expect(durableState().lifecycle).toBe('active');
 });
 
-test('durable commit acknowledgement loss leaves listeners blocked and resumes the retained generation', async () => {
-  loseCommitAcknowledgement = true;
-  await expect(start()).rejects.toThrow('provider start and exact cleanup both failed');
-  expect(durableState().lifecycle).toBe('routing');
-  expect(events.some((event) => event.startsWith('listener:') || event.startsWith('publish:') || event.startsWith('delete-'))).toBe(false);
+test('legacy pre-commit partial registration is settled without releasing or creating runners', async () => {
+  seedRetainedGeneration('provisioning', 2);
   await recover();
-  expect(durableState().lifecycle).toBe('active');
-});
-
-test('pre-commit registration failure cleans staged identities without ever releasing a listener', async () => {
-  failRegistration = 'sut';
-  await expect(start()).rejects.toThrow('registration unavailable before effect');
-  expect(events.some((event) => event.startsWith('listener:') || event.startsWith('publish:'))).toBe(false);
+  expect(events.some(event => event.startsWith('listener:') || event.startsWith('publish:'))).toBe(false);
   expect(runners).toEqual([]); expect(containers).toEqual([]); expect(existsSync(statePath())).toBe(false);
 });
 
 test('recovery preserves foreign labels and never publishes over drift', async () => {
-  loseLabelResponse = 'trusted';
-  await expect(start()).rejects.toThrow();
-  runners[0]!.labels.push({ name: 'external-maintainer-label' });
-  const effectCount = events.filter((event) => event.startsWith('publish:') || event.startsWith('delete-')).length;
+  seedRetainedGeneration(); runners[0]!.labels.push({ name: 'external-maintainer-label' });
   await expect(recover()).rejects.toThrow('complete effective labels changed');
-  expect(events.filter((event) => event.startsWith('publish:') || event.startsWith('delete-'))).toHaveLength(effectCount);
+  expect(events.some(event => event.startsWith('publish:') || event.startsWith('delete-'))).toBe(false);
   expect(runners[0]!.labels.some(({ name }) => name === 'external-maintainer-label')).toBe(true);
 });
 
-
 test('marker release failure keeps committed routing intent and resumes without replacement', async () => {
-  failRelease = 'trusted';
-  await expect(start()).rejects.toThrow('listener release response unavailable');
+  seedRetainedGeneration(); failRelease = 'trusted';
+  await expect(recover()).rejects.toThrow('listener release response unavailable');
   expect(durableState().lifecycle).toBe('routing');
-  expect(events.some((event) => event.startsWith('delete-'))).toBe(false);
+  expect(events.some(event => event.startsWith('delete-'))).toBe(false);
   await recover();
-  expect(events.filter((event) => event.startsWith('publish:'))).toEqual([
+  expect(events.filter(event => event.startsWith('publish:'))).toEqual([
     'publish:control:routing', 'publish:trusted:routing', 'publish:sut:routing'
   ]);
-  expect(events.filter((event) => event.startsWith('register:'))).toHaveLength(3);
-  expect(durableState().lifecycle).toBe('active');
+  expect(runners.map(({ id }) => id)).toEqual([21, 22, 23]); expect(durableState().lifecycle).toBe('active');
 });
 
 test('replacement of a retained runner ID blocks recovery before label or delete effects', async () => {
-  loseLabelResponse = 'trusted';
-  await expect(start()).rejects.toThrow();
-  runners[0]!.id = 901;
-  const effectCount = events.filter((event) => event.startsWith('publish:') || event.startsWith('delete-')).length;
+  seedRetainedGeneration(); runners[0]!.id = 901;
   await expect(recover()).rejects.toThrow('uncommitted or replaced identity');
-  expect(events.filter((event) => event.startsWith('publish:') || event.startsWith('delete-'))).toHaveLength(effectCount);
+  expect(events.some(event => event.startsWith('publish:') || event.startsWith('delete-'))).toBe(false);
 });
 
 test('explicit stop can settle a retained v4 generation without inventing resource intent', async () => {
-  await start();
+  seedRetainedGeneration('active');
   const current = JSON.parse(readFileSync(statePath(), 'utf8')) as Record<string, unknown>;
   Reflect.deleteProperty(current, 'resources'); Reflect.deleteProperty(current, 'stateDigest');
   current.schema = 'sec-local-github-actions-provider-state-v4';
-  const legacy = { ...current, stateDigest: sha256(current) };
-  writeFileSync(statePath(), JSON.stringify(legacy, null, 2) + '\n');
+  writeFileSync(statePath(), JSON.stringify({ ...current, stateDigest: sha256(current) }, null, 2) + '\n');
   for (const container of containers) container.Config.Labels['sec.local-runner.schema'] = 'sec-local-github-actions-provider-state-v4';
   await stopLocalGitHubActionsProvider({ cwd: root });
   expect(runners).toEqual([]); expect(containers).toEqual([]); expect(existsSync(statePath())).toBe(false);
 });
 
-
 test('marker release acknowledgement loss retains already-running busy capacity', async () => {
-  loseReleaseResponse = 'control';
-  await expect(start()).rejects.toThrow('listener release acknowledgement lost after effect');
+  seedRetainedGeneration(); loseReleaseResponse = 'control';
+  await expect(recover()).rejects.toThrow('listener release acknowledgement lost after effect');
   expect(durableState().lifecycle).toBe('routing');
   expect(runners[0]!.status).toBe('online'); expect(runners[0]!.busy).toBe(true);
   await recover();
-  expect(events.filter((event) => event.startsWith('publish:'))).toEqual([
+  expect(events.filter(event => event.startsWith('publish:'))).toEqual([
     'publish:control:routing', 'publish:trusted:routing', 'publish:sut:routing'
   ]);
-  expect(events.some((event) => event.startsWith('delete-'))).toBe(false);
+  expect(events.some(event => event.startsWith('delete-'))).toBe(false);
   expect(durableState().lifecycle).toBe('active');
 });
 
-
-for (const command of ['start', 'recover', 'stop'] as const) {
+for (const command of ['recover', 'stop'] as const) {
   test(`pending durable replacement is settled under lease before ${command} interprets absence`, async () => {
-    await start(); interruptReplacement('quarantined');
-    const previousEvents = events.length;
-    if (command === 'start') await expect(start()).rejects.toThrow('active lifecycle state already exists');
-    else if (command === 'recover') await recover();
+    seedRetainedGeneration('active'); interruptReplacement('quarantined');
+    if (command === 'recover') await recover();
     else await stopLocalGitHubActionsProvider({ cwd: root });
-    expect(events[previousEvents]).toBe('recover-state');
-    expect(pendingState).toBeNull();
+    expect(events[0]).toBe('recover-state'); expect(pendingState).toBeNull();
     if (command === 'stop') {
       expect(runners).toEqual([]); expect(containers).toEqual([]); expect(existsSync(statePath())).toBe(false);
     } else {
-      expect(durableState().lifecycle).toBe('active');
-      expect(runners).toHaveLength(3); expect(containers).toHaveLength(3);
+      expect(durableState().lifecycle).toBe('active'); expect(runners).toHaveLength(3); expect(containers).toHaveLength(3);
     }
-    expect(events.filter((event) => event.startsWith('register:'))).toHaveLength(3);
   });
 }
 
 for (const phase of ['quarantined', 'installed'] as const) {
   test(`read-only status reports ${phase} durable artifacts without recovery or absence claims`, async () => {
-    await start(); interruptReplacement(phase);
-    const previousEvents = events.length;
+    seedRetainedGeneration('active'); interruptReplacement(phase);
     const observed = await observeLocalGitHubActionsProvider({ cwd: root });
     expect(observed).toMatchObject({ status: 'residue', reason: 'lifecycle-state-recovery-required' });
-    expect(pendingState).toBe(phase); expect(events).toHaveLength(previousEvents);
-    expect(existsSync(pendingPath())).toBe(true);
-    expect(existsSync(statePath())).toBe(phase === 'installed');
+    expect(pendingState).toBe(phase); expect(events).toEqual([]);
+    expect(existsSync(pendingPath())).toBe(true); expect(existsSync(statePath())).toBe(phase === 'installed');
   });
 }
 
 test('installed teardown replacement is settled before recovery chooses its lifecycle', async () => {
-  await start(); interruptReplacement('installed');
+  seedRetainedGeneration('active'); interruptReplacement('installed');
   await recover();
   expect(pendingState).toBeNull(); expect(existsSync(pendingPath())).toBe(false);
   expect(runners).toEqual([]); expect(containers).toEqual([]); expect(existsSync(statePath())).toBe(false);
-  expect(events.filter((event) => event.startsWith('publish:'))).toHaveLength(3);
+  expect(events.some(event => event.startsWith('publish:'))).toBe(false);
 });
