@@ -10,8 +10,8 @@ last-reviewed: 2026-10-02
 selectionMode: exact-manifest-not-on-default-branch-v1
 defaultBranchRef: refs/remotes/origin/main
 defaultRefFreshness: live-platform-match-required
-manifest: config/repository/work-packages/agent-literal-options-adoption-20261002.md
-manifestDigest: sha256:1c8697c19c17c9f552aa62e409cff4ebe4371479a0c24fd45bc07877ef760e1f
+manifest: config/repository/work-packages/dependency-diagnostics-adoption-20261002.md
+manifestDigest: sha256:dda5a64a72618d40af9120ab772c27853fa97b75ea64aeb925fb104c197b29a7
 digestBytes: git-blob
 unavailableDefaultRef: unresolved
 matchingDefaultBlob: none

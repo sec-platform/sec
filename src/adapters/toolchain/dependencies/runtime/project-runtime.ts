@@ -6,6 +6,7 @@ import { setTimeout as sleepMs } from 'node:timers/promises';
 import { canonicalEquals, canonicalJson, compareCodeUnits, digest, sortedKeys } from '../../../../contracts/canonical.ts';
 import { type CommitFence } from "../../../../contracts/commit-fence.ts";
 import { parseExactJson } from '../../../../contracts/exact-json.ts';
+import { boundedFailureCode } from '../../../../contracts/failure-inspection.ts';
 import { SecError } from '../../../../contracts/failure.ts';
 import { formatJsonFile } from "../../../../contracts/json-text.ts";
 import { isPathInside } from "../../../../contracts/relative-path.ts";
@@ -5698,6 +5699,21 @@ async function removeCompilerDependencyBridge(
   }, options);
 }
 
+// Outward diagnostics admit exact dependency/physical codes and native errno
+// labels only. Recovery continues to consume the existing durable stage intent.
+const COMPILER_DEPENDENCY_STAGING_FAILURE_CODES: ReadonlySet<string> = new Set([
+  'IMPORT-AUTHORITY-001', 'IMPORT-AUTHORITY-002', 'IMPORT-AUTHORITY-004',
+  'RUNTIME-DEPS-001', 'RUNTIME-DEPS-002', 'RUNTIME-DEPS-003', 'RUNTIME-DEPS-004',
+  'RUNTIME-DEPS-SETTLEMENT-001',
+  'PHYSICAL_NO_FOLLOW_ABSENT', 'PHYSICAL_NO_FOLLOW_EXCLUSIVE_CONFLICT',
+  'PHYSICAL_NO_FOLLOW_READ_LIMIT_EXCEEDED', 'PHYSICAL_NO_FOLLOW_UNSAFE_PATH',
+  'PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED', 'PHYSICAL_NO_FOLLOW_CAPABILITY_UNAVAILABLE',
+  'PHYSICAL_NO_FOLLOW_DURABILITY_FAILED',
+  'EACCES', 'EBUSY', 'EEXIST', 'EFBIG', 'EINTR', 'EINVAL', 'EIO', 'EISDIR',
+  'ELOOP', 'EMFILE', 'ENFILE', 'ENOENT', 'ENOSPC', 'ENOSYS', 'ENOTDIR',
+  'ENOTEMPTY', 'ENOTSUP', 'EPERM', 'EROFS', 'ETIMEDOUT', 'EXDEV'
+]);
+
 async function stageCompilerDependencyGeneration(
   root: string,
   identity: CompilerDependencyIdentity,
@@ -5892,11 +5908,13 @@ async function stageCompilerDependencyGeneration(
         );
       }
     } catch (disposeError) {
-      throw new SecError('IMPORT-AUTHORITY-004', 'Compiler dependency generation staging residue is preserved for recovery', {
-        cause: error instanceof Error ? error.message : String(error),
-        cleanup: disposeError instanceof Error ? disposeError.message : String(disposeError),
-        stagingRoot
-      });
+      const materializationCode = boundedFailureCode(error, COMPILER_DEPENDENCY_STAGING_FAILURE_CODES);
+      const cleanupCode = boundedFailureCode(disposeError, COMPILER_DEPENDENCY_STAGING_FAILURE_CODES);
+      throw new SecError(
+        'IMPORT-AUTHORITY-004',
+        `Compiler dependency generation staging residue is preserved for recovery; materialization=${materializationCode}; cleanup=${cleanupCode}`,
+        { materializationCode, cleanupCode, recoveryRequired: true }
+      );
     }
     if (error instanceof SecError && error.code.startsWith('IMPORT-AUTHORITY-')) throw error;
     const causeMessage = error instanceof SecError

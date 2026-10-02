@@ -1,4 +1,5 @@
 import { inspect } from 'node:util';
+import { isProxy } from 'node:util/types';
 
 export function inspectFailureValue(value: unknown): string {
   try {
@@ -22,6 +23,17 @@ export function getErrorCode(error: unknown): string | undefined {
   } catch {
     return undefined;
   }
+}
+
+/** Project only an owner-approved diagnostic code, without executing thrown
+ * values or retaining their messages, paths, details or causes. This is not
+ * recovery authority; unknown and accessor-backed codes remain UNKNOWN.
+ */
+export function boundedFailureCode(error: unknown, allowedCodes: ReadonlySet<string>): string {
+  if (error === null || typeof error !== 'object' || isProxy(error)) return 'UNKNOWN';
+  const descriptor = Object.getOwnPropertyDescriptor(error, 'code');
+  const code: unknown = descriptor && Object.hasOwn(descriptor, 'value') ? descriptor.value : undefined;
+  return typeof code === 'string' && allowedCodes.has(code) ? code : 'UNKNOWN';
 }
 
 /** A diagnostic projection, never a failure classifier or recovery authority.
