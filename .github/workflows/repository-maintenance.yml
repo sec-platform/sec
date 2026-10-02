@@ -60,6 +60,11 @@ jobs:
                 return role === permission ? permission : null;
             }
             // END GENERATED repository-permission.ts
+            // BEGIN GENERATED repository-maintenance-permission.ts
+            function isRepositoryMaintenancePermission(role) {
+                return role === 'admin' || role === 'maintain';
+            }
+            // END GENERATED repository-maintenance-permission.ts
             const crypto = require('crypto');
             const payload = JSON.parse(process.env.PAYLOAD_JSON);
             const expectedKeys = ['comment_body_sha256', 'comment_id', 'issue_number', 'schema'];
@@ -101,8 +106,7 @@ jobs:
                 comment.data.user?.login !== context.actor ||
                 comment.data.user?.type !== 'User' ||
                 comment.data.performed_via_github_app !== null ||
-                (comment.data.author_association !== 'OWNER' && comment.data.author_association !== 'MEMBER') ||
-                (role !== 'admin' && role !== 'maintain') ||
+                !isRepositoryMaintenancePermission(role) ||
                 bodyDigest !== payload.comment_body_sha256) {
               core.info(JSON.stringify({
                 schema: 'sec-maintenance-carrier-rejection-diagnostic-v1',
@@ -112,12 +116,11 @@ jobs:
                 authorIsUser: comment.data.user?.type === 'User',
                 performedViaAppFieldPresent: Object.prototype.hasOwnProperty.call(comment.data, 'performed_via_github_app'),
                 performedViaAppIsNull: comment.data.performed_via_github_app === null,
-                associationAccepted: comment.data.author_association === 'OWNER' || comment.data.author_association === 'MEMBER',
                 associationFieldPresent: Object.prototype.hasOwnProperty.call(comment.data, 'author_association'),
                 associationShape: ['COLLABORATOR', 'CONTRIBUTOR', 'FIRST_TIMER', 'FIRST_TIME_CONTRIBUTOR', 'MANNEQUIN', 'MEMBER', 'NONE', 'OWNER'].includes(comment.data.author_association) ? comment.data.author_association : 'unknown',
                 permissionShape: ['admin', 'maintain', 'write', 'triage', 'read', 'none'].includes(permission.data?.permission) ? permission.data.permission : 'unrecognized',
                 roleShape: ['admin', 'maintain', 'write', 'triage', 'read', 'none'].includes(permission.data?.role_name) ? permission.data.role_name : 'absent-or-unrecognized',
-                normalizedRoleAccepted: role === 'admin' || role === 'maintain',
+                normalizedRoleAccepted: isRepositoryMaintenancePermission(role),
                 bodyDigestMatches: bodyDigest === payload.comment_body_sha256
               }));
               throw new Error('Repository maintenance trigger comment or dispatcher authority differs.');
@@ -133,7 +136,6 @@ jobs:
             core.setOutput('issue-number', String(payload.issue_number));
             core.setOutput('comment-id', String(payload.comment_id));
             core.setOutput('comment-author', context.actor);
-            core.setOutput('author-association', comment.data.author_association);
 
       - name: Checkout exact maintenance authority
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -161,7 +163,6 @@ jobs:
           SEC_MAINTENANCE_ISSUE_NUMBER: ${{ steps.request.outputs.issue-number }}
           SEC_MAINTENANCE_COMMENT_ID: ${{ steps.request.outputs.comment-id }}
           SEC_MAINTENANCE_COMMENT_AUTHOR: ${{ steps.request.outputs.comment-author }}
-          SEC_MAINTENANCE_AUTHOR_ASSOCIATION: ${{ steps.request.outputs.author-association }}
         run: |
           set -euo pipefail
           request_file="$RUNNER_TEMP/sec-repository-maintenance-request.json"
@@ -288,7 +289,6 @@ jobs:
           SEC_MAINTENANCE_ISSUE_NUMBER: ${{ steps.request.outputs.issue-number }}
           SEC_MAINTENANCE_COMMENT_ID: ${{ steps.request.outputs.comment-id }}
           SEC_MAINTENANCE_COMMENT_AUTHOR: ${{ steps.request.outputs.comment-author }}
-          SEC_MAINTENANCE_AUTHOR_ASSOCIATION: ${{ steps.request.outputs.author-association }}
           SEC_MAINTENANCE_RECOVERY_ARTIFACT_ID: ${{ steps.upload-recovery.outputs.artifact-id }}
           SEC_MAINTENANCE_RECOVERY_ARTIFACT_NAME: sec-repository-maintenance-recovery-${{ github.run_id }}-${{ github.run_attempt }}
           SEC_MAINTENANCE_RECOVERY_ARTIFACT_DIGEST: sha256:${{ steps.upload-recovery.outputs.artifact-digest }}
@@ -331,7 +331,6 @@ jobs:
           SEC_MAINTENANCE_ISSUE_NUMBER: ${{ steps.request.outputs.issue-number }}
           SEC_MAINTENANCE_COMMENT_ID: ${{ steps.request.outputs.comment-id }}
           SEC_MAINTENANCE_COMMENT_AUTHOR: ${{ steps.request.outputs.comment-author }}
-          SEC_MAINTENANCE_AUTHOR_ASSOCIATION: ${{ steps.request.outputs.author-association }}
         run: bun src/adapters/self-hosting/control/repository-maintenance/repository-maintenance.ts retire-trigger
 
   retire-recovery-carrier:

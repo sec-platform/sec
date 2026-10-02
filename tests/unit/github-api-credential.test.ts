@@ -128,7 +128,6 @@ test.serial('recognizes only the exact repository-maintenance dispatch workflow 
     SEC_MAINTENANCE_ISSUE_NUMBER: '313',
     SEC_MAINTENANCE_COMMENT_ID: '42',
     SEC_MAINTENANCE_COMMENT_AUTHOR: 'maintainer',
-    SEC_MAINTENANCE_AUTHOR_ASSOCIATION: 'MEMBER',
     GH_TOKEN: 'ghs_actions-token-0123456789'
   };
   expect(inspectGitHubActionsRepositoryMaintenanceCredentialIdentity(
@@ -143,11 +142,15 @@ test.serial('recognizes only the exact repository-maintenance dispatch workflow 
     commentId: 42,
     actor: 'maintainer'
   });
+  for (const association of ['MEMBER', 'COLLABORATOR', 'NONE', 'unknown', undefined]) {
+    expect(inspectGitHubActionsRepositoryMaintenanceCredentialIdentity({ ...source,
+      SEC_MAINTENANCE_AUTHOR_ASSOCIATION: association }, 'sec-platform/sec'))
+      .toEqual(inspectGitHubActionsRepositoryMaintenanceCredentialIdentity(source, 'sec-platform/sec'));
+  }
   for (const changed of [
     { GITHUB_EVENT_NAME: 'issue_comment' },
     { GITHUB_WORKFLOW_REF: 'sec-platform/sec/.github/workflows/other.yml@refs/heads/main' },
     { SEC_MAINTENANCE_ISSUE_NUMBER: '312' },
-    { SEC_MAINTENANCE_AUTHOR_ASSOCIATION: 'CONTRIBUTOR' },
     { GITHUB_ACTOR: 'other' }
   ]) {
     expect(inspectGitHubActionsRepositoryMaintenanceCredentialIdentity(
@@ -175,7 +178,6 @@ test.serial('forwards only the explicit GitHub Actions token to the fixed creden
     process.env.SEC_MAINTENANCE_ISSUE_NUMBER = '313';
     process.env.SEC_MAINTENANCE_COMMENT_ID = '42';
     process.env.SEC_MAINTENANCE_COMMENT_AUTHOR = 'maintainer';
-    process.env.SEC_MAINTENANCE_AUTHOR_ASSOCIATION = 'OWNER';
     process.env.GITHUB_ACTOR = 'maintainer';
     process.env.GH_TOKEN = 'ghs_actions-token-0123456789';
     process.env.GITHUB_TOKEN = 'must-not-forward';

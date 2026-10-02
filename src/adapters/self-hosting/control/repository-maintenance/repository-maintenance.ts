@@ -9,6 +9,7 @@ import {
   inspectGitHubApiCapability,
   withGitHubApiReadSession
 } from '../../../providers/github-api/operation-session.ts';
+import { isRepositoryMaintenancePermission } from '../../../providers/github-api/repository-maintenance-permission.ts';
 import { normalizeGitHubRepositoryPermission } from '../../../providers/github-api/repository-permission.ts';
 import type { BranchRecoveryAuthority } from '../branch-lifecycle/branch-lifecycle-contract.ts';
 import {
@@ -287,8 +288,6 @@ async function assertRepositoryMaintenancePreflight(input: Readonly<{
       if (triggerRecord.id !== triggerCommentId
           || triggerRecord.issue_url !== `https://api.github.com/repos/${input.request.repository}/issues/313`
           || triggerRecord.body !== input.environment.SEC_MAINTENANCE_REQUEST_JSON
-          || triggerRecord.author_association !== input.environment.SEC_MAINTENANCE_AUTHOR_ASSOCIATION
-          || (triggerRecord.author_association !== 'OWNER' && triggerRecord.author_association !== 'MEMBER')
           || triggerRecord.performed_via_github_app !== null
           || triggerUser === null || typeof triggerUser !== 'object' || Array.isArray(triggerUser)
           || triggerUser.login !== actor
@@ -301,7 +300,7 @@ async function assertRepositoryMaintenancePreflight(input: Readonly<{
         login: actor
       });
       const role = normalizeGitHubRepositoryPermission(permission);
-      if (role !== 'admin' && role !== 'maintain') {
+      if (!isRepositoryMaintenancePermission(role)) {
         throw new Error(`repository maintenance actor ${actor} lacks maintain/admin permission`);
       }
       const main = await executeGitHubApiOperation(capability, { kind: 'git-ref', branch: 'main' });

@@ -3,6 +3,8 @@ import path from 'node:path';
 
 import { expect, test } from 'bun:test';
 
+import { isRepositoryMaintenancePermission } from '../../src/adapters/providers/github-api/repository-maintenance-permission.ts';
+
 import { parseExactRefRetirement } from '../../src/adapters/self-hosting/control/branch-lifecycle/exact-ref-retirement-contract.ts';
 import {
   parseExactRemoteRefRecoveryPreparation
@@ -53,10 +55,16 @@ function environment(source = requestSource()): NodeJS.ProcessEnv {
     SEC_MAINTENANCE_REQUEST_JSON: source,
     SEC_MAINTENANCE_ISSUE_NUMBER: '313',
     SEC_MAINTENANCE_COMMENT_ID: '42',
-    SEC_MAINTENANCE_COMMENT_AUTHOR: 'maintainer',
-    SEC_MAINTENANCE_AUTHOR_ASSOCIATION: 'MEMBER'
+    SEC_MAINTENANCE_COMMENT_AUTHOR: 'maintainer'
   };
 }
+
+test('shared maintenance permission predicate accepts only qualified maintain/admin roles', () => {
+  for (const role of ['admin', 'maintain']) expect(isRepositoryMaintenancePermission(role)).toBe(true);
+  for (const role of ['OWNER', 'MEMBER', 'write', 'triage', 'read', 'none', '', null, undefined, {}, ['admin']]) {
+    expect(isRepositoryMaintenancePermission(role)).toBe(false);
+  }
+});
 
 test('maintenance dispatcher requires current maintain/admin before creating a workflow signal', () => {
   expect(assertRepositoryMaintenanceDispatcherPermission({ permission: 'admin' })).toBe('admin');
@@ -280,6 +288,10 @@ test('exact ref recovery preparation binds request identity, ref state and bundl
 test('hosted maintenance binds exact main workflow, lifecycle issue and maintainer event identity', () => {
   const request = parseRepositoryMaintenanceRequest(requestSource());
   expect(() => assertHostedRepositoryMaintenanceIdentity(request, environment())).not.toThrow();
+  for (const association of ['MEMBER', 'COLLABORATOR', 'NONE', 'unknown', undefined]) {
+    expect(() => assertHostedRepositoryMaintenanceIdentity(request, { ...environment(),
+      SEC_MAINTENANCE_AUTHOR_ASSOCIATION: association })).not.toThrow();
+  }
   for (const changed of [
     { GITHUB_EVENT_NAME: 'issue_comment' },
     { GITHUB_REF: 'refs/heads/other' },
@@ -287,7 +299,6 @@ test('hosted maintenance binds exact main workflow, lifecycle issue and maintain
     { GITHUB_WORKFLOW_SHA: 'c'.repeat(40) },
     { SEC_MAINTENANCE_ISSUE_NUMBER: '312' },
     { SEC_MAINTENANCE_COMMENT_ID: '0' },
-    { SEC_MAINTENANCE_AUTHOR_ASSOCIATION: 'CONTRIBUTOR' },
     { GITHUB_ACTOR: 'other' }
   ]) {
     expect(() => assertHostedRepositoryMaintenanceIdentity(
