@@ -855,6 +855,42 @@ export function CodexDevelopmentAssertRollingMachineBaseBinding(input: Readonly<
   }
 }
 
+/**
+ * A base-free stable plan needs the existing candidate rolling projection to
+ * carry its observed base. This checks content binding only: the caller still
+ * owns native Git, current WorkDecision and operation admission. Legacy plans
+ * retain their embedded-base contract and historical headings-only readers.
+ */
+export function CodexDevelopmentAssertStablePlanRollingBinding(input: Readonly<{
+  manifest: CodexDevelopmentWorkPackageManifest;
+  manifestPath: string;
+  manifestDigest: `sha256:${string}`;
+  projection: SecWorkRollingMachineProjection | null;
+  exactMain: string;
+  exactMainTree: string;
+}>): void {
+  if (input.manifest.schema === 'codex-development-work-package-v1') return;
+  const projection = input.projection;
+  if (projection === null) {
+    throw new Error('Stable Work Package requires a digest-bound rolling machine projection.');
+  }
+  CodexDevelopmentAssertRollingMachineBaseBinding({
+    projection,
+    exactMain: input.exactMain,
+    exactMainTree: input.exactMainTree
+  });
+  if (projection.active.packageId !== input.manifest.id
+      || projection.active.tracking !== input.manifest.tracking) {
+    throw new Error('Stable Work Package does not match the rolling machine active identity.');
+  }
+  const exactBinding = projectSecWorkRollingExactManifestBinding(projection);
+  if (exactBinding !== null
+      && (exactBinding.active.manifestPath !== input.manifestPath
+        || exactBinding.active.manifestDigest !== input.manifestDigest)) {
+    throw new Error('Stable Work Package does not match the rolling machine manifest binding.');
+  }
+}
+
 export interface CodexDevelopmentWorkPackageCensusEntry {
   readonly path: string;
   readonly candidateBytes: Uint8Array;

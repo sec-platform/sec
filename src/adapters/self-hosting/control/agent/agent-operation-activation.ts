@@ -30,8 +30,10 @@ import {
 } from '../documentation/active.ts';
 import {
   CodexDevelopmentAssertControlPlaneBinding,
+  CodexDevelopmentAssertStablePlanRollingBinding,
   CodexDevelopmentParseActivePointer,
   CodexDevelopmentParseCurrentStateSpec,
+  CodexDevelopmentParseRollingMachineProjection,
   CodexDevelopmentParseRollingPlan
 } from '../documentation/document-control-plane-contract.ts';
 import {
@@ -677,6 +679,14 @@ function readCandidateControl(
       || gitObjectExists(candidateRoot, `${receipt.exactMain}:${pointer.manifest}`)) {
     unavailable('activation-stale', 'candidate-control-binding-invalid');
   }
+  guarded('activation-stale', () => CodexDevelopmentAssertStablePlanRollingBinding({
+    manifest,
+    manifestPath: pointer.manifest,
+    manifestDigest,
+    projection: CodexDevelopmentParseRollingMachineProjection(decodeUtf8(rollingBytes, 'activation-stale')),
+    exactMain: receipt.exactMain,
+    exactMainTree: receipt.exactMainTree
+  }));
   return Object.freeze({
     manifestPath: pointer.manifest,
     manifestRevision: manifestBlob.oid,
