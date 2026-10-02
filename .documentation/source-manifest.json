@@ -1,6 +1,6 @@
 {
   "schema": "sec.documentation-source-manifest/2",
-  "source_set_sha256": "1193b071476a333985fc86cc69d55c2cf034f1cf74b4a79655d8966ecb3c54fe",
+  "source_set_sha256": "70430ad8e0e9a245cfcc0a665bbb173810c216def7e401249634be1794c2bcf1",
   "members": [
     {
       "path": ".documentation/README.md",
@@ -189,8 +189,8 @@
     },
     {
       "path": "docs/任务路线.md",
-      "bytes": 10791,
-      "sha256": "dbc2e9fe4deb2e983759a29248c7686d8541d3e29f362ac63ed381697b4f2ce3"
+      "bytes": 12039,
+      "sha256": "86a877ac4ba1f5f7331d920424aac8cb5c10c2e2ec78378fadde9766e2628e03"
     },
     {
       "path": "docs/作者/README.md",
@@ -264,8 +264,8 @@
     },
     {
       "path": "docs/作者/成品/工作台交互与共同状态.md",
-      "bytes": 7952,
-      "sha256": "70a56332a7c2fd6b78379fd6ed6f19589078d7e1a4d684a590042cd46847dabb"
+      "bytes": 26055,
+      "sha256": "1f3b3446038498407985035db78f7c482e859b7504bcd55cbcc605644f10c7db"
     },
     {
       "path": "docs/作者/成品/工作器组件与插件.md",
@@ -434,8 +434,8 @@
     },
     {
       "path": "docs/依据/来源/工作台与替代路线.md",
-      "bytes": 29847,
-      "sha256": "f7c6eaca4488ecc45fb4148f6353492cf5698d1f6d2515a3229b8feca6e2df7a"
+      "bytes": 33644,
+      "sha256": "6ef5bcf0695d37a465a8da334357f8dd586fc9050c5f4bfb148146c83ccd7b0e"
     },
     {
       "path": "docs/依据/来源/工程信息组织依据.md",
@@ -564,8 +564,8 @@
     },
     {
       "path": "docs/决策/设计理由-交互与生成.md",
-      "bytes": 46853,
-      "sha256": "c5ffcfd2a679c74bde8c0fb24eb4d70ed008d9ac26ae37b1c586aebf261e4d0f"
+      "bytes": 51147,
+      "sha256": "75bf202e2dde5dee5be0e69e4b670fa7267e445010931ac91fd824cd841e3014"
     },
     {
       "path": "docs/决策/设计理由-目标与核心.md",
@@ -604,8 +604,8 @@
     },
     {
       "path": "docs/开发/README.md",
-      "bytes": 1814,
-      "sha256": "d185a75ba953deefa06e1a6dfe22859cda0e9d1c405165553276012d626d5a52"
+      "bytes": 1894,
+      "sha256": "f98c9a3bd8999cc6360f52efadd0730bce0f6eed4a9141157a4503a703e09cbf"
     },
     {
       "path": "docs/开发/原生维护/导入观察与原生资产.md",
@@ -664,8 +664,8 @@
     },
     {
       "path": "docs/开发/编辑审查与客户端.md",
-      "bytes": 64177,
-      "sha256": "936f7daae72c79adba8a2e0a148fd5187e659d05e60a17e4dc1ee2879268489d"
+      "bytes": 73936,
+      "sha256": "b5409ce6a54c8e6a52dca897dd43f87745e0600518ebef4aaf9f7383f4da105e"
     },
     {
       "path": "docs/开发/编辑检查与失败继续.md",
@@ -729,8 +729,8 @@
     },
     {
       "path": "docs/架构/装配/能力接合与文件责任.md",
-      "bytes": 28878,
-      "sha256": "b4666950bf7fa9dd100e8d7d14b7ebee467a9bcac2e66adb512ccf201b586768"
+      "bytes": 34584,
+      "sha256": "9f85667d0fada1e5cdb60e849aeab39ebde7ec88116a75d7e393555b133c443a"
     },
     {
       "path": "docs/演进/README.md",
@@ -749,8 +749,8 @@
     },
     {
       "path": "docs/演进/实施/主线前沿与准入.md",
-      "bytes": 85168,
-      "sha256": "d1e8c888951bc933c052ac2cf70590eb96b4be7ab04da628209cbeb584c2cc50"
+      "bytes": 89354,
+      "sha256": "b32430ab0377c235934616e2b2c41e72789a2a9ba7b15a445d1ec649f55c4cc6"
     },
     {
       "path": "docs/演进/实施/仓库迁移与自托管.md",
@@ -874,8 +874,8 @@
     },
     {
       "path": "docs/状态/作者与接口.md",
-      "bytes": 33133,
-      "sha256": "7e75e8dc3e70988fec10fe109c12001be15393037b849a53498d5e949a32587f"
+      "bytes": 33224,
+      "sha256": "577f45b0e6e3990c865d0a212888e2a6556c01b5bad69fb1ffd0be6a310e1e10"
     },
     {
       "path": "docs/状态/信息约束与验证.md",
@@ -884,8 +884,8 @@
     },
     {
       "path": "docs/状态/前沿与登记规则.md",
-      "bytes": 49496,
-      "sha256": "57c2f90c784bc0b4fab974b5d8a03bf686be64e60b6090c204b234343f3b1074"
+      "bytes": 50613,
+      "sha256": "de382417703266c0cd090ef2109087a198deacc079dbd1f0424867970d105eb6"
     },
     {
       "path": "docs/状态/执行与恢复.md",
@@ -899,8 +899,8 @@
     },
     {
       "path": "docs/状态/设计剩余全量清单.md",
-      "bytes": 28282,
-      "sha256": "280bd316ac24bd18663ddff059b536ffb7929bd7c8b3600ba6a793972cef462b"
+      "bytes": 28925,
+      "sha256": "0a3413c7b0d5d761cccafc77f9f765a4ca25b42729bf93f687012ee7ea3ee097"
     },
     {
       "path": "docs/状态/语义与领域.md",
@@ -1304,8 +1304,8 @@
     },
     {
       "path": "docs/运行/验收/开发面案例.md",
-      "bytes": 95937,
-      "sha256": "34cc12d85b7042536dcc6371c12516d1a3b3cee44958d6c911b821dac7c86704"
+      "bytes": 100561,
+      "sha256": "e916561f5a8be2a28cd64fbe555a1d7f4adaeac7618f888c700082f0ebe92ee3"
     },
     {
       "path": "docs/运行/验收/控制与演进案例.md",
