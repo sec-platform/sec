@@ -27,7 +27,7 @@ import {
 async function retainedProviderFixture() {
   const root = await mkdtemp(path.join(tmpdir(), 'sec-docker-command-provider-'));
   const executablePath = path.join(root, process.platform === 'win32' ? 'docker.exe' : 'docker');
-  await writeFile(executablePath, Buffer.from('provider-bytes'));
+  await writeFile(executablePath, Buffer.from('provider-bytes'), { mode: 0o700 });
   const directory = inspectNoFollowDirectoryChain(root, 'Docker provider fixture root');
   const executableEntry = inspectNoFollowOrdinaryFileEntry(
     directory.target,
@@ -166,7 +166,9 @@ test('Docker command provider ignores ambient command and directory redirection'
       process.platform === 'win32' ? path.join(fixture.root, 'System32') : ''
     );
     expect(claimed.environment.TEMP).toBe(fixture.root);
-    expect(claimed.environment.PROGRAMFILES).toBe(fixture.root);
+    expect(claimed.environment.PROGRAMFILES).toBe(
+      process.platform === 'win32' ? fixture.root : undefined
+    );
   } finally {
     claimed?.boundary.workingDirectory.dispose();
     claimed?.boundary.executable.dispose();
@@ -205,10 +207,8 @@ test('Docker command provider retains executable identity through replacement at
       await expect(replacementAttempt).rejects.toBeDefined();
     } else {
       await replacementAttempt;
-      const claimed = claimDockerCommandProviderCapability(fixture.capability);
-      expect(() => claimed.boundary.executable.assertCurrent()).toThrow();
-      claimed.boundary.workingDirectory.dispose();
-      claimed.boundary.executable.dispose();
+      expect(() => claimDockerCommandProviderCapability(fixture.capability))
+        .toThrow('changed before admission');
       return;
     }
     const claimed = claimDockerCommandProviderCapability(fixture.capability);
@@ -226,7 +226,7 @@ test('Docker command provider identity binds same-byte auxiliary file identity',
   const auxiliaryPath = path.join(root, process.platform === 'win32' ? 'wsl.exe' : 'wsl');
   const replacementPath = path.join(root, 'replacement-auxiliary');
   const bytes = Buffer.from('same-auxiliary-bytes');
-  await writeFile(executablePath, Buffer.from('provider-bytes'));
+  await writeFile(executablePath, Buffer.from('provider-bytes'), { mode: 0o700 });
   await writeFile(auxiliaryPath, bytes);
   const first = issueProviderWithAuxiliary(root, executablePath, auxiliaryPath);
   let second: ReturnType<typeof issueProviderWithAuxiliary> | undefined;
