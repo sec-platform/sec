@@ -2,7 +2,7 @@
 title: SEC 滚动近期计划
 status: active
 domain: current-control
-last-reviewed: 2026-10-01
+last-reviewed: 2026-10-02
 ---
 
 # SEC 滚动近期计划
@@ -12,9 +12,9 @@ last-reviewed: 2026-10-01
 ```json
 {
   "active": {
-    "manifestDigest": "sha256:c963ba9561cfedba7bee89fad4a8cecb125e7ab809d7ce4de968bc3b068a88c9",
-    "manifestPath": "config/repository/work-packages/audit-projection-adoption-20261001.md",
-    "packageId": "audit-projection-adoption-20261001",
+    "manifestDigest": "sha256:76459fb5b3f5c6ce1d7825ea47474140006214a7dc431026daa6851f0db93180",
+    "manifestPath": "config/repository/work-packages/github-response-adoption-20261002.md",
+    "packageId": "github-response-adoption-20261002",
     "tracking": "none"
   },
   "authority": "none",
@@ -25,18 +25,18 @@ last-reviewed: 2026-10-01
     "candidate-control-transaction-v1",
     "typescript-7-checker-acceleration-v1"
   ],
-  "exactMain": "595e6bc59107a02eff7bb0c36a16a28a9a5fcf76",
-  "exactMainTree": "40b61475a168b447661eb30c34782f7a42826513",
-  "projectionDigest": "sha256:3486218a16c813d70a3899f09a0e2314c7f1cad8d5fb41d120a4938aa0500cc8",
+  "exactMain": "4dfd07fc6a2b3a7fa781d74e4d2424614807042a",
+  "exactMainTree": "c3cb467880962cbd6eebf4b87267e0712138881a",
+  "projectionDigest": "sha256:b613fbf4c40a80d29f6f334e2a9f2afd6ec94408fd9278b8979c5df87518549f",
   "schema": "sec-work-rolling-proposal-projection-v1"
 }
 ```
 
 ## 当前唯一 Work Package
 
-### audit-projection-adoption-20261001
+### github-response-adoption-20261002
 
-Proposal-only target manifest `config/repository/work-packages/audit-projection-adoption-20261001.md` at `sha256:c963ba9561cfedba7bee89fad4a8cecb125e7ab809d7ce4de968bc3b068a88c9`, based on exact main `595e6bc59107a02eff7bb0c36a16a28a9a5fcf76` and tree `40b61475a168b447661eb30c34782f7a42826513`.
+Proposal-only target manifest `config/repository/work-packages/github-response-adoption-20261002.md` at `sha256:76459fb5b3f5c6ce1d7825ea47474140006214a7dc431026daa6851f0db93180`, based on exact main `4dfd07fc6a2b3a7fa781d74e4d2424614807042a` and tree `c3cb467880962cbd6eebf4b87267e0712138881a`.
 
 ## 候选 Work Package
 
