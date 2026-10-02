@@ -300,8 +300,12 @@ export function compileSourceProgramEmbeddedWorkflowPrograms(
       if (isAlias(usesNode) && uses === null) {
         throw new Error(`Workflow action alias does not resolve to one scalar provider: ${jobId}/${stepIndex}`);
       }
-      const runNode = mapValue(step, 'run');
+      const runValue = mapValue(step, 'run');
+      const runNode = isAlias(runValue) ? runValue.resolve(document) : runValue;
       const run = scalarString(runNode);
+      if (isAlias(runValue) && run === null) {
+        throw new Error(`Workflow run alias does not resolve to one scalar command: ${jobId}/${stepIndex}`);
+      }
       const stepName = scalarString(mapValue(step, 'name')) ?? `${jobId}/${stepIndex}`;
       if (uses !== null && run !== null) {
         throw new Error(`Source Program workflow step cannot contain both uses and run: ${jobId}/${stepIndex}`);
