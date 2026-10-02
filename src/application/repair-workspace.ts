@@ -1,6 +1,5 @@
 import type { VerificationReport } from '../assurance/verification/contract/types.ts';
 import type { LockFile } from '../compiler/contract.ts';
-import { assertPassStatus } from '../compiler/contract/lock-schema.ts';
 import { CompilerError } from '../compiler/errors.ts';
 import type { RepairPlan } from '../semantics/repair/types.ts';
 import { publishRepairPlanResult } from './repair-plan-publication.ts';
@@ -9,7 +8,7 @@ export type RepairWorkspaceRequest = Readonly<{ mode: 'preview' | 'publish' }>;
 
 export interface RepairWorkspaceOperations {
   readLock(): LockFile;
-  readVerification(): VerificationReport | null;
+  readVerification(lock: LockFile): VerificationReport | null;
   buildPlan(report: VerificationReport): RepairPlan;
   publish?(plan: RepairPlan, lock: LockFile): void | PromiseLike<void>;
   recordFailure?(lock: LockFile): void | PromiseLike<void>;
@@ -54,14 +53,9 @@ export async function repairWorkspaceResult(
     throw new TypeError('Workspace repair read/plan operations must be callable');
   }
   const lock = readLock.call(operations);
-  assertPassStatus(
-    lock,
-    'verify',
-    'pending',
-    new CompilerError('REPAIR-BLOCKED-002', 'verify must run before repair'),
-    'differs'
-  );
-  const report = readVerification.call(operations);
+  // The concrete reader binds the canonical result to this exact Lock. A
+  // pending/succeeded display flag neither supplies nor vetoes that result.
+  const report = readVerification.call(operations, lock);
   if (report === null) {
     throw new CompilerError('REPAIR-BLOCKED-002', 'verification-report.json is missing');
   }
@@ -70,5 +64,9 @@ export async function repairWorkspaceResult(
   if (typeof publish !== 'function' || typeof recordFailure !== 'function') {
     throw new TypeError('Workspace repair publication operations must be callable');
   }
-  return publishRepairPlanResult({ lock, repairPlan }, { publish, recordFailure });
+  // The publication port table is a forwarding view, not the provider receiver.
+  return publishRepairPlanResult({ lock, repairPlan }, {
+    publish: (plan, currentLock) => publish.call(operations, plan, currentLock),
+    recordFailure: currentLock => recordFailure.call(operations, currentLock)
+  });
 }

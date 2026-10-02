@@ -1,3 +1,4 @@
+import YAML from 'yaml';
 import { classifyCanonicalWorkspacePublicationFailure } from '../../adapters/filesystem/file-publication.ts';
 import { readOptionalJson, removeDir } from "../../adapters/filesystem/files.ts";
 import { assertWorkspaceWriteLease, type WorkspaceWriteLeaseToken } from '../../adapters/filesystem/write-lease.ts';
@@ -9,11 +10,13 @@ import {
   writeUpgradeDiagnostics
 } from '../../adapters/upgrade/artifact-publication.ts';
 import { requirePersistedUpgradePlan } from '../../adapters/upgrade/artifact-readback.ts';
+import { updateNoFollowMigrationFile } from '../../adapters/upgrade/migration-physical.ts';
 import {
   applyMigrationEntries,
   collectUpgradePreflightEvidence,
   loadMigrationEntries
 } from '../../adapters/upgrade/migration-runtime.ts';
+import { markUpgradeRecoveryUnknown } from '../../adapters/upgrade/recovery-intent.ts';
 import { matchesUpgradeVersionRange } from '../../adapters/upgrade/version-range.ts';
 import {
   restoreWorkspace,
@@ -25,7 +28,6 @@ import { readLockFile } from "../../adapters/workspace/lock.ts";
 import { withProjectWriteAuthorization } from '../../adapters/workspace/project-write-authorization.ts';
 import { loadManifestById } from '../../adapters/workspace/sources/load-manifest.ts';
 import { loadWorkspacePlan } from '../../adapters/workspace/sources/load-plan.ts';
-import { writeYaml } from '../../adapters/workspace/yaml.ts';
 import {
   bindPlannedUpgradeExecution,
   executePlannedWorkspaceUpgrade,
@@ -156,7 +158,9 @@ export async function runUpgradeWorkspaceWithLease(
       attempt
     },
     {
-      snapshot: () => snapshotWorkspace(workspaceRoot, lockPath, commitFence),
+      snapshot: () => snapshotWorkspace(workspaceRoot, lockPath, commitFence, {
+        operationIdentityDigest: upgradePlan.operationIdentityDigest, attemptRevision: attempt.attemptRevision
+      }),
       recoverySnapshot: backup => ({
         path: backup.backup.path,
         device: backup.backup.device,
@@ -182,7 +186,7 @@ export async function runUpgradeWorkspaceWithLease(
       ),
       publishPlan: planToPublish =>
         publishUpgradePlan(workspaceRoot, planToPublish, commitFence),
-      apply: () => withProjectWriteAuthorization(
+      apply: backup => withProjectWriteAuthorization(
         {
           workspaceRoot,
           operation: 'change.upgrade',
@@ -196,19 +200,26 @@ export async function runUpgradeWorkspaceWithLease(
             targetVersion
           },
           {
-            publishWorkspacePlan: () => writeYaml(
-              getWorkspacePaths(workspaceRoot).workspaceConfigPath,
-              plan,
-              commitFence
-            ),
+            publishWorkspacePlan: () => {
+              const bytes = Buffer.from(YAML.stringify(plan, { indent: 2 }), 'utf8');
+              return updateNoFollowMigrationFile({
+                root: workspaceRoot,
+                targetPath: getWorkspacePaths(workspaceRoot).workspaceConfigPath,
+                label: 'Upgrade workspace plan', commitFence,
+                recoveryIntent: backup.recoveryIntent, createParents: false,
+                update: () => bytes
+              });
+            },
             applyMigrations: () => applyMigrationEntries(
               workspaceRoot,
               plannedUpgrade.targetManifestRoot,
               plannedUpgrade.impacts,
               plannedUpgrade.migrationEntries,
-              commitFence
+              commitFence, backup.recoveryIntent
             ),
             compileLock: async () => {
+              await commitFence();
+              markUpgradeRecoveryUnknown(backup.recoveryIntent, 'compiler-effects-without-constituent-receipts');
               const { lock } = await compileWorkspace(workspaceRoot, {
                 source: 'upgrade',
                 through: 'lock',

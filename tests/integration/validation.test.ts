@@ -219,7 +219,7 @@ test('upgrade retains its recovery snapshot when the write lease is lost before 
   }, 'engineering-compiler-upgrade-fence-recovery-');
 });
 
-test('upgrade rollback restores nested preserved-name entries and file permission modes', async () => {
+test('upgrade compiler failure preserves original nested entries and modes in its retained recovery backup', async () => {
   await withTempWorkspace(async (workspaceRoot) => {
     await writeBlockUpgradeFixture(workspaceRoot);
     const paths = getWorkspacePaths(workspaceRoot);
@@ -246,15 +246,47 @@ test('upgrade rollback restores nested preserved-name entries and file permissio
       'block-upgrade.ts'
     ));
 
-    await expect(upgradeWorkspace(workspaceRoot, 'private/block-upgrade', '0.2.0'))
-      .rejects.toMatchObject({ details: { rollbackStatus: 'restored' } });
-    await expect(fs.readFile(nestedPath, 'utf8')).resolves.toBe('nested preimage\n');
-    await expect(fs.readFile(rootFilePath, 'utf8')).resolves.toBe('root preimage\n');
-    expect(await fs.readFile(graphLockPath)).toEqual(graphLockPreimage);
-    if (process.platform === 'linux') {
-      expect((await fs.lstat(nestedPath)).mode & 0o7777).toBe(nestedMode);
-      expect((await fs.lstat(rootFilePath)).mode & 0o7777).toBe(rootMode);
-    }
+    let failure: unknown;
+    try { await upgradeWorkspace(workspaceRoot, 'private/block-upgrade', '0.2.0'); }
+    catch (error) { failure = error; }
+    const snapshot = (failure as { details?: { recoverySnapshot?: {
+      path: string; device: string; inode: string; parentPath: string;
+      parentDevice: string; parentInode: string;
+    } } })?.details?.recoverySnapshot;
+    let assertionFailure: unknown;
+    try {
+      expect(failure).toMatchObject({ details: { rollbackStatus: 'recovery-required' } });
+      expect(snapshot).toBeDefined();
+      const preimage = path.join(snapshot!.path, 'preimage');
+      await expect(fs.readFile(nestedPath, 'utf8')).resolves.toBe('nested preimage\n');
+      await expect(fs.readFile(rootFilePath, 'utf8')).resolves.toBe('root preimage\n');
+      expect(await fs.readFile(path.join(preimage, '.sec-lock.snapshot'))).toEqual(graphLockPreimage);
+      expect(await fs.readFile(path.join(preimage, 'src', 'coverage', 'retained.txt'), 'utf8')).toBe('nested preimage\n');
+      if (process.platform === 'linux') {
+        expect((await fs.lstat(path.join(preimage, 'src', 'coverage', 'retained.txt'))).mode & 0o7777).toBe(nestedMode);
+        expect((await fs.lstat(path.join(preimage, 'rollback-root.txt'))).mode & 0o7777).toBe(rootMode);
+      }
+    } catch (error) { assertionFailure = error; }
+    await settlePhysicalResourcesAsync({
+      ...(assertionFailure === undefined ? {} : { primary: { label: 'upgrade-compiler-recovery-test', error: assertionFailure } }),
+      cleanup: snapshot === undefined ? [] : [{
+        label: 'upgrade-compiler-recovery-test-backup',
+        settle: () => {
+          const parent = inspectNoFollowDirectoryChain(snapshot.parentPath, 'Recovery test parent').target;
+          const root = inspectNoFollowDirectoryLeaf(parent, path.basename(snapshot.path), 'Recovery test backup');
+          if (parent.device !== snapshot.parentDevice || parent.inode !== snapshot.parentInode ||
+              root === null || root.device !== snapshot.device || root.inode !== snapshot.inode) {
+            throw new Error('Recovery test backup identity changed');
+          }
+          const inventory = scanNoFollowDirectoryTreeInventory(root, {
+            deadlineAtMs: performance.now() + 30_000, maximumEntries: 100_000,
+            maximumBytes: 1024 * 1024 * 1024, includePermissionMode: true
+          });
+          retireNoFollowDirectoryTree({ deadlineAtMonotonicMs: performance.now() + 30_000,
+            inventory, parent, root, restoreOwnerPermissions: true });
+        }
+      }]
+    });
   }, 'engineering-compiler-upgrade-nested-rollback-');
 });
 

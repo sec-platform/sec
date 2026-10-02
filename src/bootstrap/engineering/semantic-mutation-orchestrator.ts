@@ -9,10 +9,6 @@ import {
   writeSemanticMutationTransactionArtifacts
 } from '../../adapters/mutation/atomic-source-publish.ts';
 import {
-  deriveStagedSemanticMutation,
-  type DerivedSemanticMutationTransaction
-} from '../../adapters/mutation/derive-staged-mutation.ts';
-import {
   appendSemanticMutationRecoveryRecord,
   pruneSemanticMutationTerminalRecords,
   querySemanticMutationRequestRecord
@@ -71,10 +67,6 @@ import {
   coordinateSemanticMutationRecovery,
   projectSemanticMutationRecoveryOutcome
 } from '../../application/semantic-mutation-recovery-coordinator.ts';
-import {
-  buildPreparedSemanticMutationRecoveryRecord,
-  advanceSemanticMutationRecoveryRecord as nextRecordDraft
-} from '../../application/semantic-mutation-recovery.ts';
 import { type ReadySemanticMutationPlan } from '../../application/semantic-mutation-state.ts';
 import { publishRejectedSemanticMutationTerminal } from '../../application/semantic-mutation-terminal-publication.ts';
 import { SEMANTIC_MUTATION_LOCAL_VERIFICATION_ADAPTER_ID, SEMANTIC_MUTATION_LOCAL_VERIFICATION_ADAPTER_REVISION, type SemanticMutationVerificationCapabilityPlan } from '../../assurance/verification/contract/types.ts';
@@ -91,6 +83,10 @@ import type { FactDeltaEndpointContext } from '../../semantics/engineering-ir/de
 import { type SemanticMutationApplyInput, type SemanticMutationApplyOutcome, type SemanticMutationInternalRecoveryOutcome, type SemanticMutationRecoveryOutcome, type SemanticMutationRecoveryRecord, type SemanticMutationRequestIdentity, type SemanticMutationRequestRecordView, type SemanticMutationTransactionInput } from '../../semantics/mutation/transaction.ts';
 import type { SemanticMutationBase, SemanticMutationPlan, SemanticMutationResult, SemanticMutationVerificationExecutionRef } from '../../semantics/mutation/types.ts';
 import { compileWorkspace } from './pipeline-orchestrator.ts';
+import {
+  deriveStagedSemanticMutation,
+  type DerivedSemanticMutationTransaction
+} from './semantic-mutation-derivation.ts';
 
 type ReadyPlan = ReadySemanticMutationPlan;
 
@@ -609,21 +605,13 @@ async function applySemanticMutationInternal(
             )
           );
         },
-        persistPrepared: (derived, verification, transactionId) =>
+        appendDraft: draft =>
           executeWorkspaceWriteEffect(
             workspaceRoot,
             token,
             commitFence => dependencies.appendRecoveryRecord(
               transactionRoot,
-              buildPreparedSemanticMutationRecoveryRecord({
-                request: prepared.input,
-                plan: derived.plan,
-                editPlan: derived.editPlan,
-                rollbackManifest: derived.rollbackManifest,
-                transactionId,
-                requestIdentityDigest: prepared.requestIdentityDigest,
-                verification
-              }),
+              draft,
               commitFence
             )
           ),
@@ -648,20 +636,6 @@ async function applySemanticMutationInternal(
           );
           return semanticMutationByteDigest(current.bytes);
         },
-        appendAuthoringCommitted: (record, diagnostics) =>
-          executeWorkspaceWriteEffect(
-            workspaceRoot,
-            token,
-            commitFence => dependencies.appendRecoveryRecord(
-              transactionRoot,
-              nextRecordDraft(
-                record,
-                'authoring-committed',
-                diagnostics === undefined ? {} : { diagnostics }
-              ),
-              commitFence
-            )
-          ),
         markRecoveryRequired: (record, state, diagnostic) =>
           markSemanticMutationRecoveryRequired(
             record,

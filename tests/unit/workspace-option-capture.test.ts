@@ -13,23 +13,32 @@ for (const operation of ['verify', 'compose'] as const) for (const inherited of 
     const script = path.join(root, 'case.ts');
     const module = operation === 'verify'
       ? 'src/application/product-verification.ts'
-      : 'src/adapters/compilation/compose/compose-project.ts';
+      : 'src/application/project-composition.ts';
     try {
       await Bun.write(script, `
         import { mock } from 'bun:test';
         const operation = ${JSON.stringify(operation)};
         const primary = Object.freeze({ reason: 'engine stopped' });
-        let observed, calls = 0;
+        let observed, calls = 0, composedRoot;
+        if (operation === 'compose') {
+          const bindingPath = ${JSON.stringify(path.join(repo, 'src/bootstrap/engineering/project-composition.ts'))};
+          const actualBinding = await import(bindingPath);
+          const bind = actualBinding.createProjectCompositionOperations;
+          mock.module(bindingPath, () => ({
+            ...actualBinding,
+            createProjectCompositionOperations(root) { composedRoot = root; return bind(root); }
+          }));
+        }
         const engine = async (...args) => {
           calls++;
           observed = operation === 'verify'
             ? { laneOrContext: args[1], options: args[2] }
-            : { root: args[0], laneOrContext: args[2], options: args[3] };
+            : { root: composedRoot, laneOrContext: args[1], options: args[2] };
           throw primary;
         };
         mock.module(${JSON.stringify(path.join(repo, module))}, () => operation === 'verify'
           ? { executeProductVerification: engine }
-          : { composeProject: engine });
+          : { executeProjectComposition: engine });
         const { initWorkspace } = await import(${JSON.stringify(path.join(repo, 'src/bootstrap/engineering/workspace-orchestrator.ts'))});
         const { readLockFile, saveLock } = await import(${JSON.stringify(path.join(repo, 'src/adapters/workspace/lock.ts'))});
         const domain = await import(${JSON.stringify(path.join(repo, `src/bootstrap/engineering/${operation}-orchestrator.ts`))});

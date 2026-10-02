@@ -221,8 +221,8 @@ function unusedExecutionPorts(): SemanticMutationApplyExecutionOperations {
   return {
     recover: unused, readRetained: unused, derive: unused, publishRejected: unused,
     verify: unused, issueTransactionId: unused, writeTransactionArtifacts: unused,
-    persistPrepared: unused, publishSource: unused, observeCurrentDigest: unused,
-    appendAuthoringCommitted: unused, markRecoveryRequired: unused,
+    appendDraft: unused, publishSource: unused, observeCurrentDigest: unused,
+    markRecoveryRequired: unused,
     rollbackCommitted: unused, completeCommitted: unused, prune: unused,
     isExecutionBoundaryFailure: unused
   };
