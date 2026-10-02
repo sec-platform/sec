@@ -63,11 +63,11 @@
     "structure": {
       "kind": "language",
       "subjectId": "sec.requirement-structure",
-      "revision": "46539481fe264751d564d8c3380de6f8e0ab14e82009a5aee656cf8ca607ca76",
+      "revision": "0bf1a8ce64dd54e895bf2928ac68baea0366737725de58b0b192066c8d022d5a",
       "content": {
         "algorithm": "sha256",
-        "digest": "46539481fe264751d564d8c3380de6f8e0ab14e82009a5aee656cf8ca607ca76",
-        "byteLength": 33817,
+        "digest": "0bf1a8ce64dd54e895bf2928ac68baea0366737725de58b0b192066c8d022d5a",
+        "byteLength": 36366,
         "format": "text/markdown"
       },
       "dependencies": [

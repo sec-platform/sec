@@ -1,6 +1,6 @@
 {
   "schema": "sec.documentation-source-manifest/2",
-  "source_set_sha256": "70430ad8e0e9a245cfcc0a665bbb173810c216def7e401249634be1794c2bcf1",
+  "source_set_sha256": "c86e584324ac0aa5c973b732c1c277e095daa782aad84032cfe91d179e69d619",
   "members": [
     {
       "path": ".documentation/README.md",
@@ -19,8 +19,8 @@
     },
     {
       "path": ".documentation/known-regressions.json",
-      "bytes": 4440,
-      "sha256": "d398b2848ec5d2421be46b46760d1494f88654fbfb5d3f25eb33d85aef864097"
+      "bytes": 4478,
+      "sha256": "653e70a9cb6e8011cf818ef15638534788434026eaacb7bf7001a6b50904ca5d"
     },
     {
       "path": "AGENTS.md",
@@ -1795,7 +1795,7 @@
     {
       "path": "examples/开发成品/sec.lock.json",
       "bytes": 15834,
-      "sha256": "5b9b247bc93b5a05c5f4a357e0696d10c696fa391758cb393f06980444bce68e"
+      "sha256": "d2a452eabf12ea6e07679dd52f504c381f343423522e13b8f4693776471a26c4"
     },
     {
       "path": "examples/开发成品/sec.project.json",
@@ -1875,7 +1875,7 @@
     {
       "path": "examples/成品形态/sec.lock.json",
       "bytes": 2272,
-      "sha256": "b5b55ed8d85cd8265360f6290357b71f780035241fe7765444729df494a99af5"
+      "sha256": "9817f2419cddd2b6b24c8e3dce0054b0934f8339c1beb794518532877e476d25"
     },
     {
       "path": "examples/成品形态/sec.project.json",
@@ -2020,7 +2020,7 @@
     {
       "path": "examples/结构化工作台/sec.lock.json",
       "bytes": 12735,
-      "sha256": "adb68009acc8216fc2cac28e90793aa25072cee18b9a7ae3395b92cc54a3f326"
+      "sha256": "6e301157a927208cf49cfbd09d5a0e88f6052ce7c2f929bf70dcd5d67f735c05"
     },
     {
       "path": "examples/结构化工作台/sec.project.json",
