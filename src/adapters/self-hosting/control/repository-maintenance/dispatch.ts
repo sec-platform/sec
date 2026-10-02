@@ -3,6 +3,7 @@
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 
+import { isRepositoryMaintenancePermission } from '../../../providers/github-api/repository-maintenance-permission.ts';
 import { normalizeGitHubRepositoryPermission } from '../../../providers/github-api/repository-permission.ts';
 import {
   parseRepositoryMaintenanceRequest,
@@ -70,7 +71,7 @@ export function assertRepositoryMaintenanceDispatcherPermission(value: unknown):
   const permission = normalizeGitHubRepositoryPermission(
     record(value, 'repository maintenance dispatcher permission')
   );
-  if (permission !== 'admin' && permission !== 'maintain') {
+  if (!isRepositoryMaintenancePermission(permission)) {
     throw new Error('repository maintenance dispatcher lacks current maintain/admin permission');
   }
   return permission;
@@ -122,7 +123,6 @@ export function repositoryMaintenanceDispatchCli(argv: readonly string[]): strin
       || typeof comment.body !== 'string' || comment.body.length === 0
       || typeof author.login !== 'string' || author.login.length === 0
       || author.type !== 'User'
-      || (comment.author_association !== 'OWNER' && comment.author_association !== 'MEMBER')
       || comment.performed_via_github_app !== null) {
     throw new Error('repository maintenance trigger comment identity is invalid');
   }

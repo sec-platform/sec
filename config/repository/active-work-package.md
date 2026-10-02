@@ -10,8 +10,8 @@ last-reviewed: 2026-10-02
 selectionMode: exact-manifest-not-on-default-branch-v1
 defaultBranchRef: refs/remotes/origin/main
 defaultRefFreshness: live-platform-match-required
-manifest: config/repository/work-packages/native-copy-directory-adoption-20261002.md
-manifestDigest: sha256:9e3dd805e5d9b520f6bbf222b635bf05a83db0b9b0a5f8757a82348e2baffa51
+manifest: config/repository/work-packages/maintenance-effective-authority-adoption-20261002.md
+manifestDigest: sha256:9da8e0d4d4a94051063ae71d406db20dd3dbed43e9a6dc291fb936149a7d1363
 digestBytes: git-blob
 unavailableDefaultRef: unresolved
 matchingDefaultBlob: none
