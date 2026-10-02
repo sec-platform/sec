@@ -5,6 +5,7 @@ import {
   upgradeFailureWithSecondaryFailures,
   withRollbackDiagnostics
 } from '../compiler/upgrade/failure.ts';
+import { settleResourcesAsync } from '../execution/resource-settlement.ts';
 import {
   createUpgradeExecutionAttempt,
   createUpgradePlan,
@@ -349,6 +350,52 @@ export interface UpgradeApplyLifecycleOperations<TBackup> {
   retireBackup(backup: TBackup, primaryFailure: Error | null): Promise<void>;
 }
 
+/** Capture both callable identity and its receiver before resource ownership.
+ * A later callback must not replace recovery, publication or retirement. */
+function captureUpgradePort<Args extends unknown[], Result>(
+  receiver: object,
+  operation: (...args: Args) => Result
+): (...args: Args) => Result {
+  if (typeof operation !== 'function') {
+    throw new TypeError('Upgrade apply lifecycle operations must be callable');
+  }
+  return (...args) => Reflect.apply(operation, receiver, args) as Result;
+}
+
+function captureUpgradeApplyOperations<TBackup>(
+  operations: UpgradeApplyLifecycleOperations<TBackup>
+): UpgradeApplyLifecycleOperations<TBackup> {
+  const { terminalReadback, terminalPublication } = operations;
+  if (terminalReadback === null ||
+      (typeof terminalReadback !== 'object' && typeof terminalReadback !== 'function') ||
+      terminalPublication === null ||
+      (typeof terminalPublication !== 'object' && typeof terminalPublication !== 'function')) {
+    throw new TypeError('Upgrade terminal operations must be callable');
+  }
+  return Object.freeze({
+    snapshot: captureUpgradePort(operations, operations.snapshot),
+    recoverySnapshot: captureUpgradePort(operations, operations.recoverySnapshot),
+    clearExecutionTerminal: captureUpgradePort(operations, operations.clearExecutionTerminal),
+    clearDiagnostics: captureUpgradePort(operations, operations.clearDiagnostics),
+    publishPlan: captureUpgradePort(operations, operations.publishPlan),
+    apply: captureUpgradePort(operations, operations.apply),
+    recordGeneratedArtifacts: captureUpgradePort(operations, operations.recordGeneratedArtifacts),
+    restore: captureUpgradePort(operations, operations.restore),
+    publishExecutionTerminal: captureUpgradePort(operations, operations.publishExecutionTerminal),
+    publishDiagnostics: captureUpgradePort(operations, operations.publishDiagnostics),
+    retireBackup: captureUpgradePort(operations, operations.retireBackup),
+    terminalReadback: Object.freeze({
+      readPersistedPlan: captureUpgradePort(terminalReadback, terminalReadback.readPersistedPlan),
+      readWorkspacePlan: captureUpgradePort(terminalReadback, terminalReadback.readWorkspacePlan)
+    }),
+    terminalPublication: Object.freeze({
+      publish: captureUpgradePort(terminalPublication, terminalPublication.publish),
+      resolvePublication: captureUpgradePort(terminalPublication, terminalPublication.resolvePublication),
+      isBeforeEffectFailure: captureUpgradePort(terminalPublication, terminalPublication.isBeforeEffectFailure)
+    })
+  });
+}
+
 /**
  * Own the complete post-planning Upgrade apply lifecycle. Physical snapshot,
  * publication, authorization, compiler, restore and cleanup effects remain
@@ -364,25 +411,24 @@ export async function executeUpgradeApplyLifecycle<TBackup>(
   }>,
   operations: UpgradeApplyLifecycleOperations<TBackup>
 ): Promise<UpgradeAppliedWorkspaceResult> {
-  const requiredOperations = [
-    operations.snapshot,
-    operations.recoverySnapshot,
-    operations.clearExecutionTerminal,
-    operations.clearDiagnostics,
-    operations.publishPlan,
-    operations.apply,
-    operations.recordGeneratedArtifacts,
-    operations.restore,
-    operations.publishExecutionTerminal,
-    operations.publishDiagnostics,
-    operations.retireBackup
-  ];
-  if (requiredOperations.some(operation => typeof operation !== 'function')) {
-    throw new TypeError('Upgrade apply lifecycle operations must be callable');
+  operations = captureUpgradeApplyOperations(operations);
+  const backup = await operations.snapshot();
+  let recoverySnapshot: UpgradeRecoverySnapshotLocator;
+  try {
+    recoverySnapshot = operations.recoverySnapshot(backup);
+  } catch (error) {
+    // No upgrade effects have started. Projection failure still leaves an
+    // acquired backup to retire. Keep arbitrary thrown values and independent
+    // retirement failures through the existing resource settlement protocol.
+    await settleResourcesAsync({
+      primary: { label: 'upgrade-recovery-snapshot', error },
+      cleanup: [{
+        label: 'upgrade-backup',
+        settle: () => operations.retireBackup(backup, null)
+      }]
+    });
+    throw error;
   }
-
-  const backup = await operations.snapshot.call(operations);
-  const recoverySnapshot = operations.recoverySnapshot.call(operations, backup);
   let pendingApplyFailure: Error | null = null;
   let retainBackupForRecovery = false;
   let appliedTerminalCommitted = false;
