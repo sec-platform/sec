@@ -12,9 +12,9 @@ last-reviewed: 2026-10-02
 ```json
 {
   "active": {
-    "manifestDigest": "sha256:d42d000af3d09ed2cddb2191ee278aefacff0c61e99ba4abf7515f857d261a14",
-    "manifestPath": "config/repository/work-packages/import-config-cache-adoption-20261002.md",
-    "packageId": "import-config-cache-adoption-20261002",
+    "manifestDigest": "sha256:07caf2047b50031b5e4198d7c879cac091c00f310b3fc83c7aa0b12686cd4ad2",
+    "manifestPath": "config/repository/work-packages/maintenance-diagnostic-adoption-20261002.md",
+    "packageId": "maintenance-diagnostic-adoption-20261002",
     "tracking": "none"
   },
   "authority": "none",
@@ -25,18 +25,18 @@ last-reviewed: 2026-10-02
     "candidate-control-transaction-v1",
     "typescript-7-checker-acceleration-v1"
   ],
-  "exactMain": "8271988e92e130a30f3bde530013217d0ac96b28",
-  "exactMainTree": "f7727910bf2b4b6bde94a0512b98dde71fb0bd2a",
-  "projectionDigest": "sha256:c4c0f3972c65a34d5a3c7ea4932807757206c59de082e262e1dc4d5333636214",
+  "exactMain": "a005513b5a1f60fac0d6163e49144c4a17148f89",
+  "exactMainTree": "548a5e913c13560ad1ad9ffe46b6e9fb5e2c94aa",
+  "projectionDigest": "sha256:ff5c9524cce0bb5123ba2d23e68be942c58a1eb8901d30005f6b4232cf40e08a",
   "schema": "sec-work-rolling-proposal-projection-v1"
 }
 ```
 
 ## 当前唯一 Work Package
 
-### import-config-cache-adoption-20261002
+### maintenance-diagnostic-adoption-20261002
 
-Proposal-only target manifest `config/repository/work-packages/import-config-cache-adoption-20261002.md` at `sha256:d42d000af3d09ed2cddb2191ee278aefacff0c61e99ba4abf7515f857d261a14`, based on exact main `8271988e92e130a30f3bde530013217d0ac96b28` and tree `f7727910bf2b4b6bde94a0512b98dde71fb0bd2a`.
+Proposal-only target manifest `config/repository/work-packages/maintenance-diagnostic-adoption-20261002.md` at `sha256:07caf2047b50031b5e4198d7c879cac091c00f310b3fc83c7aa0b12686cd4ad2`, based on exact main `a005513b5a1f60fac0d6163e49144c4a17148f89` and tree `548a5e913c13560ad1ad9ffe46b6e9fb5e2c94aa`.
 
 ## 候选 Work Package
 
