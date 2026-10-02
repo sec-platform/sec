@@ -52,8 +52,10 @@ test('repository maintenance workflow persists and reads back recovery before an
   expect(request.with.script).toContain('github.rest.issues.getComment');
   expect(request.with.script).toContain('github.rest.repos.getCollaboratorPermissionLevel');
   expect(request.with.script).toContain("comment.data.user?.login !== context.actor");
-  expect(request.with.script).toContain("permission.data.permission !== 'admin'");
-  expect(request.with.script).toContain("permission.data.permission !== 'maintain'");
+  expect(request.with.script).toContain('normalizeGitHubRepositoryPermission(permission.data)');
+  expect(request.with.script).toContain('!isRepositoryMaintenancePermission(role)');
+  expect(request.with.script).not.toContain('associationAccepted');
+  expect(source).not.toContain('SEC_MAINTENANCE_AUTHOR_ASSOCIATION');
   expect(request.with.script).toContain('bodyDigest !== payload.comment_body_sha256');
   expect(request.with.script).toContain('request?.expectedMainSha !== process.env.EVENT_SHA');
 

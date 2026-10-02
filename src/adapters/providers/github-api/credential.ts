@@ -105,7 +105,6 @@ export function inspectGitHubActionsRepositoryMaintenanceCredentialIdentity(
   const issueNumber = environmentValue(source, 'SEC_MAINTENANCE_ISSUE_NUMBER');
   const commentId = environmentValue(source, 'SEC_MAINTENANCE_COMMENT_ID');
   const commentAuthor = environmentValue(source, 'SEC_MAINTENANCE_COMMENT_AUTHOR');
-  const association = environmentValue(source, 'SEC_MAINTENANCE_AUTHOR_ASSOCIATION');
   const actor = environmentValue(source, 'GITHUB_ACTOR');
   if (!/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/u.test(repository)
       || environmentValue(source, 'GITHUB_ACTIONS') !== 'true'
@@ -121,7 +120,6 @@ export function inspectGitHubActionsRepositoryMaintenanceCredentialIdentity(
       || issueNumber !== '313'
       || typeof commentId !== 'string' || !/^[1-9][0-9]*$/u.test(commentId)
       || !Number.isSafeInteger(Number(commentId))
-      || (association !== 'OWNER' && association !== 'MEMBER')
       || typeof commentAuthor !== 'string' || commentAuthor.length === 0
       || commentAuthor !== actor
       || token === undefined) {

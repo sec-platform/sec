@@ -12,9 +12,9 @@ last-reviewed: 2026-10-02
 ```json
 {
   "active": {
-    "manifestDigest": "sha256:9e3dd805e5d9b520f6bbf222b635bf05a83db0b9b0a5f8757a82348e2baffa51",
-    "manifestPath": "config/repository/work-packages/native-copy-directory-adoption-20261002.md",
-    "packageId": "native-copy-directory-adoption-20261002",
+    "manifestDigest": "sha256:7feafb2085a56b124e058fa3ce9267cbe4c1eb26510b39bb2061aa60ad63ddbd",
+    "manifestPath": "config/repository/work-packages/maintenance-effective-authority-adoption-20261002.md",
+    "packageId": "maintenance-effective-authority-adoption-20261002",
     "tracking": "none"
   },
   "authority": "none",
@@ -25,18 +25,18 @@ last-reviewed: 2026-10-02
     "candidate-control-transaction-v1",
     "typescript-7-checker-acceleration-v1"
   ],
-  "exactMain": "ff7a8707fdde08953a578bba89ec4637ce3a53ef",
-  "exactMainTree": "ab531c61e771b9194ca958afd50791b54c3a00f0",
-  "projectionDigest": "sha256:43ed28e3db9da019544769662103bc9d89dbe68a501b59c3cc5e003eb9ff83eb",
+  "exactMain": "82f28140662aa2995ea77cdfa74d812a65910aed",
+  "exactMainTree": "d5b510cb8b6c1feb086df56d13b1f1c27b43c9e3",
+  "projectionDigest": "sha256:43037f8618985d46e7959522d786722b89dbe3bbae814be47a7550c66d0f91c8",
   "schema": "sec-work-rolling-proposal-projection-v1"
 }
 ```
 
 ## 当前唯一 Work Package
 
-### native-copy-directory-adoption-20261002
+### maintenance-effective-authority-adoption-20261002
 
-Proposal-only target manifest `config/repository/work-packages/native-copy-directory-adoption-20261002.md` at `sha256:9e3dd805e5d9b520f6bbf222b635bf05a83db0b9b0a5f8757a82348e2baffa51`, based on exact main `ff7a8707fdde08953a578bba89ec4637ce3a53ef` and tree `ab531c61e771b9194ca958afd50791b54c3a00f0`.
+Proposal-only target manifest `config/repository/work-packages/maintenance-effective-authority-adoption-20261002.md` at `sha256:7feafb2085a56b124e058fa3ce9267cbe4c1eb26510b39bb2061aa60ad63ddbd`, based on exact main `82f28140662aa2995ea77cdfa74d812a65910aed` and tree `d5b510cb8b6c1feb086df56d13b1f1c27b43c9e3`.
 
 ## 候选 Work Package
 

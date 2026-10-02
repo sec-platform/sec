@@ -16,6 +16,7 @@ import {
   inspectGitHubActionsRulesetAuditorCredentialIdentity,
   inspectGitHubActionsVerificationCredentialIdentity, readGitHubToken
 } from '../credential.ts';
+import { isRepositoryMaintenancePermission } from '../repository-maintenance-permission.ts';
 import { normalizeGitHubRepositoryPermission } from '../repository-permission.ts';
 import { GITHUB_VERIFICATION_READ_QUERIES, isGitHubGraphQLSchemaFailure } from '../verification-queries.ts';
 
@@ -1292,7 +1293,7 @@ async function enroll(input: Readonly<{
         { kind: 'collaborator-permission', login: maintenanceWorkflowIdentity.actor }
       );
       const permission = normalizeGitHubRepositoryPermission(permissionValue);
-      if (permission !== 'admin' && permission !== 'maintain') {
+      if (!isRepositoryMaintenancePermission(permission)) {
         throw new GitHubApiProviderError(
           'GitHub Actions repository-maintenance actor requires maintain/admin permission'
         );

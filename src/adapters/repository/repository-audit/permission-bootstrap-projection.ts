@@ -1,4 +1,4 @@
-/** Build-time only: keep the pre-checkout GitHub scripts on the provider's one decoder. */
+/** Build-time only: derive pre-checkout permission decoding and maintenance qualification from their provider owners. */
 import path from 'node:path';
 
 import ts from 'typescript';
@@ -10,17 +10,27 @@ import { inspectNoFollowDirectoryChain, inspectNoFollowOrdinaryFileEntry } from 
 import { decodeExactUtf8 } from '../../runtime-state/physical/runtime/retained-file-read.ts';
 import { compileSourceProgramEmbeddedWorkflowPrograms } from '../source-program-model/embedded-programs.ts';
 
-const NORMALIZER_PATH = 'src/adapters/providers/github-api/repository-permission.ts';
-const NORMALIZER_NAME = 'normalizeGitHubRepositoryPermission';
-const BEGIN = '// BEGIN GENERATED repository-permission.ts';
-const END = '// END GENERATED repository-permission.ts';
+const NORMALIZER = {
+  path: 'src/adapters/providers/github-api/repository-permission.ts',
+  name: 'normalizeGitHubRepositoryPermission',
+  begin: '// BEGIN GENERATED repository-permission.ts',
+  end: '// END GENERATED repository-permission.ts'
+} as const;
+const MAINTENANCE_PERMISSION = {
+  path: 'src/adapters/providers/github-api/repository-maintenance-permission.ts',
+  name: 'isRepositoryMaintenancePermission',
+  begin: '// BEGIN GENERATED repository-maintenance-permission.ts',
+  end: '// END GENERATED repository-maintenance-permission.ts'
+} as const;
+type ProjectionSource = typeof NORMALIZER | typeof MAINTENANCE_PERMISSION;
 const SCRIPT_PROVIDER = 'actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3';
 const TARGETS = [
-  ['.github/workflows/merge-gate.yml', 'jobs/plan/steps/0/github-script'],
-  ['.github/workflows/compiler-pr-validation.yml', 'jobs/validate-hosted-request/steps/0/github-script'],
-  ['.github/workflows/compiler-pr-validation.yml', 'jobs/validate-agent-operation-activation-request/steps/0/github-script'],
-  ['.github/workflows/repository-maintenance.yml', 'jobs/retire/steps/0/github-script'],
-  ['.github/workflows/trusted-bootstrap.yml', 'jobs/resolve/steps/0/github-script']
+  ['.github/workflows/merge-gate.yml', 'jobs/plan/steps/0/github-script', NORMALIZER],
+  ['.github/workflows/compiler-pr-validation.yml', 'jobs/validate-hosted-request/steps/0/github-script', NORMALIZER],
+  ['.github/workflows/compiler-pr-validation.yml', 'jobs/validate-agent-operation-activation-request/steps/0/github-script', NORMALIZER],
+  ['.github/workflows/repository-maintenance.yml', 'jobs/retire/steps/0/github-script', NORMALIZER],
+  ['.github/workflows/repository-maintenance.yml', 'jobs/retire/steps/0/github-script', MAINTENANCE_PERMISSION],
+  ['.github/workflows/trusted-bootstrap.yml', 'jobs/resolve/steps/0/github-script', NORMALIZER]
 ] as const;
 
 export type PermissionBootstrapProjectionChange = Readonly<{
@@ -43,13 +53,14 @@ function bindSource(file: ts.SourceFile): ts.Program {
 }
 
 /** Parse, bind and erase types; never import or evaluate the source being projected. */
-function emitNormalizer(source: string): string {
-  const file = ts.createSourceFile(NORMALIZER_PATH, source, ts.ScriptTarget.ES2022, true);
+function emitFunction(source: string, projection: ProjectionSource): string {
+  const { path: sourcePath, name: functionName, begin: BEGIN, end: END } = projection;
+  const file = ts.createSourceFile(sourcePath, source, ts.ScriptTarget.ES2022, true);
   const program = bindSource(file);
   if (program.getSyntacticDiagnostics(file).length !== 0) fail('canonical source is not valid TypeScript');
   const functions = file.statements.filter(ts.isFunctionDeclaration);
   const fn = functions[0];
-  if (functions.length !== 1 || fn?.name?.text !== NORMALIZER_NAME || fn.body === undefined ||
+  if (functions.length !== 1 || fn?.name?.text !== functionName || fn.body === undefined ||
       !fn.modifiers?.some((modifier) => modifier.kind === ts.SyntaxKind.ExportKeyword) ||
       fn.asteriskToken !== undefined || fn.modifiers?.some((modifier) =>
         modifier.kind !== ts.SyntaxKind.ExportKeyword) ||
@@ -110,7 +121,8 @@ function required(sources: ReadonlyMap<string, string | null>, repositoryPath: s
 export function compilePermissionBootstrapProjection(
   sources: ReadonlyMap<string, string | null>
 ): readonly PermissionBootstrapProjectionChange[] {
-  const generated = emitNormalizer(required(sources, NORMALIZER_PATH));
+  const generatedSources = new Map([NORMALIZER, MAINTENANCE_PERMISSION].map((source) =>
+    [source, emitFunction(required(sources, source.path), source)] as const));
   const changes: PermissionBootstrapProjectionChange[] = [];
   for (const repositoryPath of new Set(TARGETS.map(([ownerPath]) => ownerPath))) {
     const before = required(sources, repositoryPath);
@@ -118,10 +130,15 @@ export function compilePermissionBootstrapProjection(
     const units = compileSourceProgramEmbeddedWorkflowPrograms({
       path: repositoryPath, source: before, contentDigest: rawSha256(before)
     });
-    if (before.split(BEGIN).length - 1 !== targets.length || before.split(END).length - 1 !== targets.length) {
-      fail(`missing or duplicate generated regions in ${repositoryPath}`);
+    for (const source of new Set(targets.map(([, , source]) => source))) {
+      const count = targets.filter(([, , targetSource]) => targetSource === source).length;
+      if (before.split(source.begin).length - 1 !== count || before.split(source.end).length - 1 !== count) {
+        fail(`missing or duplicate generated regions in ${repositoryPath}`);
+      }
     }
-    const replacements = targets.map(([, address]) => {
+    const replacements = targets.map(([, address, source]) => {
+      const { name: functionName, begin: BEGIN, end: END } = source;
+      const generated = generatedSources.get(source)!;
       const matching = units.filter((unit) => unit.address === address);
       const unit = matching[0];
       if (matching.length !== 1 || unit === undefined || unit.provider !== SCRIPT_PROVIDER ||
@@ -141,7 +158,7 @@ export function compilePermissionBootstrapProjection(
       const scriptEnd = unit.source.indexOf(END) + END.length;
       const projectedScript = unit.source.slice(0, scriptStart) + generated + unit.source.slice(scriptEnd);
       const parsed = ts.createSourceFile('permission-bootstrap.js', projectedScript, ts.ScriptTarget.ES2022, true, ts.ScriptKind.JS);
-      const declarations = parsed.statements.filter((statement) => ts.isFunctionDeclaration(statement) && statement.name?.text === NORMALIZER_NAME);
+      const declarations = parsed.statements.filter((statement) => ts.isFunctionDeclaration(statement) && statement.name?.text === functionName);
       if (declarations.length !== 1 || declarations[0]!.getStart(parsed) !== scriptStart + BEGIN.length + 1 ||
           declarations[0]!.end > scriptStart + generated.indexOf(END)) {
         fail(`generated function is not one top-level declaration: ${repositoryPath}:${address}`);
@@ -154,7 +171,7 @@ export function compilePermissionBootstrapProjection(
       if (hostProgram.getSyntacticDiagnostics(hostFile).length !== 0) fail(`malformed host script ${repositoryPath}:${address}`);
       const hostFunction = hostFile.statements[0] as ts.FunctionDeclaration;
       const binding = hostFunction.body!.statements.find((statement) =>
-        ts.isFunctionDeclaration(statement) && statement.name?.text === NORMALIZER_NAME)!;
+        ts.isFunctionDeclaration(statement) && statement.name?.text === functionName)!;
       const hostChecker = hostProgram.getTypeChecker();
       const inspectBinding = (node: ts.Node): void => {
         if (ts.isIdentifier(node) && (node.text === 'Array' || node.text === 'undefined') &&
@@ -185,7 +202,7 @@ export async function synchronizePermissionBootstrapProjection(root: string, mod
   if (mode !== 'check' && mode !== 'write') fail('mode must be check or write');
   const workspaceRoot = inspectNoFollowDirectoryChain(path.resolve(root), 'Permission projection workspace').target.path;
   const sources = new Map<string, string>();
-  const observations = [...new Set([NORMALIZER_PATH, ...TARGETS.map(([ownerPath]) => ownerPath)])].map((repositoryPath) => {
+  const observations = [...new Set([NORMALIZER.path, MAINTENANCE_PERMISSION.path, ...TARGETS.map(([ownerPath]) => ownerPath)])].map((repositoryPath) => {
     const absolute = path.join(workspaceRoot, repositoryPath);
     const parent = inspectNoFollowDirectoryChain(path.dirname(absolute), `Permission projection ${repositoryPath}`).target;
     const name = path.basename(absolute);
