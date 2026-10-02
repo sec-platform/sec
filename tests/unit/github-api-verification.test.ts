@@ -228,3 +228,44 @@ for (const errors of [[{message:"Cannot query field 'unknown' on type 'PullReque
     expect(error.schemaUnsupported).toBe(Array.isArray(errors)&&errors[0]?.message.startsWith('Cannot query'));
   });
 }
+
+test('canonical Session dispatch sends the exact GitHub HTTP request', async () => {
+  const request = Object.freeze({
+    schema: 'sec-verification-session-hosted-request-v1', prNumber: 42,
+    expectedBaseSha: '1'.repeat(40), expectedBaseTreeSha: '2'.repeat(40),
+    expectedHeadSha: '3'.repeat(40), expectedHeadTreeSha: '4'.repeat(40),
+    manifestPath: 'config/repository/work-packages/fixture.md',
+    manifestDigest: `sha256:${'5'.repeat(64)}`, profile: 'quick',
+    expectedScopeProposalDigest: `sha256:${'6'.repeat(64)}`,
+    expectedActionPlanDigest: `sha256:${'7'.repeat(64)}`,
+    expectedSessionRevision: `sha256:${'8'.repeat(64)}`,
+    reviewPolicyDigest: `sha256:${'9'.repeat(64)}`,
+    requestOperationId: `sha256:${'a'.repeat(64)}`
+  });
+  const requests: Array<{ target: string; method: string | undefined; body: unknown }> = [];
+  const cap = capability(async (target, init) => {
+    requests.push({ target: String(target), method: init?.method, body: JSON.parse(String(init?.body)) });
+    return new Response(null, { status: 204 });
+  }, 'verification-dispatch');
+  const result = await withGitHubApiTestSession({ capability: cap, operation: async () =>
+    await executeGitHubApiOperation(cap, { kind: 'verification-dispatch', request }) });
+  expect(result).toBeNull();
+  expect(requests).toEqual([{
+    target: 'https://api.github.com/repos/sec-platform/sec/dispatches', method: 'POST',
+    body: {
+      event_type: 'sec-verify-session-v2',
+      client_payload: { payload: {
+        schema: 'sec-verification-session-hosted-request-v1', prNumber: 42,
+        expectedBaseSha: '1'.repeat(40), expectedBaseTreeSha: '2'.repeat(40),
+        expectedHeadSha: '3'.repeat(40), expectedHeadTreeSha: '4'.repeat(40),
+        manifestPath: 'config/repository/work-packages/fixture.md',
+        manifestDigest: `sha256:${'5'.repeat(64)}`, profile: 'quick',
+        expectedScopeProposalDigest: `sha256:${'6'.repeat(64)}`,
+        expectedActionPlanDigest: `sha256:${'7'.repeat(64)}`,
+        expectedSessionRevision: `sha256:${'8'.repeat(64)}`,
+        reviewPolicyDigest: `sha256:${'9'.repeat(64)}`,
+        requestOperationId: `sha256:${'a'.repeat(64)}`
+      } }
+    }
+  }]);
+});
