@@ -1,8 +1,13 @@
 #!/usr/bin/env bun
+import type { CI_VERIFICATION_CONTRACT_REVISION } from "../../../../assurance/verification/contract/revision.ts";
+import type { VerificationGateResult, VerificationResultStatus } from "../../../../assurance/verification/result/contract/result.ts";
 
 import { createHash } from 'node:crypto';
 import path from 'node:path';
 import { parseArgs as parseNativeArgs } from 'node:util';
+import type { GitHubCandidateObservation, VerificationSessionArtifact } from '../../../../execution/verification/session.ts';
+import type { SourceProgramTransitionAcceptanceRecord } from '../../../verification/platform/ci/contract/evidence.ts';
+import type { TrustedRuntimeSourceProgramAttemptEvidence } from '../../../verification/platform/trusted-runtime/trusted-runtime-container.ts';
 
 import { withAcquiredResource } from '../../../../execution/resource-settlement.ts';
 import { withAuthorityGitReadSession } from '../../../providers/git-read/authority.ts';
@@ -22,14 +27,10 @@ import { resolveSecRuntimeStateForRepository } from '../../../runtime-state/work
 import { acquireSecRuntimeStatePhysicalAuthority, type SecRuntimeStatePhysicalAuthority } from '../../../runtime-state/workspace-state/physical-authority.ts';
 import { encodeVerificationActionData } from '../../../verification/platform/action/contract/action.ts';
 import { parseCiSourceProgramTransitionBinding } from '../../../verification/platform/action/contract/ci.ts';
-import { CodexDevelopmentAssertVerificationEvidenceV4, CodexDevelopmentParseVerificationSessionArtifact, parseSourceProgramTransitionAcceptanceRecord, type CodexDevelopmentVerificationSessionArtifact } from '../../../verification/platform/ci/contract/evidence.ts';
+import { CodexDevelopmentAssertVerificationEvidenceV4, CodexDevelopmentParseVerificationSessionArtifact, parseSourceProgramTransitionAcceptanceRecord } from '../../../verification/platform/ci/contract/evidence.ts';
 import type { VerificationSessionLocalPreparationRequest } from '../../../verification/platform/ci/contract/session-request.ts';
 import { readSessionArtifactText } from '../../../verification/platform/ci/runtime/session-artifact-files.ts';
-import {
-  createVerificationSessionGitHubClient,
-  type GitHubCandidateObservation,
-  type VerificationSessionGitHubClient
-} from '../../../verification/platform/ci/runtime/verification-session-github.ts';
+import { createVerificationSessionGitHubClient, type VerificationSessionGitHubClient } from '../../../verification/platform/ci/runtime/verification-session-github.ts';
 import {
   assertVerificationSessionLocalPreparationCurrent,
   createTrustedRuntimeArtifactObservationFromDurableFile,
@@ -123,7 +124,7 @@ interface TrustedRuntimeActionBundle {
   readonly schema: typeof TRUSTED_RUNTIME_ACTION_BUNDLE_SCHEMA;
   readonly sessionRevision: Digest;
   readonly actionPlanDigest: Digest;
-  readonly artifact: CodexDevelopmentVerificationSessionArtifact;
+  readonly artifact: VerificationSessionArtifact<SourceProgramTransitionAcceptanceRecord, TrustedRuntimeSourceProgramAttemptEvidence, typeof CI_VERIFICATION_CONTRACT_REVISION, VerificationResultStatus, VerificationGateResult>;
   readonly containerReceipt: TrustedRuntimeContainerReceipt;
   readonly bundleDigest: Digest;
 }
@@ -303,7 +304,7 @@ async function assertTrustedMergedRecoveryRuntime(
 }
 
 function createActionBundle(input: Readonly<{
-  artifact: CodexDevelopmentVerificationSessionArtifact;
+  artifact: VerificationSessionArtifact<SourceProgramTransitionAcceptanceRecord, TrustedRuntimeSourceProgramAttemptEvidence, typeof CI_VERIFICATION_CONTRACT_REVISION, VerificationResultStatus, VerificationGateResult>;
   containerReceipt: TrustedRuntimeContainerReceipt;
 }>): TrustedRuntimeActionBundle {
   const artifact = CodexDevelopmentParseVerificationSessionArtifact(

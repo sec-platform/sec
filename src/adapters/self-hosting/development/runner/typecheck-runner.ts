@@ -23,6 +23,7 @@ import {
   type SecDomainReadbackDisposition,
   type SecOperationDigest
 } from '../../../../execution/operation/semantic.ts';
+import type { VerificationActionKey, VerificationActionKeyDigest, VerificationActionKeyInput } from '../../../../execution/verification/action.ts';
 import { withAuthorityGitReadSession } from '../../../providers/git-read/authority.ts';
 import {
   acquireWorkingTreeWorkspaceSourceSnapshot,
@@ -52,16 +53,7 @@ import {
   type TypeScriptExecutionGeneration
 } from '../../../toolchain/typescript/execution-generation.ts';
 import { prepareTypeScriptIncrementalState } from '../../../toolchain/typescript/incremental-state.ts';
-import {
-  issueNonProcessVerificationActionTerminalSettlement,
-  issueProcessVerificationActionTerminalSettlement,
-  issueVerificationActionOwnerTerminalReceipt,
-  type VerificationActionKey,
-  type VerificationActionKeyDigest,
-  type VerificationActionKeyInput,
-  type VerificationActionTerminal,
-  type VerificationActionTerminalSettlement
-} from '../../../verification/platform/action/contract/action.ts';
+import { issueNonProcessVerificationActionTerminalSettlement, issueProcessVerificationActionTerminalSettlement, issueVerificationActionOwnerTerminalReceipt, type VerificationActionTerminal, type VerificationActionTerminalSettlement } from '../../../verification/platform/action/contract/action.ts';
 import {
   VerificationActionRunner,
   type VerificationActionRunOutcome

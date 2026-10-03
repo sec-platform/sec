@@ -10,6 +10,7 @@ import {
   issueSecProviderSettlementReceipt,
   issueSecSemanticOperationAttemptContext
 } from '../../../../execution/operation/semantic.ts';
+import type { VerificationActionKeyInput } from '../../../../execution/verification/action.ts';
 import {
   withAuthorityGitReadSession,
   type AuthorityGitReadOperation
@@ -37,12 +38,7 @@ import {
   selectStagedWorkspaceSourceSnapshot,
   type PhysicalWorkspaceSourceSnapshot
 } from '../../../repository/source-program-model/workspace-source-snapshot.ts';
-import {
-  issueNonProcessVerificationActionTerminalSettlement,
-  issueVerificationActionOwnerTerminalReceipt,
-  type VerificationActionKeyInput,
-  type VerificationActionTerminalSettlement
-} from '../../../verification/platform/action/contract/action.ts';
+import { issueNonProcessVerificationActionTerminalSettlement, issueVerificationActionOwnerTerminalReceipt, type VerificationActionTerminalSettlement } from '../../../verification/platform/action/contract/action.ts';
 import {
   createVerificationActionRunner,
   type VerificationActionRunOutcome

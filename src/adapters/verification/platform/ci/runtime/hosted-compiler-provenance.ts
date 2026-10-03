@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import type { GitHubActionsArtifactObservation } from '../../../../../execution/verification/session.ts';
 
 import type { GitHubWorkflowJobObservation } from '../../../../providers/github-api/contract.ts';
 import { encodeVerificationActionData } from '../../action/contract/action.ts';
@@ -13,7 +14,7 @@ import {
 } from '../../action/contract/ci.ts';
 import { CI_GITHUB_ACTIONS_IDENTITY_POLICY, matchesCiCompilerWorkflowRunIdentity } from '../../action/contract/provider.ts';
 import { CI_VERIFICATION_SESSION_DISPATCH_TYPE } from '../contract/revision.ts';
-import type { GitHubActionsArtifactObservation } from './verification-session-github.ts';
+
 import { parseVerificationSessionHostedRequest } from './verification-session-runtime.ts';
 
 type HostedCompilerDispatchPayload = Readonly<{ payload: unknown }>;

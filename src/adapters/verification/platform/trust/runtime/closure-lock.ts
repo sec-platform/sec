@@ -29,12 +29,13 @@ import {
   realpathSync
 } from 'node:fs';
 import path from 'node:path';
+import type { VerificationActionPlan } from '../../../../../execution/verification/action.ts';
 
 import ts from 'typescript';
 
 import { CodexDevelopmentIsCanonicalRepositoryPath } from '../../../../../contracts/repository-path.ts';
 import { compilerRoot } from "../../../../workspace-context.ts";
-import { createVerificationActionKey, createVerificationActionPlan, type VerificationActionPlan } from '../../action/contract/action.ts';
+import { createVerificationActionKey, createVerificationActionPlan } from '../../action/contract/action.ts';
 import {
   SEC_TRUSTED_BOOTSTRAP_REGISTRY,
   SEC_TRUSTED_BOOTSTRAP_REGISTRY_PATH,

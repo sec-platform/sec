@@ -1,77 +1,37 @@
+import type { VerificationGateResult, VerificationResultStatus } from "../../../../../assurance/verification/result/contract/result.ts";
 /** Canonical VerificationSession V2 operator reducer and trusted runtime guards. */
 
 import { createHash } from 'node:crypto';
+import type { CiVerificationActionPlanClosure, VerificationActionInputRef } from '../../../../../execution/verification/action.ts';
+import type { BranchCloseoutOperationBinding } from '../../../../../execution/verification/branch-closeout.ts';
+import type { HostedArtifactObservation, IntegrationAuthorization, IntegrationAuthorizationOperationPublication, MergeGateProvenance, MergeGateResult } from '../../../../../execution/verification/integration.ts';
+import type { Digest, GitHubActionsArtifactObservation, GitHubCandidateObservation, GitHubCheckObservation, GitHubReviewBarrierObservation, MainHealthLedger, PlatformEnforcementObservation, ReviewStabilityReceipt, ScopeAuthorization, TrustedArtifactProvenance, TrustedIntegrationAuthorizationArtifact, TrustedIntegrationAuthorizationSource, TrustedRuntimeProof, VerificationEvidence, VerificationEvidenceProducer, VerificationSession, VerificationSessionArtifact, VerificationSessionRuntimeOutcome } from '../../../../../execution/verification/session.ts';
+import type { TrustedRuntimeSourceProgramAttemptEvidence } from '../../trusted-runtime/trusted-runtime-container.ts';
 import { assertSourceProgramTransitionQualification, sourceProgramTransitionEvidenceForQualification, type SourceProgramTransitionQualification } from '../../trusted-runtime/trusted-runtime-container.ts';
+import type { SourceProgramTransitionAcceptanceRecord } from '../contract/evidence.ts';
 
 import { CI_VERIFICATION_CONTRACT_REVISION, CI_VERIFICATION_WORKFLOW_PATH } from '../../../../../assurance/verification/contract/revision.ts';
-import type { GitHubCheckObservation } from '../../../../providers/github-api/contract.ts';
-import {
-  assertBranchCloseoutOperationBinding,
-  type BranchCloseoutOperationBinding
-} from '../../../../self-hosting/control/branch-lifecycle/branch-closeout-contract.ts';
-import {
-  assertIntegrationAuthorizationUsable,
-  type IntegrationAuthorization
-} from '../../../../self-hosting/control/integration/authorization.ts';
-import {
-  parseIntegrationAuthorizationOperationPublication,
-  type IntegrationAuthorizationOperationPublication
-} from '../../../../self-hosting/control/integration/integration-authorization-publication.ts';
-import {
-  assertCanonicalMergeMessage,
-  CodexDevelopmentCreateHostedArtifactObservation,
-  CodexDevelopmentCreateMergeGateInput,
-  CodexDevelopmentCreateTrustedRuntimeMergeGateInput,
-  CodexDevelopmentMergeGateProducerIdentity,
-  CodexDevelopmentParseMergeGateResult,
-  createMergeGateProvenance,
-  createTrustedRuntimeArtifactObservation,
-  createTrustedRuntimeMergeGateProvenance,
-  type CodexDevelopmentHostedArtifactObservation,
-  type CodexDevelopmentMergeGateCandidate,
-  type CodexDevelopmentMergeGateInput,
-  type CodexDevelopmentMergeGateProvenance,
-  type CodexDevelopmentMergeGateResult,
-  type CodexDevelopmentTrustedRuntimeArtifactObservation,
-  type CodexDevelopmentTrustedRuntimeMergeGateInput,
-  type CodexDevelopmentTrustedRuntimeMergeGateProvenance
-} from '../../../../self-hosting/control/integration/merge-gate.ts';
+
+import { assertBranchCloseoutOperationBinding } from '../../../../self-hosting/control/branch-lifecycle/branch-closeout-contract.ts';
+import { assertIntegrationAuthorizationUsable } from '../../../../self-hosting/control/integration/authorization.ts';
+import { parseIntegrationAuthorizationOperationPublication } from '../../../../self-hosting/control/integration/integration-authorization-publication.ts';
+import { assertCanonicalMergeMessage, CodexDevelopmentCreateHostedArtifactObservation, CodexDevelopmentCreateMergeGateInput, CodexDevelopmentCreateTrustedRuntimeMergeGateInput, CodexDevelopmentMergeGateProducerIdentity, CodexDevelopmentParseMergeGateResult, createMergeGateProvenance, createTrustedRuntimeArtifactObservation, createTrustedRuntimeMergeGateProvenance, type CodexDevelopmentMergeGateCandidate, type CodexDevelopmentMergeGateInput, type CodexDevelopmentTrustedRuntimeArtifactObservation, type CodexDevelopmentTrustedRuntimeMergeGateInput, type CodexDevelopmentTrustedRuntimeMergeGateProvenance } from '../../../../self-hosting/control/integration/merge-gate.ts';
 import {
   SEC_INTEGRATION_PLATFORM_POLICY_DIGEST
 } from '../../../../self-hosting/control/integration/platform-policy.ts';
-import {
-  createMainHealthLedger,
-  resolveOrdinaryMainHealthLane,
-  type MainHealthLedger,
-  type MainHealthLedgerInput
-} from '../../../../self-hosting/control/main-health/contract.ts';
+import { createMainHealthLedger, resolveOrdinaryMainHealthLane, type MainHealthLedgerInput } from '../../../../self-hosting/control/main-health/contract.ts';
 import { createObservedMainHealthInput } from '../../../../self-hosting/control/main-health/main-health-observation.ts';
 import { CI_MAIN_HEALTH_POLICY, CI_MAIN_HEALTH_POLICY_DIGEST } from '../../../../self-hosting/control/main-health/provider-policy.ts';
-import {
-  assertScopeAuthorizationCurrent,
-  createScopeAuthorization,
-  createScopeAuthorizationRevision,
-  parseScopeAuthorization,
-  type ScopeAuthorization,
-  type ScopeAuthorizationInput
-} from '../../../../self-hosting/control/scope/authorization.ts';
-import { encodeVerificationActionData, type VerificationActionInputRef } from '../../action/contract/action.ts';
-import { buildCiVerificationActionPlanClosure, ciVerificationGateStep, parseCiVerificationActionPlanClosure, SOURCE_PROGRAM_TRANSITION_GATE_ID, type CiSourceProgramTransitionBinding, type CiVerificationActionPlanClosure, type CiVerificationExecutionEnvironment } from '../../action/contract/ci.ts';
+import { assertScopeAuthorizationCurrent, createScopeAuthorization, createScopeAuthorizationRevision, parseScopeAuthorization, type ScopeAuthorizationInput } from '../../../../self-hosting/control/scope/authorization.ts';
+import { encodeVerificationActionData } from '../../action/contract/action.ts';
+import { buildCiVerificationActionPlanClosure, ciVerificationGateStep, parseCiVerificationActionPlanClosure, SOURCE_PROGRAM_TRANSITION_GATE_ID, type CiSourceProgramTransitionBinding, type CiVerificationExecutionEnvironment } from '../../action/contract/ci.ts';
 import { CI_VERIFICATION_ACTION_DEPENDENCY_INPUT_PATHS } from '../../action/contract/environment.ts';
 import { CI_GITHUB_ACTIONS_IDENTITY_POLICY } from '../../action/contract/provider.ts';
-import { assertReviewStabilityReceiptCurrent, createReviewStabilityReceipt, REVIEW_OBSERVER_PRODUCER_IDENTITY, SEC_REVIEW_STABILITY_POLICY, type ReviewStabilityReceipt } from '../../review/contract/stability.ts';
-import { createVerificationSession, createVerificationSessionProposalDigest, createVerificationSessionRevision, parseVerificationSession, type VerificationSession, type VerificationSessionInput } from '../../session/contract/session.ts';
+import { assertReviewStabilityReceiptCurrent, createReviewStabilityReceipt, REVIEW_OBSERVER_PRODUCER_IDENTITY, SEC_REVIEW_STABILITY_POLICY } from '../../review/contract/stability.ts';
+import { createVerificationSession, createVerificationSessionProposalDigest, createVerificationSessionRevision, parseVerificationSession, type VerificationSessionInput } from '../../session/contract/session.ts';
 import type { CodexDevelopmentTestImpactSourceProvider } from '../../test-impact/runtime/impact.ts';
 import { CodexDevelopmentAssertTestImpactTransitionSelection, type CodexDevelopmentTestImpactTransitionObservation } from '../../test-impact/runtime/transition.ts';
-import {
-  CodexDevelopmentAssertVerificationSessionArtifact,
-  CodexDevelopmentAssertVerificationSessionArtifactCurrent,
-  CodexDevelopmentFinalizeVerificationSessionArtifact,
-  CodexDevelopmentRefreshVerificationSessionArtifact,
-  type CodexDevelopmentVerificationEvidenceProducer,
-  type CodexDevelopmentVerificationEvidenceV4,
-  type CodexDevelopmentVerificationSessionArtifact
-} from '../contract/evidence.ts';
+import { CodexDevelopmentAssertVerificationSessionArtifact, CodexDevelopmentAssertVerificationSessionArtifactCurrent, CodexDevelopmentFinalizeVerificationSessionArtifact, CodexDevelopmentRefreshVerificationSessionArtifact } from '../contract/evidence.ts';
 import {
   CodexDevelopmentBuildVerificationPlan
 } from '../contract/plan.ts';
@@ -82,14 +42,7 @@ import {
   CI_VERIFICATION_SESSION_LOCAL_PREPARATION_SCHEMA, type VerificationSessionHostedRequest,
   type VerificationSessionLocalPreparationRequest
 } from '../contract/session-request.ts';
-import {
-  assertGitHubReviewAuthorityObservation,
-  type GitHubActionsArtifactObservation,
-  type GitHubCandidateObservation,
-  type GitHubReviewBarrierObservation,
-  type PlatformEnforcementObservation,
-  type VerificationSessionGitHubClient
-} from './verification-session-github.ts';
+import { assertGitHubReviewAuthorityObservation, type VerificationSessionGitHubClient } from './verification-session-github.ts';
 import {
   appendVerificationSessionJournalEvent,
   claimVerificationSessionOperation,
@@ -138,8 +91,6 @@ export function compilePostMainIssueDispositionHealthReadback(input: Readonly<{
 }
 export const VERIFICATION_SESSION_HOSTED_ENVELOPE_SCHEMA =
   'sec-verification-session-hosted-envelope-v1' as const;
-
-type Digest = `sha256:${string}`;
 
 function hash(value: unknown): Digest {
   return `sha256:${createHash('sha256').update(encodeVerificationActionData(value)).digest('hex')}`;
@@ -390,58 +341,6 @@ export interface VerificationSessionHostedFacts {
   integrationPrincipalNodeId: string;
 }
 
-export interface TrustedRuntimeProof {
-  currentHeadSha: string;
-  currentBranch: string;
-  localDefaultSha: string;
-  remoteDefaultSha: string;
-  workingTreeClean: boolean;
-  runtimeEntrypointBlobMatched: boolean;
-  boundaryTargetsMatched: boolean;
-}
-
-export interface TrustedArtifactProvenance {
-  observation: CodexDevelopmentHostedArtifactObservation;
-  artifactId: string;
-  artifactName: string;
-  canonicalByteDigest: Digest;
-  downloadTransport: 'github-actions-artifact-api';
-  artifactDigest: Digest;
-  transport: {
-    workflowPath: string;
-    workflowRef: string;
-    workflowSha: string;
-    runId: string;
-    runAttempt: number;
-    actorNodeId: string;
-    actorPermission: 'admin' | 'maintain' | 'write' | 'triage' | 'read' | 'none';
-  };
-}
-
-export interface TrustedIntegrationAuthorizationArtifact {
-  resultJson: string;
-  artifactId: string;
-  artifactName: string;
-  canonicalByteDigest: Digest;
-  workflowPath: '.github/workflows/merge-gate.yml';
-  workflowRef: string;
-  workflowSha: string;
-  runId: string;
-  runAttempt: number;
-  eventName: 'workflow_run';
-  actorNodeId: string;
-  actorPermission: 'admin' | 'maintain' | 'write' | 'triage' | 'read' | 'none';
-  downloadTransport: 'github-actions-artifact-api';
-}
-
-export type TrustedIntegrationAuthorizationSource =
-  | Readonly<{ kind: 'actions-artifact'; artifact: TrustedIntegrationAuthorizationArtifact }>
-  | Readonly<{
-      kind: 'github-comment';
-      publication: IntegrationAuthorizationOperationPublication;
-      commentId: number;
-    }>;
-
 export function createTrustedIntegrationAuthorizationPublicationSource(input: {
   publication: IntegrationAuthorizationOperationPublication;
   commentId: number;
@@ -455,7 +354,7 @@ export function createTrustedIntegrationAuthorizationPublicationSource(input: {
 }
 
 export function createTrustedHostedArtifactProvenance(input: {
-  artifact: CodexDevelopmentVerificationSessionArtifact;
+  artifact: VerificationSessionArtifact<SourceProgramTransitionAcceptanceRecord, TrustedRuntimeSourceProgramAttemptEvidence, typeof CI_VERIFICATION_CONTRACT_REVISION, VerificationResultStatus, VerificationGateResult>;
   artifactText: string;
   observation: GitHubActionsArtifactObservation;
   actorPermission: TrustedArtifactProvenance['transport']['actorPermission'];
@@ -472,7 +371,7 @@ export function createTrustedHostedArtifactProvenance(input: {
 }
 
 export function createTrustedRuntimeArtifactObservationFromDurableFile(input: {
-  artifact: CodexDevelopmentVerificationSessionArtifact;
+  artifact: VerificationSessionArtifact<SourceProgramTransitionAcceptanceRecord, TrustedRuntimeSourceProgramAttemptEvidence, typeof CI_VERIFICATION_CONTRACT_REVISION, VerificationResultStatus, VerificationGateResult>;
   artifactText: string;
   runtimeSha: string;
   executionId: string;
@@ -512,7 +411,7 @@ export type VerificationSessionArtifactReuseDisposition = Readonly<{
  * before composing it into a fresh hosted envelope.
  */
 export function classifyVerificationSessionArtifactReuse(
-  artifact: CodexDevelopmentVerificationSessionArtifact,
+  artifact: VerificationSessionArtifact<SourceProgramTransitionAcceptanceRecord, TrustedRuntimeSourceProgramAttemptEvidence, typeof CI_VERIFICATION_CONTRACT_REVISION, VerificationResultStatus, VerificationGateResult>,
   now: string
 ): VerificationSessionArtifactReuseDisposition {
   const nowMs = new Date(now).getTime();
@@ -536,10 +435,10 @@ export function classifyVerificationSessionArtifactReuse(
 }
 
 export function createHostedArtifactObservation(input: {
-  artifact: CodexDevelopmentVerificationSessionArtifact;
+  artifact: VerificationSessionArtifact<SourceProgramTransitionAcceptanceRecord, TrustedRuntimeSourceProgramAttemptEvidence, typeof CI_VERIFICATION_CONTRACT_REVISION, VerificationResultStatus, VerificationGateResult>;
   artifactText: string;
   observation: GitHubActionsArtifactObservation;
-}): CodexDevelopmentHostedArtifactObservation {
+}): HostedArtifactObservation {
   const canonicalBytes = `${encodeVerificationActionData(input.artifact)}\n`;
   if (input.artifactText !== canonicalBytes) throw new Error('Downloaded hosted artifact bytes are not canonical or do not match the parsed artifact.');
   return CodexDevelopmentCreateHostedArtifactObservation({ artifactId: input.observation.artifactId,
@@ -580,7 +479,7 @@ export interface VerificationSessionRuntimeExternal {
     | { status: 'passed'; resultDigest: Digest }
     | { status: 'waiting' }
     | { status: 'failed'; reason: string };
-  hostedArtifact(): { artifact: CodexDevelopmentVerificationSessionArtifact; provenance: TrustedArtifactProvenance } | null;
+  hostedArtifact(): { artifact: VerificationSessionArtifact<SourceProgramTransitionAcceptanceRecord, TrustedRuntimeSourceProgramAttemptEvidence, typeof CI_VERIFICATION_CONTRACT_REVISION, VerificationResultStatus, VerificationGateResult>; provenance: TrustedArtifactProvenance } | null;
   saveReviewReceipt(stage: 'pre-expensive' | 'pre-merge', receipt: ReviewStabilityReceipt): void;
   integrationAuthorizationArtifact(): TrustedIntegrationAuthorizationSource | null;
   integrationAuthorizationPublication(): IntegrationAuthorizationPublicationObservation | null;
@@ -642,27 +541,6 @@ export function integrationMergeMarkers(input: {
 
 /** Compatibility name for callers that still consume the historical schema label. */
 export const integrationAuthorizationMergeMarkers = integrationMergeMarkers;
-
-export type VerificationSessionRuntimeOutcome = Readonly<{
-  status:
-    | 'WAITING_ACTIONS'
-    | 'WAITING_REVIEW'
-    | 'WAITING_HOSTED_VERIFICATION'
-    | 'WAITING_INTEGRATION_AUTHORIZATION'
-    | 'READY_TO_INTEGRATE'
-    | 'WAITING_MERGE_READBACK'
-    | 'READY_TO_CLOSEOUT'
-    | 'WAITING_CLOSEOUT'
-    | 'AMBIGUOUS_SIDE_EFFECT'
-    | 'BLOCKED'
-    | 'COMPLETED';
-  sessionRevision: Digest;
-  completedStage: string | null;
-  reason: string;
-  receiptDigest: Digest | null;
-  operationId: Digest | null;
-  authorizationId: string | null;
-}>;
 
 function outcome(
   input: Omit<VerificationSessionRuntimeOutcome, 'completedStage' | 'operationId' | 'authorizationId'> & {
@@ -1330,7 +1208,7 @@ export function prepareVerificationSessionHosted(input: {
 
 function assertSourceProgramTransitionQualified(input: Readonly<{
   actionPlan: CiVerificationActionPlanClosure;
-  evidence: CodexDevelopmentVerificationEvidenceV4;
+  evidence: VerificationEvidence<typeof CI_VERIFICATION_CONTRACT_REVISION, VerificationResultStatus, VerificationGateResult>;
   sessionRevision: string;
   qualification?: SourceProgramTransitionQualification;
 }>): void {
@@ -1357,9 +1235,9 @@ function assertSourceProgramTransitionQualified(input: Readonly<{
 
 export function finalizeVerificationSessionHostedArtifact(input: {
   envelope: VerificationSessionHostedEnvelope;
-  evidence: CodexDevelopmentVerificationEvidenceV4;
+  evidence: VerificationEvidence<typeof CI_VERIFICATION_CONTRACT_REVISION, VerificationResultStatus, VerificationGateResult>;
   sourceProgramTransitionQualification?: SourceProgramTransitionQualification;
-}): CodexDevelopmentVerificationSessionArtifact {
+}): VerificationSessionArtifact<SourceProgramTransitionAcceptanceRecord, TrustedRuntimeSourceProgramAttemptEvidence, typeof CI_VERIFICATION_CONTRACT_REVISION, VerificationResultStatus, VerificationGateResult> {
   const envelope = input.envelope;
   assertSourceProgramTransitionQualified({ actionPlan: envelope.actionPlanClosure, evidence: input.evidence,
     sessionRevision: envelope.session.sessionRevision, qualification: input.sourceProgramTransitionQualification });
@@ -1386,11 +1264,11 @@ export function finalizeVerificationSessionHostedArtifact(input: {
 
 export function refreshVerificationSessionHostedArtifact(input: {
   envelope: VerificationSessionHostedEnvelope;
-  previousArtifact: CodexDevelopmentVerificationSessionArtifact;
-  producer: CodexDevelopmentVerificationEvidenceProducer;
+  previousArtifact: VerificationSessionArtifact<SourceProgramTransitionAcceptanceRecord, TrustedRuntimeSourceProgramAttemptEvidence, typeof CI_VERIFICATION_CONTRACT_REVISION, VerificationResultStatus, VerificationGateResult>;
+  producer: VerificationEvidenceProducer;
   refreshedAt: string;
   sourceProgramTransitionQualification?: SourceProgramTransitionQualification;
-}): CodexDevelopmentVerificationSessionArtifact {
+}): VerificationSessionArtifact<SourceProgramTransitionAcceptanceRecord, TrustedRuntimeSourceProgramAttemptEvidence, typeof CI_VERIFICATION_CONTRACT_REVISION, VerificationResultStatus, VerificationGateResult> {
   assertSourceProgramTransitionQualified({ actionPlan: input.envelope.actionPlanClosure, evidence: input.previousArtifact.evidence,
     sessionRevision: input.envelope.session.sessionRevision, qualification: input.sourceProgramTransitionQualification });
   const { envelopeDigest, ...withoutDigest } = input.envelope;
@@ -1414,7 +1292,7 @@ export function refreshVerificationSessionHostedArtifact(input: {
 }
 
 function assertArtifactProvenance(
-  artifact: CodexDevelopmentVerificationSessionArtifact,
+  artifact: VerificationSessionArtifact<SourceProgramTransitionAcceptanceRecord, TrustedRuntimeSourceProgramAttemptEvidence, typeof CI_VERIFICATION_CONTRACT_REVISION, VerificationResultStatus, VerificationGateResult>,
   provenance: TrustedArtifactProvenance,
   session: VerificationSession
 ): void {
@@ -1449,13 +1327,13 @@ function assertArtifactProvenance(
 }
 
 export function prepareVerificationSessionMergeInput(input: {
-  artifact: CodexDevelopmentVerificationSessionArtifact;
+  artifact: VerificationSessionArtifact<SourceProgramTransitionAcceptanceRecord, TrustedRuntimeSourceProgramAttemptEvidence, typeof CI_VERIFICATION_CONTRACT_REVISION, VerificationResultStatus, VerificationGateResult>;
   preMergeReview: ReviewStabilityReceipt;
   platform: PlatformEnforcementObservation;
   candidate: CodexDevelopmentMergeGateCandidate;
-  hostedArtifactOrigin: CodexDevelopmentHostedArtifactObservation;
-  hostedArtifactTransport: CodexDevelopmentHostedArtifactObservation;
-  provenance: Omit<CodexDevelopmentMergeGateProvenance, 'sourceDigest'>;
+  hostedArtifactOrigin: HostedArtifactObservation;
+  hostedArtifactTransport: HostedArtifactObservation;
+  provenance: Omit<MergeGateProvenance, 'sourceDigest'>;
   mainHealth: MainHealthLedger;
   consumptionOperationId: Digest;
   issuedAt: string;
@@ -1485,7 +1363,7 @@ export function prepareVerificationSessionMergeInput(input: {
 }
 
 export function prepareVerificationSessionTrustedRuntimeMergeInput(input: {
-  artifact: CodexDevelopmentVerificationSessionArtifact;
+  artifact: VerificationSessionArtifact<SourceProgramTransitionAcceptanceRecord, TrustedRuntimeSourceProgramAttemptEvidence, typeof CI_VERIFICATION_CONTRACT_REVISION, VerificationResultStatus, VerificationGateResult>;
   preMergeReview: ReviewStabilityReceipt;
   platform: PlatformEnforcementObservation;
   candidate: CodexDevelopmentMergeGateCandidate;
@@ -1533,7 +1411,7 @@ export function prepareVerificationSessionTrustedRuntimeMergeInput(input: {
 
 function verifyIntegrationArtifact(input: {
   source: TrustedIntegrationAuthorizationSource;
-  result: CodexDevelopmentMergeGateResult;
+  result: MergeGateResult;
   hosted: TrustedArtifactProvenance;
   session: VerificationSession;
 }): void {

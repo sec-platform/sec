@@ -1,4 +1,8 @@
 #!/usr/bin/env bun
+import type { CiVerificationActionPlanClosure } from '../../../../../execution/verification/action.ts';
+import type { BranchCloseoutEffectStartPublication, BranchCloseoutOperationPublication, BranchCloseoutOperationReceipt, BranchCloseoutRecoveryArtifact, HostedWorkflowCommentProvenance, PreparedBranchCloseoutEnvelope } from '../../../../../execution/verification/branch-closeout.ts';
+import type { HostedIntegrationPhase, HostedIntegrationPhaseOwnership, IntegrationAuthorizationOperationPublication, IssueDisposition, IssueDispositionDigest, IssueDispositionPlan } from '../../../../../execution/verification/integration.ts';
+import type { GitHubActionsArtifactObservation, GitHubCandidateObservation, GitHubWorkflowRunObservation, ReviewStabilityReceipt, TrustedRuntimeProof, VerificationSession } from '../../../../../execution/verification/session.ts';
 import { GIT_READ_DEFAULT_OPERATION_BUDGET } from '../../../../providers/git-read/runtime/budget.ts';
 /**
  * SEC canonical VerificationSession V2 operator CLI.
@@ -29,45 +33,19 @@ import { readJson, readSessionArtifactBytes, readSessionArtifactText, writeCanon
 import { CompilerError } from '../../../../../compiler/errors.ts';
 
 import { assertWorkspaceWriteLease, withWorkspaceWriteLease } from '../../../../filesystem/write-lease.ts';
-import {
-  compileIssueDisposition,
-  createIssueAcceptanceId,
-  createIssueDispositionPlan,
-  parseGitHubClosingKeywordOccurrences,
-  type IssueDisposition,
-  type IssueDispositionDigest,
-  type IssueDispositionPlan
-} from '../../../../self-hosting/control/issues/disposition.ts';
+import { compileIssueDisposition, createIssueAcceptanceId, createIssueDispositionPlan, parseGitHubClosingKeywordOccurrences } from '../../../../self-hosting/control/issues/disposition.ts';
 
 import { withAuthorityGitReadSession } from '../../../../providers/git-read/authority.ts';
 import { GIT_READ_EXACT_TREE_OPERATION_BUDGET } from '../../../../providers/git-read/runtime/session.ts';
 
-import type { GitHubWorkflowRunObservation } from '../../../../providers/github-api/contract.ts';
+
 
 import { createRuntimeStateJournalFileSystem } from '../../../../runtime-state/workspace-state/journal-filesystem.ts';
 import { resolveSecWorkspaceRuntimeRoots } from '../../../../runtime-state/workspace-state/paths.ts';
 import { acquireSecRuntimeJournalAuthority } from '../../../../runtime-state/workspace-state/physical-authority.ts';
-import { BRANCH_CLOSEOUT_RECOVERY_ARTIFACT_FILE_NAME, createBranchCloseoutOperationBinding, createBranchCloseoutRecoveryArtifact, parseBranchCloseoutOperationReceipt, parseBranchCloseoutRecoveryArtifact, type BranchCloseoutOperationReceipt, type BranchCloseoutRecoveryArtifact } from '../../../../self-hosting/control/branch-lifecycle/branch-closeout-contract.ts';
-import {
-  BRANCH_CLOSEOUT_MUTATION_PHASE_STEP_NAME,
-  assertBranchCloseoutEffectStartMatches,
-  assertHostedCommentProvenanceLive,
-  createBranchCloseoutEffectStartPublication,
-  createBranchCloseoutOperationPublication,
-  createHostedWorkflowCommentProvenance,
-  hostedPublisherMatches,
-  issueCommentRecord,
-  observeBranchCloseoutEffectStartPublication,
-  observeBranchCloseoutOperationPublication,
-  parseBranchCloseoutEffectStartPublicationComment,
-  parseBranchCloseoutOperationPublicationComment,
-  renderBranchCloseoutEffectStartPublicationComment,
-  renderBranchCloseoutOperationPublicationComment,
-  type BranchCloseoutEffectStartPublication,
-  type BranchCloseoutOperationPublication,
-  type HostedWorkflowCommentProvenance
-} from '../../../../self-hosting/control/branch-lifecycle/branch-closeout-receipt.ts';
-import { operationReceiptFilePath, parsePreparedBranchCloseoutEnvelope, prepareMergedPullRequestCloseout, rehydratePreparedBranchCloseoutRecoveryArtifact, type PreparedBranchCloseoutEnvelope } from '../../../../self-hosting/control/branch-lifecycle/branch-closeout.ts';
+import { BRANCH_CLOSEOUT_RECOVERY_ARTIFACT_FILE_NAME, createBranchCloseoutOperationBinding, createBranchCloseoutRecoveryArtifact, parseBranchCloseoutOperationReceipt, parseBranchCloseoutRecoveryArtifact } from '../../../../self-hosting/control/branch-lifecycle/branch-closeout-contract.ts';
+import { BRANCH_CLOSEOUT_MUTATION_PHASE_STEP_NAME, assertBranchCloseoutEffectStartMatches, assertHostedCommentProvenanceLive, createBranchCloseoutEffectStartPublication, createBranchCloseoutOperationPublication, createHostedWorkflowCommentProvenance, hostedPublisherMatches, issueCommentRecord, observeBranchCloseoutEffectStartPublication, observeBranchCloseoutOperationPublication, parseBranchCloseoutEffectStartPublicationComment, parseBranchCloseoutOperationPublicationComment, renderBranchCloseoutEffectStartPublicationComment, renderBranchCloseoutOperationPublicationComment } from '../../../../self-hosting/control/branch-lifecycle/branch-closeout-receipt.ts';
+import { operationReceiptFilePath, parsePreparedBranchCloseoutEnvelope, prepareMergedPullRequestCloseout, rehydratePreparedBranchCloseoutRecoveryArtifact } from '../../../../self-hosting/control/branch-lifecycle/branch-closeout.ts';
 import { assertGitBranchName } from '../../../../self-hosting/control/branch-lifecycle/branch-lifecycle-audit.ts';
 import { createBranchLifecycleGitHubCredentialArgs, decodeBranchLifecycleChildError, decodeBranchLifecycleChildStdout } from '../../../../self-hosting/control/branch-lifecycle/branch-lifecycle-command.ts';
 import { collectBranchLifecycleInventory } from '../../../../self-hosting/control/branch-lifecycle/branch-lifecycle-inventory.ts';
@@ -85,18 +63,7 @@ import {
 import {
   observeActiveWorkPackage
 } from '../../../../self-hosting/control/documentation/document-control-plane.ts';
-import {
-  assertHostedIntegrationPhaseOwnership,
-  createIntegrationAuthorizationOperationPublication,
-  observeIntegrationAuthorizationOperationPublications,
-  parseIntegrationAuthorizationOperationPublication,
-  parseIntegrationAuthorizationOperationPublicationComment,
-  renderIntegrationAuthorizationOperationPublicationComment,
-  selectCanonicalIntegrationRunOwner,
-  type HostedIntegrationPhase,
-  type HostedIntegrationPhaseOwnership,
-  type IntegrationAuthorizationOperationPublication
-} from '../../../../self-hosting/control/integration/integration-authorization-publication.ts';
+import { assertHostedIntegrationPhaseOwnership, createIntegrationAuthorizationOperationPublication, observeIntegrationAuthorizationOperationPublications, parseIntegrationAuthorizationOperationPublication, parseIntegrationAuthorizationOperationPublicationComment, renderIntegrationAuthorizationOperationPublicationComment, selectCanonicalIntegrationRunOwner } from '../../../../self-hosting/control/integration/integration-authorization-publication.ts';
 import {
   CodexDevelopmentEvaluateMergeGate,
   CodexDevelopmentParseMergeGateResult,
@@ -122,15 +89,15 @@ import {
 } from '../../../../self-hosting/control/task/contract/work-package.ts';
 import { executeVerifiedCiActionPlan } from '../../../../self-hosting/development/runner/verification-action-executor.ts';
 import { encodeVerificationActionData } from '../../action/contract/action.ts';
-import { CI_VERIFICATION_HOSTED_EXECUTION_ENVIRONMENT, ciVerificationActionParentDispatchPlanFile, createCiVerificationLocalExecutionEnvironment, parseCiVerificationActionParentDispatchPlan, type CiVerificationActionPlanClosure, type CiVerificationExecutionEnvironment } from '../../action/contract/ci.ts';
+import { CI_VERIFICATION_HOSTED_EXECUTION_ENVIRONMENT, ciVerificationActionParentDispatchPlanFile, createCiVerificationLocalExecutionEnvironment, parseCiVerificationActionParentDispatchPlan, type CiVerificationExecutionEnvironment } from '../../action/contract/ci.ts';
 import { CI_VERIFICATION_ACTION_DEPENDENCY_INPUT_PATHS } from '../../action/contract/environment.ts';
 import { CI_GITHUB_ACTIONS_IDENTITY_POLICY, matchesCiCompilerWorkflowRunIdentity } from '../../action/contract/provider.ts';
 import {
   executeLocalVerificationActionDag,
   type LocalVerificationActionDagResult
 } from '../../action/runner.ts';
-import { renderIndependentReviewTrailer, type ReviewStabilityReceipt } from '../../review/contract/stability.ts';
-import { VERIFICATION_SESSION_RUNTIME_ENTRYPOINT_PATH, parseVerificationSession, type VerificationSession } from '../../session/contract/session.ts';
+import { renderIndependentReviewTrailer } from '../../review/contract/stability.ts';
+import { VERIFICATION_SESSION_RUNTIME_ENTRYPOINT_PATH, parseVerificationSession } from '../../session/contract/session.ts';
 import type { CodexDevelopmentTestImpactTransitionObservation } from '../../test-impact/runtime/transition.ts';
 import { SEC_TRUSTED_BOOTSTRAP_REGISTRY } from '../../trust/contract/root.ts';
 import {
@@ -145,14 +112,7 @@ import {
 import { assertHostedCompilerDispatchPayload, assertHostedCompilerInternalProvenance } from './hosted-compiler-provenance.ts';
 import { acquireLocalCandidateWorktree } from './local-candidate-worktree.ts';
 
-import {
-  createReviewProviderRevalidationCommentBody,
-  createVerificationSessionGitHubClient,
-  shouldPublishMaintainerReviewWakeup,
-  type GitHubActionsArtifactObservation,
-  type GitHubCandidateObservation,
-  type VerificationSessionGitHubClient
-} from './verification-session-github.ts';
+import { createReviewProviderRevalidationCommentBody, createVerificationSessionGitHubClient, shouldPublishMaintainerReviewWakeup, type VerificationSessionGitHubClient } from './verification-session-github.ts';
 import {
   appendVerificationSessionJournalEvent,
   createEphemeralVerificationSessionJournalFs,
@@ -160,33 +120,7 @@ import {
   readVerificationSessionJournal,
   type VerificationSessionJournalFileSystem
 } from './verification-session-journal.ts';
-import {
-  assertTrustedExactRevisionRuntime,
-  assertTrustedMainRuntime,
-  assertTrustedMergedRequestRuntimeReachability,
-  assertTrustedMergedRuntimeReachability,
-  classifyVerificationSessionArtifactReuse,
-  compilePostMainIssueDispositionHealthReadback,
-  createHostedArtifactObservation,
-  createTrustedHostedArtifactProvenance,
-  createTrustedIntegrationAuthorizationPublicationSource,
-  createVerificationSessionMergeOperationId,
-  createVerificationSessionReviewReceipt,
-  finalizeVerificationSessionHostedArtifact,
-  integrationMergeMarkers,
-  parseVerificationSessionHostedRequest,
-  parseVerificationSessionLocalPreparationRequest,
-  prepareLocalQuickVerificationActionPlan,
-  prepareTrustedMainVerificationSession,
-  prepareVerificationSessionHosted,
-  prepareVerificationSessionMergeInput,
-  reconstructVerificationSessionHostedFacts,
-  refreshVerificationSessionHostedArtifact,
-  resumeVerificationSession,
-  type TrustedRuntimeProof,
-  type VerificationSessionHostedEnvelope,
-  type VerificationSessionHostedFacts
-} from './verification-session-runtime.ts';
+import { assertTrustedExactRevisionRuntime, assertTrustedMainRuntime, assertTrustedMergedRequestRuntimeReachability, assertTrustedMergedRuntimeReachability, classifyVerificationSessionArtifactReuse, compilePostMainIssueDispositionHealthReadback, createHostedArtifactObservation, createTrustedHostedArtifactProvenance, createTrustedIntegrationAuthorizationPublicationSource, createVerificationSessionMergeOperationId, createVerificationSessionReviewReceipt, finalizeVerificationSessionHostedArtifact, integrationMergeMarkers, parseVerificationSessionHostedRequest, parseVerificationSessionLocalPreparationRequest, prepareLocalQuickVerificationActionPlan, prepareTrustedMainVerificationSession, prepareVerificationSessionHosted, prepareVerificationSessionMergeInput, reconstructVerificationSessionHostedFacts, refreshVerificationSessionHostedArtifact, resumeVerificationSession, type VerificationSessionHostedEnvelope, type VerificationSessionHostedFacts } from './verification-session-runtime.ts';
 export { assertHostedCompilerDispatchPayload, assertHostedCompilerInternalProvenance } from './hosted-compiler-provenance.ts';
 
 import { exactCommitMarker } from './merge-commit-marker.ts';
@@ -199,14 +133,7 @@ import {
 
 export { readExactCommitMarker } from './merge-commit-marker.ts';
 export { deleteHostedLocalRefCas } from './session-branch-closeout-effects.ts';
-export {
-  HOSTED_INTEGRATION_ROUTE_SCHEMA,
-  classifyDurableVerificationSessionProjection,
-  planHostedIntegrationEffects,
-  routeHostedIntegration,
-  type HostedIntegrationEffectPlan,
-  type HostedIntegrationRoute
-} from './verification-session-integration-routing.ts';
+export { HOSTED_INTEGRATION_ROUTE_SCHEMA, classifyDurableVerificationSessionProjection, planHostedIntegrationEffects, routeHostedIntegration } from './verification-session-integration-routing.ts';
 
 import { evaluateHostedCloseoutEffectPreconditionsUnderLease, finalizeHostedBranchCloseout } from './session-branch-closeout-effects.ts';
 import { SESSION_COMMAND_MAX_BUFFER, requireCommand, requireVerificationSessionCommandText, runVerificationSessionCommand, type VerificationSessionScope } from './session-command.ts';

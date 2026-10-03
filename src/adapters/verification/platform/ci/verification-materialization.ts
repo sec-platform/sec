@@ -12,6 +12,7 @@ import {
   rmSync
 } from 'node:fs';
 import path from 'node:path';
+import type { VerificationActionKeyDigest } from '../../../../execution/verification/action.ts';
 import {
   assertSameNoFollowDirectoryIdentity,
   inspectNoFollowDirectoryChain,
@@ -23,7 +24,7 @@ import {
 import {
   CodexDevelopmentWorkPackageManifestDigest
 } from '../../../self-hosting/control/task/contract/work-package.ts';
-import { encodeVerificationActionData, type VerificationActionKeyDigest } from '../action/contract/action.ts';
+import { encodeVerificationActionData } from '../action/contract/action.ts';
 import { CI_GITHUB_ACTIONS_IDENTITY_POLICY, type VerificationActionProviderOrigin } from '../action/contract/provider.ts';
 import {
   CI_VERIFICATION_HOSTED_SANDBOX_POLICY

@@ -1,4 +1,5 @@
 import { expect, test } from 'bun:test';
+import type { BranchCloseoutPreparation, BranchLifecycleInventory } from '../../src/execution/verification/branch-closeout.ts';
 
 import {
   projectBranchLifecycleForWorkSelection,
@@ -9,18 +10,7 @@ import {
   createBranchLifecycleGitHubCredentialArgs,
   createBranchLifecycleGitHubRemoteObservation
 } from '../../src/adapters/self-hosting/control/branch-lifecycle/branch-lifecycle-command.ts';
-import {
-  BRANCH_REF_CLOSEOUT_CAPABILITY,
-  auditBranchLifecycle,
-  authorizeBranchCloseout,
-  classifyBranchLifecycle,
-  createBranchCloseoutPreparation,
-  createBranchCloseoutReceipt,
-  isPathWithin,
-  parseBranchCloseoutReceipt,
-  type BranchCloseoutPreparation,
-  type BranchLifecycleInventory
-} from '../../src/adapters/self-hosting/control/branch-lifecycle/branch-lifecycle-contract.ts';
+import { BRANCH_REF_CLOSEOUT_CAPABILITY, auditBranchLifecycle, authorizeBranchCloseout, classifyBranchLifecycle, createBranchCloseoutPreparation, createBranchCloseoutReceipt, isPathWithin, parseBranchCloseoutReceipt } from '../../src/adapters/self-hosting/control/branch-lifecycle/branch-lifecycle-contract.ts';
 import { parseRepositoryFullName } from '../../src/adapters/self-hosting/control/branch-lifecycle/branch-lifecycle-inventory.ts';
 const MAIN_SHA = '1111111111111111111111111111111111111111';
 const HEAD_SHA = '2222222222222222222222222222222222222222';

@@ -1,3 +1,8 @@
+
+
+import type { HostedWorkflowCommentProvenance, PreparedBranchCloseoutEnvelope } from '../../../../execution/verification/branch-closeout.ts';
+import type { HostedIntegrationPhase, HostedIntegrationPhaseOwnership, IntegrationAuthorizationOperationPublication, IntegrationCloseoutRecoveryArtifactObservation, MergeGateResult } from '../../../../execution/verification/integration.ts';
+import type { GitHubWorkflowRunObservation } from '../../../../execution/verification/session.ts';
 /**
  * Canonical GitHub-remote receipt for one hosted IntegrationAuthorization.
  *
@@ -5,57 +10,18 @@
  * comment is an immutable App-authenticated receipt and merge-marker binding;
  * it is deliberately not represented as a compare-and-swap primitive.
  */
-
-import type { GitHubWorkflowJobObservation, GitHubWorkflowJobStepObservation, GitHubWorkflowRunObservation } from '../../../providers/github-api/contract.ts';
+import type { GitHubWorkflowJobObservation, GitHubWorkflowJobStepObservation } from '../../../providers/github-api/contract.ts';
 import { encodeVerificationActionData } from '../../../verification/platform/action/contract/action.ts';
 import { matchesCiWorkflowRunIdentity } from '../../../verification/platform/action/contract/provider.ts';
-import {
-  BRANCH_CLOSEOUT_MUTATION_PHASE_STEP_NAME,
-  assertHostedCommentProvenanceLive,
-  hostedPublisherMatches,
-  listIssueComments,
-  parseHostedWorkflowCommentProvenance,
-  type HostedWorkflowCommentProvenance
-} from '../branch-lifecycle/branch-closeout-receipt.ts';
-import {
-  parsePreparedBranchCloseoutEnvelope,
-  type PreparedBranchCloseoutEnvelope
-} from '../branch-lifecycle/branch-closeout.ts';
+import { BRANCH_CLOSEOUT_MUTATION_PHASE_STEP_NAME, assertHostedCommentProvenanceLive, hostedPublisherMatches, listIssueComments, parseHostedWorkflowCommentProvenance } from '../branch-lifecycle/branch-closeout-receipt.ts';
+import { parsePreparedBranchCloseoutEnvelope } from '../branch-lifecycle/branch-closeout.ts';
 import { branchLifecycleDigest } from '../branch-lifecycle/branch-lifecycle-audit.ts';
-import {
-  CodexDevelopmentParseMergeGateResult,
-  type CodexDevelopmentMergeGateResult
-} from './merge-gate.ts';
+import { CodexDevelopmentParseMergeGateResult } from './merge-gate.ts';
 
-const INTEGRATION_AUTHORIZATION_OPERATION_PUBLICATION_SCHEMA =
+const INTEGRATION_AUTHORIZATION_OPERATION_PUBLICATION_SCHEMA: IntegrationAuthorizationOperationPublication["schema"] =
   'sec-integration-authorization-operation-publication-v1' as const;
 const INTEGRATION_AUTHORIZATION_OPERATION_COMMENT_MARKER =
   '<!-- sec-integration-authorization-operation-v1 -->' as const;
-
-export interface IntegrationAuthorizationOperationPublication {
-  schema: typeof INTEGRATION_AUTHORIZATION_OPERATION_PUBLICATION_SCHEMA;
-  repository: string;
-  pullRequestNumber: number;
-  sessionRevision: `sha256:${string}`;
-  authorizationId: string;
-  authorizationPublicationId: `sha256:${string}`;
-  authorizationReceiptDigest: `sha256:${string}`;
-  consumptionOperationId: `sha256:${string}`;
-  result: CodexDevelopmentMergeGateResult;
-  closeoutPreparation: PreparedBranchCloseoutEnvelope;
-  recoveryArtifact: IntegrationCloseoutRecoveryArtifactObservation;
-  provenance: HostedWorkflowCommentProvenance;
-  publicationDigest: `sha256:${string}`;
-}
-
-export interface IntegrationCloseoutRecoveryArtifactObservation {
-  artifactId: string;
-  artifactName: string;
-  artifactFileName: 'branch-closeout-recovery.json';
-  artifactDigest: `sha256:${string}`;
-  runId: string;
-  runAttempt: number;
-}
 
 export interface CanonicalIntegrationRunOwner {
   runId: string;
@@ -69,7 +35,7 @@ export const HOSTED_INTEGRATION_PHASE_STEP_NAMES = Object.freeze({
   integration: 'Integrate exact hosted Session and publish live readback status',
   closeoutMutation: BRANCH_CLOSEOUT_MUTATION_PHASE_STEP_NAME,
   closeoutPublication: 'Publish exact branch closeout receipt'
-} as const);
+} as const satisfies Readonly<Record<HostedIntegrationPhase, string>>);
 
 export const HOSTED_INTEGRATION_PHASE_JOB_NAMES = Object.freeze({
   recoveryPreparation: 'authorize',
@@ -77,21 +43,6 @@ export const HOSTED_INTEGRATION_PHASE_JOB_NAMES = Object.freeze({
   closeoutMutation: 'integrate',
   closeoutPublication: 'integrate'
 } as const);
-
-export type HostedIntegrationPhase = keyof typeof HOSTED_INTEGRATION_PHASE_STEP_NAMES;
-
-export interface HostedIntegrationPhaseOwnership {
-  runId: string;
-  runAttempt: number;
-  jobId: string;
-  jobName: string;
-  phase: HostedIntegrationPhase;
-  stepName: string;
-  stepNumber: number;
-  priorAttemptStarted: boolean;
-  priorEffectStarted: boolean;
-  priorEffectPhases: readonly HostedIntegrationPhase[];
-}
 
 const COMMENT_JSON_PREFIX =
   `${INTEGRATION_AUTHORIZATION_OPERATION_COMMENT_MARKER}\n` + '```json\n';
@@ -342,7 +293,7 @@ function authorizationPublicationPayload(input: Omit<
 }
 
 export function createIntegrationAuthorizationOperationPublication(input: {
-  result: CodexDevelopmentMergeGateResult;
+  result: MergeGateResult;
   closeoutPreparation: PreparedBranchCloseoutEnvelope;
   recoveryArtifact: IntegrationCloseoutRecoveryArtifactObservation;
   provenance: HostedWorkflowCommentProvenance;

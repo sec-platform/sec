@@ -7,13 +7,13 @@ import { isFileNotFoundError, pathExists } from "../../../filesystem/files.ts";
 import { resolveSecWorkspaceRuntimeRoots } from '../../../runtime-state/workspace-state/paths.ts';
 import { compilerRoot, getWorkspacePaths, resolveWorkspacePlanPath } from "../../../workspace-context.ts";
 import { loadRuntimeDependencySpec } from '../contract/runtime-dependency-spec.ts';
-import { classifyDependencyEnvironment, observeDependencyEntry, sameObservedDependencyDirectory, type DependencyEntryStatus, type DependencyEnvironmentMode } from '../runtime/environment-observation.ts';
-import { sameHostPath } from '../runtime/host-path.ts';
+import { classifyDependencyEnvironment, observeDependencyEntry, sameObservedDependencyDirectory, type DependencyEntryStatus, type DependencyEnvironmentMode } from './environment-observation.ts';
+import { sameHostPath } from './host-path.ts';
 import {
   observeCompilerDependencyExecutionGenerationAuthority,
   readRuntimeDepsStamp,
-} from '../runtime/project-runtime.ts';
-export type { DependencyEntryKind, DependencyEntryStatus, DependencyEnvironmentMode } from '../runtime/environment-observation.ts';
+} from './project-runtime.ts';
+export type { DependencyEntryKind, DependencyEntryStatus, DependencyEnvironmentMode } from './environment-observation.ts';
 
 export type DoctorCheckStatus = 'ok' | 'warn' | 'fail';
 

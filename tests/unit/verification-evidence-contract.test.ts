@@ -1,10 +1,11 @@
 import { expect, test } from 'bun:test';
+import type { VerificationGateEvidence } from '../../src/execution/verification/session.ts';
 
 import { buildCiVerificationActionPlanClosure, ciVerificationGateStep, type CiVerificationActionCandidate } from '../../src/adapters/verification/platform/action/contract/ci.ts';
-import { CodexDevelopmentAssertVerificationEvidenceV4, CodexDevelopmentCreateVerificationEvidenceProducer, CodexDevelopmentFinalizeVerificationEvidenceV4, type CodexDevelopmentVerificationGateEvidenceV4 } from '../../src/adapters/verification/platform/ci/contract/evidence.ts';
+import { CodexDevelopmentAssertVerificationEvidenceV4, CodexDevelopmentCreateVerificationEvidenceProducer, CodexDevelopmentFinalizeVerificationEvidenceV4 } from '../../src/adapters/verification/platform/ci/contract/evidence.ts';
 import { buildCiQuickGatePlan } from '../../src/adapters/verification/platform/ci/contract/plan.ts';
 import { CI_VERIFICATION_CONTRACT_REVISION } from '../../src/assurance/verification/contract/revision.ts';
-import { CodexDevelopmentBuildVerificationGateResult } from '../../src/assurance/verification/result/contract/result.ts';
+import { CodexDevelopmentBuildVerificationGateResult, type VerificationGateResult } from '../../src/assurance/verification/result/contract/result.ts';
 
 const digest = (value: string): `sha256:${string}` => `sha256:${value.repeat(64).slice(0, 64)}`;
 const candidate: CiVerificationActionCandidate = {
@@ -27,7 +28,7 @@ const plan = buildCiVerificationActionPlanClosure({
 });
 
 function gateEvidence(index: number, status: 'passed' | 'failed' | 'not-run' | 'unsupported' | 'invalidated' = 'passed'):
-CodexDevelopmentVerificationGateEvidenceV4 {
+VerificationGateEvidence<VerificationGateResult> {
   const action = plan.actions[index]!.action;
   const executed = status === 'passed' || status === 'failed';
   const reason = status === 'passed' ? 'executed-success'
@@ -92,7 +93,7 @@ function evidence(gates = plan.actions.map((_, index) => gateEvidence(index))) {
   });
 }
 
-test('Evidence V4 binds complete ordered Action snapshots and canonical five-state results', () => {
+test('Verification evidence binds complete ordered Action snapshots and canonical five-state results', () => {
   for (const status of ['passed', 'failed', 'not-run', 'unsupported', 'invalidated'] as const) {
     const gates = plan.actions.map((_, index) => gateEvidence(index, index === 0 ? status : 'passed'));
     const value = evidence(gates);

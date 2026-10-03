@@ -1,6 +1,7 @@
 import { expect, test } from 'bun:test';
+import type { VerificationActionKeyDigest } from '../../src/execution/verification/action.ts';
 
-import type { VerificationActionKeyDigest } from '../../src/adapters/verification/platform/action/contract/action.ts';
+
 import { buildCiVerificationActionPlanClosure, ciVerificationGateStep, type CiVerificationActionCandidate } from '../../src/adapters/verification/platform/action/contract/ci.ts';
 import { CI_VERIFICATION_HOSTED_PROVIDER_REVISION } from '../../src/adapters/verification/platform/action/contract/environment.ts';
 import type { VerificationActionProviderOrigin } from '../../src/adapters/verification/platform/action/contract/provider.ts';

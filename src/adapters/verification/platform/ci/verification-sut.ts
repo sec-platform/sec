@@ -9,7 +9,8 @@ import {
   rmSync, writeFileSync
 } from 'node:fs';
 import path from 'node:path';
-import { encodeVerificationActionData, type VerificationActionKeyDigest } from '../action/contract/action.ts';
+import type { VerificationActionKeyDigest } from '../../../../execution/verification/action.ts';
+import { encodeVerificationActionData } from '../action/contract/action.ts';
 import { ciVerificationNormalizedOperationArgv, resolveCiVerificationDevRunnerTarget } from '../action/contract/ci.ts';
 import { CI_VERIFICATION_HOSTED_PROVIDER_REVISION } from '../action/contract/environment.ts';
 import {

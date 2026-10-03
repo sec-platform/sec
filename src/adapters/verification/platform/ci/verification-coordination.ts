@@ -1,18 +1,12 @@
 import { CI_VERIFICATION_CONTRACT_REVISION } from '../../../../assurance/verification/contract/revision.ts';
-import { CodexDevelopmentBuildVerificationGateResult } from '../../../../assurance/verification/result/contract/result.ts';
-import { encodeVerificationActionData, isVerificationActionRunnable, type VerificationActionDependencyResolution, type VerificationActionKeyDigest } from '../action/contract/action.ts';
-import { CI_VERIFICATION_HOSTED_EXECUTION_ENVIRONMENT, type CiVerificationActionPlanClosure } from '../action/contract/ci.ts';
+import { CodexDevelopmentBuildVerificationGateResult, type VerificationGateResult, type VerificationResultStatus } from '../../../../assurance/verification/result/contract/result.ts';
+import type { CiVerificationActionPlanClosure, VerificationActionKeyDigest } from '../../../../execution/verification/action.ts';
+import type { VerificationEvidence } from '../../../../execution/verification/session.ts';
+import { encodeVerificationActionData, isVerificationActionRunnable, type VerificationActionDependencyResolution } from '../action/contract/action.ts';
+import { CI_VERIFICATION_HOSTED_EXECUTION_ENVIRONMENT } from '../action/contract/ci.ts';
 import { CI_VERIFICATION_HOSTED_PROVIDER_REVISION } from '../action/contract/environment.ts';
 import { reduceVerificationActionProviderState, verificationActionProviderTerminalAnchorName, verificationActionProviderTerminalArtifactName, verificationActionProviderStartArtifactName as verificationActionStartMarkerNameV2, type VerificationActionProviderStartObservation, type VerificationActionProviderStatusReadback, type VerificationActionProviderTerminalAnchorObservation } from '../action/contract/provider.ts';
-import {
-  aggregateV4Status,
-  CodexDevelopmentAssertVerificationActionTerminalArtifact,
-  CodexDevelopmentCreateVerificationEvidenceProducer,
-  CodexDevelopmentFinalizeVerificationActionTerminalArtifact,
-  CodexDevelopmentFinalizeVerificationEvidenceV4, type CodexDevelopmentVerificationActionArtifactProducer,
-  type CodexDevelopmentVerificationActionTerminalArtifact,
-  type CodexDevelopmentVerificationEvidenceV4
-} from './contract/evidence.ts';
+import { aggregateV4Status, CodexDevelopmentAssertVerificationActionTerminalArtifact, CodexDevelopmentCreateVerificationEvidenceProducer, CodexDevelopmentFinalizeVerificationActionTerminalArtifact, CodexDevelopmentFinalizeVerificationEvidenceV4, type CodexDevelopmentVerificationActionArtifactProducer, type CodexDevelopmentVerificationActionTerminalArtifact } from './contract/evidence.ts';
 import {
   CodexDevelopmentCreateHostedSutExecutionAuthorization, CodexDevelopmentReduceHostedSutObservation,
   CodexDevelopmentParseHostedActionRawResult as parseHostedActionRawResultContractV2,
@@ -325,7 +319,7 @@ export function CodexDevelopmentComposeHostedEvidence(input: Readonly<{
   now?: () => Date;
 }>): Readonly<{
   coordination: CodexDevelopmentHostedActionCoordination;
-  evidence: CodexDevelopmentVerificationEvidenceV4 | null;
+  evidence: VerificationEvidence<typeof CI_VERIFICATION_CONTRACT_REVISION, VerificationResultStatus, VerificationGateResult> | null;
 }> {
   const envelope = parseHostedEnvelope(input.envelope);
   const coordination = CodexDevelopmentCoordinateHostedActions({

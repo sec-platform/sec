@@ -14,6 +14,9 @@ import {
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { worktreePhysicalCloseoutOperations } from '../../src/bootstrap/runtime-state/worktree-closeout.ts';
+import type { BranchLifecycleInventory } from '../../src/execution/verification/branch-closeout.ts';
+import type { IntegrationAuthorizationOperationPublication, MergeGateResult } from '../../src/execution/verification/integration.ts';
+import type { GitHubActionsArtifactObservation, GitHubCandidateObservation, GitHubCheckObservation, GitHubComparisonObservation, GitHubReviewBarrierObservation, GitHubWorkflowRunObservation, ScopeAuthorization, SessionDigest, VerificationSession } from '../../src/execution/verification/session.ts';
 
 
 const CLOSEOUT_CLI_E2E_ENABLED = process.env.SEC_VERIFICATION_SESSION_CLOSEOUT_CLI_E2E === '1';
@@ -30,7 +33,7 @@ import {
   resolveOrdinaryMainHealthLane,
   resolveRepairMainHealthLane
 } from '../../src/adapters/self-hosting/control/main-health/contract.ts';
-import { createScopeAuthorization, type ScopeAuthorization } from '../../src/adapters/self-hosting/control/scope/authorization.ts';
+import { createScopeAuthorization } from '../../src/adapters/self-hosting/control/scope/authorization.ts';
 import { encodeVerificationActionData } from '../../src/adapters/verification/platform/action/contract/action.ts';
 import { CI_VERIFICATION_HOSTED_EXECUTION_ENVIRONMENT, ciVerificationActionParentDispatchPlanPayloadDigest, createCiVerificationActionParentDispatchPlan, createCiVerificationActionProposal, createCiVerificationActionProviderEnvelope, createCiVerificationLocalExecutionEnvironment } from '../../src/adapters/verification/platform/action/contract/ci.ts';
 import { CodexDevelopmentCreateVerificationEvidenceProducer, CodexDevelopmentFinalizeVerificationEvidenceV4, CodexDevelopmentFinalizeVerificationSessionArtifact } from '../../src/adapters/verification/platform/ci/contract/evidence.ts';
@@ -40,10 +43,7 @@ import { CodexDevelopmentCreateTestImpactTransitionObservation, CodexDevelopment
 import { CodexDevelopmentBuildVerificationGateResult } from '../../src/assurance/verification/result/contract/result.ts';
 
 import { inspectWorkspaceWriteLease } from '../../src/adapters/filesystem/write-lease.ts';
-import type {
-  GitHubCheckObservation, GitHubWorkflowJobObservation,
-  GitHubWorkflowRunObservation
-} from '../../src/adapters/providers/github-api/contract.ts';
+import type { GitHubWorkflowJobObservation } from '../../src/adapters/providers/github-api/contract.ts';
 import {
   authorizeBranchCloseout,
   BRANCH_CLOSEOUT_RECOVERY_ARTIFACT_FILE_NAME,
@@ -65,19 +65,13 @@ import {
 } from '../../src/adapters/self-hosting/control/branch-lifecycle/branch-closeout.ts';
 import { branchLifecycleDigest } from '../../src/adapters/self-hosting/control/branch-lifecycle/branch-lifecycle-audit.ts';
 import { createBranchLifecycleGitChildEnvironment } from '../../src/adapters/self-hosting/control/branch-lifecycle/branch-lifecycle-command.ts';
-import {
-  BRANCH_REF_CLOSEOUT_CAPABILITY,
-  type BranchLifecycleInventory
-} from '../../src/adapters/self-hosting/control/branch-lifecycle/branch-lifecycle-types.ts';
-import type { IntegrationAuthorizationOperationPublication } from '../../src/adapters/self-hosting/control/integration/integration-authorization-publication.ts';
+import { BRANCH_REF_CLOSEOUT_CAPABILITY } from '../../src/adapters/self-hosting/control/branch-lifecycle/branch-lifecycle-types.ts';
+
 import {
   createIntegrationAuthorizationOperationPublication,
   renderIntegrationAuthorizationOperationPublicationComment
 } from '../../src/adapters/self-hosting/control/integration/integration-authorization-publication.ts';
-import {
-  CodexDevelopmentEvaluateMergeGate,
-  type CodexDevelopmentMergeGateResult
-} from '../../src/adapters/self-hosting/control/integration/merge-gate.ts';
+import { CodexDevelopmentEvaluateMergeGate } from '../../src/adapters/self-hosting/control/integration/merge-gate.ts';
 import { INTEGRATION_AUTHORIZATION_STATUS_CONTEXT } from '../../src/adapters/self-hosting/control/main-health/authority-ruleset.ts';
 import { createObservedMainHealthInput } from '../../src/adapters/self-hosting/control/main-health/main-health-observation.ts';
 import { CI_MAIN_HEALTH_POLICY, createCiMainHealthRequestOperationId } from '../../src/adapters/self-hosting/control/main-health/provider-policy.ts';
@@ -90,44 +84,7 @@ import {
 } from '../../src/adapters/verification/platform/action/runner.ts';
 import { CI_VERIFICATION_SESSION_ARTIFACT_PREFIX, CI_VERIFICATION_SESSION_DISPATCH_TYPE, CI_VERIFICATION_SESSION_REQUEST_SCHEMA } from '../../src/adapters/verification/platform/ci/contract/revision.ts';
 import type { VerificationSessionHostedRequest } from '../../src/adapters/verification/platform/ci/contract/session-request.ts';
-import {
-  assertGitHubReviewAuthorityObservation,
-  classifyGitHubGraphQLSchemaFailure,
-  createReviewProviderRevalidationCommentBody,
-  createVerificationSessionGitHubClient,
-  evaluateGitHubRepositoryActionsArtifactInventory,
-  evaluateHostedReviewLocatorObservation,
-  evaluateMaintainerReviewWakeupObservation,
-  evaluatePlatformEnforcementObservation,
-  evaluateReviewProviderAvailabilityObservation,
-  evaluateVerificationSessionChangedPaths,
-  evaluateVerificationSessionReviewObservation,
-  evaluateVerificationSessionWorkflowJoin,
-  isGitHubProviderSchemaUnsupportedError,
-  parseGitHubOpenPullRequestCensus,
-  parseGitHubPullRequestFileInventory,
-  parseGitHubReviewPages,
-  parseGitHubReviewThreadPages,
-  PROVIDER_SCHEMA_UNSUPPORTED_STATUS,
-  shouldPublishMaintainerReviewWakeup,
-  VERIFICATION_SESSION_REVIEW_LOCATOR_COMMENT_MARKER,
-  VERIFICATION_SESSION_REVIEW_WAKEUP_COMMENT_MARKER,
-  type GitHubActionsArtifactObservation,
-  type GitHubAppReviewCommentObservation,
-  type GitHubCandidateObservation,
-  type GitHubCommitResolutionObservation,
-  type GitHubComparisonObservation,
-  type GitHubIssueCommentObservation,
-  type GitHubPage,
-  type GitHubReviewBarrierObservation,
-  type GitHubReviewObservation,
-  type GitHubReviewRequestObservation,
-  type GitHubReviewThreadObservation,
-  type SessionDigest,
-  type VerificationSessionGitHubClient,
-  type VerificationSessionReviewObservationTransaction,
-  type VerificationSessionWorkflowObservationTransaction
-} from '../../src/adapters/verification/platform/ci/runtime/verification-session-github.ts';
+import { assertGitHubReviewAuthorityObservation, classifyGitHubGraphQLSchemaFailure, createReviewProviderRevalidationCommentBody, createVerificationSessionGitHubClient, evaluateGitHubRepositoryActionsArtifactInventory, evaluateHostedReviewLocatorObservation, evaluateMaintainerReviewWakeupObservation, evaluatePlatformEnforcementObservation, evaluateReviewProviderAvailabilityObservation, evaluateVerificationSessionChangedPaths, evaluateVerificationSessionReviewObservation, evaluateVerificationSessionWorkflowJoin, isGitHubProviderSchemaUnsupportedError, parseGitHubOpenPullRequestCensus, parseGitHubPullRequestFileInventory, parseGitHubReviewPages, parseGitHubReviewThreadPages, PROVIDER_SCHEMA_UNSUPPORTED_STATUS, shouldPublishMaintainerReviewWakeup, VERIFICATION_SESSION_REVIEW_LOCATOR_COMMENT_MARKER, VERIFICATION_SESSION_REVIEW_WAKEUP_COMMENT_MARKER, type GitHubAppReviewCommentObservation, type GitHubCommitResolutionObservation, type GitHubIssueCommentObservation, type GitHubPage, type GitHubReviewObservation, type GitHubReviewRequestObservation, type GitHubReviewThreadObservation, type VerificationSessionGitHubClient, type VerificationSessionReviewObservationTransaction, type VerificationSessionWorkflowObservationTransaction } from '../../src/adapters/verification/platform/ci/runtime/verification-session-github.ts';
 import {
   createEphemeralVerificationSessionJournalFs
 } from '../../src/adapters/verification/platform/ci/runtime/verification-session-journal.ts';
@@ -169,7 +126,7 @@ import {
   verificationSessionCli,
   verificationSessionExecutionPlacement
 } from '../../src/adapters/verification/platform/ci/runtime/verification-session.ts';
-import { createVerificationSession, type VerificationSession } from '../../src/adapters/verification/platform/session/contract/session.ts';
+import { createVerificationSession } from '../../src/adapters/verification/platform/session/contract/session.ts';
 import { settleResources, withAcquiredResource } from '../../src/execution/resource-settlement.ts';
 import { compileCloseoutCliProviderShims, prepareCloseoutCliScenario, readCloseoutCliHarnessState, writeCloseoutCliHarnessState, type CloseoutCliHarnessState } from '../helpers/closeout-cli/provider.ts';
 import { acquireExactRepositoryTestImpactProviderFixture } from '../helpers/test-impact-provider.ts';
@@ -1558,7 +1515,7 @@ async function reducerFixture(options: {
   return { repositoryRoot, journalFs, transport, github, artifact, result, external, counters, changedPaths,
     testImpactTransition, markers,
     request: local.request, preparation,
-    setAuthorizationResult: (next: CodexDevelopmentMergeGateResult | string) => {
+    setAuthorizationResult: (next: MergeGateResult | string) => {
       trustedAuthorization = typeof next === 'string'
         ? { ...trustedAuthorization, resultJson: next }
         : createTrustedIntegrationAuthorizationArtifact({
@@ -1608,7 +1565,7 @@ function durablePublication(fixture: Awaited<ReturnType<typeof reducerFixture>>)
 function substituteAuthorizationLiveIdentity(
   fixture: Awaited<ReturnType<typeof reducerFixture>>,
   identity: { repository?: string; prNumber?: number }
-): CodexDevelopmentMergeGateResult {
+): MergeGateResult {
   const previous = fixture.result.authorization;
   const { schema: _schema, authorizationId: _authorizationId, receiptDigest: _receiptDigest,
     ...authorizationInput } = previous;

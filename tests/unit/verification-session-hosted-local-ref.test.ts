@@ -4,11 +4,12 @@ import { createHash } from 'node:crypto';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+import type { BranchCloseoutAttempt } from '../../src/execution/verification/branch-closeout.ts';
 
 import { withWorkspaceWriteLease } from '../../src/adapters/filesystem/write-lease.ts';
 import { createBranchCloseoutPreparation } from '../../src/adapters/self-hosting/control/branch-lifecycle/branch-closeout-contract.ts';
 import { branchLifecycleDigest } from '../../src/adapters/self-hosting/control/branch-lifecycle/branch-lifecycle-audit.ts';
-import type { BranchCloseoutAttempt } from '../../src/adapters/self-hosting/control/branch-lifecycle/branch-lifecycle-types.ts';
+
 import { deleteHostedLocalRefCas } from '../../src/adapters/verification/platform/ci/runtime/verification-session.ts';
 import type { SecOperationDigest } from '../../src/execution/operation/semantic.ts';
 

@@ -18,17 +18,11 @@ import {
   writeFileSync
 } from 'node:fs';
 import path from 'node:path';
+import type { VerificationActionKey, VerificationActionKeyDigest } from '../../../../execution/verification/action.ts';
 import {
   type RuntimeStateJournalFileSystem
 } from '../../../runtime-state/workspace-state/journal-filesystem.ts';
-import {
-  createVerificationActionTerminal,
-  encodeVerificationActionData,
-  parseVerificationActionKey,
-  type VerificationActionKey,
-  type VerificationActionKeyDigest,
-  type VerificationActionTerminal
-} from './contract/action.ts';
+import { createVerificationActionTerminal, encodeVerificationActionData, parseVerificationActionKey, type VerificationActionTerminal } from './contract/action.ts';
 import {
   parseVerificationActionProviderStartMarker,
   parseVerificationActionProviderTerminalAnchor,

@@ -1,18 +1,10 @@
 import { createHash } from 'node:crypto';
+import type { CiVerificationActionDigest, CiVerificationActionPlanClosure, CiVerificationGatePhase, CiVerificationNormalizedOperation, CiVerificationNormalizedTarget, VerificationActionExecutionClass, VerificationActionInputRef, VerificationActionKeyDigest, VerificationActionPlan } from '../../../../../execution/verification/action.ts';
 
 import { VERIFICATION_GATE_RESULT_SCHEMA } from '../../../../../assurance/verification/result/contract/schema.ts';
 import { assertCanonicalPortableLogicalPath } from '../../../../../contracts/logical-path.ts';
 import { isSecRepositoryTestModulePath } from '../../../../../contracts/repository-test-path.ts';
-import {
-  createVerificationActionKey,
-  createVerificationActionPlan,
-  encodeVerificationActionData,
-  parseVerificationActionPlan,
-  type VerificationActionExecutionClass,
-  type VerificationActionInputRef,
-  type VerificationActionKeyDigest,
-  type VerificationActionPlan
-} from './action.ts';
+import { createVerificationActionKey, createVerificationActionPlan, encodeVerificationActionData, parseVerificationActionPlan } from './action.ts';
 import {
   CI_VERIFICATION_ACTION_DEPENDENCY_INPUT_PATHS,
   CI_VERIFICATION_ACTION_ENVIRONMENT_CONTRACT_REVISION,
@@ -39,8 +31,6 @@ const CI_VERIFICATION_ACTION_PARENT_JOB_NAME =
 const CI_VERIFICATION_ACTION_PARENT_PLAN_STEP_NAME =
   'Prepare canonical parent Action dispatch plan' as const;
 
-export type CiVerificationGatePhase = 'quick' | 'risk' | 'full' | 'workspace';
-
 export type CiVerificationGateStep = Readonly<{
   id: string;
   phase: CiVerificationGatePhase;
@@ -49,12 +39,10 @@ export type CiVerificationGateStep = Readonly<{
   inputs?: readonly VerificationActionInputRef[];
 }>;
 
-const CI_VERIFICATION_ACTION_PRODUCER_REVISION =
+const CI_VERIFICATION_ACTION_PRODUCER_REVISION: CiVerificationActionPlanClosure["producerRevision"] =
   'sec-ci-verification-action-producer-v2' as const;
-const CI_VERIFICATION_ACTION_PLAN_CLOSURE_SCHEMA =
+const CI_VERIFICATION_ACTION_PLAN_CLOSURE_SCHEMA: CiVerificationActionPlanClosure["schema"] =
   'sec-ci-verification-action-plan-closure-v2' as const;
-
-export type CiVerificationActionDigest = `sha256:${string}`;
 
 export const SOURCE_PROGRAM_TRANSITION_STDOUT_BYTE_LIMIT = 32 * 1024 * 1024;
 export const SOURCE_PROGRAM_TRANSITION_GATE_ID = 'source-program-transition-assessment' as const;
@@ -250,53 +238,6 @@ export interface CiVerificationProducerGate {
   readonly coveredScopeIds: readonly string[];
   readonly inputs?: readonly VerificationActionInputRef[];
 }
-
-export interface CiVerificationActionPlanClosure {
-  readonly schema: typeof CI_VERIFICATION_ACTION_PLAN_CLOSURE_SCHEMA;
-  readonly producerRevision: typeof CI_VERIFICATION_ACTION_PRODUCER_REVISION;
-  readonly actions: readonly VerificationActionPlan[];
-  readonly normalizedOperations: readonly CiVerificationNormalizedOperation[];
-  readonly actionPlanDigest: CiVerificationActionDigest;
-}
-
-type CiVerificationNormalizedTarget =
-  | Readonly<{
-      kind: 'bun-package-script';
-      identity: string;
-      readonly args: readonly string[];
-    }>
-  | Readonly<{
-      kind: 'bun-test';
-      identity: 'test';
-      readonly args: readonly string[];
-    }>
-  | Readonly<{
-      kind: 'bun-typescript-entrypoint';
-      identity: string;
-      readonly args: readonly string[];
-    }>;
-
-export type CiVerificationNormalizedOperation = Readonly<{
-  schema: 'sec-ci-verification-normalized-operation-v2';
-  gateId: string;
-  phase: CiVerificationGatePhase;
-  runtime: 'bun';
-  workingDirectory: '.';
-  target: CiVerificationNormalizedTarget;
-  environmentBindings: readonly Readonly<{ name: string; digest: CiVerificationActionDigest }>[];
-  coveredScopeIds: readonly string[];
-  candidate: Readonly<{
-    baseSha: string;
-    baseTreeSha: string;
-    headSha: string;
-    headTreeSha: string;
-    manifestDigest: CiVerificationActionDigest;
-    scopeAuthorizationRevision: CiVerificationActionDigest;
-    profile: 'quick' | 'full';
-    executionEnvironmentRevision: string;
-  }>;
-  semanticDigest: CiVerificationActionDigest;
-}>;
 
 export function ciVerificationNormalizedOperationArgv(
   operation: CiVerificationNormalizedOperation

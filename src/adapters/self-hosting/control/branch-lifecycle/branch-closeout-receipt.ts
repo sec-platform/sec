@@ -1,14 +1,10 @@
 import { spawnSync } from 'node:child_process';
+import type { BranchCloseoutAttempt, BranchCloseoutEffectStartPublication, BranchCloseoutEffectStartReference, BranchCloseoutOperationBinding, BranchCloseoutOperationPublication, BranchCloseoutOperationReceipt, BranchCloseoutReceipt, BranchCloseoutReceiptObservation, BranchCloseoutStablePublishedReceipt, BranchPublishedCloseoutReceipt, BranchPullRequestObservation, HostedWorkflowCommentProvenance } from '../../../../execution/verification/branch-closeout.ts';
 
 import { normalizeGitHubRepositoryPermission } from '../../../providers/github-api/repository-permission.ts';
 import { encodeVerificationActionData } from '../../../verification/platform/action/contract/action.ts';
 import { CI_GITHUB_ACTIONS_IDENTITY_POLICY } from '../../../verification/platform/action/contract/provider.ts';
-import {
-  assertBranchCloseoutOperationBinding,
-  parseBranchCloseoutOperationReceipt,
-  type BranchCloseoutOperationBinding,
-  type BranchCloseoutOperationReceipt
-} from './branch-closeout-contract.ts';
+import { assertBranchCloseoutOperationBinding, parseBranchCloseoutOperationReceipt } from './branch-closeout-contract.ts';
 import {
   assertGitBranchName,
   assertGitSha,
@@ -18,16 +14,7 @@ import {
   decodeBranchLifecycleChildError,
   decodeBranchLifecycleChildStdout
 } from './branch-lifecycle-command.ts';
-import {
-  BRANCH_CLOSEOUT_PUBLISHED_RECEIPT_SCHEMA,
-  type BranchCloseoutAttempt,
-  type BranchCloseoutDisposition,
-  type BranchCloseoutReceipt,
-  type BranchCloseoutReceiptObservation,
-  type BranchCloseoutStatus,
-  type BranchPublishedCloseoutReceipt,
-  type BranchPullRequestObservation
-} from './branch-lifecycle-types.ts';
+import { BRANCH_CLOSEOUT_PUBLISHED_RECEIPT_SCHEMA } from './branch-lifecycle-types.ts';
 
 const COMMAND_TIMEOUT_MS = 60_000;
 const COMMAND_MAX_BUFFER = 32 * 1024 * 1024;
@@ -57,102 +44,18 @@ export const BRANCH_CLOSEOUT_ENFORCEMENT_MARKER_PATH =
   'src/adapters/self-hosting/control/branch-lifecycle/branch-closeout-receipt.ts' as const;
 export const BRANCH_CLOSEOUT_RECEIPT_COMMENT_MARKER =
   '<!-- sec-branch-closeout-receipt-v1 -->' as const;
-const BRANCH_CLOSEOUT_OPERATION_PUBLICATION_SCHEMA =
+const BRANCH_CLOSEOUT_OPERATION_PUBLICATION_SCHEMA: BranchCloseoutOperationPublication["schema"] =
   'sec-branch-closeout-operation-publication-v1' as const;
 const BRANCH_CLOSEOUT_OPERATION_RECEIPT_COMMENT_MARKER =
   '<!-- sec-branch-closeout-operation-receipt-v1 -->' as const;
-const BRANCH_CLOSEOUT_EFFECT_START_PUBLICATION_SCHEMA =
+const BRANCH_CLOSEOUT_EFFECT_START_PUBLICATION_SCHEMA: BranchCloseoutEffectStartPublication["schema"] =
   'sec-branch-closeout-effect-start-publication-v1' as const;
 const BRANCH_CLOSEOUT_EFFECT_START_COMMENT_MARKER =
   '<!-- sec-branch-closeout-effect-start-v1 -->' as const;
-export const BRANCH_CLOSEOUT_MUTATION_PHASE_STEP_NAME =
+export const BRANCH_CLOSEOUT_MUTATION_PHASE_STEP_NAME: BranchCloseoutEffectStartPublication["phase"]["stepName"] =
   'Close out exact integrated branch' as const;
-const HOSTED_WORKFLOW_COMMENT_PROVENANCE_SCHEMA =
+const HOSTED_WORKFLOW_COMMENT_PROVENANCE_SCHEMA: HostedWorkflowCommentProvenance["schema"] =
   'sec-hosted-workflow-comment-provenance-v1' as const;
-
-export interface HostedWorkflowCommentProvenance {
-  schema: typeof HOSTED_WORKFLOW_COMMENT_PROVENANCE_SCHEMA;
-  repositoryId: string;
-  workflowPath: '.github/workflows/merge-gate.yml';
-  workflowRef: string;
-  workflowSha: string;
-  runId: string;
-  runAttempt: number;
-  eventName: 'workflow_run';
-  sourceRunId: string;
-  sourceRunAttempt: number;
-  actorLogin: string;
-  actorNodeId: string;
-  actorPermission: 'maintain' | 'admin';
-  app: {
-    id: number;
-    nodeId: string;
-    slug: string;
-  };
-  provenanceDigest: `sha256:${string}`;
-}
-
-export interface BranchCloseoutOperationPublication {
-  schema: typeof BRANCH_CLOSEOUT_OPERATION_PUBLICATION_SCHEMA;
-  closeoutOperationId: `sha256:${string}`;
-  binding: BranchCloseoutOperationBinding;
-  effectStart: BranchCloseoutEffectStartReference;
-  receipt: BranchCloseoutStablePublishedReceipt;
-  provenance: HostedWorkflowCommentProvenance;
-  publicationDigest: `sha256:${string}`;
-}
-
-interface BranchCloseoutEffectStartReference {
-  effectStartId: `sha256:${string}`;
-  publicationDigest: `sha256:${string}`;
-  commentId: number;
-}
-
-export interface BranchCloseoutEffectStartPublication {
-  schema: typeof BRANCH_CLOSEOUT_EFFECT_START_PUBLICATION_SCHEMA;
-  effectStartId: `sha256:${string}`;
-  closeoutOperationId: `sha256:${string}`;
-  binding: BranchCloseoutOperationBinding;
-  authorizationPublication: {
-    authorizationPublicationId: `sha256:${string}`;
-    publicationDigest: `sha256:${string}`;
-    commentId: number;
-  };
-  recoveryArtifact: {
-    artifactId: string;
-    artifactName: string;
-    artifactDigest: `sha256:${string}`;
-    runId: string;
-    runAttempt: number;
-  };
-  phase: {
-    runId: string;
-    runAttempt: number;
-    jobId: string;
-    jobName: 'integrate';
-    phase: 'closeoutMutation';
-    stepName: typeof BRANCH_CLOSEOUT_MUTATION_PHASE_STEP_NAME;
-    stepNumber: number;
-    workflowSha: string;
-  };
-  provenance: HostedWorkflowCommentProvenance;
-  publicationDigest: `sha256:${string}`;
-}
-
-interface BranchCloseoutStablePublishedReceipt {
-  repository: string;
-  pullRequest: number | null;
-  branch: string;
-  preparedHeadSha: string;
-  preparationDigest: `sha256:${string}`;
-  recoveryDigest: `sha256:${string}`;
-  disposition: BranchCloseoutDisposition;
-  durableGoal: { kind: 'main' | 'issue' | 'evidence'; reference: string };
-  authorization: BranchPublishedCloseoutReceipt['authorization'];
-  readback: BranchPublishedCloseoutReceipt['readback'];
-  closeoutStatus: BranchCloseoutStatus;
-  mainSha: string | null;
-}
 
 const COMMENT_JSON_PREFIX = `${BRANCH_CLOSEOUT_RECEIPT_COMMENT_MARKER}\n` + '```json\n';
 const COMMENT_JSON_SUFFIX = '\n```';

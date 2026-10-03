@@ -1,13 +1,9 @@
 import { randomUUID } from 'node:crypto';
 import { setTimeout as delay } from 'node:timers/promises';
+import type { VerificationActionKey, VerificationActionKeyDigest, VerificationActionKeyInput } from '../../../../execution/verification/action.ts';
 
 import { canonicalJson, digest } from '../../../../contracts/canonical.ts';
-import type {
-  VerificationActionKey,
-  VerificationActionKeyDigest,
-  VerificationActionKeyInput,
-  VerificationActionTerminalSettlement
-} from '../../../verification/platform/action/contract/action.ts';
+import type { VerificationActionTerminalSettlement } from '../../../verification/platform/action/contract/action.ts';
 import {
   assertSecOperationDemandGraph,
   type SecOperationDemandGraph

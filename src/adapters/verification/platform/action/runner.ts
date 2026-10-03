@@ -27,6 +27,7 @@ import {
   type SecProviderSettlementReceipt
 } from '../../../../execution/operation/semantic.ts';
 import { ResourceCompositeSettlementError, withAcquiredResource } from '../../../../execution/resource-settlement.ts';
+import type { CiVerificationActionPlanClosure, CiVerificationNormalizedOperation, VerificationActionDependency, VerificationActionExecutionClass, VerificationActionKey, VerificationActionKeyDigest, VerificationActionKeyInput, VerificationActionPlan } from '../../../../execution/verification/action.ts';
 import {
   openProcessResourceSession,
   type ProcessResourceRunResult,
@@ -44,33 +45,8 @@ import {
   acquireSecRuntimeStatePhysicalAuthority,
   type SecRuntimeStatePhysicalAuthority
 } from '../../../runtime-state/workspace-state/physical-authority.ts';
-import {
-  createVerificationActionKey,
-  createVerificationActionPlan,
-  encodeVerificationActionData,
-  issueProcessVerificationActionTerminalSettlement,
-  issueVerificationActionOwnerTerminalReceipt,
-  isVerificationActionRunnable,
-  parseVerificationActionKey,
-  parseVerificationActionPlan,
-  projectVerificationActionTerminal,
-  VERIFICATION_ACTION_PROCESS_RESOURCE_POLICY,
-  verificationActionDependsOnChangedInputs,
-  type VerificationActionDependency,
-  type VerificationActionDependencyResolution,
-  type VerificationActionDependencyState,
-  type VerificationActionExecutionClass,
-  type VerificationActionKey,
-  type VerificationActionKeyDigest,
-  type VerificationActionKeyInput,
-  type VerificationActionPlan,
-  type VerificationActionTerminal
-} from './contract/action.ts';
-import type {
-  CiVerificationActionPlanClosure,
-  CiVerificationExecutionEnvironment,
-  CiVerificationNormalizedOperation
-} from './contract/ci.ts';
+import { createVerificationActionKey, createVerificationActionPlan, encodeVerificationActionData, issueProcessVerificationActionTerminalSettlement, issueVerificationActionOwnerTerminalReceipt, isVerificationActionRunnable, parseVerificationActionKey, parseVerificationActionPlan, projectVerificationActionTerminal, VERIFICATION_ACTION_PROCESS_RESOURCE_POLICY, verificationActionDependsOnChangedInputs, type VerificationActionDependencyResolution, type VerificationActionDependencyState, type VerificationActionTerminal } from './contract/action.ts';
+import type { CiVerificationExecutionEnvironment } from './contract/ci.ts';
 import {
   acquireVerificationActionClaim,
   appendVerificationActionJournalEvent,

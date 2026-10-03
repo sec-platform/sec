@@ -1,4 +1,5 @@
 import path from 'node:path';
+import type { BranchPruneConfigurationObservation } from '../../../../execution/verification/branch-closeout.ts';
 
 import { withAcquiredResource } from '../../../../execution/resource-settlement.ts';
 
@@ -28,10 +29,7 @@ import {
   assertProcessResourceSessionReceipt,
   openProcessResourceSession
 } from '../../../runtime-state/physical/runtime/process-resource-session.ts';
-import {
-  assertGitBranchName,
-  type BranchPruneConfigurationObservation
-} from './branch-lifecycle-contract.ts';
+import { assertGitBranchName } from './branch-lifecycle-contract.ts';
 
 const BRANCH_CONFIG_DURATION_MS = 120_000;
 const BRANCH_CONFIG_PROCESS_REQUIREMENT = 'branch-lifecycle.clone-config.process';

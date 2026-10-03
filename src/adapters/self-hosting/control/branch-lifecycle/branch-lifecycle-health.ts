@@ -1,15 +1,9 @@
 import { compareCodeUnits } from '../../../../contracts/canonical.ts';
+import type { BranchCloseoutAttempt, BranchLifecycleInventory, BranchPullRequestObservation } from '../../../../execution/verification/branch-closeout.ts';
 import {
   auditBranchLifecycle as auditBranchLifecycleCore
 } from './branch-lifecycle-audit.ts';
-import type {
-  BranchCloseoutAttempt,
-  BranchLifecycleAuditFinding,
-  BranchLifecycleAuditReport,
-  BranchLifecycleDispositionRecord,
-  BranchLifecycleInventory,
-  BranchPullRequestObservation
-} from './branch-lifecycle-types.ts';
+import type { BranchLifecycleAuditFinding, BranchLifecycleAuditReport, BranchLifecycleDispositionRecord } from './branch-lifecycle-types.ts';
 
 const REQUIRED_TERMINAL_OPERATIONS: readonly BranchCloseoutAttempt['operation'][] = [
   'recovery-create',

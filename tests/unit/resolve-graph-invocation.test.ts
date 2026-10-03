@@ -4,7 +4,8 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { resolveGraph } from '../../src/adapters/workspace/resolve-graph.ts';
-import type { PlanFile } from '../../src/compiler/contract/plan-manifest.ts';
+import type { ManifestEntry, PlanFile } from '../../src/compiler/contract/plan-manifest.ts';
+import { prepareManifestResolution } from '../../src/compiler/resolve/resolve-plan.ts';
 
 // Native runs use the real retained YAML loader and registry sources. Local
 // replay substitutes the declared loader/path imports, not resolveGraph or
@@ -87,4 +88,99 @@ test('install ownership conflict still rejects a resolve result', async () => {
     f.plan.blocks = [{ id: 'block/a' }, { id: 'block/b' }];
     await assert.rejects(resolveGraph(f.root, f.plan), e => (e as {code?: string}).code === 'RESOLVE-CONFLICT-006');
   } finally { f.cleanup(); }
+});
+
+for (const compatibleId of ['block/a', 'block/z']) {
+  test(`automatic providers apply stack admission before ambiguity with ${compatibleId} compatible`, async () => {
+    const f = fixture(); try {
+      f.manifest('block/app', ['cap/base']);
+      const incompatibleId = compatibleId === 'block/a' ? 'block/z' : 'block/a';
+      f.manifest(compatibleId, [], ['cap/base']);
+      const incompatible = f.manifest(incompatibleId, [], ['cap/base']);
+      writeFileSync(path.join(incompatible.folder, 'block.manifest.yaml'), JSON.stringify({
+        ...incompatible.source, stackProfiles: ['other-stack'],
+        installs: [{ kind: 'copy', from: 'absent-resource.ts', to: 'src/unused.ts' }]
+      }));
+      f.plan.blocks = [{ id: 'block/app' }];
+      const lock = await resolveGraph(f.root, f.plan);
+      assert.deepEqual(lock.resolvedBlocks.map(block => block.id), [compatibleId, 'block/app']);
+      assert.deepEqual(lock.resolvedBlocks.map(block => block.registrySourceId), ['local', 'local']);
+      assert.deepEqual(lock.installPlan.map(step => step.stepId), [`${compatibleId}:1`, 'block/app:2']);
+      assert.deepEqual(lock.resolvedCapabilities, ['block/app', 'cap/base']);
+      assert.equal(lock.resolvedBlocks[0]!.manifestPath,
+        `registry/${compatibleId.replaceAll('/', '.')}/block.manifest.yaml`);
+    } finally { f.cleanup(); }
+  });
+}
+
+test('an exclusively incompatible catalog reports missing before resource lookup', async () => {
+  const f = fixture(); try {
+    f.manifest('block/app', ['cap/base']);
+    const provider = f.manifest('block/base', [], ['cap/base']);
+    writeFileSync(path.join(provider.folder, 'block.manifest.yaml'), JSON.stringify({
+      ...provider.source, stackProfiles: ['other-stack'],
+      installs: [{ kind: 'copy', from: 'absent-resource.ts', to: 'src/base.ts' }]
+    }));
+    f.plan.blocks = [{ id: 'block/app' }];
+    await assert.rejects(resolveGraph(f.root, f.plan), error => {
+      assert.equal((error as { code?: string }).code, 'RESOLVE-MISSING-001');
+      assert.match((error as Error).message, /cap\/base/);
+      return true;
+    });
+  } finally { f.cleanup(); }
+});
+
+test('an explicit incompatible choice retains ALIGN rejection before closure and resources', async () => {
+  const f = fixture(); try {
+    const provider = f.manifest('block/base', ['cap/absent']);
+    writeFileSync(path.join(provider.folder, 'block.manifest.yaml'), JSON.stringify({
+      ...provider.source, stackProfiles: ['other-stack'],
+      installs: [{ kind: 'copy', from: 'absent-resource.ts', to: 'src/base.ts' }]
+    }));
+    f.plan.blocks = [{ id: 'block/base' }];
+    await assert.rejects(resolveGraph(f.root, f.plan), error => {
+      assert.equal((error as { code?: string }).code, 'ALIGN-STACK-001');
+      return true;
+    });
+  } finally { f.cleanup(); }
+});
+
+test('multiple compatible automatic providers still reject as ambiguous before resources', async () => {
+  const f = fixture(); try {
+    f.manifest('block/app', ['cap/base']);
+    for (const id of ['block/a', 'block/z']) {
+      const provider = f.manifest(id, [], ['cap/base']);
+      writeFileSync(path.join(provider.folder, 'block.manifest.yaml'), JSON.stringify({
+        ...provider.source, installs: [{ kind: 'copy', from: 'absent-resource.ts', to: `src/${id.slice(6)}.ts` }]
+      }));
+    }
+    f.plan.blocks = [{ id: 'block/app' }];
+    await assert.rejects(resolveGraph(f.root, f.plan), error => {
+      assert.equal((error as { code?: string }).code, 'RESOLVE-CONFLICT-004');
+      assert.match((error as Error).message, /Ambiguous providers/);
+      return true;
+    });
+  } finally { f.cleanup(); }
+});
+
+test('prepare rejects conflicting unselected definitions before stack filtering', () => {
+  const root = path.resolve('unobserved-registry');
+  const entry = (sourceId: string, provides: string[]): ManifestEntry => ({
+    manifest: { id: 'block/unused', version: '1.0.0', kind: 'capability', stackProfiles: ['other-stack'],
+      requires: [], provides, conflicts: [], installs: [{ kind: 'copy', from: 'absent.ts', to: 'src/unused.ts' }],
+      pins: { inputs: [], outputs: [] }, acceptance: [], contracts: [], generators: [] },
+    manifestPath: path.join(root, sourceId, 'block.manifest.yaml'), manifestRoot: path.join(root, sourceId),
+    resourceRoots: [path.join(root, sourceId)], registryRoot: root, registrySourceId: sourceId,
+    registryKind: 'private', registryLocation: 'workspace', registryPath: 'registry'
+  });
+  assert.throws(() => prepareManifestResolution(root, [], [entry('first', ['cap/a']), entry('second', ['cap/b'])]), error => {
+    assert.equal((error as { code?: string }).code, 'RESOLVE-CONFLICT-004');
+    assert.match((error as Error).message, /Conflicting manifest definitions/);
+    assert.deepEqual((error as { details?: unknown }).details, {
+      selectedSource: 'first', requestedSource: 'second',
+      selectedManifestPath: path.join(root, 'first', 'block.manifest.yaml'),
+      requestedManifestPath: path.join(root, 'second', 'block.manifest.yaml')
+    });
+    return true;
+  });
 });

@@ -1,52 +1,16 @@
 import { createHash } from 'node:crypto';
+import type { MainHealthDigest, MainHealthLane, MainHealthLedger, MainHealthStatus } from '../../../../execution/verification/session.ts';
 
 import { encodeVerificationActionData } from '../../../verification/platform/action/contract/action.ts';
 
 /** Content-integrity decision object, not a signature. Consumers independently verify producer transport and exact live main. */
 
-const MAIN_HEALTH_LEDGER_SCHEMA = 'sec-main-health-ledger-v1' as const;
-type MainHealthStatus = 'healthy' | 'degraded' | 'locked';
-type MainHealthLane = 'ordinary' | 'repair';
-export type MainHealthDigest = `sha256:${string}`;
+const MAIN_HEALTH_LEDGER_SCHEMA: MainHealthLedger["schema"] = 'sec-main-health-ledger-v1' as const;
 export type MainHealthRoutingState = 'healthy' | 'unhealthy' | 'unresolved';
 const MAIN_HEALTH_REPAIR_IDENTITY_SCHEMA =
   'sec-main-health-repair-work-package-identity-v1' as const;
 export const DEFAULT_BRANCH_REVISION_HEALTH_PRODUCER_IDENTITY =
   'src/adapters/self-hosting/control/main-health/main-health-observation.ts' as const;
-
-interface MainHealthProducer {
-  readonly identity: string;
-  readonly trustRevision: string;
-  readonly sourceTransport: 'github-api' | 'trusted-runtime-durable-readback';
-  readonly sourceRunId: string;
-  readonly sourceRef: string;
-  readonly sourceDigest: MainHealthDigest;
-}
-
-export interface MainHealthLedger {
-  readonly schema: typeof MAIN_HEALTH_LEDGER_SCHEMA;
-  readonly repository: string;
-  readonly defaultBranch: string;
-  readonly mainSha: string;
-  readonly mainTreeSha: string;
-  readonly status: MainHealthStatus;
-  readonly failureFingerprints: readonly MainHealthDigest[];
-  readonly owner: string | null;
-  readonly repairWorkPackage: string | null;
-  readonly expiresAt: string;
-  /**
-   * Semantic routing eligibility for this exact ledger. This field is not a
-   * physical executor, frozen Work Package, Scope authorization, or merge
-   * authority. Every effectful consumer must independently prove those
-   * capabilities before it can act on an eligible lane.
-   */
-  readonly allowedLanes: readonly MainHealthLane[];
-  readonly trustRevision: string;
-  readonly observedAt: string;
-  readonly producer: MainHealthProducer;
-  readonly healthRevision: MainHealthDigest;
-  readonly ledgerDigest: MainHealthDigest;
-}
 
 export type MainHealthLedgerInput = Omit<MainHealthLedger, 'schema' | 'healthRevision' | 'ledgerDigest'>;
 export type MainHealthSemanticInput = Omit<MainHealthLedgerInput, 'producer' | 'expiresAt' | 'observedAt'>;

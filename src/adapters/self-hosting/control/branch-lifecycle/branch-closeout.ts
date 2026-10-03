@@ -5,24 +5,13 @@ import {
   readdirSync
 } from 'node:fs';
 import path from 'node:path';
+import type { BranchCloseoutAttempt, BranchCloseoutPreparation, BranchLifecycleInventory, BranchPullRequestObservation, BranchRecoveryAuthority, ForeignWorktreeCloseoutObservation, PreparedBranchCloseoutEnvelope } from '../../../../execution/verification/branch-closeout.ts';
 
 import {
   createBranchLifecycleGitChildEnvironment,
   decodeBranchLifecycleChildStdout
 } from './branch-lifecycle-command.ts';
-import {
-  assertBranchCloseoutPreparation,
-  assertGitBranchName,
-  assertGitSha,
-  auditBranchLifecycle,
-  branchLifecycleDigest,
-  createBranchCloseoutPreparation,
-  type BranchCloseoutAttempt,
-  type BranchCloseoutPreparation,
-  type BranchLifecycleInventory,
-  type BranchPullRequestObservation,
-  type BranchRecoveryAuthority
-} from './branch-lifecycle-contract.ts';
+import { assertBranchCloseoutPreparation, assertGitBranchName, assertGitSha, auditBranchLifecycle, branchLifecycleDigest, createBranchCloseoutPreparation } from './branch-lifecycle-contract.ts';
 import {
   collectBranchLifecycleInventory,
   type BranchLifecycleInventoryScope
@@ -76,24 +65,8 @@ function runCloseoutGit(repositoryRoot: string, args: readonly string[]) {
   };
 }
 
-export const BRANCH_CLOSEOUT_PREPARED_ENVELOPE_SCHEMA =
+export const BRANCH_CLOSEOUT_PREPARED_ENVELOPE_SCHEMA: PreparedBranchCloseoutEnvelope["schema"] =
   'sec-branch-closeout-prepared-envelope-v2' as const;
-
-/** A non-reversible observation of a worktree seen by a different host. */
-interface ForeignWorktreeCloseoutObservation {
-  readonly schema: 'sec-branch-closeout-foreign-worktree-observation-v1';
-  readonly hostBindingDigest: `sha256:${string}`;
-  readonly observationDigest: `sha256:${string}`;
-}
-
-export interface PreparedBranchCloseoutEnvelope {
-  schema: typeof BRANCH_CLOSEOUT_PREPARED_ENVELOPE_SCHEMA;
-  preparation: BranchCloseoutPreparation;
-  before: BranchLifecycleInventory;
-  attempts: BranchCloseoutAttempt[];
-  foreignWorktreeObservations: readonly ForeignWorktreeCloseoutObservation[];
-  envelopeDigest: `sha256:${string}`;
-}
 
 export interface PrepareBranchCloseoutInput {
   branch: string;

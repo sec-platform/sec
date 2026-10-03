@@ -15,6 +15,7 @@ import {
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import type { VerificationActionKey, VerificationActionKeyDigest, VerificationActionKeyInput } from '../../src/execution/verification/action.ts';
 
 import { inspectNoFollowDirectoryChain } from '../../src/adapters/runtime-state/physical/runtime/physical-no-follow.ts';
 import { createBoundedProcessDiagnosticObjectStore } from '../../src/adapters/runtime-state/workspace-state/bounded-process-diagnostic-object.ts';
@@ -24,7 +25,7 @@ import { acquireSecRuntimeJournalAuthority } from '../../src/adapters/runtime-st
 import {
   createBranchLifecycleGitChildEnvironment
 } from '../../src/adapters/self-hosting/control/branch-lifecycle/branch-lifecycle-command.ts';
-import { createVerificationActionKey, createVerificationActionPlan, createVerificationActionTerminal, issueNonProcessVerificationActionTerminalSettlement, issueVerificationActionOwnerTerminalReceipt, type VerificationActionKey, type VerificationActionKeyDigest, type VerificationActionKeyInput } from '../../src/adapters/verification/platform/action/contract/action.ts';
+import { createVerificationActionKey, createVerificationActionPlan, createVerificationActionTerminal, issueNonProcessVerificationActionTerminalSettlement, issueVerificationActionOwnerTerminalReceipt } from '../../src/adapters/verification/platform/action/contract/action.ts';
 import { buildCiVerificationActionPlanClosure, CI_VERIFICATION_HOSTED_EXECUTION_ENVIRONMENT, createCiVerificationLocalExecutionEnvironment, type CiVerificationActionCandidate, type CiVerificationProducerGate } from '../../src/adapters/verification/platform/action/contract/ci.ts';
 import {
   acquireVerificationActionClaim,

@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { parseArgs as parseNativeArgs } from 'node:util';
+import type { MergeGateResult } from '../../../../execution/verification/integration.ts';
 import { reobserveSourceProgramTransitionQualificationForEffect } from '../../../verification/platform/trusted-runtime/trusted-runtime-container.ts';
 
 import {
@@ -12,22 +13,13 @@ import {
   type GitHubApiOperation
 } from '../../../providers/github-api/operation-session.ts';
 import { encodeVerificationActionData } from '../../../verification/platform/action/contract/action.ts';
-import {
-  CodexDevelopmentMergeGateResultSchema,
-  CodexDevelopmentMergeGateTerminalStatusContext,
-  CodexDevelopmentParseMergeGateResult,
-  CodexDevelopmentParseTrustedRuntimeMergeGateResult,
-  CodexDevelopmentTrustedRuntimeMergeGateResultSchema,
-  requireIssuedIntegrationGateResult,
-  type CodexDevelopmentMergeGateResult,
-  type CodexDevelopmentTrustedRuntimeMergeGateResult
-} from './merge-gate.ts';
+import { CodexDevelopmentMergeGateResultSchema, CodexDevelopmentMergeGateTerminalStatusContext, CodexDevelopmentParseMergeGateResult, CodexDevelopmentParseTrustedRuntimeMergeGateResult, CodexDevelopmentTrustedRuntimeMergeGateResultSchema, requireIssuedIntegrationGateResult, type CodexDevelopmentTrustedRuntimeMergeGateResult } from './merge-gate.ts';
 
 const INTEGRATION_AUTHORIZATION_STATUS_PUBLICATION_SCHEMA =
   'sec-integration-authorization-status-publication-v1' as const;
 
 export type IntegrationAuthorizationGateResult =
-  | CodexDevelopmentMergeGateResult
+  | MergeGateResult
   | CodexDevelopmentTrustedRuntimeMergeGateResult;
 
 export interface IntegrationAuthorizationStatusPublisherPrincipal {

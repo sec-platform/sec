@@ -1,6 +1,7 @@
 import { expect, test } from 'bun:test';
-import type { GitHubActionsArtifactObservation, VerificationSessionGitHubClient } from '../../src/adapters/verification/platform/ci/runtime/verification-session-github.ts';
+import type { VerificationSessionGitHubClient } from '../../src/adapters/verification/platform/ci/runtime/verification-session-github.ts';
 import { assertHostedRecoveryArtifactProvenance, observeHostedIntegrationPrincipals } from '../../src/adapters/verification/platform/ci/runtime/verification-session.ts';
+import type { GitHubActionsArtifactObservation } from '../../src/execution/verification/session.ts';
 
 type GitHubPrincipalObservation = Awaited<ReturnType<VerificationSessionGitHubClient['observePrincipal']>>;
 

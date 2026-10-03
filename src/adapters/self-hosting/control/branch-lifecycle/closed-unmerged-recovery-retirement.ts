@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import path from 'node:path';
+import type { PreparedBranchCloseoutEnvelope } from '../../../../execution/verification/branch-closeout.ts';
 
 import { issueSecOperationRequirementBindingContext } from '../../../../execution/operation/requirement-binding-context.ts';
 import {
@@ -18,11 +19,7 @@ import {
   CLOSED_ABSENT_DEVELOPMENT_COMMIT_JOURNAL_RETIREMENT_RESOURCE_CEILINGS,
   prepareClosedAbsentDevelopmentCommitJournalRetirement
 } from '../../development/commit/operation.ts';
-import {
-  assertPreparedBranchCloseoutEnvelope,
-  parsePreparedBranchCloseoutEnvelope,
-  type PreparedBranchCloseoutEnvelope
-} from './branch-closeout.ts';
+import { assertPreparedBranchCloseoutEnvelope, parsePreparedBranchCloseoutEnvelope } from './branch-closeout.ts';
 import {
   acquireBranchRecoveryStore,
   verifyRecoveryAuthorityLive,

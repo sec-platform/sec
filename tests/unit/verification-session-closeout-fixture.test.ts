@@ -7,9 +7,10 @@ import path from 'node:path';
 import { withWorkspaceWriteLease } from '../../src/adapters/filesystem/write-lease.ts';
 import { authorizeBranchCloseout } from '../../src/adapters/self-hosting/control/branch-lifecycle/branch-closeout-contract.ts';
 import { collectBranchLifecycleInventory } from '../../src/adapters/self-hosting/control/branch-lifecycle/branch-lifecycle-inventory.ts';
-import { BRANCH_REF_CLOSEOUT_CAPABILITY, type BranchCloseoutAttempt } from '../../src/adapters/self-hosting/control/branch-lifecycle/branch-lifecycle-types.ts';
+import { BRANCH_REF_CLOSEOUT_CAPABILITY } from '../../src/adapters/self-hosting/control/branch-lifecycle/branch-lifecycle-types.ts';
 import { deleteHostedLocalRefCas } from '../../src/adapters/verification/platform/ci/runtime/verification-session.ts';
 import type { SecOperationDigest } from '../../src/execution/operation/semantic.ts';
+import type { BranchCloseoutAttempt } from '../../src/execution/verification/branch-closeout.ts';
 import {
   compileCloseoutCliProviderShims, prepareCloseoutCliScenario,
   readCloseoutCliHarnessState, writeCloseoutCliHarnessState

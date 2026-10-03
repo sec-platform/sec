@@ -1,9 +1,10 @@
 import { expect, test } from 'bun:test';
+import type { VerificationActionKeyInput } from '../../src/execution/verification/action.ts';
 
 import {
   createBoundedProcessDiagnosticObjectReceipt
 } from '../../src/adapters/runtime-state/workspace-state/bounded-process-diagnostic-contract.ts';
-import { createVerificationActionKey, createVerificationActionPlan, createVerificationActionTerminal, encodeVerificationActionData, issueNonProcessVerificationActionTerminalSettlement, issueProcessVerificationActionTerminalSettlement, issueVerificationActionOwnerTerminalReceipt, isVerificationActionRunnable, parseVerificationActionKey, projectVerificationActionTerminal, VERIFICATION_ACTION_PROCESS_RESOURCE_POLICY, verificationActionDependsOnChangedInputs, type VerificationActionKeyInput } from '../../src/adapters/verification/platform/action/contract/action.ts';
+import { createVerificationActionKey, createVerificationActionPlan, createVerificationActionTerminal, encodeVerificationActionData, issueNonProcessVerificationActionTerminalSettlement, issueProcessVerificationActionTerminalSettlement, issueVerificationActionOwnerTerminalReceipt, isVerificationActionRunnable, parseVerificationActionKey, projectVerificationActionTerminal, VERIFICATION_ACTION_PROCESS_RESOURCE_POLICY, verificationActionDependsOnChangedInputs } from '../../src/adapters/verification/platform/action/contract/action.ts';
 import { CodexDevelopmentAssertVerificationGateResult } from '../../src/assurance/verification/result/contract/result.ts';
 import { VERIFICATION_GATE_RESULT_SCHEMA } from '../../src/assurance/verification/result/contract/schema.ts';
 import { sha256 } from '../../src/contracts/canonical.ts';

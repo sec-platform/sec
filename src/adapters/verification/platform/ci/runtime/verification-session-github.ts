@@ -5,15 +5,11 @@
  * Response decoding is separate because provider wire-shape changes must not
  * acquire API/session capabilities or mint authority-bearing observations.
  */
-import type {
-  GitHubIssueCommentObservation,
-  GitHubPage,
-  GitHubPullRequestFileInventory,
-  GitHubPullRequestFileInventoryExpectation,
-  GitHubReviewObservation,
-  GitHubReviewThreadObservation,
-  SessionDigest
-} from './verification-session-github-response.ts';
+import type { GitHubIssueReference } from '../../../../../execution/verification/integration.ts';
+import type { GitHubActionsArtifactObservation, GitHubCandidateObservation, GitHubCheckObservation, GitHubComparisonObservation, GitHubReviewBarrierObservation, GitHubWorkflowRunObservation, PlatformEnforcementObservation, ReviewPrincipal, SessionDigest } from '../../../../../execution/verification/session.ts';
+
+
+import type { GitHubIssueCommentObservation, GitHubPage, GitHubPullRequestFileInventory, GitHubPullRequestFileInventoryExpectation, GitHubReviewObservation, GitHubReviewThreadObservation } from './verification-session-github-response.ts';
 import {
   assertSha,
   assertSuccessfulGraphqlReviewConnection,
@@ -46,13 +42,7 @@ export {
   parseGitHubPullRequestFileInventory, parseGitHubReviewPages,
   parseGitHubReviewThreadPages, parseGitHubWorkflowJobsForAttempt
 } from './verification-session-github-response.ts';
-export type {
-  GitHubIssueCommentObservation,
-  GitHubPage,
-  GitHubPullRequestFileInventory,
-  GitHubPullRequestFileInventoryExpectation, GitHubReviewObservation,
-  GitHubReviewThreadObservation, SessionDigest
-} from './verification-session-github-response.ts';
+export type { GitHubIssueCommentObservation, GitHubPage, GitHubPullRequestFileInventory, GitHubPullRequestFileInventoryExpectation, GitHubReviewObservation, GitHubReviewThreadObservation } from './verification-session-github-response.ts';
 
 import { currentGitHubCredentialStoreIdentity } from '../../../../providers/github-api/credential-store.ts';
 import {
@@ -72,17 +62,13 @@ import {
   isGitHubGraphQLSchemaFailure
 } from '../../../../providers/github-api/verification-queries.ts';
 
-import type { GitHubCheckObservation, GitHubWorkflowJobObservation, GitHubWorkflowRunObservation } from '../../../../providers/github-api/contract.ts';
-import {
-  parseGitHubPullRequestClosingFactsPage,
-  type GitHubIssueReference,
-  type GitHubPullRequestClosingFacts
-} from '../../../../self-hosting/control/issues/disposition.ts';
+import type { GitHubWorkflowJobObservation } from '../../../../providers/github-api/contract.ts';
+import { parseGitHubPullRequestClosingFactsPage, type GitHubPullRequestClosingFacts } from '../../../../self-hosting/control/issues/disposition.ts';
 import { createMainAuthorityRulesetReceipt } from '../../../../self-hosting/control/main-health/authority-ruleset.ts';
 import { encodeVerificationActionData } from '../../action/contract/action.ts';
 import { CI_GITHUB_ACTIONS_IDENTITY_POLICY, matchesCiCompilerWorkflowRunIdentity } from '../../action/contract/provider.ts';
 import { classifyProviderDiagnosticTextV1 } from '../../provider/contract/capability.ts';
-import type { ReviewPrincipal, ReviewSnapshot } from '../../review/contract/stability.ts';
+
 import { createReviewSnapshotDigest, isCodexCleanReviewAboutBlock, isCodexCleanReviewVerdict, REVIEW_OBSERVER_READ_ONLY_CAPABILITY_RECEIPT, SEC_REVIEW_STABILITY_POLICY } from '../../review/contract/stability.ts';
 import {
   CI_VERIFICATION_SESSION_ARTIFACT_PREFIX
@@ -98,28 +84,6 @@ export function assertGitHubReviewAuthorityObservation(
   if (!validatedClearReviewObservations.has(observation)) {
     throw new Error('Review receipt authority must be a live observation produced by the private GitHub adapter.');
   }
-}
-
-
-export interface GitHubCandidateObservation {
-  repository: string;
-  number: number;
-  state: 'OPEN' | 'MERGED' | 'CLOSED';
-  isDraft: boolean;
-  isCrossRepository: boolean;
-  authorNodeId: string;
-  baseBranch: string;
-  baseSha: string;
-  baseTreeSha: string;
-  headBranch: string;
-  headSha: string;
-  headTreeSha: string;
-  title: string;
-  body: string;
-  mergeCommitSha: string | null;
-  mergeCommitTreeSha: string | null;
-  mergeCommitMessage: string | null;
-  mergeCommitParentShas: readonly string[] | null;
 }
 
 export interface GitHubReviewRequestObservation {
@@ -192,27 +156,6 @@ interface GitHubPrincipalObservation {
   permission: 'admin' | 'maintain' | 'write' | 'triage' | 'read' | 'none';
 }
 
-export interface GitHubComparisonObservation {
-  status: 'ahead' | 'behind' | 'diverged' | 'identical';
-  behindBy: number;
-}
-
-export interface GitHubActionsArtifactObservation {
-  artifactId: string;
-  artifactName: string;
-  /** Provider-supplied digest of the immutable artifact archive, when available. */
-  archiveDigest: SessionDigest | null;
-  workflowPath: string;
-  workflowRef: string;
-  workflowSha: string;
-  runId: string;
-  runAttempt: number;
-  eventName: string;
-  actorNodeId: string;
-  actorPermission: 'admin' | 'maintain' | 'write' | 'triage' | 'read' | 'none';
-  expired: boolean;
-}
-
 class GitHubApiFailure extends Error {
   constructor(message: string, readonly statusCode?: number) {
     super(message);
@@ -250,37 +193,6 @@ interface VerificationSessionGitHubTransport {
   actionsArtifactsForRun?(repository: string, runId: string): readonly GitHubActionsArtifactObservation[] | Promise<readonly GitHubActionsArtifactObservation[]>;
   actionsArtifacts?(repository: string): readonly GitHubActionsArtifactObservation[] | Promise<readonly GitHubActionsArtifactObservation[]>;
   downloadArtifactText?(repository: string, artifact: GitHubActionsArtifactObservation, fileName: string): string | Promise<string>;
-}
-
-export type GitHubReviewBarrierObservation = Readonly<{
-  status: 'clear';
-  principal: ReviewPrincipal;
-  snapshot: ReviewSnapshot;
-  authority: Readonly<{
-    sourceTransport: 'github-graphql' | 'github-rest';
-    sourceDigest: SessionDigest;
-    executionIdentity: string;
-    providerIdentity: 'github';
-    candidateWriteCapability: 'read-only';
-    capabilityReceiptDigest: SessionDigest;
-  }>;
-  observedAt: string;
-}> | Readonly<{
-  status: 'waiting' | 'blocked';
-  reason: string;
-  snapshotDigest: SessionDigest;
-  observedAt: string;
-}> | Readonly<{
-  status: 'provider-schema-unsupported';
-  reasonCode: string;
-  responseDigest: SessionDigest;
-  observedAt: string;
-}>;
-
-export interface PlatformEnforcementObservation {
-  status: 'available' | 'platform-enforcement-unavailable' | 'unknown';
-  rulesetDigest: SessionDigest;
-  reason: string | null;
 }
 
 const VERIFICATION_SESSION_REVIEW_LOCATOR_COMMENT_SCHEMA =

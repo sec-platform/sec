@@ -1,6 +1,7 @@
 import { expect, test } from 'bun:test';
+import type { GitHubCheckObservation } from '../../src/execution/verification/session.ts';
 
-import type { GitHubCheckObservation } from '../../src/adapters/providers/github-api/contract.ts';
+
 import { createMainHealthLedger } from '../../src/adapters/self-hosting/control/main-health/contract.ts';
 import {
   createObservedMainHealthInput,

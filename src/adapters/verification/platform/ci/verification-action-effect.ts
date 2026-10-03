@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
-import { CodexDevelopmentBuildVerificationGateResult, type VerificationGateResult } from '../../../../assurance/verification/result/contract/result.ts';
+import type { CI_VERIFICATION_CONTRACT_REVISION } from "../../../../assurance/verification/contract/revision.ts";
+import { CodexDevelopmentBuildVerificationGateResult, type VerificationGateResult, type VerificationResultStatus } from '../../../../assurance/verification/result/contract/result.ts';
 import {
   bindSecSemanticOperation,
   compileSecCapabilityBinding,
@@ -12,6 +13,8 @@ import {
   type SecBoundSemanticOperation,
   type SecOperationDigest
 } from '../../../../execution/operation/semantic.ts';
+import type { CiVerificationActionPlanClosure, VerificationActionKeyDigest, VerificationActionPlan } from '../../../../execution/verification/action.ts';
+import type { VerificationEvidence, VerificationGateEvidence } from '../../../../execution/verification/session.ts';
 import {
   type CodexDevelopmentExactGitBlobReadOptions
 } from '../../../providers/git-read/exact-blob.ts';
@@ -19,8 +22,8 @@ import {
   type GitBlobBytes
 } from '../../../providers/git-read/runtime/session.ts';
 import { assertProcessResourceSessionReceipt } from '../../../runtime-state/physical/runtime/process-resource-session.ts';
-import { encodeVerificationActionData, issueProcessVerificationActionTerminalSettlement, issueVerificationActionOwnerTerminalReceipt, type VerificationActionKeyDigest, type VerificationActionPlan } from '../action/contract/action.ts';
-import { assertCiVerificationCurrentOperation, ciVerificationNormalizedOperationArgv, parseCiVerificationActionPlanClosure, SOURCE_PROGRAM_TRANSITION_GATE_ID, SOURCE_PROGRAM_TRANSITION_STDOUT_BYTE_LIMIT, type CiVerificationActionPlanClosure, type CiVerificationProducerGate } from '../action/contract/ci.ts';
+import { encodeVerificationActionData, issueProcessVerificationActionTerminalSettlement, issueVerificationActionOwnerTerminalReceipt } from '../action/contract/action.ts';
+import { assertCiVerificationCurrentOperation, ciVerificationNormalizedOperationArgv, parseCiVerificationActionPlanClosure, SOURCE_PROGRAM_TRANSITION_GATE_ID, SOURCE_PROGRAM_TRANSITION_STDOUT_BYTE_LIMIT, type CiVerificationProducerGate } from '../action/contract/ci.ts';
 import {
   createVerificationActionRunner,
   type VerificationActionRunner,
@@ -28,13 +31,7 @@ import {
 } from '../action/runner.ts';
 import type { CodexDevelopmentTestImpactSourceProvider } from '../test-impact/runtime/impact.ts';
 import type { CodexDevelopmentGitChangedRecord, CodexDevelopmentTestImpactTransitionObservation } from '../test-impact/runtime/transition.ts';
-import {
-  CodexDevelopmentVerificationDigest,
-  parseTrustedRuntimeSourceProgramActionRecord,
-  type CodexDevelopmentVerificationEvidenceV4,
-  type CodexDevelopmentVerificationGateEvidenceV4,
-  type TrustedRuntimeSourceProgramActionRecord
-} from './contract/evidence.ts';
+import { CodexDevelopmentVerificationDigest, parseTrustedRuntimeSourceProgramActionRecord, type TrustedRuntimeSourceProgramActionRecord } from './contract/evidence.ts';
 import {
   type CodexDevelopmentVerificationPlan
 } from './contract/plan.ts';
@@ -61,7 +58,7 @@ export type CodexDevelopmentCiVerificationTestOptions = {
       requirementId: string;
     }>
   ) => Promise<CodexDevelopmentGateProcessSettlement>;
-  writeEvidence?: (filePath: string, evidence: CodexDevelopmentVerificationEvidenceV4) => void;
+  writeEvidence?: (filePath: string, evidence: VerificationEvidence<typeof CI_VERIFICATION_CONTRACT_REVISION, VerificationResultStatus, VerificationGateResult>) => void;
   actionRunner?: VerificationActionRunner;
   readDurableActionResult?: (actionKey: VerificationActionKeyDigest) => Readonly<{
     result: VerificationGateResult;
@@ -76,7 +73,7 @@ export type CodexDevelopmentCiVerificationTestOptions = {
 
 export interface CodexDevelopmentCiActionExecution {
   readonly actionPlan: CiVerificationActionPlanClosure;
-  readonly gates: readonly CodexDevelopmentVerificationGateEvidenceV4[];
+  readonly gates: readonly VerificationGateEvidence<VerificationGateResult>[];
   readonly failed: boolean;
 }
 
@@ -308,7 +305,7 @@ export async function CodexDevelopmentExecuteCiActionClosure(options: {
     throw new Error('Source Program Action handoff belongs to another exact Session or Action.');
   }
   const runner = options.actionRunner ?? createVerificationActionRunner();
-  const evidence: CodexDevelopmentVerificationGateEvidenceV4[] = [];
+  const evidence: VerificationGateEvidence<VerificationGateResult>[] = [];
   let failed = false;
   for (let index = 0; index < actionPlan.actions.length; index += 1) {
     const plan = actionPlan.actions[index]!;

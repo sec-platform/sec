@@ -5,6 +5,15 @@
  * and the hosted closeout executor without caller-injected process callbacks.
  */
 import { spawnSync } from 'node:child_process';
+import path from 'node:path';
+
+import { settleResources } from '../../../../../execution/resource-settlement.ts';
+import {
+  inspectNoFollowDirectoryChain,
+  retainNoFollowDirectoryForChildProcess,
+  type RetainedNoFollowChildProcessDirectory
+} from '../../../../runtime-state/physical/runtime/physical-no-follow.ts';
+import { RETAINED_WORKING_DIRECTORY_CHILD_DESCRIPTOR } from '../../../../runtime-state/physical/runtime/process.ts';
 import { createBranchLifecycleGitChildEnvironment, decodeBranchLifecycleChildError, decodeBranchLifecycleChildStdout } from '../../../../self-hosting/control/branch-lifecycle/branch-lifecycle-command.ts';
 import type { ActiveWorkPackageOwnerObservation } from '../../../../self-hosting/control/task/contract/active-work-observation.ts';
 
@@ -21,6 +30,33 @@ export interface VerificationSessionScope {
   readonly activeWorkPackageObservation?: ActiveWorkPackageOwnerObservation;
 }
 
+/** Consume the original retained inode/pinned chain; a path alone is no authority. */
+function retainedVerificationSessionSpawnBoundary(
+  directory: RetainedNoFollowChildProcessDirectory
+): Readonly<{ cwd: string; stdio: Array<'pipe' | 'ignore' | number> }> {
+  directory.assertCurrent();
+  const stdio: Array<'pipe' | 'ignore' | number> = ['pipe', 'pipe', 'pipe'];
+  if (process.platform === 'linux') {
+    const descriptor = directory.stdioSourceDescriptor;
+    if (directory.childPath !== `/proc/self/fd/${RETAINED_WORKING_DIRECTORY_CHILD_DESCRIPTOR}`
+        || descriptor === null || !Number.isSafeInteger(descriptor) || descriptor < 5) {
+      throw new Error('VerificationSession retained Linux cwd capability is malformed.');
+    }
+    while (stdio.length <= RETAINED_WORKING_DIRECTORY_CHILD_DESCRIPTOR) stdio.push('ignore');
+    stdio[RETAINED_WORKING_DIRECTORY_CHILD_DESCRIPTOR] = descriptor;
+    // spawnSync resolves cwd in its parent before descriptor remapping.
+    return Object.freeze({ cwd: `/proc/self/fd/${descriptor}`, stdio });
+  }
+  if (process.platform === 'win32') {
+    if (directory.stdioSourceDescriptor !== null || !path.isAbsolute(directory.childPath)) {
+      throw new Error('VerificationSession retained Windows cwd capability is malformed.');
+    }
+    return Object.freeze({ cwd: directory.childPath, stdio });
+  }
+  // Physical acquisition rejects unsupported backends before issuing a handle.
+  throw new Error(`VerificationSession retained command cwd is unavailable on ${process.platform}.`);
+}
+
 export function runVerificationSessionCommand(
   ctx: VerificationSessionScope,
   command: 'bun' | 'gh' | 'git',
@@ -31,30 +67,49 @@ export function runVerificationSessionCommand(
   if (args.some((arg) => arg.includes('\0'))) {
     throw new Error('VerificationSession command argument contains NUL.');
   }
-  const spawned = spawnSync(command, [...args], {
-    cwd,
-    encoding: 'buffer',
-    windowsHide: true,
-    timeout: SESSION_COMMAND_TIMEOUT_MS,
-    maxBuffer: SESSION_COMMAND_MAX_BUFFER,
-    input: stdin === undefined ? undefined : typeof stdin === 'string' ? Buffer.from(stdin, 'utf8') : Buffer.from(stdin),
-    env: {
-      ...(command === 'git'
-        ? createBranchLifecycleGitChildEnvironment(process.env)
-        : process.env),
-      GH_PROMPT_DISABLED: '1',
-      GIT_TERMINAL_PROMPT: '0'
-    }
-  });
-  return {
-    status: spawned.status,
-    stdout: Buffer.isBuffer(spawned.stdout)
-      ? spawned.stdout
-      : Buffer.from(String(spawned.stdout ?? '')),
-    stderr: Buffer.isBuffer(spawned.stderr)
-      ? spawned.stderr
-      : Buffer.from(String(spawned.stderr ?? spawned.error?.message ?? ''))
-  };
+  const workingDirectory = retainNoFollowDirectoryForChildProcess(
+    inspectNoFollowDirectoryChain(path.resolve(cwd), 'VerificationSession command working directory'),
+    RETAINED_WORKING_DIRECTORY_CHILD_DESCRIPTOR,
+    'VerificationSession command working directory'
+  );
+  let primary: { readonly label: string; readonly error: unknown } | undefined;
+  try {
+    const boundary = retainedVerificationSessionSpawnBoundary(workingDirectory);
+    const spawned = spawnSync(command, [...args], {
+      cwd: boundary.cwd,
+      stdio: boundary.stdio,
+      encoding: 'buffer',
+      windowsHide: true,
+      timeout: SESSION_COMMAND_TIMEOUT_MS,
+      maxBuffer: SESSION_COMMAND_MAX_BUFFER,
+      input: stdin === undefined ? undefined : typeof stdin === 'string' ? Buffer.from(stdin, 'utf8') : Buffer.from(stdin),
+      env: {
+        ...(command === 'git'
+          ? createBranchLifecycleGitChildEnvironment(process.env)
+          : process.env),
+        GH_PROMPT_DISABLED: '1',
+        GIT_TERMINAL_PROMPT: '0'
+      }
+    });
+    workingDirectory.assertCurrent();
+    return {
+      status: spawned.status,
+      stdout: Buffer.isBuffer(spawned.stdout)
+        ? spawned.stdout
+        : Buffer.from(String(spawned.stdout ?? '')),
+      stderr: Buffer.isBuffer(spawned.stderr)
+        ? spawned.stderr
+        : Buffer.from(String(spawned.stderr ?? spawned.error?.message ?? ''))
+    };
+  } catch (error) {
+    primary = { label: 'VerificationSession command', error };
+    throw error;
+  } finally {
+    settleResources({
+      ...(primary === undefined ? {} : { primary }),
+      cleanup: [{ label: 'VerificationSession command cwd dispose', settle: () => workingDirectory.dispose() }]
+    });
+  }
 }
 
 export function requireVerificationSessionCommandText(

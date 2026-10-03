@@ -1,20 +1,9 @@
 import { createHash } from 'node:crypto';
 import path from 'node:path';
+import type { BranchLifecycleClassification, BranchLifecycleInventory, BranchPullRequestObservation, BranchRecoveryAuthority, BranchRefObservation, BranchWorktreeObservation } from '../../../../execution/verification/branch-closeout.ts';
 
 import { assertGitBranchName } from '../../../../contracts/git-reference.ts';
-import type {
-  BranchAuditSeverity,
-  BranchLifecycleAuditFinding,
-  BranchLifecycleAuditReport,
-  BranchLifecycleClassification,
-  BranchLifecycleDispositionRecord,
-  BranchLifecycleInventory,
-  BranchPullRequestObservation,
-  BranchRecoveryAuthority,
-  BranchRefObservation,
-  BranchWorktreeObservation,
-  ClassifiedBranchLifecycle
-} from './branch-lifecycle-types.ts';
+import type { BranchAuditSeverity, BranchLifecycleAuditFinding, BranchLifecycleAuditReport, BranchLifecycleDispositionRecord, ClassifiedBranchLifecycle } from './branch-lifecycle-types.ts';
 
 export { assertGitBranchName };
 

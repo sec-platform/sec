@@ -1,4 +1,5 @@
 import path from 'node:path';
+import type { BranchLifecycleInventory, BranchPullRequestObservation, PreparedBranchCloseoutEnvelope } from '../../../../execution/verification/branch-closeout.ts';
 
 import { sha256 } from '../../../../contracts/canonical.ts';
 import { issueSecOperationRequirementBindingContext } from '../../../../execution/operation/requirement-binding-context.ts';
@@ -37,11 +38,8 @@ import {
 import { GIT_READ_OPERATION_BUDGET } from '../../development/tooling/git/git-read.ts';
 import { observeActiveWorkPackage } from '../documentation/document-control-plane.ts';
 import { parsePublishedBranchCloseoutReceipt } from './branch-closeout-receipt.ts';
-import {
-  parsePreparedBranchCloseoutEnvelope,
-  type PreparedBranchCloseoutEnvelope
-} from './branch-closeout.ts';
-import type { BranchLifecycleInventory, BranchPullRequestObservation } from './branch-lifecycle-contract.ts';
+import { parsePreparedBranchCloseoutEnvelope } from './branch-closeout.ts';
+
 import { collectBranchLifecycleCloseoutTargetInventory } from './branch-lifecycle-inventory.ts';
 import { parsePullRequestObservations } from './branch-lifecycle-parsers.ts';
 import { assertRetiredNativeMainAbsorptionLive } from './branch-recovery.ts';

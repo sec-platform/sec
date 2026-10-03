@@ -1,4 +1,5 @@
 import path from 'node:path';
+import type { BranchRecoveryAuthority } from '../../../../execution/verification/branch-closeout.ts';
 
 import {
   executeGitHubApiOperation,
@@ -8,7 +9,7 @@ import {
   type GitHubApiCapability
 } from '../../../providers/github-api/operation-session.ts';
 import { observeActiveWorkPackage } from '../documentation/document-control-plane.ts';
-import type { BranchRecoveryAuthority } from './branch-lifecycle-contract.ts';
+
 import { collectBranchLifecycleInventory } from './branch-lifecycle-inventory.ts';
 import { createRecoveryBundle, verifyRecoveryAuthorityHeadLive } from './branch-recovery.ts';
 import { observeReviewedRefSupersessionEvidence } from './closed-supersession-review.ts';

@@ -17,16 +17,19 @@ import {
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+import type { CI_VERIFICATION_CONTRACT_REVISION } from "../../src/assurance/verification/contract/revision.ts";
+import type { CiVerificationActionPlanClosure, VerificationActionKeyDigest } from '../../src/execution/verification/action.ts';
+import type { VerificationEvidence } from '../../src/execution/verification/session.ts';
 
 import { expect, test } from 'bun:test';
 
 import { BASE, BASE_TREE, baseOptions, clock, executeSentinelGate, HEAD, MANIFEST_PATH, revisions, TREE } from '../helpers/ci-verification-fixtures.ts';
 
-import { encodeVerificationActionData, type VerificationActionKeyDigest } from '../../src/adapters/verification/platform/action/contract/action.ts';
-import { buildCiVerificationActionPlan, buildCiVerificationActionPlanClosure, CI_VERIFICATION_HOSTED_EXECUTION_ENVIRONMENT, ciVerificationGateStep, type CiVerificationActionCandidate, type CiVerificationActionPlanClosure, type CiVerificationProducerGate } from '../../src/adapters/verification/platform/action/contract/ci.ts';
+import { encodeVerificationActionData } from '../../src/adapters/verification/platform/action/contract/action.ts';
+import { buildCiVerificationActionPlan, buildCiVerificationActionPlanClosure, CI_VERIFICATION_HOSTED_EXECUTION_ENVIRONMENT, ciVerificationGateStep, type CiVerificationActionCandidate, type CiVerificationProducerGate } from '../../src/adapters/verification/platform/action/contract/ci.ts';
 import { CI_VERIFICATION_ACTION_DEPENDENCY_INPUT_PATHS } from '../../src/adapters/verification/platform/action/contract/environment.ts';
 import { createVerificationActionProviderStartMarker, createVerificationActionProviderTerminalAnchor, finalizeVerificationActionProviderStatusReadback, VERIFICATION_ACTION_PROVIDER_POLICY, verificationActionProviderRunTargetUrl, verificationActionProviderStartArtifactName, verificationActionProviderStartDescription, verificationActionProviderStatusContext, verificationActionProviderTerminalAnchorName, verificationActionProviderTerminalArtifactName, verificationActionProviderTerminalDescription, type VerificationActionProviderOrigin, type VerificationActionProviderStartObservation, type VerificationActionProviderStatusObservation, type VerificationActionProviderStatusReadback, type VerificationActionProviderTerminalAnchorObservation } from '../../src/adapters/verification/platform/action/contract/provider.ts';
-import { CodexDevelopmentAssertVerificationActionTerminalArtifact, CodexDevelopmentAssertVerificationEvidenceV4, CodexDevelopmentCreateVerificationEvidenceProducer, CodexDevelopmentVerificationActionCandidateBytesDigest, CodexDevelopmentVerificationDigest, type CodexDevelopmentVerificationEvidenceV4 } from '../../src/adapters/verification/platform/ci/contract/evidence.ts';
+import { CodexDevelopmentAssertVerificationActionTerminalArtifact, CodexDevelopmentAssertVerificationEvidenceV4, CodexDevelopmentCreateVerificationEvidenceProducer, CodexDevelopmentVerificationActionCandidateBytesDigest, CodexDevelopmentVerificationDigest } from '../../src/adapters/verification/platform/ci/contract/evidence.ts';
 import { CodexDevelopmentCreateHostedSutExecutionAuthorization, CodexDevelopmentFinalizeHostedActionRawResult, CodexDevelopmentHostedSutCandidateEnvironment, type CodexDevelopmentHostedSutExecutionAuthorization } from '../../src/adapters/verification/platform/ci/contract/hosted-sut-observation.ts';
 import { buildCiQuickGatePlan } from '../../src/adapters/verification/platform/ci/contract/plan.ts';
 import { CI_VERIFICATION_HOSTED_SANDBOX_POLICY, CI_VERIFICATION_HOSTED_SANDBOX_POLICY_DIGEST, CI_VERIFICATION_SESSION_DISPATCH_TYPE } from '../../src/adapters/verification/platform/ci/contract/revision.ts';
@@ -71,7 +74,7 @@ import {
   type CodexDevelopmentHostedSutSandboxReceipt
 } from '../../src/adapters/verification/platform/ci/verification.ts';
 import { CodexDevelopmentCreateTestImpactTransitionObservation } from '../../src/adapters/verification/platform/test-impact/runtime/transition.ts';
-import type { VerificationResultStatus } from '../../src/assurance/verification/result/contract/result.ts';
+import type { VerificationGateResult, VerificationResultStatus } from '../../src/assurance/verification/result/contract/result.ts';
 
 const RAW = `sha256:${'a'.repeat(64)}` as const;
 
@@ -644,7 +647,7 @@ function hostedProviderInputs(
 test('CI runner executes an ordinary gate through Action and publishes only V4', async () => {
   const root = mkdtempSync(path.join(tmpdir(), 'sec-ci-action-'));
   try {
-    let evidence: CodexDevelopmentVerificationEvidenceV4 | null = null;
+    let evidence: VerificationEvidence<typeof CI_VERIFICATION_CONTRACT_REVISION, VerificationResultStatus, VerificationGateResult> | null = null;
     const calls: string[] = [];
     const code = await CodexDevelopmentCiVerificationMainForTests({
       ...baseOptions(root),
@@ -656,7 +659,7 @@ test('CI runner executes an ordinary gate through Action and publishes only V4',
     });
     expect(code).toBe(0);
     expect(calls.length).toBeGreaterThan(0);
-    const captured = evidence as CodexDevelopmentVerificationEvidenceV4 | null;
+    const captured = evidence as VerificationEvidence<typeof CI_VERIFICATION_CONTRACT_REVISION, VerificationResultStatus, VerificationGateResult> | null;
     expect(captured?.gates.every((gate) => gate.action.actionKey === gate.result.inputDigest)).toBe(true);
     expect(() => CodexDevelopmentAssertVerificationEvidenceV4(captured, {
       actionPlan: captured!.actionPlan
@@ -763,17 +766,17 @@ test('Action journal reuse is not Evidence without an independent durable result
 test('durable known failure reuse remains failed and never executes or promotes to PASS', async () => {
   const root = mkdtempSync(path.join(tmpdir(), 'sec-ci-known-failure-'));
   try {
-    let first: CodexDevelopmentVerificationEvidenceV4 | null = null;
+    let first: VerificationEvidence<typeof CI_VERIFICATION_CONTRACT_REVISION, VerificationResultStatus, VerificationGateResult> | null = null;
     expect(await CodexDevelopmentCiVerificationMainForTests({
       ...baseOptions(root),
       runGate: executeSentinelGate(root, 1, 'known failure'),
       writeEvidence: (_file, value) => { first = value; }
     })).toBe(1);
-    const terminal = first as unknown as CodexDevelopmentVerificationEvidenceV4;
+    const terminal = first as unknown as VerificationEvidence<typeof CI_VERIFICATION_CONTRACT_REVISION, VerificationResultStatus, VerificationGateResult>;
     expect(terminal.status).toBe('failed');
     const byActionKey = new Map(terminal.gates.map((gate) => [gate.action.actionKey, gate.result]));
     let physical = 0;
-    let reused: CodexDevelopmentVerificationEvidenceV4 | null = null;
+    let reused: VerificationEvidence<typeof CI_VERIFICATION_CONTRACT_REVISION, VerificationResultStatus, VerificationGateResult> | null = null;
     expect(await CodexDevelopmentCiVerificationMainForTests({
       ...baseOptions(root),
       runGate: async (gate, execution) => {
@@ -787,7 +790,7 @@ test('durable known failure reuse remains failed and never executes or promotes 
       writeEvidence: (_file, value) => { reused = value; }
     })).toBe(1);
     expect(physical).toBe(0);
-    const second = reused as unknown as CodexDevelopmentVerificationEvidenceV4;
+    const second = reused as unknown as VerificationEvidence<typeof CI_VERIFICATION_CONTRACT_REVISION, VerificationResultStatus, VerificationGateResult>;
     expect(second.status).toBe('failed');
     expect(second.gates[0]!.result).toMatchObject({ status: 'failed', disposition: 'reused' });
   } finally {
@@ -2156,7 +2159,7 @@ test('CI V3 reader binds exact raw plan bytes and preserves observed base checks
     const blob = (source: string) => ({ ...options.readExactGitBlob(), bytes: Buffer.from(source),
       blobSha: createHash('sha1').update(source).digest('hex') });
     let starts = 0;
-    let evidence: CodexDevelopmentVerificationEvidenceV4 | null = null;
+    let evidence: VerificationEvidence<typeof CI_VERIFICATION_CONTRACT_REVISION, VerificationResultStatus, VerificationGateResult> | null = null;
     const runGate: typeof options.runGate = async (gate, execution) => {
       starts += 1;
       return executeSentinelGate(root, 0)(gate, execution);

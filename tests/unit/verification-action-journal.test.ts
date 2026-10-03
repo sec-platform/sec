@@ -3,18 +3,13 @@ import { createHash, randomUUID } from 'node:crypto';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { hostname, tmpdir } from 'node:os';
 import path from 'node:path';
+import type { VerificationActionKeyInput } from '../../src/execution/verification/action.ts';
 
 import { PHYSICAL_MUTATION_LEASE_SCHEMA } from '../../src/adapters/runtime-state/physical/runtime/mutation-lease.ts';
 import { inspectNoFollowDirectoryChain } from '../../src/adapters/runtime-state/physical/runtime/physical-no-follow.ts';
 import { createBoundedProcessDiagnosticObjectReceipt } from '../../src/adapters/runtime-state/workspace-state/bounded-process-diagnostic-contract.ts';
 import { createRuntimeStateJournalFileSystem, runtimeStateJournalMutationLeaseName } from '../../src/adapters/runtime-state/workspace-state/journal-filesystem.ts';
-import {
-  createVerificationActionKey,
-  createVerificationActionTerminal,
-  encodeVerificationActionData,
-  type VerificationActionKeyInput,
-  type VerificationActionTerminal
-} from '../../src/adapters/verification/platform/action/contract/action.ts';
+import { createVerificationActionKey, createVerificationActionTerminal, encodeVerificationActionData, type VerificationActionTerminal } from '../../src/adapters/verification/platform/action/contract/action.ts';
 import {
   acquireVerificationActionClaim,
   appendVerificationActionJournalEvent,

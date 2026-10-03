@@ -1,18 +1,11 @@
 import { createHash } from 'node:crypto';
+import type { GitHubIssueReference, IssueDisposition, IssueDispositionDigest, IssueDispositionMode, IssueDispositionPlan } from '../../../../execution/verification/integration.ts';
 
 import { encodeVerificationActionData } from '../../../verification/platform/action/contract/action.ts';
 
-const ISSUE_DISPOSITION_PLAN_SCHEMA = 'sec-issue-disposition-plan-v1' as const;
-const ISSUE_DISPOSITION_SCHEMA = 'sec-issue-disposition-v1' as const;
-const ISSUE_DISPOSITION_POLICY_REVISION = 'issue-disposition-policy-v1' as const;
-
-export type IssueDispositionDigest = `sha256:${string}`;
-export type IssueDispositionMode = 'progress-only' | 'close-tracking-after-readback';
-
-export interface GitHubIssueReference {
-  readonly repository: string;
-  readonly issueNumber: number;
-}
+const ISSUE_DISPOSITION_PLAN_SCHEMA: IssueDispositionPlan["schema"] = 'sec-issue-disposition-plan-v1' as const;
+const ISSUE_DISPOSITION_SCHEMA: IssueDisposition["schema"] = 'sec-issue-disposition-v1' as const;
+const ISSUE_DISPOSITION_POLICY_REVISION: IssueDispositionPlan["policyRevision"] = 'issue-disposition-policy-v1' as const;
 
 export interface GitHubPullRequestClosingFacts {
   readonly repository: string;
@@ -29,47 +22,6 @@ export interface GitHubClosingKeywordOccurrence extends GitHubIssueReference {
   readonly keyword: 'close' | 'closes' | 'closed' | 'fix' | 'fixes' | 'fixed'
     | 'resolve' | 'resolves' | 'resolved';
   readonly offset: number;
-}
-
-export interface IssueDispositionPlan {
-  readonly schema: typeof ISSUE_DISPOSITION_PLAN_SCHEMA;
-  readonly policyRevision: typeof ISSUE_DISPOSITION_POLICY_REVISION;
-  readonly repository: string;
-  readonly prNumber: number;
-  readonly manifestPath: string;
-  readonly manifestDigest: IssueDispositionDigest;
-  readonly trackingIssueNumber: number | null;
-  readonly mode: IssueDispositionMode;
-  readonly titleBodyDigest: IssueDispositionDigest;
-  readonly linkedClosingIssues: readonly GitHubIssueReference[];
-  readonly planDigest: IssueDispositionDigest;
-}
-
-type IssueDispositionKind = 'progressed';
-
-export interface IssueDisposition {
-  readonly schema: typeof ISSUE_DISPOSITION_SCHEMA;
-  readonly dispositionId: IssueDispositionDigest;
-  readonly operationId: IssueDispositionDigest;
-  readonly planDigest: IssueDispositionDigest;
-  readonly planMode: IssueDispositionMode;
-  readonly repository: string;
-  readonly prNumber: number;
-  readonly issueNumber: number | null;
-  readonly manifestPath: string;
-  readonly manifestDigest: IssueDispositionDigest;
-  readonly currentSpecRevision: IssueDispositionDigest;
-  readonly acceptanceIds: readonly IssueDispositionDigest[];
-  readonly newMainSha: string;
-  readonly newMainTreeSha: string;
-  readonly evidenceRefs: readonly IssueDispositionDigest[];
-  readonly completionAssessment: 'unavailable';
-  readonly completionAssessmentReason: 'trusted-post-main-closure-assessment-unavailable';
-  readonly providerMutationCapability: 'unsupported-no-conditional-write';
-  readonly expectedProviderState: 'OPEN' | 'CLOSED';
-  readonly kind: IssueDispositionKind;
-  readonly blockers: readonly string[];
-  readonly receiptDigest: IssueDispositionDigest;
 }
 
 function fail(message: string): never {

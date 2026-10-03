@@ -2,6 +2,7 @@
 
 import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
+import type { BranchRecoveryAuthority } from '../../../../execution/verification/branch-closeout.ts';
 
 import { sha256 } from '../../../../contracts/canonical.ts';
 import {
@@ -11,7 +12,7 @@ import {
 } from '../../../providers/github-api/operation-session.ts';
 import { isRepositoryMaintenancePermission } from '../../../providers/github-api/repository-maintenance-permission.ts';
 import { normalizeGitHubRepositoryPermission } from '../../../providers/github-api/repository-permission.ts';
-import type { BranchRecoveryAuthority } from '../branch-lifecycle/branch-lifecycle-contract.ts';
+
 import {
   parseExactRemoteRefRecoveryPreparation,
   prepareExactRemoteRefRecovery,

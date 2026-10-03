@@ -1,3 +1,4 @@
+import type { BranchCloseoutAttempt, BranchCloseoutAuthorization, BranchLifecycleInventory, BranchPublishedCloseoutReceipt, BranchPullRequestObservation, PreparedBranchCloseoutEnvelope } from '../../../../execution/verification/branch-closeout.ts';
 import {
   authorizeBranchCloseout,
   createBranchCloseoutReceipt
@@ -6,24 +7,14 @@ import {
   createPublishedBranchCloseoutReceipt,
   parsePublishedBranchCloseoutReceipt
 } from './branch-closeout-receipt.ts';
-import {
-  assertPreparedBranchCloseoutEnvelope,
-  type PreparedBranchCloseoutEnvelope
-} from './branch-closeout.ts';
+import { assertPreparedBranchCloseoutEnvelope } from './branch-closeout.ts';
 import {
   assertDurableRecoveryAuthority,
   assertGitBranchName,
   assertGitSha,
   branchLifecycleDigest
 } from './branch-lifecycle-audit.ts';
-import {
-  BRANCH_REF_CLOSEOUT_CAPABILITY,
-  type BranchCloseoutAttempt,
-  type BranchCloseoutAuthorization,
-  type BranchLifecycleInventory,
-  type BranchPublishedCloseoutReceipt,
-  type BranchPullRequestObservation
-} from './branch-lifecycle-types.ts';
+import { BRANCH_REF_CLOSEOUT_CAPABILITY } from './branch-lifecycle-types.ts';
 import { verifyRecoveryAuthorityLive } from './branch-recovery.ts';
 import {
   assertClosedSupersessionEvidence,

@@ -10,6 +10,7 @@
 import { createHash } from 'node:crypto';
 import path from 'node:path';
 import { types as nodeTypes } from 'node:util';
+import type { VerificationActionDependencyKind, VerificationActionEnvironmentBinding, VerificationActionExecutionClass, VerificationActionInputRef, VerificationActionKey, VerificationActionKeyDigest, VerificationActionKeyInput, VerificationActionPlan } from '../../../../../execution/verification/action.ts';
 
 import type { VerificationReasonCode, VerificationResultStatus } from '../../../../../assurance/verification/result/contract/result.ts';
 import { CodexDevelopmentAssertVerificationStatusReason } from '../../../../../assurance/verification/result/contract/result.ts';
@@ -30,7 +31,7 @@ import {
   type BoundedProcessDiagnosticPublishedObject
 } from '../../../../runtime-state/workspace-state/bounded-process-diagnostic-contract.ts';
 
-const VERIFICATION_ACTION_KEY_SCHEMA =
+const VERIFICATION_ACTION_KEY_SCHEMA: VerificationActionKey["schema"] =
   'sec-verification-action-key-v2' as const;
 
 /**
@@ -46,62 +47,8 @@ export const VERIFICATION_ACTION_PROCESS_RESOURCE_POLICY = Object.freeze({
   maxStdoutBytes: 16 * 1024 * 1024,
   processes: 1
 });
-const VERIFICATION_ACTION_PLAN_SCHEMA =
+const VERIFICATION_ACTION_PLAN_SCHEMA: VerificationActionPlan["schema"] =
   'sec-verification-action-plan-v2' as const;
-
-export type VerificationActionKeyDigest = `sha256:${string}`;
-
-type VerificationActionOperation = Readonly<{
-  /** Stable producer-owned operation identity; no raw command selectors. */
-  identity: string;
-  /** Version of the producer's semantic operation normalizer. */
-  revision: string;
-  /** Digest of the canonical operation after selectors and context resolve. */
-  semanticDigest: VerificationActionKeyDigest;
-  /** Canonical repository-relative logical cwd; `.` is the repository root. */
-  workingDirectory: string;
-  declaredEnvironment: readonly VerificationActionEnvironmentBinding[];
-}>;
-
-export type VerificationActionExecutionClass = 'cheap-preflight' | 'expensive';
-
-type VerificationActionEnvironmentBinding = Readonly<{
-  name: string;
-  digest: VerificationActionKeyDigest;
-}>;
-
-type VerificationActionProducer = Readonly<{
-  identity: string;
-  revision: string;
-}>;
-
-export type VerificationActionInputRef = Readonly<{
-  path: string;
-  digest: VerificationActionKeyDigest;
-}>;
-
-type VerificationActionEnvironment = Readonly<{
-  toolchainRevision: string;
-  providerRevision: string;
-  contractRevision: string;
-}>;
-
-export type VerificationActionKeyInput = Readonly<{
-  actionKind: string;
-  producer: VerificationActionProducer;
-  operation: VerificationActionOperation;
-  inputClosure: readonly VerificationActionInputRef[];
-  environment: VerificationActionEnvironment;
-  /** Producer-owned cheap preflight topology required by an expensive plan. */
-  requiredCheapPreflightActionKeys: readonly VerificationActionKeyDigest[];
-  upstreamActionKeys: readonly VerificationActionKeyDigest[];
-  resultSchemaRevision: string;
-}>;
-
-export type VerificationActionKey = VerificationActionKeyInput & Readonly<{
-  schema: typeof VERIFICATION_ACTION_KEY_SCHEMA;
-  actionKey: VerificationActionKeyDigest;
-}>;
 
 type VerificationActionDecisionReceipt = Readonly<{
   actionKey: VerificationActionKeyDigest;
@@ -170,8 +117,6 @@ const ISSUED_VERIFICATION_ACTION_ATTEMPTS = new WeakSet<object>();
 const ISSUED_VERIFICATION_ACTION_PROVIDER_SETS = new WeakSet<object>();
 const ISSUED_VERIFICATION_ACTION_READBACKS = new WeakSet<object>();
 const ISSUED_VERIFICATION_ACTION_OWNER_TERMINALS = new WeakSet<object>();
-
-type VerificationActionDependencyKind = 'cheap-preflight' | 'upstream';
 export type VerificationActionDependencyState =
   | 'queued'
   | 'running'
@@ -183,24 +128,11 @@ export type VerificationActionDependencyState =
   | 'cancelled'
   | 'unknown';
 
-export type VerificationActionDependency = Readonly<{
-  actionKey: VerificationActionKeyDigest;
-  kind: VerificationActionDependencyKind;
-}>;
-
 export type VerificationActionDependencyResolution = Readonly<{
   actionKey: VerificationActionKeyDigest;
   state: VerificationActionDependencyState;
   /** Latest journal event digest used to detect same-state closure replacement. */
   observationDigest?: VerificationActionKeyDigest | null;
-}>;
-
-export type VerificationActionPlan = Readonly<{
-  schema: typeof VERIFICATION_ACTION_PLAN_SCHEMA;
-  action: VerificationActionKey;
-  /** Scheduler lane policy; never included in ActionKey identity. */
-  executionClass: VerificationActionExecutionClass;
-  dependencies: readonly VerificationActionDependency[];
 }>;
 
 const FORBIDDEN_IDENTITY_KEYS = new Set([

@@ -1,7 +1,8 @@
 import path from 'node:path';
+import type { GitHubCheckObservation, MainHealthDigest, MainHealthLedger } from '../../../../execution/verification/session.ts';
 
 import { rawSha256, sha256 } from '../../../../contracts/canonical.ts';
-import type { GitHubCheckObservation } from '../../../providers/github-api/contract.ts';
+
 import {
   assertGitHubApiReadOperationBudgetCurrent,
   currentGitHubApiCapability,
@@ -18,13 +19,7 @@ import {
 } from '../../../runtime-state/physical/runtime/physical-no-follow.ts';
 import { resolveSecRuntimeStateForRepository } from '../../../runtime-state/workspace-state/paths.ts';
 import { encodeVerificationActionData } from '../../../verification/platform/action/contract/action.ts';
-import {
-  createMainHealthLedger,
-  resolveOrdinaryMainHealthLane,
-  type MainHealthDigest,
-  type MainHealthLedger,
-  type MainHealthRoutingState
-} from './contract.ts';
+import { createMainHealthLedger, resolveOrdinaryMainHealthLane, type MainHealthRoutingState } from './contract.ts';
 import {
   createRegisteredHostedMainHealthInputs,
   createTrustedRuntimeMainHealthInput,

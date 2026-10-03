@@ -10,6 +10,7 @@
 
 import { createHash } from 'node:crypto';
 import { z } from 'zod';
+import type { VerificationSession, VerificationSessionMainHealthRef } from '../../../../../execution/verification/session.ts';
 
 import { encodeVerificationActionData } from '../../action/contract/action.ts';
 
@@ -17,7 +18,7 @@ export const VERIFICATION_REGISTRY_PROJECTION_SCHEMA =
   'sec-verification-registry-projection-v1' as const;
 export const VERIFICATION_FREEZE_SESSION_SCHEMA =
   'sec-verification-freeze-session-v1' as const;
-export const VERIFICATION_SESSION_SCHEMA = 'sec-verification-session-v2' as const;
+export const VERIFICATION_SESSION_SCHEMA: VerificationSession["schema"] = 'sec-verification-session-v2' as const;
 export const VERIFICATION_SESSION_RUNTIME_ENTRYPOINT_PATH =
   'src/adapters/verification/platform/ci/runtime/verification-session-runtime.ts' as const;
 export const SEC_VERIFICATION_SESSION_IMPLEMENTATION_IDENTITY =
@@ -128,43 +129,6 @@ export function parseVerificationFreezeSessionV1(source: string): VerificationFr
     throw new Error('Verification freeze session digest mismatch.');
   }
   return { ...withoutDigest, sessionDigest: expectedDigest };
-}
-
-interface VerificationSessionMainHealthRef {
-  readonly mainSha: string;
-  readonly mainTreeSha: string;
-  readonly healthRevision: `sha256:${string}`;
-  /** Full observation receipt reference; excluded from stable sessionRevision. */
-  readonly ledgerReceiptDigest: `sha256:${string}`;
-}
-
-export interface VerificationSession {
-  readonly schema: typeof VERIFICATION_SESSION_SCHEMA;
-  /** Run identity only; excluded from sessionRevision. */
-  readonly sessionId: string;
-  /** Run timestamp only; excluded from sessionRevision. */
-  readonly createdAt: string;
-  readonly repository: string;
-  readonly prNumber: number;
-  readonly baseSha: string;
-  readonly baseTreeSha: string;
-  readonly headSha: string;
-  readonly headTreeSha: string;
-  readonly manifestPath: string;
-  readonly manifestDigest: `sha256:${string}`;
-  readonly sessionProposalDigest: `sha256:${string}`;
-  readonly scopeAuthorizationRevision: `sha256:${string}`;
-  /** Full provenance receipt reference; excluded from stable sessionRevision. */
-  readonly scopeAuthorizationReceiptDigest: `sha256:${string}`;
-  readonly actionPlanClosureDigest: `sha256:${string}`;
-  readonly profile: string;
-  readonly environmentDigest: `sha256:${string}`;
-  readonly trustRevision: string;
-  readonly reviewPolicyDigest: `sha256:${string}`;
-  readonly evidenceRequirementDigest: `sha256:${string}`;
-  readonly integrationPolicyDigest: `sha256:${string}`;
-  readonly mainHealthRef: VerificationSessionMainHealthRef;
-  readonly sessionRevision: `sha256:${string}`;
 }
 
 export type VerificationSessionInput = Omit<VerificationSession, 'schema' | 'sessionRevision'>;

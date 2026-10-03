@@ -1,4 +1,4 @@
-import * as environment from './application/dependency-environment.ts';
+import * as environment from './runtime/environment-status.ts';
 export { getDependencyFreshness } from './application/dependency-freshness.ts';
 
 export type {
@@ -10,7 +10,7 @@ export type {
   DoctorCheck,
   DoctorCheckStatus,
   DoctorReport
-} from './application/dependency-environment.ts';
+} from './runtime/environment-status.ts';
 
 export async function getDependencyEnvironmentStatus(
   workspaceRoot = process.cwd()

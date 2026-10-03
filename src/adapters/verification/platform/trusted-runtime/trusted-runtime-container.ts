@@ -6,9 +6,10 @@ import {
 } from 'node:fs';
 import { hostname, tmpdir } from 'node:os';
 import path from 'node:path';
+import type { VerificationEvidence, VerificationGateEvidence } from '../../../../execution/verification/session.ts';
 
-import { CI_VERIFICATION_WORKFLOW_PATH } from '../../../../assurance/verification/contract/revision.ts';
-import { CodexDevelopmentBuildVerificationGateResult } from '../../../../assurance/verification/result/contract/result.ts';
+import { CI_VERIFICATION_WORKFLOW_PATH, type CI_VERIFICATION_CONTRACT_REVISION } from '../../../../assurance/verification/contract/revision.ts';
+import { CodexDevelopmentBuildVerificationGateResult, type VerificationGateResult, type VerificationResultStatus } from '../../../../assurance/verification/result/contract/result.ts';
 import { throwIfNativeAborted } from '../../../../contracts/native-abort.ts';
 import {
   bindSecSemanticOperation,
@@ -76,7 +77,7 @@ import { compilerRuntimeLayout } from '../../../toolchain/runtime/layout.ts';
 import { TYPECHECK_PROVIDER_CANARY_ENTRYPOINT_PATH } from '../../../toolchain/typescript/canary.ts';
 import { encodeVerificationActionData } from '../action/contract/action.ts';
 import { ciVerificationGateStep, ciVerificationNormalizedOperationArgv, createCiVerificationLocalExecutionEnvironment, parseCiSourceProgramTransitionBinding, SOURCE_PROGRAM_TRANSITION_ENTRYPOINT, SOURCE_PROGRAM_TRANSITION_GATE_ID, SOURCE_PROGRAM_TRANSITION_OUTPUT_FILE, SOURCE_PROGRAM_TRANSITION_STDOUT_BYTE_LIMIT, sourceProgramAnalysisBinding, sourceProgramTransitionGate, type CiSourceProgramTransitionBinding, type CiVerificationExecutionEnvironment } from '../action/contract/ci.ts';
-import { parseTrustedRuntimeSourceProgramActionRecord, type CodexDevelopmentVerificationEvidenceV4, type CodexDevelopmentVerificationGateEvidenceV4, type TrustedRuntimeSourceProgramActionRecord } from '../ci/contract/evidence.ts';
+import { parseTrustedRuntimeSourceProgramActionRecord, type TrustedRuntimeSourceProgramActionRecord } from '../ci/contract/evidence.ts';
 import {
   createBuildxRawJsonProgressAdmission,
   ensureLocalGitHubActionsRunnerToolchainMaterialization,
@@ -357,7 +358,7 @@ export function qualifySourceProgramTransitionAssessment(input: Readonly<{
 
 export function assertSourceProgramTransitionQualification(
   value: SourceProgramTransitionQualification,
-  completion?: CodexDevelopmentVerificationGateEvidenceV4
+  completion?: VerificationGateEvidence<VerificationGateResult>
 ): void {
   if (!issuedSourceProgramTransitionQualifications.has(value)) {
     fail('Source Program acceptance requires a live isolated host qualification');
@@ -2022,7 +2023,7 @@ export function parseTrustedRuntimeSourceProgramAttemptEvidence(value: unknown):
 export async function observeTrustedRuntimeSourceProgramTransition(input: Readonly<{
   repositoryRoot: string;
   envelope: VerificationSessionHostedEnvelope;
-  evidence: CodexDevelopmentVerificationEvidenceV4;
+  evidence: VerificationEvidence<typeof CI_VERIFICATION_CONTRACT_REVISION, VerificationResultStatus, VerificationGateResult>;
   receipt: TrustedRuntimeContainerReceipt;
   sourceProgramTransition: CiSourceProgramTransitionBinding;
   authorApproval?: SourceProgramTestAuthorApproval;
@@ -2214,7 +2215,7 @@ export async function executeTrustedRuntimeContainerVerification(input: Readonly
   deadlineAtUnixMs?: number;
   signal?: AbortSignal;
 }>): Promise<Readonly<{
-  evidence: CodexDevelopmentVerificationEvidenceV4;
+  evidence: VerificationEvidence<typeof CI_VERIFICATION_CONTRACT_REVISION, VerificationResultStatus, VerificationGateResult>;
   canonicalEvidenceBytes: string;
   receipt: TrustedRuntimeContainerReceipt;
 }>> {
@@ -2272,7 +2273,7 @@ export async function executeTrustedRuntimeContainerVerification(input: Readonly
       arguments: [`${containerName}:${TRUSTED_RUNTIME_OUTPUT}/verification-evidence.json`, outputPath]
     });
     const canonicalEvidenceBytes = readFileSync(outputPath, 'utf8');
-    const parsed = JSON.parse(canonicalEvidenceBytes) as CodexDevelopmentVerificationEvidenceV4;
+    const parsed = JSON.parse(canonicalEvidenceBytes) as VerificationEvidence<typeof CI_VERIFICATION_CONTRACT_REVISION, VerificationResultStatus, VerificationGateResult>;
     if (canonicalEvidenceBytes !== `${encodeVerificationActionData(parsed)}\n`) {
       fail('verification Evidence durable bytes are not canonical');
     }

@@ -1,7 +1,8 @@
 import { portableLogicalPathCollisionKey } from '../../contracts/logical-path.ts';
 import { relativePosixPath } from '../../contracts/relative-path.ts';
-import { assertManifestStackCompatibility } from '../align/align-interfaces.ts';
+import { assertManifestStackCompatibility, isManifestStackCompatible } from '../align/align-interfaces.ts';
 import type { LockFile, ManifestEntry, PlanFile } from '../contract.ts';
+import { assertManifestDefinitionConsistency } from '../contract/manifest-validation.ts';
 import { CompilerError } from '../errors.ts';
 import { resolveManifestGraph } from './manifest-graph.ts';
 
@@ -52,12 +53,16 @@ export function prepareManifestResolution(
   explicitEntries: readonly ManifestEntry[],
   allEntries: readonly ManifestEntry[]
 ) {
-  const graph = resolveManifestGraph(explicitEntries, allEntries);
-  // Closure discovery can add providers that were not in the author's plan.
-  // Validate the actual selected set before resource lookup or a successful lock.
-  for (const { manifest } of graph.entries) {
+  // A target filter must not conceal contradictory source definitions. This
+  // pure consumer also accepts catalog values independently of the loader.
+  assertManifestDefinitionConsistency([...explicitEntries, ...allEntries]);
+  for (const { manifest } of explicitEntries) {
     assertManifestStackCompatibility(manifest.id, manifest.stackProfiles);
   }
+  // Hard conditions define the automatic candidate domain before ambiguity or
+  // closure selection. Explicit choices still fail through their original rule.
+  const graph = resolveManifestGraph(explicitEntries,
+    allEntries.filter(({ manifest }) => isManifestStackCompatible(manifest.stackProfiles)));
   const resolvedBlocks = graph.entries.map((entry, index) => ({
     id: entry.manifest.id,
     version: entry.manifest.version,

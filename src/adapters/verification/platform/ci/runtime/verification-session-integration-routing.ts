@@ -1,8 +1,10 @@
+import type { HostedIntegrationEffectPlan, HostedIntegrationRoute, HostedIntegrationRouteCommon, IntegrationAuthorizationOperationPublication } from '../../../../../execution/verification/integration.ts';
+import type { GitHubCandidateObservation, VerificationSession } from '../../../../../execution/verification/session.ts';
 import { createBranchCloseoutOperationBinding } from '../../../../self-hosting/control/branch-lifecycle/branch-closeout-contract.ts';
-import type { IntegrationAuthorizationOperationPublication } from '../../../../self-hosting/control/integration/integration-authorization-publication.ts';
-import type { VerificationSession } from '../../session/contract/session.ts';
+
+
 import { exactCommitMarker } from './merge-commit-marker.ts';
-import type { GitHubCandidateObservation } from './verification-session-github.ts';
+
 import type { parseVerificationSessionHostedRequest } from './verification-session-runtime.ts';
 
 export function selectMergedAuthorizationPublication(input: {
@@ -74,45 +76,8 @@ function assertAuthorizationPublicationMatchesRequest(input: {
   }
 }
 
-export const HOSTED_INTEGRATION_ROUTE_SCHEMA =
+export const HOSTED_INTEGRATION_ROUTE_SCHEMA: HostedIntegrationRouteCommon["schema"] =
   'sec-verification-session-hosted-integration-route-v1' as const;
-
-type HostedIntegrationRouteCommon = Readonly<{
-  schema: typeof HOSTED_INTEGRATION_ROUTE_SCHEMA;
-  repository: string;
-  prNumber: number;
-  sessionRevision: `sha256:${string}`;
-  candidateState: GitHubCandidateObservation['state'];
-}>;
-
-export type HostedIntegrationRoute =
-  | (HostedIntegrationRouteCommon & Readonly<{
-      lane: 'open-first-effect';
-      reason: 'exact-open-candidate-without-prior-effect';
-    }>)
-  | (HostedIntegrationRouteCommon & Readonly<{
-      lane: 'merged-recovery';
-      reason: 'exact-marker-bound-merged-candidate';
-      mergeCommitSha: string;
-      mergeCommitTreeSha: string;
-    }>)
-  | (HostedIntegrationRouteCommon & Readonly<{
-      lane: 'blocked';
-      reason:
-        | 'candidate-session-identity-drift'
-        | 'open-candidate-identity-drift'
-        | 'open-prior-effect-started'
-        | 'merged-readback-incomplete-or-tree-mismatch'
-        | 'pull-request-closed-without-exact-merge';
-    }>);
-
-export interface HostedIntegrationEffectPlan {
-  prepareRecoveryArtifact: boolean;
-  createAuthorizationPublication: boolean;
-  executePhysicalMerge: boolean;
-  consumeOriginalAuthorizationPublication: boolean;
-  consumeOriginalRecoveryArtifact: boolean;
-}
 
 /**
  * Pure state router. Provider identity, TCB, artifact and publication proofs are

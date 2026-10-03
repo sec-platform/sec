@@ -1,6 +1,7 @@
 import { spawnSync } from 'node:child_process';
 import { realpathSync } from 'node:fs';
 import path from 'node:path';
+import type { BranchActiveWorkPackageObservation, BranchCloseoutReceiptObservation, BranchLifecycleInventory, BranchPruneConfigurationObservation, BranchPullRequestObservation, BranchRefObservation, BranchRepositorySettingObservation, BranchWorktreeObservation } from '../../../../execution/verification/branch-closeout.ts';
 
 import { parseGitHubRepositoryIdentityFromRemoteUrl } from '../../../../contracts/git-reference.ts';
 import { normalizeGitHubRepositoryPermission } from '../../../providers/github-api/repository-permission.ts';
@@ -21,19 +22,7 @@ import {
   decodeBranchLifecycleChildError,
   decodeBranchLifecycleChildStdout
 } from './branch-lifecycle-command.ts';
-import {
-  BRANCH_LIFECYCLE_INVENTORY_SCHEMA,
-  assertGitBranchName,
-  assertGitSha,
-  type BranchActiveWorkPackageObservation,
-  type BranchCloseoutReceiptObservation,
-  type BranchLifecycleInventory,
-  type BranchPruneConfigurationObservation,
-  type BranchPullRequestObservation,
-  type BranchRefObservation,
-  type BranchRepositorySettingObservation,
-  type BranchWorktreeObservation
-} from './branch-lifecycle-contract.ts';
+import { BRANCH_LIFECYCLE_INVENTORY_SCHEMA, assertGitBranchName, assertGitSha } from './branch-lifecycle-contract.ts';
 import {
   countPorcelainStatus,
   parseLocalBranchRefs,

@@ -2,12 +2,13 @@
 
 import { createHash } from 'node:crypto';
 import path from 'node:path';
+import type { GitHubCheckObservation } from '../../../../execution/verification/session.ts';
 
 import {
   parseDockerEndpointIdentity,
   type DockerEndpointIdentity
 } from '../../../providers/docker/contract/daemon.ts';
-import type { GitHubCheckObservation } from '../../../providers/github-api/contract.ts';
+
 import { SEC_LINUX_VERIFICATION_ENVIRONMENT_AUTHORITY } from '../../../providers/linux-verification/contract.ts';
 import { encodeVerificationActionData } from '../../../verification/platform/action/contract/action.ts';
 import { createCiVerificationLocalExecutionEnvironment } from '../../../verification/platform/action/contract/ci.ts';

@@ -1,7 +1,7 @@
 import path from 'node:path';
-import * as observations from '../../adapters/toolchain/dependencies/application/dependency-environment.ts';
 import { getDependencyFreshness } from '../../adapters/toolchain/dependencies/application/dependency-freshness.ts';
 import { removeDependencyProjectProjection } from '../../adapters/toolchain/dependencies/runtime/environment-projection.ts';
+import * as observations from '../../adapters/toolchain/dependencies/runtime/environment-status.ts';
 import { compilerRoot } from '../../adapters/workspace-context.ts';
 import { cleanDependencyEnvironment as clean, relinkProjectDependencies as relink, warmupDependencyEnvironment as warmup } from '../../application/dependency-environment.ts';
 import { createDependencyOperation } from './dependency-operation.ts';
