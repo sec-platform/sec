@@ -29,8 +29,13 @@ import { CI_GITHUB_ACTIONS_IDENTITY_POLICY, type VerificationActionProviderOrigi
 import {
   CI_VERIFICATION_HOSTED_SANDBOX_POLICY
 } from './contract/revision.ts';
+import {
+  canonicalHostedArchivePath, HOSTED_ACTION_ARCHIVE_INVENTORY_SCRIPT,
+  HOSTED_ACTION_ARCHIVE_MAX_ENTRIES, validateHostedSutArchiveInventory,
+  type HostedActionArchiveInventoryEntry
+} from './hosted-sut-dependency-preparation.ts';
 import type { CodexDevelopmentHostedActionExecutionTicket, CodexDevelopmentHostedActionResolution } from './verification-hosted-action-contract.ts';
-import { CodexDevelopmentParseHostedActionExecutionTicket, CodexDevelopmentParseHostedActionResolution, ciActionDigest, exactObject } from './verification-hosted-action-contract.ts';
+import { ciActionDigest, CodexDevelopmentParseHostedActionExecutionTicket, CodexDevelopmentParseHostedActionResolution } from './verification-hosted-action-contract.ts';
 import { positiveEnvironmentInteger, writeHostedActionJson } from './verification-shared.ts';
 
 export function hostedActionRepositoryIdentity(): Readonly<{
@@ -338,18 +343,6 @@ export function CodexDevelopmentAssertHostedActionDependencyInputsV1(input: Read
 }>): VerificationActionKeyDigest {
   return ciActionDigest(hostedActionDependencyClosure(input));
 }
-
-type HostedActionArchiveInventoryEntry = Readonly<{
-  path: string;
-  type: 'directory' | 'file' | 'hardlink' | 'symlink';
-  linkTarget: string | null;
-  size: number;
-  mode: number;
-  physicalContentDigest: VerificationActionKeyDigest | null;
-  contentDigest: VerificationActionKeyDigest | null;
-}>;
-
-const HOSTED_ACTION_ARCHIVE_MAX_ENTRIES = 250_000;
 
 function strictPosixDescendant(root: string, candidate: string): boolean {
   const relative = path.posix.relative(root, candidate);
@@ -672,31 +665,12 @@ export function CodexDevelopmentMaterializeTrustedBootstrapArchive(input: Readon
   return archivePath;
 }
 
-const HOSTED_ACTION_ARCHIVE_INVENTORY_SCRIPT = [
-  'import hashlib, json, sys, tarfile',
-  'result=[]',
-  'with tarfile.open(sys.argv[1], mode="r:*") as archive:',
-  '  for member in archive.getmembers():',
-  '    kind = "file" if member.isreg() else "directory" if member.isdir() else "symlink" if member.issym() else "hardlink" if member.islnk() else "unsupported"',
-  '    digest = None; physical_digest = None',
-  '    normalized = member.name[2:] if member.name.startswith("./") else member.name',
-  '    if member.isreg() or member.islnk():',
-  '      stream = archive.extractfile(member)',
-  '      hasher = hashlib.sha256(); physical_hasher = hashlib.sha256(); physical_hasher.update(b\'{"bytes":"\')',
-  '      while True:',
-  '        chunk = stream.read(1048576) if stream is not None else b""',
-  '        if not chunk: break',
-  '        hasher.update(chunk); physical_hasher.update(chunk.hex().encode("ascii"))',
-  '      physical_hasher.update(b\'"}\'); physical_digest = "sha256:" + physical_hasher.hexdigest()',
-  '      if member.isreg() and normalized in (".sec-trusted-input/candidate.bundle", ".sec-trusted-input/dependency-closure.json"): digest = "sha256:" + hasher.hexdigest()',
-  '    result.append({"path": member.name, "type": kind, "linkTarget": member.linkname if member.issym() or member.islnk() else None, "size": member.size, "mode": member.mode, "physicalContentDigest": physical_digest, "contentDigest": digest})',
-  'sys.stdout.write(json.dumps(result, ensure_ascii=True, separators=(",", ":"), sort_keys=True))'
-].join('\n');
-
 function inspectHostedActionArchiveMetadata(archive: string, label: string): unknown {
   const inventory = spawnSync(
     '/usr/bin/python3',
-    ['-c', HOSTED_ACTION_ARCHIVE_INVENTORY_SCRIPT, archive],
+    ['-I', '-B', '-c', HOSTED_ACTION_ARCHIVE_INVENTORY_SCRIPT, archive,
+      String(HOSTED_ACTION_ARCHIVE_MAX_ENTRIES),
+      String(CI_VERIFICATION_HOSTED_SANDBOX_POLICY.limits.workspaceBytes)],
     {
       encoding: 'utf8',
       windowsHide: true,
@@ -707,148 +681,14 @@ function inspectHostedActionArchiveMetadata(archive: string, label: string): unk
   if (inventory.status !== 0 || typeof inventory.stdout !== 'string') {
     throw new Error(`${label} metadata is unreadable without extraction.`);
   }
-  return JSON.parse(inventory.stdout) as unknown;
+  const inspected = JSON.parse(inventory.stdout) as { entries: unknown };
+  return inspected.entries;
 }
 
-function canonicalHostedArchivePath(source: string, label: string, allowRoot: boolean): string | null {
-  if (source.includes('\0') || source.includes('\\') || source.startsWith('/')) {
-    throw new Error(`Hosted Action archive ${label} is absolute or non-POSIX.`);
-  }
-  let value = source;
-  while (value.startsWith('./')) value = value.slice(2);
-  while (value.endsWith('/')) value = value.slice(0, -1);
-  if ((value === '' || value === '.') && allowRoot) return null;
-  const segments = value.split('/');
-  if (value === '' || segments.some((segment) => segment === '' || segment === '.' || segment === '..')) {
-    throw new Error(`Hosted Action archive ${label} is not canonical.`);
-  }
-  return value;
-}
-
-function resolveHostedArchiveLinkTarget(entryPath: string, target: string, hardlink: boolean): string {
-  if (target.includes('\0') || target.includes('\\') || target.startsWith('/')) {
-    throw new Error(`Hosted Action archive link target is unsafe: ${entryPath}.`);
-  }
-  const stack = hardlink ? [] : entryPath.split('/').slice(0, -1);
-  let value = target;
-  while (value.startsWith('./')) value = value.slice(2);
-  for (const segment of value.split('/')) {
-    if (segment === '' || segment === '.') continue;
-    if (segment === '..') {
-      if (stack.length === 0) throw new Error(`Hosted Action archive link escapes its root: ${entryPath}.`);
-      stack.pop();
-    } else {
-      stack.push(segment);
-    }
-  }
-  if (stack.length === 0) throw new Error(`Hosted Action archive link target is empty: ${entryPath}.`);
-  return stack.join('/');
-}
-
-export function CodexDevelopmentValidateHostedActionArchiveInventory(
-  source: unknown
-): Readonly<{
-  entries: readonly HostedActionArchiveInventoryEntry[];
-  inventoryDigest: VerificationActionKeyDigest;
-  totalFileBytes: number;
-}> {
-  if (!Array.isArray(source) || source.length === 0 || source.length > HOSTED_ACTION_ARCHIVE_MAX_ENTRIES) {
-    throw new Error('Hosted Action archive inventory is empty or exceeds its entry bound.');
-  }
-  const entries: HostedActionArchiveInventoryEntry[] = [];
-  const exactPaths = new Set<string>();
-  const casePaths = new Map<string, string>();
-  for (const raw of source) {
-    const value = exactObject(raw, [
-      'contentDigest', 'linkTarget', 'mode', 'path', 'physicalContentDigest', 'size', 'type'
-    ], 'Hosted Action archive entry');
-    if (typeof value.path !== 'string' || typeof value.type !== 'string' ||
-        !Number.isSafeInteger(value.size) || Number(value.size) < 0 ||
-        !Number.isSafeInteger(value.mode) || Number(value.mode) < 0 || Number(value.mode) > 0o7777 ||
-        (value.linkTarget !== null && typeof value.linkTarget !== 'string') ||
-        (value.contentDigest !== null && (typeof value.contentDigest !== 'string' ||
-          !/^sha256:[0-9a-f]{64}$/u.test(value.contentDigest))) ||
-        (value.physicalContentDigest !== null &&
-          (typeof value.physicalContentDigest !== 'string' ||
-            !/^sha256:[0-9a-f]{64}$/u.test(value.physicalContentDigest)))) {
-      throw new Error('Hosted Action archive metadata is invalid.');
-    }
-    if (!['directory', 'file', 'hardlink', 'symlink'].includes(value.type)) {
-      throw new Error(`Hosted Action archive entry type is forbidden: ${value.type}.`);
-    }
-    const entryPath = canonicalHostedArchivePath(value.path, 'entry path', value.type === 'directory');
-    if (entryPath === null) continue;
-    if ((Number(value.mode) & 0o6000) !== 0) {
-      throw new Error(`Hosted Action archive set-id mode is forbidden: ${entryPath}.`);
-    }
-    const folded = entryPath.normalize('NFC').toLowerCase();
-    const conflict = casePaths.get(folded);
-    if (exactPaths.has(entryPath) || (conflict !== undefined && conflict !== entryPath)) {
-      throw new Error(`Hosted Action archive contains a duplicate or case-conflicting path: ${entryPath}.`);
-    }
-    exactPaths.add(entryPath);
-    casePaths.set(folded, entryPath);
-    const linkTarget = value.type === 'hardlink' || value.type === 'symlink'
-      ? resolveHostedArchiveLinkTarget(entryPath, String(value.linkTarget ?? ''), value.type === 'hardlink')
-      : null;
-    if (linkTarget === null && value.linkTarget !== null) {
-      throw new Error(`Hosted Action archive ordinary entry has a link target: ${entryPath}.`);
-    }
-    if (linkTarget !== null && Number(value.size) !== 0) {
-      throw new Error(`Hosted Action archive link has nonzero payload bytes: ${entryPath}.`);
-    }
-    const trustedContentPath = entryPath === '.sec-trusted-input/candidate.bundle' ||
-      entryPath === '.sec-trusted-input/dependency-closure.json';
-    const physicalContentEntry = value.type === 'file' || value.type === 'hardlink';
-    if ((trustedContentPath && (value.type !== 'file' || value.contentDigest === null)) ||
-        (!trustedContentPath && value.contentDigest !== null) ||
-        (physicalContentEntry !== (value.physicalContentDigest !== null))) {
-      throw new Error(`Hosted Action archive trusted content digest placement is invalid: ${entryPath}.`);
-    }
-    entries.push(Object.freeze({
-      path: entryPath,
-      type: value.type as HostedActionArchiveInventoryEntry['type'],
-      linkTarget,
-      size: Number(value.size),
-      mode: Number(value.mode),
-      physicalContentDigest: value.physicalContentDigest as VerificationActionKeyDigest | null,
-      contentDigest: value.contentDigest as VerificationActionKeyDigest | null
-    }));
-  }
-  const byPath = new Map(entries.map((entry) => [entry.path, entry]));
-  for (const entry of entries) {
-    if (entry.linkTarget === null) continue;
-    const target = byPath.get(entry.linkTarget);
-    if (target === undefined || (entry.type === 'hardlink' && target.type !== 'file' && target.type !== 'hardlink')) {
-      throw new Error(`Hosted Action archive link target is absent or has the wrong type: ${entry.path}.`);
-    }
-    if (entry.type === 'symlink' &&
-        (entry.path === target.path || entry.path.startsWith(`${target.path}/`))) {
-      throw new Error(`Hosted Action archive symlink targets itself or an ancestor: ${entry.path}.`);
-    }
-    if (entry.type === 'hardlink' && entry.physicalContentDigest !== target.physicalContentDigest) {
-      throw new Error(`Hosted Action archive hardlink content differs from its target: ${entry.path}.`);
-    }
-    const seen = new Set<string>([entry.path]);
-    let cursor: HostedActionArchiveInventoryEntry | undefined = target;
-    while (cursor?.linkTarget !== null) {
-      if (seen.has(cursor.path)) throw new Error(`Hosted Action archive link cycle is forbidden: ${entry.path}.`);
-      seen.add(cursor.path);
-      cursor = byPath.get(cursor.linkTarget);
-      if (cursor === undefined) throw new Error(`Hosted Action archive link chain is incomplete: ${entry.path}.`);
-    }
-  }
-  const totalFileBytes = entries.reduce((total, entry) => total + (entry.type === 'file' ? entry.size : 0), 0);
-  if (!Number.isSafeInteger(totalFileBytes) ||
-      totalFileBytes > CI_VERIFICATION_HOSTED_SANDBOX_POLICY.limits.workspaceBytes) {
-    throw new Error('Hosted Action archive file bytes exceed the private workspace bound.');
-  }
-  const canonicalEntries = Object.freeze([...entries].sort((left, right) => left.path.localeCompare(right.path)));
-  return Object.freeze({
-    entries: canonicalEntries,
-    inventoryDigest: ciActionDigest(canonicalEntries),
-    totalFileBytes
-  });
+export function CodexDevelopmentValidateHostedActionArchiveInventory(source: unknown) {
+  return validateHostedSutArchiveInventory(
+    source, CI_VERIFICATION_HOSTED_SANDBOX_POLICY.limits.workspaceBytes
+  );
 }
 
 export function CodexDevelopmentInspectHostedActionArchiveInventory(

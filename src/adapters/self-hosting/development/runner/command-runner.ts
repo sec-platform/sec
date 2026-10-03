@@ -36,6 +36,7 @@ import {
 import {
   armPreparedRepositoryChangeObserver,
   repositoryChangeObserverBinding,
+  repositoryChangeObserverEffectKinds,
   type PreparedRepositoryChangeObserver
 } from '../../../runtime-state/physical/runtime/repository-change-observer.ts';
 import type { RetainedCommandBoundary } from '../../../runtime-state/physical/runtime/retained-command-boundary.ts';
@@ -247,7 +248,7 @@ function compileDevCommandOperation(input: Readonly<{
     }, ...(suite === undefined ? [] : [{
       id: observerBinding!.requirementId,
       contractDigest: observerBinding!.contractDigest,
-      effectKinds: ['filesystem' as const],
+      effectKinds: repositoryChangeObserverEffectKinds(input.testSuiteObserver!),
       failureKinds: [
         'development.runner.deadline-exhausted',
         'development.runner.physical-identity-drift'

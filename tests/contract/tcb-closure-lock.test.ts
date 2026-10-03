@@ -144,6 +144,40 @@ test('TCB closure models direct OS identity reads without admitting identity mut
     'synthetic-effective-user.ts',
     "export const effectiveUserId = process['geteuid']();"
   )).toThrow('computed process member');
+  for (const source of ['export const realUserId = process.getuid();', 'export const realUserId = process.getuid?.();']) {
+    expect(() => runtimeRelativeImportsFromSource('synthetic-real-user.ts', source)).not.toThrow();
+  }
+  expect(() => runtimeRelativeImportsFromSource(
+    'synthetic-real-user.ts',
+    'process.setuid(0);'
+  )).toThrow('unclassified process member setuid');
+  expect(() => runtimeRelativeImportsFromSource(
+    'synthetic-real-user.ts',
+    "export const realUserId = process['getuid']();"
+  )).toThrow('computed process member');
+  expect(() => runtimeRelativeImportsFromSource(
+    'synthetic-real-user.ts',
+    'export const realUserId = process.getRealUserId();'
+  )).toThrow('unclassified process member getRealUserId');
+  for (const source of ['export const realGroupId = process.getgid();', 'export const realGroupId = process.getgid?.();']) {
+    expect(() => runtimeRelativeImportsFromSource('synthetic-real-group.ts', source)).not.toThrow();
+  }
+  expect(() => runtimeRelativeImportsFromSource(
+    'synthetic-real-group.ts', 'process.setgid(0);'
+  )).toThrow('unclassified process member setgid');
+  expect(() => runtimeRelativeImportsFromSource(
+    'synthetic-real-group.ts', "export const realGroupId = process['getgid']();"
+  )).toThrow('computed process member');
+  expect(() => runtimeRelativeImportsFromSource(
+    'synthetic-real-group.ts', 'export const realGroupId = process.getRealGroupId();'
+  )).toThrow('unclassified process member getRealGroupId');
+  expect(() => runtimeRelativeImportsFromSource(
+    'synthetic-owned-listener.ts',
+    "const cancel = () => undefined; process.once('SIGTERM', cancel); process.removeListener('SIGTERM', cancel);"
+  )).not.toThrow();
+  expect(() => runtimeRelativeImportsFromSource(
+    'synthetic-owned-listener.ts', "process.removeAllListeners('SIGTERM');"
+  )).toThrow('unclassified process member removeAllListeners');
   expect(() => runtimeRelativeImportsFromSource(
     'synthetic-parent-process.ts',
     'export const issuerProcessId = process.parentPid;'
@@ -334,9 +368,22 @@ test('TCB closure lock binds the reviewed causal module set', () => {
   expect(SEC_TRUSTED_BOOTSTRAP_REGISTRY.reviewedExternalImports).toContain(
     'src/adapters/repository/source-program-model/test-impact-projection.ts -> zod'
   );
+  expect(SEC_TRUSTED_BOOTSTRAP_REGISTRY.reviewedExternalImports).toContain(
+    'src/adapters/verification/platform/ci/contract/hosted-job-runtime.ts -> zod'
+  );
   expect(SEC_TRUSTED_BOOTSTRAP_REGISTRY.reviewedExternalImports).not.toContain('zod');
   expect(TCB_CLOSURE_LOCK.reviewedExternalImports)
     .toContain('src/adapters/self-hosting/development/runner/env-manager.ts -> node:net');
+});
+
+test('TCB runtime receipt schema permits its exact reviewed parser edge only', () => {
+  const source = "import { z } from 'zod'; export const schema = z.object({ value: z.string() }).strict();";
+  expect(() => runtimeRelativeImportsFromSource(
+    'src/adapters/verification/platform/ci/contract/hosted-job-runtime.ts', source
+  )).not.toThrow();
+  expect(() => runtimeRelativeImportsFromSource(
+    'synthetic-unreviewed-receipt-parser.ts', source
+  )).toThrow('TCB runtime import is outside the approved relative/external policy');
 });
 
 test('TCB closure lock is the sole causal-runtime identity consumed by the trust-root view', () => {

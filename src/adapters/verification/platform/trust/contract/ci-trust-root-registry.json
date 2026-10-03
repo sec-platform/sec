@@ -82,6 +82,7 @@
     "src/adapters/runtime-state/physical/runtime/windows-stdin-writer-worker.mjs -> bun:ffi",
     "src/adapters/self-hosting/control/scope/authorization.ts -> zod",
     "src/adapters/self-hosting/development/runner/env-manager.ts -> node:net",
+    "src/adapters/verification/platform/ci/contract/hosted-job-runtime.ts -> zod",
     "src/adapters/verification/platform/ci/contract/revision.ts -> zod",
     "src/adapters/verification/platform/gate/state/heavy-lease.ts -> bun:ffi",
     "src/adapters/verification/platform/session/contract/session.ts -> zod",

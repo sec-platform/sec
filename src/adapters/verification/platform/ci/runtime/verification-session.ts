@@ -1,4 +1,8 @@
 #!/usr/bin/env bun
+import {
+  assertAuthenticatedLinuxHostedBootstrapCurrent, observeAuthenticatedLinuxHostedBootstrap,
+  type AuthenticatedLinuxHostedBootstrap
+} from '../../../../providers/docker/runtime/linux-hosted-bootstrap.ts';
 import { consumeQualifiedContainerEngineOciExporter, type QualifiedContainerEngineOciExporter } from '../../../../providers/docker/runtime/linux-oci-exporter.ts';
 import { GIT_READ_DEFAULT_OPERATION_BUDGET } from '../../../../providers/git-read/runtime/budget.ts';
 import { assertAuthenticatedGitHubJobOriginCurrent, getAuthenticatedGitHubJobOriginSignal, type AuthenticatedGitHubJobOrigin } from '../../../../providers/github-api/hosted-job-origin.ts';
@@ -2830,6 +2834,7 @@ export function verificationSessionExecutionPlacement(value: string | undefined)
 export interface VerificationSessionHostedRuntime {
   readonly origin: AuthenticatedGitHubJobOrigin;
   readonly engineExporter: QualifiedContainerEngineOciExporter;
+  readonly immutableInputBootstrap: AuthenticatedLinuxHostedBootstrap;
 }
 
 export interface VerificationSessionResumedContext {
@@ -2861,7 +2866,8 @@ export async function verificationSessionCli(argv: string[], context?: Verificat
     ? Object.freeze({ kind: context.kind, origin: context.origin, admission: context.admission,
         producer: context.producer, request: context.request }) : undefined;
   const hostedRuntime = context !== undefined && 'engineExporter' in context
-    ? Object.freeze({ origin: context.origin, engineExporter: context.engineExporter }) : undefined;
+    ? Object.freeze({ origin: context.origin, engineExporter: context.engineExporter,
+        immutableInputBootstrap: context.immutableInputBootstrap }) : undefined;
   if (context !== undefined && resumed === undefined && hostedRuntime === undefined) throw new Error('Unknown hosted Session context.');
   const command = argv[0];
   if (hostedRuntime !== undefined && command !== 'integrate-hosted') {
@@ -3669,6 +3675,8 @@ export async function verificationSessionCli(argv: string[], context?: Verificat
     let inlineMainHealthPlan: TrustedRuntimePostMergeMainHealthPlan | null = null;
     if (hostedRuntime !== undefined) {
       const origin = assertAuthenticatedGitHubJobOriginCurrent(hostedRuntime.origin);
+      await assertAuthenticatedLinuxHostedBootstrapCurrent(hostedRuntime.immutableInputBootstrap);
+      const bootstrap = observeAuthenticatedLinuxHostedBootstrap(hostedRuntime.immutableInputBootstrap);
       const engine = await consumeQualifiedContainerEngineOciExporter(hostedRuntime.engineExporter);
       if (origin.role !== 'control' || origin.policyJobId !== 'integrate'
           || origin.phase !== 'integrate-hosted'
@@ -3678,6 +3686,9 @@ export async function verificationSessionCli(argv: string[], context?: Verificat
           || origin.jobId !== hostedIdentity.phase.jobId || origin.stepNumber !== hostedIdentity.phase.stepNumber
           || origin.stepName !== hostedIdentity.phase.stepName || origin.workflowSha !== hostedProvenance.workflowSha
           || hostedRuntime.engineExporter.originIdentityDigest !== origin.identityDigest
+          || bootstrap.originIdentityDigest !== origin.identityDigest
+          || bootstrap.deadlineAtUnixMs > origin.originalDeadlineAtUnixMs
+          || engine.deadlineAtUnixMs > bootstrap.deadlineAtUnixMs
           || engine.cwd !== repositoryRoot || engine.deadlineAtUnixMs > origin.deadlineAtUnixMs) {
         throw new Error('Hosted integration runtime differs from the actual authenticated operation.');
       }

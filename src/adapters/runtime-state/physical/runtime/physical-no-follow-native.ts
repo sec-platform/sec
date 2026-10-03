@@ -166,6 +166,84 @@ export function requireLinuxLibc(): LinuxLibc {
   return linuxLibc;
 }
 
+/** Descriptor-bound observation. f_flags alone is per-mount, not proof that
+ * every alias of the superblock is read-only; the input owner also consumes
+ * the kernel mountinfo superblock options for this exact descriptor's mnt_id. */
+export function linuxRetainedFilesystemObservation(fd: number): Readonly<{
+  type: bigint; flags: bigint; filesystemId: string;
+}> {
+  if (process.platform !== 'linux' || (process.arch !== 'x64' && process.arch !== 'arm64')) {
+    throw physicalError('PHYSICAL_NO_FOLLOW_CAPABILITY_UNAVAILABLE', 'Filesystem observation ABI is unavailable.');
+  }
+  const value = Buffer.alloc(120);
+  if (requireLinuxLibc().symbols.fstatfs(fd, ptr(value)) !== 0) {
+    throw physicalError('PHYSICAL_NO_FOLLOW_CAPABILITY_UNAVAILABLE', 'Retained filesystem observation failed.');
+  }
+  return Object.freeze({ type: value.readBigUInt64LE(0), flags: value.readBigUInt64LE(80),
+    filesystemId: value.subarray(56, 64).toString('hex') });
+}
+
+/** Pure x86-64 filter bytes. This data does not issue a physical capability. */
+export function compileLinuxRepositoryNamespaceFence(): Uint8Array {
+  const instructions: Array<readonly [number, number, number, number]> = [
+    [0x20, 0, 0, 4], // seccomp_data.arch
+    [0x15, 1, 0, 0xc000003e], // AUDIT_ARCH_X86_64; reject compat ABIs.
+    [0x06, 0, 0, 0x80000000],
+    [0x20, 0, 0, 0], // seccomp_data.nr
+    [0x45, 0, 1, 0x40000000], // x32 shares arch but has a distinct syscall ABI.
+    [0x06, 0, 0, 0x80000000],
+    [0x15, 0, 4, 56], // clone: ordinary threads/fork remain available.
+    [0x20, 0, 0, 16], // Low 32 bits of args[0], x86-64 clone flags.
+    [0x45, 0, 1, 0x10020000], // CLONE_NEWUSER | CLONE_NEWNS
+    [0x06, 0, 0, 0x00050001],
+    [0x06, 0, 0, 0x7fff0000]
+  ];
+  // Original and new mount APIs, namespace entry/creation, root replacement,
+  // and cross-process memory injection cannot escape the retained input view.
+  for (const number of [101, 155, 161, 165, 166, 272, 308, 311, 428, 429, 430, 431, 432, 433, 442]) {
+    instructions.push([0x15, 0, 1, number], [0x06, 0, 0, 0x00050001]);
+  }
+  // clone3 points to mutable argument memory. Do not dereference it in a
+  // userspace broker; ENOSYS preserves ordinary libc clone fallback.
+  instructions.push([0x15, 0, 1, 435], [0x06, 0, 0, 0x00050026], [0x06, 0, 0, 0x7fff0000]);
+  const bytes = Buffer.alloc(instructions.length * 8);
+  instructions.forEach(([code, jt, jf, k], index) => {
+    bytes.writeUInt16LE(code, index * 8); bytes[index * 8 + 2] = jt;
+    bytes[index * 8 + 3] = jf; bytes.writeUInt32LE(k, index * 8 + 4);
+  });
+  return bytes;
+}
+
+let repositoryNamespaceFenceProcess: number | null = null;
+
+/** Irreversibly narrows this process and all current threads via TSYNC. The
+ * original execution owner must run it in a dedicated workload process; its
+ * outer privileged owner keeps namespace/container cleanup responsibility.
+ * No environment bit, Seccomp status, or supplied filter can select success. */
+export function installLinuxRepositoryNamespaceFence(): void {
+  if (process.platform !== 'linux' || process.arch !== 'x64') {
+    throw physicalError('PHYSICAL_NO_FOLLOW_CAPABILITY_UNAVAILABLE', 'Repository namespace fence ABI is unavailable.');
+  }
+  if (repositoryNamespaceFenceProcess === process.pid) return;
+  const instructions = compileLinuxRepositoryNamespaceFence();
+  const program = Buffer.alloc(16);
+  program.writeUInt16LE(instructions.length / 8, 0);
+  program.writeBigUInt64LE(BigInt(ptr(instructions)), 8);
+  const library = dlopen('libc.so.6', {
+    syscall: { args: [FFIType.i64, FFIType.i64, FFIType.i64, FFIType.ptr], returns: FFIType.i64 }
+  } as const);
+  try {
+    // seccomp(SECCOMP_SET_MODE_FILTER, SECCOMP_FILTER_FLAG_TSYNC, &program).
+    // Positive TID means a thread could not synchronize, not partial success.
+    if (Number(library.symbols.syscall(317, 1, 1, ptr(program))) !== 0) {
+      throw physicalError('PHYSICAL_NO_FOLLOW_CAPABILITY_UNAVAILABLE', 'Repository namespace fence did not synchronize every thread.');
+    }
+    repositoryNamespaceFenceProcess = process.pid;
+  } finally {
+    library.close();
+  }
+}
+
 type LinuxExecutableLibc = ReturnType<typeof loadLinuxExecutableLibc>;
 
 let linuxExecutableLibc: LinuxExecutableLibc | undefined;

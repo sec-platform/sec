@@ -22,6 +22,7 @@ import {
   TRUSTED_RUNTIME_CONTAINER_EXECUTION_ENVIRONMENT,
   TRUSTED_RUNTIME_CONTAINER_IMAGE_ID,
   TRUSTED_RUNTIME_MUTABLE_TMPFS_SPEC,
+  TRUSTED_RUNTIME_OUTPUT_TMPFS_SPEC,
   TRUSTED_RUNTIME_STATE_ENVIRONMENT,
   TRUSTED_RUNTIME_TEST_TMPFS_SPEC,
   TRUSTED_RUNTIME_WORKSPACE_SETUP_SCRIPT,
@@ -229,6 +230,28 @@ describe('provider-neutral trusted runtime container', () => {
     expect(TRUSTED_RUNTIME_WORKSPACE_SETUP_SCRIPT).not.toContain(
       'src/adapters/self-hosting/development/runner/cli.ts deps:ensure'
     );
+  });
+
+  test('immutable MainHealth inspect requires exact setup capabilities, profile and independent output tmpfs', () => {
+    const profile = `sec-sut-${'a'.repeat(32)}`;
+    const container = { Id: '4'.repeat(64), Image: TRUSTED_RUNTIME_CONTAINER_IMAGE_ID,
+      Name: '/sec-trusted-runtime-main-health', Config: { Labels: {} }, AppArmorProfile: profile,
+      HostConfig: { ReadonlyRootfs: true, Init: true, Privileged: false, PidMode: '', UsernsMode: '',
+        CapDrop: ['ALL'], CapAdd: ['SETGID', 'SETPCAP', 'SETUID', 'SYS_ADMIN'],
+        SecurityOpt: ['no-new-privileges:true', `apparmor=${profile}`], Tmpfs: {
+          '/tmp': TRUSTED_RUNTIME_TEST_TMPFS_SPEC.slice('/tmp:'.length),
+          '/sec-runtime': TRUSTED_RUNTIME_MUTABLE_TMPFS_SPEC.slice('/sec-runtime:'.length),
+          '/sec-runtime/output': TRUSTED_RUNTIME_OUTPUT_TMPFS_SPEC.slice('/sec-runtime/output:'.length)
+        } }, Mounts: [{ Destination: '/candidate.bundle', Source: '/trusted/candidate.bundle', Type: 'bind', RW: false }] };
+    expect(parseTrustedRuntimeContainerIdentity(JSON.stringify([container])).immutableInputProfile).toBe(profile);
+    for (const change of [{ Privileged: true }, { PidMode: 'host' }, { UsernsMode: 'host' },
+      { CapAdd: [...container.HostConfig.CapAdd, 'SYS_PTRACE'] }, { CapDrop: [] },
+      { SecurityOpt: ['no-new-privileges:true', 'apparmor=unconfined'] }]) {
+      expect(() => parseTrustedRuntimeContainerIdentity(JSON.stringify([{ ...container,
+        HostConfig: { ...container.HostConfig, ...change } }]))).toThrow();
+    }
+    expect(() => parseTrustedRuntimeContainerIdentity(JSON.stringify([{ ...container,
+      Mounts: [...container.Mounts, { Destination: '/sec-runtime/workspace/tmp', Source: '/foreign', Type: 'bind', RW: true }] }]))).toThrow('extra writable input');
   });
 
   test('builds through Buildx with authority-owned absolute and semantic stall deadlines', () => {

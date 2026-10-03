@@ -19,7 +19,7 @@ import {
 } from '../../../../execution/operation/semantic.ts';
 import { isFileNotFoundError, readJson } from "../../../filesystem/files.ts";
 import { generatedStateDigest, type GeneratedStateCleanupProfile, type GeneratedStateInventory, type GeneratedStatePhysicalIdentity, type GeneratedStateRegistration } from '../../../runtime-state/generated-state/contract.ts';
-import { assertPhysicalGenerationRetirementReceipt, assertSameNoFollowDirectoryIdentity, copyNoFollowDirectoryTreesBulk, createExclusiveNoFollowRandomDirectory, createNoFollowOrdinaryDirectoryChain, deleteRetainedNoFollowEntry, inspectExactNoFollowDirectoryPresence, inspectExactNoFollowLinkEntry, inspectNoFollowDirectoryChain, inspectNoFollowDirectoryChild, inspectNoFollowDirectoryLeaf, inspectNoFollowLinkEntry, inspectNoFollowOrdinaryFileEntry, materializeRetainedNoFollowProvenDirectoryGeneration, openWindowsLegacySealedDirectoryRelocation, PhysicalNoFollowError, prepareWindowsLegacySealedDirectoryRelocation, publishExclusiveDurableCanonicalFile, publishExclusiveNoFollowLink, readNoFollowOrdinaryFile, relocateRetainedNoFollowDirectoryAcrossParents, relocateRetainedNoFollowLinkAcrossParents, relocateWindowsLegacySealedDirectory, reopenRetainedNoFollowProvenDirectoryGeneration, replaceDurableCanonicalFile, retireNoFollowDirectoryTree, retireNoFollowProvenDirectoryGeneration, scanNoFollowDirectoryTreeInventory, scanNoFollowDirectoryTreeMetadata, type PhysicalDirectoryIdentity, type PhysicalGenerationRetirementReceipt, type RetainedNoFollowProvenDirectoryGeneration, type WindowsLegacySealedDirectoryRelocationCapability } from '../../../runtime-state/physical/runtime/physical-no-follow.ts';
+import { assertPhysicalGenerationRetirementReceipt, assertPhysicallyDisjointDirectoryChains, assertRetainedNoFollowProvenDirectoryGeneration, assertSameNoFollowDirectoryIdentity, copyNoFollowDirectoryTreesBulk, createExclusiveNoFollowRandomDirectory, createNoFollowOrdinaryDirectoryChain, deleteRetainedNoFollowEntry, inspectExactNoFollowDirectoryPresence, inspectExactNoFollowLinkEntry, inspectNoFollowDirectoryChain, inspectNoFollowDirectoryChild, inspectNoFollowDirectoryLeaf, inspectNoFollowLinkEntry, inspectNoFollowOrdinaryFileEntry, materializeRetainedNoFollowProvenDirectoryGeneration, openWindowsLegacySealedDirectoryRelocation, PhysicalNoFollowError, prepareWindowsLegacySealedDirectoryRelocation, publishExclusiveDurableCanonicalFile, publishExclusiveNoFollowLink, readNoFollowOrdinaryFile, relocateRetainedNoFollowDirectoryAcrossParents, relocateRetainedNoFollowLinkAcrossParents, relocateWindowsLegacySealedDirectory, reopenRetainedNoFollowProvenDirectoryGeneration, replaceDurableCanonicalFile, retireNoFollowDirectoryTree, retireNoFollowProvenDirectoryGeneration, scanNoFollowDirectoryDirectMetadata, scanNoFollowDirectoryTreeInventory, scanNoFollowDirectoryTreeMetadata, type PhysicalDirectoryIdentity, type PhysicalGenerationRetirementReceipt, type RetainedNoFollowProvenDirectoryGeneration, type WindowsLegacySealedDirectoryRelocationCapability } from '../../../runtime-state/physical/runtime/physical-no-follow.ts';
 import { WindowsHostDirectoryAuthorityError } from '../../../runtime-state/physical/runtime/windows-host-filesystem-authority.ts';
 import { resolveSecWorkspaceRuntimeRoots } from '../../../runtime-state/workspace-state/paths.ts';
 import { acquireSecRuntimeStatePhysicalAuthority } from '../../../runtime-state/workspace-state/physical-authority.ts';
@@ -428,9 +428,10 @@ export interface DependencyAuthorityPaths {
 
 async function bindCanonicalGeneratedStateLifecycle(
   options: RuntimeDependencyOperationOptions,
-  root: string
+  root: string,
+  explicitCompilerTarget = false
 ): Promise<RuntimeDependencyOperationOptions> {
-  if (!sameHostPath(root, compilerRoot)) return options;
+  if (!explicitCompilerTarget && !sameHostPath(root, compilerRoot)) return options;
   const {
     createGeneratedStateCleanupOperationSession,
     generatedStateProducerHooks: generatedStateProducerHooksV1
@@ -5714,10 +5715,66 @@ const COMPILER_DEPENDENCY_STAGING_FAILURE_CODES: ReadonlySet<string> = new Set([
   'ENOTEMPTY', 'ENOTSUP', 'EPERM', 'EROFS', 'ETIMEDOUT', 'EXDEV'
 ]);
 
+type CompilerDependencyMaterializationSource =
+  | Readonly<{ kind: 'install' }>
+  | Readonly<{ kind: 'retained-content'; generation: RetainedNoFollowProvenDirectoryGeneration }>;
+
+const COMPILER_DEPENDENCY_INSTALL_SOURCE = Object.freeze({ kind: 'install' as const });
+const COMPILER_DEPENDENCY_CONTENT_INPUTS = Object.freeze([
+  '.bun-version', 'bun.lock', 'bunfig.toml', 'package.json'
+] as const);
+
+/** Content continuity comes from Runtime Physical; archive/ticket admission
+ * remains the trusted transport adapter's responsibility. No imported binding
+ * or caller-selected digest is accepted as compiler execution authority. */
+async function assertCompilerDependencyRetainedContent(
+  generation: RetainedNoFollowProvenDirectoryGeneration,
+  root: string,
+  options: RuntimeDependencyOperationOptions
+): Promise<PhysicalDirectoryIdentity> {
+  assertRetainedNoFollowProvenDirectoryGeneration(generation, 'Compiler dependency transported content');
+  runtimeDependencyOperationRemainingMs(options, 'Compiler dependency transported content admission');
+  generation.assertCurrent();
+  await generation.assertAuthorityCurrent();
+  const content = assertSameNoFollowDirectoryIdentity(generation.root, 'Compiler dependency content root');
+  const target = inspectNoFollowDirectoryChain(root, 'Compiler dependency content consumer');
+  assertPhysicallyDisjointDirectoryChains(content, target, 'Compiler dependency content and consumer');
+  const context = runtimeDependencyOperationContext(options);
+  const children = scanNoFollowDirectoryDirectMetadata(content.target, {
+    deadlineAtMs: context.deadlineAtMonotonicMs,
+    maximumEntries: COMPILER_DEPENDENCY_CONTENT_INPUTS.length + 1,
+    signal: context.signal
+  });
+  if (children.some((entry) => entry.relativePath === 'node_modules'
+    ? entry.kind !== 'directory'
+    : !COMPILER_DEPENDENCY_CONTENT_INPUTS.some((name) => name === entry.relativePath)
+      || entry.kind !== 'file')) {
+    throw new SecError('RUNTIME-DEPS-004', 'Compiler dependency content has an unexpected root member');
+  }
+  for (const name of COMPILER_DEPENDENCY_CONTENT_INPUTS) {
+    const sourceBytes = readNoFollowOrdinaryFile(content.target, name);
+    const targetBytes = readNoFollowOrdinaryFile(target.target, name);
+    if (sourceBytes === null || targetBytes === null) {
+      if (name === 'bunfig.toml' && sourceBytes === null && targetBytes === null) continue;
+      throw new SecError('RUNTIME-DEPS-004', `Compiler dependency content input is absent: ${name}`);
+    }
+    if (!Buffer.from(sourceBytes).equals(Buffer.from(targetBytes))) {
+      throw new SecError('RUNTIME-DEPS-004', `Compiler dependency content input differs: ${name}`);
+    }
+  }
+  const modules = inspectNoFollowDirectoryChild(content.target, 'node_modules', 'Compiler dependency content modules');
+  if (modules === null) throw new SecError('RUNTIME-DEPS-004', 'Compiler dependency content modules are absent');
+  await generation.assertAuthorityCurrent();
+  generation.assertCurrent();
+  assertSameNoFollowDirectoryIdentity(target.target, 'Compiler dependency content consumer readback');
+  return modules;
+}
+
 async function stageCompilerDependencyGeneration(
   root: string,
   identity: CompilerDependencyIdentity,
-  options: RuntimeDependencyOperationOptions
+  options: RuntimeDependencyOperationOptions,
+  materializationSource: CompilerDependencyMaterializationSource = COMPILER_DEPENDENCY_INSTALL_SOURCE
 ): Promise<{
   binding: CompilerDepsBinding;
   stageIntent: CompilerDependencyStageIntent;
@@ -5835,14 +5892,33 @@ async function stageCompilerDependencyGeneration(
       assertCompilerDependencyInputsCurrent(root, identity);
     };
     await compilerInputFence();
-    await runBunInstall(
-      stagingRoot,
-      options,
-      COMPILER_DEPENDENCY_INSTALL_ARGS,
-      cacheDir,
-      runtimeExecutable,
-      compilerInputFence
-    );
+    if (materializationSource.kind === 'install') {
+      await runBunInstall(
+        stagingRoot,
+        options,
+        COMPILER_DEPENDENCY_INSTALL_ARGS,
+        cacheDir,
+        runtimeExecutable,
+        compilerInputFence
+      );
+    } else {
+      const source = await assertCompilerDependencyRetainedContent(materializationSource.generation, root, options);
+      await copyNoFollowDirectoryTreesBulk([{ source, target: path.join(stagingRoot, 'node_modules') }], {
+        assertCurrent: async () => {
+          await runtimeDependencyOperationEffectFence(options, 'Compiler dependency content materialization');
+          materializationSource.generation.assertCurrent();
+          await materializationSource.generation.assertAuthorityCurrent();
+          await compilerInputFence();
+        },
+        deadlineAtMs: operationContext.deadlineAtMonotonicMs,
+        maximumBytes: RUNTIME_DEPENDENCY_SOURCE_MAXIMUM_BYTES,
+        maximumEntries: RUNTIME_DEPENDENCY_SOURCE_MAXIMUM_ENTRIES,
+        excludeRelativePaths: [COMPILER_DEPS_BINDING_FILE],
+        preserveFilePermissionMode: true,
+        signal: operationContext.signal
+      });
+      await assertCompilerDependencyRetainedContent(materializationSource.generation, root, options);
+    }
     await compilerInputFence();
     const nodeModulesPath = path.join(stagingRoot, 'node_modules');
     const packages = await compilerDependencyPackageBindings(nodeModulesPath, identity);
@@ -10842,7 +10918,8 @@ export async function observeCompilerDependencyExecutionGenerationAuthority(
 async function ensureCompilerDepsReadyInternal(
   options: RuntimeDependencyInstallOptions = {},
   compilerDependencyRoot = compilerRoot,
-  admittedSource?: CompilerDependencyExecutionGenerationAuthorityRecord
+  admittedSource?: CompilerDependencyExecutionGenerationAuthorityRecord,
+  materializationSource: CompilerDependencyMaterializationSource = COMPILER_DEPENDENCY_INSTALL_SOURCE
 ): Promise<CompilerDepsReadyState> {
   const operationOptions = runtimeDependencyOperationOptions(options);
   const root = path.resolve(compilerDependencyRoot);
@@ -10880,6 +10957,9 @@ async function ensureCompilerDepsReadyInternal(
     identity,
     lifecycleOptions
   );
+  if (materializationSource.kind === 'retained-content' && observed !== null) {
+    throw new SecError('RUNTIME-DEPS-004', 'Compiler dependency content consumer appeared before admission');
+  }
   if (observed?.kind === 'incompatible-bridge') {
     await withCompilerDependencyTransitionLease(root, lifecycleOptions, async (lockedOptions) => {
       const current = await observeCompilerDependencyReady(
@@ -10984,6 +11064,10 @@ async function ensureCompilerDepsReadyInternal(
   );
 
   return withCompilerDependencyTransitionLease(root, lifecycleOptions, async (lockedOptions) => {
+    if (materializationSource.kind === 'retained-content'
+        && (await observeDependencyTransitionSlot(nodeModulesPath)).kind !== 'absent') {
+      throw new SecError('RUNTIME-DEPS-004', 'Compiler dependency content consumer appeared before materialization');
+    }
     const lockedBridge = await compilerDependencyConsumerBridgeBinding(
       root,
       nodeModulesPath,
@@ -11052,7 +11136,7 @@ async function ensureCompilerDepsReadyInternal(
     }
 
     const sharedWorktreeGeneration = admittedSource === undefined
-      ? await resolveLinkedWorktreeDependencyGeneration({
+      ? materializationSource.kind === 'retained-content' ? null : await resolveLinkedWorktreeDependencyGeneration({
           consumerRoot: root,
           consumerIdentity: identity,
           options: lockedOptions
@@ -11225,7 +11309,7 @@ async function ensureCompilerDepsReadyInternal(
       }
     }
 
-    const staged = await stageCompilerDependencyGeneration(root, identity, lockedOptions);
+    const staged = await stageCompilerDependencyGeneration(root, identity, lockedOptions, materializationSource);
     const stagedBinding = await compilerDependencyGenerationBinding(
       root,
       path.join(staged.stagingRoot, 'node_modules'),
@@ -11272,10 +11356,44 @@ async function ensureCompilerDepsReadyInternal(
       nodeModulesPath,
       root,
       sourceGeneration: publishedGeneration,
-      source: 'installed'
+      source: materializationSource.kind === 'retained-content' ? 'existing' : 'installed'
     });
     return readyState;
   });
+}
+
+/** Internal trusted-transport composition only; deliberately absent from the
+ * public runtime facade. The adapter authenticates its archive before lending
+ * this genuine physical content generation, and retains ownership of retiring
+ * it. This owner publishes only freshly qualified target-runtime state. */
+export async function ensureCompilerDepsReadyFromRetainedContent(
+  content: RetainedNoFollowProvenDirectoryGeneration,
+  options: RuntimeDependencyInstallOptions,
+  compilerDependencyRoot: string
+): Promise<CompilerDepsReadyState> {
+  assertRetainedNoFollowProvenDirectoryGeneration(content, 'Compiler dependency transported content');
+  const operationOptions = runtimeDependencyOperationOptions(options);
+  const root = path.resolve(compilerDependencyRoot);
+  const targetRoot = inspectNoFollowDirectoryChain(root, 'Compiler dependency imported consumer').target;
+  await assertCompilerDependencyRetainedContent(content, root, operationOptions);
+  const identity = await observeCompilerDependencyIdentity(root, operationOptions);
+  if ((await observeDependencyTransitionSlot(path.join(root, 'node_modules'))).kind !== 'absent') {
+    throw new SecError('RUNTIME-DEPS-004', 'Compiler dependency content import requires an absent consumer locator');
+  }
+  const targetOptions = operationOptions.generatedStateLifecycle === undefined
+    ? await bindCanonicalGeneratedStateLifecycle(operationOptions, root, true)
+    : operationOptions;
+  content.assertCurrent();
+  await content.assertAuthorityCurrent();
+  assertSameNoFollowDirectoryIdentity(targetRoot, 'Compiler dependency imported consumer before publication');
+  assertCompilerDependencyInputsCurrent(root, identity);
+  const ready = await ensureCompilerDepsReadyInternal(targetOptions, root, undefined, {
+    kind: 'retained-content', generation: content
+  });
+  await assertCompilerDependencyRetainedContent(content, root, operationOptions);
+  assertSameNoFollowDirectoryIdentity(targetRoot, 'Compiler dependency imported consumer after publication');
+  assertCompilerDependencyInputsCurrent(root, identity);
+  return ready;
 }
 
 /**
@@ -11293,6 +11411,10 @@ export async function ensureCompilerDepsReadyFromGeneration(
   const source = compilerDependencyExecutionGenerationAuthorities.get(authority)!;
   const operationOptions = runtimeDependencyOperationOptions(options);
   const root = path.resolve(compilerDependencyRoot);
+  const targetRoot = inspectNoFollowDirectoryChain(
+    root,
+    'Explicit compiler dependency consumer root'
+  ).target;
   const identity = await observeCompilerDependencyIdentity(root, operationOptions);
   if (!canonicalEquals(identity, source.identity)) {
     throw new SecError('RUNTIME-DEPS-004', 'Explicit compiler dependency source has incompatible canonical inputs');
@@ -11313,10 +11435,21 @@ export async function ensureCompilerDepsReadyFromGeneration(
   let primary: RuntimeDependencyCapturedFailure | undefined;
   try {
     await retained.assertAuthorityCurrent();
+    assertSameNoFollowDirectoryIdentity(targetRoot, 'Explicit compiler dependency consumer before binding');
+    // The public facade accepts no lifecycle provider. Its explicit target
+    // still needs the canonical producer's birth/retirement obligation even
+    // when trusted code is executing from another compiler root. Internal
+    // fixture owners retain their existing isolated lifecycle and cleanup.
+    const targetOptions = operationOptions.generatedStateLifecycle === undefined
+      ? await bindCanonicalGeneratedStateLifecycle(operationOptions, root, true)
+      : operationOptions;
+    await retained.assertAuthorityCurrent();
+    assertSameNoFollowDirectoryIdentity(targetRoot, 'Explicit compiler dependency consumer before publication');
     // The fresh observation owns transition-capable source provenance; the
     // caller authority can contain a serialized publication projection.
-    ready = await ensureCompilerDepsReadyInternal(operationOptions, root, currentSource);
+    ready = await ensureCompilerDepsReadyInternal(targetOptions, root, currentSource);
     await retained.assertAuthorityCurrent();
+    assertSameNoFollowDirectoryIdentity(targetRoot, 'Explicit compiler dependency consumer after publication');
     await assertCompilerDependencyReadTransitionTerminal(source.sourceGeneration.ownerRoot, operationOptions);
     if (!sameHostPath(source.root, source.sourceGeneration.ownerRoot)) {
       await assertCompilerDependencyReadTransitionTerminal(source.root, operationOptions);
