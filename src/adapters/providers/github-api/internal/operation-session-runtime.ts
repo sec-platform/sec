@@ -673,7 +673,9 @@ function issueCapability(input: Readonly<{
     && input.principal.permission === 'workflow'
     && (input.principal.workflowRef === `${input.repository}/.github/workflows/repository-maintenance.yml@refs/heads/main` ||
       (input.effect === 'verification-read' && [`${input.repository}/.github/workflows/compiler-pr-validation.yml@refs/heads/main`,
-        `${input.repository}/.github/workflows/merge-gate.yml@refs/heads/main`].includes(input.principal.workflowRef)))
+        `${input.repository}/.github/workflows/merge-gate.yml@refs/heads/main`,
+        `${input.repository}/.github/workflows/trusted-bootstrap.yml@refs/heads/main`,
+        `${input.repository}/.github/workflows/compiler-release-validation.yml@refs/heads/main`].includes(input.principal.workflowRef)))
     && /^[0-9a-f]{40}$/u.test(input.principal.workflowSha);
   if (!/^[^\s\u0000-\u001f\u007f-\u009f]{20,1024}$/u.test(input.token)
       || (!userPrincipalValid && !workflowPrincipalValid)
@@ -721,6 +723,8 @@ function issueCapability(input: Readonly<{
     const verificationRead = input.effect === 'verification-read' &&
       [`${input.repository}/.github/workflows/compiler-pr-validation.yml@refs/heads/main`,
         `${input.repository}/.github/workflows/merge-gate.yml@refs/heads/main`,
+        `${input.repository}/.github/workflows/trusted-bootstrap.yml@refs/heads/main`,
+        `${input.repository}/.github/workflows/compiler-release-validation.yml@refs/heads/main`,
         `${input.repository}/.github/workflows/repository-maintenance.yml@refs/heads/main`].includes(input.principal.workflowRef);
     if ((!maintenanceWorkflow || !maintenanceEffect) && !verificationRead) {
       throw new GitHubApiProviderError(
