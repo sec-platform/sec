@@ -205,9 +205,9 @@ const RUNTIME_PERMISSIONS: Readonly<Record<string, Readonly<Record<string, strin
   'coordinate-verification-session': WRITE_CONTROL,
   'resolve-verification-action': READ_CONTROL,
   'preflight-verification-action-sut': Object.freeze({ actions: 'read', contents: 'read' }),
-  'claim-verification-action': Object.freeze({ actions: 'write', checks: 'read', contents: 'read', statuses: 'write' }),
+  'claim-verification-action': Object.freeze({ actions: 'read', checks: 'read', contents: 'read', statuses: 'write' }),
   'execute-verification-action-sut': Object.freeze({ actions: 'read', contents: 'read' }),
-  'assemble-verification-action-terminal': Object.freeze({ actions: 'write', checks: 'read', contents: 'read', statuses: 'write' }),
+  'assemble-verification-action-terminal': Object.freeze({ actions: 'read', checks: 'read', contents: 'read', statuses: 'write' }),
   // Own-job origin joins use the authenticated Actions run/job endpoints.
   // These requirements do not themselves grant any workflow permission.
   'main-health': Object.freeze({ actions: 'read', contents: 'read' }),

@@ -55,7 +55,7 @@ function compilerWorkflowFixture(): string {
   const prepared = (job: string) => download(job, 'prepared', 'claim-verification-action', 'Download exact prepared candidate ticket transport');
   const readControl = { actions: 'read', checks: 'read', contents: 'read', issues: 'read', 'pull-requests': 'read', statuses: 'read' };
   const readSut = { actions: 'read', contents: 'read' };
-  const writeStatus = { actions: 'write', checks: 'read', contents: 'read', statuses: 'write' };
+  const writeStatus = { actions: 'read', checks: 'read', contents: 'read', statuses: 'write' };
   const job = (minutes: number, permissions: Record<string, string>, steps: readonly unknown[], name?: string) => ({
     ...(name === undefined ? {} : { name }), 'runs-on': 'ubuntu-24.04', 'timeout-minutes': minutes,
     permissions: { ...permissions, 'id-token': 'write' }, steps: [...structuredClone(setup), ...steps]

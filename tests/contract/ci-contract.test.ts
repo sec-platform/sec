@@ -264,6 +264,17 @@ test('closed per-job policy preserves every authored job id, role, name, event a
   }
 });
 
+test('per-job workflow tokens cannot delete active wake history through Actions write', () => {
+  for (const policy of CI_VERIFICATION_PER_JOB_HOSTED_JOB_POLICIES) {
+    const grants: Readonly<Record<string, string>> | null = policy.requiredPermissions;
+    if (policy.runtime.kind === 'per-job-runtime') expect(grants?.actions).toBe('read');
+  }
+  for (const id of ['claim-verification-action', 'assemble-verification-action-terminal']) {
+    const policy = CI_VERIFICATION_PER_JOB_HOSTED_JOB_POLICIES.find(policy => policy.jobId === id)!;
+    expect(policy.requiredPermissions).toMatchObject({ actions: 'read', statuses: 'write' });
+  }
+});
+
 test('only each actual runtime job requires its own origin; API-only jobs receive none', async () => {
   const policies = CI_VERIFICATION_PER_JOB_HOSTED_JOB_POLICIES;
   for (const policy of policies) {

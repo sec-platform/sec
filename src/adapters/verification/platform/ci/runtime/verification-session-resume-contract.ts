@@ -26,11 +26,19 @@ function exactObject(value: unknown, keys: readonly string[], label: string): Re
   return value as Record<string, unknown>;
 }
 
-/** Decode the provider's one wire, then close its CI-owned request and locator
- * semantics. This data is neither a live origin nor a permission grant. */
-export function parseCiVerificationSessionResumeSignal(source: string): HostedResumeSignal {
-  const signal = parseHostedResumeDispatchSignal(source);
-  const completed = signal.completedAction;
+function parseCompletedAction(input: HostedResumeSignal['completedAction']) {
+  const source = encodeVerificationActionData(input);
+  if (Buffer.byteLength(source, 'utf8') > 32 * 1024) throw new Error('Session resume completed Action exceeds the provider wire limit.');
+  const completed = exactObject(JSON.parse(source) as unknown,
+    ['providerEnvelope', 'runId', 'runAttempt', 'terminalArtifactId', 'terminalArtifactName',
+      'terminalArchiveDigest', 'terminalPayloadDigest'], 'completed Action');
+  const id = (value: unknown) => typeof value === 'string' && /^[1-9][0-9]{0,19}$/u.test(value);
+  const digest = (value: unknown) => typeof value === 'string' && /^sha256:[0-9a-f]{64}$/u.test(value);
+  if (!id(completed.runId) || !id(completed.terminalArtifactId)
+      || !Number.isSafeInteger(completed.runAttempt) || Number(completed.runAttempt) < 1 || Number(completed.runAttempt) > 1000
+      || !digest(completed.terminalArchiveDigest) || !digest(completed.terminalPayloadDigest)) {
+    throw new Error('Session resume completed Action identity is invalid.');
+  }
   const envelope = parseCiVerificationActionProviderEnvelope(completed.providerEnvelope);
   const request = parseVerificationSessionHostedRequest(encodeVerificationActionData(envelope.proposal.sessionRequest));
   if (request.schema !== CI_VERIFICATION_SESSION_PER_JOB_REQUEST_SCHEMA
@@ -38,12 +46,30 @@ export function parseCiVerificationSessionResumeSignal(source: string): HostedRe
     throw new Error('Session resume requires the exact per-job hosted request.');
   }
   if (envelope.parentWorkflowSha !== request.expectedBaseSha
-      || signal.emitter.workflowSha !== request.expectedBaseSha
-      || envelope.parentWorkflowRef !== `${signal.emitter.repository}/${envelope.parentWorkflowPath}@refs/heads/main`) {
+      || !/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+\/\.github\/workflows\/compiler-pr-validation\.yml@refs\/heads\/main$/u.test(envelope.parentWorkflowRef)) {
     throw new Error('Session resume workflow source differs from the original request.');
   }
   if (completed.terminalArtifactName !== verificationActionProviderTerminalArtifactName(envelope.proposal.proposedActionKey)) {
     throw new Error('Session resume terminal name differs from its Action.');
+  }
+  return { completed, envelope, request };
+}
+
+/** The provider's existing cause preimage, without inventing an emitter for a
+ * read-only recovery census. The returned identity is data, never authority. */
+export function ciVerificationSessionWakeKey(completedAction: HostedResumeSignal['completedAction']): HostedResumeSignal['wakeKey'] {
+  const { completed } = parseCompletedAction(completedAction);
+  return sha256({ schema: 'sec-verification-session-wake-key-v1', completedAction: completed });
+}
+
+/** Decode the provider's one wire, then close its CI-owned request and locator
+ * semantics. This data is neither a live origin nor a permission grant. */
+export function parseCiVerificationSessionResumeSignal(source: string): HostedResumeSignal {
+  const signal = parseHostedResumeDispatchSignal(source);
+  const { envelope, request } = parseCompletedAction(signal.completedAction);
+  if (signal.emitter.workflowSha !== request.expectedBaseSha
+      || envelope.parentWorkflowRef !== `${signal.emitter.repository}/${envelope.parentWorkflowPath}@refs/heads/main`) {
+    throw new Error('Session resume workflow source differs from the original request.');
   }
   return signal;
 }
@@ -59,7 +85,7 @@ export function createCiVerificationSessionResumeSignal(input: Readonly<{
     ['completedAction', 'emitter'], 'constructor');
   const content = {
     schema: HOSTED_RESUME_SIGNAL_SCHEMA,
-    wakeKey: sha256({ schema: 'sec-verification-session-wake-key-v1', completedAction: data.completedAction }),
+    wakeKey: ciVerificationSessionWakeKey(data.completedAction as HostedResumeSignal['completedAction']),
     completedAction: data.completedAction,
     emitter: data.emitter
   };

@@ -919,9 +919,10 @@ function hostedSandboxDeadline(args: ReadonlyMap<string, string>): number | unde
 }
 
 /** Internal credential-free SUT process lifetime. The deadline is an outer
- * trusted-launcher data projection, never a recreated GitHub origin. The live
- * outer Engine scope independently stops the entire container at its original
- * deadline. This inner scope can only narrow that absolute budget. */
+ * trusted-launcher data projection, never a recreated GitHub origin. Outer
+ * command deadlines and cancellation remain with their original owner;
+ * an unsettled container is retained as unknown, not declared stopped. This
+ * inner process scope can only narrow the transported absolute budget. */
 async function withHostedSandboxSupervisor<T>(input: Readonly<{
   deadlineAtUnixMs: number | undefined; phase: string; subjectDigest: string;
 }>, use: (supervisor: HostedSutSupervisor | undefined) => Promise<T>): Promise<T> {
