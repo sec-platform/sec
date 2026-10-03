@@ -1,9 +1,10 @@
 import { expect, test } from 'bun:test';
 import { parse as parseYaml } from 'yaml';
 
+import { CI_VERIFICATION_PER_JOB_HOSTED_JOB_POLICIES, getCiVerificationPerJobHostedJobPolicy } from '../../src/adapters/providers/github-api/contract/hosted-job-policy.ts';
 import { SEC_LINUX_VERIFICATION_ENVIRONMENT_AUTHORITY } from '../../src/adapters/providers/linux-verification/contract.ts';
-import { CI_VERIFICATION_ACTION_DISPATCH_TYPE, CI_VERIFICATION_ACTION_PARENT_DISPATCH_PLAN_FILE } from '../../src/adapters/verification/platform/action/contract/ci.ts';
-import { CI_VERIFICATION_HOSTED_PROVIDER_REVISION, CI_VERIFICATION_HOSTED_TOOLCHAIN_REVISION, createCiVerificationHostedProviderRevision, createCiVerificationHostedToolchainRevision } from '../../src/adapters/verification/platform/action/contract/environment.ts';
+import { buildCiVerificationActionPlanClosure, CI_VERIFICATION_ACTION_DISPATCH_TYPE, CI_VERIFICATION_ACTION_PARENT_DISPATCH_PLAN_FILE, CI_VERIFICATION_HOSTED_EXECUTION_ENVIRONMENT } from '../../src/adapters/verification/platform/action/contract/ci.ts';
+import { CI_VERIFICATION_HOSTED_PROVIDER_REVISION, CI_VERIFICATION_HOSTED_TOOLCHAIN_REVISION, CI_VERIFICATION_PER_JOB_HOSTED_PROVIDER_REVISION, createCiVerificationHostedProviderRevision, createCiVerificationHostedToolchainRevision, createCiVerificationPerJobHostedProviderRevision } from '../../src/adapters/verification/platform/action/contract/environment.ts';
 import { CI_COMPILER_WORKFLOW_RUN_IDENTITY, matchesCiCompilerWorkflowRunIdentity, matchesCiWorkflowRunIdentity } from '../../src/adapters/verification/platform/action/contract/provider.ts';
 import { buildCiContract, CI_VERIFICATION_PR_EVENT, CI_VERIFICATION_PR_STEP_ORDER } from '../../src/adapters/verification/platform/ci/contract/core.ts';
 import { CI_VERIFICATION_EXECUTION_MODEL } from '../../src/adapters/verification/platform/ci/contract/plan.ts';
@@ -138,6 +139,141 @@ test('hosted provider revision binds the exact trusted runtime profile', () => {
     image: { ...authority.image, dockerProjectionDigest: hostileProjectionDigest }
   });
   expect(changedRevision).not.toBe(CI_VERIFICATION_HOSTED_PROVIDER_REVISION);
+});
+
+test('per-job identity keeps the exact historical provider and active default unchanged', () => {
+  expect(CI_VERIFICATION_HOSTED_PROVIDER_REVISION).toBe(
+    'github-actions:self-hosted:ubuntu-24.04:x64:sec-linux-verification-v1:roles-control-trusted-sut-v1:'
+    + 'runner-2.336.0:node-24.19.0:python-3.12.3:unzip-6.00:gh-2.97.0:'
+    + 'gh-archive-sha256-a2c9b8497e1f85b1ad0dfcb78b5a622e098801b8e461e459e88e1ee12f018112:'
+    + 'image-sha256-859df0e6886706c1c91b3b529397421ffd08a0d1ffed58df8b3019f187b859b1:'
+    + 'container-init-v1:bun-1.4.0:action-producer-v2:sandbox-v7'
+  );
+  expect(CI_VERIFICATION_HOSTED_EXECUTION_ENVIRONMENT.executionEnvironmentRevision)
+    .toBe(CI_VERIFICATION_HOSTED_PROVIDER_REVISION);
+  expect(CI_VERIFICATION_PER_JOB_HOSTED_PROVIDER_REVISION)
+    .not.toBe(CI_VERIFICATION_HOSTED_PROVIDER_REVISION);
+  expect(CI_VERIFICATION_PER_JOB_HOSTED_PROVIDER_REVISION.length).toBeLessThanOrEqual(512);
+  expect(CI_VERIFICATION_PER_JOB_HOSTED_PROVIDER_REVISION).toMatch(
+    /^github-actions:github-hosted:ubuntu-24\.04:x64:per-job-v1:execution-policy-sha256:[0-9a-f]{64}:action-producer-v2:sandbox-v7:outer-job-container-v1$/u
+  );
+});
+
+test('per-job provider identity invalidates every changed immutable execution input', () => {
+  const authority = SEC_LINUX_VERIFICATION_ENVIRONMENT_AUTHORITY;
+  const changedDigest = `sha256:${'f'.repeat(64)}` as const;
+  const changes = [
+    { ...authority, image: { ...authority.image, runtimeContentDigest: changedDigest } },
+    { ...authority, image: { ...authority.image, dockerProjectionDigest: changedDigest } },
+    { ...authority, trustedRuntime: { ...authority.trustedRuntime, imageDigest: changedDigest } },
+    { ...authority, trustedRuntime: { ...authority.trustedRuntime, bunExecutableDigest: changedDigest } },
+    { ...authority, trustedRuntime: { ...authority.trustedRuntime, bunArchiveDigest: changedDigest } },
+    { ...authority, trustedRuntime: { ...authority.trustedRuntime, bunExecutablePath: '/other/bun' } },
+    { ...authority, provider: { ...authority.provider, sourcePolicyRevision: 'changed-source-policy' } },
+    { ...authority, runtime: { ...authority.runtime, resources: {
+      ...authority.runtime.resources, sut: { ...authority.runtime.resources.sut, pids: 257 }
+    } } }
+  ];
+  const revisions = changes.map(createCiVerificationPerJobHostedProviderRevision);
+  for (const revision of revisions) expect(revision).not.toBe(CI_VERIFICATION_PER_JOB_HOSTED_PROVIDER_REVISION);
+  expect(new Set(revisions).size).toBe(changes.length);
+});
+
+test('real Action planner separates placement keys and agrees with the declared producer revision', () => {
+  const digest = `sha256:${'a'.repeat(64)}` as const;
+  const plan = (providerRevision: string) => buildCiVerificationActionPlanClosure({
+    candidate: {
+      baseSha: '1'.repeat(40), baseTreeSha: '2'.repeat(40),
+      headSha: '3'.repeat(40), headTreeSha: '4'.repeat(40),
+      manifestPath: 'config/repository/work-packages/example-v1.md',
+      manifestDigest: digest, scopeAuthorizationRevision: digest, profile: 'quick',
+      toolchainRevision: CI_VERIFICATION_HOSTED_TOOLCHAIN_REVISION,
+      providerRevision, contractRevision: 'ci-verification-v19',
+      requiredBlobs: ['.bun-version', 'bun.lock', 'bunfig.toml', 'package.json'].map((path) => ({ path, digest }))
+    },
+    gates: [{ id: 'hosted-placement-contract', phase: 'quick',
+      argv: ['bun', 'test', 'tests/contract/ci-contract.test.ts'], runtime: 'bun',
+      environment: {}, coveredScopeIds: [] }]
+  });
+  const legacy = plan('github-actions@trusted-default');
+  const perJob = plan(CI_VERIFICATION_PER_JOB_HOSTED_PROVIDER_REVISION);
+  expect(perJob.actions[0]?.action.actionKey).not.toBe(legacy.actions[0]?.action.actionKey);
+  expect(legacy.actions[0]?.action.environment.providerRevision).toBe(CI_VERIFICATION_HOSTED_PROVIDER_REVISION);
+  expect(perJob.actions[0]?.action.environment.providerRevision).toBe(CI_VERIFICATION_PER_JOB_HOSTED_PROVIDER_REVISION);
+  const declaredProducer = /:(action-producer-v[0-9]+):/u.exec(CI_VERIFICATION_PER_JOB_HOSTED_PROVIDER_REVISION)?.[1];
+  expect(declaredProducer).toBeDefined();
+  expect(`sec-ci-verification-${declaredProducer}`).toBe(perJob.producerRevision);
+  expect(perJob.actions[0]?.action.producer.revision).toBe(perJob.producerRevision);
+  expect(perJob.actions[0]?.action.operation.revision).toBe(perJob.producerRevision);
+});
+
+test('closed per-job policy preserves every authored job id, role, name, event and deadline', async () => {
+  const policies = CI_VERIFICATION_PER_JOB_HOSTED_JOB_POLICIES;
+  const identities = new Set(policies.map(({ workflowPath, jobId }) => `${workflowPath}#${jobId}`));
+  expect(identities.size).toBe(policies.length);
+  for (const [workflowPath, expectedRoles] of Object.entries(WORKFLOW_RUNNER_ROLES)) {
+    const workflow = parseYaml(await readCompilerFile(workflowPath)) as Workflow;
+    const roleById: Readonly<Record<string, typeof policies[number]['role']>> = expectedRoles;
+    const members = policies.filter((policy) => policy.workflowPath === workflowPath);
+    const jobIds: string[] = members.map(({ jobId }) => jobId);
+    expect(jobIds.sort()).toEqual(Object.keys(workflow.jobs).sort());
+    for (const policy of members) {
+      const authored = workflow.jobs[policy.jobId]!;
+      expect(policy.role).toBe(roleById[policy.jobId]);
+      expect(policy.jobName).toBe(authored.name ?? policy.jobId);
+      expect(policy.maximumJobDurationMs).toBe(authored['timeout-minutes']! * 60_000);
+      expect(policy.runnerLabel).toBe('ubuntu-24.04');
+      expect(policy.allocation).toBe('github-managed-per-job');
+      if (policy.trigger.eventName === 'repository_dispatch') {
+        for (const action of policy.trigger.actions) expect(workflow.on.repository_dispatch?.types).toContain(action);
+      } else {
+        expect(workflow.on.workflow_run?.types).toEqual(['completed']);
+        expect(workflow.on.workflow_run?.workflows).toEqual(['compiler-pr-validation']);
+        expect(policy.trigger.sourceWorkflowPath).toBe('.github/workflows/compiler-pr-validation.yml');
+      }
+    }
+  }
+});
+
+test('only each actual runtime job requires its own origin; API-only jobs receive none', async () => {
+  const policies = CI_VERIFICATION_PER_JOB_HOSTED_JOB_POLICIES;
+  for (const policy of policies) {
+    const workflow = parseYaml(await readCompilerFile(policy.workflowPath)) as Workflow;
+    const authored = workflow.jobs[policy.jobId]!;
+    const apiOnly = authored.steps.every(({ uses }) => uses?.startsWith('actions/github-script@') === true);
+    expect(policy.runtime.kind === 'api-only').toBe(apiOnly);
+    if (policy.runtime.kind === 'per-job-runtime') {
+      expect(policy.runtime.oidcPermission).toBe('id-token:write');
+      expect(policy.runtime.launcherPath).toBe('src/adapters/verification/platform/ci/runtime/hosted-job-runtime.ts');
+      expect(policy.runtime.sourceAdmission).toBe('authenticated-current-default-at-issuance');
+      expect(policy.runtime.sourceRetention).toBe('exact-original-source-through-operation-settlement');
+      expect(policy.runtime.candidateCredentialBoundary)
+        .toBe('no-host-credentials-descriptors-sockets-or-actions-files');
+    } else expect(policy.runtime.oidcPermission).toBeNull();
+    // Source preparation is not permission activation, and cannot silently
+    // substitute a native VM for the physical execution environment.
+    expect(authored.permissions?.['id-token']).toBeUndefined();
+    expect(workflow.permissions?.['id-token']).toBeUndefined();
+    expect(authored['runs-on']).toEqual([
+      ...LOCAL_LINUX_RUNNER_LABELS, LOCAL_LINUX_RUNNER_ROLE_LABELS[policy.role]
+    ]);
+  }
+  expect(policies.filter(({ runtime }) => runtime.kind === 'per-job-runtime')).toHaveLength(14);
+  expect(policies.filter(({ runtime }) => runtime.kind === 'api-only')).toHaveLength(5);
+});
+
+test('policy lookup uses exact authored identity and returns an immutable source member', () => {
+  const workflowPath = '.github/workflows/compiler-pr-validation.yml';
+  const policy = getCiVerificationPerJobHostedJobPolicy(workflowPath, 'main-health');
+  expect(policy?.jobName).toBe('sec/main-health');
+  expect(policy).toBe(CI_VERIFICATION_PER_JOB_HOSTED_JOB_POLICIES.find(({ jobId }) => jobId === 'main-health')!);
+  expect(getCiVerificationPerJobHostedJobPolicy(workflowPath, 'sec/main-health')).toBeNull();
+  expect(getCiVerificationPerJobHostedJobPolicy('.github/workflows/foreign.yml', 'main-health')).toBeNull();
+  expect(getCiVerificationPerJobHostedJobPolicy(workflowPath, 'MAIN-HEALTH')).toBeNull();
+  expect(getCiVerificationPerJobHostedJobPolicy(workflowPath, '../main-health')).toBeNull();
+  expect(Object.isFrozen(policy)).toBe(true);
+  expect(Object.isFrozen(policy?.runtime)).toBe(true);
+  expect(Object.isFrozen(policy?.trigger.actions)).toBe(true);
 });
 
 test('release verification never loads repository bytes from a caller-selected ref', async () => {
