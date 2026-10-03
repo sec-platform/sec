@@ -8,6 +8,8 @@ import {
   createVerificationSpecificationBinding
 } from '../../src/assurance/verification/contract/specification.ts';
 
+import { createVerificationRequirementDisposition, createVerificationTestResponsibility, evaluateVerificationTestRetirement } from '../../src/assurance/verification/contract/test-responsibility.ts';
+
 const D = (char: string) => `sha256:${char.repeat(64)}` as const;
 
 type ClaimInput = Parameters<typeof createVerificationClaim>[0];
@@ -181,4 +183,67 @@ test('binding input rejects Proxy/accessor wrappers without invoking them', () =
   });
   expect(() => createVerificationSpecificationBinding(proxy)).toThrow('Proxy values');
   expect(trapCalls).toBe(0);
+});
+
+function requirementRetirementFixture() {
+  const prior = claim({ claimRef: 'claim:retired-feature', claimRevision: 'r1', ownerRef: 'owner:product',
+    source: { kind: 'requirement', ref: 'docs/requirements.md#feature', revision: 'source-r1' }, subjectRevision: 'source-before' });
+  const proof = obligation(prior, { ownerRef: 'owner:product' });
+  const binding = createVerificationSpecificationBinding({ claim: prior, proofObligation: proof, methodSelection: selection(proof) });
+  const responsibility = createVerificationTestResponsibility({ testRef: 'test:feature', testRevision: 'test-r1',
+    ownerRef: 'owner:test-implementation', bindings: [{ specification: binding, failureMeaning: 'old feature changed',
+      observationBoundary: 'public feature result', oracleAndIndependenceRefs: ['accepted-product-requirement'] }],
+    environmentAndResourceRequirementsDigest: D('1'), impactAndLifecycleDigest: D('2'), retirementConditionsDigest: D('3') });
+  const next = claim({ claimRef: prior.claimRef, claimRevision: 'r2', ownerRef: prior.ownerRef,
+    source: { ...prior.source, revision: 'source-r2' }, subjectRevision: 'source-after' });
+  const decision = createVerificationRequirementDisposition({ kind: 'retired', baselineBindingDigest: binding.bindingDigest,
+    ownerRef: prior.ownerRef, priorSource: { ref: prior.source.ref, revision: prior.source.revision, path: 'docs/requirements.md', blobSha: 'a'.repeat(40), contentDigest: D('a') },
+    currentSource: { ref: next.source.ref, revision: next.source.revision, path: 'docs/requirements.md', blobSha: 'b'.repeat(40), contentDigest: D('b') },
+    currentClaim: next, obligationScopeDigest: proof.applicabilityScopeDigest,
+    supportedEnvironmentDigest: proof.environmentAndCapabilityConstraintsDigest, remainingRequiredBindingDigests: [],
+    reactivationCondition: 'A new accepted product requirement must reintroduce proof before activation.' });
+  const evaluate = (decisions = [decision], selected = responsibility) => evaluateVerificationTestRetirement({
+    responsibility: selected, decisions, currentSourceRevision: 'source-after' });
+  return { prior, proof, binding, responsibility, decision, evaluate };
+}
+
+test('retirement evaluates exact requirement owner separately from the test implementation owner', () => {
+  const fixture = requirementRetirementFixture();
+  expect(fixture.responsibility.ownerRef).not.toBe(fixture.decision.ownerRef);
+  expect(fixture.evaluate()).toMatchObject({ status: 'eligible', blockers: [] });
+  expect(fixture.evaluate()).not.toHaveProperty('authority');
+});
+
+test('retirement preserves a live binding and rejects wrong owner, profile, source and unchanged requirement', () => {
+  const f = requirementRetirementFixture();
+  const revise = (fields: Partial<Omit<typeof f.decision, 'decisionId'>>) => {
+    const { decisionId: _id, ...input } = f.decision;
+    return createVerificationRequirementDisposition({ ...input, ...fields });
+  };
+  for (const decision of [
+    revise({ ownerRef: 'owner:test-implementation' }),
+    revise({ obligationScopeDigest: D('c') }),
+    revise({ supportedEnvironmentDigest: D('d') }),
+    revise({ remainingRequiredBindingDigests: [f.binding.bindingDigest] }),
+    revise({ currentSource: f.decision.priorSource })
+  ]) expect(f.evaluate([decision]).status).toBe('blocked');
+  expect(f.evaluate([]).status).toBe('blocked');
+  expect(() => revise({ priorSource: { ...f.decision.priorSource, path: 'docs/unrelated.md' } })).toThrow('original canonical');
+  const otherClaim = claim({ claimRef: 'claim:still-required', ownerRef: 'owner:product' });
+  const otherProof = obligation(otherClaim, { ownerRef: 'owner:product' });
+  const other = createVerificationSpecificationBinding({ claim: otherClaim, proofObligation: otherProof, methodSelection: selection(otherProof) });
+  const { schema: _schema, responsibilityDigest: _digest, ...fields } = f.responsibility;
+  const mixed = createVerificationTestResponsibility({ ...fields, bindings: [...fields.bindings,
+    { ...fields.bindings[0]!, specification: other }] });
+  expect(f.evaluate([f.decision], mixed).blockers).toContain('obligation-disposition-missing');
+});
+
+test('scope non-applicability cannot discharge another supported profile or subject', () => {
+  const f = requirementRetirementFixture();
+  const { decisionId: _id, ...input } = f.decision;
+  const scoped = createVerificationRequirementDisposition({ ...input, kind: 'not-applicable' });
+  expect(f.evaluate([scoped]).status).toBe('eligible');
+  const foreign = createVerificationRequirementDisposition({ ...input, kind: 'not-applicable',
+    currentClaim: (() => { const { schema: _schema, claimDigest: _digest, ...fields } = input.currentClaim; return claim({ ...fields, subjectRef: 'subject:another-product' }); })() });
+  expect(f.evaluate([foreign]).blockers).toContain('requirement-subject-mismatch');
 });

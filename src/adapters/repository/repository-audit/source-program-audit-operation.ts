@@ -163,6 +163,7 @@ type SourceProgramAuditSupersessionProjection = Readonly<{
 }>;
 
 type SourceProgramAuditTestRetirementProjection = Readonly<{
+  readonly structuralFacts?: import('../source-program-model/reduction.ts').SourceProgramTestRetirementFacts;
   readonly baselineSourceRevision: string;
   readonly currentSourceRevision: string;
   readonly baselineActionKey: string;
@@ -854,6 +855,11 @@ function assertFacts(input: CompileSourceProgramAuditOperationInput): void {
       ? [] : ['supersession-model']),
     ...(input.supersession.current.testCompilationDigest === input.testValue.compilationDigest
       ? [] : ['supersession-test-compilation']),
+    ...(input.testRetirement.structuralFacts === undefined
+      || input.testRetirement.structuralFacts.currentSourceRevision === input.sourceProgram.sourceRevision
+        && input.testRetirement.structuralFacts.currentTestCompilationDigest === input.testValue.compilationDigest
+        && input.testRetirement.structuralFacts.baselineTestPathsDigest === sha256(input.testValue.baselineTestPaths)
+      ? [] : ['retirement-structural-facts']),
     ...(input.testRetirement.currentSourceRevision === input.sourceProgram.sourceRevision
       ? [] : ['retirement-source']),
     ...(input.testRetirement.currentTestCompilationDigest === input.testValue.compilationDigest

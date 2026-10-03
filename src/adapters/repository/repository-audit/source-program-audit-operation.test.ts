@@ -1269,3 +1269,33 @@ test('test-obligations candidate scope v2 preserves omission and legacy v1 repla
     sourceProgram: { ...scoped.sourceProgram, counts: { ...scoped.sourceProgram.counts, candidates: 0 } }
   } as unknown as CompileSourceProgramAuditOperationInput), /explicitly not requested/);
 });
+
+test('v3 retains exact retirement facts inside producer bytes and rejects late fact substitution', () => {
+  const originalFacts = scopedTestFacts();
+  const original = historicalTransition(originalFacts);
+  const structural = {
+    schema: 'source-program-test-retirement-facts-v1' as const,
+    baselineSourceRevision: original.baseline.identity.sourceRevision,
+    currentSourceRevision: original.current.identity.sourceRevision,
+    baselineActionKey: original.baseline.actionKey, currentActionKey: original.current.actionKey,
+    baselineModelDigest: original.baseline.source.modelDigest, currentModelDigest: original.current.source.modelDigest,
+    baselineTestPathsDigest: digest(original.currentTestValue.baselineTestPaths),
+    baselineRegistrationCensusDigest: digest(original.baseline.tests), currentRegistrationCensusDigest: digest(original.current.tests),
+    currentTestCompilationDigest: original.currentTestValue.compilationDigest, paths: []
+  };
+  const { receiptDigest: _receiptDigest, ...oldReceipt } = originalFacts.testRetirement;
+  const retirementFields = { ...oldReceipt, structuralFacts: { ...structural, factsDigest: digest(structural) } };
+  const facts = { ...originalFacts, testRetirement: { ...retirementFields, receiptDigest: digest(retirementFields) } };
+  const input = historicalTransition(facts);
+  const assessment = createSourceProgramTransitionAssessment(input);
+  assert.equal(assessment.schema, 'source-program-transition-assessment-v3');
+  assert.deepEqual(parseSourceProgramTransitionAssessment(JSON.parse(JSON.stringify(assessment))), assessment);
+  assert.equal(assessment.producerExecution.authority, 'historical-evidence-only');
+  assert.throws(() => parseSourceProgramTransitionAssessment({ ...assessment, schema: 'source-program-transition-assessment-v2' }), /canonical/);
+  const changedFacts = { ...structural, baselineActionKey: digest('another source action') };
+  const changedFields = { ...oldReceipt, structuralFacts: { ...changedFacts, factsDigest: digest(changedFacts) } };
+  const changedRetirement = { ...changedFields, receiptDigest: digest(changedFields) };
+  // Rehashing both local copies cannot change the original producer's protocol bytes.
+  assert.throws(() => createSourceProgramTransitionAssessment({ ...input,
+    testRetirement: { ...changedRetirement, proofs: [] }, auditFacts: { ...facts, testRetirement: changedRetirement } }), /protocol bytes/);
+});

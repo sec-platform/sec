@@ -172,6 +172,12 @@ export interface SourceProgramSupersessionReceipt {
     readonly current: SourceProgramSupersessionLifecycleCost;
   }>;
   readonly replacements: readonly SourceProgramSupersessionReplacement[];
+  /** Explicit withdrawal, never a replacement or preservation proof. */
+  readonly retirements?: readonly Readonly<{
+    baselineId: string; path: string; owner: string;
+    requirementDecisionIds: readonly string[];
+    qualification: 'conditional' | 'qualified';
+  }>[];
   readonly findings: readonly SourceProgramSupersessionFinding[];
   readonly authorDecisionDigest: string | null;
   /** Exact fully assessed current modules; continuation of unknown debt only. */

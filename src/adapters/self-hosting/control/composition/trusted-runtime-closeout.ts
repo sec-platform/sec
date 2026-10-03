@@ -14,8 +14,7 @@ import {
   withGitHubApiStatusWriteSession,
   type GitHubApiCapability
 } from '../../../providers/github-api/operation-session.ts';
-import { observeGitHubRepositoryComment } from '../../../providers/github-api/repository-comment.ts';
-import { adoptSourceProgramTestAuthorDecision, type SourceProgramTestAuthorApproval } from '../../../repository/source-program-model/test-disposition-decisions.ts';
+import type { SourceProgramTestAuthorApproval } from '../../../repository/source-program-model/test-disposition-decisions.ts';
 import { acquirePhysicalMutationLease } from '../../../runtime-state/physical/runtime/mutation-lease.ts';
 import { inspectExactNoFollowDirectoryPresence, publishExclusiveDurableCanonicalFile, readNoFollowOrdinaryFile, type PhysicalDirectoryIdentity } from '../../../runtime-state/physical/runtime/physical-no-follow.ts';
 import { resolveSecRuntimeStateForRepository } from '../../../runtime-state/workspace-state/paths.ts';
@@ -56,6 +55,7 @@ import { renderIndependentReviewTrailer } from '../../../verification/platform/r
 import {
   executeTrustedRuntimeContainerVerification,
   executeTrustedRuntimeWorkspaceCanary,
+  observeTrustedSourceProgramTestAuthorDecision,
   parseTrustedRuntimeContainerReceipt,
   parseTrustedRuntimeSourceProgramAttemptEvidence,
   TRUSTED_RUNTIME_CONTAINER_EXECUTION_ENVIRONMENT,
@@ -955,9 +955,9 @@ async function observeOpenCandidateWithTrustedRuntime(args: Readonly<{
   const observeAuthorApproval = async (): Promise<SourceProgramTestAuthorApproval | undefined> => {
     if (input.testAuthorCommentId === undefined) return undefined;
     return await withGitHubApiReadSession({ repositoryRoot, repository: input.repository,
-      operation: async (capability) => adoptSourceProgramTestAuthorDecision(
-        await observeGitHubRepositoryComment({ capability, issueNumber: input.prNumber,
-          commentId: input.testAuthorCommentId! })) });
+      operation: async (capability) => observeTrustedSourceProgramTestAuthorDecision({
+        capability, issueNumber: input.prNumber, commentId: input.testAuthorCommentId!
+      }) });
   };
   const authorApproval = await observeAuthorApproval();
   if (authorApproval !== undefined && (authorApproval.providerOrigin !== 'production'
@@ -1492,7 +1492,9 @@ async function closeoutOpenCandidateWithTrustedRuntime(args: Readonly<{
     }
     // Re-read the exact comment, author principal/role and edit before admitting the effect.
     const immediateAuthorApproval = await observeAuthorApproval();
-    if (immediateAuthorApproval?.approvalDigest !== authorApproval?.approvalDigest
+    if (immediateAuthorApproval?.requirementPolicyDigest !== authorApproval?.requirementPolicyDigest
+        || immediateAuthorApproval?.requirementSourcesDigest !== authorApproval?.requirementSourcesDigest
+        || immediateAuthorApproval?.approvalDigest !== authorApproval?.approvalDigest
         || immediateAuthorApproval?.providerObservationDigest !== authorApproval?.providerObservationDigest) {
       fail('external test author decision or current author role drifted before merge');
     }
