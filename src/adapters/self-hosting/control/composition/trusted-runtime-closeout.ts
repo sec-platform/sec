@@ -540,13 +540,38 @@ async function withCurrentTrustedRuntimeMainHealth<T>(input: Readonly<{
     fail('MainHealth producer local main differs from the live default branch');
   }
 
+  return await withProducedTrustedRuntimeMainHealth({
+    repositoryRoot,
+    repository: input.repository,
+    mainSha: firstFence.headSha,
+    mainTreeSha: firstFence.treeSha,
+    assertSubjectCurrent: () => assertCurrentTrustedRuntimeMainHealthSubject({
+      repositoryRoot, repository: input.repository,
+      expectedHeadSha: firstFence.headSha, expectedTreeSha: firstFence.treeSha,
+      expectedOriginUrl: firstFence.originUrl
+    })
+  }, operation);
+}
+
+/** Internal lexical composition only: callers supply their actual owner
+ * fences. This helper never accepts a serialized proof or issues authority from
+ * an assertion callback; only the physical producer can mint the live receipt. */
+async function withProducedTrustedRuntimeMainHealth<T>(input: Readonly<{
+  repositoryRoot: string;
+  repository: string;
+  mainSha: string;
+  mainTreeSha: string;
+  deadlineAtUnixMs?: number;
+  assertSubjectCurrent(): Promise<void>;
+}>, operation: (receipt: TrustedRuntimeMainHealthReceipt) => Promise<T>): Promise<T> {
+  const repositoryRoot = path.resolve(input.repositoryRoot);
   const runtimeLayout = resolveSecRuntimeStateForRepository({
     repository: input.repository,
     repositoryRoot
   });
   const locator = trustedRuntimeMainHealthReceiptLocator({
     repositoryStateRoot: runtimeLayout.repositoryStateRoot,
-    mainSha: firstFence.headSha
+    mainSha: input.mainSha
   });
   return await withTrustedRuntimeStateAuthority({
     repositoryRoot,
@@ -556,7 +581,7 @@ async function withCurrentTrustedRuntimeMainHealth<T>(input: Readonly<{
   }, async (authority) => {
     const stateDirectory = authority.directory(locator.directory);
     const generationLease = acquirePhysicalMutationLease(
-      stateDirectory, `main-health-${firstFence.headSha}.lock`
+      stateDirectory, `main-health-${input.mainSha}.lock`
     );
     if (generationLease === null) {
       fail('MainHealth receipt generation is already active or its owner liveness is unknown');
@@ -568,28 +593,21 @@ async function withCurrentTrustedRuntimeMainHealth<T>(input: Readonly<{
       return await withTrustedRuntimeMainHealthQualification({
         repositoryRoot,
         repository: input.repository,
-        mainSha: firstFence.headSha,
-        mainTreeSha: firstFence.treeSha
+        mainSha: input.mainSha,
+        mainTreeSha: input.mainTreeSha,
+        ...(input.deadlineAtUnixMs === undefined ? {} : { deadlineAtUnixMs: input.deadlineAtUnixMs })
       }, async (receipt) => {
-        await assertCurrentTrustedRuntimeMainHealthSubject({
-          repositoryRoot, repository: input.repository,
-          expectedHeadSha: firstFence.headSha, expectedTreeSha: firstFence.treeSha,
-          expectedOriginUrl: firstFence.originUrl
-        });
+        await input.assertSubjectCurrent();
         const receiptLocator = trustedRuntimeMainHealthReceiptLocator({
           repositoryStateRoot: runtimeLayout.repositoryStateRoot,
-          mainSha: firstFence.headSha,
+          mainSha: input.mainSha,
           receiptDigest: receipt.receiptDigest
         });
         publishCanonical({
           parent: stateDirectory, name: receiptLocator.fileName,
           value: receipt, parse: parseCanonicalTrustedRuntimeMainHealthReceipt
         });
-        await assertCurrentTrustedRuntimeMainHealthSubject({
-          repositoryRoot, repository: input.repository,
-          expectedHeadSha: firstFence.headSha, expectedTreeSha: firstFence.treeSha,
-          expectedOriginUrl: firstFence.originUrl
-        });
+        await input.assertSubjectCurrent();
         if (generationLease.recoveryPending) generationLease.acknowledgeReclaimedRecovery();
         generationLease.release();
         generationSettled = true;

@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { readFileSync, writeFileSync } from 'node:fs';
-import { assertSourceProgramTransitionQualification, assertTrustedRuntimeMainHealthQualification, sourceProgramTransitionEvidenceForQualification, type SourceProgramTransitionQualification } from '../../../verification/platform/trusted-runtime/trusted-runtime-container.ts';
+import { assertSourceProgramTransitionQualification, sourceProgramTransitionEvidenceForQualification, type SourceProgramTransitionQualification } from '../../../verification/platform/trusted-runtime/trusted-runtime-container.ts';
 
 import { CI_VERIFICATION_WORKFLOW_PATH } from '../../../../assurance/verification/contract/revision.ts';
 import { encodeVerificationActionData } from '../../../verification/platform/action/contract/action.ts';
@@ -16,8 +16,9 @@ import {
   type MainHealthLedger
 } from '../main-health/contract.ts';
 import { INTEGRATION_AUTHORIZATION_STATUS_CONTEXT } from '../main-health/github-status-namespace.ts';
+import { assertTrustedRuntimeMainHealthPublication } from '../main-health/live-admission.ts';
 import type { TrustedRuntimeMainHealthReceipt } from '../main-health/main-health-observation.ts';
-import { assertMainHealthPublicationLedger, type MainHealthPublicationAuthority } from '../main-health/work-selection-main-health.ts';
+import type { MainHealthPublicationAuthority } from '../main-health/work-selection-main-health.ts';
 import {
   assertScopeAuthorizationCurrent,
   type ScopeAuthorization
@@ -943,19 +944,14 @@ export function CodexDevelopmentEvaluateTrustedRuntimeMergeGate(
   );
   if (input.mainHealth.producer.sourceTransport === 'trusted-runtime-durable-readback') {
     if (mainHealthAdmission === undefined) fail('local MainHealth requires live production admission');
-    assertMainHealthPublicationLedger({ authority: mainHealthAdmission.authority,
-      ledger: input.mainHealth, now: input.issuedAt });
-    const receipt = mainHealthAdmission.receipt;
-    assertTrustedRuntimeMainHealthQualification({ receipt,
-      repositoryRoot: mainHealthAdmission.repositoryRoot,
+    assertTrustedRuntimeMainHealthPublication({
+      admission: mainHealthAdmission,
+      ledger: input.mainHealth,
       repository: input.candidate.repository,
-      mainSha: input.candidate.currentBaseSha, mainTreeSha: input.candidate.currentBaseTreeSha });
-    if (input.mainHealth.producer.sourceDigest !== receipt.receiptDigest
-        || input.mainHealth.producer.sourceRunId !== receipt.executionId
-        || input.mainHealth.producer.sourceRef !==
-          `runtime-state:trusted-main-health/v2/main-${receipt.mainSha}-${receipt.receiptDigest.slice(7)}.json`) {
-      fail('local MainHealth receipt differs from live production admission');
-    }
+      mainSha: input.candidate.currentBaseSha,
+      mainTreeSha: input.candidate.currentBaseTreeSha,
+      now: input.issuedAt
+    });
   } else assertHostedMainHealthProvenance(input.mainHealth, input.candidate);
   const core = evaluateMergeGateCore({
     candidate: input.candidate,

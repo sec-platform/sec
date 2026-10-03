@@ -1,6 +1,7 @@
 import { sha256 } from '../../../../../contracts/canonical.ts';
 import { SEC_REPOSITORY_TEST_EXECUTION_INPUT_PATHS } from '../../../../../contracts/repository-test-path.ts';
 import { LINUX_DOCKER_CLI_PROFILE_DIGEST } from '../../../../providers/docker/contract/linux-cli-profile.ts';
+import { LINUX_HOSTED_BOOTSTRAP_PROFILE_DIGEST } from '../../../../providers/docker/contract/linux-hosted-bootstrap-profile.ts';
 import { CI_VERIFICATION_PER_JOB_HOSTED_JOB_POLICY_DIGEST } from '../../../../providers/github-api/contract/hosted-job-policy.ts';
 import {
   computeSecLinuxVerificationRunnerInputDigest,
@@ -71,6 +72,7 @@ export function createCiVerificationPerJobHostedProviderRevision(
     resourceLimits: authority.runtime.resources,
     sandboxPolicyDigest: CI_VERIFICATION_HOSTED_SANDBOX_POLICY_DIGEST,
     dockerCliProfileDigest: LINUX_DOCKER_CLI_PROFILE_DIGEST,
+    hostedBootstrapProfileDigest: LINUX_HOSTED_BOOTSTRAP_PROFILE_DIGEST,
     hostedJobPolicyDigest: CI_VERIFICATION_PER_JOB_HOSTED_JOB_POLICY_DIGEST,
     actionProducerRevision: 'sec-ci-verification-action-producer-v2',
     outerJobContainerRevision: CI_HOSTED_JOB_RUNTIME_POLICY.revision,

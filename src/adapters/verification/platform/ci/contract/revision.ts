@@ -19,6 +19,7 @@ const HOSTED_SANDBOX_PYTHON = Object.freeze({
 export const CI_VERIFICATION_SESSION_CONTRACT_REVISION = 'ci-verification-session-v2' as const;
 export const CI_VERIFICATION_SESSION_DISPATCH_TYPE = 'sec-verify-session-v2' as const;
 export const CI_VERIFICATION_SESSION_REQUEST_SCHEMA = 'sec-verification-session-hosted-request-v1' as const;
+export const CI_VERIFICATION_SESSION_PER_JOB_REQUEST_SCHEMA = 'sec-verification-session-hosted-request-v2' as const;
 export const CI_VERIFICATION_SESSION_ARTIFACT_PREFIX = VERIFICATION_SESSION_SCHEMA;
 
 /**
