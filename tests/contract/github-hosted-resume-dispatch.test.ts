@@ -76,3 +76,17 @@ test('the generic production verification entry does not accept the dedicated re
   }])).rejects.toThrow('Verification session effect is invalid');
   expect(invoked).toBe(false);
 });
+
+test('workflow run history is a closed unfiltered read on the exact workflow numeric ID', async () => {
+  const requests: string[] = [];
+  const capability = issueGitHubApiTestCapability({repository:'sec-platform/sec',effect:'verification-read',token:'fixture-no-secret',
+    principal:{transport:'github-rest-token',login:'fixture',nodeId:'FIXTURE',userId:1,permission:'maintain'},
+    transport:async target=>{requests.push(String(target));return new Response('{"total_count":0,"workflow_runs":[]}');}});
+  await withGitHubApiTestSession({capability,operation:async()=>{
+    await executeGitHubApiOperation(capability,{kind:'verification-workflow-run-history',workflowId:'123',page:2});
+    for(const workflowId of ['0','../runs','123?status=success']) await expect(executeGitHubApiOperation(capability,
+      {kind:'verification-workflow-run-history',workflowId,page:1})).rejects.toThrow();
+    await expect(executeGitHubApiOperation(capability,{kind:'verification-workflow-run-history',workflowId:'123',page:0})).rejects.toThrow();
+  }});
+  expect(requests).toEqual(['https://api.github.com/repos/sec-platform/sec/actions/workflows/123/runs?per_page=100&page=2']);
+});

@@ -1,7 +1,7 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
 import path from 'node:path';
 import { canonicalEquals, rawSha256 } from '../../../../contracts/canonical.ts';
-import { readArtifactMember } from './artifact-member.ts';
+import { readArtifactMember, readArtifactMembers } from './artifact-member.ts';
 
 import { assertGitBranchName } from '../../../../contracts/git-reference.ts';
 import { isNativeAborted, linkNativeAbortSignals } from '../../../../contracts/native-abort.ts';
@@ -9,6 +9,7 @@ import { ResourceCompositeSettlementError } from '../../../../execution/resource
 import { withOwnedByteStreamReader } from '../../../../execution/stream-reader.ts';
 
 import { GITHUB_API_BASE_URL, GITHUB_HOST } from '../contract.ts';
+import { HOSTED_BOOTSTRAP_ARTIFACT_MEMBERS, HostedArtifactProjectionDataError, type HostedBootstrapArtifactProjection } from '../contract/hosted-bootstrap-artifacts.ts';
 import { HOSTED_RESUME_DISPATCH_EVENT, parseHostedResumeDispatchSignal, type HostedResumeEmitter } from '../contract/hosted-resume-dispatch.ts';
 import { currentGitHubCredentialStore } from '../credential-store.ts';
 import {
@@ -132,6 +133,8 @@ type GitHubApiRequestSession = {
 
 export type GitHubApiOperation =
   | Readonly<{ kind: 'verification-artifact-text'; artifactId: string; artifactName: string; runId: string; archiveDigest: string | null; fileName: string }>
+  | Readonly<{ kind: 'verification-artifact-members'; artifactId: string; artifactName: string; runId: string;
+      archiveDigest: string; projection: HostedBootstrapArtifactProjection }>
   | Readonly<{ kind: 'verification-artifact-archive'; artifactId: string }>
   | Readonly<{ kind: 'verification-query'; document: string; variables: Readonly<Record<string, unknown>> }>
   | Readonly<{ kind: 'verification-pull-files'; pullRequestNumber: number; page: number }>
@@ -145,6 +148,7 @@ export type GitHubApiOperation =
   | Readonly<{ kind: 'verification-artifact'; artifactId: string }>
   | Readonly<{ kind: 'verification-artifacts'; runId?: string; page: number }>
   | Readonly<{ kind: 'verification-workflow-runs'; headSha: string; page: number }>
+  | Readonly<{ kind: 'verification-workflow-run-history'; workflowId: string; page: number }>
   | Readonly<{ kind: 'verification-workflow-jobs'; runId: string; runAttempt: number; page: number }>
   | Readonly<{ kind: 'verification-repository-comments'; page: number }>
   | Readonly<{ kind: 'verification-dispatch'; request: Readonly<Record<string, unknown>> }>
@@ -424,6 +428,7 @@ function compileOperation(
     case 'verification-artifact-archive': return read(`/repos/${repo}/actions/artifacts/${positiveId(operation.artifactId)}/zip`);
     case 'verification-artifact': return read(`/repos/${repo}/actions/artifacts/${positiveId(operation.artifactId)}`);
     case 'verification-artifacts': return read(`/repos/${repo}/actions/${operation.runId === undefined ? '' : `runs/${positiveId(operation.runId)}/`}artifacts?per_page=100&page=${page(operation.page)}`);
+    case 'verification-workflow-run-history': return read(`/repos/${repo}/actions/workflows/${positiveId(operation.workflowId)}/runs?per_page=100&page=${page(operation.page)}`);
     case 'verification-workflow-runs': return read(`/repos/${repo}/actions/runs?head_sha=${sha(operation.headSha)}&per_page=100&page=${page(operation.page)}`);
     case 'verification-workflow-jobs': return read(`/repos/${repo}/actions/runs/${positiveId(operation.runId)}/attempts/${positiveInteger(operation.runAttempt, 'run attempt')}/jobs?per_page=100&page=${page(operation.page)}`);
     case 'verification-repository-comments': return read(`/repos/${repo}/issues/comments?per_page=100&sort=created&direction=desc&page=${page(operation.page)}`);
@@ -1082,6 +1087,11 @@ export async function executeGitHubApiOperation(
     return await readGitHubArtifactText(capability,{artifactId:input.artifactId,artifactName:input.artifactName,
       runId:input.runId,archiveDigest:input.archiveDigest,fileName:input.fileName});
   }
+  if (kind === 'verification-artifact-members') {
+    const input = operation as Extract<GitHubApiOperation, { kind: 'verification-artifact-members' }>;
+    return await readGitHubArtifactMembers(capability, { artifactId: input.artifactId, artifactName: input.artifactName,
+      runId: input.runId, archiveDigest: input.archiveDigest, projection: input.projection });
+  }
   if (kind !== 'delete-ref-cas') {
     const capturedOperation = Object.create(operation) as GitHubApiOperation;
     Object.defineProperty(capturedOperation, 'kind', { value: kind });
@@ -1153,10 +1163,11 @@ export async function executeGitHubApiOperation(
   return mutation;
 }
 
-async function readGitHubArtifactText(capability: GitHubApiCapability, input: Readonly<{
+async function readVerifiedGitHubArtifactArchive(capability: GitHubApiCapability, input: Readonly<{
   artifactId: string; artifactName: string; runId: string;
-  archiveDigest: string | null; fileName: string;
-}>): Promise<string> {
+  archiveDigest: string | null;
+  closedProjection?: true;
+}>): Promise<Readonly<{ archive: Uint8Array; session: GitHubApiRequestSession }>> {
   input = Object.freeze({...input});
   const value = binding(capability);
   const session = requestSession.getStore();
@@ -1169,13 +1180,48 @@ async function readGitHubArtifactText(capability: GitHubApiCapability, input: Re
       !Number.isSafeInteger(metadata.size_in_bytes) || metadata.size_in_bytes < 1 || metadata.size_in_bytes > MAX_RESPONSE_BYTES ||
       (input.archiveDigest !== null && metadata.digest !== input.archiveDigest) ||
       (metadata.digest !== null && metadata.digest !== undefined && !/^sha256:[0-9a-f]{64}$/u.test(metadata.digest))) {
-    throw new GitHubApiProviderError('Artifact metadata drifted from the selected identity');
+    throw input.closedProjection === true
+      ? new HostedArtifactProjectionDataError('invalid', 'Artifact metadata drifted from the selected identity')
+      : new GitHubApiProviderError('Artifact metadata drifted from the selected identity');
   }
   const archive = await executeGitHubApiOperation(capability,{kind:'verification-artifact-archive',artifactId:input.artifactId});
   if (!(archive instanceof Uint8Array) || archive.byteLength !== metadata.size_in_bytes ||
-      (metadata.digest != null && rawSha256(archive) !== metadata.digest)) throw new GitHubApiProviderError('Artifact archive identity does not match metadata');
+      (metadata.digest != null && rawSha256(archive) !== metadata.digest)) {
+    throw input.closedProjection === true
+      ? new HostedArtifactProjectionDataError('invalid', 'Artifact archive identity does not match metadata')
+      : new GitHubApiProviderError('Artifact archive identity does not match metadata');
+  }
+  return Object.freeze({ archive, session });
+}
+
+async function readGitHubArtifactText(capability: GitHubApiCapability, input: Readonly<{
+  artifactId: string; artifactName: string; runId: string;
+  archiveDigest: string | null; fileName: string;
+}>): Promise<string> {
+  input = Object.freeze({ ...input });
+  const { archive, session } = await readVerifiedGitHubArtifactArchive(capability, input);
   return await readArtifactMember({archive,fileName:input.fileName,signal:session.abortController.signal,
     assertCurrent:() => { remaining(session); }});
+}
+
+async function readGitHubArtifactMembers(capability: GitHubApiCapability, input: Readonly<{
+  artifactId: string; artifactName: string; runId: string;
+  archiveDigest: string; projection: HostedBootstrapArtifactProjection;
+}>): Promise<Readonly<Record<string, string>>> {
+  input = Object.freeze({ ...input });
+  if (typeof input.archiveDigest !== 'string' || !/^sha256:[0-9a-f]{64}$/u.test(input.archiveDigest)
+      || !Object.hasOwn(HOSTED_BOOTSTRAP_ARTIFACT_MEMBERS, input.projection)) {
+    throw new GitHubApiProviderError('Artifact projection requires a fixed member set and immutable archive digest');
+  }
+  const fileNames = HOSTED_BOOTSTRAP_ARTIFACT_MEMBERS[input.projection];
+  const { archive, session } = await readVerifiedGitHubArtifactArchive(capability, { ...input, closedProjection: true });
+  const members = await readArtifactMembers({ archive, fileNames, signal: session.abortController.signal,
+    chargeDecodedBytes: bytes => { recordResponseBytes(session, bytes); },
+    assertCurrent: () => { remaining(session); } });
+  // One session retains both compressed response and cumulative decoded output
+  // costs; selecting another member does not reset its byte or time budget.
+  remaining(session);
+  return members;
 }
 
 export function currentGitHubApiCapability(
