@@ -17,6 +17,23 @@ const BOOTSTRAP = '.github/workflows/trusted-bootstrap.yml' as const;
 const RELEASE = '.github/workflows/compiler-release-validation.yml' as const;
 
 type HostedWorkflowPath = typeof COMPILER | typeof MERGE | typeof BOOTSTRAP | typeof RELEASE;
+
+/** Exact reviewed API-only programs, including their job conditions, outputs,
+ * steps, script bytes and explicit permissions. Only allocation changes from
+ * their historical source. These are policy inputs, never source-supplied hashes. */
+const API_ONLY_JOB_SOURCE_DIGESTS: Readonly<Record<string, `sha256:${string}`>> = Object.freeze({
+  'validate-hosted-request': 'sha256:911502f8995b79933932f8114c3f0f68d29bcb26f02fdc3e0604731074da7f16',
+  'validate-agent-operation-activation-request': 'sha256:69d50d5e82ffe2ab9089089a9b56f16fe4057d5a2a2ba05953d30882163ea681',
+  plan: 'sha256:44a3294444191db462561a9ac92a4daf1522096c69bede1e3e2b1c7153ef7f00',
+  'terminal-status': 'sha256:e8161177eb11b6f2549fd997548a8390662491e45813628f8565697a3ce125f8',
+  resolve: 'sha256:a231db61b0c1dfe5e6c96d3f9019700d3e06302f2965d36fee35a11e85ffe98b'
+});
+const WORKFLOW_PERMISSIONS = Object.freeze({
+  [COMPILER]: Object.freeze({ actions: 'read', contents: 'read', 'pull-requests': 'read' }),
+  [MERGE]: Object.freeze({ actions: 'read', contents: 'read' }),
+  [BOOTSTRAP]: Object.freeze({ contents: 'read', 'pull-requests': 'read' }),
+  [RELEASE]: Object.freeze({ contents: 'read' })
+});
 type HostedJobRole = 'control' | 'trusted' | 'sut';
 type HostedJobTrigger = Readonly<{
   eventName: 'repository_dispatch';
@@ -205,7 +222,7 @@ const RUNTIME_PERMISSIONS: Readonly<Record<string, Readonly<Record<string, strin
 const API_ONLY = Object.freeze({ kind: 'api-only' as const, oidcPermission: null });
 const PER_JOB_RUNTIME = Object.freeze({
   kind: 'per-job-runtime' as const,
-  // This is a proposed requirement, not an authorized or active permission grant.
+  // Source requirement; only the authored workflow can grant this permission.
   oidcPermission: 'id-token:write' as const,
   launcherPath: CI_VERIFICATION_PER_JOB_HOSTED_LAUNCHER_PATH,
   launcherRevision: CI_VERIFICATION_PER_JOB_HOSTED_LAUNCHER_REVISION,
@@ -270,7 +287,9 @@ export type CiVerificationPerJobHostedJobPolicy =
 
 export const CI_VERIFICATION_PER_JOB_HOSTED_JOB_POLICY_DIGEST = sha256({
   revision: CI_VERIFICATION_PER_JOB_HOSTED_POLICY_REVISION,
-  jobs: CI_VERIFICATION_PER_JOB_HOSTED_JOB_POLICIES
+  jobs: CI_VERIFICATION_PER_JOB_HOSTED_JOB_POLICIES,
+  apiOnlyJobSourceDigests: API_ONLY_JOB_SOURCE_DIGESTS,
+  workflowPermissions: WORKFLOW_PERMISSIONS
 }) as `sha256:${string}`;
 
 /** Exact source member lookup only; no aliases, display-name lookup or admission. */
@@ -294,6 +313,47 @@ function workflowRecord(value: unknown, label: string): Record<string, unknown> 
 function onlyWorkflowKeys(value: Record<string, unknown>, keys: readonly string[], label: string): void {
   if (Object.keys(value).some((key) => !keys.includes(key))) {
     throw new Error(`Hosted workflow shape: ${label} has an unadmitted field.`);
+  }
+}
+
+function parseHostedWorkflowSource(source: string): Record<string, unknown> {
+  if (typeof source !== 'string' || Buffer.byteLength(source, 'utf8') > 512 * 1024 || source.includes('\0')) {
+    throw new Error('Hosted workflow shape: source is outside the bounded UTF-8 input.');
+  }
+  const document = parseDocument(source, { version: '1.2', uniqueKeys: true, strict: true });
+  if (document.errors.length !== 0 || document.warnings.length !== 0) {
+    throw new Error('Hosted workflow shape: YAML errors, duplicate keys or unresolved tags.');
+  }
+  return workflowRecord(document.toJS({ maxAliasCount: 128 }), 'workflow');
+}
+
+/** Artifact metadata attributes a run, not a job. Authenticate this entire
+ * executable source closure before deriving one writer from a fixed slot.
+ * The provider still must bind the exact artifact bytes and successful target
+ * job/launcher/upload readbacks. This predicate itself grants no authority. */
+export function assertCiVerificationPerJobHostedWholeWorkflowShape(source: string): void {
+  const workflow = parseHostedWorkflowSource(source);
+  const policies = CI_VERIFICATION_PER_JOB_HOSTED_JOB_POLICIES.filter(policy => (
+    workflow.name === policy.workflowPath.slice('.github/workflows/'.length, -'.yml'.length)
+  ));
+  if (policies.length === 0) throw new Error('Hosted workflow shape: unknown complete workflow.');
+  const workflowPath = policies[0]!.workflowPath;
+  if (!canonicalEquals(workflow.permissions, WORKFLOW_PERMISSIONS[workflowPath])) {
+    throw new Error('Hosted workflow shape: inherited permissions differ.');
+  }
+  const jobs = workflowRecord(workflow.jobs, 'complete jobs');
+  if (!canonicalEquals(Object.keys(jobs).sort(), policies.map(policy => policy.jobId).sort())) {
+    throw new Error('Hosted workflow shape: complete job census differs.');
+  }
+  for (const policy of policies) {
+    if (policy.runtime.kind === 'per-job-runtime') {
+      assertCiVerificationPerJobHostedWorkflowShape(source, policy.jobId);
+    } else {
+      const apiJob = workflowRecord(jobs[policy.jobId], 'API-only job');
+      if (sha256(apiJob) !== API_ONLY_JOB_SOURCE_DIGESTS[policy.jobId]) {
+        throw new Error('Hosted workflow shape: API-only executable source differs.');
+      }
+    }
   }
 }
 
@@ -358,14 +418,7 @@ export function assertCiVerificationPerJobHostedWorkflowShape(
   ));
   if (matches.length !== 1) throw new Error('Hosted workflow shape: job is not one closed runtime member.');
   const policy = matches[0]!;
-  if (typeof source !== 'string' || Buffer.byteLength(source, 'utf8') > 512 * 1024 || source.includes('\0')) {
-    throw new Error('Hosted workflow shape: source is outside the bounded UTF-8 input.');
-  }
-  const document = parseDocument(source, { version: '1.2', uniqueKeys: true, strict: true });
-  if (document.errors.length !== 0 || document.warnings.length !== 0) {
-    throw new Error('Hosted workflow shape: YAML errors, duplicate keys or unresolved tags.');
-  }
-  const workflow = workflowRecord(document.toJS({ maxAliasCount: 128 }), 'workflow');
+  const workflow = parseHostedWorkflowSource(source);
   onlyWorkflowKeys(workflow, ['name', 'run-name', 'on', 'permissions', 'env', 'concurrency', 'jobs'], 'workflow');
   const workflowName = policy.workflowPath.slice('.github/workflows/'.length, -'.yml'.length);
   if (workflow.name !== workflowName || (workflow.env !== undefined && !canonicalEquals(workflow.env,

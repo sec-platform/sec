@@ -1,9 +1,9 @@
 import { expect, test } from 'bun:test';
 import { parse as parseYaml, stringify as stringifyYaml } from 'yaml';
 
-import { assertCiVerificationPerJobHostedWorkflowShape, CI_VERIFICATION_PER_JOB_HOSTED_JOB_POLICIES, getCiVerificationPerJobHostedJobPolicy } from '../../src/adapters/providers/github-api/contract/hosted-job-policy.ts';
+import { assertCiVerificationPerJobHostedWholeWorkflowShape, assertCiVerificationPerJobHostedWorkflowShape, CI_VERIFICATION_PER_JOB_HOSTED_JOB_POLICIES, getCiVerificationPerJobHostedJobPolicy } from '../../src/adapters/providers/github-api/contract/hosted-job-policy.ts';
 import { SEC_LINUX_VERIFICATION_ENVIRONMENT_AUTHORITY } from '../../src/adapters/providers/linux-verification/contract.ts';
-import { buildCiVerificationActionPlanClosure, CI_VERIFICATION_ACTION_DISPATCH_TYPE, CI_VERIFICATION_ACTION_PARENT_DISPATCH_PLAN_FILE, CI_VERIFICATION_HOSTED_EXECUTION_ENVIRONMENT } from '../../src/adapters/verification/platform/action/contract/ci.ts';
+import { buildCiVerificationActionPlanClosure, CI_VERIFICATION_ACTION_DISPATCH_TYPE, CI_VERIFICATION_ACTION_PARENT_DISPATCH_PLAN_FILE, CI_VERIFICATION_HOSTED_EXECUTION_ENVIRONMENT, CI_VERIFICATION_PER_JOB_HOSTED_EXECUTION_ENVIRONMENT, parseCiVerificationHostedExecutionEnvironment, resolveCiVerificationHostedExecutionEnvironment } from '../../src/adapters/verification/platform/action/contract/ci.ts';
 import { CI_VERIFICATION_HOSTED_PROVIDER_REVISION, CI_VERIFICATION_HOSTED_TOOLCHAIN_REVISION, CI_VERIFICATION_PER_JOB_HOSTED_PROVIDER_REVISION, createCiVerificationHostedProviderRevision, createCiVerificationHostedToolchainRevision, createCiVerificationPerJobHostedProviderRevision } from '../../src/adapters/verification/platform/action/contract/environment.ts';
 import { CI_COMPILER_WORKFLOW_RUN_IDENTITY, matchesCiCompilerWorkflowRunIdentity, matchesCiWorkflowRunIdentity } from '../../src/adapters/verification/platform/action/contract/provider.ts';
 import { buildCiContract, CI_VERIFICATION_PR_EVENT, CI_VERIFICATION_PR_STEP_ORDER } from '../../src/adapters/verification/platform/ci/contract/core.ts';
@@ -157,6 +157,35 @@ test('per-job identity keeps the exact historical provider and active default un
   expect(CI_VERIFICATION_PER_JOB_HOSTED_PROVIDER_REVISION).toMatch(
     /^github-actions:github-hosted:ubuntu-24\.04:x64:per-job-v1:execution-policy-sha256:[0-9a-f]{64}:action-producer-v2:sandbox-v7:outer-job-container-v1$/u
   );
+});
+
+test('hosted environment data decodes only the two exact profiles and preserves old wire bytes', () => {
+  const legacy = CI_VERIFICATION_HOSTED_EXECUTION_ENVIRONMENT;
+  const perJob = CI_VERIFICATION_PER_JOB_HOSTED_EXECUTION_ENVIRONMENT;
+  expect(perJob.executionEnvironmentRevision).toBe(CI_VERIFICATION_PER_JOB_HOSTED_PROVIDER_REVISION);
+  for (const environment of [legacy, perJob]) {
+    const wire = JSON.stringify(environment);
+    expect(parseCiVerificationHostedExecutionEnvironment(JSON.parse(wire))).toBe(environment);
+    expect(JSON.stringify(parseCiVerificationHostedExecutionEnvironment(JSON.parse(wire)))).toBe(wire);
+    expect(resolveCiVerificationHostedExecutionEnvironment(environment.executionEnvironmentRevision)).toBe(environment);
+    expect(Object.isFrozen(environment)).toBe(true);
+    for (const [key, value] of Object.entries({
+      contractRevision: 'foreign', kind: 'local', os: 'darwin', arch: 'arm64',
+      runnerImage: 'self-hosted', toolchainRevision: 'foreign', executionEnvironmentRevision: 'foreign'
+    })) {
+      expect(() => parseCiVerificationHostedExecutionEnvironment({ ...environment, [key]: value })).toThrow();
+    }
+    expect(() => parseCiVerificationHostedExecutionEnvironment({ ...environment, qualified: true })).toThrow();
+    const { runnerImage: _runnerImage, ...missingImage } = environment;
+    expect(() => parseCiVerificationHostedExecutionEnvironment(missingImage)).toThrow();
+  }
+  for (const revision of ['github-actions@trusted-default', 'ubuntu-24.04',
+    `${CI_VERIFICATION_PER_JOB_HOSTED_PROVIDER_REVISION}:trusted`, '']) {
+    expect(() => resolveCiVerificationHostedExecutionEnvironment(revision)).toThrow();
+  }
+  for (const value of [null, [], 'github-hosted-per-job-v1', { executionEnvironmentRevision: 1 }]) {
+    expect(() => parseCiVerificationHostedExecutionEnvironment(value)).toThrow();
+  }
 });
 
 test('per-job provider identity invalidates every changed immutable execution input', () => {
@@ -329,6 +358,77 @@ test('independent workflow fixture admits only the pinned staged launcher and qu
     .toBe('fresh-token-at-admission-original-job-deadline-abort-or-finally-close');
   expect(() => assertCiVerificationPerJobHostedWorkflowShape(stringifyYaml(fixture), 'validate-hosted-request')).toThrow();
   expect(() => assertCiVerificationPerJobHostedWorkflowShape(stringifyYaml(fixture), 'sec/main-health')).toThrow();
+});
+
+async function completeBootstrapWorkflowFixture() {
+  const authored = parseYaml(await readCompilerFile('.github/workflows/trusted-bootstrap.yml')) as Workflow;
+  const setup = perJobPreflightWorkflowFixture().jobs['preflight-verification-action-sut'].steps.slice(0, 4);
+  const phase = (job: string, name: string, id: string, selector: string) => ({ name, id, shell: 'bash',
+    env: { GH_TOKEN: '${{ github.token }}', SEC_HOSTED_NEEDS_JSON: '${{ toJSON(needs) }}',
+      SEC_HOSTED_STEPS_JSON: '${{ toJSON(steps) }}' },
+    run: `exec bun --no-env-file src/adapters/verification/platform/ci/runtime/hosted-job-runtime.ts --job ${job} --phase ${selector}` });
+  const upload = (job: string, name: string, slot: string, producer: string, retention: number) => ({
+    name, id: `upload-${slot}`,
+    if: `\${{ always() && !cancelled() && steps.${producer}.outputs.${slot}-ready == 'true' }}`,
+    uses: 'actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a',
+    with: { name: `\${{ steps.${producer}.outputs.${slot}-artifact-name }}`,
+      path: `\${{ runner.temp }}/sec-hosted-job/${job}/out/${slot}`, 'if-no-files-found': 'error',
+      'retention-days': retention, 'include-hidden-files': true, overwrite: false } });
+  const download = (name: string, slot: string, producer: string) => ({
+    name, id: `download-${slot}`, uses: 'actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c',
+    if: `\${{ needs.${producer}.outputs.${slot}-artifact-name != '' }}`,
+    with: { name: `\${{ needs.${producer}.outputs.${slot}-artifact-name }}`,
+      path: `\${{ runner.temp }}/sec-hosted-job/checker-post/in/${slot}` } });
+  const runtimeJob = (minutes: number, steps: readonly unknown[]) => ({
+    'runs-on': 'ubuntu-24.04', 'timeout-minutes': minutes,
+    permissions: { actions: 'read', contents: 'read', 'pull-requests': 'read', 'id-token': 'write' },
+    steps: [...structuredClone(setup), ...steps]
+  });
+  return {
+    name: 'trusted-bootstrap', on: { repository_dispatch: { types: ['sec-trusted-bootstrap-v1'] } },
+    permissions: { contents: 'read', 'pull-requests': 'read' },
+    jobs: {
+      resolve: { ...structuredClone(authored.jobs.resolve!), 'runs-on': 'ubuntu-24.04' },
+      'checker-pre': runtimeJob(30, [
+        phase('checker-pre', 'Produce trusted-base PRE candidate-root receipt', 'pre', 'checker-pre'),
+        upload('checker-pre', 'Upload bounded checker PRE artifact', 'pre', 'pre', 1)
+      ]),
+      'candidate-sut': runtimeJob(90, [
+        phase('candidate-sut', 'Run candidate SUT through trusted private sandbox', 'sut', 'execute-trusted-bootstrap-sut'),
+        upload('candidate-sut', 'Upload bounded candidate SUT artifact', 'sut', 'sut', 1)
+      ]),
+      'checker-post': runtimeJob(30, [
+        download('Download bounded checker PRE artifact', 'pre', 'checker-pre'),
+        download('Download bounded candidate SUT artifact', 'sut', 'candidate-sut'),
+        phase('checker-post', 'Reuse PRE Actions and reduce exact bootstrap evidence', 'post', 'checker-post'),
+        upload('checker-post', 'Upload final canonical trusted bootstrap evidence', 'bootstrap', 'post', 90)
+      ])
+    } as Record<string, Record<string, unknown>>
+  };
+}
+
+test('whole-workflow artifact writer closure checks every job and inherited API permissions', async () => {
+  const fixture = await completeBootstrapWorkflowFixture();
+  expect(() => assertCiVerificationPerJobHostedWholeWorkflowShape(stringifyYaml(fixture))).not.toThrow();
+  const mutate: readonly ((value: typeof fixture) => void)[] = [
+    value => { delete value.jobs['checker-post']; },
+    value => { value.jobs.attacker = { 'runs-on': 'ubuntu-24.04', steps: [{ run: 'upload forged artifact' }] }; },
+    value => { (value.jobs.resolve!.steps as Array<Record<string, unknown>>).push({ run: 'upload forged artifact' }); },
+    value => { value.jobs.resolve!.env = { NODE_OPTIONS: '--require ./candidate.js' }; },
+    value => { value.jobs.resolve!.permissions = { contents: 'write' }; },
+    value => { (value.permissions as Record<string, string>).actions = 'write'; },
+    value => { value.jobs['candidate-sut']!.env = { ACTIONS_RUNTIME_TOKEN: '${{ secrets.TOKEN }}' }; },
+    value => { (value.jobs['candidate-sut']!.steps as Array<Record<string, unknown>>).push({ run: 'upload another job output' }); },
+    value => { (value as Record<string, unknown>).defaults = { run: { 'working-directory': './candidate' } }; }
+  ];
+  for (const change of mutate) {
+    const changed = structuredClone(fixture);
+    change(changed);
+    expect(() => assertCiVerificationPerJobHostedWholeWorkflowShape(stringifyYaml(changed))).toThrow();
+  }
+  // A valid selected job is insufficient evidence for the complete writer set.
+  expect(() => assertCiVerificationPerJobHostedWholeWorkflowShape(
+    stringifyYaml(perJobPreflightWorkflowFixture()))).toThrow();
 });
 
 test('workflow shape rejects host candidate execution, policy substitution and artifact escape', () => {
