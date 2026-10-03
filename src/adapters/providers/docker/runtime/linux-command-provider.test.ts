@@ -28,12 +28,21 @@ import {
 import { assertDockerCommandOperationAvailable, compileLinuxDockerDaemonProbeArguments, LINUX_DOCKER_OPERATIONS, openContainerEngineSession } from './container-engine-session.ts';
 import { openLinuxDockerCommandProvider } from './linux-command-provider.ts';
 import { assertLinuxDockerEndpoint, openLinuxDockerEndpoint, type LinuxDockerEndpoint } from './linux-endpoint.ts';
-import { assertLinuxDockerRuntimeState, openLinuxDockerRuntimeState } from './linux-runtime-state.ts';
+import { assertLinuxDockerRuntimeState, LinuxDockerRuntimeStateSettlementError, openLinuxDockerRuntimeState } from './linux-runtime-state.ts';
 
 const linuxTest = test.skipIf(process.platform !== 'linux');
 const digest = (value: unknown): SecOperationDigest => sha256(value) as SecOperationDigest;
 const endpointHost = 'unix:///run/docker.sock';
 const requirementId = 'fixture.container-engine';
+
+test('private runtime unknown settlement preserves exact root identity and the original failure', () => {
+  const root = { path: '/owned/root', finalPath: '/owned/root', device: 'device', inode: 'inode', objectId: 'object' };
+  const failure = new LinuxDockerRuntimeStateSettlementError(root, undefined);
+  root.path = '/different';
+  expect(failure).toMatchObject({ disposition: 'unknown', cause: undefined,
+    ownedRoot: { path: '/owned/root', finalPath: '/owned/root', device: 'device', inode: 'inode', objectId: 'object' } });
+  expect(Object.isFrozen(failure.ownedRoot)).toBe(true);
+});
 
 function operation(providerIdentityDigest: SecOperationDigest, deadlineAtUnixMs = Date.now() + 60_000) {
   const contractDigest = digest('Linux Docker fixture contract');
@@ -281,6 +290,27 @@ linuxTest('Linux endpoint admission rejects ordinary files and copied capabiliti
   } finally { await rm(root, { recursive: true, force: true }); }
 });
 
+linuxTest('retained endpoint profile validation uses the actual private peer observation', async () => {
+  const root = await mkdtemp('/tmp/sec-linux-endpoint-profile-');
+  const socket = path.join(root, 'engine.sock');
+  const server = createServer((_request, response) => { response.end('{}'); });
+  let retained: LinuxDockerEndpoint | undefined;
+  try {
+    await new Promise<void>((resolve, reject) => { server.once('error', reject); server.listen(socket, resolve); });
+    const expected = { endpointHost: `unix://${socket}`, peerUid: process.geteuid!() };
+    retained = openLinuxDockerEndpoint(expected);
+    expect(() => assertLinuxDockerEndpoint(retained!, expected)).not.toThrow();
+    expect(() => assertLinuxDockerEndpoint(retained!, { ...expected, peerUid: expected.peerUid + 1 }))
+      .toThrow('required installation profile');
+    expect(() => assertLinuxDockerEndpoint(retained!, { ...expected, endpointHost: 'unix:///different.sock' }))
+      .toThrow('required installation profile');
+  } finally {
+    retained?.close();
+    if (server.listening) await new Promise<void>((resolve, reject) => server.close(error => error ? reject(error) : resolve()));
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 linuxTest('Linux config cannot introduce credential helpers or ambient plugin directories', async () => {
   const state = openLinuxDockerRuntimeState();
   try {
@@ -297,7 +327,7 @@ linuxTest('Linux config cannot introduce credential helpers or ambient plugin di
 test('Linux command-family admission refuses Docker CLI help/error reachability before transport', () => {
   expect(LINUX_DOCKER_OPERATIONS).toEqual([]);
   for (const kind of ['container-copy', 'container-create', 'container-exec', 'container-inspect',
-    'container-list', 'container-remove', 'container-run', 'container-start', 'image-inspect',
+    'container-list', 'container-remove', 'container-run', 'container-start', 'container-stop', 'image-inspect',
     'image-list', 'image-remove', 'network-disconnect', 'volume-create', 'volume-inspect'] as const) {
     expect(() => assertDockerCommandOperationAvailable('linux', kind))
       .toThrow('linux-cli-plugin-closure-unavailable');
@@ -306,6 +336,7 @@ test('Linux command-family admission refuses Docker CLI help/error reachability 
   expect(() => assertDockerCommandOperationAvailable('linux', undefined)).toThrow('linux-cli-plugin-closure-unavailable');
   expect(() => assertDockerCommandOperationAvailable('linux', 'buildx-build')).toThrow('linux-buildx-closure-unavailable');
   expect(() => assertDockerCommandOperationAvailable('linux', 'buildx-bake')).toThrow('linux-buildx-closure-unavailable');
+  expect(() => assertDockerCommandOperationAvailable('linux', 'buildx-inspect-default')).toThrow('linux-buildx-closure-unavailable');
 });
 
 

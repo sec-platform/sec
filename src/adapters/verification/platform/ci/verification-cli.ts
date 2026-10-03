@@ -872,10 +872,11 @@ export const HOSTED_ACTION_COMMANDS = new Set([
 
 function hostedActionCliArgs(
   argv: readonly string[],
-  allowed: readonly string[]
+  allowed: readonly string[],
+  optional: readonly string[] = []
 ): ReadonlyMap<string, string> {
   const result = new Map<string, string>();
-  const allow = new Set(allowed);
+  const allow = new Set([...allowed, ...optional]);
   for (let index = 1; index < argv.length; index += 1) {
     const flag = argv[index]!;
     if (flag === '--json') continue;
@@ -887,6 +888,14 @@ function hostedActionCliArgs(
   }
   for (const flag of allowed) if (!result.has(flag)) throw new Error(`${argv[0]} requires ${flag}.`);
   return result;
+}
+
+function hostedSandboxUnitNonce(args: ReadonlyMap<string, string>): string | undefined {
+  const nonce = args.get('--sandbox-unit-nonce');
+  if (nonce !== undefined && !/^[0-9a-f]{32}$/u.test(nonce)) {
+    throw new Error('Hosted sandbox unit nonce must be exactly 32 hexadecimal characters.');
+  }
+  return nonce;
 }
 
 function hostedActionRecord(value: unknown, label: string): Record<string, unknown> {
@@ -1712,7 +1721,7 @@ export async function CodexDevelopmentCiVerificationHostedActionCli(argv: string
     const args = hostedActionCliArgs(argv, [
       '--base-root', '--candidate-root', '--output-directory', '--base-sha',
       '--head-sha', '--tree-sha', '--manifest-path'
-    ]);
+    ], ['--sandbox-unit-nonce']);
     const result = await CodexDevelopmentExecuteTrustedBootstrapSut({
       baseRoot: args.get('--base-root')!,
       candidateRoot: args.get('--candidate-root')!,
@@ -1720,7 +1729,8 @@ export async function CodexDevelopmentCiVerificationHostedActionCli(argv: string
       baseSha: args.get('--base-sha')!,
       headSha: args.get('--head-sha')!,
       treeSha: args.get('--tree-sha')!,
-      manifestPath: args.get('--manifest-path')!
+      manifestPath: args.get('--manifest-path')!,
+      unitNonce: hostedSandboxUnitNonce(args)
     });
     return JSON.stringify(result);
   }
@@ -1750,12 +1760,14 @@ export async function CodexDevelopmentCiVerificationHostedActionCli(argv: string
     });
   }
   if (command === 'self-test-hosted-action-sandbox') {
-    const args = hostedActionCliArgs(argv, ['--resolution']);
+    const args = hostedActionCliArgs(argv, ['--resolution'], ['--sandbox-unit-nonce']);
+    const unitNonce = hostedSandboxUnitNonce(args);
     const resolution = CodexDevelopmentParseHostedActionResolution(
       hostedActionTransportText(args.get('--resolution')!, 'hosted Action resolution')
     );
     const observation = await CodexDevelopmentProbeHostedSutSandboxCapability({
-      actionKey: resolution.actionPlan.action.actionKey
+      actionKey: resolution.actionPlan.action.actionKey,
+      unitNonce
     });
     if (observation.state === 'unknown') {
       throw new Error(`Hosted Action sandbox capability is a retryable unknown machine observation: ${

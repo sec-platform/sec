@@ -1,6 +1,7 @@
 /** Canonical VerificationSession V2 operator reducer and trusted runtime guards. */
 
 import { createHash } from 'node:crypto';
+import { parseExactJson } from '../../../../../contracts/exact-json.ts';
 import { assertSourceProgramTransitionQualification, sourceProgramTransitionEvidenceForQualification, type SourceProgramTransitionQualification } from '../../trusted-runtime/trusted-runtime-container.ts';
 
 import { CI_VERIFICATION_CONTRACT_REVISION, CI_VERIFICATION_WORKFLOW_PATH } from '../../../../../assurance/verification/contract/revision.ts';
@@ -57,7 +58,7 @@ import {
   type ScopeAuthorizationInput
 } from '../../../../self-hosting/control/scope/authorization.ts';
 import { encodeVerificationActionData, type VerificationActionInputRef } from '../../action/contract/action.ts';
-import { buildCiVerificationActionPlanClosure, ciVerificationGateStep, parseCiVerificationActionPlanClosure, SOURCE_PROGRAM_TRANSITION_GATE_ID, type CiSourceProgramTransitionBinding, type CiVerificationActionPlanClosure, type CiVerificationExecutionEnvironment } from '../../action/contract/ci.ts';
+import { buildCiVerificationActionPlanClosure, CI_VERIFICATION_HOSTED_EXECUTION_ENVIRONMENT, CI_VERIFICATION_PER_JOB_HOSTED_EXECUTION_ENVIRONMENT, ciVerificationGateStep, parseCiVerificationActionPlanClosure, parseCiVerificationHostedExecutionEnvironment, SOURCE_PROGRAM_TRANSITION_GATE_ID, type CiSourceProgramTransitionBinding, type CiVerificationActionPlanClosure, type CiVerificationExecutionEnvironment } from '../../action/contract/ci.ts';
 import { CI_VERIFICATION_ACTION_DEPENDENCY_INPUT_PATHS } from '../../action/contract/environment.ts';
 import { CI_GITHUB_ACTIONS_IDENTITY_POLICY } from '../../action/contract/provider.ts';
 import { assertReviewStabilityReceiptCurrent, createReviewStabilityReceipt, REVIEW_OBSERVER_PRODUCER_IDENTITY, SEC_REVIEW_STABILITY_POLICY, type ReviewStabilityReceipt } from '../../review/contract/stability.ts';
@@ -77,6 +78,7 @@ import {
   CodexDevelopmentBuildVerificationPlan
 } from '../contract/plan.ts';
 import {
+  CI_VERIFICATION_SESSION_PER_JOB_REQUEST_SCHEMA,
   CI_VERIFICATION_SESSION_REQUEST_SCHEMA
 } from '../contract/revision.ts';
 import {
@@ -84,8 +86,10 @@ import {
   CI_VERIFICATION_SESSION_LOCAL_PREPARATION_SCHEMA,
   type VerificationSessionBoundLocalPreparationRequest,
   type VerificationSessionHostedRequest,
+  type VerificationSessionHostedRequestFields,
   type VerificationSessionLocalPreparationRequest, type VerificationSessionPendingHealthLocalPreparationRequest,
-  type VerificationSessionPendingHealthRequestPins
+  type VerificationSessionPendingHealthRequestPins,
+  type VerificationSessionPerJobHostedRequest
 } from '../contract/session-request.ts';
 import {
   assertGitHubReviewAuthorityObservation,
@@ -287,7 +291,13 @@ export function reconstructVerificationSessionHostedFacts(input: {
   mainHealthChecks: readonly GitHubCheckObservation[];
   dependencyBlobs: readonly VerificationSessionActionDependencyBlobObservation[];
 }): VerificationSessionHostedFacts {
-  const request = input.request;
+  const request = parseVerificationSessionHostedRequest(JSON.stringify(input.request));
+  const perJob = request.schema === CI_VERIFICATION_SESSION_PER_JOB_REQUEST_SCHEMA;
+  const providerRevision = perJob
+    ? CI_VERIFICATION_PER_JOB_HOSTED_EXECUTION_ENVIRONMENT.executionEnvironmentRevision
+    : 'github-actions@trusted-default';
+  const toolchainRevision = perJob
+    ? CI_VERIFICATION_PER_JOB_HOSTED_EXECUTION_ENVIRONMENT.toolchainRevision : `bun@${Bun.version}`;
   const transition = bindVerificationSessionTestImpactTransition({
     baseSha: request.expectedBaseSha,
     headSha: request.expectedHeadSha,
@@ -296,8 +306,8 @@ export function reconstructVerificationSessionHostedFacts(input: {
   });
   const environmentDigest = hash(Object.freeze({
     schema: 'sec-hosted-verification-environment-v1',
-    toolchainRevision: `bun@${Bun.version}`,
-    providerRevision: 'github-actions@trusted-default',
+    toolchainRevision,
+    providerRevision,
     contractRevision: CI_VERIFICATION_CONTRACT_REVISION,
     trustRevision: request.expectedBaseSha
   }));
@@ -340,7 +350,7 @@ export function reconstructVerificationSessionHostedFacts(input: {
       headSha: request.expectedHeadSha, headTreeSha: request.expectedHeadTreeSha,
       manifestPath: request.manifestPath, manifestDigest: request.manifestDigest,
       scopeAuthorizationRevision, profile: request.profile as 'quick' | 'full',
-      toolchainRevision: `bun@${Bun.version}`, providerRevision: 'github-actions@trusted-default',
+      toolchainRevision, providerRevision,
       contractRevision: CI_VERIFICATION_CONTRACT_REVISION,
       requiredBlobs: createVerificationSessionActionDependencyRequiredBlobs(input.dependencyBlobs)
     },
@@ -836,7 +846,9 @@ function prepareVerificationSessionCandidatePlan(input: VerificationSessionCandi
   if (executionEnvironment === undefined) {
     throw new Error('VerificationSession preparation requires an explicit execution environment.');
   }
+  if (executionEnvironment.kind === 'hosted') parseCiVerificationHostedExecutionEnvironment(executionEnvironment);
   const providerRevision = executionEnvironment.kind === 'hosted'
+    && executionEnvironment.executionEnvironmentRevision === CI_VERIFICATION_HOSTED_EXECUTION_ENVIRONMENT.executionEnvironmentRevision
     ? 'github-actions@trusted-default'
     : executionEnvironment.executionEnvironmentRevision;
   const transition = bindVerificationSessionTestImpactTransition({
@@ -948,7 +960,10 @@ export function prepareTrustedMainVerificationSession(input: TrustedMainVerifica
     reviewPolicyDigest: SEC_REVIEW_STABILITY_POLICY.policyDigest });
   const requestOperationId = createVerificationSessionOperationId({ sessionRevision, operationKind: 'hosted-dispatch',
     semanticInputDigest: hash(semanticRequest) });
-  const request = Object.freeze({ ...semanticRequest, requestOperationId });
+  const request: VerificationSessionHostedRequest = input.executionEnvironment.kind === 'hosted'
+    && input.executionEnvironment.executionEnvironmentRevision === CI_VERIFICATION_PER_JOB_HOSTED_EXECUTION_ENVIRONMENT.executionEnvironmentRevision
+    ? createVerificationSessionPerJobHostedRequest((({ schema: _schema, ...fields }) => fields)(semanticRequest))
+    : Object.freeze({ ...semanticRequest, requestOperationId });
   const facts: VerificationSessionHostedFacts | null = input.reviewBarrier.status === 'clear'
     ? Object.freeze({
         repository: input.repository,
@@ -962,7 +977,7 @@ export function prepareTrustedMainVerificationSession(input: TrustedMainVerifica
           sourceTransport: input.scopeSourceTransport ?? 'github-actions',
           sourceRunId: input.sourceRunId,
           sourceRef: input.sourceRef,
-          sourceDigest: hash({ requestOperationId, proposalDigest })
+          sourceDigest: hash({ requestOperationId: request.requestOperationId, proposalDigest })
         }),
         scopeIssuedAt: input.observedAt,
         scopeExpiresAt: new Date(new Date(input.observedAt).getTime() + 600_000).toISOString(),
@@ -1177,12 +1192,23 @@ function createVerificationSessionHostedRequest(input: {
     operationKind: 'hosted-dispatch',
     semanticInputDigest: hash(semanticRequest)
   });
+  const perJobEnvironmentDigest = hash({ schema: 'sec-hosted-verification-environment-v1',
+    toolchainRevision: CI_VERIFICATION_PER_JOB_HOSTED_EXECUTION_ENVIRONMENT.toolchainRevision,
+    providerRevision: CI_VERIFICATION_PER_JOB_HOSTED_EXECUTION_ENVIRONMENT.executionEnvironmentRevision,
+    contractRevision: CI_VERIFICATION_CONTRACT_REVISION, trustRevision: session.trustRevision });
+  if (session.environmentDigest === perJobEnvironmentDigest) {
+    const { schema: _schema, ...fields } = semanticRequest;
+    return createVerificationSessionPerJobHostedRequest(fields);
+  }
   return Object.freeze({ ...semanticRequest, requestOperationId });
 }
 
 export function createVerificationSessionLocalPreparationRequest(
   request: VerificationSessionHostedRequest
 ): VerificationSessionBoundLocalPreparationRequest {
+  if (request.schema !== CI_VERIFICATION_SESSION_REQUEST_SCHEMA) {
+    throw new Error('Local preparation cannot wrap a hosted per-job placement.');
+  }
   return Object.freeze({
     schema: CI_VERIFICATION_SESSION_LOCAL_PREPARATION_SCHEMA,
     executionPlacement: 'local',
@@ -1297,10 +1323,25 @@ export function assertVerificationSessionLocalPreparationCurrent(
   throw new Error('Local preparation request differs from current exact candidate, Session or Action environment. Prepare again.');
 }
 
+export function createVerificationSessionPerJobHostedRequest(
+  fields: Readonly<Omit<VerificationSessionHostedRequestFields, 'requestOperationId'>>
+): VerificationSessionPerJobHostedRequest {
+  const semanticRequest = Object.freeze({ ...fields, schema: CI_VERIFICATION_SESSION_PER_JOB_REQUEST_SCHEMA,
+    placement: 'github-hosted-per-job-v1' as const });
+  const requestOperationId = createVerificationSessionOperationId({
+    sessionRevision: fields.expectedSessionRevision, operationKind: 'hosted-dispatch',
+    semanticInputDigest: hash(semanticRequest)
+  });
+  return parseVerificationSessionHostedRequest(JSON.stringify({ ...semanticRequest,
+    requestOperationId })) as VerificationSessionPerJobHostedRequest;
+}
+
 export function parseVerificationSessionHostedRequest(
   source: string
 ): VerificationSessionHostedRequest {
-  const value = JSON.parse(source) as Record<string, unknown>;
+  const decoded = JSON.parse(source) as Record<string, unknown>;
+  const value = decoded?.schema === CI_VERIFICATION_SESSION_PER_JOB_REQUEST_SCHEMA
+    ? parseExactJson(source, 'hosted per-job request') as Record<string, unknown> : decoded;
   if (value?.schema === CI_VERIFICATION_SESSION_LOCAL_PREPARATION_SCHEMA
       || value?.schema === CI_VERIFICATION_SESSION_LOCAL_PENDING_HEALTH_PREPARATION_SCHEMA) {
     throw new Error('Local preparation-only request cannot be consumed by a hosted operation.');
@@ -1308,6 +1349,7 @@ export function parseVerificationSessionHostedRequest(
   // The exact legacy schema is hosted-only. It is accepted only at an explicitly
   // selected hosted entry; absence of placement never selects that entry.
   const expected = [
+    ...(value?.schema === CI_VERIFICATION_SESSION_PER_JOB_REQUEST_SCHEMA ? ['placement'] : []),
     'schema', 'prNumber', 'expectedBaseSha', 'expectedBaseTreeSha', 'expectedHeadSha',
     'expectedHeadTreeSha', 'manifestPath', 'manifestDigest', 'profile',
     'expectedScopeProposalDigest', 'expectedActionPlanDigest', 'expectedSessionRevision',
@@ -1320,8 +1362,13 @@ export function parseVerificationSessionHostedRequest(
   if (actual.length !== expected.length || actual.some((key, index) => key !== expected[index])) {
     throw new Error(`Hosted request must contain exactly: ${expected.join(', ')}.`);
   }
-  if (value.schema !== CI_VERIFICATION_SESSION_REQUEST_SCHEMA) {
+  if (value.schema !== CI_VERIFICATION_SESSION_REQUEST_SCHEMA
+      && value.schema !== CI_VERIFICATION_SESSION_PER_JOB_REQUEST_SCHEMA) {
     throw new Error('Hosted request schema mismatch.');
+  }
+  if (value.schema === CI_VERIFICATION_SESSION_PER_JOB_REQUEST_SCHEMA
+      && value.placement !== 'github-hosted-per-job-v1') {
+    throw new Error('Hosted request placement mismatch.');
   }
   const shaFields = ['expectedBaseSha', 'expectedBaseTreeSha', 'expectedHeadSha', 'expectedHeadTreeSha'];
   const digestFields = [
@@ -1338,6 +1385,14 @@ export function parseVerificationSessionHostedRequest(
       typeof value.manifestPath !== 'string' || typeof value.profile !== 'string') {
     throw new Error('Hosted request scalar identity is invalid.');
   }
+  if (value.schema === CI_VERIFICATION_SESSION_PER_JOB_REQUEST_SCHEMA) {
+    const { requestOperationId, ...semanticRequest } = value;
+    const expectedOperation = createVerificationSessionOperationId({
+      sessionRevision: value.expectedSessionRevision as Digest, operationKind: 'hosted-dispatch',
+      semanticInputDigest: hash(semanticRequest)
+    });
+    if (requestOperationId !== expectedOperation) throw new Error('Hosted per-job request operation identity mismatch.');
+  }
   return Object.freeze(value as unknown as VerificationSessionHostedRequest);
 }
 
@@ -1348,6 +1403,15 @@ export function prepareVerificationSessionHosted(input: {
 }): VerificationSessionHostedEnvelope {
   const request = parseVerificationSessionHostedRequest(JSON.stringify(input.request));
   const facts = input.facts;
+  if (request.schema === CI_VERIFICATION_SESSION_PER_JOB_REQUEST_SCHEMA) {
+    const expectedEnvironmentDigest = hash({ schema: 'sec-hosted-verification-environment-v1',
+      toolchainRevision: CI_VERIFICATION_PER_JOB_HOSTED_EXECUTION_ENVIRONMENT.toolchainRevision,
+      providerRevision: CI_VERIFICATION_PER_JOB_HOSTED_EXECUTION_ENVIRONMENT.executionEnvironmentRevision,
+      contractRevision: CI_VERIFICATION_CONTRACT_REVISION, trustRevision: request.expectedBaseSha });
+    if (facts.environmentDigest !== expectedEnvironmentDigest) {
+      throw new Error('Hosted per-job request environment digest differs from its fixed placement.');
+    }
+  }
   const candidate = facts.candidate;
   const candidateChecks: readonly [unknown, unknown, string][] = [
     [candidate.repository, facts.repository, 'repository'], [candidate.number, request.prNumber, 'PR'],
@@ -1389,6 +1453,16 @@ export function prepareVerificationSessionHosted(input: {
   );
   if (actionPlanClosure.actionPlanDigest !== request.expectedActionPlanDigest) {
     throw new Error('prepare-hosted Action plan digest differs from proposed request.');
+  }
+  if (request.schema === CI_VERIFICATION_SESSION_REQUEST_SCHEMA
+      && actionPlanClosure.actions.some(({ action }) =>
+        action.environment.providerRevision === CI_VERIFICATION_PER_JOB_HOSTED_EXECUTION_ENVIRONMENT.executionEnvironmentRevision)) {
+    throw new Error('Legacy request cannot adopt a per-job Action provider.');
+  }
+  if (request.schema === CI_VERIFICATION_SESSION_PER_JOB_REQUEST_SCHEMA
+      && (actionPlanClosure.actions.length === 0 || actionPlanClosure.actions.some(({ action }) =>
+        action.environment.providerRevision !== CI_VERIFICATION_PER_JOB_HOSTED_EXECUTION_ENVIRONMENT.executionEnvironmentRevision))) {
+    throw new Error('Hosted per-job request cannot use a legacy or mixed Action provider.');
   }
   const scopeAuthorization = createScopeAuthorization({
     repository: facts.repository,

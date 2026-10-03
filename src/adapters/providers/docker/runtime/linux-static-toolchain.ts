@@ -29,7 +29,12 @@ export interface RetainedLinuxDockerStaticToolchain {
   close(): void;
 }
 
-const issued = new WeakSet<object>();
+const issued = new WeakMap<object, Readonly<{
+  generation: RetainedNoFollowProvenDirectoryGeneration;
+  docker: RetainedNoFollowOrdinaryFile;
+  buildx: RetainedNoFollowOrdinaryFile;
+  isClosed(): boolean;
+}>>();
 
 function unavailable(message: string, cause?: unknown): never {
   throw new LinuxDockerStaticToolchainError('unavailable', message,
@@ -66,6 +71,7 @@ export async function retainLinuxDockerStaticToolchain(input: Readonly<{
   generation: RetainedNoFollowProvenDirectoryGeneration;
   deadlineAtUnixMs: number;
 }>): Promise<RetainedLinuxDockerStaticToolchain> {
+  input = Object.freeze({ ...input });
   if (process.platform !== 'linux' || process.arch !== 'x64') {
     throw new LinuxDockerStaticToolchainError('unsupported', 'Static Docker supply requires Linux x64.');
   }
@@ -140,7 +146,7 @@ export async function retainLinuxDockerStaticToolchain(input: Readonly<{
       assertCurrent,
       close
     });
-    issued.add(capability);
+    issued.set(capability, Object.freeze({ generation, docker: executables[0]!, buildx: executables[1]!, isClosed: () => closed }));
     return capability;
   } catch (error) {
     settleResources({ primary: { label: 'docker-static-toolchain-admission', error },
@@ -154,4 +160,16 @@ export async function assertRetainedLinuxDockerStaticToolchain(
 ): Promise<void> {
   if (!issued.has(capability)) unavailable('Static Docker toolchain is not owner-issued.');
   await capability.assertCurrent();
+}
+
+/** Borrowed physical inputs only. The caller must retain the supply lifetime;
+ * these inputs cannot establish host isolation or issue an Engine grant. */
+export function linuxDockerStaticToolchainInputs(capability: RetainedLinuxDockerStaticToolchain) {
+  const retained = issued.get(capability);
+  if (retained === undefined) unavailable('Static Docker toolchain is not owner-issued.');
+  if (retained.isClosed()) unavailable('Static Docker toolchain has been closed.');
+  retained.generation.assertCurrent();
+  retained.docker.assertCurrent();
+  retained.buildx.assertCurrent();
+  return retained;
 }
