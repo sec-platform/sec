@@ -547,7 +547,8 @@ export async function hostedJobRuntimeCli(args: readonly string[]): Promise<void
       const checked = await executeTrustedRuntimeMainHealthCheck({ repositoryRoot: observed.trustedDriverRoot,
         repository: observed.repository, mainSha: observed.trustedSourceSha, mainTreeSha: observed.trustedSourceTreeSha,
         command: MAIN_HEALTH_COMMANDS[phase as keyof typeof MAIN_HEALTH_COMMANDS], deadlineAtUnixMs: engine.deadlineAtUnixMs,
-        signal: getAuthenticatedGitHubJobOriginSignal(origin), qualifiedEngineExporter: exporter });
+        signal: getAuthenticatedGitHubJobOriginSignal(origin), qualifiedEngineExporter: exporter,
+        immutableInputBootstrap: bootstrap });
       assertAuthenticatedGitHubJobOriginCurrent(origin);
       publishActionsDataOutputs(actionsOutput, { 'main-health-check-digest': checked.resultDigest });
     } else {
