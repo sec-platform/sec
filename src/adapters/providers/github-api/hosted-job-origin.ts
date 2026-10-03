@@ -71,7 +71,6 @@ const issuedOrigins = new WeakMap<object, OriginRecord>();
 // provider's original started_at plus the closed job policy, never Date.now().
 const admittedJobDeadlines = new Map<string, number>();
 const SOURCE_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../../..');
-const officialFetch = globalThis.fetch.bind(globalThis);
 
 function unavailable(reason: AuthenticatedGitHubJobOriginUnavailableError['reason']): never {
   throw new AuthenticatedGitHubJobOriginUnavailableError(reason);
@@ -120,7 +119,7 @@ async function jsonRequest(url: URL, deadline: number, signal: AbortSignal, toke
   const timer = setTimeout(() => controller.abort(), remaining);
   try {
     throwIfNativeAborted(linked);
-    const response = await officialFetch(url, { method: 'GET', redirect: 'error', signal: linked,
+    const response = await globalThis.fetch(url, { method: 'GET', redirect: 'error', signal: linked,
       headers: { Accept: 'application/json', ...(token === undefined ? {} : { Authorization: `Bearer ${token}` }) } });
     if (response.body === null) unavailable('transport');
     return await withOwnedByteStreamReader(response.body, async read => {

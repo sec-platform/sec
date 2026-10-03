@@ -4,7 +4,7 @@ import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
-import { observeOperationAuthorityOwners } from '../../src/adapters/self-hosting/control/agent/agent-operation-activation.ts';
+import { observeOperationAuthorityOwners, runHostedAgentOperationActivation } from '../../src/adapters/self-hosting/control/agent/agent-operation-activation.ts';
 import { CodexDevelopmentParseCurrentWorkPackageManifest } from '../../src/adapters/self-hosting/control/task/contract/work-package.ts';
 import { gitProtocolSuccess, inGitProtocolRepository } from '../testkit/git-protocol.ts';
 
@@ -31,6 +31,15 @@ import {
 
 const sha = (character: string): string => character.repeat(40);
 const digest = (character: string): `sha256:${string}` => `sha256:${character.repeat(64)}`;
+
+test('same-process hosted activation entry rejects dispatch, observation and unbounded option surfaces', async () => {
+  for (const argv of [[], ['request'], ['observe'], ['produce-hosted'], ['publish-hosted'],
+    ['produce-hosted', '--json', '--json'], ['publish-hosted', '--arbitrary-program', 'candidate.js'],
+    ['produce-hosted', '--runtime-root', '.', '--candidate-root', '.', '--request', 'request.json',
+      '--output', 'output.json', '--json', '--skip-source-guard', 'true']]) {
+    await expect(runHostedAgentOperationActivation(argv)).rejects.toThrow('activation-issuer-unavailable');
+  }
+});
 
 test('activation test census accepts colocated regular blobs and rejects non-file or incomplete evidence', () => {
   const paths = ['src/adapters/self-hosting/control/agent/行为.test.ts', 'tests/unit/example.spec.ts'];

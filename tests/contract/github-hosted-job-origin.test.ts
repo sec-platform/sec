@@ -39,6 +39,8 @@ function transport() {
     jobs: [{ total_count: 1, jobs: [{ id: 902, run_id: 900, run_attempt: 1, name: 'execute-verification-action-sut',
       head_sha: sourceSha, status: 'in_progress', conclusion: null, completed_at: null,
       started_at: new Date(now - 60_000).toISOString(), labels: ['ubuntu-24.04'],
+      steps: [{ name: 'Execute one normalized candidate operation without credentials', number: 8,
+        status: 'in_progress', conclusion: null, started_at: new Date(now).toISOString(), completed_at: null }],
       check_run_url: 'https://api.github.com/repos/sec-platform/sec/check-runs/901' }] }],
     observedAtUnixMs: now + 1000
   };
@@ -93,11 +95,25 @@ test('canonical API binding joins signed check-run to exact job and original pro
   expect(result.jobId).toBe('902');
   expect(result.policyJobId).toBe('execute-verification-action-sut');
   expect(result.role).toBe('sut');
+  expect(result.phase).toBe('execute-hosted-action-sut');
+  expect(result.stepNumber).toBe(8);
   expect(result.originalDeadlineAtUnixMs).toBe(now - 60_000 + 75 * 60_000);
   const later = decodeAuthenticatedGitHubJobBinding({ ...transport(), observedAtUnixMs: now + 120_000 });
   expect(later.originalDeadlineAtUnixMs).toBe(result.originalDeadlineAtUnixMs);
   expect(later.identityDigest).toBe(result.identityDigest);
   expect(() => assertAuthenticatedGitHubJobOriginCurrent(result as unknown as AuthenticatedGitHubJobOrigin)).toThrow();
+});
+
+test('origin binds the unique actual provider phase, never an argv or display-name-only claim', () => {
+  const original = transport(), job = original.jobs[0]!.jobs[0]!, step = job.steps[0]!;
+  expect(decodeAuthenticatedGitHubJobBinding(original).phase).toBe('execute-hosted-action-sut');
+  for (const steps of [[], [step, { ...step, number: 9 }], [{ ...step, number: 0 }],
+    [{ ...step, name: 'Upload untrusted raw SUT transport only' }], [{ ...step, status: 'queued' }],
+    [{ ...step, conclusion: 'success' }], [{ ...step, completed_at: new Date(now).toISOString() }],
+    [{ ...step, started_at: new Date(now - 120_000).toISOString() }]]) {
+    expect(() => decodeAuthenticatedGitHubJobBinding({ ...original,
+      jobs: [{ total_count: 1, jobs: [{ ...job, steps }] }] })).toThrow();
+  }
 });
 
 test('matching names and caller source expectations cannot replace exact signed job/current-default binding', () => {

@@ -31,7 +31,7 @@ import {
 } from '../../src/adapters/self-hosting/control/main-health/contract.ts';
 import { createScopeAuthorization, type ScopeAuthorization } from '../../src/adapters/self-hosting/control/scope/authorization.ts';
 import { encodeVerificationActionData } from '../../src/adapters/verification/platform/action/contract/action.ts';
-import { CI_VERIFICATION_HOSTED_EXECUTION_ENVIRONMENT, ciVerificationActionParentDispatchPlanPayloadDigest, createCiVerificationActionParentDispatchPlan, createCiVerificationActionProposal, createCiVerificationActionProviderEnvelope, createCiVerificationLocalExecutionEnvironment } from '../../src/adapters/verification/platform/action/contract/ci.ts';
+import { CI_VERIFICATION_HOSTED_EXECUTION_ENVIRONMENT, CI_VERIFICATION_PER_JOB_HOSTED_EXECUTION_ENVIRONMENT, ciVerificationActionParentDispatchPlanPayloadDigest, createCiVerificationActionParentDispatchPlan, createCiVerificationActionProposal, createCiVerificationActionProviderEnvelope, createCiVerificationLocalExecutionEnvironment } from '../../src/adapters/verification/platform/action/contract/ci.ts';
 import { CodexDevelopmentCreateVerificationEvidenceProducer, CodexDevelopmentFinalizeVerificationEvidenceV4, CodexDevelopmentFinalizeVerificationSessionArtifact } from '../../src/adapters/verification/platform/ci/contract/evidence.ts';
 import { bindDocumentationVerificationGateInput } from '../../src/adapters/verification/platform/ci/contract/plan.ts';
 import { createReviewSnapshotDigest, createReviewStabilityReceipt, renderIndependentReviewTrailer, REVIEW_OBSERVER_READ_ONLY_CAPABILITY_RECEIPT, SEC_REVIEW_STABILITY_POLICY } from '../../src/adapters/verification/platform/review/contract/stability.ts';
@@ -4792,4 +4792,33 @@ describe('qualified exact-repository Session consumers', () => {
   }));
 }, 180_000);
   });
+});
+
+
+test('per-job preparation cannot downgrade its Action provider through a legacy request or replace its fixed environment digest', async () => {
+  const transport = new FakeTransport();
+  const candidate = transport.candidate();
+  const barrier = await observePrivateClearReviewBarrier(VERIFIED_AT);
+  const changedPaths = ['src/adapters/verification/platform/ci/runtime/verification-session.ts'];
+  const prepared = prepareTrustedMainVerificationSession({
+    executionEnvironment: CI_VERIFICATION_PER_JOB_HOSTED_EXECUTION_ENVIRONMENT,
+    repository: candidate.repository, candidate,
+    manifestPath: 'config/repository/work-packages/example.md',
+    manifestDigest: `sha256:${'b'.repeat(64)}`, changedPaths,
+    testImpactTransition: changedTransition(changedPaths), testImpactSourceProvider: TEST_IMPACT_SOURCE_PROVIDER,
+    profile: 'quick', integrationPrincipalNodeId: 'INTEGRATOR', producerPrincipalNodeId: 'INTEGRATOR',
+    sourceRunId: '901', sourceRef: `.github/workflows/compiler-pr-validation.yml@${BASE}`,
+    observedAt: barrier.observedAt, reviewBarrier: barrier,
+    mainHealthChecks: [mainHealthCheck()], dependencyBlobs: actionDependencyBlobs()
+  });
+  if (prepared.facts === null || !('placement' in prepared.request)) throw new Error('expected per-job preparation');
+  expect(() => prepareVerificationSessionHosted({ request: prepared.request, facts: prepared.facts!,
+    now: barrier.observedAt })).not.toThrow();
+  const { placement: _placement, ...pins } = prepared.request;
+  const downgraded = { ...pins, schema: CI_VERIFICATION_SESSION_REQUEST_SCHEMA };
+  expect(() => prepareVerificationSessionHosted({ request: downgraded, facts: prepared.facts!,
+    now: barrier.observedAt })).toThrow('Legacy request cannot adopt a per-job Action provider');
+  expect(() => prepareVerificationSessionHosted({ request: prepared.request,
+    facts: { ...prepared.facts!, environmentDigest: `sha256:${'f'.repeat(64)}` },
+    now: barrier.observedAt })).toThrow('environment digest differs from its fixed placement');
 });

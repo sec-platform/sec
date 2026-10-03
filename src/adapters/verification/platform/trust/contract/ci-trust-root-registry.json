@@ -62,7 +62,9 @@
     "tests/setup/test-runtime.setup.ts"
   ],
   "reviewedSutEdges": [],
-  "reviewedBoundaryEdges": [],
+  "reviewedBoundaryEdges": [
+    "src/adapters/self-hosting/control/main-health/post-merge-plan.ts -> src/adapters/verification/platform/trust/runtime/closure-lock.ts"
+  ],
   "reviewedExternalImports": [
     "src/adapters/providers/docker/contract/windows-installation-profile.ts -> zod",
     "src/adapters/providers/github-api/internal/artifact-member.ts -> yauzl",

@@ -10,7 +10,7 @@ import {
 } from 'node:fs';
 import path from 'node:path';
 import { encodeVerificationActionData, type VerificationActionKeyDigest } from '../action/contract/action.ts';
-import { ciVerificationNormalizedOperationArgv, resolveCiVerificationDevRunnerTarget } from '../action/contract/ci.ts';
+import { ciVerificationNormalizedOperationArgv, parseCiVerificationHostedExecutionEnvironment, resolveCiVerificationDevRunnerTarget } from '../action/contract/ci.ts';
 import { CI_VERIFICATION_HOSTED_PROVIDER_REVISION } from '../action/contract/environment.ts';
 import {
   CI_VERIFICATION_ACTION_PHYSICAL_COMMAND_SCHEMA,
@@ -423,6 +423,30 @@ function hostedSutSandboxUnitName(actionKey: VerificationActionKeyDigest, nonce:
   return `sec-sut-${actionKey.slice('sha256:'.length, 'sha256:'.length + 16)}-${nonce}`;
 }
 
+/** Pure path projection for the outer profile owner, never sandbox authority. */
+export function CodexDevelopmentHostedSutSandboxRoot(input: Readonly<{
+  subjectDigest: VerificationActionKeyDigest;
+  unitNonce: string;
+}>): string {
+  if (!/^sha256:[0-9a-f]{64}$/u.test(input.subjectDigest) || !/^[0-9a-f]{32}$/u.test(input.unitNonce)) {
+    throw new Error('Hosted SUT exact root subject or nonce is invalid.');
+  }
+  return `/tmp/${hostedSutSandboxUnitName(input.subjectDigest, input.unitNonce)}`;
+}
+
+/** The pre-materialization subject is a path identity, not the full operation.
+ * The later bootstrapDigest still binds the retained archive and dependencies. */
+export function CodexDevelopmentTrustedBootstrapSutSubjectDigest(input: Readonly<{
+  baseSha: string; headSha: string; treeSha: string; manifestPath: string;
+}>): VerificationActionKeyDigest {
+  if (![input.baseSha, input.headSha, input.treeSha].every(value => /^[0-9a-f]{40}$/u.test(value))
+    || !/^(?!\/)(?!.*(?:^|\/)\.\.(?:\/|$))[A-Za-z0-9_./-]{1,1024}$/u.test(input.manifestPath)) {
+    throw new Error('Trusted bootstrap SUT subject is invalid.');
+  }
+  return ciActionDigest({ baseSha: input.baseSha, headSha: input.headSha, treeSha: input.treeSha,
+    manifestPath: input.manifestPath, sandboxPolicyDigest: CI_VERIFICATION_HOSTED_SANDBOX_POLICY_DIGEST });
+}
+
 function finalizeHostedSutSandboxCommandPlan(input: Readonly<{
   phase: CodexDevelopmentHostedSutSandboxCommandPlan['phase'];
   command: CodexDevelopmentHostedSutSandboxCommandPlan['command'];
@@ -553,6 +577,7 @@ export function CodexDevelopmentBuildHostedSutSandboxCommandPlan(input: Readonly
     valueDigest: ciActionDigest(value)
   }));
   const authorization = input.executionAuthorization;
+  const executionEnvironment = parseCiVerificationHostedExecutionEnvironment(authorization.executionEnvironment);
   const { authorizationDigest, ...authorizationWithoutDigest } = authorization;
   const { projectionDigest, ...physicalCommandWithoutDigest } = authorization.physicalCommand;
   const expectedUnitName = `sec-sut-${authorization.actionKey.slice(7, 23)}-${authorization.ticketDigest.slice(7, 23)}`;
@@ -569,7 +594,7 @@ export function CodexDevelopmentBuildHostedSutSandboxCommandPlan(input: Readonly
       authorization.physicalCommand.canonicalArgvDigest !== ciActionDigest(input.normalizedArgv) ||
       authorization.sandboxPolicyDigest !== CI_VERIFICATION_HOSTED_SANDBOX_POLICY_DIGEST ||
       authorization.physicalCommand.sandboxPolicyDigest !== CI_VERIFICATION_HOSTED_SANDBOX_POLICY_DIGEST ||
-      authorization.physicalCommand.providerRevision !== CI_VERIFICATION_HOSTED_PROVIDER_REVISION ||
+      authorization.physicalCommand.providerRevision !== executionEnvironment.executionEnvironmentRevision ||
       encodeVerificationActionData(authorization.normalizedArgv) !==
         encodeVerificationActionData(input.normalizedArgv) ||
       encodeVerificationActionData(authorization.physicalCommand.fixedSandboxEnvironment) !==
@@ -599,6 +624,7 @@ export function CodexDevelopmentBuildHostedSutSandboxCommandPlan(input: Readonly
 
 export function CodexDevelopmentBuildTrustedBootstrapSutSandboxCommandPlan(input: Readonly<{
   bootstrapDigest: VerificationActionKeyDigest;
+  unitSubjectDigest?: VerificationActionKeyDigest;
   candidateArchiveDigest: VerificationActionKeyDigest;
   bunExecutable: string;
   baseSha: string;
@@ -615,7 +641,11 @@ export function CodexDevelopmentBuildTrustedBootstrapSutSandboxCommandPlan(input
   const environment = Object.entries(input.candidateEnvironment)
     .filter((entry): entry is [string, string] => entry[1] !== undefined)
     .sort(([left], [right]) => left.localeCompare(right));
-  const unitName = hostedSutSandboxUnitName(input.bootstrapDigest, input.unitNonce);
+  const unitName = input.unitSubjectDigest === undefined
+    ? hostedSutSandboxUnitName(input.bootstrapDigest, input.unitNonce)
+    : path.posix.basename(CodexDevelopmentHostedSutSandboxRoot({
+        subjectDigest: input.unitSubjectDigest, unitNonce: input.unitNonce
+      }));
   const plan = finalizeHostedSutSandboxCommandPlan({
     phase: 'bootstrap-execute',
     command: '/usr/bin/unshare',
@@ -625,7 +655,10 @@ export function CodexDevelopmentBuildTrustedBootstrapSutSandboxCommandPlan(input
     physicalCommandProjectionDigest: null,
     argv: [
       '--mount', '--pid', '--fork', '--kill-child=KILL', '--net',
-      '/usr/bin/bash', '-ceu', HOSTED_SUT_NAMESPACE_SCRIPT, 'sec-hosted-sut',
+      '/usr/bin/bash', '-ceu', HOSTED_SUT_NAMESPACE_SCRIPT,
+      // Keep the full operation in the exact shell argv ($0) when its
+      // namespace path uses the separate pre-materialization subject.
+      input.unitSubjectDigest === undefined ? 'sec-hosted-sut' : `sec-hosted-sut:${input.bootstrapDigest}`,
       unitName, HOSTED_SUT_RETAINED_ARCHIVE_CHILD_PATH, input.candidateArchiveDigest,
       input.bunExecutable, input.baseSha, input.headSha,
       String(environment.length),
@@ -861,6 +894,7 @@ export async function CodexDevelopmentExecuteTrustedBootstrapSut(input: Readonly
   headSha: string;
   treeSha: string;
   manifestPath: string;
+  unitNonce?: string;
 }>): Promise<Readonly<{
   status: 'passed' | 'failed';
   bootstrapDigest: VerificationActionKeyDigest;
@@ -869,11 +903,12 @@ export async function CodexDevelopmentExecuteTrustedBootstrapSut(input: Readonly
   if (!/^(?!\/)(?!.*(?:^|\/)\.\.(?:\/|$))[A-Za-z0-9_./-]{1,1024}$/u.test(input.manifestPath)) {
     throw new Error('Trusted bootstrap SUT manifest path is invalid.');
   }
+  const unitSubjectDigest = CodexDevelopmentTrustedBootstrapSutSubjectDigest(input);
+  if (input.unitNonce !== undefined) {
+    CodexDevelopmentHostedSutSandboxRoot({ subjectDigest: unitSubjectDigest, unitNonce: input.unitNonce });
+  }
   const capability = await CodexDevelopmentProbeHostedSutSandboxCapability({
-    actionKey: ciActionDigest({
-      baseSha: input.baseSha, headSha: input.headSha, treeSha: input.treeSha,
-      manifestPath: input.manifestPath, sandboxPolicyDigest: CI_VERIFICATION_HOSTED_SANDBOX_POLICY_DIGEST
-    })
+    actionKey: unitSubjectDigest, unitNonce: input.unitNonce
   });
   if (capability.state !== 'supported') {
     throw new Error(`Trusted bootstrap SUT cannot start: ${capability.diagnostic ?? capability.state}`);
@@ -930,12 +965,13 @@ export async function CodexDevelopmentExecuteTrustedBootstrapSut(input: Readonly
       );
       commandPlan = CodexDevelopmentBuildTrustedBootstrapSutSandboxCommandPlan({
         bootstrapDigest,
+        ...(input.unitNonce === undefined ? {} : { unitSubjectDigest }),
         candidateArchiveDigest: retainedArchive.archiveDigest,
         bunExecutable: realpathSync.native(process.execPath),
         baseSha: input.baseSha,
         headSha: input.headSha,
         candidateEnvironment,
-        unitNonce: `${process.pid}-${Date.now()}`.slice(0, 32)
+        unitNonce: input.unitNonce ?? `${process.pid}-${Date.now()}`.slice(0, 32)
       });
       try {
         execution = await defaultHostedSutSandboxProcess(commandPlan, retainedArchive);

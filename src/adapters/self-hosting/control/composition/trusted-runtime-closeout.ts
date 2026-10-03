@@ -5,7 +5,9 @@ import path from 'node:path';
 import { parseArgs as parseNativeArgs } from 'node:util';
 
 import { withAcquiredResource } from '../../../../execution/resource-settlement.ts';
+import { consumeQualifiedContainerEngineOciExporter, type QualifiedContainerEngineOciExporter } from '../../../providers/docker/runtime/linux-oci-exporter.ts';
 import { withAuthorityGitReadSession } from '../../../providers/git-read/authority.ts';
+import { getAuthenticatedGitHubJobOriginSignal, type AuthenticatedGitHubJobOrigin } from '../../../providers/github-api/hosted-job-origin.ts';
 import {
   executeGitHubApiOperation,
   inspectGitHubApiCapability,
@@ -77,11 +79,14 @@ import {
 import {
   parseGitHubClosingKeywordOccurrences
 } from '../issues/disposition.ts';
+import type { MainHealthLedger } from '../main-health/contract.ts';
+import { assertTrustedRuntimeMainHealthPublication, type TrustedRuntimeMainHealthPublicationAdmission } from '../main-health/live-admission.ts';
 import {
   parseTrustedRuntimeMainHealthReceipt,
   trustedRuntimeMainHealthReceiptLocator,
   type TrustedRuntimeMainHealthReceipt
 } from '../main-health/main-health-observation.ts';
+import { assertTrustedRuntimePostMergeMainHealthPlanCurrent, type TrustedRuntimePostMergeMainHealthPlan } from '../main-health/post-merge-plan.ts';
 import {
   assertMainHealthGitHubReadOperationBudgetCurrent,
   assertMainHealthPublicationAuthorityStable,
@@ -562,6 +567,8 @@ async function withProducedTrustedRuntimeMainHealth<T>(input: Readonly<{
   mainSha: string;
   mainTreeSha: string;
   deadlineAtUnixMs?: number;
+  signal?: AbortSignal;
+  qualifiedEngineExporter?: QualifiedContainerEngineOciExporter;
   assertSubjectCurrent(): Promise<void>;
 }>, operation: (receipt: TrustedRuntimeMainHealthReceipt) => Promise<T>): Promise<T> {
   const repositoryRoot = path.resolve(input.repositoryRoot);
@@ -595,6 +602,8 @@ async function withProducedTrustedRuntimeMainHealth<T>(input: Readonly<{
         repository: input.repository,
         mainSha: input.mainSha,
         mainTreeSha: input.mainTreeSha,
+        signal: input.signal,
+        qualifiedEngineExporter: input.qualifiedEngineExporter,
         ...(input.deadlineAtUnixMs === undefined ? {} : { deadlineAtUnixMs: input.deadlineAtUnixMs })
       }, async (receipt) => {
         await input.assertSubjectCurrent();
@@ -619,6 +628,71 @@ async function withProducedTrustedRuntimeMainHealth<T>(input: Readonly<{
         else generationLease.release();
       }
     }
+  });
+}
+
+/** The trusted driver stays at its admitted revision. Only the exact new
+ * main is materialized inside the original isolated MainHealth workspace. */
+export async function withAuthenticatedPostMergeMainHealth<T>(input: Readonly<{
+  origin: AuthenticatedGitHubJobOrigin;
+  engineExporter: QualifiedContainerEngineOciExporter;
+  plan: TrustedRuntimePostMergeMainHealthPlan;
+  repositoryRoot: string;
+  repository: string;
+  mainSha: string;
+  mainTreeSha: string;
+}>, operation: (health: Readonly<{
+  ledger: MainHealthLedger;
+  admission: TrustedRuntimeMainHealthPublicationAdmission;
+  observedAt: string;
+  assertCurrent(): Promise<void>;
+}>) => Promise<T>): Promise<T> {
+  input = Object.freeze({ origin: input.origin, engineExporter: input.engineExporter,
+    plan: input.plan, repositoryRoot: input.repositoryRoot, repository: input.repository,
+    mainSha: input.mainSha, mainTreeSha: input.mainTreeSha });
+  const assertSubjectCurrent = async (): Promise<void> => {
+    const origin = await assertTrustedRuntimePostMergeMainHealthPlanCurrent(input);
+    if (origin.repository !== input.repository || origin.trustedDriverRoot !== input.repositoryRoot
+        || input.engineExporter.originIdentityDigest !== origin.identityDigest) {
+      fail('post-merge MainHealth origin or qualified Engine belongs to another operation');
+    }
+    const liveMain = await observeMainHealthGitHubDefaultBranchSha({ ...input, defaultBranch: 'main' });
+    if (liveMain !== input.mainSha) fail('post-merge MainHealth exact default advanced');
+  };
+  await assertSubjectCurrent();
+  const origin = await assertTrustedRuntimePostMergeMainHealthPlanCurrent(input);
+  const engine = await consumeQualifiedContainerEngineOciExporter(input.engineExporter);
+  if (engine.cwd !== input.repositoryRoot || engine.deadlineAtUnixMs > origin.deadlineAtUnixMs) {
+    fail('MainHealth Engine working directory or original job budget differs');
+  }
+  return await withProducedTrustedRuntimeMainHealth({ ...input,
+    deadlineAtUnixMs: engine.deadlineAtUnixMs,
+    signal: getAuthenticatedGitHubJobOriginSignal(input.origin),
+    qualifiedEngineExporter: input.engineExporter,
+    assertSubjectCurrent
+  }, async (receipt) => {
+    const selected = await observeCanonicalMainHealthForPublication({ ...input,
+      defaultBranch: 'main', qualifiedLocalReceipt: receipt });
+    if (selected.projection.state !== 'healthy' || selected.ledger === null) {
+      fail('post-merge MainHealth canonical selection is not qualified and healthy');
+    }
+    const admission = Object.freeze({ authority: selected.authority, receipt,
+      repositoryRoot: input.repositoryRoot });
+    const assertCurrent = async (): Promise<void> => {
+      await assertSubjectCurrent();
+      const current = await observeCanonicalMainHealthForPublication({ ...input,
+        defaultBranch: 'main', qualifiedLocalReceipt: receipt });
+      if (current.projection.state !== 'healthy' || current.ledger === null) {
+        fail('post-merge MainHealth provider evidence became invalid or conflicting');
+      }
+      assertMainHealthPublicationAuthorityStable(selected.authority, current.authority);
+      assertTrustedRuntimeMainHealthPublication({ admission, ledger: selected.ledger!,
+        repository: input.repository, mainSha: input.mainSha, mainTreeSha: input.mainTreeSha,
+        now: new Date(Date.now()).toISOString() });
+    };
+    await assertCurrent();
+    return await operation(Object.freeze({ ledger: selected.ledger, admission,
+      observedAt: selected.observedAt, assertCurrent }));
   });
 }
 
