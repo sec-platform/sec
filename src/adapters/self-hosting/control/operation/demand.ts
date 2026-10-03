@@ -40,6 +40,7 @@ export type SecOperationDemandInput = Readonly<
 
 const SEC_OPERATION_CAPABILITY_DEMANDS = [
   'compiler-dependency-tree',
+  'typescript-compiler-api',
   'managed-git-hooks'
 ] as const;
 
@@ -109,7 +110,9 @@ export function compileSecOperationDemandGraph(
   if (hookPolicy !== null && !['always', 'if-installed', 'never'].includes(hookPolicy)) {
     throw new Error('Operation Demand Graph V1: dependency setup hook policy is not canonical.');
   }
-  const compilerDemanded = input.operation !== 'work-selection-observe';
+  const importCompilerDemanded = input.operation === 'imports-apply' ||
+    input.operation === 'imports-check' || input.operation === 'imports-freeze';
+  const compilerDemanded = input.operation !== 'work-selection-observe' && !importCompilerDemanded;
   const terminalTransitionDemanded = terminalWorkIds.length > 0;
   const withoutDigest = deepFreeze({
     schema: SEC_OPERATION_DEMAND_GRAPH_SCHEMA,
@@ -120,6 +123,7 @@ export function compileSecOperationDemandGraph(
     } as SecOperationDemandInput,
     capabilityDemands: Object.freeze([
       ...(compilerDemanded ? ['compiler-dependency-tree' as const] : []),
+      ...(importCompilerDemanded ? ['typescript-compiler-api' as const] : []),
       ...(hookPolicy !== null && hookPolicy !== 'never' ? ['managed-git-hooks' as const] : [])
     ].sort(compareCodeUnits)),
     transitionDemands: Object.freeze([

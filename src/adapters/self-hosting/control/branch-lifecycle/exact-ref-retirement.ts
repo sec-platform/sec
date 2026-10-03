@@ -11,6 +11,7 @@ import { observeActiveWorkPackage } from '../documentation/document-control-plan
 import type { BranchRecoveryAuthority } from './branch-lifecycle-contract.ts';
 import { collectBranchLifecycleInventory } from './branch-lifecycle-inventory.ts';
 import { createRecoveryBundle, verifyRecoveryAuthorityHeadLive } from './branch-recovery.ts';
+import { observeReviewedRefSupersessionEvidence } from './closed-supersession-review.ts';
 import {
   parseExactRefRetirement,
   type ExactRefRetirement
@@ -242,6 +243,16 @@ async function observeRemoteStateWithCapability(
     await assertExactClosedPullRequest(capability, input.repository, input.request);
   } else if (input.request.classification === 'main-tree-identical') {
     await assertMainTreeIdentical(capability, input.request, input.expectedMainSha);
+  } else if (input.request.classification === 'reviewed-superseded') {
+    await observeReviewedRefSupersessionEvidence({
+      repositoryRoot: input.repositoryRoot,
+      capability,
+      issueNumber: input.request.reviewIssueNumber,
+      commentId: input.request.reviewCommentId,
+      branch: input.request.branches[0],
+      expectedHeadSha: input.request.expectedHeadSha,
+      expectedMainSha: input.expectedMainSha
+    });
   }
   const state = new Map<string, string | null>();
   for (const branch of input.request.branches) {
@@ -403,6 +414,11 @@ export async function prepareExactRemoteRefRecovery(input: Readonly<{
     request
   });
   const present = state.get(request.branches[0]) !== null;
+  if (request.classification === 'reviewed-superseded' && !present) {
+    throw new Error(
+      'reviewed-superseded retirement requires the exact remote ref to remain present at recovery preparation; an absent ref requires reconciliation from prior terminal/recovery evidence'
+    );
+  }
   const recoveryRequired = request.classification === 'closed-pr-superseded' || present;
   const recovery = recoveryRequired
     ? createRecoveryBundle({
@@ -503,18 +519,14 @@ export async function retireExactRemoteRefs(input: Readonly<{
       repositoryRoot: root,
       repository: input.repository,
       operation: async (capability) => {
-        await assertLiveMain(capability, before.repository.defaultBranch, input.expectedMainSha);
-        assertNoOpenPullConsumer(
-          await observeOpenPulls(capability, input.repository),
-          request.branches,
-          input.repository
-        );
-        if (request.classification === 'closed-pr-superseded') {
-          await assertExactClosedPullRequest(capability, input.repository, request);
-        } else if (request.classification === 'main-tree-identical') {
-          await assertMainTreeIdentical(capability, request, input.expectedMainSha);
-        }
-        const immediatelyBefore = await observeGitRef(capability, branch);
+        const effectState = await observeRemoteStateWithCapability(capability, {
+          repositoryRoot: root,
+          repository: input.repository,
+          defaultBranch: before.repository.defaultBranch,
+          expectedMainSha: input.expectedMainSha,
+          request
+        });
+        const immediatelyBefore = effectState.get(branch);
         if (immediatelyBefore === null) return 'already-absent' as const;
         if (immediatelyBefore !== request.expectedHeadSha) {
           throw new Error(
@@ -528,14 +540,17 @@ export async function retireExactRemoteRefs(input: Readonly<{
           expectedOldSha: request.expectedHeadSha
         });
 
-        const readback = await observeGitRef(capability, branch);
-        if (readback !== null) {
-          throw new Error(`branch ${branch} remains after exact ref retirement`);
-        }
-        const afterPulls = await observeOpenPulls(capability, input.repository);
         try {
-          assertNoOpenPullConsumer(afterPulls, request.branches, input.repository);
-          await assertLiveMain(capability, before.repository.defaultBranch, input.expectedMainSha);
+          const terminalState = await observeRemoteStateWithCapability(capability, {
+            repositoryRoot: root,
+            repository: input.repository,
+            defaultBranch: before.repository.defaultBranch,
+            expectedMainSha: input.expectedMainSha,
+            request
+          });
+          if (terminalState.get(branch) !== null) {
+            throw new Error(`branch ${branch} remains after exact ref retirement`);
+          }
         } catch (error) {
           throw new Error(
             `branch ${branch} was deleted but the effect is unsettled; recover from the uploaded bundle: ${

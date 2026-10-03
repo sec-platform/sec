@@ -1,5 +1,5 @@
 import type { VerificationGateResult } from '../../../../assurance/verification/result/contract/result.ts';
-import { sha256 } from '../../../../contracts/canonical.ts';
+import { deepFreeze, rawSha256, sha256, uniqueSorted } from '../../../../contracts/canonical.ts';
 import {
   bindSecSemanticOperation,
   compileSecCapabilityBinding,
@@ -12,9 +12,13 @@ import type { GitReadProviderRoute } from '../../../providers/git-read/runtime/s
 import { SOURCE_PROGRAM_COMPILATION_MAX_DURATION_MS } from '../../../repository/source-program-model/compilation-operation.ts';
 import { isSourceProgramInputPath } from '../../../repository/source-program-model/contract.ts';
 import {
+  classifyAffectedSelectionTrustBoundary,
+  defaultAffectedSelectionProjectionContext,
   isAffectedSelectionFailClosed,
+  projectAffectedSelectionToVerificationGateResult,
   type AffectedSelectionTrustBoundary
-} from '../../../verification/platform/test-impact/affected.ts';
+} from '../../../verification/platform/test-impact/contract/selection-boundary.ts';
+import type { AffectedGitSelectionObservation } from '../../../verification/platform/test-impact/runtime/affected-git-source.ts';
 import { isDocumentationVerificationInputPath } from '../../control/documentation/active.ts';
 import { GIT_READ_OPERATION_BUDGET } from '../tooling/git/git-read.ts';
 
@@ -100,7 +104,7 @@ export interface LocalAffectedCheckPlan {
   readonly changedPaths: string[];
   readonly affectedPlan: AffectedTestPlan;
   readonly gates: LocalAffectedGateStep[];
-  readonly umbrellaCommand: 'bun run check:affected';
+  readonly umbrellaCommand: 'bun run check -- --affected';
   readonly subsumedStandaloneCommands: string[];
 }
 
@@ -112,7 +116,8 @@ const TYPECHECK_AUTHORITY_PATHS = new Set([
 ]);
 
 function gate(id: LocalAffectedGateId): LocalAffectedGateStep {
-  return { id, command: `bun run ${id}` };
+  const command = id === 'test:affected' ? 'bun run test -- --affected' : `bun run ${id}`;
+  return { id, command };
 }
 
 /** Git-issued paths only; semantic selection still owns every other input. */
@@ -155,7 +160,7 @@ export function buildLocalAffectedCheckPlan(
     changedPaths,
     affectedPlan,
     gates,
-    umbrellaCommand: 'bun run check:affected',
+    umbrellaCommand: 'bun run check -- --affected',
     subsumedStandaloneCommands: gates.map(({ command }) => command)
   };
 }
@@ -222,4 +227,79 @@ export function affectedTestPlanExitCode(
   plan: Pick<AffectedTestPlan, 'selectionTrustBoundary'>
 ): number {
   return isAffectedSelectionFailClosed(plan.selectionTrustBoundary) ? 1 : 0;
+}
+
+export function gitOnlyAffectedTestPlan(
+  files: readonly string[],
+  gitObservation: AffectedGitSelectionObservation,
+  broadFallbackEnabled: boolean,
+  gitDiscoveryFailed = false
+): AffectedTestPlan {
+  const selectionResolved: AffectedTestSelection = Object.freeze({
+    tests: Object.freeze([]),
+    slowTests: Object.freeze([]),
+    affectedTests: Object.freeze([]),
+    affectedSlowTests: Object.freeze([]),
+    affectedOwners: Object.freeze([]),
+    sourceChanged: false,
+    selectionResolved: true,
+    unresolvedModuleFiles: Object.freeze([])
+  });
+  const selectionTrustBoundary = classifyAffectedSelectionTrustBoundary({
+    gitDiscoveryFailed,
+    ownershipResolved: true,
+    sourceChanged: false,
+    selectionResolved: true,
+    unresolvedModuleFiles: [],
+    selectedFastTestCount: 0,
+    broadFallbackEnabled
+  });
+  const inputDigest = framedChangedPathDigest(files);
+  return deepFreeze({
+    schema: 'sec-affected-test-plan-v1',
+    changedPaths: [...files],
+    owners: [],
+    selectedFastTests: [],
+    selectedSlowTests: [],
+    riskSuites: [],
+    riskTests: [],
+    riskReasons: [],
+    unresolvedPaths: [],
+    resolved: true,
+    selectionResolved,
+    selectionTrustBoundary,
+    verificationResult: projectAffectedSelectionToVerificationGateResult(
+      selectionTrustBoundary,
+      defaultAffectedSelectionProjectionContext(
+        gitObservation.headSha,
+        inputDigest,
+        gitDiscoveryFailed ? 'Affected Git observation drifted after Git-only selection.' : null
+      )
+    ),
+    broadFallbackEnabled,
+    identity: Object.freeze({
+      schema: 'sec-affected-plan-identity-v1',
+      baseSha: gitObservation.baseSha,
+      headSha: gitObservation.headSha,
+      indexDigest: gitObservation.indexDigest,
+      worktreeDigest: gitObservation.worktreeDigest,
+      changedPathsDigest: inputDigest,
+      sourceObservationDigest: null,
+      sourceEpoch: null,
+      ruleRevision: files.length === 0
+        ? 'affected-selection-trust-boundary-v5-git-empty'
+        : 'affected-selection-trust-boundary-v6-docs-only',
+      broadFallbackEnabled,
+      gitProviderRoute: gitObservation.gitProviderRoute,
+      gitProviderIdentityDigest: rawSha256(JSON.stringify(gitObservation.gitProviderIdentity)),
+      gitExecutable: gitObservation.gitExecutable,
+      gitExecutableDigest: gitObservation.gitExecutableIdentity?.digest
+        ?? rawSha256(JSON.stringify(gitObservation.gitProviderIdentity))
+    })
+  });
+}
+
+export function framedChangedPathDigest(files: readonly string[]): `sha256:${string}` {
+  const sorted = uniqueSorted([...files]);
+  return rawSha256(sorted.map((file) => `${Buffer.byteLength(file, 'utf8')}:${file}\0`).join(''));
 }

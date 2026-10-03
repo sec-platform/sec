@@ -241,7 +241,7 @@ export async function createRemovedDocumentationTestImpactFixture(
   const repositoryRoot = path.join(fixtureRoot, 'repository');
   const dispose = guardedFixtureDisposer(fixtureRoot);
   const documentationPath = 'src/adapters/providers/docker/README.md';
-  const descriptorPath = 'src/adapters/providers/docker/sec.module.json';
+  const descriptorPath = 'src/adapters/providers/docker/module.json';
   try {
     initializeFixtureRepository(repositoryRoot);
     const sources = new Map<string, string>([
@@ -529,6 +529,7 @@ async function createExactRepositoryTestImpactProviderFixture(
           deadlineAtUnixMs: operationDeadlineAtUnixMs
         }),
         projectInput,
+        cacheAccess: 'read-only',
         repositoryRoot: normalizedSourceRoot
       });
       observeFixturePhase(options, deadlineAtUnixMs, 'settlement');

@@ -2,4 +2,4 @@
 set -eu
 
 export SEC_GIT_HOOK_ACTIVE=1
-exec bun run dev -- workspace-transition post-checkout "$@"
+exec bun run workspace:transition -- post-checkout "$@"

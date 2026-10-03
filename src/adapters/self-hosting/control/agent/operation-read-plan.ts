@@ -2,6 +2,9 @@
 
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
+import { canonicalJson } from '../../../../contracts/canonical.ts';
+import { resolveAgentRuntimeRepositoryRoot } from './runtime-root.ts';
+import { observeSourceTransitionReadView } from './source-transition-read-view.ts';
 
 import { DOCUMENTATION_IDENTITY_PATH } from '../documentation/active.ts';
 import {
@@ -10,12 +13,14 @@ import {
   SEC_OPERATION_MANDATORY_FORBIDDEN_SOURCES,
   SEC_OPERATION_READ_CLOSURE_REQUEST_SCHEMA,
   SEC_OPERATION_READ_PLAN_INPUT_SCHEMA,
+  type SecOperationReadPlan,
   type SecOperationReadPlanInput
 } from './read-plan.ts';
 import {
   resolveTrustedWorkerTaskCapsule,
   SecTaskCapsuleProjectionUnavailableError,
-  taskCapsuleProjectionBlocked
+  taskCapsuleProjectionBlocked,
+  type SecTrustedWorkerTaskCapsuleObservation
 } from './task-capsule-host.ts';
 import type { SecTaskCapsule } from './task-capsule.ts';
 
@@ -60,6 +65,13 @@ export async function resolveProspectiveWorkerOperation(
     runtimeRootInput,
     candidateRootInput
   );
+  return projectWorkerOperationReadClosure(observation);
+}
+
+/** Pure downstream projection; receiving these facts does not prove agent prose consumption. */
+export function projectWorkerOperationReadClosure(
+  observation: SecTrustedWorkerTaskCapsuleObservation
+): SecProspectiveWorkerOperationObservation {
   const sources = Object.freeze([
     ...observation.authorityOwners.map((source) => Object.freeze({
       id: source.id,
@@ -128,6 +140,21 @@ export async function resolveProspectiveWorkerOperation(
   });
 }
 
+/** Whole-plan comparison used by the live applicability CLI, not only a revision-field check. */
+export function assertWorkerOperationReadPlanMatches(
+  plan: SecOperationReadPlan,
+  observation: SecProspectiveWorkerOperationObservation
+): void {
+  const expectedPlan = compileSecOperationReadPlan({
+    ...observation.readClosure,
+    schema: SEC_OPERATION_READ_PLAN_INPUT_SCHEMA,
+    taskCapsule: observation.taskCapsule
+  });
+  if (JSON.stringify(canonicalJson(expectedPlan)) !== JSON.stringify(canonicalJson(plan))) {
+    throw new Error('Read Plan was not fully produced by the exact trusted-resolver worker/implement projection.');
+  }
+}
+
 async function readJsonArgument(raw: string, cwd: string, label: string): Promise<unknown> {
   let source = raw;
   try {
@@ -159,12 +186,21 @@ async function main(): Promise<void> {
     if (value === undefined || value.startsWith('--')) fail(`${argument} requires a value.`);
     const key = argument === '--candidate-root'
       ? 'candidateRoot'
-      : argument.slice(2) as 'input' | 'plan';
+      : argument === '--input' ? 'input' : 'plan';
     if (options[key] !== undefined) fail(`duplicate argument: ${argument}`);
     options[key] = value;
     index += 1;
   }
-  const runtimeRoot = path.resolve(import.meta.dir, '../..');
+  if (command === 'source-transition') {
+    if (options.input !== undefined || options.candidateRoot === undefined) {
+      fail('source-transition requires --candidate-root <path> and accepts optional --plan <file>.');
+    }
+    const plan = options.plan === undefined ? undefined
+      : parseSecOperationReadPlan(await readJsonArgument(options.plan, process.cwd(), '--plan'));
+    process.stdout.write(`${JSON.stringify(await observeSourceTransitionReadView(options.candidateRoot, plan), null, 2)}\n`);
+    return;
+  }
+  const runtimeRoot = await resolveAgentRuntimeRepositoryRoot();
   if (command === 'compile') {
     if (options.input === undefined || options.plan !== undefined || options.candidateRoot === undefined) {
       fail('compile requires --input <inline-json|file> --candidate-root <path> and rejects --plan.');
@@ -207,7 +243,7 @@ async function main(): Promise<void> {
     }, null, 2)}\n`);
     return;
   }
-  fail('usage: operation-read-plan <compile --input ... --candidate-root ... | verify --plan ...>');
+  fail('usage: operation-read-plan <compile --input ... --candidate-root ... | verify --plan ... | source-transition --candidate-root ... [--plan ...]>');
 }
 
 if (import.meta.main) {

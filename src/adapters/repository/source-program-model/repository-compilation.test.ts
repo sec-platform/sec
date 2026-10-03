@@ -12,7 +12,8 @@ import {
 } from './repository-compilation-cache.ts';
 import {
   compileVirtualRepositorySourceProgramCompilation,
-  repositoryCompilationDiagnosticsForTests
+  repositoryCompilationDiagnosticsForTests,
+  type RepositorySourceProgramCompilationReceipt
 } from './repository-compilation.ts';
 import { compileRepositorySourceProgramModelFromWorkspaceSnapshot } from './repository.ts';
 import {
@@ -21,6 +22,7 @@ import {
 } from './test-observations.ts';
 import {
   compileTypeScriptSourceProgramModelFromWorkspaceSnapshot,
+  sourceProgramCurrentExactReturnProvenances,
   workspaceSourceSnapshotIdentityForTypeScriptModel
 } from './typescript.ts';
 import {
@@ -32,7 +34,7 @@ import {
 } from './workspace-source-snapshot.ts';
 
 function fixture(value: number) {
-  const descriptorPath = 'src/example/sec.module.json';
+  const descriptorPath = 'src/example/module.json';
   const sources = Object.freeze({
     'src/example/operation.ts': `export const value = ${value};\n`,
     'tsconfig.json': `${JSON.stringify({
@@ -364,4 +366,123 @@ test('one bounded compilation reports exact phases and rejects late cache public
   expect((failure as SourceProgramCompilationInterruptedError).code)
     .toBe('source-program-compilation-deadline-exhausted');
   expect(publishCount).toBe(0);
+});
+
+
+function incrementalFixture(sources: Readonly<Record<string, string>>, label: string,
+  modes: Readonly<Record<string, '100644' | '100755'>> = {}) {
+  const inputFiles = Object.entries(sources).sort(([a], [b]) => a.localeCompare(b, 'en-US'))
+    .map(([path, source]) => Object.freeze({ path, source, contentDigest: rawSha256(source), mode: modes[path] ?? '100644' }));
+  const moduleMembership = compileSecRepositoryModuleMembershipSnapshot({
+    repositoryFiles: inputFiles.map(({ path }) => path),
+    descriptorSources: inputFiles.filter(({ path }) => path.endsWith('/module.json'))
+      .map(({ path: descriptorPath, source }) => ({ descriptorPath, source }))
+  });
+  const workspaceSnapshot = compileVirtualWorkspaceSourceSnapshot({
+    files: inputFiles, moduleMembership,
+    subject: virtualSnapshotSubject(label) as Extract<WorkspaceSourceSnapshotSubject, { kind: 'virtual-mutation' }>
+  });
+  return {
+    workspaceSnapshot,
+    projectInput: compileWorkspaceTypeScriptProjectInput(workspaceSnapshot, 'tsconfig.json')
+  };
+}
+
+const incrementalFixtureBase = {
+  'src/example/module.json': JSON.stringify({ importGraph: 'runtime', externalEntrypoints: [] }),
+  'tsconfig.json': JSON.stringify({ compilerOptions: { strict: true }, include: ['src/example/**/*.ts', 'tests/**/*.ts'] }),
+  'package.json': JSON.stringify({ type: 'module', private: true }),
+  'src/example/helper.ts': 'export const value = 1;\n',
+  'src/example/consumer.ts': "import { value } from './helper.ts'; export const result = value;\n",
+  'src/example/unrelated.ts': 'export const stable = 7;\n'
+};
+const addedTestSource = "import { expect, test } from 'bun:test'; import { value } from '../src/example/helper.ts'; test('value', () => expect(value).toBe(1));\n";
+const incrementalScenarios: readonly Readonly<{
+  name: string; before?: Readonly<Record<string, string>>;
+  after: Readonly<Record<string, string>>; remove?: string; mode: 'incremental' | 'full';
+}>[] = [
+  { name: 'isolated new test', after: { 'tests/added.test.ts': addedTestSource }, mode: 'incremental' },
+  { name: 'shared helper', after: { 'src/example/helper.ts': 'export const value = 2;\n' }, mode: 'incremental' },
+  { name: 'formerly unresolved import', before: { 'src/example/consumer.ts': "import { value } from './late.ts'; export const result = value;\n" }, after: { 'src/example/late.ts': 'export const value = 2;\n' }, mode: 'full' },
+  { name: 'star re-export', before: { 'src/example/barrel.ts': "export * from './helper.ts';\n", 'src/example/consumer.ts': "import { value } from './barrel.ts'; export const result = value;\n" }, after: { 'src/example/helper.ts': 'export const value = 2;\n' }, mode: 'incremental' },
+  { name: 'global augmentation', after: { 'src/example/global.ts': 'export {}; declare global { interface Window { value: number } }\n' }, mode: 'full' },
+  { name: 'unchanged global dependency', before: { 'src/example/global.ts': 'export {}; declare global { const GLOBAL: number; }\n', 'src/example/helper.ts': 'export const value = GLOBAL;\n' }, after: { 'src/example/helper.ts': 'export const value = GLOBAL + 1;\n' }, mode: 'full' },
+  { name: 'unchanged global augmentation', before: { 'src/example/global.ts': 'export {}; declare global { interface Window { value: number } }\n' }, after: { 'tests/added.test.ts': addedTestSource }, mode: 'full' },
+  { name: 'unchanged triple-slash reference', before: { 'src/example/library.ts': '/// <reference lib="es2022" />\nexport const library = true;\n' }, after: { 'tests/added.test.ts': addedTestSource }, mode: 'full' },
+  { name: 'package change', after: { 'package.json': JSON.stringify({ type: 'module', private: true, version: '2' }) }, mode: 'full' },
+  { name: 'tsconfig change', after: { 'tsconfig.json': JSON.stringify({ compilerOptions: { strict: false }, include: ['src/example/**/*.ts', 'tests/**/*.ts'] }) }, mode: 'full' },
+  { name: 'unchanged unknown frontier', before: { 'src/example/dynamic.ts': 'export const load = (name: string) => import(name);\n' }, after: { 'src/example/helper.ts': 'export const value = 2;\n' }, mode: 'full' },
+  { name: 'unknown dynamic frontier', after: { 'src/example/dynamic.ts': 'export const load = (name: string) => import(name);\n' }, mode: 'full' },
+  { name: 'module deletion', remove: 'src/example/unrelated.ts', after: {}, mode: 'full' },
+  { name: 'resolution candidate shadowing', before: { 'src/example/choice/index.ts': 'export const choice = 1;\n', 'src/example/consumer.ts': "import { choice } from './choice'; export const result = choice;\n" }, after: { 'src/example/choice.ts': 'export const choice = 2;\n' }, mode: 'full' }
+];
+
+for (const scenario of incrementalScenarios) {
+  test(`live baseline incremental/full facts agree for ${scenario.name}`, () => {
+    const before = { ...incrementalFixtureBase, ...scenario.before };
+    const after: Record<string, string> = { ...before, ...scenario.after };
+    if (scenario.remove !== undefined) delete after[scenario.remove];
+    const baselineInput = incrementalFixture(before, `${scenario.name}:before`);
+    const currentInput = incrementalFixture(after, `${scenario.name}:after`);
+    const baseline = compileVirtualRepositorySourceProgramCompilation(baselineInput);
+    const reused = compileVirtualRepositorySourceProgramCompilation({ ...currentInput, previousCompilation: baseline });
+    const full = compileVirtualRepositorySourceProgramCompilation(currentInput);
+    expect(reused.typeScriptCompilation.model).toEqual(full.typeScriptCompilation.model);
+    expect(reused.typeScriptCompilation.mode).toBe(scenario.mode);
+    expect(reused.testObservations).toEqual(full.testObservations);
+    expect(reused.model).toEqual(full.model);
+    expect(reused.receiptDigest).toBe(full.receiptDigest);
+    expect(sourceProgramCurrentExactReturnProvenances(reused.typeScriptCompilation.model))
+      .toEqual(sourceProgramCurrentExactReturnProvenances(full.typeScriptCompilation.model));
+    if (scenario.mode === 'incremental') {
+      const retained = reused.typeScriptCompilation.state.factShards.find(({ path }) => path === 'src/example/unrelated.ts');
+      expect(retained).toBe(baseline.typeScriptCompilation.state.factShards.find(({ path }) => path === 'src/example/unrelated.ts'));
+      expect(reused.typeScriptCompilation.invalidatedPaths).not.toContain('src/example/unrelated.ts');
+    }
+  }, 30_000);
+}
+
+test('a rejected live baseline cannot fall through to a persistent predecessor', () => {
+  const baselineInput = incrementalFixture(incrementalFixtureBase, 'guard:before');
+  const baseline = compileVirtualRepositorySourceProgramCompilation(baselineInput);
+  const changedInput = incrementalFixture({ ...incrementalFixtureBase,
+    'package.json': JSON.stringify({ type: 'module', version: 'changed' }) }, 'guard:after');
+  const sameInput = incrementalFixture({ ...incrementalFixtureBase, 'tests/added.test.ts': addedTestSource }, 'guard:clone');
+  for (const [currentInput, previousCompilation] of [
+    [changedInput, baseline],
+    [sameInput, { ...baseline } as RepositorySourceProgramCompilationReceipt]
+  ] as const) {
+    let predecessorReads = 0;
+    const cacheProvider: RepositoryCompilationCacheProvider = {
+      openContentAddressedHint: generation => {
+        const miss = { status: 'miss' as const, keyDigest: generation.generationDigest };
+        return { keyDigest: generation.generationDigest, loadExact: () => miss,
+          loadPredecessor: () => { predecessorReads++; return miss; }, publish: () => miss };
+      }
+    };
+    const result = compileVirtualRepositorySourceProgramCompilation({ ...currentInput,
+      previousCompilation, cacheProvider, cacheAccess: 'read-only' });
+    expect(result.typeScriptCompilation.mode).toBe('full');
+    expect(predecessorReads).toBe(0);
+    expect(result.model).toEqual(compileVirtualRepositorySourceProgramCompilation(currentInput).model);
+  }
+});
+
+
+test('live baseline reuse requires two observed project inputs and unchanged non-source modes', () => {
+  const before = incrementalFixture(incrementalFixtureBase, 'context:before');
+  const after = incrementalFixture({ ...incrementalFixtureBase, 'tests/added.test.ts': addedTestSource }, 'context:after');
+  const withProject = compileVirtualRepositorySourceProgramCompilation(before);
+  const withoutProject = compileVirtualRepositorySourceProgramCompilation({ workspaceSnapshot: before.workspaceSnapshot });
+  const modeChange = incrementalFixture(incrementalFixtureBase, 'context:mode', { 'package.json': '100755' });
+  for (const input of [
+    { ...after, previousCompilation: withoutProject },
+    { workspaceSnapshot: after.workspaceSnapshot, previousCompilation: withProject },
+    { ...modeChange, previousCompilation: withProject }
+  ]) {
+    const result = compileVirtualRepositorySourceProgramCompilation(input);
+    expect(result.typeScriptCompilation.mode).toBe('full');
+    const { previousCompilation: _previous, ...currentInput } = input;
+    expect(result.model).toEqual(compileVirtualRepositorySourceProgramCompilation(currentInput).model);
+  }
 });

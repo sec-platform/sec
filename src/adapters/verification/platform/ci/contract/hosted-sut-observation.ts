@@ -12,7 +12,7 @@ import {
 export const CI_VERIFICATION_ACTION_RAW_RESULT_SCHEMA =
   'sec-verification-action-raw-observation-v2' as const;
 export const CI_VERIFICATION_ACTION_SANDBOX_RECEIPT_SCHEMA =
-  'sec-verification-action-sandbox-receipt-v1' as const;
+  'sec-verification-action-sandbox-receipt-v2' as const;
 export const CI_VERIFICATION_ACTION_SUT_AUTHORIZATION_SCHEMA =
   'sec-verification-action-sut-authorization-v1' as const;
 const CI_VERIFICATION_ACTION_SUT_PROOF_SCHEMA =
@@ -166,19 +166,47 @@ function physicalCommandAuthorization(input: Readonly<{
   return Object.freeze({ ...withoutDigest, projectionDigest: canonicalDigest(withoutDigest) });
 }
 
+/** Facts from the trusted physical owner, never inferred from argv or process output.
+ * null preserves an unobserved fact; the transport binding, not this data shape,
+ * supplies producer authority. A test process seam is not a production source.
+ */
+export type CodexDevelopmentHostedSutProcessLifecycle = Readonly<{
+  supervisorSpawned: boolean | null;
+  supervisorClosed: boolean | null;
+  supervisorCloseCode: number | null;
+  supervisorSignal: string | null;
+  namespaceEstablished: boolean | null;
+  candidateStarted: boolean | null;
+  candidateUnitSettled: boolean | null;
+  observationGap: 'unsupported-source' | 'observation-lost' | null;
+}>;
+
+export type CodexDevelopmentHostedSutCleanupObservation = Readonly<{
+  supervisorSpawned: boolean | null;
+  supervisorClosed: boolean | null;
+  exitCode: number | null;
+  outputDigest: VerificationActionKeyDigest;
+}>;
+
 type CodexDevelopmentHostedSutSandboxCapabilityObservation = Readonly<{
   commandPlanDigest: VerificationActionKeyDigest | null;
-  commandStarted: boolean;
+  lifecycle: CodexDevelopmentHostedSutProcessLifecycle;
   exitCode: number | null;
   markerObserved: boolean;
   outputDigest: VerificationActionKeyDigest;
-  teardownCommandStarted: boolean;
-  teardownExitCode: number | null;
-  residueMarkerObserved: boolean;
-  cgroupEmpty: boolean;
-  residueReadbackDigest: VerificationActionKeyDigest;
+  cleanup: CodexDevelopmentHostedSutCleanupObservation;
   diagnostic: string | null;
 }>;
+
+export function hostedSutLifecycleComplete(lifecycle: CodexDevelopmentHostedSutProcessLifecycle): boolean {
+  return lifecycle.supervisorSpawned === true && lifecycle.supervisorClosed === true &&
+    lifecycle.namespaceEstablished === true && lifecycle.candidateStarted === true &&
+    lifecycle.candidateUnitSettled === true && lifecycle.observationGap === null;
+}
+
+export function hostedSutCleanupComplete(cleanup: CodexDevelopmentHostedSutCleanupObservation): boolean {
+  return cleanup.supervisorSpawned === true && cleanup.supervisorClosed === true && cleanup.exitCode === 0;
+}
 
 export type CodexDevelopmentHostedSutSandboxReceipt = Readonly<{
   schema: typeof CI_VERIFICATION_ACTION_SANDBOX_RECEIPT_SCHEMA;
@@ -207,7 +235,7 @@ export type CodexDevelopmentHostedSutSandboxReceipt = Readonly<{
     candidateEnvironmentNames: readonly string[];
   }>;
   execution: Readonly<{
-    started: boolean;
+    lifecycle: CodexDevelopmentHostedSutProcessLifecycle;
     unitName: string | null;
     exitCode: number | null;
     authenticatedInputDigest: VerificationActionKeyDigest | null;
@@ -219,18 +247,9 @@ export type CodexDevelopmentHostedSutSandboxReceipt = Readonly<{
     stdoutBytesObserved: number;
     stderrBytesObserved: number;
     outputTruncated: boolean;
-    commandStarted: boolean;
     boundedFailureTailDigest: VerificationActionKeyDigest;
   }>;
-  reap: Readonly<{
-    namespacePid1Exited: boolean;
-    killChildEnabled: boolean;
-    unshareProcessClosed: boolean;
-  }>;
-  residue: Readonly<{
-    cgroupEmpty: boolean;
-    hostReadbackDigest: VerificationActionKeyDigest;
-  }>;
+  cleanup: CodexDevelopmentHostedSutCleanupObservation;
   diagnostic: string | null;
   receiptDigest: VerificationActionKeyDigest;
 }>;
@@ -303,12 +322,72 @@ export type CodexDevelopmentHostedSutTerminalProjection = Readonly<{
   proof: CodexDevelopmentHostedSutExecutionProof;
 }>;
 
+export function parseHostedSutLifecycle(value: unknown): CodexDevelopmentHostedSutProcessLifecycle {
+  const facts = exactObject(value, [
+    'supervisorSpawned', 'supervisorClosed', 'supervisorCloseCode', 'supervisorSignal',
+    'namespaceEstablished', 'candidateStarted', 'candidateUnitSettled', 'observationGap'
+  ], 'process lifecycle');
+  for (const key of [
+    'supervisorSpawned', 'supervisorClosed', 'namespaceEstablished', 'candidateStarted', 'candidateUnitSettled'
+  ] as const) {
+    if (facts[key] !== null && typeof facts[key] !== 'boolean') fail(`process lifecycle ${key} is invalid.`);
+  }
+  if (facts.supervisorCloseCode !== null && !Number.isSafeInteger(facts.supervisorCloseCode)) {
+    fail('process lifecycle supervisor close code is invalid.');
+  }
+  if (facts.supervisorSignal !== null && (typeof facts.supervisorSignal !== 'string' ||
+      !/^SIG[A-Z0-9]+$/u.test(facts.supervisorSignal))) fail('process lifecycle supervisor signal is invalid.');
+  if (facts.observationGap !== null && facts.observationGap !== 'unsupported-source' &&
+      facts.observationGap !== 'observation-lost') fail('process lifecycle observation gap is invalid.');
+  return Object.freeze(facts as unknown as CodexDevelopmentHostedSutProcessLifecycle);
+}
+
+export function parseHostedSutCleanup(value: unknown): CodexDevelopmentHostedSutCleanupObservation {
+  const cleanup = exactObject(value, [
+    'supervisorSpawned', 'supervisorClosed', 'exitCode', 'outputDigest'
+  ], 'directory cleanup');
+  for (const key of ['supervisorSpawned', 'supervisorClosed'] as const) {
+    if (cleanup[key] !== null && typeof cleanup[key] !== 'boolean') fail(`cleanup ${key} is invalid.`);
+  }
+  if (cleanup.exitCode !== null && (!Number.isSafeInteger(cleanup.exitCode) ||
+      Number(cleanup.exitCode) < 0 || Number(cleanup.exitCode) > 255)) fail('cleanup exit code is invalid.');
+  digest(cleanup.outputDigest, 'directory cleanup output');
+  return Object.freeze(cleanup as unknown as CodexDevelopmentHostedSutCleanupObservation);
+}
+
+export function parseHostedSutCapabilityObservation(value: unknown): CodexDevelopmentHostedSutSandboxCapabilityObservation {
+  const capability = exactObject(value, [
+    'commandPlanDigest', 'lifecycle', 'exitCode', 'markerObserved', 'outputDigest', 'cleanup', 'diagnostic'
+  ], 'sandbox capability observation');
+  if ((capability.commandPlanDigest !== null && (typeof capability.commandPlanDigest !== 'string' ||
+        !DIGEST.test(capability.commandPlanDigest))) ||
+      (capability.exitCode !== null && (!Number.isSafeInteger(capability.exitCode) ||
+        Number(capability.exitCode) < 0 || Number(capability.exitCode) > 255)) ||
+      typeof capability.markerObserved !== 'boolean' ||
+      (capability.diagnostic !== null && typeof capability.diagnostic !== 'string')) {
+    fail('sandbox capability primitive observation is invalid.');
+  }
+  const capabilityLifecycle = parseHostedSutLifecycle(capability.lifecycle);
+  const capabilityCleanup = parseHostedSutCleanup(capability.cleanup);
+  digest(capability.outputDigest, 'sandbox capability output');
+  return Object.freeze({
+    ...(capability as unknown as CodexDevelopmentHostedSutSandboxCapabilityObservation),
+    lifecycle: capabilityLifecycle, cleanup: capabilityCleanup
+  });
+}
+
+export function hostedSutCapabilityComplete(capability: CodexDevelopmentHostedSutSandboxCapabilityObservation): boolean {
+  return capability.commandPlanDigest !== null && hostedSutLifecycleComplete(capability.lifecycle) &&
+    capability.exitCode === 0 && capability.markerObserved && hostedSutCleanupComplete(capability.cleanup) &&
+    capability.diagnostic === null;
+}
+
 export function CodexDevelopmentParseHostedSutSandboxReceipt(
   value: unknown
 ): CodexDevelopmentHostedSutSandboxReceipt {
   const receipt = exactObject(value, [
     'schema', 'policyDigest', 'actionKey', 'capability', 'commandPlanDigest', 'resources',
-    'authenticatedArchive', 'rootIsolation', 'execution', 'reap', 'residue', 'diagnostic', 'receiptDigest'
+    'authenticatedArchive', 'rootIsolation', 'execution', 'cleanup', 'diagnostic', 'receiptDigest'
   ], 'sandbox receipt');
   if (receipt.schema !== CI_VERIFICATION_ACTION_SANDBOX_RECEIPT_SCHEMA ||
       receipt.policyDigest !== CI_VERIFICATION_HOSTED_SANDBOX_POLICY_DIGEST ||
@@ -318,27 +397,7 @@ export function CodexDevelopmentParseHostedSutSandboxReceipt(
       !canonicalEquals(receipt.resources, CI_VERIFICATION_HOSTED_SANDBOX_POLICY.limits)) {
     fail('sandbox receipt identity is invalid.');
   }
-  const capability = exactObject(receipt.capability, [
-    'commandPlanDigest', 'commandStarted', 'exitCode', 'markerObserved', 'outputDigest',
-    'teardownCommandStarted', 'teardownExitCode', 'residueMarkerObserved', 'cgroupEmpty',
-    'residueReadbackDigest', 'diagnostic'
-  ], 'sandbox capability observation');
-  if ((capability.commandPlanDigest !== null && (typeof capability.commandPlanDigest !== 'string' ||
-        !DIGEST.test(capability.commandPlanDigest))) ||
-      typeof capability.commandStarted !== 'boolean' ||
-      (capability.exitCode !== null && (!Number.isSafeInteger(capability.exitCode) ||
-        Number(capability.exitCode) < 0 || Number(capability.exitCode) > 255)) ||
-      typeof capability.markerObserved !== 'boolean' ||
-      typeof capability.teardownCommandStarted !== 'boolean' ||
-      (capability.teardownExitCode !== null && (!Number.isSafeInteger(capability.teardownExitCode) ||
-        Number(capability.teardownExitCode) < 0 || Number(capability.teardownExitCode) > 255)) ||
-      typeof capability.residueMarkerObserved !== 'boolean' ||
-      typeof capability.cgroupEmpty !== 'boolean' ||
-      (capability.diagnostic !== null && typeof capability.diagnostic !== 'string')) {
-    fail('sandbox capability primitive observation is invalid.');
-  }
-  digest(capability.outputDigest, 'sandbox capability output');
-  digest(capability.residueReadbackDigest, 'sandbox capability residue readback');
+  const capability = parseHostedSutCapabilityObservation(receipt.capability);
   const archive = exactObject(receipt.authenticatedArchive, [
     'archiveDigest', 'inventoryDigest', 'dependencyClosureDigest', 'gitBundleDigest',
     'entryCount', 'totalFileBytes'
@@ -375,13 +434,13 @@ export function CodexDevelopmentParseHostedSutSandboxReceipt(
     fail('root isolation policy or environment names are invalid.');
   }
   const execution = exactObject(receipt.execution, [
-    'started', 'unitName', 'exitCode', 'authenticatedInputDigest', 'postExecutionInputDigest',
+    'lifecycle', 'unitName', 'exitCode', 'authenticatedInputDigest', 'postExecutionInputDigest',
     'postExecutionReadbackErrorDigest', 'stdoutStderrDigest',
     'stdoutDigest', 'stderrDigest', 'stdoutBytesObserved', 'stderrBytesObserved', 'outputTruncated',
-    'commandStarted', 'boundedFailureTailDigest'
+    'boundedFailureTailDigest'
   ], 'execution observation');
-  if (typeof execution.started !== 'boolean' || typeof execution.commandStarted !== 'boolean' ||
-      typeof execution.outputTruncated !== 'boolean' ||
+  const executionLifecycle = parseHostedSutLifecycle(execution.lifecycle);
+  if (typeof execution.outputTruncated !== 'boolean' ||
       (execution.unitName !== null && (typeof execution.unitName !== 'string' ||
         !/^sec-sut-[0-9a-f]{16}-[A-Za-z0-9_.-]{1,32}$/u.test(execution.unitName))) ||
       (execution.exitCode !== null && (!Number.isSafeInteger(execution.exitCode) ||
@@ -400,32 +459,24 @@ export function CodexDevelopmentParseHostedSutSandboxReceipt(
   for (const key of ['stdoutStderrDigest', 'stdoutDigest', 'stderrDigest', 'boundedFailureTailDigest'] as const) {
     digest(execution[key], `execution ${key}`);
   }
-  const reap = exactObject(receipt.reap, [
-    'namespacePid1Exited', 'killChildEnabled', 'unshareProcessClosed'
-  ], 'reap observation');
-  const residue = exactObject(receipt.residue, ['cgroupEmpty', 'hostReadbackDigest'], 'residue observation');
-  if (typeof reap.namespacePid1Exited !== 'boolean' || typeof reap.killChildEnabled !== 'boolean' ||
-      typeof reap.unshareProcessClosed !== 'boolean' || typeof residue.cgroupEmpty !== 'boolean') {
-    fail('reap or residue primitive observation is invalid.');
-  }
-  digest(residue.hostReadbackDigest, 'residue host readback');
+  const cleanup = parseHostedSutCleanup(receipt.cleanup);
   const receiptDigest = digest(receipt.receiptDigest, 'sandbox receipt');
   const { receiptDigest: ignored, ...withoutDigest } = receipt;
   void ignored;
   if (receiptDigest !== canonicalDigest(withoutDigest)) fail('sandbox receipt digest mismatch.');
   return Object.freeze({
     ...(receipt as unknown as CodexDevelopmentHostedSutSandboxReceipt),
-    capability: Object.freeze({
-      ...(capability as unknown as CodexDevelopmentHostedSutSandboxCapabilityObservation)
-    }),
+    capability,
     authenticatedArchive: Object.freeze({ ...(archive as unknown as CodexDevelopmentHostedSutSandboxReceipt['authenticatedArchive']) }),
     rootIsolation: Object.freeze({
       ...(root as unknown as CodexDevelopmentHostedSutSandboxReceipt['rootIsolation']),
       candidateEnvironmentNames: environmentNames
     }),
-    execution: Object.freeze({ ...(execution as unknown as CodexDevelopmentHostedSutSandboxReceipt['execution']) }),
-    reap: Object.freeze({ ...(reap as unknown as CodexDevelopmentHostedSutSandboxReceipt['reap']) }),
-    residue: Object.freeze({ ...(residue as unknown as CodexDevelopmentHostedSutSandboxReceipt['residue']) }),
+    execution: Object.freeze({
+      ...(execution as unknown as CodexDevelopmentHostedSutSandboxReceipt['execution']),
+      lifecycle: executionLifecycle
+    }),
+    cleanup,
     receiptDigest
   });
 }
@@ -723,14 +774,21 @@ export function CodexDevelopmentReduceHostedSutObservation(input: Readonly<{
   )) fail('physical command observation differs from its authorization or sandbox receipt.');
   const capabilitySupported =
     receipt.capability.commandPlanDigest === authorization.physicalCommand.projectionDigest &&
-    receipt.capability.commandStarted && receipt.capability.exitCode === 0 &&
-    receipt.capability.markerObserved && receipt.capability.teardownCommandStarted &&
-    receipt.capability.teardownExitCode === 0 && receipt.capability.residueMarkerObserved &&
-    receipt.capability.cgroupEmpty && receipt.capability.diagnostic === null;
-  const capabilityUnsupported = !capabilitySupported && receipt.capability.commandStarted &&
-    receipt.capability.teardownCommandStarted && receipt.capability.cgroupEmpty &&
+    hostedSutCapabilityComplete(receipt.capability);
+  const sourceUnsupported = receipt.capability.lifecycle.observationGap === 'unsupported-source' &&
+    receipt.capability.lifecycle.supervisorSpawned === false && receipt.capability.lifecycle.supervisorClosed === false &&
+    receipt.capability.lifecycle.supervisorCloseCode === null && receipt.capability.lifecycle.supervisorSignal === null &&
+    receipt.capability.lifecycle.namespaceEstablished === false && receipt.capability.lifecycle.candidateStarted === false &&
+    receipt.capability.exitCode === null && receipt.capability.commandPlanDigest === null &&
+    receipt.capability.cleanup.supervisorSpawned === false && receipt.capability.cleanup.supervisorClosed === false &&
+    receipt.capability.cleanup.exitCode === null;
+  const capabilityUnsupported = !capabilitySupported && (sourceUnsupported || (
+    receipt.capability.lifecycle.supervisorClosed === true &&
+    receipt.capability.lifecycle.candidateUnitSettled === true &&
+    hostedSutCleanupComplete(receipt.capability.cleanup) &&
     /not found|no such file|operation not permitted|failed to connect to bus|unshare failed|unknown option/iu
-      .test(receipt.capability.diagnostic ?? '');
+      .test(receipt.capability.diagnostic ?? '')
+  ));
   if (capabilitySupported && command === null) {
     fail('supported sandbox observation lost its authorized physical command.');
   }
@@ -742,20 +800,15 @@ export function CodexDevelopmentReduceHostedSutObservation(input: Readonly<{
     receipt.execution.stdoutBytesObserved <= CI_VERIFICATION_HOSTED_SUT_OUTPUT_BYTE_LIMIT &&
     receipt.execution.stderrBytesObserved <= CI_VERIFICATION_HOSTED_SUT_OUTPUT_BYTE_LIMIT;
   const executionClean = capabilitySupported && command !== null && receipt.commandPlanDigest !== null &&
-    receipt.execution.started && receipt.execution.commandStarted &&
+    hostedSutLifecycleComplete(receipt.execution.lifecycle) &&
     receipt.execution.authenticatedInputDigest === authorization.inventoryClosure.archiveDigest &&
     receipt.execution.postExecutionInputDigest === authorization.inventoryClosure.archiveDigest &&
     receipt.execution.postExecutionReadbackErrorDigest === null &&
-    Number.isSafeInteger(receipt.execution.exitCode) &&
-    outputBound &&
-    receipt.reap.namespacePid1Exited && receipt.reap.killChildEnabled &&
-    receipt.reap.unshareProcessClosed && receipt.residue.cgroupEmpty;
+    Number.isSafeInteger(receipt.execution.exitCode) && outputBound && hostedSutCleanupComplete(receipt.cleanup);
   const unsupported = capabilityUnsupported && command === null &&
-    !receipt.execution.started && !receipt.execution.commandStarted &&
+    receipt.execution.lifecycle.supervisorSpawned === false && receipt.execution.lifecycle.candidateStarted === false &&
     receipt.execution.exitCode === null && receipt.execution.authenticatedInputDigest === null &&
-    receipt.execution.postExecutionInputDigest === null &&
-    receipt.execution.postExecutionReadbackErrorDigest === null &&
-    receipt.reap.killChildEnabled && receipt.reap.unshareProcessClosed && receipt.residue.cgroupEmpty;
+    receipt.execution.postExecutionInputDigest === null && receipt.execution.postExecutionReadbackErrorDigest === null;
   const cleanPass = executionClean && receipt.execution.exitCode === 0 && receipt.diagnostic === null;
   const status = unsupported ? 'unsupported' as const
     : cleanPass ? 'passed' as const

@@ -39,6 +39,14 @@ import {
   type DevelopmentCommitCandidateDetails,
   type DevelopmentCommitRequest
 } from './candidate.ts';
+import {
+  SOURCE_CHECKPOINT_COMMIT_IDENTITY_PROCESS_COUNT,
+  type DevelopmentSourceCheckpointRequest
+} from './source-checkpoint-contract.ts';
+import {
+  prepareDevelopmentSourceCheckpoint,
+  requireDevelopmentSourceCheckpointBinding
+} from './source-checkpoint.ts';
 
 const OPERATION = 'development.commit';
 const REQUIREMENT = 'repository.commit';
@@ -119,6 +127,7 @@ function compileCommitIntent(input: Readonly<{
   contract: GitDevelopmentCommitContract;
   candidate: DevelopmentCommitCandidate;
   normalization: CandidateNormalizationAdmissionReceipt;
+  sourceCheckpoint: boolean;
 }>): SecSemanticOperationIntent {
   const contractDigest = compileGitDevelopmentCommitContractDigest(input.contract);
   return compileSecSemanticOperationIntent({
@@ -145,7 +154,8 @@ function compileCommitIntent(input: Readonly<{
       { resource: 'duration-ms', maximum: ADMISSION_DEADLINE_MS },
       { resource: 'input-bytes', maximum: 64 * 1024 },
       { resource: 'output-bytes', maximum: 256 * 1024 },
-      { resource: 'processes', maximum: DEVELOPMENT_COMMIT_EXECUTION_PROCESS_COUNT },
+      { resource: 'processes', maximum: DEVELOPMENT_COMMIT_EXECUTION_PROCESS_COUNT
+        + (input.sourceCheckpoint ? SOURCE_CHECKPOINT_COMMIT_IDENTITY_PROCESS_COUNT : 0) },
       { resource: 'records', maximum: 32 }
     ],
     requirements: [{
@@ -169,16 +179,23 @@ async function issueWithOperation(input: Readonly<{
   const candidate = await input.gitOperation.runPhase('freeze-commit-candidate', (session) => (
     freezeDevelopmentCommitCandidate({ request: input.request, session })
   ));
+  const checkpoint = input.request.sourceCheckpoint === undefined ? undefined
+    : requireDevelopmentSourceCheckpointBinding(input.request.sourceCheckpoint, input.request.repositoryRoot);
+  const candidateBase = checkpoint?.request.base ?? candidate.preimage;
   const normalizationResult = await verifyStagedCandidateImportNormalization({
     gitOperation: input.gitOperation,
-    candidateBase: candidate.preimage
+    candidateBase,
+    ...(checkpoint === undefined ? {} : { producerSnapshot: checkpoint.toolSnapshot })
   });
   if (normalizationResult.admission === null) {
     const { outcome } = normalizationResult;
     throw new Error(
       `Candidate import normalization blocked commit: ${outcome.terminal?.status ?? outcome.state}; `
       + `action ${outcome.actionKey}; ${outcome.reason}. `
-      + 'Run bun run imports:check --staged to inspect the exact staged candidate.'
+      + (checkpoint === undefined
+        ? `Run bun run imports:check --staged --candidate-base ${candidateBase} to inspect the exact staged candidate.`
+        : `Normalize the owned source in ${input.request.repositoryRoot} relative to ${candidateBase}, rebuild its exact index/tree, `
+          + 'then repeat this source-checkpoint command from the trusted main package. Candidate runtime execution is not required.')
     );
   }
   const normalization = requireCandidateNormalizationAdmissionReceipt(
@@ -202,7 +219,9 @@ async function issueWithOperation(input: Readonly<{
     hooks: 'disabled',
     preflightReceiptDigest: candidateDetails.preflightReceiptDigest
   });
-  const intent = compileCommitIntent({ contract, candidate, normalization });
+  const intent = compileCommitIntent({
+    contract, candidate, normalization, sourceCheckpoint: input.request.sourceCheckpoint !== undefined
+  });
   const currentEpochDigest = sha256({
     candidateDigest: candidate.candidateDigest,
     providerIdentityDigest: candidateDetails.providerIdentityDigest,
@@ -244,11 +263,14 @@ async function issueWithOperation(input: Readonly<{
  */
 export async function issueDevelopmentCommitAdmission(input:
   | Readonly<{ request: DevelopmentCommitRequest }>
-  | Readonly<{ repositoryRoot: string; message: string }>
+  | Readonly<{ repositoryRoot: string; message: string; sourceCheckpoint?: DevelopmentSourceCheckpointRequest }>
 ): Promise<PreparedDevelopmentCommitAdmission> {
   const repositoryRoot = path.resolve(
     'request' in input ? input.request.repositoryRoot : input.repositoryRoot
   );
+  const sourceCheckpoint = 'request' in input || input.sourceCheckpoint === undefined
+    ? undefined
+    : await prepareDevelopmentSourceCheckpoint({ repositoryRoot, request: input.sourceCheckpoint });
   return withAuthorityGitReadOperation(
     {
       cwd: repositoryRoot,
@@ -261,6 +283,7 @@ export async function issueDevelopmentCommitAdmission(input:
         : Object.freeze({
             repositoryRoot,
             message: input.message,
+            ...(sourceCheckpoint === undefined ? {} : { sourceCheckpoint }),
             author: parseCommitIdentity(
               await commandText(session, ['var', 'GIT_AUTHOR_IDENT'], 'resolve author identity'),
               'author identity'

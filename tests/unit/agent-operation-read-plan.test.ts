@@ -64,7 +64,7 @@ function input(): SecOperationReadPlanInput {
       verificationObligations: [
         { id: 'focused-contracts', revision: 'v1', reasonCode: 'public-contract-change' }
       ],
-      skillCandidateIds: ['sec-worker-development']
+      skillCandidateIds: ['worker-development']
     }),
     requiredRefs: [
       {

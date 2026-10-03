@@ -12,7 +12,10 @@ import {
   type SourceProgramCompilationOperation
 } from './compilation-operation.ts';
 import type {
+  SourceProgramAnalysisNotRequested,
+  SourceProgramAnalysisScope,
   SourceProgramCandidate,
+  SourceProgramCandidateAnalysis,
   SourceProgramCapabilityAuthorityClass,
   SourceProgramCapabilityInvocation,
   SourceProgramCausalRelationEvidence,
@@ -32,7 +35,7 @@ import type {
   SourceProgramTopologySummary,
   SourceProgramUnknown
 } from './contract.ts';
-import { sourceProgramSurfaceForPath } from './contract.ts';
+import { isSourceProgramRuntimeBuiltinModuleSpecifier, requireSourceProgramCandidateAnalysis, SOURCE_PROGRAM_TEST_OBLIGATIONS_NOT_REQUESTED, sourceProgramCandidateAnalysisIsComplete, sourceProgramSurfaceForPath } from './contract.ts';
 import {
   compileSourceProgramEmbeddedWorkflowPrograms,
   observeSourceProgramEmbeddedTypeScriptLiteral,
@@ -85,7 +88,7 @@ function unreachableModuleOperationIdentity(operation: never): never {
 
 /** In-process issuer check; durable consumers use compact strict evidence. */
 export function isCompiledRepositorySourceProgramModel(
-  value: SourceProgramModel
+  value: SourceProgramModel<SourceProgramCandidateAnalysis>
 ): boolean {
   return compiledRepositorySourceProgramModels.has(value);
 }
@@ -182,7 +185,7 @@ export function compileSourceProgramResponsibilityEvidence(
  * remains explicitly empty rather than acquiring inferred future intent.
  */
 export function compileSourceProgramOwnerIntentEvidence(
-  model: SourceProgramModel,
+  model: SourceProgramModel<SourceProgramCandidateAnalysis>,
   membership: SecRepositoryModuleMembership,
   requestedOperation?: SourceProgramCompilationOperation
 ): readonly SourceProgramOwnerIntentEvidence[] {
@@ -505,8 +508,9 @@ function declarationReturnsCanonicalParser(
 }
 
 function compileRepositorySourceProgramModelInternal(
-  input: CompileRepositorySourceProgramModelInternalInput
-): SourceProgramModel {
+  input: CompileRepositorySourceProgramModelInternalInput,
+  authorityScope: SourceProgramAnalysisScope = 'whole-program'
+): SourceProgramModel<SourceProgramCandidateAnalysis> {
   input.repositoryCompilation?.assertMatches(input);
   const typescriptInput = Object.freeze({
     sourceRevision: input.sourceRevision,
@@ -567,17 +571,20 @@ function compileRepositorySourceProgramModelInternal(
         !== input.repositoryCompilation.identityDigest) {
     throw new Error('Repository Source Program Model cannot mix test facts from another compilation');
   }
+  // Compiler-issued spans contain finite source offsets or are absent. The
+  // tuple is the existing equality predicate, not the full observation: end
+  // positions matter, line metadata does not, and output order stays intact.
+  const unknownIdentity = (unknown: SourceProgramUnknown): string => JSON.stringify([
+    unknown.code, unknown.path, unknown.detail, unknown.span?.start, unknown.span?.end
+  ]);
+  const typeScriptUnknownIdentities = new Set(typescriptModel.unknowns.map(unknownIdentity));
   const semanticModel = Object.freeze({
     ...typescriptModel,
     unknowns: Object.freeze([
       ...typescriptModel.unknowns,
-      ...testObservations.unknowns.filter((unknown) => !typescriptModel.unknowns.some((existing) => (
-        existing.code === unknown.code
-        && existing.path === unknown.path
-        && existing.detail === unknown.detail
-        && existing.span?.start === unknown.span?.start
-        && existing.span?.end === unknown.span?.end
-      )))
+      // Do not add test-only identities to the index: duplicates among test
+      // observations were preserved by the original baseline-membership test.
+      ...testObservations.unknowns.filter((unknown) => !typeScriptUnknownIdentities.has(unknownIdentity(unknown)))
     ])
   });
   const entrypoints: SourceProgramEntrypoint[] = [...typescriptModel.entrypoints];
@@ -725,7 +732,7 @@ function compileRepositorySourceProgramModelInternal(
   for (const descriptor of input.moduleMembership.descriptors) {
     for (const targetPath of descriptor.externalEntrypoints) {
       entrypoints.push(observedEntrypoint({
-        path: `${descriptor.root}/sec.module.json`,
+        path: `${descriptor.root}/module.json`,
         kind: 'module-entrypoint',
         name: `${descriptor.moduleId}:${targetPath}`,
         command: null,
@@ -1060,9 +1067,7 @@ function compileRepositorySourceProgramModelInternal(
     const unknown = unknowns[index]!;
     if (unknown.code !== 'external-module-opaque') continue;
     const packageName = dependencyPackageName(unknown.detail);
-    const runtimeBuiltin = unknown.detail === 'bun'
-      || unknown.detail.startsWith('bun:')
-      || unknown.detail.startsWith('node:');
+    const runtimeBuiltin = isSourceProgramRuntimeBuiltinModuleSpecifier(unknown.detail);
     if (runtimeBuiltin || declaredDependencyNames.has(packageName)) {
       unknowns.splice(index, 1);
     }
@@ -1169,6 +1174,37 @@ function compileRepositorySourceProgramModelInternal(
   }).sort((left, right) =>
     compareCodeUnits(left.path, right.path) || compareCodeUnits(left.name, right.name)
   );
+  const finishModel = (candidateAnalysis: SourceProgramCandidateAnalysis): SourceProgramModel<SourceProgramCandidateAnalysis> => {
+    const canonicalModel = {
+      sourceRevision: typescriptModel.sourceRevision,
+      providers: Object.freeze([
+        ...typescriptModel.providers,
+        Object.freeze({ id: 'ecmascript-json', revision: process.versions.bun })
+      ]),
+      files: Object.freeze(files),
+      declarations: typescriptModel.declarations,
+      references: Object.freeze([...semanticModel.references, ...embeddedReferences]),
+      returnProvenances: typescriptModel.returnProvenances,
+      literals: semanticModel.literals,
+      entrypoints: Object.freeze(entrypoints),
+      entrypointClosures: Object.freeze(entrypointClosures),
+      packages: Object.freeze(packages),
+      dependencies: Object.freeze(dependencies),
+      capabilities,
+      candidates: candidateAnalysis,
+      unknowns: Object.freeze(unknowns)
+    };
+    const model: SourceProgramModel<SourceProgramCandidateAnalysis> = Object.freeze({
+      ...canonicalModel,
+      modelDigest: sha256(canonicalModel)
+    });
+    compiledRepositorySourceProgramModels.add(model);
+    return model;
+  };
+  if (authorityScope === 'test-obligations') {
+    return finishModel(SOURCE_PROGRAM_TEST_OBLIGATIONS_NOT_REQUESTED);
+  }
+  if (authorityScope !== 'whole-program') throw new Error('Unsupported Source Program analysis scope');
   const candidates: SourceProgramCandidate[] = [];
   const causalRelations = compileSourceProgramCausalRelationEvidence(
     typescriptModel,
@@ -1184,7 +1220,7 @@ function compileRepositorySourceProgramModelInternal(
         evidence.intent.symbol.path,
         `${input.moduleMembership.descriptors.find(({ moduleId }) => (
           moduleId === evidence.owner
-        ))!.root}/sec.module.json`
+        ))!.root}/module.json`
       ].sort(compareCodeUnits)),
       reason: `owner-issued ${evidence.intent.relation} relation does not resolve to one exact Source Program symbol`,
       observationClass: 'unknown'
@@ -1289,7 +1325,7 @@ function compileRepositorySourceProgramModelInternal(
         candidates.push(Object.freeze({
           code: 'capability-provider-operation-unresolved',
           subject: `${provider.capability}:${operation}`,
-          paths: Object.freeze([`${descriptor.root}/sec.module.json`]),
+          paths: Object.freeze([`${descriptor.root}/module.json`]),
           reason: `provider ${descriptor.moduleId} declares an operation with no exported implementation in its module`,
           observationClass: 'unknown'
         }));
@@ -1322,7 +1358,7 @@ function compileRepositorySourceProgramModelInternal(
       code: 'operation-issuer-role-outside-owner',
       subject: `${binding.role}:${provider.capability}:${binding.operation}`,
       paths: Object.freeze([
-        `${descriptor.root}/sec.module.json`,
+        `${descriptor.root}/module.json`,
         ...new Set(foreignDeclarations.map(({ path: declarationPath }) => declarationPath))
       ].sort(compareCodeUnits)),
       reason: ownerDeclarations.length === 0
@@ -1344,7 +1380,7 @@ function compileRepositorySourceProgramModelInternal(
     candidates.push(Object.freeze({
       code: 'operation-issuer-role-conflict',
       subject: `${settlement.binding.semanticOperation}:${settlement.binding.requirementId}`,
-      paths: Object.freeze([`${settlement.descriptor.root}/sec.module.json`]),
+      paths: Object.freeze([`${settlement.descriptor.root}/module.json`]),
       reason: 'one module cannot issue provider settlement and independent domain readback for the same semantic operation requirement',
       observationClass: 'derived'
     }));
@@ -1381,7 +1417,7 @@ function compileRepositorySourceProgramModelInternal(
       candidates.push(Object.freeze({
         code: 'operation-critical-role-unresolved',
         subject: `${operation.capability}:${operation.operation}`,
-        paths: Object.freeze([`${descriptor.root}/sec.module.json`]),
+        paths: Object.freeze([`${descriptor.root}/module.json`]),
         reason: exactTerminalIssuers.length === 1
           ? 'effectful terminal operation has no unique domain owner in the same module, capability, and semantic operation'
           : 'effectful public semantic operation has no exact domain-owner role bound to its declared requirement provider operation',
@@ -1409,8 +1445,8 @@ function compileRepositorySourceProgramModelInternal(
         code: 'operation-recovery-binding-unresolved',
         subject: `${provider.capability}:${binding.operation}`,
         paths: Object.freeze([
-          `${descriptor.root}/sec.module.json`,
-          ...recoveryMatches.map(({ descriptor: owner }) => `${owner.root}/sec.module.json`)
+          `${descriptor.root}/module.json`,
+          ...recoveryMatches.map(({ descriptor: owner }) => `${owner.root}/module.json`)
         ].sort(compareCodeUnits)),
         reason: recovery === null
           ? 'durable worker has no recovery issuer binding'
@@ -1494,7 +1530,7 @@ function compileRepositorySourceProgramModelInternal(
   if ((nativeProcessProviders.length > 0 || observesNativeProcessTransport)
       && (nativeProcessProviders.length !== 1 || publicProcessOperations.length !== 1)) {
     const boundaryPaths = nativeProcessProviders.length > 0
-      ? nativeProcessProviders.map(({ descriptor }) => `${descriptor.root}/sec.module.json`)
+      ? nativeProcessProviders.map(({ descriptor }) => `${descriptor.root}/module.json`)
       : capabilities.flatMap((capability) => (
           capability.capability === 'process' && capability.transport === 'native-runtime'
             ? [capability.path]
@@ -1998,37 +2034,13 @@ function compileRepositorySourceProgramModelInternal(
     || compareCodeUnits(left.subject, right.subject)
     || compareCodeUnits(left.paths.join('\0'), right.paths.join('\0'))
   );
-  const canonicalModel = {
-    sourceRevision: typescriptModel.sourceRevision,
-    providers: Object.freeze([
-      ...typescriptModel.providers,
-      Object.freeze({ id: 'ecmascript-json', revision: process.versions.bun })
-    ]),
-    files: Object.freeze(files),
-    declarations: typescriptModel.declarations,
-    references: Object.freeze([...semanticModel.references, ...embeddedReferences]),
-    returnProvenances: typescriptModel.returnProvenances,
-    literals: semanticModel.literals,
-    entrypoints: Object.freeze(entrypoints),
-    entrypointClosures: Object.freeze(entrypointClosures),
-    packages: Object.freeze(packages),
-    dependencies: Object.freeze(dependencies),
-    capabilities,
-    candidates: Object.freeze(deduplicatedCandidates),
-    unknowns: Object.freeze(unknowns)
-  };
-  const model: SourceProgramModel = Object.freeze({
-    ...canonicalModel,
-    modelDigest: sha256(canonicalModel)
-  });
-  compiledRepositorySourceProgramModels.add(model);
-  return model;
+  return finishModel(Object.freeze(deduplicatedCandidates));
 }
 
 export function compileRepositorySourceProgramModel(
   input: CompileRepositorySourceProgramModelInput
 ): SourceProgramModel {
-  return compileRepositorySourceProgramModelInternal(input);
+  return compileRepositorySourceProgramModelInternal(input) as SourceProgramModel;
 }
 
 export function compileRepositorySourceProgramModelFromWorkspaceSnapshot(
@@ -2036,7 +2048,18 @@ export function compileRepositorySourceProgramModelFromWorkspaceSnapshot(
   repositoryCompilation: WorkspaceSourceSnapshot
 ): SourceProgramModel {
   repositoryCompilation.assertMatches(input);
-  return compileRepositorySourceProgramModelInternal({ ...input, repositoryCompilation });
+  return compileRepositorySourceProgramModelInternal({ ...input, repositoryCompilation }) as SourceProgramModel;
+}
+
+/** The fixed test-transition profile omits general candidate analysis explicitly. */
+export function compileRepositoryTestObligationsModelFromWorkspaceSnapshot(
+  input: CompileRepositorySourceProgramModelInput,
+  repositoryCompilation: WorkspaceSourceSnapshot
+): SourceProgramModel<SourceProgramAnalysisNotRequested> {
+  repositoryCompilation.assertMatches(input);
+  return compileRepositorySourceProgramModelInternal(
+    { ...input, repositoryCompilation }, 'test-obligations'
+  ) as SourceProgramModel<SourceProgramAnalysisNotRequested>;
 }
 
 function countTopologyValues(values: readonly string[]): Readonly<Record<string, number>> {
@@ -2048,9 +2071,9 @@ function countTopologyValues(values: readonly string[]): Readonly<Record<string,
 }
 
 /** Compact decision surface for a complete Source Program Model. */
-export function summarizeSourceProgramTopology(
-  model: SourceProgramModel
-): SourceProgramTopologySummary {
+function summarizeSourceProgramTopologyInternal(
+  model: SourceProgramModel<SourceProgramCandidateAnalysis>
+): SourceProgramTopologySummary<Readonly<Record<string, number>> | SourceProgramAnalysisNotRequested, number | SourceProgramAnalysisNotRequested> {
   const entrypointByObservationId = new Map(model.entrypoints.map((entrypoint) => [
     entrypoint.observationId,
     entrypoint
@@ -2130,10 +2153,25 @@ export function summarizeSourceProgramTopology(
       model.capabilities.map(capabilityAuthorityClass)
     ),
     providerModules: countTopologyValues(model.capabilities.map(capabilityProviderModule)),
-    candidateCodes: countTopologyValues(model.candidates.map(({ code }) => code)),
+    candidateCodes: sourceProgramCandidateAnalysisIsComplete(model.candidates)
+      ? countTopologyValues(model.candidates.map(({ code }) => code))
+      : SOURCE_PROGRAM_TEST_OBLIGATIONS_NOT_REQUESTED,
     unknownCodes: countTopologyValues(model.unknowns.map(({ code }) => code)),
-    directProcessTransportPaths: new Set(model.candidates
-      .filter(({ code }) => code === 'direct-process-transport-outside-owner')
-      .flatMap(({ paths }) => paths)).size
+    directProcessTransportPaths: sourceProgramCandidateAnalysisIsComplete(model.candidates)
+      ? new Set(model.candidates
+        .filter(({ code }) => code === 'direct-process-transport-outside-owner')
+        .flatMap(({ paths }) => paths)).size
+      : SOURCE_PROGRAM_TEST_OBLIGATIONS_NOT_REQUESTED
   });
+}
+
+export function summarizeSourceProgramTopology(model: SourceProgramModel): SourceProgramTopologySummary {
+  requireSourceProgramCandidateAnalysis(model.candidates);
+  return summarizeSourceProgramTopologyInternal(model) as SourceProgramTopologySummary;
+}
+
+export function summarizeSourceProgramTestObligationsTopology(
+  model: SourceProgramModel<SourceProgramAnalysisNotRequested>
+): SourceProgramTopologySummary<SourceProgramAnalysisNotRequested, SourceProgramAnalysisNotRequested> {
+  return summarizeSourceProgramTopologyInternal(model) as SourceProgramTopologySummary<SourceProgramAnalysisNotRequested, SourceProgramAnalysisNotRequested>;
 }

@@ -2,8 +2,8 @@ import path from 'node:path';
 import ts from 'typescript';
 import { CompilerError } from '../../compiler/errors.ts';
 import { isPathInside, relativePosixPath } from "../../contracts/relative-path.ts";
+import type { DependencyProjectOperation } from '../../execution/dependency-materialization.ts';
 import { pathExists } from "../filesystem/files.ts";
-import { withProjectDependencyBridge } from '../toolchain/dependencies/runtime.ts';
 import { compilerRoot, tsconfigRelativePath } from "../workspace-context.ts";
 import { captureTypecheckInvocation, type TypecheckProjectOptions } from './typecheck-invocation.ts';
 
@@ -194,9 +194,12 @@ function createIsolatedCompilerHost(
   return Object.freeze({ allowedSourceRoots, host });
 }
 
+export function typecheckProject(projectRoot: string, options: TypecheckProjectOptions & Readonly<{ isolated: true }>): Promise<void>;
+export function typecheckProject(projectRoot: string, options: TypecheckProjectOptions, dependencies: DependencyProjectOperation): Promise<void>;
 export async function typecheckProject(
   projectRoot: string,
-  options: TypecheckProjectOptions = {}
+  options: TypecheckProjectOptions = {},
+  dependencies?: DependencyProjectOperation
 ): Promise<void> {
   const request = captureTypecheckInvocation(projectRoot, options);
   projectRoot = request.projectRoot;
@@ -279,5 +282,6 @@ export async function typecheckProject(
     await execute();
     return;
   }
-  await withProjectDependencyBridge(projectRoot, execute);
+  if (dependencies === undefined) throw new CompilerError('VERIFY-DEPENDENCY-001', 'Live typecheck requires the dependency operation bound by its composition root');
+  await dependencies.withProjectDependencyBridge(projectRoot, execute);
 }

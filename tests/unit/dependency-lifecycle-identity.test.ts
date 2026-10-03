@@ -1,15 +1,15 @@
 import { test } from 'bun:test';
 import assert from 'node:assert/strict';
-import type { RuntimeDependencyGeneratedStateLifecycle } from '../../src/adapters/toolchain/dependencies/runtime/lifecycle-capabilities.ts';
 import {
   bindAndRetireCompilerDependencyPreimage,
-  bindExistingCompilerDependencyGeneration, bindExistingSharedDependencyRoot, birthAndBindCompilerDependencyGeneration,
+  bindExistingCompilerDependencyGeneration, bindExistingLegacySharedDependencyRoot, birthAndBindCompilerDependencyGeneration,
   compilerDependencyGenerationLifecycleExpectation, compilerDependencyStagingLifecycleExpectation,
   ensureCompilerDependencyPreimageRetiredForRecovery,
-  settleRetiredCompilerDependencyGeneration,
-  sharedDependencyLifecycleExpectation
+  legacySharedDependencyRetirementExpectation,
+  settleRetiredCompilerDependencyGeneration
 } from '../../src/adapters/toolchain/dependencies/runtime/lifecycle-registration.ts';
 import { runtimeDependencyOperationControls } from '../../src/adapters/toolchain/dependencies/runtime/operation-controls.ts';
+import type { RuntimeDependencyGeneratedStateLifecycle } from "../../src/execution/generated-state/dependency-lifecycle.ts";
 
 const physical = () => ({ device: 'device', inode: 'inode-a', objectId: 'object-a' });
 const receipt = { registrationDigest: `sha256:${'a'.repeat(64)}` } as never;
@@ -18,7 +18,7 @@ function control(clock = () => 0, signal?: AbortSignal) {
 }
 const exhausted = (error: unknown) => (error as { code?: string }).code === 'RUNTIME-DEPS-003';
 
-for (const expectation of [compilerDependencyGenerationLifecycleExpectation, compilerDependencyStagingLifecycleExpectation, sharedDependencyLifecycleExpectation]) {
+for (const expectation of [compilerDependencyGenerationLifecycleExpectation, compilerDependencyStagingLifecycleExpectation, legacySharedDependencyRetirementExpectation]) {
   test(`${expectation.name} owns its physical value rather than aliasing the caller`, () => {
     const source = physical(), expected = expectation(source);
     assert.notEqual(expected.physical, source);
@@ -30,7 +30,7 @@ for (const expectation of [compilerDependencyGenerationLifecycleExpectation, com
   });
 }
 
-for (const adopt of [bindExistingCompilerDependencyGeneration, bindExistingSharedDependencyRoot]) {
+for (const adopt of [bindExistingCompilerDependencyGeneration, bindExistingLegacySharedDependencyRoot]) {
   test(`${adopt.name} is bound to the expected identity before method getters run`, async () => {
     const expected = physical();
     const generatedStateLifecycle: Pick<RuntimeDependencyGeneratedStateLifecycle, 'bind'> = { get bind(): NonNullable<RuntimeDependencyGeneratedStateLifecycle['bind']> {
@@ -108,28 +108,28 @@ test('recovery without an observer still refuses already-cancelled work', async 
     async bind() { assert.fail('cancelled bind'); }, async retired() { assert.fail('cancelled retire'); }
   } };
   cancel.abort(reason);
-  await assert.rejects(ensureCompilerDependencyPreimageRetiredForRecovery(options, physical(), 'recovery'), error => error === reason);
+  await assert.rejects(ensureCompilerDependencyPreimageRetiredForRecovery(options, physical(), 'recovery', process.cwd()), error => error === reason);
 });
 
 test('recovery cannot enter retirement after its binding exhausted the same budget', async () => {
   let now = 0;
   await assert.rejects(ensureCompilerDependencyPreimageRetiredForRecovery({ ...control(() => now), generatedStateLifecycle: {
     async bind() { now = 101; return receipt; }, async retired() { assert.fail('retirement after exhaustion'); }
-  } }, physical(), 'recover'), exhausted);
+  } }, physical(), 'recover', process.cwd()), exhausted);
 });
 
 test('cancellation during recovery binding is not relabelled as provenance failure', async () => {
   const cancel = new AbortController(), reason = Object.freeze({ abort: 'during-bind' });
   await assert.rejects(ensureCompilerDependencyPreimageRetiredForRecovery({ ...control(() => 0, cancel.signal), generatedStateLifecycle: {
     async bind() { cancel.abort(reason); return receipt; }, async retired() { assert.fail('retired after cancellation'); }
-  } }, physical(), 'recover'), error => error === reason);
+  } }, physical(), 'recover', process.cwd()), error => error === reason);
 });
 
 test('completed recovery retirement still rechecks its deadline', async () => {
   let now = 0;
   await assert.rejects(ensureCompilerDependencyPreimageRetiredForRecovery({ ...control(() => now), generatedStateLifecycle: {
     async bind() { return receipt; }, async retired() { now = 101; return receipt; }
-  } }, physical(), 'recover'), exhausted);
+  } }, physical(), 'recover', process.cwd()), exhausted);
 });
 
 test('a birth operation is joined rather than abandoned when its signal cancels', async () => {

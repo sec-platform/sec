@@ -32,6 +32,7 @@ import {
 import {
   acquireExactGitTreeWorkspaceSourceSnapshotFromSession,
   acquireStagedIndexWorkspaceSourceSnapshot,
+  assertPhysicalWorkspaceSourceSnapshot,
   readBackStagedIndexWorkspaceSourceSnapshot,
   selectStagedWorkspaceSourceSnapshot,
   type PhysicalWorkspaceSourceSnapshot
@@ -49,6 +50,7 @@ import {
 import {
   CANDIDATE_NORMALIZATION_DURATION_MS,
   compileCandidateNormalizationActionKey,
+  compileCandidateNormalizationProducer,
   compileCandidateNormalizationSubject,
   IMPORT_NORMALIZATION_OPERATION,
   isCandidateNormalizationPath,
@@ -323,6 +325,9 @@ async function executeCandidateNormalization(input: Readonly<{
 export async function verifyStagedCandidateImportNormalization(input: Readonly<{
   gitOperation: AuthorityGitReadOperation;
   candidateBase?: string;
+  /** Exact tool source observed by commit admission. Candidate bytes remain
+   * the input subject and are never imported to execute this operation. */
+  producerSnapshot?: PhysicalWorkspaceSourceSnapshot;
 }>): Promise<Readonly<{
   outcome: VerificationActionRunOutcome;
   admission: CandidateNormalizationAdmissionReceipt | null;
@@ -340,10 +345,9 @@ export async function verifyStagedCandidateImportNormalization(input: Readonly<{
       return { snapshot, stagedSelection, repositoryRoot: session.cwd };
     }
   );
-  const producerClosure = compileSourceProgramOperationProducerClosureFromWorkspaceSnapshot(
-    snapshot,
-    IMPORT_NORMALIZATION_OPERATION
-  );
+  const producerSnapshot = input.producerSnapshot ?? snapshot;
+  assertPhysicalWorkspaceSourceSnapshot(producerSnapshot);
+  const producerClosure = compileCandidateNormalizationProducer(producerSnapshot);
   requireSourceProgramOperationProducerClosure(producerClosure);
   const compilerIdentity = sourceProgramTypeScriptCompilerIdentity();
   assertSourceProgramTypeScriptCompilerIdentity(compilerIdentity);
@@ -378,11 +382,24 @@ export async function verifyStagedCandidateImportNormalization(input: Readonly<{
  * issues no Verification Action or commit authority. This keeps hooks cheap
  * without creating a second source reader or normalization implementation.
  */
-export async function checkStagedCandidateImportNormalization(input: Readonly<{
+type StagedCandidateImportCheckInput = Readonly<{
   session: GitReadSession;
   candidateBase?: string;
   progressCommand?: 'imports:check' | 'imports:freeze';
-}>): Promise<ImportCheckOutcome> {
+}>;
+
+/** The existing outcome-only API does not acquire recovery or write authority. */
+export async function checkStagedCandidateImportNormalization(
+  input: StagedCandidateImportCheckInput
+): Promise<ImportCheckOutcome> {
+  return (await checkStagedCandidateImportNormalizationWithSelection(input)).outcome;
+}
+
+/** Diagnostic selection comes from this exact staged observation, never from
+ * a second resolution of mutable HEAD, tracking refs or environment defaults. */
+export async function checkStagedCandidateImportNormalizationWithSelection(
+  input: StagedCandidateImportCheckInput
+): Promise<Readonly<{ outcome: ImportCheckOutcome; candidateBase: string }>> {
   const progressCommand = input.progressCommand ?? 'imports:check';
   const snapshot = await observeExecutionProgressPhase(progressCommand, 'staged-source-snapshot',
     () => acquireStagedIndexWorkspaceSourceSnapshot({ session: input.session }));
@@ -409,5 +426,5 @@ export async function checkStagedCandidateImportNormalization(input: Readonly<{
     }));
   await observeExecutionProgressPhase(progressCommand, 'staged-source-readback',
     () => readBackStagedIndexWorkspaceSourceSnapshot(snapshot, input.session));
-  return outcome;
+  return Object.freeze({ outcome, candidateBase: selection.candidateBase });
 }

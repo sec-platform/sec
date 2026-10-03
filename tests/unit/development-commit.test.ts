@@ -54,7 +54,7 @@ async function fixture(): Promise<Readonly<{
       path.join(moduleRoot, 'runtime.ts'),
       "export { normalize as verifyCandidateImportNormalization } from './kernel.ts';\n"
     ),
-    writeFile(path.join(moduleRoot, 'sec.module.json'), `${JSON.stringify({
+    writeFile(path.join(moduleRoot, 'module.json'), `${JSON.stringify({
       importGraph: 'runtime',
       externalEntrypoints: ['src/adapters/self-hosting/development/import-normalization/runtime.ts'],
       capabilityProviders: [{
@@ -120,17 +120,20 @@ test('development.commit retires only the exact owner-issued applied journal aft
     const result = await runDevelopmentCommit(prepared.request, prepared.admission);
     const source = await readFile(result.journalPath, 'utf8');
     expect(source).toContain('"terminal":"applied"');
-    expect(() => acknowledgeDevelopmentCommitResult({ ...result })).toThrow('owner-issued result');
+    await expect(acknowledgeDevelopmentCommitResult({ ...result })).rejects.toThrow('owner-issued result');
     expect(await readFile(result.journalPath, 'utf8')).toBe(source);
-    if (process.platform === 'linux') {
-      expect(() => acknowledgeDevelopmentCommitResult(result))
-        .toThrow('needs a native namespace exclusion on Linux');
-      expect(await readFile(result.journalPath, 'utf8')).toBe(source);
-      return;
-    }
-    acknowledgeDevelopmentCommitResult(result);
+    await acknowledgeDevelopmentCommitResult(result);
     await expect(lstat(result.journalPath)).rejects.toMatchObject({ code: 'ENOENT' });
-    expect(() => acknowledgeDevelopmentCommitResult(result)).toThrow('owner-issued result');
+    await expect(lstat(path.dirname(result.journalPath))).rejects.toMatchObject({ code: 'ENOENT' });
+    expect(await settleDevelopmentCommitJournalsForRef({ repositoryRoot: root, ref: result.ref }))
+      .toEqual({ ref: result.ref, observed: 0, retired: 0 });
+    const foreign = path.join(path.dirname(result.journalPath), `.sec-journal-guard-${'f'.repeat(64)}.lock`);
+    await mkdir(path.dirname(foreign));
+    await writeFile(foreign, '{}');
+    await expect(settleDevelopmentCommitJournalsForRef({ repositoryRoot: root, ref: result.ref }))
+      .rejects.toThrow('unrecognized owner residue');
+    expect(await readFile(foreign, 'utf8')).toBe('{}');
+    await expect(acknowledgeDevelopmentCommitResult(result)).rejects.toThrow('owner-issued result');
   } finally {
     await rm(root, { recursive: true, force: true });
   }
@@ -150,12 +153,6 @@ test('development.commit classifies every exact-ref journal before retiring any'
       .rejects.toThrow('requires applied readback');
     expect(await readFile(result.journalPath, 'utf8')).toBe(source);
     await rm(unknownPath);
-    if (process.platform === 'linux') {
-      await expect(settleDevelopmentCommitJournalsForRef({ repositoryRoot: root, ref: result.ref }))
-        .rejects.toThrow('needs a native namespace exclusion on Linux');
-      expect(await readFile(result.journalPath, 'utf8')).toBe(source);
-      return;
-    }
     expect(await settleDevelopmentCommitJournalsForRef({ repositoryRoot: root, ref: result.ref }))
       .toEqual({ ref: result.ref, observed: 1, retired: 1 });
     await expect(lstat(result.journalPath)).rejects.toMatchObject({ code: 'ENOENT' });
@@ -179,11 +176,6 @@ test('development.commit retires verified applied attempts after a local ref rew
       .rejects.toThrow('active or unknown');
     expect(await readFile(result.journalPath, 'utf8')).toBe(source);
     await rm(unknownPath);
-    if (process.platform === 'linux') {
-      await expect(retireSupersededLocalDevelopmentCommitJournals({ repositoryRoot: root, ref: result.ref }))
-        .rejects.toThrow('needs a native namespace exclusion on Linux');
-      return;
-    }
     expect(await retireSupersededLocalDevelopmentCommitJournals({ repositoryRoot: root, ref: result.ref }))
       .toEqual({ ref: result.ref, observed: 1, retired: 1 });
     await expect(lstat(result.journalPath)).rejects.toMatchObject({ code: 'ENOENT' });
@@ -208,11 +200,6 @@ test('development.commit settles completed historical and current journals for o
     const second = await runDevelopmentCommit(secondAdmission.request, secondAdmission.admission);
     expect(git(root, ['rev-list', '--walk-reflogs', second.ref]).split(/\r?\n/u).slice(0, 2))
       .toEqual([second.target, first.target]);
-    if (process.platform === 'linux') {
-      await expect(settleDevelopmentCommitJournalsForRef({ repositoryRoot: root, ref: second.ref }))
-        .rejects.toThrow('needs a native namespace exclusion on Linux');
-      return;
-    }
     expect(await settleDevelopmentCommitJournalsForRef({ repositoryRoot: root, ref: second.ref }))
       .toEqual({ ref: second.ref, observed: 2, retired: 2 });
     await expect(lstat(first.journalPath)).rejects.toMatchObject({ code: 'ENOENT' });

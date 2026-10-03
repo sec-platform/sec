@@ -5,14 +5,13 @@ import {
   compileSecSemanticOperationPlan,
   issueSecSemanticOperationAttemptContext,
   type SecBoundSemanticOperation,
-  type SecCapabilityBinding,
   type SecOperationDigest,
-  type SecSemanticOperationPlan
+  type SecSemanticOperationAttemptContext
 } from '../../../../execution/operation/semantic.ts';
 import {
-  RETAINED_WINDOWS_REPOSITORY_CHANGE_OBSERVER_CONTRACT_DIGEST,
-  RETAINED_WINDOWS_REPOSITORY_CHANGE_OBSERVER_REQUIREMENT_ID
-} from '../../../runtime-state/physical/runtime/windows-repository-change-observer.ts';
+  repositoryChangeObserverBinding,
+  type PreparedRepositoryChangeObserver
+} from '../../../runtime-state/physical/runtime/repository-change-observer.ts';
 import {
   assertTestBudgetExecutionProvenance,
   type IssuedTestInventoryProjection,
@@ -100,7 +99,7 @@ export type FastTestBatchExecutionAdmission = Readonly<{
   logicalDeadlineAtUnixMs: number;
   revalidationDeadlineAtUnixMs: number;
   childDeadlineAtUnixMs: number;
-  operationPlan: SecSemanticOperationPlan;
+  attempt: SecSemanticOperationAttemptContext;
 }>;
 
 const issuedTestSuiteExecutionPolicies = new WeakSet<object>();
@@ -134,6 +133,10 @@ export function issueFastTestBatchExecutionPolicy(input: Readonly<{
   const bunOptions = canonicalBunTestOptions(input.bunOptions);
   for (const option of bunOptions) {
     const name = option.split('=', 1)[0]!;
+    if (files.length > 1 && ['--reporter', '--reporter-outfile', '--coverage',
+      '--coverage-reporter', '--coverage-dir'].includes(name)) {
+      throw new Error('Multi-file retained test execution requires an aggregate output owner for reporter/coverage options.');
+    }
     if (['--parallel', '--isolate', '--no-isolate', '--no-orphans'].includes(name)) {
       throw new Error(`Bun ${name} is owned by the fast test execution policy.`);
     }
@@ -153,9 +156,6 @@ export function issueFastTestBatchExecutionPolicy(input: Readonly<{
       : bunOptions;
     const args = [
       'test', ...invocationFiles.map((file) => `./${file}`),
-      ...(queue === 'parallel'
-        ? [`--parallel=${managedConcurrency.outerProcessConcurrency}`, '--isolate']
-        : []),
       '--no-orphans', ...withDefaultTestTimeout(boundedOptions)
     ];
     const executionPolicy = compileTestInvocationExecutionPolicy(args, DEV_COMMAND_MAX_DURATION_MS);
@@ -167,9 +167,11 @@ export function issueFastTestBatchExecutionPolicy(input: Readonly<{
       supervisorTimeoutMs: executionPolicy.supervisorTimeoutMs
     });
   };
-  const concurrentInvocations = processPlan.parallelFiles.length === 0
-    ? []
-    : [invocation('parallel', processPlan.parallelFiles, 0)];
+  // SEC owns each physical child: one test file per retained process preserves
+  // isolation without asking Bun to reopen an anonymous sealed executable.
+  const concurrentInvocations = processPlan.parallelFiles.map(
+    (file, index) => invocation('parallel', [file], index)
+  );
   const resourceInvocations = Object.fromEntries(FAST_TEST_PROCESS_RESOURCE_CLASS_ORDER.map(
     (resourceClass) => [resourceClass, processPlan.resourceQueues[resourceClass].map(
       (file, index) => invocation(resourceClass, [file], index)
@@ -262,27 +264,13 @@ export function admitFastTestBatchExecutionPolicy(
     throw new Error('Fast test batch execution admission deadline is invalid.');
   }
   consumedFastTestBatchExecutionPolicies.add(policy);
-  const operationPlan = compileSecSemanticOperationPlan({
-    operation: FAST_TEST_BATCH_EXECUTION_OPERATION,
-    intentDigest: policy.policyDigest as SecOperationDigest,
-    decisionDigest: policy.policyDigest as SecOperationDigest,
-    deadlineAtUnixMs: logicalDeadlineAtUnixMs,
-    attempt: issueSecSemanticOperationAttemptContext({ authorityGrantDigest: policy.policyDigest as SecOperationDigest }),
-    aggregateBudgets: [{ resource: 'duration-ms', maximum: policy.logicalRunTimeoutMs }],
-    requirements: [{
-      id: RETAINED_WINDOWS_REPOSITORY_CHANGE_OBSERVER_REQUIREMENT_ID,
-      contractDigest: RETAINED_WINDOWS_REPOSITORY_CHANGE_OBSERVER_CONTRACT_DIGEST,
-      effectKinds: ['filesystem'],
-      failureKinds: ['provider.deadline-exhausted', 'provider.unavailable', 'provider.unverified']
-    }]
-  });
   const admission = deepFreeze({
     policy,
     admittedAtUnixMs,
     logicalDeadlineAtUnixMs,
     revalidationDeadlineAtUnixMs,
     childDeadlineAtUnixMs,
-    operationPlan
+    attempt: issueSecSemanticOperationAttemptContext({ authorityGrantDigest: policy.policyDigest as SecOperationDigest })
   });
   issuedFastTestBatchExecutionAdmissions.add(admission);
   return admission;
@@ -290,18 +278,29 @@ export function admitFastTestBatchExecutionPolicy(
 
 export function bindFastTestBatchExecutionAdmission(
   admission: FastTestBatchExecutionAdmission,
-  providerBinding: SecCapabilityBinding
+  observer: PreparedRepositoryChangeObserver
 ): SecBoundSemanticOperation {
   assertIssuedFastTestBatchExecutionAdmission(admission);
   if (boundFastTestBatchExecutionAdmissions.has(admission)) {
     throw new Error('Fast test batch execution admission was already bound.');
   }
-  if (providerBinding.requirementId !== RETAINED_WINDOWS_REPOSITORY_CHANGE_OBSERVER_REQUIREMENT_ID
-      || providerBinding.contractDigest !== RETAINED_WINDOWS_REPOSITORY_CHANGE_OBSERVER_CONTRACT_DIGEST) {
-    throw new Error('Fast test batch observer provider binding is invalid.');
-  }
+  const providerBinding = repositoryChangeObserverBinding(observer);
+  const operationPlan = compileSecSemanticOperationPlan({
+    operation: FAST_TEST_BATCH_EXECUTION_OPERATION,
+    intentDigest: admission.policy.policyDigest as SecOperationDigest,
+    decisionDigest: admission.policy.policyDigest as SecOperationDigest,
+    deadlineAtUnixMs: admission.logicalDeadlineAtUnixMs,
+    attempt: admission.attempt,
+    aggregateBudgets: [{ resource: 'duration-ms', maximum: admission.policy.logicalRunTimeoutMs }],
+    requirements: [{
+      id: providerBinding.requirementId,
+      contractDigest: providerBinding.contractDigest,
+      effectKinds: ['filesystem'],
+      failureKinds: ['provider.deadline-exhausted', 'provider.unavailable', 'provider.unverified']
+    }]
+  });
   boundFastTestBatchExecutionAdmissions.add(admission);
-  return bindSecSemanticOperation(admission.operationPlan, [providerBinding]);
+  return bindSecSemanticOperation(operationPlan, [providerBinding]);
 }
 
 export function issueTestSuiteExecutionPolicy(input: Readonly<{

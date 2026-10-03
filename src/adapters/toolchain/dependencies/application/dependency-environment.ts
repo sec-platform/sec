@@ -2,17 +2,14 @@ import { constants as fsConstants } from 'node:fs';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { SecError } from '../../../../contracts/failure.ts';
-import { isFileNotFoundError, pathExists, removeDir } from "../../../filesystem/files.ts";
+import type { RuntimeDependencyGeneratedStateLifecycle } from "../../../../execution/generated-state/dependency-lifecycle.ts";
+import { isFileNotFoundError, pathExists } from "../../../filesystem/files.ts";
 import { resolveSecWorkspaceRuntimeRoots } from '../../../runtime-state/workspace-state/paths.ts';
 import { compilerRoot, getWorkspacePaths, resolveWorkspacePlanPath } from "../../../workspace-context.ts";
 import { loadRuntimeDependencySpec } from '../contract/runtime-dependency-spec.ts';
 import { classifyDependencyEnvironment, observeDependencyEntry, sameObservedDependencyDirectory, type DependencyEntryStatus, type DependencyEnvironmentMode } from '../runtime/environment-observation.ts';
 import { sameHostPath } from '../runtime/host-path.ts';
-import type { RuntimeDependencyGeneratedStateLifecycle } from '../runtime/lifecycle-capabilities.ts';
 import {
-  disposeCanonicalSharedDependencies,
-  ensureCompilerDepsReady,
-  ensureProjectDependencies,
   observeCompilerDependencyExecutionGenerationAuthority,
   readRuntimeDepsStamp,
 } from '../runtime/project-runtime.ts';
@@ -30,13 +27,7 @@ export interface DependencyEnvironmentStatus {
   recommendedAction: string;
 }
 
-export interface DependencyCleanOptions {
-  project?: boolean;
-  shared?: boolean;
-  bunCache?: boolean;
-  all?: boolean;
-  force?: boolean;
-}
+export type { DependencyCleanOptions } from '../../../../execution/dependency-environment.ts';
 
 export interface DependencyEnvironmentOptions {
   generatedStateLifecycle?: RuntimeDependencyGeneratedStateLifecycle;
@@ -52,23 +43,6 @@ function environmentLocation(options: DependencyEnvironmentOptions, cwd: string)
     throw new SecError('RUNTIME-DEPS-003', 'Shared dependency root must be a nonempty path');
   }
   return Object.freeze({ sharedDepsRoot: path.resolve(cwd, selected ?? defaultSharedDepsRoot()) });
-}
-
-function environmentExecutionOptions(options: DependencyEnvironmentOptions, cwd: string): Readonly<DependencyEnvironmentOptions> {
-  const location = environmentLocation(options, cwd);
-  const generatedStateLifecycle = options.generatedStateLifecycle;
-  return Object.freeze({ ...location, generatedStateLifecycle });
-}
-
-function captureCleanupSelection(options: DependencyCleanOptions): Readonly<DependencyCleanOptions> {
-  const { project, shared, bunCache, all, force } = options;
-  for (const [field, value] of Object.entries({ project, shared, bunCache, all, force })) {
-    if (value !== undefined && typeof value !== 'boolean') {
-      throw new SecError('RUNTIME-DEPS-003', `Dependency cleanup ${field} must be boolean`);
-    }
-  }
-  // force remains a compatibility input, never a permission to bypass an owner.
-  return Object.freeze({ project, shared, bunCache, all, force });
 }
 
 export interface DoctorCheck {
@@ -286,75 +260,4 @@ export async function getDoctorReport(
     checks,
     dependencies
   };
-}
-
-export async function warmupDependencyEnvironment(
-  workspaceRoot = process.cwd(),
-  options: DependencyEnvironmentOptions = {}
-): Promise<DependencyEnvironmentStatus> {
-  const cwd = process.cwd();
-  workspaceRoot = path.resolve(cwd, workspaceRoot);
-  const selected = environmentExecutionOptions(options, cwd);
-  await ensureCompilerDepsReady();
-  return getDependencyEnvironmentStatus(workspaceRoot, selected);
-}
-
-export async function relinkProjectDependencies(
-  workspaceRoot = process.cwd(),
-  options: DependencyEnvironmentOptions = {}
-): Promise<DependencyEnvironmentStatus> {
-  const cwd = process.cwd();
-  workspaceRoot = path.resolve(cwd, workspaceRoot);
-  const { workspaceRoot: targetWorkspaceRoot } = getWorkspacePaths(workspaceRoot);
-  const selected = environmentExecutionOptions(options, cwd);
-  if (sameHostPath(targetWorkspaceRoot, compilerRoot)) {
-    // A compiler-root relink is a compiler-generation reconciliation. Calling
-    // the project projection path here would demand a project stamp for the
-    // compiler owner's own locator and reject a valid generation.
-    await ensureCompilerDepsReady(selected);
-  } else {
-    await ensureProjectDependencies(targetWorkspaceRoot, { ...selected, rematerialize: true });
-  }
-  return getDependencyEnvironmentStatus(workspaceRoot, selected);
-}
-
-export async function cleanDependencyEnvironment(
-  workspaceRoot = process.cwd(),
-  options: DependencyCleanOptions,
-  environmentOptions: DependencyEnvironmentOptions = {}
-): Promise<string[]> {
-  const cwd = process.cwd();
-  const { workspaceRoot: targetWorkspaceRoot } = getWorkspacePaths(path.resolve(cwd, workspaceRoot));
-  const selection = captureCleanupSelection(options);
-  if (!selection.all && !selection.project && !selection.shared && !selection.bunCache) return [];
-  if (selection.all || selection.bunCache) {
-    throw new SecError('IMPORT-AUTHORITY-004',
-      'Bun cache cleanup requires Runtime Cache owner authority shared with compiler installation');
-  }
-  const { sharedDepsRoot: sharedRoot } = environmentLocation(environmentOptions, cwd);
-  const targets = new Set<string>();
-  if (selection.project) {
-    targets.add(path.join(targetWorkspaceRoot, 'node_modules'));
-    targets.add(projectStampPath(targetWorkspaceRoot));
-  }
-  if (selection.shared) targets.add(sharedRoot);
-
-  // Complete all lexical owner/target checks before the first deletion.
-  // Previously an invalid shared root could be discovered only after the
-  // project targets had already been removed. Physical owner admission remains
-  // with disposeCanonicalSharedDependencies; this is not an atomic cleanup batch.
-  const plan = [...targets].map(target => ({ target, shared: sameHostPath(target, sharedRoot) }));
-  const hasSharedSettlement = plan.some(step => step.shared);
-  if (hasSharedSettlement && !sameHostPath(sharedRoot, defaultSharedDepsRoot())) {
-    throw new SecError('IMPORT-AUTHORITY-004',
-      'Custom shared dependency roots cannot be retired through the public cleanup projection without owner-issued lifecycle authority');
-  }
-  const settlementOptions = hasSharedSettlement
-    ? Object.freeze({ sharedDepsRoot: sharedRoot, generatedStateLifecycle: environmentOptions.generatedStateLifecycle })
-    : undefined;
-  for (const step of plan) {
-    if (step.shared) await disposeCanonicalSharedDependencies(settlementOptions!);
-    else await removeDir(step.target);
-  }
-  return [...targets];
 }

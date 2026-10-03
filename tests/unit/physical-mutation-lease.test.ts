@@ -1,20 +1,34 @@
 import { expect, test } from 'bun:test';
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 import {
   acquirePhysicalMutationLease,
+  completePhysicalJournalMutationInitialization,
+  initializePhysicalJournalMutationResource,
   PHYSICAL_MUTATION_LEASE_SCHEMA,
+  readPhysicalJournalMutationResource,
   type PhysicalMutationLeaseOwner
 } from '../../src/adapters/runtime-state/physical/runtime/mutation-lease.ts';
 import {
   inspectNoFollowDirectoryChain,
   inspectNoFollowOrdinaryFileEntry,
+  publishExclusiveDurableCanonicalFile,
   recoverDurableCanonicalFileReplacement,
-  replaceDurableCanonicalFile
+  replaceDurableCanonicalFile,
+  scanNoFollowDirectoryDirectMetadata
 } from '../../src/adapters/runtime-state/physical/runtime/physical-no-follow.ts';
+
+import { assertWorkspaceWriteLease, withWorkspaceWriteLease } from '../../src/adapters/filesystem/write-lease.ts';
+import { runObservedCommand } from '../../src/adapters/runtime-state/physical/runtime/observed-process-stdin.ts';
+import { createRuntimeStateJournalFileSystem, prepareRuntimeStateJournalMutation, runtimeStateJournalMutationLeaseName } from '../../src/adapters/runtime-state/workspace-state/journal-filesystem.ts';
+import {
+  DEFAULT_TEST_TIMEOUT_MS, EFFECTFUL_TEST_CASE_SETTLEMENT_GUARD_MS,
+  TEST_SUPERVISOR_SETTLEMENT_MARGIN_MS
+} from '../../src/adapters/self-hosting/development/runner/test-execution-policy.ts';
+import { createRawTestExecutableFixture } from '../testkit/raw-process.ts';
 
 function fixture(): Readonly<{
   root: string;
@@ -56,11 +70,44 @@ function replaceLeaseBytes(
   });
 }
 
+function abandonGuarded(parent: ReturnType<typeof inspectNoFollowDirectoryChain>['target'], name: string,
+  options: Parameters<typeof acquirePhysicalMutationLease>[2] = {}) {
+  const resourceName = 'direct-journal.json';
+  const resource = initializePhysicalJournalMutationResource(parent, name, resourceName);
+  const initial = acquirePhysicalMutationLease(parent, name, { journalResource: resource })!;
+  completePhysicalJournalMutationInitialization(initial, publishExclusiveDurableCanonicalFile({
+    parent, name: resourceName, bytes: Buffer.from('fixture'), validate: () => undefined
+  }));
+  initial.release();
+  const moduleUrl = pathToFileURL(path.resolve(import.meta.dir,
+    '../../src/adapters/runtime-state/physical/runtime/mutation-lease.ts')).href;
+  const physicalUrl = pathToFileURL(path.resolve(import.meta.dir,
+    '../../src/adapters/runtime-state/physical/runtime/physical-no-follow.ts')).href;
+  const child = Bun.spawnSync([process.execPath, '--no-env-file', '-e', `
+    import { acquirePhysicalMutationLease, readPhysicalJournalMutationResource } from ${JSON.stringify(moduleUrl)};
+    import { inspectNoFollowDirectoryChain } from ${JSON.stringify(physicalUrl)};
+    const parent = inspectNoFollowDirectoryChain(${JSON.stringify(parent.path)}).target;
+    const resource = readPhysicalJournalMutationResource(parent, ${JSON.stringify(name)}, ${JSON.stringify(resourceName)});
+    const lease = acquirePhysicalMutationLease(parent, ${JSON.stringify(name)}, { ...${JSON.stringify(options)}, journalResource: resource });
+    if (!lease) throw new Error('Fixture direct journal was contended');
+    console.log(JSON.stringify(lease.owner));
+    process.exit(0);
+  `], { stdout: 'pipe', stderr: 'pipe' });
+  expect({ code: child.exitCode, stderr: child.stderr.toString() }).toEqual({ code: 0, stderr: '' });
+  return { owner: JSON.parse(child.stdout.toString()) as PhysicalMutationLeaseOwner };
+}
+
+function acquireGuarded(parent: ReturnType<typeof inspectNoFollowDirectoryChain>['target'], name: string,
+  options: Parameters<typeof acquirePhysicalMutationLease>[2] = {}) {
+  return acquirePhysicalMutationLease(parent, name, { ...options,
+    journalResource: readPhysicalJournalMutationResource(parent, name, 'direct-journal.json')! });
+}
+
 test('reclaimed-owner restore rejects an externally replaced lease and preserves its bytes', () => {
   const { root, parent } = fixture();
   const name = 'invocation.lease';
   try {
-    const abandoned = acquirePhysicalMutationLease(parent, name, {
+    const abandoned = abandonGuarded(parent, name, {
       now: () => 1_000,
       ownerHost: 'lease-test-host',
       ownerPid: 42_001,
@@ -68,7 +115,7 @@ test('reclaimed-owner restore rejects an externally replaced lease and preserves
       processAlive: () => 'alive'
     });
     expect(abandoned).not.toBeNull();
-    const successor = acquirePhysicalMutationLease(parent, name, {
+    const successor = acquireGuarded(parent, name, {
       now: () => 2_000,
       ownerHost: 'lease-test-host',
       ownerPid: 42_002,
@@ -106,7 +153,7 @@ test('restored reclaimed owner remains durable when the same handle releases', (
   const { root, parent } = fixture();
   const name = 'invocation.lease';
   try {
-    const abandoned = acquirePhysicalMutationLease(parent, name, {
+    const abandoned = abandonGuarded(parent, name, {
       now: () => 1_000,
       ownerHost: 'lease-test-host',
       ownerPid: 42_011,
@@ -117,7 +164,7 @@ test('restored reclaimed owner remains durable when the same handle releases', (
     const oldBytes = inspectNoFollowOrdinaryFileEntry(parent, name)?.bytes;
     expect(oldBytes).not.toBeNull();
 
-    const successor = acquirePhysicalMutationLease(parent, name, {
+    const successor = acquireGuarded(parent, name, {
       now: () => 2_000,
       ownerHost: 'lease-test-host',
       ownerPid: 42_012,
@@ -179,10 +226,10 @@ for (const action of ['release', 'acknowledgeReclaimedRecovery', 'restoreReclaim
     const { root, parent } = fixture();
     const name = 'invocation.lease';
     try {
-      const first = acquirePhysicalMutationLease(parent, name, {
+      const first = action === 'release' ? acquirePhysicalMutationLease(parent, name, {
         ownerHost: 'lease-test-host', ownerPid: 42_041
-      })!;
-      const lease = action === 'release' ? first : acquirePhysicalMutationLease(parent, name, {
+      })! : abandonGuarded(parent, name);
+      const lease = action === 'release' ? first as ReturnType<typeof acquirePhysicalMutationLease> : acquireGuarded(parent, name, {
         ownerHost: 'lease-test-host', ownerPid: 42_042, processAlive: () => 'dead'
       })!;
       const original = inspectNoFollowOrdinaryFileEntry(parent, name)!;
@@ -190,7 +237,7 @@ for (const action of ['release', 'acknowledgeReclaimedRecovery', 'restoreReclaim
       replaceLeaseBytes(parent, name, bytes);
       const replacement = inspectNoFollowOrdinaryFileEntry(parent, name)!;
       expect(replacement.inode).not.toBe(original.inode);
-      expect(() => lease[action]()).toThrow('ownership changed');
+      expect(() => lease![action]()).toThrow('ownership changed');
       const preserved = inspectNoFollowOrdinaryFileEntry(parent, name)!;
       expect(preserved.inode).toBe(replacement.inode);
       expect(Buffer.from(preserved.bytes!)).toEqual(bytes);
@@ -200,70 +247,114 @@ for (const action of ['release', 'acknowledgeReclaimedRecovery', 'restoreReclaim
   });
 }
 
-test('real successor process death preserves the original OCI candidate recovery owner', async () => {
-  const { root } = fixture();
-  const specDigest = `sha256:${'a'.repeat(64)}`;
-  const generation = path.join(root, specDigest.slice(7));
-  mkdirSync(generation);
-  const moduleUrl = (relative: string) => pathToFileURL(path.resolve(import.meta.dir, relative)).href;
-  const scriptPath = path.join(root, 'lease-child.ts');
-  writeFileSync(scriptPath, `
-    import { mkdirSync, writeFileSync, existsSync } from 'node:fs';
-    import path from 'node:path';
-    import { acquirePhysicalMutationLease } from ${JSON.stringify(moduleUrl('../../src/adapters/runtime-state/physical/runtime/mutation-lease.ts'))};
-    import { inspectNoFollowDirectoryChain } from ${JSON.stringify(moduleUrl('../../src/adapters/runtime-state/physical/runtime/physical-no-follow.ts'))};
-    import { createLocalGitHubActionsRunnerOciCandidateBinding, reconcileReclaimedLocalGitHubActionsRunnerOciCandidate } from ${JSON.stringify(moduleUrl('../../src/adapters/verification/platform/ci/runtime/local-github-actions-runner.ts'))};
-    const directory = inspectNoFollowDirectoryChain(${JSON.stringify(generation)}, 'native crash recovery fixture').target;
-    const lease = acquirePhysicalMutationLease(directory, 'materialization-lease.json');
-    if (lease === null) throw new Error('Reaped predecessor was not reclaimable');
-    const stage = process.argv[2];
-    if (stage === 'A') {
-      const binding = createLocalGitHubActionsRunnerOciCandidateBinding(${JSON.stringify(specDigest)}, lease.owner);
-      const candidatePath = path.join(directory.path, binding.candidateName);
-      mkdirSync(candidatePath);
-      writeFileSync(path.join(candidatePath, 'partial-layer'), 'interrupted build');
-      console.log(JSON.stringify({ owner: lease.owner, candidatePath }));
-    } else if (stage === 'B') {
-      if (lease.reclaimedOwner === null || !lease.recoveryPending) throw new Error('Missing predecessor lineage');
-      console.log(JSON.stringify({ owner: lease.owner, recoveryOwner: lease.reclaimedOwner }));
-    } else {
-      if (lease.reclaimedOwner === null) throw new Error('Original lineage was lost');
-      const recoveryOwner = lease.reclaimedOwner;
-      const binding = createLocalGitHubActionsRunnerOciCandidateBinding(${JSON.stringify(specDigest)}, recoveryOwner);
-      const result = reconcileReclaimedLocalGitHubActionsRunnerOciCandidate({ directory, specDigest: ${JSON.stringify(specDigest)}, owner: recoveryOwner });
-      if (existsSync(path.join(directory.path, binding.candidateName))) throw new Error('Original candidate remained');
-      lease.acknowledgeReclaimedRecovery();
-      lease.release();
-      console.log(JSON.stringify({ recoveryOwner, result }));
+test('coordinator exit cannot reclaim an external lease or independently owned surviving provider resources', async () => {
+  const { root, parent } = fixture();
+  const leaseName = 'materialization-lease.json';
+  const candidate = path.join(parent.path, 'candidate');
+  mkdirSync(candidate);
+  const marker = path.join(candidate, 'partial-layer');
+  const stop = path.join(root, 'stop');
+  const executable = createRawTestExecutableFixture();
+  const effectTimeoutMs = DEFAULT_TEST_TIMEOUT_MS - TEST_SUPERVISOR_SETTLEMENT_MARGIN_MS -
+    EFFECTFUL_TEST_CASE_SETTLEMENT_GUARD_MS;
+  const deadlineAtMs = performance.now() + effectTimeoutMs;
+  const remainingMs = () => Math.max(1, Math.ceil(deadlineAtMs - performance.now()));
+  const childPath = path.join(root, 'survivor.ts');
+  writeFileSync(childPath, `
+    import { existsSync, writeFileSync } from 'node:fs';
+    let n = 0;
+    writeFileSync(${JSON.stringify(marker)}, String(++n));
+    console.log('provider-started');
+    while (!existsSync(${JSON.stringify(stop)})) {
+      writeFileSync(${JSON.stringify(marker)}, String(++n));
+      await Bun.sleep(10);
     }
-    // A and B deliberately exit without finally/release. Parent joins each
-    // real process before the next acquisition uses native process liveness.
-    process.exit(0);
   `);
-  const child = async (stage: string): Promise<Record<string, unknown>> => {
-    const childProcess = Bun.spawn([process.execPath, '--no-env-file', scriptPath, stage], {
-      cwd: root, stdout: 'pipe', stderr: 'pipe', signal: AbortSignal.timeout(20_000)
-    });
-    const [code, stdout, stderr] = await Promise.all([
-      childProcess.exited, new Response(childProcess.stdout).text(), new Response(childProcess.stderr).text()
-    ]);
-    expect({ code, stderr }).toEqual({ code: 0, stderr: '' });
-    return JSON.parse(stdout) as Record<string, unknown>;
+  const leaseUrl = pathToFileURL(path.resolve(import.meta.dir, '../../src/adapters/runtime-state/physical/runtime/mutation-lease.ts')).href;
+  const physicalUrl = pathToFileURL(path.resolve(import.meta.dir, '../../src/adapters/runtime-state/physical/runtime/physical-no-follow.ts')).href;
+  let signalStarted!: () => void;
+  const started = new Promise<void>(resolve => { signalStarted = resolve; });
+  let providerOutput = '';
+  let providerStderr = '';
+  // The provider has its own retained process owner. This witnesses external
+  // effects outliving a coordinator, without claiming OS orphan survival.
+  const provider = runObservedCommand(executable.command, ['--no-env-file', childPath], {
+    cwd: root, timeoutMs: remainingMs(), maxObservedOutputBytes: 4096,
+    onOutput: (stream, bytes) => {
+      if (stream === 'stdout') {
+        providerOutput += Buffer.from(bytes).toString('utf8');
+        if (providerOutput.includes('provider-started\n')) signalStarted();
+      } else providerStderr += Buffer.from(bytes).toString('utf8');
+    }
+  });
+  let providerSettled = false;
+  const waitFor = async (condition: () => boolean): Promise<void> => {
+    while (!condition()) {
+      if (performance.now() >= deadlineAtMs) throw new Error('Provider observation exhausted the canonical test budget');
+      await Bun.sleep(10);
+    }
   };
+  let hasPrimary = false;
+  let primary: unknown;
   try {
-    const first = await child('A');
-    const intermediate = await child('B');
-    expect(intermediate.recoveryOwner).toEqual(first.owner);
-    expect(intermediate.owner).not.toEqual(first.owner);
-    const final = await child('C');
-    expect(final.recoveryOwner).toEqual(first.owner);
-    expect(final.result).toBe('retired-invalid');
-    expect(existsSync(String(first.candidatePath))).toBe(false);
-    expect(existsSync(path.join(generation, 'materialization-lease.json'))).toBe(false);
+    const startup = await Promise.race([
+      started.then(() => ({ status: 'started' as const })),
+      provider.then(outcome => ({ status: 'ended' as const, outcome }))
+    ]);
+    expect(startup).toEqual({ status: 'started' });
+    let coordinatorStderr = '';
+    const coordinator = await runObservedCommand(executable.command, ['--no-env-file', '-e', `
+    import { acquirePhysicalMutationLease } from ${JSON.stringify(leaseUrl)};
+    import { inspectNoFollowDirectoryChain } from ${JSON.stringify(physicalUrl)};
+    const parent = inspectNoFollowDirectoryChain(${JSON.stringify(parent.path)}).target;
+    const lease = acquirePhysicalMutationLease(parent, ${JSON.stringify(leaseName)});
+    if (!lease) throw new Error('Fresh external lease was not admitted');
+    console.log(JSON.stringify(lease.owner));
+    process.exit(0);
+  `], { cwd: root, timeoutMs: remainingMs(), maxObservedOutputBytes: 4096,
+      onOutput: (stream, bytes) => { if (stream === 'stderr') coordinatorStderr += Buffer.from(bytes).toString('utf8'); } });
+    expect(coordinator).toMatchObject({ status: 'exited', exitCode: 0,
+      termination: { childCloseObserved: true, streamsDrained: true, treeClosed: true } });
+    expect(coordinatorStderr).toBe('');
+    const before = readFileSync(path.join(parent.path, leaseName));
+    await waitFor(() => existsSync(marker));
+    const first = readFileSync(marker, 'utf8');
+    await waitFor(() => readFileSync(marker, 'utf8') !== first);
+    let probes = 0;
+    expect(acquirePhysicalMutationLease(parent, leaseName, { now: () => Date.now() + 60000,
+      processAlive: () => { probes += 1; return 'dead'; }
+    })).toBeNull();
+    expect(probes).toBe(0);
+    expect(readFileSync(path.join(parent.path, leaseName))).toEqual(before);
+    expect(existsSync(candidate)).toBe(true);
+    expect(existsSync(marker)).toBe(true);
+  } catch (error) {
+    hasPrimary = true;
+    primary = error;
   } finally {
-    rmSync(root, { recursive: true, force: true });
+    const settlementFailures: unknown[] = [];
+    try { writeFileSync(stop, 'stop'); } catch (error) { settlementFailures.push(error); }
+    try {
+      const terminal = await provider;
+      providerSettled = terminal.termination.childCloseObserved &&
+        terminal.termination.streamsDrained && terminal.termination.treeClosed;
+      expect(terminal).toMatchObject({ status: 'exited', exitCode: 0,
+        termination: { childCloseObserved: true, streamsDrained: true, treeClosed: true } });
+      expect(providerStderr).toBe('');
+    } catch (settlement) {
+      settlementFailures.push(settlement);
+    }
+    if (providerSettled) {
+      try { executable.dispose(); } catch (error) { settlementFailures.push(error); }
+      try { rmSync(root, { recursive: true, force: true }); } catch (error) { settlementFailures.push(error); }
+    }
+    if (settlementFailures.length > 0) {
+      throw new AggregateError(hasPrimary ? [primary, ...settlementFailures] : settlementFailures,
+        'Provider fixture observation or settlement failed.', hasPrimary ? { cause: primary } : undefined);
+    }
   }
-}, 65_000);
+  if (hasPrimary) throw primary;
+}, DEFAULT_TEST_TIMEOUT_MS);
 
 test.skipIf(process.platform !== 'win32')('physical CAS recovers after native child exit at each durable transition', async () => {
   for (const [point, expected, status] of [
@@ -302,3 +393,138 @@ test.skipIf(process.platform !== 'win32')('physical CAS recovers after native ch
     }
   }
 }, 65_000);
+
+for (const action of ['release', 'acknowledgeReclaimedRecovery', 'restoreReclaimedOwner'] as const) {
+  test(`guarded ${action} identity failure closes native exclusion without deleting recovery bytes`, () => {
+    const { root, parent } = fixture();
+    const name = 'invocation.lease';
+    try {
+      abandonGuarded(parent, name);
+      const lease = acquireGuarded(parent, name)!;
+      if (action === 'release') lease.acknowledgeReclaimedRecovery();
+      const before = readFileSync(path.join(parent.path, name));
+      renameSync(path.join(parent.path, name), path.join(parent.path, 'retained-record'));
+      expect(() => lease[action]()).toThrow('ownership changed');
+      renameSync(path.join(parent.path, 'retained-record'), path.join(parent.path, name));
+      expect(readFileSync(path.join(parent.path, name))).toEqual(before);
+      const successor = acquireGuarded(parent, name);
+      expect(successor).not.toBeNull();
+      successor!.acknowledgeReclaimedRecovery();
+      successor!.release();
+      expect(() => lease.release()).not.toThrow();
+    } finally { rmSync(root, { recursive: true, force: true }); }
+  });
+}
+
+
+test('terminal journal resources do not exhaust the original physical census after 129 scoped attempts', async () => {
+  const { root, parent } = fixture();
+  const directory = path.join(parent.path, 'journals');
+  mkdirSync(directory);
+  const fs = createRuntimeStateJournalFileSystem(parent);
+  try {
+    await withWorkspaceWriteLease(parent.path, undefined, async token => {
+      for (let index = 0; index < 129; index += 1) {
+        const file = path.join(directory, `${index.toString(16).padStart(64, '0')}.json`);
+        const text = `terminal-${index}`;
+        const create = prepareRuntimeStateJournalMutation(fs, file, 'create-absent-data')!;
+        try {
+          await assertWorkspaceWriteLease(parent.path, token);
+          expect(create.run(() => fs.createExclusiveFsync(file, text))).toBe(true);
+        } finally { create.dispose(); }
+        const retire = prepareRuntimeStateJournalMutation(fs, file)!;
+        try {
+          await assertWorkspaceWriteLease(parent.path, token);
+          retire.retire(text);
+        } finally { retire.dispose(); }
+        expect(scanNoFollowDirectoryDirectMetadata(inspectNoFollowDirectoryChain(directory).target, {
+          deadlineAtMs: performance.now() + 1000, maximumEntries: 256
+        })).toEqual([]);
+        expect(() => retire.run(() => undefined)).toThrow('closed');
+      }
+    });
+  } finally { rmSync(root, { recursive: true, force: true }); }
+}, DEFAULT_TEST_TIMEOUT_MS);
+
+for (const point of ['after-retirement-fence', 'after-payload-removal', 'after-record-removal', 'after-anchor-removal'] as const) {
+  test(`journal child exit ${point} cannot reopen an unclosed original generation`, async () => {
+    const { root, parent } = fixture();
+    const file = path.join(parent.path, 'journal.json');
+    const sourceRoot = path.resolve(import.meta.dir, '../../src/adapters');
+    const url = (name: string) => pathToFileURL(path.join(sourceRoot, name)).href;
+    const script = path.join(root, 'retirement-child.ts');
+    writeFileSync(script, `
+      import { inspectNoFollowDirectoryChain } from ${JSON.stringify(url('runtime-state/physical/runtime/physical-no-follow.ts'))};
+      import { createRuntimeStateJournalFileSystem, prepareRuntimeStateJournalMutation } from ${JSON.stringify(url('runtime-state/workspace-state/journal-filesystem.ts'))};
+      import { createJournalRetirementInterruptionActorForTests } from ${JSON.stringify(url('runtime-state/physical/runtime/mutation-lease.ts'))};
+      import { withWorkspaceWriteLease, assertWorkspaceWriteLease } from ${JSON.stringify(url('filesystem/write-lease.ts'))};
+      await withWorkspaceWriteLease(${JSON.stringify(parent.path)}, undefined, async token => {
+        const fs = createRuntimeStateJournalFileSystem(inspectNoFollowDirectoryChain(${JSON.stringify(parent.path)}).target);
+        fs.createExclusiveFsync(${JSON.stringify(file)}, 'terminal');
+        const prepared = prepareRuntimeStateJournalMutation(fs, ${JSON.stringify(file)});
+        if (!prepared) throw new Error('No native retirement preparation');
+        await assertWorkspaceWriteLease(${JSON.stringify(parent.path)}, token);
+        prepared.retire('terminal', createJournalRetirementInterruptionActorForTests(${JSON.stringify(point)}, () => process.exit(73)));
+      });
+      throw new Error('Native retirement interruption was not reached');
+    `);
+    try {
+      const child = Bun.spawnSync([process.execPath, '--no-env-file', script], {
+        cwd: root, stdout: 'pipe', stderr: 'pipe'
+      });
+      expect({ code: child.exitCode, stderr: child.stderr.toString() }).toEqual({ code: 73, stderr: '' });
+      const names = readdirSync(parent.path).filter(name => name !== '.sec');
+      const before = names.map(name => readFileSync(path.join(parent.path, name)));
+      let entered = false;
+      await expect(withWorkspaceWriteLease(parent.path, undefined, async () => { entered = true; }))
+        .rejects.toThrow();
+      expect(entered).toBe(false);
+      expect(readdirSync(parent.path).filter(name => name !== '.sec')).toEqual(names);
+      for (let index = 0; index < names.length; index += 1) {
+        expect(readFileSync(path.join(parent.path, names[index]!))).toEqual(before[index]);
+      }
+      if (point === 'after-anchor-removal') expect(names).toEqual([]);
+      else expect(() => prepareRuntimeStateJournalMutation(createRuntimeStateJournalFileSystem(parent), file)).toThrow();
+    } finally { rmSync(root, { recursive: true, force: true }); }
+  }, 20000);
+}
+
+
+test('retired journal generation cannot be reopened by captured resource or writer tokens', async () => {
+  const { root, parent } = fixture();
+  const fs = createRuntimeStateJournalFileSystem(parent);
+  const file = path.join(parent.path, 'journal.json');
+  const lock = runtimeStateJournalMutationLeaseName(parent.path, file);
+  let oldResource: ReturnType<typeof readPhysicalJournalMutationResource>;
+  let oldToken: Parameters<typeof assertWorkspaceWriteLease>[1];
+  try {
+    await withWorkspaceWriteLease(parent.path, undefined, async token => {
+      oldToken = token;
+      fs.createExclusiveFsync(file, 'old terminal');
+      oldResource = readPhysicalJournalMutationResource(parent, lock, 'journal.json');
+      const retire = prepareRuntimeStateJournalMutation(fs, file)!;
+      try { await assertWorkspaceWriteLease(parent.path, token); retire.retire('old terminal'); }
+      finally { retire.dispose(); }
+    });
+    await expect(assertWorkspaceWriteLease(parent.path, oldToken!)).rejects.toThrow();
+    await withWorkspaceWriteLease(parent.path, undefined, async token => {
+      await assertWorkspaceWriteLease(parent.path, token);
+      fs.createExclusiveFsync(file, 'new generation');
+    });
+    expect(() => acquirePhysicalMutationLease(parent, lock, { journalResource: oldResource! })).toThrow();
+    expect(fs.readText(file)).toBe('new generation');
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test('cancelling prepared first creation releases exclusion and retains unresolved initialization', () => {
+  const { root, parent } = fixture();
+  try {
+    const fs = createRuntimeStateJournalFileSystem(parent);
+    const file = path.join(parent.path, 'cancelled.json');
+    const prepared = prepareRuntimeStateJournalMutation(fs, file, 'create-absent-data')!;
+    expect(() => prepared.dispose()).toThrow('initialization residue');
+    expect(() => prepared.dispose()).not.toThrow();
+    expect(() => prepareRuntimeStateJournalMutation(fs, file, 'create-absent-data')).toThrow('unresolved');
+    expect(existsSync(file)).toBe(false);
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});

@@ -6,11 +6,16 @@ import {
 } from '../architecture/contract.ts';
 import type { SourceProgramUnknown } from './contract.ts';
 import {
+  assertSourceProgramTestFindingDelta, compileSourceProgramTestFindingDelta,
+  sourceProgramTestFindingDeltaHasRegression, sourceProgramTestFindingDeltaIsUnresolved
+} from './reconciliation-findings.ts';
+import {
   compileSourceProgramArchitectureEvolutionReference,
   compileSourceProgramReconciliationProjection,
   type SourceProgramReconciliationProviderEvidence
 } from './reconciliation-projection.ts';
 import { compileVirtualRepositorySourceProgramCompilation } from './repository-compilation.ts';
+import { compileSourceProgramTestValue } from './test-value.ts';
 import { compileVirtualWorkspaceSourceSnapshot } from './workspace-source-snapshot.ts';
 
 type DescriptorFixture = Readonly<{
@@ -32,7 +37,7 @@ function compileFixture(
     contentDigest: rawSha256(source)
   }));
   const descriptorSources = descriptors.map(({ root, source }) => Object.freeze({
-    descriptorPath: `${root}/sec.module.json`,
+    descriptorPath: `${root}/module.json`,
     source: JSON.stringify({
       importGraph: 'runtime',
       externalEntrypoints: [],
@@ -981,4 +986,86 @@ test('pure declaration moves remain owned by one unchanged module responsibility
 
   expect(projection.status).toBe('resolved');
   expect(projection.changes).toContainEqual(expect.objectContaining({ kind: 'moved' }));
+});
+
+function compileTestFindingFixture(sources: Readonly<Record<string, string>>, descriptor: Readonly<Record<string, unknown>> = {}) {
+  const { compilation: sourceProgram } = compileFixture(sources, [{ root: 'src/example', source: descriptor }]);
+  const tests = compileSourceProgramTestValue({ repositoryRoot: 'C:/synthetic/repository',
+    files: sourceProgram.workspaceSnapshot.files, model: sourceProgram.model });
+  return { sourceProgram, tests };
+}
+
+const findingTestPath = 'src/example/behavior.test.ts';
+const findingProduction = "export function execute(input = 'ok') { return input; }\n";
+const findingTestHeader = "import { expect, test } from 'bun:test';\nimport { execute } from './operation.ts';\n";
+const findingBehaviorCase = "test('public result', () => expect(execute()).toBe('ok'));\n";
+
+test('test finding debt survives unrelated inventory additions but not relevant owner changes', () => {
+  const sources = { 'src/example/operation.ts': findingProduction,
+    [findingTestPath]: findingTestHeader + "test('old arity mirror', () => expect(execute.length).toBe(0));\n" };
+  const before = compileTestFindingFixture(sources);
+  expect(before.tests.findings.some(({ code }) => code === 'test-mirrors-imported-function-arity')).toBe(true);
+  const after = compileTestFindingFixture({ ...sources,
+    'src/example/added.test.ts': findingTestHeader + findingBehaviorCase,
+    'src/unrelated/constant.ts': 'export const unrelated = true;\n' });
+  const delta = compileSourceProgramTestFindingDelta(before, after,
+    ['src/example/added.test.ts', 'src/unrelated/constant.ts']);
+  assertSourceProgramTestFindingDelta(delta, after.tests.findings);
+  expect(delta.before.moduleMembershipDigest).not.toBe(delta.after.moduleMembershipDigest);
+  expect(delta.contextComparable).toBe(true);
+  expect(delta.scope.regressedPaths, JSON.stringify({ model: after.sourceProgram.model.unknowns, definitions: after.tests.definitionInputs, registrations: after.tests.records.map(({ path, unknowns }) => ({ path, unknowns })) })).toEqual([]);
+  expect(delta.counts.changed).toBe(0);
+  expect(delta.counts.introduced).toBe(0);
+  expect(delta.entries).toContainEqual(expect.objectContaining({ code: 'test-mirrors-imported-function-arity', status: 'persistent' }));
+  const changedOwner = compileTestFindingFixture(sources, { externalEntrypoints: ['src/example/operation.ts'] });
+  const ownerDelta = compileSourceProgramTestFindingDelta(before, changedOwner, ['src/example/module.json']);
+  expect(ownerDelta.entries).toContainEqual(expect.objectContaining({ code: 'test-mirrors-imported-function-arity', status: 'changed' }));
+  expect(sourceProgramTestFindingDeltaHasRegression(ownerDelta, changedOwner.tests.findings)).toBe(true);
+});
+
+test('new local unknown input cannot hide behind inherited shared uncertainty', () => {
+  const sources = { 'src/example/operation.ts': findingProduction,
+    [findingTestPath]: findingTestHeader + findingBehaviorCase };
+  const before = compileTestFindingFixture(sources);
+  const after = compileTestFindingFixture({ ...sources,
+    [findingTestPath]: sources[findingTestPath] + "test('external stimulus', async () => expect(execute(await Bun.file(process.env.CASE_INPUT!).text())).toBe('ok'));\n" });
+  const delta = compileSourceProgramTestFindingDelta(before, after, [findingTestPath]);
+  assertSourceProgramTestFindingDelta(delta, after.tests.findings);
+  expect(delta.before.sharedContextUnobserved).toBe(true);
+  expect(delta.before.localUnobservedInputs, JSON.stringify({ model: before.sourceProgram.model.unknowns, definitions: before.tests.definitionInputs, registrations: before.tests.records.map(({ path, unknowns }) => ({ path, unknowns })) })).toEqual([]);
+  expect(delta.after.localUnobservedInputs).toContainEqual(expect.objectContaining({ path: findingTestPath }));
+  expect(delta.scope.regressedPaths).toEqual([findingTestPath]);
+  expect(sourceProgramTestFindingDeltaIsUnresolved(delta)).toBe(true);
+  // Pure debt accounting only. The audit's authority consumer separately
+  // requires the actual qualified receipt covering every current occurrence.
+  expect(sourceProgramTestFindingDeltaIsUnresolved(delta, new Set([findingTestPath]))).toBe(false);
+  expect(before.tests.records).toHaveLength(1);
+  expect(after.tests.records).toHaveLength(2);
+  expect(after.tests.records[0]!.testId).toBe(before.tests.records[0]!.testId);
+});
+
+test('excluded shared input changes invalidate null-digest debt without reading values', () => {
+  const snapshot = compileTestFindingFixture({ 'src/example/operation.ts': findingProduction,
+    [findingTestPath]: findingTestHeader + findingBehaviorCase });
+  expect(snapshot.tests.definitionContext?.inputs).toContainEqual(expect.objectContaining({ path: '.env', contentDigest: null }));
+  const unrelated = compileSourceProgramTestFindingDelta(snapshot, snapshot, ['unrelated/resource.txt']);
+  expect(unrelated.changedSharedInputPaths).toEqual([]);
+  expect(sourceProgramTestFindingDeltaIsUnresolved(unrelated)).toBe(false);
+  const changed = compileSourceProgramTestFindingDelta(snapshot, snapshot, ['.env']);
+  assertSourceProgramTestFindingDelta(changed, snapshot.tests.findings);
+  expect(changed.changedSharedInputPaths).toEqual(['.env']);
+  expect(changed.contextComparable).toBe(false);
+  expect(changed.scope.regressedPaths).toEqual([findingTestPath]);
+  expect(sourceProgramTestFindingDeltaIsUnresolved(changed)).toBe(true);
+});
+
+test('explicit unknown-debt accounting never suppresses a new known Test Value violation', () => {
+  const sources = { 'src/example/operation.ts': findingProduction,
+    [findingTestPath]: findingTestHeader + findingBehaviorCase };
+  const before = compileTestFindingFixture(sources);
+  const after = compileTestFindingFixture({ ...sources,
+    [findingTestPath]: findingTestHeader + "test('public result', () => expect(execute.length).toBe(0));\n" });
+  const delta = compileSourceProgramTestFindingDelta(before, after, [findingTestPath]);
+  expect(delta.entries).toContainEqual(expect.objectContaining({ code: 'test-mirrors-imported-function-arity', status: 'introduced' }));
+  expect(sourceProgramTestFindingDeltaHasRegression(delta, after.tests.findings)).toBe(true);
 });

@@ -1,4 +1,4 @@
-import { compareCodeUnits, uniqueSorted } from '../../contracts/canonical.ts';
+import { canonicalEquals, compareCodeUnits, uniqueSorted } from '../../contracts/canonical.ts';
 import { PolicySpecSchema } from './source-schema.ts';
 import type {
   PolicyRule,
@@ -80,13 +80,18 @@ export function buildLoadedPolicyScope(
   };
 }
 
-/** Merge source scopes in precedence order: project declarations override official ones. */
+/** Equal definitions may share attribution; source order cannot change a policy. */
 export function mergeLoadedPolicyDeclarations(
   official: LoadedPolicyScope,
   project: LoadedPolicyScope
 ): LoadedPolicyDeclarations {
   const definitions = new Map<string, LoadedPolicyDefinition>();
   for (const definition of [...official.definitions, ...project.definitions]) {
+    const previous = definitions.get(definition.policy.id);
+    if (previous !== undefined && !canonicalEquals(previous.policy, definition.policy)) {
+      throw new Error(`Conflicting policy declarations for ${definition.policy.id}: `
+        + `${previous.sourceScope}:${previous.sourcePath} and ${definition.sourceScope}:${definition.sourcePath}`);
+    }
     definitions.set(definition.policy.id, definition);
   }
   const policies = [...definitions.values()]

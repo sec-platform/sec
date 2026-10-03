@@ -4,7 +4,7 @@ import {
   sha256
 } from '../../../contracts/canonical.ts';
 import type {
-  SourceProgramEntrypointAddress,
+  SourceProgramCandidateAnalysis, SourceProgramEntrypointAddress,
   SourceProgramModel,
   SourceProgramOperationIdentity,
   SourceProgramOperationProducerClosure,
@@ -82,7 +82,7 @@ function compileOperationProducerClosure(
 
   const owner = owners[0]!;
   const fileByPath = new Map(snapshot.files.map((file) => [file.path, file]));
-  const descriptorPath = `${owner.root}/sec.module.json`;
+  const descriptorPath = `${owner.root}/module.json`;
   const moduleExports = resolveSourceProgramTypeScriptModuleExport(
     typeScriptModel,
     owner.externalEntrypoints,
@@ -209,7 +209,7 @@ function compileOperationProducerClosure(
 
 /** Compile the exact descriptor entrypoint and its reachable file graph for one operation. */
 export function compileSourceProgramOperationProducerClosure(
-  compilation: RepositorySourceProgramCompilationReceipt,
+  compilation: RepositorySourceProgramCompilationReceipt<SourceProgramCandidateAnalysis>,
   operation: SourceProgramOperationIdentity
 ): SourceProgramOperationProducerClosure {
   assertRepositorySourceProgramCompilationReceipt(compilation);

@@ -21,7 +21,7 @@ export const VERIFICATION_SESSION_SCHEMA = 'sec-verification-session-v2' as cons
 export const VERIFICATION_SESSION_RUNTIME_ENTRYPOINT_PATH =
   'src/adapters/verification/platform/ci/runtime/verification-session-runtime.ts' as const;
 export const SEC_VERIFICATION_SESSION_IMPLEMENTATION_IDENTITY =
-  'src/adapters/verification/platform/ci/runtime/verification-session.ts' as const;
+  "src/bootstrap/development/closeout/verification-session-cli.ts" as const;
 
 type VerificationManifestSource = 'default' | 'open-pr';
 

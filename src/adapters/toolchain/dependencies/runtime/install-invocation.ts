@@ -1,6 +1,6 @@
 import { SecError } from '../../../../contracts/failure.ts';
-import type { RuntimeDependencyInstallRequest } from '../contract/install-request.ts';
-import { isRuntimeDependencyInstallMode } from '../contract/install-request.ts';
+import type { RuntimeDependencyInstallRequest } from '../../../../execution/dependency-install-request.ts';
+import { isRuntimeDependencyInstallMode } from '../../../../execution/dependency-install-request.ts';
 import { assertRuntimeDependencyTestMaterialization } from './materialization-fixture-capability.ts';
 import type { RuntimeDependencyEffectFenceInput, RuntimeDependencyFaultInjectionInput } from './operation-context.ts';
 import { captureRuntimeDependencyBindingGuard, runtimeDependencyOperationControls } from './operation-controls.ts';

@@ -6,7 +6,7 @@ import { parse as parseYaml } from 'yaml';
 import { SEC_LINUX_VERIFICATION_ENVIRONMENT_AUTHORITY } from '../../../providers/linux-verification/contract.ts';
 import { SEC_WINDOWS_CONTROL_CLI_ENVIRONMENT_AUTHORITY, SEC_WINDOWS_CONTROL_CLI_ENVIRONMENT_SPEC_PATH, SEC_WINDOWS_CONTROL_CLI_ROOT_CLOSURE_REASON, SEC_WINDOWS_CONTROL_CLI_SESSION_SURFACE, parseSecWindowsControlCliEnvironmentAuthority, type WindowsControlCliEnvironmentSpec } from '../../../providers/windows-control-cli/contract/environment.ts';
 import { inspectNoFollowDirectoryChain, inspectNoFollowOrdinaryFileEntry, scanNoFollowDirectoryTreeMetadata } from '../../../runtime-state/physical/runtime/physical-no-follow.ts';
-import { VERIFICATION_PROVIDER_LEDGER_PATH, parseVerificationProviderCapabilityLedger, type VerificationProviderCapabilityLedgerProjection } from './capability-ledger.ts';
+import { EXTERNAL_CAPABILITY_LEDGER_PATH, parseExternalCapabilityLedger, type ExternalCapabilityLedgerProjection } from './capability-ledger.ts';
 
 export interface CapabilityLedgerIssue {
   readonly level: 'error';
@@ -280,203 +280,31 @@ function validateForbiddenAuthority(provider: Record<string, unknown>, label: st
   }
 }
 
-async function validateVersionAuthority(
+function validateLinuxVerificationProviderClosure(
   provider: Record<string, unknown>,
   providerId: string
-): Promise<void> {
+): void {
   const label = `External capability provider ${providerId}`;
-  const requiresWorkflowRunnerReleaseAuthority = provider.capability === 'workflow-execution'
-    || provider.activeRoutingProfile === 'sec-linux-verification-v1';
-  if (provider.versionAuthority === null) {
-    if (requiresWorkflowRunnerReleaseAuthority) {
-      throw new Error(
-        `${label}.versionAuthority must use external-release for the workflow-execution capability.`
-      );
-    }
-    if (provider.observedVersion !== null) {
-      throw new Error(`${label}.observedVersion must be null when versionAuthority is null.`);
-    }
-    return;
+  const environment = SEC_LINUX_VERIFICATION_ENVIRONMENT_AUTHORITY;
+  if (providerId !== 'github-actions-local-runner'
+      || provider.category !== 'workflow-runtime'
+      || provider.capability !== 'workflow-execution'
+      || provider.decision !== 'integrate-adapter'
+      || provider.lifecycle !== 'active'
+      || provider.activeRoutingProfile !== environment.environmentId) {
+    throw new Error(`${label} workflow-execution provider closure is invalid.`);
   }
-
-  const authority = recordValue(provider.versionAuthority, `${label}.versionAuthority`);
-  if (requiresWorkflowRunnerReleaseAuthority && authority.kind !== 'external-release') {
-    throw new Error(
-      `${label}.versionAuthority.kind must be external-release for the workflow-execution capability.`
-    );
+  const surfaces = recordValue(provider.surfaces, `${label}.surfaces`);
+  if (JSON.stringify(uniqueCanonicalSurfaceIds(surfaces.cli, `${label}.surfaces.cli`))
+        !== JSON.stringify([
+          'src/adapters/verification/platform/ci/runtime/local-github-actions-runner.ts'
+        ])
+      || JSON.stringify(uniqueCanonicalSurfaceIds(
+        surfaces.standingMcp,
+        `${label}.surfaces.standingMcp`
+      )) !== JSON.stringify([])) {
+    throw new Error(`${label} workflow-execution provider surfaces are invalid.`);
   }
-  if (authority.kind === 'external-release') {
-    exactKeys(
-      authority,
-      [
-        'kind', 'release', 'artifact', 'artifactSha256', 'baseImage', 'imageId',
-        'imageBuildRevision', 'nodeVersion', 'nodeArtifact', 'nodeArtifactSha256',
-        'githubCliVersion', 'githubCliArtifact', 'githubCliArtifactSha256',
-        'pythonVersion', 'zipExtractionCapability', 'containerInitCapability', 'sandboxRevision',
-        'outerSutContainerCapabilities', 'sutResources',
-        'roleProfiles',
-        'destructiveIdentityAuthority', 'imageRetirement', 'license'
-      ],
-      `${label}.versionAuthority`
-    );
-    const observedVersion = provider.observedVersion;
-    if (typeof observedVersion !== 'string'
-        || !/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/u.test(observedVersion)) {
-      throw new Error(`${label}.observedVersion must be an exact semantic version.`);
-    }
-    const environment = SEC_LINUX_VERIFICATION_ENVIRONMENT_AUTHORITY;
-    if (observedVersion !== environment.archives.runner.version
-        || authority.release !== `https://github.com/actions/runner/releases/tag/v${observedVersion}`
-        || authority.artifact !== environment.archives.runner.url) {
-      throw new Error(`${label}.versionAuthority GitHub Actions runner release identity is invalid.`);
-    }
-    if (authority.artifactSha256
-        !== environment.archives.runner.digest.slice(7)) {
-      throw new Error(`${label}.versionAuthority.artifactSha256 must be an exact SHA-256 digest.`);
-    }
-    if (authority.baseImage
-        !== environment.ubuntu.baseReference) {
-      throw new Error(`${label}.versionAuthority.baseImage must be an exact Ubuntu image digest.`);
-    }
-    if (authority.imageId
-        !== environment.image.dockerProjectionDigest) {
-      throw new Error(`${label}.versionAuthority.imageId must be an exact built image digest.`);
-    }
-    if (authority.imageBuildRevision !== environment.image.buildRevision) {
-      throw new Error(`${label}.versionAuthority.imageBuildRevision must bind the image recipe revision.`);
-    }
-    if (authority.nodeVersion !== environment.archives.node.version) {
-      throw new Error(`${label}.versionAuthority.nodeVersion must bind the observed shell Node runtime.`);
-    }
-    if (authority.nodeArtifact !== environment.archives.node.url) {
-      throw new Error(`${label}.versionAuthority.nodeArtifact must bind the official Node.js binary.`);
-    }
-    if (authority.nodeArtifactSha256
-        !== environment.archives.node.digest.slice(7)) {
-      throw new Error(`${label}.versionAuthority.nodeArtifactSha256 must bind the exact Node.js binary.`);
-    }
-    if (authority.githubCliVersion !== environment.archives.githubCli.version
-        || authority.githubCliArtifact !== environment.archives.githubCli.url
-        || authority.githubCliArtifactSha256
-          !== environment.archives.githubCli.digest.slice(7)) {
-      throw new Error(`${label}.versionAuthority GitHub CLI identity is invalid.`);
-    }
-    if (authority.pythonVersion !== environment.runtime.pythonVersion) {
-      throw new Error(`${label}.versionAuthority.pythonVersion must bind the archive-inspection runtime.`);
-    }
-    if (authority.zipExtractionCapability !== 'info-zip-unzip-6.00') {
-      throw new Error(`${label}.versionAuthority.zipExtractionCapability must bind setup archive extraction.`);
-    }
-    if (authority.containerInitCapability !== environment.runtime.containerInitCapability) {
-      throw new Error(`${label}.versionAuthority.containerInitCapability must bind persistent child reaping.`);
-    }
-    if (authority.sandboxRevision !== 'sandbox-v4') {
-      throw new Error(`${label}.versionAuthority.sandboxRevision must bind the exact SUT sandbox.`);
-    }
-    const sutCapabilities = uniqueStrings(
-      authority.outerSutContainerCapabilities,
-      `${label}.versionAuthority.outerSutContainerCapabilities`
-    );
-    const expectedSutCapabilities = [
-      'CHOWN', 'SETGID', 'SETPCAP', 'SETUID', 'SYS_ADMIN', 'SYS_CHROOT'
-    ];
-    if (sutCapabilities.length !== expectedSutCapabilities.length ||
-        sutCapabilities.some((capability, index) => capability !== expectedSutCapabilities[index])) {
-      throw new Error(
-        `${label}.versionAuthority.outerSutContainerCapabilities must bind the exact constructor boundary.`
-      );
-    }
-    const sutResources = authority.sutResources;
-    if (sutResources === null || typeof sutResources !== 'object' || Array.isArray(sutResources)) {
-      throw new Error(`${label}.versionAuthority.sutResources must be one exact resource object.`);
-    }
-    exactKeys(sutResources as Record<string, unknown>, [
-      'cpus', 'wallSeconds', 'aggregateCpuSeconds', 'perProcessCpuSeconds', 'memoryBytes', 'pids'
-    ],
-      `${label}.versionAuthority.sutResources`);
-    if ((sutResources as Record<string, unknown>).cpus !== environment.runtime.resources.sut.cpus ||
-        (sutResources as Record<string, unknown>).wallSeconds !== 3_600 ||
-        (sutResources as Record<string, unknown>).aggregateCpuSeconds !== 7_200 ||
-        (sutResources as Record<string, unknown>).perProcessCpuSeconds !== 7_200 ||
-        (sutResources as Record<string, unknown>).memoryBytes
-          !== environment.runtime.resources.sut.memoryGiB * 1024 * 1024 * 1024 ||
-        (sutResources as Record<string, unknown>).pids !== environment.runtime.resources.sut.pids) {
-      throw new Error(`${label}.versionAuthority.sutResources must bind the exact cgroup limits.`);
-    }
-    const roleProfiles = uniqueStrings(authority.roleProfiles, `${label}.versionAuthority.roleProfiles`);
-    const expectedRoles = Object.values(environment.runtime.roleLabels).sort();
-    if (roleProfiles.length !== expectedRoles.length
-        || roleProfiles.some((role, index) => role !== expectedRoles[index])) {
-      throw new Error(`${label}.versionAuthority.roleProfiles must bind the exact trust-domain roles.`);
-    }
-    const destructiveIdentity = recordValue(
-      authority.destructiveIdentityAuthority,
-      `${label}.versionAuthority.destructiveIdentityAuthority`
-    );
-    exactKeys(destructiveIdentity, [
-      'endpointBinding', 'immutableEffects', 'mutableLocators'
-    ], `${label}.versionAuthority.destructiveIdentityAuthority`);
-    const expectedEndpointBinding = [
-      'github-api-host-principal-repository', 'docker-context-endpoint-daemon'
-    ];
-    const expectedImmutableEffects = ['exact-image-id', 'exact-container-id', 'exact-runner-id'];
-    const expectedMutableLocators = ['image-tag', 'container-name', 'runner-name', 'labels'];
-    if (JSON.stringify(uniqueStrings(
-      destructiveIdentity.endpointBinding,
-      `${label}.versionAuthority.destructiveIdentityAuthority.endpointBinding`
-    )) !== JSON.stringify(expectedEndpointBinding)
-        || JSON.stringify(uniqueStrings(
-          destructiveIdentity.immutableEffects,
-          `${label}.versionAuthority.destructiveIdentityAuthority.immutableEffects`
-        )) !== JSON.stringify(expectedImmutableEffects)
-        || JSON.stringify(uniqueStrings(
-          destructiveIdentity.mutableLocators,
-          `${label}.versionAuthority.destructiveIdentityAuthority.mutableLocators`
-        )) !== JSON.stringify(expectedMutableLocators)) {
-      throw new Error(`${label}.versionAuthority destructive identity authority is invalid.`);
-    }
-    const imageRetirement = recordValue(
-      authority.imageRetirement,
-      `${label}.versionAuthority.imageRetirement`
-    );
-    exactKeys(imageRetirement, ['ordinaryStopAuthority', 'superseded', 'requires'],
-      `${label}.versionAuthority.imageRetirement`);
-    const superseded = imageRetirement.superseded;
-    const expectedSuperseded = environment.image.retirements;
-    if (!Array.isArray(superseded) || superseded.length !== expectedSuperseded.length) {
-      throw new Error(
-        `${label}.versionAuthority.imageRetirement.superseded must bind the canonical decisions.`
-      );
-    }
-    for (const [index, entry] of superseded.entries()) {
-      const decision = recordValue(entry, `${label}.versionAuthority.imageRetirement.superseded[${index}]`);
-      exactKeys(decision, ['imageId', 'imageTag', 'replacementImageId', 'decision'],
-        `${label}.versionAuthority.imageRetirement.superseded[${index}]`);
-      if (Object.entries(expectedSuperseded[index]!).some(([key, expected]) =>
-        decision[key] !== expected)) {
-        throw new Error(`${label}.versionAuthority.imageRetirement superseded decision is invalid.`);
-      }
-    }
-    const expectedRetirementRequirements = [
-      'canonical-superseded-decision',
-      'exact-daemon-zero-reference-readback',
-      'immutable-image-id-effect-and-readback'
-    ];
-    if (imageRetirement.ordinaryStopAuthority !== 'none'
-        || JSON.stringify(uniqueStrings(
-          imageRetirement.requires,
-          `${label}.versionAuthority.imageRetirement.requires`
-        )) !== JSON.stringify(expectedRetirementRequirements)) {
-      throw new Error(`${label}.versionAuthority image retirement authority is invalid.`);
-    }
-    if (authority.license !== 'MIT') {
-      throw new Error(`${label}.versionAuthority.license must be MIT.`);
-    }
-    return;
-  }
-  throw new Error(
-    `${label}.versionAuthority.kind must be external-release or versionAuthority must be null.`
-  );
 }
 
 async function validateWindowsControlCliProviderClosure(
@@ -574,14 +402,14 @@ function validateExecutionTopology(value: unknown): void {
 }
 
 async function validateExternalCapabilityLedger(
-  projection: VerificationProviderCapabilityLedgerProjection,
+  projection: ExternalCapabilityLedgerProjection,
   repositoryRoot: string
 ): Promise<void> {
   const parsed = projection.document;
   exactKeys(
     parsed,
     [
-      'schema', 'status', 'binding', 'policy', 'verification', 'executionTopology',
+      'schema', 'status', 'binding', 'policy', 'executionTopology',
       'providers', 'invariants'
     ],
     'External capability ledger'
@@ -652,7 +480,6 @@ async function validateExternalCapabilityLedger(
     } else if (lifecycle === 'revalidation-required') {
       stateOptionalKeys.push('unresolved');
     }
-    const hostCommandExecution = capability === 'host-command-execution';
     exactKeys(
       provider,
       [
@@ -661,7 +488,6 @@ async function validateExternalCapabilityLedger(
         'capability',
         'decision',
         'lifecycle',
-        ...(hostCommandExecution ? [] : ['observedVersion', 'versionAuthority']),
         'activeRoutingProfile',
         'surfaces',
         'forbiddenAuthority',
@@ -699,11 +525,10 @@ async function validateExternalCapabilityLedger(
     }
     if (capability === 'host-command-execution') {
       await validateWindowsControlCliProviderClosure(provider, providerId, repositoryRoot);
+    } else if (capability === 'workflow-execution') {
+      validateLinuxVerificationProviderClosure(provider, providerId);
     }
     validateForbiddenAuthority(provider, label);
-    if (!hostCommandExecution) {
-      await validateVersionAuthority(provider, providerId);
-    }
 
     if (activeRoutingProfile !== null) {
       if (
@@ -840,13 +665,13 @@ export async function scanMachineLedgers(
   issues: CapabilityLedgerIssue[]
 ): Promise<void> {
   try {
-    const projection = parseVerificationProviderCapabilityLedger(
-      await fs.readFile(path.join(repositoryRoot, VERIFICATION_PROVIDER_LEDGER_PATH), 'utf8')
+    const projection = parseExternalCapabilityLedger(
+      await fs.readFile(path.join(repositoryRoot, EXTERNAL_CAPABILITY_LEDGER_PATH), 'utf8')
     );
     await validateExternalCapabilityLedger(projection, repositoryRoot);
   } catch (error) {
     issues.push({
-      level: 'error', code: 'machine-ledger-invalid', file: VERIFICATION_PROVIDER_LEDGER_PATH,
+      level: 'error', code: 'machine-ledger-invalid', file: EXTERNAL_CAPABILITY_LEDGER_PATH,
       message: error instanceof Error ? error.message : String(error)
     });
   }

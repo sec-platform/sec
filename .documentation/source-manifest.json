@@ -1,11 +1,11 @@
 {
   "schema": "sec.documentation-source-manifest/2",
-  "source_set_sha256": "7dc8d0f16ee5078d6bdbf699275bea6362085ff395514a596ea6c5e159b49b2c",
+  "source_set_sha256": "2c83104db7a13d2b01e1fa97a9e4b8fe5e073708c3d52fceeaf059ad7500329e",
   "members": [
     {
       "path": ".documentation/README.md",
-      "bytes": 3309,
-      "sha256": "051513c7e23d037b8b35f4f3254665025ab4e1f562d38e66634cd54dcc0602a5"
+      "bytes": 3582,
+      "sha256": "bccc4891826c82f6175b6c9afb8961b46b631d314bf09952cd111361a358d3a2"
     },
     {
       "path": ".documentation/baseline.json",
@@ -14,8 +14,8 @@
     },
     {
       "path": ".documentation/documents.json",
-      "bytes": 37783,
-      "sha256": "5572a9cd625a84bbb070656be8df5383e56f6c0a33b2f5e177611f7bd5eda218"
+      "bytes": 42374,
+      "sha256": "d4cf657722110d23d878795a3ad65a0e15b68179fcf15164381635575362739c"
     },
     {
       "path": ".documentation/known-regressions.json",
@@ -24,13 +24,13 @@
     },
     {
       "path": "AGENTS.md",
-      "bytes": 7215,
-      "sha256": "31a245a69ab31caf19bae19bc700c0c2020778078ade6d29306b378c5be78933"
+      "bytes": 7766,
+      "sha256": "064f99684e63b8cb321adef5b14f81d785ad704884be40012f77cf33690665f2"
     },
     {
       "path": "ARCHITECTURE.md",
-      "bytes": 6641,
-      "sha256": "bcf3068f133e95b0084025b246fa17382750d769fad6dd779a469c8d8bf43238"
+      "bytes": 6734,
+      "sha256": "09573744ccdef83f8f427a43c45d7ce2498cf11a2f0c41524373de5f02089282"
     },
     {
       "path": "AUTHORS.md",
@@ -74,8 +74,8 @@
     },
     {
       "path": "PROJECT_STATUS.md",
-      "bytes": 5924,
-      "sha256": "a805d18d291c510ca5fe1f25328cf2d609c365b7fc32b3ebb2af7996d8fc6c45"
+      "bytes": 5936,
+      "sha256": "eb4e0cb503632364f88be97893f7badd485611c7ac09601ce9bf920e448fcba5"
     },
     {
       "path": "README.md",
@@ -159,8 +159,8 @@
     },
     {
       "path": "docs/README.md",
-      "bytes": 2301,
-      "sha256": "30d68758613333473c2417b6d4525b781e0df506b74c8344433dfc37fe81988c"
+      "bytes": 5475,
+      "sha256": "939eb63e0504d80c17139130ad90f9d6f5c523acaeb8fdfaae2b21bfc97b28d2"
     },
     {
       "path": "docs/产品/README.md",
@@ -169,18 +169,18 @@
     },
     {
       "path": "docs/产品/产品要求与工作约束.md",
-      "bytes": 36472,
-      "sha256": "a0a0f9a35ad3e4544eb5ee66a0af62520bb30c10bc12c492f854dd368ea72380"
+      "bytes": 36714,
+      "sha256": "e997c2e68c6ff005420da45043b321d7c0e202548ec46d251b05e3195bb086a2"
     },
     {
       "path": "docs/产品/全体系能力与边界.md",
-      "bytes": 21502,
-      "sha256": "817b1b53ba14f82e958f6b4b36c33df8c482a00bf267f84a2a79698cadfa9482"
+      "bytes": 21763,
+      "sha256": "8de9206ee9f97f03bc0d701560eee09b9b410c5919c0d3e6223aea4bde9396a2"
     },
     {
       "path": "docs/产品/原则总纲与归属.md",
-      "bytes": 21434,
-      "sha256": "99630331f65cf5a47d0085a1547d0ffd33fbc660e7b153d4bbf713a1dab7751b"
+      "bytes": 21655,
+      "sha256": "07e6625a1f925c3079744e54cec7802e1d87425045941071399c46af6bd1f3b8"
     },
     {
       "path": "docs/产品/术语与质量属性.md",
@@ -189,13 +189,13 @@
     },
     {
       "path": "docs/任务路线.md",
-      "bytes": 10379,
-      "sha256": "b4a76ceb294d1752e1ccf38e8384ca8924758b3f17aa2dddde862a018ae85922"
+      "bytes": 12368,
+      "sha256": "2c1021afc40c8b4b03c16190f6c39ee6b754f4feb64579f4aaa49ffa9340bf30"
     },
     {
       "path": "docs/作者/README.md",
-      "bytes": 2418,
-      "sha256": "e5f0291a8325484230ac74539aad1e21b7437c8a03872ca41a61dc3b346f82bf"
+      "bytes": 3411,
+      "sha256": "707da936646b51f7f74aa4bca8674c6e26813c5637318e8408e2a5d99fa46edc"
     },
     {
       "path": "docs/作者/共同语义关系.md",
@@ -204,8 +204,8 @@
     },
     {
       "path": "docs/作者/可替换表示与适用范围.md",
-      "bytes": 40273,
-      "sha256": "36885f7867c3bdbc44c4b11954dea3b9e2887724a2fcbebe74bf1e15e7823e93"
+      "bytes": 42104,
+      "sha256": "81e317659cc34a04f9d18a9f7004838278dcf2de4de8771f44700b7c49e4983b"
     },
     {
       "path": "docs/作者/工程源/README.md",
@@ -219,8 +219,8 @@
     },
     {
       "path": "docs/作者/工程源/资产与非源码.md",
-      "bytes": 40990,
-      "sha256": "fd2bca2720aa93000c0d645229cbbd5a68c853a8a2d4a2978c2c538df4016a8e"
+      "bytes": 44187,
+      "sha256": "9e3fb7f3f6a593fb005272ea59415da1e8f577f43f393b7eeb4918007e69495b"
     },
     {
       "path": "docs/作者/工程源/身份断言与采纳.md",
@@ -264,8 +264,8 @@
     },
     {
       "path": "docs/作者/成品/工作台交互与共同状态.md",
-      "bytes": 7952,
-      "sha256": "70a56332a7c2fd6b78379fd6ed6f19589078d7e1a4d684a590042cd46847dabb"
+      "bytes": 29562,
+      "sha256": "546d687941c12d7fba7a3e2d8e46d5b90dcb519509f19bb4aa4285c11f952c27"
     },
     {
       "path": "docs/作者/成品/工作器组件与插件.md",
@@ -324,8 +324,8 @@
     },
     {
       "path": "docs/作者/组合/README.md",
-      "bytes": 1630,
-      "sha256": "7c503b6e01a7b1730c3bfe197105be51a962b3be2133ae9583ac8d813ae4b13e"
+      "bytes": 1661,
+      "sha256": "14c8e2caa0c7a6924a8638517462b09045045d6428086697e51b4d65fe4fc192"
     },
     {
       "path": "docs/作者/组合/参数包与类型级值.md",
@@ -344,18 +344,18 @@
     },
     {
       "path": "docs/作者/组合/模块封装与复用库.md",
-      "bytes": 71154,
-      "sha256": "cd897bbb48c452e639e22e55af61a3f3d004021746e1d1a96d726655df3000de"
+      "bytes": 74913,
+      "sha256": "aa30166faaf5492cad158c1b56ede056b702d578f8b5b4aa7e9c8e8f9ce0ba5a"
     },
     {
       "path": "docs/作者/组合/稀疏控制与目标限定.md",
-      "bytes": 27443,
-      "sha256": "c101c1444a21d048d5deb8280bfb2355dd95d8b84da75cf26b05b5cbfd1d2f7a"
+      "bytes": 35276,
+      "sha256": "65430bc597f5654c0546db13a6c91e1b98f1a51d7cb68d50591b9f73edc2278f"
     },
     {
       "path": "docs/作者/组合/结构编辑与身份保持.md",
-      "bytes": 90701,
-      "sha256": "ea3375272c3e53b1db3cae209c844b4b2992ffe1ca6b8c55222cde2b701d2390"
+      "bytes": 91714,
+      "sha256": "29776c3b47c175642e3baabb9830ed9a1f1c52f9aba3cd4976e2c0577343fa66"
     },
     {
       "path": "docs/作者/组合/访问投影与不完整类型.md",
@@ -364,8 +364,8 @@
     },
     {
       "path": "docs/作者/组合/语义扩展与领域接合.md",
-      "bytes": 38116,
-      "sha256": "1272e7232a89ff7ef6cc21d30118cff340113912cedc5cf6307ba7335b424cca"
+      "bytes": 40038,
+      "sha256": "21281d20ab93e67fc0dc74bcc907ae5ae4b0e00f09957ebdf12393480827bd12"
     },
     {
       "path": "docs/作者/组合/跨软件需求合同.md",
@@ -374,13 +374,13 @@
     },
     {
       "path": "docs/作者/结构化源码.md",
-      "bytes": 33817,
-      "sha256": "46539481fe264751d564d8c3380de6f8e0ab14e82009a5aee656cf8ca607ca76"
+      "bytes": 39570,
+      "sha256": "68fb436c6ac58375a3ec0924e1e0bc9ed3b601e7bf2b84edc73437f24a4b4225"
     },
     {
       "path": "docs/作者/需求关系与能力边界.md",
-      "bytes": 41458,
-      "sha256": "444da6cbfbf2db7f505e117839bc0a241d7d5ad2ca7fef536b60b30d8f703aa7"
+      "bytes": 71949,
+      "sha256": "8eafc9409366f3f9761880d6e1c35a1a282d921713b91f71636e7a09b216939d"
     },
     {
       "path": "docs/作者/需求含义与实现责任.md",
@@ -399,8 +399,8 @@
     },
     {
       "path": "docs/依据/来源/README.md",
-      "bytes": 2581,
-      "sha256": "a86422f2d428fb3d86dc4d6768da32d32771f04e82f68cd9755536cac592bb39"
+      "bytes": 2688,
+      "sha256": "6c53a9ffa015f2e7672566bb61551e50574f0daf3f4fd56e6b0925ad51b46711"
     },
     {
       "path": "docs/依据/来源/Rust与C++映射依据.md",
@@ -411,6 +411,11 @@
       "path": "docs/依据/来源/Rust与C++能力比较.md",
       "bytes": 140358,
       "sha256": "a8aa93eaea8c9024ae1c1b881cf112205ea0c0b3badcae770063c118f3f7221e"
+    },
+    {
+      "path": "docs/依据/来源/全域组合与仿真依据.md",
+      "bytes": 8227,
+      "sha256": "49d1b707996a153d519335e98366af122d16d2e273df8d3c9ef409f8afe3b833"
     },
     {
       "path": "docs/依据/来源/原生工程固定源码.md",
@@ -429,13 +434,13 @@
     },
     {
       "path": "docs/依据/来源/工作台与替代路线.md",
-      "bytes": 29847,
-      "sha256": "f7c6eaca4488ecc45fb4148f6353492cf5698d1f6d2515a3229b8feca6e2df7a"
+      "bytes": 33644,
+      "sha256": "6ef5bcf0695d37a465a8da334357f8dd586fc9050c5f4bfb148146c83ccd7b0e"
     },
     {
       "path": "docs/依据/来源/工程信息组织依据.md",
-      "bytes": 37042,
-      "sha256": "f1c59a765760d8a640efbbea1afc7f3f1b9c2c84a175c5fa616c704561b0e4d1"
+      "bytes": 39455,
+      "sha256": "9f9422dcb6a8d20132fe90577996a6060b93c3a2717369f950384865bb5f2dd2"
     },
     {
       "path": "docs/依据/来源/工程文档规模会话核对.md",
@@ -444,8 +449,8 @@
     },
     {
       "path": "docs/依据/来源/构建分发与迁移.md",
-      "bytes": 22962,
-      "sha256": "70a6b3acc6b0b33c06b96de0e0710eb6a65885b51e2f553a58a35dc6712b8049"
+      "bytes": 30834,
+      "sha256": "7734a091bf45dbb0b5e9170b0680e618f846f8ac07814fd4bb009c324674fba4"
     },
     {
       "path": "docs/依据/来源/状态规则与约束.md",
@@ -464,8 +469,8 @@
     },
     {
       "path": "docs/依据/来源/计算布局与数值.md",
-      "bytes": 4603,
-      "sha256": "ee79f92066ffdb728bf098bcacf2148b9d0bb10d8f0c723729c1c3042757cfd1"
+      "bytes": 17939,
+      "sha256": "e0c2ece28969e085ad5827c4fb5c617b035bb77fce1b261db8a4608b10c3c4d1"
     },
     {
       "path": "docs/依据/来源/设计依据与资料边界.md",
@@ -479,8 +484,8 @@
     },
     {
       "path": "docs/依据/来源/语言编译与目标工具.md",
-      "bytes": 120806,
-      "sha256": "3c8ab483879e60c5599af709d2ea1bf5c48098405477bbf39f817c2594aaec95"
+      "bytes": 126190,
+      "sha256": "6605c76aa282db535b60d0cd9f25aeaeda174361b4a81af2ce85392a15ab138e"
     },
     {
       "path": "docs/依据/来源/需求文档与协作.md",
@@ -534,18 +539,18 @@
     },
     {
       "path": "docs/信息/存储保留与恢复.md",
-      "bytes": 17038,
-      "sha256": "59faf2273e053bbdf72e41c06e5870e81ad1326c914ad2c897504f12d1f338e7"
+      "bytes": 18193,
+      "sha256": "00233b9810bdf3abc835ebb735799245d0e81a73b3fcef017c014cfe5f734c7a"
     },
     {
       "path": "docs/信息/对象关系与配置基线.md",
-      "bytes": 20403,
-      "sha256": "b4c7e0eddca70931b4d701957a0763a75be6625fc1b3be91c7976e6ceef0dd68"
+      "bytes": 24595,
+      "sha256": "c29b805468a3ab12642e4137fa86d0c83f2d14b203ae9ffc91a083524cc38985"
     },
     {
       "path": "docs/信息/接入检索与派生.md",
-      "bytes": 29453,
-      "sha256": "eb592f29b8d505cfc3055c371f0de2f431859f156102a324c625eaa82156e4df"
+      "bytes": 30871,
+      "sha256": "e581785af84ba3deae05ada12584ff6fa850de4a1f4bb2227717ff38ace7461d"
     },
     {
       "path": "docs/内容索引.md",
@@ -559,18 +564,18 @@
     },
     {
       "path": "docs/决策/设计理由-交互与生成.md",
-      "bytes": 46853,
-      "sha256": "c5ffcfd2a679c74bde8c0fb24eb4d70ed008d9ac26ae37b1c586aebf261e4d0f"
+      "bytes": 51147,
+      "sha256": "75bf202e2dde5dee5be0e69e4b670fa7267e445010931ac91fd824cd841e3014"
     },
     {
       "path": "docs/决策/设计理由-目标与核心.md",
-      "bytes": 86763,
-      "sha256": "9e98e92a7ad9898b14a30dd9f9569cda8d2a9b6054f54cca178fcc1ee8fc1a3a"
+      "bytes": 89120,
+      "sha256": "8327f9f63f4549802ac57ab302b2c09cf360c1bb96952bad48df528a06b73da6"
     },
     {
       "path": "docs/决策/设计理由-约束与演进.md",
-      "bytes": 49924,
-      "sha256": "36c895e53d4487a6eb55b5a5c9651853253d5f4e30b5d9ca9f6a9cfa38b8b624"
+      "bytes": 53703,
+      "sha256": "290fe5335efac94322e6922f8027b38945b61fcacedf97b69c917be816eeb467"
     },
     {
       "path": "docs/开发/AI协作/README.md",
@@ -579,8 +584,8 @@
     },
     {
       "path": "docs/开发/AI协作/上下文取得与任务投影.md",
-      "bytes": 22072,
-      "sha256": "59ec1c6bf783276fdd5e750343fddf461e7694ab3270f5a44962d7097853fa55"
+      "bytes": 24007,
+      "sha256": "f85a026ffc8e866ead5cd58e6a862ffd149f2be2866b86b6c26059b024b08106"
     },
     {
       "path": "docs/开发/AI协作/委派安全与持续交接.md",
@@ -589,8 +594,8 @@
     },
     {
       "path": "docs/开发/AI协作/规则装载与任务恢复.md",
-      "bytes": 52475,
-      "sha256": "bcb57be7f2ab99bc600de647fc478df7c3cefcd44b7371039621e1dde3311c45"
+      "bytes": 93252,
+      "sha256": "c12cd07b5174c8f1ffec687113966fcd67fb3f44d67f58b1357522b15f3f3cb7"
     },
     {
       "path": "docs/开发/AI协作/需求与作者上下文.md",
@@ -599,13 +604,13 @@
     },
     {
       "path": "docs/开发/README.md",
-      "bytes": 1814,
-      "sha256": "d185a75ba953deefa06e1a6dfe22859cda0e9d1c405165553276012d626d5a52"
+      "bytes": 1894,
+      "sha256": "f98c9a3bd8999cc6360f52efadd0730bce0f6eed4a9141157a4503a703e09cbf"
     },
     {
       "path": "docs/开发/原生维护/导入观察与原生资产.md",
-      "bytes": 94107,
-      "sha256": "ddee7d4b1764d6e81ba6573fe3f793ed0e15b160fc7c26fe6c8b16d0f71488f7"
+      "bytes": 94758,
+      "sha256": "cdb1b7a128e9af29b171d8d5855171833de873c47ef158263903baf9c4d69935"
     },
     {
       "path": "docs/开发/工具协议/README.md",
@@ -649,8 +654,8 @@
     },
     {
       "path": "docs/开发/测试发现与执行.md",
-      "bytes": 15024,
-      "sha256": "865370a97a757ed52fbef1092fe8b82f76b35312fbd28b903f44f0c250c6fa16"
+      "bytes": 33815,
+      "sha256": "8ca96654f0b0164da6c286a2db729656663ac6a7ff8e4d4c6065fad4871f5237"
     },
     {
       "path": "docs/开发/用途与任务范围.md",
@@ -659,8 +664,8 @@
     },
     {
       "path": "docs/开发/编辑审查与客户端.md",
-      "bytes": 58581,
-      "sha256": "3ad2ee531621f9164be40ed868cee23b909a79c6acd0361435ea934631673ea2"
+      "bytes": 78255,
+      "sha256": "46ec3590329a12d3c793ba255e8d060766da7cfcd225a15544cd54f7b2a15f6a"
     },
     {
       "path": "docs/开发/编辑检查与失败继续.md",
@@ -684,28 +689,28 @@
     },
     {
       "path": "docs/架构/协作与状态边界.md",
-      "bytes": 59647,
-      "sha256": "42bbc3d51fdd99a706713196a2bd7ade95dfc0b6393e6a8b5d40c093a7cebac5"
+      "bytes": 60923,
+      "sha256": "d088eb5ac3347dcbca2a434e0093e69e16aa2f3b3f60f059cf58938dc8160e0c"
     },
     {
       "path": "docs/架构/实现供给与替换.md",
-      "bytes": 14487,
-      "sha256": "e1d79591866f1e72dc03e020af953833ab2446f3c4a5dbd88ab4cb47a7ef7ae3"
+      "bytes": 16820,
+      "sha256": "b97fe4849e8f78661a14847a54199571583565ed517abb5d5fae90df3c8f7450"
     },
     {
       "path": "docs/架构/实现语言与机制演进.md",
-      "bytes": 12840,
-      "sha256": "88b6956c7d4efbe8a950aa305824c9d6bedcd0515846c79d3583422de3ed2a07"
+      "bytes": 31322,
+      "sha256": "fbd3bd63ddd5278cdac19ea04bf29540b4c19e7f11ebea5ea252ede09a1b8f5e"
     },
     {
       "path": "docs/架构/总体设计.md",
-      "bytes": 26805,
-      "sha256": "ed2b8246f723e122be5d1aa202c5f40fa35d62f8e19e9eab5efb0096f8bc96ef"
+      "bytes": 29857,
+      "sha256": "e0bb9076273b45ee2a4a43ac34950bf588e59ccd495a31859b57ac067f97f5bc"
     },
     {
       "path": "docs/架构/约束强制与整体一致性.md",
-      "bytes": 33679,
-      "sha256": "d6fdb5edb16b10f2a99826e147a0bc10416c3080f7e612e355c02902be2e5150"
+      "bytes": 35327,
+      "sha256": "c19c36ecdcfdce3fd9f4248ffeed5c2a3eddd58b4cf1775322163d5620835e1a"
     },
     {
       "path": "docs/架构/装配/README.md",
@@ -724,18 +729,18 @@
     },
     {
       "path": "docs/架构/装配/能力接合与文件责任.md",
-      "bytes": 28878,
-      "sha256": "b4666950bf7fa9dd100e8d7d14b7ebee467a9bcac2e66adb512ccf201b586768"
+      "bytes": 38532,
+      "sha256": "b09e515aa10ec8dfc6bf65319c8a3c084ae5285b49ae8a6df99bdc41764b3832"
     },
     {
       "path": "docs/演进/README.md",
-      "bytes": 1449,
-      "sha256": "8050d61608be3672fc557ecd1bdd4d55b298e1377b92e6adbf03cea6e2aa287c"
+      "bytes": 1530,
+      "sha256": "1e7d1ab985edfb020f4beb7abca5ef6530d9b29438dedd8de307adf9a6230636"
     },
     {
       "path": "docs/演进/兼容迁移与退役.md",
-      "bytes": 66666,
-      "sha256": "6b09c67c5462f067979166fe3836b52a123189cfaf2a4dc9ff8993ffdef60de0"
+      "bytes": 69490,
+      "sha256": "8ecdba4350c5d240c87456003483b88de1dcb22a77e8156148c71da90997bd4d"
     },
     {
       "path": "docs/演进/实施/README.md",
@@ -744,8 +749,8 @@
     },
     {
       "path": "docs/演进/实施/主线前沿与准入.md",
-      "bytes": 80311,
-      "sha256": "b3b9551e2958b268ede8b62ef8f0cd9eede51ad22e6dd0b19f48045ddb357ba9"
+      "bytes": 89548,
+      "sha256": "0d55441b4c43c709acf73a8fe5624727c5f8d76b84811ebcc8a5881fd5e623b3"
     },
     {
       "path": "docs/演进/实施/仓库迁移与自托管.md",
@@ -773,14 +778,94 @@
       "sha256": "69ed93bae658950d60ba97cafb21aa44643a323909d8082d5dca019ec7acb8a7"
     },
     {
+      "path": "docs/演进/覆盖场景/README.md",
+      "bytes": 4459,
+      "sha256": "d55663b7e408c044ff57b478540f1ca83c3d811658c21a8adaf58229e408bcc2"
+    },
+    {
+      "path": "docs/演进/覆盖场景/业务生命周期.md",
+      "bytes": 9495,
+      "sha256": "e51c0fc17e4b6a4cd19b08c74073517c109da8c657ca817534ec9e447250f37f"
+    },
+    {
+      "path": "docs/演进/覆盖场景/健康研究与公共责任.md",
+      "bytes": 22313,
+      "sha256": "674588f518efcb034d1b5232f6c5354c1be468ff882c6f65fb4232f4251b83e1"
+    },
+    {
+      "path": "docs/演进/覆盖场景/商业价值与组织流程.md",
+      "bytes": 17599,
+      "sha256": "d3e070efcfd79ff0b2520c92fa85af206943e55cdf53c8636de783bc21733d93"
+    },
+    {
+      "path": "docs/演进/覆盖场景/工业能源与环境.md",
+      "bytes": 12360,
+      "sha256": "3ee7b24b3c2a35dc29668ec00320a3baa687833cc867ad38bd2b7d79d65f9451"
+    },
+    {
+      "path": "docs/演进/覆盖场景/应用交互与内容.md",
+      "bytes": 23822,
+      "sha256": "d49f99c2523c5fd728bb5d3da156e28ab3502968151a9aad2b5ef000b72fbc84"
+    },
+    {
+      "path": "docs/演进/覆盖场景/接合检查.md",
+      "bytes": 4477,
+      "sha256": "485f7a3b07a2b6abedd5191bd7043fea2565cc948ce46ced29bf118bed137efb"
+    },
+    {
+      "path": "docs/演进/覆盖场景/数据智能与安全.md",
+      "bytes": 30786,
+      "sha256": "2b37e11423902e5c0ff0ac69d1d988b1095a82ed9e88b487f2d46bbd2953b400"
+    },
+    {
+      "path": "docs/演进/覆盖场景/机制适用性.md",
+      "bytes": 33286,
+      "sha256": "fefd7ea398be401485791fb411d2b436b2ccb6f9ee35d5ddc59ab469e8cf950f"
+    },
+    {
+      "path": "docs/演进/覆盖场景/游戏沉浸与在线平台.md",
+      "bytes": 11683,
+      "sha256": "aa040404b12415dde2a292b559d4dd8482152764708fcfbcde656dabbee9d021"
+    },
+    {
+      "path": "docs/演进/覆盖场景/物流交通与自主设备.md",
+      "bytes": 26665,
+      "sha256": "826514b6d3cd198864c2422594a843e6f3c95ec5c65af4de68a6f73ac7775e2d"
+    },
+    {
+      "path": "docs/演进/覆盖场景/科学仿真与开放系统.md",
+      "bytes": 23593,
+      "sha256": "a95d09ac2c2505945c05b767a1e12048430bf33b78e80e83f5e3b958d038cfe2"
+    },
+    {
+      "path": "docs/演进/覆盖场景/空间设施与个人服务.md",
+      "bytes": 12144,
+      "sha256": "0ec57b6f68e8c3ed179ddd19edd71520db96d095276eff5e29dd32c2736a0267"
+    },
+    {
+      "path": "docs/演进/覆盖场景/组合工程.md",
+      "bytes": 29472,
+      "sha256": "9ae3022e197cf03b0e25827756c8a1b22f7bdb72332c36e27a6aff1aafbec4e0"
+    },
+    {
+      "path": "docs/演进/覆盖场景/语言工具与系统基础.md",
+      "bytes": 31210,
+      "sha256": "5e4e9a29614827d829e14b4d1292a97478feeedc165d21a5e6c0ef96773ee040"
+    },
+    {
+      "path": "docs/演进/覆盖场景/需求坐标.md",
+      "bytes": 11914,
+      "sha256": "917089f81782d40b03ac91ad50dca8351b39b644c42e92170c05c0367db5cb87"
+    },
+    {
       "path": "docs/演进/适用性与能力协商.md",
-      "bytes": 42639,
-      "sha256": "a0f29fad55a50ea7cb3400d49cde2779125d956477090150d5d4e873c3b31f9a"
+      "bytes": 42891,
+      "sha256": "9cc4380577e062678c934b6c00c9b681229e6314bab7451f60fa844037f69537"
     },
     {
       "path": "docs/演进/领域组合与扩展条件.md",
-      "bytes": 60675,
-      "sha256": "c9280c00d8f6da29d669e06d46e321fb25119189afe80fd3482b46dfc93da43d"
+      "bytes": 111355,
+      "sha256": "1da9cfebf907ec944f52f217fbd0582307ec141f0b1463aae59878fce5e85c91"
     },
     {
       "path": "docs/状态/README.md",
@@ -789,18 +874,18 @@
     },
     {
       "path": "docs/状态/作者与接口.md",
-      "bytes": 32447,
-      "sha256": "a61bbce0c382f388843ad9320eeae9413222596a75fc76c1658772fab640125b"
+      "bytes": 33704,
+      "sha256": "befdd92e7d8f04549397a213b74923d38a6f60414da1dc67d9c81e89072f584b"
     },
     {
       "path": "docs/状态/信息约束与验证.md",
-      "bytes": 29901,
-      "sha256": "841312c50731c57e6ce7b774d32bb378b0f876d1dfa6d0260e6e09b1805d06f2"
+      "bytes": 30666,
+      "sha256": "346ba3a68ba2bc6f145ff43486b08e352b2ff3640a363843ef66c103154077b1"
     },
     {
       "path": "docs/状态/前沿与登记规则.md",
-      "bytes": 48616,
-      "sha256": "aaeebf75cc2f14e0ea96a93a1b9b115411528f2c94bfa85af354add4432a178f"
+      "bytes": 51158,
+      "sha256": "57e9cc42565b9057cf787322460b4fe5b7b164125e003d8b996f183501d7eb37"
     },
     {
       "path": "docs/状态/执行与恢复.md",
@@ -809,13 +894,13 @@
     },
     {
       "path": "docs/状态/编译与目标.md",
-      "bytes": 42550,
-      "sha256": "c81ef313940ad32bdce64292ed1da3302bf17c3ed2c7c07fa9875ca0fb799364"
+      "bytes": 44202,
+      "sha256": "500d8893352565a47533843a0dccdfbcdc93c51c482e2087d591e40cd868389f"
     },
     {
       "path": "docs/状态/设计剩余全量清单.md",
-      "bytes": 27477,
-      "sha256": "8c7b0a20422bc287da7db734707171f4ada3a3ecd3467deacb1c24209dc0d0c1"
+      "bytes": 29698,
+      "sha256": "d707f9154a209418416f0eb477f7e4fe849c97644c1067793548149f6085d32d"
     },
     {
       "path": "docs/状态/语义与领域.md",
@@ -829,8 +914,8 @@
     },
     {
       "path": "docs/维护/交付材料与归档.md",
-      "bytes": 8777,
-      "sha256": "ab81fad9c59ee89797f007acc060f3e1b555cf9ace8c379215ed72e01efeb843"
+      "bytes": 8791,
+      "sha256": "6c07c72215f1c04ce6e635e6ad41aeac08ea12e988d002c93297dbb66cf6f57a"
     },
     {
       "path": "docs/维护/原则问题与交付边界.md",
@@ -854,8 +939,8 @@
     },
     {
       "path": "docs/维护/文档身份与重组协议.md",
-      "bytes": 21326,
-      "sha256": "87b21b9fed957520766feb61efd139b879b2131ea4d79852bda9886c8b6cbede"
+      "bytes": 21354,
+      "sha256": "d4f277e4b162e369d0bd158f7f61c19bd600ae0ada284c8bd41474039b4855dc"
     },
     {
       "path": "docs/维护/组织修改与来源保全.md",
@@ -874,8 +959,8 @@
     },
     {
       "path": "docs/维护/阅读构建.md",
-      "bytes": 10693,
-      "sha256": "e828cfb6a181f23e5a13abf9dacb398c7f4387e88ff55d49d102c8c87f9adb90"
+      "bytes": 10861,
+      "sha256": "ac3af8a00d367391268e5c52bf66c996ac99d37f0edd7e098d8c87c457435a4e"
     },
     {
       "path": "docs/编译/README.md",
@@ -894,23 +979,23 @@
     },
     {
       "path": "docs/编译/内核/变换接纳与分析保持.md",
-      "bytes": 14306,
-      "sha256": "df1272e053aa3f8d7e5ff8b875aa2a260b0e878bdf2ee3b88180d682add5cf96"
+      "bytes": 15468,
+      "sha256": "dfb578ccd1ef2d788e7eee7437a88470d8b3db7511f7ffb6661116b4e84d4aae"
     },
     {
       "path": "docs/编译/内核/生成规则与产物链接.md",
-      "bytes": 13508,
-      "sha256": "da10d93a86675dfa5170bdb8b0579f7c65041cf16a0334ce73b63cb6fec403fb"
+      "bytes": 18861,
+      "sha256": "0b07113365feab38aefad328f1b9bc5b3eb5be237b7257df1fba9d1596b8d205"
     },
     {
       "path": "docs/编译/内核/确定性与自举.md",
-      "bytes": 16863,
-      "sha256": "c8e5dca2be92f7e320a875f9696c3c27c64c4e51490bf88f4b29a740a73b1bd1"
+      "bytes": 20038,
+      "sha256": "8aa1e035fa9739d6c29dfa4753893f62027780c57d79f764baa3f0cfe0fad343"
     },
     {
       "path": "docs/编译/内核/编译值服务.md",
-      "bytes": 48463,
-      "sha256": "f5d36fdff64df0a7dfdc39ef496937ac31b89177fbe4e720d527539927651846"
+      "bytes": 50708,
+      "sha256": "c9a99fc79b473e80b9d85165dc4579545cd5f5ec16d6d58615460444fcb13ba4"
     },
     {
       "path": "docs/编译/内核/诊断与追踪.md",
@@ -924,8 +1009,8 @@
     },
     {
       "path": "docs/编译/内核/运行准备与最小实现.md",
-      "bytes": 31997,
-      "sha256": "9149c77ace927b3b78ea638a6cc3c048acb692430f2cf29c1161323a97f3eff8"
+      "bytes": 32382,
+      "sha256": "69e2451351c58c5ca2a5ac76c249cd0bcb9e3468d18efccdf31d7b6e306ddb10"
     },
     {
       "path": "docs/编译/内核/遍管理与插件.md",
@@ -984,8 +1069,8 @@
     },
     {
       "path": "docs/编译/实现选择与设计搜索.md",
-      "bytes": 82552,
-      "sha256": "d717fe495ea802c738464a5c1f2e4590c72d4af4b29665a5d9788059545e96f8"
+      "bytes": 86744,
+      "sha256": "33a921784bf5e8565fb9ff91bd52b3fac05ac992e6096374a98405bdda7df6a9"
     },
     {
       "path": "docs/编译/性质保持与开放环境.md",
@@ -994,8 +1079,8 @@
     },
     {
       "path": "docs/编译/有条件实现与公共行为保持.md",
-      "bytes": 13728,
-      "sha256": "c18470a6c8ba4ec8aa2df2b7bb5924cc1dc05ae8332862cc893822f3366fc064"
+      "bytes": 14938,
+      "sha256": "a787a9682d300f9e1efe28f94bfd688a63a31344f131567eb7975d09b01a8171"
     },
     {
       "path": "docs/编译/有限抽象与观察策略.md",
@@ -1004,8 +1089,8 @@
     },
     {
       "path": "docs/编译/查询增量与性能.md",
-      "bytes": 108335,
-      "sha256": "3e741fec258a8b3b89e92c2d20f7b387db60f5a1f5d577bb8e866a1d3e5d79db"
+      "bytes": 112466,
+      "sha256": "ef74c53fb99850cca3912b400e7028a7714f32cf5284fd020a8b75df7add30a6"
     },
     {
       "path": "docs/编译/特化与结构查询.md",
@@ -1024,8 +1109,8 @@
     },
     {
       "path": "docs/编译/目标/具体降低与领域输出.md",
-      "bytes": 34226,
-      "sha256": "356212b0cc16e79af12d5347d874fa747b23a938fc9645b603e1817726dd84dd"
+      "bytes": 36744,
+      "sha256": "a2d6b1d2826072b5d24985733408d51813196a80367322b93af2c09e75139c3a"
     },
     {
       "path": "docs/编译/目标/布局与设备访问.md",
@@ -1034,8 +1119,8 @@
     },
     {
       "path": "docs/编译/目标/成员布局与完整产物.md",
-      "bytes": 51546,
-      "sha256": "cbca6ae38f75bf8e7fe76dad9efa47bb2f4f9216895bbd4bf00869aea90facb4"
+      "bytes": 54885,
+      "sha256": "9ba5a359b16dfb45c0972548de7ffcc879d284af46a77fcb0d6fbdc0542d1f7c"
     },
     {
       "path": "docs/编译/目标/成品消费合同与发射.md",
@@ -1069,8 +1154,8 @@
     },
     {
       "path": "docs/编译/表示/目标运行与观测.md",
-      "bytes": 26005,
-      "sha256": "c2f78be540e598bcd898accd30d0cad71c8290cd89435f484ab9d4d287015f5d"
+      "bytes": 26213,
+      "sha256": "7ecd2fa11304fe6824949a3d64ce8f832dab094bf3d485232fce73586bf7fe03"
     },
     {
       "path": "docs/编译/表示/编辑与受管回源.md",
@@ -1094,8 +1179,13 @@
     },
     {
       "path": "docs/运行/README.md",
-      "bytes": 1791,
-      "sha256": "148c8daf010273eb89646ec01b5d70a61b7a53d14d3896357bdcdd736dadd761"
+      "bytes": 1942,
+      "sha256": "9001f35e25689d5668b7ecba2ed45a4ae181df3061912a51706ed2ec05a94ab7"
+    },
+    {
+      "path": "docs/运行/人类任务与责任交接.md",
+      "bytes": 2743,
+      "sha256": "bbef9e7afbfd96bed24654fd39c8dad486b5ded542961e904b60b6c68c11b73a"
     },
     {
       "path": "docs/运行/保证/README.md",
@@ -1104,8 +1194,8 @@
     },
     {
       "path": "docs/运行/保证/系统不变量与组合.md",
-      "bytes": 31702,
-      "sha256": "bb7cfc603e913e2e777b5733e0484a759187364071d84e4309ee9c20b44f4366"
+      "bytes": 33037,
+      "sha256": "37656c3fb771157c0cda5d2b4a2654bf3f5e0456693599c7a6045400a5cdaff4"
     },
     {
       "path": "docs/运行/保证/要求证据与裁决.md",
@@ -1129,43 +1219,43 @@
     },
     {
       "path": "docs/运行/原生边界与模块驻留.md",
-      "bytes": 9205,
-      "sha256": "90c9d1e6bf1860433894a595aab3dc33f2790a1c90c5c7ee2852a5bf16172715"
+      "bytes": 10293,
+      "sha256": "fb075ea06c59cd3276da61ca385925ad68c74edde7430045b9ccec1b1e935ec9"
     },
     {
       "path": "docs/运行/发布运行与资源生命周期.md",
-      "bytes": 88047,
-      "sha256": "7fe04d4f0725b3e43a02acc6b916d8decb3ba11001f8f4878a93a86793ecb2f5"
+      "bytes": 89245,
+      "sha256": "baf9ca024f26375ab220fd0a32024e0172e2086bf9b9f27adb99869c7810f744"
     },
     {
       "path": "docs/运行/宿主生态与技术约束.md",
-      "bytes": 139701,
-      "sha256": "50c3700249e29ab87b5720798f7463988cfa137dbd148cf4615369c12c343c57"
+      "bytes": 141704,
+      "sha256": "16f4ff592e451d4f0b10da389fa17e07e407d2bc4965c1ddc19f53f10f300ad2"
     },
     {
       "path": "docs/运行/持久化提交与恢复.md",
-      "bytes": 91982,
-      "sha256": "774e6514631ee9062a71a5dbf2e35cf881171f98659da0e92d19e4a20fa73808"
+      "bytes": 98569,
+      "sha256": "bacac22d08106408543518c5945d4280b4ddefa44c7806c46b910a7921e68700"
     },
     {
       "path": "docs/运行/权限与资源管理.md",
-      "bytes": 65107,
-      "sha256": "274b52df8db1e1cff2eefe0c05194548c88b4f73ee19a6cf3c3a5721f21824de"
+      "bytes": 68440,
+      "sha256": "a9fd5bbd3859dc6c0d00e4434052bf91d37e5f9255e3f6a075c0e45895056839"
     },
     {
       "path": "docs/运行/跨实现调用与数据寿命.md",
-      "bytes": 21191,
-      "sha256": "fa225390469fae718747ae5b0c3b26d1a5b9217da3520e64145e86172a3da653"
+      "bytes": 22636,
+      "sha256": "f193aba0dfefa6cdf15ceeca4d4159668fa1acd787684930ac916cdce97d1832"
     },
     {
       "path": "docs/运行/验收/README.md",
-      "bytes": 2250,
-      "sha256": "54c5599bbdfdc9c53b896beb7a986ff7161bd540cd6eda2cf609153b3664353e"
+      "bytes": 2405,
+      "sha256": "b6ddeef4e3511bdbca5391fff9e65624e310d8a545d5decb0b1d37637a25cb37"
     },
     {
       "path": "docs/运行/验收/会话集成与结果复用.md",
-      "bytes": 21274,
-      "sha256": "a38b92bf841b83c03776452efc3d512bad4e897ead3508caa0dab22d3a25dd16"
+      "bytes": 27442,
+      "sha256": "26a868f26684d899eb32327cbce5d37f5d1c174cf13028bb2112c3d4d4a9c229"
     },
     {
       "path": "docs/运行/验收/作者与组合案例.md",
@@ -1178,29 +1268,54 @@
       "sha256": "ba1a0be85cc8cddc33b1a84b711dcf2897f251e2747e2a062a454d017f3a5d94"
     },
     {
+      "path": "docs/运行/验收/全域挑战/仿真数值与现实.md",
+      "bytes": 9145,
+      "sha256": "6394335189e25b06f4545ffe6d07992bc67c08052291a55d7c0320ff9289dec5"
+    },
+    {
+      "path": "docs/运行/验收/全域挑战/作用隔离与恢复.md",
+      "bytes": 8673,
+      "sha256": "d8caabb8d3ab7cb26f6f5b977f73345aaecdde30d5f8195b0bf153fd75302c4d"
+    },
+    {
+      "path": "docs/运行/验收/全域挑战/解释绑定与生成.md",
+      "bytes": 11541,
+      "sha256": "2b82568e600bb8e8fd31bfc5528136f8e32f359aa1df2fe9793a77e3eac24090"
+    },
+    {
+      "path": "docs/运行/验收/全域挑战/证据发行与演进.md",
+      "bytes": 4242,
+      "sha256": "63721f335d370efcbacae2d56b99aa6fdcf9d3527e163957ae9cc1b08a5cd4de"
+    },
+    {
+      "path": "docs/运行/验收/全域接合检查.md",
+      "bytes": 27403,
+      "sha256": "6d3364a3df38fbbcf8c15742422bab9e72015050bc8912ea9734efcabb290f70"
+    },
+    {
       "path": "docs/运行/验收/原生映射与组合.md",
       "bytes": 21439,
       "sha256": "205769fceb55726e7e4684e847a27345c97a9659a1be4abb0d2f55dfe524591b"
     },
     {
       "path": "docs/运行/验收/实现与运行案例.md",
-      "bytes": 46915,
-      "sha256": "737b6b2997b08598806ab2e702511eaf82b994b8fc543f2e838cdc45797bde4e"
+      "bytes": 49098,
+      "sha256": "8f99d2ecb0781d62502e5220a3d1e6800d53907799c6ce977a218ed88b7fcb45"
     },
     {
       "path": "docs/运行/验收/开发面案例.md",
-      "bytes": 95937,
-      "sha256": "34cc12d85b7042536dcc6371c12516d1a3b3cee44958d6c911b821dac7c86704"
+      "bytes": 104272,
+      "sha256": "4412e10af393b077d271e05a9160768d3dc235da2686887091953baad372c249"
     },
     {
       "path": "docs/运行/验收/控制与演进案例.md",
-      "bytes": 57381,
-      "sha256": "9613af80a42baec8351ba17255f469b37269cc1f8bda103736acfe83c8440154"
+      "bytes": 59555,
+      "sha256": "05f9a6f38fc0f9086d588c14b375c002ba1851d0a5db779d3dfd23c22e7534f9"
     },
     {
       "path": "docs/运行/验收/方法与独立证据.md",
-      "bytes": 71754,
-      "sha256": "a912fcde0ee599fd9cb5995f86e077265e24b3f06677400b8c794d938904ab70"
+      "bytes": 74588,
+      "sha256": "4b4aed28c5c6c370bef24130743fdd90f17a429cb281d87ba1a2e075c21f9a66"
     },
     {
       "path": "docs/运行/验收/测试生成与形式方法.md",
@@ -1209,8 +1324,8 @@
     },
     {
       "path": "docs/运行/验收/系统组合挑战与反例.md",
-      "bytes": 48864,
-      "sha256": "253fecf740ddfc1c15d85aae6db06fbeb32d1a6576c47413cf29ef7571aba72e"
+      "bytes": 48856,
+      "sha256": "ca070254797794effc51bf85c218a34619efa05898d22484238e61501642818a"
     },
     {
       "path": "docs/运行/验收/覆盖与收益判据.md",
@@ -1229,8 +1344,38 @@
     },
     {
       "path": "docs/领域/README.md",
-      "bytes": 1611,
-      "sha256": "9aedec5837ea8a666d7854bbfcca39dccc04a408d8ab570f8cf93a629da37d37"
+      "bytes": 1845,
+      "sha256": "663ec6e464a1866992617eca5cec14f6ede3fe2f7859ba8fea2f44b1f7be3b8e"
+    },
+    {
+      "path": "docs/领域/仿真/README.md",
+      "bytes": 1791,
+      "sha256": "8d9421e6df9fff3fe6cc6a2d7afd28771a90d580cbebb76f1a58eea04cdcca7b"
+    },
+    {
+      "path": "docs/领域/仿真/历史接触与拓扑演进.md",
+      "bytes": 2776,
+      "sha256": "208a109b2df409d9fa26f3b9453260cd77dbf11f4117f27c4fc3e4a5cf0edfb2"
+    },
+    {
+      "path": "docs/领域/仿真/时间推进与状态恢复.md",
+      "bytes": 2919,
+      "sha256": "ab1c450e02802b1b8cf068b322430d94ee5515d5d76a60e8e815d76516b4e53c"
+    },
+    {
+      "path": "docs/领域/仿真/模型族与适用边界.md",
+      "bytes": 9499,
+      "sha256": "89022954c62e45ebb1a55eccaf90d767a7ba68af3845fd8f9f67dfb91291e68c"
+    },
+    {
+      "path": "docs/领域/仿真/测量校准与实验.md",
+      "bytes": 4635,
+      "sha256": "59c59e21095e0987f2597f40a6617bf0db09ae8a3e8c3bd642b20df3f669938f"
+    },
+    {
+      "path": "docs/领域/仿真/联合仿真与现实控制.md",
+      "bytes": 4971,
+      "sha256": "ddd4a76cf5f82407a41f45faaf884882971156cba125124c726562b7d10c531f"
     },
     {
       "path": "docs/领域/对象与控制/位置初始化与转移.md",
@@ -1259,8 +1404,8 @@
     },
     {
       "path": "docs/领域/扩展语义与适配合同.md",
-      "bytes": 27200,
-      "sha256": "bcaa0ba1a3e4902dc6a6039656a29fdd80e028221bc3f79d1a03db1315261820"
+      "bytes": 20069,
+      "sha256": "7689a565ebf6ae1585dadb8cd458e965a456b141a7308b2a375442d36e6c0bea"
     },
     {
       "path": "docs/领域/数值/格式环境与向量控制.md",
@@ -1269,8 +1414,13 @@
     },
     {
       "path": "docs/领域/数值/自动微分与线性化.md",
-      "bytes": 22353,
-      "sha256": "7c9a12649e63d3f65fdf702f90e1f3491b426ed9dbf21859fb2fc318ac9a94a6"
+      "bytes": 22541,
+      "sha256": "ffb56f39cef94b6a9dfb890bfaf1ae9a776edd0a1a0968273396b86c3d19f78e"
+    },
+    {
+      "path": "docs/领域/物理对象制造与寿命.md",
+      "bytes": 2727,
+      "sha256": "a07609933e6152b19aa55da8104c578be6ca754f8a034127510e74c700244fe2"
     },
     {
       "path": "docs/领域/状态关系与流/README.md",
@@ -1318,6 +1468,11 @@
       "sha256": "d02c72fdcd1bdd287e5f5dcdf6f119ec1fc493a48224e6e80ae521851183c6b0"
     },
     {
+      "path": "docs/领域/计算基础/定量合同与误差传播.md",
+      "bytes": 4037,
+      "sha256": "7c702f1a70eb47b4adfc0fba97e41379f0d0f84278d91db32e780eb14c45d2be"
+    },
+    {
       "path": "docs/领域/计算基础/文法类型与求值.md",
       "bytes": 34925,
       "sha256": "b77274eab48f0bc21bcd6b5a1c0b714c03941bd087f22aee96002c03917361a6"
@@ -1334,8 +1489,8 @@
     },
     {
       "path": "docs/领域/计算基础/计算结构与算法.md",
-      "bytes": 71326,
-      "sha256": "905fbddf8c3c63a0c39ed807035e557df32798f133ee8ddab1014c3b622919c7"
+      "bytes": 73817,
+      "sha256": "f44ba96db3357d0db47eeca3758c156c6e90965ccd731280ed1fb310c2b7338e"
     },
     {
       "path": "docs/领域/计算基础/调用定制与源语言选择.md",
@@ -1344,8 +1499,8 @@
     },
     {
       "path": "docs/领域/计算基础/通用计算与任务语义.md",
-      "bytes": 46453,
-      "sha256": "ef65994488735192c76cbc699f4421cf92bff6de467a7b84b85f78aecee44b42"
+      "bytes": 47660,
+      "sha256": "b815ec9bfa72d3a226cfe7d8848976cbea7001999d2c8e93c1c6e4c9ee2c1fca"
     },
     {
       "path": "docs/领域/计算基础/错误传播与契约保持.md",
@@ -1884,8 +2039,8 @@
     },
     {
       "path": "examples/结构化工作台/说明.md",
-      "bytes": 16979,
-      "sha256": "fb63268ef5cf4311a2cdc24a778e8be989172162cbb4c413d92d2227c3f04626"
+      "bytes": 17215,
+      "sha256": "14862e1120ad00f5cdf1891e769d26cac9aec2ac562a42c99f8a5669fe34399e"
     },
     {
       "path": "examples/范本角色与原导览.md",
@@ -1938,74 +2093,74 @@
       "sha256": "28127259b2c7569a4441bfa471159d2c231bd443313d59e9f711fbc0e92636d9"
     },
     {
-      "path": "tools/browser_diagrams.js",
+      "path": "tools/documentation/browser_diagrams.js",
       "bytes": 10745,
       "sha256": "82f06b0c7d9bfecad65c96dadc9fee3d6f326d792d899bea9929864031628ec6"
     },
     {
-      "path": "tools/build_html.py",
-      "bytes": 43303,
-      "sha256": "017ef25cc09e2346aadd95eb182c862caa02bcfd79bdaf4e8daef7d5b7b38454"
+      "path": "tools/documentation/build_html.py",
+      "bytes": 43300,
+      "sha256": "2e225956e37c447aa0a039c193c2c1cb3833537056b15433c45a650bedc0fb27"
     },
     {
-      "path": "tools/check_design.py",
-      "bytes": 11624,
-      "sha256": "73bc319bf599c2e78469cd4cb375eed08f1f06e4c7c327d6313a36857118e1aa"
+      "path": "tools/documentation/check_design.py",
+      "bytes": 11621,
+      "sha256": "2f1f2ae5895a3135c47c253ada8441309af906daff9462b197851d12b7110931"
     },
     {
-      "path": "tools/check_docs.py",
-      "bytes": 11397,
-      "sha256": "f78396da17cb275e14cb0cdb61e8fb782e9c19c5a3e29c6679ad240491872d87"
+      "path": "tools/documentation/check_docs.py",
+      "bytes": 11394,
+      "sha256": "aac9d4ac6b4cbbdf6b3f23dc834cd07713ffe63409efc291f2382da9c9f668d7"
     },
     {
-      "path": "tools/html-export-requirements.txt",
+      "path": "tools/documentation/html-export-requirements.txt",
       "bytes": 89,
       "sha256": "3fbcb879c1c2671eef9260a241d68506e1da02448b892940438fdbe231aaf227"
     },
     {
-      "path": "tools/html-requirements.txt",
+      "path": "tools/documentation/html-requirements.txt",
       "bytes": 108,
       "sha256": "3130d1d1617e4e39acf6761b73f0bb3d3cd0eee11852c51f19c65d6238c216f8"
     },
     {
-      "path": "tools/native-typecheck.ts",
-      "bytes": 2949,
-      "sha256": "10b445c0ef90008fb0c04ca9ca187707b853e94bcde36088b1fd62e947bb430e"
+      "path": "tools/documentation/source_inventory.py",
+      "bytes": 22482,
+      "sha256": "35894ecffc240af74a8578f9a35a7320824a1837107a0a50962423f3c3cc8524"
     },
     {
-      "path": "tools/source_inventory.py",
-      "bytes": 22268,
-      "sha256": "f53f48867330b6fb195e2b550019f3d8d1d432130a0cfa921a8ee7ff97f532a9"
+      "path": "tools/documentation/tests/__init__.py",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
     },
     {
-      "path": "tools/test_build_html.py",
-      "bytes": 10679,
-      "sha256": "8a3394c965218fea0f26acb1cfd858496c3071c778a314636d43c2c4803ff1af"
+      "path": "tools/documentation/tests/test_build_html.py",
+      "bytes": 10680,
+      "sha256": "741b5230816d2e7d030ffdd5ac6cd05c4032322e24726b6123a911ee33254aa2"
     },
     {
-      "path": "tools/test_check_design.py",
-      "bytes": 2436,
-      "sha256": "32a66516e718879bff4e3672609b10899bfa4366938c9e0265ca2839c156e176"
+      "path": "tools/documentation/tests/test_check_design.py",
+      "bytes": 2427,
+      "sha256": "d174256723125fea74e445d604c350383ccbf83219994bab58b7d28e23c51f86"
     },
     {
-      "path": "tools/test_check_documentation_identity.py",
+      "path": "tools/documentation/tests/test_check_documentation_identity.py",
       "bytes": 11476,
       "sha256": "894c939e4599796cf73b36184d2d310567d06a73f5f2be8410b5f5df2fe8e101"
     },
     {
-      "path": "tools/test_check_source_capture_resources.py",
-      "bytes": 8111,
-      "sha256": "b39d4faf8231b550bcc764c93548053c9204011f528b8f9502229e2484a0ec44"
+      "path": "tools/documentation/tests/test_check_source_capture_resources.py",
+      "bytes": 8112,
+      "sha256": "0fcf4dabf809cdd92247419016197628a9735c281585cca6716b815236cbc58c"
     },
     {
-      "path": "tools/test_check_source_inventory.py",
-      "bytes": 5162,
-      "sha256": "0139c1b9c1d934a03aa7a3be12ae8e47637895be9c96e51fccd409ea6208304e"
+      "path": "tools/documentation/tests/test_check_source_inventory.py",
+      "bytes": 5163,
+      "sha256": "668f685ba86983e5cfbc7b95384cd7ef680a4efd737afb85057a660f95f3e35b"
     },
     {
-      "path": "tools/test_reading_modes.py",
-      "bytes": 7250,
-      "sha256": "8858f0b679c1decd420401ef830746d07a83cd881bb760ed4a33f40e0517ba5f"
+      "path": "tools/documentation/tests/test_reading_modes.py",
+      "bytes": 7251,
+      "sha256": "21a0e0f79e4740ce568fd5e885aa0688a6359206d83127876a0836fbd316d8dd"
     }
   ]
 }

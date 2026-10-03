@@ -1,10 +1,19 @@
+import { readFileSync } from 'node:fs';
+import path from 'node:path';
+
 import { expect, test } from 'bun:test';
+
+import { isRepositoryMaintenancePermission } from '../../src/adapters/providers/github-api/repository-maintenance-permission.ts';
 
 import { parseExactRefRetirement } from '../../src/adapters/self-hosting/control/branch-lifecycle/exact-ref-retirement-contract.ts';
 import {
   parseExactRemoteRefRecoveryPreparation
 } from '../../src/adapters/self-hosting/control/branch-lifecycle/exact-ref-retirement.ts';
 import { parseRepositoryMaintenanceRequest } from '../../src/adapters/self-hosting/control/repository-maintenance/contract.ts';
+import {
+  assertRepositoryMaintenanceDispatcherPermission,
+  createRepositoryMaintenanceDispatchPayload
+} from '../../src/adapters/self-hosting/control/repository-maintenance/dispatch.ts';
 import {
   assertHostedRepositoryMaintenanceIdentity,
   parseHostedRepositoryMaintenanceRequest
@@ -36,7 +45,7 @@ function environment(source = requestSource()): NodeJS.ProcessEnv {
     GITHUB_SERVER_URL: 'https://github.com',
     GITHUB_API_URL: 'https://api.github.com',
     GITHUB_REPOSITORY: 'sec-platform/sec',
-    GITHUB_EVENT_NAME: 'issue_comment',
+    GITHUB_EVENT_NAME: 'repository_dispatch',
     GITHUB_REF: 'refs/heads/main',
     GITHUB_SHA: MAIN,
     GITHUB_WORKFLOW_SHA: MAIN,
@@ -46,10 +55,58 @@ function environment(source = requestSource()): NodeJS.ProcessEnv {
     SEC_MAINTENANCE_REQUEST_JSON: source,
     SEC_MAINTENANCE_ISSUE_NUMBER: '313',
     SEC_MAINTENANCE_COMMENT_ID: '42',
-    SEC_MAINTENANCE_COMMENT_AUTHOR: 'maintainer',
-    SEC_MAINTENANCE_AUTHOR_ASSOCIATION: 'MEMBER'
+    SEC_MAINTENANCE_COMMENT_AUTHOR: 'maintainer'
   };
 }
+
+test('shared maintenance permission predicate accepts only qualified maintain/admin roles', () => {
+  for (const role of ['admin', 'maintain']) expect(isRepositoryMaintenancePermission(role)).toBe(true);
+  for (const role of ['OWNER', 'MEMBER', 'write', 'triage', 'read', 'none', '', null, undefined, {}, ['admin']]) {
+    expect(isRepositoryMaintenancePermission(role)).toBe(false);
+  }
+});
+
+test('maintenance dispatcher requires current maintain/admin before creating a workflow signal', () => {
+  expect(assertRepositoryMaintenanceDispatcherPermission({ permission: 'admin' })).toBe('admin');
+  expect(assertRepositoryMaintenanceDispatcherPermission({ permission: 'maintain' })).toBe('maintain');
+  expect(assertRepositoryMaintenanceDispatcherPermission({ permission: 'write', role_name: 'maintain' }))
+    .toBe('maintain');
+  for (const value of [
+    { permission: 'write' },
+    { permission: 'admin', role_name: 'custom-maintainer' },
+    { permission: 'triage' },
+    { permission: 'read' },
+    { permission: 'none' },
+    {},
+    null
+  ]) {
+    expect(() => assertRepositoryMaintenanceDispatcherPermission(value))
+      .toThrow(/maintain\/admin permission|must be one object/u);
+  }
+});
+
+test('maintenance dispatch payload carries only exact lifecycle comment locator and raw digest', () => {
+  const payload = createRepositoryMaintenanceDispatchPayload({
+    issueNumber: 313,
+    commentId: 42,
+    commentBody: requestSource()
+  });
+  expect(payload).toEqual({
+    event_type: 'sec-repository-maintenance-v2',
+    client_payload: {
+      schema: 'sec-repository-maintenance-dispatch-v1',
+      issue_number: 313,
+      comment_id: 42,
+      comment_body_sha256: expect.stringMatching(/^sha256:[0-9a-f]{64}$/u)
+    }
+  });
+  expect(JSON.stringify(payload)).not.toContain('expectedMainSha');
+  expect(() => createRepositoryMaintenanceDispatchPayload({
+    issueNumber: 312,
+    commentId: 42,
+    commentBody: requestSource()
+  })).toThrow('identity is invalid');
+});
 
 test('maintenance request accepts one exact ref or bounded exact comment batch', () => {
   const parsed = parseRepositoryMaintenanceRequest(requestSource());
@@ -231,14 +288,17 @@ test('exact ref recovery preparation binds request identity, ref state and bundl
 test('hosted maintenance binds exact main workflow, lifecycle issue and maintainer event identity', () => {
   const request = parseRepositoryMaintenanceRequest(requestSource());
   expect(() => assertHostedRepositoryMaintenanceIdentity(request, environment())).not.toThrow();
+  for (const association of ['MEMBER', 'COLLABORATOR', 'NONE', 'unknown', undefined]) {
+    expect(() => assertHostedRepositoryMaintenanceIdentity(request, { ...environment(),
+      SEC_MAINTENANCE_AUTHOR_ASSOCIATION: association })).not.toThrow();
+  }
   for (const changed of [
-    { GITHUB_EVENT_NAME: 'workflow_dispatch' },
+    { GITHUB_EVENT_NAME: 'issue_comment' },
     { GITHUB_REF: 'refs/heads/other' },
     { GITHUB_SHA: 'c'.repeat(40) },
     { GITHUB_WORKFLOW_SHA: 'c'.repeat(40) },
     { SEC_MAINTENANCE_ISSUE_NUMBER: '312' },
     { SEC_MAINTENANCE_COMMENT_ID: '0' },
-    { SEC_MAINTENANCE_AUTHOR_ASSOCIATION: 'CONTRIBUTOR' },
     { GITHUB_ACTOR: 'other' }
   ]) {
     expect(() => assertHostedRepositoryMaintenanceIdentity(
@@ -267,4 +327,61 @@ test('canonical maintenance request digest changes with exact ref identity', () 
     requestSource().replace('b'.repeat(40), 'c'.repeat(40))
   );
   expect(sha256(left)).not.toBe(sha256(right));
+});
+
+
+test('reviewed superseded ref retirement is single-ref and bound to lifecycle issue evidence', () => {
+  const request = {
+    schema: 'sec-repository-maintenance-request-v1',
+    repository: 'sec-platform/sec',
+    expectedMainSha: MAIN,
+    operations: [{
+      kind: 'exact-ref-retirement',
+      retirement: {
+        classification: 'reviewed-superseded',
+        branches: ['fix/orphan'],
+        expectedHeadSha: 'b'.repeat(40),
+        reviewIssueNumber: 313,
+        reviewCommentId: 9001
+      }
+    }]
+  };
+  expect(parseRepositoryMaintenanceRequest(JSON.stringify(request)).operations[0]).toEqual({
+    kind: 'exact-ref-retirement',
+    retirement: {
+      classification: 'reviewed-superseded',
+      branches: ['fix/orphan'],
+      expectedHeadSha: 'b'.repeat(40),
+      reviewIssueNumber: 313,
+      reviewCommentId: 9001
+    }
+  });
+  const wrongIssue = structuredClone(request);
+  wrongIssue.operations[0]!.retirement.reviewIssueNumber = 312;
+  expect(() => parseRepositoryMaintenanceRequest(JSON.stringify(wrongIssue)))
+    .toThrow('restricted to lifecycle issue #313');
+  const multiple = structuredClone(request);
+  multiple.operations[0]!.retirement.branches = ['fix/orphan', 'fix/other'];
+  expect(() => parseRepositoryMaintenanceRequest(JSON.stringify(multiple)))
+    .toThrow('exactly one branch');
+});
+
+
+test('exact ref CAS reuses one remote-state authority before and after the effect', () => {
+  const source = readFileSync(path.resolve(
+    import.meta.dir,
+    '../../src/adapters/self-hosting/control/branch-lifecycle/exact-ref-retirement.ts'
+  ), 'utf8');
+  const start = source.indexOf('const retired: string[] = [];');
+  const end = source.indexOf('return Object.freeze({', start);
+  expect(start).toBeGreaterThan(-1);
+  expect(end).toBeGreaterThan(start);
+  const effect = source.slice(start, end);
+  expect(effect.match(/observeRemoteStateWithCapability\(capability,/gu)?.length).toBe(2);
+  expect(effect).not.toContain("request.classification === 'closed-pr-superseded'");
+  expect(effect).not.toContain("request.classification === 'main-tree-identical'");
+  expect(effect).not.toContain("request.classification === 'reviewed-superseded'");
+  expect(source).toContain(
+    "request.classification === 'reviewed-superseded' && !present"
+  );
 });

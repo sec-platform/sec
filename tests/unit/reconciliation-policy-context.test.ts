@@ -17,7 +17,7 @@ const reviewed = 'src/example/a.ts::function-declaration:run::spawn#1';
 function snapshot(hasFinding = false, dispatchers: string[] = [], includeFile = true): Snapshot {
   const source = 'export function run() { return 1; }\n';
   const files = includeFile ? [{ path: 'src/example/a.ts', source, contentDigest: rawSha256(source) }] : [];
-  const descriptorPath = 'src/example/sec.module.json';
+  const descriptorPath = 'src/example/module.json';
   const moduleMembership = compileSecRepositoryModuleMembershipSnapshot({
     repositoryFiles: [...files.map(({ path }) => path), descriptorPath],
     descriptorSources: [{ descriptorPath, source: JSON.stringify({

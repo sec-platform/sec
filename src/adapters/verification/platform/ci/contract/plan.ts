@@ -7,7 +7,7 @@ import {
   isDocumentationVerificationInputPath,
   type DocumentationVerificationBaseline
 } from '../../../../self-hosting/control/documentation/active.ts';
-import type { CiVerificationGatePhase, CiVerificationGateStep } from '../../action/contract/ci.ts';
+import { sourceProgramTransitionGate, type CiSourceProgramTransitionBinding, type CiVerificationGatePhase, type CiVerificationGateStep } from '../../action/contract/ci.ts';
 import { isKnownSlowTestSuiteId, isSlowTestFile, slowTestSuiteIds, slowTestSuiteIdsForFile } from '../../test-impact/contract/budget.ts';
 import type { CodexDevelopmentTestImpactSourceProvider } from '../../test-impact/runtime/impact.ts';
 import type { CodexDevelopmentTestImpactTransitionObservation } from '../../test-impact/runtime/transition.ts';
@@ -66,8 +66,10 @@ function selectedRiskGates(
       `slow-suite-${suite}`,
       'risk',
       'run',
-      'test:slow',
+      'test',
       '--',
+      '--scope',
+      'slow',
       '--suite',
       suite
     )),
@@ -75,8 +77,10 @@ function selectedRiskGates(
       selectedSlowTestGateId(file),
       'risk',
       'run',
-      'test:slow',
+      'test',
       '--',
+      '--scope',
+      'slow',
       file
     ))
   ];
@@ -96,7 +100,7 @@ export function buildCiQuickGatePlan(options: {
     ...(options.includeImports ? [gate('imports', 'quick', 'run', 'imports:check')] : []),
     ...(options.includeDocs ? [gate('docs-doctor', 'quick', 'run', 'docs:doctor')] : []),
     gate('typecheck', 'quick', 'run', 'typecheck:verified'),
-    gate('affected-tests', 'quick', 'run', 'test:affected'),
+    gate('affected-tests', 'quick', 'run', 'test', '--', '--affected'),
     ...riskGates
   ];
 }
@@ -106,7 +110,7 @@ export function buildCiFullGatePlan(): CiVerificationGateStep[] {
     gate('imports', 'quick', 'run', 'imports:check'),
     gate('typecheck', 'quick', 'run', 'typecheck:verified'),
     gate('docs-doctor', 'quick', 'run', 'docs:doctor'),
-    gate('full-fast', 'full', 'run', 'test:fast'),
+    gate('full-fast', 'full', 'run', 'test', '--', '--scope', 'fast'),
     gate('test-budget', 'full', 'run', 'sec', '--', 'test', 'budget', '--json', '--compact'),
     ...selectedRiskGates(slowTestSuiteIds(), []),
     gate('deps-warmup', 'full', 'run', 'sec', '--', 'deps', 'warmup'),
@@ -171,7 +175,8 @@ export function CodexDevelopmentBuildVerificationPlan(
   profile: CodexDevelopmentVerificationPlanProfile,
   rawChangedFiles: readonly string[] | null,
   testImpactSourceProvider: CodexDevelopmentTestImpactSourceProvider | null,
-  transition?: CodexDevelopmentTestImpactTransitionObservation
+  transition?: CodexDevelopmentTestImpactTransitionObservation,
+  sourceProgramTransition?: CiSourceProgramTransitionBinding
 ): CodexDevelopmentVerificationPlan {
   const changedFiles = rawChangedFiles === null ? null : CodexDevelopmentCanonicalChangedFiles(rawChangedFiles);
   if (profile === 'full') {
@@ -182,7 +187,7 @@ export function CodexDevelopmentBuildVerificationPlan(
       selectionReasons: ['full-inventory'],
       affectedOwners: [],
       affectedSlowTests: [],
-      gates: buildCiFullGatePlan()
+      gates: [...buildCiFullGatePlan(), ...(sourceProgramTransition === undefined ? [] : [sourceProgramTransitionGate(sourceProgramTransition)])]
     };
   }
   if (testImpactSourceProvider === null) {
@@ -206,6 +211,6 @@ export function CodexDevelopmentBuildVerificationPlan(
     selectionReasons: [...selection.reasons],
     affectedOwners: [...selection.owners],
     affectedSlowTests: [...selection.affectedSlowTests],
-    gates
+    gates: [...gates, ...(sourceProgramTransition === undefined ? [] : [sourceProgramTransitionGate(sourceProgramTransition)])]
   };
 }

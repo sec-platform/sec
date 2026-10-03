@@ -45,7 +45,7 @@ import {
 } from '../contract/root.ts';
 
 // ---------------------------------------------------------------------------
-// TCB closure constants (canonical source — moved from sec-merge-gate.test.ts)
+// TCB closure constants (canonical source — moved from merge-gate.test.ts)
 // ---------------------------------------------------------------------------
 
 const TCB_RUNTIME_ENTRYPOINTS = SEC_TRUSTED_BOOTSTRAP_REGISTRY.runtimeEntrypoints;
@@ -107,11 +107,11 @@ export const TCB_REVIEWED_PROCESS_DISPATCHERS = new Set([
   'src/adapters/runtime-state/physical/runtime/process.ts::function-declaration:runCommandCapture::spawn#1',
   'src/adapters/runtime-state/physical/runtime/process.ts::function-declaration:terminateCommandProcessTree::spawn#1',
   'src/adapters/runtime-state/physical/runtime/windows-repository-change-observer.ts::function-declaration:startWatcher::Worker#1',
-  'src/adapters/verification/platform/ci/verification.ts::function-declaration:inspectHostedActionArchiveMetadata::spawnSync#1',
-  'src/adapters/verification/platform/ci/verification.ts::function-declaration:gitCandidateBytes::spawnSync#1',
-  'src/adapters/verification/platform/ci/verification.ts::function-declaration:defaultHostedSutSandboxProcess::spawn#1',
-  'src/adapters/verification/platform/ci/verification.ts::function-declaration:hostedActionGhReadJson::spawnSync#1',
-  'src/adapters/verification/platform/ci/verification.ts::function-declaration:runHostedMaterializerCommand::spawnSync#1',
+  'src/adapters/verification/platform/ci/verification-materialization.ts::function-declaration:inspectHostedActionArchiveMetadata::spawnSync#1',
+  'src/adapters/verification/platform/ci/verification-materialization.ts::function-declaration:gitCandidateBytes::spawnSync#1',
+  'src/adapters/verification/platform/ci/verification-sut.ts::function-declaration:defaultHostedSutSandboxProcess::spawn#1',
+  'src/adapters/verification/platform/ci/verification-cli.ts::function-declaration:hostedActionGhReadJson::spawnSync#1',
+  'src/adapters/verification/platform/ci/verification-materialization.ts::function-declaration:runHostedMaterializerCommand::spawnSync#1',
   'src/adapters/self-hosting/control/agent/agent-operation-activation.ts::function-declaration:command::spawnSync#1',
   'src/adapters/self-hosting/control/branch-lifecycle/branch-closeout-receipt.ts::function-declaration:runCloseoutObservationGh::spawnSync#1',
   'src/adapters/self-hosting/control/branch-lifecycle/branch-closeout.ts::function-declaration:runCloseoutGit::spawnSync#1',
@@ -122,8 +122,7 @@ export const TCB_REVIEWED_PROCESS_DISPATCHERS = new Set([
   'src/adapters/verification/platform/ci/runtime/verification-action-github-provider.ts::function-declaration:dispatchVerificationActionRepositoryWakeup::spawnSync#1',
   'src/adapters/verification/platform/ci/runtime/verification-action-github-provider.ts::function-declaration:ghBytes::spawnSync#1',
   'src/adapters/verification/platform/ci/runtime/verification-action-github-provider.ts::function-declaration:runProcessText::spawnSync#1',
-  'src/adapters/verification/platform/ci/runtime/verification-session-github.ts::function-declaration:runVerificationSessionGh::spawnSync#1',
-  'src/adapters/verification/platform/ci/runtime/verification-session.ts::function-declaration:runVerificationSessionCommand::spawnSync#1',
+  'src/adapters/verification/platform/ci/runtime/session-command.ts::function-declaration:runVerificationSessionCommand::spawnSync#1',
   'src/adapters/self-hosting/development/hooks/install.ts::function-declaration:gitText::spawnSync#1'
 ]);
 
@@ -190,7 +189,7 @@ const TCB_PROCESS_SAFE_MEMBERS = new Set([
 ]);
 
 // ---------------------------------------------------------------------------
-// TCB closure logic (canonical source — moved from sec-merge-gate.test.ts)
+// TCB closure logic (canonical source — moved from merge-gate.test.ts)
 // ---------------------------------------------------------------------------
 
 export function runtimeRelativeImportsFromSource(
@@ -1204,36 +1203,28 @@ function readTcbClosureCandidateOrdinaryFile(
   repositoryPath: string,
   absolutePath: string
 ): Exclude<TcbClosureCandidateFileObservation, { kind: 'missing' }> | null {
-  let metadata: ReturnType<typeof lstatSync>;
-  try {
-    metadata = lstatSync(absolutePath);
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null;
-    throw new Error(`TCB candidate module metadata is unavailable: ${repositoryPath}.`, { cause: error });
-  }
-  if (!metadata.isFile() || metadata.isSymbolicLink() || metadata.nlink !== 1) {
-    throw new Error(`TCB candidate module must be one physical single-link regular file: ${repositoryPath}.`);
-  }
-  let physicalPathBefore: string;
-  try {
-    physicalPathBefore = realpathSync.native(absolutePath);
-  } catch (error) {
-    throw new Error(`TCB candidate module realpath is unavailable: ${repositoryPath}.`, { cause: error });
-  }
-  if (physicalPathBefore !== absolutePath) {
-    throw new Error(`TCB candidate module path is not canonical: ${repositoryPath}.`);
-  }
   let descriptor: number | null = null;
-  let bytes: Uint8Array;
-  let descriptorBefore: ReturnType<typeof fstatSync>;
-  let descriptorAfter: ReturnType<typeof fstatSync>;
   try {
     descriptor = openSync(
       absolutePath,
       fsConstants.O_RDONLY | (fsConstants.O_NOFOLLOW ?? 0)
     );
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null;
+    throw new Error(`TCB candidate module could not be opened safely: ${repositoryPath}.`, { cause: error });
+  }
+  let metadata: ReturnType<typeof lstatSync>;
+  let physicalPathBefore: string;
+  let bytes: Uint8Array;
+  let descriptorBefore: ReturnType<typeof fstatSync>;
+  let descriptorAfter: ReturnType<typeof fstatSync>;
+  try {
     descriptorBefore = fstatSync(descriptor);
-    if (!descriptorBefore.isFile() || descriptorBefore.nlink !== 1 || metadata.nlink !== 1 ||
+    metadata = lstatSync(absolutePath);
+    physicalPathBefore = realpathSync.native(absolutePath);
+    if (!descriptorBefore.isFile() || descriptorBefore.nlink !== 1 ||
+        !metadata.isFile() || metadata.isSymbolicLink() || metadata.nlink !== 1 ||
+        physicalPathBefore !== absolutePath ||
         descriptorBefore.nlink !== metadata.nlink || descriptorBefore.dev !== metadata.dev ||
         descriptorBefore.ino !== metadata.ino || descriptorBefore.size !== metadata.size ||
         descriptorBefore.mtimeMs !== metadata.mtimeMs || descriptorBefore.ctimeMs !== metadata.ctimeMs) {
@@ -1244,7 +1235,7 @@ function readTcbClosureCandidateOrdinaryFile(
   } catch (error) {
     throw new Error(`TCB candidate module bounded read failed: ${repositoryPath}.`, { cause: error });
   } finally {
-    if (descriptor !== null) closeSync(descriptor);
+    closeSync(descriptor);
   }
   let metadataAfter: ReturnType<typeof lstatSync>;
   let physicalPathAfter: string;

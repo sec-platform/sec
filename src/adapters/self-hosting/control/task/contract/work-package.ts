@@ -3,7 +3,8 @@ import { createHash } from 'node:crypto';
 import { CI_VERIFICATION_CONTRACT_REVISION } from '../../../../../assurance/verification/contract/revision.ts';
 import { isSecRepositoryTestModulePath } from '../../../../../contracts/repository-test-path.ts';
 
-const CodexDevelopmentWorkPackageSchema = 'codex-development-work-package-v1' as const;
+const CodexDevelopmentWorkPackageSchemaV1 = 'codex-development-work-package-v1' as const;
+const CodexDevelopmentWorkPackageSchemaV3 = 'codex-development-work-package-v3' as const;
 const CodexDevelopmentWorkPackageManifestStateFrozen = 'frozen' as const;
 
 type CodexDevelopmentCiVerificationRevision = `ci-verification-v${number}`;
@@ -14,11 +15,9 @@ type CodexDevelopmentWorkPackageTask = {
   ownedPaths: string[];
 };
 
-export type CodexDevelopmentWorkPackageManifest = {
-  schema: typeof CodexDevelopmentWorkPackageSchema;
+type CodexDevelopmentWorkPackageFields = {
   id: string;
   tracking: string;
-  base: string;
   manifestState: typeof CodexDevelopmentWorkPackageManifestStateFrozen;
   requiredProfile: 'quick' | 'full';
   ciRevision: CodexDevelopmentCiVerificationRevision;
@@ -28,6 +27,22 @@ export type CodexDevelopmentWorkPackageManifest = {
   acceptance: string[];
   tests: string[];
 };
+
+export type CodexDevelopmentWorkPackageManifest = CodexDevelopmentWorkPackageFields & (
+  | { schema: typeof CodexDevelopmentWorkPackageSchemaV1; base: string }
+  | { schema: typeof CodexDevelopmentWorkPackageSchemaV3; base?: never }
+);
+
+/** Compare an already-observed base; this check does not issue operation authority. */
+export function CodexDevelopmentWorkPackageAcceptsObservedBase(
+  manifest: CodexDevelopmentWorkPackageManifest,
+  observedBase: string
+): boolean {
+  if (!/^[0-9a-f]{40}$/u.test(observedBase)) return false;
+  return manifest.schema === CodexDevelopmentWorkPackageSchemaV1
+    ? manifest.base === observedBase
+    : manifest.schema === CodexDevelopmentWorkPackageSchemaV3;
+}
 
 export type CodexDevelopmentWorkPackageOwnershipResult = {
   changedPathOwners: Array<{ path: string; taskId: string; owner: string }>;
@@ -49,7 +64,6 @@ const TOP_LEVEL_KEYS = [
   'schema',
   'id',
   'tracking',
-  'base',
   'manifestState',
   'requiredProfile',
   'ciRevision',
@@ -58,7 +72,7 @@ const TOP_LEVEL_KEYS = [
   'acceptance',
   'tests'
 ] as const;
-const TOP_LEVEL_KEYS_WITH_AUTHORITY_REFS = [...TOP_LEVEL_KEYS, 'authorityRefs'] as const;
+
 const TASK_KEYS = ['id', 'owner', 'ownedPaths'] as const;
 
 function assertPlainObject(value: unknown, label: string): asserts value is Record<string, unknown> {
@@ -330,11 +344,13 @@ export function CodexDevelopmentDecodeWorkPackageManifest(
   expectedPath?: string
 ): CodexDevelopmentWorkPackageManifest {
   const raw = parseManifestRaw(source);
-  assertExactKeys(
-    raw,
-    raw.authorityRefs === undefined ? TOP_LEVEL_KEYS : TOP_LEVEL_KEYS_WITH_AUTHORITY_REFS,
-    'Work Package manifest'
-  );
+  if (raw.schema !== CodexDevelopmentWorkPackageSchemaV1 && raw.schema !== CodexDevelopmentWorkPackageSchemaV3) {
+    throw new Error('Work Package manifest schema mismatch.');
+  }
+  const expectedKeys: string[] = [...TOP_LEVEL_KEYS];
+  if (raw.schema === CodexDevelopmentWorkPackageSchemaV1) expectedKeys.push('base');
+  if (raw.authorityRefs !== undefined) expectedKeys.push('authorityRefs');
+  assertExactKeys(raw, expectedKeys, 'Work Package manifest');
 
   const id = stringValue(raw.id, 'Work Package manifest id');
   assertStableId(id, 'Work Package manifest id');
@@ -342,9 +358,12 @@ export function CodexDevelopmentDecodeWorkPackageManifest(
   if (tracking !== 'none' && !/^issue-[1-9]\d*$/u.test(tracking)) {
     throw new Error('Work Package manifest tracking must be `none` or `issue-<positive integer>`.');
   }
-  const base = stringValue(raw.base, 'Work Package manifest base');
-  if (!/^[0-9a-f]{40}$/u.test(base)) throw new Error('Work Package manifest base must be a lowercase 40-character Git SHA.');
-  if (raw.schema !== CodexDevelopmentWorkPackageSchema) throw new Error('Work Package manifest schema mismatch.');
+  const identity = raw.schema === CodexDevelopmentWorkPackageSchemaV1
+    ? { schema: raw.schema, id, tracking, base: stringValue(raw.base, 'Work Package manifest base') }
+    : { schema: raw.schema, id, tracking };
+  if (identity.schema === CodexDevelopmentWorkPackageSchemaV1 && !/^[0-9a-f]{40}$/u.test(identity.base)) {
+    throw new Error('Work Package manifest base must be a lowercase 40-character Git SHA.');
+  }
   if (raw.manifestState !== CodexDevelopmentWorkPackageManifestStateFrozen) {
     throw new Error('Work Package manifest must be frozen.');
   }
@@ -403,10 +422,7 @@ export function CodexDevelopmentDecodeWorkPackageManifest(
     ? undefined
     : documentationIdArray(raw.authorityRefs, 'Work Package manifest authorityRefs');
   const manifest: CodexDevelopmentWorkPackageManifest = {
-    schema: CodexDevelopmentWorkPackageSchema,
-    id,
-    tracking,
-    base,
+    ...identity,
     manifestState: CodexDevelopmentWorkPackageManifestStateFrozen,
     requiredProfile: raw.requiredProfile,
     ciRevision: ciRevision as CodexDevelopmentCiVerificationRevision,
@@ -428,7 +444,7 @@ export function CodexDevelopmentParseWorkPackageManifest(
   expectedPath?: string
 ): CodexDevelopmentWorkPackageManifest {
   const schema = parseManifestRaw(source).schema;
-  if (schema === CodexDevelopmentWorkPackageSchema) {
+  if (schema === CodexDevelopmentWorkPackageSchemaV1 || schema === CodexDevelopmentWorkPackageSchemaV3) {
     return CodexDevelopmentAssertCurrentWorkPackageRevision(
       CodexDevelopmentDecodeWorkPackageManifest(source, expectedPath)
     );

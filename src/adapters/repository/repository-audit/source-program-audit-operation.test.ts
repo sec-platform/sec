@@ -1,33 +1,56 @@
 import { describe, test } from 'bun:test';
 import assert from 'node:assert/strict';
 
+import { syntheticTestFindingComparison } from '../../../../tests/testkit/source-program-test-finding-fixture.ts';
+
 import { canonicalJson, rawSha256, sha256 } from '../../../contracts/canonical.ts';
-import type { SourceProgramModel } from '../source-program-model/contract.ts';
+import { bindSecSemanticOperation, compileSecCapabilityBinding, compileSecSemanticOperationPlan, issueSecSemanticOperationAttemptContext } from '../../../execution/operation/semantic.ts';
+import { compileSecRepositoryModuleMembershipSnapshot } from '../architecture/contract.ts';
+import { SOURCE_PROGRAM_TEST_OBLIGATIONS_NOT_REQUESTED, type SourceProgramModel } from '../source-program-model/contract.ts';
+import { compileVirtualRepositorySourceProgramCompilation, compileVirtualRepositorySourceProgramTestObligationsCompilation } from '../source-program-model/repository-compilation.ts';
+import { querySourceProgramModel } from '../source-program-model/typescript.ts';
+import { compileVirtualWorkspaceSourceSnapshot } from '../source-program-model/workspace-source-snapshot.ts';
+import type { RepositoryAuditLoadedImplementationEvidence } from './loaded-implementation.ts';
 import {
   BLOCKING_DETAILS_PAGE_MAXIMUM_BYTES,
+  compileSourceProgramAuditAnalyses,
   compileSourceProgramAuditOperation,
   compileSourceProgramAuditOperationInput,
   compileSourceProgramAuditSourceProgramProjection,
+  compileSourceProgramAuditTestObligationsSourceProgramProjection,
   compileSourceProgramAuditTestValueProjection,
   encodeSourceProgramAuditOperationInput,
   encodeSourceProgramAuditOperationResult,
+  isTestObligationsAuditFacts,
   parseSourceProgramAuditOperationInput,
   parseSourceProgramAuditOperationResult,
   SourceProgramAuditBlockingDetailError,
+  type CompileScopedCandidateTestObligationsAuditOperationInput,
   type CompileSourceProgramAuditOperationInput,
+  type CompileTestObligationsAuditOperationInput,
+  type CompileWholeSourceProgramAuditOperationInput,
   type SourceProgramAuditOperationInput
 } from './source-program-audit-operation.ts';
 
 import { compileSourceProgramFindingDelta } from '../source-program-model/reconciliation-findings.ts';
+import { compileSourceProgramSupersessionEvidenceIdentity, type SourceProgramSupersessionEvidence } from '../source-program-model/reduction.ts';
 import { captureRepositoryAnalysisPolicy } from '../source-program-model/repository-analysis-policy.ts';
-import { REPOSITORY_AUDIT_WORKER_PROTOCOL_LIMITS } from './worker-protocol.ts';
+import { createSourceProgramTransitionAssessment, parseSourceProgramTransitionAssessment } from './transition.ts';
+import {
+  compileRepositoryAuditWorkerHandshakeCandidate,
+  compileRepositoryAuditWorkerRequest,
+  compileRepositoryAuditWorkerResultCandidate,
+  encodeRepositoryAuditWorkerCandidateStream,
+  REPOSITORY_AUDIT_WORKER_PROTOCOL_LIMITS
+} from './worker-protocol.ts';
 
 const digest = (value: unknown): `sha256:${string}` => sha256(value) as `sha256:${string}`;
 
 function input(
   currentCandidates: SourceProgramModel['candidates'] = Object.freeze([]),
-  baselineCandidates: SourceProgramModel['candidates'] = Object.freeze([])
-): CompileSourceProgramAuditOperationInput {
+  baselineCandidates: SourceProgramModel['candidates'] = Object.freeze([]),
+  includeMechanismReview = true
+): CompileWholeSourceProgramAuditOperationInput {
   const sourceRevision = digest('source');
   const modelDigest = digest('model');
   const beforeSourceRevision = digest('before-source');
@@ -106,13 +129,17 @@ function input(
     dispositions: Object.freeze([]),
     records: Object.freeze([]),
     findings: Object.freeze([]),
+    definitionInputs: Object.freeze([]),
+    definitionContext: null,
     compilationDigest: testCompilationDigest
   });
-  return Object.freeze({
+  const facts: CompileSourceProgramAuditOperationInput = Object.freeze({
     sourceProgram: compileSourceProgramAuditSourceProgramProjection(
       model,
       sourceFileIdentities,
-      false
+      false,
+      false,
+      includeMechanismReview
     ),
     sourceFileIdentities,
     moduleArchitecture: Object.freeze({
@@ -253,6 +280,7 @@ function input(
       directProcessTransportPaths: 0
     }),
     supersession: Object.freeze({
+      authorityScope: 'whole-program' as const,
       status: 'equivalent',
       baseline: Object.freeze({
         sourceRevision: digest('before-source'),
@@ -311,11 +339,12 @@ function input(
       outputPath: null
     })
   });
+  return Object.freeze({ ...facts, ...syntheticTestFindingComparison(facts) });
 }
 
 function sourceProgramWithOneUnknown(
-  sourceProgram: CompileSourceProgramAuditOperationInput['sourceProgram']
-): CompileSourceProgramAuditOperationInput['sourceProgram'] {
+  sourceProgram: CompileWholeSourceProgramAuditOperationInput['sourceProgram']
+): CompileWholeSourceProgramAuditOperationInput['sourceProgram'] {
   const observation = Object.freeze({ reason: 'unresolved-observation' });
   return Object.freeze({
     ...sourceProgram,
@@ -521,6 +550,14 @@ describe('Source Program audit domain operation', () => {
     assert.equal(compileSourceProgramAuditOperation(request).exitCode, 1);
   });
 
+  test('missing test finding comparison cannot inherit synthetic codec success', () => {
+    const { testFindingDelta: omitted, ...facts } = input();
+    assert.ok(omitted !== undefined);
+    const request = compileSourceProgramAuditOperationInput(facts);
+    assert.deepEqual(request.blockingReasons, ['test-finding-reconciliation-unavailable']);
+    assert.equal(compileSourceProgramAuditOperation(request).exitCode, 1);
+  });
+
   test('byte pages bind the complete retirement set and survive canonical wire readback', () => {
     const facts = input();
     const proofs = Object.freeze(Array.from({ length: 50 }, (_, index) => Object.freeze({
@@ -595,6 +632,7 @@ describe('Source Program audit domain operation', () => {
     });
     const compiled = compileSourceProgramAuditOperationInput(Object.freeze({
       ...facts,
+      ...syntheticTestFindingComparison(facts, [finding]),
       sourceProgram,
       blockingCandidates: Object.freeze([blocker]),
       testDisposition: Object.freeze({
@@ -679,6 +717,7 @@ describe('Source Program audit domain operation', () => {
     });
     const common = Object.freeze({
       ...facts,
+      ...syntheticTestFindingComparison(facts, [finding]),
       sourceProgram,
       blockingCandidates: blockers,
       testDisposition: Object.freeze({ ...facts.testDisposition, findings: Object.freeze([finding]) }),
@@ -887,4 +926,346 @@ describe('Source Program audit domain operation', () => {
     }
   });
 
+});
+
+
+function legacyTestFacts(): CompileWholeSourceProgramAuditOperationInput {
+  const facts = input();
+  return { ...facts, options: { ...facts.options, authorityScope: 'test-obligations' },
+    supersession: { ...facts.supersession, authorityScope: 'test-obligations' } };
+}
+
+function scopedTestFacts(facts = legacyTestFacts()): CompileTestObligationsAuditOperationInput {
+  const analyses = compileSourceProgramAuditAnalyses({ authorityScope: 'test-obligations',
+    baselineCompilation: facts.reconciliation.before,
+    compileWholeProgram: () => { throw new Error('unrequested general analysis ran'); } });
+  assert.equal(analyses.schema, 'source-program-test-obligations-audit-facts-v1');
+  if (analyses.schema === undefined) throw new Error('scope selection returned full analyses');
+  assert.ok(facts.testFindingDelta !== undefined);
+  return { ...facts, ...analyses, testFindingDelta: facts.testFindingDelta,
+    reduction: { mode: 'none' }, options: { ...facts.options, authorityScope: 'test-obligations' } };
+}
+
+// Pure historical replay fixture. These structures are deliberately not issued
+// physical observations, compilation receipts, author approval or Gate authority.
+function historicalTransition(facts: CompileSourceProgramAuditOperationInput): Parameters<typeof createSourceProgramTransitionAssessment>[0] {
+  const evidence = (sourceRevision: string, modelDigest: string, testCompilationDigest: string): SourceProgramSupersessionEvidence => {
+    const identity = { ...compileSourceProgramSupersessionEvidenceIdentity({
+      revisionDigest: digest(sourceRevision), treeDigest: digest(modelDigest),
+      toolchainDigest: digest('test-toolchain'), configurationDigest: digest('test-configuration')
+    }), sourceRevision };
+    const source = { modelDigest, testCompilationDigest, intentEvidenceDigest: digest([]) };
+    const fields = { identity, source, actionKey: digest({ identity, source }), productionUnits: [],
+      resourceUnits: [], entrypointUnits: [], tests: [], testDefinitionInputs: [], testDefinitionContext: null,
+      intentEvidence: [], unknowns: [] };
+    return { ...fields, evidenceDigest: digest(fields) };
+  };
+  const baseline = evidence(facts.supersession.baseline.sourceRevision,
+    facts.supersession.baseline.modelDigest, facts.supersession.baseline.testCompilationDigest);
+  const current = evidence(facts.sourceProgram.sourceRevision, facts.sourceProgram.modelDigest,
+    facts.testValue.compilationDigest);
+  const operation = compileSourceProgramAuditOperationInput(facts);
+  const result = compileSourceProgramAuditOperation(operation);
+  const plan = compileSecSemanticOperationPlan({ operation: 'fixture.audit',
+    intentDigest: digest('fixture-intent'), decisionDigest: digest('fixture-decision'), deadlineAtUnixMs: 1,
+    aggregateBudgets: [{ resource: 'duration-ms', maximum: 1 }, { resource: 'input-bytes', maximum: 1_000_000 },
+      { resource: 'output-bytes', maximum: 1_000_000 }, { resource: 'processes', maximum: 1 }],
+    requirements: [{ id: 'fixture.worker', contractDigest: digest('fixture-contract'), effectKinds: ['process'], failureKinds: ['unknown'] }],
+    attempt: issueSecSemanticOperationAttemptContext({ authorityGrantDigest: digest('fixture-only') })
+  });
+  const binding = compileSecCapabilityBinding({ requirementId: 'fixture.worker',
+    contractDigest: digest('fixture-contract'), providerIdentityDigest: digest('fixture-provider') });
+  const boundOperation = bindSecSemanticOperation(plan, [binding]);
+  const request = compileRepositoryAuditWorkerRequest({
+    operationIdentityDigest: plan.identity.identityDigest, boundAttemptDigest: boundOperation.boundAttemptDigest,
+    generationDigest: digest('fixture-generation'),
+    entrypointAddress: 'module-entrypoint:src/fixture/module.json#fixture.audit:src/fixture/worker.ts',
+    implementationDigest: digest('fixture-implementation'), dependencyGenerationDigest: digest('fixture-dependencies'),
+    subjectDigest: operation.binding.subjectDigest, payload: encodeSourceProgramAuditOperationInput(operation)
+  });
+  const handshake = compileRepositoryAuditWorkerHandshakeCandidate(request);
+  const candidate = compileRepositoryAuditWorkerResultCandidate(request, handshake, encodeSourceProgramAuditOperationResult(result));
+  const stream = encodeRepositoryAuditWorkerCandidateStream(request, handshake, candidate);
+  const { payloadBase64: _requestPayload, ...requestIdentity } = request;
+  const { payloadBase64: _resultPayload, ...resultIdentity } = candidate;
+  const physicalRoot = { path: '/synthetic-replay-only', finalPath: '/synthetic-replay-only',
+    device: '0', inode: '0', objectId: 'synthetic-replay-only' };
+  const resourceFields = {
+    operationIdentityDigest: request.operationIdentityDigest, boundAttemptDigest: request.boundAttemptDigest,
+    requirementId: 'fixture.worker', providerBindingDigest: binding.bindingDigest,
+    resourceCeilingIdentityDigest: digest('fixture-ceiling'), requirementBindingContextDigest: digest('fixture-context'),
+    processCount: 1, settledProcessCount: 1, successfulProcessRecordCount: 1, failedProcessCount: 0,
+    admittedNativeResourceCount: 1, startedNativeResourceCount: 1, rootProcessCount: 1, stdinWorkerCount: 0,
+    helperProcessCount: 0, settledNativeResourceCount: 1, failedNativeAdmissionCount: 0,
+    inputBytes: encodeSourceProgramAuditOperationInput(operation).byteLength, outputBytes: stream.byteLength, deadlineAtUnixMs: 1
+  };
+  const history: Omit<RepositoryAuditLoadedImplementationEvidence, 'evidenceDigest'> = {
+    schema: 'repository-audit-loaded-implementation-history-v1', authority: 'historical-evidence-only',
+    operation: boundOperation,
+    observation: { kind: 'repository-audit-loaded-implementation-observation', entrypointAddress: request.entrypointAddress,
+      implementationDigest: request.implementationDigest, operationIdentityDigest: request.operationIdentityDigest,
+      boundAttemptDigest: request.boundAttemptDigest, observationDigest: digest('synthetic-observation-only') },
+    producerClosure: { authority: 'source-evidence-only', operation: { capability: 'fixture', operation: 'audit' },
+      moduleId: 'fixture', descriptor: { path: 'src/fixture/module.json', contentDigest: digest('fixture-descriptor') },
+      entrypoint: { path: 'src/fixture/worker.ts', contentDigest: digest('fixture-worker'), address: request.entrypointAddress },
+      implementationFiles: [{ path: 'src/fixture/worker.ts', contentDigest: digest('fixture-worker') }], closureDigest: digest('fixture-closure') },
+    generationRetirement: { generationIdentity: {
+      borrowedGenerationDigest: digest('fixture-borrowed'), exactFileSetDigest: digest('fixture-files'),
+      generationDigest: request.generationDigest, materializationOperationDigest: digest('fixture-materialization'),
+      protectedSubjectRootsDigest: digest('fixture-protected-roots'), sealedRoot: physicalRoot,
+      treeDigest: digest('fixture-tree'), workingDirectoryGenerationDigest: digest('fixture-workdir')
+    }, linkedSettlements: [], protectedRootSettlements: [], treeAuthority: 'released',
+      tree: { entryCount: 1, root: physicalRoot, status: 'physically-absent' } },
+    dependencyRetirement: { generationDigest: request.dependencyGenerationDigest, physicalRoot, terminal: 'released' },
+    resources: { ...resourceFields, receiptDigest: digest(resourceFields) },
+    process: { ordinal: 1, code: 0, stdoutDigest: rawSha256(stream), stdoutBytes: stream.byteLength,
+      stderrBytes: 0, stderrDigest: rawSha256('') },
+    request: requestIdentity, handshake, result: resultIdentity, streamDigest: rawSha256(stream)
+  };
+  assert.equal(facts.testRetirement.proofs.length, 0);
+  return {
+    runtimeSha: 'a'.repeat(40), baseSha: 'a'.repeat(40), baseTreeSha: 'b'.repeat(40),
+    headSha: 'c'.repeat(40), headTreeSha: 'd'.repeat(40), baseline, current,
+    changedPaths: [], authorAssessment: null, currentTestValue: {
+      sourceRevision: facts.testValue.sourceRevision, compilationDigest: facts.testValue.compilationDigest,
+      baselineTestPaths: [], baselineDigest: facts.testValue.baselineDigest,
+      baselineEvidenceDigest: facts.testValue.baselineEvidenceDigest, dispositions: [], records: [], findings: [],
+      definitionInputs: [], definitionContext: null
+    }, testRetirement: { ...facts.testRetirement, proofs: [] }, auditFacts: facts,
+    producerExecution: { ...history, evidenceDigest: digest(history) }
+  };
+}
+
+describe('test-obligations scoped audit facts', () => {
+  test('omits optional mechanism diagnostics without changing test-obligation decisions', () => {
+    const fullFacts = legacyTestFacts();
+    const leanFacts = { ...fullFacts, sourceProgram: input([], [], false).sourceProgram };
+    const { mechanismReview, ...requiredSourceFacts } = fullFacts.sourceProgram;
+    assert.ok(mechanismReview !== undefined);
+    assert.deepEqual(leanFacts.sourceProgram, requiredSourceFacts);
+    const full = compileSourceProgramAuditOperationInput(scopedTestFacts(fullFacts));
+    const lean = compileSourceProgramAuditOperationInput(scopedTestFacts(leanFacts));
+    const { mechanisms, ...requiredProjection } = full.projection;
+    assert.ok(mechanisms !== undefined);
+    assert.deepEqual(lean.projection, requiredProjection);
+    assert.deepEqual(lean.blockingReasons, full.blockingReasons);
+    assert.equal(compileSourceProgramAuditOperation(lean).exitCode,
+      compileSourceProgramAuditOperation(full).exitCode);
+    // Existing historical facts still retain and replay the complete diagnostic.
+    assert.deepEqual(parseSourceProgramTransitionAssessment(
+      createSourceProgramTransitionAssessment(historicalTransition(scopedTestFacts(fullFacts))))
+      .auditFacts.sourceProgram.mechanismReview, mechanismReview);
+  });
+
+  test('omits general producer calls and reports unrequested analyses without zero success counts', () => {
+    const full = legacyTestFacts();
+    let calls = 0;
+    const prepare = (authorityScope: 'whole-program' | 'test-obligations') => compileSourceProgramAuditAnalyses({
+      authorityScope, baselineCompilation: full.reconciliation.before, compileWholeProgram: () => {
+        calls++; return { implementationDominance: full.implementationDominance,
+          reconciliation: full.reconciliation, architectureEvolution: full.architectureEvolution };
+      }
+    });
+    assert.equal(prepare('test-obligations').schema, 'source-program-test-obligations-audit-facts-v1');
+    assert.equal(calls, 0);
+    assert.equal(prepare('whole-program').schema, undefined);
+    assert.equal(calls, 1);
+    const facts = scopedTestFacts();
+    for (const full of [false, true]) {
+      const report = compileSourceProgramAuditOperationInput({ ...facts, options: { ...facts.options, full } }).projection;
+      for (const name of ['implementationDominance', 'reconciliation', 'architectureEvolution']) {
+        assert.deepEqual(report[name], { status: 'not-requested', reason: 'outside-test-obligations' });
+      }
+      assert.equal(Object.hasOwn(report.summary as object, 'reconciliationChanges'), false);
+      assert.equal(Object.hasOwn(report.summary as object, 'implementationDominanceFindings'), false);
+    }
+    assert.throws(() => compileSourceProgramAuditOperationInput({ ...facts,
+      options: { ...facts.options, blockingDetails: true, blockingDetailsDomain: 'implementation-dominance' } }), /not requested/);
+  });
+
+  test('preserves test blockers and decisions across full and scoped facts', () => {
+    const full = legacyTestFacts();
+    assert.ok(full.testFindingDelta !== undefined);
+    const cut = (value: typeof full.testFindingDelta.before) => {
+      const context = { ...value.context, analysisPolicyDigest: null };
+      return { ...value, context, contextDigest: digest(context), incompleteContextFields: ['analysisPolicyDigest'] };
+    };
+    const { deltaDigest: _digest, ...priorDelta } = full.testFindingDelta;
+    const unresolvedDelta = { ...priorDelta, before: cut(priorDelta.before), after: cut(priorDelta.after), contextComparable: false };
+    const unresolved = { ...full, testFindingDelta: { ...unresolvedDelta, deltaDigest: digest(unresolvedDelta) } };
+    const finding = { code: 'test-module-disposition-unknown' as const, path: 'tests/new.test.ts',
+      detail: 'new unknown disposition', span: null, disposition: null };
+    const regression = { ...full, ...syntheticTestFindingComparison(full, [finding]),
+      testDisposition: { ...full.testDisposition, findings: [finding] }, blockingTestFindings: [finding] };
+    const variants: CompileWholeSourceProgramAuditOperationInput[] = [full, unresolved, regression,
+      { ...full, testRetirement: { ...full.testRetirement, proofs: [{ status: 'blocked' }] } },
+      { ...full, supersession: { ...full.supersession, status: 'owner-decision-required' } },
+      { ...full, supersession: { ...full.supersession, status: 'author-decision-conditional' } }
+    ];
+    for (const variant of variants) {
+      const legacy = compileSourceProgramAuditOperationInput(variant);
+      const scoped = compileSourceProgramAuditOperationInput(scopedTestFacts(variant));
+      assert.deepEqual(scoped.blockingReasons, legacy.blockingReasons);
+      assert.equal(compileSourceProgramAuditOperation(scoped).exitCode, compileSourceProgramAuditOperation(legacy).exitCode);
+    }
+    assert.ok(compileSourceProgramAuditOperationInput(scopedTestFacts(unresolved)).blockingReasons
+      .includes('test-finding-reconciliation-unresolved'));
+    assert.ok(compileSourceProgramAuditOperationInput(scopedTestFacts(regression)).blockingReasons
+      .includes('test-value-finding-regression'));
+  });
+
+  test('rejects anchor drift, missing comparison and mixed scope or fact versions', () => {
+    const facts = scopedTestFacts();
+    const invalid: unknown[] = [
+      { ...facts, baselineCompilation: undefined },
+      { ...facts, baselineCompilation: { ...facts.baselineCompilation, sourceRevision: digest('foreign') } },
+      { ...facts, baselineCompilation: { ...facts.baselineCompilation, modelDigest: digest('foreign') } },
+      { ...facts, baselineCompilation: { ...facts.baselineCompilation, compilationReceiptDigest: digest('foreign') } },
+      { ...facts, sourceProgramCompilation: { ...facts.sourceProgramCompilation, receiptDigest: digest('foreign') } },
+      { ...facts, testValue: { ...facts.testValue, findingsDigest: digest('foreign') } },
+      { ...facts, testFindingDelta: undefined },
+      { ...facts, options: { ...facts.options, authorityScope: 'whole-program' } },
+      { ...facts, reduction: { mode: 'version' } },
+      { ...facts, schema: 'future-version' },
+      { ...facts, reconciliation: { status: 'resolved', changes: [] } },
+      { ...facts, architectureEvolution: undefined },
+      { ...facts, implementationDominance: { status: 'not-requested', reason: 'outside-test-obligations', findings: [] } },
+      { ...legacyTestFacts(), implementationDominance: facts.implementationDominance },
+      { ...legacyTestFacts(), baselineCompilation: facts.baselineCompilation }
+    ];
+    for (const candidate of invalid) assert.throws(() =>
+      compileSourceProgramAuditOperationInput(candidate as CompileSourceProgramAuditOperationInput));
+  });
+
+  test('retains scoped facts identity through the canonical request and result payload', () => {
+    const facts = scopedTestFacts();
+    const operation = compileSourceProgramAuditOperationInput(facts);
+    const wire = encodeSourceProgramAuditOperationInput(operation);
+    const parsed = parseSourceProgramAuditOperationInput(wire, 1_000_000);
+    assert.deepEqual(encodeSourceProgramAuditOperationInput(parsed), wire);
+    assert.equal(parsed.projection.factsSchema, facts.schema);
+    assert.deepEqual(parsed.projection.baselineCompilation, facts.baselineCompilation);
+    const result = compileSourceProgramAuditOperation(parsed);
+    assert.deepEqual(parseSourceProgramAuditOperationResult(encodeSourceProgramAuditOperationResult(result), 1_000_000), result);
+    assert.throws(() => encodeSourceProgramAuditOperationResult({ ...result,
+      projection: { ...result.projection, factsSchema: 'other' } }), Error);
+    const legacy = compileSourceProgramAuditOperationInput(legacyTestFacts());
+    assert.equal(Object.hasOwn(legacy.projection, 'factsSchema'), false);
+    assert.equal(Object.hasOwn(legacy.projection, 'baselineCompilation'), false);
+  });
+
+  test('replays historical v1 and scoped v2 without converting history into live authority', () => {
+    for (const facts of [legacyTestFacts(), scopedTestFacts()]) {
+      const assessment = createSourceProgramTransitionAssessment(historicalTransition(facts));
+      assert.equal(assessment.schema, isTestObligationsAuditFacts(facts)
+        ? 'source-program-transition-assessment-v2' : 'source-program-transition-assessment-v1');
+      assert.deepEqual(parseSourceProgramTransitionAssessment(JSON.parse(JSON.stringify(assessment))), assessment);
+      assert.equal(assessment.producerExecution.authority, 'historical-evidence-only');
+      assert.throws(() => parseSourceProgramTransitionAssessment({ ...assessment,
+        schema: assessment.schema === 'source-program-transition-assessment-v1'
+          ? 'source-program-transition-assessment-v2' : 'source-program-transition-assessment-v1' }), /canonical/);
+      const producer = assessment.producerExecution;
+      const { evidenceDigest: _digest, ...history } = producer;
+      const changed = { ...history, process: { ...history.process, stdoutBytes: history.process.stdoutBytes + 1 } };
+      assert.throws(() => createSourceProgramTransitionAssessment({ ...assessment,
+        producerExecution: { ...changed, evidenceDigest: digest(changed) } }), /protocol bytes/);
+    }
+  });
+
+  test('binds scoped compared evidence and added or deleted shared-input paths before replay', () => {
+    const original = historicalTransition(scopedTestFacts());
+    for (const changedPaths of [['test-preload.ts'], ['deleted-test-config.ts']]) {
+      const context = { compilerIdentityDigest: digest('compiler'), inputs: [], unresolved: [],
+        readEnvelopes: [{ root: '.', descendants: true }], runtimeIsolation: 'unassessed' as const,
+        hasUnknownReadScope: false };
+      const baseline = { ...original.baseline, testDefinitionContext: { ...context, contextDigest: digest(context) } };
+      const { evidenceDigest: _digest, ...fields } = baseline;
+      assert.throws(() => createSourceProgramTransitionAssessment({ ...original, changedPaths,
+        baseline: { ...fields, evidenceDigest: digest(fields) } }), /shared test-input delta/);
+    }
+    assert.throws(() => createSourceProgramTransitionAssessment({ ...original,
+      auditFacts: { ...scopedTestFacts(), baselineCompilation: {
+        ...scopedTestFacts().baselineCompilation, sourceRevision: digest('wrong-baseline')
+      } } }), /compared source evidence/);
+  });
+});
+
+
+test('test-obligations candidate scope preserves source facts and refuses ordinary candidate queries', () => {
+  const descriptorPath = 'src/example/module.json';
+  const descriptorSource = JSON.stringify({ importGraph: 'runtime', externalEntrypoints: [],
+    capabilityProviders: [], preDependencyBootstrap: false });
+  const sources = {
+    [descriptorPath]: descriptorSource,
+    'src/example/operation.ts': 'export const value = 1;\n',
+    'package.json': JSON.stringify({ name: 'fixture', scripts: { first: 'echo sample', second: 'echo sample' } })
+  };
+  const files = Object.entries(sources).map(([path, source]) => ({ path, source, contentDigest: rawSha256(source) }));
+  const sourceRevision = digest(files);
+  const workspaceSnapshot = compileVirtualWorkspaceSourceSnapshot({
+    subject: { kind: 'virtual-mutation', provenance: { kind: 'source-program-virtual-mutation',
+      baseSnapshotDigest: digest('candidate-scope-fixture'), mutationDigest: sourceRevision } },
+    files,
+    moduleMembership: compileSecRepositoryModuleMembershipSnapshot({
+      repositoryFiles: files.map(({ path }) => path),
+      descriptorSources: [{ descriptorPath, source: descriptorSource }]
+    })
+  });
+  const complete = compileVirtualRepositorySourceProgramCompilation({ workspaceSnapshot });
+  const scoped = compileVirtualRepositorySourceProgramTestObligationsCompilation({ workspaceSnapshot });
+  assert.ok(complete.model.candidates.some(({ code }) => code === 'duplicate-entrypoint-command'));
+  assert.deepEqual(scoped.model.candidates, { status: 'not-requested', reason: 'outside-test-obligations' });
+  const { candidates: _completeCandidates, modelDigest: _completeDigest, ...completeFacts } = complete.model;
+  const { candidates: _scopedCandidates, modelDigest: _scopedDigest, ...scopedFacts } = scoped.model;
+  assert.deepEqual(scopedFacts, completeFacts);
+  assert.notEqual(scoped.model.modelDigest, complete.model.modelDigest);
+  assert.notEqual(scoped.receiptDigest, complete.receiptDigest);
+  assert.equal(scoped.typeScriptCompilation.model.modelDigest, complete.typeScriptCompilation.model.modelDigest);
+  assert.equal(scoped.testObservations.observationDigest, complete.testObservations.observationDigest);
+  const identities = scoped.model.files.map(({ path, contentDigest }) => ({ path, contentDigest }));
+  const projected = compileSourceProgramAuditTestObligationsSourceProgramProjection(scoped.model, identities);
+  assert.deepEqual(projected.counts.candidates, scoped.model.candidates);
+  assert.deepEqual(projected.candidateDigests, scoped.model.candidates);
+  assert.throws(() => compileSourceProgramAuditSourceProgramProjection(
+    scoped.model as unknown as SourceProgramModel, identities, false), /candidate analysis was not requested/);
+  assert.throws(() => querySourceProgramModel(scoped.model as unknown as SourceProgramModel, 'value'),
+    /candidate analysis was not requested/);
+});
+
+test('test-obligations candidate scope v2 preserves omission and legacy v1 replay', () => {
+  const legacy = scopedTestFacts();
+  assert.equal(legacy.schema, 'source-program-test-obligations-audit-facts-v1');
+  if (legacy.schema !== 'source-program-test-obligations-audit-facts-v1') throw new Error('Expected historical v1');
+  const omitted = SOURCE_PROGRAM_TEST_OBLIGATIONS_NOT_REQUESTED;
+  const scoped: CompileScopedCandidateTestObligationsAuditOperationInput = {
+    ...legacy, schema: 'source-program-test-obligations-audit-facts-v2',
+    blockingCandidates: omitted,
+    sourceProgram: { ...legacy.sourceProgram, candidates: omitted, candidateDigests: omitted,
+      counts: { ...legacy.sourceProgram.counts, candidates: omitted } },
+    topology: { ...legacy.topology, candidateCodes: omitted, directProcessTransportPaths: omitted }
+  };
+  const prior = compileSourceProgramAuditOperationInput(legacy);
+  const priorBytes = encodeSourceProgramAuditOperationInput(prior);
+  const compiled = compileSourceProgramAuditOperationInput(scoped);
+  const summary = compiled.projection.summary as Record<string, unknown>;
+  assert.deepEqual(compiled.blockingReasons, prior.blockingReasons);
+  assert.deepEqual(compiled.projection.blockingCandidates, omitted);
+  assert.deepEqual(summary.blockingCandidates, omitted);
+  assert.deepEqual(summary.candidates, omitted);
+  const encoded = encodeSourceProgramAuditOperationInput(compiled);
+  assert.deepEqual(parseSourceProgramAuditOperationInput(encoded, encoded.byteLength), compiled);
+  assert.deepEqual(encodeSourceProgramAuditOperationInput(compileSourceProgramAuditOperationInput(legacy)), priorBytes);
+  const replay = parseSourceProgramTransitionAssessment(
+    createSourceProgramTransitionAssessment(historicalTransition(scoped)));
+  assert.equal(replay.auditFacts.schema, 'source-program-test-obligations-audit-facts-v2');
+  assert.deepEqual(replay.auditFacts.sourceProgram.candidates, omitted);
+  const priorReplay = parseSourceProgramTransitionAssessment(
+    createSourceProgramTransitionAssessment(historicalTransition(legacy)));
+  assert.equal(priorReplay.auditFacts.schema, 'source-program-test-obligations-audit-facts-v1');
+  assert.deepEqual(priorReplay.auditFacts.sourceProgram.candidates, legacy.sourceProgram.candidates);
+  assert.throws(() => compileSourceProgramAuditOperationInput({ ...scoped,
+    blockingCandidates: [] } as unknown as CompileSourceProgramAuditOperationInput), /explicitly not requested/);
+  assert.throws(() => compileSourceProgramAuditOperationInput({ ...scoped,
+    sourceProgram: { ...scoped.sourceProgram, counts: { ...scoped.sourceProgram.counts, candidates: 0 } }
+  } as unknown as CompileSourceProgramAuditOperationInput), /explicitly not requested/);
 });

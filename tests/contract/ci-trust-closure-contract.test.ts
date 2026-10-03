@@ -12,6 +12,7 @@ import {
   matchSecTrustedBootstrapPath,
   parseSecTrustedBootstrapRegistry,
   SEC_TCB_CLOSURE_RUNTIME_PATH,
+  SEC_TRUSTED_BOOTSTRAP_REGISTRY,
   SEC_TRUSTED_BOOTSTRAP_REGISTRY_PATH
 } from '../../src/adapters/verification/platform/trust/contract/root.ts';
 import {
@@ -110,11 +111,15 @@ test('Quick and Full plan topology remains deterministic behind the Action norma
   expect(() => assertCiExpectedHead('head-a', 'head-a')).not.toThrow();
 });
 
+test('retired shared dependency projection is outside static verifier trust', () => {
+  expect(SEC_TRUSTED_BOOTSTRAP_REGISTRY.staticDirectoryPaths).not.toContain('.shared-deps/');
+});
+
 test('trusted bootstrap SUT retains the verified typecheck owner', async () => {
   const packageScripts = (JSON.parse(await readCompilerFile('package.json')) as {
     scripts: Record<string, string>;
   }).scripts;
-  expect(packageScripts.typecheck).toContain('native-typecheck.ts');
+  expect(packageScripts.typecheck).toContain('runner/typecheck-feedback.ts');
   expect(packageScripts['typecheck:verified']).toContain('runner/cli.ts typecheck');
   expect(CodexDevelopmentTrustedBootstrapSutHarness).toContain(
     '  await execute("typecheck", ["bun", "run", "typecheck:verified"]);'
@@ -135,6 +140,8 @@ test('exact-main health policy binds one stable GitHub Actions app and terminal 
   expect(contract.mainHealthPolicyDigest).toBe(CI_MAIN_HEALTH_POLICY_DIGEST);
   expect(contract.mainHealthStepOrder).toEqual([...CI_MAIN_HEALTH_STEP_ORDER]);
   expect(contract.mainHealthCommands).toEqual([...CI_MAIN_HEALTH_COMMANDS]);
+  expect(contract.mainHealthCommands).toContain('bun run imports:check --all');
+  expect(contract.mainHealthCommands).not.toContain('bun run imports:check');
   expect(contract.mainHealthCommands).toContain('bun run typecheck:verified');
   expect(contract.mainHealthCommands).not.toContain('bun run typecheck');
   const workflow = parseYaml(await readCompilerFile('.github/workflows/compiler-pr-validation.yml')) as Workflow;
@@ -162,7 +169,7 @@ test('exact-main health policy binds one stable GitHub Actions app and terminal 
 
 
 test('trusted base candidate root bootstrap checker is disjoint and candidate remains data', async () => {
-  const source = await readCompilerFile('.github/workflows/sec-trusted-bootstrap.yml');
+  const source = await readCompilerFile('.github/workflows/trusted-bootstrap.yml');
   const workflow = parseYaml(source) as Workflow;
   const checkerSource = embeddedTrustedBootstrapChecker(source);
   expect(() => new Bun.Transpiler({ loader: 'js', target: 'bun' }).transformSync(checkerSource))
@@ -231,7 +238,7 @@ test('trusted base candidate root bootstrap checker is disjoint and candidate re
     SEC_BOOTSTRAP_BASE_TREE: '${{ needs.resolve.outputs.base-tree }}'
   });
   const r2ChangedPaths = [
-    '.github/workflows/sec-trusted-bootstrap.yml',
+    '.github/workflows/trusted-bootstrap.yml',
     'config/repository/work-packages/trusted-bootstrap-base-first-repair-v1.md',
     'config/repository/work-packages/verification-action-kernel-finalization-v1.md',
     'config/repository/active-work-package.md',
@@ -246,7 +253,7 @@ test('trusted base candidate root bootstrap checker is disjoint and candidate re
       matchSecTrustedBootstrapPath(repositoryPath, TCB_TRUST_ROOT) !== null
     )
     .sort()).toEqual([
-    '.github/workflows/sec-trusted-bootstrap.yml',
+    '.github/workflows/trusted-bootstrap.yml',
     SEC_TCB_CLOSURE_RUNTIME_PATH
   ]);
   const sutSteps = workflow.jobs['candidate-sut']?.steps ?? [];
@@ -309,8 +316,7 @@ test('trusted base candidate root bootstrap checker is disjoint and candidate re
     SEC_BOOTSTRAP_RUN_ID: '${{ github.run_id }}',
     SEC_BOOTSTRAP_RUN_ATTEMPT: '${{ github.run_attempt }}'
   });
-  const preArtifactName = 'sec-trusted-bootstrap-pre-${{ needs.resolve.outputs.head }}-run-${{ github.run_id }}-attempt-${{ github.run_attempt }}';
-  const sutArtifactName = 'sec-trusted-bootstrap-sut-${{ needs.resolve.outputs.head }}-run-${{ github.run_id }}-attempt-${{ github.run_attempt }}';
+  const artifactAttemptBinding = '${{ needs.resolve.outputs.head }}-run-${{ github.run_id }}-attempt-${{ github.run_attempt }}';
   const preArtifactRoot = '${{ runner.temp }}/sec-trusted-bootstrap-pre-${{ github.run_id }}-${{ github.run_attempt }}';
   const sutArtifactRoot = '${{ runner.temp }}/sec-trusted-bootstrap-sut-${{ github.run_id }}-${{ github.run_attempt }}';
   const finalArtifactRoot = '${{ runner.temp }}/sec-trusted-bootstrap-final-${{ github.run_id }}-${{ github.run_attempt }}';
@@ -318,10 +324,10 @@ test('trusted base candidate root bootstrap checker is disjoint and candidate re
   const preDownload = step(workflow, 'checker-post', 'Download bounded checker PRE artifact');
   const sutUpload = step(workflow, 'candidate-sut', 'Upload bounded candidate SUT artifact');
   const sutDownload = step(workflow, 'checker-post', 'Download bounded candidate SUT artifact');
-  expect(preUpload.with?.name).toBe(preArtifactName);
-  expect(preDownload.with?.name).toBe(preArtifactName);
-  expect(sutUpload.with?.name).toBe(sutArtifactName);
-  expect(sutDownload.with?.name).toBe(sutArtifactName);
+  expect(preUpload.with?.name).toEndWith(`-pre-${artifactAttemptBinding}`);
+  expect(preDownload.with?.name).toBe(preUpload.with?.name);
+  expect(sutUpload.with?.name).toEndWith(`-sut-${artifactAttemptBinding}`);
+  expect(sutDownload.with?.name).toBe(sutUpload.with?.name);
   expect(preUpload.with?.path).toBe(preArtifactRoot);
   expect(preDownload.with?.path).toBe(preArtifactRoot);
   expect(sutDownload.with?.path).toBe(sutArtifactRoot);
@@ -347,7 +353,7 @@ test('trusted base candidate root bootstrap checker is disjoint and candidate re
     `${finalArtifactRoot}/sut-diagnostic.json`,
     ''
   ]);
-  expect(finalUpload.with?.name).toBe(
-    'sec-trusted-bootstrap-v1-pr-${{ needs.resolve.outputs.pull-request }}-base-${{ needs.resolve.outputs.base }}-head-${{ needs.resolve.outputs.head }}-run-${{ github.run_id }}-attempt-${{ github.run_attempt }}'
+  expect(finalUpload.with?.name).toEndWith(
+    '-v1-pr-${{ needs.resolve.outputs.pull-request }}-base-${{ needs.resolve.outputs.base }}-head-' + artifactAttemptBinding
   );
 });

@@ -5,10 +5,11 @@ import {
   createGeneratedStateWorktreeRetirement,
   generatedStateCleanupAllowed,
   generatedStateDomainProviderMaterialDigest,
+  generatedStateLegacyRetirementRuleForPath,
   generatedStateRuleForPath,
   parseGeneratedStateRegistry,
   type GeneratedStateInventoryEntry
-} from './contract.ts';
+} from '../../../execution/generated-state/contract.ts';
 
 function entry(
   stateClass: GeneratedStateInventoryEntry['stateClass'],
@@ -33,6 +34,9 @@ function entry(
 
 test('registry maps stable producer roots without a catch-all tmp rule', () => {
   expect(generatedStateRuleForPath('node_modules')?.id).toBe('compiler-node-modules');
+  expect(generatedStateRuleForPath('.shared-deps')).toBeNull();
+  expect(generatedStateLegacyRetirementRuleForPath('.shared-deps')?.id)
+    .toBe('shared-dependency-cache');
   expect(generatedStateRuleForPath('.tmp/dependency-installs/c.staging-real')?.id)
     .toBe('compiler-dependency-staging');
   expect(generatedStateRuleForPath('.tmp/codex')).toMatchObject({
@@ -78,20 +82,24 @@ test('registration and retirement are required before any cleanup profile can au
 test('registry parser rejects ambiguous selectors, unknown fields and invented cleanup profiles', () => {
   const rule = GENERATED_STATE_REGISTRY.rules[0]!;
   const raw = {
-    schema: 'sec-generated-state-registry-v1',
+    schema: 'sec-generated-state-registry-v2',
+    legacyRetirementRules: [],
     rules: [{ ...rule }, { ...rule, id: 'second-id' }]
   };
   expect(() => parseGeneratedStateRegistry(raw)).toThrow(/selector is duplicate/u);
   expect(() => parseGeneratedStateRegistry({
-    schema: 'sec-generated-state-registry-v1',
+    schema: 'sec-generated-state-registry-v2',
+    legacyRetirementRules: [],
     rules: [{ ...rule, cleanupProfiles: ['delete-everything'] }]
   })).toThrow(/cleanupProfiles/u);
   expect(() => parseGeneratedStateRegistry({
-    schema: 'sec-generated-state-registry-v1',
+    schema: 'sec-generated-state-registry-v2',
+    legacyRetirementRules: [],
     rules: [{ ...rule, extraAuthority: true }]
   })).toThrow(/keys are not canonical/u);
   expect(() => parseGeneratedStateRegistry({
-    schema: 'sec-generated-state-registry-v1',
+    schema: 'sec-generated-state-registry-v2',
+    legacyRetirementRules: [],
     rules: [{
       ...rule,
       physicalForms: [{
@@ -103,11 +111,13 @@ test('registry parser rejects ambiguous selectors, unknown fields and invented c
     }]
   })).toThrow(/cannot generically preserve a locator/u);
   expect(() => parseGeneratedStateRegistry({
-    schema: 'sec-generated-state-registry-v1',
+    schema: 'sec-generated-state-registry-v2',
+    legacyRetirementRules: [],
     rules: [{ ...rule, physicalForms: [rule.physicalForms[0], rule.physicalForms[0]] }]
   })).toThrow(/duplicate kinds/u);
   expect(() => parseGeneratedStateRegistry({
-    schema: 'sec-generated-state-registry-v1',
+    schema: 'sec-generated-state-registry-v2',
+    legacyRetirementRules: [],
     rules: [{ ...rule, registration: 'required-at-birth', activeOwnerSignal: 'domain-owner-receipt' }]
   })).toThrow(/registration and activeOwnerSignal disagree/u);
 });

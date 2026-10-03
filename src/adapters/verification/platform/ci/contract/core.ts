@@ -31,12 +31,14 @@ export const CI_VERIFICATION_PR_STEP_ORDER = [
 const CI_VERIFICATION_RELEASE_STEP_ORDER = [
   'Resolve trusted release request, exact head, and verifier boundary',
   'Checkout exact release head',
-  'Fetch release base for exact tree comparison',
+  'Verify checked-out release parent and tree',
   'Setup Bun',
   'Cache bun install',
-  'Cache tsc incremental build info',
   'Install dependencies once',
   'Run exact-head full verification',
+  'Build and bind exact-head release set',
+  'Upload exact-head release manifests',
+  'Upload exact-head runtime and documentation release set',
   'Upload compact full verification evidence'
 ] as const;
 export const CI_MAIN_HEALTH_JOB_NAME = CI_MAIN_HEALTH_POLICY.context;
@@ -54,11 +56,11 @@ export const CI_MAIN_HEALTH_STEP_ORDER = [
 ] as const;
 export const CI_MAIN_HEALTH_COMMANDS = [
   'bun install --frozen-lockfile',
-  'bun run imports:check',
+  'bun run imports:check --all',
   'bun run typecheck:verified',
-  'bun run audit:static',
+  'bun run audit -- --worktree-source-program --enforce',
   'bun run docs:doctor',
-  'bun run test:fast'
+  'bun run test -- --scope fast'
 ] as const;
 
 function ciArtifactUploadCommand(kind: CiArtifactKind): string {
@@ -116,8 +118,8 @@ export type CiContract = {
 };
 
 const prWorkflowCommands = [
-  'bun src/adapters/verification/platform/ci/runtime/verification-session.ts observe-hosted',
-  'bun src/adapters/verification/platform/ci/runtime/verification-session.ts prepare-hosted',
+  "bun src/bootstrap/development/closeout/verification-session-cli.ts observe-hosted",
+  "bun src/bootstrap/development/closeout/verification-session-cli.ts prepare-hosted",
   'bun src/adapters/verification/platform/ci/verification.ts ensure-hosted-action-provider',
   'bun src/adapters/verification/platform/ci/verification.ts resolve-hosted-action',
   'install --frozen-lockfile --ignore-scripts',
@@ -126,7 +128,7 @@ const prWorkflowCommands = [
   'bun src/adapters/verification/platform/ci/verification.ts execute-hosted-action-sut',
   'bun src/adapters/verification/platform/ci/verification.ts assemble-hosted-action-terminal',
   'bun src/adapters/verification/platform/ci/verification.ts compose-hosted-evidence',
-  'bun src/adapters/verification/platform/ci/runtime/verification-session.ts finalize-hosted'
+  "bun src/bootstrap/development/closeout/verification-session-cli.ts finalize-hosted"
 ];
 
 const releaseWorkflowCommands = [
@@ -138,16 +140,16 @@ const releaseWorkflowCommands = [
 const prQuickLaneCommands = [
   'bun run imports:check',
   'bun run typecheck:verified',
-  'bun run test:affected'
+  'bun run test -- --affected'
 ];
 
-const fullSlowSuiteCommands = slowTestSuiteIds().map((suiteId) => `bun run test:slow -- --suite ${suiteId}`);
+const fullSlowSuiteCommands = slowTestSuiteIds().map((suiteId) => `bun run test -- --scope slow --suite ${suiteId}`);
 
 const fullLaneCommands = [
   'bun run imports:check',
   'bun run typecheck:verified',
   'bun run docs:doctor',
-  'bun run test:fast',
+  'bun run test -- --scope fast',
   platformCommand('test', 'budget', '--json', '--compact'),
   ...fullSlowSuiteCommands,
   platformCommand('deps', 'warmup'),
@@ -198,7 +200,7 @@ const ciSteps: Array<Omit<CiContractStep, 'producesCount'>> = [
   {
     id: 'full-fast-tests',
     phase: 'quality',
-    command: 'bun run test:fast',
+    command: 'bun run test -- --scope fast',
     purpose: 'Run the complete fast test inventory as the release correctness backstop.',
     produces: []
   },

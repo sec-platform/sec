@@ -16,8 +16,8 @@ import {
 import { withAuthorityGitReadSession } from '../../providers/git-read/authority.ts';
 import {
   inspectNoFollowDirectoryChain,
+  retainCurrentProcessExecutable,
   retainNoFollowDirectoryForChildProcess,
-  retainNoFollowOrdinaryFile
 } from '../../runtime-state/physical/runtime/physical-no-follow.ts';
 import { openProcessResourceSession } from '../../runtime-state/physical/runtime/process-resource-session.ts';
 import {
@@ -73,13 +73,8 @@ async function runGenerationChild(
   payloadPath: string,
   mode: 'load' | 'publish'
 ): Promise<Readonly<{ pid: number; result: ReturnType<RepositoryCompilationCacheHint['loadExact']> }>> {
-  const executablePath = path.resolve(process.execPath);
   const workerPath = fileURLToPath(new URL('../../../../tests/fixtures/repository-compilation-cache-worker.ts', import.meta.url));
-  const executable = retainNoFollowOrdinaryFile(
-    inspectNoFollowDirectoryChain(path.dirname(executablePath), 'cache worker executable parent'),
-    path.basename(executablePath), undefined, 'cache worker executable',
-    RETAINED_EXECUTABLE_CHILD_DESCRIPTOR, 'executable'
-  );
+  const executable = retainCurrentProcessExecutable(RETAINED_EXECUTABLE_CHILD_DESCRIPTOR, 'cache worker executable');
   const workingDirectory = retainNoFollowDirectoryForChildProcess(
     inspectNoFollowDirectoryChain(process.cwd(), 'cache worker cwd'),
     RETAINED_WORKING_DIRECTORY_CHILD_DESCRIPTOR,
@@ -228,7 +223,7 @@ function fixture(
   const cacheRoot = path.join(root, 'cache');
   mkdirSync(repositoryRoot);
   process.env.SEC_CACHE_HOME = cacheRoot;
-  const descriptorPath = 'src/example/sec.module.json';
+  const descriptorPath = 'src/example/module.json';
   const source = `export const value = ${value};\n`;
   const secondSource = 'export const SECOND = true;\n';
   const projectConfigSource = '{"compilerOptions":{"strict":true}}\n';
@@ -318,7 +313,7 @@ function causalFixture() {
   const cacheRoot = path.join(root, 'cache');
   mkdirSync(repositoryRoot);
   process.env.SEC_CACHE_HOME = cacheRoot;
-  const descriptorPath = 'src/example/sec.module.json';
+  const descriptorPath = 'src/example/module.json';
   const parserSource = [
     'export interface Value { readonly status: string; }',
     'export function parseValue(source: string): Value { return JSON.parse(source) as Value; }'

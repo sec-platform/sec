@@ -9,6 +9,7 @@ import {
   runtimeVerificationInvocation
 } from '../../src/adapters/verification/run-runtime-verification.ts';
 import { createSkippedRuntimeLane } from '../../src/assurance/verification/project/report.ts';
+import { createDependencyOperation } from '../../src/bootstrap/toolchain/dependency-operation.ts';
 import { withTempWorkspace } from '../testkit/workspace.ts';
 
 test('runtime verification skips empty inventory without preparing dependencies or launching a process', async () => {
@@ -20,7 +21,7 @@ test('runtime verification skips empty inventory without preparing dependencies 
       commandRunnerForTests: async () => {
         throw new Error('Empty runtime inventory must not launch a process');
       }
-    });
+    }, createDependencyOperation({ workspaceRoot }));
     expect(report).toEqual({
       status: 'passed',
       build: { status: 'skipped', passed: [], failed: [], command: null },
@@ -46,7 +47,7 @@ test('non-isolated runtime verification retains the compiler dependency bridge t
         return { code: 0, stdout: '', stderr: '' };
       },
       emitTiming: false
-    });
+    }, createDependencyOperation({ workspaceRoot }));
 
     expect(report.unit.status).toBe('passed');
     await expect(lstat(bridgePath)).rejects.toMatchObject({ code: 'ENOENT' });

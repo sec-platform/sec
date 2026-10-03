@@ -37,6 +37,7 @@ import {
   assertIsolatedVerificationCapability,
   type IsolatedVerificationCapability
 } from '../../execution/isolated-verification-capability.ts';
+import { createDependencyOperation } from '../toolchain/dependency-operation.ts';
 import { executePipelineStage } from './pipeline-kernel.ts';
 export type { StagedVerificationProof };
 
@@ -60,6 +61,7 @@ function verifyWorkspaceCore(
   const isolatedVerificationCapability = request.isolatedVerificationCapability;
   const isolated = isolatedVerificationCapability !== undefined;
   const beforeCommit = () => assertWorkspaceWriteLease(workspaceRoot, context.workspaceWriteLease);
+  const dependencyOperation = createDependencyOperation({ workspaceRoot, workspaceWriteLease: context.workspaceWriteLease });
   return verifyWorkspaceResult(lane, {
     readLock: () => readLockFile(workspaceRoot),
     ...(isolated
@@ -140,7 +142,8 @@ function verifyWorkspaceCore(
               workspaceRoot,
               input.isolated,
               input.signal,
-              input.beforeCommit
+              input.beforeCommit,
+              dependencyOperation
             ),
           runRuntime: (mode, input) =>
             runRuntimeVerification(workspaceRoot, mode, {
@@ -150,7 +153,7 @@ function verifyWorkspaceCore(
               signal: input.signal,
               stagingTreeOptions: invocation.stagingTreeOptions,
               ...(input.isolated ? { stagingWorkspaceRoot: workspaceRoot } : {})
-            }),
+            }, dependencyOperation),
           buildCoverage: (runtime, fast) =>
             buildAcceptanceCoverage(workspaceRoot, lock, runtime, fast),
           captureObservation: captureProductVerificationObservation,

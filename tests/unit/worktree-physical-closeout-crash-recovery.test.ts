@@ -3,6 +3,7 @@ import { spawnSync } from 'node:child_process';
 import { existsSync, lstatSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+import { worktreePhysicalCloseoutOperations } from '../../src/bootstrap/runtime-state/worktree-closeout.ts';
 
 import { detailDigest } from '../../src/adapters/runtime-state/worktree-closeout-contract.ts';
 import { assertTrustedCompletedWorktreePhysicalCloseout, prepareTrustedWorktreePhysicalCloseout } from '../../src/adapters/self-hosting/control/branch-lifecycle/worktree-physical-closeout.ts';
@@ -43,7 +44,7 @@ test('real child death after durable acquisition fence but before terminal lets 
     // Windows directory-durability barriers.
     for (let i = 0; i < 50; i += 1) writeFileSync(path.join(target, `slow-${i}.txt`), `${i}\n`); git(target, ['add', '.']); git(target, ['commit', '-m', 'slow']);
     const headSha = git(target, ['rev-parse', 'HEAD']); const treeSha = git(target, ['rev-parse', 'HEAD^{tree}']); const recoveryAuthorityDigest = detailDigest('crash-child');
-    const prepared = await prepareTrustedWorktreePhysicalCloseout({ repositoryRoot: repository, targetPath: target, expectedBranch: branch, expectedHeadSha: headSha, expectedTreeSha: treeSha, expectedRecoveryAuthorityDigest: recoveryAuthorityDigest });
+    const prepared = await prepareTrustedWorktreePhysicalCloseout({ repositoryRoot: repository, targetPath: target, expectedBranch: branch, expectedHeadSha: headSha, expectedTreeSha: treeSha, expectedRecoveryAuthorityDigest: recoveryAuthorityDigest }, worktreePhysicalCloseoutOperations);
     const input = { repositoryRoot: repository, targetPath: target, expectedBranch: branch, expectedHeadSha: headSha, expectedTreeSha: treeSha, expectedRecoveryAuthorityDigest: recoveryAuthorityDigest, authorizationPath: prepared.authorization.authorizationPath };
     const fixture = path.join(import.meta.dir, 'worktree-physical-closeout-crash-fixture.ts');
     const firstOutput = path.join(root, 'first-receipt.json');

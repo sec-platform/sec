@@ -9,7 +9,7 @@ import {
 } from '../../../../../contracts/failure.ts';
 import {
   generatedStateDigest
-} from '../../../../runtime-state/generated-state/contract.ts';
+} from '../../../../../execution/generated-state/contract.ts';
 import {
   inspectNoFollowDirectoryChain,
   inspectNoFollowOrdinaryFileEntry

@@ -13,6 +13,7 @@ import { runPipelinePass } from '../../application/pipeline-pass.ts';
 import { resolveWorkspacePlan } from '../../application/resolve-workspace.ts';
 import { alignInterfaces } from '../../compiler/align/align-interfaces.ts';
 import type { LockFile, ManifestEntry, PlanFile } from '../../compiler/contract.ts';
+import { createDependencyOperation } from '../toolchain/dependency-operation.ts';
 import { executePipelineStage } from './pipeline-kernel.ts';
 
 export async function addBlock(
@@ -59,7 +60,9 @@ async function resolveWorkspaceCore(
       plan, new Map(selection.explicitEntries.map(entry => [entry.manifest.id, entry]))
     ),
     resolve: resolveCapturedManifestSelection,
-    validateTemplates: (lock) => validateResolvedTemplates(workspaceRoot, lock, commitFence),
+    validateTemplates: (lock) => validateResolvedTemplates(workspaceRoot, lock, commitFence, {
+      forWorkspace: root => createDependencyOperation({ workspaceRoot: root })
+    }),
     persistLock: (lock) => saveLock(workspaceRoot, lock, commitFence)
   });
 }

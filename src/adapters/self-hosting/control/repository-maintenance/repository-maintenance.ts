@@ -9,6 +9,8 @@ import {
   inspectGitHubApiCapability,
   withGitHubApiReadSession
 } from '../../../providers/github-api/operation-session.ts';
+import { isRepositoryMaintenancePermission } from '../../../providers/github-api/repository-maintenance-permission.ts';
+import { normalizeGitHubRepositoryPermission } from '../../../providers/github-api/repository-permission.ts';
 import type { BranchRecoveryAuthority } from '../branch-lifecycle/branch-lifecycle-contract.ts';
 import {
   parseExactRemoteRefRecoveryPreparation,
@@ -270,14 +272,35 @@ async function assertRepositoryMaintenancePreflight(input: Readonly<{
           || (repository as Record<string, unknown>).default_branch !== 'main') {
         throw new Error('repository maintenance repository identity is invalid');
       }
+      const triggerCommentId = positiveEnvironmentInteger(
+        input.environment.SEC_MAINTENANCE_COMMENT_ID,
+        'SEC_MAINTENANCE_COMMENT_ID'
+      );
+      const trigger = await executeGitHubApiOperation(capability, {
+        kind: 'issue-comment',
+        commentId: triggerCommentId
+      });
+      if (trigger === null || typeof trigger !== 'object' || Array.isArray(trigger)) {
+        throw new Error('repository maintenance trigger comment readback is invalid');
+      }
+      const triggerRecord = trigger as Record<string, any>;
+      const triggerUser = triggerRecord.user;
+      if (triggerRecord.id !== triggerCommentId
+          || triggerRecord.issue_url !== `https://api.github.com/repos/${input.request.repository}/issues/313`
+          || triggerRecord.body !== input.environment.SEC_MAINTENANCE_REQUEST_JSON
+          || triggerRecord.performed_via_github_app !== null
+          || triggerUser === null || typeof triggerUser !== 'object' || Array.isArray(triggerUser)
+          || triggerUser.login !== actor
+          || triggerUser.login !== input.environment.SEC_MAINTENANCE_COMMENT_AUTHOR
+          || triggerUser.type !== 'User') {
+        throw new Error('repository maintenance trigger comment exact readback differs from dispatch authority');
+      }
       const permission = await executeGitHubApiOperation(capability, {
         kind: 'collaborator-permission',
         login: actor
       });
-      const role = permission !== null && typeof permission === 'object' && !Array.isArray(permission)
-        ? (permission as Record<string, unknown>).permission
-        : null;
-      if (role !== 'admin' && role !== 'maintain') {
+      const role = normalizeGitHubRepositoryPermission(permission);
+      if (!isRepositoryMaintenancePermission(role)) {
         throw new Error(`repository maintenance actor ${actor} lacks maintain/admin permission`);
       }
       const main = await executeGitHubApiOperation(capability, { kind: 'git-ref', branch: 'main' });

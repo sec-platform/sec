@@ -1,6 +1,6 @@
 # Engineering Workspace Compiler — Architecture Overview
 
-This is a public projection of the current SEC-086 design. It helps readers enter the system; it does not replace the canonical documents under `docs/**`.
+This is a public projection of the current integrated design on `main`. It helps readers enter the system; it does not replace the canonical documents under `docs/**`, and historical delivery or archive labels do not override those current owners.
 
 ## System boundary
 

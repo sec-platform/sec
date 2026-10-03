@@ -3,6 +3,7 @@ import { realpathSync } from 'node:fs';
 import path from 'node:path';
 
 import { parseGitHubRepositoryIdentityFromRemoteUrl } from '../../../../contracts/git-reference.ts';
+import { normalizeGitHubRepositoryPermission } from '../../../providers/github-api/repository-permission.ts';
 
 import {
   requireActiveWorkPackageOwnerObservation,
@@ -53,6 +54,13 @@ export interface BranchLifecycleInventoryScope {
   readonly repositoryFullName?: string;
   readonly defaultBranch?: string;
   readonly activeWorkPackageObservation?: ActiveWorkPackageOwnerObservation;
+  /** Exact operation target retained by fresh provider readback after its refs disappear. */
+  readonly mergedCloseoutTarget?: Readonly<{
+    number: number;
+    headBranch: string;
+    headSha: string;
+    baseBranch: string;
+  }>;
 }
 
 export interface BranchLifecycleCloseoutTargetScope
@@ -438,9 +446,7 @@ function collaboratorPermission(
   if (cached) return cached;
   const result = runInventoryCommand(ctx, 'gh', [
     'api',
-    `/repos/${repositoryFullName}/collaborators/${author}/permission`,
-    '--jq',
-    '.role_name // .permission'
+    `/repos/${repositoryFullName}/collaborators/${author}/permission`
   ], repositoryRoot);
   if (result.status !== 0) {
     const observation = {
@@ -450,7 +456,18 @@ function collaboratorPermission(
     cache.set(author, observation);
     return observation;
   }
-  const role = decodeBranchLifecycleChildStdout(result).toLowerCase();
+  let response: unknown;
+  try {
+    response = JSON.parse(decodeBranchLifecycleChildStdout(result));
+  } catch {
+    const observation = {
+      permission: 'unknown' as const,
+      reason: `collaborator permission for ${author} returned invalid JSON`
+    };
+    cache.set(author, observation);
+    return observation;
+  }
+  const role = normalizeGitHubRepositoryPermission(response);
   const observation = {
     permission: role === 'admin' || role === 'maintain'
       ? 'trusted' as const
@@ -624,10 +641,40 @@ function listPullRequests(
     if (observations.length >= 1000) {
       unknowns.push('PR inventory reached its bounded 1000-item limit');
     }
-    const relevant = selectBranchLifecyclePullRequests(
+    let relevant = selectBranchLifecyclePullRequests(
       observations,
       physicalBranchIdentities
     );
+    if (ctx.mergedCloseoutTarget !== undefined) {
+      const { number, headBranch, headSha, baseBranch } = ctx.mergedCloseoutTarget;
+      if (!Number.isSafeInteger(number) || number < 1) throw new Error('Merged closeout target number is invalid.');
+      assertGitBranchName(headBranch, 'merged closeout target head branch');
+      assertGitBranchName(baseBranch, 'merged closeout target base branch');
+      assertGitSha(headSha, 'merged closeout target head SHA');
+      const exact = runInventoryCommand(ctx, 'gh', [
+        'pr', 'view', String(number), '--repo', repositoryFullName, '--json',
+        'number,headRefName,headRefOid,baseRefName,baseRefOid,state,isDraft,isCrossRepository,url'
+      ], repositoryRoot);
+      if (exact.status !== 0) throw new Error('Merged closeout exact PR readback is unavailable.');
+      const [target] = parsePullRequestObservations(JSON.stringify([
+        JSON.parse(decodeBranchLifecycleChildStdout(exact))
+      ]));
+      if (target === undefined || target.number !== number || target.state !== 'merged'
+          || target.headBranch !== headBranch || target.headSha !== headSha
+          || target.baseBranch !== baseBranch || target.isDraft || target.isCrossRepository
+          || target.url !== `https://github.com/${repositoryFullName}/pull/${number}`) {
+        throw new Error('Merged closeout exact PR identity differs from the prepared target.');
+      }
+      const listedTargets = observations.filter(entry => entry.number === number);
+      if (listedTargets.length > 1 || listedTargets.some(entry =>
+        entry.headBranch !== target.headBranch || entry.headSha !== target.headSha
+        || entry.baseBranch !== target.baseBranch || entry.baseSha !== target.baseSha
+        || entry.state !== target.state || entry.isDraft !== target.isDraft
+        || entry.isCrossRepository !== target.isCrossRepository || entry.url !== target.url)) {
+        throw new Error('Merged closeout target is duplicated or changed between list and exact readback.');
+      }
+      relevant = [...relevant.filter(entry => entry.number !== number), target];
+    }
     return bindCloseoutReceiptObservations(
       ctx,
       repositoryRoot,

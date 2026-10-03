@@ -1,9 +1,17 @@
 /** Canonical provider-checks to MainHealth-ledger input compiler. */
 
 import { createHash } from 'node:crypto';
+import path from 'node:path';
 
+import {
+  parseDockerEndpointIdentity,
+  type DockerEndpointIdentity
+} from '../../../providers/docker/contract/daemon.ts';
 import type { GitHubCheckObservation } from '../../../providers/github-api/contract.ts';
+import { SEC_LINUX_VERIFICATION_ENVIRONMENT_AUTHORITY } from '../../../providers/linux-verification/contract.ts';
 import { encodeVerificationActionData } from '../../../verification/platform/action/contract/action.ts';
+import { createCiVerificationLocalExecutionEnvironment } from '../../../verification/platform/action/contract/ci.ts';
+import { CI_MAIN_HEALTH_COMMANDS } from '../../../verification/platform/ci/contract/core.ts';
 import {
   createMainHealthRepairWorkPackagePath,
   DEFAULT_BRANCH_REVISION_HEALTH_PRODUCER_IDENTITY,
@@ -12,6 +20,20 @@ import {
 import { CI_MAIN_HEALTH_POLICY, CI_MAIN_HEALTH_POLICY_DIGEST, createCiMainHealthRequestOperationId } from './provider-policy.ts';
 
 type Digest = `sha256:${string}`;
+
+
+export interface TrustedRuntimeMainHealthObservation {
+  readonly schema: 'sec-trusted-runtime-main-health-observation-v1';
+  readonly repository: string;
+  readonly mainSha: string;
+  readonly mainTreeSha: string;
+  readonly trustRevision: string;
+  readonly runtimeRef: string;
+  readonly executionId: string;
+  readonly verificationReceiptDigest: Digest;
+  readonly observedAt: string;
+  readonly expiresAt: string;
+}
 
 const MAIN_HEALTH_CHECK_PROVIDER_POLICY_SCHEMA =
   'sec-main-health-check-provider-policy-v1' as const;
@@ -55,11 +77,252 @@ function hash(value: unknown): Digest {
   return `sha256:${createHash('sha256').update(encodeVerificationActionData(value)).digest('hex')}`;
 }
 
-function boundedText(value: string, label: string): string {
-  if (value.length === 0 || value.length > 512 || /[\u0000-\u001f\u007f]/u.test(value)) {
-    throw new Error(`MainHealth ${label} must be bounded text.`);
+const TRUSTED_RUNTIME_MAIN_HEALTH_RECEIPT_SCHEMA =
+  'sec-trusted-runtime-main-health-receipt-v1' as const;
+const TRUSTED_RUNTIME_MAIN_HEALTH_IMAGE_ID =
+  SEC_LINUX_VERIFICATION_ENVIRONMENT_AUTHORITY.trustedRuntime.imageDigest;
+const TRUSTED_RUNTIME_MAIN_HEALTH_EXECUTION_ENVIRONMENT =
+  createCiVerificationLocalExecutionEnvironment({
+    os: 'linux',
+    arch: 'x64',
+    bunVersion: SEC_LINUX_VERIFICATION_ENVIRONMENT_AUTHORITY.trustedRuntime.bunVersion
+  });
+export const TRUSTED_RUNTIME_MAIN_HEALTH_CHECK_COMMANDS = Object.freeze([
+  'bun run imports:check --all',
+  ...CI_MAIN_HEALTH_COMMANDS.slice(2)
+]);
+export const TRUSTED_RUNTIME_MAIN_HEALTH_PLAN_DIGEST = hash(Object.freeze({
+  schema: 'sec-trusted-runtime-main-health-plan-v1',
+  canonicalHostedCommands: CI_MAIN_HEALTH_COMMANDS,
+  dependencyPreparation: 'trusted-runtime-full-workspace-v1',
+  checkCommands: TRUSTED_RUNTIME_MAIN_HEALTH_CHECK_COMMANDS,
+  executionEnvironmentRevision:
+    TRUSTED_RUNTIME_MAIN_HEALTH_EXECUTION_ENVIRONMENT.executionEnvironmentRevision,
+  imageId: TRUSTED_RUNTIME_MAIN_HEALTH_IMAGE_ID
+}));
+
+export interface TrustedRuntimeMainHealthReceipt {
+  readonly schema: typeof TRUSTED_RUNTIME_MAIN_HEALTH_RECEIPT_SCHEMA;
+  readonly repository: string;
+  readonly mainSha: string;
+  readonly mainTreeSha: string;
+  readonly executionId: string;
+  readonly imageId: typeof TRUSTED_RUNTIME_MAIN_HEALTH_IMAGE_ID;
+  readonly dockerEndpoint: DockerEndpointIdentity;
+  readonly dependencyCacheKey: Digest;
+  readonly networkIsolatedBeforeExecution: true;
+  readonly executionEnvironmentRevision:
+    typeof TRUSTED_RUNTIME_MAIN_HEALTH_EXECUTION_ENVIRONMENT.executionEnvironmentRevision;
+  readonly planDigest: typeof TRUSTED_RUNTIME_MAIN_HEALTH_PLAN_DIGEST;
+  readonly actionResults: readonly Readonly<{
+    command: string;
+    resultDigest: Digest;
+  }>[];
+  readonly observedAt: string;
+  readonly receiptDigest: Digest;
+}
+
+function mainHealthSha(value: unknown, label: string): string {
+  if (typeof value !== 'string' || !/^[0-9a-f]{40}$/u.test(value)) {
+    throw new Error(`MainHealth ${label} must be one lowercase Git SHA.`);
   }
   return value;
+}
+
+function mainHealthDigest(value: unknown, label: string): Digest {
+  if (typeof value !== 'string' || !/^sha256:[0-9a-f]{64}$/u.test(value)) {
+    throw new Error(`MainHealth ${label} must be one SHA-256 digest.`);
+  }
+  return value as Digest;
+}
+
+function mainHealthInstant(value: unknown, label: string): string {
+  if (typeof value !== 'string' || Number.isNaN(Date.parse(value))
+      || new Date(value).toISOString() !== value) {
+    throw new Error(`MainHealth ${label} must be one canonical ISO instant.`);
+  }
+  return value;
+}
+
+export function trustedRuntimeMainHealthReceiptLocator(input: Readonly<{
+  repositoryStateRoot: string;
+  mainSha: string;
+}>): Readonly<{ directory: string; fileName: string; sourceRef: string }> {
+  const repositoryStateRoot = path.resolve(input.repositoryStateRoot);
+  const mainSha = mainHealthSha(input.mainSha, 'receipt locator mainSha');
+  return Object.freeze({
+    directory: path.join(repositoryStateRoot, 'trusted-main-health', 'v1'),
+    fileName: `main-${mainSha}.json`,
+    sourceRef: `runtime-state:trusted-main-health/v1/main-${mainSha}.json`
+  });
+}
+
+export function createTrustedRuntimeMainHealthReceipt(input: Readonly<{
+  repository: string;
+  mainSha: string;
+  mainTreeSha: string;
+  executionId: string;
+  dockerEndpoint: DockerEndpointIdentity;
+  dependencyCacheKey: Digest;
+  actionResults: readonly Readonly<{ command: string; resultDigest: Digest }>[];
+  observedAt: string;
+}>): TrustedRuntimeMainHealthReceipt {
+  if (TRUSTED_RUNTIME_MAIN_HEALTH_CHECK_COMMANDS.length !== 5
+      || CI_MAIN_HEALTH_COMMANDS[0] !== 'bun install --frozen-lockfile'
+      || input.actionResults.length !== TRUSTED_RUNTIME_MAIN_HEALTH_CHECK_COMMANDS.length) {
+    throw new Error('MainHealth trusted-runtime canonical command closure is invalid.');
+  }
+  const actionResults = input.actionResults.map((entry, index) => {
+    const expectedCommand = TRUSTED_RUNTIME_MAIN_HEALTH_CHECK_COMMANDS[index]!;
+    if (entry.command !== expectedCommand) {
+      throw new Error(
+        `MainHealth trusted-runtime actionResults[${index}] command differs from the canonical plan.`
+      );
+    }
+    return Object.freeze({
+      command: expectedCommand,
+      resultDigest: mainHealthDigest(
+        entry.resultDigest,
+        `trusted-runtime actionResults[${index}].resultDigest`
+      )
+    });
+  });
+  const withoutDigest = Object.freeze({
+    schema: TRUSTED_RUNTIME_MAIN_HEALTH_RECEIPT_SCHEMA,
+    repository: boundedText(input.repository, 'trusted-runtime receipt repository'),
+    mainSha: mainHealthSha(input.mainSha, 'trusted-runtime receipt mainSha'),
+    mainTreeSha: mainHealthSha(input.mainTreeSha, 'trusted-runtime receipt mainTreeSha'),
+    executionId: boundedText(input.executionId, 'trusted-runtime receipt executionId'),
+    imageId: TRUSTED_RUNTIME_MAIN_HEALTH_IMAGE_ID,
+    dockerEndpoint: parseDockerEndpointIdentity(input.dockerEndpoint),
+    dependencyCacheKey: mainHealthDigest(
+      input.dependencyCacheKey,
+      'trusted-runtime receipt dependencyCacheKey'
+    ),
+    networkIsolatedBeforeExecution: true as const,
+    executionEnvironmentRevision:
+      TRUSTED_RUNTIME_MAIN_HEALTH_EXECUTION_ENVIRONMENT.executionEnvironmentRevision,
+    planDigest: TRUSTED_RUNTIME_MAIN_HEALTH_PLAN_DIGEST,
+    actionResults: Object.freeze(actionResults),
+    observedAt: mainHealthInstant(input.observedAt, 'trusted-runtime receipt observedAt')
+  });
+  return Object.freeze({ ...withoutDigest, receiptDigest: hash(withoutDigest) });
+}
+
+export function parseTrustedRuntimeMainHealthReceipt(
+  value: unknown
+): TrustedRuntimeMainHealthReceipt {
+  if (typeof value === 'string') {
+    try {
+      value = JSON.parse(value) as unknown;
+    } catch {
+      throw new Error('MainHealth trusted-runtime receipt is not JSON.');
+    }
+  }
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) {
+    throw new Error('MainHealth trusted-runtime receipt must be an object.');
+  }
+  const record = value as Record<string, unknown>;
+  const expected = [
+    'schema', 'repository', 'mainSha', 'mainTreeSha', 'executionId', 'imageId',
+    'dockerEndpoint', 'dependencyCacheKey', 'networkIsolatedBeforeExecution',
+    'executionEnvironmentRevision', 'planDigest', 'actionResults', 'observedAt',
+    'receiptDigest'
+  ].sort();
+  const actual = Object.keys(record).sort();
+  if (actual.length !== expected.length
+      || actual.some((key, index) => key !== expected[index])
+      || record.schema !== TRUSTED_RUNTIME_MAIN_HEALTH_RECEIPT_SCHEMA
+      || record.imageId !== TRUSTED_RUNTIME_MAIN_HEALTH_IMAGE_ID
+      || record.networkIsolatedBeforeExecution !== true
+      || record.executionEnvironmentRevision
+        !== TRUSTED_RUNTIME_MAIN_HEALTH_EXECUTION_ENVIRONMENT.executionEnvironmentRevision
+      || record.planDigest !== TRUSTED_RUNTIME_MAIN_HEALTH_PLAN_DIGEST
+      || !Array.isArray(record.actionResults)) {
+    throw new Error('MainHealth trusted-runtime receipt shape or fixed identity is invalid.');
+  }
+  const rebuilt = createTrustedRuntimeMainHealthReceipt({
+    repository: boundedText(
+      record.repository as string,
+      'trusted-runtime receipt repository'
+    ),
+    mainSha: mainHealthSha(record.mainSha, 'trusted-runtime receipt mainSha'),
+    mainTreeSha: mainHealthSha(record.mainTreeSha, 'trusted-runtime receipt mainTreeSha'),
+    executionId: boundedText(
+      record.executionId as string,
+      'trusted-runtime receipt executionId'
+    ),
+    dockerEndpoint: parseDockerEndpointIdentity(record.dockerEndpoint),
+    dependencyCacheKey: mainHealthDigest(
+      record.dependencyCacheKey,
+      'trusted-runtime receipt dependencyCacheKey'
+    ),
+    actionResults: record.actionResults as TrustedRuntimeMainHealthReceipt['actionResults'],
+    observedAt: mainHealthInstant(
+      record.observedAt,
+      'trusted-runtime receipt observedAt'
+    )
+  });
+  if (rebuilt.receiptDigest
+      !== mainHealthDigest(record.receiptDigest, 'trusted-runtime receipt receiptDigest')) {
+    throw new Error('MainHealth trusted-runtime receipt digest mismatch.');
+  }
+  return rebuilt;
+}
+
+function boundedText(value: unknown, label: string): string {
+  if (typeof value !== 'string' || value.length === 0 || value.length > 512
+      || value.trim() !== value || /[\u0000-\u001f\u007f]/u.test(value)) {
+    throw new Error(`MainHealth ${label} must be bounded canonical text.`);
+  }
+  return value;
+}
+
+export function createTrustedRuntimeMainHealthInput(
+  input: TrustedRuntimeMainHealthObservation
+): MainHealthLedgerInput {
+  if (input.schema !== 'sec-trusted-runtime-main-health-observation-v1') {
+    throw new Error('MainHealth trusted-runtime observation schema mismatch.');
+  }
+  const mainSha = boundedText(input.mainSha, 'mainSha');
+  const mainTreeSha = boundedText(input.mainTreeSha, 'mainTreeSha');
+  const trustRevision = boundedText(input.trustRevision, 'trustRevision');
+  if (!/^[0-9a-f]{40}$/u.test(mainSha)
+      || !/^[0-9a-f]{40}$/u.test(mainTreeSha)
+      || !/^[0-9a-f]{40}$/u.test(trustRevision)) {
+    throw new Error('MainHealth trusted-runtime subject identity is invalid.');
+  }
+  const observedAt = mainHealthInstant(input.observedAt, 'trusted-runtime observedAt');
+  const expiresAt = mainHealthInstant(input.expiresAt, 'trusted-runtime expiresAt');
+  if (mainSha !== trustRevision || expiresAt <= observedAt) {
+    throw new Error('MainHealth trusted-runtime observation is not exact or fresh.');
+  }
+  const verificationReceiptDigest = input.verificationReceiptDigest;
+  if (!/^sha256:[0-9a-f]{64}$/u.test(verificationReceiptDigest)) {
+    throw new Error('MainHealth trusted-runtime receipt digest is invalid.');
+  }
+  return Object.freeze({
+    repository: boundedText(input.repository, 'repository'),
+    defaultBranch: 'main',
+    mainSha,
+    mainTreeSha,
+    status: 'healthy',
+    failureFingerprints: Object.freeze([]),
+    owner: null,
+    repairWorkPackage: null,
+    expiresAt,
+    allowedLanes: Object.freeze(['ordinary'] as const),
+    trustRevision,
+    observedAt,
+    producer: Object.freeze({
+      identity: DEFAULT_BRANCH_REVISION_HEALTH_PRODUCER_IDENTITY,
+      trustRevision,
+      sourceTransport: 'trusted-runtime-durable-readback' as const,
+      sourceRunId: boundedText(input.executionId, 'executionId'),
+      sourceRef: boundedText(input.runtimeRef, 'runtimeRef'),
+      sourceDigest: verificationReceiptDigest
+    })
+  });
 }
 
 function positiveInteger(value: number, label: string): number {
@@ -345,22 +608,30 @@ export function createRegisteredHostedMainHealthInputs(input: {
   const presentPolicies = HOSTED_MAIN_HEALTH_PROVIDER_POLICIES.filter((policy) => (
     input.checks.some((check) => matchesHostedMainHealthProvider(check, policy, input.mainSha))
   ));
-  return Object.freeze(presentPolicies.map((policy) => {
-    const exactProviderChecks = input.checks
-      .filter((check) => matchesHostedMainHealthProvider(check, policy, input.mainSha));
-    return createObservedMainHealthInputWithPolicy({
-      ...input,
-      sourceRunId: exactProviderChecks.length === 1
-        ? policy.producer.kind === 'github-app-check'
-          ? String(exactProviderChecks[0]!.id)
-          : exactProviderChecks[0]!.workflowRunId!
-        : 'ambiguous-hosted-provider',
-      policy
-    });
-  }));
+  return Object.freeze(presentPolicies.map((policy) =>
+    createProviderObservedMainHealthInput({ ...input, policy })));
 }
 
-/** Direct Actions adapter used by hosted verification consumers. */
+function createProviderObservedMainHealthInput(
+  input: Omit<Parameters<typeof createObservedMainHealthInputWithPolicy>[0], 'sourceRunId'>
+): MainHealthLedgerInput {
+  const exactProviderChecks = input.checks
+    .filter((check) => matchesHostedMainHealthProvider(check, input.policy, input.mainSha));
+  return createObservedMainHealthInputWithPolicy({
+    ...input,
+    sourceRunId: exactProviderChecks.length === 1
+      ? input.policy.producer.kind === 'github-app-check'
+        ? String(exactProviderChecks[0]!.id)
+        : exactProviderChecks[0]!.workflowRunId!
+      : 'ambiguous-hosted-provider'
+  });
+}
+
+/**
+ * Direct Actions adapter used by hosted verification consumers. Producer
+ * provenance comes from the matched provider check, never the observing
+ * Session, merge workflow, or local preparation operation.
+ */
 export function createObservedMainHealthInput(input: {
   repository: string;
   mainSha: string;
@@ -368,12 +639,11 @@ export function createObservedMainHealthInput(input: {
   trustRevision: string;
   observedAt: string;
   expiresAt: string;
-  sourceRunId: string;
-  sourceRef: string;
   checks: readonly GitHubCheckObservation[];
 }): MainHealthLedgerInput {
-  return createObservedMainHealthInputWithPolicy({
+  return createProviderObservedMainHealthInput({
     ...input,
+    sourceRef: `github-check-runs:${input.repository}@${input.mainSha}`,
     policy: GITHUB_ACTIONS_MAIN_HEALTH_CHECK_PROVIDER_POLICY
   });
 }

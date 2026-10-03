@@ -2,18 +2,21 @@ import { afterEach, expect, test } from 'bun:test';
 import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+import { withGitHubCredentialStore } from '../../src/adapters/providers/github-api/credential-store.ts';
+import { resolveLinuxEffectiveUserHome } from '../../src/adapters/runtime-state/physical/runtime/linux-user-home.ts';
 
 import {
-  inspectGitHubActionsProjectionCredentialIdentity,
   inspectGitHubActionsRepositoryMaintenanceCredentialIdentity,
   readGitHubToken
 } from '../../src/adapters/providers/github-api/credential.ts';
 
 const GH_EXECUTABLE_NAME = process.platform === 'win32' ? 'gh.exe' : 'gh';
 
-if (import.meta.main && path.basename(process.execPath).toLowerCase() === GH_EXECUTABLE_NAME) {
+// Retained Linux execution uses a sealed memfd rather than the locator's name.
+if (import.meta.main && process.argv.slice(-4).join('\0') === 'auth\0token\0--hostname\0github.com') {
   const observedKeys = [
     'PATH', 'GH_HOST', 'GH_TOKEN', 'GITHUB_TOKEN', 'GH_CONFIG_DIR', 'HOME', 'XDG_CONFIG_HOME',
+    'HTTP_PROXY', 'HTTPS_PROXY', 'ALL_PROXY', 'NO_PROXY', 'http_proxy', 'https_proxy',
     'GITHUB_ACTIONS', 'GITHUB_SERVER_URL', 'GITHUB_API_URL', 'GITHUB_REPOSITORY',
     'GITHUB_EVENT_NAME', 'GITHUB_REF', 'GITHUB_SHA', 'GITHUB_WORKFLOW_SHA', 'GITHUB_WORKFLOW_REF'
   ];
@@ -47,6 +50,9 @@ async function fixture(): Promise<string> {
 test.serial('acquires one token through the retained fixed command and scrubs ambient selectors', async () => {
   const root = await fixture();
   const original = { ...process.env };
+  // This checks propagation into the retained credential child. Native lookup
+  // provenance and startup-poison resistance have their own independent probe.
+  const accountHome = process.platform === 'linux' ? await resolveLinuxEffectiveUserHome() : null;
   try {
     process.env.PATH = root;
     delete process.env.GITHUB_ACTIONS;
@@ -58,6 +64,12 @@ test.serial('acquires one token through the retained fixed command and scrubs am
     process.env.GH_CONFIG_DIR = path.join(root, 'redirected-gh');
     process.env.HOME = path.join(root, 'redirected-home');
     process.env.XDG_CONFIG_HOME = path.join(root, 'redirected-xdg');
+    process.env.HTTP_PROXY = 'http://untrusted.invalid:8080';
+    process.env.HTTPS_PROXY = 'http://untrusted.invalid:8080';
+    process.env.ALL_PROXY = 'http://untrusted.invalid:8080';
+    process.env.NO_PROXY = '*';
+    process.env.http_proxy = 'http://untrusted.invalid:8080';
+    process.env.https_proxy = 'http://untrusted.invalid:8080';
     const token = await readGitHubToken({
       cwd: root,
       repository: 'sec-platform/sec',
@@ -73,8 +85,14 @@ test.serial('acquires one token through the retained fixed command and scrubs am
         GH_TOKEN: null,
         GITHUB_TOKEN: null,
         GH_CONFIG_DIR: null,
-        HOME: null,
+        HOME: accountHome,
         XDG_CONFIG_HOME: null,
+        HTTP_PROXY: null,
+        HTTPS_PROXY: null,
+        ALL_PROXY: null,
+        NO_PROXY: null,
+        http_proxy: null,
+        https_proxy: null,
         GITHUB_ACTIONS: null,
         GITHUB_SERVER_URL: null,
         GITHUB_API_URL: null,
@@ -94,38 +112,13 @@ test.serial('acquires one token through the retained fixed command and scrubs am
   }
 });
 
-test.serial('recognizes only the exact code-scanning projection workflow as the Actions credential source', () => {
+test.serial('recognizes only the exact repository-maintenance dispatch workflow identity', () => {
   const source: NodeJS.ProcessEnv = {
     GITHUB_ACTIONS: 'true',
     GITHUB_SERVER_URL: 'https://github.com',
     GITHUB_API_URL: 'https://api.github.com',
     GITHUB_REPOSITORY: 'sec-platform/sec',
-    GITHUB_EVENT_NAME: 'pull_request_target',
-    GITHUB_REF: 'refs/heads/main',
-    GITHUB_SHA: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
-    GITHUB_WORKFLOW_SHA: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
-    GITHUB_WORKFLOW_REF:
-      'sec-platform/sec/.github/workflows/code-scanning-projection.yml@refs/heads/main',
-    GH_TOKEN: 'ghs_actions-token-0123456789'
-  };
-  expect(inspectGitHubActionsProjectionCredentialIdentity(source, 'sec-platform/sec')).toEqual({
-    repository: 'sec-platform/sec',
-    workflowRef: 'sec-platform/sec/.github/workflows/code-scanning-projection.yml@refs/heads/main',
-    workflowSha: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
-  });
-  expect(inspectGitHubActionsProjectionCredentialIdentity(
-    { ...source, GITHUB_WORKFLOW_REF: 'sec-platform/sec/.github/workflows/other.yml@refs/heads/main' },
-    'sec-platform/sec'
-  )).toBeNull();
-});
-
-test.serial('recognizes only the exact repository-maintenance issue-comment workflow identity', () => {
-  const source: NodeJS.ProcessEnv = {
-    GITHUB_ACTIONS: 'true',
-    GITHUB_SERVER_URL: 'https://github.com',
-    GITHUB_API_URL: 'https://api.github.com',
-    GITHUB_REPOSITORY: 'sec-platform/sec',
-    GITHUB_EVENT_NAME: 'issue_comment',
+    GITHUB_EVENT_NAME: 'repository_dispatch',
     GITHUB_REF: 'refs/heads/main',
     GITHUB_SHA: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
     GITHUB_WORKFLOW_SHA: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
@@ -135,7 +128,6 @@ test.serial('recognizes only the exact repository-maintenance issue-comment work
     SEC_MAINTENANCE_ISSUE_NUMBER: '313',
     SEC_MAINTENANCE_COMMENT_ID: '42',
     SEC_MAINTENANCE_COMMENT_AUTHOR: 'maintainer',
-    SEC_MAINTENANCE_AUTHOR_ASSOCIATION: 'MEMBER',
     GH_TOKEN: 'ghs_actions-token-0123456789'
   };
   expect(inspectGitHubActionsRepositoryMaintenanceCredentialIdentity(
@@ -150,12 +142,15 @@ test.serial('recognizes only the exact repository-maintenance issue-comment work
     commentId: 42,
     actor: 'maintainer'
   });
-  expect(inspectGitHubActionsProjectionCredentialIdentity(source, 'sec-platform/sec')).toBeNull();
+  for (const association of ['MEMBER', 'COLLABORATOR', 'NONE', 'unknown', undefined]) {
+    expect(inspectGitHubActionsRepositoryMaintenanceCredentialIdentity({ ...source,
+      SEC_MAINTENANCE_AUTHOR_ASSOCIATION: association }, 'sec-platform/sec'))
+      .toEqual(inspectGitHubActionsRepositoryMaintenanceCredentialIdentity(source, 'sec-platform/sec'));
+  }
   for (const changed of [
-    { GITHUB_EVENT_NAME: 'pull_request_target' },
+    { GITHUB_EVENT_NAME: 'issue_comment' },
     { GITHUB_WORKFLOW_REF: 'sec-platform/sec/.github/workflows/other.yml@refs/heads/main' },
     { SEC_MAINTENANCE_ISSUE_NUMBER: '312' },
-    { SEC_MAINTENANCE_AUTHOR_ASSOCIATION: 'CONTRIBUTOR' },
     { GITHUB_ACTOR: 'other' }
   ]) {
     expect(inspectGitHubActionsRepositoryMaintenanceCredentialIdentity(
@@ -174,12 +169,16 @@ test.serial('forwards only the explicit GitHub Actions token to the fixed creden
     process.env.GITHUB_SERVER_URL = 'https://github.com';
     process.env.GITHUB_API_URL = 'https://api.github.com';
     process.env.GITHUB_REPOSITORY = 'sec-platform/sec';
-    process.env.GITHUB_EVENT_NAME = 'pull_request_target';
+    process.env.GITHUB_EVENT_NAME = 'repository_dispatch';
     process.env.GITHUB_REF = 'refs/heads/main';
     process.env.GITHUB_SHA = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
     process.env.GITHUB_WORKFLOW_SHA = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
     process.env.GITHUB_WORKFLOW_REF =
-      'sec-platform/sec/.github/workflows/code-scanning-projection.yml@refs/heads/main';
+      'sec-platform/sec/.github/workflows/repository-maintenance.yml@refs/heads/main';
+    process.env.SEC_MAINTENANCE_ISSUE_NUMBER = '313';
+    process.env.SEC_MAINTENANCE_COMMENT_ID = '42';
+    process.env.SEC_MAINTENANCE_COMMENT_AUTHOR = 'maintainer';
+    process.env.GITHUB_ACTOR = 'maintainer';
     process.env.GH_TOKEN = 'ghs_actions-token-0123456789';
     process.env.GITHUB_TOKEN = 'must-not-forward';
     process.env.GH_HOST = 'evil.example';
@@ -203,6 +202,12 @@ test.serial('forwards only the explicit GitHub Actions token to the fixed creden
         GH_CONFIG_DIR: null,
         HOME: null,
         XDG_CONFIG_HOME: null,
+        HTTP_PROXY: null,
+        HTTPS_PROXY: null,
+        ALL_PROXY: null,
+        NO_PROXY: null,
+        http_proxy: null,
+        https_proxy: null,
         GITHUB_ACTIONS: null,
         GITHUB_SERVER_URL: null,
         GITHUB_API_URL: null,
@@ -222,9 +227,8 @@ test.serial('forwards only the explicit GitHub Actions token to the fixed creden
 });
 
 test.serial('rejects an expired deadline before executable discovery', async () => {
-  const root = await fixture();
   await expect(readGitHubToken({
-    cwd: root,
+    cwd: import.meta.dir,
     repository: 'sec-platform/sec',
     hostname: 'github.com',
     deadlineAtUnixMs: Date.now() - 1
@@ -232,4 +236,33 @@ test.serial('rejects an expired deadline before executable discovery', async () 
     code: 'github-credential-unavailable',
     reason: 'deadline'
   }));
+});
+
+test.skipIf(process.platform !== 'linux').serial('reads through an explicitly bound external store, not ambient selectors', async () => {
+  const root = await fixture();
+  const store = await mkdtemp(path.join('/tmp', 'sec-gh-private-store-'));
+  roots.push(store);
+  const original = { ...process.env };
+  try {
+    process.env.PATH = root;
+    delete process.env.GITHUB_ACTIONS;
+    process.env.GH_CONFIG_DIR = path.join(root, 'untrusted-config');
+    process.env.HOME = path.join(root, 'untrusted-home');
+    process.env.GH_TOKEN = 'must-not-forward';
+    await withGitHubCredentialStore({ directoryPath: store, repositoryRoot: root }, async () => {
+      const token = await readGitHubToken({
+        cwd: root, repository: 'sec-platform/sec', hostname: 'github.com',
+        deadlineAtUnixMs: Date.now() + 10_000
+      });
+      expect(Buffer.from(token).toString('ascii')).toBe('ghp_test-token');
+      token.fill(0);
+    });
+    const observed = JSON.parse(await readFile(path.join(store, 'observed.json'), 'utf8'));
+    expect(observed.environment.GH_CONFIG_DIR).toBe('/proc/self/fd/4');
+    expect(observed.environment.HOME).toBeNull();
+    expect(observed.environment.GH_TOKEN).toBeNull();
+  } finally {
+    for (const key of Object.keys(process.env)) delete process.env[key];
+    Object.assign(process.env, original);
+  }
 });

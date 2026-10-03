@@ -4,8 +4,9 @@ import { readFileSync } from 'node:fs';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import ts from 'typescript';
-import type { GeneratedStateCleanupProfile, GeneratedStateDisposalReceipt } from '../../../runtime-state/generated-state/contract.ts';
-import { assertGeneratedStateDisposalReceipt } from '../../../runtime-state/generated-state/lifecycle.ts';
+import type { GeneratedStateCleanupProfile, GeneratedStateDisposalReceipt } from '../../../../execution/generated-state/contract.ts';
+import type { GeneratedStateProducerHookSet } from '../../../../execution/generated-state/lifecycle-port.ts';
+import { assertGeneratedStateDisposalReceipt } from '../../../runtime-state/generated-state/lifecycle-evidence.ts';
 import { inspectNoFollowDirectoryChain, retainNoFollowDirectoryForChildProcess, type RetainedNoFollowChildProcessDirectory } from '../../../runtime-state/physical/runtime/physical-no-follow.ts';
 
 import { CompilerError } from '../../../../compiler/errors.ts';
@@ -24,17 +25,22 @@ import {
   type ImportTransformTransactionTestHooks
 } from './import-transform-transaction.ts';
 
-// Inline sync parse cache. Exact config bytes are the reuse identity; metadata
-// is not correctness evidence because mtime/size can collide across rewrites.
-const tsconfigCache = new Map<string, { digest: `sha256:${string}`; value: { config?: unknown; error?: ts.Diagnostic } }>();
-function cachedParseConfigFile(configPath: string): { config?: unknown; error?: ts.Diagnostic } {
+// One process-local slot retains only the most recently parsed config. A
+// different workspace/config replaces the prior entry; the parser revision is
+// fixed by this process. Exact bytes, never mtime/size, authorize reuse.
+let tsconfigCache: {
+  configPath: string;
+  digest: `sha256:${string}`;
+  value: { config?: unknown; error?: ts.Diagnostic };
+} | undefined;
+function cachedParseConfigFile(configPath: string): { config?: unknown; error?: ts.Diagnostic; digest: `sha256:${string}` } {
   const text = readFileSync(configPath, 'utf8');
   const digest = rawSha256(text);
-  const existing = tsconfigCache.get(configPath);
-  if (existing !== undefined && existing.digest === digest) return existing.value;
+  const existing = tsconfigCache;
+  if (existing?.configPath === configPath && existing.digest === digest) return { ...existing.value, digest };
   const value = ts.parseConfigFileTextToJson(configPath, text);
-  tsconfigCache.set(configPath, { digest, value });
-  return value;
+  tsconfigCache = { configPath, digest, value };
+  return { ...value, digest };
 }
 
 type ImportSelectionEnvironment = Record<string, string | undefined>;
@@ -148,7 +154,10 @@ function formatDiagnostic(diagnostic: ts.Diagnostic, projectRoot = compilerRoot)
   return `${relativePosixPath(projectRoot, diagnostic.file.fileName)}:${position.line + 1}:${position.character + 1} ${message}`;
 }
 
-function loadProjectConfig(projectRoot = compilerRoot): ts.ParsedCommandLine {
+function loadProjectConfig(projectRoot = compilerRoot): {
+  config: ts.ParsedCommandLine;
+  inputs: readonly Readonly<{ path: string; digest: `sha256:${string}` | null }>[];
+} {
   const configPath = ts.findConfigFile(projectRoot, ts.sys.fileExists, 'tsconfig.json');
   if (!configPath) {
     throw new Error('tsconfig.json not found');
@@ -159,12 +168,28 @@ function loadProjectConfig(projectRoot = compilerRoot): ts.ParsedCommandLine {
     throw new Error(formatDiagnostic(configFile.error, projectRoot));
   }
 
-  const parsed = ts.parseJsonConfigFileContent(configFile.config, ts.sys, projectRoot, undefined, configPath);
+  const inputs: Array<{ path: string; digest: `sha256:${string}` | null }> = [{
+    path: relativePosixPath(projectRoot, configPath), digest: configFile.digest
+  }];
+  const host: ts.ParseConfigHost = {
+    ...ts.sys,
+    readFile(fileName) {
+      const text = ts.sys.readFile(fileName);
+      inputs.push({
+        path: relativePosixPath(projectRoot, fileName),
+        digest: text === undefined ? null : rawSha256(text)
+      });
+      return text;
+    }
+  };
+  // TypeScript mutates raw config while resolving extends. Keep the cached
+  // parse result independent so later reads re-observe inherited config.
+  const parsed = ts.parseJsonConfigFileContent(structuredClone(configFile.config), host, projectRoot, undefined, configPath);
   if (parsed.errors.length > 0) {
     throw new Error(parsed.errors.map((diagnostic) => formatDiagnostic(diagnostic, projectRoot)).join('\n'));
   }
 
-  return parsed;
+  return { config: parsed, inputs };
 }
 
 function gitError(args: readonly string[], stderr: Buffer | string | null): Error {
@@ -471,13 +496,8 @@ function absoluteRepositoryPath(projectRoot: string, gitPath: string): string {
   return absolute;
 }
 
-type ImportSnapshotLifecycleOwner = Readonly<{
-  born(relativePath: string, operationId: string): Promise<void>;
-  disposed(
-    relativePath: string,
-    request: Readonly<{ outcome: string; profile: GeneratedStateCleanupProfile }>
-  ): Promise<GeneratedStateDisposalReceipt>;
-}>;
+type ImportSnapshotLifecycleOwner = Readonly<Pick<GeneratedStateProducerHookSet, 'born' | 'disposed'>>;
+export interface ImportOrganizerOperationDependencies { readonly generatedStateLifecycle: ImportSnapshotLifecycleOwner; }
 
 type ImportSnapshotLifecycleReceipt = Readonly<{
   dispose(outcome: string): Promise<GeneratedStateDisposalReceipt>;
@@ -485,12 +505,13 @@ type ImportSnapshotLifecycleReceipt = Readonly<{
 
 function issueImportSnapshotLifecycleReceipt(
   owner: ImportSnapshotLifecycleOwner,
-  relativePath: string
+  relativePath: string,
+  workspaceRoot: string
 ): ImportSnapshotLifecycleReceipt {
   return Object.freeze({
     dispose: async (outcome) => {
       const receipt = await owner.disposed(relativePath, { outcome, profile: 'automatic' });
-      assertGeneratedStateDisposalReceipt(receipt);
+      await assertGeneratedStateDisposalReceipt(receipt, { workspaceRoot, relativePath });
       if (receipt.relativePath !== relativePath || receipt.profile !== 'automatic') {
         throw new Error('Import snapshot lifecycle disposal receipt differs from its owner request.');
       }
@@ -507,7 +528,8 @@ type MaterializedCandidateIndex = Readonly<{
 async function materializeCandidateIndex(
   projectRoot: string,
   lifecycleOverride?: StagedImportOrganizerTestHooks['generatedStateLifecycle'],
-  beforeWrite?: StagedImportOrganizerTestHooks['beforeCandidateSnapshotWrite']
+  beforeWrite?: StagedImportOrganizerTestHooks['beforeCandidateSnapshotWrite'],
+  operation?: ImportOrganizerOperationDependencies
 ): Promise<MaterializedCandidateIndex> {
   const snapshotsRoot = path.join(projectRoot, '.tmp', 'import-candidate-snapshots');
   const operationId = randomUUID();
@@ -516,6 +538,10 @@ async function materializeCandidateIndex(
   const snapshotRoot = path.join(snapshotsRoot, snapshotName);
   let lifecycleOwner: ImportSnapshotLifecycleOwner | null = null;
   let lifecycleReceipt: ImportSnapshotLifecycleReceipt | null = null;
+  const resolvedProjectRoot = path.resolve(projectRoot), resolvedCompilerRoot = path.resolve(compilerRoot);
+  const sameCompilerRoot = process.platform === 'win32' ? resolvedProjectRoot.toLowerCase() === resolvedCompilerRoot.toLowerCase() : resolvedProjectRoot === resolvedCompilerRoot;
+  if (sameCompilerRoot && lifecycleOverride !== undefined) throw new Error('Canonical import snapshots cannot replace the generated-state lifecycle owner.');
+  if (sameCompilerRoot && operation === undefined) throw new Error('Canonical import snapshot operation has no bootstrap-bound lifecycle owner.');
   await ensureDir(snapshotRoot);
   const retainedSnapshot = retainNoFollowDirectoryForChildProcess(
     inspectNoFollowDirectoryChain(snapshotRoot, 'Import candidate snapshot'),
@@ -523,25 +549,14 @@ async function materializeCandidateIndex(
     'Import candidate snapshot'
   );
   try {
-    const resolvedProjectRoot = path.resolve(projectRoot);
-    const resolvedCompilerRoot = path.resolve(compilerRoot);
-    const sameCompilerRoot = process.platform === 'win32'
-      ? resolvedProjectRoot.toLowerCase() === resolvedCompilerRoot.toLowerCase()
-      : resolvedProjectRoot === resolvedCompilerRoot;
-    if (sameCompilerRoot && lifecycleOverride !== undefined) {
-      throw new Error('Canonical import snapshots cannot replace the generated-state lifecycle owner.');
-    }
     if (lifecycleOverride !== undefined) {
       lifecycleOwner = lifecycleOverride;
       await lifecycleOwner.born(relativePath, `import-candidate-snapshot:${operationId}`);
-      lifecycleReceipt = issueImportSnapshotLifecycleReceipt(lifecycleOwner, relativePath);
-    } else if (sameCompilerRoot) {
-      const { generatedStateProducerHooks: generatedStateProducerHooksV1 } = await import(
-        '../../../runtime-state/generated-state/lifecycle.ts'
-      );
-      lifecycleOwner = generatedStateProducerHooksV1({ repositoryRoot: projectRoot });
+      lifecycleReceipt = issueImportSnapshotLifecycleReceipt(lifecycleOwner, relativePath, projectRoot);
+    } else if (operation !== undefined) {
+      lifecycleOwner = operation.generatedStateLifecycle;
       await lifecycleOwner.born(relativePath, `import-candidate-snapshot:${operationId}`);
-      lifecycleReceipt = issueImportSnapshotLifecycleReceipt(lifecycleOwner, relativePath);
+      lifecycleReceipt = issueImportSnapshotLifecycleReceipt(lifecycleOwner, relativePath, projectRoot);
     }
     await beforeWrite?.(snapshotRoot);
     const prefix = `${retainedSnapshot.childPath.replace(/\\/gu, '/')}/`;
@@ -614,7 +629,8 @@ async function workingTreeMatchesIndex(projectRoot: string): Promise<boolean> {
 
 async function candidateContext(
   projectRoot: string,
-  testHooks: StagedImportOrganizerTestHooks
+  testHooks: StagedImportOrganizerTestHooks,
+  operation?: ImportOrganizerOperationDependencies
 ): Promise<{
   readonly root: string;
   readonly snapshotRoot: string | null;
@@ -633,7 +649,8 @@ async function candidateContext(
   const snapshot = await materializeCandidateIndex(
     projectRoot,
     testHooks.generatedStateLifecycle,
-    testHooks.beforeCandidateSnapshotWrite
+    testHooks.beforeCandidateSnapshotWrite,
+    operation
   );
   await testHooks.candidateContext?.('snapshot');
   return Object.freeze({
@@ -759,8 +776,16 @@ async function prepareStagedIndexPublication(
   const lockPath = `${indexPath}.lock`;
   const alternateIndexPath = `${indexPath}.imports-staged-${process.pid}-${randomUUID()}`;
   const alternateLockPath = `${alternateIndexPath}.lock`;
-  const metadata = await fs.stat(indexPath);
-  if (!metadata.isFile()) throw new Error('Git index is not a regular file');
+  let indexHandle: Awaited<ReturnType<typeof fs.open>> | null = await fs.open(indexPath, 'r');
+  let metadata: Awaited<ReturnType<typeof fs.stat>>;
+  try {
+    metadata = await indexHandle.stat();
+    if (!metadata.isFile()) throw new Error('Git index is not a regular file');
+  } catch (error) {
+    await indexHandle.close().catch(() => undefined);
+    indexHandle = null;
+    throw error;
+  }
 
   let lock: Awaited<ReturnType<typeof fs.open>> | null = null;
   let ownsLock = false;
@@ -789,7 +814,29 @@ async function prepareStagedIndexPublication(
         throw new Error(`Published Git object identity changed for ${update.entry.path}`);
       }
     }
-    const seed = await fs.readFile(indexPath);
+    if (indexHandle === null) throw new Error('Git index handle is not live');
+    const pathMetadata = await fs.stat(indexPath);
+    if (!pathMetadata.isFile()
+      || pathMetadata.dev !== metadata.dev || pathMetadata.ino !== metadata.ino
+      || pathMetadata.mode !== metadata.mode || pathMetadata.size !== metadata.size
+      || pathMetadata.mtimeMs !== metadata.mtimeMs || pathMetadata.ctimeMs !== metadata.ctimeMs) {
+      throw new Error('Git index path changed after the publication lock was acquired');
+    }
+    const seed = await indexHandle.readFile();
+    const [afterHandle, afterPath] = await Promise.all([
+      indexHandle.stat(),
+      fs.stat(indexPath)
+    ]);
+    if (afterHandle.dev !== metadata.dev || afterHandle.ino !== metadata.ino
+      || afterHandle.mode !== metadata.mode || afterHandle.size !== metadata.size
+      || afterHandle.mtimeMs !== metadata.mtimeMs || afterHandle.ctimeMs !== metadata.ctimeMs
+      || afterPath.dev !== metadata.dev || afterPath.ino !== metadata.ino
+      || afterPath.mode !== metadata.mode || afterPath.size !== metadata.size
+      || afterPath.mtimeMs !== metadata.mtimeMs || afterPath.ctimeMs !== metadata.ctimeMs) {
+      throw new Error('Git index changed during retained seed read');
+    }
+    await indexHandle.close();
+    indexHandle = null;
     await fs.writeFile(alternateIndexPath, seed, {
       flag: 'wx',
       mode: metadata.mode & 0o777
@@ -832,6 +879,7 @@ async function prepareStagedIndexPublication(
       isPublished: () => published
     });
   } catch (error) {
+    if (indexHandle !== null) await indexHandle.close().catch(() => undefined);
     if (lock !== null) await lock.close().catch(() => undefined);
     await fs.rm(alternateLockPath, { force: true }).catch(() => undefined);
     await fs.rm(alternateIndexPath, { force: true }).catch(() => undefined);
@@ -851,7 +899,8 @@ type StagedImportComputation = Readonly<{
 async function computeStagedImportUpdates(
   projectRoot: string,
   testHooks: StagedImportOrganizerTestHooks,
-  selection: StagedImportSelection
+  selection: StagedImportSelection,
+  operation?: ImportOrganizerOperationDependencies
 ): Promise<StagedImportComputation | null> {
   const candidateBase = resolvedCandidateBase(projectRoot, selection.candidateBase);
   const targetPaths = stagedTypeScriptTargets(projectRoot, candidateBase);
@@ -876,10 +925,10 @@ async function computeStagedImportUpdates(
       snapshotLifecycle: null,
       mode: 'working-tree' as const
     })
-    : await candidateContext(projectRoot, testHooks);
+    : await candidateContext(projectRoot, testHooks, operation);
   const contextRoot = context.root;
   try {
-    const config = loadProjectConfig(contextRoot);
+    const { config } = loadProjectConfig(contextRoot);
     const blobs = readStagedBlobs(projectRoot, selectedEntries);
     const sources = selectedEntries.map((entry): ImportSourceSnapshot => {
       const bytes = blobs.get(entry.path);
@@ -968,9 +1017,10 @@ export async function runStagedImportCheck(
 export async function runStagedIndexOnlyImportOrganizer(
   projectRoot = compilerRoot,
   testHooks: StagedImportOrganizerTestHooks = {},
-  selection: StagedImportSelection = {}
+  selection: StagedImportSelection = {},
+  operation?: ImportOrganizerOperationDependencies
 ): Promise<number> {
-  const computed = await computeStagedImportUpdates(projectRoot, testHooks, selection);
+  const computed = await computeStagedImportUpdates(projectRoot, testHooks, selection, operation);
   if (computed === null) {
     console.log('No staged TypeScript import targets selected.');
     return 0;
@@ -1003,24 +1053,39 @@ async function assertSynchronizedWorktreePreimages(
 ): Promise<void> {
   for (const update of updates) {
     const absolutePath = absoluteRepositoryPath(projectRoot, update.entry.path);
-    let metadata: Awaited<ReturnType<typeof fs.lstat>>;
-    let bytes: Buffer;
+    let handle: Awaited<ReturnType<typeof fs.open>> | null = null;
     try {
-      metadata = await fs.lstat(absolutePath);
-      bytes = await fs.readFile(absolutePath);
+      handle = await fs.open(absolutePath, 'r');
+      const opened = await handle.stat();
+      const metadata = await fs.lstat(absolutePath);
+      if (!opened.isFile() || !metadata.isFile() || metadata.isSymbolicLink()
+        || opened.dev !== metadata.dev || opened.ino !== metadata.ino
+        || opened.mode !== metadata.mode || opened.size !== metadata.size
+        || opened.mtimeMs !== metadata.mtimeMs || opened.ctimeMs !== metadata.ctimeMs) {
+        throw new Error('worktree preimage path does not bind the opened file');
+      }
+      const bytes = await handle.readFile();
+      const [afterHandle, afterPath] = await Promise.all([
+        handle.stat(),
+        fs.lstat(absolutePath)
+      ]);
+      if (afterHandle.dev !== opened.dev || afterHandle.ino !== opened.ino
+        || afterHandle.mode !== opened.mode || afterHandle.size !== opened.size
+        || afterHandle.mtimeMs !== opened.mtimeMs || afterHandle.ctimeMs !== opened.ctimeMs
+        || afterPath.dev !== opened.dev || afterPath.ino !== opened.ino
+        || afterPath.mode !== opened.mode || afterPath.size !== opened.size
+        || afterPath.mtimeMs !== opened.mtimeMs || afterPath.ctimeMs !== opened.ctimeMs
+        || !bytes.equals(update.expectedBytes)) {
+        throw new Error('worktree preimage changed during retained read');
+      }
     } catch (error) {
       throw new CompilerError(
         'IMPORT-STAGED-WORKTREE-DIVERGED',
-        `Cannot synchronize staged imports because the worktree preimage is unavailable: ${update.entry.path}`,
+        `Cannot synchronize staged imports because the worktree preimage is unavailable or changed: ${update.entry.path}`,
         { path: update.entry.path, cause: String(error) }
       );
-    }
-    if (!metadata.isFile() || metadata.isSymbolicLink() || !bytes.equals(update.expectedBytes)) {
-      throw new CompilerError(
-        'IMPORT-STAGED-WORKTREE-DIVERGED',
-        `Cannot synchronize staged imports because index and worktree bytes differ: ${update.entry.path}`,
-        { path: update.entry.path }
-      );
+    } finally {
+      await handle?.close();
     }
   }
 }
@@ -1052,9 +1117,10 @@ function synchronizedWorktreeWrites(
 export async function runSynchronizedStagedImportOrganizer(
   projectRoot = compilerRoot,
   testHooks: StagedImportOrganizerTestHooks = {},
-  selection: StagedImportSelection = {}
+  selection: StagedImportSelection = {},
+  operation?: ImportOrganizerOperationDependencies
 ): Promise<number> {
-  const computed = await computeStagedImportUpdates(projectRoot, testHooks, selection);
+  const computed = await computeStagedImportUpdates(projectRoot, testHooks, selection, operation);
   if (computed === null) {
     console.log('No staged TypeScript import targets selected.');
     return 0;
@@ -1156,10 +1222,11 @@ export async function runSynchronizedStagedImportOrganizer(
 export async function runCandidateImportOrganizer(
   projectRoot = compilerRoot,
   testHooks: StagedImportOrganizerTestHooks = {},
-  env: ImportSelectionEnvironment = process.env
+  env: ImportSelectionEnvironment = process.env,
+  operation?: ImportOrganizerOperationDependencies
 ): Promise<number> {
   const candidateBase = resolveCandidateImportBase(projectRoot, undefined, env);
-  return runStagedIndexOnlyImportOrganizer(projectRoot, testHooks, { candidateBase });
+  return runStagedIndexOnlyImportOrganizer(projectRoot, testHooks, { candidateBase }, operation);
 }
 
 export async function runCandidateImportCheck(
@@ -1182,7 +1249,7 @@ async function compileImportOperationExecution(
     throw new Error('Full-repository import scope cannot also select a candidate base');
   }
 
-  const config = loadProjectConfig(projectRoot);
+  const { config, inputs: configInputs } = loadProjectConfig(projectRoot);
   const candidateBase = scope === 'candidate'
     ? resolveCandidateImportBase(projectRoot, options.candidateBase, env)
     : null;
@@ -1246,7 +1313,8 @@ async function compileImportOperationExecution(
   }
 
   const projectConfigDigest = sha256({
-    rawProjectConfig: JSON.parse(JSON.stringify(config.raw ?? {})) as unknown
+    providerRevision: `typescript@${ts.version}`,
+    inputs: configInputs
   }) as `sha256:${string}`;
   const identity = Object.freeze({
     schema: 'sec-import-operation-plan-v1' as const,
@@ -1278,12 +1346,23 @@ export async function runImportCheck(
   projectRoot = compilerRoot,
   env: ImportSelectionEnvironment = process.env
 ): Promise<ImportCheckOutcome> {
+  return (await runImportCheckWithPlan(options, projectRoot, env)).outcome;
+}
+
+/** Retain the already-compiled selection for a bounded recovery hint. The plan
+ * is data only; applying still requires fresh publication admission. */
+export async function runImportCheckWithPlan(
+  options: ImportOperationOptions = {},
+  projectRoot = compilerRoot,
+  env: ImportSelectionEnvironment = process.env
+): Promise<Readonly<{ outcome: ImportCheckOutcome; plan: ImportOperationPlan }>> {
   const { plan } = await compileImportOperationExecution(options, projectRoot, env);
-  return plan.writePaths.length === 0
+  const outcome: ImportCheckOutcome = plan.writePaths.length === 0
     ? Object.freeze({ schema: 'sec-import-check-outcome-v1' as const,
       status: 'canonical' as const, files: Object.freeze([]) })
     : Object.freeze({ schema: 'sec-import-check-outcome-v1' as const,
       status: 'needs-import-transform' as const, files: plan.writePaths });
+  return Object.freeze({ outcome, plan });
 }
 
 export async function runImportApply(

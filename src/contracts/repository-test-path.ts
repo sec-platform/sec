@@ -1,6 +1,11 @@
 const SEC_REPOSITORY_TEST_MODULE_PATH =
   /^(?:src|tests)\/.+[._](?:test|spec)\.(?:[cm]?[jt]s|[jt]sx)$/iu;
 
+/** Native Bun/dependency inputs shared by discovery and verification identity. */
+export const SEC_REPOSITORY_TEST_EXECUTION_INPUT_PATHS = Object.freeze([
+  '.bun-version', 'bun.lock', 'bunfig.toml', 'package.json'
+] as const);
+
 /**
  * Decide whether one repository-relative path is an executable test module.
  * Test-only support modules remain a repository import-boundary concern and

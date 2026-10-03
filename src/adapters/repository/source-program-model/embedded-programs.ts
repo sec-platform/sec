@@ -1,5 +1,5 @@
 import ts from 'typescript';
-import { isMap, isScalar, isSeq } from 'yaml';
+import { isAlias, isMap, isScalar, isSeq } from 'yaml';
 
 import { rawSha256 } from '../../../contracts/canonical.ts';
 import { parseYamlDocument } from '../../formats/yaml.ts';
@@ -295,9 +295,17 @@ export function compileSourceProgramEmbeddedWorkflowPrograms(
     for (let stepIndex = 0; stepIndex < steps.items.length; stepIndex += 1) {
       const step = steps.items[stepIndex];
       if (!isMap(step)) throw new Error(`Source Program workflow step is not one mapping: ${jobId}/${stepIndex}`);
-      const uses = scalarString(mapValue(step, 'uses'));
-      const runNode = mapValue(step, 'run');
+      const usesNode = mapValue(step, 'uses');
+      const uses = scalarString(isAlias(usesNode) ? usesNode.resolve(document) : usesNode);
+      if (isAlias(usesNode) && uses === null) {
+        throw new Error(`Workflow action alias does not resolve to one scalar provider: ${jobId}/${stepIndex}`);
+      }
+      const runValue = mapValue(step, 'run');
+      const runNode = isAlias(runValue) ? runValue.resolve(document) : runValue;
       const run = scalarString(runNode);
+      if (isAlias(runValue) && run === null) {
+        throw new Error(`Workflow run alias does not resolve to one scalar command: ${jobId}/${stepIndex}`);
+      }
       const stepName = scalarString(mapValue(step, 'name')) ?? `${jobId}/${stepIndex}`;
       if (uses !== null && run !== null) {
         throw new Error(`Source Program workflow step cannot contain both uses and run: ${jobId}/${stepIndex}`);

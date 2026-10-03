@@ -1,6 +1,7 @@
 import { createTwoFilesPatch } from 'diff';
 import nodePath from 'node:path';
 import ts from 'typescript';
+import { requireSourceProgramCandidateAnalysis } from './contract.ts';
 
 import { compareCodeUnits, rawSha256, sha256 } from '../../../contracts/canonical.ts';
 import { isSecRepositoryTestModulePath } from '../../../contracts/repository-test-path.ts';
@@ -15,6 +16,7 @@ import {
   type SourceProgramCompilationOperation
 } from './compilation-operation.ts';
 import type {
+  SourceProgramCandidateAnalysis,
   SourceProgramCapabilityInvocation,
   SourceProgramDeclaration,
   SourceProgramFileInput,
@@ -39,6 +41,14 @@ import {
   compileSourceProgramOwnerIntentEvidence,
   isCompiledRepositorySourceProgramModel
 } from './repository.ts';
+import {
+  assertSourceProgramTestAuthorAssessment,
+  qualifySourceProgramTestAuthorAssessment,
+  sourceProgramTestAuthorRelocatedTarget,
+  type SourceProgramTestAuthorApproval,
+  type SourceProgramTestAuthorAssessment
+} from './test-disposition-decisions.ts';
+import type { SourceProgramTestDefinitionContext, SourceProgramTestDefinitionInputs } from './test-observations.ts';
 import {
   reconcileSourceProgramTestValueWithSupersession,
   type SourceProgramTestDisposition,
@@ -235,6 +245,8 @@ const SOURCE_PROGRAM_SUPERSESSION_EVIDENCE_SCHEMA = Object.freeze({
     'resourceUnits',
     'entrypointUnits',
     'tests',
+    'testDefinitionInputs',
+    'testDefinitionContext',
     'intentEvidence',
     'unknowns',
     'evidenceDigest'
@@ -256,10 +268,21 @@ const SOURCE_PROGRAM_SUPERSESSION_EVIDENCE_SCHEMA = Object.freeze({
   testUnitKeys: Object.freeze([
     'testId',
     'path',
+    'owner',
     'semanticClasses',
     'observedProductionPaths',
     'capabilityOperations',
-    'unknowns'
+    'unknowns',
+    'definitionInputDigest',
+    'registrationContentDigest'
+  ]),
+  testDefinitionInputKeys: Object.freeze([
+    'path', 'sourceContentDigest', 'contextDigest', 'inputs', 'unresolved',
+    'readEnvelopes', 'hasUnknownReadScope', 'inputDigest'
+  ]),
+  testDefinitionContextKeys: Object.freeze([
+    'compilerIdentityDigest', 'inputs', 'unresolved', 'readEnvelopes',
+    'runtimeIsolation', 'hasUnknownReadScope', 'contextDigest'
   ]),
   intentKeys: Object.freeze([
     'owner',
@@ -285,7 +308,7 @@ const SOURCE_PROGRAM_SUPERSESSION_EVIDENCE_SCHEMA = Object.freeze({
   obligationObservationKeys: Object.freeze([
     'status', 'reason', 'consumerModuleIds', 'effectKinds'
   ]),
-  unknownKeys: Object.freeze(['code', 'path', 'detail']),
+  unknownKeys: Object.freeze(['code', 'path', 'detail', 'spanDigest', 'sourceContentDigest', 'dependencyInputDigest']),
   decisionProjections: Object.freeze([
     'current-value',
     'owner-issued-design-intent',
@@ -331,10 +354,13 @@ export function compileSourceProgramSupersessionEvidenceIdentity(
 interface SourceProgramSupersessionTestUnit {
   readonly testId: string;
   readonly path: string;
+  readonly owner: string | null;
+  readonly registrationContentDigest: string;
   readonly semanticClasses: readonly SourceProgramTestSemanticClass[];
   readonly observedProductionPaths: readonly string[];
   readonly capabilityOperations: readonly string[];
   readonly unknowns: readonly string[];
+  readonly definitionInputDigest: string;
 }
 
 export interface SourceProgramSupersessionEvidence {
@@ -351,17 +377,22 @@ export interface SourceProgramSupersessionEvidence {
   readonly resourceUnits: readonly SourceProgramSemanticUnit[];
   readonly entrypointUnits: readonly SourceProgramSemanticUnit[];
   readonly tests: readonly SourceProgramSupersessionTestUnit[];
+  readonly testDefinitionInputs: readonly SourceProgramTestDefinitionInputs[];
+  readonly testDefinitionContext: SourceProgramTestDefinitionContext | null;
   readonly intentEvidence: readonly SourceProgramOwnerIntentEvidence[];
   readonly unknowns: readonly Readonly<{
     readonly code: string;
     readonly path: string;
     readonly detail: string;
+    readonly spanDigest: string;
+    readonly sourceContentDigest: string | null;
+    readonly dependencyInputDigest: string;
   }>[];
   readonly evidenceDigest: string;
 }
 
 export interface CompileSourceProgramSupersessionEvidenceInput {
-  readonly model: SourceProgramModel;
+  readonly model: SourceProgramModel<SourceProgramCandidateAnalysis>;
   readonly tests: SourceProgramTestValueCompilation;
   readonly intentEvidence: readonly SourceProgramOwnerIntentEvidence[];
   readonly identity: SourceProgramSupersessionEvidenceIdentity;
@@ -369,8 +400,15 @@ export interface CompileSourceProgramSupersessionEvidenceInput {
 }
 
 export interface CompileSourceProgramSupersessionInput {
+  /** Test transitions do not require or prove unchanged SUT implementation. */
+  readonly authorityScope?: 'whole-program' | 'test-obligations';
   readonly baseline: SourceProgramSupersessionEvidence;
   readonly current: SourceProgramSupersessionEvidence;
+  /** Exact Git transition observer input, including assets outside Source Program. */
+  readonly changedPaths?: readonly string[];
+  readonly authorAssessment?: SourceProgramTestAuthorAssessment;
+  /** Available only to the live authenticated host, never decoded from worker JSON. */
+  readonly authorApproval?: SourceProgramTestAuthorApproval;
   readonly operation?: SourceProgramCompilationOperation;
 }
 
@@ -391,7 +429,7 @@ function pathSemanticUnitOccurrenceId(
   return sha256({ kind, path });
 }
 
-function sourceProgramModelEvidenceIsExact(model: SourceProgramModel): boolean {
+function sourceProgramModelEvidenceIsExact(model: SourceProgramModel<SourceProgramCandidateAnalysis>): boolean {
   return DIGEST.test(model.modelDigest)
     && DIGEST.test(model.sourceRevision)
     && isCompiledRepositorySourceProgramModel(model);
@@ -402,6 +440,7 @@ function sourceProgramTestEvidenceIsExact(compilation: SourceProgramTestValueCom
     && DIGEST.test(compilation.sourceRevision)
     && DIGEST.test(compilation.baselineDigest)
     && DIGEST.test(compilation.baselineEvidenceDigest)
+    && Array.isArray(compilation.definitionInputs)
     && new Set(compilation.records.map(({ testId }) => testId)).size === compilation.records.length
     && compilation.records.every(({ testId }) => DIGEST.test(testId));
 }
@@ -712,7 +751,7 @@ function capabilitySemanticAddress(
 }
 
 function sourceProgramRequiredProductionPaths(
-  model: SourceProgramModel,
+  model: SourceProgramModel<SourceProgramCandidateAnalysis>,
   operation: SourceProgramCompilationOperation
 ): ReadonlySet<string> {
   const required = new Set<string>();
@@ -743,7 +782,7 @@ function sourceProgramRequiredProductionPaths(
 }
 
 function compileSourceProgramSemanticUnits(
-  model: SourceProgramModel,
+  model: SourceProgramModel<SourceProgramCandidateAnalysis>,
   operation: SourceProgramCompilationOperation
 ): readonly SourceProgramSemanticUnit[] {
   const moduleIdByPath = new Map<string, string | null>();
@@ -813,7 +852,7 @@ function compileSourceProgramSemanticUnits(
 }
 
 function compileSourceProgramResourceUnits(
-  model: SourceProgramModel,
+  model: SourceProgramModel<SourceProgramCandidateAnalysis>,
   operation: SourceProgramCompilationOperation
 ): readonly SourceProgramSemanticUnit[] {
   return Object.freeze(model.files
@@ -839,7 +878,7 @@ function compileSourceProgramResourceUnits(
 }
 
 function compileSourceProgramEntrypointUnits(
-  model: SourceProgramModel,
+  model: SourceProgramModel<SourceProgramCandidateAnalysis>,
   productionUnitByPath: ReadonlyMap<string, SourceProgramSemanticUnit>,
   operation: SourceProgramCompilationOperation
 ): readonly SourceProgramSemanticUnit[] {
@@ -959,6 +998,14 @@ function sourceProgramSupersessionEvidenceHasExactGrammar(
       || !Array.isArray(value.resourceUnits)
       || !Array.isArray(value.entrypointUnits)
       || !Array.isArray(value.tests)
+      || !Array.isArray(value.testDefinitionInputs)
+      || !(value.testDefinitionContext === null
+        ? value.tests.length === 0
+        : hasExactKeys(value.testDefinitionContext, schema.testDefinitionContextKeys)
+          && Array.isArray(value.testDefinitionContext.readEnvelopes)
+          && value.testDefinitionContext.readEnvelopes.every((envelope) => hasExactKeys(envelope, ['root', 'descendants']))
+          && Array.isArray(value.testDefinitionContext.inputs)
+          && value.testDefinitionContext.inputs.every((file) => hasExactKeys(file, ['path', 'contentDigest', 'moduleDigest'])))
       || !Array.isArray(value.intentEvidence)
       || !Array.isArray(value.unknowns)) return false;
   const semanticUnits = [
@@ -968,6 +1015,11 @@ function sourceProgramSupersessionEvidenceHasExactGrammar(
   ];
   return semanticUnits.every((unit) => hasExactKeys(unit, schema.semanticUnitKeys))
     && value.tests.every((test) => hasExactKeys(test, schema.testUnitKeys))
+    && value.testDefinitionInputs.every((inputs) => hasExactKeys(inputs, schema.testDefinitionInputKeys)
+      && Array.isArray(inputs.readEnvelopes)
+      && inputs.readEnvelopes.every((envelope) => hasExactKeys(envelope, ['root', 'descendants']))
+      && Array.isArray(inputs.inputs)
+      && inputs.inputs.every((file) => hasExactKeys(file, ['path', 'contentDigest', 'moduleDigest'])))
     && value.unknowns.every((unknown) => hasExactKeys(unknown, schema.unknownKeys))
     && value.intentEvidence.every((intent) => hasExactKeys(intent, schema.intentKeys)
       && Array.isArray(intent.capabilityEnvelope)
@@ -984,11 +1036,36 @@ function sourceProgramSupersessionEvidenceHasExactGrammar(
         operationObligationEvidenceIsExact(obligation)));
 }
 
+function definitionReadEnvelopesAreExact(envelopes: readonly Readonly<{ root: string; descendants: boolean }>[]): boolean {
+  return envelopes.every(({ root, descendants }) => typeof root === 'string'
+    && typeof descendants === 'boolean' && (root === '.' || root.length > 0
+      && !root.startsWith('/') && !root.includes('\\')
+      && root.split('/').every((part) => part !== '' && part !== '.' && part !== '..')))
+    && new Set(envelopes.map((envelope) => sha256(envelope))).size === envelopes.length;
+}
+
+function readEnvelopeIntersects(envelopes: readonly Readonly<{ root: string; descendants: boolean }>[], paths: ReadonlySet<string>): boolean {
+  return envelopes.some(({ root, descendants }) => [...paths].some((path) =>
+    path === root || descendants && (root === '.' || path.startsWith(`${root}/`))));
+}
+
 function sourceProgramSupersessionEvidenceIsExact(
   value: unknown
 ): value is SourceProgramSupersessionEvidence {
   if (!sourceProgramSupersessionEvidenceHasExactGrammar(value)) return false;
   const evidence = value;
+  const definitionInputsByDigest = new Map(evidence.testDefinitionInputs
+    .map((inputs) => [inputs.inputDigest, inputs] as const));
+  if (evidence.testDefinitionContext !== null) {
+    const { contextDigest, ...context } = evidence.testDefinitionContext;
+    if (!DIGEST.test(context.compilerIdentityDigest) || contextDigest !== sha256(context)
+        || typeof context.hasUnknownReadScope !== 'boolean'
+        || context.runtimeIsolation !== 'unassessed'
+        || !definitionReadEnvelopesAreExact(context.readEnvelopes)
+        || !isUniqueStringArray(context.unresolved)
+        || context.inputs.some(({ path, contentDigest, moduleDigest }) => typeof path !== 'string'
+          || !DIGEST.test(moduleDigest) || contentDigest !== null && !DIGEST.test(contentDigest))) return false;
+  }
   if (!DIGEST.test(evidence.actionKey)
       || !DIGEST.test(evidence.evidenceDigest)
       || !Object.values(evidence.identity).every((value) => DIGEST.test(value))
@@ -1002,8 +1079,30 @@ function sourceProgramSupersessionEvidenceIsExact(
       || new Set(evidence.intentEvidence.map(({ owner }) => owner)).size !== evidence.intentEvidence.length
       || evidence.source.intentEvidenceDigest
         !== sourceProgramIntentEvidenceDigest(evidence.intentEvidence)
+      || evidence.unknowns.some(({ spanDigest, sourceContentDigest, dependencyInputDigest }) => !DIGEST.test(spanDigest)
+        || !DIGEST.test(dependencyInputDigest)
+        || sourceContentDigest !== null && !DIGEST.test(sourceContentDigest))
       || new Set(evidence.tests.map(({ testId }) => testId)).size !== evidence.tests.length
-      || evidence.tests.some(({ testId }) => !DIGEST.test(testId))) return false;
+      || definitionInputsByDigest.size !== evidence.testDefinitionInputs.length
+      || new Set(evidence.testDefinitionInputs.map(({ path }) => path)).size !== evidence.testDefinitionInputs.length
+      || evidence.tests.some(({ testId, path, definitionInputDigest, registrationContentDigest }) => !DIGEST.test(testId)
+        || !DIGEST.test(registrationContentDigest)
+        || definitionInputsByDigest.get(definitionInputDigest)?.path !== path)
+      || evidence.testDefinitionInputs.some((definitionInputs) => {
+        const { inputDigest, ...inputs } = definitionInputs;
+        return !DIGEST.test(inputDigest)
+          || !DIGEST.test(definitionInputs.sourceContentDigest)
+          || !DIGEST.test(definitionInputs.contextDigest)
+          || definitionInputs.contextDigest !== evidence.testDefinitionContext?.contextDigest
+          || typeof definitionInputs.hasUnknownReadScope !== 'boolean'
+          || !definitionReadEnvelopesAreExact(definitionInputs.readEnvelopes)
+          || !isUniqueStringArray(definitionInputs.unresolved)
+          || definitionInputs.inputs.some(({ path: inputPath, contentDigest, moduleDigest }) =>
+            typeof inputPath !== 'string' || !DIGEST.test(moduleDigest)
+            || (contentDigest !== null && !DIGEST.test(contentDigest)))
+          || new Set(definitionInputs.inputs.map(({ path }) => path)).size !== definitionInputs.inputs.length
+          || inputDigest !== sha256(inputs);
+      })) return false;
   const canonicalIntent = [...evidence.intentEvidence]
     .sort((left, right) => compareCodeUnits(left.owner, right.owner));
   const canonicalTests = [...evidence.tests]
@@ -1081,17 +1180,47 @@ export function compileSourceProgramSupersessionEvidence(
     return Object.freeze({
       testId: registration.testId,
       path: registration.path,
+      owner: registration.owner,
+      registrationContentDigest: registration.registrationContentDigest,
       semanticClasses: Object.freeze([...registration.semanticClasses].sort(compareCodeUnits)),
       observedProductionPaths: Object.freeze([...registration.observedProductionPaths]
         .sort(compareCodeUnits)),
       capabilityOperations: Object.freeze([...registration.capabilityOperations]
         .sort(compareCodeUnits)),
-      unknowns: Object.freeze([...registration.unknowns].sort(compareCodeUnits))
+      unknowns: Object.freeze([...registration.unknowns].sort(compareCodeUnits)),
+      definitionInputDigest: registration.definitionInputDigest
     });
   }).sort((left, right) => compareCodeUnits(left.testId, right.testId)));
-  const unknowns = Object.freeze(input.model.unknowns.map(({ code, path, detail }) => {
+  const sourceFilesByPath = new Map(input.model.files.map((file) => [file.path, file] as const));
+  const referencedPaths = new Map<string, Set<string>>();
+  for (const reference of input.model.references) {
+    if (reference.targetPath === null || reference.targetPath === reference.path) continue;
+    const targets = referencedPaths.get(reference.path) ?? new Set<string>();
+    targets.add(reference.targetPath);
+    referencedPaths.set(reference.path, targets);
+  }
+  const unknownClosureDigests = new Map<string, string>();
+  const unknownClosureDigest = (root: string): string => {
+    const prior = unknownClosureDigests.get(root);
+    if (prior !== undefined) return prior;
+    const closure = new Set([root]), queue = [root];
+    for (let index = 0; index < queue.length; index++) {
+      sourceProgramCompilationCheckpoint(operation, 'supersession-evidence');
+      for (const target of referencedPaths.get(queue[index]!) ?? []) {
+        if (!closure.has(target)) { closure.add(target); queue.push(target); }
+      }
+    }
+    const digest = sha256([...closure].sort(compareCodeUnits).map((path) => ({
+      path, contentDigest: sourceFilesByPath.get(path)?.contentDigest ?? null
+    })));
+    unknownClosureDigests.set(root, digest);
+    return digest;
+  };
+  const unknowns = Object.freeze(input.model.unknowns.map(({ code, path, detail, span }) => {
     sourceProgramCompilationCheckpoint(operation, 'supersession-evidence');
-    return Object.freeze({ code, path, detail });
+    return Object.freeze({ code, path, detail, spanDigest: sha256(span),
+      sourceContentDigest: sourceFilesByPath.get(path)?.contentDigest ?? null,
+      dependencyInputDigest: unknownClosureDigest(path) });
   }).sort((left, right) => compareCodeUnits(left.path, right.path)
     || compareCodeUnits(left.code, right.code)
     || compareCodeUnits(left.detail, right.detail)));
@@ -1103,6 +1232,8 @@ export function compileSourceProgramSupersessionEvidence(
     resourceUnits: compileSourceProgramResourceUnits(input.model, operation),
     entrypointUnits: compileSourceProgramEntrypointUnits(input.model, productionUnitByPath, operation),
     tests,
+    testDefinitionInputs: input.tests.definitionInputs,
+    testDefinitionContext: input.tests.definitionContext,
     intentEvidence,
     unknowns
   });
@@ -1142,9 +1273,23 @@ function finalizeSourceProgramSupersessionReceipt(
     current: SourceProgramSupersessionLifecycleCost;
   }>,
   replacements: readonly SourceProgramSupersessionReplacement[],
-  findings: readonly SourceProgramSupersessionFinding[]
+  findings: readonly SourceProgramSupersessionFinding[],
+  retainedUnknowns: readonly string[] = []
 ): SourceProgramSupersessionReceipt {
+  const assessedIds = new Set((input.authorAssessment?.decisions ?? [])
+    .flatMap(({ currentTestIds }) => currentTestIds));
+  const registrationsByPath = new Map<string, string[]>();
+  for (const test of input.current.tests) {
+    const ids = registrationsByPath.get(test.path) ?? [];
+    ids.push(test.testId);
+    registrationsByPath.set(test.path, ids);
+  }
+  const authorAssessedCurrentPaths = status === 'author-approved-change'
+    ? [...registrationsByPath].filter(([, ids]) => ids.length > 0 && ids.every(id => assessedIds.has(id)))
+      .map(([path]) => path).sort(compareCodeUnits)
+    : [];
   const canonicalReceipt = Object.freeze({
+    authorityScope: input.authorityScope ?? 'whole-program',
     status,
     baseline: Object.freeze({
       sourceRevision: input.baseline.identity.sourceRevision,
@@ -1160,7 +1305,10 @@ function finalizeSourceProgramSupersessionReceipt(
     }),
     lifecycleCost: Object.freeze(lifecycleCost),
     replacements: Object.freeze(replacements),
-    findings: Object.freeze(findings)
+    findings: Object.freeze(findings),
+    authorDecisionDigest: input.authorAssessment?.payloadDigest ?? null,
+    authorAssessedCurrentPaths: Object.freeze(authorAssessedCurrentPaths),
+    retainedUnknowns: Object.freeze([...retainedUnknowns].sort(compareCodeUnits))
   });
   const receipt = Object.freeze({
     ...canonicalReceipt,
@@ -1173,18 +1321,60 @@ function finalizeSourceProgramSupersessionReceipt(
 /**
  * Prove that a candidate retains every statically observable baseline
  * capability.  The compiler is intentionally one-way and conservative: it
- * can prove exact semantic obligations and stronger test observations, but it
- * cannot infer arbitrary behavioral equivalence from similar names, paths or
- * bytes.  Unresolved evidence is therefore an owner decision, never a PASS.
+ * can reuse an exact complete compilation, but test observation categories
+ * only locate candidates. They do not bind a Claim, inputs, oracle, fixtures or
+ * environment and therefore cannot prove test equivalence or subsumption.
+ * Unresolved evidence is an owner decision, never a PASS.
  */
+/** Author-dependent consumers require the receipt actually issued by this owner. */
+export function assertSourceProgramSupersessionReceipt(receipt: SourceProgramSupersessionReceipt): void {
+  if (!compiledSourceProgramSupersessionReceipts.has(receipt)) {
+    throw new Error('Supersession authority requires an owner-issued receipt');
+  }
+}
+
 export function compileSourceProgramSupersessionReceipt(
   input: CompileSourceProgramSupersessionInput
 ): SourceProgramSupersessionReceipt {
   const compilationOperation = resolveSourceProgramCompilationOperation(input.operation);
   sourceProgramCompilationCheckpoint(compilationOperation, 'supersession-receipt', 'start');
+  if (!sourceProgramSupersessionEvidenceHasExactGrammar(input.baseline)
+      || !sourceProgramSupersessionEvidenceHasExactGrammar(input.current)) {
+    throw new Error('Supersession requires the exact compact evidence grammar before interpretation');
+  }
+  const authorityScope = input.authorityScope ?? 'whole-program';
+  if (authorityScope !== 'whole-program' && authorityScope !== 'test-obligations') {
+    throw new Error('Supersession authority scope is invalid');
+  }
   const findings: SourceProgramSupersessionFinding[] = [];
   const baselineIsExact = sourceProgramSupersessionEvidenceIsExact(input.baseline);
   const currentIsExact = sourceProgramSupersessionEvidenceIsExact(input.current);
+  let authorQualified = false;
+  if (input.authorApproval !== undefined && input.authorAssessment === undefined) {
+    throw new Error('Test author adoption requires its exact compiler assessment');
+  }
+  if (input.authorAssessment !== undefined) {
+    assertSourceProgramTestAuthorAssessment(input.authorAssessment);
+    const assessment = input.authorAssessment;
+    if (assessment.baselineSourceRevision !== input.baseline.identity.sourceRevision
+        || assessment.currentSourceRevision !== input.current.identity.sourceRevision
+        || assessment.baselineModelDigest !== input.baseline.source.modelDigest
+        || assessment.currentModelDigest !== input.current.source.modelDigest
+        || assessment.baselineTestCompilationDigest !== input.baseline.source.testCompilationDigest
+        || assessment.currentTestCompilationDigest !== input.current.source.testCompilationDigest) {
+      throw new Error('Test author assessment belongs to a different exact comparison');
+    }
+    authorQualified = input.authorApproval !== undefined
+      && qualifySourceProgramTestAuthorAssessment({ approval: input.authorApproval, assessment }) === 'qualified';
+  }
+  const changedPaths = new Set(input.changedPaths ?? []);
+  const contextInputChangedOutsideSnapshot = input.baseline.testDefinitionContext?.inputs
+    .some(({ path, contentDigest }) => contentDigest === null && changedPaths.has(path)) === true
+    || readEnvelopeIntersects(input.baseline.testDefinitionContext?.readEnvelopes ?? [], changedPaths);
+  const testInputChangedOutsideSnapshot = contextInputChangedOutsideSnapshot
+    || input.baseline.testDefinitionInputs.some((definitionInputs) =>
+      definitionInputs.inputs.some(({ path, contentDigest }) => contentDigest === null && changedPaths.has(path))
+      || readEnvelopeIntersects(definitionInputs.readEnvelopes, changedPaths));
   if (!baselineIsExact) {
     findings.push(supersessionFinding(
       'baseline-evidence-invalid',
@@ -1200,6 +1390,8 @@ export function compileSourceProgramSupersessionReceipt(
 
   if (baselineIsExact
       && currentIsExact
+      && input.authorAssessment === undefined
+      && !testInputChangedOutsideSnapshot
       && sourceProgramSupersessionSemanticEvidenceDigest(input.baseline)
         === sourceProgramSupersessionSemanticEvidenceDigest(input.current)) {
     const replacements = [
@@ -1239,17 +1431,18 @@ export function compileSourceProgramSupersessionReceipt(
         currentPaths: Object.freeze([test.path]),
         proof: 'exact-semantic-obligation' as const
       }))
-    ].sort((left, right) => compareCodeUnits(left.kind, right.kind)
+    ].filter(({ kind }) => authorityScope === 'whole-program' || kind === 'test')
+      .sort((left, right) => compareCodeUnits(left.kind, right.kind)
       || compareCodeUnits(left.baselineId, right.baselineId));
     const baselineLifecycleCost = supersessionLifecycleCost(
       input.baseline.unknowns.length,
       input.baseline.tests,
-      input.baseline.productionUnits
+      authorityScope === 'test-obligations' ? [] : input.baseline.productionUnits
     );
     const currentLifecycleCost = supersessionLifecycleCost(
       input.current.unknowns.length,
       input.current.tests,
-      input.current.productionUnits
+      authorityScope === 'test-obligations' ? [] : input.current.productionUnits
     );
     const receipt = finalizeSourceProgramSupersessionReceipt(
       input,
@@ -1262,268 +1455,302 @@ export function compileSourceProgramSupersessionReceipt(
     return receipt;
   }
 
-  for (const [side, evidence] of [
-    ['baseline', input.baseline],
-    ['current', input.current]
-  ] as const) {
-    for (const unknown of evidence.unknowns) {
+  const retainedUnknowns: string[] = [];
+  const baselineProduction = input.baseline.productionUnits;
+  const currentProduction = input.current.productionUnits;
+  const replacements: SourceProgramSupersessionReplacement[] = [];
+  const currentRequirementIdByPath = new Map<string, string>();
+  const currentIntentByOwner = new Map(input.current.intentEvidence.map((evidence) =>
+    [evidence.owner, evidence] as const));
+  if (authorityScope === 'whole-program') {
+    // Adopted legacy migration policy: unchanged frontier debt remains visible,
+    // but is neither a new regression nor semantic preservation. A frontier's
+    // occurrence, source bytes and compiler context must be identical; removing
+    // or changing it still requires a scoped decision. Truly unbounded reads
+    // remain unassessed even when their frontier is unchanged.
+    const unknownContextUnchanged = input.baseline.identity.toolchainDigest === input.current.identity.toolchainDigest
+      && input.baseline.testDefinitionContext?.contextDigest === input.current.testDefinitionContext?.contextDigest;
+    const currentUnknownCounts = new Map<string, number>();
+    for (const unknown of input.current.unknowns) {
+      const key = sha256(unknown);
+      currentUnknownCounts.set(key, (currentUnknownCounts.get(key) ?? 0) + 1);
+    }
+    const unresolvedUnknowns: Array<Readonly<{ side: string; unknown: SourceProgramSupersessionEvidence['unknowns'][number] }>> = [];
+    for (const unknown of input.baseline.unknowns) {
+      const key = sha256(unknown);
+      const count = currentUnknownCounts.get(key) ?? 0;
+      if (unknownContextUnchanged && !changedPaths.has(unknown.path) && count > 0) {
+        retainedUnknowns.push(key);
+        currentUnknownCounts.set(key, count - 1);
+      } else unresolvedUnknowns.push({ side: 'baseline', unknown });
+    }
+    for (const unknown of input.current.unknowns) {
+      const key = sha256(unknown);
+      const count = currentUnknownCounts.get(key) ?? 0;
+      if (count > 0) {
+        unresolvedUnknowns.push({ side: 'current', unknown });
+        currentUnknownCounts.set(key, count - 1);
+      }
+    }
+    for (const { side, unknown } of unresolvedUnknowns) {
       findings.push(supersessionFinding(
         'dynamic-or-external-observation-unresolved',
         `${side} observation ${unknown.code} is unresolved: ${unknown.detail}`,
         { baselinePaths: [unknown.path] }
       ));
     }
-  }
 
-  const baselineProduction = input.baseline.productionUnits;
-  const currentProduction = input.current.productionUnits;
-  const baselineIntentByOwner = new Map(input.baseline.intentEvidence.map((evidence) =>
-    [evidence.owner, evidence] as const));
-  const currentIntentByOwner = new Map(input.current.intentEvidence.map((evidence) =>
-    [evidence.owner, evidence] as const));
-  const currentProductionBySignature = new Map<string, SourceProgramSemanticUnit[]>();
-  for (const unit of currentProduction) {
-    const candidates = currentProductionBySignature.get(unit.signature) ?? [];
-    candidates.push(unit);
-    currentProductionBySignature.set(unit.signature, candidates);
-  }
-  const replacements: SourceProgramSupersessionReplacement[] = [];
-  const currentRequirementIdByPath = new Map<string, string>();
-  for (const baselineUnit of baselineProduction) {
-    const candidates = currentProductionBySignature.get(baselineUnit.signature) ?? [];
-    const exactPath = candidates.find(({ path }) => path === baselineUnit.path);
-    const selected = exactPath ?? (candidates.length === 1 ? candidates[0] : undefined);
-    if (selected === undefined) {
-      findings.push(supersessionFinding(
-        candidates.length === 0
-          ? 'required-production-behavior-missing'
-          : 'replacement-ambiguous',
-        candidates.length === 0
-          ? 'no current production unit proves the same owner, declarations, resolved dependencies, and capabilities'
-          : 'multiple current production units have the same semantic shape; path/byte similarity cannot choose authority',
-        {
-          baselineId: baselineUnit.id,
-          owner: baselineUnit.owner,
-          baselinePaths: [baselineUnit.path],
-          currentCandidateIds: candidates.map(({ id }) => id)
-        }
-      ));
-      continue;
+    const baselineIntentByOwner = new Map(input.baseline.intentEvidence.map((evidence) =>
+      [evidence.owner, evidence] as const));
+    const currentProductionBySignature = new Map<string, SourceProgramSemanticUnit[]>();
+    for (const unit of currentProduction) {
+      const candidates = currentProductionBySignature.get(unit.signature) ?? [];
+      candidates.push(unit);
+      currentProductionBySignature.set(unit.signature, candidates);
     }
-    currentRequirementIdByPath.set(selected.path, baselineUnit.id);
-    replacements.push(Object.freeze({
-      kind: 'production',
-      baselineId: baselineUnit.id,
-      currentIds: Object.freeze([selected.id]),
-      owner: baselineUnit.owner,
-      baselinePaths: Object.freeze([baselineUnit.path]),
-      currentPaths: Object.freeze([selected.path]),
-      proof: 'exact-semantic-obligation'
-    }));
-  }
-
-  const baselineResources = input.baseline.resourceUnits;
-  const currentResourceBySignature = new Map(input.current.resourceUnits
-    .map((unit) => [unit.signature, unit] as const));
-  for (const baselineUnit of baselineResources) {
-    const currentUnit = currentResourceBySignature.get(baselineUnit.signature);
-    if (currentUnit === undefined) {
-      findings.push(supersessionFinding(
-        'required-resource-missing',
-        'resource bytes, repository address, surface, or owner changed without a semantic migration proof',
-        {
-          baselineId: baselineUnit.id,
-          owner: baselineUnit.owner,
-          baselinePaths: [baselineUnit.path]
-        }
-      ));
-      continue;
-    }
-    replacements.push(Object.freeze({
-      kind: 'resource',
-      baselineId: baselineUnit.id,
-      currentIds: Object.freeze([currentUnit.id]),
-      owner: baselineUnit.owner,
-      baselinePaths: Object.freeze([baselineUnit.path]),
-      currentPaths: Object.freeze([currentUnit.path]),
-      proof: 'exact-semantic-obligation'
-    }));
-  }
-
-  const baselineEntrypoints = input.baseline.entrypointUnits;
-  const currentEntrypointsBySignature = new Map<string, SourceProgramSemanticUnit[]>();
-  for (const unit of input.current.entrypointUnits) {
-    const candidates = currentEntrypointsBySignature.get(unit.signature) ?? [];
-    candidates.push(unit);
-    currentEntrypointsBySignature.set(unit.signature, candidates);
-  }
-  const baselineEntrypointsBySignature = new Map<string, SourceProgramSemanticUnit[]>();
-  for (const unit of baselineEntrypoints) {
-    const candidates = baselineEntrypointsBySignature.get(unit.signature) ?? [];
-    candidates.push(unit);
-    baselineEntrypointsBySignature.set(unit.signature, candidates);
-  }
-  const selectedCurrentEntrypointIdByBaselineId = new Map<string, string>();
-  const reservedCurrentEntrypointIds = new Set<string>();
-  for (const baselineUnit of baselineEntrypoints) {
-    const exactOccurrences = (currentEntrypointsBySignature.get(baselineUnit.signature) ?? [])
-      .filter(({ occurrenceId }) => occurrenceId === baselineUnit.occurrenceId);
-    if (exactOccurrences.length !== 1) continue;
-    selectedCurrentEntrypointIdByBaselineId.set(baselineUnit.id, exactOccurrences[0]!.id);
-    reservedCurrentEntrypointIds.add(exactOccurrences[0]!.id);
-  }
-  const unmatchedBaselineEntrypointsBySignaturePath = new Map<string, SourceProgramSemanticUnit[]>();
-  const unmatchedCurrentEntrypointsBySignaturePath = new Map<string, SourceProgramSemanticUnit[]>();
-  for (const unit of baselineEntrypoints) {
-    if (selectedCurrentEntrypointIdByBaselineId.has(unit.id)) continue;
-    const key = `${unit.signature}\0${unit.path}`;
-    const candidates = unmatchedBaselineEntrypointsBySignaturePath.get(key) ?? [];
-    candidates.push(unit);
-    unmatchedBaselineEntrypointsBySignaturePath.set(key, candidates);
-  }
-  for (const unit of input.current.entrypointUnits) {
-    if (reservedCurrentEntrypointIds.has(unit.id)) continue;
-    const key = `${unit.signature}\0${unit.path}`;
-    const candidates = unmatchedCurrentEntrypointsBySignaturePath.get(key) ?? [];
-    candidates.push(unit);
-    unmatchedCurrentEntrypointsBySignaturePath.set(key, candidates);
-  }
-  for (const [key, baselineCandidates] of unmatchedBaselineEntrypointsBySignaturePath) {
-    const currentCandidates = unmatchedCurrentEntrypointsBySignaturePath.get(key) ?? [];
-    if (baselineCandidates.length !== 1 || currentCandidates.length !== 1) continue;
-    selectedCurrentEntrypointIdByBaselineId.set(
-      baselineCandidates[0]!.id,
-      currentCandidates[0]!.id
-    );
-    reservedCurrentEntrypointIds.add(currentCandidates[0]!.id);
-  }
-  for (const [signature, baselineCandidates] of baselineEntrypointsBySignature) {
-    const unmatchedBaseline = baselineCandidates.filter(({ id }) => (
-      !selectedCurrentEntrypointIdByBaselineId.has(id)
-    ));
-    const unmatchedCurrent = (currentEntrypointsBySignature.get(signature) ?? []).filter(({ id }) => (
-      !reservedCurrentEntrypointIds.has(id)
-    ));
-    if (unmatchedBaseline.length !== 1 || unmatchedCurrent.length !== 1) continue;
-    selectedCurrentEntrypointIdByBaselineId.set(
-      unmatchedBaseline[0]!.id,
-      unmatchedCurrent[0]!.id
-    );
-    reservedCurrentEntrypointIds.add(unmatchedCurrent[0]!.id);
-  }
-  const currentEntrypointById = new Map(input.current.entrypointUnits.map((unit) => (
-    [unit.id, unit] as const
-  )));
-  for (const baselineUnit of baselineEntrypoints) {
-    const candidates = currentEntrypointsBySignature.get(baselineUnit.signature) ?? [];
-    const selectedCurrentId = selectedCurrentEntrypointIdByBaselineId.get(baselineUnit.id);
-    const currentUnit = selectedCurrentId === undefined
-      ? undefined
-      : currentEntrypointById.get(selectedCurrentId);
-    if (currentUnit === undefined) {
-      findings.push(supersessionFinding(
-        candidates.length === 0
-          ? 'required-entrypoint-missing'
-          : 'replacement-ambiguous',
-        candidates.length === 0
-          ? 'no current entrypoint proves the same public command, semantic target closure, provider, and capability transport'
-          : 'multiple current entrypoint occurrences have the same semantic shape; source order cannot choose authority',
-        {
-          baselineId: baselineUnit.id,
-          owner: baselineUnit.owner,
-          baselinePaths: [baselineUnit.path],
-          currentCandidateIds: candidates.map(({ id }) => id)
-        }
-      ));
-      continue;
-    }
-    replacements.push(Object.freeze({
-      kind: 'entrypoint',
-      baselineId: baselineUnit.id,
-      currentIds: Object.freeze([currentUnit.id]),
-      owner: baselineUnit.owner,
-      baselinePaths: Object.freeze([baselineUnit.path]),
-      currentPaths: Object.freeze([currentUnit.path]),
-      proof: 'exact-semantic-obligation'
-    }));
-  }
-
-  const evolutionOwners = new Set<string>();
-  let unownedEvolution = false;
-  for (const [baselineUnits, currentUnits] of [
-    [baselineProduction, currentProduction],
-    [baselineResources, input.current.resourceUnits],
-    [baselineEntrypoints, input.current.entrypointUnits]
-  ] as const) {
-    for (const baselineUnit of baselineUnits) {
-      if (currentUnits.some(({ id, path }) => (
-        id === baselineUnit.id && path === baselineUnit.path
-      ))) continue;
-      if (baselineUnit.owner === null) unownedEvolution = true;
-      else evolutionOwners.add(baselineUnit.owner);
-    }
-  }
-  if (unownedEvolution) {
-    findings.push(supersessionFinding(
-      'design-intent-unresolved',
-      'a removed or replaced production surface has no canonical module owner; observations cannot invent its evolution obligations'
-    ));
-  }
-  for (const owner of [...evolutionOwners].sort(compareCodeUnits)) {
-    const baselineIntent = baselineIntentByOwner.get(owner);
-    const currentIntent = currentIntentByOwner.get(owner);
-    if (baselineIntent === undefined) {
-      findings.push(supersessionFinding(
-        'design-intent-unresolved',
-        'the affected canonical owner has no machine-issued design intent',
-        { owner }
-      ));
-      continue;
-    }
-    const requiredOperations = ownerIntentOperationIdentities(baselineIntent);
-    // Internal modules without a public operation remain ordinary graph facts.
-    // An obligation envelope is mandatory only when a public operation is
-    // actually being removed or replaced.
-    if (requiredOperations.length === 0) continue;
-    if (currentIntent === undefined || !intentEnvelopeIsSuperset(currentIntent, baselineIntent)) {
-      findings.push(supersessionFinding(
-        'design-intent-regressed',
-        'the current owner does not preserve the affected capability and public-entrypoint identity envelope',
-        { owner }
-      ));
-    }
-    const baselineObligations = new Map(baselineIntent.operationObligations.map((evidence) =>
-      [operationIdentityKey(evidence.obligation.operation), evidence] as const));
-    const currentObligations = new Map((currentIntent?.operationObligations ?? []).map((evidence) =>
-      [operationIdentityKey(evidence.obligation.operation), evidence] as const));
-    for (const operation of requiredOperations) {
-      const operationKey = operationIdentityKey(operation);
-      const baselineObligation = baselineObligations.get(operationKey);
-      const currentObligation = currentObligations.get(operationKey);
-      const reason = baselineObligation === undefined
-        ? 'baseline owner has not issued an evolution obligation for this public operation'
-        : baselineObligation.observation.status !== 'verified'
-          ? `baseline operation observation is ${baselineObligation.observation.reason}`
-          : currentObligation === undefined
-            ? 'current owner has not issued the corresponding evolution obligation'
-            : currentObligation.observation.status !== 'verified'
-              ? `current operation observation is ${currentObligation.observation.reason}`
-              : !operationObligationIsSuperset(currentObligation, baselineObligation)
-                ? 'current operation widens resources or drops consumer, failure, recovery, migration, retirement, or future-support obligations'
-                : null;
-      if (reason !== null) {
+    for (const baselineUnit of baselineProduction) {
+      const candidates = currentProductionBySignature.get(baselineUnit.signature) ?? [];
+      const exactPath = candidates.find(({ path }) => path === baselineUnit.path);
+      const selected = exactPath ?? (candidates.length === 1 ? candidates[0] : undefined);
+      if (selected === undefined) {
         findings.push(supersessionFinding(
-          'operation-obligation-unresolved',
-          `${operationKey}: ${reason}`,
-          { baselineId: sha256(operation), owner }
+          candidates.length === 0
+            ? 'required-production-behavior-missing'
+            : 'replacement-ambiguous',
+          candidates.length === 0
+            ? 'no current production unit proves the same owner, declarations, resolved dependencies, and capabilities'
+            : 'multiple current production units have the same semantic shape; path/byte similarity cannot choose authority',
+          {
+            baselineId: baselineUnit.id,
+            owner: baselineUnit.owner,
+            baselinePaths: [baselineUnit.path],
+            currentCandidateIds: candidates.map(({ id }) => id)
+          }
         ));
+        continue;
+      }
+      currentRequirementIdByPath.set(selected.path, baselineUnit.id);
+      replacements.push(Object.freeze({
+        kind: 'production',
+        baselineId: baselineUnit.id,
+        currentIds: Object.freeze([selected.id]),
+        owner: baselineUnit.owner,
+        baselinePaths: Object.freeze([baselineUnit.path]),
+        currentPaths: Object.freeze([selected.path]),
+        proof: 'exact-semantic-obligation'
+      }));
+    }
+
+    const baselineResources = input.baseline.resourceUnits;
+    const currentResourceBySignature = new Map(input.current.resourceUnits
+      .map((unit) => [unit.signature, unit] as const));
+    for (const baselineUnit of baselineResources) {
+      const currentUnit = currentResourceBySignature.get(baselineUnit.signature);
+      if (currentUnit === undefined) {
+        findings.push(supersessionFinding(
+          'required-resource-missing',
+          'resource bytes, repository address, surface, or owner changed without a semantic migration proof',
+          {
+            baselineId: baselineUnit.id,
+            owner: baselineUnit.owner,
+            baselinePaths: [baselineUnit.path]
+          }
+        ));
+        continue;
+      }
+      replacements.push(Object.freeze({
+        kind: 'resource',
+        baselineId: baselineUnit.id,
+        currentIds: Object.freeze([currentUnit.id]),
+        owner: baselineUnit.owner,
+        baselinePaths: Object.freeze([baselineUnit.path]),
+        currentPaths: Object.freeze([currentUnit.path]),
+        proof: 'exact-semantic-obligation'
+      }));
+    }
+
+    const baselineEntrypoints = input.baseline.entrypointUnits;
+    const currentEntrypointsBySignature = new Map<string, SourceProgramSemanticUnit[]>();
+    for (const unit of input.current.entrypointUnits) {
+      const candidates = currentEntrypointsBySignature.get(unit.signature) ?? [];
+      candidates.push(unit);
+      currentEntrypointsBySignature.set(unit.signature, candidates);
+    }
+    const baselineEntrypointsBySignature = new Map<string, SourceProgramSemanticUnit[]>();
+    for (const unit of baselineEntrypoints) {
+      const candidates = baselineEntrypointsBySignature.get(unit.signature) ?? [];
+      candidates.push(unit);
+      baselineEntrypointsBySignature.set(unit.signature, candidates);
+    }
+    const selectedCurrentEntrypointIdByBaselineId = new Map<string, string>();
+    const reservedCurrentEntrypointIds = new Set<string>();
+    for (const baselineUnit of baselineEntrypoints) {
+      const exactOccurrences = (currentEntrypointsBySignature.get(baselineUnit.signature) ?? [])
+        .filter(({ occurrenceId }) => occurrenceId === baselineUnit.occurrenceId);
+      if (exactOccurrences.length !== 1) continue;
+      selectedCurrentEntrypointIdByBaselineId.set(baselineUnit.id, exactOccurrences[0]!.id);
+      reservedCurrentEntrypointIds.add(exactOccurrences[0]!.id);
+    }
+    const unmatchedBaselineEntrypointsBySignaturePath = new Map<string, SourceProgramSemanticUnit[]>();
+    const unmatchedCurrentEntrypointsBySignaturePath = new Map<string, SourceProgramSemanticUnit[]>();
+    for (const unit of baselineEntrypoints) {
+      if (selectedCurrentEntrypointIdByBaselineId.has(unit.id)) continue;
+      const key = `${unit.signature}\0${unit.path}`;
+      const candidates = unmatchedBaselineEntrypointsBySignaturePath.get(key) ?? [];
+      candidates.push(unit);
+      unmatchedBaselineEntrypointsBySignaturePath.set(key, candidates);
+    }
+    for (const unit of input.current.entrypointUnits) {
+      if (reservedCurrentEntrypointIds.has(unit.id)) continue;
+      const key = `${unit.signature}\0${unit.path}`;
+      const candidates = unmatchedCurrentEntrypointsBySignaturePath.get(key) ?? [];
+      candidates.push(unit);
+      unmatchedCurrentEntrypointsBySignaturePath.set(key, candidates);
+    }
+    for (const [key, baselineCandidates] of unmatchedBaselineEntrypointsBySignaturePath) {
+      const currentCandidates = unmatchedCurrentEntrypointsBySignaturePath.get(key) ?? [];
+      if (baselineCandidates.length !== 1 || currentCandidates.length !== 1) continue;
+      selectedCurrentEntrypointIdByBaselineId.set(
+        baselineCandidates[0]!.id,
+        currentCandidates[0]!.id
+      );
+      reservedCurrentEntrypointIds.add(currentCandidates[0]!.id);
+    }
+    for (const [signature, baselineCandidates] of baselineEntrypointsBySignature) {
+      const unmatchedBaseline = baselineCandidates.filter(({ id }) => (
+        !selectedCurrentEntrypointIdByBaselineId.has(id)
+      ));
+      const unmatchedCurrent = (currentEntrypointsBySignature.get(signature) ?? []).filter(({ id }) => (
+        !reservedCurrentEntrypointIds.has(id)
+      ));
+      if (unmatchedBaseline.length !== 1 || unmatchedCurrent.length !== 1) continue;
+      selectedCurrentEntrypointIdByBaselineId.set(
+        unmatchedBaseline[0]!.id,
+        unmatchedCurrent[0]!.id
+      );
+      reservedCurrentEntrypointIds.add(unmatchedCurrent[0]!.id);
+    }
+    const currentEntrypointById = new Map(input.current.entrypointUnits.map((unit) => (
+      [unit.id, unit] as const
+    )));
+    for (const baselineUnit of baselineEntrypoints) {
+      const candidates = currentEntrypointsBySignature.get(baselineUnit.signature) ?? [];
+      const selectedCurrentId = selectedCurrentEntrypointIdByBaselineId.get(baselineUnit.id);
+      const currentUnit = selectedCurrentId === undefined
+        ? undefined
+        : currentEntrypointById.get(selectedCurrentId);
+      if (currentUnit === undefined) {
+        findings.push(supersessionFinding(
+          candidates.length === 0
+            ? 'required-entrypoint-missing'
+            : 'replacement-ambiguous',
+          candidates.length === 0
+            ? 'no current entrypoint proves the same public command, semantic target closure, provider, and capability transport'
+            : 'multiple current entrypoint occurrences have the same semantic shape; source order cannot choose authority',
+          {
+            baselineId: baselineUnit.id,
+            owner: baselineUnit.owner,
+            baselinePaths: [baselineUnit.path],
+            currentCandidateIds: candidates.map(({ id }) => id)
+          }
+        ));
+        continue;
+      }
+      replacements.push(Object.freeze({
+        kind: 'entrypoint',
+        baselineId: baselineUnit.id,
+        currentIds: Object.freeze([currentUnit.id]),
+        owner: baselineUnit.owner,
+        baselinePaths: Object.freeze([baselineUnit.path]),
+        currentPaths: Object.freeze([currentUnit.path]),
+        proof: 'exact-semantic-obligation'
+      }));
+    }
+
+    const evolutionOwners = new Set<string>();
+    let unownedEvolution = false;
+    for (const [baselineUnits, currentUnits] of [
+      [baselineProduction, currentProduction],
+      [baselineResources, input.current.resourceUnits],
+      [baselineEntrypoints, input.current.entrypointUnits]
+    ] as const) {
+      for (const baselineUnit of baselineUnits) {
+        if (currentUnits.some(({ id, path }) => (
+          id === baselineUnit.id && path === baselineUnit.path
+        ))) continue;
+        if (baselineUnit.owner === null) unownedEvolution = true;
+        else evolutionOwners.add(baselineUnit.owner);
       }
     }
+    if (unownedEvolution) {
+      findings.push(supersessionFinding(
+        'design-intent-unresolved',
+        'a removed or replaced production surface has no canonical module owner; observations cannot invent its evolution obligations'
+      ));
+    }
+    for (const owner of [...evolutionOwners].sort(compareCodeUnits)) {
+      const baselineIntent = baselineIntentByOwner.get(owner);
+      const currentIntent = currentIntentByOwner.get(owner);
+      if (baselineIntent === undefined) {
+        findings.push(supersessionFinding(
+          'design-intent-unresolved',
+          'the affected canonical owner has no machine-issued design intent',
+          { owner }
+        ));
+        continue;
+      }
+      const requiredOperations = ownerIntentOperationIdentities(baselineIntent);
+      // Internal modules without a public operation remain ordinary graph facts.
+      // An obligation envelope is mandatory only when a public operation is
+      // actually being removed or replaced.
+      if (requiredOperations.length === 0) continue;
+      if (currentIntent === undefined || !intentEnvelopeIsSuperset(currentIntent, baselineIntent)) {
+        findings.push(supersessionFinding(
+          'design-intent-regressed',
+          'the current owner does not preserve the affected capability and public-entrypoint identity envelope',
+          { owner }
+        ));
+      }
+      const baselineObligations = new Map(baselineIntent.operationObligations.map((evidence) =>
+        [operationIdentityKey(evidence.obligation.operation), evidence] as const));
+      const currentObligations = new Map((currentIntent?.operationObligations ?? []).map((evidence) =>
+        [operationIdentityKey(evidence.obligation.operation), evidence] as const));
+      for (const operation of requiredOperations) {
+        const operationKey = operationIdentityKey(operation);
+        const baselineObligation = baselineObligations.get(operationKey);
+        const currentObligation = currentObligations.get(operationKey);
+        const reason = baselineObligation === undefined
+          ? 'baseline owner has not issued an evolution obligation for this public operation'
+          : baselineObligation.observation.status !== 'verified'
+            ? `baseline operation observation is ${baselineObligation.observation.reason}`
+            : currentObligation === undefined
+              ? 'current owner has not issued the corresponding evolution obligation'
+              : currentObligation.observation.status !== 'verified'
+                ? `current operation observation is ${currentObligation.observation.reason}`
+                : !operationObligationIsSuperset(currentObligation, baselineObligation)
+                  ? 'current operation widens resources or drops consumer, failure, recovery, migration, retirement, or future-support obligations'
+                  : null;
+        if (reason !== null) {
+          findings.push(supersessionFinding(
+            'operation-obligation-unresolved',
+            `${operationKey}: ${reason}`,
+            { baselineId: sha256(operation), owner }
+          ));
+        }
+      }
+    }
+
+  } else {
+    // These identities rank candidates only. Test obligation retention and
+    // author judgments below never discharge production-change obligations.
+    for (const unit of currentProduction) currentRequirementIdByPath.set(unit.path, unit.id);
   }
 
   const baselineRequirementIdByPath = new Map(baselineProduction.map((unit) =>
     [unit.path, unit.id] as const));
-  const availableCurrentTestIds = new Set(input.current.tests.map(({ testId }) => testId));
+  const baselineDefinitionInputs = new Map(input.baseline.testDefinitionInputs.map((inputs) => [inputs.inputDigest, inputs] as const));
+  const authorDecisionByBaselineId = new Map((input.authorAssessment?.decisions ?? [])
+    .flatMap((decision) => decision.baselineTestIds.map((testId) => [testId, decision] as const)));
   const baselineTestBoundaryById = new Map(input.baseline.tests
     .filter(({ unknowns }) => unknowns.length === 0)
     .map((test) => {
@@ -1536,18 +1763,16 @@ export function compileSourceProgramSupersessionReceipt(
       sourceProgramCompilationCheckpoint(compilationOperation, 'supersession-receipt');
       return [test.testId, testBoundary(test, currentRequirementIdByPath)] as const;
     }));
-  const currentTestsByPath = new Map<string, SourceProgramSupersessionTestUnit[]>();
   const currentTestsById = input.current.tests
-    .filter(({ testId, unknowns }) => (
-      availableCurrentTestIds.has(testId) && unknowns.length === 0
-    ))
+    .filter(({ unknowns }) => unknowns.length === 0)
     .sort((left, right) => compareCodeUnits(left.testId, right.testId));
+  const currentTestById = new Map(input.current.tests.map((test) => [test.testId, test] as const));
+  const currentTestsByPath = new Map<string, SourceProgramSupersessionTestUnit[]>();
   for (const test of currentTestsById) {
     const tests = currentTestsByPath.get(test.path) ?? [];
     tests.push(test);
     currentTestsByPath.set(test.path, tests);
   }
-  const currentTestById = new Map(currentTestsById.map((test) => [test.testId, test] as const));
   const currentTestsByBoundaryToken = new Map<string, SourceProgramSupersessionTestUnit[]>();
   const boundaryTokens = (
     boundary: ReturnType<typeof testBoundary>
@@ -1577,7 +1802,6 @@ export function compileSourceProgramSupersessionReceipt(
     baselineBoundary: ReturnType<typeof testBoundary>
   ): boolean => {
     sourceProgramCompilationCheckpoint(compilationOperation, 'supersession-receipt');
-    if (!availableCurrentTestIds.has(currentTest.testId)) return false;
     const currentBoundary = currentTestBoundaryById.get(currentTest.testId);
     return currentBoundary !== undefined
       && isStringSuperset(currentBoundary.semanticClasses, baselineBoundary.semanticClasses)
@@ -1592,6 +1816,40 @@ export function compileSourceProgramSupersessionReceipt(
   };
   for (const baselineTest of input.baseline.tests) {
     sourceProgramCompilationCheckpoint(compilationOperation, 'supersession-receipt');
+    const sameOccurrence = currentTestById.get(baselineTest.testId);
+    const baselineInputs = baselineDefinitionInputs.get(baselineTest.definitionInputDigest)!;
+    const authorDecision = authorDecisionByBaselineId.get(baselineTest.testId);
+    if (authorDecision !== undefined) {
+      const relocatedTarget = sourceProgramTestAuthorRelocatedTarget(input.authorAssessment!, baselineTest.testId);
+      // Historical same-ID batches keep their exact receipt representation.
+      const currentIds = relocatedTarget === undefined
+        ? authorDecision.currentTestIds : Object.freeze([relocatedTarget]);
+      const currentPaths = [...new Set(currentIds
+        .map((testId) => currentTestById.get(testId)!.path))].sort(compareCodeUnits);
+      replacements.push(Object.freeze({
+        kind: 'test', baselineId: baselineTest.testId,
+        currentIds, owner: authorDecision.owner,
+        baselinePaths: Object.freeze([baselineTest.path]), currentPaths: Object.freeze(currentPaths),
+        proof: authorDecision.disposition === 'rewrite' ? 'owner-rewrite-judgment' : 'retained-unassessed'
+      }));
+      continue;
+    }
+    if (sameOccurrence !== undefined && sameOccurrence.path === baselineTest.path
+        && sameOccurrence.definitionInputDigest === baselineInputs.inputDigest
+        && !contextInputChangedOutsideSnapshot
+        && !baselineInputs.inputs.some(({ path, contentDigest }) => contentDigest === null && changedPaths.has(path))
+        && !readEnvelopeIntersects(baselineInputs.readEnvelopes, changedPaths)) {
+      // Retaining the same observed definition inputs does not certify a legacy
+      // test's necessity, Claim or sufficiency, and never authorizes retirement.
+      replacements.push(Object.freeze({
+        kind: 'test', baselineId: baselineTest.testId,
+        currentIds: Object.freeze([sameOccurrence.testId]), owner: baselineTest.owner,
+        baselinePaths: Object.freeze([baselineTest.path]),
+        currentPaths: Object.freeze([sameOccurrence.path]),
+        proof: 'retained-unassessed'
+      }));
+      continue;
+    }
     if (baselineTest.unknowns.length > 0) {
       findings.push(supersessionFinding(
         'dynamic-or-external-observation-unresolved',
@@ -1601,38 +1859,29 @@ export function compileSourceProgramSupersessionReceipt(
       continue;
     }
     const baselineBoundary = baselineTestBoundaryById.get(baselineTest.testId)!;
-    const exactId = currentTestById.get(baselineTest.testId);
-    const currentTest = (exactId !== undefined && boundaryIsSuperset(exactId, baselineBoundary)
-      ? exactId
-      : undefined)
+    const candidate = (sameOccurrence !== undefined
+        && boundaryIsSuperset(sameOccurrence, baselineBoundary) ? sameOccurrence : undefined)
       ?? (currentTestsByPath.get(baselineTest.path) ?? [])
-      .find((candidate) => boundaryIsSuperset(candidate, baselineBoundary))
+        .find((test) => boundaryIsSuperset(test, baselineBoundary))
       ?? indexedCurrentTests(baselineBoundary)
-        .find((candidate) => boundaryIsSuperset(candidate, baselineBoundary));
-    if (currentTest === undefined) {
-      findings.push(supersessionFinding(
-        'required-test-boundary-missing',
-        'no unused current canonical testId observes a semantic superset of this behavior/effect/failure boundary',
-        {
-          baselineId: baselineTest.testId,
-          baselinePaths: [baselineTest.path],
-          currentCandidateIds: []
-        }
-      ));
-      continue;
-    }
-    availableCurrentTestIds.delete(currentTest.testId);
-    const currentBoundary = currentTestBoundaryById.get(currentTest.testId)!;
-    const exactBoundary = sha256(currentBoundary) === sha256(baselineBoundary);
-    replacements.push(Object.freeze({
-      kind: 'test',
-      baselineId: baselineTest.testId,
-      currentIds: Object.freeze([currentTest.testId]),
-      owner: null,
-      baselinePaths: Object.freeze([baselineTest.path]),
-      currentPaths: Object.freeze([currentTest.path]),
-      proof: exactBoundary ? 'exact-semantic-obligation' : 'strict-observation-superset'
-    }));
+        .find((test) => boundaryIsSuperset(test, baselineBoundary));
+    // testId identifies an occurrence; matching it (or its path/categories)
+    // does not preserve an input or an oracle. Even an additional failure
+    // observation may accompany removal of the baseline success assertion.
+    // Keep the candidates available without signing a replacement. Definition
+    // retention above is deliberately unassessed; neither those input facts nor
+    // these categories establish a Claim or authorize retiring another test.
+    findings.push(supersessionFinding(
+      'required-test-boundary-missing',
+      candidate === undefined
+        ? 'no current test candidate observes this boundary; the baseline test obligation remains unresolved'
+        : 'matching observation categories locate candidates but do not prove the same Claim, inputs, oracle, fixtures, or environment; exact test-obligation evidence or an explicit owner decision is required',
+      {
+        baselineId: baselineTest.testId,
+        baselinePaths: [baselineTest.path],
+        currentCandidateIds: candidate === undefined ? [] : [candidate.testId]
+      }
+    ));
   }
 
   findings.sort((left, right) => compareCodeUnits(left.code, right.code)
@@ -1653,15 +1902,15 @@ export function compileSourceProgramSupersessionReceipt(
   const baselineLifecycleCost = supersessionLifecycleCost(
     input.baseline.unknowns.length,
     input.baseline.tests,
-    baselineProduction
+    authorityScope === 'test-obligations' ? [] : baselineProduction
   );
   const currentLifecycleCost = supersessionLifecycleCost(
     input.current.unknowns.length,
     selectedCurrentTests,
-    selectedCurrentProduction
+    authorityScope === 'test-obligations' ? [] : selectedCurrentProduction
   );
   const stronger = replacements.some(({ proof }) => proof === 'strict-observation-superset')
-    || input.baseline.intentEvidence.some((baselineIntent) => {
+    || authorityScope === 'whole-program' && input.baseline.intentEvidence.some((baselineIntent) => {
       const currentIntent = currentIntentByOwner.get(baselineIntent.owner);
       return currentIntent !== undefined
         && intentEnvelopeIsSuperset(currentIntent, baselineIntent)
@@ -1674,15 +1923,22 @@ export function compileSourceProgramSupersessionReceipt(
       'a stronger replacement may be useful, but it cannot be called supersession until its selected implementation/test/owner/uncertainty lifecycle cost is strictly lower'
     ));
   }
+  const baselineTestIds = new Set(input.baseline.tests.map(({ testId }) => testId));
   const status: SourceProgramSupersessionStatus = findings.length > 0
     ? 'owner-decision-required'
-    : stronger ? 'superseded' : 'equivalent';
+    : input.authorAssessment !== undefined
+      ? authorQualified ? 'author-approved-change' : 'author-decision-conditional'
+    : retainedUnknowns.length > 0 || replacements.some(({ proof }) => proof === 'retained-unassessed')
+      || input.current.tests.some(({ testId }) => !baselineTestIds.has(testId))
+      ? 'retained-unassessed'
+      : stronger ? 'superseded' : 'equivalent';
   const receipt = finalizeSourceProgramSupersessionReceipt(
     input,
     status,
     Object.freeze({ baseline: baselineLifecycleCost, current: currentLifecycleCost }),
     replacements,
-    findings
+    findings,
+    retainedUnknowns
   );
   sourceProgramCompilationCheckpoint(compilationOperation, 'supersession-receipt', 'complete');
   return receipt;
@@ -1727,7 +1983,7 @@ export interface CompileSourceProgramTestRetirementReceiptInput {
   readonly baseline: SourceProgramSupersessionEvidence;
   readonly current: SourceProgramSupersessionEvidence;
   readonly supersession: SourceProgramSupersessionReceipt;
-  readonly currentModel: SourceProgramModel;
+  readonly currentModel: SourceProgramModel<SourceProgramCandidateAnalysis>;
   readonly currentTestCompilation: SourceProgramTestValueCompilation;
   /** Exact tracked baseline bytes, not a caller-authored zero census. */
   readonly baselineFiles: readonly WorkspaceSourceFile[];
@@ -1763,7 +2019,7 @@ function supersessionReceiptBindsEvidence(
 }
 
 function sourceProgramTestPathConsumerIndex(
-  model: SourceProgramModel,
+  model: SourceProgramModel<SourceProgramCandidateAnalysis>,
   testPaths: readonly string[],
   knownPaths: ReadonlySet<string>,
   operation: SourceProgramCompilationOperation
@@ -2621,10 +2877,11 @@ export function compileSourceProgramGraphCutReductionPlan(
     'production-declaration-without-consumer',
     'identity-token-without-consumer'
   ]);
-  const candidateKeys = new Set(model.candidates
+  const completeCandidates = requireSourceProgramCandidateAnalysis(model.candidates);
+  const candidateKeys = new Set(completeCandidates
     .filter(({ code }) => candidateCodes.has(code))
     .flatMap((candidate) => candidate.paths.map((path) => `${path}\0${candidate.subject}`)));
-  const unknownCandidateKeys = new Set(model.candidates
+  const unknownCandidateKeys = new Set(completeCandidates
     .filter(({ code, observationClass }) => candidateCodes.has(code)
       && observationClass === 'unknown')
     .flatMap((candidate) => candidate.paths.map((path) => `${path}\0${candidate.subject}`)));

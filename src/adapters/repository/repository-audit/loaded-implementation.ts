@@ -172,6 +172,7 @@ export function joinRepositoryAuditLoadedImplementationObservation(
   }
   const expectedArgs = Object.freeze([
     '--no-env-file',
+    '--no-install',
     producerClosure.entrypoint.path
   ]);
   if (input.processArgs.length !== expectedArgs.length
@@ -277,3 +278,69 @@ export function joinRepositoryAuditLoadedImplementationObservation(
   }));
   return observation;
 }
+
+/** Persist the evidence already joined by this owner, without restoring any
+ * process-local capability from the projection. Request/result payloads are
+ * referenced by their exact protocol digests; the transition carrier retains
+ * their canonical audit input/result once rather than duplicating base64. */
+export function projectRepositoryAuditLoadedImplementationEvidence(
+  observation: RepositoryAuditLoadedImplementationObservation
+) {
+  const record = loadedImplementationObservationRecords.get(observation);
+  if (!issuedLoadedImplementationObservations.has(observation) || record === undefined) {
+    throw new Error('Loaded implementation history requires an actual joined producer observation');
+  }
+  const { payloadBase64: _requestPayload, ...request } = record.request;
+  const { payloadBase64: _resultPayload, ...result } = record.candidateStream.result;
+  const identity = record.generationRetirement.generationIdentity;
+  const generationIdentity = Object.freeze({
+    borrowedGenerationDigest: identity.borrowedGenerationDigest,
+    exactFileSetDigest: identity.exactFileSetDigest,
+    generationDigest: identity.generationDigest,
+    materializationOperationDigest: identity.materializationOperationDigest,
+    protectedSubjectRootsDigest: identity.protectedSubjectRootsDigest,
+    sealedRoot: identity.sealedRoot,
+    treeDigest: identity.treeDigest,
+    workingDirectoryGenerationDigest: identity.workingDirectoryGenerationDigest
+  });
+  const sourceIdentity = ({ path, contentDigest }: SourceProgramOperationProducerClosure['descriptor']) =>
+    Object.freeze({ path, contentDigest });
+  const canonical = Object.freeze({
+    schema: 'repository-audit-loaded-implementation-history-v1' as const,
+    authority: 'historical-evidence-only' as const,
+    observation,
+    operation: record.operation,
+    producerClosure: Object.freeze({
+      authority: record.producerClosure.authority,
+      operation: record.producerClosure.operation,
+      moduleId: record.producerClosure.moduleId,
+      descriptor: sourceIdentity(record.producerClosure.descriptor),
+      entrypoint: Object.freeze({ ...sourceIdentity(record.producerClosure.entrypoint), address: record.producerClosure.entrypoint.address }),
+      implementationFiles: Object.freeze(record.producerClosure.implementationFiles.map(sourceIdentity)),
+      closureDigest: record.producerClosure.closureDigest
+    }),
+    generationRetirement: Object.freeze({
+      generationIdentity,
+      linkedSettlements: record.generationRetirement.linkedSettlements,
+      protectedRootSettlements: record.generationRetirement.protectedRootSettlements,
+      treeAuthority: record.generationRetirement.treeAuthority,
+      tree: record.generationRetirement.tree
+    }),
+    dependencyRetirement: record.dependencyRetirement,
+    resources: record.processReceipt,
+    process: Object.freeze({ ordinal: record.processRunResult.ordinal, code: record.processRunResult.result.code,
+      stdoutBytes: record.processRunResult.result.stdout.byteLength,
+      stdoutDigest: rawSha256(record.processRunResult.result.stdout),
+      stderrBytes: Buffer.byteLength(record.processRunResult.result.stderr, 'utf8'),
+      stderrDigest: rawSha256(record.processRunResult.result.stderr) }),
+    request,
+    handshake: record.candidateStream.handshake,
+    result,
+    streamDigest: record.candidateStream.streamDigest
+  });
+  return Object.freeze({ ...canonical, evidenceDigest: sha256(canonical) as Digest });
+}
+
+export type RepositoryAuditLoadedImplementationEvidence = ReturnType<
+  typeof projectRepositoryAuditLoadedImplementationEvidence
+>;

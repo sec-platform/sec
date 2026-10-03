@@ -3,7 +3,7 @@ import path from 'node:path';
 import { sha256 } from '../../../../contracts/canonical.ts';
 import type { SecOperationDigest } from '../../../../execution/operation/semantic.ts';
 import { settleResources as settlePhysicalResources } from '../../../../execution/resource-settlement.ts';
-import type { PhysicalDirectoryIdentity } from '../../../runtime-state/physical/runtime/physical-no-follow.ts';
+import type { PhysicalDirectoryIdentity, RetainedNoFollowOrdinaryFile } from '../../../runtime-state/physical/runtime/physical-no-follow.ts';
 import {
   assertRetainedNoFollowCapability
 } from '../../../runtime-state/physical/runtime/physical-no-follow.ts';
@@ -19,9 +19,12 @@ import {
   DockerCommandProviderUnavailableError,
   type DockerCommandProviderCapability
 } from '../contract/command-provider.ts';
+import { assertLinuxDockerEndpoint, type LinuxDockerEndpoint } from './linux-endpoint.ts';
+import { assertLinuxDockerRuntimeState, type LinuxDockerRuntimeState } from './linux-runtime-state.ts';
 
 const DOCKER_COMMAND_ENVIRONMENT_KEYS = new Set([
   'APPDATA',
+  'DOCKER_CONFIG',
   'HOME',
   'LANG',
   'LC_ALL',
@@ -32,6 +35,7 @@ const DOCKER_COMMAND_ENVIRONMENT_KEYS = new Set([
   'SYSTEMROOT',
   'TEMP',
   'TMP',
+  'TMPDIR',
   'TZ',
   'USERPROFILE',
   'WINDIR'
@@ -39,6 +43,11 @@ const DOCKER_COMMAND_ENVIRONMENT_KEYS = new Set([
 
 export interface DockerCommandProviderObservation {
   readonly boundary: RetainedCommandBoundary;
+  readonly commandProtocol?: 'docker-cli' | 'engine-http';
+  readonly daemonProbe?: RetainedNoFollowOrdinaryFile;
+  readonly endpointHost?: string;
+  readonly linuxEndpoint?: LinuxDockerEndpoint;
+  readonly privateState?: LinuxDockerRuntimeState;
   readonly environment: Readonly<NodeJS.ProcessEnv>;
   readonly retainedOwners?: readonly RetainedRuntimeStateDirectory[];
   readonly platform: NodeJS.Platform;
@@ -49,6 +58,11 @@ export interface DockerCommandProviderObservation {
 export interface ClaimedDockerCommandProvider {
   readonly auxiliaryInputs: readonly RetainedCommandAuxiliaryInput[];
   readonly boundary: RetainedCommandBoundary;
+  readonly commandProtocol: 'docker-cli' | 'engine-http';
+  readonly daemonProbe?: RetainedNoFollowOrdinaryFile;
+  readonly endpointHost?: string;
+  readonly linuxEndpoint?: LinuxDockerEndpoint;
+  readonly privateState?: LinuxDockerRuntimeState;
   readonly environment: Readonly<NodeJS.ProcessEnv>;
   readonly environmentDigest: SecOperationDigest;
   readonly retainedOwners: readonly RetainedRuntimeStateDirectory[];
@@ -63,6 +77,7 @@ type DockerCommandProviderRecord = ClaimedDockerCommandProvider & {
 };
 
 const dockerCommandProviders = new WeakMap<object, DockerCommandProviderRecord>();
+const claimedDockerCommandProviders = new WeakMap<object, DockerCommandProviderRecord>();
 
 function settleDockerCommandProviderRecord(
   record: DockerCommandProviderRecord,
@@ -72,6 +87,9 @@ function settleDockerCommandProviderRecord(
   settlePhysicalResources({
     ...(primary === undefined ? {} : { primary }),
     cleanup: [
+      { label: 'linux-endpoint-close', settle: () => record.linuxEndpoint?.close() },
+      { label: 'private-state-close', settle: () => record.privateState?.close() },
+      { label: 'daemon-probe-dispose', settle: () => record.daemonProbe?.dispose() },
       ...[...record.auxiliaryInputs].reverse().map((auxiliary, index) => ({
         label: `auxiliary-input-dispose-${index}`,
         settle: () => auxiliary.capability.dispose()
@@ -142,6 +160,15 @@ function canonicalEnvironment(
   if (platform !== 'win32' && environment.PATH !== '') {
     providerFailure('Docker command provider PATH must be empty.');
   }
+  for (const key of ['DOCKER_CONFIG', 'TMPDIR']) {
+    if (environment[key] !== undefined) {
+      if (platform !== 'linux') providerFailure(`Docker command provider ${key} requires Linux.`);
+      environment[key] = canonicalAbsolutePath(environment[key], platform, `environment ${key}`);
+    }
+  }
+  if (environment.TMPDIR !== undefined && environment.TMPDIR !== environment.TMP) {
+    providerFailure('Docker command provider TMPDIR and TMP must have one owner.');
+  }
   if (environment.TEMP !== environment.TMP) {
     providerFailure('Docker command provider TEMP and TMP must have one owner.');
   }
@@ -185,6 +212,20 @@ export function issueDockerCommandProviderCapability(
     observation.boundary.executable.assertCurrent();
     observation.boundary.workingDirectory.assertCurrent();
     for (const owner of observation.retainedOwners ?? []) owner.assertCurrent();
+    if (observation.daemonProbe !== undefined) {
+      assertRetainedNoFollowCapability(observation.daemonProbe, 'executable', 'Docker daemon probe');
+      observation.daemonProbe.assertCurrent();
+      if (observation.platform !== 'linux' || observation.endpointHost === undefined) {
+        providerFailure('Daemon probe requires a Linux endpoint.');
+      }
+    }
+    if (observation.privateState !== undefined) assertLinuxDockerRuntimeState(observation.privateState);
+    if (observation.linuxEndpoint !== undefined) {
+      assertLinuxDockerEndpoint(observation.linuxEndpoint);
+      if (observation.platform !== 'linux' || observation.endpointHost !== observation.linuxEndpoint.endpointHost) {
+        providerFailure('Linux Docker endpoint owner does not bind the declared endpoint.');
+      }
+    }
   } catch (error) {
     providerFailure('Docker command provider physical observation is unavailable.', error);
   }
@@ -203,6 +244,22 @@ export function issueDockerCommandProviderCapability(
     providerFailure('Docker command provider working-directory observation changed.');
   }
   const environment = canonicalEnvironment(observation.environment, observation.platform);
+  const commandProtocol = observation.commandProtocol ?? 'docker-cli';
+  if (commandProtocol !== 'docker-cli' && (commandProtocol !== 'engine-http'
+      || observation.platform !== 'linux' || observation.daemonProbe !== observation.boundary.executable)) {
+    providerFailure('Container Engine HTTP protocol must retain its actual daemon probe executable.');
+  }
+  if (observation.endpointHost !== undefined
+      && (observation.platform !== 'linux'
+        || !/^unix:\/\/\/[^\u0000-\u001f]+$/u.test(observation.endpointHost)
+        || path.posix.resolve(observation.endpointHost.slice(7)) !== observation.endpointHost.slice(7))) {
+    providerFailure('Docker command provider endpoint is noncanonical.');
+  }
+  if (observation.privateState !== undefined
+      && JSON.stringify(Object.entries(environment).sort())
+        !== JSON.stringify(Object.entries(observation.privateState.environment).sort())) {
+    providerFailure('Docker command provider private runtime environment changed.');
+  }
   const auxiliaryInputs = retainedCommandBoundaryAuxiliaryInputs(observation.boundary);
   const retainedOwners = Object.freeze([...(observation.retainedOwners ?? [])]);
   const environmentDigest = sha256({
@@ -212,6 +269,14 @@ export function issueDockerCommandProviderCapability(
   const executableDigest = observation.boundary.executable.digest();
   const providerIdentityDigest = sha256({
     domain: 'sec.docker.command-provider',
+    ...(commandProtocol === 'docker-cli' ? {} : { commandProtocol }),
+    ...(observation.endpointHost === undefined ? {} : { endpointHost: observation.endpointHost }),
+    ...(observation.linuxEndpoint === undefined ? {} : { linuxEndpoint: observation.linuxEndpoint.identityDigest }),
+    ...(observation.privateState === undefined ? {} : { privateState: observation.privateState.identityDigest }),
+    ...(observation.daemonProbe === undefined ? {} : { daemonProbe: {
+      path: observation.daemonProbe.path, parent: observation.daemonProbe.parent,
+      physical: observation.daemonProbe.physical, ...observation.daemonProbe.digest()
+    } }),
     environmentDigest,
     auxiliaryInputs: auxiliaryInputs.map(({ capability, kind }) => ({
       kind,
@@ -235,12 +300,18 @@ export function issueDockerCommandProviderCapability(
   }) as SecOperationDigest;
   const capability = Object.freeze({
     executable,
+    commandProtocol,
     providerIdentityDigest,
     workingDirectory: workingDirectoryPath
   });
   dockerCommandProviders.set(capability, {
     auxiliaryInputs,
+    commandProtocol,
     boundary: observation.boundary,
+    ...(observation.daemonProbe === undefined ? {} : { daemonProbe: observation.daemonProbe }),
+    ...(observation.endpointHost === undefined ? {} : { endpointHost: observation.endpointHost }),
+    ...(observation.privateState === undefined ? {} : { privateState: observation.privateState }),
+    ...(observation.linuxEndpoint === undefined ? {} : { linuxEndpoint: observation.linuxEndpoint }),
     environment,
     environmentDigest,
     retainedOwners,
@@ -284,6 +355,9 @@ export function claimDockerCommandProviderCapability(
   }
   try {
     record.boundary.executable.assertCurrent();
+    record.daemonProbe?.assertCurrent();
+    record.privateState?.assertCurrent();
+    record.linuxEndpoint?.assertCurrent();
     record.boundary.workingDirectory.assertCurrent();
     for (const auxiliary of record.auxiliaryInputs) auxiliary.capability.assertCurrent();
     for (const owner of record.retainedOwners) owner.assertCurrent();
@@ -299,9 +373,14 @@ export function claimDockerCommandProviderCapability(
     throw failure;
   }
   record.state = 'claimed';
-  return Object.freeze({
+  const claimed = Object.freeze({
     auxiliaryInputs: record.auxiliaryInputs,
+    ...(record.daemonProbe === undefined ? {} : { daemonProbe: record.daemonProbe }),
+    ...(record.endpointHost === undefined ? {} : { endpointHost: record.endpointHost }),
+    ...(record.privateState === undefined ? {} : { privateState: record.privateState }),
+    ...(record.linuxEndpoint === undefined ? {} : { linuxEndpoint: record.linuxEndpoint }),
     boundary: record.boundary,
+    commandProtocol: record.commandProtocol,
     environment: record.environment,
     environmentDigest: record.environmentDigest,
     retainedOwners: record.retainedOwners,
@@ -310,6 +389,17 @@ export function claimDockerCommandProviderCapability(
     providerIdentityDigest: record.providerIdentityDigest,
     workingDirectory: record.workingDirectory
   });
+  claimedDockerCommandProviders.set(claimed, record);
+  return claimed;
+}
+
+/** Settle all transferred resources, including any platform-private state. */
+export function disposeClaimedDockerCommandProvider(claimed: ClaimedDockerCommandProvider): void {
+  const record = claimedDockerCommandProviders.get(claimed);
+  if (record === undefined || record.state !== 'claimed') {
+    providerFailure('Docker command provider is not a live owner-issued claim.');
+  }
+  settleDockerCommandProviderRecord(record);
 }
 
 export function disposeUnclaimedDockerCommandProviderCapability(

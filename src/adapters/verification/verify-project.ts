@@ -14,9 +14,9 @@ import { canonicalEquals, compareCodeUnits, sha256 } from '../../contracts/canon
 import type { Logger } from '../../contracts/logging.ts';
 import { isNativeAborted, throwIfNativeAborted } from '../../contracts/native-abort.ts';
 import { relativePosixPath } from '../../contracts/relative-path.ts';
+import type { DependencyProjectOperation } from '../../execution/dependency-materialization.ts';
 import { defaultLogger } from '../diagnostics/json-logger.ts';
 import { listFilesRecursive } from '../filesystem/discovery.ts';
-import { withProjectDependencyBridge } from '../toolchain/dependencies/runtime.ts';
 import { getWorkspacePaths } from '../workspace-context.ts';
 import { buildAcceptanceCoverage } from './build-acceptance-coverage.ts';
 import { runPolicyGate } from './run-policy-gate.ts';
@@ -96,8 +96,9 @@ function throwFastCancellation(
 export async function runFastVerification(
   workspaceRoot: string,
   isolated: boolean,
-  signal?: AbortSignal,
-  beforeCommit?: () => Promise<void>
+  signal: AbortSignal | undefined,
+  beforeCommit: (() => Promise<void>) | undefined,
+  dependencies: DependencyProjectOperation
 ): Promise<{
   lane: FastVerificationLaneReport;
   failure?: Readonly<{ reason: unknown }>;
@@ -130,14 +131,18 @@ export async function runFastVerification(
     });
     return isolated
       ? execute()
-      : withProjectDependencyBridge(workspaceRoot, execute, {
+      : (() => {
+          if (dependencies === undefined) throw new Error('Live verification requires its bound dependency operation.');
+          return dependencies.withProjectDependencyBridge(workspaceRoot, execute, {
           beforeCommit,
           signal
-        });
+          });
+        })();
   };
 
   try {
-    await typecheckProject(workspaceRoot, { isolated });
+    if (isolated) await typecheckProject(workspaceRoot, { isolated: true });
+    else await typecheckProject(workspaceRoot, { isolated: false }, dependencies);
     throwIfNativeAborted(signal);
     lane.build.status = 'passed';
   } catch (error) {

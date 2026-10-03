@@ -1,105 +1,7 @@
-import path from 'node:path';
-
 import { sha256 } from '../../../contracts/canonical.ts';
-import {
-  bindSecSemanticOperation,
-  compileSecCapabilityBinding,
-  compileSecSemanticOperationPlan,
-  issueSecSemanticOperationAttemptContext,
-  type SecBoundSemanticOperation,
-  type SecOperationDigest
-} from '../../../execution/operation/semantic.ts';
+import { generatedStateDigest } from '../../../execution/generated-state/contract.ts';
+import { WORKSPACE_GIT_STATUS_DURATION_MS, WORKSPACE_GIT_STATUS_RECORD_MAXIMUM, WORKSPACE_GIT_STATUS_STDERR_MAX_BYTES, WORKSPACE_GIT_STATUS_STDOUT_MAX_BYTES, type WorkspaceGitStatusBackend } from '../../../execution/generated-state/environment-port.ts';
 import { GitReadAuthorityError, withAuthorityGitReadSession } from '../../providers/git-read/authority.ts';
-import type {
-  GitReadProviderResolutionFailure,
-  GitReadSessionFailure
-} from '../../providers/git-read/runtime/session.ts';
-import { generatedStateDigest } from './contract.ts';
-import { inspectGeneratedState, settleGeneratedState } from './lifecycle.ts';
-
-const ENVIRONMENT_SETTLEMENT_SCHEMA = 'sec-environment-settlement-v1' as const;
-const WORKSPACE_ENVIRONMENT_SETTLEMENT_OPERATION = 'runtime-state.workspace-environment-settlement' as const;
-
-const WORKSPACE_GIT_STATUS_REQUIREMENT = 'runtime-state.workspace-git-status';
-const WORKSPACE_GIT_STATUS_DURATION_MS = 5_000;
-const WORKSPACE_GIT_STATUS_STDOUT_MAX_BYTES = 16 * 1024 * 1024;
-const WORKSPACE_GIT_STATUS_STDERR_MAX_BYTES = 512 * 1024;
-const WORKSPACE_GIT_STATUS_RECORD_MAXIMUM = 250_000;
-
-type WorkspaceGitStatusFailureReason =
-  | GitReadProviderResolutionFailure['reason']
-  | GitReadSessionFailure['reason']
-  | 'command-failed'
-  | 'malformed-output';
-
-export type WorkspaceGitStatusObservation =
-  | Readonly<{
-      status: 'resolved';
-      records: readonly string[];
-      recordsDigest: string;
-    }>
-  | Readonly<{
-      status: 'unresolved';
-      reason: WorkspaceGitStatusFailureReason;
-      detailDigest: string;
-    }>;
-
-function compileWorkspaceGitStatusOperation(input: Readonly<{
-  workspaceRoot: string;
-  fixRequested: boolean;
-  deadlineAtUnixMs: number;
-}>): SecBoundSemanticOperation {
-  const contractDigest = sha256({
-    operation: WORKSPACE_ENVIRONMENT_SETTLEMENT_OPERATION,
-    requirement: WORKSPACE_GIT_STATUS_REQUIREMENT,
-    provider: 'external-capabilities.git-read',
-    observation: 'nul-terminated-worktree-status'
-  }) as SecOperationDigest;
-  const plan = compileSecSemanticOperationPlan({
-    operation: WORKSPACE_ENVIRONMENT_SETTLEMENT_OPERATION,
-    intentDigest: sha256({
-      workspaceRoot: input.workspaceRoot,
-      fixRequested: input.fixRequested,
-      command: ['status', '--porcelain=v1', '-z', '--untracked-files=all']
-    }) as SecOperationDigest,
-    decisionDigest: contractDigest,
-    deadlineAtUnixMs: input.deadlineAtUnixMs,
-    attempt: issueSecSemanticOperationAttemptContext({
-      authorityGrantDigest: contractDigest
-    }),
-    aggregateBudgets: [
-      { resource: 'duration-ms', maximum: WORKSPACE_GIT_STATUS_DURATION_MS },
-      { resource: 'input-bytes', maximum: 0 },
-      {
-        resource: 'output-bytes',
-        maximum: WORKSPACE_GIT_STATUS_STDOUT_MAX_BYTES + WORKSPACE_GIT_STATUS_STDERR_MAX_BYTES
-      },
-      { resource: 'processes', maximum: 1 },
-      { resource: 'records', maximum: WORKSPACE_GIT_STATUS_RECORD_MAXIMUM }
-    ],
-    requirements: [{
-      id: WORKSPACE_GIT_STATUS_REQUIREMENT,
-      contractDigest,
-      effectKinds: ['process'],
-      failureKinds: [
-        'provider.cancelled',
-        'provider.deadline-exhausted',
-        'provider.drift',
-        'provider.execution-failed',
-        'provider.unavailable',
-        'provider.unverified'
-      ]
-    }]
-  });
-  return bindSecSemanticOperation(plan, [compileSecCapabilityBinding({
-    requirementId: WORKSPACE_GIT_STATUS_REQUIREMENT,
-    contractDigest,
-    providerIdentityDigest: sha256({
-      provider: 'external-capabilities.git-read',
-      capability: 'exact-worktree-status'
-    }) as SecOperationDigest
-  })]);
-}
 
 function parseGitStatusRecords(bytes: Uint8Array): readonly string[] {
   const buffer = Buffer.from(bytes);
@@ -114,14 +16,8 @@ function parseGitStatusRecords(bytes: Uint8Array): readonly string[] {
   }
   return Object.freeze(text.split('\0').sort());
 }
-
-async function observeWorkspaceGitStatus(input: Readonly<{
-  workspaceRoot: string;
-  fixRequested: boolean;
-  deadlineAtUnixMs: number;
-  signal?: AbortSignal;
-}>): Promise<WorkspaceGitStatusObservation> {
-  const operation = compileWorkspaceGitStatusOperation(input);
+export const workspaceGitStatusBackend: WorkspaceGitStatusBackend = Object.freeze({ observe: async input => {
+  const operation = input.operation;
   try {
     return await withAuthorityGitReadSession({
       cwd: input.workspaceRoot,
@@ -187,48 +83,5 @@ async function observeWorkspaceGitStatus(input: Readonly<{
       })
     });
   }
-}
 
-export async function settleWorkspaceEnvironment(input: Readonly<{
-  repositoryRoot?: string;
-  workspaceRoot?: string;
-  fix?: boolean;
-  deadlineAtUnixMs?: number;
-  signal?: AbortSignal;
-}> = {}) {
-  const repositoryRoot = path.resolve(input.repositoryRoot ?? process.cwd());
-  const workspaceRoot = path.resolve(input.workspaceRoot ?? repositoryRoot);
-  const localDeadlineAtUnixMs = Date.now() + WORKSPACE_GIT_STATUS_DURATION_MS;
-  const deadlineAtUnixMs = Math.min(input.deadlineAtUnixMs ?? localDeadlineAtUnixMs, localDeadlineAtUnixMs);
-  const workingState = await observeWorkspaceGitStatus({
-    workspaceRoot,
-    fixRequested: input.fix === true,
-    deadlineAtUnixMs,
-    ...(input.signal === undefined ? {} : { signal: input.signal })
-  });
-  const cleanup = input.fix === true && workingState.status === 'resolved'
-    ? await settleGeneratedState({ repositoryRoot, workspaceRoot, profile: 'safe' })
-    : null;
-  const generatedState = await inspectGeneratedState({ repositoryRoot, workspaceRoot });
-  const blockers = [
-    ...(workingState.status === 'unresolved'
-      ? ['git-working-state-unresolved']
-      : workingState.records.map((entry) => `git:${entry}`)),
-    ...generatedState.blockers
-  ].sort();
-  const material = Object.freeze({
-    schema: ENVIRONMENT_SETTLEMENT_SCHEMA,
-    repositoryRoot,
-    workspaceRoot,
-    workingState,
-    workingStateDigest: workingState.status === 'resolved' ? workingState.recordsDigest : null,
-    generatedStateInventoryDigest: generatedState.inventoryDigest,
-    cleanupDigest: cleanup?.settlementDigest ?? null,
-    status: blockers.length === 0 ? 'settled' as const : 'blocked' as const,
-    blockers: Object.freeze(blockers)
-  });
-  return Object.freeze({
-    ...material,
-    settlementDigest: generatedStateDigest(material)
-  });
-}
+} });

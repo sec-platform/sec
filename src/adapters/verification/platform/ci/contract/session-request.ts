@@ -16,3 +16,14 @@ export interface VerificationSessionHostedRequest {
   reviewPolicyDigest: `sha256:${string}`;
   requestOperationId: `sha256:${string}`;
 }
+
+/** Local preparation is a persisted plan input, never a hosted dispatch request. */
+export const CI_VERIFICATION_SESSION_LOCAL_PREPARATION_SCHEMA =
+  'sec-verification-session-local-preparation-v1' as const;
+
+export interface VerificationSessionLocalPreparationRequest {
+  readonly schema: typeof CI_VERIFICATION_SESSION_LOCAL_PREPARATION_SCHEMA;
+  readonly executionPlacement: 'local';
+  readonly authorityStage: 'preparation-only';
+  readonly request: Readonly<VerificationSessionHostedRequest>;
+}

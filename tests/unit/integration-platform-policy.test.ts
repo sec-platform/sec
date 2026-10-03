@@ -8,21 +8,17 @@ import {
 const DIGEST = `sha256:${'1'.repeat(64)}` as const;
 
 describe('integration platform policy', () => {
-  test('admits a stable provider feature-unavailable fact without claiming no-bypass', () => {
+  test('requires canonical platform enforcement and never treats feature-unavailable as merge authority', () => {
     expect(SEC_INTEGRATION_PLATFORM_POLICY).toMatchObject({
       physicalMerge: 'github-pr-squash-exact-head-cas-no-admin',
-      allowPlatformEnforcementUnavailable: true,
+      allowPlatformEnforcementUnavailable: false,
       claimsNoBypassEnforcement: false
     });
-    expect(canonicalizeIntegrationPlatformObservation({
+    expect(() => canonicalizeIntegrationPlatformObservation({
       status: 'platform-enforcement-unavailable',
       rulesetDigest: DIGEST,
-      reason: 'GitHub private/free plan does not expose rulesets'
-    })).toEqual({
-      status: 'platform-enforcement-unavailable',
-      rulesetDigest: DIGEST,
-      reason: 'GitHub private/free plan does not expose rulesets'
-    });
+      reason: 'GitHub canonical main-authority ruleset readback is unavailable'
+    })).toThrow('unavailable enforcement is not admitted');
   });
 
   test('rejects ambiguous or falsely degraded projections', () => {
@@ -35,6 +31,6 @@ describe('integration platform policy', () => {
       status: 'platform-enforcement-unavailable',
       rulesetDigest: DIGEST,
       reason: ''
-    })).toThrow('reason must be bounded canonical text');
+    })).toThrow('unavailable enforcement is not admitted');
   });
 });

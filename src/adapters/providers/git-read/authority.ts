@@ -18,13 +18,17 @@ import {
 import {
   assertGitReadSessionReceipt,
   createAuthorityGitReadSession,
+  isolatedGitReadEnvironment,
   isProductionGitReadSession,
   resolveGitReadSessionBudget,
+  retainGitReadPhysicalProviderInternal,
   type GitReadProviderResolutionFailure,
   type GitReadSession,
   type GitReadSessionBudget,
   type GitReadSessionFailure
 } from './runtime/session.ts';
+
+import { assertGitPhysicalProviderReceipt, closeGitPhysicalProvider, type GitPhysicalProviderCapability } from '../git/physical-provider.ts';
 
 const GIT_READ_AUTHORITY_OPERATION = 'external-capabilities.git-read.observe';
 const GIT_READ_AUTHORITY_REQUIREMENT = 'git-read.host-process';
@@ -42,7 +46,7 @@ const GIT_READ_AUTHORITY_PROVIDER_DIGEST = sha256({
 
 type AuthorityGitReadSessionInput = Omit<
   Parameters<typeof createAuthorityGitReadSession>[0],
-  'operation'
+  'operation' | 'physicalProvider'
 > & Readonly<{
   /** A broader caller-owned operation may share its already-frozen process budget. */
   operation?: SecBoundSemanticOperation;
@@ -170,8 +174,8 @@ function remainingPositive(maximum: number, consumed: number, label: string): nu
 /**
  * One semantic Git observation may need short retained-provider phases around
  * a long-running caller operation. This owner-issued scope fixes the parent
- * deadline once and shares every aggregate counter across those phases; a
- * phase can retain fresh physical handles but cannot reset authority or budget.
+ * deadline once and shares every aggregate counter across those phases;
+ * phases borrow one retained physical provider and cannot reset authority or budget.
  */
 export async function withAuthorityGitReadOperation<T>(
   input: AuthorityGitReadOperationInput,
@@ -181,10 +185,10 @@ export async function withAuthorityGitReadOperation<T>(
   if (typeof operation !== 'function') throw new TypeError('Git read operation callback must be callable');
   // One private invocation owns the same provider selection, environment and
   // deadline in every phase. Caller edits cannot renew it between phases.
-  const { budget: requestedBudget, deadlineAtUnixMs, environment, ...providerInput } = input;
+  const { budget: requestedBudget, deadlineAtUnixMs, environment, source, ...providerInput } = input;
   const budget = resolveGitReadSessionBudget(requestedBudget);
   input = Object.freeze({ ...providerInput, cwd: path.resolve(cwd, providerInput.cwd),
-    ...(environment === undefined ? {} : { environment: Object.freeze({ ...environment }) }),
+    environment: Object.freeze(isolatedGitReadEnvironment(environment ?? {}, source)), source: Object.freeze({}),
     deadlineAtUnixMs, budget });
   const boundOperation = issueGitReadAuthorityOperation(input, deadlineAtUnixMs);
   const processSession: ProcessResourceSession = openProcessResourceSession({
@@ -201,6 +205,7 @@ export async function withAuthorityGitReadOperation<T>(
     }),
     signal: input.signal
   });
+  let physicalProvider: GitPhysicalProviderCapability | undefined;
   let active = false;
   const activePhaseSettlements = new Set<Promise<void>>();
   let phaseFailure: PhysicalResourceSettlementFailure | undefined;
@@ -265,7 +270,9 @@ export async function withAuthorityGitReadOperation<T>(
         ),
         maxSettlementAttempts: remainingPositive(
           budget.maxSettlementAttempts,
-          settlementAttempts,
+          // Reserve one attempt for the operation-owned physical provider's
+          // final close; phase fences cannot spend that same reservation.
+          settlementAttempts + 1,
           'settlement-attempt'
         ),
         maxCommandStdoutBytes: Math.min(
@@ -276,11 +283,11 @@ export async function withAuthorityGitReadOperation<T>(
           budget.maxCommandStderrBytes,
           remainingPositive(budget.maxStderrBytes, stderrBytes, 'stderr-byte')
         ),
-        maxExecutableBytes: remainingPositive(
-          budget.maxExecutableBytes,
-          executableBytes,
-          'executable-byte'
-        )
+        // A borrowed retained image consumes no new executable bytes. Its
+        // original reservation may exactly exhaust the operation byte ceiling.
+        maxExecutableBytes: physicalProvider === undefined
+          ? remainingPositive(budget.maxExecutableBytes, executableBytes, 'executable-byte')
+          : budget.maxExecutableBytes
       });
       const phaseStartedAt = performance.now();
       active = true;
@@ -289,14 +296,16 @@ export async function withAuthorityGitReadOperation<T>(
         let value: Value | undefined;
         let primary: PhysicalResourceSettlementFailure | undefined;
         try {
-          value = await withAuthorityGitReadSession({
+          value = await withRetainedAuthorityGitReadSession({
             ...input,
             budget: phaseBudget,
             deadlineAtUnixMs: now + remainingDurationMs,
             operation: boundOperation,
-            processSession
+            processSession,
+            ...(physicalProvider === undefined ? {} : { physicalProvider })
           }, async session => {
             observedSession = session;
+            physicalProvider ??= retainGitReadPhysicalProviderInternal(session);
             return callback(session);
           });
         } catch (error) {
@@ -380,6 +389,24 @@ export async function withAuthorityGitReadOperation<T>(
           throw phaseFailure.error;
         }
       } },
+      { label: 'git-read-physical-provider', settle: () => {
+        if (physicalProvider === undefined) return;
+        const provider = physicalProvider;
+        settlePhysicalResources({ cleanup: [
+          { label: 'git-read-physical-provider-final-usage', settle: () => {
+            settlementAttempts += 1;
+            if (!Number.isSafeInteger(settlementAttempts) || settlementAttempts > budget.maxSettlementAttempts) {
+              throw operationFailure('operation-not-permitted',
+                'Git read operation physical close exceeded its settlement-attempt budget.');
+            }
+          } },
+          // Accounting refusal must never suppress actual resource release.
+          { label: 'git-read-physical-provider-close', settle: () => {
+            const receipt = closeGitPhysicalProvider(provider);
+            assertGitPhysicalProviderReceipt(receipt, provider);
+          } }
+        ] });
+      } },
       { label: 'git-read-process-session', settle: () => {
         const receipt = processSession.close();
         assertProcessResourceSessionReceipt(receipt, {
@@ -400,6 +427,13 @@ export async function withAuthorityGitReadOperation<T>(
  */
 export async function withAuthorityGitReadSession<T>(
   input: AuthorityGitReadSessionInput,
+  operation: (session: GitReadSession) => Promise<T>
+): Promise<T> {
+  return withRetainedAuthorityGitReadSession(input, operation);
+}
+
+async function withRetainedAuthorityGitReadSession<T>(
+  input: AuthorityGitReadSessionInput & Readonly<{ physicalProvider?: GitPhysicalProviderCapability }>,
   operation: (session: GitReadSession) => Promise<T>
 ): Promise<T> {
   if (typeof operation !== 'function') throw new TypeError('Git read session callback must be callable');

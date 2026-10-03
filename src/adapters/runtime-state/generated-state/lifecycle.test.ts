@@ -1,28 +1,19 @@
 import { afterEach, expect, test } from 'bun:test';
-import { lstat, mkdir, mkdtemp, rename, rm, stat, symlink, unlink, writeFile } from 'node:fs/promises';
+import { lstat, mkdir, mkdtemp, readdir, readFile, rename, rm, stat, symlink, unlink, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 
+import { continueGeneratedStateCleanup, generatedStateProducerHooks, inspectGeneratedState, planGeneratedStateCleanup, settleGeneratedState, settleGeneratedStateForWorktreeRetirement } from '../../../../tests/helpers/generated-state-fixture.ts';
 import { canonicalJson } from '../../../contracts/canonical.ts';
+import { createGeneratedStateCleanupOperationSession } from '../../../execution/generated-state/cleanup-budget.ts';
+import { generatedStateDomainProviderMaterialDigest } from '../../../execution/generated-state/contract.ts';
+import { GeneratedStateProducerBindingBlockedError } from '../../../execution/generated-state/errors.ts';
+import type { GeneratedStateWorktreeRetirementProvider } from "../../../execution/generated-state/lifecycle-port.ts";
+import { consumeGeneratedStateWorktreeRetirementEffectAuthority } from '../../../execution/generated-state/provider-effect.ts';
 import { compilerDependencyLocatorWorktreeRetirementProvider } from '../../toolchain/dependencies/test/runtime.ts';
 import { runCommandBytes } from '../physical/runtime/process.ts';
-import { generatedStateDomainProviderMaterialDigest } from './contract.ts';
-import {
-  assertGeneratedStateCleanupContinuationReceipt,
-  assertGeneratedStateDisposalReceipt,
-  assertGeneratedStateRetirementObservation,
-  assertGeneratedStateWorktreeRetirementEffectStart,
-  consumeGeneratedStateWorktreeRetirementEffectAuthority,
-  continueGeneratedStateCleanup,
-  createGeneratedStateCleanupOperationSession,
-  GeneratedStateProducerBindingBlockedError,
-  generatedStateProducerHooks,
-  inspectGeneratedState,
-  planGeneratedStateCleanup,
-  settleGeneratedState,
-  settleGeneratedStateForWorktreeRetirement,
-  type GeneratedStateWorktreeRetirementProvider
-} from './lifecycle.ts';
+import { resolveSecWorkspaceRuntimeRoots } from '../workspace-state/paths.ts';
+import { assertGeneratedStateCleanupContinuationReceipt, assertGeneratedStateDisposalReceipt, assertGeneratedStateRetirementObservation, assertGeneratedStateWorktreeRetirementEffectStart } from './lifecycle-evidence.ts';
 
 const roots: string[] = [];
 const LIFECYCLE_FIXTURE_PATH = '.tmp/dependency-installs/c.staging-lifecycle-fixture';
@@ -77,7 +68,7 @@ async function registeredWorktreeFixture() {
   const cacheRoot = path.join(hostRoot, 'cache');
   await mkdir(repositoryRoot);
   await git(repositoryRoot, ['init', '-b', 'main']);
-  await writeFile(path.join(repositoryRoot, '.gitignore'), '.sec/\n.shared-deps/\n.tmp/\nnode_modules/\n');
+  await writeFile(path.join(repositoryRoot, '.gitignore'), '.sec/\n.shared-deps/\n.tmp/\nnode_modules\n');
   await writeFile(path.join(repositoryRoot, 'tracked.txt'), 'tracked\n');
   await git(repositoryRoot, ['add', '.gitignore', 'tracked.txt']);
   await git(repositoryRoot, [
@@ -174,8 +165,8 @@ test('producer inventory and retirement readback stay bound to their creation-ti
 
 test('worktree retirement preserves one covered ignored root outside the target and binds Effect-start identity', async () => {
   const fixture = await registeredWorktreeFixture();
-  await mkdir(path.join(fixture.workspaceRoot, '.shared-deps'), { recursive: true });
-  await writeFile(path.join(fixture.workspaceRoot, '.shared-deps', 'cache.bin'), 'cache');
+  await mkdir(path.join(fixture.workspaceRoot, 'node_modules'), { recursive: true });
+  await writeFile(path.join(fixture.workspaceRoot, 'node_modules', 'cache.bin'), 'cache');
 
   const receipt = await settleGeneratedStateForWorktreeRetirement(
     {
@@ -190,9 +181,9 @@ test('worktree retirement preserves one covered ignored root outside the target 
 
   expect(receipt).not.toBeNull();
   expect(receipt).toMatchObject({ terminal: 'completed' });
-  expect(receipt!.entries.map(({ relativePath }) => relativePath)).toEqual(['.shared-deps']);
+  expect(receipt!.entries.map(({ relativePath }) => relativePath)).toEqual(['node_modules']);
   const persistedReceipt = JSON.parse(JSON.stringify(canonicalJson(receipt))) as NonNullable<typeof receipt>;
-  expect(await absent(path.join(fixture.workspaceRoot, '.shared-deps'))).toBe(true);
+  expect(await absent(path.join(fixture.workspaceRoot, 'node_modules'))).toBe(true);
   expect(() =>
     assertGeneratedStateWorktreeRetirementEffectStart({
       receipt: persistedReceipt,
@@ -204,7 +195,7 @@ test('worktree retirement preserves one covered ignored root outside the target 
     })
   ).not.toThrow();
 
-  await mkdir(path.join(fixture.workspaceRoot, '.shared-deps'));
+  await mkdir(path.join(fixture.workspaceRoot, 'node_modules'));
   expect(() =>
     assertGeneratedStateWorktreeRetirementEffectStart({
       receipt: persistedReceipt,
@@ -240,10 +231,24 @@ test('worktree retirement settles an empty registered ancestor without an exact 
   expect(await absent(path.join(fixture.workspaceRoot, '.tmp'))).toBe(true);
 });
 
+
+test('legacy shared-deps cannot be born as active generated state', async () => {
+  const fixture = await registeredWorktreeFixture();
+  await mkdir(path.join(fixture.workspaceRoot, '.shared-deps'), { recursive: true });
+  const lifecycle = generatedStateProducerHooks({
+    repositoryRoot: fixture.workspaceRoot,
+    workspaceRoot: fixture.workspaceRoot
+  }, fixture.options);
+  await expect(lifecycle.born(
+    '.shared-deps',
+    'forbidden-legacy-birth'
+  )).rejects.toThrow('not registered by active policy');
+});
+
 test('worktree retirement rejects unknown content inside a registered ancestor before moving roots', async () => {
   const fixture = await registeredWorktreeFixture();
   const foreignPath = path.join(fixture.workspaceRoot, '.tmp', 'dependency-installs', 'foreign', 'keep.txt');
-  const knownPath = path.join(fixture.workspaceRoot, '.shared-deps', 'cache.bin');
+  const knownPath = path.join(fixture.workspaceRoot, 'node_modules', 'cache.bin');
   await mkdir(path.dirname(foreignPath), { recursive: true });
   await writeFile(foreignPath, 'foreign');
   await mkdir(path.dirname(knownPath));
@@ -262,8 +267,8 @@ test('worktree retirement rejects unknown content inside a registered ancestor b
 
 test('worktree retirement resumes the exact durable intent after interruption between root relocations', async () => {
   const fixture = await registeredWorktreeFixture();
-  await mkdir(path.join(fixture.workspaceRoot, '.shared-deps'), { recursive: true });
-  await writeFile(path.join(fixture.workspaceRoot, '.shared-deps', 'cache.bin'), 'cache');
+  await mkdir(path.join(fixture.workspaceRoot, 'node_modules'), { recursive: true });
+  await writeFile(path.join(fixture.workspaceRoot, 'node_modules', 'cache.bin'), 'cache');
   const input = {
     repositoryRoot: fixture.repositoryRoot,
     workspaceRoot: fixture.workspaceRoot,
@@ -285,8 +290,8 @@ test('worktree retirement resumes the exact durable intent after interruption be
 
   const receipt = await settleGeneratedStateForWorktreeRetirement(input, fixture.options);
   expect(receipt).toMatchObject({ terminal: 'completed' });
-  expect(receipt!.entries.map(({ relativePath }) => relativePath)).toEqual(['.shared-deps']);
-  expect(await absent(path.join(fixture.workspaceRoot, '.shared-deps'))).toBe(true);
+  expect(receipt!.entries.map(({ relativePath }) => relativePath)).toEqual(['node_modules']);
+  expect(await absent(path.join(fixture.workspaceRoot, 'node_modules'))).toBe(true);
 });
 
 test('worktree retirement delegates an exact locator to its domain provider and preserves the external generation', async () => {
@@ -328,7 +333,7 @@ test('worktree retirement delegates an exact locator to its domain provider and 
     },
     retire: async (authority) => {
       const { planBytes, planDigest, registration } =
-        consumeGeneratedStateWorktreeRetirementEffectAuthority(authority, providerId);
+        consumeGeneratedStateWorktreeRetirementEffectAuthority(authority, providerId).input;
       expect(() => consumeGeneratedStateWorktreeRetirementEffectAuthority(authority, providerId))
         .toThrow('forged, stale, replayed');
       expect(registration.phase).toBe('retired');
@@ -339,7 +344,7 @@ test('worktree retirement delegates an exact locator to its domain provider and 
         registration.registrationDigest,
         registration.root,
         'concurrent-producer-restore'
-      )).rejects.toThrow('mutation lease is unavailable');
+      )).rejects.toBeInstanceOf(GeneratedStateProducerBindingBlockedError);
       const outcome = await absent(locatorPath) ? 'resumed-absent' : 'removed';
       if (outcome === 'removed') await unlink(locatorPath);
       const bytes = JSON.stringify(canonicalJson({ schema: 'fixture-locator-receipt-v1', outcome }));
@@ -377,7 +382,7 @@ test('worktree retirement delegates an exact locator to its domain provider and 
     retiredRegistration,
     (await lifecycle.observeRetirement('node_modules')).physical!,
     'post-retirement-restore'
-  )).rejects.toThrow('physical preimage differs');
+  )).rejects.toThrow('restore predecessor is missing');
 });
 
 for (const mutation of ['ordinary-directory', 'retargeted-link'] as const) {
@@ -419,7 +424,7 @@ for (const mutation of ['ordinary-directory', 'retargeted-link'] as const) {
     }, {
       ...fixture.options,
       worktreeRetirementProviders: [provider]
-    })).rejects.toMatchObject({ code: 'IMPORT-AUTHORITY-004' });
+    })).rejects.toBeInstanceOf(GeneratedStateProducerBindingBlockedError);
     const replacement = await lstat(locatorPath);
     expect(mutation === 'ordinary-directory' ? replacement.isDirectory() : replacement.isSymbolicLink()).toBeTrue();
     expect(await absent(parkedLocator)).toBe(false);
@@ -610,9 +615,9 @@ test('retirement observation distinguishes exact active, retired-present, settle
   } as const;
   const active = await lifecycle.observeRetirement(LIFECYCLE_FIXTURE_PATH, expected);
   expect(active.status).toBe('active');
-  expect(() => assertGeneratedStateRetirementObservation(
-    structuredClone(active)
-  )).toThrow('was not issued by its owner');
+  await expect(assertGeneratedStateRetirementObservation(
+    structuredClone(active), { workspaceRoot: repositoryRoot, relativePath: LIFECYCLE_FIXTURE_PATH }
+  )).rejects.toThrow('was not issued by its owner');
   const mismatch = await lifecycle.observeRetirement(LIFECYCLE_FIXTURE_PATH, {
     ...expected,
     physical: { ...expected.physical, inode: `${expected.physical.inode}-foreign` }
@@ -625,9 +630,9 @@ test('retirement observation distinguishes exact active, retired-present, settle
     outcome: 'retirement-observation-retired',
     profile: 'automatic'
   });
-  expect(() => assertGeneratedStateDisposalReceipt(receipt)).not.toThrow();
-  expect(() => assertGeneratedStateDisposalReceipt(structuredClone(receipt)))
-    .toThrow('was not issued by its owner');
+  await expect(assertGeneratedStateDisposalReceipt(receipt, { workspaceRoot: repositoryRoot, relativePath: LIFECYCLE_FIXTURE_PATH })).resolves.toBeUndefined();
+  await expect(assertGeneratedStateDisposalReceipt(structuredClone(receipt), { workspaceRoot: repositoryRoot, relativePath: LIFECYCLE_FIXTURE_PATH }))
+    .rejects.toThrow('was not issued by its owner');
   expect(receipt).toMatchObject({ profile: 'automatic', terminal: 'disposed' });
   expect((await lifecycle.observeRetirement(LIFECYCLE_FIXTURE_PATH, expected)).status)
     .toBe('retired-domain-settled');
@@ -670,8 +675,8 @@ test('profile-bound disposal recovers its exact durable intent and issues one te
     outcome: 'profile-bound-disposal',
     profile: 'automatic'
   });
-  expect(() => assertGeneratedStateDisposalReceipt(receipt)).not.toThrow();
-  expect(() => assertGeneratedStateDisposalReceipt(repeated)).not.toThrow();
+  await expect(assertGeneratedStateDisposalReceipt(receipt, { workspaceRoot: repositoryRoot, relativePath: LIFECYCLE_FIXTURE_PATH })).resolves.toBeUndefined();
+  await expect(assertGeneratedStateDisposalReceipt(repeated, { workspaceRoot: repositoryRoot, relativePath: LIFECYCLE_FIXTURE_PATH })).resolves.toBeUndefined();
   expect(repeated).toEqual(receipt);
   expect(receipt).toMatchObject({
     profile: 'automatic',
@@ -925,6 +930,14 @@ test('an interrupted quarantine resumes from durable intent without rediscoverin
   });
   expect(interrupted.terminal).toBe('partial-residue');
   expect(await absent(generatedRoot)).toBe(true);
+  const registrationRoot = path.join(resolveSecWorkspaceRuntimeRoots({
+    repositoryRoot, environment: options.environment
+  }).workspaceStateRoot, 'generated-state', 'v1', 'registrations-v3');
+  const records = async () => Promise.all((await readdir(registrationRoot))
+    .filter(name => name.startsWith('registration-ledger-'))
+    .map(async name => JSON.parse(await readFile(path.join(registrationRoot, name), 'utf8')) as { event: string; sequence: number }));
+  // Moving the root is not physical disposal: the tombstone still exists.
+  expect((await records()).some(record => record.event === 'disposed')).toBe(false);
 
   const resumed = await settleGeneratedState({
     repositoryRoot,
@@ -934,6 +947,7 @@ test('an interrupted quarantine resumes from durable intent without rediscoverin
   expect(resumed.terminal).toBe('completed');
   expect(resumed.attempts.map(({ action }) => action)).toEqual(['deleted']);
   expect(await absent(path.join(repositoryRoot, '.tmp', 'generated-state-quarantine'))).toBe(true);
+  expect((await records()).sort((left, right) => left.sequence - right.sequence).at(-1)?.event).toBe('disposed');
 });
 
 test('bounded quarantine returns one resumable receipt across capacity, abort, deadline, and zero-repeat', async () => {
@@ -956,7 +970,7 @@ test('bounded quarantine returns one resumable receipt across capacity, abort, d
       maximumEntries: 1
     })
   });
-  assertGeneratedStateCleanupContinuationReceipt(partial);
+  await assertGeneratedStateCleanupContinuationReceipt(partial, { workspaceRoot: repositoryRoot });
   expect(partial).toMatchObject({ terminal: 'continuation-required', blockers: [] });
   expect(await absent(generatedRoot)).toBe(true);
 

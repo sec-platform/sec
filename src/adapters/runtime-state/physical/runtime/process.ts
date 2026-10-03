@@ -14,6 +14,7 @@ import {
 } from './observed-process-stdin.ts';
 import {
   assertRetainedNoFollowCapability,
+  retainedExecutableSourcePath,
   retainNoFollowOrdinaryFile,
   type PhysicalDirectoryChain,
   type RetainedNoFollowOrdinaryFile
@@ -32,6 +33,7 @@ import {
 import { resolveWindowsKnownFolderPath } from './windows-known-folders.ts';
 
 export const ISOLATED_VERIFICATION_ENV_KEY = 'SEC_ISOLATED_VERIFICATION' as const;
+export const RETAINED_EXECUTABLE_SOURCE_PATH_ENV_KEY = 'SEC_RETAINED_EXECUTABLE_SOURCE_PATH' as const;
 
 export function pathEnvKey(): string {
   return Object.keys(process.env).find((key) => key.toLowerCase() === 'path') ?? 'PATH';
@@ -775,6 +777,8 @@ async function runRetainedCommandCaptureV1(
       controller.abort();
     }, options.stallTimeoutMs);
   };
+  const inheritedSourcePath = process.env[RETAINED_EXECUTABLE_SOURCE_PATH_ENV_KEY];
+  const transportEnvironment: NodeJS.ProcessEnv = { ...(options.env ?? {}) };
   options.signal?.addEventListener('abort', onCallerAbort, { once: true });
   if (callerAborted) controller.abort();
 
@@ -786,11 +790,20 @@ async function runRetainedCommandCaptureV1(
         assertBoundary();
         expectedExecutableDigest = boundary.executable.digest();
         await options.beforeSpawn?.();
+        try {
+          transportEnvironment[RETAINED_EXECUTABLE_SOURCE_PATH_ENV_KEY] = retainedExecutableSourcePath(
+            boundary.executable, inheritedSourcePath
+          );
+        } catch (error) {
+          boundaryFailure = error instanceof Error ? error : new Error(String(error));
+          throw boundaryFailure;
+        }
+        Object.freeze(transportEnvironment);
         assertBoundaryAndExecutableBytes();
         armStallTimer();
       },
       cwd: spawnBoundary.cwd,
-      env: options.env,
+      env: transportEnvironment,
       envMode: options.envMode,
       ...(commandInput === null ? {} : { input: commandInput, maxStdinBytes: options.maxStdinBytes }),
       maxObservedOutputBytes: Math.max(options.maxStdoutBytes, options.maxStderrBytes),

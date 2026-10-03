@@ -1,6 +1,7 @@
 /** Canonical VerificationSession V2 operator reducer and trusted runtime guards. */
 
 import { createHash } from 'node:crypto';
+import { assertSourceProgramTransitionQualification, sourceProgramTransitionEvidenceForQualification, type SourceProgramTransitionQualification } from '../../trusted-runtime/trusted-runtime-container.ts';
 
 import { CI_VERIFICATION_CONTRACT_REVISION, CI_VERIFICATION_WORKFLOW_PATH } from '../../../../../assurance/verification/contract/revision.ts';
 import type { GitHubCheckObservation } from '../../../../providers/github-api/contract.ts';
@@ -55,7 +56,7 @@ import {
   type ScopeAuthorizationInput
 } from '../../../../self-hosting/control/scope/authorization.ts';
 import { encodeVerificationActionData, type VerificationActionInputRef } from '../../action/contract/action.ts';
-import { buildCiVerificationActionPlanClosure, CI_VERIFICATION_HOSTED_EXECUTION_ENVIRONMENT, ciVerificationGateStep, parseCiVerificationActionPlanClosure, type CiVerificationActionPlanClosure, type CiVerificationExecutionEnvironment } from '../../action/contract/ci.ts';
+import { buildCiVerificationActionPlanClosure, ciVerificationGateStep, parseCiVerificationActionPlanClosure, SOURCE_PROGRAM_TRANSITION_GATE_ID, type CiSourceProgramTransitionBinding, type CiVerificationActionPlanClosure, type CiVerificationExecutionEnvironment } from '../../action/contract/ci.ts';
 import { CI_VERIFICATION_ACTION_DEPENDENCY_INPUT_PATHS } from '../../action/contract/environment.ts';
 import { CI_GITHUB_ACTIONS_IDENTITY_POLICY } from '../../action/contract/provider.ts';
 import { assertReviewStabilityReceiptCurrent, createReviewStabilityReceipt, REVIEW_OBSERVER_PRODUCER_IDENTITY, SEC_REVIEW_STABILITY_POLICY, type ReviewStabilityReceipt } from '../../review/contract/stability.ts';
@@ -77,7 +78,10 @@ import {
 import {
   CI_VERIFICATION_SESSION_REQUEST_SCHEMA
 } from '../contract/revision.ts';
-import type { VerificationSessionHostedRequest } from '../contract/session-request.ts';
+import {
+  CI_VERIFICATION_SESSION_LOCAL_PREPARATION_SCHEMA, type VerificationSessionHostedRequest,
+  type VerificationSessionLocalPreparationRequest
+} from '../contract/session-request.ts';
 import {
   assertGitHubReviewAuthorityObservation,
   type GitHubActionsArtifactObservation,
@@ -104,8 +108,6 @@ export function compilePostMainIssueDispositionHealthReadback(input: Readonly<{
   newMainSha: string;
   newMainTreeSha: string;
   observedAt: string;
-  sourceRunId: string;
-  sourceRef: string;
   checks: readonly GitHubCheckObservation[];
 }>): MainHealthLedger {
   const expiresAt = new Date(new Date(input.observedAt).getTime() + 300_000).toISOString();
@@ -116,8 +118,6 @@ export function compilePostMainIssueDispositionHealthReadback(input: Readonly<{
     trustRevision: input.newMainSha,
     observedAt: input.observedAt,
     expiresAt,
-    sourceRunId: input.sourceRunId,
-    sourceRef: input.sourceRef,
     checks: input.checks
   }));
   const lane = resolveOrdinaryMainHealthLane({
@@ -326,7 +326,7 @@ export function reconstructVerificationSessionHostedFacts(input: {
   const mainHealthInput = createObservedMainHealthInput({ repository: input.repository,
     mainSha: request.expectedBaseSha, mainTreeSha: request.expectedBaseTreeSha, trustRevision: request.expectedBaseSha,
     observedAt: input.observedAt, expiresAt: new Date(new Date(input.observedAt).getTime() + 600_000).toISOString(),
-    sourceRunId: input.sourceRunId, sourceRef: input.sourceRef, checks: input.mainHealthChecks });
+    checks: input.mainHealthChecks });
   const mainHealth = createMainHealthLedger(mainHealthInput);
   const sessionRevision = createVerificationSessionRevision({
     repository: input.repository, prNumber: request.prNumber,
@@ -423,7 +423,7 @@ export interface TrustedIntegrationAuthorizationArtifact {
   artifactId: string;
   artifactName: string;
   canonicalByteDigest: Digest;
-  workflowPath: '.github/workflows/sec-merge-gate.yml';
+  workflowPath: '.github/workflows/merge-gate.yml';
   workflowRef: string;
   workflowSha: string;
   runId: string;
@@ -559,13 +559,13 @@ export function createTrustedIntegrationAuthorizationArtifact(input: {
   observation: GitHubActionsArtifactObservation;
 }): TrustedIntegrationAuthorizationArtifact {
   const result = CodexDevelopmentParseMergeGateResult(input.resultJson);
-  if (input.observation.workflowPath !== '.github/workflows/sec-merge-gate.yml'
+  if (input.observation.workflowPath !== '.github/workflows/merge-gate.yml'
     || input.observation.eventName !== 'workflow_run') {
     throw new Error('Integration authorization artifact is not bound to the completed-source workflow.');
   }
   return Object.freeze({ resultJson: input.resultJson, artifactId: input.observation.artifactId,
     artifactName: input.observation.artifactName, canonicalByteDigest: hash(result),
-    workflowPath: input.observation.workflowPath as '.github/workflows/sec-merge-gate.yml',
+    workflowPath: input.observation.workflowPath as '.github/workflows/merge-gate.yml',
     workflowRef: input.observation.workflowRef, workflowSha: input.observation.workflowSha,
     runId: input.observation.runId, runAttempt: input.observation.runAttempt,
     eventName: input.observation.eventName as 'workflow_run', actorNodeId: input.observation.actorNodeId,
@@ -584,7 +584,7 @@ export interface VerificationSessionRuntimeExternal {
   saveReviewReceipt(stage: 'pre-expensive' | 'pre-merge', receipt: ReviewStabilityReceipt): void;
   integrationAuthorizationArtifact(): TrustedIntegrationAuthorizationSource | null;
   integrationAuthorizationPublication(): IntegrationAuthorizationPublicationObservation | null;
-  consumedAuthorizationIds(): ReadonlySet<string>;
+  consumedAuthorizationIds(): ReadonlySet<string> | Promise<ReadonlySet<string>>;
   observeCloseoutPreparation(
     operationId: Digest,
     authorization: IntegrationAuthorization,
@@ -718,19 +718,19 @@ export function assertTrustedMainRuntime(proof: TrustedRuntimeProof, expectedMai
   assertTrustedExactRevisionRuntime(proof, expectedMainSha);
 }
 
-export function assertTrustedMergedRuntimeReachability(input: {
+export async function assertTrustedMergedRuntimeReachability(input: {
   proof: TrustedRuntimeProof;
   session: VerificationSession;
   candidate: GitHubCandidateObservation;
   github: VerificationSessionGitHubClient;
-}): void {
+}): Promise<void> {
   const { proof, session, candidate, github } = input;
-  assertTrustedMergedRequestRuntimeReachability({ proof, repository: session.repository,
+  (await assertTrustedMergedRequestRuntimeReachability({ proof, repository: session.repository,
     prNumber: session.prNumber, baseSha: session.baseSha, headSha: session.headSha,
-    headTreeSha: session.headTreeSha, candidate, github });
+    headTreeSha: session.headTreeSha, candidate, github }));
 }
 
-export function assertTrustedMergedRequestRuntimeReachability(input: {
+export async function assertTrustedMergedRequestRuntimeReachability(input: {
   proof: TrustedRuntimeProof;
   repository: string;
   prNumber: number;
@@ -739,7 +739,7 @@ export function assertTrustedMergedRequestRuntimeReachability(input: {
   headTreeSha: string;
   candidate: GitHubCandidateObservation;
   github: VerificationSessionGitHubClient;
-}): void {
+}): Promise<void> {
   const { proof, repository, prNumber, baseSha, headSha, headTreeSha, candidate, github } = input;
   if ((proof.currentBranch !== '' && proof.currentBranch !== 'main') || proof.currentHeadSha !== baseSha
     || proof.localDefaultSha !== proof.remoteDefaultSha || !proof.workingTreeClean
@@ -753,13 +753,13 @@ export function assertTrustedMergedRequestRuntimeReachability(input: {
     || candidate.mergeCommitMessage === null) {
     throw new Error('VerificationSession MERGED recovery lacks exact marker-bound candidate/tree identity.');
   }
-  const baseToMerge = github.observeComparison(repository, baseSha, candidate.mergeCommitSha);
+  const baseToMerge = (await github.observeComparison(repository, baseSha, candidate.mergeCommitSha));
   if (baseToMerge.behindBy !== 0
     || baseToMerge.status !== 'ahead' && baseToMerge.status !== 'identical') {
     throw new Error('VerificationSession MERGED recovery cannot prove old base ancestry to the merge commit.');
   }
-  const mergeToDefault = github.observeComparison(repository, candidate.mergeCommitSha,
-    proof.remoteDefaultSha);
+  const mergeToDefault = (await github.observeComparison(repository, candidate.mergeCommitSha,
+    proof.remoteDefaultSha));
   if (mergeToDefault.behindBy !== 0
     || mergeToDefault.status !== 'ahead' && mergeToDefault.status !== 'identical') {
     throw new Error('VerificationSession MERGED recovery merge commit is not equal to or an ancestor of live default.');
@@ -783,9 +783,10 @@ export function prepareTrustedMainVerificationSession(input: {
   reviewBarrier: GitHubReviewBarrierObservation;
   mainHealthChecks: readonly GitHubCheckObservation[];
   dependencyBlobs: readonly VerificationSessionActionDependencyBlobObservation[];
-  executionEnvironment?: CiVerificationExecutionEnvironment;
+  executionEnvironment: CiVerificationExecutionEnvironment;
   mainHealthInput?: MainHealthLedgerInput;
   scopeSourceTransport?: ScopeAuthorizationInput['issuer']['sourceTransport'];
+  sourceProgramTransition?: CiSourceProgramTransitionBinding;
 }): Readonly<{
   request: VerificationSessionHostedRequest;
   sessionRevision: Digest;
@@ -797,8 +798,10 @@ export function prepareTrustedMainVerificationSession(input: {
   facts: VerificationSessionHostedFacts | null;
 }> {
   const candidate = input.candidate;
-  const executionEnvironment = input.executionEnvironment
-    ?? CI_VERIFICATION_HOSTED_EXECUTION_ENVIRONMENT;
+  const executionEnvironment = input.executionEnvironment;
+  if (executionEnvironment === undefined) {
+    throw new Error('VerificationSession preparation requires an explicit execution environment.');
+  }
   const providerRevision = executionEnvironment.kind === 'hosted'
     ? 'github-actions@trusted-default'
     : executionEnvironment.executionEnvironmentRevision;
@@ -828,7 +831,8 @@ export function prepareTrustedMainVerificationSession(input: {
     input.profile,
     input.changedPaths,
     input.testImpactSourceProvider,
-    transition.observation
+    transition.observation,
+    input.sourceProgramTransition
   );
   if (!plan.selectionResolved) throw new Error('trusted-main preparation verification plan is unresolved.');
   const actionPlan = buildCiVerificationActionPlanClosure({ candidate: { baseSha: candidate.baseSha,
@@ -849,8 +853,8 @@ export function prepareTrustedMainVerificationSession(input: {
   const mainHealthInput = input.mainHealthInput ?? createObservedMainHealthInput({
     repository: input.repository, mainSha: candidate.baseSha,
     mainTreeSha: candidate.baseTreeSha, trustRevision: candidate.baseSha, observedAt: input.observedAt,
-    expiresAt: new Date(new Date(input.observedAt).getTime() + 600_000).toISOString(), sourceRunId: input.sourceRunId,
-    sourceRef: input.sourceRef, checks: input.mainHealthChecks
+    expiresAt: new Date(new Date(input.observedAt).getTime() + 600_000).toISOString(),
+    checks: input.mainHealthChecks
   });
   const mainHealth = createMainHealthLedger(mainHealthInput);
   const sessionRevision = createVerificationSessionRevision({ repository: input.repository, prNumber: candidate.number,
@@ -1102,16 +1106,67 @@ function createVerificationSessionHostedRequest(input: {
   return Object.freeze({ ...semanticRequest, requestOperationId });
 }
 
+export function createVerificationSessionLocalPreparationRequest(
+  request: VerificationSessionHostedRequest
+): VerificationSessionLocalPreparationRequest {
+  return Object.freeze({
+    schema: CI_VERIFICATION_SESSION_LOCAL_PREPARATION_SCHEMA,
+    executionPlacement: 'local',
+    authorityStage: 'preparation-only',
+    request: parseVerificationSessionHostedRequest(JSON.stringify(request))
+  });
+}
+
+/** Decode once at the local entry; the saved input grants no execution authority. */
+export function parseVerificationSessionLocalPreparationRequest(
+  source: string
+): VerificationSessionLocalPreparationRequest {
+  const value: unknown = JSON.parse(source);
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) {
+    throw new Error('Local preparation request must be an object.');
+  }
+  const record = value as Record<string, unknown>;
+  if (Object.keys(record).sort().join(',') !== 'authorityStage,executionPlacement,request,schema'
+      || record.schema !== CI_VERIFICATION_SESSION_LOCAL_PREPARATION_SCHEMA
+      || record.executionPlacement !== 'local' || record.authorityStage !== 'preparation-only') {
+    throw new Error('Local preparation request requires the exact local preparation-only envelope.');
+  }
+  return createVerificationSessionLocalPreparationRequest(
+    parseVerificationSessionHostedRequest(JSON.stringify(record.request))
+  );
+}
+
+/** Re-preparation binds the actual environment into Session and Action identities.
+ * Compare every saved pin before invoking any SourceTransition execution. */
+export function assertVerificationSessionLocalPreparationCurrent(
+  saved: VerificationSessionLocalPreparationRequest,
+  current: VerificationSessionHostedRequest
+): void {
+  const parsed = parseVerificationSessionLocalPreparationRequest(JSON.stringify(saved));
+  const prepared = parseVerificationSessionHostedRequest(JSON.stringify(current));
+  if (encodeVerificationActionData(parsed.request) !== encodeVerificationActionData(prepared)) {
+    throw new Error('Local preparation request differs from current exact candidate, Session or Action environment. Prepare again.');
+  }
+}
+
 export function parseVerificationSessionHostedRequest(
   source: string
 ): VerificationSessionHostedRequest {
   const value = JSON.parse(source) as Record<string, unknown>;
+  if (value?.schema === CI_VERIFICATION_SESSION_LOCAL_PREPARATION_SCHEMA) {
+    throw new Error('Local preparation-only request cannot be consumed by a hosted operation.');
+  }
+  // The exact legacy schema is hosted-only. It is accepted only at an explicitly
+  // selected hosted entry; absence of placement never selects that entry.
   const expected = [
     'schema', 'prNumber', 'expectedBaseSha', 'expectedBaseTreeSha', 'expectedHeadSha',
     'expectedHeadTreeSha', 'manifestPath', 'manifestDigest', 'profile',
     'expectedScopeProposalDigest', 'expectedActionPlanDigest', 'expectedSessionRevision',
     'reviewPolicyDigest', 'requestOperationId'
   ].sort();
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) {
+    throw new Error('Hosted request must be an object.');
+  }
   const actual = Object.keys(value).sort();
   if (actual.length !== expected.length || actual.some((key, index) => key !== expected[index])) {
     throw new Error(`Hosted request must contain exactly: ${expected.join(', ')}.`);
@@ -1273,11 +1328,41 @@ export function prepareVerificationSessionHosted(input: {
   return Object.freeze({ ...withoutDigest, envelopeDigest: hash(withoutDigest) });
 }
 
+function assertSourceProgramTransitionQualified(input: Readonly<{
+  actionPlan: CiVerificationActionPlanClosure;
+  evidence: CodexDevelopmentVerificationEvidenceV4;
+  sessionRevision: string;
+  qualification?: SourceProgramTransitionQualification;
+}>): void {
+  const selected = input.actionPlan.actions.filter(
+    ({ action }) => action.operation.identity === SOURCE_PROGRAM_TRANSITION_GATE_ID);
+  if (selected.length === 0) {
+    if (input.qualification !== undefined) throw new Error('Unselected Source Program transition cannot qualify this Session.');
+    return;
+  }
+  if (selected.length !== 1 || input.qualification === undefined) {
+    throw new Error('Conditional Source Program completion requires live host qualification before Session acceptance.');
+  }
+  assertSourceProgramTransitionQualification(input.qualification);
+  const completion = input.evidence.gates.find(({ action }) => action.actionKey === selected[0]!.action.actionKey);
+  if (completion !== undefined) assertSourceProgramTransitionQualification(input.qualification, completion);
+  if (input.qualification.actionKey !== selected[0]!.action.actionKey
+      || input.qualification.sessionRevision !== input.sessionRevision
+      || completion?.result.status !== 'passed' || completion.result.evidenceRefs.length !== 1
+      || completion.result.evidenceRefs[0] !== (input.qualification.origin === 'first-qualified'
+        ? input.qualification.sourceActionOutputDigest : input.qualification.predecessorActionOutputDigest)) {
+    throw new Error('Source Program qualification belongs to another Action or Session.');
+  }
+}
+
 export function finalizeVerificationSessionHostedArtifact(input: {
   envelope: VerificationSessionHostedEnvelope;
   evidence: CodexDevelopmentVerificationEvidenceV4;
+  sourceProgramTransitionQualification?: SourceProgramTransitionQualification;
 }): CodexDevelopmentVerificationSessionArtifact {
   const envelope = input.envelope;
+  assertSourceProgramTransitionQualified({ actionPlan: envelope.actionPlanClosure, evidence: input.evidence,
+    sessionRevision: envelope.session.sessionRevision, qualification: input.sourceProgramTransitionQualification });
   const { envelopeDigest, ...withoutDigest } = envelope;
   if (envelope.schema !== VERIFICATION_SESSION_HOSTED_ENVELOPE_SCHEMA || hash(withoutDigest) !== envelopeDigest) {
     throw new Error('prepare-hosted envelope digest mismatch.');
@@ -1291,7 +1376,11 @@ export function finalizeVerificationSessionHostedArtifact(input: {
     preGateReview: envelope.preGateReview,
     mainHealth: envelope.mainHealth,
     evidence: input.evidence,
-    producer: input.evidence.producer
+    producer: input.evidence.producer,
+    ...(input.sourceProgramTransitionQualification === undefined ? {} : {
+      sourceProgramTransitionAcceptance: input.sourceProgramTransitionQualification,
+      sourceProgramTransitionEvidence: sourceProgramTransitionEvidenceForQualification(input.sourceProgramTransitionQualification)
+    })
   });
 }
 
@@ -1300,7 +1389,10 @@ export function refreshVerificationSessionHostedArtifact(input: {
   previousArtifact: CodexDevelopmentVerificationSessionArtifact;
   producer: CodexDevelopmentVerificationEvidenceProducer;
   refreshedAt: string;
+  sourceProgramTransitionQualification?: SourceProgramTransitionQualification;
 }): CodexDevelopmentVerificationSessionArtifact {
+  assertSourceProgramTransitionQualified({ actionPlan: input.envelope.actionPlanClosure, evidence: input.previousArtifact.evidence,
+    sessionRevision: input.envelope.session.sessionRevision, qualification: input.sourceProgramTransitionQualification });
   const { envelopeDigest, ...withoutDigest } = input.envelope;
   if (input.envelope.schema !== VERIFICATION_SESSION_HOSTED_ENVELOPE_SCHEMA
     || hash(withoutDigest) !== envelopeDigest) {
@@ -1313,6 +1405,10 @@ export function refreshVerificationSessionHostedArtifact(input: {
     preGateReview: input.envelope.preGateReview,
     mainHealth: input.envelope.mainHealth,
     producer: input.producer,
+    ...(input.sourceProgramTransitionQualification === undefined ? {} : {
+      sourceProgramTransitionAcceptance: input.sourceProgramTransitionQualification,
+      sourceProgramTransitionEvidence: sourceProgramTransitionEvidenceForQualification(input.sourceProgramTransitionQualification)
+    }),
     refreshedAt: input.refreshedAt
   });
 }
@@ -1399,7 +1495,14 @@ export function prepareVerificationSessionTrustedRuntimeMergeInput(input: {
   consumptionOperationId: Digest;
   issuedAt: string;
   expiresAt: string;
+  sourceProgramTransitionQualification?: SourceProgramTransitionQualification;
 }): CodexDevelopmentTrustedRuntimeMergeGateInput {
+  assertSourceProgramTransitionQualified({ actionPlan: input.artifact.evidence.actionPlan, evidence: input.artifact.evidence,
+    sessionRevision: input.artifact.session.sessionRevision, qualification: input.sourceProgramTransitionQualification });
+  if (input.artifact.sourceProgramTransitionAcceptance?.qualificationDigest
+      !== input.sourceProgramTransitionQualification?.qualificationDigest) {
+    throw new Error('Accepted artifact does not identify the current live Source Program adoption attempt.');
+  }
   if (input.platform.status === 'unknown') {
     throw new Error('Unknown platform enforcement blocks trusted runtime merge input.');
   }
@@ -1468,11 +1571,11 @@ function verifyIntegrationArtifact(input: {
     || artifact.actorPermission !== 'none'
     || artifact.downloadTransport !== 'github-actions-artifact-api')
     || provenance.workflowSha !== session.trustRevision
-    || provenance.workflowRef !== `.github/workflows/sec-merge-gate.yml@${session.trustRevision}`
+    || provenance.workflowRef !== `.github/workflows/merge-gate.yml@${session.trustRevision}`
     || authorization.issuer.producerIdentity !== CodexDevelopmentMergeGateProducerIdentity
     || authorization.issuer.sourceTransport !== 'github-actions'
     || authorization.issuer.trustedRevision !== session.trustRevision
-    || authorization.issuer.sourceRef !== `.github/workflows/sec-merge-gate.yml@${session.trustRevision}`
+    || authorization.issuer.sourceRef !== `.github/workflows/merge-gate.yml@${session.trustRevision}`
     || authorization.issuer.sourceDigest !== provenance.sourceDigest
   ) {
     throw new Error('IntegrationAuthorization trusted workflow/artifact provenance mismatch.');
@@ -1483,7 +1586,7 @@ function verifyIntegrationArtifact(input: {
  * Advances until the next external wait or terminal state. It never polls and
  * every mutation is preceded by one durable stable-operation claim.
  */
-export function resumeVerificationSession(input: {
+export async function resumeVerificationSession(input: {
   repositoryRoot: string;
   session: VerificationSession;
   scopeAuthorization: ScopeAuthorization;
@@ -1493,17 +1596,17 @@ export function resumeVerificationSession(input: {
   github: VerificationSessionGitHubClient;
   external: VerificationSessionRuntimeExternal;
   journalFs: VerificationSessionJournalFileSystem;
-}): VerificationSessionRuntimeOutcome {
+}): Promise<VerificationSessionRuntimeOutcome> {
   const session = parseVerificationSession(encodeVerificationActionData(input.session));
   const scope = parseScopeAuthorization(encodeVerificationActionData(input.scopeAuthorization));
   const fs = input.journalFs;
   let journal = readVerificationSessionJournal({ sessionRevision: session.sessionRevision, fs });
-  const candidate = input.github.observeCandidate(session.repository, session.prNumber);
+  const candidate = (await input.github.observeCandidate(session.repository, session.prNumber));
   const liveMerged = candidate.state === 'MERGED';
   const trustedRuntimeProof = input.external.trustedRuntimeProof(session);
   if (liveMerged) {
-    assertTrustedMergedRuntimeReachability({ proof: trustedRuntimeProof, session, candidate,
-      github: input.github });
+    (await assertTrustedMergedRuntimeReachability({ proof: trustedRuntimeProof, session, candidate,
+      github: input.github }));
   } else {
     assertTrustedRuntime(trustedRuntimeProof, session, false);
   }
@@ -1550,8 +1653,8 @@ export function resumeVerificationSession(input: {
         reason: 'trusted hosted artifact is required for merged recovery', receiptDigest: null, completedStage: journal.completedStage });
       append('pre-gate-review-clear', hosted.artifact.preGateReview.receiptDigest as Digest, preGateOperation);
     } else {
-      const barrier = input.github.observeReviewBarrier({ repository: session.repository, prNumber: session.prNumber,
-        headSha: session.headSha, excludedPrincipalNodeIds: new Set([candidate.authorNodeId, input.integrationPrincipalNodeId]) });
+      const barrier = (await input.github.observeReviewBarrier({ repository: session.repository, prNumber: session.prNumber,
+        headSha: session.headSha, excludedPrincipalNodeIds: new Set([candidate.authorNodeId, input.integrationPrincipalNodeId]) }));
       if (barrier.status !== 'clear') {
         if (barrier.status === 'provider-schema-unsupported') return outcome({ status: 'BLOCKED',
           sessionRevision: session.sessionRevision, reason: barrier.reasonCode,
@@ -1586,7 +1689,7 @@ export function resumeVerificationSession(input: {
       });
       const claim = claimVerificationSessionOperation({ sessionRevision: session.sessionRevision,
         operationId: request.requestOperationId, operationKind: 'hosted-dispatch', fs });
-      if (claim.claimed) input.github.ensureVerificationSessionWakeup(session.repository, request);
+      if (claim.claimed) (await input.github.ensureVerificationSessionWakeup(session.repository, request));
       appendVerificationSessionJournalEvent({ sessionRevision: session.sessionRevision,
         targetStage: 'hosted-verification-terminal', kind: 'waiting', operationId: request.requestOperationId,
         receiptDigest: null, note: claim.claimed ? 'hosted verification dispatched' : 'hosted dispatch already claimed', fs });
@@ -1613,8 +1716,8 @@ export function resumeVerificationSession(input: {
     : integrationSource.publication.result;
   verifyIntegrationArtifact({ source: integrationSource, result: integrationResult,
     hosted: hosted.provenance, session });
-  const authorizationPrincipal = input.github.observePrincipalByNodeId(session.repository,
-    integrationResult.provenance.actorNodeId);
+  const authorizationPrincipal = (await input.github.observePrincipalByNodeId(session.repository,
+    integrationResult.provenance.actorNodeId));
   if (authorizationPrincipal.permission !== 'admin' && authorizationPrincipal.permission !== 'maintain') {
     throw new Error('IntegrationAuthorization actor no longer has maintain/admin permission.');
   }
@@ -1644,16 +1747,16 @@ export function resumeVerificationSession(input: {
   if (liveMerged && !matchingMergedConsumption) return outcome({ status: 'BLOCKED', sessionRevision: session.sessionRevision,
     reason: 'merged commit lacks the exact IntegrationAuthorization consumption marker',
     receiptDigest: authorization.receiptDigest as Digest, completedStage: journal.completedStage });
-  const barrier = liveMerged ? null : input.github.observeReviewBarrier({ repository: session.repository,
+  const barrier = liveMerged ? null : (await input.github.observeReviewBarrier({ repository: session.repository,
     prNumber: session.prNumber, headSha: session.headSha,
-    excludedPrincipalNodeIds: new Set([candidate.authorNodeId, input.integrationPrincipalNodeId]) });
+    excludedPrincipalNodeIds: new Set([candidate.authorNodeId, input.integrationPrincipalNodeId]) }));
   if (barrier !== null && barrier.status !== 'clear') return outcome({ status: barrier.status === 'waiting' ? 'WAITING_REVIEW' : 'BLOCKED',
     sessionRevision: session.sessionRevision,
     reason: barrier.status === 'provider-schema-unsupported' ? barrier.reasonCode : barrier.reason,
     receiptDigest: barrier.status === 'provider-schema-unsupported' ? barrier.responseDigest : barrier.snapshotDigest,
     completedStage: journal.completedStage });
   const enforcement = liveMerged ? integrationResult.platformObservation
-    : input.github.observePlatformEnforcement(session.repository);
+    : (await input.github.observePlatformEnforcement(session.repository));
   if (enforcement.status === 'unknown') return outcome({ status: 'BLOCKED', sessionRevision: session.sessionRevision,
     reason: enforcement.reason ?? 'platform enforcement unknown', receiptDigest: enforcement.rulesetDigest, completedStage: journal.completedStage });
   assertReviewStabilityReceiptCurrent(preMergeReceipt, { stage: 'pre-merge',
@@ -1679,7 +1782,7 @@ export function resumeVerificationSession(input: {
   if (journal.completedStageIndex < 4) append('pre-merge-review-clear', preMergeReceipt.receiptDigest,
     createVerificationSessionOperationId({ sessionRevision: session.sessionRevision, operationKind: 'pre-merge-review',
       semanticInputDigest: preMergeReceipt.reviewRevision }));
-  const durableConsumed = input.external.consumedAuthorizationIds();
+  const durableConsumed = await input.external.consumedAuthorizationIds();
   const effectiveConsumed = matchingMergedConsumption
     ? new Set([...durableConsumed].filter((id) => id !== authorization.authorizationId))
     : durableConsumed;
@@ -1738,7 +1841,7 @@ export function resumeVerificationSession(input: {
   }
   if (journal.completedStageIndex < 6) append('merge-attempted', authorization.receiptDigest as Digest, mergeOperationId);
 
-  const merged = input.github.observeCandidate(session.repository, session.prNumber);
+  const merged = (await input.github.observeCandidate(session.repository, session.prNumber));
   if (merged.state !== 'MERGED' || merged.mergeCommitSha === null || merged.mergeCommitTreeSha === null || merged.mergeCommitMessage === null) {
     return outcome({ status: 'WAITING_MERGE_READBACK', sessionRevision: session.sessionRevision,
       reason: 'exact merge readback is not terminal', receiptDigest: authorization.receiptDigest as Digest, completedStage: journal.completedStage });

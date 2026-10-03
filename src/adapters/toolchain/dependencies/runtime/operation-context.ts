@@ -1,8 +1,8 @@
 import path from 'node:path';
 import type { CommitFence } from "../../../../contracts/commit-fence.ts";
 import { SecError } from '../../../../contracts/failure.ts';
-import { assertCapturedRuntimeDependencyInstallRequest, type RuntimeDependencyInstallRequest } from '../contract/install-request.ts';
-import type { RuntimeDependencyLifecycleInput } from './lifecycle-capabilities.ts';
+import { assertCapturedRuntimeDependencyInstallRequest, type RuntimeDependencyInstallRequest } from '../../../../execution/dependency-install-request.ts';
+import type { RuntimeDependencyLifecycleFactory, RuntimeDependencyLifecycleInput } from "../../../../execution/generated-state/dependency-lifecycle.ts";
 import type { RuntimeDependencyTestMaterializationCapability } from './materialization-fixture-capability.ts';
 ;
 
@@ -67,7 +67,9 @@ export interface RuntimeDependencyFaultInjectionInput {
  * use controls, effect input or a selected lifecycle projection instead. */
 export interface RuntimeDependencyInstallOptions extends RuntimeDependencyInstallRequest,
   RuntimeDependencyOperationControlInput, RuntimeDependencyLifecycleInput,
-  RuntimeDependencyEnvironmentInput, RuntimeDependencyFaultInjectionInput {}
+  RuntimeDependencyEnvironmentInput, RuntimeDependencyFaultInjectionInput {
+  readonly generatedStateLifecycleFactory?: RuntimeDependencyLifecycleFactory;
+}
 
 /** Closed coordinator view. A generic input may contain application data, but
  * those extra keys are no longer forwarded as implicit execution capabilities.
@@ -78,7 +80,7 @@ export type RuntimeDependencyOperationOptions = Readonly<Omit<RuntimeDependencyI
 const issuedOperationOptions = new WeakSet<object>();
 const boundOperationMethods = new WeakSet<object>();
 const runtimeDependencyInstallOptionKeys = new Set<PropertyKey>([
-  'beforeCommit', 'deadlineAtUnixMs', 'generatedStateLifecycle', 'installMode',
+  'beforeCommit', 'deadlineAtUnixMs', 'generatedStateLifecycle', 'generatedStateLifecycleFactory', 'installMode',
   'lockTimeoutMs', 'monotonicNowMs', 'now', 'pollIntervalMs', 'rematerialize',
   'sharedDepsRoot', 'signal', 'sleep',
   'testCompilerBridgeValidationHook', 'testCompilerPublishHook',
@@ -172,6 +174,12 @@ export function runtimeDependencyOperationOptions<T extends RuntimeDependencyIns
   const sleep = ownOption(options, 'sleep');
   const sharedDepsRoot = ownOption(options, 'sharedDepsRoot');
   const generatedStateLifecycle = ownOption(options, 'generatedStateLifecycle');
+  const factory = ownOption(options, 'generatedStateLifecycleFactory');
+  const createProducerSession = factory?.forWorkspace;
+  if (factory !== undefined && typeof createProducerSession !== 'function') throw new SecError('RUNTIME-DEPS-003', 'Generated-state producer session factory is not callable.');
+  const generatedStateLifecycleFactory = factory === undefined ? undefined : Object.freeze({
+    forWorkspace: (workspaceRoot: string) => Reflect.apply(createProducerSession!, factory, [workspaceRoot])
+  });
   const testCompilerPublishPlatform = ownOption(options, 'testCompilerPublishPlatform');
   const testCompilerPublishHook = ownOption(options, 'testCompilerPublishHook');
   const testProjectProjectionHook = ownOption(options, 'testProjectProjectionHook');
@@ -208,7 +216,7 @@ export function runtimeDependencyOperationOptions<T extends RuntimeDependencyIns
   const captured: RuntimeDependencyOperationOptions = Object.freeze({
     ...request, ...methods, ...controls, monotonicNowMs,
     sharedDepsRoot: sharedDepsRoot === undefined ? undefined : path.resolve(cwd, sharedDepsRoot),
-    generatedStateLifecycle, testCompilerPublishPlatform, testInstallLockDeletePlatform, testMaterialization
+    generatedStateLifecycle, generatedStateLifecycleFactory, testCompilerPublishPlatform, testInstallLockDeletePlatform, testMaterialization
   } satisfies Record<keyof RuntimeDependencyInstallOptions, unknown>);
   issuedOperationOptions.add(captured);
   return captured;

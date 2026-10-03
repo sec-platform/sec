@@ -568,7 +568,7 @@ test('retained native refs require explicit exact targets and leave other refs u
 }, 30_000);
 
 for (const lane of ['merged', 'retained'] as const) {
-  test(`${lane} local ref retires exact applied development journals before ref CAS`, async () => {
+  test(`${lane} local ref keeps exact applied development journals through ref CAS then retires them`, async () => {
     const fixture = createEffectFixture(`journal-before-ref-${lane}`);
     const journalPath = writeDevelopmentCommitJournal(fixture.repositoryRoot, fixture.headSha, 'applied');
     const noMergedPr = ((command: 'gh' | 'git', args: readonly string[], cwd: string, input?: string) => (
@@ -585,11 +585,12 @@ for (const lane of ['merged', 'retained'] as const) {
           retainedTargets: [{ branch: 'fix/example', expectedHeadSha: fixture.headSha }]
         } : {}),
         faults: { afterDelete: () => {
-          expect(existsSync(journalPath)).toBeFalse();
+          expect(existsSync(journalPath)).toBeTrue();
           expect(refExists(fixture.repositoryRoot, 'refs/heads/fix/example')).toBeFalse();
         } }
       });
       expect(settled.settled).toEqual(['fix/example']);
+      expect(existsSync(journalPath)).toBeFalse();
     } finally {
       fixture.dispose();
     }
@@ -686,6 +687,111 @@ test('retiring a worktree branch journal reads its ref history without the calle
   }
 }, 45_000);
 
+
+test('absent local ref recovery retires the applied journal left by a crash after exact ref CAS', async () => {
+  const fixture = createEffectFixture('absent-ref-applied-journal');
+  const journalPath = writeDevelopmentCommitJournal(
+    fixture.repositoryRoot,
+    fixture.headSha,
+    'applied'
+  );
+  try {
+    await expect(executeMergedLocalBranchResidueCloseout({
+      repositoryRoot: fixture.repositoryRoot,
+      recoveryRoot: fixture.recoveryRoot,
+      run: fixture.run,
+      faults: { afterDelete: () => { throw new Error('crash-after-ref-effect-with-journal'); } }
+    })).rejects.toThrow('crash-after-ref-effect-with-journal');
+    expect(refExists(fixture.repositoryRoot, 'refs/heads/fix/example')).toBeFalse();
+    expect(existsSync(journalPath)).toBeTrue();
+    const retirementRoot = path.join(
+      fixture.repositoryRoot,
+      '.git',
+      'sec-development-commit-local-ref-retirement'
+    );
+    expect(readdirSync(retirementRoot)).toHaveLength(1);
+
+    const resumed = await executeMergedLocalBranchResidueCloseout({
+      repositoryRoot: fixture.repositoryRoot,
+      recoveryRoot: fixture.recoveryRoot,
+      run: fixture.run
+    });
+    expect(resumed.settled).toEqual(['fix/example']);
+    expect(existsSync(journalPath)).toBeFalse();
+    expect(existsSync(retirementRoot)).toBeFalse();
+  } finally {
+    fixture.dispose();
+  }
+}, 45_000);
+
+
+test('absent local ref recovery refuses a forged applied journal object binding', async () => {
+  const fixture = createEffectFixture('absent-ref-forged-applied-journal');
+  const journalPath = writeDevelopmentCommitJournal(
+    fixture.repositoryRoot,
+    fixture.headSha,
+    'applied'
+  );
+  try {
+    await expect(executeMergedLocalBranchResidueCloseout({
+      repositoryRoot: fixture.repositoryRoot,
+      recoveryRoot: fixture.recoveryRoot,
+      run: fixture.run,
+      faults: { afterDelete: () => { throw new Error('crash-after-ref-effect-before-journal-retirement'); } }
+    })).rejects.toThrow('crash-after-ref-effect-before-journal-retirement');
+    const journal = JSON.parse(readFileSync(journalPath, 'utf8')) as Record<string, unknown>;
+    journal.object = 'e'.repeat(40);
+    writeFileSync(journalPath, `${JSON.stringify(journal)}\n`, 'utf8');
+
+    await expect(executeMergedLocalBranchResidueCloseout({
+      repositoryRoot: fixture.repositoryRoot,
+      recoveryRoot: fixture.recoveryRoot,
+      run: fixture.run
+    })).rejects.toThrow('family changed');
+    expect(existsSync(journalPath)).toBeTrue();
+  } finally {
+    fixture.dispose();
+  }
+}, 45_000);
+
+
+test('absent local ref recovery refuses a late valid applied journal outside the durable plan', async () => {
+  const fixture = createEffectFixture('absent-ref-late-applied-journal');
+  const journalPath = writeDevelopmentCommitJournal(
+    fixture.repositoryRoot,
+    fixture.headSha,
+    'applied'
+  );
+  try {
+    await expect(executeMergedLocalBranchResidueCloseout({
+      repositoryRoot: fixture.repositoryRoot,
+      recoveryRoot: fixture.recoveryRoot,
+      run: fixture.run,
+      faults: { afterDelete: () => { throw new Error('crash-after-ref-effect-before-plan-ack'); } }
+    })).rejects.toThrow('crash-after-ref-effect-before-plan-ack');
+    const lateAttempt = 'f'.repeat(64);
+    const latePath = path.join(
+      fixture.repositoryRoot,
+      '.git',
+      'sec-development-commit',
+      `${lateAttempt}.json`
+    );
+    const late = JSON.parse(readFileSync(journalPath, 'utf8')) as Record<string, unknown>;
+    late.attempt = `sha256:${lateAttempt}`;
+    writeFileSync(latePath, `${JSON.stringify(late)}\n`, 'utf8');
+
+    await expect(executeMergedLocalBranchResidueCloseout({
+      repositoryRoot: fixture.repositoryRoot,
+      recoveryRoot: fixture.recoveryRoot,
+      run: fixture.run
+    })).rejects.toThrow('family changed');
+    expect(existsSync(journalPath)).toBeTrue();
+    expect(existsSync(latePath)).toBeTrue();
+  } finally {
+    fixture.dispose();
+  }
+}, 45_000);
+
 test('absent local ref recovery refuses a late development journal before terminal receipt', async () => {
   const fixture = createEffectFixture('absent-ref-journal');
   try {
@@ -701,7 +807,7 @@ test('absent local ref recovery refuses a late development journal before termin
       repositoryRoot: fixture.repositoryRoot,
       recoveryRoot: fixture.recoveryRoot,
       run: fixture.run
-    })).rejects.toThrow('requires applied readback');
+    })).rejects.toThrow('family changed');
     expect(existsSync(journalPath)).toBeTrue();
     expect(readdirSync(fixture.recoveryRoot).some((name) => name.endsWith('.authorization.json')))
       .toBeTrue();

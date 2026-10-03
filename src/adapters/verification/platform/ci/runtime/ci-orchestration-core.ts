@@ -20,8 +20,8 @@ import {
 } from '../../../../repository/source-program-model/workspace-source-snapshot.ts';
 import {
   inspectNoFollowDirectoryChain,
+  retainCurrentProcessExecutable,
   retainNoFollowDirectoryForChildProcess,
-  retainNoFollowOrdinaryFile,
   type RetainedNoFollowChildProcessDirectory,
   type RetainedNoFollowOrdinaryFile
 } from '../../../../runtime-state/physical/runtime/physical-no-follow.ts';
@@ -42,6 +42,7 @@ import {
   parseDocumentationVerificationBaseline,
   type DocumentationVerificationBaseline
 } from '../../../../self-hosting/control/documentation/active.ts';
+import { SOURCE_PROGRAM_TRANSITION_GATE_ID, SOURCE_PROGRAM_TRANSITION_STDOUT_BYTE_LIMIT } from '../../action/contract/ci.ts';
 import { issueTestInventoryProjection } from '../../test-impact/contract/budget.ts';
 import { createRepositoryTestImpactSourceProvider, type CodexDevelopmentTestImpactSourceProvider } from '../../test-impact/runtime/impact.ts';
 import { CodexDevelopmentCreateTestImpactTransitionObservation, gitChangedFileDiffArgs, gitPathBlobBatchArgs, gitWorkingTreeStatusArgs, parseGitChangedRecordsOutput, parseGitPathBlobBatchOutput, type CodexDevelopmentGitChangedRecord, type CodexDevelopmentGitPathBlobEntry, type CodexDevelopmentTestImpactTransitionObservation } from '../../test-impact/runtime/transition.ts';
@@ -71,6 +72,8 @@ export type CodexDevelopmentGateExecutionObservation = {
 export type CodexDevelopmentGateProcessResult = {
   code: number;
   rawOutputDigest: string;
+  /** Captured provider bytes; never reread from a candidate-owned file. */
+  stdout?: Uint8Array;
   failureTail: string;
 };
 
@@ -385,14 +388,7 @@ export async function CodexDevelopmentRunGateProcess(
   let result: CodexDevelopmentGateProcessResult | null = null;
   const failures: unknown[] = [];
   try {
-    executable = retainNoFollowOrdinaryFile(
-      inspectNoFollowDirectoryChain(path.dirname(executablePath), 'CI gate Bun executable parent'),
-      path.basename(executablePath),
-      undefined,
-      'CI gate Bun executable',
-      RETAINED_EXECUTABLE_CHILD_DESCRIPTOR,
-      'executable'
-    );
+    executable = retainCurrentProcessExecutable(RETAINED_EXECUTABLE_CHILD_DESCRIPTOR, 'CI gate Bun executable');
     workingDirectory = retainNoFollowDirectoryForChildProcess(
       inspectNoFollowDirectoryChain(path.resolve(repositoryRoot), 'CI gate repository root'),
       RETAINED_WORKING_DIRECTORY_CHILD_DESCRIPTOR,
@@ -406,7 +402,9 @@ export async function CodexDevelopmentRunGateProcess(
       if (boundedTail.length > CODEX_DEVELOPMENT_FAILURE_TAIL_CHARACTER_LIMIT) {
         boundedTail = boundedTail.slice(-CODEX_DEVELOPMENT_FAILURE_TAIL_CHARACTER_LIMIT);
       }
-      (stream === 'stdout' ? process.stdout : process.stderr).write(chunk);
+      if (stream !== 'stdout' || step.id !== SOURCE_PROGRAM_TRANSITION_GATE_ID) {
+        (stream === 'stdout' ? process.stdout : process.stderr).write(chunk);
+      }
       return true;
     };
     const run = await session.run(issueRetainedCommandBoundary({ executable, workingDirectory }),
@@ -415,11 +413,13 @@ export async function CodexDevelopmentRunGateProcess(
         env: step.env,
         envMode: 'replace',
         maxStderrBytes: CODEX_DEVELOPMENT_GATE_STDERR_BYTE_LIMIT,
-        maxStdoutBytes: CODEX_DEVELOPMENT_GATE_STDOUT_BYTE_LIMIT
+        maxStdoutBytes: step.id === SOURCE_PROGRAM_TRANSITION_GATE_ID
+          ? SOURCE_PROGRAM_TRANSITION_STDOUT_BYTE_LIMIT : CODEX_DEVELOPMENT_GATE_STDOUT_BYTE_LIMIT
       });
     result = Object.freeze({
       code: run.result.code,
       rawOutputDigest: `sha256:${hash.digest('hex')}`,
+      stdout: new Uint8Array(run.result.stdout),
       failureTail: boundedTail.trim()
     });
   } catch (error) {

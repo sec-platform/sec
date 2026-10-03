@@ -437,7 +437,7 @@ const SEC_RETIRED_REPOSITORY_ROOTS = Object.freeze([
 ] as const);
 
 function descriptorError(field: string, detail: string): never {
-  throw new Error(`invalid sec.module.json ${field}: ${detail}`);
+  throw new Error(`invalid module.json ${field}: ${detail}`);
 }
 
 function descriptorRecord(input: unknown): Record<string, unknown> {
@@ -1004,8 +1004,8 @@ export function parseSecModuleDescriptor(
     descriptorError('descriptorPath', 'uses a retired repository root');
   }
   if (!isCanonicalSecRepositoryModulePath(normalizedDescriptorPath)
-      || nodePath.posix.basename(normalizedDescriptorPath) !== 'sec.module.json') {
-    descriptorError('descriptorPath', 'must be a canonical repository sec.module.json path');
+      || nodePath.posix.basename(normalizedDescriptorPath) !== 'module.json') {
+    descriptorError('descriptorPath', 'must be a canonical repository module.json path');
   }
   const root = nodePath.posix.dirname(normalizedDescriptorPath);
   if (root === '.') descriptorError('descriptorPath', 'repository-root descriptors are not supported');
@@ -1056,7 +1056,7 @@ export function parseSecModuleDescriptorJson(
 
 /**
  * A package identity is a projection of its physical capability root. It is
- * never repeated in sec.module.json, so a descriptor cannot self-assign a
+ * never repeated in module.json, so a descriptor cannot self-assign a
  * semantic owner or preserve a stale identity after relocation.
  */
 function secRepositoryModuleIdFromRoot(root: string): string {
@@ -1807,7 +1807,7 @@ function compileRepositoryModuleAuthorityRoleViolations(
       if (!conflict) continue;
       violations.push(Object.freeze({
         code: 'repository-module-role-unresolved',
-        from: `${descriptor.root}/sec.module.json`,
+        from: `${descriptor.root}/module.json`,
         to: semanticOperation,
         detail: `${descriptor.moduleId} co-owns independent semantic operation roles for ${semanticOperation}: ${roleKinds.join(', ')}`
       }));
@@ -1830,7 +1830,7 @@ function compileRepositoryModuleAuthorityRoleViolations(
           code: 'authority-mint-export-unclassified',
           from: declarations.length === 1
             ? normalizeSecRepositoryPath(declarations[0]!.path)
-            : `${descriptor.root}/sec.module.json`,
+            : `${descriptor.root}/module.json`,
           to: `${provider.capability}:${operation}`,
           detail: declarations.length === 1
             ? 'exported authority operation has no exact operation role classification'
@@ -1973,7 +1973,7 @@ export function collectSecRepositoryModuleSourceProgramViolations(
     violations.push(Object.freeze({
       code: 'unowned-production-source',
       from: file.path,
-      to: 'sec.module.json',
+      to: 'module.json',
       detail: `${file.path} is production source with no repository module owner`
     }));
   }
@@ -2129,6 +2129,8 @@ function discoverDescriptorPathsSync(
       if (entry.isDirectory()) {
         visit(absolutePath);
       } else if (entry.isFile() && entry.name === 'sec.module.json') {
+        descriptorError('descriptorPath', `retired sec.module.json remains at ${normalizeRepositoryPath(nodePath.relative(repositoryRoot, absolutePath))}`);
+      } else if (entry.isFile() && entry.name === 'module.json') {
         paths.push(normalizeRepositoryPath(nodePath.relative(repositoryRoot, absolutePath)));
       }
     }
@@ -2280,7 +2282,7 @@ export function compileSecRepositoryModuleMembershipSnapshot(
   }
   const repositoryFileSet = new Set(repositoryFiles);
   const expectedDescriptorPaths = repositoryFiles.filter((repositoryFile) => (
-    nodePath.posix.basename(repositoryFile) === 'sec.module.json'
+    nodePath.posix.basename(repositoryFile) === 'module.json'
   ));
   if (expectedDescriptorPaths.length === 0) {
     throw new Error('repository snapshot module descriptor census is missing');
@@ -2289,7 +2291,7 @@ export function compileSecRepositoryModuleMembershipSnapshot(
   for (const descriptorSource of snapshot.descriptorSources) {
     const descriptorPath = normalizeSecRepositoryPath(descriptorSource.descriptorPath);
     if (descriptorPath !== descriptorSource.descriptorPath
-        || nodePath.posix.basename(descriptorPath) !== 'sec.module.json'
+        || nodePath.posix.basename(descriptorPath) !== 'module.json'
         || !repositoryFileSet.has(descriptorPath)) {
       throw new Error(`repository snapshot descriptor is not one observed file: ${descriptorSource.descriptorPath}`);
     }
@@ -2316,7 +2318,7 @@ export function compileSecRepositoryModuleMembershipSnapshot(
     }
   }));
   return compileSecRepositoryModuleMembershipFromDescriptors(descriptors, {
-    rootExists: (descriptor) => repositoryFileSet.has(`${descriptor.root}/sec.module.json`),
+    rootExists: (descriptor) => repositoryFileSet.has(`${descriptor.root}/module.json`),
     entrypointExists: (entrypoint) => repositoryFileSet.has(entrypoint),
     directExecutableSources: (descriptor) => repositoryFiles
       .filter((repositoryFile) => (

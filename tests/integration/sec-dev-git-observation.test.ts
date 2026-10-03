@@ -4,6 +4,7 @@ import fs, { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { affectedGitSelectionDigest, issueAffectedGitSelectionSource, rebindAffectedGitSelectionSource } from '../../src/adapters/verification/platform/test-impact/runtime/affected-git-source.ts';
 
 import { withAuthorityGitReadSession } from '../../src/adapters/providers/git-read/authority.ts';
 import { createAuthorityGitReadSession } from '../../src/adapters/providers/git-read/runtime/session.ts';
@@ -332,6 +333,34 @@ test('repository mutation fence preserves dirty candidates and detects tracked, 
   }
 });
 
+test.skipIf(process.platform === 'win32')(
+  'repository mutation fence rejects an unavailable physical observer before the workload',
+  async () => {
+    const root = await createRepository('sec-dev-observer-unavailable-');
+    const diagnostics: string[] = [];
+    let called = false;
+    try {
+      const result = await runRepositoryZeroWriteOperation('test:unsupported', async () => {
+        called = true;
+        return 0;
+      }, {
+        operation: gitReadOperation(),
+        repositoryRoot: root,
+        report: (message) => diagnostics.push(message)
+      });
+      expect(result).toBe(1);
+      expect(called).toBe(false);
+      expect(diagnostics).toHaveLength(1);
+      expect(diagnostics[0]).toContain('strict-zero-write-unproven');
+      expect(diagnostics[0]).toContain('unsupported-platform');
+      expect(await fs.readFile(path.join(root, 'committed.ts'), 'utf8'))
+        .toBe('export const committed = true;\n');
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  }
+);
+
 test('repository mutation operation fence turns a child write into one diagnostic failure', async () => {
   const root = await createRepository('sec-dev-mutation-operation-');
   const diagnostics: string[] = [];
@@ -447,6 +476,38 @@ test('tracked governed symlink cannot be followed and reported as settled', asyn
     const receipt = await runSettlement(root);
     expect(receipt.status).toBe('unsafe');
     expect(receipt.summary).toContain('Settlement exact Git/physical observation failed closed');
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+
+test('affected Git preparation survives settled transport and rejects foreign or drifted rebinds', async () => {
+  const root = await createRepository('sec-affected-selection-rebind-');
+  try {
+    await fs.writeFile(path.join(root, 'selected.ts'), 'export const selected = 1;\n');
+    const selection = await withAuthorityGitReadSession({ cwd: root, operation: gitReadOperation(),
+      budget: GIT_READ_OPERATION_BUDGET }, session => issueAffectedGitSelectionSource({ session, baseRef: null }));
+    expect(selection).not.toBeNull();
+    expect(selection!.files).toEqual(['selected.ts']);
+    const digest = affectedGitSelectionDigest(selection!);
+    await withAuthorityGitReadSession({ cwd: root, operation: gitReadOperation(),
+      budget: GIT_READ_OPERATION_BUDGET }, async session => {
+      const before = session.processCount;
+      const forged = { ...selection! };
+      expect(await rebindAffectedGitSelectionSource({ source: forged, session, baseRef: null })).toBeNull();
+      expect(session.processCount).toBe(before);
+      const rebound = await rebindAffectedGitSelectionSource({ source: selection!, session, baseRef: null });
+      expect(rebound).not.toBeNull();
+      expect(rebound!.files).toBe(selection!.files);
+      expect(affectedGitSelectionDigest(rebound!)).toBe(digest);
+    });
+    await fs.writeFile(path.join(root, 'later.ts'), 'export const later = 2;\n');
+    await withAuthorityGitReadSession({ cwd: root, operation: gitReadOperation(),
+      budget: GIT_READ_OPERATION_BUDGET }, async session => {
+      expect(await rebindAffectedGitSelectionSource({ source: selection!, session, baseRef: null })).toBeNull();
+    });
+    expect(selection!.files).toEqual(['selected.ts']);
   } finally {
     await rm(root, { recursive: true, force: true });
   }

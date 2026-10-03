@@ -72,13 +72,13 @@ const WORKFLOW_RUNNER_ROLES = Object.freeze({
     'main-health': 'trusted'
   },
   '.github/workflows/compiler-release-validation.yml': { 'compiler-release-verification': 'sut' },
-  '.github/workflows/sec-merge-gate.yml': {
+  '.github/workflows/merge-gate.yml': {
     plan: 'trusted',
     authorize: 'control',
     'terminal-status': 'trusted',
     integrate: 'control'
   },
-  '.github/workflows/sec-trusted-bootstrap.yml': {
+  '.github/workflows/trusted-bootstrap.yml': {
     resolve: 'trusted',
     'checker-pre': 'trusted',
     'candidate-sut': 'sut',
@@ -115,11 +115,11 @@ test('all hosted run consumers exclude mutable provider name from identity', asy
     headSha: 'c'.repeat(40)
   })).toBe(false);
   expect(matchesCiWorkflowRunIdentity({
-    workflowPath: '.github/workflows/sec-merge-gate.yml',
+    workflowPath: '.github/workflows/merge-gate.yml',
     eventName: 'workflow_run',
     displayTitle: 'integrate compiler session run 100 attempt 1',
     headSha,
-    expectedWorkflowPath: '.github/workflows/sec-merge-gate.yml',
+    expectedWorkflowPath: '.github/workflows/merge-gate.yml',
     expectedEventName: 'workflow_run',
     expectedDisplayTitle: 'integrate compiler session run 100 attempt 1',
     expectedHeadSha: headSha
@@ -149,8 +149,116 @@ test('release verification never loads repository bytes from a caller-selected r
   expect(step(release, 'compiler-release-verification', 'Checkout exact release head').with)
     .toMatchObject({
       ref: '${{ steps.verification.outputs.sha }}',
+      'fetch-depth': 2,
       'persist-credentials': false
     });
+});
+
+test('release verification resolves exactly one parent from the trusted default head', async () => {
+  const release = parseYaml(await readCompilerFile('.github/workflows/compiler-release-validation.yml')) as Workflow;
+  const script = step(release, 'compiler-release-verification',
+    'Resolve trusted release request, exact head, and verifier boundary').with?.script;
+  if (typeof script !== 'string') throw new Error('Missing release resolution script.');
+  const AsyncFunction = Object.getPrototypeOf(async function () {}).constructor as new (
+    ...args: string[]
+  ) => (...values: unknown[]) => Promise<void>;
+  const head = 'a'.repeat(40);
+  const base = 'b'.repeat(40);
+  const other = 'c'.repeat(40);
+  const execute = async (input: Readonly<{
+    parents: readonly string[]; commitSha?: string; defaultSha?: string; ref?: string;
+  }>, outputs: Map<string, string>) => {
+    await new AsyncFunction('github', 'context', 'core', script)({ rest: { repos: {
+      getCommit: async (request: { ref: string }) => {
+        expect(request.ref).toBe(head);
+        return { data: { sha: input.commitSha ?? head, parents: input.parents.map((sha) => ({ sha })) } };
+      },
+      get: async () => ({ data: { default_branch: 'main' } }),
+      getBranch: async () => ({ data: { commit: { sha: input.defaultSha ?? head } } })
+    } } }, { sha: head, ref: input.ref ?? 'refs/heads/main', repo: { owner: 'sec-platform', repo: 'sec' } },
+    { setOutput: (name: string, value: string) => outputs.set(name, value) });
+  };
+  const outputs = new Map<string, string>();
+  await execute({ parents: [base] }, outputs);
+  expect(Object.fromEntries(outputs)).toEqual({ sha: head, base });
+  for (const input of [
+    { parents: [] },
+    { parents: [base, other] },
+    { parents: ['main'] },
+    { parents: [base], commitSha: other },
+    { parents: [base], defaultSha: other },
+    { parents: [base], ref: 'refs/heads/other' }
+  ]) {
+    const rejectedOutputs = new Map<string, string>();
+    await expect(execute(input, rejectedOutputs)).rejects.toThrow();
+    expect(rejectedOutputs.size).toBe(0);
+  }
+});
+
+test('release verification binds local parent checks before the Linux executor', async () => {
+  const release = parseYaml(await readCompilerFile('.github/workflows/compiler-release-validation.yml')) as Workflow;
+  const job = 'compiler-release-verification';
+  const steps = release.jobs[job]!.steps;
+  const verifyParent = step(release, job, 'Verify checked-out release parent and tree');
+  const verify = step(release, job, 'Run exact-head full verification');
+  const contract = buildCiContract();
+  expect(release.permissions).toEqual({ contents: 'read' });
+  expect(steps.map(({ name }) => name)).toEqual(contract.releaseWorkflowStepOrder);
+  expect(contract.releaseWorkflowStepCount).toBe(steps.length);
+  expect(verifyParent.env).toEqual({
+    SEC_EXPECTED_HEAD_SHA: '${{ steps.verification.outputs.sha }}',
+    SEC_CHANGED_BASE: '${{ steps.verification.outputs.base }}'
+  });
+  expect(verify.env).toMatchObject({
+    SEC_CHANGED_BASE: '${{ steps.verification.outputs.base }}',
+    SEC_AFFECTED_TESTS_BASE: '${{ steps.verification.outputs.base }}'
+  });
+  expect(steps.flatMap(({ run }) => run ?? []).join('\n')).not.toMatch(/\bgit\s+fetch\b/u);
+  expect(release.jobs[job]!['runs-on']).toEqual([
+    ...LOCAL_LINUX_RUNNER_LABELS, LOCAL_LINUX_RUNNER_ROLE_LABELS.sut
+  ]);
+  expect(verifyParent.if).toBeUndefined();
+  expect(steps.indexOf(verifyParent)).toBeGreaterThan(steps.indexOf(step(release, job, 'Checkout exact release head')));
+  expect(steps.indexOf(verifyParent)).toBeLessThan(steps.indexOf(verify));
+});
+
+test('release payload expires independently of retained build identity and verification evidence', async () => {
+  const release = parseYaml(await readCompilerFile('.github/workflows/compiler-release-validation.yml')) as Workflow;
+  const job = 'compiler-release-verification';
+  const steps = release.jobs[job]!.steps;
+  const build = step(release, job, 'Build and bind exact-head release set');
+  const manifests = step(release, job, 'Upload exact-head release manifests');
+  const payload = step(release, job, 'Upload exact-head runtime and documentation release set');
+  const evidence = step(release, job, 'Upload compact full verification evidence');
+
+  // All three files must be copied under set -e before the payload can expire.
+  expect(build.run).toContain('set -euo pipefail');
+  expect(build.run).toContain('cp -- build/release-set/release-set-manifest.json');
+  expect(build.run).toContain('build/release-set/runtime/runtime-package-manifest.json');
+  expect(build.run).toContain('build/release-set/documentation/documentation-package-manifest.json');
+  expect(build.run).toContain('manifest_root="$RUNNER_TEMP/sec-release-manifests-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"');
+  expect(manifests.with).toMatchObject({
+    name: 'sec-release-manifests-${{ steps.verification.outputs.sha }}-run-${{ github.run_id }}-attempt-${{ github.run_attempt }}',
+    path: '${{ runner.temp }}/sec-release-manifests-${{ github.run_id }}-${{ github.run_attempt }}',
+    'if-no-files-found': 'error',
+    'retention-days': 90
+  });
+  expect(steps.indexOf(build)).toBeLessThan(steps.indexOf(manifests));
+  expect(steps.indexOf(manifests)).toBeLessThan(steps.indexOf(payload));
+  expect(manifests.if).toBeUndefined();
+  expect(payload.if).toBeUndefined();
+  expect(payload.with).toMatchObject({
+    path: 'build/release-set/',
+    'include-hidden-files': true,
+    'if-no-files-found': 'error',
+    'retention-days': 7
+  });
+  expect(evidence.if).toBe('always()');
+  expect(evidence.with).toMatchObject({
+    path: '.tmp/ci-verification-evidence.json',
+    'if-no-files-found': 'error',
+    'retention-days': 90
+  });
 });
 
 test('coordinators never occupy the sole role of a downstream producer they join', () => {
@@ -165,7 +273,7 @@ test('coordinators never occupy the sole role of a downstream producer they join
   ] as const) {
     expect(sessionCoordinatorRole, downstream).not.toBe(compilerRoles[downstream]);
   }
-  const mergeRoles = WORKFLOW_RUNNER_ROLES['.github/workflows/sec-merge-gate.yml'];
+  const mergeRoles = WORKFLOW_RUNNER_ROLES['.github/workflows/merge-gate.yml'];
   expect(mergeRoles.authorize, 'authorization must not occupy trusted leaf role').not.toBe(mergeRoles['terminal-status']);
   expect(mergeRoles.integrate, 'post-merge MainHealth join').not.toBe(compilerRoles['main-health']);
 });
@@ -339,10 +447,10 @@ test('active PR contract has one V2 Session dispatch and no legacy verification 
   expect(step(workflow, 'assemble-verification-action-terminal',
     'Assemble canonical five-state terminal artifact').name)
     .toBe('Assemble canonical five-state terminal artifact');
-  expect(CI_VERIFICATION_HOSTED_PROVIDER_REVISION).toContain(':sandbox-v6');
+  expect(CI_VERIFICATION_HOSTED_PROVIDER_REVISION).toContain(':sandbox-v7');
   expect(CI_VERIFICATION_HOSTED_PROVIDER_REVISION).not.toContain(':sandbox-v5');
   expect(CI_VERIFICATION_HOSTED_SANDBOX_POLICY).toMatchObject({
-    policyRevision: 'sandbox-v6',
+    policyRevision: 'sandbox-v7',
     rootIsolation: 'private-tmpfs-chroot-retained-archive-fd-closed-before-candidate',
     toolClosure: 'private-explicit-runtime-binaries-python-stdlib-and-dynamic-libraries-v3',
     network: 'none',
@@ -377,7 +485,7 @@ test('active PR contract has one V2 Session dispatch and no legacy verification 
 test('every cold SUT facade installs exact-base dependencies before its first repository module import', async () => {
   const [compiler, bootstrap] = await Promise.all([
     readCompilerFile('.github/workflows/compiler-pr-validation.yml'),
-    readCompilerFile('.github/workflows/sec-trusted-bootstrap.yml')
+    readCompilerFile('.github/workflows/trusted-bootstrap.yml')
   ]).then((sources) => sources.map((source) => parseYaml(source) as Workflow));
   const cases = [
     {

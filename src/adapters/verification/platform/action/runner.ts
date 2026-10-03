@@ -180,7 +180,7 @@ type VerificationActionRepositoryObservation = Readonly<{
  */
 type VerificationActionRepositoryInspector = (
   repositoryRoot: string
-) => VerificationActionRepositoryObservation;
+) => VerificationActionRepositoryObservation | Promise<VerificationActionRepositoryObservation>;
 
 type VerificationActionExecutor = (
   context: Readonly<{
@@ -1091,6 +1091,16 @@ export class VerificationActionRunner {
       );
     }
 
+    // These states have no outgoing transitions for this ActionKey. Observe
+    // them before creating a claim: a closed Action must not acquire/release
+    // mutation resources merely to rediscover that execution is forbidden.
+    const beforeClaim = readVerificationActionJournal(journalFs, action.actionKey);
+    if (beforeClaim.recoveryDisposition === null &&
+        (beforeClaim.latestState === 'invalidated' || beforeClaim.latestState === 'cancelled')) {
+      return outcome(action.actionKey, 'blocked', beforeClaim.latestState, null, false,
+        `action is already ${beforeClaim.latestState}; delete the disposable V2 journal to execute cleanly`);
+    }
+
     const claim = acquireVerificationActionClaim({
       fs: journalFs,
       action,
@@ -1502,8 +1512,8 @@ export async function executeLocalVerificationActionDag(
   )) {
     throw new Error('local VerificationAction DAG closure/environment identity mismatch.');
   }
-  const authority = input.inspectRepository(authorityRoot);
-  const candidate = input.inspectRepository(candidateRoot);
+  const authority = await input.inspectRepository(authorityRoot);
+  const candidate = await input.inspectRepository(candidateRoot);
   if (!authority.trackedClean || !candidate.trackedClean ||
       canonicalCommonDirectory(authority.gitCommonDirectory) !==
         canonicalCommonDirectory(candidate.gitCommonDirectory) ||
@@ -1645,7 +1655,7 @@ export async function executeLocalVerificationActionDag(
           boundOperation,
           [providerSettlement, diagnosticSettlement]
         );
-        const candidateAfter = input.inspectRepository(candidateRoot);
+        const candidateAfter = await input.inspectRepository(candidateRoot);
         if (!candidateAfter.trackedClean
             || candidateAfter.headSha !== normalizedOperation.candidate.headSha
             || candidateAfter.headTreeSha !== normalizedOperation.candidate.headTreeSha

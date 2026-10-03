@@ -33,3 +33,27 @@
 [决定](决策/README.md)保存选择与代价；[状态](状态/README.md)保存尚未完成的范围；[依据](依据/README.md)保存来源和反例；[维护](维护/README.md)只负责本库的组织、修改与交付。它们不是每次操作必须逐页通过的手续。
 
 完整产品声明、实现校准和原生维护分别见[范本入口](../examples/README.md)；未采用的表示方案见[备选范围](../alternatives/README.md)。已经知道任务或名称时，直接使用[任务路线](任务路线.md)或[内容索引](内容索引.md)，不必先通读总览。
+
+
+## 快速查找：用了什么、为什么不用其他方案
+
+长期产品决定从[决定与理由](决策/README.md)进入；具体机制的采用、拒绝、平台限制和重开条件保存在各自正文，不另建第二份决定台账。仓库执行接合可直达：
+
+- [GitHub 凭证与异步传输的方案、替代与测试入口](开发/AI协作/规则装载与任务恢复.md#github-credential-transport-decision)
+- [严格零写观察与测试进程的反例、采用边界和待验证方案](开发/AI协作/规则装载与任务恢复.md#repository-observation-runtime-decisions)
+- [受信原生检查复用的暂缓理由与较小接合条件](开发/AI协作/规则装载与任务恢复.md#repository-native-typecheck-reuse-decision)
+- [文档冻结的原生 Git 采用与手工树框架退出](开发/AI协作/规则装载与任务恢复.md#repository-freeze-native-index-decision)
+- [基线事实缓存的消费者、权威与成本裁决](开发/测试发现与执行.md#source-transition-baseline-cache-decision)
+- [已保存测试条件评估的查询边界与待资格接合](开发/测试发现与执行.md#source-transition-artifact-query-decision)
+- [仓库设计查看的入口选择、暂缓与关系缺口](开发/AI协作/上下文取得与任务投影.md#repository-design-view-decision)
+
+“采用”是设计决定，“候选／待验证”不是已具备能力；运行证据与发布状态按准确对象另查。
+工程执行中的设计、实现、验证、审查、提交／集成与恢复怎样选择规则和Skill，见[工程行为路由及实际接合边界](开发/AI协作/规则装载与任务恢复.md#engineering-behavior-routing)；客户端角色配置不自行签发权限或证明规则已装载。
+
+## 最终作者面与完整控制的快速入口
+
+需要回答“开发者最终编辑什么、**到底可以设置哪些工程事实**、哪些细节可以省略但不能丢、自动选择如何解释、原生配置由谁维护”时，按同一事实链读取：[结构化作者面的同源投影](作者/结构化源码.md#author-surface-projection) → [完整开发设定面](作者/需求关系与能力边界.md#developer-decision-surface) → [作者信息完整性](作者/需求关系与能力边界.md#author-information-completeness) → [Auto/Pin/Forbid/Profile与scope](作者/组合/稀疏控制与目标限定.md#developer-control-ux) → [有效控制投影](作者/组合/稀疏控制与目标限定.md#effective-control-projection) → [配置所有权与生态适配](作者/工程源/资产与非源码.md#configuration-ownership-and-adapters) → [DeveloperDecisionView](开发/编辑审查与客户端.md#developer-decision-view) → [All Decisions](作者/成品/工作台交互与共同状态.md#workbench-all-decisions)。这些页面分别拥有持久作者结构、决策目录、信息保全、控制合成、原生配置和客户端投影；本入口不复制字段表，也不建立另一套Property IR、UniversalConfig或“最终UX真源”。
+
+## 全域工程的发现入口
+
+[领域与组合场景](演进/覆盖场景/README.md)；[系统责任与接合](架构/总体设计.md)。

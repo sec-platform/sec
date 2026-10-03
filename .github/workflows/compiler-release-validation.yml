@@ -32,7 +32,9 @@ jobs:
               repo: context.repo.repo,
               ref: requestedRef
             });
-            if (commit.parents.length === 0) throw new Error('Release verification requires a commit parent for v5 bases.');
+            if (commit.parents.length !== 1 || !/^[0-9a-f]{40}$/.test(commit.parents[0].sha)) {
+              throw new Error('Release verification requires exactly one commit parent.');
+            }
             const { data: repository } = await github.rest.repos.get({
               owner: context.repo.owner,
               repo: context.repo.repo
@@ -42,7 +44,8 @@ jobs:
               repo: context.repo.repo,
               branch: repository.default_branch
             });
-            if (context.ref !== `refs/heads/${repository.default_branch}` || context.sha !== baseBranch.commit.sha) {
+            if (commit.sha !== requestedRef || context.ref !== `refs/heads/${repository.default_branch}`
+              || context.sha !== baseBranch.commit.sha) {
               throw new Error('Release verifier workflow must execute from the current trusted default branch.');
             }
             core.setOutput('sha', commit.sha);
@@ -55,8 +58,17 @@ jobs:
           fetch-depth: 2
           persist-credentials: false
 
-      - name: Fetch release base for exact tree comparison
-        run: git fetch --no-tags --depth=1 origin ${{ steps.verification.outputs.base }}
+      - name: Verify checked-out release parent and tree
+        shell: bash
+        env:
+          SEC_EXPECTED_HEAD_SHA: ${{ steps.verification.outputs.sha }}
+          SEC_CHANGED_BASE: ${{ steps.verification.outputs.base }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse --verify HEAD)" = "$SEC_EXPECTED_HEAD_SHA"
+          test "$(git rev-list --parents -n 1 HEAD)" = "$SEC_EXPECTED_HEAD_SHA $SEC_CHANGED_BASE"
+          git cat-file -e "$SEC_CHANGED_BASE^{commit}"
+          git cat-file -e "$SEC_CHANGED_BASE^{tree}"
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
@@ -97,6 +109,23 @@ jobs:
             '.schema == "sec-release-set-manifest-v1" and .sourceCommit == $commit and .sourceTree == $tree' \
             build/release-set/release-set-manifest.json > /dev/null
 
+          # Preserve the observed build identity and per-file digests independently
+          # of the short-lived, rebuildable validation payload.
+          manifest_root="$RUNNER_TEMP/sec-release-manifests-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          mkdir -- "$manifest_root"
+          cp -- build/release-set/release-set-manifest.json \
+            build/release-set/runtime/runtime-package-manifest.json \
+            build/release-set/documentation/documentation-package-manifest.json \
+            "$manifest_root/"
+
+      - name: Upload exact-head release manifests
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: sec-release-manifests-${{ steps.verification.outputs.sha }}-run-${{ github.run_id }}-attempt-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/sec-release-manifests-${{ github.run_id }}-${{ github.run_attempt }}
+          if-no-files-found: error
+          retention-days: 90
+
       - name: Upload exact-head runtime and documentation release set
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
@@ -104,7 +133,8 @@ jobs:
           path: build/release-set/
           include-hidden-files: true
           if-no-files-found: error
-          retention-days: 90
+          # Validation payload only; published releases need a durable release owner.
+          retention-days: 7
 
       - name: Upload compact full verification evidence
         id: evidence

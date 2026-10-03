@@ -1,8 +1,20 @@
-import { compareCodeUnits, sha256 } from '../../../contracts/canonical.ts';
+import { readVerificationDataRecord, snapshotVerificationData } from '../../../assurance/verification/contract/data.ts';
+import {
+  parseVerificationTestResponsibility,
+  type VerificationTestResponsibility
+} from '../../../assurance/verification/contract/test-responsibility.ts';
+import { compareCodeUnits, deepFreeze, sha256 } from '../../../contracts/canonical.ts';
+import { parseExactJson } from '../../../contracts/exact-json.ts';
 import {
   isSecRepositoryTestModulePath,
   normalizeSecRepositoryTestModulePath
 } from '../../../contracts/repository-test-path.ts';
+import {
+  assertGitHubRepositoryCommentObservation,
+  type GitHubRepositoryCommentObservation
+} from '../../providers/github-api/repository-comment.ts';
+import { normalizeGitHubRepositoryPermission } from '../../providers/github-api/repository-permission.ts';
+import type { SourceProgramSupersessionEvidence } from './reduction.ts';
 import type {
   SourceProgramTestBaselineEvidence,
   SourceProgramTestValueCompilation
@@ -152,4 +164,485 @@ export function compileSourceProgramTestRewriteDispositions(input: Readonly<{
   }).sort((left, right) => compareCodeUnits(left.path, right.path));
 
   return Object.freeze(dispositions);
+}
+
+export const SOURCE_PROGRAM_TEST_AUTHOR_DECISION_MARKER = '<!-- sec-test-author-decision-v1 -->\n';
+
+interface TestDecisionSubject {
+  readonly commitSha: string;
+  readonly treeSha: string;
+  readonly sourceRevision: string;
+  readonly modelDigest: string;
+  readonly testCompilationDigest: string;
+}
+
+interface TestDecisionResponsibility {
+  readonly testId: string;
+  readonly responsibility: VerificationTestResponsibility;
+}
+
+export interface SourceProgramTestAuthorDecision {
+  readonly owner: string;
+  /** Explicit author adoption of any current test-owner transition. */
+  readonly replacementOwners: readonly string[];
+  readonly disposition: 'retain-unassessed' | 'rewrite' | 'introduce';
+  readonly baselineTestIds: readonly string[];
+  readonly currentTestIds: readonly string[];
+  readonly changedInputPaths: readonly string[];
+  readonly baselineResponsibilities: readonly TestDecisionResponsibility[];
+  readonly currentResponsibilities: readonly TestDecisionResponsibility[];
+  readonly reason: string;
+}
+
+/** Pure content transported outside the candidate. These fields confer no authority. */
+export interface SourceProgramTestAuthorDecisionPayload {
+  readonly schema: 'source-program-test-author-decision-v1';
+  readonly repository: string;
+  readonly pullRequestNumber: number;
+  readonly operationId: string;
+  readonly trustedRevision: string;
+  readonly baseline: TestDecisionSubject;
+  readonly current: TestDecisionSubject;
+  readonly decisions: readonly SourceProgramTestAuthorDecision[];
+  readonly payloadDigest: string;
+}
+
+/** Live host-side adoption; never reconstructed from a container's JSON. */
+export interface SourceProgramTestAuthorApproval {
+  readonly providerOrigin: 'production' | 'test';
+  readonly payload: SourceProgramTestAuthorDecisionPayload;
+  readonly commentId: number;
+  readonly authorNodeId: string;
+  readonly bodyDigest: string;
+  readonly providerObservationDigest: string;
+  readonly approvalDigest: string;
+}
+
+/** A pure interpretation for the exact candidate, conditional until the host qualifies it. */
+export interface SourceProgramTestAuthorAssessment {
+  readonly authority: 'conditional-author-input';
+  readonly payloadDigest: string;
+  readonly operationId: string;
+  readonly baselineSourceRevision: string;
+  readonly currentSourceRevision: string;
+  readonly baselineModelDigest: string;
+  readonly currentModelDigest: string;
+  readonly baselineTestCompilationDigest: string;
+  readonly currentTestCompilationDigest: string;
+  readonly decisions: readonly SourceProgramTestAuthorDecision[];
+  readonly assessmentDigest: string;
+}
+
+const issuedAuthorApprovals = new WeakSet<object>();
+// Relocated targets belong to this exact, privately issued assessment. They
+// are neither a persisted identity registry nor a reusable approval.
+const issuedAuthorAssessments = new WeakMap<object, ReadonlyMap<string, string>>();
+const COMMIT = /^[0-9a-f]{40}$/u;
+
+function authorRecord(value: unknown, keys: readonly string[], label: string): Record<string, unknown> {
+  const record = readVerificationDataRecord(value, label);
+  const actual = Object.keys(record).sort(compareCodeUnits);
+  const expected = [...keys].sort(compareCodeUnits);
+  if (actual.length !== expected.length || actual.some((key, index) => key !== expected[index])) {
+    return decisionError(label, 'unexpected or missing fields');
+  }
+  return record;
+}
+
+function authorText(value: unknown, label: string, pattern?: RegExp): string {
+  if (typeof value !== 'string' || value.length === 0 || value.length > 2048
+      || value.normalize('NFC') !== value || value.trim() !== value
+      || /[\u0000-\u001f\u007f\u202a-\u202e\u2066-\u2069]/u.test(value)
+      || pattern !== undefined && !pattern.test(value)) {
+    return decisionError(label, 'expected bounded canonical text');
+  }
+  return value;
+}
+
+function authorArray(value: unknown, label: string, pattern?: RegExp): readonly string[] {
+  if (!Array.isArray(value) || value.length > 512) return decisionError(label, 'expected a bounded array');
+  const values = value.map((entry) => authorText(entry, label, pattern)).sort(compareCodeUnits);
+  if (new Set(values).size !== values.length) return decisionError(label, 'duplicate entries');
+  return Object.freeze(values);
+}
+
+function authorSubject(value: unknown): TestDecisionSubject {
+  const record = authorRecord(value, [
+    'commitSha', 'treeSha', 'sourceRevision', 'modelDigest', 'testCompilationDigest'
+  ], 'author subject');
+  return Object.freeze({
+    commitSha: authorText(record.commitSha, 'commitSha', COMMIT),
+    treeSha: authorText(record.treeSha, 'treeSha', COMMIT),
+    sourceRevision: authorText(record.sourceRevision, 'sourceRevision', DIGEST),
+    modelDigest: authorText(record.modelDigest, 'modelDigest', DIGEST),
+    testCompilationDigest: authorText(record.testCompilationDigest, 'testCompilationDigest', DIGEST)
+  });
+}
+
+function authorResponsibilities(value: unknown): readonly TestDecisionResponsibility[] {
+  if (!Array.isArray(value) || value.length > 512) return decisionError('responsibilities', 'expected bounded array');
+  const entries = value.map((item) => {
+    const record = authorRecord(item, ['testId', 'responsibility'], 'author responsibility');
+    return Object.freeze({
+      testId: authorText(record.testId, 'responsibility testId', DIGEST),
+      responsibility: parseVerificationTestResponsibility(record.responsibility)
+    });
+  }).sort((left, right) => compareCodeUnits(left.testId, right.testId));
+  if (new Set(entries.map(({ testId }) => testId)).size !== entries.length) {
+    return decisionError('responsibilities', 'duplicate registration binding');
+  }
+  return Object.freeze(entries);
+}
+
+function assertResponsibilityIdentities(decisions: readonly SourceProgramTestAuthorDecision[]): void {
+  const identities = new Map<string, string>();
+  const bind = (kind: string, ref: string, revision: string, digest: string): void => {
+    const identity = JSON.stringify([kind, ref, revision]);
+    const prior = identities.get(identity);
+    if (prior !== undefined && prior !== digest) {
+      decisionError('author responsibility', `${kind} identity/revision has conflicting canonical content`);
+    }
+    identities.set(identity, digest);
+  };
+  for (const decision of decisions) {
+    for (const { responsibility } of [...decision.baselineResponsibilities, ...decision.currentResponsibilities]) {
+      bind('test', responsibility.testRef, responsibility.testRevision, responsibility.responsibilityDigest);
+      for (const { specification } of responsibility.bindings) {
+        const { claim, proofObligation, methodSelection } = specification;
+        bind('claim', claim.claimRef, claim.claimRevision, claim.claimDigest);
+        bind('obligation', proofObligation.obligationRef, proofObligation.obligationRevision, proofObligation.obligationDigest);
+        bind('selection', methodSelection.selectionRef, methodSelection.selectionRevision, methodSelection.selectionDigest);
+      }
+    }
+  }
+}
+
+function compileAuthorPayload(value: unknown, checkDigests: boolean): SourceProgramTestAuthorDecisionPayload {
+  const record = authorRecord(snapshotVerificationData(value, 'test author payload'), [
+    'schema', 'repository', 'pullRequestNumber', 'operationId', 'trustedRevision',
+    'baseline', 'current', 'decisions', 'payloadDigest'
+  ], 'test author payload');
+  if (record.schema !== 'source-program-test-author-decision-v1'
+      || !Number.isSafeInteger(record.pullRequestNumber) || Number(record.pullRequestNumber) < 1
+      || !Array.isArray(record.decisions) || record.decisions.length === 0 || record.decisions.length > 128) {
+    return decisionError('author payload', 'invalid schema, PR or bounded decision set');
+  }
+  const decisions = record.decisions.map((item): SourceProgramTestAuthorDecision => {
+    const decision = authorRecord(item, [
+      'owner', 'replacementOwners', 'disposition', 'baselineTestIds', 'currentTestIds', 'changedInputPaths',
+      'baselineResponsibilities', 'currentResponsibilities', 'reason'
+    ], 'author decision');
+    if (decision.disposition !== 'retain-unassessed' && decision.disposition !== 'rewrite' && decision.disposition !== 'introduce') {
+      return decisionError('author disposition', 'only retention assessment, REWRITE and explicit introduction are supported');
+    }
+    const changedInputPaths = authorArray(decision.changedInputPaths, 'changed input paths');
+    if (changedInputPaths.some((path) => path.startsWith('/') || path.includes('\\')
+      || path.split('/').some((part) => part === '' || part === '.' || part === '..'))) {
+      return decisionError('changed input paths', 'expected exact repository-relative paths');
+    }
+    const baselineTestIds = authorArray(decision.baselineTestIds, 'baseline test ids', DIGEST);
+    const currentTestIds = authorArray(decision.currentTestIds, 'current test ids', DIGEST);
+    if (currentTestIds.length === 0 || (decision.disposition === 'introduce'
+      ? baselineTestIds.length !== 0 : baselineTestIds.length === 0)) {
+      return decisionError('author decision', 'introduction requires no baseline; retention/rewrite require one; all require current registrations');
+    }
+    return deepFreeze({
+      owner: authorText(decision.owner, 'author owner', OWNER_ID),
+      replacementOwners: authorArray(decision.replacementOwners, 'replacement owners', OWNER_ID),
+      disposition: decision.disposition,
+      baselineTestIds,
+      currentTestIds,
+      changedInputPaths,
+      baselineResponsibilities: authorResponsibilities(decision.baselineResponsibilities),
+      currentResponsibilities: authorResponsibilities(decision.currentResponsibilities),
+      reason: authorText(decision.reason, 'author reason')
+    });
+  });
+  assertResponsibilityIdentities(decisions);
+  const canonical = deepFreeze({
+    schema: 'source-program-test-author-decision-v1' as const,
+    repository: authorText(record.repository, 'author repository', /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/u),
+    pullRequestNumber: Number(record.pullRequestNumber),
+    operationId: authorText(record.operationId, 'author operationId', DIGEST),
+    trustedRevision: authorText(record.trustedRevision, 'author trusted revision', COMMIT),
+    baseline: authorSubject(record.baseline),
+    current: authorSubject(record.current),
+    decisions
+  });
+  const operationId = sha256({
+    schema: 'source-program-test-author-operation-v1',
+    repository: canonical.repository,
+    pullRequestNumber: canonical.pullRequestNumber,
+    trustedRevision: canonical.trustedRevision,
+    baseline: canonical.baseline,
+    current: canonical.current
+  });
+  if (checkDigests && canonical.operationId !== operationId) {
+    return decisionError('author operation', 'does not bind the exact transition and trusted policy revision');
+  }
+  const normalized = deepFreeze({ ...canonical, operationId });
+  const payloadDigest = sha256(normalized);
+  if (checkDigests && record.payloadDigest !== payloadDigest) return decisionError('author payload', 'digest mismatch');
+  return deepFreeze({ ...normalized, payloadDigest });
+}
+
+/** Strict data decoder. Authentication is deliberately a separate live-host step. */
+export function parseSourceProgramTestAuthorDecisionPayload(value: unknown): SourceProgramTestAuthorDecisionPayload {
+  return compileAuthorPayload(value, true);
+}
+
+/** Produce reviewable content without asking an author to calculate identity hashes. */
+export function createSourceProgramTestAuthorDecisionPayload(input: Omit<
+  SourceProgramTestAuthorDecisionPayload, 'schema' | 'operationId' | 'payloadDigest'
+>): SourceProgramTestAuthorDecisionPayload {
+  return compileAuthorPayload({
+    ...readVerificationDataRecord(input, 'author decision proposal'),
+    schema: 'source-program-test-author-decision-v1',
+    operationId: `sha256:${'0'.repeat(64)}`,
+    payloadDigest: `sha256:${'0'.repeat(64)}`
+  }, false);
+}
+
+/** Adopt exactly one independently observed maintainer statement under this owner's policy. */
+export function adoptSourceProgramTestAuthorDecision(
+  observation: GitHubRepositoryCommentObservation
+): SourceProgramTestAuthorApproval {
+  assertGitHubRepositoryCommentObservation(observation);
+  const permission = normalizeGitHubRepositoryPermission({
+    permission: observation.author.permission,
+    // This adoption policy requires an explicit role; absent observations retain null.
+    role_name: observation.author.roleName
+  });
+  const authorHasAdoptionRole = permission === 'admin' || permission === 'maintain';
+  if (observation.author.kind !== 'User'
+      || !authorHasAdoptionRole
+      || !observation.body.startsWith(SOURCE_PROGRAM_TEST_AUTHOR_DECISION_MARKER)) {
+    return decisionError('author observation', 'requires an explicit test decision adopted by a current maintainer');
+  }
+  const payload = parseSourceProgramTestAuthorDecisionPayload(parseExactJson(
+    observation.body.slice(SOURCE_PROGRAM_TEST_AUTHOR_DECISION_MARKER.length),
+    'test author decision', undefined, 32
+  ));
+  if (payload.repository !== observation.repository || payload.pullRequestNumber !== observation.issueNumber) {
+    return decisionError('author observation', 'repository or PR mismatch');
+  }
+  const canonical = deepFreeze({
+    providerOrigin: observation.origin,
+    payload,
+    commentId: observation.commentId,
+    authorNodeId: observation.author.nodeId,
+    bodyDigest: observation.bodyDigest,
+    providerObservationDigest: observation.observationDigest
+  });
+  const approval = deepFreeze({ ...canonical, approvalDigest: sha256(canonical) });
+  issuedAuthorApprovals.add(approval);
+  return approval;
+}
+
+export function assertSourceProgramTestAuthorApproval(value: SourceProgramTestAuthorApproval): void {
+  if (!issuedAuthorApprovals.has(value)) return decisionError('author approval', 'live authenticated adoption required');
+}
+
+/**
+ * Check the approved/proposed data against compiler facts. The returned data is
+ * conditional; the live host must qualify it against its authenticated adoption.
+ */
+export function assessSourceProgramTestAuthorDecision(input: Readonly<{
+  payload: SourceProgramTestAuthorDecisionPayload;
+  baseline: SourceProgramSupersessionEvidence;
+  current: SourceProgramSupersessionEvidence;
+  changedPaths: readonly string[];
+}>): SourceProgramTestAuthorAssessment {
+  const payload = parseSourceProgramTestAuthorDecisionPayload(input.payload);
+  for (const side of ['baseline', 'current'] as const) {
+    const expected = payload[side];
+    const evidence = input[side];
+    if (expected.sourceRevision !== evidence.identity.sourceRevision
+        || expected.modelDigest !== evidence.source.modelDigest
+        || expected.testCompilationDigest !== evidence.source.testCompilationDigest) {
+      return decisionError('author subject', `${side} compilation drift`);
+    }
+  }
+  const before = new Map(input.baseline.tests.map((test) => [test.testId, test] as const));
+  const after = new Map(input.current.tests.map((test) => [test.testId, test] as const));
+  const changed = new Set(input.changedPaths);
+  const beforeInputs = new Map(input.baseline.testDefinitionInputs.map((inputs) => [inputs.inputDigest, inputs] as const));
+  const afterInputs = new Map(input.current.testDefinitionInputs.map((inputs) => [inputs.inputDigest, inputs] as const));
+  const owners = new Set([...input.baseline.intentEvidence, ...input.current.intentEvidence].map(({ owner }) => owner));
+  const seen = new Set<string>();
+  const currentDecisionCounts = new Map<string, number>();
+  const relocatedTargets = new Map<string, string>();
+  const retentionKey = (test: SourceProgramSupersessionEvidence['tests'][number]): string =>
+    JSON.stringify([test.owner, test.path, test.registrationContentDigest]);
+  const uniqueRetentions = (tests: SourceProgramSupersessionEvidence['tests']) => {
+    const targets = new Map<string, string | null>();
+    for (const test of tests) {
+      const key = retentionKey(test);
+      targets.set(key, targets.has(key) ? null : test.testId);
+    }
+    return targets;
+  };
+  // Build these only for an explicitly authored relocation, never to discover
+  // automatic retention or to change historical same-occurrence decisions.
+  let uniqueBefore: ReturnType<typeof uniqueRetentions> | undefined;
+  let uniqueAfter: ReturnType<typeof uniqueRetentions> | undefined;
+  for (const decision of payload.decisions) {
+    for (const id of decision.currentTestIds) currentDecisionCounts.set(id, (currentDecisionCounts.get(id) ?? 0) + 1);
+  }
+  for (const decision of payload.decisions) {
+    if (!owners.has(decision.owner)) return decisionError('author owner', 'not a canonical compared owner');
+    if (decision.changedInputPaths.some((path) => !changed.has(path))) {
+      return decisionError('author scope', 'contains a path outside the exact Git transition');
+    }
+    for (const testId of decision.baselineTestIds) {
+      if (!before.has(testId) || seen.has(testId)) return decisionError('author scope', 'missing or multiply decided baseline registration');
+      if (before.get(testId)!.owner !== decision.owner) {
+        return decisionError('author owner', 'does not own the exact baseline occurrence');
+      }
+      seen.add(testId);
+    }
+    if (decision.currentTestIds.some((testId) => !after.has(testId))) {
+      return decisionError('author scope', 'replacement is absent from current discovery');
+    }
+    if (decision.disposition === 'introduce'
+        && (decision.currentTestIds.some(id => before.has(id) || currentDecisionCounts.get(id) !== 1
+          || after.get(id)!.owner !== decision.owner)
+          || decision.baselineResponsibilities.length !== 0)) {
+      return decisionError('author introduction', 'requires uniquely decided actually-new current occurrences owned by the exact author scope');
+    }
+    const replacementOwners = [...new Set(decision.currentTestIds.map((testId) => after.get(testId)!.owner))];
+    if (replacementOwners.some((owner) => owner === null || !owners.has(owner))
+        || sha256(replacementOwners.sort()) !== sha256(decision.replacementOwners)) {
+      return decisionError('author owner', 'current occurrence owners differ from the explicitly adopted owner transition');
+    }
+    const reviewedInputs = new Set([
+      ...(input.baseline.testDefinitionContext?.inputs.map(({ path }) => path) ?? []),
+      ...(input.current.testDefinitionContext?.inputs.map(({ path }) => path) ?? []),
+      ...decision.baselineTestIds.flatMap((testId) => {
+        const test = before.get(testId)!;
+        return beforeInputs.get(test.definitionInputDigest)!.inputs.map(({ path }) => path);
+      }),
+      ...decision.currentTestIds.flatMap((testId) => {
+        const test = after.get(testId)!;
+        return afterInputs.get(test.definitionInputDigest)!.inputs.map(({ path }) => path);
+      })
+    ]);
+    const reviewedEnvelopes = [
+      ...(input.baseline.testDefinitionContext?.readEnvelopes ?? []),
+      ...(input.current.testDefinitionContext?.readEnvelopes ?? []),
+      ...decision.baselineTestIds.flatMap((testId) =>
+        beforeInputs.get(before.get(testId)!.definitionInputDigest)!.readEnvelopes),
+      ...decision.currentTestIds.flatMap((testId) =>
+        afterInputs.get(after.get(testId)!.definitionInputDigest)!.readEnvelopes)
+    ];
+    const requiredChangedInputs = [...changed].filter((path) => reviewedInputs.has(path)
+      || reviewedEnvelopes.some(({ root, descendants }) => path === root
+        || descendants && (root === '.' || path.startsWith(`${root}/`)))).sort(compareCodeUnits);
+    if (sha256(requiredChangedInputs) !== sha256(decision.changedInputPaths)) {
+      return decisionError('author scope', 'does not name the complete changed observed definition-input boundary');
+    }
+    if (decision.disposition === 'retain-unassessed') {
+      if (sha256(decision.replacementOwners) !== sha256([decision.owner])
+          || decision.baselineResponsibilities.length !== 0 || decision.currentResponsibilities.length !== 0) {
+        return decisionError('author retention', 'unassessed retention cannot rewrite or certify a registration');
+      }
+      if (sha256(decision.baselineTestIds) === sha256(decision.currentTestIds)) {
+        if (decision.baselineTestIds.some((testId) => {
+            const old = before.get(testId)!;
+            const next = after.get(testId)!;
+            return old.path !== next.path || old.registrationContentDigest !== next.registrationContentDigest;
+          })) return decisionError('author retention', 'unassessed retention cannot rewrite or certify a registration');
+      } else {
+        uniqueBefore ??= uniqueRetentions(input.baseline.tests);
+        uniqueAfter ??= uniqueRetentions(input.current.tests);
+        const selected = new Set(decision.currentTestIds);
+        if (decision.baselineTestIds.length !== selected.size) {
+          return decisionError('author retention', 'relocation requires one-to-one current registrations');
+        }
+        for (const testId of decision.baselineTestIds) {
+          const key = retentionKey(before.get(testId)!);
+          const target = uniqueAfter.get(key);
+          if (uniqueBefore.get(key) !== testId || target === undefined || target === null
+              || !selected.delete(target) || currentDecisionCounts.get(target) !== 1) {
+            return decisionError('author retention', 'relocation requires unique same-owner path and registration content');
+          }
+          relocatedTargets.set(testId, target);
+        }
+      }
+    } else {
+      for (const [ids, responsibilities, occurrences] of [
+        [decision.baselineTestIds, decision.baselineResponsibilities, before],
+        [decision.currentTestIds, decision.currentResponsibilities, after]
+      ] as const) {
+        if (sha256(ids) !== sha256(responsibilities.map(({ testId }) => testId))
+            || responsibilities.some(({ testId, responsibility }) =>
+              responsibility.ownerRef !== occurrences.get(testId)?.owner
+              || responsibility.bindings.some(({ specification }) =>
+                specification.claim.ownerRef !== responsibility.ownerRef
+                || specification.proofObligation.ownerRef !== responsibility.ownerRef))) {
+          return decisionError('author rewrite', 'each exact occurrence requires its canonical responsibility and owner');
+        }
+      }
+    }
+  }
+  const canonical = deepFreeze({
+    authority: 'conditional-author-input' as const,
+    payloadDigest: payload.payloadDigest,
+    operationId: payload.operationId,
+    baselineSourceRevision: input.baseline.identity.sourceRevision,
+    currentSourceRevision: input.current.identity.sourceRevision,
+    baselineModelDigest: input.baseline.source.modelDigest,
+    currentModelDigest: input.current.source.modelDigest,
+    baselineTestCompilationDigest: input.baseline.source.testCompilationDigest,
+    currentTestCompilationDigest: input.current.source.testCompilationDigest,
+    decisions: payload.decisions
+  });
+  const assessment = deepFreeze({ ...canonical, assessmentDigest: sha256(canonical) });
+  issuedAuthorAssessments.set(assessment, relocatedTargets);
+  return assessment;
+}
+
+export function assertSourceProgramTestAuthorAssessment(value: SourceProgramTestAuthorAssessment): void {
+  if (!issuedAuthorAssessments.has(value)) return decisionError('author assessment', 'exact compiler assessment required');
+}
+
+/** A data handoff from the existing author assessment, never an approval. */
+export function sourceProgramTestAuthorRelocatedTarget(
+  assessment: SourceProgramTestAuthorAssessment,
+  baselineTestId: string
+): string | undefined {
+  assertSourceProgramTestAuthorAssessment(assessment);
+  return issuedAuthorAssessments.get(assessment)!.get(baselineTestId);
+}
+
+export function qualifySourceProgramTestAuthorAssessment(input: Readonly<{
+  approval: SourceProgramTestAuthorApproval;
+  assessment: SourceProgramTestAuthorAssessment;
+}>): 'qualified' | 'test-only-simulation' {
+  assertSourceProgramTestAuthorApproval(input.approval);
+  assertSourceProgramTestAuthorAssessment(input.assessment);
+  const assessment = authorRecord(snapshotVerificationData(input.assessment, 'author assessment'), [
+    'authority', 'payloadDigest', 'operationId', 'baselineSourceRevision',
+    'currentSourceRevision', 'baselineModelDigest', 'currentModelDigest',
+    'baselineTestCompilationDigest', 'currentTestCompilationDigest',
+    'decisions', 'assessmentDigest'
+  ], 'author assessment');
+  const { assessmentDigest, ...canonical } = assessment;
+  const payload = input.approval.payload;
+  if (assessment.authority !== 'conditional-author-input'
+      || assessmentDigest !== sha256(canonical)
+      || assessment.baselineSourceRevision !== payload.baseline.sourceRevision
+      || assessment.currentSourceRevision !== payload.current.sourceRevision
+      || assessment.baselineModelDigest !== payload.baseline.modelDigest
+      || assessment.currentModelDigest !== payload.current.modelDigest
+      || assessment.baselineTestCompilationDigest !== payload.baseline.testCompilationDigest
+      || assessment.currentTestCompilationDigest !== payload.current.testCompilationDigest
+      || sha256(assessment.decisions) !== sha256(payload.decisions)) {
+    return decisionError('author assessment', 'projection differs from the exact reviewed candidate');
+  }
+  if (input.approval.payload.payloadDigest !== input.assessment.payloadDigest
+      || input.approval.payload.operationId !== input.assessment.operationId) {
+    return decisionError('author assessment', 'does not bind the authenticated adoption');
+  }
+  return input.approval.providerOrigin === 'production' ? 'qualified' : 'test-only-simulation';
 }

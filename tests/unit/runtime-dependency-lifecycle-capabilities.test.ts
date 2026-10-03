@@ -1,15 +1,15 @@
 import { test } from 'bun:test';
 import assert from 'node:assert/strict';
-import { captureRuntimeDependencyLifecycle as capture, type RuntimeDependencyGeneratedStateLifecycle } from '../../src/adapters/toolchain/dependencies/runtime/lifecycle-capabilities.ts';
 import {
   bindAndRetireCompilerDependencyPreimage,
-  bindExistingCompilerDependencyGeneration, bindExistingSharedDependencyRoot,
+  bindExistingCompilerDependencyGeneration, bindExistingLegacySharedDependencyRoot,
   birthAndBindCompilerDependencyGeneration,
   ensureCompilerDependencyPreimageRetiredForRecovery,
   settleRetiredCompilerDependencyGeneration
 } from '../../src/adapters/toolchain/dependencies/runtime/lifecycle-registration.ts';
 import { runtimeDependencyOperationOptions } from '../../src/adapters/toolchain/dependencies/runtime/operation-context.ts';
 import { SecError } from '../../src/contracts/failure.ts';
+import { captureRuntimeDependencyLifecycle as capture, type RuntimeDependencyGeneratedStateLifecycle } from "../../src/execution/generated-state/dependency-lifecycle.ts";
 
 const physical = Object.freeze({ device: 'dev', inode: 'inode', objectId: 'object' });
 const digest = `sha256:${'2'.repeat(64)}` as const;
@@ -20,7 +20,7 @@ function bound(lifecycle: unknown, beforeCommit = async () => {}) {
   return runtimeDependencyOperationOptions({ lockTimeoutMs: 1000, generatedStateLifecycle: lifecycle as RuntimeDependencyGeneratedStateLifecycle, beforeCommit });
 }
 
-for (const adopt of [bindExistingCompilerDependencyGeneration, bindExistingSharedDependencyRoot]) {
+for (const adopt of [bindExistingCompilerDependencyGeneration, bindExistingLegacySharedDependencyRoot]) {
   test(`${adopt.name} captures only read-only bind and preserves a private-field receiver`, async () => {
     class Provider {
       #calls = 0;
@@ -100,7 +100,7 @@ test('recovery without an observation capability uses the same captured retireme
   const events: string[] = [];
   const source = { bind: async () => { events.push('bind'); return registration; },
     retired: async () => { events.push('retire'); } };
-  await ensureCompilerDependencyPreimageRetiredForRecovery({ generatedStateLifecycle: source }, physical, 'recover');
+  await ensureCompilerDependencyPreimageRetiredForRecovery({ generatedStateLifecycle: source }, physical, 'recover', process.cwd());
   assert.deepEqual(events, ['bind', 'retire']);
 });
 
@@ -126,7 +126,7 @@ test('absent optional lifecycle does not acquire or execute a fence', async () =
 
 for (const failure of [null, undefined, 'plain failure', new Error('owner failed')]) {
   test(`adoption retains the original ${typeof failure} cause in its typed failure`, async () => {
-    await assert.rejects(bindExistingSharedDependencyRoot({ generatedStateLifecycle: {
+    await assert.rejects(bindExistingLegacySharedDependencyRoot({ generatedStateLifecycle: {
       bind: async () => { throw failure; }
     } }, physical), (error: unknown) => authority(error) && (error as Error).cause === failure);
   });

@@ -41,6 +41,7 @@ import {
   createDocumentControlRoutingTestActorForTests,
   freezeDocumentControlPlane,
   observeActiveWorkPackage,
+  projectDocumentControlPlaneStatusCli,
   resolveLiveControlPlane,
   withDocumentControlHostCliTestSessionV1,
   type CodexDevelopmentDurabilityEvent,
@@ -500,7 +501,7 @@ interface FreezeFixture {
 function currentStateSource(remoteName = 'origin'): string {
   return `schema: sec-current-state-live-v1
 resolver:
-  command: bun src/control/documentation/document-control-plane.ts status --json
+  command: bun src/adapters/self-hosting/control/documentation/document-control-plane.ts status --json
   repository: sec-platform/sec
   remote: ${remoteName}
   defaultBranch: main
@@ -1016,7 +1017,7 @@ matchingDefaultBlob: none
   expect(() => CodexDevelopmentParseCurrentStateSpec(`
 schema: sec-current-state-live-v1
 resolver:
-  command: bun src/control/documentation/document-control-plane.ts status --json
+  command: bun src/adapters/self-hosting/control/documentation/document-control-plane.ts status --json
   repository: sec-platform/sec
   remote: origin
   defaultBranch: main
@@ -1028,7 +1029,7 @@ stableFacts: {}
   const validSpec = CodexDevelopmentParseCurrentStateSpec(`
 schema: sec-current-state-live-v1
 resolver:
-  command: bun src/control/documentation/document-control-plane.ts status --json
+  command: bun src/adapters/self-hosting/control/documentation/document-control-plane.ts status --json
   repository: sec-platform/sec
   remote: origin
   defaultBranch: main
@@ -1041,7 +1042,7 @@ stableFacts: {}
   const requiredWorkSelectionSpec = CodexDevelopmentParseCurrentStateSpec(`
 schema: sec-current-state-live-v1
 resolver:
-  command: bun src/control/documentation/document-control-plane.ts status --json
+  command: bun src/adapters/self-hosting/control/documentation/document-control-plane.ts status --json
   repository: sec-platform/sec
   remote: origin
   defaultBranch: main
@@ -1073,7 +1074,7 @@ stableFacts:
       `
 schema: sec-current-state-live-v1
 resolver:
-  command: bun src/control/documentation/document-control-plane.ts status --json
+  command: bun src/adapters/self-hosting/control/documentation/document-control-plane.ts status --json
   repository: sec-platform/sec
   remote: origin
   defaultBranch: main
@@ -2452,17 +2453,74 @@ test('recovery entry identity is operation plus closed logical target and contai
   })).toThrow('outside the closed target set');
 });
 
-bunTest('production freeze settles terminal retirement after the writer session', async () => {
-  const { fixture, proposalPath } = await createProposalFreezeFixture();
+
+bunTest.skipIf(process.platform !== 'linux')('production recovery refuses changed source without effects then resumes its exact journal operation', async () => {
+  const { fixture, proposalPath, proposalFile, proposalJournalPath } = await createProposalFreezeFixture();
   try {
-    const result = await freezeDocumentControlPlane({
+    await expect(freezeDocumentControlPlane({ cwd: fixture.repositoryRoot, manifestPath: proposalPath,
+      reviewedOn: '2026-08-09', proposalOnly: true, faultAfter: 'after-pointer-publish' }))
+      .rejects.toThrow('Injected document control freeze fault: after-pointer-publish.');
+    const journal = JSON.parse(await readFile(proposalJournalPath, 'utf8')) as { operationId: `sha256:${string}`; candidateTreeSha: string };
+    const originalManifest = await readFile(proposalFile);
+    await writeFile(proposalFile, Buffer.concat([originalManifest, Buffer.from('\nCompeting request source.\n')]));
+    const before = await readFreezeEffectSnapshot(fixture.repositoryRoot);
+    const objectCensus = runGit(fixture.repositoryRoot, ['count-objects', '-v']);
+    const changedManifest = await readFile(proposalFile);
+    await expect(freezeDocumentControlPlane({ cwd: fixture.repositoryRoot, manifestPath: proposalPath,
+      reviewedOn: '2026-08-09', proposalOnly: true })).rejects.toThrow('competing nonterminal');
+    expect(await readFreezeEffectSnapshot(fixture.repositoryRoot)).toEqual(before);
+    expect(runGit(fixture.repositoryRoot, ['count-objects', '-v'])).toBe(objectCensus);
+    expect(await readFile(proposalFile)).toEqual(changedManifest);
+    // This is explicit fixture restoration after proved refusal, never cleanup
+    // that masks an unknown writer effect or replaces the interrupted journal.
+    await writeFile(proposalFile, originalManifest);
+    const recovered = await freezeDocumentControlPlane({ cwd: fixture.repositoryRoot, manifestPath: proposalPath,
+      reviewedOn: '2026-08-09', proposalOnly: true });
+    expect(recovered.operationId).toBe(journal.operationId);
+    expect(recovered.candidateTreeSha).toBe(journal.candidateTreeSha);
+    expect(runGit(fixture.repositoryRoot, ['write-tree'])).toBe(journal.candidateTreeSha);
+    await expectFreezeTransactionRetired(fixture.repositoryRoot);
+  } finally { await fixture.dispose(); }
+}, 90_000);
+
+bunTest('production first and revised proposals settle terminal retirement after their writer sessions', async () => {
+  const { fixture, proposalPath, proposalFile } = await createProposalFreezeFixture();
+  try {
+    const first = await freezeDocumentControlPlane({
       cwd: fixture.repositoryRoot,
       manifestPath: proposalPath,
       reviewedOn: '2026-08-09',
-      proposalOnly: true
+      proposalOnly: true,
+      beforeTerminalRetirement: async receipt => {
+        console.log(JSON.stringify({ observation: 'ordinary-freeze-writer', ...receipt }));
+      }
     });
-    expect(result.status).toBe('PROPOSED');
-    expect(runGit(fixture.repositoryRoot, ['write-tree'])).toBe(result.candidateTreeSha);
+    expect(first.status).toBe('PROPOSED');
+    expect(runGit(fixture.repositoryRoot, ['write-tree'])).toBe(first.candidateTreeSha);
+    await expectFreezeTransactionRetired(fixture.repositoryRoot);
+
+    const revisedBytes = Buffer.concat([
+      await readFile(proposalFile), Buffer.from('\nRevised production proposal.\n')
+    ]);
+    await writeFile(proposalFile, revisedBytes);
+    const revised = await freezeDocumentControlPlane({
+      cwd: fixture.repositoryRoot,
+      manifestPath: proposalPath,
+      reviewedOn: '2026-08-09',
+      proposalOnly: true,
+      beforeTerminalRetirement: async receipt => {
+        console.log(JSON.stringify({ observation: 'ordinary-freeze-writer', ...receipt }));
+      }
+    });
+    expect(revised.status).toBe('PROPOSED');
+    expect(revised.operationId).not.toBe(first.operationId);
+    expect(revised.manifestPath).toBe(proposalPath);
+    expect(revised.manifestDigest).not.toBe(first.manifestDigest);
+    expect(runGit(fixture.repositoryRoot, ['write-tree'])).toBe(revised.candidateTreeSha);
+    expect(readGitBlob(fixture.repositoryRoot, `:${proposalPath}`)).toEqual(revisedBytes);
+    expect(CodexDevelopmentParseActivePointer(
+      await readFile(path.join(fixture.repositoryRoot, POINTER_PATH), 'utf8')
+    )).toMatchObject({ manifest: proposalPath, manifestDigest: revised.manifestDigest });
     await expectFreezeTransactionRetired(fixture.repositoryRoot);
   } finally {
     await fixture.dispose();
@@ -3035,6 +3093,20 @@ test('journal recovery census accepts the exact installed NEXT boundary and resu
       phase: 'index-published',
       terminal: false
     });
+    expect(status.continuation).toMatchObject({
+      authority: 'observation-only',
+      subject: { repositoryRoot: fixture.repositoryRoot, candidateTreeSha: null },
+      changes: { state: 'unobserved', records: null },
+      next: {
+        owner: 'document-control', action: 'resume-freeze', operationId: installed.operationId,
+        arguments: [
+          'freeze', '--workspace', fixture.repositoryRoot, '--manifest', FREEZE_TARGET_PATH,
+          '--reviewed-on', '2026-08-09', '--json'
+        ]
+      }
+    });
+    expect(projectDocumentControlPlaneStatusCli(status).continuation).toBe(status.continuation);
+    expect(await readFile(journalPath)).toEqual(installedBytes);
     const recovered = await freezeDocumentControlPlane({
       cwd: fixture.repositoryRoot,
       manifestPath: FREEZE_TARGET_PATH,
@@ -3051,6 +3123,10 @@ test('journal recovery census accepts the exact installed NEXT boundary and resu
     const indexBeforeStatus = await readFile(indexPath);
     const terminalStatus = await resolveLiveControlPlane(fixture.repositoryRoot, { observeGitHub: false });
     expect(terminalStatus.activation).toBeNull();
+    expect(terminalStatus.continuation).toMatchObject({
+      unobservedOwners: expect.arrayContaining(['development-commit-journal-census'])
+    });
+    expect(terminalStatus.continuation).not.toHaveProperty('next.arguments');
     expect(await readFile(indexPath)).toEqual(indexBeforeStatus);
     expect(runGit(fixture.repositoryRoot, ['write-tree'])).toBe(treeBeforeStatus);
     const indexBeforeSecondFreeze = await readFile(indexPath);
@@ -4225,9 +4301,22 @@ test('production status settles both immutable tree observations for a deep inde
     await mkdir(path.dirname(absolutePath), { recursive: true });
     await writeFile(absolutePath, 'deep index observation\n', 'utf8');
     runGit(fixture.repositoryRoot, ['add', '--', relativePath]);
+    await writeFile(absolutePath, 'unstaged successor bytes\n', 'utf8');
+    await writeFile(path.join(fixture.repositoryRoot, 'untracked with spaces.txt'), 'untracked\n', 'utf8');
+    const indexBefore = await readFile(repositoryIndexPath(fixture.repositoryRoot));
 
     const status = await resolveLiveControlPlane(fixture.repositoryRoot, { observeGitHub: false });
     expect(status.schema).toBe('sec-resolved-current-state-v1');
+    expect(status.continuation).toMatchObject({
+      authority: 'observation-only',
+      subject: { repositoryRoot: fixture.repositoryRoot },
+      changes: { state: 'observed', records: expect.arrayContaining([
+        { index: 'A', worktree: 'M', path: relativePath, originalPath: null },
+        { index: '?', worktree: '?', path: 'untracked with spaces.txt', originalPath: null }
+      ]) }
+    });
+    expect(projectDocumentControlPlaneStatusCli(status).continuation).toBe(status.continuation);
+    expect(await readFile(repositoryIndexPath(fixture.repositoryRoot))).toEqual(indexBefore);
     expect(status.workspace).toMatchObject({
       status: expect.stringContaining('leaf.txt')
     });
@@ -5338,7 +5427,7 @@ test('repository controls use the shared live resolver and preserve one bounded 
   const activePackageId = path.basename(pointer.manifest, '.md');
 
   expect(currentState.resolver).toEqual({
-    command: 'bun src/control/documentation/document-control-plane.ts status --json',
+    command: 'bun src/adapters/self-hosting/control/documentation/document-control-plane.ts status --json',
     repository: 'sec-platform/sec',
     remote: 'origin',
     defaultBranch: 'main',
@@ -5382,3 +5471,32 @@ test('repository controls use the shared live resolver and preserve one bounded 
   expect(parsedRollingPlan.candidatePackageIds.length).toBeGreaterThanOrEqual(2);
   expect(parsedRollingPlan.candidatePackageIds.length).toBeLessThanOrEqual(5);
 });
+
+for (const faultAfter of ['after-journal-prepare', 'after-journal-index-published-next-install'] as const) {
+  test(`V3 reader resumes the existing freeze tuple after ${faultAfter} and retires its journal`, async () => {
+    const fixture = await createFreezeFixture();
+    try {
+      const manifestFile = path.join(fixture.repositoryRoot, FREEZE_TARGET_PATH);
+      const source = (await readFile(manifestFile, 'utf8'))
+        .replace('codex-development-work-package-v1', 'codex-development-work-package-v3')
+        .replace(`base: ${fixture.baseSha}\n`, '');
+      await writeFile(manifestFile, source, 'utf8');
+      runGit(fixture.repositoryRoot, ['add', FREEZE_TARGET_PATH]);
+      await expect(freezeDocumentControlPlane({ cwd: fixture.repositoryRoot,
+        manifestPath: FREEZE_TARGET_PATH, reviewedOn: '2026-08-09', faultAfter })).rejects.toThrow(faultAfter);
+      const journalPath = path.join(fixture.repositoryRoot, JOURNAL_TRANSACTION_RELATIVE, 'journal.json');
+      const journal = JSON.parse(await readFile(journalPath, 'utf8')) as RecoveryJournalViewV4;
+      expect(journal.phase).toBe(faultAfter === 'after-journal-prepare' ? 'prepared' : 'index-published');
+      const recovered = await freezeDocumentControlPlane({ cwd: fixture.repositoryRoot,
+        manifestPath: FREEZE_TARGET_PATH, reviewedOn: '2026-08-09' });
+      expect(recovered.operationId).toBe(journal.operationId);
+      expect(recovered.candidateTreeSha).toBe(journal.candidateTreeSha);
+      expect(runGit(fixture.repositoryRoot, ['write-tree'])).toBe(journal.candidateTreeSha);
+      expect(await readFile(manifestFile, 'utf8')).toBe(source);
+      expect(runGit(fixture.repositoryRoot, ['ls-files', '--', CURRENT_ACTIVE_PATH])).toBe('');
+      await expectFreezeTransactionRetired(fixture.repositoryRoot);
+    } finally {
+      await fixture.dispose();
+    }
+  }, 60_000);
+}

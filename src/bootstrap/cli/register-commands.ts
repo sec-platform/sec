@@ -33,7 +33,7 @@ import { loadDependencyEnvironmentDomain, loadReferenceCheckDomain, loadTestBudg
 import { registerInspectionCommands } from './register-inspection-commands.ts';
 import { registerWorkspaceCommands } from './register-workspace-commands.ts';
 
-type DependencyEnvironmentModule = typeof import('../../adapters/toolchain/dependencies/environment.ts');
+type DependencyEnvironmentModule = typeof import('../toolchain/dependency-environment.ts');
 
 export type DependencyEnvironmentCommandDomain = Pick<
   DependencyEnvironmentModule,
@@ -151,7 +151,7 @@ export function registerCommands(
       return {
         value,
         text: value.status === 'ready'
-          ? `Container Engine ready: ${value.endpoint.contextName} (${value.endpoint.daemonId})`
+          ? `Container Engine daemon observed: ${value.endpoint.contextName} (${value.endpoint.daemonId}); executable operations: ${value.supportedOperations.join(", ") || "none"}`
           : `Container Engine unavailable: ${value.reason} (${value.phase})`,
         status: value.status,
         successful: value.status === 'ready'

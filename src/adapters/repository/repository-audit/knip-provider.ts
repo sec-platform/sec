@@ -14,6 +14,7 @@ import {
 import { settleResourcesAsync as settlePhysicalResourcesAsync } from '../../../execution/resource-settlement.ts';
 import {
   inspectNoFollowDirectoryChain,
+  retainCurrentProcessExecutable,
   retainNoFollowOrdinaryFile,
   type PhysicalDirectoryIdentity,
   type RetainedNoFollowOrdinaryFile
@@ -319,7 +320,9 @@ export async function executeKnipUnusedSymbolProvider(
       maximumBytes: KNIP_MAX_TREE_BYTES,
       maximumEntries: KNIP_MAX_TREE_ENTRIES
     });
-    executable = retainNoFollowOrdinaryFile(
+    executable = input.bunExecutablePath === undefined
+      ? retainCurrentProcessExecutable(RETAINED_EXECUTABLE_CHILD_DESCRIPTOR, 'Knip current Bun executable')
+      : retainNoFollowOrdinaryFile(
       inspectNoFollowDirectoryChain(path.dirname(executablePath), 'Knip Bun parent'),
       path.basename(executablePath),
       undefined,
@@ -348,7 +351,13 @@ export async function executeKnipUnusedSymbolProvider(
         ]
       })
     });
-    boundary = issueRetainedCommandBoundary({ executable, workingDirectory: generation.workingDirectory });
+    boundary = issueRetainedCommandBoundary({
+      executable,
+      workingDirectory: generation.workingDirectory,
+      auxiliaryInputs: [
+        { capability: input.dependencyGeneration.physicalGeneration, kind: 'directory' }
+      ]
+    });
     run = await session.run(boundary, KNIP_COMMAND, {
       env: environment,
       envMode: 'replace',

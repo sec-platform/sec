@@ -56,9 +56,10 @@ const materializedOperationDemands = new WeakMap<
 
 interface CompilerDependencyBootstrapOptions {
   readonly ensureCompilerDeps?: () => Promise<CompilerDepsReadyState>;
+  readonly readCompilerDeps?: () => Promise<CompilerDepsReadyState | null>;
 }
 
-interface OperationDependencyBootstrapOptions extends CompilerDependencyBootstrapOptions {
+export interface OperationDependencyBootstrapOptions extends CompilerDependencyBootstrapOptions {
   readonly deadlineAtUnixMs?: number;
   readonly ensureHooks?: (repoRoot: string) => Promise<void>;
   readonly repositoryRoot?: string;
@@ -355,6 +356,7 @@ async function waitForDependencyBootstrapJoin(
 async function materializeCompilerDependenciesSingleFlight(
   options: OperationDependencyBootstrapOptions
 ): Promise<CompilerDepsReadyState> {
+  if (options.ensureCompilerDeps === undefined) throw new Error('Dependency bootstrap requires a trusted materialization operation from the composition root.');
   const dependencyRuntime = await import('../../../toolchain/dependencies/runtime.ts');
   const maximumDurationMs =
     dependencyRuntime.COMPILER_DEPENDENCY_EXECUTION_RETENTION_POLICY.maximumDurationMs;
@@ -370,11 +372,8 @@ async function materializeCompilerDependenciesSingleFlight(
   ]);
   const materializationInput = await dependencyRuntime
     .observeCompilerDependencyMaterializationInput(repositoryRoot);
-  const ensure = options.ensureCompilerDeps ?? (() => dependencyRuntime.ensureCompilerDepsReady({
-    deadlineAtUnixMs: options.deadlineAtUnixMs,
-    signal: options.signal
-  }, repositoryRoot));
-  const readback = options.ensureCompilerDeps !== undefined
+  const ensure = options.ensureCompilerDeps;
+  const readback = options.readCompilerDeps ?? (options.ensureCompilerDeps !== undefined
     ? async () => {
       const ready = await options.ensureCompilerDeps!();
       return ready.source === 'existing' ? ready : null;
@@ -386,7 +385,7 @@ async function materializeCompilerDependenciesSingleFlight(
     );
     if (observed === null) return null;
     return dependencyRuntime.projectCompilerDepsReadyState(observed);
-    };
+    });
   const runner = new VerificationActionRunner();
   const recoveryPredecessorActionKeys: VerificationActionKeyDigest[] = [];
   try {

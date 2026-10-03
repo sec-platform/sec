@@ -12,7 +12,12 @@ import {
   type WorkspaceSourceSnapshot
 } from '../../src/adapters/repository/source-program-model/workspace-source-snapshot.ts';
 import { inspectNoFollowDirectoryChain } from '../../src/adapters/runtime-state/physical/runtime/physical-no-follow.ts';
-import type { PreparedWindowsRepositoryChangeObserver } from '../../src/adapters/runtime-state/physical/runtime/windows-repository-change-observer.ts';
+import {
+  disposePreparedRepositoryChangeObserver,
+  prepareRepositoryChangeObserver,
+  repositoryChangeObserverBinding,
+  type PreparedRepositoryChangeObserver
+} from '../../src/adapters/runtime-state/physical/runtime/repository-change-observer.ts';
 import { AFFECTED_SELECTION_OPERATION_DURATION_MS, compileAffectedTestSelectionSemanticOperation } from '../../src/adapters/self-hosting/development/runner/affected-plan-contract.ts';
 import type {
   DevCommandObservation,
@@ -38,6 +43,7 @@ import {
   admitFastTestBatchExecutionPolicy,
   assertIssuedFastTestBatchExecutionAdmission,
   assertIssuedTestSuiteExecutionAdmission,
+  bindFastTestBatchExecutionAdmission,
   compileTestInvocationExecutionPolicy,
   DEFAULT_TEST_TIMEOUT_MS,
   issueFastTestBatchExecutionPolicy,
@@ -142,7 +148,6 @@ const devCommandSettlements: Array<Promise<void> | undefined> = [];
 const devCommandStartObservers: Array<(() => void) | undefined> = [];
 const devCommandCompletionObservers: Array<(() => void) | undefined> = [];
 const DEFAULT_MANAGED_INNER_ARGS = ['--no-orphans', '--max-concurrency', String(DEFAULT_FAST_TEST_MAX_CONCURRENCY)] as const;
-const DEFAULT_NATIVE_PARALLEL_ARGS = [`--parallel=${DEFAULT_FAST_TEST_CONCURRENCY_BUDGET.concurrentProcessLimit}`, '--isolate'] as const;
 let fastDependencyBootstrapCalls = 0;
 let testDependencyBootstrapCalls = 0;
 const gitReadSessionDeadlineRequests: Array<number | undefined> = [];
@@ -445,7 +450,7 @@ mock.module('../../src/adapters/self-hosting/development/runner/repository-mutat
       processSession?: undefined,
       executionContext?: Readonly<{
         testSuiteAdmission: TestSuiteExecutionAdmission;
-        testSuiteObserver: PreparedWindowsRepositoryChangeObserver;
+        testSuiteObserver: PreparedRepositoryChangeObserver;
       }>
     ) => Promise<number>,
     options: Readonly<{
@@ -470,7 +475,7 @@ mock.module('../../src/adapters/self-hosting/development/runner/repository-mutat
     assertIssuedTestSuiteExecutionAdmission(options.testSuiteAdmission);
     return operation(undefined, Object.freeze({
       testSuiteAdmission: options.testSuiteAdmission,
-      testSuiteObserver: Object.freeze({}) as PreparedWindowsRepositoryChangeObserver
+      testSuiteObserver: Object.freeze({}) as PreparedRepositoryChangeObserver
     }));
   }
 }));
@@ -897,6 +902,19 @@ test('fast process resource classes uniquely derive limits and isolate productio
   expect(resourcePlan.resourceLimits).toEqual(DEFAULT_FAST_TEST_RESOURCE_CLASS_LIMITS);
 });
 
+test('per-file execution rejects shared reporter and coverage output without an aggregate owner', () => {
+  const testInventory = testImpactFixture.provider.testInventory;
+  const budgetProjection = compileTestBudgetProjection(testInventory);
+  const selectedFiles = budgetProjection.fastTestFiles.slice(0, 2);
+  for (const bunOptions of [['--reporter-outfile', 'results.xml'], ['--reporter=junit'],
+    ['--coverage'], ['--coverage-dir=coverage'], ['--coverage-reporter', 'lcov']]) {
+    expect(() => issueFastTestBatchExecutionPolicy({testInventory, budgetProjection, selectedFiles, bunOptions}))
+      .toThrow('aggregate output owner');
+    expect(() => issueFastTestBatchExecutionPolicy({testInventory, budgetProjection,
+      selectedFiles: selectedFiles.slice(0, 1), bunOptions})).not.toThrow();
+  }
+});
+
 test('fast batch policy derives supervisor ceilings and waves from its canonical planner', () => {
   const testInventory = testImpactFixture.provider.testInventory;
   const budgetProjection = compileTestBudgetProjection(testInventory);
@@ -927,6 +945,13 @@ test('fast batch policy derives supervisor ceilings and waves from its canonical
   expect(policy.executionWaves).not.toEqual(forgedCallerFields.executionWaves);
   expect(policy.workingDirectory).toBe(compilerRoot);
   expect(policy.executionWaves.flat()).toEqual(policy.invocations.map(({ id }) => id));
+  expect(policy.invocations).toHaveLength(selectedFiles.length);
+  expect(policy.invocations.every(({ files }) => files.length === 1)).toBe(true);
+  expect(policy.invocations.flatMap(({ files }) => files).sort()).toEqual([...selectedFiles].sort());
+  for (const wave of policy.executionWaves) {
+    const parallel = wave.filter((id) => id.startsWith('parallel:'));
+    expect(parallel.length).toBeLessThanOrEqual(policy.concurrentProcessLimit);
+  }
   expect(policy.logicalRunTimeoutMs).toBe(
     AFFECTED_SELECTION_OPERATION_DURATION_MS
       + policy.executionWaves.length * canonicalSupervisorTimeoutMs
@@ -946,7 +971,43 @@ test('fast batch policy derives supervisor ceilings and waves from its canonical
   expect(() => admitFastTestBatchExecutionPolicy(policy)).toThrow('single-use');
   expect(() => assertIssuedFastTestBatchExecutionAdmission({ ...admission }))
     .toThrow('owner-issued admission');
+  expect(() => bindFastTestBatchExecutionAdmission(
+    admission, Object.freeze({}) as PreparedRepositoryChangeObserver
+  )).toThrow('live owner-issued prepared capability');
+  expect(admission.attempt.authorityGrantDigest).toBe(policy.policyDigest);
+  expect(Object.isFrozen(admission.attempt)).toBe(true);
 });
+
+test.skipIf(process.platform !== 'win32')(
+  'fast batch binds the selected physical observer once without replacing admission identity or deadline',
+  () => {
+    const testInventory = testImpactFixture.provider.testInventory;
+    const budgetProjection = compileTestBudgetProjection(testInventory);
+    const policy = issueFastTestBatchExecutionPolicy({
+      testInventory,
+      budgetProjection,
+      selectedFiles: budgetProjection.fastTestFiles.slice(0, 1),
+      bunOptions: []
+    });
+    const admission = admitFastTestBatchExecutionPolicy(policy);
+    const resolution = prepareRepositoryChangeObserver({ roots: [testImpactFixture.repositoryRoot] });
+    expect(resolution.status).toBe('ready');
+    if (resolution.status !== 'ready') throw new Error('Windows observer preparation failed.');
+    try {
+      const binding = repositoryChangeObserverBinding(resolution.prepared);
+      const operation = bindFastTestBatchExecutionAdmission(admission, resolution.prepared);
+      expect(operation.bindings).toEqual([binding]);
+      expect(operation.plan.execution.requirements[0]!.id).toBe(binding.requirementId);
+      expect(operation.plan.execution.requirements[0]!.contractDigest).toBe(binding.contractDigest);
+      expect(operation.plan.attempt.attemptNonceDigest).toBe(admission.attempt.attemptNonceDigest);
+      expect(operation.plan.attempt.deadlineAtUnixMs).toBe(admission.logicalDeadlineAtUnixMs);
+      expect(() => bindFastTestBatchExecutionAdmission(admission, resolution.prepared))
+        .toThrow('already bound');
+    } finally {
+      disposePreparedRepositoryChangeObserver(resolution.prepared);
+    }
+  }
+);
 
 test.serial('direct fast execution rejects unavailable inventory reobservation before child execution', async () => {
   testBudgetSnapshotOverrides.push(
@@ -982,7 +1043,6 @@ test.serial('targeted fast tests preserve ordinary sequential semantics', async 
       args: [
         'test',
         './tests/unit/path-containment.test.ts',
-        ...DEFAULT_NATIVE_PARALLEL_ARGS,
         ...DEFAULT_MANAGED_INNER_ARGS,
         '--timeout',
         String(DEFAULT_TEST_TIMEOUT_MS)
@@ -1007,15 +1067,15 @@ test.serial('fast tests preserve options across process shards and isolated invo
   const defaultFastTestFiles = getFastTestFilesSync().filter(isDefaultFastTestFile);
 
   expect(code).toBe(0);
-  const shardCalls = devCommandCalls.filter(({ args }) => invocationTestFiles(args).length > 1);
-  expect(shardCalls.length).toBe(1);
-  for (const call of shardCalls) {
+  expect(devCommandCalls.length).toBe(defaultFastTestFiles.length);
+  for (const call of devCommandCalls) {
+    expect(invocationTestFiles(call.args)).toHaveLength(1);
     expect(call.command).toBe('bun');
     expect(call.args[0]).toBe('test');
     expect(call.args).not.toContain('--concurrent');
-    expect(call.args).toEqual(expect.arrayContaining([...DEFAULT_NATIVE_PARALLEL_ARGS]));
+    expect(call.args.some((arg) => arg.startsWith('--parallel'))).toBe(false);
+    expect(call.args).not.toContain('--isolate');
     expect(call.args.slice(-2)).toEqual(['--timeout', '30000']);
-    expect(call.args.some((arg) => isolatedFastTestFileSet.has(arg))).toBe(false);
     expect(call.args.some((arg) => arg.startsWith('tests/e2e/'))).toBe(false);
   }
   for (const file of FAST_TEST_PROCESS_ISOLATION_REGISTRY
@@ -1061,7 +1121,6 @@ test.serial('fast tests preserve equals-form timeout overrides without adding th
     args: [
       'test',
       './tests/unit/path-containment.test.ts',
-      ...DEFAULT_NATIVE_PARALLEL_ARGS,
       ...DEFAULT_MANAGED_INNER_ARGS,
       `--timeout=${caseTimeoutMs}`
     ]
@@ -1627,7 +1686,6 @@ test.serial('explicit fast test files skip dependency bootstrap entirely', async
     args: [
       'test',
       './tests/unit/path-containment.test.ts',
-      ...DEFAULT_NATIVE_PARALLEL_ARGS,
       ...DEFAULT_MANAGED_INNER_ARGS,
       '--timeout',
       '10000'

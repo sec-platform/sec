@@ -577,7 +577,6 @@ describe('work-selection live contract', () => {
 
       const prior = transitionCatalog();
       const seedSha = fixtureGitSha(root, 'HEAD');
-      const seedTree = fixtureGitSha(root, 'HEAD^{tree}');
       const packageId = 'git-worktree-physical-closeout-v1';
       const manifestPath = `config/repository/work-packages/${packageId}.md`;
       const manifestSource = `---\n`
@@ -598,36 +597,6 @@ describe('work-selection live contract', () => {
         readFileSync(path.join(process.cwd(), 'config', 'repository', 'current-state.yaml'))
       );
       writeFileSync(path.join(root, manifestPath), manifestSource, 'utf8');
-      const manifestDigest = rawSha256(manifestSource);
-      writeFileSync(path.join(root, 'config', 'repository', 'active-work-package.md'), `---\n`
-        + `schema: sec-active-work-package-pointer-v2\nstatus: conditional\nlast-reviewed: 2026-08-23\n---\n\n`
-        + `# 当前唯一 Active Work Package\n\n\`\`\`yaml\n`
-        + `selectionMode: exact-manifest-not-on-default-branch-v1\n`
-        + `defaultBranchRef: refs/remotes/origin/main\n`
-        + `defaultRefFreshness: live-platform-match-required\nmanifest: ${manifestPath}\n`
-        + `manifestDigest: ${manifestDigest}\ndigestBytes: git-blob\n`
-        + `unavailableDefaultRef: unresolved\nmatchingDefaultBlob: none\n\`\`\`\n`, 'utf8');
-      const priorRolling = compileSecWorkRollingTransitionProjection({
-        exactMain: seedSha,
-        exactMainTree: seedTree,
-        authority: {
-          kind: 'committed-candidate-replan',
-          sourceHead: seedSha,
-          sourceTree: seedTree,
-          sourceManifestDigest: manifestDigest,
-          sourcePointerRevision: rawSha256('terminal-fixture-pointer'),
-          sourceRollingRevision: rawSha256('terminal-fixture-rolling')
-        },
-        active: { packageId, tracking: 'issue-186', manifestPath, manifestDigest },
-        candidates: [
-          'operation-read-plan-authority-canary-v1',
-          'sec-static-convergence-v1',
-          'candidate-control-transaction-v1',
-          'typescript-7-checker-acceleration-v1'
-        ]
-      });
-      writeFileSync(path.join(root, 'config', 'repository', 'rolling-plan.md'),
-        renderSecWorkRollingTransitionPlan({ projection: priorRolling, reviewedOn: '2026-08-23' }), 'utf8');
       writeFileSync(path.join(root, 'config', 'repository', 'work-selection.md'), prior.source, 'utf8');
       runFixtureGit(root, ['add', '--', 'config/repository']);
       runFixtureGit(root, ['commit', '--quiet', '-m', 'fixture: terminal base']);

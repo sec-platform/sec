@@ -1,7 +1,16 @@
 import { spawnSync } from 'node:child_process';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
+import { gitProtocolSuccess, inGitProtocolRepository } from '../testkit/git-protocol.ts';
 
 import { expect, test } from 'bun:test';
+import { observeOperationAuthorityOwners } from '../../src/adapters/self-hosting/control/agent/agent-operation-activation.ts';
+import { assertWorkerOperationReadPlanMatches, projectWorkerOperationReadClosure } from '../../src/adapters/self-hosting/control/agent/operation-read-plan.ts';
+import { projectWorkerTaskCapsuleObservation } from '../../src/adapters/self-hosting/control/agent/task-capsule-host.ts';
+import { parseDocumentationIdentityRegistry } from '../../src/adapters/self-hosting/control/documentation/active.ts';
+import { CodexDevelopmentParseCurrentWorkPackageManifest } from '../../src/adapters/self-hosting/control/task/contract/work-package.ts';
+import { rawSha256 } from '../../src/contracts/canonical.ts';
+
 
 import {
   compileSecOperationReadPlan,
@@ -79,11 +88,12 @@ function planInput(overrides: {
   forbiddenPaths?: readonly string[];
   base?: string;
   head?: string;
+  changedPaths?: readonly string[];
 } = {}): SecOperationReadPlanInput {
   const head = overrides.head ?? gitOutput(['rev-parse', 'HEAD']);
   const base = overrides.base ?? head;
-  const candidates = overrides.candidates ?? ['sec-worker-development'];
-  const observedChangedPaths = changedPaths(base, head);
+  const candidates = overrides.candidates ?? ['worker-development'];
+  const observedChangedPaths = overrides.changedPaths ?? changedPaths(base, head);
   return {
     schema: SEC_OPERATION_READ_PLAN_INPUT_SCHEMA,
     taskCapsule: capsule({
@@ -166,7 +176,7 @@ function evaluatePlan(input: SecOperationReadPlanInput): SecSkillApplicabilityDe
 test('verified Read Plan selects the single trusted Skill', () => {
   const decision = evaluatePlan(planInput());
   expect(decision.status).toBe('applicable');
-  expect(decision.selectedSkillId).toBe('sec-worker-development');
+  expect(decision.selectedSkillId).toBe('worker-development');
 });
 
 test('zero candidates and zero body budget resolve none-required', () => {
@@ -179,7 +189,7 @@ test('multiple surviving metadata candidates resolve ambiguous before any body r
   const decision = evaluatePlan(planInput({
     role: 'a0',
     operationKind: 'design',
-    candidates: ['sec-architecture-evolution', 'sec-heuristic-governance'],
+    candidates: ['architecture-evolution', 'heuristic-governance'],
     writePaths: []
   }));
   expect(decision.status).toBe('ambiguous');
@@ -190,33 +200,120 @@ test('Skill selection remains orthogonal to Task Capsule write and resource auth
   const decision = evaluatePlan(planInput({
     role: 'a0',
     operationKind: 'design',
-    candidates: ['sec-architecture-evolution'],
+    candidates: ['architecture-evolution'],
     writePaths: [],
     forbiddenPaths: ['docs/'],
     authorizedResources: ['github-api'],
     authorizedGates: ['hosted-gate']
   }));
   expect(decision.status).toBe('applicable');
-  expect(decision.selectedSkillId).toBe('sec-architecture-evolution');
+  expect(decision.selectedSkillId).toBe('architecture-evolution');
   expect('scopeConflicts' in decision).toBeFalse();
 });
 
-test('candidate quarantine revisions are derived from exact Git objects', () => {
-  const repositoryPath = SEC_SKILL_QUARANTINE_EXACT_PATHS[0];
-  const historicalQuarantine = {
-    repositoryPath,
-    head: gitOutputOrNull(['log', '-1', '--format=%H', '--', repositoryPath])
-  };
-  if (!historicalQuarantine || historicalQuarantine.head === null) {
-    throw new Error('No quarantined source has Git history');
-  }
-  const { head } = historicalQuarantine;
-  const base = gitOutput(['rev-parse', `${head}^`]);
-  const decision = evaluatePlan(planInput({ base, head }));
-  expect(decision.quarantinePaths).toEqual(expect.arrayContaining([
-    repositoryPath
-  ]));
-  expect(decision.reasonCodes).toEqual(
-    expect.arrayContaining(['candidate-quarantine', 'quarantine-binds-trusted-revision'])
-  );
+test('candidate quarantine revisions are derived from exact Git objects', async () => {
+  await inGitProtocolRepository(async (root, git) => {
+    const repositoryPath = SEC_SKILL_QUARANTINE_EXACT_PATHS[0];
+    writeFileSync(path.join(root, repositoryPath), 'Trusted fixture guidance\n');
+    gitProtocolSuccess(git(['add', '--', repositoryPath]));
+    gitProtocolSuccess(git(['commit', '--quiet', '-m', 'trusted fixture']));
+    const base = gitProtocolSuccess(git(['rev-parse', 'HEAD'])).trim();
+    const trustedBlob = gitProtocolSuccess(git(['rev-parse', `${base}:${repositoryPath}`])).trim();
+    writeFileSync(path.join(root, repositoryPath), 'Candidate fixture guidance\n');
+    gitProtocolSuccess(git(['add', '--', repositoryPath]));
+    gitProtocolSuccess(git(['commit', '--quiet', '-m', 'candidate fixture']));
+    const head = gitProtocolSuccess(git(['rev-parse', 'HEAD'])).trim();
+    const candidateBlob = gitProtocolSuccess(git(['rev-parse', `${head}:${repositoryPath}`])).trim();
+    const changed = gitProtocolSuccess(git(['diff', '--name-only', '-z', base, head])).split('\0').filter(Boolean);
+    const plan = compileSecOperationReadPlan(planInput({ base, head, changedPaths: changed }));
+    const decision = evaluateSecSkillApplicability({
+      ...projectSecSkillEnvelopeFromOperationReadPlan(plan),
+      trustedSkillRevisions: { [repositoryPath]: trustedBlob },
+      candidateSkillRevisions: { [repositoryPath]: candidateBlob }
+    });
+    expect(trustedBlob).not.toBe(candidateBlob);
+    expect(decision.quarantinePaths).toEqual([repositoryPath]);
+    expect(decision.trustedSkillRevision).toBe(trustedBlob);
+    expect(decision.candidateSkillRevision).toBe(candidateBlob);
+    expect(decision.reasonCodes).toEqual(
+      expect.arrayContaining(['candidate-quarantine', 'quarantine-binds-trusted-revision'])
+    );
+  });
+});
+
+
+test.skipIf(process.platform !== 'linux')('FINAL successor rule-loading owner stays trusted through real observation, Capsule and Read Plan comparison', async () => {
+  const manifestPath = 'config/repository/work-packages/repository-closeout-20260927-v1.md';
+  const manifestBytes = readFileSync(path.join(REPOSITORY_ROOT, manifestPath));
+  const baseManifest = CodexDevelopmentParseCurrentWorkPackageManifest(manifestBytes.toString('utf8'), manifestPath);
+  const guidance = 'docs/开发/AI协作/规则装载与任务恢复.md';
+  expect(baseManifest.tasks.some(task => task.ownedPaths.includes(guidance))).toBe(true);
+  expect(baseManifest.forbiddenPaths).toContain('AGENTS.md');
+  const registryPath = '.documentation/documents.json';
+  const registryBytes = readFileSync(path.join(REPOSITORY_ROOT, registryPath));
+  const registry = parseDocumentationIdentityRegistry(registryBytes.toString('utf8'));
+  const manifest = { ...baseManifest, authorityRefs: [registry.documents.find(record => record.path === guidance)!.documentId] };
+  const observedPaths = [...new Set(['AGENTS.md', guidance, ...registry.documents
+    .filter(record => manifest.authorityRefs?.includes(record.documentId)).map(record => record.path)])];
+  await inGitProtocolRepository(async (root, git) => {
+    mkdirSync(path.join(root, '.documentation'), { recursive: true });
+    writeFileSync(path.join(root, registryPath), registryBytes);
+    for (const repositoryPath of observedPaths) {
+      mkdirSync(path.dirname(path.join(root, repositoryPath)), { recursive: true });
+      writeFileSync(path.join(root, repositoryPath), `trusted ${repositoryPath}\n`);
+    }
+    gitProtocolSuccess(git(['add', '--', registryPath, ...observedPaths]));
+    gitProtocolSuccess(git(['commit', '--quiet', '-m', 'trusted registered owner fixtures']));
+    const trustedRevision = gitProtocolSuccess(git(['rev-parse', 'HEAD'])).trim();
+    writeFileSync(path.join(root, guidance), 'candidate replacement guidance\n');
+    gitProtocolSuccess(git(['add', '--', guidance]));
+    gitProtocolSuccess(git(['commit', '--quiet', '-m', 'FINAL rule-loading fixture']));
+    const targetCandidate = gitProtocolSuccess(git(['rev-parse', 'HEAD'])).trim();
+    // Current published package is not activation-ready: preserve its missing-authorityRefs refusal.
+    expect(() => observeOperationAuthorityOwners(root, trustedRevision, targetCandidate, baseManifest, [guidance]))
+      .toThrow('activation-scope-conflict');
+    // This successor fixture supplies the required registry-bound refs, without
+    // claiming a hosted activation receipt or current-main package adoption.
+    const authorityOwners = observeOperationAuthorityOwners(root, trustedRevision, targetCandidate, manifest, [guidance]);
+    const trustedBlob = gitProtocolSuccess(git(['rev-parse', `${trustedRevision}:${guidance}`])).trim();
+    const candidateBlob = gitProtocolSuccess(git(['rev-parse', `${targetCandidate}:${guidance}`])).trim();
+    const owner = authorityOwners.find(entry => entry.ref === guidance)!;
+    expect(owner.revision).toBe(trustedBlob);
+    expect(owner.contentDigest).toBe(rawSha256(`trusted ${guidance}\n`));
+    const activation = {
+      phase: 'finalize' as const, manifest, manifestPath,
+      manifestRevision: digest('1'), manifestDigest: rawSha256(manifestBytes),
+      authorityOwners, activationDigest: digest('2'), targetCandidate, trustedRevision,
+      changedPaths: [guidance], runtimeRoot: root, candidateRoot: root,
+      preparation: {
+        operationId: 'fixture-final-operation', role: 'worker' as const, operationKind: 'implement' as const,
+        currentSpecRevision: digest('3'), trustedBaseSha: trustedRevision,
+        proposal: { number: 1, baseSha: trustedRevision, headSha: trustedRevision,
+          headTreeSha: gitProtocolSuccess(git(['rev-parse', `${trustedRevision}^{tree}`])).trim(),
+          headRef: 'fixture', manifestPath, manifestDigest: rawSha256(manifestBytes) },
+        controlDigests: { currentState: digest('4'), pointer: digest('5'), rollingPlan: digest('6') }
+      }
+    };
+    // Only resolved-input projection is under test. This fixture neither
+    // authenticates a hosted receipt nor grants an operation to an agent.
+    const observation = projectWorkerOperationReadClosure(projectWorkerTaskCapsuleObservation(activation));
+    expect(observation.taskCapsule.planningContext.ownerFacts.find(fact => fact.ref === guidance)?.revision)
+      .toBe(trustedBlob);
+    expect(observation.readClosure.requiredRefs.find(ref => ref.ref === guidance)?.revision).toBe(trustedBlob);
+    expect(observation.readClosure.readReceipts.find(receipt => receipt.refId === owner.id)?.contentDigest)
+      .toBe(rawSha256(`trusted ${guidance}\n`));
+    const plan = compileSecOperationReadPlan({ ...observation.readClosure,
+      schema: SEC_OPERATION_READ_PLAN_INPUT_SCHEMA, taskCapsule: observation.taskCapsule });
+    expect(() => assertWorkerOperationReadPlanMatches(plan, observation)).not.toThrow();
+    const candidateBound = projectWorkerOperationReadClosure(projectWorkerTaskCapsuleObservation({
+      ...activation,
+      authorityOwners: authorityOwners.map(entry => entry.ref === guidance
+        ? { ...entry, revision: candidateBlob, contentDigest: rawSha256('candidate replacement guidance\n') }
+        : entry)
+    }));
+    const forgedPlan = compileSecOperationReadPlan({ ...candidateBound.readClosure,
+      schema: SEC_OPERATION_READ_PLAN_INPUT_SCHEMA, taskCapsule: candidateBound.taskCapsule });
+    expect(() => assertWorkerOperationReadPlanMatches(forgedPlan, observation))
+      .toThrow('Read Plan was not fully produced by the exact trusted-resolver');
+  });
 });

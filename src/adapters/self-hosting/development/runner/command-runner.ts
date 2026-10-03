@@ -15,8 +15,8 @@ import {
 import { settleResources as settlePhysicalResources } from '../../../../execution/resource-settlement.ts';
 import {
   inspectNoFollowDirectoryChain,
+  retainCurrentProcessExecutable,
   retainNoFollowDirectoryForChildProcess,
-  retainNoFollowOrdinaryFile,
   type RetainedNoFollowChildProcessDirectory,
   type RetainedNoFollowOrdinaryFile
 } from '../../../runtime-state/physical/runtime/physical-no-follow.ts';
@@ -33,12 +33,12 @@ import {
   RETAINED_WORKING_DIRECTORY_CHILD_DESCRIPTOR,
   RetainedCommandTransportError
 } from '../../../runtime-state/physical/runtime/process.ts';
-import type { RetainedCommandBoundary } from '../../../runtime-state/physical/runtime/retained-command-boundary.ts';
 import {
-  armPreparedWindowsRepositoryChangeObserver,
-  RETAINED_WINDOWS_REPOSITORY_CHANGE_OBSERVER_CONTRACT_DIGEST,
-  RETAINED_WINDOWS_REPOSITORY_CHANGE_OBSERVER_REQUIREMENT_ID
-} from '../../../runtime-state/physical/runtime/windows-repository-change-observer.ts';
+  armPreparedRepositoryChangeObserver,
+  repositoryChangeObserverBinding,
+  type PreparedRepositoryChangeObserver
+} from '../../../runtime-state/physical/runtime/repository-change-observer.ts';
+import type { RetainedCommandBoundary } from '../../../runtime-state/physical/runtime/retained-command-boundary.ts';
 import { compilerRoot } from "../../../workspace-context.ts";
 import {
   captureDevCommandInput,
@@ -193,10 +193,12 @@ function compileDevCommandOperation(input: Readonly<{
   timeoutMs: number;
   workingDirectory: string;
   testSuiteAdmission?: TestSuiteExecutionAdmission;
-  observerProviderIdentityDigest?: SecOperationDigest;
+  testSuiteObserver?: PreparedRepositoryChangeObserver;
 }>): SecBoundSemanticOperation {
   const suite = input.testSuiteAdmission;
-  if ((suite === undefined) !== (input.observerProviderIdentityDigest === undefined)) {
+  const observerBinding = input.testSuiteObserver === undefined
+    ? undefined : repositoryChangeObserverBinding(input.testSuiteObserver);
+  if ((suite === undefined) !== (observerBinding === undefined)) {
     throw new Error('Dev command suite operation requires both physical providers.');
   }
   if (suite !== undefined) assertIssuedTestSuiteExecutionAdmission(suite);
@@ -243,8 +245,8 @@ function compileDevCommandOperation(input: Readonly<{
         'development.runner.termination-unproven'
       ]
     }, ...(suite === undefined ? [] : [{
-      id: RETAINED_WINDOWS_REPOSITORY_CHANGE_OBSERVER_REQUIREMENT_ID,
-      contractDigest: RETAINED_WINDOWS_REPOSITORY_CHANGE_OBSERVER_CONTRACT_DIGEST,
+      id: observerBinding!.requirementId,
+      contractDigest: observerBinding!.contractDigest,
       effectKinds: ['filesystem' as const],
       failureKinds: [
         'development.runner.deadline-exhausted',
@@ -256,11 +258,7 @@ function compileDevCommandOperation(input: Readonly<{
     requirementId: commandRequirementId,
     contractDigest: commandContractDigest,
     providerIdentityDigest: input.providerIdentityDigest
-  }), ...(suite === undefined ? [] : [compileSecCapabilityBinding({
-    requirementId: RETAINED_WINDOWS_REPOSITORY_CHANGE_OBSERVER_REQUIREMENT_ID,
-    contractDigest: RETAINED_WINDOWS_REPOSITORY_CHANGE_OBSERVER_CONTRACT_DIGEST,
-    providerIdentityDigest: input.observerProviderIdentityDigest!
-  })])]);
+  }), ...(observerBinding === undefined ? [] : [observerBinding])]);
 }
 
 interface DevCommandPhysicalCapability {
@@ -305,18 +303,7 @@ function issueDevCommandPhysicalCapability(input: Readonly<{
   let executable: RetainedNoFollowOrdinaryFile | undefined;
   let workingDirectory: RetainedNoFollowChildProcessDirectory | undefined;
   try {
-    const executablePath = path.resolve(process.execPath);
-    executable = retainNoFollowOrdinaryFile(
-      inspectNoFollowDirectoryChain(
-        path.dirname(executablePath),
-        'Dev command executable parent'
-      ),
-      path.basename(executablePath),
-      undefined,
-      'Dev command executable',
-      RETAINED_EXECUTABLE_CHILD_DESCRIPTOR,
-      'executable'
-    );
+    executable = retainCurrentProcessExecutable(RETAINED_EXECUTABLE_CHILD_DESCRIPTOR, 'Dev command executable');
     const workingDirectoryChain = inspectNoFollowDirectoryChain(
       input.workingDirectory,
       'Dev command working directory'
@@ -488,19 +475,19 @@ export function runDevCommand<TOptions extends DevCommandOptions | undefined = u
         timeoutMs,
         workingDirectory,
         testSuiteAdmission,
-        observerProviderIdentityDigest: testSuiteObserver?.providerBinding.providerIdentityDigest
+        testSuiteObserver
       });
       if (testSuiteObserver !== undefined) {
         const observerDurationMs = testSuiteAdmission!.logicalDeadlineAtUnixMs - Date.now();
         if (!Number.isSafeInteger(observerDurationMs) || observerDurationMs < 1) {
           throw new Error('Test suite observer deadline was exhausted during physical admission.');
         }
-        const observerResolution = await armPreparedWindowsRepositoryChangeObserver({
+        const observerResolution = await armPreparedRepositoryChangeObserver({
           prepared: testSuiteObserver,
           operation,
           requirementBindingContext: issueSecOperationRequirementBindingContext({
             operation,
-            requirementId: RETAINED_WINDOWS_REPOSITORY_CHANGE_OBSERVER_REQUIREMENT_ID,
+            requirementId: repositoryChangeObserverBinding(testSuiteObserver).requirementId,
             resourceCeilings: [{ resource: 'duration-ms', maximum: observerDurationMs }]
           })
         });

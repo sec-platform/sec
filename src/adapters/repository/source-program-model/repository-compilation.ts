@@ -7,7 +7,7 @@ import {
   type SourceProgramCompilationOperation,
   type SourceProgramCompilationPhaseEvent
 } from './compilation-operation.ts';
-import type { SourceProgramModel, SourceProgramUnknown } from './contract.ts';
+import { requireSourceProgramCandidateAnalysis, sourceProgramSurfaceForPath, type SourceProgramAnalysisNotRequested, type SourceProgramCandidate, type SourceProgramCandidateAnalysis, type SourceProgramModel, type SourceProgramUnknown } from './contract.ts';
 import {
   captureRepositoryAnalysisPolicy,
   repositoryAnalysisPolicyDigest,
@@ -27,12 +27,15 @@ import {
   issueRepositoryCompilationGenerationReceipt
 } from './repository-compilation-cache.ts';
 import {
-  compileRepositorySourceProgramModelFromWorkspaceSnapshot
+  compileRepositorySourceProgramModelFromWorkspaceSnapshot,
+  compileRepositoryTestObligationsModelFromWorkspaceSnapshot,
+  type CompileRepositorySourceProgramModelInput
 } from './repository.ts';
 import {
   compileSourceProgramTestObservationsFromWorkspaceSnapshot,
   type SourceProgramTestObservations
 } from './test-observations.ts';
+import { SOURCE_EXTENSION } from './typescript-input.ts';
 import {
   adoptTypeScriptSourceProgramFactShardsFromWorkspaceSnapshot,
   compileTypeScriptSourceProgramModelIncrementalFromWorkspaceSnapshot,
@@ -62,6 +65,7 @@ export type CompileRepositorySourceProgramCompilationInput = Readonly<{
   reviewedProcessDispatchers?: readonly string[];
   unknowns?: readonly SourceProgramUnknown[];
   operation?: SourceProgramCompilationOperation;
+  previousCompilation?: RepositorySourceProgramCompilationReceipt<SourceProgramCandidateAnalysis>;
 }>;
 
 export type CompileVirtualRepositorySourceProgramCompilationInput = Omit<
@@ -69,7 +73,7 @@ export type CompileVirtualRepositorySourceProgramCompilationInput = Omit<
   'workspaceSnapshot'
 > & Readonly<{ workspaceSnapshot: VirtualWorkspaceSourceSnapshot }>;
 
-export interface RepositorySourceProgramCompilationReceipt {
+export interface RepositorySourceProgramCompilationReceipt<Candidates extends SourceProgramCandidateAnalysis = readonly SourceProgramCandidate[]> {
   readonly subject: WorkspaceSourceSnapshot['subject'];
   readonly subjectDigest: `sha256:${string}`;
   readonly sourceRevision: string;
@@ -86,7 +90,7 @@ export interface RepositorySourceProgramCompilationReceipt {
   readonly typeScriptCompilation: TypeScriptSourceProgramIncrementalResult;
   readonly typeScriptRequiredApiClosure: SourceProgramTypeScriptRequiredApiClosure;
   readonly testObservations: SourceProgramTestObservations;
-  readonly model: SourceProgramModel;
+  readonly model: SourceProgramModel<Candidates>;
   readonly receiptDigest: `sha256:${string}`;
   readonly workspaceSnapshot: WorkspaceSourceSnapshot;
 }
@@ -102,9 +106,36 @@ export interface RepositoryCompilationDiagnostics {
 
 const diagnosticsByContext = new WeakMap<object, RepositoryCompilationDiagnostics>();
 const issuedRepositorySourceProgramCompilationReceipts = new WeakSet<object>();
+// Only this producer can bind a live receipt to the original non-source inputs.
+// These process-local facts are never serialized as cache or qualification authority.
+const reuseContextByReceipt = new WeakMap<object, `sha256:${string}`>();
 
-export function assertRepositorySourceProgramCompilationReceipt(
-  receipt: RepositorySourceProgramCompilationReceipt
+function compilationReuseContext(
+  snapshot: WorkspaceSourceSnapshot,
+  projectInput: WorkspaceTypeScriptProjectInput,
+  generation: RepositoryCompilationGenerationReceipt
+): `sha256:${string}` {
+  return sha256({
+    compilerRevision: generation.compilerRevision,
+    providerRevision: generation.providerRevision,
+    compilerConfigDigest: generation.compilerConfigDigest,
+    dependencyGenerationDigest: generation.dependencyGenerationDigest,
+    environmentDigest: generation.environmentDigest,
+    project: {
+      projectConfigPath: projectInput.projectConfigPath,
+      projectConfigDigest: projectInput.projectConfigDigest,
+      dependencyGenerationDigest: projectInput.dependencyGenerationDigest,
+      externalSourceFacts: projectInput.externalSourceFacts
+    },
+    nonTypeScriptFiles: snapshot.files.filter(({ path }) => {
+      const surface = sourceProgramSurfaceForPath(path);
+      return !SOURCE_EXTENSION.test(path) || (surface !== 'production' && surface !== 'test');
+    }).map(({ path, mode, contentDigest }) => ({ path, mode, contentDigest }))
+  }) as `sha256:${string}`;
+}
+
+export function assertRepositorySourceProgramCompilationReceipt<Candidates extends SourceProgramCandidateAnalysis>(
+  receipt: RepositorySourceProgramCompilationReceipt<Candidates>
 ): void {
   if (!issuedRepositorySourceProgramCompilationReceipts.has(receipt)) {
     throw new Error('Source Program placement requires one compiler-issued compilation receipt');
@@ -152,10 +183,11 @@ function loadedTypeScriptState(
   );
 }
 
-function compileRepositorySourceProgramCompilationCore(
+function compileRepositorySourceProgramCompilationCore<Candidates extends SourceProgramCandidateAnalysis>(
   input: CompileRepositorySourceProgramCompilationInput | CompileVirtualRepositorySourceProgramCompilationInput,
-  snapshotKind: 'physical' | 'virtual'
-): RepositorySourceProgramCompilationReceipt {
+  snapshotKind: 'physical' | 'virtual',
+  compileModel: (input: CompileRepositorySourceProgramModelInput, snapshot: WorkspaceSourceSnapshot) => SourceProgramModel<Candidates>
+): RepositorySourceProgramCompilationReceipt<Candidates> {
   // Capture request data before checkpoints, cache callbacks or compiler
   // observers can change it. Opaque snapshot/provider/operation identities are
   // retained, not cloned; additional unknown observations are plain owned data.
@@ -169,7 +201,7 @@ function compileRepositorySourceProgramCompilationCore(
     }
   }
   const { projectInput, cacheProvider, repositoryRoot, reviewedProcessDispatchers,
-    unknowns: requestedUnknowns, operation: requestedOperation, cacheAccess = 'read-write' } = input;
+    unknowns: requestedUnknowns, operation: requestedOperation, cacheAccess = 'read-write', previousCompilation } = input;
   // Bind the effect mode before compiler telemetry or cache providers execute.
   // The direct physical and virtual entrypoints must not treat malformed input
   // as write permission, even when the physical cache wrapper is not used.
@@ -196,6 +228,16 @@ function compileRepositorySourceProgramCompilationCore(
     moduleGraphDigest: workspaceSnapshot.moduleGraphDigest,
     compiler
   });
+  const reuseContext = projectInput === undefined ? null
+    : compilationReuseContext(workspaceSnapshot, projectInput, projectGeneration);
+  let previousState: TypeScriptSourceProgramIncrementalState | null = null;
+  if (reuseContext !== null && previousCompilation !== undefined
+      && issuedRepositorySourceProgramCompilationReceipts.has(previousCompilation)
+      && reuseContextByReceipt.get(previousCompilation) === reuseContext) {
+    assertRepositorySourceProgramCompilationReceipt(previousCompilation);
+    previousState = previousCompilation.typeScriptCompilation.state;
+  }
+  const rejectedPreviousContext = previousCompilation !== undefined && previousState === null;
   let cacheHint: RepositoryCompilationCacheHint | null = null;
   let exactLoaded: RepositoryCompilationCacheLoad | null = null;
   let loaded: RepositoryCompilationCacheLoad | null = null;
@@ -209,7 +251,8 @@ function compileRepositorySourceProgramCompilationCore(
       }
       exactLoaded = cacheHint.loadExact();
       assertExactRepositoryCompilationCacheLoad(exactLoaded, projectGeneration);
-      loaded = exactLoaded.status === 'hit' ? exactLoaded : cacheHint.loadPredecessor();
+      loaded = exactLoaded.status === 'hit' || rejectedPreviousContext || previousState !== null
+        ? exactLoaded : cacheHint.loadPredecessor();
       if (loaded.status === 'hit') assertRepositoryCompilationGenerationReceipt(loaded.generation);
       cacheReceipt = exactLoaded.status === 'hit' ? exactLoaded.cacheReceipt : null;
     } catch {
@@ -230,11 +273,11 @@ function compileRepositorySourceProgramCompilationCore(
     moduleMembership: workspaceSnapshot.moduleMembership,
     operation
   });
-  let cachedState: TypeScriptSourceProgramIncrementalState | null = null;
-  if (loaded?.status === 'hit') {
+  let cachedState: TypeScriptSourceProgramIncrementalState | null = previousState;
+  if (exactLoaded?.status === 'hit' || (cachedState === null && loaded?.status === 'hit')) {
     sourceProgramCompilationCheckpoint(operation, 'fact-shard-assembly', 'start');
     try {
-      cachedState = loadedTypeScriptState(workspaceSnapshot, typeScriptInput, loaded);
+      cachedState = loadedTypeScriptState(workspaceSnapshot, typeScriptInput, loaded as Extract<RepositoryCompilationCacheLoad, { status: 'hit' }>);
     } catch {
       // Runtime Cache may return bytes that passed its physical grammar but do
       // not belong to this semantic input. Source Program rejects the hint and
@@ -320,7 +363,7 @@ function compileRepositorySourceProgramCompilationCore(
   });
   sourceProgramCompilationCheckpoint(operation, 'repository-projection', 'start');
   const repositoryProjectionStarted = performance.now();
-  const model = compileRepositorySourceProgramModelFromWorkspaceSnapshot(repositoryInput, workspaceSnapshot);
+  const model = compileModel(repositoryInput, workspaceSnapshot);
   const repositoryProjectionMs = performance.now() - repositoryProjectionStarted;
   sourceProgramCompilationCheckpoint(operation, 'repository-projection', 'complete');
   sourceProgramCompilationCheckpoint(operation, 'settlement', 'start');
@@ -340,7 +383,7 @@ function compileRepositorySourceProgramCompilationCore(
     repositoryModelDigest: model.modelDigest,
     analysisPolicyDigest: analysisPolicy.policyDigest
   });
-  const receipt: RepositorySourceProgramCompilationReceipt = Object.freeze({
+  const receipt: RepositorySourceProgramCompilationReceipt<Candidates> = Object.freeze({
     subject: workspaceSnapshot.subject,
     subjectDigest: workspaceSnapshot.subjectDigest,
     sourceRevision: workspaceSnapshot.sourceRevision,
@@ -361,6 +404,7 @@ function compileRepositorySourceProgramCompilationCore(
     workspaceSnapshot
   });
   issuedRepositorySourceProgramCompilationReceipts.add(receipt);
+  if (reuseContext !== null) reuseContextByReceipt.set(receipt, reuseContext);
   sourceProgramCompilationCheckpoint(operation, 'settlement', 'complete');
   diagnosticsByContext.set(workspaceSnapshot, Object.freeze({
     cache: loaded?.status === 'hit'
@@ -378,12 +422,33 @@ function compileRepositorySourceProgramCompilationCore(
 export function compileRepositorySourceProgramCompilation(
   input: CompileRepositorySourceProgramCompilationInput
 ): RepositorySourceProgramCompilationReceipt {
-  return compileRepositorySourceProgramCompilationCore(input, 'physical');
+  return compileRepositorySourceProgramCompilationCore(input, 'physical', compileRepositorySourceProgramModelFromWorkspaceSnapshot);
 }
 
 /** Pure/unbound compiler for virtual reductions and synthetic algorithm tests. */
 export function compileVirtualRepositorySourceProgramCompilation(
   input: CompileVirtualRepositorySourceProgramCompilationInput
 ): RepositorySourceProgramCompilationReceipt {
-  return compileRepositorySourceProgramCompilationCore(input, 'virtual');
+  return compileRepositorySourceProgramCompilationCore(input, 'virtual', compileRepositorySourceProgramModelFromWorkspaceSnapshot);
+}
+
+/** Fixed request profile; omitted candidate findings are part of the model identity. */
+export function compileRepositorySourceProgramTestObligationsCompilation(
+  input: CompileRepositorySourceProgramCompilationInput
+): RepositorySourceProgramCompilationReceipt<SourceProgramAnalysisNotRequested> {
+  return compileRepositorySourceProgramCompilationCore(input, 'physical', compileRepositoryTestObligationsModelFromWorkspaceSnapshot);
+}
+
+export function compileVirtualRepositorySourceProgramTestObligationsCompilation(
+  input: CompileVirtualRepositorySourceProgramCompilationInput
+): RepositorySourceProgramCompilationReceipt<SourceProgramAnalysisNotRequested> {
+  return compileRepositorySourceProgramCompilationCore(input, 'virtual', compileRepositoryTestObligationsModelFromWorkspaceSnapshot);
+}
+
+export function requireCompleteRepositorySourceProgramCompilation(
+  receipt: RepositorySourceProgramCompilationReceipt<SourceProgramCandidateAnalysis>
+): RepositorySourceProgramCompilationReceipt {
+  assertRepositorySourceProgramCompilationReceipt(receipt);
+  requireSourceProgramCandidateAnalysis(receipt.model.candidates);
+  return receipt as RepositorySourceProgramCompilationReceipt;
 }

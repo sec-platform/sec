@@ -20,7 +20,7 @@ import {
 import {
   openProcessResourceSession
 } from '../../../runtime-state/physical/runtime/process-resource-session.ts';
-import { RetainedCommandTransportError } from '../../../runtime-state/physical/runtime/process.ts';
+import { issueRetainedCommandBoundary, RetainedCommandTransportError } from '../../../runtime-state/physical/runtime/process.ts';
 import {
   openRetainedWindowsRuntimeStateDirectory,
   type RetainedRuntimeStateDirectory
@@ -32,6 +32,7 @@ import {
   type RuntimeEndpointResidueReceipt,
   type RuntimeGenerationCensusReceipt
 } from '../../../runtime-state/physical/runtime/runtime-endpoint-residue.ts';
+import { DockerCommandOperationUnavailableError } from '../contract/command-provider.ts';
 import type {
   ContainerEngineCommandResult,
   ContainerEngineOperation,
@@ -48,7 +49,8 @@ import {
 } from '../contract/daemon.ts';
 import { DOCKER_DESKTOP_WINDOWS_RUNTIME_STATE_CONTRACT, isDockerDesktopManagedEndpoint } from '../contract/windows-runtime-state.ts';
 import {
-  claimDockerCommandProviderCapability
+  claimDockerCommandProviderCapability,
+  disposeClaimedDockerCommandProvider
 } from './command-provider.ts';
 import {
   ensureDockerDaemonStartedWithCommand,
@@ -58,6 +60,24 @@ import {
   type DockerDaemonLauncherResult
 } from './daemon-algorithm.ts';
 import { withDockerDesktopLauncherLock } from './daemon.ts';
+
+export const LINUX_DOCKER_OPERATIONS: readonly ContainerEngineOperation['kind'][] = Object.freeze([]);
+
+/** This is a capability decision, before starting the CLI or charging transport. */
+export function assertDockerCommandOperationAvailable(
+  platform: NodeJS.Platform,
+  operation: ContainerEngineOperation['kind'] | undefined
+): void {
+  if (platform === 'linux') {
+    throw new DockerCommandOperationUnavailableError(
+      operation ?? 'docker-cli',
+      operation === 'buildx-build' || operation === 'buildx-bake'
+        ? 'linux-buildx-closure-unavailable'
+        : 'linux-cli-plugin-closure-unavailable'
+    );
+  }
+}
+
 
 const OPERATION_PREFIX = Object.freeze({
   'buildx-bake': ['buildx', 'bake'],
@@ -373,6 +393,26 @@ export function compileContainerEngineOperationArguments(
   ]);
 }
 
+/** Curl supplies HTTP framing; only a fixed local Engine observation is admitted. */
+export function compileLinuxDockerDaemonProbeArguments(
+  endpointHost: string,
+  deadlineAtUnixMs: number
+): readonly string[] {
+  const host = dockerEndpointHost(endpointHost);
+  const socket = host.slice('unix://'.length);
+  if (!host.startsWith('unix:///') || path.posix.resolve(socket) !== socket) {
+    fail('daemon probe requires a canonical local Linux endpoint');
+  }
+  const remainingMs = deadlineAtUnixMs - Date.now();
+  if (!Number.isSafeInteger(remainingMs) || remainingMs < 1) fail('daemon probe deadline is exhausted');
+  return Object.freeze([
+    '--disable', '--silent', '--show-error', '--fail', '--proto', '=http',
+    '--proxy', '', '--noproxy', '*', '--max-redirs', '0',
+    '--unix-socket', socket, '--max-time', (remainingMs / 1_000).toFixed(3),
+    '--url', 'http://localhost/info'
+  ]);
+}
+
 function parseJsonObject(source: Uint8Array, label: string): Record<string, unknown> {
   let parsed: unknown;
   try {
@@ -457,12 +497,10 @@ export async function openContainerEngineSession(
   const cwd = path.resolve(input.cwd);
   if (!path.isAbsolute(input.cwd) || cwd !== input.cwd) fail('cwd must be canonical and absolute');
   const retained = claimDockerCommandProviderCapability(input.provider);
-  const auxiliaryCleanup = () => [...retained.auxiliaryInputs].reverse().map(
-    (auxiliary, index) => ({
-      label: `provider-auxiliary-dispose-${index}`,
-      settle: () => auxiliary.capability.dispose()
-    })
-  );
+  const providerCleanup = () => ({
+    label: 'command-provider-dispose',
+    settle: () => disposeClaimedDockerCommandProvider(retained)
+  });
   if (retained.workingDirectory.path !== cwd || retained.executable !== input.provider.executable) {
     settlePhysicalResources({
       primary: Object.freeze({
@@ -470,19 +508,7 @@ export async function openContainerEngineSession(
         error: new Error('Container Engine command provider does not bind this working directory.')
       }),
       cleanup: [
-        ...auxiliaryCleanup(),
-        ...[...retained.retainedOwners].reverse().map((owner, index) => ({
-          label: `provider-owner-close-${index}`,
-          settle: () => { owner.close(); }
-        })),
-        {
-          label: 'working-directory-dispose',
-          settle: () => retained.boundary.workingDirectory.dispose()
-        },
-        {
-          label: 'executable-dispose',
-          settle: () => retained.boundary.executable.dispose()
-        },
+        providerCleanup()
       ]
     });
   }
@@ -501,26 +527,21 @@ export async function openContainerEngineSession(
     settlePhysicalResources({
       primary: Object.freeze({ label: 'provider-authority-admission', error }),
       cleanup: [
-        ...auxiliaryCleanup(),
-        ...[...retained.retainedOwners].reverse().map((owner, index) => ({
-          label: `provider-owner-close-${index}`,
-          settle: () => { owner.close(); }
-        })),
-        {
-          label: 'working-directory-dispose',
-          settle: () => retained.boundary.workingDirectory.dispose()
-        },
-        {
-          label: 'executable-dispose',
-          settle: () => retained.boundary.executable.dispose()
-        }
+        providerCleanup()
       ]
     });
     throw error;
   }
   const providerAuthorityIdentityDigest = providerAuthorityBinding.providerIdentityDigest;
   let processSession: ReturnType<typeof openProcessResourceSession>;
+  let daemonProbeBoundary: ReturnType<typeof issueRetainedCommandBoundary> | undefined;
   try {
+    if (retained.daemonProbe !== undefined) {
+      daemonProbeBoundary = issueRetainedCommandBoundary({
+        executable: retained.daemonProbe,
+        workingDirectory: retained.boundary.workingDirectory
+      });
+    }
     processSession = openProcessResourceSession({
       operation: input.operation,
       requirementBindingContext: issueSecOperationRequirementBindingContext({
@@ -544,19 +565,7 @@ export async function openContainerEngineSession(
     settlePhysicalResources({
       primary: Object.freeze({ label: 'process-session-admission', error }),
       cleanup: [
-        ...auxiliaryCleanup(),
-        ...[...retained.retainedOwners].reverse().map((owner, index) => ({
-          label: `provider-owner-close-${index}`,
-          settle: () => { owner.close(); }
-        })),
-        {
-          label: 'working-directory-dispose',
-          settle: () => retained.boundary.workingDirectory.dispose()
-        },
-        {
-          label: 'executable-dispose',
-          settle: () => retained.boundary.executable.dispose()
-        }
+        providerCleanup()
       ]
     });
     throw error;
@@ -592,9 +601,21 @@ export async function openContainerEngineSession(
     args: readonly string[],
     options: ContainerEngineOperationOptions = {},
     providerCapability?: IndependentProviderProcessCapability,
-    scopedOperation?: ContainerEngineOperation
+    scopedOperation?: ContainerEngineOperation,
+    commandOwner: 'docker' | 'daemon-probe' = 'docker'
   ): Promise<ContainerEngineCommandResult> => {
     if (closed || closing) fail(closed ? 'session is closed' : 'session is closing');
+    if (retained.platform === 'linux') {
+      if (commandOwner === 'docker') {
+        // Help/error paths can execute unqualified system plugin metadata.
+        assertDockerCommandOperationAvailable(retained.platform, scopedOperation?.kind);
+      }
+      if (retained.linuxEndpoint === undefined) {
+        throw new DockerCommandOperationUnavailableError(
+          scopedOperation?.kind ?? 'daemon-info', 'linux-endpoint-identity-unavailable'
+        );
+      }
+    }
     const remaining = processSession.deadlineAtUnixMs - Date.now();
     if (remaining < 1) fail('deadline is exhausted');
     const stdoutBound = assertPositiveBound(
@@ -636,11 +657,17 @@ export async function openContainerEngineSession(
     let transportSettled = false;
     try {
       runtimeState?.assertCurrent();
+      retained.privateState?.assertCurrent();
+      retained.linuxEndpoint?.assertCurrent();
+      retained.daemonProbe?.assertCurrent();
       for (const owner of retained.retainedOwners) owner.assertCurrent();
-      const { ordinal, result } = await processSession.run(retained.boundary, [
-        ...boundedOwnerArguments(args)
-      ], {
-        env: environment,
+      const invocation = { arguments: boundedOwnerArguments(args), environment };
+      const boundary = commandOwner === 'daemon-probe'
+        ? daemonProbeBoundary ?? fail('retained daemon probe is unavailable')
+        : retained.boundary;
+      const { ordinal, result } = await processSession.run(boundary,
+        invocation.arguments, {
+        env: invocation.environment,
         envMode: 'replace',
         ...(options.input === undefined ? {} : {
           input: options.input,
@@ -657,6 +684,9 @@ export async function openContainerEngineSession(
         })
       });
       runtimeState?.assertCurrent();
+      retained.privateState?.assertCurrent();
+      retained.linuxEndpoint?.assertCurrent();
+      retained.daemonProbe?.assertCurrent();
       for (const owner of retained.retainedOwners) owner.assertCurrent();
       const commandResult = Object.freeze({
         code: result.code,
@@ -702,6 +732,16 @@ export async function openContainerEngineSession(
     }
   };
 
+  const observeInfo = async (host: string, options: ContainerEngineOperationOptions = {}) => {
+    if (daemonProbeBoundary === undefined) {
+      return await rawRun(['--host', host, 'info', '--format', '{{json .}}'], options);
+    }
+    if (host !== retained.endpointHost) fail('daemon probe cannot replace the installed endpoint');
+    return await rawRun(compileLinuxDockerDaemonProbeArguments(
+      retained.linuxEndpoint?.transportHost ?? host, processSession.cooperativeDeadlineAtUnixMs()
+    ), options, undefined, undefined, 'daemon-probe');
+  };
+
   const executableDigest = retained.boundary.executable.digest();
   const observedProviderIdentityInput = Object.freeze({
     authorityProviderIdentityDigest: providerAuthorityIdentityDigest,
@@ -723,7 +763,31 @@ export async function openContainerEngineSession(
 
   try {
     let endpoint: DockerEndpointIdentity;
-    if (input.expectedEndpoint === undefined) {
+    if (retained.endpointHost !== undefined
+        && input.expectedEndpoint !== undefined
+        && input.expectedEndpoint.endpointHost !== retained.endpointHost) {
+      fail('expected endpoint differs from the installed provider endpoint');
+    }
+    if (retained.platform === 'linux' && retained.endpointHost !== undefined
+        && retained.linuxEndpoint === undefined) {
+      throw new DockerCommandOperationUnavailableError('daemon-info', 'linux-endpoint-identity-unavailable');
+    }
+    if (input.expectedEndpoint === undefined && retained.endpointHost !== undefined) {
+      const available = await observeDockerDaemonWithCommand({
+        endpointHost: retained.endpointHost,
+        cwd,
+        deadlineAtUnixMs: processSession.deadlineAtUnixMs,
+        commandDeadlineAtUnixMs: () => processSession.cooperativeDeadlineAtUnixMs(),
+        run: async () => {
+          const result = await observeInfo(retained.endpointHost!, { acceptAnyExitCode: true });
+          return { code: result.code, stdout: result.stdout.toString('utf8'), stderr: result.stderr.toString('utf8') };
+        }
+      });
+      endpoint = endpointFromInfo({
+        contextName: 'default', endpointHost: retained.endpointHost,
+        info: Buffer.from(available.stdout, 'utf8')
+      });
+    } else if (input.expectedEndpoint === undefined) {
       const contextName = boundedIdentityText(
         (await rawRun(['context', 'show'])).stdout.toString('utf8').trim(),
         'context name',
@@ -862,9 +926,7 @@ export async function openContainerEngineSession(
       });
     } else {
       const expected = parseDockerEndpointIdentity(input.expectedEndpoint);
-      const info = await rawRun([
-        '--host', expected.endpointHost, 'info', '--format', '{{json .}}'
-      ], { maxStdoutBytes: 1024 * 1024, maxStderrBytes: 1024 * 1024 });
+      const info = await observeInfo(expected.endpointHost, { maxStdoutBytes: 1024 * 1024, maxStderrBytes: 1024 * 1024 });
       endpoint = endpointFromInfo({
         contextName: expected.contextName,
         endpointHost: expected.endpointHost,
@@ -883,6 +945,10 @@ export async function openContainerEngineSession(
       endpoint,
       cwd,
       executable: retained.executable,
+      commandProtocol: retained.commandProtocol,
+      supportedOperations: retained.platform === 'linux'
+        ? LINUX_DOCKER_OPERATIONS
+        : Object.freeze(Object.keys(OPERATION_PREFIX) as ContainerEngineOperation['kind'][]),
       deadlineAtUnixMs: processSession.deadlineAtUnixMs,
       providerIdentityDigest,
       openOperationScope(
@@ -950,9 +1016,7 @@ export async function openContainerEngineSession(
         if (currentScope !== null) {
           fail('independent endpoint readback requires the operation scope to be settled');
         }
-        const info = await rawRun([
-          '--host', endpoint.endpointHost, 'info', '--format', '{{json .}}'
-        ], { maxStdoutBytes: 1024 * 1024, maxStderrBytes: 1024 * 1024 });
+        const info = await observeInfo(endpoint.endpointHost, { maxStdoutBytes: 1024 * 1024, maxStderrBytes: 1024 * 1024 });
         const observed = endpointFromInfo({
           contextName: endpoint.contextName,
           endpointHost: endpoint.endpointHost,
@@ -991,6 +1055,9 @@ export async function openContainerEngineSession(
                 label: 'working-directory-readback',
                 settle: () => retained.boundary.workingDirectory.assertCurrent()
               },
+              { label: 'linux-endpoint-readback', settle: () => retained.linuxEndpoint?.assertCurrent() },
+              { label: 'private-state-readback', settle: () => retained.privateState?.assertCurrent() },
+              { label: 'daemon-probe-readback', settle: () => retained.daemonProbe?.assertCurrent() },
               ...retained.retainedOwners.map((owner, index) => ({
                 label: `provider-owner-readback-${index}`,
                 settle: () => owner.assertCurrent()
@@ -1001,19 +1068,7 @@ export async function openContainerEngineSession(
               })),
               { label: 'process-session-close', settle: () => { processSession.close(); } },
               { label: 'runtime-state-close', settle: () => { runtimeState?.close(); } },
-              ...auxiliaryCleanup(),
-              ...[...retained.retainedOwners].reverse().map((owner, index) => ({
-                label: `provider-owner-close-${index}`,
-                settle: () => { owner.close(); }
-              })),
-              {
-                label: 'working-directory-dispose',
-                settle: () => retained.boundary.workingDirectory.dispose()
-              },
-              {
-                label: 'executable-dispose',
-                settle: () => retained.boundary.executable.dispose()
-              },
+              providerCleanup()
             ]
           });
         } catch (error) {
@@ -1031,19 +1086,7 @@ export async function openContainerEngineSession(
       cleanup: [
         { label: 'process-session-close', settle: () => { processSession.close(); } },
         { label: 'runtime-state-close', settle: () => { runtimeState?.close(); } },
-        ...auxiliaryCleanup(),
-        ...[...retained.retainedOwners].reverse().map((owner, index) => ({
-          label: `provider-owner-close-${index}`,
-          settle: () => { owner.close(); }
-        })),
-        {
-          label: 'working-directory-dispose',
-          settle: () => retained.boundary.workingDirectory.dispose()
-        },
-        {
-          label: 'executable-dispose',
-          settle: () => retained.boundary.executable.dispose()
-        }
+        providerCleanup()
       ]
     });
     throw error;

@@ -3,6 +3,7 @@ import { bindCompilerInstallInvocation, type CompilerInstallInvocationInput } fr
 
 import { type CommitFence } from "../../../../contracts/commit-fence.ts";
 import { SecError } from '../../../../contracts/failure.ts';
+import { generatedStateDigest } from '../../../../execution/generated-state/contract.ts';
 import { issueSecOperationRequirementBindingContext } from '../../../../execution/operation/requirement-binding-context.ts';
 import {
   bindSecSemanticOperation,
@@ -12,7 +13,6 @@ import {
   type SecBoundSemanticOperation
 } from '../../../../execution/operation/semantic.ts';
 import { writeText } from "../../../filesystem/files.ts";
-import { generatedStateDigest } from '../../../runtime-state/generated-state/contract.ts';
 import {
   assertRetainedNoFollowCapability,
   inspectNoFollowDirectoryChain,

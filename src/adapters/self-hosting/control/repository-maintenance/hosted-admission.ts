@@ -27,14 +27,12 @@ export function assertHostedRepositoryMaintenanceIdentity(
     'SEC_MAINTENANCE_ISSUE_NUMBER'
   );
   positiveIntegerText(environment.SEC_MAINTENANCE_COMMENT_ID, 'SEC_MAINTENANCE_COMMENT_ID');
-  const association = environment.SEC_MAINTENANCE_AUTHOR_ASSOCIATION;
   const author = environment.SEC_MAINTENANCE_COMMENT_AUTHOR;
   if (environment.GITHUB_ACTIONS !== 'true'
       || environment.GITHUB_SERVER_URL !== 'https://github.com'
       || environment.GITHUB_API_URL !== 'https://api.github.com'
-      || environment.GITHUB_EVENT_NAME !== 'issue_comment'
+      || environment.GITHUB_EVENT_NAME !== 'repository_dispatch'
       || issueNumber !== REPOSITORY_MAINTENANCE_ISSUE_NUMBER
-      || (association !== 'OWNER' && association !== 'MEMBER')
       || typeof author !== 'string' || author.length === 0
       || environment.GITHUB_ACTOR !== author
       || environment.GITHUB_REPOSITORY !== request.repository
@@ -43,7 +41,7 @@ export function assertHostedRepositoryMaintenanceIdentity(
       || environment.GITHUB_WORKFLOW_SHA !== request.expectedMainSha
       || environment.GITHUB_WORKFLOW_REF !== workflowRef) {
     throw new Error(
-      'repository maintenance must execute from one maintainer-authored #313 issue_comment on exact current main'
+      'repository maintenance must execute from one explicit dispatch bound to a maintainer-authored #313 comment on exact current main'
     );
   }
 }

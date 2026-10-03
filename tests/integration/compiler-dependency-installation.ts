@@ -4,14 +4,6 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 
 import { readJson } from "../../src/adapters/filesystem/files.ts";
-import { generatedStateDigest } from '../../src/adapters/runtime-state/generated-state/contract.ts';
-import {
-  createGeneratedStateCleanupOperationSession,
-  generatedStateProducerHooks,
-  type GeneratedStateProducerHookSet,
-  type GeneratedStateProducerQuarantineHook,
-  type GeneratedStateWorktreeRetirementEffectAuthority
-} from '../../src/adapters/runtime-state/generated-state/lifecycle.ts';
 import {
   inspectNoFollowDirectoryChain,
   inspectNoFollowLinkEntry,
@@ -20,9 +12,9 @@ import {
 } from '../../src/adapters/runtime-state/physical/runtime/physical-no-follow.ts';
 import { runCommand } from '../../src/adapters/runtime-state/physical/runtime/process.ts';
 import {
-  armWindowsRepositoryChangeObserver,
-  settleWindowsRepositoryChangeObserver
-} from '../../src/adapters/runtime-state/physical/runtime/windows-repository-change-observer.ts';
+  armRepositoryChangeObserver,
+  settleRepositoryChangeObserver
+} from '../../src/adapters/runtime-state/physical/runtime/repository-change-observer.ts';
 import { resolveSecWorkspaceRuntimeRoots } from '../../src/adapters/runtime-state/workspace-state/paths.ts';
 import { loadRuntimeDependencySpec, RUNTIME_DEPENDENCY_PACKAGE_NAMES } from '../../src/adapters/toolchain/dependencies/contract/runtime-dependency-spec.ts';
 import { transitionRecordName } from '../../src/adapters/toolchain/dependencies/runtime/dependency-transition/codec.ts';
@@ -48,11 +40,15 @@ import {
   observeCompilerDependencyExecutionGenerationAuthority
 } from '../../src/adapters/toolchain/dependencies/test/runtime.ts';
 import { SecError } from '../../src/contracts/failure.ts';
+import { createGeneratedStateCleanupOperationSession } from '../../src/execution/generated-state/cleanup-budget.ts';
+import { generatedStateDigest } from "../../src/execution/generated-state/contract.ts";
+import type { GeneratedStateProducerHookSet, GeneratedStateProducerQuarantineHook, GeneratedStateWorktreeRetirementEffectAuthority } from "../../src/execution/generated-state/lifecycle-port.ts";
 import {
   effectfulTest,
   settleEffectfulTestCleanup,
   type EffectfulTestContext
 } from '../helpers/effectful-test.ts';
+import { generatedStateProducerHooks } from '../helpers/generated-state-fixture.ts';
 import { settleWorkspaceCallback, settleWorkspaceCleanups } from '../testkit/workspace-cleanup.ts';
 import { withTempWorkspace } from '../testkit/workspace.ts';
 
@@ -493,7 +489,7 @@ describe('compiler dependency installation', () => {
         }
       };
       expect((await ensureCompilerDepsReady(options, tempRoot)).source).toBe('installed');
-      const resolution = await armWindowsRepositoryChangeObserver({
+      const resolution = await armRepositoryChangeObserver({
         roots: [path.join(tempRoot, '.tmp', 'dependency-installs')],
         deadlineAtUnixMs: operation.deadlineAtUnixMs
       });
@@ -502,7 +498,7 @@ describe('compiler dependency installation', () => {
       try {
         expect((await ensureCompilerDepsReady(options, tempRoot)).source).toBe('existing');
       } finally {
-        const settlement = await settleWindowsRepositoryChangeObserver(resolution.observer);
+        const settlement = await settleRepositoryChangeObserver(resolution.observer);
         if (settlement.status !== 'zero-events') {
           throw new Error(`Existing compiler locator read mutated its coordination namespace: ${JSON.stringify({
             status: settlement.status,

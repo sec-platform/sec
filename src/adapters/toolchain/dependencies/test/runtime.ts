@@ -3,6 +3,9 @@
  * ../runtime.ts, whose wrappers discard every test transport and lifecycle
  * control before entering the dependency owner.
  */
+import { generatedStateProducerHooks } from '../../../../../tests/helpers/generated-state-fixture.ts';
+import { ensureProjectDependencyOperation } from '../../../../bootstrap/toolchain/dependency-operation.ts';
+import type { DependencyProjectLifecycleAdmission } from '../../../../execution/dependency-materialization.ts';
 import type { CommandResult } from '../../../runtime-state/physical/runtime/process.ts';
 import { issueRuntimeDependencyTestMaterialization } from '../runtime/materialization-fixture-capability.ts';
 import {
@@ -37,10 +40,13 @@ export type RuntimeDependencyTestInstallOptions =
 
 function testInstallOptions(
   options: RuntimeDependencyTestInstallOptions
-): InternalRuntimeDependencyInstallOptions {
+): InternalRuntimeDependencyInstallOptions & DependencyProjectLifecycleAdmission {
   const { materialize, ...canonical } = options;
   return {
     ...canonical,
+    ...(canonical.generatedStateLifecycle !== undefined || canonical.generatedStateLifecycleFactory !== undefined ? {} : {
+      generatedStateLifecycleFactory: Object.freeze({ forWorkspace: (root: string) => generatedStateProducerHooks(root) })
+    }),
     ...(materialize === undefined ? {} : {
       testMaterialization: issueRuntimeDependencyTestMaterialization(async (request) => (
         materialize([...request.args], {
@@ -49,7 +55,7 @@ function testInstallOptions(
         })
       ))
     })
-  };
+  } as InternalRuntimeDependencyInstallOptions & DependencyProjectLifecycleAdmission;
 }
 
 export async function ensureCompilerDepsReady(
@@ -66,7 +72,7 @@ export async function ensureProjectDependencies(
   projectRoot: string,
   options: RuntimeDependencyTestInstallOptions = {}
 ): Promise<void> {
-  return dependencyRuntime.ensureProjectDependencies(projectRoot, testInstallOptions(options));
+  return ensureProjectDependencyOperation(projectRoot, testInstallOptions(options));
 }
 
 export async function migrateDependencyTransitionJournal(

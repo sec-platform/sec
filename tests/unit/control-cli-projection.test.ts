@@ -24,11 +24,11 @@ import {
 import { compileSecOperationDemandGraph } from '../../src/adapters/self-hosting/control/operation/demand.ts';
 import type { SecWorkSelectionLiveResult } from '../../src/adapters/self-hosting/control/work-selection/live-contract.ts';
 import { projectSecWorkSelectionCli } from '../../src/adapters/self-hosting/control/work-selection/runtime.ts';
-import { shouldReportDevRunnerSuccess } from '../../src/adapters/self-hosting/development/runner/cli.ts';
+import { formatImportRecoveryCommand, shouldReportDevRunnerSuccess } from '../../src/adapters/self-hosting/development/runner/cli.ts';
 import { rawSha256 } from '../../src/contracts/canonical.ts';
 
 function declarationTopologyFixture() {
-  const descriptorPath = 'src/projection-owner/sec.module.json';
+  const descriptorPath = 'src/projection-owner/module.json';
   const sourcePath = 'src/projection-owner/runtime.ts';
   const source = 'export const projection = true;';
   const sourceRevision = rawSha256(source);
@@ -66,11 +66,11 @@ function declarationTopologyFixture() {
 function architectureProjectionFixture(topology: 'acyclic' | 'cyclic') {
   const contract = parseSecModuleDescriptor(
     { importGraph: 'runtime', externalEntrypoints: [] },
-    'src/contract-owner/sec.module.json'
+    'src/contract-owner/module.json'
   );
   const runtime = parseSecModuleDescriptor(
     { importGraph: 'runtime', externalEntrypoints: [] },
-    'src/runtime-owner/sec.module.json'
+    'src/runtime-owner/module.json'
   );
   const descriptors = Object.freeze([contract, runtime]);
   const membership: SecRepositoryModuleMembership = Object.freeze({
@@ -236,4 +236,37 @@ describe('bounded control-plane CLI projections', () => {
     expect(projected).not.toHaveProperty('stableFacts');
     expect(JSON.stringify(projected).length).toBeLessThan(1_500);
   });
+});
+
+test('import recovery hints preserve observed representation base scope and intent', () => {
+  for (const candidateBase of ['a'.repeat(40), 'b'.repeat(64)]) {
+    expect(formatImportRecoveryCommand({ scope: 'candidate', candidateBase,
+      intent: 'sort-and-combine', staged: true }))
+      .toBe(`bun run imports:apply --staged --candidate-base ${candidateBase}`);
+    expect(formatImportRecoveryCommand({ scope: 'candidate', candidateBase,
+      intent: 'sort-and-combine', staged: false }))
+      .toBe(`bun run imports:apply --candidate-base ${candidateBase}`);
+    expect(formatImportRecoveryCommand({ scope: 'candidate', candidateBase,
+      intent: 'remove-unused', staged: false }))
+      .toBe(`bun run imports:apply --candidate-base ${candidateBase} --remove-unused`);
+  }
+  expect(formatImportRecoveryCommand({ scope: 'all', candidateBase: null,
+    intent: 'sort-and-combine', staged: false })).toBe('bun run imports:apply --all');
+  expect(formatImportRecoveryCommand({ scope: 'all', candidateBase: null,
+    intent: 'remove-unused', staged: false })).toBe('bun run imports:apply --all --remove-unused');
+});
+
+test('import recovery hints refuse ambiguous incompatible or nonliteral selections', () => {
+  const valid = { scope: 'candidate' as const, candidateBase: 'a'.repeat(40),
+    intent: 'sort-and-combine' as const, staged: false };
+  for (const selection of [
+    { ...valid, candidateBase: null },
+    { ...valid, candidateBase: 'HEAD' },
+    { ...valid, candidateBase: `${'a'.repeat(40)};echo unsafe` },
+    { ...valid, scope: 'all' as const },
+    { ...valid, scope: 'all' as const, candidateBase: null, staged: true },
+    { ...valid, intent: 'remove-unused' as const, staged: true }
+  ]) {
+    expect(() => formatImportRecoveryCommand(selection)).toThrow('exact compatible observed selection');
+  }
 });

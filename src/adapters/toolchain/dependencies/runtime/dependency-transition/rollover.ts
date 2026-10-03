@@ -11,7 +11,7 @@ import { formatJsonFile } from "../../../../../contracts/json-text.ts";
 import {
   generatedStateDigest,
   type GeneratedStatePhysicalIdentity
-} from '../../../../runtime-state/generated-state/contract.ts';
+} from '../../../../../execution/generated-state/contract.ts';
 import {
   assertSameNoFollowDirectoryIdentity,
   createExclusiveNoFollowDirectory,

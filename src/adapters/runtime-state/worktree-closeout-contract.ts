@@ -2,7 +2,7 @@ import { canonicalJson, sha256 } from '../../contracts/canonical.ts';
 import {
   assertGeneratedStateWorktreeRetirement,
   type GeneratedStateWorktreeRetirement
-} from './generated-state/contract.ts';
+} from '../../execution/generated-state/contract.ts';
 import { assertLowercaseGitSha } from './physical/contract/git-worktree-observation.ts';
 export {
   parseWorktreePorcelainZ,

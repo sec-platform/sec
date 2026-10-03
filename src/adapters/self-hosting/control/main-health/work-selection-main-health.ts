@@ -11,6 +11,12 @@ import {
   withGitHubApiReadSession,
   type GitHubApiCapability
 } from '../../../providers/github-api/operation-session.ts';
+import {
+  inspectExactNoFollowDirectoryPresence,
+  PhysicalNoFollowError,
+  readNoFollowOrdinaryFile
+} from '../../../runtime-state/physical/runtime/physical-no-follow.ts';
+import { resolveSecRuntimeStateForRepository } from '../../../runtime-state/workspace-state/paths.ts';
 import { encodeVerificationActionData } from '../../../verification/platform/action/contract/action.ts';
 import {
   createMainHealthLedger,
@@ -21,8 +27,11 @@ import {
 } from './contract.ts';
 import {
   createRegisteredHostedMainHealthInputs,
+  createTrustedRuntimeMainHealthInput,
   GITHUB_ACTIONS_MAIN_HEALTH_CHECK_PROVIDER_POLICY,
-  HOSTED_MAIN_HEALTH_FRESHNESS_MS
+  HOSTED_MAIN_HEALTH_FRESHNESS_MS,
+  parseTrustedRuntimeMainHealthReceipt,
+  trustedRuntimeMainHealthReceiptLocator
 } from './main-health-observation.ts';
 import {
   compileMainHealthRepairDecision,
@@ -117,13 +126,104 @@ function invalidRef(label: string, value: Uint8Array | string): MainHealthDigest
   }));
 }
 
+function decodeExactUtf8(bytes: Uint8Array): string {
+  const source = Buffer.from(bytes);
+  const text = new TextDecoder('utf-8', { fatal: true }).decode(source);
+  if (!Buffer.from(text, 'utf8').equals(source)) {
+    throw new Error('trusted runtime MainHealth receipt is not exact UTF-8');
+  }
+  return text;
+}
+
+function observeTrustedRuntimeProvider(input: Readonly<{
+  repositoryRoot: string;
+  repository: string;
+  mainSha: string;
+  mainTreeSha: string;
+  now: string;
+}>): WorkSelectionMainHealthProviderObservation {
+  let receiptBytes: Uint8Array | null = null;
+  try {
+    const layout = resolveSecRuntimeStateForRepository({
+      repository: input.repository,
+      repositoryRoot: input.repositoryRoot
+    });
+    const locator = trustedRuntimeMainHealthReceiptLocator({
+      repositoryStateRoot: layout.repositoryStateRoot,
+      mainSha: input.mainSha
+    });
+    const presence = inspectExactNoFollowDirectoryPresence(
+      locator.directory,
+      'WorkSelection trusted MainHealth directory'
+    );
+    if (presence.state === 'absent') return Object.freeze({ kind: 'absent' });
+    receiptBytes = readNoFollowOrdinaryFile(presence.directory.target, locator.fileName);
+    if (receiptBytes === null) return Object.freeze({ kind: 'absent' });
+    const source = decodeExactUtf8(receiptBytes);
+    const receipt = parseTrustedRuntimeMainHealthReceipt(source);
+    if (!Buffer.from(receiptBytes).equals(
+      Buffer.from(`${encodeVerificationActionData(receipt)}\n`, 'utf8')
+    )) {
+      return Object.freeze({
+        kind: 'invalid',
+        ref: invalidRef('trusted-runtime-noncanonical-receipt-bytes', receiptBytes)
+      });
+    }
+    if (receipt.repository !== input.repository
+        || receipt.mainSha !== input.mainSha
+        || receipt.mainTreeSha !== input.mainTreeSha
+        || Date.parse(receipt.observedAt) > Date.parse(input.now)) {
+      return Object.freeze({
+        kind: 'invalid',
+        ref: invalidRef('trusted-runtime-receipt-subject-or-time-drift', receiptBytes)
+      });
+    }
+    const expiresAt = new Date(
+      Date.parse(input.now) + HOSTED_MAIN_HEALTH_FRESHNESS_MS
+    ).toISOString();
+    return Object.freeze({
+      kind: 'available',
+      ledger: createMainHealthLedger(createTrustedRuntimeMainHealthInput({
+        schema: 'sec-trusted-runtime-main-health-observation-v1',
+        repository: input.repository,
+        mainSha: input.mainSha,
+        mainTreeSha: input.mainTreeSha,
+        trustRevision: input.mainSha,
+        runtimeRef: locator.sourceRef,
+        executionId: receipt.executionId,
+        verificationReceiptDigest: receipt.receiptDigest,
+        observedAt: input.now,
+        expiresAt
+      }))
+    });
+  } catch (error) {
+    if (error instanceof PhysicalNoFollowError
+        && error.code === 'PHYSICAL_NO_FOLLOW_CAPABILITY_UNAVAILABLE') {
+      return Object.freeze({
+        kind: 'unavailable',
+        ref: invalidRef(
+          'trusted-runtime-physical-read-unavailable',
+          error.message
+        )
+      });
+    }
+    return Object.freeze({
+      kind: 'invalid',
+      ref: invalidRef(
+        'trusted-runtime-observation-invalid',
+        receiptBytes ?? (error instanceof Error ? error.message : String(error))
+      )
+    });
+  }
+}
+
 function currentMainHealthGitHubReadCapability(repository: string): GitHubApiCapability {
   return currentGitHubApiCapability(repository, 'read');
 }
 
 /**
  * Repository-bound MainAuthority ruleset facts from the active MainHealth
- * GitHub read session.  Callers receive semantic JSON only; credential,
+ * GitHub ruleset-read session. Callers receive semantic JSON only; credential,
  * endpoint, transport and request-budget authority remain in this owner.
  */
 export async function observeMainAuthorityRulesetGitHubFacts(input: Readonly<{
@@ -133,7 +233,7 @@ export async function observeMainAuthorityRulesetGitHubFacts(input: Readonly<{
   effectiveRules: readonly unknown[];
   detailedRulesets: readonly unknown[];
 }>> {
-  const capability = currentMainHealthGitHubReadCapability(input.repository);
+  const capability = currentGitHubApiCapability(input.repository, 'ruleset-read');
   const effectiveRules: unknown[] = [];
   const pageSize = 100;
   for (let page = 1; page <= 100; page += 1) {
@@ -701,29 +801,67 @@ export function resolveWorkSelectionMainHealthProviders(input: Readonly<{
   mainSha: string;
   mainTreeSha: string;
   now: string;
+  local: WorkSelectionMainHealthProviderObservation;
   hosted: WorkSelectionMainHealthProviderObservation;
 }>): CanonicalMainHealthProviderResolution {
-  if (input.hosted.kind === 'invalid') {
+  const invalidProviderRefs = [
+    input.local.kind === 'invalid' ? input.local.ref : null,
+    input.hosted.kind === 'invalid' ? input.hosted.ref : null
+  ].filter((value): value is MainHealthDigest => value !== null);
+  if (invalidProviderRefs.length > 0) {
     const ref = digestRef(Object.freeze({
       schema: WORK_SELECTION_MAIN_HEALTH_PROVIDER_SCHEMA,
-      status: 'hosted-provider-invalid',
-      hosted: input.hosted.ref
+      status: 'provider-invalid',
+      providerRefs: invalidProviderRefs.sort()
     }));
     return Object.freeze({
-      projection: Object.freeze({
-        state: 'unresolved',
-        ref
-      }),
+      projection: Object.freeze({ state: 'unresolved', ref }),
       ledger: null,
       repairObservation: Object.freeze({ kind: 'provider-invalid', observationRef: ref })
     });
   }
 
-  if (input.hosted.kind === 'unavailable') {
+  const localLedger = input.local.kind === 'available' ? input.local.ledger : null;
+  const hostedLedger = input.hosted.kind === 'available' ? input.hosted.ledger : null;
+  if (localLedger !== null && hostedLedger !== null
+      && localLedger.healthRevision !== hostedLedger.healthRevision) {
     const ref = digestRef(Object.freeze({
       schema: WORK_SELECTION_MAIN_HEALTH_PROVIDER_SCHEMA,
-      status: 'hosted-provider-unavailable',
-      hosted: input.hosted.ref,
+      status: 'provider-conflict',
+      healthRevisions: [localLedger.healthRevision, hostedLedger.healthRevision].sort()
+    }));
+    return Object.freeze({
+      projection: Object.freeze({ state: 'unresolved', ref }),
+      ledger: null,
+      repairObservation: Object.freeze({ kind: 'provider-invalid', observationRef: ref })
+    });
+  }
+
+  const selected = localLedger ?? hostedLedger;
+  if (selected !== null) {
+    return Object.freeze({
+      projection: projectLedger({
+        ledger: selected,
+        now: input.now,
+        repository: input.repository,
+        defaultBranch: input.defaultBranch,
+        mainSha: input.mainSha,
+        mainTreeSha: input.mainTreeSha
+      }),
+      ledger: selected,
+      repairObservation: Object.freeze({ kind: 'available', ledger: selected })
+    });
+  }
+
+  const unavailableProviderRefs = [
+    input.local.kind === 'unavailable' ? input.local.ref : null,
+    input.hosted.kind === 'unavailable' ? input.hosted.ref : null
+  ].filter((value): value is MainHealthDigest => value !== null);
+  if (unavailableProviderRefs.length > 0) {
+    const ref = digestRef(Object.freeze({
+      schema: WORK_SELECTION_MAIN_HEALTH_PROVIDER_SCHEMA,
+      status: 'provider-unavailable',
+      providerRefs: unavailableProviderRefs.sort(),
       repository: input.repository,
       defaultBranch: input.defaultBranch,
       mainSha: input.mainSha,
@@ -736,45 +874,22 @@ export function resolveWorkSelectionMainHealthProviders(input: Readonly<{
     });
   }
 
-  const hostedLedger = input.hosted.kind === 'available' ? input.hosted.ledger : null;
-  if (hostedLedger !== null) {
-    return Object.freeze({
-      projection: projectLedger({
-        ledger: hostedLedger,
-        now: input.now,
-        repository: input.repository,
-        defaultBranch: input.defaultBranch,
-        mainSha: input.mainSha,
-        mainTreeSha: input.mainTreeSha
-      }),
-      ledger: hostedLedger,
-      repairObservation: Object.freeze({ kind: 'available', ledger: hostedLedger })
-    });
-  }
-
   const ref = digestRef(Object.freeze({
     schema: WORK_SELECTION_MAIN_HEALTH_PROVIDER_SCHEMA,
     status: 'provider-missing',
+    local: input.local.kind,
     hosted: input.hosted.kind,
-    hostedRef: null,
     repository: input.repository,
     defaultBranch: input.defaultBranch,
     mainSha: input.mainSha,
     mainTreeSha: input.mainTreeSha
   }));
   return Object.freeze({
-    projection: Object.freeze({
-      state: 'unresolved',
-      ref
-    }),
+    projection: Object.freeze({ state: 'unresolved', ref }),
     ledger: null,
-    repairObservation: Object.freeze({
-      kind: 'provider-missing',
-      observationRef: ref
-    })
+    repairObservation: Object.freeze({ kind: 'provider-missing', observationRef: ref })
   });
 }
-
 function boundedMainHealthProviderText(value: unknown, label: string): string {
   if (typeof value !== 'string' || value.length === 0 || value.length > 2048
       || value.trim() !== value || /[\u0000-\u001f\u007f]/u.test(value)) {
@@ -1064,6 +1179,7 @@ async function observeWorkSelectionMainHealthProvider(input: Readonly<{
   capability: GitHubApiCapability;
 }>): Promise<Readonly<{
   observedAt: string;
+  localProvider: WorkSelectionMainHealthProviderObservation;
   hostedProvider: WorkSelectionMainHealthProviderObservation;
   resolution: CanonicalMainHealthProviderResolution;
 }>> {
@@ -1079,8 +1195,16 @@ async function observeWorkSelectionMainHealthProvider(input: Readonly<{
     ).toISOString(),
     observation: hosted
   });
+  const localProvider = observeTrustedRuntimeProvider({
+    repositoryRoot: input.repositoryRoot,
+    repository: input.repository,
+    mainSha: input.mainSha,
+    mainTreeSha: input.mainTreeSha,
+    now: observedAt
+  });
   return Object.freeze({
     observedAt,
+    localProvider,
     hostedProvider,
     resolution: resolveWorkSelectionMainHealthProviders({
       repository: input.repository,
@@ -1088,6 +1212,7 @@ async function observeWorkSelectionMainHealthProvider(input: Readonly<{
       mainSha: input.mainSha,
       mainTreeSha: input.mainTreeSha,
       now: observedAt,
+      local: localProvider,
       hosted: hostedProvider
     })
   });
@@ -1129,6 +1254,8 @@ type MainHealthPublicationAuthorityBinding = Readonly<{
     mainSha: string;
     mainTreeSha: string;
   }>;
+  localProviderEpoch: MainHealthDigest | null;
+  localProvenanceDigest: MainHealthDigest | null;
   hostedProviderEpoch: MainHealthDigest | null;
   hostedProvenanceDigest: MainHealthDigest | null;
 }>;
@@ -1161,8 +1288,12 @@ function createWorkSelectionMainHealthPublicationAuthority(input: Readonly<{
   defaultBranch: string;
   mainSha: string;
   mainTreeSha: string;
+  localProvider: WorkSelectionMainHealthProviderObservation;
   hostedProvider: WorkSelectionMainHealthProviderObservation;
 }>): MainHealthPublicationAuthority {
+  const localLedger = input.localProvider.kind === 'available'
+    ? input.localProvider.ledger
+    : null;
   const hostedLedger = input.hostedProvider.kind === 'available'
     ? input.hostedProvider.ledger
     : null;
@@ -1174,6 +1305,13 @@ function createWorkSelectionMainHealthPublicationAuthority(input: Readonly<{
       mainSha: input.mainSha,
       mainTreeSha: input.mainTreeSha
     }),
+    localProviderEpoch: localLedger === null ? null : localLedger.healthRevision,
+    localProvenanceDigest: localLedger === null
+      ? null
+      : digestRef(Object.freeze({
+          schema: 'sec-main-health-local-provenance-v1',
+          producer: localLedger.producer
+        })),
     hostedProviderEpoch: hostedLedger === null ? null : hostedLedger.healthRevision,
     hostedProvenanceDigest: hostedLedger === null
       ? null
@@ -1193,7 +1331,7 @@ function mainHealthPublicationStableDigest(input: Readonly<{
 }>): MainHealthDigest {
   const ledger = input.ledger;
   return digestRef(Object.freeze({
-    schema: 'sec-hosted-main-health-publication-stable-observation-v1',
+    schema: 'sec-main-health-provider-publication-stable-observation-v2',
     projection: input.projection,
     authority: mainHealthPublicationAuthorityBinding(input.authority),
     ledger: ledger === null ? null : Object.freeze({
@@ -1310,6 +1448,7 @@ export async function observeCanonicalMainHealthForPublication(input: Readonly<{
       );
       const authority = createWorkSelectionMainHealthPublicationAuthority({
         ...input,
+        localProvider: observation.localProvider,
         hostedProvider: observation.hostedProvider
       });
       const result = Object.freeze({
@@ -1362,6 +1501,7 @@ export async function observeCanonicalMainHealthForDocumentControlTestingV2(inpu
   const repairDecision = compileMainHealthRepairDecisionFromWorkSelectionObservation(input, observation);
   const authority = createWorkSelectionMainHealthPublicationAuthority({
     ...input,
+    localProvider: observation.localProvider,
     hostedProvider: observation.hostedProvider
   });
   return Object.freeze({

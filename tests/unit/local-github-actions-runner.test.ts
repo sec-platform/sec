@@ -39,6 +39,7 @@ import {
   type LocalGitHubActionsRunnerInstance,
   type LocalGitHubActionsRunnerRole
 } from '../../src/adapters/verification/platform/ci/runtime/local-github-actions-runner.ts';
+import { sha256 } from '../../src/contracts/canonical.ts';
 
 const repository = 'sec-platform/sec';
 const providerName = 'sec-main-health-1';
@@ -468,6 +469,7 @@ describe('local GitHub Actions runner contract', () => {
       providerName,
       operationLabel,
       lifecycle: 'provisioning',
+      resources: { cpus: 8, memory: '12g' },
       dockerEndpoint,
       githubEndpoint,
       instances: roles.map((role) => ({
@@ -489,6 +491,7 @@ describe('local GitHub Actions runner contract', () => {
       providerName,
       operationLabel,
       lifecycle: 'active',
+      resources: { cpus: 8, memory: '12g' },
       dockerEndpoint,
       githubEndpoint,
       instances: instances.map((instance) => ({
@@ -534,6 +537,97 @@ describe('local GitHub Actions runner contract', () => {
         ? { ...instance, containerState: 'present' as const, runnerState: 'present' as const }
         : instance)
     })).toThrow('terminal runner state retains resources');
+  });
+
+  test('retains routing resource intent and refuses incomplete committed generations', () => {
+    const state = createLocalGitHubActionsRunnerState({
+      repository, providerName, operationLabel,
+      repositoryRoot: '/project/sec', commonDirectory: '/project/sec/.git',
+      lifecycle: 'routing', resources: { cpus: 3, memory: '768m' },
+      dockerEndpoint, githubEndpoint,
+      instances: instances.map((instance) => ({
+        role: instance.role, roleLabel: instance.roleLabel, name: instance.name,
+        containerId: instance.containerId, containerState: 'present' as const,
+        runnerId: instance.runnerId, runnerState: 'present' as const
+      })),
+      startedAt: '2026-10-01T00:00:00.000Z'
+    });
+    const parsed = parseLocalGitHubActionsRunnerState(JSON.stringify(state));
+    expect(parsed.schema).toBe('sec-local-github-actions-provider-state-v5');
+    expect(parsed.lifecycle).toBe('routing');
+    expect(parsed.resources).toEqual({ cpus: 3, memory: '768m' });
+    const { resources: _resources, stateDigest: _digest, ...retained } = state;
+    const legacy = { ...retained, schema: 'sec-local-github-actions-provider-state-v4', lifecycle: 'active' };
+    const parsedLegacy = parseLocalGitHubActionsRunnerState(JSON.stringify({ ...legacy, stateDigest: sha256(legacy) }));
+    expect(parsedLegacy.schema).toBe('sec-local-github-actions-provider-state-v4');
+    expect(parsedLegacy.resources).toBeUndefined();
+    const invalidLegacy = { ...legacy, lifecycle: 'routing' };
+    expect(() => parseLocalGitHubActionsRunnerState(JSON.stringify({
+      ...invalidLegacy, stateDigest: sha256(invalidLegacy)
+    }))).toThrow('legacy runner state cannot acquire routing intent');
+
+    expect(() => createLocalGitHubActionsRunnerState({
+      ...state, resources: undefined
+    })).toThrow('provider resources are invalid');
+    expect(() => createLocalGitHubActionsRunnerState({
+      ...state, instances: state.instances.map((instance, index) => index === 2
+        ? { ...instance, runnerId: null, runnerState: 'uncreated' as const } : instance)
+    })).toThrow('routing runner state is incomplete');
+    expect(() => parseLocalGitHubActionsRunnerState(JSON.stringify({
+      ...state, resources: { cpus: 4, memory: '768m' }
+    }))).toThrow('digest mismatch');
+  });
+
+  test('staged inventory has no SEC routing labels and must remain offline before commit', () => {
+    const staged = roles.map((role) => runner(role, {
+      status: 'offline',
+      labels: ['self-hosted', 'Linux', 'X64', operationLabel].map((name) => ({ name }))
+    }));
+    expect(() => assertExactLocalGitHubActionsRunnerProfileInventory({
+      runners: staged, instances, operationLabel, routing: 'staged', readiness: 'registered'
+    })).not.toThrow();
+    expect(() => assertExactLocalGitHubActionsRunnerProfileInventory({
+      runners: [staged[0]!, { ...staged[1]!, status: 'online' }, staged[2]!],
+      instances, operationLabel, routing: 'staged', readiness: 'registered'
+    })).toThrow('listener is not offline');
+    expect(() => assertExactLocalGitHubActionsRunnerProfileInventory({
+      runners: [runner('control', { busy: true }), staged[1]!, staged[2]!],
+      instances, operationLabel, routing: 'either', readiness: 'registered'
+    })).not.toThrow();
+    for (const change of [
+      { id: 901 },
+      { labels: [...staged[0]!.labels, { name: 'foreign-generation-label' }] }
+    ]) {
+      expect(() => assertExactLocalGitHubActionsRunnerProfileInventory({
+        runners: [{ ...staged[0]!, ...change }, staged[1]!, staged[2]!],
+        instances, operationLabel, routing: 'either', readiness: 'registered'
+      })).toThrow();
+    }
+    expect(() => assertExactLocalGitHubActionsRunnerProfileInventory({
+      runners: [runner('control'), staged[1]!, staged[2]!],
+      instances, operationLabel, routing: 'staged', readiness: 'registered'
+    })).toThrow('complete effective labels changed');
+  });
+
+  test('checks retained control and trusted CPU and memory rather than inferring defaults', () => {
+    const resources = { cpus: 3, memory: '768m' };
+    const configured = roles.map((role) => {
+      const value = container(role);
+      return role === 'sut' ? value : {
+        ...value, HostConfig: { ...value.HostConfig, NanoCpus: 3_000_000_000, Memory: 805306368 }
+      };
+    });
+    expect(() => assertExactLocalGitHubActionsRunnerProfileContainers({
+      containers: configured, instances, repository, providerName, operationLabel, resources
+    })).not.toThrow();
+    for (const index of [0, 1]) {
+      const changed = configured.map((value, current) => current === index ? {
+        ...value, HostConfig: { ...value.HostConfig, Memory: 1073741824 }
+      } : value);
+      expect(() => assertExactLocalGitHubActionsRunnerProfileContainers({
+        containers: changed, instances, repository, providerName, operationLabel, resources
+      })).toThrow('retained resource boundary changed');
+    }
   });
 
   test('requires one exact runner identity for every trust role', () => {

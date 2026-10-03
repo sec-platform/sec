@@ -14,7 +14,8 @@ import {
   GitLocalRefDeleteBlockedError,
   MAXIMUM_LOCAL_REF_DELETE_AGGREGATE_OUTPUT_BYTES,
   MAXIMUM_LOCAL_REF_DELETE_PROCESS_COUNT,
-  measureExactLocalGitRefDeleteBatchAggregateInputBytes
+  measureExactLocalGitRefDeleteBatchAggregateInputBytes,
+  type GitLocalRefDeleteBatchReceipt
 } from '../../../providers/git/ref-effect.ts';
 import {
   executeGitHubApiOperation,
@@ -29,8 +30,9 @@ import {
 import { inspectExactNoFollowDirectoryPresence, inspectNoFollowOrdinaryFileEntry } from '../../../runtime-state/physical/runtime/physical-no-follow.ts';
 import { assertProcessResourceSessionReceipt, openProcessResourceSession } from '../../../runtime-state/physical/runtime/process-resource-session.ts';
 import {
+  acknowledgeDevelopmentCommitJournalsForLocalRefRetirement,
   CLOSED_ABSENT_DEVELOPMENT_COMMIT_JOURNAL_RETIREMENT_REQUEST_CEILING,
-  settleDevelopmentCommitJournalsForRef
+  prepareDevelopmentCommitJournalsForLocalRefRetirement
 } from '../../development/commit/operation.ts';
 import { GIT_READ_OPERATION_BUDGET } from '../../development/tooling/git/git-read.ts';
 import { observeActiveWorkPackage } from '../documentation/document-control-plane.ts';
@@ -579,7 +581,10 @@ async function deleteLocalGitRef(input: Readonly<{
   ref: string;
   expectedOldSha: string;
   coordinatedLease?: WorkspaceWriteLeaseToken;
-}>): Promise<'deleted' | 'already-absent'> {
+}>): Promise<Readonly<{
+  disposition: 'deleted' | 'already-absent';
+  localReceipt: GitLocalRefDeleteBatchReceipt | null;
+}>> {
   const entry = Object.freeze({ ref: input.ref, expectedOldSha: input.expectedOldSha });
   const operation = compileLocalRefDeleteOperation(
     input.operationId, input.coordinatedLease === undefined ? undefined : entry
@@ -588,6 +593,7 @@ async function deleteLocalGitRef(input: Readonly<{
     requirementBindingContext: issueSecOperationRequirementBindingContext({ operation,
       requirementId: LOCAL_EFFECT_REQUIREMENT, resourceCeilings: operation.plan.execution.aggregateBudgets }) });
   let disposition: 'deleted' | 'already-absent' | undefined;
+  let localReceipt: GitLocalRefDeleteBatchReceipt | null = null;
   let primaryError: unknown;
   try {
     await withAuthorityGitReadSession({ cwd: input.repositoryRoot, budget: GIT_READ_OPERATION_BUDGET }, async (session) => {
@@ -602,9 +608,9 @@ async function deleteLocalGitRef(input: Readonly<{
           disposition = (await deleteExactGitRef({ provider: resolution.capability,
             ref: input.ref, expectedOldSha: input.expectedOldSha })).disposition;
         } else {
-          const receipt = await deleteExactLocalGitRefs({ provider: resolution.capability,
+          localReceipt = await deleteExactLocalGitRefs({ provider: resolution.capability,
             coordinatedLease: input.coordinatedLease, entries: [entry] });
-          assertGitLocalRefDeleteBatchReceipt(receipt);
+          assertGitLocalRefDeleteBatchReceipt(localReceipt);
           disposition = 'deleted';
         }
       }
@@ -620,7 +626,7 @@ async function deleteLocalGitRef(input: Readonly<{
   } catch (error) { primaryError ??= error; }
   if (primaryError !== undefined) throw primaryError;
   if (disposition === undefined) throw new Error('Git ref delete completed without a disposition.');
-  return disposition;
+  return Object.freeze({ disposition, localReceipt });
 }
 
 async function assertRemoteTrackingRefAbsent(input: Readonly<{
@@ -700,22 +706,45 @@ function createProductionClosedUnmergedCloseoutAdapter(input: Readonly<{
       input.assertWorkflowCurrent();
       await input.assertWriteLease();
       try {
-        const disposition = await deleteLocalGitRef({ repositoryRoot, operationId: request.operationId,
+        const result = await deleteLocalGitRef({ repositoryRoot, operationId: request.operationId,
           ref: `refs/remotes/${request.remote}/${request.branch}`, expectedOldSha: request.expectedOldSha });
-        return Object.freeze({ status: disposition === 'deleted' ? 'applied' : 'already-applied', detail: `remote-tracking ref ${disposition}` });
+        return Object.freeze({ status: result.disposition === 'deleted' ? 'applied' : 'already-applied',
+          detail: `remote-tracking ref ${result.disposition}` });
       } catch (error) { return Object.freeze({ status: 'ambiguous', detail: error instanceof Error ? error.message : String(error) }); }
     },
     deleteLocalRefCas: async (request) => {
       input.assertWorkflowCurrent();
       await input.assertWriteLease();
       try {
-        await settleDevelopmentCommitJournalsForRef({ repositoryRoot, ref: `refs/heads/${request.branch}` });
+        const ref = `refs/heads/${request.branch}`;
+        const plan = await prepareDevelopmentCommitJournalsForLocalRefRetirement({
+          repositoryRoot,
+          ref,
+          expectedHeadSha: request.expectedOldSha,
+          coordinatedLease: input.coordinatedLease
+        });
         input.assertWorkflowCurrent();
         await input.assertWriteLease();
-        const disposition = await deleteLocalGitRef({ repositoryRoot, operationId: request.operationId,
-          ref: `refs/heads/${request.branch}`, expectedOldSha: request.expectedOldSha,
-          coordinatedLease: input.coordinatedLease });
-        return Object.freeze({ status: disposition === 'deleted' ? 'applied' : 'already-applied', detail: `local topic ref ${disposition}` });
+        const result = plan.refState === 'present'
+          ? await deleteLocalGitRef({
+              repositoryRoot,
+              operationId: request.operationId,
+              ref,
+              expectedOldSha: request.expectedOldSha,
+              coordinatedLease: input.coordinatedLease
+            })
+          : Object.freeze({
+              disposition: 'already-absent' as const,
+              localReceipt: null
+            });
+        await acknowledgeDevelopmentCommitJournalsForLocalRefRetirement(plan, {
+          coordinatedLease: input.coordinatedLease,
+          receipt: result.localReceipt
+        });
+        return Object.freeze({
+          status: result.disposition === 'deleted' ? 'applied' : 'already-applied',
+          detail: `local topic ref ${result.disposition}`
+        });
       } catch (error) {
         const status = error instanceof GitLocalRefDeleteBlockedError ? 'rejected'
           : error instanceof GitLocalRefDeleteAtomicityUnavailableError ? 'unavailable' : 'ambiguous';

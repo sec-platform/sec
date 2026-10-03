@@ -53,7 +53,7 @@ async function createRepository(): Promise<Readonly<{ commitSha: string; reposit
   git(repositoryRoot, ['config', 'core.autocrlf', 'false']);
   await mkdir(path.join(repositoryRoot, 'src', 'example'), { recursive: true });
   await writeFile(
-    path.join(repositoryRoot, 'src', 'example', 'sec.module.json'),
+    path.join(repositoryRoot, 'src', 'example', 'module.json'),
     `${JSON.stringify({
       importGraph: 'runtime',
       externalEntrypoints: [],
@@ -142,6 +142,13 @@ test('working tree and exact Git tree issue one transport-neutral source generat
   const { commitSha, repositoryRoot } = await createRepository();
   const exact = await exactSnapshot(repositoryRoot, commitSha);
   const working = await workingSnapshot(repositoryRoot);
+  for (const snapshot of [working, exact]) {
+    expect(() => snapshot.assertMatches({
+      sourceRevision: snapshot.sourceRevision,
+      files: snapshot.files,
+      moduleMembership: snapshot.moduleMembership
+    })).not.toThrow();
+  }
 
   expect(working.sourceRevision).toBe(exact.sourceRevision);
   expect(working.files.map(({ path: repositoryPath, mode, contentDigest }) => ({
@@ -331,6 +338,22 @@ test('ProjectInput preserves TypeScript requested path identity on Windows', () 
   ]);
 });
 
+test('ProjectInput emits one config fact when TypeScript imports its own project configuration', () => {
+  const config = JSON.stringify({
+    compilerOptions: { module: 'ESNext', moduleResolution: 'Bundler', resolveJsonModule: true, noLib: true, types: [] },
+    files: ['src/example/value.ts']
+  });
+  const source = "import config from '../../tsconfig.json'; export const value = config.compilerOptions;\n";
+  const snapshot = virtualProjectSnapshot({ 'tsconfig.json': config, 'src/example/value.ts': source });
+  const projectInput = compileWorkspaceTypeScriptProjectInput(snapshot, 'tsconfig.json');
+
+  expect(projectInput.sourceFacts.map(({ path: sourcePath, contentDigest }) => ({ path: sourcePath, contentDigest })))
+    .toEqual([
+      { path: 'src/example/value.ts', contentDigest: rawSha256(source) },
+      { path: 'tsconfig.json', contentDigest: rawSha256(config) }
+    ]);
+});
+
 test('ProjectInput represents a valid config with no matched TypeScript inputs as an empty generation', () => {
   const snapshot = virtualProjectSnapshot({
     'src/example/value.ts': 'export const value = true;\n',
@@ -387,7 +410,7 @@ test('ProjectInput rejects source escape before any materialization authority is
   });
 });
 
-test('ProjectInput rejects package declarations without one retained dependency generation', async () => {
+test('ProjectInput cannot observe host package declarations without one retained dependency generation', async () => {
   const { repositoryRoot } = await createRepository();
   await writeFile(
     path.join(repositoryRoot, 'src', 'example', 'value.ts'),
@@ -398,8 +421,13 @@ test('ProjectInput rejects package declarations without one retained dependency 
     budget: Object.freeze({ ...GIT_READ_OPERATION_BUDGET, maxProcesses: 4 })
   }, async (session) => {
     const snapshot = await acquireWorkingTreeWorkspaceSourceSnapshot({ session });
-    expect(() => compileWorkspaceTypeScriptProjectInput(snapshot, 'tsconfig.json'))
-      .toThrow('loaded a foreign source');
+    const projectInput = compileWorkspaceTypeScriptProjectInput(snapshot, 'tsconfig.json');
+    expect(projectInput.dependencyGenerationDigest).toBeNull();
+    expect(projectInput.externalSourceFacts.some(({ kind }) => kind === 'dependency-generation'))
+      .toBe(false);
+    expect(projectInput.externalSourceFacts.some(({ path: sourcePath }) => (
+      sourcePath.includes('commander')
+    ))).toBe(false);
   });
 });
 

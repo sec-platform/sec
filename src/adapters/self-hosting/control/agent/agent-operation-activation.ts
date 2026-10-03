@@ -10,6 +10,9 @@ import {
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+import { normalizeGitHubRepositoryPermission } from '../../../providers/github-api/repository-permission.ts';
+import { resolveAgentRuntimeRepositoryRoot } from './runtime-root.ts';
+import { selectSecOperationAuthoritySourceRevision } from './skill.ts';
 
 import { canonicalJson, compareCodeUnits, rawSha256, sha256 } from '../../../../contracts/canonical.ts';
 import { parseGitChangedRecordsOutput, type CodexDevelopmentGitChangedRecord } from '../../../verification/platform/test-impact/runtime/transition.ts';
@@ -27,8 +30,10 @@ import {
 } from '../documentation/active.ts';
 import {
   CodexDevelopmentAssertControlPlaneBinding,
+  CodexDevelopmentAssertStablePlanRollingBinding,
   CodexDevelopmentParseActivePointer,
   CodexDevelopmentParseCurrentStateSpec,
+  CodexDevelopmentParseRollingMachineProjection,
   CodexDevelopmentParseRollingPlan
 } from '../documentation/document-control-plane-contract.ts';
 import {
@@ -39,6 +44,7 @@ import {
 import {
   CodexDevelopmentAssertWorkPackageChangedRecords,
   CodexDevelopmentParseCurrentWorkPackageManifest,
+  CodexDevelopmentWorkPackageAcceptsObservedBase,
   CodexDevelopmentWorkPackageManifestDigest,
   type CodexDevelopmentWorkPackageManifest
 } from '../task/contract/work-package.ts';
@@ -438,15 +444,15 @@ export interface SecOperationAuthorityOwnerObservation {
   readonly projection: null;
 }
 
-function observeOperationAuthorityOwners(
+/** Read-only owner facts; neither this observation nor its consumers grant Effect authority. */
+export function observeOperationAuthorityOwners(
   candidateRoot: string,
   trustedRevision: string,
   targetCandidate: string,
   manifest: CodexDevelopmentWorkPackageManifest,
   paths: readonly string[]
 ): readonly SecOperationAuthorityOwnerObservation[] {
-  if (manifest.schema !== 'codex-development-work-package-v1'
-      || manifest.authorityRefs === undefined) {
+  if (manifest.authorityRefs === undefined) {
     unavailable('activation-scope-conflict', 'work-package-authority-refs-missing');
   }
   let records: readonly DocumentationIdentityRecord[];
@@ -492,9 +498,9 @@ function observeOperationAuthorityOwners(
     contentDigest: rawSha256(identityBlob.bytes),
     projection: null
   }), ...records.map((entry) => {
-    const revision = paths.includes(entry.path)
-      ? targetCandidate
-      : trustedRevision;
+    const revision = selectSecOperationAuthoritySourceRevision({
+      repositoryPath: entry.path, changedPaths: paths, trustedRevision, targetCandidate
+    });
     const blob = readGitBlob(candidateRoot, `${revision}:${entry.path}`);
     return Object.freeze({
       id: entry.documentId,
@@ -669,10 +675,18 @@ function readCandidateControl(
   assertManifestTestBlobsExist(candidateRoot, revision, manifest);
   const manifestDigest = CodexDevelopmentWorkPackageManifestDigest(manifestBytes) as `sha256:${string}`;
   if (pointer.manifestDigest !== manifestDigest || rolling.activePackageId !== manifest.id
-      || manifest.base !== receipt.exactMain
+      || !CodexDevelopmentWorkPackageAcceptsObservedBase(manifest, receipt.exactMain)
       || gitObjectExists(candidateRoot, `${receipt.exactMain}:${pointer.manifest}`)) {
     unavailable('activation-stale', 'candidate-control-binding-invalid');
   }
+  guarded('activation-stale', () => CodexDevelopmentAssertStablePlanRollingBinding({
+    manifest,
+    manifestPath: pointer.manifest,
+    manifestDigest,
+    projection: CodexDevelopmentParseRollingMachineProjection(decodeUtf8(rollingBytes, 'activation-stale')),
+    exactMain: receipt.exactMain,
+    exactMainTree: receipt.exactMainTree
+  }));
   return Object.freeze({
     manifestPath: pointer.manifest,
     manifestRevision: manifestBlob.oid,
@@ -930,7 +944,7 @@ function assertProviderLive(
   const permissionObservation = apiRecord(root,
     `/repos/${repository}/collaborators/${provider.actorLogin}/permission`);
   const permission = permissionObservation.value;
-  const role = String(permission.permission ?? '').toLowerCase();
+  const role = normalizeGitHubRepositoryPermission(permission);
   if (role !== provider.actorPermission || (role !== 'admin' && role !== 'maintain')) {
     unavailable('activation-provider-readback-conflict', permissionObservation.bytes);
   }
@@ -1710,7 +1724,7 @@ async function main(): Promise<void> {
       'phase', 'candidate-root',
       ...(options.json === true ? ['json'] : [])
     ]);
-    const runtimeRoot = repositoryRoot(path.resolve(import.meta.dir, '../..'));
+    const runtimeRoot = repositoryRoot(await resolveAgentRuntimeRepositoryRoot());
     const candidateRoot = repositoryRoot(requiredOption(options, 'candidate-root'));
     assertSameRepository(runtimeRoot, candidateRoot);
     assertCleanExactRoot(candidateRoot, gitHead(candidateRoot));
@@ -1763,7 +1777,7 @@ async function main(): Promise<void> {
     assertExactOptionKeys(options, [
       'candidate-root', 'request-id', ...(options.json === true ? ['json'] : [])
     ]);
-    const runtimeRoot = repositoryRoot(path.resolve(import.meta.dir, '../..'));
+    const runtimeRoot = repositoryRoot(await resolveAgentRuntimeRepositoryRoot());
     const candidateRoot = repositoryRoot(requiredOption(options, 'candidate-root'));
     assertSameRepository(runtimeRoot, candidateRoot);
     assertCleanExactRoot(candidateRoot, gitHead(candidateRoot));

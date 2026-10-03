@@ -11,6 +11,8 @@ last-reviewed: 2026-09-20
 - `rolling-plan.md` 只保存一个当前包和二至五个条件候选；候选不是授权。
 - `active-work-package.md` 只保存 frozen manifest path 与 raw Git blob digest。
 
+Work Package 的版本、准确候选绑定与读者先行迁移见[清单格式与候选绑定](../../docs/开发/AI协作/规则装载与任务恢复.md#repository-work-package-format-and-binding)。
+
 持久工作身份/current spec归既有Issue或canonical machine owner，长期依赖归work-selection catalog，#221
 `WorkDecision`拥有eligibility/priority，#207/#349拥有order/conflict，rolling plan只投影结果。
 发现新问题时先做existing identity/owner census；命中则同步原identity，不能用聊天、comment recency、

@@ -3,6 +3,7 @@ import path from 'node:path';
 import ts from 'typescript';
 
 import { compareCodeUnits, rawSha256, sha256 } from '../../../contracts/canonical.ts';
+import { SEC_REPOSITORY_TEST_EXECUTION_INPUT_PATHS } from '../../../contracts/repository-test-path.ts';
 import {
   type SecRepositoryModuleGraph,
   type SecRepositoryModuleMembership
@@ -13,6 +14,7 @@ import {
   type SourceProgramCompilationOperation
 } from './compilation-operation.ts';
 import {
+  isSourceProgramRuntimeBuiltinModuleSpecifier,
   sourceProgramSurfaceForPath,
   type SourceProgramCapabilityInvocation,
   type SourceProgramDeclaration,
@@ -26,9 +28,11 @@ import {
   type SourceProgramUnknown
 } from './contract.ts';
 import { resolveSecRepositoryModuleImportCandidates } from './module-graph.ts';
+import { typeScriptSemanticDependencyScopeFromSourceFile } from './typescript-syntax.ts';
 import {
   compileSecRepositoryModuleGraph,
   isCompiledTypeScriptSourceProgramModel,
+  sourceProgramTypeScriptCompilerIdentity,
   sourceProgramTypeScriptIdentifierInitializer,
   sourceProgramTypeScriptIdentifierIsAmbientGlobal,
   sourceProgramTypeScriptIdentifierResolvesToImport,
@@ -82,6 +86,7 @@ interface SourceProgramTestRegistrationObservation {
   readonly kind: string;
   readonly title: string | null;
   readonly span: SourceProgramSpan;
+  readonly registrationContentDigest: string;
   readonly assertions: readonly SourceProgramTestAssertionObservation[];
   readonly semanticClasses: readonly SourceProgramTestSemanticClass[];
   readonly observedProductionPaths: readonly string[];
@@ -107,6 +112,44 @@ interface SourceProgramTestLocalProgramInvocationObservation {
   readonly span: SourceProgramSpan;
 }
 
+interface SourceProgramTestDefinitionRead {
+  readonly path: string;
+  readonly span: SourceProgramSpan;
+  readonly target: string | null;
+  readonly coverage: 'exact' | 'descendants' | 'unknown';
+  readonly operandDigest: string;
+}
+
+/**
+ * Conservative definition/read inputs, not Claim or SUT-role authority. In
+ * particular, an actual-only imported callee can be a fixture-producing harness
+ * and remains in this closure until an exact owner assessment says otherwise.
+ */
+export interface SourceProgramTestDefinitionInputs {
+  readonly path: string;
+  readonly sourceContentDigest: string;
+  readonly contextDigest: string;
+  readonly inputs: readonly Readonly<{
+    path: string;
+    contentDigest: string | null;
+    moduleDigest: string;
+  }>[];
+  readonly unresolved: readonly string[];
+  readonly readEnvelopes: readonly Readonly<{ root: string; descendants: boolean }>[];
+  readonly hasUnknownReadScope: boolean;
+  readonly inputDigest: string;
+}
+
+export interface SourceProgramTestDefinitionContext {
+  readonly compilerIdentityDigest: string;
+  readonly inputs: SourceProgramTestDefinitionInputs['inputs'];
+  readonly unresolved: readonly string[];
+  readonly readEnvelopes: SourceProgramTestDefinitionInputs['readEnvelopes'];
+  readonly runtimeIsolation: 'unassessed';
+  readonly hasUnknownReadScope: boolean;
+  readonly contextDigest: string;
+}
+
 export interface SourceProgramTestObservations {
   readonly sourceRevision: string;
   readonly productionModelDigest: string;
@@ -119,6 +162,8 @@ export interface SourceProgramTestObservations {
   readonly resourceReads: readonly SourceProgramTestSourceReadObservation[];
   /** Static local TypeScript argv targets invoked through the current Bun process. */
   readonly localProgramInvocations: readonly SourceProgramTestLocalProgramInvocationObservation[];
+  readonly definitionInputs: readonly SourceProgramTestDefinitionInputs[];
+  readonly definitionContext: SourceProgramTestDefinitionContext;
   readonly unknowns: readonly SourceProgramUnknown[];
   readonly observationDigest: string;
 }
@@ -803,6 +848,41 @@ function rawTextReadPath(
   return null;
 }
 
+function testDefinitionReadOperand(
+  node: ts.CallExpression,
+  bindings: ReadonlyMap<string, ImportedBinding>,
+  model: SourceProgramModel,
+  repositoryPath: string
+): Readonly<{ operand: ts.Expression | undefined; coverage: 'exact' | 'descendants' | 'unknown' }> | null {
+  const bound = callBinding(node.expression, bindings);
+  const callee = ts.isIdentifier(node.expression) ? node.expression
+    : ts.isPropertyAccessExpression(node.expression) && ts.isIdentifier(node.expression.expression)
+      ? node.expression.expression : null;
+  if (bound !== null && callee !== null
+      && ['node:fs', 'fs', 'node:fs/promises', 'fs/promises'].includes(bound.binding.moduleSpecifier)
+      && sourceProgramTypeScriptIdentifierResolvesToImport(
+        model, repositoryPath, callee, bound.binding.moduleSpecifier, bound.binding.targetName
+      )) {
+    if (/^(?:readFile|stat|lstat|exists|access|open|readlink)(?:Sync)?$/u.test(bound.operation)) {
+      return { operand: node.arguments[0], coverage: 'exact' };
+    }
+    if (/^(?:readdir|opendir)(?:Sync)?$/u.test(bound.operation)) {
+      return { operand: node.arguments[0], coverage: 'descendants' };
+    }
+    if (/^(?:glob|read|readv|fstat)(?:Sync)?$/u.test(bound.operation)) {
+      return { operand: node.arguments[0], coverage: 'unknown' };
+    }
+  }
+  const textRead = rawTextReadPath(node, bindings, model, repositoryPath);
+  if (textRead !== null) return { operand: textRead, coverage: 'exact' };
+  if (ts.isPropertyAccessExpression(node.expression)
+      && node.expression.name.text === 'file' && ts.isIdentifier(node.expression.expression)
+      && sourceProgramTypeScriptIdentifierIsAmbientGlobal(model, repositoryPath, node.expression.expression, 'Bun')) {
+    return { operand: node.arguments[0], coverage: 'exact' };
+  }
+  return null;
+}
+
 function isCurrentProcessExecutable(
   expression: ts.Expression,
   model: SourceProgramModel,
@@ -1231,6 +1311,231 @@ function registrationCallback(node: ts.CallExpression): ts.FunctionLikeDeclarati
   return null;
 }
 
+function compileTestDefinitionInputs(input: Readonly<{
+  files: readonly SourceProgramFileInput[];
+  model: SourceProgramModel;
+  moduleMembership: SecRepositoryModuleMembership;
+  graph: SecRepositoryModuleGraph;
+  testPaths: readonly string[];
+  resourceReads: readonly SourceProgramTestSourceReadObservation[];
+  definitionReads: readonly SourceProgramTestDefinitionRead[];
+  localProgramInvocations: readonly SourceProgramTestLocalProgramInvocationObservation[];
+  operation: SourceProgramCompilationOperation;
+}>): Readonly<{
+  modules: readonly SourceProgramTestDefinitionInputs[];
+  context: SourceProgramTestDefinitionContext;
+}> {
+  const files = new Map(input.files.map((file) => [file.path, file] as const));
+  // Native Bun also has root dotenv inputs. Their values are not compiled or
+  // copied into this evidence; exact outside-snapshot paths still intersect the
+  // complete Git delta, including creation/deletion. Cover every documented
+  // NODE_ENV choice because legacy runner environment selection is unassessed.
+  const contextPaths = new Set<string>([...SEC_REPOSITORY_TEST_EXECUTION_INPUT_PATHS, 'tsconfig.json',
+    '.env', '.env.local', '.env.test', '.env.test.local', '.env.development',
+    '.env.development.local', '.env.production', '.env.production.local']);
+  const contextUnknowns: string[] = [];
+  const config = files.get('bunfig.toml');
+  if (config !== undefined) {
+    try {
+      const parsed = Bun.TOML.parse(config.source) as { preload?: unknown; test?: { preload?: unknown } };
+      for (const preload of [parsed.preload, parsed.test?.preload]) {
+        const entries = preload === undefined ? [] : typeof preload === 'string' ? [preload] : preload;
+        if (!Array.isArray(entries) || entries.some((entry) => typeof entry !== 'string')) {
+          contextUnknowns.push('test-preload-configuration-unresolved');
+        } else {
+          for (const entry of entries as string[]) {
+            const normalized = path.posix.normalize(entry);
+            if (entry.includes('\\') || path.posix.isAbsolute(entry)
+                || normalized === '..' || normalized.startsWith('../')) {
+              contextUnknowns.push('test-preload-outside-repository');
+            } else contextPaths.add(normalized);
+          }
+        }
+      }
+    } catch {
+      contextUnknowns.push('test-preload-configuration-unresolved');
+    }
+  }
+  // This is TypeScript namespace influence, not a runtime isolation guarantee.
+  // Runtime shared-state isolation remains explicitly unassessed below.
+  for (const file of input.model.files) {
+    const sourceFile = sourceProgramTypeScriptSourceFile(input.model, file.path);
+    if (sourceFile !== null
+        && typeScriptSemanticDependencyScopeFromSourceFile(file.path, sourceFile) !== 'module-scoped') {
+      contextPaths.add(file.path);
+    }
+  }
+  const resourceTargets = new Map<string, Set<string>>();
+  for (const { path: sourcePath, target } of [
+    ...input.resourceReads, ...input.localProgramInvocations,
+    ...input.definitionReads.filter((read): read is SourceProgramTestDefinitionRead & { target: string } =>
+      read.target !== null && read.target !== '.' && read.coverage === 'exact')
+  ]) {
+    const targets = resourceTargets.get(sourcePath) ?? new Set<string>();
+    targets.add(target);
+    resourceTargets.set(sourcePath, targets);
+  }
+  const readInputsByPath = new Map<string, SourceProgramTestDefinitionRead[]>();
+  for (const read of input.definitionReads) {
+    const reads = readInputsByPath.get(read.path) ?? [];
+    reads.push(read);
+    readInputsByPath.set(read.path, reads);
+  }
+  const boundedReads = new Set(input.definitionReads.filter(({ target, coverage }) =>
+    target !== null && coverage !== 'unknown').map(({ path, span }) => `${path}\0${span.start}\0${span.end}`));
+  const graphUnknowns = new Set(input.graph.unresolvedFiles);
+  const modelUnknowns = new Map<string, string[]>();
+  for (const unknown of input.model.unknowns) {
+    // Reuse the repository owner's native-module interpretation instead of
+    // promoting the raw lowering marker for bun:test into a new local debt.
+    // Native calls and unknown read scopes are still observed independently.
+    if (unknown.code === 'external-module-opaque'
+        && isSourceProgramRuntimeBuiltinModuleSpecifier(unknown.detail)) continue;
+    const reasons = modelUnknowns.get(unknown.path) ?? [];
+    reasons.push(`${unknown.path}:${unknown.code}`);
+    modelUnknowns.set(unknown.path, reasons);
+  }
+  const openReadPaths = new Set(input.model.capabilities.filter((capability) => (
+    capability.capability === 'dynamic-code'
+    || capability.capability === 'network'
+    || (capability.capability === 'filesystem'
+      && /read|open|scan|glob|stat|exists|access/iu.test(capability.operation)
+      && !boundedReads.has(`${capability.path}\0${capability.span.start}\0${capability.span.end}`))
+  )).map(({ path: sourcePath }) => sourcePath));
+  // One immutable compilation owns these indexes. Overlapping test closures
+  // still walk every edge and retain their own unknown/read boundary, but do
+  // not repeatedly hash the same module descriptor or read envelope.
+  const ownersByPath = new Map<string, ReturnType<SecRepositoryModuleMembership['moduleForPath']>>();
+  const moduleDigestsByOwner = new Map<ReturnType<SecRepositoryModuleMembership['moduleForPath']>, string>();
+  const observedInputsByPath = new Map<string, SourceProgramTestDefinitionInputs['inputs'][number]>();
+  const dependenciesByPath = new Map<string, readonly string[]>();
+  const envelopesByRead = new Map<SourceProgramTestDefinitionRead, Readonly<{
+    key: string; value: Readonly<{ root: string; descendants: boolean }>;
+  }>>();
+  const ownerForPath = (sourcePath: string) => {
+    if (!ownersByPath.has(sourcePath)) {
+      ownersByPath.set(sourcePath, input.moduleMembership.moduleForPath(sourcePath));
+    }
+    return ownersByPath.get(sourcePath)!;
+  };
+  const dependenciesForPath = (sourcePath: string): readonly string[] => {
+    const cached = dependenciesByPath.get(sourcePath);
+    if (cached !== undefined) return cached;
+    const owner = ownerForPath(sourcePath);
+    const descriptorPath = owner === null ? null : `${owner.root}/module.json`;
+    const dependencies = Object.freeze([
+      ...input.graph.directDependencies(sourcePath),
+      ...(resourceTargets.get(sourcePath) ?? []),
+      ...(descriptorPath !== null && files.has(descriptorPath) ? [descriptorPath] : [])
+    ]);
+    dependenciesByPath.set(sourcePath, dependencies);
+    return dependencies;
+  };
+  const observedInputForPath = (sourcePath: string): SourceProgramTestDefinitionInputs['inputs'][number] => {
+    const cached = observedInputsByPath.get(sourcePath);
+    if (cached !== undefined) return cached;
+    const owner = ownerForPath(sourcePath);
+    let moduleDigest = moduleDigestsByOwner.get(owner);
+    if (moduleDigest === undefined) {
+      moduleDigest = sha256(owner);
+      moduleDigestsByOwner.set(owner, moduleDigest);
+    }
+    const observed = Object.freeze({
+      path: sourcePath, contentDigest: files.get(sourcePath)?.contentDigest ?? null, moduleDigest
+    });
+    observedInputsByPath.set(sourcePath, observed);
+    return observed;
+  };
+  const walk = (roots: readonly string[], excluded: ReadonlySet<string> = new Set()) => {
+    const closure = new Set(roots.filter((root) => !excluded.has(root)));
+    const queue = [...closure];
+    const unresolved = new Set<string>();
+    const envelopes = new Map<string, Readonly<{ root: string; descendants: boolean }>>();
+    let hasUnknownReadScope = false;
+    for (let index = 0; index < queue.length; index++) {
+      checkpoint(input.operation);
+      const sourcePath = queue[index]!;
+      if (graphUnknowns.has(sourcePath)) {
+        unresolved.add(`${sourcePath}:module-resolution-unresolved`);
+        hasUnknownReadScope = true;
+      }
+      for (const reason of modelUnknowns.get(sourcePath) ?? []) {
+        unresolved.add(reason);
+        hasUnknownReadScope = true;
+      }
+      if (openReadPaths.has(sourcePath)) {
+        unresolved.add(`${sourcePath}:external-or-dynamic-read-scope-unresolved`);
+        hasUnknownReadScope = true;
+      }
+      for (const read of readInputsByPath.get(sourcePath) ?? []) {
+        if (read.target === null || read.coverage === 'unknown') {
+          unresolved.add(`${read.path}:${read.span.start}:${read.span.end}:unresolved-read:${read.operandDigest}`);
+          hasUnknownReadScope = true;
+        } else {
+          let envelope = envelopesByRead.get(read);
+          if (envelope === undefined) {
+            const value = Object.freeze({ root: read.target, descendants: read.coverage === 'descendants' });
+            envelope = Object.freeze({ key: sha256(value), value });
+            envelopesByRead.set(read, envelope);
+          }
+          envelopes.set(envelope.key, envelope.value);
+        }
+      }
+      for (const dependency of dependenciesForPath(sourcePath)) {
+        if (!closure.has(dependency) && !excluded.has(dependency)) {
+          closure.add(dependency);
+          queue.push(dependency);
+        }
+      }
+    }
+    const observedInputs = Object.freeze([...closure].sort(compareCodeUnits).map((sourcePath) => {
+      const observed = observedInputForPath(sourcePath);
+      if (observed.contentDigest === null && !SEC_REPOSITORY_TEST_EXECUTION_INPUT_PATHS
+        .some((configPath) => configPath === sourcePath) && sourcePath !== 'tsconfig.json') {
+        unresolved.add(`${sourcePath}:input-bytes-outside-source-snapshot`);
+      }
+      return observed;
+    }));
+    return {
+      closure, observedInputs, unresolved, hasUnknownReadScope,
+      readEnvelopes: Object.freeze([...envelopes.values()].sort((left, right) =>
+        compareCodeUnits(left.root, right.root) || Number(left.descendants) - Number(right.descendants)))
+    };
+  };
+  const contextWalk = walk([...contextPaths]);
+  const canonicalContext = Object.freeze({
+    compilerIdentityDigest: sha256({
+      typeScript: sourceProgramTypeScriptCompilerIdentity(),
+      nativeRuntime: { bun: process.versions.bun ?? null, node: process.versions.node,
+        platform: process.platform, architecture: process.arch }
+    }),
+    inputs: contextWalk.observedInputs,
+    unresolved: Object.freeze([...new Set([...contextWalk.unresolved, ...contextUnknowns])].sort(compareCodeUnits)),
+    readEnvelopes: contextWalk.readEnvelopes,
+    runtimeIsolation: 'unassessed' as const,
+    hasUnknownReadScope: contextWalk.hasUnknownReadScope || contextUnknowns.length > 0
+  });
+  const context = Object.freeze({ ...canonicalContext, contextDigest: sha256(canonicalContext) });
+  const footprints = input.testPaths.map((testPath) => {
+    checkpoint(input.operation);
+    const moduleWalk = walk([testPath], contextWalk.closure);
+    const canonical = Object.freeze({
+      path: testPath,
+      sourceContentDigest: files.get(testPath)!.contentDigest,
+      contextDigest: context.contextDigest,
+      inputs: moduleWalk.observedInputs,
+      unresolved: Object.freeze([...moduleWalk.unresolved].sort(compareCodeUnits)),
+      readEnvelopes: moduleWalk.readEnvelopes,
+      hasUnknownReadScope: context.hasUnknownReadScope || moduleWalk.hasUnknownReadScope
+    });
+    return Object.freeze({ ...canonical, inputDigest: sha256(canonical) });
+  });
+  return Object.freeze({
+    modules: Object.freeze(footprints.sort((left, right) => compareCodeUnits(left.path, right.path))),
+    context
+  });
+}
+
 function semanticClassesForRegistration(
   references: readonly SourceProgramReference[],
   capabilities: readonly SourceProgramCapabilityInvocation[],
@@ -1339,10 +1644,44 @@ function compileSourceProgramTestObservationsInternal(
   const productionSourceReads: SourceProgramTestSourceReadObservation[] = [];
   const resourceReads: SourceProgramTestSourceReadObservation[] = [];
   const localProgramInvocations: SourceProgramTestLocalProgramInvocationObservation[] = [];
+  const definitionReads: SourceProgramTestDefinitionRead[] = [];
   const unknowns: SourceProgramUnknown[] = [];
   const testFiles = files.filter(({ path }) => sourceProgramSurfaceForPath(path) === 'test');
   const repositoryRoot = input.repositoryRoot ?? process.cwd();
   const productionPaths = new Set(productionFiles.keys());
+
+  const collectDefinitionRead = (
+    node: ts.CallExpression, sourceFile: ts.SourceFile, filePath: string,
+    bindings: ReadonlyMap<string, ImportedBinding>, constants: ReadonlyMap<string, ts.Expression>
+  ): void => {
+    const definitionRead = testDefinitionReadOperand(node, bindings, input.productionModel, filePath);
+    if (definitionRead === null) return;
+    const value = definitionRead.operand === undefined ? null
+      : staticString(definitionRead.operand, filePath, repositoryRoot, constants);
+    const target = value === null ? null : repositoryPath(repositoryRoot, value);
+    definitionReads.push(Object.freeze({
+      path: filePath, span: spanFor(sourceFile, node), target: target === '' ? '.' : target,
+      coverage: definitionRead.coverage,
+      operandDigest: sha256({ method: 'native-test-read-operand-v1',
+        source: definitionRead.operand?.getText(sourceFile) ?? null })
+    }));
+  };
+  // A literal read in an imported harness is a known dependency too. Leaving
+  // it as legacy unbounded debt would let a changed fixture evade assessment.
+  // Facts are gathered once per source module and joined through the same
+  // canonical import closure; unrelated modules do not enter a test footprint.
+  for (const file of productionFiles.values()) {
+    const sourceFile = sourceProgramTypeScriptSourceFile(input.productionModel, file.path);
+    if (sourceFile === null) continue;
+    const bindings = importBindings(sourceFile, graphTargets);
+    const constants = constantInitializers(sourceFile, input.operation);
+    const visitRead = (node: ts.Node): void => {
+      checkpoint(input.operation);
+      if (ts.isCallExpression(node)) collectDefinitionRead(node, sourceFile, file.path, bindings, constants);
+      ts.forEachChild(node, visitRead);
+    };
+    visitRead(sourceFile);
+  }
 
   for (const file of testFiles) {
     checkpoint(input.operation);
@@ -1431,6 +1770,7 @@ function compileSourceProgramTestObservationsInternal(
           registrationNodes.push(node);
         }
         if (ts.isCallExpression(node)) {
+          collectDefinitionRead(node, sourceFile, file.path, bindings, constants);
           const sourcePathExpression = rawTextReadPath(node, bindings, input.productionModel, file.path);
           if (sourcePathExpression !== null) {
             const value = staticString(sourcePathExpression, file.path, repositoryRoot, constants);
@@ -1845,6 +2185,7 @@ function compileSourceProgramTestObservationsInternal(
         kind,
         title,
         span: registrationSpan,
+        registrationContentDigest: rawSha256(file.source.slice(registrationStart, registrationEnd)),
         assertions: assertionObservations,
         semanticClasses,
         observedProductionPaths,
@@ -1888,6 +2229,17 @@ function compileSourceProgramTestObservationsInternal(
     || compareCodeUnits(left.code, right.code)
     || compareCodeUnits(left.detail, right.detail));
   checkpoint(input.operation);
+  const definition = compileTestDefinitionInputs({
+    files,
+    model: input.productionModel,
+    moduleMembership: input.moduleMembership,
+    graph,
+    testPaths: [...new Set(registrations.map(({ path: testPath }) => testPath))],
+    resourceReads: [...productionSourceReads, ...resourceReads],
+    definitionReads,
+    localProgramInvocations,
+    operation: input.operation
+  });
   const canonical = Object.freeze({
     // The revision names the repository snapshot shared with the production
     // model. Exact test bytes are independently bound by observationDigest;
@@ -1903,6 +2255,8 @@ function compileSourceProgramTestObservationsInternal(
     productionSourceReads: Object.freeze(productionSourceReads),
     resourceReads: Object.freeze(resourceReads),
     localProgramInvocations: Object.freeze(localProgramInvocations),
+    definitionInputs: definition.modules,
+    definitionContext: definition.context,
     unknowns: Object.freeze([...compilerUnknowns, ...unknowns])
   });
   const observations = Object.freeze({

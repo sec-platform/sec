@@ -10,10 +10,13 @@ import {
 } from '../../../contracts/exact-json.ts';
 import type { SecRepositoryModuleArchitectureProjection } from '../architecture/contract.ts';
 import type {
+  SourceProgramAnalysisNotRequested,
   SourceProgramCandidate,
+  SourceProgramCandidateAnalysis,
   SourceProgramModel,
   SourceProgramTopologySummary
 } from '../source-program-model/contract.ts';
+import { SOURCE_PROGRAM_TEST_OBLIGATIONS_NOT_REQUESTED, requireSourceProgramCandidateAnalysis } from '../source-program-model/contract.ts';
 import type {
   SourceProgramTestDispositionProjection,
   SourceProgramTestFinding,
@@ -22,8 +25,12 @@ import type {
 } from '../source-program-model/test-value.ts';
 
 import {
-  sourceProgramFindingDeltaIsUnresolved, summarizeSourceProgramFindingDelta,
-  type SourceProgramFindingDelta
+  assertSourceProgramTestFindingDelta,
+  sourceProgramFindingDeltaIsUnresolved,
+  sourceProgramTestFindingDeltaHasRegression, sourceProgramTestFindingDeltaIsUnresolved,
+  summarizeSourceProgramFindingDelta,
+  summarizeSourceProgramTestFindingDelta,
+  type SourceProgramFindingDelta, type SourceProgramTestFindingDelta
 } from '../source-program-model/reconciliation-findings.ts';
 
 import { compileSourceProgramMechanismReview, type SourceProgramMechanismReview } from './mechanism-review.ts';
@@ -116,7 +123,9 @@ type SourceProgramAuditArchitectureEvolutionProjection = Readonly<{
 }>;
 
 type SourceProgramAuditSupersessionProjection = Readonly<{
-  readonly status: 'equivalent' | 'superseded' | 'owner-decision-required';
+  readonly authorityScope: 'whole-program' | 'test-obligations';
+  readonly status: 'equivalent' | 'superseded' | 'retained-unassessed'
+    | 'author-approved-change' | 'author-decision-conditional' | 'owner-decision-required';
   readonly baseline: Readonly<{
     readonly sourceRevision: string;
     readonly modelDigest: string;
@@ -147,6 +156,9 @@ type SourceProgramAuditSupersessionProjection = Readonly<{
   }>;
   readonly replacements: readonly Readonly<{ readonly kind: 'entrypoint' | 'production' | 'resource' | 'test' }>[];
   readonly findings: readonly unknown[];
+  readonly retainedUnknowns?: readonly string[];
+  readonly authorDecisionDigest?: string | null;
+  readonly authorAssessedCurrentPaths?: readonly string[];
   readonly receiptDigest: string;
 }>;
 
@@ -227,7 +239,10 @@ export type SourceProgramAuditReduction =
       }>;
     }>;
 
-export interface CompileSourceProgramAuditOperationInput {
+/** Historical complete facts retain their original wire representation. */
+export interface CompileWholeSourceProgramAuditOperationInput {
+  readonly schema?: never;
+  readonly baselineCompilation?: never;
   readonly sourceProgram: Readonly<{
     readonly sourceRevision: string;
     readonly modelDigest: string;
@@ -289,6 +304,7 @@ export interface CompileSourceProgramAuditOperationInput {
     readonly baselineDigest: string;
     readonly baselineEvidenceDigest: string;
     readonly compilationDigest: string;
+    readonly findingsDigest: string;
     readonly candidateRegistrationCensus: Readonly<{
       readonly count: number;
       readonly digest: string;
@@ -297,6 +313,8 @@ export interface CompileSourceProgramAuditOperationInput {
     readonly recordsWithUnknownSemantics: number;
     readonly semanticClasses: Readonly<Record<string, number>>;
   }>;
+  /** Missing older projections remain unavailable, never an inventory exemption. */
+  readonly testFindingDelta?: SourceProgramTestFindingDelta;
   readonly testDisposition: SourceProgramTestDispositionProjection;
   /** Parent projections from the canonical Source Program policy owner. */
   readonly blockingCandidates: readonly SourceProgramCandidate[];
@@ -309,6 +327,7 @@ export interface CompileSourceProgramAuditOperationInput {
   /** Reduction compilers and provider receipts remain in the parent boundary. */
   readonly reduction: SourceProgramAuditReduction;
   readonly options: Readonly<{
+    readonly authorityScope?: 'whole-program' | 'test-obligations';
     readonly blockingDetails: boolean;
     readonly blockingDetailsDomain: 'priority' | 'source-program' | 'declaration-topology'
       | 'test-retirement' | 'implementation-dominance' | 'test-value'
@@ -322,6 +341,82 @@ export interface CompileSourceProgramAuditOperationInput {
     /** Parent-normalized presentation only; the operation never writes it. */
     readonly outputPath: string | null;
   }>;
+}
+
+export type SourceProgramAuditAnalysisNotRequested = SourceProgramAnalysisNotRequested;
+
+type WholeProgramAnalyses = Pick<CompileWholeSourceProgramAuditOperationInput,
+  'schema' | 'baselineCompilation' | 'implementationDominance' | 'reconciliation' | 'architectureEvolution'>;
+
+type TestObligationAnalyses = Readonly<{
+  schema: 'source-program-test-obligations-audit-facts-v1';
+  baselineCompilation: SourceProgramAuditReconciliationProjection['before'];
+  implementationDominance: SourceProgramAuditAnalysisNotRequested;
+  reconciliation: SourceProgramAuditAnalysisNotRequested;
+  architectureEvolution: SourceProgramAuditAnalysisNotRequested;
+}>;
+
+export type CompileLegacyTestObligationsAuditOperationInput =
+  Omit<CompileWholeSourceProgramAuditOperationInput,
+    keyof WholeProgramAnalyses | 'options' | 'reduction' | 'testFindingDelta'>
+  & TestObligationAnalyses & Readonly<{
+    options: CompileWholeSourceProgramAuditOperationInput['options'] & Readonly<{ authorityScope: 'test-obligations' }>;
+    reduction: Readonly<{ mode: 'none' }>;
+    testFindingDelta: SourceProgramTestFindingDelta;
+  }>;
+
+type TestObligationsSourceProgramProjection = Omit<
+  CompileWholeSourceProgramAuditOperationInput['sourceProgram'], 'candidateDigests' | 'candidates' | 'counts'
+> & Readonly<{
+  candidateDigests: SourceProgramAnalysisNotRequested;
+  candidates: SourceProgramAnalysisNotRequested;
+  counts: Omit<CompileWholeSourceProgramAuditOperationInput['sourceProgram']['counts'], 'candidates'>
+    & Readonly<{ candidates: SourceProgramAnalysisNotRequested }>;
+}>;
+
+export type CompileScopedCandidateTestObligationsAuditOperationInput = Omit<
+  CompileLegacyTestObligationsAuditOperationInput, 'schema' | 'sourceProgram' | 'blockingCandidates' | 'topology'
+> & Readonly<{
+  schema: 'source-program-test-obligations-audit-facts-v2';
+  sourceProgram: TestObligationsSourceProgramProjection;
+  blockingCandidates: SourceProgramAnalysisNotRequested;
+  topology: SourceProgramTopologySummary<SourceProgramAnalysisNotRequested, SourceProgramAnalysisNotRequested>;
+}>;
+
+export type CompileTestObligationsAuditOperationInput =
+  | CompileLegacyTestObligationsAuditOperationInput
+  | CompileScopedCandidateTestObligationsAuditOperationInput;
+
+export type CompileSourceProgramAuditOperationInput =
+  | CompileWholeSourceProgramAuditOperationInput
+  | CompileTestObligationsAuditOperationInput;
+
+/** Select before invoking expensive whole-program producers. The baseline
+ * anchor is a parent projection of its actual compilation, not a receipt issuer. */
+export function compileSourceProgramAuditAnalyses(input: Readonly<{
+  authorityScope: 'whole-program' | 'test-obligations';
+  baselineCompilation: SourceProgramAuditReconciliationProjection['before'];
+  compileWholeProgram: () => WholeProgramAnalyses;
+}>): WholeProgramAnalyses | TestObligationAnalyses {
+  if (input.authorityScope === 'whole-program') return input.compileWholeProgram();
+  if (input.authorityScope !== 'test-obligations') throw new Error('Unsupported Source Program analysis scope');
+  const notRequested: SourceProgramAuditAnalysisNotRequested = Object.freeze({
+    status: 'not-requested', reason: 'outside-test-obligations'
+  });
+  return Object.freeze({
+    schema: 'source-program-test-obligations-audit-facts-v1',
+    baselineCompilation: Object.freeze({ ...input.baselineCompilation }),
+    implementationDominance: notRequested,
+    reconciliation: notRequested,
+    architectureEvolution: notRequested
+  });
+}
+
+export function isTestObligationsAuditFacts(
+  input: CompileSourceProgramAuditOperationInput
+): input is CompileTestObligationsAuditOperationInput {
+  return input.schema === 'source-program-test-obligations-audit-facts-v1'
+    || input.schema === 'source-program-test-obligations-audit-facts-v2';
 }
 
 export interface SourceProgramAuditOperationResult {
@@ -446,6 +541,19 @@ function pagedRecordSet<T>(
 
 type BlockingDetailRecord = Readonly<{ readonly category: string; readonly record: unknown }>;
 
+function isScopedCandidateTestFacts(
+  input: CompileSourceProgramAuditOperationInput
+): input is CompileScopedCandidateTestObligationsAuditOperationInput {
+  return input.schema === 'source-program-test-obligations-audit-facts-v2';
+}
+
+function assertAnalysisNotRequested(value: unknown): void {
+  if (!isPlainObject(value) || Object.keys(value).length !== 2
+      || value.status !== 'not-requested' || value.reason !== 'outside-test-obligations') {
+    throw new Error('Scoped test analysis must be explicitly not requested');
+  }
+}
+
 function blockingDetailRecords(
   input: CompileSourceProgramAuditOperationInput,
   domain: CompileSourceProgramAuditOperationInput['options']['blockingDetailsDomain']
@@ -455,7 +563,9 @@ function blockingDetailRecords(
   switch (domain) {
     case 'priority':
       return Object.freeze([
-        ...tagged('blocking-candidate', input.blockingCandidates),
+        ...(isScopedCandidateTestFacts(input)
+          ? tagged('candidate-analysis-not-requested', [input.blockingCandidates])
+          : tagged('blocking-candidate', input.blockingCandidates)),
         ...tagged('blocking-test-finding', input.blockingTestFindings)
       ]);
     case 'source-program': return tagged('source-program-unknown', input.sourceProgram.unknowns);
@@ -465,6 +575,9 @@ function blockingDetailRecords(
       return tagged('blocked-test-retirement-proof', input.testRetirement.proofs
         .filter(({ status }) => status === 'blocked'));
     case 'implementation-dominance':
+      if (isTestObligationsAuditFacts(input)) {
+        throw new Error('Implementation dominance was not requested for test obligations');
+      }
       return tagged('implementation-dominance-finding', input.implementationDominance.findings);
     case 'test-value':
       return Object.freeze([
@@ -503,12 +616,10 @@ function assertReductionPatch(
   }
 }
 
-export function compileSourceProgramAuditSourceProgramProjection(
-  model: SourceProgramModel,
-  sourceFileIdentities: readonly Readonly<{ readonly path: string; readonly contentDigest: string }>[],
-  includeCandidates: boolean,
-  includeUnknowns = false
-): CompileSourceProgramAuditOperationInput['sourceProgram'] {
+function assertSourceProgramProjectionInputs(
+  model: SourceProgramModel<SourceProgramCandidateAnalysis>,
+  sourceFileIdentities: readonly Readonly<{ readonly path: string; readonly contentDigest: string }>[]
+): void {
   assertSourceFileIdentities(sourceFileIdentities);
   const modelFileDigestByPath = new Map(model.files.map(({ path, contentDigest }) =>
     [path, contentDigest] as const));
@@ -517,11 +628,24 @@ export function compileSourceProgramAuditSourceProgramProjection(
         modelFileDigestByPath.get(path) !== contentDigest)) {
     throw new Error('Source bytes are not the exact Source Program file set');
   }
+}
+
+export function compileSourceProgramAuditSourceProgramProjection(
+  model: SourceProgramModel,
+  sourceFileIdentities: readonly Readonly<{ readonly path: string; readonly contentDigest: string }>[],
+  includeCandidates: boolean,
+  includeUnknowns = false,
+  includeMechanismReview = true
+): CompileWholeSourceProgramAuditOperationInput['sourceProgram'] {
+  assertSourceProgramProjectionInputs(model, sourceFileIdentities);
+  requireSourceProgramCandidateAnalysis(model.candidates);
   return Object.freeze({
     sourceRevision: model.sourceRevision,
     modelDigest: model.modelDigest,
     sourceFileSetDigest: sha256(sourceFileIdentities),
-    mechanismReview: compileSourceProgramMechanismReview(model),
+    // This diagnostic is not a test-obligation input. Branch before its scan;
+    // omitted optional data preserves the historical full-audit representation.
+    ...(includeMechanismReview ? { mechanismReview: compileSourceProgramMechanismReview(model) } : {}),
     candidateDigests: Object.freeze(model.candidates.map((candidate) => sha256(candidate))),
     unknownDigests: Object.freeze(model.unknowns.map((unknown) => sha256(unknown))),
     unknownsDigest: sha256(model.unknowns),
@@ -530,6 +654,39 @@ export function compileSourceProgramAuditSourceProgramProjection(
     counts: Object.freeze({
       capabilities: model.capabilities.length,
       candidates: model.candidates.length,
+      declarations: model.declarations.length,
+      dependencies: model.dependencies.length,
+      entrypoints: model.entrypoints.length,
+      entrypointClosures: model.entrypointClosures.length,
+      files: model.files.length,
+      literals: model.literals.length,
+      packages: model.packages.length,
+      references: model.references.length,
+      unknowns: model.unknowns.length
+    })
+  });
+}
+
+/** The v2 source projection reports omitted candidate work without empty findings. */
+export function compileSourceProgramAuditTestObligationsSourceProgramProjection(
+  model: SourceProgramModel<SourceProgramAnalysisNotRequested>,
+  sourceFileIdentities: readonly Readonly<{ readonly path: string; readonly contentDigest: string }>[],
+  includeUnknowns = false
+): TestObligationsSourceProgramProjection {
+  assertSourceProgramProjectionInputs(model, sourceFileIdentities);
+  assertAnalysisNotRequested(model.candidates);
+  return Object.freeze({
+    sourceRevision: model.sourceRevision,
+    modelDigest: model.modelDigest,
+    sourceFileSetDigest: sha256(sourceFileIdentities),
+    candidateDigests: SOURCE_PROGRAM_TEST_OBLIGATIONS_NOT_REQUESTED,
+    unknownDigests: Object.freeze(model.unknowns.map((unknown) => sha256(unknown))),
+    unknownsDigest: sha256(model.unknowns),
+    candidates: SOURCE_PROGRAM_TEST_OBLIGATIONS_NOT_REQUESTED,
+    unknowns: includeUnknowns ? model.unknowns : Object.freeze([]),
+    counts: Object.freeze({
+      capabilities: model.capabilities.length,
+      candidates: SOURCE_PROGRAM_TEST_OBLIGATIONS_NOT_REQUESTED,
       declarations: model.declarations.length,
       dependencies: model.dependencies.length,
       entrypoints: model.entrypoints.length,
@@ -553,6 +710,7 @@ export function compileSourceProgramAuditTestValueProjection(
     baselineDigest: compilation.baselineDigest,
     baselineEvidenceDigest: compilation.baselineEvidenceDigest,
     compilationDigest: compilation.compilationDigest,
+    findingsDigest: sha256(compilation.findings.map(finding => sha256(finding)).sort(compareCodeUnits)),
     candidateRegistrationCensus: Object.freeze({
       count: compilation.records.length,
       digest: sha256(compilation.records.map(({ testId, path, span }) => ({ testId, path, span }))),
@@ -576,15 +734,42 @@ export function compileSourceProgramAuditTestValueProjection(
 }
 
 function assertFacts(input: CompileSourceProgramAuditOperationInput): void {
+  if (Object.hasOwn(input, 'schema') && !isTestObligationsAuditFacts(input)) {
+    throw new Error('Unsupported Source Program audit facts schema');
+  }
+  if (isTestObligationsAuditFacts(input)) {
+    if (input.options.authorityScope !== 'test-obligations' || input.reduction.mode !== 'none'
+        || input.testFindingDelta === undefined) {
+      throw new Error('Scoped test facts require test obligations, comparison and no reduction');
+    }
+    for (const analysis of [input.implementationDominance, input.reconciliation, input.architectureEvolution]) {
+      assertAnalysisNotRequested(analysis);
+    }
+    const baseline = input.baselineCompilation;
+    if (!isPlainObject(baseline) || Object.keys(baseline).length !== 3
+        || ![baseline.sourceRevision, baseline.modelDigest, baseline.compilationReceiptDigest]
+          .every(value => typeof value === 'string' && /^sha256:[a-f0-9]{64}$/u.test(value))) {
+      throw new Error('Scoped test facts require an exact baseline compilation anchor');
+    }
+  } else if (Object.hasOwn(input, 'baselineCompilation')) {
+    throw new Error('Legacy full facts cannot substitute a scoped compilation anchor');
+  }
   assertSourceFileIdentities(input.sourceFileIdentities);
   if (input.sourceProgram.sourceFileSetDigest !== sha256(input.sourceFileIdentities)
       || input.sourceProgram.counts.files !== input.sourceFileIdentities.length
-      || input.sourceProgram.candidateDigests.length !== input.sourceProgram.counts.candidates
-      || input.sourceProgram.unknownDigests.length !== input.sourceProgram.counts.unknowns
-      || input.sourceProgram.candidates.length !== (
-        input.options.includeCandidates ? input.sourceProgram.counts.candidates : 0
-      )) {
+      || input.sourceProgram.unknownDigests.length !== input.sourceProgram.counts.unknowns) {
     throw new Error('Source Program projection is not bound to its exact fact set');
+  }
+  if (isScopedCandidateTestFacts(input)) {
+    for (const analysis of [input.sourceProgram.candidates, input.sourceProgram.candidateDigests,
+      input.sourceProgram.counts.candidates, input.blockingCandidates,
+      input.topology.candidateCodes, input.topology.directProcessTransportPaths]) {
+      assertAnalysisNotRequested(analysis);
+    }
+  } else if (input.sourceProgram.candidateDigests.length !== input.sourceProgram.counts.candidates
+      || input.sourceProgram.candidates.length !== (
+        input.options.includeCandidates ? input.sourceProgram.counts.candidates : 0)) {
+    throw new Error('Source Program candidate projection is not bound to its exact fact set');
   }
   const mechanisms = input.sourceProgram.mechanismReview;
   if (mechanisms !== undefined && (
@@ -594,35 +779,67 @@ function assertFacts(input: CompileSourceProgramAuditOperationInput): void {
   )) {
     throw new Error('Mechanism review is not bound to the Source Program projection');
   }
-  if (input.implementationDominance.sourceRevision !== input.sourceProgram.sourceRevision
-      || input.implementationDominance.sourceProgramModelDigest !== input.sourceProgram.modelDigest) {
-    throw new Error('Implementation dominance is not bound to the Source Program model');
-  }
-  if (input.reconciliation.after.sourceRevision !== input.sourceProgram.sourceRevision
-      || input.reconciliation.after.modelDigest !== input.sourceProgram.modelDigest
-      || input.reconciliation.after.compilationReceiptDigest
-        !== input.sourceProgramCompilation.receiptDigest
-      || input.declarationTopology.sourceRevision !== input.sourceProgram.sourceRevision
+  if (input.declarationTopology.sourceRevision !== input.sourceProgram.sourceRevision
       || input.declarationTopology.modelDigest !== input.sourceProgram.modelDigest
-      || input.declarationTopology.compilationReceiptDigest
-        !== input.sourceProgramCompilation.receiptDigest
-      || input.architectureEvolution.after.sourceRevision !== input.sourceProgram.sourceRevision
-      || input.architectureEvolution.after.modelDigest !== input.sourceProgram.modelDigest
-      || input.architectureEvolution.reconciliationProjectionDigest
-        !== input.reconciliation.projectionDigest) {
-    throw new Error('Architecture projections are not bound to the Source Program model');
+      || input.declarationTopology.compilationReceiptDigest !== input.sourceProgramCompilation.receiptDigest) {
+    throw new Error('Declaration topology is not bound to the Source Program model');
   }
-  const delta = input.reconciliation.findingDelta;
-  if (delta !== undefined && (
-    delta.before.sourceRevision !== input.reconciliation.before.sourceRevision
-    || delta.before.modelDigest !== input.reconciliation.before.modelDigest
-    || delta.after.sourceRevision !== input.reconciliation.after.sourceRevision
-    || delta.after.modelDigest !== input.reconciliation.after.modelDigest
-    || (sourceProgramFindingDeltaIsUnresolved(delta) && input.reconciliation.status !== 'unresolved')
-  )) {
-    throw new Error('Finding reconciliation is not bound to the compared models or unresolved state');
+  if (!isTestObligationsAuditFacts(input)) {
+    if (input.implementationDominance.sourceRevision !== input.sourceProgram.sourceRevision
+        || input.implementationDominance.sourceProgramModelDigest !== input.sourceProgram.modelDigest) {
+      throw new Error('Implementation dominance is not bound to the Source Program model');
+    }
+    if (input.reconciliation.after.sourceRevision !== input.sourceProgram.sourceRevision
+        || input.reconciliation.after.modelDigest !== input.sourceProgram.modelDigest
+        || input.reconciliation.after.compilationReceiptDigest
+          !== input.sourceProgramCompilation.receiptDigest
+        || input.architectureEvolution.after.sourceRevision !== input.sourceProgram.sourceRevision
+        || input.architectureEvolution.after.modelDigest !== input.sourceProgram.modelDigest
+        || input.architectureEvolution.reconciliationProjectionDigest
+          !== input.reconciliation.projectionDigest) {
+      throw new Error('Architecture projections are not bound to the Source Program model');
+    }
+    const delta = input.reconciliation.findingDelta;
+    if (delta !== undefined && (
+      delta.before.sourceRevision !== input.reconciliation.before.sourceRevision
+      || delta.before.modelDigest !== input.reconciliation.before.modelDigest
+      || delta.after.sourceRevision !== input.reconciliation.after.sourceRevision
+      || delta.after.modelDigest !== input.reconciliation.after.modelDigest
+      || (sourceProgramFindingDeltaIsUnresolved(delta) && input.reconciliation.status !== 'unresolved')
+    )) {
+      throw new Error('Finding reconciliation is not bound to the compared models or unresolved state');
+    }
   }
+  const baselineCompilation = isTestObligationsAuditFacts(input)
+    ? input.baselineCompilation : input.reconciliation.before;
+  const testDelta = input.testFindingDelta;
+  if (testDelta !== undefined) {
+    assertSourceProgramTestFindingDelta(testDelta, input.testDisposition.findings);
+    if (testDelta.before.sourceRevision !== baselineCompilation.sourceRevision
+        || testDelta.before.modelDigest !== baselineCompilation.modelDigest
+        || testDelta.before.compilationReceiptDigest !== baselineCompilation.compilationReceiptDigest
+        || testDelta.before.sourceRevision !== input.supersession.baseline.sourceRevision
+        || testDelta.before.modelDigest !== input.supersession.baseline.modelDigest
+        || testDelta.before.testCompilationDigest !== input.supersession.baseline.testCompilationDigest
+        || testDelta.after.sourceRevision !== input.sourceProgram.sourceRevision
+        || testDelta.after.modelDigest !== input.sourceProgram.modelDigest
+        || testDelta.after.compilationReceiptDigest !== input.sourceProgramCompilation.receiptDigest
+        || testDelta.after.testCompilationDigest !== input.testValue.compilationDigest
+        || testDelta.after.findingsDigest !== input.testValue.findingsDigest) {
+      throw new Error('Test finding reconciliation is not bound to the exact baseline/current compilations');
+    }
+  }
+  const derivedTestDisposition = input.testDisposition.dispositions.some(({ disposition, evidence }) =>
+    disposition === 'merge' && evidence.supersession?.receiptDigest === input.supersession.receiptDigest
+    || disposition === 'rewrite' && evidence.ownerDecisionDigest !== null
+      && evidence.ownerDecisionDigest === input.supersession.authorDecisionDigest);
+  const dispositionSupersessionDigest = input.testDisposition.supersessionReceiptDigest;
+  const dispositionSupersessionIsBound = dispositionSupersessionDigest === null
+    ? !derivedTestDisposition
+    : dispositionSupersessionDigest === input.supersession.receiptDigest
+      && (input.supersession.status === 'superseded' || input.supersession.status === 'author-approved-change');
   const testBindingFailures = [
+    ...((input.options.authorityScope ?? 'whole-program') === input.supersession.authorityScope ? [] : ['supersession-authority-scope']),
     ...(input.testValue.sourceRevision === input.sourceProgram.sourceRevision ? [] : ['test-value-source']),
     ...(input.testDisposition.sourceRevision === input.sourceProgram.sourceRevision ? [] : ['test-disposition-source']),
     ...(input.testDisposition.baselineDigest === input.testValue.baselineDigest ? [] : ['test-baseline']),
@@ -630,9 +847,7 @@ function assertFacts(input: CompileSourceProgramAuditOperationInput): void {
       ? [] : ['test-baseline-evidence']),
     ...(input.testDisposition.observationCompilationDigest === input.testValue.compilationDigest
       ? [] : ['test-observation-compilation']),
-    ...(input.testDisposition.supersessionReceiptDigest === (
-      input.supersession.status === 'superseded' ? input.supersession.receiptDigest : null
-    ) ? [] : ['test-supersession']),
+    ...(dispositionSupersessionIsBound ? [] : ['test-supersession']),
     ...(input.supersession.current.sourceRevision === input.sourceProgram.sourceRevision
       ? [] : ['supersession-source']),
     ...(input.supersession.current.modelDigest === input.sourceProgram.modelDigest
@@ -653,9 +868,11 @@ function assertFacts(input: CompileSourceProgramAuditOperationInput): void {
       `Test and supersession projections are not bound to one observation: ${testBindingFailures.join(', ')}`
     );
   }
-  const candidateDigests = new Set(input.sourceProgram.candidateDigests);
-  if (input.blockingCandidates.some((candidate) => !candidateDigests.has(sha256(candidate)))) {
-    throw new Error('Blocking candidate projection is not a subset of the Source Program model');
+  if (!isScopedCandidateTestFacts(input)) {
+    const candidateDigests = new Set(input.sourceProgram.candidateDigests);
+    if (input.blockingCandidates.some((candidate) => !candidateDigests.has(sha256(candidate)))) {
+      throw new Error('Blocking candidate projection is not a subset of the Source Program model');
+    }
   }
   const unknownDigests = new Set(input.sourceProgram.unknownDigests);
   if (input.options.blockingDetails
@@ -933,7 +1150,7 @@ export function compileSourceProgramAuditOperationInput(
         blockingDetailsPage
       )
     : null;
-  const candidates = input.blockingCandidates;
+  const candidates = isScopedCandidateTestFacts(input) ? null : input.blockingCandidates;
   const testFindings = input.blockingTestFindings;
   const unknownDispositionClusters = input.unknownDispositionClusters;
   const compactBlockingTestFindings = testFindings.filter(({ disposition }) =>
@@ -950,22 +1167,37 @@ export function compileSourceProgramAuditOperationInput(
   //
   // A missing comparison is not permission: current producers always issue a
   // finding delta, so its absence remains a fail-closed protocol boundary.
-  const findingDelta = input.reconciliation.findingDelta;
+  const authorityScope = input.options.authorityScope ?? 'whole-program';
+  const findingDelta = isTestObligationsAuditFacts(input) ? undefined : input.reconciliation.findingDelta;
   const findingRegression = findingDelta !== undefined
     && (findingDelta.counts.introduced > 0 || findingDelta.counts.changed > 0);
+  const testFindingDelta = input.testFindingDelta;
+  const authorAssessedCurrentPaths = input.supersession.status === 'author-approved-change'
+      && input.supersession.authorDecisionDigest != null
+    ? new Set(input.supersession.authorAssessedCurrentPaths ?? []) : new Set<string>();
+  const testFindingRegression = testFindingDelta !== undefined
+    && sourceProgramTestFindingDeltaHasRegression(testFindingDelta, testFindings);
   const blockingReasons = Object.freeze([
     ...(input.testRetirement.proofs.some(({ status }) => status === 'blocked')
       ? ['test-retirement-blocked'] : []),
-    ...(findingDelta === undefined ? ['finding-reconciliation-unavailable'] : []),
-    ...(findingRegression ? ['source-program-finding-regression'] : []),
-    ...(input.reconciliation.status === 'unresolved' ? ['reconciliation-unresolved'] : []),
-    ...(input.architectureEvolution.status === 'blocked' ? ['architecture-evolution'] : []),
-    ...(testFindings.length > 0 && input.supersession.status !== 'equivalent'
-      ? ['test-value-findings'] : []),
+    ...(authorityScope === 'whole-program' && findingDelta === undefined ? ['finding-reconciliation-unavailable'] : []),
+    ...(authorityScope === 'whole-program' && findingRegression ? ['source-program-finding-regression'] : []),
+    ...(!isTestObligationsAuditFacts(input) && authorityScope === 'whole-program' && input.reconciliation.status === 'unresolved' ? ['reconciliation-unresolved'] : []),
+    ...(!isTestObligationsAuditFacts(input) && authorityScope === 'whole-program' && input.architectureEvolution.status === 'blocked' ? ['architecture-evolution'] : []),
+    ...(testFindingDelta === undefined ? ['test-finding-reconciliation-unavailable'] : []),
+    ...(testFindingRegression ? ['test-value-finding-regression'] : []),
+    ...(testFindingDelta !== undefined && sourceProgramTestFindingDeltaIsUnresolved(testFindingDelta, authorAssessedCurrentPaths)
+      ? ['test-finding-reconciliation-unresolved'] : []),
     ...(input.supersession.status === 'owner-decision-required'
       ? ['supersession-owner-decision'] : []),
+    ...(input.supersession.status === 'author-decision-conditional'
+      ? ['test-author-qualification-required'] : []),
   ].sort(compareCodeUnits));
   const projection = Object.freeze({
+    authorityScope,
+    ...(isTestObligationsAuditFacts(input) ? {
+      factsSchema: input.schema, baselineCompilation: input.baselineCompilation
+    } : {}),
     architecture: full ? Object.freeze({
       feedbackProjections: input.moduleArchitecture.feedbackCuts,
       reciprocalPairs: input.moduleArchitecture.reciprocalPairs,
@@ -1020,7 +1252,7 @@ export function compileSourceProgramAuditOperationInput(
     invalidatedTypeScriptPaths: full
       ? input.invalidatedTypeScriptPaths
       : compactRecordSet(input.invalidatedTypeScriptPaths),
-    implementationDominance: full
+    implementationDominance: isTestObligationsAuditFacts(input) ? input.implementationDominance : full
       ? input.implementationDominance
       : Object.freeze({
           compilationDigest: input.implementationDominance.compilationDigest,
@@ -1036,7 +1268,7 @@ export function compileSourceProgramAuditOperationInput(
               ])
           )
         }),
-    reconciliation: full ? input.reconciliation : Object.freeze({
+    reconciliation: isTestObligationsAuditFacts(input) ? input.reconciliation : full ? input.reconciliation : Object.freeze({
       status: input.reconciliation.status,
       projectionDigest: input.reconciliation.projectionDigest,
       before: input.reconciliation.before,
@@ -1049,7 +1281,7 @@ export function compileSourceProgramAuditOperationInput(
         findingDelta: summarizeSourceProgramFindingDelta(input.reconciliation.findingDelta)
       })
     }),
-    architectureEvolution: full ? input.architectureEvolution : Object.freeze({
+    architectureEvolution: isTestObligationsAuditFacts(input) ? input.architectureEvolution : full ? input.architectureEvolution : Object.freeze({
       status: input.architectureEvolution.status,
       direction: input.architectureEvolution.direction,
       referenceDigest: input.architectureEvolution.referenceDigest,
@@ -1068,7 +1300,8 @@ export function compileSourceProgramAuditOperationInput(
       count: input.sourceProgram.counts.unknowns,
       digest: input.sourceProgram.unknownsDigest
     }),
-    blockingCandidates: full ? candidates : compactRecordSet(candidates),
+    blockingCandidates: candidates === null ? SOURCE_PROGRAM_TEST_OBLIGATIONS_NOT_REQUESTED
+      : full ? candidates : compactRecordSet(candidates),
     blockingTestFindings: full
       ? testFindings
       : compactRecordSet(compactBlockingTestFindings),
@@ -1076,8 +1309,16 @@ export function compileSourceProgramAuditOperationInput(
       ? unknownDispositionClusters
       : compactRecordSet(unknownDispositionClusters),
     supersession: full ? input.supersession : Object.freeze({
+      authorityScope: input.supersession.authorityScope,
       status: input.supersession.status,
       receiptDigest: input.supersession.receiptDigest,
+      ...(input.supersession.retainedUnknowns === undefined ? {} : {
+        retainedUnknowns: input.supersession.retainedUnknowns
+      }),
+      authorAssessedCurrentPaths: Object.freeze([...authorAssessedCurrentPaths].sort(compareCodeUnits)),
+      ...(input.supersession.authorDecisionDigest === undefined ? {} : {
+        authorDecisionDigest: input.supersession.authorDecisionDigest
+      }),
       baseline: input.supersession.baseline,
       current: input.supersession.current,
       lifecycleCost: input.supersession.lifecycleCost,
@@ -1103,6 +1344,10 @@ export function compileSourceProgramAuditOperationInput(
       baselineDigest: input.testValue.baselineDigest,
       baselineEvidenceDigest: input.testValue.baselineEvidenceDigest,
       compilationDigest: input.testValue.compilationDigest,
+      findingsDigest: input.testValue.findingsDigest,
+      ...(testFindingDelta === undefined ? {} : {
+        findingDelta: full ? testFindingDelta : summarizeSourceProgramTestFindingDelta(testFindingDelta)
+      }),
       dispositionProjectionDigest: input.testDisposition.projectionDigest,
       supersessionReceiptDigest: input.testDisposition.supersessionReceiptDigest,
       baselineTestPaths: full
@@ -1121,7 +1366,12 @@ export function compileSourceProgramAuditOperationInput(
       semanticClasses: input.testValue.semanticClasses
     }),
     summary: Object.freeze({
-      blockingCandidates: candidates.length,
+      blockingCandidates: candidates === null ? SOURCE_PROGRAM_TEST_OBLIGATIONS_NOT_REQUESTED : candidates.length,
+      ...(isTestObligationsAuditFacts(input) ? {
+        implementationDominance: input.implementationDominance,
+        reconciliation: input.reconciliation,
+        architectureEvolution: input.architectureEvolution
+      } : {
       implementationDominanceFindings: input.implementationDominance.findings.length,
       implementationDominanceUnits: input.implementationDominance.units.length,
       reconciliationStatus: input.reconciliation.status,
@@ -1131,6 +1381,7 @@ export function compileSourceProgramAuditOperationInput(
       architectureEvolutionStatus: input.architectureEvolution.status,
       architectureEvolutionDirection: input.architectureEvolution.direction,
       architectureEvolutionBlockers: input.architectureEvolution.blockers.length,
+      }),
       blockingTestFindings: testFindings.length,
       reportedBlockingTestFindings: full
         ? testFindings.length

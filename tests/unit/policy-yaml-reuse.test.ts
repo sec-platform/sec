@@ -50,16 +50,27 @@ test('project declarations retain the existing report shape and coalesce equal d
   } finally { f.cleanup(); }
 });
 
-test('project source precedence remains lexical and every source is still reported', () => {
+test('equal project declarations retain every source report', () => {
   const f = fixture();
   try {
     f.write('a.yaml', JSON.stringify({ policies: [row()] }));
-    f.write('z.yml', JSON.stringify({ policies: [{ ...row(), severity: 'error' }] }));
+    f.write('z.yml', JSON.stringify({ policies: [row()] }));
     const result = loadPolicyDeclarations(f.root);
-    assert.equal(result.definitions.get(row().id)?.policy.severity, 'error');
+    assert.equal(result.definitions.get(row().id)?.sourcePath, 'model/policies/z.yml');
     assert.equal(result.project.definitions.length, 2);
     assert.equal(result.project.sources.length, 2);
     assert.deepEqual(result.project.policies, [row().id]);
+  } finally { f.cleanup(); }
+});
+
+test('different project files cannot choose a conflicting definition by lexical order', () => {
+  const f = fixture();
+  try {
+    for (const [first, second] of [[row(), { ...row(), severity: 'error' }], [{ ...row(), severity: 'error' }, row()]]) {
+      f.write('a.yaml', JSON.stringify({ policies: [first] }));
+      f.write('z.yml', JSON.stringify({ policies: [second] }));
+      assert.throws(() => loadPolicyDeclarations(f.root), /Conflicting policy declarations/);
+    }
   } finally { f.cleanup(); }
 });
 

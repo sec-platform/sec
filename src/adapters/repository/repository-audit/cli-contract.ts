@@ -1,5 +1,67 @@
 import path from 'node:path';
 import { parseArgs } from 'node:util';
+import { parseSecModuleDescriptor } from '../architecture/contract.ts';
+import descriptorSource from './module.json' with { type: 'json' };
+
+// Current and baseline derivation share one aggregate audit budget. Its
+// capacity belongs to the existing operation descriptor, rather than a second
+// hardcoded copy of the physical worker's separate ceiling.
+const auditDescriptor = parseSecModuleDescriptor(
+  descriptorSource, 'src/adapters/repository/repository-audit/module.json'
+);
+const auditDuration = auditDescriptor.operationObligations.find(({ operation }) => (
+  operation.kind === 'capability' && operation.capability === 'repository-audit.worker'
+    && operation.operation === 'executeSupervisedWorkingTreeSourceProgramAudit'
+))?.resources.aggregateBudgets.find(({ resource }) => resource === 'duration-ms');
+if (auditDuration === undefined) throw new Error('Repository audit has no declared aggregate duration budget.');
+export const SOURCE_PROGRAM_AUDIT_MAX_DURATION_MS = auditDuration.maximum;
+export const SOURCE_PROGRAM_AUDIT_WORKER_MAX_DURATION_MS = 180_000;
+export const SOURCE_PROGRAM_TRANSITION_DEADLINE_ENV = 'SEC_SOURCE_PROGRAM_TRANSITION_DEADLINE_AT_UNIX_MS';
+
+/** Process boundaries may inherit a stricter enclosing deadline, never renew it. */
+export function repositoryAuditInheritedDeadline(value: string | undefined, nowUnixMs = Date.now()): number {
+  const ownDeadline = repositoryAuditDeadline(undefined, nowUnixMs);
+  if (value === undefined) return ownDeadline;
+  if (!/^[1-9][0-9]*$/u.test(value)) throw new Error('Repository audit inherited deadline is not canonical.');
+  const inherited = Number(value);
+  if (!Number.isSafeInteger(inherited) || inherited <= nowUnixMs) {
+    throw new Error('Repository audit inherited deadline is exhausted or invalid.');
+  }
+  return Math.min(ownDeadline, inherited);
+}
+
+/** Choose the single aggregate deadline before any audit work. */
+export function repositoryAuditDeadline(
+  maximumDurationMs = SOURCE_PROGRAM_AUDIT_MAX_DURATION_MS,
+  nowUnixMs = Date.now()
+): number {
+  if (!Number.isSafeInteger(maximumDurationMs) || maximumDurationMs < 1
+      || maximumDurationMs > SOURCE_PROGRAM_AUDIT_MAX_DURATION_MS
+      || !Number.isSafeInteger(nowUnixMs) || nowUnixMs < 0
+      || !Number.isSafeInteger(nowUnixMs + maximumDurationMs)) {
+    throw new Error('Repository audit duration is outside its canonical bound.');
+  }
+  return nowUnixMs + maximumDurationMs;
+}
+
+/** Reading the remaining pool never creates a replacement deadline. */
+export function repositoryAuditRemainingDuration(deadlineAtUnixMs: number, nowUnixMs = Date.now()): number {
+  const durationMs = deadlineAtUnixMs - nowUnixMs;
+  if (!Number.isSafeInteger(deadlineAtUnixMs) || !Number.isSafeInteger(nowUnixMs)
+      || !Number.isSafeInteger(durationMs) || durationMs < 1
+      || durationMs > SOURCE_PROGRAM_AUDIT_MAX_DURATION_MS) {
+    throw new Error('Repository audit deadline is exhausted or outside its canonical bound.');
+  }
+  return durationMs;
+}
+
+/** The worker receives only remaining parent work and its own finite ceiling. */
+export function repositoryAuditWorkerDeadline(workDeadlineAtUnixMs: number, nowUnixMs = Date.now()): number {
+  return nowUnixMs + Math.min(
+    repositoryAuditRemainingDuration(workDeadlineAtUnixMs, nowUnixMs),
+    SOURCE_PROGRAM_AUDIT_WORKER_MAX_DURATION_MS
+  );
+}
 
 /** CLI policy only: neither parsing a command nor reporting its outcome issues
  * a Source Program, provider, mutation or successful-verification capability. */
@@ -31,7 +93,10 @@ const CLI_OPTIONS = {
   query: { type: 'string' },
   'fail-on': { type: 'string' },
   'default-ref': { type: 'string' },
-  'supersession-baseline': { type: 'string' }
+  'supersession-baseline': { type: 'string' },
+  'transition-candidate-root': { type: 'string' },
+  'transition-expected-head': { type: 'string' },
+  'test-author-input': { type: 'string' }
 } as const;
 
 export type RepositoryAuditCliOptions = Readonly<{
@@ -51,6 +116,9 @@ export type RepositoryAuditCliOptions = Readonly<{
   query: string | null;
   reductionMode: 'aggregate-import' | 'graph-cut' | 'none' | 'version';
   supersessionBaseline: string;
+  transitionCandidateRoot: string | null;
+  transitionExpectedHead: string | null;
+  testAuthorInput: string | null;
 }>;
 export type WorkingTreeSourceProgramAuditOptions = Pick<RepositoryAuditCliOptions,
   'blockingDetails' | 'blockingDetailsDomain' | 'blockingDetailsPage' | 'enforce' | 'full' | 'includeCandidates' | 'outputPath' | 'query' |
@@ -139,7 +207,8 @@ export function parseRepositoryAuditCliOptions(
   };
   onlyIn('repository', ['diagnostic', 'fail-on', 'default-ref']);
   onlyIn('source-program', ['blocking-details', 'blocking-details-domain', 'blocking-details-page', 'candidates', 'aggregate-import-reductions',
-    'graph-cuts', 'version-reductions', 'supersession-baseline']);
+    'graph-cuts', 'version-reductions', 'supersession-baseline',
+    'transition-candidate-root', 'transition-expected-head', 'test-author-input']);
   if (mode === 'module-topology' && supplied.has('query')) {
     throw new Error('--query is not supported by module-topology audit');
   }
@@ -157,6 +226,15 @@ export function parseRepositoryAuditCliOptions(
   }
   const supersessionBaseline = values['supersession-baseline'] ?? 'HEAD';
   if (supersessionBaseline.startsWith('-')) throw new Error('--supersession-baseline requires one Git revision');
+  const transitionRoot = values['transition-candidate-root'];
+  const transitionHead = values['transition-expected-head'];
+  if (transitionRoot !== undefined || transitionHead !== undefined || values['test-author-input'] !== undefined) {
+    if (transitionRoot === undefined || transitionHead === undefined || !/^[0-9a-f]{40}$/u.test(transitionHead)
+        || !supplied.has('supersession-baseline') || !/^[0-9a-f]{40}$/u.test(supersessionBaseline)
+        || reductionMode !== 'none' || values.enforce || values.query || values.output || values['blocking-details']) {
+      throw new Error('Transition assessment requires exact candidate/base/head without mutation or ordinary enforcement options');
+    }
+  }
   if (values['default-ref']?.startsWith('-')) throw new Error('--default-ref requires one Git revision');
   return Object.freeze({
     mode,
@@ -172,7 +250,10 @@ export function parseRepositoryAuditCliOptions(
     outputPath: values.output === undefined ? null : path.resolve(values.output),
     query: values.query ?? null,
     reductionMode,
-    supersessionBaseline
+    supersessionBaseline,
+    transitionCandidateRoot: transitionRoot === undefined ? null : path.resolve(transitionRoot),
+    transitionExpectedHead: transitionHead ?? null,
+    testAuthorInput: values['test-author-input'] === undefined ? null : path.resolve(values['test-author-input'])
   });
 }
 

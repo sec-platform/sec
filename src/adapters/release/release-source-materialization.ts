@@ -1,10 +1,10 @@
-import fs from 'node:fs/promises';
 import path from 'node:path';
 
 import {
   assertSameNoFollowDirectoryIdentity,
   inspectNoFollowDirectoryChain,
   inspectNoFollowOrdinaryFileEntry,
+  retainCurrentProcessExecutable,
   retainNoFollowDirectoryForChildProcess,
   retainNoFollowFileTransaction,
   retainNoFollowOrdinaryFile
@@ -229,27 +229,16 @@ async function runReleaseBuilderCommand(
   }
   const deadlineAtUnixMs = Date.now() + RELEASE_BUILDER_MAX_DURATION_MS;
   const absoluteCwd = path.resolve(cwd);
-  const executablePath = path.resolve(await fs.realpath(process.execPath));
   let executable: ReturnType<typeof retainNoFollowOrdinaryFile> | undefined;
   let workingDirectory: ReturnType<typeof retainNoFollowDirectoryForChildProcess> | undefined;
   let session: ProcessResourceSession | undefined;
   let operation: SecBoundSemanticOperation | undefined;
   let completed = false;
-  let executionError: unknown | undefined;
+  let executionFailure: { readonly error: unknown } | undefined;
   let result: Awaited<ReturnType<ProcessResourceSession['run']>> | undefined;
+  let stdout: Buffer | undefined;
   try {
-    const executableParent = inspectNoFollowDirectoryChain(
-      path.dirname(executablePath),
-      'release builder executable parent'
-    );
-    executable = retainNoFollowOrdinaryFile(
-      executableParent,
-      path.basename(executablePath),
-      undefined,
-      'release builder executable',
-      RETAINED_EXECUTABLE_CHILD_DESCRIPTOR,
-      'executable'
-    );
+    executable = retainCurrentProcessExecutable(RETAINED_EXECUTABLE_CHILD_DESCRIPTOR, 'release builder executable');
     const workingDirectoryChain = inspectNoFollowDirectoryChain(
       absoluteCwd,
       'release builder working directory'
@@ -301,21 +290,32 @@ async function runReleaseBuilderCommand(
       }
     );
     completed = true;
+    if (result.result.code !== 0) {
+      const detail = result.result.stderr.trim();
+      throw new Error(`bun ${args[0] ?? ''} failed${detail ? `: ${detail}` : ''}`);
+    }
+    stdout = Buffer.from(result.result.stdout);
   } catch (error) {
-    executionError = error;
+    executionFailure = { error };
   }
 
   let receipt: ProcessResourceSessionReceipt | undefined;
-  let settlementError: unknown | undefined;
+  let settlementFailure: { readonly error: unknown } | undefined;
   try {
     settlePhysicalResources({
-      ...(executionError === undefined ? {} : {
-        primary: { label: 'release builder execution', error: executionError }
+      ...(executionFailure === undefined ? {} : {
+        primary: { label: 'release builder execution', error: executionFailure.error }
       }),
       cleanup: [
         ...(session === undefined ? [] : [{
           label: 'release builder process session close',
-          settle: () => { receipt = session!.close(); }
+          settle: () => {
+            receipt = session!.close();
+            if (operation === undefined || receipt === undefined) {
+              throw new Error('Release builder did not issue one terminal process receipt.');
+            }
+            assertReleaseBuilderReceipt(receipt, operation, completed);
+          }
         }]),
         ...(workingDirectory === undefined ? [] : [{
           label: 'release builder working directory dispose',
@@ -328,48 +328,19 @@ async function runReleaseBuilderCommand(
       ]
     });
   } catch (error) {
-    settlementError = error;
+    settlementFailure = { error };
   }
-  if (session !== undefined) {
-    if (operation === undefined) {
-      throw new Error('Release builder did not issue one terminal process receipt.');
-    }
-    if (receipt === undefined) {
-      if (settlementError !== undefined) throw settlementError;
-      throw new Error('Release builder did not issue one terminal process receipt.');
-    }
-    assertReleaseBuilderReceipt(receipt, operation, completed);
-  }
-  if (settlementError !== undefined) throw settlementError;
-  if (result === undefined) throw executionError;
-  if (result.result.code !== 0) {
-    const detail = result.result.stderr.trim();
-    throw new Error(`bun ${args[0] ?? ''} failed${detail ? `: ${detail}` : ''}`);
-  }
-  return Buffer.from(result.result.stdout);
+  if (settlementFailure !== undefined) throw settlementFailure.error;
+  if (stdout === undefined) throw new Error('Release builder did not return one process result.');
+  return stdout;
 }
 
 async function observeReleaseBuilderIdentity(): Promise<ReleaseBuilderIdentity> {
-  const executablePath = path.resolve(await fs.realpath(process.execPath));
-  const parent = inspectNoFollowDirectoryChain(
-    path.dirname(executablePath),
-    'Release Bun executable identity parent'
-  );
-  const retained = retainNoFollowOrdinaryFile(
-    parent,
-    path.basename(executablePath),
-    undefined,
-    'Release Bun executable identity',
-    RETAINED_EXECUTABLE_CHILD_DESCRIPTOR,
-    'executable'
-  );
+  const retained = retainCurrentProcessExecutable(RETAINED_EXECUTABLE_CHILD_DESCRIPTOR, 'Release Bun executable identity');
+  let primary: { readonly label: string; readonly error: unknown } | undefined;
   try {
     const observed = retained.digest();
     retained.assertCurrent();
-    const afterPath = path.resolve(await fs.realpath(process.execPath));
-    if (afterPath !== retained.path) {
-      throw new Error('Release Bun executable locator changed during identity observation');
-    }
     return Object.freeze({
       schema: 'sec-release-builder-identity-v1' as const,
       runtime: 'bun' as const,
@@ -378,8 +349,14 @@ async function observeReleaseBuilderIdentity(): Promise<ReleaseBuilderIdentity> 
       platform: process.platform,
       architecture: process.arch
     });
+  } catch (error) {
+    primary = { label: 'release builder identity observation', error };
+    throw error;
   } finally {
-    retained.dispose();
+    settlePhysicalResources({
+      ...(primary === undefined ? {} : { primary }),
+      cleanup: [{ label: 'release builder identity dispose', settle: () => retained.dispose() }]
+    });
   }
 }
 
@@ -427,10 +404,17 @@ function readFrozenControlFile(
   label: string
 ): Buffer {
   const retained = retainFrozenControlFile(sourceRoot, name, label);
+  let primary: { readonly label: string; readonly error: unknown } | undefined;
   try {
     return Buffer.from(retained.readBytes());
+  } catch (error) {
+    primary = { label, error };
+    throw error;
   } finally {
-    retained.dispose();
+    settlePhysicalResources({
+      ...(primary === undefined ? {} : { primary }),
+      cleanup: [{ label: `${label} dispose`, settle: () => retained.dispose() }]
+    });
   }
 }
 
@@ -480,9 +464,12 @@ async function materializeFrozenDependencies(
   sourceRoot: string,
   builder: ReleaseBuilderIdentity
 ): Promise<void> {
-  const packageFile = retainFrozenControlFile(sourceRoot, 'package.json', 'Frozen dependency package.json');
-  const lockFile = retainFrozenControlFile(sourceRoot, 'bun.lock', 'Frozen dependency bun.lock');
+  let packageFile: ReturnType<typeof retainFrozenControlFile> | undefined;
+  let lockFile: ReturnType<typeof retainFrozenControlFile> | undefined;
+  let primary: { readonly label: string; readonly error: unknown } | undefined;
   try {
+    packageFile = retainFrozenControlFile(sourceRoot, 'package.json', 'Frozen dependency package.json');
+    lockFile = retainFrozenControlFile(sourceRoot, 'bun.lock', 'Frozen dependency bun.lock');
     const packageBefore = Buffer.from(packageFile.readBytes());
     const lockBefore = Buffer.from(lockFile.readBytes());
 
@@ -523,9 +510,25 @@ async function materializeFrozenDependencies(
     )) {
       throw new Error('Frozen dependency materialization escaped the frozen source root');
     }
+  } catch (error) {
+    primary = { label: 'frozen dependency materialization', error };
   } finally {
-    packageFile.dispose();
-    lockFile.dispose();
+    // Each successful retention immediately belongs to this invocation, even
+    // when acquiring the next control file fails. Attempt both releases in
+    // reverse acquisition order without replacing the original failure.
+    settlePhysicalResources({
+      ...(primary === undefined ? {} : { primary }),
+      cleanup: [
+        ...(lockFile === undefined ? [] : [{
+          label: 'frozen dependency bun.lock dispose',
+          settle: () => lockFile!.dispose()
+        }]),
+        ...(packageFile === undefined ? [] : [{
+          label: 'frozen dependency package.json dispose',
+          settle: () => packageFile!.dispose()
+        }])
+      ]
+    });
   }
 }
 function isPathInside(root: string, candidate: string): boolean {
@@ -734,6 +737,7 @@ export async function buildFrozenReleaseBundle(
     const markerTransaction = retainNoFollowFileTransaction(
       stagedArtifactRoot, 'Delivered release bundle version marker'
     );
+    let primary: { readonly label: string; readonly error: unknown } | undefined;
     try {
       const published = await markerTransaction.createExclusive(
         '.bun-version', markerBytes, 'Delivered release bundle version marker'
@@ -741,8 +745,14 @@ export async function buildFrozenReleaseBundle(
       if (!Buffer.from(published.bytes).equals(markerBytes)) {
         throw new Error('Delivered release bundle version marker readback differs');
       }
+    } catch (error) {
+      primary = { label: 'release bundle version marker publication', error };
+      throw error;
     } finally {
-      markerTransaction.dispose();
+      settlePhysicalResources({
+        ...(primary === undefined ? {} : { primary }),
+        cleanup: [{ label: 'release bundle version marker dispose', settle: () => markerTransaction.dispose() }]
+      });
     }
   }
   const inputPaths = await assertFrozenBuildInputs(source.root, metafilePath);

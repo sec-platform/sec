@@ -1,10 +1,10 @@
 name: repository-maintenance
-run-name: 'execute audited repository maintenance from lifecycle issue #${{ github.event.issue.number }}'
+run-name: 'execute audited repository maintenance comment #${{ github.event.client_payload.comment_id }}'
 
 on:
-  issue_comment:
+  repository_dispatch:
     types:
-      - created
+      - sec-repository-maintenance-v2
 
 permissions:
   actions: read
@@ -21,15 +21,122 @@ env:
 
 jobs:
   retire:
-    if: >-
-      ${{ github.event.issue.number == 313 &&
-          (github.event.comment.author_association == 'OWNER' ||
-           github.event.comment.author_association == 'MEMBER') &&
-          github.actor == github.event.comment.user.login &&
-          startsWith(github.event.comment.body, '{"schema":"sec-repository-maintenance-request-v1"') }}
     runs-on: ubuntu-24.04
     timeout-minutes: 20
+    outputs:
+      requires-recovery: ${{ steps.prepare.outputs.requires-recovery }}
+      recovery-artifact-id: ${{ steps.upload-recovery.outputs.artifact-id }}
+      recovery-artifact-digest: ${{ steps.upload-recovery.outputs.artifact-digest }}
+      receipt-artifact-id: ${{ steps.upload-receipt.outputs.artifact-id }}
+      receipt-artifact-digest: ${{ steps.upload-receipt.outputs.artifact-digest }}
     steps:
+      - name: Resolve exact maintenance request carrier
+        id: request
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        env:
+          PAYLOAD_JSON: ${{ toJSON(github.event.client_payload) }}
+          EVENT_NAME: ${{ github.event_name }}
+          EVENT_ACTION: ${{ github.event.action }}
+          WORKFLOW_SHA: ${{ github.workflow_sha }}
+          EVENT_SHA: ${{ github.sha }}
+        with:
+          script: |
+            // BEGIN GENERATED repository-permission.ts
+            function normalizeGitHubRepositoryPermission(value) {
+                if (value === null || typeof value !== 'object' || Array.isArray(value))
+                    return null;
+                const source = value;
+                const permission = source.permission;
+                if (permission !== 'admin' && permission !== 'maintain' && permission !== 'write'
+                    && permission !== 'triage' && permission !== 'read' && permission !== 'none')
+                    return null;
+                const role = source.role_name;
+                if (role === undefined)
+                    return permission;
+                if (permission === 'write' && role === 'maintain')
+                    return 'maintain';
+                if (permission === 'read' && role === 'triage')
+                    return 'triage';
+                return role === permission ? permission : null;
+            }
+            // END GENERATED repository-permission.ts
+            // BEGIN GENERATED repository-maintenance-permission.ts
+            function isRepositoryMaintenancePermission(role) {
+                return role === 'admin' || role === 'maintain';
+            }
+            // END GENERATED repository-maintenance-permission.ts
+            const crypto = require('crypto');
+            const payload = JSON.parse(process.env.PAYLOAD_JSON);
+            const expectedKeys = ['comment_body_sha256', 'comment_id', 'issue_number', 'schema'];
+            if (!payload || typeof payload !== 'object' || Array.isArray(payload) ||
+                JSON.stringify(Object.keys(payload).sort()) !== JSON.stringify(expectedKeys)) {
+              throw new Error('Repository maintenance dispatch payload fields are invalid.');
+            }
+            if (process.env.EVENT_NAME !== 'repository_dispatch' ||
+                process.env.EVENT_ACTION !== 'sec-repository-maintenance-v2' ||
+                payload.schema !== 'sec-repository-maintenance-dispatch-v1' ||
+                payload.issue_number !== 313 ||
+                !Number.isSafeInteger(payload.comment_id) || payload.comment_id < 1 ||
+                typeof payload.comment_body_sha256 !== 'string' ||
+                !/^sha256:[0-9a-f]{64}$/.test(payload.comment_body_sha256)) {
+              throw new Error('Repository maintenance dispatch identity is invalid.');
+            }
+            if (process.env.WORKFLOW_SHA !== process.env.EVENT_SHA) {
+              throw new Error('Repository maintenance workflow is not executing from exact default main.');
+            }
+            const [comment, permission] = await Promise.all([
+              github.rest.issues.getComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: payload.comment_id
+              }),
+              github.rest.repos.getCollaboratorPermissionLevel({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                username: context.actor
+              })
+            ]);
+            const role = normalizeGitHubRepositoryPermission(permission.data);
+            const body = comment.data.body;
+            const bodyDigest = typeof body === 'string'
+              ? 'sha256:' + crypto.createHash('sha256').update(body, 'utf8').digest('hex')
+              : null;
+            if (comment.data.id !== payload.comment_id ||
+                comment.data.issue_url !== `https://api.github.com/repos/${context.repo.owner}/${context.repo.repo}/issues/313` ||
+                comment.data.user?.login !== context.actor ||
+                comment.data.user?.type !== 'User' ||
+                comment.data.performed_via_github_app !== null ||
+                !isRepositoryMaintenancePermission(role) ||
+                bodyDigest !== payload.comment_body_sha256) {
+              core.info(JSON.stringify({
+                schema: 'sec-maintenance-carrier-rejection-diagnostic-v1',
+                commentIdMatches: comment.data.id === payload.comment_id,
+                issueUrlMatches: comment.data.issue_url === `https://api.github.com/repos/${context.repo.owner}/${context.repo.repo}/issues/313`,
+                authorMatchesActor: comment.data.user?.login === context.actor,
+                authorIsUser: comment.data.user?.type === 'User',
+                performedViaAppFieldPresent: Object.prototype.hasOwnProperty.call(comment.data, 'performed_via_github_app'),
+                performedViaAppIsNull: comment.data.performed_via_github_app === null,
+                associationFieldPresent: Object.prototype.hasOwnProperty.call(comment.data, 'author_association'),
+                associationShape: ['COLLABORATOR', 'CONTRIBUTOR', 'FIRST_TIMER', 'FIRST_TIME_CONTRIBUTOR', 'MANNEQUIN', 'MEMBER', 'NONE', 'OWNER'].includes(comment.data.author_association) ? comment.data.author_association : 'unknown',
+                permissionShape: ['admin', 'maintain', 'write', 'triage', 'read', 'none'].includes(permission.data?.permission) ? permission.data.permission : 'unrecognized',
+                roleShape: ['admin', 'maintain', 'write', 'triage', 'read', 'none'].includes(permission.data?.role_name) ? permission.data.role_name : 'absent-or-unrecognized',
+                normalizedRoleAccepted: isRepositoryMaintenancePermission(role),
+                bodyDigestMatches: bodyDigest === payload.comment_body_sha256
+              }));
+              throw new Error('Repository maintenance trigger comment or dispatcher authority differs.');
+            }
+            let request;
+            try { request = JSON.parse(body); } catch { throw new Error('Repository maintenance request is not JSON.'); }
+            if (request?.schema !== 'sec-repository-maintenance-request-v1' ||
+                request?.repository !== `${context.repo.owner}/${context.repo.repo}` ||
+                request?.expectedMainSha !== process.env.EVENT_SHA) {
+              throw new Error('Repository maintenance request is not bound to exact current main.');
+            }
+            core.setOutput('request-json', body);
+            core.setOutput('issue-number', String(payload.issue_number));
+            core.setOutput('comment-id', String(payload.comment_id));
+            core.setOutput('comment-author', context.actor);
+
       - name: Checkout exact maintenance authority
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -52,11 +159,10 @@ jobs:
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
-          SEC_MAINTENANCE_REQUEST_JSON: ${{ github.event.comment.body }}
-          SEC_MAINTENANCE_ISSUE_NUMBER: ${{ github.event.issue.number }}
-          SEC_MAINTENANCE_COMMENT_ID: ${{ github.event.comment.id }}
-          SEC_MAINTENANCE_COMMENT_AUTHOR: ${{ github.event.comment.user.login }}
-          SEC_MAINTENANCE_AUTHOR_ASSOCIATION: ${{ github.event.comment.author_association }}
+          SEC_MAINTENANCE_REQUEST_JSON: ${{ steps.request.outputs.request-json }}
+          SEC_MAINTENANCE_ISSUE_NUMBER: ${{ steps.request.outputs.issue-number }}
+          SEC_MAINTENANCE_COMMENT_ID: ${{ steps.request.outputs.comment-id }}
+          SEC_MAINTENANCE_COMMENT_AUTHOR: ${{ steps.request.outputs.comment-author }}
         run: |
           set -euo pipefail
           request_file="$RUNNER_TEMP/sec-repository-maintenance-request.json"
@@ -179,11 +285,10 @@ jobs:
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
-          SEC_MAINTENANCE_REQUEST_JSON: ${{ github.event.comment.body }}
-          SEC_MAINTENANCE_ISSUE_NUMBER: ${{ github.event.issue.number }}
-          SEC_MAINTENANCE_COMMENT_ID: ${{ github.event.comment.id }}
-          SEC_MAINTENANCE_COMMENT_AUTHOR: ${{ github.event.comment.user.login }}
-          SEC_MAINTENANCE_AUTHOR_ASSOCIATION: ${{ github.event.comment.author_association }}
+          SEC_MAINTENANCE_REQUEST_JSON: ${{ steps.request.outputs.request-json }}
+          SEC_MAINTENANCE_ISSUE_NUMBER: ${{ steps.request.outputs.issue-number }}
+          SEC_MAINTENANCE_COMMENT_ID: ${{ steps.request.outputs.comment-id }}
+          SEC_MAINTENANCE_COMMENT_AUTHOR: ${{ steps.request.outputs.comment-author }}
           SEC_MAINTENANCE_RECOVERY_ARTIFACT_ID: ${{ steps.upload-recovery.outputs.artifact-id }}
           SEC_MAINTENANCE_RECOVERY_ARTIFACT_NAME: sec-repository-maintenance-recovery-${{ github.run_id }}-${{ github.run_attempt }}
           SEC_MAINTENANCE_RECOVERY_ARTIFACT_DIGEST: sha256:${{ steps.upload-recovery.outputs.artifact-digest }}
@@ -209,6 +314,7 @@ jobs:
           done
 
       - name: Upload repository maintenance receipt
+        id: upload-receipt
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
@@ -221,9 +327,95 @@ jobs:
         if: success()
         env:
           GH_TOKEN: ${{ github.token }}
-          SEC_MAINTENANCE_REQUEST_JSON: ${{ github.event.comment.body }}
-          SEC_MAINTENANCE_ISSUE_NUMBER: ${{ github.event.issue.number }}
-          SEC_MAINTENANCE_COMMENT_ID: ${{ github.event.comment.id }}
-          SEC_MAINTENANCE_COMMENT_AUTHOR: ${{ github.event.comment.user.login }}
-          SEC_MAINTENANCE_AUTHOR_ASSOCIATION: ${{ github.event.comment.author_association }}
+          SEC_MAINTENANCE_REQUEST_JSON: ${{ steps.request.outputs.request-json }}
+          SEC_MAINTENANCE_ISSUE_NUMBER: ${{ steps.request.outputs.issue-number }}
+          SEC_MAINTENANCE_COMMENT_ID: ${{ steps.request.outputs.comment-id }}
+          SEC_MAINTENANCE_COMMENT_AUTHOR: ${{ steps.request.outputs.comment-author }}
         run: bun src/adapters/self-hosting/control/repository-maintenance/repository-maintenance.ts retire-trigger
+
+  retire-recovery-carrier:
+    needs: retire
+    if: ${{ needs.retire.result == 'success' && needs.retire.outputs.requires-recovery == 'true' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      actions: write
+    steps:
+      - name: Retire exact terminal recovery carrier
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        env:
+          RECOVERY_ARTIFACT_ID: ${{ needs.retire.outputs.recovery-artifact-id }}
+          RECOVERY_ARTIFACT_NAME: sec-repository-maintenance-recovery-${{ github.run_id }}-${{ github.run_attempt }}
+          RECOVERY_ARTIFACT_DIGEST: sha256:${{ needs.retire.outputs.recovery-artifact-digest }}
+          RECEIPT_ARTIFACT_ID: ${{ needs.retire.outputs.receipt-artifact-id }}
+          RECEIPT_ARTIFACT_NAME: sec-repository-maintenance-receipt-${{ github.run_id }}-${{ github.run_attempt }}
+          RECEIPT_ARTIFACT_DIGEST: sha256:${{ needs.retire.outputs.receipt-artifact-digest }}
+          EXPECTED_RUN_ATTEMPT: ${{ github.run_attempt }}
+        with:
+          script: |
+            const recoveryId = Number(process.env.RECOVERY_ARTIFACT_ID);
+            const receiptId = Number(process.env.RECEIPT_ARTIFACT_ID);
+            const expectedRunAttempt = Number(process.env.EXPECTED_RUN_ATTEMPT);
+            if (!Number.isSafeInteger(recoveryId) || recoveryId < 1 ||
+                !Number.isSafeInteger(receiptId) || receiptId < 1 ||
+                recoveryId === receiptId ||
+                !Number.isSafeInteger(expectedRunAttempt) || expectedRunAttempt < 1) {
+              throw new Error('Repository maintenance terminal artifact identities are invalid.');
+            }
+            const readArtifact = (artifactId) => github.rest.actions.getArtifact({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              artifact_id: artifactId
+            });
+            const [recovery, receipt, run] = await Promise.all([
+              readArtifact(recoveryId),
+              readArtifact(receiptId),
+              github.rest.actions.getWorkflowRun({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                run_id: context.runId
+              })
+            ]);
+            const assertExactArtifact = (artifact, id, name, digest) => {
+              if (artifact.data.id !== id ||
+                  artifact.data.name !== name ||
+                  artifact.data.expired !== false ||
+                  artifact.data.digest !== digest ||
+                  artifact.data.workflow_run?.id !== context.runId) {
+                throw new Error(`Repository maintenance artifact ${id} differs from its terminal binding.`);
+              }
+            };
+            assertExactArtifact(
+              recovery,
+              recoveryId,
+              process.env.RECOVERY_ARTIFACT_NAME,
+              process.env.RECOVERY_ARTIFACT_DIGEST
+            );
+            assertExactArtifact(
+              receipt,
+              receiptId,
+              process.env.RECEIPT_ARTIFACT_NAME,
+              process.env.RECEIPT_ARTIFACT_DIGEST
+            );
+            if (run.data.id !== context.runId || run.data.run_attempt !== expectedRunAttempt) {
+              throw new Error('Repository maintenance terminal run identity differs.');
+            }
+            await github.rest.actions.deleteArtifact({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              artifact_id: recoveryId
+            });
+            try {
+              await readArtifact(recoveryId);
+              throw new Error('Repository maintenance recovery artifact remains after terminal retirement.');
+            } catch (error) {
+              if (error?.status !== 404) throw error;
+            }
+            const receiptReadback = await readArtifact(receiptId);
+            assertExactArtifact(
+              receiptReadback,
+              receiptId,
+              process.env.RECEIPT_ARTIFACT_NAME,
+              process.env.RECEIPT_ARTIFACT_DIGEST
+            );
+

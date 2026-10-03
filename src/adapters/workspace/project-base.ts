@@ -1,17 +1,19 @@
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
+import YAML from 'yaml';
 import {
   CI_ARTIFACT_FILES,
   fixedCiArtifactPaths,
   uniqueSortedCiArtifactPaths
 } from '../../assurance/verification/ci-artifacts/contract/manifest.ts';
 import { type CommitFence } from "../../contracts/commit-fence.ts";
+import { formatJsonFile } from '../../contracts/json-text.ts';
+import type { WorkspaceTemplateBlueprint, WorkspaceTemplateFile } from '../../execution/workspace-create.ts';
 import { emptyOverrideManifest, PROVENANCE_FORMAT_VERSION } from '../../semantics/provenance/types.ts';
-import { ensureDir, pathExists, writeJson, writeText } from "../filesystem/files.ts";
+import { ensureDir, pathExists, writeBuffer } from "../filesystem/files.ts";
 import { buildRuntimePackageManifest, loadRuntimeDependencySpec } from '../toolchain/dependencies/contract/runtime-dependency-spec.ts';
 import { compilerRuntimeResources } from '../toolchain/runtime/layout.ts';
 import { getWorkspacePaths, resolveWorkspaceArtifactPath } from "../workspace-context.ts";
-import { writeYaml } from './yaml.ts';
 
 export const RUNTIME_DATABASE_TEMPLATE_PATH = path.join(
   compilerRuntimeResources.composeTemplates,
@@ -23,7 +25,7 @@ function childDirectories(root: string, relativePaths: readonly string[]): strin
   return relativePaths.map((relativePath) => path.join(root, relativePath));
 }
 
-function artifactParentDirectories(root: string): string[] {
+export function artifactParentDirectories(root: string): string[] {
   const relativeParents = uniqueSortedCiArtifactPaths(
     fixedCiArtifactPaths().map((artifactPath) => path.posix.dirname(artifactPath))
   );
@@ -46,10 +48,24 @@ export async function ensureCanonicalWorkspaceArtifactParents(
   }
 }
 
-export async function ensureProjectBase(
-  workspaceRoot: string,
-  commitFence?: CommitFence
-): Promise<void> {
+/** The existing scaffold recipe also supplies the trusted create scope. Paths
+ * and bytes are declared once; the live materializer retains if-absent rules. */
+export async function buildProjectBaseTemplate(workspaceRoot: string): Promise<WorkspaceTemplateBlueprint> {
+  const directories = new Set<string>();
+  const files: WorkspaceTemplateFile[] = [];
+  const rootPath = path.resolve(workspaceRoot);
+  const relative = (filePath: string) => path.relative(rootPath, filePath).split(path.sep).join('/');
+  const commitFence = undefined;
+  const ensureDir = async (directory: string, _fence?: CommitFence) => {
+    const name = relative(directory);
+    if (name) directories.add(name);
+  };
+  const writeText = async (filePath: string, text: string, _fence?: CommitFence) => {
+    files.push({ relativePath: relative(filePath), bytes: Buffer.from(text),
+      ...(optionalFiles.has(filePath) ? { onlyIfAbsent: true as const } : {}) });
+  };
+  const writeJson = (filePath: string, value: unknown, fence?: CommitFence) => writeText(filePath, formatJsonFile(value), fence);
+  const writeYaml = (filePath: string, value: unknown, fence?: CommitFence) => writeText(filePath, YAML.stringify(value, { indent: 2 }), fence);
   const {
     workspaceRoot: root,
     modelRoot,
@@ -75,6 +91,8 @@ export async function ensureProjectBase(
   const provenancePath = resolveWorkspaceArtifactPath(root, CI_ARTIFACT_FILES.provenance);
   const policySpecPath = path.join(policiesRoot, 'policy.spec.yaml');
   const overrideManifestPath = path.join(overridesRoot, 'override-manifest.yaml');
+  const prismaSchemaPath = path.join(prismaRoot, 'schema.prisma');
+  const optionalFiles = new Set([prismaSchemaPath, policySpecPath, provenancePath, overrideManifestPath]);
 
   for (const directory of [
     root,
@@ -98,7 +116,7 @@ export async function ensureProjectBase(
   ]) {
     await ensureDir(directory, commitFence);
   }
-  await ensureCanonicalWorkspaceArtifactParents(root, commitFence);
+  for (const directory of artifactParentDirectories(root)) await ensureDir(directory);
 
   for (const directory of [
     modelBlocksRoot,
@@ -159,8 +177,7 @@ export async function ensureProjectBase(
     commitFence
   );
 
-  const prismaSchemaPath = path.join(prismaRoot, 'schema.prisma');
-  if (!(await pathExists(prismaSchemaPath))) {
+  {
     await writeText(
       prismaSchemaPath,
       `generator client {
@@ -176,21 +193,33 @@ datasource db {
     );
   }
 
-  if (!(await pathExists(policySpecPath))) {
+  {
     await writeYaml(policySpecPath, {
       policies: []
     }, commitFence);
   }
 
-  if (!(await pathExists(provenancePath))) {
+  {
     await writeJson(provenancePath, {
       formatVersion: PROVENANCE_FORMAT_VERSION,
       artifacts: []
     }, commitFence);
   }
 
-  if (!(await pathExists(overrideManifestPath))) {
+  {
     await writeYaml(overrideManifestPath, emptyOverrideManifest(), commitFence);
   }
 
+  return { directories: [...directories], files };
+}
+
+export async function ensureProjectBase(workspaceRoot: string, commitFence?: CommitFence): Promise<void> {
+  const root = path.resolve(workspaceRoot);
+  const blueprint = await buildProjectBaseTemplate(root);
+  for (const relative of blueprint.directories) await ensureDir(path.join(root, relative), commitFence);
+  for (const file of blueprint.files) {
+    const destination = path.join(root, file.relativePath);
+    if (file.onlyIfAbsent && await pathExists(destination)) continue;
+    await writeBuffer(destination, file.bytes, commitFence);
+  }
 }

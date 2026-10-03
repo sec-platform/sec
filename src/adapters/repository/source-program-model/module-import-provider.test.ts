@@ -104,3 +104,33 @@ test('ordinary TypeScript import facts cannot be replaced by an embedded-languag
   expect(providerCalls).toBe(0);
   expect(graph.directDependencies('src/example/main.ts')).toEqual(['src/example/value.ts']);
 });
+
+
+test('canonical frontend joins unresolved and import-type observations into its returned graph', () => {
+  const sources = new Map([
+    ['src/a.ts', "type Value = import('./b.ts').Value; void import(target);"],
+    ['src/b.ts', 'export type Value = string;']
+  ]);
+  const graph = compileSecRepositoryModuleGraph({
+    files: [...sources.keys()],
+    readSource: (file) => sources.get(file) ?? null
+  });
+  expect(graph.unresolvedFiles).toEqual(['src/a.ts']);
+  expect(graph.directDependencies('src/a.ts')).toEqual(['src/b.ts']);
+  expect(graph.directRuntimeDependencies('src/a.ts')).toEqual([]);
+});
+
+test('canonical frontend preserves empty-runtime imports left by inline type specifiers', () => {
+  const graph = compileFixture({
+    'src/statement.ts': "import type { Value } from './provider.ts';",
+    'src/inline.ts': "import { type Value } from './provider.ts';",
+    'src/reexport.ts': "export { type Value } from './provider.ts';",
+    'src/provider.ts': 'export type Value = string;'
+  });
+  expect(graph.directRuntimeDependencies('src/statement.ts')).toEqual([]);
+  expect(graph.directRuntimeDependencies('src/inline.ts')).toEqual(['src/provider.ts']);
+  expect(graph.directRuntimeDependencies('src/reexport.ts')).toEqual(['src/provider.ts']);
+  expect(graph.directConsumers('src/provider.ts')).toEqual([
+    'src/inline.ts', 'src/reexport.ts', 'src/statement.ts'
+  ]);
+});

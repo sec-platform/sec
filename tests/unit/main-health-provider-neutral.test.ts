@@ -1,10 +1,13 @@
 import { expect, test } from 'bun:test';
 
 import type { GitHubCheckObservation } from '../../src/adapters/providers/github-api/contract.ts';
+import { createMainHealthLedger } from '../../src/adapters/self-hosting/control/main-health/contract.ts';
 import {
+  createObservedMainHealthInput,
   createObservedMainHealthInputWithPolicy,
   createRegisteredHostedMainHealthInputs,
   createTrustedRuntimeMainHealthCheckProviderPolicyV1,
+  createTrustedRuntimeMainHealthInput,
   GITHUB_ACTIONS_MAIN_HEALTH_CHECK_PROVIDER_POLICY
 } from '../../src/adapters/self-hosting/control/main-health/main-health-observation.ts';
 import { CI_MAIN_HEALTH_POLICY, createCiMainHealthRequestOperationId } from '../../src/adapters/self-hosting/control/main-health/provider-policy.ts';
@@ -88,6 +91,53 @@ function observe(checks: readonly GitHubCheckObservation[], sourceRunId = '77') 
   });
 }
 
+test('trusted runtime durable readback compiles the same healthy semantic revision as hosted MainHealth', () => {
+  const observedAt = '2026-09-29T00:00:00.000Z';
+  const expiresAt = '2026-09-29T00:10:00.000Z';
+  const local = createMainHealthLedger(createTrustedRuntimeMainHealthInput({
+    schema: 'sec-trusted-runtime-main-health-observation-v1',
+    repository: 'sec-platform/sec',
+    mainSha: MAIN,
+    mainTreeSha: MAIN_TREE,
+    trustRevision: MAIN,
+    runtimeRef: `runtime-state:trusted-main-health/v1/main-${MAIN}.json`,
+    executionId: 'trusted-main-health-run',
+    verificationReceiptDigest: `sha256:${'e'.repeat(64)}`,
+    observedAt,
+    expiresAt
+  }));
+  const hosted = createMainHealthLedger(createObservedMainHealthInputWithPolicy({
+    repository: 'sec-platform/sec',
+    mainSha: MAIN,
+    mainTreeSha: MAIN_TREE,
+    trustRevision: MAIN,
+    observedAt,
+    expiresAt,
+    sourceRunId: '77',
+    sourceRef: RUNTIME_REF,
+    checks: [check()],
+    policy
+  }));
+  expect(local.healthRevision).toBe(hosted.healthRevision);
+  expect(local.ledgerDigest).not.toBe(hosted.ledgerDigest);
+  expect(local.producer).toMatchObject({
+    sourceTransport: 'trusted-runtime-durable-readback',
+    sourceRunId: 'trusted-main-health-run'
+  });
+  expect(() => createTrustedRuntimeMainHealthInput({
+    schema: 'sec-trusted-runtime-main-health-observation-v1',
+    repository: 'sec-platform/sec',
+    mainSha: MAIN,
+    mainTreeSha: MAIN_TREE,
+    trustRevision: '3'.repeat(40),
+    runtimeRef: 'runtime-state:trusted-main-health/v1/foreign.json',
+    executionId: 'trusted-main-health-run',
+    verificationReceiptDigest: `sha256:${'e'.repeat(64)}`,
+    observedAt,
+    expiresAt
+  })).toThrow('not exact or fresh');
+});
+
 test('dedicated Integration App can produce healthy MainHealth without GitHub Actions workflow provenance', () => {
   const ledger = observe([check()]);
   expect(ledger.status).toBe('healthy');
@@ -136,6 +186,40 @@ test('hosted registry accepts the exact Actions principal and ignores an unregis
     allowedLanes: ['ordinary'],
     producer: { sourceRunId: '123' }
   }]);
+});
+
+test('direct Actions MainHealth derives producer identity independently of the observing caller', () => {
+  const input = {
+    repository: 'sec-platform/sec',
+    mainSha: MAIN,
+    mainTreeSha: MAIN_TREE,
+    trustRevision: MAIN,
+    observedAt: '2026-08-19T00:00:00.000Z',
+    expiresAt: '2026-08-19T00:10:00.000Z',
+    // Overspecified legacy callers cannot replace the observed producer.
+    sourceRunId: '999',
+    sourceRef: `.github/workflows/merge-gate.yml@${MAIN}`
+  };
+  const producer = actionsCheck({ id: 77, workflowRunId: '123' });
+  expect(createObservedMainHealthInput({ ...input, checks: [producer] })).toMatchObject({
+    status: 'healthy',
+    allowedLanes: ['ordinary'],
+    producer: {
+      sourceRunId: '123',
+      sourceRef: `github-check-runs:sec-platform/sec@${MAIN}`,
+      trustRevision: MAIN
+    }
+  });
+  for (const checks of [
+    [],
+    [actionsCheck({ workflowRunId: null })],
+    [producer, actionsCheck({ id: 78, workflowRunId: '124' })]
+  ]) {
+    expect(createObservedMainHealthInput({ ...input, checks })).toMatchObject({
+      status: 'locked',
+      allowedLanes: []
+    });
+  }
 });
 
 test('Actions sourceRunId must bind the exact observed workflow run id', () => {

@@ -1,3 +1,4 @@
+import { AsyncLocalStorage } from 'node:async_hooks';
 import path from 'node:path';
 
 import { canonicalJson, sha256 } from '../../../../contracts/canonical.ts';
@@ -14,7 +15,12 @@ import {
   type SecProviderSettlementSet
 } from '../../../../execution/operation/semantic.ts';
 import { withAcquiredResource } from '../../../../execution/resource-settlement.ts';
-import { assertWorkspaceWriteLease, withWorkspaceWriteLease } from '../../../filesystem/write-lease.ts';
+import {
+  assertWorkspaceWriteLease,
+  withWorkspaceWriteLease,
+  withWorkspaceWriteLeaseControlPlaneQuiesced,
+  type WorkspaceWriteLeaseToken
+} from '../../../filesystem/write-lease.ts';
 import { withAuthorityGitReadSession } from '../../../providers/git-read/authority.ts';
 import { assertGitHubRepositoryBinding } from '../../../providers/git-read/repository-binding.ts';
 import {
@@ -26,25 +32,31 @@ import {
   type GitReadSession
 } from '../../../providers/git-read/runtime/session.ts';
 import {
+  assertGitLocalRefDeleteBatchReceipt,
+  type GitLocalRefDeleteBatchReceipt
+} from '../../../providers/git/ref-effect.ts';
+import {
   executeGitHubApiOperation,
   GitHubApiProviderError,
   inspectGitHubApiCapability,
   type GitHubApiCapability
 } from '../../../providers/github-api/operation-session.ts';
 import { parseWorktreePorcelainZ } from '../../../runtime-state/physical/contract/git-worktree-observation.ts';
+import { observePhysicalJournalMutationEntry } from '../../../runtime-state/physical/runtime/mutation-lease.ts';
 import {
   inspectNoFollowDirectoryChain,
   inspectNoFollowDirectoryChild,
   retireNoFollowDirectoryTree,
   scanNoFollowDirectoryDirectMetadata
 } from '../../../runtime-state/physical/runtime/physical-no-follow.ts';
-import { createRuntimeStateJournalFileSystem } from '../../../runtime-state/workspace-state/journal-filesystem.ts';
+import { createRuntimeStateJournalFileSystem, prepareRuntimeStateJournalMutation, runtimeStateJournalMutationLeaseName } from '../../../runtime-state/workspace-state/journal-filesystem.ts';
 import { assertDevelopmentCommitCandidateCurrent } from '../commit-admission/candidate.ts';
 import {
   consumeDevelopmentCommitAdmission,
   type DevelopmentCommitAdmission,
   type DevelopmentCommitRequest
 } from '../commit-admission/operation.ts';
+import { SOURCE_CHECKPOINT_COMMIT_IDENTITY_PROCESS_COUNT } from '../commit-admission/source-checkpoint-contract.ts';
 import { GIT_READ_OPERATION_BUDGET } from '../tooling/git/git-read.ts';
 
 const JOURNAL_SCHEMA = 'sec-development-commit-journal-v1';
@@ -211,26 +223,105 @@ function parseJournal(source: string): Journal {
   return journal;
 }
 
+interface CommitJournalWriteScope {
+  readonly commonDirectory: string;
+  readonly token: WorkspaceWriteLeaseToken;
+  active: boolean;
+}
+const commitJournalScopes = new AsyncLocalStorage<CommitJournalWriteScope>();
+
+/** The existing common-directory writer generation owns every journal effect.
+ * Quiescing its control plane prevents local release while native preparation
+ * is held across the mandatory post-acquisition generation readback. */
+async function withCommitJournalWriteScope<T>(
+  commonDirectory: string,
+  reentrantToken: WorkspaceWriteLeaseToken | undefined,
+  execute: (token: WorkspaceWriteLeaseToken) => Promise<T>
+): Promise<T> {
+  const current = commitJournalScopes.getStore();
+  if (current !== undefined) {
+    if (!current.active || current.commonDirectory !== commonDirectory
+        || (reentrantToken !== undefined && reentrantToken !== current.token)) {
+      throw new Error('Development commit journal scope differs or is closed.');
+    }
+    await assertWorkspaceWriteLease(commonDirectory, current.token);
+    return execute(current.token);
+  }
+  return withWorkspaceWriteLease(commonDirectory, reentrantToken, token =>
+    withWorkspaceWriteLeaseControlPlaneQuiesced(commonDirectory, token, async () => {
+      const scope: CommitJournalWriteScope = { commonDirectory, token, active: true };
+      try { return await commitJournalScopes.run(scope, () => execute(token)); }
+      finally { scope.active = false; }
+    }));
+}
+
+async function usePreparedCommitJournal<T>(
+  commonDirectory: string,
+  writer: ReturnType<typeof journalWriter>,
+  filePath: string,
+  use: (prepared: NonNullable<ReturnType<typeof prepareRuntimeStateJournalMutation>>) => T,
+  creation?: 'create-absent-data'
+): Promise<T> {
+  const scope = commitJournalScopes.getStore();
+  if (scope === undefined || !scope.active || scope.commonDirectory !== commonDirectory) {
+    throw new Error('Development commit journal effect has no live original writer scope.');
+  }
+  await assertWorkspaceWriteLease(commonDirectory, scope.token);
+  const prepared = prepareRuntimeStateJournalMutation(writer, filePath, creation);
+  if (prepared === null) throw new Error('Development commit journal native resource is contended.');
+  let primary: unknown;
+  let failed = false;
+  try {
+    // A waiter captured before retirement cannot revive an expired generation.
+    await assertWorkspaceWriteLease(commonDirectory, scope.token);
+    if (!scope.active || commitJournalScopes.getStore() !== scope) {
+      throw new Error('Development commit journal scope closed while acquiring its native resource.');
+    }
+    return use(prepared);
+  } catch (error) { primary = error; failed = true; throw error; }
+  finally {
+    try { prepared.dispose(); } catch (settlement) {
+      if (failed) throw new AggregateError([primary, settlement],
+        'Development commit journal effect and native settlement both failed.');
+      throw settlement;
+    }
+  }
+}
+
+function mutateCommitJournal<T>(commonDirectory: string, writer: ReturnType<typeof journalWriter>,
+  filePath: string, execute: () => T, creation?: 'create-absent-data'): Promise<T> {
+  return usePreparedCommitJournal(commonDirectory, writer, filePath, prepared => prepared.run(execute), creation);
+}
+
+async function retireCommitJournal(commonDirectory: string, writer: ReturnType<typeof journalWriter>,
+  filePath: string, expectedText: string): Promise<boolean> {
+  // Selection/classification belongs to the enclosing original owner scope.
+  // This capability cannot be used to retire an absent or unknown generation.
+  if (!writer.exists(filePath)) return false;
+  await usePreparedCommitJournal(commonDirectory, writer, filePath, prepared => prepared.retire(expectedText));
+  return true;
+}
+
 function journalWriter(commonDirectory: string) {
   return createRuntimeStateJournalFileSystem(
     inspectNoFollowDirectoryChain(commonDirectory, 'Development commit common directory').target
   );
 }
 
-function writeJournal(
+async function writeJournal(
   commonDirectory: string,
   journalPath: string,
   journal: Journal,
   create: boolean
-): void {
+): Promise<void> {
   const writer = journalWriter(commonDirectory);
   const source = encodeJournal(journal);
   if (create) {
-    if (!writer.createExclusiveFsync(journalPath, source)) {
+    if (!await mutateCommitJournal(commonDirectory, writer, journalPath, () => writer.createExclusiveFsync(journalPath, source), 'create-absent-data')) {
       throw new Error('Development commit attempt journal identity is contended.');
     }
   } else {
-    writer.replaceFsync(journalPath, source);
+    await mutateCommitJournal(commonDirectory, writer, journalPath, () => writer.replaceFsync(journalPath, source));
   }
 }
 
@@ -258,12 +349,23 @@ function observeJournalCensus(commonDirectory: string, ref: string): Readonly<{
     deadlineAtMs: deadlineAtMonotonicMs,
     maximumEntries: MAXIMUM_JOURNAL_CENSUS_ENTRIES
   });
-  if (entries.some(({ kind, relativePath }) => kind !== 'file' || !JOURNAL_NAME.test(relativePath))) {
-    throw new Error('Development commit journal census found unrecognized owner residue.');
-  }
+  const journals = entries.filter(({ kind, relativePath }) => {
+    if (kind === 'file' && JOURNAL_NAME.test(relativePath)) return true;
+    const protocolName = /^(?:\.journal-mutation-|\.sec-journal-guard-)[0-9a-f]{64}\.lock$/u.test(relativePath);
+    const guarded = kind === 'file' && protocolName
+      ? observePhysicalJournalMutationEntry(directory, relativePath) : null;
+    if (guarded === null || guarded.state !== 'idle' || !JOURNAL_NAME.test(guarded.resourceName)
+        || guarded.leaseName !== runtimeStateJournalMutationLeaseName(writer.rootPath,
+          path.join(directory.path, guarded.resourceName))) {
+      throw new Error('Development commit journal census found unrecognized owner residue.');
+    }
+    // A retired payload can leave its qualified persistent idle rendezvous.
+    // Its physical identity remains necessary for existing/future waiters.
+    return false;
+  });
   let observedBytes = 0;
   const matching: ObservedJournal[] = [];
-  for (const entry of entries) {
+  for (const entry of journals) {
     const journalPath = path.join(directory.path, entry.relativePath);
     const observed = writer.observeTextRetained(journalPath, {
       deadlineAtMonotonicMs,
@@ -283,17 +385,17 @@ function observeJournalCensus(commonDirectory: string, ref: string): Readonly<{
   return Object.freeze({ matching: Object.freeze(matching), writer });
 }
 
-function createJournalWithinRefAttemptCeiling(commonDirectory: string, journalPath: string, journal: Journal): void {
+async function createJournalWithinRefAttemptCeiling(commonDirectory: string, journalPath: string, journal: Journal): Promise<void> {
   const before = observeJournalCensus(commonDirectory, journal.ref);
   if (before.matching.length >= MAXIMUM_REF_JOURNALS) {
     throw new Error('Development commit journal exact-ref attempt ceiling is full.');
   }
   const source = encodeJournal(journal);
-  writeJournal(commonDirectory, journalPath, journal, true);
+  await writeJournal(commonDirectory, journalPath, journal, true);
   try {
     observeJournalCensus(commonDirectory, journal.ref);
   } catch (error) {
-    journalWriter(commonDirectory).deleteFsyncCas(journalPath, source);
+    await retireCommitJournal(commonDirectory, journalWriter(commonDirectory), journalPath, source);
     throw error;
   }
 }
@@ -411,7 +513,8 @@ async function execute(
     operation,
     budget: {
       ...GIT_READ_OPERATION_BUDGET,
-      maxProcesses: DEVELOPMENT_COMMIT_EXECUTION_PROCESS_COUNT,
+      maxProcesses: DEVELOPMENT_COMMIT_EXECUTION_PROCESS_COUNT
+        + (request.sourceCheckpoint === undefined ? 0 : SOURCE_CHECKPOINT_COMMIT_IDENTITY_PROCESS_COUNT),
       maxStdinBytes: 64 * 1024,
       maxStdoutBytes: 12 * 1024,
       maxStderrBytes: 192 * 1024,
@@ -433,13 +536,13 @@ async function execute(
       if (commonDirectory !== candidateDetails.commonDirectory) {
         throw new Error('Development commit common directory changed before coordinated mutation.');
       }
-      return withWorkspaceWriteLease(commonDirectory, undefined, async (lease) => {
+      return withCommitJournalWriteScope(commonDirectory, undefined, async (lease) => {
         await assertDevelopmentCommitCandidateCurrent({
           candidate: frozen,
           request,
           session: resolution.session
         });
-        createJournalWithinRefAttemptCeiling(commonDirectory, journalPath, journal);
+        await createJournalWithinRefAttemptCeiling(commonDirectory, journalPath, journal);
         const object = await materializeAuthorityDevelopmentCommitObject({
           gitReadSession: resolution.session,
           contract
@@ -456,7 +559,7 @@ async function execute(
           );
         }
         journal = Object.freeze({ ...journal, object: object.object });
-        writeJournal(commonDirectory, journalPath, journal, false);
+        await writeJournal(commonDirectory, journalPath, journal, false);
         await hooks.afterObjectJournaled?.(journalPath);
         await assertWorkspaceWriteLease(commonDirectory, lease);
         const refSettlement = await compareAndSwapAuthorityDevelopmentCommitRef({
@@ -480,7 +583,7 @@ async function execute(
         const { disposition } = readback;
         journal = Object.freeze({ ...journal, terminal: disposition });
         await assertWorkspaceWriteLease(commonDirectory, lease);
-        writeJournal(commonDirectory, journalPath, journal, false);
+        await writeJournal(commonDirectory, journalPath, journal, false);
         const result = Object.freeze({
           schema: 'sec-development-commit-result-v1',
           disposition,
@@ -511,47 +614,51 @@ function assertDevelopmentCommitReadbackReceipt(value: DevelopmentCommitReadback
 }
 
 /** Acknowledgement is the sole retirement authority for an owner-issued applied result. */
-export function acknowledgeDevelopmentCommitResult(result: DevelopmentCommitResult): void {
+export async function acknowledgeDevelopmentCommitResult(result: DevelopmentCommitResult): Promise<void> {
   const issued = ISSUED_DEVELOPMENT_COMMIT_RESULTS.get(result);
   if (issued === undefined) throw new Error('Development commit retirement requires one owner-issued result.');
-  assertDevelopmentCommitReadbackReceipt(issued.readback);
-  if (result.disposition !== 'applied' || issued.readback.disposition !== 'applied') {
-    throw new Error(`Development commit retirement requires applied readback, got ${result.disposition}.`);
-  }
-  if (!journalWriter(issued.commonDirectory).deleteFsyncCas(issued.journalPath, issued.journalSource)) {
-    throw new Error('Development commit journal changed before exact retirement.');
-  }
-  ISSUED_DEVELOPMENT_COMMIT_RESULTS.delete(result);
-  retireEmptyJournalDirectory(issued.commonDirectory);
+  return withCommitJournalWriteScope(issued.commonDirectory, undefined, async () => {
+    assertDevelopmentCommitReadbackReceipt(issued.readback);
+    if (result.disposition !== 'applied' || issued.readback.disposition !== 'applied') {
+      throw new Error(`Development commit retirement requires applied readback, got ${result.disposition}.`);
+    }
+    if (!await retireCommitJournal(issued.commonDirectory, journalWriter(issued.commonDirectory), issued.journalPath, issued.journalSource)) {
+      throw new Error('Development commit journal changed before exact retirement.');
+    }
+    ISSUED_DEVELOPMENT_COMMIT_RESULTS.delete(result);
+    retireEmptyJournalDirectory(issued.commonDirectory);
+  });
 }
 
 export async function acknowledgeNotAppliedDevelopmentCommitResult(result: DevelopmentCommitResult): Promise<void> {
   const issued = ISSUED_DEVELOPMENT_COMMIT_RESULTS.get(result);
   if (issued === undefined) throw new Error('Development commit cancellation requires one owner-issued result.');
-  assertDevelopmentCommitReadbackReceipt(issued.readback);
-  if (result.disposition !== 'not-applied' || issued.readback.disposition !== 'not-applied') {
-    throw new Error(`Development commit cancellation requires not-applied readback, got ${result.disposition}.`);
-  }
-  await withAuthorityGitReadSession({ cwd: issued.repositoryRoot, budget: GIT_READ_OPERATION_BUDGET }, async (session) => {
-    const commonDirectory = path.resolve(await commandText(
-      session, ['rev-parse', '--path-format=absolute', '--git-common-dir'], 'reobserve cancellation common directory'
-    ));
-    if (commonDirectory !== issued.commonDirectory) throw new Error('Development commit cancellation common directory changed.');
-    const journal = readJournal(commonDirectory, issued.journalPath);
-    if (encodeJournal(journal) !== issued.journalSource || journal.ref !== result.ref
-        || journal.preimage !== result.preimage || journal.target !== result.target || journal.tree !== result.tree) {
-      throw new Error('Development commit cancellation journal generation changed.');
+  return withCommitJournalWriteScope(issued.commonDirectory, undefined, async () => {
+    assertDevelopmentCommitReadbackReceipt(issued.readback);
+    if (result.disposition !== 'not-applied' || issued.readback.disposition !== 'not-applied') {
+      throw new Error(`Development commit cancellation requires not-applied readback, got ${result.disposition}.`);
     }
-    const readback = await readDevelopmentCommitOutcome({ session, commonDirectory, journal, normal: null });
-    if (readback.disposition !== 'not-applied') {
-      throw new Error(`Development commit cancellation fresh readback is ${readback.disposition}.`);
-    }
-    if (!journalWriter(commonDirectory).deleteFsyncCas(issued.journalPath, issued.journalSource)) {
-      throw new Error('Development commit cancellation journal changed before exact retirement.');
-    }
+    await withAuthorityGitReadSession({ cwd: issued.repositoryRoot, budget: GIT_READ_OPERATION_BUDGET }, async (session) => {
+      const commonDirectory = path.resolve(await commandText(
+        session, ['rev-parse', '--path-format=absolute', '--git-common-dir'], 'reobserve cancellation common directory'
+      ));
+      if (commonDirectory !== issued.commonDirectory) throw new Error('Development commit cancellation common directory changed.');
+      const journal = readJournal(commonDirectory, issued.journalPath);
+      if (encodeJournal(journal) !== issued.journalSource || journal.ref !== result.ref
+          || journal.preimage !== result.preimage || journal.target !== result.target || journal.tree !== result.tree) {
+        throw new Error('Development commit cancellation journal generation changed.');
+      }
+      const readback = await readDevelopmentCommitOutcome({ session, commonDirectory, journal, normal: null });
+      if (readback.disposition !== 'not-applied') {
+        throw new Error(`Development commit cancellation fresh readback is ${readback.disposition}.`);
+      }
+      if (!await retireCommitJournal(commonDirectory, journalWriter(commonDirectory), issued.journalPath, issued.journalSource)) {
+        throw new Error('Development commit cancellation journal changed before exact retirement.');
+      }
+    });
+    ISSUED_DEVELOPMENT_COMMIT_RESULTS.delete(result);
+    retireEmptyJournalDirectory(issued.commonDirectory);
   });
-  ISSUED_DEVELOPMENT_COMMIT_RESULTS.delete(result);
-  retireEmptyJournalDirectory(issued.commonDirectory);
 }
 
 export type DevelopmentCommitJournalSettlement = Readonly<{ ref: string; observed: number; retired: number }>;
@@ -568,7 +675,7 @@ export async function retireSupersededLocalDevelopmentCommitJournals(input: Read
       session, ['rev-parse', '--path-format=absolute', '--git-common-dir'],
       'resolve superseded journal common directory'
     ));
-    return withWorkspaceWriteLease(commonDirectory, undefined, async (lease) => {
+    return withCommitJournalWriteScope(commonDirectory, undefined, async (lease) => {
       const { matching, writer } = observeJournalCensus(commonDirectory, input.ref);
       const current = await commandText(session,
         ['rev-parse', '--verify', '--end-of-options', input.ref], 'observe superseded journal ref');
@@ -600,7 +707,7 @@ export async function retireSupersededLocalDevelopmentCommitJournals(input: Read
       }
       await assertWorkspaceWriteLease(commonDirectory, lease);
       for (const candidate of matching) {
-        if (!writer.deleteFsyncCas(candidate.journalPath, candidate.source)) {
+        if (!await retireCommitJournal(commonDirectory, writer, candidate.journalPath, candidate.source)) {
           throw new Error('Superseded commit journal changed before exact retirement.');
         }
       }
@@ -621,49 +728,585 @@ export async function settleDevelopmentCommitJournalsForRef(input: Readonly<{
     const commonDirectory = path.resolve(await commandText(
       session, ['rev-parse', '--path-format=absolute', '--git-common-dir'], 'resolve journal settlement common directory'
     ));
-    const { matching, writer } = observeJournalCensus(commonDirectory, input.ref);
-    const current = await commandText(session,
-      ['rev-parse', '--verify', '--end-of-options', input.ref],
-      'read journal retirement ref').catch(() => '');
-    const reflog = await commandText(session,
-      ['rev-list', '--walk-reflogs', input.ref],
-      'read journal retirement reflog').catch(() => '');
-    const transitions = reflog.length === 0 ? [] : reflog.split(/\r?\n/u);
-    for (const candidate of matching) {
-      const journal = candidate.journal;
-      // A linked worktree may already be retired. Its index is not the index
-      // of repositoryRoot, and the ref's committed history does not depend on
-      // any surviving checkout index. Prove each completed transition in the
-      // ref's reflog; the current target must also be its latest transition.
-      const objectBytes = await commandText(session,
-        ['cat-file', 'commit', journal.target],
-        'read journal retirement commit').catch(() => '');
-      const active = current === journal.target
-        && transitions[0] === journal.target
-        && transitions[1] === journal.preimage;
-      const superseded = journal.terminal === 'applied'
-        && journal.object === journal.target
-        && journal.target !== current
-        && transitions.some((target, index) => target === journal.target
-          && transitions[index + 1] === journal.preimage);
-      if (!objectBytes.startsWith(`tree ${journal.tree}\nparent ${journal.preimage}\n`)
-          || (!active && !superseded)) {
-        throw new Error('Development commit journal settlement requires applied readback, got unknown.');
+    return withCommitJournalWriteScope(commonDirectory, undefined, async () => {
+      const { matching, writer } = observeJournalCensus(commonDirectory, input.ref);
+      const current = await commandText(session,
+        ['rev-parse', '--verify', '--end-of-options', input.ref],
+        'read journal retirement ref').catch(() => '');
+      const reflog = await commandText(session,
+        ['rev-list', '--walk-reflogs', input.ref],
+        'read journal retirement reflog').catch(() => '');
+      const transitions = reflog.length === 0 ? [] : reflog.split(/\r?\n/u);
+      for (const candidate of matching) {
+        const journal = candidate.journal;
+        // A linked worktree may already be retired. Its index is not the index
+        // of repositoryRoot, and the ref's committed history does not depend on
+        // any surviving checkout index. Prove each completed transition in the
+        // ref's reflog; the current target must also be its latest transition.
+        const objectBytes = await commandText(session,
+          ['cat-file', 'commit', journal.target],
+          'read journal retirement commit').catch(() => '');
+        const active = current === journal.target
+          && transitions[0] === journal.target
+          && transitions[1] === journal.preimage;
+        const superseded = journal.terminal === 'applied'
+          && journal.object === journal.target
+          && journal.target !== current
+          && transitions.some((target, index) => target === journal.target
+            && transitions[index + 1] === journal.preimage);
+        if (!objectBytes.startsWith(`tree ${journal.tree}\nparent ${journal.preimage}\n`)
+            || (!active && !superseded)) {
+          throw new Error('Development commit journal settlement requires applied readback, got unknown.');
+        }
       }
+      for (const candidate of matching) {
+        const terminal = candidate.journal.terminal === 'applied'
+          ? candidate.journal : Object.freeze({ ...candidate.journal, terminal: 'applied' as const });
+        const source = encodeJournal(terminal);
+        if (candidate.source !== source && !await mutateCommitJournal(commonDirectory, writer, candidate.journalPath, () => writer.replaceFsyncCas(candidate.journalPath, candidate.source, source))) {
+          throw new Error('Development commit journal changed before settlement terminalization.');
+        }
+        if (!await retireCommitJournal(commonDirectory, writer, candidate.journalPath, source)) {
+          throw new Error('Development commit journal changed before settlement retirement.');
+        }
+      }
+      retireEmptyJournalDirectory(commonDirectory);
+      return Object.freeze({ ref: input.ref, observed: matching.length, retired: matching.length });
+    });
+  });
+}
+
+
+
+const LOCAL_REF_RETIREMENT_PLAN_SCHEMA =
+  'sec-development-commit-local-ref-retirement-v1' as const;
+const LOCAL_REF_RETIREMENT_DIRECTORY =
+  'sec-development-commit-local-ref-retirement' as const;
+const MAXIMUM_LOCAL_REF_RETIREMENT_PLAN_BYTES = 64 * 1024;
+
+type DurableLocalRefRetirementPlan = Readonly<{
+  schema: typeof LOCAL_REF_RETIREMENT_PLAN_SCHEMA;
+  ref: string;
+  expectedHeadSha: string;
+  preparedRefState: 'present' | 'absent';
+  journals: readonly Readonly<{
+    journalName: string;
+    sourceDigest: SecOperationDigest;
+  }>[];
+}>;
+
+declare const DEVELOPMENT_COMMIT_LOCAL_REF_RETIREMENT_PLAN: unique symbol;
+export type DevelopmentCommitLocalRefRetirementPlan = Readonly<{
+  readonly [DEVELOPMENT_COMMIT_LOCAL_REF_RETIREMENT_PLAN]: true;
+  readonly ref: string;
+  readonly expectedHeadSha: string;
+  readonly refState: 'present' | 'absent';
+}>;
+
+type LocalRefRetirementDetails = Readonly<{
+  repositoryRoot: string;
+  commonDirectory: string;
+  ref: string;
+  expectedHeadSha: string;
+  currentRefState: 'present' | 'absent';
+  planPath: string;
+  planSource: string;
+  durable: DurableLocalRefRetirementPlan;
+}>;
+
+const ISSUED_LOCAL_REF_RETIREMENT_PLANS =
+  new WeakMap<object, LocalRefRetirementDetails>();
+
+function journalSourceDigest(source: string): SecOperationDigest {
+  return sha256({
+    domain: 'development.commit.local-ref-retirement.journal-source',
+    source
+  }) as SecOperationDigest;
+}
+
+function localRefRetirementPlanPath(
+  commonDirectory: string,
+  ref: string,
+  expectedHeadSha: string
+): string {
+  const identity = sha256({
+    domain: 'development.commit.local-ref-retirement.plan-path',
+    ref,
+    expectedHeadSha
+  });
+  return path.join(
+    commonDirectory,
+    LOCAL_REF_RETIREMENT_DIRECTORY,
+    `${identity.slice('sha256:'.length)}.json`
+  );
+}
+
+function encodeLocalRefRetirementPlan(plan: DurableLocalRefRetirementPlan): string {
+  const source = `${JSON.stringify(canonicalJson(plan))}\n`;
+  if (Buffer.byteLength(source, 'utf8') > MAXIMUM_LOCAL_REF_RETIREMENT_PLAN_BYTES) {
+    throw new Error('Development commit local-ref retirement plan exceeds its byte ceiling.');
+  }
+  return source;
+}
+
+function parseLocalRefRetirementPlan(source: string): DurableLocalRefRetirementPlan {
+  if (!source.endsWith('\n')
+      || Buffer.byteLength(source, 'utf8') > MAXIMUM_LOCAL_REF_RETIREMENT_PLAN_BYTES) {
+    throw new Error('Development commit local-ref retirement plan is not bounded canonical JSON.');
+  }
+  const value = JSON.parse(source.slice(0, -1)) as Record<string, unknown>;
+  const keys = Object.keys(value).sort();
+  const expectedKeys = [
+    'expectedHeadSha', 'journals', 'preparedRefState', 'ref', 'schema'
+  ].sort();
+  if (JSON.stringify(keys) !== JSON.stringify(expectedKeys)
+      || value.schema !== LOCAL_REF_RETIREMENT_PLAN_SCHEMA
+      || typeof value.ref !== 'string' || !REF.test(value.ref)
+      || typeof value.expectedHeadSha !== 'string' || !OBJECT_ID.test(value.expectedHeadSha)
+      || (value.preparedRefState !== 'present' && value.preparedRefState !== 'absent')
+      || !Array.isArray(value.journals)) {
+    throw new Error('Development commit local-ref retirement plan violates its exact schema.');
+  }
+  const journals = value.journals.map((entry, index) => {
+    if (entry === null || typeof entry !== 'object' || Array.isArray(entry)) {
+      throw new Error(`Development commit local-ref retirement journal ${index} is invalid.`);
     }
-    for (const candidate of matching) {
-      const terminal = candidate.journal.terminal === 'applied'
-        ? candidate.journal : Object.freeze({ ...candidate.journal, terminal: 'applied' as const });
-      const source = encodeJournal(terminal);
-      if (candidate.source !== source && !writer.replaceFsyncCas(candidate.journalPath, candidate.source, source)) {
-        throw new Error('Development commit journal changed before settlement terminalization.');
-      }
-      if (!writer.deleteFsyncCas(candidate.journalPath, source)) {
-        throw new Error('Development commit journal changed before settlement retirement.');
-      }
+    const record = entry as Record<string, unknown>;
+    const entryKeys = Object.keys(record).sort();
+    if (JSON.stringify(entryKeys) !== JSON.stringify(['journalName', 'sourceDigest'])) {
+      throw new Error(`Development commit local-ref retirement journal ${index} fields are invalid.`);
     }
-    retireEmptyJournalDirectory(commonDirectory);
-    return Object.freeze({ ref: input.ref, observed: matching.length, retired: matching.length });
+    if (typeof record.journalName !== 'string' || !JOURNAL_NAME.test(record.journalName)
+        || typeof record.sourceDigest !== 'string'
+        || !/^sha256:[0-9a-f]{64}$/u.test(record.sourceDigest)) {
+      throw new Error(`Development commit local-ref retirement journal ${index} identity is invalid.`);
+    }
+    return Object.freeze({
+      journalName: record.journalName,
+      sourceDigest: record.sourceDigest as SecOperationDigest
+    });
+  });
+  if (journals.length > MAXIMUM_REF_JOURNALS
+      || new Set(journals.map(({ journalName }) => journalName)).size !== journals.length
+      || journals.some((entry, index) => index > 0
+        && journals[index - 1]!.journalName >= entry.journalName)) {
+    throw new Error('Development commit local-ref retirement journal set is not canonical.');
+  }
+  const plan = Object.freeze({
+    schema: LOCAL_REF_RETIREMENT_PLAN_SCHEMA,
+    ref: value.ref,
+    expectedHeadSha: value.expectedHeadSha,
+    preparedRefState: value.preparedRefState,
+    journals: Object.freeze(journals)
+  }) as DurableLocalRefRetirementPlan;
+  if (encodeLocalRefRetirementPlan(plan) !== source) {
+    throw new Error('Development commit local-ref retirement plan bytes are noncanonical.');
+  }
+  return plan;
+}
+
+function durablePlanFromJournals(input: Readonly<{
+  ref: string;
+  expectedHeadSha: string;
+  preparedRefState: 'present' | 'absent';
+  matching: readonly ObservedJournal[];
+}>): DurableLocalRefRetirementPlan {
+  return Object.freeze({
+    schema: LOCAL_REF_RETIREMENT_PLAN_SCHEMA,
+    ref: input.ref,
+    expectedHeadSha: input.expectedHeadSha,
+    preparedRefState: input.preparedRefState,
+    journals: Object.freeze(input.matching.map((candidate) => Object.freeze({
+      journalName: path.basename(candidate.journalPath),
+      sourceDigest: journalSourceDigest(candidate.source)
+    })).sort((left, right) => left.journalName < right.journalName ? -1 : left.journalName > right.journalName ? 1 : 0))
+  });
+}
+
+function observeDurableLocalRefRetirementPlan(input: Readonly<{
+  commonDirectory: string;
+  ref: string;
+  expectedHeadSha: string;
+}>): Readonly<{
+  planPath: string;
+  source: string;
+  plan: DurableLocalRefRetirementPlan;
+}> | null {
+  const planPath = localRefRetirementPlanPath(
+    input.commonDirectory,
+    input.ref,
+    input.expectedHeadSha
+  );
+  const observed = journalWriter(input.commonDirectory).observeTextRetained(planPath, {
+    deadlineAtMonotonicMs: performance.now() + 5_000,
+    maximumBytes: MAXIMUM_LOCAL_REF_RETIREMENT_PLAN_BYTES
+  });
+  if (observed === null) return null;
+  const plan = parseLocalRefRetirementPlan(observed.text);
+  if (plan.ref !== input.ref || plan.expectedHeadSha !== input.expectedHeadSha) {
+    throw new Error('Development commit local-ref retirement plan identity differs.');
+  }
+  return Object.freeze({ planPath, source: observed.text, plan });
+}
+
+function assertJournalCensusWithinDurablePlan(input: Readonly<{
+  plan: DurableLocalRefRetirementPlan;
+  matching: readonly ObservedJournal[];
+  exact: boolean;
+}>): void {
+  const expected = new Map(input.plan.journals.map((entry) => [
+    entry.journalName,
+    entry.sourceDigest
+  ]));
+  for (const candidate of input.matching) {
+    const name = path.basename(candidate.journalPath);
+    const digest = expected.get(name);
+    if (digest === undefined || digest !== journalSourceDigest(candidate.source)) {
+      throw new Error(
+        'Development commit journal family changed relative to its durable local-ref retirement plan.'
+      );
+    }
+  }
+  if (input.exact && input.matching.length !== input.plan.journals.length) {
+    throw new Error(
+      'Development commit journal family changed relative to its durable local-ref retirement plan.'
+    );
+  }
+}
+
+function retireEmptyLocalRefRetirementDirectory(commonDirectory: string): void {
+  const parent = inspectNoFollowDirectoryChain(
+    commonDirectory,
+    'Commit local-ref retirement parent'
+  ).target;
+  const root = inspectNoFollowDirectoryChild(
+    parent,
+    LOCAL_REF_RETIREMENT_DIRECTORY,
+    'Commit local-ref retirement owner'
+  );
+  if (root === null) return;
+  const deadlineAtMonotonicMs = performance.now() + 5_000;
+  if (scanNoFollowDirectoryDirectMetadata(root, {
+    deadlineAtMs: deadlineAtMonotonicMs,
+    maximumEntries: MAXIMUM_JOURNAL_CENSUS_ENTRIES
+  }).length !== 0) return;
+  retireNoFollowDirectoryTree({
+    parent,
+    root,
+    inventory: [],
+    deadlineAtMonotonicMs
+  });
+}
+
+async function observeExactLocalRefForJournalRetirement(
+  session: GitReadSession,
+  ref: string
+): Promise<string | null> {
+  const source = await commandText(
+    session,
+    ['for-each-ref', '--count=2', '--format=%(refname)%00%(objectname)', ref],
+    'observe local ref for journal retirement'
+  );
+  if (source.length === 0) return null;
+  const fields = source.split('\0');
+  if (fields.length !== 2 || fields[0] !== ref || !OBJECT_ID.test(fields[1]!)) {
+    throw new Error('Development commit local-ref retirement observation is ambiguous.');
+  }
+  return fields[1]!;
+}
+
+async function normalizeLocalRefRetirementJournals(input: Readonly<{
+  session: GitReadSession;
+  commonDirectory: string;
+  ref: string;
+  expectedHeadSha: string;
+  matching: readonly ObservedJournal[];
+}>): Promise<readonly ObservedJournal[]> {
+  const transitions = (await commandText(
+    input.session,
+    ['rev-list', '--walk-reflogs', input.ref],
+    'read local-ref retirement reflog'
+  )).split(/\r?\n/u).filter(Boolean);
+  const writer = journalWriter(input.commonDirectory);
+  const normalized: ObservedJournal[] = [];
+  for (const candidate of input.matching) {
+    const journal = candidate.journal;
+    const objectBytes = await commandText(
+      input.session,
+      ['cat-file', 'commit', journal.target],
+      'read local-ref retirement journal commit'
+    ).catch(() => '');
+    const headers = objectBytes.split('\n\n', 1)[0]!.split('\n');
+    const treeHeaders = headers.filter((line) => line.startsWith('tree '));
+    const parentHeaders = headers.filter((line) => line.startsWith('parent '));
+    const ancestry = await input.session.run([
+      'merge-base', '--is-ancestor', journal.target, input.expectedHeadSha
+    ]);
+    const exactObject = JSON.stringify(treeHeaders) === JSON.stringify([`tree ${journal.tree}`])
+      && JSON.stringify(parentHeaders) === JSON.stringify([`parent ${journal.preimage}`])
+      && ancestry.kind === 'completed'
+      && ancestry.result.code === 0;
+    const exactTransition = transitions.some((target, index) => (
+      target === journal.target && transitions[index + 1] === journal.preimage
+    ));
+    if (!exactObject || !exactTransition) {
+      throw new Error(
+        'Development commit local-ref retirement requires applied readback, got unknown.'
+      );
+    }
+    const terminal = journal.terminal === 'applied' && journal.object === journal.target
+      ? journal
+      : Object.freeze({
+          ...journal,
+          object: journal.target,
+          terminal: 'applied' as const
+        });
+    const source = encodeJournal(terminal);
+    if (source !== candidate.source
+        && !await mutateCommitJournal(input.commonDirectory, writer, candidate.journalPath, () => writer.replaceFsyncCas(candidate.journalPath, candidate.source, source))) {
+      throw new Error(
+        'Development commit journal changed before local-ref retirement terminalization.'
+      );
+    }
+    normalized.push(Object.freeze({
+      journal: terminal,
+      journalPath: candidate.journalPath,
+      source
+    }));
+  }
+  return Object.freeze(normalized);
+}
+
+// Freeze every journal that could be invalidated by local-ref retirement.
+// The durable plan survives a crash between the native ref CAS and journal retirement.
+export async function prepareDevelopmentCommitJournalsForLocalRefRetirement(input: Readonly<{
+  repositoryRoot: string;
+  ref: string;
+  expectedHeadSha: string;
+  coordinatedLease: WorkspaceWriteLeaseToken;
+}>): Promise<DevelopmentCommitLocalRefRetirementPlan> {
+  if (!REF.test(input.ref) || !OBJECT_ID.test(input.expectedHeadSha)) {
+    throw new Error(
+      'Development commit local-ref retirement requires one exact ref and expected head.'
+    );
+  }
+  const repositoryRoot = path.resolve(input.repositoryRoot);
+  const details = await withAuthorityGitReadSession(
+    { cwd: repositoryRoot, budget: GIT_READ_OPERATION_BUDGET },
+    async (session) => {
+      const commonDirectory = path.resolve(await commandText(
+        session,
+        ['rev-parse', '--path-format=absolute', '--git-common-dir'],
+        'resolve local-ref retirement common directory'
+      ));
+      return withCommitJournalWriteScope(commonDirectory, input.coordinatedLease, async () => {
+        await assertWorkspaceWriteLease(commonDirectory, input.coordinatedLease);
+        const current = await observeExactLocalRefForJournalRetirement(session, input.ref);
+        if (current !== null && current !== input.expectedHeadSha) {
+          throw new Error(
+            `Development commit local-ref retirement preimage changed: expected ${input.expectedHeadSha}, observed ${current}.`
+          );
+        }
+        const currentRefState = current === null ? 'absent' as const : 'present' as const;
+        const census = observeJournalCensus(commonDirectory, input.ref);
+        const existing = observeDurableLocalRefRetirementPlan({
+          commonDirectory,
+          ref: input.ref,
+          expectedHeadSha: input.expectedHeadSha
+        });
+        if (existing !== null) {
+          if (existing.plan.preparedRefState === 'absent' && currentRefState === 'present') {
+            throw new Error(
+              'Development commit local-ref retirement ref reappeared after an absent durable plan.'
+            );
+          }
+          assertJournalCensusWithinDurablePlan({
+            plan: existing.plan,
+            matching: census.matching,
+            exact: currentRefState === 'present'
+          });
+          return Object.freeze({
+            repositoryRoot,
+            commonDirectory,
+            ref: input.ref,
+            expectedHeadSha: input.expectedHeadSha,
+            currentRefState,
+            planPath: existing.planPath,
+            planSource: existing.source,
+            durable: existing.plan
+          });
+        }
+
+        if (currentRefState === 'absent' && census.matching.length !== 0) {
+          throw new Error(
+            'Development commit local-ref retirement found journals after ref disappearance without a durable pre-CAS plan.'
+          );
+        }
+
+        const normalized = currentRefState === 'present'
+          ? await normalizeLocalRefRetirementJournals({
+              session,
+              commonDirectory,
+              ref: input.ref,
+              expectedHeadSha: input.expectedHeadSha,
+              matching: census.matching
+            })
+          : Object.freeze([] as ObservedJournal[]);
+        const durable = durablePlanFromJournals({
+          ref: input.ref,
+          expectedHeadSha: input.expectedHeadSha,
+          preparedRefState: currentRefState,
+          matching: normalized
+        });
+        const planPath = localRefRetirementPlanPath(
+          commonDirectory,
+          input.ref,
+          input.expectedHeadSha
+        );
+        const planSource = encodeLocalRefRetirementPlan(durable);
+        const writer = journalWriter(commonDirectory);
+        if (!await mutateCommitJournal(commonDirectory, writer, planPath, () => writer.createExclusiveFsync(planPath, planSource), 'create-absent-data')) {
+          throw new Error(
+            'Development commit local-ref retirement durable plan identity is contended.'
+          );
+        }
+        const readback = writer.observeTextRetained(planPath, {
+          deadlineAtMonotonicMs: performance.now() + 5_000,
+          maximumBytes: MAXIMUM_LOCAL_REF_RETIREMENT_PLAN_BYTES
+        });
+        if (readback?.text !== planSource) {
+          throw new Error(
+            'Development commit local-ref retirement durable plan readback differs.'
+          );
+        }
+        await assertWorkspaceWriteLease(commonDirectory, input.coordinatedLease);
+        assertJournalCensusWithinDurablePlan({
+          plan: durable,
+          matching: observeJournalCensus(commonDirectory, input.ref).matching,
+          exact: true
+        });
+        return Object.freeze({
+          repositoryRoot,
+          commonDirectory,
+          ref: input.ref,
+          expectedHeadSha: input.expectedHeadSha,
+          currentRefState,
+          planPath,
+          planSource,
+          durable
+        });
+      });
+    }
+  );
+  const plan = Object.freeze({
+    ref: details.ref,
+    expectedHeadSha: details.expectedHeadSha,
+    refState: details.currentRefState
+  }) as DevelopmentCommitLocalRefRetirementPlan;
+  ISSUED_LOCAL_REF_RETIREMENT_PLANS.set(plan, details);
+  return plan;
+}
+
+// Retire only journal identities recorded by the durable pre-CAS plan.
+// A late journal, even if independently marked applied, blocks terminal closeout.
+export async function acknowledgeDevelopmentCommitJournalsForLocalRefRetirement(
+  plan: DevelopmentCommitLocalRefRetirementPlan,
+  input: Readonly<{
+    coordinatedLease: WorkspaceWriteLeaseToken;
+    receipt: GitLocalRefDeleteBatchReceipt | null;
+  }>
+): Promise<DevelopmentCommitJournalSettlement> {
+  const issued = ISSUED_LOCAL_REF_RETIREMENT_PLANS.get(plan);
+  if (issued === undefined) {
+    throw new Error(
+      'Development commit local-ref retirement requires one owner-issued plan.'
+    );
+  }
+  return withCommitJournalWriteScope(issued.commonDirectory, input.coordinatedLease, async () => {
+    if (issued.currentRefState === 'present') {
+      if (input.receipt === null) {
+        throw new Error(
+          'Development commit local-ref retirement requires the native Git CAS receipt.'
+        );
+      }
+      assertGitLocalRefDeleteBatchReceipt(input.receipt);
+      const exact = input.receipt.entries.find(({ ref }) => ref === issued.ref);
+      if (exact === undefined || exact.expectedOldSha !== issued.expectedHeadSha) {
+        throw new Error(
+          'Development commit local-ref retirement receipt differs from the frozen ref generation.'
+        );
+      }
+    } else if (input.receipt !== null) {
+      throw new Error(
+        'Development commit already-absent retirement must not borrow another ref receipt.'
+      );
+    }
+
+    await withAuthorityGitReadSession(
+      { cwd: issued.repositoryRoot, budget: GIT_READ_OPERATION_BUDGET },
+      async (session) => {
+        const commonDirectory = path.resolve(await commandText(
+          session,
+          ['rev-parse', '--path-format=absolute', '--git-common-dir'],
+          'reobserve local-ref retirement common directory'
+        ));
+        if (commonDirectory !== issued.commonDirectory) {
+          throw new Error(
+            'Development commit local-ref retirement common directory changed.'
+          );
+        }
+        await assertWorkspaceWriteLease(commonDirectory, input.coordinatedLease);
+        if (await observeExactLocalRefForJournalRetirement(session, issued.ref) !== null) {
+          throw new Error(
+            'Development commit local-ref retirement ref is live after the exact CAS.'
+          );
+        }
+        const writer = journalWriter(commonDirectory);
+        const planReadback = writer.observeTextRetained(issued.planPath, {
+          deadlineAtMonotonicMs: performance.now() + 5_000,
+          maximumBytes: MAXIMUM_LOCAL_REF_RETIREMENT_PLAN_BYTES
+        });
+        if (planReadback?.text !== issued.planSource
+            || encodeLocalRefRetirementPlan(parseLocalRefRetirementPlan(issued.planSource))
+              !== issued.planSource) {
+          throw new Error(
+            'Development commit local-ref retirement durable plan changed before acknowledgement.'
+          );
+        }
+        const census = observeJournalCensus(commonDirectory, issued.ref);
+        assertJournalCensusWithinDurablePlan({
+          plan: issued.durable,
+          matching: census.matching,
+          exact: false
+        });
+        for (const candidate of census.matching) {
+          if (!await retireCommitJournal(commonDirectory, writer, candidate.journalPath, candidate.source)) {
+            throw new Error(
+              'Development commit journal changed before post-CAS retirement.'
+            );
+          }
+        }
+        if (observeJournalCensus(commonDirectory, issued.ref).matching.length !== 0) {
+          throw new Error(
+            'Development commit journal family is not empty after post-CAS retirement.'
+          );
+        }
+        await assertWorkspaceWriteLease(commonDirectory, input.coordinatedLease);
+        if (!await retireCommitJournal(commonDirectory, writer, issued.planPath, issued.planSource)) {
+          throw new Error(
+            'Development commit local-ref retirement durable plan changed before retirement.'
+          );
+        }
+      }
+    );
+    ISSUED_LOCAL_REF_RETIREMENT_PLANS.delete(plan);
+    retireEmptyJournalDirectory(issued.commonDirectory);
+    retireEmptyLocalRefRetirementDirectory(issued.commonDirectory);
+    return Object.freeze({
+      ref: issued.ref,
+      observed: issued.durable.journals.length,
+      retired: issued.durable.journals.length
+    });
   });
 }
 
@@ -849,47 +1492,49 @@ export async function acknowledgeClosedAbsentDevelopmentCommitJournalRetirement(
 ): Promise<DevelopmentCommitJournalSettlement> {
   const issued = ISSUED_CLOSED_ABSENT_RETIREMENT_PLANS.get(plan);
   if (issued === undefined) throw new Error('Closed-absent commit journal retirement requires one owner-issued plan.');
-  await withAuthorityGitReadSession({ cwd: issued.repositoryRoot, budget: GIT_READ_OPERATION_BUDGET }, async (session) => {
-    await assertGitHubRepositoryBinding(session, issued.repository);
-    if (issued.pull !== null && issued.defaultBranch !== null) {
-      await assertClosedAbsentTerminal({
-        session, capability: issued.capability, pullRequestNumber: issued.pullRequestNumber,
-        repository: issued.repository, remote: issued.remote, defaultBranch: issued.defaultBranch, pull: issued.pull
-      });
-    }
-    const commonDirectory = path.resolve(await commandText(
-      session, ['rev-parse', '--path-format=absolute', '--git-common-dir'], 'reobserve closed-absent common directory'
-    ));
-    if (commonDirectory !== issued.commonDirectory) {
-      throw new Error('Closed-absent commit journal common directory changed before retirement.');
-    }
-    const { matching, writer } = observeJournalCensus(commonDirectory, issued.ref);
-    const identity = (values: readonly ObservedJournal[]) => values.map(({ journalPath, source }) => ({ journalPath, source }));
-    if (JSON.stringify(identity(matching)) !== JSON.stringify(identity(issued.remaining))) {
-      throw new Error('Closed-absent commit journal family changed before retirement.');
-    }
-    if (matching.length !== 0 && issued.pull === null) {
-      throw new Error('Closed-absent commit journal appeared after empty plan.');
-    }
-    if (issued.pull !== null) {
-      await classifyTransportedJournals({ session, matching, headSha: issued.pull.headSha, label: 'Closed-absent PR' });
-      await assertClosedAbsentTerminal({
-        session, capability: issued.capability, pullRequestNumber: issued.pullRequestNumber,
-        repository: issued.repository, remote: issued.remote, defaultBranch: issued.defaultBranch!, pull: issued.pull
-      });
-    }
-    for (const [index, candidate] of matching.entries()) {
-      if (!writer.deleteFsyncCas(candidate.journalPath, candidate.source)) {
-        throw new Error('Closed-absent commit journal changed before exact retirement.');
+  return withCommitJournalWriteScope(issued.commonDirectory, undefined, async () => {
+    await withAuthorityGitReadSession({ cwd: issued.repositoryRoot, budget: GIT_READ_OPERATION_BUDGET }, async (session) => {
+      await assertGitHubRepositoryBinding(session, issued.repository);
+      if (issued.pull !== null && issued.defaultBranch !== null) {
+        await assertClosedAbsentTerminal({
+          session, capability: issued.capability, pullRequestNumber: issued.pullRequestNumber,
+          repository: issued.repository, remote: issued.remote, defaultBranch: issued.defaultBranch, pull: issued.pull
+        });
       }
-      ISSUED_CLOSED_ABSENT_RETIREMENT_PLANS.set(plan, Object.freeze({
-        ...issued, remaining: Object.freeze(matching.slice(index + 1))
-      }));
-    }
+      const commonDirectory = path.resolve(await commandText(
+        session, ['rev-parse', '--path-format=absolute', '--git-common-dir'], 'reobserve closed-absent common directory'
+      ));
+      if (commonDirectory !== issued.commonDirectory) {
+        throw new Error('Closed-absent commit journal common directory changed before retirement.');
+      }
+      const { matching, writer } = observeJournalCensus(commonDirectory, issued.ref);
+      const identity = (values: readonly ObservedJournal[]) => values.map(({ journalPath, source }) => ({ journalPath, source }));
+      if (JSON.stringify(identity(matching)) !== JSON.stringify(identity(issued.remaining))) {
+        throw new Error('Closed-absent commit journal family changed before retirement.');
+      }
+      if (matching.length !== 0 && issued.pull === null) {
+        throw new Error('Closed-absent commit journal appeared after empty plan.');
+      }
+      if (issued.pull !== null) {
+        await classifyTransportedJournals({ session, matching, headSha: issued.pull.headSha, label: 'Closed-absent PR' });
+        await assertClosedAbsentTerminal({
+          session, capability: issued.capability, pullRequestNumber: issued.pullRequestNumber,
+          repository: issued.repository, remote: issued.remote, defaultBranch: issued.defaultBranch!, pull: issued.pull
+        });
+      }
+      for (const [index, candidate] of matching.entries()) {
+        if (!await retireCommitJournal(commonDirectory, writer, candidate.journalPath, candidate.source)) {
+          throw new Error('Closed-absent commit journal changed before exact retirement.');
+        }
+        ISSUED_CLOSED_ABSENT_RETIREMENT_PLANS.set(plan, Object.freeze({
+          ...issued, remaining: Object.freeze(matching.slice(index + 1))
+        }));
+      }
+    });
+    ISSUED_CLOSED_ABSENT_RETIREMENT_PLANS.delete(plan);
+    retireEmptyJournalDirectory(issued.commonDirectory);
+    return Object.freeze({ ref: issued.ref, observed: issued.initialCount, retired: issued.initialCount });
   });
-  ISSUED_CLOSED_ABSENT_RETIREMENT_PLANS.delete(plan);
-  retireEmptyJournalDirectory(issued.commonDirectory);
-  return Object.freeze({ ref: issued.ref, observed: issued.initialCount, retired: issued.initialCount });
 }
 
 /** Historical merged transport proves consumer termination, not a lost local CAS. */
@@ -952,16 +1597,18 @@ export async function retireMergedDevelopmentCommitJournals(input: Readonly<{
     const commonDirectory = path.resolve(await commandText(
       session, ['rev-parse', '--path-format=absolute', '--git-common-dir'], 'resolve merged journal common directory'
     ));
-    const { matching, writer } = observeJournalCensus(commonDirectory, ref);
-    await classifyTransportedJournals({ session, matching, headSha: pull.headSha, label: 'Merged PR' });
-    await assertTerminal();
-    for (const candidate of matching) {
-      if (!writer.deleteFsyncCas(candidate.journalPath, candidate.source)) {
-        throw new Error('Merged commit journal changed before exact retirement.');
+    return withCommitJournalWriteScope(commonDirectory, undefined, async () => {
+      const { matching, writer } = observeJournalCensus(commonDirectory, ref);
+      await classifyTransportedJournals({ session, matching, headSha: pull.headSha, label: 'Merged PR' });
+      await assertTerminal();
+      for (const candidate of matching) {
+        if (!await retireCommitJournal(commonDirectory, writer, candidate.journalPath, candidate.source)) {
+          throw new Error('Merged commit journal changed before exact retirement.');
+        }
       }
-    }
-    retireEmptyJournalDirectory(commonDirectory);
-    return Object.freeze({ ref, observed: matching.length, retired: matching.length });
+      retireEmptyJournalDirectory(commonDirectory);
+      return Object.freeze({ ref, observed: matching.length, retired: matching.length });
+    });
   });
 }
 
@@ -996,7 +1643,7 @@ async function recoverDevelopmentCommitWithReadback(input: Readonly<{
           || relative.startsWith(`..${path.sep}`)) {
         throw new Error('Development commit recovery journal escapes its exact owner root.');
       }
-      return withWorkspaceWriteLease(commonDirectory, undefined, async (lease) => {
+      return withCommitJournalWriteScope(commonDirectory, undefined, async (lease) => {
         let journal = readJournal(commonDirectory, path.resolve(input.journalPath));
         const readback = await readDevelopmentCommitOutcome({ session, commonDirectory, journal, normal: null });
         journal = Object.freeze({
@@ -1008,7 +1655,7 @@ async function recoverDevelopmentCommitWithReadback(input: Readonly<{
               : readback.disposition
         });
         await assertWorkspaceWriteLease(commonDirectory, lease);
-        writeJournal(commonDirectory, path.resolve(input.journalPath), journal, false);
+        await writeJournal(commonDirectory, path.resolve(input.journalPath), journal, false);
         const journalSource = encodeJournal(journal);
         const result = Object.freeze({
           schema: 'sec-development-commit-result-v1' as const,

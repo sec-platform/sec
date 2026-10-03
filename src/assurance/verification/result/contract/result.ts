@@ -1,5 +1,9 @@
-import { isProxy } from 'node:util/types';
-
+import {
+  assertVerificationDataCallable,
+  readVerificationDataRecord,
+  snapshotVerificationData,
+  verificationDataEqual
+} from '../../contract/data.ts';
 import { VERIFICATION_GATE_RESULT_SCHEMA } from './schema.ts';
 
 ;
@@ -232,188 +236,26 @@ const APPLICABILITIES: readonly VerificationApplicability[] = [
 // Strict verification-data boundary
 // ---------------------------------------------------------------------------
 
-type VerificationDataSnapshot =
-  | null
-  | boolean
-  | number
-  | string
-  | VerificationDataSnapshot[]
-  | { [key: string]: VerificationDataSnapshot };
-
-type OrdinaryDataDescriptor = PropertyDescriptor & { value: unknown };
-
-const VERIFICATION_PROXY_ERROR = 'Verification data must not contain Proxy values.';
-
-function assertNotVerificationProxy(value: unknown): void {
-  if (isProxy(value)) throw new Error(VERIFICATION_PROXY_ERROR);
-}
-
-function assertCanonicalVerificationDataPrototype(
-  value: object,
-  label: string,
-  isArray: boolean
-): void {
-  const prototype = Object.getPrototypeOf(value) as object | null;
-  const canonicalPrototype = isArray ? Array.prototype : Object.prototype;
-  if (prototype !== canonicalPrototype) {
-    throw new Error(
-      `${label} must use the canonical ${isArray ? 'Array' : 'Object'} prototype.`
-    );
-  }
-
-  // The candidate's immediate prototype identity is proven before any descriptor
-  // operation can reach candidate-controlled prototype state. Never traverse a
-  // candidate-supplied prototype chain: only the candidate and the two trusted
-  // intrinsic prototypes are relevant to the supported ordinary-data shape.
-  if (Object.getOwnPropertyDescriptor(value, 'toJSON') !== undefined ||
-    (isArray && Object.getOwnPropertyDescriptor(Array.prototype, 'toJSON') !== undefined) ||
-    Object.getOwnPropertyDescriptor(Object.prototype, 'toJSON') !== undefined) {
-    throw new Error(`${label} must not define or inherit toJSON.`);
-  }
-}
-
-function ordinaryDataDescriptor(
-  value: object,
-  key: PropertyKey,
-  label: string
-): OrdinaryDataDescriptor {
-  const descriptor = Object.getOwnPropertyDescriptor(value, key);
-  if (!descriptor || !Object.prototype.hasOwnProperty.call(descriptor, 'value')) {
-    throw new Error(`${label} must be an ordinary own data field.`);
-  }
-  if (!descriptor.enumerable) {
-    throw new Error(`${label} must be an enumerable own data field.`);
-  }
-  return descriptor as OrdinaryDataDescriptor;
-}
-
-function snapshotStrictVerificationData(
-  value: unknown,
-  label: string,
-  ancestors: WeakSet<object>
-): VerificationDataSnapshot {
-  assertNotVerificationProxy(value);
-  if (value === null || typeof value === 'string' || typeof value === 'boolean') return value;
-  if (typeof value === 'number') {
-    if (!Number.isFinite(value)) throw new Error(`${label} must contain only finite numbers.`);
-    return value;
-  }
-  if (typeof value !== 'object') {
-    throw new Error(`${label} must contain only JSON-compatible data fields.`);
-  }
-  if (ancestors.has(value)) throw new Error(`${label} must not contain a cycle.`);
-  ancestors.add(value);
-  try {
-    const isArray = Array.isArray(value);
-    assertCanonicalVerificationDataPrototype(value, label, isArray);
-    if (isArray) {
-      const ownKeys = Reflect.ownKeys(value);
-      if (ownKeys.some((key) => typeof key === 'symbol')) {
-        throw new Error(`${label} must not contain symbol fields.`);
-      }
-      const lengthDescriptor = Object.getOwnPropertyDescriptor(value, 'length');
-      if (!lengthDescriptor || !Object.prototype.hasOwnProperty.call(lengthDescriptor, 'value') ||
-        lengthDescriptor.enumerable || lengthDescriptor.configurable ||
-        !Number.isSafeInteger(lengthDescriptor.value) || lengthDescriptor.value < 0) {
-        throw new Error(`${label}.length must be the canonical array length field.`);
-      }
-      const length = lengthDescriptor.value as number;
-      if (ownKeys.length !== length + 1) {
-        throw new Error(`${label} must be dense and contain no extra own fields.`);
-      }
-      const descriptors: OrdinaryDataDescriptor[] = [];
-      for (let index = 0; index < length; index += 1) {
-        descriptors.push(ordinaryDataDescriptor(value, String(index), `${label}[${index}]`));
-      }
-      const snapshot: VerificationDataSnapshot[] = [];
-      for (let index = 0; index < length; index += 1) {
-        snapshot.push(snapshotStrictVerificationData(
-          descriptors[index]!.value,
-          `${label}[${index}]`,
-          ancestors
-        ));
-      }
-      return snapshot;
-    }
-
-    const ownKeys = Reflect.ownKeys(value);
-    if (ownKeys.some((key) => typeof key === 'symbol')) {
-      throw new Error(`${label} must not contain symbol fields.`);
-    }
-    const descriptors = ownKeys.map((key) => ({
-      key: key as string,
-      descriptor: ordinaryDataDescriptor(value, key, `${label}.${String(key)}`)
-    }));
-    const snapshot: { [key: string]: VerificationDataSnapshot } = {};
-    for (const { key, descriptor } of descriptors) {
-      Object.defineProperty(snapshot, key, {
-        value: snapshotStrictVerificationData(descriptor.value, `${label}.${key}`, ancestors),
-        enumerable: true,
-        configurable: true,
-        writable: true
-      });
-    }
-    return snapshot;
-  } finally {
-    ancestors.delete(value);
-  }
-}
-
-/**
- * Validate and snapshot one untrusted verification-data graph without invoking
- * candidate getters, array methods, or serialization hooks.
- */
+/** Compatibility facade; the verification-domain data boundary is owned by contract/data.ts. */
 export function CodexDevelopmentSnapshotVerificationData(
   value: unknown,
-  label: string = 'verification data'
+  label: string = 'Verification data'
 ): unknown {
-  return snapshotStrictVerificationData(value, label, new WeakSet<object>());
-}
-
-function verificationDataSnapshotsEqual(
-  left: VerificationDataSnapshot,
-  right: VerificationDataSnapshot
-): boolean {
-  if (left === right) return true;
-  if (left === null || right === null || typeof left !== 'object' || typeof right !== 'object') {
-    return false;
-  }
-  const leftIsArray = Array.isArray(left);
-  if (leftIsArray !== Array.isArray(right)) return false;
-  if (leftIsArray) {
-    const leftArray = left as VerificationDataSnapshot[];
-    const rightArray = right as VerificationDataSnapshot[];
-    if (leftArray.length !== rightArray.length) return false;
-    for (let index = 0; index < leftArray.length; index += 1) {
-      if (!verificationDataSnapshotsEqual(leftArray[index]!, rightArray[index]!)) return false;
+  try {
+    return snapshotVerificationData(value, label);
+  } catch (error) {
+    if (error instanceof Error && error.message.endsWith('must not contain Proxy values.')) {
+      throw new Error('Verification data must not contain Proxy values.', { cause: error });
     }
-    return true;
+    throw error;
   }
-  const leftRecord = left as { [key: string]: VerificationDataSnapshot };
-  const rightRecord = right as { [key: string]: VerificationDataSnapshot };
-  const leftKeys = Reflect.ownKeys(leftRecord).map(String).sort();
-  const rightKeys = Reflect.ownKeys(rightRecord).map(String).sort();
-  if (leftKeys.length !== rightKeys.length ||
-    leftKeys.some((key, index) => key !== rightKeys[index])) {
-    return false;
-  }
-  return leftKeys.every((key) => verificationDataSnapshotsEqual(leftRecord[key]!, rightRecord[key]!));
 }
 
-/** Compare two values only after both cross the same strict data boundary. */
 export function CodexDevelopmentVerificationDataEqual(
   left: unknown,
   right: unknown
 ): boolean {
-  const leftSnapshot = CodexDevelopmentSnapshotVerificationData(
-    left,
-    'left verification data'
-  ) as VerificationDataSnapshot;
-  const rightSnapshot = CodexDevelopmentSnapshotVerificationData(
-    right,
-    'right verification data'
-  ) as VerificationDataSnapshot;
-  return verificationDataSnapshotsEqual(leftSnapshot, rightSnapshot);
+  return verificationDataEqual(left, right);
 }
 
 // ---------------------------------------------------------------------------
@@ -813,16 +655,8 @@ function snapshotVerificationAggregateInput(
   input: VerificationAggregateInput
 ): VerificationAggregateInput {
   const label = 'verification aggregate input';
-  assertNotVerificationProxy(input);
-  if (!input || typeof input !== 'object' || Array.isArray(input)) {
-    throw new Error(`${label} must be an object.`);
-  }
-  assertCanonicalVerificationDataPrototype(input, label, false);
-  const ownKeys = Reflect.ownKeys(input);
-  if (ownKeys.some((key) => typeof key === 'symbol')) {
-    throw new Error(`${label} must not contain symbol fields.`);
-  }
-  const actualKeys = (ownKeys as string[]).slice().sort();
+  const candidate = readVerificationDataRecord(input, 'Verification data');
+  const actualKeys = Object.keys(candidate).sort();
   const expectedKeys = actualKeys.includes('isCoverageComplete')
     ? ['claims', 'gateResults', 'isCoverageComplete']
     : ['claims', 'gateResults'];
@@ -834,23 +668,19 @@ function snapshotVerificationAggregateInput(
       `expected: ${sortedExpectedKeys.join(', ')}.`
     );
   }
-  const claimsDescriptor = ordinaryDataDescriptor(input, 'claims', `${label}.claims`);
-  const gatesDescriptor = ordinaryDataDescriptor(input, 'gateResults', `${label}.gateResults`);
-  const coverageDescriptor = actualKeys.includes('isCoverageComplete')
-    ? ordinaryDataDescriptor(input, 'isCoverageComplete', `${label}.isCoverageComplete`)
-    : undefined;
-  if (coverageDescriptor) assertNotVerificationProxy(coverageDescriptor.value);
-  if (coverageDescriptor?.value !== undefined && typeof coverageDescriptor.value !== 'function') {
-    throw new Error(`${label}.isCoverageComplete must be a function when present.`);
+
+  const coverage = candidate.isCoverageComplete;
+  if (coverage !== undefined) {
+    assertVerificationDataCallable(coverage, `${label}.isCoverageComplete`);
   }
 
   const claims = CodexDevelopmentSnapshotVerificationData(
-    claimsDescriptor.value,
+    candidate.claims,
     `${label}.claims`
   );
   if (!Array.isArray(claims)) throw new Error(`${label}.claims must be an array.`);
   const gateResults = CodexDevelopmentSnapshotVerificationData(
-    gatesDescriptor.value,
+    candidate.gateResults,
     `${label}.gateResults`
   );
   if (!Array.isArray(gateResults)) throw new Error(`${label}.gateResults must be an array.`);
@@ -914,17 +744,16 @@ function snapshotVerificationAggregateInput(
   }
 
   const snapshot: VerificationAggregateInput = {
-    claims: claims as VerificationClaimDefinition[],
+    claims: claims as unknown as VerificationClaimDefinition[],
     gateResults: canonicalGates
   };
-  if (coverageDescriptor?.value !== undefined) {
-    snapshot.isCoverageComplete = coverageDescriptor.value as NonNullable<
+  if (coverage !== undefined) {
+    snapshot.isCoverageComplete = coverage as NonNullable<
       VerificationAggregateInput['isCoverageComplete']
     >;
   }
   return snapshot;
 }
-
 function defaultCoverageComplete(
   claim: VerificationClaimDefinition,
   observations: VerificationGateResult[]

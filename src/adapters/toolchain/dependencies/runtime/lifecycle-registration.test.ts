@@ -4,11 +4,11 @@ import { SecError } from '../../../../contracts/failure.ts';
 import type {
   GeneratedStatePhysicalIdentity,
   GeneratedStateRegistration
-} from '../../../runtime-state/generated-state/contract.ts';
+} from '../../../../execution/generated-state/contract.ts';
 import {
   bindAndRetireCompilerDependencyPreimage,
   bindExistingCompilerDependencyGeneration,
-  bindExistingSharedDependencyRoot,
+  bindExistingLegacySharedDependencyRoot,
   birthAndBindCompilerDependencyGeneration
 } from './lifecycle-registration.ts';
 import {
@@ -62,7 +62,7 @@ function lifecycleOptions(input: Readonly<{
 }
 
 describe('dependency lifecycle registration owner', () => {
-  test('adopts exact compiler and shared identities before retiring a compiler preimage', async () => {
+  test('binds active compiler and explicit legacy-retirement identities before retiring a compiler preimage', async () => {
     const effects: Array<Readonly<{ operation: string; relativePath: string; expected?: unknown }>> = [];
     const retiredDigest = `sha256:${'3'.repeat(64)}` as const;
     const options = lifecycleOptions({
@@ -77,7 +77,7 @@ describe('dependency lifecycle registration owner', () => {
     });
 
     await bindExistingCompilerDependencyGeneration(options, physical);
-    await bindExistingSharedDependencyRoot(options, physical);
+    await bindExistingLegacySharedDependencyRoot(options, physical);
     expect(await bindAndRetireCompilerDependencyPreimage(options, physical, 'replacement')).toBe(
       retiredDigest
     );
@@ -134,7 +134,7 @@ describe('dependency lifecycle registration owner', () => {
       code: 'IMPORT-AUTHORITY-004'
     } satisfies Partial<SecError>);
 
-    await expect(bindExistingSharedDependencyRoot(lifecycleOptions({
+    await expect(bindExistingLegacySharedDependencyRoot(lifecycleOptions({
       bind: async () => {
         throw new Error('foreign registration');
       }

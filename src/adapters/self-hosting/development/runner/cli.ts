@@ -1,8 +1,14 @@
 import path from 'node:path';
+import {
+  githubCredentialBootstrapHandoffArguments,
+  withGitHubCredentialBootstrap
+} from '../../../providers/github-api/credential-bootstrap.ts';
+import type { PreparedLocalAffectedCheck } from './check-runner.ts';
 
+import { SecError } from '../../../../contracts/failure.ts';
 import type { SecBoundSemanticOperation } from '../../../../execution/operation/semantic.ts';
 import type { ProcessResourceSession } from '../../../runtime-state/physical/runtime/process-resource-session.ts';
-import { compileSecOperationDemandGraph } from '../../control/operation/demand.ts';
+import { assertSecOperationDemandGraph, compileSecOperationDemandGraph, type SecOperationDemandGraph } from '../../control/operation/demand.ts';
 import { WORKSPACE_TRANSITION_DEADLINE_ENV } from '../workspace-transition/contract.ts';
 import { requireCommandExitCode } from './command-outcome.ts';
 import { DEV_RUNNER_ENTRYPOINT_PATH } from './contract.ts';
@@ -14,7 +20,7 @@ import {
   reuseOperationDependencies,
   type MaterializedOperationDependencyBootstrapResult
 } from './dependency-bootstrap.ts';
-import { enableDevExecutionProgress, reportDevExecutionProgress } from './execution-progress.ts';
+import { reportDevExecutionProgress } from './execution-progress.ts';
 import type {
   RepositoryMutationFenceExecutionContext,
   RepositoryMutationFenceOptions
@@ -26,10 +32,22 @@ export function shouldReportDevRunnerSuccess(
   return environment.SEC_GIT_HOOK_ACTIVE !== '1';
 }
 
+const AFFECTED_HANDOFF_SELECTION_ENV = 'SEC_AFFECTED_HANDOFF_SELECTION';
+const AFFECTED_HANDOFF_DEADLINE_ENV = 'SEC_AFFECTED_HANDOFF_DEADLINE';
+
 export async function handoffDevRunnerToFreshProcess(
   dependencies: MaterializedOperationDependencyBootstrapResult,
   standardInput?: Uint8Array,
   workspaceTransitionDeadlineAtUnixMs?: number
+): Promise<number | null> {
+  return handoffDevRunnerWithAffectedExpectation(dependencies, standardInput, workspaceTransitionDeadlineAtUnixMs);
+}
+
+async function handoffDevRunnerWithAffectedExpectation(
+  dependencies: MaterializedOperationDependencyBootstrapResult,
+  standardInput?: Uint8Array,
+  workspaceTransitionDeadlineAtUnixMs?: number,
+  affectedHandoff?: Readonly<{ selectionDigest: `sha256:${string}`; deadlineAtUnixMs: number }>
 ): Promise<number | null> {
   assertMaterializedOperationDependencyBootstrapResult(dependencies);
   const handoff = createDependencyFreshProcessHandoff(dependencies);
@@ -39,18 +57,26 @@ export async function handoffDevRunnerToFreshProcess(
   if (entrypoint === undefined || path.relative(canonicalEntrypoint, path.resolve(entrypoint)) !== '') {
     throw new Error('Dev runner fresh-process handoff has no exact entrypoint identity.');
   }
+  if (affectedHandoff !== undefined && (!/^sha256:[0-9a-f]{64}$/u.test(affectedHandoff.selectionDigest)
+      || !Number.isSafeInteger(affectedHandoff.deadlineAtUnixMs) || affectedHandoff.deadlineAtUnixMs <= Date.now())) {
+    throw new Error('Affected dependency handoff has an invalid identity or exhausted deadline');
+  }
+  const deadlineAtUnixMs = affectedHandoff === undefined ? workspaceTransitionDeadlineAtUnixMs
+    : Math.min(affectedHandoff.deadlineAtUnixMs, workspaceTransitionDeadlineAtUnixMs ?? Number.MAX_SAFE_INTEGER);
   const { runDevCommand } = await import('./command-runner.ts');
-  return runDevCommand('bun', [entrypoint, ...process.argv.slice(2)], {
+  return runDevCommand('bun', [entrypoint, ...githubCredentialBootstrapHandoffArguments(process.argv.slice(2))], {
       [DEV_RUNNER_FRESH_PROCESS_TRANSITION_ENV]: handoff.transitionDigest,
+    ...(affectedHandoff === undefined ? {} : {
+      [AFFECTED_HANDOFF_SELECTION_ENV]: affectedHandoff.selectionDigest,
+      [AFFECTED_HANDOFF_DEADLINE_ENV]: String(affectedHandoff.deadlineAtUnixMs)
+    }),
       ...(workspaceTransitionDeadlineAtUnixMs === undefined ? {} : {
         [WORKSPACE_TRANSITION_DEADLINE_ENV]:
           String(workspaceTransitionDeadlineAtUnixMs)
       })
   }, {
     workingDirectory: process.cwd(),
-    ...(workspaceTransitionDeadlineAtUnixMs === undefined ? {} : {
-      deadlineAtUnixMs: workspaceTransitionDeadlineAtUnixMs
-    }),
+    ...(deadlineAtUnixMs === undefined ? {} : { deadlineAtUnixMs }),
     ...(standardInput === undefined ? {} : {
       input: standardInput
     })
@@ -61,15 +87,20 @@ type CheckAffectedDemand = ReturnType<typeof compileSecOperationDemandGraph>;
 
 export interface CheckAffectedCommandOperations {
   readonly runPlan: () => Promise<number>;
+  /** Required only by execution; --plan never observes this callback. */
+  readonly prepareExecution?: () => Promise<PreparedLocalAffectedCheck | null>;
   readonly ensureDependencies: (
-    demand: CheckAffectedDemand
+    demand: CheckAffectedDemand,
+    preparation: PreparedLocalAffectedCheck
   ) => Promise<MaterializedOperationDependencyBootstrapResult>;
   readonly handoff: (
-    dependencies: MaterializedOperationDependencyBootstrapResult
+    dependencies: MaterializedOperationDependencyBootstrapResult,
+    preparation: PreparedLocalAffectedCheck
   ) => Promise<number | null>;
   readonly runExecution: (
-    dependencies: MaterializedOperationDependencyBootstrapResult,
-    demand: CheckAffectedDemand
+    dependencies: MaterializedOperationDependencyBootstrapResult | undefined,
+    demand: CheckAffectedDemand | undefined,
+    preparation: PreparedLocalAffectedCheck
   ) => Promise<number>;
 }
 
@@ -84,57 +115,73 @@ export async function runCheckAffectedCommand(
   operations: CheckAffectedCommandOperations
 ): Promise<number> {
   if (args.length > 0 && (args.length !== 1 || args[0] !== '--plan')) {
-    throw new Error('check:affected accepts only --plan');
+    throw new Error('check --affected accepts only --plan');
   }
   if (args.length === 1) {
     const runPlan = operations.runPlan;
     if (typeof runPlan !== 'function') throw new TypeError('Affected plan callback must be callable');
-    reportDevExecutionProgress({ command: 'check:affected', phase: 'plan', state: 'start' });
+    reportDevExecutionProgress({ command: 'check', phase: 'plan', state: 'start' });
     const exitCode = requireCommandExitCode(
       await Reflect.apply(runPlan, operations, []),
       'Affected plan'
     );
     reportDevExecutionProgress({
-      command: 'check:affected', phase: 'plan', state: 'complete', detail: { exitCode }
+      command: 'check', phase: 'plan', state: 'complete', detail: { exitCode }
     });
     return exitCode;
   }
-  const { ensureDependencies, handoff, runExecution } = operations;
-  if ([ensureDependencies, handoff, runExecution].some(action => typeof action !== 'function')) {
-    throw new TypeError('Affected execution requires its dependency, handoff and execution callbacks');
+  const { prepareExecution, runExecution } = operations;
+  if (typeof prepareExecution !== 'function' || typeof runExecution !== 'function') {
+    throw new TypeError('Affected execution requires preparation and execution callbacks');
+  }
+  reportDevExecutionProgress({ command: 'check', phase: 'git-selection', state: 'start' });
+  const preparation = await Reflect.apply(prepareExecution, operations, []);
+  reportDevExecutionProgress({ command: 'check', phase: 'git-selection', state: 'complete' });
+  if (preparation === null) return 1;
+  const needsDependencies = preparation.needsDependencies;
+  if (needsDependencies !== true && needsDependencies !== false) {
+    throw new TypeError('Affected preparation must state its runtime dependency need');
+  }
+  if (!needsDependencies) {
+    return requireCommandExitCode(await Reflect.apply(runExecution, operations, [undefined, undefined, preparation]),
+      'Affected Git-only execution');
+  }
+  const { ensureDependencies, handoff } = operations;
+  if (typeof ensureDependencies !== 'function' || typeof handoff !== 'function') {
+    throw new TypeError('Selected affected Gates require dependency and handoff callbacks');
   }
   const demand = compileSecOperationDemandGraph({
     operation: 'check-affected',
     terminalWorkIds: []
   });
   reportDevExecutionProgress({
-    command: 'check:affected', phase: 'dependency-admission', state: 'start'
+    command: 'check', phase: 'dependency-admission', state: 'start'
   });
-  const dependencies = await Reflect.apply(ensureDependencies, operations, [demand]);
+  const dependencies = await Reflect.apply(ensureDependencies, operations, [demand, preparation]);
   reportDevExecutionProgress({
-    command: 'check:affected', phase: 'dependency-admission', state: 'complete',
+    command: 'check', phase: 'dependency-admission', state: 'complete',
     detail: { source: dependencies.source }
   });
-  reportDevExecutionProgress({ command: 'check:affected', phase: 'fresh-process-handoff', state: 'start' });
-  const handoffExitCode = await Reflect.apply(handoff, operations, [dependencies]);
+  reportDevExecutionProgress({ command: 'check', phase: 'fresh-process-handoff', state: 'start' });
+  const handoffExitCode = await Reflect.apply(handoff, operations, [dependencies, preparation]);
   if (handoffExitCode !== null) {
     reportDevExecutionProgress({
-      command: 'check:affected', phase: 'fresh-process-handoff', state: 'complete',
+      command: 'check', phase: 'fresh-process-handoff', state: 'complete',
       detail: { exitCode: handoffExitCode, handedOff: true }
     });
     return requireCommandExitCode(handoffExitCode, 'Affected dependency handoff');
   }
   reportDevExecutionProgress({
-    command: 'check:affected', phase: 'fresh-process-handoff', state: 'complete',
+    command: 'check', phase: 'fresh-process-handoff', state: 'complete',
     detail: { handedOff: false }
   });
-  reportDevExecutionProgress({ command: 'check:affected', phase: 'gates', state: 'start' });
+  reportDevExecutionProgress({ command: 'check', phase: 'gates', state: 'start' });
   const exitCode = requireCommandExitCode(
-    await Reflect.apply(runExecution, operations, [dependencies, demand]),
+    await Reflect.apply(runExecution, operations, [dependencies, demand, preparation]),
     'Affected execution'
   );
   reportDevExecutionProgress({
-    command: 'check:affected', phase: 'gates', state: 'complete', detail: { exitCode }
+    command: 'check', phase: 'gates', state: 'complete', detail: { exitCode }
   });
   return exitCode;
 }
@@ -145,14 +192,14 @@ export async function runCheckAffectedCommand(
  * in the TypeScript execution closure.  The materialized result is passed to
  * the runner unchanged; the runner may not bootstrap a second generation.
  */
-export async function runTypecheckCommand(args: readonly string[]): Promise<number> {
+export async function runTypecheckCommand(args: readonly string[], prepareDependencies = ensureOperationDependencies): Promise<number> {
   const selectedArgs = [...args];
   const demand = compileSecOperationDemandGraph({
     operation: 'typecheck',
     terminalWorkIds: []
   });
   reportDevExecutionProgress({ command: 'typecheck', phase: 'dependency-admission', state: 'start' });
-  const dependencies = await ensureOperationDependencies(demand);
+  const dependencies = await prepareDependencies(demand);
   reportDevExecutionProgress({
     command: 'typecheck', phase: 'dependency-admission', state: 'complete',
     detail: { source: dependencies.source }
@@ -171,7 +218,9 @@ export async function runTypecheckCommand(args: readonly string[]): Promise<numb
 }
 
 function usage(): never {
-  console.error('Usage: bun ./src/adapters/self-hosting/development/runner/cli.ts <commit <message>|commit:recover <absolute-journal-path>|commit:recover --retire-superseded-local <exact-ref>|workspace-transition <post-checkout|post-merge|post-rewrite> [hook-args...]|deps:ensure|typecheck|check:fast|check:affected [--plan]|test|test:affected|test:fast|test:slow|test:full|imports:check [--all|--candidate-base <sha>] [--remove-unused]|imports:check --staged [--candidate-base <sha>]|imports:apply [--all|--candidate-base <sha>] [--remove-unused]|imports:apply --staged [--candidate-base <sha>]|imports:freeze|generated-state:inspect|generated-state:plan|generated-state:cleanup|environment:workspace-settle> [args...]');
+  console.error('Optional: --github-credential-store <absolute-private-directory> (Linux only; outside the operation checkout).');
+  console.error('Source checkpoint, from the trusted main package: bun run dev commit <message> --source-checkpoint --workspace <candidate> --trusted-main <exact-sha> --base <exact-sha> --expected-head <exact-sha> --expected-ref <refs/heads/topic> --expected-tree <exact-staged-tree> --expected-index <sha256:digest> --owned-path <exact-path> [--owned-path <exact-path> ...].');
+  console.error("Usage: bun ./src/bootstrap/development/runner-cli.ts <commit <message>|commit:recover <absolute-journal-path>|commit:recover --retire-superseded-local <exact-ref>|workspace-transition <post-checkout|post-merge|post-rewrite> [hook-args...]|deps:ensure|typecheck|check [--affected [--plan]|--scope <fast|full>]|test [--affected [--plan]|--scope <fast|slow|full>] [test-args...]|imports:check [--all|--candidate-base <sha>] [--remove-unused]|imports:check --staged [--candidate-base <sha>]|imports:apply [--all|--candidate-base <sha>] [--remove-unused]|imports:apply --staged [--candidate-base <sha>]|imports:freeze|generated-state:inspect|generated-state:plan|generated-state:cleanup|environment:workspace-settle> [args...]");
   process.exit(1);
 }
 
@@ -244,8 +293,59 @@ function parseImportOperationArgs(
   return Object.freeze({ scope, ...(candidateBase === undefined ? {} : { candidateBase }), intent, staged });
 }
 
-async function main(): Promise<void> {
-  const [target, ...args] = process.argv.slice(2);
+/** Presentation from an observed selection, not transform admission. Every
+ * candidate hint carries the resolved base even when the check used a default. */
+export function formatImportRecoveryCommand(selection: Readonly<{
+  scope: 'candidate' | 'all';
+  candidateBase: string | null;
+  intent: 'sort-and-combine' | 'remove-unused';
+  staged: boolean;
+}>): string {
+  if ((selection.scope !== 'candidate' && selection.scope !== 'all')
+      || (selection.intent !== 'sort-and-combine' && selection.intent !== 'remove-unused')
+      || typeof selection.staged !== 'boolean'
+      || (selection.scope === 'candidate'
+        ? typeof selection.candidateBase !== 'string' || !/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/u.test(selection.candidateBase)
+        : selection.candidateBase !== null)
+      || (selection.staged && (selection.scope !== 'candidate' || selection.intent !== 'sort-and-combine'))) {
+    throw new Error('Import recovery requires one exact compatible observed selection');
+  }
+  return [
+    'bun run imports:apply',
+    selection.staged ? '--staged' : undefined,
+    selection.scope === 'all' ? '--all' : `--candidate-base ${selection.candidateBase}`,
+    selection.intent === 'remove-unused' ? '--remove-unused' : undefined
+  ].filter(Boolean).join(' ');
+}
+
+export interface DevRunnerComposition {
+  readonly ensureDependencies: typeof ensureOperationDependencies;
+  readonly dependencyBootstrap: import('./dependency-bootstrap.ts').OperationDependencyBootstrapOptions;
+  readonly importOrganizer: import('./import-organizer.ts').ImportOrganizerOperationDependencies;
+  runGeneratedStateOperation(args: readonly string[]): Promise<unknown>;
+  settleWorkspaceEnvironment(input: Readonly<{ fix: boolean }>): Promise<Readonly<{ status: 'settled' | 'blocked' }>>;
+}
+/** Imports use the fixed Source Program issuer, never an installation callback. */
+export async function admitImportCompilerCapability(demand: SecOperationDemandGraph): Promise<void> {
+  assertSecOperationDemandGraph(demand);
+  if (demand.capabilityDemands.length !== 1 || demand.capabilityDemands[0] !== 'typescript-compiler-api') {
+    throw new SecError('SOURCE-PROGRAM-TYPESCRIPT-CAPABILITY-BLOCKED', 'Import operation requires only the read-only TypeScript compiler API demand.');
+  }
+  try {
+    const { typeScriptCompilerIdentity, assertTypeScriptCompilerIdentity } =
+      await import('../../../repository/source-program-model/typescript-profile.ts');
+    assertTypeScriptCompilerIdentity(typeScriptCompilerIdentity());
+  } catch (cause) {
+    throw new SecError('SOURCE-PROGRAM-TYPESCRIPT-CAPABILITY-BLOCKED',
+      'Import compiler capability admission failed; no dependency installation was selected.', {}, { cause });
+  }
+}
+export async function runDevRunnerCli(composition: DevRunnerComposition): Promise<void> {
+  return withGitHubCredentialBootstrap(process.argv.slice(2), argv => runWithCredentialBootstrap(argv, composition));
+}
+
+async function runWithCredentialBootstrap(argv: string[], composition: DevRunnerComposition): Promise<void> {
+  const [target, ...args] = argv;
   if (!target) {
     usage();
   }
@@ -284,16 +384,8 @@ async function main(): Promise<void> {
 
   if (target === 'generated-state:inspect' || target === 'generated-state:plan'
       || target === 'generated-state:cleanup') {
-    const { runGeneratedStateOperation } = await import('../../../runtime-state/generated-state/operation.ts');
-    const { compilerDependencyGeneratedStateSettlementOwner } = await import(
-      '../../../toolchain/dependencies/runtime.ts'
-    );
     const operation = target.slice('generated-state:'.length);
-    const result = await runGeneratedStateOperation(
-      [operation, ...args],
-      process.cwd(),
-      [compilerDependencyGeneratedStateSettlementOwner]
-    );
+    const result = await composition.runGeneratedStateOperation([operation, ...args]);
     console.log(JSON.stringify(result, null, 2));
     return;
   }
@@ -301,16 +393,29 @@ async function main(): Promise<void> {
   if (target === 'environment:workspace-settle') {
     const unknown = args.filter((argument) => argument !== '--fix');
     if (unknown.length > 0) usage();
-    const { settleWorkspaceEnvironment } = await import('../../../runtime-state/generated-state/environment-settlement.ts');
-    const result = await settleWorkspaceEnvironment({ fix: args.includes('--fix') });
+    const result = await composition.settleWorkspaceEnvironment({ fix: args.includes('--fix') });
     console.log(JSON.stringify(result, null, 2));
     if (result.status !== 'settled') process.exitCode = 1;
     return;
   }
 
-  if (target === 'check:affected') {
-    if (args.length > 0 && (args.length !== 1 || args[0] !== '--plan')) usage();
-    process.exitCode = await runCheckAffectedCommand(args, {
+  if (target === 'check' && args[0] === '--affected') {
+    const affectedArgs = args.slice(1);
+    if (affectedArgs.length > 0 && (affectedArgs.length !== 1 || affectedArgs[0] !== '--plan')) usage();
+    const expectedSelection = process.env[AFFECTED_HANDOFF_SELECTION_ENV];
+    const deadlineText = process.env[AFFECTED_HANDOFF_DEADLINE_ENV];
+    const inheritedDeadline = deadlineText === undefined ? undefined : Number(deadlineText);
+    if ((expectedSelection === undefined) !== (deadlineText === undefined)
+        || (expectedSelection !== undefined && (!/^sha256:[0-9a-f]{64}$/u.test(expectedSelection)
+          || process.env[DEV_RUNNER_FRESH_PROCESS_TRANSITION_ENV] === undefined
+          || !Number.isSafeInteger(inheritedDeadline) || inheritedDeadline! <= Date.now()))) {
+      throw new Error('Affected fresh-process expectation is incomplete, invalid or expired');
+    }
+    // This expectation belongs to this successor invocation. Keep its captured
+    // values here, but do not constrain independent commands spawned by Gates.
+    delete process.env[AFFECTED_HANDOFF_SELECTION_ENV];
+    delete process.env[AFFECTED_HANDOFF_DEADLINE_ENV];
+    process.exitCode = await runCheckAffectedCommand(affectedArgs, {
       runPlan: async () => {
         const { runLocalAffectedCheck } = await import('./check-runner.ts');
         const { compileAffectedTestSelectionSemanticOperation } = await import('./affected-plan-contract.ts');
@@ -323,27 +428,44 @@ async function main(): Promise<void> {
           operation
         );
       },
-      ensureDependencies: ensureOperationDependencies,
-      handoff: handoffDevRunnerToFreshProcess,
-      runExecution: async (dependencies, demand) => {
-        const { runLocalAffectedCheck } = await import('./check-runner.ts');
+      prepareExecution: async () => {
+        const { prepareLocalAffectedCheck } = await import('./check-runner.ts');
         const { compileAffectedTestSelectionSemanticOperation } = await import('./affected-plan-contract.ts');
         const operation = compileAffectedTestSelectionSemanticOperation({
-          purpose: 'check-affected'
+          purpose: 'check-affected', deadlineAtUnixMs: inheritedDeadline
         });
-        return runLocalAffectedCheck([], {
-          operation,
-          prepareCompilerDependencies: async () => reuseOperationDependencies(dependencies, demand)
-        });
+        return prepareLocalAffectedCheck({ operation,
+          expectedSelectionDigest: expectedSelection as `sha256:${string}` | undefined });
+      },
+      ensureDependencies: (demand, preparation) => composition.ensureDependencies(demand, {
+        deadlineAtUnixMs: preparation.operation.plan.attempt.deadlineAtUnixMs
+      }),
+      handoff: (dependencies, preparation) => handoffDevRunnerWithAffectedExpectation(dependencies, undefined, undefined, {
+        selectionDigest: preparation.selectionDigest,
+        deadlineAtUnixMs: preparation.operation.plan.attempt.deadlineAtUnixMs
+      }),
+      runExecution: async (dependencies, demand, preparation) => {
+        const { runPreparedLocalAffectedCheck } = await import('./check-runner.ts');
+        return runPreparedLocalAffectedCheck(preparation, dependencies === undefined ? undefined
+          : reuseOperationDependencies(dependencies, demand!));
       }
     });
     return;
   }
 
-  if (target === 'check:fast') {
-    if (args.length > 0) usage();
+  if (target === 'check') {
+    let scope: 'fast' | 'full' = 'fast';
+    if (args.length > 0) {
+      if (args.length !== 2 || args[0] !== '--scope' || (args[1] !== 'fast' && args[1] !== 'full')) usage();
+      scope = args[1];
+    }
+    if (scope === 'full') {
+      const { runFullCheck } = await import('./check-runner.ts');
+      process.exitCode = await runFullCheck();
+      return;
+    }
     const demand = compileSecOperationDemandGraph({ operation: 'check-fast', terminalWorkIds: [] });
-    const dependencies = await ensureOperationDependencies(demand);
+    const dependencies = await composition.ensureDependencies(demand);
     const handoffExitCode = await handoffDevRunnerToFreshProcess(dependencies);
     if (handoffExitCode !== null) {
       process.exitCode = handoffExitCode;
@@ -356,9 +478,10 @@ async function main(): Promise<void> {
     return;
   }
 
-  if (target === 'test:affected') {
-    if (args.includes('--plan') && !(args.length === 1 && args[0] === '--plan')) {
-      console.error('test:affected --plan cannot be combined with execution arguments.');
+  if (target === 'test' && args[0] === '--affected') {
+    const affectedArgs = args.slice(1);
+    if (affectedArgs.includes('--plan') && !(affectedArgs.length === 1 && affectedArgs[0] === '--plan')) {
+      console.error('test --affected --plan cannot be combined with execution arguments.');
       process.exitCode = 1;
       return;
     }
@@ -372,28 +495,30 @@ async function main(): Promise<void> {
     const operation = compileAffectedTestSelectionSemanticOperation({
       purpose: 'check-affected'
     });
-    if (args.length === 1 && args[0] === '--plan') {
+    if (affectedArgs.length === 1 && affectedArgs[0] === '--plan') {
       process.exitCode = await runRepositoryZeroWriteCommand(
         'test:affected',
-        (processSession) => runAffectedTests(issueCheckAffectedTestImpactProjection, args, {
+        (processSession) => runAffectedTests(issueCheckAffectedTestImpactProjection, affectedArgs, {
           operation,
-          processSession
+          processSession,
+          dependencyBootstrap: composition.dependencyBootstrap
         }),
         operation
       );
       return;
     }
     const { withHeavyVerificationGateLease } = await import('../../../verification/platform/gate/state/heavy-lease.ts');
-    if (args.length > 0 && isSelectorlessTestRunnerSelection(args)) {
-      console.error('test:affected option-only execution is unsupported because it cannot prove a fast-only or slow-only test selection.');
+    if (affectedArgs.length > 0 && isSelectorlessTestRunnerSelection(affectedArgs)) {
+      console.error('test --affected option-only execution is unsupported because it cannot prove a fast-only or slow-only test selection.');
       process.exitCode = 1;
       return;
     }
-    if (isExactSlowTestRunnerSelection(args)) {
+    if (isExactSlowTestRunnerSelection(affectedArgs)) {
       process.exitCode = await withHeavyVerificationGateLease(
         'test:affected',
-        () => runAffectedTests(issueCheckAffectedTestImpactProjection, args, {
-          operation
+        () => runAffectedTests(issueCheckAffectedTestImpactProjection, affectedArgs, {
+          operation,
+          dependencyBootstrap: composition.dependencyBootstrap
         }),
         { namespace: 'test:affected', waitTimeoutMs: 5000 }
       );
@@ -401,14 +526,14 @@ async function main(): Promise<void> {
     }
     process.exitCode = await withHeavyVerificationGateLease(
       'test:affected',
-      () => runAffectedTests(issueCheckAffectedTestImpactProjection, args, { operation }),
+      () => runAffectedTests(issueCheckAffectedTestImpactProjection, affectedArgs, { operation, dependencyBootstrap: composition.dependencyBootstrap }),
       { namespace: 'test:affected', waitTimeoutMs: 5000 }
     );
     return;
   }
 
   if (target === 'deps:ensure') {
-    const dependencies = await ensureOperationDependencies(compileSecOperationDemandGraph({
+    const dependencies = await composition.ensureDependencies(compileSecOperationDemandGraph({
       operation: 'dependency-setup',
       terminalWorkIds: [],
       hookPolicy: process.env.SEC_GIT_HOOK_ACTIVE === '1' ? 'never' : 'always'
@@ -427,7 +552,7 @@ async function main(): Promise<void> {
     if (target === 'imports:freeze' && args.length !== 0) usage();
     const selectedImport = target === 'imports:freeze'
       ? undefined : parseImportOperationArgs(args, { allowStaged: true });
-    const dependencies = await ensureOperationDependencies(compileSecOperationDemandGraph({
+    await admitImportCompilerCapability(compileSecOperationDemandGraph({
       operation: target === 'imports:check'
         ? 'imports-check'
         : target === 'imports:apply'
@@ -435,14 +560,9 @@ async function main(): Promise<void> {
           : 'imports-freeze',
       terminalWorkIds: []
     }));
-    const handoffExitCode = await handoffDevRunnerToFreshProcess(dependencies);
-    if (handoffExitCode !== null) {
-      process.exitCode = handoffExitCode;
-      return;
-    }
     const checkStagedImports = async (candidateBase?: string) => {
       const [{ withAuthorityGitReadSession }, { GIT_READ_EXACT_TREE_OPERATION_BUDGET }, {
-        checkStagedCandidateImportNormalization
+        checkStagedCandidateImportNormalizationWithSelection
       }] = await Promise.all([
         import('../../../providers/git-read/authority.ts'),
         import('../../../providers/git-read/runtime/session.ts'),
@@ -453,14 +573,14 @@ async function main(): Promise<void> {
         // Staged normalization reads and rechecks the complete Source Program
         // snapshot, so it must use that owner's exact-tree envelope.
         budget: GIT_READ_EXACT_TREE_OPERATION_BUDGET
-      }, (session) => checkStagedCandidateImportNormalization({
+      }, (session) => checkStagedCandidateImportNormalizationWithSelection({
         session,
         progressCommand: target === 'imports:freeze' ? 'imports:freeze' : 'imports:check',
         ...(candidateBase === undefined ? {} : { candidateBase })
       }));
     };
     if (target === 'imports:freeze') {
-      const outcome = await checkStagedImports(process.env.SEC_CHANGED_BASE);
+      const { outcome, candidateBase } = await checkStagedImports(process.env.SEC_CHANGED_BASE);
       if (outcome.status === 'canonical') {
         if (shouldReportDevRunnerSuccess()) {
           console.log('Candidate imports identity sealed (canonical).');
@@ -470,14 +590,15 @@ async function main(): Promise<void> {
         console.error(
           `Candidate imports are non-canonical (needs-import-transform) in ${outcome.files.length} file(s):\n`
           + `${outcome.files.map((file) => `- ${file}`).join('\n')}\n`
-          + 'Run bun run imports:apply, stage the exact files, rebuild the exact candidate, then rerun bun run imports:freeze.'
+          + `Run ${formatImportRecoveryCommand({ scope: 'candidate', candidateBase, intent: 'sort-and-combine', staged: true })}, `
+          + `rebuild the exact candidate, then rerun the original imports:freeze invocation with the same observed candidate base ${candidateBase}.`
         );
         process.exitCode = 1;
       }
       return;
     }
     const {
-      runImportCheck,
+      runImportCheckWithPlan,
       runImportApply,
       runSynchronizedStagedImportOrganizer
     } = await import('./import-organizer.ts');
@@ -488,34 +609,29 @@ async function main(): Promise<void> {
           ? {}
           : { candidateBase: operation.candidateBase };
         if (target === 'imports:check') {
-          const outcome = await checkStagedImports(operation.candidateBase);
+          const { outcome, candidateBase } = await checkStagedImports(operation.candidateBase);
           if (outcome.status === 'canonical') {
             process.exitCode = 0;
           } else {
             console.error(
               `Staged imports need apply (needs-import-transform) in ${outcome.files.length} file(s):\n`
               + `${outcome.files.map((file) => `- ${file}`).join('\n')}\n`
-              + 'Run bun run imports:apply --staged before committing.'
+              + `Run ${formatImportRecoveryCommand({ scope: 'candidate', candidateBase, intent: 'sort-and-combine', staged: true })} before committing.`
             );
             process.exitCode = 1;
           }
         } else {
-          process.exitCode = await runSynchronizedStagedImportOrganizer(undefined, undefined, selection);
+          process.exitCode = await runSynchronizedStagedImportOrganizer(undefined, undefined, selection, composition.importOrganizer);
         }
         return;
       }
       if (target === 'imports:check') {
-        const outcome = await runImportCheck(operation);
+        const { outcome, plan } = await runImportCheckWithPlan(operation);
         if (outcome.status === 'canonical') {
           console.log('Imports are canonical (zero writes).');
           process.exitCode = 0;
         } else {
-          const recoveryCommand = [
-            'bun run imports:apply',
-            operation.scope === 'all' ? '--all' : undefined,
-            operation.candidateBase === undefined ? undefined : `--candidate-base ${operation.candidateBase}`,
-            operation.intent === 'remove-unused' ? '--remove-unused' : undefined
-          ].filter(Boolean).join(' ');
+          const recoveryCommand = formatImportRecoveryCommand({ ...plan, staged: false });
           console.error(
             `Imports need apply (needs-import-transform) in ${outcome.files.length} file(s):\n`
             + `${outcome.files.map((file) => `- ${file}`).join('\n')}\nRun ${recoveryCommand}.`
@@ -542,11 +658,11 @@ async function main(): Promise<void> {
   }
 
   if (target === 'typecheck') {
-    process.exitCode = await runTypecheckCommand(args);
+    process.exitCode = await runTypecheckCommand(args, composition.ensureDependencies);
     return;
   }
 
-  if (!['test', 'test:full', 'test:fast', 'test:slow'].includes(target)) usage();
+  if (target !== 'test') usage();
 
   const {
     executePreparedSlowTestSuiteExecutions,
@@ -554,55 +670,35 @@ async function main(): Promise<void> {
     isSelectorlessTestRunnerSelection,
     prepareSlowTestSuiteExecutions,
     runFastTests,
-    runSlowTests,
     runTests
   } = await import('./test-runner.ts');
   const runPreparedSlowSuites = async (slowArgs: string[]): Promise<number> => {
-    const preparedSuites = await prepareSlowTestSuiteExecutions(slowArgs);
-    return executePreparedSlowTestSuiteExecutions(preparedSuites, target);
+    const preparedSuites = await prepareSlowTestSuiteExecutions(slowArgs, composition.dependencyBootstrap);
+    return executePreparedSlowTestSuiteExecutions(preparedSuites, 'test');
   };
-  if (target === 'test:slow' || (
-    (target === 'test' || target === 'test:full') && isExactSlowTestRunnerSelection(args)
+  let testScope: 'auto' | 'fast' | 'slow' | 'full' = 'auto';
+  let testArgs = args;
+  if (args[0] === '--scope') {
+    const selectedScope = args[1];
+    if (selectedScope !== 'fast' && selectedScope !== 'slow' && selectedScope !== 'full') usage();
+    testScope = selectedScope;
+    testArgs = args.slice(2);
+  }
+  if (testScope === 'slow' || (
+    (testScope === 'auto' || testScope === 'full') && isExactSlowTestRunnerSelection(testArgs)
   )) {
-    process.exitCode = await runPreparedSlowSuites(args);
+    process.exitCode = await runPreparedSlowSuites(testArgs);
     return;
   }
-  if ((target === 'test' || target === 'test:full') && isSelectorlessTestRunnerSelection(args)) {
-    const fastCode = await runTests(args, { omitSlowSuites: true });
-    process.exitCode = fastCode === 0 ? await runPreparedSlowSuites(args) : fastCode;
+  if (testScope === 'full' && isSelectorlessTestRunnerSelection(testArgs)) {
+    const fastCode = await runTests(testArgs, { omitSlowSuites: true, dependencyBootstrap: composition.dependencyBootstrap });
+    process.exitCode = fastCode === 0 ? await runPreparedSlowSuites(testArgs) : fastCode;
     return;
   }
-  process.exitCode = target === 'test' || target === 'test:full'
-    ? await runTests(args)
-    : target === 'test:fast'
-      ? await runFastTests(args)
-      : target === 'test:slow'
-        ? await runSlowTests(args)
-        : usage();
-}
+  process.exitCode = testScope === 'full'
+    ? await runTests(testArgs, { dependencyBootstrap: composition.dependencyBootstrap })
+    : testScope === 'fast'
+      ? await runFastTests(testArgs, undefined, composition.dependencyBootstrap)
+      : await runTests(testArgs, { omitSlowSuites: true, dependencyBootstrap: composition.dependencyBootstrap });
 
-if (import.meta.main) {
-  const command = process.argv[2] ?? 'unknown';
-  enableDevExecutionProgress();
-  reportDevExecutionProgress({ command, phase: 'command', state: 'start' });
-  try {
-    await main();
-    reportDevExecutionProgress({
-      command,
-      phase: 'command',
-      state: (process.exitCode ?? 0) === 0 ? 'complete' : 'failed',
-      detail: { exitCode: process.exitCode ?? 0 }
-    });
-  } catch (error) {
-    reportDevExecutionProgress({
-      command,
-      phase: 'command',
-      state: 'failed',
-      detail: {
-        error: error instanceof Error ? error.message : String(error),
-        exitCode: 1
-      }
-    });
-    throw error;
-  }
 }

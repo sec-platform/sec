@@ -23,7 +23,7 @@ function fixture(
     capabilityProviders: [{ capability: OPERATION.capability, operations: [OPERATION.operation] }]
   });
   const sources = new Map([
-    ['src/normalize/sec.module.json', descriptor],
+    ['src/normalize/module.json', descriptor],
     ['src/normalize/runtime.ts', runtime],
     ['src/normalize/other.ts', other],
     ['src/normalize/kernel.ts', implementation],
@@ -38,7 +38,7 @@ function fixture(
   const membership = compileSecRepositoryModuleMembershipSnapshot({
     repositoryFiles: files.map(({ path }) => path),
     descriptorSources: [{
-      descriptorPath: 'src/normalize/sec.module.json',
+      descriptorPath: 'src/normalize/module.json',
       source: descriptor
     }]
   });
@@ -66,10 +66,10 @@ test('operation producer closure is the one descriptor-owned operation entrypoin
   );
   expect(closure.authority).toBe('source-evidence-only');
   expect(closure.entrypoint.address).toBe(
-    'module-entrypoint:src/normalize/sec.module.json#normalize:src/normalize/runtime.ts'
+    'module-entrypoint:src/normalize/module.json#normalize:src/normalize/runtime.ts'
   );
   expect(closure.entrypoint.source).toContain('export const verify = normalize');
-  expect(closure.descriptor.path).toBe('src/normalize/sec.module.json');
+  expect(closure.descriptor.path).toBe('src/normalize/module.json');
   expect(closure.implementationFiles.map(({ path }) => path)).toEqual([
     'src/normalize/kernel.ts',
     'src/normalize/runtime.ts'
@@ -123,7 +123,7 @@ test('operation producer entrypoint follows TypeChecker aliases and re-exports',
 
   for (const closure of [aliased, star, localList]) {
     expect(closure.entrypoint.address).toBe(
-      'module-entrypoint:src/normalize/sec.module.json#normalize:src/normalize/runtime.ts'
+      'module-entrypoint:src/normalize/module.json#normalize:src/normalize/runtime.ts'
     );
     expect(closure.implementationFiles.map(({ path }) => path)
       .includes('src/normalize/kernel.ts')).toBe(true);

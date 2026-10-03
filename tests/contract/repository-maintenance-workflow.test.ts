@@ -14,7 +14,7 @@ test('repository maintenance workflow persists and reads back recovery before an
   const source = readFileSync(path.resolve(import.meta.dir, '../..', WORKFLOW_PATH), 'utf8');
   const workflow = parseYaml(source) as any;
 
-  expect(workflow.on).toEqual({ issue_comment: { types: ['created'] } });
+  expect(workflow.on).toEqual({ repository_dispatch: { types: ['sec-repository-maintenance-v2'] } });
   expect(workflow.permissions).toEqual({
     actions: 'read',
     contents: 'write',
@@ -29,13 +29,35 @@ test('repository maintenance workflow persists and reads back recovery before an
   const retire = workflow.jobs.retire;
   expect(retire['runs-on']).toBe('ubuntu-24.04');
   expect(retire['timeout-minutes']).toBe(20);
-  expect(retire.if).toContain('github.event.issue.number == 313');
-  expect(retire.if).toContain("github.event.comment.author_association == 'OWNER'");
-  expect(retire.if).toContain("github.event.comment.author_association == 'MEMBER'");
-  expect(retire.if).toContain('github.actor == github.event.comment.user.login');
-  expect(retire.if).toContain(
-    'startsWith(github.event.comment.body, \'{"schema":"sec-repository-maintenance-request-v1"\')'
+  expect(retire.if).toBeUndefined();
+  expect(retire.outputs).toEqual({
+    'requires-recovery': '${{ steps.prepare.outputs.requires-recovery }}',
+    'recovery-artifact-id': '${{ steps.upload-recovery.outputs.artifact-id }}',
+    'recovery-artifact-digest': '${{ steps.upload-recovery.outputs.artifact-digest }}',
+    'receipt-artifact-id': '${{ steps.upload-receipt.outputs.artifact-id }}',
+    'receipt-artifact-digest': '${{ steps.upload-receipt.outputs.artifact-digest }}'
+  });
+
+  const request = retire.steps.find((step: any) =>
+    step.name === 'Resolve exact maintenance request carrier');
+  expect(request.id).toBe('request');
+  expect(request.uses).toBe(
+    'actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3'
   );
+  expect(request.env.PAYLOAD_JSON).toBe('${{ toJSON(github.event.client_payload) }}');
+  expect(request.with.script).toContain("process.env.EVENT_NAME !== 'repository_dispatch'");
+  expect(request.with.script).toContain("process.env.EVENT_ACTION !== 'sec-repository-maintenance-v2'");
+  expect(request.with.script).toContain("payload.schema !== 'sec-repository-maintenance-dispatch-v1'");
+  expect(request.with.script).toContain('payload.issue_number !== 313');
+  expect(request.with.script).toContain('github.rest.issues.getComment');
+  expect(request.with.script).toContain('github.rest.repos.getCollaboratorPermissionLevel');
+  expect(request.with.script).toContain("comment.data.user?.login !== context.actor");
+  expect(request.with.script).toContain('normalizeGitHubRepositoryPermission(permission.data)');
+  expect(request.with.script).toContain('!isRepositoryMaintenancePermission(role)');
+  expect(request.with.script).not.toContain('associationAccepted');
+  expect(source).not.toContain('SEC_MAINTENANCE_AUTHOR_ASSOCIATION');
+  expect(request.with.script).toContain('bodyDigest !== payload.comment_body_sha256');
+  expect(request.with.script).toContain('request?.expectedMainSha !== process.env.EVENT_SHA');
 
   const checkout = retire.steps.find((step: any) =>
     step.name === 'Checkout exact maintenance authority');
@@ -121,6 +143,8 @@ test('repository maintenance workflow persists and reads back recovery before an
   expect(downloadRecovery.with.path)
     .toBe('/tmp/sec-repository-maintenance-carrier/readback');
 
+  expect(retire.steps.indexOf(request)).toBeLessThan(retire.steps.indexOf(checkout));
+  expect(retire.steps.indexOf(checkout)).toBeLessThan(retire.steps.indexOf(install));
   expect(retire.steps.indexOf(install)).toBeLessThan(retire.steps.indexOf(prepare));
   expect(retire.steps.indexOf(prepare)).toBeLessThan(retire.steps.indexOf(uploadRecovery));
   expect(retire.steps.indexOf(uploadRecovery)).toBeLessThan(retire.steps.indexOf(readbackRecovery));
@@ -136,7 +160,11 @@ test('repository maintenance workflow persists and reads back recovery before an
   expect(execute.run).toContain('| tee');
   expect(execute.env.GH_TOKEN).toBe('${{ github.token }}');
   expect(execute.env.SEC_MAINTENANCE_REQUEST_JSON)
-    .toBe('${{ github.event.comment.body }}');
+    .toBe('${{ steps.request.outputs.request-json }}');
+  expect(execute.env.SEC_MAINTENANCE_ISSUE_NUMBER)
+    .toBe('${{ steps.request.outputs.issue-number }}');
+  expect(execute.env.SEC_MAINTENANCE_COMMENT_AUTHOR)
+    .toBe('${{ steps.request.outputs.comment-author }}');
   expect(execute.env.SEC_MAINTENANCE_RECOVERY_PREPARATION_PATH).toBeUndefined();
   expect(execute.env.SEC_MAINTENANCE_RECOVERY_READBACK_ROOT).toBeUndefined();
   expect(execute.env.SEC_MAINTENANCE_RECOVERY_ARTIFACT_ID)
@@ -162,6 +190,7 @@ test('repository maintenance workflow persists and reads back recovery before an
   expect(stage.run).toContain('sec-repository-maintenance-request.json');
   expect(stage.run).toContain('sec-repository-maintenance-result.json');
 
+  expect(upload.id).toBe('upload-receipt');
   expect(upload.if).toBe('always()');
   expect(upload.with).toMatchObject({
     path: '${{ runner.temp }}/sec-repository-maintenance-receipt',
@@ -178,7 +207,30 @@ test('repository maintenance workflow persists and reads back recovery before an
     'bun src/adapters/self-hosting/control/repository-maintenance/repository-maintenance.ts retire-trigger'
   );
   expect(retireTrigger.env.GH_TOKEN).toBe('${{ github.token }}');
-  expect(retireTrigger.env.SEC_MAINTENANCE_COMMENT_ID).toBe('${{ github.event.comment.id }}');
+  expect(retireTrigger.env.SEC_MAINTENANCE_COMMENT_ID)
+    .toBe('${{ steps.request.outputs.comment-id }}');
+
+  const carrierRetirement = workflow.jobs['retire-recovery-carrier'];
+  expect(carrierRetirement.needs).toBe('retire');
+  expect(carrierRetirement.if)
+    .toBe("${{ needs.retire.result == 'success' && needs.retire.outputs.requires-recovery == 'true' }}");
+  expect(carrierRetirement['runs-on']).toBe('ubuntu-24.04');
+  expect(carrierRetirement['timeout-minutes']).toBe(5);
+  expect(carrierRetirement.permissions).toEqual({ actions: 'write' });
+  expect(carrierRetirement.steps).toHaveLength(1);
+  const carrierStep = carrierRetirement.steps[0];
+  expect(carrierStep.name).toBe('Retire exact terminal recovery carrier');
+  expect(carrierStep.uses)
+    .toBe('actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3');
+  expect(carrierStep.env.RECOVERY_ARTIFACT_ID)
+    .toBe('${{ needs.retire.outputs.recovery-artifact-id }}');
+  expect(carrierStep.env.RECEIPT_ARTIFACT_ID)
+    .toBe('${{ needs.retire.outputs.receipt-artifact-id }}');
+  expect(carrierStep.with.script).toContain('github.rest.actions.deleteArtifact');
+  expect(carrierStep.with.script).toContain('error?.status !== 404');
+  expect(carrierStep.with.script).toContain('artifact.data.workflow_run?.id !== context.runId');
+  expect(carrierStep.with.script).toContain('run.data.run_attempt !== expectedRunAttempt');
+  expect(carrierStep.with.script).toContain('const receiptReadback = await readArtifact(receiptId)');
 });
 
 test('privileged repository maintenance runtime is part of the causal TCB policy', () => {

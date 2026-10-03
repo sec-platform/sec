@@ -318,14 +318,13 @@ test.skipIf(process.platform !== 'win32')('Windows ordinary-file inspection clas
   }
 });
 
-test.skipIf(process.platform !== 'linux' && process.platform !== 'win32')('retained file transaction rewrites the exact inode without changing its permission surface', async () => {
+test.skipIf(process.platform !== 'linux' && process.platform !== 'win32')('retained file transaction atomically replaces the exact name without changing its permission surface', async () => {
   const root = mkdtempSync(path.join(tmpdir(), 'sec-retained-file-rewrite-'));
   try {
     mkdirSync(path.join(root, 'work'));
     const target = path.join(root, 'work', 'value.txt');
     writeFileSync(target, 'before\\n', 'utf8');
     if (process.platform === 'linux') chmodSync(target, 0o640);
-    const before = statSync(target, { bigint: true });
     const transaction = retainNoFollowFileTransaction(root, 'retained rewrite fixture');
     try {
       const observed = transaction.observe('work/value.txt', 'rewrite source')!;
@@ -333,8 +332,9 @@ test.skipIf(process.platform !== 'linux' && process.platform !== 'win32')('retai
         'work/value.txt', observed, Buffer.from('after\\n', 'utf8'), 'rewrite exact file'
       );
       const after = statSync(target, { bigint: true });
-      expect(String(after.dev)).toBe(String(before.dev));
-      expect(String(after.ino)).toBe(String(before.ino));
+      expect(String(after.dev)).toBe(rewritten.identity.device);
+      expect(String(after.ino)).toBe(rewritten.identity.inode);
+      expect(rewritten.identity).not.toEqual(observed.identity);
       if (process.platform === 'linux') expect(Number(after.mode & 0o7777n)).toBe(0o640);
       expect(readFileSync(target, 'utf8')).toBe('after\\n');
       await expect(transaction.rewriteExact(

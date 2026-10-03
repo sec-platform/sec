@@ -7,6 +7,7 @@ import { CompilerError, formatCompilerFailure } from '../../compiler/errors.ts';
 import { createPipelineSemanticContext } from '../../compiler/pipeline/semantic-context.ts';
 import { type CommitFence } from "../../contracts/commit-fence.ts";
 import { isPathInside, resolvePathInside } from "../../contracts/relative-path.ts";
+import type { DependencyProjectOperationFactory } from '../../execution/dependency-materialization.ts';
 import { composeProject } from '../compilation/compose/compose-project.ts';
 import { copyRecursive } from '../filesystem/discovery.ts';
 import { pathExists, removeDir, writeJson } from "../filesystem/files.ts";
@@ -21,7 +22,8 @@ import { typecheckProject } from './typecheck-project.ts';
 export async function validateResolvedTemplates(
   workspaceRoot: string,
   lock: LockFile,
-  commitFence?: CommitFence
+  commitFence: CommitFence | undefined,
+  dependencies: DependencyProjectOperationFactory
 ): Promise<void> {
   workspaceRoot = path.resolve(workspaceRoot);
   if (commitFence !== undefined && typeof commitFence !== 'function') {
@@ -103,7 +105,8 @@ export async function validateResolvedTemplates(
         isolated: true
       });
     } else {
-      await typecheckProject(validationRoot);
+      if (dependencies === undefined) throw new Error('Live template validation requires a bound dependency operation factory.');
+      await typecheckProject(validationRoot, {}, dependencies.forWorkspace(validationRoot));
     }
   } catch (error) {
     // Presence is separate from the thrown value: undefined/null/false/0 can

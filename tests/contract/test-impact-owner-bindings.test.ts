@@ -18,7 +18,7 @@ for (const kind of TEST_IMPACT_SOURCE_KINDS) {
     expect(new Set(owners).size).toBe(owners.length);
     if (kind !== 'typescript') expect(owners.length).toBeGreaterThan(0);
     for (const owner of owners) {
-      const descriptor = path.join(repositoryRoot, 'src', ...owner.split('.'), 'sec.module.json');
+      const descriptor = path.join(repositoryRoot, 'src', ...owner.split('.'), 'module.json');
       expect(JSON.parse(readFileSync(descriptor, 'utf8')).importGraph).toBe('runtime');
     }
   });

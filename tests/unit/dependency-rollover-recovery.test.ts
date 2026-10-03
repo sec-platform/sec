@@ -159,7 +159,7 @@ test('a disposal inventory digest round-trips the existing v1 decoded projection
   const name = fs.readdirSync(f.prepared.retiredRecordsPath).find(n => n.startsWith('disposal-inventory-'))!;
   const source = fs.readFileSync(path.join(f.prepared.retiredRecordsPath, name));
   const inventory = JSON.parse(source.toString('utf8'));
-  const { generatedStateDigest } = await import('../../src/adapters/runtime-state/generated-state/contract.ts');
+  const { generatedStateDigest } = await import("../../src/execution/generated-state/contract.ts");
   // Historical valid v1 bytes are hashed using this fixed outer field order
   // and the already-canonical nested object order. No second schema is needed.
   const expectedDigest = generatedStateDigest({ schema: inventory.schema, intentDigest: inventory.intentDigest,

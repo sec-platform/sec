@@ -60,6 +60,25 @@ jobs:
           EVENT_SENDER_JSON: ${{ toJSON(github.event.sender) }}
         with:
           script: |
+            // BEGIN GENERATED repository-permission.ts
+            function normalizeGitHubRepositoryPermission(value) {
+                if (value === null || typeof value !== 'object' || Array.isArray(value))
+                    return null;
+                const source = value;
+                const permission = source.permission;
+                if (permission !== 'admin' && permission !== 'maintain' && permission !== 'write'
+                    && permission !== 'triage' && permission !== 'read' && permission !== 'none')
+                    return null;
+                const role = source.role_name;
+                if (role === undefined)
+                    return permission;
+                if (permission === 'write' && role === 'maintain')
+                    return 'maintain';
+                if (permission === 'read' && role === 'triage')
+                    return 'triage';
+                return role === permission ? permission : null;
+            }
+            // END GENERATED repository-permission.ts
             const crypto = require('crypto');
             const payload = JSON.parse(process.env.PAYLOAD_JSON);
             if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
@@ -147,7 +166,7 @@ jobs:
                 github.rest.repos.getCollaboratorPermissionLevel({ owner: context.repo.owner, repo: context.repo.repo, username: process.env.ACTOR_LOGIN }),
                 github.rest.repos.getCollaboratorPermissionLevel({ owner: context.repo.owner, repo: context.repo.repo, username: process.env.TRIGGERING_ACTOR_LOGIN })
               ]);
-              if (!trusted(actorPermission.data.permission) || !trusted(triggeringPermission.data.permission)) {
+              if (!trusted(normalizeGitHubRepositoryPermission(actorPermission.data)) || !trusted(normalizeGitHubRepositoryPermission(triggeringPermission.data))) {
                 throw new Error('External Session dispatch requires maintain/admin actor and triggering actor.');
               }
             } else {
@@ -244,6 +263,25 @@ jobs:
           EVENT_SENDER_JSON: ${{ toJSON(github.event.sender) }}
         with:
           script: |
+            // BEGIN GENERATED repository-permission.ts
+            function normalizeGitHubRepositoryPermission(value) {
+                if (value === null || typeof value !== 'object' || Array.isArray(value))
+                    return null;
+                const source = value;
+                const permission = source.permission;
+                if (permission !== 'admin' && permission !== 'maintain' && permission !== 'write'
+                    && permission !== 'triage' && permission !== 'read' && permission !== 'none')
+                    return null;
+                const role = source.role_name;
+                if (role === undefined)
+                    return permission;
+                if (permission === 'write' && role === 'maintain')
+                    return 'maintain';
+                if (permission === 'read' && role === 'triage')
+                    return 'triage';
+                return role === permission ? permission : null;
+            }
+            // END GENERATED repository-permission.ts
             const crypto = require('crypto');
             const wrapper = JSON.parse(process.env.PAYLOAD_JSON);
             const wrapperKeys = Object.keys(wrapper ?? {}).sort();
@@ -314,7 +352,7 @@ jobs:
                 owner: context.repo.owner, repo: context.repo.repo, state: 'open', per_page: 100
               })
             ]);
-            const permission = actorPermission.data.permission;
+            const permission = normalizeGitHubRepositoryPermission(actorPermission.data);
             if (permission !== 'admin' && permission !== 'maintain') {
               throw new Error('Activation dispatch requires maintain or admin permission.');
             }
@@ -576,7 +614,7 @@ jobs:
           REVIEW_MAX_ATTEMPTS=$((REVIEW_WINDOW_SECONDS / REVIEW_POLL_INTERVAL_SECONDS + 1))
           for attempt in $(seq 1 "$REVIEW_MAX_ATTEMPTS"); do
             rm -f .tmp/codex/trusted-facts.json
-            bun src/adapters/verification/platform/ci/runtime/verification-session.ts observe-hosted \
+            bun src/bootstrap/development/closeout/verification-session-cli.ts observe-hosted \
               --request .tmp/codex/hosted-request.json \
               --output .tmp/codex/trusted-facts.json \
               --json > .tmp/codex/observe-response.json
@@ -600,7 +638,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: >-
-          bun src/adapters/verification/platform/ci/runtime/verification-session.ts prepare-hosted
+          bun src/bootstrap/development/closeout/verification-session-cli.ts prepare-hosted
           --request .tmp/codex/hosted-request.json
           --facts .tmp/codex/trusted-facts.json
           --output .tmp/codex/hosted-envelope.json
@@ -708,12 +746,12 @@ jobs:
           PARENT_ARCHIVE_DIGEST: ${{ steps.parent-plan-upload.outputs.artifact-digest }}
         run: |
           set -euo pipefail
-          bun src/adapters/verification/platform/ci/runtime/verification-session.ts observe-hosted \
+          bun src/bootstrap/development/closeout/verification-session-cli.ts observe-hosted \
             --request .tmp/codex/hosted-request.json \
             --output .tmp/codex/trusted-facts.json \
             --json > .tmp/codex/final-observe-response.json
           bun -e 'const value=JSON.parse(await Bun.file(".tmp/codex/final-observe-response.json").text()); if(value.status!=="observed") throw new Error("Review drifted before Evidence composition")'
-          bun src/adapters/verification/platform/ci/runtime/verification-session.ts prepare-hosted \
+          bun src/bootstrap/development/closeout/verification-session-cli.ts prepare-hosted \
             --request .tmp/codex/hosted-request.json \
             --facts .tmp/codex/trusted-facts.json \
             --output .tmp/codex/hosted-envelope.json \
@@ -743,7 +781,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: >-
-          bun src/adapters/verification/platform/ci/runtime/verification-session.ts finalize-hosted
+          bun src/bootstrap/development/closeout/verification-session-cli.ts finalize-hosted
           --envelope .tmp/codex/hosted-envelope.json
           --evidence .tmp/codex/ci-verification-evidence.json
           --output .tmp/codex/verification-session-artifact.json
@@ -819,7 +857,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          bun src/adapters/verification/platform/ci/runtime/verification-session.ts observe-hosted \
+          bun src/bootstrap/development/closeout/verification-session-cli.ts observe-hosted \
             --request .tmp/codex/hosted-request.json \
             --output .tmp/codex/trusted-facts.json \
             --json > .tmp/codex/observe-response.json
@@ -831,7 +869,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          bun src/adapters/verification/platform/ci/runtime/verification-session.ts prepare-hosted \
+          bun src/bootstrap/development/closeout/verification-session-cli.ts prepare-hosted \
             --request .tmp/codex/hosted-request.json \
             --facts .tmp/codex/trusted-facts.json \
             --output .tmp/codex/hosted-envelope.json \
@@ -920,7 +958,7 @@ jobs:
       - name: Upload exact SUT capability observation
         uses: *upload_artifact_action
         with:
-          name: sec-verification-action-sut-capability-v1-${{ needs.resolve-verification-action.outputs.action-key-hex }}-run-${{ github.run_id }}-attempt-${{ github.run_attempt }}
+          name: sec-verification-action-sut-capability-v2-${{ needs.resolve-verification-action.outputs.action-key-hex }}-run-${{ github.run_id }}-attempt-${{ github.run_attempt }}
           path: .tmp/codex/hosted-sut-capability.json
           if-no-files-found: error
           retention-days: 1
@@ -991,24 +1029,25 @@ jobs:
       - name: Download exact SUT capability observation
         uses: *download_artifact_action
         with:
-          name: sec-verification-action-sut-capability-v1-${{ needs.resolve-verification-action.outputs.action-key-hex }}-run-${{ github.run_id }}-attempt-${{ github.run_attempt }}
+          name: sec-verification-action-sut-capability-v2-${{ needs.resolve-verification-action.outputs.action-key-hex }}-run-${{ github.run_id }}-attempt-${{ github.run_attempt }}
           path: .tmp/codex/sut-capability
 
       - name: Verify exact SUT capability before candidate materialization
         run: |
           set -euo pipefail
           bun -e '
-            import { CI_VERIFICATION_HOSTED_SANDBOX_POLICY_DIGEST_V1 } from "./src/adapters/verification/platform/ci/contract/revision.ts";
+            import { CI_VERIFICATION_HOSTED_SANDBOX_POLICY_DIGEST } from "./src/adapters/verification/platform/ci/contract/revision.ts";
+            import { parseHostedSutCapabilityObservation, hostedSutCapabilityComplete } from "./src/adapters/verification/platform/ci/contract/hosted-sut-observation.ts";
             const capability = JSON.parse(await Bun.file(".tmp/codex/sut-capability/hosted-sut-capability.json").text());
             const resolution = JSON.parse(await Bun.file(".tmp/codex/hosted-action-resolution.json").text());
             const keys = Object.keys(capability).sort();
-            const expectedKeys = ["actionKey", "commandPlanDigest", "diagnostic", "outputDigest", "policyDigest", "residueReadbackDigest", "status"].sort();
-            const digest = (value) => typeof value === "string" && /^sha256:[0-9a-f]{64}$/.test(value);
-            if (JSON.stringify(keys) !== JSON.stringify(expectedKeys) || capability.status !== "supported" ||
+            const expectedKeys = ["actionKey", "observation", "policyDigest", "schema", "status"].sort();
+            const physicalObservation = parseHostedSutCapabilityObservation(capability.observation);
+            if (JSON.stringify(keys) !== JSON.stringify(expectedKeys) ||
+                capability.schema !== "sec-verification-action-sut-capability-v2" || capability.status !== "supported" ||
                 capability.actionKey !== resolution.actionPlan?.action?.actionKey ||
-                capability.policyDigest !== CI_VERIFICATION_HOSTED_SANDBOX_POLICY_DIGEST_V1 ||
-                !digest(capability.commandPlanDigest) || !digest(capability.outputDigest) ||
-                !digest(capability.residueReadbackDigest) || capability.diagnostic !== null) {
+                capability.policyDigest !== CI_VERIFICATION_HOSTED_SANDBOX_POLICY_DIGEST ||
+                !hostedSutCapabilityComplete(physicalObservation)) {
               throw new Error("SUT capability observation is not the exact supported trusted artifact.");
             }
           '
@@ -1398,7 +1437,7 @@ jobs:
 
       - name: Reject import organization drift
         id: imports-check
-        run: bun run imports:check
+        run: bun run imports:check --all
 
       - name: Run exact-main TypeScript checks
         id: typecheck
@@ -1406,7 +1445,7 @@ jobs:
 
       - name: Reject static architecture contradictions
         id: static-architecture
-        run: bun run audit:static
+        run: bun run audit -- --worktree-source-program --enforce
 
       - name: Validate active documentation authority
         id: docs-doctor
@@ -1414,4 +1453,4 @@ jobs:
 
       - name: Run the complete fast test inventory
         id: test-fast
-        run: bun run test:fast
+        run: bun run test -- --scope fast

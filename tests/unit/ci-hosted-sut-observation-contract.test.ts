@@ -93,15 +93,19 @@ function receipt(input: Readonly<{
     capability: Object.freeze({
       commandPlanDigest: capability === 'supported'
         ? authorization.physicalCommand.projectionDigest : digest('9'),
-      commandStarted: capability !== 'invalidated',
+      lifecycle: Object.freeze({
+        supervisorSpawned: capability !== 'invalidated', supervisorClosed: clean,
+        supervisorCloseCode: capability === 'supported' ? 0 : 1, supervisorSignal: null,
+        namespaceEstablished: executed, candidateStarted: executed, candidateUnitSettled: clean,
+        observationGap: null
+      }),
       exitCode: capability === 'supported' ? 0 : capability === 'unsupported' ? 1 : null,
       markerObserved: capability === 'supported',
       outputDigest: digest('9'),
-      teardownCommandStarted: capability !== 'invalidated',
-      teardownExitCode: capability === 'invalidated' ? null : 0,
-      residueMarkerObserved: capability !== 'invalidated',
-      cgroupEmpty: clean,
-      residueReadbackDigest: digest('0'),
+      cleanup: Object.freeze({
+        supervisorSpawned: capability !== 'invalidated', supervisorClosed: clean,
+        exitCode: clean ? 0 : null, outputDigest: digest('0')
+      }),
       diagnostic: capability === 'supported' ? null
         : capability === 'unsupported' ? 'unshare: operation not permitted'
           : 'capability supervisor observation lost'
@@ -121,7 +125,12 @@ function receipt(input: Readonly<{
       candidateEnvironmentNames: executed ? environmentNames : Object.freeze([])
     }),
     execution: Object.freeze({
-      started: executed,
+      lifecycle: Object.freeze({
+        supervisorSpawned: executed, supervisorClosed: executed && clean,
+        supervisorCloseCode: executed ? (input.exitCode ?? 0) : null, supervisorSignal: null,
+        namespaceEstablished: executed, candidateStarted: executed, candidateUnitSettled: executed ? clean : null,
+        observationGap: null
+      }),
       unitName: executed ? unitName : null,
       exitCode: executed ? (input.exitCode ?? 0) : null,
       authenticatedInputDigest: executed ? inventoryClosure.archiveDigest : null,
@@ -133,15 +142,12 @@ function receipt(input: Readonly<{
       stdoutBytesObserved: executed ? 42 : 0,
       stderrBytesObserved: 0,
       outputTruncated: false,
-      commandStarted: executed,
       boundedFailureTailDigest: digest('d')
     }),
-    reap: Object.freeze({
-      namespacePid1Exited: executed,
-      killChildEnabled: true,
-      unshareProcessClosed: clean
+    cleanup: Object.freeze({
+      supervisorSpawned: executed, supervisorClosed: executed && clean,
+      exitCode: executed && clean ? 0 : null, outputDigest: digest('e')
     }),
-    residue: Object.freeze({ cgroupEmpty: clean, hostReadbackDigest: digest('e') }),
     diagnostic: executed && (input.exitCode ?? 0) === 0 ? null
       : capability === 'unsupported' ? 'sandbox unsupported'
         : capability === 'invalidated' ? 'sandbox observation lost' : 'gate failed'
@@ -306,17 +312,17 @@ test('physical command authorization and PASS settlement reject recomputed contr
       (observation.sandboxReceipt as { diagnostic: string | null }).diagnostic = 'dirty successful receipt';
     },
     (observation: CodexDevelopmentHostedActionRawResult) => {
-      (observation.sandboxReceipt.execution as { started: boolean }).started = false;
+      (observation.sandboxReceipt.execution.lifecycle as { candidateStarted: boolean }).candidateStarted = false;
     },
     (observation: CodexDevelopmentHostedActionRawResult) => {
       (observation.sandboxReceipt.execution as { postExecutionInputDigest: VerificationActionKeyDigest | null })
         .postExecutionInputDigest = null;
     },
     (observation: CodexDevelopmentHostedActionRawResult) => {
-      (observation.sandboxReceipt.reap as { namespacePid1Exited: boolean }).namespacePid1Exited = false;
+      (observation.sandboxReceipt.execution.lifecycle as { namespaceEstablished: boolean }).namespaceEstablished = false;
     },
     (observation: CodexDevelopmentHostedActionRawResult) => {
-      (observation.sandboxReceipt.residue as { cgroupEmpty: boolean }).cgroupEmpty = false;
+      (observation.sandboxReceipt.execution.lifecycle as { candidateUnitSettled: boolean | null }).candidateUnitSettled = null;
     }
   ]) {
     expect(reduce(forgedObservation(mutate)).result.status).toBe('invalidated');

@@ -45,6 +45,8 @@ export type CiVerificationGateStep = Readonly<{
   id: string;
   phase: CiVerificationGatePhase;
   args: string[];
+  environment?: Readonly<Record<string, CiVerificationActionDigest>>;
+  inputs?: readonly VerificationActionInputRef[];
 }>;
 
 const CI_VERIFICATION_ACTION_PRODUCER_REVISION =
@@ -53,6 +55,69 @@ const CI_VERIFICATION_ACTION_PLAN_CLOSURE_SCHEMA =
   'sec-ci-verification-action-plan-closure-v2' as const;
 
 export type CiVerificationActionDigest = `sha256:${string}`;
+
+export const SOURCE_PROGRAM_TRANSITION_STDOUT_BYTE_LIMIT = 32 * 1024 * 1024;
+export const SOURCE_PROGRAM_TRANSITION_GATE_ID = 'source-program-transition-assessment' as const;
+export const SOURCE_PROGRAM_TRANSITION_ENTRYPOINT = 'src/bootstrap/engineering/source-program-transition.ts' as const;
+const HISTORICAL_SOURCE_PROGRAM_TRANSITION_ENTRYPOINT = 'src/adapters/repository/repository-audit/cli.ts' as const;
+export const SOURCE_PROGRAM_TRANSITION_CANDIDATE_ROOT = '/sec-runtime/workspace' as const;
+export const SOURCE_PROGRAM_TRANSITION_AUTHOR_INPUT = '/sec-runtime/test-author-input.json' as const;
+export const SOURCE_PROGRAM_TRANSITION_OUTPUT_FILE = 'source-program-transition.json' as const;
+
+/** Exact external data binding. This transport value grants no author authority. */
+export interface CiSourceProgramTransitionBinding {
+  readonly baseSha: string;
+  readonly headSha: string;
+  readonly payloadDigest: CiVerificationActionDigest | null;
+  readonly approvalObservationDigest: CiVerificationActionDigest | null;
+  readonly approvalDigest: CiVerificationActionDigest | null;
+}
+
+export function parseCiSourceProgramTransitionBinding(value: unknown): CiSourceProgramTransitionBinding {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) fail('transition binding must be an object.');
+  const record = value as Record<string, unknown>;
+  exactKeys(record, ['baseSha', 'headSha', 'payloadDigest', 'approvalObservationDigest', 'approvalDigest'], 'transition binding');
+  const binding = Object.freeze({
+    baseSha: sha(record.baseSha, 'transition base'),
+    headSha: sha(record.headSha, 'transition head'),
+    payloadDigest: record.payloadDigest === null ? null : digest(record.payloadDigest, 'transition payload'),
+    approvalObservationDigest: record.approvalObservationDigest === null ? null : digest(record.approvalObservationDigest, 'transition observation'),
+    approvalDigest: record.approvalDigest === null ? null : digest(record.approvalDigest, 'transition approval')
+  });
+  if ((binding.payloadDigest === null) !== (binding.approvalDigest === null)
+      || (binding.payloadDigest === null) !== (binding.approvalObservationDigest === null)) {
+    fail('transition author binding is incomplete.');
+  }
+  return binding;
+}
+
+/** Source derivation does not depend on the later live author decision. */
+export function sourceProgramAnalysisBinding(
+  input: CiSourceProgramTransitionBinding
+): CiSourceProgramTransitionBinding {
+  const binding = parseCiSourceProgramTransitionBinding(input);
+  return Object.freeze({
+    baseSha: binding.baseSha,
+    headSha: binding.headSha,
+    payloadDigest: null,
+    approvalObservationDigest: null,
+    approvalDigest: null
+  });
+}
+
+/** Completion produces source facts; only host adoption can discharge obligations. */
+export function sourceProgramTransitionGate(bindingInput: CiSourceProgramTransitionBinding): CiVerificationGateStep {
+  const binding = sourceProgramAnalysisBinding(bindingInput);
+  return Object.freeze({
+    id: SOURCE_PROGRAM_TRANSITION_GATE_ID,
+    phase: 'workspace' as const,
+    args: [SOURCE_PROGRAM_TRANSITION_ENTRYPOINT, '--worktree-source-program',
+      '--transition-candidate-root', SOURCE_PROGRAM_TRANSITION_CANDIDATE_ROOT, '--supersession-baseline', binding.baseSha,
+      '--transition-expected-head', binding.headSha],
+    environment: Object.freeze({ SEC_SOURCE_PROGRAM_TRANSITION_BINDING: hash(binding) }),
+    inputs: Object.freeze([])
+  });
+}
 
 export type CiVerificationActionSessionRequest = Readonly<object>;
 
@@ -183,6 +248,7 @@ export interface CiVerificationProducerGate {
   readonly runtime: string;
   readonly environment: Readonly<Record<string, CiVerificationActionDigest>>;
   readonly coveredScopeIds: readonly string[];
+  readonly inputs?: readonly VerificationActionInputRef[];
 }
 
 export interface CiVerificationActionPlanClosure {
@@ -647,10 +713,12 @@ function canonicalGateArgv(values: readonly string[], label: string): readonly s
 }
 
 function canonicalInputs(
-  candidate: CiVerificationActionCandidate
+  candidate: CiVerificationActionCandidate,
+  additionalInputs: readonly VerificationActionInputRef[] = []
 ): readonly VerificationActionInputRef[] {
   const inputs = [
     ...candidate.requiredBlobs,
+    ...additionalInputs,
     { path: candidate.manifestPath, digest: candidate.manifestDigest }
   ].map((entry, index) => ({
     path: text(entry.path, `requiredBlobs[${index}].path`),
@@ -743,12 +811,13 @@ export function ciVerificationGateStep(step: CiVerificationGateStep): CiVerifica
     phase: step.phase,
     argv: Object.freeze(['bun', ...canonicalStrings(step.args, 'gate.args')]),
     runtime: 'bun',
-    environment: Object.freeze({}),
-    coveredScopeIds: Object.freeze([])
+    environment: Object.freeze({ ...step.environment }),
+    coveredScopeIds: Object.freeze([]),
+    ...(step.inputs === undefined ? {} : { inputs: step.inputs })
   });
 }
 
-function normalizedTarget(argv: readonly string[]): CiVerificationNormalizedTarget {
+function normalizedTarget(argv: readonly string[], historicalTransition = false): CiVerificationNormalizedTarget {
   if (argv.length < 2 || argv[0] !== 'bun') fail('gate.argv must be a producer-owned Bun invocation.');
   if (argv[1] === 'run') {
     const identity = text(argv[2], 'gate package script');
@@ -767,7 +836,9 @@ function normalizedTarget(argv: readonly string[]): CiVerificationNormalizedTarg
     });
   }
   const identity = text(argv[1], 'gate TypeScript entrypoint');
-  if (!/^scripts\/[a-z0-9][a-z0-9._/-]*\.[cm]?ts$/u.test(identity) || identity.includes('..')) {
+  if (identity !== SOURCE_PROGRAM_TRANSITION_ENTRYPOINT
+      && !(historicalTransition && identity === HISTORICAL_SOURCE_PROGRAM_TRANSITION_ENTRYPOINT)
+      && (!/^scripts\/[a-z0-9][a-z0-9._/-]*\.[cm]?ts$/u.test(identity) || identity.includes('..'))) {
     fail('gate TypeScript entrypoint is not a canonical producer-owned script path.');
   }
   return Object.freeze({
@@ -793,6 +864,23 @@ function normalizeCiVerificationOperation(options: {
   const gateId = text(gate.id, 'gate.id');
   if (!['quick', 'risk', 'full', 'workspace'].includes(gate.phase)) fail('gate.phase is invalid.');
   const argv = canonicalGateArgv(gate.argv, 'gate.argv');
+  if (gateId === SOURCE_PROGRAM_TRANSITION_GATE_ID) {
+    const expected = ['bun', SOURCE_PROGRAM_TRANSITION_ENTRYPOINT, '--worktree-source-program',
+      '--transition-candidate-root', SOURCE_PROGRAM_TRANSITION_CANDIDATE_ROOT, '--supersession-baseline', options.candidate.baseSha,
+      '--transition-expected-head', options.candidate.headSha];
+    if (options.candidate.baseSha === options.candidate.headSha || gate.phase !== 'workspace'
+        || Object.keys(gate.environment).join(',') !== 'SEC_SOURCE_PROGRAM_TRANSITION_BINDING'
+        || (argv.length !== expected.length && argv.length !== expected.length + 2)
+        || expected.some((value, index) => argv[index] !== value)
+        || argv.length > expected.length && (argv[expected.length] !== '--test-author-input'
+          || argv[expected.length + 1] !== SOURCE_PROGRAM_TRANSITION_AUTHOR_INPUT)
+        || (gate.inputs?.length ?? 0) !== (argv.length > expected.length ? 1 : 0)
+        || gate.inputs?.some(({ path }) => path !== 'external-author-input/source-program-test-decision.json')) {
+      fail('transition operation must be the exact adopted-base comparison grammar.');
+    }
+  } else if (argv[1] === SOURCE_PROGRAM_TRANSITION_ENTRYPOINT || (gate.inputs?.length ?? 0) !== 0) {
+    fail('external author input belongs only to the selected transition assessment Action.');
+  }
   const runtime = text(gate.runtime, 'gate.runtime');
   if (runtime !== 'bun') fail('gate.runtime must be the canonical Bun runtime.');
   const executionEnvironmentRevision = canonicalExecutionEnvironmentRevision(
@@ -863,7 +951,9 @@ export function parseCiVerificationNormalizedOperation(value: unknown): CiVerifi
     : targetRecord.kind === 'bun-typescript-entrypoint'
       ? ['bun', targetIdentity, ...targetRecord.args as string[]]
       : fail('normalized operation target kind is invalid.');
-  const target = normalizedTarget(canonicalGateArgv(targetArgv, 'normalized target argv'));
+  const historicalTransition = candidate.gateId === SOURCE_PROGRAM_TRANSITION_GATE_ID
+    && targetIdentity === HISTORICAL_SOURCE_PROGRAM_TRANSITION_ENTRYPOINT;
+  const target = normalizedTarget(canonicalGateArgv(targetArgv, 'normalized target argv'), historicalTransition);
   if (!Array.isArray(candidate.environmentBindings) || !Array.isArray(candidate.coveredScopeIds)) {
     fail('normalized operation bindings or scopes are invalid.');
   }
@@ -910,10 +1000,31 @@ export function parseCiVerificationNormalizedOperation(value: unknown): CiVerifi
       )
     })
   });
+  if (historicalTransition) {
+    const expected = ['--worktree-source-program', '--transition-candidate-root', SOURCE_PROGRAM_TRANSITION_CANDIDATE_ROOT,
+      '--supersession-baseline', withoutDigest.candidate.baseSha, '--transition-expected-head', withoutDigest.candidate.headSha];
+    if (withoutDigest.phase !== 'workspace' || withoutDigest.candidate.baseSha === withoutDigest.candidate.headSha
+        || (target.args.length !== expected.length && target.args.length !== expected.length + 2)
+        || expected.some((value, index) => target.args[index] !== value)
+        || target.args.length > expected.length && (target.args[expected.length] !== '--test-author-input'
+          || target.args[expected.length + 1] !== SOURCE_PROGRAM_TRANSITION_AUTHOR_INPUT)
+        || environmentBindings.map(({ name }) => name).join(',')
+          !== 'SEC_EXECUTION_ENVIRONMENT_REVISION,SEC_SOURCE_PROGRAM_TRANSITION_BINDING') {
+      fail('historical transition is outside its exact read-only grammar.');
+    }
+  }
   if (digest(candidate.semanticDigest, 'normalized semanticDigest') !== hash(withoutDigest)) {
     fail('normalized operation semantic digest mismatch.');
   }
   return Object.freeze({ ...withoutDigest, semanticDigest: candidate.semanticDigest as CiVerificationActionDigest });
+}
+
+/** Historical decoding never admits the retired executable route. */
+export function assertCiVerificationCurrentOperation(operation: CiVerificationNormalizedOperation): void {
+  if (operation.target.kind === 'bun-typescript-entrypoint'
+      && operation.target.identity === HISTORICAL_SOURCE_PROGRAM_TRANSITION_ENTRYPOINT) {
+    fail('historical transition is read-only and cannot be newly executed.');
+  }
 }
 
 export function buildCiVerificationActionPlan(options: {
@@ -936,7 +1047,7 @@ export function buildCiVerificationActionPlan(options: {
       workingDirectory: normalizedOperation.workingDirectory,
       declaredEnvironment: normalizedOperation.environmentBindings
     },
-    inputClosure: canonicalInputs(options.candidate),
+    inputClosure: canonicalInputs(options.candidate, options.gate.inputs),
     environment: {
       toolchainRevision: options.candidate.toolchainRevision,
       providerRevision: normalizedOperation.candidate.executionEnvironmentRevision,
@@ -1145,5 +1256,6 @@ export function resolveCiVerificationDevRunnerTarget(options: {
       operation.semanticDigest !== plan.action.operation.semanticDigest) {
     fail('dev-runner rejected a missing or competing normalized operation.');
   }
+  assertCiVerificationCurrentOperation(operation);
   return operation;
 }

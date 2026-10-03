@@ -1,5 +1,6 @@
 import { test } from 'bun:test';
 import assert from 'node:assert/strict';
+import type { SourceProgramCandidate } from '../../src/adapters/repository/source-program-model/contract.ts';
 import {
   compileSourceProgramFindingDelta as compare,
   summarizeSourceProgramFindingDelta as summarize,
@@ -10,7 +11,7 @@ import { sha256 } from '../../src/contracts/canonical.ts';
 import { captureRepositoryAnalysisPolicy } from '../../src/adapters/repository/source-program-model/repository-analysis-policy.ts';
 
 type Snapshot = Parameters<typeof compare>[0];
-type Candidate = Snapshot['model']['candidates'][number];
+type Candidate = SourceProgramCandidate;
 const digest = (value: string) => sha256(value) as `sha256:${string}`;
 function finding(subject = 'subject', paths: readonly string[] = ['src/a.ts'], reason = 'original'): Candidate {
   return { code: 'production-declaration-without-consumer', subject, paths, reason, observationClass: 'derived' };

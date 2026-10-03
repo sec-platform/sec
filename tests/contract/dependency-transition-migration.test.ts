@@ -6,11 +6,6 @@ import path from 'node:path';
 
 import { expect, test } from 'bun:test';
 
-import { generatedStateDigest } from '../../src/adapters/runtime-state/generated-state/contract.ts';
-import {
-  generatedStateProducerHooks,
-  inspectGeneratedState
-} from '../../src/adapters/runtime-state/generated-state/lifecycle.ts';
 import { inspectNoFollowDirectoryChain } from '../../src/adapters/runtime-state/physical/runtime/physical-no-follow.ts';
 import { resolveSecWorkspaceRuntimeRoots } from '../../src/adapters/runtime-state/workspace-state/paths.ts';
 import { compilerDependencyIdentity } from '../../src/adapters/toolchain/dependencies/runtime/compiler-materialization-input.ts';
@@ -29,6 +24,8 @@ import {
 import { migrateDependencyTransitionJournal } from '../../src/adapters/toolchain/dependencies/test/runtime.ts';
 import { canonicalJson } from '../../src/contracts/canonical.ts';
 import { formatJsonFile } from "../../src/contracts/json-text.ts";
+import { generatedStateDigest } from "../../src/execution/generated-state/contract.ts";
+import { generatedStateProducerHooks, inspectGeneratedState } from '../helpers/generated-state-fixture.ts';
 
 const LEGACY_SCHEMA = 'sec-dependency-transition-journal-v1' as const;
 const LEGACY_NAMESPACE = '.dependency-transition-v1';
@@ -762,6 +759,56 @@ test('coordination cutover unions valid Runtime State consumers with legacy reco
     await rm(root, { recursive: true, force: true });
   }
 });
+
+for (const failure of ['foreign-bytes', 'released-only', 'unknown-residue'] as const) {
+  test(`coordination cutover preserves both consumer inputs when Runtime State has ${failure}`, async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), 'sec-dependency-coordination-invalid-target-'));
+    const runtimeRoots = resolveSecWorkspaceRuntimeRoots({ repositoryRoot: root });
+    try {
+      const legacyConsumers = path.join(targetJournalRoot(root), 'consumers');
+      const runtimeConsumers = path.join(runtimeRoots.workspaceStateRoot,
+        'compiler-dependency-coordination', 'v1', 'consumers');
+      await mkdir(path.join(targetJournalRoot(root), 'records'), { recursive: true });
+      await mkdir(path.join(targetJournalRoot(root), 'rollovers'));
+      await mkdir(legacyConsumers);
+      await mkdir(runtimeConsumers, { recursive: true });
+      const identity = inspectNoFollowDirectoryChain(root, 'invalid consumer union fixture').target;
+      const leaseId = generatedStateDigest('union-preimage');
+      const acquired = {
+        schema: 'sec-compiler-dependency-consumer-v1', previousRecordDigest: null,
+        leaseId, generationDigest: generatedStateDigest('union-generation'), generationPath: root,
+        generationPhysical: { device: identity.device, inode: identity.inode, objectId: identity.objectId },
+        phase: 'acquired' as const
+      };
+      const acquiredName = `consumer-${leaseId.slice('sha256:'.length)}-acquired.json`;
+      const acquiredDigest = generatedStateDigest(canonicalJson(acquired));
+      const legacyBytes = Buffer.from(formatJsonFile(canonicalJson({ ...acquired, recordDigest: acquiredDigest })));
+      await writeFile(path.join(legacyConsumers, acquiredName), legacyBytes);
+      const foreign = failure === 'foreign-bytes'
+        ? { ...acquired, generationDigest: generatedStateDigest('foreign-generation') }
+        : { ...acquired, leaseId: generatedStateDigest('missing-consumer'), phase: 'released' as const,
+          previousRecordDigest: generatedStateDigest('missing-acquisition') };
+      const targetName = failure === 'foreign-bytes' ? acquiredName
+        : failure === 'unknown-residue' ? 'foreign.txt'
+          : `consumer-${foreign.leaseId.slice('sha256:'.length)}-released.json`;
+      const targetBytes = failure === 'unknown-residue' ? Buffer.from('foreign')
+        : Buffer.from(formatJsonFile(canonicalJson({ ...foreign,
+          recordDigest: generatedStateDigest(canonicalJson(foreign)) })));
+      await writeFile(path.join(runtimeConsumers, targetName), targetBytes);
+
+      await expect(migrateDependencyTransitionJournal(root, { lockTimeoutMs: 30_000 }))
+        .rejects.toThrow(failure === 'foreign-bytes' ? 'foreign bytes'
+          : failure === 'released-only' ? 'invalid consumer chain' : 'consumer record');
+      expect(await readdir(legacyConsumers)).toEqual([acquiredName]);
+      expect(await readFile(path.join(legacyConsumers, acquiredName))).toEqual(legacyBytes);
+      expect(await readdir(runtimeConsumers)).toEqual([targetName]);
+      expect(await readFile(path.join(runtimeConsumers, targetName))).toEqual(targetBytes);
+    } finally {
+      await rm(runtimeRoots.workspaceStateRoot, { recursive: true, force: true });
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+}
 
 test('coordination cutover rejects a released-only legacy consumer chain', async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sec-dependency-coordination-released-only-'));

@@ -1,5 +1,5 @@
 import { spawnSync } from 'node:child_process';
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
@@ -60,7 +60,7 @@ async function commitFixture(
       "import { normalize } from './kernel.ts';\nexport const verifyCandidateImportNormalization = normalize;\n"
     ),
     writeFile(
-      path.join(root, 'src', 'adapters', 'self-hosting', 'development', 'import-normalization', 'sec.module.json'),
+      path.join(root, 'src', 'adapters', 'self-hosting', 'development', 'import-normalization', 'module.json'),
       `${JSON.stringify({
         importGraph: 'runtime',
         externalEntrypoints: ['src/adapters/self-hosting/development/import-normalization/runtime.ts'],
@@ -243,26 +243,42 @@ test('staged normalization shares the Source Program input boundary for template
     git(root, ['config', 'user.name', 'SEC Tests']);
     const candidateBase = await commitFixture(root,
       'export function normalize(): void {}\n', 'template-base');
+    git(root, ['update-ref', 'refs/remotes/origin/main', candidateBase]);
     const templatePath = 'catalog/registry/official/example/files/src/template.ts';
     await mkdir(path.dirname(path.join(root, templatePath)), { recursive: true });
     await writeFile(path.join(root, templatePath),
       "import z from 'z';\nimport a from 'a';\nexport const template = [z, a];\n");
     git(root, ['add', '--', templatePath]);
     const before = git(root, ['write-tree']);
-    const { checkStagedCandidateImportNormalization } = await import('./runtime.ts');
+    const { checkStagedCandidateImportNormalization, checkStagedCandidateImportNormalizationWithSelection } = await import('./runtime.ts');
     const observe = () => withAuthorityGitReadSession({
       cwd: root, budget: GIT_READ_OPERATION_BUDGET
     }, session => checkStagedCandidateImportNormalization({ session, candidateBase }));
     expect((await observe()).status).toBe('canonical');
     expect(git(root, ['write-tree'])).toBe(before);
+    const defaultSelection = await withAuthorityGitReadSession({
+      cwd: root, budget: GIT_READ_OPERATION_BUDGET
+    }, session => checkStagedCandidateImportNormalizationWithSelection({ session }));
+    expect(defaultSelection.candidateBase).toBe(candidateBase);
+    expect(defaultSelection.outcome.status).toBe('canonical');
 
     const sourcePath = 'src/adapters/self-hosting/development/import-normalization/kernel.ts';
     await writeFile(path.join(root, sourcePath),
       "import path from 'node:path';\nimport fs from 'node:fs';\nexport function normalize(): void { void fs; void path; }\n");
     git(root, ['add', '--', sourcePath]);
-    const failure = await observe();
+    const indexPath = path.resolve(root, git(root, ['rev-parse', '--git-path', 'index']));
+    const indexBefore = await readFile(indexPath);
+    const sourceBefore = await readFile(path.join(root, sourcePath));
+    const sourceStatBefore = await stat(path.join(root, sourcePath));
+    const { outcome: failure, candidateBase: observedBase } = await withAuthorityGitReadSession({
+      cwd: root, budget: GIT_READ_OPERATION_BUDGET
+    }, session => checkStagedCandidateImportNormalizationWithSelection({ session, candidateBase }));
+    expect(observedBase).toBe(candidateBase);
     expect(failure.status).toBe('needs-import-transform');
     expect(failure.files).toEqual([sourcePath]);
+    expect(await readFile(indexPath)).toEqual(indexBefore);
+    expect(await readFile(path.join(root, sourcePath))).toEqual(sourceBefore);
+    expect((await stat(path.join(root, sourcePath))).mtimeMs).toBe(sourceStatBefore.mtimeMs);
   } finally {
     await rm(root, { recursive: true, force: true });
   }

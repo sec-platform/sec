@@ -8,6 +8,7 @@ import {
   inspectNoFollowDirectoryChain,
   materializeRetainedNoFollowProvenDirectoryGeneration,
   publishExclusiveNoFollowProvenDirectoryLink,
+  retainCurrentProcessExecutable,
   scanNoFollowDirectoryTreeInventory
 } from './physical-no-follow.ts';
 
@@ -108,11 +109,16 @@ linuxTest('proven links use the inherited child slot rather than the parent desc
     expect(link.linkTarget).toBe(source.childPath);
     const stdio: StdioOptions = Array.from({ length: 16 }, () => 'ignore' as const);
     stdio[1] = 'pipe'; stdio[2] = 'pipe'; stdio[15] = source.stdioSourceDescriptor!;
-    const child = spawnSync(process.execPath, ['-e',
+    const executable = retainCurrentProcessExecutable(3, 'inherited-slot actor');
+    try {
+      stdio[3] = executable.stdioSourceDescriptor!;
+    const child = spawnSync(executable.childPath, ['-e',
       `process.stdout.write(require('node:fs').readFileSync(${JSON.stringify(path.join(parent, 'borrowed', 'value.txt'))}, 'utf8'))`
     ], { stdio, encoding: 'utf8', timeout: 5000 });
     expect(child.status, child.stderr).toBe(0);
     expect(child.stdout).toBe('retained value');
+      executable.assertCurrent();
+    } finally { executable.dispose(); }
     await source.assertAuthorityCurrent();
   } finally {
     if (generation) await generation.generation.retire();

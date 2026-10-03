@@ -5,7 +5,7 @@ import { CompilerError } from '../compiler/errors.ts';
 import { posixPath } from '../contracts/relative-path.ts';
 import { privateRegistryRelativePath } from '../workspace/paths.ts';
 
-export type WorkspaceCreateTemplate = 'minimal' | 'reference-customer';
+import type { WorkspaceCreateTemplate } from '../execution/workspace-create.ts';
 
 export interface WorkspaceCreateResources {
   readonly officialRegistryRelativePath: string;

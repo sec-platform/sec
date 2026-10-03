@@ -25,7 +25,7 @@ import {
 } from './source-generation.ts';
 
 test('dependency generation and environment terminals remain bound to their domain operations', async () => {
-  const descriptorPath = 'src/adapters/toolchain/dependencies/sec.module.json';
+  const descriptorPath = 'src/adapters/toolchain/dependencies/module.json';
   const descriptorSource = await fs.readFile(descriptorPath, 'utf8');
   const descriptor = parseSecModuleDescriptor(JSON.parse(descriptorSource), descriptorPath);
   const roles = descriptor.capabilityProviders.flatMap(({ capability, operationRoles }) => (

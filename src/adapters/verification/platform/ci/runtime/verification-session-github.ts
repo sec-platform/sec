@@ -1,33 +1,93 @@
 /** GitHub observation and mutation adapter for the VerificationSession operator. */
 
-import { spawnSync } from 'node:child_process';
-import { createHash } from 'node:crypto';
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import path from 'node:path';
+/**
+ * Keep transport effects, live Review authority and principal decisions here.
+ * Response decoding is separate because provider wire-shape changes must not
+ * acquire API/session capabilities or mint authority-bearing observations.
+ */
+import type {
+  GitHubIssueCommentObservation,
+  GitHubPage,
+  GitHubPullRequestFileInventory,
+  GitHubPullRequestFileInventoryExpectation,
+  GitHubReviewObservation,
+  GitHubReviewThreadObservation,
+  SessionDigest
+} from './verification-session-github-response.ts';
+import {
+  assertSha,
+  assertSuccessfulGraphqlReviewConnection,
+  bindProviderShapeSource,
+  boundedText,
+  canonicalChangedPaths,
+  fail,
+  GITHUB_OPEN_PULL_REQUEST_MAXIMUM_PAGES,
+  GITHUB_OPEN_PULL_REQUEST_PAGE_SIZE,
+  githubOpenPullRequestPage,
+  GitHubProviderResponseShapeError,
+  hash,
+  issueCommentObservation,
+  parseGitHubCheckPages,
+  parseGitHubOpenPullRequestCensus,
+  parseGitHubPullRequestFileInventory,
+  parseGitHubReviewPages,
+  parseGitHubReviewThreadPages,
+  parseGitHubWorkflowJobsForAttempt,
+  parseJson,
+  providerPageInfo,
+  providerResponseShapeDigest,
+  providerShapeSource,
+  repoParts,
+  rethrowProviderResponseShape
+} from './verification-session-github-response.ts';
 
-import type { GitHubCheckObservation, GitHubWorkflowJobObservation, GitHubWorkflowJobStepObservation, GitHubWorkflowRunObservation } from '../../../../providers/github-api/contract.ts';
+export {
+  parseGitHubCheckPages, parseGitHubOpenPullRequestCensus,
+  parseGitHubPullRequestFileInventory, parseGitHubReviewPages,
+  parseGitHubReviewThreadPages, parseGitHubWorkflowJobsForAttempt
+} from './verification-session-github-response.ts';
+export type {
+  GitHubIssueCommentObservation,
+  GitHubPage,
+  GitHubPullRequestFileInventory,
+  GitHubPullRequestFileInventoryExpectation, GitHubReviewObservation,
+  GitHubReviewThreadObservation, SessionDigest
+} from './verification-session-github-response.ts';
+
+import { currentGitHubCredentialStoreIdentity } from '../../../../providers/github-api/credential-store.ts';
 import {
-  decodeBranchLifecycleChildError,
-  decodeBranchLifecycleChildStdout
-} from '../../../../self-hosting/control/branch-lifecycle/branch-lifecycle-command.ts';
+  currentGitHubApiCapability, executeGitHubApiOperation,
+  GitHubApiGraphqlResponseError,
+  GitHubApiProviderError,
+  inspectGitHubApiCapability, withGitHubApiVerificationSession, type GitHubApiOperation
+} from '../../../../providers/github-api/operation-session.ts';
+import { normalizeGitHubRepositoryPermission } from '../../../../providers/github-api/repository-permission.ts';
 import {
+  GITHUB_PRINCIPAL_NODE_QUERY,
   GITHUB_PULL_REQUEST_CLOSING_QUERY,
+  GITHUB_REVIEW_REQUESTS_QUERY,
+  GITHUB_REVIEWS_QUERY,
+  GITHUB_THREAD_COMMENTS_QUERY,
+  GITHUB_THREADS_QUERY,
+  isGitHubGraphQLSchemaFailure
+} from '../../../../providers/github-api/verification-queries.ts';
+
+import type { GitHubCheckObservation, GitHubWorkflowJobObservation, GitHubWorkflowRunObservation } from '../../../../providers/github-api/contract.ts';
+import {
   parseGitHubPullRequestClosingFactsPage,
   type GitHubIssueReference,
   type GitHubPullRequestClosingFacts
 } from '../../../../self-hosting/control/issues/disposition.ts';
+import { createMainAuthorityRulesetReceipt } from '../../../../self-hosting/control/main-health/authority-ruleset.ts';
 import { encodeVerificationActionData } from '../../action/contract/action.ts';
 import { CI_GITHUB_ACTIONS_IDENTITY_POLICY, matchesCiCompilerWorkflowRunIdentity } from '../../action/contract/provider.ts';
+import { classifyProviderDiagnosticTextV1 } from '../../provider/contract/capability.ts';
 import type { ReviewPrincipal, ReviewSnapshot } from '../../review/contract/stability.ts';
 import { createReviewSnapshotDigest, isCodexCleanReviewAboutBlock, isCodexCleanReviewVerdict, REVIEW_OBSERVER_READ_ONLY_CAPABILITY_RECEIPT, SEC_REVIEW_STABILITY_POLICY } from '../../review/contract/stability.ts';
 import {
-  CI_VERIFICATION_SESSION_ARTIFACT_PREFIX,
-  CI_VERIFICATION_SESSION_DISPATCH_TYPE
+  CI_VERIFICATION_SESSION_ARTIFACT_PREFIX
 } from '../contract/revision.ts';
 import type { VerificationSessionHostedRequest } from '../contract/session-request.ts';
-
-export type SessionDigest = `sha256:${string}`;
 
 const validatedClearReviewObservations = new WeakSet<object>();
 const authorityBearingGitHubAdapters = new WeakSet<object>();
@@ -62,27 +122,6 @@ export interface GitHubCandidateObservation {
   mergeCommitParentShas: readonly string[] | null;
 }
 
-export interface GitHubReviewObservation {
-  id: string;
-  authorNodeId: string;
-  authorLogin: string;
-  authorType: 'Bot' | 'User';
-  appId: number | null;
-  appNodeId: string | null;
-  appSlug: string | null;
-  commitSha: string;
-  state: 'APPROVED' | 'COMMENTED' | 'CHANGES_REQUESTED' | 'DISMISSED';
-  submittedAt: string;
-}
-
-export interface GitHubReviewThreadObservation {
-  id: string;
-  isResolved: boolean;
-  isOutdated: boolean;
-  path: string;
-  authorNodeIds: readonly string[];
-}
-
 export interface GitHubReviewRequestObservation {
   nodeId: string;
   login: string;
@@ -97,16 +136,27 @@ export interface GitHubAppReviewCommentObservation {
   createdAt: string;
 }
 
-export interface GitHubIssueCommentObservation {
-  id: string;
-  body: string;
-  authorLogin: string;
-  authorId: number;
-  authorNodeId: string;
-  authorType: string;
-  performedViaGitHubApp: { id: number; nodeId: string; slug: string } | null;
-  createdAt: string;
-}
+export type GitHubReviewProviderAvailabilityObservation = Readonly<{
+  status: 'unavailable';
+  reasonCode: 'provider-quota-unavailable' | 'provider-revalidation-consumed';
+  receiptRef: SessionDigest;
+  sourceCommentId: string;
+  sourceObservedAt: string;
+  censusDigest: SessionDigest;
+  observedAt: string;
+}> | Readonly<{
+  status: 'no-current-negative';
+  revalidationCommentId: string | null;
+  revalidationObservedAt: string | null;
+  revalidationDigest: SessionDigest | null;
+  censusDigest: SessionDigest;
+  observedAt: string;
+}> | Readonly<{
+  status: 'unresolved';
+  reason: 'pagination-budget-exhausted' | 'provider-comment-page-drift' | 'provider-comment-ordering-invalid';
+  censusDigest: SessionDigest;
+  observedAt: string;
+}>;
 
 export type GitHubCommitResolutionObservation = Readonly<{
   repository: string;
@@ -163,40 +213,6 @@ export interface GitHubActionsArtifactObservation {
   expired: boolean;
 }
 
-export interface GitHubPage<T> {
-  nodes: readonly T[];
-  hasNextPage: boolean;
-  endCursor: string | null;
-  pageDigest: SessionDigest;
-}
-
-export interface GitHubPullRequestFileInventory {
-  readonly schema: 'sec-github-pr-files-inventory-v1';
-  readonly repository: string;
-  readonly prNumber: number;
-  readonly state: 'OPEN' | 'CLOSED';
-  readonly draft: boolean;
-  readonly baseSha: string;
-  readonly headSha: string;
-  readonly changedFiles: number;
-  readonly recordCount: number;
-  readonly beforeMetadataDigest: SessionDigest;
-  readonly afterMetadataDigest: SessionDigest;
-  readonly paginationSourceDigest: SessionDigest;
-  readonly pageDigests: readonly SessionDigest[];
-  readonly paths: readonly string[];
-  readonly inventoryDigest: SessionDigest;
-}
-
-export interface GitHubPullRequestFileInventoryExpectation {
-  readonly repository: string;
-  readonly prNumber: number;
-  readonly state: 'OPEN';
-  readonly draft: false;
-  readonly baseSha: string;
-  readonly headSha: string;
-}
-
 class GitHubApiFailure extends Error {
   constructor(message: string, readonly statusCode?: number) {
     super(message);
@@ -205,34 +221,35 @@ class GitHubApiFailure extends Error {
 }
 
 interface VerificationSessionGitHubTransport {
-  candidate(repository: string, prNumber: number): GitHubCandidateObservation;
-  pullRequestClosingFacts(repository: string, prNumber: number): GitHubPullRequestClosingFacts;
-  reviewPage(repository: string, prNumber: number, after: string | null): GitHubPage<GitHubReviewObservation>;
-  threadPage(repository: string, prNumber: number, after: string | null): GitHubPage<GitHubReviewThreadObservation>;
-  reviewRequestPage(repository: string, prNumber: number, after: string | null): GitHubPage<GitHubReviewRequestObservation>;
-  appCommentPage(repository: string, prNumber: number, after: string | null): GitHubPage<GitHubAppReviewCommentObservation>;
-  issueCommentPage(repository: string, prNumber: number, after: string | null): GitHubPage<GitHubIssueCommentObservation>;
-  resolveCommitOid(repository: string, locator: string): GitHubCommitResolutionObservation;
-  collaboratorPermission(repository: string, login: string): 'admin' | 'maintain' | 'write' | 'triage' | 'read' | 'none';
-  checkPage(repository: string, headSha: string, after: string | null): GitHubPage<GitHubCheckObservation>;
-  workflowRunPage(repository: string, headSha: string, after: string | null): GitHubPage<GitHubWorkflowRunObservation>;
-  workflowJobsForAttempt?(repository: string, runId: string, runAttempt: number): readonly GitHubWorkflowJobObservation[];
-  repositoryRulesets(repository: string): unknown;
-  dispatchVerificationSession(repository: string, request: VerificationSessionHostedRequest): void;
+  candidate(repository: string, prNumber: number): GitHubCandidateObservation | Promise<GitHubCandidateObservation>;
+  pullRequestClosingFacts(repository: string, prNumber: number): GitHubPullRequestClosingFacts | Promise<GitHubPullRequestClosingFacts>;
+  reviewPage(repository: string, prNumber: number, after: string | null): GitHubPage<GitHubReviewObservation> | Promise<GitHubPage<GitHubReviewObservation>>;
+  threadPage(repository: string, prNumber: number, after: string | null): GitHubPage<GitHubReviewThreadObservation> | Promise<GitHubPage<GitHubReviewThreadObservation>>;
+  reviewRequestPage(repository: string, prNumber: number, after: string | null): GitHubPage<GitHubReviewRequestObservation> | Promise<GitHubPage<GitHubReviewRequestObservation>>;
+  appCommentPage(repository: string, prNumber: number, after: string | null): GitHubPage<GitHubAppReviewCommentObservation> | Promise<GitHubPage<GitHubAppReviewCommentObservation>>;
+  issueCommentPage(repository: string, prNumber: number, after: string | null): GitHubPage<GitHubIssueCommentObservation> | Promise<GitHubPage<GitHubIssueCommentObservation>>;
+  repositoryIssueCommentPage(repository: string, after: string | null): GitHubPage<GitHubIssueCommentObservation> | Promise<GitHubPage<GitHubIssueCommentObservation>>;
+  resolveCommitOid(repository: string, locator: string): GitHubCommitResolutionObservation | Promise<GitHubCommitResolutionObservation>;
+  collaboratorPermission(repository: string, login: string): 'admin' | 'maintain' | 'write' | 'triage' | 'read' | 'none' | Promise<'admin' | 'maintain' | 'write' | 'triage' | 'read' | 'none'>;
+  checkPage(repository: string, headSha: string, after: string | null): GitHubPage<GitHubCheckObservation> | Promise<GitHubPage<GitHubCheckObservation>>;
+  workflowRunPage(repository: string, headSha: string, after: string | null): GitHubPage<GitHubWorkflowRunObservation> | Promise<GitHubPage<GitHubWorkflowRunObservation>>;
+  workflowJobsForAttempt?(repository: string, runId: string, runAttempt: number): readonly GitHubWorkflowJobObservation[] | Promise<readonly GitHubWorkflowJobObservation[]>;
+  repositoryRulesets(repository: string): unknown | Promise<unknown>;
+  dispatchVerificationSession(repository: string, request: VerificationSessionHostedRequest): void | Promise<void>;
   pullRequestFileInventory?(
     repository: string,
     prNumber: number
-  ): GitHubPullRequestFileInventory;
-  blobText?(repository: string, ref: string, path: string): string;
-  comparison?(repository: string, baseSha: string, headSha: string): GitHubComparisonObservation;
-  openPullRequestCountForHead?(repository: string, headSha: string): number;
-  principal?(repository: string, login: string): GitHubPrincipalObservation;
-  principalByNodeId?(repository: string, nodeId: string): GitHubPrincipalObservation;
-  viewerPrincipal?(repository: string): GitHubPrincipalObservation;
-  actionsArtifact?(repository: string, artifactId: string): GitHubActionsArtifactObservation;
-  actionsArtifactsForRun?(repository: string, runId: string): readonly GitHubActionsArtifactObservation[];
-  actionsArtifacts?(repository: string): readonly GitHubActionsArtifactObservation[];
-  downloadArtifactText?(repository: string, artifact: GitHubActionsArtifactObservation, fileName: string): string;
+  ): GitHubPullRequestFileInventory | Promise<GitHubPullRequestFileInventory>;
+  blobText?(repository: string, ref: string, path: string): string | Promise<string>;
+  comparison?(repository: string, baseSha: string, headSha: string): GitHubComparisonObservation | Promise<GitHubComparisonObservation>;
+  openPullRequestCountForHead?(repository: string, headSha: string): number | Promise<number>;
+  principal?(repository: string, login: string): GitHubPrincipalObservation | Promise<GitHubPrincipalObservation>;
+  principalByNodeId?(repository: string, nodeId: string): GitHubPrincipalObservation | Promise<GitHubPrincipalObservation>;
+  viewerPrincipal?(repository: string): GitHubPrincipalObservation | Promise<GitHubPrincipalObservation>;
+  actionsArtifact?(repository: string, artifactId: string): GitHubActionsArtifactObservation | Promise<GitHubActionsArtifactObservation>;
+  actionsArtifactsForRun?(repository: string, runId: string): readonly GitHubActionsArtifactObservation[] | Promise<readonly GitHubActionsArtifactObservation[]>;
+  actionsArtifacts?(repository: string): readonly GitHubActionsArtifactObservation[] | Promise<readonly GitHubActionsArtifactObservation[]>;
+  downloadArtifactText?(repository: string, artifact: GitHubActionsArtifactObservation, fileName: string): string | Promise<string>;
 }
 
 export type GitHubReviewBarrierObservation = Readonly<{
@@ -274,8 +291,15 @@ const VERIFICATION_SESSION_REVIEW_WAKEUP_COMMENT_SCHEMA =
   'sec-verification-session-review-wakeup-comment-v1' as const;
 export const VERIFICATION_SESSION_REVIEW_WAKEUP_COMMENT_MARKER =
   '<!-- sec-verification-session-review-wakeup-v1 -->' as const;
+const VERIFICATION_SESSION_REVIEW_PROVIDER_REVALIDATION_SCHEMA =
+  'sec-review-provider-revalidation-v1' as const;
+export const VERIFICATION_SESSION_REVIEW_PROVIDER_REVALIDATION_MARKER =
+  '<!-- sec-review-provider-revalidation-v1 -->' as const;
 
 export const PROVIDER_SCHEMA_UNSUPPORTED_STATUS = 'provider-schema-unsupported' as const;
+const RETIRED_REVIEW_WAKEUP_TOMBSTONE =
+  '<!-- retired: codex review trigger transport noise -->' as const;
+const REVIEW_PROVIDER_COMMENT_MAXIMUM_PAGES = 64;
 
 /** Pure signal routing only; returning true never grants Review or mutation authority. */
 export function shouldPublishMaintainerReviewWakeup(input: Readonly<{
@@ -311,102 +335,9 @@ class GitHubProviderSchemaUnsupportedError extends Error {
   }
 }
 
-const ABSENT_PROVIDER_RESPONSE_SOURCE = Object.freeze({ present: false as const });
-
-function providerResponseShapeSource(source: unknown): unknown {
-  return source === undefined ? ABSENT_PROVIDER_RESPONSE_SOURCE : source;
-}
-
-class GitHubProviderResponseShapeError extends Error {
-  readonly source: unknown;
-
-  constructor(
-    message: string,
-    readonly classification: string,
-    source: unknown
-  ) {
-    super(message);
-    this.name = 'GitHubProviderResponseShapeError';
-    this.source = providerResponseShapeSource(source);
-  }
-
-  bindProviderResponse(classification: string, source: unknown): GitHubProviderResponseShapeError {
-    return new GitHubProviderResponseShapeError(this.message, classification, source);
-  }
-}
-
-// Private provenance sidecar: normalized observations never expose provider
-// bytes, while their producing boundary can retain the exact source for a
-// later typed schema projection.
-const providerShapeSources = new WeakMap<object, unknown>();
-
-function bindProviderShapeSource<T extends object>(value: T, source: unknown): T {
-  providerShapeSources.set(value, source);
-  return value;
-}
-
-function providerShapeSource(value: object): unknown {
-  return providerShapeSources.get(value) ?? value;
-}
-
-function assertSuccessfulGraphqlReviewConnection(
-  pages: readonly unknown[],
-  field: 'reviews' | 'reviewThreads' | 'reviewRequests'
-): void {
-  if (pages.length === 0) {
-    throw new GitHubProviderResponseShapeError(
-      `VerificationSession GitHub adapter GraphQL ${field} pagination returned no successful pages.`,
-      'github-graphql-empty-page-set', Object.freeze({ field, pages })
-    );
-  }
-  const seenCursors = new Set<string>();
-  for (const [index, page] of pages.entries()) {
-    const connection = (page as any)?.data?.repository?.pullRequest?.[field];
-    if (connection === null || typeof connection !== 'object' || Array.isArray(connection)
-      || !Array.isArray(connection.nodes) || connection.pageInfo === null
-      || typeof connection.pageInfo !== 'object' || Array.isArray(connection.pageInfo)
-      || typeof connection.pageInfo.hasNextPage !== 'boolean'
-      || (connection.pageInfo.endCursor !== null && typeof connection.pageInfo.endCursor !== 'string')) {
-      throw new GitHubProviderResponseShapeError(
-        `VerificationSession GitHub adapter GraphQL ${field} connection shape is invalid.`,
-        'github-graphql-review-connection-shape', Object.freeze({ field, pages })
-      );
-    }
-    const terminal = index === pages.length - 1;
-    if (terminal ? connection.pageInfo.hasNextPage : !connection.pageInfo.hasNextPage) {
-      throw new GitHubProviderResponseShapeError(
-        `VerificationSession GitHub adapter GraphQL ${field} pagination is incomplete or extends beyond its terminal page.`,
-        'github-graphql-review-pagination-incomplete', Object.freeze({ field, pages })
-      );
-    }
-    const cursor = connection.pageInfo.endCursor;
-    if (!terminal) {
-      if (typeof cursor !== 'string' || cursor.length === 0 || seenCursors.has(cursor)) {
-        throw new GitHubProviderResponseShapeError(
-          `VerificationSession GitHub adapter GraphQL ${field} pagination cursor did not advance.`,
-          'github-graphql-review-pagination-cursor', Object.freeze({ field, pages })
-        );
-      }
-      seenCursors.add(cursor);
-    } else if (typeof cursor === 'string' && cursor.length > 0 && seenCursors.has(cursor)) {
-      throw new GitHubProviderResponseShapeError(
-        `VerificationSession GitHub adapter GraphQL ${field} terminal pagination cursor did not advance.`,
-        'github-graphql-review-pagination-cursor', Object.freeze({ field, pages })
-      );
-    }
-  }
-}
-
 export function classifyGitHubGraphQLSchemaFailure(source: string): GitHubProviderSchemaFailure | null {
   const normalized = source.replaceAll('\r\n', '\n');
-  const schemaMarkers = [
-    /Field '[^']+' doesn't exist on type '[^']+'/u,
-    /Unknown field '[^']+' on type '[^']+'/u,
-    /Cannot query field '[^']+' on type '[^']+'/u,
-    /Unknown type '[^']+'/u,
-    /Field '[^']+' of required type '[^']+' was not provided/u
-  ];
-  if (!schemaMarkers.some((marker) => marker.test(normalized))) return null;
+  if (!isGitHubGraphQLSchemaFailure(normalized)) return null;
   return Object.freeze({
     status: PROVIDER_SCHEMA_UNSUPPORTED_STATUS,
     reasonCode: 'github-graphql-schema-unsupported',
@@ -418,10 +349,6 @@ export function isGitHubProviderSchemaUnsupportedError(
   error: unknown
 ): error is GitHubProviderSchemaUnsupportedError {
   return error instanceof GitHubProviderSchemaUnsupportedError;
-}
-
-function hash(value: unknown): SessionDigest {
-  return `sha256:${createHash('sha256').update(encodeVerificationActionData(value)).digest('hex')}`;
 }
 
 interface VerificationSessionReviewLocatorComment {
@@ -561,6 +488,96 @@ function parseReviewWakeupComment(source: string): VerificationSessionReviewWake
   return rebuilt;
 }
 
+interface VerificationSessionReviewProviderRevalidationComment {
+  schema: typeof VERIFICATION_SESSION_REVIEW_PROVIDER_REVALIDATION_SCHEMA;
+  repository: string;
+  capability: 'codex-review';
+  prNumber: number;
+  headSha: string;
+  headTreeSha: string;
+  publisherNodeId: string;
+  revalidationDigest: SessionDigest;
+}
+
+function createReviewProviderRevalidationComment(input: Omit<
+  VerificationSessionReviewProviderRevalidationComment,
+  'schema' | 'capability' | 'revalidationDigest'
+>): VerificationSessionReviewProviderRevalidationComment {
+  if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,99}\/[A-Za-z0-9][A-Za-z0-9._-]{0,99}$/u.test(input.repository)
+    || !Number.isSafeInteger(input.prNumber) || input.prNumber < 1
+    || !/^[0-9a-f]{40}$/u.test(input.headSha)
+    || !/^[0-9a-f]{40}$/u.test(input.headTreeSha)
+    || input.publisherNodeId.length === 0 || input.publisherNodeId.length > 256
+    || !/^[\x21-\x7e]+$/u.test(input.publisherNodeId)) {
+    fail('Review provider revalidation identity is invalid.');
+  }
+  const payload = Object.freeze({
+    schema: VERIFICATION_SESSION_REVIEW_PROVIDER_REVALIDATION_SCHEMA,
+    repository: input.repository,
+    capability: 'codex-review' as const,
+    prNumber: input.prNumber,
+    headSha: input.headSha,
+    headTreeSha: input.headTreeSha,
+    publisherNodeId: input.publisherNodeId
+  });
+  return Object.freeze({ ...payload, revalidationDigest: hash(payload) });
+}
+
+function renderReviewProviderRevalidationComment(
+  value: VerificationSessionReviewProviderRevalidationComment
+): string {
+  return `${VERIFICATION_SESSION_REVIEW_PROVIDER_REVALIDATION_MARKER}\n${encodeVerificationActionData(value)}`;
+}
+
+function parseReviewProviderRevalidationComment(
+  source: string
+): VerificationSessionReviewProviderRevalidationComment | null {
+  if (!source.includes(VERIFICATION_SESSION_REVIEW_PROVIDER_REVALIDATION_MARKER)) return null;
+  const prefix = `${VERIFICATION_SESSION_REVIEW_PROVIDER_REVALIDATION_MARKER}\n`;
+  if (!source.startsWith(prefix) || source.includes('\r')) {
+    fail('Review provider revalidation comment shape is invalid.');
+  }
+  const value: unknown = JSON.parse(source.slice(prefix.length));
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    fail('Review provider revalidation payload must be an object.');
+  }
+  const record = value as Record<string, unknown>;
+  const expected = [
+    'schema', 'repository', 'capability', 'prNumber', 'headSha', 'headTreeSha',
+    'publisherNodeId', 'revalidationDigest'
+  ].sort();
+  if (Object.keys(record).sort().join('\0') !== expected.join('\0')
+      || record.schema !== VERIFICATION_SESSION_REVIEW_PROVIDER_REVALIDATION_SCHEMA
+      || record.capability !== 'codex-review') {
+    fail('Review provider revalidation payload keys/schema are invalid.');
+  }
+  const rebuilt = createReviewProviderRevalidationComment({
+    repository: record.repository as string,
+    prNumber: record.prNumber as number,
+    headSha: record.headSha as string,
+    headTreeSha: record.headTreeSha as string,
+    publisherNodeId: record.publisherNodeId as string
+  });
+  if (rebuilt.revalidationDigest !== record.revalidationDigest
+      || source !== renderReviewProviderRevalidationComment(rebuilt)) {
+    fail('Review provider revalidation comment bytes/digest mismatch.');
+  }
+  return rebuilt;
+}
+
+export function createReviewProviderRevalidationCommentBody(input: Readonly<{
+  repository: string;
+  prNumber: number;
+  headSha: string;
+  headTreeSha: string;
+  publisherNodeId: string;
+}>): Readonly<{ body: string; revalidationDigest: SessionDigest }> {
+  const receipt = createReviewProviderRevalidationComment(input);
+  return Object.freeze({
+    body: renderReviewProviderRevalidationComment(receipt),
+    revalidationDigest: receipt.revalidationDigest
+  });
+}
 function trustedHostedPublisher(comment: GitHubIssueCommentObservation): boolean {
   const policy = CI_GITHUB_ACTIONS_IDENTITY_POLICY;
   if (comment.authorLogin !== policy.bot.login || comment.authorId !== policy.bot.id
@@ -569,28 +586,6 @@ function trustedHostedPublisher(comment: GitHubIssueCommentObservation): boolean
     && comment.performedViaGitHubApp.id === policy.app.id
     && comment.performedViaGitHubApp.nodeId === policy.app.nodeId
     && comment.performedViaGitHubApp.slug === policy.app.slug;
-}
-
-function fail(message: string): never {
-  throw new GitHubProviderResponseShapeError(`VerificationSession GitHub adapter ${message}`,
-    'github-adapter-shape', undefined);
-}
-
-function rethrowProviderResponseShape(error: unknown, classification: string, source: unknown): never {
-  if (error instanceof GitHubProviderResponseShapeError) {
-    throw error.bindProviderResponse(classification, Object.freeze({
-      boundarySource: providerResponseShapeSource(source),
-      causeClassification: error.classification,
-      causeSource: error.source
-    }));
-  }
-  throw error;
-}
-
-function providerResponseShapeDigest(error: GitHubProviderResponseShapeError): SessionDigest {
-  return hash(Object.freeze({
-    schema: 'sec-provider-response-shape-v2', classification: error.classification, source: error.source
-  }));
 }
 
 export type GitHubObservationFailureClassification =
@@ -639,11 +634,6 @@ export function classifyGitHubObservationFailureV1(
   });
 }
 
-function assertSha(value: unknown, label: string): string {
-  if (typeof value !== 'string' || !/^[0-9a-f]{40}$/u.test(value)) fail(`${label} must be a SHA.`);
-  return value;
-}
-
 function assertCursorProgress(previous: string | null, page: GitHubPage<unknown>, label: string): string | null {
   if (!page.hasNextPage) {
     if (page.endCursor !== null && typeof page.endCursor !== 'string') fail(`${label} end cursor is invalid.`);
@@ -655,16 +645,16 @@ function assertCursorProgress(previous: string | null, page: GitHubPage<unknown>
   return page.endCursor;
 }
 
-function collectPages<T>(
+async function collectPages<T>(
   label: string,
-  read: (cursor: string | null) => GitHubPage<T>
-): { nodes: T[]; pageDigests: SessionDigest[]; sourceBundles: unknown[] } {
+  read: (cursor: string | null) => GitHubPage<T> | Promise<GitHubPage<T>>
+): Promise<{ nodes: T[]; pageDigests: SessionDigest[]; sourceBundles: unknown[] }> {
   const nodes: T[] = [];
   const pageDigests: SessionDigest[] = [];
   const sourceBundles: unknown[] = [];
   let cursor: string | null = null;
   for (let pageNumber = 0; pageNumber < 1000; pageNumber += 1) {
-    const page = read(cursor);
+    const page = await read(cursor);
     if (!/^sha256:[0-9a-f]{64}$/u.test(page.pageDigest)) fail(`${label} page digest is invalid.`);
     nodes.push(...page.nodes);
     pageDigests.push(page.pageDigest);
@@ -674,215 +664,6 @@ function collectPages<T>(
     cursor = next;
   }
   return fail(`${label} pagination exceeded the bounded page count.`);
-}
-
-function canonicalChangedPaths(paths: readonly unknown[]): readonly string[] {
-  const result = [...paths].sort();
-  if (result.length === 0 || new Set(result).size !== result.length || result.some((entry) => (
-    typeof entry !== 'string' || entry.length === 0 || entry.includes('\\') || entry.startsWith('/')
-      || entry.split('/').some((segment) => segment === '..')
-  ))) fail('changed-path observation is invalid.');
-  return Object.freeze(result as string[]);
-}
-
-const GITHUB_OPEN_PULL_REQUEST_PAGE_SIZE = 100;
-const GITHUB_OPEN_PULL_REQUEST_MAXIMUM_PAGES = 1000;
-
-function githubOpenPullRequestPage(value: unknown, label: string): readonly unknown[] {
-  if (!Array.isArray(value) || value.length > GITHUB_OPEN_PULL_REQUEST_PAGE_SIZE) {
-    fail(`${label} must be one bounded REST page.`);
-  }
-  return value;
-}
-
-type GitHubOpenPullRequestCensusRecord = Readonly<{
-  id: number;
-  number: number;
-  headSha: string;
-}>;
-
-function githubOpenPullRequestCensusRecord(
-  raw: unknown,
-  label: string
-): GitHubOpenPullRequestCensusRecord {
-  if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) {
-    fail(`${label} must be an object.`);
-  }
-  const value = raw as Record<string, any>;
-  if (!Number.isSafeInteger(value.id) || value.id < 1
-    || !Number.isSafeInteger(value.number) || value.number < 1
-    || value.state !== 'open') {
-    fail(`${label} identity/state is invalid.`);
-  }
-  return Object.freeze({
-    id: value.id as number,
-    number: value.number as number,
-    headSha: assertSha(value.head?.sha, `${label} head SHA`)
-  });
-}
-
-export function parseGitHubOpenPullRequestCensus(input: {
-  repository: string;
-  headSha: string;
-  firstPagesSource: string;
-  secondPagesSource: string;
-}): number {
-  repoParts(input.repository);
-  const expectedHeadSha = assertSha(input.headSha, 'same-head PR census SHA');
-  const parsePass = (source: string, label: string) => {
-    const rawPages = parseJson<unknown>(source, `${label} pagination`);
-    if (!Array.isArray(rawPages) || rawPages.length < 1
-      || rawPages.length > GITHUB_OPEN_PULL_REQUEST_MAXIMUM_PAGES) {
-      fail(`${label} page set is empty or overbound.`);
-    }
-    const pages = rawPages.map((rawPage, pageIndex) => {
-      const page = githubOpenPullRequestPage(rawPage, `${label} page[${pageIndex}]`);
-      const finalPage = pageIndex === rawPages.length - 1;
-      if ((!finalPage && page.length !== GITHUB_OPEN_PULL_REQUEST_PAGE_SIZE)
-        || (finalPage && page.length === GITHUB_OPEN_PULL_REQUEST_PAGE_SIZE)) {
-        fail(`${label} page[${pageIndex}] does not prove complete pagination.`);
-      }
-      return page.map((raw, recordIndex) => githubOpenPullRequestCensusRecord(
-        raw,
-        `${label} page[${pageIndex}][${recordIndex}]`
-      ));
-    });
-    const records = pages.flat();
-    const ids = new Set<number>();
-    const numbers = new Set<number>();
-    for (const record of records) {
-      if (ids.has(record.id) || numbers.has(record.number)) {
-        fail(`${label} contains a duplicate global PR id or number.`);
-      }
-      ids.add(record.id);
-      numbers.add(record.number);
-    }
-    return records;
-  };
-  const canonical = (records: readonly GitHubOpenPullRequestCensusRecord[]) =>
-    [...records].sort((left, right) => left.number - right.number || left.id - right.id
-      || left.headSha.localeCompare(right.headSha))
-      .map(({ number, id, headSha }) => Object.freeze({ number, id, headSha }));
-  const first = parsePass(input.firstPagesSource, 'same-head PR first exhaustive census');
-  const second = parsePass(input.secondPagesSource, 'same-head PR second exhaustive census');
-  if (first.length !== second.length || hash(canonical(first)) !== hash(canonical(second))) {
-    fail('same-head PR census changed between complete exhaustive passes.');
-  }
-  return first.filter((record) => record.headSha === expectedHeadSha).length;
-}
-
-export function parseGitHubPullRequestFileInventory(input: {
-  repository: string;
-  prNumber: number;
-  beforeSource: string;
-  pagesSource: string;
-  afterSource: string;
-}): GitHubPullRequestFileInventory {
-  repoParts(input.repository);
-  if (!Number.isSafeInteger(input.prNumber) || input.prNumber < 1) {
-    fail('changed-path PR identity is invalid.');
-  }
-  const metadata = (source: string, label: string) => {
-    const value = parseJson<Record<string, any>>(source, label);
-    const changedFiles = value.changed_files;
-    if (value.number !== input.prNumber || !Number.isSafeInteger(changedFiles) || changedFiles < 1
-      || (value.state !== 'open' && value.state !== 'closed') || typeof value.draft !== 'boolean'
-      || typeof value.base?.sha !== 'string' || typeof value.head?.sha !== 'string') {
-      fail(`${label} identity/count is invalid.`);
-    }
-    return Object.freeze({ number: value.number as number,
-      state: value.state === 'open' ? 'OPEN' as const : 'CLOSED' as const,
-      draft: value.draft as boolean,
-      baseSha: assertSha(value.base.sha, `${label} base SHA`),
-      headSha: assertSha(value.head.sha, `${label} head SHA`),
-      changedFiles: changedFiles as number,
-      sourceDigest: hash(source) });
-  };
-  const before = metadata(input.beforeSource, 'changed-path PR before readback');
-  const after = metadata(input.afterSource, 'changed-path PR after readback');
-  if (before.state !== after.state || before.draft !== after.draft
-    || before.baseSha !== after.baseSha || before.headSha !== after.headSha
-    || before.changedFiles !== after.changedFiles) {
-    fail('changed-path PR identity/count drifted during pagination.');
-  }
-  if (before.changedFiles > 3000) {
-    fail('changed-path PR exceeds the provider 3000-file completeness boundary.');
-  }
-  const pages = parseJson<unknown>(input.pagesSource, 'changed-path pagination');
-  if (!Array.isArray(pages) || pages.length === 0 || pages.length > 30
-    || !pages.every(Array.isArray)) {
-    fail('changed-path pagination page set is invalid or exceeds the provider boundary.');
-  }
-  const records: unknown[] = [];
-  const pageDigests: SessionDigest[] = [];
-  for (const [pageIndex, page] of pages.entries()) {
-    if (page.length > 100 || (pageIndex < pages.length - 1 && page.length !== 100)
-      || (pageIndex === pages.length - 1 && page.length === 0)) {
-      fail(`changed-path pagination page[${pageIndex}] is incomplete or malformed.`);
-    }
-    pageDigests.push(hash(Object.freeze({ schema: 'sec-github-pr-files-page-v1',
-      page: pageIndex + 1, perPage: 100, records: page })));
-    records.push(...page);
-  }
-  if (records.length !== before.changedFiles) {
-    fail('changed-path paginated record count differs from provider-declared changed_files.');
-  }
-  const paths: string[] = [];
-  const filenames = new Set<string>();
-  for (const [index, raw] of records.entries()) {
-    if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) {
-      fail(`changedPaths[${index}] must be an object.`);
-    }
-    const entry = raw as Record<string, unknown>;
-    const filename = boundedText(entry.filename, `changedPaths[${index}].filename`, 4096);
-    const status = entry.status;
-    if (typeof status !== 'string'
-      || !['added', 'removed', 'modified', 'renamed', 'copied', 'changed', 'unchanged'].includes(status)) {
-      fail(`changedPaths[${index}].status is unknown.`);
-    }
-    if (filenames.has(filename)) fail('changed-path pagination contains a duplicate file record.');
-    filenames.add(filename);
-    paths.push(filename);
-    const hasPreviousFilename = Object.hasOwn(entry, 'previous_filename');
-    const paired = status === 'renamed' || status === 'copied';
-    if (paired) {
-      if (!hasPreviousFilename) fail(`changedPaths[${index}] ${status} record has no previous_filename.`);
-      const previousFilename = boundedText(entry.previous_filename,
-        `changedPaths[${index}].previous_filename`, 4096);
-      if (previousFilename === filename) {
-        fail(`changedPaths[${index}] ${status} record does not change its filename.`);
-      }
-      paths.push(previousFilename);
-    } else if (hasPreviousFilename) {
-      fail(`changedPaths[${index}] non-renamed record unexpectedly has previous_filename.`);
-    }
-  }
-  const canonicalPaths = canonicalChangedPaths([...new Set(paths)]);
-  const withoutDigest = Object.freeze({
-    schema: 'sec-github-pr-files-inventory-v1' as const,
-    repository: input.repository,
-    prNumber: input.prNumber,
-    state: before.state,
-    draft: before.draft,
-    baseSha: before.baseSha,
-    headSha: before.headSha,
-    changedFiles: before.changedFiles,
-    recordCount: records.length,
-    beforeMetadataDigest: before.sourceDigest,
-    afterMetadataDigest: after.sourceDigest,
-    paginationSourceDigest: hash(input.pagesSource),
-    pageDigests: Object.freeze(pageDigests),
-    paths: canonicalPaths
-  });
-  return Object.freeze({ ...withoutDigest, inventoryDigest: hash(withoutDigest) });
-}
-
-function boundedText(value: unknown, label: string, maximum = 4096): string {
-  if (typeof value !== 'string' || value.length === 0 || value.length > maximum
-    || /[\u0000-\u0008\u000b\u000c\u000e-\u001f]/u.test(value)) {
-    fail(`${label} must be bounded text.`);
-  }
-  return value;
 }
 
 function canonicalInstant(value: unknown, label: string): string {
@@ -1001,14 +782,14 @@ function boundedOpaqueActionsArtifactName(value: unknown, label: string): string
   return value;
 }
 
-export function evaluateGitHubRepositoryActionsArtifactInventory(input: Readonly<{
+export async function evaluateGitHubRepositoryActionsArtifactInventory(input: Readonly<{
   repository: string;
   source: unknown;
-  observeArtifact(summary: GitHubRepositoryActionsArtifactSummary): GitHubActionsArtifactObservation;
-}>): Readonly<{
+  observeArtifact(summary: GitHubRepositoryActionsArtifactSummary): GitHubActionsArtifactObservation | Promise<GitHubActionsArtifactObservation>;
+}>): Promise<Readonly<{
   inventory: GitHubRepositoryActionsArtifactInventory;
   artifacts: readonly GitHubActionsArtifactObservation[];
-}> {
+}>> {
   repoParts(input.repository);
   const pages = typeof input.source === 'string'
     ? parseJson<unknown>(input.source, 'repository Actions artifact inventory')
@@ -1089,17 +870,17 @@ export function evaluateGitHubRepositoryActionsArtifactInventory(input: Readonly
     repository: input.repository, totalCount, perPage: 100 as const, paginationComplete: true as const,
     pageDigests: Object.freeze(pageDigests), artifacts: Object.freeze(artifacts), sessionArtifactIds });
   const inventory = Object.freeze({ ...withoutDigest, inventoryDigest: hash(withoutDigest) });
-  const hydrated = inventory.artifacts.filter((entry) => entry.family === 'session' && !entry.expired)
-    .map((entry) => {
-      const observed = input.observeArtifact(entry);
+  const hydrated: GitHubActionsArtifactObservation[] = [];
+  for (const entry of inventory.artifacts.filter(entry => entry.family === 'session' && !entry.expired)) {
+      const observed = await input.observeArtifact(entry);
       if (observed.artifactId !== entry.artifactId || observed.artifactName !== entry.artifactName
         || observed.archiveDigest !== entry.archiveDigest || observed.expired !== entry.expired
         || observed.runId !== entry.expectedRunId
         || observed.runAttempt !== entry.sessionRunAttempt) {
         fail('repository Actions artifact hydration differs from its selected summary identity.');
       }
-      return Object.freeze({ ...observed });
-    });
+      hydrated.push(Object.freeze({ ...observed }));
+  }
   return Object.freeze({ inventory, artifacts: Object.freeze(hydrated) });
 }
 
@@ -1295,8 +1076,8 @@ class VerificationSessionGitHubAdapter {
     this.#transport = transport;
   }
 
-  observeCandidate(repository: string, prNumber: number): GitHubCandidateObservation {
-    const candidate = this.#transport.candidate(repository, prNumber);
+  async observeCandidate(repository: string, prNumber: number): Promise<GitHubCandidateObservation> {
+    const candidate = (await this.#transport.candidate(repository, prNumber));
     try {
       if (candidate.repository !== repository || candidate.number !== prNumber) fail('candidate identity mismatch.');
       assertSha(candidate.baseSha, 'candidate baseSha');
@@ -1334,11 +1115,11 @@ class VerificationSessionGitHubAdapter {
     }
   }
 
-  observePullRequestClosingFacts(
+  async observePullRequestClosingFacts(
     repository: string,
     prNumber: number
-  ): GitHubPullRequestClosingFacts {
-    const facts = this.#transport.pullRequestClosingFacts(repository, prNumber);
+  ): Promise<GitHubPullRequestClosingFacts> {
+    const facts = (await this.#transport.pullRequestClosingFacts(repository, prNumber));
     if (facts.repository !== repository || facts.prNumber !== prNumber
       || !/^sha256:[0-9a-f]{64}$/u.test(facts.responseDigest)
       || !Array.isArray(facts.closingIssues) || facts.closingIssues.length > 256) {
@@ -1355,25 +1136,25 @@ class VerificationSessionGitHubAdapter {
     return Object.freeze({ ...facts, closingIssues: Object.freeze([...facts.closingIssues]) });
   }
 
-  private observeReviewBarrierUnchecked(input: {
+  private async observeReviewBarrierUnchecked(input: {
     repository: string;
     prNumber: number;
     headSha: string;
     excludedPrincipalNodeIds: ReadonlySet<string>;
     observedAt?: string;
-  }): GitHubReviewBarrierObservation {
+  }): Promise<GitHubReviewBarrierObservation> {
     const observedAt = input.observedAt ?? new Date().toISOString();
     canonicalInstant(observedAt, 'Review observedAt');
     assertSha(input.headSha, 'requested Review headSha');
-    const candidateBefore = this.observeCandidate(input.repository, input.prNumber);
+    const candidateBefore = (await this.observeCandidate(input.repository, input.prNumber));
     if (candidateBefore.headSha !== input.headSha) {
       fail('requested Review head differs from the provider PR head.');
     }
-    const reviewPages = collectPages('reviews', (cursor) => this.#transport.reviewPage(input.repository, input.prNumber, cursor));
-    const threadPages = collectPages('review threads', (cursor) => this.#transport.threadPage(input.repository, input.prNumber, cursor));
-    const requestPages = collectPages('review requests', (cursor) => this.#transport.reviewRequestPage(input.repository, input.prNumber, cursor));
-    const issueCommentPages = collectPages('issue comments', (cursor) =>
-      this.#transport.issueCommentPage(input.repository, input.prNumber, cursor));
+    const reviewPages = (await collectPages('reviews', async (cursor) => (await this.#transport.reviewPage(input.repository, input.prNumber, cursor))));
+    const threadPages = (await collectPages('review threads', async (cursor) => (await this.#transport.threadPage(input.repository, input.prNumber, cursor))));
+    const requestPages = (await collectPages('review requests', async (cursor) => (await this.#transport.reviewRequestPage(input.repository, input.prNumber, cursor))));
+    const issueCommentPages = (await collectPages('issue comments', async (cursor) =>
+      (await this.#transport.issueCommentPage(input.repository, input.prNumber, cursor))));
     const pageBundle = (pages: { sourceBundles: readonly unknown[] }) => Object.freeze({
       pages: Object.freeze([...pages.sourceBundles])
     });
@@ -1403,6 +1184,25 @@ class VerificationSessionGitHubAdapter {
     const unresolved = threads.filter((thread) => !thread.isResolved);
     const decisions = reviewDecisionsByPrincipal(reviews, input.headSha);
     const requestChanges = blockingReviewPrincipals(decisions);
+    const exactWakeups: Array<{ comment: GitHubIssueCommentObservation; wakeup: VerificationSessionReviewWakeupComment }> = [];
+    for (const comment of issueComments) {
+      if (!comment.body.includes(VERIFICATION_SESSION_REVIEW_WAKEUP_COMMENT_MARKER)
+          || comment.authorType !== 'User' || comment.performedViaGitHubApp !== null) continue;
+      const permission = (await this.#transport.collaboratorPermission(input.repository, comment.authorLogin));
+      if (permission !== 'admin' && permission !== 'maintain') continue;
+      const wakeup = parseReviewWakeupComment(comment.body);
+      if (wakeup === null
+          || wakeup.repository !== input.repository
+          || wakeup.prNumber !== input.prNumber
+          || wakeup.headSha !== input.headSha
+          || wakeup.headTreeSha !== candidateBefore.headTreeSha
+          || wakeup.publisherNodeId !== comment.authorNodeId) continue;
+      exactWakeups.push(Object.freeze({ comment, wakeup }));
+    }
+    const hasBoundWakeupBefore = (providerObservedAt: string): boolean => exactWakeups.some(({ comment }) => (
+      comment.createdAt <= providerObservedAt
+    ));
+    let unboundTrustedAppActivation = false;
     const resolverRecords: Array<Readonly<{
       comment: GitHubIssueCommentObservation;
       trustedApp: { actorNodeId: string; appId: number; appNodeId: string; appSlug: string };
@@ -1427,7 +1227,7 @@ class VerificationSessionGitHubAdapter {
       const marker = reviewedCommitLocator(comment.body);
       if (marker === null) continue;
       const resolution = assertResolution(
-        this.#transport.resolveCommitOid(input.repository, marker.locator), input.repository, marker.locator
+        (await this.#transport.resolveCommitOid(input.repository, marker.locator)), input.repository, marker.locator
       );
       const recordDigest = hash({
         schema: 'sec-provider-resolved-rest-review-v1',
@@ -1465,7 +1265,7 @@ class VerificationSessionGitHubAdapter {
       ...resolverPageDigests
     ]);
     const threadPageDigests = Object.freeze([...threadPages.pageDigests]);
-    const candidateAfter = this.observeCandidate(input.repository, input.prNumber);
+    const candidateAfter = (await this.observeCandidate(input.repository, input.prNumber));
     const snapshotBase = {
       paginationComplete: true as const,
       reviewedHeadSha: input.headSha,
@@ -1541,6 +1341,10 @@ class VerificationSessionGitHubAdapter {
         && trustedReview.appSlug === trustedApp.appSlug
         && trustedReview.state === 'APPROVED'
         && !input.excludedPrincipalNodeIds.has(trustedReview.authorNodeId)) {
+        if (!hasBoundWakeupBefore(trustedReview.submittedAt)) {
+          unboundTrustedAppActivation = true;
+          continue;
+        }
         return clear(Object.freeze({ kind: 'github-app', actorNodeId: trustedReview.authorNodeId,
           appId: trustedReview.appId, appNodeId: trustedReview.appNodeId,
           appSlug: trustedReview.appSlug, reviewState: 'APPROVED' }), 'github-graphql', {
@@ -1568,6 +1372,10 @@ class VerificationSessionGitHubAdapter {
       const trustedComment = latestRestByApp.get(`${trustedApp.appId}:${trustedApp.actorNodeId}:` +
         `${trustedApp.appNodeId}:${trustedApp.appSlug}`);
       if (trustedComment?.clean === true) {
+        if (!hasBoundWakeupBefore(trustedComment.comment.createdAt)) {
+          unboundTrustedAppActivation = true;
+          continue;
+        }
         return clear(Object.freeze({ kind: 'github-app', actorNodeId: trustedApp.actorNodeId,
           appId: trustedApp.appId, appNodeId: trustedApp.appNodeId, appSlug: trustedApp.appSlug,
           reviewState: 'COMMENTED' }), 'github-rest', {
@@ -1599,6 +1407,19 @@ class VerificationSessionGitHubAdapter {
       }
     }
 
+    for (const trustedApp of SEC_REVIEW_STABILITY_POLICY.trustedApps) {
+      const appReview = decisions.get(trustedApp.actorNodeId);
+      if (appReview !== undefined
+          && appReview.authorType === 'Bot'
+          && appReview.appId === trustedApp.appId
+          && appReview.appNodeId === trustedApp.appNodeId
+          && appReview.appSlug === trustedApp.appSlug
+          && !input.excludedPrincipalNodeIds.has(appReview.authorNodeId)
+          && !hasBoundWakeupBefore(appReview.submittedAt)) {
+        unboundTrustedAppActivation = true;
+      }
+    }
+
     const humans = [...decisions.values()]
       .filter((review) => (
         review.state === 'APPROVED'
@@ -1608,7 +1429,7 @@ class VerificationSessionGitHubAdapter {
       ))
       .sort((left, right) => left.authorNodeId.localeCompare(right.authorNodeId));
     for (const review of humans) {
-      const permission = this.#transport.collaboratorPermission(input.repository, review.authorLogin);
+      const permission = (await this.#transport.collaboratorPermission(input.repository, review.authorLogin));
       if (permission !== 'admin' && permission !== 'maintain') continue;
       return clear(Object.freeze({ kind: 'human', nodeId: review.authorNodeId,
         approvalState: 'APPROVED' }), 'github-graphql', {
@@ -1625,20 +1446,242 @@ class VerificationSessionGitHubAdapter {
     }
     const waitingSnapshotDigest = createReviewSnapshotDigest({ ...snapshotBase,
       unresolvedBlockingThreadCount: 0, requestChangesPrincipalIds: emptyRequestChanges });
+    if (unboundTrustedAppActivation) {
+      return Object.freeze({ status: 'blocked', reason: 'review-provider-unbound-activation',
+        snapshotDigest: waitingSnapshotDigest, observedAt });
+    }
     return Object.freeze({ status: 'waiting', reason: 'exact-head-independent-review-missing',
       snapshotDigest: waitingSnapshotDigest, observedAt });
   }
 
-  observeReviewBarrier(input: {
+  async observeReviewProviderAvailability(input: {
+    repository: string;
+    prNumber?: number;
+    headSha?: string;
+    headTreeSha?: string;
+    observedAt?: string;
+  }): Promise<GitHubReviewProviderAvailabilityObservation> {
+    const observedAt = input.observedAt ?? new Date().toISOString();
+    canonicalInstant(observedAt, 'Review provider observedAt');
+    const observedAtMs = new Date(observedAt).getTime();
+    const targetFields = [input.prNumber, input.headSha, input.headTreeSha];
+    const targetPresent = targetFields.every((value) => value !== undefined);
+    if (targetFields.some((value) => value !== undefined) && !targetPresent) {
+      fail('Review provider availability target identity is partial.');
+    }
+    if (targetPresent && (
+      !Number.isSafeInteger(input.prNumber) || (input.prNumber as number) < 1
+      || !/^[0-9a-f]{40}$/u.test(input.headSha as string)
+      || !/^[0-9a-f]{40}$/u.test(input.headTreeSha as string)
+    )) {
+      fail('Review provider availability target identity is invalid.');
+    }
+    let cursor: string | null = null;
+    let previousCreatedAtMs = Number.POSITIVE_INFINITY;
+    let complete = false;
+    const visitedPages: Array<Readonly<{ cursor: string | null; digest: SessionDigest }>> = [];
+    let latestEvent: Readonly<{
+      kind: 'quota';
+      comment: GitHubIssueCommentObservation;
+      receiptRef: SessionDigest;
+    }> | Readonly<{
+      kind: 'probe-consumed';
+      comment: GitHubIssueCommentObservation;
+      receiptRef: SessionDigest;
+    }> | Readonly<{
+      kind: 'revalidation';
+      comment: GitHubIssueCommentObservation;
+      revalidationDigest: SessionDigest;
+    }> | null = null;
+
+    for (let pageNumber = 0; pageNumber < REVIEW_PROVIDER_COMMENT_MAXIMUM_PAGES; pageNumber += 1) {
+      const pageCursor = cursor;
+      const page = (await this.#transport.repositoryIssueCommentPage(input.repository, pageCursor));
+      if (!/^sha256:[0-9a-f]{64}$/u.test(page.pageDigest)) {
+        fail('Review provider comment page digest is invalid.');
+      }
+      visitedPages.push(Object.freeze({ cursor: pageCursor, digest: page.pageDigest }));
+      const comments = normalizeIssueComments(page.nodes);
+      for (const comment of comments) {
+        const createdAtMs = new Date(comment.createdAt).getTime();
+        if (createdAtMs > previousCreatedAtMs) {
+          return Object.freeze({
+            status: 'unresolved' as const,
+            reason: 'provider-comment-ordering-invalid' as const,
+            censusDigest: hash({ visitedPages, commentId: comment.id }),
+            observedAt
+          });
+        }
+        previousCreatedAtMs = createdAtMs;
+        if (createdAtMs > observedAtMs) continue;
+
+        const performedApp = comment.performedViaGitHubApp;
+        const trustedApp = performedApp === null ? undefined
+          : SEC_REVIEW_STABILITY_POLICY.trustedApps.find((app) => (
+              app.actorNodeId === comment.authorNodeId
+              && performedApp.id === app.appId
+              && performedApp.nodeId === app.appNodeId
+              && performedApp.slug === app.appSlug
+              && comment.authorType === 'Bot'
+            ));
+        if (trustedApp !== undefined) {
+          const diagnostic = classifyProviderDiagnosticTextV1(comment.body);
+          if (diagnostic.reasonCode === 'provider-quota-unavailable') {
+            latestEvent = Object.freeze({
+              kind: 'quota' as const,
+              comment,
+              receiptRef: diagnostic.receiptRef
+            });
+            break;
+          }
+        }
+
+        if (comment.authorType === 'User' && comment.performedViaGitHubApp === null
+            && (comment.body.includes(VERIFICATION_SESSION_REVIEW_WAKEUP_COMMENT_MARKER)
+              || comment.body === RETIRED_REVIEW_WAKEUP_TOMBSTONE)) {
+          const permission = (await this.#transport.collaboratorPermission(
+            input.repository,
+            comment.authorLogin
+          ));
+          if (permission === 'admin' || permission === 'maintain') {
+            if (comment.body.includes(VERIFICATION_SESSION_REVIEW_WAKEUP_COMMENT_MARKER)) {
+              const wakeup = parseReviewWakeupComment(comment.body);
+              if (wakeup === null || wakeup.publisherNodeId !== comment.authorNodeId) {
+                fail(`Review wake-up comment ${comment.id} marker did not bind its publisher.`);
+              }
+            }
+            latestEvent = Object.freeze({
+              kind: 'probe-consumed' as const,
+              comment,
+              receiptRef: hash({
+                schema: 'sec-review-provider-probe-consumed-v1',
+                repository: input.repository,
+                commentId: comment.id,
+                commentCreatedAt: comment.createdAt,
+                commentBodyDigest: hash(comment.body),
+                authorNodeId: comment.authorNodeId
+              })
+            });
+            break;
+          }
+        }
+
+        if (targetPresent
+            && comment.authorType === 'User' && comment.performedViaGitHubApp === null
+            && comment.body.includes(VERIFICATION_SESSION_REVIEW_PROVIDER_REVALIDATION_MARKER)) {
+          const permission = (await this.#transport.collaboratorPermission(
+            input.repository,
+            comment.authorLogin
+          ));
+          if (permission !== 'admin' && permission !== 'maintain') continue;
+          const revalidation = parseReviewProviderRevalidationComment(comment.body);
+          if (revalidation === null) {
+            fail(`Review provider revalidation comment ${comment.id} marker did not parse.`);
+          }
+          if (revalidation.publisherNodeId !== comment.authorNodeId) continue;
+          if (revalidation.repository !== input.repository
+              || revalidation.prNumber !== input.prNumber
+              || revalidation.headSha !== input.headSha
+              || revalidation.headTreeSha !== input.headTreeSha) {
+            continue;
+          }
+          latestEvent = Object.freeze({
+            kind: 'revalidation' as const,
+            comment,
+            revalidationDigest: revalidation.revalidationDigest
+          });
+          break;
+        }
+      }
+
+      const next = assertCursorProgress(cursor, page, 'Review provider repository comments');
+      if (latestEvent !== null || next === null) {
+        complete = true;
+        break;
+      }
+      cursor = next;
+    }
+
+    const censusDigest = hash({
+      schema: 'sec-review-provider-availability-census-v2',
+      target: targetPresent ? {
+        repository: input.repository,
+        prNumber: input.prNumber,
+        headSha: input.headSha,
+        headTreeSha: input.headTreeSha
+      } : null,
+      pages: visitedPages
+    });
+    if (!complete) {
+      return Object.freeze({
+        status: 'unresolved' as const,
+        reason: 'pagination-budget-exhausted' as const,
+        censusDigest,
+        observedAt
+      });
+    }
+    for (const visited of visitedPages) {
+      const readback = (await this.#transport.repositoryIssueCommentPage(
+        input.repository,
+        visited.cursor
+      ));
+      if (readback.pageDigest !== visited.digest) {
+        return Object.freeze({
+          status: 'unresolved' as const,
+          reason: 'provider-comment-page-drift' as const,
+          censusDigest: hash({
+            censusDigest,
+            cursor: visited.cursor,
+            expected: visited.digest,
+            readback: readback.pageDigest
+          }),
+          observedAt
+        });
+      }
+    }
+
+    if (latestEvent === null) {
+      return Object.freeze({
+        status: 'no-current-negative' as const,
+        revalidationCommentId: null,
+        revalidationObservedAt: null,
+        revalidationDigest: null,
+        censusDigest,
+        observedAt
+      });
+    }
+    if (latestEvent.kind === 'revalidation') {
+      return Object.freeze({
+        status: 'no-current-negative' as const,
+        revalidationCommentId: latestEvent.comment.id,
+        revalidationObservedAt: latestEvent.comment.createdAt,
+        revalidationDigest: latestEvent.revalidationDigest,
+        censusDigest,
+        observedAt
+      });
+    }
+    return Object.freeze({
+      status: 'unavailable' as const,
+      reasonCode: latestEvent.kind === 'quota'
+        ? 'provider-quota-unavailable' as const
+        : 'provider-revalidation-consumed' as const,
+      receiptRef: latestEvent.receiptRef,
+      sourceCommentId: latestEvent.comment.id,
+      sourceObservedAt: latestEvent.comment.createdAt,
+      censusDigest,
+      observedAt
+    });
+  }
+  async observeReviewBarrier(input: {
     repository: string;
     prNumber: number;
     headSha: string;
     excludedPrincipalNodeIds: ReadonlySet<string>;
     observedAt?: string;
-  }): GitHubReviewBarrierObservation {
+  }): Promise<GitHubReviewBarrierObservation> {
     const observedAt = input.observedAt ?? new Date().toISOString();
     try {
-      return this.observeReviewBarrierUnchecked({ ...input, observedAt });
+      return (await this.observeReviewBarrierUnchecked({ ...input, observedAt }));
     } catch (error) {
       if (isGitHubProviderSchemaUnsupportedError(error)) return Object.freeze({
         status: PROVIDER_SCHEMA_UNSUPPORTED_STATUS, reasonCode: error.reasonCode,
@@ -1653,14 +1696,14 @@ class VerificationSessionGitHubAdapter {
     }
   }
 
-  observeChecks(repository: string, headSha: string): readonly GitHubCheckObservation[] {
-    return Object.freeze(collectPages('check runs', (cursor) => this.#transport.checkPage(repository, headSha, cursor)).nodes);
+  async observeChecks(repository: string, headSha: string): Promise<readonly GitHubCheckObservation[]> {
+    return Object.freeze((await collectPages('check runs', async (cursor) => (await this.#transport.checkPage(repository, headSha, cursor)))).nodes);
   }
 
-  observeWorkflowRuns(repository: string, headSha: string): readonly GitHubWorkflowRunObservation[] {
+  async observeWorkflowRuns(repository: string, headSha: string): Promise<readonly GitHubWorkflowRunObservation[]> {
     assertSha(headSha, 'workflow run headSha');
-    const runs = collectPages('workflow runs', (cursor) =>
-      this.#transport.workflowRunPage(repository, headSha, cursor)).nodes;
+    const runs = (await collectPages('workflow runs', async (cursor) =>
+      (await this.#transport.workflowRunPage(repository, headSha, cursor)))).nodes;
     const identities = new Set<string>();
     return Object.freeze(runs.map((run, index) => {
       const id = positiveDecimal(run.id, `workflowRuns[${index}].id`);
@@ -1692,28 +1735,28 @@ class VerificationSessionGitHubAdapter {
     }));
   }
 
-  observeWorkflowJobsForAttempt(
+  async observeWorkflowJobsForAttempt(
     repository: string,
     runId: string,
     runAttempt: number
-  ): readonly GitHubWorkflowJobObservation[] {
+  ): Promise<readonly GitHubWorkflowJobObservation[]> {
     if (this.#transport.workflowJobsForAttempt === undefined) {
       fail('workflow attempt job/step observation is unavailable.');
     }
     if (!/^[1-9][0-9]*$/u.test(runId) || !Number.isSafeInteger(runAttempt) || runAttempt < 1) {
       fail('workflow attempt identity is invalid.');
     }
-    return Object.freeze([...this.#transport.workflowJobsForAttempt(repository, runId, runAttempt)]);
+    return Object.freeze([...(await this.#transport.workflowJobsForAttempt(repository, runId, runAttempt))]);
   }
 
-  observeVerificationSessionWorkflowJoin(input: {
+  async observeVerificationSessionWorkflowJoin(input: {
     repository: string;
     prNumber: number;
     sessionRevision: SessionDigest;
     actionPlanDigest: SessionDigest;
     baseSha: string;
     now?: string;
-  }): VerificationSessionWorkflowJoin {
+  }): Promise<VerificationSessionWorkflowJoin> {
     if (!Number.isSafeInteger(input.prNumber) || input.prNumber < 1
       || !/^sha256:[0-9a-f]{64}$/u.test(input.sessionRevision)
       || !/^sha256:[0-9a-f]{64}$/u.test(input.actionPlanDigest)) {
@@ -1723,7 +1766,7 @@ class VerificationSessionGitHubAdapter {
     const expectedTitle = `verify session PR #${input.prNumber} session ${input.sessionRevision}`;
     const sessionPrefix = expectedTitle;
     const matching: GitHubWorkflowRunObservation[] = [];
-    for (const run of this.observeWorkflowRuns(input.repository, input.baseSha)) {
+    for (const run of (await this.observeWorkflowRuns(input.repository, input.baseSha))) {
       if (!run.displayTitle.startsWith(sessionPrefix)) continue;
       // GitHub REST exposes the evaluated `run-name` through both `name` and
       // `display_title`; `name` is presentation metadata, not the workflow
@@ -1760,9 +1803,9 @@ class VerificationSessionGitHubAdapter {
       reason: successful.length > 0 ? 'artifact-publication-window-expired' : 'terminal-run', runIds });
   }
 
-  observeChangedPaths(
+  async observeChangedPaths(
     expected: GitHubPullRequestFileInventoryExpectation
-  ): GitHubPullRequestFileInventory {
+  ): Promise<GitHubPullRequestFileInventory> {
     repoParts(expected.repository);
     if (!Number.isSafeInteger(expected.prNumber) || expected.prNumber < 1
       || expected.state !== 'OPEN' || expected.draft !== false) {
@@ -1773,7 +1816,7 @@ class VerificationSessionGitHubAdapter {
     if (this.#transport.pullRequestFileInventory === undefined) {
       fail('changed-path observation is unavailable.');
     }
-    const observed = this.#transport.pullRequestFileInventory(expected.repository, expected.prNumber);
+    const observed = (await this.#transport.pullRequestFileInventory(expected.repository, expected.prNumber));
     repoParts(observed.repository);
     if (observed.schema !== 'sec-github-pr-files-inventory-v1'
       || !Number.isSafeInteger(observed.prNumber) || observed.prNumber < 1
@@ -1836,33 +1879,33 @@ class VerificationSessionGitHubAdapter {
     return Object.freeze({ ...withoutDigest, inventoryDigest });
   }
 
-  readBlobText(repository: string, ref: string, blobPath: string): string {
+  async readBlobText(repository: string, ref: string, blobPath: string): Promise<string> {
     if (this.#transport.blobText === undefined) fail('blob observation is unavailable.');
-    const source = this.#transport.blobText(repository, ref, blobPath);
+    const source = (await this.#transport.blobText(repository, ref, blobPath));
     if (typeof source !== 'string' || source.length === 0 || Buffer.byteLength(source, 'utf8') > 131_072) {
       fail('blob observation is invalid.');
     }
     return source;
   }
 
-  observeComparison(repository: string, baseSha: string, headSha: string): GitHubComparisonObservation {
+  async observeComparison(repository: string, baseSha: string, headSha: string): Promise<GitHubComparisonObservation> {
     if (this.#transport.comparison === undefined) fail('comparison observation is unavailable.');
-    const comparison = this.#transport.comparison(repository, baseSha, headSha);
+    const comparison = (await this.#transport.comparison(repository, baseSha, headSha));
     if (!['ahead', 'behind', 'diverged', 'identical'].includes(comparison.status)
       || !Number.isSafeInteger(comparison.behindBy) || comparison.behindBy < 0) fail('comparison observation is invalid.');
     return Object.freeze({ ...comparison });
   }
 
-  observeOpenPullRequestCountForHead(repository: string, headSha: string): number {
+  async observeOpenPullRequestCountForHead(repository: string, headSha: string): Promise<number> {
     if (this.#transport.openPullRequestCountForHead === undefined) fail('same-head PR observation is unavailable.');
-    const count = this.#transport.openPullRequestCountForHead(repository, headSha);
+    const count = (await this.#transport.openPullRequestCountForHead(repository, headSha));
     if (!Number.isSafeInteger(count) || count < 0) fail('same-head PR observation is invalid.');
     return count;
   }
 
-  observePrincipal(repository: string, login: string): GitHubPrincipalObservation {
+  async observePrincipal(repository: string, login: string): Promise<GitHubPrincipalObservation> {
     if (this.#transport.principal === undefined) fail('principal observation is unavailable.');
-    const principal = this.#transport.principal(repository, login);
+    const principal = (await this.#transport.principal(repository, login));
     if (principal.login !== login || typeof principal.nodeId !== 'string' || principal.nodeId.length === 0
       || !['admin', 'maintain', 'write', 'triage', 'read', 'none'].includes(principal.permission)) {
       fail('principal observation is invalid.');
@@ -1870,26 +1913,26 @@ class VerificationSessionGitHubAdapter {
     return Object.freeze({ ...principal });
   }
 
-  observePrincipalByNodeId(repository: string, nodeId: string): GitHubPrincipalObservation {
+  async observePrincipalByNodeId(repository: string, nodeId: string): Promise<GitHubPrincipalObservation> {
     if (this.#transport.principalByNodeId === undefined) fail('principal node observation is unavailable.');
-    const principal = this.#transport.principalByNodeId(repository, nodeId);
+    const principal = (await this.#transport.principalByNodeId(repository, nodeId));
     if (principal.nodeId !== nodeId || typeof principal.login !== 'string' || principal.login.length === 0) {
       fail('principal node observation is invalid.');
     }
     return Object.freeze({ ...principal });
   }
 
-  observeViewerPrincipal(repository: string): GitHubPrincipalObservation {
+  async observeViewerPrincipal(repository: string): Promise<GitHubPrincipalObservation> {
     if (this.#transport.viewerPrincipal === undefined) fail('viewer principal observation is unavailable.');
-    const principal = this.#transport.viewerPrincipal(repository);
+    const principal = (await this.#transport.viewerPrincipal(repository));
     if (typeof principal.nodeId !== 'string' || principal.nodeId.length === 0
       || typeof principal.login !== 'string' || principal.login.length === 0) fail('viewer principal observation is invalid.');
     return Object.freeze({ ...principal });
   }
 
-  observeActionsArtifact(repository: string, artifactId: string): GitHubActionsArtifactObservation {
+  async observeActionsArtifact(repository: string, artifactId: string): Promise<GitHubActionsArtifactObservation> {
     if (this.#transport.actionsArtifact === undefined) fail('Actions artifact observation is unavailable.');
-    const artifact = this.#transport.actionsArtifact(repository, artifactId);
+    const artifact = (await this.#transport.actionsArtifact(repository, artifactId));
     if (artifact.artifactId !== artifactId || artifact.artifactName.length === 0
       || !/^[0-9a-f]{40}$/u.test(artifact.workflowSha) || artifact.runId.length === 0
       || !Number.isSafeInteger(artifact.runAttempt) || artifact.runAttempt < 1 || artifact.actorNodeId.length === 0
@@ -1899,9 +1942,9 @@ class VerificationSessionGitHubAdapter {
     return Object.freeze({ ...artifact });
   }
 
-  observeActionsArtifactsForRun(repository: string, runId: string): readonly GitHubActionsArtifactObservation[] {
+  async observeActionsArtifactsForRun(repository: string, runId: string): Promise<readonly GitHubActionsArtifactObservation[]> {
     if (this.#transport.actionsArtifactsForRun === undefined) fail('Actions run artifact observation is unavailable.');
-    const artifacts = this.#transport.actionsArtifactsForRun(repository, runId).filter((entry) => !entry.expired);
+    const artifacts = (await (await this.#transport.actionsArtifactsForRun(repository, runId)).filter((entry) => !entry.expired));
     for (const artifact of artifacts) {
       if (artifact.artifactName.length === 0 || !/^[0-9a-f]{40}$/u.test(artifact.workflowSha)
         || artifact.runId !== runId || !Number.isSafeInteger(artifact.runAttempt)
@@ -1912,9 +1955,9 @@ class VerificationSessionGitHubAdapter {
     return Object.freeze([...artifacts]);
   }
 
-  observeActionsArtifacts(repository: string): readonly GitHubActionsArtifactObservation[] {
+  async observeActionsArtifacts(repository: string): Promise<readonly GitHubActionsArtifactObservation[]> {
     if (this.#transport.actionsArtifacts === undefined) fail('repository Actions artifact observation is unavailable.');
-    const artifacts = this.#transport.actionsArtifacts(repository).filter((entry) => !entry.expired);
+    const artifacts = (await (await this.#transport.actionsArtifacts(repository)).filter((entry) => !entry.expired));
     for (const artifact of artifacts) {
       if (artifact.artifactName.length === 0 || !/^[0-9a-f]{40}$/u.test(artifact.workflowSha)
         || artifact.runId.length === 0 || !Number.isSafeInteger(artifact.runAttempt)
@@ -1925,17 +1968,40 @@ class VerificationSessionGitHubAdapter {
     return Object.freeze([...artifacts]);
   }
 
-  downloadArtifactText(repository: string, artifact: GitHubActionsArtifactObservation, fileName: string): string {
+  async downloadArtifactText(repository: string, artifact: GitHubActionsArtifactObservation, fileName: string): Promise<string> {
     if (this.#transport.downloadArtifactText === undefined) fail('Actions artifact download is unavailable.');
-    const source = this.#transport.downloadArtifactText(repository, artifact, fileName);
+    const source = (await this.#transport.downloadArtifactText(repository, artifact, fileName));
     if (source.length === 0 || Buffer.byteLength(source, 'utf8') > 10 * 1024 * 1024) fail('Actions artifact file is empty or oversized.');
     return source;
   }
 
-  observePlatformEnforcement(repository: string): PlatformEnforcementObservation {
+  async observePlatformEnforcement(repository: string): Promise<PlatformEnforcementObservation> {
     try {
-      const rulesets = this.#transport.repositoryRulesets(repository);
-      return Object.freeze({ status: 'available', rulesetDigest: hash(rulesets), reason: null });
+      const source = await this.#transport.repositoryRulesets(repository);
+      if (source === null || typeof source !== 'object' || Array.isArray(source)) {
+        fail('platform enforcement readback must be one canonical ruleset bundle.');
+      }
+      const bundle = source as Record<string, unknown>;
+      const keys = Object.keys(bundle).sort();
+      if (keys.length !== 3
+          || keys[0] !== 'defaultBranch'
+          || keys[1] !== 'detailedRulesets'
+          || keys[2] !== 'effectiveRules'
+          || typeof bundle.defaultBranch !== 'string') {
+        fail('platform enforcement readback fields are invalid.');
+      }
+      const receipt = createMainAuthorityRulesetReceipt({
+        repository,
+        defaultBranch: bundle.defaultBranch,
+        effectiveRules: bundle.effectiveRules,
+        detailedRulesets: bundle.detailedRulesets,
+        expectedIntegrationId: CI_GITHUB_ACTIONS_IDENTITY_POLICY.app.id
+      });
+      return Object.freeze({
+        status: 'available',
+        rulesetDigest: receipt.rulesetDigest,
+        reason: null
+      });
     } catch (error) {
       const statusCode = error && typeof error === 'object' && 'statusCode' in error
         ? Number((error as { statusCode?: number }).statusCode)
@@ -1945,14 +2011,21 @@ class VerificationSessionGitHubAdapter {
         return Object.freeze({
           status: 'platform-enforcement-unavailable',
           rulesetDigest: hash({ status: 'platform-enforcement-unavailable', statusCode: 403 }),
-          reason: 'GitHub ruleset/branch-protection readback unavailable for this repository plan'
+          reason: 'GitHub canonical main-authority ruleset readback is unavailable'
         });
       }
-      return Object.freeze({ status: 'unknown', rulesetDigest: hash({ status: 'unknown', message }), reason: message });
+      return Object.freeze({
+        status: 'unknown',
+        rulesetDigest: hash({
+          status: 'unknown',
+          reasonCode: 'main-authority-ruleset-not-proven'
+        }),
+        reason: `Canonical MainAuthority ruleset proof failed: ${message}`
+      });
     }
   }
 
-  observeHostedReviewLocator(input: {
+  async observeHostedReviewLocator(input: {
     repository: string;
     prNumber: number;
     sessionRevision: SessionDigest;
@@ -1962,16 +2035,16 @@ class VerificationSessionGitHubAdapter {
     sourceRunId: string;
     sourceRunAttempt: number;
     workflowRef: string;
-  }): Readonly<{
+  }): Promise<Readonly<{
     status: 'absent' | 'reused';
     commentId: string | null;
     publicationDigest: SessionDigest;
     body: string;
-  }> {
+  }>> {
     const expected = createReviewLocatorComment(input);
-    const inventory = () => normalizeIssueComments(collectPages('hosted Review locator comments', (cursor) => (
-      this.#transport.issueCommentPage(input.repository, input.prNumber, cursor)
-    )).nodes);
+    const inventory = async () => normalizeIssueComments((await collectPages('hosted Review locator comments', async (cursor) => (
+      (await this.#transport.issueCommentPage(input.repository, input.prNumber, cursor))
+    ))).nodes);
     const classify = (comments: readonly GitHubIssueCommentObservation[]) => {
       const matching: Array<{ comment: GitHubIssueCommentObservation;
         publication: VerificationSessionReviewLocatorComment }> = [];
@@ -1990,7 +2063,7 @@ class VerificationSessionGitHubAdapter {
       }
       return matching[0] ?? null;
     };
-    const existing = classify(inventory());
+    const existing = classify(await inventory());
     const body = renderReviewLocatorComment(expected);
     return existing === null
       ? Object.freeze({ status: 'absent' as const, commentId: null,
@@ -1999,7 +2072,7 @@ class VerificationSessionGitHubAdapter {
           publicationDigest: existing.publication.publicationDigest, body });
   }
 
-  observeMaintainerReviewWakeup(input: {
+  async observeMaintainerReviewWakeup(input: {
     repository: string;
     prNumber: number;
     sessionRevision: SessionDigest;
@@ -2009,28 +2082,28 @@ class VerificationSessionGitHubAdapter {
     headTreeSha: string;
     publisherLogin: string;
     publisherNodeId: string;
-  }): Readonly<{
+  }): Promise<Readonly<{
     status: 'absent' | 'reused';
     commentId: string | null;
     wakeupDigest: SessionDigest;
     body: string;
-  }> {
+  }>> {
     const publisherLogin = boundedText(input.publisherLogin, 'Review wake-up publisherLogin', 256);
     const publisherNodeId = boundedText(input.publisherNodeId, 'Review wake-up publisherNodeId', 256);
-    const currentPermission = this.#transport.collaboratorPermission(input.repository, publisherLogin);
+    const currentPermission = (await this.#transport.collaboratorPermission(input.repository, publisherLogin));
     if (currentPermission !== 'admin' && currentPermission !== 'maintain') {
       fail('Review wake-up publisher lacks current maintain/admin permission.');
     }
     const expected = createReviewWakeupComment({ ...input, publisherLogin, publisherNodeId });
-    const comments = normalizeIssueComments(collectPages('maintainer Review wake-up comments', (cursor) => (
-      this.#transport.issueCommentPage(input.repository, input.prNumber, cursor)
-    )).nodes);
+    const comments = normalizeIssueComments((await collectPages('maintainer Review wake-up comments', async (cursor) => (
+      (await this.#transport.issueCommentPage(input.repository, input.prNumber, cursor))
+    ))).nodes);
     const matching: Array<{ comment: GitHubIssueCommentObservation;
       wakeup: VerificationSessionReviewWakeupComment }> = [];
     for (const comment of comments) {
       if (!comment.body.includes(VERIFICATION_SESSION_REVIEW_WAKEUP_COMMENT_MARKER)) continue;
       if (comment.authorType !== 'User' || comment.performedViaGitHubApp !== null) continue;
-      const permission = this.#transport.collaboratorPermission(input.repository, comment.authorLogin);
+      const permission = (await this.#transport.collaboratorPermission(input.repository, comment.authorLogin));
       if (permission !== 'admin' && permission !== 'maintain') continue;
       const wakeup = parseReviewWakeupComment(comment.body);
       if (wakeup === null) fail(`Review wake-up comment ${comment.id} marker did not parse.`);
@@ -2059,88 +2132,132 @@ class VerificationSessionGitHubAdapter {
           wakeupDigest: existing.wakeup.wakeupDigest, body });
   }
 
-  ensureVerificationSessionWakeup(repository: string, request: VerificationSessionHostedRequest): void {
-    this.#transport.dispatchVerificationSession(repository, request);
+  async ensureVerificationSessionWakeup(repository: string, request: VerificationSessionHostedRequest): Promise<void> {
+    (await this.#transport.dispatchVerificationSession(repository, request));
   }
 
 }
 
+const VERIFICATION_CLIENT_METHODS = [
+  'observeCandidate',
+  'observePullRequestClosingFacts',
+  'observeReviewBarrier',
+  'observeChecks',
+  'observeWorkflowRuns',
+  'observeWorkflowJobsForAttempt',
+  'observeVerificationSessionWorkflowJoin',
+  'observeChangedPaths',
+  'readBlobText',
+  'observeComparison',
+  'observeOpenPullRequestCountForHead',
+  'observePrincipal',
+  'observePrincipalByNodeId',
+  'observeViewerPrincipal',
+  'observeActionsArtifact',
+  'observeActionsArtifactsForRun',
+  'observeActionsArtifacts',
+  'downloadArtifactText',
+  'observePlatformEnforcement',
+  'observeReviewProviderAvailability',
+  'observeHostedReviewLocator',
+  'observeMaintainerReviewWakeup',
+  'ensureVerificationSessionWakeup',
+] as const;
 export type VerificationSessionGitHubClient = Readonly<Pick<
-  VerificationSessionGitHubAdapter,
-  | 'observeCandidate'
-  | 'observePullRequestClosingFacts'
-  | 'observeReviewBarrier'
-  | 'observeChecks'
-  | 'observeWorkflowRuns'
-  | 'observeWorkflowJobsForAttempt'
-  | 'observeVerificationSessionWorkflowJoin'
-  | 'observeChangedPaths'
-  | 'readBlobText'
-  | 'observeComparison'
-  | 'observeOpenPullRequestCountForHead'
-  | 'observePrincipal'
-  | 'observePrincipalByNodeId'
-  | 'observeViewerPrincipal'
-  | 'observeActionsArtifact'
-  | 'observeActionsArtifactsForRun'
-  | 'observeActionsArtifacts'
-  | 'downloadArtifactText'
-  | 'observePlatformEnforcement'
-  | 'observeHostedReviewLocator'
-  | 'observeMaintainerReviewWakeup'
-  | 'ensureVerificationSessionWakeup'
+  VerificationSessionGitHubAdapter, (typeof VERIFICATION_CLIENT_METHODS)[number]
 >>;
 
+export type VerificationSessionGitHubOptions = Readonly<{
+  deadlineAtUnixMs?: number;
+  signal?: AbortSignal;
+}>;
+
 export function createVerificationSessionGitHubClient(
-  repositoryRoot = process.cwd()
+  repositoryRoot: string,
+  repository: string,
+  options: VerificationSessionGitHubOptions = {}
 ): VerificationSessionGitHubClient {
+  const processOptions = Object.freeze({...options});
   const adapter = new VerificationSessionGitHubAdapter(
-    new GhVerificationSessionTransport(repositoryRoot)
+    new HttpVerificationSessionTransport(repository)
   );
   authorityBearingGitHubAdapters.add(adapter);
-  return Object.freeze(adapter);
+  const client: Record<string, unknown> = {};
+  for (const method of VERIFICATION_CLIENT_METHODS) {
+    const selectedStore = currentGitHubCredentialStoreIdentity();
+    client[method] = async (...args: unknown[]) => {
+      const capturedArgs = structuredClone(args);
+      const selectedRepository = typeof capturedArgs[0] === 'string' ? capturedArgs[0] : (capturedArgs[0] as {repository?: unknown})?.repository;
+      if (selectedRepository !== repository) fail('GitHub transport repository binding changed.');
+      if (currentGitHubCredentialStoreIdentity() !== selectedStore) fail('GitHub transport credential binding changed.');
+      return await withGitHubApiVerificationSession({
+      repositoryRoot, repository,
+      effect: method === 'ensureVerificationSessionWakeup' ? 'verification-dispatch' : 'verification-read',
+      ...(processOptions.deadlineAtUnixMs === undefined ? {} : { deadlineAtUnixMs: processOptions.deadlineAtUnixMs }),
+      ...(processOptions.signal === undefined ? {} : {signal:processOptions.signal}),
+      operation: async () => await Reflect.apply(adapter[method], adapter, capturedArgs)
+    }); };
+  }
+  return Object.freeze(client) as VerificationSessionGitHubClient;
 }
 
 /** Immutable, observation-only transaction seam for deterministic Review evaluation. */
 export interface VerificationSessionReviewObservationTransaction {
-  candidate(repository: string, prNumber: number): GitHubCandidateObservation;
-  reviewPage(repository: string, prNumber: number, after: string | null): GitHubPage<GitHubReviewObservation>;
-  threadPage(repository: string, prNumber: number, after: string | null): GitHubPage<GitHubReviewThreadObservation>;
-  reviewRequestPage(repository: string, prNumber: number, after: string | null): GitHubPage<GitHubReviewRequestObservation>;
-  appCommentPage(repository: string, prNumber: number, after: string | null): GitHubPage<GitHubAppReviewCommentObservation>;
-  issueCommentPage(repository: string, prNumber: number, after: string | null): GitHubPage<GitHubIssueCommentObservation>;
-  resolveCommitOid(repository: string, locator: string): GitHubCommitResolutionObservation;
-  collaboratorPermission(repository: string, login: string): 'admin' | 'maintain' | 'write' | 'triage' | 'read' | 'none';
+  candidate(repository: string, prNumber: number): GitHubCandidateObservation | Promise<GitHubCandidateObservation>;
+  reviewPage(repository: string, prNumber: number, after: string | null): GitHubPage<GitHubReviewObservation> | Promise<GitHubPage<GitHubReviewObservation>>;
+  threadPage(repository: string, prNumber: number, after: string | null): GitHubPage<GitHubReviewThreadObservation> | Promise<GitHubPage<GitHubReviewThreadObservation>>;
+  reviewRequestPage(repository: string, prNumber: number, after: string | null): GitHubPage<GitHubReviewRequestObservation> | Promise<GitHubPage<GitHubReviewRequestObservation>>;
+  appCommentPage(repository: string, prNumber: number, after: string | null): GitHubPage<GitHubAppReviewCommentObservation> | Promise<GitHubPage<GitHubAppReviewCommentObservation>>;
+  issueCommentPage(repository: string, prNumber: number, after: string | null): GitHubPage<GitHubIssueCommentObservation> | Promise<GitHubPage<GitHubIssueCommentObservation>>;
+  repositoryIssueCommentPage(repository: string, after: string | null): GitHubPage<GitHubIssueCommentObservation> | Promise<GitHubPage<GitHubIssueCommentObservation>>;
+  resolveCommitOid(repository: string, locator: string): GitHubCommitResolutionObservation | Promise<GitHubCommitResolutionObservation>;
+  collaboratorPermission(repository: string, login: string): 'admin' | 'maintain' | 'write' | 'triage' | 'read' | 'none' | Promise<'admin' | 'maintain' | 'write' | 'triage' | 'read' | 'none'>;
 }
 
-export function evaluateVerificationSessionReviewObservation(
+export async function evaluateReviewProviderAvailabilityObservation(
+  transaction: Pick<VerificationSessionReviewObservationTransaction, 'repositoryIssueCommentPage'>
+    & Partial<Pick<VerificationSessionReviewObservationTransaction, 'collaboratorPermission'>>,
+  input: Parameters<VerificationSessionGitHubAdapter['observeReviewProviderAvailability']>[0]
+): Promise<Awaited<ReturnType<VerificationSessionGitHubAdapter['observeReviewProviderAvailability']>>> {
+  const transport = Object.freeze({
+    repositoryIssueCommentPage: (repository: string, after: string | null) =>
+      transaction.repositoryIssueCommentPage(repository, after),
+    collaboratorPermission: (repository: string, login: string) =>
+      transaction.collaboratorPermission?.(repository, login) ?? 'none'
+  });
+  return await new VerificationSessionGitHubAdapter(
+    transport as unknown as VerificationSessionGitHubTransport
+  ).observeReviewProviderAvailability(input);
+}
+
+export async function evaluateVerificationSessionReviewObservation(
   transaction: VerificationSessionReviewObservationTransaction,
   input: Parameters<VerificationSessionGitHubAdapter['observeReviewBarrier']>[0]
-): GitHubReviewBarrierObservation {
-  return new VerificationSessionGitHubAdapter(
+): Promise<GitHubReviewBarrierObservation> {
+  return (await new VerificationSessionGitHubAdapter(
     transaction as unknown as VerificationSessionGitHubTransport
-  ).observeReviewBarrier(input);
+  ).observeReviewBarrier(input));
 }
 
-/** Pure observation seam for exact hosted Review locator producer/consumer round trips. */
-export function evaluateHostedReviewLocatorObservation(
+/** Effectful observation seam for exact hosted Review locator producer/consumer round trips. */
+export async function evaluateHostedReviewLocatorObservation(
   transaction: Pick<VerificationSessionReviewObservationTransaction, 'issueCommentPage'>,
   input: Parameters<VerificationSessionGitHubAdapter['observeHostedReviewLocator']>[0]
-): ReturnType<VerificationSessionGitHubAdapter['observeHostedReviewLocator']> {
-  return new VerificationSessionGitHubAdapter(
+): Promise<Awaited<ReturnType<VerificationSessionGitHubAdapter['observeHostedReviewLocator']>>> {
+  return (await new VerificationSessionGitHubAdapter(
     transaction as unknown as VerificationSessionGitHubTransport
-  ).observeHostedReviewLocator(input);
+  ).observeHostedReviewLocator(input));
 }
 
-/** Pure observation seam for the maintainer-authored Review activation signal. */
-export function evaluateMaintainerReviewWakeupObservation(
+/** Effectful observation seam for the maintainer-authored Review activation signal. */
+export async function evaluateMaintainerReviewWakeupObservation(
   transaction: Pick<VerificationSessionReviewObservationTransaction,
     'issueCommentPage' | 'collaboratorPermission'>,
   input: Parameters<VerificationSessionGitHubAdapter['observeMaintainerReviewWakeup']>[0]
-): ReturnType<VerificationSessionGitHubAdapter['observeMaintainerReviewWakeup']> {
-  return new VerificationSessionGitHubAdapter(
+): Promise<Awaited<ReturnType<VerificationSessionGitHubAdapter['observeMaintainerReviewWakeup']>>> {
+  return (await new VerificationSessionGitHubAdapter(
     transaction as unknown as VerificationSessionGitHubTransport
-  ).observeMaintainerReviewWakeup(input);
+  ).observeMaintainerReviewWakeup(input));
 }
 
 export interface VerificationSessionWorkflowObservationTransaction {
@@ -2148,28 +2265,28 @@ export interface VerificationSessionWorkflowObservationTransaction {
     repository: string,
     headSha: string,
     after: string | null
-  ): GitHubPage<GitHubWorkflowRunObservation>;
+  ): GitHubPage<GitHubWorkflowRunObservation> | Promise<GitHubPage<GitHubWorkflowRunObservation>>;
 }
 
-export function evaluateVerificationSessionWorkflowJoin(
+export async function evaluateVerificationSessionWorkflowJoin(
   transaction: VerificationSessionWorkflowObservationTransaction,
   input: Parameters<VerificationSessionGitHubAdapter['observeVerificationSessionWorkflowJoin']>[0]
-): VerificationSessionWorkflowJoin {
-  return new VerificationSessionGitHubAdapter(
+): Promise<VerificationSessionWorkflowJoin> {
+  return (await new VerificationSessionGitHubAdapter(
     transaction as unknown as VerificationSessionGitHubTransport
-  ).observeVerificationSessionWorkflowJoin(input);
+  ).observeVerificationSessionWorkflowJoin(input));
 }
 
-export function evaluatePlatformEnforcementObservation(input: {
+export async function evaluatePlatformEnforcementObservation(input: {
   repository: string;
   readRulesets(): unknown;
-}): PlatformEnforcementObservation {
-  return new VerificationSessionGitHubAdapter({
+}): Promise<PlatformEnforcementObservation> {
+  return (await new VerificationSessionGitHubAdapter({
     repositoryRulesets: () => input.readRulesets()
-  } as unknown as VerificationSessionGitHubTransport).observePlatformEnforcement(input.repository);
+  } as unknown as VerificationSessionGitHubTransport).observePlatformEnforcement(input.repository));
 }
 
-export function evaluateVerificationSessionChangedPaths(
+export async function evaluateVerificationSessionChangedPaths(
   transaction: Readonly<{
     pullRequestFileInventory(
       repository: string,
@@ -2177,458 +2294,108 @@ export function evaluateVerificationSessionChangedPaths(
     ): GitHubPullRequestFileInventory;
   }>,
   expected: GitHubPullRequestFileInventoryExpectation
-): GitHubPullRequestFileInventory {
-  return new VerificationSessionGitHubAdapter(
+): Promise<GitHubPullRequestFileInventory> {
+  return (await new VerificationSessionGitHubAdapter(
     transaction as unknown as VerificationSessionGitHubTransport
-  ).observeChangedPaths(expected);
-}
-
-/**
- * Pure parser for one provider-paginated workflow-attempt job inventory. The
- * production transport owns command execution; tests can validate provider
- * shape and fail-closed pagination without receiving a command runner port.
- */
-export function parseGitHubWorkflowJobsForAttempt(input: {
-  source: unknown;
-  runId: string;
-  runAttempt: number;
-}): readonly GitHubWorkflowJobObservation[] {
-  const { source: pages, runId, runAttempt } = input;
-  if (!/^[1-9][0-9]*$/u.test(runId) || !Number.isSafeInteger(runAttempt) || runAttempt < 1
-    || runAttempt > 1000) {
-    fail('workflow attempt identity is invalid.');
-  }
-  if (!Array.isArray(pages) || !pages.every((page) => page !== null && typeof page === 'object'
-    && !Array.isArray(page) && Array.isArray((page as any).jobs))) {
-    fail('workflow attempt job pagination must be a complete page-object array.');
-  }
-  const jobs = (pages as Array<Record<string, any>>).flatMap((page) => page.jobs).map((job: any) => {
-    if (!Number.isSafeInteger(job.id) || !Number.isSafeInteger(job.run_id)
-      || job.run_attempt !== runAttempt || typeof job.name !== 'string'
-      || !['queued', 'in_progress', 'completed'].includes(job.status)
-      || (job.conclusion !== null && typeof job.conclusion !== 'string')
-      || typeof job.head_sha !== 'string' || !Array.isArray(job.steps)) {
-      fail('workflow attempt job record is malformed.');
-    }
-    const steps = job.steps.map((step: any) => {
-      if (typeof step.name !== 'string' || !Number.isSafeInteger(step.number) || step.number < 1
-        || !['queued', 'in_progress', 'completed'].includes(step.status)
-        || (step.conclusion !== null && typeof step.conclusion !== 'string')
-        || (step.started_at !== null && typeof step.started_at !== 'string')
-        || (step.completed_at !== null && typeof step.completed_at !== 'string')) {
-        fail('workflow attempt step record is malformed.');
-      }
-      return Object.freeze({ name: step.name, number: step.number, status: step.status,
-        conclusion: step.conclusion, startedAt: step.started_at, completedAt: step.completed_at
-      }) as GitHubWorkflowJobStepObservation;
-    });
-    const numbers = new Set<number>();
-    for (const step of steps) {
-      if (numbers.has(step.number)) fail('workflow attempt job contains duplicate step numbers.');
-      numbers.add(step.number);
-    }
-    return Object.freeze({ id: String(job.id), runId: String(job.run_id), runAttempt,
-      name: job.name, status: job.status, conclusion: job.conclusion, headSha: job.head_sha,
-      startedAt: job.started_at ?? null, completedAt: job.completed_at ?? null,
-      steps: Object.freeze(steps) }) as GitHubWorkflowJobObservation;
-  });
-  const ids = new Set<string>();
-  for (const job of jobs) {
-    if (job.runId !== runId || ids.has(job.id)) {
-      fail('workflow attempt job inventory has a run identity mismatch or duplicate job id.');
-    }
-    ids.add(job.id);
-  }
-  return Object.freeze(jobs);
-}
-
-function parseJson<T>(source: string, label: string): T {
-  try { return JSON.parse(source) as T; } catch (error) {
-    throw new GitHubProviderResponseShapeError(`${label} returned invalid JSON.`, 'github-provider-invalid-json', source);
-  }
-}
-
-type GitHubProviderPageInfo = Readonly<{
-  hasNextPage: boolean;
-  endCursor: string | null;
-}>;
-
-function providerPageInfo(value: unknown, label: string): GitHubProviderPageInfo {
-  if (value === null || typeof value !== 'object' || Array.isArray(value)
-    || typeof (value as any).hasNextPage !== 'boolean'
-    || ((value as any).endCursor !== null && typeof (value as any).endCursor !== 'string')) {
-    fail(`${label} pageInfo is invalid.`);
-  }
-  const pageInfo = value as GitHubProviderPageInfo;
-  if (pageInfo.hasNextPage && (pageInfo.endCursor === null || pageInfo.endCursor.length === 0)) {
-    fail(`${label} pagination did not expose a next cursor.`);
-  }
-  return pageInfo;
-}
-
-export function parseGitHubReviewPages(input: {
-  source: unknown;
-  resolveApp(appSlug: string): unknown;
-}): Readonly<{ nodes: readonly GitHubReviewObservation[]; pageDigest: SessionDigest }> {
-  if (!Array.isArray(input.source) || input.source.length === 0) {
-    fail('review pagination must be a non-empty page array.');
-  }
-  const pages = input.source as any[];
-  const rawNodes: any[] = [];
-  for (const [pageIndex, page] of pages.entries()) {
-    const connection = page?.data?.repository?.pullRequest?.reviews;
-    if (connection === null || typeof connection !== 'object' || Array.isArray(connection)
-      || !Array.isArray(connection.nodes)) {
-      fail(`review pagination page[${pageIndex}] is invalid.`);
-    }
-    const pageInfo = providerPageInfo(connection.pageInfo, `review pagination page[${pageIndex}]`);
-    if (pageInfo.hasNextPage !== (pageIndex < pages.length - 1)) {
-      fail('review pagination is incomplete or contains pages beyond its terminal page.');
-    }
-    rawNodes.push(...connection.nodes);
-  }
-
-  const appResolutions = new Map<string, Readonly<{ app: {
-    id: number; nodeId: string; slug: string
-  }; rawResponse: unknown; responseDigest: SessionDigest }>>();
-  const nodes = rawNodes.map((node, index) => {
-    const author = node?.author;
-    if (node === null || typeof node !== 'object' || Array.isArray(node)
-      || author === null || typeof author !== 'object' || Array.isArray(author)
-      || (author.__typename !== 'Bot' && author.__typename !== 'User')
-      || typeof author.id !== 'string' || typeof author.login !== 'string'
-      || typeof author.resourcePath !== 'string') {
-      fail(`reviews[${index}] GraphQL actor identity is invalid.`);
-    }
-    const actorApps = author.__typename === 'Bot'
-      ? SEC_REVIEW_STABILITY_POLICY.trustedApps.filter((app) => app.actorNodeId === author.id)
-      : [];
-    let trustedApp: { id: number; nodeId: string; slug: string } | null = null;
-    if (actorApps.length > 0) {
-      const pathMatches = actorApps.filter((app) => author.resourcePath === `/apps/${app.appSlug}`);
-      if (pathMatches.length !== 1) {
-        fail(`reviews[${index}] trusted GraphQL App actor path is ambiguous or drifted.`);
-      }
-      const policyApp = pathMatches[0]!;
-      const resolutionKey = [policyApp.actorNodeId, policyApp.appId, policyApp.appNodeId,
-        policyApp.appSlug].join('\0');
-      let resolution = appResolutions.get(resolutionKey);
-      if (resolution === undefined) {
-        const rawResponse = input.resolveApp(policyApp.appSlug);
-        if (rawResponse === null || typeof rawResponse !== 'object' || Array.isArray(rawResponse)) {
-          fail(`reviews[${index}] trusted GraphQL App resolver response is invalid.`);
-        }
-        const record = rawResponse as Record<string, unknown>;
-        if (record.id !== policyApp.appId || record.node_id !== policyApp.appNodeId
-          || record.slug !== policyApp.appSlug) {
-          fail(`reviews[${index}] trusted GraphQL App resolver identity drifted from policy.`);
-        }
-        resolution = Object.freeze({
-          app: Object.freeze({ id: policyApp.appId, nodeId: policyApp.appNodeId,
-            slug: policyApp.appSlug }),
-          rawResponse,
-          responseDigest: hash(rawResponse)
-        });
-        appResolutions.set(resolutionKey, resolution);
-      }
-      trustedApp = resolution.app;
-    }
-    return Object.freeze({
-      id: node.id,
-      authorNodeId: author.id,
-      authorLogin: author.login,
-      authorType: author.__typename,
-      appId: trustedApp?.id ?? null,
-      appNodeId: trustedApp?.nodeId ?? null,
-      appSlug: trustedApp?.slug ?? null,
-      commitSha: node.commit?.oid,
-      state: node.state,
-      submittedAt: node.submittedAt
-    }) as GitHubReviewObservation;
-  });
-  return Object.freeze({
-    nodes: Object.freeze(nodes),
-    pageDigest: hash(Object.freeze({
-      schema: 'sec-github-review-provider-pages-v1',
-      pages,
-      appResolutions: Object.freeze([...appResolutions.values()])
-    }))
-  });
-}
-
-function providerCommentAuthors(value: unknown, label: string): string[] {
-  if (value === null || typeof value !== 'object' || Array.isArray(value)
-    || !Array.isArray((value as any).nodes)) {
-    fail(`${label} comment connection is invalid.`);
-  }
-  return (value as any).nodes.flatMap((comment: any, index: number) => {
-    if (comment === null || typeof comment !== 'object' || Array.isArray(comment)) {
-      fail(`${label}.nodes[${index}] is invalid.`);
-    }
-    const author = comment.author;
-    if (author === null || author === undefined) return [];
-    if (typeof author !== 'object' || Array.isArray(author) || typeof author.id !== 'string'
-      || author.id.length === 0) {
-      fail(`${label}.nodes[${index}].author is invalid.`);
-    }
-    return [author.id];
-  });
-}
-
-export function parseGitHubReviewThreadPages(input: {
-  source: unknown;
-  readCommentPage(threadId: string, after: string): unknown;
-}): Readonly<{ nodes: readonly GitHubReviewThreadObservation[]; pageDigest: SessionDigest }> {
-  if (!Array.isArray(input.source) || input.source.length === 0) {
-    fail('thread pagination must be a non-empty page array.');
-  }
-  const outerPages = input.source as any[];
-  let previousOuterCursor: string | null = null;
-  const rawNodes: any[] = [];
-  for (const [pageIndex, page] of outerPages.entries()) {
-    const connection = page?.data?.repository?.pullRequest?.reviewThreads;
-    if (connection === null || typeof connection !== 'object' || Array.isArray(connection)
-      || !Array.isArray(connection.nodes)) {
-      fail(`thread pagination page[${pageIndex}] is invalid.`);
-    }
-    const pageInfo = providerPageInfo(connection.pageInfo, `thread pagination page[${pageIndex}]`);
-    const isLast = pageIndex === outerPages.length - 1;
-    if (pageInfo.hasNextPage !== !isLast) {
-      fail('thread pagination is incomplete or contains pages beyond its terminal page.');
-    }
-    if (pageInfo.hasNextPage) {
-      if (pageInfo.endCursor === previousOuterCursor) fail('thread pagination did not advance.');
-      previousOuterCursor = pageInfo.endCursor;
-    }
-    rawNodes.push(...connection.nodes);
-  }
-
-  const additionalCommentPages: unknown[] = [];
-  const nodes = rawNodes.map((node, threadIndex) => {
-    if (node === null || typeof node !== 'object' || Array.isArray(node)
-      || typeof node.id !== 'string' || node.id.length === 0) {
-      fail(`reviewThreads[${threadIndex}] provider identity is invalid.`);
-    }
-    const authorNodeIds = providerCommentAuthors(
-      node.comments,
-      `reviewThreads[${threadIndex}].comments`
-    );
-    let pageInfo = providerPageInfo(
-      node.comments?.pageInfo,
-      `reviewThreads[${threadIndex}].comments`
-    );
-    let cursor = pageInfo.endCursor;
-    for (let pageNumber = 0; pageInfo.hasNextPage; pageNumber += 1) {
-      if (pageNumber >= 1000 || cursor === null) {
-        fail(`reviewThreads[${threadIndex}] comment pagination exceeded its bounded page count.`);
-      }
-      const response = input.readCommentPage(node.id, cursor);
-      additionalCommentPages.push(Object.freeze({ threadId: node.id, after: cursor, response }));
-      const connection = (response as any)?.data?.node?.comments;
-      if ((response as any)?.data?.node?.id !== node.id || connection === null
-        || typeof connection !== 'object' || Array.isArray(connection)) {
-        fail(`reviewThreads[${threadIndex}] comment page[${pageNumber}] is invalid.`);
-      }
-      authorNodeIds.push(...providerCommentAuthors(
-        connection,
-        `reviewThreads[${threadIndex}].comments.page[${pageNumber}]`
-      ));
-      pageInfo = providerPageInfo(
-        connection.pageInfo,
-        `reviewThreads[${threadIndex}].comments.page[${pageNumber}]`
-      );
-      if (pageInfo.hasNextPage && pageInfo.endCursor === cursor) {
-        fail(`reviewThreads[${threadIndex}] comment pagination did not advance.`);
-      }
-      cursor = pageInfo.endCursor;
-    }
-    return Object.freeze({
-      id: node.id,
-      isResolved: node.isResolved,
-      isOutdated: node.isOutdated,
-      path: node.path,
-      authorNodeIds: Object.freeze(authorNodeIds)
-    });
-  });
-  return Object.freeze({
-    nodes: Object.freeze(nodes),
-    pageDigest: hash(Object.freeze({
-      schema: 'sec-github-review-thread-provider-pages-v1',
-      outerPages,
-      additionalCommentPages: Object.freeze(additionalCommentPages)
-    }))
-  });
-}
-
-function issueCommentObservation(value: any, label: string): GitHubIssueCommentObservation {
-  if (!value || typeof value !== 'object' || !Number.isSafeInteger(value.id)
-    || typeof value.body !== 'string' || typeof value.created_at !== 'string'
-    || !value.user || typeof value.user !== 'object' || typeof value.user.login !== 'string'
-    || !Number.isSafeInteger(value.user.id) || typeof value.user.node_id !== 'string'
-    || typeof value.user.type !== 'string') fail(`${label} identity is invalid.`);
-  const rawApp = value.performed_via_github_app;
-  const performedViaGitHubApp = rawApp === null || rawApp === undefined ? null : (() => {
-    if (!Number.isSafeInteger(rawApp.id) || typeof rawApp.node_id !== 'string'
-      || typeof rawApp.slug !== 'string') fail(`${label} app identity is invalid.`);
-    return { id: rawApp.id, nodeId: rawApp.node_id, slug: rawApp.slug };
-  })();
-  return Object.freeze({ id: String(value.id), body: value.body, authorLogin: value.user.login,
-    authorId: value.user.id, authorNodeId: value.user.node_id, authorType: value.user.type,
-    performedViaGitHubApp, createdAt: value.created_at });
-}
-
-function repoParts(repository: string): { owner: string; name: string } {
-  const match = /^([^/]+)\/([^/]+)$/u.exec(repository);
-  if (!match) fail('repository must be owner/name.');
-  return { owner: match[1]!, name: match[2]! };
-}
-
-export function parseGitHubCheckPages(input: Readonly<{
-  source: unknown;
-  repository: string;
-  headSha: string;
-  observeWorkflowRun: (runId: string) => unknown;
-}>): readonly GitHubCheckObservation[] {
-  if (!Array.isArray(input.source) || input.source.length === 0) {
-    fail('check pagination returned no complete REST page set.');
-  }
-  const pages = input.source as Array<Record<string, unknown>>;
-  let totalCount: number | null = null;
-  const rawNodes: unknown[] = [];
-  for (const [pageIndex, page] of pages.entries()) {
-    if (page === null || typeof page !== 'object' || Array.isArray(page)
-      || !Number.isSafeInteger(page.total_count) || (page.total_count as number) < 0
-      || !Array.isArray(page.check_runs) || page.check_runs.length > 100) {
-      fail(`check pagination page[${pageIndex}] is malformed.`);
-    }
-    if (totalCount === null) totalCount = page.total_count as number;
-    else if (totalCount !== page.total_count) fail('check pagination total_count changed between pages.');
-    rawNodes.push(...page.check_runs);
-  }
-  if (totalCount === null || rawNodes.length !== totalCount
-    || pages.length !== Math.max(1, Math.ceil(totalCount / 100))) {
-    fail('check pagination does not match its declared complete census.');
-  }
-  const identities = new Set<number>();
-  return Object.freeze(rawNodes.map((rawNode, index) => {
-    if (rawNode === null || typeof rawNode !== 'object' || Array.isArray(rawNode)) {
-      fail(`checkRuns[${index}] is not an object.`);
-    }
-    const node = rawNode as Record<string, any>;
-    if (!Number.isSafeInteger(node.id) || node.id < 1 || identities.has(node.id)) {
-      fail(`checkRuns[${index}].id is invalid or duplicated.`);
-    }
-    identities.add(node.id);
-    const name = boundedText(node.name, `checkRuns[${index}].name`, 256);
-    if (!['queued', 'in_progress', 'completed'].includes(node.status)
-      || (node.status === 'completed' ? typeof node.conclusion !== 'string' : node.conclusion !== null)
-      || (node.details_url !== null && typeof node.details_url !== 'string')) {
-      fail(`checkRuns[${index}] lifecycle or details URL is invalid.`);
-    }
-    const observedHeadSha = assertSha(node.head_sha, `checkRuns[${index}].headSha`);
-    if (observedHeadSha !== input.headSha) fail(`checkRuns[${index}] head filter was not honored.`);
-    const rawApp = node.app;
-    if (rawApp !== null && rawApp !== undefined
-      && (typeof rawApp !== 'object' || Array.isArray(rawApp))) {
-      fail(`checkRuns[${index}].app is invalid.`);
-    }
-    const appId = Number.isSafeInteger(rawApp?.id) && rawApp.id > 0 ? rawApp.id : null;
-    const appNodeId = typeof rawApp?.node_id === 'string'
-      ? boundedText(rawApp.node_id, `checkRuns[${index}].app.nodeId`, 256)
-      : null;
-    const appSlug = typeof rawApp?.slug === 'string'
-      ? boundedText(rawApp.slug, `checkRuns[${index}].app.slug`, 256)
-      : null;
-    if ((appId === null) !== (appNodeId === null) || (appId === null) !== (appSlug === null)) {
-      fail(`checkRuns[${index}].app identity is partial.`);
-    }
-    const detailsUrl = node.details_url as string | null;
-    const runId = detailsUrl === null
-      ? null
-      : /\/actions\/runs\/([1-9][0-9]*)/u.exec(detailsUrl)?.[1] ?? null;
-    const run = runId === null ? null : input.observeWorkflowRun(runId) as Record<string, any>;
-    if (run !== null && (typeof run !== 'object' || Array.isArray(run)
-      || !Number.isSafeInteger(run.id) || String(run.id) !== runId
-      || typeof run.path !== 'string' || typeof run.event !== 'string'
-      || typeof run.display_title !== 'string' || run.head_sha !== observedHeadSha)) {
-      fail(`checkRuns[${index}] workflow provenance is invalid.`);
-    }
-    const workflowPath = run === null
-      ? null
-      : boundedText(run.path, `checkRuns[${index}].workflowPath`, 512);
-    return Object.freeze({ id: node.id, name, status: node.status, conclusion: node.conclusion,
-      headSha: observedHeadSha, detailsUrl, appId, appNodeId, appSlug,
-      workflowPath, workflowRef: workflowPath === null ? null : `${workflowPath}@${observedHeadSha}`,
-      eventName: run === null ? null : boundedText(run.event, `checkRuns[${index}].eventName`, 64),
-      workflowRunId: runId,
-      workflowRunDisplayTitle: run === null ? null
-        : boundedText(run.display_title, `checkRuns[${index}].displayTitle`, 1024) });
-  }));
+  ).observeChangedPaths(expected));
 }
 
 function apiFailure(message: string, statusCode?: number): GitHubApiFailure {
   return new GitHubApiFailure(message, statusCode);
 }
 
-function runVerificationSessionGh(
-  repositoryRoot: string,
-  args: readonly string[],
-  input?: Buffer
-) {
-  if (args.some((arg) => arg.includes('\0'))) fail('GitHub observation argument contains NUL.');
-  const spawned = spawnSync('gh', [...args], {
-    cwd: repositoryRoot,
-    encoding: 'buffer',
-    input,
-    windowsHide: true,
-    timeout: 60_000,
-    maxBuffer: 32 * 1024 * 1024,
-    env: { ...process.env, GH_PROMPT_DISABLED: '1', GIT_TERMINAL_PROMPT: '0' }
-  });
-  return {
-    status: spawned.status,
-    stdout: Buffer.isBuffer(spawned.stdout)
-      ? spawned.stdout
-      : Buffer.from(String(spawned.stdout ?? '')),
-    stderr: Buffer.isBuffer(spawned.stderr)
-      ? spawned.stderr
-      : Buffer.from(String(spawned.stderr ?? spawned.error?.message ?? ''))
-  };
-}
-
 /** Concrete provider transport; construction is module-private. */
-class GhVerificationSessionTransport implements VerificationSessionGitHubTransport {
-  private readonly repositoryRoot: string;
-  constructor(repositoryRoot = process.cwd()) { this.repositoryRoot = repositoryRoot; }
+class HttpVerificationSessionTransport implements VerificationSessionGitHubTransport {
+  private readonly repository: string;
+  private readonly credentialStoreIdentity: string | undefined;
 
-  private gh(args: readonly string[], label: string, input?: Buffer): string {
-    const result = runVerificationSessionGh(this.repositoryRoot, args, input);
-    if (result.status !== 0) {
-      const message = decodeBranchLifecycleChildError(result);
-      const schemaFailure = classifyGitHubGraphQLSchemaFailure(message);
-      if (schemaFailure !== null) {
-        // Raw GitHub schema prose never becomes control-plane text; the typed
-        // status carries only a bounded reasonCode and a response digest.
-        throw new GitHubProviderSchemaUnsupportedError(schemaFailure);
+  private bindRepository(repository: string): void {
+    if (!/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/u.test(repository) ||
+        this.repository !== repository) {
+      fail('GitHub transport repository binding changed.');
+    }
+    if (currentGitHubCredentialStoreIdentity() !== this.credentialStoreIdentity) {
+      fail('GitHub transport credential binding changed.');
+    }
+  }
+  constructor(repository: string) {
+    this.repository = repository;
+    this.credentialStoreIdentity = currentGitHubCredentialStoreIdentity();
+    this.bindRepository(repository);
+  }
+
+  private async request(operation: GitHubApiOperation): Promise<string> {
+    try {
+      const value = await executeGitHubApiOperation(
+        currentGitHubApiCapability(this.repository, 'verification-read'), operation);
+      return JSON.stringify(value);
+    } catch (error) {
+      if (error instanceof GitHubApiGraphqlResponseError && error.schemaUnsupported) {
+        throw new GitHubProviderSchemaUnsupportedError({status:PROVIDER_SCHEMA_UNSUPPORTED_STATUS,
+          reasonCode:'github-graphql-schema-unsupported',responseDigest:error.responseDigest});
       }
-      const status = /HTTP\s+403|status\s*403|Resource not accessible/iu.test(message) ? 403 : undefined;
-      throw apiFailure(`${label}: ${message}`, status);
+      if (error instanceof GitHubApiProviderError) {
+        const schemaFailure = classifyGitHubGraphQLSchemaFailure(error.message);
+        if (schemaFailure !== null) throw new GitHubProviderSchemaUnsupportedError(schemaFailure);
+        throw apiFailure(error.message, error.statusCode ?? undefined);
+      }
+      throw error;
     }
-    return decodeBranchLifecycleChildStdout(result);
   }
 
-  private graphql(query: string, variables: Readonly<Record<string, unknown>>, label: string): string {
-    const args = ['api', 'graphql', '-f', `query=${query}`];
-    for (const [name, value] of Object.entries(variables)) {
-      if (value !== null) args.push('-F', `${name}=${String(value)}`);
-    }
-    return this.gh(args, label);
+  private async commitTreeSha(operation: GitHubApiOperation): Promise<string> {
+    const value = parseJson<any>(await this.request(operation), 'GitHub scalar observation');
+    return String(value?.tree?.sha);
   }
 
-  pullRequestClosingFacts(
+  private async pagesText(operation: (page: number) => GitHubApiOperation, field?: string): Promise<string> {
+    const pages: unknown[] = [];
+    let totalCount: number | undefined;
+    let count = 0;
+    for (let page = 1; page <= 1000; page += 1) {
+      const value = parseJson<any>(await this.request(operation(page)), 'GitHub REST page');
+      const entries = field === undefined ? value : value?.[field];
+      if (!Array.isArray(entries) || entries.length > 100) fail('GitHub REST page is not a bounded array.');
+      if (field !== undefined && value.total_count !== undefined) {
+        if (!Number.isSafeInteger(value.total_count) || value.total_count < 0 ||
+            (totalCount !== undefined && totalCount !== value.total_count)) fail('GitHub REST total count changed.');
+        totalCount = value.total_count;
+      }
+      pages.push(value); count += entries.length;
+      if (entries.length < 100 || (totalCount !== undefined && count === totalCount)) {
+        if (totalCount !== undefined && count !== totalCount) fail('GitHub REST pagination is incomplete.');
+        return JSON.stringify(pages);
+      }
+    }
+    return fail('GitHub REST pagination exceeded its bound.');
+  }
+
+  private async candidateProjection(prNumber: number): Promise<string> {
+    const source = await this.request({kind:'pull',pullRequestNumber:prNumber});
+    try {
+      const pr = parseJson<any>(source,'PR readback');
+      if (!['open','closed'].includes(pr?.state) || typeof pr?.merged !== 'boolean' || typeof pr?.draft !== 'boolean' ||
+          typeof pr?.head?.repo?.full_name !== 'string' || pr?.base?.repo?.full_name !== this.repository ||
+          typeof pr?.user?.node_id !== 'string' || pr.user.node_id.length === 0) fail('PR repository/state identity is incomplete.');
+      return JSON.stringify({ number:pr.number, state:pr.merged ? 'MERGED' : pr.state.toUpperCase(),
+        isDraft:pr.draft, isCrossRepository:pr.head.repo.full_name !== pr.base.repo.full_name,
+        author:{id:pr.user.node_id}, baseRefName:pr.base.ref, baseRefOid:pr.base.sha,
+        headRefName:pr.head.ref, headRefOid:pr.head.sha, title:pr.title, body:pr.body ?? '',
+        mergeCommit:pr.merged ? {oid:pr.merge_commit_sha} : null });
+    } catch (error) {
+      return rethrowProviderResponseShape(error,'github-rest-pr-readback',{repository:this.repository,prNumber,source});
+    }
+  }
+
+  private async graphql(query: string, variables: Readonly<Record<string, unknown>>, _label: string): Promise<string> {
+    return await this.request({kind:'verification-query',document:query,variables});
+  }
+
+  async pullRequestClosingFacts(
     repository: string,
     prNumber: number
-  ): GitHubPullRequestClosingFacts {
+  ): Promise<GitHubPullRequestClosingFacts> {
+    this.bindRepository(repository);
     const [owner, name] = repository.split('/');
     if (owner === undefined || name === undefined || repository !== `${owner}/${name}`) {
       fail('repository must be owner/name.');
@@ -2641,8 +2408,8 @@ class GhVerificationSessionTransport implements VerificationSessionGitHubTranspo
     const pageDigests: SessionDigest[] = [];
     for (let page = 0; page < 256; page += 1) {
       const parsed = parseGitHubPullRequestClosingFactsPage({
-        source: this.graphql(GITHUB_PULL_REQUEST_CLOSING_QUERY,
-          { owner, name, number: prNumber, cursor }, 'PR closing issue page'), repository, prNumber,
+        source: (await this.graphql(GITHUB_PULL_REQUEST_CLOSING_QUERY,
+          { owner, name, number: prNumber, cursor }, 'PR closing issue page')), repository, prNumber,
         expectedCursor: cursor, observedBeforeCount: closingIssues.length,
         expectedTotalCount: expectedTotal
       });
@@ -2679,9 +2446,9 @@ class GhVerificationSessionTransport implements VerificationSessionGitHubTranspo
         providerTotalCount: expectedTotal, closingIssues })) });
   }
 
-  candidate(repository: string, prNumber: number): GitHubCandidateObservation {
-    const prSource = this.gh(['pr', 'view', String(prNumber), '--repo', repository, '--json',
-      'number,state,isDraft,isCrossRepository,author,baseRefName,baseRefOid,headRefName,headRefOid,title,body,mergeCommit'], 'PR readback');
+  async candidate(repository: string, prNumber: number): Promise<GitHubCandidateObservation> {
+    this.bindRepository(repository);
+    const prSource = (await this.candidateProjection(prNumber));
     let prValue: Record<string, any> | undefined;
     let baseTreeSource: string | undefined;
     let headTreeSource: string | undefined;
@@ -2702,11 +2469,11 @@ class GhVerificationSessionTransport implements VerificationSessionGitHubTranspo
           'github-pr-readback-not-object', Object.freeze({ source: prSource, parsedValue: parsedPrValue }));
       }
       prValue = parsedPrValue as Record<string, any>;
-      baseTreeSource = this.gh(['api', `/repos/${repository}/git/commits/${prValue.baseRefOid}`, '--jq', '.tree.sha'], 'base tree readback');
-      headTreeSource = this.gh(['api', `/repos/${repository}/git/commits/${prValue.headRefOid}`, '--jq', '.tree.sha'], 'head tree readback');
+      baseTreeSource = (await this.commitTreeSha({kind:'git-commit',sha:prValue.baseRefOid}));
+      headTreeSource = (await this.commitTreeSha({kind:'git-commit',sha:prValue.headRefOid}));
       const mergeCommitSha = prValue.mergeCommit?.oid ?? null;
       if (mergeCommitSha !== null) {
-        mergeCommitSource = this.gh(['api', `/repos/${repository}/git/commits/${mergeCommitSha}`], 'merge commit readback');
+        mergeCommitSource = (await this.request({kind:'git-commit',sha:mergeCommitSha}));
         const parsedMergeCommitValue = parseJson<unknown>(mergeCommitSource, 'merge commit readback');
         if (parsedMergeCommitValue === null || typeof parsedMergeCommitValue !== 'object'
           || Array.isArray(parsedMergeCommitValue)) {
@@ -2737,61 +2504,49 @@ class GhVerificationSessionTransport implements VerificationSessionGitHubTranspo
     }
   }
 
-  pullRequestFileInventory(
+  async pullRequestFileInventory(
     repository: string,
     prNumber: number
-  ): GitHubPullRequestFileInventory {
-    const metadataEndpoint = `/repos/${repository}/pulls/${prNumber}`;
-    const beforeSource = this.gh([
-      'api', '--method', 'GET', metadataEndpoint
-    ], 'changed-path PR before readback');
-    const pagesSource = this.gh([
-      'api', '--method', 'GET', `/repos/${repository}/pulls/${prNumber}/files`,
-      '--paginate', '--slurp', '-f', 'per_page=100'
-    ], 'changed-path pagination');
-    const afterSource = this.gh([
-      'api', '--method', 'GET', metadataEndpoint
-    ], 'changed-path PR after readback');
+  ): Promise<GitHubPullRequestFileInventory> {
+    this.bindRepository(repository);
+    const beforeSource = (await this.request({kind:'pull',pullRequestNumber:prNumber}));
+    const pagesSource = (await this.pagesText(page => ({kind:'verification-pull-files',pullRequestNumber:prNumber,page})));
+    const afterSource = (await this.request({kind:'pull',pullRequestNumber:prNumber}));
     return parseGitHubPullRequestFileInventory({ repository, prNumber,
       beforeSource, pagesSource, afterSource });
   }
 
-  blobText(repository: string, ref: string, blobPath: string): string {
-    const value = parseJson<Record<string, any>>(this.gh([
-      'api', '--method', 'GET', `/repos/${repository}/contents/${blobPath}`, '-f', `ref=${ref}`
-    ], 'blob readback'), 'blob readback');
+  async blobText(repository: string, ref: string, blobPath: string): Promise<string> {
+    this.bindRepository(repository);
+    const value = parseJson<Record<string, any>>((await this.request({kind:'verification-blob',ref,path:blobPath})), 'blob readback');
     if (value.type !== 'file' || value.encoding !== 'base64' || typeof value.content !== 'string') {
       fail('blob readback did not return one base64 file.');
     }
     return Buffer.from(value.content.replaceAll('\n', ''), 'base64').toString('utf8');
   }
 
-  comparison(repository: string, baseSha: string, headSha: string): GitHubComparisonObservation {
-    const value = parseJson<Record<string, any>>(this.gh([
-      'api', `/repos/${repository}/compare/${baseSha}...${headSha}`
-    ], 'comparison readback'), 'comparison readback');
+  async comparison(repository: string, baseSha: string, headSha: string): Promise<GitHubComparisonObservation> {
+    this.bindRepository(repository);
+    const value = parseJson<Record<string, any>>((await this.request({kind:'verification-compare',baseSha,headSha})), 'comparison readback');
     return { status: value.status, behindBy: value.behind_by };
   }
 
-  openPullRequestCountForHead(repository: string, headSha: string): number {
+  async openPullRequestCountForHead(repository: string, headSha: string): Promise<number> {
+    this.bindRepository(repository);
     repoParts(repository);
     assertSha(headSha, 'same-head PR census SHA');
-    const readPage = (page: number, label: string) => {
-      const source = this.gh([
-        'api', '--method', 'GET', `/repos/${repository}/pulls`,
-        '-f', 'state=open', '-f', 'sort=created', '-f', 'direction=asc',
-        '-f', `per_page=${GITHUB_OPEN_PULL_REQUEST_PAGE_SIZE}`, '-f', `page=${page}`
-      ], label);
+    const readPage = async (page: number, label: string) => {
+      const source = (await this.request({kind:'verification-open-pulls',page}));
       return Object.freeze({
         source,
         page: githubOpenPullRequestPage(parseJson<unknown>(source, label), label)
       });
     };
-    const readCensus = (label: string): string => {
+    const readCensus = async (label: string): Promise<string> => {
       const pages: unknown[][] = [];
       let complete = false;
       for (let page = 1; page <= GITHUB_OPEN_PULL_REQUEST_MAXIMUM_PAGES; page += 1) {
-        const observed = readPage(page, `${label} page ${page}`);
+        const observed = await readPage(page, `${label} page ${page}`);
         pages.push([...observed.page]);
         if (observed.page.length < GITHUB_OPEN_PULL_REQUEST_PAGE_SIZE) {
           complete = true;
@@ -2801,44 +2556,41 @@ class GhVerificationSessionTransport implements VerificationSessionGitHubTranspo
       if (!complete) fail(`${label} exceeded the bounded page count.`);
       return JSON.stringify(pages);
     };
-    const firstPagesSource = readCensus('same-head PR first exhaustive census');
-    const secondPagesSource = readCensus('same-head PR second exhaustive census');
+    const firstPagesSource = await readCensus('same-head PR first exhaustive census');
+    const secondPagesSource = await readCensus('same-head PR second exhaustive census');
     return parseGitHubOpenPullRequestCensus({ repository, headSha,
       firstPagesSource, secondPagesSource });
   }
 
-  principal(repository: string, login: string): GitHubPrincipalObservation {
-    const user = parseJson<Record<string, any>>(this.gh(['api', `/users/${login}`], 'principal readback'), 'principal readback');
-    return { login, nodeId: String(user.node_id ?? ''), permission: this.collaboratorPermission(repository, login) };
+  async principal(repository: string, login: string): Promise<GitHubPrincipalObservation> {
+    this.bindRepository(repository);
+    const user = parseJson<Record<string, any>>((await this.request({kind:'verification-user',login})), 'principal readback');
+    return { login, nodeId: String(user.node_id ?? ''), permission: (await this.collaboratorPermission(repository, login)) };
   }
 
 
-  principalByNodeId(repository: string, nodeId: string): GitHubPrincipalObservation {
-    const value = parseJson<Record<string, any>>(this.gh([
-      'api', 'graphql', '-f', 'query=query($id:ID!){node(id:$id){... on User{id login}}}', '-F', `id=${nodeId}`
-    ], 'principal node readback'), 'principal node readback');
+  async principalByNodeId(repository: string, nodeId: string): Promise<GitHubPrincipalObservation> {
+    this.bindRepository(repository);
+    const value = parseJson<Record<string, any>>((await this.graphql(GITHUB_PRINCIPAL_NODE_QUERY,{id:nodeId},'principal node')), 'principal node readback');
     const user = value.data?.node;
     if (user?.id !== nodeId || typeof user.login !== 'string') fail('principal node did not resolve to one User.');
-    return { login: user.login, nodeId, permission: this.collaboratorPermission(repository, user.login) };
+    return { login: user.login, nodeId, permission: (await this.collaboratorPermission(repository, user.login)) };
   }
 
 
-  viewerPrincipal(repository: string): GitHubPrincipalObservation {
-    const user = parseJson<Record<string, any>>(this.gh(['api', 'user'], 'viewer principal readback'), 'viewer principal readback');
-    if (typeof user.login !== 'string' || typeof user.node_id !== 'string') fail('viewer principal identity is unavailable.');
-    return { login: user.login, nodeId: user.node_id, permission: this.collaboratorPermission(repository, user.login) };
+  async viewerPrincipal(repository: string): Promise<GitHubPrincipalObservation> {
+    this.bindRepository(repository);
+    const principal = inspectGitHubApiCapability(currentGitHubApiCapability(repository,'verification-read')).principal;
+    if (principal.permission === 'workflow') fail('Viewer requires a user principal.');
+    return { login:principal.login, nodeId:principal.nodeId, permission:principal.permission };
   }
 
-
-  actionsArtifact(repository: string, artifactId: string): GitHubActionsArtifactObservation {
-    const artifact = parseJson<Record<string, any>>(this.gh([
-      'api', `/repos/${repository}/actions/artifacts/${artifactId}`
-    ], 'Actions artifact metadata'), 'Actions artifact metadata');
+  async actionsArtifact(repository: string, artifactId: string): Promise<GitHubActionsArtifactObservation> {
+    this.bindRepository(repository);
+    const artifact = parseJson<Record<string, any>>((await this.request({kind:'verification-artifact',artifactId})), 'Actions artifact metadata');
     const runId = artifact.workflow_run?.id;
     if (!Number.isSafeInteger(runId)) fail('Actions artifact has no workflow run identity.');
-    const run = parseJson<Record<string, any>>(this.gh([
-      'api', `/repos/${repository}/actions/runs/${runId}`
-    ], 'Actions run metadata'), 'Actions run metadata');
+    const run = parseJson<Record<string, any>>((await this.request({kind:'workflow-run',runId:String(runId)})), 'Actions run metadata');
     const canonicalRunId = String(runId);
     if (String(run.id ?? '') !== canonicalRunId) fail('Actions artifact workflow run identity drifted.');
     const actor = run.actor;
@@ -2859,63 +2611,61 @@ class GhVerificationSessionTransport implements VerificationSessionGitHubTranspo
     return { artifactId: String(artifact.id), artifactName, workflowPath,
       workflowRef: `${workflowPath}@${workflowSha}`, workflowSha, runId: canonicalRunId,
       runAttempt: attemptAuthority.runAttempt, eventName: String(run.event), actorNodeId: actor.node_id,
-      actorPermission: this.collaboratorPermission(repository, actor.login), archiveDigest,
+      actorPermission: (await this.collaboratorPermission(repository, actor.login)), archiveDigest,
       expired: artifact.expired === true };
   }
 
 
-  actionsArtifactsForRun(repository: string, runId: string): readonly GitHubActionsArtifactObservation[] {
-    const pages = parseJson<any[]>(this.gh([
-      'api', `/repos/${repository}/actions/runs/${runId}/artifacts?per_page=100`, '--paginate', '--slurp'
-    ], 'Actions run artifact inventory'), 'Actions run artifact inventory');
-    return pages.flatMap((page) => page.artifacts ?? []).filter((artifact: any) => artifact.expired !== true)
-      .map((artifact: any) => this.actionsArtifact(repository, String(artifact.id)));
-  }
-
-
-  actionsArtifacts(repository: string): readonly GitHubActionsArtifactObservation[] {
-    const source = this.gh([
-      'api', `/repos/${repository}/actions/artifacts?per_page=100`, '--paginate', '--slurp'
-    ], 'repository Actions artifact inventory');
-    return evaluateGitHubRepositoryActionsArtifactInventory({ repository, source,
-      observeArtifact: (summary) => this.actionsArtifact(repository, summary.artifactId) }).artifacts;
-  }
-
-  downloadArtifactText(repository: string, artifact: GitHubActionsArtifactObservation, fileName: string): string {
-    if (!/^[A-Za-z0-9._-]+$/u.test(fileName)) fail('artifact file name is invalid.');
-    const directory = mkdtempSync(path.join(tmpdir(), 'sec-verification-artifact-'));
-    try {
-      this.gh(['run', 'download', artifact.runId, '--repo', repository, '--name', artifact.artifactName,
-        '--dir', directory], 'Actions artifact download');
-      return readFileSync(path.join(directory, fileName), 'utf8');
-    } finally {
-      rmSync(directory, { recursive: true, force: true });
+  async actionsArtifactsForRun(repository: string, runId: string): Promise<readonly GitHubActionsArtifactObservation[]> {
+    this.bindRepository(repository);
+    const pages = parseJson<any[]>((await this.pagesText(page => ({kind:'verification-artifacts',runId,page}),'artifacts')), 'Actions run artifact inventory');
+    const artifacts: GitHubActionsArtifactObservation[] = [];
+    for (const artifact of pages.flatMap(page => page.artifacts ?? [])) {
+      if (artifact.expired !== true) artifacts.push(await this.actionsArtifact(repository, String(artifact.id)));
     }
+    return artifacts;
   }
 
-  private graphPages(query: string, repository: string, prNumber: number, label: string): any[] {
+
+  async actionsArtifacts(repository: string): Promise<readonly GitHubActionsArtifactObservation[]> {
+    this.bindRepository(repository);
+    const source = (await this.pagesText(page => ({kind:'verification-artifacts',page}),'artifacts'));
+    return (await evaluateGitHubRepositoryActionsArtifactInventory({ repository, source,
+      observeArtifact: async (summary) => (await this.actionsArtifact(repository, summary.artifactId)) })).artifacts;
+  }
+
+  async downloadArtifactText(repository: string, artifact: GitHubActionsArtifactObservation, fileName: string): Promise<string> {
+    this.bindRepository(repository);
+    const text = await executeGitHubApiOperation(currentGitHubApiCapability(repository,'verification-read'),{kind:'verification-artifact-text',
+      artifactId:artifact.artifactId,artifactName:artifact.artifactName,runId:artifact.runId,
+      archiveDigest:artifact.archiveDigest,fileName });
+    if (typeof text !== 'string') fail('Artifact member response is not text.');
+    return text;
+  }
+
+  private async graphPages(query: string, repository: string, prNumber: number, label: string): Promise<any[]> {
     const { owner, name } = repoParts(repository);
-    const source = this.gh([
-      'api', 'graphql', '--paginate', '--slurp', '-f', `query=${query}`,
-      '-F', `owner=${owner}`, '-F', `name=${name}`, '-F', `number=${prNumber}`
-    ], label);
-    try {
-      const pages = parseJson<unknown>(source, label);
-      if (!Array.isArray(pages)) {
-        throw new GitHubProviderResponseShapeError(`${label} returned a non-array GraphQL page set.`,
-          'github-graphql-page-set-not-array', Object.freeze({ label, source, parsedValue: pages }));
-      }
-      return bindProviderShapeSource(pages, Object.freeze({ label, source, parsedValue: pages }));
-    } catch (error) {
-      return rethrowProviderResponseShape(error, 'github-graphql-page-set', Object.freeze({ label, source }));
+    const field = query === GITHUB_REVIEWS_QUERY ? 'reviews' : query === GITHUB_THREADS_QUERY ? 'reviewThreads' : 'reviewRequests';
+    const pages: any[] = [];
+    const seen = new Set<string>();
+    let endCursor: string | null = null;
+    for (let count = 0; count < 1000; count += 1) {
+      const source = await this.graphql(query,{owner,name,number:prNumber,endCursor},label);
+      const value = parseJson<any>(source,label);
+      pages.push(value);
+      const connection = value?.data?.repository?.pullRequest?.[field];
+      if (!connection) return bindProviderShapeSource(pages,{label,pages});
+      const info = providerPageInfo(connection.pageInfo,label);
+      if (!info.hasNextPage) return bindProviderShapeSource(pages,{label,pages});
+      if (info.endCursor === null || seen.has(info.endCursor)) fail('GraphQL pagination did not advance.');
+      seen.add(info.endCursor); endCursor = info.endCursor;
     }
+    return fail('GraphQL pagination exceeded its bounded page count.');
   }
 
-  private reviewThreadCommentPage(threadId: string, after: string): Readonly<{ value: unknown; source: unknown }> {
-    const query = 'query($threadId:ID!,$endCursor:String!){node(id:$threadId){... on PullRequestReviewThread{id comments(first:100,after:$endCursor){nodes{author{__typename ... on Node{id}}}pageInfo{hasNextPage endCursor}}}}}';
-    const source = this.gh([
-      'api', 'graphql', '-f', `query=${query}`, '-F', `threadId=${threadId}`, '-F', `endCursor=${after}`
-    ], 'review thread comment pagination');
+  private async reviewThreadCommentPage(threadId: string, after: string): Promise<Readonly<{ value: unknown; source: unknown }>> {
+    const query = GITHUB_THREAD_COMMENTS_QUERY;
+    const source = (await this.graphql(query,{threadId,endCursor:after},'thread comment page'));
     try {
       const value = parseJson<unknown>(source, 'review thread comment pagination');
       return Object.freeze({ value, source: Object.freeze({ threadId, after, source, parsedValue: value }) });
@@ -2925,25 +2675,31 @@ class GhVerificationSessionTransport implements VerificationSessionGitHubTranspo
     }
   }
 
-  reviewPage(repository: string, prNumber: number, after: string | null): GitHubPage<GitHubReviewObservation> {
+  async reviewPage(repository: string, prNumber: number, after: string | null): Promise<GitHubPage<GitHubReviewObservation>> {
+    this.bindRepository(repository);
     if (after !== null) fail('default GraphQL transport returns all review pages in one page.');
-    const query = 'query($owner:String!,$name:String!,$number:Int!,$endCursor:String){repository(owner:$owner,name:$name){pullRequest(number:$number){reviews(first:100,after:$endCursor){nodes{id state submittedAt commit{oid} author{__typename login resourcePath ... on Node{id}} authorAssociation}pageInfo{hasNextPage endCursor}}}}}';
-    const pages = this.graphPages(query, repository, prNumber, 'review pagination');
+    const query = GITHUB_REVIEWS_QUERY;
+    const pages = (await this.graphPages(query, repository, prNumber, 'review pagination'));
     const resolverSources: unknown[] = [];
     let parsed: ReturnType<typeof parseGitHubReviewPages>;
     try {
       assertSuccessfulGraphqlReviewConnection(pages, 'reviews');
-      parsed = parseGitHubReviewPages({ source: pages, resolveApp: (appSlug) => {
-        const source = this.gh(['api', `/apps/${appSlug}`], 'trusted Review App resolution');
-        try {
-          const parsedValue = parseJson<unknown>(source, 'trusted Review App resolution');
-          const resolverSource = Object.freeze({ appSlug, source, parsedValue });
-          resolverSources.push(resolverSource);
-          return parsedValue;
-        } catch (error) {
-          return rethrowProviderResponseShape(error, 'github-rest-trusted-app-resolver',
-            Object.freeze({ appSlug, source }));
+      const appResponses = new Map<string, unknown>();
+      for (const page of pages) {
+        for (const node of page.data.repository.pullRequest.reviews.nodes) {
+          for (const app of SEC_REVIEW_STABILITY_POLICY.trustedApps) {
+            if (node?.author?.__typename !== 'Bot' || node.author.id !== app.actorNodeId ||
+                node.author.resourcePath !== `/apps/${app.appSlug}` || appResponses.has(app.appSlug)) continue;
+            const source = await this.request({kind:'verification-app',slug:app.appSlug});
+            const parsedValue = parseJson<unknown>(source, 'trusted Review App resolution');
+            resolverSources.push(Object.freeze({ appSlug: app.appSlug, source, parsedValue }));
+            appResponses.set(app.appSlug, parsedValue);
+          }
         }
+      }
+      parsed = parseGitHubReviewPages({ source: pages, resolveApp: appSlug => {
+        if (!appResponses.has(appSlug)) fail('Trusted App response was not collected.');
+        return appResponses.get(appSlug);
       } });
     } catch (error) {
       return rethrowProviderResponseShape(error, 'github-graphql-review-pages', Object.freeze({
@@ -2955,29 +2711,39 @@ class GhVerificationSessionTransport implements VerificationSessionGitHubTranspo
       pages: providerShapeSource(pages), resolverSources: Object.freeze(resolverSources) }));
   }
 
-  threadPage(repository: string, prNumber: number, after: string | null): GitHubPage<GitHubReviewThreadObservation> {
+  async threadPage(repository: string, prNumber: number, after: string | null): Promise<GitHubPage<GitHubReviewThreadObservation>> {
+    this.bindRepository(repository);
     if (after !== null) fail('default GraphQL transport returns all thread pages in one page.');
-    const query = 'query($owner:String!,$name:String!,$number:Int!,$endCursor:String){repository(owner:$owner,name:$name){pullRequest(number:$number){reviewThreads(first:100,after:$endCursor){nodes{id isResolved isOutdated path comments(first:100){nodes{author{__typename ... on Node{id}}}pageInfo{hasNextPage endCursor}}}pageInfo{hasNextPage endCursor}}}}}';
-    const pages = this.graphPages(query, repository, prNumber, 'thread pagination');
+    const query = GITHUB_THREADS_QUERY;
+    const pages = (await this.graphPages(query, repository, prNumber, 'thread pagination'));
     const nestedThreadCommentResponses: unknown[] = [];
     let parsed: ReturnType<typeof parseGitHubReviewThreadPages>;
     try {
       assertSuccessfulGraphqlReviewConnection(pages, 'reviewThreads');
-      parsed = parseGitHubReviewThreadPages({
-        source: pages,
-        readCommentPage: (threadId, cursor) => {
-          try {
-            const response = this.reviewThreadCommentPage(threadId, cursor);
+      const responses = new Map<string, unknown>();
+      for (const page of pages) {
+        for (const node of page.data.repository.pullRequest.reviewThreads.nodes) {
+          if (typeof node?.id !== 'string' || node.id.length === 0) fail('Review thread identity is invalid.');
+          let info = providerPageInfo(node.comments?.pageInfo, 'review thread comments');
+          const seen = new Set<string>();
+          for (let count = 0; info.hasNextPage; count += 1) {
+            const cursor = info.endCursor;
+            if (cursor === null || count >= 1000 || seen.has(cursor)) fail('Review thread pagination did not advance.');
+            seen.add(cursor);
+            const response = await this.reviewThreadCommentPage(node.id, cursor);
             nestedThreadCommentResponses.push(response.source);
-            return response.value;
-          } catch (error) {
-            if (error instanceof GitHubProviderResponseShapeError) {
-              nestedThreadCommentResponses.push(Object.freeze({ threadId, cursor, source: error.source }));
-            }
-            throw error;
+            responses.set(JSON.stringify([node.id, cursor]), response.value);
+            const value = response.value as any;
+            if (value?.data?.node?.id !== node.id) fail('Review thread pagination identity changed.');
+            info = providerPageInfo(value.data.node.comments?.pageInfo, 'review thread comment page');
           }
         }
-      });
+      }
+      parsed = parseGitHubReviewThreadPages({ source: pages, readCommentPage: (threadId, cursor) => {
+        const key = JSON.stringify([threadId, cursor]);
+        if (!responses.has(key)) fail('Review thread comment response was not collected.');
+        return responses.get(key);
+      } });
     } catch (error) {
       return rethrowProviderResponseShape(error, 'github-graphql-review-thread-pages',
         Object.freeze({ field: 'reviewThreads', pages: providerShapeSource(pages),
@@ -2988,10 +2754,11 @@ class GhVerificationSessionTransport implements VerificationSessionGitHubTranspo
       pages: providerShapeSource(pages), nestedThreadCommentResponses: Object.freeze(nestedThreadCommentResponses) }));
   }
 
-  reviewRequestPage(repository: string, prNumber: number, after: string | null): GitHubPage<GitHubReviewRequestObservation> {
+  async reviewRequestPage(repository: string, prNumber: number, after: string | null): Promise<GitHubPage<GitHubReviewRequestObservation>> {
+    this.bindRepository(repository);
     if (after !== null) fail('default GraphQL transport returns all request pages in one page.');
-    const query = 'query($owner:String!,$name:String!,$number:Int!,$endCursor:String){repository(owner:$owner,name:$name){pullRequest(number:$number){reviewRequests(first:100,after:$endCursor){nodes{requestedReviewer{... on User{id login}... on Team{id name}}}pageInfo{hasNextPage endCursor}}}}}';
-    const pages = this.graphPages(query, repository, prNumber, 'review request pagination');
+    const query = GITHUB_REVIEW_REQUESTS_QUERY;
+    const pages = (await this.graphPages(query, repository, prNumber, 'review request pagination'));
     try {
       assertSuccessfulGraphqlReviewConnection(pages, 'reviewRequests');
       const nodes = pages.flatMap((page) => page.data.repository.pullRequest.reviewRequests.nodes).map((node: any) => {
@@ -3019,9 +2786,10 @@ class GhVerificationSessionTransport implements VerificationSessionGitHubTranspo
     }
   }
 
-  appCommentPage(repository: string, prNumber: number, after: string | null): GitHubPage<GitHubAppReviewCommentObservation> {
+  async appCommentPage(repository: string, prNumber: number, after: string | null): Promise<GitHubPage<GitHubAppReviewCommentObservation>> {
+    this.bindRepository(repository);
     if (after !== null) fail('default REST transport returns all comment pages in one page.');
-    const pages = parseJson<any[]>(this.gh(['api', `/repos/${repository}/issues/${prNumber}/comments?per_page=100`, '--paginate', '--slurp'], 'comment pagination'), 'comment pagination');
+    const pages = parseJson<any[]>((await this.pagesText(page => ({kind:'issue-comments',issueNumber:prNumber,page}))), 'comment pagination');
     const nodes = pages.flat().filter((node: any) => node.performed_via_github_app?.id && node.user?.node_id).map((node: any) => ({
       id: String(node.id), authorNodeId: node.user.node_id, appId: node.performed_via_github_app.id,
       body: node.body, createdAt: node.created_at
@@ -3029,11 +2797,10 @@ class GhVerificationSessionTransport implements VerificationSessionGitHubTranspo
     return { nodes, hasNextPage: false, endCursor: null, pageDigest: hash(pages) };
   }
 
-  issueCommentPage(repository: string, prNumber: number, after: string | null): GitHubPage<GitHubIssueCommentObservation> {
+  async issueCommentPage(repository: string, prNumber: number, after: string | null): Promise<GitHubPage<GitHubIssueCommentObservation>> {
+    this.bindRepository(repository);
     if (after !== null) fail('default REST transport returns the complete issue-comment page set once.');
-    const source = this.gh(['api',
-      `/repos/${repository}/issues/${prNumber}/comments?per_page=100`, '--paginate', '--slurp'],
-    'issue comment pagination');
+    const source = (await this.pagesText(page => ({kind:'issue-comments',issueNumber:prNumber,page})));
     try {
       const pages = parseJson<unknown>(source, 'issue comment pagination');
       if (!Array.isArray(pages) || !pages.every(Array.isArray)) {
@@ -3049,28 +2816,47 @@ class GhVerificationSessionTransport implements VerificationSessionGitHubTranspo
     }
   }
 
-  resolveCommitOid(repository: string, locator: string): GitHubCommitResolutionObservation {
+  async repositoryIssueCommentPage(repository: string, after: string | null): Promise<GitHubPage<GitHubIssueCommentObservation>> {
+    this.bindRepository(repository);
+    const pageNumber = after === null ? 1 : Number(after);
+    if (!Number.isSafeInteger(pageNumber) || pageNumber < 1) {
+      fail('repository issue-comment page cursor is invalid.');
+    }
+    const source = (await this.request({kind:'verification-repository-comments',page:pageNumber}));
+    try {
+      const page = parseJson<unknown>(source, 'repository issue comment page');
+      if (!Array.isArray(page) || page.length > 100) {
+        fail('repository issue comment response must be one bounded REST page.');
+      }
+      const nodes = page.map((value, index) => issueCommentObservation(value,
+        `repository issue comment ${index}`));
+      const hasNextPage = page.length === 100;
+      return bindProviderShapeSource(Object.freeze({
+        nodes,
+        hasNextPage,
+        endCursor: hasNextPage ? String(pageNumber + 1) : null,
+        pageDigest: hash(page)
+      }), Object.freeze({ repository, pageNumber, source, parsedValue: page }));
+    } catch (error) {
+      return rethrowProviderResponseShape(error, 'github-rest-repository-issue-comment-page',
+        Object.freeze({ repository, pageNumber, source }));
+    }
+  }
+
+  async resolveCommitOid(repository: string, locator: string): Promise<GitHubCommitResolutionObservation> {
+    this.bindRepository(repository);
     if (!/^(?:[0-9a-f]{10}|[0-9a-f]{40})$/u.test(locator)) {
       fail('reviewed commit locator must be exactly 10 or 40 lowercase hexadecimal characters.');
     }
-    const result = runVerificationSessionGh(
-      this.repositoryRoot,
-      ['api', `/repos/${repository}/commits/${locator}`]
-    );
-    if (result.status !== 0) {
-      const message = decodeBranchLifecycleChildError(result);
-      const responseDigest = hash({ repository, locator, error: message });
-      if (/HTTP\s+404|status\s*404|not found/iu.test(message)) {
-        return Object.freeze({ repository, locator, status: 'missing', commitSha: null,
-          treeSha: null, responseDigest });
-      }
-      if (/HTTP\s+(?:409|422)|status\s*(?:409|422)|ambiguous/iu.test(message)) {
-        return Object.freeze({ repository, locator, status: 'ambiguous', commitSha: null,
-          treeSha: null, responseDigest });
-      }
-      throw apiFailure(`reviewed commit resolution: ${message}`);
+    let source: string;
+    try { source = await this.request({kind:'verification-commit-locator',locator}); }
+    catch (error) {
+      const status = error instanceof GitHubApiFailure ? error.statusCode : undefined;
+      if (status === 404 || status === 409 || status === 422) return Object.freeze({
+        repository,locator,status:status === 404 ? 'missing' : 'ambiguous',commitSha:null,treeSha:null,
+        responseDigest:hash({repository,locator,status}) });
+      throw error;
     }
-    const source = decodeBranchLifecycleChildStdout(result);
     const value = parseJson<Record<string, any>>(source, 'reviewed commit resolution');
     const commitSha = assertSha(value.sha, 'resolved commitSha');
     const treeSha = assertSha(value.commit?.tree?.sha, 'resolved treeSha');
@@ -3079,30 +2865,38 @@ class GhVerificationSessionTransport implements VerificationSessionGitHubTranspo
       responseDigest: hash(value) });
   }
 
-  collaboratorPermission(repository: string, login: string): 'admin' | 'maintain' | 'write' | 'triage' | 'read' | 'none' {
-    const source = this.gh(['api', `/repos/${repository}/collaborators/${login}/permission`, '--jq', '.permission'], 'permission readback');
-    const permission = source.trim();
-    if (!['admin', 'maintain', 'write', 'triage', 'read', 'none'].includes(permission)) {
+  async collaboratorPermission(repository: string, login: string): Promise<'admin' | 'maintain' | 'write' | 'triage' | 'read' | 'none'> {
+    this.bindRepository(repository);
+    const source = await this.request({kind:'collaborator-permission',login});
+    const parsedValue = parseJson<unknown>(source, 'GitHub collaborator permission');
+    const permission = normalizeGitHubRepositoryPermission(parsedValue);
+    if (permission === null) {
       throw new GitHubProviderResponseShapeError('VerificationSession GitHub adapter permission value is unknown.',
-        'github-rest-collaborator-permission', Object.freeze({ repository, login, source }));
+        'github-rest-collaborator-permission', Object.freeze({ repository, login, source, parsedValue }));
     }
-    return permission as ReturnType<VerificationSessionGitHubTransport['collaboratorPermission']>;
+    return permission;
   }
 
-  checkPage(repository: string, headSha: string, after: string | null): GitHubPage<GitHubCheckObservation> {
+  async checkPage(repository: string, headSha: string, after: string | null): Promise<GitHubPage<GitHubCheckObservation>> {
+    this.bindRepository(repository);
     if (after !== null) fail('default REST transport returns all check pages in one page.');
-    const source = this.gh(['api', `/repos/${repository}/commits/${headSha}/check-runs?per_page=100`,
-      '--paginate', '--slurp'], 'check pagination');
+    const source = (await this.pagesText(page => ({kind:'check-runs',sha:headSha,page}),'check_runs'));
     try {
       const parsed = parseJson<unknown>(source, 'check pagination');
-      const nodes = parseGitHubCheckPages({
-        source: parsed,
-        repository,
-        headSha,
-        observeWorkflowRun: (runId) => parseJson<unknown>(this.gh([
-          'api', `/repos/${repository}/actions/runs/${runId}`
-        ], 'check workflow provenance'), 'check workflow provenance')
-      });
+      const runs = new Map<string, unknown>();
+      if (Array.isArray(parsed)) {
+        for (const page of parsed) {
+          if (!Array.isArray(page?.check_runs)) continue;
+          for (const node of page.check_runs) {
+            const runId = typeof node?.details_url === 'string'
+              ? /\/actions\/runs\/([1-9][0-9]*)/u.exec(node.details_url)?.[1] : undefined;
+            if (runId === undefined || runs.has(runId)) continue;
+            runs.set(runId, parseJson<unknown>(await this.request({kind:'workflow-run',runId:String(runId)}), 'check workflow provenance'));
+          }
+        }
+      }
+      const nodes = parseGitHubCheckPages({ source: parsed, repository, headSha,
+        observeWorkflowRun: runId => runs.get(runId) });
       return Object.freeze({ nodes, hasNextPage: false, endCursor: null,
         pageDigest: hash(parsed) });
     } catch (error) {
@@ -3111,9 +2905,10 @@ class GhVerificationSessionTransport implements VerificationSessionGitHubTranspo
     }
   }
 
-  workflowRunPage(repository: string, headSha: string, after: string | null): GitHubPage<GitHubWorkflowRunObservation> {
+  async workflowRunPage(repository: string, headSha: string, after: string | null): Promise<GitHubPage<GitHubWorkflowRunObservation>> {
+    this.bindRepository(repository);
     if (after !== null) fail('default REST transport returns all workflow pages in one page.');
-    const pages = parseJson<any[]>(this.gh(['api', `/repos/${repository}/actions/runs?head_sha=${headSha}&per_page=100`, '--paginate', '--slurp'], 'workflow pagination'), 'workflow pagination');
+    const pages = parseJson<any[]>((await this.pagesText(page => ({kind:'verification-workflow-runs',headSha,page}),'workflow_runs')), 'workflow pagination');
     const nodes = pages.flatMap((page) => page.workflow_runs ?? []).map((node: any) => ({
       id: String(node.id), name: node.name, displayTitle: node.display_title, workflowPath: node.path,
       event: node.event, status: node.status, conclusion: node.conclusion, headSha: node.head_sha,
@@ -3122,29 +2917,58 @@ class GhVerificationSessionTransport implements VerificationSessionGitHubTranspo
     return { nodes, hasNextPage: false, endCursor: null, pageDigest: hash(pages) };
   }
 
-  workflowJobsForAttempt(
+  async workflowJobsForAttempt(
     repository: string,
     runId: string,
     runAttempt: number
-  ): readonly GitHubWorkflowJobObservation[] {
-    const pages = parseJson<unknown>(this.gh(['api',
-      `/repos/${repository}/actions/runs/${runId}/attempts/${runAttempt}/jobs?per_page=100`,
-      '--paginate', '--slurp'], 'workflow attempt job pagination'), 'workflow attempt job pagination');
+  ): Promise<readonly GitHubWorkflowJobObservation[]> {
+    this.bindRepository(repository);
+    const pages = parseJson<unknown>((await this.pagesText(page => ({kind:'verification-workflow-jobs',runId,runAttempt,page}),'jobs')), 'workflow attempt job pagination');
     return parseGitHubWorkflowJobsForAttempt({ source: pages, runId, runAttempt });
   }
 
-  repositoryRulesets(repository: string): unknown {
-    return parseJson(this.gh(['api', `/repos/${repository}/rulesets?per_page=100`, '--paginate', '--slurp'], 'ruleset readback'), 'ruleset readback');
+  async repositoryRulesets(repository: string): Promise<unknown> {
+    this.bindRepository(repository);
+    const repositorySource = parseJson(await this.request({ kind: 'repository' }),
+      'repository metadata readback');
+    if (repositorySource === null || typeof repositorySource !== 'object'
+        || Array.isArray(repositorySource)
+        || typeof (repositorySource as Record<string, unknown>).default_branch !== 'string') {
+      fail('repository metadata has no canonical default branch.');
+    }
+    const defaultBranch = (repositorySource as Record<string, unknown>).default_branch as string;
+    const pages = parseJson<unknown>(await this.pagesText(page => ({
+      kind: 'effective-branch-rules', branch: defaultBranch, page
+    })), 'effective branch rules readback');
+    if (!Array.isArray(pages) || pages.some((page) => !Array.isArray(page))) {
+      fail('effective branch rules pagination is not a complete page array.');
+    }
+    const effectiveRules = pages.flatMap((page) => page as readonly unknown[]);
+    const rulesetIds = new Set<number>();
+    for (const [index, entry] of effectiveRules.entries()) {
+      if (entry === null || typeof entry !== 'object' || Array.isArray(entry)
+          || !Number.isSafeInteger((entry as Record<string, unknown>).ruleset_id)
+          || Number((entry as Record<string, unknown>).ruleset_id) < 1) {
+        fail(`effective branch rule ${index} has no exact ruleset id.`);
+      }
+      rulesetIds.add(Number((entry as Record<string, unknown>).ruleset_id));
+    }
+    const detailedRulesets: unknown[] = [];
+    for (const rulesetId of [...rulesetIds].sort((left, right) => left - right)) {
+      detailedRulesets.push(parseJson(await this.request({ kind: 'ruleset', rulesetId }),
+        `ruleset ${rulesetId} detail readback`));
+    }
+    return Object.freeze({
+      defaultBranch,
+      effectiveRules: Object.freeze([...effectiveRules]),
+      detailedRulesets: Object.freeze(detailedRulesets)
+    });
   }
 
-  dispatchVerificationSession(repository: string, request: VerificationSessionHostedRequest): void {
-    const body = Buffer.from(`${encodeVerificationActionData({
-      event_type: CI_VERIFICATION_SESSION_DISPATCH_TYPE,
-      client_payload: { payload: request }
-    })}\n`, 'utf8');
-    this.gh([
-      'api', '--method', 'POST', `/repos/${repository}/dispatches`, '--input', '-'
-    ], 'hosted VerificationSession dispatch', body);
+  async dispatchVerificationSession(repository: string, request: VerificationSessionHostedRequest): Promise<void> {
+    this.bindRepository(repository);
+    await executeGitHubApiOperation(currentGitHubApiCapability(repository,'verification-dispatch'),
+      {kind:'verification-dispatch',request:{...request}});
   }
 
 }

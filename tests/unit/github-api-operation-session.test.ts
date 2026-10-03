@@ -23,15 +23,6 @@ const PRINCIPAL: GitHubApiPrincipal = Object.freeze({
   userId: 900001,
   permission: 'maintain'
 });
-const WORKFLOW_PRINCIPAL: GitHubApiPrincipal = Object.freeze({
-  transport: 'github-actions-token',
-  login: 'github-actions[bot]',
-  nodeId: 'MDM6Qm90NDE4OTgyODI=',
-  userId: 41898282,
-  permission: 'workflow',
-  workflowRef: 'sec-platform/sec/.github/workflows/code-scanning-projection.yml@refs/heads/main',
-  workflowSha: SHA
-});
 const MAINTENANCE_WORKFLOW_PRINCIPAL: GitHubApiPrincipal = Object.freeze({
   transport: 'github-actions-token',
   login: 'github-actions[bot]',
@@ -835,71 +826,6 @@ test('request grammar rejects coercible identifiers and unsupported status state
 });
 
 
-test('code scanning alert inventory is one bounded fixed read', async () => {
-  const urls: string[] = [];
-  const api = capability({
-    effect: 'read',
-    transport: async (target) => {
-      urls.push(String(target));
-      return Response.json([]);
-    }
-  });
-  expect(await withGitHubApiTestSession({
-    capability: api,
-    operation: () => executeGitHubApiOperation(api, {
-      kind: 'code-scanning-alerts', pullRequestNumber: 636, page: 2
-    })
-  })).toEqual([]);
-  expect(urls).toEqual([
-    'https://api.github.com/repos/sec-platform/sec/code-scanning/alerts?state=open&tool_name=CodeQL&ref=refs%2Fpull%2F636%2Fhead&per_page=100&page=2'
-  ]);
-});
-
-test('workflow-scoped Actions principals are confined to their exact workflow effects', async () => {
-  const api = capability({
-    effect: 'issue-comment-write',
-    principal: WORKFLOW_PRINCIPAL,
-    transport: async (target, init) => Response.json({
-      id: 91,
-      body: init?.body === undefined ? null : JSON.parse(String(init.body)).body,
-      target: String(target)
-    })
-  });
-  await expect(withGitHubApiTestSession({
-    capability: api,
-    operation: () => executeGitHubApiOperation(api, { kind: 'repository' })
-  })).resolves.toMatchObject({ id: 91 });
-  expect(() => capability({
-    effect: 'merge-write',
-    principal: WORKFLOW_PRINCIPAL,
-    transport: async () => Response.json({})
-  })).toThrow('GitHub API privileged write capability requires maintain/admin user permission');
-
-  const maintenance = capability({
-    effect: 'branch-closeout-write',
-    principal: MAINTENANCE_WORKFLOW_PRINCIPAL,
-    transport: async () => Response.json({})
-  });
-  expect(inspectGitHubApiCapability(maintenance)).toMatchObject({
-    effect: 'branch-closeout-write',
-    principal: { workflowRef: MAINTENANCE_WORKFLOW_PRINCIPAL.workflowRef }
-  });
-  const maintenanceComments = capability({
-    effect: 'issue-comment-write',
-    principal: MAINTENANCE_WORKFLOW_PRINCIPAL,
-    transport: async () => Response.json({})
-  });
-  expect(inspectGitHubApiCapability(maintenanceComments)).toMatchObject({
-    effect: 'issue-comment-write',
-    principal: { workflowRef: MAINTENANCE_WORKFLOW_PRINCIPAL.workflowRef }
-  });
-  expect(() => capability({
-    effect: 'branch-closeout-write',
-    principal: WORKFLOW_PRINCIPAL,
-    transport: async () => Response.json({})
-  })).toThrow('branch-closeout capability requires');
-});
-
 test('maintenance workflow principal admits read, branch-closeout, and exact comment writes only', () => {
   expect(() => capability({
     effect: 'read',
@@ -1037,4 +963,47 @@ test('terminal delete 204 rejects unexpected response bytes', async () => {
       kind: 'delete-issue-comment', commentId: 91
     })
   })).rejects.toThrow('returned bytes with a terminal 204 response');
+});
+
+
+test('runner routing adds only requested labels to the exact ID under runner-admin', async () => {
+  const observed: Array<{ url: string; method: string | undefined; body: string | null }> = [];
+  const api = capability({ effect: 'runner-admin', principal: { ...PRINCIPAL, permission: 'admin' },
+    transport: async (url, init) => {
+      observed.push({ url: String(url), method: init?.method, body: init?.body === undefined ? null : String(init.body) });
+      return Response.json({ total_count: 5, labels: [] });
+    }
+  });
+  await withGitHubApiTestSession({ capability: api, operation: async () => {
+    await executeGitHubApiOperation(api, {
+      kind: 'add-repository-runner-labels', runnerId: 42, labels: ['sec-profile', 'sec-role-control']
+    });
+  } });
+  expect(observed).toEqual([{
+    url: 'https://api.github.com/repos/sec-platform/sec/actions/runners/42/labels',
+    method: 'POST', body: '{"labels":["sec-profile","sec-role-control"]}'
+  }]);
+});
+
+test('runner label mutation rejects read capability and malformed requests before transport', async () => {
+  let calls = 0;
+  const api = capability({ effect: 'read', transport: async () => { calls++; return Response.json({}); } });
+  await expect(withGitHubApiTestSession({ capability: api, operation: () => executeGitHubApiOperation(api, {
+    kind: 'add-repository-runner-labels', runnerId: 42, labels: ['sec-profile']
+  }) })).rejects.toThrow('require runner-admin authority');
+  const admin = capability({ effect: 'runner-admin', principal: { ...PRINCIPAL, permission: 'admin' },
+    transport: async () => { calls++; return Response.json({}); }
+  });
+  for (const request of [
+    { runnerId: 0, labels: ['sec-profile'] },
+    { runnerId: 42, labels: [] },
+    { runnerId: 42, labels: new Array<string>(1) },
+    { runnerId: 42, labels: Object.defineProperty(['profile'], 0, { get: () => 'profile' }) },
+    { runnerId: 42, labels: ['sec-profile', 'SEC-PROFILE'] }
+  ]) {
+    await expect(withGitHubApiTestSession({ capability: admin, operation: () => executeGitHubApiOperation(admin, {
+      kind: 'add-repository-runner-labels', ...request
+    }) })).rejects.toThrow();
+  }
+  expect(calls).toBe(0);
 });

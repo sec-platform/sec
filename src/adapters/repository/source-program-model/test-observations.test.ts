@@ -20,7 +20,7 @@ function compileFixture(
       ''
     ].join('\n')
   });
-  const descriptorPath = 'src/example/sec.module.json';
+  const descriptorPath = 'src/example/module.json';
   const descriptorSource = JSON.stringify({
     importGraph: 'runtime',
     externalEntrypoints: [],
@@ -410,7 +410,7 @@ test('compiler provenance binds registrar wrappers, reachable Effects, terminals
     contentDigest: rawSha256(source)
   }));
   const descriptors = [{
-    descriptorPath: 'src/runtime/sec.module.json',
+    descriptorPath: 'src/runtime/module.json',
     source: JSON.stringify({
       importGraph: 'runtime',
       externalEntrypoints: [],
@@ -427,7 +427,7 @@ test('compiler provenance binds registrar wrappers, reachable Effects, terminals
       preDependencyBootstrap: false
     })
   }, {
-    descriptorPath: 'tests/sec.module.json',
+    descriptorPath: 'tests/module.json',
     source: JSON.stringify({
       importGraph: 'runtime',
       externalEntrypoints: [],
@@ -489,4 +489,61 @@ test('compiler provenance binds registrar wrappers, reachable Effects, terminals
 
   const dynamic = projection.registrations.find(({ title }) => title === 'dynamic unknown');
   expect(dynamic?.unknownEdges.some((edge) => edge.startsWith('dynamic-module-unresolved:'))).toBe(true);
+});
+
+test('overlapping cyclic test inputs preserve exact reads, negative paths, and fresh revisions', () => {
+  const sources = {
+    'tests/left.test.ts': "import { test } from 'bun:test'; import { read } from './shared.ts'; test('left', () => read());\n",
+    'tests/right.test.ts': "import { test } from 'bun:test'; import { read } from './shared.ts'; test('right', () => read());\n",
+    'tests/shared.ts': "import { readFileSync, readdirSync } from 'node:fs'; import { execute } from '../src/example/operation.ts'; import { cycle } from './cycle.ts'; export function read() { readFileSync('tests/data/missing.json'); readdirSync('tests/data'); return execute(cycle()); }\n",
+    'tests/cycle.ts': "import { read } from './shared.ts'; export function cycle() { return read; }\n"
+  };
+  const first = compileFixture(sources);
+  for (const name of ['left', 'right']) {
+    const footprint = first.definitionInputs.find(({ path }) => path === `tests/${name}.test.ts`)!;
+    expect(footprint.inputs.map(({ path }) => path)).toEqual([
+      'src/example/operation.ts', 'tests/cycle.ts', 'tests/data/missing.json',
+      `tests/${name}.test.ts`, 'tests/shared.ts'
+    ]);
+    expect(footprint.inputs.find(({ path }) => path === 'tests/data/missing.json')?.contentDigest).toBeNull();
+    expect(footprint.unresolved).toContain('tests/data/missing.json:input-bytes-outside-source-snapshot');
+    expect(footprint.readEnvelopes).toEqual([
+      { root: 'tests/data', descendants: true },
+      { root: 'tests/data/missing.json', descendants: false }
+    ]);
+  }
+  const changed = compileFixture({ ...sources,
+    'tests/shared.ts': sources['tests/shared.ts'].replace('missing.json', 'replacement.json') });
+  for (const name of ['left', 'right']) {
+    const before = first.definitionInputs.find(({ path }) => path === `tests/${name}.test.ts`)!;
+    const after = changed.definitionInputs.find(({ path }) => path === `tests/${name}.test.ts`)!;
+    expect(after.inputs.map(({ path }) => path)).not.toContain('tests/data/missing.json');
+    expect(after.inputs.map(({ path }) => path)).toContain('tests/data/replacement.json');
+    expect(after.inputDigest).not.toBe(before.inputDigest);
+  }
+});
+
+test('repository unknown merge preserves predicate distinctions, order, and test-only multiplicity', async () => {
+  const { compileRepositorySourceProgramModel } = await import('./repository.ts');
+  const sources = {
+    'src/value.ts': 'export const value = 1;\n',
+    'tests/opaque.test.ts': "import { unknownValue } from 'opaque-package'; export const observed = unknownValue;\n"
+  };
+  const files = Object.entries(sources).map(([path, source]) => ({ path, source, contentDigest: rawSha256(source) }));
+  const moduleMembership = Object.freeze({ descriptors: Object.freeze([]), graphRoots: Object.freeze([]),
+    moduleRoots: Object.freeze([]), moduleForPath: () => null });
+  const sourceRevision = sha256(files.map(({ path, contentDigest }) => ({ path, contentDigest })));
+  const typescriptModel = compileTypeScriptSourceProgramModel({ sourceRevision, files, moduleMembership });
+  const observations = compileSourceProgramTestObservations({ productionModel: typescriptModel, files, moduleMembership });
+  const existing = typescriptModel.unknowns.find(({ span }) => span !== null)!;
+  expect(existing).toBeDefined();
+  const sameOffsets = { ...existing, span: { ...existing.span!, startLine: 99, endLine: 100 } };
+  const extra = { ...existing, code: 'fixture-independent-unknown', span: null };
+  const differentEnd = { ...existing, span: { ...existing.span!, end: existing.span!.end + 1 } };
+  const differentDetail = { ...existing, detail: `${existing.detail}:independent` };
+  const model = compileRepositorySourceProgramModel({ sourceRevision, files, moduleMembership, typescriptModel,
+    testObservations: { ...observations, unknowns: [sameOffsets, extra, extra, differentEnd, differentDetail] } });
+  expect(model.unknowns.slice(0, typescriptModel.unknowns.length + 4)).toEqual([
+    ...typescriptModel.unknowns, differentEnd, differentDetail, extra, extra
+  ]);
 });

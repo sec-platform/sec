@@ -1,5 +1,5 @@
 import { SecError } from '../../../../../contracts/failure.ts';
-import type { GeneratedStatePhysicalIdentity } from '../../../../runtime-state/generated-state/contract.ts';
+import type { GeneratedStatePhysicalIdentity } from '../../../../../execution/generated-state/contract.ts';
 import type { DependencyTransitionJournal } from './contract.ts';
 import { sameGeneratedStateIdentity } from './contract.ts';
 

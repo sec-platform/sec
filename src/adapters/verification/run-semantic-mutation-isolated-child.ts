@@ -47,7 +47,6 @@ import {
   retainNoFollowOrdinaryFile
 } from '../runtime-state/physical/runtime/physical-no-follow.ts';
 import { buildIsolatedProcessEnvironment, ensureIsolatedProcessDirectories, ISOLATED_VERIFICATION_ENV_KEY, runCommand, type CommandResult } from '../runtime-state/physical/runtime/process.ts';
-import { ensureCompilerDepsReady } from '../toolchain/dependencies/runtime.ts';
 import {
   compilerRuntimeLayout,
   compilerRuntimeResources, loadCanonicalBunRuntimeVersion
@@ -481,12 +480,6 @@ function resolveCanonicalSemanticMutationIsolatedRuntimeInputSources(
     officialPolicies: compilerRuntimeResources.officialPolicies,
     officialRegistry: compilerRuntimeResources.officialRegistry
   });
-}
-
-async function prepareCanonicalSemanticMutationIsolatedRuntimeInputSources(
-): Promise<SemanticMutationIsolatedRuntimeInputSources> {
-  await ensureCompilerDepsReady();
-  return Object.freeze(resolveCanonicalSemanticMutationIsolatedRuntimeInputSources());
 }
 
 function canonicalCompilerRegistryPath(value: unknown): string {
@@ -1289,12 +1282,12 @@ export async function probeSemanticMutationIsolatedRuntimeCapability(
     );
     const canonicalProductionProbe =
       buildRunnerBundle === undefined && runtimeInputSources === undefined;
-    const sources = runtimeInputSources ??
-      await prepareCanonicalSemanticMutationIsolatedRuntimeInputSources();
     if (!isSemanticMutationStagingWorkspace(stagingWorkspaceRoot)) {
       throw new Error('Isolated verification requires a controlled staging workspace');
     }
     await assertIsolatedStagingTree(stagingWorkspaceRoot);
+    const sources = runtimeInputSources ??
+      Object.freeze(resolveCanonicalSemanticMutationIsolatedRuntimeInputSources());
     if (!await hasProvenFastSuiteProcessWideWriteSandbox()) {
       throw new Error(
         'Isolated verification requires a proven process-wide fast-suite write sandbox'

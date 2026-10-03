@@ -1,4 +1,5 @@
-import { expect, test } from 'bun:test';
+import { expect, spyOn, test } from 'bun:test';
+import * as childProcess from 'node:child_process';
 
 import {
   createBranchCloseoutOperationBinding,
@@ -9,6 +10,7 @@ import {
 } from '../../src/adapters/self-hosting/control/branch-lifecycle/branch-closeout-contract.ts';
 import {
   BRANCH_CLOSEOUT_MUTATION_PHASE_STEP_NAME,
+  assertHostedCommentProvenanceLive,
   createBranchCloseoutEffectStartPublication,
   createBranchCloseoutOperationPublication,
   createHostedWorkflowCommentProvenance,
@@ -164,8 +166,8 @@ function operationReceipt(generatedAt = '2026-08-09T00:01:00.000Z', writerId = '
 function provenance() {
   return createHostedWorkflowCommentProvenance({
     repositoryId: '123',
-    workflowPath: '.github/workflows/sec-merge-gate.yml',
-    workflowRef: `.github/workflows/sec-merge-gate.yml@${MAIN_SHA}`,
+    workflowPath: '.github/workflows/merge-gate.yml',
+    workflowRef: `.github/workflows/merge-gate.yml@${MAIN_SHA}`,
     workflowSha: MAIN_SHA,
     runId: '200',
     runAttempt: 1,
@@ -361,5 +363,44 @@ test('public branch lifecycle modules cannot mint or invoke arbitrary subprocess
     'optionalBranchCommandText'
   ]) {
     expect(symbol in command).toBe(false);
+  }
+});
+
+
+test('hosted receipt permission keeps paired facts and separate source actor identity', () => {
+  const identity = provenance();
+  const comment = issueCommentRecord(actionsComment(20, 'body'), 'hosted comment');
+  let permission: unknown = { permission: 'write', role_name: 'maintain' };
+  let actorNodeId = identity.actorNodeId;
+  const subprocess = spyOn(childProcess, 'spawnSync').mockImplementation(((command: string, args: readonly string[]) => {
+    expect(command).toBe('gh');
+    expect(args).not.toContain('--jq');
+    const endpoint = args.find(arg => arg.startsWith('/repos/'));
+    let response: unknown;
+    if (endpoint === '/repos/sec-platform/sec') {
+      response = { id: Number(identity.repositoryId), full_name: 'sec-platform/sec', default_branch: 'main' };
+    } else if (endpoint?.endsWith(`/actions/runs/${identity.runId}/attempts/1`)) {
+      response = { id: Number(identity.runId), run_attempt: 1, event: identity.eventName,
+        path: identity.workflowPath, head_sha: identity.workflowSha, actor: {}, repository: { id: Number(identity.repositoryId) } };
+    } else if (endpoint?.endsWith(`/actions/runs/${identity.sourceRunId}/attempts/1`)) {
+      response = { id: Number(identity.sourceRunId), run_attempt: 1, event: 'repository_dispatch',
+        path: '.github/workflows/compiler-pr-validation.yml', head_sha: identity.workflowSha,
+        triggering_actor: { login: identity.actorLogin, node_id: actorNodeId } };
+    } else if (endpoint?.endsWith(`/collaborators/${identity.actorLogin}/permission`)) {
+      response = permission;
+    } else throw new Error(`unexpected permission witness request: ${endpoint}`);
+    const stdout = Buffer.from(JSON.stringify(response));
+    return { status: 0, stdout, stderr: Buffer.alloc(0), pid: 1, output: [null, stdout, Buffer.alloc(0)], signal: null };
+  }) as typeof childProcess.spawnSync);
+  const observe = () => assertHostedCommentProvenanceLive(process.cwd(), 'sec-platform/sec', comment, identity);
+  try {
+    expect(observe).not.toThrow();
+    permission = { permission: 'read', role_name: 'maintain' };
+    expect(observe).toThrow('insufficient role');
+    permission = { permission: 'write', role_name: 'maintain' };
+    actorNodeId = 'different-node';
+    expect(observe).toThrow('source workflow provenance drifted');
+  } finally {
+    subprocess.mockRestore();
   }
 });

@@ -1,4 +1,4 @@
-import { compareCodeUnits, uniqueSorted, uniqueSortedByKey } from '../../contracts/canonical.ts';
+import { CanonicalKeyConflictError, compareCodeUnits, isPlainObject, uniqueSorted, uniqueSortedByKey } from '../../contracts/canonical.ts';
 import type { SemanticAttribute, SemanticAttributeValue } from '../../semantics/engineering-ir/entity-types.ts';
 import type { EvidenceReference, FactProvenance, SemanticFactObject, SemanticValue } from '../../semantics/engineering-ir/fact-types.ts';
 
@@ -45,12 +45,46 @@ function evidenceKey(evidence: EvidenceReference): string {
   return [evidence.kind, evidence.ref, evidence.digest ?? ''].join('\u0000');
 }
 
+/** Duplicate comparison is deliberately flat and descriptor-based: do not call
+ * toJSON/getters or let JSON omit competing fields. Unique legacy records never
+ * pass through this narrower duplicate-comparison domain. */
+function metadataWireFields(value: unknown): [string, string][] {
+  if (!isPlainObject(value)) throw new TypeError('IR metadata duplicates require plain data records');
+  return Reflect.ownKeys(value).map(key => {
+    const descriptor = Object.getOwnPropertyDescriptor(value, key);
+    if (typeof key !== 'string' || descriptor === undefined || !descriptor.enumerable
+      || !Object.hasOwn(descriptor, 'value') || typeof descriptor.value !== 'string') {
+      throw new TypeError('IR metadata duplicates require enumerable own string data');
+    }
+    return [key, descriptor.value];
+  });
+}
+
+/** These legacy consumers include insertion-ordered metadata JSON in identity.
+ * Preserve each unique record; equal canonical data with different wire bytes
+ * is ambiguous here and must not silently choose a historical preimage. */
+function uniqueSortedMetadataByKey<Value>(values: readonly Value[], keyOf: (value: Value) => string): Value[] {
+  const byKey = new Map<string, Value>();
+  return uniqueSortedByKey(values, value => {
+    const key = keyOf(value);
+    if (byKey.has(key)) {
+      const previous = metadataWireFields(byKey.get(key));
+      const current = metadataWireFields(value);
+      if (previous.length !== current.length || previous.some(([field, data], index) =>
+        field !== current[index]![0] || data !== current[index]![1])) throw new CanonicalKeyConflictError();
+    } else {
+      byKey.set(key, value);
+    }
+    return key;
+  });
+}
+
 export function normalizeProvenance(provenance: readonly FactProvenance[]): FactProvenance[] {
-  return uniqueSortedByKey(provenance, provenanceKey);
+  return uniqueSortedMetadataByKey(provenance, provenanceKey);
 }
 
 export function normalizeEvidence(evidence: readonly EvidenceReference[]): EvidenceReference[] {
-  return uniqueSortedByKey(evidence, evidenceKey);
+  return uniqueSortedMetadataByKey(evidence, evidenceKey);
 }
 
 

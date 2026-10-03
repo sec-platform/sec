@@ -1,12 +1,10 @@
 import { lstat, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+import { createGeneratedStateCleanupOperationSession } from '../../../../execution/generated-state/cleanup-budget.ts';
 
+import { generatedStateProducerHooks } from '../../../../../tests/helpers/generated-state-fixture.ts';
 import { settleResourcesAsync as settlePhysicalResourcesAsync } from '../../../../execution/resource-settlement.ts';
-import {
-  createGeneratedStateCleanupOperationSession,
-  generatedStateProducerHooks
-} from '../../../runtime-state/generated-state/lifecycle.ts';
 import { issueRuntimeDependencyTestMaterialization } from '../runtime/materialization-fixture-capability.ts';
 import {
   runtimeDependencyOperationContext,
@@ -22,7 +20,8 @@ import {
   assertCompilerDependencyEnvironmentRetirementReceipt,
   compilerDependencyLocatorWorktreeRetirementProvider,
   disposeCompilerDependencyEnvironment,
-  ensureCompilerDepsReady
+  ensureCompilerDepsReady,
+  ensureCompilerDepsReadyFromGeneration
 } from '../runtime/project-runtime.ts';
 
 interface CompilerDependencyFixturePackage {
@@ -321,9 +320,19 @@ export async function issueCompilerDependencyFixtureOperation(
 }
 
 export async function settleCompilerDependencyFixtureOperation(
-  operation: CompilerDependencyFixtureOperation
+  operation: CompilerDependencyFixtureOperation,
+  source?: CompilerDependencyExecutionGenerationAuthority
 ): Promise<CompilerDependencyFixtureReadyState> {
   const state = operationState(operation);
+  if (source !== undefined) {
+    state.ready = await ensureCompilerDepsReadyFromGeneration(source, {
+      ...fixtureOperationOptions(state),
+      testMaterialization: issueRuntimeDependencyTestMaterialization(async () => {
+        throw new Error('Explicit compiler generation reuse must not materialize packages');
+      })
+    }, state.descriptor.dependencyRootPath);
+    return readyProjection(state.ready);
+  }
   return ensureFixture(state, false, fixtureOperationOptions(state));
 }
 

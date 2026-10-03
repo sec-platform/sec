@@ -1,15 +1,17 @@
 import crypto from 'node:crypto';
 import { lstatSync, realpathSync } from 'node:fs';
 import fs from 'node:fs/promises';
-import { hostname } from 'node:os';
 import path from 'node:path';
 import { setTimeout as sleepMs } from 'node:timers/promises';
-import { canonicalEquals, canonicalJson, compareCodeUnits, digest, sortedKeys, uniqueSorted } from '../../../../contracts/canonical.ts';
+import { canonicalEquals, canonicalJson, compareCodeUnits, digest, sortedKeys } from '../../../../contracts/canonical.ts';
 import { type CommitFence } from "../../../../contracts/commit-fence.ts";
 import { parseExactJson } from '../../../../contracts/exact-json.ts';
+import { boundedFailureCode } from '../../../../contracts/failure-inspection.ts';
 import { SecError } from '../../../../contracts/failure.ts';
 import { formatJsonFile } from "../../../../contracts/json-text.ts";
 import { isPathInside } from "../../../../contracts/relative-path.ts";
+import { COMPILER_STAGING_LIFECYCLE_OWNER, COMPILER_STAGING_LIFECYCLE_RULE } from '../../../../execution/dependency-generated-state.ts';
+import { generatedStateDigest, type GeneratedStateCleanupProfile, type GeneratedStateInventory, type GeneratedStatePhysicalIdentity, type GeneratedStateRegistration } from '../../../../execution/generated-state/contract.ts';
 import {
   bindSecSemanticOperation,
   compileSecCapabilityBinding,
@@ -18,43 +20,34 @@ import {
   type SecBoundSemanticOperation
 } from '../../../../execution/operation/semantic.ts';
 import { isFileNotFoundError, readJson } from "../../../filesystem/files.ts";
-import { generatedStateDigest, generatedStateDomainProviderMaterialDigest, type GeneratedStateCleanupProfile, type GeneratedStateInventory, type GeneratedStatePhysicalIdentity, type GeneratedStateRegistration } from '../../../runtime-state/generated-state/contract.ts';
-import { consumeGeneratedStateWorktreeRetirementEffectAuthority, type GeneratedStateWorktreeRetirementProvider } from '../../../runtime-state/generated-state/lifecycle.ts';
-import { assertPhysicalGenerationRetirementReceipt, assertSameNoFollowDirectoryIdentity, copyNoFollowDirectoryTreesBulk, createExclusiveNoFollowRandomDirectory, createNoFollowOrdinaryDirectoryChain, deleteRetainedNoFollowEntry, inspectExactNoFollowDirectoryPresence, inspectExactNoFollowLinkEntry, inspectNoFollowDirectoryChain, inspectNoFollowDirectoryChild, inspectNoFollowDirectoryLeaf, inspectNoFollowLinkEntry, inspectNoFollowOrdinaryFileEntry, materializeRetainedNoFollowProvenDirectoryGeneration, openWindowsLegacySealedDirectoryRelocation, PhysicalNoFollowError, prepareWindowsLegacySealedDirectoryRelocation, publishExclusiveDurableCanonicalFile, publishExclusiveNoFollowLink, readNoFollowOrdinaryFile, relocateRetainedNoFollowDirectoryAcrossParents, relocateRetainedNoFollowLinkAcrossParents, relocateWindowsLegacySealedDirectory, reopenRetainedNoFollowProvenDirectoryGeneration, replaceDurableCanonicalFile, retainNoFollowOrdinaryFile, retireNoFollowDirectoryTree, retireNoFollowProvenDirectoryGeneration, scanNoFollowDirectoryTreeInventory, scanNoFollowDirectoryTreeMetadata, type PhysicalDirectoryChain, type PhysicalDirectoryIdentity, type PhysicalGenerationRetirementReceipt, type RetainedNoFollowOrdinaryFile, type RetainedNoFollowProvenDirectoryGeneration, type WindowsLegacySealedDirectoryRelocationCapability } from '../../../runtime-state/physical/runtime/physical-no-follow.ts';
+import { assertPhysicalGenerationRetirementReceipt, assertSameNoFollowDirectoryIdentity, copyNoFollowDirectoryTreesBulk, createExclusiveNoFollowRandomDirectory, createNoFollowOrdinaryDirectoryChain, deleteRetainedNoFollowEntry, inspectExactNoFollowDirectoryPresence, inspectExactNoFollowLinkEntry, inspectNoFollowDirectoryChain, inspectNoFollowDirectoryChild, inspectNoFollowDirectoryLeaf, inspectNoFollowLinkEntry, inspectNoFollowOrdinaryFileEntry, materializeRetainedNoFollowProvenDirectoryGeneration, openWindowsLegacySealedDirectoryRelocation, PhysicalNoFollowError, prepareWindowsLegacySealedDirectoryRelocation, publishExclusiveDurableCanonicalFile, publishExclusiveNoFollowLink, readNoFollowOrdinaryFile, relocateRetainedNoFollowDirectoryAcrossParents, relocateRetainedNoFollowLinkAcrossParents, relocateWindowsLegacySealedDirectory, reopenRetainedNoFollowProvenDirectoryGeneration, replaceDurableCanonicalFile, retireNoFollowDirectoryTree, retireNoFollowProvenDirectoryGeneration, scanNoFollowDirectoryTreeInventory, scanNoFollowDirectoryTreeMetadata, type PhysicalDirectoryIdentity, type PhysicalGenerationRetirementReceipt, type RetainedNoFollowProvenDirectoryGeneration, type WindowsLegacySealedDirectoryRelocationCapability } from '../../../runtime-state/physical/runtime/physical-no-follow.ts';
 import { WindowsHostDirectoryAuthorityError } from '../../../runtime-state/physical/runtime/windows-host-filesystem-authority.ts';
 import { resolveSecWorkspaceRuntimeRoots } from '../../../runtime-state/workspace-state/paths.ts';
 import { acquireSecRuntimeStatePhysicalAuthority } from '../../../runtime-state/workspace-state/physical-authority.ts';
-import {
-  parseGitWorktreeAdminLocator,
-  parseGitWorktreeAdminPath
-} from '../../../runtime-state/worktree-closeout-contract.ts';
 import { compilerRoot } from "../../../workspace-context.ts";
-import { loadCanonicalBunRuntimeVersion } from '../../runtime.ts';
 import type { DependencyFreshnessLockObservation } from '../contract/dependency-freshness.ts';
 import {
   buildRuntimeDependencyMaterializationBinding,
   isRuntimeDependencyMaterializationBinding,
-  isRuntimeDependencyPackageManifest,
-  isRuntimeDependencyPackageName,
   isRuntimeDepsPreboundBinding,
   loadRuntimeDependencySpec,
   parseLegacyRuntimeDependencyMaterializationV2ForRecovery,
-  parseRuntimeDependencyPackageReference,
-  RUNTIME_DEPENDENCY_PACKAGE_NAMES,
   RUNTIME_DEPS_PREBOUND_BINDING_FILE,
   type RuntimeDependencyMaterializationBinding,
-  type RuntimeDependencyResolutionEdge,
-  type RuntimeDependencyResolvedPackage,
-  type RuntimeDependencySpec,
-  type RuntimeDependencyToolchainBinding
+  type RuntimeDependencySpec
 } from '../contract/runtime-dependency-spec.ts';
 import { runBunInstall } from './compiler-install-process.ts';
+import {
+  canonicalCompilerDependencyGenerationOwnerRoot,
+  compilerDependencyLocatorObservation,
+  compilerDependencyLocatorWorktreeRetirementProvider,
+  isCanonicalLocalCompilerDependencyGeneration
+} from './compiler-locator.ts';
 import {
   assertCompilerDependencyInputsCurrent,
   COMPILER_DEPENDENCY_INSTALL_ARGS,
   compilerDependencyIdentity,
   compilerDependencyInputFenceMatches,
-  compilerDependencyManifestAuthority,
   compilerInstallConfigSha256,
   currentRuntimeExecutableIdentity,
   observeCompilerDependencyIdentity,
@@ -67,6 +60,7 @@ import {
   isCanonicalGeneratedStatePhysicalIdentity,
   isSha256Digest,
   sameGeneratedStateIdentity,
+  sameGeneratedStateIdentity as sameGeneratedStatePhysicalIdentity,
   sourceGenerationWithPath,
   transitionAbsentSlot,
   transitionSlotFromPhysical,
@@ -109,19 +103,33 @@ import { sameHostPath } from './host-path.ts';
 import {
   bindAndRetireCompilerDependencyPreimage,
   bindExistingCompilerDependencyGeneration,
-  bindExistingSharedDependencyRoot,
+  bindExistingLegacySharedDependencyRoot,
   birthAndBindCompilerDependencyGeneration,
   COMPILER_NODE_MODULES_LIFECYCLE_OWNER,
   COMPILER_NODE_MODULES_LIFECYCLE_PRODUCER,
   COMPILER_NODE_MODULES_LIFECYCLE_RULE,
-  COMPILER_STAGING_LIFECYCLE_OWNER,
   COMPILER_STAGING_LIFECYCLE_PRODUCER,
-  COMPILER_STAGING_LIFECYCLE_RULE,
   compilerDependencyStagingLifecycleExpectation,
   ensureCompilerDependencyPreimageRetiredForRecovery,
-  settleRetiredCompilerDependencyGeneration,
-  sharedDependencyLifecycleExpectation
+  legacySharedDependencyRetirementExpectation,
+  settleRetiredCompilerDependencyGeneration
 } from './lifecycle-registration.ts';
+import { linkedWorktreeDependencyOwnerRoot } from './linked-worktree-owner.ts';
+// Binding observation is read-only; this owner keeps the complete transition,
+// recovery and generation-retention lifecycle rather than splitting its custody.
+import {
+  COMPILER_DEPS_BINDING_FILE,
+  COMPILER_DEPS_BINDING_KEYS,
+  compilerDependencyBindingMatchesIdentity,
+  compilerDependencyDirectRootResolution,
+  compilerDependencyGenerationBinding,
+  compilerDependencyPackageBindings,
+  compilerRuntimeMaterializationBinding,
+  hasCompleteRuntimeDeps,
+  readCompilerDepsBinding,
+  runtimeDependencyTreeMatchesBinding,
+  type CompilerDepsBinding
+} from './materialization-binding.ts';
 import {
   MAX_DEPENDENCY_OPERATION_TIMEOUT_MS,
   runtimeDependencyOperationContext,
@@ -137,6 +145,7 @@ import {
   measureRuntimeDependencyOperationPhaseAsync
 } from './operation-telemetry.ts';
 import {
+  assertRuntimeDependencySourceGenerationIssued,
   isGeneratedStatePhysicalIdentity,
   isRuntimeDependencySourceGeneration,
   issuedRuntimeDependencySourceGenerationWithPath,
@@ -148,6 +157,7 @@ import {
   sameRuntimeDependencySourceGenerationContent
 } from './source-generation.ts';
 
+export { compilerDependencyLocatorWorktreeRetirementProvider } from './compiler-locator.ts';
 export {
   observeCompilerDependencyMaterializationInput,
   type CompilerDependencyMaterializationDigest,
@@ -415,102 +425,25 @@ export interface DependencyAuthorityPaths {
   readonly dependencyModules: string;
   readonly sharedDepsRoot: string;
 }
-
-interface CompilerDependencyPackageBinding {
-  entry?: {
-    path: string;
-    sha256: string;
-  };
-  manifestSha256: string;
-  name: string;
-  version: string;
+function requireGeneratedStateLifecycle(options: RuntimeDependencyInstallOptions) {
+  const lifecycle = options.generatedStateLifecycle;
+  if (lifecycle === undefined) throw new SecError('IMPORT-AUTHORITY-004', 'Dependency operation has no bootstrap-bound generated-state lifecycle capability.');
+  return lifecycle;
+}
+/** Read-only location fact from the original coordination locator owner. */
+export function observeCompilerDependencyLifecycleStateRoot(root: string): string | null {
+  return observeNoFollowOwnedFile(compilerDependencyCoordinationLocatorPath(root),
+    'Compiler dependency generated-state locator') === null ? null : resolveCompilerDependencyCoordinationRoots(root).roots.stateRoot;
+}
+function selectGeneratedStateLifecycle(options: RuntimeDependencyOperationOptions, workspaceRoot: string): RuntimeDependencyOperationOptions {
+  const factory = options.generatedStateLifecycleFactory;
+  return factory === undefined ? options : runtimeDependencyOperationOptions({ ...options,
+    generatedStateLifecycle: factory.forWorkspace(path.resolve(workspaceRoot)) });
 }
 
-interface CompilerDepsBinding {
-  readonly architecture: string;
-  readonly bunExecutablePath: string;
-  readonly bunExecutableSha256: string;
-  readonly bunVersion: string;
-  readonly declaredBunVersion: string;
-  readonly dependencyManifestSha256: string;
-  readonly formatVersion: 'compiler-deps-binding-v5';
-  readonly installConfigSha256: string | null;
-  readonly lockSha256: string;
-  readonly manifestHash: string;
-  readonly packages: readonly CompilerDependencyPackageBinding[];
-  readonly platform: NodeJS.Platform;
-  readonly runtimeMaterialization: Readonly<RuntimeDependencyMaterializationBinding> | null;
-}
 
-const COMPILER_DEPS_BINDING_FILE = '.sec-compiler-deps-binding-v5.json' as const;
 
-async function bindCanonicalGeneratedStateLifecycle(
-  options: RuntimeDependencyOperationOptions,
-  root: string
-): Promise<RuntimeDependencyOperationOptions> {
-  if (!sameHostPath(root, compilerRoot)) return options;
-  const {
-    createGeneratedStateCleanupOperationSession,
-    generatedStateProducerHooks: generatedStateProducerHooksV1
-  } = await import('../../../runtime-state/generated-state/lifecycle.ts');
-  const context = runtimeDependencyOperationContext(options);
-  // Compiler coordination retains the Runtime State generation that owns
-  // registrations for this worktree. A test invocation may isolate its own
-  // state root; that process-local root cannot sign the existing locator.
-  const locatedStateRoot = observeNoFollowOwnedFile(
-    compilerDependencyCoordinationLocatorPath(root),
-    'Compiler dependency generated-state locator'
-  ) === null ? null : resolveCompilerDependencyCoordinationRoots(root).roots.stateRoot;
-  return Object.freeze({
-    ...options,
-    generatedStateLifecycle: generatedStateProducerHooksV1(
-      { repositoryRoot: root },
-      {
-        cleanupOperation: createGeneratedStateCleanupOperationSession({
-          deadlineAtMonotonicMs: context.deadlineAtMonotonicMs,
-          maximumBytes: RUNTIME_DEPENDENCY_SOURCE_MAXIMUM_BYTES,
-          maximumEntries: RUNTIME_DEPENDENCY_SOURCE_MAXIMUM_ENTRIES,
-          monotonicNowMs: context.monotonicNowMs,
-          signal: context.signal
-        }),
-        ...(locatedStateRoot === null ? {} : {
-          environment: Object.freeze({ ...process.env, SEC_STATE_HOME: locatedStateRoot })
-        }),
-        worktreeRetirementProviders: [compilerDependencyLocatorWorktreeRetirementProvider]
-      }
-    )
-  }) as RuntimeDependencyOperationOptions;
-}
 
-async function bindGeneratedStateRecoveryLifecycle(
-  options: RuntimeDependencyOperationOptions,
-  root: string
-): Promise<RuntimeDependencyOperationOptions> {
-  const {
-    createGeneratedStateCleanupOperationSession,
-    generatedStateProducerHooks: generatedStateProducerHooksV1
-  } = await import(
-    '../../../runtime-state/generated-state/lifecycle.ts'
-  );
-  const context = runtimeDependencyOperationContext(options);
-  const cleanupOperation = createGeneratedStateCleanupOperationSession({
-    deadlineAtMonotonicMs: context.deadlineAtMonotonicMs,
-    maximumBytes: RUNTIME_DEPENDENCY_SOURCE_MAXIMUM_BYTES,
-    maximumEntries: RUNTIME_DEPENDENCY_SOURCE_MAXIMUM_ENTRIES,
-    monotonicNowMs: context.monotonicNowMs,
-    signal: context.signal
-  });
-  return Object.freeze({
-    ...options,
-    generatedStateLifecycle: generatedStateProducerHooksV1(
-      { repositoryRoot: path.resolve(root), workspaceRoot: path.resolve(root) },
-      {
-        cleanupOperation,
-        worktreeRetirementProviders: [compilerDependencyLocatorWorktreeRetirementProvider]
-      }
-    )
-  }) as RuntimeDependencyOperationOptions;
-}
 
 export async function disposeCanonicalSharedDependencies(
   options: RuntimeDependencyInstallOptions = {},
@@ -524,7 +457,7 @@ export async function disposeCanonicalSharedDependencies(
   const observedRoot = await physicalSharedDependencyDirectory(sharedDepsRoot, true);
   if (observedRoot === null) return false;
   const spec = loadRuntimeDependencySpec(path.join(root, 'package.json'));
-  const lifecycleOptions = await bindCanonicalGeneratedStateLifecycle(operationOptions, root);
+  const lifecycleOptions = selectGeneratedStateLifecycle(operationOptions, root);
   const lifecycle = lifecycleOptions.generatedStateLifecycle;
   const observeRetirement = lifecycle?.observeRetirement;
   if (lifecycle === undefined || observeRetirement === undefined || lifecycle.bind === undefined) {
@@ -540,18 +473,26 @@ export async function disposeCanonicalSharedDependencies(
     lifecycleOptions,
     'Shared dependency retirement pre-lease inventory'
   );
-  const expectation = sharedDependencyLifecycleExpectation(
+  const expectation = legacySharedDependencyRetirementExpectation(
+    generatedStatePhysicalIdentity(observedRoot)
+  );
+  // A legacy v1 registration may still reside in the predecessor registration
+  // store. Bind is read-only with respect to the dependency root; it migrates
+  // only the durable registration ledger, then proves the exact physical
+  // identity before any dependency Effect is admitted.
+  await bindExistingLegacySharedDependencyRoot(
+    lifecycleOptions,
     generatedStatePhysicalIdentity(observedRoot)
   );
   const preLeaseObservation = await observeRetirement('.shared-deps', expectation);
   const { assertGeneratedStateRetirementObservation } = await import(
-    '../../../runtime-state/generated-state/lifecycle.ts'
+    '../../../runtime-state/generated-state/lifecycle-evidence.ts'
   );
-  assertGeneratedStateRetirementObservation(preLeaseObservation);
+  await assertGeneratedStateRetirementObservation(preLeaseObservation, { workspaceRoot: root, relativePath: preLeaseObservation.relativePath });
   if (preLeaseObservation.status !== 'active') {
     throw new SecError(
       'IMPORT-AUTHORITY-004',
-      'Legacy shared dependency root has no exact active owner registration; physical root is preserved',
+      'Legacy shared dependency root has no exact historical retirement registration; physical root is preserved',
       {
         inventoryDigest: preLeaseInventory.treeDigest,
         membership: preLeaseInventory.membership,
@@ -585,16 +526,16 @@ export async function disposeCanonicalSharedDependencies(
         'Shared dependency root changed before lifecycle disposal; current state is preserved'
       );
     }
-    await bindExistingSharedDependencyRoot(leaseOptions, generatedStatePhysicalIdentity(current));
+    await bindExistingLegacySharedDependencyRoot(leaseOptions, generatedStatePhysicalIdentity(current));
     await runtimeDependencyOperationEffectFence(leaseOptions, 'Shared dependency retirement');
     const receipt = await lifecycle.disposed('.shared-deps', {
       outcome,
       profile: 'all-rebuildable'
     });
     const { assertGeneratedStateDisposalReceipt } = await import(
-      '../../../runtime-state/generated-state/lifecycle.ts'
+      '../../../runtime-state/generated-state/lifecycle-evidence.ts'
     );
-    assertGeneratedStateDisposalReceipt(receipt);
+    await assertGeneratedStateDisposalReceipt(receipt, { workspaceRoot: root, relativePath: receipt.relativePath });
     if (receipt.profile !== 'all-rebuildable' || receipt.terminal !== 'disposed' ||
         !sameGeneratedStateIdentity(receipt.physical, generatedStatePhysicalIdentity(current)) ||
         physicalSharedDependencyDirectory(sharedDepsRoot, true) !== null) {
@@ -650,10 +591,7 @@ export async function disposeCompilerDependencyEnvironment(
       return issueCompilerDependencyEnvironmentRetirementReceipt(unsigned);
     }
     const admittedRootPhysical = generatedStatePhysicalIdentity(admittedRoot.directory.target);
-    const operationOptions = await bindCanonicalGeneratedStateLifecycle(
-      boundedOptions,
-      root
-    );
+    const operationOptions = selectGeneratedStateLifecycle(boundedOptions, root);
     return withCompilerDependencyTransitionLease(root, operationOptions, async (leaseOptions) => {
       runtimeDependencyOperationRemainingMs(
         leaseOptions,
@@ -744,567 +682,6 @@ export function dependencyAuthorityPaths(
     compilerModulesRoot: path.join(root, 'node_modules'),
     dependencyModules: path.join(sharedDepsRoot, 'node_modules'),
     sharedDepsRoot
-  });
-}
-
-function dependencyPackagePath(nodeModulesPath: string, packageName: string): string {
-  return path.join(nodeModulesPath, ...packageName.split('/'), 'package.json');
-}
-
-const criticalCompilerDependencyEntries = new Set([
-  'typescript'
-]);
-
-function isExactPackageVersion(value: string): boolean {
-  return /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/u.test(value);
-}
-
-function compilerDependencyManifestExpectation(
-  packageName: string,
-  request: string
-): Readonly<{ name: string; version: string }> {
-  if (!request.startsWith('npm:')) return Object.freeze({ name: packageName, version: request });
-  const alias = /^npm:(@[^/\s]+\/[^@\s]+|[^@\s]+)@(.+)$/u.exec(request);
-  if (alias === null || alias[1] === undefined || alias[2] === undefined || !isExactPackageVersion(alias[2])) {
-    throw new SecError('IMPORT-AUTHORITY-002', `Compiler dependency npm alias is invalid: ${packageName}`);
-  }
-  return Object.freeze({ name: alias[1], version: alias[2] });
-}
-
-async function compilerDependencyPackageBinding(
-  nodeModulesPath: string,
-  packageName: string,
-  requestedVersion: string
-): Promise<CompilerDependencyPackageBinding> {
-  const expected = compilerDependencyManifestExpectation(packageName, requestedVersion);
-  const packageRoot = path.dirname(dependencyPackagePath(nodeModulesPath, packageName));
-  const packageJsonPath = path.join(packageRoot, 'package.json');
-  const packageJsonBytes = await fs.readFile(packageJsonPath);
-  const manifest = JSON.parse(packageJsonBytes.toString('utf8')) as {
-    main?: unknown;
-    name?: unknown;
-    version?: unknown;
-  };
-  if (manifest.name !== expected.name || typeof manifest.version !== 'string' || manifest.version.length === 0) {
-    throw new SecError('IMPORT-AUTHORITY-002', `Compiler dependency manifest is invalid: ${packageName}`);
-  }
-  if (isExactPackageVersion(expected.version) && manifest.version !== expected.version) {
-    throw new SecError(
-      'IMPORT-AUTHORITY-002',
-      `Compiler dependency version mismatch: ${packageName}@${manifest.version} != ${expected.version}`
-    );
-  }
-
-  let entry: CompilerDependencyPackageBinding['entry'];
-  if (criticalCompilerDependencyEntries.has(packageName)) {
-    if (typeof manifest.main !== 'string' || manifest.main.length === 0) {
-      throw new SecError('IMPORT-AUTHORITY-002', `Critical compiler dependency has no main entry: ${packageName}`);
-    }
-    const entryPath = manifest.main.replace(/^\.\//u, '').replace(/\\/gu, '/');
-    const absoluteEntry = path.resolve(packageRoot, ...entryPath.split('/'));
-    const relativeEntry = path.relative(packageRoot, absoluteEntry);
-    if (relativeEntry.startsWith('..') || path.isAbsolute(relativeEntry)) {
-      throw new SecError('IMPORT-AUTHORITY-002', `Critical compiler dependency entry escapes its package: ${packageName}`);
-    }
-    entry = {
-      path: entryPath,
-      sha256: digest(await fs.readFile(absoluteEntry))
-    };
-  }
-
-  return {
-    ...(entry ? { entry } : {}),
-    manifestSha256: digest(packageJsonBytes),
-    name: packageName,
-    version: manifest.version
-  };
-}
-
-async function compilerDependencyPackageBindings(
-  nodeModulesPath: string,
-  identity: CompilerDependencyIdentity
-): Promise<readonly CompilerDependencyPackageBinding[]> {
-  return Promise.all(uniqueSorted(identity.packageNames).map((packageName) => compilerDependencyPackageBinding(
-    nodeModulesPath,
-    packageName,
-    identity.packageVersions[packageName] ?? '*'
-  )));
-}
-
-function compilerDependencyDirectRootResolution(
-  binding: Readonly<CompilerDepsBinding>,
-  identity: CompilerDependencyIdentity
-): DependencyFreshnessLockObservation {
-  const packageByDeclaredName = new Map(binding.packages.map((entry) => [entry.name, entry]));
-  if (packageByDeclaredName.size !== identity.packageNames.length) {
-    throw new SecError(
-      'RUNTIME-DEPS-004',
-      'Compiler dependency generation has no exact direct-root resolution'
-    );
-  }
-  const entries = identity.packageNames.map((declaredName) => {
-    const packageBinding = packageByDeclaredName.get(declaredName);
-    const declaredReference = identity.packageVersions[declaredName];
-    if (packageBinding === undefined || declaredReference === undefined) {
-      throw new SecError(
-        'RUNTIME-DEPS-004',
-        `Compiler dependency direct root is absent from its binding: ${declaredName}`
-      );
-    }
-    const expected = compilerDependencyManifestExpectation(declaredName, declaredReference);
-    if (!isExactPackageVersion(packageBinding.version)) {
-      throw new SecError(
-        'RUNTIME-DEPS-004',
-        `Compiler dependency direct root has no exact resolved version: ${declaredName}`
-      );
-    }
-    return Object.freeze({
-      declaredName,
-      packageName: expected.name,
-      resolvedVersion: packageBinding.version
-    });
-  });
-  return Object.freeze({
-    entries: Object.freeze(entries),
-    lockDigest: `sha256:${binding.lockSha256}` as const
-  });
-}
-
-const COMPILER_DEPS_BINDING_KEYS = Object.freeze([
-  'architecture', 'bunExecutablePath', 'bunExecutableSha256', 'bunVersion',
-  'declaredBunVersion', 'dependencyManifestSha256', 'formatVersion',
-  'installConfigSha256', 'lockSha256', 'manifestHash', 'packages', 'platform',
-  'runtimeMaterialization'
-]);
-
-function isCompilerDepsBinding(value: unknown): value is CompilerDepsBinding {
-  if (value === null || typeof value !== 'object' || Array.isArray(value)) return false;
-  const candidate = value as Partial<CompilerDepsBinding>;
-  if (Object.keys(candidate).sort(compareCodeUnits).join('\0') !== COMPILER_DEPS_BINDING_KEYS.join('\0') ||
-      candidate.formatVersion !== 'compiler-deps-binding-v5' ||
-      !Array.isArray(candidate.packages) ||
-      (candidate.runtimeMaterialization !== null &&
-        !isRuntimeDependencyMaterializationBinding(candidate.runtimeMaterialization))) return false;
-  for (const field of [
-    'architecture', 'bunExecutablePath', 'bunExecutableSha256', 'bunVersion',
-    'declaredBunVersion', 'dependencyManifestSha256', 'lockSha256', 'manifestHash', 'platform'
-  ] as const) {
-    if (typeof candidate[field] !== 'string') return false;
-  }
-  if (candidate.installConfigSha256 !== null && typeof candidate.installConfigSha256 !== 'string') return false;
-  return candidate.packages.every((entry) => {
-    if (entry === null || typeof entry !== 'object' || Array.isArray(entry)) return false;
-    const keys = Object.keys(entry).sort(compareCodeUnits);
-    const expectedKeys = entry.entry === undefined
-      ? ['manifestSha256', 'name', 'version']
-      : ['entry', 'manifestSha256', 'name', 'version'];
-    return keys.join('\0') === expectedKeys.join('\0') &&
-      typeof entry.manifestSha256 === 'string' && typeof entry.name === 'string' &&
-      typeof entry.version === 'string' &&
-      (entry.entry === undefined || (
-        entry.entry !== null && typeof entry.entry === 'object' && !Array.isArray(entry.entry) &&
-        Object.keys(entry.entry).sort(compareCodeUnits).join('\0') === ['path', 'sha256'].join('\0') &&
-        typeof entry.entry.path === 'string' && typeof entry.entry.sha256 === 'string'
-      ));
-  });
-}
-
-async function readCompilerDepsBinding(bindingPath: string): Promise<CompilerDepsBinding | null> {
-  let value: unknown;
-  try {
-    value = await readJson<unknown>(bindingPath);
-  } catch (error) {
-    if (isFileNotFoundError(error) || error instanceof SyntaxError) return null;
-    throw error;
-  }
-  return isCompilerDepsBinding(value) ? value : null;
-}
-
-function compilerDependencyBindingMatchesIdentity(
-  binding: Readonly<CompilerDepsBinding>,
-  identity: CompilerDependencyIdentity
-): boolean {
-  return binding.architecture === identity.architecture &&
-    binding.bunExecutablePath === identity.bunExecutablePath &&
-    binding.bunExecutableSha256 === identity.bunExecutableSha256 &&
-    binding.bunVersion === identity.bunVersion &&
-    binding.declaredBunVersion === identity.declaredBunVersion &&
-    binding.dependencyManifestSha256 === identity.dependencyManifestSha256 &&
-    binding.installConfigSha256 === identity.installConfigSha256 &&
-    binding.lockSha256 === identity.lockSha256 &&
-    binding.manifestHash === identity.manifestHash &&
-    binding.platform === identity.platform;
-}
-
-async function compilerDependencyGenerationBinding(
-  root: string,
-  nodeModulesPath: string,
-  bindingPath: string,
-  identity: CompilerDependencyIdentity
-): Promise<Readonly<CompilerDepsBinding> | null> {
-  const binding = await readCompilerDepsBinding(bindingPath);
-  if (binding === null) return null;
-  if (!compilerDependencyBindingMatchesIdentity(binding, identity)) return null;
-  let packages: readonly CompilerDependencyPackageBinding[] | null;
-  try {
-    packages = await compilerDependencyPackageBindings(nodeModulesPath, identity);
-  } catch (error) {
-    if (isFileNotFoundError(error) || error instanceof SyntaxError ||
-      (error instanceof SecError && error.code === 'IMPORT-AUTHORITY-002')) return null;
-    throw error;
-  }
-  if (packages === null || !canonicalEquals(binding.packages, packages)) return null;
-  let runtimeMaterialization: Readonly<RuntimeDependencyMaterializationBinding> | null;
-  if (RUNTIME_DEPENDENCY_PACKAGE_NAMES.every((name) => identity.packageVersions[name] !== undefined)) {
-    if (binding.runtimeMaterialization === null) return null;
-    const runtimeSpec = await loadRuntimeDependencySpec(path.join(root, 'package.json'));
-    if (!await runtimeDependencyTreeMatchesBinding({
-      expected: binding.runtimeMaterialization,
-      nodeModulesPath,
-      root,
-      runtimeSpec
-    })) return null;
-    runtimeMaterialization = binding.runtimeMaterialization;
-  } else {
-    if (binding.runtimeMaterialization !== null) return null;
-    runtimeMaterialization = null;
-  }
-  const expected = {
-    architecture: identity.architecture,
-    bunExecutablePath: identity.bunExecutablePath,
-    bunExecutableSha256: identity.bunExecutableSha256,
-    bunVersion: identity.bunVersion,
-    declaredBunVersion: identity.declaredBunVersion,
-    dependencyManifestSha256: identity.dependencyManifestSha256,
-    formatVersion: binding.formatVersion,
-    installConfigSha256: identity.installConfigSha256,
-    lockSha256: identity.lockSha256,
-    manifestHash: identity.manifestHash,
-    packages,
-    platform: identity.platform,
-    runtimeMaterialization
-  } satisfies CompilerDepsBinding;
-  return canonicalEquals(binding, expected) ? Object.freeze(expected) : null;
-}
-
-async function compilerRuntimeMaterializationBinding(
-  root: string,
-  nodeModulesPath: string,
-  identity: CompilerDependencyIdentity
-): Promise<Readonly<RuntimeDependencyMaterializationBinding> | null> {
-  if (!RUNTIME_DEPENDENCY_PACKAGE_NAMES.every((name) => identity.packageVersions[name] !== undefined)) {
-    return null;
-  }
-  const runtimeSpec = await loadRuntimeDependencySpec(path.join(root, 'package.json'));
-  return observeRuntimeDependencyMaterializationBinding({
-    nodeModulesPath,
-    root,
-    runtimeSpec,
-    toolchain: {
-      architecture: identity.architecture,
-      bunExecutablePath: identity.bunExecutablePath,
-      bunExecutableSha256: identity.bunExecutableSha256,
-      bunVersion: identity.bunVersion,
-      canonicalBunVersion: identity.bunVersion,
-      compilerGenerationRevision: identity.manifestHash,
-      declaredBunVersion: identity.declaredBunVersion,
-      dependencyManifestSha256: identity.dependencyManifestSha256,
-      installConfigSha256: identity.installConfigSha256,
-      lockSha256: identity.lockSha256,
-      platform: identity.platform
-    }
-  });
-}
-
-async function hasCompleteRuntimeDeps(
-  nodeModulesPath: string,
-  spec?: RuntimeDependencySpec
-): Promise<boolean> {
-  try {
-    const expected = spec ?? await loadRuntimeDependencySpec();
-    const exactVersions = {
-      ...expected.dependencies,
-      ...expected.devDependencies
-    };
-    const manifests = await Promise.all(RUNTIME_DEPENDENCY_PACKAGE_NAMES.map(async (packageName) => {
-      const manifest = await readJson<unknown>(dependencyPackagePath(nodeModulesPath, packageName));
-      const expected = parseRuntimeDependencyPackageReference(
-        packageName,
-        exactVersions[packageName]!
-      );
-      return expected !== null && isRuntimeDependencyPackageManifest(manifest, expected.packageName) &&
-        manifest.version === expected.version;
-    }));
-    if (!manifests.every(Boolean)) return false;
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-type RuntimePackageManifestObservation = Readonly<{
-  dependencies: Readonly<Record<string, string>>;
-  manifestSha256: string;
-  name: string;
-  optionalDependencies: Readonly<Record<string, string>>;
-  optionalPeers: ReadonlySet<string>;
-  peerDependencies: Readonly<Record<string, string>>;
-  version: string;
-}>;
-
-type RuntimePackageClosureState = {
-  edges: RuntimeDependencyResolutionEdge[];
-  manifestSha256: string;
-  name: string;
-  relativePath: string;
-  version: string;
-};
-
-function dependencyRecord(value: unknown, label: string): Readonly<Record<string, string>> {
-  if (value === undefined) return Object.freeze({});
-  if (!value || typeof value !== 'object' || Array.isArray(value)) {
-    throw new SecError('RUNTIME-DEPS-002', `${label} must be one dependency record`);
-  }
-  const entries = Object.entries(value as Record<string, unknown>)
-    .sort(([left], [right]) => compareCodeUnits(left, right));
-  if (entries.some(([name, version]) => !isRuntimeDependencyPackageName(name) ||
-    typeof version !== 'string' || !version)) {
-    throw new SecError('RUNTIME-DEPS-002', `${label} contains an invalid dependency`);
-  }
-  return Object.freeze(Object.fromEntries(entries) as Record<string, string>);
-}
-
-function optionalPeerNames(value: unknown): ReadonlySet<string> {
-  if (value === undefined) return new Set<string>();
-  if (!value || typeof value !== 'object' || Array.isArray(value)) {
-    throw new SecError('RUNTIME-DEPS-002', 'Runtime dependency peer metadata is invalid');
-  }
-  const optional = new Set<string>();
-  for (const [name, metadata] of Object.entries(value as Record<string, unknown>)) {
-    if (!metadata || typeof metadata !== 'object' || Array.isArray(metadata)) {
-      throw new SecError('RUNTIME-DEPS-002', 'Runtime dependency peer metadata is invalid');
-    }
-    const record = metadata as Record<string, unknown>;
-    if (record.optional === true) optional.add(name);
-  }
-  return optional;
-}
-
-async function observeRuntimePackageManifest(
-  packageRoot: string
-): Promise<RuntimePackageManifestObservation> {
-  const packageJsonPath = path.join(packageRoot, 'package.json');
-  const metadata = await fs.lstat(packageJsonPath, { bigint: true });
-  if (!metadata.isFile() || metadata.isSymbolicLink() ||
-    !sameHostPath(await fs.realpath(packageJsonPath), packageJsonPath)) {
-    throw new SecError('RUNTIME-DEPS-002', 'Runtime dependency package manifest is not one physical file');
-  }
-  const bytes = await fs.readFile(packageJsonPath);
-  const after = await fs.lstat(packageJsonPath, { bigint: true });
-  if (metadata.dev !== after.dev || metadata.ino !== after.ino || metadata.mode !== after.mode) {
-    throw new SecError('RUNTIME-DEPS-002', 'Runtime dependency package manifest changed during observation');
-  }
-  const parsed = JSON.parse(bytes.toString('utf8')) as Record<string, unknown>;
-  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed) ||
-    !isRuntimeDependencyPackageName(parsed.name) ||
-    typeof parsed.version !== 'string' || !parsed.version) {
-    throw new SecError('RUNTIME-DEPS-002', 'Runtime dependency package manifest is invalid');
-  }
-  return Object.freeze({
-    dependencies: dependencyRecord(parsed.dependencies, 'Runtime dependency dependencies'),
-    manifestSha256: digest(bytes),
-    name: parsed.name,
-    optionalDependencies: dependencyRecord(
-      parsed.optionalDependencies,
-      'Runtime dependency optionalDependencies'
-    ),
-    optionalPeers: optionalPeerNames(parsed.peerDependenciesMeta),
-    peerDependencies: dependencyRecord(
-      parsed.peerDependencies,
-      'Runtime dependency peerDependencies'
-    ),
-    version: parsed.version
-  });
-}
-
-function runtimePackageRelativePath(nodeModulesPath: string, packageRoot: string): string {
-  const relative = path.relative(path.resolve(nodeModulesPath), path.resolve(packageRoot));
-  if (!relative || relative.startsWith('..') || path.isAbsolute(relative)) {
-    throw new SecError('RUNTIME-DEPS-002', 'Runtime dependency package escapes node_modules');
-  }
-  return relative.replaceAll('\\', '/');
-}
-
-async function physicalRuntimePackageRoot(
-  nodeModulesPath: string,
-  candidate: string
-): Promise<string | null> {
-  try {
-    const absolute = path.resolve(candidate);
-    if (!isPathInside(nodeModulesPath, absolute)) return null;
-    const metadata = await fs.lstat(absolute);
-    if (!metadata.isDirectory() || metadata.isSymbolicLink()) {
-      throw new SecError('RUNTIME-DEPS-002', 'Runtime dependency closure contains a reparse entry');
-    }
-    const physical = await fs.realpath(absolute);
-    if (!sameHostPath(physical, absolute) || !isPathInside(nodeModulesPath, physical)) {
-      throw new SecError('RUNTIME-DEPS-002', 'Runtime dependency package is not physically contained');
-    }
-    return absolute;
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null;
-    throw error;
-  }
-}
-
-async function resolveRuntimePackageRoot(
-  nodeModulesPath: string,
-  fromPackageRoot: string | null,
-  dependencyName: string
-): Promise<string | null> {
-  const relativeSegments = dependencyName.split('/');
-  if (fromPackageRoot === null) {
-    return physicalRuntimePackageRoot(nodeModulesPath, path.join(nodeModulesPath, ...relativeSegments));
-  }
-  let cursor = path.resolve(fromPackageRoot);
-  const modulesRoot = path.resolve(nodeModulesPath);
-  while (isPathInside(modulesRoot, cursor)) {
-    // An immutable compiler generation is itself the package container even
-    // though its durable leaf is `generation-<epoch>` rather than
-    // `node_modules`.  Package resolution must therefore derive the root
-    // container from the retained authority, not from its presentation name.
-    // Nested package containers still use their real `node_modules` leaf.
-    const candidate = sameHostPath(cursor, modulesRoot) ||
-      path.basename(cursor).toLocaleLowerCase('en-US') === 'node_modules'
-      ? path.join(cursor, ...relativeSegments)
-      : path.join(cursor, 'node_modules', ...relativeSegments);
-    const physical = await physicalRuntimePackageRoot(modulesRoot, candidate);
-    if (physical !== null) return physical;
-    if (sameHostPath(cursor, modulesRoot)) break;
-    cursor = path.dirname(cursor);
-  }
-  return null;
-}
-
-async function observeRuntimeDependencyMaterializationBinding(input: Readonly<{
-  nodeModulesPath: string;
-  runtimeSpec: RuntimeDependencySpec;
-  root: string;
-  toolchain: Readonly<RuntimeDependencyToolchainBinding>;
-}>): Promise<Readonly<RuntimeDependencyMaterializationBinding>> {
-  const [
-    lockfileBytes,
-    packageJsonBytes,
-    installConfigBytes,
-    canonicalBunVersion,
-    runtimeExecutable
-  ] = await Promise.all([
-    fs.readFile(path.join(input.root, 'bun.lock')),
-    fs.readFile(path.join(input.root, 'package.json')),
-    fs.readFile(path.join(input.root, 'bunfig.toml')).catch((error: NodeJS.ErrnoException) => {
-      if (error.code === 'ENOENT') return null;
-      throw error;
-    }),
-    loadCanonicalBunRuntimeVersion(input.root),
-    currentRuntimeExecutableIdentity()
-  ]);
-  const dependencyManifest = compilerDependencyManifestAuthority(packageJsonBytes);
-  const observedInstallConfigSha256 = compilerInstallConfigSha256(installConfigBytes);
-  const observedLegacyInstallConfigSha256 = installConfigBytes === null
-    ? null
-    : digest(installConfigBytes);
-  if (digest(lockfileBytes) !== input.toolchain.lockSha256 ||
-    dependencyManifest.dependencyManifestSha256 !== input.toolchain.dependencyManifestSha256 ||
-    dependencyManifest.declaredBunVersion !== input.toolchain.declaredBunVersion ||
-    (input.toolchain.installConfigSha256 !== observedInstallConfigSha256 &&
-      input.toolchain.installConfigSha256 !== observedLegacyInstallConfigSha256) ||
-    runtimeExecutable.path !== input.toolchain.bunExecutablePath ||
-    runtimeExecutable.sha256 !== input.toolchain.bunExecutableSha256 ||
-    canonicalBunVersion !== input.toolchain.bunVersion ||
-    canonicalBunVersion !== input.toolchain.canonicalBunVersion ||
-    canonicalBunVersion !== input.toolchain.declaredBunVersion ||
-    process.arch !== input.toolchain.architecture ||
-    process.platform !== input.toolchain.platform) {
-    throw new SecError('RUNTIME-DEPS-002', 'Runtime dependency authority changed during observation');
-  }
-  const packages = new Map<string, RuntimePackageClosureState>();
-
-  const visit = async (
-    packageRoot: string,
-    resolutionName: string
-  ): Promise<string> => {
-    const relativePath = runtimePackageRelativePath(input.nodeModulesPath, packageRoot);
-    const existing = packages.get(relativePath);
-    if (existing !== undefined) return existing.relativePath;
-    const manifest = await observeRuntimePackageManifest(packageRoot);
-    const state: RuntimePackageClosureState = {
-      edges: [],
-      manifestSha256: manifest.manifestSha256,
-      name: manifest.name,
-      relativePath,
-      version: manifest.version
-    };
-    packages.set(relativePath, state);
-
-    const dependencyKinds = new Map<string, RuntimeDependencyResolutionEdge['kind']>();
-    for (const name of Object.keys(manifest.dependencies)) dependencyKinds.set(name, 'dependency');
-    for (const name of Object.keys(manifest.optionalDependencies)) dependencyKinds.set(name, 'optional');
-    for (const name of Object.keys(manifest.peerDependencies)) {
-      if (!dependencyKinds.has(name)) dependencyKinds.set(name, 'peer');
-    }
-    for (const [dependencyName, kind] of [...dependencyKinds.entries()]
-      .sort(([left], [right]) => compareCodeUnits(left, right))) {
-      const targetRoot = await resolveRuntimePackageRoot(
-        input.nodeModulesPath,
-        packageRoot,
-        dependencyName
-      );
-      const optional = kind === 'optional' ||
-        (kind === 'peer' && manifest.optionalPeers.has(dependencyName));
-      if (targetRoot === null) {
-        if (optional) continue;
-        throw new SecError(
-          'RUNTIME-DEPS-002',
-          `Runtime dependency closure is missing ${dependencyName} required by ${resolutionName}`
-        );
-      }
-      state.edges.push(Object.freeze({
-        kind,
-        name: dependencyName,
-        target: await visit(targetRoot, dependencyName)
-      }));
-    }
-    return relativePath;
-  };
-
-  const exactVersions = { ...input.runtimeSpec.dependencies, ...input.runtimeSpec.devDependencies };
-  const rootPackages: { name: string; packageName: string; target: string }[] = [];
-  for (const packageName of [...RUNTIME_DEPENDENCY_PACKAGE_NAMES].sort(compareCodeUnits)) {
-    const packageRoot = await resolveRuntimePackageRoot(input.nodeModulesPath, null, packageName);
-    if (packageRoot === null) {
-      throw new SecError('RUNTIME-DEPS-002', `Runtime dependency root package is absent: ${packageName}`);
-    }
-    const target = await visit(packageRoot, packageName);
-    const observed = packages.get(target)!;
-    const expected = parseRuntimeDependencyPackageReference(
-      packageName,
-      exactVersions[packageName]!
-    );
-    if (expected === null || observed.name !== expected.packageName || observed.version !== expected.version) {
-      throw new SecError('RUNTIME-DEPS-002', `Runtime dependency root package drifted: ${packageName}`);
-    }
-    rootPackages.push(Object.freeze({
-      name: packageName,
-      packageName: expected.packageName,
-      target
-    }));
-  }
-
-  return buildRuntimeDependencyMaterializationBinding({
-    manifestHash: input.runtimeSpec.manifestHash,
-    packages: [...packages.values()] as RuntimeDependencyResolvedPackage[],
-    rootPackages,
-    toolchain: input.toolchain
   });
 }
 
@@ -1431,6 +808,10 @@ function isRuntimeDependencyTargetIdentity(
     (target.linkTarget === null || typeof target.linkTarget === 'string');
 }
 
+// A staging failure can precede any durable intent. Compiler and project
+// writers therefore keep their operation-owned physical preimages through this
+// private disposal boundary. A parsed intent or selector alone is not disposal
+// authority; separating them from their callers would lose that ownership.
 type DependencyTransitionStageAuthority = Readonly<{
   /** Canonical parent under which the operation may create its stage root. */
   parent: string;
@@ -1756,11 +1137,7 @@ async function recoverCompilerDependencyStageIntentRetirements(
     if ((await observeDependencyTransitionSlot(settled.stageRootPath)).kind !== 'absent') {
       throw new SecError('RUNTIME-DEPS-004', 'Compiler stage retirement recovery found present stage');
     }
-    const { inspectGeneratedState } = await import('../../../runtime-state/generated-state/lifecycle.ts');
-    const inventory = await inspectGeneratedState({
-      repositoryRoot: ownerRoot, workspaceRoot: ownerRoot,
-      relativePaths: [settled.relativeStagePath]
-    });
+    const inventory = await requireGeneratedStateLifecycle(options).inspect([settled.relativeStagePath]);
     const registrationState = inventory.entries[0]?.registrationState;
     if (registrationState !== 'retired' && registrationState !== 'missing') {
       throw new SecError('RUNTIME-DEPS-004', 'Compiler stage retirement recovery registration is not terminal');
@@ -1948,19 +1325,14 @@ async function settleCompilerDependencyStageIntent(
     });
     const quarantine = lifecycle.quarantine;
     if (quarantine !== undefined) {
-      const { inspectGeneratedState } = await import('../../../runtime-state/generated-state/lifecycle.ts');
-      const inventory = await inspectGeneratedState({
-        repositoryRoot: root,
-        workspaceRoot: root,
-        relativePaths: [disposing.relativeStagePath]
-      });
+      const inventory = await requireGeneratedStateLifecycle(options).inspect([disposing.relativeStagePath]);
       const entry = inventory.entries[0];
       if (entry?.registrationState === 'retired' || entry?.registrationState === 'missing') {
         const receipt = await quarantine(disposing.relativeStagePath, { outcome, profile: 'automatic' });
         const { assertGeneratedStateCleanupContinuationReceipt } = await import(
-          '../../../runtime-state/generated-state/lifecycle.ts'
+          '../../../runtime-state/generated-state/lifecycle-evidence.ts'
         );
-        assertGeneratedStateCleanupContinuationReceipt(receipt);
+        await assertGeneratedStateCleanupContinuationReceipt(receipt, { workspaceRoot: root });
         if ((receipt.terminal !== 'completed' && receipt.terminal !== 'continuation-required') ||
             receipt.blockers.length !== 0) {
           throw new SecError('RUNTIME-DEPS-004', 'Compiler dependency absent stage quarantine receipt differs');
@@ -2060,7 +1432,7 @@ async function migrateRegisteredLegacyCompilerDependencyStages(
   const {
     assertGeneratedStateCleanupContinuationReceipt,
     assertGeneratedStateRetirementObservation
-  } = await import('../../../runtime-state/generated-state/lifecycle.ts');
+  } = await import('../../../runtime-state/generated-state/lifecycle-evidence.ts');
   runtimeDependencyOperationRemainingMs(options, 'Legacy compiler dependency lifecycle census admission');
   const lifecycleCensus = await lifecycle.inspect();
   runtimeDependencyOperationRemainingMs(options, 'Legacy compiler dependency lifecycle census readback');
@@ -2128,7 +1500,7 @@ async function migrateRegisteredLegacyCompilerDependencyStages(
       physical: stageRoot.physical
     });
     runtimeDependencyOperationRemainingMs(options, 'Legacy compiler dependency registration observation readback');
-    assertGeneratedStateRetirementObservation(observed);
+    await assertGeneratedStateRetirementObservation(observed, { workspaceRoot: root, relativePath: observed.relativePath });
     const activeRegistration = observed.status === 'active';
     const retiredRegistration = observed.status === 'retired-present';
     if (observed.relativePath !== relativePath ||
@@ -2190,7 +1562,7 @@ async function migrateRegisteredLegacyCompilerDependencyStages(
       outcome: 'legacy-generation-staging-retired',
       profile: 'automatic'
     });
-    assertGeneratedStateCleanupContinuationReceipt(receipt);
+    await assertGeneratedStateCleanupContinuationReceipt(receipt, { workspaceRoot: root });
     if ((receipt.terminal !== 'completed' && receipt.terminal !== 'continuation-required') ||
         receipt.blockers.length !== 0) {
       throw new SecError(
@@ -2214,7 +1586,7 @@ async function migrateRegisteredLegacyCompilerDependencyStages(
       outcome: 'legacy-generation-staging-retired',
       profile: 'automatic'
     });
-    assertGeneratedStateCleanupContinuationReceipt(receipt);
+    await assertGeneratedStateCleanupContinuationReceipt(receipt, { workspaceRoot: root });
     if ((receipt.terminal !== 'completed' && receipt.terminal !== 'continuation-required') ||
         receipt.blockers.length !== 0 ||
         (await observeDependencyTransitionSlot(candidate.stageRoot.path)).kind !== 'absent') {
@@ -2457,9 +1829,9 @@ async function disposeDependencyTransitionStage(
         expectedLifecycle
       );
       const { assertGeneratedStateRetirementObservation } = await import(
-        '../../../runtime-state/generated-state/lifecycle.ts'
+        '../../../runtime-state/generated-state/lifecycle-evidence.ts'
       );
-      assertGeneratedStateRetirementObservation(lifecycleObservation);
+      await assertGeneratedStateRetirementObservation(lifecycleObservation, { workspaceRoot: root, relativePath: lifecycleObservation.relativePath });
       if ((lifecycleObservation.status !== 'active' &&
           lifecycleObservation.status !== 'retired-present') ||
           lifecycleObservation.physical === null ||
@@ -2494,9 +1866,9 @@ async function disposeDependencyTransitionStage(
         await runtimeDependencyOperationEffectFence(options, 'Dependency transition staging lifecycle quarantine');
         const receipt = await quarantine(relativeStagePath, { outcome, profile: 'automatic' });
         const { assertGeneratedStateCleanupContinuationReceipt } = await import(
-          '../../../runtime-state/generated-state/lifecycle.ts'
+          '../../../runtime-state/generated-state/lifecycle-evidence.ts'
         );
-        assertGeneratedStateCleanupContinuationReceipt(receipt);
+        await assertGeneratedStateCleanupContinuationReceipt(receipt, { workspaceRoot: root });
         if ((receipt.terminal !== 'completed' && receipt.terminal !== 'continuation-required') ||
             receipt.blockers.length !== 0 || receipt.requested.length !== 1 ||
             receipt.requested[0] !== relativeStagePath ||
@@ -2528,9 +1900,9 @@ async function disposeDependencyTransitionStage(
       profile: 'automatic'
     });
     const { assertGeneratedStateDisposalReceipt } = await import(
-      '../../../runtime-state/generated-state/lifecycle.ts'
+      '../../../runtime-state/generated-state/lifecycle-evidence.ts'
     );
-    assertGeneratedStateDisposalReceipt(disposalReceipt);
+    await assertGeneratedStateDisposalReceipt(disposalReceipt, { workspaceRoot: root, relativePath: disposalReceipt.relativePath });
     if (disposalReceipt.relativePath !== relativeStagePath ||
         disposalReceipt.profile !== 'automatic' || disposalReceipt.terminal !== 'disposed') {
       throw new SecError(
@@ -2755,31 +2127,6 @@ async function writeRuntimeDepsStamp(
       'RUNTIME-DEPS-002',
       'Runtime dependency stamp changed before exact publication readback'
     );
-  }
-}
-
-async function runtimeDependencyTreeMatchesBinding(input: Readonly<{
-  expected: Readonly<RuntimeDependencyMaterializationBinding>;
-  nodeModulesPath: string;
-  root: string;
-  runtimeSpec: RuntimeDependencySpec;
-}>): Promise<boolean> {
-  try {
-    // The runtime binding owns its resolved package closure, not every sibling
-    // package in the compiler's shared node_modules generation. Exact closure
-    // observation already binds every root, edge, target and manifest; a
-    // full-directory equality check incorrectly rejects legitimate compiler
-    // providers such as an aliased native TypeScript checker.
-    const observed = await observeRuntimeDependencyMaterializationBinding({
-      nodeModulesPath: input.nodeModulesPath,
-      root: input.root,
-      runtimeSpec: input.runtimeSpec,
-      toolchain: input.expected.toolchain
-    });
-    return canonicalEquals(observed, input.expected);
-  } catch (error) {
-    if (isFileNotFoundError(error)) return false;
-    throw error;
   }
 }
 
@@ -4223,22 +3570,37 @@ async function migrateCompilerDependencyCoordination(
           const bytes = readNoFollowOrdinaryFile(legacyConsumers, entry.relativePath);
           if (bytes === null) throw new SecError('RUNTIME-DEPS-004', 'Legacy compiler consumer record disappeared');
           retainConsumerRecord(entry.relativePath, Buffer.from(bytes));
-          const existing = readNoFollowOrdinaryFile(targetConsumers, entry.relativePath);
-          if (existing !== null) {
-            if (!Buffer.from(existing).equals(Buffer.from(bytes))) {
-              throw new SecError('RUNTIME-DEPS-004', 'Runtime State compiler consumer migration found foreign bytes');
-            }
-            continue;
-          }
-          publishExclusiveDurableCanonicalFile({
-            parent: targetConsumers,
-            name: entry.relativePath,
-            bytes: Buffer.from(bytes),
-            validate: (candidate) => {
-              if (!Buffer.from(candidate).equals(Buffer.from(bytes))) throw new Error('Migrated consumer bytes changed');
-            }
-          });
         }
+      }
+      if ([...phases.values()].some((chain) => {
+        const acquired = chain.acquired;
+        const released = chain.released;
+        return acquired === undefined || (released !== undefined &&
+          (released.previousRecordDigest !== acquired.recordDigest ||
+            released.generationDigest !== acquired.generationDigest ||
+            !sameHostPath(released.generationPath, acquired.generationPath) ||
+            !sameGeneratedStateIdentity(released.generationPhysical, acquired.generationPhysical)));
+      })) {
+        throw new SecError('RUNTIME-DEPS-004', 'Compiler dependency coordination migration found an invalid consumer chain');
+      }
+      // Validate the entire union before publishing any missing target record.
+      // Invalid chains or conflicting preimages must not poison a resumable cutover.
+      for (const [name, bytes] of migratedRecords) {
+        const existing = readNoFollowOrdinaryFile(targetConsumers, name);
+        if (existing !== null) {
+          if (!Buffer.from(existing).equals(bytes)) {
+            throw new SecError('RUNTIME-DEPS-004', 'Runtime State compiler consumer migration found foreign bytes');
+          }
+          continue;
+        }
+        publishExclusiveDurableCanonicalFile({
+          parent: targetConsumers,
+          name,
+          bytes,
+          validate: (candidate) => {
+            if (!Buffer.from(candidate).equals(bytes)) throw new Error('Migrated consumer bytes changed');
+          }
+        });
       }
       const targetInventory = scanNoFollowDirectoryTreeInventory(targetConsumers, {
         deadlineAtMs: runtimeDependencyOperationContext(operationOptions).deadlineAtMonotonicMs,
@@ -4258,17 +3620,6 @@ async function migrateCompilerDependencyCoordination(
             !Buffer.from(actualBytes).equals(expectedBytes)) {
           throw new SecError('RUNTIME-DEPS-004', 'Runtime State compiler consumer migration readback changed');
         }
-      }
-      if ([...phases.values()].some((chain) => {
-        const acquired = chain.acquired;
-        const released = chain.released;
-        return acquired === undefined || (released !== undefined &&
-          (released.previousRecordDigest !== acquired.recordDigest ||
-            released.generationDigest !== acquired.generationDigest ||
-            !sameHostPath(released.generationPath, acquired.generationPath) ||
-            !sameGeneratedStateIdentity(released.generationPhysical, acquired.generationPhysical)));
-      })) {
-        throw new SecError('RUNTIME-DEPS-004', 'Compiler dependency coordination migration found an invalid consumer chain');
       }
         return issueInstallLockTerminalHandoffRequest({
         compilerRootPhysical: generatedStatePhysicalIdentity(inspectNoFollowDirectoryChain(
@@ -4404,10 +3755,7 @@ export async function migrateDependencyTransitionJournal(
   ownerRoot: string,
   options: RuntimeDependencyInstallOptions = {}
 ): Promise<void> {
-  const operationOptions = await bindGeneratedStateRecoveryLifecycle(
-    runtimeDependencyOperationOptions(options),
-    ownerRoot
-  );
+  const operationOptions = selectGeneratedStateLifecycle(runtimeDependencyOperationOptions(options), ownerRoot);
   const alreadyCutOver = await migrateCompilerDependencyCoordination(ownerRoot, operationOptions);
   if (alreadyCutOver) {
     await withCompilerDependencyTransitionLease(ownerRoot, operationOptions, async () => undefined);
@@ -4429,9 +3777,7 @@ export async function retireSettledCompilerDependencyStageIntents(
   options: RuntimeDependencyInstallOptions = {}
 ): Promise<CompilerDependencyStageIntentRetirementReceipt> {
   ownerRoot = path.resolve(ownerRoot);
-  const bound = await bindGeneratedStateRecoveryLifecycle(
-    runtimeDependencyOperationOptions(options), ownerRoot
-  );
+  const bound = selectGeneratedStateLifecycle(runtimeDependencyOperationOptions(options), ownerRoot);
   await migrateCompilerDependencyCoordination(ownerRoot, bound);
   // Keep the locator generation intact until the worktree-retirement provider
   // consumes it. The ordinary transition wrapper collects released generations
@@ -4451,18 +3797,13 @@ export async function retireSettledCompilerDependencyStageIntents(
     if (transition !== null && transition.phase !== 'complete' && transition.phase !== 'rolled-back') {
       throw new SecError('RUNTIME-DEPS-004', 'Compiler dependency stage metadata has a pending transition');
     }
-    const { inspectGeneratedState } = await import('../../../runtime-state/generated-state/lifecycle.ts');
     for (const intent of settled) {
       if ((await observeDependencyTransitionSlot(intent.stageRootPath)).kind !== 'absent') {
         throw new SecError('RUNTIME-DEPS-004', 'Settled compiler dependency stage is present', {
           operationKey: intent.operationKey
         });
       }
-      const inventory = await inspectGeneratedState({
-        repositoryRoot: ownerRoot,
-        workspaceRoot: ownerRoot,
-        relativePaths: [intent.relativeStagePath]
-      });
+      const inventory = await requireGeneratedStateLifecycle(locked).inspect([intent.relativeStagePath]);
       const registrationState = inventory.entries[0]?.registrationState;
       if (registrationState !== 'retired' && registrationState !== 'missing') {
         throw new SecError('RUNTIME-DEPS-004', 'Settled compiler dependency stage registration remains active or unknown', {
@@ -4533,141 +3874,10 @@ export async function retireSettledCompilerDependencyStageIntents(
   });
 }
 
-const COMPILER_DEPENDENCY_GENERATED_STATE_PLAN_SCHEMA =
-  'sec-compiler-dependency-generated-state-settlement-plan-v1' as const;
-const COMPILER_DEPENDENCY_GENERATED_STATE_RECEIPT_SCHEMA =
-  'sec-compiler-dependency-generated-state-settlement-receipt-v1' as const;
-
-export interface CompilerDependencyGeneratedStateSettlementPlan {
-  readonly schema: typeof COMPILER_DEPENDENCY_GENERATED_STATE_PLAN_SCHEMA;
-  readonly owner: 'compiler-dependency-runtime';
-  readonly repositoryRoot: string;
-  readonly workspaceRoot: string;
-  readonly workspace: GeneratedStatePhysicalIdentity;
-  readonly profile: GeneratedStateCleanupProfile;
-  readonly inventoryDigest: `sha256:${string}`;
-  readonly selected: readonly Readonly<{
-    readonly relativePath: string;
-    readonly physicalIdentity: GeneratedStatePhysicalIdentity;
-    readonly registrationDigest: `sha256:${string}`;
-  }>[];
-  readonly planDigest: `sha256:${string}`;
+export function observeDependencyGeneratedStateWorkspace(workspaceRoot: string): GeneratedStatePhysicalIdentity {
+  return generatedStatePhysicalIdentity(inspectNoFollowDirectoryChain(workspaceRoot, 'Dependency generated-state settlement workspace').target);
 }
 
-export interface CompilerDependencyGeneratedStateSettlementReceipt {
-  readonly schema: typeof COMPILER_DEPENDENCY_GENERATED_STATE_RECEIPT_SCHEMA;
-  readonly owner: 'compiler-dependency-runtime';
-  readonly planDigest: `sha256:${string}`;
-  readonly beforeInventoryDigest: `sha256:${string}`;
-  readonly afterInventoryDigest: `sha256:${string}`;
-  readonly outcomes: readonly Readonly<{
-    readonly relativePath: string;
-    readonly outcome: 'absent' | 'preserved-replacement' | 'residue';
-  }>[];
-  readonly terminal: 'completed' | 'partial-residue';
-  readonly receiptDigest: `sha256:${string}`;
-}
-
-/** Dependency-owned projection; generated-state never infers active cleanup authority. */
-export function planCompilerDependencyGeneratedStateSettlement(input: Readonly<{
-  repositoryRoot: string;
-  workspaceRoot: string;
-  inventory: GeneratedStateInventory;
-  profile: GeneratedStateCleanupProfile;
-}>): CompilerDependencyGeneratedStateSettlementPlan {
-  const repositoryRoot = path.resolve(input.repositoryRoot);
-  const workspaceRoot = path.resolve(input.workspaceRoot);
-  if (input.inventory.repositoryRoot !== repositoryRoot) {
-    throw new SecError('RUNTIME-DEPS-004', 'Dependency generated-state inventory belongs to another repository');
-  }
-  const workspace = inspectNoFollowDirectoryChain(
-    workspaceRoot,
-    'Dependency generated-state settlement workspace'
-  ).target;
-  const workspaceIdentity = generatedStatePhysicalIdentity(workspace);
-  if (!sameGeneratedStateIdentity(workspaceIdentity, input.inventory.workspace)) {
-    throw new SecError('RUNTIME-DEPS-004', 'Dependency generated-state workspace identity changed before planning');
-  }
-  const selected = Object.freeze(input.inventory.entries
-    .filter((entry) => entry.ruleId === COMPILER_STAGING_LIFECYCLE_RULE &&
-      entry.owner === COMPILER_STAGING_LIFECYCLE_OWNER && entry.kind === 'directory' &&
-      entry.registrationState === 'active' && entry.registrationDigest !== null &&
-      entry.physicalIdentity !== null && entry.cleanupProfiles.includes(input.profile))
-    .map((entry) => Object.freeze({
-      relativePath: entry.relativePath,
-      physicalIdentity: entry.physicalIdentity!,
-      registrationDigest: entry.registrationDigest!
-    }))
-    .sort((left, right) => compareCodeUnits(left.relativePath, right.relativePath)));
-  const material = Object.freeze({
-    schema: COMPILER_DEPENDENCY_GENERATED_STATE_PLAN_SCHEMA,
-    owner: COMPILER_STAGING_LIFECYCLE_OWNER,
-    repositoryRoot,
-    workspaceRoot,
-    workspace: workspaceIdentity,
-    profile: input.profile,
-    inventoryDigest: input.inventory.inventoryDigest,
-    selected
-  });
-  return Object.freeze({ ...material, planDigest: generatedStateDigest(material) });
-}
-
-/**
- * Consume one exact dependency-owned plan.  The same compiler-root lease
- * recovers journal/stage registrations and the owner performs its own final
- * inventory readback before issuing a receipt.
- */
-export async function settleCompilerDependencyGeneratedState(
-  plan: CompilerDependencyGeneratedStateSettlementPlan,
-  options: RuntimeDependencyInstallOptions = {}
-): Promise<CompilerDependencyGeneratedStateSettlementReceipt> {
-  const { inspectGeneratedState } = await import('../../../runtime-state/generated-state/lifecycle.ts');
-  const before = await inspectGeneratedState({
-    repositoryRoot: plan.repositoryRoot,
-    workspaceRoot: plan.workspaceRoot
-  });
-  const currentPlan = planCompilerDependencyGeneratedStateSettlement({
-    repositoryRoot: plan.repositoryRoot,
-    workspaceRoot: plan.workspaceRoot,
-    inventory: before,
-    profile: plan.profile
-  });
-  if (!canonicalEquals(currentPlan, plan)) {
-    throw new SecError(
-      'RUNTIME-DEPS-004',
-      'Dependency generated-state settlement plan is stale, malformed, or foreign; current state is preserved',
-      { currentPlanDigest: currentPlan.planDigest, planDigest: plan.planDigest }
-    );
-  }
-  await migrateDependencyTransitionJournal(plan.workspaceRoot, options);
-  const after = await inspectGeneratedState({
-    repositoryRoot: plan.repositoryRoot,
-    workspaceRoot: plan.workspaceRoot
-  });
-  const outcomes = Object.freeze(plan.selected.map((selected) => {
-    const current = after.entries.find(({ relativePath }) => relativePath === selected.relativePath);
-    const outcome = current === undefined || current.kind === 'missing'
-      ? 'absent' as const
-      : current.physicalIdentity !== null &&
-          sameGeneratedStateIdentity(current.physicalIdentity, selected.physicalIdentity)
-        ? 'residue' as const
-        : 'preserved-replacement' as const;
-    return Object.freeze({ relativePath: selected.relativePath, outcome });
-  }));
-  const terminal = outcomes.every(({ outcome }) => outcome === 'absent')
-    ? 'completed' as const
-    : 'partial-residue' as const;
-  const material = Object.freeze({
-    schema: COMPILER_DEPENDENCY_GENERATED_STATE_RECEIPT_SCHEMA,
-    owner: COMPILER_STAGING_LIFECYCLE_OWNER,
-    planDigest: plan.planDigest,
-    beforeInventoryDigest: before.inventoryDigest,
-    afterInventoryDigest: after.inventoryDigest,
-    outcomes,
-    terminal
-  });
-  return Object.freeze({ ...material, receiptDigest: generatedStateDigest(material) });
-}
 
 async function materializeIsolatedNodeModules(
   source: string,
@@ -6324,6 +5534,21 @@ async function removeCompilerDependencyBridge(
   }, options);
 }
 
+// Outward diagnostics admit exact dependency/physical codes and native errno
+// labels only. Recovery continues to consume the existing durable stage intent.
+const COMPILER_DEPENDENCY_STAGING_FAILURE_CODES: ReadonlySet<string> = new Set([
+  'IMPORT-AUTHORITY-001', 'IMPORT-AUTHORITY-002', 'IMPORT-AUTHORITY-004',
+  'RUNTIME-DEPS-001', 'RUNTIME-DEPS-002', 'RUNTIME-DEPS-003', 'RUNTIME-DEPS-004',
+  'RUNTIME-DEPS-SETTLEMENT-001',
+  'PHYSICAL_NO_FOLLOW_ABSENT', 'PHYSICAL_NO_FOLLOW_EXCLUSIVE_CONFLICT',
+  'PHYSICAL_NO_FOLLOW_READ_LIMIT_EXCEEDED', 'PHYSICAL_NO_FOLLOW_UNSAFE_PATH',
+  'PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED', 'PHYSICAL_NO_FOLLOW_CAPABILITY_UNAVAILABLE',
+  'PHYSICAL_NO_FOLLOW_DURABILITY_FAILED',
+  'EACCES', 'EBUSY', 'EEXIST', 'EFBIG', 'EINTR', 'EINVAL', 'EIO', 'EISDIR',
+  'ELOOP', 'EMFILE', 'ENFILE', 'ENOENT', 'ENOSPC', 'ENOSYS', 'ENOTDIR',
+  'ENOTEMPTY', 'ENOTSUP', 'EPERM', 'EROFS', 'ETIMEDOUT', 'EXDEV'
+]);
+
 async function stageCompilerDependencyGeneration(
   root: string,
   identity: CompilerDependencyIdentity,
@@ -6518,11 +5743,13 @@ async function stageCompilerDependencyGeneration(
         );
       }
     } catch (disposeError) {
-      throw new SecError('IMPORT-AUTHORITY-004', 'Compiler dependency generation staging residue is preserved for recovery', {
-        cause: error instanceof Error ? error.message : String(error),
-        cleanup: disposeError instanceof Error ? disposeError.message : String(disposeError),
-        stagingRoot
-      });
+      const materializationCode = boundedFailureCode(error, COMPILER_DEPENDENCY_STAGING_FAILURE_CODES);
+      const cleanupCode = boundedFailureCode(disposeError, COMPILER_DEPENDENCY_STAGING_FAILURE_CODES);
+      throw new SecError(
+        'IMPORT-AUTHORITY-004',
+        `Compiler dependency generation staging residue is preserved for recovery; materialization=${materializationCode}; cleanup=${cleanupCode}`,
+        { materializationCode, cleanupCode, recoveryRequired: true }
+      );
     }
     if (error instanceof SecError && error.code.startsWith('IMPORT-AUTHORITY-')) throw error;
     const causeMessage = error instanceof SecError
@@ -7208,7 +6435,7 @@ async function recoverCompilerDependencyTransition(
         await ensureCompilerDependencyPreimageRetiredForRecovery(
           options,
           transition.preimage.physical!,
-          'generation-recovery-superseded'
+          'generation-recovery-superseded', root
         );
         if (process.platform === 'win32' && transition.phase === 'recovery-required' &&
             preimageAuthority.reason === 'binding-content-diverged') {
@@ -7479,7 +6706,7 @@ async function recoverCompilerDependencyTransition(
           await ensureCompilerDependencyPreimageRetiredForRecovery(
             options,
             transition.preimage.physical,
-            'local-generation-locator-cutover'
+            'local-generation-locator-cutover', root
           );
           const relocated = await relocateLegacyCompilerDependencyPreimage(
             root,
@@ -7876,32 +7103,6 @@ class CompilerDependencyBridgeIncompatibleError extends SecError {
   }
 }
 
-function canonicalCompilerDependencyGenerationOwnerRoot(
-  generationPath: string
-): string | null {
-  const resolvedGeneration = path.resolve(generationPath);
-  if (!/^generation-[0-9a-f]{24}$/u.test(path.basename(resolvedGeneration))) return null;
-  const generationParent = path.dirname(resolvedGeneration);
-  let candidateOwner = generationParent;
-  while (true) {
-    if (sameHostPath(
-      dependencyTransitionNamespacePaths(candidateOwner).backupRoot,
-      generationParent
-    )) return candidateOwner;
-    const parent = path.dirname(candidateOwner);
-    if (parent === candidateOwner) return null;
-    candidateOwner = parent;
-  }
-}
-
-function isCanonicalLocalCompilerDependencyGeneration(
-  consumerRoot: string,
-  generationPath: string
-): boolean {
-  const ownerRoot = canonicalCompilerDependencyGenerationOwnerRoot(generationPath);
-  return ownerRoot !== null && sameHostPath(ownerRoot, consumerRoot);
-}
-
 async function compilerDependencyConsumerBridgeBinding(
   consumerRoot: string,
   bridgePath: string,
@@ -8028,520 +7229,6 @@ async function observeCompilerDependencyBridge(
   }
 }
 
-const COMPILER_DEPENDENCY_LOCATOR_PROVIDER_ID = 'compiler-dependency-locator' as const;
-const COMPILER_DEPENDENCY_LOCATOR_PLAN_SCHEMA = 'sec-compiler-dependency-locator-retirement-plan' as const;
-const COMPILER_DEPENDENCY_LOCATOR_RECEIPT_SCHEMA = 'sec-compiler-dependency-locator-retirement-receipt' as const;
-
-interface CompilerDependencyLocatorRetirementPlan {
-  readonly schema: typeof COMPILER_DEPENDENCY_LOCATOR_PLAN_SCHEMA;
-  readonly consumerRoot: string;
-  readonly consumer: GeneratedStatePhysicalIdentity;
-  readonly relativePath: 'node_modules';
-  readonly source: GeneratedStatePhysicalIdentity;
-  readonly linkTarget: string;
-  readonly generationPath: string;
-  readonly generation: Readonly<{ device: string; inode: string; mode: string }> | null;
-}
-
-function canonicalProviderBytes(value: unknown): string {
-  return JSON.stringify(canonicalJson(value));
-}
-
-function sameGeneratedStatePhysicalIdentity(
-  left: GeneratedStatePhysicalIdentity,
-  right: GeneratedStatePhysicalIdentity
-): boolean {
-  return left.device === right.device && left.inode === right.inode && left.objectId === right.objectId;
-}
-
-function compilerDependencyConsumerIdentity(consumerRoot: string): GeneratedStatePhysicalIdentity {
-  const consumer = inspectNoFollowDirectoryChain(
-    consumerRoot,
-    'Compiler dependency locator consumer root'
-  ).target;
-  return Object.freeze({ device: consumer.device, inode: consumer.inode, objectId: consumer.objectId });
-}
-
-function compilerDependencyLocatorObservation(
-  consumerRoot: string,
-  relativePath: string
-): Readonly<{ source: GeneratedStatePhysicalIdentity; linkTarget: string }> | null {
-  if (relativePath !== 'node_modules') {
-    throw new Error('Compiler dependency locator provider only owns node_modules.');
-  }
-  const root = inspectNoFollowDirectoryChain(consumerRoot, 'Compiler dependency locator consumer root').target;
-  try {
-    const ordinaryDirectory = inspectExactNoFollowDirectoryPresence(
-      path.join(root.path, relativePath),
-      'Compiler dependency ordinary node_modules'
-    );
-    if (ordinaryDirectory.state === 'present') {
-      assertSameNoFollowDirectoryIdentity(root, 'Compiler dependency locator consumer root readback');
-      return null;
-    }
-  } catch (error) {
-    // A retained reparse/symlink leaf is intentionally rejected by the
-    // ordinary-directory observer and must then be observed by the exact link
-    // capability below. Other kinds and physical failures remain blockers.
-    if (!(error instanceof PhysicalNoFollowError && error.code === 'PHYSICAL_NO_FOLLOW_UNSAFE_PATH')) {
-      throw error;
-    }
-  }
-  const locator = inspectNoFollowLinkEntry(root, relativePath);
-  if (locator === null || locator.kind !== 'link' || locator.linkTarget === null) return null;
-  return Object.freeze({
-    source: Object.freeze({
-      device: locator.device,
-      inode: locator.inode,
-      objectId: generatedStateDigest({ kind: 'link', target: locator.linkTarget })
-    }),
-    linkTarget: locator.linkTarget
-  });
-}
-
-async function compilerDependencyGenerationIdentity(
-  generationPath: string
-): Promise<Readonly<{ device: string; inode: string; mode: string }>> {
-  const metadata = await fs.lstat(generationPath, { bigint: true });
-  if (!metadata.isDirectory() || metadata.isSymbolicLink()) {
-    throw new Error('Compiler dependency generation is not one ordinary directory.');
-  }
-  return Object.freeze({
-    device: String(metadata.dev),
-    inode: String(metadata.ino),
-    mode: String(metadata.mode)
-  });
-}
-
-async function compilerDependencyGenerationIdentityIfPresent(
-  generationPath: string
-): Promise<Readonly<{ device: string; inode: string; mode: string }> | null> {
-  try {
-    return await compilerDependencyGenerationIdentity(generationPath);
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null;
-    throw error;
-  }
-}
-
-function parseCompilerDependencyLocatorRetirementPlan(
-  bytes: string
-): CompilerDependencyLocatorRetirementPlan {
-  const candidate = JSON.parse(bytes) as Partial<CompilerDependencyLocatorRetirementPlan>;
-  if (canonicalProviderBytes(candidate) !== bytes || candidate.schema !== COMPILER_DEPENDENCY_LOCATOR_PLAN_SCHEMA ||
-      candidate.relativePath !== 'node_modules' || typeof candidate.consumerRoot !== 'string' ||
-      typeof candidate.linkTarget !== 'string' || typeof candidate.generationPath !== 'string' ||
-      candidate.source === undefined || candidate.consumer === undefined || candidate.generation === undefined) {
-    throw new Error('Compiler dependency locator provider plan is malformed.');
-  }
-  const expectedKeys = [
-    'consumer', 'consumerRoot', 'generation', 'generationPath', 'linkTarget', 'relativePath', 'schema', 'source'
-  ];
-  if (Object.keys(candidate).sort(compareCodeUnits).join('\0') !== expectedKeys.join('\0') ||
-      Object.keys(candidate.source).sort(compareCodeUnits).join('\0') !== ['device', 'inode', 'objectId'].join('\0') ||
-      Object.keys(candidate.consumer).sort(compareCodeUnits).join('\0') !== ['device', 'inode', 'objectId'].join('\0') ||
-      (candidate.generation !== null &&
-        Object.keys(candidate.generation).sort(compareCodeUnits).join('\0') !== ['device', 'inode', 'mode'].join('\0')) ||
-      Object.values(candidate.source).some((value) => typeof value !== 'string') ||
-      Object.values(candidate.consumer).some((value) => typeof value !== 'string') ||
-      (candidate.generation !== null &&
-        Object.values(candidate.generation).some((value) => typeof value !== 'string'))) {
-    throw new Error('Compiler dependency locator provider plan shape is invalid.');
-  }
-  return candidate as CompilerDependencyLocatorRetirementPlan;
-}
-
-async function validateCompilerDependencyLocatorPlan(
-  plan: CompilerDependencyLocatorRetirementPlan,
-  requireLocator: boolean
-): Promise<Readonly<{
-  consumer: ReturnType<typeof inspectNoFollowDirectoryChain>['target'];
-  locator: ReturnType<typeof compilerDependencyLocatorObservation>;
-}>> {
-  const consumerRoot = path.resolve(plan.consumerRoot);
-  const generationPath = path.resolve(plan.generationPath);
-  const relativeGeneration = path.relative(consumerRoot, generationPath);
-  const generationIsExternal = relativeGeneration === '..' || relativeGeneration.startsWith(`..${path.sep}`) ||
-    path.isAbsolute(relativeGeneration);
-  const generationIsLocalImmutable = isCanonicalLocalCompilerDependencyGeneration(
-    consumerRoot,
-    generationPath
-  );
-  if (consumerRoot !== plan.consumerRoot || generationPath !== plan.generationPath ||
-      (!generationIsExternal && !generationIsLocalImmutable)) {
-    throw new Error('Compiler dependency locator provider plan paths are not canonical generation paths.');
-  }
-  const observedConsumer = compilerDependencyConsumerIdentity(consumerRoot);
-  if (!sameGeneratedStatePhysicalIdentity(observedConsumer, plan.consumer)) {
-    throw new Error('Compiler dependency locator provider consumer root identity changed.');
-  }
-  const generation = await compilerDependencyGenerationIdentityIfPresent(generationPath);
-  if (!canonicalEquals(generation, plan.generation)) {
-    throw new Error('Compiler dependency locator provider inputs or generation identity changed.');
-  }
-  if (!requireLocator) {
-    const finalConsumer = inspectNoFollowDirectoryChain(
-      consumerRoot,
-      'Compiler dependency locator final consumer root'
-    ).target;
-    const finalGeneration = await compilerDependencyGenerationIdentityIfPresent(generationPath);
-    if (!sameGeneratedStatePhysicalIdentity(
-      { device: finalConsumer.device, inode: finalConsumer.inode, objectId: finalConsumer.objectId },
-      plan.consumer
-    ) || !canonicalEquals(finalGeneration, plan.generation)) {
-      throw new Error('Compiler dependency locator provider inputs changed during final validation.');
-    }
-    return Object.freeze({ consumer: finalConsumer, locator: null });
-  }
-  const locator = compilerDependencyLocatorObservation(consumerRoot, plan.relativePath);
-  if (locator === null || !sameGeneratedStatePhysicalIdentity(locator.source, plan.source) ||
-      locator.linkTarget !== plan.linkTarget ||
-      !sameHostPath(path.resolve(await fs.realpath(path.join(consumerRoot, plan.relativePath)).catch(
-        (error: NodeJS.ErrnoException) => {
-          if (error.code === 'ENOENT' && plan.generation === null) {
-            return fs.readlink(path.join(consumerRoot, plan.relativePath));
-          }
-          throw error;
-        }
-      )), generationPath)) {
-    throw new Error('Compiler dependency locator provider locator identity or target changed.');
-  }
-  const finalGeneration = await compilerDependencyGenerationIdentityIfPresent(generationPath);
-  const finalConsumer = inspectNoFollowDirectoryChain(
-    consumerRoot,
-    'Compiler dependency locator final consumer root'
-  ).target;
-  if (!sameGeneratedStatePhysicalIdentity(
-    { device: finalConsumer.device, inode: finalConsumer.inode, objectId: finalConsumer.objectId },
-      plan.consumer
-  ) || !canonicalEquals(finalGeneration, plan.generation)) {
-    throw new Error('Compiler dependency locator provider inputs changed during final validation.');
-  }
-  return Object.freeze({ consumer: finalConsumer, locator });
-}
-
-export const compilerDependencyLocatorWorktreeRetirementProvider:
-GeneratedStateWorktreeRetirementProvider = Object.freeze<GeneratedStateWorktreeRetirementProvider>({
-  id: COMPILER_DEPENDENCY_LOCATOR_PROVIDER_ID,
-  async plan(input) {
-    if (input.relativePath !== 'node_modules' ||
-      !sameGeneratedStatePhysicalIdentity(input.registration.root, input.source)) {
-      throw new Error('Compiler dependency locator provider requires one exact registration.');
-    }
-    const consumerRoot = path.resolve(input.workspaceRoot);
-    const consumer = compilerDependencyConsumerIdentity(consumerRoot);
-    if (!sameGeneratedStatePhysicalIdentity(consumer, input.registration.workspace)) {
-      throw new Error('Compiler dependency locator provider registration targets another consumer root.');
-    }
-    const locator = compilerDependencyLocatorObservation(consumerRoot, input.relativePath);
-    if (locator === null || !sameGeneratedStatePhysicalIdentity(locator.source, input.source)) {
-      throw new Error('Compiler dependency locator provider source changed before planning.');
-    }
-    const generationPath = path.resolve(await fs.realpath(path.join(consumerRoot, input.relativePath)).catch(
-      (error: NodeJS.ErrnoException) => {
-        if (error.code === 'ENOENT') {
-          return fs.readlink(path.join(consumerRoot, input.relativePath));
-        }
-        throw error;
-      }
-    ));
-    const material: CompilerDependencyLocatorRetirementPlan = Object.freeze({
-      schema: COMPILER_DEPENDENCY_LOCATOR_PLAN_SCHEMA,
-      consumerRoot,
-      consumer,
-      relativePath: 'node_modules',
-      source: locator.source,
-      linkTarget: locator.linkTarget,
-      generationPath,
-      generation: await compilerDependencyGenerationIdentityIfPresent(generationPath)
-    });
-    const bytes = canonicalProviderBytes(material);
-    return Object.freeze({
-      bytes,
-      digest: generatedStateDomainProviderMaterialDigest(COMPILER_DEPENDENCY_LOCATOR_PROVIDER_ID, 'plan', bytes)
-    });
-  },
-  async retire(authority) {
-    const authorized = consumeGeneratedStateWorktreeRetirementEffectAuthority(
-      authority,
-      COMPILER_DEPENDENCY_LOCATOR_PROVIDER_ID
-    );
-    if (authorized.relativePath !== 'node_modules' || authorized.registration.phase !== 'retired' ||
-        authorized.planDigest !== generatedStateDomainProviderMaterialDigest(
-          COMPILER_DEPENDENCY_LOCATOR_PROVIDER_ID,
-          'plan',
-          authorized.planBytes
-        )) {
-      throw new Error('Compiler dependency locator provider retirement authority is invalid.');
-    }
-    const plan = parseCompilerDependencyLocatorRetirementPlan(authorized.planBytes);
-    if (path.resolve(authorized.workspaceRoot) !== plan.consumerRoot ||
-      !sameGeneratedStatePhysicalIdentity(authorized.source, plan.source) ||
-      !sameGeneratedStatePhysicalIdentity(authorized.registration.root, plan.source) ||
-      !sameGeneratedStatePhysicalIdentity(authorized.registration.workspace, plan.consumer)) {
-      throw new Error('Compiler dependency locator provider retirement binding changed.');
-    }
-    const validateRetirementPlan = async (requireLocator: boolean) => {
-      try {
-        return await validateCompilerDependencyLocatorPlan(plan, requireLocator);
-      } catch (error) {
-        if (error instanceof SecError) throw error;
-        const cause = error instanceof Error ? error.message : String(error);
-        throw new SecError(
-          'IMPORT-AUTHORITY-004',
-          `Compiler dependency locator retirement validation failed: ${cause}`,
-          { cause, consumerRoot: plan.consumerRoot }
-        );
-      }
-    };
-    const locator = compilerDependencyLocatorObservation(plan.consumerRoot, plan.relativePath);
-    let outcome: 'removed' | 'resumed-absent';
-    if (locator === null) {
-      if (inspectExactNoFollowDirectoryPresence(
-        path.join(plan.consumerRoot, plan.relativePath),
-        'Compiler dependency locator retirement absence readback'
-      ).state !== 'absent') {
-        throw new SecError(
-          'IMPORT-AUTHORITY-004',
-          'Compiler dependency locator retirement found an occupied non-locator path.',
-          { consumerRoot: plan.consumerRoot, relativePath: plan.relativePath }
-        );
-      }
-      await validateRetirementPlan(false);
-      outcome = 'resumed-absent';
-    } else {
-      const validated = await validateRetirementPlan(true);
-      deleteRetainedNoFollowEntry({
-        root: validated.consumer,
-        relativePath: plan.relativePath,
-        kind: 'link',
-        device: locator.source.device,
-        inode: locator.source.inode,
-        expectedLinkTarget: locator.linkTarget,
-        ancestorDirectories: Object.freeze([])
-      });
-      if (inspectExactNoFollowDirectoryPresence(
-        path.join(plan.consumerRoot, plan.relativePath),
-        'Compiler dependency locator retirement terminal absence readback'
-      ).state !== 'absent') {
-        throw new Error('Compiler dependency locator provider locator remains after retirement.');
-      }
-      await validateRetirementPlan(false);
-      outcome = 'removed';
-    }
-    const bytes = canonicalProviderBytes(Object.freeze({
-      schema: COMPILER_DEPENDENCY_LOCATOR_RECEIPT_SCHEMA,
-      operationId: authorized.operationId,
-      planDigest: authorized.planDigest,
-      outcome,
-      locator: plan.source,
-      generation: plan.generation
-    }));
-    return Object.freeze({
-      bytes,
-      digest: generatedStateDomainProviderMaterialDigest(COMPILER_DEPENDENCY_LOCATOR_PROVIDER_ID, 'receipt', bytes)
-    });
-  }
-});
-
-interface RetainedGitControlFile {
-  readonly capability: RetainedNoFollowOrdinaryFile;
-  readonly value: string;
-  assertCurrent(): void;
-}
-
-interface LinkedWorktreeDependencyOwnerAuthority {
-  readonly consumerRoot: string;
-  readonly ownerRoot: string;
-  assertCurrent(): void;
-  dispose(): void;
-}
-
-function samePhysicalDirectory(
-  left: PhysicalDirectoryIdentity,
-  right: PhysicalDirectoryIdentity
-): boolean {
-  return left.device === right.device && left.inode === right.inode && left.objectId === right.objectId;
-}
-
-function retainGitControlFile(
-  parent: PhysicalDirectoryChain,
-  name: string,
-  label: string,
-  parse: (source: Uint8Array) => string
-): RetainedGitControlFile {
-  const capability = retainNoFollowOrdinaryFile(parent, name, undefined, label);
-  try {
-    if (capability.size > 32_768) {
-      throw new Error(`${label} exceeds the bounded Git control-file domain.`);
-    }
-    const before = capability.digest();
-    const value = parse(capability.readBytes());
-    const after = capability.digest();
-    if (before.size !== after.size || before.byteDigest !== after.byteDigest) {
-      throw new Error(`${label} changed during retained parsing.`);
-    }
-    return Object.freeze({
-      capability,
-      value,
-      assertCurrent: () => {
-        capability.assertCurrent();
-        const current = capability.digest();
-        if (current.size !== before.size || current.byteDigest !== before.byteDigest) {
-          throw new Error(`${label} bytes changed after retained parsing.`);
-        }
-      }
-    });
-  } catch (error) {
-    capability.dispose();
-    throw error;
-  }
-}
-
-function disposeRetainedGitControlFiles(files: readonly RetainedGitControlFile[]): void {
-  let failure: unknown = null;
-  for (const file of [...files].reverse()) {
-    try {
-      file.capability.dispose();
-    } catch (error) {
-      failure ??= error;
-    }
-  }
-  if (failure !== null) throw failure;
-}
-
-/**
- * Derives the primary dependency owner from Git's physical linked-worktree
- * registry, without executing Git or trusting a caller/path projection.  The
- * root locator, admin `commondir`, and reciprocal `gitdir` back-reference are
- * retained for the whole dependency observation and content-fenced on every
- * readback.  A regular `.git` marker that is not one exact registry member is
- * therefore a typed authority failure, never a local-install fallback.
- */
-function linkedWorktreeDependencyOwnerRoot(
-  consumerRoot: string
-): LinkedWorktreeDependencyOwnerAuthority | null {
-  const markerPath = path.join(consumerRoot, '.git');
-  let markerMetadata: ReturnType<typeof lstatSync>;
-  try {
-    markerMetadata = lstatSync(markerPath);
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null;
-    throw error;
-  }
-  if (!markerMetadata.isFile() || markerMetadata.isSymbolicLink()) return null;
-
-  const retained: RetainedGitControlFile[] = [];
-  try {
-    const consumer = inspectNoFollowDirectoryChain(consumerRoot, 'Linked worktree consumer root');
-    const marker = retainGitControlFile(
-      consumer,
-      '.git',
-      'Linked worktree .git locator',
-      parseGitWorktreeAdminLocator
-    );
-    retained.push(marker);
-    const adminDirectory = path.resolve(consumerRoot, marker.value);
-    const admin = inspectNoFollowDirectoryChain(adminDirectory, 'Linked worktree registry admin');
-    const commonLocator = retainGitControlFile(
-      admin,
-      'commondir',
-      'Linked worktree commondir locator',
-      (source) => parseGitWorktreeAdminPath(source, 'linked-worktree commondir')
-    );
-    retained.push(commonLocator);
-    const backReference = retainGitControlFile(
-      admin,
-      'gitdir',
-      'Linked worktree gitdir back-reference',
-      (source) => parseGitWorktreeAdminPath(source, 'linked-worktree gitdir')
-    );
-    retained.push(backReference);
-
-    const commonDirectory = path.resolve(adminDirectory, commonLocator.value);
-    const common = inspectNoFollowDirectoryChain(commonDirectory, 'Linked worktree common Git directory');
-    const worktreesDirectory = path.join(commonDirectory, 'worktrees');
-    const worktrees = inspectNoFollowDirectoryChain(
-      worktreesDirectory,
-      'Linked worktree registry namespace'
-    );
-    const adminName = path.basename(adminDirectory);
-    if (adminName.length === 0 || adminName === '.' || adminName === '..' ||
-        !sameHostPath(path.dirname(adminDirectory), worktreesDirectory)) {
-      throw new Error('Linked worktree admin is not one direct registry member.');
-    }
-    const registeredAdmin = inspectNoFollowDirectoryChain(
-      path.join(worktreesDirectory, adminName),
-      'Linked worktree registered admin'
-    );
-    if (!samePhysicalDirectory(admin.target, registeredAdmin.target)) {
-      throw new Error('Linked worktree admin is not the registered physical directory.');
-    }
-    const registeredMarkerPath = path.resolve(adminDirectory, backReference.value);
-    if (!sameHostPath(registeredMarkerPath, markerPath)) {
-      throw new Error('Linked worktree registry back-reference does not bind this consumer.');
-    }
-    if (path.basename(commonDirectory).toLocaleLowerCase('en-US') !== '.git') {
-      throw new Error('Linked worktree common directory is not an owner .git directory.');
-    }
-    const ownerRoot = path.dirname(commonDirectory);
-    if (sameHostPath(ownerRoot, consumerRoot)) {
-      throw new Error('Linked worktree dependency owner is not physically distinct.');
-    }
-    const owner = inspectNoFollowDirectoryChain(ownerRoot, 'Linked worktree dependency owner root');
-    const ownerGit = inspectNoFollowDirectoryChain(
-      path.join(ownerRoot, '.git'),
-      'Linked worktree dependency owner Git directory'
-    );
-    if (!samePhysicalDirectory(common.target, ownerGit.target)) {
-      throw new Error('Linked worktree common directory is not the owner registry root.');
-    }
-
-    const assertCurrent = (): void => {
-      assertSameNoFollowDirectoryIdentity(consumer.target, 'Linked worktree consumer root');
-      assertSameNoFollowDirectoryIdentity(admin.target, 'Linked worktree registry admin');
-      assertSameNoFollowDirectoryIdentity(common.target, 'Linked worktree common Git directory');
-      assertSameNoFollowDirectoryIdentity(worktrees.target, 'Linked worktree registry namespace');
-      assertSameNoFollowDirectoryIdentity(owner.target, 'Linked worktree dependency owner root');
-      assertSameNoFollowDirectoryIdentity(ownerGit.target, 'Linked worktree dependency owner Git directory');
-      for (const file of retained) file.assertCurrent();
-    };
-    assertCurrent();
-    let disposed = false;
-    return Object.freeze({
-      consumerRoot,
-      ownerRoot,
-      assertCurrent: () => {
-        if (disposed) throw new Error('Linked worktree registry authority is disposed.');
-        assertCurrent();
-      },
-      dispose: () => {
-        if (disposed) return;
-        disposed = true;
-        disposeRetainedGitControlFiles(retained);
-      }
-    });
-  } catch (error) {
-    try {
-      disposeRetainedGitControlFiles(retained);
-    } catch (disposalError) {
-      throw new SecError(
-        'IMPORT-AUTHORITY-004',
-        'Linked worktree registry authority cleanup failed',
-        {
-          cause: error instanceof Error ? error.message : String(error),
-          disposalCause: disposalError instanceof Error ? disposalError.message : String(disposalError)
-        }
-      );
-    }
-    throw new SecError(
-      'IMPORT-AUTHORITY-004',
-      'Linked worktree registry authority is invalid',
-      { cause: error instanceof Error ? error.message : String(error), markerPath }
-    );
-  }
-}
-
 async function resolveLinkedWorktreeDependencyGeneration(input: Readonly<{
   consumerRoot: string;
   consumerIdentity: CompilerDependencyIdentity;
@@ -8655,9 +7342,9 @@ async function disposeCompilerDependencyLocator(
   });
   const observation = await lifecycle.observeRetirement('node_modules', expected);
   const { assertGeneratedStateDisposalReceipt, assertGeneratedStateRetirementObservation } = await import(
-    '../../../runtime-state/generated-state/lifecycle.ts'
+    '../../../runtime-state/generated-state/lifecycle-evidence.ts'
   );
-  assertGeneratedStateRetirementObservation(observation);
+  await assertGeneratedStateRetirementObservation(observation, { workspaceRoot: root, relativePath: observation.relativePath });
   if (observation.status === 'active') await lifecycle.bind('node_modules', expected);
   else if (observation.status !== 'retired-present') {
     throw new SecError(
@@ -8669,7 +7356,7 @@ async function disposeCompilerDependencyLocator(
     outcome,
     profile: 'all-rebuildable'
   });
-  assertGeneratedStateDisposalReceipt(receipt);
+  await assertGeneratedStateDisposalReceipt(receipt, { workspaceRoot: root, relativePath: receipt.relativePath });
   if (receipt.relativePath !== 'node_modules' || receipt.profile !== 'all-rebuildable') {
     throw new SecError('IMPORT-AUTHORITY-004', 'Compiler dependency locator disposal receipt differs');
   }
@@ -8746,9 +7433,9 @@ async function recoverCompilerDependencyLocatorLifecycle(input: Readonly<{
   });
   const observation = await observeRetirement('node_modules', expected);
   const { assertGeneratedStateRetirementObservation } = await import(
-    '../../../runtime-state/generated-state/lifecycle.ts'
+    '../../../runtime-state/generated-state/lifecycle-evidence.ts'
   );
-  assertGeneratedStateRetirementObservation(observation);
+  await assertGeneratedStateRetirementObservation(observation, { workspaceRoot: input.root, relativePath: observation.relativePath });
   if (observation.status === 'active') {
     await bindExistingCompilerDependencyLocator(
       input.root,
@@ -9228,15 +7915,50 @@ async function compilerDependencyGeneratedPreimageAuthority(
       ...packageBinding.name.split('/'),
       'package.json'
     );
-    const manifestMetadata = await fs.lstat(packageManifestPath).catch(() => null);
-    if (manifestMetadata === null || !manifestMetadata.isFile() || manifestMetadata.isSymbolicLink()) {
-      throw new SecError('IMPORT-AUTHORITY-004', 'Compiler dependency preimage package manifest is not physical');
+    let manifestHandle: Awaited<ReturnType<typeof fs.open>>;
+    try {
+      manifestHandle = await fs.open(packageManifestPath, 'r');
+    } catch (error) {
+      throw new SecError(
+        'IMPORT-AUTHORITY-004',
+        'Compiler dependency preimage package manifest cannot be opened safely',
+        { cause: error instanceof Error ? error.message : String(error) }
+      );
     }
-    const physicalManifestPath = await fs.realpath(packageManifestPath);
-    if (!isPathInside(nodeModulesPath, physicalManifestPath)) {
-      throw new SecError('IMPORT-AUTHORITY-004', 'Compiler dependency preimage package manifest escapes its generation');
+    let manifestBytes: Buffer;
+    try {
+      const opened = await manifestHandle.stat();
+      const manifestMetadata = await fs.lstat(packageManifestPath);
+      const physicalManifestPath = await fs.realpath(packageManifestPath);
+      if (!opened.isFile() || !manifestMetadata.isFile() || manifestMetadata.isSymbolicLink()
+        || opened.dev !== manifestMetadata.dev || opened.ino !== manifestMetadata.ino
+        || opened.mode !== manifestMetadata.mode || opened.size !== manifestMetadata.size
+        || opened.mtimeMs !== manifestMetadata.mtimeMs
+        || !isPathInside(nodeModulesPath, physicalManifestPath)) {
+        throw new SecError(
+          'IMPORT-AUTHORITY-004',
+          'Compiler dependency preimage package manifest is not one stable physical file'
+        );
+      }
+      manifestBytes = await manifestHandle.readFile();
+      const [afterHandle, afterPath] = await Promise.all([
+        manifestHandle.stat(),
+        fs.lstat(packageManifestPath)
+      ]);
+      if (afterHandle.dev !== opened.dev || afterHandle.ino !== opened.ino
+        || afterHandle.mode !== opened.mode || afterHandle.size !== opened.size
+        || afterHandle.mtimeMs !== opened.mtimeMs
+        || afterPath.dev !== opened.dev || afterPath.ino !== opened.ino
+        || afterPath.mode !== opened.mode || afterPath.size !== opened.size
+        || afterPath.mtimeMs !== opened.mtimeMs) {
+        throw new SecError(
+          'IMPORT-AUTHORITY-004',
+          'Compiler dependency preimage package manifest changed during retained read'
+        );
+      }
+    } finally {
+      await manifestHandle.close();
     }
-    const manifestBytes = await fs.readFile(packageManifestPath);
     const manifest = JSON.parse(manifestBytes.toString('utf8')) as Record<string, unknown>;
     // `packageBinding.name` is the dependency locator under node_modules, not
     // necessarily the package's declared name: npm aliases deliberately make
@@ -9394,7 +8116,7 @@ async function relocateLegacyCompilerDependencyPreimage(
     writeDurableTransitionFile(
       intentRoot,
       preparedName,
-      Buffer.from(canonicalProviderBytes(prepared), 'utf8'),
+      Buffer.from(JSON.stringify(canonicalJson(prepared)), 'utf8'),
       assertCompilerDependencyLegacyRelocationIntentBytes,
       true
     );
@@ -9435,7 +8157,7 @@ async function relocateLegacyCompilerDependencyPreimage(
   writeDurableTransitionFile(
     intentRoot,
     completeName,
-    Buffer.from(canonicalProviderBytes(complete), 'utf8'),
+    Buffer.from(JSON.stringify(canonicalJson(complete)), 'utf8'),
     assertCompilerDependencyLegacyRelocationIntentBytes,
     true
   );
@@ -9451,18 +8173,13 @@ async function relocateLegacyCompilerDependencyPreimage(
 }
 
 const COMPILER_DEPENDENCY_CONSUMER_SCHEMA = 'sec-compiler-dependency-consumer-v1' as const;
-const COMPILER_DEPENDENCY_CONSUMER_SCHEMA_V2 = 'sec-compiler-dependency-consumer-v2' as const;
-const COMPILER_DEPENDENCY_CONSUMER_RECORD_KEYS_V1 = Object.freeze([
+const COMPILER_DEPENDENCY_CONSUMER_RECORD_KEYS = Object.freeze([
   'generationDigest', 'generationPhysical', 'generationPath', 'leaseId',
   'phase', 'previousRecordDigest', 'recordDigest', 'schema'
 ]);
-const COMPILER_DEPENDENCY_CONSUMER_RECORD_KEYS_V2 = Object.freeze([
-  ...COMPILER_DEPENDENCY_CONSUMER_RECORD_KEYS_V1,
-  'ownerHost', 'ownerPid'
-]);
 
 interface CompilerDependencyConsumerRecord {
-  readonly schema: typeof COMPILER_DEPENDENCY_CONSUMER_SCHEMA | typeof COMPILER_DEPENDENCY_CONSUMER_SCHEMA_V2;
+  readonly schema: typeof COMPILER_DEPENDENCY_CONSUMER_SCHEMA;
   readonly recordDigest: `sha256:${string}`;
   readonly previousRecordDigest: `sha256:${string}` | null;
   readonly leaseId: `sha256:${string}`;
@@ -9470,9 +8187,6 @@ interface CompilerDependencyConsumerRecord {
   readonly generationPath: string;
   readonly generationPhysical: GeneratedStatePhysicalIdentity;
   readonly phase: 'acquired' | 'released';
-  readonly ownerHost?: string;
-  readonly ownerPid?: number;
-  readonly ownerProcessNonce?: string;
 }
 
 type CompilerDependencyConsumerUnsigned = Omit<CompilerDependencyConsumerRecord, 'recordDigest'>;
@@ -9499,29 +8213,16 @@ function parseCompilerDependencyConsumerRecord(
       cause: error instanceof Error ? error.message : String(error)
     });
   }
-  const recordSchema = value !== null && typeof value === 'object' && !Array.isArray(value)
-    ? (value as Record<string, unknown>).schema
-    : undefined;
-  const expectedKeys = recordSchema === COMPILER_DEPENDENCY_CONSUMER_SCHEMA
-    ? COMPILER_DEPENDENCY_CONSUMER_RECORD_KEYS_V1
-    : recordSchema === COMPILER_DEPENDENCY_CONSUMER_SCHEMA_V2
-      ? COMPILER_DEPENDENCY_CONSUMER_RECORD_KEYS_V2
-      : null;
-  if (expectedKeys === null || !hasExactObjectKeys(value, expectedKeys)) {
+  if (!hasExactObjectKeys(value, COMPILER_DEPENDENCY_CONSUMER_RECORD_KEYS)) {
     throw new SecError('RUNTIME-DEPS-004', 'Compiler dependency consumer record has noncanonical keys');
   }
   const record = value as unknown as CompilerDependencyConsumerRecord;
-  if ((record.schema !== COMPILER_DEPENDENCY_CONSUMER_SCHEMA &&
-       record.schema !== COMPILER_DEPENDENCY_CONSUMER_SCHEMA_V2) ||
+  if (record.schema !== COMPILER_DEPENDENCY_CONSUMER_SCHEMA ||
       !isSha256Digest(record.recordDigest) ||
       (!isSha256Digest(record.previousRecordDigest) && record.previousRecordDigest !== null) ||
       !isSha256Digest(record.leaseId) || !isSha256Digest(record.generationDigest) ||
       !isCanonicalAbsolutePath(record.generationPath) ||
       !isCanonicalGeneratedStatePhysicalIdentity(record.generationPhysical) ||
-      (record.schema === COMPILER_DEPENDENCY_CONSUMER_SCHEMA_V2 && (
-        typeof record.ownerHost !== 'string' || record.ownerHost.length === 0 ||
-        !Number.isSafeInteger(record.ownerPid) || (record.ownerPid ?? 0) <= 0
-      )) ||
       (record.phase !== 'acquired' && record.phase !== 'released')) {
     throw new SecError('RUNTIME-DEPS-004', 'Compiler dependency consumer record fields are invalid');
   }
@@ -9538,18 +8239,6 @@ function parseCompilerDependencyConsumerRecord(
     throw new SecError('RUNTIME-DEPS-004', 'Compiler dependency consumer filename differs from its lease');
   }
   return Object.freeze(record);
-}
-
-function compilerDependencyConsumerOwnerDefinitelyAbsent(
-  record: CompilerDependencyConsumerRecord
-): boolean {
-  // PID liveness is used only as negative evidence: a dead local PID cannot
-  // still hold dependency handles. A live, remote, or unobservable owner is
-  // always retained. Legacy v1 records have no owner identity and therefore
-  // remain protected for explicit owner recovery.
-  return record.schema === COMPILER_DEPENDENCY_CONSUMER_SCHEMA_V2 &&
-    record.ownerHost === hostname() &&
-    !processIsAlive(record.ownerPid!);
 }
 
 async function compilerDependencyConsumerRoot(
@@ -9571,15 +8260,13 @@ async function acquireCompilerDependencyConsumer(
     nonce: crypto.randomUUID()
   }));
   const record = compilerDependencyConsumerRecord({
-    schema: COMPILER_DEPENDENCY_CONSUMER_SCHEMA_V2,
+    schema: COMPILER_DEPENDENCY_CONSUMER_SCHEMA,
     previousRecordDigest: null,
     leaseId,
     generationDigest: sourceGeneration.epoch,
     generationPath: path.resolve(sourceGeneration.sourcePath),
     generationPhysical: sourceGeneration.physical,
-    phase: 'acquired',
-    ownerHost: hostname(),
-    ownerPid: process.pid
+    phase: 'acquired'
   });
   const name = `consumer-${leaseId.slice('sha256:'.length)}-acquired.json`;
   const recordBytes = Buffer.from(formatJsonFile(canonicalJson(record)), 'utf8');
@@ -9619,17 +8306,13 @@ async function publishCompilerDependencyConsumerReleaseUnderLease(
 ): Promise<CompilerDependencyConsumerRecord> {
   const consumers = await compilerDependencyConsumerRoot(options);
   const released = compilerDependencyConsumerRecord({
-    schema: acquired.schema,
+    schema: COMPILER_DEPENDENCY_CONSUMER_SCHEMA,
     previousRecordDigest: acquired.recordDigest,
     leaseId: acquired.leaseId,
     generationDigest: acquired.generationDigest,
     generationPath: acquired.generationPath,
     generationPhysical: acquired.generationPhysical,
-    phase: 'released',
-    ...(acquired.schema === COMPILER_DEPENDENCY_CONSUMER_SCHEMA_V2 ? {
-      ownerHost: acquired.ownerHost,
-      ownerPid: acquired.ownerPid
-    } : {})
+    phase: 'released'
   });
   const name = `consumer-${acquired.leaseId.slice('sha256:'.length)}-released.json`;
   const existing = inspectNoFollowOrdinaryFileEntry(consumers, name);
@@ -9949,13 +8632,9 @@ function readCompilerDependencyConsumerCensus(
     const acquired = phases.acquired;
     const released = phases.released;
     if (acquired === undefined || (released !== undefined &&
-        (released.schema !== acquired.schema ||
-          released.previousRecordDigest !== acquired.recordDigest ||
+        (released.previousRecordDigest !== acquired.recordDigest ||
           released.generationDigest !== acquired.generationDigest ||
           released.generationPath !== acquired.generationPath ||
-          (acquired.schema === COMPILER_DEPENDENCY_CONSUMER_SCHEMA_V2 && (
-            released.ownerHost !== acquired.ownerHost || released.ownerPid !== acquired.ownerPid
-          )) ||
           !sameGeneratedStateIdentity(released.generationPhysical, acquired.generationPhysical)))) {
       throw new SecError('RUNTIME-DEPS-004', 'Compiler dependency consumer lease chain is partial or foreign', {
         leaseId
@@ -10091,25 +8770,6 @@ async function collectReleasedCompilerDependencyGenerations(
       }
       consumerRecords.push(parseCompilerDependencyConsumerRecord(bytes, entry.relativePath));
     }
-  }
-  const consumerPhases = new Map<string, Partial<Record<'acquired' | 'released', CompilerDependencyConsumerRecord>>>();
-  for (const record of consumerRecords) {
-    const phases = consumerPhases.get(record.leaseId) ?? {};
-    if (phases[record.phase] !== undefined) {
-      throw new SecError('RUNTIME-DEPS-004', 'Compiler dependency consumer lease has duplicate phase records');
-    }
-    phases[record.phase] = record;
-    consumerPhases.set(record.leaseId, phases);
-  }
-  for (const phases of consumerPhases.values()) {
-    const acquired = phases.acquired;
-    if (acquired === undefined || phases.released !== undefined ||
-        !compilerDependencyConsumerOwnerDefinitelyAbsent(acquired)) continue;
-    // Recovery is serialized with acquisition/release by the shared compiler
-    // coordination lease. Publish the same terminal record as normal release;
-    // no timeout, PID reuse, remote owner, or legacy record grants retirement.
-    const released = await publishCompilerDependencyConsumerReleaseUnderLease(acquired, options);
-    consumerRecords.push(released);
   }
   const legacyRelocations = inspectNoFollowDirectoryChild(
     namespace.backupRoot,
@@ -11178,10 +9838,14 @@ export async function retainCompilerDependencyExecutionGeneration(
   ));
   let pendingGeneration: RetainedNoFollowProvenDirectoryGeneration | undefined;
   const admitted = await withCompilerDependencyCoordinationLease(
-    record.root,
+    record.sourceGeneration.ownerRoot,
     { deadlineAtUnixMs: input.deadlineAtUnixMs, lockTimeoutMs, signal: input.signal },
     async (options) => {
       runtimeDependencyOperationRemainingMs(options, 'Compiler dependency execution generation admission');
+      await assertCompilerDependencyReadTransitionTerminal(record.sourceGeneration.ownerRoot, options);
+      if (!sameHostPath(record.root, record.sourceGeneration.ownerRoot)) {
+        await assertCompilerDependencyReadTransitionTerminal(record.root, options);
+      }
       const sealed = await ensureCompilerDependencyGenerationReadOnlyProof(
         record.root,
         record.sourceGeneration,
@@ -11229,7 +9893,7 @@ export async function retainCompilerDependencyExecutionGeneration(
   } catch (error) {
     try {
       const physicalReceipt = await materialized.generation.retire();
-      await releaseCompilerDependencyConsumer(record.root, admitted.acquired, physicalReceipt);
+      await releaseCompilerDependencyConsumer(record.sourceGeneration.ownerRoot, admitted.acquired, physicalReceipt);
     } catch { /* durable acquisition residue preserves the authority failure */ }
     throw error;
   }
@@ -11251,13 +9915,13 @@ export async function retainCompilerDependencyExecutionGeneration(
         let released: CompilerDependencyConsumerRecord;
         if (durableRelease === null) {
           released = await releaseCompilerDependencyConsumer(
-            record.root,
+            record.sourceGeneration.ownerRoot,
             admitted.acquired,
             physicalReceipt,
             (terminal) => { durableRelease = terminal; }
           );
         } else {
-          await withCompilerDependencyCoordinationLease(record.root, { lockTimeoutMs: 30_000 }, async () => {});
+          await withCompilerDependencyCoordinationLease(record.sourceGeneration.ownerRoot, { lockTimeoutMs: 30_000 }, async () => {});
           released = durableRelease;
         }
         const receipt: CompilerDependencyExecutionRetirementReceipt = Object.freeze({
@@ -11328,9 +9992,15 @@ export async function retainCompilerDependencyReadGeneration(
   }>;
   try {
     admitted = await withCompilerDependencyCoordinationLease(
-      expected.root,
+      expected.sourceGeneration.ownerRoot,
       operationOptions,
       async (lockedOptions) => {
+        // A prior opaque observation cannot authorize a read after the physical
+        // owner has entered recovery. Recheck under that owner's GC/writer lease.
+        await assertCompilerDependencyReadTransitionTerminal(expected.sourceGeneration.ownerRoot, lockedOptions);
+        if (!sameHostPath(expected.root, expected.sourceGeneration.ownerRoot)) {
+          await assertCompilerDependencyReadTransitionTerminal(expected.root, lockedOptions);
+        }
         const sourceRoot = inspectNoFollowDirectoryChain(
           expected.sourceGeneration.sourcePath,
           'Compiler dependency read generation root'
@@ -11447,13 +10117,13 @@ export async function retainCompilerDependencyReadGeneration(
         physicalRetirement = physicalReceipt;
         if (durableRelease === null) {
           await releaseCompilerDependencyConsumer(
-            expected.root,
+            expected.sourceGeneration.ownerRoot,
             admitted.acquired,
             physicalReceipt,
             (terminal) => { durableRelease = terminal; }
           );
         } else {
-          await withCompilerDependencyCoordinationLease(expected.root, { lockTimeoutMs: 30_000 }, async () => {});
+          await withCompilerDependencyCoordinationLease(expected.sourceGeneration.ownerRoot, { lockTimeoutMs: 30_000 }, async () => {});
         }
         const receipt: CompilerDependencyReadGenerationRetirementReceipt = Object.freeze({
           generationDigest: expected.sourceGeneration.epoch,
@@ -11901,6 +10571,20 @@ async function observeCompilerDependencyReadyFromPublishedProof(
   return result!;
 }
 
+async function assertCompilerDependencyReadTransitionTerminal(
+  root: string,
+  options: RuntimeDependencyOperationOptions
+): Promise<void> {
+  const pendingTransition = (await readDependencyTransitionLedger(root, options))?.tip ?? null;
+  if (pendingTransition !== null && pendingTransition.phase !== 'complete' &&
+      pendingTransition.phase !== 'rolled-back') {
+    throw new SecError(
+      'RUNTIME-DEPS-004',
+      'Compiler dependency generation observation is blocked by nonterminal recovery state'
+    );
+  }
+}
+
 /**
  * Observe only an already-published compiler dependency generation and issue
  * the same opaque authority consumed by the retained execution owner. This
@@ -11926,15 +10610,7 @@ export async function observeCompilerDependencyExecutionGenerationAuthority(
     operationOptions,
     'Compiler dependency generation observation source admission'
   );
-  const transitionLedger = await readDependencyTransitionLedger(root, operationOptions);
-  const pendingTransition = transitionLedger?.tip ?? null;
-  if (pendingTransition !== null && pendingTransition.phase !== 'complete' &&
-      pendingTransition.phase !== 'rolled-back') {
-    throw new SecError(
-      'RUNTIME-DEPS-004',
-      'Compiler dependency generation observation is blocked by nonterminal recovery state'
-    );
-  }
+  await assertCompilerDependencyReadTransitionTerminal(root, operationOptions);
   const identity = await observeCompilerDependencyIdentity(root, operationOptions);
   const retainedProof = await observeCompilerDependencyReadyFromRetainedProof(
     root,
@@ -12000,11 +10676,12 @@ export async function observeCompilerDependencyExecutionGenerationAuthority(
 
 async function ensureCompilerDepsReadyInternal(
   options: RuntimeDependencyInstallOptions = {},
-  compilerDependencyRoot = compilerRoot
+  compilerDependencyRoot = compilerRoot,
+  admittedSource?: CompilerDependencyExecutionGenerationAuthorityRecord
 ): Promise<CompilerDepsReadyState> {
   const operationOptions = runtimeDependencyOperationOptions(options);
   const root = path.resolve(compilerDependencyRoot);
-  const lifecycleOptions = await bindCanonicalGeneratedStateLifecycle(operationOptions, root);
+  const lifecycleOptions = selectGeneratedStateLifecycle(operationOptions, root);
   await migrateCompilerDependencyCoordination(root, lifecycleOptions);
   const nodeModulesPath = dependencyAuthorityPaths(root).compilerModulesRoot;
   const bindingPath = path.join(nodeModulesPath, COMPILER_DEPS_BINDING_FILE);
@@ -12209,11 +10886,17 @@ async function ensureCompilerDepsReadyInternal(
       return readyState;
     }
 
-    const sharedWorktreeGeneration = await resolveLinkedWorktreeDependencyGeneration({
-      consumerRoot: root,
-      consumerIdentity: identity,
-      options: lockedOptions
-    });
+    const sharedWorktreeGeneration = admittedSource === undefined
+      ? await resolveLinkedWorktreeDependencyGeneration({
+          consumerRoot: root,
+          consumerIdentity: identity,
+          options: lockedOptions
+        })
+      : Object.freeze({
+          binding: admittedSource.binding,
+          nodeModulesPath: admittedSource.sourceGeneration.sourcePath,
+          sourceGeneration: admittedSource.sourceGeneration
+        });
     if (sharedWorktreeGeneration !== null) {
       let createdLocator = false;
       let createdLocatorIdentity: Readonly<{
@@ -12430,13 +11113,76 @@ async function ensureCompilerDepsReadyInternal(
   });
 }
 
+/**
+ * Keep an already-compatible target, otherwise reuse one explicitly admitted
+ * live compiler generation through the existing locator transition. The source
+ * is an exact fallback, not a request to replace a compatible target. It selects
+ * no mutable project link and authorizes no install, recovery or sibling search.
+ */
+export async function ensureCompilerDepsReadyFromGeneration(
+  authority: CompilerDependencyExecutionGenerationAuthority,
+  options: RuntimeDependencyInstallOptions = {},
+  compilerDependencyRoot = compilerRoot
+): Promise<CompilerDepsReadyState> {
+  assertCompilerDependencyExecutionGenerationAuthority(authority);
+  const source = compilerDependencyExecutionGenerationAuthorities.get(authority)!;
+  const operationOptions = runtimeDependencyOperationOptions(options);
+  const root = path.resolve(compilerDependencyRoot);
+  const identity = await observeCompilerDependencyIdentity(root, operationOptions);
+  if (!canonicalEquals(identity, source.identity)) {
+    throw new SecError('RUNTIME-DEPS-004', 'Explicit compiler dependency source has incompatible canonical inputs');
+  }
+  const current = await observeCompilerDependencyExecutionGenerationAuthority(operationOptions, source.root);
+  const currentSource = current === null ? null : compilerDependencyExecutionGenerationAuthorities.get(current)!;
+  if (currentSource === null || !canonicalEquals(currentSource.identity, source.identity) ||
+      !canonicalEquals(currentSource.binding, source.binding) ||
+      !canonicalEquals(currentSource.sourceGeneration, source.sourceGeneration)) {
+    throw new SecError('RUNTIME-DEPS-004', 'Explicit compiler dependency source authority is no longer current');
+  }
+  const context = runtimeDependencyOperationContext(operationOptions);
+  const retained = await retainCompilerDependencyReadGeneration(authority, {
+    deadlineAtUnixMs: context.deadlineAtUnixMs,
+    signal: context.signal
+  });
+  let ready: CompilerDepsReadyState | undefined;
+  let primary: RuntimeDependencyCapturedFailure | undefined;
+  try {
+    await retained.assertAuthorityCurrent();
+    // The fresh observation owns transition-capable source provenance; the
+    // caller authority can contain a serialized publication projection.
+    ready = await ensureCompilerDepsReadyInternal(operationOptions, root, currentSource);
+    await retained.assertAuthorityCurrent();
+    await assertCompilerDependencyReadTransitionTerminal(source.sourceGeneration.ownerRoot, operationOptions);
+    if (!sameHostPath(source.root, source.sourceGeneration.ownerRoot)) {
+      await assertCompilerDependencyReadTransitionTerminal(source.root, operationOptions);
+    }
+    assertCompilerDependencyInputsCurrent(root, identity);
+  } catch (error) {
+    primary = Object.freeze({ error });
+  }
+  let retirementFailure: RuntimeDependencyCapturedFailure | undefined;
+  try {
+    const receipt = await retained.retire();
+    assertCompilerDependencyReadGenerationRetirementReceipt(receipt, authority.generationDigest);
+  } catch (error) {
+    retirementFailure = Object.freeze({ error });
+  }
+  if (primary !== undefined && retirementFailure !== undefined) {
+    throw new AggregateError([primary.error, retirementFailure.error],
+      'Compiler dependency source reuse and retained-consumer settlement both failed');
+  }
+  if (primary !== undefined) throw primary.error;
+  if (retirementFailure !== undefined) throw retirementFailure.error;
+  return ready!;
+}
+
 function compilerDependencyReadyInFlightKey(
   options: RuntimeDependencyInstallOptions,
   root: string
 ): string | null {
   // Hooks, fences, lifecycle sessions and retry seams carry caller-local
   // effects; joining those calls would silently drop an owner's observation.
-  if (options.beforeCommit !== undefined || options.generatedStateLifecycle !== undefined ||
+  if (options.beforeCommit !== undefined || options.generatedStateLifecycle !== undefined || options.generatedStateLifecycleFactory !== undefined ||
       options.signal !== undefined || options.monotonicNowMs !== undefined || options.now !== undefined ||
       options.sleep !== undefined || options.testMaterialization !== undefined ||
       options.testCompilerPublishHook !== undefined || options.testCompilerBridgeValidationHook !== undefined ||
@@ -12471,10 +11217,37 @@ export async function ensureCompilerDepsReady(
     }
   }
 }
+export interface PreparedProjectDependencySource {
+  readonly binding: Readonly<RuntimeDependencyMaterializationBinding>;
+  readonly sourceGeneration: RuntimeDependencySourceGeneration;
+  readonly sourceNodeModulesPath: string;
+  readonly compilerDependencyRoot: string;
+}
+export async function readProjectDependencyRuntimeSpec() { return loadRuntimeDependencySpec(); }
+export function observeProjectCanonicalDependencyPaths() {
+  const root = path.resolve(compilerRoot);
+  return Object.freeze({ compilerDependencyRoot: root, compilerNodeModulesPath: dependencyAuthorityPaths(root).compilerModulesRoot });
+}
+export async function observeProjectCompilerDependencySource(options: RuntimeDependencyInstallOptions) {
+  const paths = observeProjectCanonicalDependencyPaths();
+  const ready = await observeCompilerDependencyReady(paths.compilerDependencyRoot, paths.compilerNodeModulesPath,
+    await compilerDependencyIdentity(paths.compilerDependencyRoot), options);
+  if (ready === null || ready.kind === 'incompatible-bridge') return null;
+  const sourceGeneration = ready.sourceGeneration ?? await runtimeDependencySourceGeneration({
+    binding: ready.binding, options, ownerRoot: paths.compilerDependencyRoot, sourcePath: paths.compilerNodeModulesPath });
+  return Object.freeze({ ...ready, sourceGeneration });
+}
+export function readProjectDependencySourceGeneration(binding: Readonly<RuntimeDependencyMaterializationBinding>, ownerRoot:string, sourcePath:string, options:RuntimeDependencyInstallOptions) {
+  return runtimeDependencySourceGeneration({ binding, ownerRoot, sourcePath, options });
+}
+export async function verifyIsolatedProjectDependencySource(binding: Readonly<RuntimeDependencyMaterializationBinding>, sourcePath:string) {
+  return runtimeDependencyTreeMatchesBinding({ expected:binding,nodeModulesPath:sourcePath,root:path.resolve(compilerRoot),runtimeSpec:await loadRuntimeDependencySpec() });
+}
 
 export async function ensureProjectDependencies(
   projectRoot: string,
-  options: RuntimeDependencyInstallOptions = {}
+  options: RuntimeDependencyInstallOptions = {},
+  preparedSource?: PreparedProjectDependencySource
 ): Promise<void> {
   let operationOptions = runtimeDependencyOperationOptions(options);
   const runtimeSpec = await loadRuntimeDependencySpec();
@@ -12498,64 +11271,23 @@ export async function ensureProjectDependencies(
   }
   const isolated = operationOptions.installMode === 'offline-copy-only';
   const compilerDependencyRoot = path.resolve(compilerRoot);
-  operationOptions = await bindCanonicalGeneratedStateLifecycle(operationOptions, compilerDependencyRoot);
-  let sourceNodeModulesPath: string;
-  let binding: Readonly<RuntimeDependencyMaterializationBinding>;
-  let sourceGeneration: RuntimeDependencySourceGeneration;
-
-  if (isolated) {
-    const compilerIdentity = await compilerDependencyIdentity(compilerDependencyRoot);
-    sourceNodeModulesPath = dependencyAuthorityPaths(compilerDependencyRoot).compilerModulesRoot;
-    const compilerReady = await observeCompilerDependencyReady(
-      compilerDependencyRoot,
-      sourceNodeModulesPath,
-      compilerIdentity,
-      operationOptions
-    );
-    if (compilerReady === null || compilerReady.kind === 'incompatible-bridge' ||
-        compilerReady.binding.runtimeMaterialization === null) {
-      throw new SecError('RUNTIME-DEPS-004', 'Canonical compiler dependency readiness is unavailable');
-    }
-    binding = compilerReady.binding.runtimeMaterialization;
-    const compilerSourceGeneration = compilerReady.sourceGeneration ?? await runtimeDependencySourceGeneration({
-      binding: compilerReady.binding,
-      options: operationOptions,
-      ownerRoot: compilerDependencyRoot,
-      sourcePath: sourceNodeModulesPath
-    });
-    sourceGeneration = await runtimeDependencySourceGeneration({
-      binding,
-      options: operationOptions,
-      ownerRoot: compilerSourceGeneration.ownerRoot,
-      sourcePath: compilerSourceGeneration.sourcePath
-    });
-    sourceNodeModulesPath = sourceGeneration.sourcePath;
-  } else {
-    const compilerReady = await ensureCompilerDepsReady(operationOptions, compilerDependencyRoot);
-    binding = compilerReady.runtimeMaterialization!;
-    if (binding === null || binding === undefined || binding.manifestHash !== runtimeSpec.manifestHash) {
-      throw new SecError('RUNTIME-DEPS-004', 'Canonical compiler runtime materialization is unavailable');
-    }
-    const compilerSourceGeneration = compilerReady.sourceGeneration ?? await runtimeDependencySourceGeneration({
-      binding,
-      options: operationOptions,
-      ownerRoot: compilerDependencyRoot,
-      sourcePath: compilerReady.nodeModulesPath
-    });
-    sourceGeneration = await runtimeDependencySourceGeneration({
-      binding,
-      options: operationOptions,
-      ownerRoot: compilerSourceGeneration.ownerRoot,
-      sourcePath: compilerSourceGeneration.sourcePath
-    });
-    sourceNodeModulesPath = sourceGeneration.sourcePath;
+  operationOptions = selectGeneratedStateLifecycle(operationOptions, projectRootPath);
+  if (preparedSource === undefined || path.resolve(preparedSource.compilerDependencyRoot) !== compilerDependencyRoot ||
+      preparedSource.binding.manifestHash !== runtimeSpec.manifestHash ||
+      preparedSource.sourceNodeModulesPath !== preparedSource.sourceGeneration.sourcePath) {
+    throw new SecError('RUNTIME-DEPS-004', 'Project dependency source preparation is missing, foreign, or malformed');
   }
-  if (isolated && !await runtimeDependencyTreeMatchesBinding({
-    expected: binding,
-    nodeModulesPath: sourceNodeModulesPath,
-    root: compilerDependencyRoot,
-    runtimeSpec
-  })) throw new SecError('RUNTIME-DEPS-004', 'Canonical compiler runtime materialization is unavailable for isolated verification');
+  const { binding, sourceGeneration, sourceNodeModulesPath } = preparedSource;
+  assertRuntimeDependencySourceGenerationIssued(sourceGeneration);
+  const currentSource = await observeProjectCompilerDependencySource(operationOptions);
+  if (currentSource === null ||
+      !canonicalEquals(currentSource.binding.runtimeMaterialization, binding) ||
+      currentSource.sourceGeneration.ownerRoot !== sourceGeneration.ownerRoot ||
+      currentSource.sourceGeneration.sourcePath !== sourceGeneration.sourcePath) {
+    throw new SecError('RUNTIME-DEPS-004', 'Project dependency prepared source is outside the canonical owner');
+  }
+  if (isolated && !await runtimeDependencyTreeMatchesBinding({ expected: binding, nodeModulesPath: sourceNodeModulesPath,
+      root: compilerDependencyRoot, runtimeSpec })) throw new SecError('RUNTIME-DEPS-004', 'Canonical compiler runtime materialization is unavailable for isolated verification');
 
   const projectTransitionInput: ProjectProjectionTransitionInput = Object.freeze({
     binding,

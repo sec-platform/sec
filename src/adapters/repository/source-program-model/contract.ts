@@ -1,4 +1,4 @@
-import { isSecRepositoryTestModulePath } from '../../../contracts/repository-test-path.ts';
+import { isSecRepositoryTestModulePath, SEC_REPOSITORY_TEST_EXECUTION_INPUT_PATHS } from '../../../contracts/repository-test-path.ts';
 import type { SemanticResponsibilityTargetKind } from '../../../semantics/definitions/types.ts';
 import type {
   SecModuleCausalRelation,
@@ -29,12 +29,11 @@ const SOURCE_PROGRAM_CATALOG_RESOURCE_PATH =
   /^catalog\/registry\/[^/]+\/.+\/files\//iu;
 const SOURCE_PROGRAM_GRAPH_EXTENSION = /\.(?:[cm]?[jt]sx?|json|ya?ml|toml)$/iu;
 const SOURCE_PROGRAM_ROOT_INPUT = new Set([
+  ...SEC_REPOSITORY_TEST_EXECUTION_INPUT_PATHS,
   '.documentation/documents.json',
   '.documentation/baseline.json',
-  'bunfig.toml',
   '.gitignore',
   'knip.json',
-  'package.json',
   'tsconfig.json'
 ]);
 
@@ -49,6 +48,13 @@ export function isSourceProgramInputPath(repositoryPath: string): boolean {
   if (/^\.github\/workflows\/[^/]+\.ya?ml$/iu.test(repositoryPath)) return true;
   if (!SOURCE_PROGRAM_GRAPH_EXTENSION.test(repositoryPath)) return false;
   return repositoryPath.startsWith('src/') || repositoryPath.startsWith('tests/');
+}
+
+/** Native runtime namespaces already interpreted by the repository owner.
+ * This removes module opacity only: it proves neither call purity nor complete
+ * environment/resource inputs, which retain their independent observations. */
+export function isSourceProgramRuntimeBuiltinModuleSpecifier(specifier: string): boolean {
+  return specifier === 'bun' || specifier.startsWith('bun:') || specifier.startsWith('node:');
 }
 
 export function sourceProgramSurfaceForPath(repositoryPath: string): SourceProgramSurface {
@@ -99,6 +105,9 @@ export interface SourceProgramCompilation {
 export type SourceProgramSupersessionStatus =
   | 'equivalent'
   | 'superseded'
+  | 'retained-unassessed'
+  | 'author-approved-change'
+  | 'author-decision-conditional'
   | 'owner-decision-required';
 
 export type SourceProgramSupersessionFindingCode =
@@ -131,7 +140,8 @@ export interface SourceProgramSupersessionReplacement {
   readonly owner: string | null;
   readonly baselinePaths: readonly string[];
   readonly currentPaths: readonly string[];
-  readonly proof: 'exact-semantic-obligation' | 'strict-observation-superset';
+  readonly proof: 'exact-semantic-obligation' | 'strict-observation-superset'
+    | 'retained-unassessed' | 'owner-rewrite-judgment';
 }
 
 export interface SourceProgramSupersessionLifecycleCost {
@@ -143,6 +153,7 @@ export interface SourceProgramSupersessionLifecycleCost {
 }
 
 export interface SourceProgramSupersessionReceipt {
+  readonly authorityScope: 'whole-program' | 'test-obligations';
   readonly status: SourceProgramSupersessionStatus;
   readonly baseline: Readonly<{
     readonly sourceRevision: string;
@@ -162,6 +173,11 @@ export interface SourceProgramSupersessionReceipt {
   }>;
   readonly replacements: readonly SourceProgramSupersessionReplacement[];
   readonly findings: readonly SourceProgramSupersessionFinding[];
+  readonly authorDecisionDigest: string | null;
+  /** Exact fully assessed current modules; continuation of unknown debt only. */
+  readonly authorAssessedCurrentPaths: readonly string[];
+  /** Exact retained unknown frontier identities; these grant no proof or reuse. */
+  readonly retainedUnknowns: readonly string[];
   readonly receiptDigest: string;
 }
 
@@ -488,7 +504,46 @@ export interface SourceProgramCandidate {
   readonly observationClass: 'derived' | 'unknown';
 }
 
-export interface SourceProgramModel {
+export type SourceProgramAnalysisScope = 'whole-program' | 'test-obligations';
+
+export type SourceProgramAnalysisNotRequested = Readonly<{
+  status: 'not-requested';
+  reason: 'outside-test-obligations';
+}>;
+
+export const SOURCE_PROGRAM_TEST_OBLIGATIONS_NOT_REQUESTED: SourceProgramAnalysisNotRequested =
+  Object.freeze({ status: 'not-requested', reason: 'outside-test-obligations' });
+
+export type SourceProgramCandidateAnalysis =
+  | readonly SourceProgramCandidate[]
+  | SourceProgramAnalysisNotRequested;
+
+export function sourceProgramCandidateAnalysisIsComplete(
+  value: SourceProgramCandidateAnalysis
+): value is readonly SourceProgramCandidate[] {
+  return Array.isArray(value);
+}
+
+/** Ordinary candidate consumers must not turn an omitted analysis into no findings. */
+export function requireSourceProgramCandidateAnalysis(
+  value: SourceProgramCandidateAnalysis
+): readonly SourceProgramCandidate[] {
+  if (!sourceProgramCandidateAnalysisIsComplete(value)) {
+    throw new Error('Source Program candidate analysis was not requested');
+  }
+  return value;
+}
+
+export function requireCompleteSourceProgramModel(
+  model: SourceProgramModel<SourceProgramCandidateAnalysis>
+): SourceProgramModel {
+  requireSourceProgramCandidateAnalysis(model.candidates);
+  return model as SourceProgramModel;
+}
+
+export interface SourceProgramModel<
+  Candidates extends SourceProgramCandidateAnalysis = readonly SourceProgramCandidate[]
+> {
   readonly sourceRevision: string;
   readonly providers: readonly Readonly<{
     readonly id: string;
@@ -504,7 +559,7 @@ export interface SourceProgramModel {
   readonly packages: readonly SourceProgramPackage[];
   readonly dependencies: readonly SourceProgramDependency[];
   readonly capabilities: readonly SourceProgramCapabilityInvocation[];
-  readonly candidates: readonly SourceProgramCandidate[];
+  readonly candidates: Candidates;
   readonly unknowns: readonly SourceProgramUnknown[];
   readonly modelDigest: string;
 }
@@ -575,7 +630,10 @@ export interface SourceProgramOperationObligationEvidence {
   readonly evidenceDigest: string;
 }
 
-export interface SourceProgramTopologySummary {
+export interface SourceProgramTopologySummary<
+  CandidateCodes extends Readonly<Record<string, number>> | SourceProgramAnalysisNotRequested = Readonly<Record<string, number>>,
+  ProcessPaths extends number | SourceProgramAnalysisNotRequested = number
+> {
   readonly packages: number;
   readonly dependencyScopes: Readonly<Record<string, number>>;
   readonly entrypointKinds: Readonly<Record<string, number>>;
@@ -588,9 +646,9 @@ export interface SourceProgramTopologySummary {
   /** Distinguishes repository providers, mature package APIs and unresolved transports. */
   readonly capabilityAuthorityClasses: Readonly<Record<SourceProgramCapabilityAuthorityClass, number>>;
   readonly providerModules: Readonly<Record<string, number>>;
-  readonly candidateCodes: Readonly<Record<string, number>>;
+  readonly candidateCodes: CandidateCodes;
   readonly unknownCodes: Readonly<Record<string, number>>;
-  readonly directProcessTransportPaths: number;
+  readonly directProcessTransportPaths: ProcessPaths;
 }
 
 export interface SourceProgramQueryResult {

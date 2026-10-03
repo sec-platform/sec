@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { parseArgs as parseNativeArgs } from 'node:util';
+import { reobserveSourceProgramTransitionQualificationForEffect } from '../../../verification/platform/trusted-runtime/trusted-runtime-container.ts';
 
 import {
   assertGitHubApiCapability,
@@ -17,6 +18,7 @@ import {
   CodexDevelopmentParseMergeGateResult,
   CodexDevelopmentParseTrustedRuntimeMergeGateResult,
   CodexDevelopmentTrustedRuntimeMergeGateResultSchema,
+  requireIssuedIntegrationGateResult,
   type CodexDevelopmentMergeGateResult,
   type CodexDevelopmentTrustedRuntimeMergeGateResult
 } from './merge-gate.ts';
@@ -427,6 +429,7 @@ export async function publishIntegrationAuthorizationStatus(input: Readonly<{
   capability: GitHubApiCapability;
 }>): Promise<IntegrationAuthorizationStatusPublication> {
   const result = input.result;
+  const transitionQualification = requireIssuedIntegrationGateResult(result);
   const repositoryName = repository(result.authorization.repository);
   const targetUrl = bounded(input.targetUrl, 'targetUrl');
   assertGitHubApiCapability(input.capability, repositoryName, 'status-write');
@@ -444,6 +447,7 @@ export async function publishIntegrationAuthorizationStatus(input: Readonly<{
     result.authorization.prNumber
   );
   const defaultBranch = exactPullSubject(subjectBefore, result);
+  await reobserveSourceProgramTransitionQualificationForEffect(transitionQualification);
 
   const created = parseGitHubStatus(await githubJson(
     input.capability,
@@ -523,6 +527,7 @@ function parseArgs(argv: readonly string[]): Readonly<{
 async function main(): Promise<void> {
   const args = parseArgs(process.argv.slice(2));
   const result = parseIntegrationAuthorizationGateResult(readFileSync(args.input, 'utf8'));
+  requireIssuedIntegrationGateResult(result); // Explicit migration: historical CLI input cannot publish.
   const receipt = await withGitHubApiStatusWriteSession({
     repositoryRoot: process.cwd(),
     repository: result.authorization.repository,
