@@ -27,6 +27,7 @@ import { buildCiVerificationActionPlan, buildCiVerificationActionPlanClosure, CI
 import { CI_VERIFICATION_ACTION_DEPENDENCY_INPUT_PATHS } from '../../src/adapters/verification/platform/action/contract/environment.ts';
 import { createVerificationActionProviderStartMarker, createVerificationActionProviderTerminalAnchor, finalizeVerificationActionProviderStatusReadback, VERIFICATION_ACTION_PROVIDER_POLICY, verificationActionProviderRunTargetUrl, verificationActionProviderStartArtifactName, verificationActionProviderStartDescription, verificationActionProviderStatusContext, verificationActionProviderTerminalAnchorName, verificationActionProviderTerminalArtifactName, verificationActionProviderTerminalDescription, type VerificationActionProviderOrigin, type VerificationActionProviderStartObservation, type VerificationActionProviderStatusObservation, type VerificationActionProviderStatusReadback, type VerificationActionProviderTerminalAnchorObservation } from '../../src/adapters/verification/platform/action/contract/provider.ts';
 import { CodexDevelopmentAssertVerificationActionTerminalArtifact, CodexDevelopmentAssertVerificationEvidenceV4, CodexDevelopmentCreateVerificationEvidenceProducer, CodexDevelopmentVerificationActionCandidateBytesDigest, CodexDevelopmentVerificationDigest, type CodexDevelopmentVerificationEvidenceV4 } from '../../src/adapters/verification/platform/ci/contract/evidence.ts';
+import * as hostedSutPlanOwner from '../../src/adapters/verification/platform/ci/contract/hosted-sut-command-plan.ts';
 import { CodexDevelopmentCreateHostedSutExecutionAuthorization, CodexDevelopmentFinalizeHostedActionRawResult, CodexDevelopmentHostedSutCandidateEnvironment, type CodexDevelopmentHostedSutExecutionAuthorization } from '../../src/adapters/verification/platform/ci/contract/hosted-sut-observation.ts';
 import { buildCiQuickGatePlan } from '../../src/adapters/verification/platform/ci/contract/plan.ts';
 import { CI_VERIFICATION_HOSTED_SANDBOX_POLICY, CI_VERIFICATION_HOSTED_SANDBOX_POLICY_DIGEST, CI_VERIFICATION_SESSION_DISPATCH_TYPE } from '../../src/adapters/verification/platform/ci/contract/revision.ts';
@@ -75,6 +76,16 @@ import { CodexDevelopmentCreateTestImpactTransitionObservation } from '../../src
 import type { VerificationResultStatus } from '../../src/assurance/verification/result/contract/result.ts';
 
 const RAW = `sha256:${'a'.repeat(64)}` as const;
+
+test('original SUT entrypoints remain exact projections of their pure plan owner', () => {
+  expect(CodexDevelopmentAssertHostedSutSandboxCommandPlan).toBe(hostedSutPlanOwner.CodexDevelopmentAssertHostedSutSandboxCommandPlan);
+  expect(CodexDevelopmentBuildHostedSutSandboxCommandPlan).toBe(hostedSutPlanOwner.CodexDevelopmentBuildHostedSutSandboxCommandPlan);
+  expect(CodexDevelopmentBuildTrustedBootstrapSutSandboxCommandPlan).toBe(hostedSutPlanOwner.CodexDevelopmentBuildTrustedBootstrapSutSandboxCommandPlan);
+  expect(CodexDevelopmentHostedSutCapabilityAssertion).toBe(hostedSutPlanOwner.CodexDevelopmentHostedSutCapabilityAssertion);
+  expect(CodexDevelopmentTrustedBootstrapSutHarness).toBe(hostedSutPlanOwner.CodexDevelopmentTrustedBootstrapSutHarness);
+  expect(CodexDevelopmentHostedSutSandboxRoot).toBe(hostedSutPlanOwner.CodexDevelopmentHostedSutSandboxRoot);
+  expect(CodexDevelopmentTrustedBootstrapSutSubjectDigest).toBe(hostedSutPlanOwner.CodexDevelopmentTrustedBootstrapSutSubjectDigest);
+});
 
 function gitFixture(root: string, args: readonly string[]): string {
   const result = spawnSync('git', ['-C', root, ...args], {
