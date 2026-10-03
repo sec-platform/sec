@@ -603,7 +603,7 @@ test('retained child-process file reads the observed inode after leaf replacemen
   }
 });
 
-test('retained Git index and object directories support write-tree without lexical reopen', () => {
+test('retained parent custody supports a writable warm Git index without reopening its parent', () => {
   expect(runRetainedGitWriteTreeProbeV1()).toMatch(/^[0-9a-f]{40}$/u);
 });
 

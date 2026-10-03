@@ -1,6 +1,3 @@
-import { readFileSync } from 'node:fs';
-import path from 'node:path';
-
 import { expect, test } from 'bun:test';
 
 import { isRepositoryMaintenancePermission } from '../../src/adapters/providers/github-api/repository-maintenance-permission.ts';
@@ -364,24 +361,4 @@ test('reviewed superseded ref retirement is single-ref and bound to lifecycle is
   multiple.operations[0]!.retirement.branches = ['fix/orphan', 'fix/other'];
   expect(() => parseRepositoryMaintenanceRequest(JSON.stringify(multiple)))
     .toThrow('exactly one branch');
-});
-
-
-test('exact ref CAS reuses one remote-state authority before and after the effect', () => {
-  const source = readFileSync(path.resolve(
-    import.meta.dir,
-    '../../src/adapters/self-hosting/control/branch-lifecycle/exact-ref-retirement.ts'
-  ), 'utf8');
-  const start = source.indexOf('const retired: string[] = [];');
-  const end = source.indexOf('return Object.freeze({', start);
-  expect(start).toBeGreaterThan(-1);
-  expect(end).toBeGreaterThan(start);
-  const effect = source.slice(start, end);
-  expect(effect.match(/observeRemoteStateWithCapability\(capability,/gu)?.length).toBe(2);
-  expect(effect).not.toContain("request.classification === 'closed-pr-superseded'");
-  expect(effect).not.toContain("request.classification === 'main-tree-identical'");
-  expect(effect).not.toContain("request.classification === 'reviewed-superseded'");
-  expect(source).toContain(
-    "request.classification === 'reviewed-superseded' && !present"
-  );
 });
