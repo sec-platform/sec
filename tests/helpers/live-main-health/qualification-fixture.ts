@@ -236,6 +236,8 @@ function storeReceipt(receipt: TrustedRuntimeMainHealthReceipt): void {
   mkdirSync(locator.directory, { recursive: true });
   writeFileSync(path.join(locator.directory, locator.fileName), `${encodeVerificationActionData(receipt)}\n`);
 }
+const { compileTrustedRuntimePostMainIssueDispositionHealthReadback: postMainHealth } =
+  await import('../../../src/adapters/verification/platform/ci/runtime/verification-session-runtime.ts');
 const publication = (receipt?: TrustedRuntimeMainHealthReceipt) => observePublication({ ...input,
   defaultBranch: 'main', ...(receipt === undefined ? {} : { qualifiedLocalReceipt: receipt }) });
 let failure: string | null = null;
@@ -244,13 +246,17 @@ try {
     retained = await executeTrustedRuntimeMainHealth(input);
     assert.throws(() => qualify({ ...input, receipt: retained! }), /live production execution qualification/u);
     consumption = { unscopedRejected: true };
-  } else await withTrustedRuntimeMainHealthQualification(input, async (receipt) => {
+  } else await withTrustedRuntimeMainHealthQualification({ ...input,
+    ...(scenario === 'parent-budget' ? { deadlineAtUnixMs: admittedAt + 60_000 } : {}),
+    ...(scenario === 'expired-parent' ? { deadlineAtUnixMs: admittedAt } : {}),
+    ...(scenario === 'invalid-parent' ? { deadlineAtUnixMs: Number.NaN } : {})
+  }, async (receipt) => {
     callbackCount++;
     retained = receipt;
     events.push('consumer');
     const first = qualify({ ...input, receipt });
     assert.equal(Date.parse(first.expiresAt), deadline);
-    assert.equal(deadline, admittedAt + 4 * 60 * 60_000);
+    assert.equal(deadline, admittedAt + (scenario === 'parent-budget' ? 60_000 : 4 * 60 * 60_000));
     const layout = resolveSecRuntimeStateForRepository(input);
     const leases = path.join(layout.repositoryStateRoot, 'trusted-runtime-container-leases', 'v1');
     assert.deepEqual(readdirSync(leases).filter((name) => name.endsWith('.lock')), []);
@@ -264,7 +270,7 @@ try {
       { mainTreeSha: 'e'.repeat(40) }, { repositoryRoot: path.dirname(root) }]) {
       assert.throws(() => qualify({ ...input, ...mismatch, receipt }), /live production execution qualification/u);
     }
-    if (scenario.startsWith('publication')) {
+    if (scenario.startsWith('publication') || scenario === 'post-main-health') {
       storeReceipt(receipt);
       const firstObservation = await publication(receipt);
       assert.equal(firstObservation.projection.state, 'healthy');
@@ -280,6 +286,26 @@ try {
           producer: { ...firstObservation.ledger!.producer, ...changed } });
         assert.throws(() => assertLedger({ authority: firstObservation.authority,
           ledger: substituted, now: firstObservation.observedAt }), /exact current canonical publication selection/u);
+      }
+      if (scenario === 'post-main-health') {
+        const healthInput = { repository: input.repository, newMainSha: mainSha,
+          newMainTreeSha: mainTreeSha, observedAt: firstObservation.observedAt,
+          ledger: firstObservation.ledger!, admission: { authority: firstObservation.authority,
+            receipt, repositoryRoot: root } };
+        assert.equal(postMainHealth(healthInput), firstObservation.ledger);
+        for (const changed of [{ newMainSha: 'a'.repeat(40) },
+          { newMainTreeSha: 'b'.repeat(40) }, { repository: 'another/repo' }]) {
+          assert.throws(() => postMainHealth({ ...healthInput, ...changed }));
+        }
+        assert.throws(() => postMainHealth({ ...healthInput, admission: {
+          ...healthInput.admission, receipt: { ...receipt } } }));
+        assert.throws(() => postMainHealth({ ...healthInput, admission: {
+          ...healthInput.admission, authority: { ...firstObservation.authority } } }));
+        clock = deadline;
+        assert.throws(() => postMainHealth(healthInput));
+        clock = admittedAt;
+        consumption.postMainAccepted = true;
+        consumption.postMainMismatchRejected = true;
       }
       const secondObservation = await publication(receipt);
       assertStable(firstObservation.authority, secondObservation.authority);
@@ -318,7 +344,7 @@ try {
       assert.throws(() => qualify({ ...input, receipt }));
       consumption.rootReplacementRejected = true;
     }
-    if (scenario === 'expiry') {
+    if (scenario === 'expiry' || scenario === 'parent-budget') {
       clock = deadline - 1;
       qualify({ ...input, receipt });
       clock = deadline;
