@@ -1,0 +1,70 @@
+name: SEC docs exact export
+
+on:
+  push:
+    branches:
+      - transport/docs-export-8a07bdb
+
+permissions:
+  contents: read
+
+jobs:
+  export:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Checkout exact design candidate
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: 8a07bdb35805e7539f9d06eaff318fb4ece82ac0
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Export exact source and documentation
+        shell: bash
+        run: |
+          set -euo pipefail
+          out="${RUNNER_TEMP}/sec-docs-export-8a07bdb"
+          mkdir -p "$out"
+
+          commit="$(git rev-parse HEAD)"
+          tree="$(git rev-parse 'HEAD^{tree}')"
+          test "$commit" = "8a07bdb35805e7539f9d06eaff318fb4ece82ac0"
+
+          git archive --format=tar.gz --prefix=sec-source-8a07bdb/ \
+            -o "$out/sec-source-8a07bdb.tar.gz" HEAD
+          git archive --format=tar.gz --prefix=sec-docs-8a07bdb/ \
+            -o "$out/sec-docs-8a07bdb.tar.gz" HEAD \
+            docs .documentation AGENTS.md ARCHITECTURE.md PROJECT_STATUS.md \
+            package.json bun.lock tools/documentation
+
+          git bundle create "$out/sec-source-8a07bdb.bundle" HEAD
+
+          {
+            printf 'repository=sec-platform/sec\n'
+            printf 'source_ref=docs/developer-surface-taxonomy\n'
+            printf 'source_commit=%s\n' "$commit"
+            printf 'source_tree=%s\n' "$tree"
+            printf 'transport_ref=transport/docs-export-8a07bdb\n'
+            printf 'transport_sha=%s\n' "${GITHUB_SHA}"
+          } > "$out/IDENTITY.txt"
+
+          git ls-tree -r -z HEAD -- docs .documentation AGENTS.md ARCHITECTURE.md \
+            PROJECT_STATUS.md package.json bun.lock tools/documentation \
+            | sha256sum | awk '{print $1}' > "$out/DOCS_TREE_LIST_SHA256.txt"
+
+          (
+            cd "$out"
+            sha256sum sec-source-8a07bdb.tar.gz sec-docs-8a07bdb.tar.gz \
+              sec-source-8a07bdb.bundle IDENTITY.txt DOCS_TREE_LIST_SHA256.txt \
+              > SHA256SUMS
+          )
+
+      - name: Upload exact source export
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: sec-docs-exact-8a07bdb
+          path: ${{ runner.temp }}/sec-docs-export-8a07bdb
+          if-no-files-found: error
+          retention-days: 1
+          include-hidden-files: true
