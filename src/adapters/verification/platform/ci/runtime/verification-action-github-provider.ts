@@ -980,6 +980,10 @@ async function readVerificationActionArtifactInventory(
   return Object.freeze({ ...withoutDigest, inventoryDigest: digest(withoutDigest) });
 }
 
+// Later anchor/status failure cannot retract an already authenticated immutable
+// artifact. Its exact producer and upload steps must still have succeeded.
+const SETTLED_ARTIFACT_RUN_CONCLUSIONS = Object.freeze(['success', 'failure', 'cancelled', 'timed_out']);
+
 /** Data binding only. Production invokes it only after authenticated whole-source readback. */
 export function assertPerJobHostedActionArtifactPublisher(input: Readonly<{
   origin: VerificationActionProviderOrigin; slot: 'start' | 'terminal' | 'anchor';
@@ -1013,11 +1017,12 @@ export function assertPerJobHostedActionArtifactPublisher(input: Readonly<{
     || (job.run_attempt !== undefined && job.run_attempt !== input.origin.runAttempt)
     || job.head_sha !== input.origin.workflowSha || !canonicalEquals(job.labels, [policy.runnerLabel])
     || !((job.status === 'in_progress' && job.conclusion === null)
-      || (job.status === 'completed' && job.conclusion === 'success')) || !Array.isArray(job.steps)
+      || (job.status === 'completed' && typeof job.conclusion === 'string'
+        && SETTLED_ARTIFACT_RUN_CONCLUSIONS.includes(job.conclusion))) || !Array.isArray(job.steps)
     || typeof job.check_run_url !== 'string'
     || !job.check_run_url.startsWith(`https://api.github.com/repos/${input.origin.repository}/check-runs/`)
     || !/^[1-9][0-9]*$/u.test(job.check_run_url.slice(`https://api.github.com/repos/${input.origin.repository}/check-runs/`.length))) {
-    fail('artifact writer is not the exact progressing or successful job.');
+    fail('artifact writer is not the exact progressing or settled job.');
   }
   const steps = job.steps.map(value => record(value, 'artifact writer step'));
   if (steps.length > 100 || new Set(steps.map(step => step.number)).size !== steps.length) fail('artifact writer steps are ambiguous.');
@@ -1900,9 +1905,11 @@ export async function observeHostedResumeActionTerminalReadback(input: Readonly<
   if (!canonicalEquals(producer, terminalArtifact.producer)) fail('Session resume actual producing attempt differs.');
   const run = record(await executeGitHubApiOperation(capability, { kind: 'workflow-run', runId: completed.runId }), 'completed Action run');
   if (run.id !== Number(completed.runId) || run.run_attempt !== completed.runAttempt
-    || run.status !== 'completed' || run.conclusion !== 'success' || run.head_sha !== current.workflowSha
+    || run.status !== 'completed' || typeof run.conclusion !== 'string'
+    || !SETTLED_ARTIFACT_RUN_CONCLUSIONS.includes(run.conclusion)
+    || run.head_sha !== current.workflowSha
     || run.head_branch !== 'main' || run.path !== producer.workflowPath || run.event !== 'repository_dispatch') {
-    fail('Session resume Action run is not the exact completed success.');
+    fail('Session resume Action run is not the exact settled producer.');
   }
   identityRecord(run.actor, CI_GITHUB_ACTIONS_IDENTITY_POLICY.bot, 'completed Action actor');
   identityRecord(run.triggering_actor, CI_GITHUB_ACTIONS_IDENTITY_POLICY.bot, 'completed Action triggering actor');

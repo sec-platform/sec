@@ -2126,6 +2126,27 @@ test('new profile artifact writer data requires completed exact phases while per
           head_repository_id: hostedProducer.repositoryId, head_sha: BASE, head_branch: 'main' } }
     };
     expect(() => assertPerJobHostedActionArtifactPublisher(fixture)).not.toThrow();
+    // Commit-status/anchor work after upload may fail or be cancelled. The
+    // already completed producer/upload fact survives; its candidate Result
+    // remains whatever the authenticated terminal payload actually reports.
+    for (const conclusion of ['success', 'failure', 'cancelled', 'timed_out']) {
+      const settled = structuredClone(fixture) as any;
+      settled.jobs[0].records[0].status = 'completed';
+      settled.jobs[0].records[0].conclusion = conclusion;
+      settled.jobs[0].records[0].completed_at = stamp(70);
+      expect(() => assertPerJobHostedActionArtifactPublisher(settled)).not.toThrow();
+      settled.jobs[0].records[0].steps[5].conclusion = 'failure';
+      expect(() => assertPerJobHostedActionArtifactPublisher(settled)).toThrow();
+    }
+
+    for (const conclusion of [['success'], { value: 'success' }, 'unknown', null]) {
+      const malformed = structuredClone(fixture) as any;
+      malformed.jobs[0].records[0].status = 'completed';
+      malformed.jobs[0].records[0].conclusion = conclusion;
+      malformed.jobs[0].records[0].completed_at = stamp(70);
+      expect(() => assertPerJobHostedActionArtifactPublisher(malformed)).toThrow();
+    }
+
     const mutate: Array<(value: any) => void> = [
       value => { value.jobs[0].totalCount = 2; },
       value => { value.jobs[0].records.push(structuredClone(value.jobs[0].records[0])); value.jobs[0].totalCount = 2; },
