@@ -73,10 +73,8 @@ test('an applicable policy target must be a retained readable ordinary file', as
   await expect(runPolicyGate(workspaceRoot)).rejects.toThrow(/Applicable policy target is missing/);
 }, 180000);
 
-test('project policy declarations override the official definition without changing assurance', async () => {
-  const workspaceRoot = await prepareComposedWorkspace({
-    prefix: 'engineering-compiler-policy-project-precedence-'
-  });
+test('project policy declarations cannot implicitly replace official values before policy evaluation', async () => {
+  const workspaceRoot = await createWorkspace('engineering-compiler-policy-project-conflict-');
   const { policiesRoot: projectPoliciesRoot } = getWorkspacePaths(workspaceRoot);
   await fs.mkdir(projectPoliciesRoot, { recursive: true });
   await writeYaml(path.join(projectPoliciesRoot, 'tenant.yaml'), {
@@ -88,14 +86,7 @@ test('project policy declarations override the official definition without chang
     }]
   });
 
-  const report = await runPolicyGate(workspaceRoot);
-  const merged = report.merged.policies.find((policy) => policy.id === 'tenant-scope-required');
-
-  expect(merged).toMatchObject({
-    sourceScope: 'project',
-    sourcePath: 'model/policies/tenant.yaml'
-  });
-  expect(report.evaluation?.assurance).toBe('semantic');
+  await expect(runPolicyGate(workspaceRoot)).rejects.toThrow(/Conflicting policy declarations for tenant-scope-required/);
 }, 180000);
 
 test('unknown policy rules fail at the declaration schema boundary', async () => {

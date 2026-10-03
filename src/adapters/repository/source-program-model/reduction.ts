@@ -3,7 +3,9 @@ import nodePath from 'node:path';
 import ts from 'typescript';
 import { requireSourceProgramCandidateAnalysis } from './contract.ts';
 
-import { compareCodeUnits, rawSha256, sha256 } from '../../../contracts/canonical.ts';
+import { readVerificationDataRecord, snapshotVerificationData } from '../../../assurance/verification/contract/data.ts';
+import { compareCodeUnits, deepFreeze, rawSha256, sha256 } from '../../../contracts/canonical.ts';
+import { parseExactJson } from '../../../contracts/exact-json.ts';
 import { isSecRepositoryTestModulePath } from '../../../contracts/repository-test-path.ts';
 import { isCanonicalSecOperationBudgetMaximum } from '../../../execution/operation/semantic.ts';
 import type {
@@ -43,8 +45,10 @@ import {
 } from './repository.ts';
 import {
   assertSourceProgramTestAuthorAssessment,
+  parseSourceProgramAcceptedTestResponsibility,
   qualifySourceProgramTestAuthorAssessment,
   sourceProgramTestAuthorRelocatedTarget,
+  type SourceProgramAcceptedTestResponsibility,
   type SourceProgramTestAuthorApproval,
   type SourceProgramTestAuthorAssessment
 } from './test-disposition-decisions.ts';
@@ -276,6 +280,7 @@ const SOURCE_PROGRAM_SUPERSESSION_EVIDENCE_SCHEMA = Object.freeze({
     'definitionInputDigest',
     'registrationContentDigest'
   ]),
+  optionalTestUnitKeys: Object.freeze(['acceptedResponsibility']),
   testDefinitionInputKeys: Object.freeze([
     'path', 'sourceContentDigest', 'contextDigest', 'inputs', 'unresolved',
     'readEnvelopes', 'hasUnknownReadScope', 'inputDigest'
@@ -321,6 +326,11 @@ const SOURCE_PROGRAM_SUPERSESSION_EVIDENCE_SCHEMA_DIGEST = sha256(
   SOURCE_PROGRAM_SUPERSESSION_EVIDENCE_SCHEMA
 );
 
+// Reader-first: existing evidence without baseline acceptance remains readable.
+// The old schema can never carry a newly asserted accepted responsibility.
+const { optionalTestUnitKeys: _acceptedKeys, ...legacySupersessionEvidenceSchema } = SOURCE_PROGRAM_SUPERSESSION_EVIDENCE_SCHEMA;
+const LEGACY_SOURCE_PROGRAM_SUPERSESSION_EVIDENCE_SCHEMA_DIGEST = sha256(legacySupersessionEvidenceSchema);
+
 export interface SourceProgramSupersessionEvidenceIdentity {
   /** Digest of the exact repository revision locator resolved by the Git owner. */
   readonly revisionDigest: string;
@@ -356,6 +366,7 @@ interface SourceProgramSupersessionTestUnit {
   readonly path: string;
   readonly owner: string | null;
   readonly registrationContentDigest: string;
+  readonly acceptedResponsibility?: SourceProgramAcceptedTestResponsibility;
   readonly semanticClasses: readonly SourceProgramTestSemanticClass[];
   readonly observedProductionPaths: readonly string[];
   readonly capabilityOperations: readonly string[];
@@ -392,6 +403,8 @@ export interface SourceProgramSupersessionEvidence {
 }
 
 export interface CompileSourceProgramSupersessionEvidenceInput {
+  /** Exact sealed-model source bytes. Omission cannot establish a baseline acceptance. */
+  readonly files?: readonly SourceProgramFileInput[];
   readonly model: SourceProgramModel<SourceProgramCandidateAnalysis>;
   readonly tests: SourceProgramTestValueCompilation;
   readonly intentEvidence: readonly SourceProgramOwnerIntentEvidence[];
@@ -1014,7 +1027,8 @@ function sourceProgramSupersessionEvidenceHasExactGrammar(
     ...value.entrypointUnits
   ];
   return semanticUnits.every((unit) => hasExactKeys(unit, schema.semanticUnitKeys))
-    && value.tests.every((test) => hasExactKeys(test, schema.testUnitKeys))
+    && value.tests.every((test) => hasExactKeys(test, [...schema.testUnitKeys,
+      ...(typeof test === 'object' && test !== null && 'acceptedResponsibility' in test ? schema.optionalTestUnitKeys : [])]))
     && value.testDefinitionInputs.every((inputs) => hasExactKeys(inputs, schema.testDefinitionInputKeys)
       && Array.isArray(inputs.readEnvelopes)
       && inputs.readEnvelopes.every((envelope) => hasExactKeys(envelope, ['root', 'descendants']))
@@ -1054,6 +1068,18 @@ function sourceProgramSupersessionEvidenceIsExact(
 ): value is SourceProgramSupersessionEvidence {
   if (!sourceProgramSupersessionEvidenceHasExactGrammar(value)) return false;
   const evidence = value;
+  for (const test of evidence.tests) {
+    if (test.acceptedResponsibility === undefined) continue;
+    try {
+      const artifact = parseSourceProgramAcceptedTestResponsibility(test.acceptedResponsibility);
+      if (artifact.testId !== test.testId || artifact.path !== test.path
+          || artifact.sourceRevision !== evidence.identity.sourceRevision
+          || artifact.definitionInputDigest !== test.definitionInputDigest
+          || artifact.registrationContentDigest !== test.registrationContentDigest
+          || artifact.responsibility.ownerRef !== test.owner
+          || artifact.sourceContentDigest !== evidence.testDefinitionInputs.find(item => item.inputDigest === test.definitionInputDigest)?.sourceContentDigest) return false;
+    } catch { return false; }
+  }
   const definitionInputsByDigest = new Map(evidence.testDefinitionInputs
     .map((inputs) => [inputs.inputDigest, inputs] as const));
   if (evidence.testDefinitionContext !== null) {
@@ -1069,7 +1095,9 @@ function sourceProgramSupersessionEvidenceIsExact(
   if (!DIGEST.test(evidence.actionKey)
       || !DIGEST.test(evidence.evidenceDigest)
       || !Object.values(evidence.identity).every((value) => DIGEST.test(value))
-      || evidence.identity.schemaDigest !== SOURCE_PROGRAM_SUPERSESSION_EVIDENCE_SCHEMA_DIGEST
+      || (evidence.identity.schemaDigest !== SOURCE_PROGRAM_SUPERSESSION_EVIDENCE_SCHEMA_DIGEST
+        && (evidence.identity.schemaDigest !== LEGACY_SOURCE_PROGRAM_SUPERSESSION_EVIDENCE_SCHEMA_DIGEST
+          || evidence.tests.some(test => test.acceptedResponsibility !== undefined)))
       || !Object.values(evidence.source).every((value) => DIGEST.test(value))
       || evidence.actionKey !== supersessionEvidenceActionKey(evidence.identity, evidence.source)
       || !semanticUnitsAreCanonical(evidence.productionUnits, 'production')
@@ -1130,6 +1158,59 @@ export function parseSourceProgramSupersessionEvidence(
   return Object.freeze(value);
 }
 
+/** Only this reserved, top-level const is an acceptance artifact. The initializer
+ * must be exact JSON, not executable JavaScript or an illustrative nested object.
+ * The original source owner adopts it before any later retirement decision. */
+function compileAcceptedTestResponsibilities(input: Readonly<{
+  files?: readonly SourceProgramFileInput[];
+  sourceRevision: string;
+  sourceFiles: readonly Readonly<{ path: string; contentDigest: string }>[];
+  tests: readonly Pick<SourceProgramSupersessionTestUnit,
+    'testId' | 'path' | 'owner' | 'registrationContentDigest' | 'definitionInputDigest'>[];
+}>): ReadonlyMap<string, SourceProgramAcceptedTestResponsibility> {
+  const result = new Map<string, SourceProgramAcceptedTestResponsibility>();
+  if (input.files === undefined) return result;
+  const sources = new Map(input.files.map(file => [file.path, file] as const));
+  if (sources.size !== input.files.length) throw new Error('Accepted baseline source paths are duplicated');
+  const modelFiles = new Map(input.sourceFiles.map(file => [file.path, file] as const));
+  for (const path of new Set(input.tests.map(test => test.path))) {
+    const file = sources.get(path);
+    if (file === undefined || rawSha256(file.source) !== file.contentDigest
+        || modelFiles.get(path)?.contentDigest !== file.contentDigest) {
+      throw new Error('Accepted baseline responsibility requires exact sealed model source bytes');
+    }
+    const syntax = ts.createSourceFile(path, file.source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
+    const declarations = syntax.statements.flatMap(statement => ts.isVariableStatement(statement)
+      ? statement.declarationList.declarations.filter(declaration => ts.isIdentifier(declaration.name)
+        && declaration.name.text === 'SEC_TEST_ACCEPTED_RESPONSIBILITIES').map(declaration => ({ statement, declaration })) : []);
+    if (declarations.length === 0) continue;
+    // Ambiguous or malformed adoption never supplies a partial obligation set.
+    if (declarations.length !== 1) continue;
+    const { statement, declaration } = declarations[0]!;
+    if (!(statement.declarationList.flags & ts.NodeFlags.Const) || declaration.initializer === undefined
+        || statement.declarationList.declarations.length !== 1 || declaration.type !== undefined) continue;
+    const literal = declaration.initializer.getText(syntax);
+    if (Buffer.byteLength(literal, 'utf8') > 512 * 1024) continue;
+    try {
+      const values = parseExactJson(literal, 'Accepted test responsibilities', undefined, 32);
+      if (!Array.isArray(values) || values.length === 0 || values.length > 128) continue;
+      const accepted = new Map<string, SourceProgramAcceptedTestResponsibility>();
+      for (const value of values) {
+        if (!hasExactKeys(value, ['schema', 'role', 'testId', 'registrationContentDigest', 'responsibility'])) throw new Error('Invalid acceptance fields');
+        const test = input.tests.find(test => test.path === path && test.testId === value.testId);
+        if (test === undefined || test.registrationContentDigest !== value.registrationContentDigest) throw new Error('Acceptance does not name exact registration');
+        const canonical = { ...value, path, sourceRevision: input.sourceRevision,
+          sourceContentDigest: file.contentDigest, definitionInputDigest: test.definitionInputDigest };
+        const artifact = parseSourceProgramAcceptedTestResponsibility({ ...canonical, acceptanceDigest: sha256(canonical) });
+        if (artifact.responsibility.ownerRef !== test.owner || accepted.has(test.testId)) throw new Error('Ambiguous acceptance or wrong test owner');
+        accepted.set(test.testId, artifact);
+      }
+      for (const [id, artifact] of accepted) result.set(id, artifact);
+    } catch { /* Unknown baseline acceptance is deliberately non-authorizing. */ }
+  }
+  return result;
+}
+
 /**
  * Project one exact Source Program revision into the only facts that the
  * supersession decision consumes.  Callers may then release the Program,
@@ -1175,6 +1256,8 @@ export function compileSourceProgramSupersessionEvidence(
     testCompilationDigest: input.tests.compilationDigest,
     intentEvidenceDigest: sourceProgramIntentEvidenceDigest(intentEvidence)
   });
+  const acceptedResponsibilities = compileAcceptedTestResponsibilities({ files: input.files,
+    sourceRevision: input.model.sourceRevision, sourceFiles: input.model.files, tests: input.tests.records });
   const tests = Object.freeze(input.tests.records.map((registration) => {
     sourceProgramCompilationCheckpoint(operation, 'supersession-evidence');
     return Object.freeze({
@@ -1182,6 +1265,8 @@ export function compileSourceProgramSupersessionEvidence(
       path: registration.path,
       owner: registration.owner,
       registrationContentDigest: registration.registrationContentDigest,
+      ...(acceptedResponsibilities.has(registration.testId)
+        ? { acceptedResponsibility: acceptedResponsibilities.get(registration.testId)! } : {}),
       semanticClasses: Object.freeze([...registration.semanticClasses].sort(compareCodeUnits)),
       observedProductionPaths: Object.freeze([...registration.observedProductionPaths]
         .sort(compareCodeUnits)),
@@ -1288,7 +1373,15 @@ function finalizeSourceProgramSupersessionReceipt(
     ? [...registrationsByPath].filter(([, ids]) => ids.length > 0 && ids.every(id => assessedIds.has(id)))
       .map(([path]) => path).sort(compareCodeUnits)
     : [];
+  const retiredDecisions = (input.authorAssessment?.decisions ?? []).filter(({ disposition }) => disposition === 'retire');
+  const baselineById = new Map(input.baseline.tests.map(test => [test.testId, test] as const));
+  const retirements = retiredDecisions.flatMap(decision => decision.baselineTestIds.map(baselineId => Object.freeze({
+    baselineId, path: baselineById.get(baselineId)!.path, owner: decision.owner,
+    requirementDecisionIds: decision.retirementDecisionIds!,
+    qualification: status === 'author-approved-change' ? 'qualified' as const : 'conditional' as const
+  })));
   const canonicalReceipt = Object.freeze({
+    ...(retirements.length === 0 ? {} : { retirements: Object.freeze(retirements) }),
     authorityScope: input.authorityScope ?? 'whole-program',
     status,
     baseline: Object.freeze({
@@ -1819,6 +1912,7 @@ export function compileSourceProgramSupersessionReceipt(
     const sameOccurrence = currentTestById.get(baselineTest.testId);
     const baselineInputs = baselineDefinitionInputs.get(baselineTest.definitionInputDigest)!;
     const authorDecision = authorDecisionByBaselineId.get(baselineTest.testId);
+    if (authorDecision?.disposition === 'retire') continue;
     if (authorDecision !== undefined) {
       const relocatedTarget = sourceProgramTestAuthorRelocatedTarget(input.authorAssessment!, baselineTest.testId);
       // Historical same-ID batches keep their exact receipt representation.
@@ -1962,10 +2056,13 @@ interface SourceProgramTestRetirementProof {
   readonly observationClasses: readonly SourceProgramTestSemanticClass[];
   readonly consumerEvidence: readonly string[];
   readonly unknownEvidence: readonly string[];
+  readonly proof: 'consumer-zero' | 'owner-obligation-retirement';
+  readonly ownerDecisionDigest: string | null;
   readonly proofDigest: string;
 }
 
 export interface SourceProgramTestRetirementReceipt {
+  readonly structuralFacts?: SourceProgramTestRetirementFacts;
   readonly baselineSourceRevision: string;
   readonly currentSourceRevision: string;
   readonly baselineActionKey: string;
@@ -2067,9 +2164,32 @@ function sourceProgramTestPathConsumerIndex(
  * Only removed baseline modules require retirement; retained registrations
  * remain subject to Test Value and Supersession rather than a deletion proof.
  */
-export function compileSourceProgramTestRetirementReceipt(
-  input: CompileSourceProgramTestRetirementReceiptInput
-): SourceProgramTestRetirementReceipt {
+export interface SourceProgramTestRetirementFacts {
+  readonly schema: 'source-program-test-retirement-facts-v1';
+  readonly baselineSourceRevision: string;
+  readonly currentSourceRevision: string;
+  readonly baselineActionKey: string;
+  readonly currentActionKey: string;
+  readonly baselineModelDigest: string;
+  readonly currentModelDigest: string;
+  readonly baselineTestPathsDigest: string;
+  readonly baselineRegistrationCensusDigest: string;
+  readonly currentRegistrationCensusDigest: string;
+  readonly currentTestCompilationDigest: string;
+  readonly paths: readonly Readonly<{
+    path: string; baselineTestIds: readonly string[];
+    census: SourceProgramTestRetirementProof['census'];
+    observationClasses: readonly SourceProgramTestSemanticClass[];
+    consumerEvidence: readonly string[]; incomingConsumers: readonly string[]; unknownEvidence: readonly string[];
+  }>[];
+  readonly factsDigest: string;
+}
+
+/** Compile structural facts once while the real source/model generations are
+ * sealed. No author decision enters these immutable facts or their identity. */
+export function compileSourceProgramTestRetirementFacts(
+  input: Omit<CompileSourceProgramTestRetirementReceiptInput, 'supersession'>
+): SourceProgramTestRetirementFacts {
   const operation = resolveSourceProgramCompilationOperation(input.operation);
   sourceProgramCompilationCheckpoint(operation, 'test-retirement', 'start');
   const baselineRevision = compileWorkspaceSourceRevision(input.baselineFiles);
@@ -2086,21 +2206,19 @@ export function compileSourceProgramTestRetirementReceipt(
     ...(input.currentTestCompilation.sourceRevision !== currentRevision ? ['test-source-revision'] : []),
     ...(input.currentTestCompilation.compilationDigest
       !== input.current.source.testCompilationDigest ? ['test-compilation-digest'] : []),
-    ...(!supersessionReceiptBindsEvidence(
-      input.supersession,
-      input.baseline,
-      input.current
-    ) ? ['supersession-receipt'] : [])
   ];
   if (sealFailures.length > 0) {
     throw new Error(
       `Test retirement requires sealed baseline/current Source Program evidence: ${sealFailures.join(', ')}`
     );
   }
-  if (!compiledSourceProgramSupersessionReceipts.has(input.supersession)) {
-    throw new Error(
-      'Test retirement requires the exact Supersession decision recomputed from sealed evidence'
-    );
+  // A decoded evidence envelope cannot invent or narrow an accepted baseline
+  // even on the ordinary sealed receipt path. Re-read its original exact bytes.
+  const baselineAccepted = compileAcceptedTestResponsibilities({ files: input.baselineFiles,
+    sourceRevision: baselineRevision, sourceFiles: input.baselineFiles, tests: input.baseline.tests });
+  if (input.baseline.tests.some(test => test.acceptedResponsibility !== undefined
+      && sha256(test.acceptedResponsibility) !== sha256(baselineAccepted.get(test.testId) ?? null))) {
+    throw new Error('Test retirement accepted baseline differs from its original sealed source literal');
   }
   const baselineTestPaths = Object.freeze(input.baselineFiles
     .map(({ path }) => path)
@@ -2112,17 +2230,7 @@ export function compileSourceProgramTestRetirementReceipt(
   const currentTestPaths = new Set(input.currentFiles
     .map(({ path }) => path)
     .filter(isSecRepositoryTestModulePath));
-  const supersessionDisposition = reconcileSourceProgramTestValueWithSupersession(
-    input.currentTestCompilation,
-    input.supersession
-  );
-  const resolvedTestPaths = new Set(supersessionDisposition.dispositions
-    .filter(({ disposition, evidence }) => disposition === 'rewrite'
-      || (disposition === 'merge'
-        && evidence.supersession?.receiptDigest === input.supersession.receiptDigest))
-    .map(({ path }) => path));
-  const removedTestPaths = baselineTestPaths.filter((testPath) =>
-    !currentTestPaths.has(testPath) && !resolvedTestPaths.has(testPath));
+  const removedTestPaths = baselineTestPaths.filter((testPath) => !currentTestPaths.has(testPath));
   const knownPaths = new Set([
     ...input.baselineFiles.map(({ path }) => path),
     ...input.currentFiles.map(({ path }) => path)
@@ -2147,17 +2255,13 @@ export function compileSourceProgramTestRetirementReceipt(
     ...input.baseline.unknowns.map(({ code, path }) => `baseline:${path}:${code}`),
     ...input.current.unknowns.map(({ code, path }) => `current:${path}:${code}`)
   ].sort(compareCodeUnits));
-  const supersessionUnknowns = input.supersession.status === 'owner-decision-required'
-    ? Object.freeze(input.supersession.findings.map(({ code }) => `supersession:${code}`)
-      .sort(compareCodeUnits))
-    : Object.freeze([] as string[]);
   const modelConsumersByTestPath = sourceProgramTestPathConsumerIndex(
     input.currentModel,
     removedTestPaths,
     knownPaths,
     operation
   );
-  const proofs = removedTestPaths.map((testPath) => {
+  const paths = removedTestPaths.map((testPath) => {
     sourceProgramCompilationCheckpoint(operation, 'test-retirement');
     const census = censusByPath.get(testPath) ?? Object.freeze({
       producerCount: 0,
@@ -2181,53 +2285,137 @@ export function compileSourceProgramTestRetirementReceipt(
     ].sort(compareCodeUnits));
     const unknownEvidence = Object.freeze([
       ...globalUnknowns,
-      ...supersessionUnknowns,
       ...baselineTests.flatMap(({ testId, unknowns }) =>
         unknowns.map((unknown) => `baseline-registration:${testId}:${unknown}`)),
       ...currentTests.flatMap(({ testId, unknowns }) =>
         unknowns.map((unknown) => `current-registration:${testId}:${unknown}`))
     ].sort(compareCodeUnits));
-    const censusIsZero = census.producerCount === 0
-      && census.consumerCount === 0
-      && census.externalContractCount === 0;
-    const reason: SourceProgramTestRetirementBlockReason | null = !censusIsZero || consumerEvidence.length > 0
-        ? 'consumer-closure-not-empty'
-        : observationClasses.length > 0
-          ? 'observation-obligation-not-empty'
-          : unknownEvidence.length > 0
-            ? 'source-evidence-unresolved'
-            : null;
-    const canonicalProof = Object.freeze({
-      path: testPath,
-      status: reason === null ? 'retired' as const : 'blocked' as const,
-      reason,
-      baselineTestIds: Object.freeze(baselineTests.map(({ testId }) => testId)),
-      census,
-      observationClasses,
-      consumerEvidence,
-      unknownEvidence
+    return Object.freeze({
+      path: testPath, baselineTestIds: Object.freeze(baselineTests.map(({ testId }) => testId)),
+      census, observationClasses, consumerEvidence, unknownEvidence,
+      incomingConsumers: Object.freeze([...(modelConsumersByTestPath.get(testPath) ?? []),
+        ...currentTests.map(({ testId }) => `current-registration:${testId}`)].sort(compareCodeUnits))
     });
-    return Object.freeze({ ...canonicalProof, proofDigest: sha256(canonicalProof) });
   });
-  const canonicalReceipt = Object.freeze({
+  const canonical = Object.freeze({
+    schema: 'source-program-test-retirement-facts-v1' as const,
     baselineSourceRevision: input.baseline.identity.sourceRevision,
     currentSourceRevision: input.current.identity.sourceRevision,
-    baselineActionKey: input.baseline.actionKey,
-    currentActionKey: input.current.actionKey,
+    baselineActionKey: input.baseline.actionKey, currentActionKey: input.current.actionKey,
+    baselineModelDigest: input.baseline.source.modelDigest, currentModelDigest: input.current.source.modelDigest,
     baselineTestPathsDigest: sha256(baselineTestPaths),
     baselineRegistrationCensusDigest: sha256(input.baseline.tests),
     currentRegistrationCensusDigest: sha256(input.current.tests),
     currentTestCompilationDigest: input.currentTestCompilation.compilationDigest,
-    supersessionReceiptDigest: input.supersession.receiptDigest,
-    proofs: Object.freeze(proofs)
-  });
-  const receipt = Object.freeze({
-    ...canonicalReceipt,
-    receiptDigest: sha256(canonicalReceipt)
+    paths: Object.freeze(paths)
   });
   sourceProgramCompilationCheckpoint(operation, 'test-retirement', 'complete');
-  compiledSourceProgramTestRetirementReceipts.add(receipt);
-  return receipt;
+  return Object.freeze({ ...canonical, factsDigest: sha256(canonical) });
+}
+
+/** Data decoder only. Loaded-source qualification remains the host owner's job. */
+export function parseSourceProgramTestRetirementFacts(value: unknown): SourceProgramTestRetirementFacts {
+  const data = readVerificationDataRecord(snapshotVerificationData(value, 'Test retirement facts'), 'Test retirement facts');
+  const keys = ['schema', 'baselineSourceRevision', 'currentSourceRevision', 'baselineActionKey', 'currentActionKey',
+    'baselineModelDigest', 'currentModelDigest', 'baselineTestPathsDigest', 'baselineRegistrationCensusDigest',
+    'currentRegistrationCensusDigest', 'currentTestCompilationDigest', 'paths', 'factsDigest'];
+  if (!hasExactKeys(data, keys) || data.schema !== 'source-program-test-retirement-facts-v1' || !Array.isArray(data.paths)) {
+    throw new Error('Test retirement structural fact grammar is invalid');
+  }
+  for (const key of keys.filter(key => !['schema', 'paths'].includes(key))) {
+    if (typeof data[key] !== 'string' || !DIGEST.test(data[key] as string)) throw new Error('Test retirement fact identity is invalid');
+  }
+  const paths = new Set<string>();
+  for (const raw of data.paths) {
+    const entry = readVerificationDataRecord(raw, 'Test retirement path facts');
+    if (!hasExactKeys(entry, ['path', 'baselineTestIds', 'census', 'observationClasses', 'consumerEvidence', 'incomingConsumers', 'unknownEvidence'])
+        || typeof entry.path !== 'string' || !isSecRepositoryTestModulePath(entry.path) || paths.has(entry.path)) throw new Error('Test retirement path fact is invalid');
+    paths.add(entry.path);
+    for (const key of ['baselineTestIds', 'observationClasses', 'consumerEvidence', 'incomingConsumers', 'unknownEvidence']) {
+      if (!Array.isArray(entry[key]) || !(entry[key] as unknown[]).every(value => typeof value === 'string')) throw new Error('Test retirement path evidence is invalid');
+    }
+    const census = readVerificationDataRecord(entry.census, 'Test retirement census');
+    if (!hasExactKeys(census, ['producerCount', 'consumerCount', 'externalContractCount'])
+        || Object.values(census).some(value => !Number.isSafeInteger(value) || Number(value) < 0)) throw new Error('Test retirement census is invalid');
+  }
+  const { factsDigest, ...canonical } = data;
+  if (factsDigest !== sha256(canonical)) throw new Error('Test retirement fact digest is invalid');
+  return deepFreeze(data) as unknown as SourceProgramTestRetirementFacts;
+}
+
+/** Re-evaluate terminal disposition from unchanged facts and the current exact
+ * author interpretation. It never recovers a model capability or live grant. */
+export interface SourceProgramTestRetirementEvaluation {
+  readonly authority: 'conditional-candidate';
+  /** Serializable judgment only; never registered as compiler-issued provenance. */
+  readonly report: SourceProgramTestRetirementReceipt;
+}
+
+export function compileSourceProgramTestRetirementFromFacts(input: Readonly<{
+  facts: SourceProgramTestRetirementFacts; supersession: SourceProgramSupersessionReceipt;
+  currentTestCompilation: SourceProgramTestValueCompilation;
+}>): SourceProgramTestRetirementEvaluation {
+  const facts = parseSourceProgramTestRetirementFacts(input.facts);
+  const supersession = input.supersession;
+  assertSourceProgramSupersessionReceipt(supersession);
+  if (facts.baselineSourceRevision !== supersession.baseline.sourceRevision
+      || facts.currentSourceRevision !== supersession.current.sourceRevision
+      || facts.baselineModelDigest !== supersession.baseline.modelDigest
+      || facts.currentModelDigest !== supersession.current.modelDigest
+      || facts.currentTestCompilationDigest !== supersession.current.testCompilationDigest
+      || facts.currentTestCompilationDigest !== input.currentTestCompilation.compilationDigest
+      || facts.baselineTestPathsDigest !== sha256(input.currentTestCompilation.baselineTestPaths)) {
+    throw new Error('Test retirement facts and interpretation bind different source subjects');
+  }
+  const disposition = reconcileSourceProgramTestValueWithSupersession(input.currentTestCompilation, supersession);
+  const resolved = new Set(disposition.dispositions.filter(item => item.disposition === 'rewrite'
+    || item.disposition === 'merge' && item.evidence.supersession?.receiptDigest === supersession.receiptDigest).map(({ path }) => path));
+  const retiredIds = new Set((supersession.retirements ?? []).filter(item => item.qualification === 'qualified').map(item => item.baselineId));
+  const supersessionUnknowns = supersession.status === 'owner-decision-required'
+    ? supersession.findings.map(({ code }) => `supersession:${code}`).sort(compareCodeUnits) : [];
+  const proofs = facts.paths.filter(({ path }) => !resolved.has(path)).map(pathFacts => {
+    const { incomingConsumers, ...pathEvidence } = pathFacts;
+    const ownerRetirement = supersession.status === 'author-approved-change' && pathFacts.baselineTestIds.length > 0
+      && pathFacts.baselineTestIds.every(id => retiredIds.has(id));
+    const unknownEvidence = Object.freeze([...pathFacts.unknownEvidence, ...supersessionUnknowns].sort(compareCodeUnits));
+    const census = pathFacts.census;
+    // A retired test's observed subject is not an incoming consumer of the
+    // deleted module. Exports, external contracts and unknowns stay protected.
+    const consumerBlocked = ownerRetirement
+      ? incomingConsumers.length > 0 || census.producerCount > 0 || census.externalContractCount > 0
+      : pathFacts.consumerEvidence.length > 0 || census.producerCount > 0 || census.consumerCount > 0 || census.externalContractCount > 0;
+    const reason: SourceProgramTestRetirementBlockReason | null = consumerBlocked ? 'consumer-closure-not-empty'
+      : !ownerRetirement && pathFacts.observationClasses.length > 0 ? 'observation-obligation-not-empty'
+      : unknownEvidence.length > 0 ? 'source-evidence-unresolved' : null;
+    const canonical = Object.freeze({ ...pathEvidence, unknownEvidence,
+      status: reason === null ? 'retired' as const : 'blocked' as const, reason,
+      proof: ownerRetirement ? 'owner-obligation-retirement' as const : 'consumer-zero' as const,
+      ownerDecisionDigest: ownerRetirement ? supersession.authorDecisionDigest : null });
+    return Object.freeze({ ...canonical, proofDigest: sha256(canonical) });
+  });
+  const { schema: _schema, paths: _paths, factsDigest: _factsDigest,
+    baselineModelDigest: _baselineModel, currentModelDigest: _currentModel, ...bindings } = facts;
+  const canonical = Object.freeze({ ...bindings, structuralFacts: facts,
+    supersessionReceiptDigest: supersession.receiptDigest, proofs: Object.freeze(proofs) });
+  const receipt = Object.freeze({ ...canonical, receiptDigest: sha256(canonical) });
+  return Object.freeze({ authority: 'conditional-candidate' as const, report: receipt });
+}
+
+export function compileSourceProgramTestRetirementReceipt(
+  input: CompileSourceProgramTestRetirementReceiptInput
+): SourceProgramTestRetirementReceipt {
+  if (!supersessionReceiptBindsEvidence(input.supersession, input.baseline, input.current)) {
+    throw new Error('Test retirement requires sealed baseline/current Source Program evidence: supersession-receipt');
+  }
+  if (!compiledSourceProgramSupersessionReceipts.has(input.supersession)) {
+    throw new Error('Test retirement requires the exact Supersession decision recomputed from sealed evidence');
+  }
+  const evaluation = compileSourceProgramTestRetirementFromFacts({ facts: compileSourceProgramTestRetirementFacts(input),
+    supersession: input.supersession, currentTestCompilation: input.currentTestCompilation });
+  // Only this sealed-source path establishes compiler provenance. Decoding or
+  // rehashing facts cannot enter the normal retirement projection API.
+  compiledSourceProgramTestRetirementReceipts.add(evaluation.report);
+  return evaluation.report;
 }
 
 /**
@@ -2238,8 +2426,30 @@ export function projectSourceProgramTestRetirementDispositions(
   projection: SourceProgramTestDispositionProjection,
   receipt: SourceProgramTestRetirementReceipt
 ): SourceProgramTestRetirementDispositionProjection {
-  if (!compiledSourceProgramTestRetirementReceipts.has(receipt)
-      || receipt.currentSourceRevision !== projection.sourceRevision
+  if (!compiledSourceProgramTestRetirementReceipts.has(receipt)) {
+    throw new Error('Test retirement projection requires one compiler-issued exact receipt');
+  }
+  return projectSourceProgramTestRetirementDispositionData(projection, receipt);
+}
+
+/** Late adoption computes a conditional candidate, without claiming sealed
+ * compiler provenance. Only the existing physical host can adopt this value. */
+export function evaluateSourceProgramTestRetirementDispositions(
+  projection: SourceProgramTestDispositionProjection,
+  evaluation: SourceProgramTestRetirementEvaluation
+): Readonly<SourceProgramTestRetirementDispositionProjection & { authority: 'conditional-candidate' }> {
+  if (evaluation.authority !== 'conditional-candidate') throw new Error('Expected conditional retirement evaluation');
+  const { receiptDigest, ...report } = evaluation.report;
+  if (receiptDigest !== sha256(report)) throw new Error('Conditional retirement report identity is invalid');
+  return Object.freeze({ ...projectSourceProgramTestRetirementDispositionData(projection, evaluation.report),
+    authority: 'conditional-candidate' as const });
+}
+
+function projectSourceProgramTestRetirementDispositionData(
+  projection: SourceProgramTestDispositionProjection,
+  receipt: SourceProgramTestRetirementReceipt
+): SourceProgramTestRetirementDispositionProjection {
+  if (receipt.currentSourceRevision !== projection.sourceRevision
       || receipt.currentTestCompilationDigest !== projection.observationCompilationDigest
       || receipt.baselineTestPathsDigest !== sha256(projection.baselineTestPaths)) {
     throw new Error('Test retirement projection requires one compiler-issued exact receipt');
@@ -2259,13 +2469,13 @@ export function projectSourceProgramTestRetirementDispositions(
       sourceRevision: projection.sourceRevision,
       replacementTestIds: Object.freeze([] as string[]),
       census: proof.census,
-      ownerDecisionDigest: null,
+      ownerDecisionDigest: proof.ownerDecisionDigest,
       supersession: Object.freeze({
         receiptDigest: receipt.receiptDigest,
         baselineTestId: proof.baselineTestIds.length === 1
           ? proof.baselineTestIds[0]!
           : sha256({ path: proof.path, testIds: proof.baselineTestIds }),
-        proof: 'consumer-zero' as const
+        proof: proof.proof
       })
     });
     const canonicalDisposition = Object.freeze({

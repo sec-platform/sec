@@ -182,7 +182,7 @@ export function assertEngineeringIRReferences(
     if (fact.object.kind === 'entity' && !entityIds.has(fact.object.entityId)) throw new CompilerError('IR-FACT-003', `Fact "${fact.id}" references missing object "${fact.object.entityId}"`);
     if (fact.assertions.length === 0) throw new CompilerError('IR-AUTHORITY-004', `Fact "${fact.id}" must include at least one assertion`);
     for (const assertion of fact.assertions) {
-      if (assertion.confidence < 0 || assertion.confidence > 1) throw new CompilerError('IR-AUTHORITY-001', `Fact assertion "${assertion.id}" confidence must be between 0 and 1`);
+      if (!Number.isFinite(assertion.confidence) || assertion.confidence < 0 || assertion.confidence > 1) throw new CompilerError('IR-AUTHORITY-001', `Fact assertion "${assertion.id}" confidence must be between 0 and 1`);
       if (assertion.provenance.length === 0) throw new CompilerError('IR-AUTHORITY-002', `Fact assertion "${assertion.id}" must include provenance`);
     }
   }

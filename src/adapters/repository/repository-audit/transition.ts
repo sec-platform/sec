@@ -3,7 +3,10 @@ import { deepFreeze, rawSha256, sha256 } from '../../../contracts/canonical.ts';
 import { sourceProgramTestChangedSharedInputPaths } from '../source-program-model/reconciliation-findings.ts';
 import {
   compileSourceProgramSupersessionReceipt,
+  compileSourceProgramTestRetirementFromFacts,
+  evaluateSourceProgramTestRetirementDispositions,
   parseSourceProgramSupersessionEvidence,
+  parseSourceProgramTestRetirementFacts,
   type SourceProgramSupersessionEvidence,
   type SourceProgramTestRetirementReceipt
 } from '../source-program-model/reduction.ts';
@@ -60,7 +63,7 @@ interface SourceProgramTransitionAssessmentFields {
 
 export type SourceProgramTransitionAssessment = SourceProgramTransitionAssessmentFields & (
   | Readonly<{ schema: 'source-program-transition-assessment-v1'; auditFacts: CompileWholeSourceProgramAuditOperationInput }>
-  | Readonly<{ schema: 'source-program-transition-assessment-v2'; auditFacts: CompileTestObligationsAuditOperationInput }>
+  | Readonly<{ schema: 'source-program-transition-assessment-v2' | 'source-program-transition-assessment-v3'; auditFacts: CompileTestObligationsAuditOperationInput }>
 );
 
 /** Semantic judgment facts only; the physical producer owner qualifies them. */
@@ -125,6 +128,18 @@ export function createSourceProgramTransitionAssessment(input: AssessmentInput):
         [input.baseline.testDefinitionContext, input.current.testDefinitionContext], input.changedPaths))) {
     throw new Error('Source transition shared test-input delta is not bound to exact compared paths');
   }
+  if (input.testRetirement.structuralFacts !== undefined) {
+    const structural = parseSourceProgramTestRetirementFacts(input.testRetirement.structuralFacts);
+    const { receiptDigest, ...receiptFields } = input.testRetirement;
+    if (structural.baselineSourceRevision !== input.baseline.identity.sourceRevision
+        || structural.currentSourceRevision !== input.current.identity.sourceRevision
+        || structural.baselineRegistrationCensusDigest !== sha256(input.baseline.tests)
+        || structural.currentRegistrationCensusDigest !== sha256(input.current.tests)
+        || receiptDigest !== sha256(receiptFields)
+        || sha256(input.auditFacts.testRetirement) !== sha256(input.testRetirement)) {
+      throw new Error('Source transition retirement facts differ from actual producer-bound facts');
+    }
+  }
   const operation = compileSourceProgramAuditOperationInput(input.auditFacts);
   const auditResult = compileSourceProgramAuditOperation(operation);
   const producer = input.producerExecution;
@@ -164,7 +179,8 @@ export function createSourceProgramTransitionAssessment(input: AssessmentInput):
       ? 'conditional-author-input' as const : 'blocked' as const;
   const fields = { ...input, auditResult, status };
   const canonical = isTestObligationsAuditFacts(input.auditFacts)
-    ? deepFreeze({ ...fields, schema: 'source-program-transition-assessment-v2' as const, auditFacts: input.auditFacts })
+    ? deepFreeze({ ...fields, schema: input.testRetirement.structuralFacts === undefined
+      ? 'source-program-transition-assessment-v2' as const : 'source-program-transition-assessment-v3' as const, auditFacts: input.auditFacts })
     : deepFreeze({ ...fields, schema: 'source-program-transition-assessment-v1' as const, auditFacts: input.auditFacts });
   return deepFreeze({ ...canonical, assessmentDigest: sha256(canonical) });
 }
@@ -236,24 +252,37 @@ export function compileSourceProgramTransitionAdoption(input: Readonly<{
   let facts = assessment.auditFacts;
   if (authorAssessment !== undefined) {
     const authorProjection = reconcileSourceProgramTestValueWithSupersession(assessment.currentTestValue, supersession);
-    const rewrites = new Map(authorProjection.dispositions.filter(disposition =>
-      disposition.disposition === 'rewrite' && disposition.evidence.ownerDecisionDigest === input.approval!.payload.payloadDigest)
-      .map(disposition => [disposition.path, disposition] as const));
-    // Excluding an explicitly rewritten module from the consumer-zero route
-    // does not issue a DELETE proof. Every original proof that remains is kept.
-    const { receiptDigest: _retirementDigest, ...priorRetirement } = assessment.testRetirement;
-    const retirementData = deepFreeze({ ...priorRetirement,
-      supersessionReceiptDigest: supersession.receiptDigest,
-      proofs: priorRetirement.proofs.filter(proof => !rewrites.has(proof.path)) });
-    const testRetirement = deepFreeze({ ...retirementData, receiptDigest: sha256(retirementData) });
-    const { projectionDigest: _projectionDigest, ...priorDisposition } = facts.testDisposition;
-    const dispositionData = deepFreeze({ ...priorDisposition,
-      dispositions: priorDisposition.dispositions.map(disposition => rewrites.get(disposition.path) ?? disposition),
-      findings: priorDisposition.findings.filter(finding =>
-        finding.code !== 'test-module-disposition-unknown' || !rewrites.has(finding.path)),
-      supersessionReceiptDigest: rewrites.size === 0 ? null : supersession.receiptDigest,
-      retirementReceiptDigest: testRetirement.receiptDigest });
-    const testDisposition = deepFreeze({ ...dispositionData, projectionDigest: sha256(dispositionData) });
+    let testRetirement: SourceProgramTestRetirementReceipt;
+    let testDisposition: typeof facts.testDisposition;
+    if (assessment.testRetirement.structuralFacts !== undefined) {
+      const retirementEvaluation = compileSourceProgramTestRetirementFromFacts({
+        facts: assessment.testRetirement.structuralFacts, supersession, currentTestCompilation: assessment.currentTestValue
+      });
+      testRetirement = retirementEvaluation.report;
+      testDisposition = evaluateSourceProgramTestRetirementDispositions(authorProjection, retirementEvaluation);
+    } else {
+      if ((supersession.retirements?.length ?? 0) > 0) {
+        throw new SourceProgramTransitionAdoptionBlockedError(['retirement-structural-facts-unavailable'], false);
+      }
+      const rewrites = new Map(authorProjection.dispositions.filter(disposition =>
+        disposition.disposition === 'rewrite' && disposition.evidence.ownerDecisionDigest === input.approval!.payload.payloadDigest)
+        .map(disposition => [disposition.path, disposition] as const));
+      // Excluding an explicitly rewritten module from the consumer-zero route
+      // does not issue a DELETE proof. Every original proof that remains is kept.
+      const { receiptDigest: _retirementDigest, ...priorRetirement } = assessment.testRetirement;
+      const retirementData = deepFreeze({ ...priorRetirement,
+        supersessionReceiptDigest: supersession.receiptDigest,
+        proofs: priorRetirement.proofs.filter(proof => !rewrites.has(proof.path)) });
+      testRetirement = deepFreeze({ ...retirementData, receiptDigest: sha256(retirementData) });
+      const { projectionDigest: _projectionDigest, ...priorDisposition } = facts.testDisposition;
+      const dispositionData = deepFreeze({ ...priorDisposition,
+        dispositions: priorDisposition.dispositions.map(disposition => rewrites.get(disposition.path) ?? disposition),
+        findings: priorDisposition.findings.filter(finding =>
+          finding.code !== 'test-module-disposition-unknown' || !rewrites.has(finding.path)),
+        supersessionReceiptDigest: rewrites.size === 0 ? null : supersession.receiptDigest,
+        retirementReceiptDigest: testRetirement.receiptDigest });
+      testDisposition = deepFreeze({ ...dispositionData, projectionDigest: sha256(dispositionData) });
+    }
     const blockingCodes = new Set<string>(SOURCE_PROGRAM_BLOCKING_TEST_FINDING_CODES);
     facts = deepFreeze({ ...facts, supersession, testRetirement, testDisposition,
       blockingTestFindings: testDisposition.findings.filter(({ code }) => blockingCodes.has(code)),

@@ -1,6 +1,6 @@
 {
   "schema": "sec.documentation-source-manifest/2",
-  "source_set_sha256": "032974cd2fe0ba099fb85e992880e800ec9953986461bf93bc17ddfa1d909ee4",
+  "source_set_sha256": "4c73ea5333afdeaa272739240b45cf40b152de2c679a22cb01c9c36984ef2056",
   "members": [
     {
       "path": ".documentation/README.md",
@@ -654,8 +654,8 @@
     },
     {
       "path": "docs/开发/测试发现与执行.md",
-      "bytes": 33815,
-      "sha256": "8ca96654f0b0164da6c286a2db729656663ac6a7ff8e4d4c6065fad4871f5237"
+      "bytes": 34786,
+      "sha256": "fb17c82e3a1097b2da8013481771b8fc7050c07a8f28ca8754e321bc7632540b"
     },
     {
       "path": "docs/开发/用途与任务范围.md",
@@ -759,8 +759,8 @@
     },
     {
       "path": "docs/演进/实施/安全构建发布与环境.md",
-      "bytes": 11061,
-      "sha256": "1eb9d4bf2c978b52f7e1cad2e97dce7f35d79db7ca3e487103576388082e92a6"
+      "bytes": 14458,
+      "sha256": "2f58825948eb23060c3e580ec797cdc32a2867db006057569033c9e872aa28d9"
     },
     {
       "path": "docs/演进/实施/独立能力的实施单元.md",

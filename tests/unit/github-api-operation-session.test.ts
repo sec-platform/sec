@@ -1007,3 +1007,38 @@ test('runner label mutation rejects read capability and malformed requests befor
   }
   expect(calls).toBe(0);
 });
+
+test('requirement source reader uses the ordinary exact repository capability without relaxing verification reads', async () => {
+  const requests: string[] = [];
+  const api = capability({ effect: 'read', transport: async target => {
+    requests.push(String(target)); return Response.json({ type: 'file', sha: SHA });
+  } });
+  await withGitHubApiTestSession({ capability: api, operation: async () => {
+    await expect(executeGitHubApiOperation(api, { kind: 'verification-blob', ref: SHA, path: 'docs/requirements.md' }))
+      .rejects.toThrow('Verification operations require');
+    await executeGitHubApiOperation(api, { kind: 'requirement-source-blob', ref: SHA, path: 'docs/产品/要求.md' });
+    for (const [ref, path] of [['main', 'docs/requirements.md'], [SHA, 'docs/../secrets.md'],
+      [SHA, '/docs/requirements.md'], [SHA, 'docs//requirements.md'], [SHA, 'src/requirements.ts'],
+      [SHA, 'https://other.example/docs/requirements.md']]) {
+      await expect(executeGitHubApiOperation(api, { kind: 'requirement-source-blob', ref: ref!, path: path! })).rejects.toThrow();
+    }
+  } });
+  expect(requests).toEqual([`https://api.github.com/repos/sec-platform/sec/contents/docs/%E4%BA%A7%E5%93%81/%E8%A6%81%E6%B1%82.md?ref=${SHA}`]);
+  let writes = 0;
+  const wrong = capability({ effect: 'status-write', transport: async () => { writes += 1; return Response.json({}); } });
+  await expect(withGitHubApiTestSession({ capability: wrong, operation: () => executeGitHubApiOperation(wrong,
+    { kind: 'requirement-source-blob', ref: SHA, path: 'docs/requirements.md' }) })).rejects.toThrow('ordinary read');
+  expect(writes).toBe(0);
+});
+
+test('requirement source reader consumes the existing session deadline instead of starting a new budget', async () => {
+  let now = 0;
+  let requests = 0;
+  const api = capability({ effect: 'read', transport: async () => {
+    requests += 1; now = 20; return Response.json({ type: 'file', sha: SHA });
+  } });
+  await expect(withGitHubApiTestSession({ capability: api, now: () => now, timeoutMs: 10,
+    operation: () => executeGitHubApiOperation(api, { kind: 'requirement-source-blob', ref: SHA, path: 'docs/requirements.md' }) }))
+    .rejects.toThrow();
+  expect(requests).toBe(1);
+});

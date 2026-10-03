@@ -24,17 +24,17 @@ export function captureManifestSelection(workspaceRoot: string, plan: PlanFile) 
 export type CapturedManifestSelection = ReturnType<typeof captureManifestSelection>;
 
 export async function resolveGraph(workspaceRoot: string, plan: PlanFile): Promise<LockFile> {
-  return resolveCapturedManifestSelection(captureManifestSelection(workspaceRoot, plan));
+  return (await resolveCapturedManifestSelection(captureManifestSelection(workspaceRoot, plan))).lock;
 }
 
 /** Continue from the exact explicit selection that the align pass inspected.
  * Catalog enumeration still validates all configured sources, including
  * unselected entries; it cannot replace an already selected block revision. */
-export async function resolveCapturedManifestSelection(selection: CapturedManifestSelection): Promise<LockFile> {
+export async function resolveCapturedManifestSelection(selection: CapturedManifestSelection) {
   const { workspaceRoot, input, explicitEntries } = selection;
   const allEntries = await loadAllManifests({ workspaceRoot, registrySources: input.sources });
   // Reject conflicting ownership before any resource lookup starts.
-  const { resolvedBlocks, resolvedCapabilities, installDescriptors } = prepareManifestResolution(
+  const { resolvedBlocks, resolvedCapabilities, installDescriptors, registryResolutions } = prepareManifestResolution(
     workspaceRoot, explicitEntries, allEntries
   );
   const installPlan: LockFile['installPlan'] = await mapTaskGroup(
@@ -50,7 +50,7 @@ export async function resolveCapturedManifestSelection(selection: CapturedManife
       };
     }
   );
-  return {
+  const lock: LockFile = {
     formatVersion: LOCK_FILE_FORMAT_VERSION,
     app: { ...input.app },
     resolvedBlocks,
@@ -68,4 +68,5 @@ export async function resolveCapturedManifestSelection(selection: CapturedManife
       resolve: 'succeeded'
     }
   };
+  return { lock, registryResolutions };
 }

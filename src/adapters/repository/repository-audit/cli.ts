@@ -961,6 +961,7 @@ async function compileRevisionSupersessionEvidence(
     membership,
     sourceFiles: workspaceSnapshot.files,
     evidence: cachedEvidence ?? compileSourceProgramSupersessionEvidence({
+      files,
       model,
       tests,
       intentEvidence: compileSourceProgramOwnerIntentEvidence(model, membership, operation),
@@ -1378,6 +1379,7 @@ async function compileWorkingTreeSourceProgramWithSession(
       membership: moduleMembership,
       sourceFiles: files,
       evidence: cachedBaselineSupersessionEvidence ?? compileSourceProgramSupersessionEvidence({
+        files,
         model,
         tests,
         intentEvidence: compileSourceProgramOwnerIntentEvidence(
@@ -1566,6 +1568,7 @@ async function prepareWorkingTreeSourceProgramAudit(
   const testValue = observedTestValue;
   const baselineSupersessionEvidence = worktreeAudit.baselineSharesCurrentSourceRevision
     ? compileSourceProgramSupersessionEvidence({
+        files: worktreeAudit.sourceFiles,
         model,
         tests: testValue,
         intentEvidence: worktreeAudit.currentIntentEvidence,
@@ -1574,6 +1577,7 @@ async function prepareWorkingTreeSourceProgramAudit(
       })
     : worktreeAudit.baselineSupersessionEvidence;
   const currentSupersessionEvidence = compileSourceProgramSupersessionEvidence({
+    files: worktreeAudit.sourceFiles,
     model,
     tests: testValue,
     intentEvidence: worktreeAudit.currentIntentEvidence,

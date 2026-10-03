@@ -1,10 +1,11 @@
 import { expect, test } from 'bun:test';
+import { observeTrustedSourceProgramTestAuthorDecision } from '../../verification/platform/trusted-runtime/trusted-runtime-container.ts';
 
 import {
   createProofObligation, createVerificationClaim, createVerificationMethodSelection,
   createVerificationSpecificationBinding
 } from '../../../assurance/verification/contract/specification.ts';
-import { createVerificationTestResponsibility } from '../../../assurance/verification/contract/test-responsibility.ts';
+import { createVerificationRequirementDisposition, createVerificationTestResponsibility, type VerificationRequirementDisposition } from '../../../assurance/verification/contract/test-responsibility.ts';
 import type { BuildEngineeringIRInput } from '../../../compiler/ir/build-engineering-ir.ts';
 import { buildValidatedEngineeringIR } from '../../../compiler/ir/validate-engineering-ir.ts';
 import { rawSha256, sha256 } from '../../../contracts/canonical.ts';
@@ -24,6 +25,8 @@ import {
   compileSourceProgramSupersessionEvidence,
   compileSourceProgramSupersessionEvidenceIdentity,
   compileSourceProgramSupersessionReceipt,
+  compileSourceProgramTestRetirementFacts,
+  compileSourceProgramTestRetirementFromFacts,
   compileSourceProgramTestRetirementReceipt,
   compileSourceProgramUnusedSymbolProviderReceipt,
   compileSourceProgramVersionSuffixReductionPlan,
@@ -46,6 +49,7 @@ import {
   createSourceProgramTestAuthorDecisionPayload,
   qualifySourceProgramTestAuthorAssessment,
   SOURCE_PROGRAM_TEST_AUTHOR_DECISION_MARKER,
+  SOURCE_PROGRAM_TEST_AUTHOR_DECISION_V2_MARKER,
   type SourceProgramTestAuthorDecision,
   type SourceProgramTestAuthorDecisionPayload
 } from './test-disposition-decisions.ts';
@@ -1725,6 +1729,7 @@ function compileSupersessionFixture(
     identityInput,
     identity,
     evidence: compileSourceProgramSupersessionEvidence({
+      files,
       ...full,
       identity
     })
@@ -1869,7 +1874,8 @@ test('supersession does not treat the same test occurrence as input or oracle eq
 function testAuthorPayload(
   baseline: ReturnType<typeof compileSupersessionSnapshot>,
   current: ReturnType<typeof compileSupersessionSnapshot>,
-  decisions: readonly SourceProgramTestAuthorDecision[]
+  decisions: readonly SourceProgramTestAuthorDecision[],
+  requirementDecisions?: readonly VerificationRequirementDisposition[]
 ) {
   const subject = (evidence: typeof baseline, commit: string, tree: string) => ({
     commitSha: commit.repeat(40), treeSha: tree.repeat(40),
@@ -1878,7 +1884,8 @@ function testAuthorPayload(
   });
   return createSourceProgramTestAuthorDecisionPayload({
     repository: 'sec-platform/sec', pullRequestNumber: 7, trustedRevision: 'a'.repeat(40),
-    baseline: subject(baseline, 'a', 'b'), current: subject(current, 'c', 'd'), decisions
+    baseline: subject(baseline, 'a', 'b'), current: subject(current, 'c', 'd'), decisions,
+    ...(requirementDecisions === undefined ? {} : { requirementDecisions })
   });
 }
 
@@ -3502,4 +3509,313 @@ test('authored relocation cannot retain a changed oracle under the same title', 
     reason: 'A title is only a locator and cannot authorize a changed oracle.'
   }]);
   expect(() => assessSourceProgramTestAuthorDecision({ payload, baseline, current, changedPaths: [testPath] })).toThrow();
+});
+
+const RETIREMENT_PRIOR_SOURCE = 'The selected product requires the old feature.\n';
+const RETIREMENT_CURRENT_SOURCE = 'The old feature is retired; all other supported obligations remain.\n';
+
+function exactRetirementDecision(baseline: ReturnType<typeof compileSupersessionSnapshot>,
+  current: ReturnType<typeof compileSupersessionSnapshot>, testId: string, testOwner = 'example') {
+  const original = constantResultResponsibility(testId, testOwner);
+  const source = { kind: 'requirement' as const, ref: 'docs/requirements.md#old-feature', revision: 'requirement-source-1' };
+  const prior = createVerificationClaim({ claimRef: 'claim:old-feature', claimRevision: 'claim-1', source,
+    ownerRef: 'product-owner', subjectRef: 'subject:repository-source', subjectRevision: 'accepted-product-profile-1',
+    propositionDigest: sha256('old-feature') as `sha256:${string}`,
+    applicabilityScopeDigest: sha256('all-selected-support') as `sha256:${string}`,
+    assumptionsDigest: sha256('fixed-assumptions') as `sha256:${string}`,
+    requiredAssuranceDigest: sha256('public-behavior') as `sha256:${string}`,
+    lifecycleAndInvalidationDigest: sha256('owner-retirement') as `sha256:${string}` });
+  const proof = createProofObligation({ obligationRef: 'obligation:old-feature', obligationRevision: 'obligation-1',
+    claimRef: prior.claimRef, claimRevision: prior.claimRevision, claimDigest: prior.claimDigest, ownerRef: prior.ownerRef,
+    requiredObservationOrPredicateDigest: prior.propositionDigest, applicabilityScopeDigest: prior.applicabilityScopeDigest,
+    requiredIndependenceDigest: prior.requiredAssuranceDigest, admissibleMethodFamilies: ['test'],
+    environmentAndCapabilityConstraintsDigest: sha256('all-supported-environments') as `sha256:${string}`,
+    coverageAndFailureSpaceDigest: prior.propositionDigest, lifecycleAndInvalidationDigest: prior.lifecycleAndInvalidationDigest });
+  const method = createVerificationMethodSelection({ selectionRef: 'selection:old-feature', selectionRevision: 'selection-1',
+    proofObligationRef: proof.obligationRef, proofObligationRevision: proof.obligationRevision, proofObligationDigest: proof.obligationDigest,
+    methodFamily: 'test', methodContractRef: 'method:public-result', methodContractRevision: '1',
+    environmentAndCapabilityRequirementsDigest: proof.environmentAndCapabilityConstraintsDigest,
+    oracleCheckerOrReferenceRefs: ['independent-product-requirement'], executionRequired: true,
+    evidenceQualificationDigest: prior.requiredAssuranceDigest, lifecycleAndInvalidationDigest: prior.lifecycleAndInvalidationDigest });
+  const binding = createVerificationSpecificationBinding({ claim: prior, proofObligation: proof, methodSelection: method });
+  const { schema: _schema, responsibilityDigest: _digest, ...responsibilityFields } = original;
+  const responsibility = createVerificationTestResponsibility({ ...responsibilityFields,
+    bindings: [{ ...original.bindings[0]!, specification: binding }] });
+  const { schema: _claimSchema, claimDigest: _claimDigest, ...claimFields } = prior;
+  const next = createVerificationClaim({ ...claimFields, claimRevision: 'claim-2',
+    source: { ...source, revision: 'requirement-source-2' }, subjectRevision: current.identity.sourceRevision });
+  const requirement = createVerificationRequirementDisposition({ kind: 'retired', ownerRef: prior.ownerRef,
+    baselineBindingDigest: binding.bindingDigest,
+    priorSource: { ref: source.ref, revision: source.revision, path: 'docs/requirements.md',
+      blobSha: 'e'.repeat(40), contentDigest: rawSha256(RETIREMENT_PRIOR_SOURCE) },
+    currentSource: { ref: source.ref, revision: next.source.revision, path: 'docs/requirements.md',
+      blobSha: 'f'.repeat(40), contentDigest: rawSha256(RETIREMENT_CURRENT_SOURCE) },
+    currentClaim: next, obligationScopeDigest: proof.applicabilityScopeDigest,
+    supportedEnvironmentDigest: proof.environmentAndCapabilityConstraintsDigest,
+    remainingRequiredBindingDigests: [], reactivationCondition: 'New support requires renewed acceptance and proof before activation.' });
+  const decision: SourceProgramTestAuthorDecision = { owner: testOwner, replacementOwners: [], disposition: 'retire',
+    baselineTestIds: [testId], currentTestIds: [], changedInputPaths: ['src/example/behavior.test.ts'],
+    baselineResponsibilities: [], baselineResponsibilityRefs: [{ testId, acceptanceDigest:
+      baseline.tests.find(test => test.testId === testId)?.acceptedResponsibility?.acceptanceDigest ?? sha256('unaccepted-baseline') }], currentResponsibilities: [],
+    retirementDecisionIds: [requirement.decisionId], reason: 'Retire this exact obligation, without pretending it was replaced.' };
+  return { decision, requirement, responsibility };
+}
+
+function acceptedRetirementIdentityConflictFixture(kind: 'within-responsibility' | 'across-retirements' | 'retire-and-rewrite') {
+  const testPath = 'src/example/behavior.test.ts';
+  const header = "import { expect, test } from 'bun:test';\nimport { execute } from './operation.ts';\n";
+  const first = "test('retired first', () => expect(execute()).toBe('ok'))";
+  const second = "test('second case', () => expect(execute()).toEqual('ok'))";
+  const baselineSource = header + first + ';\n' + (kind === 'within-responsibility' ? '' : second + ';\n');
+  const production = { 'src/example/operation.ts': "export function execute() { return 'ok'; }\n" };
+  const unassessed = compileSupersessionSnapshot({ ...production, [testPath]: baselineSource });
+  const current = compileSupersessionSnapshot({ ...production, [testPath]: kind === 'retire-and-rewrite'
+    ? header + "test('rewritten case', () => expect(execute()).toEqual('ok'));\n" : header });
+  const firstTest = unassessed.tests.find(item => item.registrationContentDigest === rawSha256(first))!;
+  let firstResponsibility = exactRetirementDecision(unassessed, current, firstTest.testId).responsibility;
+  const replaceResponsibility = (responsibility: typeof firstResponsibility,
+    updates: Partial<Parameters<typeof createVerificationTestResponsibility>[0]>) => {
+    const { schema: _schema, responsibilityDigest: _digest, ...fields } = responsibility;
+    return createVerificationTestResponsibility({ ...fields, ...updates });
+  };
+  const accepted = new Map<string, typeof firstResponsibility>();
+  let rewrite: SourceProgramTestAuthorDecision | undefined;
+  if (kind === 'within-responsibility') {
+    const original = firstResponsibility.bindings[0]!;
+    const { claim, proofObligation, methodSelection } = original.specification;
+    const { schema: _claimSchema, claimDigest: _claimDigest, ...claimFields } = claim;
+    const conflictingClaim = createVerificationClaim({ ...claimFields, propositionDigest: sha256('a different accepted proposition') as `sha256:${string}` });
+    const { schema: _proofSchema, obligationDigest: _proofDigest, ...proofFields } = proofObligation;
+    const conflictingProof = createProofObligation({ ...proofFields, claimDigest: conflictingClaim.claimDigest,
+      requiredObservationOrPredicateDigest: conflictingClaim.propositionDigest });
+    const { schema: _selectionSchema, selectionDigest: _selectionDigest, ...selectionFields } = methodSelection;
+    const conflictingSelection = createVerificationMethodSelection({ ...selectionFields,
+      proofObligationDigest: conflictingProof.obligationDigest });
+    const specification = createVerificationSpecificationBinding({ claim: conflictingClaim,
+      proofObligation: conflictingProof, methodSelection: conflictingSelection });
+    firstResponsibility = replaceResponsibility(firstResponsibility, {
+      bindings: [original, { ...original, specification }]
+    });
+  } else {
+    const secondTest = unassessed.tests.find(item => item.registrationContentDigest === rawSha256(second))!;
+    if (kind === 'across-retirements') {
+      const secondResponsibility = exactRetirementDecision(unassessed, current, secondTest.testId).responsibility;
+      accepted.set(secondTest.testId, replaceResponsibility(secondResponsibility, {
+        testRef: firstResponsibility.testRef, testRevision: firstResponsibility.testRevision,
+        retirementConditionsDigest: sha256('a different responsibility at the same accepted identity') as `sha256:${string}`
+      }));
+    } else {
+      const priorRewrite = constantResultResponsibility(secondTest.testId, 'example');
+      firstResponsibility = replaceResponsibility(firstResponsibility, {
+        testRef: priorRewrite.testRef, testRevision: priorRewrite.testRevision
+      });
+      const currentTest = current.tests[0]!;
+      rewrite = { owner: 'example', replacementOwners: ['example'], disposition: 'rewrite',
+        baselineTestIds: [secondTest.testId], currentTestIds: [currentTest.testId], changedInputPaths: [testPath],
+        baselineResponsibilities: [{ testId: secondTest.testId, responsibility: priorRewrite }],
+        currentResponsibilities: [{ testId: currentTest.testId,
+          responsibility: constantResultResponsibility(currentTest.testId, 'example') }],
+        reason: 'Rewrite only the second registration under its explicit responsibility.' };
+    }
+  }
+  accepted.set(firstTest.testId, firstResponsibility);
+  const literal = '\nconst SEC_TEST_ACCEPTED_RESPONSIBILITIES = ' + JSON.stringify([...accepted].map(([testId, responsibility]) => ({
+    schema: 'source-program-accepted-test-responsibility-v1', role: 'accepted-baseline-test-responsibility',
+    testId, registrationContentDigest: unassessed.tests.find(test => test.testId === testId)!.registrationContentDigest,
+    responsibility
+  }))) + ';\n';
+  const baseline = compileSupersessionSnapshot({ ...production, [testPath]: baselineSource + literal });
+  const requirements = new Map<string, VerificationRequirementDisposition>();
+  const decisions: SourceProgramTestAuthorDecision[] = [...accepted].map(([testId, responsibility]) => {
+    const { decision, requirement } = exactRetirementDecision(baseline, current, testId);
+    const { decisionId: _decisionId, ...fields } = requirement;
+    const retirementDecisionIds = responsibility.bindings.map(({ specification }) => {
+      const next = createVerificationRequirementDisposition({ ...fields, baselineBindingDigest: specification.bindingDigest });
+      requirements.set(next.decisionId, next);
+      return next.decisionId;
+    });
+    expect(baseline.tests.find(test => test.testId === testId)?.acceptedResponsibility?.responsibility).toEqual(responsibility);
+    return { ...decision, retirementDecisionIds };
+  });
+  if (rewrite !== undefined) decisions.push(rewrite);
+  // Payload parsing sees only retirement locators. The conflicting contents
+  // become available only after the assessment resolves the exact BASE facts.
+  const payload = testAuthorPayload(baseline, current, decisions, [...requirements.values()]);
+  return { payload, baseline, current, changedPaths: [testPath] };
+}
+
+test('retirement rejects conflicting claim identities within one accepted responsibility', () => {
+  const input = acceptedRetirementIdentityConflictFixture('within-responsibility');
+  expect(() => assessSourceProgramTestAuthorDecision(input))
+    .toThrow('claim identity/revision has conflicting canonical content');
+});
+
+test('retirement rejects conflicting accepted test identities across retired registrations', () => {
+  const input = acceptedRetirementIdentityConflictFixture('across-retirements');
+  expect(() => assessSourceProgramTestAuthorDecision(input))
+    .toThrow('test identity/revision has conflicting canonical content');
+});
+
+test('retirement and rewrite decisions share one accepted responsibility identity domain', () => {
+  const input = acceptedRetirementIdentityConflictFixture('retire-and-rewrite');
+  expect(() => assessSourceProgramTestAuthorDecision(input))
+    .toThrow('test identity/revision has conflicting canonical content');
+});
+
+async function observeRetirementAuthor(payload: SourceProgramTestAuthorDecisionPayload,
+  options: { permission?: 'maintain' | 'write'; sourceDrift?: boolean; headDrift?: boolean } = {}) {
+  const user = { login: 'maintainer', node_id: 'maintainer-node', id: 900001, type: 'User' };
+  const comment = { id: 77, issue_url: 'https://api.github.com/repos/sec-platform/sec/issues/7', user,
+    body: SOURCE_PROGRAM_TEST_AUTHOR_DECISION_V2_MARKER + JSON.stringify(payload), updated_at: '2026-10-02T00:00:00Z' };
+  let sourceReads = 0;
+  const capability = issueGitHubApiTestCapability({ repository: 'sec-platform/sec', token: 'test-owner-boundary-token-0123456789', effect: 'read',
+    principal: { transport: 'github-rest-token', login: user.login, nodeId: user.node_id, userId: user.id, permission: 'maintain' },
+    transport: async target => {
+      const url = new URL(String(target));
+      if (url.pathname === '/repos/sec-platform/sec/issues/comments/77') return Response.json(comment);
+      if (url.pathname === '/repos/sec-platform/sec/collaborators/maintainer/permission') return Response.json({
+        user, permission: options.permission ?? 'maintain', role_name: options.permission ?? 'maintain' });
+      if (url.pathname === '/repos/sec-platform/sec/contents/docs/requirements.md') {
+        sourceReads += 1;
+        const prior = url.searchParams.get('ref') === 'a'.repeat(40);
+        const content = options.sourceDrift ? 'Unrelated requirement bytes' : prior ? RETIREMENT_PRIOR_SOURCE : RETIREMENT_CURRENT_SOURCE;
+        return Response.json({ type: 'file', path: 'docs/requirements.md', sha: (prior ? 'e' : 'f').repeat(40),
+          encoding: 'base64', content: Buffer.from(content).toString('base64') });
+      }
+      if (url.pathname === '/repos/sec-platform/sec/pulls/7') return Response.json({ state: 'open',
+        base: { sha: 'a'.repeat(40), repo: { full_name: 'sec-platform/sec' } },
+        head: { sha: (options.headDrift ? 'd' : 'c').repeat(40), repo: { full_name: 'sec-platform/sec' } } });
+      return new Response('unexpected requirement fixture operation', { status: 404 });
+    } });
+  const approval = await withGitHubApiTestSession({ capability, operation: () => observeTrustedSourceProgramTestAuthorDecision({
+    capability, issueNumber: 7, commentId: 77 }) });
+  return { approval, sourceReads };
+}
+
+test('obligation retirement removes the first case and requires qualified relocation of shifted retained cases', async () => {
+  const testPath = 'src/example/behavior.test.ts';
+  const first = "test('retired', () => expect(execute()).toBe('ok'))";
+  const second = "test('retained', () => expect(execute()).toEqual('ok'))";
+  const header = "import { expect, test } from 'bun:test';\nimport { execute } from './operation.ts';\n";
+  const production = { 'src/example/operation.ts': "export function execute() { return 'ok'; }\n" };
+  const baselineSource = header + first + ';\n' + second + ';\n';
+  const unassessedFixture = compileSupersessionFixture({ ...production, [testPath]: baselineSource });
+  const unassessedBaseline = unassessedFixture.evidence;
+  const baselineTest = unassessedBaseline.tests.find(item => item.registrationContentDigest === rawSha256(first))!;
+  const originalResponsibility = exactRetirementDecision(unassessedBaseline, unassessedBaseline, baselineTest.testId).responsibility;
+  const literal = '\nconst SEC_TEST_ACCEPTED_RESPONSIBILITIES = ' + JSON.stringify([{
+    schema: 'source-program-accepted-test-responsibility-v1', role: 'accepted-baseline-test-responsibility',
+    testId: baselineTest.testId, registrationContentDigest: baselineTest.registrationContentDigest,
+    responsibility: originalResponsibility }]) + ';\n';
+  const baseline = compileSupersessionSnapshot({ ...production, [testPath]: baselineSource + literal });
+  const currentFixture = compileSupersessionFixture({ ...production, [testPath]: header + second + ';\n' });
+  const current = currentFixture.evidence;
+  const oldFirst = baseline.tests.find(item => item.registrationContentDigest === rawSha256(first))!;
+  const oldSecond = baseline.tests.find(item => item.registrationContentDigest === rawSha256(second))!;
+  const newSecond = current.tests.find(item => item.registrationContentDigest === rawSha256(second))!;
+  expect(oldSecond.testId).not.toBe(newSecond.testId);
+  expect(oldFirst.acceptedResponsibility?.responsibility).toEqual(originalResponsibility);
+  // Rehashing an invented accepted envelope cannot cross the sealed-byte owner.
+  const { acceptanceDigest: _acceptedDigest, ...acceptedFields } = oldFirst.acceptedResponsibility!;
+  const unassessedTest = unassessedBaseline.tests.find(test => test.testId === oldFirst.testId)!;
+  const inventedFields = { ...acceptedFields, sourceRevision: unassessedBaseline.identity.sourceRevision,
+    definitionInputDigest: unassessedTest.definitionInputDigest,
+    sourceContentDigest: unassessedBaseline.testDefinitionInputs.find(inputs => inputs.inputDigest === unassessedTest.definitionInputDigest)!.sourceContentDigest };
+  const invented = { ...inventedFields, acceptanceDigest: sha256(inventedFields) };
+  const { evidenceDigest: _evidenceDigest, ...unassessedFields } = unassessedBaseline;
+  const forgedFields = { ...unassessedFields, tests: unassessedBaseline.tests.map(test => test.testId === oldFirst.testId
+    ? { ...test, acceptedResponsibility: invented } : test) };
+  const forged = { ...forgedFields, evidenceDigest: sha256(forgedFields) };
+  expect(() => compileSourceProgramTestRetirementFacts({ baseline: forged, current,
+    currentModel: currentFixture.full.model, currentTestCompilation: currentFixture.full.tests,
+    baselineFiles: unassessedFixture.files, currentFiles: currentFixture.files }))
+    .toThrow('accepted baseline differs from its original sealed source literal');
+  const { decision, requirement } = exactRetirementDecision(baseline, current, oldFirst.testId);
+  const fabricated = exactRetirementDecision(unassessedBaseline, current, oldFirst.testId);
+  expect(() => assessSourceProgramTestAuthorDecision({
+    payload: testAuthorPayload(unassessedBaseline, current, [fabricated.decision], [fabricated.requirement]),
+    baseline: unassessedBaseline, current, changedPaths: [testPath]
+  })).toThrow('independently accepted baseline responsibility');
+  expect(() => testAuthorPayload(baseline, current, [{ ...decision,
+    baselineResponsibilities: [{ testId: oldFirst.testId, responsibility: originalResponsibility }] }], [requirement]))
+    .toThrow('only independently accepted baseline locators');
+  const retention: SourceProgramTestAuthorDecision = { owner: 'example', replacementOwners: ['example'], disposition: 'retain-unassessed',
+    baselineTestIds: [oldSecond.testId], currentTestIds: [newSecond.testId], changedInputPaths: [testPath],
+    baselineResponsibilities: [], currentResponsibilities: [], reason: 'Retain the uniquely identical case after the first registration is removed.' };
+  const payload = testAuthorPayload(baseline, current, [decision, retention], [requirement]);
+  const assessment = assessSourceProgramTestAuthorDecision({ payload, baseline, current, changedPaths: [testPath] });
+  const { approval, sourceReads } = await observeRetirementAuthor(payload);
+  expect(sourceReads).toBe(2);
+  expect(approval.requirementSourcesDigest).toBeDefined();
+  expect(qualifySourceProgramTestAuthorAssessment({ assessment, approval })).toBe('test-only-simulation');
+  const receipt = compileSourceProgramSupersessionReceipt({ authorityScope: 'test-obligations', baseline, current,
+    changedPaths: [testPath], authorAssessment: assessment, authorApproval: approval });
+  expect(receipt.findings).toEqual([]);
+  expect(receipt.retirements).toEqual([expect.objectContaining({ baselineId: oldFirst.testId, qualification: 'conditional' })]);
+  expect(receipt.replacements).toEqual([expect.objectContaining({ baselineId: oldSecond.testId, currentIds: [newSecond.testId], proof: 'retained-unassessed' })]);
+  expect(receipt.status).toBe('author-decision-conditional');
+  expect(() => testAuthorPayload(baseline, current, [decision, retention])).toThrow('unexpected or missing fields');
+  expect(() => createSourceProgramTestAuthorDecisionPayload({ ...payload, requirementPolicyDigest: sha256('candidate-authored-policy') })).toThrow('adopted policy');
+  const wrongRepository = createSourceProgramTestAuthorDecisionPayload({ ...payload, repository: 'another/repository' });
+  await expect(observeRetirementAuthor(wrongRepository)).rejects.toThrow();
+  const unreviewedShift = testAuthorPayload(baseline, current, [decision], [requirement]);
+  const incomplete = assessSourceProgramTestAuthorDecision({ payload: unreviewedShift, baseline, current, changedPaths: [testPath] });
+  expect(compileSourceProgramSupersessionReceipt({ authorityScope: 'test-obligations', baseline, current,
+    changedPaths: [testPath], authorAssessment: incomplete }).findings.some(item => item.baselineId === oldSecond.testId)).toBe(true);
+  await expect(observeRetirementAuthor(payload, { permission: 'write' })).rejects.toThrow('current maintainer');
+  await expect(observeRetirementAuthor(payload, { sourceDrift: true })).rejects.toThrow('Requirement source bytes');
+  await expect(observeRetirementAuthor(payload, { headDrift: true })).rejects.toThrow('live candidate');
+  expect(() => adoptSourceProgramTestAuthorDecision({ ...approval } as never)).toThrow('live provider-issued');
+});
+
+test('baseline accepted-role literals reject examples, executable grammar, ambiguity and wrong exact bindings', () => {
+  const path = 'src/example/behavior.test.ts';
+  const source = "import { expect, test } from 'bun:test';\nimport { execute } from './operation.ts';\ntest('old', () => expect(execute()).toBe('ok'));\n";
+  const production = { 'src/example/operation.ts': "export function execute() { return 'ok'; }\n" };
+  const before = compileSupersessionSnapshot({ ...production, [path]: source });
+  const registration = before.tests[0]!;
+  const responsibility = exactRetirementDecision(before, before, registration.testId).responsibility;
+  const value = { schema: 'source-program-accepted-test-responsibility-v1', role: 'accepted-baseline-test-responsibility',
+    testId: registration.testId, registrationContentDigest: registration.registrationContentDigest, responsibility };
+  const accepted = (suffix: string) => compileSupersessionSnapshot({ ...production, [path]: source + suffix }).tests[0]?.acceptedResponsibility;
+  const declaration = 'const SEC_TEST_ACCEPTED_RESPONSIBILITIES = ' + JSON.stringify([value]) + ';\n';
+  expect(accepted(declaration)).toBeDefined();
+  for (const suffix of [
+    'const illustrativeExample = ' + JSON.stringify([value]) + ';',
+    'function example() { ' + declaration + ' }',
+    declaration + declaration,
+    declaration.replace('= [', '= [...[').replace('];', ']];'),
+    declaration.replace('= [', '= (() => [').replace('];', '])();'),
+    declaration.replace('"role":', '"role":"illustrative","role":'),
+    declaration.replace('"accepted-baseline-test-responsibility"', '"illustrative"'),
+    declaration.replace(registration.testId, sha256('different-test')),
+    declaration.replace(registration.registrationContentDigest, sha256('different-content')),
+    declaration.replace('"ownerRef":"example"', '"ownerRef":"unrelated"')
+  ]) expect(accepted(suffix)).toBeUndefined();
+});
+
+test('retirement structural facts survive serialization without recreating sealed models or deletion authority', () => {
+  const fixture = compileTestRetirementFixture('// no observable obligation\n');
+  const facts = JSON.parse(JSON.stringify(fixture.retirement.structuralFacts));
+  const rebound = compileSourceProgramTestRetirementFromFacts({ facts, supersession: fixture.supersession,
+    currentTestCompilation: fixture.currentTests });
+  expect(rebound.authority).toBe('conditional-candidate');
+  expect(rebound.report).toEqual(fixture.retirement);
+  expect(rebound.report).not.toBe(fixture.retirement);
+  expect(() => projectSourceProgramTestRetirementDispositions(fixture.observedProjection, rebound.report)).toThrow('compiler-issued');
+  expect(() => compileSourceProgramTestRetirementFromFacts({ facts: { ...facts, currentSourceRevision: sha256('other') },
+    supersession: fixture.supersession, currentTestCompilation: fixture.currentTests })).toThrow('digest');
+});
+
+
+test('rehashed retirement facts cannot mint normal compiler provenance or authorize DELETE', () => {
+  const fixture = compileTestRetirementFixture('// obsolete module\n', "export const retained = 'tests/obsolete.test.ts';\n");
+  expect(fixture.retirement.proofs[0]?.reason).toBe('consumer-closure-not-empty');
+  const { factsDigest: _digest, ...original } = fixture.retirement.structuralFacts!;
+  const fields = { ...original, paths: original.paths.map(item => ({ ...item, consumerEvidence: [], incomingConsumers: [] })) };
+  const candidate = compileSourceProgramTestRetirementFromFacts({ facts: { ...fields, factsDigest: sha256(fields) },
+    supersession: fixture.supersession, currentTestCompilation: fixture.currentTests });
+  expect(candidate.authority).toBe('conditional-candidate');
+  expect(candidate.report.proofs[0]?.status).toBe('retired');
+  expect(() => projectSourceProgramTestRetirementDispositions(fixture.observedProjection, candidate.report)).toThrow('compiler-issued');
 });
