@@ -3,6 +3,7 @@
 # The private PID namespace init owns all descendants and terminal cleanup.
 set -euo pipefail
 readonly base=145f63743fcf7f4ec181d16ff89f18777187a754
+readonly carrier_parent=f2334f1063068fdc6e04f3b109683b23ad0d1b2b
 readonly base_tree=588c94ea67c1c67f2ac30aa93b8cc3c630a4c13f
 readonly root=/sec-qualification
 readonly input=$root/input
@@ -10,7 +11,8 @@ readonly test_file=src/adapters/runtime-state/physical/runtime/linux-immutable-i
 
 if [[ ${1:-} != --namespace ]]; then
   [[ $# == 3 && $1 =~ ^[0-9a-f]{40}$ && $2 == 1 && $3 == /* ]]
-  [[ $(git rev-parse HEAD) == "$1" && $(git rev-parse HEAD^) == "$base" ]]
+  [[ $(git rev-parse HEAD) == "$1" && $(git rev-parse HEAD^) == "$carrier_parent" ]]
+  [[ $(git rev-parse "$carrier_parent^") == "$base" ]]
   [[ $(git rev-parse "$base^{tree}") == "$base_tree" ]]
   [[ -z $(git status --porcelain --untracked-files=all) ]]
   [[ $("$3" --version) == 1.4.0 ]]
@@ -35,13 +37,18 @@ quiesce() {
   # The Python observer excludes itself and namespace PID1, kills only peers
   # in this private PID namespace, and observes actual disappearance twice.
   /usr/bin/python3 -I -S -B - "$deadline_ns" <<'PY_QUIESCE'
-import os, pathlib, signal, sys, time
+import errno, os, pathlib, signal, sys, time
 absolute = int(sys.argv[1])
 stop = min(absolute, time.monotonic_ns() + 10000000000)
 me = str(os.getpid())
 assert pathlib.Path('/proc/1/comm').read_text().strip() == 'bash'
 expired = time.monotonic_ns() >= absolute
-os.kill(-1, signal.SIGKILL)  # Mandatory cancellation, even after the work deadline.
+try:
+    os.kill(-1, signal.SIGKILL)  # Mandatory cancellation, even after the work deadline.
+except OSError as error:
+    if error.errno != errno.ESRCH:
+        raise
+    # No signalable peer is not a census proof; the full checks below still run.
 assert not expired, 'Qualification work deadline exhausted; only terminal cancellation remains'
 last = None
 while time.monotonic_ns() < stop:
@@ -124,13 +131,14 @@ run_candidate() {
 cd "$input"
 # Verify the entire B145 preimage, not just the qualification's imports.
 # This is native Git/Python inspection, not candidate module execution.
-run_candidate /usr/bin/python3 -I -S -B - "$head" "$base" "$base_tree" <<'PY_IDENTITY'
+run_candidate /usr/bin/python3 -I -S -B - "$head" "$base" "$base_tree" "$carrier_parent" <<'PY_IDENTITY'
 import json, pathlib, subprocess, sys
-head, base, tree = sys.argv[1:]
+head, base, tree, carrier_parent = sys.argv[1:]
 def git(*args):
     return subprocess.check_output(['git', *args], text=True).strip()
 assert git('rev-parse', 'HEAD') == head
-assert git('rev-parse', 'HEAD^') == base
+assert git('rev-parse', 'HEAD^') == carrier_parent
+assert git('rev-parse', carrier_parent + '^') == base
 assert git('rev-parse', base + '^{tree}') == tree
 owned = ['.github/workflows/linux-immutable-input-qualification.yml',
          'scripts/qualification/linux-immutable-input.sh',
@@ -142,7 +150,7 @@ paths = subprocess.check_output(['git', 'diff-tree', '--no-commit-id', '--name-o
 assert len(paths) == 23
 blobs = {p: git('rev-parse', base + ':' + p) for p in paths}
 assert all(git('rev-parse', head + ':' + p) == blob for p, blob in blobs.items())
-value = dict(base=base, baseTree=tree, head=head, tree=git('rev-parse', 'HEAD^{tree}'),
+value = dict(base=base, baseTree=tree, carrierParent=carrier_parent, head=head, tree=git('rev-parse', 'HEAD^{tree}'),
              baseBlobs=blobs, qualificationBlobs={p:git('rev-parse', head + ':' + p) for p in owned})
 print('QUALIFICATION source identity ' + json.dumps(value, sort_keys=True), flush=True)
 pathlib.Path('/sec-qualification/output/source-identity.json').write_text(json.dumps(value))

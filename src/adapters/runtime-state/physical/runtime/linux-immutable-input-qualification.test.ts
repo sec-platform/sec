@@ -23,6 +23,7 @@ import { linuxRetainedFilesystemObservation } from './physical-no-follow-native.
 const root = '/sec-qualification';
 const input = `${root}/input`;
 const base = '145f63743fcf7f4ec181d16ff89f18777187a754';
+const carrierParent = 'f2334f1063068fdc6e04f3b109683b23ad0d1b2b';
 // One absolute deadline for every case; neither settlement nor reuse renews it.
 const deadlineAtUnixMs = Date.now() + 120_000;
 
@@ -95,13 +96,15 @@ test('physical identity binds B145 source, dependencies, Bun and kernel prerequi
   expect(compilerRoot).toBe(input);
   expect(linuxImmutableRepositoryInputPrerequisites()).toBe(true);
   const identity = JSON.parse(readFileSync(`${root}/source-identity.json`, 'utf8')) as {
-    base: string; baseTree: string; head: string; tree: string;
+    base: string; baseTree: string; carrierParent: string; head: string; tree: string;
     baseBlobs: Record<string, string>; qualificationBlobs: Record<string, string>;
   };
   expect(identity.base).toBe(base);
   expect(identity.baseTree).toBe('588c94ea67c1c67f2ac30aa93b8cc3c630a4c13f');
   expect(git('rev-parse', 'HEAD')).toBe(identity.head);
-  expect(git('rev-parse', 'HEAD^')).toBe(base);
+  expect(identity.carrierParent).toBe(carrierParent);
+  expect(git('rev-parse', 'HEAD^')).toBe(carrierParent);
+  expect(git('rev-parse', `${carrierParent}^`)).toBe(base);
   expect(git('rev-parse', 'HEAD^{tree}')).toBe(identity.tree);
   expect(Object.keys(identity.baseBlobs)).toHaveLength(23);
   expect(Object.keys(identity.qualificationBlobs)).toHaveLength(3);
