@@ -10,7 +10,7 @@ import {
 } from 'node:fs';
 import path from 'node:path';
 import { encodeVerificationActionData, type VerificationActionKeyDigest } from '../action/contract/action.ts';
-import { ciVerificationNormalizedOperationArgv, resolveCiVerificationDevRunnerTarget } from '../action/contract/ci.ts';
+import { ciVerificationNormalizedOperationArgv, parseCiVerificationHostedExecutionEnvironment, resolveCiVerificationDevRunnerTarget } from '../action/contract/ci.ts';
 import { CI_VERIFICATION_HOSTED_PROVIDER_REVISION } from '../action/contract/environment.ts';
 import {
   CI_VERIFICATION_ACTION_PHYSICAL_COMMAND_SCHEMA,
@@ -553,6 +553,7 @@ export function CodexDevelopmentBuildHostedSutSandboxCommandPlan(input: Readonly
     valueDigest: ciActionDigest(value)
   }));
   const authorization = input.executionAuthorization;
+  const executionEnvironment = parseCiVerificationHostedExecutionEnvironment(authorization.executionEnvironment);
   const { authorizationDigest, ...authorizationWithoutDigest } = authorization;
   const { projectionDigest, ...physicalCommandWithoutDigest } = authorization.physicalCommand;
   const expectedUnitName = `sec-sut-${authorization.actionKey.slice(7, 23)}-${authorization.ticketDigest.slice(7, 23)}`;
@@ -569,7 +570,7 @@ export function CodexDevelopmentBuildHostedSutSandboxCommandPlan(input: Readonly
       authorization.physicalCommand.canonicalArgvDigest !== ciActionDigest(input.normalizedArgv) ||
       authorization.sandboxPolicyDigest !== CI_VERIFICATION_HOSTED_SANDBOX_POLICY_DIGEST ||
       authorization.physicalCommand.sandboxPolicyDigest !== CI_VERIFICATION_HOSTED_SANDBOX_POLICY_DIGEST ||
-      authorization.physicalCommand.providerRevision !== CI_VERIFICATION_HOSTED_PROVIDER_REVISION ||
+      authorization.physicalCommand.providerRevision !== executionEnvironment.executionEnvironmentRevision ||
       encodeVerificationActionData(authorization.normalizedArgv) !==
         encodeVerificationActionData(input.normalizedArgv) ||
       encodeVerificationActionData(authorization.physicalCommand.fixedSandboxEnvironment) !==

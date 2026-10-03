@@ -23,7 +23,7 @@ import { expect, test } from 'bun:test';
 import { BASE, BASE_TREE, baseOptions, clock, executeSentinelGate, HEAD, MANIFEST_PATH, revisions, TREE } from '../helpers/ci-verification-fixtures.ts';
 
 import { encodeVerificationActionData, type VerificationActionKeyDigest } from '../../src/adapters/verification/platform/action/contract/action.ts';
-import { buildCiVerificationActionPlan, buildCiVerificationActionPlanClosure, CI_VERIFICATION_HOSTED_EXECUTION_ENVIRONMENT, ciVerificationGateStep, type CiVerificationActionCandidate, type CiVerificationActionPlanClosure, type CiVerificationProducerGate } from '../../src/adapters/verification/platform/action/contract/ci.ts';
+import { buildCiVerificationActionPlan, buildCiVerificationActionPlanClosure, CI_VERIFICATION_HOSTED_EXECUTION_ENVIRONMENT, CI_VERIFICATION_PER_JOB_HOSTED_EXECUTION_ENVIRONMENT, ciVerificationGateStep, resolveCiVerificationHostedExecutionEnvironment, type CiVerificationActionCandidate, type CiVerificationActionPlanClosure, type CiVerificationProducerGate } from '../../src/adapters/verification/platform/action/contract/ci.ts';
 import { CI_VERIFICATION_ACTION_DEPENDENCY_INPUT_PATHS } from '../../src/adapters/verification/platform/action/contract/environment.ts';
 import { createVerificationActionProviderStartMarker, createVerificationActionProviderTerminalAnchor, finalizeVerificationActionProviderStatusReadback, VERIFICATION_ACTION_PROVIDER_POLICY, verificationActionProviderRunTargetUrl, verificationActionProviderStartArtifactName, verificationActionProviderStartDescription, verificationActionProviderStatusContext, verificationActionProviderTerminalAnchorName, verificationActionProviderTerminalArtifactName, verificationActionProviderTerminalDescription, type VerificationActionProviderOrigin, type VerificationActionProviderStartObservation, type VerificationActionProviderStatusObservation, type VerificationActionProviderStatusReadback, type VerificationActionProviderTerminalAnchorObservation } from '../../src/adapters/verification/platform/action/contract/provider.ts';
 import { CodexDevelopmentAssertVerificationActionTerminalArtifact, CodexDevelopmentAssertVerificationEvidenceV4, CodexDevelopmentCreateVerificationEvidenceProducer, CodexDevelopmentVerificationActionCandidateBytesDigest, CodexDevelopmentVerificationDigest, type CodexDevelopmentVerificationEvidenceV4 } from '../../src/adapters/verification/platform/ci/contract/evidence.ts';
@@ -245,10 +245,11 @@ function hostedCandidate(): CiVerificationActionCandidate {
 }
 
 function hostedResolution(
-  gates: readonly CiVerificationProducerGate[] = [hostedGates()[0]!]
+  gates: readonly CiVerificationProducerGate[] = [hostedGates()[0]!],
+  providerRevision = CI_VERIFICATION_HOSTED_EXECUTION_ENVIRONMENT.executionEnvironmentRevision
 ): CodexDevelopmentHostedActionResolution {
   const actionPlanClosure = buildCiVerificationActionPlanClosure({
-    candidate: hostedCandidate(),
+    candidate: { ...hostedCandidate(), providerRevision },
     gates
   });
   return hostedMemberResolution(actionPlanClosure, 0);
@@ -284,7 +285,7 @@ function hostedMemberResolution(
     actionPlan,
     actionPlanClosure,
     artifactInput,
-    executionEnvironment: CI_VERIFICATION_HOSTED_EXECUTION_ENVIRONMENT
+    executionEnvironment: resolveCiVerificationHostedExecutionEnvironment(actionPlan.action.environment.providerRevision)
   });
   return Object.freeze({
     ...withoutDigest,
@@ -991,6 +992,53 @@ test('hosted SUT executes only through the isolated command plan and terminalize
     rmSync(cleanRoot, { recursive: true, force: true });
     rmSync(dirtyRoot, { recursive: true, force: true });
   }
+});
+
+test('inner SUT projection binds the selected closed profile without granting an outer execution receipt', () => {
+  const legacy = hostedResolution();
+  const perJob = hostedResolution(undefined,
+    CI_VERIFICATION_PER_JOB_HOSTED_EXECUTION_ENVIRONMENT.executionEnvironmentRevision);
+  const authorizations = [legacy, perJob].map(resolution => {
+    const ticket = hostedTicket(resolution);
+    const normalizedOperation = resolution.actionPlanClosure.normalizedOperations[0]!;
+    const authorization = CodexDevelopmentCreateHostedSutExecutionAuthorization({
+      resolutionDigest: resolution.resolutionDigest, ticketDigest: ticket.ticketDigest,
+      actionPlan: resolution.actionPlan, normalizedOperation, candidateSha: HEAD,
+      candidateBytesDigest: resolution.artifactInput.candidateBytesDigest as VerificationActionKeyDigest,
+      manifestPath: MANIFEST_PATH,
+      inventoryClosure: { archiveDigest: ticket.preparedCandidateArchiveDigest,
+        inventoryDigest: ticket.preparedCandidateInventoryDigest, entryCount: ticket.preparedCandidateEntryCount,
+        totalFileBytes: ticket.preparedCandidateTotalFileBytes, dependencyClosureDigest: ticket.baseDependencyClosureDigest,
+        gitBundleDigest: ticket.authenticatedGitClosureDigest }, producer: hostedProducer
+    });
+    const environment = CodexDevelopmentHostedSutCandidateEnvironment({ normalizedOperation, manifestPath: MANIFEST_PATH });
+    expect(environment.SEC_EXECUTION_ENVIRONMENT_REVISION).toBe(resolution.executionEnvironment.executionEnvironmentRevision);
+    expect(authorization.physicalCommand.providerRevision).toBe(resolution.executionEnvironment.executionEnvironmentRevision);
+    expect(authorization.executionEnvironment).toBe(resolution.executionEnvironment);
+    const plan = CodexDevelopmentBuildHostedSutSandboxCommandPlan({
+      actionKey: resolution.actionPlan.action.actionKey, candidateArchiveDigest: ticket.preparedCandidateArchiveDigest,
+      bunExecutable: '/trusted/tool/bun', baseSha: BASE, headSha: HEAD,
+      normalizedArgv: authorization.normalizedArgv, candidateEnvironment: environment,
+      executionAuthorization: authorization
+    });
+    expect(plan.argv).toContain(`SEC_EXECUTION_ENVIRONMENT_REVISION=${resolution.executionEnvironment.executionEnvironmentRevision}`);
+    expect(() => CodexDevelopmentBuildHostedSutSandboxCommandPlan({
+      actionKey: resolution.actionPlan.action.actionKey, candidateArchiveDigest: ticket.preparedCandidateArchiveDigest,
+      bunExecutable: '/trusted/tool/bun', baseSha: BASE, headSha: HEAD,
+      normalizedArgv: authorization.normalizedArgv,
+      candidateEnvironment: { ...environment, SEC_EXECUTION_ENVIRONMENT_REVISION: 'github-actions@trusted-default' },
+      executionAuthorization: authorization
+    })).toThrow();
+    return authorization;
+  });
+  expect(authorizations[0]!.authorizationDigest).not.toBe(authorizations[1]!.authorizationDigest);
+  expect(authorizations[0]!.physicalCommand.projectionDigest).not.toBe(authorizations[1]!.physicalCommand.projectionDigest);
+  const rawResult = hostedRawResult(perJob, 'passed');
+  // Inner sandbox success alone cannot issue a per-job hosted terminal.
+  expect(() => CodexDevelopmentAssembleHostedActionTerminal({
+    resolution: perJob, ticket: hostedTicket(perJob), rawResult,
+    expectedRawResultDigest: rawResult.rawResultDigest, producer: hostedProducer
+  })).toThrow();
 });
 
 test('sandbox command plan proves cgroup, namespace, private-root, uid, capability, fd and output boundaries', () => {
