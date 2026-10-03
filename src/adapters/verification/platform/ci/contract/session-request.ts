@@ -1,7 +1,6 @@
-import { CI_VERIFICATION_SESSION_REQUEST_SCHEMA } from './revision.ts';
+import { CI_VERIFICATION_SESSION_PER_JOB_REQUEST_SCHEMA, CI_VERIFICATION_SESSION_REQUEST_SCHEMA } from './revision.ts';
 
-export interface VerificationSessionHostedRequest {
-  schema: typeof CI_VERIFICATION_SESSION_REQUEST_SCHEMA;
+export interface VerificationSessionHostedRequestFields {
   prNumber: number;
   expectedBaseSha: string;
   expectedBaseTreeSha: string;
@@ -16,6 +15,18 @@ export interface VerificationSessionHostedRequest {
   reviewPolicyDigest: `sha256:${string}`;
   requestOperationId: `sha256:${string}`;
 }
+
+/** Exact legacy identity is retained only for its existing wire and recovery. */
+export interface VerificationSessionLegacyHostedRequest extends VerificationSessionHostedRequestFields {
+  readonly schema: typeof CI_VERIFICATION_SESSION_REQUEST_SCHEMA;
+}
+export interface VerificationSessionPerJobHostedRequest extends VerificationSessionHostedRequestFields {
+  readonly schema: typeof CI_VERIFICATION_SESSION_PER_JOB_REQUEST_SCHEMA;
+  readonly placement: 'github-hosted-per-job-v1';
+}
+export type VerificationSessionHostedRequest =
+  | VerificationSessionLegacyHostedRequest
+  | VerificationSessionPerJobHostedRequest;
 
 /** Local preparation is a persisted plan input, never a hosted dispatch request. */
 export const CI_VERIFICATION_SESSION_LOCAL_PREPARATION_SCHEMA =

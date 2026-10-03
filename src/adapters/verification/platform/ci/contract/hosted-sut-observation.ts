@@ -1,8 +1,7 @@
 import { CodexDevelopmentBuildVerificationGateResult, type VerificationGateResult } from '../../../../../assurance/verification/result/contract/result.ts';
 import { canonicalEquals, sha256 as canonicalSha256 } from '../../../../../contracts/canonical.ts';
 import { encodeVerificationActionData, parseVerificationActionPlan, type VerificationActionKeyDigest, type VerificationActionPlan } from '../../action/contract/action.ts';
-import { CI_VERIFICATION_HOSTED_EXECUTION_ENVIRONMENT, ciVerificationNormalizedOperationArgv, parseCiVerificationNormalizedOperation, type CiVerificationExecutionEnvironment, type CiVerificationNormalizedOperation } from '../../action/contract/ci.ts';
-import { CI_VERIFICATION_HOSTED_PROVIDER_REVISION } from '../../action/contract/environment.ts';
+import { ciVerificationNormalizedOperationArgv, parseCiVerificationHostedExecutionEnvironment, parseCiVerificationNormalizedOperation, resolveCiVerificationHostedExecutionEnvironment, type CiVerificationExecutionEnvironment, type CiVerificationNormalizedOperation } from '../../action/contract/ci.ts';
 import type { VerificationActionProviderOrigin } from '../../action/contract/provider.ts';
 import {
   CI_VERIFICATION_HOSTED_SANDBOX_POLICY,
@@ -88,7 +87,7 @@ type CodexDevelopmentHostedSutPhysicalCommandAuthorization = Readonly<{
   semanticEnvironment: CodexDevelopmentHostedSutEnvironmentProjection;
   fixedSandboxEnvironment: CodexDevelopmentHostedSutEnvironmentProjection;
   sandboxPolicyDigest: typeof CI_VERIFICATION_HOSTED_SANDBOX_POLICY_DIGEST;
-  providerRevision: typeof CI_VERIFICATION_HOSTED_PROVIDER_REVISION;
+  providerRevision: string;
   projectionDigest: VerificationActionKeyDigest;
 }>;
 
@@ -120,7 +119,9 @@ export function CodexDevelopmentHostedSutCandidateEnvironment(input: Readonly<{
     SEC_AFFECTED_TESTS_BASE: operation.candidate.baseSha,
     SEC_BASE_TREE_SHA: operation.candidate.baseTreeSha,
     SEC_CHANGED_BASE: operation.candidate.baseSha,
-    SEC_EXECUTION_ENVIRONMENT_REVISION: CI_VERIFICATION_HOSTED_PROVIDER_REVISION,
+    SEC_EXECUTION_ENVIRONMENT_REVISION: resolveCiVerificationHostedExecutionEnvironment(
+      operation.candidate.executionEnvironmentRevision
+    ).executionEnvironmentRevision,
     SEC_FORMAL_HOSTED_MODE: '1',
     SEC_WORK_PACKAGE_MANIFEST_PATH: text(input.manifestPath, 'manifest path'),
     TMPDIR: '/tmp'
@@ -161,7 +162,7 @@ function physicalCommandAuthorization(input: Readonly<{
     semanticEnvironment,
     fixedSandboxEnvironment,
     sandboxPolicyDigest: CI_VERIFICATION_HOSTED_SANDBOX_POLICY_DIGEST,
-    providerRevision: CI_VERIFICATION_HOSTED_PROVIDER_REVISION
+    providerRevision: operation.candidate.executionEnvironmentRevision
   });
   return Object.freeze({ ...withoutDigest, projectionDigest: canonicalDigest(withoutDigest) });
 }
@@ -574,10 +575,7 @@ function parseAuthorization(
       toolPolicy.outputTransport !== CI_VERIFICATION_HOSTED_SANDBOX_POLICY.outputTransport) {
     fail('execution authorization tool policy is invalid.');
   }
-  const executionEnvironment = authorization.executionEnvironment as CiVerificationExecutionEnvironment;
-  if (!canonicalEquals(executionEnvironment, CI_VERIFICATION_HOSTED_EXECUTION_ENVIRONMENT)) {
-    fail('execution authorization hosted environment is invalid.');
-  }
+  const executionEnvironment = parseCiVerificationHostedExecutionEnvironment(authorization.executionEnvironment);
   const parsed = Object.freeze({
     schema: CI_VERIFICATION_ACTION_SUT_AUTHORIZATION_SCHEMA,
     resolutionDigest: digest(authorization.resolutionDigest, 'authorization resolution'),
@@ -589,7 +587,7 @@ function parseAuthorization(
     normalizedArgv,
     inventoryClosure: parseInventoryClosure(authorization.inventoryClosure),
     physicalCommand: expectedPhysicalCommand,
-    executionEnvironment: CI_VERIFICATION_HOSTED_EXECUTION_ENVIRONMENT,
+    executionEnvironment,
     sandboxPolicyDigest: CI_VERIFICATION_HOSTED_SANDBOX_POLICY_DIGEST,
     toolPolicy: Object.freeze({
       runtime: 'bun' as const,
@@ -610,6 +608,7 @@ function parseAuthorization(
       !canonicalEquals(parsed.providerOrigin, expected.producer) ||
       operation.semanticDigest !== plan.action.operation.semanticDigest ||
       operation.gateId !== plan.action.operation.identity ||
+      parsed.physicalCommand.providerRevision !== parsed.executionEnvironment.executionEnvironmentRevision ||
       parsed.executionEnvironment.executionEnvironmentRevision !== plan.action.environment.providerRevision ||
       parsed.providerOrigin.workflowSha !== operation.candidate.baseSha) {
     fail('execution authorization differs from the trusted Action, operation, candidate, or provider origin.');
@@ -646,7 +645,7 @@ export function CodexDevelopmentCreateHostedSutExecutionAuthorization(input: Rea
       normalizedOperation: operation,
       manifestPath: input.manifestPath
     }),
-    executionEnvironment: CI_VERIFICATION_HOSTED_EXECUTION_ENVIRONMENT,
+    executionEnvironment: resolveCiVerificationHostedExecutionEnvironment(plan.action.environment.providerRevision),
     sandboxPolicyDigest: CI_VERIFICATION_HOSTED_SANDBOX_POLICY_DIGEST,
     toolPolicy: Object.freeze({
       runtime: 'bun' as const,
@@ -844,7 +843,7 @@ export function CodexDevelopmentReduceHostedSutObservation(input: Readonly<{
       filesystem: CI_VERIFICATION_HOSTED_SANDBOX_POLICY.rootIsolation,
       capabilities: [authorization.sandboxPolicyDigest],
       toolchainRevision: authorization.executionEnvironment.toolchainRevision,
-      providerRevisions: [CI_VERIFICATION_HOSTED_PROVIDER_REVISION]
+      providerRevisions: [authorization.executionEnvironment.executionEnvironmentRevision]
     } : null,
     execution: executed ? {
       argv: [...authorization.normalizedArgv],
