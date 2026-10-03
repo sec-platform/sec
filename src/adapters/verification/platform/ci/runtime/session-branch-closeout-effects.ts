@@ -230,6 +230,8 @@ export async function finalizeHostedBranchCloseout(input: Readonly<{
   coordinatedLease: WorkspaceWriteLeaseToken;
   worktreeCleanupTokens: readonly WorktreePhysicalCloseoutConsumptionToken[];
   foreignWorktreeObservationDigests: readonly `sha256:${string}`[];
+  /** Additional live scope fence; never replaces the original authorization, lease or CAS. */
+  assertLiveMainHealth?: () => Promise<void>;
 }>): Promise<BranchCloseoutOperationReceipt> {
   const preparation = input.prepared.preparation;
   const attempts = [...input.prepared.attempts];
@@ -280,6 +282,7 @@ export async function finalizeHostedBranchCloseout(input: Readonly<{
         + encodeVerificationActionData(evidence)
       );
     }
+    await input.assertLiveMainHealth?.();
     await assertWorkspaceWriteLease(preparation.repository.root, input.lease);
     const remoteAttempt = deleteHostedRemoteRefCas(input.ctx, preparation, attempts);
     remoteEffect = closeoutEffect(remoteAttempt);
@@ -409,6 +412,7 @@ export async function finalizeHostedBranchCloseout(input: Readonly<{
       } });
     } else if (localGuard.authorization.blockers.length === 0
       && localGuard.authorization.localAction === 'delete-exact') {
+      await input.assertLiveMainHealth?.();
       await assertWorkspaceWriteLease(preparation.repository.root, input.lease);
       await assertWorkspaceWriteLease(preparation.repository.commonDir, input.coordinatedLease);
       const localAttempt = await deleteHostedLocalRefCas(preparation, attempts,
@@ -442,6 +446,7 @@ export async function finalizeHostedBranchCloseout(input: Readonly<{
   // codeql[js/user-controlled-bypass]
   if (journal.prune.state === 'not-started') {
     if (pruneGuard.authorization.blockers.length === 0) {
+      await input.assertLiveMainHealth?.();
       await assertWorkspaceWriteLease(preparation.repository.root, input.lease);
       const pruneAttempt = pruneHostedRemote(input.ctx, preparation, attempts);
       await updateJournal({ prune: closeoutEffect(pruneAttempt) });
@@ -481,6 +486,7 @@ export async function finalizeHostedBranchCloseout(input: Readonly<{
     prune: journal.prune,
     receipt
   });
+  await input.assertLiveMainHealth?.();
   const terminalBytes = canonicalBytes(terminal);
   if (!await store.createExclusive(terminalPath, terminalBytes)) {
     const raced = await store.read(terminalPath);

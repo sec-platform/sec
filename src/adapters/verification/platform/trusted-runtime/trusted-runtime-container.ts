@@ -45,6 +45,7 @@ import {
 import {
   openDockerCommandProvider
 } from '../../../providers/docker/runtime/installed-command-provider.ts';
+import { claimQualifiedContainerEngineOciExporter, consumeQualifiedContainerEngineOciExporter, type QualifiedContainerEngineOciExporter } from '../../../providers/docker/runtime/linux-oci-exporter.ts';
 import {
   assertGitCandidateBundleReceipt,
   closeGitCandidateBundle,
@@ -1482,6 +1483,7 @@ async function withTrustedRuntimeWorkspace<T>(input: Readonly<{
   signal?: AbortSignal;
   /** Fresh authority consumers never mount a cache writable by candidate execution. */
   dependencyCachePolicy?: 'shared-sut' | 'private-authority';
+  qualifiedEngineExporter?: QualifiedContainerEngineOciExporter;
   observeSettlement?: (settlement: TrustedRuntimeContainerEngineSettlement) => void;
   execute: (workspace: TrustedRuntimeWorkspace) => Promise<T>;
 }>): Promise<T> {
@@ -1573,28 +1575,38 @@ async function withTrustedRuntimeWorkspace<T>(input: Readonly<{
           return objectId;
         });
     remainingMs();
-    commandProvider = await openDockerCommandProvider({
-      workingDirectory: repositoryRoot
-    });
-    const operation = bindTrustedRuntimeContainerEngineOperation({
-      repositoryRoot,
-      repository: repositoryIdentity,
-      baseSha,
-      headSha,
-      operationKey: input.operationKey,
-      setupMode: input.setupMode,
-      providerIdentityDigest: commandProvider.providerIdentityDigest,
-      deadlineAtUnixMs
-    });
-    const openingSession = openContainerEngineSession({
-      operation,
-      provider: commandProvider,
-      cwd: repositoryRoot,
-      availability: 'ensure-started',
-      signal: input.signal
-    });
-    commandProviderTransferred = true;
-    containerEngineSession = await openingSession;
+    if (input.qualifiedEngineExporter !== undefined) {
+      const borrowed = await consumeQualifiedContainerEngineOciExporter(input.qualifiedEngineExporter);
+      // This provider enforces its original Session deadline physically. It
+      // cannot promise a shorter per-scope process lifetime after transfer.
+      if (borrowed.cwd !== repositoryRoot || borrowed.deadlineAtUnixMs !== deadlineAtUnixMs) {
+        fail('qualified Engine working directory or deadline differs from the admitted MainHealth operation');
+      }
+      containerEngineSession = await claimQualifiedContainerEngineOciExporter(input.qualifiedEngineExporter);
+    } else {
+      commandProvider = await openDockerCommandProvider({
+        workingDirectory: repositoryRoot
+      });
+      const operation = bindTrustedRuntimeContainerEngineOperation({
+        repositoryRoot,
+        repository: repositoryIdentity,
+        baseSha,
+        headSha,
+        operationKey: input.operationKey,
+        setupMode: input.setupMode,
+        providerIdentityDigest: commandProvider.providerIdentityDigest,
+        deadlineAtUnixMs
+      });
+      const openingSession = openContainerEngineSession({
+        operation,
+        provider: commandProvider,
+        cwd: repositoryRoot,
+        availability: 'ensure-started',
+        signal: input.signal
+      });
+      commandProviderTransferred = true;
+      containerEngineSession = await openingSession;
+    }
     const session = containerEngineSession;
     const dockerEndpoint = session.endpoint;
     const setupOperation = bindTrustedRuntimeContainerEngineOperation({
@@ -2411,14 +2423,23 @@ export function assertTrustedRuntimeMainHealthQualification(input: Readonly<{
   return Object.freeze({ expiresAt: binding.expiresAt });
 }
 
-export async function executeTrustedRuntimeMainHealth(input: Readonly<{
+async function executeTrustedRuntimeMainHealthCommands(input: Readonly<{
   repositoryRoot: string;
   repository: string;
   mainSha: string;
   mainTreeSha: string;
   now?: () => Date;
   deadlineAtUnixMs?: number;
-}>): Promise<TrustedRuntimeMainHealthReceipt> {
+  signal?: AbortSignal;
+  qualifiedEngineExporter?: QualifiedContainerEngineOciExporter;
+  selectedCommand?: (typeof TRUSTED_RUNTIME_MAIN_HEALTH_CHECK_COMMANDS)[number];
+}>) {
+  if (input.selectedCommand !== undefined && !TRUSTED_RUNTIME_MAIN_HEALTH_CHECK_COMMANDS.includes(input.selectedCommand)) {
+    fail('MainHealth single-check selector is outside the closed command set');
+  }
+  const commands = input.selectedCommand === undefined ? TRUSTED_RUNTIME_MAIN_HEALTH_CHECK_COMMANDS : [input.selectedCommand];
+  const planDigest = input.selectedCommand === undefined ? TRUSTED_RUNTIME_MAIN_HEALTH_PLAN_DIGEST
+    : digestValue({ parentPlanDigest: TRUSTED_RUNTIME_MAIN_HEALTH_PLAN_DIGEST, command: input.selectedCommand });
   const repositoryRoot = path.resolve(input.repositoryRoot);
   const repositoryIdentity = repository(input.repository);
   const mainSha = sha(input.mainSha, 'MainHealth mainSha');
@@ -2433,6 +2454,8 @@ export async function executeTrustedRuntimeMainHealth(input: Readonly<{
     operationKey: `main-health-${mainSha.slice(0, 24)}`,
     setupMode: 'full',
     deadlineAtUnixMs: input.deadlineAtUnixMs,
+    signal: input.signal,
+    qualifiedEngineExporter: input.qualifiedEngineExporter,
     dependencyCachePolicy: 'private-authority',
     observeSettlement,
     execute: async ({
@@ -2488,7 +2511,7 @@ export async function executeTrustedRuntimeMainHealth(input: Readonly<{
           }
 
           const actionResults: Array<Readonly<{ command: string; resultDigest: Digest }>> = [];
-          for (const command of TRUSTED_RUNTIME_MAIN_HEALTH_CHECK_COMMANDS) {
+          for (const command of commands) {
             const argv = trustedRuntimeMainHealthCommandArgv(command);
             const result = await containerEngineOperationResult(containerEngineSession, {
               kind: 'container-exec',
@@ -2520,16 +2543,18 @@ export async function executeTrustedRuntimeMainHealth(input: Readonly<{
             imageId: image.imageId,
             dockerEndpoint,
             dependencyCacheKey,
-            planDigest: TRUSTED_RUNTIME_MAIN_HEALTH_PLAN_DIGEST
+            planDigest
           })).slice(7, 31)}`;
-          return createTrustedRuntimeMainHealthReceipt({
+          return Object.freeze({
             repository: repositoryIdentity,
             mainSha,
             mainTreeSha,
             executionId,
             dockerEndpoint,
             dependencyCacheKey,
-            actionResults,
+            imageId: image.imageId,
+            planDigest,
+            actionResults: Object.freeze(actionResults),
             observedAt: (input.now ?? (() => new Date()))().toISOString()
           });
         }
@@ -2550,6 +2575,51 @@ export async function executeTrustedRuntimeMainHealth(input: Readonly<{
   return receipt;
 }
 
+export async function executeTrustedRuntimeMainHealth(input: Readonly<{
+  repositoryRoot: string;
+  repository: string;
+  mainSha: string;
+  mainTreeSha: string;
+  now?: () => Date;
+  deadlineAtUnixMs?: number;
+  signal?: AbortSignal;
+  qualifiedEngineExporter?: QualifiedContainerEngineOciExporter;
+}>): Promise<TrustedRuntimeMainHealthReceipt> {
+  return createTrustedRuntimeMainHealthReceipt(await executeTrustedRuntimeMainHealthCommands(input));
+}
+
+/** One actual isolated check for one canonical hosted step. This never enters
+ * the MainHealth live-proof registry or claims that the other four checks ran. */
+export async function executeTrustedRuntimeMainHealthCheck(input: Readonly<{
+  repositoryRoot: string;
+  repository: string;
+  mainSha: string;
+  mainTreeSha: string;
+  command: (typeof TRUSTED_RUNTIME_MAIN_HEALTH_CHECK_COMMANDS)[number];
+  deadlineAtUnixMs: number;
+  signal?: AbortSignal;
+  qualifiedEngineExporter: QualifiedContainerEngineOciExporter;
+}>) {
+  input = Object.freeze({ repositoryRoot: input.repositoryRoot, repository: input.repository,
+    mainSha: input.mainSha, mainTreeSha: input.mainTreeSha, command: input.command,
+    deadlineAtUnixMs: input.deadlineAtUnixMs, signal: input.signal,
+    qualifiedEngineExporter: input.qualifiedEngineExporter });
+  if (!TRUSTED_RUNTIME_MAIN_HEALTH_CHECK_COMMANDS.includes(input.command)) {
+    fail('MainHealth single-check selector is outside the closed command set');
+  }
+  const engine = await consumeQualifiedContainerEngineOciExporter(input.qualifiedEngineExporter);
+  if (engine.cwd !== path.resolve(input.repositoryRoot) || engine.deadlineAtUnixMs !== input.deadlineAtUnixMs) {
+    fail('MainHealth single-check working directory or deadline differs from its qualified Engine');
+  }
+  const observation = await executeTrustedRuntimeMainHealthCommands({ ...input, selectedCommand: input.command });
+  if (observation.actionResults.length !== 1 || observation.actionResults[0]!.command !== input.command) {
+    fail('MainHealth single-check result differs from the admitted command');
+  }
+  return Object.freeze({ schema: 'sec-trusted-runtime-main-health-check-v1' as const,
+    authority: 'single-check-observation-only' as const, ...observation,
+    command: input.command, resultDigest: observation.actionResults[0]!.resultDigest });
+}
+
 /** The admitted physical execution budget bounds the entire live consumption
  * scope. Every exit revokes the proof; serialized results remain historical. */
 export async function withTrustedRuntimeMainHealthQualification<T>(input: Readonly<{
@@ -2559,6 +2629,8 @@ export async function withTrustedRuntimeMainHealthQualification<T>(input: Readon
   mainTreeSha: string;
   /** Parent budget may only shorten this operation; it never renews on reads. */
   deadlineAtUnixMs?: number;
+  signal?: AbortSignal;
+  qualifiedEngineExporter?: QualifiedContainerEngineOciExporter;
 }>, operation: (receipt: TrustedRuntimeMainHealthReceipt) => Promise<T>): Promise<T> {
   if (input.deadlineAtUnixMs !== undefined
       && (!Number.isSafeInteger(input.deadlineAtUnixMs) || input.deadlineAtUnixMs <= Date.now())) {

@@ -99,9 +99,7 @@ mock.module('../../../src/adapters/providers/github-api/operation-session.ts', (
 mock.module('../../../src/adapters/providers/docker/runtime/installed-command-provider.ts', () => ({
   openDockerCommandProvider: async () => ({ providerIdentityDigest })
 }));
-mock.module('../../../src/adapters/providers/docker/runtime/container-engine-session.ts', () => ({
-  ...engine,
-  openContainerEngineSession: async (opening: OpenContainerEngineSessionInput): Promise<ContainerEngineSession> => {
+const createControlledSession = async (opening: OpenContainerEngineSessionInput): Promise<ContainerEngineSession> => {
     producerCount++;
     scopeCount = 0;
     identityReads = 0;
@@ -219,11 +217,34 @@ mock.module('../../../src/adapters/providers/docker/runtime/container-engine-ses
         clock += 30_000;
       }
     };
-  }
+};
+mock.module('../../../src/adapters/providers/docker/runtime/container-engine-session.ts', () => ({
+  ...engine, openContainerEngineSession: createControlledSession
 }));
 
+// The selected-command wiring test substitutes only the Engine handoff port.
+// It does not prove a genuine OCI exporter or physical Engine qualification;
+// the production registry rejection is exercised by the separate forged cases.
+let controlledExporter: object | undefined;
+if (scenario === 'single-check-success') {
+  controlledExporter = Object.freeze({ fixture: 'handoff-port-only' });
+  const session = await createControlledSession({ operation: { plan: { attempt: {
+    deadlineAtUnixMs: admittedAt + 60_000 } } } } as OpenContainerEngineSessionInput);
+  const original = await import('../../../src/adapters/providers/docker/runtime/linux-oci-exporter.ts');
+  let claimed = false;
+  mock.module('../../../src/adapters/providers/docker/runtime/linux-oci-exporter.ts', () => ({ ...original,
+    consumeQualifiedContainerEngineOciExporter: async (value: object) => {
+      assert.equal(value, controlledExporter); assert.equal(claimed, false); return session;
+    },
+    claimQualifiedContainerEngineOciExporter: async (value: object) => {
+      assert.equal(value, controlledExporter); assert.equal(claimed, false); assert.equal(scope, null);
+      claimed = true; events.push('engine-claimed'); return session;
+    }
+  }));
+}
+
 const { assertTrustedRuntimeMainHealthQualification: qualify,
-  executeTrustedRuntimeMainHealth, withTrustedRuntimeMainHealthQualification } =
+  executeTrustedRuntimeMainHealth, executeTrustedRuntimeMainHealthCheck, withTrustedRuntimeMainHealthQualification } =
   await import('../../../src/adapters/verification/platform/trusted-runtime/trusted-runtime-container.ts');
 const { observeCanonicalMainHealthForPublication: observePublication,
   assertMainHealthPublicationAuthorityStable: assertStable,
@@ -242,14 +263,25 @@ const publication = (receipt?: TrustedRuntimeMainHealthReceipt) => observePublic
   defaultBranch: 'main', ...(receipt === undefined ? {} : { qualifiedLocalReceipt: receipt }) });
 let failure: string | null = null;
 try {
-  if (scenario === 'unscoped-producer') {
+  if (scenario.startsWith('single-check-')) {
+    const check = await executeTrustedRuntimeMainHealthCheck({ ...input, deadlineAtUnixMs: admittedAt + 60_000,
+      qualifiedEngineExporter: (controlledExporter ?? {}) as never,
+      command: scenario === 'single-check-invalid-selector' ? 'bun run arbitrary' : 'bun run docs:doctor' });
+    assert.equal(check.authority, 'single-check-observation-only');
+    assert.deepEqual(check.actionResults.map(value => value.command), ['bun run docs:doctor']);
+    assert.equal(events.at(-1), 'session-closed');
+    assert.throws(() => createTrustedRuntimeMainHealthReceipt(check));
+    assert.throws(() => qualify({ ...input, receipt: check as never }), /live production execution qualification/u);
+    consumption.singleCheckNotFullHealth = true;
+  } else if (scenario === 'unscoped-producer') {
     retained = await executeTrustedRuntimeMainHealth(input);
     assert.throws(() => qualify({ ...input, receipt: retained! }), /live production execution qualification/u);
     consumption = { unscopedRejected: true };
   } else await withTrustedRuntimeMainHealthQualification({ ...input,
     ...(scenario === 'parent-budget' ? { deadlineAtUnixMs: admittedAt + 60_000 } : {}),
     ...(scenario === 'expired-parent' ? { deadlineAtUnixMs: admittedAt } : {}),
-    ...(scenario === 'invalid-parent' ? { deadlineAtUnixMs: Number.NaN } : {})
+    ...(scenario === 'invalid-parent' ? { deadlineAtUnixMs: Number.NaN } : {}),
+    ...(scenario === 'forged-engine-exporter' ? { qualifiedEngineExporter: {} as never } : {})
   }, async (receipt) => {
     callbackCount++;
     retained = receipt;

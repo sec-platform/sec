@@ -176,3 +176,40 @@ for (const phase of [1, 2, 3]) {
     expect(result.callbackCount).toBe(0);
   });
 }
+
+
+test('a caller-shaped OCI exporter cannot transfer a session or mint MainHealth authority', () => {
+  const result = observe('forged-engine-exporter');
+  expect(result.failure).toContain('OCI exporter is not owner-issued');
+  expect(result.callbackCount).toBe(0);
+  expect(result.commands).toEqual([]);
+  expect(result.events).toEqual([]);
+});
+
+
+for (const [scenario, reason] of [
+  ['single-check-invalid-selector', 'outside the closed command set'],
+  ['single-check-forged-exporter', 'OCI exporter is not owner-issued']
+] as const) {
+  test(`isolated MainHealth ${scenario} cannot bypass command or genuine Engine admission`, () => {
+    const result = observe(scenario);
+    expect(result.failure).toContain(reason);
+    expect(result.callbackCount).toBe(0);
+    expect(result.commands).toEqual([]);
+    expect(result.events).toEqual([]);
+    expect(result.retainedRevoked).toBe(false);
+  });
+}
+
+
+test('single-check wiring runs exactly the selected check and settles without minting full MainHealth', () => {
+  const result = observe('single-check-success');
+  expect(result.failure).toBeNull();
+  expect(result.commands).toEqual(['bun run docs:doctor']);
+  expect(result.events.filter(event => event === 'engine-claimed')).toHaveLength(1);
+  expect(result.events.filter(event => event.startsWith('scope-settle:')))
+    .toEqual(['scope-settle:1', 'scope-settle:2', 'scope-settle:3']);
+  expect(result.consumption.singleCheckNotFullHealth).toBe(true);
+  expect(result.callbackCount).toBe(0);
+  expect(result.retainedRevoked).toBe(false);
+});

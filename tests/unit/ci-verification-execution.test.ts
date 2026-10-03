@@ -27,6 +27,7 @@ import { buildCiVerificationActionPlan, buildCiVerificationActionPlanClosure, CI
 import { CI_VERIFICATION_ACTION_DEPENDENCY_INPUT_PATHS } from '../../src/adapters/verification/platform/action/contract/environment.ts';
 import { createVerificationActionProviderStartMarker, createVerificationActionProviderTerminalAnchor, finalizeVerificationActionProviderStatusReadback, VERIFICATION_ACTION_PROVIDER_POLICY, verificationActionProviderRunTargetUrl, verificationActionProviderStartArtifactName, verificationActionProviderStartDescription, verificationActionProviderStatusContext, verificationActionProviderTerminalAnchorName, verificationActionProviderTerminalArtifactName, verificationActionProviderTerminalDescription, type VerificationActionProviderOrigin, type VerificationActionProviderStartObservation, type VerificationActionProviderStatusObservation, type VerificationActionProviderStatusReadback, type VerificationActionProviderTerminalAnchorObservation } from '../../src/adapters/verification/platform/action/contract/provider.ts';
 import { CodexDevelopmentAssertVerificationActionTerminalArtifact, CodexDevelopmentAssertVerificationEvidenceV4, CodexDevelopmentCreateVerificationEvidenceProducer, CodexDevelopmentVerificationActionCandidateBytesDigest, CodexDevelopmentVerificationDigest, type CodexDevelopmentVerificationEvidenceV4 } from '../../src/adapters/verification/platform/ci/contract/evidence.ts';
+import * as hostedSutPlanOwner from '../../src/adapters/verification/platform/ci/contract/hosted-sut-command-plan.ts';
 import { CodexDevelopmentCreateHostedSutExecutionAuthorization, CodexDevelopmentFinalizeHostedActionRawResult, CodexDevelopmentHostedSutCandidateEnvironment, type CodexDevelopmentHostedSutExecutionAuthorization } from '../../src/adapters/verification/platform/ci/contract/hosted-sut-observation.ts';
 import { buildCiQuickGatePlan } from '../../src/adapters/verification/platform/ci/contract/plan.ts';
 import { CI_VERIFICATION_HOSTED_SANDBOX_POLICY, CI_VERIFICATION_HOSTED_SANDBOX_POLICY_DIGEST, CI_VERIFICATION_SESSION_DISPATCH_TYPE } from '../../src/adapters/verification/platform/ci/contract/revision.ts';
@@ -75,6 +76,16 @@ import { CodexDevelopmentCreateTestImpactTransitionObservation } from '../../src
 import type { VerificationResultStatus } from '../../src/assurance/verification/result/contract/result.ts';
 
 const RAW = `sha256:${'a'.repeat(64)}` as const;
+
+test('original SUT entrypoints remain exact projections of their pure plan owner', () => {
+  expect(CodexDevelopmentAssertHostedSutSandboxCommandPlan).toBe(hostedSutPlanOwner.CodexDevelopmentAssertHostedSutSandboxCommandPlan);
+  expect(CodexDevelopmentBuildHostedSutSandboxCommandPlan).toBe(hostedSutPlanOwner.CodexDevelopmentBuildHostedSutSandboxCommandPlan);
+  expect(CodexDevelopmentBuildTrustedBootstrapSutSandboxCommandPlan).toBe(hostedSutPlanOwner.CodexDevelopmentBuildTrustedBootstrapSutSandboxCommandPlan);
+  expect(CodexDevelopmentHostedSutCapabilityAssertion).toBe(hostedSutPlanOwner.CodexDevelopmentHostedSutCapabilityAssertion);
+  expect(CodexDevelopmentTrustedBootstrapSutHarness).toBe(hostedSutPlanOwner.CodexDevelopmentTrustedBootstrapSutHarness);
+  expect(CodexDevelopmentHostedSutSandboxRoot).toBe(hostedSutPlanOwner.CodexDevelopmentHostedSutSandboxRoot);
+  expect(CodexDevelopmentTrustedBootstrapSutSubjectDigest).toBe(hostedSutPlanOwner.CodexDevelopmentTrustedBootstrapSutSubjectDigest);
+});
 
 function gitFixture(root: string, args: readonly string[]): string {
   const result = spawnSync('git', ['-C', root, ...args], {
@@ -1125,6 +1136,28 @@ test('sandbox command plan proves cgroup, namespace, private-root, uid, capabili
   expect(CodexDevelopmentTrustedBootstrapSutHarness).toContain('reader.cancel(error)');
   expect(CodexDevelopmentTrustedBootstrapSutHarness).toContain('Promise.allSettled([stdoutCollection, stderrCollection, exitPromise])');
   expect(JSON.stringify(bootstrapPlan.argv)).not.toContain('GITHUB_OUTPUT');
+  for (const original of [plan, bootstrapPlan]) {
+    const mutations: readonly ((argv: string[]) => void)[] = [
+      argv => { argv[7] = `true;\n${argv[7]}`; },
+      argv => { argv[7] += '\n# invariants remain, but these are different script bytes'; },
+      argv => { argv[4] = '--ipc'; },
+      argv => { argv[8] = 'unadmitted-shell-entry'; },
+      argv => { argv[9] = 'sec-sut-0000000000000000-foreign'; },
+      argv => { argv[10] = '/proc/self/fd/4'; },
+      argv => { argv[15] = `0${argv[15]}`; },
+      argv => { const index = argv.findIndex(entry => entry.startsWith('PATH=')); argv[index] = 'PATH=/usr/sbin'; }
+    ];
+    for (const mutate of mutations) {
+      const argv = [...original.argv]; mutate(argv);
+      const { planDigest: _digest, ...content } = { ...original, argv };
+      const forged = { ...content, planDigest: CodexDevelopmentVerificationDigest(content) as VerificationActionKeyDigest };
+      expect(() => CodexDevelopmentAssertHostedSutSandboxCommandPlan(forged)).toThrow();
+    }
+  }
+  const { planDigest: _digest, ...changedHarness } = { ...bootstrapPlan,
+    argv: [...bootstrapPlan.argv.slice(0, -1), `${bootstrapPlan.argv.at(-1)}\nconsole.log('different');`] };
+  expect(() => CodexDevelopmentAssertHostedSutSandboxCommandPlan({ ...changedHarness,
+    planDigest: CodexDevelopmentVerificationDigest(changedHarness) as VerificationActionKeyDigest })).toThrow();
 });
 
 test('bootstrap subject root and nonce are exact path data without replacing the full operation', async () => {
@@ -1135,6 +1168,12 @@ test('bootstrap subject root and nonce are exact path data without replacing the
   const probeRoots: string[] = [];
   await CodexDevelopmentProbeHostedSutSandboxCapability({ actionKey: unitSubjectDigest,
     unitNonce, platform: 'linux', runSandboxProcess: async plan => {
+      expect(() => CodexDevelopmentAssertHostedSutSandboxCommandPlan(plan)).not.toThrow();
+      const argv = [...plan.argv];
+      argv[plan.phase === 'teardown' ? 1 : 7] += '\ntrue';
+      const { planDigest: _digest, ...content } = { ...plan, argv };
+      expect(() => CodexDevelopmentAssertHostedSutSandboxCommandPlan({ ...content,
+        planDigest: CodexDevelopmentVerificationDigest(content) as VerificationActionKeyDigest })).toThrow();
       probeRoots.push(`/tmp/${plan.unitName}`);
       return sandboxObservation(0, plan.phase === 'capability-self-test' ? '__SEC_HOSTED_SANDBOX_CAPABILITY_V1__' : '');
     } });

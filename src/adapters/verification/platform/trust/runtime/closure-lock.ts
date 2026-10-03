@@ -127,6 +127,7 @@ export const TCB_REVIEWED_PROCESS_DISPATCHERS = new Set([
 ]);
 
 export const TCB_REVIEWED_NETWORK_DISPATCHERS = new Set([
+  'src/adapters/providers/github-api/hosted-job-origin.ts::function-declaration:jsonRequest::globalThis.fetch#1',
   'src/adapters/providers/github-api/internal/operation-session-runtime.ts::function-declaration:withProductionSession::globalThis.fetch#1'
 ]);
 
